@@ -1,4 +1,6 @@
 #include "HAL/PlatformLTS.h"
+#include "Asset/Testing/PackageReloadTesting.h"
+#include "Materials/MaterialPackageReloadDiagnostic.h"
 #include "Asset/PackageUnloading.h"
 #include "CoreGlobals.h"
 #include "Asset/AssetObjectLoadTiming.h"
@@ -255,7 +257,7 @@ TEST_F(FAssetPackageReloadTests, FailedTextureCompilationRejectsReloadWithoutImp
 	EXPECT_EQ(Result.Failure, EPackageReloadFailure::ResourcePreparationFailed);
 	ASSERT_EQ(Result.Diagnostics.size(), 1u);
 	EXPECT_EQ(Result.Diagnostics[0].Stage, EPackageReloadStage::PrepareRuntimeProducts);
-	EXPECT_EQ(Result.Diagnostics[0].Reason, EPackageReloadReason::TexturePreparation);
+	EXPECT_EQ(Result.Diagnostics[0].Stage, EPackageReloadStage::PrepareRuntimeProducts);
 	EXPECT_EQ(Builds.load(), 1u);
 	EXPECT_EQ(ResolveObjectKey(Original), Texture);
 	EXPECT_EQ(Cloud->GetWeatherTexture(), Texture);
@@ -299,12 +301,14 @@ TEST_F(FAssetPackageReloadTests, MaterialDiscardRestoresBaseAndInstanceAuthoredS
 	// An aborted replacement must leave the external child's live edge intact.
 	bool ReachedCommit = false;
 	FPackageReloadRequest FailedRequest{.Packages = {Material->GetPackage()}};
-	FailedRequest.ShouldFail = [&](EPackageReloadFaultPoint Point, uint64, uint64) {
-		if (Point != EPackageReloadFaultPoint::BeforeCommit) return false;
-		ReachedCommit = true;
-		return true;
-	};
-	EXPECT_EQ(ReloadPackages(FailedRequest).GetResult().Status, EPackageReloadStatus::Failed);
+	{
+		Testing::FScopedPackageReloadFault FaultScope([&](Testing::EPackageReloadFaultPoint Point, uint64, uint64) {
+			if (Point != Testing::EPackageReloadFaultPoint::BeforeCommit) return false;
+			ReachedCommit = true;
+			return true;
+		});
+		EXPECT_EQ(ReloadPackages(FailedRequest).GetResult().Status, EPackageReloadStatus::Failed);
+	}
 	ASSERT_TRUE(ReachedCommit);
 	CollectGarbage();
 	EXPECT_EQ(External->GetParent(), Material);
@@ -430,11 +434,13 @@ TEST_F(FAssetPackageReloadTests, InvalidSavedFunctionClosureCannotReplaceValidLi
 	EXPECT_EQ(Result.Status, EPackageReloadStatus::Failed);
 	EXPECT_EQ(Result.Failure, EPackageReloadFailure::ResourcePreparationFailed);
 	ASSERT_EQ(Result.Diagnostics.size(), 1u);
-	EXPECT_EQ(Result.Diagnostics[0].Reason, EPackageReloadReason::FunctionPreparation);
+	EXPECT_EQ(Result.Diagnostics[0].Stage, EPackageReloadStage::PrepareRuntimeProducts);
 	EXPECT_EQ(Result.Diagnostics[0].Stage, EPackageReloadStage::PrepareRuntimeProducts);
 	EXPECT_EQ(Result.Diagnostics[0].ObjectPath, Function->GetObjectPath());
-	ASSERT_FALSE(Result.Diagnostics[0].MaterialCauses.empty());
-	EXPECT_TRUE(!Result.Diagnostics[0].MaterialCauses[0].Message.empty());
+	const auto* Details = dynamic_cast<const FMaterialPackageReloadDiagnosticDetails*>(Result.Diagnostics[0].Details.get());
+	ASSERT_NE(Details, nullptr);
+	ASSERT_FALSE(Details->Diagnostics.empty());
+	EXPECT_FALSE(Details->Diagnostics[0].Message.empty());
 	EXPECT_EQ(ResolveObjectKey(Handle), Function);
 	EXPECT_EQ(Function->GetFunctionSignature(), Signature);
 	const auto& Actual = Function->GetExpressionCollection().Expressions;
@@ -467,7 +473,7 @@ TEST_F(FAssetPackageReloadTests, RejectsUnsavedCancelledAndOverBudgetRequestsWit
 	EXPECT_EQ(Unsaved.Status, EPackageReloadStatus::Failed);
 	EXPECT_EQ(Unsaved.Failure, EPackageReloadFailure::Unsaved);
 	ASSERT_EQ(Unsaved.Diagnostics.size(), 1u);
-	EXPECT_EQ(Unsaved.Diagnostics[0].Reason, EPackageReloadReason::UnsavedPackage);
+	EXPECT_EQ(Unsaved.Diagnostics[0].Stage, EPackageReloadStage::Preflight);
 	EXPECT_EQ(Unsaved.Diagnostics[0].PackagePath, Path);
 	EXPECT_EQ(FindResidentPackage(Path), Package);
 	EXPECT_TRUE(Package->IsDirty());
@@ -480,7 +486,7 @@ TEST_F(FAssetPackageReloadTests, RejectsUnsavedCancelledAndOverBudgetRequestsWit
 		.IsCancelled = [] { return true; }}).GetResult();
 	EXPECT_EQ(Cancelled.Status, EPackageReloadStatus::Cancelled);
 	ASSERT_EQ(Cancelled.Diagnostics.size(), 1u);
-	EXPECT_EQ(Cancelled.Diagnostics[0].Reason, EPackageReloadReason::Cancelled);
+	EXPECT_EQ(Cancelled.Diagnostics[0].Stage, EPackageReloadStage::Preflight);
 	EXPECT_EQ(FindResidentPackage(Path), Package);
 	EXPECT_NE(Texture->GetSource().GetIdentity(), SavedIdentity);
 	EXPECT_TRUE(Package->IsDirty());
@@ -491,7 +497,7 @@ TEST_F(FAssetPackageReloadTests, RejectsUnsavedCancelledAndOverBudgetRequestsWit
 	EXPECT_EQ(Budget.Status, EPackageReloadStatus::Failed);
 	EXPECT_EQ(Budget.Failure, EPackageReloadFailure::BudgetExceeded);
 	ASSERT_EQ(Budget.Diagnostics.size(), 1u);
-	EXPECT_EQ(Budget.Diagnostics[0].Reason, EPackageReloadReason::ResourceRead);
+	EXPECT_EQ(Budget.Diagnostics[0].Stage, EPackageReloadStage::ReadAndPrepare);
 	EXPECT_EQ(FindResidentPackage(Path), Package);
 	EXPECT_NE(Texture->GetSource().GetIdentity(), SavedIdentity);
 	EXPECT_TRUE(Package->IsDirty());
@@ -587,9 +593,9 @@ TEST_F(FAssetPackageReloadTests, SecondPackagePreparationFailurePreservesTheWhol
 	}
 	FPackageReloadRequest Request{.Packages = {
 		Textures[0]->GetPackage(), Textures[1]->GetPackage()}};
-	Request.ShouldFail = [](EPackageReloadFaultPoint Point, uint64 Package, uint64) {
-		return Point == EPackageReloadFaultPoint::ApplyValues && Package == 1;
-	};
+	Testing::FScopedPackageReloadFault FaultScope([](Testing::EPackageReloadFaultPoint Point, uint64 Package, uint64) {
+		return Point == Testing::EPackageReloadFaultPoint::ApplyValues && Package == 1;
+	});
 	const auto Result = ReloadPackages(Request).GetResult();
 	EXPECT_EQ(Result.Status, EPackageReloadStatus::Failed);
 	for (size_t Index = 0; Index < Paths.size(); ++Index)
@@ -639,18 +645,19 @@ TEST_F(FAssetPackageReloadTests, ReloadRetainsCrossPackageHistoryAndRebindsTheSa
 	FPackageReloadRequest Request{.Packages = {Textures[0]->GetPackage()}};
 	Request.Participants.push_back(CreateTransactorReloadParticipant(
 		*Transactions, Request.Packages));
-	Request.ShouldFail = [](EPackageReloadFaultPoint Point, uint64, uint64) {
-		return Point == EPackageReloadFaultPoint::PrepareHistory;
-	};
-	EXPECT_EQ(ReloadPackages(Request).GetResult().Status, EPackageReloadStatus::Failed);
-	EXPECT_EQ(Transactions->GetQueueLength(), 1u);
-	EXPECT_TRUE(Transactions->CanUndo());
-	for (size_t Index = 0; Index < Paths.size(); ++Index)
 	{
-		EXPECT_EQ(FindResidentPackage(Paths[Index]), Textures[Index]->GetPackage());
-		EXPECT_TRUE(Textures[Index]->GetPackage()->IsDirty());
+		Testing::FScopedPackageReloadFault FaultScope([](Testing::EPackageReloadFaultPoint Point, uint64, uint64) {
+			return Point == Testing::EPackageReloadFaultPoint::PrepareHistory;
+		});
+		EXPECT_EQ(ReloadPackages(Request).GetResult().Status, EPackageReloadStatus::Failed);
+		EXPECT_EQ(Transactions->GetQueueLength(), 1u);
+		EXPECT_TRUE(Transactions->CanUndo());
+		for (size_t Index = 0; Index < Paths.size(); ++Index)
+		{
+			EXPECT_EQ(FindResidentPackage(Paths[Index]), Textures[Index]->GetPackage());
+			EXPECT_TRUE(Textures[Index]->GetPackage()->IsDirty());
+		}
 	}
-	Request.ShouldFail = {};
 	auto Operation = ReloadPackages(Request);
 	ASSERT_TRUE(Operation.Wait());
 	EXPECT_EQ(Transactions->GetQueueLength(), 1u);
@@ -697,42 +704,42 @@ TEST_F(FAssetPackageReloadTests, EveryCoordinatorFailurePreservesTheEditedGraphA
 	Texture->GetPackage()->MarkDirty();
 	Cloud->SetWeatherTexture(Texture);
 	const auto Edited = Texture->GetSource().GetIdentity();
-	const EPackageReloadFaultPoint Points[] = {
-		EPackageReloadFaultPoint::PreflightBudget,
-		EPackageReloadFaultPoint::QuiesceSelected,
-		EPackageReloadFaultPoint::ReadMain,
-		EPackageReloadFaultPoint::ReadBulk,
-		EPackageReloadFaultPoint::CreateSkeleton,
-		EPackageReloadFaultPoint::ApplyValues,
-		EPackageReloadFaultPoint::RestoreLedger,
-		EPackageReloadFaultPoint::PreparePostLoad,
-		EPackageReloadFaultPoint::PrepareReferences,
-		EPackageReloadFaultPoint::PrepareNativeParticipant,
-		EPackageReloadFaultPoint::PrepareHistory,
-		EPackageReloadFaultPoint::PrepareRuntimeProduct,
-		EPackageReloadFaultPoint::ReserveRenderPublish,
-		EPackageReloadFaultPoint::RevalidateDisk,
-		EPackageReloadFaultPoint::RevalidateReferencers,
-		EPackageReloadFaultPoint::BeforeCommit};
+	const Testing::EPackageReloadFaultPoint Points[] = {
+		Testing::EPackageReloadFaultPoint::PreflightBudget,
+		Testing::EPackageReloadFaultPoint::QuiesceSelected,
+		Testing::EPackageReloadFaultPoint::ReadMain,
+		Testing::EPackageReloadFaultPoint::ReadBulk,
+		Testing::EPackageReloadFaultPoint::CreateSkeleton,
+		Testing::EPackageReloadFaultPoint::ApplyValues,
+		Testing::EPackageReloadFaultPoint::RestoreLedger,
+		Testing::EPackageReloadFaultPoint::PreparePostLoad,
+		Testing::EPackageReloadFaultPoint::PrepareReferences,
+		Testing::EPackageReloadFaultPoint::PrepareNativeParticipant,
+		Testing::EPackageReloadFaultPoint::PrepareHistory,
+		Testing::EPackageReloadFaultPoint::PrepareRuntimeProduct,
+		Testing::EPackageReloadFaultPoint::ReserveRenderPublish,
+		Testing::EPackageReloadFaultPoint::RevalidateDisk,
+		Testing::EPackageReloadFaultPoint::RevalidateReferencers,
+		Testing::EPackageReloadFaultPoint::BeforeCommit};
 	for (auto Fault : Points)
 	{
 		SCOPED_TRACE(static_cast<int>(Fault));
 		bool Reached = false;
 		FPackageReloadRequest Request{.Packages = {Texture->GetPackage()}};
-		Request.ShouldFail = [&](EPackageReloadFaultPoint Point, uint64, uint64) {
+		Testing::FScopedPackageReloadFault FaultScope([&](Testing::EPackageReloadFaultPoint Point, uint64, uint64) {
 			if (Point != Fault) return false;
 			Reached = true;
 			return true;
-		};
+		});
 		const auto Result = ReloadPackages(Request).GetResult();
 		ASSERT_TRUE(Reached);
 		ASSERT_EQ(Result.Status, EPackageReloadStatus::Failed);
 		ASSERT_EQ(Result.Diagnostics.size(), 1u);
-		EXPECT_NE(Result.Diagnostics[0].Reason, EPackageReloadReason::None);
-		if (Fault == EPackageReloadFaultPoint::CreateSkeleton
-			|| Fault == EPackageReloadFaultPoint::ApplyValues || Fault == EPackageReloadFaultPoint::RestoreLedger)
+		EXPECT_FALSE(FormatPackageReloadDiagnostic(Result.Diagnostics[0]).empty());
+		if (Fault == Testing::EPackageReloadFaultPoint::CreateSkeleton
+			|| Fault == Testing::EPackageReloadFaultPoint::ApplyValues || Fault == Testing::EPackageReloadFaultPoint::RestoreLedger)
 		{
-			EXPECT_EQ(Result.Diagnostics[0].Reason, EPackageReloadReason::GraphPreparation);
+			EXPECT_EQ(Result.Diagnostics[0].Stage, EPackageReloadStage::ReadAndPrepare);
 			EXPECT_EQ(Result.Diagnostics[0].PackagePath, Path);
 		}
 		CollectGarbage();
@@ -815,6 +822,81 @@ TEST_F(FAssetPackageReloadTests, SkyLightUndoRedoAndPackageReopenPreserveSourceA
     ASSERT_TRUE(UnloadPackage(Path));
 }
 
+TEST_F(FAssetPackageReloadTests, ScopedFaultsRestoreOuterHookAndDoNotLeakIntoLaterRequests)
+{
+	using namespace Durin;
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/AssetDiscardTests/ScopedFaults", Path));
+	DTexture2D* Texture = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Texture));
+	std::string Error;
+	ASSERT_TRUE(SetSource(*Texture, std::byte{23}, Error)) << Error;
+	ASSERT_TRUE(SavePackage(Texture->GetPackage()));
+	const FPackageReloadRequest Request{.Packages = {Texture->GetPackage()}};
+	uint32 OuterHits = 0, InnerHits = 0;
+	{
+		Testing::FScopedPackageReloadFault Outer([&](auto Point, uint64, uint64) {
+			if (Point != Testing::EPackageReloadFaultPoint::PreflightBudget) return false;
+			++OuterHits;
+			return true;
+		});
+		EXPECT_EQ(ReloadPackages(Request).GetResult().Failure, EPackageReloadFailure::BudgetExceeded);
+		try
+		{
+			Testing::FScopedPackageReloadFault Inner([&](auto Point, uint64, uint64) {
+				if (Point != Testing::EPackageReloadFaultPoint::ReadMain) return false;
+				++InnerHits;
+				return true;
+			});
+			EXPECT_EQ(ReloadPackages(Request).GetResult().Failure, EPackageReloadFailure::IoError);
+			throw std::runtime_error("Unwind the nested reload fault scope.");
+		}
+		catch (const std::runtime_error&) {}
+		EXPECT_EQ(ReloadPackages(Request).GetResult().Failure, EPackageReloadFailure::BudgetExceeded);
+	}
+	EXPECT_EQ(OuterHits, 2u);
+	EXPECT_EQ(InnerHits, 1u);
+	ASSERT_TRUE(ReloadPackages(Request).Wait());
+	EXPECT_EQ(OuterHits, 2u);
+	EXPECT_EQ(InnerHits, 1u);
+	ASSERT_TRUE(UnloadPackage(Path));
+}
+
+TEST(FPackageReloadReceiptTests, MaterialDetailsSurviveResultCopiesAndKeepEveryDiagnostic)
+{
+	using namespace Durin;
+	FPackageReloadResult Retained;
+	{
+		auto Details = std::make_shared<FMaterialPackageReloadDiagnosticDetails>();
+		Details->CompileStatus = FMaterialCompileStatus{.State = EMaterialCompileState::Failed};
+		Details->Diagnostics.push_back({.Message = "First compiler failure."});
+		Details->Diagnostics.push_back({.Message = "Second compiler failure."});
+		FPackageReloadResult Original{.Status = EPackageReloadStatus::Failed,
+			.Failure = EPackageReloadFailure::ResourcePreparationFailed,
+			.Diagnostics = {{.ObjectPath = "/Test/Material.Material",
+				.Stage = EPackageReloadStage::PrepareRuntimeProducts, .Details = std::move(Details)}}};
+		Retained = Original;
+	}
+	ASSERT_EQ(Retained.Diagnostics.size(), 1u);
+	const auto& Diagnostic = Retained.Diagnostics.front();
+	const auto* Details = dynamic_cast<const FMaterialPackageReloadDiagnosticDetails*>(Diagnostic.Details.get());
+	ASSERT_NE(Details, nullptr);
+	ASSERT_TRUE(Details->CompileStatus);
+	EXPECT_EQ(Details->CompileStatus->State, EMaterialCompileState::Failed);
+	ASSERT_EQ(Details->Diagnostics.size(), 2u);
+	EXPECT_EQ(Details->Diagnostics[1].Message, "Second compiler failure.");
+	EXPECT_EQ(FormatPackageReloadDiagnostic(Diagnostic), "First compiler failure.");
+	FPackageReloadResourceReceipt Receipt;
+	ASSERT_TRUE(Receipt.SetFailed(Diagnostic));
+	Retained = {};
+	EXPECT_EQ(FormatPackageReloadDiagnostic(Receipt.GetFailure()), "First compiler failure.");
+	const auto Saved = Receipt.GetFailure();
+	EXPECT_EQ(Saved.ObjectPath, "/Test/Material.Material");
+	auto WithSummary = Saved;
+	WithSummary.Message = "Package-level explanation.";
+	EXPECT_EQ(FormatPackageReloadDiagnostic(WithSummary), "Package-level explanation.");
+}
+
 TEST(FPackageReloadReceiptTests, RetainsOwnedFailureAndRejectsInvalidTransitions)
 {
 	using namespace Durin;
@@ -824,7 +906,6 @@ TEST(FPackageReloadReceiptTests, RetainsOwnedFailureAndRejectsInvalidTransitions
 	EXPECT_FALSE(Receipt.SetRetired());
 	FPackageReloadDiagnostic Error{.ObjectPath = "TemporaryObject",
 		.Stage = EPackageReloadStage::PrepareRuntimeProducts,
-		.Reason = EPackageReloadReason::Replacement,
 		.Message = "Replacement participant is busy."};
 	ASSERT_TRUE(Receipt.SetFailed(Error));
 	Error.ObjectPath.clear();
@@ -832,16 +913,16 @@ TEST(FPackageReloadReceiptTests, RetainsOwnedFailureAndRejectsInvalidTransitions
 	EXPECT_EQ(Receipt.GetState(), EPackageReloadReceiptState::Failed);
 	EXPECT_FALSE(Receipt.SetReady());
 	EXPECT_FALSE(Receipt.SetRetired());
-	EXPECT_FALSE(Receipt.SetFailed({.Reason = EPackageReloadReason::Allocation}));
+	EXPECT_FALSE(Receipt.SetFailed({.Message = "Allocation failed."}));
 	const auto Saved = Receipt.GetFailure();
 	EXPECT_EQ(Saved.ObjectPath, "TemporaryObject");
-	EXPECT_EQ(Saved.Reason, EPackageReloadReason::Replacement);
+	EXPECT_EQ(Saved.Message, "Replacement participant is busy.");
 	FPackageReloadResourceReceipt Ready;
 	ASSERT_TRUE(Ready.SetReady());
 	EXPECT_FALSE(Ready.SetFailed(Saved));
 	ASSERT_TRUE(Ready.SetRetired());
 	EXPECT_EQ(Ready.GetState(), EPackageReloadReceiptState::Retired);
-	EXPECT_EQ(Ready.GetFailure().Reason, EPackageReloadReason::None);
+	EXPECT_TRUE(Ready.GetFailure().Message.empty());
 }
 
 TEST_F(FAssetPackageReloadTests, DocumentDiscardPreservesReinstancedHistoryAndTransactionalAdmission)

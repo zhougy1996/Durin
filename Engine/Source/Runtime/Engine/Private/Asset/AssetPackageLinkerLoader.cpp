@@ -1,3 +1,4 @@
+#include "AssetLoadAuditInternal.h"
 #include "AssetPackageLinker.h"
 #include "AssetPackageLinkerSchema.h"
 #include "DObject/OverridableManager.h"
@@ -188,7 +189,7 @@ namespace Durin::AssetPrivate
 			const ObjectPackage::FSerializedValue& Value,
 			const ObjectPackage::FLinkerTables& Linker, LinkerSchema::FLoadSchemaBindings& SchemaBindings,
 			const FPackagePath& PackagePath,
-			std::string_view ObjectPath, std::vector<FAssetDeprecatedRouteEvidence>& Out) -> void
+			std::string_view ObjectPath, uint64& Count, std::vector<FAssetDeprecatedRouteEvidence>* Out) -> void
 		{
 			using K = ObjectPackage::EValueKind;
 			if (Type.Kind == K::Struct)
@@ -205,13 +206,14 @@ namespace Durin::AssetPrivate
 					if (Binding.Route == EPropertyLoadRoute::Removed) continue;
 					if (Binding.Route == EPropertyLoadRoute::Deprecated)
 					{
-						Out.push_back({
+						++Count;
+						if (Out) Out->push_back({
 							.PackagePath = PackagePath, .ObjectPath = std::string(ObjectPath),
 							.DeclaringType = Schema->QualifiedName, .StoredFieldName = Field->Descriptor->Name,
 							.DeprecatedPropertyName = Binding.Property->NamePrivate.ToString()});
 					}
 					else GatherNestedDeprecatedRouteEvidence(ChildType, Value.Elements[Index],
-						Linker, SchemaBindings, PackagePath, ObjectPath, Out);
+						Linker, SchemaBindings, PackagePath, ObjectPath, Count, Out);
 				}
 			}
 			else if ((Type.Kind == K::FixedArray || Type.Kind == K::Array)
@@ -219,13 +221,13 @@ namespace Durin::AssetPrivate
 			{
 				for (const auto& Element : Value.Elements)
 					GatherNestedDeprecatedRouteEvidence(Type.Children[0], Element, Linker, SchemaBindings,
-						PackagePath, ObjectPath, Out);
+						PackagePath, ObjectPath, Count, Out);
 			}
 			else if (Type.Kind == K::Map && Type.Children.size() == 2)
 			{
 				for (size_t Index = 1; Index < Value.Elements.size(); Index += 2)
 					GatherNestedDeprecatedRouteEvidence(Type.Children[1], Value.Elements[Index], Linker, SchemaBindings,
-						PackagePath, ObjectPath, Out);
+						PackagePath, ObjectPath, Count, Out);
 			}
 		}
 
@@ -264,19 +266,31 @@ namespace Durin::AssetPrivate
 			Out = std::move(Views);
 			return true;
 		}
-		// The load service owns request diagnostics and callback mutations. The
-		// linker owns only its compatibility evidence, transferred on success.
+		// Runtime decisions use counts. Detailed records exist only under an audit scope.
 		struct FLinkerCompatibilityEvidence
 		{
-			std::vector<FAssetCanonicalizationEvidence> CanonicalizationEvidence;
-			std::vector<FAssetDeprecatedRouteEvidence> DeprecatedRouteEvidence;
+			uint64 CanonicalizedIdentityCount = 0;
+			uint64 DeprecatedFieldRouteCount = 0;
 			uint64 DiscardedFieldCount = 0;
-
+			std::optional<FAssetLoadAudit> Details;
+			FLinkerCompatibilityEvidence()
+			{
+				if (GetActiveAssetLoadAudit()) Details.emplace();
+			}
 			auto TransferTo(FAssetLoadReport& Report) -> void
 			{
-				Report.CanonicalizationEvidence = std::move(CanonicalizationEvidence);
-				Report.DeprecatedRouteEvidence = std::move(DeprecatedRouteEvidence);
+				Report.CanonicalizedIdentityCount = CanonicalizedIdentityCount;
+				Report.DeprecatedFieldRouteCount = DeprecatedFieldRouteCount;
 				Report.DiscardedFieldCount = DiscardedFieldCount;
+				if (auto* Audit = GetActiveAssetLoadAudit(); Audit && Details)
+				{
+					Audit->CanonicalizationEvidence.insert(Audit->CanonicalizationEvidence.end(),
+						std::make_move_iterator(Details->CanonicalizationEvidence.begin()),
+						std::make_move_iterator(Details->CanonicalizationEvidence.end()));
+					Audit->DeprecatedRouteEvidence.insert(Audit->DeprecatedRouteEvidence.end(),
+						std::make_move_iterator(Details->DeprecatedRouteEvidence.begin()),
+						std::make_move_iterator(Details->DeprecatedRouteEvidence.end()));
+				}
 			}
 		};
 
@@ -304,7 +318,8 @@ namespace Durin::AssetPrivate
 				return {EAssetReadError::UnsupportedVersion, Diagnostic.Message};
 			}
 			if (auto Result = LinkerSchema::FixupSerializedNames(
-				Linker, Application.Compatibility.CanonicalizationEvidence); !Result)
+				Linker, Application.Compatibility.CanonicalizedIdentityCount,
+				Application.Compatibility.Details ? &Application.Compatibility.Details->CanonicalizationEvidence : nullptr); !Result)
 			{
 				LinkerApplyFail(Diagnostic, Result.Error, Result.Message);
 				return Result;
@@ -526,7 +541,8 @@ namespace Durin::AssetPrivate
 						if (!Options.bCooked && Field->Match.Route == EPropertyLoadRoute::Removed) continue;
 						GatherNestedDeprecatedRouteEvidence(Property.Type, Property.Value, Linker, SchemaBindings,
 							PackagePath, Exports[ObjectIndex].Path,
-							Report.DeprecatedRouteEvidence);
+							Report.DeprecatedFieldRouteCount,
+							Report.Details ? &Report.Details->DeprecatedRouteEvidence : nullptr);
 					}
 			}
 			for (size_t ObjectIndex = 0; ObjectIndex < Objects.size(); ++ObjectIndex)
@@ -562,13 +578,13 @@ namespace Durin::AssetPrivate
 						if (Binding.Route == EPropertyLoadRoute::Deprecated)
 						{
 							LoadedDeprecatedProperties.push_back(Binding.Property->NamePrivate);
-							FAssetDeprecatedRouteEvidence Evidence{
+							++Report.DeprecatedFieldRouteCount;
+							if (Report.Details) Report.Details->DeprecatedRouteEvidence.push_back({
 								.PackagePath = PackagePath,
 								.ObjectPath = Exports[ObjectIndex].Path,
 								.DeclaringType = Property.DeclaringType,
 								.StoredFieldName = Property.FieldName,
-								.DeprecatedPropertyName = Binding.Property->NamePrivate.ToString()};
-							Report.DeprecatedRouteEvidence.push_back(std::move(Evidence));
+								.DeprecatedPropertyName = Binding.Property->NamePrivate.ToString()});
 							continue;
 						}
 						if (bFastRestoration) continue;
@@ -834,8 +850,8 @@ namespace Durin::AssetPrivate
 					return {.Status = Cancelled() ? S::Cancelled : S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::ApplyValues, .Message = Result.Message};
 				Application.Package->ClearDirty();
 				Application.Package->SetCanonicalResaveRecommended(Application.Package->IsCanonicalResaveRecommended()
-					|| !Application.Compatibility.CanonicalizationEvidence.empty()
-					|| !Application.Compatibility.DeprecatedRouteEvidence.empty() || Application.Compatibility.DiscardedFieldCount != 0);
+					|| Application.Compatibility.CanonicalizedIdentityCount != 0
+					|| Application.Compatibility.DeprecatedFieldRouteCount != 0 || Application.Compatibility.DiscardedFieldCount != 0);
 				Candidates[Index].State->Report.PackagePath = CurrentPath;
 				Application.Compatibility.TransferTo(Candidates[Index].State->Report);
 			}
@@ -1110,8 +1126,8 @@ namespace Durin::AssetPrivate
 
 		OutPackage = Package;
 		Package->SetCanonicalResaveRecommended(Package->IsCanonicalResaveRecommended()
-			|| !Report.CanonicalizationEvidence.empty()
-			|| !Report.DeprecatedRouteEvidence.empty() || Report.DiscardedFieldCount != 0);
+			|| Report.CanonicalizedIdentityCount != 0
+			|| Report.DeprecatedFieldRouteCount != 0 || Report.DiscardedFieldCount != 0);
 		if (OutReport)
 		{
 			OutReport->PackagePath = PackagePath;

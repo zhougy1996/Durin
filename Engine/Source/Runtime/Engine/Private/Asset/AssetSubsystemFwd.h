@@ -11,7 +11,7 @@ namespace Durin
 namespace Durin
 {
 	struct FPackageSchemaReadStats;
-	struct FAssetBundleSaveOptions;
+	struct FAssetPackageSaveArgs;
 	struct FAssetBatchSaveResult;
 	struct FAssetLoadReport;
 	struct FPackageSchemaInspection;

@@ -149,8 +149,7 @@ namespace Durin
 		{
 			Impl->State = EAssetLoadState::Cancelled;
 			Impl->Failure = FAssetReadError{EAssetReadError::Cancelled, "Asset load request cancelled."};
-			Impl->Report.Error = Impl->Failure->Code;
-			Impl->Report.ErrorMessage = Impl->Failure->Message;
+
 		}
 		ReleaseRetention();
 	}
@@ -175,8 +174,7 @@ namespace Durin
 		{
 			if (Handle->IsComplete()) return;
 			auto& State = *Handle->Impl;
-			State.Report.Error = Result.Error;
-			State.Report.ErrorMessage = Result.Message;
+
 			State.State = Result ? EAssetLoadState::Succeeded : EAssetLoadState::Failed;
 			if (Result)
 			{

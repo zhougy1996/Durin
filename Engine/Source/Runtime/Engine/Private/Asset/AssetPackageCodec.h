@@ -4,6 +4,7 @@
 
 #include "EngineAPI.h"
 #include "AssetSubsystemFwd.h"
+#include "AssetPackageCaptureOptions.h"
 #include "AssetPackageDependencyLoadPolicy.h"
 #include "Asset/PackageSchema.h"
 #include "Asset/AssetReadResult.h"
@@ -75,7 +76,7 @@ namespace Durin::AssetPrivate
 			const std::function<void(DPackage*)>&) -> FAssetReadResult = nullptr;
 		// Encoding callbacks return a validated closure and leave output unchanged on failure.
 		auto (*Write)(DPackage*, FAssetPackageEncodedClosure&, EDefaultDeltaMode,
-			const FAssetPackageSerializationOptions&) -> ObjectPackage::FPackageWriterResult = nullptr;
+			const FAssetPackageCaptureOptions&) -> ObjectPackage::FPackageWriterResult = nullptr;
 		auto (*RewriteReferences)(
 			const FAssetPackageReadContext&, std::span<const FAssetPackageReferenceMapping>,
 			uint64, FAssetPackageEncodedClosure&) -> ObjectPackage::FPackageWriterResult = nullptr;
@@ -87,6 +88,9 @@ namespace Durin::AssetPrivate
 			FAssetPackageEncodedClosure&)
 			-> ObjectPackage::FPackageWriterResult = nullptr;
 	};
+
+	auto EncodeAssetPackageClosure(DPackage* Package, FAssetPackageEncodedClosure& OutClosure,
+		const FAssetPackageCaptureOptions& Options) -> ObjectPackage::FPackageWriterResult;
 
 	ENGINE_API auto FindAssetPackageReader(
 		uint32 FormatVersion) -> const FAssetPackageCodec*;

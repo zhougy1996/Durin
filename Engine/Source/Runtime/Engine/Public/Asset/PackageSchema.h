@@ -1,12 +1,12 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Asset/LoadAudit.h"
 
 #include "Asset/AssetReadResult.h"
 #include "AssetRegistry/Catalog.h"
 
 #include "EngineAPI.h"
-#include "Asset/Load.h"
 #include "Asset/PackageInspection.h"
 
 namespace Durin

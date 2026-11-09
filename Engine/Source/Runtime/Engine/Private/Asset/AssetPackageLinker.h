@@ -7,7 +7,7 @@
 #include "AssetSubsystemFwd.h"
 #include "AssetPackageDependencyLoadPolicy.h"
 #include "Asset/AssetReadResult.h"
-#include "Asset/PackageSerialization.h"
+#include "AssetPackageCaptureOptions.h"
 #include "Asset/PackageResource.h"
 #include "Asset/Load.h"
 #include "Asset/PackageGraphPreparationError.h"
@@ -113,7 +113,7 @@ namespace Durin::AssetPrivate
 	auto CaptureLivePackageLinker(
 		DPackage* Package,
 		EDefaultDeltaMode DeltaMode,
-		const FAssetPackageSerializationOptions& Options,
+		const FAssetPackageCaptureOptions& Options,
 		ObjectPackage::FLinkerTables& OutLinker,
 		uint32 FormatVersion = ObjectPackage::DastV10FormatVersion) -> std::expected<void, FPackageCaptureError>;
 

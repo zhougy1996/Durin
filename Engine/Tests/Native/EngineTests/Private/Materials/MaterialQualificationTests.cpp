@@ -517,7 +517,7 @@ TEST(FMaterialQualificationTests, LargeGraphLoadBaseline)
 		Graph.Expressions.emplace_back(Parameter.Get());
 	}
 	ASSERT_TRUE(Graph.Apply(*Material));
-	ASSERT_TRUE(SavePackage(Material->GetPackage(), EAssetPackageSaveMode::Complete));
+	ASSERT_TRUE(SavePackage(Material->GetPackage(), {.Mode = EAssetPackageSaveMode::Complete}));
 	const auto CompleteBytes = std::filesystem::file_size(Root / "Base.dasset");
 	for (int Round = 0; Round < 2; ++Round)
 	{

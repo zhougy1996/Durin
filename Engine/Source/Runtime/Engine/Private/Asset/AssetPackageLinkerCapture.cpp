@@ -3,25 +3,21 @@
 #include "Asset/Redirector.h"
 #include "DObject/Package.h"
 #include "DObject/PackagePersistence.h"
-#include "CookedPreparation.h"
 
 namespace Durin::AssetPrivate
 {
  auto CaptureLivePackageLinker(DPackage* Package, EDefaultDeltaMode DeltaMode,
-  const FAssetPackageSerializationOptions& Options, ObjectPackage::FLinkerTables& OutLinker,
+  const FAssetPackageCaptureOptions& Options, ObjectPackage::FLinkerTables& OutLinker,
   uint32 FormatVersion) -> std::expected<void, FPackageCaptureError>
  {
-  FScopedCookedPreparation Prepared;
-  if (auto Result = Prepared.Prepare(Package, Options); !Result) return Result;
   FSavePackageContext SaveContext;
   SaveContext.Options.Mode = DeltaMode == EDefaultDeltaMode::NoDelta ? EPackageSaveMode::Complete : EPackageSaveMode::Delta;
   auto& Capture = SaveContext.Options.Capture;
-  Capture.bCooking = Options.Domain == EAssetPackageSaveDomain::Cooked;
-  Capture.bRetainEditorOnlyData = Options.bRetainEditorOnlyData;
-  Capture.Target.Platform = GetTargetPlatformName(Options.TargetPlatform);
-  Capture.Target.Profile = GetTargetProfileName(Options.TargetProfile);
-  Capture.SaveOverrides = Options.SaveOverrides;
-  Capture.PropertyFilter = Options.PropertyFilter;
+  Capture.bCooking = Options.CookTarget.has_value();
+  Capture.bRetainEditorOnlyData = Options.Serialization.bRetainEditorOnlyData;
+  if (Options.CookTarget) Capture.Target = *Options.CookTarget;
+  Capture.SaveOverrides = Options.Serialization.SaveOverrides;
+  Capture.PropertyFilter = Options.Serialization.PropertyFilter;
   if (Capture.bCooking) Capture.ObjectFilter = [Target = Capture.Target](const DObject* Object) {
    return IsObjectIncludedForCook(Object, Target);
   };
@@ -36,6 +32,6 @@ namespace Durin::AssetPrivate
     Capture.RedirectDestinations.emplace(Asset, std::move(Path));
    }
   if (auto Result = SaveContext.Capture(Package, OutLinker, FormatVersion); !Result) return Result;
-  return Prepared.Validate(Package);
+  return {};
  }
 }

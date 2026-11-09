@@ -192,6 +192,72 @@ namespace
 	};
 }
 
+TEST_F(FCookFunctionalTests, AuthoredEncodingDoesNotStartCookPreparation)
+{
+	const auto Fixture = Testing::CreateTestFixtureDirectory("AuthoredWithoutCookPreparation");
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/CookTests/", (Fixture / "Content").generic_string());
+	FPackagePath Path; ASSERT_TRUE(FPackagePath::TryCreate("/CookTests/AuthoredOnly", Path));
+	auto* Package = CreatePackage(Path);
+	NewObject<DCookReferenceFixture>(Package, "Root");
+	DCookReferenceFixture::PrepareHook = [](DObject&, std::string_view, FCookPreparationContext&) -> FCookContributionResult {
+		return {.Status = ECookContributionStatus::Error, .Error = ECookContributionError::Preparation,
+			.Diagnostic = "Cook preparation must remain outside authored encoding."};
+	};
+	FByteBuffer Before, BeforeBulk;
+	ASSERT_TRUE(SerializeAssetPackageClosure(Package, Before, BeforeBulk));
+	EXPECT_EQ(DCookReferenceFixture::Begins, 0u);
+	EXPECT_EQ(DCookReferenceFixture::Clears, 0u);
+	FByteBuffer Cooked{std::byte{1}}, CookedBulk{std::byte{2}};
+	FCookPackagePreparationReport Report;
+	EXPECT_FALSE(SerializeCookedPackageClosure(Package, Cooked, CookedBulk,
+		{.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game}, &Report));
+	EXPECT_FALSE(Report.Failure);
+	EXPECT_EQ(Cooked, (FByteBuffer{std::byte{1}}));
+	EXPECT_EQ(CookedBulk, (FByteBuffer{std::byte{2}}));
+	EXPECT_EQ(DCookReferenceFixture::Begins, 1u);
+	EXPECT_EQ(DCookReferenceFixture::Clears, 1u);
+	FByteBuffer After, AfterBulk;
+	ASSERT_TRUE(SerializeAssetPackageClosure(Package, After, AfterBulk));
+	EXPECT_EQ(After, Before);
+	EXPECT_EQ(AfterBulk, BeforeBulk);
+	EXPECT_EQ(DCookReferenceFixture::Begins, 1u);
+}
+
+TEST_F(FCookFunctionalTests, PreparationReportsAreIndependentAndResetOnEveryInvocation)
+{
+	const auto Fixture = Testing::CreateTestFixtureDirectory("CookPreparationReports");
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/CookTests/", (Fixture / "Content").generic_string());
+	FPackagePath Path; ASSERT_TRUE(FPackagePath::TryCreate("/CookTests/PreparationReports", Path));
+	auto* Package = CreatePackage(Path);
+	NewObject<DCookReferenceFixture>(Package, "Root");
+	const FCookPackagePreparationOptions Options{
+		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game};
+	FCookPackagePreparationReport Failed, Reused;
+	DCookReferenceFixture::bCompletionReady = false;
+	FByteBuffer Bytes, Bulk;
+	EXPECT_FALSE(SerializeCookedPackageClosure(Package, Bytes, Bulk, Options, &Failed));
+	ASSERT_FALSE(Failed.Failure);
+	const auto Diagnostic = Failed.Failure.Diagnostic;
+	DCookReferenceFixture::bCompletionReady = true;
+	Reused.Failure = Failed.Failure;
+	Reused.Metrics.AdmittedOperations = 99;
+	ASSERT_TRUE(SerializeCookedPackageClosure(Package, Bytes, Bulk, Options, &Reused));
+	EXPECT_TRUE(Reused.Failure);
+	EXPECT_EQ(Reused.Metrics.AdmittedOperations, 0u);
+	EXPECT_FALSE(Failed.Failure);
+	EXPECT_EQ(Failed.Failure.Diagnostic, Diagnostic);
+	const auto SavedBytes = Bytes;
+	const auto SavedBulk = Bulk;
+	Reused.Metrics.AdmittedOperations = 99;
+	EXPECT_FALSE(SerializeCookedPackageClosure(Package, Bytes, Bulk, {}, &Reused));
+	EXPECT_FALSE(Reused.Failure);
+	EXPECT_EQ(Reused.Metrics.AdmittedOperations, 0u);
+	EXPECT_EQ(Bytes, SavedBytes);
+	EXPECT_EQ(Bulk, SavedBulk);
+}
+
 TEST_F(FCookFunctionalTests, ObjectHooksPrepareEveryExportAndWarmReuseSkipsConstruction)
 {
 	const auto Fixture = Testing::CreateTestFixtureDirectory("CookObjectHooks");
@@ -373,24 +439,24 @@ TEST_F(FCookFunctionalTests, DetachedPreparationOverlapsAndAdmissionCanDrainOneS
 		});
 		return {};
 	};
-	FAssetPackageSerializationOptions Options{.Domain = EAssetPackageSaveDomain::Cooked,
-		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game};
+	FCookPackagePreparationOptions Options{.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game};
 	Options.MaximumConcurrentPreparation = 2; Options.MaximumPreparationWorkingSetBytes = 2048;
-	FCookPreparationMetrics Metrics; Options.PreparationMetrics = &Metrics;
+	FCookPackagePreparationReport Report;
+	auto& Metrics = Report.Metrics;
 	FByteBuffer Bytes;
-	ASSERT_TRUE(SerializeAssetPackageBytes(Package, Bytes, Options));
+	ASSERT_TRUE(SerializeCookedPackageBytes(Package, Bytes, Options, &Report));
 	EXPECT_EQ(Entered, 2u); EXPECT_EQ(DCookReferenceFixture::Clears, 2u);
 	EXPECT_EQ(Metrics.AdmittedOperations, 2u); EXPECT_EQ(Metrics.PeakAdmittedOperations, 2u);
 	EXPECT_EQ(Metrics.PeakReservedBytes, 2048u);
 	RequireOverlap = false; Entered = 0;
 	Options.MaximumConcurrentPreparation = 1; Options.MaximumPreparationWorkingSetBytes = 1024;
-	ASSERT_TRUE(SerializeAssetPackageBytes(Package, Bytes, Options));
+	ASSERT_TRUE(SerializeCookedPackageBytes(Package, Bytes, Options, &Report));
 	EXPECT_EQ(Entered, 2u); EXPECT_EQ(DCookReferenceFixture::Clears, 4u);
 	EXPECT_EQ(Metrics.PeakAdmittedOperations, 1u); EXPECT_EQ(Metrics.PeakReservedBytes, 1024u);
 	RecordProperty("single_slot_peak_reserved_bytes", Metrics.PeakReservedBytes);
 	Options.MaximumPreparationWorkingSetBytes = 512;
 	Entered = 0;
-	EXPECT_FALSE(SerializeAssetPackageBytes(Package, Bytes, Options));
+	EXPECT_FALSE(SerializeCookedPackageBytes(Package, Bytes, Options, &Report));
 	EXPECT_EQ(Entered, 0u);
 }
 
@@ -506,8 +572,7 @@ TEST_F(FCookFunctionalTests, MultipleMeshesProduceIdenticalBytesAcrossAdmissionB
 				Body->GetPhysicsMeshRequestGeneration(), Body->GetPhysicsMeshBuildStatus(), Body->GetPhysicsMeshBuildError()});
 		}
 	}
-	FAssetPackageSerializationOptions Options{.Domain = EAssetPackageSaveDomain::Cooked,
-		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game};
+	FCookPackagePreparationOptions Options{.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game};
 	Package->ClearDirty();
 	FByteBuffer AuthoredBefore;
 	ASSERT_TRUE(SerializeAssetPackageBytes(Package, AuthoredBefore));
@@ -535,7 +600,7 @@ TEST_F(FCookFunctionalTests, MultipleMeshesProduceIdenticalBytesAcrossAdmissionB
 	const auto Before = Counters("StaticMesh");
 	const auto CollisionBefore = Counters("StaticMeshCollision");
 	FByteBuffer Concurrent, Sequential;
-	ASSERT_TRUE(SerializeAssetPackageBytes(Package, Concurrent, Options));
+	ASSERT_TRUE(SerializeCookedPackageBytes(Package, Concurrent, Options));
 	CheckAssetState();
 	const auto Cold = Counters("StaticMesh");
 	EXPECT_GT(Cold.Misses, Before.Misses);
@@ -550,7 +615,7 @@ TEST_F(FCookFunctionalTests, MultipleMeshesProduceIdenticalBytesAcrossAdmissionB
 	EXPECT_EQ(CollisionCold.StoreFailures, CollisionBefore.StoreFailures);
 	const auto ColdCache = Inventory(CacheRoot);
 	Options.MaximumConcurrentPreparation = 1;
-	ASSERT_TRUE(SerializeAssetPackageBytes(Package, Sequential, Options));
+	ASSERT_TRUE(SerializeCookedPackageBytes(Package, Sequential, Options));
 	CheckAssetState();
 	const auto Warm = Counters("StaticMesh");
 	EXPECT_GT(Warm.Gets, Cold.Gets);
@@ -602,24 +667,23 @@ TEST_F(FCookFunctionalTests, MaterialVariantsOverlapAndShuffledDeliveryKeepsMixe
 			if (Quality == EMaterialQualityLevel::High) { HighDelivered = true; Delivered.notify_all(); }
 		}
 	});
-	FAssetPackageSerializationOptions Options{.Domain = EAssetPackageSaveDomain::Cooked,
-		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game};
+	FCookPackagePreparationOptions Options{.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game};
 	Options.MaterialConfigurations = {{EMaterialQualityLevel::Low, ERHIFeatureLevel::SM5}, {EMaterialQualityLevel::High, ERHIFeatureLevel::SM5}};
 	FByteBuffer Shuffled, Sequential;
-	ASSERT_TRUE(SerializeAssetPackageBytes(Package, Shuffled, Options));
+	ASSERT_TRUE(SerializeCookedPackageBytes(Package, Shuffled, Options));
 	ASSERT_FALSE(Order.empty()); EXPECT_EQ(Order.front(), EMaterialQualityLevel::High);
 	MaterialBuildPrivate::SetMaterialBuildCompletionHookForTests({});
 	Options.MaximumConcurrentPreparation = 1;
-	ASSERT_TRUE(SerializeAssetPackageBytes(Package, Sequential, Options));
+	ASSERT_TRUE(SerializeCookedPackageBytes(Package, Sequential, Options));
 	EXPECT_EQ(Shuffled, Sequential);
 	// Qualify several material owners separately from the controlled callback stall,
 	// so a two-worker scheduler cannot be occupied by two deliberately stalled lows.
 	auto* Instance = NewObject<DMaterialInstance>(Package, "Instance"); ASSERT_TRUE(Instance->SetParent(Material));
 	NewObject<DMaterial>(Package, "Duplicate");
 	Options.MaximumConcurrentPreparation = 4;
-	ASSERT_TRUE(SerializeAssetPackageBytes(Package, Shuffled, Options));
+	ASSERT_TRUE(SerializeCookedPackageBytes(Package, Shuffled, Options));
 	Options.MaximumConcurrentPreparation = 1;
-	ASSERT_TRUE(SerializeAssetPackageBytes(Package, Sequential, Options));
+	ASSERT_TRUE(SerializeCookedPackageBytes(Package, Sequential, Options));
 	EXPECT_EQ(Shuffled, Sequential);
 	EXPECT_EQ(MaterialBuildPrivate::GetTranslationStats().GameThreadProducers, GameThreadProducers);
 	EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Accepted);
@@ -644,12 +708,11 @@ TEST_F(FCookFunctionalTests, MaterialCancellationAfterResultReadinessJoinsBefore
 			EXPECT_TRUE(Observed.load());
 		}
 	});
-	FAssetPackageSerializationOptions Options{.Domain = EAssetPackageSaveDomain::Cooked,
-		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game};
+	FCookPackagePreparationOptions Options{.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game};
 	Options.MaterialConfigurations = {{EMaterialQualityLevel::Low, ERHIFeatureLevel::SM5}, {EMaterialQualityLevel::High, ERHIFeatureLevel::SM5}};
 	Options.IsCancelled = [&] { if (!Ready.load()) return false; Observed = true; return true; };
 	FByteBuffer Bytes;
-	EXPECT_FALSE(SerializeAssetPackageBytes(Package, Bytes, Options));
+	EXPECT_FALSE(SerializeCookedPackageBytes(Package, Bytes, Options));
 	EXPECT_TRUE(Observed.load()); EXPECT_TRUE(Bytes.empty());
 }
 
@@ -849,9 +912,9 @@ TEST_F(FCookFunctionalTests, PreparationOmitsTransientAssetSubtrees)
 	ASSERT_TRUE(Overrides->AddObjectOmission(*NewObject<DTextureCube>(Root, "OmittedCube")));
 	ASSERT_TRUE(Overrides->AddObjectOmission(*NewObject<DVolumeTexture>(Root, "OmittedVolume")));
 	FByteBuffer Bytes, Bulk;
-	const auto WithOverride = SerializeAssetPackageClosure(Package, Bytes, Bulk,
-		{.Domain = EAssetPackageSaveDomain::Cooked, .TargetPlatform = ECookTargetPlatform::Win64,
-			.TargetProfile = ECookTargetProfile::Game, .SaveOverrides = Overrides});
+	const auto WithOverride = SerializeCookedPackageClosure(Package, Bytes, Bulk,
+		{.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game},
+		nullptr, {.SaveOverrides = Overrides});
 	ASSERT_TRUE(WithOverride) << ObjectPackage::FormatPackageError(WithOverride);
 	EXPECT_EQ(GetShaderBuildStats().Compilations, Before);
 }
@@ -986,9 +1049,9 @@ TEST_F(FCookFunctionalTests, MixedAuthoringOnlyExportsAreFilteredForEitherRetent
 		ASSERT_NE(NewObject<DCookReferenceFixture>(Package, SourceFirst ? "ZLast" : "AFirst"), nullptr);
 		if (!SourceFirst) ASSERT_NE(NewObject<DMaterialFunction>(Package, "ZLast"), nullptr);
 		FByteBuffer Bytes;
-		const auto Saved = SerializeAssetPackageBytes(Package, Bytes,
-			{.Domain = EAssetPackageSaveDomain::Cooked, .TargetPlatform = ECookTargetPlatform::Win64,
-				.TargetProfile = ECookTargetProfile::Game, .bRetainEditorOnlyData = Retain});
+		const auto Saved = SerializeCookedPackageBytes(Package, Bytes,
+			{.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game},
+			nullptr, {.bRetainEditorOnlyData = Retain});
 		ASSERT_TRUE(Saved) << ObjectPackage::FormatPackageError(Saved);
 		const auto File = Fixture / (Retain ? "retained.dasset" : "stripped.dasset");
 		ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes, File));
@@ -1019,9 +1082,9 @@ TEST_F(FCookFunctionalTests, TargetPolicyStripsDescendantsAndReferencesWithoutCh
 			const bool Included = Target == ECookTargetPlatform::Win64;
 			const auto Before = DCookReferenceFixture::Begins;
 			FByteBuffer Bytes;
-			const auto Saved = SerializeAssetPackageBytes(Package, Bytes,
-				{.Domain = EAssetPackageSaveDomain::Cooked, .TargetPlatform = Target,
-					.TargetProfile = ECookTargetProfile::Game, .bRetainEditorOnlyData = Retain});
+			const auto Saved = SerializeCookedPackageBytes(Package, Bytes,
+				{.TargetPlatform = Target, .TargetProfile = ECookTargetProfile::Game},
+				nullptr, {.bRetainEditorOnlyData = Retain});
 			ASSERT_TRUE(Saved) << ObjectPackage::FormatPackageError(Saved);
 			EXPECT_EQ(DCookReferenceFixture::Begins - Before, Included ? 3u : 1u);
 			const auto File = Fixture / std::format("{}-{}.dasset", GetTargetPlatformName(Target), Retain);

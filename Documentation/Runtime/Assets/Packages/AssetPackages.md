@@ -153,12 +153,31 @@ Explicit forced unloading is a separate tools capability in
 attempt-and-report contract, including unsaved-state and live-reference checks;
 it is not the ordinary request-release operation.
 
-The optional caller-owned `FAssetLoadReport*` remains available on either branch,
-including mutation and canonicalization evidence emitted before a root failure.
-Existing resident-hit and early-rejection report behavior is unchanged. Read
-errors retain their category and diagnostic text. Resource registration and
-storage failures are translated at the asset
-boundary; their backend error types are not exposed by completed-load errors. Inspect `error()` only after testing failure.
+The optional caller-owned `FAssetLoadReport*` is a request summary: paths,
+catalog revision, file reads, mutation counts and compatibility counts. Public
+load calls reset it for each request, including resident hits and early rejection.
+The load result is the sole terminal error channel; reports and streamable handles
+do not duplicate that error inside a summary.
+
+Detailed mutation records, identity normalization and deprecated-field routes live
+in `Asset/LoadAudit.h`. Tools opt in with `FScopedAssetLoadAudit`, which resets a
+caller-owned `FAssetLoadAudit`, collects synchronous loads and their dependencies
+executed in that scope, and restores the previous collector on exit. Nested scopes
+are independent, including exception unwinding. Async submission does not retain
+or inherit a collector; ordinary handles contain only the summary. The scope owns
+no asset references and is not a completion or residency mechanism.
+
+Compatibility processing and canonical-resave recommendations always run.
+Without an audit collector, the linker counts changes without constructing detailed
+evidence records or their logical paths. Successful per-package application emits
+its optional evidence; mutation callbacks observed before a later root failure
+remain in the audit. Construct-free maintenance inspection retains its own explicit
+audit output and does not require live loading. CanonicalResave checks the summary's
+non-upgrade mutation count before saving.
+
+Read errors retain their category and diagnostic text. Resource registration and
+storage failures are translated at the asset boundary; their backend error types
+are not exposed by completed-load errors. Inspect `error()` only after testing failure.
 Codec status and pending-component dependency bindings remain separate from these
 completed-load values because bindings may expose incomplete package skeletons.
 
@@ -341,7 +360,7 @@ main-export id exists at package level.
 ### Defaults And Version Policy
 
 Ordinary `SavePackage(Package)` writes v10 deltas against paired class/default
-subobject values. `SavePackage(Package, EAssetPackageSaveMode::Complete)` and
+subobject values. `SavePackage(Package, {.Mode = EAssetPackageSaveMode::Complete})` and
 `FAssetPackageSerializationOptions::Mode` explicitly select complete snapshots.
 Bundle saving propagates the same selection; cooked saves always emit complete
 values. A failed delta plan reports its reason without silently changing modes.
@@ -453,6 +472,12 @@ See [editor behavior and data](../../../Development/Build/RuntimeVariants.md#edi
 for the build and HeaderTool contract. Diagnostic retention cannot restore
 fields that were compiled out of a variant.
 
+`FAssetPackageSaveArgs` contains content parameters shared by synchronous,
+asynchronous and batch saves. `SavePackages` follows input order; callers such as
+Scene import supply dependency order. There is no root-selection or rollback-policy
+parameter in ordinary saves. Clean resident packages may be saved; Dirty controls
+which packages the editor chooses to submit, not save admission.
+
 Synchronous, asynchronous, and batch saves share destination admission,
 version validation, destination stamp capture, closure encoding,
 and writer preparation. Synchronous, protected task, and batch saves use the
@@ -546,7 +571,7 @@ as its effect and appends the finalization diagnostic. Read/encoding rejection
 adapters produce no write effect. These reports do not authorize retries or
 promise rollback.
 
-Admission-only `SavePackage(..., SAVE_Async)` instead writes final files directly,
+Admission-only `SavePackageDirectAsync(Package, Args)` instead writes final files directly,
 without rollback. Its return value does not confirm persistence; partial writes
 fence the projection and retain Dirty. See the authoritative
 [asynchronous save contracts](AssetCatalogAndMutation.md#asynchronous-save-staging)
@@ -558,16 +583,22 @@ in-process rollback and are released by finalization. Save preparation does not
 recover or delete files abandoned by earlier saves; those files do not reserve
 paths for a new save. This is not persistent crash recovery across files.
 
-A save owning a private package candidate can opt into
-`bRollbackOnRegistryFailure`, restoring prior package/bulk bytes instead of
-committing a projection-pending result. A `PreparedPublication` token admits only
-one private package owned by that active object-graph operation; multi-package
-saves with this token are rejected before writing. Scene import publishes one
-package at a time in dependency order. Each package uses both options inside
-its final persistence callback: successful disk and Registry publication is
-immediately followed by the non-failing memory commit. Later failures preserve
-previously published disk content and live objects. Other save callers retain
-the ordinary policy above.
+Private graph persistence lives in `Asset/PreparedPackageSave.h`.
+`SavePreparedPackage` requires the owning `FObjectGraphReplacement` by reference
+and admits one private package. Its Registry failure policy always restores prior
+main/bulk bytes; callers cannot request projection-pending publication for a
+candidate. `FPreparedAssetSave` uses the same fixed policy for asynchronous staging.
+Scene import publishes one package at a time in dependency order, calling the
+private save inside the replacement's final persistence callback. Successful disk
+and Registry publication is immediately followed by the non-failing memory commit.
+Later failures preserve previously published disk content and live objects.
+
+Save fault injection is separate from content parameters, in
+`Asset/Testing/PackageSaveTesting.h`. Synchronous calls observe the scoped hook;
+asynchronous operations copy it at admission. Callback captures must own what they
+need through completion. Scene import captures its hook at import admission and
+maps per-package faults to its explicit input sequence; no thread-local scope is
+kept across a coroutine suspension.
 
 Load resolves the source-version policy, validates the main/bulk closure and
 obtains detached linker tables. It constructs package/export skeletons, follows
@@ -741,15 +772,29 @@ structured failures preserve the old graph. After commit, dependency-release
 diagnostics do not masquerade as rollback because the new graph is already the
 registered generation.
 
-Reload diagnostics own typed reasons, stage/package/object context and text
-captured at graph preparation, storage, path, replacement and asset boundaries. Function preparation retains all material diagnostics; failed material
-compilation retains its status and complete diagnostic set. No candidate object
-is retained merely to explain a failure. Editor consumers use
-`FormatPackageReloadDiagnostic` at display time. The coordinator handles
-candidate cleanup and post-commit dependency retention internally; callers do
-not replay recovery based on diagnostic text. Resource receipts accept an owned
-diagnostic only while pending, reject an empty failure, preserve the first
-terminal transition, and return a locked copy through `GetFailure`.
+The public Reload request contains packages, participants, budgets and cancellation.
+Its result exposes status, a common failure category, stage/package/object context
+and an owned message. Internal reason codes are not a public recovery protocol.
+Editor consumers use `FormatPackageReloadDiagnostic` at display time; callers do
+not replay recovery based on diagnostic text. The coordinator retains candidate
+cleanup and post-commit dependency handling.
+
+Optional `FPackageReloadDiagnosticDetails` attachments own family-specific values.
+The common Reload header does not include Material compiler types.
+`Materials/MaterialPackageReloadDiagnostic.h` defines the Material attachment:
+function preparation retains every program diagnostic, and failed compilation also
+retains its compile-status snapshot. Copies of results and resource receipts share
+immutable details; they keep no candidate objects alive merely to explain a failure.
+Resource receipts accept an owned diagnostic only while pending, reject a failure
+with neither a message nor details, preserve the first terminal transition, and
+return a locked copy through `GetFailure`.
+
+Deterministic fault injection lives exclusively in
+`Asset/Testing/PackageReloadTesting.h`, under `Durin::Testing`.
+`FScopedPackageReloadFault` observes synchronous preparation, never the noexcept
+commit. Nested scopes restore the prior hook, including exception unwinding;
+leaving the scope removes the hook from later requests. Production requests do
+not carry fault callbacks or fault-point enums.
 
 ## Construct-Free Inspection And Mutation
 

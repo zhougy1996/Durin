@@ -2,7 +2,7 @@
 
 Summary: Define offline Cook inputs, dependency reuse, typed failures, and transactional output publication.
 
-Last reviewed: 2026-10-18
+Last reviewed: 2026-11-09
 
 ## Coordinator and input ownership
 
@@ -126,12 +126,25 @@ explicit synchronous adapters remain supported. Without a running task scheduler
 detached adapters execute synchronously; ordinary load-time compilation retains its
 existing policy.
 
-`FAssetPackageSerializationOptions` defaults to four outstanding preparation
+`SerializeAssetPackageBytes` and `SerializeAssetPackageClosure` perform authored
+encoding only. `FAssetPackageSerializationOptions` contains encoding rules: save
+mode, editor-only retention, value overrides and field filtering. It has no Cook
+target, input reader, scheduler or preparation-result channel.
+
+`SerializeCookedPackageBytes` and `SerializeCookedPackageClosure` accept separate
+`FCookPackagePreparationOptions` and serialization options. The Cook owner first
+prepares selected objects, then supplies their scoped products and target to the
+private encoder. Ordinary capture never starts platform-data work. Prepared inputs
+are revalidated after capture, before output buffers are replaced. The optional
+`FCookPackagePreparationReport` is reset on every invocation and owns its failure
+and metrics values directly; it is not shared through input options.
+
+`FCookPackagePreparationOptions` defaults to four outstanding preparation
 reservations, 512 MiB of working reservations, and a separate 1 GiB retained-product
 limit. Reserve before capturing inputs; admission can join/adopt earlier operations
 to make progress under smaller budgets. Mesh uses checked geometry/physics envelopes;
 Material reserves 64 MiB per variant for snapshot, compilation and encoding overlap.
-Oversized work fails explicitly. Optional owner-thread `PreparationMetrics` report
+Oversized work fails explicitly. Owner-thread report metrics record
 reservation peaks and retained product bytes, not physical allocator measurements.
 Scheduling limits do not enter recipe or output identities.
 

@@ -1,4 +1,5 @@
 #include "CookedPreparation.h"
+#include "AssetPackageCodec.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/Package.h"
 #include "DObject/Class.h"
@@ -22,11 +23,12 @@ namespace Durin::AssetPrivate
 		ActivePreparation = Previous;
 	}
 
-	auto FScopedCookedPreparation::Prepare(DPackage* Package, const FAssetPackageSerializationOptions& Options)
+	auto FScopedCookedPreparation::Prepare(DPackage* Package, const FCookPackagePreparationOptions& Options,
+		const FAssetPackageSerializationOptions& Serialization, FCookPackagePreparationReport& OutReport)
 		-> std::expected<void, FPackageCaptureError>
 	{
-		if (Options.Domain != EAssetPackageSaveDomain::Cooked || !Package) return {};
-		if (Options.PreparationMetrics) *Options.PreparationMetrics = {};
+		Report = &OutReport;
+		if (!Package) return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::AssetIdentity, .Message = "Cook preparation requires a package."});
 		Target = {std::string(GetTargetPlatformName(Options.TargetPlatform)), std::string(GetTargetProfileName(Options.TargetProfile))};
 		auto Failure = [](const DObject& Object, std::string Message) -> std::expected<void, FPackageCaptureError> {
 			return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::ArchiveFailure,
@@ -34,9 +36,9 @@ namespace Durin::AssetPrivate
 		};
 		if (Target.Platform.empty() || Options.TargetProfile != ECookTargetProfile::Game)
 			return Failure(*Package, "Cook preparation requires a known Game target.");
-		if (std::ranges::none_of(Package->GetTopLevelAssets(), [&](auto* Object) { return IsObjectIncludedForCook(Object, Target) && !IsPackageCaptureObjectOmitted(Object, Options.SaveOverrides.get()); }))
+		if (std::ranges::none_of(Package->GetTopLevelAssets(), [&](auto* Object) { return IsObjectIncludedForCook(Object, Target) && !IsPackageCaptureObjectOmitted(Object, Serialization.SaveOverrides.get()); }))
 		{
-			if (Options.PreparationFailure) *Options.PreparationFailure = {.Status = ECookContributionStatus::Error, .Error = ECookContributionError::EmptyRuntimeRoot, .VirtualPath = Package->GetPackagePath()};
+			Report->Failure = {.Status = ECookContributionStatus::Error, .Error = ECookContributionError::EmptyRuntimeRoot, .VirtualPath = Package->GetPackagePath()};
 			return Failure(*Package, "Cook root has no runtime exports.");
 		}
 		const FAssetBuildTaskContext Control{.IsCancellationRequested = Options.IsCancelled};
@@ -47,11 +49,11 @@ namespace Durin::AssetPrivate
 			if (Index >= 65536) return Failure(*Package, "Cook preparation object limit exceeded.");
 			if (Control.IsCancelled())
 			{
-				if (Options.PreparationFailure) *Options.PreparationFailure = {.Status = ECookContributionStatus::Canceled};
+				Report->Failure = {.Status = ECookContributionStatus::Canceled};
 				return Failure(*Package, {});
 			}
 			auto* Object = Pending[Index];
-			if (!IsObjectIncludedForCook(Object, Target) || IsPackageCaptureObjectOmitted(Object, Options.SaveOverrides.get())) continue;
+			if (!IsObjectIncludedForCook(Object, Target) || IsPackageCaptureObjectOmitted(Object, Serialization.SaveOverrides.get())) continue;
 			auto Children = GDObjectArray.GetObjectsWithOuter(Object,
 				Package->IsGraphPrivate() ? EObjectQueryScope::IncludeUnpublished : EObjectQueryScope::LiveOnly);
 			for (auto* Child : Children) if (!Child->IsTemplateObject()) Pending.push_back(Child);
@@ -62,7 +64,7 @@ namespace Durin::AssetPrivate
 			Context.Lifecycle.Target = Target;
 			Context.Lifecycle.Package = Package->GetPackagePath();
 			Context.Lifecycle.bCooking = true;
-			Context.Lifecycle.bRetainEditorOnlyData = Options.bRetainEditorOnlyData;
+			Context.Lifecycle.bRetainEditorOnlyData = Serialization.bRetainEditorOnlyData;
 			Context.Lifecycle.IsCancelled = Options.IsCancelled;
 			Context.ReserveWorkingSet = [this, &Context, &Options](uint64 Bytes) {
 				if (Context.WorkingSetBytes || !Bytes || Bytes > Options.MaximumPreparationWorkingSetBytes
@@ -77,11 +79,10 @@ namespace Durin::AssetPrivate
 						if (Candidate.get() != &Context && !Earlier) Earlier = Candidate.get();
 					}
 					if (Active < Options.MaximumConcurrentPreparation && Bytes <= Options.MaximumPreparationWorkingSetBytes - Reserved) {
-						if (auto* Metrics = Options.PreparationMetrics) {
-							++Metrics->AdmittedOperations;
-							Metrics->PeakAdmittedOperations = std::max(Metrics->PeakAdmittedOperations, Active + 1);
-							Metrics->PeakReservedBytes = std::max(Metrics->PeakReservedBytes, Reserved + Bytes);
-						}
+						auto& Metrics = Report->Metrics;
+						++Metrics.AdmittedOperations;
+						Metrics.PeakAdmittedOperations = std::max(Metrics.PeakAdmittedOperations, Active + 1);
+						Metrics.PeakReservedBytes = std::max(Metrics.PeakReservedBytes, Reserved + Bytes);
 						break;
 					}
 					if (!Earlier) { Context.Lifecycle.Result = {EObjectCookError::Limit, "Cook preparation cannot admit an operation."}; return false; }
@@ -107,7 +108,7 @@ namespace Durin::AssetPrivate
 		{
 			if (Observed.size() > 65536) return Failure(*Package, "Cook preparation object limit exceeded.");
 			auto* Object = Observed[Index];
-			if (!IsObjectIncludedForCook(Object, Target) || IsPackageCaptureObjectOmitted(Object, Options.SaveOverrides.get())) continue;
+			if (!IsObjectIncludedForCook(Object, Target) || IsPackageCaptureObjectOmitted(Object, Serialization.SaveOverrides.get())) continue;
 			if (!PreparedObjects.contains(Object))
 				return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::DiscoveryMutation, .ObjectPath = Object->GetObjectPath()});
 			++ObservedCount;
@@ -119,7 +120,7 @@ namespace Durin::AssetPrivate
 			return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::DiscoveryMutation});
 		if (Control.IsCancelled())
 		{
-			if (Options.PreparationFailure) *Options.PreparationFailure = {.Status = ECookContributionStatus::Canceled};
+			Report->Failure = {.Status = ECookContributionStatus::Canceled};
 			return Failure(*Package, {});
 		}
 		if (Package->GetEditRevision() != Revision) return Failure(*Package, "Cook inputs changed during preparation.");
@@ -145,7 +146,7 @@ namespace Durin::AssetPrivate
 				.Diagnostic = Complete ? Context.Lifecycle.Result.Diagnostic : "Cook platform operation did not complete after its bounded wait."};
 		if (!Result) {
 			Result.Provider = Object->GetClass()->GetQualifiedName().ToString();
-			if (Context.Options.PreparationFailure) *Context.Options.PreparationFailure = Result;
+			Report->Failure = Result;
 			return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::ArchiveFailure, .ObjectPath = Object->GetObjectPath(), .ArchiveCode = EArchiveFailureCode::InvalidData, .Message = FormatCookContributionError(Result)});
 		}
 		FPreparedCookedObject Product;
@@ -159,7 +160,7 @@ namespace Durin::AssetPrivate
 		if (PrimaryBytes > MaximumBytes - RetainedBytes || CollisionBytes > MaximumBytes - RetainedBytes - PrimaryBytes)
 			return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::ArchiveFailure, .Message = "Cook prepared payload limit exceeded."});
 		RetainedBytes += PrimaryBytes + CollisionBytes;
-		if (Context.Options.PreparationMetrics) Context.Options.PreparationMetrics->RetainedProductBytes = RetainedBytes;
+		Report->Metrics.RetainedProductBytes = RetainedBytes;
 		Products.emplace(FObjectKey(Object), std::move(Product));
 		Context.WorkingSetBytes = 0;
 		Context.CancelWork = {};
@@ -197,6 +198,47 @@ namespace Durin::AssetPrivate
 
 namespace Durin
 {
+	auto SerializeCookedPackageClosure(DPackage* Package, FByteBuffer& OutBytes,
+		FByteBuffer& OutBulkBytes, const FCookPackagePreparationOptions& Preparation,
+		FCookPackagePreparationReport* OutReport, const FAssetPackageSerializationOptions& Serialization)
+		-> ObjectPackage::FPackageWriterResult
+	{
+		FCookPackagePreparationReport LocalReport;
+		auto& Report = OutReport ? *OutReport : LocalReport;
+		Report = {};
+		AssetPrivate::FScopedCookedPreparation Prepared;
+		auto CaptureFailure = [](const FPackageCaptureError& Error) -> ObjectPackage::FPackageWriterResult {
+			return {.Failure = ObjectPackage::EPackageWriterFailure::InvalidInput,
+				.Message = ToString(Error)};
+		};
+		if (auto Result = Prepared.Prepare(Package, Preparation, Serialization, Report); !Result)
+		{
+			if (Report.Failure)
+				Report.Failure = {.Status = ECookContributionStatus::Error,
+					.Error = ECookContributionError::Preparation, .Diagnostic = ToString(Result.error())};
+			return CaptureFailure(Result.error());
+		}
+		AssetPrivate::FAssetPackageEncodedClosure Closure;
+		const AssetPrivate::FAssetPackageCaptureOptions Capture{
+			.Serialization = Serialization,
+			.CookTarget = FArchiveTarget{std::string(GetTargetPlatformName(Preparation.TargetPlatform)),
+				std::string(GetTargetProfileName(Preparation.TargetProfile))}};
+		if (auto Result = AssetPrivate::EncodeAssetPackageClosure(Package, Closure, Capture); !Result)
+			return Result;
+		if (auto Result = Prepared.Validate(Package); !Result) return CaptureFailure(Result.error());
+		OutBytes = std::move(Closure.PackageBytes);
+		OutBulkBytes = std::move(Closure.BulkBytes);
+		return {};
+	}
+
+	auto SerializeCookedPackageBytes(DPackage* Package, FByteBuffer& OutBytes,
+		const FCookPackagePreparationOptions& Preparation, FCookPackagePreparationReport* Report,
+		const FAssetPackageSerializationOptions& Serialization) -> ObjectPackage::FPackageWriterResult
+	{
+		FByteBuffer Bulk;
+		return SerializeCookedPackageClosure(Package, OutBytes, Bulk, Preparation, Report, Serialization);
+	}
+
 	auto FCookPreparationContext::StartDetachedWork(FCookDetachedWork Work) -> void
 	{
 		if (!WorkingSetBytes || Lifecycle.WaitForCompletion) {

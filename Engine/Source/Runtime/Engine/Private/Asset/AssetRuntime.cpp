@@ -1,3 +1,4 @@
+#include "AssetLoadAuditInternal.h"
 #include "DObject/PackagePersistence.h"
 #include "PackageLoadTransaction.h"
 #include "Asset/PackageUnloading.h"
@@ -78,6 +79,7 @@ namespace Durin
 	namespace
 	{
 		thread_local FAssetLoadReport* GActiveAssetLoadReport = nullptr;
+		thread_local FAssetLoadAudit* GActiveAssetLoadAudit = nullptr;
 		thread_local uint64 GActivePackageFileReadCount = 0;
 		thread_local std::vector<TWeakObjectPtr<DPackage>>* GOwnedLoadPackages = nullptr;
 
@@ -270,33 +272,37 @@ namespace Durin
 		return {};
 	}
 
-	auto FAssetLoadReport::HasNonUpgradeMutations() const -> bool
+	FScopedAssetLoadAudit::FScopedAssetLoadAudit(FAssetLoadAudit& Output)
+		: Previous(GActiveAssetLoadAudit)
 	{
-		return std::ranges::any_of(Mutations, [](const FAssetLoadMutation& Mutation) {
-			return Mutation.Kind == EAssetLoadMutationKind::NonUpgrade;
-		});
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		Output = {};
+		GActiveAssetLoadAudit = &Output;
 	}
-
-	auto ReportAssetLoadMutation(
-		DObject* Object,
-		std::string HandlerId,
-		std::string Summary,
-		EAssetLoadMutationKind Kind) -> void
+	FScopedAssetLoadAudit::~FScopedAssetLoadAudit()
 	{
-		if (!GActiveAssetLoadReport || !Object) return;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		GActiveAssetLoadAudit = Previous;
+	}
+	auto AssetPrivate::GetActiveAssetLoadAudit() -> FAssetLoadAudit* { return GActiveAssetLoadAudit; }
+
+	auto ReportAssetLoadMutation(DObject* Object, std::string HandlerId,
+		std::string Summary, EAssetLoadMutationKind Kind) -> void
+	{
+		if (!Object) return;
+		if (GActiveAssetLoadReport)
+		{
+			if (Kind == EAssetLoadMutationKind::Upgrade) ++GActiveAssetLoadReport->UpgradeMutationCount;
+			else ++GActiveAssetLoadReport->NonUpgradeMutationCount;
+		}
+		if (!GActiveAssetLoadAudit) return;
 		DPackage* Package = Object->GetPackage();
 		FPackagePath PackagePath;
 		if (Package) FPackagePath::TryCreate(Package->GetPackagePath(), PackagePath);
-		GActiveAssetLoadReport->Mutations.push_back({
-			.PackagePath = std::move(PackagePath),
-			.ObjectPath = Object->GetObjectPath(),
-			.HandlerId = std::move(HandlerId),
-			.Summary = std::move(Summary),
-			.Kind = Kind});
+		GActiveAssetLoadAudit->Mutations.push_back({
+			.PackagePath = std::move(PackagePath), .ObjectPath = Object->GetObjectPath(),
+			.HandlerId = std::move(HandlerId), .Summary = std::move(Summary), .Kind = Kind});
 	}
-
-
-
 
 	auto FAssetRuntimeState::Get() -> FAssetRuntimeState&
 	{
@@ -325,17 +331,17 @@ namespace Durin
 		const FPackagePath& Path,
 		FAssetLoadReport* OutReport) -> std::expected<DPackage*, FAssetReadError>
 	{
+		if (OutReport) *OutReport = {.RequestedPath = Path, .FinalPath = Path, .PackagePath = Path};
 		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("package load", Path.ToString()); !Result)
 		{
-			if (OutReport) *OutReport = {.RequestedPath = Path, .PackagePath = Path,
-				.Error = Result.Error, .ErrorMessage = Result.Message};
+			if (OutReport) *OutReport = {.RequestedPath = Path, .PackagePath = Path};
 			return std::unexpected(AssetReadErrorFromResult(Result));
 		}
 		if (IsAssetRegistryProjectionFenced(Path))
 		{
 			const auto Result = ProjectionPendingError(Path);
 			if (OutReport) *OutReport = {.RequestedPath = Path, .FinalPath = Path,
-				.PackagePath = Path, .Error = Result.Error, .ErrorMessage = Result.Message};
+				.PackagePath = Path};
 			return std::unexpected(AssetReadErrorFromResult(Result));
 		}
 		if (IsPackageLoading(Path))
@@ -365,11 +371,6 @@ namespace Durin
 			.PackagePath = Path.GetPackagePath()};
 		auto Finish = [&](FAssetReadResult Result, DObject* Object = nullptr) -> std::expected<DObject*, FAssetReadError>
 		{
-			if (OutReport)
-			{
-				OutReport->Error = Result.Error;
-				OutReport->ErrorMessage = Result.Message;
-			}
 			if (!Result) return std::unexpected(AssetReadErrorFromResult(Result));
 			return Object;
 		};
@@ -500,8 +501,6 @@ namespace Durin
 		}
 		if (OutReport)
 		{
-			OutReport->Error = Result.Error;
-			OutReport->ErrorMessage = Result.Message;
 			OutReport->PackageFileReadCount = GActivePackageFileReadCount;
 		}
 		return Result;

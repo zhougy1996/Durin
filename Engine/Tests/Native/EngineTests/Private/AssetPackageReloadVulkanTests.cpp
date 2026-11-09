@@ -1,4 +1,5 @@
 #include "NativeAssetBuildTestSupport.h"
+#include "Asset/Testing/PackageReloadTesting.h"
 #include "Asset/PackageUnloading.h"
 #include "EngineTestSupport.h"
 #include "VulkanEngineTestSupport.h"
@@ -240,13 +241,13 @@ TEST(FAssetPackageReloadVulkanTests, DiscardRestoresRenderedWeatherAndVolumeFrom
 	const auto EditedWeather = Render();
 	EXPECT_NE(EditedWeather, Saved);
 	SaveEvidence("weather-edited", EditedWeather);
-	for (auto Fault : {EPackageReloadFaultPoint::PrepareRuntimeProduct,
-		EPackageReloadFaultPoint::ReserveRenderPublish})
+	for (auto Fault : {Testing::EPackageReloadFaultPoint::PrepareRuntimeProduct,
+		Testing::EPackageReloadFaultPoint::ReserveRenderPublish})
 	{
 		FPackageReloadRequest Request{.Packages = {Weather->GetPackage()}};
-		Request.ShouldFail = [Fault](EPackageReloadFaultPoint Point, uint64, uint64) {
+		Testing::FScopedPackageReloadFault FaultScope([Fault](Testing::EPackageReloadFaultPoint Point, uint64, uint64) {
 			return Point == Fault;
-		};
+		});
 		EXPECT_EQ(ReloadPackages(Request).GetResult().Status, EPackageReloadStatus::Failed);
 		CollectGarbage();
 		EXPECT_EQ(Cloud->GetWeatherTexture(), Weather);

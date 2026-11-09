@@ -9,6 +9,7 @@
 
 #include "EngineAPI.h"
 #include "Asset/CookedAsset.h"
+#include "Asset/PackageSerialization.h"
 #include "Asset/CookDependencies.h"
 #include "Asset/PackageBulkData.h"
 #include "Asset/BulkData.h"
@@ -19,7 +20,6 @@
 
 namespace Durin
 {
-	struct FAssetPackageSerializationOptions;
 	struct FPackagePathResolveResult;
 	struct FCookOutputRootResult;
 	struct FCookPublishResult;
@@ -532,6 +532,42 @@ namespace Durin
 	};
 	ENGINE_API auto FormatCookContributionError(const FCookContributionResult& Result) -> std::string;
 
+	// Inputs to platform-data preparation, independent of package encoding rules.
+	struct FCookPackagePreparationOptions
+	{
+		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
+		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
+		std::vector<FMaterialCookConfiguration> MaterialConfigurations;
+		std::function<bool()> IsCancelled;
+		std::function<FCookInputResult(ECookBuildDependencyKind, std::string_view, FByteBuffer&)> ReadCookInput;
+		// Scheduling envelopes do not participate in cooked identities.
+		uint32 MaximumConcurrentPreparation = 4;
+		uint64 MaximumPreparationWorkingSetBytes = 512ull * 1024 * 1024;
+	};
+	// Owner-thread observations of reservations, not physical allocator peaks.
+	struct FCookPreparationMetrics
+	{
+		uint32 AdmittedOperations = 0;
+		uint32 PeakAdmittedOperations = 0;
+		uint64 PeakReservedBytes = 0;
+		uint64 RetainedProductBytes = 0;
+	};
+	struct FCookPackagePreparationReport
+	{
+		FCookContributionResult Failure;
+		FCookPreparationMetrics Metrics;
+	};
+	// Prepare platform data first, then encode using scoped products. Outputs are
+	// unchanged on failure; Report is reset for every invocation, including rejection.
+	ENGINE_API auto SerializeCookedPackageClosure(DPackage* Package, FByteBuffer& OutBytes,
+		FByteBuffer& OutBulkBytes, const FCookPackagePreparationOptions& Preparation,
+		FCookPackagePreparationReport* Report = nullptr,
+		const FAssetPackageSerializationOptions& Serialization = {}) -> ObjectPackage::FPackageWriterResult;
+	ENGINE_API auto SerializeCookedPackageBytes(DPackage* Package, FByteBuffer& OutBytes,
+		const FCookPackagePreparationOptions& Preparation,
+		FCookPackagePreparationReport* Report = nullptr,
+		const FAssetPackageSerializationOptions& Serialization = {}) -> ObjectPackage::FPackageWriterResult;
+
 	// Builds detached package plans without owning a disk publication destination.
 	class FCookContext
 	{
@@ -573,12 +609,12 @@ namespace Durin
 		auto SetMaterialConfigurations(std::span<const FMaterialCookConfiguration> Values) -> void
 			{ MaterialConfigurations.assign(Values.begin(), Values.end()); }
 		auto SetCancellationCheck(FCookCancellationCheck Check) -> void { IsCancelled = std::move(Check); }
-		auto GetPreparationFailure() const -> const FCookContributionResult& { return *PreparationFailure; }
-		ENGINE_API auto MakePackageSerializationOptions() const
-			-> FAssetPackageSerializationOptions;
+		auto GetPreparationFailure() const -> const FCookContributionResult& { return PreparationFailure; }
+		ENGINE_API auto MakePackagePreparationOptions() const
+			-> FCookPackagePreparationOptions;
 
 	private:
-		std::shared_ptr<FCookContributionResult> PreparationFailure = std::make_shared<FCookContributionResult>();
+		FCookContributionResult PreparationFailure;
 		FReadInput ReadInput;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
@@ -615,7 +651,7 @@ namespace Durin
 	// cannot capture packages or publish output.
 	struct FCookPreparationContext
 	{
-		const FAssetPackageSerializationOptions& Options;
+		const FCookPackagePreparationOptions& Options;
 		FBulkData Primary;
 		FBulkData Collision;
 		FObjectCookContext Lifecycle;

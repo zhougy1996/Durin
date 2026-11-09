@@ -116,12 +116,11 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		auto SaveImportedCube(DTextureCube& Texture, std::string& OutError,
-			const FAssetBundleSaveOptions* SaveOptions) -> bool
+			const FAssetPackageSaveArgs* SaveOptions) -> bool
 		{
 			if (!SaveOptions) return true;
 			DPackage* Package = Texture.GetPackage();
-			const FAssetWriteResult Saved = SavePackages(
-				std::span<DPackage* const>(&Package, 1), *SaveOptions).Result;
+			const FAssetWriteResult Saved = SavePackage(Package, *SaveOptions);
 			if (Saved) return true;
 			OutError = Saved.Message;
 			return false;
@@ -129,7 +128,7 @@ namespace Durin::AssetForge::Builtins
 
 		auto RebuildPanorama(DTextureCube& Texture, std::string_view FilePath,
 			const FTextureCubePanoramaImportSettings& Settings, std::string& OutError,
-			const FAssetBundleSaveOptions* SaveOptions) -> bool
+			const FAssetPackageSaveArgs* SaveOptions) -> bool
 		{
 			FCapturedCubeSource Source;
 			if (!CaptureCubeSource(Texture, FilePath, Source, OutError)
@@ -155,7 +154,7 @@ namespace Durin::AssetForge::Builtins
 		auto RebuildFaces(DTextureCube& Texture,
 			const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
 			const FTextureCubeImportSettings& Settings, std::string& OutError,
-			const FAssetBundleSaveOptions* SaveOptions) -> bool
+			const FAssetPackageSaveArgs* SaveOptions) -> bool
 		{
 			std::array<FCapturedCubeSource, TextureCubeFaceCount> Sources;
 			std::array<FByteView, TextureCubeFaceCount> Encoded;
@@ -561,7 +560,7 @@ namespace Durin::AssetForge::Builtins
 		if (auto Resolved = ResolveSourceHint(Source->HintBase, Source->Hint, OwningPackagePath.generic_string()); !Resolved)
 		{ OutError = FormatSourceHintError(Resolved.error()); return false; }
 		else { SourcePath = Resolved->generic_string(); }
-		const FAssetBundleSaveOptions SaveOptions;
+		const FAssetPackageSaveArgs SaveOptions;
 		return RebuildPanorama(Texture, SourcePath, Settings, OutError, &SaveOptions);
 	}
 
@@ -578,7 +577,7 @@ namespace Durin::AssetForge::Builtins
 		}
 		const std::filesystem::path SourcePath =
 			std::filesystem::absolute(PanoramaFile).lexically_normal();
-		const FAssetBundleSaveOptions SaveOptions;
+		const FAssetPackageSaveArgs SaveOptions;
 		return RebuildPanorama(Texture, SourcePath.generic_string(),
 			Settings, OutError, &SaveOptions);
 	}
@@ -606,7 +605,7 @@ namespace Durin::AssetForge::Builtins
 			{ OutError = FormatSourceHintError(Resolved.error()); return false; }
 			else { Sources[Index] = Resolved->generic_string(); }
 		}
-		const FAssetBundleSaveOptions SaveOptions;
+		const FAssetPackageSaveArgs SaveOptions;
 		return RebuildFaces(Texture, Sources, Settings, OutError, &SaveOptions);
 	}
 
@@ -625,7 +624,7 @@ namespace Durin::AssetForge::Builtins
 		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
 			Sources[Index] = std::filesystem::absolute(FaceFiles[Index])
 				.lexically_normal().generic_string();
-		const FAssetBundleSaveOptions SaveOptions;
+		const FAssetPackageSaveArgs SaveOptions;
 		return RebuildFaces(Texture, Sources, Settings, OutError, &SaveOptions);
 	}
 }

@@ -1,3 +1,6 @@
+#include "Asset/Testing/PackageReloadTesting.h"
+#include "Materials/MaterialPackageReloadDiagnostic.h"
+#include "CoreGlobals.h"
 #include "Materials/MaterialExpressionBuild.h"
 #include "PackageLoadTransaction.h"
 #include "Asset/PackageReload.h"
@@ -33,8 +36,31 @@ namespace Durin
 		using Status = EPackageReloadStatus;
 		using Failure = EPackageReloadFailure;
 		using Stage = EPackageReloadStage;
-		using Reason = EPackageReloadReason;
+		enum class EReloadDiagnosticCode : uint8
+		{
+			None, FileInspection, MissingOperation, AlreadyActive, Cancelled, CookedRuntime, EmptyRequest,
+			InvalidPackage, PackageBudget, InvalidIdentity, UnsavedPackage, MissingFile, InjectedQuiesceFailure,
+			InjectedMainReadFailure, InjectedBulkReadFailure, InjectedRuntimeFailure, InjectedReferenceFailure,
+			InjectedDiskRevalidationFailure, InjectedFinalValidationFailure, ObserverException, Allocation,
+			CallbackException, TextureBudget, VolumeBudget, FunctionPreparation, TexturePreparation,
+			MaterialPreparation, UnsupportedClass, ResourceRead, GraphPreparation, Replacement,
+			ResourceRevalidation, DependencyRelease,
+		};
+
+		using Reason = EReloadDiagnosticCode;
 		bool GPackageReloadActive = false;
+		thread_local const Testing::FPackageReloadFault* GPackageReloadFault = nullptr;
+		auto DescribeFailure(Reason Code, const FPackageReloadDiagnostic& Diagnostic) -> std::string;
+
+		auto MakeMaterialDetails(std::optional<FMaterialCompileStatus> Status,
+			std::span<const FMaterialProgramDiagnostic> Diagnostics)
+			-> std::shared_ptr<const FPackageReloadDiagnosticDetails>
+		{
+			auto Details = std::make_shared<FMaterialPackageReloadDiagnosticDetails>();
+			Details->CompileStatus = std::move(Status);
+			Details->Diagnostics.assign(Diagnostics.begin(), Diagnostics.end());
+			return Details;
+		}
 
 		auto MakeResult(Status InStatus, Failure InFailure, Stage InStage,
 			const FPackagePath& Path, Reason Code, FPackageReloadDiagnostic Diagnostic = {}) -> FPackageReloadResult
@@ -42,7 +68,7 @@ namespace Durin
 			FPackageReloadResult Result{.Status = InStatus, .Failure = InFailure};
 			Diagnostic.PackagePath = Path;
 			Diagnostic.Stage = InStage;
-			Diagnostic.Reason = Code;
+			if (Diagnostic.Message.empty()) Diagnostic.Message = DescribeFailure(Code, Diagnostic);
 			Result.Diagnostics.push_back(std::move(Diagnostic));
 			return Result;
 		}
@@ -52,10 +78,9 @@ namespace Durin
 			return Request.IsCancelled && Request.IsCancelled();
 		}
 
-		auto Injected(const FPackageReloadRequest& Request,
-			EPackageReloadFaultPoint Point, uint64 Package = 0, uint64 Object = 0) -> bool
+		auto Injected(Testing::EPackageReloadFaultPoint Point, uint64 Package = 0, uint64 Object = 0) -> bool
 		{
-			return Request.ShouldFail && Request.ShouldFail(Point, Package, Object);
+			return GPackageReloadFault && *GPackageReloadFault && (*GPackageReloadFault)(Point, Package, Object);
 		}
 
 
@@ -193,7 +218,8 @@ namespace Durin
 						if (!Validation)
 						{
 							OutResult = MakeResult(Status::Failed, Failure::ResourcePreparationFailed,
-								Stage::PrepareRuntimeProducts, {}, Reason::FunctionPreparation, {.ObjectPath = Object->GetObjectPath(), .MaterialCauses = Validation.Diagnostics});
+								Stage::PrepareRuntimeProducts, {}, Reason::FunctionPreparation,
+								{.ObjectPath = Object->GetObjectPath(), .Details = MakeMaterialDetails({}, Validation.Diagnostics)});
 							return false;
 						}
 					}
@@ -213,8 +239,7 @@ namespace Durin
 						OutResult = MakeResult(Status::Failed, Failure::ResourcePreparationFailed,
 							Stage::PrepareRuntimeProducts, {},
 							Reason::MaterialPreparation, {.ObjectPath = Object->GetObjectPath(),
-							.MaterialCompileStatus = Material->GetMaterialCompileStatus(),
-							.MaterialCompileCauses = std::vector<FMaterialProgramDiagnostic>(Material->GetMaterialCompileDiagnostics().begin(), Material->GetMaterialCompileDiagnostics().end())});
+							.Details = MakeMaterialDetails(Material->GetMaterialCompileStatus(), Material->GetMaterialCompileDiagnostics())});
 						return false;
 					}
 					if (auto* Texture2D = Cast<DTexture2D>(Object))
@@ -272,44 +297,68 @@ namespace Durin
 		}
 	}
 
+	namespace
+	{
+		auto DescribeFailure(Reason Code, const FPackageReloadDiagnostic& Diagnostic) -> std::string
+		{
+			if (Diagnostic.Details)
+				if (auto Summary = Diagnostic.Details->GetSummary(); !Summary.empty()) return Summary;
+			switch (Code)
+			{
+			case Reason::None: return {};
+			case Reason::MissingOperation: return "Reload operation has no state.";
+			case Reason::AlreadyActive: return "Another package reload is active.";
+			case Reason::Cancelled: return "Package reload was cancelled.";
+			case Reason::CookedRuntime: return "Authored package reload is unavailable in a cooked runtime.";
+			case Reason::EmptyRequest: return "Package reload requires at least one package.";
+			case Reason::InvalidPackage: return "Reload accepts only resident authored asset packages.";
+			case Reason::PackageBudget: return "Package reload count exceeds the request budget.";
+			case Reason::InvalidIdentity: return "Resident package identity is invalid.";
+			case Reason::UnsavedPackage: return "A never-saved package has no disk baseline.";
+			case Reason::FileInspection: return std::format("Could not inspect package file {}: {}", Diagnostic.File.generic_string(), Diagnostic.SystemError.message());
+			case Reason::MissingFile: return "The saved package file is missing.";
+			case Reason::InjectedQuiesceFailure: return "Injected selected-compilation quiesce failure.";
+			case Reason::InjectedMainReadFailure: return "Injected main package read failure.";
+			case Reason::InjectedBulkReadFailure: return "Injected bulk closure read failure.";
+			case Reason::InjectedRuntimeFailure: return "Injected runtime product failure.";
+			case Reason::InjectedReferenceFailure: return "Injected reference preparation failure.";
+			case Reason::InjectedDiskRevalidationFailure: return "Injected disk revalidation failure.";
+			case Reason::InjectedFinalValidationFailure: return "Injected final reload validation failure.";
+			case Reason::ObserverException: return "A post-publication refresh threw; the replacement remains committed.";
+			case Reason::Allocation: return "Allocation failed while preparing package reload.";
+			case Reason::CallbackException: return "A package reload callback threw.";
+			case Reason::TextureBudget: return "Texture runtime products exceed the reload memory budget.";
+			case Reason::VolumeBudget: return "Volume runtime products exceed the reload memory budget.";
+			case Reason::UnsupportedClass: return std::format("Asset class {} has no reload participant.", Diagnostic.ClassName);
+			case Reason::FunctionPreparation: return std::format("Function preparation failed for {}.", Diagnostic.ObjectPath);
+			case Reason::TexturePreparation: return std::format("Runtime product preparation failed for {}.", Diagnostic.ObjectPath);
+			case Reason::MaterialPreparation: return std::format("Material preparation failed for {}.", Diagnostic.ObjectPath);
+			default: return "Package reload failed.";
+			}
+		}
+	}
+
 	auto FormatPackageReloadDiagnostic(const FPackageReloadDiagnostic& Diagnostic) -> std::string
 	{
 		if (!Diagnostic.Message.empty()) return Diagnostic.Message;
-		if (!Diagnostic.MaterialCauses.empty()) return Diagnostic.MaterialCauses.front().Message;
-		if (!Diagnostic.MaterialCompileCauses.empty()) return Diagnostic.MaterialCompileCauses.front().Message;
-		using Reason = EPackageReloadReason;
-		switch (Diagnostic.Reason)
-		{
-		case Reason::None: return {};
-		case Reason::MissingOperation: return "Reload operation has no state.";
-		case Reason::AlreadyActive: return "Another package reload is active.";
-		case Reason::Cancelled: return "Package reload was cancelled.";
-		case Reason::CookedRuntime: return "Authored package reload is unavailable in a cooked runtime.";
-		case Reason::EmptyRequest: return "Package reload requires at least one package.";
-		case Reason::InvalidPackage: return "Reload accepts only resident authored asset packages.";
-		case Reason::PackageBudget: return "Package reload count exceeds the request budget.";
-		case Reason::InvalidIdentity: return "Resident package identity is invalid.";
-		case Reason::UnsavedPackage: return "A never-saved package has no disk baseline.";
-		case Reason::FileInspection: return std::format("Could not inspect package file {}: {}", Diagnostic.File.generic_string(), Diagnostic.SystemError.message());
-		case Reason::MissingFile: return "The saved package file is missing.";
-		case Reason::InjectedQuiesceFailure: return "Injected selected-compilation quiesce failure.";
-		case Reason::InjectedMainReadFailure: return "Injected main package read failure.";
-		case Reason::InjectedBulkReadFailure: return "Injected bulk closure read failure.";
-		case Reason::InjectedRuntimeFailure: return "Injected runtime product failure.";
-		case Reason::InjectedReferenceFailure: return "Injected reference preparation failure.";
-		case Reason::InjectedDiskRevalidationFailure: return "Injected disk revalidation failure.";
-		case Reason::InjectedFinalValidationFailure: return "Injected final reload validation failure.";
-		case Reason::ObserverException: return "A post-publication refresh threw; the replacement remains committed.";
-		case Reason::Allocation: return "Allocation failed while preparing package reload.";
-		case Reason::CallbackException: return "A package reload callback threw.";
-		case Reason::TextureBudget: return "Texture runtime products exceed the reload memory budget.";
-		case Reason::VolumeBudget: return "Volume runtime products exceed the reload memory budget.";
-		case Reason::UnsupportedClass: return std::format("Asset class {} has no reload participant.", Diagnostic.ClassName);
-		case Reason::FunctionPreparation: return std::format("Function preparation failed for {}.", Diagnostic.ObjectPath);
-		case Reason::TexturePreparation: return std::format("Runtime product preparation failed for {}.", Diagnostic.ObjectPath);
-		case Reason::MaterialPreparation: return std::format("Material preparation failed for {}.", Diagnostic.ObjectPath);
-		default: return "Package reload failed.";
-		}
+		return Diagnostic.Details ? Diagnostic.Details->GetSummary() : std::string{};
+	}
+
+	auto FMaterialPackageReloadDiagnosticDetails::GetSummary() const -> std::string
+	{
+		return Diagnostics.empty() ? std::string{} : Diagnostics.front().Message;
+	}
+
+	Testing::FScopedPackageReloadFault::FScopedPackageReloadFault(FPackageReloadFault InFault)
+		: Fault(std::move(InFault)), Previous(GPackageReloadFault)
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		GPackageReloadFault = &Fault;
+	}
+	Testing::FScopedPackageReloadFault::~FScopedPackageReloadFault()
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		GPackageReloadFault = Previous;
 	}
 
 	struct FPackageReloadOperation::FState
@@ -332,7 +381,7 @@ namespace Durin
 	auto FPackageReloadResourceReceipt::SetFailed(FPackageReloadDiagnostic InError) -> bool
 	{
 		std::lock_guard Lock(Mutex);
-		if (State != EPackageReloadReceiptState::Pending || InError.Reason == EPackageReloadReason::None) return false;
+		if (State != EPackageReloadReceiptState::Pending || (InError.Message.empty() && !InError.Details)) return false;
 		State = EPackageReloadReceiptState::Failed; Error = std::move(InError); return true;
 	}
 	auto FPackageReloadResourceReceipt::SetRetired() -> bool
@@ -415,7 +464,7 @@ namespace Durin
 					Reason::InvalidPackage));
 			if (!std::ranges::contains(Packages, Package)) Packages.push_back(Package);
 		}
-		if (Injected(Request, EPackageReloadFaultPoint::PreflightBudget)
+		if (Injected(Testing::EPackageReloadFaultPoint::PreflightBudget)
 			|| Packages.size() > Request.Budget.MaximumPackages)
 			return Finish(MakeResult(Status::Failed, Failure::BudgetExceeded, Stage::Preflight, {},
 				Reason::PackageBudget, {.Actual = Packages.size(), .Maximum = Request.Budget.MaximumPackages}));
@@ -464,7 +513,7 @@ namespace Durin
 			return std::ranges::contains(OldObjects, Object);
 		});
 
-		if (Injected(Request, EPackageReloadFaultPoint::QuiesceSelected))
+		if (Injected(Testing::EPackageReloadFaultPoint::QuiesceSelected))
 			return Finish(MakeResult(Status::Failed, Failure::Busy, Stage::Quiesce, {},
 				Reason::InjectedQuiesceFailure));
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(OldObjects);
@@ -478,7 +527,7 @@ namespace Durin
 			uint64 RemainingBytes = Request.Budget.MaximumRetainedCpuBytes;
 			for (size_t Index = 0; Index < Paths.size(); ++Index)
 			{
-				if (Injected(Request, EPackageReloadFaultPoint::ReadMain, Index))
+				if (Injected(Testing::EPackageReloadFaultPoint::ReadMain, Index))
 					return Finish(MakeResult(Status::Failed, Failure::IoError,
 						Stage::ReadAndPrepare, Paths[Index], Reason::InjectedMainReadFailure));
 				auto Read = FPreparedPackageResource::Read(Paths[Index], Files[Index], RemainingBytes, Cancelled);
@@ -495,7 +544,7 @@ namespace Durin
 				}
 				Sources[Index].PackagePath = Paths[Index];
 				RemainingBytes -= Sources[Index].Storage.GetRetainedBytes();
-				if (Injected(Request, EPackageReloadFaultPoint::ReadBulk, Index))
+				if (Injected(Testing::EPackageReloadFaultPoint::ReadBulk, Index))
 					return Finish(MakeResult(Status::Failed, Failure::IoError,
 						Stage::ReadAndPrepare, Paths[Index], Reason::InjectedBulkReadFailure));
 			}
@@ -511,17 +560,17 @@ namespace Durin
 			Options.IsCancelled = Cancelled;
 			Options.ShouldFail = [&](uint64 Package, AssetPrivate::ELinkerLoadPhase Phase, uint64 Object) {
 				using L = AssetPrivate::ELinkerLoadPhase;
-				EPackageReloadFaultPoint Point = EPackageReloadFaultPoint::ApplyValues;
+				Testing::EPackageReloadFaultPoint Point = Testing::EPackageReloadFaultPoint::ApplyValues;
 				switch (Phase)
 				{
-				case L::CreateSkeleton: Point = EPackageReloadFaultPoint::CreateSkeleton; break;
-				case L::ResolveDependency: Point = EPackageReloadFaultPoint::ResolveDependency; break;
-				case L::ApplyValues: Point = EPackageReloadFaultPoint::ApplyValues; break;
-				case L::RestoreLedger: Point = EPackageReloadFaultPoint::RestoreLedger; break;
-				case L::PostLoad: Point = EPackageReloadFaultPoint::PreparePostLoad; break;
-				case L::Publish: Point = EPackageReloadFaultPoint::BeforeCommit; break;
+				case L::CreateSkeleton: Point = Testing::EPackageReloadFaultPoint::CreateSkeleton; break;
+				case L::ResolveDependency: Point = Testing::EPackageReloadFaultPoint::ResolveDependency; break;
+				case L::ApplyValues: Point = Testing::EPackageReloadFaultPoint::ApplyValues; break;
+				case L::RestoreLedger: Point = Testing::EPackageReloadFaultPoint::RestoreLedger; break;
+				case L::PostLoad: Point = Testing::EPackageReloadFaultPoint::PreparePostLoad; break;
+				case L::Publish: Point = Testing::EPackageReloadFaultPoint::BeforeCommit; break;
 				}
-				return Injected(Request, Point, Package, Object);
+				return Injected(Point, Package, Object);
 			};
 			const auto Prepared = AssetPrivate::PreparePackageGraphs(Sources, Options, Graphs);
 			if (!Prepared)
@@ -539,8 +588,8 @@ namespace Durin
 			uint64 ClosureBytes = 0;
 			for (const auto& Source : Sources) ClosureBytes += Source.Storage.GetRetainedBytes();
 			FPackageReloadResult RuntimeResult;
-			if (Injected(Request, EPackageReloadFaultPoint::PreparePostLoad)
-				|| Injected(Request, EPackageReloadFaultPoint::PrepareRuntimeProduct)
+			if (Injected(Testing::EPackageReloadFaultPoint::PreparePostLoad)
+				|| Injected(Testing::EPackageReloadFaultPoint::PrepareRuntimeProduct)
 				|| !PrepareRuntimeProducts(Graphs, Request.Budget, ClosureBytes, RuntimeResult))
 			{
 				Graphs.clear();
@@ -559,10 +608,10 @@ namespace Durin
 			std::vector<std::shared_ptr<IObjectReplacementParticipant>> Participants(
 				Request.Participants.begin(), Request.Participants.end());
 			Participants.push_back(MakeMaterialReferenceReplacementParticipant());
-			if (Injected(Request, EPackageReloadFaultPoint::PrepareReferences)
-				|| Injected(Request, EPackageReloadFaultPoint::PrepareNativeParticipant)
-				|| Injected(Request, EPackageReloadFaultPoint::PrepareHistory)
-				|| Injected(Request, EPackageReloadFaultPoint::ReserveRenderPublish))
+			if (Injected(Testing::EPackageReloadFaultPoint::PrepareReferences)
+				|| Injected(Testing::EPackageReloadFaultPoint::PrepareNativeParticipant)
+				|| Injected(Testing::EPackageReloadFaultPoint::PrepareHistory)
+				|| Injected(Testing::EPackageReloadFaultPoint::ReserveRenderPublish))
 			{
 				Graphs.clear();
 				std::vector<TWeakObjectPtr<DPackage>> Ignore;
@@ -588,7 +637,7 @@ namespace Durin
 			for (size_t SourceIndex = 0; SourceIndex < Sources.size(); ++SourceIndex)
 			{
 				const auto& Source = Sources[SourceIndex];
-				if (Injected(Request, EPackageReloadFaultPoint::RevalidateDisk, SourceIndex))
+				if (Injected(Testing::EPackageReloadFaultPoint::RevalidateDisk, SourceIndex))
 				{
 					Replacement->Abort(); Graphs.clear();
 					std::vector<TWeakObjectPtr<DPackage>> Ignore;
@@ -608,8 +657,8 @@ namespace Durin
 						bCancelled ? Failure::None : Failure::Stale, Stage::Revalidate, {}, Reason::ResourceRevalidation, {.Message = FormatPreparedPackageResourceError(Revalidate.error())}));
 				}
 			}
-			if (Injected(Request, EPackageReloadFaultPoint::RevalidateReferencers)
-				|| Injected(Request, EPackageReloadFaultPoint::BeforeCommit))
+			if (Injected(Testing::EPackageReloadFaultPoint::RevalidateReferencers)
+				|| Injected(Testing::EPackageReloadFaultPoint::BeforeCommit))
 			{
 				Replacement->Abort(); Graphs.clear();
 				std::vector<TWeakObjectPtr<DPackage>> Ignore;
@@ -643,7 +692,7 @@ namespace Durin
 					// Publication is already committed. Dependency retention is safe and
 					// cannot be represented as an ordinary rollback failure.
 					State->Result.Diagnostics.push_back({.Stage = Stage::Retire,
-						.Reason = Reason::DependencyRelease, .Message = ReleaseResult.Message});
+						.Message = ReleaseResult.Message});
 				}
 				RefreshExternalBindings(ExternalRenderConsumers, bTextures, bMaterials);
 #if DURIN_WITH_EDITORONLY_DATA
@@ -659,8 +708,8 @@ namespace Durin
 			{
 				// Commit cannot be rolled back. Keep the operation successful/pending
 				// and retain dependencies if a best-effort observer refresh throws.
-				State->Result.Diagnostics.push_back({{}, {}, Stage::Publish,
-					Reason::ObserverException});
+				State->Result.Diagnostics.push_back({.Stage = Stage::Publish,
+					.Message = DescribeFailure(Reason::ObserverException, {})});
 			}
 			return Operation;
 		}

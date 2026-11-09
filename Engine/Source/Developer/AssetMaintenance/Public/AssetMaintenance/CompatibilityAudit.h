@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Asset/LoadAudit.h"
 
 #include "AssetMaintenanceAPI.h"
 #include "Asset/PackageSchema.h"

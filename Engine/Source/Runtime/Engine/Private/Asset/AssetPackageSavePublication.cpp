@@ -106,7 +106,7 @@ namespace Durin::AssetPrivate
 	}
 
 	auto CommitPreparedPackageSave(const FPreparedPackageSave& Prepared,
-		const FAssetBundleSaveOptions& Options,
+		const FPackageSaveCommitContext& Context,
 		const FAssetRegistryPublication& Expected) -> FAssetWriteResult
 	{
 		DPackage* Package = Prepared.Package.Get();
@@ -118,13 +118,11 @@ namespace Durin::AssetPrivate
 		if (auto Admission = ValidatePackageSaveAdmission(Path); !Admission) return Admission;
 		if (Package->GetEditRevision() != Revision || Package->GetPackagePathIdentity() != Path)
 			return Error(EAssetWriteError::StaleData, "Package changed during save preparation.");
-		if (Options.RootPackage && Options.RootPackage != Package)
-			return Error(EAssetWriteError::InvalidData, "The root package is not the saved package.");
-		if (Options.ShouldFail)
-			for (auto Phase : {EAssetBundleSavePhase::CreateDirectories, EAssetBundleSavePhase::PublishCompanion,
-				EAssetBundleSavePhase::StagePackage, Options.RootPackage == Package
-					? EAssetBundleSavePhase::PublishRootPackage : EAssetBundleSavePhase::PublishPackage})
-				if (Options.ShouldFail(Phase, 0)) return Error(EAssetWriteError::IoError, "Injected save publication failure.");
+		if (Context.Fault)
+			for (auto Phase : {Testing::EPackageSaveFaultPoint::CreateDirectories, Testing::EPackageSaveFaultPoint::PublishCompanion,
+				Testing::EPackageSaveFaultPoint::StagePackage, Testing::EPackageSaveFaultPoint::PublishPackage})
+				if ((Phase != Testing::EPackageSaveFaultPoint::PublishCompanion || Prepared.Header.BulkSegmentExtent)
+					&& Context.Fault(Phase, Context.PackageIndex)) return Error(EAssetWriteError::IoError, "Injected save publication failure.");
 		const auto& Header = Prepared.Header;
 		const auto& Destination = Prepared.Destination;
 		auto& Write = *Prepared.Write;
@@ -133,10 +131,10 @@ namespace Durin::AssetPrivate
 		FFilePublicationStamp Stamp;
 		if (!FFilePublicationStamp::Inspect(Destination, Stamp) || !Stamp.Exists)
 			return RollbackAssetWrite(Write, FAssetWriteResult{EAssetWriteError::IoError, "Cannot inspect committed package."});
-		const bool Inject = Options.ShouldFail && Options.ShouldFail(EAssetBundleSavePhase::PublishRegistry, 1);
+		const bool Inject = Context.Fault && Context.Fault(Testing::EPackageSaveFaultPoint::PublishRegistry, Context.PackageIndex);
 		auto RegistryResult = Inject ? FAssetWriteResult{EAssetWriteError::StaleData, "Injected Registry publication failure."}
 			: AssetWriteResultFromRead(AssetPrivate::ToAssetResult(AssetsSaved({BuildSavedAssetMetadata(Header, Destination, Stamp.Size, Stamp.Time)}, Expected)));
-		if (!RegistryResult && Options.bRollbackOnRegistryFailure) return RollbackAssetWrite(Write, RegistryResult);
+		if (!RegistryResult && Context.Policy == ESavePublicationPolicy::RollbackCandidate) return RollbackAssetWrite(Write, RegistryResult);
 		if (FindResidentPackage(Path) == Package) Package->MarkAsPublished();
 		if (Package->GetEditRevision() == Revision) Package->ClearDirty();
 		auto Finalized = ToAssetWriteResult(Write.Finalize());

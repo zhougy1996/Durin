@@ -501,18 +501,15 @@ namespace Durin
 		return {};
 	}
 
-	auto FCookContext::MakePackageSerializationOptions() const
-		-> FAssetPackageSerializationOptions
+	auto FCookContext::MakePackagePreparationOptions() const
+		-> FCookPackagePreparationOptions
 	{
 		return {
-			.Domain = EAssetPackageSaveDomain::Cooked,
 			.TargetPlatform = TargetPlatform,
 			.TargetProfile = TargetProfile,
-			.bRetainEditorOnlyData = bRetainEditorOnlyData,
 			.MaterialConfigurations = MaterialConfigurations,
 			.IsCancelled = IsCancelled,
-			.ReadCookInput = ReadInput,
-			.PreparationFailure = PreparationFailure
+			.ReadCookInput = ReadInput
 		};
 	}
 
@@ -555,7 +552,7 @@ namespace Durin
 		DPackage* Package
 	) -> FCookPlanResult
 	{
-		*PreparationFailure = {};
+		PreparationFailure = {};
 		if (!IsValidTarget(TargetPlatform, TargetProfile))
 			return {.Error = {.Code = ECookPlanError::Target, .TargetPlatform = TargetPlatform, .TargetProfile = TargetProfile}};
 		if (const auto Validated = ValidateCookPlanPath(VirtualPackagePath); !Validated) return Validated;
@@ -569,13 +566,16 @@ namespace Durin
 				return Existing.VirtualPath == VirtualPackagePath;
 			})) return {{.Code = ECookPlanError::DuplicatePath, .VirtualPath = VirtualPackagePath}};
 
-		FAssetPackageSerializationOptions Options = MakePackageSerializationOptions();
+		const auto Options = MakePackagePreparationOptions();
+		FCookPackagePreparationReport Report;
 		const FArchiveTarget Target{std::string(GetTargetPlatformName(TargetPlatform)), std::string(GetTargetProfileName(TargetProfile))};
 		if (std::ranges::none_of(Package->GetTopLevelAssets(), [&](const auto* Object) { return IsObjectIncludedForCook(Object, Target); })) return {};
 		FByteBuffer PackageBytes;
 		FByteBuffer Segment;
-		const auto Result = SerializeAssetPackageClosure(
-			Package, PackageBytes, Segment, Options);
+		const auto Result = SerializeCookedPackageClosure(
+			Package, PackageBytes, Segment, Options, &Report,
+			{.bRetainEditorOnlyData = bRetainEditorOnlyData});
+		PreparationFailure = std::move(Report.Failure);
 		if (!Result)
 			return {{.Code = ECookPlanError::Projection, .VirtualPath = VirtualPackagePath,
 				.SourcePath = SourcePackagePath.ToString(), .ProjectionDiagnostic = ObjectPackage::FormatPackageError(Result)}};

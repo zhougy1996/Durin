@@ -42,9 +42,9 @@ namespace Durin
 			Path, ExpectedClass, OutReport);
 	}
 
-	auto SavePackage(DPackage* Package, EAssetPackageSaveMode Mode) -> FAssetWriteResult
+	auto SavePackage(DPackage* Package, const FAssetPackageSaveArgs& Args) -> FAssetWriteResult
 	{
-		return FAssetRuntimeState::Get().GetMutationCoordinator().SavePackage(Package, Mode);
+		return FAssetRuntimeState::Get().GetMutationCoordinator().SavePackage(Package, Args.Mode);
 	}
 
 	auto IsPackageLoading(const FPackagePath& Path) -> bool

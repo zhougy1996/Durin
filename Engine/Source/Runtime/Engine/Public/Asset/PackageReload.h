@@ -2,9 +2,6 @@
 
 #include "CoreMinimal.h"
 
-#include "Asset/AssetReadResult.h"
-#include "Asset/PackageGraphPreparationError.h"
-#include "Materials/MaterialCompileLifecycle.h"
 #include "DObject/AssetPath.h"
 #include "DObject/ObjectGraphReplacement.h"
 #include "EngineAPI.h"
@@ -52,36 +49,13 @@ namespace Durin
 		Retire,
 	};
 
-	enum class EPackageReloadFaultPoint : uint8
+	// Optional owned details supplied by an asset family. The common API has no
+	// dependency on that family's compiler or resource types.
+	class FPackageReloadDiagnosticDetails
 	{
-		PreflightBudget,
-		QuiesceSelected,
-		ReadMain,
-		ReadBulk,
-		CreateSkeleton,
-		ResolveDependency,
-		ApplyValues,
-		RestoreLedger,
-		PreparePostLoad,
-		PrepareReferences,
-		PrepareNativeParticipant,
-		PrepareHistory,
-		PrepareRuntimeProduct,
-		ReserveRenderPublish,
-		RevalidateDisk,
-		RevalidateReferencers,
-		BeforeCommit,
-	};
-
-	enum class EPackageReloadReason : uint8
-	{
-		None, FileInspection, MissingOperation, AlreadyActive, Cancelled, CookedRuntime, EmptyRequest,
-		InvalidPackage, PackageBudget, InvalidIdentity, UnsavedPackage, MissingFile, InjectedQuiesceFailure,
-		InjectedMainReadFailure, InjectedBulkReadFailure, InjectedRuntimeFailure, InjectedReferenceFailure,
-		InjectedDiskRevalidationFailure, InjectedFinalValidationFailure, ObserverException, Allocation,
-		CallbackException, TextureBudget, VolumeBudget, FunctionPreparation, TexturePreparation,
-		MaterialPreparation, UnsupportedClass, ResourceRead, GraphPreparation, Replacement,
-		ResourceRevalidation, DependencyRelease,
+	public:
+		virtual ~FPackageReloadDiagnosticDetails() = default;
+		virtual auto GetSummary() const -> std::string = 0;
 	};
 
 	struct FPackageReloadDiagnostic
@@ -89,16 +63,13 @@ namespace Durin
 		FPackagePath PackagePath;
 		std::string ObjectPath;
 		EPackageReloadStage Stage = EPackageReloadStage::Preflight;
-		EPackageReloadReason Reason = EPackageReloadReason::None;
 		std::string ClassName;
 		std::filesystem::path File;
 		std::error_code SystemError;
 		uint64 Actual = 0;
 		uint64 Maximum = 0;
 		std::string Message;
-		std::vector<FMaterialProgramDiagnostic> MaterialCauses;
-		std::optional<FMaterialCompileStatus> MaterialCompileStatus;
-		std::vector<FMaterialProgramDiagnostic> MaterialCompileCauses;
+		std::shared_ptr<const FPackageReloadDiagnosticDetails> Details;
 	};
 
 	ENGINE_API auto FormatPackageReloadDiagnostic(const FPackageReloadDiagnostic& Diagnostic) -> std::string;
@@ -152,9 +123,6 @@ namespace Durin
 		std::vector<std::shared_ptr<IPackageReloadParticipant>> Participants;
 		FPackageReloadBudget Budget;
 		std::function<bool()> IsCancelled;
-		// Deterministic validation seam. Package/object ordinals are stable within
-		// the deduplicated request and no hook runs inside the noexcept commit.
-		std::function<bool(EPackageReloadFaultPoint, uint64, uint64)> ShouldFail;
 	};
 
 	struct FPackageReloadResult

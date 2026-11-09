@@ -1,3 +1,4 @@
+#include "Asset/Testing/PackageSaveTesting.h"
 #include "NativeAssetBuildTestSupport.h"
 #include "Asset/PackageUnloading.h"
 #include "StaticMesh/StaticMeshImportSettings.h"
@@ -336,10 +337,10 @@ TEST(FSceneImportTests, SplitPublicationReportsSavedFailedAndUnexecutedOutputs)
 	const auto Fixture = InitializeFixture("SplitPartial", "StaticModelMaterials/PrimitiveProjection.gltf");
 	std::filesystem::copy_file(std::filesystem::path(DURIN_TEST_DATA_DIR) / "StaticModelMaterials/Triangle.bin",
 		std::filesystem::path(Fixture.Source).parent_path() / "Triangle.bin");
-	const auto Result = ImportAssetOutputs(Fixture.Source, Fixture.DestinationDirectory,
-		FStaticMeshImportSettings::MakeDurin(), {}, {}, {}, {.ShouldFail = [](EAssetBundleSavePhase Phase, size_t Index) {
-			return Phase == EAssetBundleSavePhase::StagePackage && Index == 1;
-		}});
+	const auto Result = ([&] { Durin::Testing::FScopedPackageSaveFault Fault([](Durin::Testing::EPackageSaveFaultPoint Phase, size_t Index) {
+			return Phase == Durin::Testing::EPackageSaveFaultPoint::StagePackage && Index == 1;
+		}); return ImportAssetOutputs(Fixture.Source, Fixture.DestinationDirectory,
+		FStaticMeshImportSettings::MakeDurin(), {}, {}, {}, {}); }());
 	EXPECT_FALSE(Result);
 	EXPECT_EQ(Result.SavedPackages.size(), 1u);
 	EXPECT_EQ(std::ranges::count(Result.Outputs, EImportOutputState::Saved, &FImportOutputSummary::State), 1);
@@ -410,10 +411,12 @@ TEST(FSceneImportTests, AsyncSessionReportsPartialPersistence)
 	const auto Fixture = InitializeFixture("AsyncPartial");
 	FSceneImportSession Session(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin());
 	ASSERT_TRUE(AdvanceSceneSession(Session, ESceneImportPhase::Ready));
-	ASSERT_TRUE(Session.BeginImport(Fixture.DestinationDirectory, {}, {
-		.ShouldFail = [](EAssetBundleSavePhase Phase, size_t Index) {
-			return Index == 1 && Phase == EAssetBundleSavePhase::PublishRegistry;
-		}}));
+	{
+		Durin::Testing::FScopedPackageSaveFault Fault([](Durin::Testing::EPackageSaveFaultPoint Phase, size_t Index) {
+			return Index == 1 && Phase == Durin::Testing::EPackageSaveFaultPoint::PublishRegistry;
+		});
+		ASSERT_TRUE(Session.BeginImport(Fixture.DestinationDirectory, {}));
+	}
 	ASSERT_TRUE(AdvanceSceneSession(Session, ESceneImportPhase::Completed));
 	EXPECT_FALSE(Session.GetResult());
 	EXPECT_EQ(Session.GetResult().SavedPackages.size(), 1u) << Session.GetResult().Message;
@@ -676,12 +679,11 @@ TEST(FSceneImportTests, FailedPublicationDiscardsLocalMaterialAndRetrySucceeds)
 	const auto ParentPath = Preview.Materials.front().AssetPath;
 	ASSERT_FALSE(FindPackageExact(ParentPath));
 	ASSERT_EQ(FindResidentPackage(ParentPath), nullptr);
-	for (const auto Failure : {EAssetBundleSavePhase::CreateDirectories, EAssetBundleSavePhase::StagePackage,
-		EAssetBundleSavePhase::PublishPackage, EAssetBundleSavePhase::PublishRegistry})
+	for (const auto Failure : {Durin::Testing::EPackageSaveFaultPoint::CreateDirectories, Durin::Testing::EPackageSaveFaultPoint::StagePackage,
+		Durin::Testing::EPackageSaveFaultPoint::PublishPackage, Durin::Testing::EPackageSaveFaultPoint::PublishRegistry})
 	{
 		bool bInjected = false;
-		auto Failed = ImportSceneAssets(Fixture.Source, Fixture.DestinationDirectory,
-			FStaticMeshImportSettings::MakeDurin(), {}, {.ShouldFail = [&](EAssetBundleSavePhase Phase, size_t) {
+		auto Failed = ([&] { Durin::Testing::FScopedPackageSaveFault Fault([&](Durin::Testing::EPackageSaveFaultPoint Phase, size_t) {
 				EXPECT_EQ(FindResidentPackage(ParentPath), nullptr);
 				for (auto* Object : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly))
 					if (auto* Package = Cast<DPackage>(Object))
@@ -689,7 +691,8 @@ TEST(FSceneImportTests, FailedPublicationDiscardsLocalMaterialAndRetrySucceeds)
 				if (Phase != Failure) return false;
 				bInjected = true;
 				return true;
-			}});
+			}); return ImportSceneAssets(Fixture.Source, Fixture.DestinationDirectory,
+			FStaticMeshImportSettings::MakeDurin(), {}, {}); }());
 		ASSERT_FALSE(Failed);
 		EXPECT_TRUE(bInjected);
 		EXPECT_FALSE(Failed.bSucceeded);
@@ -702,10 +705,10 @@ TEST(FSceneImportTests, FailedPublicationDiscardsLocalMaterialAndRetrySucceeds)
 			EXPECT_FALSE(FindPackageExact(Output.AssetPath));
 		}
 	}
-	auto Partial = ImportSceneAssets(Fixture.Source, Fixture.DestinationDirectory,
-		FStaticMeshImportSettings::MakeDurin(), {}, {.ShouldFail = [](EAssetBundleSavePhase Phase, size_t) {
-			return Phase == EAssetBundleSavePhase::PublishRootPackage;
-		}});
+	auto Partial = ([&] { Durin::Testing::FScopedPackageSaveFault Fault([&](Durin::Testing::EPackageSaveFaultPoint Phase, size_t) {
+			return Phase == Durin::Testing::EPackageSaveFaultPoint::PublishPackage && FindPackageExact(ParentPath);
+		}); return ImportSceneAssets(Fixture.Source, Fixture.DestinationDirectory,
+		FStaticMeshImportSettings::MakeDurin(), {}, {}); }());
 	ASSERT_FALSE(Partial);
 	ASSERT_FALSE(Partial.SavedPackages.empty());
 	EXPECT_FALSE(Partial.bPersisted);

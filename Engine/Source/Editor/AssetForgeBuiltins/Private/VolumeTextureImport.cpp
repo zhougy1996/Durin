@@ -374,7 +374,7 @@ namespace Durin::AssetForge::Builtins
 		auto RebuildVolumeFromFilename(DVolumeTexture& Texture,
 			std::string Filename, ESourceHintBase HintBase,
 			const FVolumeTextureImportSettings& Settings,
-			const FAssetBundleSaveOptions* SaveOptions,
+			const FAssetPackageSaveArgs* SaveOptions,
 			std::optional<std::filesystem::path> SelectedPhysicalPath = {}) -> FVolumeTextureRebuildResult
 		{
 			std::filesystem::path OwningPackagePath;
@@ -416,8 +416,7 @@ namespace Durin::AssetForge::Builtins
 			if (const auto Published = PublishDirectVolumeImportData(Texture, std::move(Filename), HintBase, PhysicalPath, Snapshot, Settings); !Published) return Published;
 			if (!SaveOptions) return {};
 			DPackage* Package = Texture.GetPackage();
-			const FAssetWriteResult Saved = SavePackages(
-				std::span<DPackage* const>(&Package, 1), *SaveOptions).Result;
+			const FAssetWriteResult Saved = SavePackage(Package, *SaveOptions);
 			if (Saved) return {};
 			return std::unexpected(Saved.Message);
 		}
@@ -554,7 +553,7 @@ namespace Durin::AssetForge::Builtins
 	}
 
 	auto ReimportVolumeTexture(DVolumeTexture& Texture,
-		const FAssetBundleSaveOptions& SaveOptions) -> FVolumeTextureRebuildResult
+		const FAssetPackageSaveArgs& SaveOptions) -> FVolumeTextureRebuildResult
 	{
 		const auto* ImportData = dynamic_cast<const DVolumeTextureImportData*>(
 			Texture.GetAssetImportData());
@@ -576,7 +575,7 @@ namespace Durin::AssetForge::Builtins
 
 	auto ReimportVolumeTextureFromFile(DVolumeTexture& Texture,
 		std::string_view FilePath,
-		const FAssetBundleSaveOptions& SaveOptions) -> FVolumeTextureRebuildResult
+		const FAssetPackageSaveArgs& SaveOptions) -> FVolumeTextureRebuildResult
 	{
 		const auto* ImportData = dynamic_cast<const DVolumeTextureImportData*>(
 			Texture.GetAssetImportData());

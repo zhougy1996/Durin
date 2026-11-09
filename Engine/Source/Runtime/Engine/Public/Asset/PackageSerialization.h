@@ -6,22 +6,15 @@
 #include "Asset/AssetReadResult.h"
 #include "Asset/AssetWriteResult.h"
 #include "DObject/PackageBulkStorage.h"
-#include "Asset/CookedAsset.h"
-#include "Asset/CookDependencies.h"
 #include "DObject/Archive.h"
 #include "DObject/PackageSaveOverrides.h"
 #include "DObject/ObjectPtr.h"
 #include "DObject/Property.h"
 #include "DObject/SoftObjectPtr.h"
 #include "DObject/PackagePersistence.h"
-#include "Materials/MaterialCookConfiguration.h"
 
 namespace Durin
 {
-	struct FCookContributionResult;
-	class FObjectGraphReplacement;
-	enum class EAssetPackageSaveDomain : uint8 { Authored, Cooked };
-
 	ENGINE_API auto CanonicalizeAssetPackageForCook(
 		FByteView Bytes,
 		FByteView BulkBytes,
@@ -40,83 +33,29 @@ namespace Durin
 	// Complete snapshots retain every selected value; Delta follows paired defaults.
 	enum class EAssetPackageSaveMode : uint8 { Delta, Complete };
 
-	// Owner-thread observations of outstanding reservations, not physical allocator peaks.
-	struct FCookPreparationMetrics
-	{
-		uint32 AdmittedOperations = 0;
-		uint32 PeakAdmittedOperations = 0;
-		uint64 PeakReservedBytes = 0;
-		uint64 RetainedProductBytes = 0;
-	};
-
+	// Encoding rules only. Cook preparation and scheduling belong to Asset/Cook.h.
 	struct FAssetPackageSerializationOptions
 	{
-		EAssetPackageSaveDomain Domain = EAssetPackageSaveDomain::Authored;
-		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
-		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
 		bool bRetainEditorOnlyData = false;
 		std::shared_ptr<const FObjectSaveOverrides> SaveOverrides;
 		std::function<bool(const DObject*, const FProperty*)> PropertyFilter;
 		EAssetPackageSaveMode Mode = EAssetPackageSaveMode::Delta;
-		std::vector<FMaterialCookConfiguration> MaterialConfigurations;
-		std::function<bool()> IsCancelled;
-		std::function<FCookInputResult(ECookBuildDependencyKind, std::string_view, FByteBuffer&)> ReadCookInput;
-		std::shared_ptr<FCookContributionResult> PreparationFailure;
-		// Scheduling envelopes do not participate in cooked identities.
-		uint32 MaximumConcurrentPreparation = 4;
-		uint64 MaximumPreparationWorkingSetBytes = 512ull * 1024 * 1024;
-		FCookPreparationMetrics* PreparationMetrics = nullptr;
 	};
 
-	enum class EAssetBundleSavePhase : uint8
+	// Content parameters shared by synchronous, asynchronous and batch saves.
+	struct FAssetPackageSaveArgs
 	{
-		CreateDirectories,
-		PublishCompanion,
-		StagePackage,
-		PublishPackage,
-		PublishRootPackage,
-		PublishRegistry
-	};
-
-	struct FAssetBundleSaveOptions
-	{
-		DPackage* RootPackage = nullptr;
-		std::function<bool(EAssetBundleSavePhase, size_t)> ShouldFail;
-		// Applies only to the current package; earlier successful saves are final.
-		// Ordinary saves retain the existing committed-content/projection-pending policy.
-		bool bRollbackOnRegistryFailure = false;
-		// Admits only private packages owned by this prepared publication operation.
-		const FObjectGraphReplacement* PreparedPublication = nullptr;
 		EAssetPackageSaveMode Mode = EAssetPackageSaveMode::Delta;
 	};
 
 	struct FAssetPackageSaveContext
 	{
-		FAssetBundleSaveOptions Options;
-		EPackageSaveFlags Flags = SAVE_None;
+		FAssetPackageSaveArgs Args;
 		std::function<bool()> IsCancellationRequested;
 		ENGINE_API auto SaveAsync(DPackage*, FAssetWriteResult& Admission) const -> Tasks::TTask<FAssetWriteResult>;
 	};
-	// Owner-thread coordinator for private graph persistence. After IsReady(),
-	// prepare graph replacement and call Commit only inside its TryCommit callback.
-	// Staging never changes live files or publishes objects. Dropping a ready save
-	// discards its stages. A failed Commit retains the ordinary rollback semantics.
-	class FPreparedAssetSave final
-	{
-	public:
-		ENGINE_API static auto Begin(DPackage* Package, const FAssetBundleSaveOptions& Options,
-			FAssetWriteResult& Admission) -> std::shared_ptr<FPreparedAssetSave>;
-		ENGINE_API ~FPreparedAssetSave();
-		ENGINE_API auto IsReady() const -> bool;
-		ENGINE_API auto Commit(const FObjectGraphReplacement& Publication) -> FAssetWriteResult;
-	private:
-		FPreparedAssetSave();
-		struct FState;
-		std::unique_ptr<FState> State;
-	};
 	using FAsyncPackageSaveSink = std::function<void(const FPackagePath&, const FAssetWriteResult&)>;
 	ENGINE_API auto SetAsyncPackageSaveSink(FAsyncPackageSaveSink Sink) -> void;
-	namespace AssetPrivate { ENGINE_API auto SetAsyncSavePublicationFailureForTests(bool bFail) -> void; }
 
 	ENGINE_API auto SerializeAssetPackageBytes(
 		DPackage* Package,
@@ -137,16 +76,15 @@ namespace Durin
 		auto Succeeded() const -> bool { return Result.Succeeded(); }
 		explicit operator bool() const { return Succeeded(); }
 	};
-	// Saves in input order, with RootPackage last. Stops at the first failure;
+	// Saves in input order. Stops at the first failure;
 	// SavedPackages stay committed. FailedPackage may have Result.Effect on disk.
-	// PreparedPublication is restricted to a single-package call.
 	ENGINE_API auto SavePackages(
 		std::span<DPackage* const> Packages,
-		const FAssetBundleSaveOptions& Options = {}
+		const FAssetPackageSaveArgs& Args = {}
 	) -> FAssetBatchSaveResult;
-	ENGINE_API auto SavePackage(DPackage* Package, EAssetPackageSaveMode Mode = EAssetPackageSaveMode::Delta) -> FAssetWriteResult;
-	ENGINE_API auto SavePackage(DPackage* Package, EPackageSaveFlags Flags,
-		EAssetPackageSaveMode Mode = EAssetPackageSaveMode::Delta) -> FAssetWriteResult;
+	ENGINE_API auto SavePackage(DPackage* Package, const FAssetPackageSaveArgs& Args = {}) -> FAssetWriteResult;
+	// Admission-only direct output. Completion is reported to the async save sink.
+	ENGINE_API auto SavePackageDirectAsync(DPackage* Package, const FAssetPackageSaveArgs& Args = {}) -> FAssetWriteResult;
 	ENGINE_API auto AdmitAssetPackageToCatalog(
 		const FPackagePath& Path
 	) -> FAssetWriteResult;

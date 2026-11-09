@@ -300,14 +300,22 @@ namespace Durin::AssetPrivate::LinkerSchema
 	}
 
 	auto FixupSerializedNames(ObjectPackage::FLinkerTables& Linker,
-		std::vector<FAssetCanonicalizationEvidence>& OutEvidence) -> FAssetReadResult
+		uint64& OutCount, std::vector<FAssetCanonicalizationEvidence>* OutEvidence) -> FAssetReadResult
 	{
 		const auto& PackagePath = Linker.Summary.PackagePath;
 		FIdentityNormalizer Normalize;
 		std::vector<FAssetCanonicalizationEvidence> Evidence;
+		uint64 Count = 0;
 		auto Record = [&](std::string Stored, const std::string& Current, EAssetReflectedIdentityKind Kind,
-			EAssetSerializedIdentityLocation Location, std::string Path) {
-			if (Stored != Current) Evidence.push_back({PackagePath, std::move(Stored), Current, Kind, Location, std::move(Path)});
+			EAssetSerializedIdentityLocation Location, size_t Index, std::optional<size_t> FieldIndex = {}) {
+			if (Stored == Current) return;
+			++Count;
+			if (!OutEvidence) return;
+			const std::string Path = FieldIndex ? std::format("schemas[{}].fields[{}].name", Index, *FieldIndex)
+				: Location == EAssetSerializedIdentityLocation::ObjectRecord ? std::format("objects[{}].class", Index)
+				: Location == EAssetSerializedIdentityLocation::Schema ? std::format("schemas[{}].identity", Index)
+				: std::format("types[{}].identity", Index);
+			Evidence.push_back({PackagePath, std::move(Stored), Current, Kind, Location, Path});
 		};
 		for (size_t Index = 0; Index < Linker.Exports.size(); ++Index)
 		{
@@ -315,7 +323,7 @@ namespace Durin::AssetPrivate::LinkerSchema
 			std::string Stored = Name;
 			Normalize.Class(Name);
 			Record(std::move(Stored), Name, EAssetReflectedIdentityKind::Class,
-				EAssetSerializedIdentityLocation::ObjectRecord, std::format("objects[{}].class", Index));
+				EAssetSerializedIdentityLocation::ObjectRecord, Index);
 		}
 		for (auto& Asset : Linker.Summary.TopLevelAssets) Normalize.Class(Asset.ClassName);
 		for (auto& Import : Linker.Imports) Normalize.Class(Import.ClassName);
@@ -331,7 +339,7 @@ namespace Durin::AssetPrivate::LinkerSchema
 					std::format("Serialized schemas canonicalize to duplicate identity {}.", Schema.QualifiedName)};
 			Record(std::move(Stored), Schema.QualifiedName,
 				Class ? EAssetReflectedIdentityKind::Class : EAssetReflectedIdentityKind::Struct,
-				EAssetSerializedIdentityLocation::Schema, std::format("schemas[{}].identity", Index));
+				EAssetSerializedIdentityLocation::Schema, Index);
 			std::unordered_set<std::string_view> Names;
 			for (size_t FieldIndex = 0; FieldIndex < Schema.Fields.size(); ++FieldIndex)
 			{
@@ -339,7 +347,7 @@ namespace Durin::AssetPrivate::LinkerSchema
 				Stored = Field.Name;
 				Normalize.Field(Owner, Field.Name);
 				Record(std::move(Stored), Field.Name, EAssetReflectedIdentityKind::Property,
-					EAssetSerializedIdentityLocation::Schema, std::format("schemas[{}].fields[{}].name", Index, FieldIndex));
+					EAssetSerializedIdentityLocation::Schema, Index, FieldIndex);
 				Normalize.Type(Field.Type);
 				if (!Names.emplace(Field.Name).second)
 					return {EAssetReadError::CorruptFile, std::format(
@@ -355,7 +363,7 @@ namespace Durin::AssetPrivate::LinkerSchema
 			const auto Kind = Type.Kind == K::Enum ? EAssetReflectedIdentityKind::Enum
 				: Type.Kind == K::Struct ? EAssetReflectedIdentityKind::Struct : EAssetReflectedIdentityKind::Class;
 			Record(std::move(Stored), Type.QualifiedName, Kind,
-				EAssetSerializedIdentityLocation::TypeDescriptor, std::format("types[{}].identity", Index));
+				EAssetSerializedIdentityLocation::TypeDescriptor, Index);
 		}
 		for (auto& Export : Linker.Exports)
 			for (auto& Property : Export.Properties)
@@ -369,7 +377,8 @@ namespace Durin::AssetPrivate::LinkerSchema
 			return std::tie(Left.Location, Left.LogicalPath, Left.Kind, Left.StoredIdentity, Left.CurrentIdentity)
 				< std::tie(Right.Location, Right.LogicalPath, Right.Kind, Right.StoredIdentity, Right.CurrentIdentity);
 		});
-		OutEvidence = std::move(Evidence);
+		OutCount = Count;
+		if (OutEvidence) *OutEvidence = std::move(Evidence);
 		return {};
 	}
 

@@ -1,4 +1,5 @@
 #include "Thumbnail/AssetThumbnailTestFixtures.h"
+#include "Asset/Testing/PackageReloadTesting.h"
 #include "Editor/EditorEngineTestSupport.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Toolkits/AssetEditor.h"
@@ -180,11 +181,15 @@ namespace
 		const auto Document = Session->GetDocumentManager()->GetDocuments().front();
 		ASSERT_TRUE(Collection->SetDefaultValue(Declaration.Id, FVector4(3)));
 		EXPECT_TRUE(Session->GetToolkit()->IsDocumentDirty(Document));
-		FPackageReloadRequest FailedReload{.Packages = {Collection->GetPackage()},
-			.ShouldFail = [](auto Point, uint64, uint64) { return Point == EPackageReloadFaultPoint::BeforeCommit; }};
+		FPackageReloadRequest FailedReload{.Packages = {Collection->GetPackage()}};
 		FailedReload.Participants.push_back(Session->GetDocumentManager()->CreateDocumentReloadParticipant());
 		FailedReload.Participants.push_back(CreateTransactorReloadParticipant(*Host->GetTransactor(), FailedReload.Packages));
-		EXPECT_EQ(EPackageReloadStatus::Failed, ReloadPackages(FailedReload).Wait().Status);
+		{
+			Testing::FScopedPackageReloadFault FaultScope([](auto Point, uint64, uint64) {
+				return Point == Testing::EPackageReloadFaultPoint::BeforeCommit;
+			});
+			EXPECT_EQ(EPackageReloadStatus::Failed, ReloadPackages(FailedReload).Wait().Status);
+		}
 		EXPECT_EQ(Collection, Session->GetObjectsToEdit().front());
 		EXPECT_TRUE(WorldState->SetValue(*Collection, Declaration.Id, FVector4(8)));
 		ASSERT_TRUE(Session->GetToolkit()->DiscardDocument(Document)) << Session->GetToolkit()->GetLastOperationError();

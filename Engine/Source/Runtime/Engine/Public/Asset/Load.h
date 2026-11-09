@@ -16,60 +16,7 @@
 
 namespace Durin
 {
-	enum class EAssetLoadMutationKind : uint8
-	{
-		Upgrade,
-		NonUpgrade
-	};
-
-	struct FAssetLoadMutation
-	{
-		FPackagePath PackagePath;
-		std::string ObjectPath;
-		std::string HandlerId;
-		std::string Summary;
-		EAssetLoadMutationKind Kind = EAssetLoadMutationKind::NonUpgrade;
-	};
-
-	enum class EAssetReflectedIdentityKind : uint8
-	{
-		Class,
-		Struct,
-		Enum,
-		Property
-	};
-	enum class EAssetSerializedIdentityLocation : uint8
-	{
-		PackageHeader,
-		ObjectRecord,
-		Schema,
-		TypeDescriptor
-	};
-
-	struct FAssetCanonicalizationEvidence
-	{
-		FPackagePath PackagePath;
-		std::string StoredIdentity;
-		std::string CurrentIdentity;
-		EAssetReflectedIdentityKind Kind = EAssetReflectedIdentityKind::Class;
-		EAssetSerializedIdentityLocation Location =
-			EAssetSerializedIdentityLocation::PackageHeader;
-		std::string LogicalPath;
-
-		auto operator==(const FAssetCanonicalizationEvidence&) const -> bool = default;
-	};
-
-	struct FAssetDeprecatedRouteEvidence
-	{
-		FPackagePath PackagePath;
-		std::string ObjectPath;
-		std::string DeclaringType;
-		std::string StoredFieldName;
-		std::string DeprecatedPropertyName;
-
-		auto operator==(const FAssetDeprecatedRouteEvidence&) const -> bool = default;
-	};
-
+	// Request summary only. Errors belong to the load result; detailed evidence to LoadAudit.h.
 	struct FAssetLoadReport
 	{
 		FPackagePath RequestedPath;
@@ -78,24 +25,14 @@ namespace Durin
 		uint64 CatalogRevision = 0;
 		std::vector<FPackagePath> RedirectChain;
 		std::string FinalAssetClassName;
-		EAssetReadError Error = EAssetReadError::None;
-		std::string ErrorMessage;
 		uint64 PackageFileReadCount = 0;
-		std::vector<FAssetLoadMutation> Mutations;
-		std::vector<FAssetCanonicalizationEvidence> CanonicalizationEvidence;
-		std::vector<FAssetDeprecatedRouteEvidence> DeprecatedRouteEvidence;
+		uint64 UpgradeMutationCount = 0;
+		uint64 NonUpgradeMutationCount = 0;
+		uint64 CanonicalizedIdentityCount = 0;
+		uint64 DeprecatedFieldRouteCount = 0;
 		// Removed authored fields skipped in memory; source bytes change only on save.
 		uint64 DiscardedFieldCount = 0;
-
-		ENGINE_API auto HasNonUpgradeMutations() const -> bool;
 	};
-
-	ENGINE_API auto ReportAssetLoadMutation(
-		DObject* Object,
-		std::string HandlerId,
-		std::string Summary,
-		EAssetLoadMutationKind Kind = EAssetLoadMutationKind::NonUpgrade
-	) -> void;
 
 	[[nodiscard]] ENGINE_API auto LoadPackage(
 		const FPackagePath& Path,
@@ -109,6 +46,7 @@ namespace Durin
 		const DClass* ExpectedClass,
 		FAssetLoadReport* OutReport = nullptr) -> std::expected<DObject*, FAssetReadError>
 	{
+		if (OutReport) *OutReport = {};
 		FObjectPath ObjectPath;
 		if (!FObjectPath::TryCreate(
 			Path, std::span<const std::string>{}, ObjectPath))

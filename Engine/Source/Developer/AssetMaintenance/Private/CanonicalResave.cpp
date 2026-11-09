@@ -1,3 +1,4 @@
+#include "Asset/Testing/PackageSaveTesting.h"
 #include "AssetMaintenance/CanonicalResave.h"
 #include "Asset/StreamableHandle.h"
 #include "Asset/EditorBulkDataStorage.h"
@@ -354,7 +355,7 @@ namespace Durin
 				LoadReport = LoadHandle->GetReport();
 				const auto Load = LoadHandle->GetResult();
 				Package = Load ? Load->Package : nullptr;
-				if (!Load || !Package || LoadReport.HasNonUpgradeMutations())
+				if (!Load || !Package || LoadReport.NonUpgradeMutationCount != 0)
 				{
 					(void)ReleaseLoaded();
 					PackagePlan.Status = EAssetCanonicalResavePackageStatus::Failed;
@@ -493,20 +494,17 @@ namespace Durin
 				Result.Diagnostic = "Injected canonical-resave serialization failure.";
 				return Result;
 			}
-			DPackage* Unit[] = {Package};
-			FAssetBundleSaveOptions SaveOptions;
-			SaveOptions.ShouldFail = [&](EAssetBundleSavePhase Phase, size_t) {
+			Testing::FScopedPackageSaveFault SaveFault([&](Testing::EPackageSaveFaultPoint Phase, size_t) {
 				if (!Options.ShouldFail) return false;
-				if (Phase == EAssetBundleSavePhase::StagePackage)
+				if (Phase == Testing::EPackageSaveFaultPoint::StagePackage)
 					return Options.ShouldFail(EAssetCanonicalResaveApplyPhase::StagePackage, Index);
-				if (Phase == EAssetBundleSavePhase::PublishPackage
-					|| Phase == EAssetBundleSavePhase::PublishRootPackage)
+				if (Phase == Testing::EPackageSaveFaultPoint::PublishPackage)
 					return Options.ShouldFail(EAssetCanonicalResaveApplyPhase::PublishPackage, Index);
-				if (Phase == EAssetBundleSavePhase::PublishRegistry)
+				if (Phase == Testing::EPackageSaveFaultPoint::PublishRegistry)
 					return Options.ShouldFail(EAssetCanonicalResaveApplyPhase::PublishRegistry, Index);
 				return false;
-			};
-			FAssetWriteResult Save = SavePackages(Unit, SaveOptions).Result;
+			});
+			FAssetWriteResult Save = SavePackage(Package);
 			if (!Save)
 			{
 				(void)ReleaseLoaded();

@@ -1,4 +1,5 @@
 #include "TextureAssetDefinition.h"
+#include "Texture/Texture2D.h"
 
 #include "Widgets/MTextureEditor.h"
 #include "Widgets/MVolumeTextureEditor.h"

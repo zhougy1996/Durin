@@ -186,11 +186,14 @@ global object-edit Undo/Redo history.
 
 ## Asynchronous Save Staging
 
-`SavePackage(Package, SAVE_None, Mode)` retains synchronous saving.
-`SAVE_Async` is a scheduling flag, independent of Delta/Complete mode. It returns
-only admission and exposes no task handle. For persistence confirmation use
-`Package->SaveAsync(Admission, FAssetPackageSaveContext{Options})`, which returns
-`Tasks::TTask<FAssetWriteResult>`. The explicit Engine context keeps asset readiness,
+`SavePackage(Package, Args)` performs synchronous saving.
+`SavePackageDirectAsync(Package, Args)` returns only admission and exposes no task
+handle. For persistence confirmation use
+`Package->SaveAsync(Admission, FAssetPackageSaveContext{.Args = Args})`, which returns
+`Tasks::TTask<FAssetWriteResult>`. These paths share `FAssetPackageSaveArgs`; the
+protected context adds cancellation without a redundant scheduling-flags field.
+Clean resident packages are accepted, with the same revision checks as dirty ones.
+The explicit Engine context keeps asset readiness,
 participant validation and Registry publication; the CoreDObject file-only
 context cannot substitute for it in editor workflows. Shared lifetime, capacity,
 wait and shutdown rules are defined by
@@ -199,8 +202,9 @@ wait and shutdown rules are defined by
 Protected tasks capture on GameThread, stage detached output on BlockingIO and
 complete after GameThread validation, commit, Registry publication and finalization
 or rollback. Dropping the task does not cancel publication. The old public
-`FAsyncPackageSave::Begin` / `Complete` protocol is removed. Completion options,
-including optional Registry-failure rollback, are copied at submission.
+`FAsyncPackageSave::Begin` / `Complete` protocol is removed. Content arguments, cancellation and test-fault callbacks are copied at submission.
+Ordinary Registry failure keeps valid committed content and reports a fenced
+projection; rollback policy is not selectable through ordinary save arguments.
 Publication and exceptional completion use separate callbacks under the shared
 save owner. Protected operations abandon uncompleted writer state on GameThread;
 they never retry publication to perform cleanup. The real staging task releases
@@ -208,13 +212,14 @@ its write closure, while publication and abandonment retain object ownership
 until GameThread release before terminal notification. Writers keep their existing
 staging, commit, rollback and destruction protocol.
 
-Private scene candidates use `FPreparedAssetSave` for protected staging. `Begin`
+Private scene candidates use `FPreparedAssetSave` from
+`Asset/PreparedPackageSave.h` for protected staging. `Begin`
 pins and captures a private asset package on GameThread, then submits detached
 staging through the shared save owner. `IsReady` observes owner-side completion.
 After readiness, the caller prepares `FObjectGraphReplacement` and calls `Commit`
 inside its synchronous persistence callback. Commit checks publication ownership,
 captured root/dependency identities, package revision and destination, then uses
-the ordinary protected commit and Registry rollback policy. Discarding a ready
+the protected commit path with mandatory Registry-failure rollback. Discarding a ready
 operation removes staging files without publishing. The caller must keep its
 private graph alive and settle staging before abandoning the graph. Graph
 replacement must not be prepared across the asynchronous staging interval.

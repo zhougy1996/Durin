@@ -26,12 +26,14 @@ namespace Durin::AssetPrivate
 		~FScopedCookedPreparation();
 		FScopedCookedPreparation(const FScopedCookedPreparation&) = delete;
 		auto operator=(const FScopedCookedPreparation&) -> FScopedCookedPreparation& = delete;
-		auto Prepare(DPackage* Package, const FAssetPackageSerializationOptions& Options) -> std::expected<void, FPackageCaptureError>;
+		auto Prepare(DPackage* Package, const FCookPackagePreparationOptions& Options,
+			const FAssetPackageSerializationOptions& Serialization, FCookPackagePreparationReport& Report) -> std::expected<void, FPackageCaptureError>;
 		auto Validate(DPackage* Package) const -> std::expected<void, FPackageCaptureError>;
 		static auto Find(const DObject& Object, const FArchiveTarget& Target) -> FPreparedCookedObject*;
 		static auto GetContext(DObject& Object, const FObjectCookContext& Invocation) -> FCookPreparationContext*;
 	private:
 		auto Finish(FCookPreparationContext& Context) -> std::expected<void, FPackageCaptureError>;
+		FCookPackagePreparationReport* Report = nullptr;
 		uint64 Revision = 0;
 		uint64 RetainedBytes = 0;
 		FScopedCookedPreparation* Previous;

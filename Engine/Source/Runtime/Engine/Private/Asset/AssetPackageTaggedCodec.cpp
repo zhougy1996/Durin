@@ -743,7 +743,7 @@ namespace Durin::AssetPrivate::TaggedPackage
 
 		auto Write(DPackage* Package, FAssetPackageEncodedClosure& OutClosure,
 			EDefaultDeltaMode DeltaMode,
-			const FAssetPackageSerializationOptions& Options) -> ObjectPackage::FPackageWriterResult
+			const FAssetPackageCaptureOptions& Options) -> ObjectPackage::FPackageWriterResult
 		{
 			ObjectPackage::FLinkerTables Linker;
 			if (auto Result = CaptureLivePackageLinker(Package, DeltaMode,

@@ -94,9 +94,9 @@ namespace Durin::AssetForge::Builtins
 		const FVolumeTextureImportSettings& Settings) -> FVolumeTextureTranslationResult;
 	[[nodiscard]] ASSETFORGEBUILTINS_API auto ReimportVolumeTexture(
 		DVolumeTexture& Texture,
-		const FAssetBundleSaveOptions& SaveOptions = {}) -> FVolumeTextureRebuildResult;
+		const FAssetPackageSaveArgs& SaveOptions = {}) -> FVolumeTextureRebuildResult;
 	[[nodiscard]] ASSETFORGEBUILTINS_API auto ReimportVolumeTextureFromFile(
 		DVolumeTexture& Texture,
 		std::string_view FilePath,
-		const FAssetBundleSaveOptions& SaveOptions = {}) -> FVolumeTextureRebuildResult;
+		const FAssetPackageSaveArgs& SaveOptions = {}) -> FVolumeTextureRebuildResult;
 }

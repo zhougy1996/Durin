@@ -571,7 +571,7 @@ TEST(FCookInputTests, DiscoveryLimitsAndRootClassRetainFirstCause)
 
 TEST(FCookInputTests, MissingReaderClearsOutputAndClassifiesFailure)
 {
-	const FAssetPackageSerializationOptions Options;
+	const FCookPackagePreparationOptions Options;
 	FCookPreparationContext Context{Options};
 	FByteBuffer Bytes{std::byte{1}};
 	std::string Name = "missing-value";
