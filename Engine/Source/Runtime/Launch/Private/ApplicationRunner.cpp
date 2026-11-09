@@ -108,7 +108,7 @@ namespace Durin
 			const auto BeforeTick = EngineLoop.GetCompletedRunningTicks();
 			EngineLoop.Tick();
 			const auto StartupState = EngineLoop.GetStartupState();
-			if (StartupState == EHostStartupState::Failed
+			if (!IsEngineExitRequested() && StartupState == EHostStartupState::Failed
 				&& (!DURIN_WITH_EDITOR || Request.Automation.ExitAfterTicks || StartupCommand.Name))
 			{
 				DURIN_ERROR("Requested host startup failed: {}", EngineLoop.GetStartupError());

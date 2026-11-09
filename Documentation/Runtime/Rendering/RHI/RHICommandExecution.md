@@ -471,6 +471,12 @@ failure is terminal rather than a successful flush. Task-event admission remains
 open until rendering and RHI have stopped; render-producing task owners must
 close admission and join before render teardown. See [runtime shutdown](../../Application/RuntimeLifecycle.md).
 
+`FlushRenderingCommands` owns the lifecycle check: on the GameThread, a stopped
+render queue is already drained and the call performs no submission, including
+before RHI startup. Callers use the barrier without inspecting admission state.
+Calling it while admission is Draining remains an ordering error; ordinary
+render-command submission still requires Running admission.
+
 Render shutdown closes render-command admission, drains every accepted command,
 flushes the immediate timeline and deferred deletion, then verifies all of the
 following before `RHIExit()`:

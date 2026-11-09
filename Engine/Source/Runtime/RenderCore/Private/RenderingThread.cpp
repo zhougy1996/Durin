@@ -242,6 +242,9 @@ namespace Durin
 
 	auto FlushRenderingCommands() -> void
 	{
+		check(IsInGameThread());
+		// Stopped admission owns no accepted work, including before RHI startup.
+		if (GetRenderCommandAdmissionState() == ERenderCommandAdmissionState::Stopped) return;
 		ENQUEUE_RENDER_COMMAND(FlushPendingDeleteRHIResourcesCmd)([](FRHICommandListImmediate& RHICmdList) {
 			RHICmdList.ImmediateFlush(
 				EImmediateFlushType::DispatchToRHIThread,

@@ -456,6 +456,22 @@ namespace Durin
 
 							SceneViewport->PublishRenderOutcome_RenderThread(Result);
 							Receipt->RecordProduced(Result == ERenderViewResult::Success ? Generation : 0);
+							if (Result == ERenderViewResult::RendererResourcesPending)
+							{
+								// Return the acquired swapchain image without acknowledging scene output.
+								FRHIRenderPassInfo Clear;
+								Clear.RenderTargetLayout.NumColorRenderTargets = 1;
+								auto& Attachment = Clear.RenderTargetLayout.ColorAttachments[0].RenderTarget;
+								Attachment.Format = BackBuffer->GetFormat();
+								Attachment.FinalLayout = ERHITextureLayout::Present;
+								Attachment.FinalAccess = ERHIAccess::Present;
+								Clear.ColorRenderTargets[0] = BackBuffer;
+								Clear.ColorClearValues[0] = FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f);
+								CommandList.BeginRenderPass(Clear, "PendingSceneWindow");
+								CommandList.EndRenderPass();
+								CommandList.EndDrawingViewport(ViewportRHI, true, false);
+								return;
+							}
 							EndDrawingViewportWithReceipts(CommandList, ViewportRHI,
 								Result == ERenderViewResult::Success, {{Receipt, Generation}});
 						}

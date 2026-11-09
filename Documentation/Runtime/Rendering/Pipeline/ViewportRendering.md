@@ -245,6 +245,13 @@ creates a window-backed `FSceneViewport`. The game renders directly to the
 native backbuffer and does not create an `MViewport` or UI texture registration.
 Detached Play windows use the same composition.
 
+Project startup advances after `Init`, through ordinary engine frames. If scene
+rendering is still waiting for resources after acquiring a native backbuffer,
+Engine clears and presents that buffer so the swapchain image can be reused.
+This loading frame records no scene-output receipt and cannot satisfy
+`QueryPresentation`; Game becomes ready only after the committed scene itself
+has rendered and presented.
+
 Flow:
 
 ```text

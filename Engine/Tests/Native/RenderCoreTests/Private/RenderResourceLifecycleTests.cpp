@@ -203,6 +203,10 @@ namespace Durin
 		EXPECT_EQ(GetRenderCommandAdmissionState(),
 			ERenderCommandAdmissionState::Stopped);
 		EXPECT_EQ(GetNumPendingRenderCommands(), 0u);
+		FlushRenderingCommands();
+		FlushRenderingCommands();
+		EXPECT_EQ(GetNumPendingRenderCommands(), 0u);
+		EXPECT_EQ(GetRenderCommandAdmissionState(), ERenderCommandAdmissionState::Stopped);
 
 		// Restore the fixture contract and prove the stopped pipe is reusable.
 		InitRenderingThread();

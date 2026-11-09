@@ -6,6 +6,8 @@
 #include "Transactions/Transactor.h"
 #include "Client/ViewportClient.h"
 #include "Engine/GameEngine.h"
+#include "Engine/MapChange.h"
+#include "Misc/Project.h"
 #include "Gameplay/PawnControlIntent.h"
 #include "Input/GameInputState.h"
 #include "Window/GenericWindow.h"
@@ -23,6 +25,10 @@ namespace Durin
 
 	struct FGameEngineTestAccess
 	{
+		static auto QueueStartup(DGameEngine& Engine, std::string Error = {}) -> void
+		{ Engine.StartupError = std::move(Error); Engine.StartupPhase = DGameEngine::EStartupPhase::StartProject; }
+		static auto AwaitStartupScene(DGameEngine& Engine) -> void
+		{ Engine.StartupPhase = DGameEngine::EStartupPhase::AwaitingScene; }
 		static auto KeyDown(DGameEngine& Engine, const std::shared_ptr<FGenericWindow>& Window, EKey Key, bool bRepeat = false) -> bool
 		{
 			return Engine.HandleGameInputKeyDown(Window, Key, bRepeat);
@@ -69,6 +75,34 @@ namespace
 
 	private:
 		bool bFocused = true;
+	};
+
+	class FGameStartupTests : public testing::Test
+	{
+	protected:
+		auto SetUp() -> void override
+		{
+			InitializeDObjectSystem();
+			ASSERT_FALSE(Durin::HasCurrentProject());
+			Engine = Durin::NewObject<Durin::DGameEngine>(nullptr, "GameStartupTest");
+			Window = std::make_shared<FFocusedTestWindow>();
+			Engine->SetGameInputWindow(Window);
+			Durin::FGameEngineTestAccess::QueueStartup(*Engine);
+		}
+		auto TearDown() -> void override
+		{
+			if (Engine)
+			{
+				Engine->PrepareForShutdown();
+				Durin::MarkObjectHierarchyAsGarbage(Engine.Get());
+				Engine.Reset();
+				Durin::CollectGarbage();
+			}
+			if (bSelectedProject) (void)Durin::InitializeCurrentProject({.bOpenProjectBrowser = true});
+		}
+		Durin::TStrongObjectPtr<Durin::DGameEngine> Engine;
+		std::shared_ptr<FFocusedTestWindow> Window;
+		bool bSelectedProject = false;
 	};
 
 	template<typename TObject>
@@ -360,6 +394,101 @@ TEST(FEditorMouseCaptureTests, EscapeAndFocusLossRestoreWithoutAutomaticRecaptur
 	Durin::CollectGarbage();
 }
 
+TEST_F(FGameStartupTests, AdmissionErrorWaitsForStartupAndBecomesOneTerminalFailure)
+{
+	using namespace Durin;
+	FGameEngineTestAccess::QueueStartup(*Engine, "project admission failed");
+	EXPECT_EQ(Engine->GetStartupState(), EHostStartupState::Pending);
+	EXPECT_FALSE(Engine->RequestGameMouseCapture(Window));
+	EXPECT_EQ(Engine->GetWorld(), nullptr);
+	Engine->AdvanceStartup();
+	EXPECT_EQ(Engine->GetStartupState(), EHostStartupState::Failed);
+	EXPECT_EQ(Engine->GetStartupError(), "project admission failed");
+	Engine->AdvanceStartup();
+	Engine->Tick(0.1f, false);
+	EXPECT_EQ(Engine->GetStartupError(), "project admission failed");
+	EXPECT_EQ(Engine->GetWorld(), nullptr);
+	EXPECT_FALSE(Engine->IsPreparingMapChange());
+	EXPECT_FALSE(Engine->RequestGameMouseCapture(Window));
+}
+
+TEST_F(FGameStartupTests, ModuleSettingsAndPathErrorsShareTheStartupFailureBoundary)
+{
+	using namespace Durin;
+	struct FScenario { const char* Name; const char* Modules; const char* Settings; const char* Diagnostic; };
+	const std::array Scenarios{
+		FScenario{"MissingModule", "[\"MissingGameStartupModule\"]", "Game: {}\n", "MissingGameStartupModule"},
+		FScenario{"InvalidSettings", "[]", "Game: invalid\n", "must be a YAML map"},
+		FScenario{"PartialGameplay", "[]", "Game:\n  NativeModule: MissingGameStartupModule\n", "requires both"},
+		FScenario{"InvalidLevel", "[]", "Game:\n  DefaultLevel: invalid-path\n", "Invalid Game.DefaultLevel"}};
+	for (const auto& Scenario : Scenarios)
+	{
+		SCOPED_TRACE(Scenario.Name);
+		const auto Root = Testing::CreateTestFixtureDirectory(std::format("GameStartup{}", Scenario.Name));
+		std::filesystem::create_directories(Root / "Configs");
+		const auto Project = Root / "Startup.dproject";
+		{
+			std::ofstream Descriptor(Project);
+			Descriptor << "{\"ProjectName\":\"StartupTest\",\"BaseModules\":" << Scenario.Modules << "}";
+			ASSERT_TRUE(Descriptor.good());
+			std::ofstream Settings(Root / "Configs" / "Project.yaml");
+			Settings << Scenario.Settings;
+			ASSERT_TRUE(Settings.good());
+		}
+		ASSERT_TRUE(InitializeCurrentProject({.RequestedProjectFile = Project.generic_string(), .bRecordInteractiveHistory = false}));
+		bSelectedProject = true;
+		FGameEngineTestAccess::QueueStartup(*Engine);
+		EXPECT_EQ(Engine->GetStartupState(), EHostStartupState::Pending);
+		Engine->AdvanceStartup();
+		EXPECT_EQ(Engine->GetStartupState(), EHostStartupState::Failed);
+		EXPECT_NE(Engine->GetStartupError().find(Scenario.Diagnostic), std::string::npos) << Engine->GetStartupError();
+		EXPECT_EQ(Engine->GetWorld(), nullptr);
+		EXPECT_FALSE(Engine->IsPreparingMapChange());
+		EXPECT_FALSE(Engine->RequestGameMouseCapture(Window));
+		const auto Error = Engine->GetStartupError();
+		Engine->AdvanceStartup();
+		EXPECT_EQ(Engine->GetStartupError(), Error);
+	}
+}
+
+TEST_F(FGameStartupTests, CanceledOrLostInitialMapCannotBecomeReady)
+{
+	using namespace Durin;
+	FGameEngineTestAccess::AwaitStartupScene(*Engine);
+	ASSERT_TRUE(Engine->PrepareMapChange({}));
+	Engine->CancelPendingMapChange();
+	Engine->AdvanceStartup();
+	EXPECT_EQ(Engine->GetStartupState(), EHostStartupState::Failed);
+	EXPECT_FALSE(Engine->GetStartupError().empty());
+	EXPECT_FALSE(Engine->RequestGameMouseCapture(Window));
+	Engine->PrepareForShutdown();
+}
+
+TEST_F(FGameStartupTests, MissingInitialMapIsATerminalFailure)
+{
+	using namespace Durin;
+	FGameEngineTestAccess::AwaitStartupScene(*Engine);
+	Engine->AdvanceStartup();
+	EXPECT_EQ(Engine->GetStartupState(), EHostStartupState::Failed);
+	EXPECT_NE(Engine->GetStartupError().find("no longer available"), std::string::npos);
+}
+
+TEST_F(FGameStartupTests, ShutdownAndExitDoNotPublishStartupSuccessOrCaptureInput)
+{
+	using namespace Durin;
+	struct FRestoreExit { bool Previous = GIsRequestingExit; ~FRestoreExit() { GIsRequestingExit = Previous; } } RestoreExit;
+	RequestEngineExit();
+	Engine->AdvanceStartup();
+	EXPECT_EQ(Engine->GetStartupState(), EHostStartupState::Pending);
+	EXPECT_EQ(Engine->GetWorld(), nullptr);
+	GIsRequestingExit = RestoreExit.Previous;
+	Engine->PrepareForShutdown();
+	Engine->AdvanceStartup();
+	EXPECT_EQ(Engine->GetStartupState(), EHostStartupState::Pending);
+	EXPECT_EQ(Engine->GetWorld(), nullptr);
+	EXPECT_FALSE(Engine->RequestGameMouseCapture(Window));
+}
+
 TEST(FGameMouseCaptureTests, StartupEscapeClickFocusAndCloseManageStandaloneCapture)
 {
 	InitializeDObjectSystem();
@@ -392,6 +521,11 @@ TEST(FGameMouseCaptureTests, StartupEscapeClickFocusAndCloseManageStandaloneCapt
 	Durin::FGameEngineTestAccess::Close(*Engine, Window);
 	EXPECT_EQ(Window->GetCursorMode(), Durin::ECursorMode::Free);
 	EXPECT_FALSE(Engine->IsGameMouseCaptured());
+	{
+		struct FRestoreExit { bool Previous = Durin::GIsRequestingExit; ~FRestoreExit() { Durin::GIsRequestingExit = Previous; } } RestoreExit;
+		Durin::RequestEngineExit();
+		EXPECT_FALSE(Engine->RequestGameMouseCapture(Window));
+	}
 
 	Durin::MarkObjectHierarchyAsGarbage(Engine);
 	Durin::CollectGarbage();

@@ -66,7 +66,7 @@ namespace Durin
 
 	RENDERCORE_API auto ShutdownRenderingThread() -> void;
 
-	// Waits for the rendering thread to finish processing all enqueued commands. Should only be used from the game thread.
+	// Game-thread barrier for accepted render/RHI work; a stopped queue is already drained.
 	RENDERCORE_API auto FlushRenderingCommands() -> void;
 
 	RENDERCORE_API auto GetRenderCommandAdmissionState()

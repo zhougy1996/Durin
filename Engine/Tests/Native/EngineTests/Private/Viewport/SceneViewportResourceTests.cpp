@@ -181,6 +181,8 @@ namespace Durin
 		{
 			const auto Receipt = Viewport->GetOutputReceipt();
 			Receipt->RecordProduced(17);
+			// A loading frame can present the native window without presenting this scene.
+			Primary->RecordSuccessfulPresentation();
 			EXPECT_EQ(Viewport->QueryPresentation(17, Window.get()), EScenePresentationState::Pending);
 			Receipt->RecordPresented(17, Auxiliary);
 			EXPECT_EQ(Viewport->QueryPresentation(17, Window.get()), EScenePresentationState::Pending);

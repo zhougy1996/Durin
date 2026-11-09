@@ -1,10 +1,15 @@
 #include "gtest/gtest.h"
 
+#include "Application/MonaApplication.h"
+#include "ApplicationCoreGlobals.h"
+#include "CoreGlobals.h"
+#include "HAL/PlatformLTS.h"
 #include "MonaCoreGlobals.h"
 #include "MonaGlobals.h"
 #include "MonaUIBackend.h"
 #include "MonaTestFixtures.h"
 #include "Rendering/MonaRHIRenderer.h"
+#include "DynamicRHI.h"
 #include "Rendering/ViewportDisplaySource.h"
 #include "Widgets/MViewport.h"
 #include "Widgets/MWindow.h"
@@ -107,6 +112,42 @@ namespace
 		uint32 RenderCount = 0;
 	};
 
+}
+
+TEST(FMonaApplicationLifetimeTests, ClosesStartupWindowsWithoutRHIOrRenderAdmission)
+{
+	using namespace Durin;
+	if (!GIsGameThreadIdInitialized)
+	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+		GIsGameThreadIdInitialized = true;
+	}
+	ASSERT_FALSE(Mona::FMonaApplication::IsInitialized());
+	ASSERT_EQ(GApp, nullptr);
+	ASSERT_EQ(GDynamicRHI, nullptr);
+	const bool PreviousExit = GIsRequestingExit;
+	struct FRestoreApplication
+	{
+		bool PreviousExit;
+		~FRestoreApplication() { Mona::FMonaApplication::Shutdown(); GIsRequestingExit = PreviousExit; }
+	} Restore{PreviousExit};
+	Mona::FMonaApplication::Create();
+	auto Window = std::make_shared<MWindow>();
+	auto Native = std::make_shared<FTestClientAreaWindow>();
+	std::weak_ptr<FTestClientAreaWindow> WeakNative = Native;
+	Window->SetNativeWindow(Native);
+	Native.reset();
+	std::weak_ptr<MWindow> WeakWindow = Window;
+	Mona::FMonaApplication::Get().AddWindow(Window, false);
+	Window.reset();
+	EXPECT_FALSE(WeakWindow.expired());
+	Mona::FMonaApplication::Shutdown();
+	EXPECT_TRUE(WeakWindow.expired());
+	EXPECT_TRUE(WeakNative.expired());
+	EXPECT_EQ(GApp, nullptr);
+	EXPECT_FALSE(Mona::FMonaApplication::IsInitialized());
+	EXPECT_EQ(GDynamicRHI, nullptr);
+	Mona::FMonaApplication::Shutdown();
 }
 
 TEST(FMonaWindowGeometryTests, BindsActualClientGeometryBeforeTheFirstResizeEvent)

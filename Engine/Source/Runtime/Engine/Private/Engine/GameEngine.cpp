@@ -31,138 +31,159 @@ namespace Durin
 	{
 	}
 
-	auto DGameEngine::Init(const FEngineInitContext& Context)
-		-> bool
+	auto DGameEngine::Init(const FEngineInitContext& Context) -> bool
 	{
+		FHostOperationScope Operation(*this);
 		if (!DEngine::Init(Context))
-			return false;
-		StartupError.clear();
-		if (!Context.ProjectAdmissionError.empty())
 		{
-			StartupError = Context.ProjectAdmissionError;
-			return true;
-		}
-		if (const FProjectInfo* Project = GetCurrentProject())
-		{
-			for (const std::string& ModuleName : Project->EnabledRootModules)
-				if (!FModuleManager::Get().LoadModule(FName(ModuleName)))
-				{
-					DURIN_ERROR("Game initialization could not load project module '{}'.", ModuleName);
-					return false;
-				}
-		}
-
-		if (const auto Content = InitializeProjectContent(); !Content)
-		{
-			StartupError = Content.error();
-			return true;
-		}
-		std::shared_ptr<MWindow> GameWindow = Context.StartupWindow;
-		if (!GameWindow || !GameWindow->GetNativeWindow())
-		{
-			DURIN_ERROR("Game initialization requires a native startup window.");
+			if (bShutdownRequested) FailStartup("Game engine services could not initialize.");
 			return false;
 		}
-		const FProjectInfo* Project = GetCurrentProject();
-		GameWindow->SetTitle(Project ? Project->Name : "DurinGame");
-		GameWindow->ReshapeWindow({100.0f, 100.0f}, {1280.0f, 720.0f});
-
-		auto& MonaApp = Mona::FMonaApplication::Get();
-		MonaApp.GetRenderer()->CreateViewport(GameWindow);
-		MonaApp.AddWindow(GameWindow, true);
-
-		std::shared_ptr<FSceneViewport> SceneViewport = FSceneViewport::CreateWindowBacked(nullptr, GameWindow);
-		SetMainSceneViewport(SceneViewport);
-		const std::shared_ptr<FGenericWindow> NativeWindow = GameWindow->GetNativeWindow();
-		SetGameInputWindow(NativeWindow);
-
-
-		if (const FProjectInfo* CurrentProject = GetCurrentProject())
+		StartupPhase = EStartupPhase::StartProject;
+		StartupError = Context.ProjectAdmissionError;
+		auto FailInitialization = [&](std::string Error) {
+			FailStartup(std::move(Error));
+			PrepareForShutdown();
+			return false;
+		};
+		try
 		{
-			const FProjectGameSettingsStore SettingsStore = FProjectGameSettingsStore::ForProject(*CurrentProject);
-			FProjectGameSettings Settings;
-			const FProjectGameSettingsResult SettingsResult = SettingsStore.Load(Settings);
-			if (!SettingsResult)
-			{
-				StartupError = SettingsResult.Message;
-				DURIN_ERROR("Could not load project game settings: {}", StartupError);
-				return true;
-			}
-			const FNativeGameModeResolution GameMode = ResolveNativeGameMode(Settings);
-			if (!GameMode)
-			{
-				StartupError = GameMode.Result.Message;
-				DURIN_ERROR("Could not resolve native gameplay bootstrap: {}", StartupError);
-				return true;
-			}
-			if (!Settings.DefaultLevel.empty())
-			{
-				FPackagePath PackagePath;
-				FObjectPath LevelPath;
-				const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(Settings.DefaultLevel, PackagePath);
-				if (!PathValidation)
-					StartupError = std::format("Invalid Game.DefaultLevel '{}': {}", Settings.DefaultLevel, ToString(PathValidation.error()));
-				else if (const auto Resolution = ResolveLevelPackage(PackagePath, LevelPath); !Resolution)
-					StartupError = Resolution.Message;
-				else
-				{
-					bStartupPending = OpenLevel({.Path = LevelPath, .GameMode = GameMode.GameModeClass});
-					if (!bStartupPending) StartupError = "Could not start the default map change.";
-				}
-			}
+			const auto& GameWindow = Context.StartupWindow;
+			if (!GameWindow || !GameWindow->GetNativeWindow())
+				return FailInitialization("Game initialization requires a native startup window.");
+			if (!Mona::FMonaApplication::IsInitialized() || !Mona::FMonaApplication::Get().GetRenderer())
+				return FailInitialization("Game initialization requires Mona window presentation services.");
+			const FProjectInfo* Project = GetCurrentProject();
+			GameWindow->SetTitle(Project ? Project->Name : "DurinGame");
+			GameWindow->ReshapeWindow({100.0f, 100.0f}, {1280.0f, 720.0f});
+			auto& MonaApp = Mona::FMonaApplication::Get();
+			MonaApp.GetRenderer()->CreateViewport(GameWindow);
+			MonaApp.AddWindow(GameWindow, true);
+			SetMainSceneViewport(FSceneViewport::CreateWindowBacked(nullptr, GameWindow));
+			SetGameInputWindow(GameWindow->GetNativeWindow());
 		}
-		if (!bStartupPending && StartupError.empty()) RequestGameMouseCapture(NativeWindow);
+		catch (const std::exception& Error)
+		{
+			return FailInitialization(std::format("Game service initialization failed: {}", Error.what()));
+		}
+		catch (...) { return FailInitialization("Game service initialization threw an unknown exception."); }
+		if (bShutdownRequested || IsEngineExitRequested())
+		{
+			PrepareForShutdown();
+			return false;
+		}
 		return true;
 	}
+
+	auto DGameEngine::StartGame() -> std::expected<void, std::string>
+	{
+		if (!StartupError.empty()) return std::unexpected(StartupError);
+		FPackagePath DefaultLevel;
+		DClass* GameModeClass = nullptr;
+		if (const FProjectInfo* Project = GetCurrentProject())
+		{
+			const auto Modules = Project->EnabledRootModules;
+			for (const auto& ModuleName : Modules)
+			{
+				if (!FModuleManager::Get().LoadModule(FName(ModuleName)))
+					return std::unexpected(std::format("Game startup could not load project module '{}'.", ModuleName));
+				if (bShutdownRequested || IsEngineExitRequested()) return std::unexpected("Game startup was canceled.");
+			}
+			FProjectGameSettings Settings;
+			if (const auto Result = FProjectGameSettingsStore::ForProject(*Project).Load(Settings); !Result)
+				return std::unexpected(Result.Message);
+			const auto GameMode = ResolveNativeGameMode(Settings);
+			if (!GameMode) return std::unexpected(GameMode.Result.Message);
+			GameModeClass = GameMode.GameModeClass;
+			if (!Settings.DefaultLevel.empty())
+				if (const auto Validation = FPackagePath::TryCreateWithDiagnostic(Settings.DefaultLevel, DefaultLevel); !Validation)
+					return std::unexpected(std::format("Invalid Game.DefaultLevel '{}': {}", Settings.DefaultLevel, ToString(Validation.error())));
+		}
+		if (bShutdownRequested || IsEngineExitRequested()) return std::unexpected("Game startup was canceled.");
+		if (const auto Content = InitializeProjectContent(); !Content) return std::unexpected(Content.error());
+		if (bShutdownRequested || IsEngineExitRequested()) return std::unexpected("Game startup was canceled.");
+		if (DefaultLevel.IsValid())
+		{
+			FObjectPath LevelPath;
+			if (const auto Resolution = ResolveLevelPackage(DefaultLevel, LevelPath); !Resolution)
+				return std::unexpected(Resolution.Message);
+			if (!OpenLevel({.Path = LevelPath, .GameMode = GameModeClass}))
+				return std::unexpected("Could not start the default map change.");
+		}
+		return {};
+	}
+
+	auto DGameEngine::FailStartup(std::string Error) -> void
+	{
+		StartupError = Error.empty() ? "Game startup failed without a diagnostic." : std::move(Error);
+		StartupPhase = EStartupPhase::Failed;
+		DURIN_ERROR("Game startup failed: {}", StartupError);
+	}
+
+	auto DGameEngine::CompleteStartup() -> void
+	{
+		if (bShutdownRequested || IsEngineExitRequested()) return;
+		StartupPhase = EStartupPhase::Ready;
+		StartupError.clear();
+		if (const auto Window = GameInputWindow.lock()) RequestGameMouseCapture(Window);
+	}
+
 	auto DGameEngine::ShouldDrawStartupScene() const -> bool
 	{
 		const auto Progress = GetMapChangeProgress();
-		return bStartupPending && Progress && Progress->Phase == EMapChangePhase::Committed;
+		return StartupPhase == EStartupPhase::AwaitingScene && Progress && Progress->Phase == EMapChangePhase::Committed;
 	}
+
 	auto DGameEngine::AdvanceStartup() -> void
 	{
-		if (bShutdownRequested) { bStartupPending = false; return; }
-		if (!bStartupPending) return;
+		if (bShutdownRequested || IsEngineExitRequested() || GetStartupState() != EHostStartupState::Pending) return;
 		FHostOperationScope Operation(*this);
+		if (StartupPhase == EStartupPhase::StartProject)
+		{
+			std::expected<void, std::string> Started;
+			try { Started = StartGame(); }
+			catch (const std::exception& Error) { Started = std::unexpected(std::format("Game project startup failed: {}", Error.what())); }
+			catch (...) { Started = std::unexpected("Game project startup threw an unknown exception."); }
+			if (bShutdownRequested || IsEngineExitRequested()) return;
+			if (!Started) { FailStartup(std::move(Started.error())); return; }
+			if (IsPreparingMapChange()) StartupPhase = EStartupPhase::AwaitingScene;
+			else CompleteStartup();
+			return;
+		}
 		const auto Progress = GetMapChangeProgress();
-		if (!Progress) return;
+		if (!Progress) { FailStartup("The default map change is no longer available."); return; }
 		if (Progress->Phase == EMapChangePhase::Committed)
 		{
 			const auto& Viewport = GetMainSceneViewport();
+			if (!Viewport) { FailStartup("The game startup scene viewport is no longer available."); return; }
 			const auto Presentation = Viewport->QueryPresentation(GetSceneGeneration());
-			if (Presentation == EScenePresentationState::Failed) { StartupError = "The committed game scene could not render for presentation."; bStartupPending = false; return; }
-			if (Presentation != EScenePresentationState::Presented) return;
-			bStartupPending = false;
-			if (const auto Window = GameInputWindow.lock()) RequestGameMouseCapture(Window);
+			if (Presentation == EScenePresentationState::Failed) { FailStartup("The committed game scene could not render for presentation."); return; }
+			if (Presentation == EScenePresentationState::Presented) CompleteStartup();
 		}
 		else if (Progress->Phase == EMapChangePhase::Failed || Progress->Phase == EMapChangePhase::Canceled)
-		{
-			StartupError = Progress->Diagnostic;
-			bStartupPending = false;
-		}
+			FailStartup(Progress->Diagnostic);
 	}
 	auto DGameEngine::Tick(float DeltaSeconds, bool bIdleMode) -> void
 	{
-		if (bShutdownRequested) { bStartupPending = false; return Super::Tick(DeltaSeconds, bIdleMode); }
+		if (bShutdownRequested) return Super::Tick(DeltaSeconds, bIdleMode);
 		if (GetStartupState() == EHostStartupState::Ready) Super::Tick(DeltaSeconds, bIdleMode);
 	}
 
 	auto DGameEngine::CloseSubsystemWork() -> void
 	{
-		bStartupPending = false;
+		ReleaseGameMouseCapture();
 		Super::CloseSubsystemWork();
 	}
 
 	auto DGameEngine::BeginDestroy() -> void
 	{
-		bStartupPending = false;
 		ReleaseGameMouseCapture();
 		DEngine::BeginDestroy();
 	}
 
 	auto DGameEngine::RequestGameMouseCapture(const std::shared_ptr<FGenericWindow>& Window) -> bool
 	{
-		if (!Window || !Window->IsFocused() || GetStartupState() != EHostStartupState::Ready) return false;
+		if (bShutdownRequested || IsEngineExitRequested() || !Window || !Window->IsFocused() || GetStartupState() != EHostStartupState::Ready) return false;
 		if (GameInputWindow.lock() != Window) SetGameInputWindow(Window);
 		if (CapturedMouseWindow.lock() == Window) return true;
 		ReleaseGameMouseCapture();

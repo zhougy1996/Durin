@@ -15,6 +15,18 @@ namespace
 }
 
 // Full startup characterizations are selected explicitly, outside routine integration coverage.
+#if defined(_WIN32)
+TEST(FLaunchStartupCharacterizationTests, UnavailableRHIBackendFailsAndUnwindsTheStartupWindow)
+{
+	const auto Result = Durin::FPlatformProcess::ExecuteProcess(
+		DURIN_LAUNCH_EXECUTABLE, Durin::FProcessLaunchOptions{
+			.Arguments = {"--project-browser", "--exit-after-ticks=1"},
+			.EnvironmentOverrides = {{"DURIN_RHI_BACKEND", "metal"}}});
+	ASSERT_TRUE(Result.has_value()) << Result.error().ToString();
+	EXPECT_EQ(*Result, 1);
+}
+#endif
+
 TEST(FLaunchStartupCharacterizationTests, BoundedTickExitUsesNormalApplicationShutdown)
 {
 	EXPECT_EQ(RunLaunchChild(

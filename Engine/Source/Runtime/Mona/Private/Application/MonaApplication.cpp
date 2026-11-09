@@ -62,6 +62,7 @@ namespace Durin::Mona
 
 	auto FMonaApplication::Shutdown() -> void
 	{
+		if (!CurrentApplication) return;
 		CurrentApplication->CloseAllWindowsImmediately();
 		CurrentApplication.reset();
 		GApp.reset();

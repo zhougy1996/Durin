@@ -103,6 +103,13 @@ create their own surfaces. Explicit RHI-only Headless initialization creates
 no surface; normal engine startup always uses the presentation context.
 Render-command admission opens immediately after `RHIInit()` and before Mona
 rendering, editor previews, or engine initialization can enqueue work.
+If the selected RHI backend cannot load or initialize, Launch reports the
+backend diagnostic, returns initialization failure and unwinds the hidden startup
+window without entering project startup. Mona uses the ordinary render flush
+barrier before destroying windows. RenderCore treats a stopped queue as already
+drained, including before RHI startup; callers do not inspect queue admission.
+Repeated Mona shutdown is safe. Normal exit
+still destroys windows and rendering resources before closing render admission.
 
 Mona rendering initialization is backend-neutral. In an editor runtime, Launch
 then loads MonaImGui and requires it to install the active backend before
@@ -175,15 +182,20 @@ sets and initial World. Editor invokes this after shell presentation; Game invok
 it after loading its project providers. Material loading, fallback, and render-proxy semantics are defined by
 [Material System](../Rendering/Materials/MaterialSystem.md).
 
-`DGameEngine` first loads every project root module enabled for the Game runtime,
-so project-owned reflected classes are available when loading the default level.
-A required module load failure fails initialization. It then loads the project's
-`Game` settings and configured default level
-after creating its window and scene viewport. It resolves the optional exact
-`Game.NativeModule` and fully qualified `Game.GameModeClass` pair, then begins
-play with an explicit World request. A missing pair selects lifecycle-only
-play. A partial or invalid configured pair, or a native bootstrap failure,
-produces an actionable startup error and leaves the World stopped.
+`DGameEngine::Init()` constructs base services, its window/scene viewport and
+input endpoint, then queues project startup. Its bool reports only service
+construction. The first ordinary `AdvanceStartup()` frame runs `StartGame()`;
+it loads every enabled project root module before project classes are used.
+Module, settings, content, map and presentation failures all become the same
+explicit Failed host outcome with their original diagnostic. Game readiness is
+derived from its queued-start, awaiting-scene and terminal phases, not from error
+string emptiness. Settings and the optional exact `Game.NativeModule` / fully
+qualified `Game.GameModeClass` pair are validated before content construction.
+A missing pair selects lifecycle-only play. The default map request then owns
+BeginPlay, while simulation/input wait for successful scene presentation. Empty
+default-level configuration completes without a map request. Shutdown and process
+exit stop advancement without reporting readiness or capturing input; an existing
+exit request takes precedence when the process runner selects a startup result.
 
 `DEditorEngine::Init()` constructs the production MainFrame shell and returns
 with Pending host readiness. `AdvanceStartup()` drives workspace activation and

@@ -18,6 +18,63 @@ The current implemented contracts still live in [Runtime lifecycle](../Runtime/A
 [Load preparation](../Runtime/Rendering/Pipeline/LoadPreparation.md), and
 [Subsystems](../Runtime/Engine/Subsystems.md).
 
+Stage 4 Game startup refinement (2026-11-09): Game Init constructs only base
+services, the primary window/viewport and input endpoint. Its bool reports
+service construction exclusively. The first ordinary AdvanceStartup frame runs
+project admission through one expected result: required modules, settings/native
+gameplay validation, project content and the initial map request. Explicit Game
+phases distinguish queued project startup, awaiting scene presentation, Ready and
+Failed; errors are diagnostics rather than a second readiness source. Validate
+settings before constructing project content, retain the shared presentation gate,
+and keep shutdown/exit cancellation from admitting simulation or mouse capture.
+
+The cooked Game success-path check exposed direct-window Pending frames retaining
+an acquired swapchain image without presentation. Direct-window resource-pending
+frames now clear/present that image without recording a scene-output receipt;
+successful scene output still owns the readiness gate. Missing-backend preparation
+also exposed an existing pre-Game-Init Mona teardown assertion when render-command
+admission never opened; the Stage 2 partial-init refinement below addresses that
+failure.
+
+Game split validation (working tree based on `fc5f2b679`, Win64 Debug): WorldTests
+211/211, ViewportTests 118/118 and LaunchStartupCharacterizationTests 6/6 pass.
+Editor DurinLauncher, Sandbox and RoadWeaver build; both Editor projects complete
+three running ticks and clean shutdown. Game DurinLauncher, Sandbox, Renderer and
+VulkanRHI build. An ignored Sandbox fixture receives an exact-package canonical
+resave of GrayboxStage15, then cooks seven packages; the cooked Game commits its
+map, presents the scene and completes three running ticks with no Vulkan
+validation errors. Original project assets are unchanged. Evidence under
+`Build/EditorStartupDiagnosis/game-start-split-{world,viewport,process}.xml` and
+logs `20261109-160153-398792-8160-DurinGame.log`,
+`20261109-160756-822211-20376-DurinEditor.log` and
+`20261109-160759-963607-31388-DurinEditor.log`. These bounded checks do not close
+the remaining Stage 4/6 acceptance matrices.
+
+Stage 2 partial-init refinement (2026-11-09): RenderCore's flush barrier treats
+stopped admission as already drained, including before RHI startup. Mona retains
+its ordinary window-release barrier without inspecting queue lifecycle state;
+Draining admission and illegal command submissions remain errors. This keeps the
+partial-init policy with the service owner. Repeated Mona shutdown is
+safe. Missing/unavailable RHI remains an initialization failure with the existing
+backend diagnostic and nonzero process result; no project startup or automatic
+headless fallback is introduced.
+
+Partial-init validation (working tree based on `4eba20463`, Win64 Debug):
+RenderContractTests 244/244, MonaViewportTests 15/15 and
+LaunchStartupCharacterizationTests 7/7 pass, including stopped-queue flush and
+restart, window/native-owner release without RHI, repeated shutdown and an
+explicitly unavailable backend. Editor and Game Mona/RenderCore build. Temporarily withholding each
+runtime's generated VulkanRHI DLL produces the exact missing-module diagnostic,
+exit code 1, drained worker/I/O pools and `Engine exited`, without assertions or
+project startup. Both DLLs are restored; Sandbox Editor and the existing cooked
+Sandbox Game fixture then complete three ticks and normal shutdown. Reports:
+`Build/EditorStartupDiagnosis/partial-init-{render,mona,process}.xml`. Missing-DLL logs:
+`20261109-162246-051239-36656-DurinEditor.log` and
+`20261109-162247-267741-37780-DurinGame.log`; restored-runtime logs:
+`20261109-162248-337084-19416-DurinEditor.log` and
+`20261109-162251-304394-43240-DurinGame.log`. macOS execution and other partial
+startup failure points remain unqualified by this bounded check.
+
 Stage 5 presentation-query refinement (2026-11-09): put the shared
 Pending/Presented/Failed query on FSceneViewport. Window-backed output checks its
 own window; offscreen output checks the supplied composition window. The viewport
@@ -543,6 +600,7 @@ and no control decision reads profiling milestones.
 - [x] Derive Editor host readiness and capability admission from one stored bootstrap phase; migrate workspace, tool and editing consumers.
 - [x] Specify and implement project selection/history policies and initial catalog failure policy.
 - [ ] Preserve Browser, project relaunch, ownership, module-provider ordering, and partial-init teardown.
+- [x] Unwind startup windows safely when RHI fails before render-command admission opens.
 
 ### Stage 3: Advance startup through the single frame loop
 
@@ -564,6 +622,7 @@ owned scene operation, with previous-document preservation and typed outcomes.
 - [x] Route the Editor default Level through ordinary asset-editor document opening and remove startup-only workspace callbacks.
 - [ ] Migrate Editor initial/default/open-Level paths and all active-World consumers; retain dirty-document and transaction policy at the document boundary.
 - [x] Migrate authored and cooked Game startup; separate registration, BeginPlay, initial-view preparation, and simulation/input enablement.
+- [x] Restrict Game Init to service construction and route project startup failures through one explicit startup result and phase boundary.
 - [ ] Cover explicit empty documents, required failure, stale completion, commit cancellation, scene changes, and exactly-once BeginPlay/retirement.
 
 ### Stage 5: Prepare and render each view once
