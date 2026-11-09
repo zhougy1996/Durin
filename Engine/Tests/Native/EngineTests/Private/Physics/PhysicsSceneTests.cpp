@@ -1,3 +1,4 @@
+#include "NativeAssetRuntimeTestSupport.h"
 #include "NativeAssetBuildTestSupport.h"
 #include "Asset/PackageUnloading.h"
 #include "StaticMeshTestAccess.h"
@@ -59,7 +60,7 @@ namespace
 
 	auto CreatePhysicsWorld() -> Durin::DWorld*
 	{
-		Durin::Testing::InitializeDObjectSystemForTests();
+		Durin::Testing::InitializeAssetSystemForTests();
 		RegisterWorldServicesForTests();
 		auto* World = Durin::NewObject<Durin::DWorld>(nullptr, "PhysicsWorld");
 		EXPECT_TRUE(World->InitializeSubsystems());
@@ -85,7 +86,7 @@ namespace
 
 TEST(FPrimitiveComponentCollisionEditingTests, DirectFilterEditsLeaveThePreviousProfile)
 {
-	Durin::Testing::InitializeDObjectSystemForTests();
+	Durin::Testing::InitializeAssetSystemForTests();
 	auto* Actor = Durin::NewObject<Durin::ACameraActor>(nullptr, "CollisionEditingActor");
 	auto* Component = Durin::Cast<Durin::DBoxComponent>(
 		Actor->AddInstanceComponent(Durin::DBoxComponent::StaticClass(), "Collision"));
@@ -119,7 +120,7 @@ TEST(FPrimitiveComponentCollisionEditingTests, DirectFilterEditsLeaveThePrevious
 TEST(FPrimitiveComponentCollisionEditingTests, RestoringSettingsDoesNotConvertPresetsToCustom)
 {
 	using namespace Durin;
-	Testing::InitializeDObjectSystemForTests();
+	Testing::InitializeAssetSystemForTests();
 	auto* Box = NewObject<DBoxComponent>(nullptr, "RestoredProfile");
 	auto* Property = Box->GetClass()->FindPropertyByName("BodyInstance");
 	ASSERT_NE(Property, nullptr);
@@ -182,7 +183,7 @@ TEST(FPrimitiveComponentCollisionEditingTests, CollisionArchivesPreserveCustomRe
 TEST(FPrimitiveComponentCollisionEditingTests, ProfileArchivesResolvePresetAndRejectUnknownNames)
 {
 	using namespace Durin;
-	Testing::InitializeDObjectSystemForTests();
+	Testing::InitializeAssetSystemForTests();
 	auto* Box = NewObject<DBoxComponent>(nullptr, "ProfileArchive");
 	auto* Property = Box->GetClass()->FindPropertyByName("BodyInstance");
 	ASSERT_NE(Property, nullptr);
@@ -225,7 +226,7 @@ TEST(FPrimitiveComponentCollisionEditingTests, ProfileArchivesResolvePresetAndRe
 TEST(FPrimitiveComponentCollisionEditingTests, LevelPackageAndDuplicatePreserveCollisionSettings)
 {
 	using namespace Durin;
-	Testing::InitializeDObjectSystemForTests();
+	Testing::InitializeAssetSystemForTests();
 	const auto Root = Testing::GetTestWorkDirectory() / "CollisionPersistence";
 	Testing::RegisterMountPointForTests("/CollisionPersistence/", Root.generic_string() + "/");
 	FPackagePath Path;
@@ -291,7 +292,7 @@ TEST(FPhysicsPublicContractTests, FreezesCompleteNamesAndReflectionIdentities)
 	static_assert(requires(Durin::DWorld& World, Durin::FHitResult& Hit) {
 		World.LineTraceSingleByChannel(Hit, Durin::FVector3(0.0), Durin::FVector3(1.0), Durin::ECollisionChannel::Visibility);
 	});
-	Durin::Testing::InitializeDObjectSystemForTests();
+	Durin::Testing::InitializeAssetSystemForTests();
 	EXPECT_EQ(Durin::DBodySetup::StaticClass()->GetQualifiedName().ToString(), "Durin::DBodySetup");
 	EXPECT_EQ(Durin::DShapeComponent::StaticClass()->GetQualifiedName().ToString(), "Durin::DShapeComponent");
 	EXPECT_EQ(Durin::DBoxComponent::StaticClass()->GetQualifiedName().ToString(), "Durin::DBoxComponent");
@@ -669,7 +670,7 @@ TEST(FPhysicsCollisionGeometryResourceTests, ValidatesIdentityBoundsChildrenAndR
 
 TEST(FPhysicsBodySetupTests, CachesOneGeometryIdentityPerAuthoredRevision)
 {
-	Durin::Testing::InitializeDObjectSystemForTests();
+	Durin::Testing::InitializeAssetSystemForTests();
 	auto* Setup = Durin::NewObject<Durin::DBodySetup>(nullptr, "CachedGeometrySetup");
 	ASSERT_TRUE(Setup->SetCapsule(0.5, 1.5, {1.0, 2.0, 3.0}));
 	Durin::FCollisionGeometryRef First;
@@ -1419,7 +1420,7 @@ TEST(FPhysicsSimpleComplexTests, MixedAggregatePreservesGapsAndRejectsNestedOrMe
 TEST(FPhysicsBodySetupTests, AggregateArchivesReconstructRuntimeGeometryAndRejectInvalidEdits)
 {
 	using namespace Durin;
-	Testing::InitializeDObjectSystemForTests();
+	Testing::InitializeAssetSystemForTests();
 	auto* Source = NewObject<DBodySetup>(nullptr, "AggregateArchiveSource");
 	FSimpleCollisionElement Box; Box.Type = EBodySetupShapeType::Box; Box.Dimensions = {1, 2, 3}; Box.Transform.Translation = {2, 3, 4};
 	FSimpleCollisionElement Convex; Convex.Type = EBodySetupShapeType::Convex;
@@ -1483,7 +1484,7 @@ TEST(FPhysicsWorldTests, StaticMeshPrefersAuthoredSimpleAndExposesBothRepresenta
 TEST(FPhysicsBodySetupTests, ExplicitQueriesRespectAvailabilityAndRejectInvalidSelections)
 {
 	using namespace Durin;
-	Testing::InitializeDObjectSystemForTests();
+	Testing::InitializeAssetSystemForTests();
 	auto* Body = NewObject<DBodySetup>(nullptr, "Availability"); ASSERT_TRUE(Body->SetBox(FVector3(1)));
 	Body->SetCollisionQueryPolicy(EBodySetupCollisionQueryPolicy::ComplexOnly);
 	FPhysicsBodyDesc Desc; EXPECT_FALSE(Body->PopulateCollisionGeometry(Desc, FTransform()));
@@ -1517,7 +1518,7 @@ TEST(FPhysicsBodySetupTests, ExplicitQueriesRespectAvailabilityAndRejectInvalidS
 TEST(FPhysicsBodySetupTests, PrimitiveSettersUseOneAggregateAndClearWithoutHiddenFallback)
 {
 	using namespace Durin;
-	Testing::InitializeDObjectSystemForTests();
+	Testing::InitializeAssetSystemForTests();
 	auto* Body = NewObject<DBodySetup>(nullptr, "UnifiedSimpleAuthoring");
 	for (const auto Type : {EBodySetupShapeType::Box, EBodySetupShapeType::Sphere, EBodySetupShapeType::Capsule})
 	{
@@ -1557,7 +1558,7 @@ TEST(FPhysicsBodySetupTests, PrimitiveSettersUseOneAggregateAndClearWithoutHidde
 TEST(FPhysicsBodySetupTests, StaticMeshPublishesCompleteAggregateWithOneWorldTransform)
 {
 	using namespace Durin;
-	Testing::InitializeDObjectSystemForTests();
+	Testing::InitializeAssetSystemForTests();
 	auto* Mesh = NewObject<DStaticMesh>(nullptr, "AggregatePublicationMesh");
 	auto* Body = NewObject<DBodySetup>(Mesh, "BodySetup");
 	FSimpleCollisionElement Box;
@@ -1598,7 +1599,7 @@ TEST(FPhysicsBodySetupTests, StaticMeshPublishesCompleteAggregateWithOneWorldTra
 TEST(FPhysicsBodySetupTests, UnifiedPrimitiveQueriesApplyElementAndWorldTransformsOnce)
 {
 	using namespace Durin;
-	Testing::InitializeDObjectSystemForTests();
+	Testing::InitializeAssetSystemForTests();
 	auto* Body = NewObject<DBodySetup>(nullptr, "UnifiedSimpleCoordinates");
 	for (const auto Type : {EBodySetupShapeType::Box, EBodySetupShapeType::Sphere, EBodySetupShapeType::Capsule})
 	{
@@ -1643,7 +1644,7 @@ TEST(FPhysicsBodySetupTests, UnifiedPrimitiveQueriesApplyElementAndWorldTransfor
 TEST(FPhysicsBodySetupTests, PrimitiveAggregatePackagesAndDuplicatesPreserveGeometry)
 {
 	using namespace Durin;
-	Testing::InitializeDObjectSystemForTests();
+	Testing::InitializeAssetSystemForTests();
 	const auto Root = Testing::GetTestWorkDirectory() / "UnifiedSimplePackages";
 	Testing::RegisterMountPointForTests("/UnifiedSimplePackages/", Root.generic_string() + "/");
 	for (uint32 Kind = 0; Kind < 4; ++Kind)
@@ -1675,7 +1676,7 @@ TEST(FPhysicsBodySetupTests, PrimitiveAggregatePackagesAndDuplicatesPreserveGeom
 TEST(FPhysicsBodySetupTests, AuthoringEntriesShareSelectionAndDoNotRepublishIdenticalData)
 {
 	using namespace Durin;
-	Testing::InitializeDObjectSystemForTests();
+	Testing::InitializeAssetSystemForTests();
 	for (const auto Mode : {EBodySetupCollisionSourceMode::ConvexHullFromLOD0, EBodySetupCollisionSourceMode::TriangleMeshFromLOD0})
 	{
 		auto* Body = NewObject<DBodySetup>(nullptr, "UnifiedCollisionSelection");
@@ -1711,7 +1712,7 @@ TEST(FPhysicsBodySetupTests, AuthoringEntriesShareSelectionAndDoNotRepublishIden
 TEST(FPhysicsBodySetupTests, UnifiedPrimitiveArchivesReconstructGeometryAndTraceMode)
 {
 	using namespace Durin;
-	Testing::InitializeDObjectSystemForTests();
+	Testing::InitializeAssetSystemForTests();
 	auto* Source = NewObject<DBodySetup>(nullptr, "UnifiedSimpleArchive");
 	for (const bool bAggregateAuthoring : {false, true})
 	{

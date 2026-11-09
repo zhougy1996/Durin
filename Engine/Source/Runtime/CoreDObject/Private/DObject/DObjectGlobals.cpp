@@ -787,7 +787,6 @@ namespace Durin
 		check(IsFNameInitialized() && "FNameInit must run before reflected type initialization.");
 		ProcessNewlyLoadedDObjects();
 		DObjectProcessRegistrants();
-		AttachCoreIntrinsicTypesToCppPackage();
 
 		FModuleManager::Get().SetProcessLoadedObjectsCallback(ProcessNewlyLoadedDObjects);
 		FModuleManager::Get().StartProcessingNewlyLoadedObjects();

@@ -1,4 +1,13 @@
 include_directories("${CMAKE_SOURCE_DIR}/Engine/Source/Developer/DerivedDataCache/Private")
+durin_add_native_test(AssetRuntimeLifecycleTests
+	KIND contract
+	DOMAINS asset-package
+	MODULES engine
+	SOURCES Private/AssetRuntimeLifecycleTests.cpp
+	LIBRARIES Core CoreDObject Engine
+	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
+)
+
 set(_durin_asset_package_modules engine)
 set(_durin_asset_package_libraries)
 if(DURIN_WITH_EDITOR)

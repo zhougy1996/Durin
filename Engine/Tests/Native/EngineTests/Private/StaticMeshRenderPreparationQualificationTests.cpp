@@ -1,3 +1,4 @@
+#include "NativeAssetRuntimeTestSupport.h"
 #include "StaticMeshRenderPreparationTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "VulkanEngineTestSupport.h"
@@ -23,7 +24,7 @@ TEST(FStaticMeshRenderPreparationQualificationTests,
 		Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
 		Durin::GIsGameThreadIdInitialized = true;
 	}
-	Durin::Testing::InitializeDObjectSystemForTests();
+	Durin::Testing::InitializeAssetSystemForTests();
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
 	Durin::RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());

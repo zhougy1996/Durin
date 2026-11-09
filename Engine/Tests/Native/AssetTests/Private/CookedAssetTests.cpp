@@ -44,7 +44,7 @@ namespace
 	auto MakePackageBytes() -> Durin::FByteBuffer
 	{
 		static const bool bInitialized = [] {
-			Testing::InitializeDObjectSystemForTests();
+			Testing::InitializeAssetSystemForTests();
 			return true;
 		}();
 		(void)bInitialized;
@@ -242,7 +242,7 @@ TEST(FCookedPathTests, RejectionsOwnContextAndClearOutput)
 
 TEST(FCookedPathTests, ImmutableRuntimeConfigurationRejectsReplacementAndPackageMutation)
 {
-	Testing::InitializeDObjectSystemForTests();
+	Testing::InitializeAssetSystemForTests();
 	const std::filesystem::path Root = std::filesystem::absolute(
 		Durin::Testing::GetTestWorkDirectory() / "CookedMode"
 	);
@@ -281,7 +281,7 @@ TEST(FCookedPathTests, RuntimeConfigurationUsesPublishedMacOSTarget)
 
 TEST(FCookedPathTests, ScopedRuntimeRejectsInvalidRootAndRestoresNestedConfigurations)
 {
-	Testing::InitializeDObjectSystemForTests();
+	Testing::InitializeAssetSystemForTests();
 	ASSERT_TRUE(InitializeAssetManager());
 	const FAssetRuntimeConfiguration Original = GetAssetRuntimeConfiguration();
 	const auto FirstRoot = Testing::CreateTestFixtureDirectory("ScopedCookedRuntimeFirst");
@@ -313,7 +313,7 @@ TEST(FCookedPathTests, ScopedRuntimeRejectsInvalidRootAndRestoresNestedConfigura
 
 TEST(FCookedPathTests, ScopedRuntimeRestoresAfterFatalAssertion)
 {
-	Testing::InitializeDObjectSystemForTests();
+	Testing::InitializeAssetSystemForTests();
 	ASSERT_TRUE(InitializeAssetManager());
 	const FAssetRuntimeConfiguration Original = GetAssetRuntimeConfiguration();
 	EXPECT_FATAL_FAILURE({
@@ -328,7 +328,7 @@ TEST(FCookedPathTests, ScopedRuntimeRestoresAfterFatalAssertion)
 
 TEST(FCookedTextureDataTests, DecodeFailureUnlocksBulkAndInstalledDataSkipsReload)
 {
-	Testing::InitializeDObjectSystemForTests();
+	Testing::InitializeAssetSystemForTests();
 	Testing::FScopedAssetRuntimeForTests Runtime;
 	ASSERT_TRUE(Runtime.RestartCooked(Testing::CreateTestFixtureDirectory("CookedTextureDecodeBoundaries")));
 	FTexturePlatformData Texture2D;

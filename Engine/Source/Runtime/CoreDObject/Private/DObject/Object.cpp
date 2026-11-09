@@ -767,6 +767,9 @@ namespace Durin
 		LoadAllCompiledInDefaultProperties();
 		LoadAllCompiledInEnumValues();
 		ProcessRegisteredCppPackages();
+		// Defaults may load static assets whose serialized classes use canonical names.
+		// Publish intrinsic identities before either struct defaults or CDO constructors.
+		AttachCoreIntrinsicTypesToCppPackage();
 		std::vector<DStruct*> BatchStructs;
 		for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates))
 		{

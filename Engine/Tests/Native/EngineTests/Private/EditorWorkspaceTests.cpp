@@ -1,3 +1,4 @@
+#include "NativeAssetRuntimeTestSupport.h"
 #include "Asset/Asset.h"
 #include "Feedback/SlowTaskWidget.h"
 #include "Misc/SlowTask.h"
@@ -177,7 +178,7 @@ namespace
 TEST(FEditorTransactorOwnershipTests, OwnsTransientBufferAndClearsOpenHistoryOnShutdown)
 {
 	std::expected<void, Durin::FPropertySnapshotError> SnapshotResult;
-	Durin::Testing::InitializeDObjectSystemForTests();
+	Durin::Testing::InitializeAssetSystemForTests();
 	auto* Editor = Durin::NewObject<Durin::DEditorEngine>(nullptr, "TransactorOwnerEditor");
 	ASSERT_NE(Editor, nullptr);
 	auto* Buffer = Durin::Cast<Durin::DTransBuffer>(Editor->GetTransactor());
@@ -219,7 +220,7 @@ TEST(FEditorTransactorOwnershipTests, OwnsTransientBufferAndClearsOpenHistoryOnS
 
 TEST(FEditableAssetDocumentModelTests, UndoToActivatedRevisionClearsDirtyState)
 {
-	Durin::Testing::InitializeDObjectSystemForTests();
+	Durin::Testing::InitializeAssetSystemForTests();
 	auto* Editor = Durin::NewObject<Durin::DEditorEngine>(
 		nullptr, "EditableAssetDocumentEditor");
 	ASSERT_NE(Editor, nullptr);
@@ -445,7 +446,7 @@ TEST(FEditorWorkspaceManagerTests, OpenAssetDocumentsRetainEveryAssetFamilyAndBl
 {
 	using namespace Durin;
 	using namespace Durin::Editor;
-	Testing::InitializeDObjectSystemForTests();
+	Testing::InitializeAssetSystemForTests();
 	Testing::FScopedMountRegistryFixture Mounts;
 	Testing::RegisterMountPointForTests("/OpenDocumentTests/", Testing::GetTestWorkDirectory().generic_string() + "/");
 	const std::array Classes{DMaterial::StaticClass(), DMaterialInstance::StaticClass(),
@@ -498,7 +499,7 @@ TEST(FEditorWorkspaceManagerTests, DestroyingControllerReleasesOpenDocumentRoots
 {
 	using namespace Durin;
 	using namespace Durin::Editor;
-	Testing::InitializeDObjectSystemForTests();
+	Testing::InitializeAssetSystemForTests();
 	Testing::FScopedMountRegistryFixture Mounts;
 	Testing::RegisterMountPointForTests("/UnregisterDocumentTests/", Testing::GetTestWorkDirectory().generic_string() + "/");
 	FPackagePath Path;
@@ -800,7 +801,7 @@ TEST(FAssetPickerTests, DisplaysAssetNamesIndependentlyOfPackageNames)
 TEST(FAssetPickerTests, KeepsLoadedAssetsInTheSamePackageDistinct)
 {
 	using namespace Durin;
-	Testing::InitializeDObjectSystemForTests();
+	Testing::InitializeAssetSystemForTests();
 	Testing::FScopedMountRegistryFixture MountFixture;
 	Testing::RegisterMountPointForTests(
 		"/AssetPickerTests/", Testing::GetTestWorkDirectory().generic_string() + "/");
@@ -824,7 +825,7 @@ TEST(FAssetPickerTests, KeepsLoadedAssetsInTheSamePackageDistinct)
 TEST(FAssetPickerTests, OpeningMaterialCandidatesCompletesPopupLayout)
 {
 	using namespace Durin;
-	Testing::InitializeDObjectSystemForTests();
+	Testing::InitializeAssetSystemForTests();
 	Testing::FScopedMountRegistryFixture MountFixture;
 	Testing::RegisterMountPointForTests(
 		"/AssetPickerLayoutTests/", Testing::GetTestWorkDirectory().generic_string() + "/");

@@ -165,25 +165,24 @@ namespace Durin
 			DURIN_ERROR("Engine pre-initialization failed because the asset compiling manager could not start.");
 			return false;
 		}
-		DObjectInit();
+		// Configure the final package domain before reflected registration creates CDOs.
+		FAssetRuntimeConfiguration AssetConfiguration = FAssetRuntimeConfiguration::Authored();
 #if !DURIN_WITH_EDITOR
-        // Establish the cooked domain before any Engine or project asset loads.
-        FAssetRuntimeConfiguration AssetConfiguration=FAssetRuntimeConfiguration::Authored();
-        const auto ConfigurationResult=FAssetRuntimeConfiguration::Cooked(
-            std::filesystem::path(FPaths::LaunchDir()).lexically_normal(),AssetConfiguration);
-        if (!ConfigurationResult)
-        {
-            DURIN_ERROR("Cooked asset configuration failed: {}",ConfigurationResult.Message);
-            return false;
-        }
-        ShutdownAssetManager();
-        const auto AssetResult=InitializeAssetManager(std::move(AssetConfiguration));
-        if (!AssetResult)
-        {
-            DURIN_ERROR("Cooked asset initialization failed: {}",AssetResult.Message);
-            return false;
-        }
+		const auto ConfigurationResult = FAssetRuntimeConfiguration::Cooked(
+			std::filesystem::path(FPaths::LaunchDir()).lexically_normal(), AssetConfiguration);
+		if (!ConfigurationResult)
+		{
+			DURIN_ERROR("Cooked asset configuration failed: {}", ConfigurationResult.Message);
+			return false;
+		}
 #endif
+		const auto AssetResult = InitializeAssetManager(std::move(AssetConfiguration));
+		if (!AssetResult)
+		{
+			DURIN_ERROR("Asset initialization failed: {}", AssetResult.Message);
+			return false;
+		}
+		DObjectInit();
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::PreInitComplete);
 		State = EEngineLoopState::PreInitialized;
 		return true;

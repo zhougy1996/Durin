@@ -1,3 +1,4 @@
+#include "NativeAssetRuntimeTestSupport.h"
 #include "RoadNet/RoadNetActor.h"
 #include "RoadNet/RoadNetBuilder.h"
 #include "Asset/AssetCompilingManager.h"
@@ -60,7 +61,7 @@ namespace
 	protected:
 		auto SetUp() -> void override
 		{
-			Testing::InitializeDObjectSystemForTests();
+			Testing::InitializeAssetSystemForTests();
 			InitializeTaskScheduler(2);
 			ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
 			if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());

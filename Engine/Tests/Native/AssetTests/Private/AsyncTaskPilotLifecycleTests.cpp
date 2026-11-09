@@ -1,3 +1,4 @@
+#include "NativeAssetRuntimeTestSupport.h"
 #include "CacheDispatchPrivate.h"
 #include "NativeAssetBuildTestSupport.h"
 #include "Threading/Task.h"
@@ -361,7 +362,7 @@ namespace
 
 	TEST(FAsyncTaskPilotLifecycleTests, LargeCommitAndSaturatedShutdownPreserveCompletion)
 	{
-		Testing::InitializeDObjectSystemForTests();
+		Testing::InitializeAssetSystemForTests();
 		Testing::FScopedMountRegistryFixture Mounts;
 		ASSERT_TRUE(Mounts.IsValid());
 		FPilotLifecycle Lifetime;

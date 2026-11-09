@@ -12,6 +12,33 @@ top-level assets. Every direct persistent export is a top-level asset; its
 descendants use the ordinary Outer hierarchy. Outer defines structural
 containment and object paths, but is not by itself a GC strong reference.
 
+## Runtime Bootstrap
+
+The host calls `InitializeAssetManager` with the final Authored or Cooked
+configuration before `DObjectInit` registers reflected types and constructs CDOs.
+The singleton starts with requests closed; its construction does not initialize
+the runtime. First initialization installs configuration without accessing
+reflected classes or loading default assets. Default material and game preload
+services remain later Engine initialization responsibilities.
+
+Startup CDOs may synchronously load static assets in the selected domain.
+Asset lookup still requires a published catalog; singleton initialization does
+not move project catalog discovery or default-asset preload into bootstrap.
+Canonical intrinsic and generated type identities are published before default
+construction. Constructors must not depend on a World, initialized rendering,
+or deferred callbacks to
+establish their defaults. Package graph construction and restoration retain the
+guarded-load restrictions below; startup admission does not permit implicit
+loads from those protected callbacks.
+
+Running initialization is idempotent for identical configuration and rejects
+replacement. Closing request admission enters shutdown, not an uninitialized
+state: initialization stays rejected until shutdown has drained and retired the
+previous lifetime. Shutdown before initialization or after completed shutdown is
+safe. Configuration queries require successful initialization and retain the
+last configuration after shutdown. Standalone asset tools and Engine-backed test
+hosts initialize explicitly; CoreDObject-only hosts remain Engine-independent.
+
 ## Public Capability Boundary
 
 Persistent metadata consumers include `AssetRegistry/Catalog.h`,

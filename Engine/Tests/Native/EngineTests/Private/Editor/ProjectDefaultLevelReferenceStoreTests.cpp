@@ -1,3 +1,4 @@
+#include "NativeAssetRuntimeTestSupport.h"
 #include "AssetTools/Relocation.h"
 #include "AssetTools/RedirectorFixup.h"
 #include "AssetTools/MutationTesting.h"
@@ -71,7 +72,7 @@ namespace
 	auto BuildScenario(std::string_view Name) -> FDefaultLevelScenario
 	{
 		static const bool Initialized = [] {
-			Durin::Testing::InitializeDObjectSystemForTests();
+			Durin::Testing::InitializeAssetSystemForTests();
 			(void)Durin::DLevel::StaticClass();
 			return true;
 		}();

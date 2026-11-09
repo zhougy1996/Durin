@@ -1,5 +1,7 @@
 #pragma once
 
+#include "NativeAssetRuntimeTestSupport.h"
+
 #include "CoreMinimal.h"
 
 #include "NativeAssetTestSupport.h"
@@ -23,7 +25,7 @@ inline auto InitializeDObjectSystem() -> void
 		// scheduler bounded so a 14-job aggregate does not multiply the host's
 		// hardware thread count across every Engine test executable.
 		Durin::InitializeTaskScheduler(2);
-		Durin::Testing::InitializeDObjectSystemForTests();
+		Durin::Testing::InitializeAssetSystemForTests();
 		RegisterWorldServicesForTests();
 		return true;
 	}();

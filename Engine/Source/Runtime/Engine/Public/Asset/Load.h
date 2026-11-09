@@ -80,11 +80,15 @@ namespace Durin
 
 	ENGINE_API auto IsPackageLoading(const FPackagePath& Path) -> bool;
 	ENGINE_API auto FindResidentPackage(const FPackagePath& Path) -> DPackage*;
+	// Close requests and retire the current package lifetime; safe before initialization.
 	ENGINE_API auto ShutdownAssetManager() -> void;
+	// Host bootstrap: select the final domain before DObjectInit constructs CDOs.
+	// Running initialization is idempotent only for the same configuration.
 	ENGINE_API auto InitializeAssetManager(
 		FAssetRuntimeConfiguration Configuration = FAssetRuntimeConfiguration::Authored()
 	)
 		-> FAssetWriteResult;
+	// Requires a successful initialization; retains the last configuration after shutdown.
 	ENGINE_API auto GetAssetRuntimeConfiguration()
 		-> const FAssetRuntimeConfiguration&;
 } // namespace Durin

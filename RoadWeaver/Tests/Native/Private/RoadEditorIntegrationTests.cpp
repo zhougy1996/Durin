@@ -1,3 +1,4 @@
+#include "NativeAssetRuntimeTestSupport.h"
 #include "RoadNet/RoadNetActor.h"
 #include "RoadNet/RoadNetBuilder.h"
 #include "PropertyEditor/PropertyEditing.h"
@@ -26,7 +27,7 @@ namespace
 	protected:
 		auto SetUp() -> void override
 		{
-			Testing::InitializeDObjectSystemForTests();
+			Testing::InitializeAssetSystemForTests();
 			Mounts.emplace();
 			Testing::RegisterMountPointForTests("/RoadEditor/",
 				Testing::CreateTestFixtureDirectory("RoadEditor").generic_string() + "/");

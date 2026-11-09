@@ -37,8 +37,8 @@ namespace Durin
 			return AssetWriteResultFromRead(Guard);
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		const auto& Runtime = FAssetRuntimeState::Get();
-		if (!Runtime.IsAcceptingRequests())
-			return Error(EAssetWriteError::ShuttingDown, "Asset package mutation is closed while the asset manager is shutting down.");
+		if (auto Admission = Runtime.CheckRequestAdmission(); !Admission)
+			return AssetWriteResultFromRead(Admission);
 		if (Runtime.GetRuntimeConfiguration().IsCooked())
 			return Error(EAssetWriteError::ReadOnlyMode, "Cooked runtime package mode does not permit authored package mutation.");
 		return {};

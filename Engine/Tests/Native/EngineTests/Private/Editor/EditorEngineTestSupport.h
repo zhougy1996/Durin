@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Editor/EditorEngine.h"
+#include "NativeAssetRuntimeTestSupport.h"
 
 namespace Durin
 {
@@ -9,10 +10,14 @@ namespace Durin
 	struct FEditorEngineTestAccess
 	{
 		static auto InitializeServices(DEditorEngine& Editor) -> FSubsystemResult
-		{ return Editor.InitializeEditorSubsystems(); }
+		{
+			Testing::InitializeAssetSystemForTests();
+			return Editor.InitializeEditorSubsystems();
+		}
 
 		static auto StartEditor(DEditorEngine& Editor) -> FSubsystemResult
 		{
+			Testing::InitializeAssetSystemForTests();
 			if (!Editor.ActivateEditor())
 				return {ESubsystemError::InvalidState, "Editor activation failed."};
 			return InitializeServices(Editor);

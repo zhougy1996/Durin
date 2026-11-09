@@ -1,3 +1,4 @@
+#include "NativeAssetRuntimeTestSupport.h"
 #include "Physics/BodySetup.h"
 #include "Asset/PackageUnloading.h"
 #include "RoadNet/RoadPropertyEditValidation.h"
@@ -53,7 +54,7 @@ namespace
 TEST(RoadSceneIntegration, LoadedPreviewMeshFinishesCompilationBeforeConstruction)
 {
 	InitializeTaskScheduler(2);
-	Testing::InitializeDObjectSystemForTests();
+	Testing::InitializeAssetSystemForTests();
 	if (!FAssetCompilingManager::Get().IsAcceptingRequests())
 		ASSERT_TRUE(InitializeAssetCompilingManager());
 	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
@@ -98,7 +99,7 @@ TEST(RoadSceneIntegration, LoadedPreviewMeshFinishesCompilationBeforeConstructio
 
 TEST(RoadSceneIntegration, RecreationFailureCleanupRecoveryAndDetach)
 {
-	Testing::InitializeDObjectSystemForTests();
+	Testing::InitializeAssetSystemForTests();
 	auto* Asset = NewObject<DRoadNet>(nullptr, "SceneRoad");
 	std::string Error;
 	ASSERT_TRUE(Asset->SetDefinition(Definition(), Error)) << Error;
@@ -142,7 +143,7 @@ TEST(RoadSceneIntegration, RecreationFailureCleanupRecoveryAndDetach)
 
 TEST(RoadSceneIntegration, AssetRoundTripPreservesIdsAndRejectedMutationDirtyState)
 {
-	Testing::InitializeDObjectSystemForTests();
+	Testing::InitializeAssetSystemForTests();
 	const auto Root = Testing::CreateTestFixtureDirectory("RoadPackages");
 	Testing::RegisterMountPointForTests("/RoadTests/", Root.generic_string() + "/");
 	FPackagePath Path;
@@ -176,7 +177,7 @@ TEST(RoadSceneIntegration, AssetRoundTripPreservesIdsAndRejectedMutationDirtySta
 
 TEST(RoadSceneIntegration, ReflectedDraftRejectsBeforeApplyAndReplayNotifies)
 {
-	Testing::InitializeDObjectSystemForTests();
+	Testing::InitializeAssetSystemForTests();
 	auto* Asset = NewObject<DRoadNet>(nullptr, "ReflectedRoad");
 	auto* Draft = NewObject<DRoadNet>(nullptr, "RoadDraft");
 	std::string Error;
@@ -219,7 +220,7 @@ TEST(RoadSceneIntegration, ReflectedDraftRejectsBeforeApplyAndReplayNotifies)
 TEST(RoadSceneIntegration, CheckedInRoadLevelLoadsAndSurvivesGC)
 {
 	InitializeTaskScheduler(2);
-	Testing::InitializeDObjectSystemForTests();
+	Testing::InitializeAssetSystemForTests();
 	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
 	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	const auto Project = std::filesystem::path(__FILE__).parent_path().parent_path().parent_path().parent_path();

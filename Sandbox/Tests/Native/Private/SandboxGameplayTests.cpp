@@ -1,3 +1,4 @@
+#include "NativeAssetRuntimeTestSupport.h"
 #include "Actors/PlayerStart.h"
 #include "Actors/CameraActor.h"
 #include "Components/CameraComponent.h"
@@ -107,7 +108,7 @@ namespace
 
 	auto CreateGameplayWorld(bool bAddFloor = true) -> Durin::DWorld*
 	{
-		Durin::Testing::InitializeDObjectSystemForTests();
+		Durin::Testing::InitializeAssetSystemForTests();
 		ResolveSandboxGameMode();
 		EXPECT_NE(Durin::FModuleManager::Get().LoadModule("Engine"), nullptr);
 		auto* World = Durin::NewObject<Durin::DWorld>(nullptr, "SandboxGameplayWorld");
@@ -161,7 +162,7 @@ namespace
 
 TEST(FSandboxGameplayReflectionTests, ResolvesExactConcreteRolesAcrossTheProjectModule)
 {
-	Durin::Testing::InitializeDObjectSystemForTests();
+	Durin::Testing::InitializeAssetSystemForTests();
 	Durin::DClass* GameModeClass = ResolveSandboxGameMode();
 	ASSERT_NE(GameModeClass, nullptr);
 	EXPECT_EQ(GameModeClass->GetQualifiedName().ToString(), "Durin::Sandbox::ADefaultGameMode");
@@ -176,7 +177,7 @@ TEST(FSandboxGameplayReflectionTests, ResolvesExactConcreteRolesAcrossTheProject
 
 TEST(FSandboxGameplayInputTests, MapsDigitalCancellationJumpEdgesAndMouseDelta)
 {
-	Durin::Testing::InitializeDObjectSystemForTests();
+	Durin::Testing::InitializeAssetSystemForTests();
 	ResolveSandboxGameMode();
 	Durin::Sandbox::ADefaultPlayerController Controller(Durin::FObjectInitializer::Get());
 	Durin::FGameInputState Input;
@@ -201,7 +202,7 @@ TEST(FSandboxGameplayInputTests, MapsDigitalCancellationJumpEdgesAndMouseDelta)
 TEST(FSandboxGameplayInputTests, ReboundMovementAndInteractUseActions)
 {
 	using namespace Durin;
-	Testing::InitializeDObjectSystemForTests();
+	Testing::InitializeAssetSystemForTests();
 	ResolveSandboxGameMode();
 	Sandbox::ADefaultPlayerController Controller(FObjectInitializer::Get());
 	FGameInputState Input;
@@ -229,7 +230,7 @@ TEST(FSandboxGameplayInputTests, ReboundMovementAndInteractUseActions)
 
 TEST(FSandboxGameplayInputTests, SuppressesOnlyMinorAxisMouseCrosstalk)
 {
-	Durin::Testing::InitializeDObjectSystemForTests();
+	Durin::Testing::InitializeAssetSystemForTests();
 	ResolveSandboxGameMode();
 	auto BuildLook = [](const Durin::FVector2d& Delta) {
 		Durin::Sandbox::ADefaultPlayerController Controller(Durin::FObjectInitializer::Get());

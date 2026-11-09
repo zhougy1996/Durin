@@ -1,3 +1,4 @@
+#include "NativeAssetRuntimeTestSupport.h"
 #include "ReflectedPropertyEditingTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 
@@ -119,7 +120,7 @@ TEST(FReflectedPropertyEditSessionTests, GenericHookRejectsNestedEditOfSameTarge
 
 TEST(FReflectedPropertyEditSessionTests, GeneratesDefaultDescriptionOnlyForValidTargets)
 {
-	Durin::Testing::InitializeDObjectSystemForTests();
+	Durin::Testing::InitializeAssetSystemForTests();
 	Durin::Editor::FPropertyEditSession Session;
 	std::string Error;
 	const auto EditResult3 = Session.Begin({}, {}, Durin::Editor::ETransactionMode::NotTransactable);

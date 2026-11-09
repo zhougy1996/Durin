@@ -347,9 +347,10 @@ namespace Durin
 	auto SavePackageDirectAsync(DPackage* Package, const FAssetPackageSaveArgs& Args) -> FAssetWriteResult
 	{
 		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("save", ""); !Guard) return AssetWriteResultFromRead(Guard);
+		if (auto Admission = FAssetRuntimeState::Get().CheckRequestAdmission(); !Admission)
+			return AssetWriteResultFromRead(Admission);
 		if (FAssetRuntimeState::Get().GetRuntimeConfiguration().IsCooked())
 			return Error(EAssetWriteError::ReadOnlyMode, "Cooked packages cannot be saved.");
-		if (!FAssetRuntimeState::Get().IsAcceptingRequests()) return Error(EAssetWriteError::ShuttingDown, "Asset runtime is shutting down.");
 		if (auto Result = PackageSavePrivate::CheckAsyncAdmission(); !Result) return Error(EAssetWriteError::InUse, Result.Message);
 		if (!Package || !Package->IsAssetPackage() || Package->IsGraphPrivate()
 			|| FindResidentPackage(Package->GetPackagePathIdentity()) != Package)
@@ -496,6 +497,8 @@ namespace Durin
 	auto FAssetMutationCoordinator::SavePackage(DPackage* Package, EAssetPackageSaveMode Mode) -> FAssetWriteResult
 	{
 		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return AssetWriteResultFromRead(Guard);
+		if (auto Admission = FAssetRuntimeState::Get().CheckRequestAdmission(); !Admission)
+			return AssetWriteResultFromRead(Admission);
 		if (RuntimeConfiguration.IsCooked()) return Error(EAssetWriteError::ReadOnlyMode, "Cooked packages cannot be saved.");
 		if (!Package || !Package->IsAssetPackage() || Package->IsGraphPrivate())
 			return Error(EAssetWriteError::InvalidData, "A live persistent package is required.");

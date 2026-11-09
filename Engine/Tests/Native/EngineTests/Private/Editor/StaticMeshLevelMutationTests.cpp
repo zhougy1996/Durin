@@ -1,3 +1,4 @@
+#include "NativeAssetRuntimeTestSupport.h"
 #include <gtest/gtest.h>
 #include "Editor/EditorTransactionTestSupport.h"
 
@@ -26,7 +27,7 @@ namespace
 
 		FLevelFixture()
 		{
-			Durin::Testing::InitializeDObjectSystemForTests();
+			Durin::Testing::InitializeAssetSystemForTests();
 			static const bool bRegistered = [] {
 				const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "LevelMutation";
 				std::filesystem::create_directories(Root);

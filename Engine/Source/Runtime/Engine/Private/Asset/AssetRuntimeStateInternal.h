@@ -17,9 +17,11 @@ namespace Durin
 			-> FAssetWriteResult;
 		ENGINE_API auto StopAcceptingRequests() -> void;
 		auto IsAcceptingRequests() const -> bool { return bAcceptingRequests; }
+		ENGINE_API auto CheckRequestAdmission() const -> FAssetReadResult;
 		ENGINE_API auto Shutdown() -> void;
 		auto GetRuntimeConfiguration() const -> const FAssetRuntimeConfiguration&
 		{
+			check(State != EState::Uninitialized);
 			return RuntimeConfiguration;
 		}
 
@@ -28,11 +30,13 @@ namespace Durin
 		auto GetMutationCoordinator() -> FAssetMutationCoordinator& { return Mutations; }
 
 	private:
+		enum class EState : uint8 { Uninitialized, Running, Stopping, Stopped };
 		FAssetRuntimeState();
 
 		FAssetRuntimeConfiguration RuntimeConfiguration =
 			FAssetRuntimeConfiguration::Authored();
-		bool bAcceptingRequests = true;
+		EState State = EState::Uninitialized;
+		bool bAcceptingRequests = false;
 		FAssetLoadService Loader;
 		FAssetMutationCoordinator Mutations;
 		FObjectReferencePurgeRegistration PackageRetirement;

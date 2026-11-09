@@ -1,3 +1,4 @@
+#include "NativeAssetRuntimeTestSupport.h"
 #include "AssetDefinition/AssetDefinition.h"
 #include "AssetDefinition/AssetDefinitionRegistry.h"
 #include "DObject/Class.h"
@@ -49,7 +50,7 @@ namespace
 	class FAssetDefinitionTests : public testing::Test
 	{
 	protected:
-		auto SetUp() -> void override { Testing::InitializeDObjectSystemForTests(); }
+		auto SetUp() -> void override { Testing::InitializeAssetSystemForTests(); }
 		auto TearDown() -> void override { CollectGarbage(); }
 		auto Definition(std::string Path) -> FTestAssetDefinition*
 		{

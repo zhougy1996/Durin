@@ -1,3 +1,4 @@
+#include "NativeAssetRuntimeTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
 #include "Asset/PackageUnloading.h"
 #include "NativeDObjectTestSupport.h"
@@ -10,7 +11,7 @@
 TEST(FActorComponentTests, TransientRemnantDoesNotDirtyLevelDuringGarbageCollection)
 {
 	using namespace Durin;
-	Testing::InitializeDObjectSystemForTests();
+	Testing::InitializeAssetSystemForTests();
 	const auto Root = Testing::CreateTestFixtureDirectory("GeneratedRemnants");
 	Testing::RegisterMountPointForTests("/GeneratedRemnants/", Root.generic_string() + "/");
 	FPackagePath Path;

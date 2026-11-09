@@ -1,3 +1,4 @@
+#include "NativeAssetRuntimeTestSupport.h"
 #include "PropertyEditor/PropertyView.h"
 #include "Asset/PackageUnloading.h"
 #include "Editor/EditorTransactionTestSupport.h"
@@ -493,7 +494,7 @@ TEST(FReflectedPropertyViewTests, CollisionResponsesCollapseAndRenderNamedChanne
 
 TEST(FReflectedPropertyViewTests, ObjectReplacementWaitsForFailedPreviewRestoration)
 {
-	Durin::Testing::InitializeDObjectSystemForTests();
+	Durin::Testing::InitializeAssetSystemForTests();
 	FPropertyViewHostTestReflection& Reflection = GetPropertyViewHostTestReflection();
 	(void)Reflection;
 	auto* FirstObject = Durin::NewObject<DPropertyViewHostTestObject>(nullptr, Durin::FName("First"));
@@ -527,7 +528,7 @@ TEST(FReflectedPropertyViewTests, ObjectReplacementWaitsForFailedPreviewRestorat
 
 TEST(FReflectedPropertyViewTests, ReadOnlyTransitionWaitsForFailedPreviewRestoration)
 {
-	Durin::Testing::InitializeDObjectSystemForTests();
+	Durin::Testing::InitializeAssetSystemForTests();
 	FPropertyViewHostTestReflection& Reflection = GetPropertyViewHostTestReflection();
 	(void)Reflection;
 	auto* ObjectPtr = Durin::NewObject<DPropertyViewHostTestObject>(nullptr, Durin::FName("ReadOnly"));
@@ -659,7 +660,7 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 
 TEST(FReflectedPropertyViewTests, WeakObjectInspectionDistinguishesNullLiveAndExpired)
 {
-	Durin::Testing::InitializeDObjectSystemForTests();
+	Durin::Testing::InitializeAssetSystemForTests();
 	Durin::FWeakObjectProperty Property(
 		Durin::FFieldVariant(), Durin::FName("Weak"), Durin::EObjectFlags::Transient,
 		Durin::EPropertyFlags::Edit | Durin::EPropertyFlags::Transient, 1, 0,
@@ -748,7 +749,7 @@ TEST(FReflectedPropertyViewTests, SoftObjectPathEditsUndoRedoFixedArrayArrayAndM
 
 TEST(FReflectedPropertyViewTests, NumericWidgetClampsDraggingAndManualInputWithoutErrors)
 {
-	Durin::Testing::InitializeDObjectSystemForTests();
+	Durin::Testing::InitializeAssetSystemForTests();
 	using namespace Durin;
 	FPropertyViewHostTestReflection& Reflection = GetPropertyViewHostTestReflection();
 	const FPropertyMetadata Original = Reflection.Property->GetTypedMetadata();
@@ -853,7 +854,7 @@ TEST(FReflectedPropertyViewTests, NumericWidgetClampsDraggingAndManualInputWitho
 
 TEST(FReflectedPropertyViewTests, InvalidBoundedEditDoesNotMutateOrCreateTransaction)
 {
-	Durin::Testing::InitializeDObjectSystemForTests();
+	Durin::Testing::InitializeAssetSystemForTests();
 	FPropertyViewHostTestReflection& Reflection = GetPropertyViewHostTestReflection();
 	auto* ManagedObject = Durin::NewObject<DPropertyViewHostTestObject>(nullptr, "BoundedEdit");
 	Durin::TStrongObjectPtr<Durin::DObject> ObjectRoot(ManagedObject);
@@ -878,7 +879,7 @@ TEST(FReflectedPropertyViewTests, InvalidBoundedEditDoesNotMutateOrCreateTransac
 
 TEST(FReflectedPropertyViewTests, TypedExtensionRejectionPreservesLiveStateAndAllowsRetry)
 {
-	Durin::Testing::InitializeDObjectSystemForTests();
+	Durin::Testing::InitializeAssetSystemForTests();
 	using namespace Durin;
 	using namespace Durin::Editor;
 	auto& Reflection = GetPropertyViewHostTestReflection();
@@ -939,7 +940,7 @@ TEST(FReflectedPropertyViewTests, TypedExtensionRejectionPreservesLiveStateAndAl
 
 TEST(FReflectedPropertyViewTests, TypedDeferredCompletionRejectsAndIgnoresLatePublication)
 {
-	Durin::Testing::InitializeDObjectSystemForTests();
+	Durin::Testing::InitializeAssetSystemForTests();
 	using namespace Durin;
 	using namespace Durin::Editor;
 	auto& Reflection = GetPropertyViewHostTestReflection();
@@ -1091,7 +1092,7 @@ TEST(FReflectedPropertyViewTests, DraftRetainsInitializationAndRestoreCausesAcro
 
 TEST(FReflectedPropertyViewTests, HistoricalRecordsBypassNewEditExtensionValidation)
 {
-	Durin::Testing::InitializeDObjectSystemForTests();
+	Durin::Testing::InitializeAssetSystemForTests();
 	using namespace Durin;
 	using namespace Durin::Editor;
 	auto& Reflection = GetPropertyViewHostTestReflection();
@@ -1130,7 +1131,7 @@ TEST(FReflectedPropertyViewTests, HistoricalRecordsBypassNewEditExtensionValidat
 
 TEST(FReflectedPropertyViewTests, SessionMessagesSurviveResetAndRetry)
 {
-	Durin::Testing::InitializeDObjectSystemForTests();
+	Durin::Testing::InitializeAssetSystemForTests();
 	using namespace Durin;
 	using namespace Durin::Editor;
 	FPropertyEditSession Session;

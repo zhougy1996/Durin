@@ -164,7 +164,7 @@ namespace
 	protected:
 		static auto SetUpTestSuite() -> void
 		{
-			Testing::InitializeDObjectSystemForTests();
+			Testing::InitializeAssetSystemForTests();
 			ASSERT_TRUE(InitializeTaskScheduler(2));
 			ASSERT_TRUE(InitializeAssetCompilingManager());
 			FModuleManager::Get().LoadModuleChecked("TextureCompressor");

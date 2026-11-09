@@ -238,8 +238,7 @@ namespace Durin
 			State.Report.RequestedPath = State.PackagePath;
 			// Rejected lifetime/guard admissions must never enqueue work for later escape.
 			auto Admission = AssetPrivate::FAssetLiveLoadGuard::Check("async load", State.PackagePath.ToString());
-			if (Admission && !FAssetRuntimeState::Get().IsAcceptingRequests())
-				Admission = {EAssetReadError::ShuttingDown, "Asset loading is closed."};
+			if (Admission) Admission = FAssetRuntimeState::Get().CheckRequestAdmission();
 			if (!Admission)
 			{
 				State.Callback = {};
@@ -259,8 +258,7 @@ namespace Durin
 			Handle->Impl->ExpectedClass = ExpectedClass;
 			Handle->Impl->Report.RequestedPath = Handle->Impl->PackagePath;
 			auto Admission = AssetPrivate::FAssetLiveLoadGuard::Check("sync load", Handle->Impl->PackagePath.ToString());
-			if (Admission && !FAssetRuntimeState::Get().IsAcceptingRequests())
-				Admission = {EAssetReadError::ShuttingDown, "Asset loading is closed."};
+			if (Admission) Admission = FAssetRuntimeState::Get().CheckRequestAdmission();
 			if (Admission && (!Handle->Impl->PackagePath.IsValid()
 				|| (Handle->Impl->ObjectPath && !Handle->Impl->ObjectPath->IsValid())))
 				Admission = {EAssetReadError::InvalidPath, "A load request requires a valid package or object path."};

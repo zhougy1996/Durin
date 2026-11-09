@@ -950,7 +950,6 @@ int main(int ArgC, char** ArgV)
 		~FScopedLoggerShutdown() { Durin::LoggerShutdown(); }
 	} ScopedLoggerShutdown;
 	Durin::FLogger::Get().SetConsoleLogLevel(Durin::ELogLevel::Fatal);
-	Durin::DObjectInit();
 	struct FScopedShaderInventoryModule final
 	{
 		Durin::FModuleHandle Handle = nullptr;
@@ -970,9 +969,9 @@ int main(int ArgC, char** ArgV)
 		{
 			if (!bStarted) return;
 			Durin::ShutdownAssetCompilingManager();
-			Durin::ShutdownTaskSystem(Durin::ETaskShutdownMode::Drain);
 			Durin::ShutdownAssetManager();
 			Durin::CollectGarbage();
+			Durin::ShutdownTaskSystem(Durin::ETaskShutdownMode::Drain);
 #if DURIN_WITH_EDITOR
 			Durin::DerivedData::LogCacheDiagnostics();
 #endif
@@ -987,6 +986,15 @@ int main(int ArgC, char** ArgV)
 		return 1;
 	}
 	EditorServices.bStarted = true;
+#endif
+	if (const auto Result = Durin::InitializeAssetManager(); !Result)
+	{
+		std::cerr << "Error: asset runtime initialization failed: " << Result.Message << '\n';
+		return 1;
+	}
+	EditorServices.bStarted = true;
+	Durin::DObjectInit();
+#if DURIN_WITH_EDITOR
 	{
 		Durin::FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 		Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");

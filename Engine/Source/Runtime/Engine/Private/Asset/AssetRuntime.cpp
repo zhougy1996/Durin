@@ -337,6 +337,12 @@ namespace Durin
 			if (OutReport) *OutReport = {.RequestedPath = Path, .PackagePath = Path};
 			return std::unexpected(AssetReadErrorFromResult(Result));
 		}
+		if (auto Result = FAssetRuntimeState::Get().CheckRequestAdmission(); !Result)
+		{
+			if (OutReport) *OutReport = {.RequestedPath = Path, .PackagePath = Path,
+				.Error = Result.Error, .ErrorMessage = Result.Message};
+			return std::unexpected(AssetReadErrorFromResult(Result));
+		}
 		if (IsAssetRegistryProjectionFenced(Path))
 		{
 			const auto Result = ProjectionPendingError(Path);
@@ -378,11 +384,10 @@ namespace Durin
 			return Finish(Result);
 		if (!Path.IsValid())
 			return Finish(Error(EAssetReadError::InvalidPath, "An object load requires an exact object path."));
+		if (auto Result = FAssetRuntimeState::Get().CheckRequestAdmission(); !Result)
+			return Finish(Result);
 		if (ExpectedClass && !ExpectedClass->IsChildOf(DObject::StaticClass()))
 			return Finish(Error(EAssetReadError::TypeMismatch, "An object load requires a DObject class."));
-		if (!bAcceptingRequests)
-			return Finish(Error(EAssetReadError::ShuttingDown,
-				"Object loading is closed while the asset manager is shutting down."));
 		const FObjectPathResolveResult Resolution = Durin::ResolveAssetObjectPathForOperation(
 			Path, {.ExpectedClass = ExpectedClass});
 		if (!Resolution)
@@ -439,12 +444,10 @@ namespace Durin
 	{
 		AssetPrivate::FScopedObjectLoadPhase LoadPhase(Path, AssetPrivate::EObjectLoadPhase::LoadPackage);
 		DURIN_PROFILE_CPU_ZONE_NAMED("Asset.Load");
-		if (!bAcceptingRequests)
+		if (auto Result = FAssetRuntimeState::Get().CheckRequestAdmission(); !Result)
 		{
 			OutPackage = nullptr;
-			return Error(
-				EAssetReadError::ShuttingDown,
-				"Asset loading is closed while the asset manager is shutting down.");
+			return Result;
 		}
 		if (OutReport)
 		{
@@ -893,7 +896,9 @@ namespace Durin
 
 	auto FAssetRuntimeState::Shutdown() -> void
 	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (!AssetPrivate::FAssetLiveLoadGuard::Check("Shutdown", "")) return;
+		if (State == EState::Uninitialized || State == EState::Stopped) return;
 		StopAcceptingRequests();
 		CancelAsyncLoading();
 		PackageSavePrivate::SetAsyncSaveAdmission(false);
@@ -907,23 +912,39 @@ namespace Durin
 		{
 			MarkObjectHierarchyAsGarbage(Package);
 		}
+		State = EState::Stopped;
+		Durin::Private::InvalidateSoftObjectCaches();
 	}
 
 	auto FAssetRuntimeState::Initialize(FAssetRuntimeConfiguration Configuration)
 		-> FAssetWriteResult
 	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("Initialize", ""); !Result) return AssetWriteResultFromRead(Result);
-		if (bAcceptingRequests)
+		if (State == EState::Running)
 		{
 			if (RuntimeConfiguration == Configuration) return {};
 			return Error(EAssetWriteError::InUse,
 				"Asset runtime configuration cannot be replaced while Engine Asset is initialized.");
 		}
-		check(GetResidentAssetPackages().empty());
-		check(Loader.IsIdle());
+		if (State == EState::Stopping)
+			return Error(EAssetWriteError::InUse, "Asset shutdown must complete before initialization.");
+		// First initialization must not touch reflected types before DObjectInit.
+		if (!Loader.IsIdle() || (State == EState::Stopped && !GetResidentAssetPackages().empty()))
+			return Error(EAssetWriteError::InUse, "Asset loading or resident package cleanup is incomplete.");
 		RuntimeConfiguration = std::move(Configuration);
 		PackageSavePrivate::SetAsyncSaveAdmission(true);
 		bAcceptingRequests = true;
+		State = EState::Running;
+		return {};
+	}
+
+	auto FAssetRuntimeState::CheckRequestAdmission() const -> FAssetReadResult
+	{
+		if (State == EState::Uninitialized)
+			return Error(EAssetReadError::InUse, "Asset loading requires InitializeAssetManager before use.");
+		if (!bAcceptingRequests)
+			return Error(EAssetReadError::ShuttingDown, "Asset requests are closed for shutdown.");
 		return {};
 	}
 
@@ -932,6 +953,7 @@ namespace Durin
 		if (!AssetPrivate::FAssetLiveLoadGuard::Check("StopAcceptingRequests", "")) return;
 		if (!bAcceptingRequests) return;
 		bAcceptingRequests = false;
+		State = EState::Stopping;
 		DURIN_DEBUG("Asset manager stopped accepting new requests");
 	}
 

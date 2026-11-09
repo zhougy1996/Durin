@@ -72,7 +72,11 @@ GC callbacks or postponing logical garbage marking.
 
 `FEngineLoop::PreInit()` handles early engine setup, DLL search paths, config
 loading, path mount points, `RenderCore` loading, and reflected object
-initialization. Its private runtime-storage component creates Saved directories
+initialization. It explicitly initializes the final Authored (Editor) or Cooked
+(Game) asset domain before `DObjectInit` constructs CDOs, without an intervening
+asset shutdown. The [asset bootstrap contract](../Assets/Packages/AssetPackages.md#runtime-bootstrap)
+defines constructor-time access and lifetime admission.
+Its private runtime-storage component creates Saved directories
 and, when the writable application configuration is absent, copies it from the
 runtime variant's deployed immutable template. Existing writable configuration
 is never overwritten. `PreInit()` loads the canonical Saved config before logger

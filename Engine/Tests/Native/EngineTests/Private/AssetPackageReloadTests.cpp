@@ -1,3 +1,4 @@
+#include "NativeAssetRuntimeTestSupport.h"
 #include "HAL/PlatformLTS.h"
 #include "Asset/Testing/PackageReloadTesting.h"
 #include "Materials/MaterialPackageReloadDiagnostic.h"
@@ -89,7 +90,7 @@ namespace
 		static auto SetUpTestSuite() -> void
 		{
 			ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
-			Durin::Testing::InitializeDObjectSystemForTests();
+			Durin::Testing::InitializeAssetSystemForTests();
 			Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 			Durin::FModuleManager::Get().LoadModuleChecked("ShaderBuild");
 			ASSERT_TRUE(Durin::InitializeAssetCompilingManager());

@@ -58,6 +58,7 @@ namespace
 		~FCompilationCleanup()
 		{
 			ShutdownAssetCompilingManager();
+			ShutdownAssetManager();
 			ShutdownTaskSystem(ETaskShutdownMode::Drain);
 		}
 	};
@@ -75,7 +76,6 @@ auto main(int Count, char** Args) -> int
 	GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 	GIsGameThreadIdInitialized = true;
 	FNameInit();
-	DObjectInit();
 	if (!InitializeTaskScheduler(2) || !InitializeGameThreadDeferredExecutor() || !InitializeAssetCompilingManager())
 		return 1;
 	FCompilationCleanup Cleanup;
@@ -89,7 +89,8 @@ auto main(int Count, char** Args) -> int
 		std::cerr << Error;
 		return 1;
 	}
-	InitializeAssetManager();
+	if (!InitializeAssetManager()) return 1;
+	DObjectInit();
 	FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	if (!RefreshAssetRegistry()) return 1;

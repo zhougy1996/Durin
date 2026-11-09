@@ -1,3 +1,4 @@
+#include "NativeAssetRuntimeTestSupport.h"
 #include "Materials/MaterialResourceTestSupport.h"
 #include "../../RDGTestAccess.h"
 
@@ -62,7 +63,7 @@ namespace Durin
 		}
 		static auto SetUpTestSuite() -> void
 		{
-			Testing::InitializeDObjectSystemForTests();
+			Testing::InitializeAssetSystemForTests();
 			// Engine owns the global shader-map release hook for each RHI lifetime.
 			FModuleManager::Get().LoadModuleChecked("Engine");
 		}

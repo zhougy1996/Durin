@@ -2,6 +2,7 @@
 
 #include "Asset/Load.h"
 #include "DObject/ObjectLifecycle.h"
+#include "NativeDObjectTestSupport.h"
 
 #include <gtest/gtest.h>
 
@@ -10,6 +11,22 @@
 
 namespace Durin::Testing
 {
+	// Engine-backed hosts explicitly establish the asset domain before CDO creation.
+	// Keep the CoreDObject-only helper independent of Engine.
+	inline auto InitializeAssetSystemForTests() -> void
+	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+		GIsGameThreadIdInitialized = true;
+		static const bool bInitialized = [] {
+			if (!IsFNameInitialized()) FNameInit();
+			const auto Result = InitializeAssetManager();
+			requiref(Result, "Failed to initialize test asset runtime: {}", Result.Message);
+			return true;
+		}();
+		(void)bInitialized;
+		InitializeDObjectSystemForTests();
+	}
+
 	// GameThread-only test scope. Restores the entry configuration, not loaded
 	// objects, including when a fatal assertion exits the owning test early.
 	class FScopedAssetRuntimeForTests

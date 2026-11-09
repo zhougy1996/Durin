@@ -1,3 +1,4 @@
+#include "NativeAssetRuntimeTestSupport.h"
 #include "NativeAssetTestSupport.h"
 #include "Asset/PackageUnloading.h"
 #include "SkyBoxTestSupport.h"
@@ -14,7 +15,7 @@
 TEST(FSkyBoxEditorWorkflowTests, TextureAssignmentComposesWithOtherComponentFieldsThroughGenericHistory)
 {
 	using namespace Durin;
-	Testing::InitializeDObjectSystemForTests(); Tests::FTestTransactorOwner Transactions;
+	Testing::InitializeAssetSystemForTests(); Tests::FTestTransactorOwner Transactions;
 	TStrongObjectPtr<DLevel> Level(NewObject<DLevel>(nullptr, "SkyBoxOrdinaryEdits"));
 	TStrongObjectPtr<DTextureCube> Before(NewObject<DTextureCube>(nullptr, "SkyBefore")), After(NewObject<DTextureCube>(nullptr, "SkyAfter"));
 	auto* Actor = Level->SpawnActor<ASkyBoxActor>("Sky"); ASSERT_NE(Actor, nullptr);

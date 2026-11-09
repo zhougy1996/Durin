@@ -1,3 +1,4 @@
+#include "NativeAssetRuntimeTestSupport.h"
 #include "NativeAssetBuildTestSupport.h"
 #include <gtest/gtest.h>
 
@@ -202,7 +203,7 @@ namespace
 
 	TEST(FAsyncTaskPilotQualificationTests, MeasuresPackageTransformAndTextureCommit)
 	{
-		Testing::InitializeDObjectSystemForTests();
+		Testing::InitializeAssetSystemForTests();
 		Testing::FScopedMountRegistryFixture Mounts;
 		ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
 		FQualificationLifetime Lifetime;
