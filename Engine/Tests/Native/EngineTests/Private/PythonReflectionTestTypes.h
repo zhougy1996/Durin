@@ -148,7 +148,7 @@ namespace Durin::PythonFixtures
     public:
         explicit DExcludedScriptGrandchild(const FObjectInitializer& Initializer) : Super(Initializer) {}
     };
-    DCLASS(Abstract, NoClassDefaultObject)
+    DCLASS(Abstract)
     class DReflectionBase : public DEditorSubsystem
     {
         GENERATED_BODY()
@@ -159,7 +159,7 @@ namespace Durin::PythonFixtures
         DFUNCTION(ScriptCallable)
         virtual auto MaskedValue() const -> int32 { return 1; }
     };
-    DCLASS(ScriptType, NoClassDefaultObject)
+    DCLASS(ScriptType)
     class DReflectionService : public DReflectionBase
     {
         GENERATED_BODY()
@@ -223,7 +223,7 @@ namespace Durin::PythonFixtures
         DFUNCTION(ScriptCallable)
         auto Unsupported(Durin::TSoftObjectPtr<Durin::DObject> Value) -> void { ++Calls; }
     };
-    DCLASS(ScriptType, NoClassDefaultObject)
+    DCLASS(ScriptType)
     class DSecondaryService : public DEditorSubsystem
     {
         GENERATED_BODY()

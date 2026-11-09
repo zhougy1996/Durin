@@ -31,10 +31,46 @@ namespace Durin
 
 	auto DWorldSubsystem::GetWorld() const -> DWorld* { return Cast<DWorld>(GetOuter()); }
 
+	namespace
+	{
+		struct FWorldRegistrationEntry { uint64 Identity; FWorldSubsystemDescriptor Descriptor; };
+		auto WorldRegistry() -> std::vector<FWorldRegistrationEntry>&
+		{
+			static auto* Entries = new std::vector<FWorldRegistrationEntry>();
+			return *Entries;
+		}
+		uint64 NextWorldRegistration = 0;
+	}
+
+	auto DWorldSubsystem::ShouldCreateSubsystem(DObject* Outer) const -> bool
+	{
+		const auto* World = Cast<DWorld>(Outer);
+		return Super::ShouldCreateSubsystem(Outer) && World && DoesSupportWorldType(World->GetWorldType());
+	}
+
+	auto DWorldSubsystem::DoesSupportWorldType(EWorldType WorldType) const -> bool
+	{
+		return WorldType == EWorldType::Game || WorldType == EWorldType::Editor || WorldType == EWorldType::PIE;
+	}
+
 	FWorldSubsystemRegistration::FWorldSubsystemRegistration(FWorldSubsystemDescriptor Descriptor)
-		: FSubsystemRegistration(DWorldSubsystem::StaticClass(),
-			{Descriptor.Type, Descriptor.Provider, Descriptor.Dependencies}, Descriptor) {}
-	FWorldSubsystemRegistration::~FWorldSubsystemRegistration() = default;
+	{
+		require(!GIsGameThreadIdInitialized || IsInGameThread());
+		Identity = ++NextWorldRegistration;
+		WorldRegistry().push_back({Identity, std::move(Descriptor)});
+	}
+	FWorldSubsystemRegistration::~FWorldSubsystemRegistration()
+	{
+		require(!GIsGameThreadIdInitialized || IsInGameThread());
+		std::erase_if(WorldRegistry(), [this](const auto& Entry) { return Entry.Identity == Identity; });
+	}
+	auto FWorldSubsystemRegistration::Snapshot() -> std::vector<FWorldSubsystemDescriptor>
+	{
+		require(!GIsGameThreadIdInitialized || IsInGameThread());
+		std::vector<FWorldSubsystemDescriptor> Result;
+		for (const auto& Entry : WorldRegistry()) Result.push_back(Entry.Descriptor);
+		return Result;
+	}
 
 	FWorldSubsystemCollection::FWorldSubsystemCollection(DWorld& InWorld) : FSubsystemCollection(InWorld, DWorldSubsystem::StaticClass()), World(InWorld) {}
 	FWorldSubsystemCollection::~FWorldSubsystemCollection() = default;
@@ -49,20 +85,15 @@ namespace Durin
 		if (State != EWorldSubsystemState::Uninitialized)
 			return {EWorldSubsystemError::InvalidState, "World subsystem initialization is one-shot."};
 		std::vector<FSubsystemDescriptor> Selected;
-		for (const auto& Registration : FSubsystemRegistration::Snapshot(DWorldSubsystem::StaticClass()))
+		for (const auto& Descriptor : FWorldSubsystemRegistration::Snapshot())
 		{
-			const auto* Policy = std::any_cast<FWorldSubsystemDescriptor>(&Registration.Policy);
-			const FWorldSubsystemDescriptor DefaultPolicy{.Type = Registration.Descriptor.Type,
-				.Provider = Registration.Descriptor.Provider, .Dependencies = Registration.Descriptor.Dependencies};
-			const auto& Descriptor = Policy ? *Policy : DefaultPolicy;
-			if (!Descriptor.WorldTypes.empty() && !std::ranges::contains(Descriptor.WorldTypes, World.GetWorldType())) continue;
 			if (Descriptor.TickGroup >= ETickingGroup::Count)
 			{
 				State = EWorldSubsystemState::Failed;
 				return {EWorldSubsystemError::InvalidDescriptor, "Invalid World Tick group."};
 			}
 			Selected.push_back({Descriptor.Type, Descriptor.Provider, Descriptor.Dependencies});
-			WorldEntries[Descriptor.Type] = {Descriptor};
+			WorldEntries[Descriptor.Type] = {Descriptor.bTick, Descriptor.bTickInEditorAndPreview, Descriptor.TickGroup};
 		}
 		return FSubsystemCollection::Initialize(std::move(Selected));
 	}
@@ -109,13 +140,13 @@ namespace Durin
 	}
 	auto FWorldSubsystemCollection::Tick(ETickingGroup Group, float DeltaSeconds, bool bGameplay) -> void
 	{
-		const bool bEditor = World.GetWorldType() == EWorldType::Editor || World.GetWorldType() == EWorldType::Preview;
+		const bool bEditor = World.GetWorldType() == EWorldType::Editor || World.GetWorldType() == EWorldType::EditorPreview;
 		for (size_t Index = 0; Index < Entries.size() && World.CanDispatchSubsystems(); ++Index)
 		{
 			if (bGameplay && !World.HasBegunPlay()) break;
 			const auto& Entry = WorldEntries[Entries[Index].Descriptor.Type];
-			if (!Entry.bFrameTickEnabled || !Entry.Descriptor.bTick || Entry.Descriptor.TickGroup != Group) continue;
-			if (!bGameplay && !(bEditor && Entry.Descriptor.bTickInEditorAndPreview)) continue;
+			if (!Entry.bFrameTickEnabled || !Entry.bTick || Entry.TickGroup != Group) continue;
+			if (!bGameplay && !(bEditor && Entry.bTickInEditorAndPreview)) continue;
 			static_cast<DWorldSubsystem*>(Entries[Index].Object.Get())->Tick(DeltaSeconds);
 		}
 	}

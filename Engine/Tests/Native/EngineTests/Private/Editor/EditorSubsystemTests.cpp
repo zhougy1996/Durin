@@ -28,6 +28,8 @@ namespace Durin
 		auto Initialize() -> FSubsystemResult override { return Init ? Init(*this) : FSubsystemResult{}; }
 		auto Deinitialize() noexcept -> void override { if (Deinit) Deinit(*this); }
 		auto BeginDestroy() -> void override { if (Destroy) Destroy(*this); Super::BeginDestroy(); }
+		auto ShouldCreateSubsystem(DObject* Outer) const -> bool override { return !Create || Create(*this, Outer); }
+		inline static std::function<bool(const FDynamicEditorA&, DObject*)> Create;
 		inline static std::function<FSubsystemResult(FDynamicEditorA&)> Init;
 		inline static std::function<void(FDynamicEditorA&)> Deinit;
 		inline static std::function<void(FDynamicEditorA&)> Destroy;
@@ -40,8 +42,22 @@ namespace Durin
 	public:
 		explicit FDynamicEditorB(const FObjectInitializer& Initializer = FObjectInitializer::Get()) : Super(Initializer) {}
 	};
-	IMPLEMENT_CLASS_NO_AUTO_REGISTRATION(FDynamicEditorA)
-	IMPLEMENT_CLASS_NO_AUTO_REGISTRATION(FDynamicEditorB)
+	auto FDynamicEditorA::GetPrivateStaticClass() -> DClass*
+	{
+		static DClass* Class = nullptr;
+		if (!Class)
+			GetPrivateStaticClassBody("", "FDynamicEditorA", Class, nullptr, sizeof(FDynamicEditorA), alignof(FDynamicEditorA),
+				EClassFlags::None, InternalConstructor<FDynamicEditorA>, &DEditorSubsystem::StaticClass);
+		return Class;
+	}
+	auto FDynamicEditorB::GetPrivateStaticClass() -> DClass*
+	{
+		static DClass* Class = nullptr;
+		if (!Class)
+			GetPrivateStaticClassBody("", "FDynamicEditorB", Class, nullptr, sizeof(FDynamicEditorB), alignof(FDynamicEditorB),
+				EClassFlags::None, InternalConstructor<FDynamicEditorB>, &FDynamicEditorA::StaticClass);
+		return Class;
+	}
 
 	class FDynamicOpenDefinition : public DAssetDefinition
 	{
@@ -69,10 +85,16 @@ namespace
 	class FEditorSubsystemTests : public testing::Test
 	{
 	protected:
-		auto SetUp() -> void override { Testing::InitializeDObjectSystemForTests(); }
+		auto SetUp() -> void override
+		{
+			Testing::InitializeDObjectSystemForTests();
+			const std::array Classes{FDynamicEditorA::StaticClass(), FDynamicEditorB::StaticClass()};
+			for (auto* Class : Classes) DObjectForceRegistration(Class);
+			ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
+		}
 		auto TearDown() -> void override
 		{
-			FDynamicEditorA::Init = {}; FDynamicEditorA::Deinit = {}; FDynamicEditorA::Destroy = {};
+			FDynamicEditorA::Init = {}; FDynamicEditorA::Deinit = {}; FDynamicEditorA::Destroy = {}; FDynamicEditorA::Create = {};
 			for (auto& Host : Hosts) { Host->PrepareForShutdown(); MarkObjectHierarchyAsGarbage(Host.Get()); }
 			Hosts.clear(); CollectGarbage();
 		}
@@ -773,4 +795,25 @@ namespace
 
 
 
+}
+
+TEST_F(FEditorSubsystemTests, CdoEligibilityRetiresDependentsAndAllowsExplicitReadmission)
+{
+	auto A = RegisterA();
+	FEditorSubsystemRegistration B({.Type = FDynamicEditorB::StaticClass(), .Dependencies = {FDynamicEditorA::StaticClass()}});
+	auto* Host = NewHost();
+	ASSERT_NE(Host->GetEditorSubsystem<FDynamicEditorA>(), nullptr);
+	ASSERT_NE(Host->GetEditorSubsystem<FDynamicEditorB>(), nullptr);
+	FDynamicEditorA::Create = [&](const auto& Default, DObject* Outer) {
+		EXPECT_TRUE(Default.IsClassDefaultObject());
+		EXPECT_EQ(Outer, Host);
+		return Default.GetClass() != FDynamicEditorA::StaticClass();
+	};
+	EXPECT_EQ(Host->RefreshEditorSubsystems(true).Error, ESubsystemError::MissingDependency);
+	EXPECT_EQ(Host->GetEditorSubsystem<FDynamicEditorA>(), nullptr);
+	EXPECT_EQ(Host->GetEditorSubsystem<FDynamicEditorB>(), nullptr);
+	FDynamicEditorA::Create = {};
+	ASSERT_TRUE(Host->RefreshEditorSubsystems(true));
+	EXPECT_NE(Host->GetEditorSubsystem<FDynamicEditorA>(), nullptr);
+	EXPECT_NE(Host->GetEditorSubsystem<FDynamicEditorB>(), nullptr);
 }

@@ -78,7 +78,7 @@ TEST(FNativeConstructionPIETests, SplineMeshActorRegeneratesTransientSegmentsAnd
 	const auto SourceSegments = SourceActor->FindComponentsByClass<Durin::DSplineMeshComponent>();
 	ASSERT_EQ(SourceSegments.size(), 2u);
 
-	Durin::DWorld* PlayWorld = CreateEmptyWorld(nullptr, Durin::EWorldType::PlayInEditor);
+	Durin::DWorld* PlayWorld = CreateEmptyWorld(nullptr, Durin::EWorldType::PIE);
 	std::unordered_map<Durin::DObject*, Durin::DObject*> EditorToPlay;
 	auto* PlayLevel = Durin::DuplicateObject(
 		EditorWorld->GetCurrentLevel(), PlayWorld, "PlayLevel", &EditorToPlay).value();

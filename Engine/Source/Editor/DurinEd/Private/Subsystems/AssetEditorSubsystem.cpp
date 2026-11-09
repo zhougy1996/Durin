@@ -15,7 +15,13 @@
 namespace Durin
 {
 	DAssetEditorSubsystem::DAssetEditorSubsystem(const FObjectInitializer& Initializer)
-		: Super(Initializer), ToolkitManager(std::make_shared<FToolkitManager>()) {}
+		: Super(Initializer) {}
+
+	auto DAssetEditorSubsystem::Initialize() -> FSubsystemResult
+	{
+		ToolkitManager = std::make_shared<FToolkitManager>();
+		return {};
+	}
 
 	auto DAssetEditorSubsystem::CanCall() const -> bool
 	{

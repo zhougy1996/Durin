@@ -643,7 +643,7 @@ TEST(FWorldTests, PreviewHostInitializesAndRetiresServicesWithoutAPlayLifetime)
 		EXPECT_TRUE(Preview.IsAvailable()) << Preview.GetDiagnostic();
 		if (Preview.IsAvailable())
 		{
-			EXPECT_EQ(Preview.GetWorld()->GetWorldType(), Durin::EWorldType::Preview);
+			EXPECT_EQ(Preview.GetWorld()->GetWorldType(), Durin::EWorldType::EditorPreview);
 			EXPECT_EQ(Preview.GetWorld()->GetSubsystemState(), Durin::EWorldSubsystemState::Ready);
 			EXPECT_FALSE(Preview.GetWorld()->HasBegunPlay());
 			auto* Debug = Preview.GetWorld()->GetSubsystem<Durin::DCollisionDebugSubsystem>();
@@ -663,7 +663,7 @@ TEST(FWorldTests, PreviewHostReportsInitializationFailureAndClosesItsWorld)
 	FPreviewLifecycleEngine Engine(Renderer);
 	auto* PreviousEngine = std::exchange(Durin::GEngine, &Engine);
 	{
-		Durin::FWorldSubsystemRegistration Invalid({.Type = Durin::AActor::StaticClass(), .WorldTypes = {Durin::EWorldType::Preview}});
+		Durin::FWorldSubsystemRegistration Invalid({.Type = Durin::AActor::StaticClass()});
 		Durin::Editor::FPreviewScene Preview("FailedSubsystemPreview");
 		EXPECT_FALSE(Preview.IsAvailable());
 		EXPECT_FALSE(Preview.GetDiagnostic().empty());
@@ -1018,7 +1018,7 @@ TEST(FWorldTests, AutomaticComponentPSOPolicyUsesHostInsteadOfWorldOrBuildCapabi
 	GEngine = &GameHost;
 	EXPECT_TRUE(IsComponentPSOPrecachingEnabled());
 	GEngine = &EditorHost;
-	for (const auto Type : {EWorldType::Editor, EWorldType::Preview, EWorldType::PlayInEditor, EWorldType::Game})
+	for (const auto Type : {EWorldType::Editor, EWorldType::EditorPreview, EWorldType::PIE, EWorldType::Game})
 	{
 		auto* World = CreateWorld(&EditorHost, Type);
 		EditorHost.SetWorld(World);

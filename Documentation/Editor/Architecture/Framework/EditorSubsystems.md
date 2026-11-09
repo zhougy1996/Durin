@@ -178,7 +178,11 @@ uses an owned snapshot; a callback cannot alter the pass being processed.
 Providers still in module Startup are not instantiated. Initial module loading
 and later loading therefore share the same registration mechanism.
 
-Registration identities distinguish replacement from an unchanged type. Valid
+Registration identities distinguish replacement from an unchanged type. Each
+reconciliation pass evaluates ShouldCreateSubsystem on the concrete CDO before
+resolving dependencies. A rejected service and its affected dependents retire;
+an explicit forced refresh reevaluates changed host conditions without requiring
+a registration change. Eligibility callbacks must remain read-only. Valid
 services initialize in deterministic dependency order. Missing dependencies,
 duplicate types and cycles exclude affected services while retaining unrelated
 instances. Removing or replacing a dependency also retires its dependents:

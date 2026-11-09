@@ -11,7 +11,7 @@ namespace Durin
 	class DEngine;
 
 	// One transient service per Engine host; host shutdown owns retirement.
-	DCLASS(Abstract, NoClassDefaultObject)
+	DCLASS(Abstract)
 	class DEngineSubsystem : public DSubsystem
 	{
 		GENERATED_BODY()

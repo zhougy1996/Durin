@@ -9,7 +9,7 @@ namespace Durin
 {
 	class FDurinMCPModule;
 	// Attaches the module's optional services to one editor session.
-	DCLASS(NoClassDefaultObject)
+	DCLASS()
 	class DMCPServerSubsystem : public DEditorSubsystem
 	{
 		GENERATED_BODY()

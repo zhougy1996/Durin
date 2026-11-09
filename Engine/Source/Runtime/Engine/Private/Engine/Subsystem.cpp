@@ -10,7 +10,7 @@ namespace Durin
 {
 	namespace
 	{
-		struct FRegistrationEntry { uint64 Identity; DClass* Scope; FSubsystemRegistrationSnapshot Snapshot; };
+		struct FRegistrationEntry { uint64 Identity; DClass* Scope; FSubsystemDescriptor Snapshot; };
 		auto Registry() -> std::vector<FRegistrationEntry>&
 		{
 			// Tokens can retire during static teardown, after ordinary static objects.
@@ -21,12 +21,12 @@ namespace Durin
 		uint64 PublicationRevision = 0;
 	}
 
-	FSubsystemRegistration::FSubsystemRegistration(DClass* Scope, FSubsystemDescriptor Descriptor, std::any Policy)
+	FSubsystemRegistration::FSubsystemRegistration(DClass* Scope, FSubsystemDescriptor Descriptor)
 	{
 		require(!GIsGameThreadIdInitialized || IsInGameThread());
 		Identity = ++NextRegistration;
 		Descriptor.RegistrationIdentity = Identity;
-		Registry().push_back({Identity, Scope, {std::move(Descriptor), std::move(Policy)}});
+		Registry().push_back({Identity, Scope, std::move(Descriptor)});
 		++PublicationRevision;
 	}
 	FSubsystemRegistration::~FSubsystemRegistration()
@@ -40,10 +40,10 @@ namespace Durin
 		require(!GIsGameThreadIdInitialized || IsInGameThread());
 		return PublicationRevision;
 	}
-	auto FSubsystemRegistration::Snapshot(DClass* Scope) -> std::vector<FSubsystemRegistrationSnapshot>
+	auto FSubsystemRegistration::Snapshot(DClass* Scope) -> std::vector<FSubsystemDescriptor>
 	{
 		require(!GIsGameThreadIdInitialized || IsInGameThread());
-		std::vector<FSubsystemRegistrationSnapshot> Result;
+		std::vector<FSubsystemDescriptor> Result;
 		for (const auto& Entry : Registry()) if (Entry.Scope == Scope) Result.push_back(Entry.Snapshot);
 		return Result;
 	}
@@ -80,10 +80,15 @@ namespace Durin
 			{
 				if (!Descriptor.Type || !CanConstructObjectOfClass(Descriptor.Type, Scope))
 					return Fail(ESubsystemError::InvalidDescriptor, (Descriptor.Type ? Descriptor.Type->GetQualifiedName().ToString() : "<null>") + " is not a concrete service in scope " + Scope->GetQualifiedName().ToString());
-				if (std::ranges::any_of(Selected, [&](const auto& Entry) { return Entry.Descriptor.Type == Descriptor.Type; }))
-					return Fail(ESubsystemError::DuplicateType, Descriptor.Type->GetQualifiedName().ToString());
 				if (!Descriptor.Provider.IsNone() && !FModuleManager::Get().IsModuleLoaded(Descriptor.Provider))
 					return Fail(ESubsystemError::ProviderUnavailable, Descriptor.Provider.ToString());
+				const auto* Default = Cast<DSubsystem>(Descriptor.Type->GetDefaultObject());
+				if (!Default) return Fail(ESubsystemError::InvalidDescriptor, Descriptor.Type->GetQualifiedName().ToString() + " requires a class default object.");
+				const bool bCreate = Default->ShouldCreateSubsystem(&Host);
+				if (bClosed) return Fail(ESubsystemError::Aborted, "Host retired during subsystem eligibility selection.");
+				if (!bCreate) continue;
+				if (std::ranges::any_of(Selected, [&](const auto& Entry) { return Entry.Descriptor.Type == Descriptor.Type; }))
+					return Fail(ESubsystemError::DuplicateType, Descriptor.Type->GetQualifiedName().ToString());
 				Selected.push_back({Descriptor});
 			}
 			std::ranges::sort(Selected, [](const auto& A, const auto& B) {
@@ -148,6 +153,17 @@ namespace Durin
 		auto Report = [&](ESubsystemError Error, std::string Message) {
 			if (Diagnostic) Diagnostic = {Error, std::move(Message)};
 		};
+		try
+		{
+			std::erase_if(Descriptors, [&](const auto& Descriptor) {
+				if (bClosed || !Descriptor.Type || !CanConstructObjectOfClass(Descriptor.Type, Scope)) return false;
+				const auto* Default = Cast<DSubsystem>(Descriptor.Type->GetDefaultObject());
+				if (!Default) { Report(ESubsystemError::InvalidDescriptor, "Dynamic subsystem requires a class default object."); return true; }
+				return !Default->ShouldCreateSubsystem(&Host);
+			});
+		}
+		catch (...) { return {ESubsystemError::InitializationFailed, "Subsystem eligibility selection threw."}; }
+		if (bClosed) return {ESubsystemError::Aborted, "Host retired during subsystem eligibility selection."};
 		std::map<DClass*, size_t> Counts;
 		for (const auto& Descriptor : Descriptors) ++Counts[Descriptor.Type];
 		std::erase_if(Descriptors, [&](const auto& Descriptor) {

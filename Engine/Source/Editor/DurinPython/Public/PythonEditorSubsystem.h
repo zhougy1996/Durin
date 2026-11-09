@@ -9,7 +9,7 @@ namespace Durin
 {
 	class FDurinPythonModule;
 	// Attaches the module's optional services to one editor session.
-	DCLASS(NoClassDefaultObject)
+	DCLASS()
 	class DPythonEditorSubsystem : public DEditorSubsystem
 	{
 		GENERATED_BODY()

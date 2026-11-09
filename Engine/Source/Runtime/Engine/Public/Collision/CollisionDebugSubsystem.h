@@ -8,12 +8,13 @@
 namespace Durin
 {
 	// Keeps diagnostic state local to a World and releases Level-derived hits on detachment.
-	DCLASS(NoClassDefaultObject)
+	DCLASS()
 	class DCollisionDebugSubsystem : public DWorldSubsystem
 	{
 		GENERATED_BODY()
 	public:
 		ENGINE_API explicit DCollisionDebugSubsystem(const FObjectInitializer& Initializer);
+		auto DoesSupportWorldType(EWorldType) const -> bool override { return true; }
 		auto IsEnabled() const -> bool { return bEnabled; }
 		auto SetEnabled(bool bValue) -> void { bEnabled = bValue; if (!bEnabled) LastHit.reset(); }
 		auto RecordHit(const FHitResult& Hit) -> void { if (bEnabled) LastHit = Hit; }

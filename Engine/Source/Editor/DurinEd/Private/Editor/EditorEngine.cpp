@@ -514,7 +514,7 @@ namespace Durin
 		PlayPackage->SetPlayInEditor(true);
 		DWorld* NewPlayWorld = NewObject<DWorld>(PlayPackage, "PlayWorld");
 		TStrongObjectPtr<DWorld> ConstructionGuard(NewPlayWorld);
-		NewPlayWorld->SetWorldType(EWorldType::PlayInEditor);
+		NewPlayWorld->SetWorldType(EWorldType::PIE);
 		NewPlayWorld->SetRenderScene(GetMainScene());
 		if (auto Result = NewPlayWorld->InitializeSubsystems(this); !Result)
 		{

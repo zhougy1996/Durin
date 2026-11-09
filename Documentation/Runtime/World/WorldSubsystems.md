@@ -4,7 +4,7 @@ Summary: Define native per-World service registration, ownership, lifecycle, Tic
 
 Modules: Engine, Core, DurinEd
 
-Last reviewed: 2026-10-25
+Last reviewed: 2026-11-09
 
 ## Registration And Ownership
 
@@ -12,11 +12,26 @@ A `DWorldSubsystem` is a transient native service owned by one `DWorld`.
 Implement a concrete reflected subclass and hold an `FWorldSubsystemRegistration`
 in the providing module. Register during module startup, before affected Worlds
 initialize, and release the registration during module shutdown. The descriptor
-names the concrete `DClass`, providing module, supported World types, required
-concrete dependencies, and optional Tick policy. An empty World-type list means
-all types. An empty provider is reserved for statically linked native fixtures;
+names the concrete `DClass`, providing module, required concrete dependencies,
+and optional Tick policy. An empty provider is reserved for statically linked native fixtures;
 production providers name their actual module using `FModuleStartup::GetModuleName()`.
 
+World types are `Game`, `Editor`, `PIE` and `EditorPreview`; the last two replace
+the former PlayInEditor and Preview names while preserving their numeric values.
+Play state remains independent of World type. Additional UE World types are not
+introduced without matching host behavior.
+
+`DWorldSubsystem::ShouldCreateSubsystem` checks the prospective World and calls
+`DoesSupportWorldType(EWorldType) const` on the concrete class's CDO. The default
+supports Game, Editor and PIE, excluding EditorPreview. Override this method to
+admit a tool-preview service or restrict it to particular World types. Further
+host conditions can override ShouldCreateSubsystem and must preserve the base
+World eligibility check. Registration has no WorldTypes list or opaque policy.
+Collision debug and material parameter collection services explicitly support
+EditorPreview to retain their tool behavior. Tick opt-in remains independent
+of creation eligibility.
+
+`FWorldSubsystemRegistration` owns a strongly typed registration catalog, and
 `FWorldSubsystemCollection` snapshots descriptors once. Registration removal or
 addition affects subsequent Worlds, without replacing existing objects or
 changing live callback membership. Native `DClass` construction is the factory;
@@ -140,7 +155,7 @@ This framework uses the current task API and owns no scheduler or worker threads
 
 ## Collision Debug Service
 
-Engine registers `DCollisionDebugSubsystem` for every World. It owns debug
+Engine registers `DCollisionDebugSubsystem`, whose applicability includes every supported World type. It owns debug
 enablement (default false) and the last recorded hit. World query and debug
 facades retain their signatures and snapshot limits. Disabling debug, Level
 detachment, and shutdown clear the last hit; detach preserves enablement for

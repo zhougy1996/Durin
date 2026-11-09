@@ -11,7 +11,7 @@ namespace Durin
 	class DEditorEngine;
 
 	// One transient service on the active editor; editor shutdown owns retirement.
-	DCLASS(Abstract, NoClassDefaultObject)
+	DCLASS(Abstract)
 	class DEditorSubsystem : public DSubsystem
 	{
 		GENERATED_BODY()

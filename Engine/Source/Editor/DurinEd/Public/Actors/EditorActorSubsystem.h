@@ -50,7 +50,7 @@ namespace Durin
 		FTransform WorldTransform;
 	};
 	// General actor/component edits share the admitting editor host's history.
-	DCLASS(ScriptType, NoClassDefaultObject)
+	DCLASS(ScriptType)
 	class DEditorActorSubsystem : public DEditorSubsystem
 	{
 		GENERATED_BODY()

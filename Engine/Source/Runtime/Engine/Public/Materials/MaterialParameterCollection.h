@@ -184,12 +184,13 @@ namespace Durin
 		uint64 PayloadBytes = 0;
 	};
 
-	DCLASS(NoClassDefaultObject)
+	DCLASS()
 	class DMaterialParameterCollectionSubsystem : public DWorldSubsystem
 	{
 		GENERATED_BODY()
 		friend class FMaterialReferenceReplacementParticipant;
 	public:
+		auto DoesSupportWorldType(EWorldType) const -> bool override { return true; }
 		ENGINE_API explicit DMaterialParameterCollectionSubsystem(
 			const FObjectInitializer& Initializer);
 		ENGINE_API auto ApplyUpdates(DMaterialParameterCollection& Collection,

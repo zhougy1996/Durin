@@ -28,8 +28,8 @@ namespace Durin
 	enum class EWorldType : uint8
 	{
 		Editor,
-		Preview,
-		PlayInEditor,
+		EditorPreview,
+		PIE,
 		Game
 	};
 

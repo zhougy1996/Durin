@@ -20,7 +20,7 @@ namespace Durin
 	auto FEngineSubsystemCollection::Initialize() -> FSubsystemResult
 	{
 		std::vector<FSubsystemDescriptor> Selected;
-		for (const auto& Entry : FSubsystemRegistration::Snapshot(DEngineSubsystem::StaticClass())) Selected.push_back(Entry.Descriptor);
+		for (const auto& Entry : FSubsystemRegistration::Snapshot(DEngineSubsystem::StaticClass())) Selected.push_back(Entry);
 		return FSubsystemCollection::Initialize(std::move(Selected));
 	}
 }

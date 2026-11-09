@@ -4,7 +4,7 @@ Summary: Define shared native subsystem registration, construction, retention, r
 
 Modules: Engine, Core, CoreDObject
 
-Last reviewed: 2026-10-25
+Last reviewed: 2026-11-09
 
 ## Scope And Ownership
 
@@ -50,12 +50,25 @@ returns null until that concrete object's Initialize succeeds. A service may
 query previously initialized dependencies during its own initialization. It
 remains queryable during dependent cleanup until its own Deinitialize returns.
 
-`FSubsystemRegistration` stores scope identity and optional opaque adapter
-policy. The common kernel does not interpret callback or Tick policy. Collection
-membership freezes before user factories execute. Engine and World token changes
-affect future collections only. Editor collections explicitly opt into controlled
-reconciliation at host safe points; see the Editor subsystem contract. World's descriptor retains its
-existing aggregate layout and eligibility fields.
+`FSubsystemRegistration` stores scope identity and the common descriptor only;
+its snapshots contain Type, Provider, Dependencies and RegistrationIdentity.
+World registration owns a separate strongly typed catalog for its Tick policy.
+The common kernel receives only common descriptors. Engine and World token
+changes affect future collections only. Editor collections explicitly opt into
+controlled reconciliation at host safe points; see the Editor subsystem contract.
+
+Concrete subsystem classes require a published class default object (CDO).
+`ShouldCreateSubsystem(DObject* Outer) const` runs on that CDO with the prospective
+host before any service instances are constructed. The base returns true;
+World subclasses additionally check supported World types. Returning false
+excludes the service before dependency resolution. A selected service requiring
+an excluded dependency fails with MissingDependency. Missing CDOs are invalid
+descriptors, and thrown eligibility checks fail initialization. The selected
+membership freezes before instance construction. Eligibility must be a read-only
+query: the CDO has its class as Outer, no host endpoint and no work gate.
+Constructors establish defaults only; host resources and callbacks belong in
+Initialize and Deinitialize. CDO construction and destruction do not run the
+service initialization/retirement protocol.
 
 ## Common Lifecycle
 

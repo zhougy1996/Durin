@@ -21,7 +21,7 @@ namespace Durin
 	};
 
 	// Per-host scripting entrypoints; the editor engine owns the actual PIE lifetime.
-	DCLASS(NoClassDefaultObject)
+	DCLASS()
 	class DLevelEditorSubsystem : public DEditorSubsystem
 	{
 		GENERATED_BODY()

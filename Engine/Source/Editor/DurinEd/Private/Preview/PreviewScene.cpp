@@ -37,7 +37,7 @@ namespace Durin::Editor
 		}
 
 		AddToRoot(World.Get());
-		World->SetWorldType(EWorldType::Preview);
+		World->SetWorldType(EWorldType::EditorPreview);
 		World->SetRenderScene(RenderScene.get());
 		if (auto Result = World->InitializeSubsystems(); !Result)
 			Error = Result.Message;

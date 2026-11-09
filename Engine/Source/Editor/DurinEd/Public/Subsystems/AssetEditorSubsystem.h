@@ -16,12 +16,13 @@ namespace Durin { class FEditorDocumentManager; class DAssetEditor; class FAsset
 namespace Durin
 {
 	// Tracks asset/editor associations per Editor host, independently of the main frame.
-	DCLASS(NoClassDefaultObject)
+	DCLASS()
 	class DAssetEditorSubsystem : public DEditorSubsystem
 	{
 		GENERATED_BODY()
 	public:
 		DURINED_API explicit DAssetEditorSubsystem(const FObjectInitializer& Initializer);
+		DURINED_API auto Initialize() -> FSubsystemResult override;
 		DURINED_API auto Deinitialize() noexcept -> void override;
 		DURINED_API auto CanOpenEditorForAsset(DObject* Asset, std::string* OutErrorMsg = nullptr) -> bool;
 		DURINED_API auto OpenEditorForAsset(DObject* Asset) -> bool;

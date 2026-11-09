@@ -27,8 +27,8 @@ namespace Durin
 		std::vector<FSubsystemDescriptor> Selected;
 		for (const auto& Entry : FSubsystemRegistration::Snapshot(DEditorSubsystem::StaticClass()))
 		{
-			if (!Entry.Descriptor.Provider.IsNone() && !FModuleManager::Get().IsModuleLoaded(Entry.Descriptor.Provider)) continue;
-			Selected.push_back(Entry.Descriptor);
+			if (!Entry.Provider.IsNone() && !FModuleManager::Get().IsModuleLoaded(Entry.Provider)) continue;
+			Selected.push_back(Entry);
 		}
 		return FSubsystemCollection::Initialize(std::move(Selected));
 	}
@@ -42,18 +42,18 @@ namespace Durin
 		FSubsystemResult ProviderError;
 		for (const auto& Entry : FSubsystemRegistration::Snapshot(DEditorSubsystem::StaticClass()))
 		{
-			if (!Entry.Descriptor.Provider.IsNone())
+			if (!Entry.Provider.IsNone())
 			{
-				const auto Module = FModuleManager::Get().FindModule(Entry.Descriptor.Provider);
+				const auto Module = FModuleManager::Get().FindModule(Entry.Provider);
 				if (!Module || Module->State.load() != EModuleState::Active)
 				{
 					const bool Loading = Module && Module->State.load() == EModuleState::Loading;
 					PendingStartup |= Loading;
-					if (!Loading) ProviderError = {ESubsystemError::ProviderUnavailable, Entry.Descriptor.Provider.ToString()};
+					if (!Loading) ProviderError = {ESubsystemError::ProviderUnavailable, Entry.Provider.ToString()};
 					continue;
 				}
 			}
-			Selected.push_back(Entry.Descriptor);
+			Selected.push_back(Entry);
 		}
 		LastRevision = PendingStartup ? UINT64_MAX : Revision;
 		LastResult = Reconcile(std::move(Selected));

@@ -9,7 +9,7 @@
 namespace Durin
 {
 	// Owns editor-session notifications; the editor ticks their lifetimes independently of UI.
-	DCLASS(NoClassDefaultObject)
+	DCLASS()
 	class DEditorNotificationSubsystem : public DEditorSubsystem
 	{
 		GENERATED_BODY()

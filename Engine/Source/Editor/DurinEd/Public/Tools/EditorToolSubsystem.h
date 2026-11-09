@@ -7,7 +7,7 @@
 
 namespace Durin
 {
-	DCLASS(NoClassDefaultObject)
+	DCLASS()
 	class DEditorToolSubsystem : public DEditorSubsystem
 	{
 		GENERATED_BODY()

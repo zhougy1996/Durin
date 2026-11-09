@@ -22,7 +22,7 @@ namespace Durin
 	using FWorldSubsystemWorkGate = FSubsystemWorkGate;
 
 	// Native per-World service. Workers may capture detached data and a gate, never this object.
-	DCLASS(Abstract, NoClassDefaultObject)
+	DCLASS(Abstract)
 	class DWorldSubsystem : public DSubsystem
 	{
 		GENERATED_BODY()
@@ -31,6 +31,8 @@ namespace Durin
 		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto IsReadyForFinishDestroy() -> bool override;
 		ENGINE_API auto GetWorld() const -> DWorld*;
+		ENGINE_API auto ShouldCreateSubsystem(DObject* Outer) const -> bool override;
+		ENGINE_API virtual auto DoesSupportWorldType(EWorldType WorldType) const -> bool;
 		virtual auto OnWorldBeginPlay() noexcept -> void {}
 		virtual auto OnWorldEndPlay() noexcept -> void {}
 		virtual auto OnLevelAttached(DLevel&) noexcept -> void {}
@@ -50,8 +52,6 @@ namespace Durin
 	{
 		DClass* Type = nullptr;
 		FName Provider;
-		// Empty selects every World type.
-		std::vector<EWorldType> WorldTypes;
 		std::vector<DClass*> Dependencies;
 		bool bTick = false;
 		bool bTickInEditorAndPreview = false;
@@ -59,13 +59,16 @@ namespace Durin
 	};
 
 	// Provider-owned publication token; removal affects only future World snapshots.
-	class FWorldSubsystemRegistration : public FSubsystemRegistration
+	class FWorldSubsystemRegistration
 	{
 	public:
 		ENGINE_API explicit FWorldSubsystemRegistration(FWorldSubsystemDescriptor Descriptor);
 		ENGINE_API ~FWorldSubsystemRegistration();
 		FWorldSubsystemRegistration(const FWorldSubsystemRegistration&) = delete;
 		auto operator=(const FWorldSubsystemRegistration&) -> FWorldSubsystemRegistration& = delete;
+		ENGINE_API static auto Snapshot() -> std::vector<FWorldSubsystemDescriptor>;
+	private:
+		uint64 Identity;
 	};
 
 	// Owns fixed service membership and deterministic dispatch; only DWorld drives callbacks.
@@ -80,7 +83,9 @@ namespace Durin
 	private:
 		struct FWorldEntry
 		{
-			FWorldSubsystemDescriptor Descriptor;
+			bool bTick = false;
+			bool bTickInEditorAndPreview = false;
+			ETickingGroup TickGroup = ETickingGroup::PrePhysics;
 			bool bPlaying = false;
 			bool bAttached = false;
 			bool bFrameTickEnabled = false;

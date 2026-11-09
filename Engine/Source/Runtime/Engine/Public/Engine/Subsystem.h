@@ -7,7 +7,6 @@
 #include "DObject/Object.h"
 #include "DObject/ObjectPtr.h"
 #include "Threading/TaskRuntime.h"
-#include <any>
 #include "Subsystem.gen.h"
 
 namespace Durin
@@ -36,12 +35,14 @@ namespace Durin
 	};
 
 	// Shared transient service contract; scope adapters coordinate host destruction.
-	DCLASS(Abstract, NoClassDefaultObject)
+	DCLASS(Abstract)
 	class DSubsystem : public DObject
 	{
 		GENERATED_BODY()
 	public:
 		ENGINE_API explicit DSubsystem(const FObjectInitializer& Initializer);
+		// Called on the class default object before any service instance is constructed.
+		virtual auto ShouldCreateSubsystem(DObject* Outer) const -> bool { return true; }
 		// Cleanup is paired even with failed Initialize and must not throw.
 		virtual auto Initialize() -> FSubsystemResult { return {}; }
 		virtual auto Deinitialize() noexcept -> void {}
@@ -63,22 +64,15 @@ namespace Durin
 		uint64 RegistrationIdentity = 0;
 	};
 
-	// Frozen native registration, with optional opaque policy interpreted only by its scope adapter.
-	struct FSubsystemRegistrationSnapshot
-	{
-		FSubsystemDescriptor Descriptor;
-		std::any Policy;
-	};
-
 	// Provider-owned publication token; dynamic scope adapters reconcile changes at safe points.
 	class FSubsystemRegistration
 	{
 	public:
-		ENGINE_API FSubsystemRegistration(DClass* Scope, FSubsystemDescriptor Descriptor, std::any Policy = {});
+		ENGINE_API FSubsystemRegistration(DClass* Scope, FSubsystemDescriptor Descriptor);
 		ENGINE_API ~FSubsystemRegistration();
 		FSubsystemRegistration(const FSubsystemRegistration&) = delete;
 		auto operator=(const FSubsystemRegistration&) -> FSubsystemRegistration& = delete;
-		ENGINE_API static auto Snapshot(DClass* Scope) -> std::vector<FSubsystemRegistrationSnapshot>;
+		ENGINE_API static auto Snapshot(DClass* Scope) -> std::vector<FSubsystemDescriptor>;
 		ENGINE_API static auto GetRevision() -> uint64;
 	private:
 		uint64 Identity;

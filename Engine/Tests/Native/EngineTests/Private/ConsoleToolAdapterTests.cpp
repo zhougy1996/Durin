@@ -432,8 +432,8 @@ namespace Durin::Editor::MainFrame
 	{
 		const auto Providers = FSubsystemRegistration::Snapshot(DEditorSubsystem::StaticClass());
 		const auto Count = std::ranges::count_if(Providers, [](const auto& Entry) {
-			return Entry.Descriptor.Type == DLevelEditorSubsystem::StaticClass()
-				&& Entry.Descriptor.Provider == FName("LevelEditor");
+			return Entry.Type == DLevelEditorSubsystem::StaticClass()
+				&& Entry.Provider == FName("LevelEditor");
 		});
 		EXPECT_EQ(1, Count);
 		ASSERT_NE(nullptr, Host->GetEditorSubsystem<DLevelEditorSubsystem>());
