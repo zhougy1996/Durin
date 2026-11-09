@@ -1,6 +1,6 @@
 #include "AssetRegistryStateInternal.h"
+#include "DObject/SoftObjectPathServices.h"
 
-#include "DObject/SoftObjectPtr.h"
 
 namespace Durin
 {
@@ -693,7 +693,7 @@ namespace Durin
 		if (Result)
 		{
 			AssetPrivate::MarkAssetRegistryCachesDirty();
-			InvalidateSoftObjectCaches();
+			Durin::Private::InvalidateSoftObjectCaches();
 		}
 		return Result;
 	}
@@ -729,7 +729,7 @@ namespace Durin
 		if (Result)
 		{
 			AssetPrivate::MarkAssetRegistryCachesDirty();
-			InvalidateSoftObjectCaches();
+			Durin::Private::InvalidateSoftObjectCaches();
 		}
 		return Result;
 	}
@@ -737,11 +737,13 @@ namespace Durin
 	auto FenceAssetRegistryProjection(std::span<const FPackagePath> Paths) -> void
 	{
 		AssetPrivate::GetAssetRegistryState().Fence(Paths);
+		Durin::Private::InvalidateSoftObjectCaches();
 	}
 
 	auto ClearAssetRegistryProjectionFence(std::span<const FPackagePath> Paths) -> void
 	{
 		AssetPrivate::GetAssetRegistryState().ClearFence(Paths);
+		Durin::Private::InvalidateSoftObjectCaches();
 	}
 
 	auto IsAssetRegistryProjectionFenced(const FPackagePath& Path) -> bool

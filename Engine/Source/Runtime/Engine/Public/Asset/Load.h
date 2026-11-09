@@ -16,33 +16,6 @@
 
 namespace Durin
 {
-	enum class ESoftObjectNullPolicy : uint8
-	{
-		Reject,
-		Allow
-	};
-
-	enum class ESoftObjectResolveState : uint8
-	{
-		Null,
-		NotLoaded,
-		Loaded
-	};
-
-	template<typename T>
-	struct TSoftObjectResolution
-	{
-		ESoftObjectResolveState State = ESoftObjectResolveState::Null;
-		T* Object = nullptr;
-		FObjectPath ResolvedPath;
-		bool bRedirected = false;
-	};
-
-	using FSoftObjectResolution = TSoftObjectResolution<DObject>;
-	using FSoftObjectResolveResult = std::expected<FSoftObjectResolution, FAssetReadError>;
-	template<typename T>
-	using TSoftObjectResolveResult = std::expected<TSoftObjectResolution<T>, FAssetReadError>;
-
 	enum class EAssetLoadMutationKind : uint8
 	{
 		Upgrade,
@@ -146,9 +119,7 @@ namespace Durin
 			FAssetLoadReport* OutReport = nullptr) -> std::expected<DPackage*, FAssetReadError>;
 		[[nodiscard]] ENGINE_API auto LoadObject(const FObjectPath& Path, const DClass* ExpectedClass,
 			FAssetLoadReport* OutReport = nullptr) -> std::expected<DObject*, FAssetReadError>;
-		[[nodiscard]] ENGINE_API auto LoadSoftObject(FSoftObjectPtr& Reference, const DClass* ExpectedClass,
-			ESoftObjectNullPolicy NullPolicy = ESoftObjectNullPolicy::Reject,
-			FAssetLoadReport* OutReport = nullptr) -> std::expected<DObject*, FAssetReadError>;
+
 
 		template<typename T>
 		[[nodiscard]] auto LoadObject(const FObjectPath& Path,
@@ -160,17 +131,6 @@ namespace Durin
 			return static_cast<T*>(*Result);
 		}
 
-		template<typename T>
-		[[nodiscard]] auto LoadSoftObject(TSoftObjectPtr<T>& Reference,
-			ESoftObjectNullPolicy NullPolicy = ESoftObjectNullPolicy::Reject,
-			FAssetLoadReport* OutReport = nullptr) -> std::expected<T*, FAssetReadError>
-		{
-			static_assert(std::is_base_of_v<DObject, T>);
-			auto Result = LoadSoftObject(
-				Reference.GetBase(), T::StaticClass(), NullPolicy, OutReport);
-			if (!Result) return std::unexpected(std::move(Result.error()));
-			return static_cast<T*>(*Result);
-		}
 
 		// Rejects unsaved state and restores residency for live references, returning InUse.
 		// Reload abort may ignore saved dependency edges of the specified exact live
@@ -228,54 +188,6 @@ namespace Durin
 		static_assert(std::is_base_of_v<DObject, T>);
 		auto Result = LoadObject(
 			Path, T::StaticClass(), OutReport);
-		if (!Result) return std::unexpected(std::move(Result.error()));
-		return static_cast<T*>(*Result);
-	}
-
-	[[nodiscard]] ENGINE_API auto ResolveSoftObject(
-		FSoftObjectPtr& Reference,
-		const DClass* ExpectedClass,
-		ESoftObjectNullPolicy NullPolicy = ESoftObjectNullPolicy::Reject
-	)
-		-> FSoftObjectResolveResult;
-	[[nodiscard]] ENGINE_API auto LoadSoftObject(
-		FSoftObjectPtr& Reference,
-		const DClass* ExpectedClass,
-		ESoftObjectNullPolicy NullPolicy = ESoftObjectNullPolicy::Reject,
-		FAssetLoadReport* OutReport = nullptr
-	) -> std::expected<DObject*, FAssetReadError>;
-
-	template<typename T>
-	[[nodiscard]] auto ResolveSoftObject(
-		TSoftObjectPtr<T>& Reference,
-		ESoftObjectNullPolicy NullPolicy = ESoftObjectNullPolicy::Reject
-	)
-		-> TSoftObjectResolveResult<T>
-	{
-		static_assert(std::is_base_of_v<DObject, T>);
-		FSoftObjectResolveResult Result = ResolveSoftObject(
-			Reference.GetBase(), T::StaticClass(), NullPolicy
-		);
-		if (!Result) return std::unexpected(std::move(Result.error()));
-		return TSoftObjectResolution<T>{
-			.State = Result->State,
-			.Object = static_cast<T*>(Result->Object),
-			.ResolvedPath = std::move(Result->ResolvedPath),
-			.bRedirected = Result->bRedirected
-		};
-	}
-
-	template<typename T>
-	[[nodiscard]] auto LoadSoftObject(
-		TSoftObjectPtr<T>& Reference,
-		ESoftObjectNullPolicy NullPolicy = ESoftObjectNullPolicy::Reject,
-		FAssetLoadReport* OutReport = nullptr
-	) -> std::expected<T*, FAssetReadError>
-	{
-		static_assert(std::is_base_of_v<DObject, T>);
-		auto Result = LoadSoftObject(
-			Reference.GetBase(), T::StaticClass(), NullPolicy, OutReport
-		);
 		if (!Result) return std::unexpected(std::move(Result.error()));
 		return static_cast<T*>(*Result);
 	}

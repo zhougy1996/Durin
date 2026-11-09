@@ -121,8 +121,7 @@ namespace Durin
 			FObjectPath Path;
 			if (!FObjectPath::TryCreate(Document.ResourceId, Path)) continue;
 			FSoftObjectPtr Reference(Path);
-			const auto Resolved = ResolveSoftObject(Reference, DObject::StaticClass());
-			auto* Asset = Resolved ? Resolved->Object : nullptr;
+			auto* Asset = Reference.Get();
 			OpenDocuments.insert(Document.Id.Value);
 			auto& Instance = State->AssetRoots[Document.Id.Value];
 			if (!Instance) Instance = std::make_shared<DocumentPrivate::FDocumentAssetRoot>();

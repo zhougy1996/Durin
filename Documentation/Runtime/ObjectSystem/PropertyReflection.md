@@ -4,7 +4,7 @@ Summary: Define reflected property authoring, registration, value access, contai
 
 Modules: CoreDObject
 
-Last reviewed: 2026-10-16
+Last reviewed: 2026-11-09
 
 For type ownership and registration, see [Reflection system](ReflectionSystem.md).
 Struct value capabilities are defined by [Reflected struct operations](StructOperations.md).
@@ -93,7 +93,7 @@ presentation.
 field within its owner. `FObjectProperty` reads and writes hard references
 through `GetObjectPropertyValue(...)` and `SetObjectPropertyValue(...)`.
 `FSoftObjectProperty::GetSoftObjectPtr(...)` exposes the bounded untyped wrapper;
-use `GetPath()` and `SetPath(FObjectPath)` for authored identity.
+use `ToSoftObjectPath()` and assignment from `FObjectPath` for authored identity.
 `FWeakObjectProperty::GetWeakObjectPtr(...)` exposes its exact wrapper and expected
 class. `FStringProperty` provides a `std::string*` helper.
 

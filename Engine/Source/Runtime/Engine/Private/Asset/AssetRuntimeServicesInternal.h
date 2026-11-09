@@ -30,15 +30,8 @@ namespace Durin
 			const FObjectPath& Path,
 			const DClass* ExpectedClass,
 			FAssetLoadReport* OutReport = nullptr) -> std::expected<DObject*, FAssetReadError>;
-		auto ResolveSoftObject(
-			FSoftObjectPtr& Reference,
-			const DClass* ExpectedClass,
-			ESoftObjectNullPolicy NullPolicy) -> FSoftObjectResolveResult;
-		auto LoadSoftObject(
-			FSoftObjectPtr& Reference,
-			const DClass* ExpectedClass,
-			ESoftObjectNullPolicy NullPolicy,
-			FAssetLoadReport* OutReport) -> std::expected<DObject*, FAssetReadError>;
+		auto FindLoadedObject(const FObjectPath& Path, const DClass* ExpectedClass,
+			DObject* Cached) -> DObject*;
 		auto FindResidentPackage(const FPackagePath& Path) const -> DPackage*;
 		auto UnloadPackage(
 			const FPackagePath& Path,

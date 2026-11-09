@@ -1,4 +1,5 @@
 #include "DObject/PackagePersistence.h"
+#include "DObject/SoftObjectPathServices.h"
 #include "Asset/RegistryOperations.h"
 #include "AssetRuntimeStateInternal.h"
 #include "AssetAsyncLoadInternal.h"
@@ -219,22 +220,6 @@ namespace Durin
 		return Durin::LoadObject(Path, ExpectedClass, OutReport);
 	}
 
-	auto FAssetPackageLoadScope::LoadSoftObject(FSoftObjectPtr& Reference, const DClass* ExpectedClass,
-		ESoftObjectNullPolicy NullPolicy, FAssetLoadReport* OutReport) -> std::expected<DObject*, FAssetReadError>
-	{
-		CheckSoftObjectThread();
-		if (!FAssetRuntimeState::Get().GetLoadService().IsIdle())
-		{
-			return std::unexpected(FAssetReadError{EAssetReadError::InUse, "A load scope requires a top-level load invocation."});
-		}
-		struct FRestoreLoadOwner
-		{
-			std::vector<TWeakObjectPtr<DPackage>>* Previous;
-			~FRestoreLoadOwner() { GOwnedLoadPackages = Previous; }
-		} Restore{std::exchange(GOwnedLoadPackages, &Packages)};
-		return Durin::LoadSoftObject(Reference, ExpectedClass, NullPolicy, OutReport);
-	}
-
 	auto FAssetPackageLoadScope::Release(
 		std::span<const TWeakObjectPtr<DPackage>> IgnoreSavedDependencies) -> FAssetReadResult
 	{
@@ -329,7 +314,7 @@ namespace Durin
 			if (!Package || !Package->IsGarbage() || !Package->IsAssetPackage()
 				|| Package->IsGraphPrivate() || FindPackage(Package->GetPackagePath()) != Package) return;
 			GetPackageResourceManager().RetirePackage(Package->GetPackagePath());
-			InvalidateSoftObjectCaches();
+			Durin::Private::InvalidateSoftObjectCaches();
 		})
 	{
 	}
@@ -834,7 +819,7 @@ namespace Durin
 				"Package remains referenced by live objects.");
 		}
 		GetPackageResourceManager().RetirePackage(Path.ToString());
-		InvalidateSoftObjectCaches();
+		Durin::Private::InvalidateSoftObjectCaches();
 		return {};
 	}
 
@@ -900,7 +885,7 @@ namespace Durin
 				bReleased = true;
 			}
 		}
-		if (bReleased) InvalidateSoftObjectCaches();
+		if (bReleased) Durin::Private::InvalidateSoftObjectCaches();
 		return bInUse ? Error(EAssetReadError::InUse,
 			"Packages remain referenced or have unsaved state.") : FAssetReadResult{};
 	}
@@ -949,136 +934,23 @@ namespace Durin
 		DURIN_DEBUG("Asset manager stopped accepting new requests");
 	}
 
-	auto FAssetLoadService::ResolveSoftObject(
-		FSoftObjectPtr& Reference,
-		const DClass* ExpectedClass,
-		ESoftObjectNullPolicy NullPolicy) -> FSoftObjectResolveResult
+	auto FAssetLoadService::FindLoadedObject(const FObjectPath& Path,
+		const DClass* ExpectedClass, DObject* Cached) -> DObject*
 	{
-		if (!Reference.IsNull())
-			if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check(
-				"soft-object resolve", Reference.GetPath().ToString()); !Result)
-				return std::unexpected(AssetReadErrorFromResult(Result));
+		if (!AssetPrivate::FAssetLiveLoadGuard::Check("soft-object lookup", Path.ToString())) return nullptr;
 		CheckSoftObjectThread();
-		if (!ExpectedClass || !ExpectedClass->IsChildOf(DObject::StaticClass()))
+		if (!bAcceptingRequests) return nullptr;
+		// Catalog, fence, and object-identity changes invalidate the private cache epoch.
+		if (Cached) return Cached;
+		const auto Resolution = ResolveAssetObjectPathForOperation(Path, {.ExpectedClass = ExpectedClass});
+		if (Resolution)
 		{
-			return std::unexpected(FAssetReadError{EAssetReadError::TypeMismatch, "A soft-object resolve requires a DObject class."});
+			DPackage* Package = FindResidentPackage(Resolution.FinalPath.GetPackagePath());
+			return Package && !IsPackageLoading(Resolution.FinalPath.GetPackagePath())
+				? FindPackageObject(Package, Resolution.FinalPath) : nullptr;
 		}
-		if (Reference.IsNull())
-		{
-			if (NullPolicy == ESoftObjectNullPolicy::Allow)
-				return FSoftObjectResolution{.State = ESoftObjectResolveState::Null};
-			return std::unexpected(FAssetReadError{EAssetReadError::InvalidPath,
-				"A null soft-object reference is not allowed."});
-		}
-
-		const FObjectPath& Path = Reference.GetPath();
-		const FObjectPathResolveResult Resolution = Durin::ResolveAssetObjectPathForOperation(
-			Path, {.ExpectedClass = ExpectedClass});
-		if (!Resolution)
-		{
-			if (Resolution.State == EAssetPathResolveState::NotFound)
-			{
-				DPackage* LoadedPackage = FindResidentPackage(Path.GetPackagePath());
-				DObject* LoadedObject = LoadedPackage
-					? FindPackageObject(LoadedPackage, Path) : nullptr;
-				if (LoadedObject && !LoadedObject->IsA<DAssetRedirector>())
-				{
-					if (!LoadedObject->IsA(ExpectedClass))
-						return std::unexpected(FAssetReadError{EAssetReadError::TypeMismatch, std::format(
-								"Asset {} is not a {}.", Path.ToString(),
-								ExpectedClass->GetQualifiedName())});
-					if (const auto Validation = Reference.TrySetResolvedObject(
-						LoadedObject, Reference.GetPath(), Reference.GetPath(),
-						ExpectedClass); !Validation)
-						return std::unexpected(FAssetReadError{.Code = EAssetReadError::InvalidObjectGraph, .Message = ToString(Validation.error()), .ObjectCause = Validation.error()});
-					return FSoftObjectResolution{
-						.State = ESoftObjectResolveState::Loaded,
-						.Object = LoadedObject,
-						.ResolvedPath = Path};
-				}
-			}
-			Reference.ResetCache();
-			return std::unexpected(AssetReadErrorFromResult(ObjectPathResolutionError(Resolution)));
-		}
-
-		DPackage* Package = FindResidentPackage(
-			Resolution.FinalPath.GetPackagePath());
-		if (!Package)
-		{
-			Reference.ResetCache();
-			return FSoftObjectResolution{
-				.State = ESoftObjectResolveState::NotLoaded,
-				.ResolvedPath = Resolution.FinalPath,
-				.bRedirected = !Resolution.RedirectChain.empty()};
-		}
-
-		DObject* Object = FindPackageObject(Package, Resolution.FinalPath);
-		if (!Object)
-		{
-			return std::unexpected(FAssetReadError{.Code = EAssetReadError::InvalidObjectGraph, .Message = std::format(
-					"Loaded package {} has no object {}.",
-					Resolution.FinalPath.GetPackagePath().ToString(),
-					Resolution.FinalPath.ToString()),
-				.ResolvedPath = Resolution.FinalPath, .bRedirected = !Resolution.RedirectChain.empty()});
-		}
-		if (!Object->IsA(ExpectedClass))
-		{
-			return std::unexpected(FAssetReadError{.Code = EAssetReadError::TypeMismatch, .Message = std::format(
-					"Asset {} is not a {}.",
-					Resolution.FinalPath.ToString(), ExpectedClass->GetQualifiedName()),
-				.ResolvedPath = Resolution.FinalPath, .bRedirected = !Resolution.RedirectChain.empty()});
-		}
-
-		if (const auto Validation = Reference.TrySetResolvedObject(
-			Object, Reference.GetPath(), Resolution.FinalPath,
-			ExpectedClass); !Validation)
-		{
-			return std::unexpected(FAssetReadError{.Code = EAssetReadError::InvalidObjectGraph, .Message = ToString(Validation.error()),
-				.ResolvedPath = Resolution.FinalPath, .bRedirected = !Resolution.RedirectChain.empty(), .ObjectCause = Validation.error()});
-		}
-		return FSoftObjectResolution{
-			.State = ESoftObjectResolveState::Loaded,
-			.Object = Object,
-			.ResolvedPath = Resolution.FinalPath,
-			.bRedirected = !Resolution.RedirectChain.empty()};
+		if (Resolution.State != EAssetPathResolveState::NotFound || IsPackageLoading(Path.GetPackagePath())) return nullptr;
+		DObject* Object = FindPackageObject(FindResidentPackage(Path.GetPackagePath()), Path);
+		return Object && !Object->IsA<DAssetRedirector>() ? Object : nullptr;
 	}
-
-	auto FAssetLoadService::LoadSoftObject(
-		FSoftObjectPtr& Reference,
-		const DClass* ExpectedClass,
-		ESoftObjectNullPolicy NullPolicy,
-		FAssetLoadReport* OutReport) -> std::expected<DObject*, FAssetReadError>
-	{
-		if (!Reference.IsNull())
-			if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check(
-				"soft-object load", Reference.GetPath().ToString()); !Result)
-			{
-				if (OutReport) *OutReport = {.RequestedPath = Reference.GetPath().GetPackagePath(),
-					.PackagePath = Reference.GetPath().GetPackagePath(),
-					.Error = Result.Error, .ErrorMessage = Result.Message};
-				return std::unexpected(AssetReadErrorFromResult(Result));
-			}
-		CheckSoftObjectThread();
-		FSoftObjectResolveResult Resolved = ResolveSoftObject(
-			Reference, ExpectedClass, NullPolicy);
-		if (!Resolved) return std::unexpected(std::move(Resolved.error()));
-		if (Resolved->State == ESoftObjectResolveState::Null) return nullptr;
-		if (Resolved->State == ESoftObjectResolveState::Loaded)
-		{
-			return Resolved->Object;
-		}
-
-		const FObjectPath& ResolvedObjectPath = Resolved->ResolvedPath.IsValid()
-			? Resolved->ResolvedPath : Reference.GetPath();
-		auto Result = LoadObject(
-			ResolvedObjectPath, ExpectedClass, OutReport);
-		if (!Result) return Result;
-
-		if (const auto Validation = Reference.TrySetResolvedObject(
-			*Result, Reference.GetPath(), ResolvedObjectPath,
-			ExpectedClass); !Validation)
-			return std::unexpected(FAssetReadError{.Code = EAssetReadError::InvalidObjectGraph, .Message = ToString(Validation.error()), .ObjectCause = Validation.error()});
-		return Result;
-	}
-
 }

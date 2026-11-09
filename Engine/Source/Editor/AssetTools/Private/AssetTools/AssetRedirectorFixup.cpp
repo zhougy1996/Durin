@@ -657,7 +657,7 @@ namespace Durin
 			if (!FObjectPath::TryCreate(Live.PostPath.GetView(), Path))
 				return PublicationFailed(
 					"A prepared live soft-reference destination became invalid.");
-			Live.Value->SetPath(std::move(Path));
+			*Live.Value = std::move(Path);
 		}
 
 		std::vector<FAssetReferenceEdge> VerifiedEdges;

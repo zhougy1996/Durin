@@ -566,12 +566,12 @@ namespace Durin
 					Ar.SetError("Soft object property has no typed value accessor.");
 					break;
 				}
-				FObjectPath Path = Ar.IsSaving() ? Value->GetPath() : FObjectPath();
+				FObjectPath Path = Ar.IsSaving() ? Value->ToSoftObjectPath() : FObjectPath();
 				SerializeArchiveSoftObjectValue(Ar, Path);
 				if (Ar.IsLoading() && !Ar.IsError())
 				{
 					if (!Path.IsValid()) Value->Reset();
-					else Value->SetPath(std::move(Path));
+					else *Value = std::move(Path);
 				}
 				break;
 			}

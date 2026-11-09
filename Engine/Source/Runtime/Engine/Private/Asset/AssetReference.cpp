@@ -533,7 +533,7 @@ namespace Durin
 				return Error(EAssetReadError::TypeMismatch,
 					"SoftReferenceMoveSchemaMismatch: live soft value accessor is unavailable.");
 			if (!Value->IsNull()
-				&& Value->GetPath().GetPackagePath() == Collector.TargetPath)
+				&& Value->ToSoftObjectPath().GetPackagePath() == Collector.TargetPath)
 				Collector.Values.push_back(Value);
 			return {};
 		}

@@ -3,6 +3,7 @@
 #include "PropertyEditor/PropertyValueDraft.h"
 
 #include "Asset/Asset.h"
+#include "Asset/RegistryOperations.h"
 #include "Asset/EditorBulkData.h"
 #include "Components/VolumetricCloudComponent.h"
 #include "Components/SkyLightComponent.h"
@@ -396,33 +397,41 @@ namespace Durin::Editor
 			return ViewState;
 		}
 		if (Reference->IsNull()) return ViewState;
-		ViewState.Path = Reference->GetPath();
+		ViewState.Path = Reference->ToSoftObjectPath();
 
-		const FSoftObjectResolveResult Resolve = ResolveSoftObject(
-			*Reference, Property->GetExpectedClass(), ESoftObjectNullPolicy::Reject);
-		if (!Resolve)
+		const auto Resolution = ResolveAssetObjectPathForOperation(
+			Reference->ToSoftObjectPath(), {.ExpectedClass = Property->GetExpectedClass()});
+		ViewState.LoadedObject = Reference->Get(Property->GetExpectedClass());
+		if (!Resolution)
 		{
-			ViewState.State = (Resolve ? EAssetReadError::None : Resolve.error().Code) == EAssetReadError::TypeMismatch
-				|| (Resolve ? EAssetReadError::None : Resolve.error().Code) == EAssetReadError::UnknownClass
-				? ESoftObjectViewState::TypeMismatch
-				: ESoftObjectViewState::Missing;
+			if (Resolution.State == EAssetPathResolveState::NotFound && ViewState.LoadedObject)
+			{
+				ViewState.State = ESoftObjectViewState::Loaded;
+				ViewState.ResolvedPath = ViewState.Path;
+				return ViewState;
+			}
+			const bool bTypeMismatch = Resolution.State == EAssetPathResolveState::RedirectTypeMismatch
+				|| Resolution.State == EAssetPathResolveState::UnknownTargetClass;
+			ViewState.State = bTypeMismatch ? ESoftObjectViewState::TypeMismatch : ESoftObjectViewState::Missing;
 			ViewState.Error = ESoftObjectViewError::Asset;
-			ViewState.AssetCause = std::make_shared<FAssetReadError>(Resolve.error());
+			ViewState.AssetCause = std::make_shared<FAssetReadError>(FAssetReadError{
+				.Code = bTypeMismatch ? EAssetReadError::TypeMismatch : EAssetReadError::NotFound,
+				.Message = std::format("Soft object path '{}' could not be resolved (state {}).",
+					ViewState.Path.ToString(), static_cast<uint32>(Resolution.State))});
 			return ViewState;
 		}
-		ViewState.ResolvedPath = Resolve->ResolvedPath;
-		ViewState.LoadedObject = Resolve->Object;
-		if (Resolve->bRedirected)
+		ViewState.ResolvedPath = Resolution.FinalPath;
+		if (!Resolution.RedirectChain.empty())
 		{
 			ViewState.State = ESoftObjectViewState::Redirected;
 			return ViewState;
 		}
-		if (Resolve->State == ESoftObjectResolveState::Loaded)
+		if (ViewState.LoadedObject)
 		{
 			ViewState.State = ESoftObjectViewState::Loaded;
-			ViewState.LoadedObject = Resolve->Object;
 			return ViewState;
 		}
+
 		ViewState.State = ESoftObjectViewState::Unloaded;
 		return ViewState;
 	}
@@ -440,7 +449,7 @@ namespace Durin::Editor
 		return {};
 	}
 
-	auto LoadSoftObject(FSoftObjectProperty* Property, void* Container, uint32 ArrayIndex,
+	auto LoadSoftObjectProperty(FSoftObjectProperty* Property, void* Container, uint32 ArrayIndex,
 		DObject*& OutObject) -> FPropertySoftLoadResult
 	{
 		OutObject = nullptr;
@@ -457,8 +466,8 @@ namespace Durin::Editor
 			Result.Error = EPropertySoftLoadError::Accessor;
 			return Result;
 		}
-		Result.Path = Reference->GetPath();
-		auto Loaded = LoadSoftObject(*Reference, Property->GetExpectedClass(), ESoftObjectNullPolicy::Reject);
+		Result.Path = Reference->ToSoftObjectPath();
+		auto Loaded = LoadObject(Reference->ToSoftObjectPath(), Property->GetExpectedClass());
 		OutObject = Loaded.value_or(nullptr);
 		if (!Loaded)
 		{
@@ -1047,7 +1056,7 @@ namespace Durin::Editor
 			auto* SoftProperty = static_cast<FSoftObjectProperty*>(Property);
 			FSoftObjectPtr* CurrentReference = SoftProperty->GetSoftObjectPtr(Container, ArrayIndex);
 			const FSoftObjectViewState ViewState = InspectSoftObject(SoftProperty, Container, ArrayIndex);
-			FObjectPath SelectedPath = CurrentReference ? CurrentReference->GetPath() : FObjectPath();
+			FObjectPath SelectedPath = CurrentReference ? CurrentReference->ToSoftObjectPath() : FObjectPath();
 			const std::string_view StateLabel = GetSoftObjectStateLabel(ViewState.State);
 			const bool bCanLoad = ViewState.State == ESoftObjectViewState::Unloaded
 				|| (ViewState.State == ESoftObjectViewState::Redirected
@@ -1063,7 +1072,7 @@ namespace Durin::Editor
 				.bEnabled = bCanLoad,
 				.Execute = [SoftProperty, Container, ArrayIndex](std::string& Error) {
 					DObject* LoadedObject = nullptr;
-					if (auto Loaded = LoadSoftObject(SoftProperty, Container, ArrayIndex, LoadedObject); !Loaded)
+					if (auto Loaded = LoadSoftObjectProperty(SoftProperty, Container, ArrayIndex, LoadedObject); !Loaded)
 					{
 						Error = FormatPropertySoftLoadResult(Loaded);
 						return false;
@@ -1116,7 +1125,7 @@ namespace Durin::Editor
 					FProperty* DestinationProperty, void* DestinationContainer, uint32 DestinationArrayIndex) {
 					auto* Destination = static_cast<FSoftObjectProperty*>(DestinationProperty)
 						->GetSoftObjectPtr(DestinationContainer, DestinationArrayIndex);
-					if (Destination) Destination->SetPath(SelectedPath);
+					if (Destination) *Destination = SelectedPath;
 				};
 			}
 		}

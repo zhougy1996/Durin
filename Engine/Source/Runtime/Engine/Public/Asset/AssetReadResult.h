@@ -3,7 +3,6 @@
 #include "CoreMinimal.h"
 
 #include "EngineAPI.h"
-#include "DObject/SoftObjectPtr.h"
 
 namespace Durin
 {
@@ -36,9 +35,6 @@ namespace Durin
 	{
 		EAssetReadError Code = EAssetReadError::InvalidObjectGraph;
 		std::string Message;
-		FObjectPath ResolvedPath;
-		bool bRedirected = false;
-		std::optional<FSoftObjectError> ObjectCause;
 	};
 
 	// Codec and pending graph status; not a completed object-load value.

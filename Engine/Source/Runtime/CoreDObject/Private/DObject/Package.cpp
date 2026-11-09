@@ -1,10 +1,10 @@
 #include "DObject/Package.h"
+#include "DObject/SoftObjectPathServices.h"
 
 #include "DObject/DObjectGlobals.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/Class.h"
 #include "DObject/ObjectLifecycle.h"
-#include "DObject/SoftObjectPtr.h"
 #include "Misc/StringHelper.h"
 
 namespace Durin
@@ -84,7 +84,7 @@ namespace Durin
 		auto It = GetPackageRegistry().find(RegisteredPath);
 		if (It != GetPackageRegistry().end() && It->second == this) GetPackageRegistry().erase(It);
 		bGraphPrivate = true;
-		InvalidateSoftObjectCaches();
+		Durin::Private::InvalidateSoftObjectCaches();
 	}
 
 	auto DPackage::RelocateAssetPackage(const FPackagePath& InPath) -> bool
@@ -101,7 +101,7 @@ namespace Durin
 		RegisteredPath = NewPath;
 		Registry.emplace(RegisteredPath, this);
 		MarkDirty();
-		InvalidateSoftObjectCaches();
+		Durin::Private::InvalidateSoftObjectCaches();
 		return true;
 	}
 

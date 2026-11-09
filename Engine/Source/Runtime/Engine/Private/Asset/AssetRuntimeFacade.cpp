@@ -1,10 +1,29 @@
 #include "AssetRuntimeStateInternal.h"
 
 #include "DObject/Package.h"
+#include "DObject/SoftObjectPathServices.h"
 #include "Asset/PackageRemoval.h"
 
 namespace Durin
 {
+	namespace
+	{
+		struct FSoftObjectPathRegistration
+		{
+			FSoftObjectPathRegistration()
+			{
+				Private::SetSoftObjectPathOperations({
+					.Resolve = [](const FObjectPath& Path, const DClass* ExpectedClass, DObject* Cached) {
+						return FAssetRuntimeState::Get().GetLoadService().FindLoadedObject(Path, ExpectedClass, Cached);
+					},
+					.Load = [](const FObjectPath& Path, const DClass* ExpectedClass) {
+						return LoadObject(Path, ExpectedClass).value_or(nullptr);
+					}});
+			}
+			~FSoftObjectPathRegistration() { Private::SetSoftObjectPathOperations({}); }
+		} GSoftObjectPathRegistration;
+	}
+
 	auto LoadPackage(
 		const FPackagePath& Path,
 		FAssetLoadReport* OutReport) -> std::expected<DPackage*, FAssetReadError>
@@ -20,25 +39,6 @@ namespace Durin
 	{
 		return FAssetRuntimeState::Get().GetLoadService().LoadObject(
 			Path, ExpectedClass, OutReport);
-	}
-
-	auto ResolveSoftObject(
-		FSoftObjectPtr& Reference,
-		const DClass* ExpectedClass,
-		ESoftObjectNullPolicy NullPolicy) -> FSoftObjectResolveResult
-	{
-		return FAssetRuntimeState::Get().GetLoadService().ResolveSoftObject(
-			Reference, ExpectedClass, NullPolicy);
-	}
-
-	auto LoadSoftObject(
-		FSoftObjectPtr& Reference,
-		const DClass* ExpectedClass,
-		ESoftObjectNullPolicy NullPolicy,
-		FAssetLoadReport* OutReport) -> std::expected<DObject*, FAssetReadError>
-	{
-		return FAssetRuntimeState::Get().GetLoadService().LoadSoftObject(
-			Reference, ExpectedClass, NullPolicy, OutReport);
 	}
 
 	auto SavePackage(DPackage* Package, EAssetPackageSaveMode Mode) -> FAssetWriteResult
@@ -96,7 +96,7 @@ namespace Durin
 	auto ShutdownAssetManager() -> void
 	{
 		FAssetRuntimeState::Get().Shutdown();
-		InvalidateSoftObjectCaches();
+		Durin::Private::InvalidateSoftObjectCaches();
 	}
 
 	auto InitializeAssetManager(

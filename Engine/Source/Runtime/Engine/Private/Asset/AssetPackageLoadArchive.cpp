@@ -618,7 +618,7 @@ namespace Durin::AssetPrivate
 			{
 				return Error(EAssetReadError::InvalidPath, ToString(PathValidation.error()));
 			}
-			Reference->SetPath(std::move(Path));
+			*Reference = std::move(Path);
 			return {};
 		}
 		case DurinCodeGen::EPropertyGenFlags::Struct:

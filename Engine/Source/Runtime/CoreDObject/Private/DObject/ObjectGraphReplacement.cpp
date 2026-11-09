@@ -1,11 +1,11 @@
 #include "DObject/ObjectGraphReplacement.h"
+#include "DObject/SoftObjectPathServices.h"
 
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
-#include "DObject/SoftObjectPtr.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Threading/RunnableThread.h"
 
@@ -832,7 +832,7 @@ namespace Durin
 		}
 		Impl->References.Impl->Commit();
 		for (const auto& P : Impl->Participants) P->Commit();
-		InvalidateSoftObjectCaches();
+		Durin::Private::InvalidateSoftObjectCaches();
 		Impl->State = FImpl::EState::Committed;
 	}
 

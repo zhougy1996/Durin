@@ -4,7 +4,7 @@ Summary: Define generated native function descriptors, inheritance, and unified 
 
 Modules: CoreDObject
 
-Last reviewed: 2026-10-17
+Last reviewed: 2026-11-09
 
 ## Authoring And Scope
 
@@ -282,8 +282,9 @@ parameter storage nor generated descriptors confer permanent object ownership.
 Soft/weak slots preserve the [non-owning pointer semantics used by UE](https://dev.epicgames.com/documentation/en-us/unreal-engine/object-pointers-in-unreal-engine).
 They never become GC roots, including inside nested containers or returned values.
 Copying a soft reference preserves its authored path and weak loaded cache;
-`ProcessEvent` never loads a resource implicitly. Null, pending, valid, and stale
-states follow `TSoftObjectPtr`. Weak references preserve object identity/serial
+`ProcessEvent` never loads a resource implicitly. `TSoftObjectPtr` exposes null,
+pending, and valid predicates, and refreshes its weak cache on lookup. Weak
+references preserve object identity/serial
 keys and resolve to null after collection; copying an already-stale value is
 valid. Passing by `const T&`, by value, or through an input/output reference does
 not promote either wrapper to a strong owner. Code retaining a resolved object

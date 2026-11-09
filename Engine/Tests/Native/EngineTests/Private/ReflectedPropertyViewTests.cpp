@@ -567,7 +567,7 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 	EXPECT_EQ(Durin::Editor::GetSoftObjectStateLabel(State.State), "Null");
 
 	const Durin::FObjectPath MissingPath = MakeSoftObjectPropertyViewPath("Missing");
-	Object.SoftValues[0].SetPath(MissingPath);
+	Object.SoftValues[0] = MissingPath;
 	State = Durin::Editor::InspectSoftObject(Reflection.SoftProperty, &Object, 0);
 	EXPECT_EQ(State.State, Durin::Editor::ESoftObjectViewState::Missing);
 	const auto MissingState = State;
@@ -575,9 +575,9 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 	EXPECT_EQ(MissingState.ArrayIndex, 0u);
 	ASSERT_TRUE(State.AssetCause);
 	EXPECT_EQ(State.Error, Durin::Editor::ESoftObjectViewError::Asset);
-	EXPECT_FALSE(Object.SoftValues[0].IsLoaded());
+	EXPECT_FALSE(Object.SoftValues[0].IsValid());
 	Durin::DObject* LoadedObject = nullptr;
-	const auto Missing = Durin::Editor::LoadSoftObject(Reflection.SoftProperty, &Object, 0, LoadedObject);
+	const auto Missing = Durin::Editor::LoadSoftObjectProperty(Reflection.SoftProperty, &Object, 0, LoadedObject);
 	EXPECT_FALSE(Missing);
 	EXPECT_EQ(Missing.Error, Durin::Editor::EPropertySoftLoadError::Asset);
 	ASSERT_TRUE(Missing.AssetCause);
@@ -585,7 +585,7 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 	EXPECT_EQ(Missing.Path, MissingPath);
 	EXPECT_EQ(LoadedObject, nullptr);
 
-	EXPECT_EQ(Object.SoftValues[0].GetPath(), MissingPath);
+	EXPECT_EQ(Object.SoftValues[0].ToSoftObjectPath(), MissingPath);
 
 	const Durin::FObjectPath AssetSoftPath = MakeSoftObjectPropertyViewPath("Loadable");
 	const Durin::FPackagePath AssetPath = AssetSoftPath.GetPackagePath();
@@ -593,7 +593,7 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(AssetPath, Asset));
 	ASSERT_NE(Asset, nullptr);
 	ASSERT_TRUE(Durin::SavePackage(Asset->GetPackage()));
-	Object.SoftValues[0].SetPath(AssetSoftPath);
+	Object.SoftValues[0] = AssetSoftPath;
 	State = Durin::Editor::InspectSoftObject(Reflection.SoftProperty, &Object, 0);
 	EXPECT_EQ(State.State, Durin::Editor::ESoftObjectViewState::Loaded);
 	EXPECT_EQ(MissingState.Path, MissingPath);
@@ -612,17 +612,17 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 	EXPECT_EQ(State.Error, Durin::Editor::ESoftObjectViewError::Asset);
 
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
-	EXPECT_FALSE(Object.SoftValues[0].IsLoaded());
+	EXPECT_FALSE(Object.SoftValues[0].IsValid());
 	State = Durin::Editor::InspectSoftObject(Reflection.SoftProperty, &Object, 0);
 	EXPECT_EQ(State.State, Durin::Editor::ESoftObjectViewState::Unloaded);
 	EXPECT_EQ(State.LoadedObject, nullptr);
-	EXPECT_FALSE(Object.SoftValues[0].IsLoaded());
+	EXPECT_FALSE(Object.SoftValues[0].IsValid());
 
-	ASSERT_TRUE(Durin::Editor::LoadSoftObject(
+	ASSERT_TRUE(Durin::Editor::LoadSoftObjectProperty(
 		Reflection.SoftProperty, &Object, 0, LoadedObject));
 	ASSERT_NE(LoadedObject, nullptr);
 	EXPECT_EQ(Missing.Path, MissingPath);
-	EXPECT_TRUE(Object.SoftValues[0].IsLoaded());
+	EXPECT_TRUE(Object.SoftValues[0].IsValid());
 	State = Durin::Editor::InspectSoftObject(Reflection.SoftProperty, &Object, 0);
 	EXPECT_EQ(State.State, Durin::Editor::ESoftObjectViewState::Loaded);
 
@@ -632,7 +632,7 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 	ASSERT_TRUE(Durin::Testing::CreateAssetRedirectorForTests(AliasPath, AssetPath, Redirector));
 	ASSERT_TRUE(Durin::SavePackage(Redirector->GetPackage()));
 	ASSERT_TRUE(Durin::UnloadPackage(AliasPath));
-	Object.SoftValues[0].SetPath(AliasSoftPath);
+	Object.SoftValues[0] = AliasSoftPath;
 	State = Durin::Editor::InspectSoftObject(Reflection.SoftProperty, &Object, 0);
 	EXPECT_EQ(State.State, Durin::Editor::ESoftObjectViewState::Redirected);
 	EXPECT_EQ(State.Path, AliasSoftPath);
@@ -647,10 +647,10 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 	EXPECT_EQ(State.State, Durin::Editor::ESoftObjectViewState::Redirected);
 	EXPECT_EQ(State.LoadedObject, nullptr);
 	EXPECT_EQ(Durin::FindResidentPackage(AliasPath), nullptr);
-	ASSERT_TRUE(Durin::Editor::LoadSoftObject(
+	ASSERT_TRUE(Durin::Editor::LoadSoftObjectProperty(
 		Reflection.SoftProperty, &Object, 0, LoadedObject));
 	EXPECT_EQ(LoadedObject->GetPackage()->GetPackagePath(), AssetPath.ToString());
-	EXPECT_EQ(Object.SoftValues[0].GetPath(), AliasSoftPath);
+	EXPECT_EQ(Object.SoftValues[0].ToSoftObjectPath(), AliasSoftPath);
 	EXPECT_EQ(Durin::FindResidentPackage(AliasPath), nullptr);
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	ASSERT_TRUE(DeleteAssetClosureForTest({AliasPath, AssetPath}));
@@ -691,7 +691,7 @@ TEST(FReflectedPropertyViewTests, SoftObjectPathEditsUndoRedoFixedArrayArrayAndM
 	const Durin::FObjectPath Second = MakeSoftObjectPropertyViewPath("Second");
 	const Durin::FObjectPath Third = MakeSoftObjectPropertyViewPath("Third");
 	const Durin::FObjectPath Fourth = MakeSoftObjectPropertyViewPath("Fourth");
-	Object.SoftValues[1].SetPath(First);
+	Object.SoftValues[1] = First;
 	Object.SoftArray.emplace_back(First);
 	Object.SoftMap.emplace("Alpha", FSoftObjectViewValue(First));
 
@@ -705,7 +705,7 @@ TEST(FReflectedPropertyViewTests, SoftObjectPathEditsUndoRedoFixedArrayArrayAndM
 			auto* Reference = static_cast<Durin::FSoftObjectProperty*>(Property)
 				->GetSoftObjectPtr(Container, ArrayIndex);
 			ASSERT_NE(Reference, nullptr);
-			Reference->SetPath(Path);
+			*Reference = Path;
 		};
 	};
 
@@ -713,22 +713,22 @@ TEST(FReflectedPropertyViewTests, SoftObjectPathEditsUndoRedoFixedArrayArrayAndM
 		Context,
 		Durin::Editor::FPropertyEditTarget::ForMember(&Object, Reflection.SoftProperty, 1),
 		AssignPath(Second), false));
-	EXPECT_EQ(Object.SoftValues[1].GetPath(), Second);
+	EXPECT_EQ(Object.SoftValues[1].ToSoftObjectPath(), Second);
 	ASSERT_TRUE(Transactions.Get()->Undo());
-	EXPECT_EQ(Object.SoftValues[1].GetPath(), First);
+	EXPECT_EQ(Object.SoftValues[1].ToSoftObjectPath(), First);
 	ASSERT_TRUE(Transactions.Get()->Redo());
-	EXPECT_EQ(Object.SoftValues[1].GetPath(), Second);
+	EXPECT_EQ(Object.SoftValues[1].ToSoftObjectPath(), Second);
 	ASSERT_TRUE(Transactions.Get()->TryReset());
 
 	const Durin::Editor::FPropertyEditTarget ArrayTarget =
 		Durin::Editor::FPropertyEditTarget::ForMember(&Object, Reflection.ArrayProperty)
 			.ForArrayElement(Reflection.ArrayInner, 0);
 	ASSERT_TRUE(View.SubmitPropertyValueEdit(Context, ArrayTarget, AssignPath(Third), false));
-	EXPECT_EQ(Object.SoftArray[0].GetPath(), Third);
+	EXPECT_EQ(Object.SoftArray[0].ToSoftObjectPath(), Third);
 	ASSERT_TRUE(Transactions.Get()->Undo());
-	EXPECT_EQ(Object.SoftArray[0].GetPath(), First);
+	EXPECT_EQ(Object.SoftArray[0].ToSoftObjectPath(), First);
 	ASSERT_TRUE(Transactions.Get()->Redo());
-	EXPECT_EQ(Object.SoftArray[0].GetPath(), Third);
+	EXPECT_EQ(Object.SoftArray[0].ToSoftObjectPath(), Third);
 	ASSERT_TRUE(Transactions.Get()->TryReset());
 
 	const std::string Alpha = "Alpha";
@@ -738,11 +738,11 @@ TEST(FReflectedPropertyViewTests, SoftObjectPathEditsUndoRedoFixedArrayArrayAndM
 		Durin::Editor::FPropertyEditTarget::ForMember(&Object, Reflection.MapProperty)
 			.ForMapEntry(Reflection.MapValue, KeySnapshot, KeySnapshot.GetBytes());
 	ASSERT_TRUE(View.SubmitPropertyValueEdit(Context, MapTarget, AssignPath(Fourth), false));
-	EXPECT_EQ(Object.SoftMap.at("Alpha").GetPath(), Fourth);
+	EXPECT_EQ(Object.SoftMap.at("Alpha").ToSoftObjectPath(), Fourth);
 	ASSERT_TRUE(Transactions.Get()->Undo());
-	EXPECT_EQ(Object.SoftMap.at("Alpha").GetPath(), First);
+	EXPECT_EQ(Object.SoftMap.at("Alpha").ToSoftObjectPath(), First);
 	ASSERT_TRUE(Transactions.Get()->Redo());
-	EXPECT_EQ(Object.SoftMap.at("Alpha").GetPath(), Fourth);
+	EXPECT_EQ(Object.SoftMap.at("Alpha").ToSoftObjectPath(), Fourth);
 }
 
 TEST(FReflectedPropertyViewTests, NumericWidgetClampsDraggingAndManualInputWithoutErrors)

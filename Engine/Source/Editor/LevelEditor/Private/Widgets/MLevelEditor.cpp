@@ -277,7 +277,7 @@ namespace Durin::Editor::Level
 			SetError(std::move(Error));
 			return false;
 		}
-		if (Path.IsValid()) DefaultLevel.SetPath(std::move(Path));
+		if (Path.IsValid()) DefaultLevel = std::move(Path);
 		return true;
 	}
 
@@ -290,7 +290,7 @@ namespace Durin::Editor::Level
 			return false;
 		}
 		const FPackagePath& DefaultLevelPath =
-			DefaultLevel.GetPath().GetPackagePath();
+			DefaultLevel.ToSoftObjectPath().GetPackagePath();
 		if (!DefaultLevel.IsNull()
 			&& !DefaultLevelPath.GetView().starts_with(Project->MountRoot))
 		{
@@ -303,7 +303,7 @@ namespace Durin::Editor::Level
 			: ResolveLevelPackage(DefaultLevelPath, ResolvedLevelPath);
 		if (!Resolution
 			|| (!DefaultLevel.IsNull()
-				&& ResolvedLevelPath != DefaultLevel.GetPath()))
+				&& ResolvedLevelPath != DefaultLevel.ToSoftObjectPath()))
 		{
 			SetError(Resolution
 				? "The selected Level is not the unique top-level Level in its package."
@@ -327,9 +327,9 @@ namespace Durin::Editor::Level
 		FObjectPath LevelPath;
 		if (!ResolveLevelPackage(Path, LevelPath)) return;
 		const bool bPendingMatchesSaved = PendingDefaultLevel == DefaultLevel;
-		DefaultLevel.SetPath(LevelPath);
+		DefaultLevel = LevelPath;
 		if (bPendingMatchesSaved)
-			PendingDefaultLevel.SetPath(std::move(LevelPath));
+			PendingDefaultLevel = std::move(LevelPath);
 	}
 
 	auto MLevelEditor::GetToolkitId() const -> const FAssetEditorToolkitId&
@@ -648,7 +648,7 @@ namespace Durin::Editor::Level
 				.ClassPolicy = EAssetClassPolicy::Exact,
 				.AssignmentMode = EAssetAssignmentMode::AssetPath,
 				.CurrentSelectionPath =
-					PendingDefaultLevel.GetPath().ToString(),
+					PendingDefaultLevel.ToSoftObjectPath().ToString(),
 				.SearchText = LevelSearchText,
 				.bAllowNone = true,
 				.NoneLabel = "None",
@@ -680,7 +680,7 @@ namespace Durin::Editor::Level
 						OutError = "The selected Level is not the unique top-level Level in its package.";
 						return false;
 					}
-					PendingDefaultLevel.SetPath(std::move(LevelPath));
+					PendingDefaultLevel = std::move(LevelPath);
 					return true;
 				},
 				.PathPrefixFilter = Project->MountRoot,

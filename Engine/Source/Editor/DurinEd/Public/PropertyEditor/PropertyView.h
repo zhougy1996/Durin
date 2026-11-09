@@ -214,7 +214,7 @@ namespace Durin::Editor
 		explicit operator bool() const { return Error == EPropertySoftLoadError::None; }
 	};
 	DURINED_API auto FormatPropertySoftLoadResult(const FPropertySoftLoadResult& Result) -> std::string;
-	DURINED_API auto LoadSoftObject(
+	DURINED_API auto LoadSoftObjectProperty(
 		FSoftObjectProperty* Property,
 		void* Container,
 		uint32 ArrayIndex,

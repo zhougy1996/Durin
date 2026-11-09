@@ -5524,7 +5524,7 @@ TEST(FPackageAssetTests, RedirectorFixupRewriteOnlyRetainsAlias)
 	ASSERT_TRUE(Durin::SavePackage(Target->GetPackage()));
 	DSoftPackageAssetForTest* Owner = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(OwnerPath, Owner));
-	Owner->Direct.SetPath(MakeFormerMainObjectPath(OldPath));
+	Owner->Direct = MakeFormerMainObjectPath(OldPath);
 	ASSERT_TRUE(Durin::SavePackage(Owner->GetPackage()));
 	ASSERT_TRUE(Durin::UnloadPackage(OwnerPath));
 	ASSERT_TRUE(RelocateAssetForTest(OldPath, NewPath));
@@ -5544,7 +5544,7 @@ TEST(FPackageAssetTests, RedirectorFixupRewriteOnlyRetainsAlias)
 		ReloadedOwner = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
-	EXPECT_EQ(ReloadedOwner->Direct.GetPath().GetPackagePath(), NewPath);
+	EXPECT_EQ(ReloadedOwner->Direct.ToSoftObjectPath().GetPackagePath(), NewPath);
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(OwnerPath));
 	ASSERT_TRUE(DeleteAssetClosureForTest({OldPath, NewPath}));
 #else
@@ -5850,7 +5850,7 @@ TEST(FPackageAssetTests, GuardRejectsIgnoredConstructorAndPostLoadLiveReads)
 		for (uint32 Operation = 0; Operation < 4; ++Operation)
 		{
 			TSoftObjectPtr<DPackageAssetForTest> Soft(TargetObjectPath);
-			ASSERT_TRUE(ResolveSoftObject(Soft));
+			ASSERT_EQ(Soft.Get(), Target);
 			if (Operation == 0) ASSERT_TRUE(UnloadPackage(TargetPath));
 			uint32 ProbeCalls = 0;
 			auto Probe = [&] {
@@ -5873,18 +5873,9 @@ TEST(FPackageAssetTests, GuardRejectsIgnoredConstructorAndPostLoadLiveReads)
 						EXPECT_EQ(LoadedValue.error().Code, EAssetReadError::InUse);
 					}
 				else if (Operation == 2)
-					{
-						const auto Resolved = ResolveSoftObject(Soft);
-						ASSERT_FALSE(Resolved);
-						EXPECT_EQ(Resolved.error().Code, EAssetReadError::InUse);
-					}
+					EXPECT_EQ(Soft.Get(), nullptr);
 				else
-					{
-						auto LoadedValue = LoadSoftObject(Soft);
-						Object = LoadedValue.value_or(nullptr);
-						ASSERT_FALSE(LoadedValue);
-						EXPECT_EQ(LoadedValue.error().Code, EAssetReadError::InUse);
-					}
+					EXPECT_EQ(Soft.LoadSynchronous(), nullptr);
 				EXPECT_EQ(Package, nullptr);
 				EXPECT_EQ(Object, nullptr);
 				EXPECT_EQ(Report.PackageFileReadCount, 0u);
@@ -7526,7 +7517,7 @@ TEST(FPackageAssetTests, CoreRegisteredPackageIsResidentWithoutAssetLayerAdoptio
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
 }
 
-TEST(FPackageAssetTests, SoftObjectResolveAndLoadPreservePathAcrossResidencyChanges)
+TEST(FPackageAssetTests, SoftObjectGetAndLoadSynchronousPreserveAuthoredPath)
 {
 	InitializeAssetTests();
 	Durin::FPackagePath Path, AliasPath;
@@ -7549,11 +7540,7 @@ TEST(FPackageAssetTests, SoftObjectResolveAndLoadPreservePathAcrossResidencyChan
 	EXPECT_EQ(DraftLoad, Created);
 	EXPECT_EQ(Durin::FindResidentPackage(Path), Created->GetPackage());
 	Durin::TSoftObjectPtr<DPackageAssetForTest> UnpublishedReference(MakeFormerMainObjectPath(Path));
-	const auto UnpublishedResolve =
-		Durin::ResolveSoftObject(UnpublishedReference);
-	EXPECT_TRUE(UnpublishedResolve);
-	EXPECT_EQ(UnpublishedResolve->State, Durin::ESoftObjectResolveState::Loaded);
-	EXPECT_EQ(UnpublishedResolve->Object, Created);
+	EXPECT_EQ(UnpublishedReference.Get(), Created);
 	ASSERT_TRUE(Durin::SavePackage(Created->GetPackage()));
 	EXPECT_EQ(Durin::FindResidentPackage(Path), Created->GetPackage());
 	EXPECT_FALSE(Created->GetPackage()->IsNewlyCreated());
@@ -7565,56 +7552,47 @@ TEST(FPackageAssetTests, SoftObjectResolveAndLoadPreservePathAcrossResidencyChan
 	ASSERT_TRUE(Durin::UnloadPackage(AliasPath));
 
 	Durin::TSoftObjectPtr<DPackageAssetForTest> Reference(MakeFormerMainObjectPath(AliasPath));
-	auto Resolved = Durin::ResolveSoftObject(Reference);
-	ASSERT_TRUE(Resolved);
-	EXPECT_EQ(Resolved->State, Durin::ESoftObjectResolveState::Loaded);
-	EXPECT_EQ(Resolved->Object, Created);
-	EXPECT_TRUE(Resolved->bRedirected);
-	EXPECT_EQ(Resolved->ResolvedPath, MakeFormerMainObjectPath(Path));
 	EXPECT_EQ(Reference.Get(), Created);
-	EXPECT_EQ(Reference.GetPath().GetPackagePath(), AliasPath);
+	EXPECT_EQ(Reference.LoadSynchronous(), Created);
+	for (const auto& FencedPath : {Path, AliasPath})
+	{
+		Durin::FenceAssetRegistryProjection(std::span{&FencedPath, 1});
+		EXPECT_EQ(Reference.Get(), nullptr);
+		Durin::ClearAssetRegistryProjectionFence(std::span{&FencedPath, 1});
+		EXPECT_EQ(Reference.Get(), Created);
+	}
+	EXPECT_EQ(Reference.ToSoftObjectPath().GetPackagePath(), AliasPath);
 	EXPECT_EQ(Durin::FindResidentPackage(AliasPath), nullptr);
 	Durin::FObjectPath AliasChildPath;
 	ASSERT_TRUE(Durin::FObjectPath::TryCreate(std::format(
 		"{}.{}:DefaultChild", AliasPath.ToString(), AliasPath.GetPackageName()),
 		AliasChildPath));
 	Durin::TSoftObjectPtr<Durin::DObject> ChildReference(AliasChildPath);
-	const auto ChildResolved = Durin::ResolveSoftObject(ChildReference);
-	ASSERT_TRUE(ChildResolved);
-	EXPECT_EQ(ChildResolved->State, Durin::ESoftObjectResolveState::Loaded);
-	EXPECT_EQ(ChildResolved->Object, Created->DefaultChild.Get());
-	EXPECT_EQ(ChildReference.GetPath(), AliasChildPath);
+	EXPECT_EQ(ChildReference.ToSoftObjectPath(), AliasChildPath);
 	EXPECT_EQ(ChildReference.Get(), Created->DefaultChild.Get());
 
 	ASSERT_TRUE(Durin::UnloadPackage(Path));
 	EXPECT_EQ(Reference.Get(), nullptr);
 	EXPECT_EQ(ChildReference.Get(), nullptr);
-	EXPECT_EQ(Reference.GetPath().GetPackagePath(), AliasPath);
-	const auto UnloadedResolve = Durin::ResolveSoftObject(Reference);
-	ASSERT_TRUE(UnloadedResolve);
-	EXPECT_EQ(UnloadedResolve->State, Durin::ESoftObjectResolveState::NotLoaded);
-	EXPECT_EQ(UnloadedResolve->Object, nullptr);
-	EXPECT_TRUE(UnloadedResolve->bRedirected);
-	EXPECT_EQ(UnloadedResolve->ResolvedPath, MakeFormerMainObjectPath(Path));
+	EXPECT_EQ(Reference.ToSoftObjectPath().GetPackagePath(), AliasPath);
+	EXPECT_TRUE(Reference.IsPending());
 	Durin::DObject* LoadedChild = nullptr;
 	{
-		auto LoadedValue = Durin::LoadSoftObject(ChildReference);
-		LoadedChild = LoadedValue.value_or(nullptr);
-		ASSERT_TRUE(LoadedValue);
+		LoadedChild = ChildReference.LoadSynchronous();
+		ASSERT_NE(LoadedChild, nullptr);
 	}
 	ASSERT_NE(LoadedChild, nullptr);
 	EXPECT_EQ(LoadedChild->GetFName(), Durin::FName("DefaultChild"));
-	EXPECT_EQ(ChildReference.GetPath(), AliasChildPath);
+	EXPECT_EQ(ChildReference.ToSoftObjectPath(), AliasChildPath);
 
 	DPackageAssetForTest* Loaded = nullptr;
 	{
-		auto LoadedValue = Durin::LoadSoftObject(Reference);
-		Loaded = LoadedValue.value_or(nullptr);
-		ASSERT_TRUE(LoadedValue);
+		Loaded = Reference.LoadSynchronous();
+		ASSERT_NE(Loaded, nullptr);
 	}
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_EQ(Reference.Get(), Loaded);
-	EXPECT_EQ(Reference.GetPath().GetPackagePath(), AliasPath);
+	EXPECT_EQ(Reference.ToSoftObjectPath().GetPackagePath(), AliasPath);
 	EXPECT_EQ(Loaded->GetPackage()->GetPackagePath(), Path.ToString());
 	Durin::FPackagePath OwnerPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
@@ -7622,42 +7600,27 @@ TEST(FPackageAssetTests, SoftObjectResolveAndLoadPreservePathAcrossResidencyChan
 	));
 	DSoftPackageAssetForTest* Owner = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(OwnerPath, Owner));
-	Owner->Direct.SetPath(MakeFormerMainObjectPath(AliasPath));
+	Owner->Direct = MakeFormerMainObjectPath(AliasPath);
 	DPackageAssetForTest* CachedForOwner = nullptr;
 	{
-		auto LoadedValue = Durin::LoadSoftObject(Owner->Direct);
-		CachedForOwner = LoadedValue.value_or(nullptr);
-		ASSERT_TRUE(LoadedValue);
+		CachedForOwner = Owner->Direct.LoadSynchronous();
+		ASSERT_NE(CachedForOwner, nullptr);
 	}
 	EXPECT_EQ(CachedForOwner, Loaded);
 	ASSERT_TRUE(Durin::SavePackage(Owner->GetPackage()));
 	ASSERT_TRUE(Durin::UnloadPackage(OwnerPath));
 
 	Durin::TSoftObjectPtr<DCodecSourceAsset> WrongType(MakeFormerMainObjectPath(AliasPath));
-	auto WrongResolve = Durin::ResolveSoftObject(WrongType);
-	EXPECT_FALSE(WrongResolve);
-	EXPECT_EQ((WrongResolve ? Durin::EAssetReadError::None : WrongResolve.error().Code), Durin::EAssetReadError::TypeMismatch);
-	DCodecSourceAsset* WrongLoaded = nullptr;
-	{
-			auto LoadedValue = Durin::LoadSoftObject(WrongType);
-			WrongLoaded = LoadedValue.value_or(nullptr);
-			ASSERT_FALSE(LoadedValue);
-			EXPECT_EQ(LoadedValue.error().Code,
-		Durin::EAssetReadError::TypeMismatch
-	);
-		}
-	EXPECT_EQ(WrongLoaded, nullptr);
-	EXPECT_EQ(WrongType.GetPath().GetPackagePath(), AliasPath);
+	EXPECT_EQ(WrongType.Get(), nullptr);
+	EXPECT_EQ(WrongType.LoadSynchronous(), nullptr);
+	EXPECT_EQ(WrongType.ToSoftObjectPath().GetPackagePath(), AliasPath);
 
 	ASSERT_TRUE(Durin::UnloadPackage(Path));
-	const auto UnloadedWrongResolve = Durin::ResolveSoftObject(WrongType);
-	EXPECT_FALSE(UnloadedWrongResolve);
-	EXPECT_EQ((UnloadedWrongResolve ? Durin::EAssetReadError::None : UnloadedWrongResolve.error().Code), Durin::EAssetReadError::TypeMismatch);
+	EXPECT_TRUE(WrongType.IsPending());
 	EXPECT_EQ(Reference.Get(), nullptr);
 	{
-		auto LoadedValue = Durin::LoadSoftObject(Reference);
-		Loaded = LoadedValue.value_or(nullptr);
-		ASSERT_TRUE(LoadedValue);
+		Loaded = Reference.LoadSynchronous();
+		ASSERT_NE(Loaded, nullptr);
 	}
 	EXPECT_EQ(Reference.Get(), Loaded);
 	EXPECT_TRUE(Durin::UnloadPackage(Path));
@@ -7668,8 +7631,8 @@ TEST(FPackageAssetTests, SoftObjectResolveAndLoadPreservePathAcrossResidencyChan
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_NE(Owner, nullptr);
-	EXPECT_EQ(Owner->Direct.GetPath().GetPackagePath(), AliasPath);
-	EXPECT_FALSE(Owner->Direct.IsLoaded());
+	EXPECT_EQ(Owner->Direct.ToSoftObjectPath().GetPackagePath(), AliasPath);
+	EXPECT_FALSE(Owner->Direct.IsValid());
 	EXPECT_EQ(Durin::FindResidentPackage(Path), nullptr);
 	ASSERT_TRUE(Durin::UnloadPackage(OwnerPath));
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(OwnerPath));
@@ -7730,50 +7693,23 @@ TEST(FPackageAssetTests, ResidentUnloadRequiresExplicitUnsavedDiscard)
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(PublishedPath));
 }
 
-TEST(FPackageAssetTests, SoftObjectNullAndMissingPoliciesReturnStableResults)
+TEST(FPackageAssetTests, SoftObjectNullAndMissingPathsReturnNullWithoutChangingIdentity)
 {
 	InitializeAssetTests();
 	Durin::TSoftObjectPtr<DPackageAssetForTest> NullReference;
-	auto RejectedNull = Durin::ResolveSoftObject(NullReference);
-	EXPECT_FALSE(RejectedNull);
-	EXPECT_EQ((RejectedNull ? Durin::EAssetReadError::None : RejectedNull.error().Code), Durin::EAssetReadError::InvalidPath);
-	EXPECT_FALSE(RejectedNull);
-
-	auto AllowedNull = Durin::ResolveSoftObject(
-		NullReference, Durin::ESoftObjectNullPolicy::Allow
-	);
-	EXPECT_TRUE(AllowedNull);
-	EXPECT_EQ(AllowedNull->State, Durin::ESoftObjectResolveState::Null);
-	DPackageAssetForTest* NullObject = reinterpret_cast<DPackageAssetForTest*>(1);
-	{
-		auto LoadedValue = Durin::LoadSoftObject(NullReference, Durin::ESoftObjectNullPolicy::Allow);
-		NullObject = LoadedValue.value_or(nullptr);
-		EXPECT_TRUE(LoadedValue);
-	}
-	EXPECT_EQ(NullObject, nullptr);
-
+	EXPECT_TRUE(NullReference.IsNull());
+	EXPECT_FALSE(NullReference.IsPending());
+	EXPECT_FALSE(NullReference.IsValid());
+	EXPECT_EQ(NullReference.Get(), nullptr);
+	EXPECT_EQ(NullReference.LoadSynchronous(), nullptr);
 	Durin::FObjectPath MissingPath;
-	ASSERT_TRUE(Durin::FObjectPath::TryCreate(
-		"/TestAssets/MissingSoftObject.MissingSoftObject", MissingPath));
+	ASSERT_TRUE(Durin::FObjectPath::TryCreate("/TestAssets/MissingSoftObject.MissingSoftObject", MissingPath));
 	Durin::TSoftObjectPtr<DPackageAssetForTest> MissingReference(MissingPath);
-	const Durin::FObjectPath OriginalPath = MissingReference.GetPath();
-	auto MissingResolve = Durin::ResolveSoftObject(MissingReference);
-	ASSERT_FALSE(MissingResolve);
-	EXPECT_EQ((MissingResolve ? Durin::EAssetReadError::None : MissingResolve.error().Code), Durin::EAssetReadError::NotFound);
-	EXPECT_FALSE(MissingResolve);
-
-	DPackageAssetForTest* MissingObject = nullptr;
-	{
-			auto LoadedValue = Durin::LoadSoftObject(MissingReference);
-			MissingObject = LoadedValue.value_or(nullptr);
-			ASSERT_FALSE(LoadedValue);
-			EXPECT_EQ(LoadedValue.error().Code,
-		Durin::EAssetReadError::NotFound
-	);
-		}
-	EXPECT_EQ(MissingObject, nullptr);
-	EXPECT_EQ(MissingReference.GetPath(), OriginalPath);
-	EXPECT_FALSE(MissingReference.IsLoaded());
+	EXPECT_TRUE(MissingReference.IsPending());
+	EXPECT_EQ(MissingReference.Get(), nullptr);
+	EXPECT_EQ(MissingReference.LoadSynchronous(), nullptr);
+	EXPECT_EQ(MissingReference.ToSoftObjectPath(), MissingPath);
+	EXPECT_TRUE(MissingReference.IsPending());
 }
 
 TEST(FPackageAssetTests, SoftArchiveUsesBoundedPathOnlyPayloadsTransactionally)
@@ -7787,7 +7723,7 @@ TEST(FPackageAssetTests, SoftArchiveUsesBoundedPathOnlyPayloadsTransactionally)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftArchiveSentinel", SentinelPath));
 	DSoftPackageAssetForTest* Owner = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(OwnerPath, Owner));
-	Owner->Direct.SetPath(MakeFormerMainObjectPath(TargetPath));
+	Owner->Direct = MakeFormerMainObjectPath(TargetPath);
 	auto* Property = static_cast<Durin::FSoftObjectProperty*>(
 		DSoftPackageAssetForTest::StaticClass()->FindPropertyByName(
 			Durin::FName("Direct"), false
@@ -7800,24 +7736,24 @@ TEST(FPackageAssetTests, SoftArchiveUsesBoundedPathOnlyPayloadsTransactionally)
 	Durin::SerializeReflectedPropertyValue(Writer, *Property, Owner);
 	ASSERT_FALSE(Writer.IsError()) << Writer.GetError();
 	ASSERT_EQ(Bytes.front(), std::byte{1});
-	Owner->Direct.SetPath(MakeFormerMainObjectPath(SentinelPath));
+	Owner->Direct = MakeFormerMainObjectPath(SentinelPath);
 	Durin::FMemoryReader Reader(Bytes);
 	Durin::SerializeReflectedPropertyValue(Reader, *Property, Owner);
 	ASSERT_FALSE(Reader.IsError()) << Reader.GetError();
-	EXPECT_EQ(Owner->Direct.GetPath().GetPackagePath(), TargetPath);
-	EXPECT_FALSE(Owner->Direct.IsLoaded());
+	EXPECT_EQ(Owner->Direct.ToSoftObjectPath().GetPackagePath(), TargetPath);
+	EXPECT_FALSE(Owner->Direct.IsValid());
 
 	Durin::FByteBuffer OversizedBytes;
 	Durin::FMemoryWriter OversizedWriter(OversizedBytes);
 	uint8 ReferenceKind = 1;
 	uint64 OversizedPathSize = 1024 * 1024 + 1;
 	OversizedWriter << ReferenceKind << OversizedPathSize;
-	Owner->Direct.SetPath(MakeFormerMainObjectPath(SentinelPath));
+	Owner->Direct = MakeFormerMainObjectPath(SentinelPath);
 	Durin::FMemoryReader OversizedReader(OversizedBytes);
 	Durin::SerializeReflectedPropertyValue(OversizedReader, *Property, Owner);
 	ASSERT_TRUE(OversizedReader.IsError());
 	EXPECT_NE(OversizedReader.GetError().find("1 MiB"), std::string_view::npos);
-	EXPECT_EQ(Owner->Direct.GetPath().GetPackagePath(), SentinelPath);
+	EXPECT_EQ(Owner->Direct.ToSoftObjectPath().GetPackagePath(), SentinelPath);
 	OversizedReader.SetError("must remain sticky");
 	EXPECT_NE(OversizedReader.GetError().find("1 MiB"), std::string_view::npos);
 
@@ -7844,7 +7780,7 @@ TEST(FPackageAssetTests, DastSoftFieldsRoundTripWithoutHardDependenciesOrTargetL
 	DSoftPackageAssetForTest* Owner = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(OwnerPath, Owner));
 	ASSERT_TRUE(Owner->Direct.TrySetObject(Target));
-	Owner->Fixed[0].SetPath(MakeFormerMainObjectPath(MissingPath));
+	Owner->Fixed[0] = MakeFormerMainObjectPath(MissingPath);
 	Owner->Array = {
 		DSoftPackageAssetForTest::FSoftReference(MakeFormerMainObjectPath(TargetPath)),
 		DSoftPackageAssetForTest::FSoftReference(MakeFormerMainObjectPath(MissingPath))
@@ -7939,20 +7875,12 @@ TEST(FPackageAssetTests, DastSoftFieldsRoundTripWithoutHardDependenciesOrTargetL
 	}
 	ASSERT_NE(LoadedOwner, nullptr);
 	EXPECT_EQ(Durin::FindResidentPackage(TargetPath), nullptr);
-	EXPECT_EQ(LoadedOwner->Direct.GetPath().GetPackagePath(), TargetPath);
-	EXPECT_EQ(LoadedOwner->Fixed[0].GetPath().GetPackagePath(), MissingPath);
-	EXPECT_EQ(LoadedOwner->Array[1].GetPath().GetPackagePath(), MissingPath);
-	EXPECT_EQ(LoadedOwner->Map.at("hero").GetPath().GetPackagePath(), TargetPath);
-	EXPECT_FALSE(LoadedOwner->Direct.IsLoaded());
-	DPackageAssetForTest* Missing = nullptr;
-	{
-			auto LoadedValue = Durin::LoadSoftObject(LoadedOwner->Fixed[0]);
-			Missing = LoadedValue.value_or(nullptr);
-			ASSERT_FALSE(LoadedValue);
-			EXPECT_EQ(LoadedValue.error().Code,
-		Durin::EAssetReadError::NotFound
-	);
-		}
+	EXPECT_EQ(LoadedOwner->Direct.ToSoftObjectPath().GetPackagePath(), TargetPath);
+	EXPECT_EQ(LoadedOwner->Fixed[0].ToSoftObjectPath().GetPackagePath(), MissingPath);
+	EXPECT_EQ(LoadedOwner->Array[1].ToSoftObjectPath().GetPackagePath(), MissingPath);
+	EXPECT_EQ(LoadedOwner->Map.at("hero").ToSoftObjectPath().GetPackagePath(), TargetPath);
+	EXPECT_FALSE(LoadedOwner->Direct.IsValid());
+	DPackageAssetForTest* Missing = LoadedOwner->Fixed[0].LoadSynchronous();
 	EXPECT_EQ(Missing, nullptr);
 }
 
@@ -7965,7 +7893,7 @@ TEST(FPackageAssetTests, SoftInspectionRejectsMalformedPayloadsAndPreservesUnkno
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftInspectionTarget", TargetPath));
 	DSoftPackageAssetForTest* Owner = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(OwnerPath, Owner));
-	Owner->Direct.SetPath(MakeFormerMainObjectPath(TargetPath));
+	Owner->Direct = MakeFormerMainObjectPath(TargetPath);
 	ASSERT_TRUE(Durin::SavePackage(Owner->GetPackage()));
 	const auto Data = Durin::FindPackageExact(OwnerPath);
 	ASSERT_NE(Data, nullptr);
@@ -8105,7 +8033,7 @@ TEST(FPackageAssetTests, SoftCookReachabilityAddsSoftTargetsButRejectsMissingAnd
 	ASSERT_TRUE(Durin::SavePackage(Target->GetPackage()));
 	DSoftPackageAssetForTest* Owner = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(OwnerPath, Owner));
-	Owner->Direct.SetPath(MakeFormerMainObjectPath(TargetPath));
+	Owner->Direct = MakeFormerMainObjectPath(TargetPath);
 	ASSERT_TRUE(Durin::SavePackage(Owner->GetPackage()));
 	std::vector<Durin::FPackagePath> Reachable;
 	ASSERT_TRUE(Durin::BuildCookReachability(
@@ -8113,26 +8041,26 @@ TEST(FPackageAssetTests, SoftCookReachabilityAddsSoftTargetsButRejectsMissingAnd
 	));
 	EXPECT_EQ(Reachable, (std::vector<Durin::FPackagePath>{OwnerPath, TargetPath}));
 
-	Owner->Direct.SetPath(MakeFormerMainObjectPath(MissingPath));
+	Owner->Direct = MakeFormerMainObjectPath(MissingPath);
 	ASSERT_TRUE(Durin::SavePackage(Owner->GetPackage()));
 	EXPECT_EQ(Durin::BuildCookReachability(std::span<const Durin::FPackagePath>(&OwnerPath, 1), Reachable).Error, Durin::EAssetReadError::MissingDependency);
 
 	DMathStructAssetForTest* WrongType = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(WrongTypePath, WrongType));
 	ASSERT_TRUE(Durin::SavePackage(WrongType->GetPackage()));
-	Owner->Direct.SetPath(MakeFormerMainObjectPath(WrongTypePath));
+	Owner->Direct = MakeFormerMainObjectPath(WrongTypePath);
 	ASSERT_TRUE(Durin::SavePackage(Owner->GetPackage()));
 	EXPECT_EQ(Durin::BuildCookReachability(std::span<const Durin::FPackagePath>(&OwnerPath, 1), Reachable).Error, Durin::EAssetReadError::TypeMismatch);
 
-	Owner->Direct.SetPath(MakeFormerMainObjectPath(TargetPath));
+	Owner->Direct = MakeFormerMainObjectPath(TargetPath);
 	ASSERT_TRUE(Durin::SavePackage(Owner->GetPackage()));
 	DSoftPackageAssetForTest* CycleTarget = nullptr;
 	Durin::FPackagePath CyclePath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftCookCycle", CyclePath));
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(CyclePath, CycleTarget));
-	CycleTarget->Direct.SetPath(MakeFormerMainObjectPath(OwnerPath));
+	CycleTarget->Direct = MakeFormerMainObjectPath(OwnerPath);
 	ASSERT_TRUE(Durin::SavePackage(CycleTarget->GetPackage()));
-	Owner->Direct.SetPath(MakeFormerMainObjectPath(CyclePath));
+	Owner->Direct = MakeFormerMainObjectPath(CyclePath);
 	ASSERT_TRUE(Durin::SavePackage(Owner->GetPackage()));
 	ASSERT_TRUE(Durin::BuildCookReachability(
 		std::span<const Durin::FPackagePath>(&OwnerPath, 1), Reachable
@@ -8229,7 +8157,7 @@ TEST(FPackageAssetTests, CookCanonicalizesRedirectedRootsReferencesAndPublishedB
 	DSoftPackageAssetForTest* Owner = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(OwnerPath, Owner));
 	Owner->ExternalReference = Target;
-	Owner->Direct.SetPath(MakeFormerMainObjectPath(OldTargetPath));
+	Owner->Direct = MakeFormerMainObjectPath(OldTargetPath);
 	ASSERT_TRUE(Durin::SavePackage(Owner->GetPackage()));
 
 	const Durin::FPackageCatalogEntry OwnerData =
@@ -8366,14 +8294,14 @@ TEST(FPackageAssetTests, ReferenceIndexInvalidatesSourceSaveMoveAndDeleteMutatio
 	ASSERT_TRUE(Durin::SavePackage(Target->GetPackage()));
 	DSoftPackageAssetForTest* Source = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(SourcePath, Source));
-	Source->Direct.SetPath(MakeFormerMainObjectPath(TargetPath));
+	Source->Direct = MakeFormerMainObjectPath(TargetPath);
 	ASSERT_TRUE(Durin::SavePackage(Source->GetPackage()));
 	EXPECT_EQ(Durin::CaptureAssetReferenceIndex().FindTargets(SourcePath), (std::vector<Durin::FPackagePath>{TargetPath}));
 
 	Source->Direct.Reset();
 	ASSERT_TRUE(Durin::SavePackage(Source->GetPackage()));
 	EXPECT_TRUE(Durin::CaptureAssetReferenceIndex().FindTargets(SourcePath).empty());
-	Source->Direct.SetPath(MakeFormerMainObjectPath(TargetPath));
+	Source->Direct = MakeFormerMainObjectPath(TargetPath);
 	ASSERT_TRUE(Durin::SavePackage(Source->GetPackage()));
 	ASSERT_TRUE(RelocateAssetForTest(SourcePath, MovedSourcePath));
 	EXPECT_EQ(Durin::CaptureAssetReferenceIndex().FindTargets(SourcePath), (std::vector<Durin::FPackagePath>{MovedSourcePath}));
@@ -8404,17 +8332,17 @@ TEST(FPackageAssetTests, RelocationPreservesLoadedAndUnloadedSoftAuthoredPaths)
 	ASSERT_TRUE(Durin::SavePackage(Target->GetPackage()));
 	DSoftPackageAssetForTest* LoadedOwner = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(LoadedOwnerPath, LoadedOwner));
-	LoadedOwner->Direct.SetPath(MakeFormerMainObjectPath(OldPath));
-	LoadedOwner->Fixed[0].SetPath(MakeFormerMainObjectPath(OldPath));
+	LoadedOwner->Direct = MakeFormerMainObjectPath(OldPath);
+	LoadedOwner->Fixed[0] = MakeFormerMainObjectPath(OldPath);
 	LoadedOwner->Array.emplace_back(MakeFormerMainObjectPath(OldPath));
 	LoadedOwner->Map.emplace("loaded", DSoftPackageAssetForTest::FSoftReference(MakeFormerMainObjectPath(OldPath)));
-	ASSERT_TRUE(LoadedOwner->Direct.TrySetLoadedObject(Target));
+	ASSERT_EQ(LoadedOwner->Direct.Get(), Target);
 	ASSERT_TRUE(Durin::SavePackage(LoadedOwner->GetPackage()));
 
 	DSoftPackageAssetForTest* UnloadedOwner = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(UnloadedOwnerPath, UnloadedOwner));
-	UnloadedOwner->Direct.SetPath(MakeFormerMainObjectPath(OldPath));
-	UnloadedOwner->Fixed[1].SetPath(MakeFormerMainObjectPath(OldPath));
+	UnloadedOwner->Direct = MakeFormerMainObjectPath(OldPath);
+	UnloadedOwner->Fixed[1] = MakeFormerMainObjectPath(OldPath);
 	UnloadedOwner->Array.emplace_back(MakeFormerMainObjectPath(OldPath));
 	UnloadedOwner->Map.emplace("unloaded", DSoftPackageAssetForTest::FSoftReference(MakeFormerMainObjectPath(OldPath)));
 	ASSERT_TRUE(Durin::SavePackage(UnloadedOwner->GetPackage()));
@@ -8424,12 +8352,13 @@ TEST(FPackageAssetTests, RelocationPreservesLoadedAndUnloadedSoftAuthoredPaths)
 	ASSERT_TRUE(RelocateAssetForTest(OldPath, NewPath));
 	EXPECT_EQ(GSoftPackageConstructionCount, ConstructionsBeforeMove);
 	EXPECT_EQ(Durin::FindResidentPackage(UnloadedOwnerPath), nullptr);
-	EXPECT_EQ(LoadedOwner->Direct.GetPath().GetPackagePath(), OldPath);
-	EXPECT_EQ(LoadedOwner->Fixed[0].GetPath().GetPackagePath(), OldPath);
+	EXPECT_EQ(LoadedOwner->Direct.ToSoftObjectPath().GetPackagePath(), OldPath);
+	EXPECT_EQ(LoadedOwner->Fixed[0].ToSoftObjectPath().GetPackagePath(), OldPath);
 	ASSERT_EQ(LoadedOwner->Array.size(), 1u);
-	EXPECT_EQ(LoadedOwner->Array[0].GetPath().GetPackagePath(), OldPath);
-	EXPECT_EQ(LoadedOwner->Map.at("loaded").GetPath().GetPackagePath(), OldPath);
-	EXPECT_FALSE(LoadedOwner->Direct.IsLoaded());
+	EXPECT_EQ(LoadedOwner->Array[0].ToSoftObjectPath().GetPackagePath(), OldPath);
+	EXPECT_EQ(LoadedOwner->Map.at("loaded").ToSoftObjectPath().GetPackagePath(), OldPath);
+	EXPECT_TRUE(LoadedOwner->Direct.IsValid());
+	EXPECT_EQ(LoadedOwner->Direct.Get()->GetPackage()->GetPackagePathIdentity(), NewPath);
 
 	auto LoadedTargets = Durin::CaptureAssetReferenceIndex().FindTargets(LoadedOwnerPath);
 	auto UnloadedTargets = Durin::CaptureAssetReferenceIndex().FindTargets(UnloadedOwnerPath);
@@ -8444,11 +8373,11 @@ TEST(FPackageAssetTests, RelocationPreservesLoadedAndUnloadedSoftAuthoredPaths)
 		ReloadedOwner = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
-	EXPECT_EQ(ReloadedOwner->Direct.GetPath().GetPackagePath(), OldPath);
-	EXPECT_EQ(ReloadedOwner->Fixed[1].GetPath().GetPackagePath(), OldPath);
+	EXPECT_EQ(ReloadedOwner->Direct.ToSoftObjectPath().GetPackagePath(), OldPath);
+	EXPECT_EQ(ReloadedOwner->Fixed[1].ToSoftObjectPath().GetPackagePath(), OldPath);
 	ASSERT_EQ(ReloadedOwner->Array.size(), 1u);
-	EXPECT_EQ(ReloadedOwner->Array[0].GetPath().GetPackagePath(), OldPath);
-	EXPECT_EQ(ReloadedOwner->Map.at("unloaded").GetPath().GetPackagePath(), OldPath);
+	EXPECT_EQ(ReloadedOwner->Array[0].ToSoftObjectPath().GetPackagePath(), OldPath);
+	EXPECT_EQ(ReloadedOwner->Map.at("unloaded").ToSoftObjectPath().GetPackagePath(), OldPath);
 #else
 	GTEST_SKIP() << "Asset relocation and redirector repair require Editor AssetTools.";
 #endif
@@ -8476,7 +8405,7 @@ TEST(FPackageAssetTests, RelocationIgnoresStaleAndReadOnlyUnloadedSoftReferencer
 		ASSERT_TRUE(Durin::SavePackage(Target->GetPackage()));
 		DSoftPackageAssetForTest* Owner = nullptr;
 		ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(OwnerPath, Owner));
-		Owner->Direct.SetPath(MakeFormerMainObjectPath(OldPath));
+		Owner->Direct = MakeFormerMainObjectPath(OldPath);
 		ASSERT_TRUE(Durin::SavePackage(Owner->GetPackage()));
 		ASSERT_TRUE(Durin::UnloadPackage(OwnerPath));
 		const std::filesystem::path OwnerFile =
@@ -8543,7 +8472,7 @@ TEST(FPackageAssetTests, RelocationDoesNotInspectUnrelatedReferencerBytes)
 	ASSERT_TRUE(Durin::SavePackage(Target->GetPackage()));
 	DSoftPackageAssetForTest* Owner = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(OwnerPath, Owner));
-	Owner->Direct.SetPath(MakeFormerMainObjectPath(OldPath));
+	Owner->Direct = MakeFormerMainObjectPath(OldPath);
 	ASSERT_TRUE(Durin::SavePackage(Owner->GetPackage()));
 	ASSERT_TRUE(Durin::UnloadPackage(OwnerPath));
 
@@ -8587,7 +8516,7 @@ TEST(FPackageAssetTests, RelocationPublicationFailureRestoresAuthoredState)
 	ASSERT_TRUE(Durin::SavePackage(Target->GetPackage()));
 	DSoftPackageAssetForTest* Owner = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(OwnerPath, Owner));
-	Owner->Direct.SetPath(MakeFormerMainObjectPath(OldPath));
+	Owner->Direct = MakeFormerMainObjectPath(OldPath);
 	ASSERT_TRUE(Durin::SavePackage(Owner->GetPackage()));
 	ASSERT_TRUE(Durin::UnloadPackage(OwnerPath));
 
@@ -8602,7 +8531,7 @@ TEST(FPackageAssetTests, RelocationPublicationFailureRestoresAuthoredState)
 	EXPECT_EQ(Result.Effect,
 		Durin::EAssetWriteEffect::PartiallyWritten);
 	EXPECT_FALSE(Details.BackupLocations.empty());
-	EXPECT_EQ(ExternalSetting.GetPath().GetPackagePath(), OldPath);
+	EXPECT_EQ(ExternalSetting.ToSoftObjectPath().GetPackagePath(), OldPath);
 	ASSERT_NE(Durin::FindPackageExact(OldPath), nullptr);
 	EXPECT_FALSE(Durin::FindPackageExact(OldPath)->TopLevelAssets.front().IsRedirector());
 	EXPECT_EQ(Durin::FindPackageExact(NewPath), nullptr);
@@ -8682,7 +8611,7 @@ TEST(FPackageAssetTests, RelocationPreservesExternalAuthoredPathsAndRejectsRealC
 
 	Durin::TSoftObjectPtr<DPackageAssetForTest> ExternalSetting(MakeFormerMainObjectPath(OldPath));
 	ASSERT_TRUE(RelocateAssetForTest(OldPath, NewPath));
-	EXPECT_EQ(ExternalSetting.GetPath().GetPackagePath(), OldPath);
+	EXPECT_EQ(ExternalSetting.ToSoftObjectPath().GetPackagePath(), OldPath);
 	ASSERT_NE(Durin::FindPackageExact(OldPath), nullptr);
 	EXPECT_TRUE(Durin::FindPackageExact(OldPath)->TopLevelAssets.front().IsRedirector());
 	EXPECT_NE(Durin::FindPackageExact(NewPath), nullptr);
@@ -8941,7 +8870,7 @@ namespace
 		ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(OwnerPath, Owner));
 		Owner->Label = "unrelated-fixup-bytes";
 		Owner->ExternalReference = Target;
-		Owner->Direct.SetPath(MakeFormerMainObjectPath(OldPath));
+		Owner->Direct = MakeFormerMainObjectPath(OldPath);
 		ASSERT_TRUE(Durin::SavePackage(Owner->GetPackage()));
 		auto OwnerData = Durin::FindPackageExact(OwnerPath);
 		ASSERT_NE(OwnerData, nullptr);
@@ -8993,7 +8922,7 @@ namespace
 			Durin::LoadObject<DSoftPackageAssetForTest>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(OwnerPath));
 			ReloadedOwner = ReloadResult.value_or(nullptr);
 		ASSERT_TRUE(ReloadResult) << ReloadResult.error().Message;
-		EXPECT_EQ(ReloadedOwner->Direct.GetPath().GetPackagePath(), NewPath);
+		EXPECT_EQ(ReloadedOwner->Direct.ToSoftObjectPath().GetPackagePath(), NewPath);
 		EXPECT_EQ(ReloadedOwner->ExternalReference.Get(), Target);
 	}
 #endif
@@ -9058,7 +8987,7 @@ namespace
 			ASSERT_TRUE(Durin::SavePackage(Target->GetPackage()));
 			DSoftPackageAssetForTest* Owner = nullptr;
 			ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(OwnerPath, Owner));
-			Owner->Direct.SetPath(MakeFormerMainObjectPath(OldPath));
+			Owner->Direct = MakeFormerMainObjectPath(OldPath);
 			ASSERT_TRUE(Durin::SavePackage(Owner->GetPackage()));
 			const std::string OwnerFile = Durin::FindPackageExact(OwnerPath)
 											  ->PhysicalPath;
@@ -9151,7 +9080,7 @@ namespace
 			ASSERT_TRUE(Durin::SavePackage(Target->GetPackage()));
 			DSoftPackageAssetForTest* Owner = nullptr;
 			ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(OwnerPath, Owner));
-			Owner->Direct.SetPath(MakeFormerMainObjectPath(OldPath));
+			Owner->Direct = MakeFormerMainObjectPath(OldPath);
 			ASSERT_TRUE(Durin::SavePackage(Owner->GetPackage()));
 			const std::string OwnerFile = Durin::FindPackageExact(OwnerPath)
 											  ->PhysicalPath;
@@ -9215,7 +9144,7 @@ TEST(FPackageAssetTests, SoftReferencedTargetDeletionLeavesDanglingPathWithoutBl
 	ASSERT_TRUE(Durin::SavePackage(Target->GetPackage()));
 	DSoftPackageAssetForTest* Owner = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(OwnerPath, Owner));
-	Owner->Direct.SetPath(MakeFormerMainObjectPath(TargetPath));
+	Owner->Direct = MakeFormerMainObjectPath(TargetPath);
 	ASSERT_TRUE(Durin::SavePackage(Owner->GetPackage()));
 
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(TargetPath));
@@ -9633,7 +9562,7 @@ TEST(FPackageAssetTests, ExplicitSoftLoadScopeTransfersSuccessAndReleasesOnAbort
 	{
 		FAssetPackageLoadScope Scope;
 		{
-			auto LoadedValue = Scope.LoadSoftObject(Soft);
+			auto LoadedValue = Scope.LoadObject<DPackageAssetForTest>(Soft.ToSoftObjectPath());
 			Asset = LoadedValue.value_or(nullptr);
 			ASSERT_TRUE(LoadedValue);
 		}
@@ -9645,7 +9574,7 @@ TEST(FPackageAssetTests, ExplicitSoftLoadScopeTransfersSuccessAndReleasesOnAbort
 	{
 		FAssetPackageLoadScope Scope;
 		{
-			auto LoadedValue = Scope.LoadSoftObject(Soft);
+			auto LoadedValue = Scope.LoadObject<DPackageAssetForTest>(Soft.ToSoftObjectPath());
 			Asset = LoadedValue.value_or(nullptr);
 			ASSERT_TRUE(LoadedValue);
 		}
@@ -10854,7 +10783,7 @@ TEST(FPackageAssetTests, SoftReferenceCacheUsesCheapMetadataAndFullValidationWit
 	ASSERT_TRUE(Durin::SavePackage(TargetB->GetPackage()));
 	DSoftPackageAssetForTest* Owner = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(OwnerPath, Owner));
-	Owner->Direct.SetPath(MakeFormerMainObjectPath(TargetAPath));
+	Owner->Direct = MakeFormerMainObjectPath(TargetAPath);
 	Owner->Label.assign(512u * 1024u, 'x');
 	ASSERT_TRUE(Durin::SavePackage(Owner->GetPackage()));
 	ASSERT_TRUE(Durin::UnloadPackage(OwnerPath));
@@ -10891,7 +10820,7 @@ TEST(FPackageAssetTests, SoftReferenceCacheUsesCheapMetadataAndFullValidationWit
 		Owner = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
-	Owner->Direct.SetPath(MakeFormerMainObjectPath(TargetBPath));
+	Owner->Direct = MakeFormerMainObjectPath(TargetBPath);
 	ASSERT_TRUE(Durin::SavePackage(Owner->GetPackage()));
 	std::filesystem::last_write_time(OwnerFile, PreservedTime);
 	ASSERT_TRUE(Durin::UnloadPackage(OwnerPath));

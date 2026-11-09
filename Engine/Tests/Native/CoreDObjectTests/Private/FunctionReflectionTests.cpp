@@ -1266,11 +1266,11 @@ TEST(DFunctionReflectionTests, SoftReferenceCallsPreservePendingAndNullPathsWith
 	EXPECT_TRUE(Buffer.GetParameter<FSoft>(1).IsNull());
 	EXPECT_TRUE(Buffer.GetReturnValue<FSoft>().IsNull());
 	const auto Path = FunctionSoftPath("Pending");
-	Buffer.GetParameter<FSoft>(0).SetPath(Path);
+	Buffer.GetParameter<FSoft>(0) = Path;
 	EXPECT_EQ(Target->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
-	EXPECT_EQ(Buffer.GetParameter<FSoft>(1).GetPath(), Path);
-	EXPECT_EQ(Buffer.GetReturnValue<FSoft>().GetPath(), Path);
-	EXPECT_EQ(Buffer.GetReturnValue<FSoft>().GetState(), ESoftObjectPtrState::Pending);
+	EXPECT_EQ(Buffer.GetParameter<FSoft>(1).ToSoftObjectPath(), Path);
+	EXPECT_EQ(Buffer.GetReturnValue<FSoft>().ToSoftObjectPath(), Path);
+	EXPECT_TRUE(Buffer.GetReturnValue<FSoft>().IsPending());
 	EXPECT_EQ(Buffer.GetReturnValue<FSoft>().Get(), nullptr);
 	Buffer.GetParameter<FSoft>(0).Reset();
 	EXPECT_EQ(Target->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
@@ -1306,8 +1306,8 @@ TEST(DFunctionReflectionTests, LoadedSoftReferencesInEnumMapsDoNotKeepAssetsAliv
 	EXPECT_EQ(ResolveObjectKey(Key), nullptr);
 	const auto& Returned = Buffer.GetReturnValue<FSoftMap>().at(EFunctionState::High)[0];
 	EXPECT_EQ(Returned.Get(), nullptr);
-	EXPECT_EQ(Returned.GetPath(), Path);
-	EXPECT_EQ(Returned.GetState(), ESoftObjectPtrState::Stale);
+	EXPECT_EQ(Returned.ToSoftObjectPath(), Path);
+	EXPECT_TRUE(Returned.IsPending());
 }
 
 TEST(DFunctionReflectionTests, WeakReferenceInputsOutputsAndReturnsRemainNonowningAndPreserveStaleKeys)
@@ -1379,7 +1379,7 @@ TEST(DFunctionReflectionTests, EnumAndNonowningReferenceOverridesPreserveSlotsAn
 		EXPECT_TRUE(Derived->IsSignatureCompatibleWith(*Base));
 		FFunctionParameterBuffer Buffer(*Base);
 		if (std::string_view(Name) == "EchoState") Buffer.GetParameter<EFunctionState>(0) = EFunctionState::High;
-		if (std::string_view(Name) == "EchoSoft") Buffer.GetParameter<TSoftObjectPtr<DObject>>(0).SetPath(FunctionSoftPath("Override"));
+		if (std::string_view(Name) == "EchoSoft") Buffer.GetParameter<TSoftObjectPtr<DObject>>(0) = FunctionSoftPath("Override");
 		if (std::string_view(Name) == "EchoWeak") Buffer.GetParameter<TWeakObjectPtr<DObject>>(0) = Target.Get();
 		EXPECT_EQ(Target->ProcessEvent(Base, Buffer.GetView()), EFunctionInvokeError::None);
 		if (std::string_view(Name) == "EchoState")

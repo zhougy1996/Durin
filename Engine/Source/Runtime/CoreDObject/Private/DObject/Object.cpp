@@ -1,4 +1,5 @@
 #include "DObject/Object.h"
+#include "DObject/SoftObjectPathServices.h"
 #include "Misc/ITransaction.h"
 
 #include "DObject/Archive.h"
@@ -9,7 +10,6 @@
 #include "DObject/Package.h"
 #include "DObject/PropertyChange.h"
 #include "DObject/Property.h"
-#include "DObject/SoftObjectPtr.h"
 #include "DObject/TransactionObjectReference.h"
 #include "CoreGlobals.h"
 #include "Threading/RunnableThread.h"
@@ -171,7 +171,7 @@ namespace Durin
 		if (auto* Package = Cast<DPackage>(GetOuter()); Package && Package->IsAssetPackage()
 			&& !Package->CanUseTopLevelAssetName(InName, this)) return;
 		NamePrivate = InName;
-		InvalidateSoftObjectCaches();
+		Durin::Private::InvalidateSoftObjectCaches();
 		if (DPackage* Package = GetPackage(); Package && Package->IsAssetPackage()) MarkPackageDirty();
 	}
 
@@ -187,7 +187,7 @@ namespace Durin
 		if (auto* NewPackage = Cast<DPackage>(OuterPrivate); NewPackage && NewPackage->IsAssetPackage()
 			&& !HasAnyObjectFlags(EObjectFlags::Transient))
 			require(NewPackage->RegisterTopLevelAsset(this));
-		InvalidateSoftObjectCaches();
+		Durin::Private::InvalidateSoftObjectCaches();
 	}
 
 
@@ -271,7 +271,7 @@ namespace Durin
 			return;
 		}
 		OuterPrivate = NewOuter;
-		InvalidateSoftObjectCaches();
+		Durin::Private::InvalidateSoftObjectCaches();
 	}
 
 	auto DObject::GetOutermost() const -> DObject*

@@ -1,4 +1,10 @@
 #include "DObject/SoftObjectPtr.h"
+#include "DObject/SoftObjectPathServices.h"
+
+#include "CoreGlobals.h"
+#include "DObject/DObjectArray.h"
+#include "DObject/ObjectLifecycle.h"
+#include "Threading/RunnableThread.h"
 
 #include "DObject/Class.h"
 #include "DObject/Package.h"
@@ -8,6 +14,15 @@ namespace Durin
 	namespace
 	{
 		std::atomic<uint64> GSoftObjectCacheEpoch = 1;
+		Private::FSoftObjectPathOperations GSoftObjectPathOperations;
+		auto IsSoftObjectTarget(DObject* Object, const DClass* ExpectedClass) -> bool
+		{
+			if (!Durin::IsValid(Object) || Cast<DPackage>(Object)
+				|| EnumHasAnyFlags(Object->GetObjectFlags(), EObjectFlags::Transient)
+				|| (ExpectedClass && !Object->IsA(ExpectedClass))) return false;
+			const DPackage* Package = Object->GetPackage();
+			return Package && Package->IsAssetPackage();
+		}
 		auto FailSoftObject(ESoftObjectError Code, std::string Subject = {},
 			std::string Expected = {}, std::string Actual = {}) -> std::expected<void, FSoftObjectError>
 		{
@@ -20,7 +35,7 @@ namespace Durin
 		}
 		auto ValidateSoftObject(DObject* Object, const DClass* ExpectedClass, FObjectPath& OutPath) -> std::expected<void, FSoftObjectError>
 		{
-			if (!Object) return FailSoftObject(ESoftObjectError::NullLoadedObject);
+			check(Object);
 			if (Cast<DPackage>(Object)) return FailSoftObject(ESoftObjectError::PackageObject, Object->GetObjectPath());
 			if (EnumHasAnyFlags(Object->GetObjectFlags(), EObjectFlags::Transient)) return FailSoftObject(ESoftObjectError::TransientObject, Object->GetObjectPath());
 			if (ExpectedClass && !Object->IsA(ExpectedClass)) return FailSoftObject(ESoftObjectError::ClassMismatch, Object->GetObjectPath(), ExpectedClass->GetQualifiedName().ToString(), Object->GetClass()->GetQualifiedName().ToString());
@@ -33,64 +48,104 @@ namespace Durin
 		}
 	}
 
-	auto GetSoftObjectCacheEpoch() -> uint64 { return GSoftObjectCacheEpoch.load(std::memory_order_acquire); }
-	auto InvalidateSoftObjectCaches() -> void
+	namespace Private
 	{
-		if (GSoftObjectCacheEpoch.fetch_add(1, std::memory_order_acq_rel) == std::numeric_limits<uint64>::max()) GSoftObjectCacheEpoch.store(1, std::memory_order_release);
+		auto SetSoftObjectPathOperations(FSoftObjectPathOperations Operations) -> void
+		{
+			GSoftObjectPathOperations = Operations;
+			InvalidateSoftObjectCaches();
+		}
+
+		auto InvalidateSoftObjectCaches() -> void
+		{
+			if (GSoftObjectCacheEpoch.fetch_add(1, std::memory_order_acq_rel) == std::numeric_limits<uint64>::max())
+				GSoftObjectCacheEpoch.store(1, std::memory_order_release);
+		}
 	}
 
 	FSoftObjectPtr::FSoftObjectPtr(FSoftObjectPtr&& Other) noexcept
-		: AuthoredPath(std::move(Other.AuthoredPath)), WeakObject(Other.WeakObject), CacheEpoch(Other.CacheEpoch) { Other.Reset(); }
+		: AuthoredPath(std::move(Other.AuthoredPath)), WeakObject(Other.WeakObject), CacheEpoch(Other.CacheEpoch)
+	{
+		Other.Reset();
+	}
+
 	auto FSoftObjectPtr::operator=(FSoftObjectPtr&& Other) noexcept -> FSoftObjectPtr&
 	{
-		if (this != &Other) { AuthoredPath = std::move(Other.AuthoredPath); WeakObject = Other.WeakObject; CacheEpoch = Other.CacheEpoch; Other.Reset(); } return *this;
+		if (this != &Other)
+		{
+			AuthoredPath = std::move(Other.AuthoredPath);
+			WeakObject = Other.WeakObject;
+			CacheEpoch = Other.CacheEpoch;
+			Other.Reset();
+		}
+		return *this;
 	}
-	auto FSoftObjectPtr::SetPath(FObjectPath InPath) -> void { AuthoredPath = std::move(InPath); ResetCache(); }
+
 	auto FSoftObjectPtr::TrySetObject(DObject* InObject, const DClass* ExpectedClass) -> std::expected<void, FSoftObjectError>
 	{
 		if (!InObject) { Reset(); return {}; }
-		FObjectPath ObjectPath; if (auto Result = ValidateSoftObject(InObject, ExpectedClass, ObjectPath); !Result) return Result;
-		AuthoredPath = ObjectPath; WeakObject.SetObject(InObject); CacheEpoch = GetSoftObjectCacheEpoch(); return {};
+		FObjectPath ObjectPath;
+		if (auto Result = ValidateSoftObject(InObject, ExpectedClass, ObjectPath); !Result) return Result;
+		AuthoredPath = std::move(ObjectPath);
+		WeakObject.SetObject(InObject);
+		CacheEpoch = GSoftObjectCacheEpoch.load(std::memory_order_acquire);
+		return {};
 	}
-	auto FSoftObjectPtr::TrySetLoadedObject(DObject* InObject, const DClass* ExpectedClass) -> std::expected<void, FSoftObjectError>
-	{
-		FObjectPath ObjectPath; if (auto Result = ValidateSoftObject(InObject, ExpectedClass, ObjectPath); !Result) return Result;
-		if (!AuthoredPath.IsValid() || AuthoredPath != ObjectPath) return FailSoftObject(ESoftObjectError::LoadedPathMismatch, ObjectPath.ToString(), AuthoredPath.ToString(), ObjectPath.ToString());
-		WeakObject.SetObject(InObject); CacheEpoch = GetSoftObjectCacheEpoch(); return {};
-	}
-	auto FSoftObjectPtr::TrySetResolvedObject(DObject* InObject, const FObjectPath& InAuthoredPath, const FObjectPath& ResolvedPath, const DClass* ExpectedClass) -> std::expected<void, FSoftObjectError>
-	{
-		FObjectPath ObjectPath; if (auto Result = ValidateSoftObject(InObject, ExpectedClass, ObjectPath); !Result) return Result;
-		if (!AuthoredPath.IsValid() || AuthoredPath != InAuthoredPath) return FailSoftObject(ESoftObjectError::AuthoredPathMismatch, ObjectPath.ToString(), AuthoredPath.ToString(), InAuthoredPath.ToString());
-		if (!ResolvedPath.IsValid() || ObjectPath != ResolvedPath) return FailSoftObject(ESoftObjectError::ResolvedPathMismatch, ObjectPath.ToString(), ResolvedPath.ToString(), ObjectPath.ToString());
-		WeakObject.SetObject(InObject); CacheEpoch = GetSoftObjectCacheEpoch(); return {};
-	}
+
 	auto FSoftObjectPtr::Get(const DClass* ExpectedClass) const -> DObject*
 	{
-		DObject* Object = WeakObject.Get();
-		if (!AuthoredPath.IsValid() || CacheEpoch == 0 || CacheEpoch != GetSoftObjectCacheEpoch()) return nullptr;
-		if (!Object) return nullptr;
-		FObjectPath ObjectPath; return ValidateSoftObject(Object, ExpectedClass, ObjectPath) && ObjectPath.IsValid() ? Object : nullptr;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		if (IsNull()) return nullptr;
+		DObject* Object = CacheEpoch == GSoftObjectCacheEpoch.load(std::memory_order_acquire) ? WeakObject.Get() : nullptr;
+		if (GSoftObjectPathOperations.Resolve)
+		{
+			Object = GSoftObjectPathOperations.Resolve(AuthoredPath, ExpectedClass, Object);
+		}
+		else if (!Object)
+		{
+			DPackage* Package = FindPackage(AuthoredPath.GetPackagePath().GetView());
+			Object = Package ? Package->FindTopLevelAsset(FName(AuthoredPath.GetAssetPath().GetAssetName())) : nullptr;
+			for (const std::string_view Name : AuthoredPath.GetSubobjectNames())
+			{
+				if (!Object) break;
+				const auto Children = GDObjectArray.GetObjectsWithOuter(Object, EObjectQueryScope::LiveOnly);
+				const auto Child = std::ranges::find(Children, FName(Name), &DObject::GetFName);
+				Object = Child == Children.end() ? nullptr : *Child;
+			}
+		}
+		if (!IsSoftObjectTarget(Object, ExpectedClass))
+		{
+			ResetWeakPtr();
+			return nullptr;
+		}
+		WeakObject.SetObject(Object);
+		CacheEpoch = GSoftObjectCacheEpoch.load(std::memory_order_acquire);
+		return Object;
 	}
-	auto FSoftObjectPtr::GetState(const DClass* ExpectedClass) const -> ESoftObjectPtrState
+
+	auto FSoftObjectPtr::LoadSynchronous(const DClass* ExpectedClass) const -> DObject*
 	{
-		if (!AuthoredPath.IsValid()) return ESoftObjectPtrState::Null;
-		if (CacheEpoch == 0) return ESoftObjectPtrState::Pending;
-		return Get(ExpectedClass) ? ESoftObjectPtrState::Valid : ESoftObjectPtrState::Stale;
+		if (DObject* Object = Get(ExpectedClass)) return Object;
+		if (IsNull() || !GSoftObjectPathOperations.Load) return nullptr;
+		DObject* Object = GSoftObjectPathOperations.Load(AuthoredPath, ExpectedClass);
+		if (!IsSoftObjectTarget(Object, ExpectedClass))
+		{
+			ResetWeakPtr();
+			return nullptr;
+		}
+		WeakObject.SetObject(Object);
+		CacheEpoch = GSoftObjectCacheEpoch.load(std::memory_order_acquire);
+		return Object;
 	}
 	auto ToString(const FSoftObjectError& Error) -> std::string
 	{
 		switch (Error.Code)
 		{
 		case ESoftObjectError::InvalidObjectPath: return Error.PathCause ? ToString(*Error.PathCause) : "The soft object has an invalid path.";
-		case ESoftObjectError::NullLoadedObject: return "A loaded soft-object cache cannot be null.";
 		case ESoftObjectError::PackageObject: return "A package cannot be assigned as a soft object.";
 		case ESoftObjectError::TransientObject: return "A transient object cannot be assigned as a soft object.";
 		case ESoftObjectError::ClassMismatch: return std::format("Object {} is not a {} (actual class {}).", Error.Subject, Error.Expected, Error.Actual);
 		case ESoftObjectError::UnpackagedObject: return "An unpackaged object cannot be assigned as a soft object.";
-		case ESoftObjectError::LoadedPathMismatch: return "The loaded object does not match the stored soft-object path.";
-		case ESoftObjectError::AuthoredPathMismatch: return "The resolved object does not match the authored soft-object path.";
-		case ESoftObjectError::ResolvedPathMismatch: return "The resolved object does not match the exact resolved object path.";
 		}
 		return "Unknown object error.";
 	}

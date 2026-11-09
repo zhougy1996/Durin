@@ -528,7 +528,9 @@ TEST_F(FObjectGraphReplacementTests, IsolatesCandidateAndAtomicallyRebindsRefere
 	Current->MarkDirty();
 	const auto OldHandle = FObjectKey(Old);
 	TWeakObjectPtr<DObject> Weak(Old);
-	const auto Epoch = GetSoftObjectCacheEpoch();
+	FSoftObjectPtr Soft;
+	ASSERT_TRUE(Soft.TrySetObject(Old));
+	ASSERT_EQ(Soft.Get(), Old);
 	EXPECT_EQ(FindPackage(Path.GetView()), Current);
 	const auto Visible = GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates);
 	EXPECT_EQ(std::ranges::find(Visible, New), Visible.end());
@@ -548,7 +550,7 @@ TEST_F(FObjectGraphReplacementTests, IsolatesCandidateAndAtomicallyRebindsRefere
 	EXPECT_EQ(Owner->StructReference.Reference.Get(), New);
 	EXPECT_EQ(New->Reference.Get(), New);
 	EXPECT_TRUE(Current->IsDirty());
-	EXPECT_GT(GetSoftObjectCacheEpoch(), Epoch);
+	EXPECT_EQ(Soft.Get(), New);
 	EXPECT_EQ(ResolveObjectKey(OldHandle), Old);
 	EXPECT_TRUE(Operation->Retire());
 	CollectGarbage();

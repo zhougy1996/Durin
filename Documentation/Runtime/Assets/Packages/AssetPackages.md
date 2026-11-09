@@ -4,7 +4,7 @@ Summary: Define asset identity, canonical DAST v10 packages, runtime residency, 
 
 Modules: AssetRegistry, Engine, CoreDObject, AssetMaintenance, AssetTools
 
-Last reviewed: 2026-10-16
+Last reviewed: 2026-11-09
 
 Durin object assets are stored as versioned `.dasset` packages. A package is a
 residency and persistence container with zero or more independently addressable
@@ -75,8 +75,9 @@ index, byte limits and mount classification. Soft-object errors own the expected
 and actual identities and retain a path cause only when object-path construction
 fails. Failed factories do not publish output paths; failed soft-reference
 assignment leaves authored identity and loaded-cache state intact.
-`TrySetObject(nullptr)` remains a successful reset, while a null loaded-cache
-assignment fails. `ToString` overloads in `AssetPath.cpp` and `SoftObjectPtr.cpp`
+`TrySetObject(nullptr)` is a successful reset. The weak cache is populated by
+lookup or loading, not by a separate loaded-object setter.
+`ToString` overloads in `AssetPath.cpp` and `SoftObjectPtr.cpp`
 generate prose at UI, logging, command, and legacy string adapters. Semantic tests
 assert codes and context.
 
@@ -253,18 +254,25 @@ Choose a reference by ownership and loading behavior:
 
 An invalid default `FObjectPath` is the null soft-reference value; non-null
 values pass the ordinary exact-object path factory.
-`ResolveSoftObject(...)` distinguishes `Null`, `NotLoaded`, and `Loaded`
-without loading; `LoadSoftObject(...)` is the explicit typed load boundary.
-Resolution returns an expected `TSoftObjectResolution<T>` with state, pointer,
-resolved identity, and redirection flag. Allowed null and valid not-loaded
-references are successful resolutions. Loading an allowed null reference returns
-a successful null pointer. Failures carry identity/redirection diagnostics when
-resolution established them; they do not contain a success-state payload.
-Both follow catalog redirect resolution while preserving the authored soft path
-for equality, hashing, ordering, and serialization. Cache population verifies
-the exact resolved object path and expected class. `Get()` performs no lookup,
-redirect resolution, or load, and returns only a live weak object from the
-current global cache epoch.
+`Get()` looks up an already loaded object without file I/O, follows catalog
+redirects, and refreshes its weak cache automatically. An independently loaded
+object is visible to every matching soft reference; cache invalidation does not
+require callers to resolve or repopulate references. `LoadSynchronous()` is the
+explicit loading member and returns a typed pointer or null. Null references
+return null from both members. `IsNull()` tests authored identity, `IsValid()`
+tests loaded-object availability, and `IsPending()` means a non-null identity
+without a matching live object; it does not mean an async request is active.
+`ResetWeakPtr()` drops only the cache, while `Reset()` also clears identity.
+`ToSoftObjectPath()` exposes the authored `FObjectPath`; assigning a new path
+resets the cache. These members preserve authored identity through redirects,
+GC, and reload, including equality, hashing, ordering, and serialization.
+Lookup, validity checks, and loading run on the owner thread; copying path/weak
+values performs no lookup. Engine supplies routing/loading through internal
+CoreDObject operations and enforces guarded-load access even for cache hits.
+Standalone CoreDObject can find live package objects without Engine.
+Tools needing missing/type/redirect diagnostics use
+`ResolveAssetObjectPathForOperation` or `LoadObject` explicitly; diagnostic
+results and null policies are not part of the pointer's ordinary API.
 
 Hard imports identify an exact top-level asset in another package. Soft
 references serialize complete canonical object paths. AssetRegistry persists

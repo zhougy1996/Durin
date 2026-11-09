@@ -5263,70 +5263,57 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(ToString(Result.error()), "Package path must be absolute.");
 	}
 
-	TEST(FCoreDObjectReflectionTests, SoftObjectPtrUsesPathIdentityAndWeakLoadedState)
+	TEST(FCoreDObjectReflectionTests, SoftObjectPtrFindsLoadedObjectsAndRefreshesWeakCache)
 	{
-		Durin::Testing::InitializeDObjectSystemForTests();
+		using namespace Durin;
+		Testing::InitializeDObjectSystemForTests();
 		EnsurePackageTestMount();
-		Durin::FPackagePath Path;
-		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/CoreTests/SoftObjectValue", Path));
-		Durin::FObjectPath SoftPath;
-		ASSERT_TRUE(Durin::FObjectPath::TryCreate(
-			"/CoreTests/SoftObjectValue.SoftObjectValue", SoftPath));
-		const Durin::FObjectPath ValidSoftPath = SoftPath;
-		EXPECT_FALSE(Durin::FObjectPath::TryCreate("/Unknown/InvalidSoftObject", SoftPath));
-		EXPECT_EQ(SoftPath, ValidSoftPath);
-
-		auto* Package = Durin::NewObject<Durin::DPackage>(nullptr, "SoftObjectValue");
-		Package->InitializeAssetPackage(Path);
-		Durin::AddToRoot(Package);
-		Durin::DObject* Asset = Durin::NewObject<Durin::DObject>(Package, "SoftObjectValue");
-
-		Durin::FSoftObjectPtr Reference(SoftPath);
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate("/CoreTests/SoftObjectValue", Path));
+		FObjectPath SoftPath;
+		ASSERT_TRUE(FObjectPath::TryCreate("/CoreTests/SoftObjectValue.SoftObjectValue", SoftPath));
+		FSoftObjectPtr Reference(SoftPath);
 		EXPECT_FALSE(Reference.IsNull());
-		EXPECT_FALSE(Reference.IsLoaded());
-		EXPECT_EQ(Reference.GetState(), Durin::ESoftObjectPtrState::Pending);
-		ASSERT_TRUE(Reference.TrySetObject(Asset));
+		EXPECT_TRUE(Reference.IsPending());
+		EXPECT_EQ(Reference.Get(), nullptr);
+		auto* Package = NewObject<DPackage>(nullptr, "SoftObjectValue");
+		Package->InitializeAssetPackage(Path);
+		AddToRoot(Package);
+		DObject* Asset = NewObject<DObject>(Package, "SoftObjectValue");
 		EXPECT_EQ(Reference.Get(), Asset);
-		EXPECT_EQ(Reference.GetState(), Durin::ESoftObjectPtrState::Valid);
-		EXPECT_EQ(Reference.GetPath(), SoftPath);
-
-		Durin::FSoftObjectPtr PathOnly(SoftPath);
-		EXPECT_EQ(PathOnly.GetState(), Durin::ESoftObjectPtrState::Pending);
+		EXPECT_TRUE(Reference.IsValid());
+		EXPECT_FALSE(Reference.IsPending());
+		FSoftObjectPtr PathOnly(SoftPath);
+		EXPECT_EQ(PathOnly.Get(), Asset);
 		EXPECT_EQ(Reference, PathOnly);
-		EXPECT_EQ(std::hash<Durin::FSoftObjectPtr>{}(Reference), std::hash<Durin::FSoftObjectPtr>{}(PathOnly));
-
-		Durin::FSoftObjectPtr Copy = Reference;
-		EXPECT_EQ(Copy.Get(), Asset);
-		Durin::FSoftObjectPtr Moved = std::move(Copy);
+		EXPECT_EQ(std::hash<FSoftObjectPtr>{}(Reference), std::hash<FSoftObjectPtr>{}(PathOnly));
+		Reference.ResetWeakPtr();
+		EXPECT_EQ(Reference.ToSoftObjectPath(), SoftPath);
+		EXPECT_EQ(Reference.Get(), Asset);
+		FSoftObjectPtr Copy = Reference;
+		FSoftObjectPtr Moved = std::move(Copy);
 		EXPECT_TRUE(Copy.IsNull());
 		EXPECT_EQ(Moved.Get(), Asset);
-
-		Durin::FSoftObjectPtr WorkerCopy;
-		std::thread Worker([PathOnly, &WorkerCopy]() {
-			WorkerCopy = PathOnly;
-		});
+		FSoftObjectPtr WorkerCopy;
+		std::thread Worker([PathOnly, &WorkerCopy] { WorkerCopy = PathOnly; });
 		Worker.join();
-		EXPECT_EQ(WorkerCopy, PathOnly);
-		EXPECT_FALSE(WorkerCopy.IsLoaded());
-
-		Reference.SetPath(SoftPath);
-		EXPECT_FALSE(Reference.IsLoaded());
-		EXPECT_EQ(Reference.GetState(), Durin::ESoftObjectPtrState::Pending);
-		EXPECT_TRUE(Reference.TrySetLoadedObject(Asset));
-		EXPECT_EQ(Reference.Get(), Asset);
-		Durin::InvalidateSoftObjectCaches();
-		EXPECT_EQ(Reference.GetState(), Durin::ESoftObjectPtrState::Stale);
+		EXPECT_EQ(WorkerCopy.Get(), Asset);
+		RemoveFromRoot(Package);
+		MarkObjectHierarchyAsGarbage(Package);
+		CollectGarbage();
 		EXPECT_EQ(Reference.Get(), nullptr);
-		ASSERT_TRUE(Reference.TrySetLoadedObject(Asset));
-		EXPECT_EQ(Reference.GetState(), Durin::ESoftObjectPtrState::Valid);
-
-		Durin::RemoveFromRoot(Package);
-		Durin::MarkObjectHierarchyAsGarbage(Package);
-		Durin::CollectGarbage();
-		EXPECT_EQ(Reference.Get(), nullptr);
-		EXPECT_EQ(Reference.GetState(), Durin::ESoftObjectPtrState::Stale);
+		EXPECT_TRUE(Reference.IsPending());
 		EXPECT_EQ(Moved.Get(), nullptr);
-		EXPECT_EQ(Reference.GetPath(), SoftPath);
+		Package = NewObject<DPackage>(nullptr, "SoftObjectValue");
+		Package->InitializeAssetPackage(Path);
+		AddToRoot(Package);
+		Asset = NewObject<DObject>(Package, "SoftObjectValue");
+		EXPECT_EQ(Reference.Get(), Asset);
+		EXPECT_EQ(Moved.Get(), Asset);
+		EXPECT_EQ(Reference.ToSoftObjectPath(), SoftPath);
+		RemoveFromRoot(Package);
+		MarkObjectHierarchyAsGarbage(Package);
+		CollectGarbage();
 	}
 
 	TEST(FCoreDObjectReflectionTests, SoftObjectArchiveRetainsPathCauseAndFirstFailure)
@@ -5375,7 +5362,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		FObjectPath Original;
 		ASSERT_TRUE(FObjectPath::TryCreate("/CoreTests/SoftSnapshot.Asset", Original));
 		FSoftObjectPropertyOwnerForTest Owner;
-		Owner.Direct.SetPath(Original);
+		Owner.Direct = Original;
 		std::expected<void, FPropertySnapshotError> Result;
 		{
 			FPropertyValueSnapshotPayload Payload;
@@ -5389,7 +5376,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(Result.error().Code, EPropertySnapshotError::ArchiveFailure);
 		EXPECT_EQ(Result.error().Operation, EPropertySnapshotOperation::Restore);
 		EXPECT_EQ(Result.error().ArchiveCode, EArchiveFailureCode::InvalidPath);
-		EXPECT_EQ(Owner.Direct.GetPath(), Original);
+		EXPECT_EQ(Owner.Direct.ToSoftObjectPath(), Original);
 
 	}
 
@@ -5442,19 +5429,11 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 		Durin::FSoftObjectPtr Reference;
 		ASSERT_TRUE(Reference.TrySetObject(Asset));
-		const Durin::FObjectPath OriginalPath = Reference.GetPath();
-		const auto NullLoaded = Reference.TrySetLoadedObject(nullptr);
-		EXPECT_EQ(NullLoaded.error().Code, Durin::ESoftObjectError::NullLoadedObject);
-		const auto WrongPath = Reference.TrySetLoadedObject(Inner);
-		EXPECT_EQ(WrongPath.error().Code, Durin::ESoftObjectError::LoadedPathMismatch);
-		EXPECT_EQ(WrongPath.error().Expected, OriginalPath.ToString());
-		EXPECT_EQ(WrongPath.error().Actual, Inner->GetObjectPath());
-		EXPECT_EQ(Reference.GetPath(), OriginalPath);
-		EXPECT_EQ(Reference.Get(), Asset);
+		const Durin::FObjectPath OriginalPath = Reference.ToSoftObjectPath();
 		const auto PackageFailure = Reference.TrySetObject(Package);
 		EXPECT_EQ(PackageFailure.error().Code, Durin::ESoftObjectError::PackageObject);
 		EXPECT_TRUE(Reference.TrySetObject(Inner));
-		EXPECT_EQ(Reference.GetPath().ToString(),
+		EXPECT_EQ(Reference.ToSoftObjectPath().ToString(),
 			"/CoreTests/SoftObjectValidation.SoftObjectValidation:Inner");
 		ASSERT_TRUE(Reference.TrySetObject(Asset));
 		const auto ClassFailure = Reference.TrySetObject(Asset, Durin::DPackage::StaticClass());
@@ -5476,14 +5455,14 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(Reference.TrySetObject(TransientType).error().Code, Durin::ESoftObjectError::TransientObject);
 		delete TransientType;
 
-		EXPECT_EQ(Reference.GetPath(), OriginalPath);
+		EXPECT_EQ(Reference.ToSoftObjectPath(), OriginalPath);
 		EXPECT_EQ(Reference.Get(), Asset);
 
 		Durin::TSoftObjectPtr<Durin::DPackage> WrongType(OriginalPath);
 		EXPECT_FALSE(WrongType.GetBase().TrySetObject(
 			Asset, Durin::DPackage::StaticClass()));
-		EXPECT_EQ(WrongType.GetPath(), OriginalPath);
-		EXPECT_FALSE(WrongType.IsLoaded());
+		EXPECT_EQ(WrongType.ToSoftObjectPath(), OriginalPath);
+		EXPECT_FALSE(WrongType.IsValid());
 
 		EXPECT_TRUE(Reference.TrySetObject(nullptr));
 		EXPECT_TRUE(Reference.IsNull());
@@ -5524,20 +5503,20 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		ASSERT_TRUE(Durin::FObjectPath::TryCreate(
 			"/CoreTests/SoftObjectProperty.SoftObjectProperty", SoftPath));
 		FSoftObjectPropertyOwnerForTest Owner;
-		Owner.Direct.SetPath(SoftPath);
-		Owner.Fixed[1].SetPath(SoftPath);
-		Owner.Accessed.SetPath(SoftPath);
+		Owner.Direct = SoftPath;
+		Owner.Fixed[1] = SoftPath;
+		Owner.Accessed = SoftPath;
 		ASSERT_EQ(Direct->GetSoftObjectPtr(&Owner), &Owner.Direct.GetBase());
 		ASSERT_EQ(Fixed->GetSoftObjectPtr(&Owner, 1), &Owner.Fixed[1].GetBase());
 		ASSERT_EQ(Accessed->GetSoftObjectPtr(&Owner), &Owner.Accessed.GetBase());
-		EXPECT_EQ(Direct->GetSoftObjectPtr(&Owner)->GetPath(), SoftPath);
+		EXPECT_EQ(Direct->GetSoftObjectPtr(&Owner)->ToSoftObjectPath(), SoftPath);
 
 		Owner.Array.emplace_back(SoftPath);
 		auto* ArrayInner = static_cast<Durin::FSoftObjectProperty*>(Array->GetInner());
 		ASSERT_NE(ArrayInner, nullptr);
 		ASSERT_NE(ArrayInner->GetSoftObjectPtr(Array->GetElementPtr(&Owner, 0)), nullptr);
 		EXPECT_EQ(
-			ArrayInner->GetSoftObjectPtr(Array->GetElementPtr(&Owner, 0))->GetPath(),
+			ArrayInner->GetSoftObjectPtr(Array->GetElementPtr(&Owner, 0))->ToSoftObjectPath(),
 			SoftPath
 		);
 
@@ -5548,13 +5527,13 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		ASSERT_EQ(Map->FindValue(&Owner, &Key, &RawMapValue), Durin::EContainerOpResult::Success);
 		ASSERT_NE(MapValue, nullptr);
 		ASSERT_NE(MapValue->GetSoftObjectPtr(RawMapValue), nullptr);
-		EXPECT_EQ(MapValue->GetSoftObjectPtr(RawMapValue)->GetPath(), SoftPath);
+		EXPECT_EQ(MapValue->GetSoftObjectPtr(RawMapValue)->ToSoftObjectPath(), SoftPath);
 
 		Durin::FReflectedValueStorage Detached;
 		ASSERT_TRUE(Detached.CopyConstruct(Direct, Direct->GetValuePtr(&Owner)));
 		auto* DetachedValue = static_cast<Durin::TSoftObjectPtr<Durin::DObject>*>(Detached.GetValue());
 		ASSERT_NE(DetachedValue, nullptr);
-		EXPECT_EQ(DetachedValue->GetPath(), SoftPath);
+		EXPECT_EQ(DetachedValue->ToSoftObjectPath(), SoftPath);
 		Durin::FPackagePath ReplacementPath;
 		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/CoreTests/SoftObjectPropertyReplacement", ReplacementPath));
 		Durin::FObjectPath ReplacementObjectPath;
@@ -5563,7 +5542,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			ReplacementObjectPath));
 		Durin::TSoftObjectPtr<Durin::DObject> Replacement(ReplacementObjectPath);
 		ASSERT_TRUE(Detached.CopyAssign(&Replacement));
-		EXPECT_EQ(DetachedValue->GetPath(), Replacement.GetPath());
+		EXPECT_EQ(DetachedValue->ToSoftObjectPath(), Replacement.ToSoftObjectPath());
 
 		auto* Package = Durin::NewObject<Durin::DPackage>(nullptr, "SoftObjectProperty");
 		Package->InitializeAssetPackage(AssetPath);
@@ -5580,21 +5559,21 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_TRUE(PathOnlySnapshot.GetReferencedObjects().empty());
 		Owner.Direct = Replacement;
 		ASSERT_TRUE(Durin::RestorePropertyValue(Direct, &Owner, 0, PathOnlySnapshot));
-		EXPECT_EQ(Owner.Direct.GetPath(), SoftPath);
+		EXPECT_EQ(Owner.Direct.ToSoftObjectPath(), SoftPath);
 
 		Durin::FPropertyValueSnapshot ArraySnapshot;
 		ASSERT_TRUE(Durin::CapturePropertyValue(Array, &Owner, 0, ArraySnapshot));
 		Owner.Array.clear();
 		ASSERT_TRUE(Durin::RestorePropertyValue(Array, &Owner, 0, ArraySnapshot));
 		ASSERT_EQ(Owner.Array.size(), 1u);
-		EXPECT_EQ(Owner.Array[0].GetPath(), SoftPath);
+		EXPECT_EQ(Owner.Array[0].ToSoftObjectPath(), SoftPath);
 
 		Durin::FPropertyValueSnapshot MapSnapshot;
 		ASSERT_TRUE(Durin::CapturePropertyValue(Map, &Owner, 0, MapSnapshot));
 		Owner.Map.clear();
 		ASSERT_TRUE(Durin::RestorePropertyValue(Map, &Owner, 0, MapSnapshot));
 		ASSERT_EQ(Owner.Map.size(), 1u);
-		EXPECT_EQ(Owner.Map.at("Target").GetPath(), SoftPath);
+		EXPECT_EQ(Owner.Map.at("Target").ToSoftObjectPath(), SoftPath);
 
 		Durin::RemoveFromRoot(Package);
 		Durin::MarkObjectHierarchyAsGarbage(Package);

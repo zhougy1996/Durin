@@ -9,13 +9,12 @@ namespace Durin
 {
 	enum class ESoftObjectError : uint8
 	{
-		InvalidObjectPath, NullLoadedObject, PackageObject, TransientObject, ClassMismatch,
-		UnpackagedObject, LoadedPathMismatch, AuthoredPathMismatch, ResolvedPathMismatch,
+		InvalidObjectPath, PackageObject, TransientObject, ClassMismatch, UnpackagedObject,
 	};
 
 	struct FSoftObjectError
 	{
-		ESoftObjectError Code = ESoftObjectError::NullLoadedObject;
+		ESoftObjectError Code = ESoftObjectError::InvalidObjectPath;
 		std::string Subject;
 		std::string Expected;
 		std::string Actual;
@@ -24,11 +23,6 @@ namespace Durin
 	COREDOBJECT_API auto ToString(const FSoftObjectError& Error) -> std::string;
 
 	class DClass;
-	class FAssetLoadService;
-
-	enum class ESoftObjectPtrState : uint8 { Null, Pending, Valid, Stale };
-	COREDOBJECT_API auto GetSoftObjectCacheEpoch() -> uint64;
-	COREDOBJECT_API auto InvalidateSoftObjectCaches() -> void;
 
 	class FSoftObjectPtr
 	{
@@ -41,27 +35,27 @@ namespace Durin
 		COREDOBJECT_API FSoftObjectPtr(FSoftObjectPtr&& Other) noexcept;
 		COREDOBJECT_API auto operator=(FSoftObjectPtr&& Other) noexcept -> FSoftObjectPtr&;
 		auto operator=(std::nullptr_t) -> FSoftObjectPtr& { Reset(); return *this; }
+		auto operator=(FObjectPath InPath) -> FSoftObjectPtr& { AuthoredPath = std::move(InPath); ResetWeakPtr(); return *this; }
 
-		COREDOBJECT_API auto SetPath(FObjectPath InPath) -> void;
 		COREDOBJECT_API auto TrySetObject(DObject* InObject, const DClass* ExpectedClass = nullptr) -> std::expected<void, FSoftObjectError>;
-		COREDOBJECT_API auto TrySetLoadedObject(DObject* InObject, const DClass* ExpectedClass = nullptr) -> std::expected<void, FSoftObjectError>;
+		// Owner-thread lookup of an already loaded object; never loads a package.
 		COREDOBJECT_API auto Get(const DClass* ExpectedClass = nullptr) const -> DObject*;
-		COREDOBJECT_API auto GetState(const DClass* ExpectedClass = nullptr) const -> ESoftObjectPtrState;
-		auto IsLoaded(const DClass* ExpectedClass = nullptr) const -> bool { return Get(ExpectedClass) != nullptr; }
+		COREDOBJECT_API auto LoadSynchronous(const DClass* ExpectedClass = nullptr) const -> DObject*;
+		auto IsValid(const DClass* ExpectedClass = nullptr) const -> bool { return Get(ExpectedClass) != nullptr; }
+		auto IsPending(const DClass* ExpectedClass = nullptr) const -> bool { return !IsNull() && !IsValid(ExpectedClass); }
 		auto IsNull() const -> bool { return !AuthoredPath.IsValid(); }
-		auto GetPath() const -> const FObjectPath& { return AuthoredPath; }
-		auto Reset() -> void { AuthoredPath = {}; ResetCache(); }
+		auto ToSoftObjectPath() const -> const FObjectPath& { return AuthoredPath; }
+		auto Reset() -> void { AuthoredPath = {}; ResetWeakPtr(); }
+		auto ResetWeakPtr() const -> void { WeakObject.Reset(); CacheEpoch = 0; }
+		explicit operator bool() const { return IsValid(); }
 
 		friend auto operator==(const FSoftObjectPtr& Left, const FSoftObjectPtr& Right) -> bool { return Left.AuthoredPath == Right.AuthoredPath; }
 		friend auto operator<=>(const FSoftObjectPtr& Left, const FSoftObjectPtr& Right) -> std::strong_ordering { return Left.AuthoredPath <=> Right.AuthoredPath; }
 
 	private:
-		COREDOBJECT_API auto TrySetResolvedObject(DObject* InObject, const FObjectPath& AuthoredPath, const FObjectPath& ResolvedPath, const DClass* ExpectedClass) -> std::expected<void, FSoftObjectError>;
-		auto ResetCache() -> void { WeakObject.Reset(); CacheEpoch = 0; }
 		FObjectPath AuthoredPath;
-		FWeakObjectPtr WeakObject;
-		uint64 CacheEpoch = 0;
-		friend class FAssetLoadService;
+		mutable FWeakObjectPtr WeakObject;
+		mutable uint64 CacheEpoch = 0;
 	};
 
 	template<typename T>
@@ -74,15 +68,17 @@ namespace Durin
 		explicit TSoftObjectPtr(T* InObject) { (void)TrySetObject(InObject); }
 		auto operator=(std::nullptr_t) -> TSoftObjectPtr& { Reset(); return *this; }
 		auto operator=(T* InObject) -> TSoftObjectPtr& { (void)TrySetObject(InObject); return *this; }
-		auto SetPath(FObjectPath InPath) -> void { SoftObjectPtr.SetPath(std::move(InPath)); }
+		auto operator=(FObjectPath InPath) -> TSoftObjectPtr& { SoftObjectPtr = std::move(InPath); return *this; }
 		auto TrySetObject(T* InObject) -> std::expected<void, FSoftObjectError> { return SoftObjectPtr.TrySetObject(ToDObject(InObject), GetExpectedClass()); }
-		auto TrySetLoadedObject(T* InObject) -> std::expected<void, FSoftObjectError> { return SoftObjectPtr.TrySetLoadedObject(ToDObject(InObject), GetExpectedClass()); }
 		auto Get() const -> T* { return FromDObject(SoftObjectPtr.Get(GetExpectedClass())); }
-		auto GetState() const -> ESoftObjectPtrState { return SoftObjectPtr.GetState(GetExpectedClass()); }
-		auto IsLoaded() const -> bool { return Get() != nullptr; }
+		auto LoadSynchronous() const -> T* { return FromDObject(SoftObjectPtr.LoadSynchronous(GetExpectedClass())); }
+		auto IsValid() const -> bool { return Get() != nullptr; }
+		auto IsPending() const -> bool { return !IsNull() && !IsValid(); }
 		auto IsNull() const -> bool { return SoftObjectPtr.IsNull(); }
-		auto GetPath() const -> const FObjectPath& { return SoftObjectPtr.GetPath(); }
+		auto ToSoftObjectPath() const -> const FObjectPath& { return SoftObjectPtr.ToSoftObjectPath(); }
 		auto Reset() -> void { SoftObjectPtr.Reset(); }
+		auto ResetWeakPtr() const -> void { SoftObjectPtr.ResetWeakPtr(); }
+		explicit operator bool() const { return IsValid(); }
 		auto GetBase() -> FSoftObjectPtr& { return SoftObjectPtr; }
 		auto GetBase() const -> const FSoftObjectPtr& { return SoftObjectPtr; }
 		friend auto operator==(const TSoftObjectPtr& Left, const TSoftObjectPtr& Right) -> bool { return Left.SoftObjectPtr == Right.SoftObjectPtr; }
@@ -95,5 +91,5 @@ namespace Durin
 	};
 }
 
-template<> struct std::hash<Durin::FSoftObjectPtr> { auto operator()(const Durin::FSoftObjectPtr& Value) const noexcept -> size_t { return std::hash<Durin::FObjectPath>{}(Value.GetPath()); } };
-template<typename T> struct std::hash<Durin::TSoftObjectPtr<T>> { auto operator()(const Durin::TSoftObjectPtr<T>& Value) const noexcept -> size_t { return std::hash<Durin::FObjectPath>{}(Value.GetPath()); } };
+template<> struct std::hash<Durin::FSoftObjectPtr> { auto operator()(const Durin::FSoftObjectPtr& Value) const noexcept -> size_t { return std::hash<Durin::FObjectPath>{}(Value.ToSoftObjectPath()); } };
+template<typename T> struct std::hash<Durin::TSoftObjectPtr<T>> { auto operator()(const Durin::TSoftObjectPtr<T>& Value) const noexcept -> size_t { return std::hash<Durin::FObjectPath>{}(Value.ToSoftObjectPath()); } };
