@@ -143,13 +143,13 @@ namespace Durin
 			return MakeRejectedAssetOperation(EAssetOperationKind::Duplicate,
 				"Could not find an available copy name in this folder.");
 
-		FObjectPath SourceObjectPath;
-		if (!FObjectPath::TryCreate(
+		FSoftObjectPath SourceObjectPath;
+		if (!FSoftObjectPath::TryCreate(
 			Request.SourcePath, std::span<const std::string>{}, SourceObjectPath))
 			return MakeRejectedAssetOperation(EAssetOperationKind::Duplicate,
 				"The source top-level asset path is invalid.");
 		DObject* SourceAsset = nullptr;
-		auto LoadedSource = LoadObject(SourceObjectPath, nullptr);
+		auto LoadedSource = LoadObjectDetailed(SourceObjectPath, nullptr);
 		SourceAsset = LoadedSource.value_or(nullptr);
 		FAssetWriteResult EngineResult = AssetWriteResultFromRead(LoadedSource);
 		if (!EngineResult)

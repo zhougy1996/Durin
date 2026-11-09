@@ -149,8 +149,8 @@ namespace
 
 	auto DefinitionTarget(std::string_view Path = "/AssetEditorTests/Package.Asset") -> FAssetOpenTarget
 	{
-		FObjectPath ObjectPath;
-		require(FObjectPath::TryCreate(Path, ObjectPath));
+		FSoftObjectPath ObjectPath;
+		require(FSoftObjectPath::TryCreate(Path, ObjectPath));
 		return {ObjectPath, "Durin::DObject"};
 	}
 	struct FDefinitionTestMount

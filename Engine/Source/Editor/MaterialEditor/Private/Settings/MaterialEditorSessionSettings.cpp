@@ -139,13 +139,13 @@ namespace Durin::Editor::Material
 			std::vector<std::pair<std::string, std::string>> Renames;
 			for (const auto& [Resource, Viewport] : Settings.Viewports)
 			{
-				FObjectPath Path;
-				if (!FObjectPath::TryCreate(Resource, Path)) continue;
+				FSoftObjectPath Path;
+				if (!FSoftObjectPath::TryCreate(Resource, Path)) continue;
 				for (const auto& Mapping : Mappings) if (Path.GetPackagePath() == Mapping.SourcePath)
 				{
-					FTopLevelAssetPath Asset; FObjectPath Destination;
+					FTopLevelAssetPath Asset; FSoftObjectPath Destination;
 					if (FTopLevelAssetPath::TryCreate(Mapping.DestinationPath, Path.GetAssetPath().GetAssetName(), Asset)
-						&& FObjectPath::TryCreate(Asset, Path.GetSubobjectNames(), Destination)) Renames.emplace_back(Resource, Destination.ToString());
+						&& FSoftObjectPath::TryCreate(Asset, Path.GetSubobjectNames(), Destination)) Renames.emplace_back(Resource, Destination.ToString());
 					break;
 				}
 			}

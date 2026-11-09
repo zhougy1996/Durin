@@ -238,10 +238,10 @@ namespace Durin
 			for (const FAssetData& Asset : SourceData->TopLevelAssets)
 			{
 				FTopLevelAssetPath DestinationAsset;
-				FObjectPath DestinationObject;
+				FSoftObjectPath DestinationObject;
 				if (!FTopLevelAssetPath::TryCreate(Mapping.DestinationPath,
 						Asset.AssetPath.GetAssetName(), DestinationAsset)
-					|| !FObjectPath::TryCreate(DestinationAsset,
+					|| !FSoftObjectPath::TryCreate(DestinationAsset,
 						std::span<const std::string>{}, DestinationObject))
 					return Error(EAssetWriteError::InvalidPath,
 						"Relocation could not preserve a top-level asset identity in its redirector.");
@@ -306,13 +306,13 @@ namespace Durin
 				DClass* AssetClass = FindClassByQualifiedName(FName(AssetRecord.AssetClassName));
 				const auto Relocator = FindAssetOwnedPayloadRelocator(AssetClass);
 				if (!Relocator) continue;
-				FObjectPath AssetPath;
-				if (!FObjectPath::TryCreate(
+				FSoftObjectPath AssetPath;
+				if (!FSoftObjectPath::TryCreate(
 					AssetRecord.AssetPath, std::span<const std::string>{}, AssetPath))
 					return Error(EAssetWriteError::InvalidPath,
 						"The payload relocator asset path is invalid.");
 				DObject* AssetObject = nullptr;
-				auto Loaded = LoadObject(AssetPath, nullptr);
+				auto Loaded = LoadObjectDetailed(AssetPath, nullptr);
 				AssetObject = Loaded.value_or(nullptr);
 				Result = AssetWriteResultFromRead(Loaded);
 				if (!Result) return Result;

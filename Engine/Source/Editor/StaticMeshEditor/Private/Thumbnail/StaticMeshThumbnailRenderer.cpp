@@ -1,3 +1,4 @@
+#include "Engine/StreamableManager.h"
 #include "Thumbnail/StaticMeshThumbnailRenderer.h"
 
 // StaticMeshEditor owns the complete StaticMesh thumbnail extension.
@@ -63,25 +64,25 @@ namespace Durin::Editor::StaticMesh
 			auto Load() -> FThumbnailRendererSessionUpdate override
 			{
 				ResetPreview();
-				AssetLoad = RequestAsyncLoad(Input.AssetPath, {}, DStaticMesh::StaticClass());
+				AssetLoad = StreamableManager.RequestAsyncLoad(Input.AssetPath, {}, DStaticMesh::StaticClass());
 				return {.State = EThumbnailRendererSessionState::WaitingForResources};
 			}
 
 			auto FinishLoad() -> FThumbnailRendererSessionUpdate
 			{
-				const auto& Result = AssetLoad->GetResult();
-				StaticMesh = Result ? Cast<DStaticMesh>(AssetLoad->GetLoadedObject()) : nullptr;
+				const bool Result = !AssetLoad->HasError();
+				StaticMesh = Result ? Cast<DStaticMesh>(AssetLoad->GetLoadedAsset()) : nullptr;
 				if (!Result || StaticMesh == nullptr
 					|| StaticMesh->GetClass() != DStaticMesh::StaticClass())
 				{
 					StaticMesh = nullptr;
 					return {
 						.State = EThumbnailRendererSessionState::Failed,
-						.Diagnostic = (Result ? std::string{} : Result.error().Message).empty()
+						.Diagnostic = AssetLoad->GetError().Message.empty()
 							? std::format(
 								"The requested asset '{}' is not an exact DStaticMesh.",
 								Input.AssetPath.ToString())
-							: (Result ? std::string{} : Result.error().Message)};
+							: AssetLoad->GetError().Message};
 				}
 				const DPackage* Package = StaticMesh->GetPackage();
 				if (Package == nullptr)
@@ -326,6 +327,7 @@ namespace Durin::Editor::StaticMesh
 
 			FStaticMeshThumbnailRendererGenerationInput Input;
 			DStaticMesh* StaticMesh = nullptr;
+			FStreamableManager StreamableManager;
 			std::shared_ptr<FStreamableHandle> AssetLoad;
 			uint64 AssetRevision = 0;
 			uint64 PreparedResourceRevision = 0;

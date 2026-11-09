@@ -21,18 +21,18 @@ namespace Durin
 		auto operator=(FPackageLoadTransaction&&) -> FPackageLoadTransaction& = default;
 		FPackageLoadTransaction(const FPackageLoadTransaction&) = delete;
 		auto operator=(const FPackageLoadTransaction&) -> FPackageLoadTransaction& = delete;
-		[[nodiscard]] ENGINE_API auto LoadPackage(const FPackagePath& Path,
+		[[nodiscard]] ENGINE_API auto LoadPackageDetailed(const FPackagePath& Path,
 			FAssetLoadReport* OutReport = nullptr) -> std::expected<DPackage*, FAssetReadError>;
-		[[nodiscard]] ENGINE_API auto LoadObject(const FObjectPath& Path, const DClass* ExpectedClass,
+		[[nodiscard]] ENGINE_API auto LoadObjectDetailed(const FSoftObjectPath& Path, const DClass* ExpectedClass,
 			FAssetLoadReport* OutReport = nullptr) -> std::expected<DObject*, FAssetReadError>;
 
 
 		template<typename T>
-		[[nodiscard]] auto LoadObject(const FObjectPath& Path,
+		[[nodiscard]] auto LoadObjectDetailed(const FSoftObjectPath& Path,
 			FAssetLoadReport* OutReport = nullptr) -> std::expected<T*, FAssetReadError>
 		{
 			static_assert(std::is_base_of_v<DObject, T>);
-			auto Result = LoadObject(Path, T::StaticClass(), OutReport);
+			auto Result = LoadObjectDetailed(Path, T::StaticClass(), OutReport);
 			if (!Result) return std::unexpected(std::move(Result.error()));
 			return static_cast<T*>(*Result);
 		}

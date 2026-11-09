@@ -82,9 +82,9 @@ namespace Durin::Editor::Material
 			if (Payload->DataSize == sizeof(FAssetDragDropPayload))
 			{
 				const auto& Asset = *static_cast<const FAssetDragDropPayload*>(Payload->Data);
-				FObjectPath Path;
+				FSoftObjectPath Path;
 				DTexture2D* Texture = nullptr;
-				if (FObjectPath::TryCreate(Asset.AssetPath.data(), Path) && (Texture = LoadObject<DTexture2D>(Path).value_or(nullptr)))
+				if (FSoftObjectPath::TryCreate(Asset.AssetPath.data(), Path) && (Texture = LoadObjectDetailed<DTexture2D>(Path).value_or(nullptr)))
 				{
 					GraphEditInternals::FGraphEditSession State(Material);
 					{

@@ -243,7 +243,7 @@ namespace Durin
 					std::format("AssetReferencePayloadTruncated: {} has no reference tag.", PropertyPath));
 			if (ReferenceKind == 0) return {};
 			std::string PathString;
-			FObjectPath TargetPath;
+			FSoftObjectPath TargetPath;
 			if (ReferenceKind == 1)
 			{
 				uint64 ObjectId = 0;
@@ -258,11 +258,11 @@ namespace Durin
 				const auto Separator = Relative.find('/');
 				std::ranges::replace(Relative, '/', '.');
 				if (Separator != std::string::npos) Relative[Separator] = ':';
-				if (!FObjectPath::TryCreate(Context.SourcePackage.ToString() + "." + Relative, TargetPath))
+				if (!FSoftObjectPath::TryCreate(Context.SourcePackage.ToString() + "." + Relative, TargetPath))
 					return Error(EAssetReadError::InvalidObjectGraph, "AssetReferenceInternalObject: missing target.");
 			}
 			else if (ReferenceKind != 2 || !Reader.ReadString(PathString, Durin::PackagePrivate::MaximumPackageStringBytes)
-				|| !FObjectPath::TryCreate(PathString, TargetPath))
+				|| !FSoftObjectPath::TryCreate(PathString, TargetPath))
 				return Error(EAssetReadError::InvalidPath, "AssetReferenceInvalidPath: invalid external path.");
 			DClass* ExpectedClass = ObjectProperty->GetReferencedClass();
 			if (!ExpectedClass)
@@ -302,9 +302,9 @@ namespace Durin
 			if (!Reader.ReadString(PathString, Durin::PackagePrivate::MaximumPackageStringBytes) || PathString.empty())
 				return Error(EAssetReadError::CorruptFile,
 					std::format("SoftReferencePayloadPath: {} is truncated or overlong.", PropertyPath));
-			FObjectPath SoftPath;
+			FSoftObjectPath SoftPath;
 			std::string PathError;
-			if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(PathString, SoftPath); !PathValidation)
+			if (const auto PathValidation = FSoftObjectPath::TryCreateWithDiagnostic(PathString, SoftPath); !PathValidation)
 			{
 				PathError = Durin::ToString(PathValidation.error());
 				return Error(EAssetReadError::InvalidPath, std::format(
@@ -732,13 +732,13 @@ namespace Durin
 				return Error(EAssetReadError::CorruptFile,
 					"AssetReferenceFixupTag: unknown soft reference tag.");
 			std::string PathString;
-			FObjectPath Path;
+			FSoftObjectPath Path;
 			std::string PathError;
 			if (!Reader.ReadString(PathString, Durin::PackagePrivate::MaximumPackageStringBytes)
 				|| PathString.empty())
 				return Error(EAssetReadError::CorruptFile,
 					"AssetReferenceFixupPath: soft path is truncated or overlong.");
-			if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(PathString, Path); !PathValidation)
+			if (const auto PathValidation = FSoftObjectPath::TryCreateWithDiagnostic(PathString, Path); !PathValidation)
 			{
 				PathError = Durin::ToString(PathValidation.error());
 				return Error(EAssetReadError::InvalidPath, std::move(PathError));

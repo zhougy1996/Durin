@@ -17,15 +17,15 @@ namespace
 	int32 GFunctionInvocations = 0;
 	DClass* GRecursiveFunctionClass = nullptr;
 	int32 GParameterConstructed = 0, GParameterDestroyed = 0;
-	auto FunctionSoftPath(const char* Name) -> FObjectPath
+	auto FunctionSoftPath(const char* Name) -> FSoftObjectPath
 	{
 		static const bool Mounted = [] {
 			Testing::RegisterMountPointForTests("/FunctionRefs/", (Testing::GetTestWorkDirectory() / "FunctionRefs").generic_string() + "/");
 			return true;
 		}();
 		(void)Mounted;
-		FObjectPath Path;
-		require(FObjectPath::TryCreate(std::string("/FunctionRefs/") + Name + "." + Name, Path));
+		FSoftObjectPath Path;
+		require(FSoftObjectPath::TryCreate(std::string("/FunctionRefs/") + Name + "." + Name, Path));
 		return Path;
 	}
 	struct FObservedParameters

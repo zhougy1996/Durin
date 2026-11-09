@@ -32,8 +32,8 @@ namespace Durin
 	auto FAssetEditorToolkit::OpenRelatedAsset(std::string_view Path, std::string_view ClassName) -> bool
 	{
 		const auto* Session = Owner.Get();
-		FObjectPath AssetPath;
-		if (!Session || !IsSessionActive() || !FObjectPath::TryCreate(Path, AssetPath)) return false;
+		FSoftObjectPath AssetPath;
+		if (!Session || !IsSessionActive() || !FSoftObjectPath::TryCreate(Path, AssetPath)) return false;
 		auto* Service = Session->GetAssetEditorSubsystem();
 		if (!Service) return false;
 		const auto Result = Service->OpenAssets({.AssetEditors = Service,
@@ -135,8 +135,8 @@ namespace Durin
 		std::vector<FStrongObjectPtr> InitialRoots;
 		for (auto* Asset : Args.Assets)
 		{
-			FObjectPath Path;
-			if (!IsValid(Asset) || Asset->IsTemplateObject() || !FObjectPath::TryCreate(Asset->GetObjectPath(), Path)) return false;
+			FSoftObjectPath Path;
+			if (!IsValid(Asset) || Asset->IsTemplateObject() || !FSoftObjectPath::TryCreate(Asset->GetObjectPath(), Path)) return false;
 			InitialRoots.emplace_back(Asset);
 		}
 		static uint64 NextWindowId = 1;
@@ -216,7 +216,7 @@ namespace Durin
 				FAssetOpenTarget Target;
 				for (auto* Asset : GetObjectsToEdit())
 					if (Asset->GetObjectPath() == Document.ResourceId)
-					{ FObjectPath::TryCreate(Asset->GetObjectPath(), Target.AssetPath); Target.AssetClassName = Asset->GetClass()->GetQualifiedName().ToString(); break; }
+					{ FSoftObjectPath::TryCreate(Asset->GetObjectPath(), Target.AssetPath); Target.AssetClassName = Asset->GetClass()->GetQualifiedName().ToString(); break; }
 				if (auto* Service = AssetEditors.Get()) Service->PublishEvent({.Type = EAssetEditorEvent::Focused,
 					.Target = std::move(Target), .Session = FObjectKey(this), .Method = OpenMethod});
 				return;

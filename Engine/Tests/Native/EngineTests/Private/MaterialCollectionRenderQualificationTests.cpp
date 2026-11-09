@@ -41,7 +41,7 @@ TEST(FMaterialCollectionRenderQualificationTests, RecordsStableWorldRenderViewBa
 	if (!FAssetCompilingManager::Get().IsAcceptingRequests())
 		ASSERT_TRUE(InitializeAssetCompilingManager());
 	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints());
-	ASSERT_TRUE(InitializeAssetManager());
+	ASSERT_TRUE(InitializeAssetRuntime());
 	ASSERT_TRUE(RefreshAssetRegistry());
 	FModuleManager::Get().LoadModule("RenderCore");
 	RHIInit(GetVulkanEngineTestInitializationContext());

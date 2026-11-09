@@ -28,9 +28,9 @@ namespace Durin::Testing
 		auto GetService() const -> DAssetEditorSubsystem* { return Service.Get(); }
 		auto Open(std::string_view Path, std::string_view Class, EAssetOpenMethod Method = EAssetOpenMethod::Edit) -> bool
 		{
-			FObjectPath AssetPath;
+			FSoftObjectPath AssetPath;
 			auto* Owner = Service.Get();
-			return Owner && FObjectPath::TryCreate(Path, AssetPath) && Owner->OpenAssets({.AssetEditors = Owner,
+			return Owner && FSoftObjectPath::TryCreate(Path, AssetPath) && Owner->OpenAssets({.AssetEditors = Owner,
 				.Assets = {{AssetPath, std::string(Class)}}, .OpenMethod = Method}).IsAccepted();
 		}
 		auto Shutdown() -> void

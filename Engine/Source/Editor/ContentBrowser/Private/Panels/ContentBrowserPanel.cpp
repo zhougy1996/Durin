@@ -301,8 +301,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 		if (Item.Kind == EContentBrowserItemKind::Redirector)
 		{
-			FObjectPath Path;
-			if (!FObjectPath::TryCreate(Item.VirtualPath, Path))
+			FSoftObjectPath Path;
+			if (!FSoftObjectPath::TryCreate(Item.VirtualPath, Path))
 			{
 				SetError("The redirector path is invalid.");
 				return;

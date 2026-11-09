@@ -1512,7 +1512,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		FWeakNested WeakNested;
 		std::vector<FWeakNested> WeakNestedArray;
 		Durin::DObject* NativeReference = nullptr;
-		Durin::FObjectPath NativeSoftReference;
+		Durin::FSoftObjectPath NativeSoftReference;
 		int32 NativeScalar = 0;
 		FNativeStruct NativeStruct;
 		std::vector<int32> NativeValues;
@@ -5188,17 +5188,17 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_FALSE(FTopLevelAssetPath::TryCreate("/CoreTests/BooleanPath", Asset));
 		EXPECT_EQ(Asset, OriginalAsset);
 
-		FObjectPath Object;
-		static_assert(std::is_same_v<decltype(FObjectPath::TryCreate("", Object)), bool>);
-		ASSERT_TRUE(FObjectPath::TryCreate("/CoreTests/BooleanPath.Asset:Child", Object));
+		FSoftObjectPath Object;
+		static_assert(std::is_same_v<decltype(FSoftObjectPath::TryCreate("", Object)), bool>);
+		ASSERT_TRUE(FSoftObjectPath::TryCreate("/CoreTests/BooleanPath.Asset:Child", Object));
 		const auto OriginalObject = Object;
-		EXPECT_FALSE(FObjectPath::TryCreate("/CoreTests/BooleanPath.Asset:Child..Leaf", Object));
+		EXPECT_FALSE(FSoftObjectPath::TryCreate("/CoreTests/BooleanPath.Asset:Child..Leaf", Object));
 		EXPECT_EQ(Object, OriginalObject);
 		const std::vector<std::string> InvalidNames{"Bad.Name"};
-		EXPECT_FALSE(FObjectPath::TryCreate(Asset, InvalidNames, Object));
+		EXPECT_FALSE(FSoftObjectPath::TryCreate(Asset, InvalidNames, Object));
 		EXPECT_EQ(Object, OriginalObject);
-		FObjectPath FromView;
-		ASSERT_TRUE(FObjectPath::TryCreate(Asset, OriginalObject.GetSubobjectNames(), FromView));
+		FSoftObjectPath FromView;
+		ASSERT_TRUE(FSoftObjectPath::TryCreate(Asset, OriginalObject.GetSubobjectNames(), FromView));
 		EXPECT_EQ(FromView, OriginalObject);
 	}
 
@@ -5234,14 +5234,14 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(TooLong.error().MaximumBytes, FName::MaxSize - 1);
 		EXPECT_EQ(Asset, OriginalAsset);
 
-		FObjectPath Object;
-		ASSERT_TRUE(FObjectPath::TryCreate("/CoreTests/PathDiagnostic.PathDiagnostic:Child", Object));
+		FSoftObjectPath Object;
+		ASSERT_TRUE(FSoftObjectPath::TryCreate("/CoreTests/PathDiagnostic.PathDiagnostic:Child", Object));
 		const auto OriginalObject = Object;
-		const auto EmptyChild = FObjectPath::TryCreateWithDiagnostic("/CoreTests/PathDiagnostic.PathDiagnostic:Child..Leaf", Object);
+		const auto EmptyChild = FSoftObjectPath::TryCreateWithDiagnostic("/CoreTests/PathDiagnostic.PathDiagnostic:Child..Leaf", Object);
 		EXPECT_EQ(EmptyChild.error().Code, EObjectPathError::EmptySubobject);
 		EXPECT_EQ(Object, OriginalObject);
 		std::string InvalidPath = Asset.ToString() + ":Child.Bad/Leaf";
-		const auto InvalidChild = FObjectPath::TryCreateWithDiagnostic(InvalidPath, Object);
+		const auto InvalidChild = FSoftObjectPath::TryCreateWithDiagnostic(InvalidPath, Object);
 		EXPECT_EQ(InvalidChild.error().Code, EObjectPathError::ReservedSeparator);
 		EXPECT_EQ(InvalidChild.error().ComponentIndex, 1u);
 		EXPECT_EQ(InvalidChild.error().Subject, "Bad/Leaf");
@@ -5251,7 +5251,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		const auto InvalidUtf8 = FTopLevelAssetPath::TryCreateWithDiagnostic(Package, std::string(1, char(0xff)), Asset);
 		EXPECT_EQ(InvalidUtf8.error().Code, EObjectPathError::InvalidUtf8);
 		EXPECT_EQ(Asset, OriginalAsset);
-		ASSERT_TRUE(FObjectPath::TryCreate(Asset, OriginalObject.GetSubobjectNames(), Object));
+		ASSERT_TRUE(FSoftObjectPath::TryCreate(Asset, OriginalObject.GetSubobjectNames(), Object));
 		EXPECT_EQ(Object, OriginalObject);
 	}
 
@@ -5270,8 +5270,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EnsurePackageTestMount();
 		FPackagePath Path;
 		ASSERT_TRUE(FPackagePath::TryCreate("/CoreTests/SoftObjectValue", Path));
-		FObjectPath SoftPath;
-		ASSERT_TRUE(FObjectPath::TryCreate("/CoreTests/SoftObjectValue.SoftObjectValue", SoftPath));
+		FSoftObjectPath SoftPath;
+		ASSERT_TRUE(FSoftObjectPath::TryCreate("/CoreTests/SoftObjectValue.SoftObjectValue", SoftPath));
 		FSoftObjectPtr Reference(SoftPath);
 		EXPECT_FALSE(Reference.IsNull());
 		EXPECT_TRUE(Reference.IsPending());
@@ -5321,8 +5321,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		using namespace Durin;
 		Durin::Testing::InitializeDObjectSystemForTests();
 		EnsurePackageTestMount();
-		FObjectPath Original;
-		ASSERT_TRUE(FObjectPath::TryCreate("/CoreTests/SoftArchive.Asset", Original));
+		FSoftObjectPath Original;
+		ASSERT_TRUE(FSoftObjectPath::TryCreate("/CoreTests/SoftArchive.Asset", Original));
 		FByteBuffer Bytes;
 		FObjectMemoryWriter Writer(Bytes);
 		uint8 Kind = 1;
@@ -5333,7 +5333,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		ASSERT_FALSE(Writer.IsError());
 
 		FObjectMemoryReader Reader(Bytes);
-		FObjectPath Value = Original;
+		FSoftObjectPath Value = Original;
 		Reader.SerializeSoftObjectValue(Value);
 		ASSERT_TRUE(Reader.IsError());
 		EXPECT_EQ(Reader.GetFailure()->Code, EArchiveFailureCode::InvalidPath);
@@ -5359,8 +5359,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EnsurePackageTestMount();
 		auto* Property = GetSoftObjectPropertyOwner()->FindPropertyByName("Direct", false);
 		ASSERT_NE(Property, nullptr);
-		FObjectPath Original;
-		ASSERT_TRUE(FObjectPath::TryCreate("/CoreTests/SoftSnapshot.Asset", Original));
+		FSoftObjectPath Original;
+		ASSERT_TRUE(FSoftObjectPath::TryCreate("/CoreTests/SoftSnapshot.Asset", Original));
 		FSoftObjectPropertyOwnerForTest Owner;
 		Owner.Direct = Original;
 		std::expected<void, FPropertySnapshotError> Result;
@@ -5386,9 +5386,9 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::Testing::InitializeDObjectSystemForTests();
 		EnsurePackageTestMount();
 		auto* Owner = NewObject<DLifecycleReferenceOwnerForTest>(nullptr, "SoftGraphFailure");
-		FObjectPath Path;
+		FSoftObjectPath Path;
 		const std::string PathText = "/CoreTests/SoftGraph.Asset";
-		ASSERT_TRUE(FObjectPath::TryCreate(PathText, Path));
+		ASSERT_TRUE(FSoftObjectPath::TryCreate(PathText, Path));
 		Owner->NativeSoftReference = Path;
 		FByteBuffer Bytes;
 		ASSERT_TRUE(SaveObjectGraphToMemory(Owner, Bytes));
@@ -5429,7 +5429,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 		Durin::FSoftObjectPtr Reference;
 		ASSERT_TRUE(Reference.TrySetObject(Asset));
-		const Durin::FObjectPath OriginalPath = Reference.ToSoftObjectPath();
+		const Durin::FSoftObjectPath OriginalPath = Reference.ToSoftObjectPath();
 		const auto PackageFailure = Reference.TrySetObject(Package);
 		EXPECT_EQ(PackageFailure.error().Code, Durin::ESoftObjectError::PackageObject);
 		EXPECT_TRUE(Reference.TrySetObject(Inner));
@@ -5499,8 +5499,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 		Durin::FPackagePath AssetPath;
 		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/CoreTests/SoftObjectProperty", AssetPath));
-		Durin::FObjectPath SoftPath;
-		ASSERT_TRUE(Durin::FObjectPath::TryCreate(
+		Durin::FSoftObjectPath SoftPath;
+		ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate(
 			"/CoreTests/SoftObjectProperty.SoftObjectProperty", SoftPath));
 		FSoftObjectPropertyOwnerForTest Owner;
 		Owner.Direct = SoftPath;
@@ -5536,8 +5536,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(DetachedValue->ToSoftObjectPath(), SoftPath);
 		Durin::FPackagePath ReplacementPath;
 		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/CoreTests/SoftObjectPropertyReplacement", ReplacementPath));
-		Durin::FObjectPath ReplacementObjectPath;
-		ASSERT_TRUE(Durin::FObjectPath::TryCreate(
+		Durin::FSoftObjectPath ReplacementObjectPath;
+		ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate(
 			"/CoreTests/SoftObjectPropertyReplacement.SoftObjectPropertyReplacement",
 			ReplacementObjectPath));
 		Durin::TSoftObjectPtr<Durin::DObject> Replacement(ReplacementObjectPath);

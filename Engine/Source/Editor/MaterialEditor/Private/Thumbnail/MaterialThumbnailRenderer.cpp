@@ -1,3 +1,4 @@
+#include "Engine/StreamableManager.h"
 #include "Thumbnail/MaterialThumbnailRenderer.h"
 #include "RenderResource.h"
 #include "DObject/WeakObjectPtr.h"
@@ -176,24 +177,24 @@ namespace Durin::Editor::Material
 			auto Load() -> FThumbnailRendererSessionUpdate override
 			{
 				ResetPreview();
-				MaterialLoad = RequestAsyncLoad(AssetPath, {}, DMaterialInterface::StaticClass());
+				MaterialLoad = StreamableManager.RequestAsyncLoad(AssetPath, {}, DMaterialInterface::StaticClass());
 				return {.State = EThumbnailRendererSessionState::WaitingForResources};
 			}
 
 			auto FinishLoad() -> FThumbnailRendererSessionUpdate
 			{
 				std::string SphereError;
-				const auto& Result = MaterialLoad->GetResult();
-				Material = Result ? Cast<DMaterialInterface>(MaterialLoad->GetLoadedObject()) : nullptr;
+				const bool Result = !MaterialLoad->HasError();
+				Material = Result ? Cast<DMaterialInterface>(MaterialLoad->GetLoadedAsset()) : nullptr;
 				if (!Result || Material == nullptr
 					|| Material->GetClass()->GetQualifiedName().ToString() != AssetClassName)
 				{
 					Material = nullptr;
 					return {
 						.State = EThumbnailRendererSessionState::Failed,
-						.Diagnostic = (Result ? std::string{} : Result.error().Message).empty()
+						.Diagnostic = MaterialLoad->GetError().Message.empty()
 							? "The requested asset is not an exact material class."
-							: (Result ? std::string{} : Result.error().Message)};
+							: MaterialLoad->GetError().Message};
 				}
 				if (auto* Instance = Cast<DMaterialInstance>(Material);
 					Instance != nullptr && Instance->GetParent() == nullptr)
@@ -204,17 +205,17 @@ namespace Durin::Editor::Material
 				}
 				if (!SphereLoad)
 				{
-					FObjectPath SpherePath;
-					if (!FObjectPath::TryCreate(
+					FSoftObjectPath SpherePath;
+					if (!FSoftObjectPath::TryCreate(
 						FThumbnailVisualContract::SphereAssetPath, SpherePath))
 						return {.Diagnostic = "The thumbnail sphere path is invalid."};
-					SphereLoad = RequestAsyncLoad(SpherePath, {}, DStaticMesh::StaticClass());
+					SphereLoad = StreamableManager.RequestAsyncLoad(SpherePath, {}, DStaticMesh::StaticClass());
 				}
 				if (!SphereLoad->IsComplete())
 					return {.State = EThumbnailRendererSessionState::WaitingForResources};
-				SphereError = (SphereLoad->GetResult() ? std::string{} : SphereLoad->GetResult().error().Message);
-				if (!SphereLoad->GetResult()
-					|| (Sphere = Cast<DStaticMesh>(SphereLoad->GetLoadedObject())) == nullptr)
+				SphereError = (SphereLoad->GetError().Message);
+				if (SphereLoad->HasError()
+					|| (Sphere = Cast<DStaticMesh>(SphereLoad->GetLoadedAsset())) == nullptr)
 				{
 					return {
 						.State = EThumbnailRendererSessionState::Failed,
@@ -435,6 +436,7 @@ namespace Durin::Editor::Material
 			bool bOwnsActor = false;
 			DStaticMeshComponent* Component = nullptr;
 			DStaticMesh* Sphere = nullptr;
+			FStreamableManager StreamableManager;
 			std::shared_ptr<FStreamableHandle> MaterialLoad;
 			std::shared_ptr<FStreamableHandle> SphereLoad;
 			bool bAssetsLoaded = false;

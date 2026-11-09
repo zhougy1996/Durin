@@ -526,7 +526,7 @@ namespace Durin
 	{
 		return PrepareMapChange(std::move(Request)) && CommitMapChange();
 	}
-	auto DEngine::OpenLevel(const FObjectPath& Path) -> bool
+	auto DEngine::OpenLevel(const FSoftObjectPath& Path) -> bool
 	{
 		return OpenLevel(FMapChangeRequest{.Path = Path});
 	}

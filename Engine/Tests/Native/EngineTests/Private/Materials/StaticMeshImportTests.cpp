@@ -106,7 +106,7 @@ TEST(FStaticMeshImportTests, StaticMeshImportSettingsPersistAcrossSourceRebuild)
 
 	Durin::DStaticMesh* Loaded = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObject<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
+		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
 		Loaded = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}

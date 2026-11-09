@@ -153,7 +153,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotDefinitionsRoundTripWithDef
 
 	Durin::DStaticMesh* Loaded = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObject<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath));
+		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath));
 		Loaded = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
@@ -351,7 +351,7 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 	ASSERT_TRUE(Durin::UnloadPackage(MeshPath));
 	Component = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObject<Durin::DStaticMeshComponent>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ComponentPath));
+		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DStaticMeshComponent>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ComponentPath));
 		Component = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
@@ -460,7 +460,7 @@ namespace
 
 		TComponent* Loaded = nullptr;
 		{
-			auto LoadedValue = Durin::LoadObject<TComponent>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ComponentPath));
+			auto LoadedValue = Durin::LoadObjectDetailed<TComponent>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ComponentPath));
 			Loaded = LoadedValue.value_or(nullptr);
 			ASSERT_TRUE(LoadedValue);
 		}

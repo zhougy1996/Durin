@@ -69,8 +69,8 @@ protected:
 		Service = Host->GetEditorSubsystem<Durin::DAssetEditorSubsystem>();
 		Durin::FPackagePath Path;
 		ASSERT_TRUE(Durin::FPackagePath::TryCreate(Durin::Tests::FAssetThumbnailFixtureSet::ParentTexturePath, Path));
-		Durin::FObjectPath ObjectPath;
-		ASSERT_TRUE(Durin::FObjectPath::TryCreate(MakeAssetPath(Path), std::span<const std::string>{}, ObjectPath));
+		Durin::FSoftObjectPath ObjectPath;
+		ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate(MakeAssetPath(Path), std::span<const std::string>{}, ObjectPath));
 		Args.AssetEditors = Service;
 		Args.Assets = {{ObjectPath, Durin::DTexture2D::StaticClass()->GetQualifiedName().ToString()}};
 	}
@@ -162,8 +162,8 @@ TEST_F(FTextureAssetSessionTests, RelocationPreservesOpenTextureRoutingAndSave)
 	ASSERT_NE(nullptr, Duplicate.Asset);
 	(void)Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Duplicate.Asset);
 	ASSERT_TRUE(Durin::Cast<Durin::DTexture2D>(Duplicate.Asset)->IsAsyncCacheComplete());
-	Durin::FObjectPath DuplicatedPath;
-	ASSERT_TRUE(Durin::FObjectPath::TryCreate(Duplicate.Asset->GetObjectPath(), DuplicatedPath));
+	Durin::FSoftObjectPath DuplicatedPath;
+	ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate(Duplicate.Asset->GetObjectPath(), DuplicatedPath));
 	Args.Assets.front().AssetPath = DuplicatedPath;
 	ASSERT_TRUE(Service->OpenAssets(Args).IsAccepted());
 	const auto Session = Service->GetOwnedAssetEditors().front();

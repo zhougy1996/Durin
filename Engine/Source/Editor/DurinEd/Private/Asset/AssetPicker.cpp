@@ -400,7 +400,7 @@ namespace Durin::Editor::AssetPicker
 						continue;
 					}
 					DObject* LoadedAsset = nullptr;
-					const auto LoadResult = LoadObject<DObject>(Path);
+					const auto LoadResult = LoadObjectDetailed<DObject>(Path);
 					LoadedAsset = LoadResult.value_or(nullptr);
 					if (!LoadResult || !LoadedAsset)
 					{
@@ -465,7 +465,7 @@ namespace Durin::Editor::AssetPicker
 					else
 					{
 						DObject* LoadedAsset = nullptr;
-						const auto LoadResult = LoadObject<DObject>(DroppedPath);
+						const auto LoadResult = LoadObjectDetailed<DObject>(DroppedPath);
 						LoadedAsset = LoadResult.value_or(nullptr);
 						if (!LoadResult || !LoadedAsset)
 							PickerResult.Error = LoadResult

@@ -32,7 +32,7 @@ namespace Durin
 		static auto DescribeException() -> std::string;
 
 		DEngine& Host;
-		FObjectPath Path;
+		FSoftObjectPath Path;
 		uint64 Id = 0;
 		EMapChangePhase Phase = EMapChangePhase::LoadingAssets;
 		std::chrono::steady_clock::time_point Started = std::chrono::steady_clock::now(), PhaseStarted = Started;

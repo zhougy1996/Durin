@@ -125,14 +125,14 @@ namespace Durin::Editor::Material
 			}
 
 			PreviewFeatureLevel = Host->GetFeatureLevel();
-			FObjectPath SpherePath;
-			FObjectPath BoxPath;
-			if (const auto Validation = FObjectPath::TryCreateWithDiagnostic(FPreviewMeshResources::SphereAssetPath, SpherePath); !Validation)
+			FSoftObjectPath SpherePath;
+			FSoftObjectPath BoxPath;
+			if (const auto Validation = FSoftObjectPath::TryCreateWithDiagnostic(FPreviewMeshResources::SphereAssetPath, SpherePath); !Validation)
 			{
 				Error = ToString(Validation.error());
 				return;
 			}
-			if (const auto Validation = FObjectPath::TryCreateWithDiagnostic(FPreviewMeshResources::BoxAssetPath, BoxPath); !Validation)
+			if (const auto Validation = FSoftObjectPath::TryCreateWithDiagnostic(FPreviewMeshResources::BoxAssetPath, BoxPath); !Validation)
 			{
 				Error = ToString(Validation.error());
 				return;

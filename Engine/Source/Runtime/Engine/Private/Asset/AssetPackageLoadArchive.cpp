@@ -200,14 +200,14 @@ namespace Durin::AssetPrivate
 				Value = Loaded;
 			}
 
-			auto SerializeSoftObjectValue(FObjectPath& Value) -> void override
+			auto SerializeSoftObjectValue(FSoftObjectPath& Value) -> void override
 			{
 				if (IsError() || !IsCurrentFieldAvailable()) return;
 				auto& Scope = Scopes.back();
 				if (Scope.Type->Kind != K::SoftReference || !TakeAtomic(Scope)) { Invalid("Expected one soft reference."); return; }
 				if (Scope.Value->Text.empty()) { Value = {}; return; }
-				FObjectPath Loaded;
-				if (auto Result = FObjectPath::TryCreateWithDiagnostic(Scope.Value->Text, Loaded); !Result)
+				FSoftObjectPath Loaded;
+				if (auto Result = FSoftObjectPath::TryCreateWithDiagnostic(Scope.Value->Text, Loaded); !Result)
 				{ FailLoad(EArchiveFailureCode::InvalidPath, {EAssetReadError::InvalidPath, ToString(Result.error())}); return; }
 				Value = std::move(Loaded);
 			}
@@ -581,9 +581,9 @@ namespace Durin::AssetPrivate
 			else if (ReferenceKind == 2)
 			{
 				std::string PathString;
-				FObjectPath Path;
-				if (!Reader.ReadString(PathString) || !FObjectPath::TryCreate(PathString, Path)) return Error(EAssetReadError::InvalidPath, "Invalid external object reference.");
-				auto Result = FAssetRuntimeState::Get().GetLoadService().LoadObject(
+				FSoftObjectPath Path;
+				if (!Reader.ReadString(PathString) || !FSoftObjectPath::TryCreate(PathString, Path)) return Error(EAssetReadError::InvalidPath, "Invalid external object reference.");
+				auto Result = FAssetRuntimeState::Get().GetLoadService().LoadObjectDetailed(
 					Path, ObjectProperty->GetReferencedClass());
 				if (!Result) return Error(EAssetReadError::MissingDependency, Result.error().Message);
 				Value = *Result;
@@ -613,8 +613,8 @@ namespace Durin::AssetPrivate
 			std::string PathString;
 			if (!Reader.ReadString(PathString, Durin::PackagePrivate::MaximumPackageStringBytes) || PathString.empty())
 				return Error(EAssetReadError::CorruptFile, "Truncated or overlong soft object path.");
-			FObjectPath Path;
-			if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(PathString, Path); !PathValidation)
+			FSoftObjectPath Path;
+			if (const auto PathValidation = FSoftObjectPath::TryCreateWithDiagnostic(PathString, Path); !PathValidation)
 			{
 				return Error(EAssetReadError::InvalidPath, ToString(PathValidation.error()));
 			}

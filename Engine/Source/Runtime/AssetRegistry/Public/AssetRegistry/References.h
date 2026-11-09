@@ -88,7 +88,7 @@ namespace Durin
 			const FAssetPathQueryOptions& Options = {}) const
 			-> FPackagePathResolveResult;
 		ASSETREGISTRY_API auto ResolveAssetObjectPath(
-			const FObjectPath& Path, const FAssetPathQueryOptions& Options = {}) const
+			const FSoftObjectPath& Path, const FAssetPathQueryOptions& Options = {}) const
 			-> FObjectPathResolveResult;
 	};
 

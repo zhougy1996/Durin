@@ -11,12 +11,12 @@
 namespace Durin::Testing
 {
 	inline auto MakeTopLevelAssetObjectPathForTests(
-		const FPackagePath& PackagePath, std::string_view AssetName) -> FObjectPath
+		const FPackagePath& PackagePath, std::string_view AssetName) -> FSoftObjectPath
 	{
 		FTopLevelAssetPath AssetPath;
 		require(FTopLevelAssetPath::TryCreate(PackagePath, AssetName, AssetPath));
-		FObjectPath ObjectPath;
-		require(FObjectPath::TryCreate(
+		FSoftObjectPath ObjectPath;
+		require(FSoftObjectPath::TryCreate(
 			AssetPath, std::span<const std::string>{}, ObjectPath));
 		return ObjectPath;
 	}
@@ -33,7 +33,7 @@ namespace Durin::Testing
 	// Builds the exact top-level object identity for fixtures that intentionally
 	// preserve the former package-leaf asset naming convention.
 	inline auto MakePackageLeafAssetObjectPathForTests(
-		const FPackagePath& PackagePath) -> FObjectPath
+		const FPackagePath& PackagePath) -> FSoftObjectPath
 	{
 		return MakeTopLevelAssetObjectPathForTests(
 			PackagePath, PackagePath.GetPackageName());

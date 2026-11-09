@@ -163,7 +163,7 @@ TEST(RoadSceneIntegration, AssetRoundTripPreservesIdsAndRejectedMutationDirtySta
 	ASSERT_TRUE(UnloadPackage(Path));
 	DObject* Loaded = nullptr;
 	{
-		auto LoadedValue = LoadObject<DObject>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		auto LoadedValue = LoadObjectDetailed<DObject>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
 		Loaded = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
@@ -238,10 +238,10 @@ TEST(RoadSceneIntegration, CheckedInRoadLevelLoadsAndSurvivesGC)
 		for (const auto& Object : Info.Objects)
 			EXPECT_NE(FindClassByQualifiedName(FName(Object.ClassName)), nullptr) << Object.ClassName;
 	}
-	FObjectPath ObjectPath;
-	ASSERT_TRUE(FObjectPath::TryCreate("/Game/Levels/L_RoadNet.NewLevel", ObjectPath));
+	FSoftObjectPath ObjectPath;
+	ASSERT_TRUE(FSoftObjectPath::TryCreate("/Game/Levels/L_RoadNet.NewLevel", ObjectPath));
 	DObject* Loaded = nullptr;
-	const auto Result = LoadObject<DObject>(ObjectPath);
+	const auto Result = LoadObjectDetailed<DObject>(ObjectPath);
 	Loaded = Result.value_or(nullptr);
 	ASSERT_TRUE(Result) << (Result ? std::string{} : Result.error().Message);
 	auto* Level = Cast<DLevel>(Loaded);

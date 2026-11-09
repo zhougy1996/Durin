@@ -243,7 +243,7 @@ namespace
 			MakeAssetData(SourcePath, {TargetPath}, {SoftPath}));
 		FPackageData Redirect = MakeAssetData(RedirectPath, {TargetPath});
 		Redirect.TopLevelAssets.front().AssetClassName = "Durin::DAssetRedirector";
-		ASSERT_TRUE(FObjectPath::TryCreate(TargetPath.ToString() + ".Asset",
+		ASSERT_TRUE(FSoftObjectPath::TryCreate(TargetPath.ToString() + ".Asset",
 			Redirect.TopLevelAssets.front().RedirectDestination));
 		Publication.Assets.insert_or_assign(RedirectPath, std::move(Redirect));
 		RebuildPackageProjection(Publication);

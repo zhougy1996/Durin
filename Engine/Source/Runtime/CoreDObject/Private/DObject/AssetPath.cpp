@@ -124,7 +124,7 @@ namespace Durin
 	auto FSubobjectPathView::size() const -> size_t { return Path.empty() ? 0 : 1 + std::ranges::count(Path, '.'); }
 	auto FSubobjectPathView::operator[](size_t Index) const -> std::string_view { auto It = begin(); while (Index-- > 0 && It != end()) ++It; return It == end() ? std::string_view{} : *It; }
 
-	auto FObjectPath::TryCreateWithDiagnostic(std::string_view InPath, FObjectPath& OutPath) -> std::expected<void, FObjectPathError>
+	auto FSoftObjectPath::TryCreateWithDiagnostic(std::string_view InPath, FSoftObjectPath& OutPath) -> std::expected<void, FObjectPathError>
 	{
 		if (InPath.size() > MaximumObjectPathBytes) return FailPath(EObjectPathError::PathTooLong, EObjectPathPart::Object, InPath, MaximumObjectPathBytes);
 		const size_t Colon = InPath.find(':'); if (Colon != std::string_view::npos && InPath.find(':', Colon + 1) != std::string_view::npos) return FailPath(EObjectPathError::MultipleSubobjectSeparators, EObjectPathPart::Object, InPath);
@@ -136,16 +136,16 @@ namespace Durin
 			for (size_t Start = 0; Start < View.size();) { const size_t End = View.find('.', Start); const auto Name = View.substr(Start, End == std::string_view::npos ? View.size() - Start : End - Start); if (auto Result = ValidateComponent(Name, EObjectPathPart::Subobject, MaximumObjectPathComponentBytes, Index++); !Result) return Result; Start = End == std::string_view::npos ? View.size() : End + 1; }
 			Suffix = View;
 		}
-		FObjectPath Candidate; Candidate.AssetPath = std::move(Asset); Candidate.SubobjectPath = std::move(Suffix); OutPath = std::move(Candidate); return {};
+		FSoftObjectPath Candidate; Candidate.AssetPath = std::move(Asset); Candidate.SubobjectPath = std::move(Suffix); OutPath = std::move(Candidate); return {};
 	}
-	auto FObjectPath::TryCreate(const FTopLevelAssetPath& InAssetPath, std::span<const std::string> Names, FObjectPath& OutPath) -> bool
+	auto FSoftObjectPath::TryCreate(const FTopLevelAssetPath& InAssetPath, std::span<const std::string> Names, FSoftObjectPath& OutPath) -> bool
 	{
 		if (!InAssetPath.IsValid()) return false; std::string Suffix; size_t Index = 0;
 		for (const std::string& Name : Names) { if (auto Result = ValidateComponent(Name, EObjectPathPart::Subobject, MaximumObjectPathComponentBytes, Index++); !Result) return false; if (!Suffix.empty()) Suffix.push_back('.'); Suffix += Name; }
 		if (InAssetPath.ToString().size() + (Suffix.empty() ? 0 : 1 + Suffix.size()) > MaximumObjectPathBytes) return false;
-		FObjectPath Candidate; Candidate.AssetPath = InAssetPath; Candidate.SubobjectPath = std::move(Suffix); OutPath = std::move(Candidate); return true;
+		FSoftObjectPath Candidate; Candidate.AssetPath = InAssetPath; Candidate.SubobjectPath = std::move(Suffix); OutPath = std::move(Candidate); return true;
 	}
-	auto FObjectPath::TryCreate(const FTopLevelAssetPath& InAssetPath, FSubobjectPathView Names, FObjectPath& OutPath) -> bool
+	auto FSoftObjectPath::TryCreate(const FTopLevelAssetPath& InAssetPath, FSubobjectPathView Names, FSoftObjectPath& OutPath) -> bool
 	{
 		if (!InAssetPath.IsValid()) return false;
 		std::string Suffix; size_t Index = 0;
@@ -159,14 +159,14 @@ namespace Durin
 			+ 1 + InAssetPath.GetAssetName().size();
 		if (AssetPathBytes + (Suffix.empty() ? 0 : 1 + Suffix.size()) > MaximumObjectPathBytes)
 			return false;
-		FObjectPath Candidate;
+		FSoftObjectPath Candidate;
 		Candidate.AssetPath = InAssetPath;
 		Candidate.SubobjectPath = std::move(Suffix);
 		OutPath = std::move(Candidate);
 		return true;
 	}
-	auto FObjectPath::AppendTo(std::string& Out) const -> void { if (!IsValid()) return; AssetPath.AppendTo(Out); if (!SubobjectPath.empty()) { Out.push_back(':'); Out += SubobjectPath; } }
-	auto FObjectPath::ToString() const -> std::string
+	auto FSoftObjectPath::AppendTo(std::string& Out) const -> void { if (!IsValid()) return; AssetPath.AppendTo(Out); if (!SubobjectPath.empty()) { Out.push_back(':'); Out += SubobjectPath; } }
+	auto FSoftObjectPath::ToString() const -> std::string
 	{
 		std::string Result;
 		if (IsValid())
@@ -178,8 +178,8 @@ namespace Durin
 		}
 		return Result;
 	}
-	auto FObjectPath::operator==(const FObjectPath& Other) const -> bool { return AssetPath == Other.AssetPath && CompareFolded(SubobjectPath, Other.SubobjectPath) == 0; }
-	auto FObjectPath::operator<=>(const FObjectPath& Other) const -> std::strong_ordering { if (const auto Order = AssetPath <=> Other.AssetPath; Order != 0) return Order; return CompareFolded(SubobjectPath, Other.SubobjectPath); }
+	auto FSoftObjectPath::operator==(const FSoftObjectPath& Other) const -> bool { return AssetPath == Other.AssetPath && CompareFolded(SubobjectPath, Other.SubobjectPath) == 0; }
+	auto FSoftObjectPath::operator<=>(const FSoftObjectPath& Other) const -> std::strong_ordering { if (const auto Order = AssetPath <=> Other.AssetPath; Order != 0) return Order; return CompareFolded(SubobjectPath, Other.SubobjectPath); }
 	auto ToString(const FObjectPathError& Error) -> std::string
 	{
 		const char* Part = "Object path";

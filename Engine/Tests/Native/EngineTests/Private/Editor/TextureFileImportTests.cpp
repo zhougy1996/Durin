@@ -610,13 +610,13 @@ TEST_F(FTextureImportQueueTests, DirectSaveProjectionFailureCanReconcileAndShutd
 	ASSERT_TRUE(SavePackageDirectAsync(Package));
 	PackageSavePrivate::SetAsyncSaveAdmission(false);
 	EXPECT_FALSE(SavePackageDirectAsync(Package));
-	ShutdownAssetManager();
+	ShutdownAssetRuntime();
 	ASSERT_EQ(Results->size(), 2u);
 	EXPECT_TRUE(Results->back()) << Results->back().Message;
 	EXPECT_FALSE(IsAssetRegistryProjectionFenced(Path));
 	EXPECT_FALSE(Package->IsDirty());
 	EXPECT_FALSE(DPackage::HasAsyncFileWrites());
-	EXPECT_TRUE(InitializeAssetManager());
+	EXPECT_TRUE(InitializeAssetRuntime());
 }
 
 TEST_F(FTextureImportQueueTests, BatchContinuesAfterFailureAndPresentsOnce)

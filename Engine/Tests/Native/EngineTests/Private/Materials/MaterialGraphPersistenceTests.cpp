@@ -33,7 +33,7 @@ TEST(FMaterialGraphPersistenceTests, TextureCoordinatesRetainChannelLinkAndDefau
 	ASSERT_TRUE(UnloadPackage(Path));
 	Material = nullptr;
 	{
-		const auto Loaded = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		const auto Loaded = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
 		ASSERT_TRUE(Loaded);
 		Material = Loaded.value();
 	}
@@ -73,7 +73,7 @@ TEST(FMaterialGraphPersistenceTests, CustomDeclarationsPersistAndDuplicateTheirI
 	ASSERT_TRUE(UnloadPackage(Path));
 	Material = nullptr;
 	{
-		auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		auto LoadedValue = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
 		Material = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
@@ -119,7 +119,7 @@ TEST(FMaterialGraphPersistenceTests, LargeGraphRoundTripsWithoutLoadedOverrideLe
 		const auto DeltaBytes = std::filesystem::file_size(Root / "Base.dasset");
 		EXPECT_LE(DeltaBytes, CompleteBytes);
 		ASSERT_TRUE(UnloadPackage(Path));
-		const auto LoadResult = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		const auto LoadResult = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
 		Material = LoadResult.value_or(nullptr);
 		ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
 		ASSERT_NE(Material, nullptr);
@@ -151,7 +151,7 @@ TEST(FMaterialAssetCreationPersistenceTests, BuiltInMaterialsHaveCompletePersist
 		FPackagePath Path;
 		ASSERT_TRUE(FPackagePath::TryCreate(PathString, Path));
 		DMaterial* Material = nullptr;
-		const auto Loaded = LoadObject<DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		const auto Loaded = LoadObjectDetailed<DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
 		Material = Loaded.value_or(nullptr);
 		ASSERT_TRUE(Loaded) << (Loaded ? std::string{} : Loaded.error().Message);
 		ASSERT_NE(Material, nullptr);

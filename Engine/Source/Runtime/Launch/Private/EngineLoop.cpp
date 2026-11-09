@@ -176,7 +176,7 @@ namespace Durin
 			return false;
 		}
 #endif
-		const auto AssetResult = InitializeAssetManager(std::move(AssetConfiguration));
+		const auto AssetResult = InitializeAssetRuntime(std::move(AssetConfiguration));
 		if (!AssetResult)
 		{
 			DURIN_ERROR("Asset initialization failed: {}", AssetResult.Message);
@@ -449,7 +449,7 @@ namespace Durin
 		StartupWindow.reset();
 		if (IsDObjectInitialized())
 		{
-			ShutdownAssetManager();
+			ShutdownAssetRuntime();
 			ReleaseClassDefaultObjects();
 			ReleaseDStructDefaults();
 			CollectGarbage();

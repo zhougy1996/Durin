@@ -566,7 +566,7 @@ namespace Durin
 					Ar.SetError("Soft object property has no typed value accessor.");
 					break;
 				}
-				FObjectPath Path = Ar.IsSaving() ? Value->ToSoftObjectPath() : FObjectPath();
+				FSoftObjectPath Path = Ar.IsSaving() ? Value->ToSoftObjectPath() : FSoftObjectPath();
 				SerializeArchiveSoftObjectValue(Ar, Path);
 				if (Ar.IsLoading() && !Ar.IsError())
 				{
@@ -1132,7 +1132,7 @@ namespace Durin
 				Context.Discover(Object);
 			}
 
-			auto SerializeSoftObjectValue(FObjectPath&) -> void override {}
+			auto SerializeSoftObjectValue(FSoftObjectPath&) -> void override {}
 			auto SerializeWeakObjectReference(FWeakObjectPtr&) -> void override {}
 
 		private:
@@ -1514,7 +1514,7 @@ namespace Durin
 	{
 		Fail(EArchiveFailureCode::UnsupportedCapability, "This Archive does not support ObjectReferences.");
 	}
-	auto FObjectArchive::SerializeSoftObjectValue(FObjectPath& Value) -> void
+	auto FObjectArchive::SerializeSoftObjectValue(FSoftObjectPath& Value) -> void
 	{
 		if (!IsCurrentFieldAvailable()) return;
 		if (!HasCapability(EArchiveCapability::SoftObjectReferences))
@@ -1543,8 +1543,8 @@ namespace Durin
 		if (IsError()) return;
 		if (IsLoading())
 		{
-			FObjectPath Loaded;
-			if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(Path, Loaded); !PathValidation)
+			FSoftObjectPath Loaded;
+			if (const auto PathValidation = FSoftObjectPath::TryCreateWithDiagnostic(Path, Loaded); !PathValidation)
 			{
 				ValueFailureCause = PathValidation.error();
 				Fail(EArchiveFailureCode::InvalidPath, ToString(PathValidation.error()));
@@ -1669,7 +1669,7 @@ namespace Durin
 		if (auto* ObjectArchive = RequireObjectArchive(Ar)) ObjectArchive->SerializeObjectReference(Value);
 	}
 
-	auto SerializeArchiveSoftObjectValue(FArchive& Ar, FObjectPath& Value) -> void
+	auto SerializeArchiveSoftObjectValue(FArchive& Ar, FSoftObjectPath& Value) -> void
 	{
 		if (auto* ObjectArchive = RequireObjectArchive(Ar)) ObjectArchive->SerializeSoftObjectValue(Value);
 	}

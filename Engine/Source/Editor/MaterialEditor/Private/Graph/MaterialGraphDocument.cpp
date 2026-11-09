@@ -38,7 +38,7 @@ namespace Durin::Editor::Material
 			if (const auto Parsed = FTopLevelAssetPath::TryCreateWithDiagnostic(Name, Path); !Parsed)
 				return {.Message = "The material function path is invalid. " + ToString(Parsed.error())};
 			DMaterialFunctionInterface* Function = nullptr;
-			if (auto Loaded = LoadObject<DMaterialFunctionInterface>(Path); !Loaded)
+			if (auto Loaded = LoadObjectDetailed<DMaterialFunctionInterface>(Path); !Loaded)
 				return {.Message = "Unable to load the material function. " + (Loaded ? std::string{} : Loaded.error().Message)};
 			else { Function = *Loaded; }
 			return {.Function = Function};
@@ -114,7 +114,7 @@ namespace Durin::Editor::Material
 			if (!FTopLevelAssetPath::TryCreateWithDiagnostic(
 				Spec->CollectionPath, Path))
 				return RejectCommand("The collection asset path is invalid.");
-			auto Loaded = LoadObject<DMaterialParameterCollection>(Path);
+			auto Loaded = LoadObjectDetailed<DMaterialParameterCollection>(Path);
 			if (!Loaded) return RejectCommand(
 				"The collection asset could not be loaded.");
 			if (!(*Loaded)->FindDeclaration(Spec->ParameterId))

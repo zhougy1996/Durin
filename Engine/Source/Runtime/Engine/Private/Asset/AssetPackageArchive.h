@@ -24,7 +24,7 @@ namespace Durin::AssetPrivate
 	struct FPackageLoadBindings
 	{
 		FPackageResourceHandle BulkResource;
-		std::function<FAssetReadResult(const FObjectPath&, DObject*&)> ResolveExternalObject;
+		std::function<FAssetReadResult(const FSoftObjectPath&, DObject*&)> ResolveExternalObject;
 		LinkerSchema::FLoadSchemaBindings* SchemaBindings = nullptr;
 	};
 	using FPackageOverrideRestore = std::function<FAssetReadResult(std::unique_ptr<FOverriddenPropertyRestoreContext>)>;

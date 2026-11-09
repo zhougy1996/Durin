@@ -514,7 +514,7 @@ TEST(FLevelAssetTests, SavesLoadsTransformsAttachmentsCameraAndDefaultComponents
 
 	Durin::DLevel* Loaded = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObject<Durin::DLevel>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DLevel>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
 		Loaded = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}

@@ -40,21 +40,18 @@ namespace Durin::Sandbox
 
 	auto APlayerPawn::BeginPlay() -> void
 	{
-		FObjectPath MeshPath;
-		const bool bValidMeshPath = FObjectPath::TryCreate(GameplayTuning::GrayboxMeshPath, MeshPath);
-		DStaticMesh* Mesh = nullptr;
-		const std::expected<DStaticMesh*, FAssetReadError> LoadResult = bValidMeshPath
-			? LoadObject<DStaticMesh>(MeshPath)
-			: std::unexpected(FAssetReadError{EAssetReadError::InvalidPath, "The configured graybox mesh path is invalid."});
-		Mesh = LoadResult.value_or(nullptr);
-		if (LoadResult && Mesh)
+		FSoftObjectPath MeshPath;
+		const bool bValidMeshPath = FSoftObjectPath::TryCreate(GameplayTuning::GrayboxMeshPath, MeshPath);
+		const auto Load = LoadObjectDetailed<DStaticMesh>(MeshPath);
+		DStaticMesh* Mesh = Load.value_or(nullptr);
+		if (Mesh)
 		{
 			VisualComponent->SetStaticMesh(Mesh);
 		}
 		else
 		{
 			DURIN_WARN("Sandbox pawn graybox '{}' could not load: {} The pawn remains playable without a visual.",
-				GameplayTuning::GrayboxMeshPath, (LoadResult ? std::string{} : LoadResult.error().Message));
+				GameplayTuning::GrayboxMeshPath, bValidMeshPath ? Load.error().Message : "The configured graybox mesh path is invalid.");
 		}
 		Super::BeginPlay();
 	}

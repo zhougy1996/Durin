@@ -20,9 +20,9 @@ namespace Durin
 				for (const auto& Mapping : Mappings)
 					if (Target.AssetPath.GetPackagePath() == Mapping.SourcePath)
 					{
-						FObjectPath Replacement;
+						FSoftObjectPath Replacement;
 						const auto Text = Target.AssetPath.ToString();
-						if (FObjectPath::TryCreate(Mapping.DestinationPath.ToString() + Text.substr(Mapping.SourcePath.ToString().size()), Replacement)) Target.AssetPath = Replacement;
+						if (FSoftObjectPath::TryCreate(Mapping.DestinationPath.ToString() + Text.substr(Mapping.SourcePath.ToString().size()), Replacement)) Target.AssetPath = Replacement;
 					}
 		}
 		FAssetMoveObserverHandle MoveObserver;
@@ -101,8 +101,8 @@ namespace Durin
 			for (auto* Object : Session->GetObjectsToEdit())
 			{
 				const auto ClassName = Object->GetClass()->GetQualifiedName().ToString();
-				FObjectPath Path;
-				if (FObjectPath::TryCreate(Object->GetObjectPath(), Path)) Entry.Assets.push_back({Path, ClassName});
+				FSoftObjectPath Path;
+				if (FSoftObjectPath::TryCreate(Object->GetObjectPath(), Path)) Entry.Assets.push_back({Path, ClassName});
 			}
 			std::ranges::sort(Entry.Assets, {}, [](const auto& Target) { return Target.AssetPath.ToString(); });
 			if (!Entry.Assets.empty()) Result.push_back(std::move(Entry));
@@ -188,7 +188,7 @@ namespace Durin
 			const auto Assets = Node.GetView("Assets");
 			for (size_t J = 0; J < Assets.Num(); ++J)
 			{
-				FObjectPath Path; FObjectPath::TryCreate(Assets.GetView(J).GetView("Path").GetString(), Path);
+				FSoftObjectPath Path; FSoftObjectPath::TryCreate(Assets.GetView(J).GetView("Path").GetString(), Path);
 				Entry.Assets.push_back({Path, Assets.GetView(J).GetView("Class").GetString()});
 			}
 			Entries.push_back(std::move(Entry));
@@ -198,8 +198,8 @@ namespace Durin
 		const auto Recent = Root.GetView("Recent");
 		for (size_t I = 0; I < std::min<size_t>(32, Recent.Num()); ++I)
 		{
-			FObjectPath Path;
-			if (FObjectPath::TryCreate(Recent.GetView(I).GetView("Path").GetString(), Path))
+			FSoftObjectPath Path;
+			if (FSoftObjectPath::TryCreate(Recent.GetView(I).GetView("Path").GetString(), Path))
 			{
 				if (const auto Resolved = ResolveAssetObjectPathForOperation(Path)) Path = Resolved.FinalPath;
 				if (std::ranges::none_of(Lifecycle->Recent, [&](const auto& Target) { return Target.AssetPath == Path; }))

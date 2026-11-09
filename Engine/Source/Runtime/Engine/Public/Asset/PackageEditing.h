@@ -20,7 +20,7 @@ namespace Durin
 	struct FAssetRedirectorWriteMapping
 	{
 		FTopLevelAssetPath Source;
-		FObjectPath Destination;
+		FSoftObjectPath Destination;
 	};
 
 	// Checks the live-load boundary, runtime lifecycle, and authored-package mode.

@@ -175,9 +175,9 @@ namespace
 		auto* Definition = NewObject<FGenericSessionTestDefinition>(nullptr, {});
 		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
 		auto* A = Asset("BatchA"); auto* B = Asset("BatchB");
-		FObjectPath PathA, PathB;
-		ASSERT_TRUE(FObjectPath::TryCreate(A->GetObjectPath(), PathA));
-		ASSERT_TRUE(FObjectPath::TryCreate(B->GetObjectPath(), PathB));
+		FSoftObjectPath PathA, PathB;
+		ASSERT_TRUE(FSoftObjectPath::TryCreate(A->GetObjectPath(), PathA));
+		ASSERT_TRUE(FSoftObjectPath::TryCreate(B->GetObjectPath(), PathB));
 		const std::vector<FAssetOpenTarget> Targets{{PathA, "Durin::DObject"}, {PathB, "Durin::DObject"}, {PathA, "Durin::DObject"}};
 		int Calls = 0;
 		Definition->OpenOverride = [&](const FAssetOpenArgs& Args) {
@@ -204,10 +204,10 @@ namespace
 		ASSERT_TRUE(RegistrationA); ASSERT_TRUE(RegistrationB);
 		auto* A = Asset("MixedA");
 		auto* B = NewObject<FSessionTestEditor>(Package.Get(), "MixedB");
-		FObjectPath PathA, PathB, Missing;
-		ASSERT_TRUE(FObjectPath::TryCreate(A->GetObjectPath(), PathA));
-		ASSERT_TRUE(FObjectPath::TryCreate(B->GetObjectPath(), PathB));
-		ASSERT_TRUE(FObjectPath::TryCreate("/AssetEditorSessions/Missing.Asset", Missing));
+		FSoftObjectPath PathA, PathB, Missing;
+		ASSERT_TRUE(FSoftObjectPath::TryCreate(A->GetObjectPath(), PathA));
+		ASSERT_TRUE(FSoftObjectPath::TryCreate(B->GetObjectPath(), PathB));
+		ASSERT_TRUE(FSoftObjectPath::TryCreate("/AssetEditorSessions/Missing.Asset", Missing));
 		int Calls = 0;
 		First->OpenOverride = [&](const FAssetOpenArgs& Args) { ++Calls; return First->DAssetDefinitionDefault::OpenAssets(Args); };
 		Second->OpenOverride = [&](const FAssetOpenArgs&) { ADD_FAILURE() << "Grouped selection must execute once"; return FAssetOpenResult{}; };
@@ -268,10 +268,10 @@ namespace
 		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
 		ASSERT_TRUE(Registration);
 		auto* A = Asset("RestoreA"); auto* B = Asset("RestoreB");
-		FObjectPath PathA, PathB, MissingPath;
-		ASSERT_TRUE(FObjectPath::TryCreate(A->GetObjectPath(), PathA));
-		ASSERT_TRUE(FObjectPath::TryCreate(B->GetObjectPath(), PathB));
-		ASSERT_TRUE(FObjectPath::TryCreate("/AssetEditorSessions/Missing.Missing", MissingPath));
+		FSoftObjectPath PathA, PathB, MissingPath;
+		ASSERT_TRUE(FSoftObjectPath::TryCreate(A->GetObjectPath(), PathA));
+		ASSERT_TRUE(FSoftObjectPath::TryCreate(B->GetObjectPath(), PathB));
+		ASSERT_TRUE(FSoftObjectPath::TryCreate("/AssetEditorSessions/Missing.Missing", MissingPath));
 		const FAssetOpenTarget TargetA{PathA, A->GetClass()->GetQualifiedName().ToString()};
 		const FAssetOpenTarget TargetB{PathB, B->GetClass()->GetQualifiedName().ToString()};
 		const std::vector<FAssetEditorRestoreEntry> Entries{{.Assets = {TargetA, TargetB}, .Method = EAssetOpenMethod::View,
@@ -329,7 +329,7 @@ namespace
 			return Args.ToolkitMode == EToolkitMode::Standalone ? Standalone : World;
 		});
 		auto* Object = Asset("RestoreFocus");
-		FObjectPath Path; ASSERT_TRUE(FObjectPath::TryCreate(Object->GetObjectPath(), Path));
+		FSoftObjectPath Path; ASSERT_TRUE(FSoftObjectPath::TryCreate(Object->GetObjectPath(), Path));
 		const FAssetOpenTarget Target{Path, Object->GetClass()->GetQualifiedName().ToString()};
 		const std::vector<FAssetEditorRestoreEntry> Entries{{.Assets = {Target}},
 			{.Assets = {Target}, .Method = EAssetOpenMethod::View, .Mode = EToolkitMode::WorldCentric}};
@@ -377,7 +377,7 @@ namespace
 			if (Event.Type == EAssetEditorEvent::Opened && Event.Target.AssetPath.ToString() == B->GetObjectPath()) EXPECT_EQ(Session, Service->FindEditorForAsset(B, false));
 		});
 		auto Request = [&](DObject* Object) {
-			FObjectPath Path; EXPECT_TRUE(FObjectPath::TryCreate(Object->GetObjectPath(), Path));
+			FSoftObjectPath Path; EXPECT_TRUE(FSoftObjectPath::TryCreate(Object->GetObjectPath(), Path));
 			return Service->OpenAssets({.AssetEditors = Service, .Assets = {{Path, Object->GetClass()->GetQualifiedName().ToString()}}}).Items.front();
 		};
 		const auto OpenB = Request(B);
@@ -624,8 +624,8 @@ namespace
 		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
 		ASSERT_TRUE(Registration);
 		auto* Object = Asset("GenericAsset");
-		FObjectPath Path;
-		ASSERT_TRUE(FObjectPath::TryCreate(Object->GetObjectPath(), Path));
+		FSoftObjectPath Path;
+		ASSERT_TRUE(FSoftObjectPath::TryCreate(Object->GetObjectPath(), Path));
 		FAssetOpenArgs Args{.AssetEditors = Service, .Assets = {{Path, Object->GetClass()->GetQualifiedName().ToString()}}, .OpenMethod = EAssetOpenMethod::View};
 		const auto Flags = Object->GetObjectFlags();
 		ASSERT_EQ(EAssetOpenStatus::Completed, Service->OpenAssets(Args).Items.front().Status);

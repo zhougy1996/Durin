@@ -51,7 +51,7 @@ namespace Durin
 						{
 							const auto* Property = static_cast<FObjectProperty*>(Asset->GetClass()->FindPropertyByName("DestinationObject"));
 							if (auto* Target = Property->GetObjectPropertyValue(Asset))
-								require(FObjectPath::TryCreate(Target->GetObjectPath(), Data.RedirectDestination));
+								require(FSoftObjectPath::TryCreate(Target->GetObjectPath(), Data.RedirectDestination));
 						}
 						Current.emplace(FObjectKey(Asset), std::move(Data));
 					}

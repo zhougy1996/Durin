@@ -137,7 +137,7 @@ namespace Durin::AssetPrivate
 					|| !Reader.ReadString(RedirectPathString)
 					|| !FTopLevelAssetPath::TryCreate(AssetPathString, Asset.AssetPath)
 					|| (!RedirectPathString.empty()
-						&& !FObjectPath::TryCreate(RedirectPathString, Asset.RedirectDestination)))
+						&& !FSoftObjectPath::TryCreate(RedirectPathString, Asset.RedirectDestination)))
 				{
 					OutWarning = "Ignoring invalid top-level asset metadata in asset registry cache.";
 					OutEntries.clear();

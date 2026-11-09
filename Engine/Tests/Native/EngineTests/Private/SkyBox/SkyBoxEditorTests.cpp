@@ -112,7 +112,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 
 	Durin::DLevel* LoadedLevel = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObject<Durin::DLevel>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(LevelPath));
+		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DLevel>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(LevelPath));
 		LoadedLevel = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
@@ -212,7 +212,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 
 	Durin::DLevel* LoadedLevel = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObject<Durin::DLevel>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(LevelPath));
+		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DLevel>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(LevelPath));
 		LoadedLevel = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}

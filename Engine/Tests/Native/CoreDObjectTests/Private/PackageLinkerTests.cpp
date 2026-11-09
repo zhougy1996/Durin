@@ -48,11 +48,11 @@ TEST(FPathIdentityContractTests, DistinctStructuralKindsRoundTripCanonically)
 	ASSERT_TRUE(Fixture.IsValid()) << Fixture.GetError();
 	Durin::FPackagePath PackagePath;
 	Durin::FTopLevelAssetPath AssetPath;
-	Durin::FObjectPath ObjectPath;
+	Durin::FSoftObjectPath ObjectPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/Objects/Test", PackagePath));
 	ASSERT_TRUE(Durin::FTopLevelAssetPath::TryCreate(
 		"/Game/Objects/Test.Test", AssetPath));
-	ASSERT_TRUE(Durin::FObjectPath::TryCreate(
+	ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate(
 		"/Game/Objects/Test.Test:Root.Component", ObjectPath));
 	EXPECT_EQ(PackagePath.ToString(), "/Game/Objects/Test");
 	EXPECT_EQ(PackagePath.GetPackageName(), "Test");
@@ -72,12 +72,12 @@ TEST(FPathIdentityContractTests, NumericSuffixesRemainPartOfStructuralNames)
 	ASSERT_TRUE(Fixture.IsValid()) << Fixture.GetError();
 	Durin::FPackagePath PackagePath;
 	Durin::FTopLevelAssetPath AssetPath;
-	Durin::FObjectPath ObjectPath;
+	Durin::FSoftObjectPath ObjectPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/Game/Volumes/Cloud_128", PackagePath));
 	ASSERT_TRUE(Durin::FTopLevelAssetPath::TryCreate(
 		PackagePath, "Texture_64", AssetPath));
-	ASSERT_TRUE(Durin::FObjectPath::TryCreate(
+	ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate(
 		"/Game/Volumes/Cloud_128.Texture_64", ObjectPath));
 	EXPECT_EQ(PackagePath.GetView(), "/Game/Volumes/Cloud_128");
 	EXPECT_EQ(PackagePath.GetPackageName(), "Cloud_128");
@@ -92,10 +92,10 @@ TEST(FPathIdentityContractTests, RejectsAmbiguousNoncanonicalAndBoundedSpellings
 	ASSERT_TRUE(Fixture.IsValid()) << Fixture.GetError();
 	Durin::FPackagePath PackagePath;
 	Durin::FTopLevelAssetPath AssetPath;
-	Durin::FObjectPath ObjectPath;
+	Durin::FSoftObjectPath ObjectPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/Keep", PackagePath));
 	ASSERT_TRUE(Durin::FTopLevelAssetPath::TryCreate("/Game/Keep.Asset", AssetPath));
-	ASSERT_TRUE(Durin::FObjectPath::TryCreate("/Game/Keep.Asset:Child", ObjectPath));
+	ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate("/Game/Keep.Asset:Child", ObjectPath));
 	for (const std::string_view Invalid : {
 		"Game/Package", "/Game/", "/Game/A.B", "/Game/A:B",
 		"/Game//A", "/Game/../A", "/Unknown/A"})
@@ -114,12 +114,12 @@ TEST(FPathIdentityContractTests, RejectsAmbiguousNoncanonicalAndBoundedSpellings
 		"/Game/A.Asset:Child.", "/Game/A.Asset:Child..Grandchild",
 		"/Game/A.Asset:Child:Grandchild"})
 	{
-		EXPECT_FALSE(Durin::FObjectPath::TryCreate(Invalid, ObjectPath)) << Invalid;
+		EXPECT_FALSE(Durin::FSoftObjectPath::TryCreate(Invalid, ObjectPath)) << Invalid;
 		EXPECT_EQ(ObjectPath.ToString(), "/Game/Keep.Asset:Child");
 	}
 	const std::string OversizedComponent(
 		Durin::MaximumObjectPathComponentBytes + 1, 'a');
-	EXPECT_FALSE(Durin::FObjectPath::TryCreate(
+	EXPECT_FALSE(Durin::FSoftObjectPath::TryCreate(
 		std::format("/Game/A.Asset:{}", OversizedComponent), ObjectPath));
 	EXPECT_EQ(ObjectPath.ToString(), "/Game/Keep.Asset:Child");
 }
@@ -128,22 +128,22 @@ TEST(FPathIdentityContractTests, EqualityHashingAndOrderingAreCaseInsensitiveAnd
 {
 	auto Fixture = PathMountFixture();
 	ASSERT_TRUE(Fixture.IsValid()) << Fixture.GetError();
-	Durin::FObjectPath Upper;
-	Durin::FObjectPath Lower;
-	Durin::FObjectPath Nested;
-	Durin::FObjectPath NestedLower;
-	ASSERT_TRUE(Durin::FObjectPath::TryCreate("/Game/A.Asset", Upper));
-	ASSERT_TRUE(Durin::FObjectPath::TryCreate("/Game/a.Asset", Lower));
-	ASSERT_TRUE(Durin::FObjectPath::TryCreate("/Game/A.Asset:Child", Nested));
-	ASSERT_TRUE(Durin::FObjectPath::TryCreate("/Game/a.asset:child", NestedLower));
+	Durin::FSoftObjectPath Upper;
+	Durin::FSoftObjectPath Lower;
+	Durin::FSoftObjectPath Nested;
+	Durin::FSoftObjectPath NestedLower;
+	ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate("/Game/A.Asset", Upper));
+	ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate("/Game/a.Asset", Lower));
+	ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate("/Game/A.Asset:Child", Nested));
+	ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate("/Game/a.asset:child", NestedLower));
 	EXPECT_EQ(Upper, Lower);
 	EXPECT_EQ(Upper.ToString(), "/Game/A.Asset");
 	EXPECT_EQ(Lower.ToString(), "/Game/A.Asset");
-	EXPECT_EQ(std::hash<Durin::FObjectPath>{}(Upper), std::hash<Durin::FObjectPath>{}(Lower));
-	EXPECT_EQ((std::unordered_set<Durin::FObjectPath>{Upper, Lower}).size(), 1u);
+	EXPECT_EQ(std::hash<Durin::FSoftObjectPath>{}(Upper), std::hash<Durin::FSoftObjectPath>{}(Lower));
+	EXPECT_EQ((std::unordered_set<Durin::FSoftObjectPath>{Upper, Lower}).size(), 1u);
 	EXPECT_EQ(Nested, NestedLower);
-	EXPECT_EQ(std::hash<Durin::FObjectPath>{}(Nested),
-		std::hash<Durin::FObjectPath>{}(NestedLower));
+	EXPECT_EQ(std::hash<Durin::FSoftObjectPath>{}(Nested),
+		std::hash<Durin::FSoftObjectPath>{}(NestedLower));
 	std::vector Paths{Lower, Nested, Upper};
 	std::ranges::sort(Paths);
 	EXPECT_EQ(Paths, (std::vector{Lower, Upper, Nested}));
@@ -155,13 +155,13 @@ TEST(FPathIdentityContractTests, NullAndInternedNameBoundsAreStrictAndAtomic)
 	ASSERT_TRUE(Fixture.IsValid()) << Fixture.GetError();
 	Durin::FPackagePath Package;
 	Durin::FTopLevelAssetPath Asset;
-	Durin::FObjectPath Object;
+	Durin::FSoftObjectPath Object;
 	EXPECT_FALSE(Package.IsValid());
 	EXPECT_FALSE(Asset.IsValid());
 	EXPECT_FALSE(Object.IsValid());
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/Keep", Package));
 	ASSERT_TRUE(Durin::FTopLevelAssetPath::TryCreate("/Game/Keep.Asset", Asset));
-	ASSERT_TRUE(Durin::FObjectPath::TryCreate("/Game/Keep.Asset", Object));
+	ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate("/Game/Keep.Asset", Object));
 	const std::string OversizedPackage = "/Game/" + std::string(Durin::FName::MaxSize, 'p');
 	const std::string OversizedAsset(Durin::FName::MaxSize, 'a');
 	EXPECT_FALSE(Durin::FPackagePath::TryCreate(OversizedPackage, Package));
@@ -232,8 +232,8 @@ TEST(FPackageLinkerContractTests, CheckedTablesResolvePathsAndRejectInvalidTopol
 	EXPECT_EQ(Path, "Root/Child");
 	Package::FPackageIndex Import;
 	ASSERT_TRUE(Package::FPackageIndex::TryImport(0, Import));
-	Durin::FObjectPath ExternalPath;
-	ASSERT_TRUE(Durin::FObjectPath::TryCreate("/Game/External.External", ExternalPath));
+	Durin::FSoftObjectPath ExternalPath;
+	ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate("/Game/External.External", ExternalPath));
 	Tables.Imports = {{.ObjectPath = ExternalPath}};
 	EXPECT_TRUE(Tables.TryResolvePath(Import, Path));
 	EXPECT_EQ(Path, "/Game/External.External");

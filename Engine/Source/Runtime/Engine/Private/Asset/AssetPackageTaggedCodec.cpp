@@ -428,7 +428,7 @@ namespace Durin::AssetPrivate::TaggedPackage
 			if (Depth > ObjectPackage::DastMaximumValueDepth) return false;
 			using K = ObjectPackage::EValueKind;
 			auto AppendEdge = [&](EAssetReferenceKind Kind,
-				const FObjectPath& Target) {
+				const FSoftObjectPath& Target) {
 				std::string Display = std::format("{}::{}", Property.DeclaringType,
 					Property.FieldName);
 				for (const auto& Segment : Route)
@@ -460,8 +460,8 @@ namespace Durin::AssetPrivate::TaggedPackage
 				if (!Value.Reference.IsImport()) return Value.Reference.IsNull()
 					|| Value.Reference.IsExport();
 				if (Value.Reference.GetTableIndex() >= Linker.Imports.size()) return false;
-				FObjectPath Target;
-				if (!FObjectPath::TryCreate(
+				FSoftObjectPath Target;
+				if (!FSoftObjectPath::TryCreate(
 					Linker.Imports[Value.Reference.GetTableIndex()].ObjectPath.ToString(), Target))
 					return false;
 				AppendEdge(EAssetReferenceKind::HardObject, Target);
@@ -470,8 +470,8 @@ namespace Durin::AssetPrivate::TaggedPackage
 			if (Type.Kind == K::SoftReference)
 			{
 				if (Value.Text.empty()) return true;
-				FObjectPath Target;
-				if (!FObjectPath::TryCreate(Value.Text, Target)) return false;
+				FSoftObjectPath Target;
+				if (!FSoftObjectPath::TryCreate(Value.Text, Target)) return false;
 				AppendEdge(EAssetReferenceKind::SoftObject, Target);
 				return true;
 			}
@@ -776,15 +776,15 @@ namespace Durin::AssetPrivate::TaggedPackage
 				});
 				return It == Mappings.end() ? nullptr : &It->DestinationPath;
 			};
-			auto RemapObjectPath = [&](const FObjectPath& Source,
-				std::string_view DestinationAssetName, FObjectPath& Out) -> bool {
+			auto RemapObjectPath = [&](const FSoftObjectPath& Source,
+				std::string_view DestinationAssetName, FSoftObjectPath& Out) -> bool {
 				const FPackagePath* Destination = FindDestination(
 					Source.GetPackagePath().GetView());
 				if (!Destination) return false;
 				FTopLevelAssetPath AssetPath;
 				if (!FTopLevelAssetPath::TryCreate(*Destination,
 					DestinationAssetName, AssetPath)) return false;
-				return FObjectPath::TryCreate(
+				return FSoftObjectPath::TryCreate(
 					AssetPath, Source.GetSubobjectNames(), Out);
 			};
 			uint64 RewriteCount = 0;
@@ -802,9 +802,9 @@ namespace Durin::AssetPrivate::TaggedPackage
 				}
 				if (Type.Kind == K::SoftReference && !Value.Text.empty())
 				{
-					FObjectPath Source;
-					FObjectPath Destination;
-					if (!FObjectPath::TryCreate(Value.Text, Source)) return false;
+					FSoftObjectPath Source;
+					FSoftObjectPath Destination;
+					if (!FSoftObjectPath::TryCreate(Value.Text, Source)) return false;
 					if (const FPackagePath* Remapped = FindDestination(
 						Source.GetPackagePath().GetView());
 						Remapped && RemapObjectPath(
@@ -859,7 +859,7 @@ namespace Durin::AssetPrivate::TaggedPackage
 			for (size_t Index = 0; Index < Linker.Imports.size(); ++Index)
 			{
 				auto Import = Linker.Imports[Index];
-				FObjectPath DestinationObject;
+				FSoftObjectPath DestinationObject;
 				if (RemapObjectPath(Import.ObjectPath,
 					Import.ObjectPath.GetAssetPath().GetAssetName(), DestinationObject))
 					Import.ObjectPath = std::move(DestinationObject);
@@ -899,7 +899,7 @@ namespace Durin::AssetPrivate::TaggedPackage
 			for (auto& Asset : Linker.Summary.TopLevelAssets)
 				if (Asset.RedirectDestination.IsValid())
 				{
-					FObjectPath Destination;
+					FSoftObjectPath Destination;
 					if (const FPackagePath* Remapped = FindDestination(
 						Asset.RedirectDestination.GetPackagePath().GetView());
 						Remapped && RemapObjectPath(Asset.RedirectDestination,

@@ -389,8 +389,8 @@ namespace Durin::ObjectPackage
 					EPackageWriterReason::ReferenceDepth, std::string(Path));
 			if (Type.Kind == EValueKind::SoftReference)
 			{
-				FObjectPath ObjectPath;
-				if (!Value.Text.empty() && !FObjectPath::TryCreate(Value.Text, ObjectPath))
+				FSoftObjectPath ObjectPath;
+				if (!Value.Text.empty() && !FSoftObjectPath::TryCreate(Value.Text, ObjectPath))
 					return Fail(Diagnostic, EPackageWriterFailure::InvalidValue,
 						EPackageWriterReason::InvalidSoftPath, std::string(Path));
 				return true;

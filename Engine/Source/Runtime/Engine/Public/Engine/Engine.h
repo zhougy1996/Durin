@@ -37,7 +37,7 @@ namespace Durin
 	class DWorld;
 	class FSceneInterface;
 	class FMapChangeHandler;
-	class FObjectPath;
+	class FSoftObjectPath;
 	struct FSceneView;
 
 	// Identifies a World's role in one engine; it does not own an editor or window.
@@ -101,7 +101,7 @@ namespace Durin
 		ENGINE_API auto CancelPendingMapChange() -> void;
 		// Ordinary opening prepares and requests commit without caller polling.
 		ENGINE_API auto OpenLevel(FMapChangeRequest Request) -> bool;
-		ENGINE_API auto OpenLevel(const FObjectPath& Path) -> bool;
+		ENGINE_API auto OpenLevel(const FSoftObjectPath& Path) -> bool;
 		ENGINE_API auto IsPreparingMapChange() const -> bool;
 		ENGINE_API auto GetMapChangeProgress() const -> std::optional<FMapChangeProgress>;
 		auto GetSceneGeneration() const -> uint64 { return SceneGeneration; }

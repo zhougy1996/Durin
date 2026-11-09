@@ -117,7 +117,7 @@ TEST(FMaterialInstanceTests, TypedOverrideArraysRoundTripOrphansAndRejectCrossTy
 	CollectGarbage();
 	Instance = nullptr;
 	{
-		auto LoadedValue = LoadObject<DMaterialInstance>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		auto LoadedValue = LoadObjectDetailed<DMaterialInstance>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
 		Instance = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
@@ -694,7 +694,7 @@ TEST(FMaterialInstanceTests, PerFieldOverridesRoundTrip)
 	EXPECT_FALSE(ContainsSerializedField(CurrentBytes, InstancePath, "StaticPropertiesOverride"));
 	ASSERT_TRUE(UnloadPackage(InstancePath));
 	{
-		auto LoadedValue = LoadObject<DMaterialInstance>(Testing::MakePackageLeafAssetObjectPathForTests(InstancePath));
+		auto LoadedValue = LoadObjectDetailed<DMaterialInstance>(Testing::MakePackageLeafAssetObjectPathForTests(InstancePath));
 		Instance = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}

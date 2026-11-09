@@ -68,8 +68,8 @@ namespace Durin::Editor::Level
 		}
 		if (!Context.EditorHost || Context.EditorHost->IsPlaying()) return ELevelDocumentOpenResult::Rejected;
 		PendingProjectFile.clear();
-		FObjectPath AssetPath;
-		if (!FObjectPath::TryCreate(Path, AssetPath))
+		FSoftObjectPath AssetPath;
+		if (!FSoftObjectPath::TryCreate(Path, AssetPath))
 		{
 			SetError("Invalid level asset path.");
 			return ELevelDocumentOpenResult::Rejected;
@@ -200,8 +200,8 @@ namespace Durin::Editor::Level
 	{
 		if (ClearError) ClearError();
 		if (!Context.EditorHost || Context.EditorHost->IsPlaying()) return ELevelDocumentOpenResult::Rejected;
-		FObjectPath Path;
-		if (const auto Validation = FObjectPath::TryCreateWithDiagnostic(PathString, Path); !Validation)
+		FSoftObjectPath Path;
+		if (const auto Validation = FSoftObjectPath::TryCreateWithDiagnostic(PathString, Path); !Validation)
 		{
 			SetError(ToString(Validation.error()));
 			return ELevelDocumentOpenResult::Rejected;

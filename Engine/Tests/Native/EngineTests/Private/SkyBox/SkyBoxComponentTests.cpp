@@ -330,7 +330,7 @@ TEST(FSkyBoxTests, PackageTracksAndReloadsCubeAssetDependency)
 	ASSERT_TRUE(Durin::UnloadPackage(CubePath));
 	Durin::ASkyBoxActor* LoadedActor = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObject<Durin::ASkyBoxActor>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ActorPath));
+		auto LoadedValue = Durin::LoadObjectDetailed<Durin::ASkyBoxActor>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ActorPath));
 		LoadedActor = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}

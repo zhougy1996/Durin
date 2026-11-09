@@ -676,7 +676,7 @@ TEST(DFactoryTests, SavedFactoryPackageReloadsWithoutDuplicateLivePackage)
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
 	Durin::DObject* Reloaded = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObject<Durin::DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
 		Reloaded = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}

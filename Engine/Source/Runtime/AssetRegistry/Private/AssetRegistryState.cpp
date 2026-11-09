@@ -12,7 +12,7 @@ namespace Durin
 		auto ResolveAssetObjectPathInCatalog(
 			const std::unordered_map<FPackagePath, FPackageData>& Assets,
 			const std::unordered_set<FPackagePath>& Fences,
-			uint64 Revision, const FObjectPath& Path,
+			uint64 Revision, const FSoftObjectPath& Path,
 			const FAssetPathQueryOptions& Options) -> FObjectPathResolveResult;
 
 		auto ResolvePackagePathInCatalog(
@@ -40,23 +40,23 @@ namespace Durin
 				Result.State = EAssetPathResolveState::Resolved;
 				return Result;
 			}
-			FObjectPath ObjectPath;
-			if (!FObjectPath::TryCreate(Data.TopLevelAssets.front().AssetPath,
+			FSoftObjectPath ObjectPath;
+			if (!FSoftObjectPath::TryCreate(Data.TopLevelAssets.front().AssetPath,
 				std::span<const std::string>{}, ObjectPath)) return Result;
 			const FObjectPathResolveResult Exact = ResolveAssetObjectPathInCatalog(
 				Assets, Fences, Revision, ObjectPath, Options);
 			Result.State = Exact.State;
 			Result.FinalPath = Exact.FinalPath.GetPackagePath();
 			Result.FinalPackageData = Exact.FinalPackageData;
-			for (const FObjectPath& Redirect : Exact.RedirectChain)
+			for (const FSoftObjectPath& Redirect : Exact.RedirectChain)
 				Result.RedirectChain.push_back(Redirect.GetPackagePath());
 			return Result;
 		}
 
 		auto AppendRedirectedSubobjectPath(
-			const FObjectPath& Destination,
+			const FSoftObjectPath& Destination,
 			FSubobjectPathView SourceSubobjects,
-			FObjectPath& OutPath) -> bool
+			FSoftObjectPath& OutPath) -> bool
 		{
 			if (SourceSubobjects.empty())
 			{
@@ -68,7 +68,7 @@ namespace Durin
 				Components.emplace_back(Component);
 			for (std::string_view Component : SourceSubobjects)
 				Components.emplace_back(Component);
-			return FObjectPath::TryCreate(
+			return FSoftObjectPath::TryCreate(
 				Destination.GetAssetPath(), Components, OutPath);
 		}
 
@@ -76,14 +76,14 @@ namespace Durin
 			const std::unordered_map<FPackagePath, FPackageData>& Assets,
 			const std::unordered_set<FPackagePath>& Fences,
 			uint64 Revision,
-			const FObjectPath& Path,
+			const FSoftObjectPath& Path,
 			const FAssetPathQueryOptions& Options) -> FObjectPathResolveResult
 		{
 			FObjectPathResolveResult Result;
 			Result.CatalogRevision = Revision;
 			Result.RequestedPath = Path;
-			FObjectPath Current = Path;
-			std::unordered_set<FObjectPath> Visited;
+			FSoftObjectPath Current = Path;
+			std::unordered_set<FSoftObjectPath> Visited;
 			while (true)
 			{
 				if (Fences.contains(Current.GetPackagePath()))
@@ -147,7 +147,7 @@ namespace Durin
 					return Result;
 				}
 				Result.RedirectChain.push_back(Current);
-				FObjectPath Redirected;
+				FSoftObjectPath Redirected;
 				if (!AppendRedirectedSubobjectPath(
 					Asset.RedirectDestination, Current.GetSubobjectNames(), Redirected))
 				{
@@ -256,7 +256,7 @@ namespace Durin
 		return ResolvePackagePathInCatalog(Catalog.Assets, {}, Revision, Path, Options);
 	}
 
-	auto FAssetRegistrySnapshot::ResolveAssetObjectPath(const FObjectPath& Path,
+	auto FAssetRegistrySnapshot::ResolveAssetObjectPath(const FSoftObjectPath& Path,
 		const FAssetPathQueryOptions& Options) const -> FObjectPathResolveResult
 	{
 		return ResolveAssetObjectPathInCatalog(Catalog.Assets, {}, Revision, Path, Options);
@@ -314,7 +314,7 @@ namespace Durin
 		return ResolvePackagePathInCatalog(Assets, ProjectionFences, Revision, Path, Options);
 	}
 
-	auto FAssetRegistryState::ResolveAssetObjectPath(const FObjectPath& Path,
+	auto FAssetRegistryState::ResolveAssetObjectPath(const FSoftObjectPath& Path,
 		const FAssetPathQueryOptions& Options) const -> FObjectPathResolveResult
 	{
 		std::shared_lock Lock(Mutex);
@@ -637,7 +637,7 @@ namespace Durin
 		return AssetPrivate::GetAssetRegistryState().ResolvePackagePath(Path, Options);
 	}
 
-	auto ResolveAssetObjectPath(const FObjectPath& Path,
+	auto ResolveAssetObjectPath(const FSoftObjectPath& Path,
 		const FAssetPathQueryOptions& Options) -> FObjectPathResolveResult
 	{
 		return AssetPrivate::GetAssetRegistryState().ResolveAssetObjectPath(Path, Options);

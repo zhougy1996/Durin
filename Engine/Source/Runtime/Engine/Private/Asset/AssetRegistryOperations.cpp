@@ -53,7 +53,7 @@ namespace Durin
 		return Result;
 	}
 
-	auto ResolveAssetObjectPathForOperation(const FObjectPath& Path,
+	auto ResolveAssetObjectPathForOperation(const FSoftObjectPath& Path,
 		const FAssetPathResolveOptions& Options) -> FObjectPathResolveResult
 	{
 		auto Result = ResolveAssetObjectPath(Path);

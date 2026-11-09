@@ -281,8 +281,8 @@ TEST(FPackageRegistryContractTests, MultiAssetRedirectsAreExactAcrossScansAndPub
 	Durin::Testing::RegisterMountPointForTests("/Multi/", ContentRoot.generic_string() + "/");
 	Durin::FPaths::SetDerivedDataCacheDirForTests((WorkRoot / "Cache").generic_string());
 	auto ObjectPath = [](std::string_view Value) {
-		FObjectPath Result;
-		EXPECT_TRUE(FObjectPath::TryCreate(Value, Result));
+		FSoftObjectPath Result;
+		EXPECT_TRUE(FSoftObjectPath::TryCreate(Value, Result));
 		return Result;
 	};
 	auto Save = [&](const Package::FLinkerTables& Linker, std::string_view Name) {
@@ -316,7 +316,7 @@ TEST(FPackageRegistryContractTests, MultiAssetRedirectsAreExactAcrossScansAndPub
 			Linker.Exports.push_back({.ObjectName = std::string(AssetName), .ClassName = ClassName});
 			Linker.Summary.TopLevelAssets.push_back({.Export = Export,
 				.AssetPath = AssetPath, .ClassName = ClassName,
-				.RedirectDestination = Destination.empty() ? FObjectPath{} : ObjectPath(Destination)});
+				.RedirectDestination = Destination.empty() ? FSoftObjectPath{} : ObjectPath(Destination)});
 		};
 		Add("MAlias", "/Multi/TargetA.RegistryFixture");
 		Add("NAlias", "/Multi/TargetB.RegistryFixture");
@@ -428,8 +428,8 @@ TEST(FPackageRegistryContractTests, ProjectionFenceBlocksEveryRedirectHop)
 		(WorkRoot / "Content").generic_string() + "/");
 	Durin::FPaths::SetDerivedDataCacheDirForTests((WorkRoot / "Cache").generic_string());
 	auto ObjectPath = [](std::string_view Name) {
-		FObjectPath Result;
-		EXPECT_TRUE(FObjectPath::TryCreate(
+		FSoftObjectPath Result;
+		EXPECT_TRUE(FSoftObjectPath::TryCreate(
 			std::string(Name) + ".RegistryFixture", Result));
 		return Result;
 	};
@@ -504,13 +504,13 @@ TEST(FPackageRegistryContractTests, OwnedQueriesResolveUnloadedTypesAndExactRedi
 	Durin::Testing::FScopedMountRegistryFixture Mounts;
 	Durin::Testing::RegisterMountPointForTests("/Owned/", ".");
 	auto Object = [](std::string_view Value) {
-		FObjectPath Result;
-		EXPECT_TRUE(FObjectPath::TryCreate(Value, Result));
+		FSoftObjectPath Result;
+		EXPECT_TRUE(FSoftObjectPath::TryCreate(Value, Result));
 		return Result;
 	};
 	FAssetRegistrySnapshot Snapshot;
 	Snapshot.Revision = 123;
-	auto Add = [&](std::string_view Name, std::string Class, FObjectPath Destination = {}) {
+	auto Add = [&](std::string_view Name, std::string Class, FSoftObjectPath Destination = {}) {
 		const auto Asset = Object(std::string(Name) + ".Asset");
 		FPackageData Data;
 		Data.PackagePath = Asset.GetPackagePath();

@@ -34,8 +34,8 @@ namespace Durin::Editor
 	struct FSoftObjectViewState
 	{
 		ESoftObjectViewState State = ESoftObjectViewState::Null;
-		FObjectPath Path;
-		FObjectPath ResolvedPath;
+		FSoftObjectPath Path;
+		FSoftObjectPath ResolvedPath;
 		DObject* LoadedObject = nullptr;
 		ESoftObjectViewError Error = ESoftObjectViewError::None;
 		std::string PropertyName;
@@ -209,7 +209,7 @@ namespace Durin::Editor
 		std::string PropertyName;
 		uint32 ArrayIndex = 0;
 		int32 ArrayDim = 0;
-		FObjectPath Path;
+		FSoftObjectPath Path;
 		std::shared_ptr<const FAssetReadError> AssetCause;
 		explicit operator bool() const { return Error == EPropertySoftLoadError::None; }
 	};

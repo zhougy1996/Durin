@@ -95,9 +95,9 @@ namespace
 	auto ConfigureAssets(FDefaultLevelScenario& Scenario)
 		-> std::unique_ptr<Durin::Testing::FScopedMountRegistryFixture>
 	{
-		Durin::ShutdownAssetManager();
+		Durin::ShutdownAssetRuntime();
 		Durin::CollectGarbage();
-		Durin::InitializeAssetManager();
+		Durin::InitializeAssetRuntime();
 		Durin::FPaths::SetDerivedDataCacheDirForTests(
 			(Scenario.Root / "DerivedDataCache").generic_string());
 		const std::array Mounts = {Durin::FMountPoint{
@@ -217,7 +217,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, ResolvesUniqueLevelWithoutInferrin
 {
 	FDefaultLevelScenario Scenario = BuildScenario("UniqueLevel");
 	auto MountFixture = ConfigureAssets(Scenario);
-	Durin::FObjectPath LevelPath;
+	Durin::FSoftObjectPath LevelPath;
 	const auto Result =
 		Durin::ResolveLevelPackage(Scenario.OldPath, LevelPath);
 	ASSERT_TRUE(Result) << Result.Message;
@@ -239,7 +239,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, RejectsPackageWithoutTopLevelLevel
 	EXPECT_FALSE(Durin::SavePackage(World->GetPackage()));
 	ASSERT_TRUE(Durin::SavePackage(World->GetPackage(), {.Mode = Durin::EAssetPackageSaveMode::Complete}));
 
-	Durin::FObjectPath LevelPath;
+	Durin::FSoftObjectPath LevelPath;
 	const auto Result =
 		Durin::ResolveLevelPackage(WorldPath, LevelPath);
 	EXPECT_EQ(Result.Error, Durin::EAssetReadError::TypeMismatch);
@@ -258,7 +258,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, RejectsPackageWithMultipleTopLevel
 	ASSERT_NE(Secondary, nullptr);
 	ASSERT_TRUE(Durin::SavePackage(Package));
 
-	Durin::FObjectPath LevelPath;
+	Durin::FSoftObjectPath LevelPath;
 	const auto Result =
 		Durin::ResolveLevelPackage(Scenario.NewPath, LevelPath);
 	EXPECT_EQ(Result.Error, Durin::EAssetReadError::InvalidPackageType);
@@ -269,7 +269,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, StartupResolutionFollowsRedirectsA
 {
 	FDefaultLevelScenario Scenario = BuildScenario("StartupResolution");
 	auto MountFixture = ConfigureAssets(Scenario);
-	Durin::FObjectPath Path;
+	Durin::FSoftObjectPath Path;
 	std::string Error;
 	ASSERT_TRUE(Durin::Editor::Startup::ResolveStartupLevel(Scenario.Project, Path, Error)) << Error;
 	EXPECT_EQ(Path.GetPackagePath(), Scenario.NewPath);
@@ -285,7 +285,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, StartupResolutionFollowsRedirectsA
 TEST(FProjectDefaultLevelReferenceStoreTests, StartupResolutionAcceptsNoLevelAndRejectsMalformedSettingsAndPaths)
 {
 	FDefaultLevelScenario Scenario = BuildScenario("StartupConfiguration");
-	Durin::FObjectPath Path;
+	Durin::FSoftObjectPath Path;
 	std::string Error = "stale error";
 	ASSERT_TRUE(Durin::Editor::Startup::ResolveStartupLevel(Scenario.Project, Path, Error)) << Error;
 	EXPECT_FALSE(Path.IsValid());
@@ -307,7 +307,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, StartupResolutionRejectsMissingAnd
 	auto MountFixture = ConfigureAssets(Scenario);
 	auto Store = Durin::FProjectGameSettingsStore::ForProject(Scenario.Project);
 	ASSERT_TRUE(Store.SaveDefaultLevel("/DefaultLevelTests/Levels/Missing"));
-	Durin::FObjectPath Path;
+	Durin::FSoftObjectPath Path;
 	std::string Error;
 	EXPECT_FALSE(Durin::Editor::Startup::ResolveStartupLevel(Scenario.Project, Path, Error));
 	EXPECT_FALSE(Error.empty());

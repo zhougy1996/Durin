@@ -138,7 +138,7 @@ namespace Durin
 				Node->bHasAtomicValue = true;
 			}
 
-			auto SerializeSoftObjectValue(FObjectPath& Value) -> void override
+			auto SerializeSoftObjectValue(FSoftObjectPath& Value) -> void override
 			{
 				FDefaultDeltaNode* Node = ResolveAtomicTarget();
 				if (!Node || Node->LogicalType.Kind != ETypeKind::SoftObject)

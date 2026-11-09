@@ -49,7 +49,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::string PhysicalPath;
 		std::string AssetClassName;
 		std::string Extension;
-		FObjectPath RedirectDestination;
+		FSoftObjectPath RedirectDestination;
 		std::string ThumbnailIdentity;
 		std::string ThumbnailSourcePath;
 		uintmax_t ThumbnailFileSize = 0;

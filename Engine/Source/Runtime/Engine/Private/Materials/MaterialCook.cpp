@@ -187,10 +187,10 @@ namespace Durin
 				// Empty paths exist only for detached/transient compiler fixtures; real
 				// package-authored collection expressions always capture an exact path.
 				if (Required.AssetPath.empty()) continue;
-				FObjectPath Path;
-				if (!FObjectPath::TryCreate(Required.AssetPath, Path))
+				FSoftObjectPath Path;
+				if (!FSoftObjectPath::TryCreate(Required.AssetPath, Path))
 					return std::unexpected("payload collection asset is missing or its schema does not match the cooked material.");
-				auto Collection = LoadObject<DMaterialParameterCollection>(Path);
+				auto Collection = LoadObjectDetailed<DMaterialParameterCollection>(Path);
 				if (!Collection)
 					return std::unexpected("payload collection asset is missing or its schema does not match the cooked material.");
 				auto Current = (*Collection)->BuildLayout();

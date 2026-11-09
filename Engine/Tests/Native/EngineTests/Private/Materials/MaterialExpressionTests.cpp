@@ -254,7 +254,7 @@ TEST(FMaterialExpressionTests, MaterialPersistsTypedOutputsAndOwnedParameterDefa
 	const auto Saved = SavePackage(Material->GetPackage());
 	ASSERT_TRUE(Saved) << Saved.Message;
 	ASSERT_TRUE(UnloadPackage(Path)); CollectGarbage(); Material = nullptr;
-	const auto Loaded = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+	const auto Loaded = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
 	Material = Loaded.value_or(nullptr);
 	ASSERT_TRUE(Loaded) << (Loaded ? std::string{} : Loaded.error().Message);
 	EXPECT_EQ(Material->GetExpressionOutputs(), Outputs);
@@ -354,7 +354,7 @@ TEST(FMaterialExpressionTests, FunctionPersistsOnlyOwnedExpressionsAndAppliesInd
 	ASSERT_TRUE(Saved) << Saved.Message;
 	ASSERT_TRUE(UnloadPackage(Path)); CollectGarbage(); Function = nullptr;
 	{
-		auto LoadedValue = LoadObject<DMaterialFunction>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		auto LoadedValue = LoadObjectDetailed<DMaterialFunction>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
 		Function = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
@@ -938,7 +938,7 @@ TEST(FMaterialExpressionTests, TypedOwnersRoundTripAndDuplicateOnlyApplicableFie
 	CollectGarbage();
 	Owner = nullptr;
 	{
-		auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		auto LoadedValue = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
 		Owner = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}

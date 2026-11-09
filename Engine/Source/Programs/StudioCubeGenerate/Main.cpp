@@ -58,7 +58,7 @@ namespace
 		~FCompilationCleanup()
 		{
 			ShutdownAssetCompilingManager();
-			ShutdownAssetManager();
+			ShutdownAssetRuntime();
 			ShutdownTaskSystem(ETaskShutdownMode::Drain);
 		}
 	};
@@ -89,16 +89,16 @@ auto main(int Count, char** Args) -> int
 		std::cerr << Error;
 		return 1;
 	}
-	if (!InitializeAssetManager()) return 1;
+	if (!InitializeAssetRuntime()) return 1;
 	DObjectInit();
 	FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	if (!RefreshAssetRegistry()) return 1;
 
-	FObjectPath CubeObjectPath;
+	FSoftObjectPath CubeObjectPath;
 	const char* AssetName = bNeutral ? "ThumbnailStudioCube" : "DefaultStudioCube";
 	const std::string ObjectPath = std::string("/Engine/Renderer/") + AssetName + "." + AssetName;
-	const bool ValidPath = FObjectPath::TryCreate(ObjectPath, CubeObjectPath);
+	const bool ValidPath = FSoftObjectPath::TryCreate(ObjectPath, CubeObjectPath);
 	require(ValidPath);
 	auto* Package = CreatePackage(CubeObjectPath.GetPackagePath());
 	if (!Package) return 1;

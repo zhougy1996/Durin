@@ -136,8 +136,8 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	Durin::Testing::FScopedMountRegistryFixture SavedMountRegistry;
 	Durin::FMountPaths::InitDefaultMountPoints();
 	ASSERT_TRUE(Durin::RefreshAssetRegistry());
-	Durin::FObjectPath SpherePath;
-	ASSERT_TRUE(Durin::FObjectPath::TryCreate(
+	Durin::FSoftObjectPath SpherePath;
+	ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate(
 		Durin::Editor::FThumbnailVisualContract::SphereAssetPath, SpherePath));
 	Durin::Editor::FRetainedAsset PreloadedSphere;
 	std::string Error;
@@ -243,7 +243,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	ASSERT_TRUE(MaterialPath.IsValid());
 	Durin::DMaterial* LiveMaterial = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObject<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
+		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
 		LiveMaterial = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
@@ -526,7 +526,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 
 	Durin::DStaticMesh* ReloadedMesh = nullptr;
 	const auto ReloadMeshResult =
-		Durin::LoadObject<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath));
+		Durin::LoadObjectDetailed<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath));
 		ReloadedMesh = ReloadMeshResult.value_or(nullptr);
 	ASSERT_TRUE(ReloadMeshResult) << (ReloadMeshResult ? std::string{} : ReloadMeshResult.error().Message);
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*ReloadedMesh);
@@ -733,7 +733,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		ASSERT_TRUE(PbrMeshPath.IsValid());
 		Durin::DStaticMesh* PbrMesh = nullptr;
 		{
-			auto LoadedValue = Durin::LoadObject<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(PbrMeshPath));
+			auto LoadedValue = Durin::LoadObjectDetailed<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(PbrMeshPath));
 			PbrMesh = LoadedValue.value_or(nullptr);
 			ASSERT_TRUE(LoadedValue);
 		}

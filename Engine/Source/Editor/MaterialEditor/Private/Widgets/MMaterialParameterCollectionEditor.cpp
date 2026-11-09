@@ -25,14 +25,14 @@ namespace Durin::Editor::Material
 	{
 		if (Document.ResourceId.empty()) return EDocumentOpenResult::Rejected;
 		if (Find(Document.ResourceId)) return EDocumentOpenResult::Opened;
-		FObjectPath Path;
-		if (const auto Parsed = FObjectPath::TryCreateWithDiagnostic(
+		FSoftObjectPath Path;
+		if (const auto Parsed = FSoftObjectPath::TryCreateWithDiagnostic(
 			Document.ResourceId, Path); !Parsed)
 		{
 			Report(ToString(Parsed.error()));
 			return EDocumentOpenResult::Rejected;
 		}
-		auto Loaded = LoadObject<DMaterialParameterCollection>(Path);
+		auto Loaded = LoadObjectDetailed<DMaterialParameterCollection>(Path);
 		if (!Loaded)
 		{
 			Report(Loaded.error().Message);

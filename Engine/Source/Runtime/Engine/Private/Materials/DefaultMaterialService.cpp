@@ -38,8 +38,8 @@ namespace Durin
 		}
 		GDefaultMaterialService.bInitialized = true;
 
-		FObjectPath Path;
-		if (!FObjectPath::TryCreate(DefaultMaterialObjectPath, Path))
+		FSoftObjectPath Path;
+		if (!FSoftObjectPath::TryCreate(DefaultMaterialObjectPath, Path))
 		{
 			RecordMaterialFallbackReason(
 				EMaterialFallbackReason::DefaultAssetUnavailable);
@@ -50,10 +50,9 @@ namespace Durin
 			return false;
 		}
 
-		DMaterial* Material = nullptr;
-		const auto LoadResult = LoadObject<DMaterial>(Path);
-		Material = LoadResult.value_or(nullptr);
-		if (!LoadResult || Material == nullptr
+		const auto Load = LoadObjectDetailed<DMaterial>(Path);
+		DMaterial* Material = Load.value_or(nullptr);
+		if (Material == nullptr
 			|| Material->GetClass() != DMaterial::StaticClass())
 		{
 			RecordMaterialFallbackReason(
@@ -62,9 +61,9 @@ namespace Durin
 				"Material",
 				"DefaultAssetUnavailable: failed to load exact DMaterial '{}': {}; ErrorMaterial will be used.",
 				DefaultMaterialObjectPath,
-				(LoadResult ? std::string{} : LoadResult.error().Message).empty()
+				bool(Load)
 					? "asset type or object was invalid"
-					: (LoadResult ? std::string{} : LoadResult.error().Message));
+					: Load.error().Message);
 			return false;
 		}
 

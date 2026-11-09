@@ -33,7 +33,7 @@ namespace Durin
 			Error.Actual = std::move(Actual);
 			return std::unexpected(std::move(Error));
 		}
-		auto ValidateSoftObject(DObject* Object, const DClass* ExpectedClass, FObjectPath& OutPath) -> std::expected<void, FSoftObjectError>
+		auto ValidateSoftObject(DObject* Object, const DClass* ExpectedClass, FSoftObjectPath& OutPath) -> std::expected<void, FSoftObjectError>
 		{
 			check(Object);
 			if (Cast<DPackage>(Object)) return FailSoftObject(ESoftObjectError::PackageObject, Object->GetObjectPath());
@@ -41,7 +41,7 @@ namespace Durin
 			if (ExpectedClass && !Object->IsA(ExpectedClass)) return FailSoftObject(ESoftObjectError::ClassMismatch, Object->GetObjectPath(), ExpectedClass->GetQualifiedName().ToString(), Object->GetClass()->GetQualifiedName().ToString());
 			DPackage* Package = Object->GetPackage();
 			if (!Package || !Package->IsAssetPackage()) return FailSoftObject(ESoftObjectError::UnpackagedObject, Object->GetObjectPath());
-			if (auto Path = FObjectPath::TryCreateWithDiagnostic(Object->GetObjectPath(), OutPath); !Path)
+			if (auto Path = FSoftObjectPath::TryCreateWithDiagnostic(Object->GetObjectPath(), OutPath); !Path)
 				return std::unexpected(FSoftObjectError{.Code = ESoftObjectError::InvalidObjectPath,
 					.Subject = Object->GetObjectPath(), .PathCause = std::move(Path.error())});
 			return {};
@@ -84,7 +84,7 @@ namespace Durin
 	auto FSoftObjectPtr::TrySetObject(DObject* InObject, const DClass* ExpectedClass) -> std::expected<void, FSoftObjectError>
 	{
 		if (!InObject) { Reset(); return {}; }
-		FObjectPath ObjectPath;
+		FSoftObjectPath ObjectPath;
 		if (auto Result = ValidateSoftObject(InObject, ExpectedClass, ObjectPath); !Result) return Result;
 		AuthoredPath = std::move(ObjectPath);
 		WeakObject.SetObject(InObject);

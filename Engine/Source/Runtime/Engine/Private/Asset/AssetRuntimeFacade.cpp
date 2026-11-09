@@ -14,31 +14,49 @@ namespace Durin
 			FSoftObjectPathRegistration()
 			{
 				Private::SetSoftObjectPathOperations({
-					.Resolve = [](const FObjectPath& Path, const DClass* ExpectedClass, DObject* Cached) {
+					.Resolve = [](const FSoftObjectPath& Path, const DClass* ExpectedClass, DObject* Cached) {
 						return FAssetRuntimeState::Get().GetLoadService().FindLoadedObject(Path, ExpectedClass, Cached);
 					},
-					.Load = [](const FObjectPath& Path, const DClass* ExpectedClass) {
-						return LoadObject(Path, ExpectedClass).value_or(nullptr);
+					.Load = [](const FSoftObjectPath& Path, const DClass* ExpectedClass) {
+						return LoadObject(Path, ExpectedClass);
 					}});
 			}
 			~FSoftObjectPathRegistration() { Private::SetSoftObjectPathOperations({}); }
 		} GSoftObjectPathRegistration;
 	}
 
-	auto LoadPackage(
+	auto LoadPackage(const FPackagePath& Path, FAssetLoadReport* OutReport) -> DPackage*
+	{
+		return LoadPackageDetailed(Path, OutReport).value_or(nullptr);
+	}
+
+	auto LoadObject(const FSoftObjectPath& Path, const DClass* ExpectedClass,
+		FAssetLoadReport* OutReport) -> DObject*
+	{
+		return LoadObjectDetailed(Path, ExpectedClass, OutReport).value_or(nullptr);
+	}
+
+	auto LoadObject(const FTopLevelAssetPath& Path, const DClass* ExpectedClass,
+		FAssetLoadReport* OutReport) -> DObject*
+	{
+		return LoadObjectDetailed(Path, ExpectedClass, OutReport).value_or(nullptr);
+	}
+
+	auto LoadPackageDetailed(
 		const FPackagePath& Path,
 		FAssetLoadReport* OutReport) -> std::expected<DPackage*, FAssetReadError>
 	{
-		return FAssetRuntimeState::Get().GetLoadService().LoadPackage(
-			Path, OutReport);
+		if (OutReport) *OutReport = {.RequestedPath = Path, .FinalPath = Path, .PackagePath = Path};
+		auto Result = FAssetRuntimeState::Get().GetLoadService().LoadPackageDetailed(Path, OutReport);
+		return Result;
 	}
 
-	auto LoadObject(
-		const FObjectPath& Path,
+	auto LoadObjectDetailed(
+		const FSoftObjectPath& Path,
 		const DClass* ExpectedClass,
 		FAssetLoadReport* OutReport) -> std::expected<DObject*, FAssetReadError>
 	{
-		return FAssetRuntimeState::Get().GetLoadService().LoadObject(
+		return FAssetRuntimeState::Get().GetLoadService().LoadObjectDetailed(
 			Path, ExpectedClass, OutReport);
 	}
 
@@ -94,12 +112,12 @@ namespace Durin
 		return State.GetLoadService().UnloadPackage(Path, Policy);
 	}
 
-	auto ShutdownAssetManager() -> void
+	auto ShutdownAssetRuntime() -> void
 	{
 		FAssetRuntimeState::Get().Shutdown();
 	}
 
-	auto InitializeAssetManager(
+	auto InitializeAssetRuntime(
 		FAssetRuntimeConfiguration Configuration) -> FAssetWriteResult
 	{
 		return FAssetRuntimeState::Get().Initialize(std::move(Configuration));

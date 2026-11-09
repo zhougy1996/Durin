@@ -18,7 +18,7 @@ namespace Durin::AssetPrivate
 			-> FAssetCatalogEntry;
 		auto ResolvePackagePath(const FPackagePath& Path,
 			const FAssetPathQueryOptions& Options = {}) const -> FPackagePathResolveResult;
-		auto ResolveAssetObjectPath(const FObjectPath& Path,
+		auto ResolveAssetObjectPath(const FSoftObjectPath& Path,
 			const FAssetPathQueryOptions& Options) const -> FObjectPathResolveResult;
 		auto FindRedirectorsTo(const FPackagePath& Destination) const
 			-> std::vector<FPackagePath>;

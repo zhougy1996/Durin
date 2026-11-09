@@ -969,7 +969,7 @@ int main(int ArgC, char** ArgV)
 		{
 			if (!bStarted) return;
 			Durin::ShutdownAssetCompilingManager();
-			Durin::ShutdownAssetManager();
+			Durin::ShutdownAssetRuntime();
 			Durin::CollectGarbage();
 			Durin::ShutdownTaskSystem(Durin::ETaskShutdownMode::Drain);
 #if DURIN_WITH_EDITOR
@@ -987,7 +987,7 @@ int main(int ArgC, char** ArgV)
 	}
 	EditorServices.bStarted = true;
 #endif
-	if (const auto Result = Durin::InitializeAssetManager(); !Result)
+	if (const auto Result = Durin::InitializeAssetRuntime(); !Result)
 	{
 		std::cerr << "Error: asset runtime initialization failed: " << Result.Message << '\n';
 		return 1;
@@ -1109,10 +1109,10 @@ int main(int ArgC, char** ArgV)
 				bInventoryValid = false;
 				continue;
 			}
-			Durin::FObjectPath Path;
-			Durin::FObjectPath::TryCreate(std::format("{}.{}", PackagePath.ToString(), FunctionNames[Index]), Path);
+			Durin::FSoftObjectPath Path;
+			Durin::FSoftObjectPath::TryCreate(std::format("{}.{}", PackagePath.ToString(), FunctionNames[Index]), Path);
 			Durin::DMaterialFunction* Function = nullptr;
-			if (!(Function = Durin::LoadObject<Durin::DMaterialFunction>(Path).value_or(nullptr))) { bInventoryValid = false; continue; }
+			if (!(Function = Durin::LoadObjectDetailed<Durin::DMaterialFunction>(Path).value_or(nullptr))) { bInventoryValid = false; continue; }
 			*FunctionSlots[Index] = Function;
 			bExactDependencies &= Durin::AssetForge::Builtins::MakeStandardMaterialFunctionExpressions(
 				static_cast<Durin::AssetForge::Builtins::EStandardMaterialFunction>(Index + 1)).Matches(*Function);
@@ -1129,10 +1129,10 @@ int main(int ArgC, char** ArgV)
 				Row.SetChildValue("package", Package.PackagePath.ToString());
 				Row.SetChildValue("asset", Asset.AssetPath.ToString());
 				Row.SetChildValue("class", Asset.AssetClassName);
-				Durin::FObjectPath Path;
+				Durin::FSoftObjectPath Path;
 				Durin::DObject* Object = nullptr;
-				if (!Durin::FObjectPath::TryCreate(Asset.AssetPath, std::span<const std::string>{}, Path)
-					|| !(Object = Durin::LoadObject<Durin::DObject>(Path).value_or(nullptr)))
+				if (!Durin::FSoftObjectPath::TryCreate(Asset.AssetPath, std::span<const std::string>{}, Path)
+					|| !(Object = Durin::LoadObjectDetailed<Durin::DObject>(Path).value_or(nullptr)))
 				{
 					Row.SetChildValue("status", "Load failed; rebuild required before writes");
 					bInventoryValid = false;

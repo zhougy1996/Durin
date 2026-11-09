@@ -93,7 +93,7 @@ namespace Durin
 		if (bShutdownRequested || IsEngineExitRequested()) return std::unexpected("Game startup was canceled.");
 		if (DefaultLevel.IsValid())
 		{
-			FObjectPath LevelPath;
+			FSoftObjectPath LevelPath;
 			if (const auto Resolution = ResolveLevelPackage(DefaultLevel, LevelPath); !Resolution)
 				return std::unexpected(Resolution.Message);
 			if (!OpenLevel({.Path = LevelPath, .GameMode = GameModeClass}))

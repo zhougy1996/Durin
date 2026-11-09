@@ -431,12 +431,12 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	DVolumeTexture* ReloadedBase = nullptr;
 	DVolumeTexture* ReloadedDetail = nullptr;
 	{
-		auto LoadedValue = LoadObject<DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(BaseAssetPath));
+		auto LoadedValue = LoadObjectDetailed<DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(BaseAssetPath));
 		ReloadedBase = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
 	{
-		auto LoadedValue = LoadObject<DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(DetailAssetPath));
+		auto LoadedValue = LoadObjectDetailed<DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(DetailAssetPath));
 		ReloadedDetail = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
@@ -557,14 +557,14 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(CompanionBytes, SourceStoragePath));
 	DVolumeTexture* CorruptLoad = nullptr;
 	{
-		auto LoadedValue = LoadObject<DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
+		auto LoadedValue = LoadObjectDetailed<DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
 		CorruptLoad = LoadedValue.value_or(nullptr);
 		EXPECT_FALSE(LoadedValue);
 	}
 	CompanionBytes.back() ^= std::byte{1};
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(CompanionBytes, SourceStoragePath));
 	DVolumeTexture* Reloaded = nullptr;
-	const auto Loaded = LoadObject<DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
+	const auto Loaded = LoadObjectDetailed<DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
 	Reloaded = Loaded.value_or(nullptr);
 	ASSERT_TRUE(Loaded) << (Loaded ? std::string{} : Loaded.error().Message);
 	ASSERT_NE(Reloaded, nullptr);

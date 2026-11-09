@@ -253,13 +253,13 @@ TEST(FCookedPathTests, ImmutableRuntimeConfigurationRejectsReplacementAndPackage
 	ASSERT_TRUE(FAssetRuntimeConfiguration::Cooked(Root, Runtime));
 	EXPECT_FALSE(Runtime.AllowsSourceFallback());
 	EXPECT_FALSE(Runtime.AllowsDerivedDataFallback());
-	ShutdownAssetManager();
-	ASSERT_TRUE(InitializeAssetManager(Runtime));
+	ShutdownAssetRuntime();
+	ASSERT_TRUE(InitializeAssetRuntime(Runtime));
 	EXPECT_TRUE(GetAssetRuntimeConfiguration().RequiresCookedPayload());
-	EXPECT_FALSE(InitializeAssetManager(FAssetRuntimeConfiguration::Authored()));
+	EXPECT_FALSE(InitializeAssetRuntime(FAssetRuntimeConfiguration::Authored()));
 	EXPECT_EQ(SavePackage(nullptr).Error, EAssetWriteError::ReadOnlyMode);
-	ShutdownAssetManager();
-	ASSERT_TRUE(InitializeAssetManager());
+	ShutdownAssetRuntime();
+	ASSERT_TRUE(InitializeAssetRuntime());
 }
 
 TEST(FCookedPathTests, RuntimeConfigurationUsesPublishedMacOSTarget)
@@ -282,7 +282,7 @@ TEST(FCookedPathTests, RuntimeConfigurationUsesPublishedMacOSTarget)
 TEST(FCookedPathTests, ScopedRuntimeRejectsInvalidRootAndRestoresNestedConfigurations)
 {
 	Testing::InitializeAssetSystemForTests();
-	ASSERT_TRUE(InitializeAssetManager());
+	ASSERT_TRUE(InitializeAssetRuntime());
 	const FAssetRuntimeConfiguration Original = GetAssetRuntimeConfiguration();
 	const auto FirstRoot = Testing::CreateTestFixtureDirectory("ScopedCookedRuntimeFirst");
 	const auto SecondRoot = Testing::CreateTestFixtureDirectory("ScopedCookedRuntimeSecond");
@@ -294,7 +294,7 @@ TEST(FCookedPathTests, ScopedRuntimeRejectsInvalidRootAndRestoresNestedConfigura
 		const auto Invalid = Inner.RestartCooked("relative/cook");
 		EXPECT_FALSE(Invalid);
 		EXPECT_EQ(GetAssetRuntimeConfiguration(), First);
-		EXPECT_FALSE(InitializeAssetManager(Original));
+		EXPECT_FALSE(InitializeAssetRuntime(Original));
 		ASSERT_TRUE(Inner.Restore());
 		EXPECT_EQ(GetAssetRuntimeConfiguration(), First);
 		ASSERT_TRUE(Inner.RestartCooked(SecondRoot));
@@ -314,7 +314,7 @@ TEST(FCookedPathTests, ScopedRuntimeRejectsInvalidRootAndRestoresNestedConfigura
 TEST(FCookedPathTests, ScopedRuntimeRestoresAfterFatalAssertion)
 {
 	Testing::InitializeAssetSystemForTests();
-	ASSERT_TRUE(InitializeAssetManager());
+	ASSERT_TRUE(InitializeAssetRuntime());
 	const FAssetRuntimeConfiguration Original = GetAssetRuntimeConfiguration();
 	EXPECT_FATAL_FAILURE({
 		Testing::FScopedAssetRuntimeForTests Runtime;
@@ -323,7 +323,7 @@ TEST(FCookedPathTests, ScopedRuntimeRestoresAfterFatalAssertion)
 		FAIL() << "intentional runtime scope exit";
 	}, "intentional runtime scope exit");
 	EXPECT_EQ(GetAssetRuntimeConfiguration(), Original);
-	ASSERT_TRUE(InitializeAssetManager(Original));
+	ASSERT_TRUE(InitializeAssetRuntime(Original));
 }
 
 TEST(FCookedTextureDataTests, DecodeFailureUnlocksBulkAndInstalledDataSkipsReload)

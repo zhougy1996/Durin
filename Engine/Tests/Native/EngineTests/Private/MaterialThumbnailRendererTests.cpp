@@ -342,7 +342,7 @@ TEST(FMaterialThumbnailRendererTests,
 	ASSERT_NE(MaterialData, nullptr);
 	Durin::DObject* LoadedObject = nullptr;
 	const auto LoadResult =
-		Durin::LoadObject<Durin::DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
+		Durin::LoadObjectDetailed<Durin::DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
 		LoadedObject = LoadResult.value_or(nullptr);
 	ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
 	auto* Material = Durin::Cast<Durin::DMaterial>(LoadedObject);
@@ -392,7 +392,7 @@ TEST(FMaterialThumbnailRendererTests,
 	ASSERT_NE(MaterialData, nullptr);
 	Durin::DObject* LoadedObject = nullptr;
 	const auto LoadResult =
-		Durin::LoadObject<Durin::DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
+		Durin::LoadObjectDetailed<Durin::DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
 		LoadedObject = LoadResult.value_or(nullptr);
 	ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
 	auto* Material = Durin::Cast<Durin::DMaterial>(LoadedObject);
@@ -400,12 +400,12 @@ TEST(FMaterialThumbnailRendererTests,
 	(void)Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
 	ASSERT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
 
-	Durin::FObjectPath SpherePath;
-	ASSERT_TRUE(Durin::FObjectPath::TryCreate(
+	Durin::FSoftObjectPath SpherePath;
+	ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate(
 		Durin::Editor::FThumbnailVisualContract::SphereAssetPath, SpherePath));
 	Durin::DObject* SphereObject = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObject<Durin::DObject>(SpherePath);
+		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DObject>(SpherePath);
 		SphereObject = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}

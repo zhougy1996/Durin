@@ -504,7 +504,7 @@ TEST(FSplineComponentTests, LevelPackageRoundTripsV2ControlPointsAndIds)
 
 	Durin::DObject* LoadedObject = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObject<Durin::DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
 		LoadedObject = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}

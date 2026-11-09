@@ -69,9 +69,9 @@ namespace Durin::AssetForge::Builtins
 			Output.bExistingMaterialMapping = false;
 			if (Row.Selection.Mode == ESceneMaterialImportMode::UseExisting)
 			{
-				FObjectPath Path;
-				auto* Material = FObjectPath::TryCreate(Row.Selection.ExistingMaterialPath, Path)
-					? LoadObject<DMaterialInterface>(Path).value_or(nullptr) : nullptr;
+				FSoftObjectPath Path;
+				auto* Material = FSoftObjectPath::TryCreate(Row.Selection.ExistingMaterialPath, Path)
+					? LoadObjectDetailed<DMaterialInterface>(Path).value_or(nullptr) : nullptr;
 				if (!Material || !Material->GetPackage())
 				{
 					Row.Message = "Select a packaged existing material or material instance.";
@@ -107,9 +107,9 @@ namespace Durin::AssetForge::Builtins
 			Row.bCompatible = Row.bPreserved || Row.Message.empty();
 			if (bInstance && !Row.bPreserved && Row.bCompatible)
 			{
-				FObjectPath ParentPath;
-				if (FObjectPath::TryCreate(Row.Selection.ParentMaterialPath, ParentPath))
-					Output.Parent = TStrongObjectPtr<DMaterial>(LoadObject<DMaterial>(ParentPath).value_or(nullptr));
+				FSoftObjectPath ParentPath;
+				if (FSoftObjectPath::TryCreate(Row.Selection.ParentMaterialPath, ParentPath))
+					Output.Parent = TStrongObjectPtr<DMaterial>(LoadObjectDetailed<DMaterial>(ParentPath).value_or(nullptr));
 				if (!Output.Parent.Get()) Row.Message = "Select an existing parent Material to create instances.";
 				else if (std::ranges::any_of(Outputs, [&](const auto& Other) {
 					return Other.AssetPath == Output.Parent->GetPackage()->GetPackagePathIdentity();

@@ -34,12 +34,12 @@ namespace Durin
 		};
 		std::vector<FSelection> Selection;
 		std::vector<size_t> Inputs;
-		std::unordered_map<FObjectPath, size_t> Seen;
-		std::vector<FObjectPath> Reserved;
+		std::unordered_map<FSoftObjectPath, size_t> Seen;
+		std::vector<FSoftObjectPath> Reserved;
 		struct FPathScope
 		{
-			std::unordered_set<FObjectPath>& Paths;
-			std::vector<FObjectPath>& Reserved;
+			std::unordered_set<FSoftObjectPath>& Paths;
+			std::vector<FSoftObjectPath>& Reserved;
 			~FPathScope() { for (const auto& Path : Reserved) Paths.erase(Path); }
 		} PathScope{OpeningPaths, Reserved};
 		for (const auto& Target : Args.Assets)

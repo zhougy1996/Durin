@@ -734,8 +734,8 @@ TEST(FWorldTests, CanceledMapChangePreservesTheActiveWorldAndCompletesAtTheFrame
 	auto* Previous = CreateWorld(Host.Get(), EWorldType::Editor);
 	Host->SetWorld(Previous);
 	auto* Level = Previous->GetCurrentLevel();
-	FObjectPath Path;
-	ASSERT_TRUE(FObjectPath::TryCreate("/SceneCancellation/Candidate.Candidate", Path));
+	FSoftObjectPath Path;
+	ASSERT_TRUE(FSoftObjectPath::TryCreate("/SceneCancellation/Candidate.Candidate", Path));
 	int Completions = 0;
 	ASSERT_TRUE(Host->PrepareMapChange({.Path = Path,
 		.OnComplete = [&](const FMapChangeProgress& Progress) {
@@ -785,8 +785,8 @@ TEST(FWorldTests, MapChangeCompletionCanStartAnotherChangeWithoutOverwritingItsP
 	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DEngine> Host(NewObject<DEngine>(nullptr, "MapCompletionHost"));
-	FObjectPath Path;
-	ASSERT_TRUE(FObjectPath::TryCreate("/SceneCompletion/Candidate.Candidate", Path));
+	FSoftObjectPath Path;
+	ASSERT_TRUE(FSoftObjectPath::TryCreate("/SceneCompletion/Candidate.Candidate", Path));
 	uint64 FirstId = 0;
 	int Completions = 0;
 	ASSERT_TRUE(Host->OpenLevel({.Path = Path, .OnComplete = [&](const FMapChangeProgress& Progress) {
@@ -818,8 +818,8 @@ TEST(FWorldTests, MapChangeCompletionExceptionsDoNotEscapeOrRedeliver)
 	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DEngine> Host(NewObject<DEngine>(nullptr, "MapCompletionFailureHost"));
-	FObjectPath Path;
-	ASSERT_TRUE(FObjectPath::TryCreate("/CompletionFailure/Candidate.Candidate", Path));
+	FSoftObjectPath Path;
+	ASSERT_TRUE(FSoftObjectPath::TryCreate("/CompletionFailure/Candidate.Candidate", Path));
 	for (bool bStandardException : {true, false})
 	{
 		int Completions = 0;

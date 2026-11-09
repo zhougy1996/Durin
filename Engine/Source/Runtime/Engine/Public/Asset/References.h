@@ -46,7 +46,7 @@ namespace Durin
 		std::string FieldName;
 		EAssetReferenceKind Kind = EAssetReferenceKind::HardObject;
 		std::string ExpectedClass;
-		FObjectPath TargetPath;
+		FSoftObjectPath TargetPath;
 		std::vector<FAssetReferenceRouteSegment> Route;
 		std::string DisplayRoute;
 		// Populated for Cook admission when internal references are requested.

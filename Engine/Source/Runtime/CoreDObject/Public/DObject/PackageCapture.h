@@ -103,7 +103,7 @@ namespace Durin
 		std::shared_ptr<const FObjectSaveOverrides> SaveOverrides;
 		std::function<bool(const DObject*, const FProperty*)> PropertyFilter;
 		std::function<bool(const DObject*)> ObjectFilter;
-		std::unordered_map<const DObject*, FObjectPath> RedirectDestinations;
+		std::unordered_map<const DObject*, FSoftObjectPath> RedirectDestinations;
 	};
 	// GameThread capture. Does not validate catalog dependencies or publish assets.
 	COREDOBJECT_API auto CapturePackageLinker(DPackage* Package, EDefaultDeltaMode DeltaMode,

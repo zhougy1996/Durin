@@ -1,6 +1,6 @@
 #include "Asset/Testing/PackageSaveTesting.h"
 #include "AssetMaintenance/CanonicalResave.h"
-#include "Asset/StreamableHandle.h"
+#include "Engine/StreamableManager.h"
 #include "Asset/EditorBulkDataStorage.h"
 #include "Asset/PackageSerialization.h"
 
@@ -344,24 +344,24 @@ namespace Durin
 			FAssetLoadReport LoadReport;
 			if (!Package)
 			{
-				if (Options.ShouldFail && Options.ShouldFail(EAssetCanonicalResaveApplyPhase::LoadPackage, Index))
+				if (Options.ShouldFail && Options.ShouldFail(EAssetCanonicalResaveApplyPhase::LoadPackageDetailed, Index))
 				{
 					PackagePlan.Status = EAssetCanonicalResavePackageStatus::Failed;
 					Result.Status = Completed ? EAssetCanonicalResaveApplyStatus::Partial : EAssetCanonicalResaveApplyStatus::Failed;
 					Result.Diagnostic = "Injected canonical-resave load failure.";
 					return Result;
 				}
-				LoadHandle = RequestSyncLoad(PackagePlan.PackagePath);
+				LoadHandle = GetStreamableManager().RequestSyncLoadPackage(PackagePlan.PackagePath);
 				LoadReport = LoadHandle->GetReport();
-				const auto Load = LoadHandle->GetResult();
-				Package = Load ? Load->Package : nullptr;
+				const bool Load = !LoadHandle->HasError();
+				Package = Load ? LoadHandle->GetLoadedPackage() : nullptr;
 				if (!Load || !Package || LoadReport.NonUpgradeMutationCount != 0)
 				{
 					(void)ReleaseLoaded();
 					PackagePlan.Status = EAssetCanonicalResavePackageStatus::Failed;
 					Result.Status = Completed ? EAssetCanonicalResaveApplyStatus::Partial : EAssetCanonicalResaveApplyStatus::Failed;
 					Result.Diagnostic = std::format("CanonicalResaveLoadRejected: {}",
-						Load ? "load reported compatibility or mutation risk" : (Load ? std::string{} : Load.error().Message));
+						Load ? "load reported compatibility or mutation risk" : LoadHandle->GetError().Message);
 					return Result;
 				}
 			}

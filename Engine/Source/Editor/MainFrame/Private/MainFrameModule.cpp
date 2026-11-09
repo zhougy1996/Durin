@@ -180,15 +180,15 @@ namespace Durin::Editor::MainFrame
 			std::weak_ptr<FAssetEditorToolkit> Attached;
 		};
 
-		auto LoadReimportObject(std::string_view AssetPath, FObjectPath& OutPath,
+		auto LoadReimportObject(std::string_view AssetPath, FSoftObjectPath& OutPath,
 			DObject*& OutObject, std::string& OutError) -> bool
 		{
-			if (!FObjectPath::TryCreate(AssetPath, OutPath))
+			if (!FSoftObjectPath::TryCreate(AssetPath, OutPath))
 			{
 				OutError = "The selected asset path is invalid.";
 				return false;
 			}
-			const auto Loaded = LoadObject<DObject>(OutPath);
+			const auto Loaded = LoadObjectDetailed<DObject>(OutPath);
 			OutObject = Loaded.value_or(nullptr);
 			if (!Loaded || !OutObject)
 			{
@@ -223,7 +223,7 @@ namespace Durin::Editor::MainFrame
 		auto ExecuteReimport(bool bFromFile, std::string AssetPath,
 			std::function<void(std::string)> ReportError) -> void
 		{
-			FObjectPath Path;
+			FSoftObjectPath Path;
 			DObject* Object = nullptr;
 			std::string Error;
 			if (!LoadReimportObject(AssetPath, Path, Object, Error))
@@ -320,8 +320,8 @@ namespace Durin::Editor::MainFrame
 						const std::string& AssetClassName) {
 						auto* AssetEditors = Service.Get();
 						if (!AssetEditors || !AssetEditors->GetWorkGate()->IsOpen()) return false;
-						FObjectPath ObjectPath;
-						if (!FObjectPath::TryCreate(Path, ObjectPath)) return false;
+						FSoftObjectPath ObjectPath;
+						if (!FSoftObjectPath::TryCreate(Path, ObjectPath)) return false;
 						return AssetEditors->OpenAssets({.AssetEditors = AssetEditors,
 							.Assets = {{ObjectPath, AssetClassName}}, .Origin = "ContentBrowser"}).IsAccepted();
 					},

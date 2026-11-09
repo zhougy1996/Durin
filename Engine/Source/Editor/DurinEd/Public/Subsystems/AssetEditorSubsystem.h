@@ -27,7 +27,7 @@ namespace Durin
 		DURINED_API auto CanOpenEditorForAsset(DObject* Asset, std::string* OutErrorMsg = nullptr) -> bool;
 		DURINED_API auto OpenEditorForAsset(DObject* Asset) -> bool;
 		DURINED_API auto OpenEditorForAsset(const std::string& AssetPathName) -> void;
-		DURINED_API auto OpenEditorForAsset(const FObjectPath& AssetPath) -> void;
+		DURINED_API auto OpenEditorForAsset(const FSoftObjectPath& AssetPath) -> void;
 		DURINED_API auto OpenEditorForAssets(const std::vector<DObject*>& Assets) -> bool;
 		DURINED_API auto OpenEditorsForAssets(const std::vector<std::string>& AssetsToOpen) -> void;
 		DURINED_API auto CanOpenAsset(const FAssetOpenTarget& Target,
@@ -103,7 +103,7 @@ namespace Durin
 			EAssetOpenMethod Method = EAssetOpenMethod::Edit;
 		};
 		std::unordered_map<uint64, FOpenRequest> OpenRequests;
-		std::unordered_set<FObjectPath> OpeningPaths;
+		std::unordered_set<FSoftObjectPath> OpeningPaths;
 		FStrongObjectPtr DispatchingDefinition;
 		EAssetOpenMethod DispatchingOpenMethod = EAssetOpenMethod::Edit;
 		uint64 NextOpenRequestId = 1;

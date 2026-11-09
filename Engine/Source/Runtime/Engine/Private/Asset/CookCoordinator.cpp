@@ -90,9 +90,9 @@ namespace Durin
 		}
 
 		auto MakeTopLevelObjectPath(
-			const FTopLevelAssetPath& AssetPath, FObjectPath& OutPath) -> bool
+			const FTopLevelAssetPath& AssetPath, FSoftObjectPath& OutPath) -> bool
 		{
-			return FObjectPath::TryCreate(
+			return FSoftObjectPath::TryCreate(
 				AssetPath, std::span<const std::string>{}, OutPath);
 		}
 
@@ -503,7 +503,7 @@ namespace Durin
 							continue;
 						}
 
-						const auto LoadResult = LoadScope.LoadPackage(Path);
+						const auto LoadResult = LoadScope.LoadPackageDetailed(Path);
 						if (!LoadResult) return InputFailure(ToCookInputResult(AssetReadResultFromError(LoadResult.error())));
 						DPackage* AuthoredPackage = *LoadResult;
 						FCookContext Context(Request.TargetPlatform, Request.TargetProfile, Request.bRetainEditorOnlyData);

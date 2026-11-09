@@ -1,3 +1,4 @@
+#include "Engine/StreamableManager.h"
 #include "Thumbnail/TextureCubeThumbnailRenderer.h"
 #include "DObject/WeakObjectPtr.h"
 
@@ -100,22 +101,22 @@ namespace Durin::Editor::Texture
 			auto Load() -> FThumbnailRendererSessionUpdate override
 			{
 				ResetPreview();
-				AssetLoad = RequestAsyncLoad(AssetPath, {}, DTextureCube::StaticClass());
+				AssetLoad = StreamableManager.RequestAsyncLoad(AssetPath, {}, DTextureCube::StaticClass());
 				return {.State = EThumbnailRendererSessionState::WaitingForResources};
 			}
 
 			auto FinishLoad() -> FThumbnailRendererSessionUpdate
 			{
-				const auto& Result = AssetLoad->GetResult();
-				TextureCube = Result ? Cast<DTextureCube>(AssetLoad->GetLoadedObject()) : nullptr;
+				const bool Result = !AssetLoad->HasError();
+				TextureCube = Result ? Cast<DTextureCube>(AssetLoad->GetLoadedAsset()) : nullptr;
 				if (!Result || !TextureCube.IsValid())
 				{
 					TextureCube = nullptr;
 					return {
 						.State = EThumbnailRendererSessionState::Failed,
-						.Diagnostic = (Result ? std::string{} : Result.error().Message).empty()
+						.Diagnostic = AssetLoad->GetError().Message.empty()
 							? "The requested asset is not a TextureCube."
-							: (Result ? std::string{} : Result.error().Message)};
+							: AssetLoad->GetError().Message};
 				}
 				AssetRevision = TextureCube.Get()->GetPackage() ? TextureCube.Get()->GetPackage()->GetEditRevision() : 0;
 				SourceIdentity = TextureCube.Get()->GetSource().GetIdentity();
@@ -206,6 +207,7 @@ namespace Durin::Editor::Texture
 		private:
 			FShaderMapPreparation Shaders;
 			bool bShadersRequested = false;
+			FStreamableManager StreamableManager;
 			std::shared_ptr<FStreamableHandle> AssetLoad;
 			bool bAssetLoaded = false;
 			FXxHash128 SourceIdentity{};

@@ -85,7 +85,7 @@ namespace Durin
 	enum class EAssetCanonicalResaveApplyPhase : uint8
 	{
 		Revalidate,
-		LoadPackage,
+		LoadPackageDetailed,
 		SerializePackage,
 		StagePackage,
 		PublishPackage,

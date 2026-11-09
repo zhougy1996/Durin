@@ -53,9 +53,9 @@ namespace Durin
 
 	auto DAssetEditorSubsystem::CanOpenEditorForAsset(DObject* Asset, std::string* OutErrorMsg) -> bool
 	{
-		FObjectPath Path;
+		FSoftObjectPath Path;
 		const bool bAllowed = CanCall() && IsValid(Asset) && !Asset->IsTemplateObject()
-			&& FObjectPath::TryCreate(Asset->GetObjectPath(), Path)
+			&& FSoftObjectPath::TryCreate(Asset->GetObjectPath(), Path)
 			&& CanOpenAsset({Path, Asset->GetClass()->GetQualifiedName().ToString()});
 		if (OutErrorMsg) *OutErrorMsg = bAllowed ? std::string{} : "The asset or its editor is unavailable.";
 		return bAllowed;
@@ -94,8 +94,8 @@ namespace Durin
 				if (CanCall() && HasEditor(Best)) { bOpened = true; return; }
 			}
 			if (!CanOpenEditorForAsset(Asset)) return;
-			FObjectPath Path;
-			if (!FObjectPath::TryCreate(Asset->GetObjectPath(), Path)) return;
+			FSoftObjectPath Path;
+			if (!FSoftObjectPath::TryCreate(Asset->GetObjectPath(), Path)) return;
 			bOpened = OpenAssets({.AssetEditors = this,
 				.Assets = {{Path, Asset->GetClass()->GetQualifiedName().ToString()}}}).IsAccepted();
 			bOpened = bOpened && CanCall();
@@ -106,11 +106,11 @@ namespace Durin
 	auto DAssetEditorSubsystem::OpenEditorForAsset(const std::string& AssetPathName) -> void
 	{
 		if (!CanCall()) return;
-		FObjectPath Path;
-		if (FObjectPath::TryCreate(AssetPathName, Path)) OpenEditorForAsset(Path);
+		FSoftObjectPath Path;
+		if (FSoftObjectPath::TryCreate(AssetPathName, Path)) OpenEditorForAsset(Path);
 	}
 
-	auto DAssetEditorSubsystem::OpenEditorForAsset(const FObjectPath& AssetPath) -> void
+	auto DAssetEditorSubsystem::OpenEditorForAsset(const FSoftObjectPath& AssetPath) -> void
 	{
 		if (!CanCall() || !AssetPath.IsValid()) return;
 		DispatchEditorCallback([&] {
@@ -123,7 +123,7 @@ namespace Durin
 					.Assets = {{Metadata.FinalPath, Metadata.FinalAssetData->AssetClassName}}});
 				return;
 			}
-			const auto Loaded = LoadObject<DObject>(AssetPath);
+			const auto Loaded = LoadObjectDetailed<DObject>(AssetPath);
 			if (Loaded && *Loaded) (void)OpenEditorForAsset(*Loaded);
 		});
 	}
@@ -228,8 +228,8 @@ namespace Durin
 		if (std::ranges::find(Editors, Instance) != Editors.end()) return;
 		Editors.push_back(Instance);
 		OpenedEditors[Instance].push_back(Key);
-		FObjectPath Path;
-		if (FObjectPath::TryCreate(Asset->GetObjectPath(), Path))
+		FSoftObjectPath Path;
+		if (FSoftObjectPath::TryCreate(Asset->GetObjectPath(), Path))
 			PublishEvent({.Type = EAssetEditorEvent::Opened, .Target = {Path, Asset->GetClass()->GetQualifiedName().ToString()},
 				.Session = FObjectKey(dynamic_cast<DAssetEditor*>(Instance)), .Method = Instance->GetOpenMethod(), .Status = EAssetOpenStatus::Completed});
 	}
@@ -246,8 +246,8 @@ namespace Durin
 		const FObjectKey Key(Asset);
 		const auto FoundEditor = OpenedEditors.find(Instance);
 		if (FoundEditor == OpenedEditors.end() || std::ranges::find(FoundEditor->second, Key) == FoundEditor->second.end()) return;
-		FObjectPath Path;
-		FObjectPath::TryCreate(Asset->GetObjectPath(), Path);
+		FSoftObjectPath Path;
+		FSoftObjectPath::TryCreate(Asset->GetObjectPath(), Path);
 		FAssetEditorEvent Event{.Type = EAssetEditorEvent::AssetRemoved, .Target = {Path, Asset->GetClass()->GetQualifiedName().ToString()},
 			.Session = FObjectKey(dynamic_cast<DAssetEditor*>(Instance)), .Method = Instance->GetOpenMethod()};
 		if (auto Found = OpenedAssets.find(Key); Found != OpenedAssets.end())
@@ -279,7 +279,7 @@ namespace Durin
 			if (Asset->second.empty()) OpenedAssets.erase(Asset);
 			if (auto* Object = Key.ResolveObjectPtr())
 			{
-				FObjectPath Path; FObjectPath::TryCreate(Object->GetObjectPath(), Path);
+				FSoftObjectPath Path; FSoftObjectPath::TryCreate(Object->GetObjectPath(), Path);
 				Events.push_back({.Type = EAssetEditorEvent::AssetRemoved, .Target = {Path, Object->GetClass()->GetQualifiedName().ToString()},
 					.Session = FObjectKey(dynamic_cast<DAssetEditor*>(Instance)), .Method = Instance->GetOpenMethod()});
 			}

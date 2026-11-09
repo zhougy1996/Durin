@@ -1,3 +1,4 @@
+#include "Engine/StreamableManager.h"
 #include "ComponentPSOPrecacheTestSupport.h"
 #include "Asset/PackageUnloading.h"
 #include "NativeAssetBuildTestSupport.h"
@@ -191,8 +192,8 @@ namespace
 			}
 			for (const auto Name : {Durin::Editor::FThumbnailVisualContract::SphereAssetPath, Durin::Editor::FPreviewMeshResources::BoxAssetPath})
 			{
-				Durin::FObjectPath Path;
-				if (Durin::FObjectPath::TryCreate(Name, Path))
+				Durin::FSoftObjectPath Path;
+				if (Durin::FSoftObjectPath::TryCreate(Name, Path))
 					(void)Durin::UnloadPackage(Path.GetPackagePath(), Durin::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			}
 			Durin::CollectGarbage();
@@ -347,7 +348,7 @@ TEST_F(FThumbnailVulkanTests, StaticMeshSessionWaitsForMaterialPublication)
 	auto Session = Extension.CreateGenerationSession({}, Input);
 	ASSERT_TRUE(Session) << Session.error();
 	EXPECT_EQ((*Session)->Load().State, EThumbnailRendererSessionState::WaitingForResources);
-	auto Load = RequestAsyncLoad(AssetPath, {}, DStaticMesh::StaticClass());
+	auto Load = GetStreamableManager().RequestAsyncLoad(AssetPath, {}, DStaticMesh::StaticClass());
 	// Deliberately withhold material completion publication, while mesh, global
 	// shaders and asynchronous loading finish. This needs no sleeps or worker gate.
 	ASSERT_TRUE(WaitForResourcePublication([&] {
@@ -474,12 +475,15 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 	const Durin::FPackageCatalogEntry StaticMeshAssetData =
 		Durin::FindPackageExact(StaticMeshFixturePath);
 	ASSERT_NE(StaticMeshAssetData, nullptr);
+	const auto StaticMeshExport = Durin::FindAssetExact(
+		Durin::Testing::MakePackageLeafTopLevelAssetPathForTests(StaticMeshFixturePath));
+	ASSERT_TRUE(StaticMeshExport);
 	const Durin::Editor::FAssetThumbnailPackageFingerprint StaticMeshFingerprint = {
 		.AssetPath = Durin::Testing::MakePackageLeafTopLevelAssetPathForTests(
 			StaticMeshAssetData->PackagePath
 		),
 		.PackagePath = StaticMeshAssetData->PackagePath,
-		.AssetClassName = StaticMeshAssetData->AssetClassName,
+		.AssetClassName = StaticMeshExport.Asset->AssetClassName,
 		.PackageFormatVersion = StaticMeshAssetData->FormatVersion,
 		.FileSize = static_cast<uint64>(StaticMeshAssetData->FileSize),
 		.LastWriteTimeTicks = StaticMeshAssetData->LastWriteTimeTicks
@@ -800,10 +804,12 @@ TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplace
 	ASSERT_FALSE(Asset->GetSource().IsValid());
 	const auto Data = FindPackageExact(Packages.back());
 	ASSERT_TRUE(Data);
+	const auto AssetData = FindAssetExact(Testing::MakePackageLeafTopLevelAssetPathForTests(Packages.back()));
+	ASSERT_TRUE(AssetData);
 	FAssetThumbnailRequest Request;
 	Request.Asset = {
 		.AssetPath = Testing::MakePackageLeafTopLevelAssetPathForTests(Packages.back()),
-		.PackagePath = Packages.back(), .AssetClassName = Data->AssetClassName,
+		.PackagePath = Packages.back(), .AssetClassName = AssetData.Asset->AssetClassName,
 		.PackageFormatVersion = Data->FormatVersion, .FileSize = static_cast<uint64>(Data->FileSize),
 		.LastWriteTimeTicks = Data->LastWriteTimeTicks};
 	DTextureThumbnailRenderer Renderer;

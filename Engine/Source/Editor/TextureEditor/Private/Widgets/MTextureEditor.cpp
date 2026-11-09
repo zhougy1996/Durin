@@ -150,16 +150,16 @@ namespace Durin::Editor::Texture
 	{
 		if (Document.ResourceId.empty()) return EDocumentOpenResult::Rejected;
 		if (FindOpenTexture(Document.ResourceId)) return EDocumentOpenResult::Opened;
-		FObjectPath AssetPath;
+		FSoftObjectPath AssetPath;
 		std::string PathError;
-		if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(Document.ResourceId, AssetPath); !PathValidation)
+		if (const auto PathValidation = FSoftObjectPath::TryCreateWithDiagnostic(Document.ResourceId, AssetPath); !PathValidation)
 		{
 			PathError = ToString(PathValidation.error());
 			SetError(std::move(PathError));
 			return EDocumentOpenResult::Rejected;
 		}
 		DTexture2D* Texture = nullptr;
-		const auto Result = LoadObject<DTexture2D>(AssetPath);
+		const auto Result = LoadObjectDetailed<DTexture2D>(AssetPath);
 		Texture = Result.value_or(nullptr);
 		if (!Result || !Texture)
 		{

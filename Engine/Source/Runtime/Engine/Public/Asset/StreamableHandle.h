@@ -7,18 +7,14 @@
 namespace Durin
 {
 	class FAssetLoadRequestService;
+	class FStreamableManager;
 	enum class EAssetLoadState : uint8 { Pending, Loading, Succeeded, Failed, Cancelled };
-	struct FStreamableLoadResult
-	{
-		DPackage* Package = nullptr;
-		DObject* Object = nullptr;
-	};
 	class FStreamableHandle;
 	using FStreamableDelegate = std::function<void(FStreamableHandle&)>;
 
 	// GameThread-only. Active handles retain their loaded package and selected object.
 	// Release/destruction drops only this handle's references and schedules GC.
-	class FStreamableHandle
+	class FStreamableHandle : public std::enable_shared_from_this<FStreamableHandle>
 	{
 	public:
 		ENGINE_API ~FStreamableHandle();
@@ -27,12 +23,22 @@ namespace Durin
 		ENGINE_API auto GetState() const -> EAssetLoadState;
 		ENGINE_API auto IsComplete() const -> bool;
 		ENGINE_API auto IsActive() const -> bool;
-		// Requires IsComplete(); pending/loading have no terminal result.
-		// Released success results observe weak identities; collected objects are null.
-		[[nodiscard]] ENGINE_API auto GetResult() const -> std::expected<FStreamableLoadResult, FAssetReadError>;
+		ENGINE_API auto HasLoadCompleted() const -> bool;
+		ENGINE_API auto WasCanceled() const -> bool;
+		ENGINE_API auto HasError() const -> bool;
+		// None when no error; aggregate error is the first failed input slot.
+		ENGINE_API auto GetError() const -> const FAssetReadError&;
+		ENGINE_API auto GetTargetErrors() const -> std::vector<FAssetReadError>;
+		ENGINE_API auto GetLoadReports() const -> std::vector<FAssetLoadReport>;
+		ENGINE_API auto GetRequestedAssets() const -> const std::vector<FSoftObjectPath>&;
+		// Input ordering and duplicates are preserved, including null failure slots.
+		ENGINE_API auto GetLoadedAssets() const -> std::vector<DObject*>;
+		ENGINE_API auto GetDebugName() const -> const std::string&;
+		ENGINE_API auto GetOwningManager() const -> FStreamableManager*;
+		ENGINE_API auto IsManaged() const -> bool;
 		ENGINE_API auto GetReport() const -> const FAssetLoadReport&;
 		ENGINE_API auto GetLoadedPackage() const -> DPackage*;
-		ENGINE_API auto GetLoadedObject() const -> DObject*;
+		ENGINE_API auto GetLoadedAsset() const -> DObject*;
 		// During loading or queued completion, release is deferred until callback delivery.
 		ENGINE_API auto ReleaseHandle() -> void;
 		// Suppresses this request's completion and releases its retention; peers are unaffected.
@@ -43,28 +49,8 @@ namespace Durin
 		struct FImpl;
 		std::unique_ptr<FImpl> Impl;
 		friend class FAssetLoadRequestService;
+		friend class FStreamableManager;
 	};
-
-	// Sync and async requests share the same retention contract. Neither releasing
-	// a handle nor cancelling a request forces collection or unloads another owner.
-	ENGINE_API auto RequestSyncLoad(const FPackagePath& Path) -> std::shared_ptr<FStreamableHandle>;
-	ENGINE_API auto RequestSyncLoad(const FObjectPath& Path, const DClass* ExpectedClass = nullptr)
-		-> std::shared_ptr<FStreamableHandle>;
-	ENGINE_API auto RequestSyncLoad(const FTopLevelAssetPath& Path, const DClass* ExpectedClass = nullptr)
-		-> std::shared_ptr<FStreamableHandle>;
-
-	// Deferred, including resident hits and ordinary errors. Lifetime/guard rejection
-	// returns a failed handle without a callback. Higher priority starts first.
-	// Completion means object readiness, not compilation or render-resource readiness.
-	ENGINE_API auto RequestAsyncLoad(const FPackagePath& Path,
-		FStreamableDelegate OnComplete = {}, int32 Priority = 0)
-		-> std::shared_ptr<FStreamableHandle>;
-	ENGINE_API auto RequestAsyncLoad(const FObjectPath& Path,
-		FStreamableDelegate OnComplete = {}, const DClass* ExpectedClass = nullptr,
-		int32 Priority = 0) -> std::shared_ptr<FStreamableHandle>;
-	ENGINE_API auto RequestAsyncLoad(const FTopLevelAssetPath& Path,
-		FStreamableDelegate OnComplete = {}, const DClass* ExpectedClass = nullptr,
-		int32 Priority = 0) -> std::shared_ptr<FStreamableHandle>;
 
 	// EngineLoop pumps this automatically. Tools/tests must pump on GameThread.
 	// Budget is checked between completions; object graph application is currently atomic.

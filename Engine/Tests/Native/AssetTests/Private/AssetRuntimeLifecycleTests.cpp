@@ -3,7 +3,7 @@
 #include "Asset/PackageUnloading.h"
 #include "Asset/RegistryOperations.h"
 #include "AssetRegistry/Scan.h"
-#include "Asset/StreamableHandle.h"
+#include "Engine/StreamableManager.h"
 #include "Asset/AssetRuntimeStateInternal.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
@@ -25,7 +25,7 @@
 namespace
 {
 	using namespace Durin;
-	FObjectPath DefaultAssetPath;
+	FSoftObjectPath DefaultAssetPath;
 
 	// Two registration batches exercise both initial and newly loaded module CDOs.
 	template<int Index>
@@ -44,7 +44,7 @@ namespace
 			if (!IsClassDefaultObject()) return;
 			bSawCookedDomain = GetAssetRuntimeConfiguration().IsCooked();
 			bConstructedBeforeObjectInit = !IsDObjectInitialized();
-			const auto Result = LoadObject(DefaultAssetPath, DObject::StaticClass());
+			const auto Result = LoadObjectDetailed(DefaultAssetPath, DObject::StaticClass());
 			LoadError = Result ? EAssetReadError::None : Result.error().Code;
 			LoadMessage = Result ? "" : Result.error().Message;
 			Asset = Result.value_or(nullptr);
@@ -92,31 +92,31 @@ TEST(FAssetRuntimeLifecycleTests, ColdCookedBootAndReflectedDefaultsPreserveFina
 	const auto Root = Testing::CreateTestFixtureDirectory("CookedBootstrap");
 	Testing::FScopedMountRegistryFixture Mounts;
 	Testing::RegisterMountPointForTests("/Boot/", (Root / "Content").generic_string());
-	ASSERT_TRUE(FObjectPath::TryCreate("/Boot/Default.Default", DefaultAssetPath));
+	ASSERT_TRUE(FSoftObjectPath::TryCreate("/Boot/Default.Default", DefaultAssetPath));
 	const auto InitialObjectCount = GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates).size();
 	auto& Runtime = FAssetRuntimeState::Get();
 	EXPECT_FALSE(Runtime.IsAcceptingRequests());
-	const auto BeforeInit = LoadObject(DefaultAssetPath, nullptr);
+	const auto BeforeInit = LoadObjectDetailed(DefaultAssetPath, nullptr);
 	ASSERT_FALSE(BeforeInit);
 	EXPECT_EQ(BeforeInit.error().Code, EAssetReadError::InUse);
-	EXPECT_NE(BeforeInit.error().Message.find("InitializeAssetManager"), std::string::npos);
+	EXPECT_NE(BeforeInit.error().Message.find("InitializeAssetRuntime"), std::string::npos);
 	EXPECT_EQ(SavePackage(nullptr).Error, EAssetWriteError::InUse);
 	bool bCallback = false;
-	const auto Rejected = RequestAsyncLoad(DefaultAssetPath, [&](const auto&) { bCallback = true; });
+	const auto Rejected = GetStreamableManager().RequestAsyncLoad(DefaultAssetPath, [&](const auto&) { bCallback = true; });
 	ASSERT_TRUE(Rejected->IsComplete());
-	EXPECT_FALSE(Rejected->GetResult());
+	EXPECT_TRUE(Rejected->HasError());
 	ProcessAsyncLoading();
 	EXPECT_FALSE(bCallback);
-	ShutdownAssetManager(); // A cold shutdown must not require reflected types or choose a domain.
+	ShutdownAssetRuntime(); // A cold shutdown must not require reflected types or choose a domain.
 	EXPECT_FALSE(IsDObjectInitialized());
 
 	FAssetRuntimeConfiguration Configuration = FAssetRuntimeConfiguration::Authored();
 	ASSERT_TRUE(FAssetRuntimeConfiguration::Cooked(Root, Configuration));
-	ASSERT_TRUE(InitializeAssetManager(Configuration));
+	ASSERT_TRUE(InitializeAssetRuntime(Configuration));
 	EXPECT_FALSE(IsDObjectInitialized());
 	EXPECT_EQ(GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates).size(), InitialObjectCount);
-	EXPECT_TRUE(InitializeAssetManager(Configuration));
-	EXPECT_FALSE(InitializeAssetManager());
+	EXPECT_TRUE(InitializeAssetRuntime(Configuration));
+	EXPECT_FALSE(InitializeAssetRuntime());
 	// Encode an empty static asset without registering any reflected type first.
 	// With no fields its complete Authored and Cooked representations are identical.
 	ObjectPackage::FLinkerTables Linker;
@@ -150,22 +150,22 @@ TEST(FAssetRuntimeLifecycleTests, ColdCookedBootAndReflectedDefaultsPreserveFina
 	CollectGarbage();
 	EXPECT_EQ(Soft.Get(), Default->Asset.Get());
 	EXPECT_FALSE(Default->Asset->IsGarbage());
-	EXPECT_TRUE(InitializeAssetManager(Configuration));
+	EXPECT_TRUE(InitializeAssetRuntime(Configuration));
 	EXPECT_FALSE(Default->Asset->IsGarbage());
 
 	Runtime.StopAcceptingRequests();
-	EXPECT_FALSE(InitializeAssetManager(Configuration));
-	EXPECT_FALSE(InitializeAssetManager());
+	EXPECT_FALSE(InitializeAssetRuntime(Configuration));
+	EXPECT_FALSE(InitializeAssetRuntime());
 	EXPECT_EQ(GetAssetRuntimeConfiguration(), Configuration);
 	EXPECT_EQ(Soft.Get(), nullptr); // Cached soft references cannot bypass closed admission.
-	const auto ClosedPackage = LoadPackage(DefaultAssetPath.GetPackagePath());
+	const auto ClosedPackage = LoadPackageDetailed(DefaultAssetPath.GetPackagePath());
 	ASSERT_FALSE(ClosedPackage);
 	EXPECT_EQ(ClosedPackage.error().Code, EAssetReadError::ShuttingDown);
 	ReleaseClassDefaultObjects();
-	ShutdownAssetManager();
+	ShutdownAssetRuntime();
 	CollectGarbage();
-	ASSERT_TRUE(InitializeAssetManager());
+	ASSERT_TRUE(InitializeAssetRuntime());
 	EXPECT_TRUE(GetAssetRuntimeConfiguration().IsAuthored());
-	ShutdownAssetManager();
-	ShutdownAssetManager();
+	ShutdownAssetRuntime();
+	ShutdownAssetRuntime();
 }

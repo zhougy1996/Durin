@@ -128,7 +128,7 @@ namespace
 			ASSERT_TRUE(Durin::UnloadPackage(Path));
 			Texture = nullptr;
 			{
-				auto LoadedValue = Durin::LoadObject<T>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
+				auto LoadedValue = Durin::LoadObjectDetailed<T>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
 				Texture = LoadedValue.value_or(nullptr);
 				ASSERT_TRUE(LoadedValue);
 			}
@@ -170,7 +170,7 @@ namespace
 			ASSERT_TRUE(Durin::UnloadPackage(Path));
 			Texture = nullptr;
 			{
-				auto LoadedValue = Durin::LoadObject<T>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
+				auto LoadedValue = Durin::LoadObjectDetailed<T>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
 				Texture = LoadedValue.value_or(nullptr);
 				ASSERT_TRUE(LoadedValue);
 			}
@@ -662,7 +662,7 @@ TEST_F(FAssetPackageReloadTests, ReloadRetainsCrossPackageHistoryAndRebindsTheSa
 	auto Operation = ReloadPackages(Request);
 	ASSERT_TRUE(Operation.Wait());
 	EXPECT_EQ(Transactions->GetQueueLength(), 1u);
-	auto Reloaded = LoadObject<DTexture2D>(Testing::MakePackageLeafAssetObjectPathForTests(Paths[0]));
+	auto Reloaded = LoadObjectDetailed<DTexture2D>(Testing::MakePackageLeafAssetObjectPathForTests(Paths[0]));
 	ASSERT_TRUE(Reloaded); Textures[0] = *Reloaded;
 	const auto ReloadedState = Transactions->GetPackageRevisionState(*Textures[0]->GetPackage());
 	ASSERT_TRUE(ReloadedState); EXPECT_TRUE(ReloadedState->bCheckpointValid);
@@ -813,7 +813,7 @@ TEST_F(FAssetPackageReloadTests, SkyLightUndoRedoAndPackageReopenPreserveSourceA
     ASSERT_TRUE(UnloadPackage(Path));
     ASkyLightActor* Reopened=nullptr;
     {
-        auto LoadedValue = LoadObject<ASkyLightActor>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+        auto LoadedValue = LoadObjectDetailed<ASkyLightActor>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
         Reopened = LoadedValue.value_or(nullptr);
         ASSERT_TRUE(LoadedValue);
     }
@@ -991,7 +991,7 @@ TEST(FObjectLoadTimingTests, SeparatesNestedPackagesAndDeferredPostLoadWithoutDo
 			FScopedObjectLoadPhase Serialize(A, EObjectLoadPhase::SerializeExports, 2, 3);
 			Tick = 20;
 			{
-				FScopedObjectLoadPhase Dependency(B, EObjectLoadPhase::LoadPackage);
+				FScopedObjectLoadPhase Dependency(B, EObjectLoadPhase::LoadPackageDetailed);
 				Tick = 25;
 				{ FScopedObjectLoadPhase Defaults(B, EObjectLoadPhase::InitDefaults, 1); Tick = 35; }
 				Tick = 50;
@@ -1065,7 +1065,7 @@ TEST(FObjectLoadTimingTests, FailureUnwindsTimingScopesAndPreservesLaterSamples)
 	Tick = 0;
 	FObjectLoadTimingSession Session(Path, false, +[]() -> int64 { return Tick; }, true);
 	EXPECT_THROW(( [&] {
-		FScopedObjectLoadPhase Outer(Path, EObjectLoadPhase::LoadPackage);
+		FScopedObjectLoadPhase Outer(Path, EObjectLoadPhase::LoadPackageDetailed);
 		Tick = 10;
 		FScopedObjectLoadPhase Inner(Path, EObjectLoadPhase::SerializeExports, 1, 4);
 		Tick = 30;
@@ -1074,7 +1074,7 @@ TEST(FObjectLoadTimingTests, FailureUnwindsTimingScopesAndPreservesLaterSamples)
 	Tick = 40;
 	{ FScopedObjectLoadPhase Later(Path, EObjectLoadPhase::PostLoad, 1); Tick = 50; }
 	const auto& Phases = Session.GetPackages()[0].Phases;
-	EXPECT_EQ(Phases[static_cast<size_t>(EObjectLoadPhase::LoadPackage)].Inclusive, 30);
-	EXPECT_EQ(Phases[static_cast<size_t>(EObjectLoadPhase::LoadPackage)].Children, 20);
+	EXPECT_EQ(Phases[static_cast<size_t>(EObjectLoadPhase::LoadPackageDetailed)].Inclusive, 30);
+	EXPECT_EQ(Phases[static_cast<size_t>(EObjectLoadPhase::LoadPackageDetailed)].Children, 20);
 	EXPECT_EQ(Phases[static_cast<size_t>(EObjectLoadPhase::PostLoad)].Inclusive, 10);
 }

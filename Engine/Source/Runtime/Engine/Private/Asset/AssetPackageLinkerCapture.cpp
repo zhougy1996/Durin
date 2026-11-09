@@ -25,9 +25,9 @@ namespace Durin::AssetPrivate
    if (auto* Redirector = Cast<DAssetRedirector>(Asset))
    {
     DObject* Destination = Redirector->GetDestinationObject();
-    FObjectPath Path;
+    FSoftObjectPath Path;
     if (!Destination || Destination == Asset || !Destination->GetPackage()
-     || !FObjectPath::TryCreate(Destination->GetObjectPath(), Path))
+     || !FSoftObjectPath::TryCreate(Destination->GetObjectPath(), Path))
      return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::AssetIdentity, .Message = "Redirector destination is invalid."});
     Capture.RedirectDestinations.emplace(Asset, std::move(Path));
    }

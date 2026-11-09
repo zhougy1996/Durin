@@ -119,6 +119,6 @@ namespace Durin
 	// Package redirects are followed, and failure leaves OutLevelPath unchanged.
 	ENGINE_API auto ResolveLevelPackage(
 		const FPackagePath& PackagePath,
-		FObjectPath& OutLevelPath
+		FSoftObjectPath& OutLevelPath
 	) -> FAssetReadResult;
 }

@@ -14,7 +14,7 @@ namespace Durin
 	{
 		FTopLevelAssetPath AssetPath;
 		std::string AssetClassName;
-		FObjectPath RedirectDestination;
+		FSoftObjectPath RedirectDestination;
 
 		auto IsRedirector() const -> bool { return AssetClassName == "Durin::DAssetRedirector"; }
 		auto operator==(const FAssetData&) const -> bool = default;
@@ -195,9 +195,9 @@ namespace Durin
 	{
 		EAssetPathResolveState State = EAssetPathResolveState::NotFound;
 		uint64 CatalogRevision = 0;
-		FObjectPath RequestedPath;
-		FObjectPath FinalPath;
-		std::vector<FObjectPath> RedirectChain;
+		FSoftObjectPath RequestedPath;
+		FSoftObjectPath FinalPath;
+		std::vector<FSoftObjectPath> RedirectChain;
 		std::optional<FAssetData> FinalAssetData;
 		std::optional<FPackageData> FinalPackageData;
 
@@ -258,7 +258,7 @@ namespace Durin
 		const FPackagePath& Path,
 		const FAssetPathQueryOptions& Options = {}) -> FPackagePathResolveResult;
 	ASSETREGISTRY_API auto ResolveAssetObjectPath(
-		const FObjectPath& Path,
+		const FSoftObjectPath& Path,
 		const FAssetPathQueryOptions& Options = {}) -> FObjectPathResolveResult;
 	ASSETREGISTRY_API auto CaptureAssetCatalogSnapshot() -> FAssetCatalogSnapshot;
 	ASSETREGISTRY_API auto CaptureAssetDependencyClosure(

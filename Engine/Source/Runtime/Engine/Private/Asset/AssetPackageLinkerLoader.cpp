@@ -772,7 +772,7 @@ namespace Durin::AssetPrivate
 					DPackage* Package = FindPackage(Path.GetView());
 					if (!Package && Options.DependencyLoadScope)
 					{
-						const auto Result = Options.DependencyLoadScope->LoadPackage(Path);
+						const auto Result = Options.DependencyLoadScope->LoadPackageDetailed(Path);
 						Package = Result.value_or(nullptr);
 						if (!Result) return {.Status = (Result ? Durin::EAssetReadError::None : Result.error().Code) == EAssetReadError::InUse ? S::Busy : S::MissingDependency, .PackagePath = Path, .Reason = R::DependencyLoad, .Message = (Result ? std::string{} : Result.error().Message)};
 					}
@@ -819,7 +819,7 @@ namespace Durin::AssetPrivate
 				ObjectCount += State->Pins.size();
 				State->Pins.insert(State->Pins.end(), ExternalPins.begin(), ExternalPins.end());
 			}
-			auto Resolve = [&](const FObjectPath& Path, DObject*& Object) -> FAssetReadResult {
+			auto Resolve = [&](const FSoftObjectPath& Path, DObject*& Object) -> FAssetReadResult {
 				Object = nullptr;
 				DPackage* Package = nullptr;
 				for (const auto& Application : Applications)
@@ -1058,7 +1058,7 @@ namespace Durin::AssetPrivate
 					Result = Options.DependencyLoadPolicy->ResolvePackage(Path, Dependency);
 				else
 				{
-					auto Loaded = LoadPackage(Path);
+					auto Loaded = LoadPackageDetailed(Path);
 					if (!Loaded) Result = AssetReadResultFromError(Loaded.error());
 					else Dependency = *Loaded;
 				}
@@ -1077,9 +1077,9 @@ namespace Durin::AssetPrivate
 		// Choose sources once for this package; object archives only consume them.
 		const FPackageLoadBindings Bindings{
 			.BulkResource = Options.BulkResource,
-			.ResolveExternalObject = [Policy = Options.DependencyLoadPolicy](const FObjectPath& Path, DObject*& Object) {
+			.ResolveExternalObject = [Policy = Options.DependencyLoadPolicy](const FSoftObjectPath& Path, DObject*& Object) {
 				if (Policy) return Policy->ResolveObject(Path, Object);
-				auto Loaded = LoadObject(Path, nullptr);
+				auto Loaded = LoadObjectDetailed(Path, nullptr);
 				Object = Loaded.value_or(nullptr);
 				return Loaded ? FAssetReadResult{} : AssetReadResultFromError(Loaded.error());
 			}};

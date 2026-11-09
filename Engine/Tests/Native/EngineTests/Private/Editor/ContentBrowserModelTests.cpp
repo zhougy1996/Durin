@@ -83,16 +83,16 @@ namespace
 				std::make_unique<Testing::FScopedMountRegistryFixture>(
 					Definitions);
 			ASSERT_TRUE(Registry->IsValid()) << Registry->GetError();
-			ShutdownAssetManager();
+			ShutdownAssetRuntime();
 			CollectGarbage();
-			ASSERT_TRUE(InitializeAssetManager());
+			ASSERT_TRUE(InitializeAssetRuntime());
 		}
 
 		static void TearDownTestSuite()
 		{
-			ShutdownAssetManager();
+			ShutdownAssetRuntime();
 			CollectGarbage();
-			ASSERT_TRUE(InitializeAssetManager());
+			ASSERT_TRUE(InitializeAssetRuntime());
 		}
 
 		std::filesystem::path Root;
@@ -1252,8 +1252,8 @@ TEST_F(FContentBrowserModelTests, HidesRedirectorsButPreservesFoldersAndSupports
 {
 	const std::string RootPath =
 		std::filesystem::absolute(Root / "Content").lexically_normal().generic_string();
-	FObjectPath Destination;
-	ASSERT_TRUE(FObjectPath::TryCreate(
+	FSoftObjectPath Destination;
+	ASSERT_TRUE(FSoftObjectPath::TryCreate(
 		"/ContentBrowserTests/Final/Stone.Stone", Destination));
 	FPackagePath RedirectorPackagePath;
 	ASSERT_TRUE(FPackagePath::TryCreate(
@@ -1420,7 +1420,7 @@ TEST_F(FContentBrowserModelTests, DuplicatesAssetGraphWithFirstAvailableCopyName
 			.lexically_normal().generic_string());
 	DMaterial* Duplicate = nullptr;
 	{
-		auto LoadedValue = LoadObject<DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(DuplicatePath));
+		auto LoadedValue = LoadObjectDetailed<DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(DuplicatePath));
 		Duplicate = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
@@ -1437,7 +1437,7 @@ TEST_F(FContentBrowserModelTests, DuplicatesAssetGraphWithFirstAvailableCopyName
 		Testing::MakePackageLeafTopLevelAssetPathForTests(PastedPath).ToString());
 	DMaterial* Pasted = nullptr;
 	{
-		auto LoadedValue = LoadObject<DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(PastedPath));
+		auto LoadedValue = LoadObjectDetailed<DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(PastedPath));
 		Pasted = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}

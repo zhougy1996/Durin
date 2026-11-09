@@ -595,8 +595,8 @@ namespace Durin::Editor::ContentBrowser::Private
 							if (Item.Kind == EContentBrowserItemKind::Redirector)
 							{
 								Row("Destination", Item.RedirectDestination.ToString());
-								FObjectPath ObjectPath;
-								FObjectPath::TryCreate(Item.VirtualPath, ObjectPath);
+								FSoftObjectPath ObjectPath;
+								FSoftObjectPath::TryCreate(Item.VirtualPath, ObjectPath);
 								const FObjectPathResolveResult Resolution =
 									ResolveAssetObjectPathForOperation(ObjectPath);
 								Row("State", ResolveStateLabel(Resolution.State));
@@ -1219,8 +1219,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(AssetDragDropPayloadType); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(FAssetDragDropPayload))
 		{
 			const auto* AssetPayload = static_cast<const FAssetDragDropPayload*>(Payload->Data);
-			FObjectPath OldObjectPath;
-			if (FObjectPath::TryCreate(AssetPayload->AssetPath.data(), OldObjectPath))
+			FSoftObjectPath OldObjectPath;
+			if (FSoftObjectPath::TryCreate(AssetPayload->AssetPath.data(), OldObjectPath))
 			{
 				const FPackagePath& OldPath = OldObjectPath.GetPackagePath();
 				std::string Destination = bPhysicalDirectory ? PhysicalToVirtualDirectory(DestinationDirectory) : std::string(DestinationDirectory);

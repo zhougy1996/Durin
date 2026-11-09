@@ -251,9 +251,9 @@ namespace Durin
 			FGuid PreviousCollection;
 			for (const auto& Collection : Program.ActiveCollections)
 			{
-				FObjectPath AssetPath;
+				FSoftObjectPath AssetPath;
 				if ((!Collection.AssetPath.empty()
-						&& (!FObjectPath::TryCreate(Collection.AssetPath, AssetPath)
+						&& (!FSoftObjectPath::TryCreate(Collection.AssetPath, AssetPath)
 							|| !AssetPath.IsTopLevelAsset()))
 					|| !Collection.CollectionId.IsValid()
 					|| (PreviousCollection.IsValid()

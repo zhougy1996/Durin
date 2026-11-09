@@ -19,7 +19,7 @@ namespace Durin::Testing
 		GIsGameThreadIdInitialized = true;
 		static const bool bInitialized = [] {
 			if (!IsFNameInitialized()) FNameInit();
-			const auto Result = InitializeAssetManager();
+			const auto Result = InitializeAssetRuntime();
 			requiref(Result, "Failed to initialize test asset runtime: {}", Result.Message);
 			return true;
 		}();
@@ -64,9 +64,9 @@ namespace Durin::Testing
 	private:
 		static auto Restart(FAssetRuntimeConfiguration Configuration) -> ::testing::AssertionResult
 		{
-			ShutdownAssetManager();
+			ShutdownAssetRuntime();
 			CollectGarbage();
-			const FAssetWriteResult Result = InitializeAssetManager(std::move(Configuration));
+			const FAssetWriteResult Result = InitializeAssetRuntime(std::move(Configuration));
 			if (!Result) return ::testing::AssertionFailure() << Result.Message;
 			return ::testing::AssertionSuccess();
 		}

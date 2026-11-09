@@ -355,16 +355,16 @@ namespace Durin::Editor::Material
 	{
 		if (Document.ResourceId.empty()) return EDocumentOpenResult::Rejected;
 		if (FindOpenMaterial(Document.ResourceId)) return EDocumentOpenResult::Opened;
-		FObjectPath AssetPath;
+		FSoftObjectPath AssetPath;
 		std::string PathError;
-		if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(Document.ResourceId, AssetPath); !PathValidation)
+		if (const auto PathValidation = FSoftObjectPath::TryCreateWithDiagnostic(Document.ResourceId, AssetPath); !PathValidation)
 		{
 			PathError = ToString(PathValidation.error());
 			SetError(std::move(PathError));
 			return EDocumentOpenResult::Rejected;
 		}
 		DMaterialInterface* Material = nullptr;
-		const auto Result = LoadObject<DMaterialInterface>(AssetPath);
+		const auto Result = LoadObjectDetailed<DMaterialInterface>(AssetPath);
 		Material = Result.value_or(nullptr);
 		if (!Result || !Material)
 		{

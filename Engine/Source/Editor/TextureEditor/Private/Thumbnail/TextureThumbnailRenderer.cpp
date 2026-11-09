@@ -1,3 +1,4 @@
+#include "Engine/StreamableManager.h"
 #include "Thumbnail/TextureThumbnailRenderer.h"
 #include "RenderResource.h"
 #include "Shader/ShaderMapPreparation.h"
@@ -27,7 +28,7 @@ namespace Durin::Editor::Texture
 			auto Load() -> FThumbnailRendererSessionUpdate override
 			{
 				ResetPreview();
-				AssetLoad = RequestAsyncLoad(AssetPath, {}, DTexture2D::StaticClass());
+				AssetLoad = StreamableManager.RequestAsyncLoad(AssetPath, {}, DTexture2D::StaticClass());
 				Shaders = FShaderMapPreparation::Request("TextureEditor", {"TextureEditor.Preview"}, EShaderBuildPriority::High);
 				return {.State = EThumbnailRendererSessionState::WaitingForResources};
 			}
@@ -35,10 +36,10 @@ namespace Durin::Editor::Texture
 			{
 				if (!AssetLoad) return {.Diagnostic = "The thumbnail load was reset."};
 				if (!AssetLoad->IsComplete()) return {.State = EThumbnailRendererSessionState::WaitingForResources};
-				if (!AssetLoad->GetResult()) return {.Diagnostic = (AssetLoad->GetResult() ? std::string{} : AssetLoad->GetResult().error().Message)};
+				if (AssetLoad->HasError()) return {.Diagnostic = (AssetLoad->GetError().Message)};
 				if (!bAssetLoaded)
 				{
-					Texture = Cast<DTexture2D>(AssetLoad->GetLoadedObject());
+					Texture = Cast<DTexture2D>(AssetLoad->GetLoadedAsset());
 					if (!Texture.IsValid()) return {.Diagnostic = "Texture2D asset could not be loaded."};
 					if (!Texture.Get()->IsAsyncCacheComplete())
 						return {.State = EThumbnailRendererSessionState::WaitingForResources};
@@ -96,6 +97,7 @@ namespace Durin::Editor::Texture
 			}
 		private:
 			FShaderMapPreparation Shaders;
+			FStreamableManager StreamableManager;
 			std::shared_ptr<FStreamableHandle> AssetLoad;
 			bool bAssetLoaded = false;
 			FTopLevelAssetPath AssetPath;

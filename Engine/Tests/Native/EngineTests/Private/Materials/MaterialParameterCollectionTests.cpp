@@ -444,7 +444,7 @@ TEST(FMaterialParameterCollectionPersistenceTests,
 	MarkObjectHierarchyAsGarbage(AuthoringMaterial);
 	ASSERT_TRUE(UnloadPackage(Path));
 
-	const auto LoadedResult = LoadObject<DMaterialParameterCollection>(
+	const auto LoadedResult = LoadObjectDetailed<DMaterialParameterCollection>(
 		Testing::MakePackageLeafAssetObjectPathForTests(Path));
 	ASSERT_TRUE(LoadedResult);
 	auto* Loaded = *LoadedResult;

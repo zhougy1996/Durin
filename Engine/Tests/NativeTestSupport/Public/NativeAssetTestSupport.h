@@ -107,14 +107,14 @@ namespace Durin::Testing
 			return {EAssetWriteError::InvalidData,
 				"The redirect destination has no exact top-level asset."};
 
-		FObjectPath DestinationObjectPath;
-		if (!FObjectPath::TryCreate(
+		FSoftObjectPath DestinationObjectPath;
+		if (!FSoftObjectPath::TryCreate(
 			DestinationData.TopLevelAssets.front().AssetPath, std::span<const std::string>{},
 			DestinationObjectPath))
 			return {EAssetWriteError::InvalidPath,
 				"The redirect destination object path is invalid."};
 		DObject* DestinationObject = nullptr;
-		auto Result = LoadObject(DestinationObjectPath, nullptr);
+		auto Result = LoadObjectDetailed(DestinationObjectPath, nullptr);
 		DestinationObject = Result.value_or(nullptr);
 		if (!Result) return AssetWriteResultFromRead(Result);
 

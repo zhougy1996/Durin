@@ -176,8 +176,8 @@ namespace Durin
 		FMaterialParameterCollectionLayout Result{
 			.CollectionId = CollectionId, .UniformLayout = std::move(Compiled.Layout),
 			.SchemaVersion = SchemaVersion};
-		FObjectPath ObjectPath;
-		if (FObjectPath::TryCreate(GetObjectPath(), ObjectPath)
+		FSoftObjectPath ObjectPath;
+		if (FSoftObjectPath::TryCreate(GetObjectPath(), ObjectPath)
 			&& ObjectPath.IsTopLevelAsset())
 			Result.AssetPath = ObjectPath.ToString();
 		Result.DefaultPayload.resize(Result.UniformLayout.UniformPayloadSize);

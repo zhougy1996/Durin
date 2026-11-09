@@ -2,7 +2,7 @@
 
 #include "Engine/Engine.h"
 #include "Engine/World.h"
-#include "Asset/StreamableHandle.h"
+#include "Engine/StreamableManager.h"
 #include "Engine/Level.h"
 #include "DObject/ObjectLifecycle.h"
 #include "IRendererModule.h"
@@ -64,7 +64,7 @@ namespace Durin
 		return {Id, Phase, std::chrono::duration<double>(Now - Started).count(),
 			std::chrono::duration<double>(Now - PhaseStarted).count(), Error};
 	}
-	auto FMapChangeHandler::GetLevel() const -> DLevel* { return Assets ? Cast<DLevel>(Assets->GetLoadedObject()) : nullptr; }
+	auto FMapChangeHandler::GetLevel() const -> DLevel* { return Assets ? Cast<DLevel>(Assets->GetLoadedAsset()) : nullptr; }
 	auto FMapChangeHandler::Cancel() -> void
 	{
 		CheckGameThread();
@@ -122,9 +122,9 @@ namespace Durin
 		switch (Phase)
 		{
 		case EMapChangePhase::LoadingAssets:
-			if (!Assets) Assets = RequestAsyncLoad(Path, {}, DLevel::StaticClass());
+			if (!Assets) Assets = GetStreamableManager().RequestAsyncLoad(Path, {}, DLevel::StaticClass());
 			if (!Assets->IsComplete()) return;
-			if (!Assets->GetResult()) return Fail(Assets->GetResult().error().Message);
+			if (Assets->HasError()) return Fail(Assets->GetError().Message);
 			if (!GetLevel()) return Fail("required Level is missing.");
 			SetPhase(EMapChangePhase::RegisteringWorld);
 			return;

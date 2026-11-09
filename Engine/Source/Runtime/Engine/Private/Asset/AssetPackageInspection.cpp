@@ -84,7 +84,7 @@ namespace Durin
 				return Reader.Read(OutValue.ObjectId) && OutValue.ObjectId != 0;
 			std::string PathString;
 			return Reader.ReadString(PathString, Durin::PackagePrivate::MaximumPackageStringBytes)
-				&& FObjectPath::TryCreate(PathString, OutValue.ExternalPath);
+				&& FSoftObjectPath::TryCreate(PathString, OutValue.ExternalPath);
 		}
 	}
 

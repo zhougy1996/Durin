@@ -4,12 +4,12 @@
 #include "Engine/HostStartup.h"
 #include "DurinEdAPI.h"
 
-namespace Durin { class FObjectPath; struct FProjectInfo; }
+namespace Durin { class FSoftObjectPath; struct FProjectInfo; }
 
 namespace Durin::Editor::Startup
 {
 	// Empty OutPath means no startup level; validation never loads or activates assets.
-	DURINED_API auto ResolveStartupLevel(const FProjectInfo& Project, FObjectPath& OutPath, std::string& OutError) -> bool;
+	DURINED_API auto ResolveStartupLevel(const FProjectInfo& Project, FSoftObjectPath& OutPath, std::string& OutError) -> bool;
 
 	// Describes the game-thread-owned, forward-only editor startup sequence.
 	enum class EBootstrapState : uint8

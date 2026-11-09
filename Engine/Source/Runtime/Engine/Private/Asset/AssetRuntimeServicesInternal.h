@@ -24,14 +24,14 @@ namespace Durin
 		{
 		}
 
-		auto LoadPackage(
+		auto LoadPackageDetailed(
 			const FPackagePath& Path,
 			FAssetLoadReport* OutReport = nullptr) -> std::expected<DPackage*, FAssetReadError>;
-		auto LoadObject(
-			const FObjectPath& Path,
+		auto LoadObjectDetailed(
+			const FSoftObjectPath& Path,
 			const DClass* ExpectedClass,
 			FAssetLoadReport* OutReport = nullptr) -> std::expected<DObject*, FAssetReadError>;
-		auto FindLoadedObject(const FObjectPath& Path, const DClass* ExpectedClass,
+		auto FindLoadedObject(const FSoftObjectPath& Path, const DClass* ExpectedClass,
 			DObject* Cached) -> DObject*;
 		auto FindResidentPackage(const FPackagePath& Path) const -> DPackage*;
 		auto UnloadPackage(
@@ -76,7 +76,7 @@ namespace Durin
 		};
 		auto ResolveDependencyPackage(FPendingLoad& Owner, const FPackagePath& Path,
 			DPackage*& OutPackage) -> FAssetReadResult;
-		auto ResolveDependencyObject(FPendingLoad& Owner, const FObjectPath& Path,
+		auto ResolveDependencyObject(FPendingLoad& Owner, const FSoftObjectPath& Path,
 			DObject*& OutObject) -> FAssetReadResult;
 		auto CompleteComponent(FPendingLoad& Root) -> FAssetReadResult;
 		auto DiscardIncomplete(uint64 FirstIndex) noexcept -> void;

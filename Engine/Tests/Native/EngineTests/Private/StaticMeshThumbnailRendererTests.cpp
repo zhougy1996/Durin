@@ -189,7 +189,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 	ASSERT_NE(Data, nullptr);
 	Durin::DStaticMesh* Mesh = nullptr;
 	const auto LoadResult =
-		Durin::LoadObject<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(SplineBoxPath));
+		Durin::LoadObjectDetailed<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(SplineBoxPath));
 		Mesh = LoadResult.value_or(nullptr);
 	ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
 	ASSERT_NE(Mesh, nullptr);

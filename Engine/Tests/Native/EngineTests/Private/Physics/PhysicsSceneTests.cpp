@@ -250,7 +250,7 @@ TEST(FPrimitiveComponentCollisionEditingTests, LevelPackageAndDuplicatePreserveC
 	ASSERT_TRUE(UnloadPackage(Path));
 	DLevel* Loaded = nullptr;
 	{
-		auto LoadedValue = LoadObject<DLevel>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		auto LoadedValue = LoadObjectDetailed<DLevel>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
 		Loaded = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
@@ -1660,7 +1660,7 @@ TEST(FPhysicsBodySetupTests, PrimitiveAggregatePackagesAndDuplicatesPreserveGeom
 			Element.Transform.Translation = {4, 5, 6}; ASSERT_TRUE(Body->SetSimpleCollision({Element, Element}));
 		}
 		ASSERT_TRUE(SavePackage(Body->GetPackage())); ASSERT_TRUE(UnloadPackage(Path));
-		const auto Loaded = LoadObject<DBodySetup>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		const auto Loaded = LoadObjectDetailed<DBodySetup>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
 		ASSERT_TRUE(Loaded) << (Loaded ? std::string{} : Loaded.error().Message);
 		const auto Copied = DuplicateObject(*Loaded, nullptr, "UnifiedSimpleDuplicate"); ASSERT_TRUE(Copied);
 		for (auto* Current : {*Loaded, *Copied})

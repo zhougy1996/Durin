@@ -1566,7 +1566,7 @@ TEST(FMaterialGraphInteractionTests, SharedTextureParametersPreserveLocalSamplin
 	ASSERT_TRUE(UnloadPackage(Path));
 	Material = nullptr;
 	{
-		auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		auto LoadedValue = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
 		Material = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}

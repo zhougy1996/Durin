@@ -150,9 +150,9 @@ namespace Durin::Tests
 		{
 			if (!SphereAsset)
 			{
-				FObjectPath SpherePath;
+				FSoftObjectPath SpherePath;
 				std::string Error;
-				if (!FObjectPath::TryCreate(
+				if (!FSoftObjectPath::TryCreate(
 						Editor::FThumbnailVisualContract::SphereAssetPath,
 						SpherePath)
 					|| !Editor::FAssetRetentionService::Acquire(
@@ -383,7 +383,7 @@ namespace Durin::Tests
 			if (FindResidentPackage(StaticMeshPath) == nullptr)
 			{
 				DObject* Loaded = nullptr;
-				const auto Result = LoadObject<DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(StaticMeshPath));
+				const auto Result = LoadObjectDetailed<DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(StaticMeshPath));
 				Loaded = Result.value_or(nullptr);
 				It->second.StaticMesh = Result ? Cast<DStaticMesh>(Loaded) : nullptr;
 				if (!Result || It->second.StaticMesh == nullptr)

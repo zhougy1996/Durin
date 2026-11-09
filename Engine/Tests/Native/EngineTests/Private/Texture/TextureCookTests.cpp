@@ -193,7 +193,7 @@ TEST_F(FTextureCookTests, ColdCookRebuildsFromAuthoredPixelsWithoutSourceOrDdc)
 
 	Durin::DTexture2D* Loaded = nullptr;
 	const auto Load =
-		Durin::LoadObject<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
+		Durin::LoadObjectDetailed<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
 		Loaded = Load.value_or(nullptr);
 	ASSERT_TRUE(Load) << (Load ? std::string{} : Load.error().Message);
 	ASSERT_NE(Loaded, nullptr);
@@ -370,7 +370,7 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 		});
 	Durin::DTexture2D* CookedTexture = nullptr;
 	const auto LoadResult =
-		Durin::LoadObject<Durin::DTexture2D>(CookedAssetPath);
+		Durin::LoadObjectDetailed<Durin::DTexture2D>(CookedAssetPath);
 		CookedTexture = LoadResult.value_or(nullptr);
 	ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
 	ASSERT_NE(CookedTexture, nullptr);
@@ -477,7 +477,7 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 	Durin::FPackagePath SampleMaterialPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/SampleMaterial", SampleMaterialPath));
 	Durin::DMaterial* CookedMaterial = nullptr;
-	const auto MaterialLoad = Durin::LoadObject<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(SampleMaterialPath));
+	const auto MaterialLoad = Durin::LoadObjectDetailed<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(SampleMaterialPath));
 	CookedMaterial = MaterialLoad.value_or(nullptr);
 	ASSERT_TRUE(MaterialLoad) << (MaterialLoad ? std::string{} : MaterialLoad.error().Message);
 	ASSERT_NE(CookedMaterial, nullptr);
@@ -672,7 +672,7 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
 		Durin::EAssetRegistryScanMode::FullValidation));
 	const auto CorruptBulkLoad =
-		Durin::LoadObject<Durin::DTexture2D>(CookedAssetPath);
+		Durin::LoadObjectDetailed<Durin::DTexture2D>(CookedAssetPath);
 		CookedTexture = CorruptBulkLoad.value_or(nullptr);
 	EXPECT_FALSE(CorruptBulkLoad);
 	EXPECT_EQ(CookedTexture, nullptr);

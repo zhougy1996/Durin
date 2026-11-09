@@ -569,7 +569,7 @@ namespace Durin::Tests::ObjectState
 		return Durin::GDObjectArray.Contains(Object);
 	}
 
-	inline auto MakeSoftPath() -> Durin::FObjectPath
+	inline auto MakeSoftPath() -> Durin::FSoftObjectPath
 	{
 		static const bool bMounted = [] {
 			const std::filesystem::path Root =
@@ -580,8 +580,8 @@ namespace Durin::Tests::ObjectState
 			return true;
 		}();
 		(void)bMounted;
-		Durin::FObjectPath Path;
-		EXPECT_TRUE(Durin::FObjectPath::TryCreate(
+		Durin::FSoftObjectPath Path;
+		EXPECT_TRUE(Durin::FSoftObjectPath::TryCreate(
 			"/TransactionTests/SoftAsset.SoftAsset", Path));
 		return Path;
 	}

@@ -216,13 +216,13 @@ namespace Durin::Editor
 				Error = PreviewScene->GetDiagnostic();
 				return;
 			}
-			FObjectPath EnvironmentPath;
-			if (!FObjectPath::TryCreate("/Engine/Renderer/ThumbnailStudioCube.ThumbnailStudioCube", EnvironmentPath))
+			FSoftObjectPath EnvironmentPath;
+			if (!FSoftObjectPath::TryCreate("/Engine/Renderer/ThumbnailStudioCube.ThumbnailStudioCube", EnvironmentPath))
 			{
 				Error = "The thumbnail studio environment path is invalid.";
 				return;
 			}
-			auto* EnvironmentCube = LoadObject<DTextureCube>(EnvironmentPath).value_or(nullptr);
+			auto* EnvironmentCube = LoadObjectDetailed<DTextureCube>(EnvironmentPath).value_or(nullptr);
 			auto* SkyLight = EnvironmentCube
 				? PreviewScene->GetWorld()->SpawnActor<ASkyLightActor>("ThumbnailStudioSkyLight") : nullptr;
 			if (!SkyLight)

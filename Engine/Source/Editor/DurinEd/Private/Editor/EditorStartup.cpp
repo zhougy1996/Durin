@@ -8,7 +8,7 @@
 
 namespace Durin::Editor::Startup
 {
-	auto ResolveStartupLevel(const FProjectInfo& Project, FObjectPath& OutPath, std::string& OutError) -> bool
+	auto ResolveStartupLevel(const FProjectInfo& Project, FSoftObjectPath& OutPath, std::string& OutError) -> bool
 	{
 		OutPath = {};
 		OutError.clear();

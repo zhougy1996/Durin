@@ -289,7 +289,7 @@ namespace Durin::AssetPrivate
 		}
 		else
 		{
-			const auto Loaded = LoadScope.LoadPackage(Path);
+			const auto Loaded = LoadScope.LoadPackageDetailed(Path);
 			if (!Loaded) return Fail(ToCookInputResult(AssetReadResultFromError(Loaded.error())));
 			std::map<std::string, DObject*> Objects;
 			std::vector<std::pair<std::string, DObject*>> Pending;

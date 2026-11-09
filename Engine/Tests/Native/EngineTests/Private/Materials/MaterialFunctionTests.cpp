@@ -686,7 +686,7 @@ TEST(FMaterialFunctionTests, BaseTypedCallsRoundTripAndSnapshotsDoNotRetainOwner
 	CollectGarbage();
 	Caller = nullptr;
 	{
-		auto LoadedValue = LoadObject<DMaterialFunction>(Testing::MakePackageLeafAssetObjectPathForTests(CallerPath));
+		auto LoadedValue = LoadObjectDetailed<DMaterialFunction>(Testing::MakePackageLeafAssetObjectPathForTests(CallerPath));
 		Caller = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
@@ -1168,7 +1168,7 @@ TEST(FMaterialFunctionTests, ImportProvenanceRoundtripsWithoutChangingGraphOrCom
 	ASSERT_TRUE(UnloadPackage(ParentPath));
 	CollectGarbage();
 	{
-		auto LoadedValue = LoadObject<DMaterialInstance>(Testing::MakePackageLeafAssetObjectPathForTests(InstancePath));
+		auto LoadedValue = LoadObjectDetailed<DMaterialInstance>(Testing::MakePackageLeafAssetObjectPathForTests(InstancePath));
 		Instance = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
@@ -1235,12 +1235,12 @@ TEST(FMaterialFunctionTests, TypedFieldsRoundtripAndRejectInvalidCoordinateDefau
 	ASSERT_TRUE(UnloadPackage(FunctionPath));
 	CollectGarbage();
 	{
-		auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
+		auto LoadedValue = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
 		Material = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
 	{
-		auto LoadedValue = LoadObject<DMaterialFunction>(Testing::MakePackageLeafAssetObjectPathForTests(FunctionPath));
+		auto LoadedValue = LoadObjectDetailed<DMaterialFunction>(Testing::MakePackageLeafAssetObjectPathForTests(FunctionPath));
 		Function = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
@@ -1306,7 +1306,7 @@ TEST(FMaterialFunctionTests, RejectsOldRootSchemaAndPreservesCurrentFunctionRefe
 	CollectGarbage();
 	Material = nullptr;
 	{
-		auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
+		auto LoadedValue = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
 		Material = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}

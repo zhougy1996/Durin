@@ -1535,7 +1535,7 @@ TEST_F(FCookFunctionalTests, CookedOnlyPreparationSelectsAvailableVariantsWithou
 	ASSERT_TRUE(Runtime.RestartCooked(Request.OutputRoot));
 	Testing::RegisterMountPointForTests("/CookTests/", (Request.OutputRoot / "CookTests").generic_string(), true, false);
 	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
-	const auto Loaded = LoadPackage(Path);
+	const auto Loaded = LoadPackageDetailed(Path);
 	ASSERT_TRUE(Loaded);
 	Material = Cast<DMaterial>((*Loaded)->FindTopLevelAsset("ResaveMaterial"));
 	ASSERT_NE(Material, nullptr);
@@ -1661,7 +1661,7 @@ TEST_F(FCookFunctionalTests, PreservesSourcesAndPriorOutputsOnFailure)
 	const auto Published = Inventory(Request.OutputRoot);
 	EXPECT_EQ(Inventory(Content), Before);
 	{
-		auto LoadedValue = LoadPackage(Path);
+		auto LoadedValue = LoadPackageDetailed(Path);
 		Package = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
@@ -1949,7 +1949,7 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 	for (const auto& Path : Paths)
 	{
 		DPackage* Loaded = nullptr;
-		const auto Result = LoadPackage(Path);
+		const auto Result = LoadPackageDetailed(Path);
 		Loaded = Result.value_or(nullptr);
 		ASSERT_TRUE(Result) << Path.GetView() << ": " << (Result ? std::string{} : Result.error().Message);
 		EXPECT_NE(Loaded, nullptr);

@@ -118,8 +118,8 @@ namespace Durin
 		std::unordered_set<uint64> OpenDocuments;
 		for (const auto& Document : State->Documents)
 		{
-			FObjectPath Path;
-			if (!FObjectPath::TryCreate(Document.ResourceId, Path)) continue;
+			FSoftObjectPath Path;
+			if (!FSoftObjectPath::TryCreate(Document.ResourceId, Path)) continue;
 			FSoftObjectPtr Reference(Path);
 			auto* Asset = Reference.Get();
 			OpenDocuments.insert(Document.Id.Value);
@@ -180,12 +180,12 @@ namespace Durin
 		{
 			std::vector<std::pair<std::string, std::string>> Resources;
 			const auto Collect = [&](const FEditorDocument& Document) {
-				FObjectPath Source;
-				if (!FObjectPath::TryCreate(Document.ResourceId, Source) || Source.GetPackagePath() != Mapping.SourcePath) return;
+				FSoftObjectPath Source;
+				if (!FSoftObjectPath::TryCreate(Document.ResourceId, Source) || Source.GetPackagePath() != Mapping.SourcePath) return;
 				FTopLevelAssetPath DestinationAsset;
-				FObjectPath Destination;
+				FSoftObjectPath Destination;
 				if (FTopLevelAssetPath::TryCreate(Mapping.DestinationPath, Source.GetAssetPath().GetAssetName(), DestinationAsset)
-					&& FObjectPath::TryCreate(DestinationAsset, Source.GetSubobjectNames(), Destination))
+					&& FSoftObjectPath::TryCreate(DestinationAsset, Source.GetSubobjectNames(), Destination))
 					Resources.emplace_back(Document.ResourceId, Destination.ToString());
 			};
 			for (const auto& Document : State->Documents) Collect(Document);

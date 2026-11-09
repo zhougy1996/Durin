@@ -21,7 +21,7 @@ namespace Durin::Editor
 		FRetainedAsset() = default;
 
 		DURINED_API auto Get() const -> DObject*;
-		DURINED_API auto GetPath() const -> const FObjectPath*;
+		DURINED_API auto GetPath() const -> const FSoftObjectPath*;
 		explicit operator bool() const { return Get() != nullptr; }
 
 	private:
@@ -39,7 +39,7 @@ namespace Durin::Editor
 	{
 	public:
 		DURINED_API static auto Acquire(
-			const FObjectPath& Path,
+			const FSoftObjectPath& Path,
 			FRetainedAsset& OutAsset,
 			std::string& OutError) -> bool;
 

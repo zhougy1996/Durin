@@ -145,19 +145,19 @@ namespace Durin
 			FAssetLoadReport MaterialReport;
 			FAssetLoadReport TextureReport;
 			{
-				auto LoadedValue = LoadObject<DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(TexturePath), &TextureReport);
+				auto LoadedValue = LoadObjectDetailed<DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(TexturePath), &TextureReport);
 				Texture = LoadedValue.value_or(nullptr);
 				EXPECT_TRUE(LoadedValue);
 			}
 			if (Texture)
 				EXPECT_TRUE(Texture->FinishCachePlatformData(10.0));
 			{
-				auto LoadedValue = LoadObject<DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), &MaterialReport);
+				auto LoadedValue = LoadObjectDetailed<DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), &MaterialReport);
 				LoadedMaterial = LoadedValue.value_or(nullptr);
 				EXPECT_TRUE(LoadedValue);
 			}
 			{
-				auto LoadedValue = LoadObject<DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath), &MeshReport);
+				auto LoadedValue = LoadObjectDetailed<DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath), &MeshReport);
 				Mesh = LoadedValue.value_or(nullptr);
 				EXPECT_TRUE(LoadedValue);
 			}
@@ -234,7 +234,7 @@ namespace Durin
 		MaterialEditorHarness.Start(MaterialEditorModule);
 		Testing::FScopedAssetEditorTestHost TestHost;
 		ASSERT_NE(nullptr, TestHost.GetService());
-		const FObjectPath MaterialObjectPath = Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath);
+		const FSoftObjectPath MaterialObjectPath = Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath);
 		ASSERT_TRUE(TestHost.Open(
 			MaterialObjectPath.ToString(),
 			DMaterial::StaticClass()->GetQualifiedName().ToString()));

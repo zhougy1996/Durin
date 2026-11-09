@@ -1,5 +1,5 @@
 #include "Transactions/Transactor.h"
-#include "Asset/StreamableHandle.h"
+#include "Engine/StreamableManager.h"
 #include "ViewportTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "Application/GenericApplication.h"
@@ -696,7 +696,7 @@ TEST(FLevelDocumentResidencyTests, CloseReleasesWorldReferenceAndSchedulesCollec
 	DPackage* Package = CreatePackage(Path);
 	ASSERT_NE(Package, nullptr);
 	auto* Level = NewObject<DLevel>(Package, "Level", EObjectFlags::Public);
-	auto LoadHandle = RequestSyncLoad(Path);
+	auto LoadHandle = GetStreamableManager().RequestSyncLoadPackage(Path);
 	ASSERT_TRUE(LoadHandle->IsActive());
 	// The fixture created this package directly; transfer its cache root to the handle.
 	Package->SetStandaloneResidency(false);
@@ -729,7 +729,7 @@ TEST(FLevelDocumentResidencyTests, ReactivatedLevelRemainsAliveThroughWorldOwner
 	DPackage* Package = CreatePackage(Path);
 	ASSERT_NE(Package, nullptr);
 	auto* Level = NewObject<DLevel>(Package, "Level", EObjectFlags::Public);
-	auto LoadHandle = RequestSyncLoad(Path);
+	auto LoadHandle = GetStreamableManager().RequestSyncLoadPackage(Path);
 	ASSERT_TRUE(LoadHandle->IsActive());
 	// The fixture created this package directly; transfer its cache root to the handle.
 	Package->SetStandaloneResidency(false);

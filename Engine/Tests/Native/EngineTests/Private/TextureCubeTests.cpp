@@ -243,7 +243,7 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	Durin::DTextureCube* Loaded = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObject<Durin::DTextureCube>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
+		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DTextureCube>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
 		Loaded = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
@@ -265,7 +265,7 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/RenamedCube", RenamedPath));
 	ASSERT_TRUE(RelocateAssetForTest(AssetPath, RenamedPath));
 	{
-		auto LoadedValue = Durin::LoadObject<Durin::DTextureCube>(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
+		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DTextureCube>(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
 			RenamedPath, AssetPath.GetPackageName()));
 		Loaded = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
@@ -505,7 +505,7 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	Durin::DTextureCube* Loaded = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObject<Durin::DTextureCube>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
+		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DTextureCube>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
 		Loaded = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
@@ -522,7 +522,7 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/RenamedPanorama", RenamedPath));
 	ASSERT_TRUE(RelocateAssetForTest(AssetPath, RenamedPath));
 	{
-		auto LoadedValue = Durin::LoadObject<Durin::DTextureCube>(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
+		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DTextureCube>(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
 			RenamedPath, AssetPath.GetPackageName()));
 		Loaded = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
@@ -566,7 +566,7 @@ TEST(FTextureCubeTests, HDRPanoramaPreservesRadianceAcrossRebuildAndReload)
 	ASSERT_TRUE(Durin::UnloadPackage(Path));
 	Durin::DTextureCube* Loaded = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObject<Durin::DTextureCube>(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
+		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DTextureCube>(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
 		Path, Path.GetPackageName()));
 		Loaded = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
@@ -776,7 +776,7 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	Durin::DTextureCube* Loaded = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObject<Durin::DTextureCube>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
+		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DTextureCube>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
 		Loaded = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
@@ -904,7 +904,7 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	Durin::FPackagePath CookedPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedCube", CookedPath));
 	Durin::DTextureCube* Cooked = nullptr;
-	const auto Load = Durin::LoadObject<Durin::DTextureCube>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(CookedPath));
+	const auto Load = Durin::LoadObjectDetailed<Durin::DTextureCube>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(CookedPath));
 	Cooked = Load.value_or(nullptr);
 	ASSERT_TRUE(Load) << (Load ? std::string{} : Load.error().Message);
 	ASSERT_NE(Cooked, nullptr);

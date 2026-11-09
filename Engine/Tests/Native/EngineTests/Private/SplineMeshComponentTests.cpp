@@ -424,7 +424,7 @@ TEST(FSplineMeshComponentTests, BuiltInSplineBoxProvidesLongitudinalDeformationS
 	FPackagePath Path;
 	ASSERT_TRUE(FPackagePath::TryCreate("/Engine/Models/SplineBox", Path));
 	DStaticMesh* Mesh = nullptr;
-	const auto LoadResult = LoadObject<DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
+	const auto LoadResult = LoadObjectDetailed<DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
 	Mesh = LoadResult.value_or(nullptr);
 	ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
 	ASSERT_NE(Mesh, nullptr);
@@ -1012,7 +1012,7 @@ TEST(FSplineMeshComponentTests, LevelPackageRoundTripsAuthoredFieldsAndRebuildsD
 
 	DObject* LoadedObject = nullptr;
 	{
-		auto LoadedValue = LoadObject<DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		auto LoadedValue = LoadObjectDetailed<DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
 		LoadedObject = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
@@ -1136,7 +1136,7 @@ TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
 	EXPECT_TRUE(UnloadPackage(Path));
 	DObject* LoadedObject = nullptr;
 	{
-		auto LoadedValue = LoadObject<DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		auto LoadedValue = LoadObjectDetailed<DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
 		LoadedObject = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}

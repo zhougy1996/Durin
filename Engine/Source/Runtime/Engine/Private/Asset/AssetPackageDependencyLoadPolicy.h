@@ -17,7 +17,7 @@ namespace Durin::AssetPrivate
 	struct FAssetPackageDependencyLoadPolicy
 	{
 		std::function<FAssetReadResult(const FPackagePath&, DPackage*&)> ResolvePackage;
-		std::function<FAssetReadResult(const FObjectPath&, DObject*&)> ResolveObject;
+		std::function<FAssetReadResult(const FSoftObjectPath&, DObject*&)> ResolveObject;
 		std::function<void()> Rollback;
 		bool bRejectImplicitLiveLoads = false;
 	};

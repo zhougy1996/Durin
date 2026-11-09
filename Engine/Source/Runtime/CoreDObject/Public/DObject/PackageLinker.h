@@ -163,7 +163,7 @@ namespace Durin::ObjectPackage
 	struct FPackageImport
 	{
 		// Exact cross-package top-level or subobject target.
-		FObjectPath ObjectPath;
+		FSoftObjectPath ObjectPath;
 		std::string ClassName;
 		FPackageIndex Outer;
 
@@ -191,7 +191,7 @@ namespace Durin::ObjectPackage
 			FPackageIndex Export;
 			FTopLevelAssetPath AssetPath;
 			std::string ClassName;
-			FObjectPath RedirectDestination;
+			FSoftObjectPath RedirectDestination;
 
 			auto operator==(const FTopLevelAsset&) const -> bool = default;
 		};

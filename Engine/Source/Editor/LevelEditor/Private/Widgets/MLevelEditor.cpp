@@ -253,7 +253,7 @@ namespace Durin::Editor::Level
 		DefaultLevel.Reset();
 		const FProjectInfo* Project = GetCurrentProject();
 		if (!Project) return false;
-		FObjectPath Path;
+		FSoftObjectPath Path;
 		std::string Error;
 		if (!Startup::ResolveStartupLevel(*Project, Path, Error))
 		{
@@ -280,7 +280,7 @@ namespace Durin::Editor::Level
 			SetError("The default level must belong to the current project.");
 			return false;
 		}
-		FObjectPath ResolvedLevelPath;
+		FSoftObjectPath ResolvedLevelPath;
 		const auto Resolution = DefaultLevel.IsNull()
 			? FAssetReadResult{}
 			: ResolveLevelPackage(DefaultLevelPath, ResolvedLevelPath);
@@ -307,7 +307,7 @@ namespace Durin::Editor::Level
 	auto MLevelEditor::ApplyFixedUpDefaultLevelPath(
 		const FPackagePath& Path) -> void
 	{
-		FObjectPath LevelPath;
+		FSoftObjectPath LevelPath;
 		if (!ResolveLevelPackage(Path, LevelPath)) return;
 		const bool bPendingMatchesSaved = PendingDefaultLevel == DefaultLevel;
 		DefaultLevel = LevelPath;
@@ -649,7 +649,7 @@ namespace Durin::Editor::Level
 						OutError = ToString(PathValidation.error());
 						return false;
 					}
-					FObjectPath LevelPath;
+					FSoftObjectPath LevelPath;
 					const auto Resolution =
 						ResolveLevelPackage(
 							AssetPath.GetPackagePath(), LevelPath);

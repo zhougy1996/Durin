@@ -97,10 +97,10 @@ TEST_F(FMaterialFunctionCookTests, CookFingerprintsNestedFunctionsWithoutProduci
 	const auto MissingDependency = FCookCoordinator().Run(Request, Result);
 	std::filesystem::rename(HiddenLeafFile, LeafFile);
 	EXPECT_FALSE(MissingDependency) << "A warm Cook hit must still admit every function source.";
-	ShutdownAssetManager();
+	ShutdownAssetRuntime();
 	auto Configuration = FAssetRuntimeConfiguration::Authored();
 	ASSERT_TRUE(FAssetRuntimeConfiguration::Cooked(Request.OutputRoot, Configuration));
-	ASSERT_TRUE(InitializeAssetManager(std::move(Configuration)));
+	ASSERT_TRUE(InitializeAssetRuntime(std::move(Configuration)));
 	{
 		const std::array CookMounts{FMountPoint{.VirtualRoot = "/CookFunctionTests/", .Owner = EMountOwner::Test,
 			.Root = Request.OutputRoot / "CookFunctionTests", .bAutoScan = true}};
@@ -108,7 +108,7 @@ TEST_F(FMaterialFunctionCookTests, CookFingerprintsNestedFunctionsWithoutProduci
 		ASSERT_TRUE(CookMountsFixture.IsValid()) << CookMountsFixture.GetError();
 		ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 		DMaterial* Loaded = nullptr;
-		const auto LoadedResult = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
+		const auto LoadedResult = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
 		Loaded = LoadedResult.value_or(nullptr);
 		ASSERT_TRUE(LoadedResult) << (LoadedResult ? std::string{} : LoadedResult.error().Message);
 		ASSERT_NE(Loaded, nullptr);
@@ -120,9 +120,9 @@ TEST_F(FMaterialFunctionCookTests, CookFingerprintsNestedFunctionsWithoutProduci
 		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GetDebugData().IR.Nodes.empty());
 		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GetDebugData().GeneratedSource.empty());
 	}
-	ShutdownAssetManager();
+	ShutdownAssetRuntime();
 	CollectGarbage();
-	ASSERT_TRUE(InitializeAssetManager());
+	ASSERT_TRUE(InitializeAssetRuntime());
 }
 
 TEST_F(FMaterialFunctionCookTests, StructuralNormalParentRoundTripsDuplicatesAndCooksWithoutGraph)
@@ -163,7 +163,7 @@ TEST_F(FMaterialFunctionCookTests, StructuralNormalParentRoundTripsDuplicatesAnd
 	ASSERT_TRUE(UnloadPackage(MaterialPath));
 	CollectGarbage();
 	{
-		auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
+		auto LoadedValue = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
 		Material = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
@@ -179,11 +179,11 @@ TEST_F(FMaterialFunctionCookTests, StructuralNormalParentRoundTripsDuplicatesAnd
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::FormatCookRunError(Result);
 	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::CookHit);
 	ASSERT_TRUE(UnloadPackage(MaterialPath));
-	ShutdownAssetManager();
+	ShutdownAssetRuntime();
 	CollectGarbage();
 	auto Configuration = FAssetRuntimeConfiguration::Authored();
 	ASSERT_TRUE(FAssetRuntimeConfiguration::Cooked(Request.OutputRoot, Configuration));
-	ASSERT_TRUE(InitializeAssetManager(std::move(Configuration)));
+	ASSERT_TRUE(InitializeAssetRuntime(std::move(Configuration)));
 	{
 		const std::array CookMounts{FMountPoint{.VirtualRoot = "/CookNormal/", .Owner = EMountOwner::Test,
 			.Root = Request.OutputRoot / "CookNormal", .bAutoScan = true}};
@@ -191,7 +191,7 @@ TEST_F(FMaterialFunctionCookTests, StructuralNormalParentRoundTripsDuplicatesAnd
 		ASSERT_TRUE(CookMountsFixture.IsValid()) << CookMountsFixture.GetError();
 		ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 		DMaterial* Loaded = nullptr;
-		const auto LoadResult = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
+		const auto LoadResult = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
 		Loaded = LoadResult.value_or(nullptr);
 		ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
 		FShaderCompilingManager::Get().FinishAllCompilation();
@@ -203,9 +203,9 @@ TEST_F(FMaterialFunctionCookTests, StructuralNormalParentRoundTripsDuplicatesAnd
 		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GetDebugData().IR.Nodes.empty());
 		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GetDebugData().GeneratedSource.empty());
 	}
-	ShutdownAssetManager();
+	ShutdownAssetRuntime();
 	CollectGarbage();
-	ASSERT_TRUE(InitializeAssetManager());
+	ASSERT_TRUE(InitializeAssetRuntime());
 }
 
 TEST_F(FMaterialFunctionCookTests, StandardMaterialFixtureCooksAndLoadsWithoutAuthoredFunctionAssets)
@@ -264,11 +264,11 @@ TEST_F(FMaterialFunctionCookTests, StandardMaterialFixtureCooksAndLoadsWithoutAu
 	EXPECT_TRUE(std::filesystem::exists(FunctionRootRequest.OutputRoot / "CookManifest.bin"));
 
 	ASSERT_TRUE(UnloadPackage(MaterialPath));
-	ShutdownAssetManager();
+	ShutdownAssetRuntime();
 	CollectGarbage();
 	auto Configuration = FAssetRuntimeConfiguration::Authored();
 	ASSERT_TRUE(FAssetRuntimeConfiguration::Cooked(Request.OutputRoot, Configuration));
-	ASSERT_TRUE(InitializeAssetManager(std::move(Configuration)));
+	ASSERT_TRUE(InitializeAssetRuntime(std::move(Configuration)));
 	{
 		const std::array CookMounts{FMountPoint{.VirtualRoot = "/Engine/", .Owner = EMountOwner::Test,
 			.Root = Request.OutputRoot / "Engine", .bAutoScan = true}};
@@ -277,7 +277,7 @@ TEST_F(FMaterialFunctionCookTests, StandardMaterialFixtureCooksAndLoadsWithoutAu
 		ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 		DMaterial* Loaded = nullptr;
 		{
-			auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
+			auto LoadedValue = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
 			Loaded = LoadedValue.value_or(nullptr);
 			ASSERT_TRUE(LoadedValue);
 		}
@@ -290,7 +290,7 @@ TEST_F(FMaterialFunctionCookTests, StandardMaterialFixtureCooksAndLoadsWithoutAu
 		EXPECT_TRUE(GetFunctionCalls(*Loaded).empty());
 		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GetDebugData().GeneratedSource.empty());
 	}
-	ShutdownAssetManager();
+	ShutdownAssetRuntime();
 	CollectGarbage();
-	ASSERT_TRUE(InitializeAssetManager());
+	ASSERT_TRUE(InitializeAssetRuntime());
 }

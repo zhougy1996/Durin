@@ -50,8 +50,8 @@ namespace
 		}
 		auto Open(DObject& Object, EAssetOpenMethod Method = EAssetOpenMethod::Edit) -> FAssetOpenResult
 		{
-			FObjectPath Path;
-			if (!FObjectPath::TryCreate(Object.GetObjectPath(), Path)) return {};
+			FSoftObjectPath Path;
+			if (!FSoftObjectPath::TryCreate(Object.GetObjectPath(), Path)) return {};
 			return Service->OpenAssets({.AssetEditors = Service, .Assets = {{Path, Object.GetClass()->GetQualifiedName().ToString()}}, .OpenMethod = Method});
 		}
 		template<class T> auto Create(const char* Name) -> T*
@@ -62,8 +62,8 @@ namespace
 		}
 		auto Duplicate(DObject& Source) -> DObject*
 		{
-			FObjectPath Path;
-			if (!FObjectPath::TryCreate(Source.GetObjectPath(), Path)) return nullptr;
+			FSoftObjectPath Path;
+			if (!FSoftObjectPath::TryCreate(Source.GetObjectPath(), Path)) return nullptr;
 			const auto Result = IAssetTools::Get().DuplicateAsset({.SourcePath = Path.GetAssetPath(), .DestinationDirectory = "/FamilySessions",
 				.ResolvePhysicalPackagePath = [](const FPackagePath& Package) {
 					const auto Resolved = FMountPaths::ResolveAssetPath(Package.GetView(), EMountPathExistence::AllowMissing);
@@ -216,8 +216,8 @@ namespace
 		ASSERT_NE(nullptr, Session);
 		const auto Window = Session->GetToolkit()->GetPresentationRootKey("MaterialEditor");
 		const auto Profile = Session->GetToolkit()->GetLayoutProfileKey();
-		FObjectPath Source;
-		ASSERT_TRUE(FObjectPath::TryCreate(Object->GetObjectPath(), Source));
+		FSoftObjectPath Source;
+		ASSERT_TRUE(FSoftObjectPath::TryCreate(Object->GetObjectPath(), Source));
 		FPackagePath Destination;
 		ASSERT_TRUE(FPackagePath::TryCreate(Source.GetPackagePath().ToString() + "Moved", Destination));
 		const FAssetRelocationMapping Mapping{Source.GetPackagePath(), Destination};

@@ -92,16 +92,16 @@ namespace Durin::Editor::StaticMesh
 		if (Document.ResourceId.empty()) return EDocumentOpenResult::Rejected;
 		if (FindState(Document.ResourceId)) return EDocumentOpenResult::Opened;
 
-		FObjectPath AssetPath;
+		FSoftObjectPath AssetPath;
 		std::string PathError;
-		if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(Document.ResourceId, AssetPath); !PathValidation)
+		if (const auto PathValidation = FSoftObjectPath::TryCreateWithDiagnostic(Document.ResourceId, AssetPath); !PathValidation)
 		{
 			PathError = ToString(PathValidation.error());
 			ErrorMessage = std::move(PathError);
 			return EDocumentOpenResult::Rejected;
 		}
 		DStaticMesh* Mesh = nullptr;
-		const auto Result = LoadObject<DStaticMesh>(AssetPath);
+		const auto Result = LoadObjectDetailed<DStaticMesh>(AssetPath);
 		Mesh = Result.value_or(nullptr);
 		if (!Result || !Mesh)
 		{

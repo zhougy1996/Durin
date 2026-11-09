@@ -28,11 +28,11 @@ namespace
 		return Result;
 	}
 
-	auto ObjectPath(std::string_view Value) -> Durin::FObjectPath
+	auto ObjectPath(std::string_view Value) -> Durin::FSoftObjectPath
 	{
 		EnsurePathMount();
-		Durin::FObjectPath Result;
-		EXPECT_TRUE(Durin::FObjectPath::TryCreate(Value, Result));
+		Durin::FSoftObjectPath Result;
+		EXPECT_TRUE(Durin::FSoftObjectPath::TryCreate(Value, Result));
 		return Result;
 	}
 
@@ -197,10 +197,10 @@ namespace
 		EnsurePathMount();
 		const Package::FSerializedType Hard{.Kind = Package::EValueKind::HardReference};
 		Package::FLinkerTables Linker;
-		Durin::FObjectPath DepA;
-		Durin::FObjectPath DepB;
-		EXPECT_TRUE(Durin::FObjectPath::TryCreate("/Game/DepA.DepA", DepA));
-		EXPECT_TRUE(Durin::FObjectPath::TryCreate("/Game/DepB.DepB", DepB));
+		Durin::FSoftObjectPath DepA;
+		Durin::FSoftObjectPath DepB;
+		EXPECT_TRUE(Durin::FSoftObjectPath::TryCreate("/Game/DepA.DepA", DepA));
+		EXPECT_TRUE(Durin::FSoftObjectPath::TryCreate("/Game/DepB.DepB", DepB));
 		Linker.Schemas = {{.QualifiedName = "Example::References", .Fields = {{.Name = "Target", .Type = Hard}}}};
 		Linker.Imports = bShuffled
 			? std::vector<Package::FPackageImport>{{.ObjectPath = DepB}, {.ObjectPath = DepA}}
@@ -279,8 +279,8 @@ TEST(FPackageFormatContractTests, MultipleTopLevelAssetsRoundTripAndProjectExact
 		Linker.Summary.PackagePath, "Secondary", SecondaryPath));
 	Linker.Summary.TopLevelAssets.push_back(
 		{SecondaryExport, SecondaryPath, "Example::Secondary"});
-	Durin::FObjectPath Redirect;
-	ASSERT_TRUE(Durin::FObjectPath::TryCreate(
+	Durin::FSoftObjectPath Redirect;
+	ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate(
 		"/Game/Target.Target:Subobject", Redirect));
 	Linker.Summary.TopLevelAssets[1].RedirectDestination = Redirect;
 

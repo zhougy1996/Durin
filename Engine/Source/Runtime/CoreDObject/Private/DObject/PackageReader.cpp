@@ -233,9 +233,9 @@ namespace Durin::ObjectPackage
 					|| !FPackageIndex::TryFromRaw(Outer, OuterIndex))
 					return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
 						EPackageReaderReason::ImportRecord, "Imports[" + std::to_string(Index) + "]");
-				FObjectPath ObjectPath;
+				FSoftObjectPath ObjectPath;
 				if (ObjectId != 0 || !OuterIndex.IsNull()
-					|| !FObjectPath::TryCreate(Names[PackageId - 1], ObjectPath))
+					|| !FSoftObjectPath::TryCreate(Names[PackageId - 1], ObjectPath))
 				{
 					return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
 						EPackageReaderReason::ImportPath,
@@ -290,7 +290,7 @@ namespace Durin::ObjectPackage
 						EPackageReaderReason::TopLevelRecord,
 						"Registry.TopLevelAssets[" + std::to_string(Index) + "]");
 				FTopLevelAssetPath AssetPath;
-				FObjectPath RedirectDestination;
+				FSoftObjectPath RedirectDestination;
 				const std::string PackagePrefix = PackagePath.ToString() + ".";
 				const std::string_view SerializedAssetPath = Names[PathId - 1];
 				const std::string_view AssetName = SerializedAssetPath.starts_with(PackagePrefix)
@@ -304,7 +304,7 @@ namespace Durin::ObjectPackage
 					return Fail(Diagnostic, EPackageReaderFailure::NonCanonical,
 						EPackageReaderReason::TopLevelOrder,
 						"Registry.TopLevelAssets[" + std::to_string(Index) + "]");
-				if (RedirectId && !FObjectPath::TryCreate(
+				if (RedirectId && !FSoftObjectPath::TryCreate(
 					Names[RedirectId - 1], RedirectDestination))
 					return Fail(Diagnostic, EPackageReaderFailure::NonCanonical,
 						EPackageReaderReason::RedirectPath,
@@ -692,8 +692,8 @@ namespace Durin::ObjectPackage
 					return Fail(Diagnostic, EPackageReaderFailure::InvalidIndex, EPackageReaderReason::PropertyValue, Path); break; }
 			case EValueKind::SoftReference:
 			{ uint32 NameId = 0; if (!ReadNameId(Reader, Names, NameId, true)) return false;
-				if (NameId) { Value.Text = Names[NameId - 1]; FObjectPath ObjectPath;
-					if (!FObjectPath::TryCreate(Value.Text, ObjectPath)) return Fail(Diagnostic, EPackageReaderFailure::InvalidValue, EPackageReaderReason::PropertyValue, Path); } break; }
+				if (NameId) { Value.Text = Names[NameId - 1]; FSoftObjectPath ObjectPath;
+					if (!FSoftObjectPath::TryCreate(Value.Text, ObjectPath)) return Fail(Diagnostic, EPackageReaderFailure::InvalidValue, EPackageReaderReason::PropertyValue, Path); } break; }
 			case EValueKind::Byte:
 			{ uint8 V = 0; if (!Reader.ReadU8(V)) return false; Value.Unsigned = V; break; }
 			case EValueKind::Bytes:

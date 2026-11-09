@@ -333,12 +333,12 @@ namespace Durin::Editor::Level
 					if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(AssetDragDropPayloadType); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(FAssetDragDropPayload))
 					{
 						const auto* AssetPayload = static_cast<const FAssetDragDropPayload*>(Payload->Data);
-						FObjectPath AssetPath;
+						FSoftObjectPath AssetPath;
 						DObject* Asset = nullptr;
 						AActor* Actor = nullptr;
-						if (!FObjectPath::TryCreate(AssetPayload->AssetPath.data(), AssetPath))
+						if (!FSoftObjectPath::TryCreate(AssetPayload->AssetPath.data(), AssetPath))
 							Context.SetError("Dropped asset path is invalid.");
-						else if (const auto Result = LoadObject<DObject>(AssetPath); !Result)
+						else if (const auto Result = LoadObjectDetailed<DObject>(AssetPath); !Result)
 							Context.SetError((Result ? std::string{} : Result.error().Message));
 						else if (DStaticMesh* StaticMesh = Cast<DStaticMesh>(Asset = *Result))
 						{

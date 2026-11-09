@@ -80,16 +80,16 @@ namespace Durin::Editor::Texture
 	{
 		if (Document.ResourceId.empty()) return EDocumentOpenResult::Rejected;
 		if (Find(Document.ResourceId)) return EDocumentOpenResult::Opened;
-		FObjectPath Path;
+		FSoftObjectPath Path;
 		std::string Error;
-		if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(Document.ResourceId, Path); !PathValidation)
+		if (const auto PathValidation = FSoftObjectPath::TryCreateWithDiagnostic(Document.ResourceId, Path); !PathValidation)
 		{
 			Error = ToString(PathValidation.error());
 			SetError(std::move(Error));
 			return EDocumentOpenResult::Rejected;
 		}
 		DVolumeTexture* Texture = nullptr;
-		const auto Result = LoadObject<DVolumeTexture>(Path);
+		const auto Result = LoadObjectDetailed<DVolumeTexture>(Path);
 		Texture = Result.value_or(nullptr);
 		if (!Result || !Texture)
 		{

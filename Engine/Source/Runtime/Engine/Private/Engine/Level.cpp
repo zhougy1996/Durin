@@ -60,7 +60,7 @@ namespace Durin
 
 	auto ResolveLevelPackage(
 		const FPackagePath& PackagePath,
-		FObjectPath& OutLevelPath) -> FAssetReadResult
+		FSoftObjectPath& OutLevelPath) -> FAssetReadResult
 	{
 		if (!PackagePath.IsValid())
 			return {EAssetReadError::InvalidPath,
@@ -73,7 +73,7 @@ namespace Durin
 			return {EAssetReadError::CorruptFile,
 				"The resolved default-level package has no registry metadata."};
 
-		FObjectPath LevelPath;
+		FSoftObjectPath LevelPath;
 		uint32 LevelCount = 0;
 		for (const FAssetData& Asset :
 			Resolution.FinalPackageData->TopLevelAssets)
@@ -86,7 +86,7 @@ namespace Durin
 						Resolution.FinalPath.ToString(), Asset.AssetClassName)};
 			if (!AssetClass->IsChildOf(DLevel::StaticClass())) continue;
 			++LevelCount;
-			if (!FObjectPath::TryCreate(
+			if (!FSoftObjectPath::TryCreate(
 					Asset.AssetPath, std::span<const std::string>{}, LevelPath))
 				return {EAssetReadError::CorruptFile,
 					"The default-level package contains an invalid Level object path."};

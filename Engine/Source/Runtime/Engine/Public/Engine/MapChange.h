@@ -39,7 +39,7 @@ namespace Durin
 	};
 	struct FMapChangeRequest
 	{
-		FObjectPath Path;
+		FSoftObjectPath Path;
 		// An engaged null class requests lifecycle-only BeginPlay.
 		std::optional<DClass*> GameMode;
 		// GameThread callbacks run within the host lifecycle/GC guard.

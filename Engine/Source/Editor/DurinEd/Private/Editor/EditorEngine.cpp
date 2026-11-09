@@ -295,7 +295,7 @@ namespace Durin
 		{
 			StartupError.clear();
 			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentBegin);
-			FObjectPath Path;
+			FSoftObjectPath Path;
 			const auto* Project = GetCurrentProject();
 			if (Project && !Editor::Startup::ResolveStartupLevel(*Project, Path, StartupError))
 				return EHostStartupState::Failed;

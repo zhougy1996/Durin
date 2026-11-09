@@ -653,8 +653,8 @@ namespace Durin
 		}
 		for (FFixupLiveSoftReference& Live : State.LiveSoftReferences)
 		{
-			FObjectPath Path;
-			if (!FObjectPath::TryCreate(Live.PostPath.GetView(), Path))
+			FSoftObjectPath Path;
+			if (!FSoftObjectPath::TryCreate(Live.PostPath.GetView(), Path))
 				return PublicationFailed(
 					"A prepared live soft-reference destination became invalid.");
 			*Live.Value = std::move(Path);

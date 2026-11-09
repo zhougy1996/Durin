@@ -19,11 +19,11 @@ namespace
 	{
 		Durin::Testing::InitializeDObjectSystemForTests();
 		(void)DBulkPackageAssetForTest::StaticClass();
-		Durin::ShutdownAssetManager();
+		Durin::ShutdownAssetRuntime();
 		Durin::CollectGarbage();
 		const auto Root = Durin::Testing::CreateTestFixtureDirectory("BulkQualification");
 		Durin::Testing::RegisterMountPointForTests("/TestAssets/", Root.generic_string() + "/");
-		Durin::InitializeAssetManager();
+		Durin::InitializeAssetRuntime();
 		if (!Durin::RefreshAssetRegistry(Durin::EAssetRegistryScanMode::FullValidation))
 			throw std::runtime_error("Failed to initialize the bulk qualification registry.");
 	}
@@ -40,7 +40,7 @@ namespace
 
 		auto TearDown() -> void override
 		{
-			Durin::ShutdownAssetManager();
+			Durin::ShutdownAssetRuntime();
 			Durin::CollectGarbage();
 			if (bOwnsScheduler) Durin::ShutdownTaskScheduler(true);
 		}
@@ -82,7 +82,7 @@ TEST_F(FPackageBulkQualificationTests, FieldBulkClosureMeetsBoundedLooseFixtureB
 	const auto MetadataStart = std::chrono::steady_clock::now();
 	DObject* LoadedObject = nullptr;
 	{
-		auto LoadedValue = LoadObject<DObject>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		auto LoadedValue = LoadObjectDetailed<DObject>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
 		LoadedObject = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}

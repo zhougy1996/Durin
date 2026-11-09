@@ -277,9 +277,9 @@ namespace Durin::Editor::ContentBrowser
 			.OpenAsset = [&](std::string_view Path, std::string_view ClassName) {
 				Opened = Path;
 				EXPECT_EQ(ClassName, DLevel::StaticClass()->GetQualifiedName().ToString());
-				FObjectPath ObjectPath;
-				if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(Path, ObjectPath); !PathValidation) { OpenError = Durin::ToString(PathValidation.error()); return false; }
-				const auto Result = LoadObject<DLevel>(ObjectPath);
+				FSoftObjectPath ObjectPath;
+				if (const auto PathValidation = FSoftObjectPath::TryCreateWithDiagnostic(Path, ObjectPath); !PathValidation) { OpenError = Durin::ToString(PathValidation.error()); return false; }
+				const auto Result = LoadObjectDetailed<DLevel>(ObjectPath);
 				OpenedLevel = Result.value_or(nullptr);
 				OpenError = (Result ? std::string{} : Result.error().Message);
 				return Result.has_value();

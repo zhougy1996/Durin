@@ -185,9 +185,9 @@ namespace Durin::AssetForge::Builtins
 			if (Package) Function = Cast<DMaterialFunction>(Package->FindTopLevelAsset(FName(Path.GetPackageName())));
 			else if (FindPackageExact(Path))
 			{
-				FObjectPath ObjectPath;
-				if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(std::format("{}.{}", Path.ToString(), Path.GetPackageName()), ObjectPath); !PathValidation) { OutError = ToString(PathValidation.error()); return false; }
-				const auto Loaded = LoadObject<DMaterialFunction>(ObjectPath);
+				FSoftObjectPath ObjectPath;
+				if (const auto PathValidation = FSoftObjectPath::TryCreateWithDiagnostic(std::format("{}.{}", Path.ToString(), Path.GetPackageName()), ObjectPath); !PathValidation) { OutError = ToString(PathValidation.error()); return false; }
+				const auto Loaded = LoadObjectDetailed<DMaterialFunction>(ObjectPath);
 				Function = Loaded.value_or(nullptr);
 				if (!Loaded) { OutError = (Loaded ? std::string{} : Loaded.error().Message); return false; }
 				Package = Function->GetPackage();

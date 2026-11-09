@@ -14,7 +14,7 @@ containment and object paths, but is not by itself a GC strong reference.
 
 ## Runtime Bootstrap
 
-The host calls `InitializeAssetManager` with the final Authored or Cooked
+The host calls `InitializeAssetRuntime` with the final Authored or Cooked
 configuration before `DObjectInit` registers reflected types and constructs CDOs.
 The singleton starts with requests closed; its construction does not initialize
 the runtime. First initialization installs configuration without accessing
@@ -80,7 +80,7 @@ Package identities are extensionless `FPackagePath` values such as
 an explicit asset name, for example
 `FTopLevelAssetPath("/Game/Levels/TestLevel.TestLevel")`; a complete object path
 may append a relative Outer chain such as
-`FObjectPath("/Game/Levels/TestLevel.TestLevel:Root.Component")`. The first
+`FSoftObjectPath("/Game/Levels/TestLevel.TestLevel:Root.Component")`. The first
 package-path segment must match a registered mount and resolves relative to
 that mount's single content directory. Optional importer source hints use a
 separate explicitly based physical-path contract and never resolve through
@@ -154,17 +154,19 @@ references, not merely through Outer. Compiled-in reflection metadata instead
 uses rooted `/Cpp/<ModuleName>` packages and is never serialized as `.dasset`.
 
 `LoadPackage(FPackagePath)` owns closure admission and residency.
-`LoadObject(FObjectPath)` resolves an exact top-level asset or descendant,
+`LoadObject(FSoftObjectPath)` resolves an exact top-level asset or descendant,
 follows asset-level redirects, loads the owning package, and selects the exact
 object. No load API derives an asset name from a package leaf, and a catalog
 miss never guesses a filename.
 
-Synchronous package and object loads return `std::expected<DPackage*,
-FAssetReadError>` and `std::expected<T*, FAssetReadError>` respectively. Typed
-object calls specify `LoadObject<T>(Path)`. The returned pointer observes existing
-package residency; it does not transfer ownership or promise rollback on failure.
-For bounded ownership, use `RequestSyncLoad` or `RequestAsyncLoad` from
-`Asset/StreamableHandle.h`. Both return the same `FStreamableHandle`. Active
+Synchronous `LoadPackage` and `LoadObject<T>` return nullable pointers. An optional
+caller-owned `FAssetLoadReport` carries errors without mandatory logging. The
+explicit `LoadPackageDetailed` and `LoadObjectDetailed<T>` operations return
+`std::expected<Pointer, FAssetReadError>` for callers that process structured
+failures. Both surfaces use the same loader. Returned pointers observe existing
+package residency; they add no GC owner or rollback guarantee.
+For bounded ownership, use `FStreamableManager::RequestSyncLoad` or `RequestAsyncLoad` from
+`Engine/StreamableManager.h`. Both return the same `FStreamableHandle`. Active
 successful handles strongly retain the selected package/object. A request drops
 the clean cache retention introduced by its own loading transaction when the
 request finishes; the handle does not retain a cache-origin ledger. Previously
@@ -208,62 +210,10 @@ are not exposed by completed-load errors. Inspect `error()` only after testing f
 Codec status and pending-component dependency bindings remain separate from these
 completed-load values because bindings may expose incomplete package skeletons.
 
-`RequestSyncLoad` and `RequestAsyncLoad` accept `FPackagePath`, `FObjectPath`, or
-`FTopLevelAssetPath`. Sync calls complete before returning; async calls defer
-completion. Submission, observation, release, cancellation, callbacks and handle
-destruction belong to GameThread. Object readiness does not imply compilation or
-render-resource readiness. Releasing all caller references does not cancel queued
-work; use `CancelHandle()` to withdraw that consumer explicitly.
-`IsPackageLoading` continues to describe incomplete live object construction;
-use the handle state to observe a queued or reading async request. A synchronous
-load may complete the same package while its async read is pending; publication
-then reuses that resident package.
-
-`GetResult()` requires `IsComplete()` and returns an expected
-`FStreamableLoadResult` by value, or a typed read error. Active success results
-observe the current strong references, including explicit object replacement.
-Released success handles observe exact weak identities: after collection their
-package/object pointers are null, without changing historical success to failure.
-Pending and loading states have no terminal result. Cancelling unfinished work
-supplies a terminal `Cancelled` error. `IsActive()` describes request retention,
-not whether a weakly observed package is still resident through another owner.
-
-Async requests are deferred, including resident hits and ordinary errors. Guarded or
-shutdown admission instead returns a failed handle immediately without invoking
-the callback. The engine loop pumps `ProcessAsyncLoading`; standalone tools and
-tests must pump it explicitly. Completion callbacks run on a later pump after
-input file leases have been released, may enqueue more requests, and never run
-inside a recursive pump. `CancelHandle()` suppresses undelivered callbacks, including
-for an already completed request, without cancelling other consumers of the
-same package, and drops that handle's retention. Calling `ReleaseHandle()` while
-loading or awaiting completion delivery defers release until the callback has
-run; it does not suppress completion. A callback may explicitly release its own
-handle. Failed requests release independently completed clean dependencies for
-scheduled GC. Offline maintenance may collect explicitly at its batch boundary
-after releasing the handle; request release itself never runs global GC.
-
-The initial implementation coalesces active requests for the same root package,
-starts higher-priority pending requests first, and limits detached reads to two
-closures with at most 256 MiB of main-package bytes each. BlockingIO tasks read
-the catalog dependency closure under package file read leases. Read errors in
-unused dependencies do not fail a root whose live serializer discards those
-fields. Publication rejects a changed catalog revision with `StaleData`; callers
-may retry. An actual dependency outside the captured closure also fails instead
-of falling back to synchronous main-package file reading.
-
-GameThread still performs codec decoding, object construction, value restoration,
-bulk-resource registration/validation, and component validation/PostLoad through
-the ordinary loader. These stages preserve cycle and rollback semantics but are
-not yet interruptible. The default pump budget is 2 ms and one completion unit;
-it is checked between units, not inside a package component or callback. This
-API therefore removes main-package file reads from GameThread, but does not
-promise a hard frame-time bound or eliminate synchronous work inside PostLoad.
-
-`CancelAsyncLoading()` cancels pending requests and undelivered callbacks and
-drains accepted reads; it is a blocking teardown/tool boundary, not a UI wait.
-Launch calls it after consumer detachment and before UI/module and task teardown.
-`ShutdownAssetManager()` also drains async loading before retiring package
-resources; shutdown invalidates previously loaded objects as usual.
+Streamable request ownership and batching are defined by [Asset Streaming](AssetStreaming.md).
+Use `FStreamableManager` from `Engine/StreamableManager.h`; all managers reuse this
+package loader. `IsPackageLoading` continues to describe incomplete live object
+construction; handle completion also covers queued/reading requests.
 
 The internal DAST codec accepts dependency bindings for package and exact-object
 resolution. Ordinary loading supplies loader-only bindings and transfers
@@ -299,10 +249,10 @@ Choose a reference by ownership and loading behavior:
 | --- | --- |
 | Reflected `TObjectPtr<T>` | Hard package dependency. It loads and retains the target, participates in GC, blocks unload, and blocks deletion outside the deletion set. |
 | Reflected `TWeakObjectPtr<T>` | Transient, non-owning handle to an already loaded object. It is omitted from authored and cooked packages. |
-| Reflected `TSoftObjectPtr<T>` | Typed exact-object identity without eager loading or retention. It persists an authored `FObjectPath` and keeps only an invalidatable weak runtime cache. |
+| Reflected `TSoftObjectPtr<T>` | Typed exact-object identity without eager loading or retention. It persists an authored `FSoftObjectPath` and keeps only an invalidatable weak runtime cache. |
 | `FPackagePath` or path string | Service-defined package identity whose owner specifies persistence, move, and load behavior explicitly. |
 
-An invalid default `FObjectPath` is the null soft-reference value; non-null
+An invalid default `FSoftObjectPath` is the null soft-reference value; non-null
 values pass the ordinary exact-object path factory.
 `Get()` looks up an already loaded object without file I/O, follows catalog
 redirects, and refreshes its weak cache automatically. An independently loaded
@@ -313,7 +263,7 @@ return null from both members. `IsNull()` tests authored identity, `IsValid()`
 tests loaded-object availability, and `IsPending()` means a non-null identity
 without a matching live object; it does not mean an async request is active.
 `ResetWeakPtr()` drops only the cache, while `Reset()` also clears identity.
-`ToSoftObjectPath()` exposes the authored `FObjectPath`; assigning a new path
+`ToSoftObjectPath()` exposes the authored `FSoftObjectPath`; assigning a new path
 resets the cache. These members preserve authored identity through redirects,
 GC, and reload, including equality, hashing, ordering, and serialization.
 Lookup, validity checks, and loading run on the owner thread; copying path/weak
@@ -375,7 +325,7 @@ table entries or container elements, 1 MiB strings, and value depth 64.
 
 Registry records the package identity and a canonical list of top-level asset
 records. Each record binds an export id to `FTopLevelAssetPath`, class, and an
-optional exact `FObjectPath` redirect destination. Shared sorted
+optional exact `FSoftObjectPath` redirect destination. Shared sorted
 hard/soft/searchable package facts, export count, and exact external-bulk extent
 and digest remain package-level. Registry section version 3 adds a separate sorted
 build-package dependency list from authored save events; it creates no runtime

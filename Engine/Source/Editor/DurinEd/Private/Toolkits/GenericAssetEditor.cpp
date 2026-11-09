@@ -23,9 +23,9 @@ namespace Durin
 		auto GetToolkitId() const -> const FAssetEditorToolkitId& override { return Type; }
 		auto OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult override
 		{
-			FObjectPath Path;
-			if (!FObjectPath::TryCreate(Document.ResourceId, Path)) return EDocumentOpenResult::Rejected;
-			const auto Loaded = LoadObject<DObject>(Path);
+			FSoftObjectPath Path;
+			if (!FSoftObjectPath::TryCreate(Document.ResourceId, Path)) return EDocumentOpenResult::Rejected;
+			const auto Loaded = LoadObjectDetailed<DObject>(Path);
 			if (!Loaded || !IsValid(*Loaded) || (*Loaded)->IsTemplateObject()) return EDocumentOpenResult::Rejected;
 			Objects.emplace(Document.ResourceId, *Loaded);
 			return EDocumentOpenResult::Opened;

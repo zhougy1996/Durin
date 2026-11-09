@@ -55,7 +55,7 @@ namespace Durin::PackagePrivate
 			std::vector<FCustomVersion> CustomVersions;
 			std::vector<FCapturedObject> Objects;
 			std::vector<FPackagePath> Dependencies;
-			std::vector<FObjectPath> HardReferenceTargets;
+			std::vector<FSoftObjectPath> HardReferenceTargets;
 			std::vector<FPackageBulkStoragePayload> BulkPayloads;
 			std::vector<std::pair<uint64, uint64>> InternalReferences;
 		};
@@ -328,8 +328,8 @@ namespace Durin::PackagePrivate
 					else
 					{
 						DPackage* ExternalPackage = Value->GetPackage();
-						FObjectPath TargetPath;
-						const auto PathResult = FObjectPath::TryCreateWithDiagnostic(Value->GetObjectPath(), TargetPath);
+						FSoftObjectPath TargetPath;
+						const auto PathResult = FSoftObjectPath::TryCreateWithDiagnostic(Value->GetObjectPath(), TargetPath);
 						if (!ExternalPackage || !PathResult)
 						{
 							CaptureFailure.ObjectPath = Value->GetObjectPath();
@@ -349,7 +349,7 @@ namespace Durin::PackagePrivate
 				else if (Kind == 2) AppendString(ExternalPath);
 			}
 
-			auto SerializeSoftObjectValue(FObjectPath& Value) -> void override
+			auto SerializeSoftObjectValue(FSoftObjectPath& Value) -> void override
 			{
 				if (IsError() || SuppressedDepth != 0) return;
 				const uint8 Kind = Value.IsValid() ? 1 : 0;
@@ -560,7 +560,7 @@ namespace Durin::PackagePrivate
 			std::vector<FCapturedNode*> NodeStack;
 			uint32 SuppressedDepth = 0;
 			std::unordered_set<FPackagePath> Dependencies;
-			std::unordered_set<FObjectPath> HardReferenceTargets;
+			std::unordered_set<FSoftObjectPath> HardReferenceTargets;
 			std::vector<std::string> ExternalPaths;
 			std::vector<FResolvedReplacement> ReplacementValues;
 			FXxHash128 ContainerHash;
@@ -1045,7 +1045,7 @@ namespace Durin::PackagePrivate
 				{
 					std::string Path; if (!ReadCapturedString(Node.Raw, Offset, Path)) return Invalid();
 					const auto It = std::ranges::find_if(Package.HardReferenceTargets,
-						[&](const FObjectPath& Value) { return Value.ToString() == Path; });
+						[&](const FSoftObjectPath& Value) { return Value.ToString() == Path; });
 					if (It == Package.HardReferenceTargets.end()) return Invalid();
 					if (!ObjectPackage::FPackageIndex::TryImport(
 						std::distance(Package.HardReferenceTargets.begin(), It), Out.Reference)) return Invalid();
@@ -1059,8 +1059,8 @@ namespace Durin::PackagePrivate
 				if (ReferenceTag == 1)
 				{
 					if (!ReadCapturedString(Node.Raw, Offset, Out.Text)) return Invalid();
-					FObjectPath Path;
-					if (const auto PathResult = FObjectPath::TryCreateWithDiagnostic(Out.Text, Path); !PathResult)
+					FSoftObjectPath Path;
+					if (const auto PathResult = FSoftObjectPath::TryCreateWithDiagnostic(Out.Text, Path); !PathResult)
 					{
 						Invalid(); OutError.Cause = PathResult.error(); return false;
 					}
@@ -1085,7 +1085,7 @@ namespace Durin::PackagePrivate
 			Linker.FormatVersion = FormatVersion;
 			Linker.Summary.PackagePath = PackagePath;
 			Linker.Summary.HardPackageDependencies = Captured.Dependencies;
-			for (const FObjectPath& Target : Captured.HardReferenceTargets)
+			for (const FSoftObjectPath& Target : Captured.HardReferenceTargets)
 				Linker.Imports.push_back({.ObjectPath = Target});
 			Linker.CustomVersions.assign(CustomVersions.begin(), CustomVersions.end());
 			std::vector<std::string> Paths(Captured.Objects.size());
@@ -1154,7 +1154,7 @@ namespace Durin::PackagePrivate
 				const size_t SourceIndex = static_cast<size_t>(std::distance(Objects.begin(), Source));
 				ObjectPackage::FPackageIndex Export;
 				FTopLevelAssetPath AssetPath;
-				FObjectPath RedirectDestination;
+				FSoftObjectPath RedirectDestination;
 				const auto PathResult = FTopLevelAssetPath::TryCreateWithDiagnostic(PackagePath, Asset->GetName(), AssetPath);
 				if (!ObjectPackage::FPackageIndex::TryExport(
 						InternalReferenceIds[SourceIndex] - 1, Export) || !PathResult)

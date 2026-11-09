@@ -21,9 +21,9 @@ TEST(FPackageAssetTests, PackageCodecRetainsOwnedReaderAndWriterCauses)
 	FPackagePath Path;
 	ASSERT_TRUE(FPackagePath::TryCreate("/CodecCauseTests/CodecCauses", Path));
 	FTopLevelAssetPath Source;
-	FObjectPath Destination;
+	FSoftObjectPath Destination;
 	ASSERT_TRUE(FTopLevelAssetPath::TryCreate(Path, "Source", Source));
-	ASSERT_TRUE(FObjectPath::TryCreate("/CodecCauseTests/Target.Target", Destination));
+	ASSERT_TRUE(FSoftObjectPath::TryCreate("/CodecCauseTests/Target.Target", Destination));
 	const auto& Codec = TaggedPackage::GetCodec();
 	const FAssetPackageEncodedClosure Sentinel{{std::byte{7}}, {std::byte{9}}};
 	auto Closure = Sentinel;

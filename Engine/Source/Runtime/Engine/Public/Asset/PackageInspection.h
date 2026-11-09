@@ -32,7 +32,7 @@ namespace Durin
 	{
 		EAssetPackageObjectReferenceKind Kind = EAssetPackageObjectReferenceKind::Null;
 		uint64 ObjectId = 0;
-		FObjectPath ExternalPath;
+		FSoftObjectPath ExternalPath;
 	};
 
 	struct FAssetPackageField

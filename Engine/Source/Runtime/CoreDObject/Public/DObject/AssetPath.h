@@ -103,17 +103,17 @@ namespace Durin
 		auto empty() const -> bool { return Path.empty(); }
 	private:
 		explicit FSubobjectPathView(std::string_view InPath) : Path(InPath) {}
-		std::string_view Path; friend class FObjectPath;
+		std::string_view Path; friend class FSoftObjectPath;
 	};
 
-	class FObjectPath
+	class FSoftObjectPath
 	{
 	public:
-		FObjectPath() = default;
-		static auto TryCreate(std::string_view InPath, FObjectPath& OutPath) -> bool { return TryCreateWithDiagnostic(InPath, OutPath).has_value(); }
-		COREDOBJECT_API static auto TryCreateWithDiagnostic(std::string_view InPath, FObjectPath& OutPath) -> std::expected<void, FObjectPathError>;
-		COREDOBJECT_API static auto TryCreate(const FTopLevelAssetPath& InAssetPath, std::span<const std::string> InSubobjectNames, FObjectPath& OutPath) -> bool;
-		COREDOBJECT_API static auto TryCreate(const FTopLevelAssetPath& InAssetPath, FSubobjectPathView InSubobjectNames, FObjectPath& OutPath) -> bool;
+		FSoftObjectPath() = default;
+		static auto TryCreate(std::string_view InPath, FSoftObjectPath& OutPath) -> bool { return TryCreateWithDiagnostic(InPath, OutPath).has_value(); }
+		COREDOBJECT_API static auto TryCreateWithDiagnostic(std::string_view InPath, FSoftObjectPath& OutPath) -> std::expected<void, FObjectPathError>;
+		COREDOBJECT_API static auto TryCreate(const FTopLevelAssetPath& InAssetPath, std::span<const std::string> InSubobjectNames, FSoftObjectPath& OutPath) -> bool;
+		COREDOBJECT_API static auto TryCreate(const FTopLevelAssetPath& InAssetPath, FSubobjectPathView InSubobjectNames, FSoftObjectPath& OutPath) -> bool;
 		auto IsValid() const -> bool { return AssetPath.IsValid(); }
 		auto GetAssetPath() const -> const FTopLevelAssetPath& { return AssetPath; }
 		auto GetPackagePath() const -> const FPackagePath& { return AssetPath.GetPackagePath(); }
@@ -121,15 +121,15 @@ namespace Durin
 		auto IsTopLevelAsset() const -> bool { return IsValid() && SubobjectPath.empty(); }
 		COREDOBJECT_API auto AppendTo(std::string& Out) const -> void;
 		COREDOBJECT_API auto ToString() const -> std::string;
-		COREDOBJECT_API auto operator==(const FObjectPath& Other) const -> bool;
-		COREDOBJECT_API auto operator<=>(const FObjectPath& Other) const -> std::strong_ordering;
+		COREDOBJECT_API auto operator==(const FSoftObjectPath& Other) const -> bool;
+		COREDOBJECT_API auto operator<=>(const FSoftObjectPath& Other) const -> std::strong_ordering;
 	private:
 		FTopLevelAssetPath AssetPath;
 		std::string SubobjectPath;
-		friend struct std::hash<FObjectPath>;
+		friend struct std::hash<FSoftObjectPath>;
 	};
 }
 
 template<> struct std::hash<Durin::FPackagePath> { auto operator()(const Durin::FPackagePath& Value) const noexcept -> size_t { return std::hash<Durin::FName>{}(Value.Path); } };
 template<> struct std::hash<Durin::FTopLevelAssetPath> { auto operator()(const Durin::FTopLevelAssetPath& Value) const noexcept -> size_t { size_t Hash = std::hash<Durin::FPackagePath>{}(Value.PackagePath); Hash ^= std::hash<Durin::FName>{}(Value.AssetName) + 0x9e3779b9 + (Hash << 6) + (Hash >> 2); return Hash; } };
-template<> struct std::hash<Durin::FObjectPath> { auto operator()(const Durin::FObjectPath& Value) const noexcept -> size_t { size_t SubobjectHash = 1469598103934665603ull; for (const char Character : Value.SubobjectPath) { const char Folded = Character >= 'A' && Character <= 'Z' ? Character + ('a' - 'A') : Character; SubobjectHash = (SubobjectHash ^ static_cast<uint8_t>(Folded)) * 1099511628211ull; } size_t Hash = std::hash<Durin::FTopLevelAssetPath>{}(Value.AssetPath); Hash ^= SubobjectHash + 0x9e3779b9 + (Hash << 6) + (Hash >> 2); return Hash; } };
+template<> struct std::hash<Durin::FSoftObjectPath> { auto operator()(const Durin::FSoftObjectPath& Value) const noexcept -> size_t { size_t SubobjectHash = 1469598103934665603ull; for (const char Character : Value.SubobjectPath) { const char Folded = Character >= 'A' && Character <= 'Z' ? Character + ('a' - 'A') : Character; SubobjectHash = (SubobjectHash ^ static_cast<uint8_t>(Folded)) * 1099511628211ull; } size_t Hash = std::hash<Durin::FTopLevelAssetPath>{}(Value.AssetPath); Hash ^= SubobjectHash + 0x9e3779b9 + (Hash << 6) + (Hash >> 2); return Hash; } };

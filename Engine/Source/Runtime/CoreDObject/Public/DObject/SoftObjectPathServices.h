@@ -7,7 +7,7 @@
 
 namespace Durin
 {
-	class FObjectPath;
+	class FSoftObjectPath;
 }
 
 namespace Durin::Private
@@ -17,8 +17,8 @@ namespace Durin::Private
 	// The provider owns its code until it clears these owner-thread operations.
 	struct FSoftObjectPathOperations
 	{
-		DObject* (*Resolve)(const FObjectPath&, const DClass*, DObject* Cached) = nullptr;
-		DObject* (*Load)(const FObjectPath&, const DClass*) = nullptr;
+		DObject* (*Resolve)(const FSoftObjectPath&, const DClass*, DObject* Cached) = nullptr;
+		DObject* (*Load)(const FSoftObjectPath&, const DClass*) = nullptr;
 	};
 
 	COREDOBJECT_API auto SetSoftObjectPathOperations(FSoftObjectPathOperations Operations) -> void;

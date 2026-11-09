@@ -43,7 +43,7 @@ namespace Durin
 	// Metadata selection; querying support must not load the selected package.
 	struct FAssetOpenTarget
 	{
-		FObjectPath AssetPath;
+		FSoftObjectPath AssetPath;
 		std::string AssetClassName;
 	};
 

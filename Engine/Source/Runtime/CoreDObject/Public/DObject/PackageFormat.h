@@ -180,7 +180,7 @@ namespace Durin::ObjectPackage
 		uint32 ExportId = 0;
 		FTopLevelAssetPath AssetPath;
 		std::string ClassName;
-		FObjectPath RedirectDestination;
+		FSoftObjectPath RedirectDestination;
 
 		auto operator==(const FPackageAssetRegistryData&) const -> bool = default;
 	};

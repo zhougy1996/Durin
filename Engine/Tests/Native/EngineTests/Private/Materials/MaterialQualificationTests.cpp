@@ -526,7 +526,7 @@ TEST(FMaterialQualificationTests, LargeGraphLoadBaseline)
 		EXPECT_LE(DeltaBytes, CompleteBytes);
 		ASSERT_TRUE(UnloadPackage(Path));
 		const auto Begin = std::chrono::steady_clock::now();
-		const auto LoadResult = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		const auto LoadResult = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
 		Material = LoadResult.value_or(nullptr);
 		ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
 		const auto LoadMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Begin).count();

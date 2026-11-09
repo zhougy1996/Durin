@@ -68,7 +68,7 @@ namespace Durin::Editor::Material
 						FindClassByQualifiedName(Asset.AssetClassName),
 						DMaterialParameterCollection::StaticClass(),
 						EAssetClassPolicy::Exact))
-						if (auto Loaded = LoadObject<DMaterialParameterCollection>(
+						if (auto Loaded = LoadObjectDetailed<DMaterialParameterCollection>(
 							Asset.AssetPath); Loaded)
 							for (const auto& Declaration : (*Loaded)->GetDeclarations())
 								CreationMenu->CollectionParameters.push_back(

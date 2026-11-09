@@ -25,9 +25,9 @@ namespace Durin::Editor
 		std::vector<DObject*> LoadedMeshes;
 		for (size_t Index = 0; Index < Meshes.size(); ++Index)
 		{
-			FObjectPath Path;
+			FSoftObjectPath Path;
 			std::string Error;
-			if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(Paths[Index], Path); !PathValidation)
+			if (const auto PathValidation = FSoftObjectPath::TryCreateWithDiagnostic(Paths[Index], Path); !PathValidation)
 			{
 				Report(Index, ToString(PathValidation.error()));
 				continue;

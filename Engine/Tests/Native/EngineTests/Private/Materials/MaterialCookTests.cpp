@@ -20,7 +20,7 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::DefaultMaterialPackagePath, Path));
 	Durin::DMaterial* Source = nullptr;
-	auto SourceLoad = Durin::LoadObject<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
+	auto SourceLoad = Durin::LoadObjectDetailed<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
 	Source = SourceLoad.value_or(nullptr);
 	ASSERT_TRUE(SourceLoad) << SourceLoad.error().Message;
 	ASSERT_NE(Source, nullptr);
@@ -39,13 +39,13 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 		CookRoot / "Engine/Materials/DefaultMaterial.dasset"));
 	EXPECT_FALSE(std::filesystem::is_regular_file(
 		CookRoot / "Engine/Materials/DefaultMaterial.dbulk"));
-	Durin::ShutdownAssetManager();
+	Durin::ShutdownAssetRuntime();
 	Durin::CollectGarbage();
 	auto RuntimeConfiguration = Durin::FAssetRuntimeConfiguration::Authored();
 	auto Result = Durin::FAssetRuntimeConfiguration::Cooked(
 		CookRoot, RuntimeConfiguration);
 	ASSERT_TRUE(Result) << Result.Message;
-	const auto Initialized = Durin::InitializeAssetManager(std::move(RuntimeConfiguration));
+	const auto Initialized = Durin::InitializeAssetRuntime(std::move(RuntimeConfiguration));
 	ASSERT_TRUE(Initialized) << Initialized.Message;
 	{
 	const std::array CookMountDefinitions{
@@ -78,7 +78,7 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(MissingVersionBytes, CookedFile));
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(Durin::EAssetRegistryScanMode::FullValidation));
 	Durin::DMaterial* Rejected = nullptr;
-	const auto MissingVersion = Durin::LoadObject<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
+	const auto MissingVersion = Durin::LoadObjectDetailed<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
 	Rejected = MissingVersion.value_or(nullptr);
 	EXPECT_EQ((MissingVersion ? Durin::EAssetReadError::None : MissingVersion.error().Code), Durin::EAssetReadError::UnsupportedVersion) << (MissingVersion ? std::string{} : MissingVersion.error().Message);
 	EXPECT_EQ(Rejected, nullptr);
@@ -87,7 +87,7 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 		Durin::EAssetRegistryScanMode::FullValidation));
 	Durin::DMaterial* Cooked = nullptr;
 	{
-		auto Loaded = Durin::LoadObject<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		auto Loaded = Durin::LoadObjectDetailed<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
 		Cooked = Loaded.value_or(nullptr);
 		Result = Loaded ? Durin::FAssetReadResult{} : Durin::AssetReadResultFromError(Loaded.error());
 	}
@@ -250,9 +250,9 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 		Durin::FVector4f(0.5f, 0.5f, 0.5f, 1.0f));
 	}
 
-	Durin::ShutdownAssetManager();
+	Durin::ShutdownAssetRuntime();
 	Durin::CollectGarbage();
-	ASSERT_TRUE(Durin::InitializeAssetManager());
+	ASSERT_TRUE(Durin::InitializeAssetRuntime());
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
 		Durin::EAssetRegistryScanMode::FullValidation));
 }
@@ -280,7 +280,7 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::DefaultMaterialPackagePath, Path));
 	Durin::DMaterial* Source = nullptr;
-	auto SourceLoad = Durin::LoadObject<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
+	auto SourceLoad = Durin::LoadObjectDetailed<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
 	Source = SourceLoad.value_or(nullptr);
 	ASSERT_TRUE(SourceLoad) << SourceLoad.error().Message;
 	ASSERT_NE(Source, nullptr);
@@ -293,11 +293,11 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	ASSERT_TRUE(AuthoredInstance->SetParent(Source));
 	ASSERT_TRUE(AuthoredInstance->SetVectorParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.8, 0.3, 0.1)));
-	Durin::FObjectPath InstancePath;
-	ASSERT_TRUE(Durin::FObjectPath::TryCreate(AuthoredInstance->GetObjectPath(), InstancePath));
+	Durin::FSoftObjectPath InstancePath;
+	ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate(AuthoredInstance->GetObjectPath(), InstancePath));
 	const Durin::FMaterialProgramIdentity ExpectedIdentity =
 		Durin::Testing::ExpectedGameMaterialIdentity(*Source);
-	std::array<Durin::FObjectPath, 3> VariantPaths;
+	std::array<Durin::FSoftObjectPath, 3> VariantPaths;
 	std::array<Durin::FMaterialProgramIdentity, 3> VariantIdentities;
 	for (size_t Index = 0; Index < VariantPaths.size(); ++Index)
 	{
@@ -311,7 +311,7 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 		ASSERT_TRUE(Variant->SetParentAndPropertyOverrides(AuthoredInstance, Overrides));
 		ASSERT_TRUE(Variant->GetAcceptedCompiledProgram());
 		VariantIdentities[Index] = Durin::Testing::ExpectedGameMaterialIdentity(*Variant);
-		ASSERT_TRUE(Durin::FObjectPath::TryCreate(Variant->GetObjectPath(), VariantPaths[Index]));
+		ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate(Variant->GetObjectPath(), VariantPaths[Index]));
 	}
 
 	// A transient instance inside the authored package must not need its own
@@ -332,13 +332,13 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 		CookRoot / "Engine/Materials/DefaultMaterial.dasset"));
 	EXPECT_FALSE(std::filesystem::is_regular_file(
 		CookRoot / "Engine/Materials/DefaultMaterial.dbulk"));
-	Durin::ShutdownAssetManager();
+	Durin::ShutdownAssetRuntime();
 	Durin::CollectGarbage();
 	auto RuntimeConfiguration = Durin::FAssetRuntimeConfiguration::Authored();
 	auto Result = Durin::FAssetRuntimeConfiguration::Cooked(
 		CookRoot, RuntimeConfiguration);
 	ASSERT_TRUE(Result) << Result.Message;
-	const auto Initialized = Durin::InitializeAssetManager(std::move(RuntimeConfiguration));
+	const auto Initialized = Durin::InitializeAssetRuntime(std::move(RuntimeConfiguration));
 	ASSERT_TRUE(Initialized) << Initialized.Message;
 	{
 	const std::array CookMountDefinitions{
@@ -361,7 +361,7 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 		Durin::EAssetRegistryScanMode::FullValidation));
 	Durin::DMaterial* Cooked = nullptr;
 	{
-		auto Loaded = Durin::LoadObject<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		auto Loaded = Durin::LoadObjectDetailed<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
 		Cooked = Loaded.value_or(nullptr);
 		Result = Loaded ? Durin::FAssetReadResult{} : Durin::AssetReadResultFromError(Loaded.error());
 	}
@@ -392,7 +392,7 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	EXPECT_FALSE(Cooked->GetAcceptedCompiledProgram()->GetShaderMap().ActiveParameters.empty());
 	Durin::DMaterialInstance* Instance = nullptr;
 	{
-		auto Loaded = Durin::LoadObject<Durin::DMaterialInstance>(InstancePath);
+		auto Loaded = Durin::LoadObjectDetailed<Durin::DMaterialInstance>(InstancePath);
 		Instance = Loaded.value_or(nullptr);
 		Result = Loaded ? Durin::FAssetReadResult{} : Durin::AssetReadResultFromError(Loaded.error());
 	}
@@ -409,7 +409,7 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	{
 		Durin::DMaterialInstance* Variant = nullptr;
 		{
-			auto LoadedValue = Durin::LoadObject<Durin::DMaterialInstance>(VariantPaths[Index]);
+			auto LoadedValue = Durin::LoadObjectDetailed<Durin::DMaterialInstance>(VariantPaths[Index]);
 			Variant = LoadedValue.value_or(nullptr);
 			ASSERT_TRUE(LoadedValue);
 		}
@@ -491,9 +491,9 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	if (bOwnsRenderingThread) Durin::ShutdownRenderingThread();
 	}
 
-	Durin::ShutdownAssetManager();
+	Durin::ShutdownAssetRuntime();
 	Durin::CollectGarbage();
-	ASSERT_TRUE(Durin::InitializeAssetManager());
+	ASSERT_TRUE(Durin::InitializeAssetRuntime());
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
 		Durin::EAssetRegistryScanMode::FullValidation));
 }
@@ -509,7 +509,7 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 	ASSERT_TRUE(FPackagePath::TryCreate(DefaultMaterialPackagePath, Path));
 	DMaterial* Source = nullptr;
 	{
-		auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		auto LoadedValue = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
 		Source = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
@@ -560,17 +560,17 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 	Sampling.GetTexture().SamplerState.AddressV = EMaterialSamplerAddressMode::MirroredRepeat;
 	Sampling.GetTexture().TextureFallback = EMaterialTextureFallback::Black;
 	ASSERT_TRUE(Instance->SetParameterValue(Texture.Id, Sampling));
-	FObjectPath InstancePath;
-	ASSERT_TRUE(FObjectPath::TryCreate(Instance->GetObjectPath(), InstancePath));
+	FSoftObjectPath InstancePath;
+	ASSERT_TRUE(FSoftObjectPath::TryCreate(Instance->GetObjectPath(), InstancePath));
 	const auto CookRoot = std::filesystem::absolute(Testing::CreateTestFixtureDirectory("CustomLayoutMaterialCook"));
 	FCookContext Cook(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	std::string Error;
 	ASSERT_TRUE(SaveCookPackage((*Source).GetPackage(), DefaultMaterialPackagePath, Cook)) << Error;
 	ASSERT_TRUE(PublishCookContext(Cook, CookRoot)) << Error;
-	ShutdownAssetManager(); CollectGarbage();
+	ShutdownAssetRuntime(); CollectGarbage();
 	auto Configuration = FAssetRuntimeConfiguration::Authored();
 	ASSERT_TRUE(FAssetRuntimeConfiguration::Cooked(CookRoot, Configuration));
-	ASSERT_TRUE(InitializeAssetManager(std::move(Configuration)));
+	ASSERT_TRUE(InitializeAssetRuntime(std::move(Configuration)));
 	{
 		const std::array Mounts{FMountPoint{.VirtualRoot = "/Engine/", .Owner = EMountOwner::Test,
 			.Root = CookRoot / "Engine", .bAutoScan = true}};
@@ -579,7 +579,7 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 		ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 		DMaterial* Loaded = nullptr;
 		{
-			auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+			auto LoadedValue = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
 			Loaded = LoadedValue.value_or(nullptr);
 			ASSERT_TRUE(LoadedValue);
 		}
@@ -600,7 +600,7 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 			[](const auto& Stage) { return Stage.SourceEntryPoint == "HitProxyFragmentMain"; }));
 		DMaterialInstance* LoadedInstance = nullptr;
 		{
-			auto LoadedValue = LoadObject<DMaterialInstance>(InstancePath);
+			auto LoadedValue = LoadObjectDetailed<DMaterialInstance>(InstancePath);
 			LoadedInstance = LoadedValue.value_or(nullptr);
 			ASSERT_TRUE(LoadedValue);
 		}
@@ -621,6 +621,6 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 			EXPECT_FLOAT_EQ(ReadFloat(InstanceBinding.CompiledUniformPayload, Field.Offset), 0.8f);
 		}
 	}
-	ShutdownAssetManager(); CollectGarbage();
-	ASSERT_TRUE(InitializeAssetManager());
+	ShutdownAssetRuntime(); CollectGarbage();
+	ASSERT_TRUE(InitializeAssetRuntime());
 }

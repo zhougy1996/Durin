@@ -74,10 +74,10 @@ namespace Durin::Editor::Material
 	auto MMaterialFunctionEditor::OpenDocument(const FEditorDocument& Tab) -> EDocumentOpenResult
 	{
 		if (Find(Tab.ResourceId)) return EDocumentOpenResult::Opened;
-		FObjectPath Path;
-		if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(Tab.ResourceId, Path); !PathValidation) { Error = ToString(PathValidation.error()); return EDocumentOpenResult::Rejected; }
+		FSoftObjectPath Path;
+		if (const auto PathValidation = FSoftObjectPath::TryCreateWithDiagnostic(Tab.ResourceId, Path); !PathValidation) { Error = ToString(PathValidation.error()); return EDocumentOpenResult::Rejected; }
 		DMaterialFunction* Function = nullptr;
-		const auto Loaded = LoadObject<DMaterialFunction>(Path);
+		const auto Loaded = LoadObjectDetailed<DMaterialFunction>(Path);
 		Function = Loaded.value_or(nullptr);
 		if (!Loaded || !Function) { Error = Loaded ? "The asset is not an editable function." : (Loaded ? std::string{} : Loaded.error().Message); return EDocumentOpenResult::Rejected; }
 		auto Document = std::make_unique<FDocument>();

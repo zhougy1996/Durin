@@ -67,7 +67,7 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	}
 	DMaterialFunction* Reloaded = nullptr;
 	{
-		auto LoadedValue = LoadObject<DMaterialFunction>(Testing::MakePackageLeafAssetObjectPathForTests(FirstPath));
+		auto LoadedValue = LoadObjectDetailed<DMaterialFunction>(Testing::MakePackageLeafAssetObjectPathForTests(FirstPath));
 		Reloaded = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
