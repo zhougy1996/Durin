@@ -170,7 +170,7 @@ namespace Durin
 		std::function<void()> OpenProjectBrowser) -> bool
 	{
 		auto* Levels = AssetEditors.GetEditor()->GetEditorSubsystem<DLevelEditorSubsystem>();
-		if (!Levels || Levels->GetHostContext()) return false;
+		check(Levels && !Levels->GetHostContext());
 		auto Context = std::make_shared<FLevelEditorHostContext>();
 		Context->Settings = std::make_shared<FLevelEditorSessionSettings>();
 		Context->Settings->Load();
@@ -199,44 +199,38 @@ namespace Durin
 			}
 			Integration->ContentBrowserExtensions.push_back(std::move(Handle));
 		}
-		const auto RegisterImport = [this](
-			std::string Id, std::string Label, int32 Order,
-			Editor::Level::EImportDialogType Type) -> bool {
-			std::string Error;
-			auto Handle = Editor::ContentBrowser::RegisterExtension({
-				.Id = std::move(Id),
-				.Label = std::move(Label),
-				.Category = Editor::ContentBrowser::EExtensionCategory::Import,
-				.Order = Order,
-				.Mutation = Editor::ContentBrowser::EContentMutation::MutatesContent,
-				.IsApplicable = [](const auto& Context) {
-					return !Context.VirtualDirectory.empty();
-				},
-				.Invoke = [Type](const auto& Invocation) {
-					auto* Service = Invocation.AssetEditors.Get();
-					if (!Service) return;
-					for (const auto& Session : Service->GetOwnedAssetEditors())
-					if (auto Toolkit = std::dynamic_pointer_cast<MLevelEditor>(Session->GetToolkit()))
-						Toolkit->RequestContentBrowserImport(Invocation.Context.VirtualDirectory, Type);
-				},
-				.DrawHostPresentation = [Type](const Editor::ContentBrowser::FExtensionHost& Host, bool bAllowed) {
-					auto* Service = Host.AssetEditors.Get();
-					if (!Service) return;
-					for (const auto& Session : Service->GetOwnedAssetEditors())
-					if (auto Toolkit = std::dynamic_pointer_cast<MLevelEditor>(Session->GetToolkit()))
-						Toolkit->DrawContentBrowserImport(Type, bAllowed);
-				},
-				}, Error);
-			if (!Handle.IsValid())
-			{
-				DURIN_ERROR("Could not register Content Browser import: {}", Error);
-				return false;
-			}
-			Integration->ContentBrowserExtensions.push_back(std::move(Handle));
-			return true;
-		};
-		return RegisterImport("level.import-scene", "Scene Source (FBX)...", 300,
-			Editor::Level::EImportDialogType::Scene);
+		std::string Error;
+		auto Handle = Editor::ContentBrowser::RegisterExtension({
+			.Id = "level.import-scene",
+			.Label = "Scene Source (FBX)...",
+			.Category = Editor::ContentBrowser::EExtensionCategory::Import,
+			.Order = 300,
+			.Mutation = Editor::ContentBrowser::EContentMutation::MutatesContent,
+			.IsApplicable = [](const auto& Context) {
+				return !Context.VirtualDirectory.empty();
+			},
+			.Invoke = [](const auto& Invocation) {
+				auto* Service = Invocation.AssetEditors.Get();
+				if (!Service) return;
+				for (const auto& Session : Service->GetOwnedAssetEditors())
+				if (auto Toolkit = std::dynamic_pointer_cast<MLevelEditor>(Session->GetToolkit()))
+					Toolkit->RequestContentBrowserImport(Invocation.Context.VirtualDirectory, Editor::Level::EImportDialogType::Scene);
+			},
+			.DrawHostPresentation = [](const Editor::ContentBrowser::FExtensionHost& Host, bool bAllowed) {
+				auto* Service = Host.AssetEditors.Get();
+				if (!Service) return;
+				for (const auto& Session : Service->GetOwnedAssetEditors())
+				if (auto Toolkit = std::dynamic_pointer_cast<MLevelEditor>(Session->GetToolkit()))
+					Toolkit->DrawContentBrowserImport(Editor::Level::EImportDialogType::Scene, bAllowed);
+			},
+			}, Error);
+		if (!Handle.IsValid())
+		{
+			DURIN_ERROR("Could not register Content Browser import: {}", Error);
+			return false;
+		}
+		Integration->ContentBrowserExtensions.push_back(std::move(Handle));
+		return true;
 	}
 
 	auto FLevelEditorModule::GetOrCreateLevelEditor(DAssetEditorSubsystem& AssetEditors) -> DAssetEditor*

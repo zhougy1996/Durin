@@ -232,6 +232,32 @@ TEST_F(PythonScriptPanelTests, StartupScriptRunsOnceWithoutMainFrameAndPanelsObs
     }
 }
 
+TEST_F(PythonScriptPanelTests, SessionStartupPreservesTheRuntimeFailure)
+{
+    FPythonRuntime OtherRuntime;
+    ASSERT_TRUE(OtherRuntime.Start());
+    const auto Submitted = Python->RunFileForEditor(*Host, Script("pass", "runtime_conflict.py"));
+    ASSERT_FALSE(Submitted);
+    EXPECT_NE(std::string::npos, Submitted.error().find("Another Durin Python runtime owns the interpreter"));
+    EXPECT_EQ(0u, Python->GetSession());
+}
+
+TEST_F(PythonScriptPanelTests, ProviderShutdownStateStillClosesTheEditorSession)
+{
+    ASSERT_TRUE(Python->RunFileForEditor(*Host, Script("pass", "provider_shutdown.py")));
+    ASSERT_NE(0u, Python->GetSession());
+    const auto Info = FModuleManager::Get().FindModule("DurinPython");
+    const auto Previous = Info->State.exchange(EModuleState::ShuttingDown);
+    struct FRestoreState
+    {
+        FModuleManager::FModuleInfoPtr Info;
+        EModuleState Previous;
+        ~FRestoreState() { Info->State = Previous; }
+    } Restore{Info, Previous};
+    Host->PrepareForShutdown();
+    EXPECT_EQ(0u, Python->GetSession());
+}
+
 TEST_F(PythonScriptPanelTests, StartupSubmissionFailureRemainsVisibleWithoutRetryingFromThePanel)
 {
     const auto File = Testing::GetTestWorkDirectory() / "absent_startup_script.py";

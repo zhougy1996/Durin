@@ -102,11 +102,7 @@ namespace Durin
 
 	auto FMaterialEditorModule::RegisterContributions(Editor::DThumbnailManager& ThumbnailManager) -> bool
 	{
-		if ((MaterialThumbnailRegistration && MaterialThumbnailRegistration->IsValid())
-			|| (MaterialInstanceThumbnailRegistration && MaterialInstanceThumbnailRegistration->IsValid()))
-			return false;
-		MaterialThumbnailRegistration.reset();
-		MaterialInstanceThumbnailRegistration.reset();
+		check(!MaterialThumbnailRegistration && !MaterialInstanceThumbnailRegistration);
 
 		auto MaterialHandle = ThumbnailManager.RegisterScoped(
 			std::make_unique<DMaterialThumbnailRenderer>(

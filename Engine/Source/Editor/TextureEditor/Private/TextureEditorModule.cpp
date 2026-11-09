@@ -65,11 +65,7 @@ namespace Durin
 
 	auto FTextureEditorModule::RegisterContributions(Editor::DThumbnailManager& ThumbnailManager) -> bool
 	{
-		if ((Texture2DThumbnailRegistration && Texture2DThumbnailRegistration->IsValid())
-			|| (TextureCubeThumbnailRegistration && TextureCubeThumbnailRegistration->IsValid()))
-			return false;
-		Texture2DThumbnailRegistration.reset();
-		TextureCubeThumbnailRegistration.reset();
+		check(!Texture2DThumbnailRegistration && !TextureCubeThumbnailRegistration);
 		Integration->FileImport = std::make_shared<Editor::Texture::FTextureFileImport>();
 
 		auto Texture2DHandle = ThumbnailManager.RegisterScoped(

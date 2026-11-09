@@ -15,9 +15,9 @@ namespace Durin
 			DEditorEngine& Editor, std::shared_ptr<MWindow> StartupWindow) -> void = 0;
 		virtual auto DestroyMainFrame() -> void = 0;
 		virtual auto IsShellPresented() const -> bool = 0;
-		// Starts workspace providers; the host synchronizes services before creating consumers.
-		virtual auto LoadWorkspaceModules(std::string& OutError) -> bool = 0;
-		// Creates workspaces after their modules and editor services are ready.
+		// Starts workspace providers, logging failures; the host then synchronizes services.
+		virtual auto LoadWorkspaceModules() -> bool = 0;
+		// Creates consumers after services are ready; clears OutError on success, fills it on failure.
 		virtual auto InitializeWorkspaces(std::string& OutError) -> bool = 0;
 		// Normal-frame updates after tool/script and world ticks; independent of drawing.
 		virtual auto TickMainFrame(float DeltaSeconds) -> void = 0;

@@ -13,6 +13,11 @@ session/job data. One process-wide owner initializes, executes and finalizes
 CPython on GameThread. Start, Stop and destruction are owner operations; native
 submission, query and cancellation remain detached and thread-safe.
 
+The editor subsystem binds its providing module during initialization and uses
+that binding for cleanup, including while the module is shutting down. Preparing
+an editor session returns runtime/session failures unchanged to the caller;
+startup-script and panel entry points own their logging and presentation.
+
 The default SDK is CPython 3.13.15, Windows x64, release GIL ABI, pinned by the
 `python` dependency manifest. `DURIN_PYTHON_SDK_ROOT` explicitly selects the same
 version/ABI for native-host verification on Windows or macOS. Its layout is

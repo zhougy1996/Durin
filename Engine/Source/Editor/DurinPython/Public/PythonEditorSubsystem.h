@@ -7,6 +7,7 @@
 
 namespace Durin
 {
+	class FDurinPythonModule;
 	// Attaches the module's optional services to one editor session.
 	DCLASS(NoClassDefaultObject)
 	class DPythonEditorSubsystem : public DEditorSubsystem
@@ -16,5 +17,7 @@ namespace Durin
 		DURINPYTHON_API explicit DPythonEditorSubsystem(const FObjectInitializer& Initializer);
 		DURINPYTHON_API auto Initialize() -> FSubsystemResult override;
 		DURINPYTHON_API auto Deinitialize() noexcept -> void override;
+	private:
+		FDurinPythonModule* Module = nullptr;
 	};
 }

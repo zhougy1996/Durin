@@ -7,6 +7,7 @@
 
 namespace Durin
 {
+	class FDurinMCPModule;
 	// Attaches the module's optional services to one editor session.
 	DCLASS(NoClassDefaultObject)
 	class DMCPServerSubsystem : public DEditorSubsystem
@@ -16,5 +17,7 @@ namespace Durin
 		DURINMCP_API explicit DMCPServerSubsystem(const FObjectInitializer& Initializer);
 		DURINMCP_API auto Initialize() -> FSubsystemResult override;
 		DURINMCP_API auto Deinitialize() noexcept -> void override;
+	private:
+		FDurinMCPModule* Module = nullptr;
 	};
 }

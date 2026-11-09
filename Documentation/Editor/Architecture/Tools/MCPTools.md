@@ -24,12 +24,15 @@ detached `FEditorToolService` on the GameThread. Start and Stop are control-thre
 operations and must not race one another. Workers retain only owned protocol data
 and the detached endpoint; they never resolve DObjects or invoke providers.
 
-Editor initialization loads DurinMCP before the editor subsystem snapshot.
+Editor initialization loads DurinMCP before the editor subsystem snapshot;
+DurinMCP loads its Python dependency in StartupModule.
 The module registers `DMCPServerSubsystem`, which starts the optional server for
 its owning editor and stops it during subsystem deinitialization. Its dependency
 on `DPythonEditorSubsystem` orders MCP shutdown before Python retirement.
 Module shutdown unregisters and reconciles its subsystem before the final
-idempotent server stop. MainFrame construction and destruction do not control
+idempotent server stop. The subsystem binds its providing module at initialization
+so deinitialization can stop the server while the provider is shutting down,
+without querying the active-module lookup again. MainFrame construction and destruction do not control
 the transport. Merely loading DurinMCP does not open a port.
 Startup failure logs a bounded explanation and leaves normal editor use available.
 When MCP is enabled, its host acquires the Python module's shared runtime through

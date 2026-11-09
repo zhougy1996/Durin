@@ -24,7 +24,7 @@ namespace Durin
         auto GetSession() const -> uint64 { return Session; }
     private:
         friend class DPythonEditorSubsystem;
-        auto StartForEditor(DEditorEngine& Editor) -> void;
+        auto EnsureEditorSession(DEditorEngine& Editor) -> std::expected<void, std::string>;
         auto StopRuntime() noexcept -> void;
         auto SubmitStartupScript(DEditorEngine& Editor) -> void;
         std::unique_ptr<FEditorSubsystemRegistration> EditorRegistration;

@@ -284,112 +284,94 @@ namespace Durin::Editor::MainFrame
 		constexpr float EditorTitleBarMenuGap = 28.0f;
 		constexpr float EditorTitleBarTitleGap = 12.0f;
 
-		auto RegisterEditorWorkspaces(
-			FMainFrameContext& Context,
-			FLevelEditorModule& LevelEditorModule
-		) -> bool
-		{
-
-			if (!LevelEditorModule.InitializeLevelEditor(
-				*Context.AssetEditors.Get(),
-				{
-					.RevealAsset = [&Context](std::string_view Path) {
-						return Context.ContentBrowserTool
-							&& Context.ContentBrowserTool->RevealAsset(Path);
-					},
-					.RevealDirectory = [&Context](std::string_view Path) {
-						return Context.ContentBrowserTool
-							&& Context.ContentBrowserTool->RevealDirectory(Path);
-					},
-					.NotifyMountedContentChanged = [&Context] {
-						return Context.ContentBrowserTool
-							&& Context.ContentBrowserTool->NotifyMountedContentChanged();
-					},
-				},
-				[&Context] { Context.bProjectBrowserOpen = true; })) return false;
-			return true;
-		}
-
 		auto InitializeEditorWorkspaces(
-			FMainFrameContext& Context) -> bool
+			FMainFrameContext& Context, std::string& OutError) -> bool
 		{
-			bool bWorkspaceReady = false;
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("Startup.WorkspaceRegistration");
 				FLevelEditorModule& LevelEditorModule =
 					*static_cast<FLevelEditorModule*>(FModuleManager::Get().GetModule("LevelEditor"));
 				Context.LevelEditorModule = &LevelEditorModule;
-				bWorkspaceReady = RegisterEditorWorkspaces(
-					Context,
-					LevelEditorModule);
-				if (bWorkspaceReady)
+				if (!LevelEditorModule.InitializeLevelEditor(
+					*Context.AssetEditors.Get(),
+					{
+						.RevealAsset = [&Context](std::string_view Path) {
+							return Context.ContentBrowserTool
+								&& Context.ContentBrowserTool->RevealAsset(Path);
+						},
+						.RevealDirectory = [&Context](std::string_view Path) {
+							return Context.ContentBrowserTool
+								&& Context.ContentBrowserTool->RevealDirectory(Path);
+						},
+						.NotifyMountedContentChanged = [&Context] {
+							return Context.ContentBrowserTool
+								&& Context.ContentBrowserTool->NotifyMountedContentChanged();
+						},
+					},
+					[&Context] { Context.bProjectBrowserOpen = true; }))
 				{
-					ContentBrowser::FConstructionServices Services{
-						.OpenAsset = [Service = Context.AssetEditors](const std::string& Path,
-							const std::string& AssetClassName) {
-							auto* AssetEditors = Service.Get();
-							if (!AssetEditors || !AssetEditors->GetWorkGate()->IsOpen()) return false;
-							FObjectPath ObjectPath;
-							if (!FObjectPath::TryCreate(Path, ObjectPath)) return false;
-							return AssetEditors->OpenAssets({.AssetEditors = AssetEditors,
-								.Assets = {{ObjectPath, AssetClassName}}, .Origin = "ContentBrowser"}).IsAccepted();
-						},
-						.GetMountedContentMutationRevision = [] {
-							return GEditor
-								? GEditor->GetTransactor()
-									->GetMountedContentMutationRevision()
-								: uint64{0};
-						},
-						.NotifyMountedContentMutation = [] {
-							if (GEditor)
-								GEditor->GetTransactor()
-									->NotifyMountedContentMutation();
-						},
-						.CaptureMountedContentChanges = [](uint64 From) {
-							return GEditor ? GEditor->GetTransactor()->CaptureMountedContentChanges(From)
-								: FContentChangeBatch{.bFullRefresh = true};
-						},
-						.NotifyScopedContentMutation = [](FContentChangeBatch Changes) {
-							if (GEditor) GEditor->GetTransactor()->NotifyMountedContentMutation(std::move(Changes));
-						},
-						.CanMutateContent = [] { return GEditor && !GEditor->IsPlaying(); },
-						.QueryReimport = [](std::string_view AssetClassName) {
-							const auto Actions = FReimportManager::QueryReimportActions(AssetClassName);
-							return ContentBrowser::FReimportAvailability{
-								Actions.bSupportsReimport, Actions.bSupportsReimportFromFile};
-						},
-						.Reimport = [](bool bFromFile, std::string AssetPath,
-							std::function<void(std::string)> ReportError) {
-							ExecuteReimport(bFromFile, std::move(AssetPath),
-								std::move(ReportError));
-						},
-					};
-					Services.ReconciliationState = Context.ContentReconciliation;
-					ContentBrowser::FPresentationSettings BrowserSettings;
-					std::string BrowserSettingsWarning;
-					if (!ContentBrowser::LoadPresentationSettings(
-						BrowserSettings, &BrowserSettingsWarning)
-						&& !BrowserSettingsWarning.empty())
-						DURIN_WARN("{}", BrowserSettingsWarning);
-					Services.AssetEditors = Context.AssetEditors;
-					Context.ContentBrowserTool = ContentBrowser::CreateContentBrowserTool(
-						std::move(Services),
-						std::move(BrowserSettings),
-						[](
-							const ContentBrowser::FPresentationSettings& Settings) {
-							return ContentBrowser::SavePresentationSettings(Settings);
-						});
-					bWorkspaceReady = static_cast<bool>(Context.ContentBrowserTool);
+					Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::WorkspaceRegistrationComplete);
+					OutError = "Could not initialize the Level Editor workspace.";
+					return false;
 				}
+				ContentBrowser::FConstructionServices Services{
+					.OpenAsset = [Service = Context.AssetEditors](const std::string& Path,
+						const std::string& AssetClassName) {
+						auto* AssetEditors = Service.Get();
+						if (!AssetEditors || !AssetEditors->GetWorkGate()->IsOpen()) return false;
+						FObjectPath ObjectPath;
+						if (!FObjectPath::TryCreate(Path, ObjectPath)) return false;
+						return AssetEditors->OpenAssets({.AssetEditors = AssetEditors,
+							.Assets = {{ObjectPath, AssetClassName}}, .Origin = "ContentBrowser"}).IsAccepted();
+					},
+					.GetMountedContentMutationRevision = [] {
+						return GEditor
+							? GEditor->GetTransactor()
+								->GetMountedContentMutationRevision()
+							: uint64{0};
+					},
+					.NotifyMountedContentMutation = [] {
+						if (GEditor)
+							GEditor->GetTransactor()
+								->NotifyMountedContentMutation();
+					},
+					.CaptureMountedContentChanges = [](uint64 From) {
+						return GEditor ? GEditor->GetTransactor()->CaptureMountedContentChanges(From)
+							: FContentChangeBatch{.bFullRefresh = true};
+					},
+					.NotifyScopedContentMutation = [](FContentChangeBatch Changes) {
+						if (GEditor) GEditor->GetTransactor()->NotifyMountedContentMutation(std::move(Changes));
+					},
+					.CanMutateContent = [] { return GEditor && !GEditor->IsPlaying(); },
+					.QueryReimport = [](std::string_view AssetClassName) {
+						const auto Actions = FReimportManager::QueryReimportActions(AssetClassName);
+						return ContentBrowser::FReimportAvailability{
+							Actions.bSupportsReimport, Actions.bSupportsReimportFromFile};
+					},
+					.Reimport = [](bool bFromFile, std::string AssetPath,
+						std::function<void(std::string)> ReportError) {
+						ExecuteReimport(bFromFile, std::move(AssetPath),
+							std::move(ReportError));
+					},
+				};
+				Services.ReconciliationState = Context.ContentReconciliation;
+				ContentBrowser::FPresentationSettings BrowserSettings;
+				std::string BrowserSettingsWarning;
+				if (!ContentBrowser::LoadPresentationSettings(
+					BrowserSettings, &BrowserSettingsWarning)
+					&& !BrowserSettingsWarning.empty())
+					DURIN_WARN("{}", BrowserSettingsWarning);
+				Services.AssetEditors = Context.AssetEditors;
+				Context.ContentBrowserTool = ContentBrowser::CreateContentBrowserTool(
+					std::move(Services),
+					std::move(BrowserSettings),
+					[](
+						const ContentBrowser::FPresentationSettings& Settings) {
+						return ContentBrowser::SavePresentationSettings(Settings);
+					});
 			}
 			Profiling::RecordStartupMilestone(
 				Profiling::EStartupMilestone::WorkspaceRegistrationComplete);
-			if (!bWorkspaceReady)
-			{
-				Context.ProjectBrowser->SetError(
-					"Could not initialize the editor workspaces.");
-				return false;
-			}
 			if (const auto* Project = GetCurrentProject(); Project && Project->bRecordInteractiveHistory)
 				Context.ProjectBrowser->RecordCurrentProject();
 			if (HasCurrentProject())
@@ -1351,16 +1333,15 @@ namespace Durin
 			&& MainFrameContext->ShellViewport->GetPresentationSerial() > MainFrameContext->ShellPresentationBaseline;
 	}
 
-	auto FMainFrameModule::LoadWorkspaceModules(std::string& OutError) -> bool
+	auto FMainFrameModule::LoadWorkspaceModules() -> bool
 	{
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::WorkspaceRegistrationBegin);
 		DURIN_PROFILE_CPU_ZONE_NAMED("Startup.WorkspaceModules");
-		OutError.clear();
-		for (const auto* Name : {"TextureCompressor", "MeshBuilder", "AssetForgeBuiltins",
+		for (const auto* Name : {"TextureCompressor", "MeshBuilder",
 			"LevelEditor", "MaterialEditor", "TextureEditor", "StaticMeshEditor"})
 			if (!FModuleManager::Get().LoadModule(Name))
 			{
-				OutError = std::format("Workspace module '{}' could not start.", Name);
+				DURIN_ERROR("Workspace module '{}' could not start.", Name);
 				return false;
 			}
 		return true;
@@ -1369,9 +1350,8 @@ namespace Durin
 	auto FMainFrameModule::InitializeWorkspaces(std::string& OutError) -> bool
 	{
 		OutError.clear();
-		if (MainFrameContext && InitializeEditorWorkspaces(*MainFrameContext)) return true;
-		OutError = "Could not initialize the editor workspaces.";
-		return false;
+		check(MainFrameContext);
+		return InitializeEditorWorkspaces(*MainFrameContext, OutError);
 	}
 
 	auto FMainFrameModule::TickMainFrame(float DeltaSeconds) -> void

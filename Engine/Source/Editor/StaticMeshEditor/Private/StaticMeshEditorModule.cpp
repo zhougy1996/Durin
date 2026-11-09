@@ -37,10 +37,7 @@ namespace Durin
 
 	auto FStaticMeshEditorModule::RegisterContributions(Editor::DThumbnailManager& ThumbnailManager) -> bool
 	{
-		if ((ThumbnailRegistration && ThumbnailRegistration->IsValid())) return false;
-		ThumbnailRegistration.reset();
-
-
+		check(!ThumbnailRegistration);
 		auto ThumbnailHandle = ThumbnailManager.RegisterScoped(
 				std::make_unique<DStaticMeshThumbnailRenderer>());
 		if (!ThumbnailHandle)

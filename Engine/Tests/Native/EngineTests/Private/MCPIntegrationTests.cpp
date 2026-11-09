@@ -496,6 +496,15 @@ TEST(FMCPEditorSessionTests, EditorSubsystemStartsAndStopsTransportWithoutMainFr
     EXPECT_EQ(200, Result->status);
     ASSERT_TRUE(Editor->RefreshEditorSubsystems(true));
     EXPECT_EQ(Port, FMCPModuleTestAccess::Port(Module));
+    // ModuleManager enters ShuttingDown before the provider retires its services.
+    const auto Info = FModuleManager::Get().FindModule("DurinMCP");
+    const auto Previous = Info->State.exchange(EModuleState::ShuttingDown);
+    struct FRestoreState
+    {
+        FModuleManager::FModuleInfoPtr Info;
+        EModuleState Previous;
+        ~FRestoreState() { Info->State = Previous; }
+    } Restore{Info, Previous};
     Editor->PrepareForShutdown();
     EXPECT_EQ(0u, FMCPModuleTestAccess::Port(Module));
     EXPECT_FALSE(Client.Post("/mcp", Headers(), Body("initialize", InitializeParams()), "application/json"));

@@ -75,13 +75,14 @@ namespace Durin
 	DMCPServerSubsystem::DMCPServerSubsystem(const FObjectInitializer& Initializer) : Super(Initializer) {}
 	auto DMCPServerSubsystem::Initialize() -> FSubsystemResult
 	{
-		FModuleManager::LoadModuleChecked<FDurinMCPModule>("DurinMCP").StartForEditor(*GetEditor());
+		Module = static_cast<FDurinMCPModule*>(FModuleManager::Get().GetModule("DurinMCP"));
+		check(Module);
+		Module->StartForEditor(*GetEditor());
 		return {};
 	}
 	auto DMCPServerSubsystem::Deinitialize() noexcept -> void
 	{
-		if (auto* Module = FModuleManager::Get().GetModule("DurinMCP"))
-			static_cast<FDurinMCPModule*>(Module)->StopServer();
+		if (auto* Owner = std::exchange(Module, nullptr)) Owner->StopServer();
 	}
 	IMPLEMENT_MODULE(FDurinMCPModule, DurinMCP)
 }

@@ -122,7 +122,6 @@ namespace Durin
 
 		MainFrameModule =
 			&FModuleManager::LoadModuleChecked<IMainFrameModule>("MainFrame");
-		FModuleManager::Get().LoadModuleChecked("DurinPython");
 		FModuleManager::Get().LoadModuleChecked("DurinMCP");
 		if (auto Result = InitializeEditorSubsystems(); !Result)
 		{
@@ -230,28 +229,30 @@ namespace Durin
 		}
 		case EBootstrapState::LoadingWorkspace:
 		{
-			StartupError.clear();
 			bool bModulesReady;
 			{
 				FHostOperationScope Operation(*this);
-				bModulesReady = MainFrameModule->LoadWorkspaceModules(StartupError);
+				bModulesReady = MainFrameModule->LoadWorkspaceModules();
 			}
 			if (bShutdownRequested) return;
-			if (bModulesReady)
-				if (const auto Services = RefreshEditorSubsystems(true); !Services) StartupError = Services.Message;
-			if (!bModulesReady || !StartupError.empty())
+			if (!bModulesReady)
 			{
+				StartupError = "Could not load the editor workspace modules.";
+				Transition(EBootstrapState::Failed);
+				return;
+			}
+			if (const auto Services = RefreshEditorSubsystems(true); !Services)
+			{
+				StartupError = Services.Message;
 				Transition(EBootstrapState::Failed);
 				return;
 			}
 			FHostOperationScope Operation(*this);
 			if (!MainFrameModule->InitializeWorkspaces(StartupError))
 			{
-				if (StartupError.empty()) StartupError = "Could not initialize the editor workspaces.";
 				Transition(EBootstrapState::Failed);
 				return;
 			}
-			StartupError.clear();
 			Transition(EBootstrapState::LoadingDefaultDocument);
 			return;
 		}

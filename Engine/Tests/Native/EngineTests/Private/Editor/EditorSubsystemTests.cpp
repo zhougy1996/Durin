@@ -577,12 +577,12 @@ namespace
 	class FWorkspaceStartupFrame final : public IMainFrameModule
 	{
 	public:
-		std::function<bool(std::string&)> LoadModules;
+		std::function<bool()> LoadModules;
 		std::function<void()> CreateWorkspace;
 		auto CreateDefaultMainFrame(DEditorEngine&, std::shared_ptr<MWindow>) -> void override {}
 		auto DestroyMainFrame() -> void override {}
 		auto IsShellPresented() const -> bool override { return true; }
-		auto LoadWorkspaceModules(std::string& OutError) -> bool override { return LoadModules(OutError); }
+		auto LoadWorkspaceModules() -> bool override { return LoadModules(); }
 		auto InitializeWorkspaces(std::string&) -> bool override { CreateWorkspace(); return true; }
 		auto TickMainFrame(float) -> void override {}
 	};
@@ -594,7 +594,7 @@ namespace
 		std::vector<std::string> Events;
 		FDynamicEditorA::Init = [&](auto&) { Events.emplace_back("service"); return FSubsystemResult{}; };
 		FWorkspaceStartupFrame Frame;
-		Frame.LoadModules = [&](std::string&) {
+		Frame.LoadModules = [&]() {
 			auto Provider = std::make_unique<FDynamicProvider>(std::make_shared<int>(0));
 			Provider->DuringStartup = [&] {
 				Events.emplace_back("module");
@@ -620,16 +620,16 @@ namespace
 		auto* Host = NewHost();
 		FWorkspaceStartupFrame Frame;
 		Frame.CreateWorkspace = [] { ADD_FAILURE() << "Failed providers must not expose workspace consumers."; };
-		Frame.LoadModules = [](std::string& Error) { Error = "workspace provider failed"; return false; };
+		Frame.LoadModules = [] { return false; };
 		auto* Previous = FEditorEngineTestAccess::BindMainFrameModule(*Host, &Frame);
 		FEditorEngineTestAccess::SetStartupPhase(*Host, Editor::Startup::EBootstrapState::LoadingWorkspace);
 		Host->AdvanceStartup();
 		EXPECT_EQ(EHostStartupState::Failed, Host->GetStartupState());
-		EXPECT_EQ("workspace provider failed", Host->GetStartupError());
+		EXPECT_EQ("Could not load the editor workspace modules.", Host->GetStartupError());
 
 		auto Registration = RegisterA();
 		FDynamicEditorA::Init = [](auto&) { return FSubsystemResult{ESubsystemError::InitializationFailed, "workspace service failed"}; };
-		Frame.LoadModules = [](std::string&) { return true; };
+		Frame.LoadModules = [] { return true; };
 		FEditorEngineTestAccess::SetStartupPhase(*Host, Editor::Startup::EBootstrapState::LoadingWorkspace);
 		Host->AdvanceStartup();
 		EXPECT_EQ(EHostStartupState::Failed, Host->GetStartupState());

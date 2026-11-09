@@ -20,20 +20,20 @@ namespace Durin
         }
         return Runtime;
     }
-    auto FDurinPythonModule::StartForEditor(DEditorEngine& Editor) -> void
+    auto FDurinPythonModule::EnsureEditorSession(DEditorEngine& Editor) -> std::expected<void, std::string>
     {
-        if (Session) return;
+        if (Session) return {};
         auto Started = EnsureRuntime();
-        if (!Started) { DURIN_WARN("Python unavailable: {}", Started.error()); return; }
+        if (!Started) return std::unexpected(Started.error());
         auto* Tools = Editor.GetEditorSubsystem<DEditorToolSubsystem>();
         auto Created = Runtime->CreateSession(Tools ? Tools->GetService() : nullptr);
-        if (!Created) { DURIN_WARN("Python session unavailable: {}", Created.error()); return; }
+        if (!Created) return std::unexpected(Created.error());
         Session = *Created;
+        return {};
     }
     auto FDurinPythonModule::RunFileForEditor(DEditorEngine& Editor, const std::filesystem::path& Path) -> std::expected<uint64, std::string>
     {
-        StartForEditor(Editor);
-        if (!Session) return std::unexpected("Python is unavailable. Check the editor log for setup details.");
+        if (auto Ready = EnsureEditorSession(Editor); !Ready) return std::unexpected(Ready.error());
         return Runtime->RunFile(Session, Path);
     }
     auto FDurinPythonModule::StopRuntime() noexcept -> void
@@ -79,13 +79,14 @@ namespace Durin
     DPythonEditorSubsystem::DPythonEditorSubsystem(const FObjectInitializer& Initializer) : Super(Initializer) {}
     auto DPythonEditorSubsystem::Initialize() -> FSubsystemResult
     {
-        FModuleManager::LoadModuleChecked<FDurinPythonModule>("DurinPython").SubmitStartupScript(*GetEditor());
+        Module = static_cast<FDurinPythonModule*>(FModuleManager::Get().GetModule("DurinPython"));
+        check(Module);
+        Module->SubmitStartupScript(*GetEditor());
         return {};
     }
     auto DPythonEditorSubsystem::Deinitialize() noexcept -> void
     {
-        if (auto* Module = FModuleManager::Get().GetModule("DurinPython"))
-            static_cast<FDurinPythonModule*>(Module)->StopRuntime();
+        if (auto* Owner = std::exchange(Module, nullptr)) Owner->StopRuntime();
     }
     IMPLEMENT_MODULE(FDurinPythonModule, DurinPython)
 }
