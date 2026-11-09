@@ -328,8 +328,10 @@ TEST(FTexture2DTests, ReimportSaveFailureIsSeparateAndRetainsCommittedData)
 	Durin::FReimportManager::Reimport(*Texture, {},
 		[&](Durin::FReimportResult Result) { Completed = std::move(Result); });
 	ASSERT_TRUE(Completed);
-	EXPECT_EQ(Completed->Status, Durin::EReimportResult::Failed);
-	EXPECT_NE(Completed->SaveCause, nullptr);
+	EXPECT_EQ(Completed->Status, Durin::EReimportResult::Succeeded);
+	ASSERT_TRUE(Completed->SaveResult);
+	EXPECT_FALSE(*Completed->SaveResult);
+	EXPECT_TRUE(*Completed);
 	EXPECT_EQ(Completed->FactoryCause, nullptr);
 	EXPECT_EQ(Texture->GetSource().GetIdentity(), Prepared->Source.GetIdentity());
 	EXPECT_EQ(Texture->GetAssetImportData()->GetSourceData().FindByRole("source")->GetContentHash(), Prepared->ContentHash);

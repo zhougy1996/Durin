@@ -127,7 +127,7 @@ namespace Durin::Editor::Texture
 			return std::unexpected("The Texture2D thumbnail renderer received the wrong asset class.");
 		}
 		const FAssetCatalogEntry Entry =
-			FindAssetExact(Request.Asset.AssetPath);
+			FindAssetExact(Request.Asset.AssetPath, EAssetQuerySource::OnDisk);
 		if (!Entry || Entry->AssetClassName != Request.Asset.AssetClassName
 			|| Entry.Package->FormatVersion != Request.Asset.PackageFormatVersion
 			|| static_cast<uint64>(Entry.Package->FileSize) != Request.Asset.FileSize

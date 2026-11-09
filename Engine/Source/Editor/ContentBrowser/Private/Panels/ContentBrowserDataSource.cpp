@@ -1,15 +1,50 @@
 #include "Panels/ContentBrowserDataSource.h"
 #include "Panels/ContentBrowserFilesystem.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 #include "Profiling/Profiling.h"
 
 namespace Durin::Editor::ContentBrowser::Private
 {
 	using ContentBrowserFilesystem::NormalizePath;
 
+	auto CaptureContentBrowserAssets() -> std::shared_ptr<const FContentBrowserAssetSnapshot>
+	{
+		const auto Query = CaptureAssetQuerySnapshot();
+		auto Result = std::make_shared<FContentBrowserAssetSnapshot>();
+		Result->Revision = Query.Revision;
+		std::unordered_map<FPackagePath, size_t> AssetCounts;
+		for (const auto& [Path, Asset] : Query.Assets) ++AssetCounts[Path.GetPackagePath()];
+		for (const auto& [Path, Asset] : Query.Assets)
+		{
+			const auto PackagePath = Path.GetPackagePath();
+			const auto* Disk = Query.FindPackageExact(PackagePath);
+			const auto Resolved = FMountPaths::ResolveAssetPath(PackagePath.GetView());
+			if (!Disk && !Resolved) continue;
+			FContentBrowserItem Item{
+				.Kind = Asset.IsRedirector() ? EContentBrowserItemKind::Redirector : EContentBrowserItemKind::Asset,
+				.Name = AssetCounts[PackagePath] == 1 ? std::string(PackagePath.GetPackageName()) : std::string(Path.GetAssetName()),
+				.VirtualPath = Path.ToString(), .PackagePath = PackagePath,
+				.PhysicalPath = NormalizePath(Disk ? Disk->PhysicalPath : Resolved->PhysicalPath.generic_string() + ".dasset"),
+				.AssetClassName = Asset.AssetClassName, .Extension = ".dasset", .RedirectDestination = Asset.RedirectDestination};
+			if (Disk)
+			{
+				Item.PackageFileSize = Disk->FileSize;
+				Item.BulkFileSize = Disk->BulkSegmentExtent;
+				Item.FileSize = Item.PackageFileSize + Item.BulkFileSize;
+				Item.LastWriteTime = Disk->LastWriteTime;
+				Item.ThumbnailFileSize = Disk->FileSize;
+				Item.ThumbnailPackageFormatVersion = Disk->FormatVersion;
+				Item.ThumbnailLastWriteTimeTicks = Disk->LastWriteTimeTicks;
+			}
+			Result->Items.push_back(std::move(Item));
+		}
+		return Result;
+	}
+
 	auto FContentBrowserDataSource::CaptureItems(
 		const std::string& PhysicalDirectory,
-		bool bRecursive, std::shared_ptr<const FAssetCatalogSnapshot> Catalog,
+		bool bRecursive, std::shared_ptr<const FContentBrowserAssetSnapshot> Catalog,
 		const Tasks::FCancellationToken& Cancellation)
 		-> FContentBrowserItemsSnapshot
 	{
@@ -66,6 +101,10 @@ namespace Durin::Editor::ContentBrowser::Private
 			return false;
 		};
 
+		const bool bCatalogDirectory = std::ranges::any_of(Catalog->Items, [&](const auto& Item) {
+			const auto Directory = std::filesystem::path(Item.PhysicalPath).parent_path().generic_string();
+			return Directory == PhysicalDirectory || FPaths::IsLexicalDescendantPath(Directory, PhysicalDirectory, true);
+		});
 		std::error_code IteratorError;
 		if (!bRecursive)
 		{
@@ -74,7 +113,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				std::filesystem::directory_options::skip_permission_denied,
 				IteratorError);
 			const std::filesystem::directory_iterator End;
-			if (IteratorError)
+			if (IteratorError && !(bCatalogDirectory && IteratorError == std::errc::no_such_file_or_directory))
 				AddEnumerationDiagnostic(
 					EEnumerationDiagnosticKind::Traversal,
 					PhysicalDirectory,
@@ -99,7 +138,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				std::filesystem::directory_options::skip_permission_denied,
 				IteratorError);
 			const std::filesystem::recursive_directory_iterator End;
-			if (IteratorError)
+			if (IteratorError && !(bCatalogDirectory && IteratorError == std::errc::no_such_file_or_directory))
 				AddEnumerationDiagnostic(
 					EEnumerationDiagnosticKind::Traversal,
 					PhysicalDirectory,
@@ -126,10 +165,10 @@ namespace Durin::Editor::ContentBrowser::Private
 			if (const auto It = AssetDirectoryIndex.find(PhysicalDirectory);
 				It != AssetDirectoryIndex.end())
 			{
-				for (const FIndexedAsset& Asset : It->second)
+				for (const auto* Asset : It->second)
 				{
 					if (Cancellation.IsCanceled()) return std::move(Result);
-					AppendAssetItem(*Asset.Path, *Asset.Data, Cancellation);
+					Result.Items.push_back(*Asset);
 				}
 			}
 		}
@@ -142,24 +181,35 @@ namespace Durin::Editor::ContentBrowser::Private
 					&& !FPaths::IsLexicalDescendantPath(
 						Directory, PhysicalDirectory, true))
 					continue;
-				for (const FIndexedAsset& Asset : Assets)
+				for (const auto* Asset : Assets)
 				{
 					if (Cancellation.IsCanceled()) return std::move(Result);
-					AppendAssetItem(*Asset.Path, *Asset.Data, Cancellation);
+					Result.Items.push_back(*Asset);
 				}
 			}
 		}
+		if (!bRecursive)
+			for (const auto& [Directory, Assets] : AssetDirectoryIndex)
+			{
+				if (!FPaths::IsLexicalDescendantPath(Directory, PhysicalDirectory, true)) continue;
+				const auto Relative = std::filesystem::path(Directory).lexically_relative(PhysicalDirectory);
+				const auto Child = std::filesystem::path(PhysicalDirectory) / *Relative.begin();
+				const auto ChildPath = NormalizePath(Child.generic_string());
+				if (std::ranges::none_of(Result.Items, [&](const auto& Item) { return Item.PhysicalPath == ChildPath; }))
+					Result.Items.push_back({.Kind = EContentBrowserItemKind::Folder,
+						.Name = Child.filename().generic_string(), .PhysicalPath = ChildPath});
+			}
 		return std::move(Result);
 	}
 
 	auto FContentBrowserDataSource::RefreshAssetDirectoryIndex(
-		std::shared_ptr<const FAssetCatalogSnapshot> Catalog,
+		std::shared_ptr<const FContentBrowserAssetSnapshot> Catalog,
 		const Tasks::FCancellationToken& Cancellation) -> void
 	{
 		if (AssetCatalogSnapshot == Catalog) return;
 		AssetCatalogSnapshot = std::move(Catalog);
 		AssetDirectoryIndex.clear();
-		for (const auto& [Path, Data] : AssetCatalogSnapshot->Assets)
+		for (const auto& Item : AssetCatalogSnapshot->Items)
 		{
 			if (Cancellation.IsCanceled())
 			{
@@ -168,46 +218,15 @@ namespace Durin::Editor::ContentBrowser::Private
 				return;
 			}
 			const std::string Directory = NormalizePath(
-				std::filesystem::path(Data.PhysicalPath)
+				std::filesystem::path(Item.PhysicalPath)
 					.parent_path()
 					.generic_string());
-			AssetDirectoryIndex[Directory].push_back({&Path, &Data});
-		}
-	}
-
-	auto FContentBrowserDataSource::AppendAssetItem(
-		const FPackagePath& Path,
-		const FPackageData& Data, const Tasks::FCancellationToken& Cancellation) -> void
-	{
-		const bool bSingleAssetPackage = Data.TopLevelAssets.size() == 1;
-		for (const FAssetData& AssetData : Data.TopLevelAssets)
-		{
-			if (Cancellation.IsCanceled()) return;
-			FContentBrowserItem Item{
-				AssetData.IsRedirector()
-					? EContentBrowserItemKind::Redirector
-					: EContentBrowserItemKind::Asset,
-				bSingleAssetPackage
-					? std::string(Path.GetPackageName())
-					: std::string(AssetData.AssetPath.GetAssetName()),
-				AssetData.AssetPath.ToString(),
-				Path,
-				NormalizePath(Data.PhysicalPath),
-				AssetData.AssetClassName,
-				".dasset"};
-			Item.RedirectDestination = AssetData.RedirectDestination;
-			Item.PackageFileSize = Data.FileSize;
-			Item.BulkFileSize = Data.BulkSegmentExtent;
-			Item.FileSize = Item.PackageFileSize + Item.BulkFileSize;
-			Item.LastWriteTime = Data.LastWriteTime;
-			Item.ThumbnailFileSize = Data.FileSize;
-			Item.ThumbnailPackageFormatVersion = Data.FormatVersion;
-			Item.ThumbnailLastWriteTimeTicks = Data.LastWriteTimeTicks;
-			Result.Items.push_back(std::move(Item));
+			AssetDirectoryIndex[Directory].push_back(&Item);
 		}
 	}
 
 	auto FContentBrowserDataSource::CaptureDirectory(const std::string& Physical,
+		std::shared_ptr<const FContentBrowserAssetSnapshot> Catalog,
 		const Tasks::FCancellationToken& Cancellation)
 		-> FContentBrowserDirectorySnapshot
 	{
@@ -215,13 +234,25 @@ namespace Durin::Editor::ContentBrowser::Private
 		Result = {};
 		FContentBrowserDirectorySnapshot Snapshot;
 		Snapshot.Version = ++Version;
+		bool bCatalogDirectory = false;
+		if (Catalog)
+			for (const auto& Item : Catalog->Items)
+			{
+				const auto Directory = std::filesystem::path(Item.PhysicalPath).parent_path();
+				if (NormalizePath(Directory.generic_string()) == Physical) bCatalogDirectory = true;
+				if (!FPaths::IsLexicalDescendantPath(Directory.generic_string(), Physical, true)) continue;
+				bCatalogDirectory = true;
+				const auto Relative = Directory.lexically_relative(Physical);
+				const auto Child = std::filesystem::path(Physical) / *Relative.begin();
+				if (!std::ranges::contains(Snapshot.Children, Child)) Snapshot.Children.push_back(Child);
+			}
 		std::error_code IteratorError;
 		std::filesystem::directory_iterator EntryIt(
 				 Physical,
 				 std::filesystem::directory_options::skip_permission_denied,
 				 IteratorError);
 		const std::filesystem::directory_iterator End;
-		if (IteratorError)
+		if (IteratorError && !(bCatalogDirectory && IteratorError == std::errc::no_such_file_or_directory))
 			AddEnumerationDiagnostic(
 				EEnumerationDiagnosticKind::Traversal,
 				Physical,
@@ -239,7 +270,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				EntryPath,
 				std::format("Skipped tree entry because its status could not be read: {}", EntryError.message()));
 			else if (std::filesystem::is_directory(Status))
-				Snapshot.Children.push_back(EntryPath);
+				if (!std::ranges::contains(Snapshot.Children, EntryPath)) Snapshot.Children.push_back(EntryPath);
 			IteratorError.clear();
 			EntryIt.increment(IteratorError);
 			if (IteratorError)

@@ -14,6 +14,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		using ContentBrowserFilesystem::NormalizePath;
 
+
 	} // namespace
 
 	FContentBrowserModel::FContentBrowserModel(bool bInAsync)
@@ -59,9 +60,9 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		if (bSnapshotPublicationSuspended) return false;
 		// Unrelated catalog publications validate an old capture without restarting it.
-		if (IsLoading() && ItemsRequest->CatalogCursor != GetAssetCatalogRevision())
+		if (IsLoading() && ItemsRequest->CatalogCursor != GetAssetQueryRevision())
 		{
-			const auto Changes = CaptureAssetCatalogChanges(ItemsRequest->CatalogCursor);
+			const auto Changes = CaptureAssetQueryChanges(ItemsRequest->CatalogCursor);
 			ItemsRequest->CatalogCursor = Changes.ToRevision;
 			if (IsAffectedBy(Changes))
 			{
@@ -130,11 +131,11 @@ namespace Durin::Editor::ContentBrowser::Private
 			TreeCancellation = Tasks::FCancellationToken{};
 			TreeTask = Tasks::LaunchTask(
 				"ContentBrowser.Directory",
-				[Directory = ActiveTreeDirectory, Query = EntryStatusQuery, Cancellation = &TreeCancellation]() {
+				[Directory = ActiveTreeDirectory, Query = EntryStatusQuery, Catalog = Catalog, Cancellation = &TreeCancellation]() {
 					FContentBrowserDataSource Source;
 					Source.SetEntryStatusQueryForTesting(Query);
 					return std::make_unique<FContentBrowserDirectorySnapshot>(
-						Source.CaptureDirectory(Directory, *Cancellation));
+						Source.CaptureDirectory(Directory, Catalog, *Cancellation));
 				}, {.Attribution = RegisterTaskAttribution("ContentBrowser", "Directory")});
 
 		}
@@ -270,12 +271,13 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		FTopLevelAssetPath Path;
 		if (!FTopLevelAssetPath::TryCreate(AssetPath, Path)) return {};
-		const FAssetCatalogEntry Entry =
-			FindAssetExact(Path);
+		const auto Entry = FindAssetExact(Path);
 		if (!Entry) return {};
 		if (Entry.Asset->IsRedirector())
 			Session.Query.bShowRedirectors = true;
-		const std::string Revealed = RevealPhysicalItem(Entry.Package->PhysicalPath);
+		const auto Resolved = FMountPaths::ResolveAssetPath(Path.GetPackagePath().GetView());
+		if (!Entry.Package && !Resolved) return {};
+		const std::string Revealed = RevealPhysicalItem(Entry.Package ? Entry.Package->PhysicalPath : Resolved->PhysicalPath.generic_string() + ".dasset");
 		const std::string StablePath = Path.ToString();
 		if (bAsync) return Revealed.empty() ? std::string{} : StablePath;
 		return std::ranges::any_of(
@@ -302,8 +304,10 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (bAsync && IsLoading())
 		{
 			std::error_code Error;
-			return std::filesystem::exists(QueryPathStatus(PhysicalPath, Error)) && !Error
-				? PhysicalPath : std::string{};
+			return ((std::filesystem::exists(QueryPathStatus(PhysicalPath, Error)) && !Error)
+				|| (Catalog && std::ranges::any_of(Catalog->Items, [&](const auto& Item) {
+				return ContentBrowserChanges::SamePath(Item.PhysicalPath, PhysicalPath);
+			}))) ? PhysicalPath : std::string{};
 		}
 		if (std::ranges::none_of(
 				Items,
@@ -391,10 +395,10 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (bInvalidateDirectoryTree) InvalidateDirectoryTree();
 		if (ItemsRequest) ItemsRequest->State = EItemsRequestState::Cancelled;
 		ItemsCancellation.Cancel();
-		if (!Catalog || Catalog->Revision != GetAssetCatalogRevision())
+		if (!Catalog || Catalog->Revision != GetAssetQueryRevision())
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("ContentBrowser.CaptureCatalog");
-			Catalog = std::make_shared<const FAssetCatalogSnapshot>(CaptureAssetCatalogSnapshot());
+			Catalog = CaptureContentBrowserAssets();
 		}
 		++ItemsRequestCount;
 		bSnapshotPublicationSuspended = false;
@@ -522,7 +526,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		for (const std::string& Physical : Requests)
 		{
 			if (DirectoryChildrenCache.contains(Physical)) continue;
-			PublishDirectory(Physical, DataSource->CaptureDirectory(Physical));
+			PublishDirectory(Physical, DataSource->CaptureDirectory(Physical, Catalog));
 		}
 	}
 
@@ -568,7 +572,13 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		std::error_code Error;
 		const std::filesystem::file_status Status = QueryPathStatus(Path, Error);
-		return !Error && std::filesystem::is_directory(Status);
+		if (!Error && std::filesystem::is_directory(Status)) return true;
+		const auto Query = CaptureContentBrowserAssets();
+		return std::ranges::any_of(Query->Items, [&](const auto& Item) {
+			const auto Directory = std::filesystem::path(Item.PhysicalPath).parent_path();
+			return ContentBrowserChanges::SamePath(Directory.generic_string(), Path.generic_string())
+				|| FPaths::IsLexicalDescendantPath(Directory.generic_string(), Path.generic_string(), true);
+		});
 	}
 
 	auto FContentBrowserModel::SetSnapshotForTesting(

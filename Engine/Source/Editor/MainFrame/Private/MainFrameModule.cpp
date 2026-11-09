@@ -240,7 +240,8 @@ namespace Durin::Editor::MainFrame
 						? "Asset reimport failed." : std::move(Result.Message));
 					return;
 				}
-				if (GEditor) GEditor->GetTransactor()->NotifyMountedContentMutation();
+				if (Result.SaveResult && !*Result.SaveResult && ReportError)
+					ReportError("Reimport succeeded; save failed: " + Result.SaveResult->Message);
 			};
 			if (!bFromFile)
 			{

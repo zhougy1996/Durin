@@ -191,9 +191,21 @@ Dirty. The adapter calls `PostEditChange`, which routes a full-object edit throu
 `DTexture::PostEditChangeProperty` and starts independent DDC compilation; build failure or cancellation keeps
 the committed authored data. Imports have no compiler-result mailbox or deferred
 completion callback. Compiler completion still uses `FTextureOperationResult`.
-Factories do not save. `FReimportManager` handles optional persistence and reports
-`Failed` with `SaveCause` separately from factory failure. `FactoryCause` and the
-owned message retain import diagnostics without a second status enum.
+Factories do not save. `FReimportResult::Status`, `Message` and `FactoryCause`
+describe only source capture, validation and authored application. Its boolean
+conversion checks reimport success independently of persistence. `FReimportManager`
+performs saving only after successful reimport when `FReimportOptions::bSave` is
+set. `SaveResult` is an optional owned `FAssetWriteResult`: absent when saving was
+not attempted, and present for both successful and failed saves. Failed or canceled
+reimports never attempt saving. A save error does not rewrite the reimport status,
+message or factory cause. It retains the ordinary save error and observed effects,
+including committed content with a pending Registry projection.
+
+Editor completion handlers refresh source-dependent presentation after successful
+reimport even when saving fails, and display the save error separately. Discovery
+uses the shared asset lifecycle stream; completion does not trigger a filesystem
+rescan. Ordinary save retries operate on the committed object without recapturing
+or decoding its source.
 TextureEditor batches wait for current compilation retirement before save and
 unload, irrespective of its outcome; save failures retain assets for retry.
 Batch cancellation before authored commit discards captured input and skips
@@ -226,13 +238,12 @@ build; failures and cancellation remain compilation diagnostics and do not undo
 import. Public build admission and transient creation use owned diagnostic strings,
 with `FStaticMeshFactoryError` carrying that text through the generic factory
 boundary. Detailed request/cause observations remain with the compiling manager.
-Upper-layer save failure sets `SaveCause`, leaves `FactoryCause` empty and retains
-the committed Dirty object for retry. Decoding/validation failure leaves resident
+Upper-layer persistence sets `SaveResult`, leaves the reimport outcome and
+`FactoryCause` intact, and retains the authored object for ordinary save retry.
+Dirty state and file effects follow the ordinary save contract. Decoding/validation failure leaves resident
 values and provenance unchanged. Transient creation returns the authored mesh
 before derived data is ready; render consumers explicitly call `FinishCompilation`
 when needed. Failed private objects are marked as garbage before returning.
-The outer status/message contract remains transitional. Existing publication order
-and save disposition are preserved; save causes retain the full asset result.
 Atlas inspection returns expected `FVolumeTextureAtlasInspection` or a Core
 image-decode error retaining the file/system cause. A valid atlas with no
 confident layout remains a successful inspection. Dimensions, channel suggestions
@@ -332,13 +343,12 @@ building. `BeginImport` consumes that resolved preview for unchanged selections.
 Source closure hashes are checked before product construction and again before
 publication. Publication rejects destination occupancy and mapped-material revision changes
 rather than accepting a different occupant. Existing standalone ownership,
-compilation and protected per-package save boundaries remain in force.
+compilation and ordinary package save boundaries remain in force.
 
-Output summaries report `Unexecuted`, `Saved`, `Preserved` or `Failed` state in
-addition to disposition. `SavedPackages` retains every committed package on later
-failure or cancellation. Preserved/material-mapped assets are never represented
-as newly saved packages. A failure stops publication and retires unpublished
-candidates; it does not roll back earlier committed packages.
+Output summaries report `Unexecuted`, `Imported`, `Preserved` or `Failed` state in
+addition to disposition. `ImportedPackages` identifies newly applied live packages;
+preserved/material-mapped assets are excluded. Import applies the complete validated
+peer graph before optional saving. Saving does not change output import states.
 
 `SceneImport.h` and `SceneImportTypes.h` remain compatibility includes.
 `FSceneImportSession` aliases the shared session, whose constructor retains the
@@ -360,7 +370,8 @@ The importer:
 - preflights every destination collision;
 - constructs and validates all peer candidates before publication;
 - binds material and texture relationships in dependency order;
-- commits packages in dependency order, preserving successful packages when a later package fails.
+- applies the validated peer graph to memory and marks imported packages Dirty;
+- optionally saves ordinary packages in dependency order, retaining all imported objects on save failure.
 
 Scene material policy is explicit. `FSceneMaterialImportOptions` defaults to
 CreateMaterials: the importer publishes editable `DMaterial` graphs under the
@@ -388,8 +399,8 @@ The glTF/GLB and FBX workflows are one-time import tools. They require unoccupie
 output destinations and reject occupied paths before building or publishing, even when
 legacy receipts claim the same source/output identity. Explicit `UseExisting`
 material mapping remains supported. Repeat imports use another destination;
-after partial publication, use another destination or explicitly remove unwanted
-outputs. There is no import-group record, source relocation, source-element
+after a successful import, retry failed persistence with ordinary save; another
+import still requires a new destination or explicit removal of existing outputs. There is no import-group record, source relocation, source-element
 matching across revisions, whole-source refresh or automatic legacy migration.
 
 New and legacy glTF/GLB/FBX assets cannot be reimported through the manager, standalone
@@ -410,7 +421,7 @@ package reload refreshes affected material render bindings before retirement.
 Scene constructs private candidate packages from CoreDObject package/object
 primitives. It does not call single-object `IAssetTools`: doing so would assign
 independent acceptance semantics before the complete dependency-ordered peer
-set is bound, validated, and ready for per-package publication. Static-mesh and
+set is bound, validated, and ready for graph application. Static-mesh and
 texture preparation still reuse their family build adapters below that
 publication boundary. Engine exposes no generic `CreateAsset` materialization
 seam.
@@ -419,10 +430,14 @@ seam.
 Its boolean conversion checks `bSucceeded`; cancellation and rejection still
 return diagnostics and any output summaries already produced. Output summaries
 are planned identities, not proof that their packages were saved.
-A persistence failure stops publication and discards only unpublished candidates.
-`FSceneImportResult::SavedPackages` identifies committed outputs even on failure;
-`bPersisted` is true only when the requested scene import finishes successfully.
-Model retries require unoccupied outputs; they do not replace committed assets.
+`bSucceeded` reports successful application to live memory. The optional save
+argument defaults to `std::nullopt`: default imports create Dirty, NewlyCreated
+assets without writing authored packages. Passing `FAssetPackageSaveArgs{}` requests
+ordinary saving after import. `SaveResult` is absent when saving was not requested,
+and otherwise retains the batch result, successful saves and failed package.
+Save failure or cancellation does not clear import success or discard imported
+assets. Ordinary save retries operate on those resident packages; model import
+retries still require unoccupied destinations.
 
 Every generated output is an ordinary independent asset. There is no aggregate
 Scene asset, primary output, generated-output ownership record, reconciliation
@@ -469,7 +484,7 @@ resolved destinations/dispositions and source warnings. Selection changes use
 `FAssetImportSession::SetOptions` to replan the retained document on a worker;
 source geometry is not decoded again. Coordinate changes create another session.
 The host presentation polls progress, keeps cancellation ticking to completion,
-reports every saved/preserved/failed/unexecuted output, and offers Show asset after
+reports every imported/preserved/failed/unexecuted output, and offers Show asset after
 publication. Existing Scene and standalone factory entrypoints remain available
 for legacy programmatic callers and receipts; their ordinary file pickers no
 longer offer glTF as a second user workflow.

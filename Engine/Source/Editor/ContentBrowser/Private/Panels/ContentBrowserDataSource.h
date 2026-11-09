@@ -9,6 +9,14 @@
 
 namespace Durin::Editor::ContentBrowser::Private
 {
+	struct FContentBrowserAssetSnapshot
+	{
+		uint64 Revision = 0;
+		std::vector<FContentBrowserItem> Items;
+	};
+	// UI value projection of the shared asset query; call on GameThread.
+	auto CaptureContentBrowserAssets() -> std::shared_ptr<const FContentBrowserAssetSnapshot>;
+
 	// Serial collector over owned registry data. No live registry or editor state
 	// is accessed during capture; a worker may exclusively own an instance.
 	class FContentBrowserDataSource
@@ -20,10 +28,11 @@ namespace Durin::Editor::ContentBrowser::Private
 
 		// Catalog must be non-null and captured on the registry-owning thread.
 		auto CaptureItems(const std::string& PhysicalDirectory,
-			bool bRecursive, std::shared_ptr<const FAssetCatalogSnapshot> Catalog,
+			bool bRecursive, std::shared_ptr<const FContentBrowserAssetSnapshot> Catalog,
 			const Tasks::FCancellationToken& Cancellation = {})
 			-> FContentBrowserItemsSnapshot;
 		auto CaptureDirectory(const std::string& PhysicalDirectory,
+			std::shared_ptr<const FContentBrowserAssetSnapshot> Catalog,
 			const Tasks::FCancellationToken& Cancellation = {})
 			-> FContentBrowserDirectorySnapshot;
 		auto SetEntryStatusQueryForTesting(FEntryStatusQuery Query) -> void
@@ -32,16 +41,9 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 
 	private:
-		struct FIndexedAsset
-		{
-			const FPackagePath* Path = nullptr;
-			const FPackageData* Data = nullptr;
-		};
 		auto QueryEntryStatus(const std::filesystem::directory_entry& Entry,
 			std::error_code& Error) const -> std::filesystem::file_status;
-		auto RefreshAssetDirectoryIndex(std::shared_ptr<const FAssetCatalogSnapshot> Catalog,
-			const Tasks::FCancellationToken& Cancellation) -> void;
-		auto AppendAssetItem(const FPackagePath& Path, const FPackageData& Data,
+		auto RefreshAssetDirectoryIndex(std::shared_ptr<const FContentBrowserAssetSnapshot> Catalog,
 			const Tasks::FCancellationToken& Cancellation) -> void;
 		auto AddEnumerationDiagnostic(EEnumerationDiagnosticKind Kind,
 			const std::filesystem::path& Path, std::string Message) -> void;
@@ -49,8 +51,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		uint64 Version = 0;
 		FContentBrowserItemsSnapshot Result;
 		FEntryStatusQuery EntryStatusQuery;
-		std::shared_ptr<const FAssetCatalogSnapshot> AssetCatalogSnapshot;
+		std::shared_ptr<const FContentBrowserAssetSnapshot> AssetCatalogSnapshot;
 		// Pointers refer exclusively to the owned catalog, rebuilt on revision changes.
-		std::unordered_map<std::string, std::vector<FIndexedAsset>> AssetDirectoryIndex;
+		std::unordered_map<std::string, std::vector<const FContentBrowserItem*>> AssetDirectoryIndex;
 	};
 }

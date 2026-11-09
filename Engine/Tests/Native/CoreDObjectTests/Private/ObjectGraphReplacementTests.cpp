@@ -281,16 +281,12 @@ TEST_F(FObjectGraphReplacementTests, SerializedCaptureAndObservationPublishToget
 	EXPECT_EQ(ResolveObjectKey(OldKey), nullptr);
 }
 
-TEST_F(FObjectGraphReplacementTests, SerializedPublicationWaitsForPersistenceAndCanRetry)
+TEST_F(FObjectGraphReplacementTests, SerializedPublicationWaitsForMemoryCommit)
 {
 	ASSERT_TRUE(CaptureSource(*Old));
 	const auto Before = Owner->Capture->Data;
 	const std::shared_ptr<IObjectReplacementParticipant> Participants[]{SerializedParticipant()};
 	ASSERT_TRUE(Operation->Prepare(std::span(&Pair, 1), Participants));
-	EXPECT_FALSE(Operation->TryCommit([]() -> std::expected<void, FObjectReplacementError> {
-		return std::unexpected(FObjectReplacementError{.Code = EObjectReplacementError::ParticipantRejected,
-			.Reason = EObjectReplacementReason::PersistenceRejected});
-	}));
 	EXPECT_EQ(Owner->Capture->Data, Before);
 	EXPECT_EQ(Owner->Observation->ObjectInfo.Target.Resolve(), Old);
 	ASSERT_TRUE(Operation->TryCommit());
@@ -465,7 +461,7 @@ TEST_F(FObjectGraphReplacementTests, RetainedOrdinaryObjectCaptureRebindsPayload
 	ASSERT_TRUE(Operation->Retire());
 }
 
-TEST_F(FObjectGraphReplacementTests, PersistenceFailureKeepsNewAndReplacementGraphsPrivateUntilRetry)
+TEST_F(FObjectGraphReplacementTests, NewAndReplacementGraphsBecomeLiveTogether)
 {
 	FPackagePath AddedPath;
 	ASSERT_TRUE(FPackagePath::TryCreate("/ReplacementTests/Added", AddedPath));
@@ -478,21 +474,10 @@ TEST_F(FObjectGraphReplacementTests, PersistenceFailureKeepsNewAndReplacementGra
 	ASSERT_TRUE(PreparedResult) << ToString(PreparedResult.error());
 	EXPECT_EQ(FindPackage(AddedPath.GetView()), nullptr);
 	EXPECT_EQ(CreatePackage(AddedPath), nullptr);
-	bool bCalled = false;
-	const auto Failed = Operation->TryCommit([&]() -> std::expected<void, FObjectReplacementError> {
-		bCalled = true;
-		EXPECT_EQ(FindPackage(Path.GetView()), Current);
-		EXPECT_EQ(FindPackage(AddedPath.GetView()), nullptr);
-		EXPECT_EQ(Owner->Reference.Get(), Old);
-		return std::unexpected(Durin::FObjectReplacementError{.Code = EObjectReplacementError::ParticipantRejected, .Reason = EObjectReplacementReason::PersistenceRejected});
-	});
-	EXPECT_TRUE(bCalled);
-	EXPECT_FALSE(Failed);
-	EXPECT_EQ(Failed.error().Reason, EObjectReplacementReason::PersistenceRejected);
 	EXPECT_EQ(FindPackage(Path.GetView()), Current);
 	EXPECT_EQ(FindPackage(AddedPath.GetView()), nullptr);
 	EXPECT_EQ(Owner->Reference.Get(), Old);
-	ASSERT_TRUE(Operation->TryCommit([] { return std::expected<void, FObjectReplacementError>{}; }));
+	ASSERT_TRUE(Operation->TryCommit());
 	EXPECT_EQ(FindPackage(Path.GetView()), Prepared);
 	EXPECT_EQ(FindPackage(AddedPath.GetView()), Added);
 	EXPECT_EQ(Owner->Reference.Get(), New);

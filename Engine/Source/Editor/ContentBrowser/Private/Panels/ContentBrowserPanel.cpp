@@ -78,7 +78,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			GetMountedContentMutationRevision
 				? GetMountedContentMutationRevision()
 				: uint64{0},
-			GetAssetCatalogRevision(),
+			GetAssetQueryRevision(),
 			std::move(InMountedContentReconciliationState))
 		, Model(true)
 		, Operations(FContentBrowserPaths{}, {}, {}, {},
@@ -205,12 +205,12 @@ namespace Durin::Editor::ContentBrowser::Private
 					MountedContentRevision,
 					[this] { return Model.RescanRegistry(); },
 					[this](const FContentChangeBatch&) { RefreshPublishedContent(); },
-					[] { return GetAssetCatalogRevision(); });
+					[] { return GetAssetQueryRevision(); });
 			if (!Result) SetError(Result.Message);
 			return;
 		}
 		RefreshCoordinator.RefreshRegistryView(
-			GetAssetCatalogRevision(),
+			GetAssetQueryRevision(),
 			[this](const FContentChangeBatch&) { RefreshPublishedContent(); });
 	}
 
@@ -638,10 +638,10 @@ namespace Durin::Editor::ContentBrowser::Private
 			: RefreshCoordinator.GetObservedMountedContentRevision();
 		const auto Result = RefreshCoordinator.Synchronize(
 			MountedContentRevision,
-			GetAssetCatalogRevision(),
+			GetAssetQueryRevision(),
 			[this] { return Model.RescanRegistry(); },
 			[this](const FContentChangeBatch& Changes) { ApplyContentChanges(Changes); },
-			[] { return GetAssetCatalogRevision(); });
+			[] { return GetAssetQueryRevision(); });
 		if (!Result) SetError(Result.Message);
 	}
 

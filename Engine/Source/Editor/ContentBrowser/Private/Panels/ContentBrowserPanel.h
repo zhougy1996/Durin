@@ -53,7 +53,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			std::function<void(FContentChangeBatch)> Notify) -> void
 		{
 			CaptureMountedContentChanges = std::move(Capture);
-			RefreshCoordinator.SetChangeSources(CaptureMountedContentChanges, CaptureAssetCatalogChanges);
+			RefreshCoordinator.SetChangeSources(CaptureMountedContentChanges, CaptureAssetQueryChanges);
 			RefreshCoordinator.SetPublicationSuspension(
 				[this](bool bSuspended) { Model.SetSnapshotPublicationSuspended(bSuspended); });
 			Operations.SetScopedContentNotifier(std::move(Notify));

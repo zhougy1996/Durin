@@ -109,11 +109,7 @@ namespace Durin
 
 		auto GetObjectFlags() const -> EObjectFlags { return ObjectFlags; }
 		// Changes persistence admission without changing construction/template identity.
-		auto SetTransient(bool bTransient) -> void
-		{
-			if (bTransient) ObjectFlags |= EObjectFlags::Transient;
-			else ObjectFlags &= ~EObjectFlags::Transient;
-		}
+		COREDOBJECT_API auto SetTransient(bool bTransient) -> void;
 		auto HasAnyObjectFlags(EObjectFlags InFlags) const -> bool { return EnumHasAnyFlags(ObjectFlags, InFlags); }
 		auto IsClassDefaultObject() const -> bool { return HasAnyObjectFlags(EObjectFlags::ClassDefaultObject); }
 		auto IsTemplateObject() const -> bool

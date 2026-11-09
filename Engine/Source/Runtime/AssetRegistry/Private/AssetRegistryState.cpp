@@ -631,12 +631,6 @@ namespace Durin
 		return AssetPrivate::GetAssetRegistryState().FindPackageExact(Path);
 	}
 
-	auto FindAssetExact(
-		const FTopLevelAssetPath& Path) -> FAssetCatalogEntry
-	{
-		return AssetPrivate::GetAssetRegistryState().FindAssetExact(Path);
-	}
-
 	auto ResolvePackagePath(const FPackagePath& Path,
 		const FAssetPathQueryOptions& Options) -> FPackagePathResolveResult
 	{

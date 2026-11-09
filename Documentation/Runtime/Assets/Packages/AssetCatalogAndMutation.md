@@ -56,6 +56,40 @@ affected paths may be fenced while a failed projection is reconciled. Public cal
 owned `FPackageCatalogEntry`/`FAssetCatalogEntry` values and immutable `FAssetCatalogSnapshot` values,
 never pointers into mutable storage.
 
+### Asset Discovery And Lifecycle
+
+`CaptureAssetQuerySnapshot` and `FindAssetExact` discover assets from both live
+memory and disk by default. `EAssetQuerySource::OnDisk` selects only persistent
+metadata and remains safe for detached readers; `InMemory` selects live assets.
+All/InMemory queries run on GameThread. A live package's current export set
+supersedes its disk export set, including renamed or removed exports. Private
+preparation graphs, templates, transient exports, PIE packages, garbage and live
+packages outside registered mounts are excluded.
+
+`FAssetQuerySnapshot::Assets` contains independently addressable `FAssetData`.
+Its `Packages` contains genuine disk `FPackageData` only. `FAssetCatalogEntry`
+succeeds when its asset exists; `Package` is absent for unsaved assets. Querying
+never manufactures a zero-filled persistent package record. Existing
+`FAssetCatalogSnapshot`, `FindPackageExact`, dependency closures and publication
+admission continue to describe disk packages exclusively.
+
+CoreDObject exposes live package enumeration and a package-metadata revision over
+its existing registration. AssetRegistry caches value metadata with non-owning
+object keys; it neither owns residency nor scans the entire object array. The
+revision observes registration, graph application, rename/relocation, eligibility
+changes and garbage marking. Discovery synchronizes at owner-thread query
+boundaries. Metadata-neutral authored edits do not invalidate discovery caches.
+
+`GetAssetQueryRevision` and `CaptureAssetQueryChanges` expose the unified lifecycle
+journal. Readers have independent cursors; changes coalesce between discovery
+queries. Creation, modification, rename and removal include exact asset identities
+and intended package filenames without requiring filesystem writes. Disk
+publication changes join the same journal. Saving replaces memory-only presentation
+metadata without duplicating assets; unloading a saved asset restores disk metadata,
+while discarding an unsaved asset removes it. Old snapshots remain owned values.
+The disk catalog revision/journal remain separate so an unsaved edit cannot stale a
+save, Cook or mutation admission snapshot.
+
 The process-local catalog revision advances only when published metadata
 changes. `RefreshAssetRegistry` returns requested mode, completeness,
 prior/resulting revisions, counters, warnings, and errors in one value. Explicit
@@ -212,19 +246,11 @@ its write closure, while publication and abandonment retain object ownership
 until GameThread release before terminal notification. Writers keep their existing
 staging, commit, rollback and destruction protocol.
 
-Private scene candidates use `FPreparedAssetSave` from
-`Asset/PreparedPackageSave.h` for protected staging. `Begin`
-pins and captures a private asset package on GameThread, then submits detached
-staging through the shared save owner. `IsReady` observes owner-side completion.
-After readiness, the caller prepares `FObjectGraphReplacement` and calls `Commit`
-inside its synchronous persistence callback. Commit checks publication ownership,
-captured root/dependency identities, package revision and destination, then uses
-the protected commit path with mandatory Registry-failure rollback. Discarding a ready
-operation removes staging files without publishing. The caller must keep its
-private graph alive and settle staging before abandoning the graph. Graph
-replacement must not be prepared across the asynchronous staging interval.
-Exceptional completion marks the prepared operation ready with a failure and
-releases its writer, so callers cannot wait indefinitely for readiness.
+Scene import applies its validated peer graph to live memory and marks the new
+packages Dirty before optional persistence. It submits ordinary protected tasks
+for asynchronous saves, or ordinary synchronous saves. Save cancellation or
+failure leaves imported objects resident; the import report carries the independent
+`FAssetBatchSaveResult`. No persistence callback participates in graph application.
 
 Both ordinary contracts capture the root and hard-dependency catalog participants. Hard
 dependencies must retain catalog presence, physical path, top-level identities,

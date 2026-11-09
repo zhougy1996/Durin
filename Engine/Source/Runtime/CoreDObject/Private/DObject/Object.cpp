@@ -164,6 +164,15 @@ namespace Durin
 	{
 	}
 
+	auto DObject::SetTransient(bool bTransient) -> void
+	{
+		if (HasAnyObjectFlags(EObjectFlags::Transient) == bTransient) return;
+		if (bTransient) ObjectFlags |= EObjectFlags::Transient;
+		else ObjectFlags &= ~EObjectFlags::Transient;
+		if (const auto* Package = Cast<DPackage>(GetOuter()); Package && !Package->IsGraphPrivate())
+			Private::NotifyAssetPackageChanged();
+	}
+
 	auto DObject::Rename(FName InName) -> void
 	{
 		if (IsTemplateObject()) return;

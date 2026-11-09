@@ -208,7 +208,7 @@ TEST(FPackageRegistryContractTests, RefreshUsesOnlyFrontMatterAndOnePackageMetad
 		"/P3/Owner.RegistryFixture");
 	EXPECT_EQ(Data->TopLevelAssets.back().AssetPath, SecondaryPath);
 	const FAssetCatalogEntry Secondary =
-		FindAssetExact(SecondaryPath);
+		FindAssetExact(SecondaryPath, EAssetQuerySource::OnDisk);
 	ASSERT_TRUE(Secondary);
 	EXPECT_EQ(Secondary->AssetClassName, "Example::SecondaryAsset");
 	ASSERT_TRUE(Secondary.Package.has_value());

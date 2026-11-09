@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Asset/AssetWriteResult.h"
 
 #include "DurinEdAPI.h"
 
@@ -8,7 +9,6 @@ namespace Durin
 {
 	class DObject;
 	class IFactoryErrorDetail;
-	struct FAssetWriteResult;
 
 	// Describes which mutation requests one handler can service for a loaded object.
 	struct FReimportCapabilities
@@ -46,8 +46,9 @@ namespace Durin
 		EReimportResult Status = EReimportResult::Failed;
 		std::string Message;
 		std::shared_ptr<const IFactoryErrorDetail> FactoryCause;
-		// Set only for upper-layer persistence failure; authored import remains committed.
-		std::shared_ptr<const FAssetWriteResult> SaveCause;
+		// Absent unless successful reimport was followed by an explicit save request.
+		// Saving never changes Status, Message or FactoryCause.
+		std::optional<FAssetWriteResult> SaveResult;
 
 		auto Succeeded() const -> bool
 		{

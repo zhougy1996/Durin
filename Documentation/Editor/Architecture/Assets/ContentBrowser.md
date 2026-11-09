@@ -317,7 +317,17 @@ Filesystem-backed creation and rename operations additionally require the owning
 mount to be content-writable. These browsing constraints do not change the
 validity of typed source paths or Engine's authoring policy.
 
-Its asset rows are derived from owned `FAssetCatalogSnapshot` values. Manual or
+Its asset rows are a UI value projection of `CaptureAssetQuerySnapshot`.
+ContentBrowser performs no live-object enumeration and never manufactures disk
+package metadata for unsaved assets. GameThread captures filenames and display
+metadata once per discovery revision; workers receive those owned UI values.
+Import and creation completion callbacks only reveal/open assets; they do not
+report a mounted-filesystem mutation or trigger a Registry rescan. Filesystem
+notifications remain reserved for actual filesystem changes.
+The panel and in-flight item requests follow `CaptureAssetQueryChanges`, sharing
+creation, rename, save, unload and discard notifications with asset pickers and
+other discovery clients. Unsaved assets and their implied folders can be browsed
+and revealed without writing directories or packages. Manual or
 automatic reconciliation consumes the single `FAssetCatalogRefreshResult`,
 including catalog/reference completeness, prior and resulting revisions,
 counters, warnings, and structured errors; the panel never retains a registry

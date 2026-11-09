@@ -463,7 +463,7 @@ namespace Durin
 		case EObjectReplacementReason::ParticipantBusy: return "Replacement participant is busy.";
 		case EObjectReplacementReason::ParticipantUnmappedPackage: return "Replacement participant could not map a package.";
 		case EObjectReplacementReason::ParticipantRejected: return "Replacement participant rejected preparation.";
-		case EObjectReplacementReason::PersistenceRejected: return "Replacement persistence failed.";
+
 		}
 		return {};
 	}
@@ -689,12 +689,6 @@ namespace Durin
 	}
 
 	auto FObjectGraphReplacement::GetMap() const -> const FObjectReplacementMap& { return Impl->Map; }
-	auto FObjectGraphReplacement::OwnsPreparedPackage(const DPackage& Package) const -> bool
-	{
-		return Impl->State == FImpl::EState::Prepared && Package.IsPreparedAssetPackage() &&
-			std::ranges::any_of(Impl->Packages, [&](const auto& Pair) { return Pair.Prepared == &Package; });
-	}
-
 	auto FObjectGraphReplacement::Prepare(std::span<const FObjectReplacementPackagePair> Packages,
 		std::span<const std::shared_ptr<IObjectReplacementParticipant>> Participants,
 		const FObjectReplacementBudget& Budget) -> std::expected<void, FObjectReplacementError>
@@ -767,7 +761,7 @@ namespace Durin
 		catch (...) { return Reject(Fail(E::ParticipantRejected, R::PrepareException)); }
 	}
 
-	auto FObjectGraphReplacement::TryCommit(const std::function<std::expected<void, FObjectReplacementError>()>& Persist) -> std::expected<void, FObjectReplacementError>
+	auto FObjectGraphReplacement::TryCommit() -> std::expected<void, FObjectReplacementError>
 	{
 		CheckThread();
 		if (GReplacementExecuting || Impl->State != FImpl::EState::Prepared) return Fail(E::Busy, R::NotPrepared);
@@ -810,11 +804,6 @@ namespace Durin
 					.ActualRevision = GDObjectArray.GetRevision(), .ExpectedRevision = Impl->ArrayRevision});
 			if (auto Owners = Impl->CheckStrongOwners(E::Stale, R::ValidationMutation); !Owners) return Owners;
 			// All fallible traversal, copies, collision checks and participant validation precede this call.
-			if (Persist)
-			{
-				const auto Persisted = Persist();
-				if (!Persisted) return Persisted;
-			}
 			CommitPrepared();
 			return {};
 		}

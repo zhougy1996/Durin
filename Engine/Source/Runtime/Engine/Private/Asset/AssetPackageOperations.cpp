@@ -1,4 +1,3 @@
-#include "Asset/PreparedPackageSave.h"
 #include "AssetLiveLoadGuard.h"
 #include "Asset/RegistryOperations.h"
 #include "AssetRuntimeStateInternal.h"
@@ -6,7 +5,6 @@
 #include "AssetPackageInspectionInternal.h"
 #include "AssetRegistryResultAdapter.h"
 #include "Asset/PackageSerialization.h"
-#include "DObject/ObjectGraphReplacement.h"
 #include "AssetPackageCodec.h"
 #include "AssetPackageSaveInternal.h"
 #include "Asset/PackageVersionPolicy.h"
@@ -197,75 +195,6 @@ namespace Durin
 					|| !std::ranges::is_permutation(Current->TopLevelAssets, Entry.second->TopLevelAssets);
 			});
 		}
-	}
-
-	struct FPreparedAssetSave::FState
-	{
-		FPreparedPackageSave Prepared;
-		FSaveParticipants Participants;
-		AssetPrivate::FPackageSaveCommitContext CommitContext;
-		FAssetWriteResult StagingResult;
-		std::optional<FAssetWriteResult> Result;
-		bool bReady = false;
-	};
-
-	FPreparedAssetSave::FPreparedAssetSave() : State(std::make_unique<FState>()) {}
-	FPreparedAssetSave::~FPreparedAssetSave() { check(IsInGameThread()); }
-	auto FPreparedAssetSave::IsReady() const -> bool { check(IsInGameThread()); return State->bReady; }
-	auto FPreparedAssetSave::Begin(DPackage* Package, const FAssetPackageSaveArgs& Args,
-		FAssetWriteResult& Admission) -> std::shared_ptr<FPreparedAssetSave>
-	{
-		check(IsInGameThread());
-		if (!Package || !Package->IsAssetPackage() || !Package->IsGraphPrivate())
-		{ Admission = Error(EAssetWriteError::InvalidData, "Prepared staging requires a private asset package."); return {}; }
-		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("save", ""); !Guard)
-		{ Admission = AssetWriteResultFromRead(Guard); return {}; }
-		if (FAssetRuntimeState::Get().GetRuntimeConfiguration().IsCooked())
-		{ Admission = Error(EAssetWriteError::ReadOnlyMode, "Cooked packages cannot be saved."); return {}; }
-		if (auto Check = PackageSavePrivate::CheckAsyncAdmission(); !Check)
-		{ Admission = Error(EAssetWriteError::ShuttingDown, Check.Message); return {}; }
-		const auto Expected = CaptureAssetRegistryPublication();
-		if (!Expected.bReferenceIndexComplete || !Expected.ReferenceErrors.empty())
-		{ Admission = Error(EAssetWriteError::StaleData, "Prepared publication requires a complete Registry projection."); return {}; }
-		auto Operation = std::shared_ptr<FPreparedAssetSave>(new FPreparedAssetSave());
-		auto& Data = *Operation->State;
-		Data.CommitContext = {.Fault = Testing::CapturePackageSaveFault(),
-			.Policy = AssetPrivate::ESavePublicationPolicy::RollbackCandidate};
-		Admission = PreparePackageSave(Package, Package->GetPackagePathIdentity(), Args.Mode, Data.Prepared);
-		if (!Admission) return {};
-
-		Data.Participants.emplace(Data.Prepared.Header.PackagePath, FindPackageExact(Data.Prepared.Header.PackagePath).Data);
-		for (const auto& Dependency : Data.Prepared.Header.Dependencies)
-			Data.Participants.emplace(Dependency, FindPackageExact(Dependency).Data);
-		auto Submitted = PackageSavePrivate::SubmitAsyncSave(Data.Prepared.DetachedBytes,
-			[Operation] { Operation->State->StagingResult = ToAssetWriteResult(Operation->State->Prepared.Write->Stage()); },
-			[Operation](bool bSucceeded) {
-				if (!bSucceeded) Operation->State->StagingResult = Error(EAssetWriteError::IoError, "Prepared save staging failed.");
-				Operation->State->bReady = true;
-			}, [Operation] {
-				Operation->State->Prepared.Write.reset();
-				Operation->State->StagingResult = Error(EAssetWriteError::IoError, "Prepared save publication did not complete.");
-				Operation->State->bReady = true;
-			});
-		if (!Submitted) { Admission = Error(EAssetWriteError::InUse, Submitted.Message); return {}; }
-		Admission = {};
-		return Operation;
-	}
-	auto FPreparedAssetSave::Commit(const FObjectGraphReplacement& Publication) -> FAssetWriteResult
-	{
-		check(IsInGameThread());
-		auto& Data = *State;
-		if (!Data.bReady) return Error(EAssetWriteError::InUse, "Prepared save staging is unfinished.");
-		if (Data.Result) return *Data.Result;
-		if (!Data.StagingResult) return *(Data.Result = Data.StagingResult);
-		auto* Package = Data.Prepared.Package.Get();
-		const auto Expected = CaptureAssetRegistryPublication();
-		if (!Publication.OwnsPreparedPackage(*Package)
-			|| SaveParticipantsChanged(Data.Participants, Data.Prepared.Header.PackagePath)
-			|| GetPhysicalPath(Data.Prepared.Header.PackagePath) != Data.Prepared.Destination.generic_string()
-			|| !Expected.bReferenceIndexComplete || !Expected.ReferenceErrors.empty())
-			return *(Data.Result = Error(EAssetWriteError::StaleData, "Prepared save participants changed during staging."));
-		return *(Data.Result = CommitPreparedPackageSave(Data.Prepared, Data.CommitContext, Expected));
 	}
 
 	class FProtectedAssetSave
@@ -510,26 +439,6 @@ namespace Durin
 			Batch.SavedPackages.push_back(Path);
 		}
 		return Batch;
-	}
-
-	auto SavePreparedPackage(DPackage* Package, const FObjectGraphReplacement& Publication,
-		const FAssetPackageSaveArgs& Args) -> FAssetWriteResult
-	{
-		check(IsInGameThread());
-		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("save", ""); !Guard) return AssetWriteResultFromRead(Guard);
-		if (FAssetRuntimeState::Get().GetRuntimeConfiguration().IsCooked())
-			return Error(EAssetWriteError::ReadOnlyMode, "Cooked packages cannot be saved.");
-		if (!Package || !Package->IsAssetPackage() || !Package->IsGraphPrivate()
-			|| !Publication.OwnsPreparedPackage(*Package))
-			return Error(EAssetWriteError::InvalidData, "Publication must own the private package being saved.");
-		const auto Expected = CaptureAssetRegistryPublication();
-		if (!Expected.bReferenceIndexComplete || !Expected.ReferenceErrors.empty())
-			return Error(EAssetWriteError::StaleData, "Prepared publication requires a complete Registry projection.");
-		FPreparedPackageSave Prepared;
-		if (auto Result = PreparePackageSave(Package, Package->GetPackagePathIdentity(), Args.Mode, Prepared); !Result) return Result;
-		if (auto Result = ToAssetWriteResult(Prepared.Write->Stage()); !Result) return Result;
-		return CommitPreparedPackageSave(Prepared, {.Fault = Testing::CapturePackageSaveFault(),
-			.Policy = AssetPrivate::ESavePublicationPolicy::RollbackCandidate}, Expected);
 	}
 
 	auto AdmitAssetPackageToCatalog(const FPackagePath& Path) -> FAssetWriteResult

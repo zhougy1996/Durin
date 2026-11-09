@@ -57,15 +57,16 @@ namespace Durin::Editor::ContentBrowser
 	TEST(FContentBrowserExtensionRegistryTests, ImportCallbacksAndQueuedActionsStopWithTheirRequestingHost)
 	{
 		auto Lifetime = std::make_shared<uint8>(0);
-		int Calls = 0;
+		int Calls = 0, FilesystemChanges = 0;
 		FExtensionInvocation Invocation{
 			.RevealAsset = [&](std::string_view) { ++Calls; return true; },
-			.NotifyMountedContentChanged = [&] { ++Calls; },
+			.NotifyMountedContentChanged = [&] { ++FilesystemChanges; },
 			.ReportError = [&](std::string) { ++Calls; },
 			.HostLifetime = Lifetime, .bHasHostLifetime = true};
 		const auto Callbacks = MakeImportDialogCallbacks(Invocation, {});
 		Callbacks.NotifyAssetCreated("/Project/Asset.Asset");
-		EXPECT_EQ(2, Calls);
+		EXPECT_EQ(1, Calls);
+		EXPECT_EQ(0, FilesystemChanges);
 		std::string Error;
 		auto Registration = RegisterExtension({.Id = "test.host-lifetime", .Label = "Host command",
 			.Mutation = EContentMutation::ReadOnly, .IsApplicable = [](const auto&) { return true; },
@@ -79,7 +80,8 @@ namespace Durin::Editor::ContentBrowser
 		Callbacks.NotifyAssetCreated("/Project/Asset.Asset");
 		Callbacks.Report("Retired host");
 		EXPECT_FALSE(InvokeExtension(*Entry, Invocation));
-		EXPECT_EQ(3, Calls);
+		EXPECT_EQ(2, Calls);
+		EXPECT_EQ(0, FilesystemChanges);
 	}
 
 	TEST(FContentBrowserExtensionRegistryTests, BuiltInFilterShortcutsUseDefinitionCategoryPaths)
@@ -300,7 +302,7 @@ namespace Durin::Editor::ContentBrowser
 		EXPECT_FALSE(Dialog.IsPending());
 		EXPECT_FALSE(Dialog.Confirm(true));
 		EXPECT_EQ(Creations, 1);
-		EXPECT_EQ(Notifications, 1);
+		EXPECT_EQ(Notifications, 0);
 		EXPECT_EQ(Revealed, "/DeferredCreation/FinalLevel.FinalLevel");
 		EXPECT_EQ(Opened, Revealed);
 		ASSERT_NE(OpenedLevel, nullptr) << OpenError;

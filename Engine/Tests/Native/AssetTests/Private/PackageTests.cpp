@@ -1,4 +1,3 @@
-#include "Asset/PreparedPackageSave.h"
 #include "Asset/Testing/PackageSaveTesting.h"
 #include "Asset/OfflinePreparation.h"
 #include "Asset/LoadAudit.h"
@@ -4922,52 +4921,6 @@ TEST(FPackageAssetTests, PreparedClosureReadsSavedBytesWithoutChangingLivePackag
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Prepared.GetMainBytes(), File));
 	Live->ClearDirty(); // End the deliberately dirty fixture before removal admission.
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
-}
-
-TEST(FPackageAssetTests, AbandonedPreparedSaveReleasesPackagePinAndStagedFiles)
-{
-	using namespace Durin;
-	InitializeAssetTests();
-	const bool bOwnScheduler = !IsTaskSchedulerRunning();
-	if (bOwnScheduler) ASSERT_TRUE(InitializeTaskScheduler(2));
-	if (!GetGameThreadDeferredWorkQueueDiagnostics().bInstalled) ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
-	PackageSavePrivate::SetAsyncSaveAdmission(true);
-	struct FSchedulerScope
-	{
-		bool bOwn;
-		~FSchedulerScope()
-		{
-			(void)DPackage::DrainAsyncSaves();
-			if (bOwn) ShutdownTaskSystem(ETaskShutdownMode::Drain);
-		}
-	} Scheduler{bOwnScheduler};
-	FPackagePath Path;
-	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/AbandonedPreparedSave", Path));
-	auto* Package = NewObject<DPackage>(nullptr, FName(Path.GetPackageName()));
-	ASSERT_TRUE(Package->InitializePreparedAssetPackage(Path));
-	ASSERT_NE(NewObject<DPackageAssetForTest>(Package, FName(Path.GetPackageName())), nullptr);
-	const TWeakObjectPtr<DPackage> WeakPackage(Package);
-	FObjectGraphReplacement UnpreparedPublication;
-	EXPECT_EQ(SavePreparedPackage(Package, UnpreparedPublication).Error, EAssetWriteError::InvalidData);
-	DPackage* Unit[] = {Package};
-	EXPECT_EQ(SavePackages(Unit).Result.Error, EAssetWriteError::InvalidData);
-	FAssetWriteResult Admission;
-	auto Save = FPreparedAssetSave::Begin(Package, {}, Admission);
-	ASSERT_TRUE(Save) << Admission.Message;
-	Package = nullptr;
-	CollectGarbage();
-	EXPECT_TRUE(WeakPackage.IsValid());
-	ASSERT_TRUE(DPackage::DrainAsyncSaves());
-	ASSERT_TRUE(Save->IsReady());
-	EXPECT_FALSE(FindResidentPackage(Path));
-	EXPECT_FALSE(FindPackageExact(Path));
-	const auto Directory = Testing::GetTestWorkDirectory() / "Assets";
-	EXPECT_FALSE(std::filesystem::exists(Directory / "AbandonedPreparedSave.dasset"));
-	Save.reset();
-	CollectGarbage();
-	EXPECT_FALSE(WeakPackage.IsValid());
-	for (const auto& Entry : std::filesystem::directory_iterator(Directory))
-		EXPECT_FALSE(Entry.path().filename().string().starts_with("AbandonedPreparedSave."));
 }
 
 TEST(FPackageAssetTests, OrdinarySaveSurvivesUnrelatedRegistryScanFailure)

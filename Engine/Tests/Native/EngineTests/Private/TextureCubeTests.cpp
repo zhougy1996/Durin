@@ -414,6 +414,8 @@ TEST(FTextureCubeTests, ReimportsSixFacesTransactionally)
 			Reimported = std::move(ResultValue);
 		});
 	ASSERT_TRUE(Reimported) << Reimported.Message;
+	ASSERT_TRUE(Reimported.SaveResult);
+	EXPECT_TRUE(*Reimported.SaveResult);
 	EXPECT_NE(Texture->GetSource().GetBulkData().GetPayloadId(), InitialSourceId);
 	EXPECT_NE(Texture->GetPlatformDataShared(), InitialPlatformDataIdentity);
 	EXPECT_EQ(Texture->GetPixelFormat(), Durin::EPixelFormat::BC3_UNORM_SRGB);

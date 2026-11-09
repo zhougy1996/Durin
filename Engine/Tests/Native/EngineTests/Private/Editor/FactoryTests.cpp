@@ -4,6 +4,8 @@
 #include "Import/EditorReimportHandler.h"
 
 #include "Asset/PackageSerialization.h"
+#include "Asset/RegistryOperations.h"
+#include "Asset/Testing/PackageSaveTesting.h"
 #include "Asset/Load.h"
 #include "CoreGlobals.h"
 #include "DObject/Class.h"
@@ -19,6 +21,8 @@
 #include <gtest/gtest.h>
 
 #include "NativeDObjectTestSupport.h"
+#include "NativeAssetTestSupport.h"
+#include "AssetRegistry/Scan.h"
 
 namespace
 {
@@ -180,6 +184,7 @@ namespace
 
 		mutable int ObjectQueryCount = 0;
 		bool bSupportsObject = true;
+		Durin::EReimportResult Outcome = Durin::EReimportResult::Succeeded;
 
 		auto GetReimportCapabilities(const Durin::DObject& Object) const
 			-> Durin::FReimportCapabilities override
@@ -194,14 +199,14 @@ namespace
 		auto Reimport(Durin::DObject&, Durin::FReimportCompletion Completion) const
 			-> void override
 		{
-			if (Completion) Completion({Durin::EReimportResult::Succeeded,
+			if (Completion) Completion({Outcome,
 				std::to_string(Priority)});
 		}
 
 		auto ReimportFromFiles(Durin::DObject&, std::span<const std::string>,
 			Durin::FReimportCompletion Completion) const -> void override
 		{
-			if (Completion) Completion({Durin::EReimportResult::Succeeded,
+			if (Completion) Completion({Outcome,
 				std::to_string(Priority)});
 		}
 
@@ -866,7 +871,7 @@ TEST(DFactoryTests, TypedFactoryFailureSurvivesPackageDiscard)
 	EXPECT_EQ(Result.Message, Durin::FormatFactoryError(*Entry.Failure));
 }
 
-TEST(DFactoryTests, ReimportPersistenceFailureRetainsAssetCauseAndCompletesOnce)
+TEST(DFactoryTests, ReimportSaveFailurePreservesImportResultAndCompletesOnce)
 {
 	InitializeFactoryTestGameThread();
 	FStandaloneReimportHandlerForTest Handler(100);
@@ -880,8 +885,100 @@ TEST(DFactoryTests, ReimportPersistenceFailureRetainsAssetCauseAndCompletesOnce)
 			Result = std::move(Completed);
 		});
 	EXPECT_EQ(CompletionCount, 1);
-	EXPECT_FALSE(Result);
-	EXPECT_EQ(Result.Status, Durin::EReimportResult::Failed);
-	ASSERT_TRUE(Result.SaveCause);
-	EXPECT_EQ(Result.SaveCause->Error, Durin::EAssetWriteError::InvalidPath);
+	EXPECT_TRUE(Result);
+	EXPECT_EQ(Result.Status, Durin::EReimportResult::Succeeded);
+	EXPECT_EQ(Result.Message, "100");
+	EXPECT_FALSE(Result.FactoryCause);
+	ASSERT_TRUE(Result.SaveResult);
+	EXPECT_FALSE(*Result.SaveResult);
+	EXPECT_EQ(Result.SaveResult->Error, Durin::EAssetWriteError::InvalidPath);
+}
+
+TEST(DFactoryTests, ReimportWithoutSaveHasNoPersistenceResult)
+{
+	InitializeFactoryTestGameThread();
+	FStandaloneReimportHandlerForTest Handler(100);
+	auto* Object = Durin::NewObject<DFactoryAssetForTest>(nullptr, "UnsavedReimportResult", Durin::EObjectFlags::Transient);
+	Durin::FReimportResult Result;
+	Durin::FReimportManager::Reimport(*Object, {.bSave = false},
+		[&](Durin::FReimportResult Completed) { Result = std::move(Completed); });
+	EXPECT_TRUE(Result);
+	EXPECT_EQ(Result.Message, "100");
+	EXPECT_FALSE(Result.SaveResult);
+}
+
+TEST(DFactoryTests, FailedAndCanceledReimportsDoNotAttemptSaving)
+{
+	InitializeFactoryTestGameThread();
+	FStandaloneReimportHandlerForTest Handler(100);
+	auto* Object = Durin::NewObject<DFactoryAssetForTest>(nullptr, "RejectedReimportResult", Durin::EObjectFlags::Transient);
+	for (const auto Outcome : {Durin::EReimportResult::Failed, Durin::EReimportResult::Canceled})
+		for (const bool bFromFile : {false, true})
+		{
+			Handler.Outcome = Outcome;
+			Durin::FReimportResult Result;
+			int CompletionCount = 0;
+			auto Completion = [&](Durin::FReimportResult Completed) { ++CompletionCount; Result = std::move(Completed); };
+			if (bFromFile)
+			{
+				const std::array<std::string, 1> Files{"source.test"};
+				Durin::FReimportManager::ReimportFromFiles(*Object, Files, {.bSave = true}, Completion);
+			}
+			else Durin::FReimportManager::Reimport(*Object, {.bSave = true}, Completion);
+			EXPECT_EQ(CompletionCount, 1);
+			EXPECT_EQ(Result.Status, Outcome);
+			EXPECT_EQ(Result.Message, "100");
+			EXPECT_FALSE(Result.SaveResult);
+		}
+}
+
+TEST(DFactoryTests, SuccessfulReimportSaveReportsOwnedPersistenceResult)
+{
+	InitializeFactoryTestGameThread();
+	EnsureAssetToolsTestMount();
+	FStandaloneReimportHandlerForTest Handler(100);
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/AssetToolsTests/ReimportSavedResult", Path));
+	const auto Created = Durin::IAssetTools::Get().CreatePackageLeafAssetForTesting(
+		Path, DFactoryAssetForTest::StaticClass(), MakeFactory(DAssetToolsFactoryForTest::EMode::Success));
+	ASSERT_TRUE(Created) << Created.Message;
+	Durin::FReimportResult Result;
+	Durin::FReimportManager::Reimport(*Created.Asset, {.bSave = true},
+		[&](Durin::FReimportResult Completed) { Result = std::move(Completed); });
+	EXPECT_TRUE(Result);
+	EXPECT_EQ(Result.Message, "100");
+	ASSERT_TRUE(Result.SaveResult);
+	EXPECT_TRUE(*Result.SaveResult) << Result.SaveResult->Message;
+	EXPECT_FALSE(Result.FactoryCause);
+	EXPECT_FALSE(Created.Package->IsDirty());
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(Path));
+}
+
+TEST(DFactoryTests, ReimportProjectionFailureRetainsSaveEffectAndImportSuccess)
+{
+	InitializeFactoryTestGameThread();
+	EnsureAssetToolsTestMount();
+	FStandaloneReimportHandlerForTest Handler(100);
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/AssetToolsTests/ReimportProjectionResult", Path));
+	const auto Created = Durin::IAssetTools::Get().CreatePackageLeafAssetForTesting(
+		Path, DFactoryAssetForTest::StaticClass(), MakeFactory(DAssetToolsFactoryForTest::EMode::Success));
+	ASSERT_TRUE(Created) << Created.Message;
+	Durin::FReimportResult Result;
+	{
+		Durin::Testing::FScopedPackageSaveFault Fault([](Durin::Testing::EPackageSaveFaultPoint Point, size_t) {
+			return Point == Durin::Testing::EPackageSaveFaultPoint::PublishRegistry;
+		});
+		Durin::FReimportManager::Reimport(*Created.Asset, {.bSave = true},
+			[&](Durin::FReimportResult Completed) { Result = std::move(Completed); });
+	}
+	EXPECT_TRUE(Result);
+	EXPECT_EQ(Result.Message, "100");
+	ASSERT_TRUE(Result.SaveResult);
+	EXPECT_FALSE(*Result.SaveResult);
+	EXPECT_EQ(Result.SaveResult->Effect, Durin::EAssetWriteEffect::ContentCommittedProjectionPending);
+	EXPECT_FALSE(Result.FactoryCause);
+	EXPECT_FALSE(Created.Package->IsDirty());
+	ASSERT_TRUE(Durin::RefreshAssetRegistry());
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(Path));
 }

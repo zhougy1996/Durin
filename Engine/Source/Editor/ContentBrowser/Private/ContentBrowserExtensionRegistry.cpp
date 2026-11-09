@@ -24,13 +24,13 @@ namespace Durin::Editor::ContentBrowser
 		return {
 			.ClearError = [IsAlive, Report = Invocation.ReportError] { if (IsAlive() && Report) Report({}); },
 			.ReportError = [IsAlive, Report = Invocation.ReportError](std::string Message) { if (IsAlive() && Report) Report(std::move(Message)); },
-			.AssetCreated = [IsAlive, Changed = Invocation.NotifyMountedContentChanged, Reveal = Invocation.RevealAsset, Open = Invocation.OpenAsset, ClassName](std::string Path) {
+			.AssetCreated = [IsAlive, Reveal = Invocation.RevealAsset, Open = Invocation.OpenAsset, ClassName](std::string Path) {
 				if (!IsAlive()) return;
-				if (Changed) Changed(); if (Reveal) Reveal(Path); if (Open && !ClassName.empty()) Open(Path, ClassName);
+				if (Reveal) Reveal(Path); if (Open && !ClassName.empty()) Open(Path, ClassName);
 			},
-			.ImportedDirectory = [IsAlive, Changed = Invocation.NotifyMountedContentChanged, Reveal = Invocation.RevealDirectory](std::string Path) {
+			.ImportedDirectory = [IsAlive, Reveal = Invocation.RevealDirectory](std::string Path) {
 				if (!IsAlive()) return;
-				if (Changed) Changed(); if (Reveal) Reveal(Path);
+				if (Reveal) Reveal(Path);
 			}};
 	}
 	namespace

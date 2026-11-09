@@ -52,10 +52,10 @@ namespace Durin::Editor
 			bReportedCompletion = true;
 			bImporting = false;
 			const auto& Result = Session->GetResult();
-			if (!Result.SavedPackages.empty()) Callbacks.NotifyImportedDirectory(DestinationDirectory.GetPath());
+			if (!Result.ImportedPackages.empty()) Callbacks.NotifyImportedDirectory(DestinationDirectory.GetPath());
 			if (!Result)
-				SetError(Result.SavedPackages.empty() ? Result.Message
-					: std::format("{} package(s) saved before import stopped. {}", Result.SavedPackages.size(), Result.Message));
+				SetError(Result.ImportedPackages.empty() ? Result.Message
+					: std::format("{} package(s) imported before import stopped. {}", Result.ImportedPackages.size(), Result.Message));
 
 			bImporting = false;
 		}
@@ -65,11 +65,11 @@ namespace Durin::Editor
 			ImGui::SeparatorText(Result ? "Import completed" : "Import stopped");
 			ImGui::TextWrapped("%s", Result.Message.c_str());
 			for (const auto& Diagnostic : Result.Diagnostics) ImGui::TextWrapped("%s", Diagnostic.Message.c_str());
-			constexpr const char* States[] = {"Unexecuted", "Saved", "Preserved", "Failed"};
+			constexpr const char* States[] = {"Unexecuted", "Imported", "Preserved", "Failed"};
 			for (const auto& Output : Result.Outputs)
 			{
 				ImGui::TextWrapped("%s: %s", States[static_cast<size_t>(Output.State)], Output.AssetPath.ToString().c_str());
-				if (Output.State == AssetForge::EImportOutputState::Saved || Output.State == AssetForge::EImportOutputState::Preserved)
+				if (Output.State == AssetForge::EImportOutputState::Imported || Output.State == AssetForge::EImportOutputState::Preserved)
 				{
 					ImGui::PushID(Output.StableIdentity.c_str());
 					if (ImGui::SmallButton("Show asset")) Callbacks.NotifyAssetCreated(Output.AssetPath.ToString());

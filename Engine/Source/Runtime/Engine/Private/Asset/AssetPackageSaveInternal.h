@@ -10,12 +10,10 @@
 
 namespace Durin::AssetPrivate
 {
-	enum class ESavePublicationPolicy : uint8 { KeepCommittedContent, RollbackCandidate };
 	struct FPackageSaveCommitContext
 	{
 		Testing::FPackageSaveFault Fault;
 		size_t PackageIndex = 0;
-		ESavePublicationPolicy Policy = ESavePublicationPolicy::KeepCommittedContent;
 	};
 
 	// One owner for the package pin, captured revision/header and physical writer.

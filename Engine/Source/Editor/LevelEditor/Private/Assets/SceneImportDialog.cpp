@@ -48,10 +48,10 @@ namespace Durin::Editor::Level
 			bReportedCompletion = true;
 			bImporting = false;
 			const auto& Result = Session->GetResult();
-			if (!Result.SavedPackages.empty()) Callbacks.NotifyImportedDirectory(DestinationDirectory.GetPath());
-			if (!Result && (!bCloseWhenFinished || !Result.SavedPackages.empty()))
-				SetError(Result.SavedPackages.empty() ? Result.Message
-					: std::format("{} package(s) saved before import stopped. {}", Result.SavedPackages.size(), Result.Message));
+			if (!Result.ImportedPackages.empty()) Callbacks.NotifyImportedDirectory(DestinationDirectory.GetPath());
+			if (!Result && (!bCloseWhenFinished || !Result.ImportedPackages.empty()))
+				SetError(Result.ImportedPackages.empty() ? Result.Message
+					: std::format("{} package(s) imported before import stopped. {}", Result.ImportedPackages.size(), Result.Message));
 			if (Result || bCloseWhenFinished)
 			{
 				ImGui::CloseCurrentPopup();

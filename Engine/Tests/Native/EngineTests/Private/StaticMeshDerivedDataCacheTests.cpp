@@ -2304,9 +2304,8 @@ TEST(FStaticMeshPayloadInspectionTests, PackageInspectionPreservesAbsentMalforme
 {
 	using namespace Durin;
 	FAssetPackageInspection Package;
-	Package.Header.TopLevelAssets.front().AssetClassName = DStaticMesh::StaticClass()->GetQualifiedName().ToString();
+	Package.Objects.push_back({.ClassName = DStaticMesh::StaticClass()->GetQualifiedName().ToString()});
 	Package.PhysicalPath = "/nonexistent/metadata-only/Mesh.dasset";
-	Package.Objects.emplace_back();
 	FStaticMeshPayloadInspection Snapshot;
 	const auto ObjectCount = GDObjectArray.GetNum();
 	ASSERT_TRUE(InspectStaticMeshPayloadPackage(Package, Snapshot));
@@ -2323,7 +2322,7 @@ TEST(FStaticMeshPayloadInspectionTests, PackageInspectionPreservesAbsentMalforme
 	Package.Objects[0].Fields.push_back({.Name = "Source", .SourceFormatVersion = 10});
 	ASSERT_TRUE(InspectStaticMeshPayloadPackage(Package, Snapshot));
 	EXPECT_EQ(Snapshot.Fields[0].State, "Malformed");
-	Package.Header.TopLevelAssets.front().AssetClassName = "Unsupported";
+	Package.Objects.front().ClassName = "Unsupported";
 	std::string Error;
 	EXPECT_FALSE(InspectStaticMeshPayloadPackage(Package, Snapshot, &Error));
 	EXPECT_FALSE(Error.empty());
@@ -3111,8 +3110,10 @@ TEST(FStaticMeshAuthoredCompilationTests, ReimportSaveFailureRetainsAuthoredComm
 	std::optional<FReimportResult> Completed;
 	FReimportManager::Reimport(Mesh, {}, [&](FReimportResult Result) { Completed = std::move(Result); });
 	ASSERT_TRUE(Completed);
-	EXPECT_EQ(Completed->Status, EReimportResult::Failed);
-	EXPECT_NE(Completed->SaveCause, nullptr);
+	EXPECT_EQ(Completed->Status, EReimportResult::Succeeded);
+	ASSERT_TRUE(Completed->SaveResult);
+	EXPECT_FALSE(*Completed->SaveResult);
+	EXPECT_TRUE(*Completed);
 	EXPECT_EQ(Completed->FactoryCause, nullptr);
 	EXPECT_NE(Mesh.GetSource().GetIdentity(), OldSource);
 	EXPECT_NE(Mesh.GetAssetImportData()->GetSourceData().FindByRole("source")->GetContentHash(), OldHash);

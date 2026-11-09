@@ -16,7 +16,7 @@ namespace Durin
 		std::string AssetClassName;
 		FObjectPath RedirectDestination;
 
-		auto IsRedirector() const -> bool { return RedirectDestination.IsValid(); }
+		auto IsRedirector() const -> bool { return AssetClassName == "Durin::DAssetRedirector"; }
 		auto operator==(const FAssetData&) const -> bool = default;
 	};
 
@@ -87,7 +87,7 @@ namespace Durin
 		std::optional<FAssetData> Asset;
 		std::optional<FPackageData> Package;
 
-		auto Succeeded() const -> bool { return Asset.has_value() && Package.has_value(); }
+		auto Succeeded() const -> bool { return Asset.has_value(); }
 		explicit operator bool() const { return Succeeded(); }
 		auto operator->() const -> const FAssetData* { return &Asset.value(); }
 		auto operator==(std::nullptr_t) const -> bool { return !Succeeded(); }
@@ -116,6 +116,31 @@ namespace Durin
 			return It == Package->TopLevelAssets.end() ? nullptr : &*It;
 		}
 	};
+
+	// Asset discovery includes current live metadata by default. Package metadata is
+	// strictly on-disk; an unsaved asset has no FPackageData.
+	enum class EAssetQuerySource : uint8 { All, OnDisk, InMemory };
+	struct FAssetQuerySnapshot
+	{
+		uint64 Revision = 0;
+		std::unordered_map<FTopLevelAssetPath, FAssetData> Assets;
+		std::unordered_map<FPackagePath, FPackageData> Packages;
+
+		auto FindAssetExact(const FTopLevelAssetPath& Path) const -> const FAssetData*
+		{
+			const auto It = Assets.find(Path);
+			return It == Assets.end() ? nullptr : &It->second;
+		}
+		auto FindPackageExact(const FPackagePath& Path) const -> const FPackageData*
+		{
+			const auto It = Packages.find(Path);
+			return It == Packages.end() ? nullptr : &It->second;
+		}
+	};
+	// All/InMemory queries and the unified change stream belong to GameThread.
+	ASSETREGISTRY_API auto CaptureAssetQuerySnapshot(EAssetQuerySource Source = EAssetQuerySource::All) -> FAssetQuerySnapshot;
+	ASSETREGISTRY_API auto GetAssetQueryRevision() -> uint64;
+	ASSETREGISTRY_API auto CaptureAssetQueryChanges(uint64 FromRevision) -> FContentChangeBatch;
 
 	// Owns a revision-consistent projection containing only one asset and its
 	// transitive package dependencies.
@@ -228,7 +253,7 @@ namespace Durin
 	ASSETREGISTRY_API auto FindPackageExact(
 		const FPackagePath& Path) -> FPackageCatalogEntry;
 	ASSETREGISTRY_API auto FindAssetExact(
-		const FTopLevelAssetPath& Path) -> FAssetCatalogEntry;
+		const FTopLevelAssetPath& Path, EAssetQuerySource Source = EAssetQuerySource::All) -> FAssetCatalogEntry;
 	ASSETREGISTRY_API auto ResolvePackagePath(
 		const FPackagePath& Path,
 		const FAssetPathQueryOptions& Options = {}) -> FPackagePathResolveResult;

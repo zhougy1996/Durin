@@ -114,7 +114,7 @@ arbitrary path.
 package registration is the sole live residency lookup; Engine does not keep a
 second resident-package map. `CreatePackage` detects path collisions through
 that registration. New asset packages begin `NewlyCreated`; a successful first
-save clears that state only after file and catalog publication.
+save clears that state after physical commit, including projection-pending completion.
 `DPackage::IsDirty()` independently records unsaved contents. Marking a live
 authored package dirty restores its editor cache retention, independently of
 load handles. Private preparation graphs retain only their operation owners.
@@ -583,15 +583,11 @@ in-process rollback and are released by finalization. Save preparation does not
 recover or delete files abandoned by earlier saves; those files do not reserve
 paths for a new save. This is not persistent crash recovery across files.
 
-Private graph persistence lives in `Asset/PreparedPackageSave.h`.
-`SavePreparedPackage` requires the owning `FObjectGraphReplacement` by reference
-and admits one private package. Its Registry failure policy always restores prior
-main/bulk bytes; callers cannot request projection-pending publication for a
-candidate. `FPreparedAssetSave` uses the same fixed policy for asynchronous staging.
-Scene import publishes one package at a time in dependency order, calling the
-private save inside the replacement's final persistence callback. Successful disk
-and Registry publication is immediately followed by the non-failing memory commit.
-Later failures preserve previously published disk content and live objects.
+Import validates and applies its private candidate graph to live memory before
+requesting any persistence. Applied packages remain Dirty and NewlyCreated until
+ordinary save publishes them. There is no public prepared-save protocol or
+import-specific Registry rollback policy. Optional persistence uses `SavePackage`
+or `DPackage::SaveAsync`; a save failure retains the imported live graph for retry.
 
 Save fault injection is separate from content parameters, in
 `Asset/Testing/PackageSaveTesting.h`. Synchronous calls observe the scoped hook;

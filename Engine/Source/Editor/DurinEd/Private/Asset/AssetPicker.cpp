@@ -20,7 +20,7 @@ namespace Durin::Editor::AssetPicker
 
 		auto RequestThumbnail(const FAssetCatalogEntry& Entry) -> FAssetThumbnailView
 		{
-			if (!Entry) return {};
+			if (!Entry || !Entry.Package) return {};
 			auto& Pool = GetDefaultThumbnailManager().GetSharedPool();
 			Pool.Request({
 				.AssetPath = Entry.Asset->AssetPath,
@@ -121,7 +121,7 @@ namespace Durin::Editor::AssetPicker
 		auto GetPickerCache() -> FAssetPickerCache&
 		{
 			static FAssetPickerCache Cache;
-			const uint64 RegistryRevision = GetAssetCatalogRevision();
+			const uint64 RegistryRevision = GetAssetQueryRevision();
 			if (Cache.RegistryRevision != RegistryRevision)
 			{
 				Cache.RegistryRevision = RegistryRevision;
@@ -137,21 +137,16 @@ namespace Durin::Editor::AssetPicker
 			if (!bInserted) return Iterator->second;
 
 			std::vector<FTopLevelAssetPath>& Paths = Iterator->second;
-			const FAssetCatalogSnapshot Snapshot =
-				CaptureAssetCatalogSnapshot();
+			const FAssetQuerySnapshot Snapshot =
+				CaptureAssetQuerySnapshot();
 			Paths.reserve(Snapshot.Assets.size());
-			for (const auto& [PackagePath, Data] : Snapshot.Assets)
+			for (const auto& [AssetPath, AssetData] : Snapshot.Assets)
 			{
-				for (const FAssetData& AssetData : Data.TopLevelAssets)
-				{
-					if (AssetData.IsRedirector()) continue;
-					const std::string Path = AssetData.AssetPath.ToString();
-					if (!MatchesPathPrefix(Path, Key.PathPrefix)) continue;
-					if (!MatchesClass(
-						FindClassByQualifiedName(AssetData.AssetClassName),
-						Key.RequiredClass, Key.ClassPolicy)) continue;
-					Paths.push_back(AssetData.AssetPath);
-				}
+				if (AssetData.IsRedirector()) continue;
+				const std::string Path = AssetData.AssetPath.ToString();
+				if (!MatchesPathPrefix(Path, Key.PathPrefix)) continue;
+				if (!MatchesClass(FindClassByQualifiedName(AssetData.AssetClassName), Key.RequiredClass, Key.ClassPolicy)) continue;
+				Paths.push_back(AssetData.AssetPath);
 			}
 			std::ranges::sort(Paths);
 			return Paths;

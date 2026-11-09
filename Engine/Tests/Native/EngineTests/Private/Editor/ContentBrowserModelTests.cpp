@@ -601,6 +601,88 @@ TEST_F(FContentBrowserModelTests, SearchesRecursivelyButBrowsesImmediateChildren
 	EXPECT_EQ(Model.GetItems().front().Name, "Stone");
 }
 
+TEST_F(FContentBrowserModelTests, AssetLifecycleNotificationsRefreshCreationSaveRenameAndDiscard)
+{
+	InitializeDObjectSystem();
+	FContentBrowserModel Model;
+	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content/A").generic_string()));
+	FPackagePath Path, DiscardPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/A/Live", Path));
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/A/Discard", DiscardPath));
+	const auto CreatedFrom = GetAssetQueryRevision();
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Material));
+	FContentBrowserOperationService Operations(FContentBrowserPaths{},
+		[](std::span<const FEditorAssetMove>) -> FAssetReadResult { return {}; });
+	EXPECT_TRUE(Operations.QueryDuplicate(Testing::MakePackageLeafTopLevelAssetPathForTests(Path)));
+	EXPECT_TRUE(Model.ApplyContentChanges(CaptureAssetQueryChanges(CreatedFrom)));
+	ASSERT_EQ(Model.GetItems().size(), 1u);
+	EXPECT_EQ(Model.GetItems().front().FileSize, 0u);
+	const auto RenamedFrom = GetAssetQueryRevision();
+	Material->Rename("Renamed");
+	EXPECT_TRUE(Model.ApplyContentChanges(CaptureAssetQueryChanges(RenamedFrom)));
+	ASSERT_EQ(Model.GetItems().size(), 1u);
+	EXPECT_TRUE(Model.GetItems().front().VirtualPath.ends_with(".Renamed"));
+	const auto SavedFrom = GetAssetQueryRevision();
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	EXPECT_TRUE(Model.ApplyContentChanges(CaptureAssetQueryChanges(SavedFrom)));
+	ASSERT_EQ(Model.GetItems().size(), 1u);
+	EXPECT_GT(Model.GetItems().front().FileSize, 0u);
+	const auto UnloadedFrom = GetAssetQueryRevision();
+	ASSERT_TRUE(UnloadPackage(Path));
+	EXPECT_TRUE(Model.ApplyContentChanges(CaptureAssetQueryChanges(UnloadedFrom)));
+	EXPECT_EQ(Model.GetItems().size(), 1u);
+	const auto DiscardedFrom = GetAssetQueryRevision();
+	DMaterial* Unsaved = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(DiscardPath, Unsaved));
+	EXPECT_TRUE(Model.ApplyContentChanges(CaptureAssetQueryChanges(DiscardedFrom)));
+	ASSERT_EQ(Model.GetItems().size(), 2u);
+	const auto RemovedFrom = GetAssetQueryRevision();
+	ASSERT_TRUE(UnloadPackage(DiscardPath, EAssetPackageUnloadPolicy::DiscardUnsaved));
+	EXPECT_TRUE(Model.ApplyContentChanges(CaptureAssetQueryChanges(RemovedFrom)));
+	EXPECT_EQ(Model.GetItems().size(), 1u);
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
+}
+
+TEST_F(FContentBrowserModelTests, ShowsAndRevealsUnsavedAssetsWithoutCreatingDirectories)
+{
+	InitializeDObjectSystem();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/Unsaved/Nested/Material", Path));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Material));
+	const auto Directory = Root / "Content/Unsaved/Nested";
+	EXPECT_FALSE(std::filesystem::exists(Directory));
+	EXPECT_FALSE(FindPackageExact(Path));
+	for (const bool bAsync : {false, true})
+	{
+		FContentBrowserModel Model(bAsync);
+		ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content").generic_string()));
+		if (bAsync) while (Model.IsLoading()) { (void)Model.PumpPendingSnapshots(); std::this_thread::yield(); }
+		EXPECT_TRUE(std::ranges::any_of(Model.GetItems(), [](const auto& Item) {
+			return Item.Kind == EContentBrowserItemKind::Folder && Item.Name == "Unsaved";
+		}));
+		EXPECT_FALSE(Model.RevealAsset(Testing::MakePackageLeafTopLevelAssetPathForTests(Path).ToString()).empty());
+		if (bAsync) while (Model.IsLoading()) { (void)Model.PumpPendingSnapshots(); std::this_thread::yield(); }
+		ASSERT_EQ(Model.GetItems().size(), 1u);
+		EXPECT_EQ(Model.GetItems()[0].PackagePath, Path);
+		EXPECT_EQ(Model.GetItems()[0].AssetClassName, DMaterial::StaticClass()->GetQualifiedName().ToString());
+		Model.RequestDirectoryChildrenSnapshot((Root / "Content/Unsaved").generic_string());
+		if (bAsync) Model.WaitForPendingSnapshotsForTesting();
+		else Model.RefreshRequestedDirectoryChildrenSnapshots();
+		const auto Children = Model.GetDirectorySnapshot((Root / "Content/Unsaved").generic_string());
+		ASSERT_TRUE(Children);
+		EXPECT_EQ(Children->Children, std::vector<std::filesystem::path>{Directory});
+		EXPECT_TRUE(Model.GetEnumerationDiagnostics().empty());
+		EXPECT_FALSE(std::filesystem::exists(Directory));
+	}
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	FContentBrowserModel Model;
+	ASSERT_TRUE(Model.NavigateToPhysical(Directory.generic_string()));
+	EXPECT_EQ(Model.GetItems().size(), 1u);
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
+}
+
 TEST_F(FContentBrowserModelTests, RevealAssetClearsFiltersAndPublishesTarget)
 {
 	InitializeDObjectSystem();

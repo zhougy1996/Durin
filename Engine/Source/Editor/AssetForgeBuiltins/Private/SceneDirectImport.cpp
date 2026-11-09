@@ -1,4 +1,3 @@
-#include "Asset/PreparedPackageSave.h"
 #include "Asset/Testing/PackageSaveTesting.h"
 #include "Physics/BodySetup.h"
 #include "Physics/PhysicsMeshCompilation.h"
@@ -349,7 +348,7 @@ struct FAssetImportSession::FImpl
 	FStaticMeshImportSettings Settings;
 	FSceneMaterialImportOptions MaterialOptions;
 	FAssetImportOptions ImportOptions;
-	FAssetPackageSaveArgs SaveArgs;
+	std::optional<FAssetPackageSaveArgs> SaveArgs;
 	Testing::FPackageSaveFault SaveFault;
 	bool bAsync = true;
 	bool bImportRequested = false;
@@ -1114,86 +1113,86 @@ auto FAssetImportSession::FImpl::Run() -> FSceneRoutine
 			                   Message);
 		}
 
+		co_await Work([&] { (void)ValidateSources(Result); });
+		if (!Result.Message.empty()) co_return std::move(Result);
+
 		if (IsCanceled(IsCancellationRequested))
 		{
 			co_return AddError(Result, EImportDiagnosticCategory::Canceled, "scene-publication",
-			                   "Scene import was canceled before persistence.");
+			                   "Scene import was canceled before applying assets.");
 		}
-		co_await Work([&] { (void)ValidateSources(Result); });
-		if (!Result.Message.empty()) co_return std::move(Result);
 
 		std::vector<FObjectReplacementPackagePair> Pairs;
 		for (const auto &Output : Prepared)
 			if (!Output.Descriptor->PreservedMaterial.Get())
 				Pairs.push_back({nullptr, Output.Package});
-		for (size_t Index = 0; Index < Pairs.size(); ++Index)
+		if (!Pairs.empty())
 		{
-			const auto &Pair = Pairs[Index];
+			Progress = {ESceneImportPhase::Applying, "Applying imported assets"};
 			FObjectGraphReplacement Publication;
-			FAssetWriteResult PersistenceResult;
-			const auto Fault = [Captured = SaveFault, Index](Testing::EPackageSaveFaultPoint Phase, size_t) {
-				return Captured && Captured(Phase, Index);
-			};
-			std::shared_ptr<FPreparedAssetSave> StagedSave;
-			if (bAsync)
-			{
-				Progress = {ESceneImportPhase::Saving, Pair.Prepared->GetPackagePath(), Index, Pairs.size()};
-				{
-					Testing::FScopedPackageSaveFault Scope(Fault);
-					StagedSave = FPreparedAssetSave::Begin(Pair.Prepared, SaveArgs, PersistenceResult);
-				}
-				if (StagedSave)
-					co_await Step([&] { return StagedSave->IsReady(); });
-				if (IsCanceled(IsCancellationRequested))
-					co_return AddError(Result, EImportDiagnosticCategory::Canceled, "scene-save",
-					                   "Scene import canceled before package commit.");
-				if (!StagedSave)
-					co_return AddError(Result, EImportDiagnosticCategory::PersistenceFailure, "scene-save",
-					                   PersistenceResult.Message);
-			}
-			// Staging yields before graph preparation: unrelated object creation during
-			// disk I/O must not invalidate a reference-replacement snapshot.
 			const std::array Participants{MakeMaterialReferenceReplacementParticipant()};
-			auto Published = Publication.Prepare(std::span(&Pair, 1), Participants);
-			if (Published)
-			{
-				Published = Publication.TryCommit(
-				    [&]() -> std::expected<void, FObjectReplacementError>
-				    {
-					    Testing::FScopedPackageSaveFault Scope(Fault);
-					    PersistenceResult = bAsync ? StagedSave->Commit(Publication)
-					        : SavePreparedPackage(Pair.Prepared, Publication, SaveArgs);
-					    if (!PersistenceResult)
-						    return std::unexpected(FObjectReplacementError{
-						        .Code = EObjectReplacementError::ParticipantRejected,
-						        .Reason = EObjectReplacementReason::PersistenceRejected});
-					    return {};
-				    });
-			}
-			StagedSave.reset();
-			if (!Published)
+			auto Applied = Publication.Prepare(Pairs, Participants);
+			if (Applied) Applied = Publication.TryCommit();
+			if (!Applied)
 			{
 				Publication.Abort();
-				co_return AddError(Result, EImportDiagnosticCategory::PersistenceFailure, "scene-persistence",
-				                   std::format("Saved {} of {} packages; {}: {}", Result.SavedPackages.size(),
-				                               Pairs.size(), Pair.Prepared->GetPackagePath(),
-				                               !PersistenceResult ? PersistenceResult.Message
-				                                                  : ToString(Published.error())),
-				std::ranges::find(Result.Outputs, Pair.Prepared->GetPackagePathIdentity(), &FImportOutputSummary::AssetPath)->StableIdentity);
+				co_return AddError(Result, EImportDiagnosticCategory::CandidateFailure, "scene-apply",
+				                   ToString(Applied.error()));
 			}
-			Pair.Prepared->MarkAsPublished();
-			Result.SavedPackages.push_back(Pair.Prepared->GetPackagePathIdentity());
-			std::ranges::find(Result.Outputs, Pair.Prepared->GetPackagePathIdentity(),
-				&FImportOutputSummary::AssetPath)->State = EImportOutputState::Saved;
+			for (const auto& Pair : Pairs)
+			{
+				Pair.Prepared->MarkDirty();
+				Result.ImportedPackages.push_back(Pair.Prepared->GetPackagePathIdentity());
+				std::ranges::find(Result.Outputs, Pair.Prepared->GetPackagePathIdentity(),
+					&FImportOutputSummary::AssetPath)->State = EImportOutputState::Imported;
+			}
 			if (bAsync)
 				co_await Step([&] { return Publication.Retire(); });
 			else
 				require(Publication.Retire());
 		}
-
 		Result.bSucceeded = true;
-		Result.bPersisted = true;
-		Result.Message.clear();
+
+		if (SaveArgs)
+		{
+			auto& Batch = Result.SaveResult.emplace();
+			for (size_t Index = 0; Index < Pairs.size(); ++Index)
+			{
+				auto* Package = Pairs[Index].Prepared;
+				Progress = {ESceneImportPhase::Saving, Package->GetPackagePath(), Index, Pairs.size()};
+				if (IsCanceled(IsCancellationRequested))
+					Batch.Result = {EAssetWriteError::Cancelled, "Save was cancelled after importing assets."};
+				else
+				{
+					const auto Fault = [Captured = SaveFault, Index](Testing::EPackageSaveFaultPoint Phase, size_t) {
+						return Captured && Captured(Phase, Index);
+					};
+					Tasks::TTask<FAssetWriteResult> Task;
+					{
+						Testing::FScopedPackageSaveFault Scope(Fault);
+						if (bAsync)
+							Task = Package->SaveAsync(Batch.Result, FAssetPackageSaveContext{*SaveArgs, IsCancellationRequested});
+						else
+							Batch.Result = SavePackage(Package, *SaveArgs);
+					}
+					if (Task.IsValid())
+					{
+						co_await Step([&] { return Task.IsCompleted(); });
+						Batch.Result = Task.GetResult();
+					}
+				}
+				if (!Batch.Result)
+				{
+					Batch.FailedPackage = Package->GetPackagePathIdentity();
+					Result.Message = "Import complete; save failed: " + Batch.Result.Message;
+					Result.Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
+						.Category = EImportDiagnosticCategory::PersistenceFailure, .Phase = "scene-save",
+						.Message = Result.Message});
+					break;
+				}
+				Batch.SavedPackages.push_back(Package->GetPackagePathIdentity());
+			}
+		}
 		co_return Result;
 	}
 	catch (const std::exception &Error)
@@ -1246,7 +1245,7 @@ auto FAssetImportSession::FImpl::Tick() -> void
 	Data = {};
 	Snapshot.reset();
 	Routine.reset();
-	Progress = {ESceneImportPhase::Completed, Result.bSucceeded ? "Import complete" : Result.Message};
+	Progress = {ESceneImportPhase::Completed, Result.Message.empty() ? "Import complete" : Result.Message};
 }
 
 FAssetImportSession::FAssetImportSession(std::string SourceFile, FPackagePath Destination,
@@ -1383,7 +1382,7 @@ auto FAssetImportSession::PreviewMaterials(const FPackagePath &Destination,
 	return Result;
 }
 auto FAssetImportSession::BeginImport(const FPackagePath &Destination, FSceneMaterialImportOptions Options,
-                                      FAssetPackageSaveArgs SaveArgs) -> bool
+                                      std::optional<FAssetPackageSaveArgs> SaveArgs) -> bool
 {
 	if (Impl->Progress.Phase != ESceneImportPhase::Ready || Impl->bImportRequested || !Destination.IsValid())
 		return false;
@@ -1406,13 +1405,13 @@ auto FAssetImportSession::BeginImport(const FPackagePath &Destination, FSceneMat
 auto ImportAssetOutputs(std::string_view SourceFile, const FPackagePath& DestinationDirectory,
 	const FStaticMeshImportSettings& Settings, const FAssetImportOptions& Options,
 	const FSceneMaterialImportOptions& Materials, const std::function<bool()>& Cancellation,
-	const FAssetPackageSaveArgs& Publication) -> FSceneImportResult
+	const std::optional<FAssetPackageSaveArgs>& SaveArgs) -> FSceneImportResult
 {
 	FAssetImportSession Session(std::string(SourceFile), DestinationDirectory, Settings, Options);
 	Session.Impl->bAsync = false;
 	Session.Impl->bImportRequested = true;
 	Session.Impl->MaterialOptions = Materials;
-	Session.Impl->SaveArgs = Publication;
+	Session.Impl->SaveArgs = SaveArgs;
 	Session.Impl->SaveFault = Testing::CapturePackageSaveFault();
 	Session.Impl->ExternalCancellation = Cancellation;
 	Session.Tick();
@@ -1422,7 +1421,7 @@ auto ImportAssetOutputs(std::string_view SourceFile, const FPackagePath& Destina
 auto ImportSceneAssets(std::string_view SourceFile, const FPackagePath &DestinationDirectory,
                        const FStaticMeshImportSettings &Settings,
                        const std::function<bool()> &IsCancellationRequested,
-                       const FAssetPackageSaveArgs &SaveArgs,
+                       const std::optional<FAssetPackageSaveArgs> &SaveArgs,
                        const FSceneMaterialImportOptions &MaterialOptions) -> FSceneImportResult
 {
 	FSceneImportSession Session(std::string(SourceFile), DestinationDirectory, Settings);

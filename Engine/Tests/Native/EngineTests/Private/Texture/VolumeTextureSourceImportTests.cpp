@@ -22,23 +22,12 @@ using namespace Durin::AssetForge::Builtins;
 
 namespace
 {
-	struct FReimportResult
+	auto RunVolumeReimport(DVolumeTexture& Texture) -> Durin::FReimportResult
 	{
-		bool bSucceeded = false;
-		std::string Diagnostic;
-		std::shared_ptr<const IFactoryErrorDetail> FactoryCause;
-	};
-
-	auto ReimportVolumeTexture(DVolumeTexture& Texture,
-		const FVolumeTextureImportSettings& Settings)
-		-> FReimportResult
-	{
-		(void)Settings;
-		Durin::FReimportResult ManagerResult;
+		Durin::FReimportResult Result;
 		Durin::FReimportManager::Reimport(Texture, {},
-			[&](Durin::FReimportResult Result) { ManagerResult = std::move(Result); });
-		return {.bSucceeded = ManagerResult.Succeeded(),
-			.Diagnostic = std::move(ManagerResult.Message), .FactoryCause = std::move(ManagerResult.FactoryCause)};
+			[&](Durin::FReimportResult Completed) { Result = std::move(Completed); });
+		return Result;
 	}
 
 	void AppendBigEndian32(Durin::FByteBuffer& Bytes, uint32 Value)
@@ -378,8 +367,8 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	EXPECT_NE(DVolumeTextureImportData::StaticClass()->FindPropertyByName("SliceWidth"), nullptr);
 	EXPECT_EQ(Imported.Asset->GetClass()->FindPropertyByName("SourceImportData"), nullptr);
 
-	auto Executed = ReimportVolumeTexture(*Imported.Asset, Settings);
-	ASSERT_TRUE(Executed.bSucceeded) << Executed.Diagnostic;
+	auto Executed = RunVolumeReimport(*Imported.Asset);
+	ASSERT_TRUE(Executed) << Executed.Message;
 	const Durin::FXxHash128 LastKnownGoodSourceId =
 		Imported.Asset->GetSource().GetBulkData().GetPayloadId();
 
@@ -387,8 +376,8 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 		std::ofstream Corrupt(AtlasPath, std::ios::binary | std::ios::trunc);
 		Corrupt << "not a png";
 	}
-	Executed = ReimportVolumeTexture(*Imported.Asset, Settings);
-	EXPECT_FALSE(Executed.bSucceeded);
+	Executed = RunVolumeReimport(*Imported.Asset);
+	EXPECT_FALSE(Executed);
 	const auto* FactoryFailure = dynamic_cast<const FVolumeTextureFactoryError*>(Executed.FactoryCause.get());
 	ASSERT_NE(FactoryFailure, nullptr);
 	EXPECT_EQ(FactoryFailure->Diagnostic, "Volume texture atlas is not PNG data.");
@@ -536,8 +525,8 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	ASSERT_TRUE(V6Companions.empty());
 	const std::filesystem::path SourceStoragePath = PackageEntry->PhysicalPath;
 
-	const auto Reimported = ReimportVolumeTexture(*Imported.Asset, Settings);
-	ASSERT_TRUE(Reimported.bSucceeded) << Reimported.Diagnostic;
+	const auto Reimported = RunVolumeReimport(*Imported.Asset);
+	ASSERT_TRUE(Reimported) << Reimported.Message;
 	EXPECT_EQ(Imported.Asset->GetSource().GetBulkData().GetPayloadId(), SourceContentId);
 
 	const std::filesystem::path CookRoot = std::filesystem::absolute(

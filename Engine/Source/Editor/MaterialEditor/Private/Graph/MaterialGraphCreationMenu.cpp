@@ -59,8 +59,7 @@ namespace Durin::Editor::Material
 			CreationMenu->Selection = 0;
 			CreationMenu->FunctionPaths.clear();
 			CreationMenu->CollectionParameters.clear();
-			for (const auto& [PackagePath, Data] : CaptureAssetCatalogSnapshot().Assets)
-				for (const auto& Asset : Data.TopLevelAssets)
+			for (const auto& [AssetPath, Asset] : CaptureAssetQuerySnapshot().Assets)
 				{
 					if (!Asset.IsRedirector() && AssetPicker::MatchesClass(FindClassByQualifiedName(Asset.AssetClassName),
 						DMaterialFunctionInterface::StaticClass(), EAssetClassPolicy::Derived))

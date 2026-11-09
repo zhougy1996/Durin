@@ -9,6 +9,10 @@
 
 namespace Durin
 {
+	static uint64 AssetPackageRevision = 1;
+	auto GetAssetPackageRevision() -> uint64 { return AssetPackageRevision; }
+	auto Private::NotifyAssetPackageChanged() -> void { ++AssetPackageRevision; }
+
 	struct FPackageRegistryHash
 	{
 		auto operator()(std::string_view Value) const noexcept -> size_t
@@ -64,7 +68,11 @@ namespace Durin
 		if (!RegisteredPath.empty())
 		{
 			auto It = GetPackageRegistry().find(RegisteredPath);
-			if (It != GetPackageRegistry().end() && It->second == this) GetPackageRegistry().erase(It);
+			if (It != GetPackageRegistry().end() && It->second == this)
+			{
+				GetPackageRegistry().erase(It);
+				if (!bGraphPrivate && IsAssetPackage()) Private::NotifyAssetPackageChanged();
+			}
 		}
 	}
 
@@ -76,6 +84,7 @@ namespace Durin
 		RegisteredPath = InPath.ToString();
 		PackageFlags = EPackageFlags::Asset;
 		RegisterPackage(this, RegisteredPath);
+		if (IsAssetPackage()) Private::NotifyAssetPackageChanged();
 	}
 
 	auto DPackage::RetireFailedLoadRegistration() -> void
@@ -84,6 +93,7 @@ namespace Durin
 		auto It = GetPackageRegistry().find(RegisteredPath);
 		if (It != GetPackageRegistry().end() && It->second == this) GetPackageRegistry().erase(It);
 		bGraphPrivate = true;
+		Private::NotifyAssetPackageChanged();
 		Durin::Private::InvalidateSoftObjectCaches();
 	}
 
@@ -137,6 +147,7 @@ namespace Durin
 		if (Previous) Previous->bGraphPrivate = true;
 		bGraphPrivate = false;
 		bPrepared = false;
+		Private::NotifyAssetPackageChanged();
 	}
 
 	auto DPackage::InitializeCppPackage(FName ModuleName) -> void
@@ -186,12 +197,21 @@ namespace Durin
 		std::ranges::sort(TopLevelAssets, [](const DObject* Left, const DObject* Right) {
 			return Left->GetName() < Right->GetName();
 		});
+		if (!bGraphPrivate) Private::NotifyAssetPackageChanged();
 		return true;
 	}
 
 	auto DPackage::UnregisterTopLevelAsset(DObject* InAsset) -> void
 	{
-		std::erase(TopLevelAssets, InAsset);
+		if (std::erase(TopLevelAssets, InAsset) && !bGraphPrivate) Private::NotifyAssetPackageChanged();
+	}
+
+	auto GetLiveAssetPackages() -> std::vector<DPackage*>
+	{
+		std::vector<DPackage*> Result;
+		for (const auto& [Path, Package] : GetPackageRegistry())
+			if (Package->IsAssetPackage() && !Package->IsGraphPrivate() && !Package->IsGarbage()) Result.push_back(Package);
+		return Result;
 	}
 
 	auto CreatePackage(const FPackagePath& Path) -> DPackage*

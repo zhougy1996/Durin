@@ -79,6 +79,7 @@ namespace Durin
 			if (!Object || !GDObjectArray.Contains(Object) || IsPermanentObject(Object) || Object->IsGarbage()
 				|| (Object->IsTemplateObject() && !bAllowTemplate)) return;
 			Object->SetInternalFlags(EObjectInternalFlags::Garbage);
+			if (Cast<DPackage>(Object) || Cast<DPackage>(Object->GetOuter())) Private::NotifyAssetPackageChanged();
             NotifyObjectReferencesInvalidated(*Object);
 			GDObjectArray.NotifyObjectMarkedGarbage();
 		}

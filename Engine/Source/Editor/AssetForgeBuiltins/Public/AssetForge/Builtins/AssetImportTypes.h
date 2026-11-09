@@ -46,7 +46,7 @@ namespace Durin::AssetForge
 	};
 
 	enum class EImportOutputDisposition : uint8 { Create, Update, Preserve, Conflict };
-	enum class EImportOutputState : uint8 { Unexecuted, Saved, Preserved, Failed };
+	enum class EImportOutputState : uint8 { Unexecuted, Imported, Preserved, Failed };
 
 	// Describes one planned asset produced by asset import.
 	struct FImportOutputSummary

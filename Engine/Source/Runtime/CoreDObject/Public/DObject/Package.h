@@ -25,6 +25,12 @@ namespace Durin
 	};
 	ENUM_CLASS_FLAGS(EPackageFlags);
 
+	class DPackage;
+	COREDOBJECT_API auto GetLiveAssetPackages() -> std::vector<DPackage*>;
+	// Owner-thread revision of live asset-package membership, identity and metadata.
+	COREDOBJECT_API auto GetAssetPackageRevision() -> uint64;
+	namespace Private { COREDOBJECT_API auto NotifyAssetPackageChanged() -> void; }
+
 	// Owns every direct asset export or a module's reflected metadata under one registered path.
 	DCLASS(NoClassDefaultObject)
 	class DPackage : public DObject
@@ -57,6 +63,8 @@ namespace Durin
 		auto IsPlayInEditor() const -> bool { return EnumHasAnyFlags(PackageFlags, EPackageFlags::PlayInEditor); }
 		auto SetPlayInEditor(bool bValue) -> void
 		{
+			if (IsPlayInEditor() == bValue) return;
+			Private::NotifyAssetPackageChanged();
 			if (bValue) PackageFlags |= EPackageFlags::PlayInEditor;
 			else PackageFlags &= ~EPackageFlags::PlayInEditor;
 		}
@@ -99,6 +107,7 @@ namespace Durin
 			if (!bGraphPrivate) SetStandaloneResidency(true);
 			bDirty = true;
 			++EditRevision;
+			if (!bGraphPrivate) Private::NotifyAssetPackageChanged();
 		}
 		auto ClearDirty() -> void { bDirty = false; }
 		auto SetCanonicalResaveRecommended(bool bRecommended) -> void

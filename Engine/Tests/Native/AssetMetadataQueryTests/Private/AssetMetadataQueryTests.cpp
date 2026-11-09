@@ -1,5 +1,10 @@
 #include "AssetRegistry/Catalog.h"
 #include "DObject/PackageFormat.h"
+#include "DObject/Package.h"
+#include "DObject/DObjectGlobals.h"
+#include "DObject/ObjectLifecycle.h"
+#include "DObject/StrongObjectPtr.h"
+#include "DObject/ObjectGraphReplacement.h"
 #include "AssetRegistry/PackageHeader.h"
 #include "AssetRegistry/PackageTypes.h"
 #include "AssetRegistry/Publication.h"
@@ -252,5 +257,125 @@ namespace
 			EAssetReferenceKind::HardObject, &FAssetPackageReferenceEdge::Kind), 1);
 		EXPECT_EQ(std::ranges::count(Referencers,
 			EAssetReferenceKind::Redirect, &FAssetPackageReferenceEdge::Kind), 1);
+	}
+}
+
+namespace
+{
+	TEST(FAssetMetadataQueryTests, UnsavedAssetQueriesOwnMetadataAndNotifyLifecycle)
+	{
+		Testing::InitializeDObjectSystemForTests();
+		Testing::FScopedMountRegistryFixture Mounts;
+		Testing::RegisterMountPointForTests("/QueryLive/", "QueryLive/");
+		FPackagePath Path, Moved;
+		ASSERT_TRUE(FPackagePath::TryCreate("/QueryLive/Original", Path));
+		ASSERT_TRUE(FPackagePath::TryCreate("/QueryLive/Moved", Moved));
+		const auto Start = GetAssetQueryRevision();
+		TStrongObjectPtr<DPackage> Package(CreatePackage(Path));
+		ASSERT_TRUE(Package);
+		auto* Asset = NewObject<DObject>(Package.Get(), "Asset");
+		FTopLevelAssetPath Original, Renamed, Relocated;
+		ASSERT_TRUE(FTopLevelAssetPath::TryCreate(Path, "Asset", Original));
+		ASSERT_TRUE(FTopLevelAssetPath::TryCreate(Path, "Renamed", Renamed));
+		ASSERT_TRUE(FTopLevelAssetPath::TryCreate(Moved, "Renamed", Relocated));
+		const auto Snapshot = CaptureAssetQuerySnapshot();
+		ASSERT_NE(Snapshot.FindAssetExact(Original), nullptr);
+		EXPECT_EQ(Snapshot.FindPackageExact(Path), nullptr);
+		const auto Entry = FindAssetExact(Original);
+		ASSERT_TRUE(Entry);
+		EXPECT_FALSE(Entry.Package);
+		EXPECT_FALSE(FindAssetExact(Original, EAssetQuerySource::OnDisk));
+		EXPECT_TRUE(FindAssetExact(Original, EAssetQuerySource::InMemory));
+		auto Changes = CaptureAssetQueryChanges(Start);
+		EXPECT_FALSE(Changes.bFullRefresh);
+		EXPECT_TRUE(std::ranges::any_of(Changes.Changes, [&](const auto& Change) {
+			return Change.Kind == EContentChangeKind::Added && Change.NewAssetPath == Original.ToString();
+		}));
+		Asset->SetTransient(true);
+		EXPECT_FALSE(FindAssetExact(Original));
+		Asset->SetTransient(false);
+		EXPECT_TRUE(FindAssetExact(Original));
+		Package->SetPlayInEditor(true);
+		EXPECT_FALSE(FindAssetExact(Original));
+		Package->SetPlayInEditor(false);
+		EXPECT_TRUE(FindAssetExact(Original));
+		const auto BeforeRename = GetAssetQueryRevision();
+		Asset->Rename("Renamed");
+		EXPECT_FALSE(FindAssetExact(Original));
+		EXPECT_TRUE(FindAssetExact(Renamed));
+		Changes = CaptureAssetQueryChanges(BeforeRename);
+		EXPECT_TRUE(std::ranges::any_of(Changes.Changes, [&](const auto& Change) {
+			return Change.Kind == EContentChangeKind::Renamed && Change.OldAssetPath == Original.ToString()
+				&& Change.NewAssetPath == Renamed.ToString();
+		}));
+		ASSERT_TRUE(Package->RelocateAssetPackage(Moved));
+		EXPECT_FALSE(FindAssetExact(Renamed));
+		EXPECT_TRUE(FindAssetExact(Relocated));
+		const auto BeforeRemoval = GetAssetQueryRevision();
+		MarkObjectHierarchyAsGarbage(Package.Get());
+		EXPECT_FALSE(FindAssetExact(Relocated));
+		Changes = CaptureAssetQueryChanges(BeforeRemoval);
+		EXPECT_TRUE(std::ranges::any_of(Changes.Changes, [&](const auto& Change) {
+			return Change.Kind == EContentChangeKind::Removed && Change.OldAssetPath == Relocated.ToString();
+		}));
+		EXPECT_NE(Snapshot.FindAssetExact(Original), nullptr);
+	}
+
+	TEST(FAssetMetadataQueryTests, LiveMetadataOverridesDiskWithoutInventingPackageMetadata)
+	{
+		Testing::InitializeDObjectSystemForTests();
+		Testing::FScopedMountRegistryFixture Mounts;
+		Testing::RegisterMountPointForTests("/QueryOverride/", "QueryOverride/");
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate("/QueryOverride/Asset", Path));
+		auto Publication = CaptureAssetRegistryPublication();
+		Publication.Assets.insert_or_assign(Path, MakeAssetData(Path));
+		RebuildPackageProjection(Publication);
+		ASSERT_TRUE(PublishAssetRegistryPublication(std::move(Publication)));
+		FTopLevelAssetPath AssetPath;
+		ASSERT_TRUE(FTopLevelAssetPath::TryCreate(Path, "Asset", AssetPath));
+		const auto DiskClass = FindAssetExact(AssetPath, EAssetQuerySource::OnDisk)->AssetClassName;
+		TStrongObjectPtr<DPackage> Package(CreatePackage(Path));
+		EXPECT_FALSE(FindAssetExact(AssetPath)); // The empty live export set shadows disk.
+		NewObject<DObject>(Package.Get(), "Asset");
+		const auto All = CaptureAssetQuerySnapshot();
+		ASSERT_NE(All.FindAssetExact(AssetPath), nullptr);
+		EXPECT_NE(All.FindAssetExact(AssetPath)->AssetClassName, DiskClass);
+		ASSERT_NE(All.FindPackageExact(Path), nullptr);
+		EXPECT_EQ(All.FindPackageExact(Path)->TopLevelAssets.front().AssetClassName, DiskClass);
+		const auto Revision = GetAssetQueryRevision();
+		Package->MarkDirty();
+		EXPECT_EQ(GetAssetQueryRevision(), Revision);
+		Package->GetTopLevelAssets().front()->SetTransient(true);
+		EXPECT_FALSE(FindAssetExact(AssetPath));
+		MarkObjectHierarchyAsGarbage(Package.Get());
+		ASSERT_TRUE(FindAssetExact(AssetPath));
+		EXPECT_EQ(FindAssetExact(AssetPath)->AssetClassName, DiskClass);
+		EXPECT_FALSE(FindAssetExact(AssetPath, EAssetQuerySource::InMemory));
+	}
+
+	TEST(FAssetMetadataQueryTests, PrivateCandidatesAppearOnlyAfterGraphApplication)
+	{
+		Testing::InitializeDObjectSystemForTests();
+		Testing::FScopedMountRegistryFixture Mounts;
+		Testing::RegisterMountPointForTests("/QueryPrivate/", "QueryPrivate/");
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate("/QueryPrivate/Asset", Path));
+		TStrongObjectPtr<DPackage> Package(NewObject<DPackage>(nullptr, "PrivateCandidate"));
+		ASSERT_TRUE(Package->InitializePreparedAssetPackage(Path));
+		NewObject<DObject>(Package.Get(), "Asset");
+		FTopLevelAssetPath AssetPath;
+		ASSERT_TRUE(FTopLevelAssetPath::TryCreate(Path, "Asset", AssetPath));
+		const auto Revision = GetAssetQueryRevision();
+		EXPECT_FALSE(FindAssetExact(AssetPath));
+		FObjectGraphReplacement Replacement;
+		const FObjectReplacementPackagePair Pair{nullptr, Package.Get()};
+		ASSERT_TRUE(Replacement.Prepare(std::span(&Pair, 1)));
+		EXPECT_FALSE(FindAssetExact(AssetPath));
+		ASSERT_TRUE(Replacement.TryCommit());
+		EXPECT_TRUE(FindAssetExact(AssetPath));
+		EXPECT_GT(GetAssetQueryRevision(), Revision);
+		ASSERT_TRUE(Replacement.Retire());
+		MarkObjectHierarchyAsGarbage(Package.Get());
 	}
 }

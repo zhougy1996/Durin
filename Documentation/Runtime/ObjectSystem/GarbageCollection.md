@@ -43,19 +43,22 @@ copies. Failure leaves candidate ownership with the caller. Preparation and comm
 `std::expected<void, FObjectReplacementError>` with a typed code/reason, owned object/property routes,
 reference budgets, ownership counts, participant indices and nested Map/property
 copy/container-operation causes. `ToString` owns the prose;
-participant and persistence callbacks return the same typed result. A caller with
-a higher-level persistence result retains that result outside CoreDObject and
-formats it at its own boundary. The caller must
+participant callbacks return the same typed result. The caller must
 quiesce editing and resource work; these primitives do not implement an editor
 lease or asset-family admission.
+
+`GetLiveAssetPackages` enumerates the existing package registry without retaining
+packages, excluding private and garbage graphs. `GetAssetPackageRevision` changes
+when live membership, identity or eligibility changes, including garbage marking
+before physical destruction. AssetRegistry consumes this owner-thread revision to
+publish value-only discovery metadata and lifecycle changes; CoreDObject has no
+AssetRegistry dependency or second package owner.
 
 A pair with null `Current` adds a new package. Prepare reserves its path without
 making it visible through `FindPackage`; ordinary creation cannot claim that
 reservation. Abort releases it. The nonthrowing commit publishes new and replaced
-packages together. `TryCommit` also accepts an optional synchronous persistence
-callback after all final validation. The callback must leave object graphs alone,
-must not reenter replacement or GC, and must roll back its own writes on failure.
-A failed callback leaves the prepared operation available for retry or abort.
+packages together. Graph application has no persistence callback; higher-level
+owners request ordinary saving after the live graph is applied.
 
 `TryCommit` rechecks identities, package edit revisions, object membership,
 reference slots, container contents, and native participants before consuming

@@ -236,7 +236,7 @@ namespace Durin::Editor::Texture
 		{
 			return std::unexpected("The TextureCube thumbnail renderer received the wrong asset class.");
 		}
-		const FAssetCatalogEntry Entry = FindAssetExact(Request.Asset.AssetPath);
+		const FAssetCatalogEntry Entry = FindAssetExact(Request.Asset.AssetPath, EAssetQuerySource::OnDisk);
 		if (!Entry || Entry.Package->PackagePath != Request.Asset.PackagePath)
 		{
 			return std::unexpected(std::format(

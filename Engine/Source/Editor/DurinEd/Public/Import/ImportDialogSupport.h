@@ -12,8 +12,8 @@ namespace Durin::Editor
 	{
 		std::function<void()> ClearError;
 		std::function<void(std::string)> ReportError;
-		// Host-owned post-save presentation hook. Refresh/reveal/open policy stays
-		// outside IAssetTools and the concrete factory.
+		// Host-owned presentation hooks. Asset discovery follows the Registry lifecycle
+		// stream independently; these callbacks only reveal/open imported assets.
 		std::function<void(std::string)> AssetCreated;
 		std::function<void(std::string)> ImportedDirectory;
 

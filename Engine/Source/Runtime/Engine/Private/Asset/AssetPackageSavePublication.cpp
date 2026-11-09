@@ -134,7 +134,6 @@ namespace Durin::AssetPrivate
 		const bool Inject = Context.Fault && Context.Fault(Testing::EPackageSaveFaultPoint::PublishRegistry, Context.PackageIndex);
 		auto RegistryResult = Inject ? FAssetWriteResult{EAssetWriteError::StaleData, "Injected Registry publication failure."}
 			: AssetWriteResultFromRead(AssetPrivate::ToAssetResult(AssetsSaved({BuildSavedAssetMetadata(Header, Destination, Stamp.Size, Stamp.Time)}, Expected)));
-		if (!RegistryResult && Context.Policy == ESavePublicationPolicy::RollbackCandidate) return RollbackAssetWrite(Write, RegistryResult);
 		if (FindResidentPackage(Path) == Package) Package->MarkAsPublished();
 		if (Package->GetEditRevision() == Revision) Package->ClearDirty();
 		auto Finalized = ToAssetWriteResult(Write.Finalize());

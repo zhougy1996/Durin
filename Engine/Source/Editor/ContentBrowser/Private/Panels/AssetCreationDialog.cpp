@@ -61,7 +61,6 @@ namespace Durin::Editor::ContentBrowser::Private
 			return false;
 		}
 		const std::string Path = AssetPath.ToString();
-		if (Invocation.NotifyMountedContentChanged) Invocation.NotifyMountedContentChanged();
 		if (Invocation.RevealAsset) Invocation.RevealAsset(Path);
 		if (!Descriptor.AssetClassNameToOpen.empty() && Invocation.OpenAsset
 			&& !Invocation.OpenAsset(Path, Descriptor.AssetClassNameToOpen) && Invocation.ReportError)

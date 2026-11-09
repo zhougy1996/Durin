@@ -288,13 +288,10 @@ TEST_F(FTransactionReinstancingTests, RedoBranchSurvivesReinstancingAtUndonePosi
 	EXPECT_FALSE(Candidate->IsDirty());
 }
 
-TEST_F(FTransactionReinstancingTests, AbortAndPersistenceFailureLeaveOriginalHistoryUntouched)
+TEST_F(FTransactionReinstancingTests, AbortingPreparedReplacementLeavesOriginalHistoryUntouched)
 {
 	Record(12);
 	ASSERT_TRUE(Prepare());
-	EXPECT_FALSE(Operation.TryCommit([]() -> std::expected<void, Durin::FObjectReplacementError> {
-		return std::unexpected(Durin::FObjectReplacementError{.Code = Durin::EObjectReplacementError::ParticipantRejected});
-	}));
 	EXPECT_EQ(Buffer->GetUndoContext().PrimaryObject, Old);
 	Operation.Abort();
 	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Old->Value, 0);

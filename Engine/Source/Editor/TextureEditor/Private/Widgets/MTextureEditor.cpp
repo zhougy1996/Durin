@@ -767,7 +767,12 @@ namespace Durin::Editor::Texture
 			if (Result.Interrupted()) return;
 			if (!Result) Self->SetError(Result.Message.empty()
 				? "Texture2D reimport failed." : std::move(Result.Message));
-			else Self->SourceReferenceIndex.Invalidate();
+			else
+			{
+				Self->SourceReferenceIndex.Invalidate();
+				if (Result.SaveResult && !*Result.SaveResult)
+					Self->SetError("Reimport succeeded; save failed: " + Result.SaveResult->Message);
+			}
 		});
 	}
 
@@ -798,7 +803,12 @@ namespace Durin::Editor::Texture
 				if (!Reimported) Self->SetError(Reimported.Message.empty()
 					? "Texture2D reimport from file failed."
 					: std::move(Reimported.Message));
-				else Self->SourceReferenceIndex.Invalidate();
+				else
+				{
+					Self->SourceReferenceIndex.Invalidate();
+					if (Reimported.SaveResult && !*Reimported.SaveResult)
+						Self->SetError("Reimport succeeded; save failed: " + Reimported.SaveResult->Message);
+				}
 			});
 	}
 

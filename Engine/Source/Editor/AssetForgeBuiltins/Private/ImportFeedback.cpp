@@ -5,7 +5,7 @@ namespace Durin::AssetForge::Builtins
 	auto MakeAssetImportFeedback(const FSceneImportProgress& Progress, std::string_view SourceFile) -> FSlowTaskSnapshot
 	{
 		constexpr std::string_view PhaseNames[] = {"Reading source", "Configure import", "Building assets",
-			"Preparing assets", "Compiling materials", "Saving assets", "Finishing", "Completed"};
+			"Preparing assets", "Compiling materials", "Applying assets", "Saving assets", "Finishing", "Completed"};
 		const auto Label = PhaseNames[static_cast<size_t>(Progress.Phase)];
 		// Counts describe the current phase, not an estimated fraction of the whole import.
 		return {

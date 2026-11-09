@@ -60,12 +60,12 @@ GameThread. The session yields between candidate operations and observes materia
 completion with `HasPendingMaterialCompilation`, including canceled requests awaiting
 owner-side reap. It does not finish pending compilation from normal UI ticks.
 
-Private-package persistence uses `FPreparedAssetSave`: capture on GameThread,
-background protected staging, then prepare and commit reference replacement on
-GameThread. Graph preparation happens after staging because its membership snapshot
-must not span unrelated object creation during disk I/O. Each committed package is
-final; cancellation or failure includes earlier successes in `SavedPackages`.
-Reference refresh and render fences settle before retiring replaced graphs.
+After compilation and final validation, reference replacement applies the complete
+peer graph on GameThread and marks imported packages Dirty. Optional persistence
+then uses ordinary `DPackage::SaveAsync` tasks; graph preparation never spans disk
+I/O. Save failure or cancellation preserves all imported live assets. The import
+report separates `ImportedPackages` from optional `SaveResult`; ordinary package
+saving provides retry. Reference refresh and render fences settle before retirement.
 
 Progress reports the active phase, activity and available work counts. Cancellation
 keeps ticking through worker completion and unpublished candidate cleanup. Closing
@@ -125,8 +125,11 @@ with owned detached values and diagnostic strings. Failure exposes no prepared
 value; decoding and validation remain silent. Texture2D reimport returns
 `FReimportResult` with `EReimportResult` after committing its authored candidate.
 `PostEditChange` triggers the independent derived-data build. DDC failure
-or cancellation does not undo the import. Factories do not save; upper-layer
-persistence reports its own failure and leaves committed data Dirty for retry.
+or cancellation does not undo the import. Factories do not save; the manager
+records optional persistence in `FReimportResult::SaveResult` without changing the
+reimport status, message or factory cause. Both save success and failure retain
+an owned result; skipped saving has no value. Save failures retain authored data
+for ordinary retry, with Dirty state and committed effects determined by saving.
 VolumeTexture rebuild returns an owned diagnostic on failure; structured settings
 and translation errors remain at validation boundaries. StaticMesh import and
 build boundaries use owned diagnostic strings. Completion is queried on the mesh
@@ -146,7 +149,7 @@ For direct Texture2D source selection:
   installs successful products and calls `DTexture::UpdateResource()`.
 - TextureEditor or the reimport manager owns optional save sequencing.
 - Failure before authored commit preserves the live asset. Later DDC failure keeps
-  new authored data; save failure leaves that data Dirty for retry.
+  new authored data; save failure retains that data for ordinary save retry.
 - The Widget owns only the active asset identity, phase label, conflicting
   control state, close rejection, and final diagnostic presentation.
   Texture Editor shows the phase in its toolbar, disables Save while a build is

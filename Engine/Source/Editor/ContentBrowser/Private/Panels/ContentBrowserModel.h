@@ -135,7 +135,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		// Only the serial item worker touches its collector; captures pin its lifetime.
 		std::shared_ptr<FContentBrowserDataSource> DataSource =
 			std::make_shared<FContentBrowserDataSource>();
-		std::shared_ptr<const FAssetCatalogSnapshot> Catalog;
+		std::shared_ptr<const FContentBrowserAssetSnapshot> Catalog;
 		FEntryStatusQuery EntryStatusQuery;
 		bool bAsync = false;
 		bool bSnapshotPublicationSuspended = false;
@@ -148,7 +148,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		{
 			std::string Directory;
 			bool bRecursive = false;
-			std::shared_ptr<const FAssetCatalogSnapshot> Catalog;
+			std::shared_ptr<const FContentBrowserAssetSnapshot> Catalog;
 			uint64 CatalogCursor = 0;
 			EItemsRequestState State = EItemsRequestState::Queued;
 		};
