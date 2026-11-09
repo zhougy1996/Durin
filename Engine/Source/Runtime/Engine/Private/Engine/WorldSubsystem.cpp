@@ -95,8 +95,7 @@ namespace Durin
 
 	auto FWorldSubsystemCollection::ValidateSelectedDescriptor(const FSubsystemDescriptor& Descriptor) const -> FSubsystemResult
 	{
-		const auto Entry = WorldEntries.find(Descriptor.Type);
-		if (Entry == WorldEntries.end() || Entry->second.TickGroup >= ETickingGroup::Count)
+		if (WorldEntries.at(Descriptor.Type).TickGroup >= ETickingGroup::Count)
 			return {EWorldSubsystemError::InvalidDescriptor, "Invalid World Tick group."};
 		return {};
 	}
