@@ -1336,8 +1336,7 @@ namespace Durin
 	{
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::WorkspaceRegistrationBegin);
 		DURIN_PROFILE_CPU_ZONE_NAMED("Startup.WorkspaceModules");
-		for (const auto* Name : {"TextureCompressor", "MeshBuilder",
-			"LevelEditor", "MaterialEditor", "TextureEditor", "StaticMeshEditor"})
+		for (const auto* Name : {"LevelEditor", "MaterialEditor", "TextureEditor", "StaticMeshEditor"})
 			if (!FModuleManager::Get().LoadModule(Name))
 			{
 				DURIN_ERROR("Workspace module '{}' could not start.", Name);

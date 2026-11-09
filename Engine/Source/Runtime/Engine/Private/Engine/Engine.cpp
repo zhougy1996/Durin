@@ -181,9 +181,7 @@ namespace Durin
 		}
 		bInitStarted = true;
 		FHostOperationScope Operation(*this);
-		bool bInitialized = false;
-		try { bInitialized = InitInternal(Context); }
-		catch (...) { DURIN_ERROR("Engine initialization threw an exception."); }
+		bool bInitialized = InitInternal(Context);
 		if (bShutdownRequested && bInitialized)
 		{
 			DURIN_ERROR("Engine retired during initialization.");

@@ -144,11 +144,8 @@ namespace Durin
 		if (EngineLoop.GetStartupState() != EHostStartupState::Ready && ProcessResult == 0
 			&& (Request.Automation.ExitAfterTicks || StartupCommand.Name)) ProcessResult = 1;
 		EngineLoop.Exit();
-		std::string RelaunchError;
-		const auto LaunchPendingEditorRelaunchResult = LaunchPendingEditorRelaunch();
-		RelaunchError = LaunchPendingEditorRelaunchResult ? std::string{} : LaunchPendingEditorRelaunchResult.error().ToString();
-		if (!LaunchPendingEditorRelaunchResult.has_value())
-			DURIN_ERROR("Failed to relaunch editor: {}", RelaunchError);
+		if (const auto Relaunch = LaunchPendingEditorRelaunch(); !Relaunch)
+			DURIN_ERROR("Failed to relaunch editor: {}", Relaunch.error().ToString());
 		if (EngineLoop.HasLoggerStarted()) LoggerShutdown();
 		return ProcessResult;
 	}

@@ -81,25 +81,20 @@ namespace Durin
 #endif
 		DURIN_DEBUG(STR("Launch directory: {}"), FPaths::LaunchDir());
 		DURIN_DEBUG(STR("Engine directory: {}"), FPaths::EngineDir());
-		std::string ProjectError;
-		const auto InitializeCurrentProjectResult = InitializeCurrentProject({
+		const auto Project = InitializeCurrentProject({
 			.bOpenProjectBrowser = Params.bOpenProjectBrowser,
 			.RequestedProjectFile = Params.ProjectFile.value_or(""),
 			.bRecordInteractiveHistory = Params.bRecordInteractiveHistory});
-		ProjectError = InitializeCurrentProjectResult ? std::string{} : InitializeCurrentProjectResult.error().ToString();
-		ProjectAdmissionError = ProjectError;
-		if (!InitializeCurrentProjectResult.has_value() && !ProjectError.empty()) DURIN_WARN("{}", ProjectError);
-#if DURIN_WITH_EDITOR
-		const auto AcquireProjectEditOwnershipResult = AcquireProjectEditOwnership();
-		ProjectError = AcquireProjectEditOwnershipResult ? std::string{} : AcquireProjectEditOwnershipResult.error().ToString();
-		if (HasCurrentProject()
-			&& !AcquireProjectEditOwnershipResult.has_value())
+		if (!Project)
 		{
-			DURIN_ERROR("Editor project ownership failed: {}", ProjectError);
-			ProjectAdmissionError = ProjectError;
-			ReleaseProjectEditOwnership();
-			(void)InitializeCurrentProject({.bOpenProjectBrowser = true});
-			(void)FPaths::SetProjectFile({});
+			ProjectAdmissionError = Project.error().ToString();
+			DURIN_WARN("{}", ProjectAdmissionError);
+		}
+#if DURIN_WITH_EDITOR
+		if (const auto Ownership = AcquireProjectEditOwnership(); !Ownership)
+		{
+			DURIN_ERROR("Editor project ownership failed: {}", Ownership.error().ToString());
+			return false;
 		}
 #endif
 		DURIN_PROFILE_PROGRAM_IDENTITY(

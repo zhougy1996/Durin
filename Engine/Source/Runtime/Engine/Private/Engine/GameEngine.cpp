@@ -46,27 +46,16 @@ namespace Durin
 			PrepareForShutdown();
 			return false;
 		};
-		try
-		{
-			const auto& GameWindow = Context.StartupWindow;
-			if (!GameWindow || !GameWindow->GetNativeWindow())
-				return FailInitialization("Game initialization requires a native startup window.");
-			if (!Mona::FMonaApplication::IsInitialized() || !Mona::FMonaApplication::Get().GetRenderer())
-				return FailInitialization("Game initialization requires Mona window presentation services.");
-			const FProjectInfo* Project = GetCurrentProject();
-			GameWindow->SetTitle(Project ? Project->Name : "DurinGame");
-			GameWindow->ReshapeWindow({100.0f, 100.0f}, {1280.0f, 720.0f});
-			auto& MonaApp = Mona::FMonaApplication::Get();
-			MonaApp.GetRenderer()->CreateViewport(GameWindow);
-			MonaApp.AddWindow(GameWindow, true);
-			SetMainSceneViewport(FSceneViewport::CreateWindowBacked(nullptr, GameWindow));
-			SetGameInputWindow(GameWindow->GetNativeWindow());
-		}
-		catch (const std::exception& Error)
-		{
-			return FailInitialization(std::format("Game service initialization failed: {}", Error.what()));
-		}
-		catch (...) { return FailInitialization("Game service initialization threw an unknown exception."); }
+		const auto& GameWindow = Context.StartupWindow;
+		if (!GameWindow || !GameWindow->GetNativeWindow())
+			return FailInitialization("Game initialization requires a native startup window.");
+		if (!Mona::FMonaApplication::IsInitialized() || !Mona::FMonaApplication::Get().GetRenderer())
+			return FailInitialization("Game initialization requires Mona window presentation services.");
+		auto& MonaApp = Mona::FMonaApplication::Get();
+		MonaApp.GetRenderer()->CreateViewport(GameWindow);
+		MonaApp.AddWindow(GameWindow, true);
+		SetMainSceneViewport(FSceneViewport::CreateWindowBacked(nullptr, GameWindow));
+		SetGameInputWindow(GameWindow->GetNativeWindow());
 		if (bShutdownRequested || IsEngineExitRequested())
 		{
 			PrepareForShutdown();
@@ -140,10 +129,7 @@ namespace Durin
 		FHostOperationScope Operation(*this);
 		if (StartupPhase == EStartupPhase::StartProject)
 		{
-			std::expected<void, std::string> Started;
-			try { Started = StartGame(); }
-			catch (const std::exception& Error) { Started = std::unexpected(std::format("Game project startup failed: {}", Error.what())); }
-			catch (...) { Started = std::unexpected("Game project startup threw an unknown exception."); }
+			auto Started = StartGame();
 			if (bShutdownRequested || IsEngineExitRequested()) return;
 			if (!Started) { FailStartup(std::move(Started.error())); return; }
 			if (IsPreparingMapChange()) StartupPhase = EStartupPhase::AwaitingScene;

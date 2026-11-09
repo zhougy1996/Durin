@@ -151,6 +151,11 @@ passed directly to `FEngineLoop::PreInit()` without an intermediate conversion.
 
 `PreInit()` and `Init()` return false on failure; the process runner calls
 `Exit()` once to unwind partially initialized process services before returning.
+Project edit-ownership failure aborts `PreInit()` rather than replacing the
+requested project with the Project Browser. Required Renderer, MainFrame, and
+DurinMCP modules use checked loading. Startup does not catch unexpected C++
+exceptions to convert them into ordinary initialization or project errors;
+expected failures use the explicit result paths.
 Concrete engines retain their local host-retirement guards. Launch treats an
 exit request present when concrete initialization returns false as cancellation
 and selects a clean process result; otherwise it selects failure. A concurrent

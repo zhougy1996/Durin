@@ -110,9 +110,7 @@ namespace Durin
 		StartupPhase = Editor::Startup::EBootstrapState::ConstructingShell;
 		StartupError = Context.ProjectAdmissionError;
 		FHostOperationScope Operation(*this);
-		bool bInitialized = false;
-		try { bInitialized = InitEditorInternal(Context); }
-		catch (...) { DURIN_ERROR("Editor initialization threw an exception."); }
+		bool bInitialized = InitEditorInternal(Context);
 		if (bShutdownRequested && bInitialized)
 		{
 			DURIN_ERROR("Editor retired during initialization.");
