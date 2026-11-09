@@ -226,7 +226,7 @@ namespace Durin
 		}
 		ActiveSession.Reset();
 		Sessions.clear();
-		ToolkitManager->Clear();
+		if (ToolkitManager) ToolkitManager->Clear();
 		RestoreFocus.Reset();
 	}
 

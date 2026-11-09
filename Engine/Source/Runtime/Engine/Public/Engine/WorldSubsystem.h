@@ -91,6 +91,7 @@ namespace Durin
 			bool bFrameTickEnabled = false;
 		};
 		auto Initialize() -> FWorldSubsystemResult;
+		auto ValidateSelectedDescriptor(const FSubsystemDescriptor& Descriptor) const -> FSubsystemResult override;
 		auto BeginPlay() -> void;
 		auto EndPlay() -> void;
 		auto LevelChanged(DLevel& Level, bool bAttached) -> void;

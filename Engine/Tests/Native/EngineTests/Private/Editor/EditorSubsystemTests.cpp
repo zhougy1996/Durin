@@ -59,6 +59,27 @@ namespace Durin
 		return Class;
 	}
 
+	class FFailingAssetEditorSubsystem : public DAssetEditorSubsystem
+	{
+		static auto GetPrivateStaticClass() -> DClass*;
+		DECLARE_CLASS(FFailingAssetEditorSubsystem, DAssetEditorSubsystem, FFailingAssetEditorSubsystem::GetPrivateStaticClass)
+		DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(FFailingAssetEditorSubsystem)
+	public:
+		explicit FFailingAssetEditorSubsystem(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		auto Initialize() -> FSubsystemResult override { throw std::runtime_error("failure before toolkit creation"); }
+		auto Deinitialize() noexcept -> void override { ++CleanupCalls; Super::Deinitialize(); }
+		inline static int CleanupCalls = 0;
+	};
+	auto FFailingAssetEditorSubsystem::GetPrivateStaticClass() -> DClass*
+	{
+		static DClass* Class = nullptr;
+		if (!Class)
+			GetPrivateStaticClassBody("", "FFailingAssetEditorSubsystem", Class, nullptr,
+				sizeof(FFailingAssetEditorSubsystem), alignof(FFailingAssetEditorSubsystem),
+				EClassFlags::None, InternalConstructor<FFailingAssetEditorSubsystem>, &DAssetEditorSubsystem::StaticClass);
+		return Class;
+	}
+
 	class FDynamicOpenDefinition : public DAssetDefinition
 	{
 		static auto GetPrivateStaticClass() -> DClass*;
@@ -88,9 +109,10 @@ namespace
 		auto SetUp() -> void override
 		{
 			Testing::InitializeDObjectSystemForTests();
-			const std::array Classes{FDynamicEditorA::StaticClass(), FDynamicEditorB::StaticClass()};
+			const std::array Classes{FDynamicEditorA::StaticClass(), FDynamicEditorB::StaticClass(), FFailingAssetEditorSubsystem::StaticClass()};
 			for (auto* Class : Classes) DObjectForceRegistration(Class);
 			ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
+			FFailingAssetEditorSubsystem::CleanupCalls = 0;
 		}
 		auto TearDown() -> void override
 		{
@@ -795,6 +817,41 @@ namespace
 
 
 
+}
+
+TEST_F(FEditorSubsystemTests, AssetEditorCleanupToleratesMissingToolkitAndRepeatedCalls)
+{
+	TStrongObjectPtr<DAssetEditorSubsystem> Service(NewObject<DAssetEditorSubsystem>(nullptr, "UninitializedAssetEditor"));
+	ASSERT_TRUE(Service);
+	Service->Deinitialize();
+	Service->Deinitialize();
+	MarkObjectHierarchyAsGarbage(Service.Get());
+}
+
+TEST_F(FEditorSubsystemTests, FailedAssetEditorInitializationCleansUpBeforeToolkitCreation)
+{
+	FEditorSubsystemRegistration Token({.Type = FFailingAssetEditorSubsystem::StaticClass()});
+	auto* Host = NewObject<DEditorEngine>(nullptr, {});
+	Hosts.emplace_back(Host);
+	EXPECT_EQ(FEditorEngineTestAccess::StartEditor(*Host).Error, ESubsystemError::InitializationFailed);
+	EXPECT_EQ(FFailingAssetEditorSubsystem::CleanupCalls, 1);
+	EXPECT_EQ(Host->GetEditorSubsystem<FFailingAssetEditorSubsystem>(), nullptr);
+	Host->PrepareForShutdown();
+	EXPECT_EQ(FFailingAssetEditorSubsystem::CleanupCalls, 1);
+}
+
+TEST_F(FEditorSubsystemTests, FailedLateAssetEditorInitializationRetainsExistingServices)
+{
+	auto A = RegisterA();
+	auto* Host = NewHost();
+	auto* Existing = Host->GetEditorSubsystem<FDynamicEditorA>();
+	ASSERT_NE(Existing, nullptr);
+	FEditorSubsystemRegistration Token({.Type = FFailingAssetEditorSubsystem::StaticClass()});
+	EXPECT_EQ(Host->RefreshEditorSubsystems().Error, ESubsystemError::InitializationFailed);
+	EXPECT_EQ(FFailingAssetEditorSubsystem::CleanupCalls, 1);
+	EXPECT_EQ(Host->GetEditorSubsystem<FFailingAssetEditorSubsystem>(), nullptr);
+	EXPECT_EQ(Host->GetEditorSubsystem<FDynamicEditorA>(), Existing);
+	EXPECT_TRUE(Existing->GetWorkGate()->IsOpen());
 }
 
 TEST_F(FEditorSubsystemTests, CdoEligibilityRetiresDependentsAndAllowsExplicitReadmission)

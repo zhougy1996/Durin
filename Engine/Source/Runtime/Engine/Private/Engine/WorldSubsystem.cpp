@@ -87,15 +87,18 @@ namespace Durin
 		std::vector<FSubsystemDescriptor> Selected;
 		for (const auto& Descriptor : FWorldSubsystemRegistration::Snapshot())
 		{
-			if (Descriptor.TickGroup >= ETickingGroup::Count)
-			{
-				State = EWorldSubsystemState::Failed;
-				return {EWorldSubsystemError::InvalidDescriptor, "Invalid World Tick group."};
-			}
 			Selected.push_back({Descriptor.Type, Descriptor.Provider, Descriptor.Dependencies});
 			WorldEntries[Descriptor.Type] = {Descriptor.bTick, Descriptor.bTickInEditorAndPreview, Descriptor.TickGroup};
 		}
 		return FSubsystemCollection::Initialize(std::move(Selected));
+	}
+
+	auto FWorldSubsystemCollection::ValidateSelectedDescriptor(const FSubsystemDescriptor& Descriptor) const -> FSubsystemResult
+	{
+		const auto Entry = WorldEntries.find(Descriptor.Type);
+		if (Entry == WorldEntries.end() || Entry->second.TickGroup >= ETickingGroup::Count)
+			return {EWorldSubsystemError::InvalidDescriptor, "Invalid World Tick group."};
+		return {};
 	}
 
 	auto FWorldSubsystemCollection::BeginPlay() -> void

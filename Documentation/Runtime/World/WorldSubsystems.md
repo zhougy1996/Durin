@@ -29,7 +29,8 @@ host conditions can override ShouldCreateSubsystem and must preserve the base
 World eligibility check. Registration has no WorldTypes list or opaque policy.
 Collision debug and material parameter collection services explicitly support
 EditorPreview to retain their tool behavior. Tick opt-in remains independent
-of creation eligibility.
+of creation eligibility. World Tick configuration is validated only for eligible
+services, before any service instance is constructed.
 
 `FWorldSubsystemRegistration` owns a strongly typed registration catalog, and
 `FWorldSubsystemCollection` snapshots descriptors once. Registration removal or

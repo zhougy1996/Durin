@@ -89,6 +89,8 @@ namespace Durin
 				if (!bCreate) continue;
 				if (std::ranges::any_of(Selected, [&](const auto& Entry) { return Entry.Descriptor.Type == Descriptor.Type; }))
 					return Fail(ESubsystemError::DuplicateType, Descriptor.Type->GetQualifiedName().ToString());
+				if (auto Result = ValidateSelectedDescriptor(Descriptor); !Result)
+					return Fail(Result.Error, std::move(Result.Message));
 				Selected.push_back({Descriptor});
 			}
 			std::ranges::sort(Selected, [](const auto& A, const auto& B) {
@@ -159,7 +161,11 @@ namespace Durin
 				if (bClosed || !Descriptor.Type || !CanConstructObjectOfClass(Descriptor.Type, Scope)) return false;
 				const auto* Default = Cast<DSubsystem>(Descriptor.Type->GetDefaultObject());
 				if (!Default) { Report(ESubsystemError::InvalidDescriptor, "Dynamic subsystem requires a class default object."); return true; }
-				return !Default->ShouldCreateSubsystem(&Host);
+				if (!Default->ShouldCreateSubsystem(&Host)) return true;
+				if (bClosed) return false;
+				if (auto Result = ValidateSelectedDescriptor(Descriptor); !Result)
+				{ Report(Result.Error, std::move(Result.Message)); return true; }
+				return false;
 			});
 		}
 		catch (...) { return {ESubsystemError::InitializationFailed, "Subsystem eligibility selection threw."}; }

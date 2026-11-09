@@ -123,6 +123,40 @@ TEST_F(FWorldSubsystemTests, DefaultWorldEligibilityExcludesPreviewBeforeConstru
 	EXPECT_EQ(FSubsystemProbeA::InstanceConstructions, 3);
 }
 
+TEST_F(FWorldSubsystemTests, ValidatesTickPolicyOnlyAfterCdoEligibilityAndBeforeConstruction)
+{
+	FWorldSubsystemRegistration B({.Type = FSubsystemProbeB::StaticClass()});
+	FWorldSubsystemRegistration A({.Type = FSubsystemProbeA::StaticClass(), .TickGroup = ETickingGroup::Count});
+	int Decisions = 0;
+	FSubsystemProbeA::Support = [&](const auto& Default, EWorldType Type) {
+		EXPECT_TRUE(Default.IsClassDefaultObject());
+		++Decisions;
+		return Type != EWorldType::EditorPreview;
+	};
+	auto* Preview = MakeWorld(EWorldType::EditorPreview);
+	ASSERT_TRUE(Preview->InitializeSubsystems());
+	EXPECT_EQ(Decisions, 2);
+	EXPECT_EQ(Preview->GetSubsystem<FSubsystemProbeA>(), nullptr);
+	EXPECT_EQ(Preview->GetSubsystem<FSubsystemProbeB>(), nullptr);
+	auto* Game = MakeWorld();
+	EXPECT_EQ(Game->InitializeSubsystems().Error, ESubsystemError::InvalidDescriptor);
+	EXPECT_EQ(Game->GetSubsystemState(), ESubsystemState::Failed);
+	EXPECT_EQ(Decisions, 4);
+	EXPECT_EQ(FSubsystemProbeA::InstanceConstructions, 0);
+}
+
+TEST_F(FWorldSubsystemTests, ExcludedInvalidTickDependencyReportsMissingDependency)
+{
+	FWorldSubsystemRegistration A({.Type = FSubsystemProbeA::StaticClass(), .TickGroup = ETickingGroup::Count});
+	FWorldSubsystemRegistration B({.Type = FSubsystemProbeB::StaticClass(), .Dependencies = {FSubsystemProbeA::StaticClass()}});
+	FSubsystemProbeA::Support = [](const auto& Default, EWorldType) {
+		return Default.GetClass() != FSubsystemProbeA::StaticClass();
+	};
+	auto* World = MakeWorld();
+	EXPECT_EQ(World->InitializeSubsystems().Error, ESubsystemError::MissingDependency);
+	EXPECT_EQ(FSubsystemProbeA::InstanceConstructions, 0);
+}
+
 TEST_F(FWorldSubsystemTests, EligibilityUsesCdoAndHostBeforeAnyInstanceConstruction)
 {
 	FWorldSubsystemRegistration A({.Type = FSubsystemProbeA::StaticClass()});
