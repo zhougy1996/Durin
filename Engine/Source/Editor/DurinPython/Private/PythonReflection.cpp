@@ -2,6 +2,7 @@
 #if DURIN_WITH_PYTHON
 #include "Editor/EditorEngine.h"
 #include "Editor/EditorSubsystem.h"
+#include "Engine/DynamicSubsystem.h"
 #include "DObject/Function.h"
 #include "DObject/DObjectArray.h"
 #include "Modules/ModuleManager.h"
@@ -49,7 +50,8 @@ namespace Durin::PythonReflection::Private
         if (Module.empty()) return Type == DObject::StaticClass() || Type == DType::StaticClass()
             || Type == DStructBase::StaticClass() || Type == DClass::StaticClass() || Type == DStruct::StaticClass()
             || Type == DEnum::StaticClass() || Type == DFunction::StaticClass()
-            || Type == DSubsystem::StaticClass() || Type == DEditorSubsystem::StaticClass();
+            || Type == DSubsystem::StaticClass() || Type == DDynamicSubsystem::StaticClass()
+            || Type == DEditorSubsystem::StaticClass();
         // CoreDObject is a linked process-lifetime foundation with no IModuleInterface.
         if (Module == "CoreDObject") return true;
         const auto Info = FModuleManager::Get().FindModule(FName(Module));

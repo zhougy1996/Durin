@@ -73,6 +73,7 @@ namespace Durin
 
 	struct FLevelEditorModule::FIntegrationState
 	{
+		FName Provider;
 		std::unique_ptr<FEditorSubsystemRegistration> Levels;
 		std::unique_ptr<FNativeToolset> PIE;
 		FModularFeatureRegistration PIERegistration;
@@ -89,6 +90,7 @@ namespace Durin
 
 	LEVELEDITOR_API auto FLevelEditorModule::StartupModule() -> void
 	{
+		Integration->Provider = FModuleStartup::GetModuleName();
 		ProjectDefaultLevelReferenceStore =
 			std::make_unique<FProjectDefaultLevelReferenceStore>(
 				[this](const FPackagePath& Path) {
@@ -134,7 +136,7 @@ namespace Durin
 
 	LEVELEDITOR_API auto FLevelEditorModule::CanShutdownModule() const -> bool
 	{
-		return FEditorSubsystemCollection::CanSynchronizeActiveEditor();
+		return FEditorSubsystemCollection::CanSynchronizeActiveEditor(Integration->Provider);
 	}
 
 	LEVELEDITOR_API auto FLevelEditorModule::ShutdownModule() -> void

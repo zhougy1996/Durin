@@ -17,8 +17,6 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		ENGINE_API explicit DEngineSubsystem(const FObjectInitializer& Initializer);
-		ENGINE_API auto BeginDestroy() -> void override;
-		ENGINE_API auto IsReadyForFinishDestroy() -> bool override;
 		ENGINE_API auto GetEngine() const -> DEngine*;
 	};
 

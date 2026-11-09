@@ -28,6 +28,7 @@ namespace Durin
         auto StopRuntime() noexcept -> void;
         auto SubmitStartupScript(DEditorEngine& Editor) -> void;
         std::unique_ptr<FEditorSubsystemRegistration> EditorRegistration;
+        FName Provider;
         uint64 StartupJob = 0;
         std::filesystem::path StartupScript;
         std::string StartupError;

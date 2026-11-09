@@ -223,7 +223,7 @@ namespace Durin
 			if (bShutdownRequested) return;
 			EditorWorld = GetWorld();
 			if (AdmissionError.empty())
-				if (const auto Services = RefreshEditorSubsystems(true); !Services) AdmissionError = Services.Message;
+				if (const auto Services = SynchronizeEditorSubsystems(); !Services) AdmissionError = Services.Message;
 			if (!AdmissionError.empty())
 			{
 				StartupError = std::move(AdmissionError);
@@ -247,7 +247,7 @@ namespace Durin
 				Transition(EBootstrapState::Failed);
 				return;
 			}
-			if (const auto Services = RefreshEditorSubsystems(true); !Services)
+			if (const auto Services = SynchronizeEditorSubsystems(); !Services)
 			{
 				StartupError = Services.Message;
 				Transition(EBootstrapState::Failed);
@@ -350,7 +350,6 @@ namespace Durin
 	{
 		if (bShutdownRequested) { PrepareForShutdown(); return; }
 		if (!GetCapabilities().bTick) return;
-		(void)RefreshEditorSubsystems();
 		FHostOperationScope Operation(*this);
 		if (auto* Tools = GetCapabilities().bRunTools ? GetEditorSubsystem<DEditorToolSubsystem>() : nullptr)
 		{
@@ -375,18 +374,18 @@ namespace Durin
 			if (auto* Notifications = GetEditorSubsystem<DEditorNotificationSubsystem>()) Notifications->Tick(DeltaSeconds);
 	}
 
-	auto DEditorEngine::CanRefreshEditorSubsystems() -> bool
+	auto DEditorEngine::CanSynchronizeEditorSubsystems() -> bool
 	{
 		return IsInGameThread() && !IsGarbageCollecting() && !bShutdownRequested && IsHostOperationIdle()
 			&& (!GetTransactor() || GetTransactor()->CanTransact())
 			&& !FModularFeatureRegistry::Get().IsDispatching() && !EditorSubsystems.IsPopulating()
 			&& EditorSubsystems.GetState() == ESubsystemState::Ready;
 	}
-	auto DEditorEngine::RefreshEditorSubsystems(bool bForce) -> FSubsystemResult
+	auto DEditorEngine::SynchronizeEditorSubsystems() -> FSubsystemResult
 	{
-		if (!CanRefreshEditorSubsystems()) return {ESubsystemError::InvalidState, "Editor subsystem update requires a host safe point."};
+		if (!CanSynchronizeEditorSubsystems()) return {ESubsystemError::InvalidState, "Editor subsystem update requires a host safe point."};
 		FHostOperationScope Operation(*this);
-		return EditorSubsystems.Synchronize(bForce);
+		return EditorSubsystems.Synchronize();
 	}
 
 	auto DEditorEngine::CloseSubsystemWork() -> void

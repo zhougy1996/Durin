@@ -217,7 +217,7 @@ TEST_F(PythonScriptPanelTests, StartupScriptRunsOnceWithoutMainFrameAndPanelsObs
     ASSERT_TRUE(Result);
     EXPECT_EQ(Result->State, EPythonJobState::Succeeded);
     EXPECT_EQ(Result->Output, "startup once\n");
-    ASSERT_TRUE(Host->RefreshEditorSubsystems(true));
+    ASSERT_TRUE(Host->SynchronizeEditorSubsystems());
     EXPECT_EQ(Job, Python->GetStartupJob());
     for (int Reopen = 0; Reopen < 2; ++Reopen)
     {

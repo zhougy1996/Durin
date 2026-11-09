@@ -47,7 +47,7 @@ namespace
 			Host = TStrongObjectPtr<DEditorEngine>(NewObject<DEditorEngine>(nullptr, {}));
 			ASSERT_TRUE(FEditorEngineTestAccess::StartEditor(*Host));
 			ASSERT_TRUE(FModuleManager::Get().LoadModule("LevelEditor"));
-			ASSERT_TRUE(Host->RefreshEditorSubsystems()); Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
+			ASSERT_TRUE(Host->SynchronizeEditorSubsystems()); Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
 			auto Started = Server.Start(*Host, {.BearerToken = std::string(Token)});
 			ASSERT_TRUE(Started) << Started.error(); Port = *Started;
 			Connect();
@@ -494,7 +494,7 @@ TEST(FMCPEditorSessionTests, EditorSubsystemStartsAndStopsTransportWithoutMainFr
     auto Result = Client.Post("/mcp", Headers(), Body("initialize", InitializeParams()), "application/json");
     ASSERT_TRUE(Result);
     EXPECT_EQ(200, Result->status);
-    ASSERT_TRUE(Editor->RefreshEditorSubsystems(true));
+    ASSERT_TRUE(Editor->SynchronizeEditorSubsystems());
     EXPECT_EQ(Port, FMCPModuleTestAccess::Port(Module));
     // ModuleManager enters ShuttingDown before the provider retires its services.
     const auto Info = FModuleManager::Get().FindModule("DurinMCP");

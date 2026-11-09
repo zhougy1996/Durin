@@ -18,6 +18,7 @@ namespace Durin
 		auto StartForEditor(DEditorEngine& Editor) -> void;
 		auto StopServer() noexcept -> void;
 		std::unique_ptr<FEditorSubsystemRegistration> EditorRegistration;
+		FName Provider;
 		friend struct FMCPModuleTestAccess;
 		uint16 BoundPort = 0;
 		FMCPServer Server;

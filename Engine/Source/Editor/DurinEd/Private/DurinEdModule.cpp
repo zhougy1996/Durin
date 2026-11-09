@@ -12,6 +12,7 @@ namespace Durin
 	public:
 		auto StartupModule() -> void override
 		{
+			Provider = FModuleStartup::GetModuleName();
 			Actors = std::make_unique<FEditorSubsystemRegistration>(FSubsystemDescriptor{
 				.Type = DEditorActorSubsystem::StaticClass(), .Provider = FModuleStartup::GetModuleName()});
 			Notifications = std::make_unique<FEditorSubsystemRegistration>(FSubsystemDescriptor{
@@ -21,7 +22,7 @@ namespace Durin
 			AssetEditors = std::make_unique<FEditorSubsystemRegistration>(FSubsystemDescriptor{
 				.Type = DAssetEditorSubsystem::StaticClass(), .Provider = FModuleStartup::GetModuleName()});
 		}
-		auto CanShutdownModule() const -> bool override { return FEditorSubsystemCollection::CanSynchronizeActiveEditor(); }
+		auto CanShutdownModule() const -> bool override { return FEditorSubsystemCollection::CanSynchronizeActiveEditor(Provider); }
 		auto ShutdownModule() -> void override
 		{
 			require(CanShutdownModule());
@@ -29,6 +30,7 @@ namespace Durin
 			FEditorSubsystemCollection::SynchronizeActiveEditor();
 		}
 	private:
+		FName Provider;
 		std::unique_ptr<FEditorSubsystemRegistration> Actors;
 		std::unique_ptr<FEditorSubsystemRegistration> Notifications;
 		std::unique_ptr<FEditorSubsystemRegistration> Tools;

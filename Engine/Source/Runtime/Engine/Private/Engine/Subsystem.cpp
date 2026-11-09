@@ -18,7 +18,6 @@ namespace Durin
 			return *Entries;
 		}
 		uint64 NextRegistration = 0;
-		uint64 PublicationRevision = 0;
 	}
 
 	FSubsystemRegistration::FSubsystemRegistration(DClass* Scope, FSubsystemDescriptor Descriptor)
@@ -27,18 +26,11 @@ namespace Durin
 		Identity = ++NextRegistration;
 		Descriptor.RegistrationIdentity = Identity;
 		Registry().push_back({Scope, std::move(Descriptor)});
-		++PublicationRevision;
 	}
 	FSubsystemRegistration::~FSubsystemRegistration()
 	{
 		require(!GIsGameThreadIdInitialized || IsInGameThread());
 		std::erase_if(Registry(), [this](const auto& Entry) { return Entry.Descriptor.RegistrationIdentity == Identity; });
-		++PublicationRevision;
-	}
-	auto FSubsystemRegistration::GetRevision() -> uint64
-	{
-		require(!GIsGameThreadIdInitialized || IsInGameThread());
-		return PublicationRevision;
 	}
 	auto FSubsystemRegistration::Snapshot(DClass* Scope) -> std::vector<FSubsystemDescriptor>
 	{
@@ -70,34 +62,20 @@ namespace Durin
 		std::vector<FSubsystemDescriptor>& Ordered) const -> FSubsystemResult
 	{
 		Ordered.clear();
-		FSubsystemResult Diagnostic;
-		auto Report = [&](ESubsystemError Error, std::string Message) {
-			if (Diagnostic) Diagnostic = {Error, std::move(Message)};
-		};
-		std::map<DClass*, size_t> Counts;
-		for (const auto& Descriptor : Descriptors) ++Counts[Descriptor.Type];
-		std::erase_if(Descriptors, [&](const auto& Descriptor) {
-			if (Counts[Descriptor.Type] != 1) { Report(ESubsystemError::DuplicateType, Descriptor.Type->GetQualifiedName().ToString()); return true; }
-			return false;
-		});
-		bool Changed;
-		do
+		std::set<DClass*> Types;
+		for (const auto& Descriptor : Descriptors)
+			if (!Types.insert(Descriptor.Type).second)
+				return {ESubsystemError::DuplicateType, Descriptor.Type->GetQualifiedName().ToString()};
+		for (const auto& Descriptor : Descriptors)
 		{
-			Changed = false;
-			// Decide against an immutable pass; erase_if must not search its moving range.
-			std::set<DClass*> Types;
-			for (const auto& Descriptor : Descriptors) Types.insert(Descriptor.Type);
-			std::erase_if(Descriptors, [&](const auto& Descriptor) {
-				for (auto* Dependency : Descriptor.Dependencies)
-				{
-					if (Dependency && !Dependency->IsChildOf(Scope))
-					{ Report(ESubsystemError::InvalidDescriptor, Descriptor.Type->GetQualifiedName().ToString() + " has wrong-scope dependency " + Dependency->GetQualifiedName().ToString()); Changed = true; return true; }
-					if (!Types.contains(Dependency))
-					{ Report(ESubsystemError::MissingDependency, Descriptor.Type->GetQualifiedName().ToString() + " requires " + (Dependency ? Dependency->GetQualifiedName().ToString() : "<null>")); Changed = true; return true; }
-				}
-				return false;
-			});
-		} while (Changed);
+			for (auto* Dependency : Descriptor.Dependencies)
+			{
+				if (Dependency && !Dependency->IsChildOf(Scope))
+					return {ESubsystemError::InvalidDescriptor, Descriptor.Type->GetQualifiedName().ToString() + " has wrong-scope dependency " + Dependency->GetQualifiedName().ToString()};
+				if (!Types.contains(Dependency))
+					return {ESubsystemError::MissingDependency, Descriptor.Type->GetQualifiedName().ToString() + " requires " + (Dependency ? Dependency->GetQualifiedName().ToString() : "<null>")};
+			}
+		}
 		std::ranges::sort(Descriptors, [](const auto& A, const auto& B) {
 			return A.Type->GetQualifiedName().ToString() < B.Type->GetQualifiedName().ToString();
 		});
@@ -112,12 +90,12 @@ namespace Durin
 			{
 				std::string Message = "Subsystem dependency cycle blocks:";
 				for (const auto& Descriptor : Descriptors) Message += " " + Descriptor.Type->GetQualifiedName().ToString();
-				Report(ESubsystemError::DependencyCycle, std::move(Message));
-				break;
+				Ordered.clear();
+				return {ESubsystemError::DependencyCycle, std::move(Message)};
 			}
 			Ordered.push_back(std::move(*Next)); Descriptors.erase(Next);
 		}
-		return Diagnostic;
+		return {};
 	}
 
 	auto FSubsystemCollection::AddAndInitializeSubsystem(const FSubsystemDescriptor& Descriptor) -> FSubsystemResult
@@ -154,7 +132,6 @@ namespace Durin
 		{
 			Object->Deinitialize();
 			Entry.bInitialized = false;
-			if (Object->WorkGate) Object->WorkGate->bDeinitialized = true;
 		}
 		Entries.erase(Entries.begin() + Index);
 	}
@@ -202,83 +179,6 @@ namespace Durin
 			return {};
 		}
 		catch (...) { return Fail(ESubsystemError::InitializationFailed, "Subsystem construction or initialization threw an exception."); }
-	}
-
-	auto FSubsystemCollection::Reconcile(std::vector<FSubsystemDescriptor> Descriptors) -> FSubsystemResult
-	{
-		require(!GIsGameThreadIdInitialized || IsInGameThread());
-		if (State != ESubsystemState::Ready || bPopulating || bClosed)
-			return {ESubsystemError::InvalidState, "Subsystem reconciliation requires an idle, ready collection."};
-		bPopulating = true;
-		struct FReset { bool& Flag; ~FReset() { Flag = false; } } Reset{bPopulating};
-		FGarbageCollectionDeferralScope Deferral;
-		FSubsystemResult Diagnostic;
-		auto Report = [&](ESubsystemError Error, std::string Message) {
-			if (Diagnostic) Diagnostic = {Error, std::move(Message)};
-		};
-		auto SameRegistration = [](const auto& Descriptors, const FEntry& Entry) {
-			return std::ranges::count(Descriptors, Entry.Descriptor.Type, &FSubsystemDescriptor::Type) == 1
-				&& std::ranges::any_of(Descriptors, [&](const auto& Descriptor) {
-					return Descriptor.Type == Entry.Descriptor.Type && Descriptor.RegistrationIdentity == Entry.Descriptor.RegistrationIdentity;
-				});
-		};
-		std::set<DClass*> Replacing;
-		for (const auto& Entry : Entries)
-			if (!SameRegistration(Descriptors, Entry)
-				&& std::ranges::count(Descriptors, Entry.Descriptor.Type, &FSubsystemDescriptor::Type) == 1)
-				Replacing.insert(Entry.Descriptor.Type);
-		// Never leave an unchanged consumer bound to a replaced instance.
-		for (const auto& Entry : Entries)
-			if (SameRegistration(Descriptors, Entry))
-				for (auto* Dependency : Entry.Descriptor.Dependencies)
-					if (Replacing.contains(Dependency))
-						return {ESubsystemError::InvalidState, Entry.Descriptor.Type->GetQualifiedName().ToString()
-							+ " must be unregistered or explicitly re-registered before replacing " + Dependency->GetQualifiedName().ToString()};
-		try
-		{
-			std::erase_if(Descriptors, [&](const auto& Descriptor) {
-				if (bClosed) return false;
-				if (auto Result = ValidateType(Descriptor); !Result)
-				{ Report(Result.Error, std::move(Result.Message)); return true; }
-				if (std::ranges::any_of(Entries, [&](const auto& Entry) {
-					return Entry.Descriptor.Type == Descriptor.Type && Entry.Descriptor.RegistrationIdentity == Descriptor.RegistrationIdentity;
-				})) return false;
-				const auto* Default = static_cast<const DSubsystem*>(Descriptor.Type->GetDefaultObject());
-				if (!Default) { Report(ESubsystemError::InvalidDescriptor, "Dynamic subsystem requires a class default object."); return true; }
-				return !Default->ShouldCreateSubsystem(&Host);
-			});
-		}
-		catch (...) { return {ESubsystemError::InitializationFailed, "Subsystem eligibility selection threw."}; }
-		if (bClosed) return {ESubsystemError::Aborted, "Host shut down during subsystem eligibility selection."};
-		std::vector<FSubsystemDescriptor> Ordered;
-		if (auto Result = OrderSelectedDescriptors(std::move(Descriptors), Ordered); !Result)
-			Report(Result.Error, std::move(Result.Message));
-		std::set<DClass*> Removing;
-		for (const auto& Entry : Entries) if (!SameRegistration(Ordered, Entry)) Removing.insert(Entry.Descriptor.Type);
-		auto Keep = [&](const FEntry& Entry) { return !Removing.contains(Entry.Descriptor.Type); };
-		// Close every removed subsystem gate before dependent cleanup can invoke user callbacks.
-		for (auto& Entry : Entries) if (!Keep(Entry)) CloseEntryWork(Entry);
-		for (size_t Index = Entries.size(); Index-- > 0;)
-			if (!Keep(Entries[Index])) RemoveAndDeinitializeSubsystem(Index);
-		const auto Base = Entries.size();
-		auto Rollback = [&] {
-			for (size_t Index = Base; Index < Entries.size(); ++Index) CloseEntryWork(Entries[Index]);
-			for (size_t Index = Entries.size(); Index-- > Base;) RemoveAndDeinitializeSubsystem(Index);
-		};
-		try
-		{
-			for (const auto& Descriptor : Ordered)
-			{
-				if (bClosed) { Rollback(); return {ESubsystemError::Aborted, "Host shut down during dynamic subsystem update."}; }
-				if (Find(Descriptor.Type)) continue;
-				if (!Descriptor.Provider.IsNone() && !FModuleManager::Get().IsModuleLoaded(Descriptor.Provider))
-				{ Rollback(); return {ESubsystemError::ProviderUnavailable, Descriptor.Provider.ToString()}; }
-				if (auto Result = AddAndInitializeSubsystem(Descriptor); !Result) { Rollback(); return Result; }
-			}
-			if (bClosed) { Rollback(); return {ESubsystemError::Aborted, "Host shut down during dynamic subsystem initialization."}; }
-		}
-		catch (...) { Rollback(); return {ESubsystemError::InitializationFailed, "Dynamic subsystem initialization threw."}; }
-		return Diagnostic;
 	}
 
 	auto FSubsystemCollection::CloseWork() -> void

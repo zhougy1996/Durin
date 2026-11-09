@@ -11,24 +11,10 @@
 namespace Durin
 {
 	DWorldSubsystem::DWorldSubsystem(const FObjectInitializer& Initializer) : Super(Initializer) {}
-	auto DWorldSubsystem::BeginDestroy() -> void
-	{
-		if (!HasCompletedDeinitialization())
-			if (DWorld* World = GetWorld()) World->Shutdown();
-		Super::BeginDestroy();
-	}
-
 	auto DWorldSubsystem::SetTickEnabled(bool bEnabled) -> void
 	{
 		require(!GIsGameThreadIdInitialized || IsInGameThread());
 		bTickEnabled = bEnabled;
-	}
-
-	auto DWorldSubsystem::IsReadyForFinishDestroy() -> bool
-	{
-		if (HasCompletedDeinitialization()) return true;
-		auto* World = GetWorld();
-		return !World || World->IsReadyForFinishDestroy();
 	}
 
 	auto DWorldSubsystem::GetWorld() const -> DWorld* { return Cast<DWorld>(GetOuter()); }

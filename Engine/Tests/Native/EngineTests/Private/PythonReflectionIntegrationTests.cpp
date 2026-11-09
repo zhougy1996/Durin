@@ -778,6 +778,8 @@ b = durin.get_editor_subsystem(durin.SecondaryService)
 assert a is durin.get_editor_subsystem(durin.ReflectionService)
 assert type(a) is durin.ReflectionService and a.get_class() is type(a)
 assert isinstance(a, durin.ReflectionBase) and isinstance(a, durin.EditorSubsystem)
+assert issubclass(durin.EditorSubsystem, durin.DynamicSubsystem)
+assert issubclass(durin.DynamicSubsystem, durin.Subsystem)
 assert a != b and a == a and isinstance(a.get_name(), str)
 assert durin.get_type('Durin::PythonFixtures::DReflectionService') is type(a)
 assert isinstance(durin.get_type('Durin::PythonFixtures::FSignatureDependency'), type)
@@ -1012,7 +1014,7 @@ builtins.value = durin.ReflectionValue(target=builtins.proxy)
 )");
         CollectGarbage();
         Pass("assert builtins.reflected(1) == 6\nassert builtins.value.target is builtins.proxy");
-        First.reset(); ASSERT_TRUE(Host->RefreshEditorSubsystems()); CollectGarbage();
+        First.reset(); ASSERT_TRUE(Host->SynchronizeEditorSubsystems()); CollectGarbage();
         Pass(R"(
 for operation in (lambda: builtins.reflected(1), lambda: builtins.value.target):
     try:
@@ -1055,8 +1057,8 @@ else:
     TEST_F(PythonReflectionTests, RetiredServicePurgesRootsAndCannotReviveCachedBoundMethods)
     {
         Save(); TWeakObjectPtr<DReflectionService> Old(Host->GetEditorSubsystem<DReflectionService>());
-        First.reset(); ASSERT_TRUE(Host->RefreshEditorSubsystems()); CollectGarbage(); EXPECT_FALSE(Old.IsValid());
-        First = Register(DReflectionService::StaticClass()); ASSERT_TRUE(Host->RefreshEditorSubsystems());
+        First.reset(); ASSERT_TRUE(Host->SynchronizeEditorSubsystems()); CollectGarbage(); EXPECT_FALSE(Old.IsValid());
+        First = Register(DReflectionService::StaticClass()); ASSERT_TRUE(Host->SynchronizeEditorSubsystems());
         Pass(R"(
 assert hash(builtins.proxy) == builtins.identity
 assert builtins.proxy != durin.get_editor_subsystem(durin.ReflectionService)
@@ -1091,7 +1093,7 @@ else:
             FScopedEditorScriptCall Call({Host.Get(), Tools->GetService()->GetWorkGate()});
             EXPECT_FALSE(Call.IsAdmitted());
         });
-        First.reset(); ASSERT_TRUE(Host->RefreshEditorSubsystems()); EXPECT_TRUE(Observed);
+        First.reset(); ASSERT_TRUE(Host->SynchronizeEditorSubsystems()); EXPECT_TRUE(Observed);
     }
     TEST_F(PythonReflectionTests, HostCloseReleasesRetainedWrapperRoots)
     {

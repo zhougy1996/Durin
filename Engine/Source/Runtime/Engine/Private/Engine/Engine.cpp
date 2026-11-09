@@ -151,6 +151,8 @@ namespace Durin
 	auto DEngine::DispatchSubsystemCallback(std::function<void()> Callback) -> void
 	{
 		if (bShutdownRequested) return;
+		// External callbacks must unwind before GC can destroy their host or services.
+		FGarbageCollectionDeferralScope CollectionDeferral;
 		FHostOperationScope Operation(*this, false);
 		Callback();
 	}

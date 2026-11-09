@@ -4,7 +4,7 @@ Summary: Define per-editor native services, reflected PIE controls, Actor/Compon
 
 Modules: DurinEd, LevelEditor, MainFrame, DurinPython, DurinMCP, Engine
 
-Last reviewed: 2026-11-04
+Last reviewed: 2026-11-09
 
 ## Host Contract
 
@@ -21,8 +21,11 @@ specialized subclasses remain only for additional lifecycle probes. Startup-only
 reflected subclasses and translation-unit-specific definitions of the same test
 accessor are not needed.
 
-`DEditorSubsystem` extends the [common subsystem contract](../../../Runtime/Engine/Subsystems.md)
-in DurinEd. The single active `DEditorEngine` owns an Editor collection separately from its inherited
+`DEditorSubsystem` extends `DDynamicSubsystem` from the
+[common subsystem contract](../../../Runtime/Engine/Subsystems.md) in DurinEd.
+`FEditorSubsystemCollection` derives from `FDynamicSubsystemCollection`, which owns
+live membership reconciliation while the common collection owns initialization
+and cleanup. The single active `DEditorEngine` owns an Editor collection separately from its inherited
 Engine collection. `GetEditorSubsystem<T>()` selects exact Editor types;
 inherited `GetSubsystem<T>()` still selects Engine types. Editor services have
 no implicit PIE World requirement and survive repeated PIE start/stop.
@@ -52,7 +55,10 @@ Shutdown closes both collections' gates, stops PIE, shuts down EditorWorld,
 destroys shell consumers, then deinitializes Editor services. Base shutdown
 retires the remaining World and Engine services. Initialization and update
 operation scopes defer requested destruction until callbacks unwind. Explicit
-retirement is idempotent and BeginDestroy supplies the same fallback path.
+retirement is idempotent and `DEditorEngine::BeginDestroy` supplies the same
+fallback path. Editor subsystem destruction neither closes the editor nor waits
+for its finish-destroy readiness. External subsystem callbacks defer GC until
+they unwind; the host's operation state controls deferred retirement.
 
 ## Asset Editors
 
@@ -160,9 +166,11 @@ diagnostics. Python and MCP continue through the existing tool service.
 LevelEditor's module startup publishes both the subsystem provider and PIE
 Toolset without constructing a workspace or native window. Workspace activation
 loads LevelEditor normally; no hard-coded pre-initialization load is required.
-The next editor Tick reconciles services before draining tool requests. Minimal
-native hosts may load LevelEditor after `InitializeEditorSubsystems()` and then
-call `RefreshEditorSubsystems()` at an idle boundary before driving tools.
+Workspace startup explicitly synchronizes services after module loading and
+before creating consumers. Minimal native hosts may load LevelEditor after
+`InitializeEditorSubsystems()` and then call `SynchronizeEditorSubsystems()` at
+an idle boundary before driving tools. Ordinary editor Tick never synchronizes
+subsystem registrations.
 MCP and Python adapters keep their existing interfaces and generic Toolset
 routing. Dynamic test providers belong in the runtime deployment closure.
 
@@ -170,23 +178,42 @@ routing. Dynamic test providers belong in the runtime deployment closure.
 
 Only Editor collections update live membership; Engine and World collections
 remain frozen. Providers retain registration tokens for their published services.
-Registration changes are reconciled at the next editor safe point. Explicit
-`RefreshEditorSubsystems()` requires an idle host and reports `FSubsystemResult`;
-callback-time registration changes wait for a later pass. Providers still in
-module Startup are not instantiated, and tool execution is unavailable during
-updates.
+Module-load callers invoke `SynchronizeEditorSubsystems()` after the complete
+load batch returns and before creating or driving its consumers. Project and
+Workspace startup provide these explicit idle boundaries. Providers synchronize
+removal inside their shutdown hooks before releasing resources. The operation
+requires an idle host and reports `FSubsystemResult`; ordinary Tick neither
+checks for registration changes nor runs collection reconciliation. Loading a
+module or changing a token alone does not update an existing collection.
+Callback-time registration changes require a later explicit synchronization;
+unsafe synchronization returns InvalidState without changing membership.
+Providers still in module Startup are not instantiated, and tool execution is
+unavailable during updates.
 
-`ShouldCreateSubsystem` selects new instances only. Refreshing an unchanged
-registration preserves its instance without reevaluating its CDO. Replacing a
-dependency never implicitly rebuilds its consumers. If an existing consumer's
-registration is unchanged, replacement returns InvalidState before changing live
-instances. Unregister the consumers first, or explicitly re-register every
-affected consumer in the same update. Removing a dependency still removes
-services whose required dependencies are missing; no live consumer keeps an
-unavailable dependency.
-Missing dependencies, duplicate types and cycles exclude affected services while
-retaining unrelated instances. The framework owns dependency ordering, GC
-protection and callback reentrancy; callers do not manage collection iteration.
+`ShouldCreateSubsystem` selects new instances only. Synchronizing an unchanged
+registration preserves its instance without reevaluating its CDO. Changing the
+sole registration for a live type returns InvalidState before changing instances
+or running creation callbacks, including when the type has no consumers or all
+consumers have also been re-registered. There is no same-type replacement or
+consumer re-registration protocol.
+
+To recreate a service, callers unregister its consumers and synchronize their
+removal, unregister the service and synchronize its removal, then register and
+synchronize the service before reconnecting its consumers. An intervening
+completed removal is mandatory; token churn within one synchronization cannot
+replace an instance. External strong references may retain the stopped objects
+while the new instances run. Removing a dependency while a registered consumer
+still requires it rejects the complete update; callers must unregister consumers
+first. There is no automatic dependent removal or reconnection.
+
+Synchronization validates the complete candidate descriptor set before closing
+any instance gate, removing an instance or constructing an addition. Duplicate
+types, missing or wrong-scope dependencies, cycles, invalid types and unavailable
+providers reject the entire update, leaving current instances, gates and lookup
+membership unchanged. Creation eligibility remains a creation-only query;
+host retirement requested by a callback still takes precedence over an update.
+The framework owns dependency ordering, GC protection and callback reentrancy;
+callers do not manage collection iteration.
 
 Removal closes work, deinitializes dependents before dependencies, then releases
 collection references. Dependencies remain queryable during cleanup. Retained
@@ -194,22 +221,28 @@ objects stay valid but stopped; ordinary GC reclaims them after their remaining
 strong references are released, without shutting down the active editor.
 Script proxies and tool endpoints reject use once work closes.
 
-Updates remove obsolete instances before adding new ones. A failed addition
+Only validated updates remove obsolete instances before adding new ones. A failed addition
 rolls back that pass's new instances, including the failed object, and preserves
 instances not selected for removal. Already removed instances are not restored.
-Failed passes retry after a registration change or explicit
-`RefreshEditorSubsystems(true)`; forced refresh can retry creation but does not
-reevaluate or remove existing instances. Host shutdown aborts additions and
-completes cleanup after callbacks unwind.
+Every explicit synchronization attempts the current registrations, including
+retrying failed additions. There is no registration revision poll, cached pass
+result or force-refresh mode. Synchronization does not reevaluate or remove
+unchanged eligible instances. Host shutdown aborts additions and completes
+cleanup after callbacks unwind.
 
 Providers own removal in `ShutdownModule()`: DurinEd and LevelEditor destroy
 their registration tokens and call `FEditorSubsystemCollection::SynchronizeActiveEditor()`
-before releasing the remaining provider resources. This removes active-editor instances
-and dependent services before shutdown returns. There is no module-manager
+before releasing the remaining provider resources. Consumers must already have
+been unregistered and synchronized before their provider can stop. A rejected
+removal must never be ignored before releasing provider resources. There is no module-manager
 consumer callback or separate suppressed-registration list.
 
-Their read-only `CanShutdownModule()` calls `CanSynchronizeActiveEditor()` to preflight
-the active Editor collection. Initialization, cleanup, host callbacks, GC, feature
+Their read-only `CanShutdownModule()` calls `CanSynchronizeActiveEditor(Provider)`
+with the module identity captured during StartupModule. It preflights the metadata
+set remaining after provider removal without calling eligibility or lifecycle
+callbacks. Registered consumers or another invalid remaining descriptor set
+postpone shutdown without changing tokens, instances, gates or module resources.
+Initialization, cleanup, host callbacks, GC, feature
 dispatch and non-idle history postpone the entire shutdown. `UnloadModule()`
 returns false without changing an active module at an unsafe point; explicit
 `ShutdownModule()` requires the caller to establish that safe point. Providers

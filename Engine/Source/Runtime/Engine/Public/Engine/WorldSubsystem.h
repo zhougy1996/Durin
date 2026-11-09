@@ -28,8 +28,6 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		ENGINE_API explicit DWorldSubsystem(const FObjectInitializer& Initializer);
-		ENGINE_API auto BeginDestroy() -> void override;
-		ENGINE_API auto IsReadyForFinishDestroy() -> bool override;
 		ENGINE_API auto GetWorld() const -> DWorld*;
 		ENGINE_API auto ShouldCreateSubsystem(DObject* Outer) const -> bool override;
 		ENGINE_API virtual auto DoesSupportWorldType(EWorldType WorldType) const -> bool;

@@ -29,12 +29,10 @@ namespace Durin
 		auto GetCancellationToken() const -> const Tasks::FCancellationToken& { return Cancellation; }
 	private:
 		Tasks::FCancellationToken Cancellation;
-		bool bDeinitialized = false;
 		friend class FSubsystemCollection;
-		friend class DSubsystem;
 	};
 
-	// Shared transient service contract; scope adapters coordinate host destruction.
+	// Shared transient service contract; hosts own initialization and cleanup.
 	DCLASS(Abstract)
 	class DSubsystem : public DObject
 	{
@@ -47,8 +45,6 @@ namespace Durin
 		virtual auto Initialize() -> FSubsystemResult { return {}; }
 		virtual auto Deinitialize() noexcept -> void {}
 		auto GetWorkGate() const -> std::shared_ptr<const FSubsystemWorkGate> { return WorkGate; }
-	protected:
-		auto HasCompletedDeinitialization() const -> bool { return WorkGate && WorkGate->bDeinitialized; }
 	private:
 		std::shared_ptr<FSubsystemWorkGate> WorkGate;
 		friend class FSubsystemCollection;
@@ -60,7 +56,7 @@ namespace Durin
 		DClass* Type = nullptr;
 		FName Provider;
 		std::vector<DClass*> Dependencies;
-		// Assigned by a publication token; distinguishes removal/replacement of the same type.
+		// Assigned by a publication token; rebinding a live type requires a completed removal first.
 		uint64 RegistrationIdentity = 0;
 	};
 
@@ -73,12 +69,11 @@ namespace Durin
 		FSubsystemRegistration(const FSubsystemRegistration&) = delete;
 		auto operator=(const FSubsystemRegistration&) -> FSubsystemRegistration& = delete;
 		ENGINE_API static auto Snapshot(DClass* Scope) -> std::vector<FSubsystemDescriptor>;
-		ENGINE_API static auto GetRevision() -> uint64;
 	private:
 		uint64 Identity;
 	};
 
-	// Owns deterministic initialization and removal; hosts retain objects through enumeration.
+	// Owns one-shot initialization and shutdown; hosts retain objects through enumeration.
 	class FSubsystemCollection
 	{
 	public:
@@ -98,8 +93,6 @@ namespace Durin
 	protected:
 		// Scope-specific configuration for one-shot initialization, after CDO selection.
 		virtual auto ValidateSelectedDescriptor(const FSubsystemDescriptor&) const -> FSubsystemResult { return {}; }
-		// Explicit opt-in for dynamic scope adapters; Engine/World retain frozen membership.
-		ENGINE_API auto Reconcile(std::vector<FSubsystemDescriptor> Descriptors) -> FSubsystemResult;
 		struct FEntry
 		{
 			FSubsystemDescriptor Descriptor;
@@ -113,8 +106,7 @@ namespace Durin
 	private:
 		auto ValidateType(const FSubsystemDescriptor& Descriptor) const -> FSubsystemResult;
 		// Input types have passed scope/concreteness and CDO eligibility selection.
-		// Returns the first diagnostic and the valid dependency-closed subset in construction order.
-		// Initialize rejects diagnostics; Reconcile can retain unrelated services.
+		// Validates the complete set, returning construction order only on success.
 		auto OrderSelectedDescriptors(std::vector<FSubsystemDescriptor> Descriptors,
 			std::vector<FSubsystemDescriptor>& Ordered) const -> FSubsystemResult;
 		// Ordered descriptors are already selected and validated; failed objects remain owned for rollback.
@@ -126,5 +118,7 @@ namespace Durin
 		bool bClosingWork = false;
 		bool bDeinitializeRequested = false;
 		bool bPopulating = false;
+		// Dynamic membership reuses lifecycle primitives without exposing them to fixed scopes.
+		friend class FDynamicSubsystemCollection;
 	};
 }

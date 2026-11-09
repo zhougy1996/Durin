@@ -46,7 +46,7 @@ namespace
             Host = TStrongObjectPtr<DEditorEngine>(NewObject<DEditorEngine>(nullptr, {}));
             ASSERT_TRUE(FEditorEngineTestAccess::StartEditor(*Host));
             ASSERT_TRUE(FModuleManager::Get().LoadModule("LevelEditor"));
-            ASSERT_TRUE(Host->RefreshEditorSubsystems()); Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
+            ASSERT_TRUE(Host->SynchronizeEditorSubsystems()); Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
             Runtime = std::make_shared<FPythonRuntime>();
             auto Started = Runtime->Start(); ASSERT_TRUE(Started) << Started.error();
             PythonTools = CreatePythonToolset(Runtime);

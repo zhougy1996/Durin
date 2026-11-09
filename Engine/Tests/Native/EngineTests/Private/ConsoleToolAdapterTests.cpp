@@ -57,7 +57,7 @@ namespace Durin::Editor::MainFrame
 				Testing::InitializeDObjectSystemForTests();
 				Host = NewHost();
 				ASSERT_TRUE(FModuleManager::Get().LoadModule("LevelEditor"));
-				ASSERT_TRUE(Host->RefreshEditorSubsystems());
+				ASSERT_TRUE(Host->SynchronizeEditorSubsystems());
 				Adapter = std::make_unique<FConsoleToolAdapter>(*Host, Legacy);
 				Temp = Testing::CreateTestFixtureDirectory("ConsoleTools");
 			}

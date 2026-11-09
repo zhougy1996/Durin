@@ -8,20 +8,8 @@
 namespace Durin
 {
 	DEditorSubsystem::DEditorSubsystem(const FObjectInitializer& Initializer) : Super(Initializer) {}
-	auto DEditorSubsystem::BeginDestroy() -> void
-	{
-		if (!HasCompletedDeinitialization())
-			if (auto* Host = GetEditor()) Host->PrepareForShutdown();
-		Super::BeginDestroy();
-	}
-	auto DEditorSubsystem::IsReadyForFinishDestroy() -> bool
-	{
-		if (HasCompletedDeinitialization()) return true;
-		auto* Host = GetEditor();
-		return !Host || Host->IsReadyForFinishDestroy();
-	}
 	auto DEditorSubsystem::GetEditor() const -> DEditorEngine* { return Cast<DEditorEngine>(GetOuter()); }
-	FEditorSubsystemCollection::FEditorSubsystemCollection(DEditorEngine& Host) : FSubsystemCollection(Host, DEditorSubsystem::StaticClass()) {}
+	FEditorSubsystemCollection::FEditorSubsystemCollection(DEditorEngine& Host) : FDynamicSubsystemCollection(Host, DEditorSubsystem::StaticClass()) {}
 	auto FEditorSubsystemCollection::Initialize() -> FSubsystemResult
 	{
 		auto Selected = FSubsystemRegistration::Snapshot(DEditorSubsystem::StaticClass());
@@ -31,13 +19,9 @@ namespace Durin
 		return FSubsystemCollection::Initialize(std::move(Selected));
 	}
 	FEditorSubsystemCollection::~FEditorSubsystemCollection() = default;
-	auto FEditorSubsystemCollection::Synchronize(bool bForce) -> FSubsystemResult
+	auto FEditorSubsystemCollection::Synchronize() -> FSubsystemResult
 	{
-		const auto Revision = FSubsystemRegistration::GetRevision();
-		if (!bForce && LastRevision == Revision) return LastResult;
 		std::vector<FSubsystemDescriptor> Selected;
-		bool PendingStartup = false;
-		FSubsystemResult ProviderError;
 		for (const auto& Entry : FSubsystemRegistration::Snapshot(DEditorSubsystem::StaticClass()))
 		{
 			if (!Entry.Provider.IsNone())
@@ -45,27 +29,25 @@ namespace Durin
 				const auto Module = FModuleManager::Get().FindModule(Entry.Provider);
 				if (!Module || Module->State.load() != EModuleState::Active)
 				{
-					const bool Loading = Module && Module->State.load() == EModuleState::Loading;
-					PendingStartup |= Loading;
-					if (!Loading) ProviderError = {ESubsystemError::ProviderUnavailable, Entry.Provider.ToString()};
+					if (!Module || Module->State.load() != EModuleState::Loading)
+						return {ESubsystemError::ProviderUnavailable, Entry.Provider.ToString()};
 					continue;
 				}
 			}
 			Selected.push_back(Entry);
 		}
-		LastRevision = PendingStartup ? UINT64_MAX : Revision;
-		LastResult = Reconcile(std::move(Selected));
-		if (LastResult && !ProviderError) LastResult = std::move(ProviderError);
-		return LastResult;
+		return Reconcile(std::move(Selected));
 	}
-	auto FEditorSubsystemCollection::CanSynchronizeActiveEditor() -> bool
+	auto FEditorSubsystemCollection::CanSynchronizeActiveEditor(FName RemovingProvider) -> bool
 	{
 		if (IsGarbageCollecting() || FModularFeatureRegistry::Get().IsDispatching()) return false;
 		if (!GEditor) return true;
 		const auto& Collection = GEditor->EditorSubsystems;
 		if (Collection.IsPopulating() || Collection.GetState() == ESubsystemState::Initializing
 			|| Collection.GetState() == ESubsystemState::ShuttingDown) return false;
-		if (Collection.GetState() == ESubsystemState::Ready && !GEditor->CanRefreshEditorSubsystems()) return false;
+		if (Collection.GetState() == ESubsystemState::Ready && !GEditor->CanSynchronizeEditorSubsystems()) return false;
+		if (Collection.GetState() == ESubsystemState::Ready && !RemovingProvider.IsNone()
+			&& !Collection.CanRemoveProvider(RemovingProvider)) return false;
 		return true;
 	}
 	auto FEditorSubsystemCollection::SynchronizeActiveEditor() -> void
@@ -73,7 +55,10 @@ namespace Durin
 		requiref(CanSynchronizeActiveEditor(), "Editor providers must unregister at an idle host safe point.");
 		FGarbageCollectionDeferralScope Deferral;
 		if (GEditor && GEditor->GetEditorSubsystemState() == ESubsystemState::Ready)
-			(void)GEditor->RefreshEditorSubsystems(true);
+		{
+			const auto Result = GEditor->SynchronizeEditorSubsystems();
+			requiref(static_cast<bool>(Result), "Editor provider removal failed validation: {}", Result.Message);
+		}
 	}
 
 }

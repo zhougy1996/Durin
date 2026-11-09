@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-#include "Engine/Subsystem.h"
+#include "Engine/DynamicSubsystem.h"
 #include "DurinEdAPI.h"
 #include "EditorSubsystem.gen.h"
 
@@ -12,13 +12,11 @@ namespace Durin
 
 	// One transient service on the active editor; editor shutdown owns retirement.
 	DCLASS(Abstract)
-	class DEditorSubsystem : public DSubsystem
+	class DEditorSubsystem : public DDynamicSubsystem
 	{
 		GENERATED_BODY()
 	public:
 		DURINED_API explicit DEditorSubsystem(const FObjectInitializer& Initializer);
-		DURINED_API auto BeginDestroy() -> void override;
-		DURINED_API auto IsReadyForFinishDestroy() -> bool override;
 		DURINED_API auto GetEditor() const -> DEditorEngine*;
 	};
 
@@ -30,19 +28,16 @@ namespace Durin
 			: FSubsystemRegistration(DEditorSubsystem::StaticClass(), std::move(Descriptor)) {}
 	};
 
-	// Scope adapter selects native registrations; common code validates and constructs them.
-	class FEditorSubsystemCollection : public FSubsystemCollection
+	// Dynamic scope adapter selects registrations and reconciles them at editor safe points.
+	class FEditorSubsystemCollection : public FDynamicSubsystemCollection
 	{
 	public:
 		DURINED_API explicit FEditorSubsystemCollection(DEditorEngine& Host);
 		DURINED_API ~FEditorSubsystemCollection() override;
 		DURINED_API auto Initialize() -> FSubsystemResult;
-		DURINED_API auto Synchronize(bool bForce = false) -> FSubsystemResult;
-		// Providers preflight before removing tokens, then synchronize inside ShutdownModule.
-		DURINED_API static auto CanSynchronizeActiveEditor() -> bool;
+		DURINED_API auto Synchronize() -> FSubsystemResult;
+		// Provider removal preflights the remaining descriptor graph without user callbacks.
+		DURINED_API static auto CanSynchronizeActiveEditor(FName RemovingProvider = {}) -> bool;
 		DURINED_API static auto SynchronizeActiveEditor() -> void;
-	private:
-		uint64 LastRevision = UINT64_MAX;
-		FSubsystemResult LastResult;
 	};
 }

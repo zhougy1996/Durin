@@ -15,6 +15,15 @@ by the endpoint lifetime the service needs. Engine services cannot require a
 current World during initialization. World services are recreated for each PIE
 or Preview World; Engine and Editor services survive those World lifetimes.
 
+`DDynamicSubsystem` extends `DSubsystem` for scopes whose live membership can
+change. `DEditorSubsystem` derives from this base; Engine and World subsystem
+scopes remain direct `DSubsystem` subclasses with frozen membership.
+`FSubsystemCollection` owns one-shot initialization and shutdown primitives.
+`FDynamicSubsystemCollection` adds protected reconciliation and requires a scope
+derived from `DDynamicSubsystem`; only dynamic scope adapters expose updates at
+host-controlled safe points. Scope adapters own explicit synchronization
+boundaries; dynamic membership does not enable automatic module discovery.
+
 Every host owns its collection and enumerates its objects in
 `AddReferencedObjects`. Outer identifies the host but does not retain services.
 Instances are transient, excluded from asset serialization and child duplication.
@@ -54,16 +63,19 @@ remains queryable during dependent cleanup until its own Deinitialize returns.
 its snapshots contain Type, Provider, Dependencies and RegistrationIdentity.
 World registration owns a separate strongly typed catalog for its Tick policy.
 The common kernel receives only common descriptors. Engine and World token
-changes affect future collections only. Editor collections explicitly opt into
-controlled reconciliation at host safe points; see the Editor subsystem contract.
+changes affect future collections only. Editor module-load callers and stopping
+providers explicitly synchronize at host safe points; there is no per-frame
+registration poll or collection reconciliation. See the Editor subsystem contract.
 
 Concrete subsystem classes require a published class default object (CDO).
 `ShouldCreateSubsystem(DObject* Outer) const` is a read-only creation query on that
 CDO. It runs before instance construction and dependency resolution; returning
 false excludes the proposed instance. A selected service requiring an excluded
 dependency reports MissingDependency. Existing instances are not reevaluated on
-refresh. An explicitly replaced registration is a new creation; dependencies do
-not trigger automatic reconstruction of consumers.
+explicit synchronization. Changing a live type's registration identity is
+rejected before instance or eligibility callbacks. Recreating a service requires
+an earlier synchronization that completed its removal; changing consumer tokens
+does not authorize replacement. Callers own consumer stop and reconnect order.
 Constructors establish defaults; host resources belong in Initialize/Deinitialize.
 
 ## Common Lifecycle
@@ -79,6 +91,13 @@ typed and runtime-type lookup return only initialized instances. Dependencies
 remain queryable until their own Deinitialize returns; lookup is independent of
 permission to execute scripts, tools or new work.
 
+Descriptor ordering rejects the complete set on duplicate types, missing or
+wrong-scope dependencies, or cycles; it never returns a valid subset for partial
+application. Dynamic synchronization completes descriptor validation before
+closing instance gates or changing membership. Invalid updates preserve existing
+instances; initialization failures after a valid update still clean the failed
+object and roll back newly constructed services.
+
 Initialization is one-shot: Uninitialized becomes Initializing, then Ready or
 Failed. Errors and exceptions also clean the failed object. Deinitialization
 closes work, reverse-deinitializes constructed services and releases collection
@@ -92,6 +111,9 @@ reentrant collection cleanup. Shutdown requests close work immediately; cleanup
 waits for active callbacks to unwind. Closing work preserves dependency lookup
 while rejecting new work. Host shutdown owns the surrounding World, play and
 resource teardown; see [World subsystems](../World/WorldSubsystems.md).
+External callbacks dispatched through `DispatchSubsystemCallback` defer GC until
+they unwind. Host operation state postpones cleanup and host destruction;
+subsystem finish-destroy readiness does not delegate to the host.
 
 ## Work And Code Lifetime
 
@@ -128,8 +150,10 @@ exceptions and returned failures request the same idempotent cleanup as exit.
 Shutdown closes gates, retires editor consumers when present, shuts down the
 remaining World while Engine services are available, deinitializes Engine
 services, then releases viewport view states. BeginDestroy additionally releases
-scene/default-material resources and retains its render fence. Scope-specific
-service BeginDestroy requests its known host's explicit shutdown and delegates
-readiness; the generic base never interprets arbitrary Outers as hosts to destroy.
+scene/default-material resources and retains its render fence. Each host's own
+BeginDestroy supplies fallback collection cleanup before service objects are
+physically destroyed. Subsystem destruction never initiates host shutdown or
+waits for host readiness. Uninitialized objects outside a collection and retired
+objects retained by external references follow ordinary object destruction.
 Launch calls host preparation before Mona, cooked-mesh and task-system teardown;
 see [Runtime lifecycle](../Application/RuntimeLifecycle.md).

@@ -83,9 +83,11 @@ unregisters Level components, detaches the Level, deinitializes services in
 reverse order, and clears the render endpoint. Services remain lookup-visible
 for Actor EndPlay and component unregistration. Completed shutdown is idempotent,
 and shutdown after partial failure is safe. Reinitialization is not supported.
-`BeginDestroy` is a fallback; runtime, editor, PIE, and preview hosts explicitly
+`DWorld::BeginDestroy` is a fallback; runtime, editor, PIE, and preview hosts explicitly
 shut down before releasing owned scene resources. Suspending EditorWorld through
 `DEngine::SetWorld` during PIE is not retirement.
+World subsystem destruction does not shut down its World or wait for World
+finish-destroy readiness; the World owns service cleanup.
 
 ## Play And Level Boundaries
 

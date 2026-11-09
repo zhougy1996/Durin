@@ -760,6 +760,39 @@ namespace Durin
 	}
 }
 
+TEST_F(FWorldSubsystemTests, UninitializedSubsystemGcDoesNotRetireHosts)
+{
+	FEngineSubsystemRegistration EngineToken({.Type = FEngineSubsystemProbe::StaticClass()});
+	FEditorSubsystemRegistration EditorToken({.Type = FEditorSubsystemProbe::StaticClass()});
+	FWorldSubsystemRegistration WorldToken({.Type = FSubsystemProbeA::StaticClass()});
+	TStrongObjectPtr<FSubsystemEditorHost> Host(NewObject<FSubsystemEditorHost>(nullptr, {}));
+	ASSERT_TRUE(Host->StartEngine()); ASSERT_TRUE(Host->StartEditor());
+	auto* World = MakeWorld(); ASSERT_TRUE(World->InitializeSubsystems());
+	const auto EngineGate = Host->GetSubsystem<FEngineSubsystemProbe>()->GetWorkGate();
+	const auto EditorGate = Host->GetEditorSubsystem<FEditorSubsystemProbe>()->GetWorkGate();
+	const auto WorldGate = World->GetSubsystem<FSubsystemProbeA>()->GetWorkGate();
+	int Cleanups = 0;
+	FEngineSubsystemProbe::Callback = [&](auto&, bool bInit) { if (!bInit) ++Cleanups; };
+	FEditorSubsystemProbe::Callback = [&](auto&, bool bInit) { if (!bInit) ++Cleanups; };
+	FSubsystemProbeA::Callback = [&](auto&, std::string_view Event) { if (Event == "Deinit") ++Cleanups; };
+	// These objects never entered a collection and have no host resources to clean up.
+	TWeakObjectPtr<FEngineSubsystemProbe> EngineObject(NewObject<FEngineSubsystemProbe>(Host.Get(), "UninitializedEngineService"));
+	TWeakObjectPtr<FEditorSubsystemProbe> EditorObject(NewObject<FEditorSubsystemProbe>(Host.Get(), "UninitializedEditorService"));
+	TWeakObjectPtr<FSubsystemProbeA> WorldObject(NewObject<FSubsystemProbeA>(World, "UninitializedWorldService"));
+	MarkAsGarbage(EngineObject.Get()); MarkAsGarbage(EditorObject.Get()); MarkAsGarbage(WorldObject.Get());
+	CollectGarbage();
+	EXPECT_FALSE(EngineObject.IsValid()); EXPECT_FALSE(EditorObject.IsValid()); EXPECT_FALSE(WorldObject.IsValid());
+	EXPECT_EQ(0, Cleanups);
+	EXPECT_EQ(ESubsystemState::Ready, Host->GetSubsystemState());
+	EXPECT_EQ(ESubsystemState::Ready, Host->GetEditorSubsystemState());
+	EXPECT_EQ(ESubsystemState::Ready, World->GetSubsystemState());
+	EXPECT_TRUE(EngineGate->IsOpen()); EXPECT_TRUE(EditorGate->IsOpen()); EXPECT_TRUE(WorldGate->IsOpen());
+	World->Shutdown(); Host->PrepareForShutdown();
+	EXPECT_EQ(3, Cleanups);
+	EXPECT_FALSE(EngineGate->IsOpen()); EXPECT_FALSE(EditorGate->IsOpen()); EXPECT_FALSE(WorldGate->IsOpen());
+	FEngineSubsystemProbe::Callback = {}; FEditorSubsystemProbe::Callback = {};
+}
+
 TEST_F(FWorldSubsystemTests, DeinitializedEngineAndWorldObjectsDoNotShutDownTheirHostsDuringGc)
 {
 	TStrongObjectPtr<FSubsystemEditorHost> Host(NewObject<FSubsystemEditorHost>(nullptr, {}));
@@ -1039,20 +1072,37 @@ TEST_F(FWorldSubsystemTests, NotificationShutdownCallbackRetiresAtTheNextHostBou
 	EXPECT_EQ(Host->GetEditorSubsystem<DEditorNotificationSubsystem>(), nullptr);
 }
 
-TEST_F(FWorldSubsystemTests, HostGarbageFallbackRetiresBothCollections)
+TEST_F(FWorldSubsystemTests, HostGarbageFallbackRetiresWorldAndServiceCollections)
 {
 	FEngineSubsystemRegistration EngineToken({.Type = FEngineSubsystemProbe::StaticClass()});
+	FEditorSubsystemRegistration EditorToken({.Type = FEditorSubsystemProbe::StaticClass()});
+	FWorldSubsystemRegistration WorldToken({.Type = FSubsystemProbeA::StaticClass()});
 	std::shared_ptr<const FSubsystemWorkGate> EngineGate;
 	std::shared_ptr<const FSubsystemWorkGate> EditorGate;
+	std::shared_ptr<const FSubsystemWorkGate> WorldGate;
+	TWeakObjectPtr<FSubsystemEditorHost> WeakHost;
+	TWeakObjectPtr<DWorld> WeakWorld;
+	std::vector<std::string> CleanupOrder;
 	{
 		TStrongObjectPtr<FSubsystemEditorHost> Host(NewObject<FSubsystemEditorHost>(nullptr, {}));
 		ASSERT_TRUE(Host->StartEngine()); ASSERT_TRUE(Host->StartEditor());
 		EngineGate = Host->GetSubsystem<FEngineSubsystemProbe>()->GetWorkGate();
 		EditorGate = Host->GetEditorSubsystem<DEditorNotificationSubsystem>()->GetWorkGate();
+		auto* World = NewObject<DWorld>(Host.Get(), "GcFallbackWorld");
+		ASSERT_TRUE(World->InitializeSubsystems()); Host->SetEditorWorld(World);
+		WorldGate = World->GetSubsystem<FSubsystemProbeA>()->GetWorkGate();
+		WeakHost = Host.Get(); WeakWorld = World;
+		FEngineSubsystemProbe::Callback = [&](auto&, bool bInit) { if (!bInit) CleanupOrder.emplace_back("engine"); };
+		FEditorSubsystemProbe::Callback = [&](auto&, bool bInit) { if (!bInit) CleanupOrder.emplace_back("editor"); };
+		FSubsystemProbeA::Callback = [&](auto&, std::string_view Event) { if (Event == "Deinit") CleanupOrder.emplace_back("world"); };
 	}
 	CollectGarbage();
+	EXPECT_EQ((std::vector<std::string>{"world", "editor", "engine"}), CleanupOrder);
 	EXPECT_FALSE(EngineGate->IsOpen());
 	EXPECT_FALSE(EditorGate->IsOpen());
+	EXPECT_FALSE(WorldGate->IsOpen());
+	EXPECT_FALSE(WeakHost.IsValid()); EXPECT_FALSE(WeakWorld.IsValid());
+	FEngineSubsystemProbe::Callback = {}; FEditorSubsystemProbe::Callback = {};
 }
 
 TEST_F(FWorldSubsystemTests, WrongScopeDependencyIsRejectedBeforeConstruction)

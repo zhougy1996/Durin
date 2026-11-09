@@ -58,13 +58,14 @@ namespace Durin
 
 	auto FDurinMCPModule::StartupModule() -> void
 	{
+		Provider = FModuleStartup::GetModuleName();
 		FModuleManager::Get().LoadModuleChecked("DurinPython");
 		EditorRegistration = std::make_unique<FEditorSubsystemRegistration>(FSubsystemDescriptor{
 			.Type = DMCPServerSubsystem::StaticClass(), .Provider = FModuleStartup::GetModuleName(),
 			.Dependencies = {DPythonEditorSubsystem::StaticClass()}});
 	}
 	auto FDurinMCPModule::CanShutdownModule() const -> bool
-	{ return FEditorSubsystemCollection::CanSynchronizeActiveEditor(); }
+	{ return FEditorSubsystemCollection::CanSynchronizeActiveEditor(Provider); }
 	auto FDurinMCPModule::ShutdownModule() -> void
 	{
 		require(CanShutdownModule());
