@@ -324,7 +324,7 @@ TEST(FTextureCubeTests, RejectsMissingNonsquareAndMismatchedFacesWithoutArtifact
 	{
 		Durin::FPackagePath AssetPath;
 		ASSERT_TRUE(Durin::FPackagePath::TryCreate(std::format("/TextureCubeTests/{}", AssetName), AssetPath));
-		EXPECT_EQ(Durin::FindAssetExact(AssetPath), nullptr);
+		EXPECT_EQ(Durin::FindPackageExact(AssetPath), nullptr);
 		EXPECT_EQ(Durin::FindResidentPackage(AssetPath), nullptr);
 	}
 	EXPECT_FALSE(std::filesystem::exists(Root / "MissingFace_px.png"));
@@ -356,7 +356,7 @@ TEST(FTextureCubeTests, RejectsMismatchedSourceChannelsDuringTranslation)
 		std::string::npos) << Import.Message;
 	Durin::FPackagePath AssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/ChannelMismatch", AssetPath));
-	EXPECT_EQ(Durin::FindAssetExact(AssetPath), nullptr);
+	EXPECT_EQ(Durin::FindPackageExact(AssetPath), nullptr);
 	EXPECT_EQ(Durin::FindResidentPackage(AssetPath), nullptr);
 	EXPECT_FALSE(std::filesystem::exists(Root / "ChannelMismatch.dasset"));
 	for (const auto& Face : Faces)
@@ -710,7 +710,7 @@ TEST(FTextureCubeTests, RejectsInvalidPanoramaImportsWithoutArtifacts)
 
 	Durin::FPackagePath AssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/InvalidPanorama", AssetPath));
-	EXPECT_EQ(Durin::FindAssetExact(AssetPath), nullptr);
+	EXPECT_EQ(Durin::FindPackageExact(AssetPath), nullptr);
 	EXPECT_EQ(Durin::FindResidentPackage(AssetPath), nullptr);
 	EXPECT_FALSE(std::filesystem::exists(Root / "InvalidPanorama_panorama.tga"));
 	EXPECT_FALSE(std::filesystem::exists(Root / "InvalidPanorama_panorama.hdr"));

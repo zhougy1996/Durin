@@ -588,10 +588,8 @@ namespace Durin::AssetPrivate::TaggedPackage
 			if (auto Result = ReadLinker({Main, Bulk, Path, Main.size()}, Linker); !Result)
 				return Result;
 			FPackageSchemaInspection Record{.FormatVersion = Linker.FormatVersion};
-			if (!Linker.Summary.TopLevelAssets.empty())
-				Record.EntryKind = Linker.Summary.TopLevelAssets.front()
-					.RedirectDestination.IsValid()
-					? EAssetRegistryEntryKind::Redirector : EAssetRegistryEntryKind::Asset;
+			for (const auto& Asset : Linker.Summary.TopLevelAssets)
+				Record.TopLevelAssets.push_back({Asset.AssetPath, Asset.ClassName, Asset.RedirectDestination});
 			Record.Dependencies.assign(Linker.Summary.HardPackageDependencies.begin(),
 				Linker.Summary.HardPackageDependencies.end());
 			for (size_t Index = 0; Index < Linker.Exports.size(); ++Index)

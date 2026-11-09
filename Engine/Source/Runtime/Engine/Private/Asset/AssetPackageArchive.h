@@ -15,9 +15,6 @@ namespace Durin::AssetPrivate
 	namespace LinkerSchema { class FLoadSchemaBindings; }
 	struct FAuthoredPackageSummary
 	{
-		std::string AssetClassName;
-		EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
-		FPackagePath RedirectDestination;
 		std::vector<FPackagePath> Dependencies;
 	};
 

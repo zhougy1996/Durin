@@ -4,6 +4,7 @@
 
 #include "AssetMaintenanceAPI.h"
 #include "Asset/PackageSchema.h"
+#include "AssetRegistry/Catalog.h"
 
 namespace Durin
 {
@@ -51,7 +52,7 @@ namespace Durin
 		FAssetPackageFingerprint Fingerprint;
 		std::string ReportContentHash;
 		uint32 FormatVersion = 0;
-		EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
+		std::vector<FAssetData> TopLevelAssets;
 		std::vector<FPackagePath> Dependencies;
 		EAssetCompatibilityInspection Inspection = EAssetCompatibilityInspection::NotChecked;
 		EAssetPackageCompatibility Compatibility = EAssetPackageCompatibility::Unsupported;

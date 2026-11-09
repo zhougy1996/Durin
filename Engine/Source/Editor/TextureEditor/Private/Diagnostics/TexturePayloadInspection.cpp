@@ -162,10 +162,11 @@ namespace Durin
 		FTexturePayloadInspection& OutInspection, std::string* OutError) -> bool
 	{
 		OutInspection = {.bConstructFree = true};
+		if (Package.Objects.empty()) return false;
 		const std::string Texture2DClass = DTexture2D::StaticClass()->GetQualifiedName().ToString();
 		const std::string TextureCubeClass = DTextureCube::StaticClass()->GetQualifiedName().ToString();
 		const std::string VolumeClass = DVolumeTexture::StaticClass()->GetQualifiedName().ToString();
-		if (Package.Header.AssetClassName == Texture2DClass)
+		if (Package.Objects.front().ClassName == Texture2DClass)
 		{
 			uint32 Width = 0, Height = 0, Depth = 1, NumSlices = 1;
 			uint64 SourceBytes = 0;
@@ -210,8 +211,8 @@ namespace Durin
 			OutInspection.Entries.push_back(MakeInspectedCookedFieldEntry(
 				"Texture2D", Package.FindField("PlatformData")));
 		}
-		else if (Package.Header.AssetClassName == VolumeClass
-			|| Package.Header.AssetClassName == TextureCubeClass)
+		else if (Package.Objects.front().ClassName == VolumeClass
+			|| Package.Objects.front().ClassName == TextureCubeClass)
 		{
 			const FAssetPackageField* SourceField = Package.FindField("Source");
 			std::vector<FAssetPackageField> SourceFields;
@@ -268,13 +269,13 @@ namespace Durin
 				else
 					SourceDiagnostic = "Editor source companion and integrity are valid.";
 			}
-			const std::string Domain = Package.Header.AssetClassName == TextureCubeClass
+			const std::string Domain = Package.Objects.front().ClassName == TextureCubeClass
 				? "TextureCube" : "VolumeTexture";
 			OutInspection.Entries.push_back({
 				.Domain = Domain, .Stage = ETexturePayloadStage::Source,
 				.State = SourceState, .Repair = SourceRepair,
 				.DomainSchemaVersion = SchemaVersion,
-				.LogicalElementCount = Package.Header.AssetClassName == TextureCubeClass
+				.LogicalElementCount = Package.Objects.front().ClassName == TextureCubeClass
 					? Multiply(Multiply(Multiply(Width, Height), Depth), NumSlices)
 					: Multiply(Multiply(Width, Height), Depth),
 				.LogicalByteCount = SchemaVersion == TextureSourceSchemaVersion

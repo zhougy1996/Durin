@@ -200,15 +200,15 @@ namespace Durin
 			Package.PackagePath = Record->PackagePath;
 			Package.PhysicalPath = Record->PhysicalPath;
 			Package.Fingerprint = Record->Fingerprint;
-			Package.EntryKind = Record->EntryKind;
 			Package.bLoaded = Loaded != nullptr;
 			Package.bDirty = Loaded && Loaded->IsDirty();
-			Package.bPlainResaveRequested = Record->EntryKind
-				== EAssetRegistryEntryKind::Asset
+			const bool bHasAsset = std::ranges::any_of(Record->TopLevelAssets,
+				[](const FAssetData& Asset) { return !Asset.IsRedirector(); });
+			Package.bPlainResaveRequested = bHasAsset
 				&& Selection.bAllowPlainResave
 				&& std::ranges::contains(Selection.Packages, Record->PackagePath);
 			Package.bRecompressTextureSources = Selection.bRecompressTextureSources
-				&& Record->EntryKind == EAssetRegistryEntryKind::Asset;
+				&& bHasAsset;
 			Package.Evidence = Record->CanonicalizationEvidence;
 			Package.DeprecatedRouteEvidence = Record->DeprecatedRouteEvidence;
 			if (Record->Inspection != EAssetCompatibilityInspection::Ready

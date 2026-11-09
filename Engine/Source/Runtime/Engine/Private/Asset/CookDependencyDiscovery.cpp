@@ -443,7 +443,7 @@ namespace Durin::AssetPrivate
 
 	auto FCookDependencyDiscovery::Resolve(const FPackagePath& Requested, FPackagePath& Final) -> FCookInputResult
 	{
-		const auto Resolution = Registry.ResolveAssetPath(Requested);
+		const auto Resolution = Registry.ResolvePackagePath(Requested);
 		if (auto Result = ValidateResolvedAssetForOperation(Registry, Resolution); !Result) return Fail(Result);
 		for (const auto& Alias : Resolution.RedirectChain)
 			if (auto Result = AcquirePackage(Alias); !Result) return Result;
@@ -577,7 +577,7 @@ namespace Durin::AssetPrivate
 				{
 					const DClass* Expected = Root.ExpectedClass.empty() ? nullptr : FindClassByQualifiedName(FName(Root.ExpectedClass));
 					if (!Root.ExpectedClass.empty() && !Expected) return Fail(FCookInputFailure{.Error = ECookInputError::RootClass, .Package = Root.TargetPath, .Name = Root.ExpectedClass});
-					if (auto Result = ValidateResolvedAssetForOperation(Registry, Registry.ResolveAssetPath(Root.TargetPath), Expected); !Result)
+					if (auto Result = ValidateResolvedAssetForOperation(Registry, Registry.ResolvePackagePath(Root.TargetPath), Expected); !Result)
 						return Fail(Result);
 					if (Pending.size() >= MaximumCookDependencyRecords)
 						return Fail(FCookInputFailure{.Error = ECookInputError::RootLimit, .Package = Root.TargetPath, .Actual = Pending.size() + 1, .Maximum = MaximumCookDependencyRecords});
@@ -728,7 +728,7 @@ namespace Durin::AssetPrivate
 									Node.Packages.push_back({Dependency, true});
 								else
 								{
-									const auto Resolution = Registry.ResolveAssetPath(Dependency);
+									const auto Resolution = Registry.ResolvePackagePath(Dependency);
 									for (const auto& Alias : Resolution.RedirectChain) Node.Packages.push_back({Alias, false});
 									Node.Packages.push_back({Final, false});
 								}

@@ -13,11 +13,11 @@ namespace Durin::AssetPrivate
 
 		auto ValidateParticipants(const FAssetCatalogSnapshot& Expected,
 			std::span<const FPackagePath> Participants) const -> FAssetRegistryAdmissionResult;
-		auto FindAssetExact(const FPackagePath& Path) const -> FAssetCatalogEntry;
-		auto FindTopLevelAssetExact(const FTopLevelAssetPath& Path) const
-			-> FTopLevelAssetCatalogEntry;
-		auto ResolveAssetPath(const FPackagePath& Path,
-			const FAssetPathQueryOptions& Options = {}) const -> FAssetPathResolveResult;
+		auto FindPackageExact(const FPackagePath& Path) const -> FPackageCatalogEntry;
+		auto FindAssetExact(const FTopLevelAssetPath& Path) const
+			-> FAssetCatalogEntry;
+		auto ResolvePackagePath(const FPackagePath& Path,
+			const FAssetPathQueryOptions& Options = {}) const -> FPackagePathResolveResult;
 		auto ResolveAssetObjectPath(const FObjectPath& Path,
 			const FAssetPathQueryOptions& Options) const -> FObjectPathResolveResult;
 		auto FindRedirectorsTo(const FPackagePath& Destination) const
@@ -43,7 +43,7 @@ namespace Durin::AssetPrivate
 		mutable std::shared_mutex Mutex;
 		uint64 Revision = 1;
 		FContentChangeJournal Changes;
-		std::unordered_map<FPackagePath, FAssetData> Assets;
+		std::unordered_map<FPackagePath, FPackageData> Assets;
 		FAssetReferenceIndex References;
 		// Source buckets allow publication to replace only the affected packages.
 		std::unordered_map<FPackagePath, std::vector<FAssetPackageReferenceEdge>> ReferenceEdgesBySource;

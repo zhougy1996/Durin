@@ -101,7 +101,7 @@ namespace Durin::AssetForge::Builtins
 			if (!FPackagePath::TryCreate(Destination.ToString() + "/Materials/" + (bInstance ? "MI_" : "M_")
 				+ std::string(Summary->AssetPath.GetPackageName()), Summary->AssetPath))
 				Row.Message = "The generated material path is invalid.";
-			else if (FindAssetExact(Summary->AssetPath) || FindResidentPackage(Summary->AssetPath))
+			else if (FindPackageExact(Summary->AssetPath) || FindResidentPackage(Summary->AssetPath))
 				Row.Message = "The material output path is occupied by an unrelated asset.";
 			Row.AssetPath = Summary->AssetPath;
 			Row.bCompatible = Row.bPreserved || Row.Message.empty();

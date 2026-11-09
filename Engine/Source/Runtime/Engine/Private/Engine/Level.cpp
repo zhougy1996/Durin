@@ -66,17 +66,17 @@ namespace Durin
 			return {EAssetReadError::InvalidPath,
 				"The default level must be a valid package path."};
 
-		const FAssetPathResolveResult Resolution = ResolveAssetPathForOperation(PackagePath);
+		const FPackagePathResolveResult Resolution = ResolvePackagePathForOperation(PackagePath);
 		if (!Resolution)
 			return MakeLevelPackageResolutionError(PackagePath, Resolution.State);
-		if (!Resolution.FinalAssetData)
+		if (!Resolution.FinalPackageData)
 			return {EAssetReadError::CorruptFile,
 				"The resolved default-level package has no registry metadata."};
 
 		FObjectPath LevelPath;
 		uint32 LevelCount = 0;
-		for (const FTopLevelAssetData& Asset :
-			Resolution.FinalAssetData->TopLevelAssets)
+		for (const FAssetData& Asset :
+			Resolution.FinalPackageData->TopLevelAssets)
 		{
 			DClass* AssetClass = FindClassByQualifiedName(
 				FName(Asset.AssetClassName));

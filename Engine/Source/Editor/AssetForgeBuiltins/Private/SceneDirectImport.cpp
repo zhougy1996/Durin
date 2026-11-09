@@ -513,7 +513,7 @@ auto FAssetImportSession::FImpl::ResolveOutputs(FSceneImportResult& Result,
 			Descriptor->PreviousRevision = Material->GetPackage()->GetEditRevision();
 			continue;
 		}
-		if (FindAssetExact(Summary.AssetPath) || FindResidentPackage(Summary.AssetPath))
+		if (FindPackageExact(Summary.AssetPath) || FindResidentPackage(Summary.AssetPath))
 			Error = "Output destination is occupied. One-time model imports require a new destination.";
 		if (Error.empty())
 		{
@@ -763,7 +763,7 @@ auto FAssetImportSession::FImpl::Run() -> FSceneRoutine
 					co_return AddError(Result, EImportDiagnosticCategory::Collision, "asset-mapping", "Mapped material changed after preflight.", Output.Descriptor->StableIdentity);
 				continue;
 			}
-			if (FindAssetExact(Output.AssetPath) || FindResidentPackage(Output.AssetPath))
+			if (FindPackageExact(Output.AssetPath) || FindResidentPackage(Output.AssetPath))
 			{
 				co_return AddError(Result, EImportDiagnosticCategory::Collision, "scene-publication",
 					"Output destination changed after preflight.", Output.Descriptor->StableIdentity);

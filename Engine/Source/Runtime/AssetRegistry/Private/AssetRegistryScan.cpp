@@ -84,18 +84,7 @@ namespace Durin::AssetPrivate
 					&& CachedIt->second.FileSize == FileSize
 					&& CachedIt->second.LastWriteTimeTicks == LastWriteTimeTicks)
 				{
-					Header.TopLevelAssets.clear();
-					for (const FTopLevelAssetData& Asset : CachedIt->second.TopLevelAssets)
-						Header.TopLevelAssets.push_back({Asset.AssetPath,
-							Asset.AssetClassName, Asset.RedirectDestination});
-					if (Header.TopLevelAssets.size() == 1)
-					{
-						const auto& Asset = Header.TopLevelAssets.front();
-						Header.AssetClassName = Asset.AssetClassName;
-						Header.EntryKind = Asset.IsRedirector()
-							? EAssetRegistryEntryKind::Redirector : EAssetRegistryEntryKind::Asset;
-						Header.RedirectDestination = Asset.RedirectDestination.GetPackagePath();
-					}
+					Header.TopLevelAssets = CachedIt->second.TopLevelAssets;
 					Header.FormatVersion = CachedIt->second.FormatVersion;
 					Header.Dependencies = CachedIt->second.Dependencies;
 					Header.SoftDependencies = CachedIt->second.SoftDependencies;
@@ -142,13 +131,7 @@ namespace Durin::AssetPrivate
 				Result.CacheEntries.push_back(FRegistryCacheEntry{
 					.MountRoot = Mount.VirtualRoot,
 					.RelativePath = RelativeString,
-					.TopLevelAssets = [&] {
-						std::vector<FTopLevelAssetData> Assets;
-						for (const auto& Asset : Header.TopLevelAssets)
-							Assets.push_back({Asset.AssetPath, Asset.AssetClassName,
-								Asset.RedirectDestination});
-						return Assets;
-					}(),
+					.TopLevelAssets = Header.TopLevelAssets,
 					.FormatVersion = Header.FormatVersion,
 					.Dependencies = Header.Dependencies,
 					.SoftDependencies = Header.SoftDependencies,
@@ -159,20 +142,10 @@ namespace Durin::AssetPrivate
 					.BulkSegmentDigest = Header.BulkSegmentDigest,
 					.FileSize = FileSize,
 					.LastWriteTimeTicks = LastWriteTimeTicks});
-				Result.Assets.emplace(DiskPath, FAssetData{
+				Result.Assets.emplace(DiskPath, FPackageData{
 					.PackagePath = DiskPath,
 					.PhysicalPath = It->path().generic_string(),
-					.TopLevelAssets = [&] {
-						std::vector<FTopLevelAssetData> Assets;
-						for (auto& Asset : Header.TopLevelAssets)
-							Assets.push_back({std::move(Asset.AssetPath),
-								std::move(Asset.AssetClassName),
-								std::move(Asset.RedirectDestination)});
-						return Assets;
-					}(),
-					.AssetClassName = std::move(Header.AssetClassName),
-					.EntryKind = Header.EntryKind,
-					.RedirectDestination = std::move(Header.RedirectDestination),
+					.TopLevelAssets = std::move(Header.TopLevelAssets),
 					.FormatVersion = Header.FormatVersion,
 					.Dependencies = std::move(Header.Dependencies),
 					.SoftDependencies = std::move(Header.SoftDependencies),

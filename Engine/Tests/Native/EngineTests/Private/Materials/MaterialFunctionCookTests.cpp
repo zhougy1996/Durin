@@ -88,7 +88,7 @@ TEST_F(FMaterialFunctionCookTests, CookFingerprintsNestedFunctionsWithoutProduci
 	ASSERT_TRUE(UnloadPackage(WrapperPath));
 	ASSERT_TRUE(UnloadPackage(LeafPath));
 	CollectGarbage();
-	const auto LeafData = FindAssetExact(LeafPath);
+	const auto LeafData = FindPackageExact(LeafPath);
 	ASSERT_TRUE(LeafData);
 	const std::filesystem::path LeafFile = LeafData->PhysicalPath;
 	const auto HiddenLeafFile = LeafFile.string() + ".unavailable";

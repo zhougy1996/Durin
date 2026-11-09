@@ -416,7 +416,7 @@ TEST(FSceneImportTests, AsyncSessionReportsPartialPersistence)
 	ASSERT_TRUE(AdvanceSceneSession(Session, ESceneImportPhase::Completed));
 	EXPECT_FALSE(Session.GetResult());
 	EXPECT_EQ(Session.GetResult().SavedPackages.size(), 1u) << Session.GetResult().Message;
-	for (const auto& Path : Session.GetResult().SavedPackages) EXPECT_TRUE(FindAssetExact(Path));
+	for (const auto& Path : Session.GetResult().SavedPackages) EXPECT_TRUE(FindPackageExact(Path));
 }
 
 TEST(FSceneImportTests, AsyncSessionCancelsStagedSaveAndAllowsRetry)
@@ -673,7 +673,7 @@ TEST(FSceneImportTests, FailedPublicationDiscardsLocalMaterialAndRetrySucceeds)
 	ASSERT_TRUE(Preview.bSucceeded) << Preview.Message;
 	ASSERT_EQ(Preview.Materials.size(), 1u);
 	const auto ParentPath = Preview.Materials.front().AssetPath;
-	ASSERT_FALSE(FindAssetExact(ParentPath));
+	ASSERT_FALSE(FindPackageExact(ParentPath));
 	ASSERT_EQ(FindResidentPackage(ParentPath), nullptr);
 	for (const auto Failure : {EAssetBundleSavePhase::CreateDirectories, EAssetBundleSavePhase::StagePackage,
 		EAssetBundleSavePhase::PublishPackage, EAssetBundleSavePhase::PublishRegistry})
@@ -694,11 +694,11 @@ TEST(FSceneImportTests, FailedPublicationDiscardsLocalMaterialAndRetrySucceeds)
 		EXPECT_FALSE(Failed.bSucceeded);
 		EXPECT_FALSE(Failed.bPersisted);
 		EXPECT_EQ(FindResidentPackage(ParentPath), nullptr);
-		EXPECT_FALSE(FindAssetExact(ParentPath));
+		EXPECT_FALSE(FindPackageExact(ParentPath));
 		for (const auto& Output : Failed.Outputs)
 		{
 			EXPECT_EQ(FindResidentPackage(Output.AssetPath), nullptr);
-			EXPECT_FALSE(FindAssetExact(Output.AssetPath));
+			EXPECT_FALSE(FindPackageExact(Output.AssetPath));
 		}
 	}
 	auto Partial = ImportSceneAssets(Fixture.Source, Fixture.DestinationDirectory,
@@ -708,11 +708,11 @@ TEST(FSceneImportTests, FailedPublicationDiscardsLocalMaterialAndRetrySucceeds)
 	ASSERT_FALSE(Partial);
 	ASSERT_FALSE(Partial.SavedPackages.empty());
 	EXPECT_FALSE(Partial.bPersisted);
-	EXPECT_TRUE(FindAssetExact(ParentPath));
+	EXPECT_TRUE(FindPackageExact(ParentPath));
 	EXPECT_NE(FindResidentPackage(ParentPath), nullptr);
 	for (const auto& Path : Partial.SavedPackages)
 	{
-		ASSERT_TRUE(FindAssetExact(Path));
+		ASSERT_TRUE(FindPackageExact(Path));
 		ASSERT_NE(FindResidentPackage(Path), nullptr);
 		EXPECT_FALSE(FindResidentPackage(Path)->IsDirty());
 		EXPECT_FALSE(FindResidentPackage(Path)->IsGraphPrivate());
@@ -722,7 +722,7 @@ TEST(FSceneImportTests, FailedPublicationDiscardsLocalMaterialAndRetrySucceeds)
 		if (std::ranges::find(Partial.SavedPackages, Output.AssetPath) == Partial.SavedPackages.end())
 		{
 			bFoundUnsaved = true;
-			EXPECT_FALSE(FindAssetExact(Output.AssetPath));
+			EXPECT_FALSE(FindPackageExact(Output.AssetPath));
 			EXPECT_EQ(FindResidentPackage(Output.AssetPath), nullptr);
 		}
 	EXPECT_TRUE(bFoundUnsaved);
@@ -899,7 +899,7 @@ TEST(FSceneImportTests, ExplicitParentsReuseAcrossDestinationsAndRejectIncompati
 	EXPECT_FALSE(Rejected);
 	EXPECT_NE(Rejected.Message.find("graph"), std::string::npos);
 	EXPECT_EQ(Parent->GetExpressionOutputs(), Changed);
-	for (const auto& Output : Rejected.Outputs) EXPECT_FALSE(FindAssetExact(Output.AssetPath));
+	for (const auto& Output : Rejected.Outputs) EXPECT_FALSE(FindPackageExact(Output.AssetPath));
 	ASSERT_TRUE(ApplyOutputs(Original));
 }
 
@@ -972,7 +972,7 @@ TEST(FSceneImportTests, PerMaterialOverridesMissingParentsAndTypeChangesAreExpli
 	auto Rejected = ImportSceneAssets(Fixture.Source, Destination, FStaticMeshImportSettings::MakeDurin(), {}, {}, Options);
 	EXPECT_FALSE(Rejected);
 	EXPECT_TRUE(Rejected.SavedPackages.empty());
-	for (const auto& Output : Rejected.Outputs) EXPECT_FALSE(FindAssetExact(Output.AssetPath));
+	for (const auto& Output : Rejected.Outputs) EXPECT_FALSE(FindPackageExact(Output.AssetPath));
 	Options.Default.ParentMaterialPath = Parent->GetObjectPath();
 	Options.Overrides.push_back({Preview.Materials[0].StableIdentity, {ESceneMaterialImportMode::CreateMaterials}});
 	Preview = PreviewSceneMaterials(Fixture.Source, Destination, FStaticMeshImportSettings::MakeDurin(), Options);
@@ -1113,7 +1113,7 @@ TEST(FSceneImportTests, AssetForgeRejectsUnsupportedSceneFeaturesWithoutPartialP
 	EXPECT_FALSE(Imported);
 	EXPECT_FALSE(Imported.Diagnostics.empty());
 	EXPECT_TRUE(Imported.Outputs.empty());
-	EXPECT_FALSE(Durin::FindAssetExact(MakeAssetPath(
+	EXPECT_FALSE(Durin::FindPackageExact(MakeAssetPath(
 		"/SceneImportTests/SceneImport/Unsupported/Materials/MustNotPublish")));
 }
 
@@ -1128,7 +1128,7 @@ TEST(FSceneImportTests, DirectImportHonorsCancellationBeforePublication)
 	EXPECT_EQ(CancellationChecks, 1u);
 	ASSERT_FALSE(Result.Diagnostics.empty());
 	EXPECT_EQ(Result.Diagnostics.back().Category, Durin::AssetForge::EImportDiagnosticCategory::Canceled);
-	EXPECT_FALSE(Durin::FindAssetExact(
+	EXPECT_FALSE(Durin::FindPackageExact(
 		MakeAssetPath("/SceneImportTests/SceneImport/Scheduled/StaticMeshes/Scheduled")));
 }
 
@@ -1150,7 +1150,7 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	// An empty Engine mount must fail without synthesizing any packages.
 	ASSERT_FALSE(LoadStandardMaterialFunctions(Functions, Error));
 	EXPECT_NE(Error.find("Missing standard function"), std::string::npos);
-	EXPECT_FALSE(FindAssetExact(MakeAssetPath("/Engine/Materials/Functions/UVTransform")));
+	EXPECT_FALSE(FindPackageExact(MakeAssetPath("/Engine/Materials/Functions/UVTransform")));
 	EXPECT_EQ(FindResidentPackage(MakeAssetPath("/Engine/Materials/Functions/UVTransform")), nullptr);
 	const std::array Names{"UVTransform", "SampleNormal", "SampleORM"};
 	const std::array Slots{&Functions.UVTransform, &Functions.SampleNormal, &Functions.SampleORM};

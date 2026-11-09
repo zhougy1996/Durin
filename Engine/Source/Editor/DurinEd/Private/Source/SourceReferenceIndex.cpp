@@ -50,17 +50,18 @@ namespace Durin::Editor
 
 		auto AddReference(
 			std::unordered_map<std::string, std::vector<FSourceReference>>& References,
-			const FAssetData& Data,
+			const FPackagePath& PackagePath,
+			std::string_view AssetClassName,
 			std::string_view SourcePath) -> void
 		{
 			if (SourcePath.empty()) return;
 			References[std::string(SourcePath)].push_back({
-				.AssetPath = Data.PackagePath,
-				.AssetClassName = Data.AssetClassName});
+				.AssetPath = PackagePath,
+				.AssetClassName = std::string(AssetClassName)});
 		}
 
 		auto InspectSourceFields(
-			const FAssetData& Data,
+			const FPackageData& Data,
 			std::unordered_map<std::string, std::vector<FSourceReference>>& References)
 			-> bool
 		{
@@ -68,8 +69,10 @@ namespace Durin::Editor
 			if (!InspectAssetPackage(Data.PhysicalPath, Inspection)) return false;
 			if (auto ImportInfo = InspectAssetImportInfo(Inspection); ImportInfo)
 			{
+				if (Inspection.Objects.empty()) return false;
 				for (const FSourceFile& Source : ImportInfo->Sources)
-					AddReference(References, Data, Source.Hint);
+					AddReference(References, Data.PackagePath,
+						Inspection.Objects.front().ClassName, Source.Hint);
 				return true;
 			}
 

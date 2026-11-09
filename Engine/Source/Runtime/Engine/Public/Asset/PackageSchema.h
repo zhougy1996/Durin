@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "Asset/AssetReadResult.h"
+#include "AssetRegistry/Catalog.h"
 
 #include "EngineAPI.h"
 #include "Asset/Load.h"
@@ -121,7 +122,7 @@ namespace Durin
 	struct FPackageSchemaInspection
 	{
 		uint32 FormatVersion = 0;
-		EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
+		std::vector<FAssetData> TopLevelAssets;
 		std::vector<FPackagePath> Dependencies;
 		EPackageSchemaStatus Status = EPackageSchemaStatus::Compatible;
 		std::vector<FPackageSchemaIssue> Issues;

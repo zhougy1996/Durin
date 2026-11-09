@@ -357,7 +357,7 @@ namespace Durin
 		{
 			return Resident;
 		}
-		const FAssetCatalogEntry Entry = Durin::FindAssetExact(Path);
+		const FPackageCatalogEntry Entry = Durin::FindPackageExact(Path);
 		if (!Entry)
 			return std::unexpected(FAssetReadError{EAssetReadError::NotFound, std::format(
 				"Package {} is not present in the registry.", Path.ToString())});
@@ -539,7 +539,7 @@ namespace Durin
 			OutPackage = Resident;
 			return {};
 		}
-		const auto Entry = Durin::FindAssetExact(Path);
+		const auto Entry = Durin::FindPackageExact(Path);
 		if (!Entry) return Error(EAssetReadError::MissingDependency,
 			std::format("Dependency '{}' is not present in the registry.", Path.ToString()));
 		auto Result = LoadPackageFromPhysicalPath(Path, Entry->PhysicalPath, OutPackage);
@@ -724,9 +724,6 @@ namespace Durin
 			const AssetPrivate::FMutationPackageMetadata HeaderMetadata{
 				.FormatVersion = Header.FormatVersion,
 				.TopLevelAssets = Header.TopLevelAssets,
-				.AssetClassName = Header.AssetClassName,
-				.EntryKind = Header.EntryKind,
-				.RedirectDestination = Header.RedirectDestination,
 				.Dependencies = Header.Dependencies};
 			Result = AssetPrivate::ValidateMutationPackageMetadata(
 				HeaderMetadata, Header.ObjectCount, &Path);
@@ -801,11 +798,11 @@ namespace Durin
 			FPackagePath OtherPath;
 			if (!FPackagePath::TryCreate(OtherPackage->GetPackagePath(), OtherPath))
 				continue;
-			const FAssetCatalogEntry Data = FindAssetExact(OtherPath);
+			const FPackageCatalogEntry Data = FindPackageExact(OtherPath);
 			if (!Data) continue;
 			for (const FPackagePath& Dependency : Data->Dependencies)
 			{
-				const FAssetPathResolveResult Resolution = Durin::ResolveAssetPathForOperation(Dependency);
+				const FPackagePathResolveResult Resolution = Durin::ResolvePackagePathForOperation(Dependency);
 				if (Resolution && Resolution.FinalPath == Path) return true;
 			}
 		}
@@ -873,11 +870,11 @@ namespace Durin
 				if (Candidates.contains(Path)) continue;
 				if (std::ranges::any_of(IgnoreSavedDependencies,
 					[&](const auto& Handle) { return Handle.Get() == Package; })) continue;
-				const FAssetCatalogEntry Data = FindAssetExact(Path);
+				const FPackageCatalogEntry Data = FindPackageExact(Path);
 				if (!Data) continue;
 				for (const FPackagePath& Dependency : Data->Dependencies)
 				{
-					const FAssetPathResolveResult Resolution = Durin::ResolveAssetPathForOperation(Dependency);
+					const FPackagePathResolveResult Resolution = Durin::ResolvePackagePathForOperation(Dependency);
 					if (Resolution && Candidates.erase(Resolution.FinalPath))
 					{
 						bChanged = true;

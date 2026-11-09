@@ -19,11 +19,11 @@ namespace Durin::Testing
 	inline auto RemoveAssetPackagesForTests(std::span<const FPackagePath> Paths) -> FAssetWriteResult
 	{
 		const uint64 Revision = GetAssetCatalogRevision();
-		std::vector<FAssetData> Packages;
+		std::vector<FPackageData> Packages;
 		std::vector<std::filesystem::path> Files;
 		for (const FPackagePath& Path : Paths)
 		{
-			const FAssetCatalogEntry Data = FindAssetExact(Path);
+			const FPackageCatalogEntry Data = FindPackageExact(Path);
 			if (!Data) return {EAssetWriteError::NotFound, "The fixture package is not registered."};
 			FAssetPackageInspection Inspection;
 			const auto Inspected = InspectAssetPackage(Data->PhysicalPath, Path, Inspection);
@@ -70,7 +70,7 @@ namespace Durin::Testing
 			return {EAssetWriteError::InvalidPath,
 				"Redirector source and destination paths must be valid and distinct."};
 
-		const FAssetPathResolveResult Resolution = ResolveAssetPath(DestinationPath);
+		const FPackagePathResolveResult Resolution = ResolvePackagePath(DestinationPath);
 		if (!Resolution)
 		{
 			switch (Resolution.State)
@@ -99,20 +99,17 @@ namespace Durin::Testing
 				break;
 			}
 		}
-		if (!Resolution.FinalAssetData)
+		if (!Resolution.FinalPackageData)
 			return {EAssetWriteError::InvalidData,
 				"The redirect destination has no final asset data."};
-		const FAssetData& DestinationData = *Resolution.FinalAssetData;
-		const auto DestinationRecord = std::ranges::find(
-			DestinationData.TopLevelAssets, DestinationData.AssetClassName,
-			&FTopLevelAssetData::AssetClassName);
-		if (DestinationRecord == DestinationData.TopLevelAssets.end())
+		const FPackageData& DestinationData = *Resolution.FinalPackageData;
+		if (DestinationData.TopLevelAssets.size() != 1)
 			return {EAssetWriteError::InvalidData,
 				"The redirect destination has no exact top-level asset."};
 
 		FObjectPath DestinationObjectPath;
 		if (!FObjectPath::TryCreate(
-			DestinationRecord->AssetPath, std::span<const std::string>{},
+			DestinationData.TopLevelAssets.front().AssetPath, std::span<const std::string>{},
 			DestinationObjectPath))
 			return {EAssetWriteError::InvalidPath,
 				"The redirect destination object path is invalid."};

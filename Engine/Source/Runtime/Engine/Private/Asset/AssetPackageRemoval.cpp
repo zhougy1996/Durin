@@ -72,7 +72,7 @@ namespace Durin
 	}
 
 	auto FAssetMutationCoordinator::ValidatePackageRemoval(
-		std::span<const FAssetData> Entries, uint64 ExpectedRevision) -> FAssetWriteResult
+		std::span<const FPackageData> Entries, uint64 ExpectedRevision) -> FAssetWriteResult
 	{
 		if (RuntimeConfiguration.IsCooked())
 			return Error(EAssetWriteError::ReadOnlyMode, "Cooked packages cannot be removed.");
@@ -82,9 +82,9 @@ namespace Durin
 		if (Prepared.Revision != ExpectedRevision)
 			return Error(EAssetWriteError::StaleData, "The package catalog changed before removal.");
 		std::unordered_set<FPackagePath> DeletionSet;
-		for (const FAssetData& Entry : Entries)
+		for (const FPackageData& Entry : Entries)
 			DeletionSet.insert(Entry.PackagePath);
-		for (const FAssetData& Entry : Entries)
+		for (const FPackageData& Entry : Entries)
 		{
 			const auto* Current = Prepared.Catalog.FindExact(Entry.PackagePath);
 			if (!Current || !(*Current == Entry))
@@ -102,12 +102,12 @@ namespace Durin
 	}
 
 	auto FAssetMutationCoordinator::ReleasePackagesForRemoval(
-		std::span<const FAssetData> Entries, uint64 ExpectedRevision) -> FAssetWriteResult
+		std::span<const FPackageData> Entries, uint64 ExpectedRevision) -> FAssetWriteResult
 	{
 		const FAssetWriteResult Validated = ValidatePackageRemoval(Entries, ExpectedRevision);
 		if (!Validated) return Validated;
 		std::vector<DPackage*> Packages;
-		for (const FAssetData& Entry : Entries)
+		for (const FPackageData& Entry : Entries)
 		{
 			const FPackagePath& Path = Entry.PackagePath;
 			if (Loader.IsPackageLoading(Path))
@@ -133,11 +133,11 @@ namespace Durin
 	}
 
 	auto FAssetMutationCoordinator::PublishPackageRemoval(
-		std::span<const FAssetData> Entries, uint64 ExpectedRevision) -> FAssetWriteResult
+		std::span<const FPackageData> Entries, uint64 ExpectedRevision) -> FAssetWriteResult
 	{
 		const FAssetWriteResult Validated = ValidatePackageRemoval(Entries, ExpectedRevision);
 		if (!Validated) return Validated;
-		for (const FAssetData& Entry : Entries)
+		for (const FPackageData& Entry : Entries)
 		{
 			std::error_code Ec;
 			const bool bExists = std::filesystem::exists(Entry.PhysicalPath, Ec);
@@ -145,7 +145,7 @@ namespace Durin
 				return Error(EAssetWriteError::IoError, "The removed package file is still present or cannot be inspected.");
 		}
 		FAssetRegistryDelta Delta{.ExpectedRevision = ExpectedRevision};
-		for (const FAssetData& Entry : Entries)
+		for (const FPackageData& Entry : Entries)
 		{
 			Delta.Removes.push_back(Entry.PackagePath);
 			Delta.ReferenceInvalidations.push_back(Entry.PackagePath);

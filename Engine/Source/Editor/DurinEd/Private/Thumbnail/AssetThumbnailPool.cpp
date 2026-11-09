@@ -125,9 +125,9 @@ namespace Durin::Editor
 			BackgroundPackages.pop_front();
 			FPackagePath PackagePath;
 			if (!FPackagePath::TryCreate(Path, PackagePath)) return;
-			const auto Package = FindAssetExact(PackagePath);
+			const auto Package = FindPackageExact(PackagePath);
 			if (!Package) return;
-			for (const FTopLevelAssetData& Asset : Package->TopLevelAssets)
+			for (const FAssetData& Asset : Package->TopLevelAssets)
 			{
 				if (Asset.IsRedirector() || !Manager.Find(Asset.AssetClassName)) continue;
 				Pool.Prefetch({

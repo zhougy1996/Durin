@@ -4,6 +4,7 @@
 
 #include "AssetMaintenanceAPI.h"
 #include "AssetMaintenance/CompatibilityAudit.h"
+#include "AssetRegistry/Catalog.h"
 
 namespace Durin
 {
@@ -40,7 +41,6 @@ namespace Durin
 		FPackagePath PackagePath;
 		std::string PhysicalPath;
 		FAssetPackageFingerprint Fingerprint;
-		EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
 		EAssetCanonicalResavePackageStatus Status = EAssetCanonicalResavePackageStatus::Blocked;
 		bool bLoaded = false;
 		bool bDirty = false;

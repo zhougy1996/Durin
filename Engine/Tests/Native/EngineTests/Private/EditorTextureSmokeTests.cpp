@@ -129,8 +129,8 @@ namespace Durin
 		ASSERT_TRUE(UnloadPackage(TexturePath));
 		for (const FPackagePath& Path : {MaterialPath, MeshPath, TexturePath})
 		{
-			const FAssetCatalogEntry Data =
-				FindAssetExact(Path);
+			const FPackageCatalogEntry Data =
+				FindPackageExact(Path);
 			ASSERT_NE(Data, nullptr);
 			EXPECT_EQ(Data->FormatVersion,
 				OrdinaryAssetPackageWriterVersion);
@@ -223,7 +223,7 @@ namespace Durin
 		ASSERT_NE(LoadedTexture, nullptr);
 		ValidateRenderableGraph(LoadedMesh, LoadedMaterial, LoadedTexture);
 		const std::string MaterialFile =
-			FindAssetExact(MaterialPath)->PhysicalPath;
+			FindPackageExact(MaterialPath)->PhysicalPath;
 		Durin::FByteBuffer BeforeSave;
 		auto BeforeSaveRead = FFileHelper::LoadFileToArray(MaterialFile);
 		ASSERT_TRUE(BeforeSaveRead) << BeforeSaveRead.error().ToString();
@@ -248,7 +248,7 @@ namespace Durin
 		ASSERT_TRUE(AfterSaveRead) << AfterSaveRead.error().ToString();
 		AfterSave = std::move(*AfterSaveRead);
 		EXPECT_EQ(AfterSave, BeforeSave);
-		EXPECT_EQ(FindAssetExact(MaterialPath)
+		EXPECT_EQ(FindPackageExact(MaterialPath)
 			->FormatVersion, OrdinaryAssetPackageWriterVersion);
 
 		TestHost.Shutdown();

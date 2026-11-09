@@ -5,6 +5,7 @@
 #include "Asset/Mutation.h"
 #include "Asset/PackageEditing.h"
 #include "Asset/References.h"
+#include "AssetRegistry/Catalog.h"
 #include "AssetPackageFingerprintInternal.h"
 
 namespace Durin::AssetPrivate
@@ -12,10 +13,7 @@ namespace Durin::AssetPrivate
 	struct FMutationPackageMetadata
 	{
 		uint32 FormatVersion = 0;
-		std::vector<FTopLevelAssetData> TopLevelAssets;
-		std::string AssetClassName;
-		EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
-		FPackagePath RedirectDestination;
+		std::vector<FAssetData> TopLevelAssets;
 		std::vector<FPackagePath> Dependencies;
 		std::vector<FPackagePath> SoftDependencies;
 		std::vector<FPackagePath> BuildDependencies;

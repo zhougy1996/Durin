@@ -4,7 +4,7 @@ Summary: Define mounted package discovery, rebuildable catalog/reference project
 
 Modules: Core, AssetRegistry, Engine, AssetTools, ContentBrowser, DurinEd, LevelEditor
 
-Last reviewed: 2026-09-22
+Last reviewed: 2026-11-09
 
 Package identity, serialization, loading, and residency are defined by
 [Asset Packages](AssetPackages.md). Authored, derived, and cooked storage
@@ -13,6 +13,16 @@ This document owns only rebuildable discovery/reference projections and
 asset mutations over those package identities.
 
 ## Catalog Ownership
+
+`FPackageData` describes one persistent package: its physical file, format,
+dependencies, bulk segment, and complete `TopLevelAssets` list. Each list entry
+is an `FAssetData` with an exact asset path, class, and optional exact object
+redirect destination. Packages have no representative class, entry kind, or
+redirect destination, including when they contain exactly one asset.
+`FindPackageExact(FPackagePath)` returns `FPackageCatalogEntry`;
+`FindAssetExact(FTopLevelAssetPath)` returns `FAssetCatalogEntry` containing the
+exact asset and its owning package from the same revision. Package-wide policies
+inspect all asset records; class-specific operations select an exact asset.
 
 Mounted `Content` is authoritative. `AssetRegistry/Registry.bin` is a
 rebuildable, deterministic discovery snapshot keyed by virtual mount and
@@ -43,7 +53,7 @@ removal uses `PublishAssetRegistryDelta` directly. Internal Engine
 relocation and redirector repair capture native registry publication snapshots.
 There is no publication coordinator service or injected registry wrapper;
 affected paths may be fenced while a failed projection is reconciled. Public callers receive
-owned `FAssetCatalogEntry` values and immutable `FAssetCatalogSnapshot` values,
+owned `FPackageCatalogEntry`/`FAssetCatalogEntry` values and immutable `FAssetCatalogSnapshot` values,
 never pointers into mutable storage.
 
 The process-local catalog revision advances only when published metadata
@@ -52,7 +62,7 @@ prior/resulting revisions, counters, warnings, and errors in one value. Explicit
 Content Browser refresh reconciles every registered auto-scan mount; its folder
 scope affects only presentation.
 
-`FAssetRegistrySnapshot::ResolveAssetPath` and `ResolveAssetObjectPath` use only
+`FAssetRegistrySnapshot::ResolvePackagePath` and `ResolveAssetObjectPath` use only
 the owned catalog and `FAssetPathQueryOptions`. Unloaded serialized class names
 are valid metadata. Exact resolution preserves descendant suffixes across aliases;
 redirect depth, cycles, missing targets, and corrupt redirect metadata remain
@@ -60,7 +70,7 @@ structural results. Later fences or publications cannot change an old query.
 
 The free Registry resolvers inspect current metadata and fence every traversed
 package, without consulting loaded types. Runtime operations use Engine's
-`Asset/RegistryOperations.h` and its `ResolveAssetPathForOperation` or
+`Asset/RegistryOperations.h` and its `ResolvePackagePathForOperation` or
 `ResolveAssetObjectPathForOperation` to add loaded-class compatibility checks.
 `ValidateResolvedAssetForOperation` validates captured aliases and the final
 package before checking types. `ValidateAssetRegistryParticipants` compares
@@ -114,7 +124,7 @@ Cook inputs and contributor callbacks use their Cook-owned result types.
 ## Reference Projection
 
 AssetRegistry stores package-level hard, soft, and redirect edges only. Every
-edge is derived deterministically from the same `FAssetData` candidate as the
+edge is derived deterministically from the same `FPackageData` candidate as the
 catalog, and the catalog, fingerprints, and edge projection publish under one
 expected revision. Duplicate `(source, target, category)` edges collapse;
 publication rejects unsorted metadata, invalid redirects, fingerprint drift,

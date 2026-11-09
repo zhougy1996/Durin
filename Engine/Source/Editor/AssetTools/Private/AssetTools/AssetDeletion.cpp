@@ -136,9 +136,9 @@ namespace Durin
 		if (GetAssetCatalogRevision() != RegistryRevision
 			|| ContributorRevision != AssetToolsPrivate::GetDeleteContributorRevision())
 			return Error(EAssetWriteError::StaleData, "Deletion metadata changed during file validation.");
-		std::vector<FAssetData> Packages;
+		std::vector<FPackageData> Packages;
 		for (const FAssetDeletionEntry& Entry : Entries)
-			if (FindAssetExact(Entry.RegistryEntry.PackagePath))
+			if (FindPackageExact(Entry.RegistryEntry.PackagePath))
 				Packages.push_back(Entry.RegistryEntry);
 		Result = ReleasePackagesForRemoval(Packages, RegistryRevision);
 		if (!Result) return Result;
@@ -274,7 +274,7 @@ namespace Durin
 
 		for (const FPackagePath& Path : SortedPaths)
 		{
-			const FAssetCatalogEntry Data = FindAssetExact(Path);
+			const FPackageCatalogEntry Data = FindPackageExact(Path);
 			if (!Path.IsValid() || !Data)
 			{
 				AddBlocker(
@@ -332,7 +332,7 @@ namespace Durin
 		for (const auto& Target : SortedPaths)
 		{
 			const auto* TargetData = PreparedSnapshot.Catalog.FindExact(Target);
-			if (!TargetData || TargetData->EntryKind == EAssetRegistryEntryKind::Redirector) continue;
+			if (!TargetData || (!TargetData->TopLevelAssets.empty() && std::ranges::all_of(TargetData->TopLevelAssets, &FAssetData::IsRedirector))) continue;
 			std::vector<FPackagePath> Pending{Target};
 			std::unordered_set<FPackagePath> Visited{Target};
 			for (size_t Index = 0; Index < Pending.size(); ++Index)
@@ -341,8 +341,8 @@ namespace Durin
 					if (Edge.Kind != EAssetReferenceKind::Redirect
 						|| !Visited.insert(Edge.SourcePackage).second) continue;
 					const auto* Alias = PreparedSnapshot.Catalog.FindExact(Edge.SourcePackage);
-					if (!Alias || Alias->EntryKind != EAssetRegistryEntryKind::Redirector) continue;
-					const auto Resolution = ResolveAssetPathForOperation(Edge.SourcePackage);
+					if (!Alias || !(!Alias->TopLevelAssets.empty() && std::ranges::all_of(Alias->TopLevelAssets, &FAssetData::IsRedirector))) continue;
+					const auto Resolution = ResolvePackagePathForOperation(Edge.SourcePackage);
 					if (!Resolution || Resolution.FinalPath != Target) continue;
 					RedirectorsByTarget[Target].push_back(Edge.SourcePackage);
 					Pending.push_back(Edge.SourcePackage);
@@ -357,17 +357,17 @@ namespace Durin
 
 		for (const FPackagePath& Path : SortedPaths)
 		{
-			const FAssetCatalogEntry Data = FindAssetExact(Path);
+			const FPackageCatalogEntry Data = FindPackageExact(Path);
 			if (!Data) continue;
-			if (Data->EntryKind == EAssetRegistryEntryKind::Redirector)
+			if ((!Data->TopLevelAssets.empty() && std::ranges::all_of(Data->TopLevelAssets, &FAssetData::IsRedirector)))
 			{
-				const FAssetPathResolveResult Resolution =
-					ResolveAssetPathForOperation(Path);
+				const FPackagePathResolveResult Resolution =
+					ResolvePackagePathForOperation(Path);
 				if (!Resolution || !DeletionSet.contains(Resolution.FinalPath))
 				{
 					const FPackagePath Related = Resolution.FinalPath.IsValid()
 						? Resolution.FinalPath
-						: Data->RedirectDestination;
+						: Data->TopLevelAssets.front().RedirectDestination.GetPackagePath();
 					AddBlocker(
 						EAssetDeletionBlocker::RedirectorTargetNotSelected,
 						Path,
@@ -393,7 +393,7 @@ namespace Durin
 					SelectedRedirectors.push_back(Redirector);
 				else
 				{
-					const FAssetCatalogEntry RedirectorData = FindAssetExact(Redirector);
+					const FPackageCatalogEntry RedirectorData = FindPackageExact(Redirector);
 					AddBlocker(
 						EAssetDeletionBlocker::TargetRedirectorsNotSelected,
 						Path,
@@ -478,7 +478,7 @@ namespace Durin
 				if (Edge.Kind == EAssetReferenceKind::SoftObject || DeletionSet.contains(Edge.SourcePackage)) continue;
 				const auto* Other = PreparedSnapshot.Catalog.FindExact(Edge.SourcePackage);
 				// Redirect hard blockers have dedicated actionable closure diagnostics.
-				if (!Other || Other->EntryKind == EAssetRegistryEntryKind::Redirector) continue;
+				if (!Other || (!Other->TopLevelAssets.empty() && std::ranges::all_of(Other->TopLevelAssets, &FAssetData::IsRedirector))) continue;
 				AddBlocker(FindResidentPackage(Edge.SourcePackage)
 					? EAssetDeletionBlocker::ExternalLoadedReference : EAssetDeletionBlocker::ExternalPersistentReference,
 					Path, Edge.SourcePackage, Other->PhysicalPath,
@@ -592,7 +592,7 @@ namespace Durin
 		for (const auto& Entry : Entries)
 		{
 			const auto& Path = Entry.RegistryEntry.PackagePath;
-			const auto Current = FindAssetExact(Path);
+			const auto Current = FindPackageExact(Path);
 			if (!Current || !(*Current == Entry.RegistryEntry))
 				return Error(EAssetWriteError::StaleData, "A deletion participant changed after confirmation.");
 			const auto* Loaded = FindResidentPackage(Path);

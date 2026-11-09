@@ -23,18 +23,18 @@ namespace Durin
 	// Aggregates every asset's redirects. Mixed packages retain hard edges even when
 	// an ordinary reference and a redirect share the same destination package.
 	template <typename TVisitor>
-	auto VisitAssetPackageReferences(const FAssetData& Data, TVisitor&& Visitor) -> void
+	auto VisitAssetPackageReferences(const FPackageData& Data, TVisitor&& Visitor) -> void
 	{
 		const bool bOnlyRedirectors = !Data.TopLevelAssets.empty()
-			&& std::ranges::all_of(Data.TopLevelAssets, &FTopLevelAssetData::IsRedirector);
+			&& std::ranges::all_of(Data.TopLevelAssets, &FAssetData::IsRedirector);
 		for (const FPackagePath& Target : Data.Dependencies)
 			if (!bOnlyRedirectors || std::ranges::none_of(Data.TopLevelAssets,
-				[&](const FTopLevelAssetData& Asset) {
+				[&](const FAssetData& Asset) {
 					return Asset.RedirectDestination.GetPackagePath() == Target;
 				})) Visitor(EAssetReferenceKind::HardObject, Target);
 		for (const FPackagePath& Target : Data.SoftDependencies)
 			Visitor(EAssetReferenceKind::SoftObject, Target);
-		for (const FTopLevelAssetData& Asset : Data.TopLevelAssets)
+		for (const FAssetData& Asset : Data.TopLevelAssets)
 			if (Asset.IsRedirector())
 				Visitor(EAssetReferenceKind::Redirect, Asset.RedirectDestination.GetPackagePath());
 	}
@@ -83,10 +83,10 @@ namespace Durin
 		FAssetCatalogSnapshot Catalog;
 		FAssetReferenceIndex References;
 
-		ASSETREGISTRY_API auto ResolveAssetPath(
+		ASSETREGISTRY_API auto ResolvePackagePath(
 			const FPackagePath& Path,
 			const FAssetPathQueryOptions& Options = {}) const
-			-> FAssetPathResolveResult;
+			-> FPackagePathResolveResult;
 		ASSETREGISTRY_API auto ResolveAssetObjectPath(
 			const FObjectPath& Path, const FAssetPathQueryOptions& Options = {}) const
 			-> FObjectPathResolveResult;

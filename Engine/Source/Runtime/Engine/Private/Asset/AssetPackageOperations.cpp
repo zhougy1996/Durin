@@ -162,11 +162,11 @@ namespace Durin
 			return {};
 		}
 
-		using FSaveParticipants = std::unordered_map<FPackagePath, std::optional<FAssetData>>;
+		using FSaveParticipants = std::unordered_map<FPackagePath, std::optional<FPackageData>>;
 		auto SaveParticipantsChanged(const FSaveParticipants& Participants, const FPackagePath& Path) -> bool
 		{
 			return std::ranges::any_of(Participants, [&](const auto& Entry) {
-				const auto Current = FindAssetExact(Entry.first).Data;
+				const auto Current = FindPackageExact(Entry.first).Data;
 				// The saved package remains an exact participant. Dependencies only need
 				// stable identities and reference routing, not unchanged content metadata.
 				if (Entry.first == Path) return Current != Entry.second;
@@ -217,9 +217,9 @@ namespace Durin
 		Data.Options.ShouldFail = [Inject = Options.ShouldFail, bHasBulk = Data.Prepared.Header.BulkSegmentExtent != 0](EAssetBundleSavePhase Phase, size_t Index) {
 			return Inject && (Phase != EAssetBundleSavePhase::PublishCompanion || bHasBulk) && Inject(Phase, Index);
 		};
-		Data.Participants.emplace(Data.Prepared.Header.PackagePath, FindAssetExact(Data.Prepared.Header.PackagePath).Data);
+		Data.Participants.emplace(Data.Prepared.Header.PackagePath, FindPackageExact(Data.Prepared.Header.PackagePath).Data);
 		for (const auto& Dependency : Data.Prepared.Header.Dependencies)
-			Data.Participants.emplace(Dependency, FindAssetExact(Dependency).Data);
+			Data.Participants.emplace(Dependency, FindPackageExact(Dependency).Data);
 		auto Submitted = PackageSavePrivate::SubmitAsyncSave(Data.Prepared.DetachedBytes,
 			[Operation] { Operation->State->StagingResult = ToAssetWriteResult(Operation->State->Prepared.Write->Stage()); },
 			[Operation](bool bSucceeded) {
@@ -298,9 +298,9 @@ namespace Durin
 		{ OutResult = Error(EAssetWriteError::StaleData, "Package destination is unavailable."); return {}; }
 		OutResult = PreparePackageSave(Package, Path, Options.Mode, Data.Prepared);
 		if (!OutResult) return {};
-		Data.Participants.emplace(Path, FindAssetExact(Path).Data);
+		Data.Participants.emplace(Path, FindPackageExact(Path).Data);
 		for (const auto& Dependency : Data.Prepared.Header.Dependencies)
-			Data.Participants.emplace(Dependency, FindAssetExact(Dependency).Data);
+			Data.Participants.emplace(Dependency, FindPackageExact(Dependency).Data);
 		return Operation;
 	}
 
@@ -415,9 +415,9 @@ namespace Durin
 		auto Data = std::make_shared<FDirectAssetSave>();
 		Data->Sink = AsyncSaveSink;
 		if (auto Result = PreparePackageSave(Package, Package->GetPackagePathIdentity(), Mode, Data->Prepared, true); !Result) return Result;
-		Data->Participants.emplace(Data->Prepared.Header.PackagePath, FindAssetExact(Data->Prepared.Header.PackagePath).Data);
+		Data->Participants.emplace(Data->Prepared.Header.PackagePath, FindPackageExact(Data->Prepared.Header.PackagePath).Data);
 		for (const auto& Dependency : Data->Prepared.Header.Dependencies)
-			Data->Participants.emplace(Dependency, FindAssetExact(Dependency).Data);
+			Data->Participants.emplace(Dependency, FindPackageExact(Dependency).Data);
 		auto Submitted = PackageSavePrivate::SubmitAsyncSave(Data->Prepared.DetachedBytes,
 			[Data] { Data->bStarted = true; Data->Written = Data->Prepared.Write->Stage(); },
 			[Data, bFailPublication = bFailDirectPublication](bool bSucceeded) {
@@ -523,7 +523,7 @@ namespace Durin
 		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return AssetWriteResultFromRead(Guard);
 		if (!Path.IsValid())
 			return Error(EAssetWriteError::InvalidPath, "The asset admission path is invalid.");
-		if (Durin::FindAssetExact(Path) || FindResidentPackage(Path))
+		if (Durin::FindPackageExact(Path) || FindResidentPackage(Path))
 			return Error(EAssetWriteError::AlreadyExists,
 				"The asset admission path is already occupied.");
 		const std::string PhysicalPath = GetPhysicalPath(Path);

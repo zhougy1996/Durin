@@ -35,13 +35,13 @@ namespace Durin::Editor::ContentBrowser::Private
 		struct FIndexedAsset
 		{
 			const FPackagePath* Path = nullptr;
-			const FAssetData* Data = nullptr;
+			const FPackageData* Data = nullptr;
 		};
 		auto QueryEntryStatus(const std::filesystem::directory_entry& Entry,
 			std::error_code& Error) const -> std::filesystem::file_status;
 		auto RefreshAssetDirectoryIndex(std::shared_ptr<const FAssetCatalogSnapshot> Catalog,
 			const Tasks::FCancellationToken& Cancellation) -> void;
-		auto AppendAssetItem(const FPackagePath& Path, const FAssetData& Data,
+		auto AppendAssetItem(const FPackagePath& Path, const FPackageData& Data,
 			const Tasks::FCancellationToken& Cancellation) -> void;
 		auto AddEnumerationDiagnostic(EEnumerationDiagnosticKind Kind,
 			const std::filesystem::path& Path, std::string Message) -> void;

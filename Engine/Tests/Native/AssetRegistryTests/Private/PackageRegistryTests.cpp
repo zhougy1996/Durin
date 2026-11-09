@@ -83,8 +83,8 @@ TEST(FPackageRegistryContractTests, FrontMatterProjectsPackageAndTopLevelAssetMe
 		"/Game/RegistryFixture.RegistryFixture");
 	EXPECT_EQ(Header.TopLevelAssets.front().AssetClassName,
 		"Example::RegistryAsset");
-	EXPECT_EQ(Header.AssetClassName, "Example::RegistryAsset");
-	EXPECT_EQ(Header.EntryKind, EAssetRegistryEntryKind::Asset);
+	EXPECT_EQ(Header.TopLevelAssets.front().AssetClassName, "Example::RegistryAsset");
+	EXPECT_FALSE(Header.TopLevelAssets.front().IsRedirector());
 	EXPECT_EQ(Header.ObjectCount, 1u);
 	EXPECT_EQ(Header.Dependencies, (std::vector<Durin::FPackagePath>{
 		Path("/Game/HardA"), Path("/Game/HardB")}));
@@ -201,14 +201,14 @@ TEST(FPackageRegistryContractTests, RefreshUsesOnlyFrontMatterAndOnePackageMetad
 		CacheRoot / "AssetRegistry" / "References.bin"));
 
 	const Durin::FPackagePath Owner = Path("/P3/Owner");
-	const FAssetCatalogEntry Data = FindAssetExact(Owner);
+	const FPackageCatalogEntry Data = FindPackageExact(Owner);
 	ASSERT_TRUE(Data);
 	ASSERT_EQ(Data->TopLevelAssets.size(), 2u);
 	EXPECT_EQ(Data->TopLevelAssets.front().AssetPath.ToString(),
 		"/P3/Owner.RegistryFixture");
 	EXPECT_EQ(Data->TopLevelAssets.back().AssetPath, SecondaryPath);
-	const FTopLevelAssetCatalogEntry Secondary =
-		FindTopLevelAssetExact(SecondaryPath);
+	const FAssetCatalogEntry Secondary =
+		FindAssetExact(SecondaryPath);
 	ASSERT_TRUE(Secondary);
 	EXPECT_EQ(Secondary->AssetClassName, "Example::SecondaryAsset");
 	ASSERT_TRUE(Secondary.Package.has_value());
@@ -330,10 +330,13 @@ TEST(FPackageRegistryContractTests, MultiAssetRedirectsAreExactAcrossScansAndPub
 	for (const std::string Name : {"Aliases", "MixedFirst", "MixedLast"})
 	{
 		const auto Source = Path("/Multi/" + Name);
-		const auto Data = FindAssetExact(Source);
+		const auto Data = FindPackageExact(Source);
 		ASSERT_TRUE(Data);
-		EXPECT_TRUE(Data->AssetClassName.empty());
-		EXPECT_FALSE(Data->RedirectDestination.IsValid());
+		const auto Alias = FindAssetExact(ObjectPath("/Multi/" + Name + ".MAlias").GetAssetPath());
+		ASSERT_TRUE(Alias);
+		EXPECT_TRUE(Alias->IsRedirector());
+		ASSERT_TRUE(Alias.Package);
+		EXPECT_EQ(Alias.Package->PackagePath, Source);
 		const auto First = ResolveAssetObjectPath(ObjectPath("/Multi/" + Name + ".MAlias"));
 		ASSERT_TRUE(First);
 		EXPECT_EQ(First.FinalPath, ObjectPath("/Multi/TargetA.RegistryFixture"));
@@ -361,7 +364,7 @@ TEST(FPackageRegistryContractTests, MultiAssetRedirectsAreExactAcrossScansAndPub
 	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 	EXPECT_EQ(CaptureAssetRegistryPublication().ReferenceEdges, ColdPublication.ReferenceEdges);
 
-	FAssetData Reordered = *FindAssetExact(Path("/Multi/MixedFirst"));
+	FPackageData Reordered = *FindPackageExact(Path("/Multi/MixedFirst"));
 	std::ranges::reverse(Reordered.TopLevelAssets);
 	FAssetRegistryDelta Delta{.ExpectedRevision = GetAssetCatalogRevision(), .Replaces = {Reordered}};
 	const auto Published = PublishAssetRegistryDelta(std::move(Delta));
@@ -374,12 +377,12 @@ TEST(FPackageRegistryContractTests, MultiAssetRedirectsAreExactAcrossScansAndPub
 	EXPECT_EQ(GetAssetCatalogRevision(), Revision);
 
 	const auto BeforeDelta = CaptureAssetRegistryPublication();
-	FAssetData Changed = BeforeDelta.Assets.at(Path("/Multi/TargetA"));
+	FPackageData Changed = BeforeDelta.Assets.at(Path("/Multi/TargetA"));
 	Changed.SoftDependencies = {Path("/Multi/TargetB")};
 	Changed.FileSize += 1;
 	const std::vector<FPackagePath> Fenced{Changed.PackagePath, Path("/Multi/Aliases")};
 	FenceAssetRegistryProjection(Fenced);
-	FAssetData Invalid = Changed;
+	FPackageData Invalid = Changed;
 	Invalid.ObjectCount = 0;
 	EXPECT_FALSE(PublishAssetRegistryDelta({.ExpectedRevision = Revision,
 		.Replaces = {Changed, Invalid}}));
@@ -460,10 +463,10 @@ TEST(FPackageRegistryContractTests, ProjectionFenceBlocksEveryRedirectHop)
 		EXPECT_EQ(Exact.FinalPath, ObjectPath(Names[Index]));
 		EXPECT_EQ(Exact.RedirectChain.size(), Index);
 		EXPECT_FALSE(Exact.FinalPackageData.has_value());
-		const auto PackageResult = ResolveAssetPath(Path(Names[0]));
+		const auto PackageResult = ResolvePackagePath(Path(Names[0]));
 		EXPECT_EQ(PackageResult.State, EAssetPathResolveState::ProjectionPending);
 		EXPECT_EQ(PackageResult.FinalPath, Fenced[0]);
-		EXPECT_EQ(Snapshot.ResolveAssetPath(Path(Names[0])).State,
+		EXPECT_EQ(Snapshot.ResolvePackagePath(Path(Names[0])).State,
 			EAssetPathResolveState::Resolved);
 		EXPECT_TRUE(CaptureAssetRegistrySnapshot().ResolveAssetObjectPath(ObjectPath(Names[0])));
 		const auto Admission = ValidateAssetRegistryParticipants(Snapshot.Catalog, Fenced);
@@ -472,7 +475,7 @@ TEST(FPackageRegistryContractTests, ProjectionFenceBlocksEveryRedirectHop)
 		EXPECT_EQ(ResolveAssetObjectPath(ObjectPath(Names[Index])).State,
 			EAssetPathResolveState::ProjectionPending);
 		ClearAssetRegistryProjectionFence(Fenced);
-		EXPECT_TRUE(ResolveAssetPath(Path(Names[0])));
+		EXPECT_TRUE(ResolvePackagePath(Path(Names[0])));
 		EXPECT_TRUE(ResolveAssetObjectPath(ObjectPath(Names[0])));
 	}
 	const FPackagePath Participants[] = {Path(Names[0]), Path(Names[1]), Path(Names[2])};
@@ -488,7 +491,7 @@ TEST(FPackageRegistryContractTests, ProjectionFenceBlocksEveryRedirectHop)
 	ASSERT_TRUE(PublishAssetRegistryDelta({.ExpectedRevision = GetAssetCatalogRevision(), .Replaces = {Changed}}));
 	EXPECT_EQ(ValidateAssetRegistryParticipants(Snapshot.Catalog, Participants).State,
 		EAssetRegistryAdmissionState::ParticipantChanged);
-	EXPECT_TRUE(Snapshot.ResolveAssetPath(Path(Names[0])));
+	EXPECT_TRUE(Snapshot.ResolvePackagePath(Path(Names[0])));
 	ASSERT_TRUE(PublishAssetRegistryDelta({.ExpectedRevision = GetAssetCatalogRevision(), .Removes = {Path(Names[1])}}));
 	EXPECT_EQ(ValidateAssetRegistryParticipants(Snapshot.Catalog, Participants).State,
 		EAssetRegistryAdmissionState::NotFound);
@@ -509,7 +512,7 @@ TEST(FPackageRegistryContractTests, OwnedQueriesResolveUnloadedTypesAndExactRedi
 	Snapshot.Revision = 123;
 	auto Add = [&](std::string_view Name, std::string Class, FObjectPath Destination = {}) {
 		const auto Asset = Object(std::string(Name) + ".Asset");
-		FAssetData Data;
+		FPackageData Data;
 		Data.PackagePath = Asset.GetPackagePath();
 		Data.ObjectCount = 1;
 		Data.TopLevelAssets.push_back({Asset.GetAssetPath(), std::move(Class), Destination});
@@ -526,7 +529,7 @@ TEST(FPackageRegistryContractTests, OwnedQueriesResolveUnloadedTypesAndExactRedi
 	EXPECT_EQ(Resolution.RedirectChain.size(), 2u);
 	EXPECT_EQ(Resolution.CatalogRevision, 123u);
 	EXPECT_EQ(Resolution.FinalAssetData->AssetClassName, "NotLoaded::AssetType");
-	EXPECT_TRUE(Snapshot.ResolveAssetPath(Path("/Owned/Source")));
+	EXPECT_TRUE(Snapshot.ResolvePackagePath(Path("/Owned/Source")));
 	EXPECT_EQ(Snapshot.ResolveAssetObjectPath(Input, {.MaximumRedirectDepth = 1}).State,
 		EAssetPathResolveState::RedirectDepthExceeded);
 	const FPackagePath Fenced[] = {Path("/Owned/Middle")};
@@ -585,5 +588,5 @@ TEST(FPackageRegistryContractTests, AssetsSavedPreservesAdmissionAndUnrelatedRef
 	ASSERT_TRUE(FTopLevelAssetPath::TryCreate(Added.PackagePath, "RegistryFixture", AssetPath));
 	Added.TopLevelAssets.front().AssetPath = AssetPath;
 	ASSERT_TRUE(AssetsSaved({Added}, After));
-	EXPECT_TRUE(FindAssetExact(Added.PackagePath));
+	EXPECT_TRUE(FindPackageExact(Added.PackagePath));
 }

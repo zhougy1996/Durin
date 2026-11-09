@@ -12,7 +12,7 @@ namespace Durin
 		auto Error(EAssetReadError Code, std::string Message) -> FAssetReadResult { return {Code, std::move(Message)}; }
 		auto Error(EAssetWriteError Code, std::string Message) -> FAssetWriteResult { return {Code, std::move(Message)}; }
 		auto AssetPathResolutionError(
-			const FAssetPathResolveResult& Resolution) -> FAssetReadResult
+			const FPackagePathResolveResult& Resolution) -> FAssetReadResult
 		{
 			switch (Resolution.State)
 			{
@@ -106,7 +106,7 @@ namespace Durin
 		FAssetPackageHeader Header;
 		auto Result = Codec->ReadHeader(Context, Header);
 		if (!Result) return AssetWriteResultFromRead(Result);
-		if (Header.EntryKind != EAssetRegistryEntryKind::Asset)
+		if ((!Header.TopLevelAssets.empty() && std::ranges::all_of(Header.TopLevelAssets, &FAssetData::IsRedirector)))
 			return Error(EAssetWriteError::InvalidData,
 				"CookCanonicalizationRedirectorPackage: redirector packages are uncooked-only.");
 		std::vector<FAssetReferenceEdge> References;
@@ -125,7 +125,7 @@ namespace Durin
 						"CookCanonicalizationUnknownExpectedClass: {} expects unavailable class {}.",
 						Route, ExpectedClassName));
 			}
-			const FAssetPathResolveResult Resolution = Durin::ResolveAssetPathForOperation(
+			const FPackagePathResolveResult Resolution = Durin::ResolvePackagePathForOperation(
 				Path, {.ExpectedClass = ExpectedClass});
 			if (!Resolution)
 			{
@@ -135,8 +135,8 @@ namespace Durin
 					Path.ToString(), Route, ResolutionError.Message);
 				return ResolutionError;
 			}
-			if (!Resolution.FinalAssetData
-				|| Resolution.FinalAssetData->EntryKind != EAssetRegistryEntryKind::Asset)
+			if (!Resolution.FinalPackageData
+				|| (!Resolution.FinalPackageData->TopLevelAssets.empty() && std::ranges::all_of(Resolution.FinalPackageData->TopLevelAssets, &FAssetData::IsRedirector)))
 				return Error(EAssetReadError::InvalidPackageType,
 					"Cook canonicalization resolved a reference to a non-asset package.");
 			if (Resolution.FinalPath == Path) return {};

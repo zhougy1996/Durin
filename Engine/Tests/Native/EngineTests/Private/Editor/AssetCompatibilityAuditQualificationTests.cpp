@@ -14,7 +14,7 @@ TEST_F(FAssetCompatibilityAuditQualificationTests, CancellationPublishesNoPartia
 				.Status = Durin::EAssetCompatibilityProbeStatus::Cancelled};
 		});
 	const auto Data = MakeData("/AuditTests/Cancel");
-	std::unordered_map<Durin::FPackagePath, Durin::FAssetData> Assets{{Data.PackagePath, Data}};
+	std::unordered_map<Durin::FPackagePath, Durin::FPackageData> Assets{{Data.PackagePath, Data}};
 
 	ASSERT_TRUE(Model.RunAudit(Assets, {}));
 	ASSERT_TRUE(WaitUntil([&] { return Started.load(); }));
@@ -42,7 +42,7 @@ TEST_F(FAssetCompatibilityAuditQualificationTests, RepresentativeCorpusMeasuresW
 			++ProbeCount;
 			return MakeCompletedRecord(Input);
 		});
-	std::unordered_map<Durin::FPackagePath, Durin::FAssetData> Assets;
+	std::unordered_map<Durin::FPackagePath, Durin::FPackageData> Assets;
 	for (uint32 Index = 0; Index < PackageCount; ++Index)
 	{
 		const auto Data = MakeData(std::format("/AuditTests/Qualification{:02}", Index));

@@ -321,7 +321,7 @@ TEST(FSkyBoxTests, PackageTracksAndReloadsCubeAssetDependency)
 	Actor->GetSkyBoxComponent()->SetTextureCube(CubeResult.Asset);
 	ASSERT_TRUE(Durin::SavePackage(Actor->GetPackage()));
 
-	const Durin::FAssetCatalogEntry ActorData = Durin::FindAssetExact(ActorPath);
+	const Durin::FPackageCatalogEntry ActorData = Durin::FindPackageExact(ActorPath);
 	ASSERT_NE(ActorData, nullptr);
 	EXPECT_NE(std::ranges::find(ActorData->Dependencies, CubePath), ActorData->Dependencies.end());
 

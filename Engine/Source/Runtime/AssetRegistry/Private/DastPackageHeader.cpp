@@ -74,14 +74,6 @@ namespace Durin
 		Header.SoftDependencies.assign(Registry.SoftPackageReferences.begin(),
 			Registry.SoftPackageReferences.end());
 		Header.BuildDependencies = std::move(Registry.BuildPackageReferences);
-		if (Header.TopLevelAssets.size() == 1)
-		{
-			const auto& First = Header.TopLevelAssets.front();
-			Header.AssetClassName = First.AssetClassName;
-			Header.EntryKind = First.RedirectDestination.IsValid()
-				? EAssetRegistryEntryKind::Redirector : EAssetRegistryEntryKind::Asset;
-			Header.RedirectDestination = First.RedirectDestination.GetPackagePath();
-		}
 		Header.SearchableNames = std::move(Registry.SearchableNames);
 		if (!ArePackageAssetsValid(Header.TopLevelAssets, PackagePath,
 			Header.ObjectCount, Header.Dependencies))

@@ -200,7 +200,7 @@ namespace Durin
 				|| AssetClass->HasAnyClassFlags(EClassFlags::Abstract))
 				return Reject(EAssetCreationError::Class);
 			if (FindPackage(AssetPath.GetPackagePath().GetView())
-				|| FindTopLevelAssetExact(AssetPath))
+				|| FindAssetExact(AssetPath))
 				return Reject(EAssetCreationError::Occupied);
 			if (bFromFile && Filename.empty())
 				return Reject(EAssetCreationError::Filename);

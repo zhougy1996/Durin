@@ -25,7 +25,7 @@ namespace Durin
 		// Bound detached data independently of scheduler queue capacity.
 		constexpr uint64 MaximumClosureBytes = 256ull * 1024 * 1024;
 		constexpr size_t MaximumConcurrentReads = 2;
-		auto ReadInputs(std::vector<FAssetData> Sources, const Tasks::FCancellationToken& Token)
+		auto ReadInputs(std::vector<FPackageData> Sources, const Tasks::FCancellationToken& Token)
 			-> FAsyncPackageInputs
 		{
 			FAsyncPackageInputs Inputs;
@@ -314,17 +314,18 @@ namespace Durin
 				Job->Path = Root;
 				Job->Revision = GetAssetCatalogRevision();
 				Job->Handles.push_back(Handle);
-				std::vector<FAssetData> Sources;
+				std::vector<FPackageData> Sources;
 				std::vector<FPackagePath> Paths{Root};
 				std::unordered_set<FPackagePath> Visited;
 				while (!Paths.empty())
 				{
 					const auto Path = Paths.back(); Paths.pop_back();
 					if (!Visited.insert(Path).second || FindResidentPackage(Path)) continue;
-					const auto Entry = FindAssetExact(Path);
+					const auto Entry = FindPackageExact(Path);
 					if (!Entry) continue; // Only the live serializer decides which dependencies are needed.
 					Paths.insert(Paths.end(), Entry->Dependencies.begin(), Entry->Dependencies.end());
-					if (Entry->RedirectDestination.IsValid()) Paths.push_back(Entry->RedirectDestination);
+					for (const auto& Asset : Entry->TopLevelAssets)
+						if (Asset.IsRedirector()) Paths.push_back(Asset.RedirectDestination.GetPackagePath());
 					Sources.push_back(*Entry);
 				}
 				Job->Read = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO,

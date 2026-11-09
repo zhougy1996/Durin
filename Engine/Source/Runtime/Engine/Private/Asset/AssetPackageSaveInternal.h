@@ -24,7 +24,7 @@ namespace Durin::AssetPrivate
 
 	auto BuildSavedAssetMetadata(const FAssetPackageHeader& Header,
 		const std::filesystem::path& Destination, uintmax_t FileSize,
-		std::filesystem::file_time_type LastWriteTime) -> FAssetData;
+		std::filesystem::file_time_type LastWriteTime) -> FPackageData;
 	auto ToAssetWriteResult(FPackageWriteResult Result) -> FAssetWriteResult;
 
 	auto ValidatePackageSaveAdmission(const FPackagePath& Path) -> FAssetWriteResult;

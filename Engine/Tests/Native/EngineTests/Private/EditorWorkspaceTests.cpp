@@ -834,7 +834,7 @@ TEST(FAssetPickerTests, OpeningMaterialCandidatesCompletesPopupLayout)
 	ASSERT_TRUE(FTopLevelAssetPath::TryCreate(PackagePath, "Material", AssetPath));
 	auto Original = CaptureAssetRegistryPublication();
 	auto Publication = Original;
-	Publication.Assets.emplace(PackagePath, FAssetData{
+	Publication.Assets.emplace(PackagePath, FPackageData{
 		.PackagePath = PackagePath,
 		.TopLevelAssets = {{.AssetPath = AssetPath, .AssetClassName = "Durin::DMaterial"}},
 		.FormatVersion = 10, .ObjectCount = 1});

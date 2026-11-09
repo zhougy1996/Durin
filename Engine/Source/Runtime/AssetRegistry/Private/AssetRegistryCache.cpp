@@ -26,11 +26,11 @@ namespace Durin::AssetPrivate
 			};
 			if (Entry.ObjectCount == 0 || Entry.TopLevelAssets.empty()
 				|| !std::ranges::is_sorted(Entry.TopLevelAssets,
-					[](const FTopLevelAssetData& A, const FTopLevelAssetData& B) {
+					[](const FAssetData& A, const FAssetData& B) {
 						return A.AssetPath < B.AssetPath;
 					})
 				|| std::adjacent_find(Entry.TopLevelAssets.begin(), Entry.TopLevelAssets.end(),
-					[](const FTopLevelAssetData& A, const FTopLevelAssetData& B) {
+					[](const FAssetData& A, const FAssetData& B) {
 						return A.AssetPath == B.AssetPath;
 					}) != Entry.TopLevelAssets.end()
 				|| !PathsCanonical(Entry.Dependencies)
@@ -131,7 +131,7 @@ namespace Durin::AssetPrivate
 			{
 				std::string AssetPathString;
 				std::string RedirectPathString;
-				FTopLevelAssetData Asset;
+				FAssetData Asset;
 				if (!Reader.ReadString(AssetPathString)
 					|| !Reader.ReadString(Asset.AssetClassName)
 					|| !Reader.ReadString(RedirectPathString)
@@ -275,7 +275,7 @@ namespace Durin::AssetPrivate
 			Writer.WriteString(Entry.MountRoot);
 			Writer.WriteString(Entry.RelativePath);
 			Writer.WriteU32(static_cast<uint32>(Entry.TopLevelAssets.size()));
-			for (const FTopLevelAssetData& Asset : Entry.TopLevelAssets)
+			for (const FAssetData& Asset : Entry.TopLevelAssets)
 			{
 				Writer.WriteString(Asset.AssetPath.ToString());
 				Writer.WriteString(Asset.AssetClassName);
@@ -304,7 +304,7 @@ namespace Durin::AssetPrivate
 		return true;
 	}
 
-	auto BuildRegistryCacheEntries(const std::unordered_map<FPackagePath, FAssetData>& Assets,
+	auto BuildRegistryCacheEntries(const std::unordered_map<FPackagePath, FPackageData>& Assets,
 		std::vector<FRegistryCacheEntry>& OutEntries, std::string& OutWarning) -> bool
 	{
 		OutEntries.clear();

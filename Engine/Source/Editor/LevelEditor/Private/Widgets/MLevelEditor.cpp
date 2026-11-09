@@ -134,10 +134,11 @@ namespace Durin::Editor::Level
 			return false;
 		};
 		Context->OpenAsset = [this](const FPackagePath& Path, std::string& Error) {
-			const FAssetPathResolveResult Resolution =
-				ResolveAssetPathForOperation(Path);
-			if (Resolution && Resolution.FinalAssetData
-				&& OpenRelatedAsset(Resolution.FinalPath.ToString(), Resolution.FinalAssetData->AssetClassName)) return true;
+			const FPackagePathResolveResult Resolution =
+				ResolvePackagePathForOperation(Path);
+			if (Resolution && Resolution.FinalPackageData
+				&& Resolution.FinalPackageData->TopLevelAssets.size() == 1
+				&& OpenRelatedAsset(Resolution.FinalPath.ToString(), Resolution.FinalPackageData->TopLevelAssets.front().AssetClassName)) return true;
 			Error = "The loaded asset could not be opened.";
 			return false;
 		};

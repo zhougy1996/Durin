@@ -66,8 +66,8 @@ namespace Durin::Editor::Level
 				{
 					FPackagePath Path;
 					if (!FPackagePath::TryCreate(StoredPath, Path)) continue;
-					const FAssetPathResolveResult Resolution =
-						ResolveAssetPathForOperation(
+					const FPackagePathResolveResult Resolution =
+						ResolvePackagePathForOperation(
 							Path, {.ExpectedClass = DLevel::StaticClass()});
 					if (!Resolution) continue;
 					const std::string FinalPath = Resolution.FinalPath.ToString();

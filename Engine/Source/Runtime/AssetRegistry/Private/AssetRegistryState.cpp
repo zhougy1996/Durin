@@ -10,18 +10,18 @@ namespace Durin
 			"Durin::DAssetRedirector";
 
 		auto ResolveAssetObjectPathInCatalog(
-			const std::unordered_map<FPackagePath, FAssetData>& Assets,
+			const std::unordered_map<FPackagePath, FPackageData>& Assets,
 			const std::unordered_set<FPackagePath>& Fences,
 			uint64 Revision, const FObjectPath& Path,
 			const FAssetPathQueryOptions& Options) -> FObjectPathResolveResult;
 
-		auto ResolveAssetPathInCatalog(
-			const std::unordered_map<FPackagePath, FAssetData>& Assets,
+		auto ResolvePackagePathInCatalog(
+			const std::unordered_map<FPackagePath, FPackageData>& Assets,
 			const std::unordered_set<FPackagePath>& Fences,
 			uint64 Revision, const FPackagePath& Path,
-			const FAssetPathQueryOptions& Options) -> FAssetPathResolveResult
+			const FAssetPathQueryOptions& Options) -> FPackagePathResolveResult
 		{
-			FAssetPathResolveResult Result;
+			FPackagePathResolveResult Result;
 			Result.CatalogRevision = Revision;
 			Result.RequestedPath = Path;
 			Result.FinalPath = Path;
@@ -32,11 +32,11 @@ namespace Durin
 			}
 			const auto It = Assets.find(Path);
 			if (It == Assets.end()) return Result;
-			const FAssetData& Data = It->second;
+			const FPackageData& Data = It->second;
 			if (Data.TopLevelAssets.size() != 1)
 			{
 				// Package lookup cannot choose a class or redirect in a multi-asset package.
-				Result.FinalAssetData = Data;
+				Result.FinalPackageData = Data;
 				Result.State = EAssetPathResolveState::Resolved;
 				return Result;
 			}
@@ -47,7 +47,7 @@ namespace Durin
 				Assets, Fences, Revision, ObjectPath, Options);
 			Result.State = Exact.State;
 			Result.FinalPath = Exact.FinalPath.GetPackagePath();
-			Result.FinalAssetData = Exact.FinalPackageData;
+			Result.FinalPackageData = Exact.FinalPackageData;
 			for (const FObjectPath& Redirect : Exact.RedirectChain)
 				Result.RedirectChain.push_back(Redirect.GetPackagePath());
 			return Result;
@@ -73,7 +73,7 @@ namespace Durin
 		}
 
 		auto ResolveAssetObjectPathInCatalog(
-			const std::unordered_map<FPackagePath, FAssetData>& Assets,
+			const std::unordered_map<FPackagePath, FPackageData>& Assets,
 			const std::unordered_set<FPackagePath>& Fences,
 			uint64 Revision,
 			const FObjectPath& Path,
@@ -101,10 +101,10 @@ namespace Durin
 						: EAssetPathResolveState::MissingRedirectTarget;
 					return Result;
 				}
-				const FAssetData& Package = PackageIt->second;
+				const FPackageData& Package = PackageIt->second;
 				const auto AssetIt = std::ranges::find(
 					Package.TopLevelAssets, Current.GetAssetPath(),
-					&FTopLevelAssetData::AssetPath);
+					&FAssetData::AssetPath);
 				if (AssetIt == Package.TopLevelAssets.end())
 				{
 					Result.FinalPath = Current;
@@ -113,7 +113,7 @@ namespace Durin
 						: EAssetPathResolveState::MissingRedirectTarget;
 					return Result;
 				}
-				const FTopLevelAssetData& Asset = *AssetIt;
+				const FAssetData& Asset = *AssetIt;
 				if (!Asset.IsRedirector())
 				{
 					if (Asset.AssetClassName == RedirectorClassName)
@@ -249,11 +249,11 @@ namespace Durin
 		return Result;
 	}
 
-	auto FAssetRegistrySnapshot::ResolveAssetPath(
+	auto FAssetRegistrySnapshot::ResolvePackagePath(
 		const FPackagePath& Path,
-		const FAssetPathQueryOptions& Options) const -> FAssetPathResolveResult
+		const FAssetPathQueryOptions& Options) const -> FPackagePathResolveResult
 	{
-		return ResolveAssetPathInCatalog(Catalog.Assets, {}, Revision, Path, Options);
+		return ResolvePackagePathInCatalog(Catalog.Assets, {}, Revision, Path, Options);
 	}
 
 	auto FAssetRegistrySnapshot::ResolveAssetObjectPath(const FObjectPath& Path,
@@ -275,7 +275,7 @@ namespace Durin
 			if (ProjectionFences.contains(Path))
 				return {EAssetRegistryAdmissionState::ProjectionPending, Path};
 			const auto Found = Assets.find(Path);
-			const FAssetData* Before = Expected.FindExact(Path);
+			const FPackageData* Before = Expected.FindExact(Path);
 			if (Found == Assets.end() || !Before)
 				return {EAssetRegistryAdmissionState::NotFound, Path};
 			if (Found->second != *Before)
@@ -284,34 +284,34 @@ namespace Durin
 		return {};
 	}
 
-	auto FAssetRegistryState::FindAssetExact(
-		const FPackagePath& Path) const -> FAssetCatalogEntry
+	auto FAssetRegistryState::FindPackageExact(
+		const FPackagePath& Path) const -> FPackageCatalogEntry
 	{
 		std::shared_lock Lock(Mutex);
 		const auto It = Assets.find(Path);
 		return {.Revision = Revision,
 			.Data = It == Assets.end() ? std::nullopt
-				: std::optional<FAssetData>(It->second)};
+				: std::optional<FPackageData>(It->second)};
 	}
 
-	auto FAssetRegistryState::FindTopLevelAssetExact(
-		const FTopLevelAssetPath& Path) const -> FTopLevelAssetCatalogEntry
+	auto FAssetRegistryState::FindAssetExact(
+		const FTopLevelAssetPath& Path) const -> FAssetCatalogEntry
 	{
 		std::shared_lock Lock(Mutex);
 		const auto PackageIt = Assets.find(Path.GetPackagePath());
 		if (PackageIt == Assets.end()) return {.Revision = Revision};
 		const auto AssetIt = std::ranges::find(
-			PackageIt->second.TopLevelAssets, Path, &FTopLevelAssetData::AssetPath);
+			PackageIt->second.TopLevelAssets, Path, &FAssetData::AssetPath);
 		if (AssetIt == PackageIt->second.TopLevelAssets.end())
 			return {.Revision = Revision};
 		return {.Revision = Revision, .Asset = *AssetIt, .Package = PackageIt->second};
 	}
 
-	auto FAssetRegistryState::ResolveAssetPath(const FPackagePath& Path,
-		const FAssetPathQueryOptions& Options) const -> FAssetPathResolveResult
+	auto FAssetRegistryState::ResolvePackagePath(const FPackagePath& Path,
+		const FAssetPathQueryOptions& Options) const -> FPackagePathResolveResult
 	{
 		std::shared_lock Lock(Mutex);
-		return ResolveAssetPathInCatalog(Assets, ProjectionFences, Revision, Path, Options);
+		return ResolvePackagePathInCatalog(Assets, ProjectionFences, Revision, Path, Options);
 	}
 
 	auto FAssetRegistryState::ResolveAssetObjectPath(const FObjectPath& Path,
@@ -328,7 +328,7 @@ namespace Durin
 		std::vector<FPackagePath> Result;
 		for (const auto& [Path, Data] : Assets)
 			if (std::ranges::any_of(Data.TopLevelAssets,
-				[&](const FTopLevelAssetData& Asset) {
+				[&](const FAssetData& Asset) {
 					return Asset.IsRedirector()
 						&& Asset.RedirectDestination.GetPackagePath() == Destination;
 				}))
@@ -359,11 +359,11 @@ namespace Durin
 		}
 
 		std::unordered_set<FPackagePath> Visited;
-		std::vector<const FAssetData*> Pending{&RootIt->second};
+		std::vector<const FPackageData*> Pending{&RootIt->second};
 		Visited.emplace(Root);
 		while (!Pending.empty())
 		{
-			const FAssetData* Data = Pending.back();
+			const FPackageData* Data = Pending.back();
 			Pending.pop_back();
 			Result.Assets.push_back(*Data);
 			for (const FPackagePath& Dependency : Data->Dependencies)
@@ -381,7 +381,7 @@ namespace Durin
 			}
 		}
 		std::ranges::sort(Result.Assets,
-			[](const FAssetData& Left, const FAssetData& Right) {
+			[](const FPackageData& Left, const FPackageData& Right) {
 				return Left.PackagePath.GetView() < Right.PackagePath.GetView();
 			});
 		return Result;
@@ -497,14 +497,14 @@ namespace Durin
 		auto Touch = [&](const FPackagePath& Path) -> bool {
 			return Path.IsValid() && Touched.insert(Path).second;
 		};
-		for (FAssetData& Data : Delta.Adds)
+		for (FPackageData& Data : Delta.Adds)
 		{
 			if (!Touch(Data.PackagePath) || Assets.contains(Data.PackagePath))
 				return {EAssetRegistryError::StaleData,
 					{.Reason = EAssetRegistryFailure::InvalidAdd, .Path = Data.PackagePath.ToString()}};
 			Publication.Assets.emplace(Data.PackagePath, std::move(Data));
 		}
-		for (FAssetData& Data : Delta.Replaces)
+		for (FPackageData& Data : Delta.Replaces)
 		{
 			if (!Touch(Data.PackagePath) || !Assets.contains(Data.PackagePath))
 				return {EAssetRegistryError::StaleData,
@@ -626,21 +626,21 @@ namespace Durin
 		return AssetPrivate::GetAssetRegistryState().ValidateParticipants(Expected, Participants);
 	}
 
-	auto FindAssetExact(const FPackagePath& Path) -> FAssetCatalogEntry
+	auto FindPackageExact(const FPackagePath& Path) -> FPackageCatalogEntry
+	{
+		return AssetPrivate::GetAssetRegistryState().FindPackageExact(Path);
+	}
+
+	auto FindAssetExact(
+		const FTopLevelAssetPath& Path) -> FAssetCatalogEntry
 	{
 		return AssetPrivate::GetAssetRegistryState().FindAssetExact(Path);
 	}
 
-	auto FindTopLevelAssetExact(
-		const FTopLevelAssetPath& Path) -> FTopLevelAssetCatalogEntry
+	auto ResolvePackagePath(const FPackagePath& Path,
+		const FAssetPathQueryOptions& Options) -> FPackagePathResolveResult
 	{
-		return AssetPrivate::GetAssetRegistryState().FindTopLevelAssetExact(Path);
-	}
-
-	auto ResolveAssetPath(const FPackagePath& Path,
-		const FAssetPathQueryOptions& Options) -> FAssetPathResolveResult
-	{
-		return AssetPrivate::GetAssetRegistryState().ResolveAssetPath(Path, Options);
+		return AssetPrivate::GetAssetRegistryState().ResolvePackagePath(Path, Options);
 	}
 
 	auto ResolveAssetObjectPath(const FObjectPath& Path,
@@ -699,18 +699,18 @@ namespace Durin
 	}
 
 	auto AssetsSaved(
-		std::vector<FAssetData> Assets, const FAssetRegistryPublication& Expected) -> FAssetRegistryResult
+		std::vector<FPackageData> Assets, const FAssetRegistryPublication& Expected) -> FAssetRegistryResult
 	{
 		if (Assets.empty()) return {};
 		std::unordered_set<FPackagePath> SeenPaths;
-		for (const FAssetData& Data : Assets)
+		for (const FPackageData& Data : Assets)
 		{
 			if (!Data.PackagePath.IsValid()
 				|| !SeenPaths.insert(Data.PackagePath).second)
 				return {EAssetRegistryError::InvalidPath, {.Reason = EAssetRegistryFailure::InvalidBatch, .Path = Data.PackagePath.ToString()}};
 		}
 		FAssetRegistryDelta Delta{.ExpectedRevision = Expected.ExpectedRevision};
-		for (FAssetData& Data : Assets)
+		for (FPackageData& Data : Assets)
 		{
 			const FPackagePath Path = Data.PackagePath;
 			if (Expected.Assets.contains(Path))

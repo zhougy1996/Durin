@@ -37,14 +37,14 @@ namespace
 	}
 
 	auto MakeRequest(
-		const Durin::FAssetData& Data,
+		const Durin::FPackageData& Data,
 		uint64 Serial = 1) -> Durin::Editor::FAssetThumbnailRequest
 	{
 		return {
 			.Asset = {
 				.AssetPath = MakeAssetPath(Data.PackagePath),
 				.PackagePath = Data.PackagePath,
-				.AssetClassName = Data.AssetClassName,
+				.AssetClassName = Data.TopLevelAssets.front().AssetClassName,
 				.PackageFormatVersion = Data.FormatVersion,
 				.FileSize = static_cast<uint64>(Data.FileSize),
 				.LastWriteTimeTicks = Data.LastWriteTimeTicks},
@@ -54,7 +54,7 @@ namespace
 
 	auto CaptureKey(
 		Durin::Editor::Material::DMaterialThumbnailRenderer& Renderer,
-		const Durin::FAssetData& Data,
+		const Durin::FPackageData& Data,
 		Durin::Editor::FAssetThumbnailGenerationRequest& OutRequest,
 		std::string& OutError) -> std::string
 	{
@@ -142,10 +142,10 @@ TEST(FMaterialThumbnailRendererTests, RendererCapturesSortedTransitiveMaterialDe
 		Durin::Tests::FAssetThumbnailFixtureSet::MaterialPath, MaterialPath));
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::Tests::FAssetThumbnailFixtureSet::MaterialInstancePath, InstancePath));
-	const Durin::FAssetCatalogEntry MaterialData =
-		Durin::FindAssetExact(MaterialPath);
-	const Durin::FAssetCatalogEntry InstanceData =
-		Durin::FindAssetExact(InstancePath);
+	const Durin::FPackageCatalogEntry MaterialData =
+		Durin::FindPackageExact(MaterialPath);
+	const Durin::FPackageCatalogEntry InstanceData =
+		Durin::FindPackageExact(InstancePath);
 	ASSERT_NE(MaterialData, nullptr);
 	ASSERT_NE(InstanceData, nullptr);
 
@@ -284,8 +284,8 @@ TEST(FMaterialThumbnailRendererTests, InvalidInstancePublishesOneStableDiagnosti
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::Tests::FAssetThumbnailFixtureSet::InvalidMaterialInstancePath,
 		InvalidPath));
-	const Durin::FAssetCatalogEntry Data =
-		Durin::FindAssetExact(InvalidPath);
+	const Durin::FPackageCatalogEntry Data =
+		Durin::FindPackageExact(InvalidPath);
 	ASSERT_NE(Data, nullptr);
 
 	Durin::Editor::DThumbnailManager ThumbnailManager;
@@ -337,8 +337,8 @@ TEST(FMaterialThumbnailRendererTests,
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/Engine/Materials/DefaultMaterial",
 		MaterialPath));
-	const Durin::FAssetCatalogEntry MaterialData =
-		Durin::FindAssetExact(MaterialPath);
+	const Durin::FPackageCatalogEntry MaterialData =
+		Durin::FindPackageExact(MaterialPath);
 	ASSERT_NE(MaterialData, nullptr);
 	Durin::DObject* LoadedObject = nullptr;
 	const auto LoadResult =
@@ -387,8 +387,8 @@ TEST(FMaterialThumbnailRendererTests,
 	Durin::FPackagePath MaterialPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/Engine/Materials/DefaultMaterial", MaterialPath));
-	const Durin::FAssetCatalogEntry MaterialData =
-		Durin::FindAssetExact(MaterialPath);
+	const Durin::FPackageCatalogEntry MaterialData =
+		Durin::FindPackageExact(MaterialPath);
 	ASSERT_NE(MaterialData, nullptr);
 	Durin::DObject* LoadedObject = nullptr;
 	const auto LoadResult =

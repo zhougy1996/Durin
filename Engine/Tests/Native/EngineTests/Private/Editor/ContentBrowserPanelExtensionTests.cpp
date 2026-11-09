@@ -289,7 +289,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		ASSERT_TRUE(SavePackage(Asset->GetPackage()));
 		ASSERT_TRUE(UnloadPackage(Path));
 		ASSERT_EQ(FindResidentPackage(Path), nullptr);
-		const auto Data = FindAssetExact(Path);
+		const auto Data = FindPackageExact(Path);
 		ASSERT_TRUE(Data);
 		ImGuiContext* UI = ImGui::CreateContext();
 		struct FCleanup { ImGuiContext* UI; ~FCleanup() { ImGui::DestroyContext(UI); } } Cleanup{UI};
@@ -304,14 +304,14 @@ namespace Durin::Editor::ContentBrowser::Private
 		int Queries = 0;
 		FContentBrowserPanelTestAccess::SetReimportQuery(Panel, [&](std::string_view ClassName) {
 			++Queries;
-			EXPECT_EQ(ClassName, Data->AssetClassName);
+			EXPECT_EQ(ClassName, Data->TopLevelAssets.front().AssetClassName);
 			const auto Actions = FReimportManager::QueryReimportActions(ClassName);
 			return FReimportAvailability{Actions.bSupportsReimport, Actions.bSupportsReimportFromFile};
 		});
 		FContentBrowserPanelTestAccess::SetSelection(Panel, Root.generic_string(), {{
 			.Kind = EContentBrowserItemKind::Asset, .Name = "Asset",
 			.VirtualPath = Data->TopLevelAssets.front().AssetPath.ToString(), .PackagePath = Path,
-			.PhysicalPath = Data->PhysicalPath, .AssetClassName = Data->AssetClassName}});
+			.PhysicalPath = Data->PhysicalPath, .AssetClassName = Data->TopLevelAssets.front().AssetClassName}});
 		for (int Frame = 0; Frame < 3; ++Frame)
 		{
 			ImGui::NewFrame();

@@ -542,11 +542,10 @@ namespace
 	) -> std::string
 	{
 		using namespace Durin;
-		using namespace Durin;
 		FJsonDocument Document;
 		FJsonNodeRef Root = Document.GetMutableRoot();
 		Root.EnsureObject();
-		Root.SetChildValue("schemaVersion", 1);
+		Root.SetChildValue("schemaVersion", 2);
 		FJsonNodeRef Packages = Root.AddArray("packages");
 		for (const FAssetPackageCompatibilityProbeInput& Input : Inputs)
 		{
@@ -559,9 +558,14 @@ namespace
 			PackageNode.SetChildValue("diagnostic", Result.Message);
 			if (!Result) continue;
 			PackageNode.SetChildValue("formatVersion", Inspection.Header.FormatVersion);
-			PackageNode.SetChildValue("assetClass", Inspection.Header.AssetClassName);
-			PackageNode.SetChildValue("redirectDestination",
-				Inspection.Header.RedirectDestination.ToString());
+			FJsonNodeRef Assets = PackageNode.AddArray("assets");
+			for (const FAssetData& Asset : Inspection.Header.TopLevelAssets)
+			{
+				FJsonNodeRef AssetNode = Assets.AppendObject();
+				AssetNode.SetChildValue("path", Asset.AssetPath.ToString());
+				AssetNode.SetChildValue("class", Asset.AssetClassName);
+				AssetNode.SetChildValue("redirectDestination", Asset.RedirectDestination.ToString());
+			}
 
 			FJsonNodeRef Objects = PackageNode.AddArray("objects");
 			for (const FAssetPackageObjectInspection& Object : Inspection.Objects)
@@ -1032,7 +1036,7 @@ int main(int ArgC, char** ArgV)
 		}
 		std::error_code ExistsError;
 		const bool bFileExists = std::filesystem::exists(Destination->PhysicalPath.string() + ".dasset", ExistsError);
-		if (ExistsError || bFileExists || Durin::FindAssetExact(Path) || Durin::FindResidentPackage(Path))
+		if (ExistsError || bFileExists || Durin::FindPackageExact(Path) || Durin::FindResidentPackage(Path))
 		{
 			std::cerr << "Template destination is occupied or cannot be inspected: " << Path.ToString() << '\n';
 			return 1;
@@ -1089,7 +1093,7 @@ int main(int ArgC, char** ArgV)
 		{
 			Durin::FPackagePath PackagePath;
 			Durin::FPackagePath::TryCreate(std::format("/Engine/Materials/Functions/{}", FunctionNames[Index]), PackagePath);
-			if (!Durin::FindAssetExact(PackagePath))
+			if (!Durin::FindPackageExact(PackagePath))
 			{
 				std::cerr << "Missing standard function " << PackagePath.ToString()
 					<< "; restore the shipped Engine content.\n";
@@ -1109,56 +1113,60 @@ int main(int ArgC, char** ArgV)
 		{
 			Durin::FAssetPackageInspection Inspection;
 			if (!Durin::InspectAssetPackage(Package.PhysicalPath, Package.PackagePath, Inspection)) { bInventoryValid = false; continue; }
-			if (Inspection.Header.AssetClassName.find("Material") == std::string::npos) continue;
-			auto Row = Assets.AppendObject();
-			Row.SetChildValue("package", Package.PackagePath.ToString());
-			Row.SetChildValue("class", Inspection.Header.AssetClassName);
-			Durin::FObjectPath Path;
-			Durin::DObject* Object = nullptr;
-			if (!Durin::FObjectPath::TryCreate(std::format("{}.{}", Package.PackagePath.ToString(), Package.PackagePath.GetPackageName()), Path)
-				|| !(Object = Durin::LoadObject<Durin::DObject>(Path).value_or(nullptr)))
+			for (const Durin::FAssetData& Asset : Inspection.Header.TopLevelAssets)
 			{
-				Row.SetChildValue("status", "Load failed; rebuild required before writes");
-				bInventoryValid = false;
-				continue;
-			}
-			if (const auto* Material = Durin::Cast<Durin::DMaterial>(Object))
-			{
-				const auto& Expressions = Material->GetExpressionCollection().Expressions;
-				Row.SetChildValue("expressions", static_cast<uint32>(Expressions.size()));
-				Row.SetChildValue("calls", static_cast<uint32>(std::ranges::count_if(Expressions,
-					[](const auto& Expression) { return Durin::Cast<Durin::DMaterialExpressionFunctionCall>(Expression.Get()) != nullptr; })));
-				Row.SetChildValue("status", "Preserved: existing material");
-				auto Definitions = Row.AddArray("parameters");
-				for (const auto& Definition : Material->GetParameterDefinitions())
+				if (Asset.AssetClassName.find("Material") == std::string::npos) continue;
+				auto Row = Assets.AppendObject();
+				Row.SetChildValue("package", Package.PackagePath.ToString());
+				Row.SetChildValue("asset", Asset.AssetPath.ToString());
+				Row.SetChildValue("class", Asset.AssetClassName);
+				Durin::FObjectPath Path;
+				Durin::DObject* Object = nullptr;
+				if (!Durin::FObjectPath::TryCreate(Asset.AssetPath, std::span<const std::string>{}, Path)
+					|| !(Object = Durin::LoadObject<Durin::DObject>(Path).value_or(nullptr)))
 				{
-					auto Parameter = Definitions.AppendObject();
-					Parameter.SetChildValue("id", Definition.Id.ToString());
-					Parameter.SetChildValue("name", Definition.Name.ToString());
-					Parameter.SetChildValue("type", static_cast<uint32>(Definition.Type));
+					Row.SetChildValue("status", "Load failed; rebuild required before writes");
+					bInventoryValid = false;
+					continue;
 				}
-			}
-			else if (const auto* Instance = Durin::Cast<Durin::DMaterialInstance>(Object))
-			{
-				Row.SetChildValue("parent", Instance->GetParent() ? Instance->GetParent()->GetObjectPath() : "");
-				Row.SetChildValue("status", "Preserved: instance override identities and values");
-				auto Overrides = Row.AddArray("overrides");
-				Instance->VisitLocalParameterValues([&](const Durin::FGuid& Id, const Durin::FMaterialParameterValue& OverrideValue) {
-					auto Value = Overrides.AppendObject();
-					Value.SetChildValue("id", Id.ToString());
-					Value.SetChildValue("type", static_cast<uint32>(OverrideValue.GetType()));
-					Value.SetChildValue("orphan", Instance->IsParameterValueOrphan(Id));
-					if (OverrideValue.GetType() == Durin::EMaterialParameterType::Scalar) Value.SetChildValue("scalar", OverrideValue.GetScalar());
-					if (OverrideValue.GetType() == Durin::EMaterialParameterType::Vector4) Value.SetChildValue("vector", std::format("{},{},{},{}", OverrideValue.GetVector4().x, OverrideValue.GetVector4().y, OverrideValue.GetVector4().z, OverrideValue.GetVector4().w));
-					if (OverrideValue.GetType() == Durin::EMaterialParameterType::Vector2) Value.SetChildValue("vector2", std::format("{},{}", OverrideValue.GetVector2().x, OverrideValue.GetVector2().y));
-					if (OverrideValue.GetType() == Durin::EMaterialParameterType::Vector) Value.SetChildValue("vector3", std::format("{},{},{}", OverrideValue.GetVector().x, OverrideValue.GetVector().y, OverrideValue.GetVector().z));
-					if (OverrideValue.GetType() == Durin::EMaterialParameterType::Texture) Value.SetChildValue("texture", OverrideValue.GetTexture().Texture.IsValid() ? OverrideValue.GetTexture().Texture->GetObjectPath() : "");
-				});
-			}
-			else if (const auto* Function = Durin::Cast<Durin::DMaterialFunction>(Object))
-			{
-				Row.SetChildValue("expressions", static_cast<uint32>(Function->GetExpressionCollection().Expressions.size()));
-				Row.SetChildValue("status", "Preserved: existing function implementation");
+				if (const auto* Material = Durin::Cast<Durin::DMaterial>(Object))
+				{
+					const auto& Expressions = Material->GetExpressionCollection().Expressions;
+					Row.SetChildValue("expressions", static_cast<uint32>(Expressions.size()));
+					Row.SetChildValue("calls", static_cast<uint32>(std::ranges::count_if(Expressions,
+						[](const auto& Expression) { return Durin::Cast<Durin::DMaterialExpressionFunctionCall>(Expression.Get()) != nullptr; })));
+					Row.SetChildValue("status", "Preserved: existing material");
+					auto Definitions = Row.AddArray("parameters");
+					for (const auto& Definition : Material->GetParameterDefinitions())
+					{
+						auto Parameter = Definitions.AppendObject();
+						Parameter.SetChildValue("id", Definition.Id.ToString());
+						Parameter.SetChildValue("name", Definition.Name.ToString());
+						Parameter.SetChildValue("type", static_cast<uint32>(Definition.Type));
+					}
+				}
+				else if (const auto* Instance = Durin::Cast<Durin::DMaterialInstance>(Object))
+				{
+					Row.SetChildValue("parent", Instance->GetParent() ? Instance->GetParent()->GetObjectPath() : "");
+					Row.SetChildValue("status", "Preserved: instance override identities and values");
+					auto Overrides = Row.AddArray("overrides");
+					Instance->VisitLocalParameterValues([&](const Durin::FGuid& Id, const Durin::FMaterialParameterValue& OverrideValue) {
+						auto Value = Overrides.AppendObject();
+						Value.SetChildValue("id", Id.ToString());
+						Value.SetChildValue("type", static_cast<uint32>(OverrideValue.GetType()));
+						Value.SetChildValue("orphan", Instance->IsParameterValueOrphan(Id));
+						if (OverrideValue.GetType() == Durin::EMaterialParameterType::Scalar) Value.SetChildValue("scalar", OverrideValue.GetScalar());
+						if (OverrideValue.GetType() == Durin::EMaterialParameterType::Vector4) Value.SetChildValue("vector", std::format("{},{},{},{}", OverrideValue.GetVector4().x, OverrideValue.GetVector4().y, OverrideValue.GetVector4().z, OverrideValue.GetVector4().w));
+						if (OverrideValue.GetType() == Durin::EMaterialParameterType::Vector2) Value.SetChildValue("vector2", std::format("{},{}", OverrideValue.GetVector2().x, OverrideValue.GetVector2().y));
+						if (OverrideValue.GetType() == Durin::EMaterialParameterType::Vector) Value.SetChildValue("vector3", std::format("{},{},{}", OverrideValue.GetVector().x, OverrideValue.GetVector().y, OverrideValue.GetVector().z));
+						if (OverrideValue.GetType() == Durin::EMaterialParameterType::Texture) Value.SetChildValue("texture", OverrideValue.GetTexture().Texture.IsValid() ? OverrideValue.GetTexture().Texture->GetObjectPath() : "");
+					});
+				}
+				else if (const auto* Function = Durin::Cast<Durin::DMaterialFunction>(Object))
+				{
+					Row.SetChildValue("expressions", static_cast<uint32>(Function->GetExpressionCollection().Expressions.size()));
+					Row.SetChildValue("status", "Preserved: existing function implementation");
+				}
 			}
 		}
 		std::cout << Report.ToString() << '\n';
@@ -1172,7 +1180,7 @@ int main(int ArgC, char** ArgV)
 		}
 		Durin::FPackagePath DefaultPath;
 		if (!Durin::FPackagePath::TryCreate(Durin::DefaultMaterialPackagePath, DefaultPath)) return 1;
-		if (!Durin::FindAssetExact(DefaultPath))
+		if (!Durin::FindPackageExact(DefaultPath))
 		{
 			Durin::FTopLevelAssetPath AssetPath;
 			if (!Durin::FTopLevelAssetPath::TryCreate(DefaultPath, DefaultPath.GetPackageName(), AssetPath)) return 1;

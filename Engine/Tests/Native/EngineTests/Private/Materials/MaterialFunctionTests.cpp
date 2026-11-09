@@ -670,7 +670,7 @@ TEST(FMaterialFunctionTests, BaseTypedCallsRoundTripAndSnapshotsDoNotRetainOwner
 	ASSERT_EQ(Caller->GetFunctionDependencies().size(), 1u);
 	ASSERT_TRUE(SavePackage(Callee->GetPackage()));
 	ASSERT_TRUE(SavePackage(Caller->GetPackage()));
-	const auto CallerFile = FindAssetExact(CallerPath);
+	const auto CallerFile = FindPackageExact(CallerPath);
 	ASSERT_TRUE(CallerFile);
 	FAssetPackageInspection Inspection;
 	ASSERT_TRUE(InspectAssetPackage(CallerFile->PhysicalPath, CallerPath, Inspection));
@@ -1291,7 +1291,7 @@ TEST(FMaterialFunctionTests, RejectsOldRootSchemaAndPreservesCurrentFunctionRefe
 	ASSERT_TRUE(SavePackage(Function->GetPackage()));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 	FAssetPackageInspection Inspection;
-	const auto File = FindAssetExact(MaterialPath);
+	const auto File = FindPackageExact(MaterialPath);
 	ASSERT_TRUE(File);
 	ASSERT_TRUE(InspectAssetPackage(File->PhysicalPath, MaterialPath, Inspection));
 	std::vector<FAssetReferenceEdge> References;

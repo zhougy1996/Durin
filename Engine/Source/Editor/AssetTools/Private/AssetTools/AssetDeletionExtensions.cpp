@@ -35,7 +35,7 @@ namespace Durin
 	}
 
 	auto InspectAssetCompanionFiles(
-		const FAssetData& Data,
+		const FPackageData& Data,
 		std::vector<std::filesystem::path>& OutFiles,
 		bool* OutHasContributor = nullptr) -> FAssetWriteResult
 	{
@@ -67,29 +67,34 @@ namespace Durin
 			OutFiles.push_back(std::move(BulkPath));
 		}
 		if (OutHasContributor && !OutFiles.empty()) *OutHasContributor = true;
-		DClass* AssetClass = FindClassByQualifiedName(FName(Data.AssetClassName));
-		for (DClass* Class = AssetClass; Class; Class = Class->GetSuperClass())
+		std::unordered_set<DClass*> AppliedContributors;
+		for (const FAssetData& Asset : Data.TopLevelAssets)
 		{
-			const auto It = GetDeleteContributors().find(Class);
-			if (It == GetDeleteContributors().end()) continue;
-			if (OutHasContributor) *OutHasContributor = true;
-			// Custom contributors retain the complete field-inspection contract.
-			FAssetPackageInspection Inspection;
-			const FAssetWriteResult InspectionResult = AssetWriteResultFromRead(InspectAssetPackage(
-				Data.PhysicalPath, Data.PackagePath, Inspection));
-			if (!InspectionResult) return InspectionResult;
-			FAssetDeleteContribution Contribution;
-			FAssetWriteResult Result = It->second.Contributor(Data, Inspection, Contribution);
-			if (!Result) return Result;
-			for (const std::filesystem::path& File : Contribution.Files)
+			for (DClass* Class = FindClassByQualifiedName(FName(Asset.AssetClassName));
+				Class; Class = Class->GetSuperClass())
 			{
-				const std::filesystem::path Normalized =
-					std::filesystem::absolute(File).lexically_normal();
-				if (!std::ranges::contains(OutFiles, Normalized))
-					OutFiles.push_back(Normalized);
+				const auto It = GetDeleteContributors().find(Class);
+				if (It == GetDeleteContributors().end()) continue;
+				if (!AppliedContributors.insert(Class).second) break;
+				if (OutHasContributor) *OutHasContributor = true;
+				// Custom contributors retain the complete field-inspection contract.
+				FAssetPackageInspection Inspection;
+				const FAssetWriteResult InspectionResult = AssetWriteResultFromRead(InspectAssetPackage(
+					Data.PhysicalPath, Data.PackagePath, Inspection));
+				if (!InspectionResult) return InspectionResult;
+				FAssetDeleteContribution Contribution;
+				FAssetWriteResult Result = It->second.Contributor(Data, Inspection, Contribution);
+				if (!Result) return Result;
+				for (const std::filesystem::path& File : Contribution.Files)
+				{
+					const std::filesystem::path Normalized =
+						std::filesystem::absolute(File).lexically_normal();
+					if (!std::ranges::contains(OutFiles, Normalized))
+						OutFiles.push_back(Normalized);
+				}
+				std::ranges::sort(OutFiles);
+				break;
 			}
-			std::ranges::sort(OutFiles);
-			break;
 		}
 		return {};
 	}
@@ -100,10 +105,11 @@ namespace Durin
 	{
 		auto GetDeleteContributorRevision() -> uint64 { return DeleteContributorRevision; }
 
-		auto MayOwnCompanionInRoots(const FAssetData& Data,
+		auto MayOwnCompanionInRoots(const FPackageData& Data,
 			std::span<const std::filesystem::path> NormalizedRoots) -> bool
 		{
-			for (DClass* Class = FindClassByQualifiedName(FName(Data.AssetClassName));
+			for (const FAssetData& Asset : Data.TopLevelAssets)
+			for (DClass* Class = FindClassByQualifiedName(FName(Asset.AssetClassName));
 				Class; Class = Class->GetSuperClass())
 				if (GetDeleteContributors().contains(Class)) return true;
 			std::filesystem::path BulkPath =
@@ -118,7 +124,7 @@ namespace Durin
 			});
 		}
 		auto InspectAssetCompanionFilesForDeletion(
-			const FAssetData& Data,
+			const FPackageData& Data,
 			std::vector<std::filesystem::path>& OutFiles) -> FAssetWriteResult
 		{
 			return InspectAssetCompanionFiles(Data, OutFiles);

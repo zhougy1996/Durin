@@ -171,7 +171,7 @@ namespace Durin
 
 		auto State = std::make_shared<FAssetRedirectorFixupState>();
 		const FAssetRegistryPublication Prepared = CaptureAssetRegistryPublication();
-		const auto FindPrepared = [&](const FPackagePath& Path) -> const FAssetData* {
+		const auto FindPrepared = [&](const FPackagePath& Path) -> const FPackageData* {
 			const auto It = Prepared.Assets.find(Path);
 			return It == Prepared.Assets.end() ? nullptr : &It->second;
 		};
@@ -190,11 +190,11 @@ namespace Durin
 				return Error(EAssetWriteError::InvalidPath,
 					"Redirector Fix Up contains an invalid path.");
 			if (!Closure.insert(Alias).second) continue;
-			const FAssetData* Data = FindPrepared(Alias);
+			const FPackageData* Data = FindPrepared(Alias);
 			if (!Data)
 				return Error(EAssetWriteError::NotFound, std::format(
 					"Fix Up redirector {} is not registered.", Alias.ToString()));
-			if (Data->EntryKind != EAssetRegistryEntryKind::Redirector)
+			if (!(!Data->TopLevelAssets.empty() && std::ranges::all_of(Data->TopLevelAssets, &FAssetData::IsRedirector)))
 				return Error(EAssetWriteError::InvalidData, std::format(
 					"Fix Up selection {} is not a redirector.", Alias.ToString()));
 			if (IsPackageLoading(Alias))
@@ -214,7 +214,7 @@ namespace Durin
 			});
 		for (const FPackagePath& Alias : State->Redirectors)
 		{
-			const FAssetPathResolveResult Resolution = ResolveAssetPathForOperation(Alias);
+			const FPackagePathResolveResult Resolution = ResolvePackagePathForOperation(Alias);
 			if (!Resolution)
 				return Error(EAssetWriteError::InvalidData, std::format(
 					"Fix Up could not resolve {} (state {}).", Alias.ToString(),
@@ -234,7 +234,7 @@ namespace Durin
 				CandidatePackages.insert(Edge.SourcePackage);
 		for (const FPackagePath& SourcePath : CandidatePackages)
 		{
-			const FAssetData* Data = FindPrepared(SourcePath);
+			const FPackageData* Data = FindPrepared(SourcePath);
 			if (!Data) return Error(EAssetWriteError::StaleData,
 				"A package referencer is no longer registered.");
 			FAssetPackageInspection Inspection;
@@ -287,7 +287,7 @@ namespace Durin
 			if (ConsumeFixupFailure(EAssetRedirectorFixupFailurePoint::PreparePackage))
 				return Error(EAssetWriteError::IoError,
 					"Injected Fix Up package-preparation failure.");
-			const FAssetData* Data = FindPrepared(SourcePath);
+			const FPackageData* Data = FindPrepared(SourcePath);
 			if (!Data)
 				return Error(EAssetWriteError::StaleData,
 					"A package referencer is no longer registered.");
@@ -417,9 +417,9 @@ namespace Durin
 				for (FAssetReferenceStorePackageRewrite& PackageRewrite :
 					StoreState.Contribution.PackageRewrites)
 				{
-					const FAssetData* Data = FindPrepared(PackageRewrite.PackagePath);
+					const FPackageData* Data = FindPrepared(PackageRewrite.PackagePath);
 					if (!PackageRewrite.PackagePath.IsValid() || !Data
-						|| Data->EntryKind == EAssetRegistryEntryKind::Redirector)
+						|| (!Data->TopLevelAssets.empty() && std::ranges::all_of(Data->TopLevelAssets, &FAssetData::IsRedirector)))
 						return Error(EAssetWriteError::StaleData,
 							"An asset reference store returned an invalid package participant.");
 					if (IsPackageLoading(PackageRewrite.PackagePath))
@@ -482,7 +482,7 @@ namespace Durin
 		{
 			for (const FPackagePath& Alias : State->Redirectors)
 			{
-				const FAssetData& Data = Prepared.Assets.at(Alias);
+				const FPackageData& Data = Prepared.Assets.at(Alias);
 				FByteBuffer PreBytes;
 				FAssetWriteResult Result = AssetWriteResultFromRead(LoadRelocationBytes(Data.PhysicalPath, PreBytes));
 				if (!Result) return Result;

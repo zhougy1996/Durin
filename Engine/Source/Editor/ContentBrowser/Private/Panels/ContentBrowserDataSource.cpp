@@ -177,10 +177,10 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserDataSource::AppendAssetItem(
 		const FPackagePath& Path,
-		const FAssetData& Data, const Tasks::FCancellationToken& Cancellation) -> void
+		const FPackageData& Data, const Tasks::FCancellationToken& Cancellation) -> void
 	{
 		const bool bSingleAssetPackage = Data.TopLevelAssets.size() == 1;
-		for (const FTopLevelAssetData& AssetData : Data.TopLevelAssets)
+		for (const FAssetData& AssetData : Data.TopLevelAssets)
 		{
 			if (Cancellation.IsCanceled()) return;
 			FContentBrowserItem Item{

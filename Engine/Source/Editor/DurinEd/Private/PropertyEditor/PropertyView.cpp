@@ -1004,7 +1004,7 @@ namespace Durin::Editor
 			FPackagePath CurrentAssetPath;
 			const bool bHasCurrentAsset = Current && Current->GetPackage()
 				&& FPackagePath::TryCreate(Current->GetPackage()->GetPackagePath(), CurrentAssetPath)
-				&& FindAssetExact(CurrentAssetPath);
+				&& FindPackageExact(CurrentAssetPath);
 			const FAssetPickerAction RevealAction{
 				.Icon = Icons::Crosshairs,
 				.ButtonId = "RevealObject",
@@ -1053,7 +1053,7 @@ namespace Durin::Editor
 				|| (ViewState.State == ESoftObjectViewState::Redirected
 					&& !ViewState.LoadedObject);
 			const bool bCanReveal = ViewState.Path.IsValid()
-				&& FindTopLevelAssetExact(ViewState.Path.GetAssetPath())
+				&& FindAssetExact(ViewState.Path.GetAssetPath())
 				&& Context.RevealAsset;
 
 			const FAssetPickerAction LoadAction{

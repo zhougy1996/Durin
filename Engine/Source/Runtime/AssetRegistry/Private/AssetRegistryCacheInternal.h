@@ -10,7 +10,7 @@ namespace Durin::AssetPrivate
 	{
 		std::string MountRoot;
 		std::string RelativePath;
-		std::vector<FTopLevelAssetData> TopLevelAssets;
+		std::vector<FAssetData> TopLevelAssets;
 		uint32 FormatVersion = 0;
 		std::vector<FPackagePath> Dependencies;
 		std::vector<FPackagePath> SoftDependencies;
@@ -36,7 +36,7 @@ namespace Durin::AssetPrivate
 		std::vector<FRegistryCacheEntry> Entries,
 		std::string& OutWarning) -> bool;
 	auto BuildRegistryCacheEntries(
-		const std::unordered_map<FPackagePath, FAssetData>& Assets,
+		const std::unordered_map<FPackagePath, FPackageData>& Assets,
 		std::vector<FRegistryCacheEntry>& OutEntries,
 		std::string& OutWarning) -> bool;
 }

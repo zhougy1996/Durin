@@ -62,7 +62,7 @@ namespace Durin
 	// Owns the expected catalog metadata and companion closure of one selected package.
 	struct FAssetDeletionEntry
 	{
-		FAssetData RegistryEntry;
+		FPackageData RegistryEntry;
 		std::vector<std::filesystem::path> CompanionFiles;
 		bool bLoaded = false;
 	};
@@ -121,7 +121,7 @@ namespace Durin
 	};
 
 	using FAssetDeleteContributor = std::function<FAssetWriteResult(
-		const FAssetData&,
+		const FPackageData&,
 		const FAssetPackageInspection&,
 		FAssetDeleteContribution&
 	)>;

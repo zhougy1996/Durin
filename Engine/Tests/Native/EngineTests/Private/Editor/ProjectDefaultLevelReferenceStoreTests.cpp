@@ -149,7 +149,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, FixUpRewritesYamlAndPreservesOther
 		std::span{&Scenario.OldPath, 1},
 		Durin::EAssetRedirectorFixupMode::RewriteAndDelete).Result);
 	EXPECT_EQ(NotifiedPath, Scenario.NewPath);
-	EXPECT_EQ(Durin::FindAssetExact(
+	EXPECT_EQ(Durin::FindPackageExact(
 		Scenario.OldPath), nullptr);
 	const Durin::FYamlDocument Settings = LoadSettings(Scenario);
 	EXPECT_EQ(Settings.GetRootView().GetView("Game")
@@ -178,11 +178,10 @@ TEST(FProjectDefaultLevelReferenceStoreTests, VerificationFailureRetainsPublishe
 		Durin::EAssetRedirectorFixupFailurePoint::None);
 	EXPECT_EQ(Result.Error, Durin::EAssetWriteError::IoError);
 	EXPECT_EQ(NotifiedPath, Scenario.NewPath);
-	const auto Alias = Durin::FindAssetExact(
+	const auto Alias = Durin::FindPackageExact(
 		Scenario.OldPath);
 	ASSERT_NE(Alias, nullptr);
-	EXPECT_EQ(Alias->EntryKind,
-		Durin::EAssetRegistryEntryKind::Redirector);
+	EXPECT_TRUE(Alias->TopLevelAssets.front().IsRedirector());
 	const Durin::FYamlDocument Settings = LoadSettings(Scenario);
 	EXPECT_EQ(Settings.GetRootView().GetView("Game")
 		.GetView("DefaultLevel").GetString(), Scenario.NewPath.ToString());

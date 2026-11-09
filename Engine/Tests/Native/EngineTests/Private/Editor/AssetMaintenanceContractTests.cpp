@@ -168,8 +168,10 @@ TEST_F(FAssetMaintenanceContractTests, CoreJsonSerializationPreservesControlChar
 TEST_F(FAssetMaintenanceContractTests, RecompressionSelectsCurrentPackagesAndHonorsCancellation)
 {
 	using namespace Durin;
+	const auto Path = MakePath("/Maintenance/Current");
 	FAssetPackageCompatibilityRecord Record{
-		.PackagePath = MakePath("/Maintenance/Current"),
+		.PackagePath = Path,
+		.TopLevelAssets = {{Testing::MakePackageLeafTopLevelAssetPathForTests(Path), "Durin::DTexture2D", {}}},
 		.Inspection = EAssetCompatibilityInspection::Ready,
 		.Compatibility = EAssetPackageCompatibility::Compatible};
 	const std::array Records{Record};
@@ -206,7 +208,7 @@ TEST_F(FAssetMaintenanceContractTests, RecompressionPreviewAndSaveFailurePreserv
 	Texture->SetPlatformData(std::move(Platform));
 	const auto Saved = SavePackage(Texture->GetPackage());
 	ASSERT_TRUE(Saved) << Saved.Message;
-	const auto Entry = FindAssetExact(Path);
+	const auto Entry = FindPackageExact(Path);
 	ASSERT_TRUE(Entry);
 	FByteBuffer Before;
 	auto BeforeRead = FFileHelper::LoadFileToArray(Entry->PhysicalPath);
@@ -224,6 +226,7 @@ TEST_F(FAssetMaintenanceContractTests, RecompressionPreviewAndSaveFailurePreserv
 			.Fingerprint = {.FileSize = Before.size(),
 				.LastWriteTimeTicks = FileTime::ToStableTicks(std::filesystem::last_write_time(Entry->PhysicalPath)),
 				.ContentHash = FXxHash128::HashBuffer(Before)},
+			.TopLevelAssets = Entry->TopLevelAssets,
 			.Inspection = EAssetCompatibilityInspection::Ready,
 			.Compatibility = EAssetPackageCompatibility::Compatible};
 		return PlanAssetCanonicalResaves(std::array{Record},

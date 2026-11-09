@@ -36,14 +36,15 @@ namespace Durin::Editor::Material
 			FTopLevelAssetPath AssetPath;
 		};
 
-		auto MakeFingerprint(const FAssetData& Data,
+		auto MakeFingerprint(const FPackageData& Data,
 			FTopLevelAssetPath AssetPath = {})
 			-> FAssetThumbnailPackageFingerprint
 		{
+			const auto Asset = std::ranges::find(Data.TopLevelAssets, AssetPath, &FAssetData::AssetPath);
 			return {
 				.AssetPath = std::move(AssetPath),
 				.PackagePath = Data.PackagePath,
-				.AssetClassName = Data.AssetClassName,
+				.AssetClassName = Asset == Data.TopLevelAssets.end() ? std::string{} : Asset->AssetClassName,
 				.PackageFormatVersion = Data.FormatVersion,
 				.FileSize = static_cast<uint64>(Data.FileSize),
 				.LastWriteTimeTicks = Data.LastWriteTimeTicks};
@@ -477,14 +478,14 @@ namespace Durin::Editor::Material
 		}
 		const auto RootIt = std::ranges::find_if(
 			Closure.Assets,
-			[&Request](const FAssetData& Data) {
+			[&Request](const FPackageData& Data) {
 				return Data.PackagePath == Request.Asset.PackagePath;
 			});
 		if (RootIt == Closure.Assets.end())
 		{
 			return std::unexpected("The material dependency closure omitted its root asset.");
 		}
-		const FAssetData* Root = &*RootIt;
+		const FPackageData* Root = &*RootIt;
 		if (MakeFingerprint(*Root, Request.Asset.AssetPath) != Request.Asset)
 		{
 			return std::unexpected(std::format(
@@ -493,7 +494,7 @@ namespace Durin::Editor::Material
 		}
 		std::vector<FAssetThumbnailPackageFingerprint> Dependencies;
 		Dependencies.reserve(Closure.Assets.size() - 1);
-		for (const FAssetData& Data : Closure.Assets)
+		for (const FPackageData& Data : Closure.Assets)
 			if (Data.PackagePath != Request.Asset.PackagePath)
 				Dependencies.push_back(MakeFingerprint(Data));
 

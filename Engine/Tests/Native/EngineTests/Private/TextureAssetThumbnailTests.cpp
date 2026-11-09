@@ -39,14 +39,14 @@ namespace
 		return Durin::Testing::MakePackageLeafTopLevelAssetPathForTests(PackagePath);
 	}
 
-	auto MakeRequest(const Durin::FAssetData& Data)
+	auto MakeRequest(const Durin::FPackageData& Data)
 		-> Durin::Editor::FAssetThumbnailRequest
 	{
 		return {
 			.Asset = {
 				.AssetPath = MakeAssetPath(Data.PackagePath),
 				.PackagePath = Data.PackagePath,
-				.AssetClassName = Data.AssetClassName,
+				.AssetClassName = Data.TopLevelAssets.front().AssetClassName,
 				.PackageFormatVersion = Data.FormatVersion,
 				.FileSize = static_cast<uint64>(Data.FileSize),
 				.LastWriteTimeTicks = Data.LastWriteTimeTicks},
@@ -219,8 +219,8 @@ TEST(FTextureAssetThumbnailTests, Texture2DRendererCapturesBuiltSessionWithoutSo
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::Tests::FAssetThumbnailFixtureSet::ParentTexturePath,
 		TexturePath));
-	const Durin::FAssetCatalogEntry Data =
-		Durin::FindAssetExact(TexturePath);
+	const Durin::FPackageCatalogEntry Data =
+		Durin::FindPackageExact(TexturePath);
 	ASSERT_NE(Data, nullptr);
 
 	Durin::Editor::Texture::DTextureThumbnailRenderer Renderer;
@@ -422,8 +422,8 @@ TEST(FTextureCubeThumbnailRendererTests, RendererCapturesPackageAndCubeVisualCon
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::Tests::FAssetThumbnailFixtureSet::DirectionalCubePath,
 		CubePath));
-	const Durin::FAssetCatalogEntry Data =
-		Durin::FindAssetExact(CubePath);
+	const Durin::FPackageCatalogEntry Data =
+		Durin::FindPackageExact(CubePath);
 	ASSERT_NE(Data, nullptr);
 
 	Durin::Editor::Texture::DTextureCubeThumbnailRenderer Renderer;
@@ -473,8 +473,8 @@ TEST(FTextureCubeThumbnailRendererTests,
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::Tests::FAssetThumbnailFixtureSet::DirectionalCubePath,
 		CubePath));
-	const Durin::FAssetCatalogEntry Data =
-		Durin::FindAssetExact(CubePath);
+	const Durin::FPackageCatalogEntry Data =
+		Durin::FindPackageExact(CubePath);
 	ASSERT_NE(Data, nullptr);
 
 	Durin::Editor::Texture::DTextureCubeThumbnailRenderer Renderer;

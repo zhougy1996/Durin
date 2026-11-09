@@ -52,14 +52,14 @@ namespace Durin
 	}
 
 	auto ReleasePackagesForRemoval(
-		std::span<const FAssetData> Packages, uint64 ExpectedRevision) -> FAssetWriteResult
+		std::span<const FPackageData> Packages, uint64 ExpectedRevision) -> FAssetWriteResult
 	{
 		return FAssetRuntimeState::Get().GetMutationCoordinator()
 			.ReleasePackagesForRemoval(Packages, ExpectedRevision);
 	}
 
 	auto PublishPackageRemoval(
-		std::span<const FAssetData> Packages, uint64 ExpectedRevision) -> FAssetWriteResult
+		std::span<const FPackageData> Packages, uint64 ExpectedRevision) -> FAssetWriteResult
 	{
 		return FAssetRuntimeState::Get().GetMutationCoordinator()
 			.PublishPackageRemoval(Packages, ExpectedRevision);

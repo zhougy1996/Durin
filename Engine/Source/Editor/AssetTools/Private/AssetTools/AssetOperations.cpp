@@ -104,8 +104,8 @@ namespace Durin
 			|| !Request.ResolvePhysicalPackagePath)
 			return MakeRejectedAssetOperation(EAssetOperationKind::Duplicate,
 				"Asset duplication requires a source, destination, and path resolver.");
-		const FTopLevelAssetCatalogEntry Source =
-			FindTopLevelAssetExact(Request.SourcePath);
+		const FAssetCatalogEntry Source =
+			FindAssetExact(Request.SourcePath);
 		if (!Source || Source->IsRedirector())
 			return MakeRejectedAssetOperation(EAssetOperationKind::Duplicate,
 				"The copied source is no longer an available real asset.");
@@ -124,7 +124,7 @@ namespace Durin
 			FPackagePath CandidatePath;
 			if (!FPackagePath::TryCreate(Directory + CandidateName, CandidatePath)) continue;
 			std::string CandidatePhysical = Request.ResolvePhysicalPackagePath(CandidatePath);
-			if (CandidatePhysical.empty() || FindAssetExact(CandidatePath)
+			if (CandidatePhysical.empty() || FindPackageExact(CandidatePath)
 				|| FindResidentPackage(CandidatePath)) continue;
 			std::error_code Error;
 			const bool bExists = std::filesystem::exists(CandidatePhysical, Error);

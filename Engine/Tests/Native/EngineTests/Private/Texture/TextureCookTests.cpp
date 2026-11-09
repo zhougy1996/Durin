@@ -346,8 +346,8 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 		Durin::EAssetRegistryScanMode::FullValidation));
 	Durin::FPackagePath CookedPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedTexture", CookedPath));
-	const Durin::FAssetCatalogEntry CookedAssetData =
-		Durin::FindAssetExact(CookedPath);
+	const Durin::FPackageCatalogEntry CookedAssetData =
+		Durin::FindPackageExact(CookedPath);
 	ASSERT_NE(CookedAssetData, nullptr);
 	ASSERT_EQ(CookedAssetData->TopLevelAssets.size(), 1u);
 	const Durin::FTopLevelAssetPath CookedAssetPath =

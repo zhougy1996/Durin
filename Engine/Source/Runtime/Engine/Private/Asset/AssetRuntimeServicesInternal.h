@@ -130,13 +130,13 @@ namespace Durin
 			const FAssetBundleSaveOptions& Options) -> FAssetBatchSaveResult;
 		auto AdmitAssetPackageToCatalog(const FPackagePath& Path) -> FAssetWriteResult;
 		auto ReleasePackagesForRemoval(
-			std::span<const FAssetData> Entries, uint64 ExpectedRevision) -> FAssetWriteResult;
+			std::span<const FPackageData> Entries, uint64 ExpectedRevision) -> FAssetWriteResult;
 		auto PublishPackageRemoval(
-			std::span<const FAssetData> Entries, uint64 ExpectedRevision) -> FAssetWriteResult;
+			std::span<const FPackageData> Entries, uint64 ExpectedRevision) -> FAssetWriteResult;
 
 	private:
 		auto ValidatePackageRemoval(
-			std::span<const FAssetData> Entries, uint64 ExpectedRevision) -> FAssetWriteResult;
+			std::span<const FPackageData> Entries, uint64 ExpectedRevision) -> FAssetWriteResult;
 		auto FindResidentPackage(const FPackagePath& Path) const -> DPackage*
 		{
 			return Loader.FindResidentPackage(Path);

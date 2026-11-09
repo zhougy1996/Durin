@@ -70,8 +70,8 @@ TEST(FMaterialPackageTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
 	Instance->SetVector2ParameterValue(Durin::FName("BaseColorUVOffset"), Durin::FVector2(0.25, 0.5));
 	Instance->SetTextureParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), TextureImport.Asset);
 	ASSERT_TRUE(Durin::SavePackage(Instance->GetPackage()));
-	const Durin::FAssetCatalogEntry InstanceData =
-		Durin::FindAssetExact(InstancePath);
+	const Durin::FPackageCatalogEntry InstanceData =
+		Durin::FindPackageExact(InstancePath);
 	ASSERT_NE(InstanceData, nullptr);
 	EXPECT_NE(std::ranges::find(InstanceData->Dependencies, BasePath), InstanceData->Dependencies.end());
 	EXPECT_NE(std::ranges::find(InstanceData->Dependencies, TexturePath), InstanceData->Dependencies.end());
@@ -208,7 +208,7 @@ TEST(FMaterialPackageTests, TypedExpressionsRoundTripDuplicateAndRejectMalformed
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_NO_FATAL_FAILURE(CheckGraph(Loaded));
-	const auto CatalogEntry = FindAssetExact(Path);
+	const auto CatalogEntry = FindPackageExact(Path);
 	ASSERT_NE(CatalogEntry, nullptr);
 	EXPECT_TRUE(CatalogEntry->Dependencies.empty());
 	// Failed authoring saves leave the previously committed package intact.
@@ -424,7 +424,7 @@ TEST(FMaterialPackageTests, AuthoredGraphVersionsLoadAfterRestartAndFunctionsDup
 	for (const auto& Path : {MaterialPath, FunctionPath})
 	{
 		SCOPED_TRACE(Path.ToString());
-		const auto Data = FindAssetExact(Path);
+		const auto Data = FindPackageExact(Path);
 		ASSERT_NE(Data, nullptr);
 		FByteBuffer Bytes;
 		auto BytesRead = FFileHelper::LoadFileToArray(Data->PhysicalPath);

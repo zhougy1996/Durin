@@ -467,7 +467,7 @@ namespace Durin
 						if (Injected(ECookOperationStage::Load, Index))
 							return Finish(ECookRunStatus::Failed, ECookRunError::LoadInjectedFailure);
 						if (auto Result = CheckInputs(); !Result) return InputFailure(Result);
-						const FAssetData* Data = Catalog.FindExact(Path);
+						const FPackageData* Data = Catalog.FindExact(Path);
 						if (!Data) return Finish(ECookRunStatus::Failed, ECookRunError::StaleRegistry);
 						if (Data->TopLevelAssets.empty())
 							return Finish(ECookRunStatus::Failed, ECookRunError::MissingTopLevelAsset);

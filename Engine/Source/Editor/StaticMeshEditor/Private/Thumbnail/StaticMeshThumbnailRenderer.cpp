@@ -22,14 +22,15 @@ namespace Durin::Editor::StaticMesh
 		constexpr double MinimumNearClipDistance = 1.0e-6;
 		constexpr double ClipPaddingFraction = 0.05;
 
-		auto MakeStaticMeshThumbnailFingerprint(const FAssetData& Data,
+		auto MakeStaticMeshThumbnailFingerprint(const FPackageData& Data,
 			FTopLevelAssetPath AssetPath = {})
 			-> FAssetThumbnailPackageFingerprint
 		{
+			const auto Asset = std::ranges::find(Data.TopLevelAssets, AssetPath, &FAssetData::AssetPath);
 			return {
 				.AssetPath = std::move(AssetPath),
 				.PackagePath = Data.PackagePath,
-				.AssetClassName = Data.AssetClassName,
+				.AssetClassName = Asset == Data.TopLevelAssets.end() ? std::string{} : Asset->AssetClassName,
 				.PackageFormatVersion = Data.FormatVersion,
 				.FileSize = static_cast<uint64>(Data.FileSize),
 				.LastWriteTimeTicks = Data.LastWriteTimeTicks};
@@ -362,7 +363,7 @@ namespace Durin::Editor::StaticMesh
 
 		const FAssetCatalogSnapshot Catalog =
 			CaptureAssetCatalogSnapshot();
-		const FAssetData* Root =
+		const FPackageData* Root =
 			Catalog.FindExact(Request.Asset.PackagePath);
 		if (Root == nullptr)
 		{

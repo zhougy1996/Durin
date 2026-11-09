@@ -239,7 +239,7 @@ namespace Durin::Editor::MainFrame
 						"The editor transactor is unavailable.");
 				std::vector<FPackagePath> Redirectors;
 				for (const auto& [Path, Data] : CaptureAssetCatalogSnapshot().Assets)
-					if (Data.EntryKind == EAssetRegistryEntryKind::Redirector)
+					if ((!Data.TopLevelAssets.empty() && std::ranges::all_of(Data.TopLevelAssets, &FAssetData::IsRedirector)))
 						Redirectors.push_back(Path);
 				std::ranges::sort(Redirectors,
 					[](const FPackagePath& Left, const FPackagePath& Right) {

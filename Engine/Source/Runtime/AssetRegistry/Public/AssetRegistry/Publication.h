@@ -26,7 +26,7 @@ namespace Durin
 	struct FAssetRegistryPublication
 	{
 		uint64 ExpectedRevision = 0;
-		std::unordered_map<FPackagePath, FAssetData> Assets;
+		std::unordered_map<FPackagePath, FPackageData> Assets;
 		std::vector<FAssetPackageReferenceEdge> ReferenceEdges;
 		std::unordered_map<FPackagePath, FAssetPackageFingerprint> ReferenceFingerprints;
 		std::vector<FAssetRegistryResult> ReferenceErrors;
@@ -38,8 +38,8 @@ namespace Durin
 	struct FAssetRegistryDelta
 	{
 		uint64 ExpectedRevision = 0;
-		std::vector<FAssetData> Adds;
-		std::vector<FAssetData> Replaces;
+		std::vector<FPackageData> Adds;
+		std::vector<FPackageData> Replaces;
 		std::vector<FPackagePath> Removes;
 		std::vector<FPackagePath> ReferenceInvalidations;
 	};
@@ -51,7 +51,7 @@ namespace Durin
 	ASSETREGISTRY_API auto PublishAssetRegistryDelta(FAssetRegistryDelta Delta)
 		-> FAssetRegistryResult;
 	// Owned saved metadata, checked against the caller's admission revision.
-	ASSETREGISTRY_API auto AssetsSaved(std::vector<FAssetData> Assets,
+	ASSETREGISTRY_API auto AssetsSaved(std::vector<FPackageData> Assets,
 		const FAssetRegistryPublication& Expected) -> FAssetRegistryResult;
 	ASSETREGISTRY_API auto FenceAssetRegistryProjection(
 		std::span<const FPackagePath> Paths) -> void;

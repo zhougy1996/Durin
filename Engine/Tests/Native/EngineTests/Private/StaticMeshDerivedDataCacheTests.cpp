@@ -2303,7 +2303,7 @@ TEST(FStaticMeshPayloadInspectionTests, PackageInspectionPreservesAbsentMalforme
 {
 	using namespace Durin;
 	FAssetPackageInspection Package;
-	Package.Header.AssetClassName = DStaticMesh::StaticClass()->GetQualifiedName().ToString();
+	Package.Header.TopLevelAssets.front().AssetClassName = DStaticMesh::StaticClass()->GetQualifiedName().ToString();
 	Package.PhysicalPath = "/nonexistent/metadata-only/Mesh.dasset";
 	Package.Objects.emplace_back();
 	FStaticMeshPayloadInspection Snapshot;
@@ -2322,7 +2322,7 @@ TEST(FStaticMeshPayloadInspectionTests, PackageInspectionPreservesAbsentMalforme
 	Package.Objects[0].Fields.push_back({.Name = "Source", .SourceFormatVersion = 10});
 	ASSERT_TRUE(InspectStaticMeshPayloadPackage(Package, Snapshot));
 	EXPECT_EQ(Snapshot.Fields[0].State, "Malformed");
-	Package.Header.AssetClassName = "Unsupported";
+	Package.Header.TopLevelAssets.front().AssetClassName = "Unsupported";
 	std::string Error;
 	EXPECT_FALSE(InspectStaticMeshPayloadPackage(Package, Snapshot, &Error));
 	EXPECT_FALSE(Error.empty());

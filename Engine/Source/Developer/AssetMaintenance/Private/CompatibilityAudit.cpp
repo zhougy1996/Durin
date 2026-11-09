@@ -395,7 +395,7 @@ namespace Durin
 		{
 			Record.FormatVersion = Inspection.FormatVersion;
 			Record.Fingerprint.ReaderVersion = Inspection.FormatVersion;
-			Record.EntryKind = Inspection.EntryKind;
+			Record.TopLevelAssets = Inspection.TopLevelAssets;
 			Record.Dependencies = std::move(Inspection.Dependencies);
 			Record.Compatibility = Inspection.Status == EPackageSchemaStatus::Compatible
 				? EAssetPackageCompatibility::Compatible

@@ -20,7 +20,7 @@
 namespace Durin
 {
 	struct FAssetPackageSerializationOptions;
-	struct FAssetPathResolveResult;
+	struct FPackagePathResolveResult;
 	struct FCookOutputRootResult;
 	struct FCookPublishResult;
 	struct FCookCaptureResult;
@@ -487,7 +487,7 @@ namespace Durin
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
 		std::string CanonicalizationDiagnostic;
-		std::shared_ptr<const FAssetPathResolveResult> ResolutionCause;
+		std::shared_ptr<const FPackagePathResolveResult> ResolutionCause;
 	};
 	struct FCookPlanResult
 	{

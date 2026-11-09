@@ -562,8 +562,8 @@ namespace Durin::Editor::ContentBrowser::Private
 					const FPackagePath& Path = Item.PackagePath;
 					if (Path.IsValid())
 					{
-						if (const FAssetCatalogEntry Data =
-							FindAssetExact(Path))
+						if (const FPackageCatalogEntry Data =
+							FindPackageExact(Path))
 						{
 							Row("Hard dependencies", std::format("{}", Data->Dependencies.size()));
 							Row("Soft dependencies", std::format("{}", Data->SoftDependencies.size()));

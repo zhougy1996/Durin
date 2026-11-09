@@ -78,10 +78,11 @@ TEST(FSourceReferenceIndexTests, BoundsPackageInspectionWork)
 	const size_t SourceBearingAssets = std::ranges::count_if(
 		Durin::CaptureAssetCatalogSnapshot().Assets,
 		[](const auto& Entry) {
-			const std::string& ClassName = Entry.second.AssetClassName;
-			return ClassName.find("Texture2D") != std::string::npos
-				|| ClassName.find("TextureCube") != std::string::npos
-				|| ClassName.find("StaticMesh") != std::string::npos;
+			return std::ranges::any_of(Entry.second.TopLevelAssets, [](const Durin::FAssetData& Asset) {
+				return Asset.AssetClassName.find("Texture2D") != std::string::npos
+					|| Asset.AssetClassName.find("TextureCube") != std::string::npos
+					|| Asset.AssetClassName.find("StaticMesh") != std::string::npos;
+			});
 		});
 	if (SourceBearingAssets > 1)
 		EXPECT_FALSE(Index.GetWarning().empty());

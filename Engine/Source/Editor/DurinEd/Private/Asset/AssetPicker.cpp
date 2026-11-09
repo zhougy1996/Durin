@@ -18,7 +18,7 @@ namespace Durin::Editor::AssetPicker
 	{
 		constexpr size_t MaxCachedSearches = 128;
 
-		auto RequestThumbnail(const FTopLevelAssetCatalogEntry& Entry) -> FAssetThumbnailView
+		auto RequestThumbnail(const FAssetCatalogEntry& Entry) -> FAssetThumbnailView
 		{
 			if (!Entry) return {};
 			auto& Pool = GetDefaultThumbnailManager().GetSharedPool();
@@ -65,7 +65,7 @@ namespace Durin::Editor::AssetPicker
 		}
 
 		auto DrawAssetTooltip(std::string_view PathString,
-			const FTopLevelAssetCatalogEntry& Entry, const FAssetThumbnailView& View) -> void
+			const FAssetCatalogEntry& Entry, const FAssetThumbnailView& View) -> void
 		{
 			if (!ImGui::BeginTooltip()) return;
 			const float Size = MonaImGui::ScaleUI(192.0f);
@@ -142,7 +142,7 @@ namespace Durin::Editor::AssetPicker
 			Paths.reserve(Snapshot.Assets.size());
 			for (const auto& [PackagePath, Data] : Snapshot.Assets)
 			{
-				for (const FTopLevelAssetData& AssetData : Data.TopLevelAssets)
+				for (const FAssetData& AssetData : Data.TopLevelAssets)
 				{
 					if (AssetData.IsRedirector()) continue;
 					const std::string Path = AssetData.AssetPath.ToString();
@@ -335,8 +335,8 @@ namespace Durin::Editor::AssetPicker
 			ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
 		{
 			FTopLevelAssetPath Path;
-			const FTopLevelAssetCatalogEntry Entry = FTopLevelAssetPath::TryCreate(CurrentPath, Path)
-				? FindTopLevelAssetExact(Path) : FTopLevelAssetCatalogEntry{};
+			const FAssetCatalogEntry Entry = FTopLevelAssetPath::TryCreate(CurrentPath, Path)
+				? FindAssetExact(Path) : FAssetCatalogEntry{};
 			DrawAssetTooltip(CurrentPath, Entry, RequestThumbnail(Entry));
 		}
 		if (bComboOpen)
@@ -385,7 +385,7 @@ namespace Durin::Editor::AssetPicker
 					const bool bHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal);
 					if (ImGui::IsItemVisible())
 					{
-						const auto Entry = FindTopLevelAssetExact(Path);
+						const auto Entry = FindAssetExact(Path);
 						const auto Thumbnail = RequestThumbnail(Entry);
 						ImDrawList* DrawList = ImGui::GetWindowDrawList();
 						DrawList->PushClipRect(RowMin, ImVec2(RowMin.x + RowWidth, RowMin.y + ThumbnailSize), true);

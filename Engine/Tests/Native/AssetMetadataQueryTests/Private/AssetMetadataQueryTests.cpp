@@ -15,13 +15,12 @@ namespace
 
 	auto MakeAssetData(const Durin::FPackagePath& Path,
 		std::vector<Durin::FPackagePath> Hard = {},
-		std::vector<Durin::FPackagePath> Soft = {}) -> FAssetData
+		std::vector<Durin::FPackagePath> Soft = {}) -> FPackageData
 	{
 		FTopLevelAssetPath AssetPath;
 		EXPECT_TRUE(FTopLevelAssetPath::TryCreate(Path, "Asset", AssetPath));
 		return {.PackagePath = Path,
 			.TopLevelAssets = {{AssetPath, "Example::MetadataAsset", {}}},
-			.AssetClassName = "Example::MetadataAsset",
 			.FormatVersion = Durin::ObjectPackage::DastV10FormatVersion,
 			.Dependencies = std::move(Hard),
 			.SoftDependencies = std::move(Soft),
@@ -30,7 +29,7 @@ namespace
 			.LastWriteTimeTicks = 42};
 	}
 
-		auto RebuildPackageProjection(FAssetRegistryPublication& Publication) -> void
+	auto RebuildPackageProjection(FAssetRegistryPublication& Publication) -> void
 	{
 		Publication.ReferenceEdges.clear();
 		Publication.ReferenceFingerprints.clear();
@@ -46,14 +45,7 @@ namespace
 					.SourceFingerprint = Fingerprint, .Kind = Kind,
 					.TargetPath = Target});
 			};
-			for (const Durin::FPackagePath& Target : Data.Dependencies)
-				if (Data.EntryKind != EAssetRegistryEntryKind::Redirector
-					|| Target != Data.RedirectDestination)
-					Add(EAssetReferenceKind::HardObject, Target);
-			for (const Durin::FPackagePath& Target : Data.SoftDependencies)
-				Add(EAssetReferenceKind::SoftObject, Target);
-			if (Data.EntryKind == EAssetRegistryEntryKind::Redirector)
-				Add(EAssetReferenceKind::Redirect, Data.RedirectDestination);
+			VisitAssetPackageReferences(Data, Add);
 		}
 		std::ranges::sort(Publication.ReferenceEdges,
 			[](const FAssetPackageReferenceEdge& Left,
@@ -75,21 +67,31 @@ namespace
 			"/MetadataTests/", "MetadataTests/");
 		Durin::FPackagePath Path;
 		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/MetadataTests/Textures/Brick", Path));
+		FTopLevelAssetPath TexturePath, MaterialPath;
+		ASSERT_TRUE(FTopLevelAssetPath::TryCreate(Path, "Texture", TexturePath));
+		ASSERT_TRUE(FTopLevelAssetPath::TryCreate(Path, "Material", MaterialPath));
 
 		FAssetCatalogSnapshot Snapshot{
 			.Revision = 17,
-			.Assets = {{Path, FAssetData{
+			.Assets = {{Path, FPackageData{
 				.PackagePath = Path,
 				.PhysicalPath = "Content/Textures/Brick.dasset",
-				.AssetClassName = "Durin::DTexture2D",
+				.TopLevelAssets = {{TexturePath, "Durin::DTexture2D", {}},
+					{MaterialPath, "Durin::DMaterial", {}}},
 				.FormatVersion = Durin::ObjectPackage::DastV10FormatVersion}}}};
 
-		const FAssetData* Data = Snapshot.FindExact(Path);
+		const FPackageData* Data = Snapshot.FindExact(Path);
 		ASSERT_NE(Data, nullptr);
 		EXPECT_EQ(Snapshot.Revision, 17u);
 		EXPECT_EQ(Data->PackagePath, Path);
-		EXPECT_EQ(Data->AssetClassName, "Durin::DTexture2D");
+		EXPECT_EQ(Data->TopLevelAssets.front().AssetClassName, "Durin::DTexture2D");
 		EXPECT_EQ(Data->FormatVersion, Durin::ObjectPackage::DastV10FormatVersion);
+		const FAssetData* Texture = Snapshot.FindAssetExact(TexturePath);
+		const FAssetData* Material = Snapshot.FindAssetExact(MaterialPath);
+		ASSERT_NE(Texture, nullptr);
+		ASSERT_NE(Material, nullptr);
+		EXPECT_EQ(Texture->AssetClassName, "Durin::DTexture2D");
+		EXPECT_EQ(Material->AssetClassName, "Durin::DMaterial");
 	}
 
 	TEST(FAssetMetadataQueryTests, OwnsCanonicalDastReaderIdentity)
@@ -123,7 +125,7 @@ namespace
 		RebuildPackageProjection(First);
 		ASSERT_TRUE(PublishAssetRegistryPublication(std::move(First)));
 		EXPECT_EQ(GetAssetCatalogRevision(), Revision + 1);
-		ASSERT_TRUE(FindAssetExact(Path));
+		ASSERT_TRUE(FindPackageExact(Path));
 
 		FAssetRegistryPublication Stale = CaptureAssetRegistryPublication();
 		Stale.ExpectedRevision = Revision;
@@ -132,7 +134,7 @@ namespace
 		EXPECT_EQ(Rejected.Context.Reason, EAssetRegistryFailure::PublicationRevision);
 		EXPECT_EQ(Rejected.Context.Actual, Revision + 1);
 		EXPECT_EQ(Rejected.Context.Expected, Revision);
-		EXPECT_TRUE(FindAssetExact(Path));
+		EXPECT_TRUE(FindPackageExact(Path));
 
 		FAssetRegistryPublication Incomplete = CaptureAssetRegistryPublication();
 		Incomplete.bReferenceIndexComplete = false;
@@ -155,7 +157,7 @@ namespace
 		std::atomic<uint32> Successes = 0;
 		auto Publish = [&](const Durin::FPackagePath& InAssetPathValue) {
 			FAssetRegistryPublication Publication = Base;
-			FAssetData Data = MakeAssetData(InAssetPathValue);
+			FPackageData Data = MakeAssetData(InAssetPathValue);
 			Publication.Assets.insert_or_assign(InAssetPathValue, std::move(Data));
 			RebuildPackageProjection(Publication);
 			if (PublishAssetRegistryPublication(std::move(Publication))) ++Successes;
@@ -207,11 +209,11 @@ namespace
 		EXPECT_EQ(Closure.Revision, GetAssetCatalogRevision());
 		ASSERT_EQ(Closure.Assets.size(), 2u);
 		EXPECT_EQ(std::ranges::count(Closure.Assets, Root,
-			&FAssetData::PackagePath), 1);
+			&FPackageData::PackagePath), 1);
 		EXPECT_EQ(std::ranges::count(Closure.Assets, Dependency,
-			&FAssetData::PackagePath), 1);
+			&FPackageData::PackagePath), 1);
 		EXPECT_EQ(std::ranges::count(Closure.Assets, Unrelated,
-			&FAssetData::PackagePath), 0);
+			&FPackageData::PackagePath), 0);
 	}
 
 	TEST(FAssetMetadataQueryTests, PublishesCanonicalPackageLevelDependenciesWithoutEngine)
@@ -234,10 +236,7 @@ namespace
 		FAssetRegistryPublication Publication = CaptureAssetRegistryPublication();
 		Publication.Assets.insert_or_assign(SourcePath,
 			MakeAssetData(SourcePath, {TargetPath}, {SoftPath}));
-		FAssetData Redirect = MakeAssetData(RedirectPath, {TargetPath});
-		Redirect.AssetClassName = "Durin::DAssetRedirector";
-		Redirect.EntryKind = EAssetRegistryEntryKind::Redirector;
-		Redirect.RedirectDestination = TargetPath;
+		FPackageData Redirect = MakeAssetData(RedirectPath, {TargetPath});
 		Redirect.TopLevelAssets.front().AssetClassName = "Durin::DAssetRedirector";
 		ASSERT_TRUE(FObjectPath::TryCreate(TargetPath.ToString() + ".Asset",
 			Redirect.TopLevelAssets.front().RedirectDestination));

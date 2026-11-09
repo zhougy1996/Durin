@@ -250,7 +250,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	EXPECT_EQ(LiveMaterial->GetParent(), nullptr);
 	StandardPath = MaterialPath;
 	EXPECT_TRUE(StandardPath.GetView().starts_with(DestinationDirectory.ToString() + "/Materials/M_"));
-	ASSERT_TRUE(Durin::FindAssetExact(StandardPath));
+	ASSERT_TRUE(Durin::FindPackageExact(StandardPath));
 	Durin::DTexture2D* LiveTexture = nullptr;
 	ASSERT_TRUE(LiveMaterial->GetTextureParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), LiveTexture));

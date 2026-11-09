@@ -115,8 +115,8 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	EXPECT_EQ(LiveDerived->State, Durin::ETexturePayloadState::Available);
 	EXPECT_EQ(LiveDecoded->State, Durin::ETexturePayloadState::Available);
 
-	const Durin::FAssetCatalogEntry AssetData =
-		Durin::FindAssetExact(AssetPath);
+	const Durin::FPackageCatalogEntry AssetData =
+		Durin::FindPackageExact(AssetPath);
 	ASSERT_TRUE(AssetData);
 	Durin::FAssetPackageInspection PackageInspection;
 	ASSERT_TRUE(Durin::InspectAssetPackage(
@@ -201,7 +201,7 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	EXPECT_TRUE(Loaded->GetPlatformData()->IsValid());
 	ASSERT_TRUE(Durin::UnloadPackage(RenamedPath));
 	Durin::FAssetPackageInspection Inspection;
-	const auto Data = Durin::FindAssetExact(RenamedPath);
+	const auto Data = Durin::FindPackageExact(RenamedPath);
 	ASSERT_TRUE(Data);
 	ASSERT_TRUE(Durin::InspectAssetPackage(Data->PhysicalPath, RenamedPath, Inspection));
 	std::vector<std::filesystem::path> Companions;
@@ -239,8 +239,8 @@ TEST(FTexture2DTests, RetainsSourceHintWithoutCopying)
 	Durin::FPackagePath DefaultAssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TextureImportTests/Textures/FlatDefault", DefaultAssetPath));
-	const Durin::FAssetCatalogEntry DefaultAssetData =
-		Durin::FindAssetExact(DefaultAssetPath);
+	const Durin::FPackageCatalogEntry DefaultAssetData =
+		Durin::FindPackageExact(DefaultAssetPath);
 	ASSERT_NE(DefaultAssetData, nullptr);
 	Durin::FAssetPackageInspection Inspection;
 	ASSERT_TRUE(Durin::InspectAssetPackage(
@@ -312,8 +312,8 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 
 	Durin::FPackagePath AssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureDerivedDataTests/Cached", AssetPath));
-	const Durin::FAssetCatalogEntry CachedAssetData =
-		Durin::FindAssetExact(AssetPath);
+	const Durin::FPackageCatalogEntry CachedAssetData =
+		Durin::FindPackageExact(AssetPath);
 	ASSERT_TRUE(CachedAssetData);
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 

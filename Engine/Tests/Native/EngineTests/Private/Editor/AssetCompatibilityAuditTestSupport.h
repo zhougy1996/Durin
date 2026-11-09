@@ -23,7 +23,7 @@ namespace
 	}
 
 	auto MakeData(std::string_view Path, uintmax_t Size = 10, int64 Ticks = 20)
-		-> Durin::FAssetData
+		-> Durin::FPackageData
 	{
 		Durin::FPackagePath AssetPath = MakePath(Path);
 		return {

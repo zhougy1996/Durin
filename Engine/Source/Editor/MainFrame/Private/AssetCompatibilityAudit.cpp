@@ -30,7 +30,7 @@ namespace Durin::Editor
 			std::string Failure;
 		};
 
-		auto MakeNotCheckedRecord(const FAssetData& Data)
+		auto MakeNotCheckedRecord(const FPackageData& Data)
 			-> FAssetPackageCompatibilityRecord
 		{
 			return {
@@ -203,7 +203,7 @@ namespace Durin::Editor
 	}
 
 	auto FAssetCompatibilityAuditModel::RunAudit(
-		const std::unordered_map<FPackagePath, FAssetData>& Assets,
+		const std::unordered_map<FPackagePath, FPackageData>& Assets,
 		FReflectionCompatibilityCatalog Catalog) -> bool
 	{
 		if (!bAdmissionOpen) return false;
@@ -360,13 +360,13 @@ namespace Durin::Editor
 	}
 
 	auto FAssetCompatibilityAuditModel::ReconcileAssetCatalog(
-		const std::unordered_map<FPackagePath, FAssetData>& Assets) -> void
+		const std::unordered_map<FPackagePath, FPackageData>& Assets) -> void
 	{
 		Reconcile(Assets);
 	}
 
 	auto FAssetCompatibilityAuditModel::Tick(
-		const std::unordered_map<FPackagePath, FAssetData>& Assets) -> void
+		const std::unordered_map<FPackagePath, FPackageData>& Assets) -> void
 	{
 		Tick();
 		ReconcileAssetCatalog(Assets);
@@ -406,7 +406,7 @@ namespace Durin::Editor
 	}
 
 	auto FAssetCompatibilityAuditModel::Reconcile(
-		const std::unordered_map<FPackagePath, FAssetData>& Assets) -> void
+		const std::unordered_map<FPackagePath, FPackageData>& Assets) -> void
 	{
 		bool bPresentationChanged = std::erase_if(
 			Records, [&](const auto& Entry) { return !Assets.contains(Entry.first); }) != 0;

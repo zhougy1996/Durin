@@ -309,7 +309,7 @@ namespace Durin::Editor::ContentBrowser
 		EXPECT_FALSE(std::filesystem::exists(Root / "NewLevel.dasset"));
 		FPackagePath DefaultPath;
 		ASSERT_TRUE(FPackagePath::TryCreate("/DeferredCreation/NewLevel", DefaultPath));
-		EXPECT_FALSE(FindAssetExact(DefaultPath));
+		EXPECT_FALSE(FindPackageExact(DefaultPath));
 		EXPECT_EQ(FindResidentPackage(DefaultPath), nullptr);
 
 		Dialog.Open(Invocation);

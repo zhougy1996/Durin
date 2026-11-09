@@ -1964,7 +1964,7 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 	EXPECT_LT(NoDeltaPlan.FieldCount, 100u);
 	const Durin::FAssetWriteResult Saved = Durin::SavePackage(Texture->GetPackage());
 	ASSERT_TRUE(Saved) << Saved.Message;
-	const Durin::FAssetCatalogEntry SavedData = Durin::FindAssetExact(AssetPath);
+	const Durin::FPackageCatalogEntry SavedData = Durin::FindPackageExact(AssetPath);
 	ASSERT_TRUE(SavedData);
 	Durin::FAssetPackageInspection Inspection;
 	ASSERT_TRUE(Durin::InspectAssetPackage(SavedData->PhysicalPath, Inspection));
@@ -2226,8 +2226,8 @@ TEST(FTexture2DTests, CanonicalImportedPixelsRoundTripThroughExternalAuthoredBul
 	EXPECT_FALSE(ImportedIdentity.IsZero());
 	EXPECT_TRUE(Imported.Asset->GetSource().GetBulkData().GetInstanceId().IsValid());
 
-	const Durin::FAssetCatalogEntry Entry =
-		Durin::FindAssetExact(AssetPath);
+	const Durin::FPackageCatalogEntry Entry =
+		Durin::FindPackageExact(AssetPath);
 	ASSERT_TRUE(Entry);
 	Durin::FAssetPackageInspection Inspection;
 	const auto Inspected =

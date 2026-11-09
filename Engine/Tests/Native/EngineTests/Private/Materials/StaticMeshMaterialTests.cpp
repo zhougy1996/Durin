@@ -428,7 +428,7 @@ namespace
 		Component->SetMaterial(1, Second);
 		ASSERT_TRUE(Durin::SavePackage(Component->GetPackage()));
 
-		const auto ComponentData = Durin::FindAssetExact(ComponentPath);
+		const auto ComponentData = Durin::FindPackageExact(ComponentPath);
 		ASSERT_NE(ComponentData, nullptr);
 		EXPECT_NE(std::ranges::find(ComponentData->Dependencies, MeshPath), ComponentData->Dependencies.end());
 		EXPECT_NE(std::ranges::find(ComponentData->Dependencies, FirstMaterialPath), ComponentData->Dependencies.end());

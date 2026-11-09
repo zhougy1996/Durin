@@ -9,21 +9,15 @@
 
 namespace Durin
 {
-	enum class EAssetRegistryEntryKind : uint8
-	{
-		Asset = 0,
-		Redirector = 1
-	};
-
 	// Describes one independently addressable package-outer export.
-	struct FTopLevelAssetData
+	struct FAssetData
 	{
 		FTopLevelAssetPath AssetPath;
 		std::string AssetClassName;
 		FObjectPath RedirectDestination;
 
 		auto IsRedirector() const -> bool { return RedirectDestination.IsValid(); }
-		auto operator==(const FTopLevelAssetData&) const -> bool = default;
+		auto operator==(const FAssetData&) const -> bool = default;
 	};
 
 	// Validates exact asset identity and redirect metadata independently of export order.
@@ -52,16 +46,11 @@ namespace Durin
 	}
 
 	// Describes one persistent package without loading its object graph.
-	struct FAssetData
+	struct FPackageData
 	{
 		FPackagePath PackagePath;
 		std::string PhysicalPath;
-		std::vector<FTopLevelAssetData> TopLevelAssets;
-		// Legacy single-asset projection only; multi-asset packages leave these empty/default.
-		// Validation, references, and exact resolution must use TopLevelAssets.
-		std::string AssetClassName;
-		EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
-		FPackagePath RedirectDestination;
+		std::vector<FAssetData> TopLevelAssets;
 		uint32 FormatVersion = 0;
 		std::vector<FPackagePath> Dependencies;
 		std::vector<FPackagePath> SoftDependencies;
@@ -74,33 +63,33 @@ namespace Durin
 		std::filesystem::file_time_type LastWriteTime{};
 		int64 LastWriteTimeTicks = 0;
 
-		auto operator==(const FAssetData&) const -> bool = default;
+		auto operator==(const FPackageData&) const -> bool = default;
 	};
 
 	// Owns one exact registry lookup and the revision against which it was made.
-	struct FAssetCatalogEntry
+	struct FPackageCatalogEntry
 	{
 		uint64 Revision = 0;
-		std::optional<FAssetData> Data;
+		std::optional<FPackageData> Data;
 
 		auto Succeeded() const -> bool { return Data.has_value(); }
 		explicit operator bool() const { return Succeeded(); }
-		auto operator->() const -> const FAssetData* { return &Data.value(); }
-		auto operator*() const -> const FAssetData& { return Data.value(); }
+		auto operator->() const -> const FPackageData* { return &Data.value(); }
+		auto operator*() const -> const FPackageData& { return Data.value(); }
 		auto operator==(std::nullptr_t) const -> bool { return !Succeeded(); }
 		auto operator!=(std::nullptr_t) const -> bool { return Succeeded(); }
-		auto Get() const -> const FAssetData& { return Data.value(); }
+		auto Get() const -> const FPackageData& { return Data.value(); }
 	};
 
-	struct FTopLevelAssetCatalogEntry
+	struct FAssetCatalogEntry
 	{
 		uint64 Revision = 0;
-		std::optional<FTopLevelAssetData> Asset;
-		std::optional<FAssetData> Package;
+		std::optional<FAssetData> Asset;
+		std::optional<FPackageData> Package;
 
 		auto Succeeded() const -> bool { return Asset.has_value() && Package.has_value(); }
 		explicit operator bool() const { return Succeeded(); }
-		auto operator->() const -> const FTopLevelAssetData* { return &Asset.value(); }
+		auto operator->() const -> const FAssetData* { return &Asset.value(); }
 		auto operator==(std::nullptr_t) const -> bool { return !Succeeded(); }
 		auto operator!=(std::nullptr_t) const -> bool { return Succeeded(); }
 	};
@@ -109,21 +98,21 @@ namespace Durin
 	struct FAssetCatalogSnapshot
 	{
 		uint64 Revision = 0;
-		std::unordered_map<FPackagePath, FAssetData> Assets;
+		std::unordered_map<FPackagePath, FPackageData> Assets;
 
-		auto FindExact(const FPackagePath& Path) const -> const FAssetData*
+		auto FindExact(const FPackagePath& Path) const -> const FPackageData*
 		{
 			const auto It = Assets.find(Path);
 			return It == Assets.end() ? nullptr : &It->second;
 		}
 
-		auto FindTopLevelAssetExact(const FTopLevelAssetPath& Path) const
-			-> const FTopLevelAssetData*
+		auto FindAssetExact(const FTopLevelAssetPath& Path) const
+			-> const FAssetData*
 		{
-			const FAssetData* Package = FindExact(Path.GetPackagePath());
+			const FPackageData* Package = FindExact(Path.GetPackagePath());
 			if (!Package) return nullptr;
 			const auto It = std::ranges::find(
-				Package->TopLevelAssets, Path, &FTopLevelAssetData::AssetPath);
+				Package->TopLevelAssets, Path, &FAssetData::AssetPath);
 			return It == Package->TopLevelAssets.end() ? nullptr : &*It;
 		}
 	};
@@ -133,7 +122,7 @@ namespace Durin
 	struct FAssetDependencyClosureSnapshot
 	{
 		uint64 Revision = 0;
-		std::vector<FAssetData> Assets;
+		std::vector<FPackageData> Assets;
 		FAssetRegistryResult Result;
 
 		explicit operator bool() const { return Result.Succeeded(); }
@@ -160,14 +149,14 @@ namespace Durin
 	};
 
 	// Owns the complete bounded resolution result from one registry revision.
-	struct FAssetPathResolveResult
+	struct FPackagePathResolveResult
 	{
 		EAssetPathResolveState State = EAssetPathResolveState::NotFound;
 		uint64 CatalogRevision = 0;
 		FPackagePath RequestedPath;
 		FPackagePath FinalPath;
 		std::vector<FPackagePath> RedirectChain;
-		std::optional<FAssetData> FinalAssetData;
+		std::optional<FPackageData> FinalPackageData;
 
 		auto Succeeded() const -> bool
 		{
@@ -184,8 +173,8 @@ namespace Durin
 		FObjectPath RequestedPath;
 		FObjectPath FinalPath;
 		std::vector<FObjectPath> RedirectChain;
-		std::optional<FTopLevelAssetData> FinalAssetData;
-		std::optional<FAssetData> FinalPackageData;
+		std::optional<FAssetData> FinalAssetData;
+		std::optional<FPackageData> FinalPackageData;
 
 		auto Succeeded() const -> bool
 		{
@@ -236,13 +225,13 @@ namespace Durin
 		explicit operator bool() const { return Succeeded(); }
 	};
 
+	ASSETREGISTRY_API auto FindPackageExact(
+		const FPackagePath& Path) -> FPackageCatalogEntry;
 	ASSETREGISTRY_API auto FindAssetExact(
-		const FPackagePath& Path) -> FAssetCatalogEntry;
-	ASSETREGISTRY_API auto FindTopLevelAssetExact(
-		const FTopLevelAssetPath& Path) -> FTopLevelAssetCatalogEntry;
-	ASSETREGISTRY_API auto ResolveAssetPath(
+		const FTopLevelAssetPath& Path) -> FAssetCatalogEntry;
+	ASSETREGISTRY_API auto ResolvePackagePath(
 		const FPackagePath& Path,
-		const FAssetPathQueryOptions& Options = {}) -> FAssetPathResolveResult;
+		const FAssetPathQueryOptions& Options = {}) -> FPackagePathResolveResult;
 	ASSETREGISTRY_API auto ResolveAssetObjectPath(
 		const FObjectPath& Path,
 		const FAssetPathQueryOptions& Options = {}) -> FObjectPathResolveResult;

@@ -16,14 +16,13 @@ namespace Durin::Editor::Texture
 		constexpr uint32 TextureCubeThumbnailGeneratorSchema = 2;
 		constexpr uint32 TextureCubeThumbnailShaderContract = 2;
 
-		auto MakeFingerprint(const FAssetData& Data,
-			FTopLevelAssetPath AssetPath = {})
+		auto MakeFingerprint(const FPackageData& Data, const FAssetData& Asset)
 			-> FAssetThumbnailPackageFingerprint
 		{
 			return {
-				.AssetPath = std::move(AssetPath),
+				.AssetPath = Asset.AssetPath,
 				.PackagePath = Data.PackagePath,
-				.AssetClassName = Data.AssetClassName,
+				.AssetClassName = Asset.AssetClassName,
 				.PackageFormatVersion = Data.FormatVersion,
 				.FileSize = static_cast<uint64>(Data.FileSize),
 				.LastWriteTimeTicks = Data.LastWriteTimeTicks};
@@ -237,16 +236,14 @@ namespace Durin::Editor::Texture
 		{
 			return std::unexpected("The TextureCube thumbnail renderer received the wrong asset class.");
 		}
-		const FAssetCatalogEntry Entry =
-			FindAssetExact(Request.Asset.PackagePath);
-		const FAssetData* Data = Entry.Data ? &*Entry.Data : nullptr;
-		if (Data == nullptr)
+		const FAssetCatalogEntry Entry = FindAssetExact(Request.Asset.AssetPath);
+		if (!Entry || Entry.Package->PackagePath != Request.Asset.PackagePath)
 		{
 			return std::unexpected(std::format(
 				"TextureCube thumbnail registry data is missing for {}.",
 				Request.Asset.AssetPath.ToString()));
 		}
-		if (MakeFingerprint(*Data, Request.Asset.AssetPath) != Request.Asset)
+		if (MakeFingerprint(*Entry.Package, *Entry.Asset) != Request.Asset)
 		{
 			return std::unexpected(std::format(
 				"TextureCube thumbnail registry data changed for {}; refresh the request snapshot.",

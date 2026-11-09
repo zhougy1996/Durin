@@ -54,7 +54,7 @@ TEST(FTexture2DTests, RejectsUnsupportedSourceWithoutCreatingAsset)
 
 	Durin::FPackagePath AssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureImportTests/Unsupported", AssetPath));
-	EXPECT_EQ(Durin::FindAssetExact(AssetPath), nullptr);
+	EXPECT_EQ(Durin::FindPackageExact(AssetPath), nullptr);
 }
 
 TEST(FTexture2DTests, FailureStateRecordsMissingCanonicalDataOnPostLoad)

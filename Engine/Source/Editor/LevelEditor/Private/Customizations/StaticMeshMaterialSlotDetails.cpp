@@ -136,7 +136,7 @@ namespace Durin::Editor::Level
 				FPackagePath MaterialPath;
 				const bool bHasMaterialAsset = Entry.Material && Entry.Material->GetPackage()
 					&& FPackagePath::TryCreate(Entry.Material->GetPackage()->GetPackagePath(), MaterialPath)
-					&& FindAssetExact(MaterialPath);
+					&& FindPackageExact(MaterialPath);
 				const std::array<FAssetPickerAction, 2> AssetActions{{
 					{
 						.Icon = Icons::Crosshairs,

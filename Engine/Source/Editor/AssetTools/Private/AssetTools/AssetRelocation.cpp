@@ -100,7 +100,7 @@ namespace Durin
 		auto State = std::make_shared<FAssetRelocationState>();
 		State->ExpectedRegistryRevision = GetAssetCatalogRevision();
 		const FAssetRegistryPublication Prepared = CaptureAssetRegistryPublication();
-		const auto FindPrepared = [&](const FPackagePath& Path) -> const FAssetData* {
+		const auto FindPrepared = [&](const FPackagePath& Path) -> const FPackageData* {
 			const auto It = Prepared.Assets.find(Path);
 			return It == Prepared.Assets.end() ? nullptr : &It->second;
 		};
@@ -156,11 +156,11 @@ namespace Durin
 
 		for (const FAssetRelocationMapping& Mapping : State->Mappings)
 		{
-			const FAssetData* SourceData = FindPrepared(Mapping.SourcePath);
+			const FPackageData* SourceData = FindPrepared(Mapping.SourcePath);
 			if (!SourceData)
 				return Error(EAssetWriteError::NotFound, std::format(
 					"Asset {} was not found.", Mapping.SourcePath.ToString()));
-			if (SourceData->EntryKind != EAssetRegistryEntryKind::Asset)
+			if ((!SourceData->TopLevelAssets.empty() && std::ranges::all_of(SourceData->TopLevelAssets, &FAssetData::IsRedirector)))
 				return Error(EAssetWriteError::InvalidData,
 					"Redirectors cannot be used as relocation sources.");
 			if (IsPackageLoading(Mapping.SourcePath))
@@ -178,21 +178,20 @@ namespace Durin
 			}
 
 			bool bReclaimDestinationRedirector = false;
-			if (const FAssetData* DestinationData = FindPrepared(Mapping.DestinationPath))
+			if (const FPackageData* DestinationData = FindPrepared(Mapping.DestinationPath))
 			{
-				if (DestinationData->EntryKind
-						!= EAssetRegistryEntryKind::Redirector)
+				if (!(!DestinationData->TopLevelAssets.empty() && std::ranges::all_of(DestinationData->TopLevelAssets, &FAssetData::IsRedirector)))
 					return Error(EAssetWriteError::AlreadyExists, std::format(
 						"Asset {} already exists.",
 						Mapping.DestinationPath.ToString()));
-				const FAssetPathResolveResult DestinationResolution =
-					ResolveAssetPathForOperation(Mapping.DestinationPath);
+				const FPackagePathResolveResult DestinationResolution =
+					ResolvePackagePathForOperation(Mapping.DestinationPath);
 				if (!DestinationResolution
 					|| DestinationResolution.FinalPath != Mapping.SourcePath)
 					return Error(EAssetWriteError::AlreadyExists, std::format(
 						"The destination {} is occupied by a redirector to {}. Run Fix Up Redirectors or choose another destination.",
 						Mapping.DestinationPath.ToString(),
-						DestinationData->RedirectDestination.ToString()));
+						DestinationResolution.FinalPath.ToString()));
 				if (FindResidentPackage(Mapping.DestinationPath))
 					return Error(EAssetWriteError::InUse,
 						"A loaded destination redirector cannot be reclaimed.");
@@ -236,7 +235,7 @@ namespace Durin
 			FByteBuffer SourceRedirectorBytes;
 			std::vector<FAssetRedirectorWriteMapping> RedirectMappings;
 			RedirectMappings.reserve(SourceData->TopLevelAssets.size());
-			for (const FTopLevelAssetData& Asset : SourceData->TopLevelAssets)
+			for (const FAssetData& Asset : SourceData->TopLevelAssets)
 			{
 				FTopLevelAssetPath DestinationAsset;
 				FObjectPath DestinationObject;
@@ -302,20 +301,14 @@ namespace Durin
 				if (!Result) return Result;
 			}
 
-			DClass* AssetClass = FindClassByQualifiedName(
-				FName(SourceData->AssetClassName));
-			const auto Relocator = FindAssetOwnedPayloadRelocator(AssetClass);
-			if (Relocator)
+			for (const FAssetData& AssetRecord : SourceData->TopLevelAssets)
 			{
-				const auto AssetRecord = std::ranges::find(
-					SourceData->TopLevelAssets, SourceData->AssetClassName,
-					&FTopLevelAssetData::AssetClassName);
-				if (AssetRecord == SourceData->TopLevelAssets.end())
-					return Error(EAssetWriteError::InvalidData,
-						"The package has no exact top-level asset for its payload relocator.");
+				DClass* AssetClass = FindClassByQualifiedName(FName(AssetRecord.AssetClassName));
+				const auto Relocator = FindAssetOwnedPayloadRelocator(AssetClass);
+				if (!Relocator) continue;
 				FObjectPath AssetPath;
 				if (!FObjectPath::TryCreate(
-					AssetRecord->AssetPath, std::span<const std::string>{}, AssetPath))
+					AssetRecord.AssetPath, std::span<const std::string>{}, AssetPath))
 					return Error(EAssetWriteError::InvalidPath,
 						"The payload relocator asset path is invalid.");
 				DObject* AssetObject = nullptr;
@@ -368,7 +361,6 @@ namespace Durin
 					if (!Result) return Result;
 				}
 				State->OwnedPayloads.push_back(std::move(Payload));
-				break;
 			}
 		}
 

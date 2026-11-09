@@ -470,8 +470,8 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
 		Durin::EAssetRegistryScanMode::FullValidation
 	));
-	const Durin::FAssetCatalogEntry StaticMeshAssetData =
-		Durin::FindAssetExact(StaticMeshFixturePath);
+	const Durin::FPackageCatalogEntry StaticMeshAssetData =
+		Durin::FindPackageExact(StaticMeshFixturePath);
 	ASSERT_NE(StaticMeshAssetData, nullptr);
 	const Durin::Editor::FAssetThumbnailPackageFingerprint StaticMeshFingerprint = {
 		.AssetPath = Durin::Testing::MakePackageLeafTopLevelAssetPathForTests(
@@ -797,7 +797,7 @@ TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplace
 	ASSERT_NE(Asset->GetResource(), nullptr);
 	ASSERT_TRUE(Asset->GetResource()->GetTextureRHI_GameThread());
 	ASSERT_FALSE(Asset->GetSource().IsValid());
-	const auto Data = FindAssetExact(Packages.back());
+	const auto Data = FindPackageExact(Packages.back());
 	ASSERT_TRUE(Data);
 	FAssetThumbnailRequest Request;
 	Request.Asset = {

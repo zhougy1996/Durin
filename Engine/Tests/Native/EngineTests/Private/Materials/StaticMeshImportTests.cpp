@@ -41,7 +41,7 @@ TEST(FStaticMeshImportTests, StaticMeshSourceProvenanceLivesOutsideContentAndSur
 	EXPECT_EQ(ImportedSource->Hint, OriginalSourcePath);
 
 	Durin::FAssetPackageInspection Inspection;
-	const auto Data = Durin::FindAssetExact(NewPath);
+	const auto Data = Durin::FindPackageExact(NewPath);
 	ASSERT_TRUE(Data);
 	ASSERT_TRUE(Durin::InspectAssetPackage(Data->PhysicalPath, NewPath, Inspection));
 	std::vector<std::filesystem::path> Companions;

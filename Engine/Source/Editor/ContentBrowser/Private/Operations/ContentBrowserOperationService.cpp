@@ -224,7 +224,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 			const FEditorAssetMove Move{OldPath, NewPath};
 			if (const auto Allowed = ValidateMoves(std::span{&Move, 1}); !Allowed) return Allowed;
-			const auto Before = FindAssetExact(OldPath);
+			const auto Before = FindPackageExact(OldPath);
 			const FContentBrowserOperationResult Result =
 				MoveAssets(std::span{&Move, 1});
 			if (!Result) return Publish(Result);
@@ -361,7 +361,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::string Directory(DestinationDirectory);
 		if (!Directory.ends_with('/')) Directory.push_back('/');
 		if (const auto Available = QueryDuplicate(SourcePath); !Available) return Available;
-		const auto SourceData = FindTopLevelAssetExact(SourcePath);
+		const auto SourceData = FindAssetExact(SourcePath);
 		const std::string DestinationDirectoryPhysical =
 			Paths.VirtualToPhysical(Directory);
 		const FContentBrowserPaths::FMountPath Mount =
@@ -479,7 +479,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				for (const auto& [Package, Data] : Catalog.Assets)
 				{
 					if (!SamePath(Path.generic_string(), Data.PhysicalPath)) continue;
-					if (Data.EntryKind == EAssetRegistryEntryKind::Redirector || Data.TopLevelAssets.size() != 1)
+					if (Data.TopLevelAssets.size() != 1 || Data.TopLevelAssets.front().IsRedirector())
 						return {EAssetWriteError::InvalidData, "Copy requires a real package with one top-level asset."};
 					const auto Asset = Data.TopLevelAssets.front().AssetPath;
 					if (const auto Available = QueryDuplicate(Asset); !Available) return Available;
@@ -700,7 +700,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				for (const auto& [Package, Data] : Catalog.Assets)
 				{
 					if (!SamePath(Physical, Data.PhysicalPath)) continue;
-					if (Data.EntryKind == EAssetRegistryEntryKind::Redirector)
+					if ((!Data.TopLevelAssets.empty() && std::ranges::all_of(Data.TopLevelAssets, &FAssetData::IsRedirector)))
 						return {EAssetWriteError::InvalidPath, "Fix Up redirectors before moving this content."};
 					FPackagePath NewPath;
 					auto Virtual = Paths.ResolveMountPath(Target.generic_string()).VirtualPath;
@@ -709,7 +709,7 @@ namespace Durin::Editor::ContentBrowser::Private
 					Virtual.resize(Virtual.size() - 7);
 					if (!FPackagePath::TryCreate(Virtual, NewPath))
 						return {EAssetWriteError::InvalidPath, "The destination asset path is invalid."};
-					if (FindAssetExact(NewPath) || FindResidentPackage(NewPath))
+					if (FindPackageExact(NewPath) || FindResidentPackage(NewPath))
 						return {EAssetWriteError::AlreadyExists, "The destination asset path is already occupied."};
 					AssetMoves.push_back({Package, NewPath});
 					for (const auto& Asset : Data.TopLevelAssets)
@@ -932,7 +932,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		for (const auto& [Path, Data]
 			: CaptureAssetCatalogSnapshot().Assets)
 		{
-			if (Data.EntryKind != EAssetRegistryEntryKind::Redirector)
+			if (!(!Data.TopLevelAssets.empty() && std::ranges::all_of(Data.TopLevelAssets, &FAssetData::IsRedirector)))
 				continue;
 			if (!Prefix.empty() && !Path.GetView().starts_with(Prefix)) continue;
 			Redirectors.push_back(Path);
@@ -1090,7 +1090,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 		const FAssetCatalogSnapshot Catalog =
 			CaptureAssetCatalogSnapshot();
-		std::unordered_map<std::string, const FAssetData*> AssetsByPhysicalPath;
+		std::unordered_map<std::string, const FPackageData*> AssetsByPhysicalPath;
 		for (const auto& [Path, Data] : Catalog.Assets)
 			AssetsByPhysicalPath.emplace(NormalizePath(Data.PhysicalPath), &Data);
 		std::vector<FPackagePath> AssetPaths;
@@ -1688,7 +1688,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserOperationService::QueryDuplicate(const FTopLevelAssetPath& Source) const -> FAssetWriteResult
 	{
 		if (const auto Allowed = QueryMutation(); !Allowed) return Allowed;
-		const auto Entry = FindTopLevelAssetExact(Source);
+		const auto Entry = FindAssetExact(Source);
 		if (!Entry || Entry->IsRedirector())
 			return {EAssetWriteError::NotFound, "The copied source is no longer an available real asset."};
 		return {};

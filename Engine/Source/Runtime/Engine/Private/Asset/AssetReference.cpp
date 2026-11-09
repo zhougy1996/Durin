@@ -28,11 +28,7 @@ namespace Durin
 		struct FPackageFile
 		{
 			uint32 FormatVersion = 0;
-			std::vector<FTopLevelAssetData> TopLevelAssets;
-			std::string AssetClassName;
-			EAssetRegistryEntryKind EntryKind =
-				EAssetRegistryEntryKind::Asset;
-			FPackagePath RedirectDestination;
+			std::vector<FAssetData> TopLevelAssets;
 			std::vector<FPackagePath> Dependencies;
 			std::vector<FPackagePath> SoftDependencies;
 			std::vector<FPackagePath> BuildDependencies;
@@ -910,10 +906,7 @@ namespace Durin
 			return Result;
 		FPackageFile File{
 			.FormatVersion = Header.FormatVersion,
-			.TopLevelAssets = Header.TopLevelAssets,
-			.AssetClassName = std::move(Header.AssetClassName),
-			.EntryKind = Header.EntryKind};
-		File.RedirectDestination = std::move(Header.RedirectDestination);
+			.TopLevelAssets = Header.TopLevelAssets};
 		File.Dependencies = std::move(Header.Dependencies);
 		File.SoftDependencies = std::move(Header.SoftDependencies);
 		File.BuildDependencies = std::move(Header.BuildDependencies);
@@ -951,9 +944,6 @@ namespace Durin
 			OutMetadata = {
 				.FormatVersion = File.FormatVersion,
 				.TopLevelAssets = std::move(File.TopLevelAssets),
-				.AssetClassName = std::move(File.AssetClassName),
-				.EntryKind = File.EntryKind,
-				.RedirectDestination = std::move(File.RedirectDestination),
 				.Dependencies = std::move(File.Dependencies),
 				.SoftDependencies = std::move(File.SoftDependencies),
 				.BuildDependencies = std::move(File.BuildDependencies)};
@@ -991,10 +981,6 @@ namespace Durin
 			if (Inspection.Objects.empty())
 				return Error(EAssetReadError::InvalidObjectGraph,
 					"AssetReferenceIndexInvalidPackage: package has no main object.");
-			if (Inspection.Header.TopLevelAssets.size() == 1
-				&& Inspection.Header.AssetClassName != Inspection.Objects.front().ClassName)
-				return Error(EAssetReadError::TypeMismatch,
-					"AssetReferenceIndexRuntimeTypeMismatch: header and main-object classes differ.");
 			for (const auto& Asset : Inspection.Header.TopLevelAssets)
 			{
 				const auto Object = std::ranges::find_if(Inspection.Objects,

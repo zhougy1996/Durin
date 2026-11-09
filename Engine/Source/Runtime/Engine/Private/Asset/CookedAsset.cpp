@@ -125,14 +125,13 @@ namespace Durin
 				))
 				return {};
 
-			if (!Durin::FindAssetExact(RequestedPath)) return {};
-			const FAssetPathResolveResult Resolution =
-				Durin::ResolveAssetPathForOperation(RequestedPath);
-			if (!Resolution || !Resolution.FinalAssetData
-				|| Resolution.FinalAssetData->EntryKind
-					   != EAssetRegistryEntryKind::Asset)
+			if (!Durin::FindPackageExact(RequestedPath)) return {};
+			const FPackagePathResolveResult Resolution =
+				Durin::ResolvePackagePathForOperation(RequestedPath);
+			if (!Resolution || !Resolution.FinalPackageData
+				|| (!Resolution.FinalPackageData->TopLevelAssets.empty() && std::ranges::all_of(Resolution.FinalPackageData->TopLevelAssets, &FAssetData::IsRedirector)))
 				return {.Error = {.Code = ECookPlanError::Resolution, .VirtualPath = VirtualPackagePath,
-					.ResolutionCause = std::make_shared<FAssetPathResolveResult>(Resolution)}};
+					.ResolutionCause = std::make_shared<FPackagePathResolveResult>(Resolution)}};
 			VirtualPackagePath = Resolution.FinalPath.ToString();
 			return {};
 		}

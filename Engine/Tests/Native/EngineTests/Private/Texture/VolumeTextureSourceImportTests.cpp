@@ -420,9 +420,9 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	FPackagePath DetailAssetPath;
 	ASSERT_TRUE(FPackagePath::TryCreate("/TextureImportTests/ImportedVolume", BaseAssetPath));
 	ASSERT_TRUE(FPackagePath::TryCreate("/TextureImportTests/ImportedDetailVolume", DetailAssetPath));
-	ASSERT_EQ(FindAssetExact(BaseAssetPath)->FormatVersion,
+	ASSERT_EQ(FindPackageExact(BaseAssetPath)->FormatVersion,
 		ObjectPackage::DastV10FormatVersion);
-	const FAssetCatalogEntry InlineEntry = FindAssetExact(DetailAssetPath);
+	const FPackageCatalogEntry InlineEntry = FindPackageExact(DetailAssetPath);
 	ASSERT_TRUE(InlineEntry);
 	ASSERT_EQ(InlineEntry->FormatVersion, ObjectPackage::DastV10FormatVersion);
 	FAssetPackageInspection InlineInspection;
@@ -512,7 +512,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 		ImportedVoxels.begin(), ImportedVoxels.end());
 	FPackagePath AssetPath;
 	ASSERT_TRUE(FPackagePath::TryCreate("/TextureImportTests/ProductionVolume", AssetPath));
-	const FAssetCatalogEntry PackageEntry = FindAssetExact(AssetPath);
+	const FPackageCatalogEntry PackageEntry = FindPackageExact(AssetPath);
 	ASSERT_TRUE(PackageEntry);
 	ASSERT_EQ(PackageEntry->FormatVersion, ObjectPackage::DastV10FormatVersion);
 	FAssetPackageInspection V6Inspection;
@@ -585,7 +585,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 		ReloadedVoxels, V6SourceBytes));
 	EXPECT_EQ(Reloaded->GetSource().GetBulkData().GetPayloadId(), SourceContentId);
 	ASSERT_TRUE(SavePackage(Reloaded->GetPackage()));
-	ASSERT_EQ(FindAssetExact(AssetPath)->FormatVersion,
+	ASSERT_EQ(FindPackageExact(AssetPath)->FormatVersion,
 		ObjectPackage::DastV10FormatVersion);
 	EXPECT_TRUE(std::filesystem::is_regular_file(SourceStoragePath));
 

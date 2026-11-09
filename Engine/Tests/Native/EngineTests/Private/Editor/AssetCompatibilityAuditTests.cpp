@@ -10,7 +10,7 @@ TEST_F(FAssetCompatibilityAuditTests, RemainsIdleUntilAnExplicitRunAndSortsPrese
 			++ProbeCount;
 			return MakeCompletedRecord(Input);
 		});
-	std::unordered_map<Durin::FPackagePath, Durin::FAssetData> Assets;
+	std::unordered_map<Durin::FPackagePath, Durin::FPackageData> Assets;
 	for (const auto& Data : {MakeData("/AuditTests/Z"), MakeData("/AuditTests/A")})
 		Assets.emplace(Data.PackagePath, Data);
 
@@ -40,7 +40,7 @@ TEST_F(FAssetCompatibilityAuditTests, CancellationPublishesNoPartialRecordForThe
 				.Status = Durin::EAssetCompatibilityProbeStatus::Cancelled};
 		});
 	const auto Data = MakeData("/AuditTests/Cancel");
-	std::unordered_map<Durin::FPackagePath, Durin::FAssetData> Assets{{Data.PackagePath, Data}};
+	std::unordered_map<Durin::FPackagePath, Durin::FPackageData> Assets{{Data.PackagePath, Data}};
 
 	ASSERT_TRUE(Model.RunAudit(Assets, {}));
 	ASSERT_TRUE(WaitUntil([&] { return Started.load(); }));
@@ -57,7 +57,7 @@ TEST_F(FAssetCompatibilityAuditTests, IdleTickKeepsPresentationCacheStableUntilC
 {
 	Durin::Editor::FAssetCompatibilityAuditModel Model;
 	const auto Data = MakeData("/AuditTests/Cached");
-	const std::unordered_map<Durin::FPackagePath, Durin::FAssetData> Assets{
+	const std::unordered_map<Durin::FPackagePath, Durin::FPackageData> Assets{
 		{Data.PackagePath, Data}};
 	Model.ReconcileAssetCatalog(Assets);
 
@@ -87,7 +87,7 @@ TEST_F(FAssetCompatibilityAuditTests, ReconciliationIsPathKeyedAndMarksOnlyChang
 		[](const auto& Input, const auto&, const auto&) { return MakeCompletedRecord(Input); });
 	const auto Kept = MakeData("/AuditTests/Kept", 10, 20);
 	const auto Removed = MakeData("/AuditTests/Removed", 30, 40);
-	std::unordered_map<Durin::FPackagePath, Durin::FAssetData> Assets{
+	std::unordered_map<Durin::FPackagePath, Durin::FPackageData> Assets{
 		{Kept.PackagePath, Kept}, {Removed.PackagePath, Removed}};
 	ASSERT_TRUE(Model.RunAudit(Assets, {}));
 	ASSERT_TRUE(WaitUntil([&] { Model.Tick(Assets); return Model.GetState() == Durin::Editor::EAssetCompatibilityAuditState::Completed; }));
@@ -111,7 +111,7 @@ TEST_F(FAssetCompatibilityAuditTests, RerunAdvancesTheRequestSerialAndReplacesTh
 		[](const auto& Input, const auto&, const auto&) { return MakeCompletedRecord(Input); });
 	const auto First = MakeData("/AuditTests/First");
 	const auto Second = MakeData("/AuditTests/Second");
-	std::unordered_map<Durin::FPackagePath, Durin::FAssetData> Assets{{First.PackagePath, First}};
+	std::unordered_map<Durin::FPackagePath, Durin::FPackageData> Assets{{First.PackagePath, First}};
 	ASSERT_TRUE(Model.RunAudit(Assets, {}));
 	const uint64 FirstSerial = Model.GetRequestSerial();
 	ASSERT_TRUE(WaitUntil([&] { Model.Tick(Assets); return Model.GetState() == Durin::Editor::EAssetCompatibilityAuditState::Completed; }));
@@ -134,7 +134,7 @@ TEST_F(FAssetCompatibilityAuditTests, ProjectChangeCancelsAndDrainsBeforeClearin
 				.Status = Durin::EAssetCompatibilityProbeStatus::Cancelled};
 		});
 	const auto Data = MakeData("/AuditTests/ProjectSwitch");
-	std::unordered_map<Durin::FPackagePath, Durin::FAssetData> Assets{{Data.PackagePath, Data}};
+	std::unordered_map<Durin::FPackagePath, Durin::FPackageData> Assets{{Data.PackagePath, Data}};
 	ASSERT_TRUE(Model.RunAudit(Assets, {}));
 	ASSERT_TRUE(WaitUntil([&] { return Started.load(); }));
 	const uint64 Serial = Model.GetRequestSerial();
@@ -151,7 +151,7 @@ TEST_F(FAssetCompatibilityAuditTests, ShutdownClosesAdmissionAndDrainsTheWorker)
 	Durin::Editor::FAssetCompatibilityAuditModel Model(
 		[](const auto& Input, const auto&, const auto&) { return MakeCompletedRecord(Input); });
 	const auto Data = MakeData("/AuditTests/Shutdown");
-	std::unordered_map<Durin::FPackagePath, Durin::FAssetData> Assets{{Data.PackagePath, Data}};
+	std::unordered_map<Durin::FPackagePath, Durin::FPackageData> Assets{{Data.PackagePath, Data}};
 	ASSERT_TRUE(Model.RunAudit(Assets, {}));
 
 	Model.Shutdown();
@@ -247,7 +247,7 @@ TEST_F(FAssetCompatibilityAuditTests, StreamsProgressBeforeTypedTerminalPublicat
 		});
 	const auto First = MakeData("/AuditTests/StreamA");
 	const auto Second = MakeData("/AuditTests/StreamB");
-	std::unordered_map<Durin::FPackagePath, Durin::FAssetData> Assets{
+	std::unordered_map<Durin::FPackagePath, Durin::FPackageData> Assets{
 		{First.PackagePath, First}, {Second.PackagePath, Second}};
 
 	ASSERT_TRUE(Model.RunAudit(Assets, {}));
@@ -270,7 +270,7 @@ TEST_F(FAssetCompatibilityAuditTests, ProjectChangeIgnoresQueuedTerminalPublicat
 	Durin::Editor::FAssetCompatibilityAuditModel Model(
 		[](const auto& Input, const auto&, const auto&) { return MakeCompletedRecord(Input); });
 	const auto Data = MakeData("/AuditTests/StaleTerminal");
-	std::unordered_map<Durin::FPackagePath, Durin::FAssetData> Assets{{Data.PackagePath, Data}};
+	std::unordered_map<Durin::FPackagePath, Durin::FPackageData> Assets{{Data.PackagePath, Data}};
 	ASSERT_TRUE(Model.RunAudit(Assets, {}));
 
 	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
@@ -296,7 +296,7 @@ TEST_F(FAssetCompatibilityAuditTests, ShutdownIgnoresQueuedTerminalPublication)
 	Durin::Editor::FAssetCompatibilityAuditModel Model(
 		[](const auto& Input, const auto&, const auto&) { return MakeCompletedRecord(Input); });
 	const auto Data = MakeData("/AuditTests/ShutdownQueuedTerminal");
-	std::unordered_map<Durin::FPackagePath, Durin::FAssetData> Assets{{Data.PackagePath, Data}};
+	std::unordered_map<Durin::FPackagePath, Durin::FPackageData> Assets{{Data.PackagePath, Data}};
 	ASSERT_TRUE(Model.RunAudit(Assets, {}));
 	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
 	while (Durin::GetGameThreadDeferredWorkQueueDiagnostics().QueueDepth == 0
@@ -317,7 +317,7 @@ TEST_F(FAssetCompatibilityAuditTests, CancellationAfterWorkerCompletionIsHonored
 	Durin::Editor::FAssetCompatibilityAuditModel Model(
 		[](const auto& Input, const auto&, const auto&) { return MakeCompletedRecord(Input); });
 	const auto Data = MakeData("/AuditTests/CancelPublication");
-	std::unordered_map<Durin::FPackagePath, Durin::FAssetData> Assets{{Data.PackagePath, Data}};
+	std::unordered_map<Durin::FPackagePath, Durin::FPackageData> Assets{{Data.PackagePath, Data}};
 	ASSERT_TRUE(Model.RunAudit(Assets, {}));
 	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
 	while (Durin::GetGameThreadDeferredWorkQueueDiagnostics().QueueDepth == 0
@@ -334,7 +334,7 @@ TEST_F(FAssetCompatibilityAuditTests, CrossExecutorShutdownPublishesCurrentTermi
 	Durin::Editor::FAssetCompatibilityAuditModel Model(
 		[](const auto& Input, const auto&, const auto&) { return MakeCompletedRecord(Input); });
 	const auto Data = MakeData("/AuditTests/ShutdownDrain");
-	std::unordered_map<Durin::FPackagePath, Durin::FAssetData> Assets{{Data.PackagePath, Data}};
+	std::unordered_map<Durin::FPackagePath, Durin::FPackageData> Assets{{Data.PackagePath, Data}};
 	ASSERT_TRUE(Model.RunAudit(Assets, {}));
 
 	Durin::ShutdownTaskSystem(Durin::ETaskShutdownMode::Drain);

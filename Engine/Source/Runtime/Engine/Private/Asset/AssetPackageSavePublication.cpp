@@ -12,16 +12,13 @@ namespace Durin::AssetPrivate
 {
 	auto BuildSavedAssetMetadata(const FAssetPackageHeader& Header,
 		const std::filesystem::path& Destination, uintmax_t FileSize,
-		std::filesystem::file_time_type LastWriteTime) -> FAssetData
+		std::filesystem::file_time_type LastWriteTime) -> FPackageData
 	{
 		// The captured file describes the saved revision, even if live objects change.
 		return {
 			.PackagePath = Header.PackagePath,
 			.PhysicalPath = Destination.generic_string(),
 			.TopLevelAssets = Header.TopLevelAssets,
-			.AssetClassName = Header.AssetClassName,
-			.EntryKind = Header.EntryKind,
-			.RedirectDestination = Header.RedirectDestination,
 			.FormatVersion = Header.FormatVersion,
 			.Dependencies = Header.Dependencies,
 			.SoftDependencies = Header.SoftDependencies,
@@ -78,7 +75,7 @@ namespace Durin::AssetPrivate
 		auto ValidateSaveVersion(
 			const FPackagePath& Path) -> FAssetReadResult
 		{
-			const FAssetCatalogEntry Existing = Durin::FindAssetExact(Path);
+			const FPackageCatalogEntry Existing = Durin::FindPackageExact(Path);
 			if (!Existing || ObjectPackage::IsSupportedPackageReaderVersion(Existing->FormatVersion))
 				return {};
 			return Error(

@@ -70,7 +70,7 @@ TEST_F(FPackageBulkQualificationTests, FieldBulkClosureMeetsBoundedLooseFixtureB
 	ASSERT_TRUE(SaveResult) << SaveResult.Message;
 	ASSERT_TRUE(UnloadPackage(Path));
 
-	const FAssetCatalogEntry Entry = FindAssetExact(Path);
+	const FPackageCatalogEntry Entry = FindPackageExact(Path);
 	ASSERT_TRUE(Entry);
 	std::filesystem::path SegmentPath = Entry->PhysicalPath;
 	SegmentPath.replace_extension(".dbulk");

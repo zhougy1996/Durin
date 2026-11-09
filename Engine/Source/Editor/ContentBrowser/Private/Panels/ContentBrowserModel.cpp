@@ -270,8 +270,8 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		FTopLevelAssetPath Path;
 		if (!FTopLevelAssetPath::TryCreate(AssetPath, Path)) return {};
-		const FTopLevelAssetCatalogEntry Entry =
-			FindTopLevelAssetExact(Path);
+		const FAssetCatalogEntry Entry =
+			FindAssetExact(Path);
 		if (!Entry) return {};
 		if (Entry.Asset->IsRedirector())
 			Session.Query.bShowRedirectors = true;

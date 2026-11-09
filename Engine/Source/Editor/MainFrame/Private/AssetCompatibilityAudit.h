@@ -75,7 +75,7 @@ namespace Durin::Editor
 
 		MAINFRAME_API auto RunCurrentProjectAudit() -> bool;
 		MAINFRAME_API auto RunAudit(
-			const std::unordered_map<FPackagePath, FAssetData>& Assets,
+			const std::unordered_map<FPackagePath, FPackageData>& Assets,
 			FReflectionCompatibilityCatalog Catalog) -> bool;
 		MAINFRAME_API auto Cancel() -> bool;
 		MAINFRAME_API auto CancelAndDrain() -> void;
@@ -87,9 +87,9 @@ namespace Durin::Editor
 		// Reconciles paths/fingerprints against a caller-owned catalog snapshot.
 		// Callers should use the catalog revision to avoid redundant reconciliation.
 		MAINFRAME_API auto ReconcileAssetCatalog(
-			const std::unordered_map<FPackagePath, FAssetData>& Assets) -> void;
+			const std::unordered_map<FPackagePath, FPackageData>& Assets) -> void;
 		// Convenience path for callers that already own a changed catalog snapshot.
-		MAINFRAME_API auto Tick(const std::unordered_map<FPackagePath, FAssetData>& Assets) -> void;
+		MAINFRAME_API auto Tick(const std::unordered_map<FPackagePath, FPackageData>& Assets) -> void;
 		MAINFRAME_API auto GetPresentationRecords() const
 			-> const std::vector<FAssetPackageCompatibilityRecord>&;
 		MAINFRAME_API auto FindRecord(const FPackagePath& Path) const
@@ -107,7 +107,7 @@ namespace Durin::Editor
 		struct FMailbox;
 		struct FPublicationLifetime;
 		auto DrainMailbox() -> void;
-		auto Reconcile(const std::unordered_map<FPackagePath, FAssetData>& Assets) -> void;
+		auto Reconcile(const std::unordered_map<FPackagePath, FPackageData>& Assets) -> void;
 		auto InvalidatePresentation() -> void;
 
 		FAssetCompatibilityProbe Probe;

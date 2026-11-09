@@ -42,16 +42,16 @@ namespace Durin
 		std::vector<FAssetPackageReferenceEdge> ReferenceEdges;
 		std::unordered_map<FPackagePath, FAssetPackageFingerprint> Fingerprints;
 
-		std::vector<const FAssetData*> SortedAssets;
+		std::vector<const FPackageData*> SortedAssets;
 		SortedAssets.reserve(Candidate.Assets.size());
 		for (const auto& [Path, Data] : Candidate.Assets)
 			SortedAssets.push_back(&Data);
 		std::ranges::sort(SortedAssets,
-			[](const FAssetData* Left, const FAssetData* Right) {
+			[](const FPackageData* Left, const FPackageData* Right) {
 				return Left->PackagePath.GetView() < Right->PackagePath.GetView();
 			});
 
-		for (const FAssetData* Data : SortedAssets)
+		for (const FPackageData* Data : SortedAssets)
 		{
 			const FAssetPackageFingerprint Fingerprint{
 				.FileSize = Data->FileSize,

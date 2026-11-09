@@ -183,7 +183,7 @@ namespace Durin::AssetForge::Builtins
 			DMaterialFunction* Function = nullptr;
 			DPackage* Package = FindResidentPackage(Path);
 			if (Package) Function = Cast<DMaterialFunction>(Package->FindTopLevelAsset(FName(Path.GetPackageName())));
-			else if (FindAssetExact(Path))
+			else if (FindPackageExact(Path))
 			{
 				FObjectPath ObjectPath;
 				if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(std::format("{}.{}", Path.ToString(), Path.GetPackageName()), ObjectPath); !PathValidation) { OutError = ToString(PathValidation.error()); return false; }

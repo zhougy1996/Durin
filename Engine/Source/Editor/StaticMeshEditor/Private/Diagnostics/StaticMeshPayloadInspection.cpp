@@ -77,7 +77,8 @@ namespace Durin
 		FStaticMeshPayloadInspection& OutInspection, std::string* OutError) -> bool
 	{
 		OutInspection = {.bConstructFree = true, .Package = Package.PhysicalPath};
-		if (Package.Header.AssetClassName != DStaticMesh::StaticClass()->GetQualifiedName().ToString())
+		if (Package.Objects.empty()) return false;
+		if (Package.Objects.front().ClassName != DStaticMesh::StaticClass()->GetQualifiedName().ToString())
 		{
 			if (OutError) *OutError = "Unsupported asset class for StaticMesh payload inspection.";
 			return false;
