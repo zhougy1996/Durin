@@ -35,6 +35,15 @@ namespace Durin::Editor::ContentBrowser::Private
 		{
 			Panel.CreateFolder(Root);
 		}
+		static auto CommitFolder(FContentBrowserPanel& Panel, std::string_view Name) -> bool
+		{
+			if (!Panel.PendingFolder) return false;
+			const auto Item = Panel.PendingFolder->Item;
+			Panel.RenameBuffer.fill(0);
+			std::memcpy(Panel.RenameBuffer.data(), Name.data(), std::min(Name.size(), Panel.RenameBuffer.size() - 1));
+			return Panel.CommitRename(Item);
+		}
+		static auto CancelRename(FContentBrowserPanel& Panel) -> void { Panel.CancelRename(); }
 		static auto FinishCapture(FContentBrowserPanel& Panel) -> void
 		{
 			Panel.Model.WaitForPendingSnapshotsForTesting();
@@ -60,6 +69,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			Panel.ViewMode = EContentBrowserViewMode::Details;
 		}
 		static auto DrawContent(FContentBrowserPanel& Panel) -> void { Panel.DrawContentArea(); }
+		static auto SetView(FContentBrowserPanel& Panel, EContentBrowserViewMode Mode) -> void { Panel.ViewMode = Mode; }
 		static auto BeginDrag(FContentBrowserPanel& Panel) -> void
 		{ Panel.BeginAssetDragDrop(Panel.Model.GetItems().front()); }
 		static auto SetReimportQuery(FContentBrowserPanel& Panel, FContentBrowserPanel::FQueryReimport Query) -> void
@@ -133,7 +143,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		EXPECT_FALSE(FContentBrowserPanelTestAccess::CanPaste(Target));
 	}
 
-	TEST(FContentBrowserPanelExtensionTests, DeferredFolderRenameWaitsForCaptureAndIsCanceledByNavigation)
+	TEST(FContentBrowserPanelExtensionTests, TemporaryFolderCreatesOnlyAfterConfirmationAndCancelsWithoutWriting)
 	{
 		InitializeDObjectSystem();
 		const auto Root = Testing::CreateTestFixtureDirectory("BrowserDeferredRename");
@@ -143,19 +153,73 @@ namespace Durin::Editor::ContentBrowser::Private
 			.Root = Root, .bAutoScan = true, .bContentWritable = true}};
 		Testing::FScopedMountRegistryFixture Registry(Definitions);
 		ASSERT_TRUE(Registry.IsValid());
+		ImGuiContext* UI = ImGui::CreateContext();
+		struct FContextCleanup { ImGuiContext* Context; ~FContextCleanup() { ImGui::DestroyContext(Context); } } Cleanup{UI};
+		auto& IO = ImGui::GetIO();
+		IO.IniFilename = nullptr;
+		IO.DisplaySize = ImVec2(1200, 900);
+		IO.DeltaTime = 1.0f / 60.0f;
+		unsigned char* Pixels;
+		int Width, Height;
+		IO.Fonts->GetTexDataAsRGBA32(&Pixels, &Width, &Height);
 		FContentBrowserPanel Panel({}, {}, {}, {}, {}, {}, {}, {},
 			std::make_shared<FMountedContentReconciliationState>());
 		FContentBrowserPanelTestAccess::CreateFolder(Panel, Root.generic_string());
-		EXPECT_TRUE(FContentBrowserPanelTestAccess::RenameTarget(Panel).empty());
+		EXPECT_FALSE(FContentBrowserPanelTestAccess::RenameTarget(Panel).empty());
+		EXPECT_FALSE(std::filesystem::exists(Root / "New Folder"));
 		FContentBrowserPanelTestAccess::FinishCapture(Panel);
-		const auto Created = (Root / "New Folder").generic_string();
-		EXPECT_EQ(FContentBrowserPanelTestAccess::RenameTarget(Panel), Created);
-		EXPECT_TRUE(FContentBrowserPanelTestAccess::IsSelected(Panel, Created));
+		EXPECT_FALSE(std::filesystem::exists(Root / "New Folder"));
+		EXPECT_FALSE(FContentBrowserPanelTestAccess::CommitFolder(Panel, "../Escape"));
+		EXPECT_FALSE(FContentBrowserPanelTestAccess::RenameTarget(Panel).empty());
+		// A collision after preparation must not be treated as successful creation.
+		std::ofstream(Root / "Occupied") << "existing";
+		EXPECT_FALSE(FContentBrowserPanelTestAccess::CommitFolder(Panel, "Occupied"));
+		ASSERT_TRUE(FContentBrowserPanelTestAccess::CommitFolder(Panel, "Chosen"));
+		EXPECT_TRUE(std::filesystem::is_directory(Root / "Chosen"));
+		EXPECT_FALSE(std::filesystem::exists(Root / "New Folder"));
+		EXPECT_TRUE(FContentBrowserPanelTestAccess::IsSelected(Panel, (Root / "Chosen").generic_string()));
+		FContentBrowserPanelTestAccess::CreateFolder(Panel, Root.generic_string());
+		FContentBrowserPanelTestAccess::CancelRename(Panel);
+		EXPECT_TRUE(FContentBrowserPanelTestAccess::RenameTarget(Panel).empty());
+		EXPECT_FALSE(std::filesystem::exists(Root / "New Folder"));
 		FContentBrowserPanelTestAccess::CreateFolder(Panel, Root.generic_string());
 		ASSERT_TRUE(FContentBrowserPanelTestAccess::Navigate(Panel, (Root / "Other").generic_string()));
 		FContentBrowserPanelTestAccess::FinishCapture(Panel);
-		EXPECT_NE(FContentBrowserPanelTestAccess::RenameTarget(Panel), (Root / "New Folder (2)").generic_string());
-		EXPECT_FALSE(FContentBrowserPanelTestAccess::IsSelected(Panel, (Root / "New Folder (2)").generic_string()));
+		EXPECT_TRUE(FContentBrowserPanelTestAccess::RenameTarget(Panel).empty());
+		EXPECT_FALSE(std::filesystem::exists(Root / "New Folder"));
+		FContentBrowserPanelTestAccess::CreateFolder(Panel, Root.generic_string());
+		ASSERT_TRUE(FContentBrowserPanelTestAccess::CommitFolder(Panel, "New Folder"));
+		EXPECT_TRUE(std::filesystem::is_directory(Root / "New Folder"));
+		for (const auto Mode : {EContentBrowserViewMode::Grid, EContentBrowserViewMode::Details})
+		{
+			FContentBrowserPanelTestAccess::SetView(Panel, Mode);
+			FContentBrowserPanelTestAccess::CreateFolder(Panel, Root.generic_string());
+			auto Draw = [&] {
+				ImGui::NewFrame();
+				ImGui::SetNextWindowSize(ImVec2(1100, 800));
+				ImGui::Begin("Temporary folder test");
+				FContentBrowserPanelTestAccess::DrawContent(Panel);
+				ImGui::End();
+				ImGui::EndFrame();
+			};
+			Draw();
+			Draw();
+			EXPECT_FALSE(FContentBrowserPanelTestAccess::RenameTarget(Panel).empty());
+			IO.AddKeyEvent(ImGuiKey_Escape, true);
+			Draw();
+			EXPECT_TRUE(FContentBrowserPanelTestAccess::RenameTarget(Panel).empty());
+			EXPECT_FALSE(std::filesystem::exists(Root / "New Folder (2)"));
+			IO.AddKeyEvent(ImGuiKey_Escape, false);
+			Draw();
+		}
+		// The target can disappear while the name editor is open.
+		std::filesystem::create_directory(Root / "Transient");
+		FContentBrowserPanelTestAccess::CreateFolder(Panel, (Root / "Transient").generic_string());
+		std::filesystem::remove(Root / "Transient");
+		EXPECT_FALSE(FContentBrowserPanelTestAccess::CommitFolder(Panel, "Child"));
+		EXPECT_FALSE(std::filesystem::exists(Root / "Transient"));
+		FContentBrowserPanelTestAccess::CancelRename(Panel);
+
 	}
 
 	TEST(FContentBrowserPanelExtensionTests, DrawsRegisteredDetailsAndContextMenuInRealPanel)

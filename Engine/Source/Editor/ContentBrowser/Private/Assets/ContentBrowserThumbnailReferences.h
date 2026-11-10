@@ -9,16 +9,7 @@ namespace Durin::Editor::ContentBrowser::Private
 {
 	class FSourceImageThumbnailCache;
 
-	// Supplies either source-image input or an authored asset fingerprint through one card request.
-	struct FContentBrowserThumbnailRequest
-	{
-		std::string_view Identity;
-		std::string_view SourcePhysicalPath;
-		uintmax_t SourceFileSize = 0;
-		std::filesystem::file_time_type SourceLastWriteTime{};
-		std::optional<FAssetThumbnailPackageFingerprint> Asset;
-		EAssetThumbnailPriority Priority = EAssetThumbnailPriority::Prefetch;
-	};
+	struct FContentBrowserItem;
 
 	// Keeps ordinary-file previews private while asset entries are represented by
 	// lightweight FAssetThumbnail references into the manager-owned shared pool.
@@ -33,7 +24,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		FContentBrowserThumbnailReferences& operator=(const FContentBrowserThumbnailReferences&) = delete;
 
 		auto BeginFrame() -> void;
-		auto Request(const FContentBrowserThumbnailRequest& Request) -> void;
+		auto Request(const FContentBrowserItem& Item, EAssetThumbnailPriority Priority) -> void;
 		auto Find(std::string_view Identity) const -> FAssetThumbnailView;
 		auto EndFrame() -> void;
 		auto CancelPendingRequests() -> void;

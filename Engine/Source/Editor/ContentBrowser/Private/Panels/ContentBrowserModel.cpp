@@ -6,7 +6,6 @@
 #include "Asset/Asset.h"
 #include "Profiling/Profiling.h"
 #include "Misc/MountPaths.h"
-#include "Thumbnail/ThumbnailManager.h"
 
 namespace Durin::Editor::ContentBrowser::Private
 {
@@ -165,7 +164,6 @@ namespace Durin::Editor::ContentBrowser::Private
 			MountSnapshot,
 			[](const FMountSnapshot& A, const FMountSnapshot& B) {
 				return A.VirtualRoot == B.VirtualRoot
-					&& A.SourcePhysicalRoot == B.SourcePhysicalRoot
 					&& A.PhysicalRoot == B.PhysicalRoot
 					&& A.bContentWritable == B.bContentWritable;
 			});
@@ -201,16 +199,12 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserModel::PhysicalToVirtualDirectory(
 		std::string_view PhysicalPath) const -> std::string
 	{
-		const FMountPath Resolved = ResolveMountPath(PhysicalPath);
-		if (!Resolved) return {};
-		std::string Result = Resolved.VirtualPath;
-		if (!Result.ends_with('/')) Result += '/';
-		return Result;
+		return FContentBrowserPaths::PhysicalToVirtualDirectory(PhysicalPath);
 	}
 
 	auto FContentBrowserModel::ResolveMountPath(std::string_view PhysicalPath) const -> FMountPath
 	{
-		return FContentBrowserPaths::ResolveMountPath(PhysicalPath, MountSnapshot);
+		return FContentBrowserPaths::ResolveMountPath(PhysicalPath);
 	}
 
 	auto FContentBrowserModel::VirtualToPhysical(std::string_view VirtualPath) const -> std::string
@@ -426,10 +420,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		{
 			if (Item.Kind == EContentBrowserItemKind::Folder)
 				Item.VirtualPath = PhysicalToVirtualDirectory(Item.PhysicalPath);
-			if ((Item.Kind == EContentBrowserItemKind::Asset
-				|| Item.Kind == EContentBrowserItemKind::Redirector)
-				&& GetDefaultThumbnailManager().Find(Item.AssetClassName))
-				Item.ThumbnailIdentity = Item.VirtualPath;
 		}
 		// Tree completions may have published diagnostics while item I/O was pending.
 		for (const auto& Diagnostic : Snapshot.Diagnostics)

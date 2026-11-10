@@ -242,8 +242,9 @@ and recovery paths at the owning I/O boundary. Deletion operations expose their
 native write result and affected files, retaining destructive evidence after
 rejected repeat execution. A false high-level return does not
 prove that no bytes changed: orchestration requiring partial-commit evidence
-consumes the native operation directly. Browser refresh uses observed content
-changes rather than an inferred generic persistence state.
+consumes the native operation directly. Browser commands return booleans and
+operation-specific item outputs. Their independent item-update notifier drives refresh from observed content changes;
+the Panel does not receive native write effects or an operation-result envelope.
 
 ## Asynchronous Save Staging
 
@@ -437,7 +438,9 @@ snapshot. Execution checks current participant files, residency, reference-store
 fingerprints, and catalog/contributor revisions without rebuilding that plan;
 ContentBrowser retires failed destructive confirmations and validates its
 physical selection once during execution and prepares a replacement confirmation
-only after rejection before destructive work begins. Engine checks the complete batch before retiring any resident
+only after a `StaleData` rejection before destructive work begins. Transient
+I/O or in-use failures retain the confirmation and report their original cause;
+an explicit retry repeats validation. Engine checks the complete batch before retiring any resident
 graph, allowing internal hard references while rejecting outside hard
 referencers, dirty/loading packages, and stale catalog state. After the physical
 callback, `PublishPackageRemoval` removes matching catalog entries only when

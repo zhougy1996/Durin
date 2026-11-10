@@ -33,9 +33,6 @@ namespace Durin::Editor::ContentBrowser::Private
 				Item.BulkFileSize = Disk->BulkSegmentExtent;
 				Item.FileSize = Item.PackageFileSize + Item.BulkFileSize;
 				Item.LastWriteTime = Disk->LastWriteTime;
-				Item.ThumbnailFileSize = Disk->FileSize;
-				Item.ThumbnailPackageFormatVersion = Disk->FormatVersion;
-				Item.ThumbnailLastWriteTimeTicks = Disk->LastWriteTimeTicks;
 			}
 			Result->Items.push_back(std::move(Item));
 		}
@@ -50,7 +47,6 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("ContentBrowser.CaptureItems");
 		Result = {};
-		Result.Version = ++Version;
 		if (PhysicalDirectory.empty()) return std::move(Result);
 		auto AppendFilesystemEntry =
 			[&](const std::filesystem::directory_entry& Entry) -> bool
@@ -233,7 +229,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		DURIN_PROFILE_CPU_ZONE_NAMED("ContentBrowser.CaptureDirectory");
 		Result = {};
 		FContentBrowserDirectorySnapshot Snapshot;
-		Snapshot.Version = ++Version;
 		bool bCatalogDirectory = false;
 		if (Catalog)
 			for (const auto& Item : Catalog->Items)

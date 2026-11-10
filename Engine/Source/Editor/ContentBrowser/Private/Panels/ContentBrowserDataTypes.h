@@ -50,12 +50,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::string AssetClassName;
 		std::string Extension;
 		FSoftObjectPath RedirectDestination;
-		std::string ThumbnailIdentity;
-		std::string ThumbnailSourcePath;
-		uintmax_t ThumbnailFileSize = 0;
-		std::filesystem::file_time_type ThumbnailLastWriteTime{};
-		uint32 ThumbnailPackageFormatVersion = 0;
-		int64 ThumbnailLastWriteTimeTicks = 0;
 		uintmax_t FileSize = 0;
 		uintmax_t PackageFileSize = 0;
 		uintmax_t BulkFileSize = 0;

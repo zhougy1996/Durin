@@ -611,7 +611,7 @@ namespace Durin
 			const auto Inspected = AssetToolsPrivate::InspectAssetCompanionFilesForDeletion(*Current, Files);
 			if (!Inspected) return Inspected;
 			if (Files != Entry.CompanionFiles)
-				return Error(EAssetWriteError::InUse, "Selected companion files changed after confirmation.");
+				return Error(EAssetWriteError::StaleData, "Selected companion files changed after confirmation.");
 		}
 		std::vector<FPackagePath> Paths;
 		for (const auto& Entry : Entries) Paths.push_back(Entry.RegistryEntry.PackagePath);
@@ -628,14 +628,14 @@ namespace Durin
 			Companions.emplace(Path, std::move(Files));
 		}
 		if (Companions != OutsideCompanions)
-			return Error(EAssetWriteError::InUse, "Companion ownership changed after confirmation.");
+			return Error(EAssetWriteError::StaleData, "Companion ownership changed after confirmation.");
 		if (!Entries.empty())
 		{
 			FAssetReferenceStoreCapture Stores;
 			const auto Captured = CaptureAssetReferenceStores(Stores);
 			if (!Captured) return AssetWriteResultFromRead(Captured);
 			if (Stores != ReferenceStores)
-				return Error(EAssetWriteError::InUse, "External reference owners changed after confirmation.");
+				return Error(EAssetWriteError::StaleData, "External reference owners changed after confirmation.");
 		}
 		if (GetAssetCatalogRevision() != RegistryRevision
 			|| ContributorRevision != AssetToolsPrivate::GetDeleteContributorRevision())

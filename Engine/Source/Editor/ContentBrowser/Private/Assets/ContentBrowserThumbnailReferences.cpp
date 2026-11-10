@@ -1,5 +1,7 @@
 #include "Assets/ContentBrowserThumbnailReferences.h"
 #include "Panels/ContentBrowserChanges.h"
+#include "Panels/ContentBrowserDataTypes.h"
+#include "Assets/SourceImageThumbnailDecoder.h"
 
 #include "Assets/SourceImageThumbnailCache.h"
 #include "Thumbnail/ThumbnailManager.h"
@@ -24,30 +26,40 @@ namespace Durin::Editor::ContentBrowser::Private
 	}
 
 	auto FContentBrowserThumbnailReferences::Request(
-		const FContentBrowserThumbnailRequest& Request) -> void
+		const FContentBrowserItem& Item, EAssetThumbnailPriority Priority) -> void
 	{
-		if (Request.Identity.empty()) return;
-		if (!Request.SourcePhysicalPath.empty())
+		const auto& Identity = Item.StableId();
+		if (Identity.empty() || Item.Kind == EContentBrowserItemKind::Folder) return;
+		if (Item.Kind == EContentBrowserItemKind::File)
 		{
-			AssetThumbnails.erase(std::string(Request.Identity));
-			SourcePaths[std::string(Request.Identity)] = Request.SourcePhysicalPath;
+			if (!IsSupportedSourceImageExtension(Item.Extension)) return;
+			SourcePaths[Identity] = Item.PhysicalPath;
 			SourceImages->Request({
-				.Identity = Request.Identity,
-				.PhysicalPath = Request.SourcePhysicalPath,
-				.FileSize = Request.SourceFileSize,
-				.LastWriteTime = Request.SourceLastWriteTime,
-				.Priority = Request.Priority});
+				.Identity = Identity, .PhysicalPath = Item.PhysicalPath,
+				.FileSize = Item.FileSize, .LastWriteTime = Item.LastWriteTime, .Priority = Priority});
 			return;
 		}
-		if (!Request.Asset) return;
-		if (!Dependencies.contains(std::string(Request.Identity)))
-			Dependencies.emplace(std::string(Request.Identity), CaptureAssetDependencyClosure(Request.Asset->AssetPath.GetPackagePath()));
-		auto& Thumbnail = AssetThumbnails[std::string(Request.Identity)];
-		if (!Thumbnail)
-			Thumbnail = std::make_unique<FAssetThumbnail>(*Request.Asset);
-		else
-			Thumbnail->Reassign(*Request.Asset);
-		Thumbnail->Request(Request.Priority);
+		FTopLevelAssetPath Path;
+		if (!FTopLevelAssetPath::TryCreate(Identity, Path)) return;
+		const auto Asset = FindAssetExact(Path);
+		if (!Asset || !GetDefaultThumbnailManager().Find(Asset->AssetClassName))
+		{
+			AssetThumbnails.erase(Identity);
+			Dependencies.erase(Identity);
+			return;
+		}
+		const auto Package = FindPackageExact(Path.GetPackagePath());
+		const FAssetThumbnailPackageFingerprint Fingerprint{
+			.AssetPath = Path, .PackagePath = Path.GetPackagePath(), .AssetClassName = Asset->AssetClassName,
+			.PackageFormatVersion = Package ? Package->FormatVersion : 0,
+			.FileSize = Package ? static_cast<uint64>(Package->FileSize) : 0,
+			.LastWriteTimeTicks = Package ? Package->LastWriteTimeTicks : 0};
+		if (!Dependencies.contains(Identity))
+			Dependencies.emplace(Identity, CaptureAssetDependencyClosure(Fingerprint.PackagePath));
+		auto& Thumbnail = AssetThumbnails[Identity];
+		if (!Thumbnail) Thumbnail = std::make_unique<FAssetThumbnail>(Fingerprint);
+		else Thumbnail->Reassign(Fingerprint);
+		Thumbnail->Request(Priority);
 	}
 
 	auto FContentBrowserThumbnailReferences::Find(std::string_view Identity) const

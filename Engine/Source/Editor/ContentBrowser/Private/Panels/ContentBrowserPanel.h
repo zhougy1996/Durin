@@ -56,7 +56,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			RefreshCoordinator.SetChangeSources(CaptureMountedContentChanges, CaptureAssetQueryChanges);
 			RefreshCoordinator.SetPublicationSuspension(
 				[this](bool bSuspended) { Model.SetSnapshotPublicationSuspended(bSuspended); });
-			Operations.SetScopedContentNotifier(std::move(Notify));
+			Operations.SetItemUpdateNotifier(std::move(Notify));
 		}
 
 
@@ -118,7 +118,9 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto OpenItem(const FContentBrowserItem& Item) -> void;
 		auto BeginRename(const FContentBrowserItem& Item) -> void;
 		auto DrawRenameEditor(const FContentBrowserItem& Item) -> void;
+		auto CancelRename() -> void;
 		auto CommitRename(const FContentBrowserItem& Item) -> bool;
+		auto SyncToItem(const FContentBrowserItem& Item) -> bool;
 		auto DuplicateAsset(const FContentBrowserItem& Item) -> void;
 		auto CopyContentSelection() -> void;
 		auto PasteContent(std::string_view DestinationDirectory = {}) -> void;
@@ -174,6 +176,13 @@ namespace Durin::Editor::ContentBrowser::Private
 		bool bBackgroundContextPending = false;
 		float IconSize;
 		float DirectoryTreeWidth;
+		struct FPendingFolder
+		{
+			FContentBrowserItem Item;
+			std::string Directory;
+			uint64 NavigationRevision;
+		};
+		std::optional<FPendingFolder> PendingFolder;
 		std::string RenameTarget;
 		std::array<char, 256> RenameBuffer{};
 		bool bFocusRename = false;

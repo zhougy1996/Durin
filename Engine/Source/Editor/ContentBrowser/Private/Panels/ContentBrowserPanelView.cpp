@@ -51,21 +51,6 @@ namespace Durin::Editor::ContentBrowser::Private
 			return EToolbarLayout::Narrow;
 		}
 
-		auto MakeThumbnailFingerprint(const FContentBrowserItem& Item)
-			-> std::optional<FAssetThumbnailPackageFingerprint>
-		{
-			if (!Item.ThumbnailSourcePath.empty()) return std::nullopt;
-			FTopLevelAssetPath Path;
-			if (!FTopLevelAssetPath::TryCreate(Item.VirtualPath, Path)) return std::nullopt;
-			return FAssetThumbnailPackageFingerprint{
-				.AssetPath = std::move(Path),
-				.PackagePath = Item.PackagePath,
-				.AssetClassName = Item.AssetClassName,
-				.PackageFormatVersion = Item.ThumbnailPackageFormatVersion,
-				.FileSize = static_cast<uint64>(Item.ThumbnailFileSize),
-				.LastWriteTimeTicks = Item.ThumbnailLastWriteTimeTicks};
-		}
-
 		auto ResolveStateLabel(EAssetPathResolveState State)
 			-> std::string_view
 		{
@@ -460,6 +445,15 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (bResetContentScroll) ImGui::SetScrollY(0.0f);
 		bContentItemHovered = false;
 		bRenameEditorHovered = false;
+		if (PendingFolder)
+		{
+			const auto Item = PendingFolder->Item;
+			ImGui::PushID("TemporaryFolder");
+			ImGui::TextUnformatted(Icons::Folder);
+			ImGui::SameLine();
+			DrawRenameEditor(Item);
+			ImGui::PopID();
+		}
 		if (ViewMode == EContentBrowserViewMode::Grid)
 			DrawGrid();
 		else
@@ -469,12 +463,12 @@ namespace Durin::Editor::ContentBrowser::Private
 		// Resolve outside clicks after every item has been drawn so the result does not depend on whether
 		// the clicked item appears before or after the active rename editor in ImGui's submission order.
 		if (!RenameTarget.empty() && !bFocusRename && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !bRenameEditorHovered)
-			RenameTarget.clear();
+			CancelRename();
 		if (Model.IsLoading())
 			ImGui::TextDisabled("Loading content...");
 		else if (!Model.GetEnumerationDiagnostics().empty())
 			ImGui::TextWrapped("%s", Model.GetEnumerationDiagnostics().front().Message.c_str());
-		else if (Model.GetItems().empty())
+		else if (Model.GetItems().empty() && !PendingFolder)
 		{
 			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 24.0f);
 			ImGui::TextDisabled(SearchBuffer[0] ? "No matching assets or folders." : "This folder is empty.");
@@ -639,16 +633,8 @@ namespace Durin::Editor::ContentBrowser::Private
 					const size_t Index = static_cast<size_t>(Row) * Columns + Column;
 					if (Index >= Model.GetItems().size()) break;
 					const FContentBrowserItem& Item = Model.GetItems()[Index];
-					if (!Item.ThumbnailIdentity.empty())
-						ThumbnailReferences->Request({
-							.Identity = Item.ThumbnailIdentity,
-							.SourcePhysicalPath = Item.ThumbnailSourcePath,
-							.SourceFileSize = Item.ThumbnailFileSize,
-							.SourceLastWriteTime = Item.ThumbnailLastWriteTime,
-							.Asset = MakeThumbnailFingerprint(Item),
-							.Priority = Row >= Clipper.DisplayStart && Row < Clipper.DisplayEnd
-								? EAssetThumbnailPriority::Visible
-								: EAssetThumbnailPriority::Prefetch});
+					ThumbnailReferences->Request(Item, Row >= Clipper.DisplayStart && Row < Clipper.DisplayEnd
+						? EAssetThumbnailPriority::Visible : EAssetThumbnailPriority::Prefetch);
 				}
 
 			for (int32 Row = Clipper.DisplayStart; Row < Clipper.DisplayEnd; ++Row)
@@ -713,7 +699,7 @@ namespace Durin::Editor::ContentBrowser::Private
 								MonaImGui::ScaleUI(1.0f));
 					}
 
-					const FAssetThumbnailView Thumbnail = ThumbnailReferences->Find(Item.ThumbnailIdentity);
+					const FAssetThumbnailView Thumbnail = ThumbnailReferences->Find(Item.StableId());
 					const ContentBrowserItemView::EThumbnailPresentation ThumbnailPresentation =
 						ContentBrowserItemView::ResolveThumbnailPresentation(Thumbnail);
 					const bool bDrewThumbnail = ContentBrowserItemView::DrawThumbnail(
@@ -892,12 +878,13 @@ namespace Durin::Editor::ContentBrowser::Private
 			if (PackagePath.IsValid())
 			{
 				DPackage* LoadedPackage = FindResidentPackage(PackagePath);
-				const bool bCanSave = static_cast<bool>(Operations.QuerySave(Item.PackagePath));
+				std::string SaveReason;
+				const bool bCanSave = Operations.CanSaveItem(Item.PackagePath, &SaveReason);
 				ImGui::BeginDisabled(!bAllowAssetMutation);
 				if (ImGui::MenuItem("Save Package", nullptr, false, bCanSave))
 					QueueContentAction([this, PackagePath] { SaveAssetPackage(PackagePath); });
 				if (!bCanSave && ImGui::IsItemHovered())
-					ImGui::SetTooltip("Available only for a loaded package with authored changes.");
+					ImGui::SetTooltip("%s", SaveReason.c_str());
 				if (ImGui::MenuItem(LoadedPackage && LoadedPackage->IsCanonicalResaveRecommended()
 					? "Resave Package (recommended)" : "Resave Package"))
 					QueueContentAction([this, PackagePath] { ResaveAssetPackages({PackagePath}); });
@@ -1211,9 +1198,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			const std::string Destination = bPhysicalDirectory ? std::string(DestinationDirectory)
 				: Model.VirtualToPhysical(DestinationDirectory);
 			if (!Items.empty()) QueueContentAction([this, Items = std::move(Items), Destination] {
-				const auto Result = Operations.MoveItems(Items, Destination);
-				if (!Result) SetError(Result.Status.Message);
-				if (!Result.Warning.empty()) SetWarning(Result.Warning);
+				Operations.MoveItems(Items, Destination);
 			});
 		}
 		if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(AssetDragDropPayloadType); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(FAssetDragDropPayload))
@@ -1222,24 +1207,13 @@ namespace Durin::Editor::ContentBrowser::Private
 			FSoftObjectPath OldObjectPath;
 			if (FSoftObjectPath::TryCreate(AssetPayload->AssetPath.data(), OldObjectPath))
 			{
-				const FPackagePath& OldPath = OldObjectPath.GetPackagePath();
-				std::string Destination = bPhysicalDirectory ? PhysicalToVirtualDirectory(DestinationDirectory) : std::string(DestinationDirectory);
-				if (Destination.empty())
-				{
-					ImGui::EndDragDropTarget();
-					return;
-				}
-				if (!Destination.ends_with('/')) Destination += '/';
-				FPackagePath NewPath;
-				if (FPackagePath::TryCreate(Destination + std::string(OldPath.GetPackageName()), NewPath) && NewPath != OldPath)
-				{
-					const FEditorAssetMove Move{OldPath, NewPath};
-					QueueContentAction([this, Move] {
-						const auto Result = Operations.Move(std::span{&Move, 1});
-						if (!Result)
-							SetError(Result.Status.Message);
-					});
-				}
+				FContentBrowserItem Item{.Kind = EContentBrowserItemKind::Asset,
+					.VirtualPath = OldObjectPath.ToString(), .PackagePath = OldObjectPath.GetPackagePath()};
+				const std::string Destination = bPhysicalDirectory ? std::string(DestinationDirectory)
+					: Model.VirtualToPhysical(DestinationDirectory);
+				QueueContentAction([this, Item = std::move(Item), Destination] {
+					Operations.MoveItems(std::span{&Item, 1}, Destination);
+				});
 			}
 		}
 		ImGui::EndDragDropTarget();
@@ -1308,7 +1282,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		if (!bAllowAssetMutation)
 		{
-			RenameTarget.clear();
+			CancelRename();
 			return;
 		}
 		if (bFocusRename)
@@ -1321,7 +1295,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (bSubmit)
 			CommitRename(Item);
 		else if (ImGui::IsKeyPressed(ImGuiKey_Escape))
-			RenameTarget.clear();
+			CancelRename();
 	}
 
 	auto FContentBrowserPanel::DrawDialogs() -> void

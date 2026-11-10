@@ -28,15 +28,19 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (!Hooks.RemoveAll) Hooks.RemoveAll = DefaultRemoveAll;
 	}
 
-	auto FContentDeletionOperation::Fail(std::string Message) -> bool
+	auto FContentDeletionOperation::ValidatePhysicalState(FAssetDeletionFileIdentities& OutIdentities) -> FAssetWriteResult
 	{
-		Details = std::move(Message);
-		return false;
-	}
-
-	auto FContentDeletionOperation::ValidatePhysicalState(FAssetDeletionFileIdentities* OutIdentities) -> bool
-	{
-		if (!Plan) return Fail("The deletion plan is unavailable.");
+		if (!Plan) return {EAssetWriteError::InvalidData, "The deletion plan is unavailable."};
+		const auto InspectionFailure = [](const std::filesystem::path& Path, const std::error_code& Error) -> FAssetWriteResult {
+			const bool bMissing = Error == std::errc::no_such_file_or_directory
+				|| Error == std::errc::not_a_directory;
+			return {bMissing ? EAssetWriteError::StaleData : EAssetWriteError::IoError,
+				std::format("Could not inspect deletion source {}: {}", Path.generic_string(), Error.message())};
+		};
+		const auto Changed = [](const std::filesystem::path& Path) -> FAssetWriteResult {
+			return {EAssetWriteError::StaleData,
+				std::format("Deletion source changed: {}.", Path.generic_string())};
+		};
 		FAssetDeletionFileIdentities VerifiedFiles;
 		std::unordered_set<std::string> ExpectedPaths;
 		for (const FContentDeletionFingerprint& Entry : Plan->Entries)
@@ -45,94 +49,91 @@ namespace Durin::Editor::ContentBrowser::Private
 			ExpectedPaths.insert(Path.generic_string());
 			std::error_code Error;
 			const auto Status = std::filesystem::symlink_status(Path, Error);
-			if (Error || std::filesystem::is_symlink(Status))
-				return Fail(std::format(
-					"Deletion source changed: {}.", Path.generic_string()));
+			if (Error) return InspectionFailure(Path, Error);
+			if (!std::filesystem::exists(Status) || std::filesystem::is_symlink(Status)) return Changed(Path);
 #ifdef _WIN32
 			const DWORD Attributes = GetFileAttributesW(Path.c_str());
-			if (Attributes == INVALID_FILE_ATTRIBUTES || (Attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0)
-				return Fail(std::format("Deletion source became a reparse point: {}.", Path.generic_string()));
+			if (Attributes == INVALID_FILE_ATTRIBUTES)
+				return InspectionFailure(Path, std::error_code(static_cast<int>(GetLastError()), std::system_category()));
+			if ((Attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) return Changed(Path);
 #endif
-			const bool bDirectory =
-				Entry.Kind == EContentDeletionEntryKind::Directory;
-			if (bDirectory != std::filesystem::is_directory(Status))
-				return Fail(std::format(
-					"Deletion source changed: {}.", Path.generic_string()));
+			const bool bDirectory = Entry.Kind == EContentDeletionEntryKind::Directory;
+			if (bDirectory != std::filesystem::is_directory(Status)) return Changed(Path);
 			if (!bDirectory)
 			{
 				const uintmax_t Size = std::filesystem::file_size(Path, Error);
-				if (Error || Size != Entry.FileSize)
-					return Fail(std::format(
-						"Deletion source changed: {}.", Path.generic_string()));
+				if (Error) return InspectionFailure(Path, Error);
+				if (Size != Entry.FileSize) return Changed(Path);
 				auto Identity = FFileHelper::HashFileXx128(Path);
-				if (!Identity) return Fail(Identity.error().ToString());
+				if (!Identity)
+				{
+					auto Failure = InspectionFailure(Path, Identity.error().NativeError);
+					Failure.Message = Identity.error().ToString();
+					return Failure;
+				}
 				if (*Identity != Entry.ByteIdentity)
-					return Fail(std::format(
-						"Deletion source bytes changed: {}.", Path.generic_string()));
-				if (OutIdentities) VerifiedFiles.emplace(Path.generic_string(), *Identity);
+					return {EAssetWriteError::StaleData,
+						std::format("Deletion source bytes changed: {}.", Path.generic_string())};
+				VerifiedFiles.emplace(Path.generic_string(), *Identity);
 			}
 			const auto WriteTime = std::filesystem::last_write_time(Path, Error);
-			if (Error || static_cast<int64>(WriteTime.time_since_epoch().count()) != Entry.LastWriteTimeTicks)
-				return Fail(std::format(
-					"Deletion source changed: {}.", Path.generic_string()));
+			if (Error) return InspectionFailure(Path, Error);
+			if (static_cast<int64>(WriteTime.time_since_epoch().count()) != Entry.LastWriteTimeTicks) return Changed(Path);
 		}
 
 		for (const FContentDeletionRoot& Root : Plan->MaximalRoots)
 		{
 			const std::filesystem::path Path = Normalize(Root.OriginalPath);
 			std::error_code Error;
-			if (!std::filesystem::is_directory(Path, Error)) continue;
+			const bool bDirectory = std::filesystem::is_directory(Path, Error);
+			if (Error) return InspectionFailure(Path, Error);
+			if (!bDirectory) continue;
 			for (std::filesystem::recursive_directory_iterator It(
 					 Path, std::filesystem::directory_options::none, Error), End;
 				 !Error && It != End; It.increment(Error))
 				if (!ExpectedPaths.contains(Normalize(It->path()).generic_string()))
-					return Fail(std::format(
-						"Deletion source gained an unconfirmed entry: {}.",
-						It->path().generic_string()));
-			if (Error)
-				return Fail(std::format(
-					"Could not inspect deletion source {}: {}",
-					Path.generic_string(), Error.message()));
+					return {EAssetWriteError::StaleData, std::format(
+						"Deletion source gained an unconfirmed entry: {}.", It->path().generic_string())};
+			if (Error) return InspectionFailure(Path, Error);
 		}
-		if (OutIdentities) *OutIdentities = std::move(VerifiedFiles);
-		return true;
+		OutIdentities = std::move(VerifiedFiles);
+		return {};
 	}
 
 	auto FContentDeletionOperation::DeletePhysicalRoots(std::vector<std::filesystem::path>& RemovedPaths) -> FAssetWriteResult
 	{
+		FAssetWriteResult Status;
 		for (const FContentDeletionRoot& Root : Plan->MaximalRoots)
 		{
 			const std::filesystem::path Path = Normalize(Root.OriginalPath);
 			bStarted = true;
 			const std::error_code Error = Hooks.RemoveAll(Path);
-			RemovedPaths.clear();
-			for (const auto& Entry : Plan->Entries)
-			{
-				std::error_code ProbeError;
-				const auto Status = std::filesystem::symlink_status(Entry.PhysicalPath, ProbeError);
-				if ((!ProbeError || ProbeError == std::errc::no_such_file_or_directory)
-					&& Status.type() == std::filesystem::file_type::not_found)
-					RemovedPaths.push_back(Normalize(Entry.PhysicalPath));
-			}
 			if (Error)
-				return {.Error = EAssetWriteError::IoError, .Message = std::format(
+			{
+				Status = {.Error = EAssetWriteError::IoError, .Message = std::format(
 					"Could not permanently delete {}: {}",
 					Path.generic_string(), Error.message()),
 					.Effect = EAssetWriteEffect::PartiallyWritten};
+				break;
+			}
 		}
-		return {};
-	}
-
-	auto FContentDeletionOperation::IsConfirmationCurrent() -> bool
-	{
-		return Plan && Plan->CanExecute() && !bStarted
-			&& ValidatePhysicalState() && AssetOperation.Validate();
+		// Capture the final physical outcome once, including a partially removed root.
+		RemovedPaths.clear();
+		for (const auto& Entry : Plan->Entries)
+		{
+			std::error_code ProbeError;
+			const auto FileStatus = std::filesystem::symlink_status(Entry.PhysicalPath, ProbeError);
+			if ((!ProbeError || ProbeError == std::errc::no_such_file_or_directory)
+				&& FileStatus.type() == std::filesystem::file_type::not_found)
+				RemovedPaths.push_back(Normalize(Entry.PhysicalPath));
+		}
+		return Status;
 	}
 
 	auto FContentDeletionOperation::Execute(FContentDeletionHooks InHooks) -> bool
 	{
 		if (InHooks.RemoveAll) Hooks = std::move(InHooks);
-		Details.clear();
+		Result = {};
 		if (bStarted || !Plan || !Plan->CanExecute())
 		{
 			Result = {EAssetWriteError::InvalidData, "Deletion is blocked or unavailable."};
@@ -141,11 +142,9 @@ namespace Durin::Editor::ContentBrowser::Private
 		const bool bSucceeded = AssetOperation.Delete({
 			.Delete = [this](auto& RemovedPaths) { return DeletePhysicalRoots(RemovedPaths); },
 			.ValidateFiles = [this](FAssetDeletionFileIdentities& Identities) -> FAssetWriteResult {
-				return ValidatePhysicalState(&Identities)
-					? FAssetWriteResult{} : FAssetWriteResult{EAssetWriteError::StaleData, Details};
+				return ValidatePhysicalState(Identities);
 			}});
 		Result = AssetOperation.GetWriteResult();
-		Details = Result.Message;
 		return bSucceeded;
 	}
 } // namespace Durin::Editor::ContentBrowser::Private

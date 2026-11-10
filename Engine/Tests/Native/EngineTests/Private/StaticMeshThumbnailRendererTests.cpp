@@ -3,6 +3,7 @@
 #include "Thumbnail/StaticMeshThumbnailRenderer.h"
 
 #include "Assets/ContentBrowserThumbnailReferences.h"
+#include "Panels/ContentBrowserDataTypes.h"
 #include "Thumbnail/AssetThumbnailPool.h"
 #include "Thumbnail/AssetThumbnailTestFixtures.h"
 #include "Thumbnail/ThumbnailStorage.h"
@@ -605,69 +606,44 @@ TEST(FStaticMeshThumbnailRendererTests,
 	const Durin::FPackageCatalogEntry Data =
 		Durin::FindPackageExact(StaticMeshPath);
 	ASSERT_NE(Data, nullptr);
-	const Durin::Editor::FAssetThumbnailPackageFingerprint Current = MakeFingerprint(*Data);
-
-	Durin::Editor::ContentBrowser::Private::FContentBrowserThumbnailReferences Cache;
+	using namespace Durin::Editor::ContentBrowser::Private;
+	const FContentBrowserItem Item{
+		.Kind = EContentBrowserItemKind::Asset,
+		.VirtualPath = Data->TopLevelAssets.front().AssetPath.ToString(),
+		.PackagePath = StaticMeshPath,
+		.PhysicalPath = Data->PhysicalPath,
+		.FileSize = Data->FileSize};
+	FContentBrowserThumbnailReferences Cache;
 	Durin::ProcessAsyncLoading();
 	Cache.BeginFrame();
-	Cache.Request({
-		.Identity = "/ThumbnailFixtures/Meshes/SM_OldIdentity",
-		.Asset = Current,
-		.Priority = Durin::Editor::EAssetThumbnailPriority::Prefetch});
-	EXPECT_EQ(
-		Cache.Find("/ThumbnailFixtures/Meshes/SM_OldIdentity").State,
-		Durin::Editor::EAssetThumbnailState::Queued);
-	// Refresh, rename, and move all cancel the old visible snapshot before rebinding identities.
+	Cache.Request(Item, Durin::Editor::EAssetThumbnailPriority::Prefetch);
+	EXPECT_EQ(Cache.Find(Item.StableId()).State, Durin::Editor::EAssetThumbnailState::Queued);
 	Cache.CancelPendingRequests();
-	EXPECT_EQ(
-		Cache.Find("/ThumbnailFixtures/Meshes/SM_OldIdentity").State,
-		Durin::Editor::EAssetThumbnailState::NotRequested);
+	EXPECT_EQ(Cache.Find(Item.StableId()).State, Durin::Editor::EAssetThumbnailState::NotRequested);
 
-	Durin::Editor::FAssetThumbnailPackageFingerprint StaleReimport = Current;
-	++StaleReimport.LastWriteTimeTicks;
-	Cache.Request({
-		.Identity = "/ThumbnailFixtures/Meshes/SM_NewIdentity",
-		.Asset = StaleReimport,
-		.Priority = Durin::Editor::EAssetThumbnailPriority::Visible});
-	Cache.EndFrame();
-	EXPECT_EQ(
-		Cache.Find("/ThumbnailFixtures/Meshes/SM_NewIdentity").State,
-		Durin::Editor::EAssetThumbnailState::Queued);
-	// The editor advances the shared asset pool, independently of panel frames.
-	auto& SharedPool = Durin::Editor::GetDefaultThumbnailManager().GetSharedPool();
-	SharedPool.BeginFrame();
-	SharedPool.EndFrame();
-	EXPECT_EQ(
-		Cache.Find("/ThumbnailFixtures/Meshes/SM_NewIdentity").State,
-		Durin::Editor::EAssetThumbnailState::Invalid);
-	Durin::ProcessAsyncLoading();
-	Cache.BeginFrame();
-	Cache.Request({
-		.Identity = "/ThumbnailFixtures/Meshes/SM_NewIdentity",
-		.Asset = Current,
-		.Priority = Durin::Editor::EAssetThumbnailPriority::Visible});
-	EXPECT_EQ(
-		Cache.Find("/ThumbnailFixtures/Meshes/SM_NewIdentity").State,
-		Durin::Editor::EAssetThumbnailState::Queued);
-	// Delete and panel close clear identity bindings and pending work without rendering.
+	// A stale display snapshot cannot supply the package-cache fingerprint.
+	auto StaleDisplay = Item;
+	++StaleDisplay.FileSize;
+	Cache.Request(StaleDisplay, Durin::Editor::EAssetThumbnailPriority::Visible);
+	EXPECT_EQ(Cache.Find(Item.StableId()).State, Durin::Editor::EAssetThumbnailState::Queued);
+	Cache.ApplyContentChanges({.Changes = {{Durin::EContentChangeKind::Modified,
+		Item.PhysicalPath, Item.PhysicalPath}}});
+	EXPECT_EQ(Cache.Find(Item.StableId()).State, Durin::Editor::EAssetThumbnailState::NotRequested);
+	Cache.Request(Item, Durin::Editor::EAssetThumbnailPriority::Visible);
+	EXPECT_EQ(Cache.Find(Item.StableId()).State, Durin::Editor::EAssetThumbnailState::Queued);
 	Cache.Clear();
-	EXPECT_EQ(
-		Cache.Find("/ThumbnailFixtures/Meshes/SM_OldIdentity").State,
-		Durin::Editor::EAssetThumbnailState::NotRequested);
-	EXPECT_EQ(
-		Cache.Find("/ThumbnailFixtures/Meshes/SM_NewIdentity").State,
-		Durin::Editor::EAssetThumbnailState::NotRequested);
+	EXPECT_EQ(Cache.Find(Item.StableId()).State, Durin::Editor::EAssetThumbnailState::NotRequested);
 
+	// An unregistered identity cannot borrow a different asset's fingerprint.
+	auto Missing = Item;
+	Missing.VirtualPath = "/ThumbnailFixtures/Meshes/Missing.Missing";
+	Cache.Request(Missing, Durin::Editor::EAssetThumbnailPriority::Visible);
+	EXPECT_EQ(Cache.GetAssetReferenceCountForTesting(), 0u);
 	{
-		Durin::Editor::ContentBrowser::Private::FContentBrowserThumbnailReferences ClosingCache;
+		FContentBrowserThumbnailReferences ClosingCache;
 		ClosingCache.BeginFrame();
-		ClosingCache.Request({
-			.Identity = StaticMeshPath.GetView(),
-			.Asset = Current,
-			.Priority = Durin::Editor::EAssetThumbnailPriority::Visible});
-		EXPECT_EQ(
-			ClosingCache.Find(StaticMeshPath.GetView()).State,
-			Durin::Editor::EAssetThumbnailState::Queued);
+		ClosingCache.Request(Item, Durin::Editor::EAssetThumbnailPriority::Visible);
+		EXPECT_EQ(ClosingCache.Find(Item.StableId()).State, Durin::Editor::EAssetThumbnailState::Queued);
 	}
 }
 

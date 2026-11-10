@@ -48,7 +48,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto AddEnumerationDiagnostic(EEnumerationDiagnosticKind Kind,
 			const std::filesystem::path& Path, std::string Message) -> void;
 
-		uint64 Version = 0;
 		FContentBrowserItemsSnapshot Result;
 		FEntryStatusQuery EntryStatusQuery;
 		std::shared_ptr<const FContentBrowserAssetSnapshot> AssetCatalogSnapshot;

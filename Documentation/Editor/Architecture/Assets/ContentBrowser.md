@@ -1,6 +1,6 @@
 # Content Browser
 
-Summary: Define asset presentation, operations, thumbnails, forward-only mutation jobs, and permanent deletion in the Content Browser.
+Summary: Define browser item commands, capability queries, update notifications, UI synchronization, thumbnails, and permanent deletion.
 
 Modules: ContentBrowser, MainFrame, AssetTools, DurinEd, AssetRegistry, Engine, TextureEditor, StaticMeshEditor, LevelEditor
 
@@ -92,8 +92,12 @@ details, and unlocked Ctrl-wheel thumbnail resizing remain local browser control
 
 ## Content Model
 
-The model caches its normalized mount snapshot by `FMountPaths` registry
-revision. An unchanged registry skips path conversion and snapshot construction,
+The model caches its directory-tree mount display data by `FMountPaths` registry
+revision. `FContentBrowserPaths` is a stateless projection over the current mount
+service, shared by navigation and operation validation. Operations retain no
+mount snapshot or injected path service. Directory conversion handles mount roots
+explicitly and resolves other directories directly, without a synthetic child.
+The display snapshot never authorizes a mutation. An unchanged registry skips path conversion and snapshot construction,
 including during hidden-panel ticks. Publication and test-registry replacement
 or restoration invalidate this cache; catalog reconciliation and pending async
 result processing retain their independent frame-pump behavior.
@@ -174,19 +178,43 @@ captures intent, confirms destructive scope, and presents results; clipboard and
 Explorer remain presentation/platform actions. Menu, shortcut, and drag/drop
 mutations enter the service after the active view traversal completes. The
 service owns a mount/path snapshot independent of Model, queries current host
-mutation policy and its own admission state, and injects the required save,
-duplicate, relocation, deletion, and Fix Up capabilities. AssetTools continues to
+mutation policy and its own admission state, and directly calls existing AssetTools
+save, duplicate, relocation, deletion, and Fix Up operations. Its constructor
+accepts only the path view, item-update notifier, and host mutation permission. AssetTools continues to
 own asset mutation phases. Availability is advisory; execution rechecks policy.
 Save requests deduplicate package identity; duplicate uses top-level asset
 identity. Folder Fix Up rejects empty scope instead of falling through to project.
 
-The browser consumes object pointers and boolean editor commands, routing
-messages through `FFeedbackContext`. Its private UI outcome retains focus/reveal
-paths, scoped content changes and native write effects needed by mixed filesystem
-operations. It owns no tagged asset-operation result or shared status projection.
-Mixed moves and fixup consume native mutation details directly to preserve partial
-commit and recovery evidence. The service alone notifies the host about observed
-content mutations; a lower-level catalog publication is not a host notification.
+The browser service separates capability queries, execution, item updates, and UI
+synchronization. `CanModify`, `CanSaveItem`, `CanDuplicateItem`, `CanRenameItem`
+and `CanMoveItem` return `bool` and optionally populate a displayable reason.
+They do not publish diagnostics or authorize later execution; execution rechecks
+current policy and filesystem state.
+
+Commands return `bool`. Rename, immediate asset duplication and folder creation
+explicitly output the resulting `FContentBrowserItem`; no generic operation result,
+status conversion, focus hints, or nested persistence state crosses this boundary.
+Duplication may return false for save failure while its output still identifies
+the retained live copy. Folder creation first prepares a suggested name without
+writing or publishing changes. The Panel owns the temporary folder and reuses its
+inline name editor in both views. Confirmation creates the exact proposed name
+only after rechecking host policy, the writable mount, the existing target,
+reparse-point boundaries and name collisions. Failure retains the editor;
+Escape, outside clicks, navigation and shutdown discard it without writing.
+Only successful creation publishes an added item and reveals the real folder.
+The temporary item never enters the Model snapshot, selection or drag payloads.
+
+The synchronous diagnostic sink presents errors and warnings independently of the
+return value. Complete diagnostics, including every recovery path, are written
+individually to Core logging and are available in Console. The Panel presents a
+brief error or warning prompt directing users to Console; it owns no diagnostic
+history or concatenated message buffer. A single item-update notifier publishes `FContentChangeBatch` for
+actual content changes, including committed files with pending Registry publication.
+The Panel uses explicit output items to reveal or select content. It does not
+interpret native write effects or infer refresh from command success. Native
+mutation results, recovery paths and rollback decisions remain inside the operation
+service. High-level asset-operation substitutes and directory-removal callbacks
+are not part of the service interface.
 The service never refreshes Model. RefreshCoordinator consumes the notification
 and owns reconciliation and derived-view refresh. **Duplicate** and `Ctrl+D` clone one
 selected real asset into the same writable folder, choosing `_Copy`, `_Copy2`,
@@ -252,14 +280,19 @@ not name or construct a concrete asset editor.
 ## Thumbnail Requests And Refresh
 
 ContentBrowser owns item presentation, ordinary-file image decode/cache, and
-request admission. Asset cards retain lightweight `FAssetThumbnail` values and
-submit the exact `FTopLevelAssetPath`, owning package fingerprint, and
-visible/prefetch priority to the
+request admission. Cards pass an item and visible/prefetch priority to
+`FContentBrowserThumbnailReferences`. This service checks live renderer
+availability and obtains exact asset and package metadata from AssetRegistry,
+then retains lightweight `FAssetThumbnail` references and submits requests to the
 `DThumbnailManager`-owned shared `FAssetThumbnailPool`. Cards do not select a
 renderer or production path. `DurinEd` owns scheduling, persistence,
 render/readback/upload, preview scenes, reference pinning, texture reuse, and
 budgets. Feature editor modules own their exact-class renderers. Unsupported
-classes keep their ordinary asset icon and create no pool job.
+classes keep their ordinary asset icon and create no pool job. Item snapshots
+retain identity, paths, class, display size and modification time; they carry no
+thumbnail identity, source override or package-cache fingerprint. Supported
+ordinary images use their physical identity and existing file display metadata
+through the source-image cache. Operation results do not initialize preview data.
 
 Refresh, navigation, move, delete, reimport, panel close, and editor shutdown
 cancel obsolete request generations before rebinding the visible snapshot.
@@ -299,9 +332,21 @@ the alias closure rather than treating the path as vacant.
 Content-item drag and drop supports ordinary files, folders, and mixed selections.
 Dragging an already selected item preserves the selection. A single real asset
 keeps the shared asset payload used by other editors; other selections carry
-owned physical paths and execute after view traversal. Folder rename uses the
-same content-move planner. Selected descendants are collapsed under selected
-folders; empty directories are preserved.
+owned physical paths and execute after view traversal. Both payloads submit
+items and a destination directory through `MoveItems`; the browser no longer
+exposes a package-mapping move entrypoint. Registered packages in physical-path
+payloads recover their asset identity from the current catalog. Asset, file, and
+folder rename build a new destination name and use the same internal move commit
+path. Asset object names survive package rename; ordinary file rename retains the
+existing extension when none is supplied. Selected descendants are collapsed
+under selected folders; empty directories are preserved.
+
+Capability queries and execution share item, name, and destination checks.
+Queries do not reserve destinations: execution reads current mounts and repeats the
+checks, then validates the complete recursive batch before writing. Planned item
+notifications are published only through the commit path, never after a rejected
+preflight. Individual assets may relocate across writable scanned mounts through
+AssetTools; ordinary files and folders stay within their source mount.
 
 The service validates all physical roots before writing: no overwrite or merge,
 no mount roots, no destination inside a selected source, no reparse traversal,
@@ -386,8 +431,8 @@ alias closure and explicit confirmation.
 
 The confirmation dialog states that Delete permanently removes local content,
 cannot be undone, and must be restored through version control. ContentBrowser
-revalidates every confirmed byte identity and rejects new descendants before it
-calls AssetTools. AssetTools revalidates the confirmed selection, companion
+revalidates every confirmed byte identity and rejects new descendants through
+the file-validation callback invoked by AssetTools before destructive work. AssetTools revalidates the confirmed selection, companion
 ownership, warnings, and external-reference snapshots, asks Engine to release
 the eligible resident package batch, and invokes one destructive maximal-root
 callback. Engine then publishes the checked catalog removals. The move-only
@@ -396,31 +441,35 @@ is wrapped or exposed to ContentBrowser.
 No quarantine directory, pre-image, Restore/Purge API, editor history entry, or
 automatic retention policy exists.
 
-If deletion stops after removing an earlier root or part of a directory, it does
-not recreate deleted content. The service retains the same execution session,
-including confirmed remaining byte identities and paths removed during its own
-callback. Recreated deleted paths, changed remaining bytes, and new descendants
-block retry. Initial stale confirmation is replaced from the captured request
-and requires another confirmation; forward retry never reconstructs scope from
-current UI selection. Closing the modal keeps destructive progress; the background
-menu exposes `Retry Pending Deletion`. A hidden browser retains its service, and
-shutdown stops admission before the host services retire. Sessions are in-memory
-and do not promise recovery across process restart.
+`DeleteItems` takes the confirmation handle by reference. If validation detects
+stale content before destructive work starts, the service replaces it from the
+captured request and returns false. The Panel shows the changed confirmation and
+requires another explicit confirmation. It does not retry automatically or infer
+new scope from the current UI selection.
 
-Affected Registry paths remain fenced while deletion is forward-pending. AssetTools
-retains the original catalog/reference/companion safety snapshot and byte identities
-for asset files. Retry permits already-recorded removals but rejects outside
-metadata, reference-store, reference-warning, or companion-ownership changes and
-loading/dirty participants. It can tolerate reconciliation of its own removed
-packages without treating new content as confirmed. Such outside changes leave
-the same session blocked rather than broadening destructive scope.
+`StaleData` means confirmed content or dependency snapshots changed, including
+companion ownership and external reference-store snapshots. Read failures retain
+`IoError`; loading, dirty packages, and live references remain `InUse`. These
+non-stale failures before physical deletion preserve the confirmation and report
+the original error without rescanning or claiming the selection changed. A user
+retry runs all execution checks again; the retained handle never bypasses them.
+Read-only admission failures likewise retain the confirmation. Initially blocked
+plans remain non-executable and must be dismissed and analyzed again after the
+blocker is resolved.
 
-Mutation disposition is structured state rather than an English diagnostic
-prefix. The service does not automatically reconcile partial deletion; it publishes
-one mounted-content notification after physical completion. A Registry failure
-after physical removal remains `ContentCommittedProjectionPending`: the physical
-session is retired, and manual or automatic RefreshCoordinator reconciliation
-converges from mounted authored files. It never calls physical deletion again.
+Once destructive work starts, the browser session is retired after the attempt.
+Partial deletion does not recreate removed content; it publishes a full-refresh
+notification and reports the failure. A later attempt requires fresh analysis and
+confirmation. The native deletion operation retains its affected-file evidence;
+Registry fences and recovery obligations remain at their owning boundaries.
+There is no browser-level mutable last-result cache or retry of a session that
+has begun physical deletion.
+
+If physical removal completes but Registry publication fails, the service reports
+a warning, publishes the removed item updates, retires the session, clears the
+confirmation handle and returns true for physical deletion. RefreshCoordinator
+reconciliation converges from mounted authored files. The Panel never inspects
+`EAssetWriteEffect`, parses diagnostic prefixes, or repeats physical deletion.
 
 Successful relocation and Delete declare that they mutate mounted content
 discovery and advance the monotonic mounted-content mutation revision once.

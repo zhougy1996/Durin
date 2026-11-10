@@ -2,16 +2,17 @@
 
 #include "CoreMinimal.h"
 
+#include "Asset/AssetWriteResult.h"
+#include "Misc/FeedbackContext.h"
 #include "AssetTools/AssetDeletion.h"
-#include "AssetTools/AssetDuplicate.h"
 #include "AssetTools/AssetSave.h"
+#include "AssetTools/MutationTypes.h"
+#include "Asset/MutationExtensions.h"
 #include "ContentBrowser/ContentBrowserContracts.h"
 #include "Panels/ContentBrowserDataTypes.h"
-#include "Operations/ContentBrowserPaths.h"
 
 namespace Durin::Editor::ContentBrowser::Private
 {
-	using FEditorAssetMove = ContentBrowser::FAssetMove;
 	// Classifies every preflight condition that can keep a deletion plan read-only.
 	enum class EContentDeletionBlocker : uint8
 	{
@@ -55,7 +56,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	};
 
 	// Complete file-byte identities detect in-place edits even when size and time
-	// are preserved. Directory digests include every descendant's identity.
+	// are preserved. Directory membership is validated against the captured entries.
 	struct FContentDeletionFingerprint
 	{
 		std::string PhysicalPath;
@@ -63,14 +64,11 @@ namespace Durin::Editor::ContentBrowser::Private
 		uintmax_t FileSize = 0;
 		int64 LastWriteTimeTicks = 0;
 		FXxHash128 ByteIdentity;
-		uint64 Digest = 0;
 	};
 
 	struct FContentDeletionRoot
 	{
 		std::string OriginalPath;
-		EContentDeletionEntryKind Kind = EContentDeletionEntryKind::OrdinaryFile;
-		FContentDeletionFingerprint Fingerprint;
 	};
 
 	struct FContentDeletionSummary
@@ -91,7 +89,6 @@ namespace Durin::Editor::ContentBrowser::Private
 	// move-only execution capability; SessionId is validated against its retained owner.
 	struct FContentDeletionPlan
 	{
-		uint64 RegistryRevision = 0;
 		std::string DisplayName;
 		FContentDeletionSummary Summary;
 		std::vector<FContentDeletionRoot> MaximalRoots;
@@ -119,115 +116,60 @@ namespace Durin::Editor::ContentBrowser::Private
 			FAssetDeletionOperation InAssetOperation);
 
 		auto Execute(FContentDeletionHooks InHooks = {}) -> bool;
-		auto IsConfirmationCurrent() -> bool;
 		auto HasStarted() const -> bool { return bStarted; }
 		auto GetResult() const -> const FAssetWriteResult& { return Result; }
-		auto GetDetails() const -> const std::string& { return Details; }
 
 	private:
-		auto ValidatePhysicalState(FAssetDeletionFileIdentities* OutIdentities = nullptr) -> bool;
+		auto ValidatePhysicalState(FAssetDeletionFileIdentities& OutIdentities) -> FAssetWriteResult;
 		auto DeletePhysicalRoots(std::vector<std::filesystem::path>& RemovedPaths) -> FAssetWriteResult;
-		auto Fail(std::string Message) -> bool;
 
 		FContentDeletionPlanPtr Plan;
 		FAssetDeletionOperation AssetOperation;
 		FAssetWriteResult Result;
 		bool bStarted = false;
 		FContentDeletionHooks Hooks;
-		std::string Details;
 	};
-
-	// Reports the post-operation focus requested by a successful content mutation.
-	struct FContentBrowserOperationResult
-	{
-		FContentBrowserOperationResult() = default;
-		FContentBrowserOperationResult(FAssetReadResult InStatus) : Status(AssetWriteResultFromRead(InStatus)) {}
-		FContentBrowserOperationResult(FAssetWriteResult InStatus) : Status(std::move(InStatus)) {}
-		FContentBrowserOperationResult(EAssetWriteError Error, std::string Message)
-			: Status{Error, std::move(Message)} {}
-		FAssetWriteResult Status;
-		bool bContentChanged = false;
-		FContentChangeBatch Changes;
-		FContentDeletionPlanPtr ReplacementConfirmation;
-		std::string FocusPhysicalPath;
-		std::string RevealAssetPath;
-		std::string OpenAssetClassName;
-		std::string Warning;
-
-		explicit operator bool() const { return static_cast<bool>(Status); }
-	};
-
-	// Injects only the package capabilities used by browser operations.
-	struct FContentBrowserAssetServices
-	{
-		std::function<bool(const FAssetSaveRequest&, FFeedbackContext*)> SaveAssets;
-		std::function<DObject*(const FAssetDuplicateRequest&, FFeedbackContext*)> DuplicateAsset;
-		std::function<bool(const FAssetDeletionRequest&, FAssetDeletionOperation&, FFeedbackContext*)> PrepareDeletion;
-		static auto Default() -> FContentBrowserAssetServices;
-	};
-
 	// Owns filesystem and asset-registry mutations initiated by the content browser.
 	class FContentBrowserOperationService
 	{
 	public:
-		using FMoveAssets =
-			std::function<FContentBrowserOperationResult(std::span<const FEditorAssetMove>)>;
-		using FFixUpAssets =
-			std::function<FContentBrowserOperationResult(std::span<const FPackagePath>)>;
-		using FRemoveDirectory = std::function<bool(
-			const std::filesystem::path&, std::error_code&)>;
-
 		FContentBrowserOperationService(
-			FContentBrowserPaths InPaths = {},
-			FMoveAssets InMoveAssets = {},
-			FRemoveDirectory InRemoveDirectory = {},
-			FFixUpAssets InFixUpAssets = {},
-			std::function<void()> InNotifyMountedContentMutation = {},
-			std::function<bool()> InCanMutate = {},
-			FContentBrowserAssetServices InAssets = FContentBrowserAssetServices::Default()
-		);
+			std::function<void(FContentChangeBatch)> InItemUpdates = {},
+			std::function<bool()> InCanMutate = {});
 
-		auto SetScopedContentNotifier(std::function<void(FContentChangeBatch)> Notify) -> void
-		{ NotifyScopedContentMutation = std::move(Notify); }
+		auto SetItemUpdateNotifier(std::function<void(FContentChangeBatch)> Notify) -> void
+		{ ItemUpdates = std::move(Notify); }
 
 		FContentBrowserOperationService(const FContentBrowserOperationService&) = delete;
 		auto operator=(const FContentBrowserOperationService&) -> FContentBrowserOperationService& = delete;
 		FContentBrowserOperationService(FContentBrowserOperationService&&) = delete;
 		auto operator=(FContentBrowserOperationService&&) -> FContentBrowserOperationService& = delete;
 
-		auto Save(std::vector<FPackagePath> Packages, EAssetSaveMode Mode = EAssetSaveMode::LoadedDirtyPackage)
-			-> FContentBrowserOperationResult;
-		auto QueryMutation() const -> FAssetWriteResult;
-		auto QuerySave(const FPackagePath& Package) const -> FAssetWriteResult;
-		auto QueryDuplicate(const FTopLevelAssetPath& Source) const -> FAssetWriteResult;
+		// Capability queries do not report diagnostics or authorize subsequent I/O.
+		auto CanModify(std::string* OutErrorMsg = nullptr) const -> bool;
+		auto CanSaveItem(const FPackagePath& Package, std::string* OutErrorMsg = nullptr) const -> bool;
+		auto CanDuplicateItem(const FTopLevelAssetPath& Source, std::string* OutErrorMsg = nullptr) const -> bool;
+		auto CanRenameItem(const FContentBrowserItem& Item, std::string_view NewName, std::string* OutErrorMsg = nullptr) const -> bool;
+		auto CanMoveItem(const FContentBrowserItem& Item, std::string_view Destination, std::string* OutErrorMsg = nullptr) const -> bool;
 		auto StopRequestAdmission() -> void { bAccepting = false; }
-
-		auto Rename(const FContentBrowserItem& Item, std::string_view NewName)
-			-> FContentBrowserOperationResult;
-		auto Duplicate(const FContentBrowserItem& Item)
-			-> FContentBrowserOperationResult;
-		auto Duplicate(
-			const FTopLevelAssetPath& SourcePath,
-			std::string_view DestinationDirectory)
-			-> FContentBrowserOperationResult;
-		auto CreateFolder(std::string_view PhysicalDirectory)
-			-> FContentBrowserOperationResult;
-		auto Move(std::span<const FEditorAssetMove> Moves) -> FContentBrowserOperationResult;
-		auto MoveItems(std::span<const FContentBrowserItem> Items, std::string_view PhysicalDirectory)
-			-> FContentBrowserOperationResult;
-		auto CopyItems(std::span<const FContentBrowserItem> Items, std::string_view PhysicalDirectory)
-			-> FContentBrowserOperationResult;
-		auto FixUpRedirectorsInFolder(std::string_view VirtualDirectory)
-			-> FContentBrowserOperationResult;
-		auto FixUpRedirectors(std::span<const FPackagePath> Redirectors)
-			-> FContentBrowserOperationResult;
-		auto FixUpAllRedirectors() -> FContentBrowserOperationResult;
-
+		// Diagnostics and committed item updates are independent of command return values.
+		auto SetDiagnosticSink(FFeedbackContext::FMessageSink Sink) -> void { Diagnostics = std::move(Sink); }
+		auto SaveItems(std::vector<FPackagePath> Packages, EAssetSaveMode Mode = EAssetSaveMode::LoadedDirtyPackage) -> bool;
+		auto RenameItem(const FContentBrowserItem& Item, std::string_view NewName, FContentBrowserItem& OutNewItem) -> bool;
+		auto DuplicateItem(const FContentBrowserItem& Item, FContentBrowserItem& OutNewItem) -> bool;
+		auto DuplicateItem(const FTopLevelAssetPath& SourcePath, std::string_view DestinationDirectory, FContentBrowserItem& OutNewItem) -> bool;
+		auto PrepareFolder(std::string_view PhysicalDirectory, FContentBrowserItem& OutNewItem) -> bool;
+		auto CreateFolder(std::string_view PhysicalDirectory, std::string_view Name, FContentBrowserItem& OutNewItem) -> bool;
+		auto MoveItems(std::span<const FContentBrowserItem> Items, std::string_view PhysicalDirectory) -> bool;
+		auto CopyItems(std::span<const FContentBrowserItem> Items, std::string_view PhysicalDirectory) -> bool;
+		auto FixUpRedirectorsInFolder(std::string_view VirtualDirectory) -> bool;
+		auto FixUpRedirectors(std::span<const FPackagePath> Redirectors) -> bool;
+		auto FixUpAllRedirectors() -> bool;
 		auto BuildDeletionPlan(std::span<const FContentBrowserItem> Items) -> FContentDeletionPlanPtr;
-		auto ExecuteDeletion(FContentDeletionPlanPtr Confirmation, FContentDeletionHooks Hooks = {})
-			-> FContentBrowserOperationResult;
+		// Confirmation is replaced explicitly when stale. Physical completion succeeds
+		// even if Registry reconciliation is pending; that failure is reported separately.
+		auto DeleteItems(FContentDeletionPlanPtr& Confirmation, FContentDeletionHooks Hooks = {}) -> bool;
 		auto DismissDeletion(FContentDeletionPlanPtr Confirmation) -> void;
-		auto IsDeletionPlanCurrent(const FContentDeletionPlan& Plan) const -> bool;
 
 
 	private:
@@ -236,7 +178,10 @@ namespace Durin::Editor::ContentBrowser::Private
 			FContentBrowserItem Item;
 			std::string Destination;
 		};
-		auto MoveContent(std::span<const FContentMove> Requests) -> FContentBrowserOperationResult;
+		auto MakeMoveRequest(const FContentBrowserItem& Item, std::string_view Directory,
+			std::optional<std::string_view> NewName, FContentMove& OutRequest) const -> FAssetWriteResult;
+		auto ValidateMoveRequest(const FContentMove& Request) const -> FAssetWriteResult;
+		auto MoveContent(std::span<const FContentMove> Requests, FContentChangeBatch& Changes) -> FAssetWriteResult;
 		auto AnalyzeDeletion(std::span<const FContentBrowserItem> Items,
 			FAssetDeletionOperation& OutOperation) const -> FContentDeletionPlanPtr;
 		struct FDeletionSession
@@ -247,24 +192,22 @@ namespace Durin::Editor::ContentBrowser::Private
 		};
 		uint64 NextDeletionSession = 0;
 		std::unordered_map<uint64, FDeletionSession> DeletionSessions;
-		auto RenameFolder(
-			const FContentBrowserItem& Item,
-			std::string_view NewName,
-			std::string& OutWarning)
-			-> FContentBrowserOperationResult;
+		auto RenameItemImpl(const FContentBrowserItem& Item, std::string_view NewName, FContentBrowserItem& OutNewItem, FContentChangeBatch& Changes) -> FAssetWriteResult;
+		auto CopyItemsImpl(std::span<const FContentBrowserItem> Items, std::string_view Directory, FContentChangeBatch& Changes) -> FAssetWriteResult;
+		auto ValidateFolder(std::string_view Directory, std::string_view Name, FContentBrowserItem& OutNewItem) -> FAssetWriteResult;
 		auto CollectRedirectors(std::string_view VirtualDirectory) const
 			-> std::vector<FPackagePath>;
 
-		auto ValidateMoves(std::span<const FEditorAssetMove> Moves) const -> FAssetWriteResult;
-		auto Publish(FContentBrowserOperationResult Result) -> FContentBrowserOperationResult;
-		FContentBrowserAssetServices Assets;
-		std::function<bool()> CanMutate;
+		auto ValidateMoves(std::span<const FAssetRelocationMapping> Moves) const -> FAssetWriteResult;
+		auto NotifyItemsUpdated(FContentChangeBatch Changes) -> void;
+		auto Complete(const FAssetWriteResult& Status, FContentChangeBatch Changes = {}) -> bool;
+		auto CompleteMutation(const FAssetMutationResultDetails& Native, FContentChangeBatch Changes = {}) -> bool;
+		auto ReportRecovery(const FAssetMutationResultDetails& Native) const -> void;
+		auto Report(ELogLevel Level, std::string_view Message) const -> void;
+		auto Feedback() const -> FFeedbackContext;
+		FFeedbackContext::FMessageSink Diagnostics;
+		std::function<bool()> MutationAllowed;
 		bool bAccepting = true;
-		mutable FContentBrowserPaths Paths;
-		FMoveAssets MoveAssets;
-		FFixUpAssets FixUpAssets;
-		std::function<void()> NotifyMountedContentMutation;
-		std::function<void(FContentChangeBatch)> NotifyScopedContentMutation;
-		FRemoveDirectory RemoveDirectory;
+		std::function<void(FContentChangeBatch)> ItemUpdates;
 	};
 } // namespace Durin::Editor::ContentBrowser::Private

@@ -43,16 +43,12 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::SaveAssetPackage(const FPackagePath& Path) -> void
 	{
-		const auto Result = Operations.Save({Path});
-		if (!Result.Warning.empty()) SetWarning(Result.Warning);
-		if (!Result) SetError(Result.Status.Message);
+		Operations.SaveItems({Path});
 	}
 
 	auto FContentBrowserPanel::ResaveAssetPackages(std::vector<FPackagePath> Paths) -> void
 	{
-		const auto Result = Operations.Save(std::move(Paths), EAssetSaveMode::CanonicalResave);
-		if (!Result.Warning.empty()) SetWarning(Result.Warning);
-		if (!Result) SetError(Result.Status.Message);
+		Operations.SaveItems(std::move(Paths), EAssetSaveMode::CanonicalResave);
 	}
 
 	FContentBrowserPanel::FContentBrowserPanel(
@@ -81,11 +77,16 @@ namespace Durin::Editor::ContentBrowser::Private
 			GetAssetQueryRevision(),
 			std::move(InMountedContentReconciliationState))
 		, Model(true)
-		, Operations(FContentBrowserPaths{}, {}, {}, {},
-			std::move(InNotifyMountedContentMutation), std::move(InCanMutate))
+		, Operations(
+			[Notify = std::move(InNotifyMountedContentMutation)](FContentChangeBatch) { if (Notify) Notify(); }, std::move(InCanMutate))
 		, IconSize(PresentationSettings.IconSize)
 		, DirectoryTreeWidth(PresentationSettings.TreeWidth)
 	{
+		Operations.SetDiagnosticSink([this](ELogLevel Level, std::string_view Message) {
+			DURIN_LOG(Level, "Content Browser: {}", Message);
+			if (Level >= ELogLevel::Error) SetError("Content Browser operation failed. See Console for details.");
+			else if (Level == ELogLevel::Warn) SetWarning("Content Browser operation reported warnings. See Console for details.");
+		});
 		Model.RefreshMountSnapshot();
 		ThumbnailReferences = std::make_unique<FContentBrowserThumbnailReferences>();
 		ViewMode = static_cast<EContentBrowserViewMode>(
@@ -167,6 +168,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		const std::string PreviousDirectory = Model.GetCurrentPhysicalPath();
 		if (!Model.NavigateToPhysical(PhysicalPath, bAddHistory)) return false;
 		if (Model.GetCurrentPhysicalPath() == PreviousDirectory) return true;
+		CancelRename();
 		ThumbnailReferences->CancelPendingRequests();
 		SelectionState.Selected.clear();
 		SelectionState.Anchor.clear();
@@ -183,6 +185,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (Model.NavigateHistory(Delta))
 		{
 			if (Model.GetCurrentPhysicalPath() == PreviousDirectory) return;
+			CancelRename();
 			ThumbnailReferences->CancelPendingRequests();
 			SelectionState.Selected.clear();
 			SelectionState.Anchor.clear();
@@ -335,6 +338,10 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::BeginRename(const FContentBrowserItem& Item) -> void
 	{
+		std::string Reason;
+		const auto Name = Item.Kind == EContentBrowserItemKind::Asset ? Item.PackagePath.GetPackageName() : std::string_view(Item.Name);
+		if (!Operations.CanRenameItem(Item, Name, &Reason)) { SetError(std::move(Reason)); return; }
+		CancelRename();
 		RenameTarget = Item.StableId();
 		RenameBuffer.fill(0);
 		const std::string_view InitialName =
@@ -349,10 +356,35 @@ namespace Durin::Editor::ContentBrowser::Private
 		bFocusRename = true;
 	}
 
+	auto FContentBrowserPanel::CancelRename() -> void
+	{
+		PendingFolder.reset();
+		RenameTarget.clear();
+		bFocusRename = false;
+	}
+
 	auto FContentBrowserPanel::CommitRename(const FContentBrowserItem& Item)
 		-> bool
 	{
 		const std::string NewName = RenameBuffer.data();
+		if (PendingFolder)
+		{
+			if (PendingFolder->NavigationRevision != Model.GetNavigationRevision())
+			{
+				CancelRename();
+				return false;
+			}
+			FContentBrowserItem Created;
+			if (!Operations.CreateFolder(PendingFolder->Directory, NewName, Created))
+			{
+				bFocusRename = true;
+				return false;
+			}
+			CancelRename();
+			SearchBuffer.fill(0);
+			if (!SyncToItem(Created)) SetError("The folder was created, but it could not be shown in the content browser.");
+			return true;
+		}
 		const std::string_view CurrentName =
 			Item.Kind == EContentBrowserItemKind::Asset
 				|| Item.Kind == EContentBrowserItemKind::Redirector
@@ -364,33 +396,33 @@ namespace Durin::Editor::ContentBrowser::Private
 			return true;
 		}
 
-		const FContentBrowserOperationResult Result =
-			Operations.Rename(Item, NewName);
+		FContentBrowserItem NewItem;
+		const bool Result = Operations.RenameItem(Item, NewName, NewItem);
 		if (!Result)
 		{
-			SetError(Result.Status.Message);
 			return false;
 		}
 		RenameTarget.clear();
-		if (!Result.Warning.empty()) SetWarning(Result.Warning);
+		if (!SyncToItem(NewItem)) SetError("The item was renamed, but it could not be shown in the content browser.");
+		return true;
+	}
+
+	auto FContentBrowserPanel::SyncToItem(const FContentBrowserItem& Item) -> bool
+	{
+		if (Item.Kind == EContentBrowserItemKind::Asset || Item.Kind == EContentBrowserItemKind::Redirector)
+			return RevealAsset(Item.VirtualPath);
+		if (Item.PhysicalPath.empty() || Model.RevealPhysicalItem(Item.PhysicalPath).empty()) return false;
 		SelectionState.Selected.clear();
-		if (!Result.RevealAssetPath.empty())
-		{
-			if (!RevealAsset(Result.RevealAssetPath))
-				SetError("The asset was renamed, but it could not be shown in the content browser.");
-		}
-		else if (!Result.FocusPhysicalPath.empty())
-			SelectionState.Selected.insert(Result.FocusPhysicalPath);
+		SelectionState.Selected.insert(Item.PhysicalPath);
 		return true;
 	}
 
 	auto FContentBrowserPanel::DuplicateAsset(
 		const FContentBrowserItem& Item) -> void
 	{
-		const FContentBrowserOperationResult Result = Operations.Duplicate(Item);
-		if (!Result.Warning.empty()) SetWarning(Result.Warning);
-		if (!Result) SetError(Result.Status.Message);
-		if (!Result.RevealAssetPath.empty()) RevealAsset(Result.RevealAssetPath);
+		FContentBrowserItem NewItem;
+		Operations.DuplicateItem(Item, NewItem);
+		if (!NewItem.StableId().empty()) SyncToItem(NewItem);
 	}
 
 	auto FContentBrowserPanel::CopyContentSelection() -> void
@@ -428,57 +460,40 @@ namespace Durin::Editor::ContentBrowser::Private
 		const std::string_view Directory = DestinationDirectory.empty()
 			? std::string_view(Model.GetCurrentVirtualPath())
 			: DestinationDirectory;
-		const FContentBrowserOperationResult Result = bContent
-			? Operations.CopyItems(CopiedContent, FContentBrowserPaths::VirtualToPhysical(Directory))
-			: Operations.Duplicate(SourcePath, Directory);
-		if (!Result.Warning.empty()) SetWarning(Result.Warning);
-		if (!Result) SetError(Result.Status.Message);
-		if (!Result.RevealAssetPath.empty()) RevealAsset(Result.RevealAssetPath);
-		else if (!Result.FocusPhysicalPath.empty())
+		FContentBrowserItem NewItem;
+		if (bContent)
 		{
-			Model.RevealPhysicalItem(Result.FocusPhysicalPath);
-			SelectionState.Selected.clear();
-			SelectionState.Selected.insert(Result.FocusPhysicalPath);
+			const auto PhysicalDirectory = FContentBrowserPaths::VirtualToPhysical(Directory);
+			if (Operations.CopyItems(CopiedContent, PhysicalDirectory)) NavigateToPhysical(PhysicalDirectory);
 		}
+		else Operations.DuplicateItem(SourcePath, Directory, NewItem);
+		if (!NewItem.StableId().empty()) SyncToItem(NewItem);
+
 	}
 
 	auto FContentBrowserPanel::HasContentClipboard() const -> bool
 	{
-		if (HasCopiedContent()) return static_cast<bool>(Operations.QueryMutation());
+		if (HasCopiedContent()) return static_cast<bool>(Operations.CanModify());
 		FTopLevelAssetPath SourcePath;
 		if (!ReadAssetClipboard(SourcePath)) return false;
-		return static_cast<bool>(Operations.QueryDuplicate(SourcePath));
+		return static_cast<bool>(Operations.CanDuplicateItem(SourcePath));
 	}
 
-	auto FContentBrowserPanel::CreateFolder(
-		std::string_view PhysicalDirectory) -> void
+	auto FContentBrowserPanel::CreateFolder(std::string_view PhysicalDirectory) -> void
 	{
 		const std::string Directory(PhysicalDirectory);
-		const FContentBrowserOperationResult Result =
-			Operations.CreateFolder(Directory);
-		if (!Result.Warning.empty()) SetWarning(Result.Warning);
-		if (!Result)
-		{
-			SetError(Result.Status.Message);
-			return;
-		}
-		const std::string PreviousDirectory = Model.GetCurrentPhysicalPath();
-		const std::string FocusPhysicalPath =
-			Model.RevealPhysicalItem(Result.FocusPhysicalPath);
-		SearchBuffer.fill('\0');
-		if (FocusPhysicalPath.empty())
-		{
-			SetError("The folder was created, but it could not be shown in the content browser.");
-			return;
-		}
-		if (Model.GetCurrentPhysicalPath() != PreviousDirectory)
-		{
-			ThumbnailReferences->CancelPendingRequests();
-			bResetContentScroll = true;
-		}
-
-		PendingItemAction = FPendingItemAction{FocusPhysicalPath, Model.GetNavigationRevision(), false};
-		CompletePendingItemAction();
+		FContentBrowserItem Item;
+		if (!Operations.PrepareFolder(Directory, Item)) return;
+		if (!NavigateToPhysical(Directory)) return;
+		CancelRename();
+		PendingItemAction.reset();
+		SelectionState.Selected.clear();
+		PendingFolder = FPendingFolder{Item, Directory, Model.GetNavigationRevision()};
+		RenameTarget = "##CreateFolder";
+		RenameBuffer.fill(0);
+		std::memcpy(RenameBuffer.data(), Item.Name.data(), std::min(Item.Name.size(), RenameBuffer.size() - 1));
+		bFocusRename = true;
+		bResetContentScroll = true;
 	}
 
 	auto FContentBrowserPanel::FixUpRedirector(
@@ -506,38 +521,18 @@ namespace Durin::Editor::ContentBrowser::Private
 			}
 			Redirectors.push_back(Item.PackagePath);
 		}
-		const auto Result =
-			Operations.FixUpRedirectors(Redirectors);
-		if (!Result.Warning.empty()) SetWarning(Result.Warning);
-		if (!Result)
-		{
-			SetError(Result.Status.Message);
-			return;
-		}
+		Operations.FixUpRedirectors(Redirectors);
 	}
 
 	auto FContentBrowserPanel::FixUpFolder(
 		std::string_view VirtualDirectory) -> void
 	{
-		const auto Result =
-			Operations.FixUpRedirectorsInFolder(VirtualDirectory);
-		if (!Result.Warning.empty()) SetWarning(Result.Warning);
-		if (!Result)
-		{
-			SetError(Result.Status.Message);
-			return;
-		}
+		Operations.FixUpRedirectorsInFolder(VirtualDirectory);
 	}
 
 	auto FContentBrowserPanel::FixUpProject() -> void
 	{
-		const auto Result = Operations.FixUpAllRedirectors();
-		if (!Result.Warning.empty()) SetWarning(Result.Warning);
-		if (!Result)
-		{
-			SetError(Result.Status.Message);
-			return;
-		}
+		Operations.FixUpAllRedirectors();
 	}
 
 	auto FContentBrowserPanel::FocusFolderInParent(
@@ -558,6 +553,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::CompletePendingItemAction() -> void
 	{
+		if (PendingFolder && PendingFolder->NavigationRevision != Model.GetNavigationRevision()) CancelRename();
 		if (!PendingItemAction) return;
 		if (PendingItemAction->NavigationRevision != Model.GetNavigationRevision())
 		{
@@ -598,26 +594,18 @@ namespace Durin::Editor::ContentBrowser::Private
 			SetError("Content deletion is unavailable.");
 			return;
 		}
-		const auto Result = Operations.ExecuteDeletion(PendingDeletionPlan);
-		if (Result.ReplacementConfirmation)
+		const auto PreviousPlan = PendingDeletionPlan;
+		const bool bDeleted = Operations.DeleteItems(PendingDeletionPlan);
+		if (PendingDeletionPlan && PendingDeletionPlan != PreviousPlan)
 		{
-			PendingDeletionPlan = Result.ReplacementConfirmation;
 			bDeletionPlanRefreshed = true;
 			return;
 		}
-		if (!Result && Result.Status.Effect != EAssetWriteEffect::ContentCommittedProjectionPending)
+		if (bDeleted)
 		{
-			SetError(Result.Status.Message);
-			Operations.DismissDeletion(PendingDeletionPlan);
-			PendingDeletionPlan.reset();
-			bDeletionPlanRefreshed = false;
-			SynchronizeMountedContentMutation();
-			return;
+			SelectionState.Selected.clear();
+			SelectionState.Anchor.clear();
 		}
-		if (!Result.Status.Message.empty()) SetWarning(Result.Status.Message);
-		SelectionState.Selected.clear();
-		SelectionState.Anchor.clear();
-		PendingDeletionPlan.reset();
 		bDeletionPlanRefreshed = false;
 		SynchronizeMountedContentMutation();
 	}
@@ -644,6 +632,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			return false;
 		const std::string PreviousDirectory = Model.GetCurrentPhysicalPath();
 		PendingItemAction.reset();
+		CancelRename();
 		const std::string PhysicalPath = Model.RevealAsset(AssetPath);
 		if (PhysicalPath.empty()) return false;
 		SearchBuffer.fill('\0');
@@ -677,6 +666,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		Operations.StopRequestAdmission();
 		Model.CancelPendingSnapshots();
 		PendingItemAction.reset();
+		CancelRename();
 		if (ThumbnailReferences) ThumbnailReferences->CancelPendingRequests();
 		AdmissionState = EAdmissionState::Stopped;
 	}
