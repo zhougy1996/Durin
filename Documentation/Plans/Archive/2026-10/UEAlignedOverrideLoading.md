@@ -4,7 +4,7 @@ Summary: Align property traversal and override-state interfaces with UE responsi
 
 Last reviewed: 2026-10-31
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-31
 
 ## Current Status
@@ -156,8 +156,8 @@ metadata is a follow-up only if final measurements justify a separate plan.
 ### Semantic compatibility before interface migration
 
 The authoritative current behavior is documented in
-[Serialization: authored override intent](../Runtime/ObjectSystem/Serialization.md#authored-override-intent)
-and [property compatibility routing](../Runtime/ObjectSystem/PropertyReflection.md#serialized-property-aliases).
+[Serialization: authored override intent](../../../Runtime/ObjectSystem/Serialization.md#authored-override-intent)
+and [property compatibility routing](../../../Runtime/ObjectSystem/PropertyReflection.md#serialized-property-aliases).
 The first release retains those semantics and the current package format.
 
 | Situation | Required behavior in this iteration |
@@ -264,7 +264,7 @@ contexts. Load evidence cannot escape as a reusable validation capability.
 ### Instrumentation and attribution
 
 Preserve the existing
-[object-load timing contract](../Runtime/Assets/Packages/AssetDataLifecycle.md#object-load-timing).
+[object-load timing contract](../../../Runtime/Assets/Packages/AssetDataLifecycle.md#object-load-timing).
 Add bounded counters for binding builds/reuse, restoration path visits,
 fast-path/fallback objects, fallback reasons, and full captures attributable to
 restoration. Separate observation, validation/normalization, and publication
@@ -471,8 +471,8 @@ Tracy enabled. Validation artifacts remain under ignored
   The original diagnostic binary's freshness was not verified and no three-sample
   before/after qualification was performed: these numbers do not establish a speedup.
 - Changed-document and all-plan validation passed. Lasting contracts are
-  [Property Overrides](../Runtime/ObjectSystem/PropertyOverrides.md) and
-  [Object Loading](../Runtime/Assets/Packages/ObjectLoading.md), linked by the
+  [Property Overrides](../../../Runtime/ObjectSystem/PropertyOverrides.md) and
+  [Object Loading](../../../Runtime/Assets/Packages/ObjectLoading.md), linked by the
   existing serialization, reflection, persistence and lifecycle authorities.
 
 Remaining limits: only Win64 Debug execution was validated; no cross-platform or
@@ -484,8 +484,8 @@ work, not an outstanding acceptance gate for this architecture-first execution.
 
 ## Validation and Performance Gates
 
-Follow [build/run selection](../Agents/BuildAndRun.md) and
-[native-test selection and result reuse](../Agents/Testing.md); do not copy stale
+Follow [build/run selection](../../../Agents/BuildAndRun.md) and
+[native-test selection and result reuse](../../../Agents/Testing.md); do not copy stale
 target commands into this plan. Read those workflows before execution.
 
 Correctness coverage must include save/load/resave and duplication intent;
@@ -528,7 +528,7 @@ There is no precommitted millisecond saving from the 68.592 ms observation.
 
 For documentation, run changed-document validation and all-plan validation when
 adding or completing this plan, as required by the
-[plan lifecycle rules](AGENTS.md). Plan authoring itself requires no native build.
+[plan lifecycle rules](../../AGENTS.md). Plan authoring itself requires no native build.
 Each implementation commit updates stage evidence and uses exact `Plan` and
 `Stage` trailers per the repository handoff rules; creating this unexecuted plan
 does not establish completion of Stage 0.
@@ -572,7 +572,7 @@ overridable serialization APIs as evolving/experimental where documented.
 - [FLinkerLoad::Preload](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/CoreUObject/FLinkerLoad/Preload): object serialization responsibility within loading.
 
 Owning Durin contracts to update after implementation:
-[serialization](../Runtime/ObjectSystem/Serialization.md),
-[property reflection](../Runtime/ObjectSystem/PropertyReflection.md),
-[package persistence](../Runtime/ObjectSystem/PackagePersistence.md), and
-[asset data lifecycle](../Runtime/Assets/Packages/AssetDataLifecycle.md).
+[serialization](../../../Runtime/ObjectSystem/Serialization.md),
+[property reflection](../../../Runtime/ObjectSystem/PropertyReflection.md),
+[package persistence](../../../Runtime/ObjectSystem/PackagePersistence.md), and
+[asset data lifecycle](../../../Runtime/Assets/Packages/AssetDataLifecycle.md).

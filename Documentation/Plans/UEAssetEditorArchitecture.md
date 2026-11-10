@@ -561,7 +561,7 @@ level must not remove it at the definition level.
   owns the authoritative project/Level load and readiness state machine. Stage 5
   integrates with its current contract; do not introduce another readiness owner
   or claim its outstanding gates as passed here.
-- [UE-Aligned Override Loading](UEAlignedOverrideLoading.md) owns loading
+- [UE-Aligned Override Loading](Archive/2026-10/UEAlignedOverrideLoading.md) owns loading
   semantics; editor opening consumes those services without changing package
   serialization or class override policy.
 - [DurinEditor SDK Packaging](DurinEditorSdkPackaging.md) owns external SDK
