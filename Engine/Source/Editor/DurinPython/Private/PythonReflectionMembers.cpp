@@ -165,7 +165,7 @@ namespace Durin::PythonReflection::Private
         RefreshRoots(Draft);
         // Publish the fully validated detached value by swapping owned storage, including roots.
         std::swap(S.Data, Draft.Data); std::swap(S.Roots, Draft.Roots);
-        S.Host = FObjectKey(C->Host); S.Gate = C->Gate; return 0;
+        S.Host = FObjectKey(C->Host); S.EndpointId = C->EndpointId; return 0;
     }
     static auto SetMember(FMember* Self, PyObject* Owner, PyObject* Value) -> int
     {

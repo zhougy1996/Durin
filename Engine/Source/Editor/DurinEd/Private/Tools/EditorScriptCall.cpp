@@ -32,10 +32,12 @@ namespace Durin
     auto FScopedEditorScriptCall::IsAdmitted() const -> bool
     {
         if (!IsInGameThread() || !IsValid(Context.Host) || Context.Host->AreEditorSubsystemsUpdating()
-            || Context.Host->GetEditorSubsystemState() != ESubsystemState::Ready || !Context.Gate || !Context.Gate->IsOpen()
+            || Context.Host->GetEditorSubsystemState() != ESubsystemState::Ready || Context.Host->IsShutdownRequested()
             || Context.Cancellation.IsCancellationRequested() || Context.Client.Cancellation.IsCancellationRequested()) return false;
         auto* Tools = Context.Host->GetEditorSubsystem<DEditorToolSubsystem>();
-        return Tools && Tools->GetService()->GetWorkGate() == Context.Gate;
+        const auto Endpoint = Tools ? Tools->GetService() : nullptr;
+        return Endpoint && !Endpoint->GetCancellationToken().IsCancellationRequested()
+            && Endpoint->GetSessionId() == Context.EndpointId;
     }
     auto FScopedEditorScriptCall::ResolveEditAccess(DObject& Target) -> EEditorScriptTargetAccess
     {

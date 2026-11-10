@@ -72,7 +72,7 @@ namespace Durin::PythonReflection::Private
     {
         if (State.Purged) { Error(PyExc_ReferenceError, "Reflected value has been purged."); return false; }
         if (State.Type && !ModuleAvailable(State.Type)) { Error(Registry->AccessError, "Value type module is unavailable."); return false; }
-        if (!State.Roots.empty() && (State.Host != FObjectKey(C.Host) || State.Gate != C.Gate))
+        if (!State.Roots.empty() && (State.Host != FObjectKey(C.Host) || State.EndpointId != C.EndpointId))
         { Error(Registry->AccessError, "Value references belong to another editor Host."); return false; }
         for (const auto& Root : State.Roots) if (!Root.IsValid())
         { State.Purge(); Error(PyExc_ReferenceError, "Value contains a destroyed object."); return false; }
@@ -105,7 +105,7 @@ namespace Durin::PythonReflection::Private
         try { if (Source) Struct->GetOps().CopyConstruct(Data, Source); else Struct->GetOps().DefaultConstruct(Data); }
         catch (...) { ::operator delete(Data, std::align_val_t(Struct->GetMinAlignment())); throw; }
         S.Data = Data;
-        S.Host = FObjectKey(C.Host); S.Gate = C.Gate; RefreshRoots(S);
+        S.Host = FObjectKey(C.Host); S.EndpointId = C.EndpointId; RefreshRoots(S);
         return Owner.Release();
     }
     auto ScalarValue(PyObject* Python, DType* Type, uint64 Enum, std::string Text) -> PyObject*

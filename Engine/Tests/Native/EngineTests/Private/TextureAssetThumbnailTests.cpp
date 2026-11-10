@@ -65,7 +65,7 @@ protected:
 		Harness = std::make_unique<Durin::FModuleTestHarness>("TextureEditor");
 		Harness->Start(Module);
 		Host = Durin::NewObject<Durin::DEditorEngine>(nullptr, {});
-		ASSERT_TRUE(Durin::FEditorEngineTestAccess::StartEditor(*Host));
+		ASSERT_NO_THROW(Durin::FEditorEngineTestAccess::StartEditor(*Host));
 		Service = Host->GetEditorSubsystem<Durin::DAssetEditorSubsystem>();
 		Durin::FPackagePath Path;
 		ASSERT_TRUE(Durin::FPackagePath::TryCreate(Durin::Tests::FAssetThumbnailFixtureSet::ParentTexturePath, Path));

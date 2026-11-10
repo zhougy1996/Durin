@@ -136,7 +136,7 @@ namespace Durin
 
 	LEVELEDITOR_API auto FLevelEditorModule::CanShutdownModule() const -> bool
 	{
-		return FEditorSubsystemCollection::CanSynchronizeActiveEditor(Integration->Provider);
+		return FEditorSubsystemCollection::CanUpdateActiveEditor();
 	}
 
 	LEVELEDITOR_API auto FLevelEditorModule::ShutdownModule() -> void
@@ -145,8 +145,8 @@ namespace Durin
 		Integration->ContentBrowserExtensions.clear();
 		Integration->PIERegistration.Reset();
 		Integration->PIE.reset();
+		FEditorSubsystemCollection::RemoveAllInstances(Integration->Provider);
 		Integration->Levels.reset();
-		FEditorSubsystemCollection::SynchronizeActiveEditor();
 		for (auto* Object : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly))
 			if (auto* Session = Cast<DLevelAssetEditor>(Object); Session && !Session->IsClosed())
 				if (auto* Service = Session->GetAssetEditorSubsystem()) Service->RetireAssetEditor(*Session);

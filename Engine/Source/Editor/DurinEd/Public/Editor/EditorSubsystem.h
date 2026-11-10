@@ -20,7 +20,7 @@ namespace Durin
 		DURINED_API auto GetEditor() const -> DEditorEngine*;
 	};
 
-	// Explicit provider token; the active editor reconciles publication changes at safe points.
+	// Explicit provider token; the active editor applies explicit additions and removals at safe points.
 	class FEditorSubsystemRegistration : public FSubsystemRegistration
 	{
 	public:
@@ -28,16 +28,17 @@ namespace Durin
 			: FSubsystemRegistration(DEditorSubsystem::StaticClass(), std::move(Descriptor)) {}
 	};
 
-	// Dynamic scope adapter selects registrations and reconciles them at editor safe points.
+	// Dynamic scope adapter selects registrations and adds them at editor safe points.
 	class FEditorSubsystemCollection : public FDynamicSubsystemCollection
 	{
 	public:
 		DURINED_API explicit FEditorSubsystemCollection(DEditorEngine& Host);
 		DURINED_API ~FEditorSubsystemCollection() override;
-		DURINED_API auto Initialize() -> FSubsystemResult;
-		DURINED_API auto Synchronize() -> FSubsystemResult;
-		// Provider removal preflights the remaining descriptor graph without user callbacks.
-		DURINED_API static auto CanSynchronizeActiveEditor(FName RemovingProvider = {}) -> bool;
-		DURINED_API static auto SynchronizeActiveEditor() -> void;
+		DURINED_API auto Initialize() -> void;
+		DURINED_API auto AddRegisteredSubsystems() -> void;
+		DURINED_API auto AddSubsystem(DClass* Type) -> DEditorSubsystem*;
+		DURINED_API auto RemoveSubsystem(DClass* Type) -> void;
+		DURINED_API static auto CanUpdateActiveEditor() -> bool;
+		DURINED_API static auto RemoveAllInstances(FName Provider) -> void;
 	};
 }

@@ -15,7 +15,7 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		DURINPYTHON_API explicit DPythonEditorSubsystem(const FObjectInitializer& Initializer);
-		DURINPYTHON_API auto Initialize() -> FSubsystemResult override;
+		DURINPYTHON_API auto Initialize(FSubsystemCollection& Collection) -> void override;
 		DURINPYTHON_API auto Deinitialize() noexcept -> void override;
 	private:
 		FDurinPythonModule* Module = nullptr;

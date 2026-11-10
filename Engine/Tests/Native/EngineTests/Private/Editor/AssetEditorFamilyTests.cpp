@@ -33,7 +33,7 @@ namespace
 			MaterialHarness = std::make_unique<FModuleTestHarness>("MaterialEditor"); MaterialHarness->Start(MaterialModule);
 			MeshHarness = std::make_unique<FModuleTestHarness>("StaticMeshEditor"); MeshHarness->Start(MeshModule);
 			Host = NewObject<DEditorEngine>(nullptr, {});
-			ASSERT_TRUE(FEditorEngineTestAccess::StartEditor(*Host));
+			ASSERT_NO_THROW(FEditorEngineTestAccess::StartEditor(*Host));
 			Service = Host->GetEditorSubsystem<DAssetEditorSubsystem>();
 		}
 		auto TearDown() -> void override
@@ -171,7 +171,7 @@ namespace
 		ASSERT_TRUE(SavePackage(Collection->GetPackage()));
 		CollectionSubsystemRegistration = std::make_unique<FWorldSubsystemRegistration>(FWorldSubsystemDescriptor{.Type = DMaterialParameterCollectionSubsystem::StaticClass()});
 		CollectionWorld = NewObject<DWorld>(nullptr, "CollectionReloadWorld");
-		ASSERT_TRUE(CollectionWorld->InitializeSubsystems());
+		ASSERT_NO_THROW(CollectionWorld->InitializeSubsystems());
 		auto* WorldState = CollectionWorld->GetSubsystem<DMaterialParameterCollectionSubsystem>();
 		ASSERT_NE(nullptr, WorldState);
 		ASSERT_TRUE(WorldState->SetValue(*Collection, Declaration.Id, FVector4(7)));

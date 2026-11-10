@@ -311,12 +311,12 @@ namespace Durin::PythonReflection
         if (!Service) return Error(Registry->AccessError, "Editor subsystem is unavailable or retiring.");
         return Wrap(Service, *Value);
     }
-    auto PurgeGate(const FSubsystemWorkGate* Gate) -> void
+    auto PurgeEndpoint(uint64 EndpointId) -> void
     {
         if (Registry)
         {
-            for (auto* Proxy : Registry->Objects) if (Proxy->State->Gate.get() == Gate) Proxy->State->Purge();
-            for (auto* Value : Registry->Values) if (Value->State->Gate.get() == Gate) Value->State->Purge();
+            for (auto* Proxy : Registry->Objects) if (Proxy->State->EndpointId == EndpointId) Proxy->State->Purge();
+            for (auto* Value : Registry->Values) if (Value->State->EndpointId == EndpointId) Value->State->Purge();
         }
     }
 }

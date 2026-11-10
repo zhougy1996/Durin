@@ -4,7 +4,7 @@ Summary: Define native per-World service registration, ownership, lifecycle, Tic
 
 Modules: Engine, Core, DurinEd
 
-Last reviewed: 2026-11-09
+Last reviewed: 2026-11-10
 
 ## Registration And Ownership
 
@@ -12,8 +12,9 @@ A `DWorldSubsystem` is a transient native service owned by one `DWorld`.
 Implement a concrete reflected subclass and hold an `FWorldSubsystemRegistration`
 in the providing module. Register during module startup, before affected Worlds
 initialize, and release the registration during module shutdown. The descriptor
-names the concrete `DClass`, providing module, required concrete dependencies,
-and optional Tick policy. An empty provider is reserved for statically linked native fixtures;
+names the concrete `DClass`, providing module and optional Tick policy.
+Dependencies are requested inside `Initialize(Collection)` using
+`InitializeDependency<T>()`. An empty provider is reserved for statically linked native fixtures;
 production providers name their actual module using `FModuleStartup::GetModuleName()`.
 
 World types are `Game`, `Editor`, `PIE` and `EditorPreview`; the last two replace
@@ -30,7 +31,7 @@ World eligibility check. Registration has no WorldTypes list or opaque policy.
 Collision debug and material parameter collection services explicitly support
 EditorPreview to retain their tool behavior. Tick opt-in remains independent
 of creation eligibility. World Tick configuration is validated only for eligible
-services, before any service instance is constructed.
+services, before that service instance is constructed.
 
 `FWorldSubsystemRegistration` owns a strongly typed registration catalog, and
 `FWorldSubsystemCollection` snapshots descriptors once. Registration removal or
@@ -46,10 +47,10 @@ services. `GetSubsystem<T>()` performs exact concrete lookup, returns null for
 absent or incompletely initialized types, and never constructs an object.
 Registration, lookup, mutation, and lifecycle callbacks are game-thread-only.
 
-Shared descriptor ordering, rollback, GC and work cancellation are owned by
+Shared dependency initialization, failure cleanup and GC retention are owned by
 [the common subsystem contract](../Engine/Subsystems.md). `DWorldSubsystem` derives
-from `DSubsystem`; World result/state/error/work-gate names remain compatibility
-aliases. World eligibility, play, Level and Tick policy stay in this adapter.
+from `DSubsystem`; the World state name remains a compatibility alias.
+World eligibility, play, Level and Tick policy stay in this adapter.
 Typed World lookup rejects Engine and Editor subsystem classes.
 
 ## Initialization And Shutdown
@@ -66,19 +67,20 @@ Engine-owned Worlds infer the host from Outer; preview Worlds can remain hostles
 An initialized host association cannot be replaced by another Engine.
 
 The one-shot state progression is `Uninitialized -> Initializing -> Ready`.
-Initialization returns `FWorldSubsystemResult` with a categorized error and
-message. It filters by World type before checking duplicate types, required
-dependencies, and cycles. Topological selection chooses the first available
-qualified class name in lexical order; dependencies initialize before users.
+Initialization returns void; invalid configuration and lifecycle entry assert.
+It checks creation eligibility per class before constructing it.
+Dependencies initialize recursively when requested by Initialize; recursive
+cycles assert, while unavailable dependencies return null for the consumer to check. Repeated
+registration of an existing class reuses its instance.
 Initialization dependencies do not create arbitrary Actor Tick prerequisites.
 
 Only completed initialization becomes lookup-visible. Initialization exceptions
-become failures. On failure, the failed object receives `Deinitialize` too,
-then predecessors unwind in reverse order. All gates close, collection references
-are released for ordinary GC, and the collection enters terminal `Failed`. A host must
+propagate after cleanup. On failure, the failed object receives `Deinitialize` too,
+then predecessors unwind in reverse order. External references are invalidated, collection references
+are released for ordinary GC, and the collection enters terminal `Shutdown`. A host must
 not publish it. Cleanup and other lifecycle callbacks are `noexcept`.
 
-`Shutdown()` immediately closes work gates and records retirement. It ends play,
+`Shutdown()` immediately records retirement and rejects further forward dispatch. It ends play,
 unregisters Level components, detaches the Level, deinitializes services in
 reverse order, and clears the render endpoint. Services remain lookup-visible
 for Actor EndPlay and component unregistration. Completed shutdown is idempotent,
@@ -140,21 +142,16 @@ is created. Each callback boundary rechecks pending transitions, retirement,
 and the admitted play lifetime. Actor/Component scheduling remains governed by
 [Tick Scheduling](TickScheduling.md).
 
-`GetWorkGate()` returns a shared, one-shot lifetime identity and cancellation
-token. Capture detached CPU inputs and the gate for asynchronous work; never
-capture a subsystem, World, Level, or host endpoint for Worker access. The
-GameThread publication boundary must check `IsOpen()` before resolving or
-mutating World state. Each World receives fresh gates, so a completion from a
-retired World cannot publish into a later one. Shutdown closes gates without
-waiting; retained gates continue to reject publication after physical GC.
-
-A service unregisters external callbacks and releases owned resources in
-`Deinitialize`. Module-provided task callables additionally use the existing
+Each service owns cancellation for its asynchronous work, using the existing task
+or tool cancellation APIs. Capture detached CPU inputs and consumer-owned tokens;
+never capture a subsystem, World, Level, or host endpoint for Worker access.
+Game-thread completion checks cancellation and the original World's shutdown state
+before publishing. `Deinitialize` cancels work, unregisters external callbacks and
+releases owned resources. Module-provided task callables additionally use the
 module-owned async operation scope so code and retained results remain audited.
-Cancellation is cooperative: closing a gate does not stop a running Worker or
-release its captured data. Detached captures remain alive until work retires.
-Do not synchronously wait on a task graph that requires GameThread completion.
-This framework uses the current task API and owns no scheduler or worker threads.
+See [work and code lifetime](../Engine/Subsystems.md#work-and-code-lifetime) for
+shared cancellation and draining requirements. This framework owns no scheduler
+or worker threads.
 
 ## Collision Debug Service
 

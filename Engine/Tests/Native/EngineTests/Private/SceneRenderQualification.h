@@ -285,7 +285,7 @@ namespace Durin
 		FScene* Scene = Engine.InstallScene(Renderer.CreateScene());
 		GEngine = &Engine;
 		auto* World = NewObject<DWorld>(&Engine, "VolumetricCloudSceneWorld");
-		EXPECT_TRUE(World->InitializeSubsystems());
+		EXPECT_NO_THROW(World->InitializeSubsystems());
 		ASSERT_TRUE(World->SetCurrentLevel(
 			NewObject<DLevel>(World, "VolumetricCloudSceneLevel")
 		));

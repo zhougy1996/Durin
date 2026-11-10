@@ -155,10 +155,10 @@ namespace Durin
 		if (GetStartupState() == EHostStartupState::Ready) Super::Tick(DeltaSeconds, bIdleMode);
 	}
 
-	auto DGameEngine::CloseSubsystemWork() -> void
+	auto DGameEngine::RequestSubsystemDeinitialization() -> void
 	{
 		ReleaseGameMouseCapture();
-		Super::CloseSubsystemWork();
+		Super::RequestSubsystemDeinitialization();
 	}
 
 	auto DGameEngine::BeginDestroy() -> void

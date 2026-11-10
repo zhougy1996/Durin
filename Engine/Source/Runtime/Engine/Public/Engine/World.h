@@ -122,7 +122,7 @@ namespace Durin
 		~DWorld() override = default;
 		// Call after host context/type selection and before attaching a Level. Never creates on lookup.
 		// Explicit host supports package-owned PIE worlds; ordinary worlds infer it from Outer.
-		ENGINE_API auto InitializeSubsystems(DEngine* Host = nullptr) -> FWorldSubsystemResult;
+		ENGINE_API auto InitializeSubsystems(DEngine* Host = nullptr) -> void;
 		// During an operation, closes work admission immediately and defers teardown until it exits.
 		// Closes admission without cleaning consumers until a World or host operation boundary.
 		ENGINE_API auto RequestShutdown() -> void;
@@ -130,6 +130,7 @@ namespace Durin
 		auto GetSubsystemState() const -> EWorldSubsystemState { return Subsystems.GetState(); }
 		template<typename T> requires std::is_base_of_v<DWorldSubsystem, T>
 		auto GetSubsystem() const -> T* { return static_cast<T*>(Subsystems.Find(T::StaticClass())); }
+		auto GetSubsystem(DClass* Type) const -> DWorldSubsystem* { return static_cast<DWorldSubsystem*>(Subsystems.Find(Type)); }
 		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
 		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto IsReadyForFinishDestroy() -> bool override;

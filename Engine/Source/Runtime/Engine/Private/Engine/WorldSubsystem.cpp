@@ -52,7 +52,7 @@ namespace Durin
 		require(!GIsGameThreadIdInitialized || IsInGameThread());
 		std::erase_if(WorldRegistry(), [this](const auto& Entry) { return Entry.Identity == Identity; });
 	}
-	auto FWorldSubsystemRegistration::Snapshot() -> std::vector<FWorldSubsystemDescriptor>
+	auto FWorldSubsystemRegistration::GetRegistrations() -> std::vector<FWorldSubsystemDescriptor>
 	{
 		require(!GIsGameThreadIdInitialized || IsInGameThread());
 		std::vector<FWorldSubsystemDescriptor> Result;
@@ -68,24 +68,21 @@ namespace Durin
 		return static_cast<DWorldSubsystem*>(FSubsystemCollection::Find(Type));
 	}
 
-	auto FWorldSubsystemCollection::Initialize() -> FWorldSubsystemResult
+	auto FWorldSubsystemCollection::Initialize() -> void
 	{
-		if (State != EWorldSubsystemState::Uninitialized)
-			return {EWorldSubsystemError::InvalidState, "World subsystem initialization is one-shot."};
+		requiref(State == EWorldSubsystemState::Uninitialized, "World subsystem initialization is one-shot.");
 		std::vector<FSubsystemDescriptor> Selected;
-		for (const auto& Descriptor : FWorldSubsystemRegistration::Snapshot())
+		for (const auto& Descriptor : FWorldSubsystemRegistration::GetRegistrations())
 		{
-			Selected.push_back({Descriptor.Type, Descriptor.Provider, Descriptor.Dependencies});
+			Selected.push_back({Descriptor.Type, Descriptor.Provider});
 			WorldEntries[Descriptor.Type] = {Descriptor.bTick, Descriptor.bTickInEditorAndPreview, Descriptor.TickGroup};
 		}
-		return FSubsystemCollection::Initialize(std::move(Selected));
+		FSubsystemCollection::Initialize(std::move(Selected));
 	}
 
-	auto FWorldSubsystemCollection::ValidateSelectedDescriptor(const FSubsystemDescriptor& Descriptor) const -> FSubsystemResult
+	auto FWorldSubsystemCollection::ValidateSelectedDescriptor(const FSubsystemDescriptor& Descriptor) const -> void
 	{
-		if (WorldEntries.at(Descriptor.Type).TickGroup >= ETickingGroup::Count)
-			return {EWorldSubsystemError::InvalidDescriptor, "Invalid World Tick group."};
-		return {};
+		requiref(WorldEntries.at(Descriptor.Type).TickGroup < ETickingGroup::Count, "Invalid World Tick group.");
 	}
 
 	auto FWorldSubsystemCollection::BeginPlay() -> void

@@ -45,7 +45,7 @@ namespace
             ASSERT_TRUE(FModuleManager::Get().LoadModule("DurinEd"));
             Python = &FModuleManager::LoadModuleChecked<FDurinPythonModule>("DurinPython");
             Host = NewObject<DEditorEngine>(nullptr, {});
-            ASSERT_TRUE(FEditorEngineTestAccess::StartEditor(*Host));
+            ASSERT_NO_THROW(FEditorEngineTestAccess::StartEditor(*Host));
             Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>(); ASSERT_NE(Tools, nullptr);
             Panel = std::make_unique<FPythonScriptPanel>(*Host);
         }
@@ -60,7 +60,7 @@ namespace
         {
             Panel.reset(); Host->PrepareForShutdown(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); CollectGarbage();
             Host = NewObject<DEditorEngine>(nullptr, {});
-            ASSERT_TRUE(FEditorEngineTestAccess::StartEditor(*Host));
+            ASSERT_NO_THROW(FEditorEngineTestAccess::StartEditor(*Host));
             Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
             ASSERT_NE(Tools, nullptr);
         }
@@ -154,7 +154,7 @@ namespace
     TEST_F(PythonScriptPanelTests, ExampleBuildsAnEmptySceneAndSupportsUndoRedo)
     {
         auto* World = NewObject<DWorld>(Host.Get(), "ScriptWorld"); World->SetWorldType(EWorldType::Editor);
-        ASSERT_TRUE(World->InitializeSubsystems());
+        ASSERT_NO_THROW(World->InitializeSubsystems());
         auto* Level = NewObject<DLevel>(World, "ScriptLevel"); ASSERT_TRUE(World->SetCurrentLevel(Level));
         FEditorEngineTestAccess::SetEditorWorld(*Host, World);
         FEditorScriptTargetPolicyRegistration Policy(*Host, *Level, [] { return EEditorScriptTargetAccess::Writable; });
@@ -217,7 +217,7 @@ TEST_F(PythonScriptPanelTests, StartupScriptRunsOnceWithoutMainFrameAndPanelsObs
     ASSERT_TRUE(Result);
     EXPECT_EQ(Result->State, EPythonJobState::Succeeded);
     EXPECT_EQ(Result->Output, "startup once\n");
-    ASSERT_TRUE(Host->SynchronizeEditorSubsystems());
+    ASSERT_NO_THROW(Host->AddRegisteredEditorSubsystems());
     EXPECT_EQ(Job, Python->GetStartupJob());
     for (int Reopen = 0; Reopen < 2; ++Reopen)
     {

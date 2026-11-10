@@ -27,9 +27,9 @@ namespace
         {
             Testing::InitializeDObjectSystemForTests();
             Host = TStrongObjectPtr<DEditorEngine>(NewObject<DEditorEngine>(nullptr, {}));
-            ASSERT_TRUE(FEditorEngineTestAccess::StartEditor(*Host));
+            ASSERT_NO_THROW(FEditorEngineTestAccess::StartEditor(*Host));
             ASSERT_TRUE(FModuleManager::Get().LoadModule("LevelEditor"));
-            ASSERT_TRUE(Host->SynchronizeEditorSubsystems()); Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
+            ASSERT_NO_THROW(Host->AddRegisteredEditorSubsystems()); Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
             auto Started = Runtime.Start(); ASSERT_TRUE(Started) << Started.error();
             auto Created = Runtime.CreateSession(Tools->GetService()); ASSERT_TRUE(Created); Session = *Created;
         }
@@ -235,7 +235,7 @@ print(' imported')
     TEST_F(FPythonToolIntegrationTests, DiscoversAndCallsRealPIEThroughGameThread)
     {
         auto* World = NewObject<DWorld>(Host.Get(), "PythonEditorWorld"); World->SetWorldType(EWorldType::Editor);
-        ASSERT_TRUE(World->InitializeSubsystems());
+        ASSERT_NO_THROW(World->InitializeSubsystems());
         auto* Level = NewObject<DLevel>(World, "PythonEditorLevel"); ASSERT_TRUE(World->SetCurrentLevel(Level));
         FEditorEngineTestAccess::SetEditorWorld(*Host, World);
         auto Result = Wait(Submit(R"PY(

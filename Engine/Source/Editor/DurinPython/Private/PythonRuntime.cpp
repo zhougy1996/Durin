@@ -55,7 +55,7 @@ namespace Durin
             FPythonSessionOptions Options;
             std::string Code, Filename;
             FToolCancellationSource Cancellation;
-            std::shared_ptr<const FSubsystemWorkGate> Gate;
+            FToolCancellationToken EndpointCancellation;
             std::mutex Mutex;
             FPythonJobResult Result;
             bool OutputOverflow = false;
@@ -92,7 +92,7 @@ namespace Durin
         auto CheckCancelled() -> bool
         {
             if (!CurrentJob) { PyErr_SetString(PyExc_RuntimeError, "No active Durin script job."); return true; }
-            if (CurrentJob->Cancellation.GetToken().IsCancellationRequested() || CurrentJob->Client.Cancellation.IsCancellationRequested() || !CurrentJob->Gate->IsOpen() || (CurrentJob->Deadline && std::chrono::steady_clock::now() >= *CurrentJob->Deadline))
+            if (CurrentJob->Cancellation.GetToken().IsCancellationRequested() || CurrentJob->Client.Cancellation.IsCancellationRequested() || CurrentJob->EndpointCancellation.IsCancellationRequested() || (CurrentJob->Deadline && std::chrono::steady_clock::now() >= *CurrentJob->Deadline))
             {
                 CurrentJob->Cancellation.Cancel();
                 PyErr_SetString(CancelledError, "Script cancelled, session closed, or deadline exceeded; effects are not rolled back.");
@@ -478,7 +478,7 @@ namespace Durin
         // Caller holds Mutex. Client lifetimes are detached cancellation identities, not callbacks.
         auto PruneClients() -> void
         {
-            std::erase_if(Sessions, [](const auto& Entry) { return Entry.second.Client.Cancellation.IsCancellationRequested() || !Entry.second.Endpoint->GetWorkGate()->IsOpen(); });
+            std::erase_if(Sessions, [](const auto& Entry) { return Entry.second.Client.Cancellation.IsCancellationRequested() || Entry.second.Endpoint->GetCancellationToken().IsCancellationRequested(); });
             for (const auto& [Id, Job] : Jobs)
             {
                 (void)Id;
@@ -486,7 +486,7 @@ namespace Durin
                 { std::lock_guard Lock(Job->Mutex); Active = !Terminal(Job->Result.State); }
                 if (!Active) continue;
                 const bool Expired = Job->Deadline && std::chrono::steady_clock::now() >= *Job->Deadline;
-                if (!Expired && !Job->Client.Cancellation.IsCancellationRequested() && Job->Gate->IsOpen()) continue;
+                if (!Expired && !Job->Client.Cancellation.IsCancellationRequested() && !Job->EndpointCancellation.IsCancellationRequested()) continue;
                 if (Expired) { std::lock_guard JobLock(Job->Mutex); if (Job->Result.Error.empty()) Job->Result.Error = "Script deadline exceeded; effects are not rolled back."; }
                 Cancel(Job);
             }
@@ -602,7 +602,7 @@ namespace Durin
             if (!Enter(Job, true) && Outcome == EPythonJobState::Succeeded) Outcome = EPythonJobState::Failed;
             Job.Endpoint.reset();
             std::lock_guard Lock(Job.Mutex);
-            Job.Result.State = Job.Cancellation.GetToken().IsCancellationRequested() || Job.Client.Cancellation.IsCancellationRequested() || !Job.Gate->IsOpen()
+            Job.Result.State = Job.Cancellation.GetToken().IsCancellationRequested() || Job.Client.Cancellation.IsCancellationRequested() || Job.EndpointCancellation.IsCancellationRequested()
                 ? EPythonJobState::Cancelled : Outcome;
         }
         auto Initialize() -> std::string
@@ -629,9 +629,9 @@ namespace Durin
             if (Durin && !PythonReflection::Start(Durin.get(), ScriptAccessError, []() -> std::optional<FEditorScriptCallContext> {
                 if (!CurrentJob || CurrentJob->Cleaning || !IsValid(CurrentEditor)) return {};
                 if (CheckCancelled()) return {};
-                return FEditorScriptCallContext{CurrentEditor, CurrentJob->Gate,
+                return FEditorScriptCallContext{CurrentEditor, CurrentJob->Endpoint->GetSessionId(),
                     static_cast<EEditorScriptEditPolicy>(CurrentJob->Options.EditPolicy),
-                    CurrentJob->Cancellation.GetToken(), CurrentJob->Client, CurrentJob->Source};
+                    CurrentJob->Cancellation.GetToken().WithParent(CurrentJob->EndpointCancellation), CurrentJob->Client, CurrentJob->Source};
             })) Durin.reset();
             if (!Durin)
             {
@@ -658,7 +658,7 @@ namespace Durin
         auto CloseEndpoint(const std::shared_ptr<FEditorToolService>& Endpoint) -> void override
         {
 #if DURIN_WITH_PYTHON
-            PythonReflection::PurgeGate(Endpoint->GetWorkGate().get());
+            PythonReflection::PurgeEndpoint(Endpoint->GetSessionId());
             std::vector<std::shared_ptr<FJob>> Closing;
             {
                 std::lock_guard Lock(Mutex);
@@ -777,7 +777,7 @@ namespace Durin
     auto FPythonRuntime::CreateSession(std::shared_ptr<FEditorToolService> Endpoint, EToolSource Source, const FToolClientContext& Client, const FPythonSessionOptions& Options) -> std::expected<uint64, std::string>
     {
         std::shared_lock LifecycleLock(LifecycleMutex);
-        if (!Impl || Impl->Stopping || !Endpoint || !Endpoint->GetWorkGate()->IsOpen()) return std::unexpected("Python runtime or editor endpoint is unavailable.");
+        if (!Impl || Impl->Stopping || !Endpoint || Endpoint->GetCancellationToken().IsCancellationRequested()) return std::unexpected("Python runtime or editor endpoint is unavailable.");
         std::lock_guard Lock(Impl->Mutex);
         Impl->PruneClients();
         if (Client.Cancellation.IsCancellationRequested()) return std::unexpected("Python client session is closed.");
@@ -811,7 +811,7 @@ namespace Durin
             Impl->Jobs.erase(Victim);
         }
         auto Job = std::make_shared<FJob>(); Job->Id = NextIdentity++; Job->Session = Session;
-        Job->Endpoint = It->second.Endpoint; Job->Gate = Job->Endpoint->GetWorkGate(); Job->Source = It->second.Source;
+        Job->Endpoint = It->second.Endpoint; Job->EndpointCancellation = Job->Endpoint->GetCancellationToken(); Job->Source = It->second.Source;
         Job->Client = It->second.Client; Job->Options = It->second.Options;
         if (Impl->JobDeadline)
         {

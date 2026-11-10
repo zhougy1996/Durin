@@ -3,6 +3,7 @@
 #include "AssetDefinition/AssetDefinitionRegistry.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Subsystems/AssetEditorSubsystem.h"
+#include "Editor/EditorEngine.h"
 
 namespace Durin::Editor::ContentBrowser
 {
@@ -12,7 +13,8 @@ namespace Durin::Editor::ContentBrowser
 		{
 			if (Owner.GetKey() == FObjectKey{}) { Callback(); return true; }
 			auto* Service = Owner.Get();
-			if (!Service || !Service->GetWorkGate() || !Service->GetWorkGate()->IsOpen()) return false;
+			if (!Service || !IsValid(Service->GetEditor()) || Service->GetEditor()->IsShutdownRequested()
+				|| Service->GetEditor()->GetEditorSubsystem<DAssetEditorSubsystem>() != Service) return false;
 			bool Invoked = false;
 			Service->DispatchEditorCallback([&] { Invoked = true; Callback(); });
 			return Invoked;

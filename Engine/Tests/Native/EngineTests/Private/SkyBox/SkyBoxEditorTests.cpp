@@ -126,7 +126,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 	EXPECT_EQ(LoadedComponent->GetWorldRotation(), Transform.Rotation);
 
 	auto* World = Durin::NewObject<Durin::DWorld>(nullptr, "SkyBoxEditorWorkflowWorld");
-	EXPECT_TRUE(World->InitializeSubsystems());
+	EXPECT_NO_THROW(World->InitializeSubsystems());
 	World->SetRenderScene(Scene);
 	ASSERT_TRUE(World->SetCurrentLevel(LoadedLevel));
 	FSkyBoxObservation Observation = ObserveSkyBoxes(*Scene);
@@ -230,7 +230,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 	EXPECT_EQ(LoadedCube->GetPixelFormat(), Durin::EPixelFormat::BC1_UNORM_SRGB);
 
 	auto* World = Durin::NewObject<Durin::DWorld>(nullptr, "PanoramaWorkflowWorld");
-	EXPECT_TRUE(World->InitializeSubsystems());
+	EXPECT_NO_THROW(World->InitializeSubsystems());
 	World->SetRenderScene(Scene);
 	ASSERT_TRUE(World->SetCurrentLevel(LoadedLevel));
 	const FSkyBoxObservation Observation = ObserveSkyBoxes(*Scene);

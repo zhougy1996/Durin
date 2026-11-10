@@ -2399,7 +2399,7 @@ TEST_F(FContentBrowserModelTests, DeletionRejectsOpenLevelAndAllowsDeletionAfter
 	ASSERT_TRUE(SavePackage(Level->GetPackage()));
 	const std::filesystem::path File = FindPackageExact(Path)->PhysicalPath;
 	TStrongObjectPtr<DWorld> World(NewObject<DWorld>(nullptr, "DeletionWorld"));
-	ASSERT_TRUE(World->InitializeSubsystems());
+	ASSERT_NO_THROW(World->InitializeSubsystems());
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	FAssetDeletionOperation Operation;
 	EXPECT_FALSE(IAssetTools::Get().PrepareDeletion({.AssetPaths = {Path}}, Operation));
@@ -2434,7 +2434,7 @@ TEST_F(FContentBrowserModelTests, DeletionRechecksLevelOpenedAfterConfirmationAn
 	DPackage* Package = Level->GetPackage();
 	const std::filesystem::path File = FindPackageExact(Path)->PhysicalPath;
 	TStrongObjectPtr<DWorld> World(NewObject<DWorld>(nullptr, "LateDeletionWorld"));
-	ASSERT_TRUE(World->InitializeSubsystems());
+	ASSERT_NO_THROW(World->InitializeSubsystems());
 	FAssetDeletionOperation Operation;
 	ASSERT_TRUE(IAssetTools::Get().PrepareDeletion({.AssetPaths = {Path}}, Operation));
 	ASSERT_TRUE(World->SetCurrentLevel(Level));

@@ -1,36 +1,18 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Threading/Task.h"
 
 #include "EngineAPI.h"
 #include "DObject/Object.h"
 #include "DObject/ObjectPtr.h"
-#include "Threading/TaskRuntime.h"
 #include "Subsystem.gen.h"
 
 namespace Durin
 {
 	// Separates one-shot host service lifetime from repeatable play lifetimes.
-	enum class ESubsystemState : uint8 { Uninitialized, Initializing, Ready, ShuttingDown, Shutdown, Failed };
-	enum class ESubsystemError : uint8 { None, InvalidState, InvalidDescriptor, DuplicateType, MissingDependency, DependencyCycle, ProviderUnavailable, InitializationFailed, Aborted };
-	struct FSubsystemResult
-	{
-		ESubsystemError Error = ESubsystemError::None;
-		std::string Message;
-		explicit operator bool() const { return Error == ESubsystemError::None; }
-	};
+	enum class ESubsystemState : uint8 { Uninitialized, Initializing, Ready, ShuttingDown, Shutdown };
 
-	// A closed gate survives the service; detached completions must test it on the game thread.
-	class FSubsystemWorkGate
-	{
-	public:
-		auto IsOpen() const -> bool { return !Cancellation.IsCanceled(); }
-		auto GetCancellationToken() const -> const Tasks::FCancellationToken& { return Cancellation; }
-	private:
-		Tasks::FCancellationToken Cancellation;
-		friend class FSubsystemCollection;
-	};
+	class FSubsystemCollection;
 
 	// Shared transient service contract; hosts own initialization and cleanup.
 	DCLASS(Abstract)
@@ -42,25 +24,18 @@ namespace Durin
 		// Creation-only CDO query; existing instances are not reevaluated during refresh.
 		virtual auto ShouldCreateSubsystem(DObject* Outer) const -> bool { return true; }
 		// Cleanup is paired even with failed Initialize and must not throw.
-		virtual auto Initialize() -> FSubsystemResult { return {}; }
+		virtual auto Initialize(FSubsystemCollection& Collection) -> void {}
 		virtual auto Deinitialize() noexcept -> void {}
-		auto GetWorkGate() const -> std::shared_ptr<const FSubsystemWorkGate> { return WorkGate; }
-	private:
-		std::shared_ptr<FSubsystemWorkGate> WorkGate;
-		friend class FSubsystemCollection;
 	};
 
-	// Native identity and same-scope dependencies; callback policy belongs to adapters.
+	// Native identity and owning module; callback policy belongs to adapters.
 	struct FSubsystemDescriptor
 	{
 		DClass* Type = nullptr;
 		FName Provider;
-		std::vector<DClass*> Dependencies;
-		// Assigned by a publication token; rebinding a live type requires a completed removal first.
-		uint64 RegistrationIdentity = 0;
 	};
 
-	// Provider-owned publication token; dynamic scope adapters reconcile changes at safe points.
+	// Provider-owned catalog publication; instance additions and removals are explicit.
 	class FSubsystemRegistration
 	{
 	public:
@@ -68,7 +43,7 @@ namespace Durin
 		ENGINE_API ~FSubsystemRegistration();
 		FSubsystemRegistration(const FSubsystemRegistration&) = delete;
 		auto operator=(const FSubsystemRegistration&) -> FSubsystemRegistration& = delete;
-		ENGINE_API static auto Snapshot(DClass* Scope) -> std::vector<FSubsystemDescriptor>;
+		ENGINE_API static auto GetRegistrations(DClass* Scope) -> std::vector<FSubsystemDescriptor>;
 	private:
 		uint64 Identity;
 	};
@@ -83,39 +58,45 @@ namespace Durin
 		auto operator=(const FSubsystemCollection&) -> FSubsystemCollection& = delete;
 		ENGINE_API auto Find(DClass* Type) const -> DSubsystem*;
 		auto GetState() const -> ESubsystemState { return State; }
-		// Membership is frozen before any user factory or Initialize callback runs.
-		ENGINE_API auto Initialize(std::vector<FSubsystemDescriptor> Descriptors) -> FSubsystemResult;
-		ENGINE_API auto CloseWork() -> void;
+		// Initial population is one-shot; instances initialize their own dependencies.
+		ENGINE_API auto Initialize(std::vector<FSubsystemDescriptor> Descriptors) -> void;
+		ENGINE_API auto InitializeDependency(DClass* Type) -> DSubsystem*;
+		template<typename T> requires std::is_base_of_v<DSubsystem, T>
+		auto InitializeDependency() -> T* { return static_cast<T*>(InitializeDependency(T::StaticClass())); }
+		ENGINE_API auto RequestDeinitialize() -> void;
 		// Deinitializes and removes every subsystem; host shutdown remains the host's responsibility.
 		ENGINE_API auto Deinitialize() -> void;
 		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void;
 		auto IsPopulating() const -> bool { return bPopulating; }
 	protected:
+		ENGINE_API auto AddAndInitializeSubsystems(std::vector<FSubsystemDescriptor> Descriptors) -> void;
+		ENGINE_API auto AddAndInitializeSubsystem(const FSubsystemDescriptor& Descriptor) -> DSubsystem*;
 		// Scope-specific configuration for one-shot initialization, after CDO selection.
-		virtual auto ValidateSelectedDescriptor(const FSubsystemDescriptor&) const -> FSubsystemResult { return {}; }
+		virtual auto ValidateSelectedDescriptor(const FSubsystemDescriptor&) const -> void {}
 		struct FEntry
 		{
 			FSubsystemDescriptor Descriptor;
 			TObjectPtr<DSubsystem> Object;
 			bool bInitialized = false;
+			bool bReferencesInvalidated = false;
 		};
 		DObject& Host;
 		DClass* Scope;
 		ESubsystemState State = ESubsystemState::Uninitialized;
 		std::vector<FEntry> Entries;
 	private:
-		auto ValidateType(const FSubsystemDescriptor& Descriptor) const -> FSubsystemResult;
-		// Input types have passed scope/concreteness and CDO eligibility selection.
-		// Validates the complete set, returning construction order only on success.
-		auto OrderSelectedDescriptors(std::vector<FSubsystemDescriptor> Descriptors,
-			std::vector<FSubsystemDescriptor>& Ordered) const -> FSubsystemResult;
-		// Ordered descriptors are already selected and validated; failed objects remain owned for rollback.
-		auto AddAndInitializeSubsystem(const FSubsystemDescriptor& Descriptor) -> FSubsystemResult;
-		auto CloseEntryWork(FEntry& Entry) -> void;
-		// Callers close all selected entries first, then remove them in reverse dependency order.
+		auto ValidateType(const FSubsystemDescriptor& Descriptor) const -> void;
+		auto InvalidateEntryReferences(FEntry& Entry) -> void;
+		// Callers invalidate references first, then remove entries in reverse dependency order.
 		auto RemoveAndDeinitializeSubsystem(size_t Index) -> void;
+		struct FInitialization
+		{
+			std::vector<FSubsystemDescriptor> Descriptors;
+			std::vector<DClass*> Stack;
+		};
+		FInitialization* Initialization = nullptr;
 		bool bClosed = false;
-		bool bClosingWork = false;
+		bool bInvalidatingReferences = false;
 		bool bDeinitializeRequested = false;
 		bool bPopulating = false;
 		// Dynamic membership reuses lifecycle primitives without exposing them to fixed scopes.

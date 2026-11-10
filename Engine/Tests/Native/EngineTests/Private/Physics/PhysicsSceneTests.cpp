@@ -63,7 +63,7 @@ namespace
 		Durin::Testing::InitializeAssetSystemForTests();
 		RegisterWorldServicesForTests();
 		auto* World = Durin::NewObject<Durin::DWorld>(nullptr, "PhysicsWorld");
-		EXPECT_TRUE(World->InitializeSubsystems());
+		EXPECT_NO_THROW(World->InitializeSubsystems());
 		EXPECT_TRUE(World->SetCurrentLevel(Durin::NewObject<Durin::DLevel>(World, "PhysicsLevel")));
 		return World;
 	}

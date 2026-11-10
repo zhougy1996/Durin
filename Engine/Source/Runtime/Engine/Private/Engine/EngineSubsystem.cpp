@@ -7,8 +7,8 @@ namespace Durin
 	DEngineSubsystem::DEngineSubsystem(const FObjectInitializer& Initializer) : Super(Initializer) {}
 	auto DEngineSubsystem::GetEngine() const -> DEngine* { return Cast<DEngine>(GetOuter()); }
 	FEngineSubsystemCollection::FEngineSubsystemCollection(DEngine& Host) : FSubsystemCollection(Host, DEngineSubsystem::StaticClass()) {}
-	auto FEngineSubsystemCollection::Initialize() -> FSubsystemResult
+	auto FEngineSubsystemCollection::Initialize() -> void
 	{
-		return FSubsystemCollection::Initialize(FSubsystemRegistration::Snapshot(DEngineSubsystem::StaticClass()));
+		FSubsystemCollection::Initialize(FSubsystemRegistration::GetRegistrations(DEngineSubsystem::StaticClass()));
 	}
 }

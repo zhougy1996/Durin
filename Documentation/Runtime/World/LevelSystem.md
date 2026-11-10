@@ -4,7 +4,7 @@ Summary: Define levels, actors, world ownership, lifecycle mutation, and iterati
 
 Modules: Engine
 
-Last reviewed: 2026-10-21
+Last reviewed: 2026-11-10
 
 `DLevel` is the persistent scene asset. A packaged level is a top-level asset
 in a `.dasset` package. Levels retain actors through reflected `TObjectPtr` arrays.
@@ -172,7 +172,7 @@ intent before deferred teardown. Editor structural commands and history replay
 use both queries to reject work throughout those lifecycle boundaries.
 
 EndPlay and shutdown called during an operation record intent. Shutdown also
-closes subsystem work gates immediately. Forward dispatch stops at the next
+rejects further forward dispatch immediately. Forward dispatch stops at the next
 callback boundary, while reverse cleanup remains paired. The operation exits
 before applying shutdown (highest priority) or EndPlay. In Tick, input callbacks
 are followed by admission checks before StartFrame; every started registry frame

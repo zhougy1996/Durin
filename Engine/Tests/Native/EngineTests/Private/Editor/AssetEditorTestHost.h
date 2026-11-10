@@ -18,7 +18,7 @@ namespace Durin::Testing
 			{
 				Editor = NewObject<DEditorEngine>(nullptr, {});
 				bOwnEditor = true;
-				if (!FEditorEngineTestAccess::StartEditor(*Editor)) return;
+				FEditorEngineTestAccess::StartEditor(*Editor);
 			}
 			Service = Editor->GetEditorSubsystem<DAssetEditorSubsystem>();
 			if (auto* Owner = Service.Get())

@@ -10,7 +10,7 @@ namespace Durin
 {
 	namespace
 	{
-		struct FRegistrationEntry { DClass* Scope; FSubsystemDescriptor Descriptor; };
+		struct FRegistrationEntry { uint64 Identity; DClass* Scope; FSubsystemDescriptor Descriptor; };
 		auto Registry() -> std::vector<FRegistrationEntry>&
 		{
 			// Tokens can unregister during static teardown, after ordinary static objects.
@@ -24,15 +24,14 @@ namespace Durin
 	{
 		require(!GIsGameThreadIdInitialized || IsInGameThread());
 		Identity = ++NextRegistration;
-		Descriptor.RegistrationIdentity = Identity;
-		Registry().push_back({Scope, std::move(Descriptor)});
+		Registry().push_back({Identity, Scope, std::move(Descriptor)});
 	}
 	FSubsystemRegistration::~FSubsystemRegistration()
 	{
 		require(!GIsGameThreadIdInitialized || IsInGameThread());
-		std::erase_if(Registry(), [this](const auto& Entry) { return Entry.Descriptor.RegistrationIdentity == Identity; });
+		std::erase_if(Registry(), [this](const auto& Entry) { return Entry.Identity == Identity; });
 	}
-	auto FSubsystemRegistration::Snapshot(DClass* Scope) -> std::vector<FSubsystemDescriptor>
+	auto FSubsystemRegistration::GetRegistrations(DClass* Scope) -> std::vector<FSubsystemDescriptor>
 	{
 		require(!GIsGameThreadIdInitialized || IsInGameThread());
 		std::vector<FSubsystemDescriptor> Result;
@@ -51,76 +50,88 @@ namespace Durin
 		return nullptr;
 	}
 
-	auto FSubsystemCollection::ValidateType(const FSubsystemDescriptor& Descriptor) const -> FSubsystemResult
+	auto FSubsystemCollection::ValidateType(const FSubsystemDescriptor& Descriptor) const -> void
 	{
-		if (!CanConstructObjectOfClass(Descriptor.Type, Scope))
-			return {ESubsystemError::InvalidDescriptor, (Descriptor.Type ? Descriptor.Type->GetQualifiedName().ToString() : "<null>") + " is not a concrete service in scope " + Scope->GetQualifiedName().ToString()};
-		return {};
+		requiref(CanConstructObjectOfClass(Descriptor.Type, Scope), "Subsystem must be a concrete service in scope {}.", Scope->GetQualifiedName().ToString());
 	}
 
-	auto FSubsystemCollection::OrderSelectedDescriptors(std::vector<FSubsystemDescriptor> Descriptors,
-		std::vector<FSubsystemDescriptor>& Ordered) const -> FSubsystemResult
+	auto FSubsystemCollection::InitializeDependency(DClass* Type) -> DSubsystem*
 	{
-		Ordered.clear();
-		std::set<DClass*> Types;
-		for (const auto& Descriptor : Descriptors)
-			if (!Types.insert(Descriptor.Type).second)
-				return {ESubsystemError::DuplicateType, Descriptor.Type->GetQualifiedName().ToString()};
-		for (const auto& Descriptor : Descriptors)
-		{
-			for (auto* Dependency : Descriptor.Dependencies)
-			{
-				if (Dependency && !Dependency->IsChildOf(Scope))
-					return {ESubsystemError::InvalidDescriptor, Descriptor.Type->GetQualifiedName().ToString() + " has wrong-scope dependency " + Dependency->GetQualifiedName().ToString()};
-				if (!Types.contains(Dependency))
-					return {ESubsystemError::MissingDependency, Descriptor.Type->GetQualifiedName().ToString() + " requires " + (Dependency ? Dependency->GetQualifiedName().ToString() : "<null>")};
-			}
-		}
-		std::ranges::sort(Descriptors, [](const auto& A, const auto& B) {
-			return A.Type->GetQualifiedName().ToString() < B.Type->GetQualifiedName().ToString();
-		});
-		while (!Descriptors.empty())
-		{
-			auto Next = std::ranges::find_if(Descriptors, [&](const auto& Descriptor) {
-				return std::ranges::all_of(Descriptor.Dependencies, [&](auto* Dependency) {
-					return std::ranges::any_of(Ordered, [&](const auto& Done) { return Done.Type == Dependency; });
-				});
-			});
-			if (Next == Descriptors.end())
-			{
-				std::string Message = "Subsystem dependency cycle blocks:";
-				for (const auto& Descriptor : Descriptors) Message += " " + Descriptor.Type->GetQualifiedName().ToString();
-				Ordered.clear();
-				return {ESubsystemError::DependencyCycle, std::move(Message)};
-			}
-			Ordered.push_back(std::move(*Next)); Descriptors.erase(Next);
-		}
-		return {};
+		requiref(Initialization && !Initialization->Stack.empty(), "InitializeDependency is only valid inside subsystem Initialize.");
+		ValidateType({Type});
+		if (auto* Existing = Find(Type)) return Existing;
+		auto Candidates = Initialization->Descriptors;
+		auto Registered = FSubsystemRegistration::GetRegistrations(Scope);
+		Candidates.insert(Candidates.end(), Registered.begin(), Registered.end());
+		const auto Found = std::ranges::find(Candidates, Type, &FSubsystemDescriptor::Type);
+		return Found == Candidates.end() ? nullptr : AddAndInitializeSubsystem(*Found);
 	}
 
-	auto FSubsystemCollection::AddAndInitializeSubsystem(const FSubsystemDescriptor& Descriptor) -> FSubsystemResult
+	auto FSubsystemCollection::AddAndInitializeSubsystem(const FSubsystemDescriptor& Descriptor) -> DSubsystem*
 	{
-		if (bClosed) return {ESubsystemError::Aborted, "Host shut down before subsystem construction."};
+		if (auto* Existing = Find(Descriptor.Type)) return Existing;
+		if (!Initialization)
+		{
+			AddAndInitializeSubsystems({Descriptor});
+			return Find(Descriptor.Type);
+		}
+		if (bClosed) return nullptr;
+		requiref(std::ranges::find(Initialization->Stack, Descriptor.Type) == Initialization->Stack.end(), "Recursive subsystem dependency initialization.");
+		ValidateType(Descriptor);
+		requiref(Descriptor.Provider.IsNone() || FModuleManager::Get().IsModuleLoaded(Descriptor.Provider), "Subsystem provider must be active.");
+		const auto* Default = static_cast<const DSubsystem*>(Descriptor.Type->GetDefaultObject());
+		requiref(Default, "Subsystem requires a class default object.");
+		if (!Default->ShouldCreateSubsystem(&Host) || bClosed) return nullptr;
+		ValidateSelectedDescriptor(Descriptor);
 		Entries.push_back({Descriptor});
-		auto& Entry = Entries.back();
-		// Allocate cleanup state first so a constructed service cannot lose it to allocation failure.
-		auto WorkGate = std::make_shared<FSubsystemWorkGate>();
-		auto* Object = static_cast<DSubsystem*>(NewObject(Entry.Descriptor.Type, &Host, {}, EObjectFlags::Transient));
-		Entry.Object = Object;
-		Object->WorkGate = std::move(WorkGate);
-		if (bClosed) return {ESubsystemError::Aborted, "Host shut down during subsystem construction."};
-		auto Result = Object->Initialize();
-		if (!Result) return Result;
-		Entry.bInitialized = true;
-		if (bClosed) return {ESubsystemError::Aborted, "Host shut down during subsystem initialization."};
-		return {};
+		auto Entry = [&] { return std::ranges::find(Entries, Descriptor.Type, [](const auto& Value) { return Value.Descriptor.Type; }); };
+		auto Cleanup = [&] {
+			const auto It = Entry();
+			InvalidateEntryReferences(*It);
+			RemoveAndDeinitializeSubsystem(static_cast<size_t>(It - Entries.begin()));
+		};
+		DSubsystem* Object = nullptr;
+		try
+		{
+			Object = static_cast<DSubsystem*>(NewObject(Descriptor.Type, &Host, {}, EObjectFlags::Transient));
+			// Dependencies can grow Entries; reacquire the entry after user callbacks.
+			Entry()->Object = Object;
+			if (!bClosed)
+			{
+				Initialization->Stack.push_back(Descriptor.Type);
+				struct FPop { std::vector<DClass*>& Stack; ~FPop() { Stack.pop_back(); } } Pop{Initialization->Stack};
+				Object->Initialize(*this);
+			}
+		}
+		catch (...) { Cleanup(); throw; }
+		if (bClosed) { Cleanup(); return nullptr; }
+		// Completion order places dependencies before consumers for reverse cleanup.
+		const auto It = Entry();
+		auto Completed = std::move(*It);
+		Entries.erase(It); Completed.bInitialized = true; Entries.push_back(std::move(Completed));
+		return Object;
 	}
 
-	auto FSubsystemCollection::CloseEntryWork(FEntry& Entry) -> void
+	auto FSubsystemCollection::AddAndInitializeSubsystems(std::vector<FSubsystemDescriptor> Descriptors) -> void
 	{
-		if (auto* Object = Entry.Object.Get(); Object && Object->WorkGate && Object->WorkGate->IsOpen())
+		require(!GIsGameThreadIdInitialized || IsInGameThread());
+		requiref(!bPopulating && (State == ESubsystemState::Ready || State == ESubsystemState::Initializing), "Subsystem additions require an idle, live collection.");
+		if (bClosed) return;
+		FGarbageCollectionDeferralScope Deferral;
+		FInitialization Context{std::move(Descriptors)};
+		Initialization = &Context; bPopulating = true;
+		struct FReset { FSubsystemCollection& Self; ~FReset() { Self.Initialization = nullptr; Self.bPopulating = false; } } Reset{*this};
+		for (const auto& Descriptor : Context.Descriptors)
 		{
-			Object->WorkGate->Cancellation.Cancel();
+			if (bClosed) break;
+			AddAndInitializeSubsystem(Descriptor);
+		}
+	}
+
+	auto FSubsystemCollection::InvalidateEntryReferences(FEntry& Entry) -> void
+	{
+		if (auto* Object = Entry.Object.Get(); Object && !std::exchange(Entry.bReferencesInvalidated, true))
+		{
 			NotifyObjectReferencesInvalidated(*Object);
 		}
 	}
@@ -136,61 +147,27 @@ namespace Durin
 		Entries.erase(Entries.begin() + Index);
 	}
 
-	auto FSubsystemCollection::Initialize(std::vector<FSubsystemDescriptor> Descriptors) -> FSubsystemResult
+	auto FSubsystemCollection::Initialize(std::vector<FSubsystemDescriptor> Descriptors) -> void
 	{
 		require(!GIsGameThreadIdInitialized || IsInGameThread());
-		if (State != ESubsystemState::Uninitialized)
-			return {ESubsystemError::InvalidState, "Subsystem initialization is one-shot."};
+		requiref(State == ESubsystemState::Uninitialized, "Subsystem initialization is one-shot.");
 		State = ESubsystemState::Initializing;
-		bPopulating = true;
-		FGarbageCollectionDeferralScope Deferral;
-		auto Fail = [&](ESubsystemError Error, std::string Message) {
-			bPopulating = false;
-			Deinitialize();
-			State = ESubsystemState::Failed;
-			return FSubsystemResult{Error, std::move(Message)};
-		};
-		try
-		{
-			std::vector<FSubsystemDescriptor> Selected;
-			for (const auto& Descriptor : Descriptors)
-			{
-				if (auto Result = ValidateType(Descriptor); !Result)
-					return Fail(Result.Error, std::move(Result.Message));
-				if (!Descriptor.Provider.IsNone() && !FModuleManager::Get().IsModuleLoaded(Descriptor.Provider))
-					return Fail(ESubsystemError::ProviderUnavailable, Descriptor.Provider.ToString());
-				const auto* Default = static_cast<const DSubsystem*>(Descriptor.Type->GetDefaultObject());
-				if (!Default) return Fail(ESubsystemError::InvalidDescriptor, Descriptor.Type->GetQualifiedName().ToString() + " requires a class default object.");
-				const bool bCreate = Default->ShouldCreateSubsystem(&Host);
-				if (bClosed) return Fail(ESubsystemError::Aborted, "Host shut down during subsystem eligibility selection.");
-				if (!bCreate) continue;
-				if (auto Result = ValidateSelectedDescriptor(Descriptor); !Result)
-					return Fail(Result.Error, std::move(Result.Message));
-				Selected.push_back(Descriptor);
-			}
-			std::vector<FSubsystemDescriptor> Ordered;
-			if (auto Result = OrderSelectedDescriptors(std::move(Selected), Ordered); !Result)
-				return Fail(Result.Error, std::move(Result.Message));
-			for (const auto& Descriptor : Ordered)
-				if (auto Result = AddAndInitializeSubsystem(Descriptor); !Result)
-					return Fail(Result.Error, std::move(Result.Message));
-			bPopulating = false;
-			State = ESubsystemState::Ready;
-			return {};
-		}
-		catch (...) { return Fail(ESubsystemError::InitializationFailed, "Subsystem construction or initialization threw an exception."); }
+		try { AddAndInitializeSubsystems(std::move(Descriptors)); }
+		catch (...) { Deinitialize(); throw; }
+		if (bClosed) Deinitialize();
+		else State = ESubsystemState::Ready;
 	}
 
-	auto FSubsystemCollection::CloseWork() -> void
+	auto FSubsystemCollection::RequestDeinitialize() -> void
 	{
 		require(!GIsGameThreadIdInitialized || IsInGameThread());
 		bClosed = true;
-		if (bClosingWork) return;
+		if (bInvalidatingReferences) return;
 		FGarbageCollectionDeferralScope Deferral;
 		{
-			bClosingWork = true;
-			struct FReset { bool& Flag; ~FReset() { Flag = false; } } Reset{bClosingWork};
-			for (auto& Entry : Entries) CloseEntryWork(Entry);
+			bInvalidatingReferences = true;
+			struct FReset { bool& Flag; ~FReset() { Flag = false; } } Reset{bInvalidatingReferences};
+			for (auto& Entry : Entries) InvalidateEntryReferences(Entry);
 		}
 		// An invalidation observer may request cleanup, but cannot mutate the active traversal.
 		if (std::exchange(bDeinitializeRequested, false)) Deinitialize();
@@ -199,12 +176,12 @@ namespace Durin
 	auto FSubsystemCollection::Deinitialize() -> void
 	{
 		require(!GIsGameThreadIdInitialized || IsInGameThread());
-		if (bClosingWork) { bDeinitializeRequested = true; return; }
+		if (bInvalidatingReferences) { bDeinitializeRequested = true; return; }
 		if (State == ESubsystemState::Shutdown || State == ESubsystemState::ShuttingDown) return;
-		if (bPopulating) { CloseWork(); return; }
+		if (bPopulating) { RequestDeinitialize(); return; }
 		FGarbageCollectionDeferralScope Deferral;
 		State = ESubsystemState::ShuttingDown;
-		CloseWork();
+		RequestDeinitialize();
 		for (size_t Index = Entries.size(); Index-- > 0;) RemoveAndDeinitializeSubsystem(Index);
 		State = ESubsystemState::Shutdown;
 	}

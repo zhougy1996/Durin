@@ -119,8 +119,8 @@ namespace Durin
 			size_t Bytes = 0;
 			FClock::time_point Completed;
 		};
-		// Retaining the native endpoint also retains the subsystem's code/work gate.
-		std::shared_ptr<const FSubsystemWorkGate> Gate;
+		// The endpoint owns cancellation of its jobs; the subsystem framework owns no token.
+		FToolCancellationSource Lifetime;
 		// Resolved only on GameThread while this endpoint is open; never redirects to a replacement editor.
 		TWeakObjectPtr<DEditorEngine> Editor;
 		mutable std::mutex Mutex;
@@ -146,12 +146,12 @@ namespace Durin
 		uint64 PythonControlIdentity = 0;
 		FPythonJobControl PythonControl;
 
-		FImpl(DEditorEngine& InEditor, std::shared_ptr<const FSubsystemWorkGate> InGate) : Gate(std::move(InGate)), Editor(&InEditor)
+		FImpl(DEditorEngine& InEditor) : Editor(&InEditor)
 		{
 			static uint64 NextSession = 1; // Endpoint construction is GameThread-only.
 			Session = NextSession++;
 		}
-		auto Open() const -> bool { return !Closed && Gate && Gate->IsOpen(); }
+		auto Open() const -> bool { return !Closed; }
 		auto Prune() -> void
 		{
 			const auto Now = FClock::now();
@@ -192,6 +192,7 @@ namespace Durin
 		{
 			if (Closed) return;
 			Closed = true;
+			Lifetime.Cancel();
 			PythonControl = {}; PythonControlIdentity = 0;
 			Routes.clear(); Toolsets.clear();
 			CatalogDiagnostics.clear();
@@ -211,7 +212,7 @@ namespace Durin
 		}
 		auto SetContext(FInvocation& Entry, uint64 Id, EToolSource Source) -> void
 		{
-			Entry.Context = {std::format("{}:{}", Session, Id), std::to_string(Session), Source, Entry.Cancellation.GetToken()};
+			Entry.Context = {std::format("{}:{}", Session, Id), std::to_string(Session), Source, Entry.Cancellation.GetToken().WithParent(Lifetime.GetToken())};
 		}
 		// Caller holds Mutex; preparation calls no provider and resolves no engine objects.
 		auto Admit(const FToolRequest& Request, EToolSource Source) -> std::expected<std::unique_ptr<FInvocation>, FToolDiagnostic>
@@ -229,14 +230,14 @@ namespace Durin
 		}
 		auto Run(DEditorEngine& Host, FInvocation& Entry, bool AvailabilityOnly, FToolAvailability* Availability) -> FToolFuture
 		{
-			if (!Gate->IsOpen() || Entry.Cancellation.GetToken().IsCancellationRequested()) return ReadyToolResult(Failure(EToolError::Cancelled, "Tool admission closed."));
+			if (Entry.Context.Cancellation.IsCancellationRequested() || Entry.Context.Client.Cancellation.IsCancellationRequested()) return ReadyToolResult(Failure(EToolError::Cancelled, "Tool admission closed."));
 			auto Call = FModularFeatureRegistry::Get().InvokeRegistered<IToolset>(Entry.Route->ToolsetIdentity, [&](auto& Toolset) {
 				FInvocationBinding Binding(Entry.Context);
 				auto Available = Toolset.CheckAvailability(Entry.Request, Entry.Context);
 				if (!ValidDiagnostics(Available.Diagnostics)) return ReadyToolResult(Failure(EToolError::LimitExceeded, "Toolset availability diagnostics exceed the contract."));
 				if (!Available.bAvailable && Available.Diagnostics.empty()) Available.Diagnostics.push_back(Diagnostic(EToolError::ToolUnavailable, "Tool is unavailable in the current state."));
 				if (Availability) *Availability = Available;
-				if (!Gate->IsOpen() || Entry.Context.Cancellation.IsCancellationRequested() || Entry.Context.Client.Cancellation.IsCancellationRequested()) return ReadyToolResult(Failure(EToolError::Cancelled, "Tool cancelled before execution."));
+				if (Entry.Context.Cancellation.IsCancellationRequested() || Entry.Context.Client.Cancellation.IsCancellationRequested()) return ReadyToolResult(Failure(EToolError::Cancelled, "Tool cancelled before execution."));
 				if (!Available.bAvailable) return ReadyToolResult({EToolStatus::Failed, {}, std::move(Available.Diagnostics)});
 				if (!HostReady(Host)) return ReadyToolResult(Failure(EToolError::Busy, "Editor left the dispatch safe point during availability checking."));
 				if (AvailabilityOnly) return ReadyToolResult({EToolStatus::Succeeded});
@@ -306,8 +307,8 @@ namespace Durin
 	{
 		return IsInGameThread() && GBinding && &GBinding->Context == &Context ? GEditor : nullptr;
 	}
-	FEditorToolService::FEditorToolService(DEditorEngine& Editor, std::shared_ptr<const FSubsystemWorkGate> Gate)
-		: Impl(std::make_unique<FImpl>(Editor, std::move(Gate))) {}
+	FEditorToolService::FEditorToolService(DEditorEngine& Editor)
+		: Impl(std::make_unique<FImpl>(Editor)) {}
 	FEditorToolService::~FEditorToolService() = default;
 	auto FEditorToolService::CanDispatch() const -> bool
 	{
@@ -444,7 +445,6 @@ namespace Durin
 		if (auto Check = ValidateRequest(Request, Source); !Check) return std::unexpected(BoundedDiagnostic(Check.error()));
 		std::scoped_lock Lock(Impl->Mutex);
 		Impl->Prune();
-		if (!Impl->Open()) { Impl->CloseLocked(); return std::unexpected(Diagnostic(EToolError::ToolUnavailable, "Editor tool service is closed.")); }
 		auto Admitted = Impl->Admit(Request, Source);
 		if (!Admitted) return std::unexpected(Admitted.error());
 		auto Entry = std::move(*Admitted);
@@ -479,7 +479,6 @@ namespace Durin
 	auto FEditorToolService::GetInvocation(FEditorToolInvocationId Id) -> std::expected<FEditorToolInvocation, FToolDiagnostic>
 	{
 		std::scoped_lock Lock(Impl->Mutex);
-		if (!Impl->Open()) Impl->CloseLocked();
 		Impl->Prune();
 		if (Id.Session != Impl->Session || Id.Sequence == 0 || Id.Sequence >= Impl->NextSequence) return std::unexpected(Diagnostic(EToolError::TargetNotFound, "Unknown invocation identity."));
 		const auto Found = Impl->Invocations.find(Id.Sequence);
@@ -491,7 +490,6 @@ namespace Durin
 	auto FEditorToolService::RetainInvocation(FEditorToolInvocationId Id) -> std::expected<FToolFuture, FToolDiagnostic>
 	{
 		std::scoped_lock Lock(Impl->Mutex);
-		if (!Impl->Open()) Impl->CloseLocked();
 		Impl->Prune();
 		if (Id.Session != Impl->Session || !Id.Sequence || Id.Sequence >= Impl->NextSequence)
 			return std::unexpected(Diagnostic(EToolError::TargetNotFound, "Unknown invocation identity."));
@@ -502,7 +500,6 @@ namespace Durin
 	auto FEditorToolService::Cancel(FEditorToolInvocationId Id) -> FToolValidationResult
 	{
 		std::scoped_lock Lock(Impl->Mutex);
-		if (!Impl->Open()) Impl->CloseLocked();
 		Impl->Prune();
 		if (Id.Session != Impl->Session || Id.Sequence == 0 || Id.Sequence >= Impl->NextSequence) return std::unexpected(Diagnostic(EToolError::TargetNotFound, "Unknown invocation identity."));
 		const auto Found = Impl->Invocations.find(Id.Sequence);
@@ -538,7 +535,8 @@ namespace Durin
 	{
 		if (Client.Id.size() > 128 || Client.Id.find('\0') != std::string::npos)
 			return Failure(EToolError::InvalidArguments, "Invalid tool client identity.");
-		if (!CanDispatch()) return Failure(EToolError::Busy, "Editor tool dispatch is not at an idle safe point.");
+		// Private entry: the subsystem admitted this call before entering the host callback scope.
+		require(IsInGameThread());
 		FExecutingScope Scope(Impl->Executing);
 		RefreshCatalog();
 		if (auto Check = ValidateRequest(Request, Source); !Check) return {EToolStatus::Failed, {}, {BoundedDiagnostic(Check.error())}};
@@ -550,7 +548,7 @@ namespace Durin
 			Entry = std::move(*Admitted);
 			if (Entry->Bytes > Impl->Limits.MaxQueuedBytes) return Failure(EToolError::Busy, "Tool input exceeds the service byte budget.");
 			Impl->SetContext(*Entry, Impl->NextSequence++, Source);
-			Entry->Context.Client = Client; Entry->Context.Cancellation = Cancellation;
+			Entry->Context.Client = Client; Entry->Context.Cancellation = Impl->Lifetime.GetToken().WithParent(Cancellation);
 			Entry->State = EToolInvocationState::Running;
 		}
 		if (!AvailabilityOnly && Entry->Route->Descriptor.bMayPend) return Failure(EToolError::Busy, "CallNow rejects tools that may pend before provider dispatch.");
@@ -560,7 +558,7 @@ namespace Durin
 	auto FEditorToolService::SubmitNow(const FToolRequest& Request, EToolSource Source,
 		const FToolClientContext& Client, FToolCancellationToken Cancellation) -> std::expected<FEditorToolSubmission, FToolDiagnostic>
 	{
-		if (!CanDispatch()) return std::unexpected(Diagnostic(EToolError::Busy, "Editor is outside the tool safe point."));
+		require(IsInGameThread());
 		if (Client.Id.size() > 128 || Client.Id.find('\0') != std::string::npos)
 			return std::unexpected(Diagnostic(EToolError::InvalidArguments, "Invalid client identity."));
 		if (Client.Cancellation.IsCancellationRequested() || Cancellation.IsCancellationRequested())
@@ -578,7 +576,7 @@ namespace Durin
 				return std::unexpected(Diagnostic(EToolError::Busy, "Invocation capacity exceeded before dispatch."));
 			Submission.Id = {Impl->Session, Impl->NextSequence++};
 			Impl->SetContext(*Owned, Submission.Id.Sequence, Source); Owned->Context.Client = Client;
-			Owned->Context.Cancellation = Owned->Cancellation.GetToken().WithParent(Cancellation);
+			Owned->Context.Cancellation = Owned->Cancellation.GetToken().WithParent(Impl->Lifetime.GetToken().WithParent(Cancellation));
 			Owned->State = EToolInvocationState::Running; Owned->Dispatching = true;
 			++Impl->PendingCount; Impl->PendingBytes += Owned->Bytes;
 			Submission.Future = Owned->Future; Entry = Owned.get();
@@ -590,7 +588,7 @@ namespace Durin
 	}
 	auto FEditorToolService::Drain() -> void
 	{
-		if (!CanDispatch()) return;
+		require(IsInGameThread());
 		FExecutingScope Scope(Impl->Executing);
 		RefreshCatalog();
 		FEditorToolLimits Limits;
@@ -611,7 +609,7 @@ namespace Durin
 			uint64 Id;
 			{
 				std::scoped_lock Lock(Impl->Mutex);
-				if (!Impl->Open()) { Impl->CloseLocked(); break; }
+				if (!Impl->Open()) break;
 				if (Impl->Queue.empty()) break;
 				if (Impl->PendingCount >= Limits.MaxPending || Impl->Invocations.at(Impl->Queue.front())->Bytes > Limits.MaxPendingBytes - Impl->PendingBytes) break;
 				Id = Impl->Queue.front(); Impl->Queue.pop_front();
@@ -624,7 +622,8 @@ namespace Durin
 			Impl->FinishDispatch(Id, std::move(Raw));
 		}
 	}
-	auto FEditorToolService::GetWorkGate() const -> std::shared_ptr<const FSubsystemWorkGate> { return Impl->Gate; }
+	auto FEditorToolService::GetCancellationToken() const -> FToolCancellationToken { return Impl->Lifetime.GetToken(); }
+	auto FEditorToolService::GetSessionId() const -> uint64 { return Impl->Session; }
 	auto FEditorToolService::BindPythonJobControl(uint64 Identity, FPythonJobControl Control) -> void
 	{
 		require(IsInGameThread());
@@ -634,7 +633,7 @@ namespace Durin
 	}
 	auto FEditorToolService::PumpScripts(const std::shared_ptr<FEditorToolService>& Endpoint) -> void
 	{
-		if (!CanDispatch()) return;
+		require(IsInGameThread());
 		RefreshCatalog();
 		{
 			std::scoped_lock Lock(Impl->Mutex);

@@ -13,7 +13,7 @@ TEST(FPythonRuntimeUnavailableTests, KeepsNativeEditorHostsUsableWithoutAnInterp
     ASSERT_TRUE(Durin::FModuleManager::Get().LoadModule("DurinEd"));
     ASSERT_TRUE(Durin::FModuleManager::Get().LoadModule("DurinPython"));
     Durin::TStrongObjectPtr<Durin::DEditorEngine> Host(Durin::NewObject<Durin::DEditorEngine>(nullptr, {}));
-    ASSERT_TRUE(Durin::FEditorEngineTestAccess::StartEditor(*Host));
+    ASSERT_NO_THROW(Durin::FEditorEngineTestAccess::StartEditor(*Host));
     EXPECT_NE(Host->GetEditorSubsystem<Durin::DEditorToolSubsystem>(), nullptr);
     Durin::FPythonRuntime Runtime;
     auto Started = Runtime.Start();

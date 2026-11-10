@@ -152,15 +152,14 @@ namespace Durin
 	{
 		if (bShutdownRequested) return;
 		// External callbacks must unwind before GC can destroy their host or services.
-		FGarbageCollectionDeferralScope CollectionDeferral;
 		FHostOperationScope Operation(*this, false);
 		Callback();
 	}
 
-	auto DEngine::InitializeEngineSubsystems() -> FSubsystemResult
+	auto DEngine::InitializeEngineSubsystems() -> void
 	{
 		FHostOperationScope Operation(*this);
-		return EngineSubsystems.Initialize();
+		EngineSubsystems.Initialize();
 	}
 
 	auto DEngine::AddReferencedObjects(FReferenceCollector& Collector) -> void
@@ -238,18 +237,20 @@ namespace Durin
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultMaterialReady);
 		// Project modules may add providers after the minimal shell's services.
 		// The first World must capture the complete admitted provider set.
-		if (const auto Services = InitializeEngineSubsystems(); !Services)
-			return std::unexpected(Services.Message);
+		InitializeEngineSubsystems();
+		if (bShutdownRequested) return std::unexpected("Engine retired during service initialization.");
 		auto* World = NewObject<DWorld>(this, "MainWorld");
+		struct FUnpublishedWorld
+		{
+			DWorld* World;
+			~FUnpublishedWorld() { if (World) { World->Shutdown(); MarkObjectHierarchyAsGarbage(World); } }
+		} Unpublished{World};
 		World->SetWorldType(GetInitialWorldType());
 		World->SetRenderScene(MainScene.get());
-		if (const auto Services = World->InitializeSubsystems(); !Services)
-		{
-			World->Shutdown();
-			MarkObjectHierarchyAsGarbage(World);
-			return std::unexpected(Services.Message);
-		}
+		World->InitializeSubsystems();
+		if (bShutdownRequested || World->IsShutdownRequested()) return std::unexpected("World retired during initialization.");
 		SetWorld(World);
+		Unpublished.World = nullptr;
 		return {};
 	}
 
@@ -324,12 +325,12 @@ namespace Durin
 		return !MainWorld || MainWorld->IsReadyForFinishDestroy();
 	}
 
-	auto DEngine::CloseSubsystemWork() -> void
+	auto DEngine::RequestSubsystemDeinitialization() -> void
 	{
 		CancelPendingMapChange();
 		// Host retirement closes callback owners before another ordinary frame.
 		if (MapChange) MapChange->OnComplete = {};
-		EngineSubsystems.CloseWork();
+		EngineSubsystems.RequestDeinitialize();
 		const auto Contexts = WorldContexts;
 		for (const auto& Context : Contexts) if (auto* World = Context.World()) World->RequestShutdown();
 		for (DWorld* World : InitializingWorlds) World->RequestShutdown();
@@ -337,11 +338,13 @@ namespace Durin
 
 	auto DEngine::PrepareForShutdown() -> void
 	{
-		bShutdownRequested = true;
-		CloseSubsystemWork();
-		if (HostOperationDepth || bPreparingShutdown || bShutdownComplete || !AreHostConsumersIdle()) return;
+		if (bPreparingShutdown || bShutdownComplete) return;
 		bPreparingShutdown = true;
+		struct FReset { bool& Flag; ~FReset() { Flag = false; } } Reset{bPreparingShutdown};
 		FGarbageCollectionDeferralScope Deferral;
+		// Close external admission once; later calls only finish deferred teardown.
+		if (!std::exchange(bShutdownRequested, true)) RequestSubsystemDeinitialization();
+		if (HostOperationDepth || !AreHostConsumersIdle()) return;
 		RetireHostConsumers();
 		const auto Contexts = WorldContexts;
 		for (const auto& Context : Contexts) if (auto* World = Context.World()) World->Shutdown();
@@ -349,7 +352,6 @@ namespace Durin
 		if (MainSceneViewport) MainSceneViewport->ReleaseViewState();
 		for (const auto& Viewport : AuxiliarySceneViewports) if (Viewport) Viewport->ReleaseViewState();
 		bShutdownComplete = true;
-		bPreparingShutdown = false;
 	}
 
 	auto DEngine::RedrawViewports() -> void

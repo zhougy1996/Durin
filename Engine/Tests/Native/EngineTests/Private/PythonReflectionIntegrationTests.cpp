@@ -45,7 +45,7 @@ namespace
             ASSERT_TRUE(FModuleManager::Get().LoadModule("DurinPython"));
             First = Register(DReflectionService::StaticClass()); Second = Register(DSecondaryService::StaticClass());
             Host = TStrongObjectPtr<DEditorEngine>(NewObject<DEditorEngine>(nullptr, {}));
-            ASSERT_TRUE(FEditorEngineTestAccess::StartEditor(*Host)); Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>(); ASSERT_NE(Tools, nullptr);
+            ASSERT_NO_THROW(FEditorEngineTestAccess::StartEditor(*Host)); Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>(); ASSERT_NE(Tools, nullptr);
             const auto Started = Runtime.Start(); ASSERT_TRUE(Started) << Started.error();
             const auto Created = Runtime.CreateSession(Tools->GetService()); ASSERT_TRUE(Created); Session = *Created;
         }
@@ -91,7 +91,7 @@ namespace
             ScenePackage = NewObject<DPackage>(nullptr, Path.GetPackageName());
             ScenePackage->InitializeAssetPackage(Path);
             auto* World = NewObject<DWorld>(Host.Get(), "PropertyWorld"); World->SetWorldType(EWorldType::Editor);
-            ASSERT_TRUE(World->InitializeSubsystems());
+            ASSERT_NO_THROW(World->InitializeSubsystems());
             EditLevel = NewObject<DLevel>(ScenePackage.Get(), "PropertyLevel"); ASSERT_TRUE(World->SetCurrentLevel(EditLevel));
             FEditorEngineTestAccess::SetEditorWorld(*Host, World);
             if (WithActor) { EditActor = EditLevel->SpawnActor<AReflectionActor>("Editable"); ASSERT_NE(EditActor, nullptr); }
@@ -703,7 +703,7 @@ component.set_editor_property('relative_transform', pose)
         Pass("builtins.closed_setter = durin.get_editor_subsystem(durin.ReflectionService).get_edit_target().set_editor_property");
         Host->PrepareForShutdown();
         TStrongObjectPtr<DEditorEngine> Other(NewObject<DEditorEngine>(nullptr, {}));
-        ASSERT_TRUE(FEditorEngineTestAccess::StartEditor(*Other));
+        ASSERT_NO_THROW(FEditorEngineTestAccess::StartEditor(*Other));
         auto* OtherTools = Other->GetEditorSubsystem<DEditorToolSubsystem>(); ASSERT_NE(OtherTools, nullptr);
         const auto Created = Runtime.CreateSession(OtherTools->GetService()); ASSERT_TRUE(Created);
         const auto Result = Run(R"(
@@ -1014,7 +1014,7 @@ builtins.value = durin.ReflectionValue(target=builtins.proxy)
 )");
         CollectGarbage();
         Pass("assert builtins.reflected(1) == 6\nassert builtins.value.target is builtins.proxy");
-        First.reset(); ASSERT_TRUE(Host->SynchronizeEditorSubsystems()); CollectGarbage();
+        ASSERT_NO_THROW(Host->RemoveEditorSubsystem(DReflectionService::StaticClass())); First.reset(); CollectGarbage();
         Pass(R"(
 for operation in (lambda: builtins.reflected(1), lambda: builtins.value.target):
     try:
@@ -1038,7 +1038,7 @@ for operation in (lambda: builtins.reflected(1), lambda: builtins.value.target):
     TEST_F(PythonReflectionTests, RetiredEditorCachedMethodsRejectAfterSequentialReplacement)
     {
         Save(); Host->PrepareForShutdown();
-        TStrongObjectPtr<DEditorEngine> Other(NewObject<DEditorEngine>(nullptr, {})); ASSERT_TRUE(FEditorEngineTestAccess::StartEditor(*Other));
+        TStrongObjectPtr<DEditorEngine> Other(NewObject<DEditorEngine>(nullptr, {})); ASSERT_NO_THROW(FEditorEngineTestAccess::StartEditor(*Other));
         auto* OtherTools = Other->GetEditorSubsystem<DEditorToolSubsystem>(); ASSERT_NE(OtherTools, nullptr);
         auto Created = Runtime.CreateSession(OtherTools->GetService()); ASSERT_TRUE(Created);
         const auto Result = Run(R"(
@@ -1057,8 +1057,8 @@ else:
     TEST_F(PythonReflectionTests, RetiredServicePurgesRootsAndCannotReviveCachedBoundMethods)
     {
         Save(); TWeakObjectPtr<DReflectionService> Old(Host->GetEditorSubsystem<DReflectionService>());
-        First.reset(); ASSERT_TRUE(Host->SynchronizeEditorSubsystems()); CollectGarbage(); EXPECT_FALSE(Old.IsValid());
-        First = Register(DReflectionService::StaticClass()); ASSERT_TRUE(Host->SynchronizeEditorSubsystems());
+        ASSERT_NO_THROW(Host->RemoveEditorSubsystem(DReflectionService::StaticClass())); First.reset(); CollectGarbage(); EXPECT_FALSE(Old.IsValid());
+        First = Register(DReflectionService::StaticClass()); ASSERT_NO_THROW(Host->AddRegisteredEditorSubsystems());
         Pass(R"(
 assert hash(builtins.proxy) == builtins.identity
 assert builtins.proxy != durin.get_editor_subsystem(durin.ReflectionService)
@@ -1090,10 +1090,10 @@ else:
         FObjectReferencePurgeRegistration Observer([&](DObject& Object) {
             if (&Object != Retiring) return;
             Observed = true;
-            FScopedEditorScriptCall Call({Host.Get(), Tools->GetService()->GetWorkGate()});
+            FScopedEditorScriptCall Call({Host.Get(), Tools->GetService()->GetSessionId()});
             EXPECT_FALSE(Call.IsAdmitted());
         });
-        First.reset(); ASSERT_TRUE(Host->SynchronizeEditorSubsystems()); EXPECT_TRUE(Observed);
+        ASSERT_NO_THROW(Host->RemoveEditorSubsystem(DReflectionService::StaticClass())); First.reset(); EXPECT_TRUE(Observed);
     }
     TEST_F(PythonReflectionTests, HostCloseReleasesRetainedWrapperRoots)
     {
@@ -1135,13 +1135,13 @@ cleanup = Cleanup()
     TEST_F(PythonReflectionTests, NativeCallContextsRestoreAndDocumentPolicyWinsOverHeadlessWrites)
     {
         auto* World = NewObject<DWorld>(Host.Get(), "ScriptWorld"); World->SetWorldType(EWorldType::Editor);
-        ASSERT_TRUE(World->InitializeSubsystems());
+        ASSERT_NO_THROW(World->InitializeSubsystems());
         auto* Level = NewObject<DLevel>(World, "ScriptLevel"); ASSERT_TRUE(World->SetCurrentLevel(Level));
         FEditorEngineTestAccess::SetEditorWorld(*Host, World);
-        FScopedEditorScriptCall Outer({Host.Get(), Tools->GetService()->GetWorkGate()});
+        FScopedEditorScriptCall Outer({Host.Get(), Tools->GetService()->GetSessionId()});
         EXPECT_EQ(Outer.ResolveEditAccess(*Level), EEditorScriptTargetAccess::Unavailable);
         {
-            FScopedEditorScriptCall Inner({Host.Get(), Tools->GetService()->GetWorkGate(), EEditorScriptEditPolicy::NonDocumentReadWrite});
+            FScopedEditorScriptCall Inner({Host.Get(), Tools->GetService()->GetSessionId(), EEditorScriptEditPolicy::NonDocumentReadWrite});
             EXPECT_EQ(FScopedEditorScriptCall::Current(), &Inner);
             EXPECT_EQ(Inner.ResolveEditAccess(*Level), EEditorScriptTargetAccess::Writable);
             bool ReadOnly = true;

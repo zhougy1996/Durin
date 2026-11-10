@@ -103,7 +103,7 @@ namespace
 			Mounts = std::make_unique<Testing::FScopedMountRegistryFixture>();
 			Testing::RegisterMountPointForTests("/AssetEditorSessions/", Testing::GetTestWorkDirectory().generic_string() + "/");
 			Host = NewObject<DEditorEngine>(nullptr, {});
-			ASSERT_TRUE(FEditorEngineTestAccess::StartEditor(*Host));
+			ASSERT_NO_THROW(FEditorEngineTestAccess::StartEditor(*Host));
 			Service = Host->GetEditorSubsystem<DAssetEditorSubsystem>();
 			ServiceLifetime = Service;
 			FPackagePath Path;
@@ -885,7 +885,7 @@ namespace
 		};
 		EXPECT_EQ(nullptr, Open({Asset("Second")}));
 		EXPECT_TRUE(Requested);
-		if (auto* Remaining = ServiceLifetime.Get()) EXPECT_FALSE(Remaining->GetWorkGate()->IsOpen());
+		EXPECT_TRUE(Host->IsShutdownRequested());
 		Host->PrepareForShutdown();
 		if (auto* Remaining = ServiceLifetime.Get()) EXPECT_TRUE(Remaining->IsReadyForFinishDestroy());
 	}

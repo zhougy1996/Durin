@@ -32,7 +32,7 @@ namespace Durin
 		auto IsGameMouseCaptured() const -> bool { return !CapturedMouseWindow.expired(); }
 
 	protected:
-		ENGINE_API auto CloseSubsystemWork() -> void override;
+		ENGINE_API auto RequestSubsystemDeinitialization() -> void override;
 		auto HandleGameInputWindowFocus(const std::shared_ptr<FGenericWindow>& Window, bool bFocused) -> void override;
 		auto HandleGameInputWindowClose(const std::shared_ptr<FGenericWindow>& Window) -> void override;
 		auto HandleGameInputKeyDown(const std::shared_ptr<FGenericWindow>& Window, EKey Key, bool bRepeat) -> bool override;

@@ -79,7 +79,7 @@ namespace
 			GEngine = Engine.get();
 			World = NewObject<DWorld>(nullptr, "RoadViewportWorld");
 			AddToRoot(World);
-			ASSERT_TRUE(World->InitializeSubsystems());
+			ASSERT_NO_THROW(World->InitializeSubsystems());
 			Level = NewObject<DLevel>(World, "RoadViewportLevel");
 			ASSERT_TRUE(World->SetCurrentLevel(Level));
 			Engine->SetWorld(World);

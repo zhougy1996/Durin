@@ -3,7 +3,7 @@
 Summary: Embed trusted editor scripts with native Toolsets, reflected type/object wrappers and transaction scopes.
 Modules: DurinPython, DurinEd, MainFrame, Core
 
-Last reviewed: 2026-11-04
+Last reviewed: 2026-11-10
 
 ## Ownership and Runtime
 
@@ -126,7 +126,7 @@ native call. Native exceptions become RuntimeError after parameter cleanup;
 native script admission errors become ScriptAccessError.
 
 A live wrapper holds a collector-visible native strong reference. Host/target
-object keys and endpoint gate identity qualify factory identity. Imported state
+object keys and immutable tool endpoint session ID qualify factory identity. Imported state
 may retain a wrapper across jobs or sessions on the same live Host; each native
 access rechecks active-job admission, cancellation, module and service lifetime.
 Cross-Host access fails even through a cached bound method. Hash/equality/repr do

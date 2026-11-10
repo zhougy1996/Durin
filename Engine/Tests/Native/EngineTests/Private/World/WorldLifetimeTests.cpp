@@ -2,10 +2,12 @@
 #include "Asset/PackageUnloading.h"
 #include "ComponentPSOPrecacheTestSupport.h"
 #include "Engine/MapChange.h"
+#include "Engine/WorldSubsystem.h"
 #include "Asset/StreamableHandle.h"
 #include "Texture/Texture2D.h"
 #include "NativeDObjectTestSupport.h"
 #include "DObject/StrongObjectPtr.h"
+#include "DObject/Class.h"
 #include "Misc/MountPathTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "PropertyEditor/PropertyEditing.h"
@@ -15,6 +17,35 @@
 #include "Rendering/SplineMeshSceneProxy.h"
 #include "Rendering/SkyBoxSceneProxy.h"
 #include "Rendering/VolumetricCloudSceneProxy.h"
+
+namespace Durin
+{
+	class FThrowingWorldSubsystem : public DWorldSubsystem
+	{
+		static auto GetPrivateStaticClass() -> DClass*;
+		DECLARE_CLASS(FThrowingWorldSubsystem, DWorldSubsystem, FThrowingWorldSubsystem::GetPrivateStaticClass)
+		DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(FThrowingWorldSubsystem)
+	public:
+		explicit FThrowingWorldSubsystem(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		auto DoesSupportWorldType(EWorldType) const -> bool override { return true; }
+		auto Initialize(FSubsystemCollection&) -> void override
+		{
+			LastWorld = GetWorld();
+			throw std::runtime_error("World callback exception");
+		}
+		auto Deinitialize() noexcept -> void override { ++Cleanups; }
+		inline static TWeakObjectPtr<DWorld> LastWorld;
+		inline static int Cleanups = 0;
+	};
+	auto FThrowingWorldSubsystem::GetPrivateStaticClass() -> DClass*
+	{
+		static DClass* Class = nullptr;
+		if (!Class)
+			GetPrivateStaticClassBody("", "FThrowingWorldSubsystem", Class, nullptr, sizeof(FThrowingWorldSubsystem), alignof(FThrowingWorldSubsystem),
+				EClassFlags::None, InternalConstructor<FThrowingWorldSubsystem>, &DWorldSubsystem::StaticClass);
+		return Class;
+	}
+}
 
 namespace
 {
@@ -27,6 +58,9 @@ namespace
 	class FWorldSceneLifecycleTestScene final : public Durin::FSceneInterface
 	{
 	public:
+		explicit FWorldSceneLifecycleTestScene(int* InDestructions = nullptr) : Destructions(InDestructions) {}
+		~FWorldSceneLifecycleTestScene() override { if (Destructions) ++*Destructions; }
+		int* Destructions;
 		auto Release() -> void override {}
 		auto UpdatePrimitiveCustomData(Durin::FPrimitiveComponentId, Durin::FPrimitiveCustomData) -> void override {}
 		auto UpdateStaticMeshRenderInstances(Durin::FPrimitiveComponentId, Durin::FStaticMeshRenderInstances) -> void override {}
@@ -562,7 +596,7 @@ TEST(FEngineObjectTests, EngineAndWorldHaveReflectedOwnership)
 	InitializeDObjectSystem();
 	Durin::DEngine* Engine = Durin::NewObject<Durin::DEngine>(nullptr, "TestEngine");
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(Engine, "MainWorld");
-	EXPECT_TRUE(World->InitializeSubsystems());
+	EXPECT_NO_THROW(World->InitializeSubsystems());
 	Durin::TObjectPtr<Durin::DEngine> EnginePtr = Engine;
 	Durin::TObjectPtr<Durin::DWorld> WorldPtr = World;
 
@@ -612,9 +646,10 @@ namespace
 	{
 	public:
 		int RenderCalls = 0;
+		int DestroyedScenes = 0;
 		auto CreateScene() -> Durin::FScenePtr override
 		{
-			return {new FWorldSceneLifecycleTestScene(), Durin::FSceneDeleter([](Durin::FSceneInterface* Scene) { delete Scene; })};
+			return {new FWorldSceneLifecycleTestScene(&DestroyedScenes), Durin::FSceneDeleter([](Durin::FSceneInterface* Scene) { delete Scene; })};
 		}
 		auto CreateViewState() -> Durin::FSceneViewStateOwner override { return {}; }
 		auto InvalidateViewState(Durin::FSceneViewStateId) -> void override {}
@@ -638,7 +673,13 @@ TEST(FWorldTests, PreviewHostInitializesAndRetiresServicesWithoutAPlayLifetime)
 	FPreviewLifecycleRenderer Renderer;
 	FPreviewLifecycleEngine Engine(Renderer);
 	auto* PreviousEngine = std::exchange(Durin::GEngine, &Engine);
-	std::shared_ptr<const Durin::FWorldSubsystemWorkGate> Gate;
+	Durin::DCollisionDebugSubsystem* Service = nullptr;
+	bool bRetired = false;
+	Durin::FObjectReferencePurgeRegistration Observer([&](Durin::DObject& Object) {
+		if (&Object != Service) return;
+		bRetired = true;
+		EXPECT_TRUE(Service->GetWorld()->IsShutdownRequested());
+	});
 	{
 		Durin::Editor::FPreviewScene Preview("SubsystemPreview");
 		EXPECT_TRUE(Preview.IsAvailable()) << Preview.GetDiagnostic();
@@ -649,29 +690,30 @@ TEST(FWorldTests, PreviewHostInitializesAndRetiresServicesWithoutAPlayLifetime)
 			EXPECT_FALSE(Preview.GetWorld()->HasBegunPlay());
 			auto* Debug = Preview.GetWorld()->GetSubsystem<Durin::DCollisionDebugSubsystem>();
 			EXPECT_NE(Debug, nullptr);
-			if (Debug) Gate = Debug->GetWorkGate();
+			Service = Debug;
 		}
 	}
-	EXPECT_TRUE(Gate && !Gate->IsOpen());
+	EXPECT_TRUE(bRetired);
 	Durin::CollectGarbage();
 	Durin::GEngine = PreviousEngine;
 }
 
-TEST(FWorldTests, PreviewHostReportsInitializationFailureAndClosesItsWorld)
+TEST(FWorldTests, PreviewConstructionExceptionCleansWorldAndSceneThenPropagates)
 {
 	InitializeDObjectSystem();
 	FPreviewLifecycleRenderer Renderer;
 	FPreviewLifecycleEngine Engine(Renderer);
 	auto* PreviousEngine = std::exchange(Durin::GEngine, &Engine);
-	{
-		Durin::FWorldSubsystemRegistration Invalid({.Type = Durin::AActor::StaticClass()});
-		Durin::Editor::FPreviewScene Preview("FailedSubsystemPreview");
-		EXPECT_FALSE(Preview.IsAvailable());
-		EXPECT_FALSE(Preview.GetDiagnostic().empty());
-		EXPECT_EQ(Preview.GetWorld()->GetSubsystemState(), Durin::EWorldSubsystemState::Shutdown);
-		EXPECT_EQ(Preview.GetWorld()->GetCurrentLevel(), nullptr);
-		EXPECT_EQ(Preview.GetWorld()->GetRenderScene(), nullptr);
-	}
+	const std::array Classes{Durin::FThrowingWorldSubsystem::StaticClass()};
+	Durin::DObjectForceRegistration(Classes.front());
+	ASSERT_TRUE(Durin::Private::CreateClassDefaultObjectsForBatch(Classes));
+	Durin::FWorldSubsystemRegistration Throwing({.Type = Classes.front()});
+	Durin::FThrowingWorldSubsystem::Cleanups = 0;
+	EXPECT_THROW(Durin::Editor::FPreviewScene("FailedSubsystemPreview"), std::runtime_error);
+	EXPECT_EQ(Durin::FThrowingWorldSubsystem::Cleanups, 1);
+	EXPECT_FALSE(Durin::FThrowingWorldSubsystem::LastWorld.IsValid());
+	EXPECT_TRUE(Engine.GetWorldContexts().empty());
+	EXPECT_EQ(Renderer.DestroyedScenes, 1);
 	Durin::CollectGarbage();
 	Durin::GEngine = PreviousEngine;
 }
@@ -907,7 +949,7 @@ TEST(FWorldTests, MapChangeCommitsWithoutAViewportOrWaitingForComponentPSOs)
 	EXPECT_TRUE(Unloaded) << Unloaded.Message;
 }
 
-TEST(FWorldTests, MapChangeCommitVetoFailuresUseOneDiagnosticAndPreserveTheCurrentWorld)
+TEST(FWorldTests, MapChangeInitializationAndCommitFailuresPreserveTheCurrentWorld)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -918,7 +960,7 @@ TEST(FWorldTests, MapChangeCommitVetoFailuresUseOneDiagnosticAndPreserveTheCurre
 	Testing::FScopedMountRegistryFixture Mounts(MountDefinitions);
 	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
 	FPreviewLifecycleRenderer Renderer;
-	for (int FailureMode : {0, 1, 2, 3})
+	for (int FailureMode : {0, 1, 2, 3, 4})
 	{
 		SCOPED_TRACE(FailureMode);
 		FPackagePath PackagePath;
@@ -929,6 +971,14 @@ TEST(FWorldTests, MapChangeCommitVetoFailuresUseOneDiagnosticAndPreserveTheCurre
 		FMapChangeTestAccess::SetRenderer(*Host, Renderer);
 		auto* Previous = CreateWorld(Host.Get(), EWorldType::Editor);
 		Host->SetWorld(Previous);
+		std::optional<FWorldSubsystemRegistration> ThrowingService;
+		if (FailureMode == 4)
+		{
+			const std::array Classes{FThrowingWorldSubsystem::StaticClass()};
+			DObjectForceRegistration(Classes.front());
+			ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
+			ThrowingService.emplace(FWorldSubsystemDescriptor{.Type = Classes.front()});
+		}
 		int Completions = 0;
 		ASSERT_TRUE(Host->OpenLevel({.Path = Testing::MakePackageLeafAssetObjectPathForTests(PackagePath),
 			.BeforeCommit = [FailureMode, &Host](DLevel&) {
@@ -951,9 +1001,9 @@ TEST(FWorldTests, MapChangeCommitVetoFailuresUseOneDiagnosticAndPreserveTheCurre
 		const auto Progress = Host->GetMapChangeProgress();
 		ASSERT_TRUE(Progress);
 		EXPECT_EQ(Progress->Phase, FailureMode == 3 ? EMapChangePhase::Canceled : EMapChangePhase::Failed);
-		if (FailureMode != 3) EXPECT_NE(Progress->Diagnostic.find("Ready to commit"), std::string::npos) << Progress->Diagnostic;
+		if (FailureMode < 3) EXPECT_NE(Progress->Diagnostic.find("Ready to commit"), std::string::npos) << Progress->Diagnostic;
 		const auto Expected = FailureMode == 0 ? "Commit veto failure" : FailureMode == 1 ? "Unknown native exception"
-			: FailureMode == 2 ? "Map activation was rejected" : "Map change canceled";
+			: FailureMode == 2 ? "Map activation was rejected" : FailureMode == 3 ? "Map change canceled" : "World callback exception";
 		EXPECT_NE(Progress->Diagnostic.find(Expected), std::string::npos) << Progress->Diagnostic;
 		EXPECT_EQ(Host->GetWorld(), Previous);
 		EXPECT_FALSE(Previous->IsShutdownRequested());

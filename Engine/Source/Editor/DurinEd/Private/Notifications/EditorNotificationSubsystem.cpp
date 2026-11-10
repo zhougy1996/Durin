@@ -4,15 +4,18 @@
 namespace Durin
 {
 	DEditorNotificationSubsystem::DEditorNotificationSubsystem(const FObjectInitializer& Initializer) : Super(Initializer) {}
-	auto DEditorNotificationSubsystem::Initialize() -> FSubsystemResult
+	auto DEditorNotificationSubsystem::Initialize(FSubsystemCollection& Collection) -> void
 	{
-		Manager = std::make_unique<Editor::FNotificationManager>(GetWorkGate(),
+		Manager = std::make_unique<Editor::FNotificationManager>(
 			[Host = GetEditor()](std::function<void()> Callback) { Host->DispatchSubsystemCallback(std::move(Callback)); });
-		return {};
 	}
 	auto DEditorNotificationSubsystem::Tick(float DeltaSeconds) -> void
 	{
-		if (Manager && GetWorkGate()->IsOpen()) Manager->Tick(DeltaSeconds);
+		if (Manager) Manager->Tick(DeltaSeconds);
+	}
+	auto DEditorNotificationSubsystem::RequestShutdown() noexcept -> void
+	{
+		if (Manager) Manager->StopAcceptingRequests();
 	}
 	auto DEditorNotificationSubsystem::Deinitialize() noexcept -> void
 	{

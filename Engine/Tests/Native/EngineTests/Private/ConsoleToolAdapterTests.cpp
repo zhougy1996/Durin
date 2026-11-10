@@ -57,7 +57,7 @@ namespace Durin::Editor::MainFrame
 				Testing::InitializeDObjectSystemForTests();
 				Host = NewHost();
 				ASSERT_TRUE(FModuleManager::Get().LoadModule("LevelEditor"));
-				ASSERT_TRUE(Host->SynchronizeEditorSubsystems());
+				ASSERT_NO_THROW(Host->AddRegisteredEditorSubsystems());
 				Adapter = std::make_unique<FConsoleToolAdapter>(*Host, Legacy);
 				Temp = Testing::CreateTestFixtureDirectory("ConsoleTools");
 			}
@@ -71,7 +71,7 @@ namespace Durin::Editor::MainFrame
 			auto NewHost() -> DEditorEngine*
 			{
 				auto* Editor = NewObject<DEditorEngine>(nullptr, {});
-				Editors.emplace_back(Editor); EXPECT_TRUE(FEditorEngineTestAccess::StartEditor(*Editor)); return Editor;
+				Editors.emplace_back(Editor); EXPECT_NO_THROW(FEditorEngineTestAccess::StartEditor(*Editor)); return Editor;
 			}
 			auto Register(FToolDescriptor Descriptor = EchoDescriptor()) -> void
 			{
@@ -380,7 +380,7 @@ namespace Durin::Editor::MainFrame
 	TEST_F(FConsoleToolTests, PIEStartPauseStopShareNativeDomainServicesWithoutRendering)
 	{
 		auto* World = NewObject<DWorld>(Host, "ConsoleEditorWorld"); World->SetWorldType(EWorldType::Editor);
-		ASSERT_TRUE(World->InitializeSubsystems());
+		ASSERT_NO_THROW(World->InitializeSubsystems());
 		auto* Level = NewObject<DLevel>(World, "ConsoleEditorLevel"); ASSERT_TRUE(World->SetCurrentLevel(Level));
 		FEditorEngineTestAccess::SetEditorWorld(*Host, World);
 		auto Started = Adapter->Execute("editor.pie/play"); ASSERT_TRUE(Started.bSuccess) << Started.Message;
@@ -410,7 +410,7 @@ namespace Durin::Editor::MainFrame
 		EXPECT_EQ("No Play session is active.", Invoke("StopPlaySession").Message);
 
 		auto* World = NewObject<DWorld>(Host, "ReflectedEditorWorld"); World->SetWorldType(EWorldType::Editor);
-		ASSERT_TRUE(World->InitializeSubsystems());
+		ASSERT_NO_THROW(World->InitializeSubsystems());
 		auto* Level = NewObject<DLevel>(World, "ReflectedEditorLevel"); ASSERT_TRUE(World->SetCurrentLevel(Level));
 		FEditorEngineTestAccess::SetEditorWorld(*Host, World);
 		auto Started = Invoke("StartPlaySession"); ASSERT_TRUE(Started.bSucceeded) << Started.Message;
@@ -430,7 +430,7 @@ namespace Durin::Editor::MainFrame
 	}
 	TEST_F(FConsoleToolTests, LevelEditorPublishesPlayServicesIntoAnExistingHost)
 	{
-		const auto Providers = FSubsystemRegistration::Snapshot(DEditorSubsystem::StaticClass());
+		const auto Providers = FSubsystemRegistration::GetRegistrations(DEditorSubsystem::StaticClass());
 		const auto Count = std::ranges::count_if(Providers, [](const auto& Entry) {
 			return Entry.Type == DLevelEditorSubsystem::StaticClass()
 				&& Entry.Provider == FName("LevelEditor");

@@ -74,7 +74,7 @@ TEST(FSplineMeshActorQualificationTests, FrozenThirtyTwoSegmentEditsMeetCpuAndSt
 {
 	InitializeDObjectSystem();
 	auto* World = NewObject<DWorld>(nullptr, "SplineMeshBudgetWorld");
-	EXPECT_TRUE(World->InitializeSubsystems());
+	EXPECT_NO_THROW(World->InitializeSubsystems());
 	auto* Level = NewObject<DLevel>(World, "SplineMeshBudgetLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	auto* Actor = Level->SpawnActor<ASplineMeshActor>("SplineMeshActor");

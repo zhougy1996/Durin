@@ -18,8 +18,7 @@ namespace Durin::PythonReflection::Private
     struct FObjectState
     {
         FObjectKey Host, Target;
-        std::shared_ptr<const FSubsystemWorkGate> Gate;
-        std::shared_ptr<const FSubsystemWorkGate> ServiceGate;
+        uint64 EndpointId = 0;
         FStrongObjectPtr Root;
         bool Purged = false;
         auto Purge() -> void { Purged = true; Root.Reset(); }
@@ -56,7 +55,7 @@ namespace Durin::PythonReflection::Private
         FName NativeName;
         bool IsName = false;
         FObjectKey Host;
-        std::shared_ptr<const FSubsystemWorkGate> Gate;
+        uint64 EndpointId = 0;
         std::vector<FStrongObjectPtr> Roots;
         bool Purged = false;
         auto Purge() -> void;

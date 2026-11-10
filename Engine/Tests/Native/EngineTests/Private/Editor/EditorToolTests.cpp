@@ -91,7 +91,7 @@ namespace
 		{
 			auto* Host = NewObject<DEditorEngine>(nullptr, {});
 			Hosts.emplace_back(Host);
-			EXPECT_TRUE(FEditorEngineTestAccess::StartEditor(*Host));
+			EXPECT_NO_THROW(FEditorEngineTestAccess::StartEditor(*Host));
 			return Host;
 		}
 		static auto Request(std::string Name = "echo") -> FToolRequest { return {{"tests", std::move(Name)}, 1}; }
@@ -231,6 +231,42 @@ TEST_F(FEditorToolTests, MainFrameUpdatesOnlyOnNormalTicksAfterToolsWithoutDrawi
 	EXPECT_EQ(1u, MainFrame.Deltas.size());
 }
 
+TEST_F(FEditorToolTests, ShutdownFromToolsOrScriptsStopsTheRemainingEditorFrame)
+{
+	for (bool bStopInTool : {true, false})
+	{
+		std::vector<std::string> Events;
+		DEditorEngine* Editor = nullptr;
+		FTestToolset Toolset;
+		Toolset.Action = [&](const auto& Input, const auto&) {
+			Events.emplace_back("tool");
+			if (bStopInTool) Editor->PrepareForShutdown();
+			return FToolResult{EToolStatus::Succeeded, Input.Arguments};
+		};
+		auto ToolToken = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+		Editor = MakeHost();
+		struct FStoppingScriptPump final : IEditorScriptPump
+		{
+			std::vector<std::string>& Events;
+			explicit FStoppingScriptPump(std::vector<std::string>& InEvents) : Events(InEvents) {}
+			auto Pump(DEditorEngine& Host, const std::shared_ptr<FEditorToolService>&) -> void override
+			{ Events.emplace_back("script"); Host.PrepareForShutdown(); }
+		} ScriptPump(Events);
+		auto ScriptToken = FModularFeatureRegistry::Get().RegisterFeature(ScriptPump);
+		FRecordingMainFrameModule MainFrame(Events);
+		const auto Previous = FEditorEngineTestAccess::BindMainFrameModule(*Editor, &MainFrame);
+		auto* Tools = Editor->GetEditorSubsystem<DEditorToolSubsystem>();
+		EXPECT_TRUE(Tools->GetService()->Submit(Request()));
+		Editor->Tick(0.125f, false);
+		const auto Expected = bStopInTool ? std::vector<std::string>{"tool"} : std::vector<std::string>{"tool", "script"};
+		EXPECT_EQ(Expected, Events);
+		EXPECT_EQ(ESubsystemState::Shutdown, Editor->GetEditorSubsystemState());
+		Editor->Tick(0.125f, false);
+		EXPECT_EQ(Expected, Events);
+		FEditorEngineTestAccess::BindMainFrameModule(*Editor, Previous);
+	}
+}
+
 TEST_F(FEditorToolTests, StartupWaitsForShellFirstPresentationBeforePublishingFailure)
 {
 	auto* Editor = MakeHost();
@@ -329,7 +365,7 @@ TEST_F(FEditorToolTests, StartupWaitsForDocumentCompletionAndPrimaryScenePresent
 
 	auto* World = NewObject<DWorld>(Editor, "StartupWorld");
 	World->SetWorldType(EWorldType::Editor);
-	ASSERT_TRUE(World->InitializeSubsystems());
+	ASSERT_NO_THROW(World->InitializeSubsystems());
 	ASSERT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World, "StartupLevel")));
 	FEditorEngineTestAccess::SetEditorWorld(*Editor, World);
 	auto SceneViewport = FSceneViewport::CreateOffscreen(nullptr);
@@ -748,6 +784,7 @@ TEST_F(FEditorToolTests, ClosingAdmissionDuringAvailabilityNeverInvokesTheTool)
 	auto* Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
 	Toolset.Availability = [&](const auto&, const auto& Context) {
 		Host->PrepareForShutdown();
+		EXPECT_TRUE(Context.Cancellation.IsCancellationRequested());
 		EXPECT_EQ(Host, GetToolEditor(Context));
 		return FToolAvailability{};
 	};
@@ -794,6 +831,8 @@ TEST_F(FEditorToolTests, ShutdownDuringProviderCallbackDefersHostDestructionAndC
 	auto First = Endpoint->Submit(Request()); auto Second = Endpoint->Submit(Request()); ASSERT_TRUE(First && Second);
 	Toolset.Action = [&](const auto& Input, const auto& Context) {
 		Host->PrepareForShutdown();
+		EXPECT_TRUE(Context.Cancellation.IsCancellationRequested());
+		EXPECT_TRUE(Endpoint->GetCancellationToken().IsCancellationRequested());
 		EXPECT_EQ(Host, GetToolEditor(Context));
 		EXPECT_NE(nullptr, Host->GetEditorSubsystem<DEditorToolSubsystem>());
 		return FToolResult{EToolStatus::Succeeded, Input.Arguments};
@@ -802,6 +841,29 @@ TEST_F(FEditorToolTests, ShutdownDuringProviderCallbackDefersHostDestructionAndC
 	EXPECT_EQ(1, Toolset.Executions);
 	EXPECT_EQ(nullptr, Host->GetEditorSubsystem<DEditorToolSubsystem>());
 	EXPECT_EQ(EToolInvocationState::Cancelled, Endpoint->GetInvocation(*Second)->State);
+}
+
+TEST_F(FEditorToolTests, DirectAndSubmittedCallsPreserveCallerCancellationParents)
+{
+	FTestToolset Toolset;
+	auto Registration = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
+	for (bool bSubmit : {false, true})
+	{
+		FToolCancellationSource Caller, Parent;
+		Toolset.Action = [&](const auto& Input, const auto& Context) {
+			EXPECT_FALSE(Context.Cancellation.IsCancellationRequested());
+			Parent.Cancel();
+			EXPECT_TRUE(Context.Cancellation.IsCancellationRequested());
+			return FToolResult{EToolStatus::Succeeded, Input.Arguments};
+		};
+		const auto Cancellation = Caller.GetToken().WithParent(Parent.GetToken());
+		if (bSubmit) EXPECT_TRUE(Tools->SubmitNow(Request(), EToolSource::Native, {}, Cancellation));
+		else (void)Tools->CallNow(Request(), EToolSource::Native, {}, Cancellation);
+		EXPECT_FALSE(Caller.GetToken().IsCancellationRequested());
+		EXPECT_FALSE(Tools->GetService()->GetCancellationToken().IsCancellationRequested());
+	}
+	EXPECT_EQ(2, Toolset.Executions);
 }
 
 TEST_F(FEditorToolTests, GroupsToolsetsAndRoutesSameLocalNameByBothAddressParts)

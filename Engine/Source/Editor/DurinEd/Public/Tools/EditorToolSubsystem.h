@@ -13,7 +13,7 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		DURINED_API explicit DEditorToolSubsystem(const FObjectInitializer& Initializer);
-		DURINED_API auto Initialize() -> FSubsystemResult override;
+		DURINED_API auto Initialize(FSubsystemCollection& Collection) -> void override;
 		DURINED_API auto Deinitialize() noexcept -> void override;
 		// Acquire on GameThread, then retain the detached endpoint on other threads.
 		DURINED_API auto GetService() const -> std::shared_ptr<FEditorToolService>;
@@ -32,6 +32,9 @@ namespace Durin
 		// Separate script boundary: native tool receipts are published before scripts run.
 		DURINED_API auto TickScripts() -> void;
 	private:
+		// Host-only early cancellation; resource cleanup remains in Deinitialize.
+		auto RequestShutdown() noexcept -> void;
 		std::shared_ptr<FEditorToolService> Service;
+		friend class DEditorEngine;
 	};
 }

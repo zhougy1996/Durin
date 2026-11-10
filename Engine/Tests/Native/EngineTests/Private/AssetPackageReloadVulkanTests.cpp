@@ -156,7 +156,7 @@ TEST(FAssetPackageReloadVulkanTests, DiscardRestoresRenderedWeatherAndVolumeFrom
 	GEngine = &Engine;
 	auto* World = NewObject<DWorld>(&Engine, "ReloadWorld");
 	TStrongObjectPtr<DWorld> WorldRoot(World);
-	ASSERT_TRUE(World->InitializeSubsystems());
+	ASSERT_NO_THROW(World->InitializeSubsystems());
 	ASSERT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World, "ReloadLevel")));
 	Engine.SetWorld(World);
 	ASSERT_NE(World->SpawnActor<ADirectionalLightActor>("Sun"), nullptr);

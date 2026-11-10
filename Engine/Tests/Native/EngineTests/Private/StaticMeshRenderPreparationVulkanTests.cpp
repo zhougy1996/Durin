@@ -3354,7 +3354,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAnd
 			DWorld* World; FScenePtr& Scene;
 			~FCleanup() { World->Shutdown(); World->SetRenderScene(nullptr); Scene->Release(); Scene.reset(); FlushRenderingCommands(); }
 		} Cleanup{World.Get(), SceneOwner};
-		ASSERT_TRUE(World->InitializeSubsystems());
+		ASSERT_NO_THROW(World->InitializeSubsystems());
 		auto* Level = NewObject<DLevel>(World.Get(), NAME_None);
 		ASSERT_TRUE(World->SetCurrentLevel(Level)); World->SetRenderScene(&Scene);
 		auto* Actor = Level->SpawnActor<AActor>(); ASSERT_NE(Actor, nullptr);
@@ -3959,7 +3959,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 	for (uint32 Slot = 0; Slot < 4; ++Slot) Slots.push_back({.Name = FName(std::format("FeatureSlot{}", Slot)), .DefaultMaterial = Material.Get()});
 	ASSERT_TRUE(FStaticMeshTestAccess::ReplaceRenderData(Mesh, MakeRenderData(), std::move(Slots)));
 	auto AddComponent = [&](DWorld& World, FSceneInterface& Scene) -> DStaticMeshComponent* {
-		if (!World.InitializeSubsystems()) return nullptr;
+		World.InitializeSubsystems();
 		auto* Level = NewObject<DLevel>(&World, NAME_None);
 		if (!World.SetCurrentLevel(Level)) return nullptr;
 		World.SetRenderScene(&Scene);

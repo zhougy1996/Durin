@@ -15,7 +15,7 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		DURINMCP_API explicit DMCPServerSubsystem(const FObjectInitializer& Initializer);
-		DURINMCP_API auto Initialize() -> FSubsystemResult override;
+		DURINMCP_API auto Initialize(FSubsystemCollection& Collection) -> void override;
 		DURINMCP_API auto Deinitialize() noexcept -> void override;
 	private:
 		FDurinMCPModule* Module = nullptr;

@@ -46,16 +46,15 @@ namespace Durin
     {
         Provider = FModuleStartup::GetModuleName();
         EditorRegistration = std::make_unique<FEditorSubsystemRegistration>(FSubsystemDescriptor{
-            .Type = DPythonEditorSubsystem::StaticClass(), .Provider = FModuleStartup::GetModuleName(),
-            .Dependencies = {DEditorToolSubsystem::StaticClass()}});
+            .Type = DPythonEditorSubsystem::StaticClass(), .Provider = FModuleStartup::GetModuleName()});
     }
     auto FDurinPythonModule::CanShutdownModule() const -> bool
-    { return FEditorSubsystemCollection::CanSynchronizeActiveEditor(Provider); }
+    { return FEditorSubsystemCollection::CanUpdateActiveEditor(); }
     auto FDurinPythonModule::ShutdownModule() -> void
     {
         require(CanShutdownModule());
+        FEditorSubsystemCollection::RemoveAllInstances(Provider);
         EditorRegistration.reset();
-        FEditorSubsystemCollection::SynchronizeActiveEditor();
         StopRuntime();
     }
     auto FDurinPythonModule::SubmitStartupScript(DEditorEngine& Editor) -> void
@@ -78,12 +77,14 @@ namespace Durin
         StartupJob = *Submitted;
     }
     DPythonEditorSubsystem::DPythonEditorSubsystem(const FObjectInitializer& Initializer) : Super(Initializer) {}
-    auto DPythonEditorSubsystem::Initialize() -> FSubsystemResult
+    auto DPythonEditorSubsystem::Initialize(FSubsystemCollection& Collection) -> void
     {
+        auto* Tools = Collection.InitializeDependency<DEditorToolSubsystem>();
+        if (GetEditor()->IsShutdownRequested()) return;
+        requiref(Tools, "Python requires the editor tools subsystem.");
         Module = static_cast<FDurinPythonModule*>(FModuleManager::Get().GetModule("DurinPython"));
         check(Module);
         Module->SubmitStartupScript(*GetEditor());
-        return {};
     }
     auto DPythonEditorSubsystem::Deinitialize() noexcept -> void
     {

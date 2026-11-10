@@ -17,18 +17,16 @@ namespace Durin
 	DAssetEditorSubsystem::DAssetEditorSubsystem(const FObjectInitializer& Initializer)
 		: Super(Initializer) {}
 
-	auto DAssetEditorSubsystem::Initialize() -> FSubsystemResult
+	auto DAssetEditorSubsystem::Initialize(FSubsystemCollection& Collection) -> void
 	{
 		ToolkitManager = std::make_shared<FToolkitManager>();
-		return {};
 	}
 
 	auto DAssetEditorSubsystem::CanCall() const -> bool
 	{
 		if (!IsInGameThread() || !IsValid(this) || bStoppingSessions) return false;
-		const auto Gate = GetWorkGate();
 		auto* Host = GetEditor();
-		return Gate && Gate->IsOpen() && IsValid(Host)
+		return IsValid(Host) && !Host->IsShutdownRequested()
 			&& Host->GetEditorSubsystem<DAssetEditorSubsystem>() == this;
 	}
 

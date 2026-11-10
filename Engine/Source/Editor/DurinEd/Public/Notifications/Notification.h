@@ -4,8 +4,6 @@
 
 #include "DurinEdAPI.h"
 
-namespace Durin { class FSubsystemWorkGate; }
-
 namespace Durin::Editor
 {
 	using FNotificationId = uint64;
@@ -80,11 +78,12 @@ namespace Durin::Editor
 	class FNotificationManager
 	{
 	public:
-		DURINED_API explicit FNotificationManager(std::shared_ptr<const FSubsystemWorkGate> Gate = {},
-			std::function<void(std::function<void()>)> Dispatcher = {});
+		DURINED_API explicit FNotificationManager(std::function<void(std::function<void()>)> Dispatcher = {});
 		DURINED_API ~FNotificationManager();
 		// Closes producers and invalidates retained actions; game-thread, idempotent.
 		DURINED_API auto Retire() noexcept -> void;
+		auto StopAcceptingRequests() noexcept -> void { Admission->store(false); }
+		auto IsAcceptingRequests() const -> bool { return Admission->load(); }
 		DURINED_API auto Post(FNotificationDesc Desc) -> FNotificationId;
 		DURINED_API auto BeginProgress(FProgressNotificationDesc Desc) -> FNotificationId;
 		DURINED_API auto UpdateProgress(FNotificationId Id, std::optional<float> Progress, std::string Message = {}) -> void;
@@ -108,7 +107,6 @@ namespace Durin::Editor
 		auto GuardAction(std::optional<FNotificationAction> Action) const -> std::optional<FNotificationAction>;
 		auto GuardCallback(std::function<void()> Callback) const -> std::function<void()>;
 		std::shared_ptr<std::atomic<bool>> Admission = std::make_shared<std::atomic<bool>>(true);
-		std::shared_ptr<const FSubsystemWorkGate> WorkGate;
 		std::function<void(std::function<void()>)> Dispatcher;
 		auto Find(FNotificationId Id) -> FNotification*;
 		auto FindStatus(FNotificationId Id) -> FNotification*;

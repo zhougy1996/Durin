@@ -4,7 +4,7 @@ Summary: Define per-editor tool discovery, exact provider routing, bounded cross
 
 Modules: Core, DurinEd
 
-Last reviewed: 2026-10-30
+Last reviewed: 2026-11-10
 
 ## Ownership and Entry Points
 
@@ -68,16 +68,20 @@ redirects accepted requests to its replacement: dispatch reports unavailable.
 
 Editor Tick calls `TickTools` immediately inside its host operation scope,
 before retired PIE release and world ticking. Dispatch requires a Ready editor
-collection, open work gate, and an abstract transactor accepting `CanTransact()`.
+collection, an open tool endpoint, and an abstract transactor accepting `CanTransact()`.
 Idle and ordinary Recording admit work, allowing nested native composition.
 Replay, recovery, and shutdown defer queued work.
+The subsystem checks synchronous admission once before entering the host callback
+scope. Its private service execution methods rely on that check. Public detached
+endpoint methods independently validate their owned state under the endpoint lock.
 Execution rechecks host admission between availability checking and execution,
 and before every queued invocation. Same-service reentrant execution returns Busy.
 
 All provider callbacks run through the active editor's `DispatchSubsystemCallback`, preserving host
 and GC lifetime through synchronous return. A provider may request host shutdown;
-gates close immediately while destruction waits for the host boundary. Tick stops
-before subsequent editor/world work after such a request. A native immediate
+the endpoint closes and cancels its jobs immediately while destruction waits for
+the host boundary. The host stops the remaining frame stages after a tool,
+script, World or shell callback requests shutdown. A native immediate
 callback defers cleanup until the next host Tick/shutdown boundary, matching the
 [subsystem lifecycle](../Framework/EditorSubsystems.md).
 
@@ -149,11 +153,14 @@ no queued/running/pending calls, validates finite positive capacities and live
 consumer charges, prunes results,
 and invalidates the catalog for the next refresh. Zero TTL is allowed.
 
-When the work gate closes, admission stops immediately. Deinitialization or an
-endpoint observing closure clears previous completed data and the catalog,
+The tool service owns its lifetime cancellation source. Host retirement or
+deinitialization closes the endpoint and cancels that source immediately. Closure
+clears previous completed data and the catalog,
 cancels queued work, and retains bounded cancellation receipts. Running work only
 receives cooperative cancellation; lifecycle scopes keep the host alive through
-return. Pending observations safely detach owned data with bounded cancellation
+return. Closing is driven by host retirement and subsystem deinitialization;
+status, result retention and cancellation queries do not initiate closure.
+Pending observations safely detach owned data with bounded cancellation
 outcomes; late producers cannot access the host. Detached endpoints remain safe after host destruction and GC. They never
 reopen and cannot reach a replacement host or provider. Modules still own their
 workers, callbacks, and unload safety under the main-thread feature contract.

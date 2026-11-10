@@ -701,7 +701,7 @@ TEST(FLevelDocumentResidencyTests, CloseReleasesWorldReferenceAndSchedulesCollec
 	// The fixture created this package directly; transfer its cache root to the handle.
 	Package->SetStandaloneResidency(false);
 	TStrongObjectPtr<DWorld> World(NewObject<DWorld>(nullptr, "ClosingResidencyWorld"));
-	ASSERT_TRUE(World->InitializeSubsystems());
+	ASSERT_NO_THROW(World->InitializeSubsystems());
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	TWeakObjectPtr<DPackage> WeakPackage(Package);
 	{
@@ -734,7 +734,7 @@ TEST(FLevelDocumentResidencyTests, ReactivatedLevelRemainsAliveThroughWorldOwner
 	// The fixture created this package directly; transfer its cache root to the handle.
 	Package->SetStandaloneResidency(false);
 	TStrongObjectPtr<DWorld> World(NewObject<DWorld>(nullptr, "ReactivatedResidencyWorld"));
-	ASSERT_TRUE(World->InitializeSubsystems());
+	ASSERT_NO_THROW(World->InitializeSubsystems());
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	TWeakObjectPtr<DPackage> WeakPackage(Package);
 	LoadHandle->ReleaseHandle();

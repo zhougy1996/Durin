@@ -119,10 +119,12 @@ namespace Durin
 		template<typename T> requires std::is_base_of_v<DEditorSubsystem, T>
 		auto GetEditorSubsystem() const -> T* { return static_cast<T*>(EditorSubsystems.Find(T::StaticClass())); }
 		auto GetEditorSubsystemState() const -> ESubsystemState { return EditorSubsystems.GetState(); }
-		DURINED_API auto CanSynchronizeEditorSubsystems() -> bool;
+		DURINED_API auto CanUpdateEditorSubsystems() -> bool;
 		auto AreEditorSubsystemsUpdating() const -> bool { return EditorSubsystems.IsPopulating(); }
 		// After module load batches and before consumers run; never called by ordinary Tick.
-		DURINED_API auto SynchronizeEditorSubsystems() -> FSubsystemResult;
+		DURINED_API auto AddRegisteredEditorSubsystems() -> void;
+		DURINED_API auto AddEditorSubsystem(DClass* Type) -> DEditorSubsystem*;
+		DURINED_API auto RemoveEditorSubsystem(DClass* Type) -> void;
 		DURINED_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
 		// MainFrame phase: after transaction event publication and before notification drawing.
 		DURINED_API auto GetNotificationManager() -> Editor::FNotificationManager&;
@@ -173,7 +175,7 @@ namespace Durin
 
 		auto AdvanceDefaultLevel() -> EHostStartupState;
 		auto InitEditorInternal(const FEngineInitContext& Context) -> bool;
-		DURINED_API auto CloseSubsystemWork() -> void override;
+		DURINED_API auto RequestSubsystemDeinitialization() -> void override;
 		DURINED_API auto RetireHostConsumers() -> void override;
 		FEditorSubsystemCollection EditorSubsystems;
 		bool bEditorInitStarted = false;
@@ -182,7 +184,7 @@ namespace Durin
 		// Service-only hosts are usable without a shell; Init starts the production bootstrap.
 		Editor::Startup::EBootstrapState StartupPhase = Editor::Startup::EBootstrapState::Ready;
 	protected:
-		DURINED_API auto InitializeEditorSubsystems() -> FSubsystemResult;
+		DURINED_API auto InitializeEditorSubsystems() -> void;
 	private:
 
 		// Sole editor-session transaction history and revision service.

@@ -319,7 +319,7 @@ namespace Durin::Editor::MainFrame
 					.OpenAsset = [Service = Context.AssetEditors](const std::string& Path,
 						const std::string& AssetClassName) {
 						auto* AssetEditors = Service.Get();
-						if (!AssetEditors || !AssetEditors->GetWorkGate()->IsOpen()) return false;
+						if (!AssetEditors) return false;
 						FSoftObjectPath ObjectPath;
 						if (!FSoftObjectPath::TryCreate(Path, ObjectPath)) return false;
 						return AssetEditors->OpenAssets({.AssetEditors = AssetEditors,

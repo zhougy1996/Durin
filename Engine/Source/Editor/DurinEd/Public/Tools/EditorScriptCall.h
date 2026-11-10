@@ -9,14 +9,13 @@ namespace Durin
 {
     class DEditorEngine;
     class DLevel;
-    class FSubsystemWorkGate;
     enum class EEditorScriptEditPolicy : uint8 { DocumentManaged, NonDocumentReadOnly, NonDocumentReadWrite };
     enum class EEditorScriptTargetAccess : uint8 { Writable, ReadOnly, Unavailable };
     struct FEditorScriptCallError { std::string Message; };
     struct FEditorScriptCallContext
     {
         DEditorEngine* Host = nullptr;
-        std::shared_ptr<const FSubsystemWorkGate> Gate;
+        uint64 EndpointId = 0;
         EEditorScriptEditPolicy EditPolicy = EEditorScriptEditPolicy::DocumentManaged;
         FToolCancellationToken Cancellation;
         FToolClientContext Client;

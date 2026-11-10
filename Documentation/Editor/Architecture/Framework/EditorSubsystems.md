@@ -4,7 +4,7 @@ Summary: Define per-editor native services, reflected PIE controls, Actor/Compon
 
 Modules: DurinEd, LevelEditor, MainFrame, DurinPython, DurinMCP, Engine
 
-Last reviewed: 2026-11-09
+Last reviewed: 2026-11-10
 
 ## Host Contract
 
@@ -13,7 +13,7 @@ ActivateEditor is the sole publication boundary and rejects repeated activation,
 including activation of the same instance. Launch and headless fixture setup
 call it explicitly. Full Init and subsystem initialization require that already
 active editor and never publish one themselves. Shutdown releases activation only after callback and World work
-is quiescent. A later editor lifetime can then activate without reusing old gates.
+is quiescent. A later editor lifetime can then activate with fresh consumer-owned cancellation state.
 
 Native headless tests share Editor/EditorEngineTestSupport.h for explicit startup
 and private test access. Ordinary fixtures construct real DEditorEngine instances;
@@ -48,11 +48,16 @@ runs between them. DurinEd's module startup registers the
 Actor editing, asset editor, notification and [tool](../Tools/EditorTools.md) services. LevelEditor
 registers the Level editing service, PIE Toolset and Content Browser extensions.
 MaterialEditor, TextureEditor and StaticMeshEditor likewise publish their contributions
-in StartupModule, independently of workspace instances. A returned failure, cancellation or exception retires
-partial host state and prevents successful initialization.
+in StartupModule, independently of workspace instances. Module and workspace
+operations report business failures through their own startup results. Unexpected
+subsystem callback exceptions propagate after collection cleanup.
 
-Shutdown closes both collections' gates, stops PIE, shuts down EditorWorld,
-destroys shell consumers, then deinitializes Editor services. Base shutdown
+The host records retirement and stops tool and notification admission once. These
+early-stop hooks are private host integration; the public subsystem lifecycle
+remains `Initialize` and `Deinitialize`. Each frame stops after the tool, script,
+World or shell callback that requested shutdown. At the safe boundary, shutdown
+stops PIE, shuts down EditorWorld, destroys shell consumers, then deinitializes
+Editor services. Base shutdown
 retires the remaining World and Engine services. Initialization and update
 operation scopes defer requested destruction until callbacks unwind. Explicit
 retirement is idempotent and `DEditorEngine::BeginDestroy` supplies the same
@@ -86,7 +91,7 @@ the corresponding `EAssetEditorCloseReason` to each instance. Close requests use
 snapshots and recheck membership before entering callbacks, so an earlier close
 may remove a later instance. A rejected close or pending dirty-document modal
 is not reported as a completed close. Service calls require the game thread,
-registered owning host and open work gate. Open/focus/close callbacks use the
+registered owning host with no pending shutdown. Open/focus/close callbacks use the
 host operation scope; shutdown closes admission immediately and defers resource
 retirement until callbacks unwind. Close notifications remain legal during cleanup.
 
@@ -151,7 +156,7 @@ that survives repeated PIE sessions. Its `DFUNCTION` entrypoints are
 `SetPlaySessionPaused(bool bPaused)`. They return the reflected
 `FLevelEditorPlayResult` containing `bSucceeded`, `Message` and `State`.
 Admission requires GameThread, a live service registered with its owning host
-and an open subsystem work gate. Rejected admission leaves State empty; admitted
+with no pending host shutdown. Rejected admission leaves State empty; admitted
 calls report `stopped`, `playing` or `paused`, including business failures.
 
 The subsystem owns script-facing domain checks and delegates actual play-world
@@ -168,7 +173,7 @@ Toolset without constructing a workspace or native window. Workspace activation
 loads LevelEditor normally; no hard-coded pre-initialization load is required.
 Workspace startup explicitly synchronizes services after module loading and
 before creating consumers. Minimal native hosts may load LevelEditor after
-`InitializeEditorSubsystems()` and then call `SynchronizeEditorSubsystems()` at
+`InitializeEditorSubsystems()` and then call `AddRegisteredEditorSubsystems()` at
 an idle boundary before driving tools. Ordinary editor Tick never synchronizes
 subsystem registrations.
 MCP and Python adapters keep their existing interfaces and generic Toolset
@@ -178,70 +183,56 @@ routing. Dynamic test providers belong in the runtime deployment closure.
 
 Only Editor collections update live membership; Engine and World collections
 remain frozen. Providers retain registration tokens for their published services.
-Module-load callers invoke `SynchronizeEditorSubsystems()` after the complete
+Module-load callers invoke `AddRegisteredEditorSubsystems()` after the complete
 load batch returns and before creating or driving its consumers. Project and
-Workspace startup provide these explicit idle boundaries. Providers synchronize
-removal inside their shutdown hooks before releasing resources. The operation
-requires an idle host and reports `FSubsystemResult`; ordinary Tick neither
-checks for registration changes nor runs collection reconciliation. Loading a
-module or changing a token alone does not update an existing collection.
-Callback-time registration changes require a later explicit synchronization;
-unsafe synchronization returns InvalidState without changing membership.
-Providers still in module Startup are not instantiated, and tool execution is
-unavailable during updates.
+Workspace startup provide these explicit idle boundaries. This enumerates the
+registration catalog and adds missing instances; it does not compare memberships
+or remove anything. Individual callers use `AddEditorSubsystem(Type)` and
+`RemoveEditorSubsystem(Type)`. Operations require an idle host. Bulk addition and
+removal return void; single addition returns the existing or created instance,
+or null when unavailable. Invalid entry and registration contracts assert.
+Unexpected callback exceptions propagate after cleanup; startup does not convert
+them into subsystem failure diagnostics. Ordinary Tick never polls registrations. Loading a module or
+changing a token alone does not change an existing collection. Callback-time
+changes require a later explicit operation. Tool execution is unavailable during
+collection mutation. A provider must finish Startup before its services are added.
 
-`ShouldCreateSubsystem` selects new instances only. Synchronizing an unchanged
-registration preserves its instance without reevaluating its CDO. Changing the
-sole registration for a live type returns InvalidState before changing instances
-or running creation callbacks, including when the type has no consumers or all
-consumers have also been re-registered. There is no same-type replacement or
+`ShouldCreateSubsystem` selects new instances only. Adding an existing class
+returns its existing instance without reevaluating the CDO. Registration token
+churn and duplicate publication do not replace it. There is no replacement or
 consumer re-registration protocol.
 
-To recreate a service, callers unregister its consumers and synchronize their
-removal, unregister the service and synchronize its removal, then register and
-synchronize the service before reconnecting its consumers. An intervening
-completed removal is mandatory; token churn within one synchronization cannot
-replace an instance. External strong references may retain the stopped objects
-while the new instances run. Removing a dependency while a registered consumer
-still requires it rejects the complete update; callers must unregister consumers
-first. There is no automatic dependent removal or reconnection.
+To recreate a service, callers stop and explicitly remove its consumers, remove
+the service, add it again, then reconnect the consumers. External strong references
+may retain stopped objects while new instances run. The collection does not track
+a descriptor dependency graph or validate consumer removal order.
 
-Synchronization validates the complete candidate descriptor set before closing
-any instance gate, removing an instance or constructing an addition. Duplicate
-types, missing or wrong-scope dependencies, cycles, invalid types and unavailable
-providers reject the entire update, leaving current instances, gates and lookup
-membership unchanged. Creation eligibility remains a creation-only query;
-host retirement requested by a callback still takes precedence over an update.
-The framework owns dependency ordering, GC protection and callback reentrancy;
-callers do not manage collection iteration.
+Dependencies are requested by `Initialize(Collection)` through
+`InitializeDependency<T>()`. A missing, excluded, wrong-scope or recursive
+dependency fails the requesting initialization. The framework protects collection
+iteration and GC lifetime; host retirement requested by a callback takes precedence.
 
-Removal closes work, deinitializes dependents before dependencies, then releases
-collection references. Dependencies remain queryable during cleanup. Retained
+Removal invalidates external references, deinitializes the selected objects in
+reverse initialization-completion order, then releases collection references.
+Dependencies remain queryable until explicitly removed. Retained
 objects stay valid but stopped; ordinary GC reclaims them after their remaining
 strong references are released, without shutting down the active editor.
 Script proxies and tool endpoints reject use once work closes.
 
-Only validated updates remove obsolete instances before adding new ones. A failed addition
-rolls back that pass's new instances, including the failed object, and preserves
-instances not selected for removal. Already removed instances are not restored.
-Every explicit synchronization attempts the current registrations, including
-retrying failed additions. There is no registration revision poll, cached pass
-result or force-refresh mode. Synchronization does not reevaluate or remove
-unchanged eligible instances. Host shutdown aborts additions and completes
-cleanup after callbacks unwind.
+Additions run sequentially. A failed object is cleaned up; earlier successful
+additions and dependencies remain alive. There is no whole-update validation,
+transactional rollback, registration revision poll or force-refresh mode. A later
+explicit addition can retry a failed class. Host shutdown aborts additions and
+completes cleanup after callbacks unwind.
 
-Providers own removal in `ShutdownModule()`: DurinEd and LevelEditor destroy
-their registration tokens and call `FEditorSubsystemCollection::SynchronizeActiveEditor()`
-before releasing the remaining provider resources. Consumers must already have
-been unregistered and synchronized before their provider can stop. A rejected
-removal must never be ignored before releasing provider resources. There is no module-manager
-consumer callback or separate suppressed-registration list.
+Providers own removal in `ShutdownModule()`: they call
+`FEditorSubsystemCollection::RemoveAllInstances(Provider)` before destroying
+registration tokens or releasing provider resources. Consumers must already be
+stopped and removed. A rejected removal must never be ignored. There is no
+module-manager consumer callback or suppressed-registration list.
 
-Their read-only `CanShutdownModule()` calls `CanSynchronizeActiveEditor(Provider)`
-with the module identity captured during StartupModule. It preflights the metadata
-set remaining after provider removal without calling eligibility or lifecycle
-callbacks. Registered consumers or another invalid remaining descriptor set
-postpone shutdown without changing tokens, instances, gates or module resources.
+Their read-only `CanShutdownModule()` calls `CanUpdateActiveEditor()` to check the
+host safe point. It does not preflight a remaining descriptor graph.
 Initialization, cleanup, host callbacks, GC, feature
 dispatch and non-idle history postpone the entire shutdown. `UnloadModule()`
 returns false without changing an active module at an unsafe point; explicit
@@ -250,7 +241,7 @@ check it again before mutating registrations, including direct cleanup after
 partially completed startup. Requests from callbacks must be retried after they
 unwind.
 
-Work gates provide cancellation, not module residency. Providers must finish
+Consumer-owned cancellation tokens do not provide module residency. Providers must finish
 module-owned work and detach external callbacks in their existing ShutdownModule
 contract. DurinEd and LevelEditor remain process-resident: unregistering their
 services releases collection references without releasing their DLLs.
@@ -269,7 +260,7 @@ with an explicit read-only policy. The service resolves its owning active editor
 callers cannot select a different host or history. Native non-document adapters must
 also state that policy; selection is never an implicit target.
 
-Admission requires the game thread, a live registered service and open work gate,
+Admission requires the game thread, a live registered service with no pending host shutdown,
 its current editor Level, stopped PIE/World play and an idle or
 recording host transactor. Synchronous Actor and Component changes join the
 innermost recording scope and commit with the outer transaction, retaining its
@@ -369,19 +360,18 @@ MainFrame publishes transaction presentation feedback. After the optional
 main-frame update, the normal editor tick calls `DEditorNotificationSubsystem::Tick`
 once using the engine frame delta, including when no MainFrame exists.
 The subsystem owns notification time advancement; the overlay never ages the
-manager. Shutdown suppresses the update and the subsystem work gate rejects
-late ticking. No Tick virtual is added to every subsystem. Standalone manager
-tests may still call Tick directly.
+manager. The host suppresses dispatch after shutdown; the subsystem forwards Tick
+without repeating the manager's admission check. The manager retains that check
+for direct standalone use. No Tick virtual is added to every subsystem.
 
-Producer methods serialize through the pending-command mutex. Gate closure
+Producer methods serialize through the pending-command mutex. Manager admission closure
 rejects new commands; Post/BeginProgress return zero when rejected. Deinitialize
 retires the manager, discards pending commands and clears notifications, status
 and history. Retained action, enablement and cancellation callbacks capture a
-shared admission identity and work gate, so they cannot invoke provider callbacks
+shared manager admission state, so they cannot invoke provider callbacks
 after retirement, even after physical service destruction. Manager destruction
 also retires standalone instances. Actions, enablement predicates and cancellation
-callbacks enter the host's external callback scope. A shutdown request closes all
-gates immediately but leaves entries and consumers alive until the next host
+callbacks enter the host's external callback scope. A shutdown request stops tool and notification admission immediately but leaves entries and consumers alive until the next host
 boundary, so drawing and the initiating callback can finish. An enablement
 predicate that retires its manager prevents the action from being invoked.
 
@@ -401,6 +391,6 @@ separate Action to expose Cancel. Cancellation remains a one-shot request, and
 terminal notifications no longer offer cancellation.
 
 Raw manager references are valid only while their owning service remains alive.
-Workers must retain detached data and a work gate and publish at the game-thread
-boundary; copying a raw manager or host pointer into a worker is not lifetime
-protection. Gates keep callback code resident but never join workers.
+Workers retain detached data and consumer-owned cancellation state and publish at
+the game-thread boundary after admission checks. A raw manager or host pointer
+does not protect lifetime. Consumers own cancellation, draining and callback cleanup.

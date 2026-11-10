@@ -703,7 +703,7 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
     auto& Scene=static_cast<FScene&>(*SceneOwner);
     auto* World=NewObject<DWorld>(nullptr,"DynamicSkyWorld");
     AddToRoot(World);
-    EXPECT_TRUE(World->InitializeSubsystems());
+    EXPECT_NO_THROW(World->InitializeSubsystems());
     World->SetRenderScene(&Scene);
     EXPECT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World,"SkyLevel")));
     auto* Sky=World->SpawnActor<AProceduralSkyActor>("Sky")->GetSkyComponent();
@@ -711,7 +711,7 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
     auto OtherSceneOwner=Renderer.CreateScene();
     auto& OtherScene=static_cast<FScene&>(*OtherSceneOwner);
     auto* OtherWorld=NewObject<DWorld>(nullptr,"OtherSkyWorld");
-    AddToRoot(OtherWorld); EXPECT_TRUE(OtherWorld->InitializeSubsystems());
+    AddToRoot(OtherWorld); EXPECT_NO_THROW(OtherWorld->InitializeSubsystems());
     OtherWorld->SetRenderScene(&OtherScene);
     EXPECT_TRUE(OtherWorld->SetCurrentLevel(NewObject<DLevel>(OtherWorld,"OtherSkyLevel")));
     OtherWorld->SpawnActor<AProceduralSkyActor>("OtherSky")->GetSkyComponent()->SetRadianceColors({1,3,5},{1,3,5},{1,3,5},{0,0,0});

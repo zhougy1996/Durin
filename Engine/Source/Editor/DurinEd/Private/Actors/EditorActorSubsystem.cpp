@@ -31,8 +31,7 @@ namespace Durin
 		if (bEditing && !bDuringEdit) return nullptr;
 		if (Context.bReadOnly) return nullptr;
 		auto* Host = GetEditor();
-		const auto Gate = GetWorkGate();
-		if (!IsValid(Host) || Host != GEditor || !Gate || !Gate->IsOpen()
+		if (!IsValid(Host) || Host != GEditor || Host->IsShutdownRequested()
 			|| Host->GetEditorSubsystem<DEditorActorSubsystem>() != this)
 			return nullptr;
 		if (Host->IsPlaying()) return nullptr;

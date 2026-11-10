@@ -114,7 +114,9 @@ namespace Durin
 
 		template<typename T> requires std::is_base_of_v<DEngineSubsystem, T>
 		auto GetSubsystem() const -> T* { return static_cast<T*>(EngineSubsystems.Find(T::StaticClass())); }
+		auto GetSubsystem(DClass* Type) const -> DEngineSubsystem* { return static_cast<DEngineSubsystem*>(EngineSubsystems.Find(Type)); }
 		auto GetSubsystemState() const -> ESubsystemState { return EngineSubsystems.GetState(); }
+		auto IsShutdownRequested() const -> bool { return bShutdownRequested; }
 		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
 
 		auto GetMainScene() const -> FSceneInterface* { return MainScene.get(); }
@@ -144,11 +146,11 @@ namespace Durin
 			DEngine& Host;
 			bool bFlushOnExit;
 		};
-		ENGINE_API virtual auto CloseSubsystemWork() -> void;
+		ENGINE_API virtual auto RequestSubsystemDeinitialization() -> void;
 		virtual auto RetireHostConsumers() -> void {}
 		ENGINE_API virtual auto AreHostConsumersIdle() -> bool;
 		auto IsHostOperationIdle() -> bool { return HostOperationDepth == 0 && !bPreparingShutdown && AreHostConsumersIdle(); }
-		ENGINE_API auto InitializeEngineSubsystems() -> FSubsystemResult;
+		ENGINE_API auto InitializeEngineSubsystems() -> void;
 		FEngineSubsystemCollection EngineSubsystems;
 		bool bShutdownRequested = false;
 		bool bShutdownComplete = false;

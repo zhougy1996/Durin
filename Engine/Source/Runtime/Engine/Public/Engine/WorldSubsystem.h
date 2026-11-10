@@ -6,7 +6,6 @@
 #include "Engine/Subsystem.h"
 #include "DObject/ObjectPtr.h"
 #include "Engine/TickFunction.h"
-#include "Threading/TaskRuntime.h"
 #include "WorldSubsystem.gen.h"
 
 namespace Durin
@@ -17,11 +16,8 @@ namespace Durin
 	enum class EWorldType : uint8;
 
 	using EWorldSubsystemState = ESubsystemState;
-	using EWorldSubsystemError = ESubsystemError;
-	using FWorldSubsystemResult = FSubsystemResult;
-	using FWorldSubsystemWorkGate = FSubsystemWorkGate;
 
-	// Native per-World service. Workers may capture detached data and a gate, never this object.
+	// Native per-World service. Workers capture detached data and consumer-owned cancellation state, never this object.
 	DCLASS(Abstract)
 	class DWorldSubsystem : public DSubsystem
 	{
@@ -50,7 +46,6 @@ namespace Durin
 	{
 		DClass* Type = nullptr;
 		FName Provider;
-		std::vector<DClass*> Dependencies;
 		bool bTick = false;
 		bool bTickInEditorAndPreview = false;
 		ETickingGroup TickGroup = ETickingGroup::PrePhysics;
@@ -64,7 +59,7 @@ namespace Durin
 		ENGINE_API ~FWorldSubsystemRegistration();
 		FWorldSubsystemRegistration(const FWorldSubsystemRegistration&) = delete;
 		auto operator=(const FWorldSubsystemRegistration&) -> FWorldSubsystemRegistration& = delete;
-		ENGINE_API static auto Snapshot() -> std::vector<FWorldSubsystemDescriptor>;
+		ENGINE_API static auto GetRegistrations() -> std::vector<FWorldSubsystemDescriptor>;
 	private:
 		uint64 Identity;
 	};
@@ -88,8 +83,8 @@ namespace Durin
 			bool bAttached = false;
 			bool bFrameTickEnabled = false;
 		};
-		auto Initialize() -> FWorldSubsystemResult;
-		auto ValidateSelectedDescriptor(const FSubsystemDescriptor& Descriptor) const -> FSubsystemResult override;
+		auto Initialize() -> void;
+		auto ValidateSelectedDescriptor(const FSubsystemDescriptor& Descriptor) const -> void override;
 		auto BeginPlay() -> void;
 		auto EndPlay() -> void;
 		auto LevelChanged(DLevel& Level, bool bAttached) -> void;

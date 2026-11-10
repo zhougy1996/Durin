@@ -9,18 +9,18 @@ namespace Durin
 	// Shared native-test access; production editor startup remains explicit.
 	struct FEditorEngineTestAccess
 	{
-		static auto InitializeServices(DEditorEngine& Editor) -> FSubsystemResult
+		static auto InitializeServices(DEditorEngine& Editor) -> void
 		{
 			Testing::InitializeAssetSystemForTests();
-			return Editor.InitializeEditorSubsystems();
+			Editor.InitializeEditorSubsystems();
 		}
 
-		static auto StartEditor(DEditorEngine& Editor) -> FSubsystemResult
+		static auto StartEditor(DEditorEngine& Editor) -> void
 		{
 			Testing::InitializeAssetSystemForTests();
-			if (!Editor.ActivateEditor())
-				return {ESubsystemError::InvalidState, "Editor activation failed."};
-			return InitializeServices(Editor);
+			const bool bActivated = Editor.ActivateEditor();
+			requiref(bActivated, "Editor activation failed.");
+			InitializeServices(Editor);
 		}
 
 		static auto SetEditorWorld(DEditorEngine& Editor, DWorld* World) -> void

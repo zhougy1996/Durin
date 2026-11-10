@@ -33,6 +33,6 @@ namespace Durin
 	{
 	public:
 		ENGINE_API explicit FEngineSubsystemCollection(DEngine& Host);
-		ENGINE_API auto Initialize() -> FSubsystemResult;
+		ENGINE_API auto Initialize() -> void;
 	};
 }

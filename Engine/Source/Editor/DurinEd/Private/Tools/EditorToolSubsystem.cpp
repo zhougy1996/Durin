@@ -17,11 +17,14 @@ namespace Durin
 	{
 		return IsInGameThread() && Service && Service->CanDispatch();
 	}
-	auto DEditorToolSubsystem::Initialize() -> FSubsystemResult
+	auto DEditorToolSubsystem::Initialize(FSubsystemCollection& Collection) -> void
 	{
-		Service = std::shared_ptr<FEditorToolService>(new FEditorToolService(*GetEditor(), GetWorkGate()));
+		Service = std::shared_ptr<FEditorToolService>(new FEditorToolService(*GetEditor()));
 		Service->RefreshCatalog();
-		return {};
+	}
+	auto DEditorToolSubsystem::RequestShutdown() noexcept -> void
+	{
+		if (Service) Service->Close();
 	}
 	auto DEditorToolSubsystem::Deinitialize() noexcept -> void
 	{

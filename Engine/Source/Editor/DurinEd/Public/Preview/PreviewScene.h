@@ -37,6 +37,7 @@ namespace Durin::Editor
 		DURINED_API auto EndPlay() -> void;
 
 	private:
+		auto ReleaseResources() -> void;
 		FScenePtr RenderScene;
 		TObjectPtr<DWorld> World;
 		TObjectPtr<DLevel> Level;

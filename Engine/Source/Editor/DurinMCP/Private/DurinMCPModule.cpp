@@ -2,6 +2,7 @@
 #include "DurinPythonModule.h"
 #include "MCPServerSubsystem.h"
 #include "PythonEditorSubsystem.h"
+#include "Editor/EditorEngine.h"
 
 namespace Durin
 {
@@ -61,25 +62,26 @@ namespace Durin
 		Provider = FModuleStartup::GetModuleName();
 		FModuleManager::Get().LoadModuleChecked("DurinPython");
 		EditorRegistration = std::make_unique<FEditorSubsystemRegistration>(FSubsystemDescriptor{
-			.Type = DMCPServerSubsystem::StaticClass(), .Provider = FModuleStartup::GetModuleName(),
-			.Dependencies = {DPythonEditorSubsystem::StaticClass()}});
+			.Type = DMCPServerSubsystem::StaticClass(), .Provider = FModuleStartup::GetModuleName()});
 	}
 	auto FDurinMCPModule::CanShutdownModule() const -> bool
-	{ return FEditorSubsystemCollection::CanSynchronizeActiveEditor(Provider); }
+	{ return FEditorSubsystemCollection::CanUpdateActiveEditor(); }
 	auto FDurinMCPModule::ShutdownModule() -> void
 	{
 		require(CanShutdownModule());
+		FEditorSubsystemCollection::RemoveAllInstances(Provider);
 		EditorRegistration.reset();
-		FEditorSubsystemCollection::SynchronizeActiveEditor();
 		StopServer();
 	}
 	DMCPServerSubsystem::DMCPServerSubsystem(const FObjectInitializer& Initializer) : Super(Initializer) {}
-	auto DMCPServerSubsystem::Initialize() -> FSubsystemResult
+	auto DMCPServerSubsystem::Initialize(FSubsystemCollection& Collection) -> void
 	{
+		auto* Python = Collection.InitializeDependency<DPythonEditorSubsystem>();
+		if (GetEditor()->IsShutdownRequested()) return;
+		requiref(Python, "MCP requires the Python editor subsystem.");
 		Module = static_cast<FDurinMCPModule*>(FModuleManager::Get().GetModule("DurinMCP"));
 		check(Module);
 		Module->StartForEditor(*GetEditor());
-		return {};
 	}
 	auto DMCPServerSubsystem::Deinitialize() noexcept -> void
 	{

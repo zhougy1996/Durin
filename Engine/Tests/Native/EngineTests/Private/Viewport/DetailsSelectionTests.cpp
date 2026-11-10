@@ -67,7 +67,7 @@ TEST(FLevelEditorContextSelectionTests, ActorSelectionDefaultsToActorAndClearsEx
 {
 	InitializeDObjectSystem();
 	auto* World = Durin::NewObject<Durin::DWorld>(nullptr, "SharedSelectionWorld");
-	EXPECT_TRUE(World->InitializeSubsystems());
+	EXPECT_NO_THROW(World->InitializeSubsystems());
 	auto* Level = Durin::NewObject<Durin::DLevel>(World, "SharedSelectionLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	auto* Actor = Level->SpawnActor<Durin::AActor>("SelectedActor");
@@ -104,7 +104,7 @@ TEST(FLevelEditorContextSelectionTests, SharesComponentAndRepairsTypedSubElement
 {
 	InitializeDObjectSystem();
 	auto* World = Durin::NewObject<Durin::DWorld>(nullptr, "SharedSelectionWorld");
-	EXPECT_TRUE(World->InitializeSubsystems());
+	EXPECT_NO_THROW(World->InitializeSubsystems());
 	auto* Level = Durin::NewObject<Durin::DLevel>(World, "SharedSelectionLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	auto* Actor = Level->SpawnActor<Durin::AActor>("SelectedActor");

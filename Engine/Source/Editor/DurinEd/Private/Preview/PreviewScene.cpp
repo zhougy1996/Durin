@@ -39,14 +39,20 @@ namespace Durin::Editor
 		AddToRoot(World.Get());
 		World->SetWorldType(EWorldType::EditorPreview);
 		World->SetRenderScene(RenderScene.get());
-		if (auto Result = World->InitializeSubsystems(); !Result)
-			Error = Result.Message;
-		else if (!World->SetCurrentLevel(Level.Get(), false))
+		try { World->InitializeSubsystems(); }
+		catch (...) { ReleaseResources(); throw; }
+		if (World->IsShutdownRequested()) Error = "Preview World retired during initialization.";
+		if (Error.empty() && !World->SetCurrentLevel(Level.Get(), false))
 			Error = "The preview level could not be attached to its world.";
 		if (!Error.empty()) World->Shutdown();
 	}
 
 	FPreviewScene::~FPreviewScene()
+	{
+		ReleaseResources();
+	}
+
+	auto FPreviewScene::ReleaseResources() -> void
 	{
 		checkf(IsInGameThread(), "Preview scenes must be destroyed on the game thread.");
 		if (World)

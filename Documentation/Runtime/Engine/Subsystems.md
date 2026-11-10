@@ -4,7 +4,7 @@ Summary: Define shared native subsystem registration, construction, retention, r
 
 Modules: Engine, Core, CoreDObject
 
-Last reviewed: 2026-11-09
+Last reviewed: 2026-11-10
 
 ## Scope And Ownership
 
@@ -34,7 +34,7 @@ graph, or registration scan over reflected classes.
 
 A provider retains an explicit registration token from module startup until
 module shutdown. `FEngineSubsystemRegistration` accepts an `FSubsystemDescriptor`
-with concrete Type, Provider and same-collection Dependencies. Production
+with concrete Type and Provider. Production
 providers use their actual `FModuleStartup::GetModuleName()`; an empty Provider
 is reserved for statically linked fixtures. Add new reflected headers to the
 owning module's `ReflectHeaders` manifest.
@@ -59,74 +59,99 @@ returns null until that concrete object's Initialize succeeds. A service may
 query previously initialized dependencies during its own initialization. It
 remains queryable during dependent cleanup until its own Deinitialize returns.
 
-`FSubsystemRegistration` stores scope identity and the common descriptor only;
-its snapshots contain Type, Provider, Dependencies and RegistrationIdentity.
+`FSubsystemRegistration` stores scope identity, Type and Provider. Its registration
+catalog is enumerated for initial population and explicit additions.
 World registration owns a separate strongly typed catalog for its Tick policy.
 The common kernel receives only common descriptors. Engine and World token
 changes affect future collections only. Editor module-load callers and stopping
-providers explicitly synchronize at host safe points; there is no per-frame
-registration poll or collection reconciliation. See the Editor subsystem contract.
+providers explicitly add or remove services at host safe points. There is no
+registration diff, per-frame poll or collection reconciliation.
 
 Concrete subsystem classes require a published class default object (CDO).
 `ShouldCreateSubsystem(DObject* Outer) const` is a read-only creation query on that
 CDO. It runs before instance construction and dependency resolution; returning
-false excludes the proposed instance. A selected service requiring an excluded
-dependency reports MissingDependency. Existing instances are not reevaluated on
-explicit synchronization. Changing a live type's registration identity is
-rejected before instance or eligibility callbacks. Recreating a service requires
-an earlier synchronization that completed its removal; changing consumer tokens
-does not authorize replacement. Callers own consumer stop and reconnect order.
+false excludes the proposed instance. A consumer checks a null dependency pointer
+when the dependency is required. Existing instances are not reevaluated on
+repeated addition. Adding an existing type reuses its instance. Recreating a
+service requires explicit removal followed by addition. Registration token churn
+does not replace a live instance. Callers own consumer stop and reconnect order.
 Constructors establish defaults; host resources belong in Initialize/Deinitialize.
 
 ## Common Lifecycle
 
-Call registration, lookup and lifecycle operations on the game thread. Declare
-same-collection dependencies, and implement `Deinitialize` as non-throwing cleanup
+Call registration, lookup and lifecycle operations on the game thread. Request
+same-collection dependencies in `Initialize(FSubsystemCollection& Collection)`
+using `Collection.InitializeDependency<T>()`. Lifecycle methods return void;
+single-service addition and dependency initialization return pointers. There is
+no subsystem result structure or error enum. Implement `Deinitialize` as non-throwing cleanup
 that also tolerates failed initialization. External callbacks that use host
 resources enter through `DispatchSubsystemCallback`.
 
-The collection validates descriptors and initializes dependencies before their
-users, choosing the first available qualified type name in lexical order. Both
+Dependency initialization runs on demand before returning to the consumer's
+Initialize callback. Missing or excluded dependencies return null. Invalid scope
+and recursive dependency initialization are assertion failures. Required dependencies
+are consumer contracts; optional dependencies may be null. Invalid lifecycle
+entry, missing CDOs and inactive providers are also contract violations, not
+recoverable initialization failures. Business failures belong to concrete services
+and their operations. Both
 typed and runtime-type lookup return only initialized instances. Dependencies
 remain queryable until their own Deinitialize returns; lookup is independent of
 permission to execute scripts, tools or new work.
 
-Descriptor ordering rejects the complete set on duplicate types, missing or
-wrong-scope dependencies, or cycles; it never returns a valid subset for partial
-application. Dynamic synchronization completes descriptor validation before
-closing instance gates or changing membership. Invalid updates preserve existing
-instances; initialization failures after a valid update still clean the failed
-object and roll back newly constructed services.
+There is no descriptor dependency graph or whole-update validation. Additions
+run sequentially; a failed addition cleans its own object and preserves already
+initialized services, including dependencies created earlier in that call. A
+later explicit addition can retry it. Completion order determines reverse cleanup
+order. Removal does not inspect or automatically remove consumers; callers stop
+and remove them before removing the services they use.
 
-Initialization is one-shot: Uninitialized becomes Initializing, then Ready or
-Failed. Errors and exceptions also clean the failed object. Deinitialization
-closes work, reverse-deinitializes constructed services and releases collection
+Initialization is one-shot: Uninitialized becomes Initializing, then Ready.
+Unexpected user callback exceptions clean the failed object and propagate unchanged;
+initial collection setup also cleans previously constructed services and reaches
+terminal Shutdown. There is no Failed state or generic initialization failure
+protocol. Hosts do not translate subsystem exceptions into business results.
+Unpublished World, PIE package and preview resources still receive exception cleanup.
+A shutdown
+requested by a callback completes cleanup without manufacturing an initialization
+error, and the host checks retirement before publishing its World. Deinitialization
+invalidates external references, reverse-deinitializes constructed services and releases collection
 references. It does not mark objects as garbage: external strong references can
 retain stopped objects until ordinary GC. Their later destruction does not shut
-down the host again. An explicit deinitialization may transition Failed to
-Shutdown; neither terminal state admits reinitialization.
+down the host again. Shutdown does not admit reinitialization.
 
-The framework protects lifecycle and close-notification callbacks from GC and
-reentrant collection cleanup. Shutdown requests close work immediately; cleanup
-waits for active callbacks to unwind. Closing work preserves dependency lookup
-while rejecting new work. Host shutdown owns the surrounding World, play and
-resource teardown; see [World subsystems](../World/WorldSubsystems.md).
+The framework protects lifecycle and reference-invalidation callbacks from GC and
+reentrant collection cleanup. Shutdown requests record host retirement immediately;
+cleanup waits for active callbacks to unwind. The host issues its shutdown
+notification once, including when a consumer requests shutdown recursively;
+later calls finish deferred teardown. Dependency lookup remains available during
+cleanup. Host dispatch and public service entries enforce admission. Private
+synchronous execution relies on that boundary; asynchronous completions and
+retained endpoints still validate cancellation and lifetime. Host shutdown owns
+the surrounding World, play and resource teardown; see
+[World subsystems](../World/WorldSubsystems.md).
 External callbacks dispatched through `DispatchSubsystemCallback` defer GC until
-they unwind. Host operation state postpones cleanup and host destruction;
+they unwind through the host operation scope. Callback and editor synchronization
+wrappers rely on that scope instead of adding a second GC deferral. Collections
+retain their own GC protection for independent lifecycle calls.
+Host operation state postpones cleanup and host destruction;
 subsystem finish-destroy readiness does not delegate to the host.
 
 ## Work And Code Lifetime
 
-`GetWorkGate()` returns a shared cancellation identity. Workers capture detached
-inputs and this gate, never a subsystem or host object. Game-thread completion
-checks IsOpen before resolving endpoints or publishing. Closing a gate does not
-join workers, release their captures or stop code already running. Never wait on
-the game thread for a completion that needs that same thread.
+The subsystem base and collection do not own task cancellation. Each consumer
+owns its task handles, cancellation sources and publication checks. Workers
+capture detached inputs and consumer-owned cancellation state. Game-thread
+completion checks cancellation and the intended live service before publishing.
+Durin task and tool cancellation are cooperative; cancellation does not join
+workers, release captures or stop code already running. A task cancellation token
+copy is a snapshot; detached work that must observe later cancellation shares the
+same token object. Tool cancellation sources already supply shared token state.
+Never wait on the game thread for a completion that needs that same thread.
 
-Work gates only cancel work; they do not pin provider or Engine code. Deinitialize
-unregisters external callbacks and releases resources; module-owned tasks still
-use the module async-operation protocol and must finish before module shutdown
-returns. Providers remain process-resident unless they implement the complete
+Deinitialize cancels/drains consumer-owned work, unregisters external callbacks
+and releases resources. Module-owned tasks still use the module async-operation
+protocol and must finish before module shutdown returns.
+Providers remain process-resident unless they implement the complete
 object, reflected-type and callable cleanup needed for dynamic DLL release.
 There is no code-lease accounting in subsystem objects or ModuleManager.
 Editor providers remove
@@ -144,10 +169,11 @@ The Editor performs this admission after shell presentation; Project Browser has
 no initial project World or project-scoped Engine services. Worlds
 whose Outer is an Engine register a scoped initialization reference with that
 host, so retirement also closes unpublished World admission; the reference is
-removed after the World operation unwinds. Init
-exceptions and returned failures request the same idempotent cleanup as exit.
+removed after the World operation unwinds. Returned host initialization failures
+request ordinary shutdown. Unexpected subsystem callback exceptions clean partial
+collection and unpublished World state before propagating to the outer execution boundary.
 
-Shutdown closes gates, retires editor consumers when present, shuts down the
+Shutdown records retirement, stops concrete editor consumers when present, shuts down the
 remaining World while Engine services are available, deinitializes Engine
 services, then releases viewport view states. BeginDestroy additionally releases
 scene/default-material resources and retains its render fence. Each host's own

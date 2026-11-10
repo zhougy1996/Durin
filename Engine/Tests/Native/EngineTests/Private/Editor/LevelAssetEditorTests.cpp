@@ -62,10 +62,10 @@ namespace
 		{
 			auto* Host = NewObject<FLevelSessionTestEngine>(nullptr, {});
 			Hosts.emplace_back(Host);
-			ASSERT_TRUE(FEditorEngineTestAccess::StartEditor(*Host));
+			ASSERT_NO_THROW(FEditorEngineTestAccess::StartEditor(*Host));
 			auto* World = NewObject<DWorld>(Host, "LevelSessionWorld");
 			World->SetWorldType(EWorldType::Editor);
-			ASSERT_TRUE(World->InitializeSubsystems());
+			ASSERT_NO_THROW(World->InitializeSubsystems());
 			ASSERT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World, "Scene")));
 			FEditorEngineTestAccess::SetEditorWorld(*Host, World);
 			auto* Service = Host->GetEditorSubsystem<DAssetEditorSubsystem>();

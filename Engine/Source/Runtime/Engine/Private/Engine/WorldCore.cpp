@@ -32,21 +32,18 @@ namespace Durin
 		return true;
 	}
 
-	auto DWorld::InitializeSubsystems(DEngine* Host) -> FWorldSubsystemResult
+	auto DWorld::InitializeSubsystems(DEngine* Host) -> void
 	{
-		if (Operation != EOperation::Idle)
-			return {EWorldSubsystemError::InvalidState, "World operation is in progress."};
-		if (Host && HostEngine.IsValid() && HostEngine.Get() != Host)
-			return {EWorldSubsystemError::InvalidState, "World already belongs to another host."};
+		requiref(Operation == EOperation::Idle, "World operation is in progress.");
+		requiref(!Host || !HostEngine.IsValid() || HostEngine.Get() == Host, "World already belongs to another host.");
 		if (!HostEngine.IsValid()) HostEngine = Host ? Host : Cast<DEngine>(GetOuter());
 		TStrongObjectPtr<DWorld> InitializationGuard(this);
 		std::optional<DEngine::FWorldInitializationScope> HostScope;
 		if (auto* Owner = HostEngine.Get()) HostScope.emplace(*Owner, *this);
 		FOperationScope OperationScope(*this, EOperation::Initializing);
-		auto Result = Subsystems.Initialize();
-		if (Result && !bShutdownRequested)
+		Subsystems.Initialize();
+		if (!bShutdownRequested)
 			if (auto* Owner = HostEngine.Get()) Owner->RegisterWorldContext(*this);
-		return Result;
 	}
 
 	auto DWorld::AddReferencedObjects(FReferenceCollector& Collector) -> void
@@ -78,7 +75,7 @@ namespace Durin
 	{
 		require(!GIsGameThreadIdInitialized || IsInGameThread());
 		bShutdownRequested = true;
-		Subsystems.CloseWork();
+		Subsystems.RequestDeinitialize();
 	}
 
 	auto DWorld::Shutdown() -> void

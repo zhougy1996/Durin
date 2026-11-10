@@ -2683,7 +2683,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	SetFixtureMaterial(Opaque);
 	auto* SkyWorld = Durin::NewObject<Durin::DWorld>(nullptr, "ParityWorld");
 	Durin::AddToRoot(SkyWorld);
-	ASSERT_TRUE(SkyWorld->InitializeSubsystems());
+	ASSERT_NO_THROW(SkyWorld->InitializeSubsystems());
 	SkyWorld->SetRenderScene(&Scene);
 	ASSERT_TRUE(SkyWorld->SetCurrentLevel(Durin::NewObject<Durin::DLevel>(SkyWorld,"ParityLevel")));
 	auto* Sky = SkyWorld->SpawnActor<Durin::AProceduralSkyActor>("ParitySky")->GetSkyComponent();

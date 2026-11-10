@@ -69,7 +69,7 @@ namespace
 		{
 			auto* World = NewObject<DWorld>(nullptr, FName(Name));
 			Worlds.emplace_back(World);
-			EXPECT_TRUE(World->InitializeSubsystems());
+			EXPECT_NO_THROW(World->InitializeSubsystems());
 			return World;
 		}
 

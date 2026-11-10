@@ -19,12 +19,12 @@ namespace Durin::Tests
 			Testing::InitializeDObjectSystemForTests();
 			Editor = NewObject<DEditorEngine>(nullptr, "ActorTestEditor");
 			World = NewObject<DWorld>(Editor.Get(), "ActorTestWorld");
-			if (!World->SetWorldType(EWorldType::Editor) || !World->InitializeSubsystems()
-				|| !World->SetCurrentLevel(NewObject<DLevel>(World.Get(), "ActorTestLevel")))
+			if (!World->SetWorldType(EWorldType::Editor)) throw std::runtime_error("Actor fixture world type is immutable.");
+			World->InitializeSubsystems();
+			if (!World->SetCurrentLevel(NewObject<DLevel>(World.Get(), "ActorTestLevel")))
 				throw std::runtime_error("Actor editor fixture world initialization failed.");
 			FEditorEngineTestAccess::SetEditorWorld(*Editor, World.Get());
-			if (!FEditorEngineTestAccess::StartEditor(*Editor))
-				throw std::runtime_error("Actor editor fixture initialization failed.");
+			FEditorEngineTestAccess::StartEditor(*Editor);
 		}
 		~FActorEditorFixture()
 		{

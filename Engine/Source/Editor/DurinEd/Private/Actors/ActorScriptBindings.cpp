@@ -28,7 +28,7 @@ namespace Durin
         auto* Call = FScopedEditorScriptCall::Current();
         auto* Host = GetEditor();
         if (!Call || !Call->IsAdmitted() || Call->GetContext().Host != Host
-            || !IsValid(this) || !GetWorkGate() || !GetWorkGate()->IsOpen()
+            || !IsValid(this) || !IsValid(Host) || Host->IsShutdownRequested()
             || Host->GetEditorSubsystem<DEditorActorSubsystem>() != this)
         { RejectScriptCall("Actor query requires the admitting editor Host and live service."); return nullptr; }
         auto* World = Host->GetEditorWorld();

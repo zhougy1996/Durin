@@ -8,7 +8,6 @@ namespace Durin
 {
 	class DEditorEngine;
 	class DEditorToolSubsystem;
-	class FSubsystemWorkGate;
 
 	struct FEditorToolInvocationId
 	{
@@ -74,13 +73,15 @@ namespace Durin
 		// catalog identity is rechecked; callbacks may access owned job data only.
 		using FPythonJobControl = std::function<FToolResult(const FToolRequest&, const FToolContext&)>;
 		DURINED_API auto BindPythonJobControl(uint64 ToolsetIdentity, FPythonJobControl Control) -> void;
-		DURINED_API auto GetWorkGate() const -> std::shared_ptr<const FSubsystemWorkGate>;
+		DURINED_API auto GetCancellationToken() const -> FToolCancellationToken;
+		DURINED_API auto GetSessionId() const -> uint64;
 		// GameThread configuration, permitted only with no queued/running invocation.
 		[[nodiscard]] DURINED_API auto Configure(const FEditorToolLimits& Limits) -> FToolValidationResult;
 	private:
-		explicit FEditorToolService(DEditorEngine& Editor, std::shared_ptr<const FSubsystemWorkGate> Gate);
+		explicit FEditorToolService(DEditorEngine& Editor);
 		auto RefreshCatalog() -> void;
 		auto CanDispatch() const -> bool;
+		// Only the subsystem calls these, after admission and inside the host callback scope.
 		auto Call(const FToolRequest& Request, EToolSource Source, bool bAvailabilityOnly,
 			FToolAvailability* Availability = nullptr, const FToolClientContext& Client = {},
 			FToolCancellationToken Cancellation = {}) -> FToolResult;

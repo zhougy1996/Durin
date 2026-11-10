@@ -138,7 +138,7 @@ namespace Durin::Tests::ObjectState
 			InitializeDObjectSystem();
 			World = Durin::TStrongObjectPtr<Durin::DWorld>(Durin::NewObject<Durin::DWorld>(nullptr, "TransactionAnnotationWorld"));
 			World->SetWorldType(Type);
-			EXPECT_TRUE(World->InitializeSubsystems());
+			EXPECT_NO_THROW(World->InitializeSubsystems());
 			EXPECT_TRUE(World->SetCurrentLevel(Durin::NewObject<Durin::DLevel>(World.Get(), "Level")));
 		}
 		Durin::TStrongObjectPtr<Durin::DWorld> World;

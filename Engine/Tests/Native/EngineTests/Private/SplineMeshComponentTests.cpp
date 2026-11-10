@@ -617,7 +617,7 @@ TEST(FSplineMeshComponentTests, SourcePublicationRecoversUnavailableState)
 	if (!FAssetCompilingManager::Get().IsAcceptingRequests())
 		ASSERT_TRUE(InitializeAssetCompilingManager());
 	auto* World = NewObject<DWorld>(nullptr, "SplineSourceRecoveryWorld");
-	ASSERT_TRUE(World->InitializeSubsystems());
+	ASSERT_NO_THROW(World->InitializeSubsystems());
 	auto* Level = NewObject<DLevel>(World, "SplineSourceRecoveryLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	auto* Actor = Level->SpawnActor<AActor>("SplineSourceRecoveryActor");
@@ -915,7 +915,7 @@ TEST(FSplineMeshCollisionTests, RegisteredMutationReplacesBodiesWithoutStaleHand
 	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
 		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	auto* World = NewObject<DWorld>(nullptr, "SplineMeshCollisionWorld");
-	EXPECT_TRUE(World->InitializeSubsystems());
+	EXPECT_NO_THROW(World->InitializeSubsystems());
 	auto* Level = NewObject<DLevel>(World, "SplineMeshCollisionLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	auto* Actor = Level->SpawnActor<AActor>("SplineMeshCollisionActor");
@@ -1155,7 +1155,7 @@ TEST(FSplineMeshActorTests, ClosedLoopReorderAndEmptyCurvesPreserveGuidOwnership
 	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
 		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	auto* World = NewObject<DWorld>(nullptr, "SplineMeshTopologyWorld");
-	EXPECT_TRUE(World->InitializeSubsystems());
+	EXPECT_NO_THROW(World->InitializeSubsystems());
 	auto* Level = NewObject<DLevel>(World, "SplineMeshTopologyLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	auto* Actor = Level->SpawnActor<ASplineMeshActor>("SplineMeshActor");
@@ -1291,7 +1291,7 @@ TEST(FSplineMeshCollisionTests, CombinedCollisionRoutesWorldQueriesAndRefreshesS
 {
 	InitializeDObjectSystem();
 	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
-	auto* World = NewObject<DWorld>(nullptr, "SimpleComplexWorld"); ASSERT_TRUE(World->InitializeSubsystems());
+	auto* World = NewObject<DWorld>(nullptr, "SimpleComplexWorld"); ASSERT_NO_THROW(World->InitializeSubsystems());
 	auto* Level = NewObject<DLevel>(World, "SimpleComplexLevel"); ASSERT_TRUE(World->SetCurrentLevel(Level));
 	auto* Actor = Level->SpawnActor<AActor>("Owner");
 	auto* Component = Cast<DSplineMeshComponent>(Actor->AddInstanceComponent(DSplineMeshComponent::StaticClass(), "Spline"));
@@ -1354,7 +1354,7 @@ TEST(FSplineMeshCollisionTests, DomainUpdatesPublishOnceAndReuseUnaffectedGeomet
 {
 	InitializeDObjectSystem();
 	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
-	auto* World = NewObject<DWorld>(nullptr, "CollisionTransactionWorld"); ASSERT_TRUE(World->InitializeSubsystems());
+	auto* World = NewObject<DWorld>(nullptr, "CollisionTransactionWorld"); ASSERT_NO_THROW(World->InitializeSubsystems());
 	auto* Level = NewObject<DLevel>(World, "CollisionTransactionLevel"); ASSERT_TRUE(World->SetCurrentLevel(Level));
 	auto* Mesh = DStaticMesh::CreateDebugTriangle(Level);
 	auto* Source = NewObject<DBodySetup>(Mesh, "Source"); ASSERT_TRUE(Mesh->SetBodySetup(Source));
@@ -1488,7 +1488,7 @@ TEST(FSplineMeshCollisionTests, WorldQueriesDefaultToSimpleAndDebugCapturesPubli
 {
 	InitializeDObjectSystem();
 	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
-	auto* World = NewObject<DWorld>(nullptr, "PublishedSplineQueries"); ASSERT_TRUE(World->InitializeSubsystems());
+	auto* World = NewObject<DWorld>(nullptr, "PublishedSplineQueries"); ASSERT_NO_THROW(World->InitializeSubsystems());
 	auto* Level = NewObject<DLevel>(World, "PublishedSplineLevel"); ASSERT_TRUE(World->SetCurrentLevel(Level));
 	auto* Actor = Level->SpawnActor<AActor>("Owner");
 	auto* Component = Cast<DSplineMeshComponent>(Actor->AddInstanceComponent(DSplineMeshComponent::StaticClass(), "Spline"));

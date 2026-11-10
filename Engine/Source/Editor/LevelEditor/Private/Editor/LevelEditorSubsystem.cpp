@@ -24,8 +24,7 @@ namespace Durin
 		if (!IsInGameThread()) return std::unexpected(Result(false, "Play controls require the game thread."));
 		if (!IsValid(this)) return std::unexpected(Result(false, "The level editor service is unavailable."));
 		auto* Editor = GetEditor();
-		const auto Gate = GetWorkGate();
-		if (!IsValid(Editor) || !Gate || !Gate->IsOpen() || Editor->GetEditorSubsystem<DLevelEditorSubsystem>() != this)
+		if (!IsValid(Editor) || Editor->IsShutdownRequested() || Editor->GetEditorSubsystem<DLevelEditorSubsystem>() != this)
 			return std::unexpected(Result(false, "The level editor service is unavailable or retiring."));
 		return Editor;
 	}

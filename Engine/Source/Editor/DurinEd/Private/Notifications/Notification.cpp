@@ -1,5 +1,4 @@
 #include "Notifications/Notification.h"
-#include "Engine/Subsystem.h"
 
 namespace Durin::Editor
 {
@@ -14,9 +13,8 @@ namespace Durin::Editor
 
 	}
 
-	FNotificationManager::FNotificationManager(std::shared_ptr<const FSubsystemWorkGate> Gate,
-		std::function<void(std::function<void()>)> InDispatcher)
-		: WorkGate(std::move(Gate)), Dispatcher(std::move(InDispatcher)) {}
+	FNotificationManager::FNotificationManager(std::function<void(std::function<void()>)> InDispatcher)
+		: Dispatcher(std::move(InDispatcher)) {}
 
 	FNotificationManager::~FNotificationManager() { Retire(); }
 
@@ -36,8 +34,8 @@ namespace Durin::Editor
 	auto FNotificationManager::GuardCallback(std::function<void()> Callback) const -> std::function<void()>
 	{
 		if (!Callback) return {};
-		return [Open = Admission, Gate = WorkGate, Dispatch = Dispatcher, Callback = std::move(Callback)] {
-			if (!Open->load() || (Gate && !Gate->IsOpen())) return;
+		return [Open = Admission, Dispatch = Dispatcher, Callback = std::move(Callback)] {
+			if (!Open->load()) return;
 			if (Dispatch) Dispatch(Callback);
 			else Callback();
 		};
@@ -47,15 +45,15 @@ namespace Durin::Editor
 	{
 		if (!Action) return {};
 		Action->Invoke = GuardCallback(std::move(Action->Invoke));
-		Action->IsEnabled = [Open = Admission, Gate = WorkGate, Dispatch = Dispatcher, Enabled = std::move(Action->IsEnabled)] {
-			if (!Open->load() || (Gate && !Gate->IsOpen())) return false;
+		Action->IsEnabled = [Open = Admission, Dispatch = Dispatcher, Enabled = std::move(Action->IsEnabled)] {
+			if (!Open->load()) return false;
 			bool bEnabled = true;
 			if (Enabled)
 			{
 				if (Dispatch) Dispatch([&] { bEnabled = Enabled(); });
 				else bEnabled = Enabled();
 			}
-			return bEnabled && Open->load() && (!Gate || Gate->IsOpen());
+			return bEnabled && Open->load();
 		};
 		return Action;
 	}
@@ -150,7 +148,7 @@ namespace Durin::Editor
 
 	auto FNotificationManager::Tick(float DeltaSeconds) -> void
 	{
-		if (!Admission->load() || (WorkGate && !WorkGate->IsOpen())) return;
+		if (!Admission->load()) return;
 		std::vector<std::function<void()>> Commands;
 		{
 			std::scoped_lock Lock(PendingMutex);
@@ -188,7 +186,7 @@ namespace Durin::Editor
 
 	auto FNotificationManager::InvokeAction(FNotificationId Id) -> bool
 	{
-		if (!Admission->load() || (WorkGate && !WorkGate->IsOpen())) return false;
+		if (!Admission->load()) return false;
 		FNotification* Notification = Find(Id);
 		if (!Notification) Notification = FindStatus(Id);
 		if (!Notification) Notification = FindHistory(Id);
@@ -203,7 +201,7 @@ namespace Durin::Editor
 
 	auto FNotificationManager::RequestCancel(FNotificationId Id) -> bool
 	{
-		if (!Admission->load() || (WorkGate && !WorkGate->IsOpen())) return false;
+		if (!Admission->load()) return false;
 		FNotification* Notification = Find(Id);
 		if (!Notification) Notification = FindStatus(Id);
 		if (!Notification) Notification = FindHistory(Id);
@@ -222,7 +220,7 @@ namespace Durin::Editor
 	auto FNotificationManager::Enqueue(std::function<void()> Command) -> bool
 	{
 		std::scoped_lock Lock(PendingMutex);
-		if (!Admission->load() || (WorkGate && !WorkGate->IsOpen())) return false;
+		if (!Admission->load()) return false;
 		PendingCommands.emplace_back(std::move(Command));
 		return true;
 	}

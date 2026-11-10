@@ -136,8 +136,9 @@ namespace Durin
 			World = NewObject<DWorld>(&Host, FName(std::format("SceneCandidate{}", Id)));
 			World->SetWorldType(Host.GetInitialWorldType());
 			World->SetRenderScene(Scene.get());
-			if (const auto Services = World->InitializeSubsystems(&Host); !Services) return Fail(Services.Message);
+			World->InitializeSubsystems(&Host);
 			if (bCancelRequested) return;
+			if (World->IsShutdownRequested()) return Fail("Candidate World retired during initialization.");
 			if (!World->SetCurrentLevel(GetLevel())) return Fail("Level registration was rejected; the previous document remains active.");
 			if (bCancelRequested) return;
 			if (GameMode.has_value())

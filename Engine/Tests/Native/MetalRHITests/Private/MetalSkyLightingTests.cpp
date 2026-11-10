@@ -67,7 +67,7 @@ TEST(FMetalSkyLightingTests, CapturedAndSpecifiedSourcesMatchEnergyAcrossBackend
         auto& Scene = static_cast<FScene&>(*SceneOwner);
         auto* World = NewObject<DWorld>(nullptr, "MetalSkyWorld");
         AddToRoot(World);
-        ASSERT_TRUE(World->InitializeSubsystems());
+        ASSERT_NO_THROW(World->InitializeSubsystems());
         World->SetRenderScene(&Scene);
         ASSERT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World, "SkyLevel")));
         auto* Sky = World->SpawnActor<AProceduralSkyActor>("Sky")->GetSkyComponent();

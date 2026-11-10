@@ -54,7 +54,7 @@ namespace
 		InitializeDObjectSystem();
 		auto* World = Durin::NewObject<Durin::DWorld>(Outer, "TestWorld");
 		World->SetWorldType(Type);
-		EXPECT_TRUE(World->InitializeSubsystems());
+		EXPECT_NO_THROW(World->InitializeSubsystems());
 		return World;
 	}
 

@@ -45,9 +45,9 @@ namespace
 		{
 			Testing::InitializeDObjectSystemForTests();
 			Host = TStrongObjectPtr<DEditorEngine>(NewObject<DEditorEngine>(nullptr, {}));
-			ASSERT_TRUE(FEditorEngineTestAccess::StartEditor(*Host));
+			ASSERT_NO_THROW(FEditorEngineTestAccess::StartEditor(*Host));
 			ASSERT_TRUE(FModuleManager::Get().LoadModule("LevelEditor"));
-			ASSERT_TRUE(Host->SynchronizeEditorSubsystems()); Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
+			ASSERT_NO_THROW(Host->AddRegisteredEditorSubsystems()); Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
 			auto Started = Server.Start(*Host, {.BearerToken = std::string(Token)});
 			ASSERT_TRUE(Started) << Started.error(); Port = *Started;
 			Connect();
@@ -383,7 +383,7 @@ namespace
 		auto Started = Server.Start(*Host, {.Port = FixedPort, .BearerToken = std::string(Token)}); ASSERT_TRUE(Started);
 		Port = FixedPort; Connect();
 		auto* World = NewObject<DWorld>(Host, "MCPEditorWorld"); World->SetWorldType(EWorldType::Editor);
-		ASSERT_TRUE(World->InitializeSubsystems());
+		ASSERT_NO_THROW(World->InitializeSubsystems());
 		auto* Level = NewObject<DLevel>(World, "MCPEditorLevel"); ASSERT_TRUE(World->SetCurrentLevel(Level));
 		FEditorEngineTestAccess::SetEditorWorld(*Host, World);
 		const auto Done = std::filesystem::path(Control) / "done";
@@ -484,7 +484,7 @@ TEST(FMCPEditorSessionTests, EditorSubsystemStartsAndStopsTransportWithoutMainFr
         TStrongObjectPtr<DEditorEngine>& Editor;
         ~FCleanup() { Editor->PrepareForShutdown(); MarkObjectHierarchyAsGarbage(Editor.Get()); Editor.Reset(); CollectGarbage(); }
     } Cleanup{Editor};
-    ASSERT_TRUE(FEditorEngineTestAccess::StartEditor(*Editor));
+    ASSERT_NO_THROW(FEditorEngineTestAccess::StartEditor(*Editor));
     ASSERT_NE(Editor->GetEditorSubsystem<DMCPServerSubsystem>(), nullptr);
     const auto Port = FMCPModuleTestAccess::Port(Module);
     ASSERT_NE(Port, 0u);
@@ -494,7 +494,7 @@ TEST(FMCPEditorSessionTests, EditorSubsystemStartsAndStopsTransportWithoutMainFr
     auto Result = Client.Post("/mcp", Headers(), Body("initialize", InitializeParams()), "application/json");
     ASSERT_TRUE(Result);
     EXPECT_EQ(200, Result->status);
-    ASSERT_TRUE(Editor->SynchronizeEditorSubsystems());
+    ASSERT_NO_THROW(Editor->AddRegisteredEditorSubsystems());
     EXPECT_EQ(Port, FMCPModuleTestAccess::Port(Module));
     // ModuleManager enters ShuttingDown before the provider retires its services.
     const auto Info = FModuleManager::Get().FindModule("DurinMCP");

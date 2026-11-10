@@ -13,5 +13,5 @@ namespace Durin::PythonReflection
     auto GetType(std::string_view QualifiedName) -> _object*;
     auto GetEditorSubsystem(_object* Type) -> _object*;
     auto GenerateStubs() -> _object*;
-    auto PurgeGate(const FSubsystemWorkGate* Gate) -> void;
+    auto PurgeEndpoint(uint64 EndpointId) -> void;
 }

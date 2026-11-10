@@ -22,7 +22,7 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		DURINED_API explicit DAssetEditorSubsystem(const FObjectInitializer& Initializer);
-		DURINED_API auto Initialize() -> FSubsystemResult override;
+		DURINED_API auto Initialize(FSubsystemCollection& Collection) -> void override;
 		DURINED_API auto Deinitialize() noexcept -> void override;
 		DURINED_API auto CanOpenEditorForAsset(DObject* Asset, std::string* OutErrorMsg = nullptr) -> bool;
 		DURINED_API auto OpenEditorForAsset(DObject* Asset) -> bool;

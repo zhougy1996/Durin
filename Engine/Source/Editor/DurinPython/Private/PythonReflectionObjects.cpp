@@ -2,16 +2,35 @@
 #if DURIN_WITH_PYTHON
 #include "Editor/EditorEngine.h"
 #include "Editor/EditorSubsystem.h"
+#include "Engine/EngineSubsystem.h"
+#include "Engine/WorldSubsystem.h"
+#include "Engine/World.h"
 
 namespace Durin::PythonReflection::Private
 {
+    static auto IsLiveService(DObject* Object, const FEditorScriptCallContext& Context) -> bool
+    {
+        if (auto* Service = Cast<DEditorSubsystem>(Object))
+            return !Context.Host->IsShutdownRequested() && Context.Host->GetEditorSubsystem(Object->GetClass()) == Service;
+        if (auto* Service = Cast<DWorldSubsystem>(Object))
+        {
+            auto* World = Service->GetWorld();
+            return IsValid(World) && !World->IsShutdownRequested() && World->GetSubsystem(Object->GetClass()) == Service;
+        }
+        if (auto* Service = Cast<DEngineSubsystem>(Object))
+        {
+            auto* Engine = Service->GetEngine();
+            return IsValid(Engine) && !Engine->IsShutdownRequested() && Engine->GetSubsystem(Object->GetClass()) == Service;
+        }
+        return !Cast<DSubsystem>(Object);
+    }
     auto Resolve(FObject* Self, const FEditorScriptCallContext& Context) -> DObject*
     {
         auto& State = *Self->State;
         if (State.Purged || !State.Root.IsValid()) { State.Purge(); Error(PyExc_ReferenceError, "Native object has been destroyed or purged."); return nullptr; }
-        if (State.Host != FObjectKey(Context.Host) || State.Gate != Context.Gate)
+        if (State.Host != FObjectKey(Context.Host) || State.EndpointId != Context.EndpointId)
         { Error(Registry->AccessError, "Object belongs to another editor Host or endpoint generation."); return nullptr; }
-        if (!State.Gate->IsOpen() || (State.ServiceGate && !State.ServiceGate->IsOpen()))
+        if (!IsLiveService(State.Root.Get(), Context))
         { State.Purge(); Error(PyExc_ReferenceError, "Native object service has retired."); return nullptr; }
         if (!ModuleAvailable(State.Root.Get()->GetClass()))
         { Error(Registry->AccessError, "Native type module is stopped or unavailable."); return nullptr; }
@@ -31,7 +50,7 @@ namespace Durin::PythonReflection::Private
     auto Hash(FObject* Self) -> Py_hash_t
     {
         const auto& S = *Self->State;
-        const auto Value = S.Host.GetHash() ^ S.Target.GetHash() ^ std::hash<const void*>{}(S.Gate.get());
+        const auto Value = S.Host.GetHash() ^ S.Target.GetHash() ^ std::hash<uint64>{}(S.EndpointId);
         const auto Result = static_cast<Py_hash_t>(Value); return Result == -1 ? -2 : Result;
     }
     auto Compare(PyObject* Left, PyObject* Right, int Op) -> PyObject*
@@ -43,7 +62,7 @@ namespace Durin::PythonReflection::Private
         { Py_IncRef(Py_NotImplemented); return Py_NotImplemented; }
         const auto& A = *reinterpret_cast<FObject*>(Left)->State;
         const auto& B = *reinterpret_cast<FObject*>(Right)->State;
-        const bool Equal = A.Host == B.Host && A.Target == B.Target && A.Gate == B.Gate;
+        const bool Equal = A.Host == B.Host && A.Target == B.Target && A.EndpointId == B.EndpointId;
         return PyBool_FromLong(Op == Py_EQ ? Equal : !Equal);
     }
     auto GetName(FObject* Self, PyObject*) -> PyObject*
@@ -68,18 +87,17 @@ namespace Durin::PythonReflection::Private
     {
         if (!IsValid(Object)) return Error(PyExc_ReferenceError, "Native object is unavailable.");
         if (!ModuleAvailable(Object->GetClass())) return Error(Registry->AccessError, "Native object module is unavailable.");
-        if (auto* Service = Cast<DSubsystem>(Object); Service && !Service->GetWorkGate()->IsOpen()) return Error(PyExc_ReferenceError, "Native object service has retired.");
+        if (!IsLiveService(Object, Context)) return Error(PyExc_ReferenceError, "Native object service has retired.");
         for (auto* Existing : Registry->Objects)
         {
             const auto& S = *Existing->State;
-            if (!S.Purged && S.Host == FObjectKey(Context.Host) && S.Gate == Context.Gate && S.Target == FObjectKey(Object))
+            if (!S.Purged && S.Host == FObjectKey(Context.Host) && S.EndpointId == Context.EndpointId && S.Target == FObjectKey(Object))
             { Py_IncRef(reinterpret_cast<PyObject*>(Existing)); return reinterpret_cast<PyObject*>(Existing); }
         }
         auto* PythonType = Build(Object->GetClass()); if (!PythonType) return nullptr;
         auto* Self = reinterpret_cast<FObject*>(reinterpret_cast<PyTypeObject*>(PythonType)->tp_alloc(reinterpret_cast<PyTypeObject*>(PythonType), 0));
         Py_DECREF(PythonType); if (!Self) return nullptr;
-        Self->State = new FObjectState{FObjectKey(Context.Host), FObjectKey(Object), Context.Gate, {}, FStrongObjectPtr(Object)};
-        if (auto* Service = Cast<DSubsystem>(Object)) Self->State->ServiceGate = Service->GetWorkGate();
+        Self->State = new FObjectState{FObjectKey(Context.Host), FObjectKey(Object), Context.EndpointId, FStrongObjectPtr(Object)};
         Registry->Objects.push_back(Self); return reinterpret_cast<PyObject*>(Self);
     }
 
