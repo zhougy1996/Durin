@@ -35,6 +35,7 @@ namespace Durin
 		if (Scene) { Scene->Release(); Scene.reset(); }
 		if (Assets) Assets->CancelHandle();
 		Assets.reset();
+		Preload.reset();
 	}
 	auto FMapChangeHandler::Fail(std::string Cause) -> void
 	{
@@ -47,7 +48,7 @@ namespace Durin
 	}
 	FMapChangeHandler::FMapChangeHandler(DEngine& InHost, FMapChangeRequest Request)
 		: Host(InHost), Path(std::move(Request.Path)), GameMode(Request.GameMode),
-		  BeforeCommit(std::move(Request.BeforeCommit)),
+		  Preload(std::move(Request.Preload)), BeforeCommit(std::move(Request.BeforeCommit)),
 		  OnComplete(std::move(Request.OnComplete))
 	{
 		CheckGameThread();
@@ -123,7 +124,8 @@ namespace Durin
 		{
 		case EMapChangePhase::LoadingAssets:
 			if (!Assets) Assets = GetStreamableManager().RequestAsyncLoad(Path, {}, DLevel::StaticClass());
-			if (!Assets->IsComplete()) return;
+			if (!Assets->IsComplete() || (Preload && !Preload->IsComplete())) return;
+			if (Preload && (Preload->HasError() || Preload->WasCanceled())) return Fail("Primary map preload failed or was canceled.");
 			if (Assets->HasError()) return Fail(Assets->GetError().Message);
 			if (!GetLevel()) return Fail("required Level is missing.");
 			SetPhase(EMapChangePhase::RegisteringWorld);
@@ -155,6 +157,7 @@ namespace Durin
 	auto FMapChangeHandler::Commit() -> void
 	{
 		World->LevelResidency = std::move(Assets);
+		Preload.reset();
 		Host.AdoptSceneWorld(World.Get(), std::move(Scene), Id);
 		World.Reset();
 		SetPhase(EMapChangePhase::Committed);

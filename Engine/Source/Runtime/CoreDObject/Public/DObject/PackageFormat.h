@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "DObject/AssetBundleData.h"
 
 #include "CoreDObjectAPI.h"
 #include "DObject/CanonicalMapKey.h"
@@ -13,9 +14,10 @@ namespace Durin::ObjectPackage
 		0x3c59d1a9, 0x6ceb4e4c, 0xb059452d, 0xb0a5af56};
 	inline constexpr std::string_view DastFormatName = "Durin.BinaryFormat.DAST";
 	inline constexpr uint32 DastV10FormatVersion = 10;
-	inline constexpr std::array SupportedPackageReaderVersions{DastV10FormatVersion};
+	inline constexpr uint32 DastV11FormatVersion = 11;
+	inline constexpr std::array SupportedPackageReaderVersions{DastV10FormatVersion, DastV11FormatVersion};
 	// Persisted projections use a policy generation so supported-reader sets cannot alias.
-	inline constexpr uint32 PackageReaderPolicyFingerprint = 0x4150430c;
+	inline constexpr uint32 PackageReaderPolicyFingerprint = 0x4150430d;
 
 	constexpr auto IsSupportedPackageReaderVersion(uint32 Version) -> bool
 	{
@@ -181,6 +183,8 @@ namespace Durin::ObjectPackage
 		FTopLevelAssetPath AssetPath;
 		std::string ClassName;
 		FSoftObjectPath RedirectDestination;
+		FPrimaryAssetId PrimaryAssetId;
+		FAssetBundleData AssetBundleData;
 
 		auto operator==(const FPackageAssetRegistryData&) const -> bool = default;
 	};

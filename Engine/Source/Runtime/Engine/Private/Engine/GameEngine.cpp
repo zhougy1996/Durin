@@ -1,4 +1,5 @@
 #include "Engine/GameEngine.h"
+#include "Engine/AssetManager.h"
 #include "Engine/MapChange.h"
 
 #include "Asset/Asset.h"
@@ -96,8 +97,17 @@ namespace Durin
 			FSoftObjectPath LevelPath;
 			if (const auto Resolution = ResolveLevelPackage(DefaultLevel, LevelPath); !Resolution)
 				return std::unexpected(Resolution.Message);
-			if (!OpenLevel({.Path = LevelPath, .GameMode = GameModeClass}))
+			auto* Manager = GetAssetManager();
+			const auto PrimaryId = Manager ? Manager->GetPrimaryAssetIdForPath(LevelPath.GetAssetPath()) : FPrimaryAssetId{};
+			const auto Preload = PrimaryId.IsValid() ? Manager->LoadPrimaryAsset(PrimaryId) : nullptr;
+			if (!OpenLevel({.Path = LevelPath, .Preload = Preload, .GameMode = GameModeClass,
+				.OnComplete = [this, PrimaryId](const FMapChangeProgress&) {
+					if (auto* Owner = GetAssetManager(); Owner && PrimaryId.IsValid()) Owner->UnloadPrimaryAsset(PrimaryId);
+				}}))
+			{
+				if (Manager && PrimaryId.IsValid()) Manager->UnloadPrimaryAsset(PrimaryId);
 				return std::unexpected("Could not start the default map change.");
+			}
 		}
 		return {};
 	}

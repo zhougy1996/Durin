@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "DObject/AssetBundleData.h"
 
 #include "AssetRegistryAPI.h"
 #include "AssetRegistry/ContentChanges.h"
@@ -15,6 +16,8 @@ namespace Durin
 		FTopLevelAssetPath AssetPath;
 		std::string AssetClassName;
 		FSoftObjectPath RedirectDestination;
+		FPrimaryAssetId PrimaryAssetId;
+		FAssetBundleData AssetBundleData;
 
 		auto IsRedirector() const -> bool { return AssetClassName == "Durin::DAssetRedirector"; }
 		auto operator==(const FAssetData&) const -> bool = default;
@@ -33,6 +36,7 @@ namespace Durin
 			if (!Asset.AssetPath.IsValid()
 				|| Asset.AssetPath.GetPackagePath() != PackagePath
 				|| !Paths.insert(Asset.AssetPath).second || Asset.AssetClassName.empty()
+				|| !Asset.AssetBundleData.IsValid()
 				|| (Asset.AssetClassName == "Durin::DAssetRedirector")
 					!= Asset.RedirectDestination.IsValid()) return false;
 			if (Asset.RedirectDestination.IsValid()

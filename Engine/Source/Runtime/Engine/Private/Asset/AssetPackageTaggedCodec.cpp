@@ -589,7 +589,7 @@ namespace Durin::AssetPrivate::TaggedPackage
 				return Result;
 			FPackageSchemaInspection Record{.FormatVersion = Linker.FormatVersion};
 			for (const auto& Asset : Linker.Summary.TopLevelAssets)
-				Record.TopLevelAssets.push_back({Asset.AssetPath, Asset.ClassName, Asset.RedirectDestination});
+				Record.TopLevelAssets.push_back({Asset.AssetPath, Asset.ClassName, Asset.RedirectDestination, Asset.PrimaryAssetId, Asset.AssetBundleData});
 			Record.Dependencies.assign(Linker.Summary.HardPackageDependencies.begin(),
 				Linker.Summary.HardPackageDependencies.end());
 			for (size_t Index = 0; Index < Linker.Exports.size(); ++Index)
@@ -741,13 +741,14 @@ namespace Durin::AssetPrivate::TaggedPackage
 			return {};
 		}
 
+		template<uint32 Version>
 		auto Write(DPackage* Package, FAssetPackageEncodedClosure& OutClosure,
 			EDefaultDeltaMode DeltaMode,
 			const FAssetPackageCaptureOptions& Options) -> ObjectPackage::FPackageWriterResult
 		{
 			ObjectPackage::FLinkerTables Linker;
 			if (auto Result = CaptureLivePackageLinker(Package, DeltaMode,
-				Options, Linker); !Result)
+				Options, Linker, Version); !Result)
 			{
 				auto Failure = EncodingError(ToString(Result.error()));
 				if (GetPackageCaptureSaveError(Result.error()) == EPackageSaveError::UnsupportedVersion)
@@ -932,6 +933,7 @@ namespace Durin::AssetPrivate::TaggedPackage
 			return WriteLinker(std::move(Linker), OutClosure);
 		}
 
+		template<uint32 Version>
 		auto WriteRedirector(const FPackagePath& Source,
 			std::span<const FAssetRedirectorWriteMapping> Mappings,
 			FAssetPackageEncodedClosure& OutClosure) -> ObjectPackage::FPackageWriterResult
@@ -944,7 +946,7 @@ namespace Durin::AssetPrivate::TaggedPackage
 				.Kind = ObjectPackage::EValueKind::HardReference,
 				.QualifiedName = "Durin::DObject"};
 			ObjectPackage::FLinkerTables Linker;
-			Linker.FormatVersion = ObjectPackage::DastV10FormatVersion;
+			Linker.FormatVersion = Version;
 			Linker.Summary.PackagePath = Source;
 			Linker.Types.push_back(ReferenceType);
 			Linker.Schemas.push_back({std::string(RedirectorClass),
@@ -985,11 +987,11 @@ namespace Durin::AssetPrivate::TaggedPackage
 		}
 	}
 
-	auto GetCodec() -> const FAssetPackageCodec&
+	auto GetCodec(uint32 Version) -> const FAssetPackageCodec&
 	{
 		static const FAssetPackageCodec Codec{
-			.CodecId = "dast-v10",
-			.FormatVersion = ObjectPackage::DastV10FormatVersion,
+			.CodecId = "dast-v11",
+			.FormatVersion = ObjectPackage::DastV11FormatVersion,
 			.bCanRead = true,
 			.bCanWrite = true,
 			.bCanMutate = true,
@@ -999,11 +1001,20 @@ namespace Durin::AssetPrivate::TaggedPackage
 			.ExtractReferences = &ExtractReferences,
 			.InspectSchema = &InspectSchema,
 			.Load = &Load,
-			.Write = &Write,
+			.Write = &Write<ObjectPackage::DastV11FormatVersion>,
 			.RewriteReferences = &RewriteReferences,
 			.Relocate = &Relocate,
-			.WriteRedirector = &WriteRedirector};
-		return Codec;
+			.WriteRedirector = &WriteRedirector<ObjectPackage::DastV11FormatVersion>};
+		static const FAssetPackageCodec Legacy = [] {
+			auto Value = Codec;
+			Value.CodecId = "dast-v10";
+			Value.FormatVersion = ObjectPackage::DastV10FormatVersion;
+			Value.Write = &Write<ObjectPackage::DastV10FormatVersion>;
+			Value.WriteRedirector = &WriteRedirector<ObjectPackage::DastV10FormatVersion>;
+			return Value;
+		}();
+		check(Version == ObjectPackage::DastV10FormatVersion || Version == ObjectPackage::DastV11FormatVersion);
+		return Version == ObjectPackage::DastV10FormatVersion ? Legacy : Codec;
 	}
 
 }

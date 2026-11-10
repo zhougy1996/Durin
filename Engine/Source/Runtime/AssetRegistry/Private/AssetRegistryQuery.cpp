@@ -47,6 +47,8 @@ namespace Durin
 						FAssetData Data;
 						require(FTopLevelAssetPath::TryCreate(Asset->GetObjectPath(), Data.AssetPath));
 						Data.AssetClassName = Asset->GetClass()->GetQualifiedName().ToString();
+						Data.PrimaryAssetId = Asset->GetPrimaryAssetId();
+						Data.AssetBundleData = Asset->GetAssetBundleData();
 						if (Data.AssetClassName == "Durin::DAssetRedirector")
 						{
 							const auto* Property = static_cast<FObjectProperty*>(Asset->GetClass()->FindPropertyByName("DestinationObject"));

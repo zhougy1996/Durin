@@ -440,7 +440,7 @@ namespace Durin::ObjectPackage
 					if (!Asset.Export.IsExport() || Asset.Export.GetTableIndex() >= Linker.Exports.size()
 						|| !Asset.AssetPath.IsValid()
 						|| Asset.AssetPath.GetPackagePath() != Linker.Summary.PackagePath
-						|| Asset.ClassName.empty())
+						|| Asset.ClassName.empty() || !Asset.AssetBundleData.IsValid())
 					{
 						return Fail(Diagnostic, EPackageWriterFailure::InvalidTopology,
 							EPackageWriterReason::InvalidTopLevelAsset, "Summary.TopLevelAssets");
@@ -884,7 +884,7 @@ namespace Durin::ObjectPackage
 			};
 
 			auto Writer = MakeWriter();
-			Writer->WriteU32(DastRegistryVersion);
+			Writer->WriteU32(Frozen.Source->FormatVersion >= DastV11FormatVersion ? 4 : DastRegistryVersion);
 			{
 				Writer->WriteVarUInt(Frozen.ExportOrder.size());
 				std::vector<const FPackageSummary::FTopLevelAsset*> Assets;
@@ -903,6 +903,11 @@ namespace Durin::ObjectPackage
 					Writer->WriteVarUInt(FindNameId(Frozen, Asset->AssetPath.ToString()));
 					Writer->WriteVarUInt(FindNameId(Frozen, Asset->ClassName));
 					Writer->WriteVarUInt(FindNameId(Frozen, Asset->RedirectDestination.ToString()));
+
+					if (Frozen.Source->FormatVersion >= DastV11FormatVersion)
+						WriteAssetManagementMetadata(*Writer, Asset->PrimaryAssetId, Asset->AssetBundleData);
+					else if (Asset->PrimaryAssetId.IsValid() || !Asset->AssetBundleData.Bundles.empty())
+						return Fail(Diagnostic, EPackageWriterFailure::InvalidTopology, EPackageWriterReason::InvalidTopLevelAsset, "Registry.ManagementMetadata requires DAST v11");
 				}
 			}
 			std::array<std::vector<std::string>, 4> RegistryLists;

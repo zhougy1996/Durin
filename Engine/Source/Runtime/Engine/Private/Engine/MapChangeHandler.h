@@ -37,7 +37,7 @@ namespace Durin
 		EMapChangePhase Phase = EMapChangePhase::LoadingAssets;
 		std::chrono::steady_clock::time_point Started = std::chrono::steady_clock::now(), PhaseStarted = Started;
 		std::string Error;
-		std::shared_ptr<FStreamableHandle> Assets;
+		std::shared_ptr<FStreamableHandle> Assets, Preload;
 		TStrongObjectPtr<DWorld> World;
 		FScenePtr Scene;
 		bool bAdvancing = false, bCancelRequested = false, bCommitRequested = false;

@@ -68,7 +68,9 @@ namespace Durin
 		for (auto& Asset : Registry.TopLevelAssets)
 			Header.TopLevelAssets.push_back({.AssetPath = std::move(Asset.AssetPath),
 				.AssetClassName = std::move(Asset.ClassName),
-				.RedirectDestination = std::move(Asset.RedirectDestination)});
+				.RedirectDestination = std::move(Asset.RedirectDestination),
+				.PrimaryAssetId = Asset.PrimaryAssetId,
+				.AssetBundleData = std::move(Asset.AssetBundleData)});
 		Header.Dependencies.assign(Registry.HardPackageReferences.begin(),
 			Registry.HardPackageReferences.end());
 		Header.SoftDependencies.assign(Registry.SoftPackageReferences.begin(),

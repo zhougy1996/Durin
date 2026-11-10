@@ -1,6 +1,6 @@
 # Asset Packages
 
-Summary: Define asset identity, canonical DAST v10 packages, runtime residency, loading, and inspection.
+Summary: Define asset identity, canonical DAST packages, runtime residency, loading, and inspection.
 
 Modules: AssetRegistry, Engine, CoreDObject, AssetMaintenance, AssetTools
 
@@ -59,7 +59,7 @@ removal; selection, confirmation, companions, and deletion callbacks belong to
 Ownership is deliberately one-way:
 
 - `CoreDObject` owns format-neutral linker tables, canonical tagged values,
-  production DAST v10 read/write, generic live graph capture, package persistence,
+  production DAST v10/v11 read/write, generic live graph capture, package persistence,
   and bounded validation. See [Package Persistence](../../ObjectSystem/PackagePersistence.md).
 - `AssetRegistry` owns canonical mounted-file discovery, bounded front-matter
   reads, and immutable package metadata/dependency snapshots.
@@ -292,7 +292,7 @@ copy.
 
 ### Envelope And Sections
 
-A v10 main image contains the 64-byte DURF v1 preamble, a 32-byte DAST format
+Both v10 and v11 main images contain the 64-byte DURF v1 preamble, a 32-byte DAST format
 header, and nine canonical 48-byte directory entries. The required contiguous
 sections, in order, are:
 
@@ -324,14 +324,15 @@ optional exact `FSoftObjectPath` redirect destination. Shared sorted
 hard/soft/searchable package facts, export count, and exact external-bulk extent
 and digest remain package-level. Registry section version 3 adds a separate sorted
 build-package dependency list from authored save events; it creates no runtime
-imports. Readers require section version 3; checked-in packages and fixtures have
-been upgraded, and the retired section version is not a runtime compatibility path. The outer DAST/payload version remains 10, and the
-rebuildable AssetRegistry cache schema is 6. No package class, redirect, or
+imports. DAST v10 requires registry version 3. DAST v11 uses registry version 4,
+adding versioned optional primary ID and bundle data to each top-level record.
+Ordinary saves write v11; existing v10 packages remain readable. The rebuildable
+AssetRegistry cache schema is 7. See [Primary Asset Management](PrimaryAssetManagement.md). No package class, redirect, or
 main-export id exists at package level.
 
 ### Defaults And Version Policy
 
-Ordinary `SavePackage(Package)` writes v10 deltas against paired class/default
+Ordinary `SavePackage(Package)` writes v11 deltas against paired class/default
 subobject values. `SavePackage(Package, {.Mode = EAssetPackageSaveMode::Complete})` and
 `FAssetPackageSerializationOptions::Mode` explicitly select complete snapshots.
 Bundle saving propagates the same selection; cooked saves always emit complete
@@ -455,7 +456,7 @@ version validation, destination stamp capture, closure encoding,
 and writer preparation. Synchronous, protected task, and batch saves use the
 same per-package commit path. Batches stop at the first failure and never roll
 back earlier successful packages. Saving validates the complete new
-v10 closure, publishes owned payloads before the main image that binds them,
+v11 closure, publishes owned payloads before the main image that binds them,
 verifies the stable closure, publishes a revisioned Registry delta, then clears
 Dirty/NewlyCreated for the saved revision. Failure before authored commit
 restores the prior closure and leaves the package retryably Dirty. Registry
@@ -802,12 +803,12 @@ fingerprints. It constructs no `DObject`, loads no dependency, invokes no
 callback, and writes no authored file. The Editor compatibility window and
 `DevTool asset check` consume the same deterministic records.
 
-Canonical resave writes v10 through ordinary saving and accepts only current-format
+Canonical resave writes v11 through ordinary saving and accepts supported-format
 inputs. Planning captures exact package identity, main/bulk fingerprint,
 format, entry kind, residency, Dirty conflicts, compatibility, and evidence.
 Apply revalidates the fingerprint, loads through the ordinary version-dispatched reader when
 required, waits for family-owned save-readiness recovery, and publishes through
-`SavePackages`. Verification rereads the exact v10 closure and
+`SavePackages`. Verification rereads the exact v11 closure and
 requires compatible current-format output with no remaining selected evidence;
 failure restores the prior closure and Registry state. Project batches stop at
 cancellation but do not claim project-wide atomicity.

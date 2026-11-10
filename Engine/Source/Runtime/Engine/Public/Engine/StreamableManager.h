@@ -54,7 +54,7 @@ namespace Durin
 		// cancellation/release never calls cancel/release on a shared child.
 		ENGINE_API auto CreateCombinedHandle(std::span<const std::shared_ptr<FStreamableHandle>> Children,
 			FStreamableDelegate OnComplete = {}, std::string DebugName = {},
-			bool bManageActiveHandle = false) -> std::shared_ptr<FStreamableHandle>;
+			bool bManageActiveHandle = false, FStreamableDelegate OnCancel = {}) -> std::shared_ptr<FStreamableHandle>;
 		ENGINE_API auto GetActiveHandles() const -> std::vector<std::shared_ptr<FStreamableHandle>>;
 	private:
 		auto Track(std::shared_ptr<FStreamableHandle> Handle, bool bManaged = false) -> std::shared_ptr<FStreamableHandle>;

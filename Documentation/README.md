@@ -45,6 +45,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | Asset architecture domain ownership or contract placement | [Asset domain rules](Runtime/Assets/AGENTS.md) |
 | Asset paths, package format, references, residency, loading, or compatibility | [Asset packages](Runtime/Assets/Packages/AssetPackages.md) |
 | Streamable managers, batch/combined handles, managed request ownership, or cancellation | [Asset streaming](Runtime/Assets/Packages/AssetStreaming.md) |
+| Primary asset IDs, bundle transitions, manager policy/settings, or primary discovery | [Primary Asset Management](Runtime/Assets/Packages/PrimaryAssetManagement.md) |
 | Runtime/editor package roots, GC residency, unsaved retention, or unload ownership | [Asset residency](Runtime/Assets/Packages/AssetResidency.md) |
 | StaticMesh source ownership, detached building, or payload compatibility | [Static mesh building](Runtime/Assets/Families/StaticMeshBuilding.md) |
 | Asset catalog discovery, reference indexing, relocation, deletion, or redirector fix-up | [Asset catalog and mutation](Runtime/Assets/Packages/AssetCatalogAndMutation.md) |

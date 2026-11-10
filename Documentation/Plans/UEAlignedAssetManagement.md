@@ -9,7 +9,7 @@ Completed:
 
 ## Current Status
 
-Execution authorized. Stages 0-3 are complete. The Stage 0 compatibility
+Execution authorized. Stages 0-4 are complete. The Stage 0 compatibility
 matrix below freezes the supported subset and consumer inventory. Stage 1
 ships canonical `FSoftObjectPath`, nullable ordinary synchronous loads, explicit
 `LoadObjectDetailed` / `LoadPackageDetailed` diagnostics, structured dependency
@@ -18,8 +18,10 @@ No migration aliases remain. Stage 2 adds scoped/default streamable managers,
 ordered batches, combined handles, managed ownership and per-target reports over
 one backend; thumbnails use local owners and scene-to-World transfers keep their
 existing lifetime. Stage 3 separates native/reflected/handle ownership from
-editor, explicit and unsaved package retention. Stage 4 is next. Stages 4-6
-remain open: primary assets/bundles, Cook integration and final lifecycle handoff.
+editor, explicit and unsaved package retention. Stage 4 adds persisted primary
+identity/bundle discovery, configurable native managers, independent primary
+ownership and map preload handoff. Stage 5 is next. Stages 5-6 remain open:
+Cook policy/cooked metadata integration and final lifecycle handoff.
 
 Stage 1 evidence (2026-11-09): tested `6f70ca02d` plus the Stage 1 working tree,
 Windows MSVC, default `Win64-Debug-DurinEditor`, 14 build jobs, outside sandbox
@@ -121,6 +123,44 @@ The obsolete cache API audit is empty in
 and UE compatibility boundary are in
 [Asset Residency](../Runtime/Assets/Packages/AssetResidency.md).
 Stages 4-6 and the final-state acceptance gate remain open.
+
+Stage 4 evidence (2026-11-10): tested `c5bab8af1` plus the Stage 4 working tree,
+Windows MSVC, default `Win64-Debug-DurinEditor`, 14 jobs, outside sandbox because
+the established sandbox-only C1902 failure prevents reliable MSVC compilation.
+Incremental `all` passes across Engine, editor/tools, Sandbox and RoadWeaver:
+the new DObject virtual hooks, shared registry records and reflected manager
+cross DLL boundaries that bounded consumer compilation cannot cover reliably.
+PrimaryAssetTests (15), AssetPackageTests (235), PackageLinkerContractTests (20),
+PackageWriterContractTests (22), PackageRegistryContractTests (8),
+AssetMetadataQueryTests (9), AssetRuntimeLifecycleTests (1), CoreObjectTests
+(178), CookFunctionalTests (40), AssetPackageReloadTests (21),
+EditorAssetWorkflowTests (44), WorldTests selected map-change/preload cases (6),
+TextureTests selected cooked/volume persistence cases (3), TextureThumbnailTests
+(14), MaterialThumbnailTests (8), StaticMeshThumbnailTests (10), and
+RoadSceneIntegrationTests (5) pass: 639 unique cases. The map case verifies
+preload completion followed by independent World ownership after primary unload.
+New coverage also exercises metadata-only discovery, duplicate IDs, redirects,
+save/deletion/relocation mapping changes, no-work requests, independent primary
+roots, transition races/failure/cancellation and manager shutdown.
+
+DAST v10 frozen-byte/hash fixtures remain unchanged and explicitly select their
+legacy writer; ordinary-save assertions select v11. Reader diagnostics now name
+DAST without incorrectly reporting v10 for v11 failures. Passing feature receipts
+are reused after diagnostic wording/whitespace-only edits; final `all` rebuilds
+the affected DLL. No GPU behavior changed and no GPU execution or full executable
+startup suite was selected. CPU map lifecycle, cold cooked bootstrap, Cook and
+consumer cases cover the changed contracts; standalone cooked primary policy
+and the final authored-editor/cooked-game lifecycle gates remain Stages 5-6.
+
+Raw receipts are preserved outside tool log rotation in
+`Build/asset-stage4-evidence/`; `validation-summary.txt` records exact per-target
+filenames and counts. The final workspace build is
+`20261110-115902-044724-29472-cmake.log`; primary behavior is
+`20261110-115059-283516-8708-PrimaryAssetTests.log`.
+Selection reasons and the workspace symbol audit are in
+`Build/asset-stage4-final-affected.txt` and `Build/asset-stage4-consumers.txt`.
+The lasting contract and supported UE boundary are in
+[Primary Asset Management](../Runtime/Assets/Packages/PrimaryAssetManagement.md).
 
 Inspected baseline: `fade01575`. Recent work already separates package/asset
 metadata, aligns soft-reference operations, unifies streamable handles, and
@@ -455,11 +495,28 @@ do not leak, lose edits, or expose prematurely retired objects.
 
 Dependencies: Stages 1-3. Outcome: primary discovery and manager-owned policy state.
 
-- [ ] Add identity/rule/bundle types, primary data assets, metadata publication,
+Execution decision (2026-11-10): the current registry cache schema is 6 rather
+than the Stage 0 baseline's 3; advance it to 7. DAST v11 adds a version-1
+management projection per top-level registry record; an empty ID and bundle
+list mean absent metadata. Retain v10 registry-v3 readers and explicit writers;
+ordinary saves use v11. Existing v10 content stays readable without a corpus
+rewrite and is upgraded on ordinary save. Source-preserving mutations keep
+their source version. Native DPrimaryDataAsset subclasses publish bundles via
+UpdateAssetBundleData; Blueprint discovery and recursive bundle expansion remain
+unsupported. Registry discovery consumes persisted metadata only. With no Types
+filter, include all valid published primary IDs; configured Types restrict scans.
+This differs from UE's project settings representation, while retaining its
+logical identities and ownership semantics. No-work primary requests return
+null with immediate completion. Per-primary generations preserve committed
+state on failure/cancellation; explicit Unload and newer transitions supersede
+pending work. No implicit caller leases are introduced. Cook rule enforcement
+and standalone cooked metadata handoff remain Stage 5 work.
+
+- [x] Add identity/rule/bundle types, primary data assets, metadata publication,
   type settings, ID validation and redirects.
-- [ ] Implement manager initialization, queries, primary load/unload, and bundle changes.
-- [ ] Integrate one map/scenario preload flow while preserving document/world ownership.
-- [ ] Keep arbitrary editor previews on local requests rather than global primary state.
+- [x] Implement manager initialization, queries, primary load/unload, and bundle changes.
+- [x] Integrate one map/scenario preload flow while preserving document/world ownership.
+- [x] Keep arbitrary editor previews on local requests rather than global primary state.
 
 Acceptance: metadata discovery constructs no assets; duplicate IDs are diagnosed;
 redirects and save/rename/delete invalidate mappings correctly; releasing the

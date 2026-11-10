@@ -3,6 +3,8 @@
 #include "ComponentPSOPrecacheTestSupport.h"
 #include "Engine/MapChange.h"
 #include "Engine/WorldSubsystem.h"
+#include "Engine/AssetManager.h"
+#include "AssetRegistry/Catalog.h"
 #include "Asset/StreamableHandle.h"
 #include "Texture/Texture2D.h"
 #include "NativeDObjectTestSupport.h"
@@ -947,6 +949,60 @@ TEST(FWorldTests, MapChangeCommitsWithoutAViewportOrWaitingForComponentPSOs)
 	auto* Retired = Host.Get(); Host.Reset(); MarkObjectHierarchyAsGarbage(Retired); CollectGarbage();
 	const auto Unloaded = UnloadPackage(PackagePath, EAssetPackageUnloadPolicy::DiscardUnsaved);
 	EXPECT_TRUE(Unloaded) << Unloaded.Message;
+}
+
+TEST(FWorldTests, PrimaryMapPreloadTransfersRetentionToTheWorld)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	const auto Root = Testing::CreateTestFixtureDirectory("PrimaryMapPreload");
+	const std::array Definitions{FMountPoint{.VirtualRoot = "/PrimaryMapPreload/", .Owner = EMountOwner::Test, .Root = Root, .bAutoScan = true, .bContentWritable = true}};
+	Testing::FScopedMountRegistryFixture Mounts(Definitions);
+	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
+	FPackagePath PackagePath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/PrimaryMapPreload/Candidate", PackagePath));
+	DLevel* Level = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(PackagePath, Level));
+	const auto Saved = SavePackage(Level->GetPackage());
+	ASSERT_TRUE(Saved) << Saved.Message;
+	ASSERT_TRUE(RefreshAssetRegistry());
+	TStrongObjectPtr<DAssetManager> Manager(NewObject<DAssetManager>(nullptr, "PrimaryMapManager"));
+	ASSERT_TRUE(Manager->StartInitialLoading());
+	const auto Primary = Level->GetPrimaryAssetId();
+	auto Preload = Manager->LoadPrimaryAsset(Primary);
+	ASSERT_NE(Preload, nullptr);
+	FPreviewLifecycleRenderer Renderer;
+	TStrongObjectPtr<DEngine> Host(NewObject<DEngine>(nullptr, "PrimaryMapHost"));
+	FMapChangeTestAccess::SetRenderer(*Host, Renderer);
+	auto* PreviousEngine = std::exchange(GEngine, Host.Get());
+	struct FRestore { DEngine* Previous; ~FRestore() { GEngine = Previous; } } Restore{PreviousEngine};
+	Host->SetWorld(CreateWorld(Host.Get(), EWorldType::Editor));
+	int Completions = 0;
+	ASSERT_TRUE(Host->PrepareMapChange({.Path = Testing::MakePackageLeafAssetObjectPathForTests(PackagePath), .Preload = Preload,
+		.OnComplete = [&](const FMapChangeProgress& Progress) {
+			++Completions;
+			EXPECT_EQ(Progress.Phase, EMapChangePhase::Committed);
+			EXPECT_TRUE(Manager->UnloadPrimaryAsset(Primary));
+		}}));
+	Preload.reset();
+	FMapChangeTestAccess::Tick(*Host);
+	EXPECT_EQ(Host->GetMapChangeProgress()->Phase, EMapChangePhase::LoadingAssets);
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+	while (!Host->IsMapChangeReady() && std::chrono::steady_clock::now() < Deadline)
+	{
+		ProcessAsyncLoading(10, 100); FMapChangeTestAccess::Tick(*Host);
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	}
+	ASSERT_TRUE(Host->IsMapChangeReady());
+	ASSERT_TRUE(Host->CommitMapChange()); FMapChangeTestAccess::Tick(*Host);
+	ASSERT_EQ(Completions, 1);
+	EXPECT_EQ(Manager->GetPrimaryAssetObject(Primary), nullptr);
+	CollectGarbage();
+	ASSERT_NE(Host->GetWorld(), nullptr);
+	EXPECT_EQ(Host->GetWorld()->GetCurrentLevel(), Level);
+	Host->PrepareForShutdown(); Manager->Shutdown();
+	auto* Retired = Host.Get(); Host.Reset(); MarkObjectHierarchyAsGarbage(Retired); CollectGarbage();
+	if (FindResidentPackage(PackagePath)) EXPECT_TRUE(UnloadPackage(PackagePath));
 }
 
 TEST(FWorldTests, MapChangeInitializationAndCommitFailuresPreserveTheCurrentWorld)

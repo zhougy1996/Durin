@@ -108,5 +108,5 @@ namespace Durin
 	// GameThread capture. Does not validate catalog dependencies or publish assets.
 	COREDOBJECT_API auto CapturePackageLinker(DPackage* Package, EDefaultDeltaMode DeltaMode,
 		const FPackageCaptureOptions& Options, ObjectPackage::FLinkerTables& OutLinker,
-		uint32 FormatVersion = ObjectPackage::DastV10FormatVersion) -> std::expected<void, FPackageCaptureError>;
+		uint32 FormatVersion = ObjectPackage::DastV11FormatVersion) -> std::expected<void, FPackageCaptureError>;
 }

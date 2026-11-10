@@ -1168,7 +1168,9 @@ namespace Durin::PackagePrivate
 				Linker.Summary.TopLevelAssets.push_back({.Export = Export,
 					.AssetPath = std::move(AssetPath),
 					.ClassName = Asset->GetClass()->GetQualifiedName().ToString(),
-					.RedirectDestination = std::move(RedirectDestination)});
+					.RedirectDestination = std::move(RedirectDestination),
+					.PrimaryAssetId = Asset->GetPrimaryAssetId(),
+					.AssetBundleData = Asset->GetAssetBundleData()});
 			}
 			std::ranges::sort(Linker.Summary.TopLevelAssets,
 				[](const auto& Left, const auto& Right) { return Left.AssetPath < Right.AssetPath; });

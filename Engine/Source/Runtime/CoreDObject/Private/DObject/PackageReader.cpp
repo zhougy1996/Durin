@@ -266,7 +266,7 @@ namespace Durin::ObjectPackage
 			FBinaryReader Reader(Section(Layout, EDastSection::Registry));
 			uint32 Version = 0;
 			uint64 ExportCount = 0, AssetCount = 0;
-			if (!Reader.ReadU32(Version) || Version != DastRegistryVersion
+			if (!Reader.ReadU32(Version) || Version != (Layout.FormatVersion >= DastV11FormatVersion ? 4u : DastRegistryVersion)
 				|| !Reader.ReadVarUInt(ExportCount) || ExportCount > DastMaximumTableEntries
 				|| !Reader.ReadVarUInt(AssetCount) || AssetCount > ExportCount)
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidRegistry,
@@ -315,6 +315,8 @@ namespace Durin::ObjectPackage
 					.AssetPath = std::move(AssetPath),
 					.ClassName = Names[ClassId - 1],
 					.RedirectDestination = std::move(RedirectDestination)});
+				if (Version >= 4 && !ReadAssetManagementMetadata(Reader, Registry.TopLevelAssets.back().PrimaryAssetId, Registry.TopLevelAssets.back().AssetBundleData))
+					return Fail(Diagnostic, EPackageReaderFailure::InvalidRegistry, EPackageReaderReason::TopLevelRecord, "Registry.ManagementMetadata");
 			}
 			for (uint32 ListIndex = 0; ListIndex < 4u; ++ListIndex)
 			{
@@ -965,7 +967,9 @@ namespace Durin::ObjectPackage
 					.Export = ExportId,
 					.AssetPath = Asset.AssetPath,
 					.ClassName = Asset.ClassName,
-					.RedirectDestination = Asset.RedirectDestination});
+					.RedirectDestination = Asset.RedirectDestination,
+					.PrimaryAssetId = Asset.PrimaryAssetId,
+					.AssetBundleData = Asset.AssetBundleData});
 			}
 			for (uint32 ExportIndex = 0; ExportIndex < Linker.Exports.size(); ++ExportIndex)
 				if (Linker.Exports[ExportIndex].Outer.IsNull()

@@ -74,6 +74,10 @@ cancel when the feature no longer needs its callback.
 
 ## Composition and teardown
 
+A combined handle waits for child completion delegates to finish before becoming
+terminal, so published child state is visible when the parent completes. Its
+optional cancel delegate does not implicitly cancel shared children.
+
 `CreateCombinedHandle` flattens children in child order and target order, retaining
 child observations and its own copy of each successfully loaded object's/package's
 GC ownership. It completes after every child reaches a terminal state; a canceled

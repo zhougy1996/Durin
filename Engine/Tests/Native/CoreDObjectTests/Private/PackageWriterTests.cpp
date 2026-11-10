@@ -55,6 +55,7 @@ namespace
 		const Package::FSerializedType Bulk{.Kind = Package::EValueKind::BulkData};
 
 		Package::FLinkerTables Linker;
+		Linker.FormatVersion = Package::DastV10FormatVersion;
 		Linker.Summary.SearchableNames = {"SearchB", "SearchA"};
 		Linker.Names = bShuffled ? std::vector<std::string>{"unused-z", "unused-a"}
 			: std::vector<std::string>{"unused-a", "unused-z"};
@@ -128,6 +129,7 @@ namespace
 	{
 		EnsurePathMount();
 		Package::FLinkerTables Linker;
+		Linker.FormatVersion = Package::DastV10FormatVersion;
 		Package::FPackageIndex Self;
 		Package::FPackageIndex::TryExport(0, Self);
 		Package::FSerializedSchema Schema{.QualifiedName = "Example::AllKinds"};
@@ -197,6 +199,7 @@ namespace
 		EnsurePathMount();
 		const Package::FSerializedType Hard{.Kind = Package::EValueKind::HardReference};
 		Package::FLinkerTables Linker;
+		Linker.FormatVersion = Package::DastV10FormatVersion;
 		Durin::FSoftObjectPath DepA;
 		Durin::FSoftObjectPath DepB;
 		EXPECT_TRUE(Durin::FSoftObjectPath::TryCreate("/Game/DepA.DepA", DepA));
@@ -601,7 +604,7 @@ TEST(FPackageReaderContractTests, WrongIdentityAndTruncatedFrontMatterDoNotPubli
 
 TEST(FPackageReaderContractTests, RetiredAndFutureVersionsFailWithoutPublishing)
 {
-	for (uint32 Version : {9u, 11u})
+	for (uint32 Version : {9u, 12u})
 	{
 		auto Fixture = MakeFixture();
 		Durin::FByteBuffer Main, Bulk;

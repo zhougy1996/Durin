@@ -36,6 +36,7 @@ namespace Durin
 	public:
 		ENGINE_API explicit DLevel(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API ~DLevel() override;
+		auto GetPrimaryAssetId() const -> FPrimaryAssetId override { return {FPrimaryAssetType(FName("Map")), GetFName()}; }
 		ENGINE_API auto PreEditUndo() -> void override;
 		ENGINE_API auto PostEditUndo() -> void override;
 		using Super::PostEditUndo;

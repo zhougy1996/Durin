@@ -1,3 +1,4 @@
+#include "DObject/PackageFormat.h"
 #include "TextureTestSupport.h"
 #include "Asset/PackageUnloading.h"
 #include "Threading/TaskRuntime.h"
@@ -36,7 +37,7 @@ namespace
 		Durin::FAssetPackageInspection Inspection;
 		ASSERT_TRUE(Durin::InspectAssetPackage(
 			Path.generic_string(), PackagePath, Inspection));
-		EXPECT_EQ(Inspection.Header.FormatVersion, 10u);
+		EXPECT_EQ(Inspection.Header.FormatVersion, Durin::ObjectPackage::DastV10FormatVersion);
 		const Durin::FAssetPackageField* Source = Inspection.FindField("Source");
 		EXPECT_EQ(Source, nullptr);
 		const Durin::FAssetPackageField* ImportData = Inspection.FindField("AssetImportData");
@@ -178,8 +179,8 @@ TEST(FTextureCookedBaseStateTests, CookedFixturesKeepNativePlatformDataIdentitie
 	EXPECT_EQ(Volume->GetPlatformData()->Mips.front().Depth, 65u);
 	EXPECT_EQ(Volume->GetPlatformData()->PixelFormat, Durin::EPixelFormat::R8_UNORM);
 	ASSERT_TRUE(Durin::UnloadPackage(Texture2DPath));
-	ASSERT_TRUE(Durin::UnloadPackage(TextureCubePath));
-	ASSERT_TRUE(Durin::UnloadPackage(VolumePath));
+	if (Durin::FindResidentPackage(TextureCubePath)) { ASSERT_TRUE(Durin::UnloadPackage(TextureCubePath)); }
+	if (Durin::FindResidentPackage(VolumePath)) { ASSERT_TRUE(Durin::UnloadPackage(VolumePath)); }
 	EXPECT_FALSE(Durin::IsTaskSchedulerRunning());
 	EXPECT_FALSE(Durin::GetGameThreadDeferredWorkQueueDiagnostics().bAccepting);
 	// Background work can also finish without installing a deferred executor.

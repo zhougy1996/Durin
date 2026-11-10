@@ -276,10 +276,10 @@ namespace Durin
 				State.LoadedPackage = State.Package.Get(); State.LoadedObject = State.Object.Get();
 			}
 			else State.Failure = AssetReadErrorFromResult(Result);
+			State.bCompletionPending = static_cast<bool>(State.Callback);
 			// Capture parents before a child's deferred release can drop its GC roots.
 			for (const auto& WeakParent : State.Parents)
 				if (auto Parent = WeakParent.lock()) RefreshAggregate(Parent);
-			State.bCompletionPending = static_cast<bool>(State.Callback);
 			if (State.Callback) Deliveries.push_back(Handle);
 			else if (State.bReleaseRequested) Handle->ReleaseRetention();
 			if (!Handle->IsActive())
@@ -301,7 +301,8 @@ namespace Durin
 			};
 			for (const auto& Child : State.Children)
 			{
-				if (!Child->IsComplete()) bComplete = false;
+				// Child completion side effects must publish before the parent becomes terminal.
+				if (!Child->IsComplete() || Child->Impl->bCompletionPending) bComplete = false;
 				if (Result && Child->HasError()) Result = AssetReadResultFromError(Child->GetError());
 				DPackage* Package = Child->WasCanceled() ? nullptr : Child->GetLoadedPackage();
 				RetainPackage(Package);
@@ -710,9 +711,10 @@ namespace Durin
 		return Track(AsyncLoader().RequestSync(Path, {}, nullptr));
 	}
 	auto FStreamableManager::CreateCombinedHandle(std::span<const std::shared_ptr<FStreamableHandle>> Children,
-		FStreamableDelegate Callback, std::string DebugName, bool bManaged) -> std::shared_ptr<FStreamableHandle>
+		FStreamableDelegate Callback, std::string DebugName, bool bManaged, FStreamableDelegate OnCancel) -> std::shared_ptr<FStreamableHandle>
 	{
 		auto Handle = AsyncLoader().Combine(Children, std::move(Callback), false, true);
+		if (!Handle->IsComplete()) Handle->Impl->CancelCallback = std::move(OnCancel);
 		Handle->Impl->DebugName = std::move(DebugName);
 		return Track(std::move(Handle), bManaged);
 	}

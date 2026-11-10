@@ -110,6 +110,7 @@ namespace Durin
 	{
 	public:
 		FSoftObjectPath() = default;
+		explicit FSoftObjectPath(const FTopLevelAssetPath& InPath) : AssetPath(InPath) {}
 		static auto TryCreate(std::string_view InPath, FSoftObjectPath& OutPath) -> bool { return TryCreateWithDiagnostic(InPath, OutPath).has_value(); }
 		COREDOBJECT_API static auto TryCreateWithDiagnostic(std::string_view InPath, FSoftObjectPath& OutPath) -> std::expected<void, FObjectPathError>;
 		COREDOBJECT_API static auto TryCreate(const FTopLevelAssetPath& InAssetPath, std::span<const std::string> InSubobjectNames, FSoftObjectPath& OutPath) -> bool;

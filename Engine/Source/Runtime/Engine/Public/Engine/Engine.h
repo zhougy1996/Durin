@@ -18,6 +18,7 @@
 namespace Durin
 {
 	class MWindow;
+	class DAssetManager;
 
 	// Narrow Launch-owned capability available while a concrete engine initializes.
 	struct FEngineInitContext
@@ -124,6 +125,7 @@ namespace Durin
 		auto GetRendererModule() const -> IRendererModule* { return RendererModule; }
 		ENGINE_API auto GetActiveCameraComponent() const -> DCameraComponent*;
 		auto GetWorld() const -> DWorld* { return MainWorld.Get(); }
+		auto GetAssetManager() const -> DAssetManager* { return AssetManager.Get(); }
 		auto GetGameInputState() const -> const FGameInputState& { return GameInputState; }
 		ENGINE_API auto SetGameInputEnabled(bool bEnabled) -> void;
 		ENGINE_API auto SetGameInputWindow(const std::shared_ptr<FGenericWindow>& InWindow) -> void;
@@ -202,6 +204,7 @@ namespace Durin
 		// Active world is retained by GC while the engine owns it.
 		DPROPERTY(Transient)
 		TObjectPtr<DWorld> MainWorld;
+		TObjectPtr<DAssetManager> AssetManager;
 		FGameInputState GameInputState;
 		std::weak_ptr<FGenericWindow> GameInputWindow;
 		mutable const DCameraComponent* LastCameraViewSource = nullptr;

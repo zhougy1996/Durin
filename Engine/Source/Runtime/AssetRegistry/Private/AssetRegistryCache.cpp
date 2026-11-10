@@ -11,7 +11,7 @@ namespace Durin::AssetPrivate
 	namespace
 	{
 		constexpr uint32 AssetRegistryMagic = 0x47455241; // AREG
-		constexpr uint32 AssetRegistrySchemaVersion = 6;
+		constexpr uint32 AssetRegistrySchemaVersion = 7;
 		constexpr uint64 MaximumRegistryEntries = 1000000;
 		constexpr uint32 MaximumRegistryDependencies = 100000;
 
@@ -135,6 +135,7 @@ namespace Durin::AssetPrivate
 				if (!Reader.ReadString(AssetPathString)
 					|| !Reader.ReadString(Asset.AssetClassName)
 					|| !Reader.ReadString(RedirectPathString)
+					|| !ReadAssetManagementMetadata(Reader, Asset.PrimaryAssetId, Asset.AssetBundleData)
 					|| !FTopLevelAssetPath::TryCreate(AssetPathString, Asset.AssetPath)
 					|| (!RedirectPathString.empty()
 						&& !FSoftObjectPath::TryCreate(RedirectPathString, Asset.RedirectDestination)))
@@ -280,6 +281,7 @@ namespace Durin::AssetPrivate
 				Writer.WriteString(Asset.AssetPath.ToString());
 				Writer.WriteString(Asset.AssetClassName);
 				Writer.WriteString(Asset.RedirectDestination.ToString());
+				WriteAssetManagementMetadata(Writer, Asset.PrimaryAssetId, Asset.AssetBundleData);
 			}
 			Writer.WriteU32(Entry.FormatVersion);
 			Writer.WriteU32(static_cast<uint32>(Entry.Dependencies.size()));

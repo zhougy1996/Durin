@@ -21,6 +21,8 @@
 		"DerivedDataCache"
 	],
     "ReflectHeaders": [
+        "Public/Engine/AssetManager.h",
+        "Public/Engine/PrimaryDataAsset.h",
         "Public/Engine/DynamicSubsystem.h",
         "Public/Engine/EngineSubsystem.h",
         "Public/Engine/Actor.h",

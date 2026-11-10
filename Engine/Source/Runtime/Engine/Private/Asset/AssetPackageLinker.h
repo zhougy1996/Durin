@@ -115,7 +115,7 @@ namespace Durin::AssetPrivate
 		EDefaultDeltaMode DeltaMode,
 		const FAssetPackageCaptureOptions& Options,
 		ObjectPackage::FLinkerTables& OutLinker,
-		uint32 FormatVersion = ObjectPackage::DastV10FormatVersion) -> std::expected<void, FPackageCaptureError>;
+		uint32 FormatVersion = ObjectPackage::DastV11FormatVersion) -> std::expected<void, FPackageCaptureError>;
 
 	auto ApplyLivePackageLinker(
 		ObjectPackage::FLinkerTables Linker,

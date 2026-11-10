@@ -6,6 +6,7 @@
 namespace Durin
 {
 	class DLevel;
+	class FStreamableHandle;
 	class DClass;
 	enum class EMapChangePhase : uint8
 	{
@@ -40,6 +41,8 @@ namespace Durin
 	struct FMapChangeRequest
 	{
 		FSoftObjectPath Path;
+		// Optional scenario/bundle preload; normal scene ownership remains in the World.
+		std::shared_ptr<FStreamableHandle> Preload;
 		// An engaged null class requests lifecycle-only BeginPlay.
 		std::optional<DClass*> GameMode;
 		// GameThread callbacks run within the host lifecycle/GC guard.

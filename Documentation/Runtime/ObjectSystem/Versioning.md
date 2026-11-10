@@ -4,7 +4,7 @@ Summary: Define engine release, Archive, authored package, custom-version, and c
 
 Modules: Core, CoreDObject, Engine, AssetRegistry, AssetMaintenance
 
-Last reviewed: 2026-09-21
+Last reviewed: 2026-11-10
 
 Durin's engine release version is defined once in `Engine/Build/Build.version`.
 CMake validates that file, exposes the numeric core as the workspace project
@@ -29,7 +29,7 @@ versions, never from the saved-by engine release.
 
 `FArchiveVersionContext` carries a named format version separately from
 GUID-keyed custom versions. Object-graph Archives report object-graph v2;
-authored and cooked package Archives report DAST v10. Property snapshots are
+authored and cooked package Archives report their source or target DAST version (v10 or v11). Property snapshots are
 process-local and unversioned.
 
 `FCustomVersion` contains only a valid GUID and a nonnegative `int32` version.
@@ -147,16 +147,19 @@ versions have no legacy load fallback.
 ## Authored Package Policy
 
 DAST has one permanent nonzero format GUID and current production wire version
-10. Core's bounded DURF validation selects DAST identity; CoreDObject's sole v10
-reader/writer owns all package tables and tagged-value semantics. Engine's
-immutable ordinary codec policy selects v10 only for header reads, validation,
-inspection, schema probes, reference projection, live load, serialization,
-relocation, fix-up, redirectors, Cook, and canonical resave.
+11. Core's bounded DURF validation selects DAST identity; CoreDObject supports
+v10 and v11 tables and tagged-value semantics. Engine selects v11 for ordinary
+saves and new redirectors. Source-preserving relocation and fix-up retain the
+source version. DAST v11 registry-v4 records add versioned primary/bundle
+metadata; v10 registry-v3 records have no management metadata. Explicit v10
+writers reject management data rather than silently dropping it.
 The maintained `Engine/Content`, `Sandbox/Content`, and `RoadWeaver/Content`
-corpus is canonical v10; older package versions have no reader or migration path.
+corpus remains readable as v10 and upgrades on ordinary save. Older package
+versions have no reader or migration path. See
+[Primary Asset Management](../Assets/Packages/PrimaryAssetManagement.md).
 
 Every production entry requires exact package identity and, when present, the
-complete main/raw-bulk closure. Unknown format identities, non-v10 DAST versions,
+complete main/raw-bulk closure. Unknown format identities, unsupported DAST versions,
 required features, legacy prefixes, noncanonical bytes, or invalid closure
 facts fail before object construction, mutation, catalog publication, or Dirty
 state changes. Read-only entry points never select a writer.

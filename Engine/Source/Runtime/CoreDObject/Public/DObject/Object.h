@@ -8,6 +8,7 @@
 #include "DObject/PropertyChange.h"
 #include "DObject/ObjectValidation.h"
 #include "DObject/CookLifecycle.h"
+#include "DObject/AssetBundleData.h"
 #include "DObjectGlobals.h"
 #include "Misc/Guid.h"
 
@@ -89,6 +90,8 @@ namespace Durin
 		COREDOBJECT_API DObject(EStaticConstructor, EObjectFlags InFlags);
 
 		virtual ~DObject() = default;
+		virtual auto GetPrimaryAssetId() const -> FPrimaryAssetId { return {}; }
+		virtual auto GetAssetBundleData() const -> FAssetBundleData { return {}; }
 
 		COREDOBJECT_API auto Rename(FName InName) -> void;
 

@@ -7,7 +7,7 @@
 
 namespace Durin
 {
-	inline constexpr uint32 OrdinaryAssetPackageWriterVersion = ObjectPackage::DastV10FormatVersion;
+	inline constexpr uint32 OrdinaryAssetPackageWriterVersion = ObjectPackage::DastV11FormatVersion;
 
 	ENGINE_API auto ValidateAssetPackageVersionPolicy(std::string& OutError) -> bool;
 	ENGINE_API auto GetAssetPackageReaderPolicyIdentity() -> uint32;

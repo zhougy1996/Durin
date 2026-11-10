@@ -1,4 +1,6 @@
 #include "Engine/Engine.h"
+#include "Engine/AssetManager.h"
+#include "Misc/Project.h"
 #include "Engine/MapChangeHandler.h"
 #include "Rendering/ViewportPresentation.h"
 
@@ -166,6 +168,8 @@ namespace Durin
 	{
 		Super::AddReferencedObjects(Collector);
 		EngineSubsystems.AddReferencedObjects(Collector);
+		DObject* Manager = AssetManager.Get();
+		Collector.AddReferencedObject(Manager);
 		for (DWorld* World : InitializingWorlds)
 		{
 			DObject* Object = World;
@@ -231,6 +235,19 @@ namespace Durin
 			for (const auto& Cause : Refresh.Errors) Error += "\n" + FormatAssetRegistryError(Cause);
 			return std::unexpected(std::move(Error));
 		}
+		FAssetManagerSettings Management;
+		if (const auto* Project = GetCurrentProject())
+		{
+			const auto Loaded = FProjectAssetManagerSettingsStore(std::filesystem::path(Project->ProjectDir) / "Configs" / "Project.yaml").Load(Management);
+			if (!Loaded) return std::unexpected(Loaded.error());
+		}
+		DClass* ManagerClass = Management.AssetManagerClass.empty() ? DAssetManager::StaticClass()
+			: FindClassByQualifiedName(FName(Management.AssetManagerClass));
+		if (!ManagerClass || !CanConstructObjectOfClass(ManagerClass, DAssetManager::StaticClass()))
+			return std::unexpected("AssetManager.Class must name an exact registered DAssetManager subclass.");
+		AssetManager = Cast<DAssetManager>(NewObject(ManagerClass, this, FName("AssetManager")));
+		if (const auto Initialized = AssetManager->StartInitialLoading(std::move(Management)); !Initialized)
+			return std::unexpected(Initialized.error());
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultMaterialBegin);
 		// The service owns its explicit ErrorMaterial fallback policy.
 		(void)InitializeDefaultMaterialService();
@@ -348,6 +365,7 @@ namespace Durin
 		RetireHostConsumers();
 		const auto Contexts = WorldContexts;
 		for (const auto& Context : Contexts) if (auto* World = Context.World()) World->Shutdown();
+		if (AssetManager) AssetManager->Shutdown();
 		EngineSubsystems.Deinitialize();
 		if (MainSceneViewport) MainSceneViewport->ReleaseViewState();
 		for (const auto& Viewport : AuxiliarySceneViewports) if (Viewport) Viewport->ReleaseViewState();

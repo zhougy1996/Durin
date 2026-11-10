@@ -77,7 +77,7 @@ TEST(FPackageRegistryContractTests, FrontMatterProjectsPackageAndTopLevelAssetMe
 		std::span(Main).first(static_cast<size_t>(HeaderBytes)), Main.size(), Bulk.size(),
 		PackagePath, Header);
 	ASSERT_TRUE(Result) << FormatAssetRegistryError(Result);
-	EXPECT_EQ(Header.FormatVersion, Durin::ObjectPackage::DastV10FormatVersion);
+	EXPECT_EQ(Header.FormatVersion, Durin::ObjectPackage::DastV11FormatVersion);
 	ASSERT_EQ(Header.TopLevelAssets.size(), 1u);
 	EXPECT_EQ(Header.TopLevelAssets.front().AssetPath.ToString(),
 		"/Game/RegistryFixture.RegistryFixture");

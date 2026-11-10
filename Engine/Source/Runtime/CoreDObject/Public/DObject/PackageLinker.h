@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "DObject/AssetBundleData.h"
 
 #include "CoreDObjectAPI.h"
 #include "DObject/AssetPath.h"
@@ -192,6 +193,8 @@ namespace Durin::ObjectPackage
 			FTopLevelAssetPath AssetPath;
 			std::string ClassName;
 			FSoftObjectPath RedirectDestination;
+			FPrimaryAssetId PrimaryAssetId;
+			FAssetBundleData AssetBundleData;
 
 			auto operator==(const FTopLevelAsset&) const -> bool = default;
 		};
@@ -225,7 +228,7 @@ namespace Durin::ObjectPackage
 	class FLinkerTables
 	{
 	public:
-		uint32 FormatVersion = 10;
+		uint32 FormatVersion = 11;
 		FPackageSummary Summary;
 		std::vector<std::string> Names;
 		std::vector<FSerializedType> Types;

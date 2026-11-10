@@ -16,8 +16,9 @@ asset mutations over those package identities.
 
 `FPackageData` describes one persistent package: its physical file, format,
 dependencies, bulk segment, and complete `TopLevelAssets` list. Each list entry
-is an `FAssetData` with an exact asset path, class, and optional exact object
-redirect destination. Packages have no representative class, entry kind, or
+is an `FAssetData` with an exact asset path, class, optional exact object
+redirect destination, primary ID and named bundle metadata. Management data is
+separate from reference edges; see [Primary Asset Management](PrimaryAssetManagement.md). Packages have no representative class, entry kind, or
 redirect destination, including when they contain exactly one asset.
 `FindPackageExact(FPackagePath)` returns `FPackageCatalogEntry`;
 `FindAssetExact(FTopLevelAssetPath)` returns `FAssetCatalogEntry` containing the

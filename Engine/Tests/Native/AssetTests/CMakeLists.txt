@@ -130,3 +130,12 @@ durin_add_native_test(PackageBulkQualificationTests
 	SOURCES Private/PackageBulkQualificationTests.cpp
 	LIBRARIES Core CoreDObject Engine
 )
+
+
+durin_add_native_test(PrimaryAssetTests
+    KIND feature
+    DOMAINS asset-package
+    MODULES engine asset-registry core-dobject
+    SOURCES Private/PrimaryAssetTests.cpp
+    LIBRARIES Core CoreDObject Engine
+)
