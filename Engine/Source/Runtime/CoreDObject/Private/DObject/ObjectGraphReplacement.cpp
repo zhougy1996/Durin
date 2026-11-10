@@ -815,7 +815,10 @@ namespace Durin
 	{
 		for (const auto& Pair : Impl->Packages)
 		{
-			Pair.Prepared->SetStandaloneResidency(!Pair.Current || Pair.Current->HasAnyObjectFlags(EObjectFlags::Standalone));
+			const auto Explicit = Pair.Current ? Pair.Current->GetResidencyReasons()
+				& (EAssetPackageResidencyReason::Explicit | EAssetPackageResidencyReason::EditorStandalone)
+				: EAssetPackageResidencyReason::None;
+			Pair.Prepared->SetResidencyReasons(Pair.Prepared->GetResidencyReasons() | Explicit);
 			if (Pair.Current) Pair.Current->SetStandaloneResidency(false);
 			Pair.Prepared->CommitPreparedPackageRegistration(Pair.Current);
 		}

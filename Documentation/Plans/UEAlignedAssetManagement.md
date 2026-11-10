@@ -2,14 +2,14 @@
 
 Summary: Align asset identity, loading interfaces, streamable ownership, primary assets, bundles, and Cook policy with UE while retaining Durin's package implementation.
 
-Last reviewed: 2026-11-09
+Last reviewed: 2026-11-10
 
 Status: Active
 Completed:
 
 ## Current Status
 
-Execution authorized. Stages 0-2 are complete. The Stage 0 compatibility
+Execution authorized. Stages 0-3 are complete. The Stage 0 compatibility
 matrix below freezes the supported subset and consumer inventory. Stage 1
 ships canonical `FSoftObjectPath`, nullable ordinary synchronous loads, explicit
 `LoadObjectDetailed` / `LoadPackageDetailed` diagnostics, structured dependency
@@ -17,8 +17,9 @@ failure identities and the runtime bootstrap rename across all workspace project
 No migration aliases remain. Stage 2 adds scoped/default streamable managers,
 ordered batches, combined handles, managed ownership and per-target reports over
 one backend; thumbnails use local owners and scene-to-World transfers keep their
-existing lifetime. Stage 3 is next. Stages 3-6 remain open: residency policy,
-primary assets/bundles, Cook integration and final contract/lifecycle handoff.
+existing lifetime. Stage 3 separates native/reflected/handle ownership from
+editor, explicit and unsaved package retention. Stage 4 is next. Stages 4-6
+remain open: primary assets/bundles, Cook integration and final lifecycle handoff.
 
 Stage 1 evidence (2026-11-09): tested `6f70ca02d` plus the Stage 1 working tree,
 Windows MSVC, default `Win64-Debug-DurinEditor`, 14 build jobs, outside sandbox
@@ -83,6 +84,43 @@ is recorded by `Build/asset-stage2-affected.txt`: named request/thumbnail/scene
 coverage avoids unrelated broad module tests. The lasting contract is
 [Asset Streaming](../Runtime/Assets/Packages/AssetStreaming.md). Stages 3-6 remain
 unvalidated; do not infer primary/Cook/residency-policy completion from these gates.
+
+Stage 3 evidence (2026-11-10): tested `96848b606` plus the Stage 3 working tree,
+Windows MSVC, default `Win64-Debug-DurinEditor`, 14 jobs, outside sandbox because
+the established sandbox-only C1902 failure prevents reliable MSVC compilation.
+Incremental `all` passed: DPackage layout and configuration DLL API changes
+require compilation of consumers across every workspace project. AssetPackageTests
+(235), CoreObjectTests (178), CoreObjectReplacementTests (41),
+AssetPackageReloadTests (21), EditorAssetWorkflowTests (44), CookFunctionalTests
+(40), AssetRuntimeLifecycleTests (1), TextureThumbnailTests (14),
+MaterialThumbnailTests (8), StaticMeshThumbnailTests (10), ViewportTests
+`FLevelDocumentResidencyTests.*` (2), and RoadSceneIntegrationTests (5) pass:
+599 cases. New cases cover bare/soft observations, independent export owners,
+unsaved publication, explicit editor host policy and failed-unload root restoration.
+Existing rollback, replacement, Cook and editor workflows remain passing.
+Named selection is recorded in `Build/asset-stage3-affected.txt`; no GPU behavior
+changed and no GPU execution or full application startup suite was selected.
+Passing receipts are reused while their relevant inputs remain unchanged.
+
+Stage 3 raw receipts under `Build/.agent-state/logs/` include
+`20261110-111503-919674-36768-cmake.log` (all),
+`20261110-111517-339719-9352-AssetPackageTests.log`,
+`20261110-105509-771005-42348-CoreObjectTests.log`,
+`20261110-105529-984222-48280-CoreObjectReplacementTests.log`,
+`20261110-110133-323678-44520-AssetPackageReloadTests.log`,
+`20261110-110328-258886-30724-EditorAssetWorkflowTests.log`,
+`20261110-110538-745773-25628-CookFunctionalTests.log`,
+`20261110-110602-108386-8984-AssetRuntimeLifecycleTests.log`,
+`20261110-111011-944247-28380-TextureThumbnailTests.log`,
+`20261110-111030-320653-17996-MaterialThumbnailTests.log`,
+`20261110-111048-704687-45096-StaticMeshThumbnailTests.log`,
+`20261110-111114-167441-47444-ViewportTests.log`, and
+`20261110-111500-474966-32644-RoadSceneIntegrationTests.log`.
+The obsolete cache API audit is empty in
+`Build/asset-stage3-removed-cache-api-audit.txt`. The lasting ownership contract
+and UE compatibility boundary are in
+[Asset Residency](../Runtime/Assets/Packages/AssetResidency.md).
+Stages 4-6 and the final-state acceptance gate remain open.
 
 Inspected baseline: `fade01575`. Recent work already separates package/asset
 metadata, aligns soft-reference operations, unifies streamable handles, and
@@ -388,10 +426,25 @@ destruction satisfy the Stage 0 matrix. No per-manager duplicate package graphs.
 
 Dependencies: Stage 2. Outcome: explicit owners determine collectability.
 
-- [ ] Replace incidental clean-runtime pins with the selected ownership policy.
-- [ ] Preserve explicit dirty/editor-session retention and checked tool unloading.
-- [ ] Remove obsolete cache-origin bookkeeping only once equivalent cleanup is proven.
-- [ ] Verify failed-load rollback and independently completed dependencies.
+Execution decision (2026-11-10): distinguish editor Standalone retention from
+runtime ownership explicitly in bootstrap configuration, independently of the
+Authored/Cooked data domain. Launch selects editor retention only for the editor
+host. Generic tools/tests default to runtime retention. UE 5.8 documents
+[RF_Standalone](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/CoreUObject/EObjectFlags)
+as editing retention even without references, and its
+[package tools](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Editor/UnrealEd/UPackageTools)
+restore Standalone on reachable objects during checked unloading. Therefore do
+not apply runtime no-cache behavior indiscriminately to editor assets. Track
+editor, explicit and unsaved reasons separately; restore the exact prior roots
+on failed tools unloading. Unsaved package roots and retaining all exports of
+one package remain explicit Durin policies, not verified UE source equivalence.
+Rollback withdraws failed graph identities immediately and schedules physical GC;
+unrelated clean graphs require their actual native/reflected owners across GC.
+
+- [x] Replace incidental clean-runtime pins with the selected ownership policy.
+- [x] Preserve explicit dirty/editor-session retention and checked tool unloading.
+- [x] Remove obsolete cache-origin bookkeeping only once equivalent cleanup is proven.
+- [x] Verify failed-load rollback and independently completed dependencies.
 
 Acceptance: two owners can release independently; the last owner permits GC;
 soft references do not retain; dirty/new assets survive intended editor flows;

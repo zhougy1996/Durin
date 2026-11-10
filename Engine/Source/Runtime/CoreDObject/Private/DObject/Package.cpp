@@ -5,6 +5,7 @@
 #include "DObject/DObjectArray.h"
 #include "DObject/Class.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/GarbageCollectionScheduler.h"
 #include "Misc/StringHelper.h"
 
 namespace Durin
@@ -83,6 +84,7 @@ namespace Durin
 		PackagePath = InPath;
 		RegisteredPath = InPath.ToString();
 		PackageFlags = EPackageFlags::Asset;
+		if (HasAnyObjectFlags(EObjectFlags::Standalone)) ResidencyReasons = EAssetPackageResidencyReason::Explicit;
 		RegisterPackage(this, RegisteredPath);
 		if (IsAssetPackage()) Private::NotifyAssetPackageChanged();
 	}
@@ -123,6 +125,7 @@ namespace Durin
 		PackageFlags = EPackageFlags::Asset;
 		bGraphPrivate = true;
 		bPrepared = true;
+		SetResidencyReasons(EAssetPackageResidencyReason::None);
 		return true;
 	}
 
@@ -147,6 +150,7 @@ namespace Durin
 		if (Previous) Previous->bGraphPrivate = true;
 		bGraphPrivate = false;
 		bPrepared = false;
+		RefreshUnsavedResidency();
 		Private::NotifyAssetPackageChanged();
 	}
 
@@ -162,9 +166,53 @@ namespace Durin
 
 	auto DPackage::SetStandaloneResidency(bool bResident) -> void
 	{
+		SetResidencyReasons(bResident ? ResidencyReasons | EAssetPackageResidencyReason::Explicit
+			: EAssetPackageResidencyReason::None);
+	}
+
+	auto DPackage::SetResidencyReasons(EAssetPackageResidencyReason Reasons) -> void
+	{
 		check(IsAssetPackage());
-		if (bResident) ObjectFlags |= EObjectFlags::Standalone;
+		const bool bHadRoot = HasAnyObjectFlags(EObjectFlags::Standalone);
+		ResidencyReasons = Reasons;
+		if (Reasons != EAssetPackageResidencyReason::None) ObjectFlags |= EObjectFlags::Standalone;
 		else ObjectFlags &= ~EObjectFlags::Standalone;
+		if (bHadRoot && Reasons == EAssetPackageResidencyReason::None) RequestGarbageCollection();
+	}
+
+	auto DPackage::RefreshUnsavedResidency() -> void
+	{
+		if (!IsAssetPackage()) return;
+		auto Reasons = ResidencyReasons & ~EAssetPackageResidencyReason::Unsaved;
+		if (!bGraphPrivate && (IsDirty() || IsNewlyCreated())) Reasons |= EAssetPackageResidencyReason::Unsaved;
+		SetResidencyReasons(Reasons);
+	}
+
+	auto DPackage::MarkAsNewlyCreated() -> void
+	{
+		if (IsAssetPackage()) PackageFlags |= EPackageFlags::NewlyCreated;
+		RefreshUnsavedResidency();
+	}
+
+	auto DPackage::MarkAsPublished() -> void
+	{
+		PackageFlags &= ~EPackageFlags::NewlyCreated;
+		RefreshUnsavedResidency();
+	}
+
+	auto DPackage::MarkDirty() -> void
+	{
+		if (!IsAssetPackage()) return;
+		bDirty = true;
+		++EditRevision;
+		RefreshUnsavedResidency();
+		if (!bGraphPrivate) Private::NotifyAssetPackageChanged();
+	}
+
+	auto DPackage::ClearDirty() -> void
+	{
+		bDirty = false;
+		RefreshUnsavedResidency();
 	}
 
 	auto DPackage::AddReferencedObjects(FReferenceCollector& Collector) -> void
@@ -219,7 +267,7 @@ namespace Durin
 		if (!Path.IsValid() || GetPackageRegistry().contains(Path.ToString())) return nullptr;
 
 		DPackage* Package = NewObject<DPackage>(
-			nullptr, FName(Path.GetPackageName()), EObjectFlags::Standalone);
+			nullptr, FName(Path.GetPackageName()));
 		Package->InitializeAssetPackage(Path);
 		return Package;
 	}

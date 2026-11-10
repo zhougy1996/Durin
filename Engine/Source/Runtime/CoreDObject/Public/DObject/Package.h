@@ -25,6 +25,17 @@ namespace Durin
 	};
 	ENUM_CLASS_FLAGS(EPackageFlags);
 
+	// Explicit GC roots for a live asset package, independent of soft references
+	// and streamable/editor strong owners. Runtime loading supplies no root.
+	enum class EAssetPackageResidencyReason : uint8
+	{
+		None = 0,
+		Unsaved = 1 << 0,
+		Explicit = 1 << 1,
+		EditorStandalone = 1 << 2,
+	};
+	ENUM_CLASS_FLAGS(EAssetPackageResidencyReason);
+
 	class DPackage;
 	COREDOBJECT_API auto GetLiveAssetPackages() -> std::vector<DPackage*>;
 	// Owner-thread revision of live asset-package membership, identity and metadata.
@@ -86,30 +97,19 @@ namespace Durin
 		auto IsPreparedAssetPackage() const -> bool { return bPrepared; }
 		COREDOBJECT_API auto RelocateAssetPackage(const FPackagePath& InPath) -> bool;
 		COREDOBJECT_API auto InitializeCppPackage(FName ModuleName) -> void;
-		// Controls ordinary-GC residency for an asset package. Unload attempts clear
-		// this temporarily and restore it when another strong reference keeps the
-		// package graph reachable.
+		auto GetResidencyReasons() const -> EAssetPackageResidencyReason { return ResidencyReasons; }
+		// Explicit pin, or explicit removal of all pins (checked discard/tools only).
+		// Ordinary owner release must drop its strong references instead.
 		COREDOBJECT_API auto SetStandaloneResidency(bool bResident) -> void;
+		// Restores the exact prior roots after a checked unload fails; never invents
+		// a new cache owner merely because another strong owner kept the graph alive.
+		COREDOBJECT_API auto SetResidencyReasons(EAssetPackageResidencyReason Reasons) -> void;
 		COREDOBJECT_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
 
-		auto MarkAsNewlyCreated() -> void
-		{
-			if (IsAssetPackage()) PackageFlags |= EPackageFlags::NewlyCreated;
-		}
-		auto MarkAsPublished() -> void
-		{
-			PackageFlags &= ~EPackageFlags::NewlyCreated;
-		}
-		auto MarkDirty() -> void
-		{
-			if (!IsAssetPackage()) return;
-			// Unsaved authored edits are an editor owner, independent of load handles.
-			if (!bGraphPrivate) SetStandaloneResidency(true);
-			bDirty = true;
-			++EditRevision;
-			if (!bGraphPrivate) Private::NotifyAssetPackageChanged();
-		}
-		auto ClearDirty() -> void { bDirty = false; }
+		COREDOBJECT_API auto MarkAsNewlyCreated() -> void;
+		COREDOBJECT_API auto MarkAsPublished() -> void;
+		COREDOBJECT_API auto MarkDirty() -> void;
+		COREDOBJECT_API auto ClearDirty() -> void;
 		auto SetCanonicalResaveRecommended(bool bRecommended) -> void
 		{
 			bCanonicalResaveRecommended = IsAssetPackage() && bRecommended;
@@ -118,6 +118,8 @@ namespace Durin
 	private:
 		bool bGraphPrivate = false;
 		bool bPrepared = false;
+		EAssetPackageResidencyReason ResidencyReasons = EAssetPackageResidencyReason::None;
+		auto RefreshUnsavedResidency() -> void;
 		auto ReservePreparedPackageRegistration() -> bool;
 		auto ReleasePreparedPackageRegistration() noexcept -> void;
 		auto CommitPreparedPackageRegistration(DPackage* Previous) noexcept -> void;
@@ -153,7 +155,8 @@ namespace Durin
 		friend class DObject;
 	};
 
-	// Creates a standalone asset package. Invalid paths and paths already owned
+	// Creates an empty asset package. MarkAsNewlyCreated/MarkDirty explicitly retain
+	// unsaved authored content. Invalid paths and paths already owned
 	// by another live package are rejected.
 	COREDOBJECT_API auto CreatePackage(const FPackagePath& Path) -> DPackage*;
 	COREDOBJECT_API auto FindPackage(std::string_view PackagePath) -> DPackage*;

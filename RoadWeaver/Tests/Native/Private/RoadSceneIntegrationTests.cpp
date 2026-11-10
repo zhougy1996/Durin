@@ -1,3 +1,4 @@
+#include "DObject/StrongObjectPtr.h"
 #include "NativeAssetRuntimeTestSupport.h"
 #include "Physics/BodySetup.h"
 #include "Asset/PackageUnloading.h"
@@ -258,6 +259,7 @@ TEST(RoadSceneIntegration, CheckedInRoadLevelLoadsAndSurvivesGC)
 		}
 	EXPECT_GT(RoadCount, 0);
 	EXPECT_FALSE(Level->GetPackage()->IsDirty());
+	const TStrongObjectPtr<DLevel> LevelOwner(Level);
 	CollectGarbage();
 	EXPECT_FALSE(Level->GetPackage()->IsDirty());
 	{ const auto Saved = SavePackage(Level->GetPackage()); ASSERT_TRUE(Saved) << Saved.Message; }

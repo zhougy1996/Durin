@@ -138,20 +138,16 @@ arbitrary path.
 ## Runtime Lifetime
 
 `DPackage` is an Outer-less object-graph root. CoreDObject's global object and
-package registration is the sole live residency lookup; Engine does not keep a
-second resident-package map. `CreatePackage` detects path collisions through
-that registration. New asset packages begin `NewlyCreated`; a successful first
-save clears that state after physical commit, including projection-pending completion.
-`DPackage::IsDirty()` independently records unsaved contents. Marking a live
-authored package dirty restores its editor cache retention, independently of
-load handles. Private preparation graphs retain only their operation owners.
+package registration is the sole live identity lookup. `CreatePackage` detects
+path collisions but adds no implicit root. Explicit new/dirty declarations retain
+unsaved content until publication and clean state. Packages retain all their
+exports; a reachable export keeps its package alive through Outer.
 
-Ordinary asset loads initially cache packages as `Standalone`, so GC retains
-registered residency without a manual root. `DPackage` registers and strongly retains all
-of its direct persistent exports; no distinguished `Asset` pointer exists.
-Descendants remain alive through their top-level graph's actual GC strong
-references, not merely through Outer. Compiled-in reflection metadata instead
-uses rooted `/Cpp/<ModuleName>` packages and is never serialized as `.dasset`.
+[Asset Residency](AssetResidency.md) defines runtime owners, editor Standalone
+policy, inspectable root reasons, failure/GC boundaries and checked unloading.
+Launch chooses the host retention policy before CDO construction, independently
+of the Authored/Cooked payload domain. Private preparation and preview graphs
+retain their actual operation/session owners.
 
 `LoadPackage(FPackagePath)` owns closure admission and residency.
 `LoadObject(FSoftObjectPath)` resolves an exact top-level asset or descendant,
@@ -167,10 +163,9 @@ failures. Both surfaces use the same loader. Returned pointers observe existing
 package residency; they add no GC owner or rollback guarantee.
 For bounded ownership, use `FStreamableManager::RequestSyncLoad` or `RequestAsyncLoad` from
 `Engine/StreamableManager.h`. Both return the same `FStreamableHandle`. Active
-successful handles strongly retain the selected package/object. A request drops
-the clean cache retention introduced by its own loading transaction when the
-request finishes; the handle does not retain a cache-origin ledger. Previously
-cached packages and unsaved authored edits keep their independent cache owners.
+successful handles strongly retain the selected package/object. Loading adds no
+implicit runtime cache pin and requests have no cache-origin ledger. Independent
+unsaved, explicit and configured editor roots remain separately inspectable.
 `ReleaseHandle()` and handle destruction release only that handle's strong
 references and request scheduled GC. They never collect synchronously, return
 `InUse`, or require another user to surrender its references. Other handles,

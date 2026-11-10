@@ -1,3 +1,4 @@
+#include "DObject/StrongObjectPtr.h"
 #include "Asset/Testing/PackageSaveTesting.h"
 #include "Physics/BodySetup.h"
 #include "Physics/PhysicsMeshCompilation.h"
@@ -183,6 +184,7 @@ auto ConstructSceneCandidate(const FTopLevelAssetPath &AssetPath, T *&OutAsset, 
 		OutError = "The scene candidate package could not be created.";
 		return false;
 	}
+	const TStrongObjectPtr<DPackage> CreationOwner(Package);
 	FStaticConstructObjectParameters Parameters{T::StaticClass(), Package, FName(AssetPath.GetAssetName()),
 	                                            sizeof(T), EObjectFlags::Public};
 	DObject *Object = StaticConstructObject(Parameters);

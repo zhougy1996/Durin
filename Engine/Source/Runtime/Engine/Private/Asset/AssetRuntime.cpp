@@ -1,3 +1,4 @@
+#include "DObject/GarbageCollectionScheduler.h"
 #include "AssetLoadAuditInternal.h"
 #include "DObject/PackagePersistence.h"
 #include "PackageLoadTransaction.h"
@@ -234,44 +235,6 @@ namespace Durin
 		return Result;
 	}
 
-	auto ReleasePackageCache(DPackage* Package, EAssetPackageUnloadPolicy Policy) -> FAssetReadResult
-	{
-		CheckSoftObjectThread();
-		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("ReleasePackageCache", ""); !Result) return Result;
-		if (!IsValid(Package) || !Package->IsAssetPackage() || Package->IsGraphPrivate())
-			return Error(EAssetReadError::InvalidPackageType, "The package to release is invalid.");
-		auto& Loader = FAssetRuntimeState::Get().GetLoadService();
-		if (Loader.FindResidentPackage(Package->GetPackagePathIdentity()) != Package)
-			return Error(EAssetReadError::NotFound, "The package is not the resident package at its path.");
-		if (Loader.IsPackageLoading(Package->GetPackagePathIdentity()))
-			return Error(EAssetReadError::InUse, "The package is still loading.");
-		if ((Package->IsDirty() || Package->IsNewlyCreated()) && Policy == EAssetPackageUnloadPolicy::RejectUnsaved)
-			return Error(EAssetReadError::InUse, "Package has unsaved state; explicit discard policy is required.");
-		Package->SetStandaloneResidency(false);
-		RequestGarbageCollection();
-		return {};
-	}
-
-	auto FPackageLoadTransaction::ReleaseCache(DPackage* Root, EAssetPackageUnloadPolicy Policy) -> FAssetReadResult
-	{
-		CheckSoftObjectThread();
-		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("ReleaseCache", ""); !Result) return Result;
-		if (Root)
-		{
-			const auto Result = ReleasePackageCache(Root, Policy);
-			if (!Result) return Result;
-		}
-		for (const auto& Entry : Packages)
-		{
-			DPackage* Package = Entry.Get();
-			if (!IsValid(Package) || Package == Root || Package->IsGraphPrivate()) continue;
-			// A modified dependency belongs to its editing user, not the closing map.
-			(void)ReleasePackageCache(Package);
-		}
-		Packages.clear();
-		return {};
-	}
-
 	FScopedAssetLoadAudit::FScopedAssetLoadAudit(FAssetLoadAudit& Output)
 		: Previous(GActiveAssetLoadAudit)
 	{
@@ -356,6 +319,8 @@ namespace Durin
 			return std::unexpected(FAssetReadError{EAssetReadError::InUse, std::format("Package '{}' is not ready for public loading.", Path.ToString())});
 		if (DPackage* Resident = FindResidentPackage(Path))
 		{
+			if (RuntimeConfiguration.GetResidencyPolicy() == EAssetResidencyPolicy::Editor && !Resident->IsPlayInEditor())
+				Resident->SetResidencyReasons(Resident->GetResidencyReasons() | EAssetPackageResidencyReason::EditorStandalone);
 			return Resident;
 		}
 		const FPackageCatalogEntry Entry = Durin::FindPackageExact(Path);
@@ -647,10 +612,14 @@ namespace Durin
 		for (const auto& Member : Group)
 		{
 			Member->Phase = ELoadPhase::Ready;
+			if (RuntimeConfiguration.GetResidencyPolicy() == EAssetResidencyPolicy::Editor && !Member->Package->IsPlayInEditor())
+				Member->Package->SetResidencyReasons(Member->Package->GetResidencyReasons() | EAssetPackageResidencyReason::EditorStandalone);
 			Member->bOwnResource = false;
 			PendingLoads.erase(Member->Path);
 			CompletionStack.pop_back();
 		}
+		// Bare synchronous results are observations; publication adds no cache owner.
+		RequestGarbageCollection();
 		return {};
 	}
 
@@ -680,7 +649,7 @@ namespace Durin
 			}
 			Record->Package.Reset();
 		}
-		try { CollectGarbage(); }
+		try { RequestGarbageCollection(); }
 		catch (...) { /* Object retirement must not replace the original failure. */ }
 	}
 
@@ -859,11 +828,12 @@ namespace Durin
 			&& Policy == EAssetPackageUnloadPolicy::RejectUnsaved)
 			return Error(EAssetReadError::InUse,
 				"Package has unsaved state; explicit discard policy is required.");
+		const auto Reasons = Package->GetResidencyReasons();
 		Package->SetStandaloneResidency(false);
 		CollectGarbage();
 		if (DPackage* RemainingPackage = FindResidentPackage(Path))
 		{
-			RemainingPackage->SetStandaloneResidency(true);
+			RemainingPackage->SetResidencyReasons(Reasons);
 			return Error(EAssetReadError::InUse,
 				"Package remains referenced by live objects.");
 		}
@@ -880,6 +850,7 @@ namespace Durin
 		if (LoadDepth != 0 || !PendingLoads.empty())
 			return Error(EAssetReadError::InUse, "A package load is still in progress.");
 		std::unordered_set<FPackagePath> Candidates;
+		std::unordered_map<FPackagePath, EAssetPackageResidencyReason> OriginalReasons;
 		bool bInUse = false;
 		for (const auto& Handle : Packages)
 		{
@@ -891,6 +862,7 @@ namespace Durin
 				continue;
 			}
 			Candidates.insert(Package->GetPackagePathIdentity());
+			OriginalReasons.emplace(Package->GetPackagePathIdentity(), Package->GetResidencyReasons());
 		}
 		// Keep the disk dependency closure of every package outside the release set,
 		// including dirty/new packages. Internal cycles can be collected as one batch.
@@ -925,7 +897,7 @@ namespace Durin
 		{
 			if (DPackage* Remaining = FindResidentPackage(Path))
 			{
-				Remaining->SetStandaloneResidency(true);
+				Remaining->SetResidencyReasons(OriginalReasons.at(Path));
 				bInUse = true;
 			}
 			else

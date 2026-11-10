@@ -134,6 +134,7 @@ namespace Durin
 				return Reject(Warn, "The selected factory does not support the requested asset class.");
 			auto* Package = CreatePackage(Path.GetPackagePath());
 			if (!Package) return Reject(Warn, "The destination package could not be created.");
+			const TStrongObjectPtr<DPackage> CreationOwner(Package);
 			FFactoryDiagnostics Diagnostics;
 			const FName Name(Path.GetAssetName());
 			DObject* Asset = nullptr;

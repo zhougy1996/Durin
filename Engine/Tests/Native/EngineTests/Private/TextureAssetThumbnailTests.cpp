@@ -493,9 +493,18 @@ TEST(FTextureCubeThumbnailRendererTests,
 		Durin::Editor::EThumbnailRendererSessionState::WaitingForResources);
 
 	FCapturingTextureCubeThumbnailPreviewScene PreviewScene;
-	Durin::ProcessAsyncLoading(100.0, 16);
-	EXPECT_EQ((*Session)->PollResources().State,
-		Durin::Editor::EThumbnailRendererSessionState::Failed);
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+	auto Update = (*Session)->PollResources();
+	while (Update.State == Durin::Editor::EThumbnailRendererSessionState::WaitingForResources
+		&& std::chrono::steady_clock::now() < Deadline)
+	{
+		Durin::ProcessAsyncLoading(100.0, 16);
+		Durin::FAssetCompilingManager::Get().ProcessAsyncTasks(false);
+		Update = (*Session)->PollResources();
+		if (Update.State == Durin::Editor::EThumbnailRendererSessionState::WaitingForResources)
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	}
+	EXPECT_EQ(Update.State, Durin::Editor::EThumbnailRendererSessionState::Failed);
 	const auto Prepared = (*Session)->PreparePreview(PreviewScene);
 	ASSERT_FALSE(Prepared);
 	EXPECT_FALSE(Prepared.error().empty());

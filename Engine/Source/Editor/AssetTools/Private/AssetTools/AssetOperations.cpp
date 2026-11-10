@@ -1,3 +1,4 @@
+#include "DObject/StrongObjectPtr.h"
 #include "AssetTools/IAssetTools.h"
 #include "Import/AssetDestinationValidation.h"
 
@@ -97,6 +98,8 @@ namespace Durin
 		if (!DestinationPackage)
 			return Reject(
 				"The destination package could not be created.");
+		const TStrongObjectPtr<DObject> SourceOwner(SourceAsset);
+		const TStrongObjectPtr<DPackage> CreationOwner(DestinationPackage);
 		DestinationPackage->SetFlags(EObjectFlags::Transactional);
 		const auto Duplicated = DuplicateObject(
 			SourceAsset, DestinationPackage,

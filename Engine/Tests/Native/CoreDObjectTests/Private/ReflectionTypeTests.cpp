@@ -3664,7 +3664,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::MarkObjectHierarchyAsGarbage(Package);
 	}
 
-	TEST(FCoreDObjectReflectionTests, CreatePackageInitializesStandaloneAndRejectsDuplicatePaths)
+	TEST(FCoreDObjectReflectionTests, CreatePackageRegistersWithoutPinAndRetainsOnlyUnsavedState)
 	{
 		Durin::Testing::InitializeDObjectSystemForTests();
 		EnsurePackageTestMount();
@@ -3678,20 +3678,20 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(Package->GetPackagePath(), Path.ToString());
 		EXPECT_EQ(Package->GetFName(), Durin::FName("CreatedPackage"));
 		EXPECT_EQ(Durin::FindPackage(Path.GetView()), Package);
-		EXPECT_TRUE(Package->HasAnyObjectFlags(Durin::EObjectFlags::Standalone));
+		EXPECT_FALSE(Package->HasAnyObjectFlags(Durin::EObjectFlags::Standalone));
 		EXPECT_FALSE(Package->HasAnyInternalFlags(
 			Durin::EObjectInternalFlags::RootSet));
 		EXPECT_EQ(Durin::CreatePackage(Path), nullptr);
 		EXPECT_EQ(Durin::CreatePackage({}), nullptr);
 		Package->MarkAsNewlyCreated();
 		EXPECT_TRUE(Package->IsNewlyCreated());
+		Durin::CollectGarbage();
+		EXPECT_EQ(Durin::FindPackage(Path.GetView()), Package);
+		Durin::TWeakObjectPtr<Durin::DPackage> WeakPackage(Package);
 		Package->MarkAsPublished();
 		EXPECT_FALSE(Package->IsNewlyCreated());
 		Durin::CollectGarbage();
-		EXPECT_EQ(Durin::FindPackage(Path.GetView()), Package);
-
-		Durin::MarkObjectHierarchyAsGarbage(Package);
-		Durin::CollectGarbage();
+		EXPECT_FALSE(WeakPackage.IsValid());
 		EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
 	}
 

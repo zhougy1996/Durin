@@ -11,8 +11,9 @@ namespace Durin
 	// Private loader/tool transaction. Captures exact newly admitted generations for rollback.
 	// Records only packages admitted by explicit top-level synchronous load calls, including
 	// their completed dependencies, even when the requested root fails.
-	// Release is explicit and retryable; destruction transfers residency
-	// to the caller. Weak identities never claim a replacement loaded at the same path.
+	// Checked unloading is explicit and retryable. This ledger is not a GC owner;
+	// native/reflected callers retain graphs they need across collection. Weak
+	// identities never claim a replacement loaded at the same path.
 	class FPackageLoadTransaction
 	{
 	public:
@@ -45,16 +46,8 @@ namespace Durin
 		ENGINE_API auto Unload(
 			std::span<const TWeakObjectPtr<DPackage>> IgnoreSavedDependencies = {}) -> FAssetReadResult;
 
-		// Drops cached residency and requests scheduled GC, without collecting or
-		// requiring other users to release their strong references. Unsaved dependencies
-		// are preserved; explicit discard applies only to Root. Consumes this scope.
-		ENGINE_API auto ReleaseCache(DPackage* Root = nullptr,
-			EAssetPackageUnloadPolicy Policy = EAssetPackageUnloadPolicy::RejectUnsaved) -> FAssetReadResult;
-
 	private:
 		std::vector<TWeakObjectPtr<DPackage>> Packages;
 	};
 
-	ENGINE_API auto ReleasePackageCache(DPackage* Package,
-		EAssetPackageUnloadPolicy Policy = EAssetPackageUnloadPolicy::RejectUnsaved) -> FAssetReadResult;
 }

@@ -1,3 +1,4 @@
+#include "DObject/GarbageCollectionScheduler.h"
 #include "AssetLoadAuditInternal.h"
 #include "AssetPackageLinker.h"
 #include "AssetPackageLinkerSchema.h"
@@ -951,8 +952,7 @@ namespace Durin::AssetPrivate
 
 		DPackage* Package = NewObject<DPackage>(
 			nullptr,
-			FName(PackagePath.GetPackageName()),
-			EObjectFlags::Standalone);
+			FName(PackagePath.GetPackageName()));
 		if (!Package)
 		{
 			LinkerApplyFail(Diagnostic, EAssetReadError::InvalidObjectGraph, "Could not allocate the package skeleton.");
@@ -976,7 +976,7 @@ namespace Durin::AssetPrivate
 				{
 					MarkObjectHierarchyAsGarbage(Package);
 					if (Package->IsAssetPackage()) Package->RetireFailedLoadRegistration();
-					CollectGarbage();
+					RequestGarbageCollection();
 				}
 			});
 			Cleanup([&] {

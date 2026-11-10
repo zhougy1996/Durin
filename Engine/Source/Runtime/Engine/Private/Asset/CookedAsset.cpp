@@ -200,14 +200,17 @@ namespace Durin
 
 	} // namespace
 
-	auto FAssetRuntimeConfiguration::Authored() -> FAssetRuntimeConfiguration
+	auto FAssetRuntimeConfiguration::Authored(EAssetResidencyPolicy Residency) -> FAssetRuntimeConfiguration
 	{
-		return {};
+		FAssetRuntimeConfiguration Result;
+		Result.ResidencyPolicy = Residency;
+		return Result;
 	}
 
 	auto FAssetRuntimeConfiguration::Cooked(
 		std::filesystem::path InCookRoot,
-		FAssetRuntimeConfiguration& OutConfiguration
+		FAssetRuntimeConfiguration& OutConfiguration,
+		EAssetResidencyPolicy Residency
 	) -> FAssetReadResult
 	{
 		if (InCookRoot.empty() || !InCookRoot.is_absolute()
@@ -221,6 +224,7 @@ namespace Durin
 		FAssetRuntimeConfiguration Result;
 		Result.ExecutionDomain = EAssetExecutionDomain::Cooked;
 		Result.PayloadPolicy = EAssetPayloadPolicy::CookedPayloadRequired;
+		Result.ResidencyPolicy = Residency;
 		Result.CookRoot = std::move(InCookRoot);
 		const auto ManifestPath = Result.CookRoot / "CookManifest.bin";
 		const auto ManifestExists = FFileHelper::FileExists(ManifestPath);

@@ -1,5 +1,4 @@
 #include "Engine/StreamableManager.h"
-#include "PackageLoadTransaction.h"
 #include "AssetAsyncLoadInternal.h"
 #include "AssetObjectLoadTiming.h"
 #include "AssetRuntimeStateInternal.h"
@@ -348,7 +347,6 @@ namespace Durin
 			DPackage* Package = nullptr;
 			DObject* Object = nullptr;
 			FAssetReadResult Result;
-			FPackageLoadTransaction LoadScope;
 			{
 				// Preserve the synchronous loader's SCC ordering, rollback and publication.
 				// No uncaptured dependency may silently perform disk I/O on GameThread.
@@ -357,20 +355,19 @@ namespace Durin
 					~FRestore() { Slot = Value; } } Restore{Loader.AsyncInputs, Previous};
 				if (State.ObjectPath)
 				{
-					auto Loaded = LoadScope.LoadObjectDetailed(*State.ObjectPath, State.ExpectedClass, &State.Report);
+					auto Loaded = LoadObjectDetailed(*State.ObjectPath, State.ExpectedClass, &State.Report);
 					Object = Loaded.value_or(nullptr);
 					if (!Loaded) Result = AssetReadResultFromError(Loaded.error());
 					Package = Object ? Object->GetPackage() : nullptr;
 				}
 				else
 				{
-					auto Loaded = LoadScope.LoadPackageDetailed(State.PackagePath, &State.Report);
+					auto Loaded = LoadPackageDetailed(State.PackagePath, &State.Report);
 					Package = Loaded.value_or(nullptr);
 					if (!Loaded) Result = AssetReadResultFromError(Loaded.error());
 				}
 			}
 			Complete(Handle, std::move(Result), Package, Object);
-			(void)LoadScope.ReleaseCache();
 		}
 
 	public:

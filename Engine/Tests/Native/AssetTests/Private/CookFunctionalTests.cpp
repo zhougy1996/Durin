@@ -1827,6 +1827,7 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 	ASSERT_TRUE(UnloadPackage(Alias->GetPackage()));
 	for (const auto& Path : std::views::reverse(Paths))
 	{
+		if (!FindResidentPackage(Path)) continue;
 		const auto Unloaded = UnloadPackage(Path);
 		ASSERT_TRUE(Unloaded) << Path.GetView() << ": " << Unloaded.Message;
 	}

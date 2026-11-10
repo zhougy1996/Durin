@@ -414,7 +414,7 @@ TEST_F(FAssetPackageReloadTests, FunctionReloadRebindsNestedCallersAndPreservesA
 	Material.Reset();
 	Wrapper.Reset();
 	CollectGarbage();
-	ASSERT_TRUE(UnloadPackage(Path));
+	EXPECT_EQ(FindResidentPackage(Path), nullptr);
 }
 
 TEST_F(FAssetPackageReloadTests, InvalidSavedFunctionClosureCannotReplaceValidLiveGraph)
@@ -686,8 +686,8 @@ TEST_F(FAssetPackageReloadTests, ReloadRetainsCrossPackageHistoryAndRebindsTheSa
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Textures[1]);
 	TransactionRoot.Reset();
 	CollectGarbage();
-	ASSERT_TRUE(UnloadPackage(Paths[0]));
-	ASSERT_TRUE(UnloadPackage(Paths[1]));
+	EXPECT_EQ(FindResidentPackage(Paths[0]), nullptr);
+	EXPECT_EQ(FindResidentPackage(Paths[1]), nullptr);
 }
 
 TEST_F(FAssetPackageReloadTests, EveryCoordinatorFailurePreservesTheEditedGraphAndAllowsRetry)
@@ -991,7 +991,7 @@ TEST(FObjectLoadTimingTests, SeparatesNestedPackagesAndDeferredPostLoadWithoutDo
 			FScopedObjectLoadPhase Serialize(A, EObjectLoadPhase::SerializeExports, 2, 3);
 			Tick = 20;
 			{
-				FScopedObjectLoadPhase Dependency(B, EObjectLoadPhase::LoadPackageDetailed);
+				FScopedObjectLoadPhase Dependency(B, EObjectLoadPhase::LoadPackage);
 				Tick = 25;
 				{ FScopedObjectLoadPhase Defaults(B, EObjectLoadPhase::InitDefaults, 1); Tick = 35; }
 				Tick = 50;
@@ -1065,7 +1065,7 @@ TEST(FObjectLoadTimingTests, FailureUnwindsTimingScopesAndPreservesLaterSamples)
 	Tick = 0;
 	FObjectLoadTimingSession Session(Path, false, +[]() -> int64 { return Tick; }, true);
 	EXPECT_THROW(( [&] {
-		FScopedObjectLoadPhase Outer(Path, EObjectLoadPhase::LoadPackageDetailed);
+		FScopedObjectLoadPhase Outer(Path, EObjectLoadPhase::LoadPackage);
 		Tick = 10;
 		FScopedObjectLoadPhase Inner(Path, EObjectLoadPhase::SerializeExports, 1, 4);
 		Tick = 30;
@@ -1074,7 +1074,7 @@ TEST(FObjectLoadTimingTests, FailureUnwindsTimingScopesAndPreservesLaterSamples)
 	Tick = 40;
 	{ FScopedObjectLoadPhase Later(Path, EObjectLoadPhase::PostLoad, 1); Tick = 50; }
 	const auto& Phases = Session.GetPackages()[0].Phases;
-	EXPECT_EQ(Phases[static_cast<size_t>(EObjectLoadPhase::LoadPackageDetailed)].Inclusive, 30);
-	EXPECT_EQ(Phases[static_cast<size_t>(EObjectLoadPhase::LoadPackageDetailed)].Children, 20);
+	EXPECT_EQ(Phases[static_cast<size_t>(EObjectLoadPhase::LoadPackage)].Inclusive, 30);
+	EXPECT_EQ(Phases[static_cast<size_t>(EObjectLoadPhase::LoadPackage)].Children, 20);
 	EXPECT_EQ(Phases[static_cast<size_t>(EObjectLoadPhase::PostLoad)].Inclusive, 10);
 }
