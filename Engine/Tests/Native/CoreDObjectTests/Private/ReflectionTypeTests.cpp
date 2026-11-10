@@ -14,7 +14,6 @@
 #include "DObject/Archive.h"
 #include "DObject/OverridableManager.h"
 #include "DObject/DObjectArray.h"
-#include "DObject/GarbageCollectionScheduler.h"
 #include "DObject/AssetPath.h"
 #include "DObject/Package.h"
 #include "DObject/PropertyKindTraits.h"
@@ -609,7 +608,10 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		inline static uint64 FinishDestroyCount = 0;
 		inline static uint64 DestructorCount = 0;
 		bool bReadyForFinishDestroy = true;
+		uint32 ReadinessPollsRemaining = 0;
 		bool bCollectGarbageInBeginDestroy = false;
+		bool bRequestGarbageInBeginDestroy = false;
+		bool bRequestGarbageInFinishDestroy = false;
 		FShutdownDestroyScheduler* ShutdownDestroyScheduler = nullptr;
 
 		explicit DLifecycleTestObject(const Durin::FObjectInitializer& ObjectInitializer = Durin::FObjectInitializer::Get())
@@ -629,7 +631,12 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		auto BeginDestroy() -> void override
 		{
 			++BeginDestroyCount;
-			if (bCollectGarbageInBeginDestroy) Durin::CollectGarbage();
+			if (bCollectGarbageInBeginDestroy) Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
+			if (bRequestGarbageInBeginDestroy)
+			{
+				Durin::RequestGarbageCollection();
+				EXPECT_FALSE(Durin::TryCollectGarbage(Durin::EObjectFlags::Standalone));
+			}
 			if (ShutdownDestroyScheduler)
 			{
 				ShutdownDestroyScheduler->Record(EShutdownDestroyCheckpoint::BeforeRelease);
@@ -639,6 +646,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 		auto IsReadyForFinishDestroy() -> bool override
 		{
+			if (ReadinessPollsRemaining > 0) { --ReadinessPollsRemaining; return false; }
 			if (!ShutdownDestroyScheduler) return bReadyForFinishDestroy;
 			if (!ShutdownDestroyScheduler->bFenceComplete)
 			{
@@ -651,6 +659,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		auto FinishDestroy() -> void override
 		{
 			++FinishDestroyCount;
+			if (bRequestGarbageInFinishDestroy) Durin::RequestGarbageCollection();
 			if (ShutdownDestroyScheduler)
 			{
 				ShutdownDestroyScheduler->Record(EShutdownDestroyCheckpoint::FinishDestroy);
@@ -2622,14 +2631,14 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_FALSE(Durin::SaveObjectGraphToMemory(MutableDefault, SerializedDefault));
 		EXPECT_FALSE(Durin::DuplicateObject(
 			MutableDefault, nullptr, Durin::FName("RejectedDefaultDuplicate")));
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_TRUE(Durin::GDObjectArray.Contains(DefaultObject));
 		EXPECT_EQ(Class->GetDefaultObject(), DefaultObject);
 
 		DLifecycleTestObject::ResetLifecycleCounts();
 		Durin::Private::ReleaseClassDefaultObjectForTests(Class);
 		EXPECT_EQ(Class->GetDefaultObject(), nullptr);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_FALSE(Durin::GDObjectArray.Contains(DefaultObject));
 		EXPECT_EQ(DLifecycleTestObject::BeginDestroyCount, 1u);
 		EXPECT_EQ(DLifecycleTestObject::FinishDestroyCount, 1u);
@@ -2639,7 +2648,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	TEST(FCoreDObjectReflectionTests, RecursiveDefaultObjectConstructionRollsBackTheWholeObject)
 	{
 		Durin::Testing::InitializeDObjectSystemForTests();
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		Durin::DClass* Class = DRecursiveDefaultObjectForTest::StaticClass();
 		(void)DLifecycleTestObject::StaticClass();
 		const uint64 ObjectCountBeforeCreation = Durin::GDObjectArray.GetNum();
@@ -2651,6 +2660,10 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(Class->GetDefaultObjectState(), Durin::EClassDefaultObjectState::Failed);
 		EXPECT_EQ(Class->GetDefaultObjectReason(), Durin::EClassDefaultObjectReason::RecursiveConstruction);
 		EXPECT_EQ(Class->GetDefaultObject(), nullptr);
+		EXPECT_TRUE(Durin::IsGarbageCollectionRequested());
+		EXPECT_EQ(DRecursiveDefaultObjectForTest::DestructorCount, 0u);
+		EXPECT_EQ(DLifecycleTestObject::BeginDestroyCount, 0u);
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(Durin::GDObjectArray.GetNum(), ObjectCountBeforeCreation);
 		EXPECT_EQ(DRecursiveDefaultObjectForTest::DestructorCount, 1u);
 		EXPECT_EQ(DLifecycleTestObject::BeginDestroyCount, 1u);
@@ -2728,7 +2741,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 		Durin::MarkAsGarbage(ExtraChild);
 		Durin::MarkObjectHierarchyAsGarbage(Instance);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	}
 
 	TEST(FCoreDObjectReflectionTests, DefaultDeltaPlanCanonicalizesReflectedAndNativeClassDifferences)
@@ -2909,7 +2922,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			}
 
 		Durin::MarkObjectHierarchyAsGarbage(Instance);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	}
 
 	TEST(FCoreDObjectReflectionTests, DefaultDeltaPlanUsesAuthoritativeStructIdentity)
@@ -2945,7 +2958,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			Durin::EDefaultDeltaDisposition::Emitted);
 
 		Durin::MarkAsGarbage(Instance);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	}
 
 	TEST(FCoreDObjectReflectionTests, SerializedPropertyChainBalancesNativeContainersAndInvalidatesViews)
@@ -3203,7 +3216,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 		Durin::MarkObjectHierarchyAsGarbage(Instance);
 		Durin::MarkObjectHierarchyAsGarbage(NewOuter);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	}
 
 	TEST(FCoreDObjectReflectionTests, AuthoredOverridesReplaceContainersAcrossStructuralEdits)
@@ -3305,7 +3318,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 		Durin::MarkAsGarbage(Instance);
 		Durin::MarkObjectHierarchyAsGarbage(Native);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	}
 
 	TEST(FCoreDObjectReflectionTests, NoDeltaEmitsCompleteGraphWithoutManufacturingOverrides)
@@ -3365,7 +3378,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_TRUE(Plan.Objects.empty());
 
 		Durin::MarkObjectHierarchyAsGarbage(Instance);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	}
 
 	TEST(FCoreDObjectReflectionTests, ClassDefaultMatchesReflectedAndNativeArchiveDefaults)
@@ -3397,7 +3410,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(DefaultObject->SerializedNativeReference, Instance->SerializedNativeReference);
 
 		Durin::MarkAsGarbage(Instance);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	}
 
 	TEST(FCoreDObjectReflectionTests, ClassDefaultBatchIgnoresInputRegistrationOrder)
@@ -3556,7 +3569,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_FALSE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(nullptr, Durin::EObjectQueryScope::LiveOnly), MiddleChild));
 		EXPECT_TRUE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(nullptr, Durin::EObjectQueryScope::LiveOnly, true), MiddleChild));
 
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_FALSE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(nullptr, Durin::EObjectQueryScope::LiveOnly, true), MiddleChild));
 	}
 
@@ -3597,7 +3610,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(GetGarbageObjectCount(), After);
 		RemoveFromRoot(Outside);
 		MarkObjectHierarchyAsGarbage(Outside);
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		for (auto* Object : Expected) EXPECT_FALSE(GDObjectArray.Contains(Object));
 	}
 
@@ -3617,7 +3630,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		}
 
 		Durin::MarkAsGarbage(Outer);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_FALSE(ObjectArrayContains(Outer));
 		for (Durin::DObject* Child : Children)
 		{
@@ -3625,7 +3638,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			EXPECT_EQ(Child->GetOuter(), nullptr);
 			Durin::RemoveFromRoot(Child);
 		}
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	}
 
 	TEST(FCoreDObjectReflectionTests, PackageRetainsAllTopLevelAssetsAndBuildsStructuralObjectPaths)
@@ -3651,13 +3664,13 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(Package->FindTopLevelAsset("Secondary"), Secondary);
 		Secondary->Rename("Package");
 		EXPECT_EQ(Secondary->GetFName(), Durin::FName("Secondary"));
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_TRUE(ObjectArrayContains(Package));
 		EXPECT_TRUE(ObjectArrayContains(Asset));
 		EXPECT_TRUE(ObjectArrayContains(Secondary));
 		EXPECT_FALSE(ObjectArrayContains(Inner));
 		Durin::MarkAsGarbage(Secondary);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(Package->FindTopLevelAsset("Secondary"), nullptr);
 
 		Durin::RemoveFromRoot(Package);
@@ -3685,12 +3698,12 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(Durin::CreatePackage({}), nullptr);
 		Package->MarkAsNewlyCreated();
 		EXPECT_TRUE(Package->IsNewlyCreated());
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::NoFlags);
 		EXPECT_EQ(Durin::FindPackage(Path.GetView()), Package);
 		Durin::TWeakObjectPtr<Durin::DPackage> WeakPackage(Package);
 		Package->MarkAsPublished();
 		EXPECT_FALSE(Package->IsNewlyCreated());
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::NoFlags);
 		EXPECT_FALSE(WeakPackage.IsValid());
 		EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
 	}
@@ -3706,16 +3719,16 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_TRUE(Object->HasAnyObjectFlags(Durin::EObjectFlags::Standalone));
 		EXPECT_FALSE(Object->HasAnyInternalFlags(Durin::EObjectInternalFlags::RootSet));
 
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_TRUE(ObjectArrayContains(Object));
-		Durin::CollectGarbage({.KeepFlags = Durin::EObjectFlags::NoFlags});
+		Durin::CollectGarbage(Durin::EObjectFlags::NoFlags);
 		EXPECT_FALSE(ObjectArrayContains(Object));
 
 		Durin::DObject* ExplicitGarbage = Durin::NewObject(
 			Durin::DObject::StaticClass(), nullptr, "StandaloneGarbageObject",
 			Durin::EObjectFlags::Standalone);
 		Durin::MarkAsGarbage(ExplicitGarbage);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_FALSE(ObjectArrayContains(ExplicitGarbage));
 	}
 
@@ -3745,7 +3758,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_NE(OtherPackage, CorePackage);
 		EXPECT_EQ(Durin::FindPackage("/Cpp/CoreDObjectTests"), OtherPackage);
 
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_TRUE(ObjectArrayContains(CorePackage));
 		EXPECT_TRUE(ObjectArrayContains(OtherPackage));
 	}
@@ -3768,7 +3781,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(DLifecycleTestObject::FinishDestroyCount, 0u);
 		EXPECT_EQ(DLifecycleTestObject::DestructorCount, 0u);
 
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 
 		EXPECT_FALSE(ObjectArrayContains(Object));
 		EXPECT_EQ(Durin::ResolveObjectKey(Handle), nullptr);
@@ -3786,7 +3799,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 					nullptr, Durin::FName("RecursiveGarbageCollectionObject"));
 				Object->bCollectGarbageInBeginDestroy = true;
 				Durin::MarkAsGarbage(Object);
-				Durin::CollectGarbage();
+				Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 			}()),
 			""
 		);
@@ -3795,13 +3808,13 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	TEST(FCoreDObjectReflectionTests, GarbageCollectionWaitsForFinishReadinessWithoutRepeatingCallbacks)
 	{
 		Durin::Testing::InitializeDObjectSystemForTests();
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		DLifecycleTestObject::ResetLifecycleCounts();
 		auto* Object = Durin::NewObject<DLifecycleTestObject>(nullptr, Durin::FName("DeferredFinishTestObject"));
 		Object->bReadyForFinishDestroy = false;
 		Durin::MarkAsGarbage(Object);
 
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone, false);
 		EXPECT_TRUE(ObjectArrayContains(Object));
 		EXPECT_EQ(Durin::GetLastGarbageCollectionStats().CandidateObjectCount, 1u);
 		EXPECT_EQ(Durin::GetLastGarbageCollectionStats().SweptObjectCount, 0u);
@@ -3810,14 +3823,14 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(DLifecycleTestObject::FinishDestroyCount, 0u);
 		EXPECT_EQ(DLifecycleTestObject::DestructorCount, 0u);
 
-		Durin::CollectGarbage();
+		Durin::IncrementalPurgeGarbage();
 		EXPECT_EQ(Durin::GetLastGarbageCollectionStats().CandidateObjectCount, 1u);
 		EXPECT_EQ(Durin::GetLastGarbageCollectionStats().DeferredDestroyObjectCount, 1u);
 		EXPECT_EQ(DLifecycleTestObject::BeginDestroyCount, 1u);
 		EXPECT_EQ(DLifecycleTestObject::FinishDestroyCount, 0u);
 
 		Object->bReadyForFinishDestroy = true;
-		Durin::CollectGarbage();
+		Durin::IncrementalPurgeGarbage();
 		EXPECT_FALSE(ObjectArrayContains(Object));
 		EXPECT_EQ(Durin::GetLastGarbageCollectionStats().CandidateObjectCount, 1u);
 		EXPECT_EQ(Durin::GetLastGarbageCollectionStats().SweptObjectCount, 1u);
@@ -3827,7 +3840,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(DLifecycleTestObject::DestructorCount, 1u);
 	}
 
-	TEST(FCoreDObjectReflectionTests, ShutdownDestructionCompletesAfterOneFlushAndSecondCollection)
+	TEST(FCoreDObjectReflectionTests, ShutdownDestructionCompletesAfterOneFlushAndPurge)
 	{
 		Durin::Testing::InitializeDObjectSystemForTests();
 		DLifecycleTestObject::ResetLifecycleCounts();
@@ -3838,14 +3851,14 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Object->ShutdownDestroyScheduler = &Scheduler;
 		Durin::MarkAsGarbage(Object);
 
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone, false);
 		EXPECT_TRUE(ObjectArrayContains(Object));
 		EXPECT_EQ(Durin::GetLastGarbageCollectionStats().DeferredDestroyObjectCount, 1u);
 		EXPECT_EQ(DLifecycleTestObject::BeginDestroyCount, 1u);
 		EXPECT_EQ(DLifecycleTestObject::FinishDestroyCount, 0u);
 
 		Scheduler.bFenceComplete = true;
-		Durin::CollectGarbage();
+		Durin::IncrementalPurgeGarbage();
 		EXPECT_FALSE(ObjectArrayContains(Object));
 		EXPECT_EQ(Durin::GetLastGarbageCollectionStats().DeferredDestroyObjectCount, 0u);
 		EXPECT_EQ(DLifecycleTestObject::BeginDestroyCount, 1u);
@@ -3862,7 +3875,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::DObject* UnreachableObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("UnreachableGCTestObject"));
 		Durin::AddToRoot(RootedObject);
 
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 
 		EXPECT_TRUE(ObjectArrayContains(RootedObject));
 		EXPECT_FALSE(ObjectArrayContains(UnreachableObject));
@@ -3882,81 +3895,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(ObjectPtr.Get(), Object);
 		EXPECT_FALSE(ObjectPtr.IsValid());
 		EXPECT_FALSE(Durin::IsValid(Object));
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(ObjectPtr.Get(), nullptr);
-	}
-
-	TEST(FCoreDObjectReflectionTests, GarbageCollectionSchedulerUsesTimeAndPressure)
-	{
-		Durin::FGarbageCollectionSettings Settings;
-		Settings.IntervalSeconds = 60.0;
-		Settings.PendingKillThreshold = 128;
-		Settings.ObjectGrowthThreshold = 1024;
-		Durin::FGarbageCollectionScheduler Scheduler(Settings);
-		Scheduler.Reset(100.0, 20);
-
-		EXPECT_EQ(Scheduler.ShouldCollect(159.0, 20, 0), Durin::EGarbageCollectionTrigger::None);
-		EXPECT_EQ(Scheduler.ShouldCollect(160.0, 20, 0), Durin::EGarbageCollectionTrigger::Interval);
-		EXPECT_EQ(Scheduler.ShouldCollect(101.0, 20, 128), Durin::EGarbageCollectionTrigger::PendingKillPressure);
-		EXPECT_EQ(Scheduler.ShouldCollect(101.0, 1044, 0), Durin::EGarbageCollectionTrigger::ObjectGrowthPressure);
-
-		Settings.bEnabled = false;
-		Durin::FGarbageCollectionScheduler DisabledScheduler(Settings);
-		DisabledScheduler.Reset(100.0, 20);
-		EXPECT_EQ(DisabledScheduler.ShouldCollect(1000.0, 10000, 10000), Durin::EGarbageCollectionTrigger::None);
-	}
-
-	TEST(FCoreDObjectReflectionTests, GarbageCollectionSchedulerBacksOffEmptyCollectionsWithinBound)
-	{
-		Durin::FGarbageCollectionSettings Settings;
-		Settings.IntervalSeconds = 60.0;
-		Settings.MaxIntervalSeconds = 600.0;
-		Settings.IntervalBackoffMultiplier = 2.0;
-		Settings.PendingKillThreshold = 128;
-		Settings.ObjectGrowthThreshold = 1024;
-		Durin::FGarbageCollectionScheduler Scheduler(Settings);
-		Scheduler.Reset(0.0, 20);
-
-		EXPECT_DOUBLE_EQ(Scheduler.GetCurrentIntervalSeconds(), 60.0);
-		Scheduler.NotifyCollectionCompleted(60.0, 20, 0);
-		EXPECT_DOUBLE_EQ(Scheduler.GetCurrentIntervalSeconds(), 120.0);
-		EXPECT_EQ(Scheduler.ShouldCollect(179.0, 20, 0), Durin::EGarbageCollectionTrigger::None);
-		EXPECT_EQ(Scheduler.ShouldCollect(180.0, 20, 0), Durin::EGarbageCollectionTrigger::Interval);
-
-		Scheduler.NotifyCollectionCompleted(180.0, 20, 0);
-		EXPECT_DOUBLE_EQ(Scheduler.GetCurrentIntervalSeconds(), 240.0);
-		Scheduler.NotifyCollectionCompleted(420.0, 20, 0);
-		EXPECT_DOUBLE_EQ(Scheduler.GetCurrentIntervalSeconds(), 480.0);
-		Scheduler.NotifyCollectionCompleted(900.0, 20, 0);
-		EXPECT_DOUBLE_EQ(Scheduler.GetCurrentIntervalSeconds(), 600.0);
-		Scheduler.NotifyCollectionCompleted(1500.0, 20, 0);
-		EXPECT_DOUBLE_EQ(Scheduler.GetCurrentIntervalSeconds(), 600.0);
-
-		EXPECT_EQ(Scheduler.ShouldCollect(1501.0, 20, 128), Durin::EGarbageCollectionTrigger::PendingKillPressure);
-		EXPECT_EQ(Scheduler.ShouldCollect(1501.0, 1044, 0), Durin::EGarbageCollectionTrigger::ObjectGrowthPressure);
-		Scheduler.NotifyCollectionCompleted(1501.0, 20, 1);
-		EXPECT_DOUBLE_EQ(Scheduler.GetCurrentIntervalSeconds(), 60.0);
-	}
-
-	TEST(FCoreDObjectReflectionTests, GarbageCollectionSchedulerNormalizesAdaptiveSettings)
-	{
-		Durin::FGarbageCollectionSettings Settings;
-		Settings.IntervalSeconds = 60.0;
-		Settings.MaxIntervalSeconds = 30.0;
-		Settings.IntervalBackoffMultiplier = 0.5;
-		Durin::FGarbageCollectionScheduler Scheduler(Settings);
-		Scheduler.Reset(0.0, 0);
-		Scheduler.NotifyCollectionCompleted(60.0, 0, 0);
-
-		EXPECT_DOUBLE_EQ(Scheduler.GetSettings().MaxIntervalSeconds, 60.0);
-		EXPECT_DOUBLE_EQ(Scheduler.GetSettings().IntervalBackoffMultiplier, 1.0);
-		EXPECT_DOUBLE_EQ(Scheduler.GetCurrentIntervalSeconds(), 60.0);
-
-		Settings.IntervalSeconds = 0.0;
-		Durin::FGarbageCollectionScheduler NoIntervalScheduler(Settings);
-		NoIntervalScheduler.Reset(0.0, 0);
-		NoIntervalScheduler.NotifyCollectionCompleted(100.0, 0, 0);
-		EXPECT_EQ(NoIntervalScheduler.ShouldCollect(1000.0, 0, 0), Durin::EGarbageCollectionTrigger::None);
 	}
 
 	TEST(FCoreDObjectReflectionTests, OnlyTObjectPtrPropertiesKeepReferencedObjectsReachable)
@@ -3970,7 +3910,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Owner->ObjectPtrReference = ObjectPtrReferencedObject;
 		Durin::AddToRoot(Owner);
 
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 
 		EXPECT_TRUE(ObjectArrayContains(Owner));
 		EXPECT_FALSE(ObjectArrayContains(ReferencedObject));
@@ -3988,7 +3928,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		auto* Inner = Durin::NewObject<DLifecycleTestObject>(Outer, Durin::FName("GCInnerObject"));
 		Durin::AddToRoot(Outer);
 
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 
 		EXPECT_TRUE(ObjectArrayContains(Outer));
 		EXPECT_FALSE(ObjectArrayContains(Inner));
@@ -4004,7 +3944,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 		auto* Outer = Durin::NewObject<DLifecycleTestObject>(nullptr, Durin::FName("GCUnreachableOuter"));
 		auto* Inner = Durin::NewObject<DLifecycleTestObject>(Outer, Durin::FName("GCUnreachableInner"));
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 
 		EXPECT_FALSE(ObjectArrayContains(Outer));
 		EXPECT_FALSE(ObjectArrayContains(Inner));
@@ -4022,13 +3962,13 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::DObject* Sibling = Durin::NewObject<Durin::DObject>(Outer, Durin::FName("GCReverseSibling"));
 		Durin::AddToRoot(Inner);
 
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_TRUE(ObjectArrayContains(Outer));
 		EXPECT_TRUE(ObjectArrayContains(Inner));
 		EXPECT_FALSE(ObjectArrayContains(Sibling));
 
 		Durin::RemoveFromRoot(Inner);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_FALSE(ObjectArrayContains(Outer));
 		EXPECT_FALSE(ObjectArrayContains(Inner));
 		EXPECT_FALSE(ObjectArrayContains(Sibling));
@@ -4043,7 +3983,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Owner->NativeReference = ReferencedObject;
 		Durin::AddToRoot(Owner);
 
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 
 		EXPECT_TRUE(ObjectArrayContains(Owner));
 		EXPECT_TRUE(ObjectArrayContains(ReferencedObject));
@@ -4061,13 +4001,13 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::DObject* Inner = Durin::NewObject<Durin::DObject>(Outer, Durin::FName("GCExplicitInner"));
 		Durin::AddToRoot(Inner);
 		Durin::MarkAsGarbage(Outer);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 
 		EXPECT_FALSE(ObjectArrayContains(Outer));
 		EXPECT_TRUE(ObjectArrayContains(Inner));
 		EXPECT_EQ(Inner->GetOuter(), nullptr);
 		Durin::RemoveFromRoot(Inner);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_FALSE(ObjectArrayContains(Inner));
 	}
 
@@ -4092,7 +4032,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_TRUE(Durin::IsValid(ReparentedChild));
 		EXPECT_EQ(ReparentedChild->GetOuter(), NewOuter);
 
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_FALSE(ObjectArrayContains(OriginalOuter));
 		EXPECT_FALSE(ObjectArrayContains(DoomedChild));
 		EXPECT_FALSE(ObjectArrayContains(DoomedGrandchild));
@@ -4101,66 +4041,47 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 		Durin::RemoveFromRoot(ReparentedChild);
 		Durin::MarkObjectHierarchyAsGarbage(NewOuter);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	}
 
-	TEST(FCoreDObjectReflectionTests, CollectionRequestsSurviveNestedDeferralAndDisabledScheduling)
+	TEST(FCoreDObjectReflectionTests, CollectionRequestsWaitForExplicitSafePoint)
 	{
 		Durin::Testing::InitializeDObjectSystemForTests();
-		Durin::CollectGarbage();
-		Durin::ConfigureAutomaticGarbageCollection({.bEnabled = false}, 0.0);
-		Durin::TObjectPtr<Durin::DObject> Object = Durin::NewObject<Durin::DObject>(nullptr, "DeferredCollection");
-		{
-			Durin::FGarbageCollectionDeferralScope OuterScope;
-			{
-				Durin::FGarbageCollectionDeferralScope InnerScope;
-				Durin::MarkAsGarbage(Object.Get());
-				Durin::CollectGarbage();
-				EXPECT_NE(Object.Get(), nullptr);
-				EXPECT_EQ(Durin::TryCollectGarbage(1.0), Durin::EGarbageCollectionTrigger::None);
-			}
-			EXPECT_TRUE(Durin::IsGarbageCollectionRequested());
-			EXPECT_EQ(Durin::TryCollectGarbage(2.0), Durin::EGarbageCollectionTrigger::None);
-		}
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
+		Durin::TObjectPtr<Durin::DObject> Object = Durin::NewObject<Durin::DObject>(nullptr, "RequestedCollection");
+		auto Callback = [&] {
+			Durin::MarkAsGarbage(Object.Get());
+			Durin::RequestGarbageCollection();
+			EXPECT_NE(Object.Get(), nullptr);
+		};
+		Callback();
+		EXPECT_TRUE(Durin::IsGarbageCollectionRequested());
 		EXPECT_NE(Object.Get(), nullptr);
-		EXPECT_EQ(Durin::TryCollectGarbage(3.0), Durin::EGarbageCollectionTrigger::Requested);
+		EXPECT_TRUE(Durin::TryCollectGarbage(Durin::EObjectFlags::NoFlags));
 		EXPECT_EQ(Object.Get(), nullptr);
 		EXPECT_FALSE(Durin::IsGarbageCollectionRequested());
-		EXPECT_EQ(Durin::TryCollectGarbage(4.0), Durin::EGarbageCollectionTrigger::None);
-		Durin::ConfigureAutomaticGarbageCollection({}, Durin::FTime::Seconds());
 	}
 
-	TEST(FCoreDObjectReflectionTests, AutomaticGarbageCollectionPhysicallyRemovesMarkedHierarchy)
+	TEST(FCoreDObjectReflectionTests, MarkedHierarchyWaitsForExplicitExecution)
 	{
 		Durin::Testing::InitializeDObjectSystemForTests();
-		Durin::FGarbageCollectionSettings Settings;
-		Settings.IntervalSeconds = 0.0;
-		Settings.PendingKillThreshold = 1;
-		Settings.ObjectGrowthThreshold = 0;
-		Durin::ConfigureAutomaticGarbageCollection(Settings, 0.0);
 
 		Durin::DObject* Outer = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("AutomaticHierarchyOuter"));
 		Durin::DObject* Child = Durin::NewObject<Durin::DObject>(Outer, Durin::FName("AutomaticHierarchyChild"));
 		Durin::MarkObjectHierarchyAsGarbage(Outer);
 
-		EXPECT_EQ(Durin::TryCollectGarbage(1.0), Durin::EGarbageCollectionTrigger::PendingKillPressure);
+		EXPECT_TRUE(ObjectArrayContains(Outer));
+		EXPECT_TRUE(ObjectArrayContains(Child));
+		EXPECT_TRUE(Durin::TryCollectGarbage(Durin::EObjectFlags::Standalone));
 		EXPECT_FALSE(ObjectArrayContains(Outer));
 		EXPECT_FALSE(ObjectArrayContains(Child));
 
-		Durin::ConfigureAutomaticGarbageCollection(Durin::FGarbageCollectionSettings{}, 1.0);
 	}
 
-	TEST(FCoreDObjectReflectionTests, AutomaticGarbageCollectionFindsReferenceRemovalAtMaximumInterval)
+	TEST(FCoreDObjectReflectionTests, SynchronousCollectionFindsReferenceRemoval)
 	{
 		Durin::Testing::InitializeDObjectSystemForTests();
-		Durin::CollectGarbage();
-		Durin::FGarbageCollectionSettings Settings;
-		Settings.IntervalSeconds = 60.0;
-		Settings.MaxIntervalSeconds = 600.0;
-		Settings.IntervalBackoffMultiplier = 2.0;
-		Settings.PendingKillThreshold = 0;
-		Settings.ObjectGrowthThreshold = 0;
-		Durin::ConfigureAutomaticGarbageCollection(Settings, Durin::FTime::Seconds());
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 
 		auto* Owner = Durin::NewObject<DLifecycleReferenceOwnerForTest>(nullptr, Durin::FName("AdaptiveGCReferenceOwner"));
 		Durin::DObject* ReferencedObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("AdaptiveGCReferencedObject"));
@@ -4170,20 +4091,17 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 		for (uint32 Index = 0; Index < 4; ++Index)
 		{
-			Durin::CollectGarbage();
+			Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 			EXPECT_EQ(Durin::GetLastGarbageCollectionStats().CandidateObjectCount, 0u);
 		}
-		EXPECT_DOUBLE_EQ(Durin::GetCurrentAutomaticGarbageCollectionIntervalSeconds(), 600.0);
 
 		Owner->ObjectPtrReference = nullptr;
-		const double ReferenceRemovalTime = Durin::FTime::Seconds();
-		EXPECT_EQ(Durin::TryCollectGarbage(ReferenceRemovalTime + 500.0), Durin::EGarbageCollectionTrigger::None);
-		EXPECT_EQ(Durin::TryCollectGarbage(ReferenceRemovalTime + 600.0), Durin::EGarbageCollectionTrigger::Interval);
+		EXPECT_NE(ReferencedObjectPtr.Get(), nullptr);
+		EXPECT_TRUE(Durin::TryCollectGarbage(Durin::EObjectFlags::Standalone));
 		EXPECT_EQ(ReferencedObjectPtr.Get(), nullptr);
 
 		Durin::RemoveFromRoot(Owner);
-		Durin::CollectGarbage();
-		Durin::ConfigureAutomaticGarbageCollection(Durin::FGarbageCollectionSettings{}, Durin::FTime::Seconds());
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	}
 
 	TEST(FCoreDObjectReflectionTests, RootSetIsIdempotentAndStrongPointersAreComposable)
@@ -4194,7 +4112,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::AddToRoot(RootedObject);
 		Durin::AddToRoot(RootedObject);
 		Durin::RemoveFromRoot(RootedObject);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_FALSE(ObjectArrayContains(RootedObject));
 
 		Durin::DObject* StrongObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCStrongObject"));
@@ -4205,11 +4123,11 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		{
 			Durin::TStrongObjectPtr<Durin::DObject> Moved(std::move(First));
 			Second.Reset();
-			Durin::CollectGarbage();
+			Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 			EXPECT_TRUE(ObjectArrayContains(StrongObject));
 		}
 
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_FALSE(ObjectArrayContains(StrongObject));
 		EXPECT_FALSE(Durin::TStrongObjectPtr<Durin::DObject>(StrongHandle));
 	}
@@ -4226,12 +4144,12 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		}
 		Durin::AddToRoot(Innermost);
 
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_TRUE(ObjectArrayContains(Outermost));
 		EXPECT_TRUE(ObjectArrayContains(Innermost));
 
 		Durin::RemoveFromRoot(Innermost);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_FALSE(ObjectArrayContains(Outermost));
 		EXPECT_FALSE(ObjectArrayContains(Innermost));
 	}
@@ -4249,7 +4167,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Owner->ObjectPtrReferences.push_back(ObjectPtrReferencedObjectB);
 		Durin::AddToRoot(Owner);
 
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 
 		EXPECT_TRUE(ObjectArrayContains(Owner));
 		EXPECT_FALSE(ObjectArrayContains(RawReferencedObject));
@@ -4302,7 +4220,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		ASSERT_TRUE(Owner->SoftReference.TrySetObject(SoftReference));
 		Durin::AddToRoot(Owner);
 
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 
 		EXPECT_TRUE(ObjectArrayContains(Owner));
 		EXPECT_TRUE(ObjectArrayContains(SharedReference));
@@ -4318,7 +4236,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_FALSE(ObjectArrayContains(SoftPackage));
 
 		Durin::RemoveFromRoot(Owner);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_FALSE(ObjectArrayContains(Owner));
 		EXPECT_FALSE(ObjectArrayContains(SharedReference));
 		EXPECT_FALSE(ObjectArrayContains(ArrayMapReference));
@@ -4929,7 +4847,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_TRUE(Failed.error().ArchiveCode.has_value());
 		EXPECT_FALSE(Failed.error().ObjectName.empty());
 		EXPECT_TRUE(Duplicates.empty());
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		auto RemainingInners = Durin::GDObjectArray.GetObjectsWithOuter(NewOuter, Durin::EObjectQueryScope::LiveOnly);
 		EXPECT_EQ(std::ranges::count_if(RemainingInners, [](Durin::DObject* Object) {
 			return Object && Object->GetName() == "DuplicateArchiveFailedResult";
@@ -4973,7 +4891,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(static_cast<Durin::DObject*>(ObjectPtr), ReferencedObject);
 
 		Durin::MarkAsGarbage(ReferencedObject);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_FALSE(ObjectPtr);
 		EXPECT_EQ(ObjectPtr.Get(), nullptr);
 		EXPECT_EQ(Durin::ResolveObjectKey(ObjectPtr.GetKey()), nullptr);
@@ -5007,7 +4925,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	TEST(FCoreDObjectReflectionTests, ObjectKeysRetainIdentityWithoutRetainingObjects)
 	{
 		Durin::Testing::InitializeDObjectSystemForTests();
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		auto* First = Durin::NewObject<Durin::DObject>(nullptr, "ObjectKeyFirst");
 		const Durin::FObjectKey Key(First);
 		const Durin::TObjectKey<Durin::DObject> Typed(First);
@@ -5017,7 +4935,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(Typed.GetKey(), Key);
 		EXPECT_EQ(Weak.GetKey(), Key);
 		EXPECT_FALSE(Key.IsNull());
-		Durin::CollectGarbage(); // Keys and weak pointers are not roots.
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone); // Keys and weak pointers are not roots.
 		EXPECT_EQ(Key.ResolveObjectPtr(), nullptr);
 		EXPECT_EQ(Weak.Get(), nullptr);
 		EXPECT_EQ(std::hash<Durin::FObjectKey>{}(Key), Hash);
@@ -5029,7 +4947,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::MarkAsGarbage(Second);
 		EXPECT_EQ(SecondKey.ResolveObjectPtr(), nullptr);
 		EXPECT_NE(SecondKey, Durin::FObjectKey{});
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	}
 
 	TEST(FCoreDObjectReflectionTests, WeakObjectPtrResolvesLiveObjectAndResets)
@@ -5073,20 +4991,20 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_FALSE(WeakObject.IsValid());
 
 		Durin::MarkAsGarbage(Object);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(Durin::ResolveObjectKey(Handle), nullptr);
 	}
 
 	TEST(FCoreDObjectReflectionTests, WeakObjectPtrUsesObjectSerialNumberToRejectReusedSlot)
 	{
 		Durin::Testing::InitializeDObjectSystemForTests();
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 
 		Durin::DObject* First = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("WeakObjectPtrFirst"));
 		Durin::TWeakObjectPtr<Durin::DObject> WeakFirst = First;
 		const Durin::FObjectKey FirstHandle = WeakFirst.GetKey();
 		Durin::MarkAsGarbage(First);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 
 		Durin::DObject* Second = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("WeakObjectPtrSecond"));
 		Durin::TWeakObjectPtr<Durin::DObject> WeakSecond = Second;
@@ -5150,7 +5068,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			CV.wait(Lock, [&bWorkerHasCopy]() { return bWorkerHasCopy; });
 		}
 		Durin::MarkAsGarbage(Object);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		{
 			std::lock_guard Lock(Mutex);
 			bMayReturnCopy = true;
@@ -5300,7 +5218,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(WorkerCopy.Get(), Asset);
 		RemoveFromRoot(Package);
 		MarkObjectHierarchyAsGarbage(Package);
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(Reference.Get(), nullptr);
 		EXPECT_TRUE(Reference.IsPending());
 		EXPECT_EQ(Moved.Get(), nullptr);
@@ -5313,7 +5231,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(Reference.ToSoftObjectPath(), SoftPath);
 		RemoveFromRoot(Package);
 		MarkObjectHierarchyAsGarbage(Package);
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 	}
 
 	TEST(FCoreDObjectReflectionTests, SoftObjectArchiveRetainsPathCauseAndFirstFailure)
@@ -5393,7 +5311,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		FByteBuffer Bytes;
 		ASSERT_TRUE(SaveObjectGraphToMemory(Owner, Bytes));
 		MarkAsGarbage(Owner);
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		const uint64 Before = GDObjectArray.GetNum();
 		const auto PathBytes = std::as_bytes(std::span(PathText));
 		const auto Found = std::search(Bytes.begin(), Bytes.end(), PathBytes.begin(), PathBytes.end());
@@ -5410,7 +5328,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		ASSERT_NE(PathCause, nullptr);
 		EXPECT_EQ(PathCause->Code, EObjectPathError::NotAbsolute);
 
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_LE(GDObjectArray.GetNum(), Before);
 	}
 
@@ -5471,7 +5389,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::MarkAsGarbage(Unpackaged);
 		Durin::RemoveFromRoot(Package);
 		Durin::MarkObjectHierarchyAsGarbage(Package);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	}
 
 	TEST(FCoreDObjectReflectionTests, SoftObjectPropertySupportsTypedDirectNestedAndDetachedValues)
@@ -5577,7 +5495,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 		Durin::RemoveFromRoot(Package);
 		Durin::MarkObjectHierarchyAsGarbage(Package);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	}
 
 	TEST(FCoreDObjectReflectionTests, WeakObjectPropertySupportsTransientTypedContainersWithoutRootingTargets)
@@ -5615,7 +5533,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(Owner.Direct.Get(), Target);
 
 		Durin::MarkAsGarbage(Target);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(Owner.Direct.Get(), nullptr);
 		FWeakObjectPropertyOwnerForTest NullOwner;
 		EXPECT_TRUE(Durin::ArePropertyValuesIdentical(Direct, &Owner, 0, &NullOwner, 0));
@@ -5631,7 +5549,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Owner->WeakMap.emplace("Target", Target);
 		Durin::AddToRoot(Owner);
 
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_FALSE(ObjectArrayContains(Target));
 		EXPECT_EQ(Owner->WeakReference.Get(), nullptr);
 		ASSERT_EQ(Owner->WeakReferences.size(), 1u);
@@ -5640,7 +5558,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(Owner->WeakMap.at("Target").Get(), nullptr);
 
 		Durin::RemoveFromRoot(Owner);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	}
 
 #if DO_CHECK
@@ -5663,11 +5581,11 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	TEST(FCoreDObjectReflectionTests, ReusedObjectSlotInvalidatesOldHandleObjectSerialNumber)
 	{
 		Durin::Testing::InitializeDObjectSystemForTests();
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		Durin::DObject* First = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("ObjectHandleFirst"));
 		const Durin::FObjectHandle FirstHandle = Durin::MakeObjectHandle(First);
 		Durin::MarkAsGarbage(First);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 
 		Durin::DObject* Second = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("ObjectHandleSecond"));
 		const Durin::FObjectHandle SecondHandle = Durin::MakeObjectHandle(Second);
@@ -5681,7 +5599,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	TEST(FCoreDObjectReflectionTests, ObjectAndGarbageCountsTrackLiveObjectsWithoutCompaction)
 	{
 		Durin::Testing::InitializeDObjectSystemForTests();
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		const uint64 InitialCount = Durin::GDObjectArray.GetNum();
 		Durin::DObject* A = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCCountA"));
 		Durin::DObject* B = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCCountB"));
@@ -5694,7 +5612,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::MarkAsGarbage(A);
 		EXPECT_EQ(Durin::GDObjectArray.GetNum(), InitialCount + 2);
 		EXPECT_EQ(Durin::GetGarbageObjectCount(), 1u);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(Durin::GDObjectArray.GetNum(), InitialCount);
 		EXPECT_EQ(Durin::GetGarbageObjectCount(), 0u);
 
@@ -6756,6 +6674,10 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		const std::array SideEffectBatch{&SideEffect};
 		EXPECT_FALSE(Durin::Private::CreateDStructDefaultsForBatch(SideEffectBatch));
 		EXPECT_EQ(SideEffect.GetDefaultReason(), Durin::EDStructDefaultReason::PublicationSideEffect);
+		EXPECT_TRUE(Durin::IsGarbageCollectionRequested());
+		for (Durin::DObject* Object : StructOpsTest::SideEffectObjects)
+			EXPECT_TRUE(Object->IsGarbage());
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_LE(Durin::GDObjectArray.GetNum(), ObjectCountBefore);
 		for (Durin::DObject* Object : StructOpsTest::SideEffectObjects)
 			EXPECT_FALSE(Durin::GDObjectArray.Contains(Object));
@@ -6803,12 +6725,12 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		ASSERT_TRUE(Durin::Private::CreateDStructDefaultsForBatch(Batch));
 		ASSERT_EQ(Struct->GetDefaultState(), Durin::EDStructDefaultState::Ready);
 		StructOpsTest::DefaultReferenceTarget = nullptr;
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_TRUE(Durin::GDObjectArray.Contains(Target));
 
 		Durin::ReleaseDStructDefaultsForModule(Durin::FName("StructDefaultLifecycleTest"));
 		EXPECT_EQ(Struct->GetDefaultState(), Durin::EDStructDefaultState::Released);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_FALSE(Durin::GDObjectArray.Contains(Target));
 	}
 
@@ -7222,4 +7144,125 @@ TEST(FObjectModifyTests, RuntimeNeutralBridgeRequiresTransactionalParticipation)
 	EXPECT_TRUE(Object->Modify(false)); EXPECT_EQ(Captures, 1);
 	Object->ClearFlags(EObjectFlags::Transactional);
 	EXPECT_FALSE(Object->Modify()); EXPECT_EQ(Captures, 1);
+}
+
+TEST(FCoreDObjectReflectionTests, DestructionRequestsSurviveSuccessfulTryAndDeferredReadiness)
+{
+	using namespace Durin;
+	Testing::InitializeDObjectSystemForTests();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
+	auto* Object = NewObject<DLifecycleTestObject>(nullptr, "DestructionRequest");
+	Object->bRequestGarbageInBeginDestroy = true;
+	Object->bReadyForFinishDestroy = false;
+	MarkAsGarbage(Object);
+	RequestGarbageCollection();
+	EXPECT_TRUE(TryCollectGarbage(EObjectFlags::Standalone, false));
+	EXPECT_TRUE(IsGarbageCollectionRequested());
+	EXPECT_EQ(GetLastGarbageCollectionStats().DeferredDestroyObjectCount, 1u);
+	Object->bReadyForFinishDestroy = true;
+	EXPECT_TRUE(TryCollectGarbage(Durin::EObjectFlags::Standalone));
+	EXPECT_FALSE(IsGarbageCollectionRequested());
+	EXPECT_EQ(GetLastGarbageCollectionStats().DeferredDestroyObjectCount, 0u);
+}
+
+TEST(FCoreDObjectReflectionTests, RequestsDoNotChangeExecutionKeepFlags)
+{
+	using namespace Durin;
+	Testing::InitializeDObjectSystemForTests();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
+	TObjectPtr<DObject> Public = NewObject<DObject>(nullptr, "KeepPublic", EObjectFlags::Public);
+	TObjectPtr<DObject> Standalone = NewObject<DObject>(nullptr, "KeepStandalone", EObjectFlags::Standalone);
+	RequestGarbageCollection();
+	RequestGarbageCollection(true);
+	RequestGarbageCollection();
+	EXPECT_TRUE(TryCollectGarbage(EObjectFlags::NoFlags));
+	EXPECT_EQ(Public.Get(), nullptr);
+	EXPECT_EQ(Standalone.Get(), nullptr);
+	EXPECT_FALSE(IsGarbageCollectionRequested());
+	EXPECT_TRUE(TryCollectGarbage(EObjectFlags::NoFlags));
+	EXPECT_EQ(Public.Get(), nullptr);
+	EXPECT_EQ(Standalone.Get(), nullptr);
+}
+
+TEST(FCoreDObjectReflectionTests, FullPurgeWaitsForReadinessAndPurgeDoesNotScanNewObjects)
+{
+	using namespace Durin;
+	Testing::InitializeDObjectSystemForTests();
+	CollectGarbage(EObjectFlags::Standalone);
+	auto* Deferred = NewObject<DLifecycleTestObject>(nullptr, "FullPurgeReadiness");
+	Deferred->bReadyForFinishDestroy = false;
+	MarkAsGarbage(Deferred);
+	CollectGarbage(EObjectFlags::NoFlags, false);
+	const auto Serial = GetLastGarbageCollectionStats().CollectionSerial;
+	const auto Frame = GetLastGarbageCollectionStats().CollectionFrame;
+	TObjectPtr<DObject> Fresh = NewObject<DObject>(nullptr, "AfterReachability");
+	RequestGarbageCollection(true);
+	RequestGarbageCollection(false);
+	Deferred->bReadyForFinishDestroy = true;
+	Deferred->ReadinessPollsRemaining = 3;
+	IncrementalPurgeGarbage(false);
+	EXPECT_FALSE(IsIncrementalPurgePending());
+	EXPECT_NE(Fresh.Get(), nullptr);
+	EXPECT_TRUE(IsGarbageCollectionRequested());
+	EXPECT_EQ(GetLastGarbageCollectionStats().CollectionSerial, Serial);
+	EXPECT_EQ(GetLastGarbageCollectionStats().CollectionFrame, Frame);
+	CollectGarbage(EObjectFlags::NoFlags);
+	EXPECT_EQ(Fresh.Get(), nullptr);
+	EXPECT_FALSE(IsGarbageCollectionRequested());
+}
+
+TEST(FCoreDObjectReflectionTests, PartialCollectionPreservesFullPurgeRequest)
+{
+	using namespace Durin;
+	Testing::InitializeDObjectSystemForTests();
+	RequestGarbageCollection(true);
+	RequestGarbageCollection(false);
+	CollectGarbage(EObjectFlags::NoFlags, false);
+	EXPECT_TRUE(IsGarbageCollectionRequested());
+	CollectGarbage(EObjectFlags::NoFlags, true);
+	EXPECT_FALSE(IsGarbageCollectionRequested());
+}
+
+TEST(FCoreDObjectReflectionTests, FullCollectionFinishesDelayedCandidatesBeforeReturning)
+{
+	using namespace Durin;
+	Testing::InitializeDObjectSystemForTests();
+	CollectGarbage(EObjectFlags::Standalone);
+	DLifecycleTestObject::ResetLifecycleCounts();
+	auto* Object = NewObject<DLifecycleTestObject>(nullptr, "FullCollectionReadiness");
+	Object->ReadinessPollsRemaining = 3;
+	MarkAsGarbage(Object);
+	CollectGarbage(EObjectFlags::NoFlags, true);
+	EXPECT_FALSE(IsIncrementalPurgePending());
+	EXPECT_EQ(DLifecycleTestObject::BeginDestroyCount, 1u);
+	EXPECT_EQ(DLifecycleTestObject::FinishDestroyCount, 1u);
+	EXPECT_EQ(DLifecycleTestObject::DestructorCount, 1u);
+}
+
+TEST(FCoreDObjectReflectionTests, ZeroBudgetAdvancesFairlyAndFinishRequestSurvivesNewCollection)
+{
+	using namespace Durin;
+	Testing::InitializeDObjectSystemForTests();
+	CollectGarbage(EObjectFlags::Standalone);
+	DLifecycleTestObject::ResetLifecycleCounts();
+	auto* First = NewObject<DLifecycleTestObject>(nullptr, "BudgetFirst");
+	auto* Second = NewObject<DLifecycleTestObject>(nullptr, "BudgetSecond");
+	First->bReadyForFinishDestroy = false;
+	Second->bReadyForFinishDestroy = false;
+	First->bRequestGarbageInFinishDestroy = true;
+	CollectGarbage(EObjectFlags::NoFlags, false);
+	Second->bReadyForFinishDestroy = true;
+	// One callback per zero-budget step; an unready head cannot starve later work.
+	for (int Index = 0; Index < 4; ++Index) IncrementalPurgeGarbage(true, 0.0);
+	EXPECT_EQ(DLifecycleTestObject::FinishDestroyCount, 1u);
+	EXPECT_EQ(DLifecycleTestObject::DestructorCount, 1u);
+	EXPECT_TRUE(IsIncrementalPurgePending());
+	First->bReadyForFinishDestroy = true;
+	CollectGarbage(EObjectFlags::NoFlags);
+	EXPECT_FALSE(IsIncrementalPurgePending());
+	EXPECT_EQ(DLifecycleTestObject::FinishDestroyCount, 2u);
+	EXPECT_EQ(DLifecycleTestObject::DestructorCount, 2u);
+	EXPECT_TRUE(IsGarbageCollectionRequested());
+	CollectGarbage(EObjectFlags::NoFlags);
+	EXPECT_FALSE(IsGarbageCollectionRequested());
 }

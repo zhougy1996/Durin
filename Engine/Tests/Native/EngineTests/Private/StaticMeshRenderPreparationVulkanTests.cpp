@@ -266,7 +266,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	};
 	CheckCpuOnlyAndGpuInitialization(StaticMesh);
 	Durin::MarkAsGarbage(StaticMesh);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();
 	Durin::RHIExit();
@@ -319,7 +319,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 		AuthoredPath,
 		Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 	Durin::ShutdownAssetRuntime();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 
 	const std::array CookedMounts{
 		Durin::FMountPoint{
@@ -434,13 +434,13 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	Durin::MarkAsGarbage(Component);
 	Durin::ShutdownCookedMeshLoadManager();
 	ASSERT_TRUE(Durin::UnloadPackage(CookedPath));
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	Durin::FlushRenderingCommands();
 	SceneOwner.Reset();
 	Durin::ShutdownRenderingThread();
 	Durin::RHIExit();
 	Durin::ShutdownAssetRuntime();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	Durin::Testing::RemoveTestWorkDirectory(Root);
 	Durin::InitializeAssetRuntime();
 }
@@ -3006,7 +3006,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ReplacementRetiresOldResourcesAndI
 	EXPECT_EQ(Mesh->RequestRenderDataAndResources().CpuPhase, ECookedMeshCpuPhase::Failed);
 	EXPECT_FALSE(Mesh->GetRenderResourceStatus().IsReady());
 	MarkAsGarbage(Mesh);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	FlushRenderingCommands();
 	ShutdownRenderingThread();
 	RHIExit();
@@ -3341,7 +3341,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAnd
 			~FMeshCleanup() {
 				auto* Data = FStaticMeshTestAccess::GetMutableRenderData(Mesh);
 				if (Data) EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([Data](FRHICommandListImmediate&) { Data->ReleaseResources(); });
-				FlushRenderingCommands(); MarkAsGarbage(Mesh); CollectGarbage(); FlushRenderingCommands();
+				FlushRenderingCommands(); MarkAsGarbage(Mesh); CollectGarbage(Durin::EObjectFlags::Standalone); FlushRenderingCommands();
 			}
 		} MeshCleanup{Mesh};
 		std::vector<FMeshMaterialSlotDefinition> Slots;
@@ -3886,7 +3886,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, AuthoredLODsInitializeAllResources
 	for (uint32 LOD = 0; LOD < 2; ++LOD)
 		EXPECT_EQ(Render->LODResources[LOD].GeometryRecord->GetRecordId(), Records[LOD]);
 	MarkAsGarbage(Mesh);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	FlushRenderingCommands();
 	ShutdownRenderingThread();
 	RHIExit();
@@ -3952,7 +3952,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 			HighScene->Release(); LowScene->Release(); HighScene.reset(); LowScene.reset(); FlushRenderingCommands();
 			auto* Data = FStaticMeshTestAccess::GetMutableRenderData(Mesh);
 			if (Data) EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([Data](FRHICommandListImmediate&) { Data->ReleaseResources(); });
-			FlushRenderingCommands(); MarkAsGarbage(Mesh); CollectGarbage(); FlushRenderingCommands();
+			FlushRenderingCommands(); MarkAsGarbage(Mesh); CollectGarbage(Durin::EObjectFlags::Standalone); FlushRenderingCommands();
 		}
 	} Cleanup{HighWorld.Get(), LowWorld.Get(), HighScene, LowScene, Mesh};
 	std::vector<FMeshMaterialSlotDefinition> Slots;

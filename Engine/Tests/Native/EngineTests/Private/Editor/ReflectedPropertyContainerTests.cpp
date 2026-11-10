@@ -59,7 +59,7 @@ TEST(FReflectedPropertyEditSessionTests,
 		Durin::FVector3f(1.0f, 0.25f, 0.5f));
 	Durin::MarkAsGarbage(Component);
 	Durin::MarkAsGarbage(Proposal);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FReflectedPropertyEditSessionTests, GenericHookPipelineAppliesNestedStructField)
@@ -88,7 +88,7 @@ TEST(FReflectedPropertyEditSessionTests, GenericHookPipelineAppliesNestedStructF
 
 	Durin::MarkAsGarbage(Camera);
 	Durin::MarkAsGarbage(ProposedCamera);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FReflectedPropertyEditSessionTests, RelativeTransformHookNormalizesAndRefreshesHierarchyAcrossCancel)
@@ -122,7 +122,7 @@ TEST(FReflectedPropertyEditSessionTests, RelativeTransformHookNormalizesAndRefre
 	Durin::MarkAsGarbage(ProposalObject);
 	Durin::MarkAsGarbage(Child);
 	Durin::MarkAsGarbage(Parent);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FReflectedPropertyEditSessionTests, ArrayElementUsesStableContainerSnapshotAndExactPathDuringEdit)

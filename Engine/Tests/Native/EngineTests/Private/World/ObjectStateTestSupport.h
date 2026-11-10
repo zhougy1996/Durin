@@ -68,7 +68,7 @@ namespace Durin::Tests::ObjectState
 		{
 			DSceneComponent::OnRegister(); ++Registered;
 			if (RegistrationCallback) RegistrationCallback();
-			if (bCollectOnRegister) Durin::CollectGarbage();
+			if (bRequestCollectionOnRegister) Durin::RequestGarbageCollection();
 			if (bThrowOnRegister) throw std::runtime_error("Injected registration callback failure.");
 			if (bDestroyOnRegister) DestroyComponent();
 		}
@@ -85,7 +85,7 @@ namespace Durin::Tests::ObjectState
 		}
 		uint32 Created = 0, Destroyed = 0, Registered = 0, Unregistered = 0, Initialized = 0, Uninitialized = 0, Begun = 0, Ended = 0;
 		Durin::FVector3 CreatedLocation{0.0};
-		bool bCollectOnRegister = false, bDestroyOnRegister = false, bThrowOnRegister = false;
+		bool bRequestCollectionOnRegister = false, bDestroyOnRegister = false, bThrowOnRegister = false;
 		bool bUnsupportedInstanceData = false, bTypedInstanceData = false;
 		std::function<void()> RegistrationCallback;
 		auto PostTransacted(const Durin::FTransactionObjectEvent& Event) -> void override { if (TransactionObserver) TransactionObserver(*this, Event); }
@@ -110,7 +110,7 @@ namespace Durin::Tests::ObjectState
 		}
 		int32 GeneratedCount = 1;
 		uint32 ConstructionCalls = 0;
-		bool bFailConstruction = false, bCollectDuringConstruction = false;
+		bool bFailConstruction = false, bRequestCollectionDuringConstruction = false;
 		std::optional<Durin::FVector3> ConstructionLocation;
 		std::function<void(DTransactionLifecycleScene&, const Durin::FTransactionObjectEvent&)> GeneratedTransactionObserver;
 	protected:
@@ -125,7 +125,7 @@ namespace Durin::Tests::ObjectState
 				FinishAddComponent(Component, false, Durin::FTransform());
 				static_cast<DTransactionLifecycleScene*>(Component)->TransactionObserver = GeneratedTransactionObserver;
 			}
-			if (bCollectDuringConstruction) Durin::CollectGarbage();
+			if (bRequestCollectionDuringConstruction) Durin::RequestGarbageCollection();
 			if (bFailConstruction) throw std::runtime_error("Injected transaction reconstruction failure.");
 
 		}

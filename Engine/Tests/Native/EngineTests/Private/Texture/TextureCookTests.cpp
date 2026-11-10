@@ -453,7 +453,7 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 	Durin::PumpGameThreadDeferredWork();
 	EXPECT_TRUE(UnrelatedCallbackRan);
 	EXPECT_EQ(Invalidated->GetPlatformDataShared(), InstalledRetry); // Late wakeup does not install twice.
-	auto* Retired = Invalidated.Get(); Invalidated.Reset(); Durin::MarkAsGarbage(Retired); Durin::CollectGarbage();
+	auto* Retired = Invalidated.Get(); Invalidated.Reset(); Durin::MarkAsGarbage(Retired); Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 
 	Durin::FRHITextureReferenceRef TextureReference =
 		CookedTexture->GetTextureReferenceRHI();
@@ -632,7 +632,7 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 	Durin::MarkAsGarbage(SampleMesh);
 	Durin::MarkAsGarbage(SampleMaterial);
 	Durin::FlushRenderingCommands();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(Durin::UnloadPackage(SampleMaterialPath));
 	CookedMaterial = nullptr;
 	ASSERT_TRUE(Durin::UnloadPackage(CookedPath));
@@ -847,7 +847,7 @@ namespace
 		Durin::FlushRenderingCommands();
 		Durin::RemoveFromRoot(Texture);
 		Durin::MarkAsGarbage(Texture);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		Durin::FlushRenderingCommands();
 		Durin::PumpGameThreadDeferredWork();
 	}
@@ -886,7 +886,7 @@ TEST(FTextureResourceLifetimeIntegrationTests, OrderedUpdatesPublishAndRetireAcr
 	});
 	Closing->UpdateResource();
 	Durin::MarkAsGarbage(Closing);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	AssetClosed.Trigger();
 	Unblock.join();
 	EXPECT_TRUE(bClosedWithoutRenderProgress);
@@ -913,7 +913,7 @@ TEST(FTextureResourceLifetimeIntegrationTests, OrderedUpdatesPublishAndRetireAcr
 	}
 	Durin::RemoveFromRoot(Draining);
 	Durin::MarkAsGarbage(Draining);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	Durin::FlushRenderingCommands();
 
 	ASSERT_TRUE(Durin::InitializeTaskScheduler());
@@ -931,7 +931,7 @@ TEST(FTextureResourceLifetimeIntegrationTests, OrderedUpdatesPublishAndRetireAcr
 	EXPECT_NE(Canceled->GetResource(), nullptr);
 	Durin::RemoveFromRoot(Canceled);
 	Durin::MarkAsGarbage(Canceled);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	Durin::FlushRenderingCommands();
 	ASSERT_TRUE(Durin::InitializeTaskScheduler());
 	ASSERT_TRUE(Durin::InitializeGameThreadDeferredExecutor());
@@ -947,7 +947,7 @@ TEST(FTextureResourceLifetimeIntegrationTests, OrderedUpdatesPublishAndRetireAcr
 	EXPECT_EQ(Rejected->GetResource(), nullptr);
 	EXPECT_FALSE(Rejected->HasPendingRenderResourceInitialization());
 	Durin::MarkAsGarbage(Rejected);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	Durin::FRHICommandListImmediate::Get().SwitchPipeline(Durin::ERHIPipeline::None);
 	Durin::RHIExit();
 	Durin::ShutdownTaskSystem();

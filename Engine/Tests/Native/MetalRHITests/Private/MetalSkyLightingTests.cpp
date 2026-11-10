@@ -249,7 +249,7 @@ TEST(FMetalSkyLightingTests, CapturedAndSpecifiedSourcesMatchEnergyAcrossBackend
         World->CleanupWorld();
         RemoveFromRoot(World);
         MarkObjectHierarchyAsGarbage(World);
-        CollectGarbage();
+        CollectGarbage(Durin::EObjectFlags::Standalone);
         FSceneInterfaceTestAccess::ReleaseScene(SceneOwner);
         FlushRenderingCommands();
         Lifecycle.Shutdown();

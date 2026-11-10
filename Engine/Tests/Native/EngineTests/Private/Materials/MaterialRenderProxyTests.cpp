@@ -127,7 +127,7 @@ TEST(FMaterialRenderProxyTests, PendingProgramDoesNotBecomeInvalidMaterial)
 	ReleaseMaterialRenderProxy_GameThread(std::move(Proxy));
 	WaitForRenderingThread();
 	Harness.Shutdown();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialRenderProxyTests, PreboundFieldsMatchGuidWritesAndInvalidateWithTheContract)
@@ -243,7 +243,7 @@ TEST(FMaterialRenderProxyTests, ParentProgramChangesReevaluateDormantOverrides)
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
 	Harness.Shutdown();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialRenderProxyTests, StableIdentityAppliesSnapshotsInCommandOrder)
@@ -316,13 +316,13 @@ TEST(FMaterialRenderProxyTests, StableIdentityAppliesSnapshotsInCommandOrder)
 		Replaced.RenderData.Representation.GetUniformPayload()));
 
 	Durin::MarkAsGarbage(Material);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	Durin::ReleaseMaterialRenderProxy_GameThread(std::move(Proxy));
 	Durin::ReleaseMaterialRenderProxy_GameThread(
 		std::move(SameProxy));
 	WaitForRenderingThread();
 	Harness.Shutdown();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialRenderProxyTests, AuthoredValuesMatchDirectCompilationForBasesAndInstances)
@@ -576,12 +576,12 @@ TEST(FMaterialRenderProxyTests, AuthoredValuesMatchDirectCompilationForBasesAndI
 	Durin::MarkAsGarbage(BaseTexture);
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	Durin::ReleaseMaterialRenderProxy_GameThread(std::move(InstanceProxy));
 	Durin::ReleaseMaterialRenderProxy_GameThread(std::move(BaseProxy));
 	WaitForRenderingThread();
 	Harness.Shutdown();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialRenderProxyTests, TemplateIdentitiesDoNotOverrideEditedDeclarations)
@@ -623,7 +623,7 @@ TEST(FMaterialRenderProxyTests, TemplateIdentitiesDoNotOverrideEditedDeclaration
 	Durin::MarkAsGarbage(Texture);
 	WaitForRenderingThread();
 	Harness.Shutdown();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialRenderProxyTests, NonFinitePublicationUsesGenericValidation)
@@ -653,7 +653,7 @@ TEST(FMaterialRenderProxyTests, NonFinitePublicationUsesGenericValidation)
 	Durin::MarkAsGarbage(Base);
 	WaitForRenderingThread();
 	Harness.Shutdown();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialRenderProxyTests, OrdinarySetterPublishesCompleteDependentLayers)
@@ -676,11 +676,11 @@ TEST(FMaterialRenderProxyTests, OrdinarySetterPublishesCompleteDependentLayers)
 	EXPECT_GT(Diagnostics.ScannedMaterialCount, 0);
 
 	Durin::MarkAsGarbage(Material);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	Durin::ReleaseMaterialRenderProxy_GameThread(std::move(Proxy));
 	WaitForRenderingThread();
 	Harness.Shutdown();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialRenderProxyTests, OrderedPublicationsShareOnlyLazyResolution)
@@ -752,11 +752,11 @@ TEST(FMaterialRenderProxyTests, OrderedPublicationsShareOnlyLazyResolution)
 			+ Applied.PendingPublicationCount);
 
 	Durin::MarkAsGarbage(Material);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	Durin::ReleaseMaterialRenderProxy_GameThread(std::move(Proxy));
 	WaitForRenderingThread();
 	Harness.Shutdown();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialRenderProxyTests, DescendantsResolveParentChangesLazilyAcrossMultipleGenerations)
@@ -841,12 +841,12 @@ TEST(FMaterialRenderProxyTests, DescendantsResolveParentChangesLazilyAcrossMulti
 	}
 	Durin::MarkAsGarbage(SecondBase);
 	Durin::MarkAsGarbage(FirstBase);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	Durin::ReleaseMaterialRenderProxy_GameThread(
 		std::move(LeafProxy));
 	WaitForRenderingThread();
 	Harness.Shutdown();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialRenderProxyTests, PublishedStateOutlivesOwnersAndPostLoadDuplication)
@@ -877,7 +877,7 @@ TEST(FMaterialRenderProxyTests, PublishedStateOutlivesOwnersAndPostLoadDuplicati
 	Durin::MarkAsGarbage(Duplicate);
 	Durin::MarkAsGarbage(Source);
 	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_FALSE(Durin::GDObjectArray.Contains(Duplicate));
 	EXPECT_FALSE(Durin::GDObjectArray.Contains(Source));
 	EXPECT_FALSE(Durin::GDObjectArray.Contains(Base));
@@ -895,7 +895,7 @@ TEST(FMaterialRenderProxyTests, PublishedStateOutlivesOwnersAndPostLoadDuplicati
 		std::move(DuplicateProxy));
 	WaitForRenderingThread();
 	Harness.Shutdown();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialRenderProxyTests, SharedUsersAndSlotsPreserveInterleavedPublicationAndDestruction)
@@ -1111,7 +1111,7 @@ TEST(FMaterialRenderProxyTests, SharedUsersAndSlotsPreserveInterleavedPublicatio
 		Durin::GetMaterialRenderProxyCounters();
 	EXPECT_GE(ProxyCounters.PublicationCount, 1);
 
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	const FMaterialProxySnapshot AfterQueuedDestruction =
 		CaptureMaterialProxy(QueuedDestructionProxy);
 	EXPECT_GT(AfterQueuedDestruction.ResolutionCount, 0);
@@ -1143,7 +1143,7 @@ TEST(FMaterialRenderProxyTests, SharedUsersAndSlotsPreserveInterleavedPublicatio
 	Durin::ReleaseMaterialRenderProxy_GameThread(std::move(LeafProxy));
 	WaitForRenderingThread();
 	Harness.Shutdown();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialRenderProxyTests, FailedCompilationPublishesErrorAndRecoveryForEachOwner)
@@ -1216,5 +1216,5 @@ TEST(FMaterialRenderProxyTests, FailedCompilationPublishesErrorAndRecoveryForEac
 	Durin::MarkAsGarbage(Root);
 	WaitForRenderingThread();
 	Harness.Shutdown();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }

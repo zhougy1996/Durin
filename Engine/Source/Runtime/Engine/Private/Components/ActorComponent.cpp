@@ -1,4 +1,6 @@
 #include "Components/ActorComponent.h"
+#include "Threading/RunnableThread.h"
+#include "CoreGlobals.h"
 
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Archive.h"
@@ -67,7 +69,7 @@ namespace Durin
 	auto DActorComponent::ApplyLifecycleState(const FActorComponentLifecycleState& State) -> std::expected<void, std::string>
 	{
 		if (auto Valid = ValidateLifecycleState(State); !Valid) return Valid;
-		FGarbageCollectionDeferralScope DeferCollection;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		FScopedPackageDirtySuppression SuppressDirty;
 		try
 		{
@@ -108,7 +110,7 @@ namespace Durin
 
 	auto DActorComponent::RegisterComponentInternal(bool bInitialize) -> void
 	{
-		FGarbageCollectionDeferralScope DeferCollection;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (IsPendingKill())
 		{
 			DURIN_WARN(
@@ -133,7 +135,7 @@ namespace Durin
 
 	auto DActorComponent::UnregisterComponent() -> void
 	{
-		FGarbageCollectionDeferralScope DeferCollection;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		PrimaryComponentTick.UnregisterTickFunction();
 		ExecuteUnregisterEvents();
 	}

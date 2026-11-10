@@ -2138,7 +2138,7 @@ TEST(FMaterialProgramNormalizationTests,
 	EXPECT_EQ(Before.Parameters.size(),
 		Material->GetParameterDefinitions().size());
 	Durin::MarkAsGarbage(Material);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_TRUE(Durin::MIR::Normalize(Before));
 }
 

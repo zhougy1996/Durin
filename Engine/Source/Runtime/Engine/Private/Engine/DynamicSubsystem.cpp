@@ -14,7 +14,6 @@ namespace Durin
 	{
 		require(!GIsGameThreadIdInitialized || IsInGameThread());
 		requiref(IsInitialized() && !bPopulating, "Subsystem removal requires an idle, initialized collection.");
-		FGarbageCollectionDeferralScope Deferral;
 		bPopulating = true;
 		struct FReset { bool& Flag; ~FReset() { Flag = false; } } Reset{bPopulating};
 		auto Removing = [&](const FEntry& Entry) { return std::ranges::find(Types, Entry.Descriptor.Type) != Types.end(); };

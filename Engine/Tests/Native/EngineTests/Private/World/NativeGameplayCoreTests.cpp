@@ -96,7 +96,7 @@ namespace
 				Engine->PreExit();
 				Durin::MarkObjectHierarchyAsGarbage(Engine.Get());
 				Engine.Reset();
-				Durin::CollectGarbage();
+				Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 			}
 			if (bSelectedProject) (void)Durin::InitializeCurrentProject({.bOpenProjectBrowser = true});
 		}
@@ -362,7 +362,7 @@ TEST(FGameInputAuthorityTests, ReplacementAndExpiryClearHeldInputAndMouseBaselin
 	Engine->Tick(0.0f, false);
 	EXPECT_FALSE(Input.IsEnabled());
 	Durin::MarkObjectHierarchyAsGarbage(Engine);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FEditorMouseCaptureTests, EscapeAndFocusLossRestoreWithoutAutomaticRecapture)
@@ -391,7 +391,7 @@ TEST(FEditorMouseCaptureTests, EscapeAndFocusLossRestoreWithoutAutomaticRecaptur
 
 	Engine->StopPlaySession();
 	Durin::MarkObjectHierarchyAsGarbage(Engine);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST_F(FGameStartupTests, AdmissionErrorWaitsForStartupAndBecomesOneTerminalFailure)
@@ -528,7 +528,7 @@ TEST(FGameMouseCaptureTests, StartupEscapeClickFocusAndCloseManageStandaloneCapt
 	}
 
 	Durin::MarkObjectHierarchyAsGarbage(Engine);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FEditorMouseCaptureTests, NewWindowClickPauseCloseAndRepeatedReleaseAreIdempotent)
@@ -555,7 +555,7 @@ TEST(FEditorMouseCaptureTests, NewWindowClickPauseCloseAndRepeatedReleaseAreIdem
 
 	Engine->StopPlaySession();
 	Durin::MarkObjectHierarchyAsGarbage(Engine);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FNativeGameplayReflectionTests, PublishesExactRootIdentitiesAndInheritance)
@@ -603,7 +603,7 @@ TEST(FNativeGameplayPossessionTests, PairsTransfersAndUnpossessesSymmetrically)
 	EXPECT_EQ(SecondController->GetPawn(), nullptr);
 	EXPECT_EQ(SecondPawn->GetController(), nullptr);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FNativeGameplayPossessionTests, RejectsCrossWorldWithoutMutatingExistingPairs)
@@ -627,7 +627,7 @@ TEST(FNativeGameplayPossessionTests, RejectsCrossWorldWithoutMutatingExistingPai
 	EXPECT_EQ(FirstPawn->GetController(), Controller);
 	Durin::MarkObjectHierarchyAsGarbage(FirstWorld);
 	Durin::MarkObjectHierarchyAsGarbage(SecondWorld);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FNativeGameplayPossessionTests, ClearsPairsOnDestructionEndPlayAndLevelReplacement)
@@ -650,7 +650,7 @@ TEST(FNativeGameplayPossessionTests, ClearsPairsOnDestructionEndPlayAndLevelRepl
 	EXPECT_EQ(Controller->GetPawn(), nullptr);
 	EXPECT_EQ(Pawn->GetController(), nullptr);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FNativeGameplayBootstrapTests, LifecycleOnlyPlayCreatesNoGameplayActors)
@@ -666,7 +666,7 @@ TEST(FNativeGameplayBootstrapTests, LifecycleOnlyPlayCreatesNoGameplayActors)
 	World->EndPlay();
 	EXPECT_EQ(World->GetActors().size(), ActorCount);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FNativeGameplayBootstrapTests, UsesFirstStablePlayerStartAndTearsDownOnlyRuntimeActors)
@@ -694,7 +694,7 @@ TEST(FNativeGameplayBootstrapTests, UsesFirstStablePlayerStartAndTearsDownOnlyRu
 	EXPECT_TRUE(World->ContainsActor(FirstStart));
 	EXPECT_TRUE(World->ContainsActor(SecondStart));
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FNativeGameplayBootstrapTests, RollsBackMissingStartAndInvalidSelectedClass)
@@ -727,7 +727,7 @@ TEST(FNativeGameplayBootstrapTests, RollsBackMissingStartAndInvalidSelectedClass
 	EXPECT_EQ(World->GetActors().size(), CountWithStart);
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::MarkObjectHierarchyAsGarbage(ForeignWorld);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FNativeGameplayBootstrapTests, RestartsPawnAndLeavesControllerUnpossessedOnFailure)
@@ -760,7 +760,7 @@ TEST(FNativeGameplayBootstrapTests, RestartsPawnAndLeavesControllerUnpossessedOn
 	EXPECT_EQ(Controller->GetPawn(), nullptr);
 	World->EndPlay();
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FNativeGameplayBootstrapTests, RestartDefersLevelReplacementRequestedByPawnBeginPlay)
@@ -788,7 +788,7 @@ TEST(FNativeGameplayBootstrapTests, RestartDefersLevelReplacementRequestedByPawn
 	EXPECT_TRUE(World->HasBegunPlay());
 	EXPECT_NE(World->GetDefaultPawn(), nullptr);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FNativeGameplayBootstrapTests, RestartDefersLevelClearRequestedByPawnBeginPlay)
@@ -813,7 +813,7 @@ TEST(FNativeGameplayBootstrapTests, RestartDefersLevelClearRequestedByPawnBeginP
 	EXPECT_FALSE(World->HasBegunPlay());
 	EXPECT_EQ(World->GetDefaultPawn(), nullptr);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FNativeGameplayBootstrapTests, RestartRejectsSynchronousLevelClearFromPawnBeginPlay)
@@ -837,7 +837,7 @@ TEST(FNativeGameplayBootstrapTests, RestartRejectsSynchronousLevelClearFromPawnB
 	EXPECT_EQ(World->GetDefaultPawn(), Restart.Pawn);
 	EXPECT_EQ(World->GetLocalPlayerController()->GetPawn(), Restart.Pawn);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FNativeGameplayControlTests, ClampsConsumesAndSuppressesIntentAcrossPause)
@@ -903,7 +903,7 @@ TEST(FNativeGameplayControlTests, ClampsConsumesAndSuppressesIntentAcrossPause)
 	EXPECT_EQ(Movement->GetLastIntent().Move, Direct.Move);
 	World->EndPlay();
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FNativeGameplayControlTests, RawTransitionsBecomeOneUseIntentAndFocusLossResetsState)
@@ -945,7 +945,7 @@ TEST(FNativeGameplayControlTests, RawTransitionsBecomeOneUseIntentAndFocusLossRe
 	EXPECT_FALSE(Input.IsEnabled());
 	World->EndPlay();
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FNativeGameplayControlTests, ActionsCancelOnPauseStepRestartAndStop)
@@ -999,7 +999,7 @@ TEST(FNativeGameplayControlTests, ActionsCancelOnPauseStepRestartAndStop)
 	World->EndPlay();
 	EXPECT_FALSE(Controller->GetInputActions().GetSnapshot().Get("Move").bActive);
 	MarkObjectHierarchyAsGarbage(World);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FNativeGameplayControlTests, DefersLevelReplacementRequestedByInputMapping)
@@ -1019,7 +1019,7 @@ TEST(FNativeGameplayControlTests, DefersLevelReplacementRequestedByInputMapping)
 	EXPECT_FALSE(World->HasBegunPlay());
 	EXPECT_EQ(World->GetLocalPlayerController(), nullptr);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FNativeGameplayViewTargetTests, RejectsForeignTargetsAndClearsDestroyedTargets)
@@ -1041,7 +1041,7 @@ TEST(FNativeGameplayViewTargetTests, RejectsForeignTargetsAndClearsDestroyedTarg
 	World->EndPlay();
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::MarkObjectHierarchyAsGarbage(ForeignWorld);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FEditorPlayViewportTests, SeedsAndIsolatesNewWindowRenderSettingsPerSession)
@@ -1092,7 +1092,7 @@ TEST(FEditorPlayViewportTests, SeedsAndIsolatesNewWindowRenderSettingsPerSession
 	EXPECT_FLOAT_EQ(PlayClient->GetViewSettings().PostProcess.ExposureEV, 0.0f);
 
 	Durin::MarkObjectHierarchyAsGarbage(Engine);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FNativeGameplayPIETests, RepeatsNativeLevelStartAndEditorCameraSessionsWithoutStaleRoles)
@@ -1152,7 +1152,7 @@ TEST(FNativeGameplayPIETests, RepeatsNativeLevelStartAndEditorCameraSessionsWith
 	ASSERT_TRUE(Engine->GetPlayWorld()->RestartPlayer());
 	Engine->StopPlaySession();
 	EXPECT_EQ(Engine->GetPIEWorldContext(), nullptr);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Durin::ResolveObjectKey(PlayPackageKey), nullptr);
 	EXPECT_EQ(Engine->GetPlayState(), Durin::Editor::EPlayState::Stopped);
 	EXPECT_EQ(Engine->GetWorld(), EditorWorld);
@@ -1182,7 +1182,7 @@ TEST(FNativeGameplayPIETests, RepeatsNativeLevelStartAndEditorCameraSessionsWith
 	EXPECT_EQ(Engine->GetWorld(), EditorWorld);
 
 	Durin::MarkObjectHierarchyAsGarbage(Engine);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FNativeGameplayControlTests, InputStopRequestsWaitForWorldOperationCompletion)
@@ -1204,7 +1204,7 @@ TEST(FNativeGameplayControlTests, InputStopRequestsWaitForWorldOperationCompleti
 			EXPECT_EQ(World->GetCurrentLevel(), Level);
 			EXPECT_FALSE(World->SetCurrentLevel(nullptr));
 			EXPECT_FALSE(World->BeginPlay({}));
-			Durin::CollectGarbage();
+			Durin::RequestGarbageCollection();
 			EXPECT_TRUE(Durin::IsGarbageCollectionRequested());
 			EXPECT_FALSE(Controller->IsPendingKill());
 		});
@@ -1219,6 +1219,6 @@ TEST(FNativeGameplayControlTests, InputStopRequestsWaitForWorldOperationCompleti
 			World->Tick({});
 		}
 		Durin::MarkObjectHierarchyAsGarbage(World);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	}
 }

@@ -136,7 +136,10 @@ down the host again. Completed collection teardown does not admit reinitializati
 Collections do not broadcast object-reference invalidation when services stop.
 Concrete consumers own cancellation, endpoint retirement and stale-reference
 checks; actual object invalidation remains with the object/GC lifecycle.
-The framework protects lifecycle callbacks from GC. Collection cleanup requires
+Initialization and mutation callbacks request GC; they do not execute either
+synchronous collector. The owner establishes a safe point after population,
+failure cleanup or dynamic removal has completed, including hosts without a loop.
+There is no automatic business-stack refusal. Collection cleanup requires
 an idle collection and has no pending or deferred shutdown request. A callback
 uses `DEngine::RequestShutdown()` or `DWorld::BeginTearingDown()` to close admission.
 Only the owner executes `PreExit()` or `CleanupWorld()` at an idle boundary.
@@ -156,7 +159,8 @@ The complete World operation boundary may service pending World cleanup requests
 Host dispatch and public service entries enforce admission. Private synchronous
 execution relies on the caller's lifetime contract. Callbacks must not invoke
 Engine cleanup, mutate collection membership, unload providers, or run immediate
-GC. They use `RequestGarbageCollection()`; Launch executes collection at its GC
+GC. They use Engine `ForceGarbageCollection()` or Engine-free
+`RequestGarbageCollection()`; Launch executes collection at its GC
 safe point after callbacks return. Independent hosts and tests own the same
 ordering explicitly. There is no host-operation counter or GC scope around every
 Engine call, and finish-destroy readiness does not represent callback activity.

@@ -326,7 +326,7 @@ TEST_F(FCookFunctionalTests, PrimaryMapAndDataAssetCookDiscoverAndReleaseWithout
 	TWeakObjectPtr<DObject> WeakSecondary(FindResidentPackage(SecondaryPath)->FindTopLevelAsset("Secondary"));
 	ASSERT_TRUE(WeakMap.IsValid()); ASSERT_TRUE(WeakData.IsValid()); ASSERT_TRUE(WeakSecondary.IsValid());
 	EXPECT_TRUE(Manager->UnloadPrimaryAsset(MapId)); EXPECT_TRUE(Manager->UnloadPrimaryAsset(DataId));
-	CookedMapLoad->ReleaseHandle(); CookedDataLoad->ReleaseHandle(); CollectGarbage();
+	CookedMapLoad->ReleaseHandle(); CookedDataLoad->ReleaseHandle(); CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_FALSE(WeakMap.IsValid()); EXPECT_FALSE(WeakData.IsValid()); EXPECT_FALSE(WeakSecondary.IsValid());
 	Manager->Shutdown();
 }

@@ -99,7 +99,7 @@ namespace
 		static auto TearDownTestSuite() -> void
 		{
 			Durin::ShutdownAssetCompilingManager();
-			Durin::CollectGarbage();
+			Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 			Durin::ShutdownTaskScheduler();
 		}
 
@@ -115,7 +115,7 @@ namespace
 		auto TearDown() -> void override
 		{
 			Cloud.Reset();
-			Durin::CollectGarbage();
+			Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		}
 
 		template<typename T>
@@ -311,7 +311,7 @@ TEST_F(FAssetPackageReloadTests, MaterialDiscardRestoresBaseAndInstanceAuthoredS
 		EXPECT_EQ(ReloadPackages(FailedRequest).GetResult().Status, EPackageReloadStatus::Failed);
 	}
 	ASSERT_TRUE(ReachedCommit);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(External->GetParent(), Material);
 	EXPECT_EQ(GetLoadedDirectMaterialChildren(Material), std::vector<FObjectKey>{FObjectKey(External.Get())});
 
@@ -413,7 +413,7 @@ TEST_F(FAssetPackageReloadTests, FunctionReloadRebindsNestedCallersAndPreservesA
 	Instance.Reset();
 	Material.Reset();
 	Wrapper.Reset();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(FindResidentPackage(Path), nullptr);
 }
 
@@ -685,7 +685,7 @@ TEST_F(FAssetPackageReloadTests, ReloadRetainsCrossPackageHistoryAndRebindsTheSa
 	FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Textures[1]);
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Textures[1]);
 	TransactionRoot.Reset();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(FindResidentPackage(Paths[0]), nullptr);
 	EXPECT_EQ(FindResidentPackage(Paths[1]), nullptr);
 }
@@ -743,7 +743,7 @@ TEST_F(FAssetPackageReloadTests, EveryCoordinatorFailurePreservesTheEditedGraphA
 			EXPECT_EQ(Result.Diagnostics[0].Stage, EPackageReloadStage::ReadAndPrepare);
 			EXPECT_EQ(Result.Diagnostics[0].PackagePath, Path);
 		}
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(FindResidentPackage(Path), Texture->GetPackage());
 		EXPECT_EQ(Cloud->GetWeatherTexture(), Texture);
 		EXPECT_EQ(Texture->GetSource().GetIdentity(), Edited);

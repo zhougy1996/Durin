@@ -1,4 +1,3 @@
-#include "DObject/GarbageCollectionScheduler.h"
 #include "AssetLoadAuditInternal.h"
 #include "AssetPackageLinker.h"
 #include "AssetPackageLinkerSchema.h"

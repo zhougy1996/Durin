@@ -1,3 +1,4 @@
+#include "DObject/StrongObjectPtr.h"
 #include "Factories/Factory.h"
 #include "Asset/PackageUnloading.h"
 #include "AssetTools/IAssetTools.h"
@@ -292,6 +293,7 @@ TEST(DFactoryTests, BatchPreflightRejectsEveryDuplicateWithoutCreatingPackages)
 	ASSERT_EQ(Result.size(), 2u);
 	EXPECT_EQ(Result[0], nullptr);
 	EXPECT_EQ(Result[1], nullptr);
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone); // Owner boundary after factory callbacks have returned.
 	EXPECT_EQ(Durin::FindPackage(First.AssetPath.GetPackagePath().GetView()), nullptr);
 }
 
@@ -309,6 +311,7 @@ TEST(DFactoryTests, BatchContinuesAfterFactoryFailureAndKeepsSuccessfulPeersDirt
 	EXPECT_NE(Result[0], nullptr);
 	EXPECT_EQ(Result[1], nullptr);
 	EXPECT_NE(Result[2], nullptr);
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone); // Owner boundary after factory callbacks have returned.
 	EXPECT_EQ(Durin::FindPackage(Batch.Items[1].AssetPath.GetPackagePath().GetView()), nullptr);
 	for (const size_t Index : {0u, 2u})
 	{
@@ -336,6 +339,7 @@ TEST(DFactoryTests, BatchStopAndCancelLeaveUnattemptedPackagesAbsent)
 	ASSERT_EQ(Canceled.size(), 2u);
 	for (const auto& Item : Canceled)
 		EXPECT_EQ(Item, nullptr);
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone); // Owner boundary after factory callbacks have returned.
 	EXPECT_EQ(Durin::FindPackage(Second.AssetPath.GetPackagePath().GetView()), nullptr);
 	EXPECT_TRUE(Durin::IAssetTools::Get().ImportAssets({}).empty());
 }
@@ -355,6 +359,7 @@ TEST(DFactoryTests, ImportRejectsUncatalogedDestinationFileAndWrongAssetName)
 	ASSERT_EQ(Result.size(), 2u);
 	for (const auto& Item : Result)
 		EXPECT_EQ(Item, nullptr);
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone); // Owner boundary after factory callbacks have returned.
 	EXPECT_EQ(Durin::FindPackage(WrongName.AssetPath.GetPackagePath().GetView()), nullptr);
 	EXPECT_EQ(std::filesystem::file_size(File), 1u);
 	std::filesystem::remove(File);
@@ -392,6 +397,7 @@ TEST(DFactoryTests, BatchCancellationPreservesAlreadyAcceptedAsset)
 	ASSERT_EQ(Result.size(), 2u);
 	EXPECT_NE(Result[0], nullptr);
 	EXPECT_EQ(Result[1], nullptr);
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone); // Owner boundary after factory callbacks have returned.
 	EXPECT_EQ(Durin::FindPackage(Second.AssetPath.GetPackagePath().GetView()), nullptr);
 	EXPECT_TRUE(Durin::IAssetTools::Get().DiscardPackage(Result[0]->GetPackage()));
 }
@@ -450,6 +456,7 @@ TEST(DFactoryTests, AssetToolsCreatesConcreteAssetsWithoutSpecializedFactory)
 	EXPECT_EQ(Result->GetOuter(), Result->GetPackage());
 	EXPECT_EQ(Result->GetPackage()->FindTopLevelAsset(Result->GetFName()), Result);
 	EXPECT_TRUE(Durin::IAssetTools::Get().DiscardPackage(Result->GetPackage()));
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone); // Owner boundary after factory callbacks have returned.
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
 }
 
@@ -470,6 +477,7 @@ TEST(DFactoryTests, AssetToolsRequireSourceFilenameBeforeCreatingPackage)
 		Path, Durin::DObject::StaticClass(), {}, nullptr, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &ResultFeedback);
 	EXPECT_FALSE(Result);
 	EXPECT_EQ(ResultError, "A source filename is required for import.");
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone); // Owner boundary after factory callbacks have returned.
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
 }
 
@@ -557,6 +565,7 @@ TEST(DFactoryTests, FactoryFailureReportsDiagnosticAndDiscardsPackage)
 		Path, DFactoryAssetForTest::StaticClass(), Factory, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &ResultFeedback);
 	EXPECT_FALSE(Result);
 	EXPECT_NE(ResultError.find("test factory failure"), std::string::npos);
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone); // Owner boundary after factory callbacks have returned.
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
 	EXPECT_EQ(Durin::FindResidentPackage(Path), nullptr);
 }
@@ -576,6 +585,7 @@ TEST(DFactoryTests, WrongOuterIsRejectedAndPackageIsDiscarded)
 	const auto Result = Durin::IAssetTools::Get().CreatePackageLeafAssetForTesting(
 		Path, DFactoryAssetForTest::StaticClass(), Factory, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &ResultFeedback);
 	EXPECT_FALSE(Result);
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone); // Owner boundary after factory callbacks have returned.
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
 	EXPECT_EQ(Durin::FindResidentPackage(Path), nullptr);
 }
@@ -595,6 +605,7 @@ TEST(DFactoryTests, WrongClassIsRejectedAndPackageIsDiscarded)
 	const auto Result = Durin::IAssetTools::Get().CreatePackageLeafAssetForTesting(
 		Path, DFactoryAssetForTest::StaticClass(), Factory, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &ResultFeedback);
 	EXPECT_FALSE(Result);
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone); // Owner boundary after factory callbacks have returned.
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
 	EXPECT_EQ(Durin::FindResidentPackage(Path), nullptr);
 }
@@ -615,10 +626,11 @@ TEST(DFactoryTests, CreatedPackageSurvivesGcAndCanBeExplicitlyDiscarded)
 		Path, DFactoryAssetForTest::StaticClass(), Factory, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &ResultFeedback);
 	ASSERT_TRUE(Result);
 	EXPECT_TRUE(Result->GetPackage()->IsNewlyCreated());
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), Result->GetPackage());
 	EXPECT_EQ(Durin::FindResidentPackage(Path), Result->GetPackage());
 	EXPECT_TRUE(Durin::IAssetTools::Get().DiscardPackage(Result->GetPackage()));
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone); // Owner boundary after factory callbacks have returned.
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
 }
 
@@ -668,6 +680,7 @@ TEST(DFactoryTests, SavedFactoryPackageReloadsWithoutDuplicateLivePackage)
 	EXPECT_FALSE(Result->GetPackage()->IsNewlyCreated());
 	EXPECT_EQ(Durin::FindResidentPackage(Path), Result->GetPackage());
 	ASSERT_TRUE(Durin::UnloadPackage(Path));
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone); // Owner boundary after factory callbacks have returned.
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
 	Durin::DObject* Reloaded = nullptr;
 	{
@@ -703,7 +716,8 @@ TEST(DFactoryTests, SaveNotifiesEachSavedPackageAndDuplicateRequiresExplicitSave
 	const auto CopyPath = Copy->GetPackage()->GetPackagePathIdentity();
 	ASSERT_TRUE(IAssetTools::Get().SaveAssets({.AssetPaths = {CopyPath}}));
 	EXPECT_TRUE(UnloadPackage(CopyPath));
-	EXPECT_TRUE(UnloadPackage(SourcePath));
+	if (FindResidentPackage(SourcePath)) EXPECT_TRUE(UnloadPackage(SourcePath));
+	EXPECT_EQ(FindResidentPackage(SourcePath), nullptr);
 }
 
 TEST(DFactoryTests, BatchSaveContinuesAfterFailureAndPublishesOnlySavedPackages)
@@ -757,7 +771,11 @@ TEST(DFactoryTests, BatchSaveContinuesAfterFailureAndPublishesOnlySavedPackages)
 	});
 	const auto Retry = IAssetTools::Get().SaveAssets({.AssetPaths = {Paths[1]}}, &RetryFeedback);
 	EXPECT_TRUE(Retry) << RetryError;
-	for (const auto& Path : Paths) EXPECT_TRUE(UnloadPackage(Path));
+	for (const auto& Path : Paths)
+	{
+		if (FindResidentPackage(Path)) EXPECT_TRUE(UnloadPackage(Path));
+		EXPECT_EQ(FindResidentPackage(Path), nullptr);
+	}
 }
 
 TEST(DFactoryTests, DuplicateDefaultsToDirtyMemoryAndResolvesItsOwnDestination)
@@ -821,6 +839,7 @@ TEST(DFactoryTests, DuplicateSaveFailureRetainsLiveCopyAndAllowsOrdinarySaveRetr
 	const auto Created = IAssetTools::Get().CreatePackageLeafAssetForTesting(
 		SourcePath, DFactoryAssetForTest::StaticClass(), MakeFactory(DAssetToolsFactoryForTest::EMode::Success), nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &CreatedFeedback);
 	ASSERT_TRUE(Created);
+	TStrongObjectPtr<DObject> SourceOwner(Created);
 	ASSERT_TRUE(SavePackage(Created->GetPackage()));
 	for (auto Phase : {Testing::EPackageSaveFaultPoint::PublishPackage, Testing::EPackageSaveFaultPoint::PublishRegistry})
 	{
@@ -846,7 +865,9 @@ TEST(DFactoryTests, DuplicateSaveFailureRetainsLiveCopyAndAllowsOrdinarySaveRetr
 		EXPECT_FALSE(Copy->GetPackage()->IsDirty());
 		EXPECT_TRUE(UnloadPackage(Path));
 	}
-	EXPECT_TRUE(UnloadPackage(SourcePath));
+	SourceOwner.Reset();
+	if (FindResidentPackage(SourcePath)) EXPECT_TRUE(UnloadPackage(SourcePath));
+	EXPECT_EQ(FindResidentPackage(SourcePath), nullptr);
 }
 
 TEST(DFactoryTests, TypedDiagnosticsRetainContextAndMixedReportOrder)
@@ -884,6 +905,7 @@ TEST(DFactoryTests, TypedFactoryFailureSurvivesPackageDiscard)
 	const auto Result = Durin::IAssetTools::Get().CreatePackageLeafAssetForTesting(
 		Path, DFactoryAssetForTest::StaticClass(), Factory, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &ResultFeedback);
 	EXPECT_FALSE(Result);
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone); // Owner boundary after factory callbacks have returned.
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
 	EXPECT_EQ(ResultError, Durin::FormatFactoryError({
 		.Code = Durin::EFactoryError::ObjectCreation,
@@ -1009,4 +1031,22 @@ TEST(DFactoryTests, ReimportProjectionFailureRetainsSaveEffectAndImportSuccess)
 	EXPECT_FALSE(Created->GetPackage()->IsDirty());
 	ASSERT_TRUE(Durin::RefreshAssetRegistry());
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(Path));
+}
+
+TEST(DFactoryTests, FailedCandidateRequestsCollectionBeforeHostSafePoint)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread();
+	EnsureAssetToolsTestMount();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/AssetToolsTests/ProtectedFailure", Path));
+	{
+		auto* Result = IAssetTools::Get().CreatePackageLeafAssetForTesting(Path,
+			DFactoryAssetForTest::StaticClass(), MakeFactory(DAssetToolsFactoryForTest::EMode::Fail));
+		EXPECT_EQ(Result, nullptr);
+		EXPECT_EQ(FindResidentPackage(Path), nullptr);
+		EXPECT_TRUE(IsGarbageCollectionRequested());
+	}
+	EXPECT_TRUE(TryCollectGarbage(Durin::EObjectFlags::Standalone));
+	EXPECT_EQ(FindPackage(Path.GetView()), nullptr);
 }

@@ -111,7 +111,7 @@ A standalone first import follows this boundary:
    required bytes once, decodes them, builds into the object, and publishes
    concrete import data;
 4. `IAssetTools` validates the returned main asset and discards the complete
-   unsaved package on failure;
+   unsaved package on failure by marking its hierarchy as garbage and requesting GC;
 5. the feature editor requests save through the same AssetTools service and
    supplies the host publication callback; AssetTools publishes one structured
    completion only after Engine persistence succeeds.
@@ -253,7 +253,9 @@ capture and format validation remain factory responsibilities.
 order on the game thread. Execution revalidates each destination using the same
 admission policy as single-file `ImportAsset`. The returned object must have the
 requested class, package, and exact name. Configured factories and context objects
-are strongly retained throughout the call, including failed-package collection.
+are strongly retained throughout the call. Failed candidate storage is collected
+after callbacks return at the host safe point; resident queries reject garbage
+candidates immediately. Explicit package unload remains a synchronous owner operation.
 
 The returned `std::vector<DObject*>` preserves input order. Null entries identify
 rejected, canceled or unattempted inputs; messages use the feedback context.

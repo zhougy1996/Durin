@@ -152,7 +152,7 @@ TEST(FAssetRuntimeLifecycleTests, ColdCookedBootAndReflectedDefaultsPreserveFina
 	ASSERT_NE(Default->Asset.Get(), nullptr);
 	TSoftObjectPtr<DObject> Soft(DefaultAssetPath);
 	ASSERT_EQ(Soft.Get(), Default->Asset.Get());
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Soft.Get(), Default->Asset.Get());
 	EXPECT_FALSE(Default->Asset->IsGarbage());
 	EXPECT_TRUE(InitializeAssetRuntime(Configuration));
@@ -168,7 +168,7 @@ TEST(FAssetRuntimeLifecycleTests, ColdCookedBootAndReflectedDefaultsPreserveFina
 	EXPECT_EQ(ClosedPackage.error().Code, EAssetReadError::ShuttingDown);
 	ReleaseClassDefaultObjects();
 	ShutdownAssetRuntime();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(InitializeAssetRuntime());
 	EXPECT_TRUE(GetAssetRuntimeConfiguration().IsAuthored());
 	ShutdownAssetRuntime();

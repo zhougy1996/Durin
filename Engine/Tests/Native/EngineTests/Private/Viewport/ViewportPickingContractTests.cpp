@@ -122,7 +122,7 @@ TEST(FViewportPickingContractTests, RejectsTargetsRetiredDuringSynchronousQuery)
 		Fixture.Actor->GetStaticMeshComponent()->RegisterComponent();
 	};
 	EXPECT_EQ(Fixture.Client.PickViewport(Fixture.Level, Fixture.View, {400.f, 300.f}).Status, EViewportPickStatus::Invalid);
-	State->DuringPick = [&] { EXPECT_TRUE(Fixture.Level->DestroyActor(Fixture.Actor)); Durin::CollectGarbage(); };
+	State->DuringPick = [&] { EXPECT_TRUE(Fixture.Level->DestroyActor(Fixture.Actor)); Durin::CollectGarbage(Durin::EObjectFlags::Standalone); };
 	EXPECT_EQ(Fixture.Client.PickViewport(Fixture.Level, Fixture.View, {400.f, 300.f}).Status, EViewportPickStatus::Invalid);
 }
 

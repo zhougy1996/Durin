@@ -141,7 +141,7 @@ namespace Durin::Testing
 			|| Package->FindTopLevelAsset(OutRedirector->GetFName()) != OutRedirector)
 		{
 			MarkObjectHierarchyAsGarbage(Package);
-			CollectGarbage();
+			CollectGarbage(Durin::EObjectFlags::Standalone);
 			OutRedirector = nullptr;
 			return {EAssetWriteError::InvalidData,
 				"The redirector fixture could not be registered as a top-level asset."};

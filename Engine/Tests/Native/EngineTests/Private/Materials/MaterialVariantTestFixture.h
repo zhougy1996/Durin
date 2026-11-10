@@ -19,7 +19,7 @@ namespace Durin::Testing
 			~FFixtureScope()
 			{
 				for (auto* Object : Objects) Durin::MarkAsGarbage(Object);
-				Durin::CollectGarbage();
+				Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 			}
 		} Scope;
 		auto* Root = Durin::NewObject<Durin::DMaterial>(nullptr, "VariantFixtureRoot");

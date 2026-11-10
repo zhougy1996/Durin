@@ -131,7 +131,7 @@ TEST(FActorMutationTests, EveryConstructibleActorClassRetainsIdentityAcrossUndoR
 		EXPECT_FALSE(Level->ContainsActor(Actor));
 		EXPECT_TRUE(IsPackageCaptureObjectOmitted(Actor));
 		for (const auto& Component : Components) EXPECT_FALSE(Component->IsRegistered());
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		ASSERT_TRUE(IsValid(Actor));
 		ASSERT_TRUE(F.Transactions->Redo());
 		EXPECT_TRUE(Level->ContainsActor(Actor));
@@ -171,7 +171,7 @@ TEST(FActorMutationTests, DeletionRestoresEarlierPropertyHistoryExternalAttachme
 	EXPECT_EQ(Grandchild->GetActorTransform().Translation, Before);
 	EXPECT_FALSE(F.Scene.Lights.contains(Light));
 	EXPECT_FALSE(Light->GetPrimaryComponentTick().IsTickFunctionRegistered());
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(F.Transactions->Undo());
 	EXPECT_EQ(Level->FindActorByName("Child"), Actor);
 	EXPECT_EQ(Actor->GetAttachParentActor(), F.Actor);
@@ -203,7 +203,7 @@ TEST(FActorMutationTests, MixedBatchDeletionRestoresActorOrderPrimaryCameraAndUn
 	ASSERT_TRUE(F.Editor.GetActorEditor()->DestroyActors(*Level, Targets, {false}));
 	EXPECT_EQ(Level->GetPrimaryCameraActor(), Second);
 	EXPECT_EQ(Second->GetAttachParentActor(), nullptr);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(F.Transactions->Undo());
 	EXPECT_EQ(Level->GetActors(), Order);
 	EXPECT_EQ(Level->GetPrimaryCameraActor(), First);
@@ -241,7 +241,7 @@ TEST(FActorMutationTests, DuplicationRemapsSelectedHierarchyOwnedComponentsAndSp
 	EXPECT_EQ(LightCopy->GetOwner(), Copy);
 	EXPECT_EQ(LightCopy->Registered, 1u);
 	ASSERT_TRUE(F.Transactions->Undo());
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(F.Transactions->Redo());
 	EXPECT_EQ(Level->FindActorByName(Copy->GetFName()), Copy);
 	EXPECT_EQ(Copy->GetAttachParentActor(), ParentCopy);
@@ -261,7 +261,7 @@ TEST(FActorMutationTests, SingleActorDuplicationRestoresItsExternalParentAndRoot
 	EXPECT_EQ(Copy->GetAttachParentActor(), F.Actor);
 	ASSERT_TRUE(F.Transactions->Undo());
 	EXPECT_EQ(Copy->GetAttachParentActor(), nullptr);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(F.Transactions->Redo());
 	EXPECT_EQ(Copy->GetAttachParentActor(), F.Actor);
 	const auto Rootless = F.Editor.GetActorEditor()->SpawnActor(*Level, AActor::StaticClass(), "Rootless", FTransform{}, {false});
@@ -358,7 +358,7 @@ TEST(FActorMutationTests, RejectionIsAtomicAndHistoryDiscardCollectsInactiveActo
 	TWeakObjectPtr<AActor> Weak(Added);
 	ASSERT_TRUE(F.Transactions->Undo());
 	ASSERT_TRUE(F.Transactions->TryReset());
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Weak.Get(), nullptr);
 }
 
@@ -394,11 +394,11 @@ TEST(FActorMutationTests, MixedSynchronousEditsJoinOuterTransactionAndReplayInOr
 	ASSERT_TRUE(F.Transactions->End());
 	EXPECT_EQ(F.Transactions->GetQueueLength(), 1u);
 	EXPECT_EQ(F.Transactions->GetUndoContext(false).Description, "Build actor hierarchy");
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(F.Transactions->Undo());
 	EXPECT_FALSE(Level->ContainsActor(Actor));
 	EXPECT_FALSE(Level->ContainsActor(Duplicate));
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(F.Transactions->Redo()) << FormatTransactorResult(F.Transactions->GetLastResult())
 		<< " record=" << (F.Transactions->GetLastResult().ApplyCause ? F.Transactions->GetLastResult().ApplyCause->RecordIndex : 0);
 	EXPECT_TRUE(Level->ContainsActor(Actor));
@@ -484,7 +484,7 @@ TEST(FComponentMutationTests, AdditionUndoRedoBalancesLifecycleAndSceneMembershi
 		EXPECT_EQ(Light->Unregistered, Repeat + 1);
 		EXPECT_EQ(Light->Uninitialized, Repeat + 1);
 		EXPECT_TRUE(IsPackageCaptureObjectOmitted(Light));
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		ASSERT_TRUE(IsValid(Light));
 		ASSERT_TRUE(F.Transactions->Redo());
 		EXPECT_TRUE(F.Actor->IsInstanceComponent(Light));
@@ -536,7 +536,7 @@ TEST(FComponentMutationTests, DeletionPreservesIdentityForEarlierPropertyHistory
 	EXPECT_EQ(Child->GetAttachParent(), nullptr);
 	EXPECT_EQ(Child->GetWorldLocation(), Before);
 	EXPECT_FALSE(F.Scene.Lights.contains(Light));
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(F.Transactions->Undo());
 	EXPECT_EQ(F.Actor->GetInstanceComponents(), Instances);
 	EXPECT_EQ(Child->GetAttachParent(), Light);
@@ -576,7 +576,7 @@ TEST(FComponentMutationTests, DuplicationRebuildsSplineCacheAndPreservesDetached
 	EXPECT_EQ(Copy->GetWorldLocation(), Source->GetWorldLocation());
 	EXPECT_NEAR(Copy->GetLocalSplineLength(), Source->GetLocalSplineLength(), 1.e-6);
 	ASSERT_TRUE(F.Transactions->Undo());
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(F.Transactions->Redo());
 	EXPECT_TRUE(IsValid(Inners.front()));
 	EXPECT_EQ(Copy->GetAttachParent(), nullptr);
@@ -637,7 +637,7 @@ TEST(FComponentMutationTests, RejectionDoesNotPublishAndDiscardedInactiveCompone
 	ASSERT_TRUE(F.Transactions->Undo());
 	EXPECT_FALSE(F.Scene.Primitives.contains(static_cast<DPrimitiveComponent*>(Added)));
 	ASSERT_TRUE(F.Transactions->TryReset());
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Weak.Get(), nullptr);
 }
 
@@ -679,7 +679,7 @@ TEST(FComponentMutationTests, RenamePreservesIdentityAndEarlierPropertyHistory)
 	const auto Head = F.Transactions->GetUndoId();
 	ASSERT_TRUE(F.Editor.GetActorEditor()->RenameComponent(*F.Actor, Light, "Renamed", {false}));
 	EXPECT_EQ(F.Transactions->GetUndoId(), Head);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(F.Transactions->Undo());
 	EXPECT_EQ(Light->GetFName(), Before);
 	EXPECT_EQ(Light->GetObjectPath(), Path);
@@ -840,11 +840,11 @@ TEST(FComponentMutationTests, AllComponentStructureCommandsShareOneHistoryAcross
 	const auto Copy = F.Editor.GetActorEditor()->DuplicateComponent(*F.Actor, Added, {false});
 	ASSERT_TRUE(Copy);
 	ASSERT_TRUE(F.Editor.GetActorEditor()->DeleteComponent(*F.Actor, Added, {false}));
-	for (int Step = 0; Step < 6; ++Step) { ASSERT_TRUE(F.Transactions->Undo()) << Step << ": " << FormatTransactorResult(F.Transactions->GetLastResult()); CollectGarbage(); }
+	for (int Step = 0; Step < 6; ++Step) { ASSERT_TRUE(F.Transactions->Undo()) << Step << ": " << FormatTransactorResult(F.Transactions->GetLastResult()); CollectGarbage(Durin::EObjectFlags::Standalone); }
 	EXPECT_FALSE(F.Actor->OwnsComponent(Added));
 	EXPECT_FALSE(F.Actor->OwnsComponent(Copy));
 	EXPECT_FALSE(F.Actor->OwnsComponent(Parent));
-	for (int Step = 0; Step < 6; ++Step) { ASSERT_TRUE(F.Transactions->Redo()); CollectGarbage(); }
+	for (int Step = 0; Step < 6; ++Step) { ASSERT_TRUE(F.Transactions->Redo()); CollectGarbage(Durin::EObjectFlags::Standalone); }
 	EXPECT_FALSE(F.Actor->OwnsComponent(Added));
 	EXPECT_TRUE(F.Actor->OwnsComponent(Copy));
 	EXPECT_EQ(static_cast<DSceneComponent*>(Copy)->GetAttachParent(), Parent);
@@ -1096,12 +1096,12 @@ TEST(FComponentMutationTests, AdditionHistoryRetainsSubobjectsCreatedAfterPublic
 	auto* Payload = NewObject<DObject>(Added, "LatePayload");
 	TWeakObjectPtr<DObject> WeakPayload(Payload);
 	ASSERT_TRUE(F.Transactions->Undo());
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(WeakPayload.Get(), Payload);
 	ASSERT_TRUE(F.Transactions->Redo());
 	ASSERT_TRUE(F.Transactions->Undo());
 	ASSERT_TRUE(F.Transactions->TryReset());
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_FALSE(WeakPayload.IsValid());
 }
 
@@ -1177,7 +1177,7 @@ TEST(FActorMutationTests, OversizedActorEditsStillPublishUndoableIdentity)
 	auto* Actor = Added;
 	EXPECT_TRUE(F.World->GetCurrentLevel()->ContainsActor(Actor));
 	ASSERT_TRUE(F.Transactions->Undo());
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_TRUE(IsValid(Actor));
 	ASSERT_TRUE(F.Transactions->Redo());
 	EXPECT_EQ(F.World->GetCurrentLevel()->FindActorByName("Oversized"), Actor);
@@ -1209,7 +1209,7 @@ TEST(FActorMutationTests, LabelsReuseVisibleNamesAfterUndoWithoutReusingObjectId
     ASSERT_NE(First, nullptr);
     EXPECT_EQ(First->GetActorLabel(), "Example");
     ASSERT_TRUE(F.GetTransactions()->Undo());
-    CollectGarbage();
+    CollectGarbage(Durin::EObjectFlags::Standalone);
     EXPECT_FALSE(Level->ContainsActor(First));
     EXPECT_FALSE(Level->IsActorNameAvailable("Example"));
     EXPECT_EQ(Level->SpawnActor<AActor>("Example", ESpawnActorNameMode::RequiredReturnNull), nullptr);
@@ -1373,7 +1373,7 @@ TEST(FActorMutationTests, LabelAndModifyComposeWithLaterComponentPublication)
 		EXPECT_FALSE(F.Actor->IsHidden());
 		EXPECT_FALSE(F.Actor->OwnsComponent(Added));
 		EXPECT_FALSE(Added->IsRegistered());
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		ASSERT_TRUE(F.Transactions->Redo()) << FormatTransactorResult(F.Transactions->GetLastResult());
 		EXPECT_EQ(F.Actor->GetActorLabel(), "Display");
 		EXPECT_TRUE(F.Actor->IsHidden());
@@ -1404,7 +1404,7 @@ TEST(FActorMutationTests, OrdinaryFieldsAndMultipleMembershipTransitionsShareOne
 		EXPECT_TRUE(F.Actor->GetInstanceComponents().empty());
 		EXPECT_FALSE(F.Actor->OwnsComponent(First));
 		EXPECT_FALSE(F.Actor->OwnsComponent(Last));
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		ASSERT_TRUE(F.Transactions->Redo()) << FormatTransactorResult(F.Transactions->GetLastResult());
 		ASSERT_EQ(F.Actor->GetInstanceComponents().size(), 1u);
 		EXPECT_EQ(F.Actor->GetInstanceComponents().front().Get(), Last);

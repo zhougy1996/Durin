@@ -74,7 +74,7 @@ TEST(FPackageAssetTests, PackageSerializationFailurePreservesOutputAcrossRetry)
 	struct FCleanup
 	{
 		DPackage* Package;
-		~FCleanup() { MarkObjectHierarchyAsGarbage(Package); CollectGarbage(); }
+		~FCleanup() { MarkObjectHierarchyAsGarbage(Package); CollectGarbage(Durin::EObjectFlags::Standalone); }
 	} Cleanup{Asset->GetPackage()};
 	const std::string ObjectPath = Asset->GetObjectPath();
 	FByteBuffer Bytes{std::byte{7}};

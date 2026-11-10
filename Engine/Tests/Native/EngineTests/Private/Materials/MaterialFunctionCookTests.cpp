@@ -88,7 +88,7 @@ TEST_F(FMaterialFunctionCookTests, CookFingerprintsNestedFunctionsWithoutProduci
 	ASSERT_TRUE(UnloadPackage(MaterialPath));
 	ASSERT_TRUE(UnloadPackage(WrapperPath));
 	ASSERT_TRUE(UnloadPackage(LeafPath));
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	const auto LeafData = FindPackageExact(LeafPath);
 	ASSERT_TRUE(LeafData);
 	const std::filesystem::path LeafFile = LeafData->PhysicalPath;
@@ -121,7 +121,7 @@ TEST_F(FMaterialFunctionCookTests, CookFingerprintsNestedFunctionsWithoutProduci
 		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GetDebugData().GeneratedSource.empty());
 	}
 	ShutdownAssetRuntime();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(InitializeAssetRuntime());
 }
 
@@ -161,7 +161,7 @@ TEST_F(FMaterialFunctionCookTests, StructuralNormalParentRoundTripsDuplicatesAnd
 	EXPECT_TRUE(Recipe.Graph.MatchesGraph(*Duplicate));
 	MarkAsGarbage(Duplicate);
 	ASSERT_TRUE(UnloadPackage(MaterialPath));
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	{
 		auto LoadedValue = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
 		Material = LoadedValue.value_or(nullptr);
@@ -180,7 +180,7 @@ TEST_F(FMaterialFunctionCookTests, StructuralNormalParentRoundTripsDuplicatesAnd
 	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::CookHit);
 	ASSERT_TRUE(UnloadPackage(MaterialPath));
 	ShutdownAssetRuntime();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	auto Configuration = FAssetRuntimeConfiguration::Authored();
 	ASSERT_TRUE(FAssetRuntimeConfiguration::Cooked(Request.OutputRoot, Configuration));
 	ASSERT_TRUE(InitializeAssetRuntime(std::move(Configuration)));
@@ -204,7 +204,7 @@ TEST_F(FMaterialFunctionCookTests, StructuralNormalParentRoundTripsDuplicatesAnd
 		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GetDebugData().GeneratedSource.empty());
 	}
 	ShutdownAssetRuntime();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(InitializeAssetRuntime());
 }
 
@@ -265,7 +265,7 @@ TEST_F(FMaterialFunctionCookTests, StandardMaterialFixtureCooksAndLoadsWithoutAu
 
 	ASSERT_TRUE(UnloadPackage(MaterialPath));
 	ShutdownAssetRuntime();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	auto Configuration = FAssetRuntimeConfiguration::Authored();
 	ASSERT_TRUE(FAssetRuntimeConfiguration::Cooked(Request.OutputRoot, Configuration));
 	ASSERT_TRUE(InitializeAssetRuntime(std::move(Configuration)));
@@ -291,6 +291,6 @@ TEST_F(FMaterialFunctionCookTests, StandardMaterialFixtureCooksAndLoadsWithoutAu
 		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GetDebugData().GeneratedSource.empty());
 	}
 	ShutdownAssetRuntime();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(InitializeAssetRuntime());
 }

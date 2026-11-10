@@ -1,4 +1,6 @@
 #include "DObject/TransactionSerialization.h"
+#include "Threading/RunnableThread.h"
+#include "CoreGlobals.h"
 #include "DObject/TransactionDiff.h"
 
 #include "DObject/Class.h"
@@ -260,7 +262,7 @@ namespace Durin
 	static auto CaptureSerializedObjectImpl(DObject& Object, const FSerializedObjectCapture* CapturePolicy, FDiffableObject* Observation,
 		bool bPropertiesOnly) -> std::expected<FSerializedObjectCapture, std::string>
 	{
-		FGarbageCollectionDeferralScope DeferCollection;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (!CanTransactObject(Object))
 			return std::unexpected("Transaction capture requires a live object or a transactional published default graph.");
 		if (CapturePolicy && (!CapturePolicy->Data || !CapturePolicy->Context || CapturePolicy->Info.Target.Resolve() != &Object))
@@ -356,7 +358,7 @@ namespace Durin
 
 	auto LoadSerializedObject(DObject& Object, const FSerializedObjectCapture& Capture) -> FCommandChangeResult
 	{
-		FGarbageCollectionDeferralScope DeferCollection;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		FScopedPackageDirtySuppression SuppressDirty;
 		if (auto Result = ValidateSerializedObjectIdentity(Object, Capture); !Result) return std::unexpected(FCommandChangeError{Result.error()});
 		try

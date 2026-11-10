@@ -10,7 +10,8 @@ namespace Durin
 {
 	COREDOBJECT_API auto ConditionallyMarkAsReachable(DObject* Object) -> void;
 
-	// Stores a garbage-collection-aware object handle and marks assigned objects reachable.
+	// Stores a garbage-collection-aware handle. Assignment does not mark reachability;
+	// the current collector scans synchronously and has no incremental write barrier.
 	class FObjectPtr
 	{
 	public:

@@ -1,4 +1,6 @@
 #include "Engine/ComponentInstanceDataCache.h"
+#include "Threading/RunnableThread.h"
+#include "CoreGlobals.h"
 
 #include "Components/ActorComponent.h"
 #include "Components/SceneComponent.h"
@@ -166,7 +168,7 @@ namespace Durin
 				|| (ParentComponent && (ParentComponent == Component || ParentComponent->IsAttachedTo(Component))))
 				return std::unexpected(FCommandChangeError{"Actor attachment recovery participant cannot resolve safely."});
 		}
-		FGarbageCollectionDeferralScope DeferCollection;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		FScopedPackageDirtySuppression SuppressDirty;
 		if (!Actor.SetRootComponent(SceneRoot)) return std::unexpected(FCommandChangeError{"Actor transaction root could not be reconciled.", true});
 		if (bCachedGeneratedRoot)

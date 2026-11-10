@@ -1418,7 +1418,7 @@ TEST(FStaticMeshSourceVersionTests, AuthoredSourceLoadsAfterRestart)
 	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath));
 	Fixture.Mesh = nullptr;
 	ShutdownAssetRuntime();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(InitializeAssetRuntime());
 	const auto Scan = RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation);
 	ASSERT_TRUE(Scan) << (Scan.Errors.empty() ? "Incomplete registry" : Durin::FormatAssetRegistryError(Scan.Errors.front()));
@@ -1433,7 +1433,7 @@ TEST(FStaticMeshSourceVersionTests, AuthoredSourceLoadsAfterRestart)
 	ASSERT_TRUE(Mesh->GetSource().AcquireGeometry().value()) << Error;
 	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath));
 	ShutdownAssetRuntime();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(InitializeAssetRuntime());
 }
 
@@ -3004,7 +3004,7 @@ TEST(FStaticMeshCookedLoadTests, AdmissionPressureRetriesOwnersWithoutMapChange)
 		EXPECT_EQ(Mesh->GetRenderDataLoadStatus().CpuPhase, ECookedMeshCpuPhase::Failed);
 		auto* Retired = Mesh.Get(); Mesh.Reset(); MarkAsGarbage(Retired);
 	}
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FStaticMeshCookedLoadTests, BlockingFailureRetainsDecodeCauseAcrossRetry)
@@ -4737,7 +4737,7 @@ TEST(FPhysicsMeshLifecycleTests, QueryAndSimpleEditsPreservePendingCookAndIndepe
 	FCollisionGeometryRef Current; ASSERT_TRUE(Body->BuildSimpleGeometry(Current));
 	EXPECT_EQ(Current.GetIdentity(), Simple.GetIdentity());
 	EXPECT_FALSE(Body->GetResidentComplexGeometry());
-	MarkObjectHierarchyAsGarbage(Body); CollectGarbage();
+	MarkObjectHierarchyAsGarbage(Body); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FPhysicsMeshLifecycleTests, ExternalPublicationSupersedesAnOlderFailedCook)
@@ -4772,7 +4772,7 @@ TEST(FPhysicsMeshLifecycleTests, ExternalPublicationSupersedesAnOlderFailedCook)
 	ASSERT_TRUE(Completion); EXPECT_EQ(Completion->Status, EPhysicsCookCompletionStatus::Cancelled);
 	EXPECT_FALSE(Body->GetPhysicsMeshBuildError()); EXPECT_EQ(Body->GetPhysicsMeshBuildStatus(), EPhysicsMeshBuildStatus::Ready);
 	EXPECT_EQ(Body->GetResidentComplexGeometry().GetIdentity(), Published.GetIdentity());
-	MarkObjectHierarchyAsGarbage(Body); CollectGarbage();
+	MarkObjectHierarchyAsGarbage(Body); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FPhysicsMeshLifecycleTests, BatchedRecipeAndExplicitRequestDoNotScheduleASecondCook)
@@ -4805,7 +4805,7 @@ TEST(FPhysicsMeshLifecycleTests, BatchedRecipeAndExplicitRequestDoNotScheduleASe
 	EXPECT_EQ(Completions, 1u); EXPECT_EQ(Body->GetPhysicsMeshRequestGeneration(), Request);
 	EXPECT_EQ(Body->GetCollisionBuildRevision(), 1u);
 	EXPECT_TRUE(Body->GetResidentComplexGeometry());
-	MarkObjectHierarchyAsGarbage(Mesh); CollectGarbage();
+	MarkObjectHierarchyAsGarbage(Mesh); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FPhysicsMeshLifecycleTests, ScopedUpdateToleratesOwnerDestructionFromInlineCompletion)
@@ -4833,7 +4833,7 @@ TEST(FPhysicsMeshLifecycleTests, ScopedUpdateToleratesOwnerDestructionFromInline
 				EXPECT_EQ(Result.Status, Mode == EBodySetupCollisionSourceMode::None
 					? EPhysicsCookCompletionStatus::Succeeded : EPhysicsCookCompletionStatus::Failed);
 				++Completions;
-				MarkObjectHierarchyAsGarbage(Body); CollectGarbage();
+				MarkObjectHierarchyAsGarbage(Body); CollectGarbage(Durin::EObjectFlags::Standalone);
 				EXPECT_EQ(ResolveObjectKey(Key), nullptr);
 			});
 		}

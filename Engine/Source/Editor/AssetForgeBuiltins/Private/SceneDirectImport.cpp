@@ -193,7 +193,7 @@ auto ConstructSceneCandidate(const FTopLevelAssetPath &AssetPath, T *&OutAsset, 
 	if (!OutAsset || Package->FindTopLevelAsset(OutAsset->GetFName()) != OutAsset)
 	{
 		MarkObjectHierarchyAsGarbage(Package);
-		CollectGarbage();
+		RequestGarbageCollection();
 		OutAsset = nullptr;
 		OutError = "The scene candidate could not be registered as a top-level asset.";
 		return false;

@@ -35,7 +35,7 @@ TEST(FTransactionTemplateTests, PublishedClassDefaultUsesModifyAndSurvivesRecrea
 	Default->Rename("RejectedTemplateRename");
 	EXPECT_EQ(Logical.Resolve(), Default);
 	Private::ReleaseClassDefaultObjectForTests(Class);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Logical.Resolve(), nullptr);
 	EXPECT_EQ(Exact.Resolve(), nullptr);
 	ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
@@ -79,7 +79,7 @@ TEST(FTransactionTemplateTests, DefaultSubobjectHistoryResolvesRecreatedGraphWit
 		ASSERT_TRUE(Scope.End());
 	}
 	Private::ReleaseClassDefaultObjectForTests(Class);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
 	Default = const_cast<AStaticMeshActor*>(static_cast<const AStaticMeshActor*>(Class->GetDefaultObject()));
 	Component = Default->GetStaticMeshComponent();
@@ -153,7 +153,7 @@ namespace
 			Buffer.Reset();
 			Durin::MarkObjectHierarchyAsGarbage(Current);
 			Durin::MarkObjectHierarchyAsGarbage(Candidate);
-			Durin::CollectGarbage();
+			Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		}
 		auto Record(int32 Value) -> void
 		{
@@ -202,7 +202,7 @@ TEST(FTransactionTemplateTests, OpaqueCustomParticipantsExpireBeforeRecreatedDef
 	EXPECT_EQ(Default->Value, 93);
 	ASSERT_TRUE(Buffer->TryReset());
 	Default->Value = Original;
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST_F(FTransactionReinstancingTests, RetainsUndoRedoPrimaryIdentityAndNewPackageCheckpoint)
@@ -221,7 +221,7 @@ TEST_F(FTransactionReinstancingTests, RetainsUndoRedoPrimaryIdentityAndNewPackag
 	EXPECT_EQ(Buffer->GetUndoContext().PrimaryObject, New);
 	EXPECT_FALSE(Buffer->GetPackageRevisionState(*Current).has_value());
 	ASSERT_TRUE(Operation.Retire());
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(ResolveObjectKey(OldKey), nullptr);
 	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(New->Value, 0);
 	EXPECT_TRUE(Candidate->IsDirty());
@@ -251,7 +251,7 @@ TEST_F(FTransactionReinstancingTests, ExplicitReinstancingHookUsesTheSharedCheck
 	EXPECT_FALSE(Buffer->OnObjectsReinstanced(Map));
 	Scope.Cancel();
 	MarkAsGarbage(Old);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(ResolveObjectKey(OldKey), nullptr);
 	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Reinstanced->Value, 0);
 	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Reinstanced->Value, 77);
@@ -364,7 +364,7 @@ TEST_F(FTransactionReinstancingTests, ComponentObservationsRebindAbsentGeneratio
 	std::shared_ptr<ITransactionObjectAnnotation> Source = std::make_shared<FActorTransactionAnnotation>(*BeforeActor);
 	BeforeActor->GeneratedCount = 0; ASSERT_TRUE(BeforeActor->RerunConstructionScripts());
 	AfterActor->GeneratedCount = 0; ASSERT_TRUE(AfterActor->RerunConstructionScripts());
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	FObjectReplacementMap Map; auto Built = Map.Build(std::span(&Pair, 1)); ASSERT_TRUE(Built) << ToString(Built.error());
 	auto Replaced = PrepareTransactionAnnotationReplacement(Source, Map); ASSERT_TRUE(Replaced) << Replaced.error();
 	AfterActor->GeneratedCount = 2; ASSERT_TRUE(AfterActor->RerunConstructionScripts());
@@ -620,7 +620,7 @@ TEST_F(FTransactionReinstancingTests, WeakOnlySerializedDependencyRebindsWithout
 	ASSERT_TRUE(Prepare()); ASSERT_TRUE(Operation.TryCommit());
 	ASSERT_EQ(Buffer->GetQueueLength(), 1u);
 	Peer->Weak = nullptr;
-	ASSERT_TRUE(Operation.Retire()); CollectGarbage();
+	ASSERT_TRUE(Operation.Retire()); CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Peer->Weak.Get(), New);
 	ASSERT_TRUE(Buffer->Redo()); EXPECT_FALSE(Peer->Weak.IsValid());
 }

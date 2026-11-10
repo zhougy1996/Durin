@@ -95,8 +95,8 @@ and untouched due entries can run on a later admitted frame.
 
 EndPlay, shutdown, and deferred Level transition requests stop further timer
 dispatch after the current callback returns. Recursive World Tick remains
-rejected. Cleanup runs at the existing World operation boundary, where physical
-GC was deferred throughout callback execution.
+rejected. Cleanup runs at the existing World operation boundary. Timer callbacks
+request GC; physical collection runs only at a later owner-established safe point.
 
 ## Object Bindings
 

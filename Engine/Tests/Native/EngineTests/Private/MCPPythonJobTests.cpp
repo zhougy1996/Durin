@@ -57,7 +57,7 @@ namespace
         auto TearDown() -> void override
         {
             Server.Stop(); PythonRegistration.Reset(); PythonTools.reset(); Runtime->Stop();
-            Host->PreExit(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); CollectGarbage();
+            Host->PreExit(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
         }
         auto Headers(std::string_view Owner) -> httplib::Headers
         {

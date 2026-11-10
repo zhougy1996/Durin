@@ -38,7 +38,7 @@ namespace
 		{
 			World->CleanupWorld();
 			Durin::MarkObjectHierarchyAsGarbage(World);
-			Durin::CollectGarbage();
+			Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		}
 		auto Tick(float Delta = 0.0f) -> void { World->Tick({.DeltaSeconds = Delta}); }
 	};
@@ -331,7 +331,8 @@ TEST_F(FWorldTimerTests, BoundCallbackCanDestroyItselfAndRequestGarbageCollectio
 		++Calls;
 		EXPECT_EQ(&Target, Actor);
 		EXPECT_TRUE(World->DestroyActor(Actor));
-		Durin::CollectGarbage();
+		Durin::RequestGarbageCollection();
+		EXPECT_TRUE(Durin::IsGarbageCollectionRequested());
 		EXPECT_EQ(Durin::GDObjectArray.Resolve(Identity), &Target);
 	}, 1.0);
 	Tick();

@@ -53,12 +53,12 @@ namespace
         {
             Panel.reset();
             if (Host) { Host->PreExit(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); }
-            CollectGarbage();
+            CollectGarbage(Durin::EObjectFlags::Standalone);
             if (Python) { EXPECT_EQ(0u, Python->GetSession()); EXPECT_EQ(0u, Python->GetStartupJob()); }
         }
         auto RestartHostWithoutPanel() -> void
         {
-            Panel.reset(); Host->PreExit(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); CollectGarbage();
+            Panel.reset(); Host->PreExit(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
             Host = NewObject<DEditorEngine>(nullptr, {});
             ASSERT_NO_THROW(FEditorEngineTestAccess::StartEditor(*Host));
             Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();

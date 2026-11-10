@@ -146,7 +146,7 @@ namespace
 		{
 			FDynamicEditorA::Init = {}; FDynamicEditorA::Deinit = {}; FDynamicEditorA::Destroy = {}; FDynamicEditorA::Create = {}; FDynamicEditorA::Dependencies.clear();
 			for (auto& Host : Hosts) { Host->PreExit(); MarkObjectHierarchyAsGarbage(Host.Get()); }
-			Hosts.clear(); CollectGarbage();
+			Hosts.clear(); CollectGarbage(Durin::EObjectFlags::Standalone);
 		}
 		auto NewHost() -> DEditorEngine*
 		{
@@ -243,7 +243,7 @@ namespace
 		const auto Result = Service->OpenAssets({.AssetEditors = Service,
 			.Assets = {DefinitionTarget(), DefinitionTarget("/AssetEditorTests/Other.Asset")}, .OpenMethod = EAssetOpenMethod::View});
 		ASSERT_TRUE(Result.IsAccepted());
-		Registration.Reset(); CollectGarbage();
+		Registration.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
 		for (const auto& Item : Result.Items) EXPECT_TRUE(Service->CompleteOpenRequest(Item.RequestId, EAssetOpenStatus::Completed));
 		ASSERT_EQ(2u, Methods.size());
 		EXPECT_EQ(EAssetOpenMethod::View, Methods[0]); EXPECT_EQ(EAssetOpenMethod::View, Methods[1]);
@@ -311,14 +311,14 @@ namespace
 		EXPECT_EQ(EAssetOpenStatus::Pending, Opened.Items.front().Status);
 		EXPECT_TRUE(Service->GetAllOpenEditors().empty());
 		Registration.Reset();
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(Definition, Provider.ResolveObjectPtr());
 		EXPECT_TRUE(Service->CancelOpenRequest(Id));
 		EXPECT_EQ(1, Cancellations);
 		ASSERT_TRUE(Service->GetOpenRequest(Id));
 		EXPECT_EQ(EAssetOpenStatus::Cancelled, Service->GetOpenRequest(Id)->Status);
 		EXPECT_FALSE(Service->CompleteOpenRequest(Id, EAssetOpenStatus::Completed));
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(nullptr, Provider.ResolveObjectPtr());
 	}
 
@@ -426,7 +426,7 @@ namespace
 			EXPECT_TRUE(IsGarbageCollecting());
 			EXPECT_DEATH(First->AddRegisteredEditorSubsystems(), "outside GC and feature dispatch");
 		};
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		FDynamicEditorA::Destroy = {};
 		EXPECT_TRUE(First->AreEditorSubsystemsInitialized());
 		EXPECT_EQ(Tools, First->GetEditorSubsystem<DEditorToolSubsystem>());
@@ -446,9 +446,9 @@ namespace
 		EXPECT_EQ(1, Cleanups); EXPECT_EQ(nullptr, Host->GetEditorSubsystem<FDynamicEditorA>());
 		EXPECT_TRUE(IsValid(Retained.Get())); EXPECT_FALSE(Retained->IsGarbage());
 
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_TRUE(Weak.IsValid()); EXPECT_EQ(0, Destructions);
-		Retained.Reset(); CollectGarbage();
+		Retained.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_FALSE(Weak.IsValid()); EXPECT_EQ(1, Destructions); EXPECT_EQ(1, Cleanups);
 		EXPECT_TRUE(Host->AreEditorSubsystemsInitialized());
 		FDynamicEditorA::Deinit = {}; FDynamicEditorA::Destroy = {};
@@ -469,8 +469,8 @@ namespace
 		EXPECT_EQ(nullptr, Host->GetEditorSubsystem<FDynamicEditorA>());
 		EXPECT_EQ(1, Cleanups); EXPECT_FALSE(Retained->IsGarbage());
 
-		CollectGarbage(); EXPECT_TRUE(IsValid(Retained.Get()));
-		Retained.Reset(); CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_TRUE(IsValid(Retained.Get()));
+		Retained.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_TRUE(Host->AreEditorSubsystemsInitialized());
 		EXPECT_EQ(1, Cleanups);
 		FDynamicEditorA::Init = {}; FDynamicEditorA::Deinit = {};
@@ -536,10 +536,10 @@ namespace
 		EXPECT_EQ(1, Cleanups);
 		EXPECT_FALSE(Host->AreEditorSubsystemsInitialized());
 		EXPECT_FALSE(bInvalidated);
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_TRUE(Retained.IsValid());
 		EXPECT_FALSE(bInvalidated);
-		Retained.Reset(); CollectGarbage();
+		Retained.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_TRUE(bInvalidated);
 		FDynamicEditorA::Deinit = {};
 	}
@@ -641,10 +641,13 @@ namespace
 		FDynamicEditorA::Dependencies[FDynamicEditorB::StaticClass()] = {FDynamicEditorA::StaticClass()};
 		std::vector<DClass*> Cleaned;
 		FDynamicEditorA::Init = [](auto& Object) {
+			RequestGarbageCollection(); EXPECT_TRUE(IsGarbageCollectionRequested());
 			if (Object.GetClass() == FDynamicEditorB::StaticClass()) throw std::runtime_error("expected");
 		};
-		FDynamicEditorA::Deinit = [&](auto& Object) { Cleaned.push_back(Object.GetClass()); };
+		FDynamicEditorA::Deinit = [&](auto& Object) { RequestGarbageCollection(); EXPECT_TRUE(IsGarbageCollectionRequested()); Cleaned.push_back(Object.GetClass()); };
 		EXPECT_THROW(Host->AddEditorSubsystem(FDynamicEditorB::StaticClass()), std::exception);
+		EXPECT_TRUE(IsGarbageCollectionRequested());
+		EXPECT_TRUE(TryCollectGarbage(Durin::EObjectFlags::Standalone));
 		EXPECT_NE(nullptr, Host->GetEditorSubsystem<FDynamicEditorA>());
 		EXPECT_EQ(nullptr, Host->GetEditorSubsystem<FDynamicEditorB>());
 		EXPECT_EQ((std::vector<DClass*>{FDynamicEditorB::StaticClass()}), Cleaned);
@@ -727,12 +730,10 @@ namespace
 			EXPECT_TRUE(Host->IsReadyForFinishDestroy());
 			// Callback lifetime is an owner contract, not finish-destroy readiness.
 			EXPECT_TRUE(Service->IsReadyForFinishDestroy());
-			EXPECT_FALSE(IsGarbageCollectionDeferred());
 			RequestGarbageCollection();
 			EXPECT_TRUE(IsGarbageCollectionRequested());
 			EXPECT_EQ(0, Cleanups); EXPECT_EQ(0, Destructions);
 		});
-		EXPECT_FALSE(IsGarbageCollectionDeferred());
 		EXPECT_EQ(0, Cleanups); EXPECT_EQ(0, Destructions);
 		Host->PreExit();
 		EXPECT_EQ(1, Cleanups); EXPECT_EQ(0, Destructions);
@@ -740,7 +741,7 @@ namespace
 		EXPECT_TRUE(Host->IsReadyForFinishDestroy());
 		EXPECT_TRUE(Service->IsReadyForFinishDestroy());
 		// Forced garbage invalidates the fixture's strong handle before physical collection.
-		Hosts.clear(); CollectGarbage();
+		Hosts.clear(); CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(1, Cleanups); EXPECT_EQ(1, Destructions);
 
 	}
@@ -790,7 +791,7 @@ namespace
 		EXPECT_EQ(nullptr, Host->GetEditorSubsystem<FDynamicEditorA>()); EXPECT_EQ(1, *Stopped);
 		EXPECT_EQ(EModuleState::Unloaded, FModuleManager::Get().FindModule(Name)->State.load());
 		// Fixture object code is resident in this test executable; reflected DLLs do not opt into unload.
-		Object.Reset(); CollectGarbage();
+		Object.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(1, *Stopped);
 		EXPECT_TRUE(Host->AreEditorSubsystemsInitialized());
 	}

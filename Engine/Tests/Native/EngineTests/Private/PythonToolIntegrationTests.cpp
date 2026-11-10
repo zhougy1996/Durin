@@ -36,7 +36,7 @@ namespace
         auto TearDown() -> void override
         {
             Runtime.Stop(); PendingRegistration.Reset(); PendingToolset.reset(); Registration.Reset(); Toolset.reset();
-            Host->PreExit(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); CollectGarbage();
+            Host->PreExit(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
         }
         auto Submit(std::string Code) -> uint64
         {
@@ -1052,7 +1052,7 @@ def edit():
 )PY");
         Tools->TickScripts(); Tools->TickScripts(); Tools->TickScripts();
         ASSERT_TRUE(Host->GetTransactor()->IsActive());
-        MarkObjectHierarchyAsGarbage(Object.Get()); Object.Reset(); CollectGarbage();
+        MarkObjectHierarchyAsGarbage(Object.Get()); Object.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
         auto Result = Wait(Job);
         EXPECT_EQ(EPythonJobState::Failed, Result.State); EXPECT_FALSE(Result.Error.empty());
         EXPECT_FALSE(Host->GetTransactor()->IsActive()); EXPECT_EQ(0u, Host->GetTransactor()->GetQueueLength());

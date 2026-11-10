@@ -46,7 +46,7 @@ namespace
 			if (MeshHarness) MeshHarness->Shutdown();
 			if (MaterialHarness) MaterialHarness->Shutdown();
 			if (TextureHarness) TextureHarness->Shutdown();
-			CollectGarbage();
+			CollectGarbage(Durin::EObjectFlags::Standalone);
 		}
 		auto Open(DObject& Object, EAssetOpenMethod Method = EAssetOpenMethod::Edit) -> FAssetOpenResult
 		{

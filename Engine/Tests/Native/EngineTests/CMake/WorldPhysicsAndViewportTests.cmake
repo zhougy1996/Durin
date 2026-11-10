@@ -1,3 +1,14 @@
+durin_add_native_test(EngineGarbageCollectionTests
+	PRIVATE_SOURCE_OWNER Engine
+	PRIVATE_SOURCE_RATIONALE "Engine-owned tests verify private GC policy and frame admission."
+	KIND contract
+	DOMAINS garbage-collection
+	MODULES core-dobject engine
+	SOURCES Private/Engine/GarbageCollectionTests.cpp
+	LIBRARIES Core CoreDObject Engine
+)
+target_include_directories(EngineGarbageCollectionTests PRIVATE "${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private")
+
 durin_add_native_test(InputActionTests
 	KIND contract
 	DOMAINS input gameplay

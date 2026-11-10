@@ -53,7 +53,7 @@ namespace
 			for (auto& Object : Objects)
 				MarkObjectHierarchyAsGarbage(Object.Get());
 			Objects.clear();
-			CollectGarbage();
+			CollectGarbage(Durin::EObjectFlags::Standalone);
 			SubsystemRegistration.reset();
 		}
 

@@ -350,7 +350,7 @@ TEST(FCookedTextureDataTests, DecodeFailureUnlocksBulkAndInstalledDataSkipsReloa
 	Volume.PixelFormat = EPixelFormat::R8_UNORM;
 	Volume.Mips.push_back({FSharedByteBuffer::Take(FByteBuffer(1, std::byte{0x7f})), 1, 1, 1, 1, 1});
 	ASSERT_NO_FATAL_FAILURE(ExpectCookedTextureDecodeBoundaries<DVolumeTexture>(Volume));
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FCookManifestTests, IsDeterministicAndRejectsCorruptRecords)

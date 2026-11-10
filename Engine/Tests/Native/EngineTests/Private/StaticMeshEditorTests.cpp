@@ -88,7 +88,7 @@ TEST(FStaticMeshEditorTests, PreviewSceneOwnsAndReleasesItsViewportComponents)
 		Preview.SetVisible(false);
 		Preview.ResetView();
 	}
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(FindObjectByName(ActorName), nullptr);
 	EXPECT_EQ(FindObjectByName(LightName), nullptr);
 }

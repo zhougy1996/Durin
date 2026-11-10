@@ -243,7 +243,10 @@ Providers own removal in `ShutdownModule()`: they stop their consumers, call
 `GEditor->RemoveEditorSubsystems(Provider)` when an editor exists, then destroy
 registration tokens and remaining provider resources. The host validates its safe
 point; the collection removes its actual live entries for that provider under its
-existing mutation and GC-deferral boundary.
+existing mutation boundary. Initialize and Deinitialize callbacks request GC;
+they must not execute either synchronous collector. Requests survive success
+and failure cleanup without relying on automatic business-stack refusal. The owner
+collects only after dynamic mutation returns, before any required provider unload.
 The collection does not consult the active editor, transactions or module dispatch.
 There is no global subsystem update permission query or scheduling manager.
 

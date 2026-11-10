@@ -480,7 +480,7 @@ namespace
 		Snapshot = {};
 
 		Owner.References.clear();
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		ASSERT_TRUE(ContainsObject(First));
 		ASSERT_TRUE(ContainsObject(Second));
 		ASSERT_TRUE((SnapshotResult = Durin::RestorePropertyValue(&ReferencesProperty, &Owner, 0, SnapshotCopy))) << Durin::ToString(SnapshotResult.error());
@@ -491,7 +491,7 @@ namespace
 
 		Owner.References.clear();
 		SnapshotCopy = {};
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_FALSE(ContainsObject(First));
 		EXPECT_FALSE(ContainsObject(Second));
 	}
@@ -528,7 +528,7 @@ namespace
 		EXPECT_EQ(Payload.GetReferencedObjectKeys().front(), Handle);
 
 		Owner.Value = nullptr;
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(Durin::ResolveObjectKey(Handle), nullptr);
 		EXPECT_FALSE((SnapshotResult = Durin::RestorePropertyValuePayload(&Property, &Owner, 0, Payload)));
 		EXPECT_EQ(SnapshotResult.error().Code, Durin::EPropertySnapshotError::UnresolvedReference);
@@ -1249,11 +1249,11 @@ TEST(FReflectedContainerOpsTests, CopyCapabilitiesRejectNestedMoveOnlyElementsAn
 		EXPECT_EQ(Snapshot.GetReferencedObjects()[0], Referenced);
 		EXPECT_EQ(Durin::TDStructOpsTraits<FHiddenReference>::CollectCount, 1);
 		Value.Hidden.Reset();
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_TRUE(ContainsObject(Referenced));
 
 		Snapshot = {};
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_FALSE(ContainsObject(Referenced));
 	}
 

@@ -461,7 +461,7 @@ namespace Durin::Editor
 			return std::unexpected("Object snapshots require an active recording outside transaction callbacks.");
 		FTransactionCaptureResult Result;
 		{
-			FGarbageCollectionDeferralScope DeferCollection;
+			if (GIsGameThreadIdInitialized) CheckGameThread();
 			FTransactionBusyScope BusyScope(bBusy);
 			for (auto& Record : Records)
 				if (auto* ObjectRecord = std::get_if<FTransactionObjectRecord>(&Record.Data); ObjectRecord && ObjectRecord->GetTarget().Resolve() == Object)
@@ -487,7 +487,7 @@ namespace Durin::Editor
 		if (!Capture.Object->HasAnyObjectFlags(EObjectFlags::Transactional)) return {};
 		for (const auto& Record : Records)
 			if (const auto* Object = std::get_if<FTransactionObjectRecord>(&Record.Data); Object && Object->GetTarget().Resolve() == Capture.Object) return {};
-		FGarbageCollectionDeferralScope DeferCollection;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		FTransactionBusyScope BusyScope(bBusy);
 		try
 		{
@@ -505,7 +505,7 @@ namespace Durin::Editor
 	auto FTransaction::ContainsPieObjects() const -> std::expected<bool, std::string>
 	{
 		if (bBusy) return std::unexpected("Transaction references are already being inspected or changed.");
-		FGarbageCollectionDeferralScope DeferCollection;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		FTransactionBusyScope BusyScope(bBusy);
 		return InspectPieReferences(*this);
 	}
@@ -590,7 +590,7 @@ namespace Durin::Editor
 	auto FTransaction::Finalize() -> FTransactionCaptureResult
 	{
 		if (bBusy || bFinalized) return std::unexpected("The transaction is busy or already finalized.");
-		FGarbageCollectionDeferralScope DeferCollection;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		FTransactionBusyScope BusyScope(bBusy);
 		for (auto& Record : Records)
 			if (auto Result = Record.CaptureAfter(); !Result) return Result;
@@ -690,7 +690,7 @@ namespace Durin::Editor
 	auto FTransaction::Apply(bool bUndo, EPropertyChangeOrigin Origin) -> FTransactionApplyResult
 	{
 		if (bBusy) return std::unexpected(FTransactionApplyError{.Message = "A transaction operation is already in progress."});
-		FGarbageCollectionDeferralScope DeferCollection;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		const bool bOwnOperation = OperationId == 0;
 		if (bOwnOperation)
 			if (const auto Result = BeginOperation(); !Result)
@@ -1189,7 +1189,7 @@ namespace Durin
 		if (ActiveCount == 0) return 0;
 		if (State != ETransactorState::Recording || !Pending || Pending->IsBusy()) return 0;
 		if (--ActiveCount > 0) return Result;
-		FGarbageCollectionDeferralScope DeferCollection;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		const auto Id = Pending->GetId();
 		bool bPublicationStarted = false;
 		struct FEndExit
@@ -1479,7 +1479,7 @@ namespace Durin
 		if (!CanTransact()) return LastResult = Reject(ETransactorRejectionReason::ResetState);
 		// Reason may refer to data destroyed below, or be changed by a destructor.
 		std::string SavedReason(Reason);
-		FGarbageCollectionDeferralScope DeferCollection;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		State = ETransactorState::Resetting;
 		check(HistoryRevision != std::numeric_limits<uint64>::max());
 		++HistoryRevision;
@@ -1598,7 +1598,7 @@ namespace Durin
 		if ((State != ETransactorState::Idle && State != ETransactorState::Recording && State != ETransactorState::RecoveryRequired)
 			|| (Pending && Pending->IsBusy()))
 			return std::unexpected("Transaction references are already being inspected or changed.");
-		FGarbageCollectionDeferralScope DeferCollection;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		struct FStateRestore
 		{
 			ETransactorState& State;
@@ -2162,7 +2162,7 @@ namespace Durin
 		{
 			if (bCommitted)
 			{
-				FGarbageCollectionDeferralScope DeferCollection;
+				if (GIsGameThreadIdInitialized) CheckGameThread();
 				Sources.clear();
 				AfterHistory.clear();
 			}
@@ -2235,7 +2235,6 @@ namespace Durin
 	{
 		CheckGameThread();
 		if (Map.GetEntries().empty()) return {};
-		FGarbageCollectionDeferralScope DeferCollection;
 		if (!Map.ValidateIdentities()) return std::unexpected("Reinstancing map contains expired object identities.");
 		auto Participant = CreateTransactorReloadParticipant(*this, {});
 		try

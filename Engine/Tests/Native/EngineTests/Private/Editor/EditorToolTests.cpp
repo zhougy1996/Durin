@@ -85,7 +85,7 @@ namespace
 		auto TearDown() -> void override
 		{
 			for (auto& Host : Hosts) { Host->PreExit(); MarkObjectHierarchyAsGarbage(Host.Get()); }
-			Hosts.clear(); CollectGarbage();
+			Hosts.clear(); CollectGarbage(Durin::EObjectFlags::Standalone);
 		}
 		auto MakeHost() -> DEditorEngine*
 		{
@@ -813,7 +813,7 @@ TEST_F(FEditorToolTests, JoinsRecordingAndKeepsDetachedEndpointSafeAfterShutdown
 	}
 	auto Pending = Endpoint->Submit(Request()); ASSERT_TRUE(Pending);
 	Host->PreExit();
-	Hosts.clear(); MarkObjectHierarchyAsGarbage(Host); CollectGarbage();
+	Hosts.clear(); MarkObjectHierarchyAsGarbage(Host); CollectGarbage(Durin::EObjectFlags::Standalone);
 	std::thread Worker([&] {
 		EXPECT_TRUE(WithoutBuiltins(Endpoint->GetCatalog()).Toolsets.empty());
 		EXPECT_EQ(EToolInvocationState::Cancelled, Endpoint->GetInvocation(*Pending)->State);
@@ -1136,7 +1136,7 @@ TEST_F(FEditorToolTests, RetainedReceiptAndLateProducerSurviveServiceDestruction
 	auto Receipt = Endpoint->RetainInvocation(*Id); ASSERT_TRUE(Receipt);
 	Tools->TickTools();
 	Host->PreExit();
-	MarkObjectHierarchyAsGarbage(Host); Hosts.clear(); CollectGarbage();
+	MarkObjectHierarchyAsGarbage(Host); Hosts.clear(); CollectGarbage(Durin::EObjectFlags::Standalone);
 	Endpoint.reset();
 	EXPECT_TRUE(Weak.expired());
 	auto View = Receipt->GetResultShared(); ASSERT_TRUE(View);

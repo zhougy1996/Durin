@@ -66,15 +66,16 @@ TEST(FMaterialDependencyTests, ScopedQueriesMatchLegacyAndBuildOnce)
 		EXPECT_EQ(Actual, Expected); // Later queries cannot replace owned result storage.
 		Context.EndDiscovery();
 		Durin::MarkAsGarbage(Leaf);
-		Durin::CollectGarbage();
+		Durin::RequestGarbageCollection();
+		EXPECT_TRUE(Durin::IsGarbageCollectionRequested());
 		EXPECT_TRUE(Durin::GDObjectArray.Contains(Leaf));
 		Actual.clear();
 		for (auto* Object : First) Actual.emplace_back(Object);
-		EXPECT_EQ(Actual.size(), 2u); // Pending kill is filtered while physical deletion is deferred.
+		EXPECT_EQ(Actual.size(), 2u); // Logical retirement is filtered before the host collects.
 	}
 	Durin::MarkAsGarbage(Child);
 	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialDependencyTests, IndexedQueriesVisitOnlyTheAffectedFamilyAndTrackParentEdits)
@@ -120,7 +121,7 @@ TEST(FMaterialDependencyTests, IndexedQueriesVisitOnlyTheAffectedFamilyAndTrackP
 	const FObjectKey RetiredChild(Child);
 	MarkAsGarbage(Leaf);
 	MarkAsGarbage(Child);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(RetiredChild.ResolveObjectPtr(), nullptr);
 	EXPECT_TRUE(GetLoadedDirectMaterialChildren(Base).empty());
 	auto* Replacement = NewObject<DMaterialInstance>(nullptr, "IndexedReplacement");
@@ -135,7 +136,7 @@ TEST(FMaterialDependencyTests, IndexedQueriesVisitOnlyTheAffectedFamilyAndTrackP
 	RemoveFromRoot(Base);
 	MarkAsGarbage(Other);
 	MarkAsGarbage(Base);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialDependencyTests, ScopedQueriesPreserveExcludedAncestorsAndCorruptCycles)
@@ -165,7 +166,7 @@ TEST(FMaterialDependencyTests, ScopedQueriesPreserveExcludedAncestorsAndCorruptC
 	}
 	Durin::MarkAsGarbage(Leaf);
 	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialDependencyTests, MultipleRootUpdateBaseline)
@@ -181,7 +182,7 @@ TEST(FMaterialDependencyTests, MultipleRootUpdateBaseline)
 	EXPECT_EQ(Counts.SnapshotCount, 2u);
 	Durin::MarkAsGarbage(Second);
 	Durin::MarkAsGarbage(First);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialDependencyTests, CanonicalParentChainDefinesDependencySemantics)
@@ -207,7 +208,7 @@ TEST(FMaterialDependencyTests, CanonicalParentChainDefinesDependencySemantics)
 	Durin::MarkAsGarbage(Direct);
 	Durin::MarkAsGarbage(Unrelated);
 	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialDependencyTests, CorruptParentCycleTerminatesDependencyQueries)
@@ -242,7 +243,7 @@ TEST(FMaterialDependencyTests, CorruptParentCycleTerminatesDependencyQueries)
 	Durin::MarkAsGarbage(Second);
 	Durin::MarkAsGarbage(First);
 	Durin::MarkAsGarbage(Unrelated);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialDependencyTests, LoadedQueriesSeparateDirectChildrenFromTransitiveDependents)
@@ -295,7 +296,7 @@ TEST(FMaterialDependencyTests, LoadedQueriesSeparateDirectChildrenFromTransitive
 	Durin::MarkAsGarbage(First);
 	Durin::MarkAsGarbage(Unrelated);
 	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialDependencyTests, InstancePropertyEditPublishesDependentsOnce)
@@ -350,7 +351,7 @@ TEST(FMaterialDependencyTests, InstancePropertyEditPublishesDependentsOnce)
 	Durin::MarkAsGarbage(Child);
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialDependencyTests, ParameterNotificationsFollowCompleteDependentPublication)
@@ -393,7 +394,7 @@ TEST(FMaterialDependencyTests, ParameterNotificationsFollowCompleteDependentPubl
 	Durin::MarkAsGarbage(Child);
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialDependencyTests, LoadedQueriesFilterGarbageAndReturnGenerationSafeHandles)
@@ -414,7 +415,7 @@ TEST(FMaterialDependencyTests, LoadedQueriesFilterGarbageAndReturnGenerationSafe
 
 	Durin::AddToRoot(Base);
 	Durin::AddToRoot(Live);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Durin::ResolveObjectKey(GarbageHandle), nullptr);
 	Durin::DMaterialInstance* Replacement = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "FilteredQueryReplacement");
 	const Durin::FObjectKey ReplacementHandle = Durin::FObjectKey(Replacement);
@@ -426,7 +427,7 @@ TEST(FMaterialDependencyTests, LoadedQueriesFilterGarbageAndReturnGenerationSafe
 	Durin::MarkAsGarbage(Replacement);
 	Durin::MarkAsGarbage(Live);
 	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialDependencyTests, ReentrantParentEditUsesFreshBatchAndCompletesSynchronously)
@@ -448,7 +449,8 @@ TEST(FMaterialDependencyTests, ReentrantParentEditUsesFreshBatchAndCompletesSync
 		EXPECT_TRUE(Leaf->SetParent(Other));
 		EXPECT_EQ(Leaf->GetParent(), Other);
 		EXPECT_EQ(Leaf->GetRenderChangeCount(), Before + 2);
-		Durin::CollectGarbage();
+		Durin::RequestGarbageCollection();
+		EXPECT_TRUE(Durin::IsGarbageCollectionRequested());
 		EXPECT_TRUE(Durin::GDObjectArray.Contains(Leaf));
 	});
 	Durin::ResetMaterialLoadedQueryDiagnostics();
@@ -464,7 +466,7 @@ TEST(FMaterialDependencyTests, ReentrantParentEditUsesFreshBatchAndCompletesSync
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Other);
 	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialDependencyTests, NotificationMayRetireLaterRecipientWithoutDanglingPointers)
@@ -481,7 +483,8 @@ TEST(FMaterialDependencyTests, NotificationMayRetireLaterRecipientWithoutDanglin
 	Leaf->GetParameterChanges().AddLambda([&] { ++LeafNotifications; });
 	const auto Listener = Instance->GetParameterChanges().AddLambda([&] {
 		Durin::MarkAsGarbage(Leaf);
-		Durin::CollectGarbage();
+		Durin::RequestGarbageCollection();
+		EXPECT_TRUE(Durin::IsGarbageCollectionRequested());
 		EXPECT_TRUE(Durin::GDObjectArray.Contains(Leaf));
 	});
 	Instance->PostEditChangeProperty({});
@@ -489,7 +492,7 @@ TEST(FMaterialDependencyTests, NotificationMayRetireLaterRecipientWithoutDanglin
 	Instance->GetParameterChanges().Remove(Listener);
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Durin::GDObjectArray.Resolve(LeafKey), nullptr);
 }
 TEST(FMaterialDependencyTests, ImmediateCompilationSharesDiscoveryAcrossOwners)
@@ -509,7 +512,7 @@ TEST(FMaterialDependencyTests, ImmediateCompilationSharesDiscoveryAcrossOwners)
 	Durin::MarkAsGarbage(Second);
 	Durin::MarkAsGarbage(First);
 	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialDependencyTests, DependencyCacheDoesNotApplyPropertyResolutionDepthLimit)
@@ -533,5 +536,5 @@ TEST(FMaterialDependencyTests, DependencyCacheDoesNotApplyPropertyResolutionDept
 		EXPECT_EQ(Actual.size(), Chain.size());
 	}
 	for (auto* Object : Chain) Durin::MarkAsGarbage(Object);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }

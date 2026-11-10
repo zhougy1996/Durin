@@ -51,7 +51,7 @@ namespace
 	{
 	protected:
 		auto SetUp() -> void override { Testing::InitializeAssetSystemForTests(); }
-		auto TearDown() -> void override { CollectGarbage(); }
+		auto TearDown() -> void override { CollectGarbage(Durin::EObjectFlags::Standalone); }
 		auto Definition(std::string Path) -> FTestAssetDefinition*
 		{
 			auto* Object = NewObject<FTestAssetDefinition>(nullptr, {});
@@ -103,11 +103,11 @@ namespace
 		auto* Object = Definition("Test.Asset");
 		const FObjectKey Key(Object);
 		auto Registration = Registry.RegisterDefinition(*Object);
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(Object, Key.ResolveObjectPtr());
 		EXPECT_EQ(Object, Registry.FindDefinition("Test.Asset"));
 		Registration.Reset();
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(nullptr, Key.ResolveObjectPtr());
 		EXPECT_EQ(nullptr, Registry.FindDefinition("Test.Asset"));
 	}
@@ -137,7 +137,7 @@ namespace
 			ASSERT_TRUE(Registration);
 		}
 		EXPECT_FALSE(Registration.IsValid());
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(nullptr, Key.ResolveObjectPtr());
 		Registration.Reset();
 	}
@@ -153,7 +153,7 @@ namespace
 		ASSERT_NE(nullptr, Default);
 		EXPECT_EQ(Default, Registry.FindDefinition("Test.AutomaticAsset"));
 		Private::ReleaseClassDefaultObjectForTests(Class);
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(nullptr, Registry.FindDefinition("Test.AutomaticAsset"));
 	}
 

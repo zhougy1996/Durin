@@ -174,7 +174,7 @@ TEST(FWorldTests, DestroyAllActorsInvalidatesObjectPointers)
 	EXPECT_NE(CameraComponent.Get(), nullptr);
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Camera.Get(), nullptr);
 	EXPECT_EQ(Mesh.Get(), nullptr);
 	EXPECT_EQ(CameraComponent.Get(), nullptr);
@@ -190,7 +190,7 @@ TEST(FWorldTests, DestroyingWorldCascadesToActorsAndComponents)
 	Durin::TObjectPtr<Durin::DActorComponent> ComponentPtr = Camera->GetCameraComponent();
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 
 	EXPECT_EQ(WorldPtr.Get(), nullptr);
 	EXPECT_EQ(ActorPtr.Get(), nullptr);
@@ -217,7 +217,7 @@ TEST(FWorldTests, DetachingRenderSceneUnregistersPendingKillComponents)
 	EXPECT_FALSE(Component->IsRegistered());
 	EXPECT_EQ(World->GetRenderScene(), nullptr);
 	EXPECT_EQ(Scene.RemovePrimitiveCount, 1u);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTests, DetachingPendingKillLevelUnregistersComponents)
@@ -239,7 +239,7 @@ TEST(FWorldTests, DetachingPendingKillLevelUnregistersComponents)
 	EXPECT_EQ(Scene.RemovePrimitiveCount, 1u);
 	World->SetRenderScene(nullptr);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTests, LightComponentRebuildsAndRetiresExactProxyTokens)
@@ -276,7 +276,7 @@ TEST(FWorldTests, LightComponentRebuildsAndRetiresExactProxyTokens)
 
 	World->SetRenderScene(nullptr);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTests, ComponentReparentUndoRedoRestoresHierarchyTransformsAndLightPublication)
@@ -337,7 +337,7 @@ TEST(FWorldTests, ComponentReparentUndoRedoRestoresHierarchyTransformsAndLightPu
 		ASSERT_TRUE(Transactions->TryReset());
 		World->SetRenderScene(nullptr);
 		Durin::MarkObjectHierarchyAsGarbage(World);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	}
 }
 
@@ -374,7 +374,7 @@ TEST(FWorldTests, ComponentDetachUndoRedoRestoresParentAndTransform)
 		}
 		ASSERT_TRUE(Transactions->TryReset());
 		Durin::MarkObjectHierarchyAsGarbage(World);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	}
 }
 
@@ -412,7 +412,7 @@ TEST(FWorldTests, ComponentHierarchyUndoRedoHandlesBothRecordOrders)
 		EXPECT_EQ(Second->GetWorldLocation(), Durin::FVector3(49.0, 0.0, 0.0));
 		ASSERT_TRUE(Transactions->TryReset());
 		Durin::MarkObjectHierarchyAsGarbage(World);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	}
 }
 
@@ -456,7 +456,7 @@ TEST(FWorldTests, UnregisteredComponentAttachmentUndoRedoRestoresRotationAndScal
 	ExpectWorld(AfterWorld);
 	ASSERT_TRUE(Transactions->TryReset());
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTests, RawHiddenAssignmentHasNoComponentSideEffects)
@@ -478,7 +478,7 @@ TEST(FWorldTests, RawHiddenAssignmentHasNoComponentSideEffects)
 	EXPECT_EQ(Scene.AddLightCount, Added);
 	World->SetRenderScene(nullptr);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTests, ActorVisibilityUndoRedoSynchronizesComponentSceneState)
@@ -518,7 +518,7 @@ TEST(FWorldTests, ActorVisibilityUndoRedoSynchronizesComponentSceneState)
 		ASSERT_TRUE(Transactions->TryReset());
 		World->SetRenderScene(nullptr);
 		Durin::MarkObjectHierarchyAsGarbage(World);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	}
 }
 
@@ -556,7 +556,7 @@ TEST(FWorldTests, ReflectedActorVisibilitySynchronizesInteractiveCancelAndHistor
 	ASSERT_TRUE(Transactions->TryReset());
 	World->SetRenderScene(nullptr);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTests, ComponentIdsRemainStableAcrossRenderStateAndRegistrationChanges)
@@ -590,7 +590,7 @@ TEST(FWorldTests, ComponentIdsRemainStableAcrossRenderStateAndRegistrationChange
 	EXPECT_NE(OtherLight->GetLightComponentId(), LightId);
 	World->SetRenderScene(nullptr);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FEngineObjectTests, EngineAndWorldHaveReflectedOwnership)
@@ -609,7 +609,7 @@ TEST(FEngineObjectTests, EngineAndWorldHaveReflectedOwnership)
 	Durin::MarkObjectHierarchyAsGarbage(Engine);
 	EXPECT_FALSE(EnginePtr.IsValid());
 	EXPECT_FALSE(WorldPtr.IsValid());
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(EnginePtr.Get(), nullptr);
 	EXPECT_EQ(WorldPtr.Get(), nullptr);
 }
@@ -621,11 +621,11 @@ TEST(FEngineObjectTests, RootedEngineSurvivesGarbageCollection)
 	Durin::TObjectPtr<Durin::DEngine> EnginePtr = Engine;
 
 	Durin::AddToRoot(Engine);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(EnginePtr.Get(), Engine);
 
 	Durin::RemoveFromRoot(Engine);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(EnginePtr.Get(), nullptr);
 }
 
@@ -638,7 +638,7 @@ TEST(FEngineObjectTests, GameEngineHasConcreteRuntimeClass)
 	EXPECT_TRUE(Engine->IsA<Durin::DEngine>());
 
 	Durin::MarkObjectHierarchyAsGarbage(Engine);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 namespace
@@ -696,7 +696,7 @@ TEST(FWorldTests, PreviewHostInitializesAndRetiresServicesWithoutAPlayLifetime)
 		}
 	}
 	EXPECT_TRUE(bRetired);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	Durin::GEngine = PreviousEngine;
 }
 
@@ -723,7 +723,7 @@ TEST(FWorldTests, WorldShutdownCompletesAfterSubsystemInitializationAlreadyClean
 	EXPECT_EQ(FThrowingWorldSubsystem::Cleanups, 1);
 	Host->PreExit();
 	MarkObjectHierarchyAsGarbage(Host.Get());
-	World.Reset(); Host.Reset(); CollectGarbage();
+	World.Reset(); Host.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTests, PreviewConstructionExceptionCleansWorldAndSceneThenPropagates)
@@ -742,7 +742,7 @@ TEST(FWorldTests, PreviewConstructionExceptionCleansWorldAndSceneThenPropagates)
 	EXPECT_FALSE(Durin::FThrowingWorldSubsystem::LastWorld.IsValid());
 	EXPECT_TRUE(Engine.GetWorldContexts().empty());
 	EXPECT_EQ(Renderer.DestroyedScenes, 1);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	Durin::GEngine = PreviousEngine;
 }
 
@@ -760,7 +760,7 @@ TEST(FWorldTests, ActorModifyRecordsTheNativeRootTransform)
 	}
 	ASSERT_TRUE(Transactions->Undo()); EXPECT_EQ(Actor->GetActorTransform().Translation, FVector3(0.0));
 	ASSERT_TRUE(Transactions->Redo()); EXPECT_EQ(Actor->GetActorTransform().Translation, FVector3(7.0, 8.0, 9.0));
-	ASSERT_TRUE(Transactions->TryReset()); MarkObjectHierarchyAsGarbage(World); CollectGarbage();
+	ASSERT_TRUE(Transactions->TryReset()); MarkObjectHierarchyAsGarbage(World); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTests, SceneReplacementPreservesPlayingComponentLifecycleAndBoundTimers)
@@ -780,7 +780,7 @@ TEST(FWorldTests, SceneReplacementPreservesPlayingComponentLifecycleAndBoundTime
 	EXPECT_TRUE(World->GetTimerManager().IsTimerActive(Timer));
 	World->Tick({.DeltaSeconds = 0.1f}); EXPECT_EQ(Calls, 1);
 	World->SetRenderScene(nullptr); EXPECT_TRUE(Second.Lights.empty());
-	World->EndPlay(); Durin::MarkObjectHierarchyAsGarbage(World); Durin::CollectGarbage();
+	World->EndPlay(); Durin::MarkObjectHierarchyAsGarbage(World); Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 namespace Durin
@@ -843,7 +843,7 @@ TEST(FWorldTests, CanceledMapChangePreservesTheActiveWorldAndCompletesAtTheFrame
 	auto* Retired = Host.Get();
 	Host.Reset();
 	MarkObjectHierarchyAsGarbage(Retired);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTests, MapChangeCompletionCanStartAnotherChangeWithoutOverwritingItsProgress)
@@ -876,7 +876,7 @@ TEST(FWorldTests, MapChangeCompletionCanStartAnotherChangeWithoutOverwritingItsP
 	FMapChangeTestAccess::Tick(*Host);
 	EXPECT_EQ(Completions, 1);
 	Host->PreExit();
-	auto* Retired = Host.Get(); Host.Reset(); MarkObjectHierarchyAsGarbage(Retired); CollectGarbage();
+	auto* Retired = Host.Get(); Host.Reset(); MarkObjectHierarchyAsGarbage(Retired); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTests, MapChangeCompletionExceptionsDoNotEscapeOrRedeliver)
@@ -906,7 +906,7 @@ TEST(FWorldTests, MapChangeCompletionExceptionsDoNotEscapeOrRedeliver)
 		EXPECT_FALSE(Host->GetMapChangeProgress()->Diagnostic.empty());
 	}
 	Host->PreExit();
-	auto* Retired = Host.Get(); Host.Reset(); MarkObjectHierarchyAsGarbage(Retired); CollectGarbage();
+	auto* Retired = Host.Get(); Host.Reset(); MarkObjectHierarchyAsGarbage(Retired); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTests, MapChangeCommitsWithoutAViewportOrWaitingForComponentPSOs)
@@ -972,7 +972,7 @@ TEST(FWorldTests, MapChangeCommitsWithoutAViewportOrWaitingForComponentPSOs)
 	EXPECT_EQ(Request.GetDiagnostic(), "Required pipeline failed");
 	EXPECT_EQ(Renderer.RenderCalls, 0);
 	Host->PreExit();
-	auto* Retired = Host.Get(); Host.Reset(); MarkObjectHierarchyAsGarbage(Retired); CollectGarbage();
+	auto* Retired = Host.Get(); Host.Reset(); MarkObjectHierarchyAsGarbage(Retired); CollectGarbage(Durin::EObjectFlags::Standalone);
 	const auto Unloaded = UnloadPackage(PackagePath, EAssetPackageUnloadPolicy::DiscardUnsaved);
 	EXPECT_TRUE(Unloaded) << Unloaded.Message;
 }
@@ -1032,11 +1032,11 @@ TEST(FWorldTests, PrimaryMapPreloadTransfersRetentionToTheWorld)
 	ASSERT_EQ(Completions, 1);
 	EXPECT_EQ(Manager->GetPrimaryAssetObject(Primary), Level);
 	ASSERT_TRUE(Manager->UnloadPrimaryAsset(Primary));
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_NE(Host->GetWorld(), nullptr);
 	EXPECT_EQ(Host->GetWorld()->GetCurrentLevel(), Level);
-	Host->PrepareForShutdown(); Manager->Shutdown();
-	auto* Retired = Host.Get(); Host.Reset(); MarkObjectHierarchyAsGarbage(Retired); CollectGarbage();
+	Host->PreExit(); Manager->Shutdown();
+	auto* Retired = Host.Get(); Host.Reset(); MarkObjectHierarchyAsGarbage(Retired); CollectGarbage(Durin::EObjectFlags::Standalone);
 	if (FindResidentPackage(PackagePath)) EXPECT_TRUE(UnloadPackage(PackagePath));
 }
 
@@ -1100,7 +1100,7 @@ TEST(FWorldTests, MapChangeInitializationAndCommitFailuresPreserveTheCurrentWorl
 		EXPECT_FALSE(Previous->IsShutdownRequested());
 		EXPECT_EQ(Level->GetWorld(), nullptr);
 		Host->PreExit();
-		auto* Retired = Host.Get(); Host.Reset(); MarkObjectHierarchyAsGarbage(Retired); CollectGarbage();
+		auto* Retired = Host.Get(); Host.Reset(); MarkObjectHierarchyAsGarbage(Retired); CollectGarbage(Durin::EObjectFlags::Standalone);
 		const auto Unloaded = UnloadPackage(PackagePath, EAssetPackageUnloadPolicy::DiscardUnsaved);
 		EXPECT_TRUE(Unloaded) << Unloaded.Message;
 	}
@@ -1118,7 +1118,7 @@ TEST(FWorldTests, ResourceQueriesDoNotStartPreparationAndTextureFailureStaysOnOw
 	Texture->UpdateResource();
 	EXPECT_EQ(Texture->GetResource(), nullptr);
 	auto* RetiredMesh = Mesh.Get(); auto* RetiredTexture = Texture.Get();
-	Mesh.Reset(); Texture.Reset(); MarkObjectHierarchyAsGarbage(RetiredMesh); MarkObjectHierarchyAsGarbage(RetiredTexture); CollectGarbage();
+	Mesh.Reset(); Texture.Reset(); MarkObjectHierarchyAsGarbage(RetiredMesh); MarkObjectHierarchyAsGarbage(RetiredTexture); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTests, ComponentProxyGatePreservesRequiredFailureAndHonorsProxyStrategy)
@@ -1138,7 +1138,7 @@ TEST(FWorldTests, ComponentProxyGatePreservesRequiredFailureAndHonorsProxyStrate
 	EXPECT_EQ(Component->GetPSOPrecacheComponentData().GetMaterialPSOPrecacheRequestIDs()[0].GetDiagnostic(), "Required pipeline failed");
 	Component->SetPSOPrecacheProxyCreationStrategy(EPSOPrecacheProxyCreationStrategy::AlwaysCreate);
 	EXPECT_TRUE(Component->IsPSOPrecacheReadyForProxyCreation());
-	Host.PreExit(); Host.SetWorld(nullptr); MarkObjectHierarchyAsGarbage(World); CollectGarbage();
+	Host.PreExit(); Host.SetWorld(nullptr); MarkObjectHierarchyAsGarbage(World); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTests, AutomaticComponentPSOPolicyUsesHostInsteadOfWorldOrBuildCapabilities)
@@ -1176,7 +1176,7 @@ TEST(FWorldTests, AutomaticComponentPSOPolicyUsesHostInsteadOfWorldOrBuildCapabi
 		EXPECT_TRUE(IsComponentPSOPrecachingEnabled());
 		SetComponentPSOPrecacheMode(EComponentPSOPrecacheMode::Automatic);
 		EditorHost.SetWorld(nullptr);
-		MarkObjectHierarchyAsGarbage(World); CollectGarbage();
+		MarkObjectHierarchyAsGarbage(World); CollectGarbage(Durin::EObjectFlags::Standalone);
 	}
 	GEngine = &GameHost;
 	SetComponentPSOPrecacheMode(EComponentPSOPrecacheMode::Disabled);
@@ -1196,5 +1196,5 @@ TEST(FWorldTests, DisabledComponentPSOPolicyReleasesFailedObserversWithoutCancel
 	EXPECT_FALSE(Component->CheckPSOPrecachingAndBoostPriority());
 	EXPECT_EQ(Request.GetProgress().State, EMaterialPSOPrecacheState::Failed);
 	EXPECT_EQ(Request.GetDiagnostic(), "Required pipeline failed");
-	auto* Retired = Component.Get(); Component.Reset(); MarkObjectHierarchyAsGarbage(Retired); CollectGarbage();
+	auto* Retired = Component.Get(); Component.Reset(); MarkObjectHierarchyAsGarbage(Retired); CollectGarbage(Durin::EObjectFlags::Standalone);
 }

@@ -65,7 +65,7 @@ namespace Durin::Testing
 		static auto Restart(FAssetRuntimeConfiguration Configuration) -> ::testing::AssertionResult
 		{
 			ShutdownAssetRuntime();
-			CollectGarbage();
+			CollectGarbage(Durin::EObjectFlags::Standalone);
 			const FAssetWriteResult Result = InitializeAssetRuntime(std::move(Configuration));
 			if (!Result) return ::testing::AssertionFailure() << Result.Message;
 			return ::testing::AssertionSuccess();

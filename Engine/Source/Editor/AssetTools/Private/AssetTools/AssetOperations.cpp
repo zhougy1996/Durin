@@ -110,7 +110,7 @@ namespace Durin
 				DuplicatedAsset->GetFName()) != DuplicatedAsset)
 		{
 			MarkObjectHierarchyAsGarbage(DestinationPackage);
-			CollectGarbage();
+			RequestGarbageCollection();
 			return Reject(
 				!Duplicated ? ToString(Duplicated.error())
 					: "The source object graph could not be duplicated as an asset.");

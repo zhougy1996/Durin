@@ -93,7 +93,8 @@ reports the error; a failed capture/owner preflight leaves current output intact
 A request raised inside a reconstruction pass coalesces into at most one following
 pass. Requests during Actor BeginPlay/EndPlay wait for that lifecycle boundary
 to settle before generated components can be destroyed.
-Destruction rejects new work. GC remains deferred across the whole operation.
+Destruction rejects new work. Construction callbacks request GC; the owner may
+collect only after the whole operation, including failure cleanup, has returned.
 `RerunConstructionScripts` returns success and accepts optional captured cache/root
 inputs; these are explicit Durin extensions to UE's no-argument void entry point.
 
@@ -203,7 +204,8 @@ It does not rerun creation/initialization/BeginPlay just to rebuild
 resources. A nested context on an already-unregistered component is a no-op.
 Retired components still release old registration/resources but never re-register.
 `ReRegister` explicitly reports callback failures; automatic scope completion logs
-a failure without throwing from the destructor. GC is deferred across the scope.
+a failure without throwing from the destructor. Reregistration callbacks request
+GC and must not execute it; borrowed object use finishes before the host collects.
 
 `FTickFunction` owns native scheduling capture, validation, restoration and explicit
 archive transfer through `FTickFunctionState`. This plain checkpoint is shared by

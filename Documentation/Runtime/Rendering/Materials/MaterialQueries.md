@@ -59,11 +59,11 @@ use the context's raw-pointer ranges.
 
 ## Lifetime and mutation boundaries
 
-All discovery and raw-pointer consumption occur on the game thread. A context
-owns `FGarbageCollectionDeferralScope`; registered objects cannot be physically
-collected while it lives. Nested contexts independently extend that deferral.
-Collection requests remain pending after scope exit until the collector is
-next invoked. This is temporary exclusion of collection, not a GC root.
+All discovery and raw-pointer consumption occur on the game thread, before the
+next owner-established GC safe point. A context owns key snapshots, not GC roots,
+and does not prevent collection. Callbacks may request collection but must not
+execute it or reenter frame scheduling. Retained keys must be resolved again
+after a safe point; borrowed raw-pointer results must not cross that boundary.
 Marking garbage is still allowed and invalidates access immediately.
 
 Do not create new material relationships, reparent materials, or change result

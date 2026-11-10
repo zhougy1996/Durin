@@ -96,7 +96,7 @@ namespace
 		-> std::unique_ptr<Durin::Testing::FScopedMountRegistryFixture>
 	{
 		Durin::ShutdownAssetRuntime();
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		Durin::InitializeAssetRuntime();
 		Durin::FPaths::SetDerivedDataCacheDirForTests(
 			(Scenario.Root / "DerivedDataCache").generic_string());

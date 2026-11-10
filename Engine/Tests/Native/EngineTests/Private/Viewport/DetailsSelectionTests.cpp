@@ -36,7 +36,7 @@ TEST(FDetailsPanelTargetingTests, DefaultsToActorAndPreservesRootlessActorState)
 	EXPECT_EQ(Durin::Editor::Level::DetailsPanelTargeting::ResolveSelectedComponent(RootlessActor, RootComponent), nullptr);
 
 	Durin::MarkObjectHierarchyAsGarbage(RootlessActor);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FDetailsPanelTargetingTests, PreservesExplicitActorSelectionAndRecoversInvalidComponents)
@@ -60,7 +60,7 @@ TEST(FDetailsPanelTargetingTests, PreservesExplicitActorSelectionAndRecoversInva
 
 	Durin::MarkObjectHierarchyAsGarbage(RootedActor);
 	Durin::MarkObjectHierarchyAsGarbage(OtherActor);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FLevelEditorContextSelectionTests, ActorSelectionDefaultsToActorAndClearsExplicitComponentTarget)

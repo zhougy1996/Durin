@@ -51,7 +51,6 @@ TEST(FTransBufferTests, ResetPurgesActiveScopesWithoutReentryOrChangingReason)
 		return [&, bPending] {
 			++Destroyed; Reason.assign(Reason.size(), 'X');
 			ASSERT_FALSE(Transactor.CanTransact()); EXPECT_FALSE(Transactor.CanUndo());
-			EXPECT_TRUE(IsGarbageCollectionDeferred());
 			EXPECT_FALSE(Transactor.GetPackageRevisionState(*Package));
 			EXPECT_EQ(Transactor.GetQueueLength(), 0u); EXPECT_EQ(Transactor.GetUndoSize(), 0u);
 			EXPECT_EQ(Transactor.GetUndoId(), 0u); EXPECT_EQ(Transactor.GetRedoId(), 0u);
@@ -126,7 +125,7 @@ TEST(FTransBufferTests, PieQueriesGuardHistoryAndPendingRecordsAgainstReentry)
 		int Visits = 0;
 		Probe->OnInspect = [&] {
 			++Visits;
-			EXPECT_TRUE(IsGarbageCollectionDeferred()); ASSERT_FALSE(Buffer->CanTransact());
+			ASSERT_FALSE(Buffer->CanTransact());
 			EXPECT_FALSE(Buffer->CanUndo()); EXPECT_FALSE(Buffer->CanRedo());
 			const auto Barrier = Buffer->GetCurrentUndoBarrier();
 			Buffer->SetUndoBarrier(); EXPECT_EQ(Buffer->GetCurrentUndoBarrier(), Barrier);
@@ -166,16 +165,16 @@ TEST(FTransBufferTests, FinalizationRejectionKeepsDestructorsGuardedAfterPieQuer
 		auto Change = std::make_unique<FManagementProbeChange>(); Change->Reference = Dependency;
 		int Inspected = 0, Destroyed = 0;
 		Change->OnInspect = [&] {
-			++Inspected; EXPECT_TRUE(IsGarbageCollectionDeferred()); EXPECT_FALSE(Buffer->CanTransact());
+			++Inspected; EXPECT_FALSE(Buffer->CanTransact());
 			if (bThrow) throw std::runtime_error("Final inspection failure");
 		};
 		Change->OnDestroy = [&, PendingId, Recording] {
-			++Destroyed; EXPECT_TRUE(IsGarbageCollectionDeferred()); ASSERT_FALSE(Buffer->CanTransact());
+			++Destroyed; ASSERT_FALSE(Buffer->CanTransact());
 			EXPECT_FALSE(Buffer->TryReset()); EXPECT_LT(Buffer->Begin("Reentry", "Destructor"), 0);
 			EXPECT_TRUE(Buffer->GetTransactionDetails(PendingId, ETransactionOperation::Undo).empty());
 			EXPECT_FALSE(Recording->BeginOperation()); EXPECT_FALSE(Recording->ContainsPieObjects());
 			EXPECT_EQ(Buffer->GetTransaction(0), nullptr); EXPECT_EQ(Buffer->GetRedoId(), 0u);
-			if (IsGarbageCollectionDeferred()) { CollectGarbage(); EXPECT_TRUE(IsGarbageCollectionRequested()); EXPECT_NE(ResolveObjectKey(Key), nullptr); }
+			RequestGarbageCollection(); EXPECT_TRUE(IsGarbageCollectionRequested()); EXPECT_NE(ResolveObjectKey(Key), nullptr);
 		};
 		ASSERT_TRUE(Buffer->StoreUndo(std::move(Change)));
 		if (Mode == 2) { ASSERT_TRUE(Target->Modify()); Target->Value = 7; MarkObjectHierarchyAsGarbage(Target.Get()); }
@@ -185,7 +184,7 @@ TEST(FTransBufferTests, FinalizationRejectionKeepsDestructorsGuardedAfterPieQuer
 		if (bThrow) { ASSERT_NE(Buffer->GetLastResult().ApplyCause, nullptr); EXPECT_NE(Buffer->GetLastResult().ApplyCause->Message.find("Final inspection failure"), std::string::npos); }
 		EXPECT_EQ(Inspected, Mode == 2 ? 0 : 1); EXPECT_EQ(Destroyed, 1); EXPECT_TRUE(Buffer->CanTransact());
 		EXPECT_EQ(Buffer->GetQueueLength(), 1u); EXPECT_EQ(Buffer->GetRedoId(), RedoId);
-		CollectGarbage(); EXPECT_EQ(ResolveObjectKey(Key), nullptr); ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Value, 1);
+		CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_EQ(ResolveObjectKey(Key), nullptr); ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Value, 1);
 	}
 }
 
@@ -203,15 +202,15 @@ TEST(FTransBufferTests, FinalizationMetadataRemainsGuardedAfterPieQuery)
 	Probe->OnInspect = [&] { bInspected = true; };
 	Probe->OnMeasure = [&] {
 		if (*Retired) throw std::runtime_error("Accounting callback after Redo retirement");
-		++Measured; EXPECT_TRUE(bInspected); EXPECT_TRUE(IsGarbageCollectionDeferred()); ASSERT_FALSE(Buffer->CanTransact());
+		++Measured; EXPECT_TRUE(bInspected); ASSERT_FALSE(Buffer->CanTransact());
 		if (Measured == 1) EXPECT_FALSE(Recording->BeginOperation());
 		EXPECT_FALSE(Buffer->TryReset()); EXPECT_LT(Buffer->Begin("Reentry", "Accounting"), 0);
-		CollectGarbage(); EXPECT_TRUE(IsGarbageCollectionRequested());
+		RequestGarbageCollection(); EXPECT_TRUE(IsGarbageCollectionRequested());
 	};
 	ASSERT_TRUE(Buffer->StoreUndo(std::move(Change))); Scope.End();
 	Probe->OnInspect = {}; Probe->OnMeasure = {};
 	EXPECT_TRUE(Buffer->GetLastResult()); EXPECT_GT(Measured, 0); EXPECT_TRUE(*Retired); EXPECT_TRUE(Buffer->CanTransact());
-	CollectGarbage(); ASSERT_TRUE(Buffer->Undo()); ASSERT_TRUE(Buffer->Redo());
+	CollectGarbage(Durin::EObjectFlags::Standalone); ASSERT_TRUE(Buffer->Undo()); ASSERT_TRUE(Buffer->Redo());
 }
 TEST(FTransBufferTests, FinalizationExceptionsKeepOriginalFailureAndRedoBranch)
 {
@@ -235,8 +234,8 @@ TEST(FTransBufferTests, FinalizationExceptionsKeepOriginalFailureAndRedoBranch)
 			++*Destroyed;
 			if (Owner->GetState() == ETransactorState::Finalizing)
 			{
-				EXPECT_TRUE(IsGarbageCollectionDeferred()); EXPECT_FALSE(Owner->TryReset());
-				CollectGarbage(); EXPECT_TRUE(IsGarbageCollectionRequested());
+				EXPECT_FALSE(Owner->TryReset());
+				RequestGarbageCollection(); EXPECT_TRUE(IsGarbageCollectionRequested());
 			}
 		};
 		ASSERT_TRUE(Buffer->StoreUndo(std::move(Change))); const auto Id = Buffer->GetLastResult().TransactionId;
@@ -253,7 +252,7 @@ TEST(FTransBufferTests, FinalizationExceptionsKeepOriginalFailureAndRedoBranch)
 		EXPECT_EQ(Buffer->GetState(), ETransactorState::Idle); EXPECT_EQ(GUndo, nullptr); EXPECT_FALSE(Buffer->IsActive());
 		EXPECT_EQ(*Destroyed, 1); EXPECT_EQ(Buffer->GetQueueLength(), 2u); EXPECT_EQ(Buffer->GetUndoSize(), Bytes);
 		EXPECT_EQ(Buffer->GetUndoId(), UndoId); EXPECT_EQ(Buffer->GetRedoId(), RedoId); EXPECT_EQ(Buffer->GetCurrentUndoBarrier(), 1);
-		CollectGarbage(); ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Value, 1);
+		CollectGarbage(Durin::EObjectFlags::Standalone); ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Value, 1);
 	}
 }
 TEST(FTransBufferTests, FinalizationAccountingFailureDoesNotRetryThrowingMetadata)
@@ -324,7 +323,7 @@ TEST(FTransBufferTests, CompositeParticipantsReceiveHooksWithoutEditingGcDepende
 	EXPECT_EQ(Transaction->GetTransactionObjects().size(), 2u);
 	const auto FirstKey = FObjectKey(First.Get());
 	First = TStrongObjectPtr<DTransactionRecordParticipant>(nullptr);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	auto* FirstObject = static_cast<DTransactionRecordParticipant*>(ResolveObjectKey(FirstKey));
 	ASSERT_NE(FirstObject, nullptr);
 	ASSERT_TRUE(Buffer->Undo());
@@ -341,7 +340,7 @@ TEST(FTransBufferTests, CompositeParticipantsReceiveHooksWithoutEditingGcDepende
 	EXPECT_EQ(Second->Value, 5);
 	EXPECT_EQ(FirstObject->UndoCompletions, 2);
 	ASSERT_TRUE(Buffer->TryReset());
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(ResolveObjectKey(FirstKey), nullptr);
 }
 
@@ -768,7 +767,7 @@ TEST(FTransBufferTests, OversizedRecordingRemainsUndoableAndPreservesFailedUndoC
 	const auto Id = Buffer->GetUndoId();
 	TargetRoot = Durin::TStrongObjectPtr<Durin::DObject>(nullptr);
 	Durin::MarkAsGarbage(Target);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Buffer->UndoExpected(::Durin::FTransactionId{0}).Code, Durin::Editor::ETransactorResultCode::Failed);
 	EXPECT_EQ(Buffer->GetUndoId(), Id);
 	EXPECT_EQ((Buffer->GetQueueLength() - Buffer->GetUndoCount()), 1u);
@@ -846,7 +845,7 @@ TEST(FTransBufferTests, ForgetPackageRetiresHardSnapshotDependenciesOnBothSidesO
 	EXPECT_EQ(Buffer->GetUndoId(), UnrelatedId);
 	EXPECT_FALSE(Buffer->CanRedo());
 	Target->Hard = nullptr;
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_FALSE(WeakParticipant.IsValid());
 	ASSERT_TRUE(Buffer->Undo());
 	EXPECT_EQ(Target->Value, 0);
@@ -866,7 +865,7 @@ TEST(FTransBufferTests, ForgetPackageRetiresCustomLifetimeDependencies)
 	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 	EXPECT_EQ(Buffer->GetUndoSize(), 0u);
 	EXPECT_EQ(Value, 1);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_FALSE(WeakParticipant.IsValid());
 }
 
@@ -887,7 +886,7 @@ TEST(FTransBufferTests, CancellationEvictionAndDestructionReleaseCollectorEdges)
 		(void)Canceled->Modify();
 		EXPECT_EQ(CancelRecording(Scope, *Buffer).Code, Durin::Editor::ETransactorResultCode::Discarded);
 	}
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Durin::ResolveObjectKey(CanceledHandle), nullptr);
 
 	auto Commit = [&](DTransactionRecordParticipant* Target, std::string Description) {
@@ -902,13 +901,13 @@ TEST(FTransBufferTests, CancellationEvictionAndDestructionReleaseCollectorEdges)
 	auto* Retained = MakeTarget("RetainedTarget");
 	Durin::TStrongObjectPtr<Durin::DObject> RetainedRoot(Retained);
 	Commit(Retained, "Retained");
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Durin::ResolveObjectKey(EvictedHandle), nullptr);
 
 	const auto RetainedHandle = Durin::FObjectKey(Retained);
 	RetainedRoot = Durin::TStrongObjectPtr<Durin::DObject>(nullptr);
 	Buffer->BeginDestroy();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Durin::ResolveObjectKey(RetainedHandle), nullptr);
 }
 
@@ -930,12 +929,12 @@ TEST(FTransBufferTests, CollectorRetainsPendingAndHistoryEdgesAndReleasesBranche
 		(void)First->Modify();
 		First->Hard = nullptr;
 		First->Weak = nullptr;
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_NE(Durin::ResolveObjectKey(FirstHandle), nullptr);
 		EXPECT_NE(Durin::ResolveObjectKey(HardHandle), nullptr);
 		EXPECT_EQ(Durin::ResolveObjectKey(WeakHandle), nullptr);
 	}
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_NE(Durin::ResolveObjectKey(FirstHandle), nullptr);
 	EXPECT_NE(Durin::ResolveObjectKey(HardHandle), nullptr);
 	ASSERT_TRUE(Buffer->Undo());
@@ -947,13 +946,13 @@ TEST(FTransBufferTests, CollectorRetainsPendingAndHistoryEdgesAndReleasesBranche
 		(void)Second->Modify();
 		++Second->Value;
 	}
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Durin::ResolveObjectKey(FirstHandle), nullptr);
 	EXPECT_EQ(Durin::ResolveObjectKey(HardHandle), nullptr);
 	ASSERT_TRUE(Buffer->TryReset());
 	SecondRoot = Durin::TStrongObjectPtr<Durin::DObject>(nullptr);
 	const auto SecondHandle = Durin::FObjectKey(Second);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Durin::ResolveObjectKey(SecondHandle), nullptr);
 }
 
@@ -972,22 +971,22 @@ TEST(FTransBufferTests, DetachedOwnedChildSurvivesCollectionUndoRedoAndReleasesW
 	const auto ChildHandle = FObjectKey(Child);
 	const auto HistoryHandle = FObjectKey(HistoryOuter);
 	ASSERT_TRUE(Durin::Editor::ApplyEditorChange(*Buffer, std::make_unique<FDetachedChildChange>(Owner, Child, HistoryOuter)));
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_EQ(ResolveObjectKey(ChildHandle), Child);
 	EXPECT_EQ(Child->GetOuter(), HistoryOuter);
 	EXPECT_EQ(Owner->Hard.Get(), nullptr);
 	EXPECT_TRUE(GDObjectArray.GetObjectsWithOuter(Owner, EObjectQueryScope::LiveOnly).empty());
 	ASSERT_TRUE(Buffer->Undo());
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Owner->Hard.Get(), Child);
 	EXPECT_EQ(Child->GetOuter(), Owner);
 	EXPECT_EQ(Child->Value, 71);
 	ASSERT_TRUE(Buffer->Redo());
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(ResolveObjectKey(ChildHandle), Child);
 	EXPECT_EQ(Child->GetOuter(), HistoryOuter);
 	ASSERT_TRUE(Buffer->TryReset());
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(ResolveObjectKey(ChildHandle), nullptr);
 	EXPECT_EQ(ResolveObjectKey(HistoryHandle), nullptr);
 	EXPECT_EQ(Owner->Hard.Get(), nullptr);
@@ -1133,11 +1132,11 @@ TEST(FTransBufferTests, CustomReferencesAndModuleDrainReleaseHistory)
 	int Value = 1;
 	ASSERT_TRUE(Durin::Editor::ApplyEditorChange(*Buffer, std::make_unique<FTestCustomChange>(
 		Value, 1, 2, Referenced, "TestModule")));
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_NE(Durin::ResolveObjectKey(Handle), nullptr);
 	ASSERT_TRUE(Buffer->DiscardCustomChangesByModule("TestModule"));
 	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Durin::ResolveObjectKey(Handle), nullptr);
 }
 
@@ -1265,10 +1264,10 @@ TEST(FTransBufferTests, CustomInternalCompensationFailureRequiresRecovery)
 	ASSERT_TRUE(Drain.RejectionCause);
 	EXPECT_EQ(Drain.RejectionCause->Reason, ETransactorRejectionReason::ModuleState);
 	Participant.Reset();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_TRUE(Weak.IsValid());
 	Buffer.Reset();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_FALSE(Weak.IsValid());
 }
 
@@ -1289,10 +1288,10 @@ TEST(FTransBufferTests, ThrowingReplayReportsRecoveryAndRetainsItsParticipantGra
 	EXPECT_NE(Result.ApplyCause->Message.find("replay exception fixture"), std::string::npos);
 	EXPECT_EQ(Value, 1);
 	Participant.Reset();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_TRUE(Weak.IsValid());
 	Buffer.Reset();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_FALSE(Weak.IsValid());
 }
 
@@ -1665,7 +1664,7 @@ TEST(FTransBufferTests, ExcludedStructReferencesDoNotAcquireHistoryRetention)
 		FScopedTransaction Scope(Buffer.Get(), {"test", "Excluded reference"}); ASSERT_TRUE(Target->Modify());
 		Target->Nested.Count = 1; Target->Nested.IgnoredReference = Referenced;
 	}
-	Target->Nested.IgnoredReference = nullptr; CollectGarbage(); EXPECT_FALSE(Weak.IsValid());
+	Target->Nested.IgnoredReference = nullptr; CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_FALSE(Weak.IsValid());
 	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Target->Nested.Count, 0);
 	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Target->Nested.Count, 1);
 }
@@ -1719,7 +1718,7 @@ TEST(FTransBufferTests, GeneratedReferencesRemainOwnedByConstruction)
 		FScopedTransaction Scope(Buffer.Get(), {"test", "Generated reference"}); ASSERT_TRUE(Target->Modify());
 		Target->Value = 1; Target->Hard = After; MarkObjectHierarchyAsGarbage(Before);
 	}
-	CollectGarbage(); ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Target->Value, 0); EXPECT_EQ(Target->Hard.Get(), After);
+	CollectGarbage(Durin::EObjectFlags::Standalone); ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Target->Value, 0); EXPECT_EQ(Target->Hard.Get(), After);
 	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Target->Value, 1); EXPECT_EQ(Target->Hard.Get(), After);
 	ASSERT_TRUE(Buffer->TryReset()); std::string Reason; EXPECT_FALSE(Buffer->CanUndo(&Reason)); EXPECT_FALSE(Reason.empty());
 }
@@ -1874,10 +1873,10 @@ TEST(FTransBufferTests, HostDestructionInvalidatesSuspendedScopeAndReleasesGcRef
 	TWeakObjectPtr<DTransactionRecordParticipant> WeakTarget(Target.Get());
 	FScopedTransaction Scope(Host->GetTransactor(), {.Description = "Across collection"});
 	Host->DispatchSubsystemCallback([&] { ASSERT_TRUE(Target->Modify()); Target->Value = 1; });
-	Target.Reset(); CollectGarbage();
+	Target.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_NE(nullptr, WeakTarget.Get());
 	EXPECT_TRUE(Scope.IsOutstanding());
-	MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); CollectGarbage();
+	MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_FALSE(Scope.IsOutstanding());
 	EXPECT_EQ(0, Scope.End());
 	EXPECT_EQ(nullptr, WeakTarget.Get());

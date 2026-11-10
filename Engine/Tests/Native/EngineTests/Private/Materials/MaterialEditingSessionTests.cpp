@@ -44,7 +44,7 @@ namespace
 			MarkAsGarbage(Source);
 			if (Package) Package->SetStandaloneResidency(false);
 			MarkAsGarbage(Package);
-			CollectGarbage();
+			CollectGarbage(Durin::EObjectFlags::Standalone);
 		}
 		auto Edit(DMaterial& Material, float Roughness) -> void
 		{
@@ -94,7 +94,7 @@ TEST_F(FMaterialEditingSessionTests, TypedExpressionCopiesStayIndependentAcrossA
 		Edited->PostEditChangeProperty({});
 		EXPECT_TRUE(Session.HasUnappliedChanges());
 		EXPECT_FLOAT_EQ(Original->DefaultValue, 0.23f);
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		ASSERT_TRUE(Session.FinishAndApply(Error)) << Error;
 		auto* Applied = Cast<DMaterialExpressionScalarParameter>(Source->GetExpressionCollection().Expressions[0].Get());
 		ASSERT_NE(Applied, nullptr);
@@ -113,7 +113,7 @@ TEST_F(FMaterialEditingSessionTests, TypedExpressionCopiesStayIndependentAcrossA
 		EXPECT_FALSE(Session.HasUnappliedChanges());
 		RetiredDraftExpression = Edited;
 	}
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_FALSE(RetiredDraftExpression.IsValid());
 	auto* Applied = Cast<DMaterialExpressionScalarParameter>(Source->GetExpressionCollection().Expressions[0].Get());
 	ASSERT_NE(Applied, nullptr);

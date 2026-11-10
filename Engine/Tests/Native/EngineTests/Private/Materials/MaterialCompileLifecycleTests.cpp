@@ -95,7 +95,7 @@ namespace
 		};
 		auto Cache = std::make_shared<FGate>(); ShaderBuildPrivate::ResetServiceForTests({.Cache = Cache});
 		auto* A = NewObject<DMaterial>(nullptr, "SemanticConvergenceA"); auto* B = NewObject<DMaterial>(nullptr, "SemanticConvergenceB");
-		struct FRestore { std::shared_ptr<FGate> Cache; DMaterial* A; DMaterial* B; ~FRestore() { Cache->Release.Trigger(); FAssetCompilingManager::Get().FinishAllCompilation(); ShaderBuildPrivate::ResetServiceForTests(); MarkAsGarbage(A); MarkAsGarbage(B); CollectGarbage(); } } Restore{Cache, A, B};
+		struct FRestore { std::shared_ptr<FGate> Cache; DMaterial* A; DMaterial* B; ~FRestore() { Cache->Release.Trigger(); FAssetCompilingManager::Get().FinishAllCompilation(); ShaderBuildPrivate::ResetServiceForTests(); MarkAsGarbage(A); MarkAsGarbage(B); CollectGarbage(Durin::EObjectFlags::Standalone); } } Restore{Cache, A, B};
 		A->SetEditCompileMode(EMaterialEditCompileMode::Manual); B->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 		ASSERT_TRUE(EditRoughnessDefault(*A, .141971f)); ASSERT_TRUE(EditRoughnessDefault(*B, .141971f));
 		FMaterialCompilerEnvironment Environment; ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment));
@@ -125,7 +125,7 @@ auto QualifyCanceledFlightResubmission() -> void
 	struct FObjectCleanup
 	{
 		DMaterial* Material;
-		~FObjectCleanup() { MarkAsGarbage(Material); CollectGarbage(); }
+		~FObjectCleanup() { MarkAsGarbage(Material); CollectGarbage(Durin::EObjectFlags::Standalone); }
 	} Cleanup{Material};
 	// Use a distinct graph for the cancellation and resubmission assertions.
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
@@ -176,7 +176,7 @@ auto QualifyEditScheduling() -> void
 	{
 		DMaterial* Root;
 		DMaterialInstance* Child;
-		~FObjects() { MarkAsGarbage(Child); MarkAsGarbage(Root); CollectGarbage(); }
+		~FObjects() { MarkAsGarbage(Child); MarkAsGarbage(Root); CollectGarbage(Durin::EObjectFlags::Standalone); }
 	} Objects{Root, Child};
 	ASSERT_TRUE(Child->SetParent(Root));
 	ASSERT_TRUE(Root->CompileEdits());
@@ -318,7 +318,7 @@ TEST(FMaterialCompileLifecycleTests, RetryQueueBoundsChecksAndRotatesWithoutDupl
 	Queue.Process(Budget, Keep);
 	EXPECT_EQ(Visited.size(), 3u); // Requeued owners are not revisited this pump.
 	for (const auto Owner : Owners) MarkAsGarbage(Owner.Get());
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialCompileLifecycleTests, RetryQueueRemovesOwnersAndDistinguishesSlotGenerations)
@@ -332,7 +332,7 @@ TEST(FMaterialCompileLifecycleTests, RetryQueueRemovesOwnersAndDistinguishesSlot
 	const FWeakObjectPtr First(Old);
 	Queue.Add(First);
 	MarkAsGarbage(Old);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	const FWeakObjectPtr Second(NewObject<DObject>(nullptr, NAME_None));
 	const FWeakObjectPtr Third(NewObject<DObject>(nullptr, NAME_None));
 	Queue.Add(Second);
@@ -355,7 +355,7 @@ TEST(FMaterialCompileLifecycleTests, RetryQueueRemovesOwnersAndDistinguishesSlot
 	Queue.Remove(Third);
 	MarkAsGarbage(Second.Get());
 	MarkAsGarbage(Third.Get());
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Queue.Num(), 0u);
 }
 
@@ -376,7 +376,7 @@ namespace
 		auto TearDown() -> void override
 		{
 			for (auto* Object : Objects) Durin::MarkAsGarbage(Object);
-			Durin::CollectGarbage();
+			Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 			Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 			const auto Drained = Durin::GetMaterialCompilationDiagnostics();
 			EXPECT_EQ(Drained.InFlightCount, 0u);
@@ -882,7 +882,7 @@ auto QualifyInstanceCompilationOwners() -> void
 		~FFixtureScope()
 		{
 			for (auto* Object : Objects) Durin::MarkAsGarbage(Object);
-			Durin::CollectGarbage();
+			Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 			Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 		}
 	} Scope;
@@ -971,7 +971,7 @@ auto QualifyMaterialFunctionCompilationAsync() -> void
 		~FFixture()
 		{
 			for (auto* Object : Objects) MarkAsGarbage(Object);
-			CollectGarbage();
+			CollectGarbage(Durin::EObjectFlags::Standalone);
 		}
 	} Fixture;
 	struct FHoldWorkers
@@ -1136,7 +1136,7 @@ TEST(FMaterialCompileLifecycleTests,
 	MarkAsGarbage(Same);
 	MarkAsGarbage(Root);
 	MarkAsGarbage(AbsentOwner);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialCompileLifecycleTests,
@@ -1280,7 +1280,7 @@ TEST(FMaterialCompileLifecycleTests,
 		*Material->GetAcceptedCompiledProgram(), DecodedProperties, DecodedProgram)));
 
 	Durin::MarkAsGarbage(Material);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialCompileLifecycleTests, MetalCookedProgramPreservesStageBindingMaps)

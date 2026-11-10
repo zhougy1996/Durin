@@ -249,7 +249,7 @@ TEST(FAssetPackageReloadVulkanTests, DiscardRestoresRenderedWeatherAndVolumeFrom
 			return Point == Fault;
 		});
 		EXPECT_EQ(ReloadPackages(Request).GetResult().Status, EPackageReloadStatus::Failed);
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(Cloud->GetWeatherTexture(), Weather);
 		EXPECT_TRUE(Weather->GetPackage()->IsDirty());
 		EXPECT_EQ(Render(), EditedWeather);
@@ -285,7 +285,7 @@ TEST(FAssetPackageReloadVulkanTests, DiscardRestoresRenderedWeatherAndVolumeFrom
 	WorldRoot.Reset();
 	MarkObjectHierarchyAsGarbage(World);
 	MarkAsGarbage(Detail);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(UnloadPackage(WeatherPath));
 	ASSERT_TRUE(UnloadPackage(VolumePath));
 	Weather = nullptr;
@@ -304,7 +304,7 @@ TEST(FAssetPackageReloadVulkanTests, DiscardRestoresRenderedWeatherAndVolumeFrom
 	EXPECT_EQ(Volume->GetSource().GetIdentity(), VolumeIdentity);
 	ASSERT_TRUE(UnloadPackage(WeatherPath));
 	ASSERT_TRUE(UnloadPackage(VolumePath));
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	FlushRenderingCommands();
 	RendererLifecycle.Shutdown();
 	FlushRenderingCommands();

@@ -1155,7 +1155,7 @@ namespace Durin
 		MarkObjectHierarchyAsGarbage(World);
 		MarkAsGarbage(BaseAsset);
 		MarkAsGarbage(DetailAsset);
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		FlushRenderingCommands();
 		EnqueueRenderCommand<FSceneCloudRender>([&](FRHICommandListImmediate&) { Geometry->ReleaseResources(); });
 		FlushRenderingCommands();

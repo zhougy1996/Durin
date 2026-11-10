@@ -675,7 +675,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::MarkAsGarbage(OcclusionComponent);
 	Durin::MarkAsGarbage(OcclusionMesh);
 	Durin::MarkAsGarbage(OcclusionMaterial);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	struct FRetireSkyBoxValidationResource
 	{
 		static constexpr auto GetName() -> const char* { return "RetireSkyBoxValidationResource"; }
@@ -942,7 +942,7 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
     World->CleanupWorld();
     RemoveFromRoot(World);
     MarkObjectHierarchyAsGarbage(World);
-    CollectGarbage();
+    CollectGarbage(Durin::EObjectFlags::Standalone);
     FSceneInterfaceTestAccess::ReleaseScene(SceneOwner);
     for (int Poll=0; Poll<150 && !LastSceneLease.expired(); ++Poll)
     {

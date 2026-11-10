@@ -89,7 +89,7 @@ TEST(FMaterialGraphOperationsTests, DeclarationAndFloat4ReferenceUndoTogether)
 	const auto NoChange = Document.ReplaceExpression(*Parameter);
 	EXPECT_EQ(NoChange.GetStatus(), EMaterialGraphCommandStatus::NoChange);
 	MarkAsGarbage(Material);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests, PresentationWritesReportChangesAndPreserveSemanticState)
@@ -145,7 +145,7 @@ TEST(FMaterialGraphOperationsTests, PresentationWritesReportChangesAndPreserveSe
 	EXPECT_TRUE(std::ranges::equal(Material->GetParameterDefinitions(), BeforeDefinitions));
 	Material->GetGraphChanges().Unsubscribe(Observer);
 	MarkAsGarbage(Material);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialAssetCreationTests, NewBaseMaterialIsRenderableBeforePublication)
@@ -167,7 +167,7 @@ TEST(FMaterialAssetCreationTests, NewBaseMaterialIsRenderableBeforePublication)
 		(std::vector<float>{0.5f, 0.5f, 0.5f}));
 
 	Durin::MarkAsGarbage(Material);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests,
@@ -227,7 +227,7 @@ TEST(FMaterialGraphOperationsTests,
 	ASSERT_TRUE(FMaterialGraphDocument(*Material).Disconnect(FMaterialGraphPinAddress::MaterialOutput((*Material).GetOutputNode()->Id), Durin::Editor::ETransactionMode::NotTransactable));
 	EXPECT_FALSE(Material->GetExpressionOutputs().Surface.ExpressionId.IsValid());
 	MarkAsGarbage(Material);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests, PresentationSanitizationIsIndependentAndBounded)
@@ -282,7 +282,7 @@ TEST(FMaterialGraphOperationsTests, PresentationReachesMaximumNodeBoundAndDuplic
 
 	MarkAsGarbage(Duplicate);
 	MarkAsGarbage(Material);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests, MaterialOutputMovementIsPresentationOnlyAndTransactional)
@@ -332,7 +332,7 @@ TEST(FMaterialGraphOperationsTests, MaterialOutputMovementIsPresentationOnlyAndT
 	EXPECT_TRUE(Transactions->CanUndo());
 	EXPECT_TRUE(Transactions->TryReset());
 	MarkAsGarbage(Material);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests, UVSearchAliasesCreateOneFixedWidthExpression)
@@ -741,7 +741,7 @@ TEST(FMaterialGraphOperationsTests, EveryCatalogShapeCreatesItsConcreteExpressio
 	const auto Before = Material->GetExpressionCollection().Expressions;
 	EXPECT_FALSE(Document.CreateCatalogNode(Invalid, 0, 0, {}, Durin::Editor::ETransactionMode::NotTransactable));
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions, Before);
-	MarkAsGarbage(Material); CollectGarbage();
+	MarkAsGarbage(Material); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests, CatalogPinsAgreeWithRuntimeValidation)
@@ -956,7 +956,7 @@ TEST(FMaterialGraphOperationsTests, PaletteCreationAddsVisibleDefaultsInOneTrans
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
 
 	MarkAsGarbage(Material);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests, StaticSwitchCreationOwnsUniqueDeclarationAndReplaysAtomically)
@@ -994,7 +994,7 @@ TEST(FMaterialGraphOperationsTests, StaticSwitchCreationOwnsUniqueDeclarationAnd
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), Before.Expressions.size() + 4u);
 	MarkAsGarbage(Material);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests, CompactInputCommandsPreserveSharingFallbacksAndUndo)
@@ -1024,7 +1024,7 @@ TEST(FMaterialGraphOperationsTests, CompactInputCommandsPreserveSharingFallbacks
 	EXPECT_EQ(Node->A.Constant, (std::vector<float>{1}));
 	EXPECT_EQ(Node->B.Constant, (std::vector<float>{1}));
 	MarkAsGarbage(Material);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests, TypedInputDefaultsCoverWidthsCoordinatesAndFunctionBindings)
@@ -1105,7 +1105,7 @@ TEST(FMaterialGraphOperationsTests, TypedInputDefaultsCoverWidthsCoordinatesAndF
 	EXPECT_FALSE(Call->Inputs.front().Input.ExpressionId.IsValid());
 	MarkAsGarbage(Material);
 	MarkAsGarbage(Function);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests, SamplingClipboardRemapsSharedExplicitCoordinates)
@@ -1147,7 +1147,7 @@ TEST(FMaterialGraphOperationsTests, SamplingClipboardRemapsSharedExplicitCoordin
 	MarkAsGarbage(Function);
 	MarkAsGarbage(Target);
 	MarkAsGarbage(Material);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests, ReplacementDraftCannotMutateOwnerOrHistoryAfterCommit)
@@ -1167,7 +1167,7 @@ TEST(FMaterialGraphOperationsTests, ReplacementDraftCannotMutateOwnerOrHistoryAf
 	Constant->Value = 0.9f;
 	const auto Read = [&]() { return Cast<DMaterialExpressionScalarConstant>(Material->GetExpressionCollection().Expressions.front().Get())->Value; };
 	EXPECT_FLOAT_EQ(Read(), 0.5f);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FLOAT_EQ(Read(), 0.25f);
 	ASSERT_TRUE(Transactions->Redo());
@@ -1315,7 +1315,7 @@ TEST(FMaterialGraphOperationsTests, ConstantPaletteUsesOneEntryAndTypeChangesPre
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FALSE(Material->GetExpressionOutputs().Roughness.Connection.ExpressionId.IsValid());
 	MarkAsGarbage(Material);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests, ParameterSharingUsesIndependentNodesAndRenamePreservesIdentity)
@@ -1351,7 +1351,7 @@ TEST(FMaterialGraphOperationsTests, ParameterSharingUsesIndependentNodesAndRenam
 	const auto View = FMaterialGraphDocument(*Material).Inspect();
 	EXPECT_EQ(FindViewNode(View, OwnerId)->PrimaryLabel, Material->FindParameterDefinition(ParameterId)->DisplayName);
 	MarkAsGarbage(Material);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests, GenericParametersCreateIndependentDeclarationsAndUndoAtomically)
@@ -1411,7 +1411,7 @@ TEST(FMaterialGraphOperationsTests, GenericParametersCreateIndependentDeclaratio
 		EXPECT_EQ(std::ranges::count_if(FMaterialGraphOperations::SearchCatalog("parameter"), IsParameter), 3);
 	}
 	MarkAsGarbage(Material);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests, TypedLayoutIncludesCallAndSurfaceDependenciesAndPreservesLabels)
@@ -1458,7 +1458,7 @@ TEST(FMaterialGraphOperationsTests, TypedLayoutIncludesCallAndSurfaceDependencie
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), Layout);
 	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, Revision);
 	EXPECT_TRUE(Transactions->TryReset());
-	MarkAsGarbage(Material); MarkAsGarbage(Function); CollectGarbage();
+	MarkAsGarbage(Material); MarkAsGarbage(Function); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests, MaximumGraphLayoutIsDeterministicAndPresentationOnly)
@@ -1503,7 +1503,7 @@ TEST(FMaterialGraphOperationsTests, MaximumGraphLayoutIsDeterministicAndPresenta
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), FirstLayout);
 
 	MarkAsGarbage(Material);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests,
@@ -1539,7 +1539,7 @@ TEST(FMaterialGraphOperationsTests,
 	EXPECT_EQ(FindViewNode(View, Material->GetOutputNode()->Id)->Presentation, Testing::OutputPosition(*Material, Presentation));
 
 	MarkObjectHierarchyAsGarbage(Package);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests, LayoutReducesDenseCrossingsAndAvoidsSelectedCollisions)
@@ -1602,7 +1602,7 @@ TEST(FMaterialGraphOperationsTests, LayoutReducesDenseCrossingsAndAvoidsSelected
 		&& RelayoutSelected->Presentation.Y + Height > RelayoutFixed->Presentation.Y);
 
 	MarkAsGarbage(Material);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests,
@@ -1709,7 +1709,7 @@ TEST(FMaterialGraphOperationsTests,
 	EXPECT_NE(FindViewNode(RestoredCut, StandaloneId), nullptr);
 	EXPECT_TRUE(Transactions->TryReset());
 	MarkAsGarbage(Material);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests, FunctionClipboardRetainsDependenciesAndRemapsCompleteLinks)
@@ -1732,7 +1732,7 @@ TEST(FMaterialGraphOperationsTests, FunctionClipboardRetainsDependenciesAndRemap
 	ASSERT_NE(Cast<DMaterialExpressionFunctionCall>(Payload.Nodes.front().Expression.Get()), nullptr);
 	TWeakObjectPtr<DMaterialFunction> WeakFunction(Function);
 	MarkAsGarbage(Source);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(WeakFunction.IsValid());
 	EXPECT_FALSE(Payload.SourceRoot.IsValid());
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
@@ -1757,7 +1757,7 @@ TEST(FMaterialGraphOperationsTests, FunctionClipboardRetainsDependenciesAndRemap
 	RetainedTarget.Reset();
 	MarkAsGarbage(Target);
 	MarkAsGarbage(WeakFunction.Get());
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests, FunctionClipboardCopiesPortsAndSurfaceBindingsAtomically)
@@ -1808,7 +1808,7 @@ TEST(FMaterialGraphOperationsTests, FunctionClipboardCopiesPortsAndSurfaceBindin
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Target->GetFunctionSignature().Outputs.size(), 3u);
 	EXPECT_TRUE(Transactions->TryReset());
-	MarkAsGarbage(Source); MarkAsGarbage(Target); CollectGarbage();
+	MarkAsGarbage(Source); MarkAsGarbage(Target); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests, CommandsAreAtomicAndTransactionsRestoreSemanticAndPresentationState)
@@ -1883,7 +1883,7 @@ TEST(FMaterialGraphOperationsTests, CommandsAreAtomicAndTransactionsRestoreSeman
 	EXPECT_EQ(CoalescedUndo->Presentation.X, 320);
 	EXPECT_TRUE(Transactions->TryReset());
 	MarkAsGarbage(Material);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests,
@@ -1926,7 +1926,7 @@ TEST(FMaterialGraphOperationsTests,
 	EXPECT_EQ(Restored->Presentation.Y, 80);
 
 	MarkAsGarbage(Material);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests,
@@ -2011,7 +2011,7 @@ TEST(FMaterialGraphOperationsTests,
 	EXPECT_FALSE(Material->GetExpressionOutputs().Normal.Connection.ExpressionId.IsValid());
 	EXPECT_TRUE(Transactions->TryReset());
 	MarkAsGarbage(Material);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests, TextureEditSessionRetainsOriginalAcrossCollection)
@@ -2029,12 +2029,12 @@ TEST(FMaterialGraphOperationsTests, TextureEditSessionRetainsOriginalAcrossColle
 	FMaterialGraphParameterEditSession Session;
 	ASSERT_TRUE(Session.Begin(*Material, Id, nullptr));
 	ASSERT_TRUE(Session.Apply(FMaterialParameterValue::MakeTexture(Replacement)));
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(WeakOriginal.IsValid());
 	ASSERT_TRUE(Session.Cancel());
 	EXPECT_EQ(Material->FindParameterDefinition(Id)->Value.GetTexture().Texture.Get(), WeakOriginal.Get());
 	Material.Reset();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests,
@@ -2097,7 +2097,7 @@ TEST(FMaterialGraphOperationsTests,
 		CompileGeneration);
 	EXPECT_TRUE(Transactions->TryReset());
 	MarkAsGarbage(Material);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests, MoveAndDefaultHistoryDoNotGrowWithUnrelatedNodes)
@@ -2192,7 +2192,7 @@ TEST(FMaterialGraphOperationsTests, ForeignClipboardOwnsLocalDeclarationsAndReje
 	EXPECT_EQ(CaptureExpressions(*Target), BeforeProgram);
 	MarkAsGarbage(Source);
 	MarkAsGarbage(Target);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests, SameRootClipboardCreatesIndependentSnapshotOwners)
@@ -2220,7 +2220,7 @@ TEST(FMaterialGraphOperationsTests, SameRootClipboardCreatesIndependentSnapshotO
 	EXPECT_TRUE(FMaterialGraphDocument(*Material).Paste(Payload, 400, 0, Durin::Editor::ETransactionMode::NotTransactable));
 	EXPECT_EQ(Material->GetParameterDefinitions().size(), 1u);
 	MarkAsGarbage(Material);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests, DeclarationCommandsAndConstantPromotionShareAtomicHistory)
@@ -2283,7 +2283,7 @@ TEST(FMaterialGraphOperationsTests, DeclarationCommandsAndConstantPromotionShare
 	EXPECT_EQ(Cast<DMaterialExpressionParameter>(Material->GetExpressionCollection().Expressions.front().Get())->Metadata.Id, TintId);
 	EXPECT_TRUE(Transactions->TryReset());
 	MarkAsGarbage(Material);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests, ClipboardRetainsTextureDefaultsAfterSourceCollection)
@@ -2307,7 +2307,7 @@ TEST(FMaterialGraphOperationsTests, ClipboardRetainsTextureDefaultsAfterSourceCo
 	ASSERT_TRUE(FMaterialGraphDocument(*Source).CopySelection(std::span(&Node->Id, 1), Payload));
 	Node.Reset();
 	MarkAsGarbage(Source);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_NE(WeakTexture.Get(), nullptr);
 	EXPECT_EQ(Payload.SourceRoot.Get(), nullptr);
 	DMaterial* Target = NewObject<DMaterial>(nullptr, "ClipboardTextureTarget");
@@ -2315,10 +2315,10 @@ TEST(FMaterialGraphOperationsTests, ClipboardRetainsTextureDefaultsAfterSourceCo
 	ASSERT_TRUE(FMaterialGraphDocument(*Target).Paste(Payload, 0, 0, Durin::Editor::ETransactionMode::NotTransactable));
 	EXPECT_EQ(Target->GetParameterDefinitions().front().Value.GetTexture().Texture.Get(), WeakTexture.Get());
 	MarkAsGarbage(Target);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_NE(WeakTexture.Get(), nullptr);
 	Payload = {};
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(WeakTexture.Get(), nullptr);
 }
 
@@ -2344,7 +2344,7 @@ TEST(FMaterialGraphOperationsTests, TypedHistoryRestoresDeletedChildrenWithoutSh
 	ASSERT_TRUE(FMaterialGraphDocument(*Material).RemoveNodes(std::span(&Id, 1)));
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), 1u);
 	Parameter.Reset();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_TRUE(Deleted.IsValid());
 	EXPECT_EQ(Deleted.Get()->GetOuter(), nullptr);
 	ASSERT_TRUE(Transactions->Undo());
@@ -2360,17 +2360,17 @@ TEST(FMaterialGraphOperationsTests, TypedHistoryRestoresDeletedChildrenWithoutSh
 	Restored->DefaultValue = 0.72f;
 	Restored->Metadata.DisplayName = "Live edit";
 	ASSERT_TRUE(Transactions->Redo());
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(Transactions->Undo());
 	Restored = Cast<DMaterialExpressionScalarParameter>(Material->GetExpressionCollection().Expressions[0].Get());
 	ASSERT_NE(Restored, nullptr);
 	EXPECT_FLOAT_EQ(Restored->DefaultValue, 0.37f);
 	EXPECT_TRUE(Restored->Metadata.DisplayName.empty());
 	EXPECT_TRUE(Transactions->TryReset());
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions[0].Get(), Restored);
 	Material.Reset();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests, DeletingSurfaceOverrideSourceRestoresBaseAndSupportsUndo)
@@ -2404,7 +2404,7 @@ TEST(FMaterialGraphOperationsTests, DeletingSurfaceOverrideSourceRestoresBaseAnd
 	ASSERT_EQ(Remaining->Attributes.size(), 1u);
 	EXPECT_EQ(Remaining->Attributes.front().Source.Connection.ExpressionId, DeletedId);
 	EXPECT_TRUE(Transactions->TryReset()); Material.Reset();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests, SharedParametersSynchronizeRebindAndUndo)
@@ -2471,7 +2471,7 @@ TEST(FMaterialGraphOperationsTests, SharedParametersSynchronizeRebindAndUndo)
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_NE(Material->FindParameterDefinition(Id), nullptr);
 	EXPECT_TRUE(Transactions->TryReset());
-	MarkAsGarbage(Instance); MarkAsGarbage(Material); CollectGarbage();
+	MarkAsGarbage(Instance); MarkAsGarbage(Material); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests, SharedParameterValidationAndForeignPasteAreAtomic)
@@ -2531,7 +2531,7 @@ TEST(FMaterialGraphOperationsTests, SharedParameterValidationAndForeignPasteAreA
 	EXPECT_EQ(CaptureExpressions(*Target), BeforeInvalid);
 	Invalid->Metadata.Name = "ValidRetry";
 	ASSERT_TRUE(FMaterialGraphDocument(*Target).ReplaceExpression(*Invalid.Get(), Durin::Editor::ETransactionMode::NotTransactable));
-	MarkAsGarbage(Source); MarkAsGarbage(Target); CollectGarbage();
+	MarkAsGarbage(Source); MarkAsGarbage(Target); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests, NarrowPromotionUsesAndReusesFourComponentOwnerThroughMask)
@@ -3153,7 +3153,7 @@ TEST(FMaterialGraphOperationsTests, OutputModeRetainsConnectionsAndUndoRestoresV
 	EXPECT_TRUE(Visible[7].bActive);
 	EXPECT_EQ(Material->GetExpressionOutputs().BaseColor, Before.BaseColor);
 	MarkAsGarbage(Material);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphOperationsTests, CreationRequestConnectsAndUndoesAsOneEdit)
@@ -3989,7 +3989,7 @@ TEST(FMaterialGraphOperationsTests, PresentationReplayReportsExpiredTarget)
 	FTransactionRecord Record(GraphEditInternals::MakeMaterialGraphPresentationTransaction(
 		*Material, Before, After, "Move expired owner"));
 	MarkAsGarbage(Material);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	const auto Failed = Record.Apply(true, EPropertyChangeOrigin::Undo);
 	ASSERT_FALSE(Failed);
 	EXPECT_EQ(Failed.error(), "The custom transaction target is unavailable.");

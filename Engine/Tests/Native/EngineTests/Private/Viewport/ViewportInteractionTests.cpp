@@ -634,7 +634,7 @@ TEST(FViewportSelectionTests, PrefersViewportClientThenControllerTargetThenPrima
 	World->EndPlay();
 	Engine.SetTestWorld(nullptr);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FViewportSelectionTests, ConstrainedCameraBuildsCenteredContentRect)
@@ -665,7 +665,7 @@ TEST(FViewportSelectionTests, ConstrainedCameraBuildsCenteredContentRect)
 	EXPECT_FLOAT_EQ(View.AspectRatioConstraint, 16.0f / 9.0f);
 	Engine.SetTestWorld(nullptr);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FCameraPreviewViewportClientTests, BuildsViewFromAssignedCameraAndRejectsMissingCamera)

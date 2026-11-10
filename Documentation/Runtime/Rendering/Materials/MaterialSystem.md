@@ -1149,7 +1149,7 @@ publish through the stable proxy and dynamic-only changes reuse shader identity.
   tests walk the canonical chain iteratively with
   a cycle guard. A material depends on itself; a base material has no other
   material dependency.
-- Loaded child/dependent discovery, GC-protected result lifetime, shared batch
+- Loaded child/dependent discovery, borrowed result lifetime before the host GC safe point, shared batch
   contexts, and reentrant notifications follow [Scoped Material Queries](MaterialQueries.md).
   Render publication refreshes retained local layers and stable proxies;
   parent and descendant proxies resolve inherited values on the render thread.

@@ -186,7 +186,7 @@ TEST(FMaterialProgramIdentityTests,
 
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialProgramIdentityTests,
@@ -235,7 +235,7 @@ TEST(FMaterialProgramIdentityTests,
 	EXPECT_EQ(HeavyBinding.CompiledTextureFallbacks[MaskField->CompactIndex],
 		EMaterialTextureFallback::White);
 	MarkAsGarbage(HeavyRust); MarkAsGarbage(LightRust); MarkAsGarbage(Root);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FDefaultMaterialServiceTests, LoadsAndRetainsOneNeutralAuthoredProxy)
@@ -301,7 +301,7 @@ TEST(FDefaultMaterialServiceTests, LoadsAndRetainsOneNeutralAuthoredProxy)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::DefaultMaterialPackagePath, DefaultPath));
 	ASSERT_TRUE(Durin::UnloadPackage(DefaultPath));
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	WaitForRenderingThread();
 	if (bOwnsRenderingThread) Durin::ShutdownRenderingThread();
 }
@@ -316,7 +316,7 @@ TEST(FDefaultMaterialServiceTests, MissingEngineContentSelectsErrorTerminal)
 	{
 		Durin::UnloadPackage(DefaultPath);
 	}
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	Durin::ResetMaterialFallbackDiagnosticsForTests();
 	const std::filesystem::path Root =
 		Durin::Testing::CreateTestFixtureDirectory("MissingDefaultMaterial");
@@ -554,7 +554,7 @@ TEST(FMaterialRenderRepresentationTests, CompilationPreservesAuthoredInputsAndRe
 
 	Durin::MarkAsGarbage(WrongUsageTexture);
 	Durin::MarkAsGarbage(Material);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialRenderRepresentationTests, CompiledLayoutPreservesTypedValuesAndSampling)
@@ -664,5 +664,5 @@ TEST(FMaterialRenderRepresentationTests, TextureSamplingOverridesChangePayloadWi
 	Binding = GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Child));
 	EXPECT_EQ(Binding.CompiledSamplers[0], Value.GetTexture().SamplerState);
 	EXPECT_EQ(Binding.CompiledTextureFallbacks[0], EMaterialTextureFallback::Black);
-	MarkAsGarbage(Child); MarkAsGarbage(Root); CollectGarbage();
+	MarkAsGarbage(Child); MarkAsGarbage(Root); CollectGarbage(Durin::EObjectFlags::Standalone);
 }

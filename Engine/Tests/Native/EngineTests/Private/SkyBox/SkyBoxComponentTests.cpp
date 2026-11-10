@@ -52,7 +52,7 @@ TEST(FSkyLightTests, PendingAuthoredCubeDoesNotReportMissingPlatformData)
 	Durin::GEngine = nullptr;
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::MarkObjectHierarchyAsGarbage(Cube);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	Durin::ShutdownRenderingThread();
 }
 
@@ -80,7 +80,7 @@ TEST(FSkyLightTests, SerializesSourceIdentityAndRejectsNonfiniteIntensity)
 	EXPECT_EQ(Loaded->GetSkyLightComponent()->GetIntensity(), 16.0f);
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
 	Durin::MarkObjectHierarchyAsGarbage(Loaded);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FSkyLightTests, SelectsDeterministicallyAndRetiresExactSnapshots)
@@ -149,7 +149,7 @@ TEST(FSkyLightTests, SelectsDeterministicallyAndRetiresExactSnapshots)
 	Durin::FlushRenderingCommands();
 	Durin::GEngine = nullptr;
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	Durin::ShutdownRenderingThread();
 }
 
@@ -201,7 +201,7 @@ TEST(FSkyBoxTests, ActorDefaultsSerializeAndRetainCubeReference)
 
 	Durin::AddToRoot(Actor);
 	const Durin::FObjectKey CubeHandle = Durin::FObjectKey(Cube);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Durin::ResolveObjectKey(CubeHandle), Cube);
 	Component->SetTextureCube(nullptr);
 
@@ -218,7 +218,7 @@ TEST(FSkyBoxTests, ActorDefaultsSerializeAndRetainCubeReference)
 	Durin::RemoveFromRoot(Actor);
 	Durin::MarkAsGarbage(Actor);
 	Durin::MarkAsGarbage(LoadedActor);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Durin::ResolveObjectKey(CubeHandle), nullptr);
 }
 
@@ -270,7 +270,7 @@ TEST(FSkyBoxTests, ComponentSynchronizesRegistrationVisibilityTransformAndProper
 	Durin::GEngine = nullptr;
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::MarkAsGarbage(Cube);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	Durin::ShutdownRenderingThread();
 }
 
@@ -302,7 +302,7 @@ TEST(FSkyBoxTests, WorldSceneEndpointIsIndependentOfGlobalEngine)
 	Engine.ResetTestScene();
 	Durin::FlushRenderingCommands();
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	Durin::ShutdownRenderingThread();
 }
 

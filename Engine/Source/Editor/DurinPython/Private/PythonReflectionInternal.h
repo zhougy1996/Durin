@@ -8,6 +8,7 @@
 #pragma pop_macro("_DEBUG")
 #include "PythonABI.h"
 #include "PythonReflection.h"
+#include "DObject/ObjectLifecycle.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/StrongObjectPtr.h"

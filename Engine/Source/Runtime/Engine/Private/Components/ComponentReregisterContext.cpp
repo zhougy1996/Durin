@@ -1,4 +1,5 @@
 #include "ComponentReregisterContext.h"
+#include "DObject/ObjectLifecycle.h"
 
 #include "Engine/Actor.h"
 #include "Engine/Level.h"

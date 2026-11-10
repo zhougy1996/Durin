@@ -4,7 +4,7 @@ Summary: Define application startup, frame execution, project admission, and shu
 
 Modules: Launch, ApplicationCore, Engine, MonaCore, Mona, MonaImGui
 
-Last reviewed: 2026-11-09
+Last reviewed: 2026-11-10
 
 This document defines Durin's process startup, frame entry, lifecycle
 integration boundaries, and explicit process-exit ordering.
@@ -54,19 +54,23 @@ loop or public engine-loop header exists.
 
 ## Collection Requests And Execution Regions
 
-`RequestGarbageCollection()` records a Game Thread request for the existing
-`TryCollectGarbage` safe point. Explicit requests are serviced even when the
-automatic interval and pressure policy is disabled. Requests coalesce by retaining
-the union of their `KeepFlags`; an explicit collector call also honors pending
-retention flags.
+`RequestGarbageCollection(bForcePurge)` records a Game Thread request for the
+`DEngine::ConditionalCollectGarbage()` frame-end safe point. Engine callers use
+`ForceGarbageCollection(bForcePurge)`. Startup and no-World frames share the process
+frame counter, advanced before admitted frame work. Engine records each scheduling
+check, even when no collection runs; Core records actual collection separately.
+Explicit collection prevents redundant collection in that frame without changing
+the Engine's checked-frame record. Requests remain serviceable with automatic
+policy disabled and coalesce full-purge intent only. KeepFlags are chosen explicitly
+by execution; requests never change retention. Pending destruction advances on
+subsequent frames independently of the next reachability scan.
 
-`FGarbageCollectionDeferralScope` prevents physical collection throughout an
-execution region such as a complete World operation. Nested regions compose;
-`CollectGarbage()` inside a region records its request instead of sweeping, and
-`TryCollectGarbage()` reports no collection while deferred. Scope exit never
-invokes the collector. The next safe-point collection consumes the request.
-This protects active execution storage without moving ordinary World work into
-GC callbacks or postponing logical garbage marking.
+Business callbacks request GC and return to their owner before physical collection.
+They must not invoke synchronous collection or reenter frame scheduling. The owner
+establishes the safe point after complete operations, exception cleanup and borrowed
+storage have ended. There is no business deferral counter or scope-exit collection.
+`TryCollectGarbage` rejects collector reentry, not arbitrary business operations.
+See the [safe-point and lifetime contract](../ObjectSystem/GarbageCollection.md#safe-point-and-lifetime-contract).
 
 ## Startup Responsibilities
 
@@ -431,7 +435,7 @@ shutdown order directly:
 | Detach render consumers | Shut down the selected UI backend, then Mona to destroy windows and viewports and detach world, preview, thumbnail, and scene consumers. |
 | Release Engine defaults | After Engine consumer detachment, stop default-material bindings and release the retained asset/proxy before Engine shutdown. |
 | Release class defaults | Clear `DClass` ownership derived-first before the first GC; reflection cleanup is owned by this explicit exit stage. |
-| Drain objects | Release roots, run `GC -> render flush -> GC`, and require zero deferred object destruction. |
+| Drain objects | Release roots, run `partial GC -> render flush -> full purge -> final GC`, and require zero deferred object destruction. |
 | Shut down modules | Call module Shutdown in reverse Startup-completion order after object cleanup; keep task executors and render/RHI threads available for module-owned waits. |
 | Close render admission | Enqueue the final RenderCore audit while admission is still open, then atomically close it. |
 | Stop rendering | Stop the rendering thread after accepted commands, deferred C++ cleanup, and its final RHI deletion submission drain. The RHI thread remains alive. |
@@ -463,13 +467,14 @@ for their manager mailboxes, providers, caches, objects, render and RHI work. Th
 pumping, waits and diagnostics; this document defines where that process-level
 boundary occurs.
 
-The shutdown object drain has exactly one release collection, one render flush,
-and one finalization collection. It does not retry until an invalid owner
-eventually becomes ready. The first collection starts ordinary object-owned
-release, the flush completes accepted render work, and the second collection
-physically destroys objects whose readiness fence completed. Any remaining
-deferred object is reported with its path, class, and lifecycle flags before
-module unload is rejected in Debug.
+The shutdown object drain starts with partial collection to begin object-owned
+release, then flushes accepted render work before fully draining pending destruction.
+A final full collection handles objects retired by release callbacks. These full
+drains require readiness to progress independently of the blocked Game Thread;
+caller-owned fences and admissions must already be released. The collector does
+not hide incomplete destruction behind a successful full-purge return. The final
+pending-destruction assertion remains before module shutdown. See the
+[pending destruction contract](../ObjectSystem/GarbageCollection.md#pending-destruction).
 
 Module shutdown is a separate ownership channel from `DObject` destruction.
 Modules shut down in reverse Startup-completion order after the object channel is empty.

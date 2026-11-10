@@ -3,7 +3,7 @@
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/DurinPropertyTypes.h"
-#include "DObject/GarbageCollectionScheduler.h"
+#include "DObject/Internal/GarbageCollection.h"
 #include "DObject/Object.h"
 #include "DObject/Package.h"
 #include "DObject/StrongObjectPtr.h"
@@ -42,8 +42,9 @@ namespace Durin
 	{
 		FGarbageCollectionStats GLastGarbageCollectionStats;
 		bool GIsGarbageCollecting = false;
-		uint32 GCollectionDeferrals = 0;
-		std::optional<FGarbageCollectionOptions> GCollectionRequest;
+		std::optional<bool> GCollectionRequest;
+		std::deque<DObject*> GPendingPurge;
+		std::deque<DObject*> GPendingDelete;
 
 		// Keeps the collector single-entry while object lifecycle callbacks run.
 		class FGarbageCollectionScope
@@ -339,7 +340,8 @@ namespace Durin
 		}
 		if (!bHasModuleTemplates) return true;
 
-		CollectGarbage();
+		if (IsIncrementalPurgePending()) IncrementalPurgeGarbage();
+		if (!IsIncrementalPurgePending()) CollectGarbage(EObjectFlags::Standalone, false);
 		return !std::ranges::any_of(
 			GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished), IsOwnedByModule);
 	}
@@ -382,6 +384,7 @@ namespace Durin
 
 	COREDOBJECT_API auto ConditionallyMarkAsReachable(DObject* Object) -> void
 	{
+		// Reachability is synchronous. This handle hook is not a write barrier.
 		(void)Object;
 	}
 
@@ -391,53 +394,91 @@ namespace Durin
 		Private::FGCReferenceSchemaRegistry::Visit(Object->GetClass(), Object, Collector);
 	}
 
-	FGarbageCollectionDeferralScope::FGarbageCollectionDeferralScope()
+	auto RequestGarbageCollection(bool bForcePurge) -> void
 	{
 		CheckObjectThread();
-		++GCollectionDeferrals;
-	}
-
-	FGarbageCollectionDeferralScope::~FGarbageCollectionDeferralScope()
-	{
-		CheckObjectThread();
-		require(GCollectionDeferrals > 0);
-		--GCollectionDeferrals;
-	}
-
-	auto RequestGarbageCollection(const FGarbageCollectionOptions& Options) -> void
-	{
-		CheckObjectThread();
-		if (GCollectionRequest) GCollectionRequest->KeepFlags |= Options.KeepFlags;
-		else GCollectionRequest = Options;
+		GCollectionRequest = GCollectionRequest.value_or(false) || bForcePurge;
 	}
 
 	auto IsGarbageCollecting() -> bool { CheckObjectThread(); return GIsGarbageCollecting; }
+	auto IsGarbageCollectionRequested() -> bool { CheckObjectThread(); return GCollectionRequest.has_value(); }
+	auto Private::IsFullPurgeRequested() -> bool { CheckObjectThread(); return GCollectionRequest.value_or(false); }
+	auto IsIncrementalPurgePending() -> bool { CheckObjectThread(); return !GPendingPurge.empty() || !GPendingDelete.empty(); }
 
-	auto IsGarbageCollectionDeferred() -> bool
+	namespace
 	{
-		CheckObjectThread();
-		return GCollectionDeferrals != 0 || GIsGarbageCollecting;
-	}
-
-	auto IsGarbageCollectionRequested() -> bool
-	{
-		CheckObjectThread();
-		return GCollectionRequest.has_value();
-	}
-
-	auto CollectGarbage(const FGarbageCollectionOptions& Options) -> void
-	{
-		CheckObjectThread();
-		if (GCollectionDeferrals)
+		// Finish a ready batch before deleting it. Waiting objects rotate fairly.
+		auto PurgeGarbage(bool bUseTimeLimit, double TimeLimit) -> void
 		{
-			RequestGarbageCollection(Options);
-			return;
+			const double Start = FTime::Seconds();
+			bool bDidWork = false;
+			auto BudgetExpired = [&] {
+				return bUseTimeLimit && bDidWork && FTime::Seconds() - Start >= TimeLimit;
+			};
+			auto DeleteReady = [&] {
+				while (!GPendingDelete.empty() && !BudgetExpired())
+				{
+					DObject* Object = GPendingDelete.front();
+					GPendingDelete.pop_front();
+					DestroyObject(Object);
+					++GLastGarbageCollectionStats.SweptObjectCount;
+					bDidWork = true;
+				}
+			};
+			// Complete the prior ready batch first, even with a zero budget.
+			DeleteReady();
+			do
+			{
+				const size_t PassSize = GPendingPurge.size();
+				for (size_t Visited = 0; Visited < PassSize && !BudgetExpired(); ++Visited)
+				{
+					DObject* Object = GPendingPurge.front();
+					GPendingPurge.pop_front();
+					if (Object->IsReadyForFinishDestroy())
+					{
+						Object->FinishDestroy();
+						Object->SetInternalFlags(EObjectInternalFlags::FinishDestroyed);
+						GPendingDelete.push_back(Object);
+					}
+					else GPendingPurge.push_back(Object);
+					bDidWork = true;
+				}
+				DeleteReady();
+				if (bUseTimeLimit) break;
+				if (!GPendingPurge.empty()) std::this_thread::yield();
+			} while (!GPendingPurge.empty());
+			GLastGarbageCollectionStats.DeferredDestroyObjectCount = GPendingPurge.size() + GPendingDelete.size();
+			GLastGarbageCollectionStats.SweepMilliseconds += (FTime::Seconds() - Start) * 1000.0;
 		}
-		FGarbageCollectionOptions EffectiveOptions = Options;
-		if (GCollectionRequest) EffectiveOptions.KeepFlags |= GCollectionRequest->KeepFlags;
-		GCollectionRequest.reset();
+	}
+
+	auto IncrementalPurgeGarbage(bool bUseTimeLimit, double TimeLimit) -> void
+	{
+		CheckObjectThread();
 		const FGarbageCollectionScope CollectionScope;
+		PurgeGarbage(bUseTimeLimit, TimeLimit);
+	}
+
+	auto TryCollectGarbage(EObjectFlags KeepFlags, bool bPerformFullPurge) -> bool
+	{
+		if (IsGarbageCollecting()) return false;
+		CollectGarbage(KeepFlags, bPerformFullPurge);
+		return true;
+	}
+
+	auto CollectGarbage(EObjectFlags KeepFlags, bool bPerformFullPurge) -> void
+	{
+		CheckObjectThread();
+		requiref(!IsGarbageCollecting(),
+			"CollectGarbage cannot run from collector callbacks; request GC instead.");
+		// Complete the previous cycle before starting another reachability snapshot.
+		const FGarbageCollectionScope CollectionScope;
+		if (!GCollectionRequest.value_or(false) || bPerformFullPurge) GCollectionRequest.reset();
+		PurgeGarbage(false, 0.0);
+		const uint64 Serial = GLastGarbageCollectionStats.CollectionSerial + 1;
 		GLastGarbageCollectionStats = {};
+		GLastGarbageCollectionStats.CollectionSerial = Serial;
+		GLastGarbageCollectionStats.CollectionFrame = GFrameCounter;
 		const uint64 ObjectCountBeforeCollection = GDObjectArray.GetNum();
 		const uint64 PendingKillCountBeforeCollection = GetGarbageObjectCount();
 		const double CollectionStartTime = FTime::Seconds();
@@ -449,10 +490,13 @@ namespace Durin
 		Private::AddFunctionParameterReferences(Marker);
 		for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished))
 		{
+			// Residency is explicit ownership, independent of editor retention flags.
+			const auto* Package = Cast<DPackage>(Object);
 			if (!Object->IsGarbage()
 				&& (Object->HasAnyInternalFlags(EObjectInternalFlags::RootSet)
-					|| Object->HasAnyObjectFlags(EffectiveOptions.KeepFlags)
-					|| IsPermanentObject(Object)))
+					|| Object->HasAnyObjectFlags(KeepFlags)
+					|| IsPermanentObject(Object)
+					|| (Package && Package->GetResidencyReasons() != EAssetPackageResidencyReason::None)))
 			{
 				Marker.Enqueue(Object);
 			}
@@ -481,30 +525,15 @@ namespace Durin
 			Object->BeginDestroy();
 		}
 
-		for (DObject* Object : DestroyOrder)
-		{
-			if (Object->HasAnyInternalFlags(EObjectInternalFlags::FinishDestroyed)
-				|| !Object->IsReadyForFinishDestroy()) continue;
-			Object->FinishDestroy();
-			Object->SetInternalFlags(EObjectInternalFlags::FinishDestroyed);
-		}
-
-		uint64 DestroyedObjectCount = 0;
-		for (DObject* Object : DestroyOrder)
-		{
-			if (!Object->HasAnyInternalFlags(EObjectInternalFlags::FinishDestroyed)) continue;
-			DestroyObject(Object);
-			++DestroyedObjectCount;
-		}
-		GLastGarbageCollectionStats.SweptObjectCount = DestroyedObjectCount;
-		GLastGarbageCollectionStats.DeferredDestroyObjectCount =
-			static_cast<uint64>(DestroyOrder.size()) - DestroyedObjectCount;
+		GPendingPurge.assign(DestroyOrder.begin(), DestroyOrder.end());
 		GLastGarbageCollectionStats.SweepMilliseconds = (FTime::Seconds() - SweepStartTime) * 1000.0;
-		NotifyGarbageCollectionCompleted(FTime::Seconds(), GLastGarbageCollectionStats);
+		PurgeGarbage(!bPerformFullPurge, 0.002);
+		GLastGarbageCollectionStats.CollectionTime = FTime::Seconds();
+		GLastGarbageCollectionStats.ObjectCountAfterCollection = GDObjectArray.GetNum();
 		DURIN_INFO_CATEGORY(
 			"GC",
-			"Collection completed: {:.3f} ms (mark {:.3f} ms, sweep {:.3f} ms) | "
-			"objects {} -> {} | marked={} | candidates={} | swept={} | deferred={} | pending kill={}",
+			"Collected: {:.2f} ms (mark {:.2f}, purge {:.2f}) | objects {} -> {} | "
+			"reachable={} candidates={} freed={} pending={} garbage={}",
 			(FTime::Seconds() - CollectionStartTime) * 1000.0,
 			GLastGarbageCollectionStats.MarkMilliseconds,
 			GLastGarbageCollectionStats.SweepMilliseconds,
@@ -529,7 +558,7 @@ namespace Durin
 
 	auto CheckNoDeferredDestroyObjects(const char* Context) -> void
 	{
-		if (GLastGarbageCollectionStats.DeferredDestroyObjectCount == 0)
+		if (!IsIncrementalPurgePending())
 		{
 			return;
 		}
@@ -538,15 +567,13 @@ namespace Durin
 		{
 			if (!Object
 				|| !Object->HasAnyInternalFlags(
-					EObjectInternalFlags::BeginDestroyed)
-				|| Object->HasAnyInternalFlags(
-					EObjectInternalFlags::FinishDestroyed))
+					EObjectInternalFlags::BeginDestroyed))
 			{
 				continue;
 			}
 			DURIN_ERROR_CATEGORY(
 				"GC",
-				"Object remained deferred during '{}': path='{}', class='{}', "
+				"Object destruction remained pending during '{}': path='{}', class='{}', "
 				"internal_flags={}.",
 				Context,
 				Object->GetObjectPath(),

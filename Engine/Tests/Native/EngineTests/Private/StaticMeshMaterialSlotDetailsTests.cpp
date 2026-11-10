@@ -113,7 +113,7 @@ TEST(FStaticMeshMaterialSlotDetailsTests, BuildsFixedRowsSourcesAndKeepsDormantO
 	Durin::MarkAsGarbage(Mesh);
 	Durin::MarkAsGarbage(Override);
 	Durin::MarkAsGarbage(Default);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FStaticMeshMaterialSlotDetailsTests, FiltersMaterialTypesAndUsesIndexScopedRootTransactions)
@@ -178,7 +178,7 @@ TEST(FStaticMeshMaterialSlotDetailsTests, FiltersMaterialTypesAndUsesIndexScoped
 	Durin::MarkAsGarbage(Texture);
 	Durin::MarkAsGarbage(Second);
 	Durin::MarkAsGarbage(First);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FStaticMeshMaterialSlotDetailsTests, CustomizationHidesCollectionsAndTransactionsDirtyThePackage)
@@ -231,5 +231,5 @@ TEST(FStaticMeshMaterialSlotDetailsTests, CustomizationHidesCollectionsAndTransa
 	Durin::MarkAsGarbage(Material);
 	Durin::MarkAsGarbage(Mesh);
 	ASSERT_TRUE(Durin::UnloadPackage(Component->GetPackage(), Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }

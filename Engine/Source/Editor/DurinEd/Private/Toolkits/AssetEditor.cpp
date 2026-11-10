@@ -1,4 +1,6 @@
 #include "Toolkits/AssetEditor.h"
+#include "Threading/RunnableThread.h"
+#include "CoreGlobals.h"
 
 #include "Toolkits/AssetEditorToolkit.h"
 #include "Documents/EditorDocumentManager.h"
@@ -12,7 +14,7 @@ namespace Durin
 	FAssetEditorToolkit::~FAssetEditorToolkit() = default;
 	auto FAssetEditorToolkit::DrawToolkit(bool bActive) -> bool
 	{
-		FGarbageCollectionDeferralScope Deferral;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (!IsSessionActive()) return false;
 		if (!bBoundToSession) return OnDrawToolkit(bActive);
 		const auto Lease = weak_from_this().lock();
@@ -43,7 +45,7 @@ namespace Durin
 	}
 	auto FAssetEditorToolkit::ExecuteSessionCommand(const std::function<bool()>& Command) -> bool
 	{
-		FGarbageCollectionDeferralScope Deferral;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (!IsSessionActive() || IsReadOnly()) return false;
 		if (!bBoundToSession) return Command();
 		const auto Lease = weak_from_this().lock();
@@ -100,7 +102,7 @@ namespace Durin
 	DAssetEditor::~DAssetEditor() = default;
 	auto DAssetEditor::DrawToolkitFrame(bool bActive) -> bool
 	{
-		FGarbageCollectionDeferralScope Deferral;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		const FStrongObjectPtr KeepAlive(this);
 		const auto FrameToolkit = Toolkit;
 		bool Activated = false;
@@ -193,7 +195,6 @@ namespace Durin
 	}
 	auto DAssetEditor::FocusWindow(DObject* Object) -> void
 	{
-		FGarbageCollectionDeferralScope Deferral;
 		if (auto* Service = AssetEditors.Get())
 		{
 			Service->CancelRestoreFocus();
@@ -224,7 +225,7 @@ namespace Durin
 	}
 	auto DAssetEditor::CloseWindow(EAssetEditorCloseReason Reason) -> bool
 	{
-		FGarbageCollectionDeferralScope Deferral;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (bClosed) return true;
 		bool Closed = false;
 		if (auto* Service = AssetEditors.Get())

@@ -132,7 +132,7 @@ namespace
 	{
 		if (World && World->HasBegunPlay()) World->EndPlay();
 		Durin::MarkObjectHierarchyAsGarbage(World);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	}
 
 	auto SimulateForward(

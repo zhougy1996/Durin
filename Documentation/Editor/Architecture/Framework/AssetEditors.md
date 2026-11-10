@@ -71,7 +71,8 @@ through the same validation and publication path as class-based opening. It
 rejects foreign editor outers and reused sessions. Failed initialization publishes neither session nor asset associations.
 Switching settles the previous toolkit's previews; a deactivation veto rejects
 new session creation. Open, focus, close, frame drawing and extension commands enter the host operation
-scope, with GC deferred across the public call.
+scope. Their callbacks request GC; synchronous collection requires a later
+owner-established safe point after the public call and cleanup return.
 Document models bind their history to the requesting editor. Nested asset
 callbacks select a scoped transaction editor for existing graph/property APIs,
 restoring the prior context after reentry without changing process `GEditor`.

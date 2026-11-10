@@ -81,7 +81,7 @@ TEST(FStaticMeshRenderStateRecreateContextTests, UsesRetainedWorldSceneWithoutGl
 	Durin::MarkAsGarbage(Component);
 	Durin::MarkAsGarbage(Mesh);
 	Harness.Shutdown();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FStaticMeshRenderStateRecreateContextTests, SkipsUnregisteredReassignedAndGarbageComponents)
@@ -110,7 +110,7 @@ TEST(FStaticMeshRenderStateRecreateContextTests, SkipsUnregisteredReassignedAndG
 	Durin::MarkAsGarbage(SecondMesh);
 	Durin::MarkAsGarbage(FirstMesh);
 	Harness.Shutdown();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FStaticMeshRenderStateRecreateContextTests, RejectsReusedObjectSlotGeneration)
@@ -126,7 +126,7 @@ TEST(FStaticMeshRenderStateRecreateContextTests, RejectsReusedObjectSlotGenerati
 	auto Context = std::make_unique<Durin::FStaticMeshRenderStateRecreateContext>(Mesh);
 
 	Durin::MarkAsGarbage(Previous);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_EQ(Durin::ResolveObjectKey(PreviousHandle), nullptr);
 
 	auto* Replacement = Durin::NewObject<Durin::DStaticMeshComponent>(
@@ -143,7 +143,7 @@ TEST(FStaticMeshRenderStateRecreateContextTests, RejectsReusedObjectSlotGenerati
 	Durin::MarkAsGarbage(Replacement);
 	Durin::RemoveFromRoot(Mesh);
 	Durin::MarkAsGarbage(Mesh);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FStaticMeshUpdateTests, CurrentAssignmentsAndDefaultsDriveLoadedComponentScans)
@@ -197,7 +197,7 @@ TEST(FStaticMeshUpdateTests, CurrentAssignmentsAndDefaultsDriveLoadedComponentSc
 	Durin::MarkAsGarbage(Second);
 	Durin::MarkAsGarbage(First);
 	Harness.Shutdown();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FStaticMeshUpdateTests, LoadedComponentScanSkipsGarbageObjects)
@@ -218,7 +218,7 @@ TEST(FStaticMeshUpdateTests, LoadedComponentScanSkipsGarbageObjects)
 	WaitForRenderingThread();
 	Durin::MarkAsGarbage(Mesh);
 	Harness.Shutdown();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FStaticMeshUpdateTests, LaterScansResolveReusedObjectSlotsByGenerationAndCurrentMesh)
@@ -233,7 +233,7 @@ TEST(FStaticMeshUpdateTests, LaterScansResolveReusedObjectSlotsByGenerationAndCu
 	Durin::AddToRoot(FirstMesh);
 	Durin::AddToRoot(SecondMesh);
 	Durin::MarkAsGarbage(Previous);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Durin::ResolveObjectKey(PreviousHandle), nullptr);
 
 	auto* Replacement = Harness.CreateStaticMeshComponent("ReplacementStaticMeshScanComponent");
@@ -262,7 +262,7 @@ TEST(FStaticMeshUpdateTests, LaterScansResolveReusedObjectSlotsByGenerationAndCu
 	Durin::MarkAsGarbage(SecondMesh);
 	Durin::MarkAsGarbage(FirstMesh);
 	Harness.Shutdown();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FStaticMeshUpdateTests, NoRHIStaticMeshDestructionNeedsNoRenderFenceSubmission)
@@ -272,6 +272,6 @@ TEST(FStaticMeshUpdateTests, NoRHIStaticMeshDestructionNeedsNoRenderFenceSubmiss
 	const Durin::FObjectKey Handle = Durin::FObjectKey(Mesh);
 
 	Durin::MarkAsGarbage(Mesh);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Durin::ResolveObjectKey(Handle), nullptr);
 }

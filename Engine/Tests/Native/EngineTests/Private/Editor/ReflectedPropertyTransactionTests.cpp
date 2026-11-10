@@ -10,7 +10,7 @@ TEST(FReflectedPropertyEditSessionTests, PostEditUndoDefaultsToFullObjectChange)
 	EXPECT_EQ(Object->Changes.front().MemberProperty, nullptr);
 	EXPECT_EQ(Object->Changes.front().LeafProperty, nullptr);
 	Durin::MarkObjectHierarchyAsGarbage(Object);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FReflectedPropertyEditSessionTests, PostEditUndoRunsOncePerObjectAfterAllFieldsAreRestored)
@@ -68,7 +68,7 @@ TEST(FReflectedPropertyEditSessionTests, PostEditUndoRunsOncePerObjectAfterAllFi
 	ASSERT_TRUE(Transactions.Get()->TryReset());
 	Durin::MarkObjectHierarchyAsGarbage(First);
 	Durin::MarkObjectHierarchyAsGarbage(Second);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FReflectedPropertyEditSessionTests, PostEditUndoSeesRestoredStateDespiteNewEditRejection)
@@ -103,7 +103,7 @@ TEST(FReflectedPropertyEditSessionTests, PostEditUndoSeesRestoredStateDespiteNew
 	ASSERT_TRUE(Transactions.Get()->TryReset());
 	Durin::MarkObjectHierarchyAsGarbage(First);
 	Durin::MarkObjectHierarchyAsGarbage(Second);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FReflectedPropertyEditSessionTests, ReplayBypassesProposalValidationForEveryTarget)
@@ -142,7 +142,7 @@ TEST(FReflectedPropertyEditSessionTests, ReplayBypassesProposalValidationForEver
 	ASSERT_TRUE(Transactions.Get()->TryReset());
 	Durin::MarkObjectHierarchyAsGarbage(First);
 	Durin::MarkObjectHierarchyAsGarbage(Second);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FReflectedPropertyEditSessionTests, KeepsTargetAliveForTheSession)
@@ -161,10 +161,10 @@ TEST(FReflectedPropertyEditSessionTests, KeepsTargetAliveForTheSession)
 
 	Durin::Editor::FPropertyEditSession Session;
 	ASSERT_TRUE(Session.Begin(Target, "Rooted Edit", Durin::Editor::ETransactionMode::NotTransactable));
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(Durin::GDObjectArray.Contains(Object));
 	ASSERT_EQ(Session.Cancel().GetStatus(), Durin::Editor::EPropertyEditResult::NoChange);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_FALSE(Durin::GDObjectArray.Contains(Object));
 }
 
@@ -175,7 +175,7 @@ TEST(FReflectedPropertyEditSessionTests, RejectsACollectedTargetBeforeReadingIts
 	auto* Property = DReflectedTransactionTestObject::FindProperty("Value");
 	const Durin::Editor::FPropertyEditTarget Target =
 		Durin::Editor::FPropertyEditTarget::ForMember(Object, Property);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 
 	Durin::Editor::FPropertyEditSession Session;
 	std::string Error;
@@ -352,12 +352,12 @@ TEST(FReflectedPropertyEditSessionTests, TransactionHistoryKeepsTargetAlive)
 	ASSERT_EQ(Session.Apply(Proposed).GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
 	ASSERT_EQ(Session.Commit().GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
 
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(Durin::GDObjectArray.Contains(Object));
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	EXPECT_EQ(Object->Value, 4);
 	ASSERT_TRUE(Transactions.Get()->TryReset());
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_FALSE(Durin::GDObjectArray.Contains(Object));
 }
 
@@ -379,7 +379,7 @@ TEST(FReflectedPropertyEditSessionTests, TransactionSnapshotsKeepObjectValuesAli
 	ASSERT_EQ(Session.Apply(Proposed).GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
 	ASSERT_EQ(Session.Commit().GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
 
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(Durin::GDObjectArray.Contains(Owner));
 	ASSERT_TRUE(Durin::GDObjectArray.Contains(Before));
 	ASSERT_TRUE(Durin::GDObjectArray.Contains(After));
@@ -391,7 +391,7 @@ TEST(FReflectedPropertyEditSessionTests, TransactionSnapshotsKeepObjectValuesAli
 	ASSERT_TRUE(Transactions.Get()->TryReset());
 	Owner->ObjectValue = nullptr;
 	Proposed = {};
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_FALSE(Durin::GDObjectArray.Contains(Owner));
 	EXPECT_FALSE(Durin::GDObjectArray.Contains(Before));
 	EXPECT_FALSE(Durin::GDObjectArray.Contains(After));

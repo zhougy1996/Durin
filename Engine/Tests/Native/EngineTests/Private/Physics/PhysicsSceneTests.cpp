@@ -114,7 +114,7 @@ TEST(FPrimitiveComponentCollisionEditingTests, DirectFilterEditsLeaveThePrevious
 	EXPECT_EQ(Component->GetCollisionEnabled(), Durin::ECollisionEnabled::QueryOnly);
 	EXPECT_TRUE(Component->GetCollisionProfileName().IsNone());
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FPrimitiveComponentCollisionEditingTests, RestoringSettingsDoesNotConvertPresetsToCustom)
@@ -138,7 +138,7 @@ TEST(FPrimitiveComponentCollisionEditingTests, RestoringSettingsDoesNotConvertPr
 	Box->PostEditChangeProperty({Property, Property, {}, EPropertyChangePhase::Committed});
 	EXPECT_EQ(Box->GetCollisionProfileName(), CollisionProfile::Trigger);
 	MarkObjectHierarchyAsGarbage(Box);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FPrimitiveComponentCollisionEditingTests, CollisionArchivesPreserveCustomResponsesAndQueryBehavior)
@@ -177,7 +177,7 @@ TEST(FPrimitiveComponentCollisionEditingTests, CollisionArchivesPreserveCustomRe
 			FVector3(2.0, 0.0, 0.0), ECollisionChannel::Pawn));
 	}
 	MarkObjectHierarchyAsGarbage(World);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FPrimitiveComponentCollisionEditingTests, ProfileArchivesResolvePresetAndRejectUnknownNames)
@@ -220,7 +220,7 @@ TEST(FPrimitiveComponentCollisionEditingTests, ProfileArchivesResolvePresetAndRe
 		}
 	}
 	MarkObjectHierarchyAsGarbage(Box);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FPrimitiveComponentCollisionEditingTests, LevelPackageAndDuplicatePreserveCollisionSettings)
@@ -282,7 +282,7 @@ TEST(FPrimitiveComponentCollisionEditingTests, LevelPackageAndDuplicatePreserveC
 		EXPECT_EQ(BoxCount, 2u);
 	}
 	MarkObjectHierarchyAsGarbage(Copy);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_TRUE(UnloadPackage(Path));
 }
 
@@ -403,7 +403,7 @@ TEST(FPhysicsWorldTests, SynchronizesComponentLifecycleTransformAndWorldIsolatio
 	EXPECT_EQ(World->GetPhysicsScene().GetBodyCount(), 0u);
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::MarkObjectHierarchyAsGarbage(OtherWorld);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FPhysicsWorldTests, QueriesRemainAvailableWhenSimulationIsDisabledOrPaused)
@@ -416,7 +416,7 @@ TEST(FPhysicsWorldTests, QueriesRemainAvailableWhenSimulationIsDisabledOrPaused)
 	EXPECT_TRUE(World->LineTraceSingleByChannel(
 		Hit, {0.0, 0.0, 2.0}, {0.0, 0.0, -2.0}, Durin::ECollisionChannel::Visibility));
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FPhysicsWorldTests, CollisionDebugSnapshotIsBoundedAndDisabledByDefault)
@@ -466,7 +466,7 @@ TEST(FPhysicsWorldTests, CollisionDebugSnapshotIsBoundedAndDisabledByDefault)
 	World->SetCollisionDebugDrawEnabled(false);
 	EXPECT_TRUE(World->CaptureCollisionDebugSnapshot().Bodies.empty());
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry)
@@ -597,7 +597,7 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 	EXPECT_TRUE(Second->GetPhysicsActorHandle().IsValid());
 	Durin::MarkObjectHierarchyAsGarbage(FirstWorld);
 	Durin::MarkObjectHierarchyAsGarbage(SecondWorld);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FPhysicsBodySetupTests, SharesAssetGeometryWhileInstancesKeepDistinctHandles)
@@ -633,7 +633,7 @@ TEST(FPhysicsBodySetupTests, SharesAssetGeometryWhileInstancesKeepDistinctHandle
 	EXPECT_FALSE(RenderOnly->GetPhysicsActorHandle().IsValid());
 	EXPECT_EQ(World->GetPhysicsScene().GetBodyCount(), 2u);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FPhysicsCollisionGeometryResourceTests, ValidatesIdentityBoundsChildrenAndRetainedBytes)
@@ -684,7 +684,7 @@ TEST(FPhysicsBodySetupTests, CachesOneGeometryIdentityPerAuthoredRevision)
 	ASSERT_TRUE(Setup->BuildSimpleGeometry(Second));
 	EXPECT_NE(First.GetIdentity(), Second.GetIdentity());
 	Durin::MarkObjectHierarchyAsGarbage(Setup);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FPhysicsNarrowphaseMatrixTests, ReachesEveryPrimitiveRaySweepAndOverlapCell)
@@ -1329,7 +1329,7 @@ TEST(FPhysicsWorldTests, QualifiedBoxUsesGeometryNotificationsAndRenderPublicati
 	EXPECT_FALSE(Component->GetPhysicsActorHandle().IsValid());
 	MarkObjectHierarchyAsGarbage(World);
 	MarkObjectHierarchyAsGarbage(Mesh->GetPackage());
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FPhysicsSimpleComplexTests, RoutesAllQueriesAndUnionsBoundsAcrossRepresentations)
@@ -1447,7 +1447,7 @@ TEST(FPhysicsBodySetupTests, AggregateArchivesReconstructRuntimeGeometryAndRejec
 		EXPECT_EQ(Min, FVector3(0)); EXPECT_EQ(Max, FVector3(3, 5, 7));
 		MarkObjectHierarchyAsGarbage(Loaded);
 	}
-	MarkObjectHierarchyAsGarbage(Source); CollectGarbage();
+	MarkObjectHierarchyAsGarbage(Source); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FPhysicsWorldTests, StaticMeshPrefersAuthoredSimpleAndExposesBothRepresentations)
@@ -1478,7 +1478,7 @@ TEST(FPhysicsWorldTests, StaticMeshPrefersAuthoredSimpleAndExposesBothRepresenta
 	Body->SetCollisionTraceMode(EBodySetupCollisionTraceMode::SimpleAsComplex); Body->FinishPhysicsMeshes();
 	EXPECT_TRUE(World->LineTraceSingleByChannel(Hit, {0, 4, 1}, {0, 4, -1}, ECollisionChannel::Visibility, Complex));
 	EXPECT_TRUE(World->LineTraceSingleByChannel(Hit, {0, 4, 1}, {0, 4, -1}, ECollisionChannel::Visibility));
-	MarkObjectHierarchyAsGarbage(World); CollectGarbage();
+	MarkObjectHierarchyAsGarbage(World); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FPhysicsBodySetupTests, ExplicitQueriesRespectAvailabilityAndRejectInvalidSelections)
@@ -1512,7 +1512,7 @@ TEST(FPhysicsBodySetupTests, ExplicitQueriesRespectAvailabilityAndRejectInvalidS
 
 	Desc.TracePolicy = static_cast<EPhysicsCollisionTracePolicy>(255);
 	EXPECT_FALSE(Scene.UpdateBody(Handle, Desc)); EXPECT_TRUE(Scene.ContainsBody(Handle));
-	MarkObjectHierarchyAsGarbage(Body); CollectGarbage();
+	MarkObjectHierarchyAsGarbage(Body); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FPhysicsBodySetupTests, PrimitiveSettersUseOneAggregateAndClearWithoutHiddenFallback)
@@ -1552,7 +1552,7 @@ TEST(FPhysicsBodySetupTests, PrimitiveSettersUseOneAggregateAndClearWithoutHidde
 		EXPECT_FALSE(Body->BuildSimpleGeometry(Retained));
 		EXPECT_FALSE(Body->IsValid());
 	}
-	MarkObjectHierarchyAsGarbage(Body); CollectGarbage();
+	MarkObjectHierarchyAsGarbage(Body); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FPhysicsBodySetupTests, StaticMeshPublishesCompleteAggregateWithOneWorldTransform)
@@ -1638,7 +1638,7 @@ TEST(FPhysicsBodySetupTests, UnifiedPrimitiveQueriesApplyElementAndWorldTransfor
 			}
 		}
 	}
-	MarkObjectHierarchyAsGarbage(Body); CollectGarbage();
+	MarkObjectHierarchyAsGarbage(Body); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FPhysicsBodySetupTests, PrimitiveAggregatePackagesAndDuplicatesPreserveGeometry)
@@ -1669,7 +1669,7 @@ TEST(FPhysicsBodySetupTests, PrimitiveAggregatePackagesAndDuplicatesPreserveGeom
 			FCollisionGeometryRef Geometry; ASSERT_TRUE(Current->BuildSimpleGeometry(Geometry));
 			EXPECT_EQ(Geometry.GetChild(0)->LocalTransform.Translation, FVector3(4, 5, 6));
 		}
-		MarkObjectHierarchyAsGarbage(*Copied); CollectGarbage(); ASSERT_TRUE(UnloadPackage(Path));
+		MarkObjectHierarchyAsGarbage(*Copied); CollectGarbage(Durin::EObjectFlags::Standalone); ASSERT_TRUE(UnloadPackage(Path));
 	}
 }
 
@@ -1706,7 +1706,7 @@ TEST(FPhysicsBodySetupTests, AuthoringEntriesShareSelectionAndDoNotRepublishIden
 	}
 	for (const FName Name : {FName("ShapeType_DEPRECATED"), FName("Dimensions_DEPRECATED"), FName("Center_DEPRECATED"), FName("bPreferAuthoredSimpleCollision")})
 		EXPECT_EQ(DBodySetup::StaticClass()->FindPropertyByName(Name), nullptr);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FPhysicsBodySetupTests, UnifiedPrimitiveArchivesReconstructGeometryAndTraceMode)
@@ -1735,7 +1735,7 @@ TEST(FPhysicsBodySetupTests, UnifiedPrimitiveArchivesReconstructGeometryAndTrace
 			MarkObjectHierarchyAsGarbage(Loaded);
 		}
 	}
-	MarkObjectHierarchyAsGarbage(Source); CollectGarbage();
+	MarkObjectHierarchyAsGarbage(Source); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FPhysicsSimpleComplexTests, PublicationMasksMatchUEAcrossMissingGeometryAndAllQueries)

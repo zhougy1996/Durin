@@ -2,7 +2,6 @@
 #include "CoreMinimal.h"
 #include "DurinEdAPI.h"
 #include "DObject/ObjectKey.h"
-#include "DObject/ObjectLifecycle.h"
 #include "Tools/Tool.h"
 
 namespace Durin
@@ -36,7 +35,6 @@ namespace Durin
         auto GetError() const -> const std::optional<FEditorScriptCallError>& { return Error; }
         auto Reject(std::string Message) -> void { if (!Error) Error = FEditorScriptCallError{std::move(Message)}; }
     private:
-        FGarbageCollectionDeferralScope Deferral;
         FEditorScriptCallContext Context;
         FScopedEditorScriptCall* Previous;
         std::optional<FEditorScriptCallError> Error;

@@ -282,7 +282,8 @@ object. [Component structure history](../LevelEditing/LevelEditorDetails.md#comp
 retains the component and its complete Outer subtree while membership is absent,
 then restores the same live identity through lifecycle and attachment APIs.
 
-Record application defers garbage collection across callbacks. A custom replay
+Record callbacks request GC; the owner collects only after application and any
+compensation have completed. Record application does not block GC dynamically. A custom replay
 exception becomes an owned failure with recovery required because its side
 effects are unknown. Failed domain execution requiring recovery remains collector-visible in pending
 recovery storage, preserving their participant graphs and module references.

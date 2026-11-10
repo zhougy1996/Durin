@@ -4,6 +4,7 @@
 #include "Tools/EditorScriptPump.h"
 #include "Editor/EditorEngine.h"
 #include "Transactions/Transactor.h"
+#include "DObject/ObjectLifecycle.h"
 #include "DObject/WeakObjectPtr.h"
 #include "Threading/RunnableThread.h"
 #include "Misc/Paths.h"

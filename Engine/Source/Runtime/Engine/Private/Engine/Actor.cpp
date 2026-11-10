@@ -1,4 +1,6 @@
 #include "Engine/Actor.h"
+#include "Threading/RunnableThread.h"
+#include "CoreGlobals.h"
 #include "Logging/LogMacros.h"
 
 #include "Components/ActorComponent.h"
@@ -64,7 +66,7 @@ namespace Durin
 	auto AActor::CompleteTransactionRestore(const FActorTransactionAnnotation* Annotation) -> void
 	{
 		if (IsTemplateObject()) { Super::PostEditUndo(); return; }
-		FGarbageCollectionDeferralScope DeferCollection;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		FScopedPackageDirtySuppression SuppressDirty;
 		struct FCompletionScope
 		{
@@ -506,7 +508,7 @@ namespace Durin
 		const FActorRootComponentReconstructionData* RootData) -> bool
 	{
 		if (IsBeingDestroyed() || IsPendingKill()) return false;
-		FGarbageCollectionDeferralScope DeferCollection;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (bNativeConstructionRunning || bExecutingConstruction
 			|| PlayState == EActorPlayState::BeginningPlay || PlayState == EActorPlayState::EndingPlay)
 		{

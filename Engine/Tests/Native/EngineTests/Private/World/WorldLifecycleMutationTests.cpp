@@ -197,7 +197,7 @@ TEST(FWorldLifecycleMutationTests, BeginPlaySpawnUsesTheSpawnPathExactlyOnce)
 	EXPECT_EQ(std::ranges::count(Events, "Spawner.BeginEnter"), 1);
 	EXPECT_EQ(std::ranges::count(Events, "Spawned.BeginEnter"), 1);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldLifecycleMutationTests, BeginPlaySkipsAnActorDestroyedBeforeItsTurn)
@@ -225,7 +225,7 @@ TEST(FWorldLifecycleMutationTests, BeginPlaySkipsAnActorDestroyedBeforeItsTurn)
 	EXPECT_EQ(std::ranges::count(Events, "Target.BeginEnter"), 0);
 	EXPECT_FALSE(World->ContainsActor(Target));
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldLifecycleMutationTests, BeginPlaySelfDestructionCompletesAfterTheCallbackUnwinds)
@@ -257,7 +257,7 @@ TEST(FWorldLifecycleMutationTests, BeginPlaySelfDestructionCompletesAfterTheCall
 	}));
 	EXPECT_FALSE(World->ContainsActor(Actor));
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldLifecycleMutationTests, EndPlayRejectsSpawnBeforeAllocation)
@@ -284,7 +284,7 @@ TEST(FWorldLifecycleMutationTests, EndPlayRejectsSpawnBeforeAllocation)
 	EXPECT_EQ(World->GetActors().size(), ActorCountBeforeEndPlay);
 	EXPECT_EQ(World->FindActorByName("Rejected"), nullptr);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldLifecycleMutationTests, EndPlayNeverBeginsAnActorRequestedByACallback)
@@ -311,7 +311,7 @@ TEST(FWorldLifecycleMutationTests, EndPlayNeverBeginsAnActorRequestedByACallback
 	EXPECT_FALSE(bObservedWorldPlaying);
 	EXPECT_TRUE(!SpawnResult || !SpawnResult->HasBegunPlay());
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldLifecycleMutationTests, EndPlaySkipsASiblingDestroyedBeforeItsTurn)
@@ -345,7 +345,7 @@ TEST(FWorldLifecycleMutationTests, EndPlaySkipsASiblingDestroyedBeforeItsTurn)
 	EXPECT_EQ(std::ranges::count(Events, "Target.EndEnter"), 1);
 	EXPECT_FALSE(World->ContainsActor(Target));
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldLifecycleMutationTests, EndPlaySelfDestructionIsIdempotent)
@@ -372,7 +372,7 @@ TEST(FWorldLifecycleMutationTests, EndPlaySelfDestructionIsIdempotent)
 	EXPECT_EQ(std::ranges::count(Events, "Self.EndExit"), 1);
 	EXPECT_FALSE(World->ContainsActor(Actor));
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldLifecycleMutationTests, RepeatedWorldLifecycleCallsAreIdempotent)
@@ -397,7 +397,7 @@ TEST(FWorldLifecycleMutationTests, RepeatedWorldLifecycleCallsAreIdempotent)
 	EXPECT_EQ(std::ranges::count(Events, "Actor.BeginEnter"), 1);
 	EXPECT_EQ(std::ranges::count(Events, "Actor.EndEnter"), 1);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldLifecycleMutationTests, EndPlayQueuesLevelReplacementUntilTheNextTick)
@@ -429,7 +429,7 @@ TEST(FWorldLifecycleMutationTests, EndPlayQueuesLevelReplacementUntilTheNextTick
 	EXPECT_EQ(World->GetCurrentLevel(), Replacement);
 	EXPECT_EQ(std::ranges::count(Events, "Stale.EndEnter"), 1);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldLifecycleMutationTests, DestroyActorIsIdempotentBeforeAndAfterPlay)
@@ -458,7 +458,7 @@ TEST(FWorldLifecycleMutationTests, DestroyActorIsIdempotentBeforeAndAfterPlay)
 	EXPECT_FALSE(World->ContainsActor(NotBegun));
 	EXPECT_FALSE(World->ContainsActor(Playing));
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldLifecycleMutationTests, BeginPlayQueuesLevelReplacementUntilTheNextTick)
@@ -489,7 +489,7 @@ TEST(FWorldLifecycleMutationTests, BeginPlayQueuesLevelReplacementUntilTheNextTi
 	EXPECT_EQ(World->GetCurrentLevel(), Replacement);
 	EXPECT_EQ(std::ranges::count(Events, "Stale.BeginEnter"), 0);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldLifecycleMutationTests, BeginPlayReportsAbortedWhenACallbackEndsTheWorld)
@@ -514,7 +514,7 @@ TEST(FWorldLifecycleMutationTests, BeginPlayReportsAbortedWhenACallbackEndsTheWo
 		World->GetActors(),
 		[](const Durin::TObjectPtr<Durin::AActor>& Actor) { return Actor && Actor->HasBegunPlay(); }), 0);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldLifecycleMutationTests, DirectLevelReplacementIsRejectedWhilePlaying)
@@ -530,7 +530,7 @@ TEST(FWorldLifecycleMutationTests, DirectLevelReplacementIsRejectedWhilePlaying)
 	EXPECT_TRUE(World->HasBegunPlay());
 	World->EndPlay();
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FComponentLifecycleMutationTests, BeginPlayAdditionUsesTheAddPathExactlyOnce)
@@ -560,7 +560,7 @@ TEST(FComponentLifecycleMutationTests, BeginPlayAdditionUsesTheAddPathExactlyOnc
 	EXPECT_TRUE(Added->HasBegunPlay());
 	EXPECT_EQ(std::ranges::count(Events, "Added.BeginEnter"), 1);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FComponentLifecycleMutationTests, BeginPlaySkipsAComponentDestroyedBeforeItsTurn)
@@ -590,7 +590,7 @@ TEST(FComponentLifecycleMutationTests, BeginPlaySkipsAComponentDestroyedBeforeIt
 	EXPECT_EQ(std::ranges::count(Events, "Target.BeginEnter"), 0);
 	EXPECT_FALSE(Actor->IsInstanceComponent(Target));
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FComponentLifecycleMutationTests, BeginPlaySelfDestructionCompletesAfterTheCallbackUnwinds)
@@ -624,7 +624,7 @@ TEST(FComponentLifecycleMutationTests, BeginPlaySelfDestructionCompletesAfterThe
 	}));
 	EXPECT_FALSE(Actor->IsInstanceComponent(Component));
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FComponentLifecycleMutationTests, EndPlayAdditionDoesNotBegin)
@@ -651,7 +651,7 @@ TEST(FComponentLifecycleMutationTests, EndPlayAdditionDoesNotBegin)
 	ASSERT_NE(Added, nullptr);
 	EXPECT_FALSE(Added->HasBegunPlay());
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FComponentLifecycleMutationTests, EndPlaySiblingDestructionIsExactlyOnce)
@@ -682,7 +682,7 @@ TEST(FComponentLifecycleMutationTests, EndPlaySiblingDestructionIsExactlyOnce)
 	EXPECT_EQ(std::ranges::count(Events, "Target.EndEnter"), 1);
 	EXPECT_FALSE(Actor->IsInstanceComponent(Target));
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FComponentLifecycleMutationTests, EndPlaySelfDestructionIsIdempotent)
@@ -711,5 +711,5 @@ TEST(FComponentLifecycleMutationTests, EndPlaySelfDestructionIsIdempotent)
 	EXPECT_EQ(std::ranges::count(Events, "Self.EndExit"), 1);
 	EXPECT_FALSE(Actor->IsInstanceComponent(Component));
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }

@@ -1,4 +1,3 @@
-#include "DObject/GarbageCollectionScheduler.h"
 #include "AssetLoadAuditInternal.h"
 #include "DObject/PackagePersistence.h"
 #include "PackageLoadTransaction.h"
@@ -831,7 +830,7 @@ namespace Durin
 				"Package has unsaved state; explicit discard policy is required.");
 		const auto Reasons = Package->GetResidencyReasons();
 		Package->SetStandaloneResidency(false);
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		if (DPackage* RemainingPackage = FindResidentPackage(Path))
 		{
 			RemainingPackage->SetResidencyReasons(Reasons);
@@ -892,7 +891,7 @@ namespace Durin
 		}
 		for (const FPackagePath& Path : Candidates)
 			FindResidentPackage(Path)->SetStandaloneResidency(false);
-		if (!Candidates.empty()) CollectGarbage();
+		if (!Candidates.empty()) CollectGarbage(Durin::EObjectFlags::Standalone);
 		bool bReleased = false;
 		for (const FPackagePath& Path : Candidates)
 		{

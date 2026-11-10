@@ -1,3 +1,5 @@
+#include "CoreGlobals.h"
+#include "Engine/Engine.h"
 #include "Transactions/Transactor.h"
 #include "Engine/StreamableManager.h"
 #include "ViewportTestSupport.h"
@@ -7,9 +9,8 @@
 #include "Application/MonaEventHandler.h"
 #include "Documents/LevelDocumentRevisionState.h"
 #include "Asset/Load.h"
+#include "DObject/ObjectLifecycle.h"
 #include "DObject/StrongObjectPtr.h"
-#include "DObject/GarbageCollectionScheduler.h"
-#include "Misc/Time.h"
 #include "Math/Operations.h"
 #include "MonaImGui.h"
 #include "Runtime/MonaImGui/Private/Backend/ImGuiMonaImpl.h"
@@ -705,15 +706,13 @@ TEST(FLevelDocumentResidencyTests, CloseReleasesWorldReferenceAndSchedulesCollec
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	TWeakObjectPtr<DPackage> WeakPackage(Package);
 	{
-		FGarbageCollectionDeferralScope Callback;
 		ASSERT_TRUE(World->SetCurrentLevel(nullptr));
 		LoadHandle->ReleaseHandle();
 		EXPECT_EQ(WeakPackage.Get(), Package);
 		EXPECT_FALSE(Package->HasAnyObjectFlags(EObjectFlags::Standalone));
 		EXPECT_TRUE(IsGarbageCollectionRequested());
-		EXPECT_EQ(TryCollectGarbage(FTime::Seconds()), EGarbageCollectionTrigger::None);
 	}
-	EXPECT_EQ(TryCollectGarbage(FTime::Seconds()), EGarbageCollectionTrigger::Requested);
+	EXPECT_TRUE(TryCollectGarbage(EObjectFlags::NoFlags));
 	EXPECT_EQ(WeakPackage.Get(), nullptr);
 	World->CleanupWorld();
 }
@@ -738,11 +737,11 @@ TEST(FLevelDocumentResidencyTests, ReactivatedLevelRemainsAliveThroughWorldOwner
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	TWeakObjectPtr<DPackage> WeakPackage(Package);
 	LoadHandle->ReleaseHandle();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(WeakPackage.Get(), Package);
 	ASSERT_TRUE(World->SetCurrentLevel(nullptr));
 	World->CleanupWorld();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(WeakPackage.Get(), nullptr);
 }
 

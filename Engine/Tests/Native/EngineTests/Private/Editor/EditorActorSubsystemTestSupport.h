@@ -32,7 +32,7 @@ namespace Durin::Tests
 			MarkObjectHierarchyAsGarbage(Editor.Get());
 			World = nullptr;
 			Editor = nullptr;
-			CollectGarbage();
+			CollectGarbage(Durin::EObjectFlags::Standalone);
 		}
 		auto Shutdown() -> void { Editor->PreExit(); }
 		auto GetEditor() const -> DEditorEngine* { return Editor.Get(); }

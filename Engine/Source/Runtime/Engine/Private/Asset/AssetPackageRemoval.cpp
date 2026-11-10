@@ -128,7 +128,7 @@ namespace Durin
 		{
 			MarkObjectHierarchyAsGarbage(Package);
 		}
-		if (!Packages.empty()) CollectGarbage();
+		if (!Packages.empty()) CollectGarbage(Durin::EObjectFlags::Standalone);
 		return {};
 	}
 

@@ -260,7 +260,7 @@ TEST(RoadSceneIntegration, CheckedInRoadLevelLoadsAndSurvivesGC)
 	EXPECT_GT(RoadCount, 0);
 	EXPECT_FALSE(Level->GetPackage()->IsDirty());
 	const TStrongObjectPtr<DLevel> LevelOwner(Level);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_FALSE(Level->GetPackage()->IsDirty());
 	{ const auto Saved = SavePackage(Level->GetPackage()); ASSERT_TRUE(Saved) << Saved.Message; }
 	EXPECT_FALSE(Level->GetPackage()->IsDirty());

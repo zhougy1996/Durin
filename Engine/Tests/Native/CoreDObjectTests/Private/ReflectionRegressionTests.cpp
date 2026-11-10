@@ -39,7 +39,7 @@ namespace
 			++Calls; ObservedValue = Value; ObservedName = GetFName(); ObservedOuter = GetOuter();
 			LastKey = FObjectKey(this);
 			EXPECT_TRUE(bConstructed); EXPECT_TRUE(IsValid(this));
-			CollectGarbage(); EXPECT_TRUE(IsValid(this));
+			RequestGarbageCollection(); EXPECT_TRUE(IsGarbageCollectionRequested()); EXPECT_TRUE(IsValid(this));
 			if (bThrow) throw std::runtime_error("Injected post-initialization failure.");
 		}
 		inline static bool bThrow = false;
@@ -61,20 +61,20 @@ TEST(FCoreDObjectReflectionRegressionTests, PostInitPropertiesRunsOnceAfterConst
 	ASSERT_TRUE(Object); EXPECT_EQ(Object->Calls, 1u); EXPECT_EQ(Object->ObservedValue, 37);
 	EXPECT_EQ(Object->ObservedName, FName("PostInitObject")); EXPECT_EQ(Object->ObservedOuter, Outer.Get());
 	EXPECT_EQ(ResolveObjectKey(DPostInitProbe::LastKey), Object.Get());
-	CollectGarbage(); EXPECT_TRUE(Object);
+	CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_TRUE(Object);
 }
 
 TEST(FCoreDObjectReflectionRegressionTests, ThrowingPostInitPropertiesRetiresRegisteredGraphAndUsesVirtualDestruction)
 {
 	Testing::InitializeDObjectSystemForTests();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	const auto Destroyed = DPostInitProbe::Destroyed;
 	struct FReset { ~FReset() { DPostInitProbe::bThrow = false; } } Reset;
 	DPostInitProbe::bThrow = true;
 	EXPECT_THROW(NewObject<DPostInitProbe>(nullptr, "FailedPostInit"), std::runtime_error);
 	const auto FailedKey = DPostInitProbe::LastKey;
 	EXPECT_EQ(ResolveObjectKey(FailedKey), nullptr);
-	CollectGarbage(); EXPECT_EQ(DPostInitProbe::Destroyed, Destroyed + 1);
+	CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_EQ(DPostInitProbe::Destroyed, Destroyed + 1);
 	DPostInitProbe::bThrow = false;
 	TStrongObjectPtr<DPostInitProbe> Retry(NewObject<DPostInitProbe>(nullptr, "FailedPostInit"));
 	ASSERT_TRUE(Retry); EXPECT_EQ(Retry->Calls, 1u); EXPECT_NE(FObjectKey(Retry.Get()), FailedKey);
@@ -132,13 +132,13 @@ TEST(FCoreDObjectReflectionRegressionTests, GeneratedPropertiesBeyond64KiBAddres
 	auto* Object = NewObject<DObject>(nullptr, "LargePropertyReference");
 	const FObjectKey Key(Object);
 	Target->Reference = Object;
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(ResolveObjectKey(Key), Object);
 	Target->Reference = nullptr;
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(ResolveObjectKey(Key), nullptr);
 	Target.Reset();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FCoreDObjectReflectionRegressionTests, OverAlignedObjectsUseMatchingAllocationAndVirtualDeletion)
@@ -155,7 +155,7 @@ TEST(FCoreDObjectReflectionRegressionTests, OverAlignedObjectsUseMatchingAllocat
 	EXPECT_EQ(reinterpret_cast<uintptr_t>(Object) % alignof(DAlignedAllocationTarget), 0u);
 	const FObjectKey Key(Object);
 	MarkAsGarbage(Object);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(ResolveObjectKey(Key), nullptr);
 	EXPECT_EQ(DAlignedAllocationTarget::Destroyed, Destroyed + 1);
 	EXPECT_EQ(DAlignedAllocationTarget::Deallocated, Deallocated + 1);
@@ -178,6 +178,6 @@ TEST(FCoreDObjectReflectionRegressionTests, OverAlignedConstructionFailureCleans
 	ASSERT_TRUE(Object);
 	EXPECT_TRUE(DAlignedAllocationTarget::bConstructorWasAligned);
 	Object.Reset();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(DAlignedAllocationTarget::Destroyed, Destroyed + 1);
 }

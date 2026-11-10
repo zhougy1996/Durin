@@ -294,7 +294,7 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 			Harness.Shutdown();
 			// Collect world children while their stack-allocated engine outer is alive,
 			// including when a fatal assertion exits this test early.
-			Durin::CollectGarbage();
+			Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		}
 	} Cleanup{Harness};
 	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "StaticMeshSlotEndToEnd";
@@ -523,7 +523,7 @@ TEST(FStaticMeshMaterialTests, OverrideValidationRetainsCountsAndIncompatibleObj
 	EXPECT_EQ(Overrides.size(), 1u);
 	Overrides.clear();
 	MarkAsGarbage(Object);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Rejected.error().ObjectPath, Path);
 	EXPECT_EQ(Rejected.error().ActualType, Type);
 }

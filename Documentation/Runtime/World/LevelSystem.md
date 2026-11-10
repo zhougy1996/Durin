@@ -192,11 +192,10 @@ Shutdown prevents target publication. Garbage or foreign targets are rejected.
 Services receive a complete attachment batch even if a newer request arrives;
 the World checks the pending request before proceeding with component registration.
 
-Complete operations defer physical garbage collection through CoreDObject.
-Leaving an operation never runs collection; it only permits the existing host
-GC safe point or a later explicit collector call to service the retained request.
-Explicit garbage marking still invalidates objects immediately. The deferral
-protects storage, not permission to keep dispatching to retired objects. The
+World callbacks request GC without executing it. The host collects only after
+complete operations and their lifecycle-request flush have returned; leaving an
+operation never runs collection. Explicit garbage marking still invalidates
+objects immediately, so dispatch must continue checking for retired objects. The
 [Runtime Lifecycle](../Application/RuntimeLifecycle.md) owns the process GC boundary.
 
 ## Native Gameplay Session

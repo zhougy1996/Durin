@@ -172,8 +172,8 @@ namespace Durin::FunctionFixtures
 		auto ThrowPayload(FFunctionPayload& Output) -> FFunctionPayload
 		{ Output.Text = "changed"; throw std::runtime_error("native payload error"); }
 		DFUNCTION()
-		auto CollectDuringCall(std::vector<Durin::DObject*> Values) -> std::vector<Durin::DObject*>
-		{ Durin::CollectGarbage(); return Values; }
+		auto RequestCollectionDuringCall(std::vector<Durin::DObject*> Values) -> std::vector<Durin::DObject*>
+		{ Durin::RequestGarbageCollection(); return Values; }
 		DFUNCTION()
 		virtual auto EchoState(EFunctionState Value, EFunctionState& Output) -> EFunctionState { Output = Value; return Value; }
 		DFUNCTION()

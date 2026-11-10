@@ -970,7 +970,7 @@ int main(int ArgC, char** ArgV)
 			if (!bStarted) return;
 			Durin::ShutdownAssetCompilingManager();
 			Durin::ShutdownAssetRuntime();
-			Durin::CollectGarbage();
+			Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 			Durin::ShutdownTaskSystem(Durin::ETaskShutdownMode::Drain);
 #if DURIN_WITH_EDITOR
 			Durin::DerivedData::LogCacheDiagnostics();

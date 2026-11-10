@@ -11,7 +11,6 @@
 #include "Engine/EngineSubsystem.h"
 #include "Engine/HostStartup.h"
 #include "Engine/MapChange.h"
-#include "DObject/ObjectLifecycle.h"
 
 #include "Engine.gen.h"
 
@@ -71,6 +70,12 @@ namespace Durin
 		// Logs initialization errors locally; Launch owns cancellation and process teardown.
 		ENGINE_API virtual auto Init(const FEngineInitContext& Context)
 			-> bool;
+
+		// Requests GC at the next admitted host safe point.
+		ENGINE_API auto ForceGarbageCollection(bool bForcePurge = false) -> void;
+		// Owner-only frame-end safe point, including frames with no World.
+		// Never call from business callbacks or reentrant frame dispatch.
+		ENGINE_API auto ConditionalCollectGarbage() -> void;
 
 		ENGINE_API virtual auto Tick(float DeltaSeconds, bool bIdleMode) -> void;
 		// Called once from the ordinary owner frame, outside simulation and UI callbacks.
@@ -147,6 +152,8 @@ namespace Durin
 		bool bShutdownRequested = false;
 		bool bShutdownComplete = false;
 	private:
+		// Last scheduling check, independent of Core collection telemetry.
+		std::optional<uint64> LastGCFrame;
 		friend class FEngineLoop;
 		friend struct FMapChangeTestAccess;
 		friend class FMapChangeHandler;

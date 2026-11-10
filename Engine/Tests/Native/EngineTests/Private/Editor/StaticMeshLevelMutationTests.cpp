@@ -51,7 +51,7 @@ namespace
 		~FLevelFixture()
 		{
 			Durin::MarkObjectHierarchyAsGarbage(Package);
-			Durin::CollectGarbage();
+			Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		}
 
 		static inline uint64 NextId = 1;

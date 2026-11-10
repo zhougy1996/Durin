@@ -493,8 +493,8 @@ namespace Durin
 		const auto Error = Function->ValidateInvocation(*this, Parameters);
 		if (Error != EFunctionInvokeError::None) return Error;
 		// Native by-value copies and borrowed aggregates are invisible to the GC.
-		// Defer collection until all native temporaries have left the call stack.
-		FGarbageCollectionDeferralScope Deferral;
+		// Callbacks may request GC; the host collects after native temporaries leave the stack.
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		FFunctionFrame Frame(*this, *Function, Parameters);
 		const auto* ReturnProperty = Function->GetReturnProperty();
 		Function->Invoke(*this, Frame, ReturnProperty ? ReturnProperty->GetValuePtr(Parameters.data()) : nullptr);
@@ -708,7 +708,7 @@ namespace Durin
 						Class == FailedClass ? Reason : EClassDefaultObjectReason::ConstructionFailed);
 				}
 			}
-			CollectGarbage();
+			RequestGarbageCollection();
 		};
 
 		for (DClass* Class : EligibleClasses)

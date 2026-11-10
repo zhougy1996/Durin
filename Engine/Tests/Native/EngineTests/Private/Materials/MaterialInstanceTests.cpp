@@ -1,5 +1,6 @@
 #include "MaterialResourceTestSupport.h"
 #include "Asset/PackageUnloading.h"
+#include "Asset/Load.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "Materials/MaterialShaderMap.h"
 #include "Components/PropertyEditValidation.h"
@@ -51,7 +52,7 @@ TEST(FMaterialInstanceTests, TypedValueAlternativesAndReferenceRewriting)
 	EXPECT_EQ(Texture.GetTexture().Texture.Get(), nullptr);
 	MarkAsGarbage(Original);
 	MarkAsGarbage(Replacement);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialInstanceTests, VectorStorageHasOnlyFourComponentValues)
@@ -114,7 +115,7 @@ TEST(FMaterialInstanceTests, TypedOverrideArraysRoundTripOrphansAndRejectCrossTy
 	ASSERT_EQ(Before.size(), 3u);
 	for (const auto& [Id, Value] : Before) EXPECT_TRUE(Instance->IsParameterValueOrphan(Id));
 	ASSERT_TRUE(UnloadPackage(Path));
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	Instance = nullptr;
 	{
 		auto LoadedValue = LoadObjectDetailed<DMaterialInstance>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
@@ -153,7 +154,7 @@ TEST(FMaterialInstanceTests, TypedOverrideArraysRoundTripOrphansAndRejectCrossTy
 	Records->front().Value = FiniteValue;
 	ASSERT_TRUE(SavePackage(Instance->GetPackage()));
 	ASSERT_TRUE(UnloadPackage(Path));
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 namespace
@@ -206,7 +207,7 @@ TEST(FMaterialInstanceTests, ParameterWritesRejectNonFiniteValuesWithoutMutation
 		MarkAsGarbage(Instance);
 	}
 	MarkAsGarbage(Base);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialInstanceTests, DynamicClearRemovesOrphansWithoutAnAcceptedParentProgram)
@@ -260,7 +261,7 @@ TEST(FMaterialInstanceTests, DynamicClearRemovesOrphansWithoutAnAcceptedParentPr
 	MarkAsGarbage(Dynamic);
 	MarkAsGarbage(Parent);
 	MarkAsGarbage(Base);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialInstanceTests, DynamicInstancesAreIndependentAndDoNotDirtyTheirOwningPackage)
@@ -319,7 +320,7 @@ TEST(FMaterialInstanceTests, DynamicInstancesAreIndependentAndDoNotDirtyTheirOwn
 	MarkAsGarbage(Second);
 	MarkAsGarbage(AssetInstance);
 	ASSERT_TRUE(UnloadPackage(Path));
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialInstanceTests, DynamicInstancesFollowAcceptedParentGenerationAndProxyUpdates)
@@ -371,7 +372,7 @@ TEST(FMaterialInstanceTests, DynamicInstancesFollowAcceptedParentGenerationAndPr
 	MarkAsGarbage(Asset);
 	MarkAsGarbage(Base);
 	Harness.Shutdown();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialInstanceTests, DynamicParameterBatchesCommitAtomicallyOnceAndRollbackFailures)
@@ -460,7 +461,7 @@ TEST(FMaterialInstanceTests, DynamicParameterBatchesCommitAtomicallyOnceAndRollb
 	Dynamic->GetParameterChanges().Remove(Listener);
 	MarkAsGarbage(Dynamic);
 	MarkAsGarbage(Base);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialInstanceTests, DynamicInstancesRetainParentAndTextureOnlyWhileReferenced)
@@ -475,12 +476,12 @@ TEST(FMaterialInstanceTests, DynamicInstancesRetainParentAndTextureOnlyWhileRefe
 	auto* Texture = NewObject<DTexture2D>(nullptr, "DynamicLifetimeTexture");
 	ASSERT_TRUE(Dynamic->SetTextureParameterValue(AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), Texture));
 	AddToRoot(Dynamic);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_TRUE(GDObjectArray.Contains(Dynamic));
 	EXPECT_TRUE(GDObjectArray.Contains(Base));
 	EXPECT_TRUE(GDObjectArray.Contains(Texture));
 	RemoveFromRoot(Dynamic);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	WaitForRenderingThread();
 	EXPECT_FALSE(GDObjectArray.Contains(Dynamic));
 	EXPECT_FALSE(GDObjectArray.Contains(Base));
@@ -530,7 +531,7 @@ TEST(FMaterialInstanceTests, BoundMaterialAndParentChangesUpdateProxyInPlace)
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
 	Harness.Shutdown();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialInstanceTests, InstanceStaticOverridesNeverReuseIncompatibleParentCode)
@@ -568,7 +569,7 @@ TEST(FMaterialInstanceTests, InstanceStaticOverridesNeverReuseIncompatibleParent
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
 	Harness.Shutdown();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialInstanceTests, PerFieldPropertiesPreserveIntentAndResolveSourcesAcrossParents)
@@ -624,7 +625,7 @@ TEST(FMaterialInstanceTests, PerFieldPropertiesPreserveIntentAndResolveSourcesAc
 	Durin::MarkAsGarbage(Child);
 	Durin::MarkAsGarbage(Parent);
 	Durin::MarkAsGarbage(Root);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialInstanceTests, PropertyResolutionRejectsDepthOverflowAndCorruptCycles)
@@ -663,7 +664,7 @@ TEST(FMaterialInstanceTests, PropertyResolutionRejectsDepthOverflowAndCorruptCyc
 	for (auto* Child : Chain) MarkAsGarbage(Child);
 	MarkAsGarbage(Overflow);
 	MarkAsGarbage(Root);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialInstanceTests, PerFieldOverridesRoundTrip)
@@ -700,7 +701,9 @@ TEST(FMaterialInstanceTests, PerFieldOverridesRoundTrip)
 	}
 	EXPECT_EQ(Instance->GetPropertyOverrides(), Overrides);
 	ASSERT_TRUE(UnloadPackage(InstancePath));
-	ASSERT_TRUE(UnloadPackage(RootPath));
+	// The same collection may release the now-unreferenced parent dependency.
+	if (FindResidentPackage(RootPath)) ASSERT_TRUE(UnloadPackage(RootPath));
+	EXPECT_EQ(FindResidentPackage(RootPath), nullptr);
 }
 
 TEST(FMaterialInstanceTests, PositionalOverrideTransfersAcrossMeshSwitch)
@@ -742,7 +745,7 @@ TEST(FMaterialInstanceTests, PositionalOverrideTransfersAcrossMeshSwitch)
 	Durin::MarkAsGarbage(Orphan);
 	Durin::MarkAsGarbage(Default);
 	Harness.Shutdown();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialInstanceTests, BoundTextureChangesUpdateProxyResourceSnapshotInPlace)
@@ -786,7 +789,7 @@ TEST(FMaterialInstanceTests, BoundTextureChangesUpdateProxyResourceSnapshotInPla
 	Durin::MarkAsGarbage(OverrideTexture);
 	Durin::MarkAsGarbage(BaseTexture);
 	Harness.Shutdown();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	// DTexture2D destruction enqueues the final release; briefly restart the worker to drain it in render-thread context.
 	Durin::InitRenderingThread();
 	WaitForRenderingThread();
@@ -814,7 +817,7 @@ TEST(FMaterialInstanceTests, SceneCommandsPreserveLatestTransformAndReleaseAllPr
 	Durin::MarkAsGarbage(Mesh);
 
 	Harness.Shutdown();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialInstanceTests, InstancesInheritOverrideAndRejectParentCycles)
@@ -841,7 +844,7 @@ TEST(FMaterialInstanceTests, InstancesInheritOverrideAndRejectParentCycles)
 	Durin::MarkAsGarbage(Second);
 	Durin::MarkAsGarbage(First);
 	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialInstanceTests, RenderLayerResolvesMixedOverridesAndRefreshesEachBuild)
@@ -888,7 +891,7 @@ TEST(FMaterialInstanceTests, RenderLayerResolvesMixedOverridesAndRefreshesEachBu
 	MarkAsGarbage(Child);
 	MarkAsGarbage(Parent);
 	MarkAsGarbage(Root);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialInstanceTests, MultiLevelResolutionReportsSupplyingSourceAndCurrentOverrideState)
@@ -921,7 +924,7 @@ TEST(FMaterialInstanceTests, MultiLevelResolutionReportsSupplyingSourceAndCurren
 	Durin::MarkAsGarbage(Child);
 	Durin::MarkAsGarbage(Parent);
 	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialInstanceTests, ParentRemovalPreservesOrphansAndExcludesThemFromRendering)
@@ -951,7 +954,7 @@ TEST(FMaterialInstanceTests, ParentRemovalPreservesOrphansAndExcludesThemFromRen
 
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialInstanceTests, GuidOverrideRejectsUnknownAndPreservesVersionOnNoOp)
@@ -992,7 +995,7 @@ TEST(FMaterialInstanceTests, GuidOverrideRejectsUnknownAndPreservesVersionOnNoOp
 
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialInstanceTests, InstanceOverrideStateTracksSetAndClear)
@@ -1021,7 +1024,7 @@ TEST(FMaterialInstanceTests, InstanceOverrideStateTracksSetAndClear)
 
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialInstanceTests, TextureParametersInheritOverrideAndPreserveExplicitNull)
@@ -1053,7 +1056,7 @@ TEST(FMaterialInstanceTests, TextureParametersInheritOverrideAndPreserveExplicit
 	Durin::MarkAsGarbage(Base);
 	Durin::MarkAsGarbage(OverrideTexture);
 	Durin::MarkAsGarbage(BaseTexture);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	WaitForRenderingThread();
 	Durin::ShutdownRenderingThread();
 }
@@ -1067,12 +1070,12 @@ TEST(FMaterialInstanceTests, ReflectedTextureParameterKeepsTextureReachable)
 	Material->SetTextureParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), Texture);
 	Durin::AddToRoot(Material);
 
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_TRUE(Durin::GDObjectArray.Contains(Material));
 	EXPECT_TRUE(Durin::GDObjectArray.Contains(Texture));
 
 	Durin::RemoveFromRoot(Material);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	WaitForRenderingThread();
 	EXPECT_FALSE(Durin::GDObjectArray.Contains(Material));
 	EXPECT_FALSE(Durin::GDObjectArray.Contains(Texture));
@@ -1090,13 +1093,13 @@ TEST(FMaterialInstanceTests, ReflectedInstanceOverrideKeepsNestedTextureReachabl
 	ASSERT_TRUE(Instance->SetTextureParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), Texture));
 	Durin::AddToRoot(Instance);
 
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_TRUE(Durin::GDObjectArray.Contains(Instance));
 	EXPECT_TRUE(Durin::GDObjectArray.Contains(Base));
 	EXPECT_TRUE(Durin::GDObjectArray.Contains(Texture));
 
 	Durin::RemoveFromRoot(Instance);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	WaitForRenderingThread();
 	EXPECT_FALSE(Durin::GDObjectArray.Contains(Instance));
 	EXPECT_FALSE(Durin::GDObjectArray.Contains(Base));
@@ -1127,7 +1130,7 @@ TEST(FMaterialInstanceTests, DuplicateInstancePreservesParentAndNestedTextureOve
 	Durin::MarkAsGarbage(Source);
 	Durin::MarkAsGarbage(Base);
 	Durin::MarkAsGarbage(Texture);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialInstanceTests, RenderSnapshotsTrackEffectiveContentWithoutRevisionIdentity)

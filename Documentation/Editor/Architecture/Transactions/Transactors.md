@@ -32,7 +32,8 @@ hooks for FTransaction and FScopedTransaction. Ordinary callers use Modify(),
 scopes and transaction results; DTransactor exposes no object-capture method or
 recording-identity query. ITransaction::SaveObject remains the runtime boundary.
 
-Host callback scopes protect execution and GC lifetime, not transaction routing.
+Host callback scopes guard execution and teardown, not transaction routing.
+Callbacks request GC; the host collects after the complete operation returns.
 Ending a callback never ends recording. Without a current recording, Modify
 keeps its normal dirty behavior and returns false. Undo/Redo reject an active
 recording and do not expose replay as a new recording.
@@ -207,12 +208,14 @@ sides; uncaptured live edits enter inspection at finalization. A buffer query
 includes pending,
 Undo and Redo entries. Checked inspection reports callback exceptions as errors;
 the ordinary buffer bool query reports possible PIE references on failure.
-Public queries defer GC and guard both the buffer and each inspected transaction
+Public queries guard both the buffer and each inspected transaction
 against mutation and recursive inspection. Pending, Undo and Redo references are
 inspected in stable states; a busy traversal returns a checked error (true through
 the bool facade). The previous recording/recovery state is restored on every
-exit. Finalization reuses the guarded transaction query and keeps its own
-non-reentrant, GC-deferred phase through accounting, publication or discard.
+exit. Query and history callbacks must request GC instead of executing it.
+Finalization reuses the guarded transaction query and keeps its own
+non-reentrant phase through accounting, publication or discard. GC requests
+remain pending until the owner reaches a safe point.
 Entry and head queries are unavailable during that phase, including from record
 destructors. Replay checks remain inside their replay phase guards.
 End prepares command metadata, event payloads, validated byte totals and vector
@@ -334,7 +337,7 @@ parent to make the same distinction for attachment edges. These checks supplemen
 UE's serialized-state flip with Durin's reversible native absence boundaries.
 
 `ApplyEditorChange` is the synchronous domain execution helper. It opens or joins
-a scope, defers collection through initial Apply, and stores the change on
+a transaction scope and stores the change on
 success. Invalid initial accounting rejects before mutation. Final capture or
 accounting failure can follow applied mutations; ordinary recording does not
 compensate them automatically. Actor/Material typed errors stay in their domains;

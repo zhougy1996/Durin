@@ -2,7 +2,7 @@
 
 Summary: Define managed-object reachability, collection, rooting, and destruction contracts.
 
-Modules: CoreDObject
+Modules: CoreDObject, Engine, Launch
 
 Last reviewed: 2026-11-10
 
@@ -101,8 +101,8 @@ resource-memory budgets belong to the Engine preparation layer.
 complete native constructor and identity/Outer registration, before returning the
 object to its creator or loading graph values. Loaded and duplicated objects also
 receive this hook at allocation; `PostLoad` remains the later graph-completion
-notification. The default hook does nothing. GC requests inside the hook are
-deferred until the initialization scope ends; the scope does not trigger collection.
+notification. The default hook does nothing. The hook may request GC, but must not execute collection or reenter a host safe
+point. Construction and its failure cleanup finish before the host services GC.
 
 If a native constructor throws, no most-derived object lifetime remains and the
 allocator releases its raw storage. If `PostInitProperties` throws, construction
@@ -122,9 +122,15 @@ The public lifecycle operations are:
 - `MarkAsGarbage(DObject*)` requests destruction of one object and immediately makes it logically invalid without physically removing it.
 - `MarkObjectHierarchyAsGarbage(DObject*)` iteratively applies the same request to the root and every current structural descendant found through the Outer index.
 - `ReleaseClassDefaultObjects()` clears all class-default ownership derived-first before the host's shutdown collection.
-- `ReleaseClassDefaultObjectsForModule(FName)` releases and synchronously drains one module's class-default batch before its native shutdown callback.
+- `ReleaseClassDefaultObjectsForModule(FName)` releases one module's class-default batch and returns false while destruction remains pending.
 - `IsValid(...)` rejects garbage and begin-destroyed objects.
-- `CollectGarbage()` performs a complete synchronous mark-sweep collection.
+- `CollectGarbage(KeepFlags, bPerformFullPurge)` synchronously performs mark-sweep at an owner-established
+  safe point. Collector reentry is diagnosed; arbitrary business-stack safety is
+  a caller precondition, not dynamically detected.
+- `TryCollectGarbage(KeepFlags, bPerformFullPurge)` refuses collector reentry and returns true
+  after execution; only partial collection can leave pending destruction.
+- `RequestGarbageCollection(bForcePurge)` is the Engine-free request extension; normal
+  Engine callbacks use `DEngine::ForceGarbageCollection()`.
 - `DObject::BeginDestroy()`, `IsReadyForFinishDestroy()`, and `FinishDestroy()` define the GC-controlled destruction phases.
 
 `MarkAsGarbage()` only sets the garbage state and updates the garbage count. It does not invoke lifecycle callbacks, unregister the object, alter the Outer index, run a destructor, or release memory. The object therefore remains discoverable through registry APIs that explicitly include garbage, and its generation handle continues to resolve until physical removal. Physical removal invalidates the slot generation so an old handle cannot resolve to a later object that reuses the slot.
@@ -168,7 +174,7 @@ non-owning. Cached struct operations use the current ordinary struct schema and
 native collector, so later completion of provisional registration is visible.
 The buffer root pass executes cached operations without compiling property trees.
 See [Function Reflection](FunctionReflection.md#parameter-storage) for aggregate
-lifetime, borrowed-call deferral and parameter-specific reference policy.
+lifetime, borrowed-call safe-point restrictions and parameter-specific reference policy.
 
 The collector does not follow:
 
@@ -233,7 +239,7 @@ These rules keep structural containment separate from ownership. Systems that re
 
 ## Mark Phase
 
-Before marking, `CollectGarbage()` clears the transient `Reachable` flag from registered objects. It enqueues every non-garbage root-set or permanent object and drains an iterative worklist.
+Before marking, `CollectGarbage(KeepFlags, bPerformFullPurge)` clears transient `Reachable` flags. It enqueues non-garbage root-set objects, permanent objects, objects matching KeepFlags, explicit package residency, and collector-visible native strong references, then drains an iterative worklist.
 
 For each newly reached object, the marker:
 
@@ -263,7 +269,7 @@ The Outer index is used only to order independently selected candidates so child
 ## Pointer And Handle Semantics
 
 `FObjectPtr`/`TObjectPtr` retain their object-pointer representation and assignment
-barrier. `FWeakObjectPtr`/`TWeakObjectPtr` instead store object-key identity,
+hook (currently no-op). `FWeakObjectPtr`/`TWeakObjectPtr` instead store object-key identity,
 independently of `FObjectHandle` encoding. `FObjectKey`/`TObjectKey<T>` are
 non-owning eight-byte process-local identity values for comparison, ordering and
 hashing. Capture from a pointer and explicit `ResolveObjectPtr()` run on the game
@@ -303,12 +309,101 @@ The engine checks the garbage-collection scheduler after end-of-frame render syn
 - pending-kill object pressure
 - live-object growth pressure
 
-The elapsed interval starts at `IntervalSeconds`. A collection with no sweep candidates backs it off by `IntervalBackoffMultiplier`, capped by `MaxIntervalSeconds`; finding any candidate restores the base interval. The cap is the correctness fallback for garbage created only by removing a strong reference, because reference mutations do not currently have a write barrier. Pending-kill and object-growth pressure continue to trigger during backoff.
+The elapsed interval starts at `IntervalSeconds`. A collection with no sweep candidates backs it off by `IntervalBackoffMultiplier`, capped by `MaxIntervalSeconds`; finding any candidate restores the base interval. The cap is the correctness fallback for garbage created only by removing a strong reference, because reference removal alone does not otherwise trigger collection. Pending-kill and object-growth pressure continue to trigger during backoff.
 
-`TryCollectGarbage()` logs the selected automatic trigger immediately before
-collection. `CollectGarbage()` remains available for explicit collection and
-logs the completed mark-and-sweep statistics for every collection. Automatic
-and explicit collection both execute synchronously on the game thread.
+`DEngine::ForceGarbageCollection(bForcePurge)` records a request. The Core-only
+extension is `RequestGarbageCollection(bForcePurge)`. Requests share one process-wide
+slot; full-purge intent is sticky until a full collection services it. Requests
+never carry KeepFlags. Execution takes explicit `EObjectFlags KeepFlags` and
+`bool bPerformFullPurge = true`, matching the UE argument shape. Tools and tests
+choose their retention policy explicitly; the Engine uses Standalone in editor
+mode and NoFlags otherwise. Explicit asset-package residency is a native root
+independent of KeepFlags, and explicit garbage marking still overrides it.
+
+`TryCollectGarbage(KeepFlags, bPerformFullPurge)` returns false on collector reentry.
+It does not detect arbitrary business-stack safety. Both synchronous entries
+consume only serviced request intent before running lifecycle callbacks; requests
+created by those callbacks survive. Partial collection preserves a pending full
+request. Purge-only work never consumes a request or scans newly allocated objects.
+
+`DEngine::ConditionalCollectGarbage()` owns frame-end policy, including frames
+without a World. Each Engine records its last checked frame even if no collection
+was needed. Core independently records the actual collection serial, frame, time,
+and resulting object count. Explicit collection changes Core telemetry, not the
+Engine's checked frame. Engine also consults the actual frame to avoid redundant
+collection across replacement hosts in one frame. Refused collector reentry does
+not consume a check. Hosts advance `GFrameCounter` for each admitted frame.
+
+Scheduling settings, adaptive intervals, pressure thresholds, and trigger logging
+belong to Engine. `Engine/GarbageCollectionSettings.h` provides configuration;
+policy types and evaluation live in Engine's private implementation. Engine reads
+the existing `CoreDObject.GC` configuration key for compatibility. Core exposes
+only collection telemetry and an internal full-request query; it does not call
+Engine or own wall-clock scheduling. Engine observes completed collections before
+policy evaluation. Standalone tools need no Engine scheduler or running loop.
+
+### Pending Destruction
+
+Reachability and BeginDestroy remain synchronous. A partial collection enqueues
+unreachable objects and makes one bounded destruction pass. Later frames call
+`IncrementalPurgeGarbage(true, TimeLimit)` even with automatic collection disabled.
+The budget is cooperative between callbacks, not a deadline imposed on callbacks.
+Objects waiting on readiness are retried without repeating BeginDestroy or
+FinishDestroy. `IsIncrementalPurgePending()` describes outstanding destruction,
+not whether another reachability pass was requested.
+
+`IncrementalPurgeGarbage(false)` drains existing candidates fully and waits for
+readiness. `CollectGarbage(KeepFlags, true)` also drains all candidates discovered
+by its new scan. A new scan always finishes an older pending purge first; Engine
+normally advances the pending purge instead of starting another scan. A full-purge
+request instead drains the previous cycle and runs a full collection at that same
+safe point. Full drains
+require readiness to progress independently of the blocked caller. A caller-owned
+fence must be released before entering a full drain. Shutdown therefore begins
+with partial collection, flushes render work, drains pending destruction, then
+collects any newly retired objects. Module-default release remains a nonblocking
+readiness operation that can return false for a later retry.
+
+The collector remains single-entry and game-thread-only. There is no incremental
+reachability or concurrent GC. `ConditionallyMarkAsReachable` is currently a no-op
+handle hook, not a functional write barrier; synchronous reachability does not
+require one. A future incremental mark implementation must establish mutation
+barriers and phase contracts before changing this guarantee.
+
+## Safe-Point And Lifetime Contract
+
+Business callbacks (construction, initialization, registration, serialization,
+transaction replay, reflection, World, toolkit and material notifications) may
+request GC. They must not call either synchronous collector, pump another host
+frame or invoke `ConditionalCollectGarbage`. Operations and exception compensation
+must finish, including native destructors and borrowed views, before the owner
+services requests. Operation exit does not collect. No business deferral counter
+or automatic refusal guarantee exists.
+
+Synchronous collection remains a caller-owned boundary: normal frame end after
+render synchronization, shutdown after consumer detachment, offline maintenance,
+explicit package unload/removal, and standalone test hosts. Package unload/removal
+and module-default drains are themselves collecting operations; callers must not
+invoke them from callbacks with borrowed object storage. Initial default-building
+failure cleanup marks objects and requests collection instead of collecting from
+inside registration. GC callbacks can request a later pass; recursive Try returns
+false and recursive Collect fails before consuming that request.
+
+Objects retained across these boundaries require collector-visible ownership:
+reflected references, `AddReferencedObjects`, or native strong handles. A raw
+pointer, Outer relationship, borrowed parameter buffer, query view or operation
+stack is not ownership. Subsystem collections and transaction history continue
+reporting their references; editor sessions retain their existing strong owners.
+Material query contexts own snapshots of keys, not the referenced objects; consume
+borrowed results before collection and resolve retained keys again afterwards.
+
+Logical retirement is independent of physical storage lifetime. Explicit garbage
+marking is not overridden by a strong handle. After callbacks, retain existing
+state/validity checks, frozen iteration sets, weak-handle resolution and deferred
+host teardown. World, transaction and editor admission guards remain responsible
+for business reentry; they are not GC locks. Game-thread checks, collector
+non-reentrancy and finish-destroy readiness remain enforced. Durin does not emulate
+UE's concurrent GC lock, incremental reachability or AutoRTFM transaction machinery.
 
 ## Required Invariants
 
@@ -339,16 +434,20 @@ Lifecycle and GC changes must cover:
 - logical invalidation before physical removal
 - hierarchy-wide logical invalidation and explicit reparent escape
 - package unload, World retirement, PIE stop, and engine exit using hierarchy requests
-- delayed finish readiness across multiple collections without repeated callbacks
+- delayed finish readiness across purge passes without repeated callbacks
 - handle and Outer-index visibility between `MarkAsGarbage()` and physical removal
 - automatic GC physically removing an already marked hierarchy
 - deep Outer chains without recursive stack growth
 - stable handle invalidation after removal and slot reuse
 
-Run the focused tests through the repository build driver:
+CoreObjectTests validates collector execution and pending destruction independently.
+EngineGarbageCollectionTests exercises the Engine Force/Conditional entries,
+including request admission, private scheduling policy, automatic pressure, and frame accounting.
+Run them through the repository build driver:
 
 ```powershell
-.\DevTool.bat test CoreDObjectTests --color never
+.\DevTool.bat test CoreObjectTests
+.\DevTool.bat test EngineGarbageCollectionTests
 ```
 
 For changes that affect runtime behavior or public lifecycle contracts, also build the complete registered profile:

@@ -2712,7 +2712,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	SkyWorld->SetRenderScene(nullptr);
 	SkyWorld->CleanupWorld(); Durin::RemoveFromRoot(SkyWorld);
 	Durin::MarkObjectHierarchyAsGarbage(SkyWorld);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 
 	Durin::SetViewRenderTelemetrySink(nullptr);
 	SceneOwner.Reset();

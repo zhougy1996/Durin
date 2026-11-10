@@ -99,14 +99,14 @@ namespace
 					Definitions);
 			ASSERT_TRUE(Registry->IsValid()) << Registry->GetError();
 			ShutdownAssetRuntime();
-			CollectGarbage();
+			CollectGarbage(Durin::EObjectFlags::Standalone);
 			ASSERT_TRUE(InitializeAssetRuntime());
 		}
 
 		static void TearDownTestSuite()
 		{
 			ShutdownAssetRuntime();
-			CollectGarbage();
+			CollectGarbage(Durin::EObjectFlags::Standalone);
 			ASSERT_TRUE(InitializeAssetRuntime());
 		}
 

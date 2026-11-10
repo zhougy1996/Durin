@@ -50,7 +50,7 @@ TEST(FMaterialFunctionInteractionTests, PreviewWrappersCompileEveryOutputTypeWit
 		EXPECT_EQ(Preview->GetMaterialCompileStatus().AuthoredRevision, BeforeRevision);
 		ASSERT_TRUE(BuildMaterialFunctionPreview(*Function, Output.Id, *Preview));
 	}
-	MarkAsGarbage(Preview); MarkAsGarbage(Function); CollectGarbage();
+	MarkAsGarbage(Preview); MarkAsGarbage(Function); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialFunctionInteractionTests, PreviewInvalidationTracksTransitiveEditsAndExplicitRequests)

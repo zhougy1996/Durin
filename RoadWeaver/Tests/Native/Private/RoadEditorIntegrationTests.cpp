@@ -79,7 +79,7 @@ namespace
 				Package->SetStandaloneResidency(false);
 				PackageRoot.Reset();
 				MarkObjectHierarchyAsGarbage(Package);
-				CollectGarbage();
+				CollectGarbage(Durin::EObjectFlags::Standalone);
 			}
 		}
 

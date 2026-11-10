@@ -10,7 +10,7 @@ namespace Durin
 	class DMaterialInterface;
 	struct FMaterialLoadedQueryDiagnostics;
 
-	// Owns result storage, but borrows object lifetime from the producing context.
+	// Owns result storage, but does not retain the objects. Consume before GC.
 	// Results and pointers must not escape that synchronous scope or enter callbacks
 	// scheduled for later. Subsequent queries do not invalidate this array.
 	template<typename T>
@@ -38,7 +38,7 @@ namespace Durin
 
 	// Game-thread batch snapshot: create after mutations, explicitly share through
 	// internal updates, and use a fresh context for any reentrant edit. No global
-	// implicit nesting. GC is deferred until every nested context has exited.
+	// implicit nesting. Consume borrowed results before the next host GC safe point.
 	class FObjectCacheContext
 	{
 	public:

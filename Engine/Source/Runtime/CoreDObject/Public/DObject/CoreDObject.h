@@ -8,7 +8,6 @@
 #include "ObjectPtr.h"
 #include "WeakObjectPtr.h"
 #include "ObjectLifecycle.h"
-#include "GarbageCollectionScheduler.h"
 #include "Archive.h"
 #include "CanonicalMapKey.h"
 #include "Class.h"

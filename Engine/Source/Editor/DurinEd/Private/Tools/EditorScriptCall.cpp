@@ -1,4 +1,5 @@
 #include "Tools/EditorScriptCall.h"
+#include "DObject/ObjectLifecycle.h"
 #include "Editor/EditorEngine.h"
 #include "Tools/EditorToolSubsystem.h"
 #include "Tools/EditorToolService.h"

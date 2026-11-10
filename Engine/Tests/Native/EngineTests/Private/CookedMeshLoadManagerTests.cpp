@@ -185,7 +185,7 @@ TEST(FCookedMeshLoadManagerTests,
 	std::thread RetireThread([Resource = Resources[2]] { Resource->Retire(); });
 	RemoveFromRoot(Owners[3]);
 	MarkObjectHierarchyAsGarbage(Owners[3]);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Manager.GetDiagnostics().PendingRequestCount, 1u);
 	EXPECT_EQ(Manager.GetDiagnostics().PendingRequestEstimatedBytes, 4u);
 	const auto RetireDeadline =
@@ -251,7 +251,7 @@ TEST(FCookedMeshLoadManagerTests,
 		RemoveFromRoot(Owners[Index]);
 		MarkObjectHierarchyAsGarbage(Owners[Index]);
 	}
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	if (bOwnsScheduler) ShutdownTaskScheduler(true);
 }
 
@@ -425,7 +425,7 @@ TEST(FCookedMeshLoadManagerTests,
 		*Destroyed, 1, MakeBulkData(DestroyedResource), &bCurrent, &PublishCount)));
 	ASSERT_TRUE(PumpUntil(Manager, [&] { return DestroyedResource->HasStarted(); }));
 	MarkObjectHierarchyAsGarbage(Destroyed);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	DestroyedResource->Release();
 	ASSERT_TRUE(PumpUntil(Manager, [&] {
 		return Manager.GetDiagnostics().InFlightCount == 0;
@@ -459,7 +459,7 @@ TEST(FCookedMeshLoadManagerTests,
 	RemoveFromRoot(Second);
 	MarkObjectHierarchyAsGarbage(First);
 	MarkObjectHierarchyAsGarbage(Second);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 
 	if (bOwnsScheduler) ShutdownTaskScheduler(true);
 }
@@ -509,7 +509,7 @@ TEST(FCookedMeshLoadManagerTests, TerminalRetainsWorkerAndPublisherCauses)
 	Manager.Shutdown();
 	RemoveFromRoot(Owner);
 	MarkObjectHierarchyAsGarbage(Owner);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(WorkerError.Owner, OwnerKey);
 	EXPECT_EQ(WorkerError.Code, ECookedMeshLoadError::Product);
 	EXPECT_EQ(WorkerError.Diagnostic, "Static-mesh material slot count does not match package metadata.");
@@ -559,7 +559,7 @@ TEST(FCookedMeshLoadManagerTests, AdmissionOwnsInvalidRequestAndFieldContext)
 	EXPECT_EQ(Stopped.Error.State, ECookedMeshManagerState::Stopped);
 	EXPECT_EQ(Resource->GetReadStats().RequestCount, 0u);
 	MarkObjectHierarchyAsGarbage(Owner);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Stopped.Error.Identity.Owner, Key);
 	EXPECT_EQ(FieldError.Error.Identity.LoadGeneration, 7u);
 }

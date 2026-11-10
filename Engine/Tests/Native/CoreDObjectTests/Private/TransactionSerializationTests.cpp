@@ -98,7 +98,7 @@ namespace
 			++AnnotationCaptures;
 			if (CaptureTrace) CaptureTrace->push_back("annotation");
 			auto Result = std::make_shared<FStateTestAnnotation>(AnnotationValue, AnnotationHard, AnnotationBytes);
-			if (bCollectDuringAnnotation) CollectGarbage();
+			if (bRequestCollectionDuringAnnotation) RequestGarbageCollection();
 			return Result;
 		}
 		int32 Count = 0, Session = 0, Ignored = 0, Native = 0, Deprecated = 0;
@@ -108,7 +108,7 @@ namespace
 		TWeakObjectPtr<DObject> NativeWeak;
 		bool bFailLoadOnce = false, bThrowLoadOnce = false;
 		uint32 NativeVersion = 1;
-		bool bEnableAnnotation = false, bCollectDuringAnnotation = false;
+		bool bEnableAnnotation = false, bRequestCollectionDuringAnnotation = false;
 		mutable uint32 AnnotationCaptures = 0;
 		int32 AnnotationValue = 0;
 		DObject* AnnotationHard = nullptr;
@@ -211,12 +211,12 @@ TEST(FTransactionSerializationTests, CollectorOwnedStateRetainsHardReferencesBut
 	const auto HardKey = FObjectKey(Object->NativeHard); const auto WeakKey = FObjectKey(Weak);
 	auto State = CaptureSerializedObject(*Object); ASSERT_TRUE(State);
 	Owner->ManagedState = std::move(*State); Object->NativeHard = nullptr; Object->NativeWeak = nullptr;
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_NE(ResolveObjectKey(HardKey), nullptr); EXPECT_EQ(ResolveObjectKey(WeakKey), nullptr);
 	ASSERT_TRUE(ValidateSerializedObject(*Object, *Owner->ManagedState));
 	ASSERT_TRUE(LoadSerializedObject(*Object, *Owner->ManagedState));
 	EXPECT_EQ(Object->NativeHard, ResolveObjectKey(HardKey)); EXPECT_FALSE(Object->NativeWeak.IsValid());
-	Object->NativeHard = nullptr; Owner->ManagedState.reset(); CollectGarbage();
+	Object->NativeHard = nullptr; Owner->ManagedState.reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(ResolveObjectKey(HardKey), nullptr);
 }
 

@@ -204,7 +204,7 @@ namespace Durin
 				EXPECT_TRUE(Texture->GetTextureReferenceRHI());
 			Proxy.reset();
 			MarkObjectHierarchyAsGarbage(Actor);
-			CollectGarbage();
+			CollectGarbage(Durin::EObjectFlags::Standalone);
 		};
 
 		auto [LoadedMesh, LoadedMaterial, LoadedTexture] =
@@ -394,7 +394,7 @@ namespace Durin
 		const auto MaterialUnload =
 			UnloadPackage(Material->GetPackage(), Durin::EAssetPackageUnloadPolicy::DiscardUnsaved);
 		MarkObjectHierarchyAsGarbage(Actor);
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		const auto MeshUnload =
 			UnloadPackage(MeshPath);
 		const auto TextureUnload =

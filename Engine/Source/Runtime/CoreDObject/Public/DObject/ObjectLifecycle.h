@@ -29,21 +29,20 @@ namespace Durin
         uint64 Identity;
     };
     COREDOBJECT_API auto NotifyObjectReferencesInvalidated(DObject& Object) -> void;
-	// Summarizes the most recent mark-and-sweep collection and its phase timings.
+	// Actual collection telemetry. Purge-only work updates destruction totals/timing,
+	// but never advances the collection serial, frame, time, or object-count snapshot.
 	struct FGarbageCollectionStats
 	{
+		uint64 CollectionSerial = 0;
+		uint64 CollectionFrame = 0;
+		double CollectionTime = 0.0;
+		uint64 ObjectCountAfterCollection = 0;
 		uint64 MarkedObjectCount = 0;
 		uint64 CandidateObjectCount = 0;
 		uint64 SweptObjectCount = 0;
 		uint64 DeferredDestroyObjectCount = 0;
 		double MarkMilliseconds = 0.0;
 		double SweepMilliseconds = 0.0;
-	};
-
-	// Selects object flags that retain otherwise unreachable objects for one collection.
-	struct FGarbageCollectionOptions
-	{
-		EObjectFlags KeepFlags = EObjectFlags::Standalone;
 	};
 
 	COREDOBJECT_API auto AddToRoot(DObject* Object) -> void;
@@ -59,24 +58,23 @@ namespace Durin
 	COREDOBJECT_API auto ReleaseClassDefaultObjectsForModule(FName ModuleName) -> bool;
 	COREDOBJECT_API auto ReleaseDStructDefaults() -> void;
 	COREDOBJECT_API auto ReleaseDStructDefaultsForModule(FName ModuleName) -> void;
-	// Defers physical collection throughout a game-thread execution region. Exit never collects.
-	class FGarbageCollectionDeferralScope
-	{
-	public:
-		COREDOBJECT_API FGarbageCollectionDeferralScope();
-		COREDOBJECT_API ~FGarbageCollectionDeferralScope();
-		FGarbageCollectionDeferralScope(const FGarbageCollectionDeferralScope&) = delete;
-		auto operator=(const FGarbageCollectionDeferralScope&) -> FGarbageCollectionDeferralScope& = delete;
-	};
-
 	// Requests collection at a later safe point, including when automatic GC is disabled.
-	COREDOBJECT_API auto RequestGarbageCollection(const FGarbageCollectionOptions& Options = {}) -> void;
-	COREDOBJECT_API auto IsGarbageCollectionDeferred() -> bool;
+	// Full-purge intent is sticky; retention flags belong exclusively to execution.
+	COREDOBJECT_API auto RequestGarbageCollection(bool bForcePurge = false) -> void;
 	COREDOBJECT_API auto IsGarbageCollecting() -> bool;
 	COREDOBJECT_API auto IsGarbageCollectionRequested() -> bool;
-	// Collects at a safe point; inside a deferral region it records a request instead.
+	// Caller must establish a safe point, outside business callbacks and borrowed storage.
+	// Attempts synchronous collection; collector reentry returns false and preserves requests.
+	COREDOBJECT_API auto TryCollectGarbage(EObjectFlags KeepFlags, bool bPerformFullPurge = true) -> bool;
+	// Synchronous execution at an owner-established safe point; collector reentry is diagnosed.
+	// Business-stack safety is a caller precondition, not dynamically detected.
+	// Finishes any previous purge first; false bounds only the new cycle's purge.
 	COREDOBJECT_API auto CollectGarbage(
-		const FGarbageCollectionOptions& Options = {}) -> void;
+		EObjectFlags KeepFlags, bool bPerformFullPurge = true) -> void;
+	// Advance only objects already found unreachable. Full drain waits for readiness;
+	// callers must first release resources/fences requiring their own thread to progress.
+	COREDOBJECT_API auto IncrementalPurgeGarbage(bool bUseTimeLimit = true, double TimeLimit = 0.002) -> void;
+	COREDOBJECT_API auto IsIncrementalPurgePending() -> bool;
 	COREDOBJECT_API auto GetGarbageObjectCount() -> uint64;
 	COREDOBJECT_API auto GetLastGarbageCollectionStats() -> const FGarbageCollectionStats&;
 	// Reports deferred objects and fails when the latest collection did not finish their destruction.

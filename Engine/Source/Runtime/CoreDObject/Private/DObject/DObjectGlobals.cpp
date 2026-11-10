@@ -1,17 +1,16 @@
 #include "DObject/DObjectGlobals.h"
+#include "Threading/RunnableThread.h"
+#include "CoreGlobals.h"
 #include "Misc/StringHelper.h"
 #include "DObject/PropertyKindTraits.h"
 #include "DObject/PropertyValidation.h"
 #include "QualifiedTypeRegistry.h"
 #include "Misc/Name.h"
 
-#include "Misc/AppConfig.h"
-#include "Misc/Time.h"
 #include "Modules/ModuleManager.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/DurinPropertyTypes.h"
-#include "DObject/GarbageCollectionScheduler.h"
 #include "DObject/MathStructs.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
@@ -793,16 +792,6 @@ namespace Durin
 
 		auto& array = GDObjectArray;
 
-		// CoreDObject owns its schema so Launch only coordinates subsystem initialization.
-		const FYamlNodeView GCConfig = GetModuleConfig("CoreDObject").GetView("GC");
-		FGarbageCollectionSettings GCSettings;
-		GCSettings.bEnabled = GCConfig.GetView("Enabled").GetBool(true);
-		GCSettings.IntervalSeconds = GCConfig.GetView("IntervalSeconds").GetDouble(60.0);
-		GCSettings.MaxIntervalSeconds = GCConfig.GetView("MaxIntervalSeconds").GetDouble(600.0);
-		GCSettings.IntervalBackoffMultiplier = GCConfig.GetView("IntervalBackoffMultiplier").GetDouble(2.0);
-		GCSettings.PendingKillThreshold = GCConfig.GetView("PendingKillThreshold").GetUInt(128);
-		GCSettings.ObjectGrowthThreshold = GCConfig.GetView("ObjectGrowthThreshold").GetUInt(1024);
-		ConfigureAutomaticGarbageCollection(GCSettings, FTime::Seconds());
 		GDObjectInitialized.store(true, std::memory_order_release);
 	}
 
@@ -874,7 +863,7 @@ namespace Durin
 		Obj->AddObject(Params.Name);
 		try
 		{
-			FGarbageCollectionDeferralScope DeferCollection;
+			if (GIsGameThreadIdInitialized) CheckGameThread();
 			Obj->PostInitProperties();
 		}
 		catch (...)

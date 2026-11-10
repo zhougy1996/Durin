@@ -73,7 +73,7 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Result.Asset, nullptr);
 	EXPECT_TRUE(Result.Asset->GetPackage()->IsDirty());
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Durin::FindResidentPackage(AssetPath), Result.Asset->GetPackage());
 	ASSERT_TRUE(Durin::SavePackage(Result.Asset->GetPackage()));
 	ASSERT_TRUE(Result.Asset->FinishCachePlatformData(10.0));

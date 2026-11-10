@@ -40,7 +40,7 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	EXPECT_FALSE(std::filesystem::is_regular_file(
 		CookRoot / "Engine/Materials/DefaultMaterial.dbulk"));
 	Durin::ShutdownAssetRuntime();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	auto RuntimeConfiguration = Durin::FAssetRuntimeConfiguration::Authored();
 	auto Result = Durin::FAssetRuntimeConfiguration::Cooked(
 		CookRoot, RuntimeConfiguration);
@@ -251,7 +251,7 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	}
 
 	Durin::ShutdownAssetRuntime();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(Durin::InitializeAssetRuntime());
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
 		Durin::EAssetRegistryScanMode::FullValidation));
@@ -333,7 +333,7 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	EXPECT_FALSE(std::filesystem::is_regular_file(
 		CookRoot / "Engine/Materials/DefaultMaterial.dbulk"));
 	Durin::ShutdownAssetRuntime();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	auto RuntimeConfiguration = Durin::FAssetRuntimeConfiguration::Authored();
 	auto Result = Durin::FAssetRuntimeConfiguration::Cooked(
 		CookRoot, RuntimeConfiguration);
@@ -486,13 +486,13 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	Durin::MarkAsGarbage(Child);
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Texture);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	WaitForRenderingThread();
 	if (bOwnsRenderingThread) Durin::ShutdownRenderingThread();
 	}
 
 	Durin::ShutdownAssetRuntime();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(Durin::InitializeAssetRuntime());
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
 		Durin::EAssetRegistryScanMode::FullValidation));
@@ -567,7 +567,7 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 	std::string Error;
 	ASSERT_TRUE(SaveCookPackage((*Source).GetPackage(), DefaultMaterialPackagePath, Cook)) << Error;
 	ASSERT_TRUE(PublishCookContext(Cook, CookRoot)) << Error;
-	ShutdownAssetRuntime(); CollectGarbage();
+	ShutdownAssetRuntime(); CollectGarbage(Durin::EObjectFlags::Standalone);
 	auto Configuration = FAssetRuntimeConfiguration::Authored();
 	ASSERT_TRUE(FAssetRuntimeConfiguration::Cooked(CookRoot, Configuration));
 	ASSERT_TRUE(InitializeAssetRuntime(std::move(Configuration)));
@@ -621,6 +621,6 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 			EXPECT_FLOAT_EQ(ReadFloat(InstanceBinding.CompiledUniformPayload, Field.Offset), 0.8f);
 		}
 	}
-	ShutdownAssetRuntime(); CollectGarbage();
+	ShutdownAssetRuntime(); CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(InitializeAssetRuntime());
 }

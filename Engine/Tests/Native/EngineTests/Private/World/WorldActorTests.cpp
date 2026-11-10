@@ -160,7 +160,7 @@ TEST(FNativeConstructionTests, RecreatesComponentsWithImmediateOwnershipAndLiveL
 	EXPECT_TRUE(First->IsPendingKill()); EXPECT_FALSE(First->HasBegunPlay());
 	EXPECT_TRUE(Actor->Acquired[0]->HasBegunPlay());
 	World->EndPlay(); EXPECT_FALSE(Actor->Acquired[0]->HasBegunPlay());
-	Durin::MarkObjectHierarchyAsGarbage(World); Durin::CollectGarbage();
+	Durin::MarkObjectHierarchyAsGarbage(World); Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FNativeConstructionTests, DefaultAddComponentApiMatchesByClassAndCreationOrder)
@@ -186,7 +186,7 @@ TEST(FNativeConstructionTests, DefaultAddComponentApiMatchesByClassAndCreationOr
 	Actor->ConstructionLocation.reset();
 	ASSERT_TRUE(Actor->RerunConstructionScripts());
 	EXPECT_EQ(static_cast<Durin::DSceneComponent*>(Actor->Acquired[0])->GetRelativeLocation(), Durin::FVector3(0.0));
-	Durin::MarkObjectHierarchyAsGarbage(World); Durin::CollectGarbage();
+	Durin::MarkObjectHierarchyAsGarbage(World); Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FNativeConstructionTests, InstanceCreationMethodRemainsPersistentAuthoredState)
@@ -200,7 +200,7 @@ TEST(FNativeConstructionTests, InstanceCreationMethodRemainsPersistentAuthoredSt
 	EXPECT_EQ(std::ranges::count_if(Actor->GetComponents(), [](const auto& Component) { return Component->GetCreationMethod() != Durin::EComponentCreationMethod::Generated; }), 2u);
 	EXPECT_EQ(Actor->GetComponents().size(), 2u);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FNativeConstructionTests, RepeatedDerivedReconciliationDoesNotDirtyTheLevelPackage)
@@ -246,7 +246,7 @@ TEST(FWorldTests, UsesReflectedDefaultNamesWhenNamesAreOmitted)
 	ASSERT_NE(Component, nullptr);
 	EXPECT_EQ(Component->GetName(), "SceneComponent");
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTests, MakesDuplicateActorNamesUnique)
@@ -261,7 +261,7 @@ TEST(FWorldTests, MakesDuplicateActorNamesUnique)
 	EXPECT_EQ(Third->GetName(), "Camera_3");
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTests, RenamesActorsWithUniqueNames)
@@ -276,7 +276,7 @@ TEST(FWorldTests, RenamesActorsWithUniqueNames)
 	EXPECT_FALSE(World->GetCurrentLevel()->RenameActor(Second, Durin::FName()));
 	EXPECT_EQ(Second->GetName(), "Camera_2");
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 #if DURIN_WITH_EDITOR
@@ -324,7 +324,7 @@ TEST(FWorldTests, TracksEditorActorHierarchyRevision)
 	EXPECT_GT(Level->GetEditorActorHierarchyRevision(), AfterDetach);
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 #endif
 
@@ -339,7 +339,7 @@ TEST(FWorldTests, TracksActorVisibility)
 	Actor->SetActorHiddenInGame(false);
 	EXPECT_FALSE(Actor->IsHidden());
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTests, RenamesComponentsWithUniqueNames)
@@ -356,7 +356,7 @@ TEST(FWorldTests, RenamesComponentsWithUniqueNames)
 	EXPECT_EQ(Second->GetName(), "Scene_2");
 	EXPECT_FALSE(Actor->RenameComponent(nullptr, "Invalid"));
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTests, DistinguishesExactAndPolymorphicComponentQueries)
@@ -387,7 +387,7 @@ TEST(FWorldTests, DistinguishesExactAndPolymorphicComponentQueries)
 	EXPECT_EQ(CameraComponent->GetOwner<Durin::ACameraActor>(), Camera);
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTests, SpawnsActorsAndComponentsFromRuntimeClasses)
@@ -421,7 +421,7 @@ TEST(FWorldTests, SpawnsActorsAndComponentsFromRuntimeClasses)
 	EXPECT_FALSE(Instance->IsRegistered());
 	EXPECT_FALSE(First->IsInstanceComponent(Instance));
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(InstancePtr.Get(), nullptr);
 }
 
@@ -465,7 +465,7 @@ TEST(FWorldTests, MaintainsPrimaryCameraWhenRuntimeActorsChange)
 	EXPECT_TRUE(World->DestroyActor(Second));
 	EXPECT_EQ(World->GetCurrentLevel()->GetPrimaryCameraActor(), nullptr);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FLevelAssetTests, SavesLoadsTransformsAttachmentsCameraAndDefaultComponents)
@@ -548,13 +548,15 @@ TEST(FLevelAssetTests, SavesLoadsTransformsAttachmentsCameraAndDefaultComponents
 	EXPECT_EQ(LoadedParent->GetCameraComponent()->GetAspectRatioMode(), Durin::ECameraAspectRatioMode::Custom);
 	EXPECT_NEAR(LoadedParent->GetCameraComponent()->GetCustomAspectRatio(), 2.39f, 1.e-6f);
 
+	Durin::TStrongObjectPtr<Durin::DLevel> LoadedOwner(Loaded);
 	Durin::DWorld* World = CreateWorld();
 	ASSERT_TRUE(World->SetCurrentLevel(Loaded));
 	EXPECT_EQ(World->GetActors().size(), 2u);
 	EXPECT_EQ(Loaded->GetWorld(), World);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Loaded->GetWorld(), nullptr);
+	LoadedOwner.Reset();
 	EXPECT_TRUE(Durin::UnloadPackage(Path));
 }
 
@@ -589,7 +591,7 @@ TEST(FWorldTests, BuiltInActorsOwnTheirDefaultComponents)
 	EXPECT_EQ(LightComponent->GetOwner(), Light);
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FNativeConstructionTests, SceneOverridesUseSharedCacheAndConstructionAuthoredPoseWins)
@@ -618,7 +620,7 @@ TEST(FNativeConstructionTests, SceneOverridesUseSharedCacheAndConstructionAuthor
 	ASSERT_TRUE(Actor->RerunConstructionScripts(&DefaultState));
 	Scene = static_cast<Durin::DSceneComponent*>(Actor->Acquired.front());
 	EXPECT_EQ(Scene->GetRelativeLocation(), Durin::FVector3(0.0));
-	Durin::MarkObjectHierarchyAsGarbage(World); Durin::CollectGarbage();
+	Durin::MarkObjectHierarchyAsGarbage(World); Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FNativeConstructionTests, InstanceSourceUsesExactIdentityOwnerKeyAndClass)
@@ -658,7 +660,7 @@ TEST(FNativeConstructionTests, InstanceSourceUsesExactIdentityOwnerKeyAndClass)
 	// A construction-authored pose must not bypass exact-class preflight.
 	EXPECT_FALSE(Actor->RerunConstructionScripts(&Cache));
 	EXPECT_EQ(Actor->FindGeneratedComponent(MakeGeneratedKey(202)), nullptr);
-	Durin::MarkObjectHierarchyAsGarbage(World); Durin::CollectGarbage();
+	Durin::MarkObjectHierarchyAsGarbage(World); Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FNativeConstructionTests, SharedSuspensionCoalescesOrdinaryInputChanges)
@@ -678,7 +680,7 @@ TEST(FNativeConstructionTests, SharedSuspensionCoalescesOrdinaryInputChanges)
 		EXPECT_EQ(Actor->ConstructionCalls, Before);
 	}
 	EXPECT_EQ(Actor->ConstructionCalls, Before + 1); EXPECT_EQ(Actor->Acquired.size(), 2u);
-	Durin::MarkObjectHierarchyAsGarbage(World); Durin::CollectGarbage();
+	Durin::MarkObjectHierarchyAsGarbage(World); Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FNativeConstructionTests, SharedSuspensionUnwindDoesNotRunConstructionOnPartialInputs)
@@ -696,7 +698,7 @@ TEST(FNativeConstructionTests, SharedSuspensionUnwindDoesNotRunConstructionOnPar
 	catch (const std::runtime_error&) {}
 	EXPECT_EQ(Actor->ConstructionCalls, Before);
 	ASSERT_TRUE(Actor->RerunConstructionScripts()); EXPECT_EQ(Actor->ConstructionCalls, Before + 1);
-	Durin::MarkObjectHierarchyAsGarbage(World); Durin::CollectGarbage();
+	Durin::MarkObjectHierarchyAsGarbage(World); Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FNativeConstructionTests, ResetOwnedComponentsUsesNativeGraphAndExcludesAbsentInstances)
@@ -713,5 +715,5 @@ TEST(FNativeConstructionTests, ResetOwnedComponentsUsesNativeGraphAndExcludesAbs
 	const auto Components = Actor->GetComponentsSnapshot(); Actor->ResetOwnedComponents();
 	EXPECT_EQ(Actor->GetComponentsSnapshot(), Components);
 	EXPECT_EQ(Actor->GetComponents().size(), 2u);
-	MarkObjectHierarchyAsGarbage(World); CollectGarbage();
+	MarkObjectHierarchyAsGarbage(World); CollectGarbage(Durin::EObjectFlags::Standalone);
 }

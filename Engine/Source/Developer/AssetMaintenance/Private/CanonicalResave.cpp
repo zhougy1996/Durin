@@ -337,7 +337,7 @@ namespace Durin
 				if (!bWasLoaded && LoadHandle)
 				{
 					LoadHandle->ReleaseHandle();
-					CollectGarbage(); // Explicit offline batch boundary, after dropping local source values.
+					CollectGarbage(Durin::EObjectFlags::Standalone); // Explicit offline batch boundary, after dropping local source values.
 				}
 				return FAssetReadResult{};
 			};

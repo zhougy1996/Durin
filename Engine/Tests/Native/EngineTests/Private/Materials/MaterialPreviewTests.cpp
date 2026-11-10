@@ -39,7 +39,7 @@ TEST(FMaterialPreviewTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 				.TexCoordVertexBuffer.GetTexCoords()[0].size(),
 			LOD.GetNumVertices());
 	}
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Durin::Editor::FAssetRetentionService::NumRetained(), 0u);
 }
 
@@ -73,7 +73,7 @@ TEST(FMaterialPreviewTests, EditorPreviewMeshOwnerRetainsPreparedMeshesWithoutOp
 		ASSERT_TRUE(Durin::Editor::FAssetRetentionService::Acquire(Path, Consumer, Error)) << Error;
 		EXPECT_EQ(Consumer.Get(), Sphere);
 		Consumer = {};
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(Durin::Editor::FAssetRetentionService::NumRetained(), 2u);
 		ASSERT_TRUE(Resources.Initialize());
 		EXPECT_EQ(Resources.GetSphere(), Sphere);
@@ -86,7 +86,7 @@ TEST(FMaterialPreviewTests, EditorPreviewMeshOwnerRetainsPreparedMeshesWithoutOp
 	EXPECT_EQ(Resources.GetSphere(), nullptr);
 	EXPECT_EQ(Resources.GetBox(), nullptr);
 	EXPECT_EQ(Durin::Editor::FAssetRetentionService::NumRetained(), 0u);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialPreviewTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageCollectionAndTeardown)
@@ -113,7 +113,7 @@ TEST(FMaterialPreviewTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageColl
 		ASSERT_NE(FindObjectByName(FirstLightName), nullptr);
 		ASSERT_NE(FindObjectByName(SecondLightName), nullptr);
 
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		Durin::FSoftObjectPath SpherePath;
 		Durin::FSoftObjectPath BoxPath;
 		ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate("/Engine/Models/Sphere.Sphere", SpherePath));
@@ -138,7 +138,7 @@ TEST(FMaterialPreviewTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageColl
 		EXPECT_FALSE(Box->GetRenderData()->LODResources.empty());
 	}
 
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Durin::Editor::FAssetRetentionService::NumRetained(), 0u);
 	EXPECT_EQ(FindObjectByName(FirstLightName), nullptr);
 	EXPECT_EQ(FindObjectByName(SecondLightName), nullptr);

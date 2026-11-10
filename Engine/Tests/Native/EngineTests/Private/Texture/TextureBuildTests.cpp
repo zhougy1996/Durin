@@ -589,7 +589,7 @@ TEST(FTexturePlatformDataTests, SynchronousCacheUsesCurrentSourceWithoutAnAsyncR
 		EXPECT_EQ(Texture->GetSource().GetBulkData().GetInstanceId(), SourceInstance);
 		EXPECT_FALSE(Texture->GetPackage()->IsDirty());
 		Durin::MarkObjectHierarchyAsGarbage(Texture->GetPackage());
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	};
 	Durin::FTextureSource Source2D;
 	ASSERT_TRUE(Source2D.Init2D(Image->GetView(), 4));
@@ -844,7 +844,7 @@ namespace
 		EXPECT_FALSE(Closed->FinishCachePlatformData(0.0));
 		EXPECT_FALSE(Closed->FinishCachePlatformData(10.0));
 		Durin::MarkObjectHierarchyAsGarbage(Texture->GetPackage());
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	}
 }
 
@@ -918,7 +918,7 @@ TEST(FTexturePlatformDataTests, TeardownDuringRetirementRejectsReplacement)
 		EXPECT_TRUE(Texture->IsAsyncCacheComplete());
 		EXPECT_EQ(Durin::FAssetCompilingManager::Get().GetNumRemainingAssets(), 0u);
 		Durin::MarkObjectHierarchyAsGarbage(Texture->GetPackage());
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	}
 }
 
@@ -943,7 +943,7 @@ TEST(FTexturePlatformDataTests, ObjectDestroyFlagsStillRouteCancellation)
 	EXPECT_EQ(Terminal->Status, Durin::ETextureCompilationStatus::Canceled);
 	EXPECT_FALSE(Texture->HasPlatformData());
 	Durin::MarkObjectHierarchyAsGarbage(Texture);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FTexture2DBuildModuleTests, KeepsProductsValueOwned)
@@ -1493,7 +1493,7 @@ TEST(FTexture2DTests, SamePathReplacementCannotReceiveDestroyedOwnerCompletion)
 			Lock, std::chrono::seconds(5), [&] { return bEntered; }));
 	}
 	Durin::MarkAsGarbage(First);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Durin::ResolveObjectKey(FirstHandle), nullptr);
 
 	Durin::AssetPrivate::SetTexture2DCompilationPhaseHookForTests({});
@@ -2077,7 +2077,7 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 	EXPECT_EQ(WarmResource->GetReadStats().RequestCount, 1u);
 	Texture = nullptr;
 	Durin::ShutdownAssetRuntime();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(Durin::InitializeAssetRuntime());
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
 	EXPECT_FALSE(std::filesystem::exists(EditorBulkDataFiles.front()));

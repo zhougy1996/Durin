@@ -146,7 +146,7 @@ namespace
 			FSubsystemProbeA::Create = {};
 			for (auto& World : Worlds) { World->CleanupWorld(); MarkObjectHierarchyAsGarbage(World.Get()); }
 			Worlds.clear();
-			CollectGarbage();
+			CollectGarbage(Durin::EObjectFlags::Standalone);
 		}
 		auto MakeWorld(EWorldType Type = EWorldType::Game) -> DWorld*
 		{
@@ -517,7 +517,7 @@ TEST_F(FWorldSubsystemTests, OrdersDependenciesRetainsObjectsAndFreezesRegistrat
 	auto* AInstance = First->GetSubsystem<FSubsystemProbeA>();
 	ASSERT_NE(AInstance, nullptr);
 	EXPECT_EQ(AInstance->GetOuter(), First);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(First->GetSubsystem<FSubsystemProbeA>(), AInstance);
 	auto* Second = MakeWorld();
 	ASSERT_NO_THROW(Second->InitializeSubsystems());
@@ -587,9 +587,9 @@ TEST_F(FWorldSubsystemTests, FailedInitializationReleasesRetainedServiceWithoutF
 	EXPECT_FALSE(Retained->IsInitialized());
 	EXPECT_EQ(Retained->GetTickableTickType(), ETickableTickType::Never);
 	EXPECT_EQ(1, Cleanups);
-	CollectGarbage(); EXPECT_TRUE(IsValid(Retained.Get()));
+	CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_TRUE(IsValid(Retained.Get()));
 	TWeakObjectPtr<FSubsystemProbeA> Weak(Retained.Get());
-	Retained.Reset(); CollectGarbage();
+	Retained.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_FALSE(Weak.IsValid());
 	EXPECT_FALSE(World->AreSubsystemsInitialized());
 	EXPECT_EQ(1, Cleanups);
@@ -859,7 +859,7 @@ TEST_F(FWorldSubsystemTests, ProviderRequiresFrozenWorldShutdownAndOwnsRegistrat
 	EXPECT_TRUE(Cancellation->IsCanceled());
 	// Probe classes live in the test executable, so this fixture can release its logical module.
 	EXPECT_TRUE(Manager.UnloadModule("WorldSubsystemFixtureProvider"));
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	FWorldSubsystemRegistration Stale({.Type = FSubsystemProbeA::StaticClass(), .Provider = "WorldSubsystemFixtureProvider"});
 	EXPECT_DEATH(MakeWorld()->InitializeSubsystems(), "Subsystem provider must be active");
 }
@@ -887,11 +887,11 @@ TEST_F(FWorldSubsystemTests, LateDetachedCompletionCannotPublishAfterWorldRetire
 	EXPECT_TRUE(Cancellation->IsCanceled());
 }
 
-TEST_F(FWorldSubsystemTests, InitializationRetainsUnpublishedWorldDuringCollection)
+TEST_F(FWorldSubsystemTests, InitializationRequestsCollectionWithoutDestroyingUnpublishedWorld)
 {
 	FWorldSubsystemRegistration A({.Type = FSubsystemProbeA::StaticClass()});
 	FSubsystemProbeA::Callback = [](FSubsystemProbeA& Object, std::string_view Event) {
-		if (Event == "Init") { CollectGarbage(); EXPECT_FALSE(Object.IsPendingKill()); EXPECT_NE(Object.GetWorld(), nullptr); }
+		if (Event == "Init") { RequestGarbageCollection(); EXPECT_TRUE(IsGarbageCollectionRequested()); EXPECT_FALSE(Object.IsPendingKill()); EXPECT_NE(Object.GetWorld(), nullptr); }
 	};
 	auto* World = NewObject<DWorld>(nullptr, "UnpublishedWorld");
 	ASSERT_NO_THROW(World->InitializeSubsystems());
@@ -933,7 +933,8 @@ TEST_F(FWorldSubsystemTests, AttachmentTransitionCompletesBatchAndAppliesAtNextT
 		if (Object.GetWorld()->GetCurrentLevel() == First) {
 			EXPECT_FALSE(World->SetCurrentLevel(Second));
 			EXPECT_TRUE(World->RequestLevelTransition(Second));
-			CollectGarbage();
+			RequestGarbageCollection();
+			EXPECT_TRUE(IsGarbageCollectionRequested());
 		}
 	};
 	ASSERT_TRUE(World->SetCurrentLevel(First));
@@ -964,7 +965,7 @@ TEST_F(FWorldSubsystemTests, ServiceSpawnedActorsBeginOnlyAfterAllServicesAndBoo
 	ASSERT_NE(Spawned, nullptr); EXPECT_TRUE(Spawned->HasBegunPlay());
 }
 
-TEST_F(FWorldSubsystemTests, LevelSwitchRetainsBothLevelsAcrossExtensionCollections)
+TEST_F(FWorldSubsystemTests, LevelSwitchRetainsBothLevelsAcrossCallbackCollectionRequests)
 {
 	FWorldSubsystemRegistration A({.Type = FSubsystemProbeA::StaticClass()});
 	auto* World = MakeWorld(); ASSERT_NO_THROW(World->InitializeSubsystems());
@@ -973,7 +974,8 @@ TEST_F(FWorldSubsystemTests, LevelSwitchRetainsBothLevelsAcrossExtensionCollecti
 	auto* Second = NewObject<DLevel>(World, "Second");
 	FSubsystemProbeA::Callback = [&](FSubsystemProbeA&, std::string_view Event) {
 		if (Event == "Attach" || Event == "Detach") {
-			CollectGarbage();
+			RequestGarbageCollection();
+			EXPECT_TRUE(IsGarbageCollectionRequested());
 			EXPECT_FALSE(First->IsPendingKill());
 			EXPECT_FALSE(Second->IsPendingKill());
 		}
@@ -996,8 +998,8 @@ TEST_F(FWorldSubsystemTests, TransitionOwnsTargetAcrossEndPlayAndPreservesNextRe
 	FSubsystemProbeA::Callback = [&](FSubsystemProbeA&, std::string_view Event) {
 		if (Event != "End" || bRequested) return;
 		bRequested = true;
-		EXPECT_TRUE(IsGarbageCollectionDeferred());
-		CollectGarbage();
+
+		RequestGarbageCollection();
 		EXPECT_TRUE(IsGarbageCollectionRequested());
 		EXPECT_FALSE(Second->IsPendingKill());
 		EXPECT_FALSE(World->SetCurrentLevel(Third));
@@ -1007,13 +1009,13 @@ TEST_F(FWorldSubsystemTests, TransitionOwnsTargetAcrossEndPlayAndPreservesNextRe
 	World->Tick({});
 	EXPECT_EQ(World->GetCurrentLevel(), Second);
 	EXPECT_FALSE(Second->IsPendingKill());
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_FALSE(Third->IsPendingKill());
 	World->Tick({});
 	EXPECT_EQ(World->GetCurrentLevel(), Third);
 }
 
-TEST_F(FWorldSubsystemTests, TickDefersCollectionAndRejectsRecursiveWorldOperations)
+TEST_F(FWorldSubsystemTests, TickRequestsCollectionAndRejectsRecursiveWorldOperations)
 {
 	FWorldSubsystemRegistration A({.Type = FSubsystemProbeA::StaticClass()});
 	auto* World = MakeWorld(); ASSERT_NO_THROW(World->InitializeSubsystems());
@@ -1029,14 +1031,15 @@ TEST_F(FWorldSubsystemTests, TickDefersCollectionAndRejectsRecursiveWorldOperati
 		EXPECT_FALSE(World->BeginPlay({}));
 		EXPECT_TRUE(World->HasBegunPlay());
 		MarkAsGarbage(Garbage.Get());
-		CollectGarbage();
+		RequestGarbageCollection();
+		EXPECT_TRUE(IsGarbageCollectionRequested());
 		EXPECT_NE(Garbage.Get(), nullptr);
 	};
 	World->Tick({});
 	EXPECT_EQ(Ticks, 1);
 	EXPECT_FALSE(World->HasBegunPlay());
-	EXPECT_FALSE(IsGarbageCollectionDeferred());
-	CollectGarbage();
+
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Garbage.Get(), nullptr);
 	ASSERT_TRUE(World->BeginPlay({}));
 	FSubsystemProbeA::Callback = {};
@@ -1057,7 +1060,7 @@ TEST_F(FWorldSubsystemTests, EndPlayCanQueueReturnToOriginalLevelDuringTransitio
 	ASSERT_TRUE(World->RequestLevelTransition(Second, false));
 	World->Tick({});
 	EXPECT_EQ(World->GetCurrentLevel(), Second);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_FALSE(First->IsPendingKill());
 	World->Tick({});
 	EXPECT_EQ(World->GetCurrentLevel(), First);
@@ -1084,6 +1087,8 @@ TEST_F(FWorldSubsystemTests, ExceptionRollsBackFailedObjectBeforeDependencies)
 	FWorldSubsystemRegistration B({.Type = FSubsystemProbeB::StaticClass()});
 	std::vector<DClass*> Cleanup;
 	FSubsystemProbeA::Callback = [&](FSubsystemProbeA& Object, std::string_view Event) {
+		RequestGarbageCollection();
+		EXPECT_TRUE(IsGarbageCollectionRequested());
 		if (Event == "Init" && Object.GetClass() == FSubsystemProbeB::StaticClass()) throw std::runtime_error("fixture");
 		if (Event == "Deinit") Cleanup.push_back(Object.GetClass());
 	};
@@ -1219,7 +1224,7 @@ TEST_F(FWorldSubsystemTests, UninitializedSubsystemGcDoesNotRetireHosts)
 	TWeakObjectPtr<FEditorSubsystemProbe> EditorObject(NewObject<FEditorSubsystemProbe>(Host.Get(), "UninitializedEditorService"));
 	TWeakObjectPtr<FSubsystemProbeA> WorldObject(NewObject<FSubsystemProbeA>(World, "UninitializedWorldService"));
 	MarkAsGarbage(EngineObject.Get()); MarkAsGarbage(EditorObject.Get()); MarkAsGarbage(WorldObject.Get());
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_FALSE(EngineObject.IsValid()); EXPECT_FALSE(EditorObject.IsValid()); EXPECT_FALSE(WorldObject.IsValid());
 	EXPECT_EQ(0, Cleanups);
 	EXPECT_TRUE(Host->AreSubsystemsInitialized());
@@ -1247,8 +1252,8 @@ TEST_F(FWorldSubsystemTests, DeinitializedEngineAndWorldObjectsDoNotShutDownThei
 	EngineCollection.Deinitialize(); WorldCollection.Deinitialize();
 	EXPECT_TRUE(IsValid(EngineService.Get())); EXPECT_TRUE(IsValid(WorldService.Get()));
 	EXPECT_FALSE(EngineService->IsGarbage()); EXPECT_FALSE(WorldService->IsGarbage());
-	CollectGarbage(); EXPECT_TRUE(WeakEngine.IsValid()); EXPECT_TRUE(WeakWorld.IsValid());
-	EngineService.Reset(); WorldService.Reset(); CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_TRUE(WeakEngine.IsValid()); EXPECT_TRUE(WeakWorld.IsValid());
+	EngineService.Reset(); WorldService.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_FALSE(WeakEngine.IsValid()); EXPECT_FALSE(WeakWorld.IsValid());
 	EXPECT_TRUE(Host->AreSubsystemsInitialized());
 	EXPECT_TRUE(World->AreSubsystemsInitialized());
@@ -1360,7 +1365,7 @@ TEST_F(FWorldSubsystemTests, OneEditorKeepsServicesAcrossEditorPlayAndPreviewWor
 		EXPECT_EQ(First->GetEditorSubsystem<FEditorSubsystemProbe>(), EditorService);
 		EXPECT_EQ(&First->GetNotificationManager(), Notifications);
 	}
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(First->GetSubsystem<FEngineSubsystemProbe>(), EngineService);
 	EXPECT_EQ(First->GetEditorSubsystem<FEditorSubsystemProbe>(), EditorService);
 	PreviewWorld->CleanupWorld();
@@ -1520,7 +1525,7 @@ TEST_F(FWorldSubsystemTests, NotificationServiceOwnsFacadeAndRejectsRetainedActi
 	Host->PreExit();
 
 	EXPECT_EQ(Host->GetEditorSubsystem<DEditorNotificationSubsystem>(), nullptr);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	Action->Invoke();
 	EXPECT_FALSE(Action->IsEnabled());
 	EXPECT_EQ(Invocations, 0);
@@ -1629,7 +1634,7 @@ TEST_F(FWorldSubsystemTests, HostGarbageFallbackRetiresWorldAndServiceCollection
 		FEditorSubsystemProbe::Callback = [&](auto&, bool bInit) { if (!bInit) CleanupOrder.emplace_back("editor"); };
 		FSubsystemProbeA::Callback = [&](auto&, std::string_view Event) { if (Event == "Deinit") CleanupOrder.emplace_back("world"); };
 	}
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ((std::vector<std::string>{"world", "editor", "engine"}), CleanupOrder);
 
 
@@ -1835,11 +1840,16 @@ TEST_F(FWorldSubsystemTests, EngineDispatchesWorldlessBatchBeforeApplyingShutdow
 	std::vector<std::string> Events;
 	FTickableProbe WorldObject(World), Global, Later;
 	WorldObject.Callback = [&] { Events.emplace_back("World"); };
-	Global.Callback = [&] { Events.emplace_back("Global"); Host->RequestShutdown(); };
+	TWeakObjectPtr<DObject> Garbage(NewObject<DObject>(nullptr, "WorldlessCallbackGarbage"));
+	Global.Callback = [&] { Events.emplace_back("Global"); Host->ForceGarbageCollection(); Host->RequestShutdown(); };
 	Later.Callback = [&] { Events.emplace_back("Later"); };
 	Host->Tick(0.25f, false);
 	EXPECT_EQ(Events, (std::vector<std::string>{"World", "Global", "Later"}));
 	EXPECT_EQ(Later.Ticks, 1);
+	EXPECT_TRUE(Garbage.IsValid());
+	EXPECT_TRUE(IsGarbageCollectionRequested());
+	CollectGarbage(Durin::EObjectFlags::Standalone);
+	EXPECT_FALSE(Garbage.IsValid());
 	Host->Tick(0.25f, false);
 	EXPECT_EQ(Global.Ticks, 1);
 	Host->PreExit();

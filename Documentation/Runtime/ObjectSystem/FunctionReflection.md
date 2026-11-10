@@ -271,9 +271,9 @@ Later struct registration therefore cannot leave a permanently pruned parameter
 subtree. Weak/soft leaves emit no operation. Failed layout validation publishes
 neither parameter indexes nor a parameter reference schema.
 
-`ProcessEvent` runs on the game thread, defers physical GC throughout the native call, and restores the
-deferral state on exceptions. This protects borrowed aggregates, the target,
-native by-value copies, and temporary return values while C++ executes. A GC
+`ProcessEvent` runs on the game thread. Its callbacks must not execute GC or
+reenter host safe points while borrowed aggregates, the target, native by-value
+copies and temporary return values remain on the call stack. A GC
 request made inside a function remains pending for a later safe point. Borrowed
 storage is not registered after return; retain its objects through an owned
 buffer or another normal strong owner before allowing collection. Neither

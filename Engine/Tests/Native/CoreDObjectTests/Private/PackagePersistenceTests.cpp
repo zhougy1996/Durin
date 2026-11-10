@@ -112,7 +112,7 @@ namespace
 			PackageSavePrivate::SetAsyncSaveAdmission(true);
 			ShutdownTaskSystem(ETaskShutdownMode::Drain);
 			MarkObjectHierarchyAsGarbage(Package);
-			CollectGarbage();
+			CollectGarbage(Durin::EObjectFlags::Standalone);
 		}
 		auto Read() -> ObjectPackage::FLinkerTables
 		{

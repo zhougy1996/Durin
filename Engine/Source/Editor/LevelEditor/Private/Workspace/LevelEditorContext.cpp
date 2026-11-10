@@ -1,4 +1,5 @@
 #include "Workspace/LevelEditorContext.h"
+#include "DObject/ObjectLifecycle.h"
 
 #include "Engine/World.h"
 #include "Engine/Level.h"

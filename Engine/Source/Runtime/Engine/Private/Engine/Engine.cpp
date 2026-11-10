@@ -1,4 +1,8 @@
 #include "Engine/Engine.h"
+#include "Threading/RunnableThread.h"
+
+#include "GarbageCollectionScheduler.h"
+#include "DObject/ObjectLifecycle.h"
 #include "Engine/AssetManager.h"
 #include "Misc/Project.h"
 #include "Engine/MapChangeHandler.h"
@@ -335,6 +339,16 @@ namespace Durin
 
 	}
 
+	auto DEngine::ForceGarbageCollection(bool bForcePurge) -> void
+	{
+		RequestGarbageCollection(bForcePurge);
+	}
+
+	auto DEngine::ConditionalCollectGarbage() -> void
+	{
+		Private::ConditionalCollectGarbage(LastGCFrame);
+	}
+
 	auto DEngine::AreHostConsumersIdle() -> bool
 	{
 		for (const auto& Context : WorldContexts)
@@ -364,7 +378,7 @@ namespace Durin
 		requiref(AreHostConsumersIdle() && !EngineSubsystems.IsPopulating(), "PreExit requires an idle host; callbacks must request shutdown.");
 		bPreparingShutdown = true;
 		struct FReset { bool& Flag; ~FReset() { Flag = false; } } Reset{bPreparingShutdown};
-		FGarbageCollectionDeferralScope Deferral;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		// Close external admission once; later calls only finish deferred teardown.
 		RequestShutdown();
 		RetireHostConsumers();

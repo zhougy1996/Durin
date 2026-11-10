@@ -113,7 +113,7 @@ TEST(FWorldTickSchedulingTests, TicksOwnerBeforeSameGroupComponentAndKeepsCompon
 	EXPECT_EQ(Events, (std::vector<std::string>{"Component"}));
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTickSchedulingTests, SelfDestructionCancelsFutureTicks)
@@ -138,7 +138,7 @@ TEST(FWorldTickSchedulingTests, SelfDestructionCancelsFutureTicks)
 	EXPECT_EQ(TickCount, 1u);
 	EXPECT_FALSE(Actor->IsInstanceComponent(Component));
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTickSchedulingTests, SiblingDestructionSkipsTheCancelledQueueSlot)
@@ -163,7 +163,7 @@ TEST(FWorldTickSchedulingTests, SiblingDestructionSkipsTheCancelledQueueSlot)
 	EXPECT_EQ(TargetTicks, 0u);
 	EXPECT_FALSE(Actor->IsInstanceComponent(Target));
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTickSchedulingTests, AddedSameGroupComponentStartsOnTheNextFrame)
@@ -189,7 +189,7 @@ TEST(FWorldTickSchedulingTests, AddedSameGroupComponentStartsOnTheNextFrame)
 	EXPECT_EQ(AddedTicks, 1u);
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTickSchedulingTests, DisableEnableCannotReviveAStaleQueueSlot)
@@ -220,7 +220,7 @@ TEST(FWorldTickSchedulingTests, DisableEnableCannotReviveAStaleQueueSlot)
 	EXPECT_EQ(TargetTicks, 1u);
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTickSchedulingTests, UnregisterRegisterCannotReviveAStaleQueueSlot)
@@ -252,7 +252,7 @@ TEST(FWorldTickSchedulingTests, UnregisterRegisterCannotReviveAStaleQueueSlot)
 	EXPECT_EQ(TargetTicks, 1u);
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTickSchedulingTests, FutureGroupRegistrationExecutesInTheSameFrame)
@@ -285,7 +285,7 @@ TEST(FWorldTickSchedulingTests, FutureGroupRegistrationExecutesInTheSameFrame)
 	EXPECT_EQ(Added.size(), 32u);
 	EXPECT_EQ(PhysicsTicks, 32u);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTickSchedulingTests, RunsGroupsInSerialOrder)
@@ -312,7 +312,7 @@ TEST(FWorldTickSchedulingTests, RunsGroupsInSerialOrder)
 
 	EXPECT_EQ(Events, (std::vector<std::string>{"PrePhysics", "Physics", "PostPhysics"}));
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTickSchedulingTests, OwnerDestructionStopsRemainingComponentTicks)
@@ -337,7 +337,7 @@ TEST(FWorldTickSchedulingTests, OwnerDestructionStopsRemainingComponentTicks)
 	EXPECT_EQ(TargetTicks, 0u);
 	EXPECT_FALSE(World->ContainsActor(Actor));
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTickSchedulingTests, PendingLevelTransitionStopsTheActiveGroup)
@@ -366,7 +366,7 @@ TEST(FWorldTickSchedulingTests, PendingLevelTransitionStopsTheActiveGroup)
 	World->Tick({});
 	EXPECT_EQ(World->GetCurrentLevel(), Replacement);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTickSchedulingTests, LargeRegisteredSetExecutesExactlyOncePerFrame)
@@ -389,5 +389,5 @@ TEST(FWorldTickSchedulingTests, LargeRegisteredSetExecutesExactlyOncePerFrame)
 	EXPECT_EQ(TickCount, ComponentCount * 2);
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }

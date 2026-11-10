@@ -60,5 +60,5 @@ TEST(FMaterialProgramPublicationTests,
 
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }

@@ -93,7 +93,7 @@ TEST(FMaterialParameterPanelModelTests, BuildsControlsAndResolvedSourceFromRunti
 	Durin::MarkAsGarbage(Child);
 	Durin::MarkAsGarbage(Parent);
 	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialParameterPanelModelTests, IntegerPresentationCanonicalizesSubmittedValues)
@@ -127,7 +127,7 @@ TEST(FMaterialParameterPanelModelTests, IntegerPresentationCanonicalizesSubmitte
 	EXPECT_TRUE(Transactions->TryReset());
 	Durin::MarkAsGarbage(Material);
 	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialParameterPanelModelTests, EnablingOverrideCopiesTheParameterType)
@@ -157,7 +157,7 @@ TEST(FMaterialParameterPanelModelTests, EnablingOverrideCopiesTheParameterType)
 	EXPECT_TRUE(Transactions->TryReset());
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialParameterPanelModelTests, GuidRootEditsSurviveIndexChangesAndCoalesceOrCancel)
@@ -220,7 +220,7 @@ TEST(FMaterialParameterPanelModelTests, GuidRootEditsSurviveIndexChangesAndCoale
 	EXPECT_TRUE(Transactions->TryReset());
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialParameterPanelModelTests, ResetAndOrphanRemovalAreTransactional)
@@ -263,7 +263,7 @@ TEST(FMaterialParameterPanelModelTests, ResetAndOrphanRemovalAreTransactional)
 	EXPECT_TRUE(Transactions->TryReset());
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialParameterPanelModelTests, BaseAndTexturePickerValuesUseSharedUndoHistory)
@@ -344,7 +344,7 @@ TEST(FMaterialParameterPanelModelTests, BaseAndTexturePickerValuesUseSharedUndoH
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
 	Durin::MarkAsGarbage(Texture);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialParameterPanelModelTests, GraphDefaultSessionsRemainParameterScoped)
@@ -388,7 +388,7 @@ TEST(FMaterialParameterPanelModelTests, GraphDefaultSessionsRemainParameterScope
 
 	EXPECT_TRUE(Transactions->TryReset());
 	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 
@@ -436,7 +436,7 @@ TEST(FMaterialParameterPanelModelTests, RefreshReusesDependenciesAndInvalidatesF
 	Durin::MarkAsGarbage(Parent);
 	Durin::MarkAsGarbage(Base);
 	Durin::MarkAsGarbage(OtherBase);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialParameterPanelModelTests, ReflectedDefaultEditsRefreshValuesWithoutInvalidatingDependencies)
@@ -472,7 +472,7 @@ TEST(FMaterialParameterPanelModelTests, ReflectedDefaultEditsRefreshValuesWithou
 	EXPECT_TRUE(Transactions->TryReset());
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialParameterPanelModelTests, RootPanelIncludesUnreachableCustomDefaults)
@@ -496,7 +496,7 @@ TEST(FMaterialParameterPanelModelTests, RootPanelIncludesUnreachableCustomDefaul
 	EXPECT_EQ(Entry.Value.GetVector4(), Durin::FVector4(1, 2, 3, 4));
 	EXPECT_FALSE(Entry.bOrphan);
 	Durin::MarkAsGarbage(Material);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialParameterPanelModelTests, TypedResourceOutputsSkipUnusedUVDependencies)

@@ -1041,10 +1041,9 @@ TEST(DFunctionReflectionTests, StructParameterExceptionRestoresFrameAndDestroysO
 		EXPECT_EQ(Buffer.GetParameter<FFunctionPayload>(0).Text, "changed");
 		EXPECT_TRUE(Buffer.GetReturnValue<FFunctionPayload>().Text.empty());
 		EXPECT_EQ(FFunctionFrame::GetCurrentFrame(), nullptr);
-		EXPECT_FALSE(IsGarbageCollectionDeferred());
 	}
 	EXPECT_EQ(FFunctionPayload::Live, Baseline);
-	CollectGarbage(); // Also exercises removal of an exception-unwound buffer from GC roots.
+	CollectGarbage(Durin::EObjectFlags::Standalone); // Also exercises removal of an exception-unwound buffer from GC roots.
 }
 
 TEST(DFunctionReflectionTests, LiveBuffersKeepNestedObjectInputsOutputsAndReturnsReachable)
@@ -1061,16 +1060,16 @@ TEST(DFunctionReflectionTests, LiveBuffersKeepNestedObjectInputsOutputsAndReturn
 		auto& Input = Buffer.GetParameter<FPayloadMap>(0);
 		Input["input"].resize(1);
 		Input["input"][0].Objects.emplace_back(ResolveObjectKey(Key));
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		ASSERT_TRUE(IsValid(ResolveObjectKey(Key)));
 		ASSERT_EQ(Target->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
 		Input.clear();
 		Buffer.GetParameter<FPayloadMap>(1).clear();
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		ASSERT_TRUE(IsValid(ResolveObjectKey(Key))); // Only the nested return slots retain it now.
 		EXPECT_EQ(Buffer.GetReturnValue<FPayloadMap>().at("result")[0].Objects[0].Get(), ResolveObjectKey(Key));
 	}
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(ResolveObjectKey(Key), nullptr);
 }
 
@@ -1089,7 +1088,7 @@ TEST(DFunctionReflectionTests, CachedParameterSchemaObservesLaterStructRegistrat
 	{
 		FFunctionParameterBuffer First(*Function), Second(*Function);
 		First.GetParameter<FValues>(0).resize(1);
-		CollectGarbage(); // Assemble an empty, provisional struct schema after the function cache is published.
+		CollectGarbage(Durin::EObjectFlags::Standalone); // Assemble an empty, provisional struct schema after the function cache is published.
 		First.GetParameter<FValues>(0).clear();
 		TNativePropertyParams<TObjectPtr<DObject>> Object("Object", offsetof(FDeferredFunctionPayload, Object));
 		TNativePropertyParams<DObject*> Raw("Raw", offsetof(FDeferredFunctionPayload, Raw));
@@ -1104,17 +1103,17 @@ TEST(DFunctionReflectionTests, CachedParameterSchemaObservesLaterStructRegistrat
 		Second.GetParameter<FValues>(0).push_back({ResolveObjectKey(SecondKey), nullptr});
 		for (int Pass = 0; Pass < 3; ++Pass)
 		{
-			CollectGarbage();
+			CollectGarbage(Durin::EObjectFlags::Standalone);
 			ASSERT_NE(ResolveObjectKey(FirstKey), nullptr);
 			ASSERT_NE(ResolveObjectKey(SecondKey), nullptr);
 			EXPECT_EQ(ResolveObjectKey(ObserverKey), nullptr);
 		}
 		First.GetParameter<FValues>(0).clear();
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(ResolveObjectKey(FirstKey), nullptr);
 		ASSERT_NE(ResolveObjectKey(SecondKey), nullptr);
 		Second.GetParameter<FValues>(0).clear();
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(ResolveObjectKey(SecondKey), nullptr);
 	}
 }
@@ -1137,20 +1136,20 @@ TEST(DFunctionReflectionTests, CachedReturnSchemaRunsNativeStructCollectorsWitho
 		Buffer.GetReturnValue<FNativeReferenceFunctionPayload>().Object = ResolveObjectKey(Key);
 		for (int Pass = 0; Pass < 3; ++Pass)
 		{
-			CollectGarbage();
+			CollectGarbage(Durin::EObjectFlags::Standalone);
 			ASSERT_NE(ResolveObjectKey(Key), nullptr);
 		}
 	}
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(ResolveObjectKey(Key), nullptr);
 }
 
-TEST(DFunctionReflectionTests, BorrowedObjectCallDefersCollectionAndOwnedReturnSurvivesSafePoint)
+TEST(DFunctionReflectionTests, BorrowedObjectCallRequestsCollectionAndOwnedReturnSurvivesSafePoint)
 {
 	Testing::InitializeDObjectSystemForTests();
 	using namespace FunctionFixtures;
 	TStrongObjectPtr<DParameterTarget> Target(NewObject<DParameterTarget>(nullptr, "GcDuringFunction"));
-	const auto* Function = Target->GetClass()->FindFunctionByName("CollectDuringCall");
+	const auto* Function = Target->GetClass()->FindFunctionByName("RequestCollectionDuringCall");
 	ASSERT_NE(Function, nullptr);
 	const FObjectKey Key(NewObject<DObject>(nullptr, "BorrowedParameterOnlyObject"));
 	{
@@ -1158,16 +1157,15 @@ TEST(DFunctionReflectionTests, BorrowedObjectCallDefersCollectionAndOwnedReturnS
 		Arguments.Values.push_back(ResolveObjectKey(Key));
 		EXPECT_EQ(Target->ProcessEvent(Function, std::as_writable_bytes(std::span{&Arguments, 1})), EFunctionInvokeError::None);
 		EXPECT_TRUE(IsGarbageCollectionRequested());
-		EXPECT_FALSE(IsGarbageCollectionDeferred());
 		ASSERT_TRUE(IsValid(ResolveObjectKey(Key)));
 		EXPECT_EQ(Arguments.ReturnValue, Arguments.Values);
 		// Copy the returned object into an owned buffer before permitting collection.
 		FFunctionParameterBuffer Buffer(*Function);
 		Buffer.GetReturnValue<std::vector<DObject*>>() = Arguments.ReturnValue;
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_TRUE(IsValid(ResolveObjectKey(Key)));
 	}
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(ResolveObjectKey(Key), nullptr);
 }
 
@@ -1302,7 +1300,7 @@ TEST(DFunctionReflectionTests, LoadedSoftReferencesInEnumMapsDoNotKeepAssetsAliv
 	EXPECT_EQ(Buffer.GetReturnValue<FSoftMap>().at(EFunctionState::High)[0].Get(), Asset.Get());
 	Buffer.GetParameter<FSoftMap>(0).clear();
 	Asset.Reset();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(ResolveObjectKey(Key), nullptr);
 	const auto& Returned = Buffer.GetReturnValue<FSoftMap>().at(EFunctionState::High)[0];
 	EXPECT_EQ(Returned.Get(), nullptr);
@@ -1329,7 +1327,7 @@ TEST(DFunctionReflectionTests, WeakReferenceInputsOutputsAndReturnsRemainNonowni
 	const auto* Property = static_cast<const FWeakObjectProperty*>(Function->GetReturnProperty());
 	EXPECT_EQ(Property->GetWeakObjectPtr(Buffer.GetView().data()), &Buffer.GetReturnValue<FWeak>().GetBase());
 	Value.Reset();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(ResolveObjectKey(Key), nullptr);
 	EXPECT_FALSE(Buffer.GetParameter<FWeak>(0).IsValid());
 	EXPECT_FALSE(Buffer.GetParameter<FWeak>(1).IsValid());
@@ -1355,7 +1353,7 @@ TEST(DFunctionReflectionTests, WeakArrayReturnDoesNotBecomeAStrongReference)
 	Buffer.GetParameter<FWeakArray>(0).emplace_back(ResolveObjectKey(Key));
 	EXPECT_EQ(Target->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
 	Buffer.GetParameter<FWeakArray>(0).clear();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(ResolveObjectKey(Key), nullptr);
 	ASSERT_EQ(Buffer.GetReturnValue<FWeakArray>().size(), 1u);
 	EXPECT_EQ(Buffer.GetReturnValue<FWeakArray>()[0].GetKey(), Key);
@@ -1514,7 +1512,7 @@ TEST(DFunctionReflectionTests, FunctionMetadataIsAStructBaseWithLocallyOwnedPara
 	EXPECT_TRUE(Function->GetParameterProperty(1)->HasAnyPropertyFlags(EPropertyFlags::ConstParm));
 	EXPECT_TRUE(Function->GetParameterProperty(2)->HasAnyPropertyFlags(EPropertyFlags::OutParm));
 	EXPECT_EQ(Function->GetSuperStructBase(), nullptr);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_TRUE(IsValid(Function));
 }
 

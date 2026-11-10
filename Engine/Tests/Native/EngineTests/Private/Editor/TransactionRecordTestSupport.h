@@ -311,7 +311,7 @@ namespace Durin::Tests::ObjectState
 			if (CaptureTrace) CaptureTrace->push_back("annotation");
 			auto Annotation = std::make_shared<FRecordTestAnnotation>(SupplementalValue, AnnotationReference, AnnotationBytes);
 			Annotation->bReportChanges = bReportAnnotationChanges;
-			if (bCollectDuringAnnotation) Durin::CollectGarbage();
+			if (bRequestCollectionDuringAnnotation) Durin::RequestGarbageCollection();
 			return Annotation;
 		}
 		auto PostEditUndo(std::shared_ptr<Durin::ITransactionObjectAnnotation> Annotation) -> void override
@@ -326,7 +326,7 @@ namespace Durin::Tests::ObjectState
 		std::vector<std::string>* CaptureTrace = nullptr;
 		mutable uint32 AnnotationCaptures = 0;
 		size_t AnnotationBytes = sizeof(FRecordTestAnnotation);
-		bool bAnnotationEnabled = false, bCollectDuringAnnotation = false, bReportAnnotationChanges = false;
+		bool bAnnotationEnabled = false, bRequestCollectionDuringAnnotation = false, bReportAnnotationChanges = false;
 		int32 SupplementalValue = 0, AnnotationCompletions = 0;
 		Durin::DObject* AnnotationReference = nullptr;
 		int32 UndoBegins = 0;

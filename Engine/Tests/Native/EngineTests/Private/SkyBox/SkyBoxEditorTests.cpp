@@ -148,7 +148,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 	World->SetRenderScene(nullptr);
 	Durin::FlushRenderingCommands();
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	Engine.ResetTestScene();
 	Durin::GEngine = nullptr;
 	ASSERT_TRUE(Durin::UnloadPackage(
@@ -243,7 +243,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 	World->SetRenderScene(nullptr);
 	Durin::FlushRenderingCommands();
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	Engine.ResetTestScene();
 	Durin::GEngine = nullptr;
 	ASSERT_TRUE(Durin::UnloadPackage(LevelPath));

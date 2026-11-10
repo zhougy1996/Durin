@@ -29,7 +29,7 @@ TEST(FTransactionObjectRecordTests, CollectorTraversalRetainsTargetAndHardRefere
 	Target->Hard = nullptr;
 	Target->Weak = nullptr;
 
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_TRUE(Contains(Target));
 	EXPECT_TRUE(Contains(Outer));
 	EXPECT_TRUE(Contains(Hard));
@@ -40,7 +40,7 @@ TEST(FTransactionObjectRecordTests, CollectorTraversalRetainsTargetAndHardRefere
 	const Durin::FObjectKey OuterHandle = Durin::FObjectKey(Outer);
 	const Durin::FObjectKey HardHandle = Durin::FObjectKey(Hard);
 	Owner->Records.clear();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Durin::ResolveObjectKey(TargetHandle), nullptr);
 	EXPECT_EQ(Durin::ResolveObjectKey(OuterHandle), nullptr);
 	EXPECT_EQ(Durin::ResolveObjectKey(HardHandle), nullptr);
@@ -55,7 +55,7 @@ TEST(FTransactionObjectRecordTests, MarkedGarbageTargetIsNotRescued)
 	Owner->Records.push_back(CaptureRecord(Target));
 	const Durin::FObjectKey Handle = Durin::FObjectKey(Target);
 	Durin::MarkAsGarbage(Target);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Durin::ResolveObjectKey(Handle), nullptr);
 	EXPECT_EQ(Owner->Records.front().GetTarget().Resolve(), nullptr);
 }

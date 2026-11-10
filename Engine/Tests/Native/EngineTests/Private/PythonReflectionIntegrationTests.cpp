@@ -55,8 +55,8 @@ namespace
             AReflectionLifecycleActor::LoadCallback = {};
             Runtime.Stop();
             if (Host) { Host->PreExit(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); }
-            First.reset(); Second.reset(); CollectGarbage();
-            if (ScenePackage) { MarkObjectHierarchyAsGarbage(ScenePackage.Get()); ScenePackage.Reset(); CollectGarbage(); }
+            First.reset(); Second.reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
+            if (ScenePackage) { MarkObjectHierarchyAsGarbage(ScenePackage.Get()); ScenePackage.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone); }
         }
         static auto Register(DClass* Type) -> std::unique_ptr<FEditorSubsystemRegistration>
         { return std::make_unique<FEditorSubsystemRegistration>(FSubsystemDescriptor{.Type = Type, .Provider = "DurinPython"}); }
@@ -1012,9 +1012,9 @@ builtins.proxy = durin.get_editor_subsystem(durin.ReflectionService)
 builtins.reflected = builtins.proxy.add
 builtins.value = durin.ReflectionValue(target=builtins.proxy)
 )");
-        CollectGarbage();
+        CollectGarbage(Durin::EObjectFlags::Standalone);
         Pass("assert builtins.reflected(1) == 6\nassert builtins.value.target is builtins.proxy");
-        ASSERT_NO_THROW(Host->RemoveEditorSubsystem(DReflectionService::StaticClass())); First.reset(); CollectGarbage();
+        ASSERT_NO_THROW(Host->RemoveEditorSubsystem(DReflectionService::StaticClass())); First.reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
         Pass(R"(
 for operation in (lambda: builtins.reflected(1), lambda: builtins.value.target):
     try:
@@ -1027,7 +1027,7 @@ for operation in (lambda: builtins.reflected(1), lambda: builtins.value.target):
     }
     TEST_F(PythonReflectionTests, SameHostJobsAndSessionsReuseRetainedObjects)
     {
-        Save(); CollectGarbage();
+        Save(); CollectGarbage(Durin::EObjectFlags::Standalone);
         const auto Other = Runtime.CreateSession(Tools->GetService()); ASSERT_TRUE(Other);
         auto Result = Run("assert builtins.proxy is durin.get_editor_subsystem(durin.ReflectionService)\nassert builtins.cached() == builtins.proxy.get_name()", *Other);
         EXPECT_EQ(Result.State, EPythonJobState::Succeeded) << Result.Error;
@@ -1057,7 +1057,7 @@ else:
     TEST_F(PythonReflectionTests, RetiredServiceAccessPurgesProxyRootsAndCannotReviveCachedBoundMethods)
     {
         Save(); TWeakObjectPtr<DReflectionService> Old(Host->GetEditorSubsystem<DReflectionService>());
-        ASSERT_NO_THROW(Host->RemoveEditorSubsystem(DReflectionService::StaticClass())); First.reset(); CollectGarbage(); EXPECT_TRUE(Old.IsValid());
+        ASSERT_NO_THROW(Host->RemoveEditorSubsystem(DReflectionService::StaticClass())); First.reset(); CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_TRUE(Old.IsValid());
         First = Register(DReflectionService::StaticClass()); ASSERT_NO_THROW(Host->AddRegisteredEditorSubsystems());
         Pass(R"(
 assert hash(builtins.proxy) == builtins.identity
@@ -1069,7 +1069,7 @@ except ReferenceError:
 else:
     raise AssertionError('retired proxy revived')
 )");
-        CollectGarbage(); EXPECT_FALSE(Old.IsValid());
+        CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_FALSE(Old.IsValid());
     }
 
     TEST_F(PythonReflectionTests, DetachedValuesRejectAndReleaseRetiredServiceReferences)
@@ -1077,7 +1077,7 @@ else:
         Pass("builtins.value = durin.ReflectionValue(target=durin.get_editor_subsystem(durin.ReflectionService))");
         TWeakObjectPtr<DReflectionService> Old(Host->GetEditorSubsystem<DReflectionService>());
         Host->RemoveEditorSubsystem(DReflectionService::StaticClass()); First.reset();
-        CollectGarbage(); EXPECT_TRUE(Old.IsValid());
+        CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_TRUE(Old.IsValid());
         Pass(R"(
 try:
     builtins.value.text
@@ -1086,7 +1086,7 @@ except ReferenceError:
 else:
     raise AssertionError('value containing a retired service remained usable')
 )");
-        CollectGarbage(); EXPECT_FALSE(Old.IsValid());
+        CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_FALSE(Old.IsValid());
     }
     TEST_F(PythonReflectionTests, ExplicitDestructionInvalidatesProxyBeforeCollection)
     {
@@ -1112,12 +1112,12 @@ else:
             EXPECT_TRUE(IsGarbageCollecting());
         });
         ASSERT_NO_THROW(Host->RemoveEditorSubsystem(DReflectionService::StaticClass())); First.reset(); EXPECT_FALSE(Observed);
-        Retained.Reset(); CollectGarbage(); EXPECT_TRUE(Observed);
+        Retained.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_TRUE(Observed);
     }
     TEST_F(PythonReflectionTests, HostCloseReleasesRetainedWrapperRoots)
     {
         Save(); TWeakObjectPtr<DReflectionService> Service(Host->GetEditorSubsystem<DReflectionService>());
-        Host->PreExit(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); CollectGarbage();
+        Host->PreExit(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
         EXPECT_FALSE(Service.IsValid()); Runtime.Stop();
     }
     TEST_F(PythonReflectionTests, InterpreterRestartRebuildsNativeTypesAndFactories)

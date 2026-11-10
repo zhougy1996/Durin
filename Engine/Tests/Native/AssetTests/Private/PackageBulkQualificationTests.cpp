@@ -20,7 +20,7 @@ namespace
 		Durin::Testing::InitializeDObjectSystemForTests();
 		(void)DBulkPackageAssetForTest::StaticClass();
 		Durin::ShutdownAssetRuntime();
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		const auto Root = Durin::Testing::CreateTestFixtureDirectory("BulkQualification");
 		Durin::Testing::RegisterMountPointForTests("/TestAssets/", Root.generic_string() + "/");
 		Durin::InitializeAssetRuntime();
@@ -41,7 +41,7 @@ namespace
 		auto TearDown() -> void override
 		{
 			Durin::ShutdownAssetRuntime();
-			Durin::CollectGarbage();
+			Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 			if (bOwnsScheduler) Durin::ShutdownTaskScheduler(true);
 		}
 

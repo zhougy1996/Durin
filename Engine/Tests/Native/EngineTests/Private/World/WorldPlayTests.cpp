@@ -19,7 +19,7 @@ TEST(FWorldTests, StartsWithoutALevelAndActorOperationsAreSafe)
 	EXPECT_FALSE(World->DestroyActor(nullptr));
 	World->DestroyAllActors();
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTests, DuplicatesLevelForPlayWithoutDuplicatingExternalAssets)
@@ -59,7 +59,7 @@ TEST(FWorldTests, DuplicatesLevelForPlayWithoutDuplicatingExternalAssets)
 	EXPECT_TRUE(Durin::IsValid(SharedMesh));
 	Durin::MarkObjectHierarchyAsGarbage(EditorWorld);
 	Durin::MarkAsGarbage(SharedMesh);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FNativeConstructionPIETests, SplineMeshActorRegeneratesTransientSegmentsAndMutatesDuringPlay)
@@ -113,7 +113,7 @@ TEST(FNativeConstructionPIETests, SplineMeshActorRegeneratesTransientSegmentsAnd
 	Durin::MarkObjectHierarchyAsGarbage(PlayWorld);
 	Durin::MarkObjectHierarchyAsGarbage(EditorWorld);
 	Durin::MarkAsGarbage(SharedMesh);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTests, AppliesOnlyEditableRuntimePropertiesBackToTheirEditorObjects)
@@ -148,7 +148,7 @@ TEST(FWorldTests, AppliesOnlyEditableRuntimePropertiesBackToTheirEditorObjects)
 
 	Durin::MarkObjectHierarchyAsGarbage(EditorWorld);
 	Durin::MarkObjectHierarchyAsGarbage(PlayWorld);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTests, TransientLevelMustBeReparentedBeforeCrossingWorldLifetime)
@@ -167,7 +167,7 @@ TEST(FWorldTests, TransientLevelMustBeReparentedBeforeCrossingWorldLifetime)
 	EXPECT_TRUE(Durin::IsValid(Level));
 	Durin::MarkObjectHierarchyAsGarbage(SecondWorld);
 	EXPECT_FALSE(Durin::IsValid(Level));
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTests, SimulatesPhysicsComponentsAndHonorsTheWorldToggle)
@@ -188,7 +188,7 @@ TEST(FWorldTests, SimulatesPhysicsComponentsAndHonorsTheWorldToggle)
 	World->Tick({.DeltaSeconds = 0.5f});
 	ExpectVectorNear(Actor->GetActorTransform().Translation, PausedLocation);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTests, RoutesPlayLifecycleThroughActorsAndComponents)
@@ -212,7 +212,7 @@ TEST(FWorldTests, RoutesPlayLifecycleThroughActorsAndComponents)
 	EXPECT_FALSE(Actor->HasBegunPlay());
 	EXPECT_FALSE(Actor->GetCameraComponent()->HasBegunPlay());
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTests, SpawnsEnumeratesAndFindsActors)
@@ -237,7 +237,7 @@ TEST(FWorldTests, SpawnsEnumeratesAndFindsActors)
 	EXPECT_EQ(Camera->GetCameraComponent()->GetOuter(), Camera);
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FCameraComponentTests, ProjectionParametersAreUpdatedAtomicallyAndClamped)
@@ -264,7 +264,7 @@ TEST(FCameraComponentTests, ProjectionParametersAreUpdatedAtomicallyAndClamped)
 	EXPECT_FLOAT_EQ(Camera->GetCustomAspectRatio(), 10.0f);
 	EXPECT_FLOAT_EQ(Camera->ResolveAspectRatio(4.0f / 3.0f), 10.0f);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FCameraComponentTests, ViewDistanceIsIndependentAndReclampedAgainstFarClip)
@@ -288,7 +288,7 @@ TEST(FCameraComponentTests, ViewDistanceIsIndependentAndReclampedAgainstFarClip)
 	EXPECT_LT(Camera->GetViewFadeStart(), Camera->GetViewRenderDistance());
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FCameraComponentTests, SettingsAndLookAtCommitOnceAndIgnoreEquivalentValues)
@@ -350,7 +350,7 @@ TEST(FCameraComponentTests, SettingsAndLookAtCommitOnceAndIgnoreEquivalentValues
 		Durin::FVectorConstants::Forward);
 
 	Durin::MarkObjectHierarchyAsGarbage(Package);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FCameraEditingTests, SharedTransactionsPreserveAtomicProjectionSemanticsAndStablePaths)
@@ -447,5 +447,5 @@ TEST(FCameraEditingTests, SharedTransactionsPreserveAtomicProjectionSemanticsAnd
 
 	Transactions->Reset();
 	Durin::MarkAsGarbage(Camera);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }

@@ -26,7 +26,7 @@ TEST(FEngineTransactionAnnotationTests, GeneratedComponentEventsFollowSnapshotsA
 	ASSERT_TRUE(Actor->RerunConstructionScripts());
 	EXPECT_EQ(Buffer->End(), 1); ASSERT_EQ(Events.size(), 2u);
 	EXPECT_EQ(Events.back().Type, ETransactionObjectEventType::Finalized);
-	CollectGarbage(); EXPECT_EQ(ResolveObjectKey(Retired), nullptr);
+	CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_EQ(ResolveObjectKey(Retired), nullptr);
 	ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult());
 	ASSERT_EQ(Events.size(), 3u); EXPECT_EQ(Events.back().Operation, ETransactionOperation::Undo);
 	EXPECT_EQ(Scene()->GetRelativeLocation(), FVector3(0.0));
@@ -100,7 +100,7 @@ TEST(FEngineTransactionAnnotationTests, GeneratedAttachmentReferencesUsePathsAnd
 	FActorTransactionAnnotation After(*Actor);
 	EXPECT_TRUE(After.ComputeAdditionalObjectChanges(&Before).empty());
 	EXPECT_EQ(Buffer->End(), 1);
-	CollectGarbage(); EXPECT_EQ(ResolveObjectKey(OldParent), nullptr); EXPECT_EQ(ResolveObjectKey(OldChild), nullptr);
+	CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_EQ(ResolveObjectKey(OldParent), nullptr); EXPECT_EQ(ResolveObjectKey(OldChild), nullptr);
 	ASSERT_TRUE(Child()->DetachFromComponent(EDetachmentTransformRule::KeepRelative));
 	FActorTransactionAnnotation Detached(*Actor);
 	const auto Changes = Detached.ComputeAdditionalObjectChanges(&After);
@@ -127,13 +127,13 @@ TEST(FTransBufferTests, AnnotationReferencesSurviveCallbackCollectionAndReleaseW
 	using namespace Durin; using namespace Durin::Editor;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "AnnotationHistoryReferences"));
-	Target->bAnnotationEnabled = true; Target->bCollectDuringAnnotation = true;
+	Target->bAnnotationEnabled = true; Target->bRequestCollectionDuringAnnotation = true;
 	Target->AnnotationReference = NewObject<DObject>(nullptr, "AnnotationRetainedReference");
 	const auto Key = FObjectKey(Target->AnnotationReference);
 	{ FScopedTransaction Scope(Buffer.Get(), {"test", "Annotation GC"}); ASSERT_TRUE(Target->Modify()); Target->SupplementalValue = 3; }
-	Target->AnnotationReference = nullptr; CollectGarbage(); EXPECT_NE(ResolveObjectKey(Key), nullptr);
-	ASSERT_TRUE(Buffer->Undo()); CollectGarbage(); EXPECT_NE(ResolveObjectKey(Key), nullptr);
-	ASSERT_TRUE(Buffer->TryReset()); CollectGarbage(); EXPECT_EQ(ResolveObjectKey(Key), nullptr);
+	Target->AnnotationReference = nullptr; CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_NE(ResolveObjectKey(Key), nullptr);
+	ASSERT_TRUE(Buffer->Undo()); CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_NE(ResolveObjectKey(Key), nullptr);
+	ASSERT_TRUE(Buffer->TryReset()); CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_EQ(ResolveObjectKey(Key), nullptr);
 }
 
 TEST(FTransBufferTests, CompensatedLoadCompletesWithPreOperationAnnotation)
@@ -257,7 +257,7 @@ TEST(FEngineTransactionAnnotationTests, ActorAndRootRestoreNativeLifecycleOncePe
 		Actor->SetActorTickEnabled(true); Root->SetComponentTickEnabled(true); Root->UnregisterComponent();
 	}
 	const auto Constructions = Actor->ConstructionCalls;
-	Root->bCollectOnRegister = true;
+	Root->bRequestCollectionOnRegister = true;
 	ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult());
 	EXPECT_FALSE(Actor->IsActorTickEnabled()); EXPECT_FALSE(Root->IsComponentTickEnabled()); EXPECT_TRUE(Root->IsRegistered());
 	EXPECT_EQ(Root->Created, 1u); EXPECT_EQ(Root->Registered, 2u); EXPECT_EQ(Root->Initialized, 1u);
@@ -285,8 +285,8 @@ TEST(FEngineTransactionAnnotationTests, GeneratedRootRecreatesWithoutRetainingOl
 		FScopedTransaction Scope(Buffer.Get(), {"test", "Generated root state"}); ASSERT_TRUE(Actor->Modify());
 		Actor->GeneratedCount = 0; ASSERT_TRUE(Actor->RerunConstructionScripts());
 	}
-	EXPECT_EQ(Actor->GetRootComponent(), nullptr); CollectGarbage(); EXPECT_EQ(ResolveObjectKey(OldKey), nullptr);
-	Actor->bCollectDuringConstruction = true;
+	EXPECT_EQ(Actor->GetRootComponent(), nullptr); CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_EQ(ResolveObjectKey(OldKey), nullptr);
+	Actor->bRequestCollectionDuringConstruction = true;
 	ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult());
 	auto* Restored = static_cast<DTransactionLifecycleScene*>(Actor->GetRootComponent()); ASSERT_NE(Restored, nullptr);
 	EXPECT_NE(FObjectKey(Restored), OldKey); EXPECT_EQ(Restored->GetWorldLocation(), BeforeWorld); EXPECT_EQ(Restored->CreatedLocation, FVector3(0.0));

@@ -72,7 +72,7 @@ TEST(FRuntimeTransactionContractTests, ExactReferencePreservesIdentityAndRejects
 	EXPECT_TRUE(Durin::FPersistentObjectRef(Object).IsStale());
 	EXPECT_EQ(Reference.Resolve(), nullptr);
 	EXPECT_TRUE(Reference.IsStale());
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Reference.Resolve(), nullptr);
 	EXPECT_TRUE(Durin::FPersistentObjectRef(Object).IsNull());
 
@@ -80,5 +80,5 @@ TEST(FRuntimeTransactionContractTests, ExactReferencePreservesIdentityAndRejects
 	EXPECT_NE(Durin::FObjectKey(Reused), Reference.GetKey());
 	EXPECT_EQ(Reference.Resolve(), nullptr);
 	Durin::MarkAsGarbage(Reused);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }

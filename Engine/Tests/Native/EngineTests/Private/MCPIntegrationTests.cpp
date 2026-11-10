@@ -55,7 +55,7 @@ namespace
 		auto TearDown() -> void override
 		{
 			Server.Stop(); TestSession.clear(); Registration.Reset(); Toolset.reset();
-			Host->PreExit(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); CollectGarbage();
+			Host->PreExit(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
 		}
 		auto Connect() -> void
 		{
@@ -482,7 +482,7 @@ TEST(FMCPEditorSessionTests, EditorSubsystemStartsAndStopsTransportWithoutMainFr
     struct FCleanup
     {
         TStrongObjectPtr<DEditorEngine>& Editor;
-        ~FCleanup() { Editor->PreExit(); MarkObjectHierarchyAsGarbage(Editor.Get()); Editor.Reset(); CollectGarbage(); }
+        ~FCleanup() { Editor->PreExit(); MarkObjectHierarchyAsGarbage(Editor.Get()); Editor.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone); }
     } Cleanup{Editor};
     ASSERT_NO_THROW(FEditorEngineTestAccess::StartEditor(*Editor));
     ASSERT_NE(Editor->GetEditorSubsystem<DMCPServerSubsystem>(), nullptr);

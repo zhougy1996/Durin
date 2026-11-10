@@ -65,7 +65,7 @@ namespace Durin
 				Scene.reset();
 				Proxy = {};
 				if (Material) MarkAsGarbage(Material);
-				CollectGarbage();
+				CollectGarbage(Durin::EObjectFlags::Standalone);
 				if (bRendererStarted) RendererLifecycle.Shutdown();
 				if (bRenderingThreadStarted)
 				{

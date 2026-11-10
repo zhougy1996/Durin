@@ -84,7 +84,7 @@ protected:
 			Host.Reset();
 		}
 		if (Harness) Harness->Shutdown();
-		Durin::CollectGarbage();
+		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	}
 	Durin::Tests::FAssetThumbnailFixtureSet Fixtures;
 	Durin::FTextureEditorModule Module;

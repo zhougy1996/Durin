@@ -271,7 +271,7 @@ TEST(FMaterialThumbnailRendererTests, PreviewComponentResolvesInstanceInheritanc
 	InstancePrimitive.reset();
 	Durin::MarkAsGarbage(Component);
 	Durin::MarkAsGarbage(Mesh);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	Durin::ShutdownRenderingThread();
 }
 

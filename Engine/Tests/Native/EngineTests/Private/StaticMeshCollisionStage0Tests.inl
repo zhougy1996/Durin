@@ -929,7 +929,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage0Tests, Cap
 	EXPECT_EQ(Facts.SourceTriangles, Snapshot.Indices.size() / 3);
 	EXPECT_LT(Facts.LogicalRetainedBytes, MaximumCollisionPayloadBytes);
 	MarkObjectHierarchyAsGarbage(Mesh);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_FALSE(Snapshot.Positions.empty());
 	EXPECT_FALSE(Snapshot.Indices.empty());
 }
@@ -1103,7 +1103,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage5Tests, Ins
 	EXPECT_EQ(Frozen.RetainedTriangles, Inspection.RetainedTriangles);
 	EXPECT_EQ(Frozen.RuntimeBytes, Inspection.RuntimeBytes);
 	MarkObjectHierarchyAsGarbage(Mesh);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, StaticMeshAuthorshipInvalidatesFailedCollisionAndRetries)
@@ -1178,5 +1178,5 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Sta
 	EXPECT_FALSE(Setup->BuildComplexGeometry(Preserved));
 	FPaths::SetDerivedDataCacheDirForTests(PreviousCache);
 	MarkObjectHierarchyAsGarbage(Mesh);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }

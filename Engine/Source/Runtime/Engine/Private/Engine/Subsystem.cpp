@@ -106,7 +106,6 @@ namespace Durin
 	{
 		require(!GIsGameThreadIdInitialized || IsInGameThread());
 		requiref(IsInitialized() && !bPopulating, "Subsystem additions require an idle, initialized collection.");
-		FGarbageCollectionDeferralScope Deferral;
 		FInitialization Context{std::move(Descriptors)};
 		Initialization = &Context; bPopulating = true;
 		struct FReset { FSubsystemCollection& Self; ~FReset() { Self.Initialization = nullptr; Self.bPopulating = false; } } Reset{*this};
@@ -140,7 +139,6 @@ namespace Durin
 		require(!GIsGameThreadIdInitialized || IsInGameThread());
 		if (bDeinitComplete) return;
 		requiref(!bPopulating, "Subsystem cleanup requires an idle collection; request host shutdown from callbacks.");
-		FGarbageCollectionDeferralScope Deferral;
 		bDeinitComplete = true;
 		bInitialized = false;
 		for (size_t Index = Entries.size(); Index-- > 0;) RemoveAndDeinitializeSubsystem(Index);

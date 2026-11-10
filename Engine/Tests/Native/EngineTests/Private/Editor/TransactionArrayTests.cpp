@@ -126,7 +126,7 @@ TEST(FTransactionArrayTests, RetainsNestedHardEdgesButNotWeakEdgesAndPreservesOm
 		FScopedTransaction Scope(Buffer.Get(), {.Description = "Remove referenced range"});
 		ASSERT_TRUE(EditTransactionArray(*Object, Member, Object->NestedArray, 0, 1, std::span<const FRecordNestedValue>{}));
 	}
-	Hard = nullptr; Weak = nullptr; CollectGarbage();
+	Hard = nullptr; Weak = nullptr; CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_NE(ResolveObjectKey(HardKey), nullptr); EXPECT_EQ(ResolveObjectKey(WeakKey), nullptr);
 	ASSERT_TRUE(Buffer->Undo()); ASSERT_EQ(Object->NestedArray.size(), 1u);
 	EXPECT_EQ(Object->NestedArray[0].HardReference.Get(), ResolveObjectKey(HardKey));
@@ -182,8 +182,8 @@ TEST(FTransactionArrayTests, CancellationAndBoundedEvictionReleaseRangeOwners)
 	size_t EntryBytes = 0; ASSERT_TRUE(Buffer->GetTransaction(Buffer->GetQueueLength() - 1)->TryGetOwnedSize(EntryBytes));
 	EXPECT_LT(Buffer->GetUndoSize(), Buffer->GetMemoryBudget() + EntryBytes);
 	const FObjectKey OwnerKey(Object.Get()); Object = nullptr;
-	CollectGarbage(); EXPECT_NE(ResolveObjectKey(OwnerKey), nullptr);
-	ASSERT_TRUE(Buffer->TryReset()); CollectGarbage(); EXPECT_EQ(ResolveObjectKey(OwnerKey), nullptr);
+	CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_NE(ResolveObjectKey(OwnerKey), nullptr);
+	ASSERT_TRUE(Buffer->TryReset()); CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_EQ(ResolveObjectKey(OwnerKey), nullptr);
 }
 
 TEST(FTransactionArrayTests, ArrayAnnotationsAndEventsUseTheCompletedSideOncePerOwner)
@@ -222,7 +222,7 @@ TEST(FTransactionArrayTests, ReinstancingRebindsOwnerAndNestedHardAndWeakReferen
 	const FObjectReplacementMap::FEntry Entries[]{{Old.Get(), New.Get()}, {OldReference.Get(), NewReference.Get()}};
 	FObjectReplacementMap Map; ASSERT_TRUE(Map.BuildFromObjects(Entries));
 	ASSERT_TRUE(Buffer->OnObjectsReinstanced(Map));
-	MarkAsGarbage(Old.Get()); MarkAsGarbage(OldReference.Get()); CollectGarbage();
+	MarkAsGarbage(Old.Get()); MarkAsGarbage(OldReference.Get()); CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(Buffer->Undo()); ASSERT_EQ(New->NestedArray.size(), 1u);
 	EXPECT_EQ(New->NestedArray[0].Count, 7);
 	EXPECT_EQ(New->NestedArray[0].HardReference.Get(), NewReference.Get());
@@ -244,7 +244,7 @@ TEST(FTransactionArrayTests, DefaultGraphElementReferencesResolveRecreatedDefaul
 		ASSERT_TRUE(EditTransactionArray(*Object, Object->GetClass()->FindPropertyByName("NestedArray"), Object->NestedArray,
 			0, 1, std::span<const FRecordNestedValue>{}));
 	}
-	Private::ReleaseClassDefaultObjectForTests(Class); CollectGarbage();
+	Private::ReleaseClassDefaultObjectForTests(Class); CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(ResolveObjectKey(OldKey), nullptr);
 	ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
 	const auto* Replacement = Class->GetDefaultObject(); ASSERT_NE(Replacement, nullptr);

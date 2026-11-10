@@ -17,7 +17,7 @@ TEST(FActorIteratorTests, EmptyWorldAndLevelProduceEmptyRanges)
 	EXPECT_EQ(EmptyLevel.begin(), EmptyLevel.end());
 	EXPECT_EQ(EmptyLevel.GetInitialCandidateCount(), 0u);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FActorIteratorTests, PreservesSnapshotOrderAndFiltersByReflectedClass)
@@ -41,7 +41,7 @@ TEST(FActorIteratorTests, PreservesSnapshotOrderAndFiltersByReflectedClass)
 	}
 	EXPECT_EQ(Cameras, (std::vector<Durin::AActor*>{FirstCamera, SecondCamera}));
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FActorIteratorTests, SpawnDuringIterationIsNotObserved)
@@ -65,7 +65,7 @@ TEST(FActorIteratorTests, SpawnDuringIterationIsNotObserved)
 	EXPECT_EQ(Actors.GetInitialCandidateCount(), 2u);
 	EXPECT_EQ(Visited, (std::vector<Durin::AActor*>{First, Second}));
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FActorIteratorTests, DestroyedCurrentAndNextCandidatesAreNotRepublished)
@@ -91,7 +91,7 @@ TEST(FActorIteratorTests, DestroyedCurrentAndNextCandidatesAreNotRepublished)
 	++It;
 	EXPECT_EQ(It, Actors.end());
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FActorIteratorTests, LevelReplacementInvalidatesCapturedCandidates)
@@ -106,7 +106,7 @@ TEST(FActorIteratorTests, LevelReplacementInvalidatesCapturedCandidates)
 
 	EXPECT_EQ(It, Actors.end());
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FActorIteratorTests, CopiedIteratorsOwnStableSharedCandidateState)
@@ -126,7 +126,7 @@ TEST(FActorIteratorTests, CopiedIteratorsOwnStableSharedCandidateState)
 	EXPECT_EQ(*FirstIterator, First);
 	EXPECT_EQ(*Copy, Second);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FActorIteratorTests, GarbageCollectionInvalidatesHandlesWithoutRetainingObjects)
@@ -138,7 +138,7 @@ TEST(FActorIteratorTests, GarbageCollectionInvalidatesHandlesWithoutRetainingObj
 	ASSERT_NE(It, Actors.end());
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 
 	EXPECT_EQ(It, Actors.end());
 }

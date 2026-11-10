@@ -271,7 +271,7 @@ TEST(FEditableAssetDocumentModelTests, UndoToActivatedRevisionClearsDirtyState)
 
 	Durin::MarkObjectHierarchyAsGarbage(Package);
 	Durin::MarkAsGarbage(Editor);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FEditorWorkspaceManagerTests, WindowCloseRequestsCanBeDeferredAndRepeated)
@@ -476,7 +476,7 @@ TEST(FEditorWorkspaceManagerTests, OpenAssetDocumentsRetainEveryAssetFamilyAndBl
 			.DocumentKey = "Other", .Label = "Other"}).IsValid());
 		EXPECT_EQ(ValidatePackageRemovalReferences(Paths).Error, EAssetWriteError::InUse);
 		Package->SetStandaloneResidency(false);
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		ASSERT_NE(Key.ResolveObjectPtr(), nullptr);
 		Workspace->CloseResult = EDocumentCloseResult::PendingConfirmation;
 		EXPECT_EQ(Manager.RequestCloseDocument(Id), EDocumentCloseResult::PendingConfirmation);
@@ -490,7 +490,7 @@ TEST(FEditorWorkspaceManagerTests, OpenAssetDocumentsRetainEveryAssetFamilyAndBl
 		EXPECT_EQ(ValidatePackageRemovalReferences(Paths).Error, EAssetWriteError::InUse);
 		EXPECT_EQ(Manager.RequestCloseDocument(SharedId), EDocumentCloseResult::Closed);
 		EXPECT_TRUE(ValidatePackageRemovalReferences(Paths));
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(Key.ResolveObjectPtr(), nullptr);
 	}
 }
@@ -518,7 +518,7 @@ TEST(FEditorWorkspaceManagerTests, DestroyingControllerReleasesOpenDocumentRoots
 	OwnedManager.reset();
 	EXPECT_TRUE(ValidatePackageRemovalReferences(Paths));
 	MarkObjectHierarchyAsGarbage(Package);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FEditorWorkspaceManagerTests, RemapsOpenPerResourceDocumentsAfterAssetRelocation)
@@ -819,7 +819,7 @@ TEST(FAssetPickerTests, KeepsLoadedAssetsInTheSamePackageDistinct)
 	EXPECT_EQ(Editor::AssetPicker::GetAssetPathOrNone(Chair, {}, "None"), Chair->GetObjectPath());
 	EXPECT_EQ(Editor::AssetPicker::GetAssetPathOrNone(nullptr), "None");
 	MarkObjectHierarchyAsGarbage(Package);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FAssetPickerTests, OpeningMaterialCandidatesCompletesPopupLayout)

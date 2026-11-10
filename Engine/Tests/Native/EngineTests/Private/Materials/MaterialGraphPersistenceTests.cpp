@@ -41,7 +41,7 @@ TEST(FMaterialGraphPersistenceTests, TextureCoordinatesRetainChannelLinkAndDefau
 	EXPECT_EQ(CaptureExpressions(*Material), Expected);
 	EXPECT_FALSE(Material->GetPackage()->IsDirty());
 	ASSERT_TRUE(UnloadPackage(Path));
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphPersistenceTests, CustomDeclarationsPersistAndDuplicateTheirIdentity)
@@ -82,7 +82,7 @@ TEST(FMaterialGraphPersistenceTests, CustomDeclarationsPersistAndDuplicateTheirI
 	EXPECT_EQ(Material->GetParameterDefinitions().front(), Definition);
 	EXPECT_FALSE(Material->GetPackage()->IsDirty());
 	ASSERT_TRUE(UnloadPackage(Path));
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialGraphPersistenceTests, LargeGraphRoundTripsWithoutLoadedOverrideLedger)
@@ -132,7 +132,7 @@ TEST(FMaterialGraphPersistenceTests, LargeGraphRoundTripsWithoutLoadedOverrideLe
 		MarkObjectHierarchyAsGarbage(Copy);
 	}
 	ASSERT_TRUE(UnloadPackage(Path));
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialAssetCreationPersistenceTests, BuiltInMaterialsHaveCompletePersistentGraphPresentation)
@@ -164,5 +164,5 @@ TEST(FMaterialAssetCreationPersistenceTests, BuiltInMaterialsHaveCompletePersist
 		EXPECT_EQ(View.Nodes.size(), Material->GetExpressionCollection().Expressions.size());
 		ASSERT_TRUE(UnloadPackage(Path));
 	}
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }

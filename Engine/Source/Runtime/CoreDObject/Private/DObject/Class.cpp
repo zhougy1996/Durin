@@ -848,7 +848,7 @@ namespace Durin
 							if (Object->IsTemplateObject()) Private::MarkTemplateObjectHierarchyAsGarbage(Object);
 							else MarkObjectHierarchyAsGarbage(Object);
 						}
-						CollectGarbage();
+						RequestGarbageCollection();
 					}
 					FailBatch(Struct, Failure);
 					return false;

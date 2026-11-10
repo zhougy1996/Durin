@@ -56,7 +56,7 @@ TEST(FSplineComponentVisualizerTests, EmitsSelectableCurveLinesAndControlPointBo
 	}));
 
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FVolumetricCloudDetailsCustomizationTests,
@@ -88,7 +88,7 @@ TEST(FVolumetricCloudDetailsCustomizationTests,
 	EXPECT_EQ(Component->GetClass()->FindPropertyByName("LightExtinction")
 		->GetTypedMetadata().Precision, 6);
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FSplineComponentVisualizerTests, PublishesStableTypedSplineElements)
@@ -113,7 +113,7 @@ TEST(FSplineComponentVisualizerTests, PublishesStableTypedSplineElements)
 		return Line.Element.Kind == Durin::Editor::Level::EEditorSubElementKind::Segment && Line.Element.SecondaryIndex == 0;
 	}));
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FSplineDetailsCustomizationTests, PreservesComponentPropertiesAndHidesRawCurve)
@@ -136,7 +136,7 @@ TEST(FSplineDetailsCustomizationTests, PreservesComponentPropertiesAndHidesRawCu
 	EXPECT_EQ(Builder.GetVisibleRowCount(), 1u);
 
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FSplineDetailsCustomizationTests, EmitsVisiblePropertyTableRows)
@@ -177,7 +177,7 @@ TEST(FSplineDetailsCustomizationTests, EmitsVisiblePropertyTableRows)
 	EXPECT_TRUE(bTableOpen);
 
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FSplineViewportAuthoringTests, CubicSplitPreservesShapeAndCreatesStableId)
@@ -208,7 +208,7 @@ TEST(FSplineViewportAuthoringTests, CubicSplitPreservesShapeAndCreatesStableId)
 		EXPECT_LT(Durin::Math::Length(Spline->GetSampleAtParameter(Parameter).Position - Before[Step]), 1e-4);
 	}
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FSplineViewportAuthoringTests, AppendContinuesTheTailWithoutAFullLengthJump)
@@ -229,7 +229,7 @@ TEST(FSplineViewportAuthoringTests, AppendContinuesTheTailWithoutAFullLengthJump
 		- Durin::Math::Normalize(End.Position - Start.Position)), 1.e-9);
 
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FSplineViewportAuthoringTests, ModeUsesGuidMultiSelectionAndTransactionalDelete)
@@ -289,7 +289,7 @@ TEST(FSplineViewportAuthoringTests, ModeUsesGuidMultiSelectionAndTransactionalDe
 	Manager.Shutdown(&Context);
 	EXPECT_TRUE(Durin::Editor::Level::FLevelViewportEditModeRegistry::Get().Unregister(Handle));
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FSplineMeshActorViewportTests, PointTargetRecreatesGeneratedSegmentsAndCancelRestoresOutput)
@@ -362,7 +362,7 @@ TEST(FSplineMeshActorViewportTests, PointTargetRecreatesGeneratedSegmentsAndCanc
 	EXPECT_TRUE(Durin::Editor::Level::FLevelViewportEditModeRegistry::Get().Unregister(Handle));
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::MarkAsGarbage(Mesh);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FLevelEditorCustomizationRegistryTests, RejectsDuplicatesFindsBaseClassAndUnregisters)
@@ -418,7 +418,7 @@ TEST(FActorComponentDetailsTests, StaticMeshActorUsesCuratedCategoriesAndKeepsCo
 		EXPECT_FALSE(Builder.ShouldDrawDefaultProperty(Actor->GetStaticMeshComponent(), *Actor->GetStaticMeshComponent()->GetClass()->FindPropertyByName("StaticMesh"), 0));
 	}
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FActorComponentDetailsTests, CuratedActorTransformAndVisibilityPreserveUndoRedo)
@@ -460,7 +460,7 @@ TEST(FActorComponentDetailsTests, CuratedActorTransformAndVisibilityPreserveUndo
 	EXPECT_FALSE(*Visible->ContainerPtrToValuePtr<bool>(Component));
 	ASSERT_TRUE(Transactions->TryReset());
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FActorComponentDetailsTests, SearchesNamedComponentsAndKeepsRootTransformSingle)
@@ -485,7 +485,7 @@ TEST(FActorComponentDetailsTests, SearchesNamedComponentsAndKeepsRootTransformSi
 		EXPECT_FALSE(Builder.IsReplacingDefaultProperties());
 	}
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FActorComponentDetailsTests, ReusesCameraAndMaterialCustomizationsInActorTable)
@@ -535,7 +535,7 @@ TEST(FActorComponentDetailsTests, ReusesCameraAndMaterialCustomizationsInActorTa
 	ImGui::DestroyContext(ImContext);
 	EXPECT_TRUE(bTableOpen);
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FActorComponentDetailsTests, ActorCustomizationSelectsOnlyOwnedPrimaryComponents)
@@ -564,7 +564,7 @@ TEST(FActorComponentDetailsTests, ActorCustomizationSelectsOnlyOwnedPrimaryCompo
 	EXPECT_EQ(EmptyBuilder.GetVisibleRowCount(), 0u);
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
 	Durin::MarkObjectHierarchyAsGarbage(Other);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FActorComponentDetailsTests, KeepsRootlessActorEmptyAndExcludesGeneratedSegments)
@@ -589,7 +589,7 @@ TEST(FActorComponentDetailsTests, KeepsRootlessActorEmptyAndExcludesGeneratedSeg
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
 	Durin::MarkObjectHierarchyAsGarbage(Level);
 	Durin::MarkAsGarbage(Mesh);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FDetailLayoutBuilderTests, ComposesPropertiesHidingReplacementAndSearch)
@@ -610,7 +610,7 @@ TEST(FDetailLayoutBuilderTests, ComposesPropertiesHidingReplacementAndSearch)
 	EXPECT_TRUE(Builder.IsPropertyHidden(*TransformProperty));
 	EXPECT_TRUE(Builder.IsReplacingDefaultProperties());
 	Durin::MarkObjectHierarchyAsGarbage(RootComponent);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FDetailLayoutBuilderTests, SearchesCategoryLabelsAndMovesPropertiesOutOfDefaultRows)
@@ -631,7 +631,7 @@ TEST(FDetailLayoutBuilderTests, SearchesCategoryLabelsAndMovesPropertiesOutOfDef
 	EXPECT_TRUE(Layout.IsCategoryHidden("Transform"));
 	EXPECT_EQ(Layout.GetVisibleRowCount(), 0u);
 	Durin::MarkObjectHierarchyAsGarbage(Component);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FDetailLayoutBuilderTests, BindsCustomizationContextAndRendersCategoryOrder)
@@ -689,7 +689,7 @@ TEST(FDetailLayoutBuilderTests, BindsCustomizationContextAndRendersCategoryOrder
 	EXPECT_TRUE(bOpen);
 	EXPECT_EQ(Order, (std::vector<int>{1, 2}));
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FObjectPropertyViewCustomizationTests, CameraDetailsOnlyCustomizeTheCameraComponent)
@@ -723,7 +723,7 @@ TEST(FObjectPropertyViewCustomizationTests, CameraDetailsOnlyCustomizeTheCameraC
 	EXPECT_TRUE(ComponentBuilder.IsPropertyHidden(*ProjectionProperty));
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FEditorVisualizationCollectorTests, UsesTheSameLinesForRenderingAndPicking)
@@ -834,7 +834,7 @@ TEST(FEditorVisualizationCollectorTests, UsesScreenSizedBoxesForRenderingAndPick
 	EXPECT_TRUE(Hit.bDepthIndependent);
 	EXPECT_EQ(Collector.HitTest(View, ScreenCenter + Durin::FVector2f(12.0f, 0.0f)).Actor, nullptr);
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FEditorVisualizationCollectorTests, AppliesOptionalHoverColorWithoutRegeneratingPrimitives)
@@ -869,7 +869,7 @@ TEST(FEditorVisualizationCollectorTests, AppliesOptionalHoverColorWithoutRegener
 	EXPECT_EQ(Collector.GetIcons().front().Color, BaseColor);
 
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	Durin::FSceneView ExpiredView;
 	Collector.AppendToView(ExpiredView);
 	EXPECT_TRUE(ExpiredView.SimpleElements.GetElements().empty());
@@ -1107,7 +1107,7 @@ TEST(FPlayerStartActorVisualizerTests, DrawsSelectableSpawnShapeAndFacingCue)
 	EXPECT_GT(Durin::Math::Dot(ArrowShaft.End - ArrowShaft.Start, Forward), 0.0);
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FObjectPropertyViewCustomizationTests, CameraViewDistanceSearchAndUndoUseOriginalMembers)
@@ -1142,5 +1142,5 @@ TEST(FObjectPropertyViewCustomizationTests, CameraViewDistanceSearchAndUndoUseOr
 	EXPECT_EQ(Settings->RenderDistance, 300000.0f);
 	ASSERT_TRUE(Transactions->TryReset());
 	Durin::MarkObjectHierarchyAsGarbage(Camera);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }

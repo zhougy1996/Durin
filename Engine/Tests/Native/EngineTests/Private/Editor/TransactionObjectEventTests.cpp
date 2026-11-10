@@ -44,7 +44,7 @@ TEST(FTransactionObjectEventTests, FailedReplayDoesNotPublishAnExternalReference
 	EXPECT_TRUE(Buffer->CanUndo());
 	Target->Hard = nullptr;
 	MarkObjectHierarchyAsGarbage(External);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	Control->bFailUndo = false;
 	ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult());
 	EXPECT_EQ(Target->Value, 0);
@@ -194,7 +194,7 @@ TEST(FTransactionObjectEventTests, ObserverExceptionRetainsRecordingAndRequiresR
 	{ FScopedTransaction Scope(Buffer.Get(), {"test", "Observer failure"}); ASSERT_TRUE(Target->Modify()); Target->Value = 4; }
 	EXPECT_EQ(Buffer->GetState(), ETransactorState::RecoveryRequired); EXPECT_EQ(Buffer->GetLastResult().Code, ETransactorResultCode::RecoveryRequired);
 	EXPECT_FALSE(Buffer->CanTransact()); EXPECT_EQ(Buffer->GetQueueLength(), 0u); EXPECT_EQ(GUndo, nullptr); EXPECT_EQ(Target->Value, 4);
-	TWeakObjectPtr<DTransactionRecordParticipant> Retained(Target.Get()); Target.Reset(); CollectGarbage(); EXPECT_TRUE(Retained.IsValid());
+	TWeakObjectPtr<DTransactionRecordParticipant> Retained(Target.Get()); Target.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_TRUE(Retained.IsValid());
 }
 
 TEST(FTransactionObjectEventTests, ReplayObserverExceptionKeepsCursorAndCompletedNativeState)
@@ -271,7 +271,7 @@ TEST(FTransactionObjectEventTests, SnapshotObserverFailureClosesRecordingAndReta
 	Target->TransactionObserver = [](const auto&) { throw std::runtime_error("Injected snapshot observer failure."); };
 	EXPECT_FALSE(GUndo->SnapshotObject(Target.Get())); EXPECT_EQ(GUndo, nullptr);
 	EXPECT_EQ(Buffer->GetState(), ETransactorState::RecoveryRequired); EXPECT_FALSE(Buffer->IsActive());
-	TWeakObjectPtr<DTransactionRecordParticipant> Retained(Target.Get()); Target.Reset(); CollectGarbage(); EXPECT_TRUE(Retained.IsValid());
+	TWeakObjectPtr<DTransactionRecordParticipant> Retained(Target.Get()); Target.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_TRUE(Retained.IsValid());
 }
 
 TEST(FTransactionObjectEventTests, MultipleTargetsCompleteBeforeRecordAndAnnotationEvents)

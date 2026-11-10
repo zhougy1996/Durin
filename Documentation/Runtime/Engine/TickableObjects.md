@@ -83,7 +83,9 @@ World and Engine own phase admission: requests before the Tickable phase prevent
 entry, and requests inside it close subsequent phases or frames. World retains
 resources until its operation exits; Engine PreExit and immediate GC run after
 the complete call chain returns. Callbacks request shutdown or GC rather than
-performing owner cleanup themselves. See [Subsystems](Subsystems.md#common-lifecycle).
+performing owner cleanup themselves. Use Engine `ForceGarbageCollection()` or
+Engine-free `RequestGarbageCollection()`; the owner executes collection after the
+whole dispatch, including null-World batches, returns. See [Subsystems](Subsystems.md#common-lifecycle).
 
 This layer introduces no worker scheduler, GC retention, generic host operation
 scope, or profiling-ID abstraction. UE's GetStatId is not exposed because Durin

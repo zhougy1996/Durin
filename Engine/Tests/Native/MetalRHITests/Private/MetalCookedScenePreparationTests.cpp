@@ -45,7 +45,7 @@ namespace Durin
 		auto MaskedProgram = CookProgram(*Source, MaskedProperties);
 		ASSERT_TRUE(MaskedProgram);
 		RemoveFromRoot(InstanceSource); MarkObjectHierarchyAsGarbage(InstanceSource);
-		RemoveFromRoot(Source); MarkObjectHierarchyAsGarbage(Source); CollectGarbage();
+		RemoveFromRoot(Source); MarkObjectHierarchyAsGarbage(Source); CollectGarbage(Durin::EObjectFlags::Standalone);
 		FByteBuffer Fixed;
 		const auto Built = BuildCookedShaderLibrary(EShaderTargetPlatform::MacOS, EShaderTargetProfile::Game, Fixed);
 		ASSERT_TRUE(Built) << Built.Diagnostic;

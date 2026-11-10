@@ -44,7 +44,7 @@ namespace
 		auto SetUp() -> void override
 		{
 			Testing::InitializeDObjectSystemForTests();
-			ShutdownAssetRuntime(); CollectGarbage();
+			ShutdownAssetRuntime(); CollectGarbage(Durin::EObjectFlags::Standalone);
 			Root = Testing::CreateTestFixtureDirectory("PrimaryAssets");
 			Testing::RegisterMountPointForTests("/Primary/", Root.generic_string() + "/");
 			ASSERT_TRUE(InitializeAssetRuntime());
@@ -56,7 +56,7 @@ namespace
 		auto TearDown() -> void override
 		{
 			Manager->Shutdown(); Manager.Reset();
-			ShutdownAssetRuntime(); CollectGarbage();
+			ShutdownAssetRuntime(); CollectGarbage(Durin::EObjectFlags::Standalone);
 			if (bOwnScheduler) ShutdownTaskSystem(ETaskShutdownMode::Drain);
 		}
 		auto Write(std::string_view Name, FPrimaryAssetId Primary = {}, FAssetBundleData Bundles = {}, uint32 Version = ObjectPackage::DastV11FormatVersion,
@@ -232,14 +232,14 @@ TEST_F(FPrimaryAssetTests, ManagerOwnershipOutlivesObservationAndUnloadPreserves
 	ASSERT_TRUE(Manager->StartInitialLoading());
 	auto Handle = Manager->LoadPrimaryAsset(Id("Scenario:Root")); Pump(Handle);
 	ASSERT_FALSE(Handle->HasError()) << Handle->GetError().Message;
-	Handle->ReleaseHandle(); Handle.reset(); CollectGarbage();
+	Handle->ReleaseHandle(); Handle.reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
 	auto* Asset = Manager->GetPrimaryAssetObject(Id("Scenario:Root"));
 	ASSERT_NE(Asset, nullptr);
 	TStrongObjectPtr<DObject> Native(Asset);
 	TWeakObjectPtr<DObject> Weak(Asset);
 	EXPECT_TRUE(Manager->UnloadPrimaryAsset(Id("Scenario:Root")));
-	CollectGarbage(); EXPECT_NE(Weak.Get(), nullptr);
-	Native.Reset(); CollectGarbage(); EXPECT_EQ(Weak.Get(), nullptr);
+	CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_NE(Weak.Get(), nullptr);
+	Native.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_EQ(Weak.Get(), nullptr);
 }
 
 TEST_F(FPrimaryAssetTests, PreloadOwnershipIsIndependentOfGlobalBundleChangesAndUnload)
@@ -254,12 +254,12 @@ TEST_F(FPrimaryAssetTests, PreloadOwnershipIsIndependentOfGlobalBundleChangesAnd
 	EXPECT_EQ(Manager->GetPrimaryAssetBundleState(Ids[0]), std::vector<FName>(A.begin(), A.end()));
 	auto Change = Manager->ChangeBundleStateForPrimaryAssets(Ids, {}, {}, true); Pump(Change);
 	ASSERT_FALSE(Change->HasError()); Change.reset();
-	ASSERT_TRUE(Manager->UnloadPrimaryAsset(Ids[0])); CollectGarbage();
+	ASSERT_TRUE(Manager->UnloadPrimaryAsset(Ids[0])); CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_FALSE(Manager->UnloadPrimaryAsset(Ids[0]));
 	EXPECT_EQ(FindResidentPackage(Path("A").GetPackagePath()), nullptr);
 	EXPECT_NE(FindResidentPackage(Path("B").GetPackagePath()), nullptr);
 	EXPECT_NE(FindResidentPackage(Path("Root").GetPackagePath()), nullptr);
-	Preload->ReleaseHandle(); CollectGarbage();
+	Preload->ReleaseHandle(); CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(FindResidentPackage(Path("B").GetPackagePath()), nullptr);
 	EXPECT_EQ(FindResidentPackage(Path("Root").GetPackagePath()), nullptr);
 }
@@ -337,7 +337,7 @@ TEST_F(FPrimaryAssetTests, BundleRemovalAndCancellationPreserveLastUsableState)
 	auto Removed = Manager->ChangeBundleStateForPrimaryAssets(Ids, B, A); Pump(Removed);
 	ASSERT_FALSE(Removed->HasError());
 	EXPECT_EQ(Manager->GetPrimaryAssetBundleState(Ids[0]), std::vector<FName>(B.begin(), B.end()));
-	Removed.reset(); CollectGarbage();
+	Removed.reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(FindResidentPackage(Path("A").GetPackagePath()), nullptr);
 }
 
@@ -347,11 +347,11 @@ TEST_F(FPrimaryAssetTests, IndependentPrimariesDoNotRetainEachOthersPackagesAndS
 	ASSERT_TRUE(Manager->StartInitialLoading());
 	const std::array Ids{Id("Scenario:A"), Id("Scenario:B")};
 	auto Batch = Manager->LoadPrimaryAssets(Ids); Pump(Batch); ASSERT_FALSE(Batch->HasError()); Batch.reset();
-	EXPECT_TRUE(Manager->UnloadPrimaryAsset(Ids[0])); CollectGarbage();
+	EXPECT_TRUE(Manager->UnloadPrimaryAsset(Ids[0])); CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(FindResidentPackage(Path("A").GetPackagePath()), nullptr);
 	EXPECT_NE(FindResidentPackage(Path("B").GetPackagePath()), nullptr);
 	auto Pending = Manager->LoadPrimaryAsset(Ids[0]);
-	Manager->Shutdown(); Pump(Pending); CollectGarbage();
+	Manager->Shutdown(); Pump(Pending); CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Manager->GetPrimaryAssetObject(Ids[1]), nullptr);
 }
 
@@ -396,7 +396,7 @@ TEST_F(FPrimaryAssetTests, StableLogicalIdsFollowRelocationAndNoWorkCompletesImm
 	bool bCalled = false;
 	auto NoWork = Manager->LoadPrimaryAsset(Id("Scenario:Stable"), {}, {.OnComplete = [&](FStreamableHandle&) { bCalled = true; }});
 	EXPECT_EQ(NoWork, nullptr); EXPECT_TRUE(bCalled);
-	ASSERT_TRUE(Manager->UnloadPrimaryAsset(Id("Scenario:Stable"))); CollectGarbage();
+	ASSERT_TRUE(Manager->UnloadPrimaryAsset(Id("Scenario:Stable"))); CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(std::filesystem::remove(Root / "A.dasset"));
 	Write("B", Id("Scenario:Stable"));
 	EXPECT_EQ(Manager->GetPrimaryAssetPath(Id("Scenario:Stable")).GetAssetPath(), Path("B"));

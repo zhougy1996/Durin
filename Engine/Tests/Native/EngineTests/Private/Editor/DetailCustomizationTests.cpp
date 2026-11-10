@@ -61,7 +61,7 @@ TEST(FSharedDetailCustomizationTests, CustomizesTextureAssetWithoutLevelEditorHo
 	EXPECT_FALSE(Layout.IsPropertyHidden(*Property));
 	EXPECT_TRUE(Layout.IsDefaultPropertyPlaced(Texture, *Property, 0));
 	Durin::MarkObjectHierarchyAsGarbage(Texture);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FSharedDetailCustomizationTests, ResolvesAssetInheritanceAndRejectsStaleHandles)
@@ -114,7 +114,7 @@ TEST(FSharedDetailCustomizationTests, DeduplicatesOnlyThePlacedObjectPropertyAnd
 	EXPECT_EQ(IndexedSearch.GetVisibleRowCount(), 1u);
 	Durin::MarkObjectHierarchyAsGarbage(First);
 	Durin::MarkObjectHierarchyAsGarbage(Second);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FSharedDetailCustomizationTests, SharedPanelKeepsSearchAndCrossObjectDefaultRows)
@@ -156,7 +156,7 @@ TEST(FSharedDetailCustomizationTests, SharedPanelKeepsSearchAndCrossObjectDefaul
 	ImGui::DestroyContext(ImContext);
 	Durin::MarkObjectHierarchyAsGarbage(First);
 	Durin::MarkObjectHierarchyAsGarbage(Second);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FSharedDetailCustomizationTests, DefaultsShareCategoriesAndRemainIdempotent)
@@ -189,7 +189,7 @@ TEST(FSharedDetailCustomizationTests, DefaultsShareCategoriesAndRemainIdempotent
 	WorldSearch.AddDefaultProperties(Component);
 	EXPECT_EQ(WorldSearch.GetVisibleRowCount(), 0u);
 	Durin::MarkObjectHierarchyAsGarbage(Component);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FSharedDetailCustomizationTests, CachedRowsFollowDeclarationsAndCategoryLabelChanges)
@@ -275,7 +275,7 @@ TEST(FSharedDetailCustomizationTests, DeferredTargetsPreserveDragReleaseEscapeAn
 	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false); Draw();
 	ASSERT_TRUE(Transactions->TryReset());
 	Durin::MarkObjectHierarchyAsGarbage(Light);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FSharedDetailCustomizationTests, LazyTooltipBuildsOnlyAfterLabelHover)

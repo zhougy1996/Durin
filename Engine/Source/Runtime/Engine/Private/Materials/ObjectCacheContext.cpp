@@ -76,7 +76,6 @@ namespace Durin
 
 	struct FObjectCacheContext::FState
 	{
-		FGarbageCollectionDeferralScope Lifetime;
 		FMaterialLoadedQueryDiagnostics Diagnostics;
 		bool bBuilt = false;
 		bool bDiscoveryOpen = true;
@@ -129,7 +128,8 @@ namespace Durin
 		}
 	};
 
-	FObjectCacheContext::FObjectCacheContext() : State(std::make_unique<FState>()) {}
+	FObjectCacheContext::FObjectCacheContext() : State(std::make_unique<FState>())
+	{ if (GIsGameThreadIdInitialized) CheckGameThread(); }
 	FObjectCacheContext::~FObjectCacheContext() = default;
 	auto FObjectCacheContext::GetDiagnostics() const -> const FMaterialLoadedQueryDiagnostics& { return State->Diagnostics; }
 	auto FObjectCacheContext::EndDiscovery() -> void { if (GIsGameThreadIdInitialized) CheckGameThread(); State->bDiscoveryOpen = false; }

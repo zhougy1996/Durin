@@ -1,3 +1,4 @@
+#include "DObject/StrongObjectPtr.h"
 #include "NativeAssetRuntimeTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
 #include "Asset/PackageUnloading.h"
@@ -18,6 +19,7 @@ TEST(FActorComponentTests, TransientRemnantDoesNotDirtyLevelDuringGarbageCollect
 	ASSERT_TRUE(FPackagePath::TryCreate("/GeneratedRemnants/Level", Path));
 	DLevel* Level = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Level));
+	const TStrongObjectPtr<DLevel> LevelOwner(Level);
 	auto* Actor = Level->SpawnActor<AStaticMeshActor>("Actor");
 	auto* Remnant = NewObject<DSceneComponent>(Actor, "TransientComponent", EObjectFlags::Transient);
 	EXPECT_TRUE(Actor->OwnsComponent(Remnant));
@@ -34,7 +36,7 @@ TEST(FActorComponentTests, TransientRemnantDoesNotDirtyLevelDuringGarbageCollect
 	Level->PostLoad();
 	TWeakObjectPtr<DSceneComponent> WeakRemnant(Remnant);
 	ASSERT_TRUE(SavePackage(Level->GetPackage()));
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_FALSE(WeakRemnant.IsValid());
 	EXPECT_FALSE(Level->GetPackage()->IsDirty());
 	auto* Authored = Actor->AddInstanceComponent(DSceneComponent::StaticClass(), "Authored");
@@ -78,7 +80,7 @@ TEST(FDirectionalLightTests, SceneDataRemainsDarkUntilPopulatedByAComponent)
 		nullptr);
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FDirectionalLightTests, LinearColorRoundTripsThroughLevelAssets)
@@ -155,7 +157,7 @@ TEST(FDirectionalLightTests, ShadowBiasPropertiesValidateAuthoredValues)
 	EXPECT_FLOAT_EQ(EditedData.ShadowBias.Slope, 1.0f);
 	EXPECT_FLOAT_EQ(EditedData.ShadowBias.Normal, 0.0f);
 	MarkObjectHierarchyAsGarbage(World);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FLocalLightTests, PointAndSpotActorsNormalizeAuthoredValues)
@@ -184,7 +186,7 @@ TEST(FLocalLightTests, PointAndSpotActorsNormalizeAuthoredValues)
 	EXPECT_NE(Durin::DSpotLightComponent::StaticClass()->FindPropertyByName("OuterConeAngle"), nullptr);
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FSceneComponentTests, SupportsAttachmentTransformRulesAndPropagation)
@@ -218,7 +220,7 @@ TEST(FSceneComponentTests, SupportsAttachmentTransformRulesAndPropagation)
 	ASSERT_TRUE(Child->DetachFromComponent());
 	ExpectVectorNear(Child->GetWorldLocation(), Durin::FVector3(25.0, 0.0, 0.0));
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FSceneComponentTests, ConvertsWorldAndRelativeTransformsAcrossHierarchy)
@@ -249,7 +251,7 @@ TEST(FSceneComponentTests, ConvertsWorldAndRelativeTransformsAcrossHierarchy)
 	ExpectVectorNear(Reconstructed.Scale3D, DesiredWorld.Scale3D);
 	EXPECT_TRUE(Durin::Math::AreRotationsEquivalent(Reconstructed.Rotation, DesiredWorld.Rotation, 1.e-8));
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FSceneComponentTests, EqualTransformSettersDoNotDirtyTheOwningPackage)
@@ -335,7 +337,7 @@ TEST(FSceneComponentTests, SupportsInstanceComponentTreesWithinOneActor)
 	EXPECT_TRUE(Actor->IsInstanceComponent(Child));
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FSceneComponentTests, RejectsInvalidAndCrossWorldAttachments)
@@ -365,7 +367,7 @@ TEST(FSceneComponentTests, RejectsInvalidAndCrossWorldAttachments)
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::MarkObjectHierarchyAsGarbage(OtherWorld);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FSceneComponentTests, DestructionSafelyRemovesAttachmentLinks)
@@ -391,7 +393,7 @@ TEST(FSceneComponentTests, DestructionSafelyRemovesAttachmentLinks)
 	EXPECT_EQ(Child->GetRootComponent(), nullptr);
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FWorldTests, DestroyActorRemovesItFromTheWorld)
@@ -409,7 +411,7 @@ TEST(FWorldTests, DestroyActorRemovesItFromTheWorld)
 	EXPECT_FALSE(World->DestroyActor(nullptr));
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 
@@ -452,5 +454,5 @@ TEST(FWorldTests, PostLoadRepairsAttachmentCyclesAndCrossLevelParents)
 
 	MarkObjectHierarchyAsGarbage(World);
 	MarkObjectHierarchyAsGarbage(OtherWorld);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }

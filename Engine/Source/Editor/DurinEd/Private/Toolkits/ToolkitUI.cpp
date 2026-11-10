@@ -1,4 +1,6 @@
 #include "Toolkits/AssetEditorToolkit.h"
+#include "Threading/RunnableThread.h"
+#include "CoreGlobals.h"
 #include "Toolkits/AssetEditor.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Framework/TabLayout.h"
@@ -99,7 +101,7 @@ namespace Durin
 	}
 	auto FBaseAssetToolkit::CanInvokeCommand(std::string_view Id) const -> bool
 	{
-		FGarbageCollectionDeferralScope Deferral;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (UI->bRetired || !IsSessionActive()) return false;
 		const auto* Owner = GetOwningAssetEditor();
 		if (!Owner || !Owner->GetAssetEditorSubsystem() || Owner->GetAssetEditorSubsystem()->GetActiveAssetToolkit().get() != this) return false;
@@ -114,7 +116,7 @@ namespace Durin
 	}
 	auto FBaseAssetToolkit::InvokeCommand(std::string_view Id) -> bool
 	{
-		FGarbageCollectionDeferralScope Deferral;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		const auto Lease = weak_from_this().lock();
 		auto* Owner = GetOwningAssetEditor();
 		if (!Owner || !Lease) return false;

@@ -52,7 +52,7 @@ TEST(FMaterialFunctionTests, StandardRecipesOwnTypedExpressionsAndPublishIndepen
 			EXPECT_EQ(Published[Node]->GetOuter(), &Function);
 			EXPECT_EQ(Published[Node]->Id, Recipe.Expressions[Node]->Id);
 		}
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_TRUE(Recipe.Matches(Function));
 		const auto Id = Published.front()->Id;
 		Published.front()->Id = FGuid::NewGuid();
@@ -62,7 +62,7 @@ TEST(FMaterialFunctionTests, StandardRecipesOwnTypedExpressionsAndPublishIndepen
 		EXPECT_TRUE(Recipe.Matches(Function));
 	}
 	Owners.clear();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialFunctionTests, ExplicitMRTemplateRetainsIndependentInstanceParametersWithoutFunctions)
@@ -82,7 +82,7 @@ TEST(FMaterialFunctionTests, ExplicitMRTemplateRetainsIndependentInstanceParamet
 	for (const auto* Output : {&Recipe.Outputs.BaseColor, &Recipe.Outputs.Normal, &Recipe.Outputs.Metallic,
 		&Recipe.Outputs.Roughness, &Recipe.Outputs.AmbientOcclusion, &Recipe.Outputs.Emissive,
 		&Recipe.Outputs.Opacity, &Recipe.Outputs.OpacityMask}) EXPECT_TRUE(Output->Connection.ExpressionId.IsValid());
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_TRUE(Recipe.MatchesGraph(*Material));
 	for (size_t I = 0; I < Recipe.Expressions.size(); ++I)
 	{
@@ -269,7 +269,7 @@ TEST(FMaterialFunctionTests, ExpandedAndFunctionRecipesPreserveCompilationAndInd
 	MarkAsGarbage(Child);
 	MarkAsGarbage(Parent);
 	MarkAsGarbage(Current);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialFunctionTests, LiteralDefaultsMatchExplicitConstantsAndValidateTypes)
@@ -299,7 +299,7 @@ TEST(FMaterialFunctionTests, LiteralDefaultsMatchExplicitConstantsAndValidateTyp
 	Product->B.SetConstant({std::numeric_limits<float>::infinity()});
 	EXPECT_FALSE(NormalizeTypedExpressions(Expressions, Outputs));
 	for (auto* Expression : Expressions) MarkAsGarbage(Expression);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialFunctionTests, SamplingDefaultsToMeshUV0AndAcceptsSharedFloat2)
@@ -345,7 +345,7 @@ TEST(FMaterialFunctionTests, SamplingDefaultsToMeshUV0AndAcceptsSharedFloat2)
 	Owner->UV = {Constant->Id}; Sample->UV = {WrongType->Id};
 	EXPECT_FALSE(NormalizeTypedExpressions(Expressions, Outputs));
 	for (auto* Expression : Expressions) MarkAsGarbage(Expression);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialFunctionTests, CompactSamplingSharesFetchAndPreservesUVParameterReachability)
@@ -387,7 +387,7 @@ TEST(FMaterialFunctionTests, CompactSamplingSharesFetchAndPreservesUVParameterRe
 	EXPECT_FALSE(NormalizeTypedExpressions(Expressions, Outputs));
 	for (auto* Expression : Expressions) MarkAsGarbage(Expression);
 	MarkAsGarbage(Texture); MarkAsGarbage(ExplicitSample);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialFunctionTests, NormalRGBDecodesOnceAndRejectsRetiredSelectors)
@@ -430,7 +430,7 @@ TEST(FMaterialFunctionTests, NormalRGBDecodesOnceAndRejectsRetiredSelectors)
 		EXPECT_FALSE(NormalizeTypedExpressions(Expressions, Outputs));
 	}
 	for (auto* Expression : Expressions) MarkAsGarbage(Expression);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialFunctionTests, ResourceOutputSkipsOwnerUVAndPreservesIndependentSamples)
@@ -471,7 +471,7 @@ TEST(FMaterialFunctionTests, ResourceOutputSkipsOwnerUVAndPreservesIndependentSa
 	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &MIR::FNode::Opcode), 2);
 	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::UVChannel, &MIR::FNode::Opcode), 0);
 	EXPECT_EQ(Normalized.Layout.ResourceFieldCount, 1u);
-	MarkAsGarbage(Material); MarkAsGarbage(Texture); CollectGarbage();
+	MarkAsGarbage(Material); MarkAsGarbage(Texture); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialFunctionTests, InlineCallBindingsRespectFunctionDefaultsAndRootOwnership)
@@ -514,7 +514,7 @@ TEST(FMaterialFunctionTests, InlineCallBindingsRespectFunctionDefaultsAndRootOwn
 	Body.push_back(Forbidden);
 	EXPECT_FALSE(Function->SetFunctionExpressions(Durin::Testing::WithFunctionPorts(Signature, Body)));
 	for (auto* Expression : Body) MarkAsGarbage(Expression);
-	MarkAsGarbage(Call); MarkAsGarbage(Function); CollectGarbage();
+	MarkAsGarbage(Call); MarkAsGarbage(Function); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialFunctionTests, DefaultsAreTypedAndInputReferencesRemainStable)
@@ -683,7 +683,7 @@ TEST(FMaterialFunctionTests, BaseTypedCallsRoundTripAndSnapshotsDoNotRetainOwner
 	Graph.Expressions.clear(); Call.Reset(); Get.Reset(); Set.Reset();
 	ASSERT_TRUE(UnloadPackage(CallerPath));
 	ASSERT_TRUE(UnloadPackage(CalleePath));
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	Caller = nullptr;
 	{
 		auto LoadedValue = LoadObjectDetailed<DMaterialFunction>(Testing::MakePackageLeafAssetObjectPathForTests(CallerPath));
@@ -710,7 +710,7 @@ TEST(FMaterialFunctionTests, BaseTypedCallsRoundTripAndSnapshotsDoNotRetainOwner
 	EXPECT_EQ(Caller->GetFunctionDependencies()[0]->GetFunctionSignature().Outputs[0].Id, OutputId);
 	ASSERT_TRUE(UnloadPackage(CallerPath));
 	ASSERT_TRUE(UnloadPackage(CalleePath));
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_EQ(CapturedCallOutputs.size(), 1u);
 	EXPECT_EQ(CapturedCallOutputs[0].OutputId, OutputId);
 }
@@ -748,7 +748,7 @@ TEST(FMaterialFunctionTests, DependencyStampsAreDetachedAndRejectRecursionAndMis
 	EXPECT_EQ(Closure, Original);
 	MarkAsGarbage(Caller);
 	MarkAsGarbage(Callee);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialFunctionTests, ClosureBoundsIncludeRepeatedSharedSubtrees)
@@ -774,7 +774,7 @@ TEST(FMaterialFunctionTests, ClosureBoundsIncludeRepeatedSharedSubtrees)
 	ASSERT_TRUE(ValidateMaterialFunctionDependencies(RepeatedRoots, Closure));
 	EXPECT_EQ(Closure.size(), 1u);
 	for (auto* Function : Chain) MarkAsGarbage(Function);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialFunctionTests, ExpansionPreservesIndependentInputsMultipleOutputsAndEquivalentKeys)
@@ -851,7 +851,7 @@ TEST(FMaterialFunctionTests, ExpansionPreservesIndependentInputsMultipleOutputsA
 	for (auto* Expression : Body) MarkAsGarbage(Expression);
 	for (auto* Expression : Expressions) MarkAsGarbage(Expression);
 	MarkAsGarbage(Function);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialFunctionTests, NestedPureMathPreservesCallPathAndGeneratedOperations)
@@ -1065,7 +1065,7 @@ TEST(FMaterialFunctionTests, NestedTextureDefaultsYieldToConnectedRootResource)
 	for (auto* Expression : Expressions) MarkAsGarbage(Expression);
 	MarkAsGarbage(Wrapper);
 	MarkAsGarbage(Leaf);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialFunctionTests, RootCallsCommitAtomicallyAndSnapshotThroughInstances)
@@ -1121,7 +1121,7 @@ TEST(FMaterialFunctionTests, RootCallsCommitAtomicallyAndSnapshotThroughInstance
 	MarkAsGarbage(Instance);
 	MarkAsGarbage(Material);
 	MarkAsGarbage(Function);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialFunctionTests, ImportProvenanceRoundtripsWithoutChangingGraphOrCompileRevision)
@@ -1166,7 +1166,7 @@ TEST(FMaterialFunctionTests, ImportProvenanceRoundtripsWithoutChangingGraphOrCom
 	ASSERT_TRUE(SavePackage(Instance->GetPackage()));
 	ASSERT_TRUE(UnloadPackage(InstancePath));
 	ASSERT_TRUE(UnloadPackage(ParentPath));
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	{
 		auto LoadedValue = LoadObjectDetailed<DMaterialInstance>(Testing::MakePackageLeafAssetObjectPathForTests(InstancePath));
 		Instance = LoadedValue.value_or(nullptr);
@@ -1180,7 +1180,7 @@ TEST(FMaterialFunctionTests, ImportProvenanceRoundtripsWithoutChangingGraphOrCom
 	EXPECT_EQ(Parent->GetExpressionCollection().Expressions.size(), ExpressionCount);
 	ASSERT_TRUE(UnloadPackage(InstancePath));
 	ASSERT_TRUE(UnloadPackage(ParentPath));
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialFunctionTests, TypedFieldsRoundtripAndRejectInvalidCoordinateDefaults)
@@ -1233,7 +1233,7 @@ TEST(FMaterialFunctionTests, TypedFieldsRoundtripAndRejectInvalidCoordinateDefau
 	ASSERT_TRUE(SaveMaterial) << SaveMaterial.Message;
 	ASSERT_TRUE(UnloadPackage(MaterialPath));
 	ASSERT_TRUE(UnloadPackage(FunctionPath));
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	{
 		auto LoadedValue = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
 		Material = LoadedValue.value_or(nullptr);
@@ -1265,7 +1265,7 @@ TEST(FMaterialFunctionTests, TypedFieldsRoundtripAndRejectInvalidCoordinateDefau
 	EXPECT_EQ(CaptureFields(*Material), Expected);
 	ASSERT_TRUE(UnloadPackage(MaterialPath));
 	ASSERT_TRUE(UnloadPackage(FunctionPath));
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialFunctionTests, RejectsOldRootSchemaAndPreservesCurrentFunctionReferences)
@@ -1303,7 +1303,7 @@ TEST(FMaterialFunctionTests, RejectsOldRootSchemaAndPreservesCurrentFunctionRefe
 	}));
 	ASSERT_TRUE(UnloadPackage(MaterialPath));
 	ASSERT_TRUE(UnloadPackage(FunctionPath));
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	Material = nullptr;
 	{
 		auto LoadedValue = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
@@ -1319,7 +1319,7 @@ TEST(FMaterialFunctionTests, RejectsOldRootSchemaAndPreservesCurrentFunctionRefe
 	EXPECT_TRUE(MIR::Normalize(Input));
 	ASSERT_TRUE(UnloadPackage(MaterialPath));
 	ASSERT_TRUE(UnloadPackage(FunctionPath));
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialFunctionTests, NestedSurfaceOverridesAndSelectedOutputsPreserveAttributes)
@@ -1369,7 +1369,7 @@ TEST(FMaterialFunctionTests, NestedSurfaceOverridesAndSelectedOutputsPreserveAtt
 	MarkAsGarbage(Call); MarkAsGarbage(Get);
 	MarkAsGarbage(Wrapper);
 	MarkAsGarbage(Leaf);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialFunctionTests, SurfaceOverridesSupportAllEightAttributesAndRejectInvalidBindings)
@@ -1431,7 +1431,7 @@ TEST(FMaterialFunctionTests, SurfaceOverridesSupportAllEightAttributesAndRejectI
 	Set->Attributes = {{static_cast<EMaterialSurfaceOutput>(255), *Inputs[2]}};
 	EXPECT_FALSE(NormalizeTypedExpressions(Expressions, Outputs));
 	for (auto* Expression : Expressions) MarkAsGarbage(Expression);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialFunctionTests, NestedDiagnosticsIdentifyOwningDocumentAndRootInvocation)
@@ -1476,7 +1476,7 @@ TEST(FMaterialFunctionTests, NestedDiagnosticsIdentifyOwningDocumentAndRootInvoc
 	EXPECT_EQ(InvalidPort.Diagnostics[0].NodeId, Nested->Id);
 	EXPECT_EQ(InvalidPort.Diagnostics[0].FunctionAssetPath, Wrapper->GetObjectPath());
 	EXPECT_EQ(InvalidPort.Diagnostics[0].CallPath, (std::vector<FGuid>{Call->Id}));
-	MarkAsGarbage(Call); MarkAsGarbage(Wrapper); MarkAsGarbage(Leaf); CollectGarbage();
+	MarkAsGarbage(Call); MarkAsGarbage(Wrapper); MarkAsGarbage(Leaf); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialFunctionTests, DependencyEditsPreserveAcceptedContractsAndOwnerSourceMaps)
@@ -1578,7 +1578,7 @@ TEST(FMaterialFunctionTests, DependencyEditsPreserveAcceptedContractsAndOwnerSou
 	MarkAsGarbage(First);
 	MarkAsGarbage(Wrapper);
 	MarkAsGarbage(Leaf);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialFunctionTests, RelocationRefreshesNestedCallersAndDeletionHonorsReferences)
@@ -1639,7 +1639,7 @@ TEST(FMaterialFunctionTests, RelocationRefreshesNestedCallersAndDeletionHonorsRe
 	ASSERT_TRUE(Material->CompileEdits());
 	// Drain detached expression copies from earlier edits before asserting that
 	// no live owner still references the function selected for deletion.
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	const std::array Removed{LeafPath, MovedPath};
 	FAssetDeletionOperation UnreferencedDeletion;
 	std::string PreparedDeletionError;
@@ -1648,15 +1648,15 @@ TEST(FMaterialFunctionTests, RelocationRefreshesNestedCallersAndDeletionHonorsRe
 	});
 	const auto PreparedDeletion = IAssetTools::Get().PrepareDeletion(
 		{.AssetPaths = {LeafPath, MovedPath}}, UnreferencedDeletion, &PreparedDeletionFeedback);
-	ASSERT_TRUE(PreparedDeletion) << PreparedDeletion.Message
+	ASSERT_TRUE(PreparedDeletion) << PreparedDeletionError
 		<< (UnreferencedDeletion.GetBlockers().empty() ? "" : UnreferencedDeletion.GetBlockers().front().Details);
 	ASSERT_TRUE(Testing::RemoveAssetPackagesForTests(Removed));
 	EXPECT_TRUE(Material->GetAcceptedCompiledProgram());
 	MaterialRoot.Reset();
 	MarkAsGarbage(Material);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(UnloadPackage(WrapperPath));
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialFunctionTests, ExpandedBoundsApplyAfterPruningWithoutRaisingAuthoredBounds)
@@ -1741,5 +1741,5 @@ TEST(FMaterialFunctionTests, ExpandedBoundsApplyAfterPruningWithoutRaisingAuthor
 	EXPECT_FALSE(NormalizeTypedExpressions(Expressions, {}));
 	for (auto* Expression : Expressions) MarkAsGarbage(Expression);
 	for (auto* Expression : Body) MarkAsGarbage(Expression);
-	MarkAsGarbage(Function); CollectGarbage();
+	MarkAsGarbage(Function); CollectGarbage(Durin::EObjectFlags::Standalone);
 }

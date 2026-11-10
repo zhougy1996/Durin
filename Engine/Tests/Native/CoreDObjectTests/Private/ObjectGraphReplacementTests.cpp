@@ -32,13 +32,13 @@ TEST(FExplicitObjectReplacementMapTests, FailedBuildPreservesMapAndCollectedDest
 	ASSERT_EQ(Map.GetEntries().size(), 1u);
 	EXPECT_EQ(Map.Find(Old.Get())->Replacement, Replacement);
 	MarkAsGarbage(Replacement);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_FALSE(Map.ValidateIdentities());
 	auto* Impostor = NewObject<DObject>(nullptr, "ExplicitReplacement");
 	EXPECT_NE(FObjectKey(Impostor), ReplacementKey);
 	EXPECT_FALSE(Map.RemapObjectKey(FObjectKey(Old.Get())));
 	MarkAsGarbage(Impostor);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 namespace
@@ -207,7 +207,7 @@ namespace
 			Owner.Reset();
 			MarkObjectHierarchyAsGarbage(Current);
 			MarkObjectHierarchyAsGarbage(Prepared);
-			CollectGarbage();
+			CollectGarbage(Durin::EObjectFlags::Standalone);
 		}
 		auto Prepare() -> std::expected<void, FObjectReplacementError> { return Operation->Prepare(std::span(&Pair, 1)); }
 		auto CaptureSource(DObject& Object) -> testing::AssertionResult
@@ -277,7 +277,7 @@ TEST_F(FObjectGraphReplacementTests, SerializedCaptureAndObservationPublishToget
 	ASSERT_TRUE(Diff);
 	EXPECT_FALSE(Diff->HasChanges());
 	ASSERT_TRUE(Operation->Retire());
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(ResolveObjectKey(OldKey), nullptr);
 }
 
@@ -521,7 +521,7 @@ TEST_F(FObjectGraphReplacementTests, IsolatesCandidateAndAtomicallyRebindsRefere
 	EXPECT_EQ(std::ranges::find(Visible, New), Visible.end());
 	const auto Result = Prepare();
 	ASSERT_TRUE(Result) << ToString(Result.error());
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_TRUE(IsValid(New));
 	// GC with no membership changes preserves a prepared graph.
 	ASSERT_TRUE(Operation->TryCommit());
@@ -538,7 +538,7 @@ TEST_F(FObjectGraphReplacementTests, IsolatesCandidateAndAtomicallyRebindsRefere
 	EXPECT_EQ(Soft.Get(), New);
 	EXPECT_EQ(ResolveObjectKey(OldHandle), Old);
 	EXPECT_TRUE(Operation->Retire());
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_FALSE(Weak.IsValid());
 	EXPECT_EQ(ResolveObjectKey(OldHandle), nullptr);
 }
@@ -721,7 +721,7 @@ TEST_F(FObjectGraphReplacementTests, ReusedSlotsNeverRedirectOldWeakHandles)
 	ASSERT_TRUE(Prepare());
 	ASSERT_TRUE(Operation->TryCommit());
 	ASSERT_TRUE(Operation->Retire());
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 
 	for (uint32 I = 0; I < 16; ++I)
 	{

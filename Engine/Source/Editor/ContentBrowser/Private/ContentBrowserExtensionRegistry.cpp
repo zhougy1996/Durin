@@ -2,6 +2,7 @@
 #include "AssetDefinition/AssetDefinition.h"
 #include "AssetDefinition/AssetDefinitionRegistry.h"
 #include "DObject/StrongObjectPtr.h"
+#include "DObject/ObjectLifecycle.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Editor/EditorEngine.h"
 

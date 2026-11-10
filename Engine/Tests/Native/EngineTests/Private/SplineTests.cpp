@@ -309,7 +309,7 @@ TEST(FSplineComponentTests, PublishesWorldSpaceSamplesAndRevisionFlags)
 	ExpectVectorNear(Sample.Direction, {0.0, 1.0, 0.0});
 
 	Durin::MarkAsGarbage(Spline);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FSplineComponentTests, DuplicateObjectPreservesIdsAndPublishesSnapshot)
@@ -335,7 +335,7 @@ TEST(FSplineComponentTests, DuplicateObjectPreservesIdsAndPublishesSnapshot)
 
 	Durin::MarkAsGarbage(Source);
 	Durin::MarkAsGarbage(Duplicate);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FSplineReflectionTests, RegistersV2ControlPointFieldsOnly)
@@ -402,7 +402,7 @@ TEST(FSplineEditingTests, SharedTransactionsPublishSnapshotsAndPreserveStablePat
 
 	Transactions->Reset();
 	Durin::MarkAsGarbage(Spline);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FSplineMeshActorEditingTests, PreviewCancelUndoAndRedoRecreateSegmentsWithStableSourceKeys)
@@ -560,7 +560,7 @@ TEST(FSplineMeshActorEditingTests, ActorModifyRestoresInputsAfterGeneratedCompon
 		ASSERT_TRUE(Actor->Modify());
 		Actor->GetSplineComponent()->SetSplinePoints({MakePoint({0.0, 0.0, 0.0}), MakePoint({200.0, 0.0, 0.0})});
 	}
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>().size(), 1u);
 	ASSERT_TRUE(Transactions->Undo()) << FormatTransactorResult(Transactions->GetLastResult());
 	EXPECT_EQ(Actor->GetSplineComponent()->GetNumSplinePoints(), 3u);
@@ -568,5 +568,5 @@ TEST(FSplineMeshActorEditingTests, ActorModifyRestoresInputsAfterGeneratedCompon
 	ASSERT_TRUE(Transactions->Redo()) << FormatTransactorResult(Transactions->GetLastResult());
 	EXPECT_EQ(Actor->GetSplineComponent()->GetNumSplinePoints(), 2u);
 	EXPECT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>().size(), 1u);
-	ASSERT_TRUE(Transactions->TryReset()); MarkObjectHierarchyAsGarbage(Level); Root.Reset(); CollectGarbage();
+	ASSERT_TRUE(Transactions->TryReset()); MarkObjectHierarchyAsGarbage(Level); Root.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
 }

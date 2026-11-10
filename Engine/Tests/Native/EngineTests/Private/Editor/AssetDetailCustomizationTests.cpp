@@ -43,7 +43,7 @@ TEST(FAssetDetailCustomizationTests, PreservesTextureControlsAndCollectionDeclar
 	EXPECT_TRUE(CollectionLayout.IsDefaultPropertyPlaced(Collection, *Collection->GetClass()->FindPropertyByName("Declarations"), 0));
 	Durin::MarkObjectHierarchyAsGarbage(Texture);
 	Durin::MarkObjectHierarchyAsGarbage(Collection);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FAssetDetailCustomizationTests, PreservesPreviewCancellationAndAssetUndoRedo)
@@ -100,7 +100,7 @@ TEST(FAssetDetailCustomizationTests, PreservesPreviewCancellationAndAssetUndoRed
 	ASSERT_TRUE(Transactions->TryReset());
 	Durin::MarkObjectHierarchyAsGarbage(Texture);
 	Durin::MarkObjectHierarchyAsGarbage(Collection);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FAssetDetailCustomizationTests, DrawsBothLayoutsThroughTheSharedPropertyTable)
@@ -135,5 +135,5 @@ TEST(FAssetDetailCustomizationTests, DrawsBothLayoutsThroughTheSharedPropertyTab
 	ImGui::DestroyContext(ImContext);
 	Durin::MarkObjectHierarchyAsGarbage(Texture);
 	Durin::MarkObjectHierarchyAsGarbage(Collection);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }

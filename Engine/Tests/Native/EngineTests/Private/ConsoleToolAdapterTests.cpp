@@ -65,7 +65,7 @@ namespace Durin::Editor::MainFrame
 			{
 				Adapter.reset(); Registration.Reset(); Toolset.reset();
 				for (auto& Editor : Editors) { Editor->PreExit(); MarkObjectHierarchyAsGarbage(Editor.Get()); }
-				Editors.clear(); CollectGarbage();
+				Editors.clear(); CollectGarbage(Durin::EObjectFlags::Standalone);
 				Testing::RemoveTestWorkDirectory(Temp);
 			}
 			auto NewHost() -> DEditorEngine*
@@ -371,7 +371,7 @@ namespace Durin::Editor::MainFrame
 			FReplayBarrier Transaction(Host->GetTransactor());
 			EXPECT_TRUE(Adapter->Execute("tests/echo").bSuccess);
 		}
-		Host->PreExit(); MarkObjectHierarchyAsGarbage(Host); Editors.clear(); CollectGarbage();
+		Host->PreExit(); MarkObjectHierarchyAsGarbage(Host); Editors.clear(); CollectGarbage(Durin::EObjectFlags::Standalone);
 		auto Results = Adapter->Poll(); ASSERT_EQ(1u, Results.size()); EXPECT_FALSE(Results.front().bSuccess);
 		(void)NewHost();
 		EXPECT_FALSE(Adapter->Execute("editor.pie/status").bSuccess); EXPECT_EQ(0, Calls);

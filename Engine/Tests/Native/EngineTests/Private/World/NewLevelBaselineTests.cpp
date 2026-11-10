@@ -185,8 +185,12 @@ TEST(FLevelAssetTests, ReconstructsIsolatedStaticMeshLevelAndDependencies)
 	EXPECT_EQ(Inspection.Header.Dependencies.front(), MeshPath);
 
 	ASSERT_TRUE(Durin::UnloadPackage(LevelPath));
-	const auto MeshUnload = Durin::UnloadPackage(MeshPath);
-	ASSERT_TRUE(MeshUnload) << MeshUnload.Message;
+	// Releasing the Level may also collect its now-unreferenced dependency.
+	if (Durin::FindResidentPackage(MeshPath))
+	{
+		const auto MeshUnload = Durin::UnloadPackage(MeshPath);
+		ASSERT_TRUE(MeshUnload) << MeshUnload.Message;
+	}
 	EXPECT_EQ(Durin::FindResidentPackage(MeshPath), nullptr);
 
 	Durin::DLevel* Loaded = nullptr;
@@ -197,5 +201,6 @@ TEST(FLevelAssetTests, ReconstructsIsolatedStaticMeshLevelAndDependencies)
 	ASSERT_NO_FATAL_FAILURE(ExpectReconstructionManifest(Loaded));
 
 	EXPECT_TRUE(Durin::UnloadPackage(LevelPath));
-	EXPECT_TRUE(Durin::UnloadPackage(MeshPath));
+	if (Durin::FindResidentPackage(MeshPath)) EXPECT_TRUE(Durin::UnloadPackage(MeshPath));
+	EXPECT_EQ(Durin::FindResidentPackage(MeshPath), nullptr);
 }

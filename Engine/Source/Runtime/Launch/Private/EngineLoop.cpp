@@ -350,6 +350,8 @@ namespace Durin
 		}
 		const float DeltaSeconds = static_cast<float>(std::clamp(CurrentTime - LastTickTime, 0.0, 0.1));
 		LastTickTime = CurrentTime;
+		// All admitted host work and frame-end GC share one collection identity.
+		++GFrameCounter;
 		if (GetStartupState() == EHostStartupState::Pending || GEngine->IsPreparingMapChange())
 		{
 			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(2);
@@ -387,7 +389,6 @@ namespace Durin
 		}
 		const float EngineTickMilliseconds = static_cast<float>(
 			(FTime::Seconds() - EngineTickStarted) * 1000.0);
-		GFrameCounter++;
 
 		RecordEngineFrameTickTiming(EngineTickMilliseconds);
 		if (GIsRequestingExit) return;
@@ -400,7 +401,7 @@ namespace Durin
 		}
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.GarbageCollection");
-			TryCollectGarbage(FTime::Seconds());
+			GEngine->ConditionalCollectGarbage();
 		}
 
 		CalculateFPSTimings();
@@ -463,13 +464,14 @@ namespace Durin
 			ShutdownAssetRuntime();
 			ReleaseClassDefaultObjects();
 			ReleaseDStructDefaults();
-			CollectGarbage();
+			CollectGarbage(EObjectFlags::NoFlags, false);
 
 			if (GRenderingThread)
 			{
 				FlushRenderingCommands();
 			}
-			CollectGarbage();
+			IncrementalPurgeGarbage(false);
+			CollectGarbage(EObjectFlags::NoFlags);
 			CheckNoDeferredDestroyObjects("shutdown object destruction");
 			FModuleManager::Get().ShutdownModulesAtExit();
 		}

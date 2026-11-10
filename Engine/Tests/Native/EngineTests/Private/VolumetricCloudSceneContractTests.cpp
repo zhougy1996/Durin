@@ -185,7 +185,7 @@ TEST(FVolumetricCloudSceneContractTests, ReflectedDefaultsAndPersistentIdentityA
 	EXPECT_EQ(Runtime->GetWeatherFrequency(), Durin::FVector2f(0.00000001f, 1.0f));
 	EXPECT_EQ(Runtime->GetWeatherOffset(), Durin::FVector2f(-1'000'000.0f, 1'000'000.0f));
 	Durin::MarkAsGarbage(Runtime);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FVolumetricCloudSceneContractTests, ValidationAndP1TranslationPreserveTheFrozenBoundary)
@@ -405,7 +405,7 @@ TEST(FVolumetricCloudSceneContractTests, ActorGraphRoundTripsAuthoredIntentAndPe
 	EXPECT_FLOAT_EQ(LoadedComponent->GetCoverage(), 0.7f);
 	Durin::MarkAsGarbage(Actor);
 	Durin::MarkAsGarbage(Loaded);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FVolumetricCloudSceneContractTests, ComponentRegistrationPublishesCompleteIneligibleReplacementAndRemoval)
@@ -441,6 +441,6 @@ TEST(FVolumetricCloudSceneContractTests, ComponentRegistrationPublishesCompleteI
 	Durin::FlushRenderingCommands();
 	Durin::GEngine = nullptr;
 	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	Durin::ShutdownRenderingThread();
 }

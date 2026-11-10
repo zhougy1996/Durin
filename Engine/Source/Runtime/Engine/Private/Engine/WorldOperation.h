@@ -3,7 +3,6 @@
 #include "CoreMinimal.h"
 
 #include "Engine/World.h"
-#include "DObject/ObjectLifecycle.h"
 #include "CoreGlobals.h"
 #include "Threading/RunnableThread.h"
 
@@ -27,7 +26,6 @@ namespace Durin
 		FOperationScope(const FOperationScope&) = delete;
 		auto operator=(const FOperationScope&) -> FOperationScope& = delete;
 	private:
-		FGarbageCollectionDeferralScope CollectionDeferral;
 		DWorld& World;
 	};
 }

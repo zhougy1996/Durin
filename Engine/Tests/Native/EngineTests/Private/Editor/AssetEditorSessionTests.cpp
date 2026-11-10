@@ -126,7 +126,7 @@ namespace
 			Host.Reset();
 			if (Package) MarkObjectHierarchyAsGarbage(Package.Get());
 			Package.Reset();
-			CollectGarbage();
+			CollectGarbage(Durin::EObjectFlags::Standalone);
 			Mounts.reset();
 		}
 		auto Asset(const char* Name) -> DObject* { return NewObject<DObject>(Package.Get(), Name); }
@@ -806,7 +806,7 @@ namespace
 		const auto Toolkit = Session->GetToolkit();
 		EXPECT_FALSE(Toolkit->GetOwningAssetEditor() == nullptr);
 		EXPECT_TRUE(Session->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed));
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(nullptr, SessionKey.ResolveObjectPtr());
 		EXPECT_EQ(nullptr, Toolkit->GetOwningAssetEditor());
 		EXPECT_FALSE(Toolkit->CanUndo());
@@ -879,7 +879,8 @@ namespace
 			{
 				Requested = true;
 				Host->RequestShutdown();
-				CollectGarbage();
+				Host->ForceGarbageCollection();
+				EXPECT_TRUE(IsGarbageCollectionRequested());
 			}
 			return true;
 		};

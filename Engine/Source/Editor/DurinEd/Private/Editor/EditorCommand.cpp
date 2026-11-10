@@ -1,4 +1,6 @@
 #include "Transactions/Transactor.h"
+#include "Threading/RunnableThread.h"
+#include "CoreGlobals.h"
 
 #include "DObject/ObjectLifecycle.h"
 
@@ -8,7 +10,7 @@ namespace Durin::Editor
 	{
 		if (!Change) return {.Code = ETransactorResultCode::Rejected,
 			.RejectionCause = FTransactorRejection{.Reason = ETransactorRejectionReason::MissingCustom}};
-		FGarbageCollectionDeferralScope DeferCollection;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (Change->GetAllocatedSize() > std::numeric_limits<size_t>::max() - sizeof(FCommandChange))
 			return {.Code = ETransactorResultCode::Failed, .FailureCause = FTransactorFailure{.Code = ETransactorFailure::EntryAccounting}};
 		FScopedTransaction Scope(&Transactor, {"EditorCommand", std::string(Change->GetDescription())});

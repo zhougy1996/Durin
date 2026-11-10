@@ -150,7 +150,8 @@ namespace Durin
 			{
 				const auto Message = Diagnostics.ToString();
 				Reject(Warn, Message.empty() ? "The factory could not construct the asset." : Message);
-				DiscardPackage(Package);
+				MarkObjectHierarchyAsGarbage(Package);
+				RequestGarbageCollection();
 				return nullptr;
 			}
 			if (!Asset->IsA(Class) || Asset->GetOuter() != Package || Asset->GetFName() != Name
@@ -158,7 +159,8 @@ namespace Durin
 			{
 				const auto Message = std::format("Invalid factory product {} (class {}); expected {} (class {}) registered in its destination package.",
 					Asset->GetObjectPath(), Asset->GetClass()->GetName(), Path.ToString(), Class->GetName());
-				DiscardPackage(Package);
+				MarkObjectHierarchyAsGarbage(Package);
+				RequestGarbageCollection();
 				return Reject(Warn, Message);
 			}
 			Package->MarkDirty();

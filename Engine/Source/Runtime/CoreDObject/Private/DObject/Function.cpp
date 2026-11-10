@@ -242,7 +242,6 @@ namespace Durin
 	FFunctionParameterBuffer::FFunctionParameterBuffer(const DFunction& Function) : Function(Function)
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		FGarbageCollectionDeferralScope Deferral;
 		require(Function.ArePropertiesLinked());
 		if (!Function.GetParmsSize()) return;
 		const auto Alignment = std::align_val_t(std::max<size_t>(Function.GetMinAlignment(), alignof(std::max_align_t)));
@@ -257,7 +256,6 @@ namespace Durin
 	{
 		if (!Storage) return;
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		FGarbageCollectionDeferralScope Deferral;
 		GetFunctionBuffers().erase(this);
 		Function.DestroyParameters(Storage);
 		::operator delete(Storage, std::align_val_t(std::max<size_t>(Function.GetMinAlignment(), alignof(std::max_align_t))));

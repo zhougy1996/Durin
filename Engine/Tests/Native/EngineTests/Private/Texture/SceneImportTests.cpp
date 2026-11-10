@@ -678,8 +678,10 @@ TEST(FSceneImportTests, SavedGltfOutputsReloadWithoutSourcesAndRejectEveryReimpo
 	ASSERT_TRUE(Initial) << Initial.Message;
 	for (const std::string_view Class : {"Durin::DStaticMesh", "Durin::DMaterial", "Durin::DTexture2D"})
 		for (const auto& Output : Initial.Outputs)
-			if (Output.AssetClassName == Class) ASSERT_TRUE(UnloadPackage(Output.AssetPath));
-	CollectGarbage();
+			if (Output.AssetClassName == Class && FindResidentPackage(Output.AssetPath))
+				ASSERT_TRUE(UnloadPackage(Output.AssetPath));
+	CollectGarbage(Durin::EObjectFlags::Standalone);
+	for (const auto& Output : Initial.Outputs) EXPECT_EQ(FindResidentPackage(Output.AssetPath), nullptr);
 	ASSERT_TRUE(std::filesystem::remove(Fixture.Source));
 	auto* MeshFactory = Cast<DStaticMeshFactory>(DStaticMeshFactory::StaticClass()->GetDefaultObject());
 	auto* TextureFactory = Cast<DTexture2DFactory>(DTexture2DFactory::StaticClass()->GetDefaultObject());
@@ -775,7 +777,7 @@ TEST(FSceneImportTests, LegacyStandaloneModelReceiptsRemainReadableWithoutReimpo
 		EXPECT_TRUE(Imported.Asset->GetAssetImportData()->Validate());
 		const auto Path = Imported.Asset->GetPackage()->GetPackagePathIdentity();
 		ASSERT_TRUE(UnloadPackage(Path));
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 		ASSERT_TRUE(std::filesystem::remove(Fixture.Source));
 		auto Reloaded = LoadObjectDetailed<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
 		ASSERT_TRUE(Reloaded);

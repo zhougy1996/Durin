@@ -157,7 +157,7 @@ TEST(FMaterialQualificationTests, StagedBuildWorkloadBaseline)
 			ShaderBuildPrivate::ResetServiceForTests();
 			FPaths::SetDerivedDataCacheDirForTests(Previous);
 			for (auto* Owner : Owners) MarkAsGarbage(Owner);
-			CollectGarbage();
+			CollectGarbage(Durin::EObjectFlags::Standalone);
 		}
 	} Restore{PreviousCache, {Small, Functions, First, Second}};
 	const auto Root = Testing::GetTestWorkDirectory() / "MaterialStagedBaseline";
@@ -281,7 +281,7 @@ TEST(FMaterialQualificationTests, ConsumerResultCopyCost)
 	auto* Functions = NewObject<DMaterial>(nullptr, "CopyCostFunctions");
 	Functions->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	ASSERT_TRUE(Testing::SetStandardMaterialExpressionsForTest(*Functions));
-	struct FRestore { std::array<DMaterial*, 2> Owners; ~FRestore() { for (auto* Owner : Owners) MarkAsGarbage(Owner); CollectGarbage(); } } Restore{{Small, Functions}};
+	struct FRestore { std::array<DMaterial*, 2> Owners; ~FRestore() { for (auto* Owner : Owners) MarkAsGarbage(Owner); CollectGarbage(Durin::EObjectFlags::Standalone); } } Restore{{Small, Functions}};
 	FMaterialCompilerEnvironment Environment; ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment));
 	for (auto* Material : Restore.Owners)
 	{
@@ -358,7 +358,7 @@ TEST(FMaterialQualificationTests, RequestToPublicationWorkloads)
 					EXPECT_EQ(TranslationAfter.GameThreadProducers, TranslationBefore.GameThreadProducers);
 				}
 				for (auto* Owner : Owners) if (Owner != Material) MarkAsGarbage(Owner);
-				MarkAsGarbage(Material); CollectGarbage();
+				MarkAsGarbage(Material); CollectGarbage(Durin::EObjectFlags::Standalone);
 			}
 		}
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Csv)), Root / "publication.csv"));
@@ -419,7 +419,7 @@ TEST(FMaterialQualificationTests, AsyncCaptureToPublicationWorkloads)
 					EXPECT_EQ(TranslationAfter.GameThreadProducers, TranslationBefore.GameThreadProducers);
 				}
 				for (auto* Owner : Owners) if (Owner != Material) MarkAsGarbage(Owner);
-				MarkAsGarbage(Material); CollectGarbage();
+				MarkAsGarbage(Material); CollectGarbage(Durin::EObjectFlags::Standalone);
 			}
 		}
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Csv)), Root / "publication.csv"));
@@ -489,7 +489,7 @@ TEST(FMaterialQualificationTests, MaximumGraphLayoutLatency)
 	EXPECT_LT(Samples[95], std::chrono::milliseconds(50));
 
 	MarkAsGarbage(Material);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialQualificationTests, LargeGraphLoadBaseline)
@@ -543,7 +543,7 @@ TEST(FMaterialQualificationTests, LargeGraphLoadBaseline)
 		MarkObjectHierarchyAsGarbage(Copy);
 	}
 	ASSERT_TRUE(UnloadPackage(Path));
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
@@ -907,17 +907,17 @@ TEST(FMaterialQualificationTests, DynamicInstanceUpdateWorkloads)
 				<< " allocation_samples=" << BatchAllocation.SampleCount << '\n';
 		}
 		for (auto* Instance : Instances) MarkAsGarbage(Instance);
-		CollectGarbage();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
 	}
 	RemoveFromRoot(Base);
 	MarkAsGarbage(Base);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialQualificationTests, ObjectQueryCacheCandidateCost)
 {
 	InitializeDObjectSystem();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	auto* Base = NewObject<DMaterial>(nullptr, "MeasuredQueryBase");
 	std::vector<DMaterialInterface*> Materials{Base};
 	for (uint32 I = 1; I < 32; ++I)
@@ -981,5 +981,5 @@ TEST(FMaterialQualificationTests, ObjectQueryCacheCandidateCost)
 	}
 	for (auto* Object : Unrelated) MarkAsGarbage(Object);
 	for (auto* Material : Materials) MarkAsGarbage(Material);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }

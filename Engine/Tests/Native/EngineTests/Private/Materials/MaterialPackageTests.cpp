@@ -250,7 +250,7 @@ TEST(FMaterialPackageTests, TypedExpressionsRoundTripDuplicateAndRejectMalformed
 	EXPECT_FALSE((Rejected ? std::string{} : Rejected.error().Message).empty());
 	EXPECT_EQ(Loaded, nullptr);
 	EXPECT_EQ(FindResidentPackage(Path), nullptr);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialPackageTests, MissingInstanceCustomVersionRejectsInstanceWithoutChangingParent)
@@ -419,7 +419,7 @@ TEST(FMaterialPackageTests, AuthoredGraphVersionsLoadAfterRestartAndFunctionsDup
 	Material = nullptr;
 	Function = nullptr;
 	ShutdownAssetRuntime();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(InitializeAssetRuntime());
 	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 	for (const auto& Path : {MaterialPath, FunctionPath})
@@ -461,7 +461,7 @@ TEST(FMaterialPackageTests, AuthoredGraphVersionsLoadAfterRestartAndFunctionsDup
 		ASSERT_TRUE(UnloadPackage(Path));
 	}
 	ShutdownAssetRuntime();
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(InitializeAssetRuntime());
 }
 

@@ -50,7 +50,7 @@ namespace
 					if (auto* Service = Host->GetEditorSubsystem<DAssetEditorSubsystem>()) Module.ReleaseLevelEditor(*Service);
 					Host->PreExit(); MarkObjectHierarchyAsGarbage(Host.Get());
 				}
-				Hosts.clear(); CollectGarbage();
+				Hosts.clear(); CollectGarbage(Durin::EObjectFlags::Standalone);
 			}
 		} Release{Module, Hosts};
 		const auto* Definition = FAssetDefinitionRegistry::Get().FindDefinition(DLevel::StaticClass()->GetQualifiedName().ToString());

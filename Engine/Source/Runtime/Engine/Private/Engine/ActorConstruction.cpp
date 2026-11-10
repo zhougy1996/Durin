@@ -1,4 +1,6 @@
 #include "Engine/Actor.h"
+#include "Threading/RunnableThread.h"
+#include "CoreGlobals.h"
 
 #include "Components/ActorComponent.h"
 #include "Components/SceneComponent.h"
@@ -14,7 +16,7 @@ namespace Durin
 
 	auto AActor::DestroyConstructedComponents() -> void
 	{
-		FGarbageCollectionDeferralScope DeferCollection;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		// A frozen list permits destruction callbacks to mutate live ownership.
 		const auto Components = GetComponentsSnapshot();
 		for (auto It = Components.rbegin(); It != Components.rend(); ++It)
@@ -31,7 +33,7 @@ namespace Durin
 		const FTransform& RelativeTransform, bool bDeferredFinish,
 		const FActorGeneratedComponentKey& Key, FName RequestedName) -> DActorComponent*
 	{
-		FGarbageCollectionDeferralScope DeferCollection;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (IsBeingDestroyed() || IsPendingKill()) throw std::runtime_error("Cannot construct a component on a retired Actor.");
 		if (!CanConstructObjectOfClass(ComponentClass, DActorComponent::StaticClass()))
 			throw std::runtime_error("Component class is not constructible.");
@@ -78,7 +80,7 @@ namespace Durin
 	auto AActor::FinishAddComponent(DActorComponent* Component, bool bManualAttachment,
 		const FTransform& RelativeTransform) -> void
 	{
-		FGarbageCollectionDeferralScope DeferCollection;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (!IsValid(Component) || Component->IsBeingDestroyed() || Component->GetOwner() != this || !OwnsComponent(Component))
 			throw std::runtime_error("Cannot finish an unavailable or foreign component.");
 		if (auto* Scene = Cast<DSceneComponent>(Component))
@@ -112,7 +114,7 @@ namespace Durin
 	{
 		if (IsBeingDestroyed() || IsPendingKill()) return false;
 		if (bExecutingConstruction) throw std::runtime_error("ExecuteConstruction cannot be nested on the same Actor.");
-		FGarbageCollectionDeferralScope DeferCollection;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		FScopedPackageDirtySuppression SuppressDirty;
 		bExecutingConstruction = true;
 		const auto* PreviousData = ConstructionInstanceData;

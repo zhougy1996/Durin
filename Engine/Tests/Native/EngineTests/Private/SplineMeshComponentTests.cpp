@@ -641,7 +641,7 @@ TEST(FSplineMeshComponentTests, SourcePublicationRecoversUnavailableState)
 	EXPECT_TRUE(Component->GetDerivedState()->IsValid());
 	EXPECT_FALSE(Component->IsMeshDirty());
 	MarkObjectHierarchyAsGarbage(World);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FSplineMeshComponentTests, ReflectedInvalidDraftIsRejectedBeforeMutation)
@@ -880,7 +880,7 @@ TEST(FSplineMeshCollisionTests, DetachedInputSurvivesDeferredEditsAndOwnerDestru
 	EXPECT_FALSE(Component->GetPhysicsTriMeshData());
 	MarkObjectHierarchyAsGarbage(Component);
 	MarkAsGarbage(Mesh);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	std::optional<std::expected<FTriMeshCollisionData, std::string>> Result;
 	std::jthread Worker([&] { Result = (*Input)->Execute({}); });
 	Worker.join();
@@ -973,7 +973,7 @@ TEST(FSplineMeshCollisionTests, RegisteredMutationReplacesBodiesWithoutStaleHand
 	Component->SetStaticMesh(nullptr);
 	EXPECT_EQ(PhysicsScene.GetBodyCount(), 0u);
 	MarkObjectHierarchyAsGarbage(World);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FSplineMeshComponentTests, LevelPackageRoundTripsAuthoredFieldsAndRebuildsDerivedState)
@@ -1105,7 +1105,7 @@ TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
 	ASSERT_NE(ReplacementMesh, nullptr);
 	Actor->SetPathMesh(ReplacementMesh);
 	MarkAsGarbage(InitialMesh);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	Segments = Actor->FindComponentsByClass<DSplineMeshComponent>();
 	EXPECT_EQ(std::ranges::find(Segments, First), Segments.end());
 	EXPECT_EQ(std::ranges::find(Segments, Second), Segments.end());
@@ -1199,7 +1199,7 @@ TEST(FSplineMeshActorTests, ClosedLoopReorderAndEmptyCurvesPreserveGuidOwnership
 	EXPECT_TRUE(Actor->FindComponentsByClass<DSplineMeshComponent>().empty());
 	MarkObjectHierarchyAsGarbage(World);
 	MarkAsGarbage(Actor->GetPathMesh());
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FSplineComponentMutationTests, ListenerRemovalDuringPublicationIsSafe)
@@ -1222,7 +1222,7 @@ TEST(FSplineComponentMutationTests, ListenerRemovalDuringPublicationIsSafe)
 	EXPECT_EQ(FirstCalls, 1u);
 	EXPECT_EQ(RemovedCalls, 0u);
 	MarkAsGarbage(Spline);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FSplineMeshCollisionTests, DeformsSimpleBoxesAndConvexesIndependentlyAndPreservesDeferredState)
@@ -1324,7 +1324,7 @@ TEST(FSplineMeshCollisionTests, CombinedCollisionRoutesWorldQueriesAndRefreshesS
 	Component->SetSplineMeshCollisionMode(ESplineMeshCollisionMode::DeformedTriangleMesh);
 	EXPECT_TRUE(Component->GetBodySetup()->GetResidentComplexGeometry());
 	EXPECT_TRUE(Component->GetBodySetup()->GetSimpleCollision().empty());
-	MarkObjectHierarchyAsGarbage(World); CollectGarbage();
+	MarkObjectHierarchyAsGarbage(World); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FSplineMeshCollisionTests, CapsulePreservesSourceScaleConventionAndCanCollapseToSphere)
@@ -1425,7 +1425,7 @@ TEST(FSplineMeshCollisionTests, DomainUpdatesPublishOnceAndReuseUnaffectedGeomet
 	EXPECT_EQ(Body->GetRevision(), AppliedRevision + 1);
 	EXPECT_EQ(Registrations(), AppliedRegistration + 1);
 	EXPECT_TRUE(Component->GetCollisionBuildError().empty());
-	MarkObjectHierarchyAsGarbage(World); CollectGarbage();
+	MarkObjectHierarchyAsGarbage(World); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FSplineMeshCollisionTests, CombinedRebuildAndFailureEachPublishOneBodyRevision)
@@ -1515,5 +1515,5 @@ TEST(FSplineMeshCollisionTests, WorldQueriesDefaultToSimpleAndDebugCapturesPubli
 	Snapshot = World->CaptureCollisionDebugSnapshot(); ASSERT_EQ(Snapshot.Bodies.size(), 1u);
 	EXPECT_EQ(Snapshot.Bodies[0].Representation, EPhysicsQueryComplexity::Complex);
 	EXPECT_EQ(Snapshot.Bodies[0].Component, Component);
-	MarkObjectHierarchyAsGarbage(World); CollectGarbage();
+	MarkObjectHierarchyAsGarbage(World); CollectGarbage(Durin::EObjectFlags::Standalone);
 }

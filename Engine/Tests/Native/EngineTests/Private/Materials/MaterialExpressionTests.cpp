@@ -253,7 +253,7 @@ TEST(FMaterialExpressionTests, MaterialPersistsTypedOutputsAndOwnedParameterDefa
 	ASSERT_NE(Owned, nullptr); EXPECT_EQ(Owned->DefaultValue, FVector4(.6, .7, .8, 0));
 	const auto Saved = SavePackage(Material->GetPackage());
 	ASSERT_TRUE(Saved) << Saved.Message;
-	ASSERT_TRUE(UnloadPackage(Path)); CollectGarbage(); Material = nullptr;
+	ASSERT_TRUE(UnloadPackage(Path)); CollectGarbage(Durin::EObjectFlags::Standalone); Material = nullptr;
 	const auto Loaded = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
 	Material = Loaded.value_or(nullptr);
 	ASSERT_TRUE(Loaded) << (Loaded ? std::string{} : Loaded.error().Message);
@@ -280,7 +280,7 @@ TEST(FMaterialExpressionTests, MaterialPersistsTypedOutputsAndOwnedParameterDefa
 	const auto Captured = FSavePackageContext{}.Capture(Material->GetPackage(), Linker);
 	ASSERT_FALSE(Captured);
 	Orphan->SetOuterPrivate(nullptr);
-	ASSERT_TRUE(UnloadPackage(Path)); CollectGarbage();
+	ASSERT_TRUE(UnloadPackage(Path)); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialExpressionTests, MaterialCanReplaceItsOwnExpressionsAndClearOwnedChildren)
@@ -352,7 +352,7 @@ TEST(FMaterialExpressionTests, FunctionPersistsOnlyOwnedExpressionsAndAppliesInd
 	const auto PersistedValue = Cast<DMaterialExpressionVector2Constant>(Function->GetExpressionCollection().Expressions[0].Get())->Value;
 	const auto Saved = SavePackage(Function->GetPackage());
 	ASSERT_TRUE(Saved) << Saved.Message;
-	ASSERT_TRUE(UnloadPackage(Path)); CollectGarbage(); Function = nullptr;
+	ASSERT_TRUE(UnloadPackage(Path)); CollectGarbage(Durin::EObjectFlags::Standalone); Function = nullptr;
 	{
 		auto LoadedValue = LoadObjectDetailed<DMaterialFunction>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
 		Function = LoadedValue.value_or(nullptr);
@@ -390,7 +390,7 @@ TEST(FMaterialExpressionTests, FunctionPersistsOnlyOwnedExpressionsAndAppliesInd
 	ASSERT_TRUE(Built);
 	EXPECT_EQ(Built.IR.Nodes[Built.Roots[0]].GetLiteral(), (FMaterialProgramLiteral{.2f, .4f}));
 	Call->Function = nullptr;
-	ASSERT_TRUE(UnloadPackage(Path)); CollectGarbage();
+	ASSERT_TRUE(UnloadPackage(Path)); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialExpressionTests, FunctionRejectsInvalidCandidatesAndUncollectedChildren)
@@ -935,7 +935,7 @@ TEST(FMaterialExpressionTests, TypedOwnersRoundTripAndDuplicateOnlyApplicableFie
 	ASSERT_TRUE(Owner->SetMaterialExpressions(Expressions, {}));
 	ASSERT_TRUE(SavePackage(Owner->GetPackage()));
 	ASSERT_TRUE(UnloadPackage(Path));
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	Owner = nullptr;
 	{
 		auto LoadedValue = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
@@ -983,7 +983,7 @@ TEST(FMaterialExpressionTests, TypedOwnersRoundTripAndDuplicateOnlyApplicableFie
 	}
 	EXPECT_TRUE(bFoundVector && bFoundScalar && bFoundTexture && bFoundAdd && bFoundAppend);
 	ASSERT_TRUE(UnloadPackage(Path));
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialExpressionTests, NumericDefaultsRemainConnectedAndBuildRejectsWidthErrors)

@@ -137,8 +137,10 @@ registering existing components. Detachment unregisters components first,
 notifies all services in reverse order while the old Level is
 still identifiable, then removes its World endpoint. Services release
 Level-derived references on detach and survive Level replacement. Both pending and executing
-transition Levels are explicitly reported to GC. Collection requested inside a
-World operation is deferred to a later collector safe point.
+transition Levels are explicitly reported to GC. Callbacks request collection
+for a later safe point; synchronous collection inside the complete World operation
+is diagnosed and Try refuses. This also applies to standalone Worlds without
+EngineLoop: their owner may collect after initialization, Tick or cleanup unwinds.
 
 ## Tick And Work Retirement
 

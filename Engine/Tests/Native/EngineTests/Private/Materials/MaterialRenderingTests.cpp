@@ -222,7 +222,7 @@ TEST(FMaterialRenderingTests, StaticMeshProxyCapturesAssignedMaterialRenderData)
 	Durin::MarkAsGarbage(Mesh);
 	Durin::MarkAsGarbage(Material);
 	Harness.Shutdown();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialRenderingTests, StaticPropertyChangesUpdatePlanningPassIdentityWithoutRecreatingProxy)
@@ -261,7 +261,7 @@ TEST(FMaterialRenderingTests, StaticPropertyChangesUpdatePlanningPassIdentityWit
 	Durin::MarkAsGarbage(Mesh);
 	Durin::MarkAsGarbage(Material);
 	Harness.Shutdown();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialRenderingTests, StaticMeshProxyCapturesPerSlotMaterials)
@@ -294,7 +294,7 @@ TEST(FMaterialRenderingTests, StaticMeshProxyCapturesPerSlotMaterials)
 	Durin::MarkAsGarbage(Second);
 	Durin::MarkAsGarbage(First);
 	Harness.Shutdown();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialRenderingTests, StaticMeshProxyUsesSharedEngineDefaultForUnassignedSlots)
@@ -333,7 +333,7 @@ TEST(FMaterialRenderingTests, StaticMeshProxyUsesSharedEngineDefaultForUnassigne
 	Durin::MarkAsGarbage(Component);
 	Durin::MarkAsGarbage(Mesh);
 	Harness.Shutdown();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialRenderingTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySharedMaterialSlot)
@@ -408,7 +408,7 @@ TEST(FMaterialRenderingTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySh
 	Durin::MarkAsGarbage(Override);
 	Durin::MarkAsGarbage(Shared);
 	Harness.Shutdown();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialRenderingTests, StaticMeshProxyOrdersBindingChangesAcrossProxyLifetimes)
@@ -472,7 +472,7 @@ TEST(FMaterialRenderingTests, StaticMeshProxyOrdersBindingChangesAcrossProxyLife
 	Durin::MarkAsGarbage(Second);
 	Durin::MarkAsGarbage(First);
 	Harness.Shutdown();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialRenderingTests, DebugStaticMeshProvidesCompleteSplitVertexAttributes)
@@ -524,5 +524,5 @@ TEST(FMaterialRenderingTests, DebugStaticMeshProvidesCompleteSplitVertexAttribut
 	EXPECT_EQ(PackedColor.Color[3], 64);
 
 	Durin::MarkAsGarbage(Mesh);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }

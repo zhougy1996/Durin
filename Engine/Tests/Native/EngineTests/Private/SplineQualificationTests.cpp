@@ -114,5 +114,5 @@ TEST(FSplineMeshActorQualificationTests, FrozenThirtyTwoSegmentEditsMeetCpuAndSt
 	EXPECT_LE(sizeof(DSplineMeshComponent), 4096u);
 	MarkObjectHierarchyAsGarbage(World);
 	MarkAsGarbage(Mesh);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }

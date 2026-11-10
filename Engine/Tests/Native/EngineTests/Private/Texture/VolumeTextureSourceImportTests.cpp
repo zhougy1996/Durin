@@ -457,7 +457,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	EXPECT_EQ(Component->GetEligibilityStatus(),
 		"Ready: eligible for volumetric cloud rendering.");
 	MarkAsGarbage(Component);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	UnloadPackage(BaseAssetPath);
 	UnloadPackage(DetailAssetPath);
 }

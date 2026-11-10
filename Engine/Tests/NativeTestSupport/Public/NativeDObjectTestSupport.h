@@ -84,7 +84,7 @@ namespace Durin
 		if (!OutAsset || Package->FindTopLevelAsset(OutAsset->GetFName()) != OutAsset)
 		{
 			MarkObjectHierarchyAsGarbage(Package);
-			CollectGarbage();
+			CollectGarbage(Durin::EObjectFlags::Standalone);
 			OutAsset = nullptr;
 			return {"The fixture object could not be registered as a top-level asset."};
 		}

@@ -205,7 +205,7 @@ TEST(FMaterialPropertyEditingTests, StaticPropertiesHaveStableDefaultsAndInstanc
 	Durin::MarkAsGarbage(Child);
 	Durin::MarkAsGarbage(Parent);
 	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialPropertyEditingTests, BuiltinRecipeHasStableIdentityOrderAndMetadata)
@@ -314,7 +314,7 @@ TEST(FMaterialPropertyEditingTests, BuiltinRecipeHasStableIdentityOrderAndMetada
 		Durin::FName("BaseColorUVScale"), Durin::FVector2(2.0, 3.0)));
 	EXPECT_FALSE(Material->SetScalarParameterValue(Durin::FName("UnknownParameter"), 0.5f));
 	Durin::MarkAsGarbage(Material);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialPropertyEditingTests, ReflectedPositionalMaterialOverrideUsesSharedTransactions)
@@ -364,7 +364,7 @@ TEST(FMaterialPropertyEditingTests, ReflectedPositionalMaterialOverrideUsesShare
 	Durin::MarkAsGarbage(Second);
 	Durin::MarkAsGarbage(First);
 	Harness.Shutdown();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialPropertyEditingTests, PositionalMaterialOverridesResolveDefaultsAndSurviveMeshSwitches)
@@ -432,7 +432,7 @@ TEST(FMaterialPropertyEditingTests, PositionalMaterialOverridesResolveDefaultsAn
 	Durin::MarkAsGarbage(Mesh);
 	Durin::MarkAsGarbage(Second);
 	Durin::MarkAsGarbage(First);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialPropertyEditingTests, StaticMeshComponentValidatesPositionalOverrides)
@@ -480,7 +480,7 @@ TEST(FMaterialPropertyEditingTests, StaticMeshComponentValidatesPositionalOverri
 	Durin::MarkAsGarbage(Component);
 	Durin::MarkAsGarbage(Mesh);
 	Durin::MarkAsGarbage(Material);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialPropertyEditingTests, ReflectedParameterEditCoalescesAndInvalidatesRenderDataAcrossUndoRedo)
@@ -518,7 +518,7 @@ TEST(FMaterialPropertyEditingTests, ReflectedParameterEditCoalescesAndInvalidate
 	EXPECT_FLOAT_EQ(Opacity, 0.4f);
 	EXPECT_TRUE(Transactions->TryReset());
 	Durin::MarkAsGarbage(Material);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialPropertyEditingTests, ReflectedPropertyViewTracksPresentedOwnerSeparatelyFromEditTarget)
@@ -554,7 +554,7 @@ TEST(FMaterialPropertyEditingTests, ReflectedPropertyViewTracksPresentedOwnerSep
 	EXPECT_TRUE(Transactions->TryReset());
 	Durin::MarkAsGarbage(Material);
 	Durin::MarkAsGarbage(Owner);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialPropertyEditingTests, ReflectedPropertyViewTracksMaterialOverrideStructureInSharedHistory)
@@ -588,7 +588,7 @@ TEST(FMaterialPropertyEditingTests, ReflectedPropertyViewTracksMaterialOverrideS
 	EXPECT_TRUE(Transactions->TryReset());
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialPropertyEditingTests, ReflectedPropertyOverridesValidateAndRestoreIndependentIntent)
@@ -642,7 +642,7 @@ TEST(FMaterialPropertyEditingTests, ReflectedPropertyOverridesValidateAndRestore
 	EXPECT_TRUE(Transactions->TryReset());
 	MarkAsGarbage(Instance);
 	MarkAsGarbage(Base);
-	CollectGarbage();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialPropertyEditingTests, UnknownAndMismatchedSettersDoNotInvalidateRenderState)
@@ -654,7 +654,7 @@ TEST(FMaterialPropertyEditingTests, UnknownAndMismatchedSettersDoNotInvalidateRe
 	EXPECT_FALSE(Material->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), 0.25f));
 	EXPECT_EQ(Material->GetRenderChangeCount(), Version);
 	Durin::MarkAsGarbage(Material);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialPropertyEditingTests, ParentHookRejectsCyclesWithoutCreatingHistory)
@@ -688,7 +688,7 @@ TEST(FMaterialPropertyEditingTests, ParentHookRejectsCyclesWithoutCreatingHistor
 	First->SetParent(nullptr);
 	Durin::MarkAsGarbage(Second);
 	Durin::MarkAsGarbage(First);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialPropertyEditingTests, ParentTransactionsRenderFromCurrentCanonicalStorage)
@@ -769,7 +769,7 @@ TEST(FMaterialPropertyEditingTests, ParentTransactionsRenderFromCurrentCanonical
 	Durin::MarkAsGarbage(SecondParent);
 	Durin::MarkAsGarbage(FirstParent);
 	Harness.Shutdown();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialPropertyEditingTests, ProductionClassDefaultsMatchFreshOrdinaryObjectGraphs)
@@ -864,5 +864,5 @@ TEST(FMaterialPropertyEditingTests, ProductionClassDefaultsMatchFreshOrdinaryObj
 
 		Durin::MarkObjectHierarchyAsGarbage(Instance);
 	}
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }

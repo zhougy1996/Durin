@@ -158,7 +158,7 @@ namespace
 			ASSERT_TRUE(Durin::RefreshAssetRegistry());
 			ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 			Durin::InitRenderingThread();
-			Durin::CollectGarbage();
+			Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 			Durin::FlushRenderingCommands();
 			Durin::ShutdownRenderingThread();
 			Durin::FModuleManager::Get().LoadModule("RenderCore");
@@ -196,11 +196,11 @@ namespace
 				if (Durin::FSoftObjectPath::TryCreate(Name, Path))
 					(void)Durin::UnloadPackage(Path.GetPackagePath(), Durin::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			}
-			Durin::CollectGarbage();
+			Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 			Durin::FPackagePath Studio;
 			ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Engine/Renderer/ThumbnailStudioCube", Studio));
 			(void)Durin::UnloadPackage(Studio, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved);
-			Durin::CollectGarbage();
+			Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 			struct FEndThumbnailFrame
 			{
 				static constexpr auto GetName() -> const char* { return "EndThumbnailFrame"; }

@@ -12,6 +12,7 @@
 #include "Asset/AssetCompilingManager.h"
 #include "Asset/AssetRetention.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/ObjectPtr.h"
 #include "DObject/DObjectArray.h"
 #include "DynamicRHI.h"
 #include "Engine/Engine.h"
@@ -487,7 +488,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	ASSERT_TRUE(StatusBeforeRelease.IsReady());
 	Durin::RemoveFromRoot(LifecycleMesh);
 	Durin::MarkAsGarbage(LifecycleMesh);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone, false);
 	const Durin::FStaticMeshRenderResourceStatus ReleaseQueuedStatus =
 		LifecycleMesh->GetRenderResourceStatus();
 	EXPECT_EQ(
@@ -513,14 +514,14 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	EXPECT_EQ(
 		LifecycleMesh->GetRenderData()->GetNumInitializedResources(),
 		0u);
-	Durin::CollectGarbage();
+	Durin::IncrementalPurgeGarbage(false);
 	EXPECT_EQ(Durin::ResolveObjectKey(LifecycleHandle), nullptr);
 
 	Durin::RemoveFromRoot(InvalidMesh);
 	Durin::MarkAsGarbage(InvalidMesh);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	Durin::FlushRenderingCommands();
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(
 		Durin::GetNumInitializedRenderResources(),
 		InitialRenderResourceCount);
@@ -807,12 +808,12 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	Durin::MarkAsGarbage(FactorOnly);
 	Durin::MarkAsGarbage(TextureOnly);
 	PreloadedSphere = {};
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(Durin::UnloadPackage(MeshPath));
 	ASSERT_TRUE(Durin::UnloadPackage(MaterialPath));
 	ASSERT_TRUE(Durin::UnloadPackage(TexturePath));
 	ASSERT_TRUE(Durin::UnloadPackage(LODContractPath));
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(MeshPath));
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(MaterialPath));
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(TexturePath));
@@ -820,7 +821,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	Durin::FPackagePath StudioPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Engine/Renderer/ThumbnailStudioCube", StudioPath));
 	ASSERT_TRUE(Durin::UnloadPackage(StudioPath));
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	RendererLifecycle.Shutdown();
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();
@@ -828,4 +829,71 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	Durin::RHIExit();
 	Durin::ShutdownAssetCompilingManager();
 	Durin::Testing::RemoveTestWorkDirectory(Root);
+}
+
+TEST(FSceneImportVulkanTests, PendingMeshDestructionDrainsAfterRenderFenceWithoutAnotherMark)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	ASSERT_TRUE(InitializeAssetCompilingManager());
+	ASSERT_EQ(GDynamicRHI, nullptr);
+	FModuleManager::Get().LoadModule("RenderCore");
+	ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+	RHIInit(Tests::GetVulkanEngineTestInitializationContext());
+	ASSERT_NE(GDynamicRHI, nullptr);
+	InitRenderingThread();
+	struct FCleanup
+	{
+		~FCleanup()
+		{
+			ShutdownAssetCompilingManager();
+			CollectGarbage(EObjectFlags::NoFlags, false);
+			FlushRenderingCommands();
+			IncrementalPurgeGarbage(false);
+			CollectGarbage(EObjectFlags::NoFlags);
+			FlushRenderingCommands();
+			ShutdownRenderingThread();
+			FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);
+			RHIExit();
+		}
+	} Cleanup;
+	auto* Mesh = DStaticMesh::CreateDebugTriangle(nullptr);
+	ASSERT_NE(Mesh, nullptr);
+	Mesh->InitResources();
+	FlushRenderingCommands();
+	ASSERT_TRUE(Mesh->GetRenderResourceStatus().IsReady());
+	struct FGate { std::mutex Mutex; std::condition_variable CV; bool Open = false; };
+	auto Gate = std::make_shared<FGate>();
+	struct FReleaseGate
+	{
+		std::shared_ptr<FGate> Gate;
+		~FReleaseGate()
+		{
+			{ std::lock_guard Lock(Gate->Mutex); Gate->Open = true; }
+			Gate->CV.notify_all();
+		}
+	} ReleaseGate{Gate};
+	struct FBlockPurgeFence { static constexpr auto GetName() -> const char* { return "BlockPurgeFence"; } };
+	EnqueueRenderCommand<FBlockPurgeFence>([Gate](FRHICommandListImmediate&) {
+		std::unique_lock Lock(Gate->Mutex);
+		Gate->CV.wait(Lock, [&] { return Gate->Open; });
+	});
+	const FObjectKey Key(Mesh);
+	MarkAsGarbage(Mesh);
+	CollectGarbage(EObjectFlags::NoFlags, false);
+	EXPECT_TRUE(IsIncrementalPurgePending());
+	EXPECT_EQ(GDObjectArray.Resolve(Key), Mesh);
+	EXPECT_FALSE(Mesh->IsReadyForFinishDestroy());
+	const auto Serial = GetLastGarbageCollectionStats().CollectionSerial;
+	TObjectPtr<DObject> Fresh = NewObject<DObject>(nullptr, "AfterMeshMark");
+	IncrementalPurgeGarbage(true, 0.0);
+	EXPECT_EQ(GDObjectArray.Resolve(Key), Mesh);
+	{ std::lock_guard Lock(Gate->Mutex); Gate->Open = true; }
+	Gate->CV.notify_all();
+	FlushRenderingCommands();
+	IncrementalPurgeGarbage(false);
+	EXPECT_EQ(GDObjectArray.Resolve(Key), nullptr);
+	EXPECT_FALSE(IsIncrementalPurgePending());
+	EXPECT_EQ(GetLastGarbageCollectionStats().CollectionSerial, Serial);
+	EXPECT_NE(Fresh.Get(), nullptr);
 }

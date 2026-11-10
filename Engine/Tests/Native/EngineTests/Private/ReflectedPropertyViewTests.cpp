@@ -489,7 +489,7 @@ TEST(FReflectedPropertyViewTests, CollisionResponsesCollapseAndRenderNamedChanne
 	ImGui::DestroyContext(ImContext);
 
 	Durin::MarkObjectHierarchyAsGarbage(Component);
-	Durin::CollectGarbage();
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FReflectedPropertyViewTests, ObjectReplacementWaitsForFailedPreviewRestoration)

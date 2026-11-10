@@ -94,7 +94,7 @@ namespace
 			{
 				RemoveFromRoot(World);
 				MarkObjectHierarchyAsGarbage(World);
-				CollectGarbage();
+				CollectGarbage(Durin::EObjectFlags::Standalone);
 			}
 			Engine.reset();
 			if (bRenderingStarted) FlushRenderingCommands();

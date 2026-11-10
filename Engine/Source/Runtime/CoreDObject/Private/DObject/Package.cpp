@@ -5,7 +5,6 @@
 #include "DObject/DObjectArray.h"
 #include "DObject/Class.h"
 #include "DObject/ObjectLifecycle.h"
-#include "DObject/GarbageCollectionScheduler.h"
 #include "Misc/StringHelper.h"
 
 namespace Durin

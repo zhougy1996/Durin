@@ -8,7 +8,6 @@
 #include "DObject/ObjectPtr.h"
 #include "DObject/WeakObjectPtr.h"
 #include "DObject/ObjectLifecycle.h"
-#include "DObject/GarbageCollectionScheduler.h"
 #include "DObject/Archive.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"

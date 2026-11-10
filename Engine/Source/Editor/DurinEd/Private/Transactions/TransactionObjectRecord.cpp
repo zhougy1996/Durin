@@ -1,4 +1,6 @@
 #include "Transactions/TransactionObjectRecord.h"
+#include "Threading/RunnableThread.h"
+#include "CoreGlobals.h"
 
 #include "DObject/Class.h"
 #include "DObject/ObjectLifecycle.h"
@@ -72,7 +74,7 @@ namespace Durin::Editor
 	auto FTransactionObjectRecord::Capture(DObject& Object, const FSerializedObject* CapturePolicy,
 		const std::shared_ptr<ITransactionObjectAnnotation>* AnnotationPolicy) -> std::expected<FTransactionObjectRecord::FSerializedObject, std::string>
 	{
-		FGarbageCollectionDeferralScope DeferCollection;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (!CanTransactObject(Object))
 			return std::unexpected("Transaction capture requires a live object or a transactional published default graph.");
 		if (CapturePolicy && CapturePolicy->Observation.ObjectInfo.Target.Resolve() != &Object)
@@ -168,7 +170,6 @@ namespace Durin::Editor
 
 	auto FTransactionObjectRecord::CaptureAfter() -> std::expected<void, FTransactionObjectRecordError>
 	{
-		FGarbageCollectionDeferralScope DeferCollection;
 		if (!BeforeState) return Reject("Transaction object initial state is unavailable.");
 		auto* Object = Target.Resolve();
 		if (!Object) return Reject("Transaction final capture target is unavailable.");
@@ -181,7 +182,7 @@ namespace Durin::Editor
 
 	auto FTransactionObjectRecord::PrepareReplay() -> std::expected<void, FTransactionObjectRecordError>
 	{
-		FGarbageCollectionDeferralScope DeferCollection;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		ClearPreparedReplay();
 		if (!BeforeState) return Reject("Transaction object initial state is unavailable.");
 		auto* Object = Target.Resolve();
@@ -196,7 +197,7 @@ namespace Durin::Editor
 	auto FTransactionObjectRecord::Apply(bool bBefore, EPropertyChangeOrigin Origin, bool bUseHistoricalState)
 		-> std::expected<void, FTransactionObjectRecordError>
 	{
-		FGarbageCollectionDeferralScope DeferCollection;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		auto* Object = Target.Resolve();
 		if (!Object) return Reject("Transaction restore target is unavailable.");
 		if (!ReplayState)
@@ -312,7 +313,7 @@ namespace Durin::Editor
 	auto FTransactionObjectRecord::Snapshot(const FTransactionContext& Context, std::span<const FProperty* const> Selected)
 		-> std::expected<std::vector<std::pair<FPersistentObjectRef, FTransactionObjectEvent>>, std::string>
 	{
-		FGarbageCollectionDeferralScope DeferCollection;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		auto* Object = Target.Resolve();
 		if (!Object) return std::unexpected("Transaction snapshot target is unavailable.");
 		for (const auto* Property : Selected)

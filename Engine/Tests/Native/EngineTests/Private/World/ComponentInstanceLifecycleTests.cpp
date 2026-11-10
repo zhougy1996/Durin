@@ -18,8 +18,8 @@ TEST(FComponentInstanceLifecycleTests, OrdinaryReconstructionConsumesTheSameGene
 	FComponentInstanceDataCache InstanceData(*Actor);
 	FActorRootComponentReconstructionData RootData(*Actor);
 	Actor->GeneratedCount = 0; ASSERT_TRUE(Actor->RerunConstructionScripts());
-	CollectGarbage(); EXPECT_EQ(ResolveObjectKey(OldKey), nullptr);
-	Actor->GeneratedCount = 1; Actor->bCollectDuringConstruction = true;
+	CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_EQ(ResolveObjectKey(OldKey), nullptr);
+	Actor->GeneratedCount = 1; Actor->bRequestCollectionDuringConstruction = true;
 	ASSERT_TRUE(Actor->RerunConstructionScripts(&InstanceData, &RootData));
 	auto* Restored = static_cast<DTransactionLifecycleScene*>(Actor->GetRootComponent()); ASSERT_NE(Restored, nullptr);
 	EXPECT_NE(FObjectKey(Restored), OldKey); EXPECT_EQ(Restored->GetWorldLocation(), RootPose);
@@ -89,7 +89,7 @@ TEST(FComponentInstanceLifecycleTests, SharedLifecycleRestoresUnregisteredInitia
 	ASSERT_TRUE(Root->ApplyLifecycleState(Target)); EXPECT_EQ(Root->Registered, Registered);
 }
 
-TEST(FComponentInstanceLifecycleTests, ReregisterScopeDoesNotResurrectRetiredComponentAndDefersCollection)
+TEST(FComponentInstanceLifecycleTests, ReregisterScopeDoesNotResurrectRetiredComponentBeforeSafePoint)
 {
 	using namespace Durin;
 	FTransactionEngineWorld Fixture;
@@ -98,11 +98,12 @@ TEST(FComponentInstanceLifecycleTests, ReregisterScopeDoesNotResurrectRetiredCom
 	const FObjectKey Key(Root);
 	{
 		FComponentReregisterContext Context(Root);
-		Root->DestroyComponent(); CollectGarbage();
+		Root->DestroyComponent(); RequestGarbageCollection();
+		EXPECT_TRUE(IsGarbageCollectionRequested());
 		EXPECT_TRUE(Root->IsPendingKill()); EXPECT_FALSE(Root->IsRegistered());
 		ASSERT_TRUE(Context.ReRegister()); EXPECT_EQ(Root->Registered, 1u);
 	}
-	CollectGarbage(); EXPECT_EQ(ResolveObjectKey(Key), nullptr);
+	CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_EQ(ResolveObjectKey(Key), nullptr);
 }
 
 TEST(FComponentInstanceLifecycleTests, ReregisterCallbackFailureIsReportedAndConsumedWithoutRetry)

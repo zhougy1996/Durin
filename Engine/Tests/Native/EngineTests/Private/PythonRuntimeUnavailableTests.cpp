@@ -23,5 +23,5 @@ TEST(FPythonRuntimeUnavailableTests, KeepsNativeEditorHostsUsableWithoutAnInterp
     EXPECT_FALSE(Runtime.CancelJob(1));
     Runtime.Stop(); Runtime.Stop();
     Host->PreExit();
-    Durin::MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); Durin::CollectGarbage();
+    Durin::MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }

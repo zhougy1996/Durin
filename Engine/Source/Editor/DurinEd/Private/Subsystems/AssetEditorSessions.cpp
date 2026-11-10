@@ -1,4 +1,6 @@
 #include "Subsystems/AssetEditorSubsystem.h"
+#include "Threading/RunnableThread.h"
+#include "CoreGlobals.h"
 
 #include "Toolkits/AssetEditor.h"
 #include "AssetDefinition/AssetDefinition.h"
@@ -56,7 +58,7 @@ namespace Durin
 	auto DAssetEditorSubsystem::OpenAssetEditor(DClass* EditorClass,
 		const FAssetEditorInitArgs& Args) -> DAssetEditor*
 	{
-		FGarbageCollectionDeferralScope Deferral;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (!CanCall()) return nullptr;
 		if (!CanConstructObjectOfClass(EditorClass, DAssetEditor::StaticClass())) return nullptr;
 		auto* Session = Cast<DAssetEditor>(NewObject(EditorClass, GetEditor(), {}));
@@ -66,7 +68,7 @@ namespace Durin
 	auto DAssetEditorSubsystem::InitializeAssetEditor(DAssetEditor& Session,
 		const FAssetEditorInitArgs& Args) -> DAssetEditor*
 	{
-		FGarbageCollectionDeferralScope Deferral;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (!CanCall() || Args.OpenArgs.AssetEditors != this || Session.GetOuter() != GetEditor()
 			|| Session.IsTemplateObject() || Session.IsInitialized() || Session.IsClosed()) return nullptr;
 		const TStrongObjectPtr<DAssetEditor> KeepAlive(&Session);
@@ -154,7 +156,7 @@ namespace Durin
 
 	auto DAssetEditorSubsystem::TransferAssetEditor(DAssetEditor& Editor, std::shared_ptr<IToolkitHost> Host) -> bool
 	{
-		FGarbageCollectionDeferralScope Deferral;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (!CanCall() || !Host || !Host->IsAvailable() || !Sessions.contains(FObjectKey(&Editor))) return false;
 		const TStrongObjectPtr<DAssetEditor> KeepAlive(&Editor);
 		bool Transferred = false;

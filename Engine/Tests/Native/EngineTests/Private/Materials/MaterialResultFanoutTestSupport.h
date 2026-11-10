@@ -37,7 +37,7 @@ inline auto CheckDetachedMaterialResultFanout(bool Shutdown) -> void
 	struct FRestore
 	{
 		std::shared_ptr<FGateCache> Cache; FThreadEvent& Release; DMaterial* A; DMaterial* B;
-		~FRestore() { Cache->Release.Trigger(); Release.Trigger(); MaterialBuildPrivate::SetResultFanoutHookForTests({}); FAssetCompilingManager::Get().FinishAllCompilation(); ShaderBuildPrivate::ResetServiceForTests(); MarkAsGarbage(A); MarkAsGarbage(B); CollectGarbage(); }
+		~FRestore() { Cache->Release.Trigger(); Release.Trigger(); MaterialBuildPrivate::SetResultFanoutHookForTests({}); FAssetCompilingManager::Get().FinishAllCompilation(); ShaderBuildPrivate::ResetServiceForTests(); MarkAsGarbage(A); MarkAsGarbage(B); CollectGarbage(Durin::EObjectFlags::Standalone); }
 	} Restore{Cache, Release, A, B};
 	MaterialBuildPrivate::SetResultFanoutHookForTests([&] { Entered.Trigger(); EXPECT_TRUE(Release.WaitFor(10)); });
 	FMaterialCompilerEnvironment Environment; ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment));

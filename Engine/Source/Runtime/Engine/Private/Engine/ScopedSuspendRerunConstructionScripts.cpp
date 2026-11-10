@@ -1,4 +1,6 @@
 #include "ScopedSuspendRerunConstructionScripts.h"
+#include "Threading/RunnableThread.h"
+#include "CoreGlobals.h"
 #include <exception>
 
 #include "Engine/Actor.h"
@@ -12,7 +14,7 @@ namespace Durin
 	{ ++InActor.ConstructionSuspensionDepth; }
 	FScopedSuspendRerunConstructionScripts::~FScopedSuspendRerunConstructionScripts()
 	{
-		FGarbageCollectionDeferralScope DeferCollection;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		auto* Value = Actor.Get();
 		if (!Value) return;
 		check(Value->ConstructionSuspensionDepth > 0);
