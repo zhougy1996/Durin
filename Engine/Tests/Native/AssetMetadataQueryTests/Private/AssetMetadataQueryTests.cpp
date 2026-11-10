@@ -26,7 +26,7 @@ namespace
 		EXPECT_TRUE(FTopLevelAssetPath::TryCreate(Path, "Asset", AssetPath));
 		return {.PackagePath = Path,
 			.TopLevelAssets = {{AssetPath, "Example::MetadataAsset", {}}},
-			.FormatVersion = Durin::ObjectPackage::DastV10FormatVersion,
+			.FormatVersion = Durin::ObjectPackage::DastV11FormatVersion,
 			.Dependencies = std::move(Hard),
 			.SoftDependencies = std::move(Soft),
 			.ObjectCount = 1,
@@ -83,14 +83,14 @@ namespace
 				.PhysicalPath = "Content/Textures/Brick.dasset",
 				.TopLevelAssets = {{TexturePath, "Durin::DTexture2D", {}},
 					{MaterialPath, "Durin::DMaterial", {}}},
-				.FormatVersion = Durin::ObjectPackage::DastV10FormatVersion}}}};
+				.FormatVersion = Durin::ObjectPackage::DastV11FormatVersion}}}};
 
 		const FPackageData* Data = Snapshot.FindExact(Path);
 		ASSERT_NE(Data, nullptr);
 		EXPECT_EQ(Snapshot.Revision, 17u);
 		EXPECT_EQ(Data->PackagePath, Path);
 		EXPECT_EQ(Data->TopLevelAssets.front().AssetClassName, "Durin::DTexture2D");
-		EXPECT_EQ(Data->FormatVersion, Durin::ObjectPackage::DastV10FormatVersion);
+		EXPECT_EQ(Data->FormatVersion, Durin::ObjectPackage::DastV11FormatVersion);
 		const FAssetData* Texture = Snapshot.FindAssetExact(TexturePath);
 		const FAssetData* Material = Snapshot.FindAssetExact(MaterialPath);
 		ASSERT_NE(Texture, nullptr);
@@ -101,9 +101,10 @@ namespace
 
 	TEST(FAssetMetadataQueryTests, OwnsCanonicalDastReaderIdentity)
 	{
-		EXPECT_EQ(Durin::ObjectPackage::DastV10FormatVersion, 10u);
+		EXPECT_EQ(Durin::ObjectPackage::DastV11FormatVersion, 11u);
 		EXPECT_EQ(Durin::ObjectPackage::DastFormatName, "Durin.BinaryFormat.DAST");
-		EXPECT_TRUE(Durin::ObjectPackage::IsSupportedPackageReaderVersion(10));
+		EXPECT_TRUE(Durin::ObjectPackage::IsSupportedPackageReaderVersion(11));
+		EXPECT_FALSE(Durin::ObjectPackage::IsSupportedPackageReaderVersion(10));
 		EXPECT_FALSE(Durin::ObjectPackage::IsSupportedPackageReaderVersion(9));
 		EXPECT_FALSE(Durin::ObjectPackage::IsSupportedPackageReaderVersion(8));
 		EXPECT_FALSE(Durin::ObjectPackage::IsSupportedPackageReaderVersion(7));
@@ -112,8 +113,8 @@ namespace
 		const FAssetPackageFingerprint Fingerprint{
 			.FileSize = 128,
 			.LastWriteTimeTicks = 42,
-			.ReaderVersion = Durin::ObjectPackage::DastV10FormatVersion};
-		EXPECT_EQ(Fingerprint.ReaderVersion, 10u);
+			.ReaderVersion = Durin::ObjectPackage::DastV11FormatVersion};
+		EXPECT_EQ(Fingerprint.ReaderVersion, 11u);
 	}
 
 	TEST(FAssetMetadataQueryTests, PublishesWholeStateAgainstExpectedRevision)

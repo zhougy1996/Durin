@@ -4,7 +4,7 @@ Summary: Define managed-object reachability, collection, rooting, and destructio
 
 Modules: CoreDObject
 
-Last reviewed: 2026-10-21
+Last reviewed: 2026-11-10
 
 Durin uses a synchronous, stop-the-world, non-moving mark-sweep collector for `DObject` instances. Collection runs on the game thread and does not scan the native stack. Object hierarchy and object lifetime are related in one direction only: a reachable child keeps its Outer chain alive, while a reachable Outer does not keep its children alive.
 
@@ -283,7 +283,7 @@ and `FStrongObjectPtr(Key)` only when independent retention is intended.
 - Reflected `TObjectPtr` fields are GC strong references.
 - Raw `DObject*` fields are not automatically traversed and must not be retained across collection unless another strong reference guarantees lifetime.
 - `TWeakObjectPtr` is non-owning and becomes invalid as soon as its target is pending kill.
-- `TSoftObjectPtr` retains an exact authored `FObjectPath` plus an epoch-qualified weak loaded-object cache. It never keeps the target alive; collection invalidates the weak handle, while unload, identity mutation, catalog changes, and runtime shutdown invalidate populated caches globally without changing authored identity.
+- `TSoftObjectPtr` retains an exact authored `FSoftObjectPath` plus an epoch-qualified weak loaded-object cache. It never keeps the target alive; collection invalidates the weak handle, while unload, identity mutation, catalog changes, and runtime shutdown invalidate populated caches globally without changing authored identity.
 - Worker threads may carry independent weak-handle copies but may only resolve or assign `DObject` references on the game thread.
 
 Reflected `TWeakObjectPtr<T>` is supported only as explicit `Transient` runtime

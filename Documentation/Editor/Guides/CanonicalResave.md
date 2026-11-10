@@ -2,7 +2,7 @@
 
 Summary: Canonicalize reflected identities without reimporting source data.
 
-Last reviewed: 2026-11-03
+Last reviewed: 2026-11-10
 
 Use canonical resave when the Project Asset Upgrade window or a package context
 menu says **Resave recommended**. This is maintenance of serialized type names;
@@ -66,11 +66,11 @@ when their existing logical schemas are already supported.
 Folder scopes and `--all` select recommended identity repairs. To force a plain
 load-and-save of an already canonical package, pass its exact package path.
 This is required when persisting an in-memory domain upgrade before removing
-the corresponding old reader. The workspace corpus is now v10; the current tool
-does not read v9. Format upgrades must be applied with a reader that still
+the corresponding old reader. The workspace corpus is now v11; the current tool
+does not read earlier versions. Format upgrades must be applied with a reader that still
 supports the source revision before retiring that reader.
 
-Canonical resave always writes the current canonical DURF/DAST v10 closure;
+Canonical resave always writes the current canonical DURF/DAST v11 closure;
 there is no format-selection or legacy-writer option. DevTool executes writes
 by default and `--dry-run` previews. Package-level
 rollback is automatic on verification or catalog-publication failure.

@@ -4,12 +4,12 @@ Summary: Align asset identity, loading interfaces, streamable ownership, primary
 
 Last reviewed: 2026-11-10
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-11-10
 
 ## Current Status
 
-Execution authorized. Stages 0-4 are complete. The Stage 0 compatibility
+Stages 0-6 are complete. The Stage 0 compatibility
 matrix below freezes the supported subset and consumer inventory. Stage 1
 ships canonical `FSoftObjectPath`, nullable ordinary synchronous loads, explicit
 `LoadObjectDetailed` / `LoadPackageDetailed` diagnostics, structured dependency
@@ -20,8 +20,51 @@ one backend; thumbnails use local owners and scene-to-World transfers keep their
 existing lifetime. Stage 3 separates native/reflected/handle ownership from
 editor, explicit and unsaved package retention. Stage 4 adds persisted primary
 identity/bundle discovery, configurable native managers, independent primary
-ownership and map preload handoff. Stage 5 is next. Stages 5-6 remain open:
-Cook policy/cooked metadata integration and final lifecycle handoff.
+ownership and independent map preload handoff. Review corrections publish primary
+state at load completion without waiting for queued public child delegates. Logical ID
+validation precedes loaded-state creation; shutdown clears requests without
+rebuilding their owner, and metadata wire code lives outside the value headers.
+Stage 5 integrates the same configured manager's Cook rules and declared bundle
+references with existing dependency discovery and transactional publication.
+Cooked bootstrap admits manifest-listed package headers before reflected defaults
+without authored scans; no new catalog format is introduced. Stage 6 completes
+the workspace/obsolete-symbol audit, final cross-project build and bounded
+authored Editor/cooked Game lifecycle handoff. Runtime behavior needed no further
+layer or fallback. The supported UE subset and explicit differences live in the
+owning streaming, residency, primary-management and Cooking contracts.
+
+Post-plan corpus maintenance (2026-11-10): all 26 tracked packages now use DAST
+v11, and the v10 reader/writer and temporary conversion code were removed.
+The obsolete `AuthoredComponents` field is absent. Existing object paths,
+classes and Outer relationships were preserved; Box gained its existing
+geometry-derived `BodySetup`. All eight external bulk files remain byte-identical.
+Cook now applies ordinary loading's generic removed-field rule, retaining
+surviving dependencies and rejecting incompatible current fields. See
+[package version policy](../Runtime/ObjectSystem/Versioning.md#authored-package-policy)
+and [Cooking](../Runtime/Assets/Build/Cooking.md).
+
+Validation used `f77c110d1` plus this maintenance working tree, Windows MSVC,
+14 jobs, outside the sandbox. Incremental `all` passed for both
+`Win64-Debug-DurinEditor` and `Win64-Debug-DurinGame`. The bounded package,
+registry, primary-asset, Cook, workflow, RoadWeaver, texture-fixture and complete
+StaticMesh selections passed 656 cases; the asset-picker fixture and bounded
+Editor startup case each passed once. StaticMesh cooked fixtures now mount
+`/Game/` before bootstrap admission. Fresh repository Sandbox Cook published
+eight packages with explicit root `/Game/Models/GrayboxPawn`; RoadWeaver Cook
+published four. The new Sandbox generation completed three running Game ticks
+and exited 0, with no missing-pawn-visual warning. Final checks report Ready,
+Compatible and no identity/deprecated-route repair evidence for both projects.
+This closes the raw-project Cook limitation recorded in the Stage 6 receipt.
+Raw inventories, backups and native receipts are in
+`Build/corpus-v11-migration/`; build logs are
+`Build/.agent-state/logs/20261110-174907-415464-3884-cmake.log` and
+`20261110-175834-823536-17256-cmake.log`. Cook receipts are
+`20261110-180053-722136-39628-DurinAssetTool.log` and
+`20261110-180056-230289-4716-DurinAssetTool.log`; Game/startup receipts are
+`20261110-180108-305161-29132-DurinGame.log` and
+`20261110-180124-231915-28204-ctest.log` in the same log directory. No broad GPU
+qualification or complete native-test sweep was selected for this format/content
+maintenance.
 
 Stage 1 evidence (2026-11-09): tested `6f70ca02d` plus the Stage 1 working tree,
 Windows MSVC, default `Win64-Debug-DurinEditor`, 14 build jobs, outside sandbox
@@ -161,6 +204,101 @@ Selection reasons and the workspace symbol audit are in
 `Build/asset-stage4-final-affected.txt` and `Build/asset-stage4-consumers.txt`.
 The lasting contract and supported UE boundary are in
 [Primary Asset Management](../Runtime/Assets/Packages/PrimaryAssetManagement.md).
+
+Stage 5 evidence (2026-11-10): tested `e6e9a0be7` plus the Stage 5 working tree,
+Windows MSVC, 14 build jobs, outside sandbox under the established C1902 recovery
+policy. Default Win64-Debug-DurinEditor passes PrimaryAssetTests (29),
+AssetCookTests (38), CookFunctionalTests (42), AssetPackageTests (236),
+AssetRuntimeLifecycleTests (1), AssetMetadataQueryTests (9),
+PackageRegistryContractTests (8), WorldTests
+`*MapChange*:FWorldTests.PrimaryMapPreloadTransfersRetentionToTheWorld` (6),
+and RoadSceneIntegrationTests (5): 374 cases. Win64-Debug-DurinGame additionally
+passes PrimaryAssetTests (29), AssetCookTests (38) and
+AssetRuntimeLifecycleTests (1): 68 case executions in the actual no-Editor
+configuration, for 442 final case executions total. DurinAssetTool builds in
+the Editor configuration (`20261110-164223-474468-2416-cmake.log`). No production
+or test input changed after these final receipts; later edits are documentation
+and ignored evidence only.
+
+New coverage includes recursive management cycles/hard closure, precedence,
+equal-priority conflict determinism, EditorOnly rules, optional NeverCook bundle
+filtering, required explicit/default/hard conflicts, unsupported chunk/install
+requests, v10 defaults and all-or-nothing cooked catalog admission. The map and
+native primary-data fixture exercise authored load, cold/warm Cook, removal of
+authored content access, cooked ID/path discovery, bundle load and final release.
+The independent cold process verifies manifest catalog admission before DObject
+and CDO construction in both variants. No GPU behavior changed; no GPU or full
+executable startup sweep was selected. Stage 6 retains the final `all` and
+integrated lifecycle gates. Named selections bound the broad Engine module
+expansion in `Build/asset-stage5-final-affected.txt`; the workspace symbol audit
+is `Build/asset-stage5-consumers.txt`. New methods have no direct Sandbox or
+RoadWeaver consumers; the map and Road scene cases cover existing indirect users.
+Raw test/build receipts are preserved outside log rotation in
+`Build/asset-stage5-evidence/`; `validation-summary.txt` lists exact final files,
+variants, filters and counts. The lasting policy and UE subset are documented in
+[Cooking](../Runtime/Assets/Build/Cooking.md#primary-asset-policy-and-cooked-discovery)
+and [Primary Asset Management](../Runtime/Assets/Packages/PrimaryAssetManagement.md).
+
+Stage 6 evidence (2026-11-10): tested `a4816aedd` plus the Stage 6 working tree,
+Windows MSVC Debug, 14 build jobs, outside sandbox under the established C1902
+recovery policy. There are no production-source changes in this stage. The
+PackageTests restart helper now names AssetRuntime rather than AssetManager;
+three old soft-path names and synchronous diagnostic guidance were corrected,
+and streaming usage now states which API supplies each ownership lifetime.
+
+Fresh Editor coverage passes AssetPackageTests (236), AssetPackageReloadTests
+(21), EditorAssetWorkflowTests (44), TextureThumbnailTests (14),
+MaterialThumbnailTests (8), StaticMeshThumbnailTests (10), and the single
+`FLaunchStartupCharacterizationTests.AutomatedLaunchPreservesInteractiveHistory`
+case in characterization mode (1): 334 cases. Reuse the Stage 5 final receipts
+for the other 206 executions, including 68 actual Game-variant executions:
+their relevant production sources, fixtures, generated/package inputs,
+toolchain and settings are unchanged. The helper-only PackageTests edit has its
+new receipt above. Combined final native coverage is 540 executions (472 distinct
+case names), not a full native-test sweep. Final incremental `all` passes for
+the final inputs (`20261110-170523-063137-8072-cmake.log`), covering Engine,
+editor/tools, Sandbox and RoadWeaver public-header/DLL consumers.
+
+The real authored Editor project startup exits normally and preserves interactive
+history (`20261110-165021-790283-20984-ctest.log`). The actual cooked Sandbox Game
+passes the native BeginPlay/presentation gate, completes three running ticks
+and exits 0 using `DevTool run --preset Win64-Debug-DurinGame --project
+Sandbox/Sandbox.dproject -- --exit-after-ticks=3`
+(`20261110-165857-274525-39096-DurinGame.log`). Launcher, Sandbox and Renderer Game
+targets were rebuilt against the final public ABI. An initial missing Sandbox
+export and Renderer light virtual-slot recursion came from stale dynamically
+loaded DLLs; rebuilding those targets resolved both without source workarounds.
+These are normal visible-window lifecycle smokes on NVIDIA GeForce GTX 1060 6GB,
+Vulkan 1.4.312, not a GPU qualification sweep.
+
+The Game smoke uses the existing 2026-11-09 Cook generation. A sampled new raw
+Sandbox Cook still rejects the obsolete `AActor::AuthoredComponents` field
+before publication; this is the already recorded content-migration limitation
+in [startup integration](RuntimeStartupAndSceneActivation.md#current-status).
+Tracked authored content and strict schema checks were not changed. That older
+generation also lacks the optional GrayboxPawn visual; the existing native pawn
+fallback warns and remains playable. This handoff qualifies lifecycle, not a new
+whole-Sandbox Cook or complete gameplay visuals. The final-input primary/map/
+bundle authored-to-Cook-to-cooked round trip and failed-publication behavior
+remain covered by Stage 5's passing independent fixtures.
+
+The fresh symbol audit is empty across Source/Tests for all three workspace
+projects and current Runtime/Editor/Development contracts, including old soft
+paths, load-result wrappers, bootstrap names, free batch requests and cache-origin
+bookkeeping (`Build/asset-stage6-final-obsolete-symbols.txt`). Consumer inventory
+is `Build/asset-stage6-consumers.txt`; project-specific detailed loads are in
+`Build/asset-stage6-project-consumers.txt`. Review confirmed one shared load
+backend/live object identity authority: registry metadata and the revision-keyed
+primary catalog are projections, handle roots own request retention, and primary
+Current/Pending handles own policy state. They introduce neither a second
+resident package cache nor implicit caller leases. Native selection is recorded
+in `Build/asset-stage6-affected.txt`. UE 5.8 public release/cancel/preload and rule
+union contracts were rechecked; existing documented subset boundaries, including
+fatal equal-priority Cook conflicts, remain explicit without a licensed-source
+parity claim. Raw passing/failure diagnostics, the debugger trace, Cook generation
+hashes and exact final receipt/count summary are preserved outside log rotation
+under `Build/asset-stage6-evidence/`. All required plan gates are closed; the
+separate Sandbox content migration remains outside this plan.
 
 Inspected baseline: `fade01575`. Recent work already separates package/asset
 metadata, aligns soft-reference operations, unifies streamable handles, and
@@ -510,7 +648,80 @@ logical identities and ownership semantics. No-work primary requests return
 null with immediate completion. Per-primary generations preserve committed
 state on failure/cancellation; explicit Unload and newer transitions supersede
 pending work. No implicit caller leases are introduced. Cook rule enforcement
-and standalone cooked metadata handoff remain Stage 5 work.
+and standalone cooked metadata handoff are covered by Stage 5.
+
+Review correction (2026-11-10): use UE-shaped nonrecursive PreloadPrimaryAssets
+for the default map, with retention owned only by its returned handle. The map
+must not replace or unload global primary state owned by another service.
+Restore generic combined completion to child load-terminal state, independent
+of queued public delegates. Primary state commits through a private load-terminal
+notification before parent notification; public completion remains deferred.
+This supersedes the initial global callback-fence and map Load/Unload pairing.
+The other review findings remain outside this correction's requested scope.
+
+Review correction evidence: tested `139430f3d` plus the review working tree,
+Windows MSVC, default `Win64-Debug-DurinEditor`, 14 jobs, outside sandbox for
+the established C1902 limitation. PrimaryAssetTests (18), AssetPackageTests
+(236), WorldTests selected map-change/preload cases (6),
+AssetRuntimeLifecycleTests (1), TextureThumbnailTests (14),
+MaterialThumbnailTests (8), StaticMeshThumbnailTests (10), and
+RoadSceneIntegrationTests (5) pass: 298 unique cases. New cases prove preloads
+survive global bundle changes/unload, preload cancellation preserves a pending
+primary load, generic combined completion can precede child public delegates,
+and primary state publishes before its public completion delegate. The map
+integration case retains an already-loaded primary through map completion,
+then verifies World retention after the test explicitly unloads its own primary.
+
+Raw receipts and exact target filenames are preserved in
+`Build/asset-preload-review-evidence/validation-summary.txt`. Selection and
+workspace consumer audits are in `Build/asset-preload-review-affected.txt` and
+`Build/asset-preload-review-consumers.txt`. No public object layout, vtable,
+package format or build graph changed; bounded owner/consumer targets cover
+these changes without another all build. Bootstrap, project admission and
+level resolution are unchanged; CPU map lifecycle coverage exercises the
+ownership handoff, with no full executable startup or GPU execution selected.
+Stages 5-6 remain open.
+
+Review simplification decision (2026-11-10): resolve logical IDs before inserting
+loaded state. Reuse a UE-shaped CreateErrorHandle for identity failures instead
+of passing empty paths into the loader; failed/canceled first loads leave no empty
+entry. Keep one stable policy state and its streamable manager. Reuse the existing
+request cleanup for policy shutdown and streamable destruction, without a second
+per-entry cancellation loop or replacement owner allocation. Retain the policy
+active flag: primary initialization and ordinary streamable availability are
+distinct responsibilities. This also preserves GetStreamableManager availability
+before primary initialization and across shutdown/restart. Move the unchanged binary
+metadata codec from AssetBundleData.h into a declaration header and CoreDObject
+implementation, with explicit includes at its package/cache callers. No new
+serialization service, wire version or migration layer is introduced.
+
+Review 3/4/5 evidence (2026-11-10): tested `d9814c69d` plus this working tree,
+Windows MSVC, default `Win64-Debug-DurinEditor`, 14 jobs, outside sandbox for
+the established C1902 limitation. Incremental all passed for final inputs
+(`20261110-160158-589216-31932-cmake.log`); removing a transitive include from
+the foundational object header requires consumer compilation across Engine,
+Sandbox and RoadWeaver. PrimaryAssetTests (23), AssetPackageTests (236),
+PackageWriterContractTests (22), PackageLinkerContractTests (20),
+PackageRegistryContractTests (8), AssetMetadataQueryTests (9),
+AssetRuntimeLifecycleTests (1), WorldTests selected map/preload cases (6), and
+RoadSceneIntegrationTests (5) pass: 330 unique cases.
+
+New cases exercise direct error handles without work, invalid/missing IDs,
+mixed identity failures, failed/canceled first loads, repeated shutdown, ordinary
+streaming before primary initialization, stable owner identity and restart with
+old callbacks detached. The codec function bodies match the baseline after
+removing inline; frozen v10 wire/hash fixtures and v11 metadata discovery pass.
+Package/cache receipts are reused after the Engine-only cleanup refinement;
+their relevant CoreDObject/AssetRegistry inputs are unchanged. Final owner,
+loader and map cases cover the refined shutdown implementation. No GPU behavior,
+package format or process bootstrap configuration changed; no GPU execution or
+full process startup suite was selected. Stages 5-6 remain open.
+
+Exact target filenames, counts and raw receipts are preserved in
+`Build/asset-review-345-evidence/validation-summary.txt`. That directory also
+contains codec-body and shutdown audits. Selection and workspace symbol audits
+are in `Build/asset-review-345-affected.txt` and
+`Build/asset-review-345-consumers.txt`.
 
 - [x] Add identity/rule/bundle types, primary data assets, metadata publication,
   type settings, ID validation and redirects.
@@ -527,10 +738,24 @@ ownership. Bundle transition races/failure and manager shutdown pass focused tes
 
 Dependencies: Stage 4. Outcome: one policy feeds existing Cook mechanisms.
 
-- [ ] Apply supported type/asset Cook rules and management edges to root selection.
-- [ ] Publish cooked primary/bundle metadata and validate it without editor services.
-- [ ] Diagnose rule conflicts and unsupported chunk/install settings.
-- [ ] Exercise a map and primary-data-asset fixture through authored load, Cook,
+Implementation decision (2026-11-10): reuse the configured DAssetManager for
+UE-shaped ModifyCook/ModifyCookReferences hooks and the existing dependency
+discovery and transactional publisher. Management edges remain distinct from
+serialized references. Unknown leaves ordinary discovery unchanged; AlwaysCook
+adds managed packages, while NeverCook filters optional soft/bundle references
+and fails for explicit/default/external roots or retained hard dependencies.
+Equal-priority incompatible rules fail with both manager IDs (a stricter
+publication boundary than UE's NeverCook winner plus conflict report).
+Editor-only primary types ignore AlwaysCook, as in UE. Unsupported enum values,
+non-default ChunkId and install settings are rejected rather than simulated.
+Cooked discovery uses the existing manifest inventory and DAST headers, including
+their primary/bundle metadata, without authored-directory or live-object scans.
+No second catalog format or physical chunk backend is introduced.
+
+- [x] Apply supported type/asset Cook rules and management edges to root selection.
+- [x] Publish cooked primary/bundle metadata and validate it without editor services.
+- [x] Diagnose rule conflicts and unsupported chunk/install settings.
+- [x] Exercise a map and primary-data-asset fixture through authored load, Cook,
   cooked discovery, bundle load, and release.
 
 Acceptance: deterministic inclusion/exclusion and conflict reports; required hard
@@ -541,12 +766,12 @@ no partial output. No claim of physical chunk delivery.
 
 Dependencies: Stages 1-5. Outcome: migrated consumers and durable documentation.
 
-- [ ] Audit removed symbols and all workspace consumers; remove dual state authorities.
-- [ ] Run one final `all` build because public object/path/loading headers cross
+- [x] Audit removed symbols and all workspace consumers; remove dual state authorities.
+- [x] Run one final `all` build because public object/path/loading headers cross
   project DLL boundaries that local asset tests cannot fully validate.
-- [ ] Complete affected owner/consumer tests and bounded authored-editor/cooked-game
+- [x] Complete affected owner/consumer tests and bounded authored-editor/cooked-game
   lifecycle coverage; expand only for an identified uncovered risk.
-- [ ] Update owning contracts, API usage guidance, compatibility differences, and
+- [x] Update owning contracts, API usage guidance, compatibility differences, and
   evidence; close this plan only when every required gate is satisfied.
 
 Acceptance: no obsolete public wrappers or hidden migration fallbacks; final

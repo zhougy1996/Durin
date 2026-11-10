@@ -55,7 +55,7 @@ namespace
 		const Package::FSerializedType Bulk{.Kind = Package::EValueKind::BulkData};
 
 		Package::FLinkerTables Linker;
-		Linker.FormatVersion = Package::DastV10FormatVersion;
+		Linker.FormatVersion = Package::DastV11FormatVersion;
 		Linker.Summary.SearchableNames = {"SearchB", "SearchA"};
 		Linker.Names = bShuffled ? std::vector<std::string>{"unused-z", "unused-a"}
 			: std::vector<std::string>{"unused-a", "unused-z"};
@@ -129,7 +129,7 @@ namespace
 	{
 		EnsurePathMount();
 		Package::FLinkerTables Linker;
-		Linker.FormatVersion = Package::DastV10FormatVersion;
+		Linker.FormatVersion = Package::DastV11FormatVersion;
 		Package::FPackageIndex Self;
 		Package::FPackageIndex::TryExport(0, Self);
 		Package::FSerializedSchema Schema{.QualifiedName = "Example::AllKinds"};
@@ -199,7 +199,7 @@ namespace
 		EnsurePathMount();
 		const Package::FSerializedType Hard{.Kind = Package::EValueKind::HardReference};
 		Package::FLinkerTables Linker;
-		Linker.FormatVersion = Package::DastV10FormatVersion;
+		Linker.FormatVersion = Package::DastV11FormatVersion;
 		Durin::FSoftObjectPath DepA;
 		Durin::FSoftObjectPath DepB;
 		EXPECT_TRUE(Durin::FSoftObjectPath::TryCreate("/Game/DepA.DepA", DepA));
@@ -292,10 +292,10 @@ TEST(FPackageFormatContractTests, MultipleTopLevelAssetsRoundTripAndProjectExact
 	Package::FPackageWriterResult WriterDiagnostic;
 	ASSERT_TRUE((WriterDiagnostic = Package::WritePackage(Linker, Main, Bulk)))
 		<< Durin::ObjectPackage::FormatPackageError(WriterDiagnostic);
-	EXPECT_EQ(Read<uint32>(Main, 24), Package::DastV10FormatVersion);
+	EXPECT_EQ(Read<uint32>(Main, 24), Package::DastV11FormatVersion);
 	const Durin::FXxHash128 FixtureHash = Durin::FXxHash128::HashBuffer(Main);
-	EXPECT_EQ(FixtureHash.HashLow, 11260223111109423796ull);
-	EXPECT_EQ(FixtureHash.HashHigh, 9867426025646237870ull);
+	EXPECT_EQ(FixtureHash.HashLow, 16391300736869199753ull);
+	EXPECT_EQ(FixtureHash.HashHigh, 17907775473498510427ull);
 	Package::FPackageRegistryData Registry;
 	Package::FPackageReaderResult ReaderDiagnostic;
 	ASSERT_TRUE((ReaderDiagnostic = Package::ReadPackageRegistry(
@@ -334,16 +334,16 @@ TEST(FPackageWriterContractTests, FrozenLayoutAndFixtureHashAreExact)
 	ASSERT_TRUE((Diagnostic = Package::WritePackage(Linker, Main, Bulk))) << Durin::ObjectPackage::FormatPackageError(Diagnostic);
 	ASSERT_GE(Main.size(), Package::DastFirstSectionOffset);
 	EXPECT_EQ(std::string(reinterpret_cast<const char*>(Main.data()), 4), "DURF");
-	EXPECT_EQ(Read<uint32>(Main, 24), Package::DastV10FormatVersion);
+	EXPECT_EQ(Read<uint32>(Main, 24), Package::DastV11FormatVersion);
 	EXPECT_EQ(Read<uint64>(Main, 40), Main.size());
-	EXPECT_EQ(Main.size(), 1225u);
-	EXPECT_EQ(Read<uint64>(Main, 32), 974u);
+	EXPECT_EQ(Main.size(), 1241u);
+	EXPECT_EQ(Read<uint64>(Main, 32), 990u);
 	EXPECT_EQ(Read<uint64>(Main, 72), Package::DastDirectoryOffset);
 	EXPECT_EQ(Read<uint32>(Main, 80), Package::DastSectionCount);
 	EXPECT_EQ(Read<uint32>(Main, 84), Package::DastSectionEntryBytes);
 	EXPECT_EQ(Read<uint64>(Main, Package::DastDirectoryOffset + 8), Package::DastFirstSectionOffset);
 	constexpr std::array<uint64, Package::DastSectionCount> SectionOffsets{
-		528, 571, 969, 974, 982, 1014, 1055, 1111, 1222};
+		528, 587, 985, 990, 998, 1030, 1071, 1127, 1238};
 	for (uint64 Index = 0; Index < Package::DastSectionCount; ++Index)
 		EXPECT_EQ(Read<uint64>(Main, Package::DastDirectoryOffset + Index * 48 + 8),
 			SectionOffsets[Index]) << Index;
@@ -351,7 +351,7 @@ TEST(FPackageWriterContractTests, FrozenLayoutAndFixtureHashAreExact)
 	const uint64 ImportBytes = Read<uint64>(Main, Package::DastDirectoryOffset + 2 * 48 + 16);
 	EXPECT_EQ(Read<uint64>(Main, 32), ImportOffset + ImportBytes);
 	EXPECT_EQ(Bulk, Bytes({0xaa, 0xbb, 0xcc, 0xdd}));
-	EXPECT_EQ(Durin::FXxHash128::HashBuffer(Main).ToString(), "cde533724d0b72df31af7adb9d8b61c4");
+	EXPECT_EQ(Durin::FXxHash128::HashBuffer(Main).ToString(), "fdab0002ba61310cf13bf49a11f2d0c9");
 	EXPECT_EQ(Durin::FXxHash128::HashBuffer(Bulk).ToString(), "ab65044d6377f7528d403d7d59bb88f3");
 }
 
@@ -432,7 +432,7 @@ TEST(FPackageWriterContractTests, RedirectWithoutBulkHasFrozenBytes)
 	EXPECT_EQ(Read<uint32>(Main, Package::DastFormatHeaderOffset), 0u);
 	EXPECT_TRUE(Bulk.empty());
 	EXPECT_EQ(Read<uint64>(Main, Package::DastDirectoryOffset + 8 * 48 + 16), 0u);
-	EXPECT_EQ(Durin::FXxHash128::HashBuffer(Main).ToString(), "0a1c4ba4b604f7b678737dbd8a69a7e5");
+	EXPECT_EQ(Durin::FXxHash128::HashBuffer(Main).ToString(), "15db164cb6d71b68401ee757ea6e3407");
 }
 
 TEST(FPackageWriterContractTests, EveryNativeValueKindHasOneFrozenFixture)
@@ -443,7 +443,7 @@ TEST(FPackageWriterContractTests, EveryNativeValueKindHasOneFrozenFixture)
 	ASSERT_TRUE((Diagnostic = Package::WritePackage(MakeAllKindsFixture(), Main, Bulk)))
 		<< Diagnostic.LogicalPath << ": " << Durin::ObjectPackage::FormatPackageError(Diagnostic);
 	EXPECT_TRUE(Bulk.empty());
-	EXPECT_EQ(Durin::FXxHash128::HashBuffer(Main).ToString(), "f3ba42245e8a145f03eeac3e36831dc0");
+	EXPECT_EQ(Durin::FXxHash128::HashBuffer(Main).ToString(), "8ec228d6e2a8e7232cb69d64e3861ace");
 
 	Durin::FByteBuffer AlternateNanMain;
 	ASSERT_TRUE(Package::WritePackage(MakeAllKindsFixture(0x7fffffffu), AlternateNanMain, Bulk));
@@ -604,7 +604,7 @@ TEST(FPackageReaderContractTests, WrongIdentityAndTruncatedFrontMatterDoNotPubli
 
 TEST(FPackageReaderContractTests, RetiredAndFutureVersionsFailWithoutPublishing)
 {
-	for (uint32 Version : {9u, 12u})
+	for (uint32 Version : {9u, 10u, 12u})
 	{
 		auto Fixture = MakeFixture();
 		Durin::FByteBuffer Main, Bulk;

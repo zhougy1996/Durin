@@ -221,13 +221,14 @@ namespace
 		Durin::ObjectPackage::DastV11FormatVersion);
 	static_assert(Durin::ObjectPackage::SupportedPackageReaderVersions ==
 		decltype(Durin::ObjectPackage::SupportedPackageReaderVersions){
-			Durin::ObjectPackage::DastV10FormatVersion, Durin::ObjectPackage::DastV11FormatVersion});
+			Durin::ObjectPackage::DastV11FormatVersion});
+	static_assert(!Durin::ObjectPackage::IsSupportedPackageReaderVersion(10u));
 	static_assert(!Durin::ObjectPackage::IsSupportedPackageReaderVersion(
 		4));
 	static_assert(!Durin::ObjectPackage::IsSupportedPackageReaderVersion(
 		5u));
 	static_assert(Durin::ObjectPackage::IsSupportedPackageReaderVersion(
-		Durin::ObjectPackage::DastV10FormatVersion));
+		Durin::ObjectPackage::DastV11FormatVersion));
 	static_assert(!Durin::ObjectPackage::IsSupportedPackageReaderVersion(
 		7u));
 
@@ -1624,7 +1625,7 @@ namespace
 		Durin::FAssetReferenceStoreHandle Handle = 0;
 	};
 
-	auto ShutdownAssetManagerForRestart() -> void
+	auto RestartAssetRuntimeForTests() -> void
 	{
 		Durin::ShutdownAssetRuntime();
 		Durin::CollectGarbage();
@@ -2265,6 +2266,23 @@ TEST_F(FAsyncAssetLoadTests, ManagedRequestsOutliveCallerUntilExplicitRelease)
 	EXPECT_TRUE(Weak.expired());
 	CollectGarbage();
 	EXPECT_EQ(FindResidentPackage(Path), nullptr);
+}
+
+TEST_F(FAsyncAssetLoadTests, CombinedLoadCompletionDoesNotWaitForChildPublicDelegates)
+{
+	using namespace Durin;
+	FStreamableManager Manager;
+	const auto Path = SaveAsset("CombinedDeferredDelegate");
+	bool bChildDelegateDelivered = false;
+	auto Child = Manager.RequestAsyncLoad(Testing::MakePackageLeafAssetObjectPathForTests(Path),
+		[&](FStreamableHandle&) { bChildDelegateDelivered = true; });
+	const std::array Children{Child};
+	auto Parent = Manager.CreateCombinedHandle(Children);
+	ASSERT_TRUE(PumpUntil([&] { return Parent->HasLoadCompleted(); }));
+	EXPECT_TRUE(Child->HasLoadCompleted());
+	EXPECT_FALSE(bChildDelegateDelivered);
+	ASSERT_NE(Parent->GetLoadedAsset(), nullptr);
+	ASSERT_TRUE(PumpUntil([&] { return bChildDelegateDelivered; }));
 }
 
 TEST_F(FAsyncAssetLoadTests, CombinedParentsRetainIndependentlyWithoutCancelingSharedChildren)
@@ -3041,7 +3059,7 @@ TEST(FPackageAssetTests, RemovedAuthoredFieldsDoNotLoadDependenciesOrRewriteSour
 	auto BeforeRead = FFileHelper::LoadFileToArray(SourceFile);
 	ASSERT_TRUE(BeforeRead) << BeforeRead.error().ToString();
 	Before = std::move(*BeforeRead);
-	ShutdownAssetManagerForRestart();
+	RestartAssetRuntimeForTests();
 	ASSERT_TRUE(std::filesystem::remove(TargetFile));
 	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 	DPackage* Loaded = nullptr;
@@ -3074,7 +3092,7 @@ TEST(FPackageAssetTests, RemovedAuthoredFieldsDoNotLoadDependenciesOrRewriteSour
 	ASSERT_TRUE(AfterRead2) << AfterRead2.error().ToString();
 	After = std::move(*AfterRead2);
 	EXPECT_NE(Before, After);
-	ShutdownAssetManagerForRestart();
+	RestartAssetRuntimeForTests();
 	Report = {};
 	{
 		auto LoadedValue = LoadPackageDetailed(Path, &Report);
@@ -3099,7 +3117,7 @@ TEST(FPackageAssetTests, RemovedNestedFieldsInStructArraysAreOmittedFromAuthored
 	ASSERT_NO_FATAL_FAILURE(RewriteSchemaTestPackage(Path, [](auto& Linker) {
 		RenameSchemaTestField(Linker, "Tests::FMigratingValue", "Value", "RetiredValue");
 	}));
-	ShutdownAssetManagerForRestart();
+	RestartAssetRuntimeForTests();
 	DPackage* Loaded = nullptr;
 	FAssetLoadReport Report;
 	const auto Result = LoadPackageDetailed(Path, &Report);
@@ -3112,7 +3130,7 @@ TEST(FPackageAssetTests, RemovedNestedFieldsInStructArraysAreOmittedFromAuthored
 	EXPECT_EQ(Asset->Values[1].Value, 0.0f);
 	EXPECT_EQ(Report.DiscardedFieldCount, 2u);
 	ASSERT_TRUE(SavePackage(Loaded));
-	ShutdownAssetManagerForRestart();
+	RestartAssetRuntimeForTests();
 	Report = {};
 	{
 		auto LoadedValue = LoadPackageDetailed(Path, &Report);
@@ -3145,7 +3163,7 @@ TEST(FPackageAssetTests, CurrentFieldTypeMismatchIsNotDiscarded)
 					Property.Value = {.FloatingBits = std::bit_cast<uint32>(13.0f)};
 				}
 	}));
-	ShutdownAssetManagerForRestart();
+	RestartAssetRuntimeForTests();
 	DPackage* Loaded = nullptr;
 	{
 		auto LoadedValue = LoadPackageDetailed(Path);
@@ -3182,7 +3200,7 @@ TEST(FPackageAssetTests, HistoricalRoutesStillConvertAndRejectIncompatibleStored
 				.DeclaringType = "Tests::DSchemaMigrationAssetForTest", .FieldName = "Left",
 				.Type = Type, .Value = Value});
 		}));
-		ShutdownAssetManagerForRestart();
+		RestartAssetRuntimeForTests();
 		DPackage* Loaded = nullptr;
 		FAssetLoadReport Report;
 		FAssetLoadAudit Audit;
@@ -3227,7 +3245,7 @@ TEST(FPackageAssetTests, LegacyFieldNormalizationPreservesCallbackMutationsAndSo
 	const auto File = Testing::GetTestWorkDirectory() / "Assets" / "LegacyFieldIdentity.dasset";
 	const auto Before = FFileHelper::LoadFileToArray(File);
 	ASSERT_TRUE(Before);
-	ShutdownAssetManagerForRestart();
+	RestartAssetRuntimeForTests();
 	struct FReset { ~FReset() { GAuthoredLoadProbe = {}; GAuthoredPostLoadProbe = {}; } } Reset;
 	GAuthoredLoadProbe = [](DObject& Object, FArchive&) {
 		ReportAssetLoadMutation(&Object, "Tests.Deserialize", "Deserialize observation");
@@ -3282,7 +3300,7 @@ TEST(FPackageAssetTests, NestedLegacyFieldsNormalizeForDeltaAndCompleteValues)
 						for (auto& Element : Property.Value.Elements)
 							for (auto& Name : Element.FieldNames) if (Name == "Value") Name = "LegacyNestedValue";
 		}));
-		ShutdownAssetManagerForRestart();
+		RestartAssetRuntimeForTests();
 		FAssetLoadReport Report;
 		FAssetLoadAudit Audit;
 		FScopedAssetLoadAudit AuditScope(Audit);
@@ -3321,7 +3339,7 @@ TEST(FPackageAssetTests, CanonicalFieldIdentityCollisionsRejectBeforeSkeletonCon
 				Schema.Fields.push_back(std::move(Alias));
 			}
 	}));
-	ShutdownAssetManagerForRestart();
+	RestartAssetRuntimeForTests();
 	const uint32 Before = GPackageAssetPostLoadCount;
 	const auto Loaded = LoadPackageDetailed(Path);
 	ASSERT_FALSE(Loaded);
@@ -3409,7 +3427,7 @@ TEST(FPackageAssetTests, CurrentNestedFieldTypeMismatchIsNotDiscarded)
 							if (Field.Name == Property.FieldName) Field.Type = Property.Type;
 			}
 	}));
-	ShutdownAssetManagerForRestart();
+	RestartAssetRuntimeForTests();
 	DPackage* Loaded = nullptr;
 	{
 		auto LoadedValue = LoadPackageDetailed(Path);
@@ -3437,7 +3455,7 @@ TEST(FPackageAssetTests, RemovedFieldsDoNotRelaxWireOrCookedConsumptionValidatio
 	auto BytesRead = FFileHelper::LoadFileToArray(FindPackageExact(Path)->PhysicalPath);
 	ASSERT_TRUE(BytesRead) << BytesRead.error().ToString();
 	Bytes = std::move(*BytesRead);
-	ShutdownAssetManagerForRestart();
+	RestartAssetRuntimeForTests();
 	const auto& Codec = AssetPrivate::TaggedPackage::GetCodec();
 	DPackage* Loaded = nullptr;
 	const AssetPrivate::FAssetPackageReadContext Cooked{.PackageBytes = Bytes,
@@ -6266,7 +6284,7 @@ TEST(FPackageAssetTests, PackageCodecPolicyIsCompleteUniqueAndIndependentOfWireV
 	EXPECT_FALSE(Durin::AssetPrivate::ValidateAssetPackageCodecTable(DuplicateKeys, Error));
 
 	std::array DuplicateNames{Codec, Codec};
-	DuplicateNames[1].FormatVersion = Durin::ObjectPackage::DastV10FormatVersion + 1;
+	DuplicateNames[1].FormatVersion = Durin::ObjectPackage::DastV11FormatVersion + 1;
 	EXPECT_FALSE(Durin::AssetPrivate::ValidateAssetPackageCodecTable(DuplicateNames, Error));
 	std::ranges::reverse(DuplicateNames);
 	EXPECT_FALSE(Durin::AssetPrivate::ValidateAssetPackageCodecTable(DuplicateNames, Error));
@@ -6324,7 +6342,7 @@ TEST(FPackageAssetTests, EnvelopeDispatchUsesPermanentIdentityAndFailsBeforeCode
 	std::array<std::byte, BinaryEnvelopePreambleBytes> Supported{};
 	const FBinaryEnvelopePreamble SupportedPreamble{
 		.FormatId = ObjectPackage::DastFormatId,
-		.FormatVersion = ObjectPackage::DastV10FormatVersion,
+		.FormatVersion = ObjectPackage::DastV11FormatVersion,
 		.HeaderBytes = Supported.size(),
 		.FileBytes = Supported.size()};
 	ASSERT_TRUE(EncodeBinaryEnvelopePreamble(SupportedPreamble, Supported));
@@ -7131,7 +7149,7 @@ TEST(FPackageAssetTests, RedirectorsRoundTripAndResolveWithoutLoading)
 	EXPECT_EQ(Durin::FindResidentPackage(AliasPath), nullptr);
 	EXPECT_EQ(Durin::FindResidentPackage(TargetPath), nullptr);
 
-	ShutdownAssetManagerForRestart();
+	RestartAssetRuntimeForTests();
 	const Durin::FAssetCatalogRefreshResult RestartRefresh =
 		Durin::RefreshAssetRegistry();
 	ASSERT_TRUE(RestartRefresh);
@@ -9030,7 +9048,7 @@ TEST(FPackageAssetTests, RelocationPreservesLoadedAndUnloadedSoftAuthoredPaths)
 	auto UnloadedTargets = Durin::CaptureAssetReferenceIndex().FindTargets(UnloadedOwnerPath);
 	EXPECT_EQ(LoadedTargets, (std::vector<Durin::FPackagePath>{OldPath}));
 	EXPECT_EQ(UnloadedTargets, (std::vector<Durin::FPackagePath>{OldPath}));
-	ShutdownAssetManagerForRestart();
+	RestartAssetRuntimeForTests();
 	ASSERT_TRUE(Durin::RefreshAssetRegistry());
 	EXPECT_EQ(Durin::CaptureAssetReferenceIndex().FindTargets(UnloadedOwnerPath), (std::vector<Durin::FPackagePath>{OldPath}));
 	DSoftPackageAssetForTest* ReloadedOwner = nullptr;
@@ -11342,7 +11360,7 @@ TEST(FPackageAssetTests, PersistentRegistryFlushesSuccessfulMutationsAndIgnoresW
 	ASSERT_TRUE(Durin::SavePackage(FirstAsset->GetPackage()));
 	EXPECT_GT(Durin::GetAssetCatalogRevision(), EmptyRegistryRevision);
 	EXPECT_TRUE(Durin::IsAssetCatalogSnapshotDirtyForTesting());
-	ShutdownAssetManagerForRestart();
+	RestartAssetRuntimeForTests();
 	EXPECT_FALSE(Durin::IsAssetCatalogSnapshotDirtyForTesting());
 	const auto FirstWarmRefresh = Durin::RefreshAssetRegistry();
 	ASSERT_TRUE(FirstWarmRefresh);
@@ -11358,7 +11376,7 @@ TEST(FPackageAssetTests, PersistentRegistryFlushesSuccessfulMutationsAndIgnoresW
 	}
 	EXPECT_EQ(Durin::GetAssetCatalogRevision(), RevisionBeforeLoad);
 	EXPECT_FALSE(Durin::IsAssetCatalogSnapshotDirtyForTesting());
-	ShutdownAssetManagerForRestart();
+	RestartAssetRuntimeForTests();
 	const auto SecondWarmRefresh = Durin::RefreshAssetRegistry();
 	ASSERT_TRUE(SecondWarmRefresh);
 	EXPECT_EQ(SecondWarmRefresh.CatalogStats.Reused, 1u);
@@ -11366,7 +11384,7 @@ TEST(FPackageAssetTests, PersistentRegistryFlushesSuccessfulMutationsAndIgnoresW
 
 	ASSERT_TRUE(RelocateAssetForTest(FirstPath, MovedPath));
 	EXPECT_TRUE(Durin::IsAssetCatalogSnapshotDirtyForTesting());
-	ShutdownAssetManagerForRestart();
+	RestartAssetRuntimeForTests();
 	const auto RelocatedRefresh = Durin::RefreshAssetRegistry();
 	ASSERT_TRUE(RelocatedRefresh);
 	EXPECT_EQ(RelocatedRefresh.CatalogStats.Reused, 2u);
@@ -11378,7 +11396,7 @@ TEST(FPackageAssetTests, PersistentRegistryFlushesSuccessfulMutationsAndIgnoresW
 	DPackageAssetForTest* ImportedAsset = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(ImportedPath, ImportedAsset));
 	ASSERT_TRUE(Durin::SavePackage(ImportedAsset->GetPackage()));
-	ShutdownAssetManagerForRestart();
+	RestartAssetRuntimeForTests();
 	const auto ImportedRefresh = Durin::RefreshAssetRegistry();
 	ASSERT_TRUE(ImportedRefresh);
 	EXPECT_EQ(ImportedRefresh.CatalogStats.Reused, 3u);
@@ -11386,7 +11404,7 @@ TEST(FPackageAssetTests, PersistentRegistryFlushesSuccessfulMutationsAndIgnoresW
 
 	ASSERT_TRUE(DeleteAssetClosureForTest({FirstPath, MovedPath}));
 	EXPECT_TRUE(Durin::IsAssetCatalogSnapshotDirtyForTesting());
-	ShutdownAssetManagerForRestart();
+	RestartAssetRuntimeForTests();
 	const auto DeletedRefresh = Durin::RefreshAssetRegistry();
 	ASSERT_TRUE(DeletedRefresh);
 	EXPECT_EQ(DeletedRefresh.CatalogStats.Reused, 1u);
@@ -11410,7 +11428,7 @@ TEST(FPackageAssetTests, PersistentRegistryFlushesSuccessfulMutationsAndIgnoresW
 	auto BeforeFailedFlushRead = Durin::FFileHelper::LoadFileToArray(AuthoredFile);
 	ASSERT_TRUE(BeforeFailedFlushRead) << BeforeFailedFlushRead.error().ToString();
 	BeforeFailedFlush = std::move(*BeforeFailedFlushRead);
-	ShutdownAssetManagerForRestart();
+	RestartAssetRuntimeForTests();
 	EXPECT_TRUE(Durin::IsAssetCatalogSnapshotDirtyForTesting());
 	EXPECT_FALSE(Durin::GetAssetCatalogCacheWarningForTesting().empty());
 	Durin::FByteBuffer AfterFailedFlush;
@@ -11420,7 +11438,7 @@ TEST(FPackageAssetTests, PersistentRegistryFlushesSuccessfulMutationsAndIgnoresW
 	EXPECT_EQ(AfterFailedFlush, BeforeFailedFlush);
 
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
-	ShutdownAssetManagerForRestart();
+	RestartAssetRuntimeForTests();
 	EXPECT_FALSE(Durin::IsAssetCatalogSnapshotDirtyForTesting());
 #else
 	GTEST_SKIP() << "Asset relocation and redirector repair require Editor AssetTools.";
@@ -12035,7 +12053,7 @@ TEST(FPackageAssetTests, CustomVersionsPersistAndValidateBeforeConstruction)
 	ASSERT_TRUE(ObjectPackage::ReadPackage(Bytes, {}, Path, Original));
 	ASSERT_EQ(Original.CustomVersions.size(), 1u);
 	EXPECT_EQ(Original.CustomVersions.front(), (FCustomVersion{ArchiveCustomVersionGuid, 3}));
-	ShutdownAssetManagerForRestart();
+	RestartAssetRuntimeForTests();
 	const auto& Codec = AssetPrivate::TaggedPackage::GetCodec();
 	for (int32 Mode = 0; Mode < 4; ++Mode)
 	{

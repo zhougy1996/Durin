@@ -33,6 +33,8 @@ namespace Durin
 		ENGINE_API ~FStreamableManager();
 		FStreamableManager(const FStreamableManager&) = delete;
 		auto operator=(const FStreamableManager&) -> FStreamableManager& = delete;
+		// Terminal canceled error, with no request registration or loading.
+		ENGINE_API static auto CreateErrorHandle(FAssetReadError Error, std::string DebugName = {}) -> std::shared_ptr<FStreamableHandle>;
 		ENGINE_API auto RequestAsyncLoad(FStreamableAsyncLoadParams Params) -> std::shared_ptr<FStreamableHandle>;
 		ENGINE_API auto RequestAsyncLoad(const FSoftObjectPath& Path,
 			FStreamableDelegate OnComplete = {}, const DClass* ExpectedClass = nullptr,
@@ -57,6 +59,8 @@ namespace Durin
 			bool bManageActiveHandle = false, FStreamableDelegate OnCancel = {}) -> std::shared_ptr<FStreamableHandle>;
 		ENGINE_API auto GetActiveHandles() const -> std::vector<std::shared_ptr<FStreamableHandle>>;
 	private:
+		ENGINE_API auto ClearRequests() -> void;
+		friend class DAssetManager;
 		auto Track(std::shared_ptr<FStreamableHandle> Handle, bool bManaged = false) -> std::shared_ptr<FStreamableHandle>;
 		std::shared_ptr<FStreamableManagerState> State;
 	};

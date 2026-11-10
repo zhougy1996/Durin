@@ -25,7 +25,7 @@ redirect destination, including when they contain exactly one asset.
 exact asset and its owning package from the same revision. Package-wide policies
 inspect all asset records; class-specific operations select an exact asset.
 
-Mounted `Content` is authoritative. `AssetRegistry/Registry.bin` is a
+For authored execution, mounted `Content` is authoritative. `AssetRegistry/Registry.bin` is a
 rebuildable, deterministic discovery snapshot keyed by virtual mount and
 normalized package path; it is never a content mount or a source of package
 bytes. Startup enumerates every registered auto-scan mount once. A package in a
@@ -37,6 +37,15 @@ files read only the declared bounded front matter. V9 metadata is projected by
 CoreDObject's construct-free Registry reader. Unsupported
 versions fail before metadata publication; ordinary discovery has no legacy
 header fallback.
+
+Cooked execution instead admits the existing CookManifest.bin inventory and
+bounded headers of its cooked packages at runtime bootstrap, before reflected
+default objects. It publishes the complete catalog and reference index together;
+any bad listed header retains the previous revision. The Game Engine path does
+not refresh authored mounts. Primary ID/bundle discovery reads this same catalog
+and needs no Editor services or live-object scan. See
+[Cooking](../Build/Cooking.md#primary-asset-policy-and-cooked-discovery) for
+inclusion policy, current-format admission and the loose-fixture boundary.
 
 Schema, package-format, serialization, mount-manifest, or snapshot corruption
 causes a nonfatal rebuild. Full validation bypasses fingerprint reuse but keeps

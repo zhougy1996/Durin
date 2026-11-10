@@ -46,10 +46,14 @@ namespace Durin
 	private:
 		FStreamableHandle();
 		auto ReleaseRetention() -> void;
+		// Engine policy publication runs at load completion, before parent notification.
+		// Public completion delegates remain independently deferred.
+		ENGINE_API auto SetLoadCompletedCallback(FStreamableDelegate Callback) -> void;
 		struct FImpl;
 		std::unique_ptr<FImpl> Impl;
 		friend class FAssetLoadRequestService;
 		friend class FStreamableManager;
+		friend class DAssetManager;
 	};
 
 	// EngineLoop pumps this automatically. Tools/tests must pump on GameThread.

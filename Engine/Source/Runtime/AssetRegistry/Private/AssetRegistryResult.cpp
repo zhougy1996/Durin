@@ -5,7 +5,7 @@ namespace Durin
 	static auto FormatAssetRegistryReason(const FAssetRegistryResult& Result) -> std::string
 	{
 		const auto& Context = Result.Context;
-		if (Context.ReaderCause) return std::format("DAST v10 Registry projection failed: {}",
+		if (Context.ReaderCause) return std::format("DAST Registry projection failed: {}",
 			ObjectPackage::FormatPackageError(*Context.ReaderCause));
 		switch (Context.Reason)
 		{
@@ -23,16 +23,16 @@ namespace Durin
 		case EAssetRegistryFailure::InvalidRemove: return "Asset registry delta Remove path is invalid, duplicated, or missing.";
 		case EAssetRegistryFailure::InvalidInvalidation: return "Asset registry delta contains an invalid reference-invalidation path.";
 		case EAssetRegistryFailure::InvalidRedirector: return "CorruptRedirector: invalid exact asset metadata.";
-		case EAssetRegistryFailure::TruncatedFrontMatter: return "DAST v10 front matter is truncated.";
-		case EAssetRegistryFailure::InvalidPackageIdentity: return "DAST v10 Registry projection requires the mounted package identity.";
-		case EAssetRegistryFailure::InvalidHeaderAssets: return "DAST v10 Registry contains invalid exact asset metadata.";
+		case EAssetRegistryFailure::TruncatedFrontMatter: return "DAST front matter is truncated.";
+		case EAssetRegistryFailure::InvalidPackageIdentity: return "DAST Registry projection requires the mounted package identity.";
+		case EAssetRegistryFailure::InvalidHeaderAssets: return "DAST Registry contains invalid exact asset metadata.";
 		case EAssetRegistryFailure::WriteInProgress: return "Package output is being written.";
 		case EAssetRegistryFailure::FileTooLarge: return "Asset package exceeds the supported byte bound.";
 		case EAssetRegistryFailure::TruncatedLegacyHeader: return "Truncated asset header.";
 		case EAssetRegistryFailure::InvalidFrontMatterExtent: return "Asset package declares an invalid front-matter extent.";
 		case EAssetRegistryFailure::BulkTooLarge: return "Asset package bulk segment exceeds the supported byte bound.";
 		case EAssetRegistryFailure::Envelope: return std::format("Binary envelope parsing failed (code {}).", static_cast<uint8>(Context.EnvelopeCause));
-		case EAssetRegistryFailure::Reader: return "DAST v10 Registry projection failed.";
+		case EAssetRegistryFailure::Reader: return "DAST Registry projection failed.";
 		case EAssetRegistryFailure::UnsupportedVersion: return std::format("Unsupported DAST package format version {}.", Context.Actual);
 		case EAssetRegistryFailure::LegacyVersion: return std::format("Unsupported legacy DAST prefix version {}.", Context.Actual);
 		case EAssetRegistryFailure::OpenFailed: return std::format("Failed to open asset package {}.", Context.Path);

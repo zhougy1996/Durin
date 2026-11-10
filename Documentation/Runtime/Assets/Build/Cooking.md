@@ -2,7 +2,7 @@
 
 Summary: Define offline Cook inputs, dependency reuse, typed failures, and transactional output publication.
 
-Last reviewed: 2026-11-09
+Last reviewed: 2026-11-10
 
 ## Coordinator and input ownership
 
@@ -95,6 +95,64 @@ includes this dependency policy and invalidates pre-removal payloads. DMAT versi
 7 omits the obsolete authored Program version word; typed IR, generator, compiler
 envelope and payload versions remain independently validated.
 
+## Primary asset policy and cooked discovery
+
+The coordinator loads the project's AssetManager settings and constructs the
+configured native DAssetManager after reflection and authored catalog admission.
+It invokes `ModifyCook` once before dependency discovery and
+`ModifyCookReferences` for each retained runtime package. The latter adds the
+bundle paths declared by primary assets in that package, as in UE's
+[ModifyCookReferences](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/UAssetManager/ModifyCookReferences).
+These management edges are not serialized hard/soft reference edges and do not
+make ordinary runtime loads recursively expand soft references.
+
+Rules use the same project defaults, non-default type fields and explicit per-ID
+overrides as [Primary Asset Management](../Packages/PrimaryAssetManagement.md).
+Unknown defers to ordinary Cook discovery; AlwaysCook adds managed packages;
+NeverCook excludes optional soft and bundle references. Explicit, default-level
+and external Cook roots, or retained hard dependencies, conflicting with
+NeverCook fail the run before publication. Build-only inputs remain valid inputs
+without becoming runtime packages. No required hard dependency is silently cut.
+
+Direct management covers a primary's package and its declared bundle packages.
+With ApplyRecursively, a visited traversal extends management over hard package
+dependencies and declared bundle edges. A higher-priority primary stops a lower
+manager from inheriting its secondary closure. Among managers for each package,
+highest-priority non-default rules at the selected management priority determine
+inclusion. Incompatible rules at that priority report the package and both
+primary IDs deterministically and fail before publication. UE's
+[CalculateCookRuleUnion](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/UAssetManager/CalculateCookRuleUnion)
+selects NeverCook and reports equal-priority conflicts; Durin's fatal publication
+boundary is intentionally stricter. This is a documented subset, not licensed
+UE source equivalence. EditorOnly types ignore AlwaysCook but retain NeverCook
+policy, following [FPrimaryAssetTypeInfo](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/FPrimaryAssetTypeInfo).
+
+Only Unknown, NeverCook and AlwaysCook are supported. Other enum/settings values,
+any ChunkId other than -1, and enabled AcquireMissingChunksOnLoad (also the UE
+spelling bShouldAcquireMissingChunksOnLoad) fail explicitly. Disabled installation
+retains the default behavior. No physical chunks, installer,
+or distribution-specific Cook modes are provided.
+
+Cooked DAST headers carry each retained asset's primary ID and bundle metadata
+through the existing package transaction; no additional catalog file or format
+is needed. Cooked runtime bootstrap reads only CookManifest.bin and its listed
+package headers and atomically publishes a complete catalog/reference projection
+before reflected default construction. It never scans authored directories or
+constructs assets to discover IDs. The Game Engine path skips authored registry
+refresh. Corrupt/missing listed headers leave the previous catalog unchanged and
+fail initialization. Cook inputs and outputs require DAST v11; earlier versions
+are rejected. Loose cooked fixtures without a manifest keep their explicit
+catalog-admission setup. See [runtime bootstrap](../Packages/AssetPackages.md#runtime-bootstrap).
+
+Cook reference discovery uses ordinary authored loading's generic removed-field
+rule. A serialized field missing from its known declaring class is skipped;
+its removed-only hard dependencies do not become Cook roots or required build
+packages. A target also referenced by a surviving field remains required.
+Header-only dependencies are retained, and current-field type mismatch,
+unknown classes and invalid wire data still fail. There is no historical field
+name list or special AuthoredComponents adapter. Cook saves current fields
+without rewriting the authored inputs.
+
 ## Object lifecycle and selection
 
 `DObject` provides default begin/completion/clear, `PreSave`, dependency-event and
@@ -177,10 +235,10 @@ resurrect an excluded object. A package with no runtime exports is `omitted`, ev
 when explicitly requested; mixed packages retain their eligible exports.
 
 Authored saves invoke the dependency event with `bCooking == false`, persisting
-package build edges separately from hard/soft runtime references in Registry v3.
+package build edges separately from hard/soft runtime references in Registry v4.
 Other declaration kinds are Cook-only. Metadata aids scheduling; current Cook
 object declarations own direct/transitive semantics, and metadata-only build
-inputs observe source/bulk directly. Registry v2 remains readable. See
+inputs observe source/bulk directly. Earlier Registry versions are rejected. See
 [package persistence](../../ObjectSystem/PackagePersistence.md) and
 [package format](../Packages/AssetPackages.md#defaults-and-version-policy).
 

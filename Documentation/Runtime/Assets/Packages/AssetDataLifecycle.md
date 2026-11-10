@@ -190,7 +190,7 @@ do not change scheduling or readiness ownership.
 | --- | --- | --- | --- | --- |
 | Physical source input | User-selected physical file closure | Source-specific | Explicit Import, Reimport, or Reimport From File only | Yes, after a successful authored save if reimport is not needed |
 | Object package | Mounted content directory | `.dasset` | Asset identity, editable object state, and inline canonical imported data | No |
-| Authored bulk segment | Beside its object package | `.dbulk` | External canonical imported fields selected by DAST v9 Bulk Directory metadata | No |
+| Authored bulk segment | Beside its object package | `.dbulk` | External canonical imported fields selected by DAST v11 Bulk Directory metadata | No |
 | Derived data | `DerivedDataCache/` | `.bin` | Nothing; it accelerates editor and cook work | Yes |
 | Cooked package | `Cooked/<Platform>/...` | `.dasset` | Runtime object metadata for that cook | No |
 | Cooked bulk data | Beside its cooked package initially | `.dbulk` | Runtime payload bytes for that cook | No |
@@ -221,10 +221,13 @@ runtime lifetime. `Authored()` selects the authored execution domain with
 canonical source/build inputs and disposable DDC available. The validated
 `Cooked(...)` factory requires
 an absolute normalized cook root and fixes the payload policy to
-`CookedPayloadRequired`. `InitializeAssetManager` may reopen a shut-down
+`CookedPayloadRequired`. `InitializeAssetRuntime` may reopen a shut-down
 runtime with a new configuration, but it rejects replacement while a different
 configuration is initialized. Engine post-load code queries only this read-only
 domain and payload policy. There is no mutable process-wide package-load mode.
+Cooked bootstrap admits manifest-listed package metadata before reflected
+defaults; the [catalog contract](AssetCatalogAndMutation.md#catalog-ownership)
+defines this scan-free discovery boundary.
 
 Package creation, publication, load, unload, and residency transitions are
 defined by [Asset Packages](AssetPackages.md#runtime-lifetime). Catalog
@@ -235,7 +238,7 @@ policy.
 
 ## Authored Packages
 
-An editor DAST v9 package and optional raw `.dbulk` segment contain authoritative object and source state:
+An editor DAST v11 package and optional raw `.dbulk` segment contain authoritative object and source state:
 
 - reflected properties and cross-package asset references;
 - bounded canonical source data, inline or in authored bulk;

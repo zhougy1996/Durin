@@ -1071,7 +1071,7 @@ TEST(FEditorBulkStorageTests, NestedFailureOwnsObjectAndFieldRoute)
 	FAssetPackageInspection Inspection;
 	Inspection.Objects.push_back({.Id = 17, .ObjectPath = "/Tests/Container.Root",
 		.Fields = {{.Name = "Source", .Kind = DurinCodeGen::EPropertyGenFlags::Struct,
-			.Payload = Payload, .SourceFormatVersion = ObjectPackage::DastV10FormatVersion}}});
+			.Payload = Payload, .SourceFormatVersion = ObjectPackage::DastV11FormatVersion}}});
 	auto Result = InspectEditorBulkDataStorageDescriptors(Inspection);
 	ASSERT_FALSE(Result);
 	Inspection = {};

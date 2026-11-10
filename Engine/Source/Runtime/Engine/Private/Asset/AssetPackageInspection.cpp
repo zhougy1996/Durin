@@ -241,7 +241,7 @@ namespace Durin
 		Durin::PackagePrivate::FByteReader Reader{Payload};
 		return AssetPrivate::DecodeReferenceByteToolValue(
 			&RootProperty, OutValue, 0, Reader, {},
-			SourceFormatVersion == 0 ? ObjectPackage::DastV10FormatVersion : SourceFormatVersion)
+			SourceFormatVersion == 0 ? ObjectPackage::DastV11FormatVersion : SourceFormatVersion)
 			&& Reader.Offset == Payload.size();
 	}
 
@@ -261,7 +261,7 @@ namespace Durin
 				return Result;
 			if (!PackagePath.IsValid())
 				return Error(EAssetReadError::InvalidPath,
-					"DAST v10 inspection requires a mounted package identity.");
+					"DAST inspection requires a mounted package identity.");
 			FByteBuffer BulkBytes;
 			if (Result = LoadPackageBulkBytes(PhysicalPath, BulkBytes); !Result)
 				return Result;
@@ -283,7 +283,7 @@ namespace Durin
 		FPackagePath PackagePath;
 		if (!ClassifyPackageIdentity(PhysicalPath, PackagePath))
 			return Error(EAssetReadError::InvalidPath,
-				"DAST v10 inspection requires a mounted package identity.");
+				"DAST inspection requires a mounted package identity.");
 		return InspectAssetPackage(PhysicalPath, PackagePath, OutInspection);
 	}
 

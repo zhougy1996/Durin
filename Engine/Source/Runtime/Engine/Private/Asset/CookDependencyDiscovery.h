@@ -12,6 +12,8 @@
 #include "Asset/Load.h"
 #include "Misc/MountPaths.h"
 
+namespace Durin { class DAssetManager; }
+
 namespace Durin::AssetPrivate
 {
 
@@ -24,7 +26,8 @@ namespace Durin::AssetPrivate
 			FPackageLoadTransaction& LoadScope, const FCookState* PreviousState = nullptr);
 		FCookDependencyDiscovery(const FCookDependencyDiscovery&) = delete;
 		auto operator=(const FCookDependencyDiscovery&) -> FCookDependencyDiscovery& = delete;
-		ENGINE_API auto Acquire(std::span<const FPackagePath> Roots, const FAssetReferenceStoreCapture& ExternalRoots) -> FCookInputResult;
+		ENGINE_API auto Acquire(std::span<const FPackagePath> Roots, const FAssetReferenceStoreCapture& ExternalRoots,
+			DAssetManager& AssetManager, std::span<const FPackagePath> PackagesToNeverCook = {}) -> FCookInputResult;
 		ENGINE_API auto CheckCancellation() -> FCookInputResult;
 		auto ReadInput(const FPackagePath& Path, ECookBuildDependencyKind Kind, std::string_view Name, FByteBuffer& Out) -> FCookInputResult;
 		auto GetPackages() const -> const std::vector<FPackagePath>& { return RuntimePackages; }

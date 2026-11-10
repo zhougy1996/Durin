@@ -2,6 +2,8 @@
 #include "PackageLoadTransaction.h"
 #include "CookDependencyDiscovery.h"
 #include "CookMemoryBudget.h"
+#include "AssetPackageLinkerSchema.h"
+#include "Engine/AssetManager.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/Package.h"
 #include "Shader/IShaderBuildModule.h"
@@ -426,7 +428,36 @@ namespace Durin::AssetPrivate
 		FAssetPackageReadContext Context{.PackageBytes = PackageBytes, .PackagePath = Path,
 			.PhysicalBulkBytes = BulkBytes.size(), .bResourceBackedBulk = true};
 		if (auto Result = Codec->Inspect(Context, Input.Inspection); !Result) return Fail(Result);
+		// Apply the same removed-field rule as ordinary authored loading. This is
+		// schema-based, never a list of historical asset or property names.
+		std::set<std::tuple<uint64, std::string, std::string>> RemovedFields;
+		for (auto& Object : Input.Inspection.Objects)
+		{
+			const auto* ObjectClass = FindClassByQualifiedName(FName(Object.ClassName));
+			std::erase_if(Object.Fields, [&](const auto& Field) {
+				auto* Owner = FindClassByQualifiedName(FName(Field.DeclaringClass));
+				if (!ObjectClass || !Owner || !ObjectClass->IsChildOf(Owner)
+					|| LinkerSchema::ResolvePropertyForLoad(Owner, Field.Name, Field.Kind, Field.TypeSignature).Route != LinkerSchema::EPropertyLoadRoute::Removed) return false;
+				RemovedFields.emplace(Object.Id, Field.DeclaringClass, Field.Name);
+				return true;
+			});
+		}
 		if (auto Result = ExtractAssetReferences(Path, Input.Inspection, Input.References, true); !Result) return Fail(Result);
+		if (!RemovedFields.empty())
+		{
+			std::vector<FAssetReferenceEdge> StoredReferences;
+			if (auto Result = Codec->ExtractReferences(Context, StoredReferences); !Result) return Fail(Result);
+			std::unordered_set<FPackagePath> RemovedTargets, RetainedTargets;
+			for (const auto& Reference : StoredReferences)
+				if (Reference.Kind == EAssetReferenceKind::HardObject)
+					(RemovedFields.contains({Reference.SourceObjectId, Reference.DeclaringType, Reference.FieldName})
+						? RemovedTargets : RetainedTargets).insert(Reference.TargetPath.GetPackagePath());
+			// Keep header-only dependencies and targets referenced by a surviving
+			// field. Only removed-only edges disappear.
+			std::erase_if(Input.Inspection.Header.Dependencies, [&](const auto& Dependency) {
+				return RemovedTargets.contains(Dependency) && !RetainedTargets.contains(Dependency);
+			});
+		}
 		// Schema discovery needs class identities, not retained serialized field payloads.
 		for (auto& Object : Input.Inspection.Objects)
 		{
@@ -567,8 +598,10 @@ namespace Durin::AssetPrivate
 	}
 
 	auto FCookDependencyDiscovery::Acquire(std::span<const FPackagePath> Roots,
-		const FAssetReferenceStoreCapture& ExternalRoots) -> FCookInputResult
+		const FAssetReferenceStoreCapture& ExternalRoots, DAssetManager& AssetManager,
+		std::span<const FPackagePath> PackagesToNeverCook) -> FCookInputResult
 	{
+		const std::unordered_set<FPackagePath> NeverCook(PackagesToNeverCook.begin(), PackagesToNeverCook.end());
 		if (Roots.size() > MaximumCookDependencyRecords)
 			return Fail(FCookInputFailure{.Error = ECookInputError::RootLimit, .Actual = Roots.size(), .Maximum = MaximumCookDependencyRecords});
 		std::vector<FPackagePath> Pending(Roots.begin(), Roots.end());
@@ -606,6 +639,8 @@ namespace Durin::AssetPrivate
 			const auto Requested = Pending.back(); Pending.pop_back();
 			FPackagePath Path;
 			if (auto Result = Resolve(Requested, Path); !Result) return Result;
+			if (NeverCook.contains(Path)) return Fail({ECookInputStatus::InvalidDependency,
+				"NeverCook package is required by a Cook root or hard dependency: " + Path.ToString()});
 			if (Runtime.contains(Path)) continue;
 			const auto& Input = Inputs.at(Path);
 			const bool HasRuntime = std::ranges::any_of(Input.Inspection.Objects, [&](const auto& Object) {
@@ -617,9 +652,16 @@ namespace Durin::AssetPrivate
 				continue;
 			}
 			Runtime.insert(Path);
-			RuntimeEdges += Input.Inspection.Header.Dependencies.size() + Input.References.size();
+			std::vector<FPackagePath> BundlePackages;
+			AssetManager.ModifyCookReferences(Path, BundlePackages);
+			RuntimeEdges += Input.Inspection.Header.Dependencies.size() + Input.References.size() + BundlePackages.size();
 			if (RuntimeEdges > MaximumCookDependencyRecords)
 				return Fail(FCookInputFailure{.Error = ECookInputError::RuntimeEdgeLimit, .Package = Path, .Actual = RuntimeEdges, .Maximum = MaximumCookDependencyRecords});
+			for (const auto& BundlePackage : BundlePackages)
+			{
+				const auto Resolution = Registry.ResolvePackagePath(BundlePackage);
+				if (!NeverCook.contains(Resolution ? Resolution.FinalPath : BundlePackage)) Pending.push_back(BundlePackage);
+			}
 			std::unordered_set<FPackagePath> ReferencedPackages;
 			for (const auto& Reference : Input.References)
 				ReferencedPackages.insert(Reference.TargetPath.GetPackagePath());
@@ -629,6 +671,8 @@ namespace Durin::AssetPrivate
 			{
 				if (Reference.Kind == EAssetReferenceKind::Redirect) continue;
 				const auto Resolution = Registry.ResolveAssetObjectPath(Reference.TargetPath);
+				if (Reference.Kind == EAssetReferenceKind::SoftObject
+					&& NeverCook.contains(Resolution ? Resolution.FinalPath.GetPackagePath() : Reference.TargetPath.GetPackagePath())) continue;
 				const DClass* Expected = Reference.ExpectedClass.empty() ? nullptr : FindClassByQualifiedName(FName(Reference.ExpectedClass));
 				if (!Reference.ExpectedClass.empty() && !Expected) return Fail(FCookInputFailure{.Error = ECookInputError::ReferenceClass, .Package = Path, .Name = Reference.ExpectedClass, .Member = Reference.FieldName});
 				if (auto Result = ValidateResolvedAssetForOperation(Registry, Resolution, Expected); !Result)

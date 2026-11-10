@@ -4,7 +4,7 @@ Summary: Define reflected property authoring, registration, value access, contai
 
 Modules: CoreDObject
 
-Last reviewed: 2026-11-09
+Last reviewed: 2026-11-10
 
 For type ownership and registration, see [Reflection system](ReflectionSystem.md).
 Struct value capabilities are defined by [Reflected struct operations](StructOperations.md).
@@ -93,7 +93,7 @@ presentation.
 field within its owner. `FObjectProperty` reads and writes hard references
 through `GetObjectPropertyValue(...)` and `SetObjectPropertyValue(...)`.
 `FSoftObjectProperty::GetSoftObjectPtr(...)` exposes the bounded untyped wrapper;
-use `ToSoftObjectPath()` and assignment from `FObjectPath` for authored identity.
+use `ToSoftObjectPath()` and assignment from `FSoftObjectPath` for authored identity.
 `FWeakObjectProperty::GetWeakObjectPtr(...)` exposes its exact wrapper and expected
 class. `FStringProperty` provides a `std::string*` helper.
 
@@ -112,7 +112,7 @@ paths. `T` must resolve to a reflected `DObject` subclass. Raw wrapper aliases,
 unresolved or non-object targets, soft Map keys, and unsupported qualifiers are
 rejected rather than emitted with incomplete metadata. `FSoftObjectProperty`
 is a distinct property kind: serialization and editor access use its exact
-authored `FObjectPath`, while GC deliberately excludes it from the strong-reference
+authored `FSoftObjectPath`, while GC deliberately excludes it from the strong-reference
 schema. DHT also recognizes typed `TWeakObjectPtr<T>` in direct, fixed-array,
 Array, Map-value, and reflected-Struct positions. The top-level property must
 be explicitly `Transient`, and weak Map keys are invalid. Generated weak

@@ -4,7 +4,7 @@ Summary: Define canonical byte archives, object-aware logical serialization, obj
 
 Modules: Core, CoreDObject
 
-Last reviewed: 2026-09-27
+Last reviewed: 2026-11-10
 
 ## Archive And Object Serialization
 
@@ -78,7 +78,7 @@ archive errors into the removed `FDecodeResult`/`EDecodeError` categories.
 Core never interprets format-owned sections, asset paths, schemas, codecs, or
 publication policy.
 
-Engine consumes this envelope through canonical DAST v10 object packages. An
+Engine consumes this envelope through canonical DAST v11 object packages. An
 authored or cooked `.dbulk` is deliberately not a DURF envelope: it is the raw
 external BulkData segment bound by its owning package's Registry and Bulk
 Directory. Embedded family payloads and raw DDC `.bin` values likewise do not
@@ -322,7 +322,7 @@ Planning compares logical size and verified content identity, never domain
 schema, physical placement, or authority state. Multi-megabyte values still
 contribute one node in enabled and no-delta plans.
 
-DAST v10 does not introduce a second logical Archive dialect. Engine captures
+DAST v11 does not introduce a second logical Archive dialect. Engine captures
 the ordinary object-aware Archive graph into detached `FLinkerTables`, and
 CoreDObject emits the canonical tagged-value sections from that model. Each
 logical BulkData field becomes one linker value with explicit inline/external
@@ -353,7 +353,7 @@ It does not allocate an authored-override ledger. Required descendants also
 keep their enclosing values present. Signed enum capture retains the underlying
 signedness, so negative and positive enum changes participate in delta comparison.
 
-DAST v10 carries an export baseline byte and a baseline byte before each Struct
+DAST v11 carries an export baseline byte and a baseline byte before each Struct
 value. Mode 0 is complete and uses constructor-initialized temporary storage;
 mode 1 patches the initialized parent value; mode 2 copies the registered Struct
 type default into managed temporary storage before applying present fields.
@@ -364,7 +364,7 @@ Each present field
 retains its own name, type, provenance, and value, independently of the shared
 complete type descriptor. The reader validates field identities/types and
 canonical form before constructing objects. The reader and writer support only
-the current v10 contract; retired wire versions fail before graph construction.
+the current v11 contract; retired wire versions fail before graph construction.
 
 An omitted type-relative field follows later changes to the registered default.
 Complete saving or a whole-container Forced replacement pins
@@ -374,7 +374,7 @@ fields of a type-relative Struct remain complete, including their descendants,
 so dependency discovery and reference binding stay explicit. The codec rejects
 sparse type-relative values that omit these fields.
 
-v10 authored loading copies reflected defaults for delta exports from the paired
+v11 authored loading copies reflected defaults for delta exports from the paired
 CDO/default subobject with references remapped to loaded skeletons, then applies
 saved fields. Native object fields are emitted completely because they lack a
 reflected default-copy contract. Failure discards the unpublished graph. Cooked packages keep
@@ -382,7 +382,7 @@ complete values and do not require CDO initialization. This initialization
 copies values only, never authored override state or PostLoad notifications.
 A Struct with derived caches must invalidate them in PostDeserialize when
 reflected fields change; FTextureSource detaches its decoded mip cache there.
-Ordinary saving selects v10 delta mode; explicit complete exports skip default
+Ordinary saving selects v11 delta mode; explicit complete exports skip default
 initialization. Missing constructor-created default children reject delta saving.
 Planning is transactional: missing defaults, unavailable identity, graph or
 Archive failure, manifest drift, duplicate fields, and depth/count/path bounds

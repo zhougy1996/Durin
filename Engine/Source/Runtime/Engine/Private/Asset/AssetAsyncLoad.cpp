@@ -98,6 +98,7 @@ namespace Durin
 		int32 Priority = 0;
 		FStreamableDelegate Callback;
 		FStreamableDelegate CancelCallback;
+		FStreamableDelegate LoadCompletedCallback;
 		bool bLoadCompleted = false;
 		bool bCanceled = false;
 		bool bAggregate = false;
@@ -125,6 +126,12 @@ namespace Durin
 
 	FStreamableHandle::FStreamableHandle() : Impl(std::make_unique<FImpl>()) {}
 	FStreamableHandle::~FStreamableHandle() { CheckAsyncLoadThread(); ReleaseRetention(); }
+	auto FStreamableHandle::SetLoadCompletedCallback(FStreamableDelegate Callback) -> void
+	{
+		CheckAsyncLoadThread();
+		if (IsComplete()) Callback(*this);
+		else Impl->LoadCompletedCallback = std::move(Callback);
+	}
 	auto FStreamableHandle::GetState() const -> EAssetLoadState { CheckAsyncLoadThread(); return Impl->State; }
 	auto FStreamableHandle::IsComplete() const -> bool
 	{
@@ -232,6 +239,7 @@ namespace Durin
 		const auto KeepAlive = weak_from_this().lock();
 		Impl->bCanceled = true;
 		Impl->Callback = {};
+		Impl->LoadCompletedCallback = {};
 		Impl->bCompletionPending = false;
 		Impl->bReleaseRequested = true;
 		Impl->State = EAssetLoadState::Cancelled;
@@ -277,6 +285,7 @@ namespace Durin
 			}
 			else State.Failure = AssetReadErrorFromResult(Result);
 			State.bCompletionPending = static_cast<bool>(State.Callback);
+			if (auto Publish = std::move(State.LoadCompletedCallback)) Publish(*Handle);
 			// Capture parents before a child's deferred release can drop its GC roots.
 			for (const auto& WeakParent : State.Parents)
 				if (auto Parent = WeakParent.lock()) RefreshAggregate(Parent);
@@ -301,8 +310,7 @@ namespace Durin
 			};
 			for (const auto& Child : State.Children)
 			{
-				// Child completion side effects must publish before the parent becomes terminal.
-				if (!Child->IsComplete() || Child->Impl->bCompletionPending) bComplete = false;
+				if (!Child->IsComplete()) bComplete = false;
 				if (Result && Child->HasError()) Result = AssetReadResultFromError(Child->GetError());
 				DPackage* Package = Child->WasCanceled() ? nullptr : Child->GetLoadedPackage();
 				RetainPackage(Package);
@@ -633,6 +641,17 @@ namespace Durin
 	};
 
 	namespace { auto AsyncLoader() -> FAssetLoadRequestService& { static FAssetLoadRequestService Loader; return Loader; } }
+	auto FStreamableManager::CreateErrorHandle(FAssetReadError Error, std::string DebugName) -> std::shared_ptr<FStreamableHandle>
+	{
+		CheckAsyncLoadThread();
+		auto Handle = std::shared_ptr<FStreamableHandle>(new FStreamableHandle());
+		Handle->Impl->State = EAssetLoadState::Cancelled;
+		Handle->Impl->bCanceled = true;
+		Handle->Impl->bReleased = true;
+		Handle->Impl->Failure = std::move(Error);
+		Handle->Impl->DebugName = std::move(DebugName);
+		return Handle;
+	}
 	FStreamableManager::FStreamableManager() : State(std::make_shared<FStreamableManagerState>())
 	{
 		CheckAsyncLoadThread();
@@ -645,12 +664,18 @@ namespace Durin
 		CheckAsyncLoadThread();
 		State->bDestroying = true;
 		State->Owner = nullptr;
-		const auto Requests = State->Requests;
+		ClearRequests();
+	}
+	auto FStreamableManager::ClearRequests() -> void
+	{
+		CheckAsyncLoadThread();
+		const auto Requests = std::exchange(State->Requests, {});
 		for (const auto& Weak : Requests)
 			if (const auto Handle = Weak.lock())
 			{
 				Handle->Impl->Callback = {};
 				Handle->Impl->CancelCallback = {};
+				Handle->Impl->LoadCompletedCallback = {};
 				Handle->CancelHandle();
 			}
 		State->Managed.clear();

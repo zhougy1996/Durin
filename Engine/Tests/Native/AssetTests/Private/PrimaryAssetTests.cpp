@@ -1,3 +1,5 @@
+#include "Serialization/BinaryFormat.h"
+#include "DObject/AssetManagementSerialization.h"
 #include "Engine/AssetManager.h"
 #include "Engine/PrimaryDataAsset.h"
 #include "Engine/Level.h"
@@ -57,12 +59,14 @@ namespace
 			ShutdownAssetRuntime(); CollectGarbage();
 			if (bOwnScheduler) ShutdownTaskSystem(ETaskShutdownMode::Drain);
 		}
-		auto Write(std::string_view Name, FPrimaryAssetId Primary = {}, FAssetBundleData Bundles = {}, uint32 Version = ObjectPackage::DastV11FormatVersion) -> void
+		auto Write(std::string_view Name, FPrimaryAssetId Primary = {}, FAssetBundleData Bundles = {}, uint32 Version = ObjectPackage::DastV11FormatVersion,
+			std::vector<FPackagePath> Dependencies = {}) -> void
 		{
 			ObjectPackage::FLinkerTables Linker;
 			Linker.FormatVersion = Version;
 			const auto Asset = Path(Name);
 			Linker.Summary.PackagePath = Asset.GetPackagePath();
+			Linker.Summary.HardPackageDependencies = std::move(Dependencies);
 			ObjectPackage::FPackageIndex Export;
 			ASSERT_TRUE(ObjectPackage::FPackageIndex::TryExport(0, Export));
 			Linker.Summary.TopLevelAssets.push_back({Export, Asset, "Durin::DObject", {}, Primary, Bundles});
@@ -97,17 +101,108 @@ namespace
 	};
 }
 
-TEST_F(FPrimaryAssetTests, MetadataDiscoveryConstructsNoAssetsAndReadsLegacyPackages)
+TEST_F(FPrimaryAssetTests, ErrorHandlesDoNotRegisterOrLoadAndPreserveTheirError)
+{
+	const auto Before = GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates).size();
+	auto Error = FStreamableManager::CreateErrorHandle({EAssetReadError::NotFound, "Missing primary"}, "Primary lookup");
+	EXPECT_TRUE(Error->IsComplete()); EXPECT_TRUE(Error->WasCanceled());
+	EXPECT_FALSE(Error->IsActive()); EXPECT_FALSE(Error->HasLoadCompleted());
+	EXPECT_FALSE(Error->IsManaged()); EXPECT_EQ(Error->GetOwningManager(), nullptr);
+	EXPECT_TRUE(Error->GetRequestedAssets().empty());
+	EXPECT_EQ(Error->GetReport().PackageFileReadCount, 0u);
+	Error->CancelHandle();
+	EXPECT_EQ(Error->GetError().Code, EAssetReadError::NotFound);
+	EXPECT_EQ(Error->GetError().Message, "Missing primary");
+	EXPECT_EQ(GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates).size(), Before);
+}
+
+TEST_F(FPrimaryAssetTests, InvalidAndMissingIdsDoNotCreateUnloadableEntries)
+{
+	ASSERT_TRUE(Manager->StartInitialLoading());
+	auto Invalid = Manager->LoadPrimaryAsset({}); Pump(Invalid);
+	EXPECT_EQ(Invalid->GetError().Code, EAssetReadError::InvalidPath);
+	EXPECT_FALSE(Manager->UnloadPrimaryAsset({}));
+	const auto Missing = Id("Scenario:Absent");
+	auto Unknown = Manager->LoadPrimaryAsset(Missing); Pump(Unknown);
+	EXPECT_EQ(Unknown->GetError().Code, EAssetReadError::NotFound);
+	EXPECT_NE(Unknown->GetError().Message.find(Missing.ToString()), std::string::npos);
+	EXPECT_TRUE(Unknown->GetRequestedAssets().empty());
+	EXPECT_EQ(Unknown->GetReport().PackageFileReadCount, 0u);
+	EXPECT_FALSE(Manager->UnloadPrimaryAsset(Missing));
+	const std::array MissingIds{Missing};
+	auto Preload = Manager->PreloadPrimaryAssets(MissingIds);
+	EXPECT_TRUE(Preload->WasCanceled()); EXPECT_EQ(Preload->GetError().Code, EAssetReadError::NotFound);
+	EXPECT_TRUE(Manager->GetStreamableManager().GetActiveHandles().empty());
+}
+
+TEST_F(FPrimaryAssetTests, MixedIdentityFailuresLeaveValidPrimaryLoadsIndependent)
 {
 	Write("Root", Id("Scenario:Root"));
-	Write("Legacy", {}, {}, ObjectPackage::DastV10FormatVersion);
+	ASSERT_TRUE(Manager->StartInitialLoading());
+	const std::array Ids{Id("Scenario:AbsentA"), Id("Scenario:Root"), Id("Scenario:AbsentB")};
+	auto Batch = Manager->LoadPrimaryAssets(Ids); Pump(Batch);
+	EXPECT_EQ(Batch->GetError().Code, EAssetReadError::NotFound);
+	EXPECT_NE(Batch->GetError().Message.find(Ids[0].ToString()), std::string::npos);
+	EXPECT_FALSE(Manager->UnloadPrimaryAsset(Ids[0])); EXPECT_FALSE(Manager->UnloadPrimaryAsset(Ids[2]));
+	EXPECT_NE(Manager->GetPrimaryAssetObject(Ids[1]), nullptr);
+	EXPECT_EQ(Batch->GetRequestedAssets(), std::vector<FSoftObjectPath>{FSoftObjectPath(Path("Root"))});
+}
+
+TEST_F(FPrimaryAssetTests, FailedOrCanceledFirstLoadsDoNotLeaveEmptyPrimaryState)
+{
+	BundleFixture();
+	const auto Primary = Id("Scenario:Root");
+	const std::array Broken{FName("Broken")};
+	auto Failed = Manager->LoadPrimaryAsset(Primary, Broken); Pump(Failed);
+	ASSERT_TRUE(Failed->HasError()); EXPECT_FALSE(Manager->UnloadPrimaryAsset(Primary));
+	auto Canceled = Manager->LoadPrimaryAsset(Primary); Canceled->CancelHandle();
+	EXPECT_FALSE(Manager->UnloadPrimaryAsset(Primary));
+	auto Good = Manager->LoadPrimaryAsset(Primary); Pump(Good);
+	ASSERT_FALSE(Good->HasError());
+	Failed->CancelHandle();
+	EXPECT_NE(Manager->GetPrimaryAssetObject(Primary), nullptr);
+}
+
+TEST_F(FPrimaryAssetTests, ShutdownIsIdempotentAndRestartDetachesOldCallbacks)
+{
+	Write("Root", Id("Scenario:Root"));
+	const auto Primary = Id("Scenario:Root");
+	auto* StreamableOwner = &Manager->GetStreamableManager();
+	auto Raw = StreamableOwner->RequestAsyncLoad(FSoftObjectPath(Path("Root"))); Pump(Raw);
+	ASSERT_FALSE(Raw->HasError());
+	auto BeforeInit = Manager->LoadPrimaryAsset(Primary);
+	EXPECT_EQ(BeforeInit->GetError().Code, EAssetReadError::ShuttingDown);
+	Manager->Shutdown(); Manager->Shutdown();
+	EXPECT_EQ(&Manager->GetStreamableManager(), StreamableOwner);
+	EXPECT_TRUE(Raw->WasCanceled());
+	EXPECT_TRUE(StreamableOwner->GetActiveHandles().empty());
+	ASSERT_TRUE(Manager->StartInitialLoading());
+	bool bOldCallback = false;
+	auto Old = Manager->LoadPrimaryAsset(Primary, {}, {.OnComplete = [&](FStreamableHandle&) { bOldCallback = true; }});
+	Manager->Shutdown(); Manager->Shutdown();
+	EXPECT_EQ(&Manager->GetStreamableManager(), StreamableOwner);
+	EXPECT_TRUE(StreamableOwner->GetActiveHandles().empty());
+	EXPECT_TRUE(Old->WasCanceled());
+	auto Stopped = Manager->LoadPrimaryAsset(Primary);
+	EXPECT_TRUE(Stopped->WasCanceled()); EXPECT_EQ(Stopped->GetError().Code, EAssetReadError::ShuttingDown);
+	ASSERT_TRUE(Manager->StartInitialLoading());
+	auto New = Manager->LoadPrimaryAsset(Primary); Pump(New);
+	ASSERT_FALSE(New->HasError()); ProcessAsyncLoading(10, 100);
+	EXPECT_FALSE(bOldCallback);
+	EXPECT_NE(Manager->GetPrimaryAssetObject(Primary), nullptr);
+}
+
+TEST_F(FPrimaryAssetTests, MetadataDiscoveryConstructsNoAssetsAndAllowsAbsentPrimaryIdentity)
+{
+	Write("Root", Id("Scenario:Root"));
+	Write("Secondary");
 	const auto Before = GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates).size();
 	ASSERT_TRUE(Manager->StartInitialLoading());
 	EXPECT_EQ(Manager->GetPrimaryAssetPath(Id("Scenario:Root")).GetAssetPath(), Path("Root"));
 	EXPECT_EQ(Manager->GetPrimaryAssetIdList(FPrimaryAssetType(FName("Scenario"))).size(), 1u);
 	EXPECT_EQ(GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates).size(), Before);
 	EXPECT_EQ(FindResidentPackage(Path("Root").GetPackagePath()), nullptr);
-	EXPECT_FALSE(FindAssetExact(Path("Legacy"))->PrimaryAssetId.IsValid());
+	EXPECT_FALSE(FindAssetExact(Path("Secondary"))->PrimaryAssetId.IsValid());
 }
 
 TEST_F(FPrimaryAssetTests, PrimaryDataAssetsAndMapsPublishNativeIdsOnSave)
@@ -145,6 +240,60 @@ TEST_F(FPrimaryAssetTests, ManagerOwnershipOutlivesObservationAndUnloadPreserves
 	EXPECT_TRUE(Manager->UnloadPrimaryAsset(Id("Scenario:Root")));
 	CollectGarbage(); EXPECT_NE(Weak.Get(), nullptr);
 	Native.Reset(); CollectGarbage(); EXPECT_EQ(Weak.Get(), nullptr);
+}
+
+TEST_F(FPrimaryAssetTests, PreloadOwnershipIsIndependentOfGlobalBundleChangesAndUnload)
+{
+	BundleFixture();
+	const std::array Ids{Id("Scenario:Root")};
+	const std::array A{FName("A")}, B{FName("B")};
+	auto Global = Manager->LoadPrimaryAsset(Ids[0], A); Pump(Global);
+	ASSERT_FALSE(Global->HasError()); Global.reset();
+	auto Preload = Manager->PreloadPrimaryAssets(Ids, B); Pump(Preload);
+	ASSERT_FALSE(Preload->HasError());
+	EXPECT_EQ(Manager->GetPrimaryAssetBundleState(Ids[0]), std::vector<FName>(A.begin(), A.end()));
+	auto Change = Manager->ChangeBundleStateForPrimaryAssets(Ids, {}, {}, true); Pump(Change);
+	ASSERT_FALSE(Change->HasError()); Change.reset();
+	ASSERT_TRUE(Manager->UnloadPrimaryAsset(Ids[0])); CollectGarbage();
+	EXPECT_FALSE(Manager->UnloadPrimaryAsset(Ids[0]));
+	EXPECT_EQ(FindResidentPackage(Path("A").GetPackagePath()), nullptr);
+	EXPECT_NE(FindResidentPackage(Path("B").GetPackagePath()), nullptr);
+	EXPECT_NE(FindResidentPackage(Path("Root").GetPackagePath()), nullptr);
+	Preload->ReleaseHandle(); CollectGarbage();
+	EXPECT_EQ(FindResidentPackage(Path("B").GetPackagePath()), nullptr);
+	EXPECT_EQ(FindResidentPackage(Path("Root").GetPackagePath()), nullptr);
+}
+
+TEST_F(FPrimaryAssetTests, CancelingPreloadDoesNotSupersedePendingPrimaryLoads)
+{
+	BundleFixture();
+	const std::array Ids{Id("Scenario:Root")};
+	const std::array A{FName("A")}, B{FName("B")};
+	auto Global = Manager->LoadPrimaryAsset(Ids[0], A);
+	auto Preload = Manager->PreloadPrimaryAssets(Ids, B);
+	Preload->CancelHandle(); Pump(Global);
+	ASSERT_FALSE(Global->HasError());
+	EXPECT_EQ(Manager->GetPrimaryAssetBundleState(Ids[0]), std::vector<FName>(A.begin(), A.end()));
+	EXPECT_NE(Manager->GetPrimaryAssetObject(Ids[0]), nullptr);
+}
+
+TEST_F(FPrimaryAssetTests, PrimaryStatePublishesAtLoadCompletionBeforePublicDelegateDelivery)
+{
+	BundleFixture();
+	const auto Primary = Id("Scenario:Root");
+	const std::array A{FName("A")};
+	bool bDelivered = false;
+	auto Handle = Manager->LoadPrimaryAsset(Primary, A, {.OnComplete = [&](FStreamableHandle&) {
+		bDelivered = true;
+		EXPECT_EQ(Manager->GetPrimaryAssetBundleState(Primary), std::vector<FName>(A.begin(), A.end()));
+	}});
+	Pump(Handle);
+	ASSERT_FALSE(Handle->HasError());
+	EXPECT_FALSE(bDelivered);
+	EXPECT_NE(Manager->GetPrimaryAssetObject(Primary), nullptr);
+	EXPECT_EQ(Manager->GetPrimaryAssetBundleState(Primary), std::vector<FName>(A.begin(), A.end()));
+	ProcessAsyncLoading(10, 100);
+	EXPECT_TRUE(bDelivered);
 }
 
 TEST_F(FPrimaryAssetTests, BundlesLoadOnlyDeclaredTargetsAndFailuresPreserveCurrentState)
@@ -310,6 +459,126 @@ TEST_F(FPrimaryAssetTests, SettingsStoreRejectsUnsupportedCookAndBlueprintSettin
 	EXPECT_FALSE(FProjectAssetManagerSettingsStore(File).Load(Settings));
 	ASSERT_TRUE(Save("AssetManager:\n  Types:\n    - {Type: Scenario, BlueprintClasses: true}\n"));
 	EXPECT_FALSE(FProjectAssetManagerSettingsStore(File).Load(Settings));
+}
+
+TEST_F(FPrimaryAssetTests, CookUnknownDefersAndBundleReferencesRemainSeparate)
+{
+	Write("Secondary");
+	FAssetBundleData Bundles; ASSERT_TRUE(Bundles.AddBundleAsset(FName("Game"), Path("Secondary")));
+	Write("Root", Id("Scenario:Root"), Bundles);
+	ASSERT_TRUE(Manager->StartInitialLoading());
+	const auto Before = GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates).size();
+	std::vector<FPackagePath> Always, Never;
+	ASSERT_TRUE(Manager->ModifyCook(Always, Never));
+	EXPECT_TRUE(Always.empty()); EXPECT_TRUE(Never.empty());
+	Manager->ModifyCookReferences(Path("Root").GetPackagePath(), Always);
+	EXPECT_EQ(Always, std::vector{Path("Secondary").GetPackagePath()});
+	EXPECT_EQ(GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates).size(), Before);
+	EXPECT_TRUE(FindPackageExact(Path("Root").GetPackagePath())->Dependencies.empty());
+}
+
+TEST_F(FPrimaryAssetTests, CookRecursiveManagementIncludesHardClosureAndTerminatesCycles)
+{
+	Write("Leaf");
+	Write("Secondary", {}, {}, ObjectPackage::DastV11FormatVersion, {Path("Leaf").GetPackagePath()});
+	FAssetBundleData Bundles; ASSERT_TRUE(Bundles.AddBundleAsset(FName("Game"), Path("Secondary")));
+	ASSERT_TRUE(Bundles.AddBundleAsset(FName("Cycle"), Path("Root")));
+	Write("Root", Id("Scenario:Root"), Bundles);
+	FAssetManagerSettings Settings; Settings.DefaultRules.CookRule = EPrimaryAssetCookRule::AlwaysCook;
+	ASSERT_TRUE(Manager->StartInitialLoading(Settings));
+	std::vector<FPackagePath> Always, Never;
+	ASSERT_TRUE(Manager->ModifyCook(Always, Never));
+	EXPECT_EQ(Always, (std::vector{Path("Leaf").GetPackagePath(), Path("Root").GetPackagePath(), Path("Secondary").GetPackagePath()}));
+	EXPECT_TRUE(Never.empty());
+	Manager->Shutdown(); Settings.DefaultRules.bApplyRecursively = false;
+	ASSERT_TRUE(Manager->StartInitialLoading(Settings)); Always.clear();
+	ASSERT_TRUE(Manager->ModifyCook(Always, Never));
+	EXPECT_EQ(Always, (std::vector{Path("Root").GetPackagePath(), Path("Secondary").GetPackagePath()}));
+}
+
+TEST_F(FPrimaryAssetTests, CookPriorityResolvesBeforeReportingDeterministicConflicts)
+{
+	Write("Secondary");
+	FAssetBundleData Bundles; ASSERT_TRUE(Bundles.AddBundleAsset(FName("Game"), Path("Secondary")));
+	for (const auto* Name : {"A", "B", "C"}) Write(Name, Id(std::string("Scenario:") + Name), Bundles);
+	FAssetManagerSettings Settings;
+	Settings.PrimaryAssetRules[Id("Scenario:A")].CookRule = EPrimaryAssetCookRule::AlwaysCook;
+	Settings.PrimaryAssetRules[Id("Scenario:B")].CookRule = EPrimaryAssetCookRule::NeverCook;
+	Settings.PrimaryAssetRules[Id("Scenario:C")] = {.Priority = 1, .CookRule = EPrimaryAssetCookRule::AlwaysCook};
+	ASSERT_TRUE(Manager->StartInitialLoading(Settings));
+	std::vector<FPackagePath> Always, Never;
+	ASSERT_TRUE(Manager->ModifyCook(Always, Never));
+	EXPECT_TRUE(std::ranges::contains(Always, Path("Secondary").GetPackagePath()));
+	EXPECT_FALSE(std::ranges::contains(Never, Path("Secondary").GetPackagePath()));
+	Manager->Shutdown(); Settings.PrimaryAssetRules[Id("Scenario:C")].Priority = 0;
+	ASSERT_TRUE(Manager->StartInitialLoading(Settings)); Always.clear(); Never.clear();
+	const auto Conflict = Manager->ModifyCook(Always, Never);
+	ASSERT_FALSE(Conflict);
+	EXPECT_NE(Conflict.error().find("Scenario:A"), std::string::npos);
+	EXPECT_NE(Conflict.error().find("Scenario:B"), std::string::npos);
+	EXPECT_NE(Conflict.error().find("/Primary/Secondary"), std::string::npos);
+	EXPECT_TRUE(Always.empty()); EXPECT_TRUE(Never.empty());
+	EXPECT_EQ(Manager->ModifyCook(Always, Never).error(), Conflict.error());
+}
+
+TEST_F(FPrimaryAssetTests, HigherPriorityPrimaryStopsLowerPriorityRecursiveManagement)
+{
+	Write("Leaf");
+	FAssetBundleData ChildBundles; ASSERT_TRUE(ChildBundles.AddBundleAsset(FName("Game"), Path("Leaf")));
+	Write("Child", Id("Scenario:Child"), ChildBundles);
+	FAssetBundleData RootBundles; ASSERT_TRUE(RootBundles.AddBundleAsset(FName("Game"), Path("Child")));
+	Write("Root", Id("Scenario:Root"), RootBundles);
+	FAssetManagerSettings Settings;
+	Settings.PrimaryAssetRules[Id("Scenario:Root")].CookRule = EPrimaryAssetCookRule::AlwaysCook;
+	Settings.PrimaryAssetRules[Id("Scenario:Child")].Priority = 1;
+	ASSERT_TRUE(Manager->StartInitialLoading(Settings));
+	std::vector<FPackagePath> Always, Never;
+	ASSERT_TRUE(Manager->ModifyCook(Always, Never));
+	EXPECT_EQ(Always, std::vector{Path("Root").GetPackagePath()});
+	EXPECT_TRUE(Never.empty());
+}
+
+TEST_F(FPrimaryAssetTests, EditorOnlyTypesIgnoreAlwaysCookAndStillApplyNeverCook)
+{
+	Write("Root", Id("Scenario:Root"));
+	FAssetManagerSettings Settings;
+	Settings.PrimaryAssetTypesToScan.push_back({.PrimaryAssetType = FPrimaryAssetType(FName("Scenario")), .bIsEditorOnly = true,
+		.Rules = {.CookRule = EPrimaryAssetCookRule::AlwaysCook}});
+	ASSERT_TRUE(Manager->StartInitialLoading(Settings));
+	std::vector<FPackagePath> Always, Never;
+	ASSERT_TRUE(Manager->ModifyCook(Always, Never));
+	EXPECT_TRUE(Always.empty()); EXPECT_TRUE(Never.empty());
+	Manager->Shutdown(); Settings.PrimaryAssetRules[Id("Scenario:Root")].CookRule = EPrimaryAssetCookRule::NeverCook;
+	ASSERT_TRUE(Manager->StartInitialLoading(Settings));
+	ASSERT_TRUE(Manager->ModifyCook(Always, Never));
+	EXPECT_TRUE(Always.empty());
+#if DURIN_WITH_EDITOR
+	EXPECT_EQ(Never, std::vector{Path("Root").GetPackagePath()});
+#else
+	EXPECT_TRUE(Never.empty()); // Cooked games do not discover editor-only primary types.
+#endif
+}
+
+TEST_F(FPrimaryAssetTests, CookRejectsUnsupportedRulesAndChunksEvenWithoutMatchingAssets)
+{
+	for (const auto Rules : {FPrimaryAssetRules{.ChunkId = 0}, FPrimaryAssetRules{.CookRule = static_cast<EPrimaryAssetCookRule>(255)}})
+	{
+		FAssetManagerSettings Settings; Settings.DefaultRules = Rules;
+		ASSERT_TRUE(Manager->StartInitialLoading(Settings));
+		std::vector<FPackagePath> Always, Never;
+		EXPECT_FALSE(Manager->ModifyCook(Always, Never));
+		EXPECT_TRUE(Always.empty()); EXPECT_TRUE(Never.empty());
+		Manager->Shutdown();
+	}
+	const auto File = Root / "Install.yaml";
+	const std::string Text = "AssetManager:\n  AcquireMissingChunksOnLoad: true\n";
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Text)), File));
+	FAssetManagerSettings Settings;
+	const auto Result = FProjectAssetManagerSettingsStore(File).Load(Settings);
+	ASSERT_FALSE(Result); EXPECT_NE(Result.error().find("chunk/install"), std::string::npos);
+	const std::string Disabled = "AssetManager:\n  AcquireMissingChunksOnLoad: false\n";
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Disabled)), File));
+	EXPECT_TRUE(FProjectAssetManagerSettingsStore(File).Load(Settings));
 }
 
 TEST(PrimaryAssetValueTests, IdentityAndBundleEncodingRejectMalformedInputs)

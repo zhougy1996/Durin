@@ -29,7 +29,7 @@ versions, never from the saved-by engine release.
 
 `FArchiveVersionContext` carries a named format version separately from
 GUID-keyed custom versions. Object-graph Archives report object-graph v2;
-authored and cooked package Archives report their source or target DAST version (v10 or v11). Property snapshots are
+authored and cooked package Archives report DAST v11. Property snapshots are
 process-local and unversioned.
 
 `FCustomVersion` contains only a valid GUID and a nonnegative `int32` version.
@@ -50,7 +50,7 @@ version-manifest drift between discovery and emission. Authored and cooked captu
 share this contract. Other Archive users must persist their version context in
 their own format; declaration alone does not inject bytes into a raw stream.
 
-The v10 writer emits GUID, version, and a zero reserved framing byte. Nonzero
+The v11 writer emits GUID, version, and a zero reserved framing byte. Nonzero
 framing flags, invalid GUIDs, negative/out-of-range versions, and duplicate
 records fail parsing; legacy emission/support/codec metadata is unsupported.
 Read-only package inspection does not require local version registration. Before
@@ -147,15 +147,12 @@ versions have no legacy load fallback.
 ## Authored Package Policy
 
 DAST has one permanent nonzero format GUID and current production wire version
-11. Core's bounded DURF validation selects DAST identity; CoreDObject supports
-v10 and v11 tables and tagged-value semantics. Engine selects v11 for ordinary
-saves and new redirectors. Source-preserving relocation and fix-up retain the
-source version. DAST v11 registry-v4 records add versioned primary/bundle
-metadata; v10 registry-v3 records have no management metadata. Explicit v10
-writers reject management data rather than silently dropping it.
-The maintained `Engine/Content`, `Sandbox/Content`, and `RoadWeaver/Content`
-corpus remains readable as v10 and upgrades on ordinary save. Older package
-versions have no reader or migration path. See
+11. Core's bounded DURF validation selects DAST identity; CoreDObject accepts
+only v11 tables and tagged values. Saving, redirectors, relocation and fix-up
+all use v11 with registry-v4 primary/bundle metadata. All 26 tracked authored
+and cooked-fixture packages were upgraded on 2026-11-10 before retiring the v10
+reader and writer. Older package versions fail explicitly; there is no legacy
+codec or version fallback. See
 [Primary Asset Management](../Assets/Packages/PrimaryAssetManagement.md).
 
 Every production entry requires exact package identity and, when present, the
@@ -172,7 +169,7 @@ The Registry cache fingerprints exact source bytes/format and is invalidated by
 any relevant main/bulk change.
 
 Raw `.dbulk` has no independent DURF version; its format is owned by the
-[package BulkData contract](BulkData.md#dast-v10-authored-placement).
+[package BulkData contract](BulkData.md#dast-v11-authored-placement).
 Asset-family payload schemas and DDC/Cook keys version independently. A
 builder-version change invalidates production identity without necessarily
 changing readable family bytes; a family schema change requires a supported

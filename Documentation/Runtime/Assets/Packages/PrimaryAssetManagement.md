@@ -23,11 +23,13 @@ and deduplicated; malformed, duplicate, or noncanonical wire entries fail reads.
 
 Discovery reads the persistent `FAssetData` projection, never constructs assets,
 and never scans live objects to infer missing IDs. DAST v11 registry-v4 records
-contain version-1 optional management metadata. DAST v10 registry-v3 records
-have no primary ID or bundles. Ordinary saving upgrades to v11; reads and
-source-preserving mutations continue to support v10. Registry cache schema 7
+contain version-1 optional management metadata. Empty IDs/bundles remain valid
+in v11; older DAST versions have no reader or writer. Registry cache schema 7
 rebuilds older derived caches. Management data is separate from serialized
 hard/soft dependency edges.
+The package/cache codec is declared in `DObject/AssetManagementSerialization.h`
+and implemented in CoreDObject. Primary/bundle value headers carry no binary
+reader/writer implementation or BinaryFormat dependency.
 
 Duplicate IDs invalidate that ID and report both exact asset paths. Discovery
 does not choose an arbitrary winner. ID resolution applies type redirects,
@@ -66,14 +68,37 @@ Cook rule. Project defaults precede non-default type fields. Per-ID optional
 fields can explicitly reset defaults. Supported Cook values are Unknown,
 NeverCook and AlwaysCook; distribution-specific values fail settings admission.
 These are policy inputs; Cook enforcement is not part of the loading API.
+The Cook coordinator consumes these same resolved rules through ModifyCook and
+ModifyCookReferences. Priority, recursive management, NeverCook conflicts and
+the unsupported chunk/install boundary are defined by
+[Cooking](../Build/Cooking.md#primary-asset-policy-and-cooked-discovery).
 
 After project modules, reflection and the catalog are ready, `DEngine` resolves
 the exact configured native manager subclass, validates inheritance, constructs
 it and calls `StartInitialLoading`. Engine GC tracing owns this object. It is
 separate from pre-CDO `InitializeAssetRuntime`. Engine shutdown cancels manager
-requests and detaches callbacks before retiring state.
+requests and detaches callbacks before retiring state. Shutdown releases the
+existing requests and retained entries; it never constructs a replacement owner.
+The same streamable manager remains available before primary initialization and
+across shutdown/restart. Request cleanup is shared with its destructor. Repeated
+shutdown is harmless. Primary loading on an uninitialized or stopped policy
+returns a terminal ShuttingDown error without submitting a request.
+
+Cooked games discover the same logical IDs, paths and bundles from manifest-listed
+cooked package headers admitted by runtime bootstrap. They do not require authored
+content, an Editor scan, or construction of primary objects for discovery. Only
+assets retained in the Cook are discoverable. Native type/path filters and ID redirects continue to apply to this
+persistent catalog.
 
 ## Loading And Bundle State
+
+Primary ID lookup validates before inserting loaded state or issuing streamable
+work. Invalid IDs report InvalidPath; absent IDs report NotFound with the logical
+ID, without manufacturing an invalid object path. In primary batches an identity
+error contributes an error handle while valid primaries retain their independent
+loading behavior. A preload validates its entire ID list before issuing work;
+invalid membership returns an error handle immediately. Failed/canceled first
+loads leave no empty manager entry; an earlier committed state remains usable.
 
 The manager's streamable requests use the existing shared package backend.
 `LoadPrimaryAsset(s)` replaces the desired bundle set. Bundle changes add/remove
@@ -84,7 +109,9 @@ not loaded automatically.
 
 Each ID has committed and pending bundle sets plus a monotonically increasing
 generation. Previous committed roots remain usable during a transition. A
-successful complete replacement commits new roots; a failed or canceled request
+successful complete replacement commits new roots through an internal load-terminal
+notification, before parent handles are notified. Public completion delegates
+remain deferred independently. A failed or canceled request
 preserves previous roots. Superseded callbacks cannot overwrite newer state,
 including unload followed by a fresh load. A batch reports failures while
 successful primaries can commit independently.
@@ -101,17 +128,24 @@ roots retain their independent lifetimes. Repeated loads do not create leases
 or per-caller reference counts. Features needing independent ownership use local
 streamable requests or their own coordination policy.
 
-The default game map uses primary preloading when persisted metadata supplies
-an ID. Map change waits for that preload and retains its existing local Level
-request. After map completion it unloads primary state; the World owns Level
-residency. Arbitrary editor previews and thumbnails retain local requests.
+`PreloadPrimaryAssets` resolves the same primary/bundle load set into an
+independent streamable request. The returned handle owns its retention; this
+operation neither creates nor replaces Current/Pending primary state. Global
+Unload or bundle changes do not release a preload. Releasing its handle permits
+collection when no other owner remains. This initial subset is nonrecursive.
+
+The default game map uses this independent preload when persisted metadata
+supplies an ID. Map change waits for it and retains its existing local Level
+request. It drops the preload after completion; the World owns Level residency.
+The map flow does not unload or replace another service's global primary state.
+Arbitrary editor previews and thumbnails retain local requests.
 
 ## UE Compatibility Boundary
 
 The identity hook, manager lifetime, independent primary retention and named
 bundle semantics follow UE's [Asset Management](https://dev.epicgames.com/documentation/en-us/unreal-engine/asset-management-in-unreal-engine)
 and [LoadPrimaryAssets](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/UAssetManager/LoadPrimaryAssets)
-contracts. Durin uses native reflected classes, YAML settings, explicit native
+contracts. Independent preloads follow [PreloadPrimaryAssets](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/UAssetManager/PreloadPrimaryAssets). Durin uses native reflected classes, YAML settings, explicit native
 bundle publication and its own versioned package format. Blueprint discovery,
 automatic UPROPERTY AssetBundles metadata harvesting, recursive bundles and
 chunk/install delivery are outside this supported subset. The per-primary

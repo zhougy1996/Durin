@@ -838,8 +838,8 @@ TEST(FAssetPickerTests, OpeningMaterialCandidatesCompletesPopupLayout)
 	Publication.Assets.emplace(PackagePath, FPackageData{
 		.PackagePath = PackagePath,
 		.TopLevelAssets = {{.AssetPath = AssetPath, .AssetClassName = "Durin::DMaterial"}},
-		.FormatVersion = 10, .ObjectCount = 1});
-	Publication.ReferenceFingerprints.emplace(PackagePath, FAssetPackageFingerprint{.ReaderVersion = 10});
+		.FormatVersion = 11, .ObjectCount = 1});
+	Publication.ReferenceFingerprints.emplace(PackagePath, FAssetPackageFingerprint{.ReaderVersion = 11});
 	ASSERT_TRUE(PublishAssetRegistryPublication(std::move(Publication)));
 	auto& ThumbnailManager = Editor::GetDefaultThumbnailManager();
 	auto Registration = ThumbnailManager.RegisterScoped(

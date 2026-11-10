@@ -6,5 +6,5 @@
 
 namespace Durin::AssetPrivate::TaggedPackage
 {
-	ENGINE_API auto GetCodec(uint32 Version = ObjectPackage::DastV11FormatVersion) -> const FAssetPackageCodec&;
+	ENGINE_API auto GetCodec() -> const FAssetPackageCodec&;
 }

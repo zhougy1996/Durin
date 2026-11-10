@@ -222,14 +222,17 @@ namespace Durin
 
 	auto DEngine::InitializeProjectContent() -> std::expected<void, std::string>
 	{
-		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RegistryScanBegin);
-		const auto Refresh = RefreshAssetRegistry(EAssetRegistryScanMode::Incremental);
-		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RegistryScanComplete);
-		if (!Refresh)
+		if (GetAssetRuntimeConfiguration().IsAuthored())
 		{
-			std::string Error = "Initial project asset catalog could not be admitted.";
-			for (const auto& Cause : Refresh.Errors) Error += "\n" + FormatAssetRegistryError(Cause);
-			return std::unexpected(std::move(Error));
+			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RegistryScanBegin);
+			const auto Refresh = RefreshAssetRegistry(EAssetRegistryScanMode::Incremental);
+			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RegistryScanComplete);
+			if (!Refresh)
+			{
+				std::string Error = "Initial project asset catalog could not be admitted.";
+				for (const auto& Cause : Refresh.Errors) Error += "\n" + FormatAssetRegistryError(Cause);
+				return std::unexpected(std::move(Error));
+			}
 		}
 		FAssetManagerSettings Management;
 		if (const auto* Project = GetCurrentProject())

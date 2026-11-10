@@ -38,7 +38,7 @@ the effective mode and generic archive target once; `BeginWrite` transfers detac
 file descriptors and buffers without recapturing objects.
 
 `CapturePackageLinker` captures reflected and native archive fields into the
-existing canonical DAST v10 linker representation. It and `FSavePackageContext::Capture`
+existing canonical DAST v11 linker representation. It and `FSavePackageContext::Capture`
 return `std::expected<void, FPackageCaptureError>` without diagnostic output parameters. Errors own
 object/field identities, routes and numeric bounds, retain path, default-delta,
 property-value and snapshot causes, and preserve Archive code/path. Capture
@@ -84,9 +84,8 @@ Authored capture also invokes `OnCookEvent(PlatformCookDependencies)` with
 `bCooking == false`. Valid package declarations populate the separate
 `FPackageSummary::BuildPackageDependencies` list; non-package Cook values are
 ignored during authored saving. These edges create no runtime imports or hard/soft
-references. Registry v3 persists them; canonical verification uses the input section version,
-and public saves always emit v3. Readers also accept Registry v2 without
-build-edge metadata. Engine Cook reevaluates current object declarations rather
+references. Registry v4 persists them beside primary/bundle metadata; earlier
+registry versions have no reader. Engine Cook reevaluates current object declarations rather
 than treating saved metadata as complete cache evidence.
 
 Generic cooked selection applies object/ancestor eligibility even without an

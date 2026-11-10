@@ -100,15 +100,9 @@ namespace Durin
 				return std::unexpected(Resolution.Message);
 			auto* Manager = GetAssetManager();
 			const auto PrimaryId = Manager ? Manager->GetPrimaryAssetIdForPath(LevelPath.GetAssetPath()) : FPrimaryAssetId{};
-			const auto Preload = PrimaryId.IsValid() ? Manager->LoadPrimaryAsset(PrimaryId) : nullptr;
-			if (!OpenLevel({.Path = LevelPath, .Preload = Preload, .GameMode = GameModeClass,
-				.OnComplete = [this, PrimaryId](const FMapChangeProgress&) {
-					if (auto* Owner = GetAssetManager(); Owner && PrimaryId.IsValid()) Owner->UnloadPrimaryAsset(PrimaryId);
-				}}))
-			{
-				if (Manager && PrimaryId.IsValid()) Manager->UnloadPrimaryAsset(PrimaryId);
+			const auto Preload = PrimaryId.IsValid() ? Manager->PreloadPrimaryAssets(std::span(&PrimaryId, 1)) : nullptr;
+			if (!OpenLevel({.Path = LevelPath, .Preload = Preload, .GameMode = GameModeClass}))
 				return std::unexpected("Could not start the default map change.");
-			}
 		}
 		return {};
 	}

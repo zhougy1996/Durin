@@ -31,11 +31,32 @@ hits complete through the pump, with callback delivery on a subsequent pump.
 Guard or closed-runtime admission produces a terminal failed handle without
 callbacks. Sync requests finish before returning and have no callback.
 
+`FStreamableManager::CreateErrorHandle` returns an unmanaged, unregistered,
+terminal canceled handle carrying its supplied error. It has no object targets,
+starts no load and does not report HasLoadCompleted. It can be created without a
+live manager instance, following the role of UE's
+[CreateErrorHandle](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/FStreamableManager/CreateErrorHandle).
+
 Managed handles are strongly owned by their manager until explicit release,
 cancellation or manager destruction; failed requests without any successful
 retention are retired from managed ownership automatically. Other requests are
 tracked weakly. `GetActiveHandles`, `IsManaged`, `GetDebugName` and `GetOwningManager` expose
 the request owners without introducing another package table.
+
+Choose the ownership required by the caller before selecting a load API:
+
+| Caller requirement | API and lifetime |
+| --- | --- |
+| Synchronous observation | `LoadObject<T>` / `LoadPackage`; null on failure, no new GC owner. |
+| Structured synchronous failure | `LoadObjectDetailed<T>` / `LoadPackageDetailed`; caller handles the returned error and retains the object separately if needed. |
+| Independent feature or scene ownership | `FStreamableManager::RequestAsyncLoad` / `RequestSyncLoad`; keep the active handle until ownership is transferred or the feature ends. |
+| Global primary/bundle policy | `DAssetManager::LoadPrimaryAsset(s)`; call `UnloadPrimaryAsset(s)` to remove manager ownership. Returning/releasing the observation handle does not unload this state. |
+| Independent primary preload | `DAssetManager::PreloadPrimaryAssets`; keep its handle active. Primary Unload/ChangeBundleState does not withdraw this independent owner. |
+
+Primary policy and no-work/null-handle behavior are defined by
+[Primary Asset Management](PrimaryAssetManagement.md). A raw pointer obtained
+from any handle remains an observation; retaining it after release needs an
+actual native or reflected strong owner.
 
 ## Observation and retention
 
@@ -74,9 +95,11 @@ cancel when the feature no longer needs its callback.
 
 ## Composition and teardown
 
-A combined handle waits for child completion delegates to finish before becoming
-terminal, so published child state is visible when the parent completes. Its
-optional cancel delegate does not implicitly cancel shared children.
+A combined handle becomes load-complete when its children are load-complete;
+child public completion delegates may still be queued. Internal Engine policy
+publication precedes parent notification; public delegates keep their own deferred
+delivery.
+The optional cancel delegate does not implicitly cancel shared children.
 
 `CreateCombinedHandle` flattens children in child order and target order, retaining
 child observations and its own copy of each successfully loaded object's/package's

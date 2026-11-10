@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-10-30
+Last reviewed: 2026-11-10
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -218,10 +218,8 @@ validation reject nonfinite values before they can reach render publication.
   two-sided state, depth-write policy, and masked-opacity threshold. Instances
   inherit each field through the canonical parent chain unless its local flag
   is enabled. `SetParentAndPropertyOverrides` applies a related parent/configuration
-  edit atomically with one request. Authored DAST v9 packages migrate the old
-  enabled snapshot through deprecated-field routes to five enabled flags, even
-  for equal values; disabled snapshots leave all flags off. Normal resave emits
-  only the current schema. Reflected proposals validate before mutation, and
+  edit atomically with one request. Assets persist the current property schema.
+  Reflected proposals validate before mutation, and
   Undo/Redo restores both values and independent intent.
 - Resolved static properties form a versioned shader-map identity (blend mode,
   shading model, and mask threshold) nested in a pipeline identity (shader map,
@@ -1193,7 +1191,7 @@ Current compatibility versions are DMAT 13, MIR 7, layout 4, pass contract 8,
 and material Cook class-schema version 5. The independent compile adapter is version 11;
 normalization/generator revisions are private producer inputs. Time uses `MaterialView`;
 fragments using the old time interpolator and prior Cook hits require rebuilding.
-DMAT has no authored Program version word. Materials use ordinary DAST v10
+DMAT has no authored Program version word. Materials use ordinary DAST v11
 default-relative owned-object serialization, with no material-specific serializer
 or universal old-asset conversion path. Material graphs require version 5,
 function ports require version 2, and material instances require version 2. The

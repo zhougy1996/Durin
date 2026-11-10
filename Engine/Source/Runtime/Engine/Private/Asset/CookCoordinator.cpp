@@ -23,6 +23,9 @@
 #include "DObject/Object.h"
 #include "DObject/Package.h"
 #include "Engine/ProjectGameSettings.h"
+#include "Engine/AssetManager.h"
+#include "DObject/DObjectGlobals.h"
+#include "DObject/StrongObjectPtr.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Project.h"
 #include "Misc/Paths.h"
@@ -353,8 +356,15 @@ namespace Durin
 			return Finish(ECookRunStatus::Cancelled, ECookRunError::Cancelled);
 
 		std::vector<FPackagePath> Roots = Request.ExplicitRoots;
+		FAssetManagerSettings Management;
+		auto PolicyFailure = [&](std::string Message) -> bool {
+			OutResult.InputFailure = {ECookInputStatus::InvalidDependency, std::move(Message)};
+			return Finish(ECookRunStatus::Failed, ECookRunError::InputFailed);
+		};
 		if (const FProjectInfo* Project = GetCurrentProject())
 		{
+			if (const auto Loaded = FProjectAssetManagerSettingsStore(std::filesystem::path(Project->ProjectDir) / "Configs" / "Project.yaml").Load(Management); !Loaded)
+				return PolicyFailure(Loaded.error());
 			FProjectGameSettings Settings;
 			const FProjectGameSettingsResult SettingsResult =
 				FProjectGameSettingsStore::ForProject(*Project).Load(Settings);
@@ -375,6 +385,16 @@ namespace Durin
 				Roots.push_back(std::move(DefaultLevel));
 			}
 		}
+		DClass* ManagerClass = Management.AssetManagerClass.empty() ? DAssetManager::StaticClass()
+			: FindClassByQualifiedName(FName(Management.AssetManagerClass));
+		if (!ManagerClass || !CanConstructObjectOfClass(ManagerClass, DAssetManager::StaticClass()))
+			return PolicyFailure("AssetManager.Class must name an exact registered DAssetManager subclass.");
+		TStrongObjectPtr<DAssetManager> AssetManager(Cast<DAssetManager>(NewObject(ManagerClass, nullptr, FName("CookAssetManager"))));
+		if (const auto Initialized = AssetManager->StartInitialLoading(std::move(Management)); !Initialized)
+			return PolicyFailure(Initialized.error());
+		struct FStopManager { DAssetManager& Manager; ~FStopManager() { Manager.Shutdown(); } } StopManager{*AssetManager};
+		std::vector<FPackagePath> NeverCook;
+		if (const auto Modified = AssetManager->ModifyCook(Roots, NeverCook); !Modified) return PolicyFailure(Modified.error());
 		std::ranges::sort(Roots, [](const FPackagePath& Left, const FPackagePath& Right) {
 			return Left.GetView() < Right.GetView();
 		});
@@ -451,7 +471,7 @@ namespace Durin
 				bPrepared = [&]() -> bool {
 					FAssetReferenceStoreCapture ExternalRoots;
 					if (auto Result = CaptureAssetReferenceStores(ExternalRoots); !Result) return InputFailure(ToCookInputResult(Result));
-					if (auto Result = Inputs.Acquire(Roots, ExternalRoots); !Result) return InputFailure(Result);
+					if (auto Result = Inputs.Acquire(Roots, ExternalRoots, *AssetManager, NeverCook); !Result) return InputFailure(Result);
 					for (const auto& Path : Inputs.GetOmittedPackages())
 						OutResult.Packages.push_back({{}, Path, std::string(CookPackageSerializer), ECookPackageStatus::Omitted, ECookOperationStage::Discovery});
 					const auto& Packages = Inputs.GetPackages();

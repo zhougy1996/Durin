@@ -995,7 +995,15 @@ TEST(FWorldTests, PrimaryMapPreloadTransfersRetentionToTheWorld)
 	TStrongObjectPtr<DAssetManager> Manager(NewObject<DAssetManager>(nullptr, "PrimaryMapManager"));
 	ASSERT_TRUE(Manager->StartInitialLoading());
 	const auto Primary = Level->GetPrimaryAssetId();
-	auto Preload = Manager->LoadPrimaryAsset(Primary);
+	auto Managed = Manager->LoadPrimaryAsset(Primary);
+	const auto LoadDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+	while (!Managed->IsComplete() && std::chrono::steady_clock::now() < LoadDeadline)
+	{
+		ProcessAsyncLoading(10, 100);
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	}
+	ASSERT_TRUE(Managed->HasLoadCompleted()); ASSERT_FALSE(Managed->HasError()); Managed.reset();
+	auto Preload = Manager->PreloadPrimaryAssets(std::span(&Primary, 1));
 	ASSERT_NE(Preload, nullptr);
 	FPreviewLifecycleRenderer Renderer;
 	TStrongObjectPtr<DEngine> Host(NewObject<DEngine>(nullptr, "PrimaryMapHost"));
@@ -1008,7 +1016,7 @@ TEST(FWorldTests, PrimaryMapPreloadTransfersRetentionToTheWorld)
 		.OnComplete = [&](const FMapChangeProgress& Progress) {
 			++Completions;
 			EXPECT_EQ(Progress.Phase, EMapChangePhase::Committed);
-			EXPECT_TRUE(Manager->UnloadPrimaryAsset(Primary));
+			EXPECT_EQ(Manager->GetPrimaryAssetObject(Primary), Level);
 		}}));
 	Preload.reset();
 	FMapChangeTestAccess::Tick(*Host);
@@ -1022,7 +1030,8 @@ TEST(FWorldTests, PrimaryMapPreloadTransfersRetentionToTheWorld)
 	ASSERT_TRUE(Host->IsMapChangeReady());
 	ASSERT_TRUE(Host->CommitMapChange()); FMapChangeTestAccess::Tick(*Host);
 	ASSERT_EQ(Completions, 1);
-	EXPECT_EQ(Manager->GetPrimaryAssetObject(Primary), nullptr);
+	EXPECT_EQ(Manager->GetPrimaryAssetObject(Primary), Level);
+	ASSERT_TRUE(Manager->UnloadPrimaryAsset(Primary));
 	CollectGarbage();
 	ASSERT_NE(Host->GetWorld(), nullptr);
 	EXPECT_EQ(Host->GetWorld()->GetCurrentLevel(), Level);

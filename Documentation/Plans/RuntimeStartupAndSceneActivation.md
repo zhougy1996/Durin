@@ -2,7 +2,7 @@
 
 Summary: Separate process service startup from project and scene opening, keep one responsive frame loop, and make activation, rendering readiness, and recovery explicit.
 
-Last reviewed: 2026-11-09
+Last reviewed: 2026-11-10
 
 Status: Active
 Completed:
@@ -301,6 +301,15 @@ directory. Sandbox reports its existing optional graybox pawn visual is absent
 from the registry; this receipt qualifies lifecycle/readiness, not complete
 gameplay visuals or raw authored-project Cook compatibility. The original
 project's stale reference schema still needs its own reviewed content migration.
+
+Repository corpus follow-up (2026-11-10): the tracked assets have now been
+canonical-resaved to DAST v11, preserving every existing object path/class/Outer
+relationship and removing `AuthoredComponents`. Fresh repository Sandbox Cook
+passed with eight packages including the explicit GrayboxPawn root, and the new
+generation completed three running Game ticks and exited 0 without the missing
+pawn-visual warning. The raw-project migration limitation above is closed;
+remaining startup-plan gates are unchanged. Validation and raw receipt locations
+are recorded in the [asset-management follow-up](UEAlignedAssetManagement.md#current-status).
 
 ## Goal
 

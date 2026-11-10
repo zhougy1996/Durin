@@ -65,6 +65,13 @@ namespace Durin
 		const auto Section = Document.GetRootView().GetView("AssetManager");
 		if (!Section.IsValid()) return {};
 		if (!Section.IsMap()) return Invalid();
+		for (const auto Key : {"AcquireMissingChunksOnLoad", "bShouldAcquireMissingChunksOnLoad"})
+			if (const auto Field = Section.GetView(Key); Field.IsValid())
+			{
+				bool bAcquire = false;
+				if (!Field.GetValue(bAcquire) || bAcquire)
+					return std::unexpected(std::string("AssetManager.") + Key + " requires an unsupported chunk/install backend.");
+			}
 		FAssetManagerSettings Settings;
 		if (auto Class = Section.GetView("Class"); Class.IsValid() && !Class.GetValue(Settings.AssetManagerClass)) return Invalid();
 		FPrimaryAssetRulesOverride DefaultRules;

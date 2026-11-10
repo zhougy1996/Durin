@@ -37,7 +37,7 @@ namespace
 		Durin::FAssetPackageInspection Inspection;
 		ASSERT_TRUE(Durin::InspectAssetPackage(
 			Path.generic_string(), PackagePath, Inspection));
-		EXPECT_EQ(Inspection.Header.FormatVersion, Durin::ObjectPackage::DastV10FormatVersion);
+		EXPECT_EQ(Inspection.Header.FormatVersion, Durin::ObjectPackage::DastV11FormatVersion);
 		const Durin::FAssetPackageField* Source = Inspection.FindField("Source");
 		EXPECT_EQ(Source, nullptr);
 		const Durin::FAssetPackageField* ImportData = Inspection.FindField("AssetImportData");

@@ -1,4 +1,5 @@
 #include "Asset/Load.h"
+#include "Asset/Cook.h"
 #include "Asset/Mutation.h"
 #include "Asset/PackageUnloading.h"
 #include "Asset/RegistryOperations.h"
@@ -110,13 +111,6 @@ TEST(FAssetRuntimeLifecycleTests, ColdCookedBootAndReflectedDefaultsPreserveFina
 	ShutdownAssetRuntime(); // A cold shutdown must not require reflected types or choose a domain.
 	EXPECT_FALSE(IsDObjectInitialized());
 
-	FAssetRuntimeConfiguration Configuration = FAssetRuntimeConfiguration::Authored();
-	ASSERT_TRUE(FAssetRuntimeConfiguration::Cooked(Root, Configuration));
-	ASSERT_TRUE(InitializeAssetRuntime(Configuration));
-	EXPECT_FALSE(IsDObjectInitialized());
-	EXPECT_EQ(GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates).size(), InitialObjectCount);
-	EXPECT_TRUE(InitializeAssetRuntime(Configuration));
-	EXPECT_FALSE(InitializeAssetRuntime());
 	// Encode an empty static asset without registering any reflected type first.
 	// With no fields its complete Authored and Cooked representations are identical.
 	ObjectPackage::FLinkerTables Linker;
@@ -128,9 +122,20 @@ TEST(FAssetRuntimeLifecycleTests, ColdCookedBootAndReflectedDefaultsPreserveFina
 	FByteBuffer Bytes, Bulk;
 	const auto Encoded = ObjectPackage::WritePackage(Linker, Bytes, Bulk);
 	ASSERT_TRUE(Encoded) << ObjectPackage::FormatPackageError(Encoded);
-	std::filesystem::create_directories(Root / "Content");
-	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes, Root / "Content/Default.dasset"));
-	ASSERT_TRUE(RefreshAssetRegistry());
+	std::filesystem::create_directories(Root / "Boot");
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes, Root / "Boot/Default.dasset"));
+	const auto Hash = FXxHash128::HashBuffer(Bytes);
+	const FCookManifest Manifest{.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game,
+		.Entries = {{ECookManifestEntryKind::CookedPackage, CookManifestEntryPresent, "Boot/Default.dasset", Bytes.size(), Hash.HashLow, Hash.HashHigh}}};
+	ASSERT_TRUE(EncodeCookManifest(Manifest, Bytes));
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes, Root / "CookManifest.bin"));
+	FAssetRuntimeConfiguration Configuration = FAssetRuntimeConfiguration::Authored();
+	ASSERT_TRUE(FAssetRuntimeConfiguration::Cooked(Root, Configuration));
+	ASSERT_TRUE(InitializeAssetRuntime(Configuration));
+	EXPECT_FALSE(IsDObjectInitialized());
+	EXPECT_EQ(GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates).size(), InitialObjectCount);
+	EXPECT_TRUE(InitializeAssetRuntime(Configuration));
+	EXPECT_FALSE(InitializeAssetRuntime());
 	TAssetDefaultOwner<0>::Register();
 	DObjectInit();
 	EXPECT_TRUE(TAssetDefaultOwner<0>::bSawCookedDomain);

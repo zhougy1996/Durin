@@ -30,7 +30,7 @@ namespace Durin
 			{
 				if (!ObjectPackage::IsSupportedPackageReaderVersion(SourceFormatVersion))
 					return Reject(EEditorBulkDataStorageError::UnsupportedVersion, SourceFormatVersion,
-						ObjectPackage::DastV10FormatVersion);
+						ObjectPackage::DastV11FormatVersion);
 				FAssetPackageField Field{.Kind = Kind,
 					.Payload = FByteBuffer(Payload.begin(), Payload.end()),
 					.SourceFormatVersion = SourceFormatVersion};
@@ -97,7 +97,7 @@ namespace Durin
 		{
 		case EEditorBulkDataStorageError::None: return {};
 		case EEditorBulkDataStorageError::DepthLimit: return "Authored bulk inspection exceeded the struct depth limit.";
-		case EEditorBulkDataStorageError::UnsupportedVersion: return "Authored bulk inspection requires DAST v10 field metadata.";
+		case EEditorBulkDataStorageError::UnsupportedVersion: return "Authored bulk inspection requires DAST field metadata.";
 		case EEditorBulkDataStorageError::InvalidDescriptor: return "Inspected authored bulk descriptor is invalid.";
 		case EEditorBulkDataStorageError::InvalidStructHeader:
 		case EEditorBulkDataStorageError::FieldLimit: return "Inspected authored struct payload header is invalid.";

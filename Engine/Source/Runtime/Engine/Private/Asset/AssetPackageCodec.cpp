@@ -9,7 +9,7 @@ namespace Durin::AssetPrivate
 {
 	namespace
 	{
-		const std::array Codecs{TaggedPackage::GetCodec(ObjectPackage::DastV10FormatVersion), TaggedPackage::GetCodec(ObjectPackage::DastV11FormatVersion)};
+		const std::array Codecs{TaggedPackage::GetCodec()};
 		constexpr FBinaryEnvelopeLimits PackageEnvelopeLimits{
 			16ull * 1024ull * 1024ull,
 			1024ull * 1024ull * 1024ull};
@@ -20,7 +20,7 @@ namespace Durin::AssetPrivate
 				const std::array Descriptors{FBinaryFormatDescriptor{
 					.FormatId = ObjectPackage::DastFormatId,
 					.DebugName = std::string(ObjectPackage::DastFormatName),
-					.MinimumFormatVersion = ObjectPackage::DastV10FormatVersion,
+					.MinimumFormatVersion = ObjectPackage::DastV11FormatVersion,
 					.MaximumFormatVersion = ObjectPackage::DastV11FormatVersion,
 					.SupportedRequiredFeatures = 0,
 					.Limits = PackageEnvelopeLimits}};

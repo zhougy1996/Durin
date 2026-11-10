@@ -1,3 +1,4 @@
+#include "DObject/AssetManagementSerialization.h"
 #include "PackageDiagnosticInternal.h"
 #include "PackageFormatInternal.h"
 #include "DObject/PackageFormat.h"
@@ -884,7 +885,7 @@ namespace Durin::ObjectPackage
 			};
 
 			auto Writer = MakeWriter();
-			Writer->WriteU32(Frozen.Source->FormatVersion >= DastV11FormatVersion ? 4 : DastRegistryVersion);
+			Writer->WriteU32(DastRegistryVersion);
 			{
 				Writer->WriteVarUInt(Frozen.ExportOrder.size());
 				std::vector<const FPackageSummary::FTopLevelAsset*> Assets;
@@ -904,10 +905,7 @@ namespace Durin::ObjectPackage
 					Writer->WriteVarUInt(FindNameId(Frozen, Asset->ClassName));
 					Writer->WriteVarUInt(FindNameId(Frozen, Asset->RedirectDestination.ToString()));
 
-					if (Frozen.Source->FormatVersion >= DastV11FormatVersion)
-						WriteAssetManagementMetadata(*Writer, Asset->PrimaryAssetId, Asset->AssetBundleData);
-					else if (Asset->PrimaryAssetId.IsValid() || !Asset->AssetBundleData.Bundles.empty())
-						return Fail(Diagnostic, EPackageWriterFailure::InvalidTopology, EPackageWriterReason::InvalidTopLevelAsset, "Registry.ManagementMetadata requires DAST v11");
+					WriteAssetManagementMetadata(*Writer, Asset->PrimaryAssetId, Asset->AssetBundleData);
 				}
 			}
 			std::array<std::vector<std::string>, 4> RegistryLists;
@@ -977,7 +975,7 @@ namespace Durin::ObjectPackage
 			for (const FCustomVersion& Version : Frozen.CustomVersions)
 			{
 				Writer->WriteGuid(Version.Guid); Writer->WriteU32(static_cast<uint32>(Version.Version));
-				// Retain the v10 framing byte; retired local-capability metadata is never emitted.
+				// The reserved capability byte is always zero.
 				Writer->WriteU8(0);
 			}
 			Writer->WriteVarUInt(Frozen.Schemas.size());

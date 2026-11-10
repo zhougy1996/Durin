@@ -18,6 +18,7 @@
 #include "Asset/PackageResource.h"
 #include "AssetPackageCodec.h"
 #include "Asset/PackageVersionPolicy.h"
+#include "CookedAssetRegistry.h"
 #include "Asset/Redirector.h"
 #include "AssetPackageArchive.h"
 #include "DObject/PackageValueCodec.h"
@@ -949,6 +950,8 @@ namespace Durin
 		// First initialization must not touch reflected types before DObjectInit.
 		if (!Loader.IsIdle() || (State == EState::Stopped && !GetResidentAssetPackages().empty()))
 			return Error(EAssetWriteError::InUse, "Asset loading or resident package cleanup is incomplete.");
+		if (Configuration.IsCooked())
+			if (auto Result = AssetPrivate::InitializeCookedAssetRegistry(Configuration); !Result) return AssetWriteResultFromRead(Result);
 		RuntimeConfiguration = std::move(Configuration);
 		PackageSavePrivate::SetAsyncSaveAdmission(true);
 		bAcceptingRequests = true;

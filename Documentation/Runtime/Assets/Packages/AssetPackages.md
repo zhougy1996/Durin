@@ -18,12 +18,18 @@ The host calls `InitializeAssetRuntime` with the final Authored or Cooked
 configuration before `DObjectInit` registers reflected types and constructs CDOs.
 The singleton starts with requests closed; its construction does not initialize
 the runtime. First initialization installs configuration without accessing
-reflected classes or loading default assets. Default material and game preload
-services remain later Engine initialization responsibilities.
+reflected classes or loading default assets. In the Cooked domain it first
+admits the complete catalog/reference projection from the existing manifest's
+listed DAST package headers. This metadata-only step does not enumerate authored
+directories or construct objects; a failed header read publishes nothing.
+Default material and game preload services remain later Engine responsibilities.
 
 Startup CDOs may synchronously load static assets in the selected domain.
-Asset lookup still requires a published catalog; singleton initialization does
-not move project catalog discovery or default-asset preload into bootstrap.
+Asset lookup requires a published catalog. Authored catalog discovery remains
+in project initialization; cooked manifest admission happens during bootstrap
+so early CDO loads have the final cooked identities. Loose cooked fixtures with
+no manifest retain their explicit catalog setup. Default-asset preload remains
+later Engine work.
 Canonical intrinsic and generated type identities are published before default
 construction. Constructors must not depend on a World, initialized rendering,
 or deferred callbacks to
@@ -59,7 +65,7 @@ removal; selection, confirmation, companions, and deletion callbacks belong to
 Ownership is deliberately one-way:
 
 - `CoreDObject` owns format-neutral linker tables, canonical tagged values,
-  production DAST v10/v11 read/write, generic live graph capture, package persistence,
+  production DAST v11 read/write, generic live graph capture, package persistence,
   and bounded validation. See [Package Persistence](../../ObjectSystem/PackagePersistence.md).
 - `AssetRegistry` owns canonical mounted-file discovery, bounded front-matter
   reads, and immutable package metadata/dependency snapshots.
@@ -128,7 +134,7 @@ The physical package filename is the resolved virtual package path plus
 explicitly, and inner objects append a colon plus their relative Outer chain,
 for example `/Game/Objects/Test.Mesh:Root.Component`.
 
-The mounted `FPackagePath` is part of package validation. DAST v10 includes that
+The mounted `FPackagePath` is part of package validation. DAST includes that
 identity in its canonical name table, and every header, complete-read,
 inspection, mutation, relocation, Cook, and admission call supplies the exact
 identity expected for the physical file. Moving a package therefore requires a
@@ -156,7 +162,8 @@ object. No load API derives an asset name from a package leaf, and a catalog
 miss never guesses a filename.
 
 Synchronous `LoadPackage` and `LoadObject<T>` return nullable pointers. An optional
-caller-owned `FAssetLoadReport` carries errors without mandatory logging. The
+caller-owned `FAssetLoadReport` carries identity, dependency evidence and work
+counters without mandatory logging. The
 explicit `LoadPackageDetailed` and `LoadObjectDetailed<T>` operations return
 `std::expected<Pointer, FAssetReadError>` for callers that process structured
 failures. Both surfaces use the same loader. Returned pointers observe existing
@@ -266,7 +273,7 @@ values performs no lookup. Engine supplies routing/loading through internal
 CoreDObject operations and enforces guarded-load access even for cache hits.
 Standalone CoreDObject can find live package objects without Engine.
 Tools needing missing/type/redirect diagnostics use
-`ResolveAssetObjectPathForOperation` or `LoadObject` explicitly; diagnostic
+`ResolveAssetObjectPathForOperation` or `LoadObjectDetailed` explicitly; diagnostic
 results and null policies are not part of the pointer's ordinary API.
 
 Hard imports identify an exact top-level asset in another package. Soft
@@ -292,7 +299,7 @@ copy.
 
 ### Envelope And Sections
 
-Both v10 and v11 main images contain the 64-byte DURF v1 preamble, a 32-byte DAST format
+DAST v11 main images contain the 64-byte DURF v1 preamble, a 32-byte DAST format
 header, and nine canonical 48-byte directory entries. The required contiguous
 sections, in order, are:
 
@@ -322,11 +329,11 @@ Registry records the package identity and a canonical list of top-level asset
 records. Each record binds an export id to `FTopLevelAssetPath`, class, and an
 optional exact `FSoftObjectPath` redirect destination. Shared sorted
 hard/soft/searchable package facts, export count, and exact external-bulk extent
-and digest remain package-level. Registry section version 3 adds a separate sorted
+and digest remain package-level. Registry section version 4 includes a separate sorted
 build-package dependency list from authored save events; it creates no runtime
-imports. DAST v10 requires registry version 3. DAST v11 uses registry version 4,
-adding versioned optional primary ID and bundle data to each top-level record.
-Ordinary saves write v11; existing v10 packages remain readable. The rebuildable
+imports, plus versioned optional primary ID and bundle data in each top-level
+record. DAST v11/registry-v4 is the only reader/writer pair; earlier versions are
+rejected after the repository corpus upgrade. The rebuildable
 AssetRegistry cache schema is 7. See [Primary Asset Management](PrimaryAssetManagement.md). No package class, redirect, or
 main-export id exists at package level.
 
@@ -416,7 +423,7 @@ adapters format explicitly while their outer result contracts remain separate.
 Bulk Directory binds each `BulkData` value to an Inline Bulk or external raw
 `.dbulk` range; Registry binds the complete external segment. Placement,
 alignment, padding, and digest rules are defined by
-[Package Bulk Data](../../ObjectSystem/BulkData.md#dast-v10-authored-placement).
+[Package Bulk Data](../../ObjectSystem/BulkData.md#dast-v11-authored-placement).
 Payload bytes remain opaque to the package format; asset families own their
 schemas, interpretation, and [data lifecycle](AssetDataLifecycle.md).
 

@@ -1,3 +1,4 @@
+#include "DObject/AssetManagementSerialization.h"
 #include "PackageDiagnosticInternal.h"
 #include "PackageFormatInternal.h"
 #include "DObject/PackageFormat.h"
@@ -266,7 +267,7 @@ namespace Durin::ObjectPackage
 			FBinaryReader Reader(Section(Layout, EDastSection::Registry));
 			uint32 Version = 0;
 			uint64 ExportCount = 0, AssetCount = 0;
-			if (!Reader.ReadU32(Version) || Version != (Layout.FormatVersion >= DastV11FormatVersion ? 4u : DastRegistryVersion)
+			if (!Reader.ReadU32(Version) || Version != DastRegistryVersion
 				|| !Reader.ReadVarUInt(ExportCount) || ExportCount > DastMaximumTableEntries
 				|| !Reader.ReadVarUInt(AssetCount) || AssetCount > ExportCount)
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidRegistry,
@@ -315,7 +316,7 @@ namespace Durin::ObjectPackage
 					.AssetPath = std::move(AssetPath),
 					.ClassName = Names[ClassId - 1],
 					.RedirectDestination = std::move(RedirectDestination)});
-				if (Version >= 4 && !ReadAssetManagementMetadata(Reader, Registry.TopLevelAssets.back().PrimaryAssetId, Registry.TopLevelAssets.back().AssetBundleData))
+				if (!ReadAssetManagementMetadata(Reader, Registry.TopLevelAssets.back().PrimaryAssetId, Registry.TopLevelAssets.back().AssetBundleData))
 					return Fail(Diagnostic, EPackageReaderFailure::InvalidRegistry, EPackageReaderReason::TopLevelRecord, "Registry.ManagementMetadata");
 			}
 			for (uint32 ListIndex = 0; ListIndex < 4u; ++ListIndex)

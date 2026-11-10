@@ -371,8 +371,8 @@ TEST(FStaticMeshLODTests, CookedCollisionLODLoadsWithoutEditorSourceAndDrivesRun
 	ASSERT_TRUE(PublishCookContext(Context, CookRoot));
 	Testing::RemoveTestWorkDirectory(Fixture.CacheRoot);
 	Testing::FScopedAssetRuntimeForTests Runtime;
-	ASSERT_TRUE(Runtime.RestartCooked(CookRoot));
 	Testing::RegisterMountPointForTests("/Game/", (CookRoot / "Game").generic_string() + "/");
+	ASSERT_TRUE(Runtime.RestartCooked(CookRoot));
 	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 	FPackagePath Path;
 	ASSERT_TRUE(FPackagePath::TryCreate("/Game/CollisionLOD", Path));
@@ -700,9 +700,9 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 		Durin::Testing::RemoveTestWorkDirectory(Fixture.CacheRoot);
 		Durin::Testing::RemoveTestWorkDirectory(Fixture.Root / "Content" / "Models");
 		Durin::Testing::FScopedAssetRuntimeForTests AssetRuntime;
-		ASSERT_TRUE(AssetRuntime.RestartCooked(CookRoot));
 		Durin::Testing::RegisterMountPointForTests(
 			"/Game/", (CookRoot / "Game").generic_string() + "/");
+		ASSERT_TRUE(AssetRuntime.RestartCooked(CookRoot));
 		ASSERT_TRUE(Durin::RefreshAssetRegistry(
 			Durin::EAssetRegistryScanMode::FullValidation));
 		Durin::FPackagePath Path;
@@ -805,8 +805,8 @@ TEST(FStaticMeshDerivedDataCacheTests, ComplexProxyRoundTripsAndCookedSplineNeed
 	Testing::RemoveTestWorkDirectory(Primary.CacheRoot);
 	Testing::RemoveTestWorkDirectory(Proxy.CacheRoot);
 	Testing::FScopedAssetRuntimeForTests AssetRuntime;
-	ASSERT_TRUE(AssetRuntime.RestartCooked(CookRoot));
 	Testing::RegisterMountPointForTests("/Game/", (CookRoot / "Game").generic_string() + "/");
+	ASSERT_TRUE(AssetRuntime.RestartCooked(CookRoot));
 	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 	FPackagePath CookedPath;
 	ASSERT_TRUE(FPackagePath::TryCreate("/Game/ComplexProxy", CookedPath));
@@ -915,9 +915,9 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 		Durin::Testing::RemoveTestWorkDirectory(Fixture.CacheRoot);
 		Durin::Testing::RemoveTestWorkDirectory(Fixture.Root / "Content" / "Models");
 		Durin::Testing::FScopedAssetRuntimeForTests AssetRuntime;
-		ASSERT_TRUE(AssetRuntime.RestartCooked(CookRoot));
 		Durin::Testing::RegisterMountPointForTests(
 			"/Game/", (CookRoot / "Game").generic_string() + "/");
+		ASSERT_TRUE(AssetRuntime.RestartCooked(CookRoot));
 		ASSERT_TRUE(Durin::RefreshAssetRegistry(
 			Durin::EAssetRegistryScanMode::FullValidation));
 		Durin::FPackagePath Path;
@@ -2313,13 +2313,13 @@ TEST(FStaticMeshPayloadInspectionTests, PackageInspectionPreservesAbsentMalforme
 	ASSERT_EQ(Snapshot.Fields.size(), 3u);
 	EXPECT_TRUE(Snapshot.bConstructFree);
 	for (const auto& Field : Snapshot.Fields) EXPECT_EQ(Field.State, "Absent");
-	Package.Objects[0].Fields.push_back({.Name = "RenderData", .SourceFormatVersion = 10});
+	Package.Objects[0].Fields.push_back({.Name = "RenderData", .SourceFormatVersion = 11});
 	ASSERT_TRUE(InspectStaticMeshPayloadPackage(Package, Snapshot));
 	EXPECT_EQ(Snapshot.Fields[1].State, "Malformed");
 	Package.Objects[0].Fields[0].SourceFormatVersion = 8;
 	ASSERT_TRUE(InspectStaticMeshPayloadPackage(Package, Snapshot));
 	EXPECT_EQ(Snapshot.Fields[1].State, "Unsupported");
-	Package.Objects[0].Fields.push_back({.Name = "Source", .SourceFormatVersion = 10});
+	Package.Objects[0].Fields.push_back({.Name = "Source", .SourceFormatVersion = 11});
 	ASSERT_TRUE(InspectStaticMeshPayloadPackage(Package, Snapshot));
 	EXPECT_EQ(Snapshot.Fields[0].State, "Malformed");
 	Package.Objects.front().ClassName = "Unsupported";
@@ -2386,7 +2386,7 @@ TEST(FStaticMeshPayloadInspectionTests, AuthoredAndCookedMetadataDoesNotDependOn
 TEST(FStaticMeshPayloadInspectionTests, MetadataModeDoesNotHashInlinePayloadOrRequireExternalStorage)
 {
 	using namespace Durin;
-	FAssetPackageField Field{.Name = "RenderData", .Kind = DurinCodeGen::EPropertyGenFlags::BulkData, .SourceFormatVersion = 10};
+	FAssetPackageField Field{.Name = "RenderData", .Kind = DurinCodeGen::EPropertyGenFlags::BulkData, .SourceFormatVersion = 11};
 	auto Append = [&](const auto& Value) {
 		const auto Bytes = std::as_bytes(std::span(&Value, 1));
 		Field.Payload.insert(Field.Payload.end(), Bytes.begin(), Bytes.end());

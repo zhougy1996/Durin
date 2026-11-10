@@ -1,6 +1,10 @@
 #include "Asset/RegistryOperations.h"
 #include "Asset/Cook.h"
 #include "CookOutputInternal.h"
+#include "CookedAssetRegistry.h"
+#include "AssetRegistryResultAdapter.h"
+#include "AssetRegistry/PackageHeader.h"
+#include "AssetRegistry/Publication.h"
 #include "Asset/PackageSerialization.h"
 
 #include "AssetRegistryOperationsInternal.h"
@@ -244,6 +248,53 @@ namespace Durin
 		}
 		OutConfiguration = std::move(Result);
 		return {};
+	}
+
+	auto AssetPrivate::InitializeCookedAssetRegistry(const FAssetRuntimeConfiguration& Configuration) -> FAssetReadResult
+	{
+		const auto ManifestPath = Configuration.GetCookRoot() / "CookManifest.bin";
+		const auto Exists = FFileHelper::FileExists(ManifestPath);
+		if (!Exists) return {EAssetReadError::IoError, "Cannot inspect cooked asset manifest."};
+		// Loose cooked fixtures without a manifest retain their explicit catalog setup.
+		if (!*Exists) return {};
+		const auto Bytes = FFileHelper::LoadFileToArray(ManifestPath, {.MaximumBytes = ManifestHeaderSize + MaximumManifestRecordBytes});
+		FCookManifest Manifest;
+		if (!Bytes || !DecodeCookManifest(*Bytes, Manifest) || Manifest.TargetProfile != ECookTargetProfile::Game
+			|| Manifest.TargetPlatform != Configuration.GetCookTargetPlatform())
+			return {EAssetReadError::CorruptFile, "Cooked asset manifest is invalid or has changed since configuration."};
+		FAssetRegistryPublication Publication;
+		Publication.ExpectedRevision = GetAssetCatalogRevision();
+		for (const auto& Entry : Manifest.Entries)
+		{
+			if (Entry.Kind != ECookManifestEntryKind::CookedPackage) continue;
+			const std::filesystem::path Relative(Entry.RelativePath);
+			FPackagePath Path;
+			if (Relative.extension() != ".dasset" || !FPackagePath::TryCreate("/" + Entry.RelativePath.substr(0, Entry.RelativePath.size() - 7), Path))
+				return {EAssetReadError::InvalidPath, "Invalid cooked package identity: " + Entry.RelativePath};
+			const auto Physical = Configuration.GetCookRoot() / Relative;
+			FAssetPackageHeader Header;
+			if (auto Result = ToAssetResult(ReadAssetPackageHeader(Physical.generic_string(), Path, Header)); !Result) return Result;
+			Publication.Assets.emplace(Path, FPackageData{
+				.PackagePath = Path, .PhysicalPath = Physical.generic_string(),
+				.TopLevelAssets = std::move(Header.TopLevelAssets), .FormatVersion = Header.FormatVersion,
+				.Dependencies = std::move(Header.Dependencies), .SoftDependencies = std::move(Header.SoftDependencies),
+				.BuildDependencies = std::move(Header.BuildDependencies), .SearchableNames = std::move(Header.SearchableNames),
+				.ObjectCount = Header.ObjectCount, .BulkSegmentExtent = Header.BulkSegmentExtent,
+				.BulkSegmentDigest = Header.BulkSegmentDigest, .FileSize = Entry.FileSize});
+			const auto& Data = Publication.Assets.at(Path);
+			const FAssetPackageFingerprint Fingerprint{.FileSize = Data.FileSize, .ReaderVersion = Data.FormatVersion};
+			Publication.ReferenceFingerprints.emplace(Path, Fingerprint);
+			VisitAssetPackageReferences(Data, [&](EAssetReferenceKind Kind, const FPackagePath& Target) {
+				Publication.ReferenceEdges.push_back({Path, Fingerprint, Kind, Target});
+			});
+		}
+		std::ranges::sort(Publication.ReferenceEdges, [](const auto& Left, const auto& Right) {
+			return std::tuple(Left.TargetPath.GetView(), Left.SourcePackage.GetView(), Left.Kind)
+				< std::tuple(Right.TargetPath.GetView(), Right.SourcePackage.GetView(), Right.Kind);
+		});
+		Publication.ReferenceEdges.erase(std::unique(Publication.ReferenceEdges.begin(), Publication.ReferenceEdges.end()), Publication.ReferenceEdges.end());
+		Publication.bReferenceIndexComplete = true;
+		return ToAssetResult(PublishAssetRegistryPublication(std::move(Publication)));
 	}
 
 	auto FormatCookedPathError(const FCookedPathResult& Result) -> std::string

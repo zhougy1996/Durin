@@ -1,3 +1,4 @@
+#include "DObject/AssetManagementSerialization.h"
 #include "AssetRegistryCacheInternal.h"
 #include "DObject/PackageFormat.h"
 

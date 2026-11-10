@@ -1,5 +1,9 @@
 #include <gtest/gtest.h>
 #include "Asset/PackageLoadTransaction.h"
+#include "Engine/AssetManager.h"
+#include "DObject/StrongObjectPtr.h"
+#include "DObject/PackageFormat.h"
+#include "DObject/PackageLinker.h"
 #include "Asset/PackageUnloading.h"
 #include <gtest/gtest-spi.h>
 
@@ -531,14 +535,59 @@ TEST(FCookStateTests, PersistsOmittedInputSelectionsAndReevaluableLocatorsCanoni
 	EXPECT_TRUE(Bytes.empty());
 }
 
+TEST(FCookedCatalogTests, ManifestHeadersAllowAbsentPrimaryIdentityAndPublishAtomically)
+{
+	(void)MakePackageBytes();
+	const auto Root = Testing::CreateTestFixtureDirectory("CookedCatalogHeaders");
+	std::filesystem::create_directories(Root / "TestCook");
+	FCookManifest Manifest{.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game};
+	FPackagePath Secondary, Modern;
+	FPrimaryAssetId Primary; ASSERT_TRUE(FPrimaryAssetId::TryParse("Scenario:Modern", Primary));
+	for (const auto* Name : {"Secondary", "Modern"})
+	{
+		const bool bSecondary = std::string_view(Name) == "Secondary";
+		FTopLevelAssetPath Path; ASSERT_TRUE(FTopLevelAssetPath::TryCreate(std::format("/TestCook/{}.{}", Name, Name), Path));
+		(bSecondary ? Secondary : Modern) = Path.GetPackagePath();
+		ObjectPackage::FLinkerTables Linker;
+		Linker.FormatVersion = ObjectPackage::DastV11FormatVersion;
+		Linker.Summary.PackagePath = Path.GetPackagePath();
+		ObjectPackage::FPackageIndex Export; ASSERT_TRUE(ObjectPackage::FPackageIndex::TryExport(0, Export));
+		Linker.Summary.TopLevelAssets.push_back({Export, Path, "Durin::DObject", {}, bSecondary ? FPrimaryAssetId{} : Primary});
+		Linker.Exports.push_back({.ObjectName = Name, .ClassName = "Durin::DObject"});
+		FByteBuffer Bytes, Bulk; ASSERT_TRUE(ObjectPackage::WritePackage(Linker, Bytes, Bulk));
+		const auto Relative = std::format("TestCook/{}.dasset", Name);
+		ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes, Root / Relative));
+		const auto Hash = FXxHash128::HashBuffer(Bytes);
+		Manifest.Entries.push_back({ECookManifestEntryKind::CookedPackage, CookManifestEntryPresent, Relative, Bytes.size(), Hash.HashLow, Hash.HashHigh});
+	}
+	FByteBuffer Bytes; ASSERT_TRUE(EncodeCookManifest(Manifest, Bytes));
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes, Root / "CookManifest.bin"));
+	Testing::FScopedAssetRuntimeForTests Runtime;
+	ASSERT_TRUE(Runtime.RestartCooked(Root));
+	const auto Catalog = CaptureAssetCatalogSnapshot();
+	ASSERT_EQ(Catalog.Assets.size(), 2u);
+	const auto* SecondaryData = Catalog.FindExact(Secondary); ASSERT_NE(SecondaryData, nullptr);
+	EXPECT_FALSE(SecondaryData->TopLevelAssets[0].PrimaryAssetId.IsValid());
+	EXPECT_TRUE(SecondaryData->TopLevelAssets[0].AssetBundleData.Bundles.empty());
+	EXPECT_EQ(Catalog.FindExact(Modern)->TopLevelAssets[0].PrimaryAssetId, Primary);
+	EXPECT_TRUE(CaptureAssetReferenceIndex().IsComplete());
+	// A corrupt later header must not publish the valid earlier part of the catalog.
+	const std::array Corrupt{std::byte{0}};
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Corrupt, Root / "TestCook/Modern.dasset"));
+	EXPECT_FALSE(Runtime.RestartCooked(Root));
+	EXPECT_EQ(GetAssetCatalogRevision(), Catalog.Revision);
+	EXPECT_EQ(CaptureAssetCatalogSnapshot().Assets, Catalog.Assets);
+}
+
 TEST(FCookInputTests, DiscoveryLimitsAndRootClassRetainFirstCause)
 {
 	(void)MakePackageBytes();
+	TStrongObjectPtr<DAssetManager> Manager(NewObject<DAssetManager>(nullptr, "CookInputManager"));
 	FCookRequest Request;
 	FPackageLoadTransaction LoadScope;
 	AssetPrivate::FCookDependencyDiscovery Limited(Request, CaptureAssetRegistrySnapshot(), LoadScope);
 	std::vector<FPackagePath> Roots(MaximumCookDependencyRecords + 1);
-	const auto Rejected = Limited.Acquire(Roots, {});
+	const auto Rejected = Limited.Acquire(Roots, {}, *Manager);
 	EXPECT_FALSE(Rejected);
 	ASSERT_TRUE(Limited.GetFailureInfo());
 	EXPECT_EQ(Limited.GetFailureInfo()->Error, ECookInputError::RootLimit);
@@ -556,7 +605,7 @@ TEST(FCookInputTests, DiscoveryLimitsAndRootClassRetainFirstCause)
 	External.Stores.push_back({.ProviderId = "test-root", .Occurrences = {
 		{.TargetPath = Target, .ExpectedClass = "MissingCookRootClass", .bCookRoot = true}}});
 	AssetPrivate::FCookDependencyDiscovery UnknownClass(Request, CaptureAssetRegistrySnapshot(), LoadScope);
-	const auto ClassFailure = UnknownClass.Acquire({}, External);
+	const auto ClassFailure = UnknownClass.Acquire({}, External, *Manager);
 	External = {};
 	EXPECT_EQ(ClassFailure.Status, ECookInputStatus::InvalidDependency);
 	ASSERT_TRUE(UnknownClass.GetFailureInfo());
@@ -564,7 +613,7 @@ TEST(FCookInputTests, DiscoveryLimitsAndRootClassRetainFirstCause)
 	EXPECT_EQ(UnknownClass.GetFailureInfo()->Package, Target);
 	EXPECT_EQ(UnknownClass.GetFailureInfo()->Name, "MissingCookRootClass");
 	AssetPrivate::FCookDependencyDiscovery Empty(Request, CaptureAssetRegistrySnapshot(), LoadScope);
-    EXPECT_TRUE(Empty.Acquire({}, {}));
+    EXPECT_TRUE(Empty.Acquire({}, {}, *Manager));
     EXPECT_TRUE(Empty.GetPackages().empty());
     EXPECT_FALSE(Empty.GetFailureInfo());
 }
