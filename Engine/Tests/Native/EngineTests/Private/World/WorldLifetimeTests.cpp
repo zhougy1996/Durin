@@ -688,7 +688,7 @@ TEST(FWorldTests, PreviewHostInitializesAndRetiresServicesWithoutAPlayLifetime)
 		if (Preview.IsAvailable())
 		{
 			EXPECT_EQ(Preview.GetWorld()->GetWorldType(), Durin::EWorldType::EditorPreview);
-			EXPECT_EQ(Preview.GetWorld()->GetSubsystemState(), Durin::EWorldSubsystemState::Ready);
+			EXPECT_TRUE(Preview.GetWorld()->AreSubsystemsInitialized());
 			EXPECT_FALSE(Preview.GetWorld()->HasBegunPlay());
 			auto* Debug = Preview.GetWorld()->GetSubsystem<Durin::DCollisionDebugSubsystem>();
 			EXPECT_NE(Debug, nullptr);
@@ -698,6 +698,32 @@ TEST(FWorldTests, PreviewHostInitializesAndRetiresServicesWithoutAPlayLifetime)
 	EXPECT_TRUE(bRetired);
 	Durin::CollectGarbage();
 	Durin::GEngine = PreviousEngine;
+}
+
+TEST(FWorldTests, WorldShutdownCompletesAfterSubsystemInitializationAlreadyCleanedTheCollection)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	const std::array Classes{FThrowingWorldSubsystem::StaticClass()};
+	DObjectForceRegistration(Classes.front());
+	ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
+	FWorldSubsystemRegistration Throwing({.Type = Classes.front()});
+	FThrowingWorldSubsystem::Cleanups = 0;
+	FWorldSceneLifecycleTestScene Scene;
+	TStrongObjectPtr<DEngine> Host(NewObject<DEngine>(nullptr, "PartialWorldShutdownHost"));
+	TStrongObjectPtr<DWorld> World(NewObject<DWorld>(Host.Get(), "PartialWorldShutdown"));
+	World->SetRenderScene(&Scene);
+	EXPECT_THROW(World->InitializeSubsystems(), std::runtime_error);
+	EXPECT_FALSE(World->AreSubsystemsInitialized());
+	EXPECT_EQ(World->GetRenderScene(), &Scene);
+	World->CleanupWorld();
+	EXPECT_EQ(World->GetRenderScene(), nullptr);
+	EXPECT_TRUE(Host->GetWorldContexts().empty());
+	World->CleanupWorld();
+	EXPECT_EQ(FThrowingWorldSubsystem::Cleanups, 1);
+	Host->PreExit();
+	MarkObjectHierarchyAsGarbage(Host.Get());
+	World.Reset(); Host.Reset(); CollectGarbage();
 }
 
 TEST(FWorldTests, PreviewConstructionExceptionCleansWorldAndSceneThenPropagates)
@@ -810,7 +836,7 @@ TEST(FWorldTests, CanceledMapChangePreservesTheActiveWorldAndCompletesAtTheFrame
 	ASSERT_TRUE(Completed);
 	EXPECT_EQ(Completed->Phase, EMapChangePhase::Canceled);
 	EXPECT_EQ(Host->GetMapChangeProgress()->ElapsedSeconds, Completed->ElapsedSeconds);
-	Host->PrepareForShutdown();
+	Host->PreExit();
 	EXPECT_FALSE(Host->PrepareMapChange({.Path = Path}));
 	EXPECT_FALSE(Host->OpenLevel(Path));
 	EXPECT_FALSE(Host->CommitMapChange());
@@ -849,7 +875,7 @@ TEST(FWorldTests, MapChangeCompletionCanStartAnotherChangeWithoutOverwritingItsP
 	Host->CancelPendingMapChange();
 	FMapChangeTestAccess::Tick(*Host);
 	EXPECT_EQ(Completions, 1);
-	Host->PrepareForShutdown();
+	Host->PreExit();
 	auto* Retired = Host.Get(); Host.Reset(); MarkObjectHierarchyAsGarbage(Retired); CollectGarbage();
 }
 
@@ -879,7 +905,7 @@ TEST(FWorldTests, MapChangeCompletionExceptionsDoNotEscapeOrRedeliver)
 		EXPECT_EQ(Host->GetMapChangeProgress()->Phase, EMapChangePhase::Canceled);
 		EXPECT_FALSE(Host->GetMapChangeProgress()->Diagnostic.empty());
 	}
-	Host->PrepareForShutdown();
+	Host->PreExit();
 	auto* Retired = Host.Get(); Host.Reset(); MarkObjectHierarchyAsGarbage(Retired); CollectGarbage();
 }
 
@@ -945,7 +971,7 @@ TEST(FWorldTests, MapChangeCommitsWithoutAViewportOrWaitingForComponentPSOs)
 	EXPECT_FALSE(Component->IsPSOPrecacheReadyForProxyCreation());
 	EXPECT_EQ(Request.GetDiagnostic(), "Required pipeline failed");
 	EXPECT_EQ(Renderer.RenderCalls, 0);
-	Host->PrepareForShutdown();
+	Host->PreExit();
 	auto* Retired = Host.Get(); Host.Reset(); MarkObjectHierarchyAsGarbage(Retired); CollectGarbage();
 	const auto Unloaded = UnloadPackage(PackagePath, EAssetPackageUnloadPolicy::DiscardUnsaved);
 	EXPECT_TRUE(Unloaded) << Unloaded.Message;
@@ -1033,7 +1059,7 @@ TEST(FWorldTests, MapChangeInitializationAndCommitFailuresPreserveTheCurrentWorl
 			const std::array Classes{FThrowingWorldSubsystem::StaticClass()};
 			DObjectForceRegistration(Classes.front());
 			ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
-			ThrowingService.emplace(FWorldSubsystemDescriptor{.Type = Classes.front()});
+			ThrowingService.emplace(FSubsystemDescriptor{.Type = Classes.front()});
 		}
 		int Completions = 0;
 		ASSERT_TRUE(Host->OpenLevel({.Path = Testing::MakePackageLeafAssetObjectPathForTests(PackagePath),
@@ -1064,7 +1090,7 @@ TEST(FWorldTests, MapChangeInitializationAndCommitFailuresPreserveTheCurrentWorl
 		EXPECT_EQ(Host->GetWorld(), Previous);
 		EXPECT_FALSE(Previous->IsShutdownRequested());
 		EXPECT_EQ(Level->GetWorld(), nullptr);
-		Host->PrepareForShutdown();
+		Host->PreExit();
 		auto* Retired = Host.Get(); Host.Reset(); MarkObjectHierarchyAsGarbage(Retired); CollectGarbage();
 		const auto Unloaded = UnloadPackage(PackagePath, EAssetPackageUnloadPolicy::DiscardUnsaved);
 		EXPECT_TRUE(Unloaded) << Unloaded.Message;
@@ -1103,7 +1129,7 @@ TEST(FWorldTests, ComponentProxyGatePreservesRequiredFailureAndHonorsProxyStrate
 	EXPECT_EQ(Component->GetPSOPrecacheComponentData().GetMaterialPSOPrecacheRequestIDs()[0].GetDiagnostic(), "Required pipeline failed");
 	Component->SetPSOPrecacheProxyCreationStrategy(EPSOPrecacheProxyCreationStrategy::AlwaysCreate);
 	EXPECT_TRUE(Component->IsPSOPrecacheReadyForProxyCreation());
-	Host.PrepareForShutdown(); Host.SetWorld(nullptr); MarkObjectHierarchyAsGarbage(World); CollectGarbage();
+	Host.PreExit(); Host.SetWorld(nullptr); MarkObjectHierarchyAsGarbage(World); CollectGarbage();
 }
 
 TEST(FWorldTests, AutomaticComponentPSOPolicyUsesHostInsteadOfWorldOrBuildCapabilities)

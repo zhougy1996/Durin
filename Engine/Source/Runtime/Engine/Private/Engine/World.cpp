@@ -1,6 +1,7 @@
 #include "Rendering/SceneInterface.h"
 #include "Engine/World.h"
 #include "WorldOperation.h"
+#include "Tickable.h"
 
 #include "Actors/GameMode.h"
 #include "Actors/Pawn.h"
@@ -127,6 +128,12 @@ namespace Durin
 			ExpectedGameMode = GameMode;
 			ExpectedController = Controller;
 			ExpectedPawn = Pawn;
+			// Bootstrap callbacks may close admission before the notification batch starts.
+			if (!CanDispatchSubsystems())
+			{
+				Rollback();
+				return PlayFailure(EWorldPlayError::PlayAborted, "Native gameplay bootstrap requested a lifecycle transition.");
+			}
 		}
 
 		DLevel* CapturedLevel = CurrentLevel.Get();
@@ -185,7 +192,7 @@ namespace Durin
 
 	auto DWorld::Tick(const FWorldTickContext& Context) -> void
 	{
-		if (Operation != EOperation::Idle || bShutdownRequested || GetSubsystemState() != EWorldSubsystemState::Ready) return;
+		if (Operation != EOperation::Idle || bShutdownRequested || !Subsystems.IsInitialized()) return;
 		const double ScaledDelta = static_cast<double>(Context.DeltaSeconds) * TimeScale;
 		if (!std::isfinite(Context.DeltaSeconds) || Context.DeltaSeconds < 0.0f
 			|| ScaledDelta > std::numeric_limits<float>::max()) return;
@@ -193,10 +200,10 @@ namespace Durin
 		ProcessPendingLevelTransition();
 		if (!CanDispatchSubsystems()) return;
 		FOperationScope OperationScope(*this, EOperation::Ticking);
-		Subsystems.StartTick();
 		DLevel* CapturedLevel = CurrentLevel.Get();
 		bool bGameplay = HasBegunPlay() && CapturedLevel;
-		if (bGameplay && bPaused && !std::exchange(bSingleStepRequested, false))
+		const bool bPausedThisFrame = bPaused && !(bGameplay && std::exchange(bSingleStepRequested, false));
+		if (bGameplay && bPausedThisFrame)
 		{
 			ClearPendingGameplayIntent();
 			bGameplay = false;
@@ -211,7 +218,9 @@ namespace Durin
 			Actions.SetDeviceBlocked(true, true);
 			Actions.Evaluate(*Context.GameInput);
 		}
-		if (!CanDispatchSubsystems() || (bGameplay && !CanContinueTicking(CapturedLevel))) return;
+		// Recheck admission after callbacks; the operation scope keeps resources alive.
+		auto CanContinueFrame = [&] { return bGameplay ? CanContinueTicking(CapturedLevel) : CanDispatchSubsystems(); };
+		if (!CanContinueFrame()) return;
 		// Registry cleanup must precede the operation scope applying stop requests.
 		struct FTickFrameScope
 		{
@@ -222,12 +231,15 @@ namespace Durin
 		const FTickFrameScope FrameScope{bGameplay ? &CapturedLevel->TickRegistry : nullptr};
 		for (const ETickingGroup Group : {ETickingGroup::PrePhysics, ETickingGroup::Physics, ETickingGroup::PostPhysics})
 		{
-			if (!CanDispatchSubsystems() || (bGameplay && !CanContinueTicking(CapturedLevel))) break;
-			Subsystems.Tick(Group, bGameplay ? GameplayDelta : Context.DeltaSeconds, bGameplay);
-			if (!CanDispatchSubsystems()) break;
-			if (bGameplay && (!CanContinueTicking(CapturedLevel) || !CapturedLevel->TickRegistry.RunTickGroup(Group))) break;
+			if (!CanContinueFrame()) break;
+			if (bGameplay && !CapturedLevel->TickRegistry.RunTickGroup(Group)) break;
 		}
 		if (bGameplay && CanContinueTicking(CapturedLevel)) Timers.Dispatch();
+		if (CanContinueFrame())
+		{
+			const bool bEditorWorld = WorldType == EWorldType::Editor || WorldType == EWorldType::EditorPreview;
+			FTickableGameObject::TickObjects(this, bEditorWorld ? LEVELTICK_ViewportsOnly : LEVELTICK_All, bPausedThisFrame, GameplayDelta);
+		}
 		if (CanDispatchSubsystems() && RenderScene) RenderScene->UpdateSkyLighting();
 		if (CanDispatchSubsystems()) DPrimitiveComponent::ProcessPSOPrecacheRequests(this);
 	}
@@ -235,8 +247,7 @@ namespace Durin
 	auto DWorld::CanContinueTicking(const DLevel* Level) const -> bool
 	{
 		return CanDispatchSubsystems() && HasBegunPlay()
-			&& CurrentLevel.Get() == Level
-			&& !PendingLevelTransition;
+			&& CurrentLevel.Get() == Level;
 	}
 
 	auto DWorld::EndPlay() -> void

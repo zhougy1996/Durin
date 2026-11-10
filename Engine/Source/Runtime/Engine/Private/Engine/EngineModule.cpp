@@ -23,9 +23,9 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 			MaterialBuildPrivate::RegisterTranslation();
 #endif
-			CollisionDebug = std::make_unique<FWorldSubsystemRegistration>(FWorldSubsystemDescriptor{
+			CollisionDebug = std::make_unique<FWorldSubsystemRegistration>(FSubsystemDescriptor{
 				.Type = DCollisionDebugSubsystem::StaticClass(), .Provider = FModuleStartup::GetModuleName()});
-			MaterialParameterCollections = std::make_unique<FWorldSubsystemRegistration>(FWorldSubsystemDescriptor{
+			MaterialParameterCollections = std::make_unique<FWorldSubsystemRegistration>(FSubsystemDescriptor{
 				.Type = DMaterialParameterCollectionSubsystem::StaticClass(),
 				.Provider = FModuleStartup::GetModuleName()});
 		}

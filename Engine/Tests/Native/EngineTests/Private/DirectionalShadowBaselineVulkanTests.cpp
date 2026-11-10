@@ -2710,7 +2710,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	EXPECT_NE(SkyOutput,LitSkyOutput);
 	EXPECT_TRUE(SkyWorld->SetCurrentLevel(nullptr));
 	SkyWorld->SetRenderScene(nullptr);
-	SkyWorld->Shutdown(); Durin::RemoveFromRoot(SkyWorld);
+	SkyWorld->CleanupWorld(); Durin::RemoveFromRoot(SkyWorld);
 	Durin::MarkObjectHierarchyAsGarbage(SkyWorld);
 	Durin::CollectGarbage();
 

@@ -66,10 +66,8 @@ namespace Durin
 		if (!IsInGameThread()) return {false, Unavailable(EToolError::WrongThread).Diagnostics};
 		if (!CanCallNow()) return {false, {{EToolError::Busy, "Editor is outside the tool dispatch safe point.", {}}}};
 		FToolAvailability Availability{false, Unavailable().Diagnostics};
-		GetEditor()->DispatchSubsystemCallback([&] {
-			auto Result = Service->Call(Request, Source, true, &Availability);
-			if (Result.Status == EToolStatus::Failed) Availability = {false, std::move(Result.Diagnostics)};
-		});
+		auto Result = Service->Call(Request, Source, true, &Availability);
+		if (Result.Status == EToolStatus::Failed) Availability = {false, std::move(Result.Diagnostics)};
 		return Availability;
 	}
 	auto DEditorToolSubsystem::CallNow(const FToolRequest& Request, EToolSource Source,
@@ -77,29 +75,25 @@ namespace Durin
 	{
 		if (!IsInGameThread()) return Unavailable(EToolError::WrongThread);
 		if (!CanCallNow()) return {EToolStatus::Failed, {}, {{EToolError::Busy, "Editor is outside the tool dispatch safe point.", {}}}};
-		auto Result = Unavailable();
-		GetEditor()->DispatchSubsystemCallback([&] { Result = Service->Call(Request, Source, false, nullptr, Client, Cancellation); });
-		return Result;
+		return Service->Call(Request, Source, false, nullptr, Client, Cancellation);
 	}
 	auto DEditorToolSubsystem::SubmitNow(const FToolRequest& Request, EToolSource Source,
 		const FToolClientContext& Client, FToolCancellationToken Cancellation) -> std::expected<FEditorToolSubmission, FToolDiagnostic>
 	{
 		if (!IsInGameThread()) return std::unexpected(Unavailable(EToolError::WrongThread).Diagnostics.front());
 		if (!CanCallNow()) return std::unexpected(Unavailable(EToolError::Busy).Diagnostics.front());
-		std::expected<FEditorToolSubmission, FToolDiagnostic> Result = std::unexpected(Unavailable().Diagnostics.front());
-		GetEditor()->DispatchSubsystemCallback([&] { Result = Service->SubmitNow(Request, Source, Client, Cancellation); });
-		return Result;
+		return Service->SubmitNow(Request, Source, Client, Cancellation);
 	}
 	auto DEditorToolSubsystem::TickTools() -> void
 	{
 		require(IsInGameThread());
 		if (!CanCallNow()) return;
-		GetEditor()->DispatchSubsystemCallback([&] { Service->Drain(); });
+		Service->Drain();
 	}
 	auto DEditorToolSubsystem::TickScripts() -> void
 	{
 		require(IsInGameThread());
 		if (!CanCallNow()) return;
-		GetEditor()->DispatchSubsystemCallback([&] { Service->PumpScripts(Service); });
+		Service->PumpScripts(Service);
 	}
 }

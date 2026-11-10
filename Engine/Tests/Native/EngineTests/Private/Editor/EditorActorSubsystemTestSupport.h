@@ -34,7 +34,7 @@ namespace Durin::Tests
 			Editor = nullptr;
 			CollectGarbage();
 		}
-		auto Shutdown() -> void { Editor->PrepareForShutdown(); }
+		auto Shutdown() -> void { Editor->PreExit(); }
 		auto GetEditor() const -> DEditorEngine* { return Editor.Get(); }
 		auto GetWorld() const -> DWorld* { return World.Get(); }
 		auto GetActorEditor() const -> DEditorActorSubsystem* { return Editor->GetEditorSubsystem<DEditorActorSubsystem>(); }

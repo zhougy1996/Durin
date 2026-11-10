@@ -111,7 +111,7 @@ Direct reflected attributes are readable only when script-exposed. Detached
 struct writable fields can be assigned. Structs and containers are copies, including nested
 field reads: modify a nested value and explicitly assign it back. Object elements
 retain proxy identity and native GC edges; owned struct storage also roots its
-references and is purged on target/Host retirement. Detached field edits validate
+references and validates their object and service lifetime before access. Detached field edits validate
 a complete draft before publishing it.
 
 Return packing is None for no output, the value for one output, or a tuple in
@@ -130,9 +130,13 @@ object keys and immutable tool endpoint session ID qualify factory identity. Imp
 may retain a wrapper across jobs or sessions on the same live Host; each native
 access rechecks active-job admission, cancellation, module and service lifetime.
 Cross-Host access fails even through a cached bound method. Hash/equality/repr do
-not dereference native memory. Native destruction, subsystem retirement and Host
-closure purge wrapper roots before physical collection; old wrappers cannot
-revive when a replacement service has the same native class. Stop purges roots
+not dereference native memory. Native object invalidation purges affected roots;
+service deinitialization alone does not represent object destruction. Proxies and
+owned values reject stopped services using consumer-side membership and host
+checks, and release their roots when that access fails. Until accessed or released,
+a strong wrapper may retain a valid but stopped object. Old wrappers cannot
+revive when a replacement service has the same native class. Endpoint retirement
+actively purges its wrappers and values. Stop purges roots
 and discards all interpreter-owned type/factory state before CPython finalization.
 Native types come from non-unloadable active modules or the process-lifetime
 CoreDObject foundation/bootstrap. Runtime native type unloading is unsupported.

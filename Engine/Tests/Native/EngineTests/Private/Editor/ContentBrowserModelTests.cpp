@@ -2581,7 +2581,7 @@ TEST_F(FContentBrowserModelTests, DeletionRejectsOpenLevelAndAllowsDeletionAfter
 	EXPECT_FALSE(Level->IsGarbage());
 	EXPECT_TRUE(std::filesystem::exists(File));
 	ASSERT_TRUE(World->SetCurrentLevel(nullptr));
-	World->Shutdown();
+	World->CleanupWorld();
 	ASSERT_TRUE(IAssetTools::Get().PrepareDeletion({.AssetPaths = {Path}}, Operation));
 	ASSERT_TRUE(Operation.Delete({.Delete = [&](auto& Removed) -> FAssetWriteResult {
 		std::error_code Error;
@@ -2630,7 +2630,7 @@ TEST_F(FContentBrowserModelTests, DeletionRechecksLevelOpenedAfterConfirmationAn
 	EXPECT_FALSE(Level->IsGarbage());
 	EXPECT_TRUE(std::filesystem::exists(File));
 	ASSERT_TRUE(World->SetCurrentLevel(nullptr));
-	World->Shutdown();
+	World->CleanupWorld();
 }
 
 TEST_F(FContentBrowserModelTests, DeletionSharesFreshHostHashesAndRequiresCompleteEvidence)

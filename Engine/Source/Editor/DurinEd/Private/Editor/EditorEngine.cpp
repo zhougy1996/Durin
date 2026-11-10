@@ -1,3 +1,4 @@
+#include "Tickable.h"
 #include "Editor/EditorEngine.h"
 #include "ShaderPipelineCache.h"
 #include "Tools/EditorToolSubsystem.h"
@@ -23,6 +24,7 @@
 #include "Engine/World.h"
 #include "Editor/IMainFrameModule.h"
 #include "Modules/ModuleManager.h"
+#include "Modules/ModularFeature.h"
 #include "Threading/RunnableThread.h"
 #include "Misc/Project.h"
 #include "Profiling/Profiling.h"
@@ -91,9 +93,9 @@ namespace Durin
 	{
 		CheckGameThread();
 		requiref(GEditor == this && !bShutdownRequested && IsValid(this), "Editor subsystem initialization requires the active editor.");
-		FHostOperationScope Operation(*this);
+
 		FModuleManager::Get().LoadModuleChecked("DurinEd");
-		EditorSubsystems.Initialize();
+		if (!bShutdownRequested) EditorSubsystems.Initialize();
 	}
 
 	auto DEditorEngine::Init(const FEngineInitContext& Context) -> bool
@@ -107,14 +109,14 @@ namespace Durin
 		bEditorInitStarted = true;
 		StartupPhase = Editor::Startup::EBootstrapState::ConstructingShell;
 		StartupError = Context.ProjectAdmissionError;
-		FHostOperationScope Operation(*this);
+
 		bool bInitialized = InitEditorInternal(Context);
 		if (bShutdownRequested && bInitialized)
 		{
 			DURIN_ERROR("Editor retired during initialization.");
 			bInitialized = false;
 		}
-		if (!bInitialized) PrepareForShutdown();
+		if (!bInitialized) RequestShutdown();
 		return bInitialized;
 	}
 
@@ -204,7 +206,7 @@ namespace Durin
 		{
 			std::string AdmissionError;
 			{
-				FHostOperationScope Admission(*this);
+
 				// Register every schema provider before the first content scan.
 				if (!FModuleManager::Get().LoadModule("AssetForgeBuiltins"))
 					AdmissionError = "Project admission requires AssetForgeBuiltins.";
@@ -232,7 +234,7 @@ namespace Durin
 		{
 			bool bModulesReady;
 			{
-				FHostOperationScope Operation(*this);
+
 				bModulesReady = MainFrameModule->LoadWorkspaceModules();
 			}
 			if (bShutdownRequested) return;
@@ -244,7 +246,7 @@ namespace Durin
 			}
 			AddRegisteredEditorSubsystems();
 			if (bShutdownRequested) return;
-			FHostOperationScope Operation(*this);
+
 			if (!MainFrameModule->InitializeWorkspaces(StartupError))
 			{
 				Transition(EBootstrapState::Failed);
@@ -255,7 +257,7 @@ namespace Durin
 		}
 		case EBootstrapState::LoadingDefaultDocument:
 		{
-			FHostOperationScope Operation(*this);
+
 			const auto Document = AdvanceDefaultLevel();
 			if (bShutdownRequested) return;
 			if (Document == EHostStartupState::Ready && GetWorld() && GetWorld()->GetCurrentLevel() && MainSceneViewport)
@@ -339,9 +341,9 @@ namespace Durin
 
 	auto DEditorEngine::Tick(float DeltaSeconds, bool bIdleMode) -> void
 	{
-		if (bShutdownRequested) { PrepareForShutdown(); return; }
+		if (bShutdownRequested || !std::isfinite(DeltaSeconds) || DeltaSeconds < 0.0f) return;
 		if (!GetCapabilities().bTick) return;
-		FHostOperationScope Operation(*this);
+
 		if (auto* Tools = GetCapabilities().bRunTools ? GetEditorSubsystem<DEditorToolSubsystem>() : nullptr)
 		{
 			Tools->TickTools();
@@ -359,40 +361,62 @@ namespace Durin
 				StopPlaySession();
 			}
 		}
-		if (EditorWorld && EditorWorld.Get() != GetWorld()) EditorWorld->Tick({.DeltaSeconds = DeltaSeconds});
+		bool bAWorldTicked = false;
+		ELevelTick TickType = LEVELTICK_ViewportsOnly;
+		if (EditorWorld && EditorWorld.Get() != GetWorld())
+		{
+			EditorWorld->Tick({.DeltaSeconds = DeltaSeconds});
+			bAWorldTicked = true;
+		}
 		if (bShutdownRequested) return;
+		if (auto* World = GetWorld())
+		{
+			bAWorldTicked = true;
+			if (World->GetWorldType() == EWorldType::Game || World->GetWorldType() == EWorldType::PIE)
+				TickType = LEVELTICK_All;
+		}
 		DEngine::Tick(DeltaSeconds, bIdleMode);
+		if (bShutdownRequested) return;
+		if (bAWorldTicked) FTickableGameObject::TickObjects(nullptr, TickType, false, DeltaSeconds);
 		if (bShutdownRequested) return;
 		if (MainFrameModule) MainFrameModule->TickMainFrame(DeltaSeconds);
 		if (bShutdownRequested) return;
 		if (auto* Notifications = GetEditorSubsystem<DEditorNotificationSubsystem>()) Notifications->Tick(DeltaSeconds);
 	}
 
-	auto DEditorEngine::CanUpdateEditorSubsystems() -> bool
+	auto DEditorEngine::CheckEditorSubsystemUpdate() -> void
 	{
-		return IsInGameThread() && !IsGarbageCollecting() && !bShutdownRequested && IsHostOperationIdle()
-			&& (!GetTransactor() || GetTransactor()->CanTransact())
-			&& !FModularFeatureRegistry::Get().IsDispatching() && !EditorSubsystems.IsPopulating()
-			&& EditorSubsystems.GetState() == ESubsystemState::Ready;
+		CheckGameThread();
+		requiref(GEditor == this && !bShutdownRequested
+			&& !IsGarbageCollecting() && !FModularFeatureRegistry::Get().IsDispatching(),
+			"Editor subsystem update requires an active host outside GC and feature dispatch.");
 	}
 	auto DEditorEngine::AddRegisteredEditorSubsystems() -> void
 	{
-		requiref(CanUpdateEditorSubsystems(), "Editor subsystem update requires a host safe point.");
-		FHostOperationScope Operation(*this);
+		CheckEditorSubsystemUpdate();
+
 		EditorSubsystems.AddRegisteredSubsystems();
 	}
 
 	auto DEditorEngine::AddEditorSubsystem(DClass* Type) -> DEditorSubsystem*
 	{
-		requiref(CanUpdateEditorSubsystems(), "Subsystem addition requires a host safe point.");
-		FHostOperationScope Operation(*this);
+		CheckEditorSubsystemUpdate();
+
 		return EditorSubsystems.AddSubsystem(Type);
 	}
 	auto DEditorEngine::RemoveEditorSubsystem(DClass* Type) -> void
 	{
-		requiref(CanUpdateEditorSubsystems(), "Subsystem removal requires a host safe point.");
-		FHostOperationScope Operation(*this);
+		CheckEditorSubsystemUpdate();
+
 		EditorSubsystems.RemoveSubsystem(Type);
+	}
+	auto DEditorEngine::RemoveEditorSubsystems(FName Provider) -> void
+	{
+		// Startup rollback and completed host teardown have no live instances to remove.
+		if (!EditorSubsystems.HasProvider(Provider)) return;
+		CheckEditorSubsystemUpdate();
+
+		EditorSubsystems.RemoveSubsystems(Provider);
 	}
 
 	auto DEditorEngine::RequestSubsystemDeinitialization() -> void
@@ -400,9 +424,8 @@ namespace Durin
 		// These consumers own their asynchronous work and retained callbacks.
 		if (auto* Tools = GetEditorSubsystem<DEditorToolSubsystem>()) Tools->RequestShutdown();
 		if (auto* Notifications = GetEditorSubsystem<DEditorNotificationSubsystem>()) Notifications->RequestShutdown();
-		EditorSubsystems.RequestDeinitialize();
-		if (EditorWorld) EditorWorld->RequestShutdown();
-		if (PlayWorld) PlayWorld->RequestShutdown();
+		if (EditorWorld) EditorWorld->BeginTearingDown();
+		if (PlayWorld) PlayWorld->BeginTearingDown();
 		Super::RequestSubsystemDeinitialization();
 	}
 
@@ -410,23 +433,24 @@ namespace Durin
 	{
 		TeardownPlaySession();
 		if (Trans) Trans->Cancel();
-		if (EditorWorld) EditorWorld->Shutdown();
+		if (EditorWorld) EditorWorld->CleanupWorld();
 		StartupWindow.reset();
 		StartupDocumentOpen.reset();
 		if (MainFrameModule) MainFrameModule->DestroyMainFrame();
 		EditorSubsystems.Deinitialize();
 	}
 
-	auto DEditorEngine::PrepareForShutdown() -> void
+	auto DEditorEngine::PreExit() -> void
 	{
+		requiref(!EditorSubsystems.IsPopulating(), "PreExit cannot run from subsystem lifecycle callbacks.");
 		FShaderPipelineCache::SetBatchMode(FShaderPipelineCache::BatchMode::Background);
-		Super::PrepareForShutdown();
+		Super::PreExit();
 		if (bShutdownComplete && GEditor == this) GEditor = nullptr;
 	}
 
 	auto DEditorEngine::BeginDestroy() -> void
 	{
-		PrepareForShutdown();
+		PreExit();
 		if (Trans)
 		{
 			Trans->BeginDestroy();
@@ -483,7 +507,7 @@ namespace Durin
 		std::string* OutError) -> bool
 	{
 		if (!GetCapabilities().bRunTools) return false;
-		FHostOperationScope Operation(*this);
+
 		DLevel* SourceLevel = Request.SourceLevel;
 		if (OutError) OutError->clear();
 		if (PlayState != Editor::EPlayState::Stopped)
@@ -521,7 +545,7 @@ namespace Durin
 			~FInitializationCleanup()
 			{
 				if (!World) return;
-				World->Shutdown();
+				World->CleanupWorld();
 				MarkObjectHierarchyAsGarbage(Package);
 				State = Editor::EPlayState::Stopped;
 			}
@@ -541,7 +565,7 @@ namespace Durin
 		DLevel* PlayLevel = Duplicated.value();
 		if (!PlayLevel)
 		{
-			NewPlayWorld->Shutdown();
+			NewPlayWorld->CleanupWorld();
 			MarkObjectHierarchyAsGarbage(PlayPackage);
 			PlayState = Editor::EPlayState::Stopped;
 			if (OutError) *OutError = ToString(Duplicated.error());
@@ -558,7 +582,7 @@ namespace Durin
 				if (!SettingsResult)
 				{
 					EditorToPlayObjects.clear();
-					NewPlayWorld->Shutdown();
+					NewPlayWorld->CleanupWorld();
 					MarkObjectHierarchyAsGarbage(PlayPackage);
 					PlayState = Editor::EPlayState::Stopped;
 					if (OutError) *OutError = SettingsResult.Message;
@@ -568,7 +592,7 @@ namespace Durin
 				if (!Resolution)
 				{
 					EditorToPlayObjects.clear();
-					NewPlayWorld->Shutdown();
+					NewPlayWorld->CleanupWorld();
 					MarkObjectHierarchyAsGarbage(PlayPackage);
 					PlayState = Editor::EPlayState::Stopped;
 					if (OutError) *OutError = Resolution.Result.Message;
@@ -593,7 +617,7 @@ namespace Durin
 			EditorLevel = nullptr;
 			EditorToPlayObjects.clear();
 			PlayToEditorObjects.clear();
-			NewPlayWorld->Shutdown();
+			NewPlayWorld->CleanupWorld();
 			MarkObjectHierarchyAsGarbage(PlayPackage);
 			PlayState = Editor::EPlayState::Stopped;
 			if (OutError) *OutError = "Could not activate the duplicated Play level.";
@@ -673,7 +697,7 @@ namespace Durin
 		{
 			WorldToDestroy->EndPlay();
 			WorldToDestroy->SetCurrentLevel(nullptr, false);
-			WorldToDestroy->Shutdown();
+			WorldToDestroy->CleanupWorld();
 		}
 		std::unique_ptr<FRenderCommandFence> RetirementFence;
 		if (WorldToDestroy && GRenderingThread)

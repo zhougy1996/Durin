@@ -195,8 +195,10 @@ namespace Durin
 		if (State != EEngineLoopState::PreInitialized) return false;
 		State = EEngineLoopState::Initializing;
 #if DURIN_WITH_EDITOR
+		GIsEditor = true;
 		GEngine = NewObject<DEditorEngine>(nullptr, "EditorEngine");
 #else
+		GIsEditor = false;
 		GEngine = NewObject<DGameEngine>(nullptr, "GameEngine");
 #endif
 		AddToRoot(GEngine);
@@ -269,6 +271,7 @@ namespace Durin
 		EngineInitContext.ProjectAdmissionError = ProjectAdmissionError;
 		if (!GEngine->Init(EngineInitContext))
 		{
+			GEngine->PreExit();
 			bInitializationCancelled = IsEngineExitRequested();
 			if (bInitializationCancelled)
 				DURIN_INFO("Engine initialization was cancelled.");
@@ -301,6 +304,12 @@ namespace Durin
 			},
 			[this]() { TickPostEventFrame(true); },
 			[]() { return GIsRequestingExit; });
+		// Native/UI callbacks and the complete host frame have now returned.
+		if (GEngine && GEngine->IsShutdownRequested())
+		{
+			GEngine->PreExit();
+			RequestEngineExit();
+		}
 	}
 
 	auto FEngineLoop::GetStartupState() const -> EHostStartupState
@@ -431,7 +440,7 @@ namespace Durin
 
 		PackageSavePrivate::SetAsyncSaveAdmission(false);
 		(void)DPackage::DrainAsyncSaves();
-		if (GEngine) GEngine->PrepareForShutdown();
+		if (GEngine) GEngine->PreExit();
 		CancelAsyncLoading();
 
 #if DURIN_WITH_EDITOR

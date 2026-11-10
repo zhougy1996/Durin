@@ -55,7 +55,7 @@ namespace
 		auto TearDown() -> void override
 		{
 			Server.Stop(); TestSession.clear(); Registration.Reset(); Toolset.reset();
-			Host->PrepareForShutdown(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); CollectGarbage();
+			Host->PreExit(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); CollectGarbage();
 		}
 		auto Connect() -> void
 		{
@@ -365,7 +365,7 @@ namespace
 		auto Future = BeginCall(); auto Expired = Pump(Future); ASSERT_TRUE(Expired);
 		EXPECT_NE(std::string::npos, Expired->body.find("expired")); EXPECT_EQ(1, Calls);
 		std::atomic<bool> Opened = false; auto Closing = BeginCall([&] { Opened = true; }); ASSERT_TRUE(Wait(Opened));
-		Host->PrepareForShutdown(); auto Closed = Closing.get(); ASSERT_TRUE(Closed);
+		Host->PreExit(); auto Closed = Closing.get(); ASSERT_TRUE(Closed);
 		EXPECT_NE(std::string::npos, Closed->body.find("\"isError\":true")); EXPECT_EQ(1, Calls);
 	}
 	// Only the explicit SDK acceptance driver enables this host. Ordinary native
@@ -482,7 +482,7 @@ TEST(FMCPEditorSessionTests, EditorSubsystemStartsAndStopsTransportWithoutMainFr
     struct FCleanup
     {
         TStrongObjectPtr<DEditorEngine>& Editor;
-        ~FCleanup() { Editor->PrepareForShutdown(); MarkObjectHierarchyAsGarbage(Editor.Get()); Editor.Reset(); CollectGarbage(); }
+        ~FCleanup() { Editor->PreExit(); MarkObjectHierarchyAsGarbage(Editor.Get()); Editor.Reset(); CollectGarbage(); }
     } Cleanup{Editor};
     ASSERT_NO_THROW(FEditorEngineTestAccess::StartEditor(*Editor));
     ASSERT_NE(Editor->GetEditorSubsystem<DMCPServerSubsystem>(), nullptr);
@@ -505,7 +505,7 @@ TEST(FMCPEditorSessionTests, EditorSubsystemStartsAndStopsTransportWithoutMainFr
         EModuleState Previous;
         ~FRestoreState() { Info->State = Previous; }
     } Restore{Info, Previous};
-    Editor->PrepareForShutdown();
+    Editor->PreExit();
     EXPECT_EQ(0u, FMCPModuleTestAccess::Port(Module));
     EXPECT_FALSE(Client.Post("/mcp", Headers(), Body("initialize", InitializeParams()), "application/json"));
 }

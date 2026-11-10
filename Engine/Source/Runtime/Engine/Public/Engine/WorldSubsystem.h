@@ -4,8 +4,7 @@
 
 #include "EngineAPI.h"
 #include "Engine/Subsystem.h"
-#include "DObject/ObjectPtr.h"
-#include "Engine/TickFunction.h"
+#include "Tickable.h"
 #include "WorldSubsystem.gen.h"
 
 namespace Durin
@@ -14,8 +13,6 @@ namespace Durin
 	class DLevel;
 	class FSceneInterface;
 	enum class EWorldType : uint8;
-
-	using EWorldSubsystemState = ESubsystemState;
 
 	// Native per-World service. Workers capture detached data and consumer-owned cancellation state, never this object.
 	DCLASS(Abstract)
@@ -32,36 +29,34 @@ namespace Durin
 		virtual auto OnLevelAttached(DLevel&) noexcept -> void {}
 		virtual auto OnLevelDetached(DLevel&) noexcept -> void {}
 		virtual auto OnRenderSceneChanged(FSceneInterface*, FSceneInterface*) noexcept -> void {}
-		virtual auto Tick(float DeltaSeconds) noexcept -> void {}
-		// Changes are observed at the next World Tick entry.
-		ENGINE_API auto SetTickEnabled(bool bEnabled) -> void;
-		auto IsTickEnabled() const -> bool { return bTickEnabled; }
-	private:
-		bool bTickEnabled = true;
-		friend class FWorldSubsystemCollection;
 	};
 
-	// Describes a concrete native factory and eligibility without process-wide service instances.
-	struct FWorldSubsystemDescriptor
+	// Tick lifetime follows initialization, independently of the World's play lifetime.
+	DCLASS(Abstract)
+	class DTickableWorldSubsystem : public DWorldSubsystem, public FTickableGameObject
 	{
-		DClass* Type = nullptr;
-		FName Provider;
-		bool bTick = false;
-		bool bTickInEditorAndPreview = false;
-		ETickingGroup TickGroup = ETickingGroup::PrePhysics;
+		GENERATED_BODY()
+	public:
+		ENGINE_API explicit DTickableWorldSubsystem(const FObjectInitializer& Initializer);
+		// Overrides must forward to Super to start/stop ticking.
+		ENGINE_API auto Initialize(FSubsystemCollection& Collection) -> void override;
+		ENGINE_API auto Deinitialize() noexcept -> void override;
+		ENGINE_API auto BeginDestroy() -> void override;
+		auto IsInitialized() const -> bool { return bInitialized; }
+		ENGINE_API auto IsAllowedToTick() const -> bool override final;
+		ENGINE_API auto GetTickableTickType() const -> ETickableTickType override;
+		auto GetTickableGameObjectWorld() const -> DWorld* override { return GetWorld(); }
+		ENGINE_API auto Tick(float DeltaSeconds) noexcept -> void override;
+	private:
+		bool bInitialized = false;
 	};
 
 	// Provider-owned publication token; removal affects only future World snapshots.
-	class FWorldSubsystemRegistration
+	class FWorldSubsystemRegistration : public FSubsystemRegistration
 	{
 	public:
-		ENGINE_API explicit FWorldSubsystemRegistration(FWorldSubsystemDescriptor Descriptor);
-		ENGINE_API ~FWorldSubsystemRegistration();
-		FWorldSubsystemRegistration(const FWorldSubsystemRegistration&) = delete;
-		auto operator=(const FWorldSubsystemRegistration&) -> FWorldSubsystemRegistration& = delete;
-		ENGINE_API static auto GetRegistrations() -> std::vector<FWorldSubsystemDescriptor>;
-	private:
-		uint64 Identity;
+		explicit FWorldSubsystemRegistration(FSubsystemDescriptor Descriptor)
+			: FSubsystemRegistration(DWorldSubsystem::StaticClass(), std::move(Descriptor)) {}
 	};
 
 	// Owns fixed service membership and deterministic dispatch; only DWorld drives callbacks.
@@ -74,25 +69,11 @@ namespace Durin
 		auto operator=(const FWorldSubsystemCollection&) -> FWorldSubsystemCollection& = delete;
 		ENGINE_API auto Find(DClass* Type) const -> DWorldSubsystem*;
 	private:
-		struct FWorldEntry
-		{
-			bool bTick = false;
-			bool bTickInEditorAndPreview = false;
-			ETickingGroup TickGroup = ETickingGroup::PrePhysics;
-			bool bPlaying = false;
-			bool bAttached = false;
-			bool bFrameTickEnabled = false;
-		};
 		auto Initialize() -> void;
-		auto ValidateSelectedDescriptor(const FSubsystemDescriptor& Descriptor) const -> void override;
 		auto BeginPlay() -> void;
 		auto EndPlay() -> void;
 		auto LevelChanged(DLevel& Level, bool bAttached) -> void;
 		auto RenderSceneChanged(FSceneInterface* Previous, FSceneInterface* Current) -> void;
-		auto StartTick() -> void;
-		auto Tick(ETickingGroup Group, float DeltaSeconds, bool bGameplay) -> void;
-		DWorld& World;
-		std::unordered_map<DClass*, FWorldEntry> WorldEntries;
 		friend class DWorld;
 	};
 }

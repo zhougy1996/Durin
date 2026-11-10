@@ -43,8 +43,8 @@ available; the shell is not yet created. After first presentation, project admis
 loads project providers and AssetForgeBuiltins, initializes project content, and
 synchronizes Editor services. Workspace startup then loads all concrete workspace
 modules, synchronizes services at a host safe point, and only then creates workspaces.
-Module loading and consumer creation use separate host operation scopes; synchronization
-runs between them. DurinEd's module startup registers the
+Module loading and consumer creation are separate startup phases; synchronization
+runs between them after provider callbacks return. DurinEd's module startup registers the
 Actor editing, asset editor, notification and [tool](../Tools/EditorTools.md) services. LevelEditor
 registers the Level editing service, PIE Toolset and Content Browser extensions.
 MaterialEditor, TextureEditor and StaticMeshEditor likewise publish their contributions
@@ -58,12 +58,21 @@ remains `Initialize` and `Deinitialize`. Each frame stops after the tool, script
 World or shell callback that requested shutdown. At the safe boundary, shutdown
 stops PIE, shuts down EditorWorld, destroys shell consumers, then deinitializes
 Editor services. Base shutdown
-retires the remaining World and Engine services. Initialization and update
-operation scopes defer requested destruction until callbacks unwind. Explicit
+retires the remaining World and Engine services. The owner calls `PreExit()` after initialization, update and external callbacks
+return; none of these calls automatically perform Engine teardown. Explicit
 retirement is idempotent and `DEditorEngine::BeginDestroy` supplies the same
 fallback path. Editor subsystem destruction neither closes the editor nor waits
-for its finish-destroy readiness. External subsystem callbacks defer GC until
-they unwind; the host's operation state controls deferred retirement.
+for its finish-destroy readiness. External subsystem callbacks request GC with `RequestGarbageCollection()`;
+physical GC, module unload and membership changes run only at owner-controlled
+safe points, not inside callbacks.
+
+Tool subsystem synchronous calls, submissions, availability queries and pumps
+call their service directly after `CanCallNow` admits them. Service admission
+checks endpoint state and `HostReady`/`CanTransact`, including host retirement,
+without an intervening user callback. These paths do not additionally wrap the
+call in `DispatchSubsystemCallback`. Other external callback owners retain that
+wrapper where it supplies their shutdown gate. This does not change callback
+cleanup, GC, or module-unload contracts.
 
 ## Asset Editors
 
@@ -91,9 +100,9 @@ the corresponding `EAssetEditorCloseReason` to each instance. Close requests use
 snapshots and recheck membership before entering callbacks, so an earlier close
 may remove a later instance. A rejected close or pending dirty-document modal
 is not reported as a completed close. Service calls require the game thread,
-registered owning host with no pending shutdown. Open/focus/close callbacks use the
-host operation scope; shutdown closes admission immediately and defers resource
-retirement until callbacks unwind. Close notifications remain legal during cleanup.
+registered owning host with no pending shutdown. Open/focus/close callbacks use host
+admission checks; shutdown requests close admission immediately and the owner
+executes `PreExit()` only after callbacks return. Close notifications remain legal during cleanup.
 
 MainFrame supplies its host-owned `FEditorDocumentManager` to the service's workspace
 adapter. The service does not own tabs or the main window. Each committed asset
@@ -208,38 +217,48 @@ may retain stopped objects while new instances run. The collection does not trac
 a descriptor dependency graph or validate consumer removal order.
 
 Dependencies are requested by `Initialize(Collection)` through
-`InitializeDependency<T>()`. A missing, excluded, wrong-scope or recursive
-dependency fails the requesting initialization. The framework protects collection
+`InitializeDependency<T>()`. Missing or excluded dependencies return null for the
+consumer to check; wrong-scope and recursive dependencies assert. The framework protects collection
 iteration and GC lifetime; host retirement requested by a callback takes precedence.
 
-Removal invalidates external references, deinitializes the selected objects in
+Removal deinitializes the selected objects in
 reverse initialization-completion order, then releases collection references.
 Dependencies remain queryable until explicitly removed. Retained
 objects stay valid but stopped; ordinary GC reclaims them after their remaining
 strong references are released, without shutting down the active editor.
-Script proxies and tool endpoints reject use once work closes.
+Script proxies and tool endpoints own their retirement checks and reject use once
+work closes. Service removal does not broadcast object destruction or purge
+arbitrary external references. Collection cleanup is synchronous at a host-owned
+boundary, without a deferred-close queue or supplemental cleanup request.
 
 Additions run sequentially. A failed object is cleaned up; earlier successful
 additions and dependencies remain alive. There is no whole-update validation,
 transactional rollback, registration revision poll or force-refresh mode. A later
-explicit addition can retry a failed class. Host shutdown aborts additions and
-completes cleanup after callbacks unwind.
+explicit addition can retry a failed class. Host shutdown closes external
+admission but leaves an already-started addition batch running. The host cleans
+the collection after the batch and its callbacks unwind; no initialization
+callback is canceled or skipped by the collection.
 
-Providers own removal in `ShutdownModule()`: they call
-`FEditorSubsystemCollection::RemoveAllInstances(Provider)` before destroying
-registration tokens or releasing provider resources. Consumers must already be
-stopped and removed. A rejected removal must never be ignored. There is no
-module-manager consumer callback or suppressed-registration list.
+Providers own removal in `ShutdownModule()`: they stop their consumers, call
+`GEditor->RemoveEditorSubsystems(Provider)` when an editor exists, then destroy
+registration tokens and remaining provider resources. The host validates its safe
+point; the collection removes its actual live entries for that provider under its
+existing mutation and GC-deferral boundary.
+The collection does not consult the active editor, transactions or module dispatch.
+There is no global subsystem update permission query or scheduling manager.
 
-Their read-only `CanShutdownModule()` calls `CanUpdateActiveEditor()` to check the
-host safe point. It does not preflight a remaining descriptor graph.
-Initialization, cleanup, host callbacks, GC, feature
-dispatch and non-idle history postpone the entire shutdown. `UnloadModule()`
-returns false without changing an active module at an unsafe point; explicit
-`ShutdownModule()` requires the caller to establish that safe point. Providers
-check it again before mutating registrations, including direct cleanup after
-partially completed startup. Requests from callbacks must be retried after they
-unwind.
+ModuleManager owns control-thread and feature-dispatch restrictions. A provider's
+read-only `CanShutdownModule()` protects its current host callbacks, unfinished
+host retirement and GC; its
+ShutdownModule relies on that established sequence rather than repeating the
+preflight. Requests from callbacks must be retried after they unwind. The host's
+explicit update entries check the active host, retirement, GC and feature-dispatch
+boundary. The common collection batch/removal entries check initialization and
+mutation state; the Editor adapter does not repeat those checks. Single-type
+additions use the same batch entry as catalog additions, including unregistered
+no-op requests. Unrelated transaction
+recovery does not block service membership changes. LevelEditor retains its own
+transaction restriction because its shutdown discards module-owned custom changes.
 
 Consumer-owned cancellation tokens do not provide module residency. Providers must finish
 module-owned work and detach external callbacks in their existing ShutdownModule
@@ -371,8 +390,8 @@ and history. Retained action, enablement and cancellation callbacks capture a
 shared manager admission state, so they cannot invoke provider callbacks
 after retirement, even after physical service destruction. Manager destruction
 also retires standalone instances. Actions, enablement predicates and cancellation
-callbacks enter the host's external callback scope. A shutdown request stops tool and notification admission immediately but leaves entries and consumers alive until the next host
-boundary, so drawing and the initiating callback can finish. An enablement
+callbacks use host admission checks; they request GC instead of collecting immediately. A shutdown request stops tool and notification admission immediately but leaves entries and consumers alive until the next host
+owner-driven `PreExit()` boundary, so drawing and the initiating callback can finish. An enablement
 predicate that retires its manager prevents the action from being invoked.
 
 Progress notifications normalize nonfinite fractions to unknown and clamp finite

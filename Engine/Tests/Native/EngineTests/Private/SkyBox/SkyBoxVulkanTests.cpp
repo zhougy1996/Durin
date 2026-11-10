@@ -935,11 +935,11 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
     // Detach the second world directly after admitting a manual refresh.
     OtherLight->Recapture(); Pump(false);
     EXPECT_TRUE(OtherWorld->SetCurrentLevel(nullptr)); OtherWorld->SetRenderScene(nullptr);
-    OtherWorld->Shutdown(); RemoveFromRoot(OtherWorld); MarkObjectHierarchyAsGarbage(OtherWorld);
+    OtherWorld->CleanupWorld(); RemoveFromRoot(OtherWorld); MarkObjectHierarchyAsGarbage(OtherWorld);
     FSceneInterfaceTestAccess::ReleaseScene(OtherSceneOwner);
     EXPECT_TRUE(World->SetCurrentLevel(nullptr));
     World->SetRenderScene(nullptr);
-    World->Shutdown();
+    World->CleanupWorld();
     RemoveFromRoot(World);
     MarkObjectHierarchyAsGarbage(World);
     CollectGarbage();

@@ -31,7 +31,7 @@ namespace Durin
 	}
 	auto FMapChangeHandler::RetireCandidate() -> void
 	{
-		if (World) { auto* Retired = World.Get(); Retired->Shutdown(); World.Reset(); MarkObjectHierarchyAsGarbage(Retired); }
+		if (World) { auto* Retired = World.Get(); Retired->CleanupWorld(); World.Reset(); MarkObjectHierarchyAsGarbage(Retired); }
 		if (Scene) { Scene->Release(); Scene.reset(); }
 		if (Assets) Assets->CancelHandle();
 		Assets.reset();
@@ -73,7 +73,7 @@ namespace Durin
 		if (bAdvancing)
 		{
 			bCancelRequested = true;
-			if (World) World->RequestShutdown();
+			if (World) World->BeginTearingDown();
 			return;
 		}
 		Error = "Map change canceled.";

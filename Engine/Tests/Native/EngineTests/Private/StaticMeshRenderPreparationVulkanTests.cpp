@@ -3352,7 +3352,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAnd
 		struct FCleanup
 		{
 			DWorld* World; FScenePtr& Scene;
-			~FCleanup() { World->Shutdown(); World->SetRenderScene(nullptr); Scene->Release(); Scene.reset(); FlushRenderingCommands(); }
+			~FCleanup() { World->CleanupWorld(); World->SetRenderScene(nullptr); Scene->Release(); Scene.reset(); FlushRenderingCommands(); }
 		} Cleanup{World.Get(), SceneOwner};
 		ASSERT_NO_THROW(World->InitializeSubsystems());
 		auto* Level = NewObject<DLevel>(World.Get(), NAME_None);

@@ -129,20 +129,15 @@ namespace Durin
 
 	DEngine::~DEngine() = default;
 
-	DEngine::FHostOperationScope::FHostOperationScope(DEngine& InHost, bool bInFlushOnExit) : Host(InHost), bFlushOnExit(bInFlushOnExit) { ++Host.HostOperationDepth; }
 	auto DEngine::BeginTransaction(std::string_view, std::string_view, DObject*) -> int32 { return -1; }
 	auto DEngine::EndTransaction() -> int32 { return 0; }
 	auto DEngine::CancelTransaction(int32) -> void {}
-	DEngine::FHostOperationScope::~FHostOperationScope()
-	{
-		if (--Host.HostOperationDepth == 0 && bFlushOnExit && Host.bShutdownRequested) Host.PrepareForShutdown();
-	}
 
 	DEngine::FWorldInitializationScope::FWorldInitializationScope(DEngine& InHost, DWorld& InWorld)
-		: Operation(InHost), Host(InHost), World(InWorld)
+		: Host(InHost), World(InWorld)
 	{
 		Host.InitializingWorlds.push_back(&World);
-		if (Host.bShutdownRequested) World.RequestShutdown();
+		if (Host.bShutdownRequested) World.BeginTearingDown();
 	}
 
 	DEngine::FWorldInitializationScope::~FWorldInitializationScope()
@@ -153,15 +148,16 @@ namespace Durin
 	auto DEngine::DispatchSubsystemCallback(std::function<void()> Callback) -> void
 	{
 		if (bShutdownRequested) return;
-		// External callbacks must unwind before GC can destroy their host or services.
-		FHostOperationScope Operation(*this, false);
+		// Callbacks may request retirement or GC; owners execute both at safe points.
+
 		Callback();
 	}
 
 	auto DEngine::InitializeEngineSubsystems() -> void
 	{
-		FHostOperationScope Operation(*this);
-		EngineSubsystems.Initialize();
+		requiref(!bShutdownComplete, "Engine subsystem initialization is one-shot.");
+
+		if (!bShutdownRequested) EngineSubsystems.Initialize();
 	}
 
 	auto DEngine::AddReferencedObjects(FReferenceCollector& Collector) -> void
@@ -185,14 +181,14 @@ namespace Durin
 			return false;
 		}
 		bInitStarted = true;
-		FHostOperationScope Operation(*this);
+
 		bool bInitialized = InitInternal(Context);
 		if (bShutdownRequested && bInitialized)
 		{
 			DURIN_ERROR("Engine retired during initialization.");
 			bInitialized = false;
 		}
-		if (!bInitialized) PrepareForShutdown();
+		if (!bInitialized) RequestShutdown();
 		return bInitialized;
 	}
 
@@ -260,7 +256,7 @@ namespace Durin
 		struct FUnpublishedWorld
 		{
 			DWorld* World;
-			~FUnpublishedWorld() { if (World) { World->Shutdown(); MarkObjectHierarchyAsGarbage(World); } }
+			~FUnpublishedWorld() { if (World) { World->CleanupWorld(); MarkObjectHierarchyAsGarbage(World); } }
 		} Unpublished{World};
 		World->SetWorldType(GetInitialWorldType());
 		World->SetRenderScene(MainScene.get());
@@ -273,10 +269,10 @@ namespace Durin
 
 	auto DEngine::BeginDestroy() -> void
 	{
-		PrepareForShutdown();
+		PreExit();
 		ClearGameInputWindow();
 		MapChange.reset();
-		if (MainWorld) MainWorld->Shutdown();
+		if (MainWorld) MainWorld->CleanupWorld();
 		AuxiliarySceneViewports.clear();
 		MainSceneViewport.reset();
 		SetWorld(nullptr);
@@ -296,7 +292,7 @@ namespace Durin
 
 	auto DEngine::IsReadyForFinishDestroy() -> bool
 	{
-		return HostOperationDepth == 0 && !bPreparingShutdown && Super::IsReadyForFinishDestroy()
+		return Super::IsReadyForFinishDestroy()
 			   && (!DestroyFence || DestroyFence->IsFenceComplete());
 	}
 
@@ -316,8 +312,8 @@ namespace Durin
 
 	auto DEngine::Tick(float DeltaSeconds, bool bIdleMode) -> void
 	{
-		if (bShutdownRequested) { PrepareForShutdown(); return; }
-		FHostOperationScope Operation(*this);
+		if (bShutdownRequested || !std::isfinite(DeltaSeconds) || DeltaSeconds < 0.0f) return;
+
 		(void)bIdleMode;
 		PumpCookedMeshLoadManager();
 		DPrimitiveComponent::ProcessPSOPrecacheRequests();
@@ -333,6 +329,7 @@ namespace Durin
 		}
 		if (MainWorld) MainWorld->Tick({.DeltaSeconds = DeltaSeconds, .GameInput = &GameInputState});
 		GameInputState.FinishGameTick();
+
 	}
 
 	auto DEngine::AreHostConsumersIdle() -> bool
@@ -347,24 +344,29 @@ namespace Durin
 		CancelPendingMapChange();
 		// Host retirement closes callback owners before another ordinary frame.
 		if (MapChange) MapChange->OnComplete = {};
-		EngineSubsystems.RequestDeinitialize();
 		const auto Contexts = WorldContexts;
-		for (const auto& Context : Contexts) if (auto* World = Context.World()) World->RequestShutdown();
-		for (DWorld* World : InitializingWorlds) World->RequestShutdown();
+		for (const auto& Context : Contexts) if (auto* World = Context.World()) World->BeginTearingDown();
+		for (DWorld* World : InitializingWorlds) World->BeginTearingDown();
 	}
 
-	auto DEngine::PrepareForShutdown() -> void
+	auto DEngine::RequestShutdown() -> void
+	{
+
+		if (!std::exchange(bShutdownRequested, true)) RequestSubsystemDeinitialization();
+	}
+
+	auto DEngine::PreExit() -> void
 	{
 		if (bPreparingShutdown || bShutdownComplete) return;
+		requiref(AreHostConsumersIdle() && !EngineSubsystems.IsPopulating(), "PreExit requires an idle host; callbacks must request shutdown.");
 		bPreparingShutdown = true;
 		struct FReset { bool& Flag; ~FReset() { Flag = false; } } Reset{bPreparingShutdown};
 		FGarbageCollectionDeferralScope Deferral;
 		// Close external admission once; later calls only finish deferred teardown.
-		if (!std::exchange(bShutdownRequested, true)) RequestSubsystemDeinitialization();
-		if (HostOperationDepth || !AreHostConsumersIdle()) return;
+		RequestShutdown();
 		RetireHostConsumers();
 		const auto Contexts = WorldContexts;
-		for (const auto& Context : Contexts) if (auto* World = Context.World()) World->Shutdown();
+		for (const auto& Context : Contexts) if (auto* World = Context.World()) World->CleanupWorld();
 		if (AssetManager) AssetManager->Shutdown();
 		EngineSubsystems.Deinitialize();
 		if (MainSceneViewport) MainSceneViewport->ReleaseViewState();
@@ -578,7 +580,7 @@ namespace Durin
 	auto DEngine::TickMapChange() -> void
 	{
 		if (bShutdownRequested || !MapChange) return;
-		FHostOperationScope Operation(*this);
+
 		MapChange->Tick();
 		const auto Progress = MapChange->GetProgress();
 		if (!IsMapChangeComplete(Progress.Phase)) return;
@@ -595,7 +597,7 @@ namespace Durin
 	{
 		CheckGameThread();
 		check(World && Scene && !bShutdownRequested);
-		FHostOperationScope Operation(*this);
+
 		TStrongObjectPtr<DWorld> Previous(MainWorld.Get());
 		if (Previous) Previous->SetRenderScene(nullptr);
 		if (MainScene) { MainScene->Release(); MainScene.reset(); }
@@ -608,7 +610,7 @@ namespace Durin
 		}
 		for (const auto& Viewport : AuxiliarySceneViewports) if (Viewport) Viewport->SetSceneGeneration(Generation);
 		SetWorld(World);
-		if (Previous && Previous.Get() != World) Previous->Shutdown();
+		if (Previous && Previous.Get() != World) Previous->CleanupWorld();
 	}
 	auto DEngine::SetWorld(DWorld* InWorld) -> void
 	{

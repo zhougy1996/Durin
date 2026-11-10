@@ -64,7 +64,7 @@ namespace Durin::Editor::MainFrame
 			auto TearDown() -> void override
 			{
 				Adapter.reset(); Registration.Reset(); Toolset.reset();
-				for (auto& Editor : Editors) { Editor->PrepareForShutdown(); MarkObjectHierarchyAsGarbage(Editor.Get()); }
+				for (auto& Editor : Editors) { Editor->PreExit(); MarkObjectHierarchyAsGarbage(Editor.Get()); }
 				Editors.clear(); CollectGarbage();
 				Testing::RemoveTestWorkDirectory(Temp);
 			}
@@ -371,7 +371,7 @@ namespace Durin::Editor::MainFrame
 			FReplayBarrier Transaction(Host->GetTransactor());
 			EXPECT_TRUE(Adapter->Execute("tests/echo").bSuccess);
 		}
-		Host->PrepareForShutdown(); MarkObjectHierarchyAsGarbage(Host); Editors.clear(); CollectGarbage();
+		Host->PreExit(); MarkObjectHierarchyAsGarbage(Host); Editors.clear(); CollectGarbage();
 		auto Results = Adapter->Poll(); ASSERT_EQ(1u, Results.size()); EXPECT_FALSE(Results.front().bSuccess);
 		(void)NewHost();
 		EXPECT_FALSE(Adapter->Execute("editor.pie/status").bSuccess); EXPECT_EQ(0, Calls);
@@ -457,7 +457,7 @@ namespace Durin::Editor::MainFrame
 		}
 		EXPECT_TRUE(Host->IsPlaySessionPaused());
 		FEditorEngineTestAccess::SetState(*Host, EPlayState::Stopped);
-		Host->PrepareForShutdown();
+		Host->PreExit();
 		EXPECT_FALSE(Levels->GetPlayStatus().bSucceeded);
 		EXPECT_FALSE(Levels->StartPlaySession().bSucceeded);
 		EXPECT_FALSE(Levels->StopPlaySession().bSucceeded);

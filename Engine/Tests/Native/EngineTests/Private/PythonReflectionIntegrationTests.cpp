@@ -54,7 +54,7 @@ namespace
             AReflectionLifecycleActor::ConstructCallback = {};
             AReflectionLifecycleActor::LoadCallback = {};
             Runtime.Stop();
-            if (Host) { Host->PrepareForShutdown(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); }
+            if (Host) { Host->PreExit(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); }
             First.reset(); Second.reset(); CollectGarbage();
             if (ScenePackage) { MarkObjectHierarchyAsGarbage(ScenePackage.Get()); ScenePackage.Reset(); CollectGarbage(); }
         }
@@ -451,7 +451,7 @@ assert len(actors.get_all_level_actors(level)) == 2
     TEST_F(PythonReflectionTests, ActorPreparationCannotPublishAfterHostClosure)
     {
         PrepareActorScene();
-        AReflectionLifecycleActor::ConstructCallback = [&](AReflectionLifecycleActor&) { Host->PrepareForShutdown(); };
+        AReflectionLifecycleActor::ConstructCallback = [&](AReflectionLifecycleActor&) { Host->RequestShutdown(); };
         const auto Result = Run(R"(
 actors = durin.get_editor_subsystem(durin.EditorActorSubsystem)
 actors.spawn_actor(actors.get_editor_level(), durin.ReflectionLifecycleActor, durin.Transform(), 'ClosedHost')
@@ -701,7 +701,7 @@ component.set_editor_property('relative_transform', pose)
     {
         PrepareScene();
         Pass("builtins.closed_setter = durin.get_editor_subsystem(durin.ReflectionService).get_edit_target().set_editor_property");
-        Host->PrepareForShutdown();
+        Host->PreExit();
         TStrongObjectPtr<DEditorEngine> Other(NewObject<DEditorEngine>(nullptr, {}));
         ASSERT_NO_THROW(FEditorEngineTestAccess::StartEditor(*Other));
         auto* OtherTools = Other->GetEditorSubsystem<DEditorToolSubsystem>(); ASSERT_NE(OtherTools, nullptr);
@@ -716,7 +716,7 @@ else:
 )", *Created, OtherTools);
         EXPECT_EQ(Result.State, EPythonJobState::Succeeded) << Result.Error;
         EXPECT_EQ(EditActor->Value, 1); EXPECT_EQ(EditActor->Validations, 0);
-        Runtime.CloseSession(*Created); Other->PrepareForShutdown();
+        Runtime.CloseSession(*Created); Other->PreExit();
         MarkObjectHierarchyAsGarbage(Other.Get()); Other.Reset();
     }
     TEST_F(PythonReflectionTests, ScriptPropertiesRejectDeferredValidationBeforeStartingWork)
@@ -1037,7 +1037,7 @@ for operation in (lambda: builtins.reflected(1), lambda: builtins.value.target):
     }
     TEST_F(PythonReflectionTests, RetiredEditorCachedMethodsRejectAfterSequentialReplacement)
     {
-        Save(); Host->PrepareForShutdown();
+        Save(); Host->PreExit();
         TStrongObjectPtr<DEditorEngine> Other(NewObject<DEditorEngine>(nullptr, {})); ASSERT_NO_THROW(FEditorEngineTestAccess::StartEditor(*Other));
         auto* OtherTools = Other->GetEditorSubsystem<DEditorToolSubsystem>(); ASSERT_NE(OtherTools, nullptr);
         auto Created = Runtime.CreateSession(OtherTools->GetService()); ASSERT_TRUE(Created);
@@ -1051,13 +1051,13 @@ else:
     raise AssertionError('retired editor cached method admitted')
 )", *Created, OtherTools);
         EXPECT_EQ(Result.State, EPythonJobState::Succeeded) << Result.Error;
-        Runtime.CloseSession(*Created); Other->PrepareForShutdown(); MarkObjectHierarchyAsGarbage(Other.Get()); Other.Reset();
+        Runtime.CloseSession(*Created); Other->PreExit(); MarkObjectHierarchyAsGarbage(Other.Get()); Other.Reset();
         EXPECT_FALSE(Runtime.RunString(Session, "pass"));
     }
-    TEST_F(PythonReflectionTests, RetiredServicePurgesRootsAndCannotReviveCachedBoundMethods)
+    TEST_F(PythonReflectionTests, RetiredServiceAccessPurgesProxyRootsAndCannotReviveCachedBoundMethods)
     {
         Save(); TWeakObjectPtr<DReflectionService> Old(Host->GetEditorSubsystem<DReflectionService>());
-        ASSERT_NO_THROW(Host->RemoveEditorSubsystem(DReflectionService::StaticClass())); First.reset(); CollectGarbage(); EXPECT_FALSE(Old.IsValid());
+        ASSERT_NO_THROW(Host->RemoveEditorSubsystem(DReflectionService::StaticClass())); First.reset(); CollectGarbage(); EXPECT_TRUE(Old.IsValid());
         First = Register(DReflectionService::StaticClass()); ASSERT_NO_THROW(Host->AddRegisteredEditorSubsystems());
         Pass(R"(
 assert hash(builtins.proxy) == builtins.identity
@@ -1069,6 +1069,24 @@ except ReferenceError:
 else:
     raise AssertionError('retired proxy revived')
 )");
+        CollectGarbage(); EXPECT_FALSE(Old.IsValid());
+    }
+
+    TEST_F(PythonReflectionTests, DetachedValuesRejectAndReleaseRetiredServiceReferences)
+    {
+        Pass("builtins.value = durin.ReflectionValue(target=durin.get_editor_subsystem(durin.ReflectionService))");
+        TWeakObjectPtr<DReflectionService> Old(Host->GetEditorSubsystem<DReflectionService>());
+        Host->RemoveEditorSubsystem(DReflectionService::StaticClass()); First.reset();
+        CollectGarbage(); EXPECT_TRUE(Old.IsValid());
+        Pass(R"(
+try:
+    builtins.value.text
+except ReferenceError:
+    pass
+else:
+    raise AssertionError('value containing a retired service remained usable')
+)");
+        CollectGarbage(); EXPECT_FALSE(Old.IsValid());
     }
     TEST_F(PythonReflectionTests, ExplicitDestructionInvalidatesProxyBeforeCollection)
     {
@@ -1083,22 +1101,23 @@ else:
     raise AssertionError('garbage object accessed')
 )");
     }
-    TEST_F(PythonReflectionTests, ReconciliationCannotReenterNativeScriptAdmission)
+    TEST_F(PythonReflectionTests, ServiceRemovalDoesNotBroadcastObjectDestruction)
     {
         auto* Retiring = Host->GetEditorSubsystem<DReflectionService>();
+        TStrongObjectPtr<DReflectionService> Retained(Retiring);
         bool Observed = false;
         FObjectReferencePurgeRegistration Observer([&](DObject& Object) {
             if (&Object != Retiring) return;
             Observed = true;
-            FScopedEditorScriptCall Call({Host.Get(), Tools->GetService()->GetSessionId()});
-            EXPECT_FALSE(Call.IsAdmitted());
+            EXPECT_TRUE(IsGarbageCollecting());
         });
-        ASSERT_NO_THROW(Host->RemoveEditorSubsystem(DReflectionService::StaticClass())); First.reset(); EXPECT_TRUE(Observed);
+        ASSERT_NO_THROW(Host->RemoveEditorSubsystem(DReflectionService::StaticClass())); First.reset(); EXPECT_FALSE(Observed);
+        Retained.Reset(); CollectGarbage(); EXPECT_TRUE(Observed);
     }
     TEST_F(PythonReflectionTests, HostCloseReleasesRetainedWrapperRoots)
     {
         Save(); TWeakObjectPtr<DReflectionService> Service(Host->GetEditorSubsystem<DReflectionService>());
-        Host->PrepareForShutdown(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); CollectGarbage();
+        Host->PreExit(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); CollectGarbage();
         EXPECT_FALSE(Service.IsValid()); Runtime.Stop();
     }
     TEST_F(PythonReflectionTests, InterpreterRestartRebuildsNativeTypesAndFactories)

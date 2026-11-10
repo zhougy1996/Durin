@@ -2,6 +2,7 @@
 #include "PythonToolset.h"
 #include "PythonEditorSubsystem.h"
 #include "Editor/EditorEngine.h"
+#include "DObject/ObjectLifecycle.h"
 #include "Tools/EditorToolSubsystem.h"
 #include "Threading/RunnableThread.h"
 
@@ -49,13 +50,12 @@ namespace Durin
             .Type = DPythonEditorSubsystem::StaticClass(), .Provider = FModuleStartup::GetModuleName()});
     }
     auto FDurinPythonModule::CanShutdownModule() const -> bool
-    { return FEditorSubsystemCollection::CanUpdateActiveEditor(); }
+    { return !IsGarbageCollecting() && (!GEditor || (!GEditor->IsShutdownRequested() && !GEditor->AreEditorSubsystemsUpdating())); }
     auto FDurinPythonModule::ShutdownModule() -> void
     {
-        require(CanShutdownModule());
-        FEditorSubsystemCollection::RemoveAllInstances(Provider);
-        EditorRegistration.reset();
         StopRuntime();
+        if (GEditor) GEditor->RemoveEditorSubsystems(Provider);
+        EditorRegistration.reset();
     }
     auto FDurinPythonModule::SubmitStartupScript(DEditorEngine& Editor) -> void
     {

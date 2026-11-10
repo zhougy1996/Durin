@@ -246,7 +246,7 @@ TEST(FMetalSkyLightingTests, CapturedAndSpecifiedSourcesMatchEnergyAcrossBackend
         FlushRenderingCommands();
         EXPECT_TRUE(World->SetCurrentLevel(nullptr));
         World->SetRenderScene(nullptr);
-        World->Shutdown();
+        World->CleanupWorld();
         RemoveFromRoot(World);
         MarkObjectHierarchyAsGarbage(World);
         CollectGarbage();

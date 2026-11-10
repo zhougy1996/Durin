@@ -171,9 +171,13 @@ the operation phase describes the active execution stack.
 intent before deferred teardown. Editor structural commands and history replay
 use both queries to reject work throughout those lifecycle boundaries.
 
-EndPlay and shutdown called during an operation record intent. Shutdown also
-rejects further forward dispatch immediately. Forward dispatch stops at the next
-callback boundary, while reverse cleanup remains paired. The operation exits
+`EndPlay()` and `BeginTearingDown()` called during an operation record intent;
+`CleanupWorld()` is owner-only and requires an idle World. Retirement closes new
+work admission immediately. Actor and Timer work stops at the next callback
+boundary; an already admitted generic Tickable batch completes before owner cleanup;
+subsystem Begin/End and Attach/Detach notifications finish their complete batch
+before the World checks admission for the next stage. Reverse cleanup remains
+paired by World play state and Level ownership. The operation exits
 before applying shutdown (highest priority) or EndPlay. In Tick, input callbacks
 are followed by admission checks before StartFrame; every started registry frame
 ends before stop requests execute. Recursive World Tick and BeginPlay are
@@ -185,7 +189,8 @@ both storage locations enumerate their target references to GC. Callbacks may
 publish a new pending request without overwriting the active target. A new
 request interrupts forward admission and remains for the following Tick.
 Shutdown prevents target publication. Garbage or foreign targets are rejected.
-Services must tolerate a Level attachment interrupted by a newer request.
+Services receive a complete attachment batch even if a newer request arrives;
+the World checks the pending request before proceeding with component registration.
 
 Complete operations defer physical garbage collection through CoreDObject.
 Leaving an operation never runs collection; it only permits the existing host

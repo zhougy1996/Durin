@@ -39,14 +39,14 @@ namespace
 		{
 			InitializeDObjectSystem();
 			SubsystemRegistration = std::make_unique<FWorldSubsystemRegistration>(
-				FWorldSubsystemDescriptor{
+				FSubsystemDescriptor{
 					.Type = DMaterialParameterCollectionSubsystem::StaticClass()});
 		}
 		auto TearDown() -> void override
 		{
 			for (auto& World : Worlds)
 			{
-				World->Shutdown();
+				World->CleanupWorld();
 				MarkObjectHierarchyAsGarbage(World.Get());
 			}
 			Worlds.clear();

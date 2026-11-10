@@ -44,7 +44,7 @@ namespace Durin::Editor
 		if (World->IsShutdownRequested()) Error = "Preview World retired during initialization.";
 		if (Error.empty() && !World->SetCurrentLevel(Level.Get(), false))
 			Error = "The preview level could not be attached to its world.";
-		if (!Error.empty()) World->Shutdown();
+		if (!Error.empty()) World->CleanupWorld();
 	}
 
 	FPreviewScene::~FPreviewScene()
@@ -57,7 +57,7 @@ namespace Durin::Editor
 		checkf(IsInGameThread(), "Preview scenes must be destroyed on the game thread.");
 		if (World)
 		{
-			World->Shutdown();
+			World->CleanupWorld();
 		}
 		Level = nullptr;
 

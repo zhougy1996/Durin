@@ -715,7 +715,7 @@ TEST(FLevelDocumentResidencyTests, CloseReleasesWorldReferenceAndSchedulesCollec
 	}
 	EXPECT_EQ(TryCollectGarbage(FTime::Seconds()), EGarbageCollectionTrigger::Requested);
 	EXPECT_EQ(WeakPackage.Get(), nullptr);
-	World->Shutdown();
+	World->CleanupWorld();
 }
 
 TEST(FLevelDocumentResidencyTests, ReactivatedLevelRemainsAliveThroughWorldOwnership)
@@ -741,7 +741,7 @@ TEST(FLevelDocumentResidencyTests, ReactivatedLevelRemainsAliveThroughWorldOwner
 	CollectGarbage();
 	EXPECT_EQ(WeakPackage.Get(), Package);
 	ASSERT_TRUE(World->SetCurrentLevel(nullptr));
-	World->Shutdown();
+	World->CleanupWorld();
 	CollectGarbage();
 	EXPECT_EQ(WeakPackage.Get(), nullptr);
 }

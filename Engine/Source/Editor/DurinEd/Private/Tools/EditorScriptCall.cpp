@@ -32,7 +32,7 @@ namespace Durin
     auto FScopedEditorScriptCall::IsAdmitted() const -> bool
     {
         if (!IsInGameThread() || !IsValid(Context.Host) || Context.Host->AreEditorSubsystemsUpdating()
-            || Context.Host->GetEditorSubsystemState() != ESubsystemState::Ready || Context.Host->IsShutdownRequested()
+            || !Context.Host->AreEditorSubsystemsInitialized() || Context.Host->IsShutdownRequested()
             || Context.Cancellation.IsCancellationRequested() || Context.Client.Cancellation.IsCancellationRequested()) return false;
         auto* Tools = Context.Host->GetEditorSubsystem<DEditorToolSubsystem>();
         const auto Endpoint = Tools ? Tools->GetService() : nullptr;

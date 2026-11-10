@@ -121,7 +121,7 @@ namespace
 				if (auto Toolkit = std::dynamic_pointer_cast<FSessionTestToolkit>(Session->GetToolkit())) { Toolkit->bDirty = false; Toolkit->DirtyDocuments.clear(); }
 				(void)Session->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed);
 			}
-			Host->PrepareForShutdown();
+			Host->PreExit();
 			MarkObjectHierarchyAsGarbage(Host.Get());
 			Host.Reset();
 			if (Package) MarkObjectHierarchyAsGarbage(Package.Get());
@@ -878,7 +878,7 @@ namespace
 			if (!Requested)
 			{
 				Requested = true;
-				Host->PrepareForShutdown();
+				Host->RequestShutdown();
 				CollectGarbage();
 			}
 			return true;
@@ -886,7 +886,7 @@ namespace
 		EXPECT_EQ(nullptr, Open({Asset("Second")}));
 		EXPECT_TRUE(Requested);
 		EXPECT_TRUE(Host->IsShutdownRequested());
-		Host->PrepareForShutdown();
+		Host->PreExit();
 		if (auto* Remaining = ServiceLifetime.Get()) EXPECT_TRUE(Remaining->IsReadyForFinishDestroy());
 	}
 

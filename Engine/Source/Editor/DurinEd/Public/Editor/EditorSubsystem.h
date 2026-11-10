@@ -38,7 +38,10 @@ namespace Durin
 		DURINED_API auto AddRegisteredSubsystems() -> void;
 		DURINED_API auto AddSubsystem(DClass* Type) -> DEditorSubsystem*;
 		DURINED_API auto RemoveSubsystem(DClass* Type) -> void;
-		DURINED_API static auto CanUpdateActiveEditor() -> bool;
-		DURINED_API static auto RemoveAllInstances(FName Provider) -> void;
+		DURINED_API auto RemoveSubsystems(FName Provider) -> void;
+	private:
+		auto HasProvider(FName Provider) const -> bool
+		{ return std::ranges::any_of(Entries, [Provider](const auto& Entry) { return Entry.Descriptor.Provider == Provider; }); }
+		friend class DEditorEngine;
 	};
 }

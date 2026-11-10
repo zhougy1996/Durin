@@ -20,7 +20,7 @@ build sessions, objects, modules, and tasks are torn down. Detailed aggregation 
 module lifetime are defined by [Asset Compilation](../Assets/Build/AssetCompilation.md),
 while payload ownership remains in
 [Asset Data Lifecycle and Storage](../Assets/Packages/AssetDataLifecycle.md).
-`DEngine::PrepareForShutdown()` remains the generic consumer-detachment hook;
+`DEngine::PreExit()` is the owner-driven consumer-detachment hook;
 Launch does not name an import or build module.
 
 ## Boot Flow
@@ -408,7 +408,15 @@ recording, replay, flush, and completion are defined by
 
 ## Engine Exit Protocol
 
-`FEngineLoop::Exit()` is the single process-level ordering owner. Launch first retires asset compilation and calls host PrepareForShutdown,
+Callbacks request host retirement through `DEngine::RequestShutdown()` and request
+GC through `RequestGarbageCollection()`. They never execute host cleanup or immediate
+GC. After the complete interactive frame (including native/UI callbacks) returns,
+Launch services host retirement with `PreExit()` and requests process exit. Failed
+Engine initialization also receives explicit `PreExit()` after `Init` returns.
+Host methods and callback wrappers do not perform cleanup on scope exit.
+
+
+`FEngineLoop::Exit()` is the single process-level ordering owner. Launch first retires asset compilation and calls host PreExit,
 which closes subsystem work, retires World/editor consumers and deinitializes
 services while base endpoints remain available. It then shuts down the selected UI backend, which unregisters its exact backend instance
 and releases backend state. Mona's module shutdown callback then closes its

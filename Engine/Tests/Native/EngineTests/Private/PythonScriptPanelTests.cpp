@@ -52,13 +52,13 @@ namespace
         auto TearDown() -> void override
         {
             Panel.reset();
-            if (Host) { Host->PrepareForShutdown(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); }
+            if (Host) { Host->PreExit(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); }
             CollectGarbage();
             if (Python) { EXPECT_EQ(0u, Python->GetSession()); EXPECT_EQ(0u, Python->GetStartupJob()); }
         }
         auto RestartHostWithoutPanel() -> void
         {
-            Panel.reset(); Host->PrepareForShutdown(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); CollectGarbage();
+            Panel.reset(); Host->PreExit(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); CollectGarbage();
             Host = NewObject<DEditorEngine>(nullptr, {});
             ASSERT_NO_THROW(FEditorEngineTestAccess::StartEditor(*Host));
             Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
@@ -254,7 +254,7 @@ TEST_F(PythonScriptPanelTests, ProviderShutdownStateStillClosesTheEditorSession)
         EModuleState Previous;
         ~FRestoreState() { Info->State = Previous; }
     } Restore{Info, Previous};
-    Host->PrepareForShutdown();
+    Host->PreExit();
     EXPECT_EQ(0u, Python->GetSession());
 }
 

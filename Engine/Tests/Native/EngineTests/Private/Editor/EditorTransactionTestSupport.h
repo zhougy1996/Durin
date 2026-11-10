@@ -53,7 +53,7 @@ namespace Durin::Tests
 		}
 		~FTestEditorTransactorOwner()
 		{
-			Editor->PrepareForShutdown();
+			Editor->PreExit();
 			MarkObjectHierarchyAsGarbage(Editor.Get());
 		}
 		auto Get() const -> DTransBuffer* { return static_cast<DTransBuffer*>(Editor->GetTransactor()); }

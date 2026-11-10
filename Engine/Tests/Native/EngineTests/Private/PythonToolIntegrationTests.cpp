@@ -36,7 +36,7 @@ namespace
         auto TearDown() -> void override
         {
             Runtime.Stop(); PendingRegistration.Reset(); PendingToolset.reset(); Registration.Reset(); Toolset.reset();
-            Host->PrepareForShutdown(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); CollectGarbage();
+            Host->PreExit(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); CollectGarbage();
         }
         auto Submit(std::string Code) -> uint64
         {
@@ -607,14 +607,14 @@ assert inner.cancel() is None
     TEST_F(FPythonToolIntegrationTests, HostShutdownCancelsQueuedWorkAndRetainsRunningScopesThroughReturn)
     {
         auto Queued = Submit("print('must not run')");
-        Host->PrepareForShutdown();
+        Host->PreExit();
         auto Snapshot = Runtime.GetJobResult(Queued); ASSERT_TRUE(Snapshot);
         EXPECT_EQ(EPythonJobState::Cancelled, Snapshot->State); EXPECT_TRUE(Snapshot->Output.empty());
     }
     TEST_F(FPythonToolIntegrationTests, NativeHostShutdownDuringScriptDoesNotDestroyItsActiveTransaction)
     {
         Register(FToolSchema(EToolValueType::Object), true, [&](const auto&, const auto&) {
-            Host->PrepareForShutdown();
+            Host->RequestShutdown();
             EXPECT_TRUE(Host->GetTransactor()->IsActive());
             return FToolResult{EToolStatus::Succeeded, FToolValue::FObject{}};
         });
@@ -858,7 +858,7 @@ def work():
         print('closed')
 )PY");
         Tools->TickScripts(); Tools->TickScripts(); Tools->TickScripts(); ASSERT_TRUE(Host->GetTransactor()->IsActive());
-        Host->PrepareForShutdown();
+        Host->PreExit();
         auto Result = Runtime.GetJobResult(Job); ASSERT_TRUE(Result);
         EXPECT_EQ(EPythonJobState::Cancelled, Result->State); EXPECT_EQ("closed\n", Result->Output) << Result->Error;
         EXPECT_FALSE(Host->GetTransactor()->IsActive());

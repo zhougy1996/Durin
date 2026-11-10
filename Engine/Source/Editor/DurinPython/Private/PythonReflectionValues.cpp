@@ -74,8 +74,8 @@ namespace Durin::PythonReflection::Private
         if (State.Type && !ModuleAvailable(State.Type)) { Error(Registry->AccessError, "Value type module is unavailable."); return false; }
         if (!State.Roots.empty() && (State.Host != FObjectKey(C.Host) || State.EndpointId != C.EndpointId))
         { Error(Registry->AccessError, "Value references belong to another editor Host."); return false; }
-        for (const auto& Root : State.Roots) if (!Root.IsValid())
-        { State.Purge(); Error(PyExc_ReferenceError, "Value contains a destroyed object."); return false; }
+        for (const auto& Root : State.Roots) if (!Root.IsValid() || !IsLiveService(Root.Get(), C))
+        { State.Purge(); Error(PyExc_ReferenceError, "Value contains a destroyed object or retired service."); return false; }
         return true;
     }
     static auto AllocateValue(PyObject* Python, DType* Type) -> FValue*

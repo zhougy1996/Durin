@@ -84,7 +84,7 @@ namespace
 		auto SetUp() -> void override { Testing::InitializeDObjectSystemForTests(); }
 		auto TearDown() -> void override
 		{
-			for (auto& Host : Hosts) { Host->PrepareForShutdown(); MarkObjectHierarchyAsGarbage(Host.Get()); }
+			for (auto& Host : Hosts) { Host->PreExit(); MarkObjectHierarchyAsGarbage(Host.Get()); }
 			Hosts.clear(); CollectGarbage();
 		}
 		auto MakeHost() -> DEditorEngine*
@@ -180,7 +180,7 @@ TEST_F(FEditorToolTests, MapChangesFailureAndShutdownCloseTheirOwnCapabilityGate
 	EXPECT_FALSE(Editor->GetCapabilities().bTick);
 	EXPECT_FALSE(Editor->GetCapabilities().bPresentWorkspace);
 	FEditorEngineTestAccess::SetStartupPhase(*Editor, Editor::Startup::EBootstrapState::Ready);
-	Editor->PrepareForShutdown();
+	Editor->PreExit();
 	const auto Retired = Editor->GetCapabilities();
 	EXPECT_FALSE(Retired.bTick);
 	EXPECT_FALSE(Retired.bRunTools);
@@ -226,7 +226,7 @@ TEST_F(FEditorToolTests, MainFrameUpdatesOnlyOnNormalTicksAfterToolsWithoutDrawi
 	EXPECT_EQ((std::vector<std::string>{"tool", "script", "mainframe"}), Events);
 	ASSERT_EQ(1u, MainFrame.Deltas.size());
 	EXPECT_FLOAT_EQ(0.125f, MainFrame.Deltas.front());
-	Editor->PrepareForShutdown();
+	Editor->PreExit();
 	Editor->Tick(0.25f, false);
 	EXPECT_EQ(1u, MainFrame.Deltas.size());
 }
@@ -240,7 +240,7 @@ TEST_F(FEditorToolTests, ShutdownFromToolsOrScriptsStopsTheRemainingEditorFrame)
 		FTestToolset Toolset;
 		Toolset.Action = [&](const auto& Input, const auto&) {
 			Events.emplace_back("tool");
-			if (bStopInTool) Editor->PrepareForShutdown();
+			if (bStopInTool) Editor->RequestShutdown();
 			return FToolResult{EToolStatus::Succeeded, Input.Arguments};
 		};
 		auto ToolToken = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
@@ -250,7 +250,7 @@ TEST_F(FEditorToolTests, ShutdownFromToolsOrScriptsStopsTheRemainingEditorFrame)
 			std::vector<std::string>& Events;
 			explicit FStoppingScriptPump(std::vector<std::string>& InEvents) : Events(InEvents) {}
 			auto Pump(DEditorEngine& Host, const std::shared_ptr<FEditorToolService>&) -> void override
-			{ Events.emplace_back("script"); Host.PrepareForShutdown(); }
+			{ Events.emplace_back("script"); Host.RequestShutdown(); }
 		} ScriptPump(Events);
 		auto ScriptToken = FModularFeatureRegistry::Get().RegisterFeature(ScriptPump);
 		FRecordingMainFrameModule MainFrame(Events);
@@ -260,7 +260,9 @@ TEST_F(FEditorToolTests, ShutdownFromToolsOrScriptsStopsTheRemainingEditorFrame)
 		Editor->Tick(0.125f, false);
 		const auto Expected = bStopInTool ? std::vector<std::string>{"tool"} : std::vector<std::string>{"tool", "script"};
 		EXPECT_EQ(Expected, Events);
-		EXPECT_EQ(ESubsystemState::Shutdown, Editor->GetEditorSubsystemState());
+		EXPECT_TRUE(Editor->AreEditorSubsystemsInitialized());
+		Editor->PreExit();
+		EXPECT_FALSE(Editor->AreEditorSubsystemsInitialized());
 		Editor->Tick(0.125f, false);
 		EXPECT_EQ(Expected, Events);
 		FEditorEngineTestAccess::BindMainFrameModule(*Editor, Previous);
@@ -315,7 +317,7 @@ TEST_F(FEditorToolTests, ProjectInitializationStartsAfterShellPresentationAndSto
 	EXPECT_EQ(EBootstrapState::InitializingProject, Editor->GetStartupPhase());
 	EXPECT_EQ(nullptr, Editor->GetWorld());
 	EXPECT_EQ(0, MainFrame.WorkspaceCalls);
-	Editor->PrepareForShutdown();
+	Editor->PreExit();
 	Editor->AdvanceStartup();
 	EXPECT_EQ(EBootstrapState::InitializingProject, Editor->GetStartupPhase());
 	EXPECT_EQ(0, MainFrame.WorkspaceCalls);
@@ -443,7 +445,7 @@ TEST_F(FEditorToolTests, StartupDocumentFailureCancellationAndRetiredRequestCann
 		Editor->AdvanceStartup();
 		EXPECT_EQ(EHostStartupState::Failed, Editor->GetStartupState());
 		EXPECT_EQ("owning failure or cancellation", Editor->GetStartupError());
-		Editor->PrepareForShutdown();
+		Editor->PreExit();
 	}
 	auto* Editor = MakeHost();
 	FEditorEngineTestAccess::SetStartupPhase(*Editor, EBootstrapState::LoadingDefaultDocument);
@@ -451,7 +453,7 @@ TEST_F(FEditorToolTests, StartupDocumentFailureCancellationAndRetiredRequestCann
 	Editor->AdvanceStartup();
 	EXPECT_EQ(EHostStartupState::Failed, Editor->GetStartupState());
 	EXPECT_NE(std::string::npos, Editor->GetStartupError().find("no longer available"));
-	Editor->PrepareForShutdown();
+	Editor->PreExit();
 }
 
 TEST_F(FEditorToolTests, StartupDocumentShutdownDoesNotPublishLateCompletion)
@@ -459,7 +461,7 @@ TEST_F(FEditorToolTests, StartupDocumentShutdownDoesNotPublishLateCompletion)
 	using namespace Editor::Startup;
 	auto* Editor = MakeHost();
 	FEditorEngineTestAccess::SetStartupPhase(*Editor, EBootstrapState::LoadingDefaultDocument);
-	Editor->PrepareForShutdown();
+	Editor->PreExit();
 	FEditorEngineTestAccess::SetStartupDocumentResult(*Editor, {.Status = EAssetOpenStatus::Completed});
 	Editor->AdvanceStartup();
 	EXPECT_NE(EHostStartupState::Ready, Editor->GetStartupState());
@@ -783,7 +785,7 @@ TEST_F(FEditorToolTests, ClosingAdmissionDuringAvailabilityNeverInvokesTheTool)
 	auto* Host = MakeHost();
 	auto* Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
 	Toolset.Availability = [&](const auto&, const auto& Context) {
-		Host->PrepareForShutdown();
+		Host->RequestShutdown();
 		EXPECT_TRUE(Context.Cancellation.IsCancellationRequested());
 		EXPECT_EQ(Host, GetToolEditor(Context));
 		return FToolAvailability{};
@@ -792,7 +794,7 @@ TEST_F(FEditorToolTests, ClosingAdmissionDuringAvailabilityNeverInvokesTheTool)
 	ASSERT_EQ(EToolStatus::Failed, Result.Status);
 	EXPECT_EQ(EToolError::Cancelled, Result.Diagnostics.front().Code);
 	EXPECT_EQ(0, Toolset.Executions);
-	Host->PrepareForShutdown();
+	Host->PreExit();
 }
 
 TEST_F(FEditorToolTests, JoinsRecordingAndKeepsDetachedEndpointSafeAfterShutdownAndGC)
@@ -810,7 +812,7 @@ TEST_F(FEditorToolTests, JoinsRecordingAndKeepsDetachedEndpointSafeAfterShutdown
 		EXPECT_EQ(1, Toolset.Executions);
 	}
 	auto Pending = Endpoint->Submit(Request()); ASSERT_TRUE(Pending);
-	Host->PrepareForShutdown();
+	Host->PreExit();
 	Hosts.clear(); MarkObjectHierarchyAsGarbage(Host); CollectGarbage();
 	std::thread Worker([&] {
 		EXPECT_TRUE(WithoutBuiltins(Endpoint->GetCatalog()).Toolsets.empty());
@@ -830,7 +832,7 @@ TEST_F(FEditorToolTests, ShutdownDuringProviderCallbackDefersHostDestructionAndC
 	auto Endpoint = Tools->GetService();
 	auto First = Endpoint->Submit(Request()); auto Second = Endpoint->Submit(Request()); ASSERT_TRUE(First && Second);
 	Toolset.Action = [&](const auto& Input, const auto& Context) {
-		Host->PrepareForShutdown();
+		Host->RequestShutdown();
 		EXPECT_TRUE(Context.Cancellation.IsCancellationRequested());
 		EXPECT_TRUE(Endpoint->GetCancellationToken().IsCancellationRequested());
 		EXPECT_EQ(Host, GetToolEditor(Context));
@@ -839,6 +841,8 @@ TEST_F(FEditorToolTests, ShutdownDuringProviderCallbackDefersHostDestructionAndC
 	};
 	Host->Tick(0.0f, false);
 	EXPECT_EQ(1, Toolset.Executions);
+	EXPECT_EQ(Tools, Host->GetEditorSubsystem<DEditorToolSubsystem>());
+	Host->PreExit();
 	EXPECT_EQ(nullptr, Host->GetEditorSubsystem<DEditorToolSubsystem>());
 	EXPECT_EQ(EToolInvocationState::Cancelled, Endpoint->GetInvocation(*Second)->State);
 }
@@ -1111,7 +1115,7 @@ TEST_F(FEditorToolTests, ClosedHostDetachesPendingCompletionAndLateProducerCanno
 	auto Id = Endpoint->Submit(Request()); ASSERT_TRUE(Id);
 	auto Future = Endpoint->RetainInvocation(*Id); ASSERT_TRUE(Future);
 	Tools->TickTools();
-	Host->PrepareForShutdown();
+	Host->PreExit();
 	ASSERT_TRUE(Future->GetResultShared());
 	EXPECT_EQ(EToolError::Cancelled, Future->GetResultShared()->Diagnostics.front().Code);
 	Source.TrySetValue({EToolStatus::Succeeded, FToolValue::FObject{{"enabled", true}}});
@@ -1131,7 +1135,7 @@ TEST_F(FEditorToolTests, RetainedReceiptAndLateProducerSurviveServiceDestruction
 	auto Id = Endpoint->Submit(Request()); ASSERT_TRUE(Id);
 	auto Receipt = Endpoint->RetainInvocation(*Id); ASSERT_TRUE(Receipt);
 	Tools->TickTools();
-	Host->PrepareForShutdown();
+	Host->PreExit();
 	MarkObjectHierarchyAsGarbage(Host); Hosts.clear(); CollectGarbage();
 	Endpoint.reset();
 	EXPECT_TRUE(Weak.expired());

@@ -66,7 +66,7 @@ namespace Durin
 		}
 		auto HostReady(DEditorEngine& Host) -> bool
 		{
-			return Host.GetEditorSubsystemState() == ESubsystemState::Ready
+			return Host.AreEditorSubsystemsInitialized()
 				&& !Host.AreEditorSubsystemsUpdating() && Host.CanTransact();
 		}
 		struct FInvocationBinding;

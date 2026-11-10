@@ -8,7 +8,7 @@
 
 namespace Durin::PythonReflection::Private
 {
-    static auto IsLiveService(DObject* Object, const FEditorScriptCallContext& Context) -> bool
+    auto IsLiveService(DObject* Object, const FEditorScriptCallContext& Context) -> bool
     {
         if (auto* Service = Cast<DEditorSubsystem>(Object))
             return !Context.Host->IsShutdownRequested() && Context.Host->GetEditorSubsystem(Object->GetClass()) == Service;

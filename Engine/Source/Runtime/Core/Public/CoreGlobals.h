@@ -6,6 +6,9 @@
 
 namespace Durin
 {
+	// Process mode selected by Launch; independent of the active World.
+	extern CORE_API bool GIsEditor;
+
 	class FRunnableThread;
 	class FConfigCacheJson;
 	class ITransaction;

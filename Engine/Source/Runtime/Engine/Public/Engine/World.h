@@ -123,11 +123,11 @@ namespace Durin
 		// Call after host context/type selection and before attaching a Level. Never creates on lookup.
 		// Explicit host supports package-owned PIE worlds; ordinary worlds infer it from Outer.
 		ENGINE_API auto InitializeSubsystems(DEngine* Host = nullptr) -> void;
-		// During an operation, closes work admission immediately and defers teardown until it exits.
 		// Closes admission without cleaning consumers until a World or host operation boundary.
-		ENGINE_API auto RequestShutdown() -> void;
-		ENGINE_API auto Shutdown() -> void;
-		auto GetSubsystemState() const -> EWorldSubsystemState { return Subsystems.GetState(); }
+		ENGINE_API auto BeginTearingDown() -> void;
+		// Owner-only cleanup; an active callback must call BeginTearingDown instead.
+		ENGINE_API auto CleanupWorld() -> void;
+		auto AreSubsystemsInitialized() const -> bool { return Subsystems.IsInitialized(); }
 		template<typename T> requires std::is_base_of_v<DWorldSubsystem, T>
 		auto GetSubsystem() const -> T* { return static_cast<T*>(Subsystems.Find(T::StaticClass())); }
 		auto GetSubsystem(DClass* Type) const -> DWorldSubsystem* { return static_cast<DWorldSubsystem*>(Subsystems.Find(Type)); }
@@ -258,6 +258,7 @@ namespace Durin
 		class FOperationScope;
 		EOperation Operation = EOperation::Idle;
 		bool bShutdownRequested = false;
+		bool bShutdownComplete = false;
 		bool bEndPlayRequested = false;
 		bool bBeginningSubsystemPlay = false;
 		auto CanDispatchSubsystems() const -> bool;

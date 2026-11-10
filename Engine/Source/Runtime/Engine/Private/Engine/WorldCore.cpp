@@ -27,13 +27,14 @@ namespace Durin
 	auto DWorld::SetWorldType(EWorldType InType) -> bool
 	{
 		require(!GIsGameThreadIdInitialized || IsInGameThread());
-		if (GetSubsystemState() != EWorldSubsystemState::Uninitialized) return false;
+		if (bShutdownRequested || Subsystems.IsInitialized()) return false;
 		WorldType = InType;
 		return true;
 	}
 
 	auto DWorld::InitializeSubsystems(DEngine* Host) -> void
 	{
+		requiref(!bShutdownComplete, "World subsystem initialization is one-shot.");
 		requiref(Operation == EOperation::Idle, "World operation is in progress.");
 		requiref(!Host || !HostEngine.IsValid() || HostEngine.Get() == Host, "World already belongs to another host.");
 		if (!HostEngine.IsValid()) HostEngine = Host ? Host : Cast<DEngine>(GetOuter());
@@ -41,7 +42,7 @@ namespace Durin
 		std::optional<DEngine::FWorldInitializationScope> HostScope;
 		if (auto* Owner = HostEngine.Get()) HostScope.emplace(*Owner, *this);
 		FOperationScope OperationScope(*this, EOperation::Initializing);
-		Subsystems.Initialize();
+		if (!bShutdownRequested) Subsystems.Initialize();
 		if (!bShutdownRequested)
 			if (auto* Owner = HostEngine.Get()) Owner->RegisterWorldContext(*this);
 	}
@@ -60,29 +61,28 @@ namespace Durin
 
 	auto DWorld::CanDispatchSubsystems() const -> bool
 	{
-		return !IsPendingKill() && GetSubsystemState() == EWorldSubsystemState::Ready && !bShutdownRequested
+		return !IsPendingKill() && Subsystems.IsInitialized() && !bShutdownRequested
 			&& !bEndPlayRequested && !PendingLevelTransition;
 	}
 
 	auto DWorld::FlushLifecycleRequests() -> void
 	{
 		if (Operation != EOperation::Idle) return;
-		if (bShutdownRequested) Shutdown();
+		if (bShutdownRequested) CleanupWorld();
 		else if (std::exchange(bEndPlayRequested, false)) EndPlay();
 	}
 
-	auto DWorld::RequestShutdown() -> void
+	auto DWorld::BeginTearingDown() -> void
 	{
 		require(!GIsGameThreadIdInitialized || IsInGameThread());
 		bShutdownRequested = true;
-		Subsystems.RequestDeinitialize();
 	}
 
-	auto DWorld::Shutdown() -> void
+	auto DWorld::CleanupWorld() -> void
 	{
-		RequestShutdown();
-		if (Operation != EOperation::Idle) return;
-		if (GetSubsystemState() == EWorldSubsystemState::ShuttingDown || GetSubsystemState() == EWorldSubsystemState::Shutdown) return;
+		if (bShutdownComplete) return;
+		requiref(Operation == EOperation::Idle, "CleanupWorld requires an idle World; callbacks must call BeginTearingDown.");
+		BeginTearingDown();
 		FOperationScope OperationScope(*this, EOperation::ShuttingDown);
 		EndPlayInternal();
 		Timers.Reset();
@@ -91,6 +91,7 @@ namespace Durin
 		Subsystems.Deinitialize();
 		RenderScene = nullptr;
 		if (auto* Engine = HostEngine.Get()) Engine->DestroyWorldContext(this);
+		bShutdownComplete = true;
 	}
 
 	auto DWorld::IsReadyForFinishDestroy() -> bool
@@ -100,7 +101,7 @@ namespace Durin
 
 	auto DWorld::BeginDestroy() -> void
 	{
-		Shutdown();
+		CleanupWorld();
 		Super::BeginDestroy();
 	}
 
@@ -145,7 +146,7 @@ namespace Durin
 	auto DWorld::SetCurrentLevelInternal(DLevel* Level, bool bDestroyPreviousOwnedLevel) -> bool
 	{
 		require(!GIsGameThreadIdInitialized || IsInGameThread());
-		if (Level && GetSubsystemState() != EWorldSubsystemState::Ready) return false;
+		if (Level && !Subsystems.IsInitialized()) return false;
 		if (Level && bShutdownRequested) return false;
 		if (Level == CurrentLevel.Get()) return true;
 		if (PlayState != EWorldPlayState::Stopped) return false;
@@ -213,7 +214,7 @@ namespace Durin
 	auto DWorld::RequestLevelTransition(DLevel* Level, bool bDestroyPreviousOwnedLevel) -> bool
 	{
 		require(!GIsGameThreadIdInitialized || IsInGameThread());
-		if (bShutdownRequested || GetSubsystemState() != EWorldSubsystemState::Ready) return false;
+		if (bShutdownRequested || !Subsystems.IsInitialized()) return false;
 		if (Operation == EOperation::ChangingLevel && Level == CurrentLevel.Get()
 			&& (!ActiveLevelTransition || ActiveLevelTransition->Level.Get() == Level)) return true;
 		if (Level && Level->IsPendingKill()) return false;

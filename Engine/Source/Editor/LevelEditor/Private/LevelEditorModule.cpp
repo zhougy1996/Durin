@@ -16,6 +16,7 @@
 #include "AssetTools/IAssetTools.h"
 #include "Documents/EditorDocumentManager.h"
 #include "Editor/EditorEngine.h"
+#include "DObject/ObjectLifecycle.h"
 #include "Transactions/Transaction.h"
 #include "Settings/LevelEditorSessionSettings.h"
 #include "Settings/ProjectDefaultLevelReferenceStore.h"
@@ -144,24 +145,26 @@ namespace Durin
 
 	LEVELEDITOR_API auto FLevelEditorModule::CanShutdownModule() const -> bool
 	{
-		return FEditorSubsystemCollection::CanUpdateActiveEditor();
+		return !IsGarbageCollecting() && (!GEditor || (!GEditor->IsShutdownRequested() && !GEditor->AreEditorSubsystemsUpdating()
+			&& (!GEditor->GetTransactor() || GEditor->GetTransactor()->CanTransact())));
 	}
 
 	LEVELEDITOR_API auto FLevelEditorModule::ShutdownModule() -> void
 	{
-		require(CanShutdownModule());
 		Integration->ContentBrowserExtensions.clear();
 		Integration->PIERegistration.Reset();
 		Integration->PIE.reset();
-		FEditorSubsystemCollection::RemoveAllInstances(Integration->Provider);
-		Integration->Levels.reset();
 		for (auto* Object : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly))
 			if (auto* Session = Cast<DLevelAssetEditor>(Object); Session && !Session->IsClosed())
 				if (auto* Service = Session->GetAssetEditorSubsystem()) Service->RetireAssetEditor(*Session);
 		if (GEditor)
-			checkf(GEditor->GetTransactor()
-				->DiscardCustomChangesByModule("LevelEditor"),
+		{
+			const auto Discarded = GEditor->GetTransactor()->DiscardCustomChangesByModule("LevelEditor");
+			requiref(Discarded,
 				"LevelEditor cannot retire while one of its custom changes is active");
+		}
+		if (GEditor) GEditor->RemoveEditorSubsystems(Integration->Provider);
+		Integration->Levels.reset();
 		UnregisterAssetReferenceStore(
 			ProjectDefaultLevelReferenceStoreHandle);
 		ProjectDefaultLevelReferenceStoreHandle = 0;

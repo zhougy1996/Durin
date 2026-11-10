@@ -94,6 +94,7 @@ namespace Durin::PythonReflection::Private
     auto Build(DType* Type) -> PyObject*;
 
     // Native object identity, admission and Python slots.
+    auto IsLiveService(DObject* Object, const FEditorScriptCallContext& Context) -> bool;
     auto Resolve(FObject* Self, const FEditorScriptCallContext& Context) -> DObject*;
     auto Wrap(DObject* Object, const FEditorScriptCallContext& Context) -> PyObject*;
     auto Construct(PyTypeObject*, PyObject*, PyObject*) -> PyObject*;

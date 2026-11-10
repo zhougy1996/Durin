@@ -1850,7 +1850,7 @@ TEST(FTransBufferTests, EditorConvenienceScopesExposeContextsAndRetireBeforeRepl
     ASSERT_TRUE(Buffer->Redo());
     FScopedTransaction Stale("Before shutdown");
     ASSERT_TRUE(Stale.IsOutstanding());
-    First->PrepareForShutdown();
+    First->PreExit();
     EXPECT_EQ(GEditor, nullptr); EXPECT_EQ(GUndo, nullptr);
     EXPECT_FALSE(Stale.IsOutstanding());
     TStrongObjectPtr<DEditorEngine> Second(NewObject<DEditorEngine>(nullptr, "SecondEditorLifetime"));
@@ -1860,7 +1860,7 @@ TEST(FTransBufferTests, EditorConvenienceScopesExposeContextsAndRetireBeforeRepl
     auto* Current = GUndo;
     EXPECT_EQ(Stale.End(), 0);
     EXPECT_EQ(GUndo, Current);
-    Next.Cancel(); Second->PrepareForShutdown();
+    Next.Cancel(); Second->PreExit();
     EXPECT_EQ(GUndo, nullptr); EXPECT_EQ(GEditor, nullptr);
 }
 

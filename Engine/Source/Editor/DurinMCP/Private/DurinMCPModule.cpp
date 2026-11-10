@@ -3,6 +3,7 @@
 #include "MCPServerSubsystem.h"
 #include "PythonEditorSubsystem.h"
 #include "Editor/EditorEngine.h"
+#include "DObject/ObjectLifecycle.h"
 
 namespace Durin
 {
@@ -65,13 +66,12 @@ namespace Durin
 			.Type = DMCPServerSubsystem::StaticClass(), .Provider = FModuleStartup::GetModuleName()});
 	}
 	auto FDurinMCPModule::CanShutdownModule() const -> bool
-	{ return FEditorSubsystemCollection::CanUpdateActiveEditor(); }
+	{ return !IsGarbageCollecting() && (!GEditor || (!GEditor->IsShutdownRequested() && !GEditor->AreEditorSubsystemsUpdating())); }
 	auto FDurinMCPModule::ShutdownModule() -> void
 	{
-		require(CanShutdownModule());
-		FEditorSubsystemCollection::RemoveAllInstances(Provider);
-		EditorRegistration.reset();
 		StopServer();
+		if (GEditor) GEditor->RemoveEditorSubsystems(Provider);
+		EditorRegistration.reset();
 	}
 	DMCPServerSubsystem::DMCPServerSubsystem(const FObjectInitializer& Initializer) : Super(Initializer) {}
 	auto DMCPServerSubsystem::Initialize(FSubsystemCollection& Collection) -> void

@@ -78,8 +78,10 @@ namespace Durin
 		virtual auto GetStartupState() const -> EHostStartupState { return EHostStartupState::Ready; }
 		virtual auto ShouldDrawStartupScene() const -> bool { return false; }
 		ENGINE_API virtual auto GetStartupError() const -> const std::string&;
-		// Detaches host-owned consumers while the task system and objects are still alive.
-		ENGINE_API virtual auto PrepareForShutdown() -> void;
+		// Closes admission without destroying resources; safe to call from host callbacks.
+		ENGINE_API auto RequestShutdown() -> void;
+		// Owner-only shutdown at an idle boundary, before the exit purge.
+		ENGINE_API virtual auto PreExit() -> void;
 		ENGINE_API virtual auto BeginTransaction(std::string_view Context, std::string_view Description, DObject* PrimaryObject = nullptr) -> int32;
 		ENGINE_API virtual auto EndTransaction() -> int32;
 		ENGINE_API virtual auto CancelTransaction(int32 StartIndex = 0) -> void;
@@ -116,7 +118,7 @@ namespace Durin
 		template<typename T> requires std::is_base_of_v<DEngineSubsystem, T>
 		auto GetSubsystem() const -> T* { return static_cast<T*>(EngineSubsystems.Find(T::StaticClass())); }
 		auto GetSubsystem(DClass* Type) const -> DEngineSubsystem* { return static_cast<DEngineSubsystem*>(EngineSubsystems.Find(Type)); }
-		auto GetSubsystemState() const -> ESubsystemState { return EngineSubsystems.GetState(); }
+		auto AreSubsystemsInitialized() const -> bool { return EngineSubsystems.IsInitialized(); }
 		auto IsShutdownRequested() const -> bool { return bShutdownRequested; }
 		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
 
@@ -137,21 +139,9 @@ namespace Durin
 		ENGINE_API virtual auto AdoptSceneWorld(DWorld* World, FScenePtr Scene, uint64 Generation) -> void;
 		// Content admission runs after host services exist and schema providers load.
 		ENGINE_API auto InitializeProjectContent() -> std::expected<void, std::string>;
-		// Pins host lifecycle mutation until a complete host callback has returned.
-		class FHostOperationScope
-		{
-		public:
-			ENGINE_API explicit FHostOperationScope(DEngine& InHost, bool bFlushOnExit = true);
-			ENGINE_API ~FHostOperationScope();
-		private:
-			FGarbageCollectionDeferralScope Deferral;
-			DEngine& Host;
-			bool bFlushOnExit;
-		};
 		ENGINE_API virtual auto RequestSubsystemDeinitialization() -> void;
 		virtual auto RetireHostConsumers() -> void {}
 		ENGINE_API virtual auto AreHostConsumersIdle() -> bool;
-		auto IsHostOperationIdle() -> bool { return HostOperationDepth == 0 && !bPreparingShutdown && AreHostConsumersIdle(); }
 		ENGINE_API auto InitializeEngineSubsystems() -> void;
 		FEngineSubsystemCollection EngineSubsystems;
 		bool bShutdownRequested = false;
@@ -168,7 +158,6 @@ namespace Durin
 			ENGINE_API FWorldInitializationScope(DEngine& InHost, DWorld& InWorld);
 			ENGINE_API ~FWorldInitializationScope();
 		private:
-			FHostOperationScope Operation;
 			DEngine& Host;
 			DWorld& World;
 		};
@@ -184,7 +173,6 @@ namespace Durin
 		auto InitInternal(const FEngineInitContext& Context) -> bool;
 		int32 FrameRateLimit = 0;
 		int32 BackgroundFrameRateLimit = 30;
-		uint32 HostOperationDepth = 0;
 		bool bPreparingShutdown = false;
 		bool bInitStarted = false;
 	protected:

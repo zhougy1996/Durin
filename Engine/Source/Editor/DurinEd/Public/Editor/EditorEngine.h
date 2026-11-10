@@ -107,7 +107,7 @@ namespace Durin
 		auto GetStartupPhase() const -> Editor::Startup::EBootstrapState { return StartupPhase; }
 		DURINED_API auto GetCapabilities() const -> Editor::FEditorCapabilities;
 		auto GetStartupError() const -> const std::string& override { return StartupError; }
-		DURINED_API auto PrepareForShutdown() -> void override;
+		DURINED_API auto PreExit() -> void override;
 		DURINED_API auto BeginDestroy() -> void override;
 		auto GetTransactor() const -> DTransactor* { return Trans.Get(); }
 		DURINED_API auto BeginTransaction(std::string_view Description) -> int32;
@@ -118,13 +118,14 @@ namespace Durin
 		DURINED_API auto GetEditorSubsystem(DClass* Type) const -> DEditorSubsystem*;
 		template<typename T> requires std::is_base_of_v<DEditorSubsystem, T>
 		auto GetEditorSubsystem() const -> T* { return static_cast<T*>(EditorSubsystems.Find(T::StaticClass())); }
-		auto GetEditorSubsystemState() const -> ESubsystemState { return EditorSubsystems.GetState(); }
-		DURINED_API auto CanUpdateEditorSubsystems() -> bool;
+		auto AreEditorSubsystemsInitialized() const -> bool { return EditorSubsystems.IsInitialized(); }
 		auto AreEditorSubsystemsUpdating() const -> bool { return EditorSubsystems.IsPopulating(); }
 		// After module load batches and before consumers run; never called by ordinary Tick.
 		DURINED_API auto AddRegisteredEditorSubsystems() -> void;
 		DURINED_API auto AddEditorSubsystem(DClass* Type) -> DEditorSubsystem*;
 		DURINED_API auto RemoveEditorSubsystem(DClass* Type) -> void;
+		// Called by a stopping provider before releasing its registration tokens.
+		DURINED_API auto RemoveEditorSubsystems(FName Provider) -> void;
 		DURINED_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
 		// MainFrame phase: after transaction event publication and before notification drawing.
 		DURINED_API auto GetNotificationManager() -> Editor::FNotificationManager&;
@@ -186,6 +187,7 @@ namespace Durin
 	protected:
 		DURINED_API auto InitializeEditorSubsystems() -> void;
 	private:
+		auto CheckEditorSubsystemUpdate() -> void;
 
 		// Sole editor-session transaction history and revision service.
 		DPROPERTY(Transient)

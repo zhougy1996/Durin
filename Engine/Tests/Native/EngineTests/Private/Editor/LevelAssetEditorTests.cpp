@@ -48,7 +48,7 @@ namespace
 				for (const auto& Host : Hosts)
 				{
 					if (auto* Service = Host->GetEditorSubsystem<DAssetEditorSubsystem>()) Module.ReleaseLevelEditor(*Service);
-					Host->PrepareForShutdown(); MarkObjectHierarchyAsGarbage(Host.Get());
+					Host->PreExit(); MarkObjectHierarchyAsGarbage(Host.Get());
 				}
 				Hosts.clear(); CollectGarbage();
 			}
@@ -92,7 +92,7 @@ namespace
 				EXPECT_NE(Sessions.front().Get(), Reopened);
 				EXPECT_EQ(1u, Service->GetOwnedAssetEditors().size());
 				Module.ReleaseLevelEditor(*Service);
-				Host->PrepareForShutdown();
+				Host->PreExit();
 			}
 		}
 		EXPECT_EQ(nullptr, Hosts.front()->GetMainSceneViewport());

@@ -1,3 +1,4 @@
+#include "Tickable.h"
 #include "Engine/GameEngine.h"
 #include "Engine/AssetManager.h"
 #include "Engine/MapChange.h"
@@ -34,7 +35,7 @@ namespace Durin
 
 	auto DGameEngine::Init(const FEngineInitContext& Context) -> bool
 	{
-		FHostOperationScope Operation(*this);
+
 		if (!DEngine::Init(Context))
 		{
 			if (bShutdownRequested) FailStartup("Game engine services could not initialize.");
@@ -44,7 +45,7 @@ namespace Durin
 		StartupError = Context.ProjectAdmissionError;
 		auto FailInitialization = [&](std::string Error) {
 			FailStartup(std::move(Error));
-			PrepareForShutdown();
+			RequestShutdown();
 			return false;
 		};
 		const auto& GameWindow = Context.StartupWindow;
@@ -59,7 +60,7 @@ namespace Durin
 		SetGameInputWindow(GameWindow->GetNativeWindow());
 		if (bShutdownRequested || IsEngineExitRequested())
 		{
-			PrepareForShutdown();
+			RequestShutdown();
 			return false;
 		}
 		return true;
@@ -136,7 +137,7 @@ namespace Durin
 	auto DGameEngine::AdvanceStartup() -> void
 	{
 		if (bShutdownRequested || IsEngineExitRequested() || GetStartupState() != EHostStartupState::Pending) return;
-		FHostOperationScope Operation(*this);
+
 		if (StartupPhase == EStartupPhase::StartProject)
 		{
 			auto Started = StartGame();
@@ -161,8 +162,10 @@ namespace Durin
 	}
 	auto DGameEngine::Tick(float DeltaSeconds, bool bIdleMode) -> void
 	{
-		if (bShutdownRequested) return Super::Tick(DeltaSeconds, bIdleMode);
-		if (GetStartupState() == EHostStartupState::Ready) Super::Tick(DeltaSeconds, bIdleMode);
+		if (bShutdownRequested || !std::isfinite(DeltaSeconds) || DeltaSeconds < 0.0f
+			|| GetStartupState() != EHostStartupState::Ready) return;
+		Super::Tick(DeltaSeconds, bIdleMode);
+		if (!bShutdownRequested) FTickableGameObject::TickObjects(nullptr, LEVELTICK_All, false, DeltaSeconds);
 	}
 
 	auto DGameEngine::RequestSubsystemDeinitialization() -> void

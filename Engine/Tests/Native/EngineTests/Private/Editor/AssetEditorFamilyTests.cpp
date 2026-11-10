@@ -40,9 +40,9 @@ namespace
 		{
 			(void)FAssetCompilingManager::Get().FinishAllCompilation();
 			if (Service) Service->ShutdownAssetEditorSessions();
-			if (CollectionWorld) { CollectionWorld->Shutdown(); MarkObjectHierarchyAsGarbage(CollectionWorld.Get()); CollectionWorld.Reset(); }
+			if (CollectionWorld) { CollectionWorld->CleanupWorld(); MarkObjectHierarchyAsGarbage(CollectionWorld.Get()); CollectionWorld.Reset(); }
 			CollectionSubsystemRegistration.reset();
-			if (Host) { Host->PrepareForShutdown(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); }
+			if (Host) { Host->PreExit(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); }
 			if (MeshHarness) MeshHarness->Shutdown();
 			if (MaterialHarness) MaterialHarness->Shutdown();
 			if (TextureHarness) TextureHarness->Shutdown();
@@ -169,7 +169,7 @@ namespace
 		const FMaterialParameterCollectionDeclaration Declaration{.Id = FGuid::NewGuid(), .Name = FName("Parameter"), .DefaultValue = FVector4(1)};
 		ASSERT_TRUE(Collection->SetDeclarations(std::span{&Declaration, 1}));
 		ASSERT_TRUE(SavePackage(Collection->GetPackage()));
-		CollectionSubsystemRegistration = std::make_unique<FWorldSubsystemRegistration>(FWorldSubsystemDescriptor{.Type = DMaterialParameterCollectionSubsystem::StaticClass()});
+		CollectionSubsystemRegistration = std::make_unique<FWorldSubsystemRegistration>(FSubsystemDescriptor{.Type = DMaterialParameterCollectionSubsystem::StaticClass()});
 		CollectionWorld = NewObject<DWorld>(nullptr, "CollectionReloadWorld");
 		ASSERT_NO_THROW(CollectionWorld->InitializeSubsystems());
 		auto* WorldState = CollectionWorld->GetSubsystem<DMaterialParameterCollectionSubsystem>();

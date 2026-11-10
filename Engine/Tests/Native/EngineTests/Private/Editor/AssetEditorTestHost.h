@@ -40,7 +40,7 @@ namespace Durin::Testing
 					if (!Existing.contains(FObjectKey(Session.Get()))) Owner->RetireAssetEditor(*Session);
 			Service = nullptr;
 			if (bOwnEditor && Editor)
-			{ Editor->PrepareForShutdown(); MarkObjectHierarchyAsGarbage(Editor.Get()); }
+			{ Editor->PreExit(); MarkObjectHierarchyAsGarbage(Editor.Get()); }
 			Editor.Reset();
 		}
 	private:

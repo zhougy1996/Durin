@@ -93,7 +93,7 @@ namespace
 		{
 			if (Engine)
 			{
-				Engine->PrepareForShutdown();
+				Engine->PreExit();
 				Durin::MarkObjectHierarchyAsGarbage(Engine.Get());
 				Engine.Reset();
 				Durin::CollectGarbage();
@@ -461,7 +461,7 @@ TEST_F(FGameStartupTests, CanceledOrLostInitialMapCannotBecomeReady)
 	EXPECT_EQ(Engine->GetStartupState(), EHostStartupState::Failed);
 	EXPECT_FALSE(Engine->GetStartupError().empty());
 	EXPECT_FALSE(Engine->RequestGameMouseCapture(Window));
-	Engine->PrepareForShutdown();
+	Engine->PreExit();
 }
 
 TEST_F(FGameStartupTests, MissingInitialMapIsATerminalFailure)
@@ -482,7 +482,7 @@ TEST_F(FGameStartupTests, ShutdownAndExitDoNotPublishStartupSuccessOrCaptureInpu
 	EXPECT_EQ(Engine->GetStartupState(), EHostStartupState::Pending);
 	EXPECT_EQ(Engine->GetWorld(), nullptr);
 	GIsRequestingExit = RestoreExit.Previous;
-	Engine->PrepareForShutdown();
+	Engine->PreExit();
 	Engine->AdvanceStartup();
 	EXPECT_EQ(Engine->GetStartupState(), EHostStartupState::Pending);
 	EXPECT_EQ(Engine->GetWorld(), nullptr);
@@ -1198,7 +1198,7 @@ TEST(FNativeGameplayControlTests, InputStopRequestsWaitForWorldOperationCompleti
 		Controller->SetBuildCallback([&] {
 			++Inputs;
 			World->Tick({});
-			if (bShutdown) World->Shutdown();
+			if (bShutdown) World->BeginTearingDown();
 			else World->EndPlay();
 			EXPECT_TRUE(World->HasBegunPlay());
 			EXPECT_EQ(World->GetCurrentLevel(), Level);

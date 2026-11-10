@@ -36,7 +36,7 @@ namespace
 		}
 		auto TearDown() -> void override
 		{
-			World->Shutdown();
+			World->CleanupWorld();
 			Durin::MarkObjectHierarchyAsGarbage(World);
 			Durin::CollectGarbage();
 		}
@@ -246,7 +246,7 @@ TEST_F(FWorldTimerTests, GarbageMarkedTargetsAreSkippedAndForeignWorldHandlesRej
 	Tick();
 	EXPECT_EQ(Calls, 0);
 	EXPECT_FALSE(Timers.IsTimerActive(Handle));
-	Other->Shutdown();
+	Other->CleanupWorld();
 	Durin::MarkObjectHierarchyAsGarbage(Other);
 }
 
@@ -280,10 +280,10 @@ TEST_F(FWorldTimerTests, TransitionAndShutdownFromCallbacksStopForwardDispatch)
 	Tick();
 	EXPECT_EQ(World->GetCurrentLevel(), Next);
 	EXPECT_EQ(Calls, 0);
-	Timers.SetTimerForNextTick([&] { World->Shutdown(); });
+	Timers.SetTimerForNextTick([&] { World->BeginTearingDown(); });
 	Timers.SetTimerForNextTick([&] { ++Calls; });
 	Tick();
-	EXPECT_EQ(World->GetSubsystemState(), Durin::EWorldSubsystemState::Shutdown);
+	EXPECT_FALSE(World->AreSubsystemsInitialized());
 	EXPECT_EQ(Calls, 0);
 }
 

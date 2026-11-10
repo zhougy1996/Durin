@@ -1,4 +1,6 @@
 #include "Modules/ModuleManager.h"
+#include "Editor/EditorEngine.h"
+#include "DObject/ObjectLifecycle.h"
 #include "Actors/EditorActorSubsystem.h"
 #include "Notifications/EditorNotificationSubsystem.h"
 #include "Tools/EditorToolSubsystem.h"
@@ -22,11 +24,11 @@ namespace Durin
 			AssetEditors = std::make_unique<FEditorSubsystemRegistration>(FSubsystemDescriptor{
 				.Type = DAssetEditorSubsystem::StaticClass(), .Provider = FModuleStartup::GetModuleName()});
 		}
-		auto CanShutdownModule() const -> bool override { return FEditorSubsystemCollection::CanUpdateActiveEditor(); }
+		auto CanShutdownModule() const -> bool override
+		{ return !IsGarbageCollecting() && (!GEditor || (!GEditor->IsShutdownRequested() && !GEditor->AreEditorSubsystemsUpdating())); }
 		auto ShutdownModule() -> void override
 		{
-			require(CanShutdownModule());
-			FEditorSubsystemCollection::RemoveAllInstances(Provider);
+			if (GEditor) GEditor->RemoveEditorSubsystems(Provider);
 			AssetEditors.reset(); Tools.reset(); Notifications.reset(); Actors.reset();
 		}
 	private:

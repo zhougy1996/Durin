@@ -1,8 +1,6 @@
 #include "Editor/EditorSubsystem.h"
 #include "Editor/EditorEngine.h"
 #include "DObject/Class.h"
-#include "DObject/ObjectLifecycle.h"
-#include "Modules/ModularFeature.h"
 
 namespace Durin
 {
@@ -18,28 +16,23 @@ namespace Durin
 	{
 		auto Registered = FSubsystemRegistration::GetRegistrations(DEditorSubsystem::StaticClass());
 		const auto Found = std::ranges::find(Registered, Type, &FSubsystemDescriptor::Type);
-		if (Found == Registered.end()) return nullptr;
-		return static_cast<DEditorSubsystem*>(AddAndInitializeSubsystem(*Found));
+		if (Found == Registered.end())
+		{
+			// Even an empty addition validates the collection's mutation boundary.
+			AddAndInitializeSubsystems({});
+			return nullptr;
+		}
+		AddAndInitializeSubsystems({*Found});
+		return static_cast<DEditorSubsystem*>(Find(Type));
 	}
 	auto FEditorSubsystemCollection::RemoveSubsystem(DClass* Type) -> void
 	{ RemoveAndDeinitializeSubsystems(std::span<DClass* const>(&Type, 1)); }
-	auto FEditorSubsystemCollection::CanUpdateActiveEditor() -> bool
+	auto FEditorSubsystemCollection::RemoveSubsystems(FName Provider) -> void
 	{
-		if (IsGarbageCollecting() || FModularFeatureRegistry::Get().IsDispatching()) return false;
-		if (!GEditor) return true;
-		const auto& Collection = GEditor->EditorSubsystems;
-		if (Collection.IsPopulating() || Collection.GetState() == ESubsystemState::Initializing || Collection.GetState() == ESubsystemState::ShuttingDown) return false;
-		return Collection.GetState() != ESubsystemState::Ready || GEditor->CanUpdateEditorSubsystems();
-	}
-	auto FEditorSubsystemCollection::RemoveAllInstances(FName Provider) -> void
-	{
-		requiref(!Provider.IsNone() && CanUpdateActiveEditor(), "Editor provider removal requires a host safe point.");
-		if (!GEditor || GEditor->GetEditorSubsystemState() != ESubsystemState::Ready) return;
+		require(!Provider.IsNone());
 		std::vector<DClass*> Types;
-		for (const auto& Entry : FSubsystemRegistration::GetRegistrations(DEditorSubsystem::StaticClass()))
-			if (Entry.Provider == Provider) Types.push_back(Entry.Type);
-		GEditor->DispatchSubsystemCallback([&] {
-			GEditor->EditorSubsystems.RemoveAndDeinitializeSubsystems(Types);
-		});
+		for (const auto& Entry : Entries)
+			if (Entry.Descriptor.Provider == Provider) Types.push_back(Entry.Descriptor.Type);
+		RemoveAndDeinitializeSubsystems(Types);
 	}
 }

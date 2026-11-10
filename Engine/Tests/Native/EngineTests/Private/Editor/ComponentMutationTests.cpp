@@ -1192,7 +1192,7 @@ TEST(FActorMutationTests, WorldClosingDuringActorRemovalCannotReportSuccess)
 	auto* RecoveryHistory = F.Transactions.Get();
 	auto* Editor = F.Editor.GetActorEditor();
 	struct FResetProbe { ~FResetProbe() { FStructuralTestLight::UnregisterProbe = {}; } } Reset;
-	FStructuralTestLight::UnregisterProbe = [&](FStructuralTestLight&) { F.World->RequestShutdown(); };
+	FStructuralTestLight::UnregisterProbe = [&](FStructuralTestLight&) { F.World->BeginTearingDown(); };
 	auto* Actor = F.Actor;
 	const auto Result = Editor->DestroyActors(*F.World->GetCurrentLevel(), {&Actor, 1}, {false});
 	EXPECT_FALSE(Result);

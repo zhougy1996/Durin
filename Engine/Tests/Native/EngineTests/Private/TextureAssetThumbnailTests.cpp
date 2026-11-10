@@ -79,7 +79,7 @@ protected:
 		if (Service) Service->ShutdownAssetEditorSessions();
 		if (Host)
 		{
-			Host->PrepareForShutdown();
+			Host->PreExit();
 			Durin::MarkObjectHierarchyAsGarbage(Host.Get());
 			Host.Reset();
 		}
