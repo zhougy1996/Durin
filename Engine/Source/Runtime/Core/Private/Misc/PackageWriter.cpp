@@ -8,8 +8,6 @@ namespace Durin
 	{
 		struct FFileAccessCount { uint32 Readers = 0; bool bWriter = false; };
 		std::mutex FileAccessMutex;
-		std::mutex DirectHookMutex;
-		std::function<bool(size_t)> DirectFailureHook;
 		std::unordered_map<std::filesystem::path, FFileAccessCount> FileAccessCounts;
 		auto AcquireWriteFiles(const std::vector<FPackageWriteFile>& Files) -> std::shared_ptr<FPackageFileAccess>
 		{
@@ -191,117 +189,7 @@ namespace Durin
 			auto Begin(std::vector<FPackageWriteFile> Files) -> std::unique_ptr<IPackageWriteOperation> override
 			{ return std::make_unique<FFilePackageWriteOperation>(std::move(Files)); }
 		};
-		class FDirectPackageWriteOperation final : public IPackageWriteOperation
-		{
-			std::vector<FPackageWriteFile> Files;
-			std::function<bool(size_t)> ShouldFail;
-			FPackageWriteResult Result;
-			bool bStarted = false;
-			std::shared_ptr<FPackageFileAccess> Access;
-		public:
-			explicit FDirectPackageWriteOperation(std::vector<FPackageWriteFile> InFiles, std::function<bool(size_t)> InShouldFail)
-				: Files(std::move(InFiles)), ShouldFail(std::move(InShouldFail)), Access(AcquireWriteFiles(Files)) {}
-			auto GetAdmissionResult() const -> FPackageWriteResult override
-			{
-				return Access && Access->GetPathCount() == Files.size() ? FPackageWriteResult{}
-					: FPackageWriteResult{EPackageWriteError::InvalidState, "Package output is in use or contains aliases."};
-			}
-			auto Stage() -> FPackageWriteResult override
-			{
-				if (bStarted) return Result;
-				bStarted = true;
-				if (!Access || Access->GetPathCount() != Files.size())
-					return Result = {EPackageWriteError::InvalidState, "Package output is in use or contains aliases."};
-				std::unordered_set<std::filesystem::path> Destinations;
-				// Check the complete input before the first destructive operation.
-				for (const auto& File : Files)
-				{
-					const auto& R = File.Replacement;
-					if (R.Destination.empty() || R.bPublished || R.bBackedUp
-						|| (R.Staged.empty() && !File.Bytes.empty())
-						|| File.Bytes.size() > static_cast<size_t>(std::numeric_limits<std::streamsize>::max())
-						|| !Destinations.insert(R.Destination.lexically_normal()).second)
-						return Result = {EPackageWriteError::InvalidState, "Direct writer destinations must be distinct and inactive."};
-					FFilePublicationStamp Current;
-					if (!FFilePublicationStamp::Inspect(R.Destination, Current) || Current != File.Expected)
-						return Result = {EPackageWriteError::StaleData, "Direct writer destination changed before writing."};
-				}
-				size_t Index = 0;
-				for (auto& File : Files)
-				{
-					const auto& R = File.Replacement;
-					if (ShouldFail && ShouldFail(Index++))
-					{
-						Result.Error = EPackageWriteError::IoError;
-						Result.Message = "Injected direct output failure: " + R.Destination.string();
-						return Result;
-					}
-					std::error_code Ec;
-					std::filesystem::create_directories(R.Destination.parent_path(), Ec);
-					if (Ec)
-					{
-						Result.Error = EPackageWriteError::IoError;
-						Result.FileCause = FFileError{.Operation = EFileOperation::CreateParentDirectories,
-							.NativeError = Ec, .Path = R.Destination.parent_path()};
-						Result.Message = Result.FileCause->ToString();
-						return Result;
-					}
-					// A failed open/write/close may already have truncated the file.
-					Result.State = EPackageWriteState::PartiallyWritten;
-					Result.AffectedFiles.push_back(R.Destination);
-					bool Written = false;
-					if (R.Staged.empty())
-					{
-						std::filesystem::remove(R.Destination, Ec);
-						Written = !Ec;
-					}
-					else
-					{
-						std::ofstream Stream(R.Destination, std::ios::binary | std::ios::trunc);
-						if (Stream)
-						{
-							Stream.write(reinterpret_cast<const char*>(File.Bytes.data()),
-								static_cast<std::streamsize>(File.Bytes.size()));
-							Stream.flush();
-							Stream.close();
-							Written = !Stream.fail();
-						}
-					}
-					if (!Written)
-					{
-						Result.Error = EPackageWriteError::IoError;
-						Result.Message = "Direct output failed; old content was not restored: " + R.Destination.string();
-						return Result;
-					}
-					FByteBuffer{}.swap(File.Bytes);
-				}
-				Result.State = EPackageWriteState::Committed;
-				Result.AffectedFiles.clear();
-				return Result;
-			}
-			auto Commit() -> FPackageWriteResult override
-			{
-				return bStarted ? Result : FPackageWriteResult{EPackageWriteError::InvalidState, "Direct output has not run."};
-			}
-			auto Finalize() -> FPackageWriteResult override { return Commit(); }
-			auto Rollback() -> FPackageWriteResult override
-			{
-				if (!bStarted || Result.State == EPackageWriteState::NotCommitted) return Result;
-				auto Failure = Result;
-				Failure.Error = EPackageWriteError::InvalidState;
-				Failure.Message = "Direct output cannot restore old content.";
-				return Failure;
-			}
-		};
-		class FDirectPackageWriter final : public IPackageWriter
-		{
-			std::function<bool(size_t)> ShouldFail;
-		public:
-			explicit FDirectPackageWriter(std::function<bool(size_t)> InShouldFail) : ShouldFail(std::move(InShouldFail)) {}
-			auto SupportsRollback() const -> bool override { return false; }
-			auto Begin(std::vector<FPackageWriteFile> Files) -> std::unique_ptr<IPackageWriteOperation> override
-			{ return std::make_unique<FDirectPackageWriteOperation>(std::move(Files), ShouldFail); }
-		};
+
 	}
 	auto FPackageFileAccess::TryAcquire(std::span<const std::filesystem::path> InPaths, bool bInWrite)
 		-> std::shared_ptr<FPackageFileAccess>
@@ -362,15 +250,5 @@ namespace Durin
 	{
 		static const auto Writer = std::make_shared<FFilePackageWriter>();
 		return Writer;
-	}
-	auto GetDirectFilePackageWriter(std::function<bool(size_t)> ShouldFail) -> std::shared_ptr<IPackageWriter>
-	{
-		if (!ShouldFail) { std::lock_guard Lock(DirectHookMutex); ShouldFail = DirectFailureHook; }
-		return std::make_shared<FDirectPackageWriter>(std::move(ShouldFail));
-	}
-	namespace Private
-	{
-		auto SetDirectPackageWriteFailureForTests(std::function<bool(size_t)> Hook) -> void
-		{ std::lock_guard Lock(DirectHookMutex); DirectFailureHook = std::move(Hook); }
 	}
 }

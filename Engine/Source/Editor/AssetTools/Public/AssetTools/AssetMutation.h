@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-#include "AssetTools/AssetOperation.h"
+#include "DObject/AssetPath.h"
 
 namespace Durin
 {

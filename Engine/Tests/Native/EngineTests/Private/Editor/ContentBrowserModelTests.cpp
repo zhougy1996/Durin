@@ -5,6 +5,8 @@
 #include "AssetTools/RedirectorFixup.h"
 #include "AssetTools/MutationTesting.h"
 #include "Asset/RegistryOperations.h"
+#include "Asset/Testing/PackageSaveTesting.h"
+#include "Asset/Load.h"
 #include "NativeAssetTestSupport.h"
 #include "Panels/ContentBrowserModel.h"
 #include "Panels/ContentBrowserRefreshCoordinator.h"
@@ -2101,10 +2103,11 @@ TEST_F(FContentBrowserModelTests, BatchRevalidationDetectsNewExternalReference)
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(ExternalPath, External));
 	ASSERT_TRUE(External->SetParent(Base));
 	ASSERT_TRUE(SavePackage(External->GetPackage()));
-	const FAssetOperationResult Commit = Job.Delete({
+	const auto Commit = Job.Delete({
 		.Delete = [](auto&) { return FAssetWriteResult{}; },
 	});
-	EXPECT_EQ(Commit.State, EAssetOperationTerminalState::Rejected);
+	EXPECT_FALSE(Commit);
+	EXPECT_FALSE(Job.GetWriteResult());
 
 	ASSERT_TRUE(UnloadPackage(ExternalPath));
 	ASSERT_TRUE(UnloadPackage(BasePath));
@@ -3081,9 +3084,12 @@ TEST_F(FContentBrowserModelTests, DeletionProjectionFailureRetainsStructuredComm
 		return {};
 	}};
 	const auto Result = Operation.Delete(Commit);
-	EXPECT_EQ(Result.State, EAssetOperationTerminalState::ContentCommittedProjectionPending);
-	EXPECT_TRUE(Result);
+	EXPECT_FALSE(Result);
+	EXPECT_EQ(Operation.GetWriteResult().Effect, EAssetWriteEffect::ContentCommittedProjectionPending);
+	EXPECT_NE(std::ranges::find(Operation.GetAffectedFiles(), std::filesystem::path(Physical)), Operation.GetAffectedFiles().end());
 	EXPECT_FALSE(Operation.Delete(Commit));
+	EXPECT_EQ(Operation.GetWriteResult().Effect, EAssetWriteEffect::ContentCommittedProjectionPending);
+	EXPECT_FALSE(Operation.GetAffectedFiles().empty());
 	EXPECT_EQ(Calls, 1);
 }
 
@@ -3114,13 +3120,10 @@ TEST_F(FContentBrowserModelTests, PartialBatchSaveRefreshesSuccessfulContentOnce
 	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/Failed", Failed));
 	int Publications = 0;
 	FContentBrowserAssetServices Assets;
-	Assets.SaveAssets = [&](const FAssetSaveRequest&) {
-		return FAssetOperationResult{
-			.Kind = EAssetOperationKind::Save,
-			.State = EAssetOperationTerminalState::Rejected,
-			.Persistence = EAssetOperationPersistenceState::PartiallyPersisted,
-			.AffectedAssets = {Saved},
-			.Warnings = {{Failed, "Save failed"}}};
+	Assets.SaveAssets = [&](const FAssetSaveRequest& Request, FFeedbackContext* Warn) {
+		if (Request.OnSaved) Request.OnSaved(Saved);
+		Warn->Error("Save failed");
+		return false;
 	};
 	FContentBrowserOperationService Service({}, {}, {}, {},
 		[&] { ++Publications; }, {}, std::move(Assets));
@@ -3128,9 +3131,9 @@ TEST_F(FContentBrowserModelTests, PartialBatchSaveRefreshesSuccessfulContentOnce
 	EXPECT_FALSE(Result);
 	EXPECT_TRUE(Result.bContentChanged);
 	EXPECT_EQ(Publications, 1);
-	EXPECT_EQ(Result.Warning, "Save failed");
-	ASSERT_TRUE(Result.AssetResult);
-	EXPECT_EQ(Result.AssetResult->AffectedAssets, std::vector{Saved});
+	EXPECT_EQ(Result.Status.Message, "Save failed");
+	ASSERT_EQ(Result.Changes.Changes.size(), 1u);
+	EXPECT_EQ(Result.Changes.Changes.front().NewAssetPath, Saved.ToString());
 }
 
 TEST_F(FContentBrowserModelTests, ServiceRetainsStructuredAssetFailureAndFixUpScope)
@@ -3142,20 +3145,19 @@ TEST_F(FContentBrowserModelTests, ServiceRetainsStructuredAssetFailureAndFixUpSc
 	FContentBrowserOperationService Service({}, {}, {},
 		[&](std::span<const FPackagePath>) -> FContentBrowserOperationResult {
 			++Calls;
-			return FAssetOperationResult{
-				.Kind = EAssetOperationKind::FixUpRedirectors,
-				.State = EAssetOperationTerminalState::PartiallyWritten,
-				.Persistence = EAssetOperationPersistenceState::PartiallyPersisted,
-				.AffectedAssets = {Path}};
+			FContentBrowserOperationResult Failure{{EAssetWriteError::IoError, "fixup failed",
+				EAssetWriteEffect::PartiallyWritten}};
+			Failure.Warning = (Root / "recovery").generic_string();
+			Failure.bContentChanged = true;
+			Failure.Changes.bFullRefresh = true;
+			return Failure;
 		}, [&] { ++Publications; });
 	EXPECT_FALSE(Service.FixUpRedirectorsInFolder(""));
 	EXPECT_EQ(Calls, 0);
 	const std::array Paths{Path};
 	const auto Result = Service.FixUpRedirectors(Paths);
-	ASSERT_TRUE(Result.AssetResult);
-	EXPECT_EQ(Result.AssetResult->State, EAssetOperationTerminalState::PartiallyWritten);
-	EXPECT_EQ(Result.AssetResult->AffectedAssets, (std::vector<FPackagePath>{Path}));
-	EXPECT_EQ(Result.AssetResult->Persistence, EAssetOperationPersistenceState::PartiallyPersisted);
+	EXPECT_EQ(Result.Status.Effect, EAssetWriteEffect::PartiallyWritten);
+	EXPECT_EQ(Result.Warning, (Root / "recovery").generic_string());
 	EXPECT_FALSE(Result);
 	EXPECT_EQ(Publications, 1);
 }
@@ -3187,8 +3189,8 @@ TEST_F(FContentBrowserModelTests, AssetDeletionSessionRetiresAfterPartialRemoval
 		Durin::Testing::RemoveTestWorkDirectory(Path, Error);
 		return Error;
 	}});
-	ASSERT_TRUE(First.AssetResult);
-	EXPECT_EQ(First.AssetResult->State, EAssetOperationTerminalState::PartiallyWritten);
+	EXPECT_FALSE(First);
+	EXPECT_EQ(First.Status.Effect, EAssetWriteEffect::PartiallyWritten);
 	EXPECT_EQ(Publications, 1);
 	EXPECT_FALSE(Service.ExecuteDeletion(Confirmation));
 	EXPECT_EQ(Calls, 2);
@@ -3243,8 +3245,7 @@ TEST_F(FContentBrowserModelTests, ServicePublishesProjectionPendingWithoutRepeat
 		EXPECT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::Incremental));
 		return Error;
 	}});
-	ASSERT_TRUE(Result.AssetResult);
-	EXPECT_EQ(Result.AssetResult->State, EAssetOperationTerminalState::ContentCommittedProjectionPending);
+	EXPECT_EQ(Result.Status.Effect, EAssetWriteEffect::ContentCommittedProjectionPending);
 	EXPECT_EQ(Publications, 1);
 	EXPECT_FALSE(Service.ExecuteDeletion(Plan));
 	EXPECT_EQ(Calls, 1);
@@ -3821,7 +3822,7 @@ TEST_F(FContentBrowserModelTests, MixedContentCopyDuplicatesAssetAndPreservesSou
 	EXPECT_TRUE(std::filesystem::exists(Root / "Content/B/A/notes.txt"));
 }
 
-TEST_F(FContentBrowserModelTests, ContentCopyCleansOrdinaryFilesWhenAssetRejectsAndRetainsCommittedEffects)
+TEST_F(FContentBrowserModelTests, ContentCopyCleansRejectedCopiesAndRetainsLiveCopiesWhenSavingFails)
 {
 	FPackagePath Source;
 	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/A/CopyFailure", Source));
@@ -3831,20 +3832,22 @@ TEST_F(FContentBrowserModelTests, ContentCopyCleansOrdinaryFilesWhenAssetRejects
 	std::ofstream(Root / "Content/A/notes.txt") << "notes";
 	const FContentBrowserItem Folder{.Kind = EContentBrowserItemKind::Folder,
 		.PhysicalPath = (Root / "Content/A").generic_string()};
-	for (const auto State : {EAssetOperationTerminalState::Rejected,
-		EAssetOperationTerminalState::ContentCommittedProjectionPending, EAssetOperationTerminalState::PartiallyWritten})
+	for (bool bCreated : {false, true})
 	{
 		auto Services = FContentBrowserAssetServices::Default();
-		Services.DuplicateAsset = [State](const auto&) {
-			return FAssetOperationResult{.Kind = EAssetOperationKind::Duplicate, .State = State, .Message = "Injected failure"};
+		Services.DuplicateAsset = [bCreated](const FAssetDuplicateRequest& Request, FFeedbackContext* Warn) -> DObject* {
+			if (!bCreated) { Warn->Error("Injected duplication rejection"); return nullptr; }
+			return IAssetTools::Get().DuplicateAsset(Request, Warn);
+		};
+		Services.SaveAssets = [](const FAssetSaveRequest&, FFeedbackContext* Warn) {
+			Warn->Error("Injected save failure"); return false;
 		};
 		FContentBrowserOperationService Service({}, {}, {}, {}, {}, {}, Services);
 		const auto Result = Service.CopyItems(std::span{&Folder, 1}, (Root / "Content/B").generic_string());
 		EXPECT_FALSE(Result);
-		ASSERT_TRUE(Result.AssetResult);
-		EXPECT_EQ(Result.AssetResult->State, State);
-		if (State == EAssetOperationTerminalState::Rejected)
-			EXPECT_FALSE(std::filesystem::exists(Root / "Content/B/A"));
+		EXPECT_EQ(Result.Status.Effect, EAssetWriteEffect::None);
+		EXPECT_NE(Result.Status.Message.find("Copy stopped at"), std::string::npos);
+		if (!bCreated) EXPECT_FALSE(std::filesystem::exists(Root / "Content/B/A"));
 		else
 		{
 			EXPECT_TRUE(std::filesystem::exists(Root / "Content/B/A/notes.txt"));
@@ -3852,6 +3855,36 @@ TEST_F(FContentBrowserModelTests, ContentCopyCleansOrdinaryFilesWhenAssetRejects
 			EXPECT_FALSE(Result.Warning.empty());
 		}
 	}
+}
+
+TEST_F(FContentBrowserModelTests, PasteSaveFailureKeepsDirtyCopyAndReportsContentChange)
+{
+	FPackagePath Source;
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/A/PasteSaveFailure", Source));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Source, Material));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	const auto AssetPath = Testing::MakePackageLeafTopLevelAssetPathForTests(Source);
+	FContentBrowserOperationService Service;
+	FContentBrowserOperationResult Result;
+	{
+		Testing::FScopedPackageSaveFault Fault([](auto Phase, size_t) { return Phase == Testing::EPackageSaveFaultPoint::PublishPackage; });
+		Result = Service.Duplicate(AssetPath, "/ContentBrowserTests/B");
+	}
+	EXPECT_FALSE(Result);
+	EXPECT_TRUE(Result.bContentChanged);
+	EXPECT_FALSE(Result.Warning.empty());
+	FSoftObjectPath CopyPath;
+	ASSERT_TRUE(FSoftObjectPath::TryCreate(Result.RevealAssetPath, CopyPath));
+	auto LoadedCopy = LoadObjectDetailed<DMaterial>(CopyPath);
+	ASSERT_TRUE(LoadedCopy);
+	auto* Copy = *LoadedCopy;
+	ASSERT_NE(Copy, nullptr);
+	EXPECT_TRUE(Copy->GetPackage()->IsDirty());
+	EXPECT_EQ(FindResidentPackage(CopyPath.GetPackagePath()), Copy->GetPackage());
+	EXPECT_FALSE(std::filesystem::exists(Result.FocusPhysicalPath));
+	EXPECT_TRUE(SavePackage(Copy->GetPackage()));
+	EXPECT_TRUE(std::filesystem::exists(Result.FocusPhysicalPath));
 }
 
 
@@ -3885,4 +3918,30 @@ TEST_F(FContentBrowserModelTests, ContentCopyBulkTravelsOnlyThroughOwningAssetDu
 	ASSERT_NE(Copied, nullptr);
 	EXPECT_GT(Copied->BulkSegmentExtent, 0u);
 	EXPECT_TRUE(std::filesystem::exists(Root / "Content/A/CopyTexture.dbulk"));
+}
+
+TEST_F(FContentBrowserModelTests, SaveReportsCommittedFileWhenRegistryPublicationFails)
+{
+	InitializeDObjectSystem();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/SaveProjectionPending", Path));
+	DMaterial* Asset = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+	int Notifications = 0;
+	FContentBrowserOperationService Service({}, {}, {}, {}, [&] { ++Notifications; });
+	FContentBrowserOperationResult Result;
+	{
+		Testing::FScopedPackageSaveFault Fault([](auto Phase, size_t) {
+			return Phase == Testing::EPackageSaveFaultPoint::PublishRegistry;
+		});
+		Result = Service.Save({Path});
+	}
+	EXPECT_FALSE(Result);
+	EXPECT_TRUE(Result.bContentChanged);
+	EXPECT_EQ(Notifications, 1);
+	EXPECT_TRUE(std::filesystem::exists(Root / "Content/SaveProjectionPending.dasset"));
+	EXPECT_FALSE(Asset->GetPackage()->IsDirty());
+	EXPECT_TRUE(IsAssetRegistryProjectionFenced(Path));
+	EXPECT_NE(Result.Status.Message.find("ContentCommittedProjectionPending"), std::string::npos);
+	EXPECT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::Incremental));
 }

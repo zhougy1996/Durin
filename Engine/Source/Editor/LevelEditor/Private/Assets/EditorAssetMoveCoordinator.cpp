@@ -41,10 +41,18 @@ namespace Durin::Editor::Level
 		Mappings.reserve(Moves.size());
 		for (const FAssetRelocationMapping& Move : Moves)
 			Mappings.push_back({Move.SourcePath, Move.DestinationPath});
-		const FAssetOperationResult Result = IAssetTools::Get().RelocateAssets({
-			.Mappings = std::move(Mappings)});
+		std::string ResultError;
+		FFeedbackContext ResultFeedback({}, [&](ELogLevel Level, std::string_view Message) {
+			if (Level >= ELogLevel::Error)
+			{
+				if (!ResultError.empty()) ResultError += "\n";
+				ResultError += Message;
+			}
+		});
+		const auto Result = IAssetTools::Get().RelocateAssets({
+			.Mappings = std::move(Mappings)}, &ResultFeedback);
 		return Result ? FAssetWriteResult{}
-			: FAssetWriteResult{EAssetWriteError::IoError, Result.Message};
+			: FAssetWriteResult{EAssetWriteError::IoError, ResultError};
 	}
 
 	auto FEditorAssetMoveCoordinator::OnAssetsRelocated(

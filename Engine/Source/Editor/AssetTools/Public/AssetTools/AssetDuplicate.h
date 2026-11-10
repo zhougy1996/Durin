@@ -1,8 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-
-#include "AssetTools/AssetOperation.h"
+#include "DObject/AssetPath.h"
 
 namespace Durin
 {
@@ -10,8 +9,5 @@ namespace Durin
 	{
 		FTopLevelAssetPath SourcePath;
 		std::string DestinationDirectory;
-		bool bSave = true;
-		std::function<std::string(const FPackagePath&)> ResolvePhysicalPackagePath;
-		FPublishAssetOperation Publish;
 	};
 }

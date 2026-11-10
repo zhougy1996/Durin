@@ -37,7 +37,7 @@ namespace Durin::Editor
 		std::vector<AssetForge::Builtins::FAssetImportSourceMesh> SourceMeshes;
 		std::vector<AssetForge::Builtins::FAssetImportSourceScene> SourceScenes;
 		AssetForge::Builtins::FSceneMaterialImportOptions MaterialOptions;
-		AssetForge::Builtins::FAssetImportPreview MaterialPreview;
+		AssetForge::Builtins::FAssetImportPreview OutputPreview;
 		std::array<char, 128> ParentSearch{};
 		bool bPreviewDirty = true;
 		std::unique_ptr<AssetForge::Builtins::FAssetImportSession> Session;

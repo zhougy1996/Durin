@@ -28,12 +28,16 @@ namespace Durin::AssetForge::Builtins
 		auto* Factory = NewObject<DVolumeTextureFactory>(
 			nullptr, "VolumeTextureTestFactory", EObjectFlags::Transient);
 		Factory->SetImportSettings(Settings);
-		const FAssetToolsResult Imported = IAssetTools::Get().ImportPackageLeafAssetForTesting(
-			ParsedPath, DVolumeTexture::StaticClass(), FilePath, Factory);
-		auto* Texture = Cast<DVolumeTexture>(Imported.Asset);
+		std::string ImportedError;
+		Durin::FFeedbackContext ImportedFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
+			if (Level >= Durin::ELogLevel::Error) { if (!ImportedError.empty()) ImportedError += "\n"; ImportedError += Message; }
+		});
+		const auto Imported = IAssetTools::Get().ImportPackageLeafAssetForTesting(
+			ParsedPath, DVolumeTexture::StaticClass(), FilePath, Factory, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &ImportedFeedback);
+		auto* Texture = Cast<DVolumeTexture>(Imported);
 		if (!Imported || !Texture)
-			return {false, Imported.Message, Texture};
-		const FAssetWriteResult Saved = SavePackage(Imported.Package);
+			return {false, ImportedError, Texture};
+		const FAssetWriteResult Saved = SavePackage(Imported->GetPackage());
 		return Saved
 			? Durin::Testing::TFactoryImportResult<Durin::DVolumeTexture>{true, {}, Texture}
 			: Durin::Testing::TFactoryImportResult<Durin::DVolumeTexture>{false, Saved.Message, Texture};

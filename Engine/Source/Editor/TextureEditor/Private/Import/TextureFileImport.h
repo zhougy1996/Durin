@@ -3,6 +3,9 @@
 #include "CoreMinimal.h"
 
 #include "AssetTools/AssetSave.h"
+#include "Misc/FeedbackContext.h"
+#include "Asset/AssetWriteResult.h"
+#include "Threading/Task.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Import/ImportDialogSupport.h"
@@ -14,9 +17,8 @@ namespace Durin::Editor::Texture
 	class FTextureFileImport
 	{
 	public:
-		using FSaveOperation = std::function<FAssetOperationResult(const FAssetSaveRequest&)>;
-		explicit FTextureFileImport(FImportDialogCallbacks InCallbacks = {}, FSaveOperation InSave = {})
-			: Callbacks(std::move(InCallbacks)), SaveOperation(std::move(InSave)) {}
+		explicit FTextureFileImport(FImportDialogCallbacks InCallbacks = {})
+			: Callbacks(std::move(InCallbacks)) {}
 		~FTextureFileImport();
 		auto SetCallbacks(FImportDialogCallbacks Next) -> bool
 		{ if (IsRunning()) return false; Callbacks = std::move(Next); return true; }
@@ -36,18 +38,17 @@ namespace Durin::Editor::Texture
 		auto GetActivity() const -> std::string;
 		auto GetTimingDetails() const -> const std::string& { return TimingDetails; }
 		auto ImportFile(std::string_view Filename, std::string_view Directory)
-			-> FAssetOperationResult;
+			-> DObject*;
 		auto RetryPendingSaves() -> void;
 		auto HasPendingSaves() const -> bool { return !PendingSaves.empty(); }
 		auto CanRetrySaves() const -> bool { return bMutationAllowed && !bRunning && HasPendingSaves(); }
 
 	private:
 		auto AdmitFile(std::string_view Filename, std::string_view Directory,
-			std::shared_ptr<const AssetForge::Builtins::FPreparedTexture2DImport> Prepared = {}) -> FAssetOperationResult;
+			std::shared_ptr<const AssetForge::Builtins::FPreparedTexture2DImport> Prepared = {}, FFeedbackContext* Warn = nullptr) -> DObject*;
 		auto FinishBatch() -> void;
-		auto Save(const FPackagePath& Path) -> FAssetOperationResult;
+		auto Save(const FPackagePath& Path) -> bool;
 		FImportDialogCallbacks Callbacks;
-		FSaveOperation SaveOperation;
 		std::vector<FPackagePath> PendingSaves;
 		struct FPreparation
 		{
@@ -58,8 +59,7 @@ namespace Durin::Editor::Texture
 		static auto PrepareFile(const std::string& Filename) -> FPreparation;
 		std::future<FPreparation> Preparation;
 		TStrongObjectPtr<DTexture2D> Active;
-		std::unique_ptr<FAssetSaveOperation> DiskSave;
-		bool bSaveStarted = false;
+		Tasks::TTask<FAssetWriteResult> DiskSave;
 		std::chrono::steady_clock::time_point SaveStarted;
 		std::vector<std::string> Files;
 		std::string Directory;

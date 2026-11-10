@@ -2,10 +2,8 @@
 
 #include "CoreMinimal.h"
 
-#include "AssetTools/AssetOperation.h"
+#include "DObject/AssetPath.h"
 #include "DObject/Object.h"
-
-namespace Durin::Editor { struct FAssetDestinationValidation; }
 
 namespace Durin
 {
@@ -23,36 +21,6 @@ namespace Durin
 		EObjectFlags Flags = EObjectFlags::Public | EObjectFlags::Transactional;
 	};
 
-	enum class EAssetImportError : uint8 { None, Path, Class, Filename, Destination, FileInspection, FileExists, AmbiguousFactory, MissingFactory, UnsupportedFactory, DuplicatePackage };
-	struct FAssetImportValidation
-	{
-		const DFactory* Factory = nullptr;
-		EAssetImportError Error = EAssetImportError::None;
-		std::string AssetPath, Filename, ClassName, Extension;
-		size_t Count = 0;
-		std::error_code FileCause;
-		std::shared_ptr<const Editor::FAssetDestinationValidation> DestinationCause;
-		explicit operator bool() const { return Error == EAssetImportError::None; }
-	};
-
-	ASSETTOOLS_API auto FormatAssetImportValidation(const FAssetImportValidation& Result) -> std::string;
-
-	enum class EAssetImportItemState : uint8
-	{
-		NotAttempted,
-		Rejected,
-		Accepted,
-		Canceled,
-	};
-
-	struct FAssetImportItemResult
-	{
-		EAssetImportItemState State = EAssetImportItemState::NotAttempted;
-		FAssetOperationResult Operation{
-			.Kind = EAssetOperationKind::Import,
-			.State = EAssetOperationTerminalState::Rejected};
-	};
-
 	struct FAssetImportBatchRequest
 	{
 		std::vector<FAssetImportRequest> Items;
@@ -61,10 +29,4 @@ namespace Durin
 		std::function<bool()> ShouldCancel;
 	};
 
-	struct FAssetImportBatchResult
-	{
-		// Input order, including rejected and unattempted items. Accepted means
-		// factory acceptance, not completion of deferred family compilation/save.
-		std::vector<FAssetImportItemResult> Items;
-	};
 }

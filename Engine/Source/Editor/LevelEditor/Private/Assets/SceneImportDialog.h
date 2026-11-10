@@ -4,7 +4,7 @@
 
 #include "Import/ImportDialogSupport.h"
 #include "Import/MeshCoordinateImportModel.h"
-#include "AssetForge/Builtins/SceneImport.h"
+#include "AssetForge/Builtins/AssetImport.h"
 
 namespace Durin::Editor::Level
 {
@@ -32,10 +32,10 @@ namespace Durin::Editor::Level
 		std::array<char, 512> SourcePathBuffer{};
 		FMeshCoordinateImportModel Coordinates;
 		AssetForge::Builtins::FSceneMaterialImportOptions MaterialOptions;
-		AssetForge::Builtins::FSceneMaterialPreviewResult MaterialPreview;
+		AssetForge::Builtins::FAssetImportPreview OutputPreview;
 		std::array<char, 128> ParentSearch{};
-		bool bMaterialPreviewDirty = true;
-		std::unique_ptr<AssetForge::Builtins::FSceneImportSession> Session;
+		bool bPreviewDirty = true;
+		std::unique_ptr<AssetForge::Builtins::FAssetImportSession> Session;
 		bool bImporting = false;
 		bool bReportedCompletion = false;
 		bool bCloseWhenFinished = false;

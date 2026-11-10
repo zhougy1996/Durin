@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-#include "AssetForge/Builtins/SceneImportTypes.h"
+#include "AssetForge/Builtins/AssetImportTypes.h"
 #include "AssetForgeBuiltinsAPI.h"
 #include "CoreFwd.h"
 #include "Math/Vector.h"

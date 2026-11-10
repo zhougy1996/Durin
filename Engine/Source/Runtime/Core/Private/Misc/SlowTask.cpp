@@ -81,9 +81,15 @@ namespace Durin
 		}
 	}
 
-	FFeedbackContext::FFeedbackContext(std::function<double()> Clock) : State(std::make_shared<FSlowTaskContextState>())
+	FFeedbackContext::FFeedbackContext(std::function<double()> Clock, FMessageSink InMessages)
+		: State(std::make_shared<FSlowTaskContextState>()), Messages(std::move(InMessages))
 	{
 		State->Clock = Clock ? std::move(Clock) : FTime::Seconds;
+	}
+	auto FFeedbackContext::Serialize(ELogLevel Level, std::string_view Message) -> void
+	{
+		if (Messages) { Messages(Level, Message); return; }
+		DURIN_LOG(Level, "{}", Message);
 	}
 	FFeedbackContext::~FFeedbackContext() { Retire(); }
 	auto FFeedbackContext::Get() -> FFeedbackContext& { thread_local FFeedbackContext Context; return Context; }

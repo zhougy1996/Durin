@@ -5,7 +5,6 @@
 #include "AssetTools/AssetDeletion.h"
 #include "AssetTools/AssetDuplicate.h"
 #include "AssetTools/AssetSave.h"
-#include "AssetTools/AssetMutation.h"
 #include "ContentBrowser/ContentBrowserContracts.h"
 #include "Panels/ContentBrowserDataTypes.h"
 #include "Operations/ContentBrowserPaths.h"
@@ -119,10 +118,10 @@ namespace Durin::Editor::ContentBrowser::Private
 			FContentDeletionPlanPtr InPlan,
 			FAssetDeletionOperation InAssetOperation);
 
-		auto Execute(FContentDeletionHooks InHooks = {}) -> FAssetOperationResult;
+		auto Execute(FContentDeletionHooks InHooks = {}) -> bool;
 		auto IsConfirmationCurrent() -> bool;
 		auto HasStarted() const -> bool { return bStarted; }
-		auto GetResult() const -> const FAssetOperationResult& { return Result; }
+		auto GetResult() const -> const FAssetWriteResult& { return Result; }
 		auto GetDetails() const -> const std::string& { return Details; }
 
 	private:
@@ -132,7 +131,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 		FContentDeletionPlanPtr Plan;
 		FAssetDeletionOperation AssetOperation;
-		FAssetOperationResult Result{.Kind = EAssetOperationKind::Delete};
+		FAssetWriteResult Result;
 		bool bStarted = false;
 		FContentDeletionHooks Hooks;
 		std::string Details;
@@ -146,13 +145,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		FContentBrowserOperationResult(FAssetWriteResult InStatus) : Status(std::move(InStatus)) {}
 		FContentBrowserOperationResult(EAssetWriteError Error, std::string Message)
 			: Status{Error, std::move(Message)} {}
-		FContentBrowserOperationResult(FAssetOperationResult InAssetResult)
-			: AssetResult(std::move(InAssetResult))
-		{
-			Status.Message = AssetResult->Message;
-		}
 		FAssetWriteResult Status;
-		std::optional<FAssetOperationResult> AssetResult;
 		bool bContentChanged = false;
 		FContentChangeBatch Changes;
 		FContentDeletionPlanPtr ReplacementConfirmation;
@@ -161,18 +154,15 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::string OpenAssetClassName;
 		std::string Warning;
 
-		explicit operator bool() const { return AssetResult
-			? AssetResult->State == EAssetOperationTerminalState::Completed : static_cast<bool>(Status); }
+		explicit operator bool() const { return static_cast<bool>(Status); }
 	};
 
 	// Injects only the package capabilities used by browser operations.
 	struct FContentBrowserAssetServices
 	{
-		std::function<FAssetOperationResult(const FAssetSaveRequest&)> SaveAssets;
-		std::function<FAssetOperationResult(const FAssetDuplicateRequest&)> DuplicateAsset;
-		std::function<FAssetOperationResult(const FAssetRelocationRequest&)> RelocateAssets;
-		std::function<FAssetOperationResult(const FAssetRedirectorFixupRequest&)> FixUpRedirectors;
-		std::function<FAssetOperationResult(const FAssetDeletionRequest&, FAssetDeletionOperation&)> PrepareDeletion;
+		std::function<bool(const FAssetSaveRequest&, FFeedbackContext*)> SaveAssets;
+		std::function<DObject*(const FAssetDuplicateRequest&, FFeedbackContext*)> DuplicateAsset;
+		std::function<bool(const FAssetDeletionRequest&, FAssetDeletionOperation&, FFeedbackContext*)> PrepareDeletion;
 		static auto Default() -> FContentBrowserAssetServices;
 	};
 

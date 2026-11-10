@@ -389,12 +389,8 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		const FContentBrowserOperationResult Result = Operations.Duplicate(Item);
 		if (!Result.Warning.empty()) SetWarning(Result.Warning);
-		if (!Result)
-		{
-			SetError(Result.Status.Message);
-			return;
-		}
-		RevealAsset(Result.RevealAssetPath);
+		if (!Result) SetError(Result.Status.Message);
+		if (!Result.RevealAssetPath.empty()) RevealAsset(Result.RevealAssetPath);
 	}
 
 	auto FContentBrowserPanel::CopyContentSelection() -> void
@@ -436,11 +432,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			? Operations.CopyItems(CopiedContent, FContentBrowserPaths::VirtualToPhysical(Directory))
 			: Operations.Duplicate(SourcePath, Directory);
 		if (!Result.Warning.empty()) SetWarning(Result.Warning);
-		if (!Result)
-		{
-			SetError(Result.Status.Message);
-			return;
-		}
+		if (!Result) SetError(Result.Status.Message);
 		if (!Result.RevealAssetPath.empty()) RevealAsset(Result.RevealAssetPath);
 		else if (!Result.FocusPhysicalPath.empty())
 		{
@@ -613,8 +605,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			bDeletionPlanRefreshed = true;
 			return;
 		}
-		if (!Result && (!Result.AssetResult || Result.AssetResult->State !=
-			EAssetOperationTerminalState::ContentCommittedProjectionPending))
+		if (!Result && Result.Status.Effect != EAssetWriteEffect::ContentCommittedProjectionPending)
 		{
 			SetError(Result.Status.Message);
 			Operations.DismissDeletion(PendingDeletionPlan);

@@ -1053,9 +1053,17 @@ int main(int ArgC, char** ArgV)
 		std::cout << "Create PBRSurfaceMaterial_MR at " << Path.ToString() << '\n';
 		if (!Options.bApply) return 0;
 		Durin::FModuleManager::Get().LoadModuleChecked("ShaderBuild");
-		const auto Created = Durin::IAssetTools::Get().CreateAsset(AssetPath, Durin::DMaterial::StaticClass());
-		auto* Material = Durin::Cast<Durin::DMaterial>(Created.Asset);
-		if (!Created || !Material) { std::cerr << Created.Message << '\n'; return 1; }
+		std::string CreatedError;
+		Durin::FFeedbackContext CreatedFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
+			if (Level >= Durin::ELogLevel::Error)
+			{
+				if (!CreatedError.empty()) CreatedError += "\n";
+				CreatedError += Message;
+			}
+		});
+		const auto Created = Durin::IAssetTools::Get().CreateAsset(AssetPath, Durin::DMaterial::StaticClass(), nullptr, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &CreatedFeedback);
+		auto* Material = Durin::Cast<Durin::DMaterial>(Created);
+		if (!Created || !Material) { std::cerr << CreatedError << '\n'; return 1; }
 		Material->SetEditCompileMode(Durin::EMaterialEditCompileMode::Manual);
 		const auto Recipe = Durin::AssetForge::Builtins::MakePBRSurfaceMaterialMRExpressions();
 		const auto Valid = Recipe.Apply(*Material);
@@ -1193,9 +1201,17 @@ int main(int ArgC, char** ArgV)
 		{
 			Durin::FTopLevelAssetPath AssetPath;
 			if (!Durin::FTopLevelAssetPath::TryCreate(DefaultPath, DefaultPath.GetPackageName(), AssetPath)) return 1;
-			const auto Created = Durin::IAssetTools::Get().CreateAsset(AssetPath, Durin::DMaterial::StaticClass());
-			auto* Material = Durin::Cast<Durin::DMaterial>(Created.Asset);
-			if (!Created || !Material) { std::cerr << Created.Message << '\n'; return 1; }
+			std::string CreatedError;
+			Durin::FFeedbackContext CreatedFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
+				if (Level >= Durin::ELogLevel::Error)
+				{
+					if (!CreatedError.empty()) CreatedError += "\n";
+					CreatedError += Message;
+				}
+			});
+			const auto Created = Durin::IAssetTools::Get().CreateAsset(AssetPath, Durin::DMaterial::StaticClass(), nullptr, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &CreatedFeedback);
+			auto* Material = Durin::Cast<Durin::DMaterial>(Created);
+			if (!Created || !Material) { std::cerr << CreatedError << '\n'; return 1; }
 			const auto Saved = Durin::SavePackage(Material->GetPackage());
 			if (!Saved) { std::cerr << Saved.Message << '\n'; return 1; }
 		}

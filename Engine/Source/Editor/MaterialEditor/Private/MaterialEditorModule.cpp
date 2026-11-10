@@ -28,26 +28,34 @@ namespace Durin
 		auto CreateMaterialAsset(const FTopLevelAssetPath& AssetPath,
 			std::string& OutError) -> bool
 		{
-			const FAssetToolsResult Created = IAssetTools::Get().CreateAsset(
-				AssetPath, TMaterial::StaticClass());
+			std::string CreatedError;
+			FFeedbackContext CreatedFeedback({}, [&](ELogLevel Level, std::string_view Message) {
+				if (Level >= ELogLevel::Error)
+				{
+					if (!CreatedError.empty()) CreatedError += "\n";
+					CreatedError += Message;
+				}
+			});
+			const auto Created = IAssetTools::Get().CreateAsset(
+				AssetPath, TMaterial::StaticClass(), nullptr, nullptr, EObjectFlags::Public | EObjectFlags::Transactional, &CreatedFeedback);
 			if (!Created)
 			{
-				OutError = Created.Message;
+				OutError = CreatedError;
 				return false;
 			}
 			const auto Discard = [&] {
-				if (!IAssetTools::Get().DiscardPackage(Created.Package))
+				if (!IAssetTools::Get().DiscardPackage(Created->GetPackage()))
 					OutError += " The unsaved material package could not be discarded.";
 			};
 			if constexpr (std::same_as<TMaterial, DMaterial>)
 			{
-				if (!PrepareNewMaterialForEditing(*Cast<DMaterial>(Created.Asset), OutError))
+				if (!PrepareNewMaterialForEditing(*Cast<DMaterial>(Created), OutError))
 				{
 					Discard();
 					return false;
 				}
 			}
-			const FAssetWriteResult Result = SavePackage(Created.Package);
+			const FAssetWriteResult Result = SavePackage(Created->GetPackage());
 			if (!Result)
 			{
 				OutError = Result.Message;

@@ -4,7 +4,7 @@ Summary: Define asset identity, canonical DAST v10 packages, runtime residency, 
 
 Modules: AssetRegistry, Engine, CoreDObject, AssetMaintenance, AssetTools
 
-Last reviewed: 2026-11-09
+Last reviewed: 2026-11-10
 
 Durin object assets are stored as versioned `.dasset` packages. A package is a
 residency and persistence container with zero or more independently addressable
@@ -535,7 +535,6 @@ Their boolean conversion alone does not describe the resulting content:
 | Complete synchronous save | No error; `Effect == None` | The full save finished; `None` is not a universal assertion that no writes occurred. |
 | Rejection before commit or successful rollback | Error; `Effect == None` | This operation reports no remaining write effect. |
 | Ordinary Registry publication failure after commit | Error; `ContentCommittedProjectionPending` | Valid committed bytes remain, with projection fenced for reconciliation. |
-| Direct output failure after writing starts | Error; `PartiallyWritten` | Old bytes are not restored; completion cannot be treated as rejection before I/O. |
 | Failed restoration or failed committed-writer finalization | Error; `ContentUncertain` | The business adapter conservatively preserves uncertainty and recovery diagnostics. |
 | Later batch member fails | `SavedPackages`, `FailedPackage`, and `Result` | Earlier members stay committed. The failed member can itself have a nonempty `Effect` and need not appear in `SavedPackages`. |
 
@@ -548,11 +547,10 @@ as its effect and appends the finalization diagnostic. Read/encoding rejection
 adapters produce no write effect. These reports do not authorize retries or
 promise rollback.
 
-Admission-only `SavePackageDirectAsync(Package, Args)` instead writes final files directly,
-without rollback. Its return value does not confirm persistence; partial writes
-fence the projection and retain Dirty. See the authoritative
-[asynchronous save contracts](AssetCatalogAndMutation.md#asynchronous-save-staging)
-for typed protected tasks, resource retirement, completion and retries.
+Asynchronous callers retain `Tasks::TTask<FAssetWriteResult>` from
+`DPackage::SaveAsync` with `FAssetPackageSaveContext`; its result reports final
+persistence and Registry disposition. Admission is not completion. See
+[asynchronous save contracts](AssetCatalogAndMutation.md#asynchronous-save-staging).
 
 Each protected package writer assigns one unique save ID to its main/bulk staging and
 backup siblings beside the destination files. Backups serve only that writer's

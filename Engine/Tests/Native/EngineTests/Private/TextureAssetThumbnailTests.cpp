@@ -151,19 +151,20 @@ TEST_F(FTextureAssetSessionTests, ExistingViewDoesNotInterceptADefaultEditOpen)
 TEST_F(FTextureAssetSessionTests, RelocationPreservesOpenTextureRoutingAndSave)
 {
 	const auto SourcePackage = Args.Assets.front().AssetPath.GetPackagePath().ToString();
+	std::string DuplicateError;
+	Durin::FFeedbackContext DuplicateFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
+		if (Level >= Durin::ELogLevel::Error) { if (!DuplicateError.empty()) DuplicateError += "\n"; DuplicateError += Message; }
+	});
 	const auto Duplicate = Durin::IAssetTools::Get().DuplicateAsset({
 		.SourcePath = Args.Assets.front().AssetPath.GetAssetPath(),
-		.DestinationDirectory = SourcePackage.substr(0, SourcePackage.find_last_of('/')) + "/SessionRelocation",
-		.ResolvePhysicalPackagePath = [](const Durin::FPackagePath& Path) {
-			const auto Resolved = Durin::FMountPaths::ResolveAssetPath(Path.GetView(), Durin::EMountPathExistence::AllowMissing);
-			return Resolved ? Resolved->PhysicalPath.generic_string() + ".dasset" : std::string{};
-		}});
-	ASSERT_TRUE(Duplicate) << Duplicate.Message;
-	ASSERT_NE(nullptr, Duplicate.Asset);
-	(void)Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Duplicate.Asset);
-	ASSERT_TRUE(Durin::Cast<Durin::DTexture2D>(Duplicate.Asset)->IsAsyncCacheComplete());
+		.DestinationDirectory = SourcePackage.substr(0, SourcePackage.find_last_of('/')) + "/SessionRelocation"}, &DuplicateFeedback);
+	ASSERT_TRUE(Duplicate) << DuplicateError;
+	ASSERT_TRUE(Durin::SavePackage(Duplicate->GetPackage()));
+	ASSERT_NE(nullptr, Duplicate);
+	(void)Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Duplicate);
+	ASSERT_TRUE(Durin::Cast<Durin::DTexture2D>(Duplicate)->IsAsyncCacheComplete());
 	Durin::FSoftObjectPath DuplicatedPath;
-	ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate(Duplicate.Asset->GetObjectPath(), DuplicatedPath));
+	ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate(Duplicate->GetObjectPath(), DuplicatedPath));
 	Args.Assets.front().AssetPath = DuplicatedPath;
 	ASSERT_TRUE(Service->OpenAssets(Args).IsAccepted());
 	const auto Session = Service->GetOwnedAssetEditors().front();
@@ -171,11 +172,11 @@ TEST_F(FTextureAssetSessionTests, RelocationPreservesOpenTextureRoutingAndSave)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(DuplicatedPath.GetPackagePath().ToString() + "Moved", Destination));
 	const Durin::FAssetRelocationMapping Mapping{DuplicatedPath.GetPackagePath(), Destination};
 	ASSERT_TRUE(Durin::RelocateAssets(std::span{&Mapping, 1}).Result);
-	(void)Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Duplicate.Asset);
+	(void)Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Duplicate);
 	const auto Document = Session->GetDocumentManager()->GetDocuments().front();
 	EXPECT_NE(DuplicatedPath.ToString(), Document.ResourceId);
-	EXPECT_EQ(Duplicate.Asset->GetObjectPath(), Document.ResourceId);
-	EXPECT_EQ(Session.Get(), Service->FindEditorForAsset(Duplicate.Asset, false));
+	EXPECT_EQ(Duplicate->GetObjectPath(), Document.ResourceId);
+	EXPECT_EQ(Session.Get(), Service->FindEditorForAsset(Duplicate, false));
 	EXPECT_TRUE(Session->GetToolkit()->SaveDocument(Document));
 	EXPECT_TRUE(Session->CloseWindow(Durin::EAssetEditorCloseReason::AssetEditorHostClosed));
 }

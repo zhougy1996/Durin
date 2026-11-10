@@ -1,5 +1,4 @@
 #include "Asset/EditorBulkData.h"
-#include "EditorBulkDataSaveRetention.h"
 
 namespace Durin
 {
@@ -203,12 +202,7 @@ namespace Durin
 					FormatPackageResourceReadError(Payload));
 				return;
 			}
-			if (AssetPrivate::FScopedBulkSaveRetention::IsEnabled())
-			{
-				auto Expected = Snapshot;
-				const auto Resident = MakeMemoryState(Snapshot->InstanceId, Snapshot->ContentId, *Payload);
-				State.CompareExchange(Expected, Resident);
-			}
+
 		}
 		FArchiveBulkDataValue Value{
 			.PayloadId = Snapshot->InstanceId,

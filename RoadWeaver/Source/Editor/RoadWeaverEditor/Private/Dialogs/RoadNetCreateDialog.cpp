@@ -114,13 +114,21 @@ namespace Durin::RoadNet::Editor
 			SetError("The Road Net top-level asset path is invalid.");
 			return false;
 		}
-		const FAssetToolsResult Created = IAssetTools::Get().CreateAsset(
-			AssetPath, DRoadNet::StaticClass());
-		DRoadNet* RoadNet = Cast<DRoadNet>(Created.Asset);
+		std::string CreatedError;
+		FFeedbackContext CreatedFeedback({}, [&](ELogLevel Level, std::string_view Message) {
+			if (Level >= ELogLevel::Error)
+			{
+				if (!CreatedError.empty()) CreatedError += "\n";
+				CreatedError += Message;
+			}
+		});
+		const auto Created = IAssetTools::Get().CreateAsset(
+			AssetPath, DRoadNet::StaticClass(), nullptr, nullptr, EObjectFlags::Public | EObjectFlags::Transactional, &CreatedFeedback);
+		DRoadNet* RoadNet = Cast<DRoadNet>(Created);
 		if (!Created || !RoadNet)
 		{
-			SetError(Created.Message.empty()
-				? "Could not create the Road Net asset." : Created.Message);
+			SetError(CreatedError.empty()
+				? "Could not create the Road Net asset." : CreatedError);
 			return false;
 		}
 

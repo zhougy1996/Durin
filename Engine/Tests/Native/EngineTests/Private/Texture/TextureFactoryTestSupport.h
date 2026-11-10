@@ -27,14 +27,18 @@ namespace Durin::AssetForge::Builtins
 		auto* Factory = NewObject<DTexture2DFactory>(
 			nullptr, "Texture2DTestFactory", EObjectFlags::Transient);
 		Factory->SetImportSettings(Settings);
-		const FAssetToolsResult Imported = IAssetTools::Get().ImportPackageLeafAssetForTesting(
-			ParsedPath, DTexture2D::StaticClass(), FilePath, Factory);
-		auto* Texture = Cast<DTexture2D>(Imported.Asset);
+		std::string ImportedError;
+		Durin::FFeedbackContext ImportedFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
+			if (Level >= Durin::ELogLevel::Error) { if (!ImportedError.empty()) ImportedError += "\n"; ImportedError += Message; }
+		});
+		const auto Imported = IAssetTools::Get().ImportPackageLeafAssetForTesting(
+			ParsedPath, DTexture2D::StaticClass(), FilePath, Factory, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &ImportedFeedback);
+		auto* Texture = Cast<DTexture2D>(Imported);
 		if (!Imported || !Texture)
-			return {false, Imported.Message, Texture};
+			return {false, ImportedError, Texture};
 		if (!Texture->FinishCachePlatformData())
 			return {false, "Texture compilation failed.", Texture};
-		const FAssetWriteResult Saved = SavePackage(Imported.Package);
+		const FAssetWriteResult Saved = SavePackage(Imported->GetPackage());
 		return Saved
 			? Durin::Testing::TFactoryImportResult<Durin::DTexture2D>{true, {}, Texture}
 			: Durin::Testing::TFactoryImportResult<Durin::DTexture2D>{false, Saved.Message, Texture};

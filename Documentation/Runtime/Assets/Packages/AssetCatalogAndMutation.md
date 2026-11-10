@@ -4,7 +4,7 @@ Summary: Define mounted package discovery, rebuildable catalog/reference project
 
 Modules: Core, AssetRegistry, Engine, AssetTools, ContentBrowser, DurinEd, LevelEditor
 
-Last reviewed: 2026-11-09
+Last reviewed: 2026-11-10
 
 Package identity, serialization, loading, and residency are defined by
 [Asset Packages](AssetPackages.md). Authored, derived, and cooked storage
@@ -189,14 +189,19 @@ for the standalone host, ordinary loading, and dependency responsibilities.
 ## Duplication
 
 `IAssetTools::DuplicateAsset` accepts an exact source `FTopLevelAssetPath`,
-selects the deterministic `_Copy`, `_Copy2`, and later destination against
+resolves destinations through the asset mount system and selects the deterministic
+`_Copy`, `_Copy2`, and later destination against
 catalog, residency, and physical occupancy, and loads the exact source object.
 AssetTools creates the destination package and uses CoreDObject's
 `DuplicateObject` graph primitive directly. Internal references are remapped to
 the cloned inner objects while cross-package references retain their authored
-targets. Redirectors are rejected, every partially constructed graph is
-discarded on failure, and the requested dirty-versus-persisted policy owns
-failed-save cleanup. Engine exposes no separate asset-duplication operation.
+targets. Redirectors are rejected and partially constructed graphs are discarded
+when duplication fails. Successful duplication creates a Dirty, NewlyCreated
+resident package and returns its `DObject*`. Duplication performs no saving.
+The caller saves the returned package separately. Save failure retains the live
+copy for ordinary save retry; it never triggers discard or another duplication.
+Package identity and physical destinations are queried through the package and
+mount APIs. Engine exposes no separate asset-duplication operation.
 
 ## Editor Orchestration Boundary
 
@@ -211,21 +216,41 @@ multifile staging, publication ordering, and retained-backup policy. `Asset/Pack
 batch residency release and catalog removal against expected package metadata
 and revision. It owns no selection, warning, companion-provider, or physical
 deletion policy. `IAssetTools` owns asset creation, duplication,
-import, deletion planning and execution, reusable editor acceptance, typed terminal/persistence results, and one
-completion publication. Editor hosts own UI and presentation;
+import, deletion planning and execution, and reusable editor acceptance. Editor hosts own UI and presentation;
 ContentBrowser additionally owns recursive ordinary-file planning and permanent
 physical deletion for mixed selections. Successful authored operations advance
 DurinEd's mounted-content mutation revision exactly once and never enter the
 global object-edit Undo/Redo history.
 
+## Editor Operation Results
+
+`IAssetTools` creation, standalone import and duplication return `DObject*`, with
+`nullptr` on failure. Successful objects belong to live Dirty packages. Saving,
+relocation, redirector fixup and deletion preparation/execution return `bool`.
+Optional `FFeedbackContext*` parameters route detailed diagnostics synchronously;
+omitting the context uses the shared context and logging. High-level operations
+carry no common result envelope, terminal/persistence enums, or nested causes.
+
+`SaveAssets` continues after individual failures and invokes `OnSaved` for each
+committed package file, including a save whose Registry publication is pending.
+The boolean remains false for publication failure and feedback carries its error.
+The callback reports actual file persistence, not command admission. Duplication has no save option or completion event.
+
+Native `FAssetWriteResult` and `FAssetMutationResultDetails` retain disk effects
+and recovery paths at the owning I/O boundary. Deletion operations expose their
+native write result and affected files, retaining destructive evidence after
+rejected repeat execution. A false high-level return does not
+prove that no bytes changed: orchestration requiring partial-commit evidence
+consumes the native operation directly. Browser refresh uses observed content
+changes rather than an inferred generic persistence state.
+
 ## Asynchronous Save Staging
 
 `SavePackage(Package, Args)` performs synchronous saving.
-`SavePackageDirectAsync(Package, Args)` returns only admission and exposes no task
-handle. For persistence confirmation use
+For asynchronous persistence use
 `Package->SaveAsync(Admission, FAssetPackageSaveContext{.Args = Args})`, which returns
-`Tasks::TTask<FAssetWriteResult>`. These paths share `FAssetPackageSaveArgs`; the
-protected context adds cancellation without a redundant scheduling-flags field.
+`Tasks::TTask<FAssetWriteResult>`. Synchronous and asynchronous saving share
+`FAssetPackageSaveArgs`; the context adds cancellation.
 Clean resident packages are accepted, with the same revision checks as dirty ones.
 The explicit Engine context keeps asset readiness,
 participant validation and Registry publication; the CoreDObject file-only
@@ -235,8 +260,8 @@ wait and shutdown rules are defined by
 
 Protected tasks capture on GameThread, stage detached output on BlockingIO and
 complete after GameThread validation, commit, Registry publication and finalization
-or rollback. Dropping the task does not cancel publication. The old public
-`FAsyncPackageSave::Begin` / `Complete` protocol is removed. Content arguments, cancellation and test-fault callbacks are copied at submission.
+or rollback. Dropping the task does not cancel publication. Content arguments,
+cancellation and test-fault callbacks are copied at submission.
 Ordinary Registry failure keeps valid committed content and reports a fenced
 projection; rollback policy is not selectable through ordinary save arguments.
 Publication and exceptional completion use separate callbacks under the shared
@@ -252,7 +277,7 @@ for asynchronous saves, or ordinary synchronous saves. Save cancellation or
 failure leaves imported objects resident; the import report carries the independent
 `FAssetBatchSaveResult`. No persistence callback participates in graph application.
 
-Both ordinary contracts capture the root and hard-dependency catalog participants. Hard
+Synchronous and asynchronous saves capture the root and hard-dependency catalog participants. Hard
 dependencies must retain catalog presence, physical path, top-level identities,
 classes and redirect destinations, and must not be projection-fenced. Dependency
 content metadata changes do not invalidate that identity snapshot. Soft references
@@ -267,36 +292,13 @@ only the failed package, including projection-pending content; it does not undo
 or reclassify earlier successes. Failure injection uses the zero-based commit
 index for every phase, including Registry publication.
 
-Direct async saves capture validated detached bytes, retire and drain the old
-loose resource generation, and exclusively reserve the physical main/bulk closure
-before admitting work. Authored bulk values retain validated immutable bytes for
-editing and retry; external old resource handles stay retired. New reads and
-competing writes reject while the reservation is held. The worker writes final
-files, companion first, without temporary files, backups or old-file restoration.
-Admission neither clears Dirty/NewlyCreated nor publishes Registry metadata.
-After successful I/O, GameThread publishes captured metadata and clears Dirty
-only if the captured revision still matches.
-
-A destructive failure reports `PartiallyWritten` and `AffectedFiles`, keeps Dirty
-and fences the projection. No backup recovery paths exist. Successful bytes with
-failed participant or Registry publication report
-`ContentCommittedProjectionPending`. The same resident package can retry with a
-fresh capture; successful publication clears the fence. Explicit validated catalog
-admission can also reconcile disk content. Other operations remain fenced until
-recovery. `SetAsyncPackageSaveSink` installs a callback copied at submission;
-it receives success or failure exactly once on GameThread after owned cleanup.
-If publication throws or cannot run, exceptional completion preserves dirty-state
-and projection-fencing obligations for potentially written content. A throwing
-sink is not notified again and does not reclassify an already-published success.
-Failures and affected paths are logged independently of the sink. Direct output
-has no rollback or persistent multi-file crash-recovery guarantee.
-
-AssetTools' `FAssetSaveOperation` consumes the protected task's final result and
-adds once-only editor notification. Its `Complete` method observes persistence;
-it does not trigger file or Registry publication. It accepts one loaded dirty
-package; existing synchronous batch and canonical-resave behavior is unchanged.
-Serialization and protected file switching remain on GameThread; detached disk
-transfer is the background work.
+Editor consumers directly retain and observe the typed save Task and consume its
+native `FAssetWriteResult`; no editor result adapter is involved. The feature
+owner presents successful saves once at its own completion boundary.
+Dropping UI observation does not cancel admitted Engine work or retain callbacks
+into the destroyed UI. Synchronous batch and canonical-resave requests remain
+separate editor policies. Serialization and protected file switching remain on
+GameThread; detached disk transfer is the background work.
 
 Ordinary saves do not require a globally complete reference index. Their path-scoped
 Registry deltas preserve unrelated index errors and completeness state. Prepared

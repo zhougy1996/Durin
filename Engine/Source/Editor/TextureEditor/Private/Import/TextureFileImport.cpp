@@ -1,5 +1,6 @@
 #include "Import/TextureFileImport.h"
 #include "Asset/PackageUnloading.h"
+#include "Asset/PackageSerialization.h"
 
 #include "AssetTools/IAssetTools.h"
 #include "AssetForge/Builtins/Texture2DFactory.h"
@@ -12,22 +13,20 @@
 
 namespace Durin::Editor::Texture
 {
-	auto FTextureFileImport::ImportFile(std::string_view Filename, std::string_view TargetDirectory)
-		-> FAssetOperationResult
+	auto FTextureFileImport::ImportFile(std::string_view Filename, std::string_view TargetDirectory) -> DObject*
 	{
-		if (bRunning) return {.Kind = EAssetOperationKind::Import,
-			.State = EAssetOperationTerminalState::Rejected, .Message = "A texture import is already running."};
-		return AdmitFile(Filename, TargetDirectory);
+		if (bRunning) { Callbacks.Report("A texture import is already running."); return nullptr; }
+		FFeedbackContext Feedback({}, [this](ELogLevel, std::string_view Message) { Callbacks.Report(std::string(Message)); });
+		return AdmitFile(Filename, TargetDirectory, {}, &Feedback);
 	}
 
 	auto FTextureFileImport::AdmitFile(std::string_view Filename, std::string_view Directory,
-		std::shared_ptr<const AssetForge::Builtins::FPreparedTexture2DImport> Prepared) -> FAssetOperationResult
+		std::shared_ptr<const AssetForge::Builtins::FPreparedTexture2DImport> Prepared, FFeedbackContext* Warn) -> DObject*
 	{
 		Callbacks.Clear();
-		auto Reject = [this](std::string Message) -> FAssetOperationResult {
-			if (!bRunning) Callbacks.Report(Message);
-			return {.Kind = EAssetOperationKind::Import,
-				.State = EAssetOperationTerminalState::Rejected, .Message = std::move(Message)};
+		const auto Reject = [Warn](std::string_view Message) -> DObject* {
+			(Warn ? *Warn : FFeedbackContext::Get()).Error(Message);
+			return nullptr;
 		};
 		if (Filename.empty() || !AssetForge::Builtins::IsTexture2DSourceExtension(
 			std::filesystem::path(Filename).extension().generic_string()))
@@ -58,43 +57,33 @@ namespace Durin::Editor::Texture
 		Factory->SetAutoDetectSettings(true);
 		const bool bBatchImport = bool(Prepared);
 		Factory->SetPreparedImport(std::move(Prepared));
-		auto Imported = IAssetTools::Get().ImportAsset(
-			Destination, DTexture2D::StaticClass(), Filename, Factory);
-		if (!Imported)
-		{
-			if (!bRunning) Callbacks.Report(Imported.Message);
-			return Imported;
-		}
-		if (bBatchImport) return Imported;
-		// Saving/unloading waits for retirement, independently of the compile outcome.
-		FAssetCompilingManager::Get().FinishCompilationForObject(*Imported.Asset);
-		const auto Saved = Save(Destination.GetPackagePath());
-		if (!Saved)
-		{
-			PendingSaves.push_back(Destination.GetPackagePath());
-			Imported.Kind = EAssetOperationKind::Save;
-			Imported.State = Saved.State;
-			Imported.Message = Saved.Message;
-			return Imported;
-		}
-		Imported.Persistence = Saved.Persistence;
+		auto* Imported = IAssetTools::Get().ImportAsset(Destination, DTexture2D::StaticClass(), Filename, Factory,
+			nullptr, EObjectFlags::Public | EObjectFlags::Transactional, Warn);
+		if (!Imported || bBatchImport) return Imported;
+		FAssetCompilingManager::Get().FinishCompilationForObject(*Imported);
+		if (!Save(Destination.GetPackagePath())) PendingSaves.push_back(Destination.GetPackagePath());
 		return Imported;
 	}
 
-	auto FTextureFileImport::Save(const FPackagePath& Path) -> FAssetOperationResult
+	auto FTextureFileImport::Save(const FPackagePath& Path) -> bool
 	{
-		const FAssetSaveRequest Request{
-			.AssetPaths = {Path},
-			.Publish = [this, Path](const FAssetOperationNotification&) {
-				if (bRunning) Published.push_back(Path.ToString());
-				else Callbacks.NotifyAssetCreated(Path.ToString());
-			}};
-		auto Result = SaveOperation ? SaveOperation(Request) : IAssetTools::Get().SaveAssets(Request);
-		if (!Result && !bRunning)
-			Callbacks.Report(std::format(
-				"Texture {} was imported but could not be saved. Use Import > Retry Texture Saves. {}",
-				Path.ToString(), Result.Message));
-		return Result;
+		std::string Error;
+		FFeedbackContext Feedback({}, [&](ELogLevel Level, std::string_view Message) {
+			if (Level >= ELogLevel::Error)
+			{
+				if (!Error.empty()) Error += "\n";
+				Error += Message;
+			}
+		});
+		const bool bSaved = IAssetTools::Get().SaveAssets({.AssetPaths = {Path}}, &Feedback);
+		if (bSaved)
+		{
+			if (bRunning) Published.push_back(Path.ToString());
+			else Callbacks.NotifyAssetCreated(Path.ToString());
+		}
+		else if (!bRunning) Callbacks.Report(std::format(
+			"Texture {} was imported but could not be saved. Use Import > Retry Texture Saves. {}", Path.ToString(), Error));
+		return bSaved;
 	}
 
 	auto FTextureFileImport::RetryPendingSaves() -> void
@@ -110,9 +99,9 @@ namespace Durin::Editor::Texture
 
 	FTextureFileImport::~FTextureFileImport()
 	{
-		// Join feature-owned decoding and disk writes before releasing their state.
+		// Join feature-owned decoding. Engine owns admitted saves independently of this observer.
 		if (Preparation.valid()) Preparation.wait();
-		DiskSave.reset();
+		DiskSave = {};
 		if (Active)
 		{
 			// The authored import is already committed. Preserve it, including any
@@ -140,7 +129,7 @@ namespace Durin::Editor::Texture
 	auto FTextureFileImport::GetActivity() const -> std::string
 	{
 		if (!bRunning || Next >= Files.size()) return {};
-		return std::format("{} {}/{}: {}", DiskSave ? "Saving" : Active ? "Building" : "Reading",
+		return std::format("{} {}/{}: {}", DiskSave.IsValid() ? "Saving" : Active ? "Building" : "Reading",
 			Next + 1, Files.size(), std::filesystem::path(Files[Next]).filename().generic_string());
 	}
 
@@ -162,39 +151,30 @@ namespace Durin::Editor::Texture
 		if (Active)
 		{
 			if (!Active->IsAsyncCacheComplete()) return;
-			const auto CompilationEnd = bSaveStarted ? SaveStarted : std::chrono::steady_clock::now();
+			const auto CompilationEnd = DiskSave.IsValid() ? SaveStarted : std::chrono::steady_clock::now();
 			auto* Package = Active->GetPackage();
 
 			FPackagePath Path;
 			require(FPackagePath::TryCreate(Package->GetPackagePath(), Path));
-			std::optional<FAssetOperationResult> Saved;
-			if (!SaveOperation)
+			FAssetWriteResult Saved;
+			if (!DiskSave.IsValid())
 			{
-				if (!bSaveStarted)
-				{
-					bSaveStarted = true;
-					SaveStarted = CompilationEnd;
-					FAssetOperationResult Admission;
-					DiskSave = FAssetSaveOperation::Begin({.AssetPaths = {Path},
-						.Publish = [this, Path](const FAssetOperationNotification&) {
-							Published.push_back(Path.ToString());
-						}}, Admission);
-					if (!DiskSave) Saved = std::move(Admission);
-				}
-				if (DiskSave)
-				{
-					if (!DiskSave->IsReady()) return;
-					Saved = DiskSave->Complete();
-					DiskSave.reset();
-				}
+				SaveStarted = CompilationEnd;
+				DiskSave = Package->SaveAsync(Saved, FAssetPackageSaveContext{});
+			}
+			if (DiskSave.IsValid())
+			{
+				if (!DiskSave.IsCompleted()) return;
+				Saved = DiskSave.GetState() == ETaskState::Succeeded ? DiskSave.GetResult()
+					: FAssetWriteResult{EAssetWriteError::IoError, "Save task failed or was canceled."};
+				DiskSave = {};
 			}
 			const auto Filename = Files[Next];
 			double SaveMilliseconds = 0;
-			const auto SaveStart = bSaveStarted ? SaveStarted : std::chrono::steady_clock::now();
-			const auto Result = Saved ? std::move(*Saved) : Save(Path);
+			const auto& Result = Saved;
 			SaveMilliseconds = std::chrono::duration<double, std::milli>(
-				std::chrono::steady_clock::now() - SaveStart).count();
-			if (Result) { ++SavedCount; ++Next; }
+				std::chrono::steady_clock::now() - SaveStarted).count();
+			if (Result) { Published.push_back(Path.ToString()); ++SavedCount; ++Next; }
 			else { PendingSaves.push_back(Path); Fail("Imported, but save failed: " + Result.Message); }
 			Active.Reset();
 			if (Result && !Package->IsDirty()) UnloadPackage(Package);
@@ -203,7 +183,6 @@ namespace Durin::Editor::Texture
 				Filename, PreparationMilliseconds,
 				std::chrono::duration<double, std::milli>(CompilationEnd - CompilationStart).count(),
 				SaveMilliseconds);
-			bSaveStarted = false;
 			return;
 		}
 		if (Preparation.valid())
@@ -218,9 +197,14 @@ namespace Durin::Editor::Texture
 				return;
 			}
 			CompilationStart = std::chrono::steady_clock::now();
-			const auto Result = AdmitFile(Files[Next], Directory, std::move(Prepared.Data));
-			if (!Result) { Fail(Result.Message); return; }
-			Active = Cast<DTexture2D>(Result.Asset);
+			std::string Error;
+			FFeedbackContext Feedback({}, [&](ELogLevel Level, std::string_view Message) {
+				if (Level >= ELogLevel::Error) Error += Message;
+				else FFeedbackContext::Get().Serialize(Level, Message);
+			});
+			auto* Result = AdmitFile(Files[Next], Directory, std::move(Prepared.Data), &Feedback);
+			if (!Result) { Fail(Error); return; }
+			Active = Cast<DTexture2D>(Result);
 			return;
 		}
 		if (bCancelRequested || Next == Files.size()) { FinishBatch(); return; }

@@ -7,13 +7,10 @@
 
 namespace Durin
 {
-	enum EPackageSaveFlags : uint32 { SAVE_None = 0, SAVE_Async = 1 };
 	namespace PackageSavePrivate
 	{
 		// Internal detached-work owner shared by file-only and Engine adapters.
 		COREDOBJECT_API auto CheckAsyncAdmission(uint64 Bytes = 0) -> FPackageSaveResult;
-		COREDOBJECT_API auto SubmitAsyncSave(uint64 Bytes, std::function<void()> Write,
-			std::function<void(bool)> Publish, std::function<void()> Abandon) -> FPackageSaveResult;
 		struct FAsyncSaveState;
 		using FAsyncSavePublicationFactory = std::function<Tasks::FTask(const Tasks::FTask&,
 			const std::shared_ptr<FAsyncSaveState>&)>;
@@ -80,7 +77,6 @@ namespace Durin
 		std::filesystem::path Destination;
 		EPackageSaveMode Mode = EPackageSaveMode::Delta;
 		FPackageCaptureOptions Capture;
-		EPackageSaveFlags Flags = SAVE_None;
 		std::function<bool()> IsCancellationRequested;
 	};
 	struct FSavePackageContext

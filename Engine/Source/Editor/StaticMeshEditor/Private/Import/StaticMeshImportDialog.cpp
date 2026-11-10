@@ -251,17 +251,25 @@ namespace Durin::Editor::StaticMesh
 		Factory->SetImportSettings(Coordinates.GetSettings());
 		Operation = std::make_shared<FOperationState>();
 		Operation->Package = AssetPath;
-		const FAssetToolsResult Result = IAssetTools::Get().ImportAsset(
+		std::string ResultError;
+		FFeedbackContext ResultFeedback({}, [&](ELogLevel Level, std::string_view Message) {
+			if (Level >= ELogLevel::Error)
+			{
+				if (!ResultError.empty()) ResultError += "\n";
+				ResultError += Message;
+			}
+		});
+		const auto Result = IAssetTools::Get().ImportAsset(
 			TopLevelAssetPath, DStaticMesh::StaticClass(),
-			SourcePathBuffer.data(), Factory);
+			SourcePathBuffer.data(), Factory, nullptr, EObjectFlags::Public | EObjectFlags::Transactional, &ResultFeedback);
 		if (!Result)
 		{
 			Operation.reset();
-			SetError(Result.Message.empty()
-				? "StaticMesh import failed." : Result.Message);
+			SetError(ResultError.empty()
+				? "StaticMesh import failed." : ResultError);
 			return false;
 		}
-		Operation->Owner = FObjectKey(Result.Asset);
+		Operation->Owner = FObjectKey(Result);
 		return false; // Keep the modal open until completion and save.
 	}
 
@@ -274,17 +282,21 @@ namespace Durin::Editor::StaticMesh
 		Mesh->FinishCompilation();
 		if (auto* Body = Mesh->GetBodySetup()) Body->FinishPhysicsMeshes(); // Saving waits for collision retirement.
 		const auto AssetPath = Operation->Package;
-		if (const FAssetOperationResult Saved = IAssetTools::Get().SaveAssets({
+		std::string SavedError;
+		FFeedbackContext Feedback({}, [&](ELogLevel Level, std::string_view Message) {
+			if (Level >= ELogLevel::Error) SavedError += Message;
+		});
+		if (const bool Saved = IAssetTools::Get().SaveAssets({
 				.AssetPaths = {AssetPath},
-				.Publish = [this, &AssetPath](const FAssetOperationNotification&) {
+				.OnSaved = [this](const FPackagePath& AssetPath) {
 					Callbacks.NotifyAssetCreated(AssetPath.ToString());
-				}});
+				}}, &Feedback);
 			!Saved)
 		{
 			Operation->bSaveFailed = true;
-			SetError(Saved.Message.empty()
+			SetError(SavedError.empty()
 				? "StaticMesh was created but its package could not be saved."
-				: Saved.Message);
+				: SavedError);
 			return false;
 		}
 		Operation.reset();

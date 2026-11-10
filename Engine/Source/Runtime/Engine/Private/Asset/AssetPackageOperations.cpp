@@ -8,7 +8,6 @@
 #include "AssetPackageCodec.h"
 #include "AssetPackageSaveInternal.h"
 #include "Asset/PackageVersionPolicy.h"
-#include "EditorBulkDataSaveRetention.h"
 #include "Asset/PackageResource.h"
 #include "DObject/DefaultDeltaPlan.h"
 
@@ -116,7 +115,7 @@ namespace Durin
 	namespace
 	{
 		auto BeginAssetWrite(const std::filesystem::path& Destination, FByteBuffer Bytes, FByteBuffer Bulk,
-			const FFilePublicationStamp& MainStamp, const FFilePublicationStamp& BulkStamp, bool bDirect = false)
+			const FFilePublicationStamp& MainStamp, const FFilePublicationStamp& BulkStamp)
 			-> std::unique_ptr<IPackageWriteOperation>
 		{
 			// Each writer owns only its transaction's siblings; abandoned files from
@@ -129,11 +128,11 @@ namespace Durin
 			Files.push_back({{Companion, Bulk.empty() ? std::filesystem::path{} : std::filesystem::path{BulkPrefix + ".stage.tmp"},
 				BulkPrefix + ".backup.tmp"}, BulkStamp, std::move(Bulk)});
 			Files.push_back({{Destination, MainPrefix + ".stage.tmp", MainPrefix + ".backup.tmp"}, MainStamp, std::move(Bytes)});
-			return (bDirect ? GetDirectFilePackageWriter() : GetFilePackageWriter())->Begin(std::move(Files));
+			return GetFilePackageWriter()->Begin(std::move(Files));
 		}
 		// Snapshot by value: callers may pass the package's mutable identity member.
 		auto PreparePackageSave(DPackage* Package, const FPackagePath Path,
-			EAssetPackageSaveMode Mode, FPreparedPackageSave& Out, bool bDirect = false) -> FAssetWriteResult
+			EAssetPackageSaveMode Mode, FPreparedPackageSave& Out) -> FAssetWriteResult
 		{
 			if (auto Result = AssetPrivate::ValidatePackageSaveAdmission(Path); !Result) return Result;
 			FPreparedPackageSave Prepared;
@@ -149,7 +148,6 @@ namespace Durin
 			Prepared.Revision = Package->GetEditRevision();
 			AssetPrivate::FAssetPackageEncodedClosure Closure;
 			FAssetPackageSerializationOptions Serialization; Serialization.Mode = Mode;
-			AssetPrivate::FScopedBulkSaveRetention RetainSources(bDirect);
 			if (auto Result = AssetPrivate::EncodeAssetPackageClosure(Package, Closure, {Serialization}); !Result)
 				return AssetWriteResultFromEncoding(Result);
 			// The codec validates the closure. Capture its canonical header once;
@@ -163,19 +161,9 @@ namespace Durin
 				|| GetPhysicalPath(Prepared.Header.PackagePath) != Prepared.Destination.generic_string())
 				return Error(EAssetWriteError::StaleData, "Package or destination changed during capture.");
 			Prepared.DetachedBytes = Closure.PackageBytes.size() + Closure.BulkBytes.size();
-			if (bDirect)
-			{
-				if (auto Result = PackageSavePrivate::CheckAsyncAdmission(Prepared.DetachedBytes); !Result)
-					return Error(EAssetWriteError::InUse, Result.Message);
-				ReadAccess.reset();
-				GetPackageResourceManager().RetirePackage(Path.ToString());
-			}
 			Prepared.Write = BeginAssetWrite(Prepared.Destination, std::move(Closure.PackageBytes), std::move(Closure.BulkBytes),
-				MainStamp, BulkStamp, bDirect);
+				MainStamp, BulkStamp);
 			if (auto Result = ToAssetWriteResult(Prepared.Write->GetAdmissionResult()); !Result) return Result;
-			// Catch registration which finished between the first retirement and
-			// exclusive physical admission. New registration is now excluded.
-			if (bDirect) GetPackageResourceManager().RetirePackage(Path.ToString());
 			Out = std::move(Prepared);
 			return {};
 		}
@@ -298,106 +286,6 @@ namespace Durin
 		Admission = {};
 		return Task;
 	}
-	namespace
-	{
-		FAsyncPackageSaveSink AsyncSaveSink;
-		bool bFailDirectPublication = false;
-		struct FDirectAssetSave
-		{
-			FPreparedPackageSave Prepared;
-			FPackageWriteResult Written;
-			FSaveParticipants Participants;
-			bool bStarted = false;
-			FAsyncPackageSaveSink Sink;
-			bool bNotified = false;
-			auto Notify(FAssetWriteResult Result) -> void
-			{
-				check(IsInGameThread());
-				if (bNotified) return;
-				const auto Path = Prepared.Header.PackagePath;
-				if (!Result && Result.Effect != EAssetWriteEffect::None)
-				{
-					if (!Prepared.Package->IsDirty()) Prepared.Package->MarkDirty();
-					FenceAssetRegistryProjection(std::span(&Path, 1));
-				}
-				if (!Result) DURIN_ERROR("Async save {} failed: {}", Path.ToString(), Result.Message);
-				Prepared = {};
-				Participants.clear();
-				Written = {};
-				bNotified = true;
-				auto NotifySink = std::move(Sink);
-				if (NotifySink) NotifySink(Path, Result);
-			}
-			auto Abandon() -> void
-			{
-				if (bNotified) return;
-				auto Result = Error(EAssetWriteError::IoError, "Direct save publication did not complete; the closure requires reconciliation.");
-				Result.Effect = bStarted ? EAssetWriteEffect::PartiallyWritten : EAssetWriteEffect::None;
-				Notify(std::move(Result));
-			}
-		};
-	}
-	auto SetAsyncPackageSaveSink(FAsyncPackageSaveSink Sink) -> void
-	{ check(IsInGameThread()); AsyncSaveSink = std::move(Sink); }
-	namespace Testing
-	{
-		auto SetDirectSavePublicationFailure(bool bFail) -> void
-		{ check(IsInGameThread()); bFailDirectPublication = bFail; }
-	}
-	auto SavePackageDirectAsync(DPackage* Package, const FAssetPackageSaveArgs& Args) -> FAssetWriteResult
-	{
-		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("save", ""); !Guard) return AssetWriteResultFromRead(Guard);
-		if (auto Admission = FAssetRuntimeState::Get().CheckRequestAdmission(); !Admission)
-			return AssetWriteResultFromRead(Admission);
-		if (FAssetRuntimeState::Get().GetRuntimeConfiguration().IsCooked())
-			return Error(EAssetWriteError::ReadOnlyMode, "Cooked packages cannot be saved.");
-		if (auto Result = PackageSavePrivate::CheckAsyncAdmission(); !Result) return Error(EAssetWriteError::InUse, Result.Message);
-		if (!Package || !Package->IsAssetPackage() || Package->IsGraphPrivate()
-			|| FindResidentPackage(Package->GetPackagePathIdentity()) != Package)
-			return Error(EAssetWriteError::InvalidData, "A resident asset package is required.");
-		auto Data = std::make_shared<FDirectAssetSave>();
-		Data->Sink = AsyncSaveSink;
-		if (auto Result = PreparePackageSave(Package, Package->GetPackagePathIdentity(), Args.Mode, Data->Prepared, true); !Result) return Result;
-		Data->Participants.emplace(Data->Prepared.Header.PackagePath, FindPackageExact(Data->Prepared.Header.PackagePath).Data);
-		for (const auto& Dependency : Data->Prepared.Header.Dependencies)
-			Data->Participants.emplace(Dependency, FindPackageExact(Dependency).Data);
-		auto Submitted = PackageSavePrivate::SubmitAsyncSave(Data->Prepared.DetachedBytes,
-			[Data] { Data->bStarted = true; Data->Written = Data->Prepared.Write->Stage(); },
-			[Data, bFailPublication = bFailDirectPublication](bool bSucceeded) {
-				auto& Prepared = Data->Prepared;
-				const auto Path = Prepared.Header.PackagePath;
-				auto Result = ToAssetWriteResult(Data->Written);
-				if (!bSucceeded)
-				{
-					Result = Error(EAssetWriteError::IoError, "Direct write task failed; the closure requires reconciliation.");
-					Result.Effect = Data->bStarted ? EAssetWriteEffect::PartiallyWritten : EAssetWriteEffect::None;
-					auto Bulk = Prepared.Destination; Bulk.replace_extension(".dbulk");
-					DURIN_ERROR("Direct save may have affected {} and {}", Bulk.string(), Prepared.Destination.string());
-				}
-				if (Result)
-				{
-					FFilePublicationStamp Stamp;
-					if (SaveParticipantsChanged(Data->Participants, Path)
-						|| FindResidentPackage(Path) != Data->Prepared.Package.Get() || Data->Prepared.Package->GetPackagePathIdentity() != Path
-						|| GetPhysicalPath(Path) != Prepared.Destination.generic_string()
-						|| !FFilePublicationStamp::Inspect(Prepared.Destination, Stamp) || !Stamp.Exists)
-						Result = Error(EAssetWriteError::StaleData, "Written package identity or destination changed before publication.");
-					else
-						Result = bFailPublication ? Error(EAssetWriteError::StaleData, "Injected Registry publication failure.")
-							: AssetWriteResultFromRead(AssetPrivate::ToAssetResult(AssetsSaved({BuildSavedAssetMetadata(Prepared.Header,
-							Prepared.Destination, Stamp.Size, Stamp.Time)}, CaptureAssetRegistryPublication())));
-					if (!Result) Result.Effect = EAssetWriteEffect::ContentCommittedProjectionPending;
-					else
-					{
-						Data->Prepared.Package->MarkAsPublished();
-						if (Data->Prepared.Package->GetEditRevision() == Prepared.Revision) Data->Prepared.Package->ClearDirty();
-					}
-				}
-				Data->Notify(std::move(Result));
-			}, [Data] { Data->Abandon(); });
-		return Submitted ? FAssetWriteResult{} : Error(EAssetWriteError::InUse, Submitted.Message);
-	}
-
 	auto SavePackages(
 		std::span<DPackage* const> Packages,
 		const FAssetPackageSaveArgs& Args) -> FAssetBatchSaveResult

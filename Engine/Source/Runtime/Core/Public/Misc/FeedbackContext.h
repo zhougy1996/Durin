@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "CoreAPI.h"
+#include "Logging/Logger.h"
 
 namespace Durin
 {
@@ -29,7 +30,13 @@ namespace Durin
 	class FFeedbackContext
 	{
 	public:
-		CORE_API explicit FFeedbackContext(std::function<double()> Clock = {});
+		using FMessageSink = std::function<void(ELogLevel, std::string_view)>;
+		CORE_API explicit FFeedbackContext(std::function<double()> Clock = {}, FMessageSink Messages = {});
+		// The sink runs synchronously on the reporting thread and owns any synchronization.
+		// Message views are valid only during the call; reporting never pumps work.
+		CORE_API auto Serialize(ELogLevel Level, std::string_view Message) -> void;
+		auto Error(std::string_view Message) -> void { Serialize(ELogLevel::Error, Message); }
+		auto Warning(std::string_view Message) -> void { Serialize(ELogLevel::Warn, Message); }
 		CORE_API ~FFeedbackContext();
 		FFeedbackContext(const FFeedbackContext&) = delete;
 		auto operator=(const FFeedbackContext&) -> FFeedbackContext& = delete;
@@ -40,5 +47,6 @@ namespace Durin
 	private:
 		friend class FSlowTask;
 		std::shared_ptr<FSlowTaskContextState> State;
+		FMessageSink Messages;
 	};
 }

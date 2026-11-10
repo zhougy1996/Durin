@@ -41,7 +41,7 @@
 #include "StaticMesh/StaticMeshFactoryTestSupport.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "StaticMeshTestAccess.h"
-#include "AssetForge/Builtins/SceneImport.h"
+#include "AssetForge/Builtins/AssetImport.h"
 #include "Thumbnail/ThumbnailManager.h"
 #include "Thumbnail/AssetThumbnailPool.h"
 #include "Thumbnail/ThumbnailPreviewScene.h"
@@ -195,12 +195,13 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			/ "StaticModelMaterials/RenderedOpaqueDataUri.gltf",
 		MountedScene,
 		std::filesystem::copy_options::overwrite_existing);
-	Durin::AssetForge::Builtins::FSceneImportResult Executed;
+	Durin::AssetForge::Builtins::FAssetImportResult Executed;
 	{
 		using namespace Durin::AssetForge::Builtins;
-		FSceneImportSession Session(MountedScene.generic_string(), DestinationDirectory,
-			Durin::FStaticMeshImportSettings::MakeDurin());
-		const auto AdvanceTo = [&](ESceneImportPhase Phase) {
+		FAssetImportSession Session(MountedScene.generic_string(), DestinationDirectory,
+			Durin::FStaticMeshImportSettings::MakeDurin(),
+			{.MeshMode = EAssetImportMeshMode::Combined});
+		const auto AdvanceTo = [&](EAssetImportPhase Phase) {
 			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
 			while (std::chrono::steady_clock::now() < Deadline)
 			{
@@ -208,15 +209,15 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 				Durin::FAssetCompilingManager::Get().ProcessAsyncTasks(false);
 				Session.Tick();
 				if (Session.GetProgress().Phase == Phase) return true;
-				if (Session.GetProgress().Phase == ESceneImportPhase::Completed) return false;
+				if (Session.GetProgress().Phase == EAssetImportPhase::Completed) return false;
 				std::this_thread::yield();
 			}
 			return false;
 		};
-		ASSERT_TRUE(AdvanceTo(ESceneImportPhase::Ready)) << Session.GetResult().Message;
-		ASSERT_TRUE(Session.PreviewMaterials(DestinationDirectory, {}).bSucceeded);
+		ASSERT_TRUE(AdvanceTo(EAssetImportPhase::Ready)) << Session.GetResult().Message;
+		ASSERT_TRUE(Session.PreviewOutputs(DestinationDirectory, {}).bSucceeded);
 		ASSERT_TRUE(Session.BeginImport(DestinationDirectory, {}));
-		ASSERT_TRUE(AdvanceTo(ESceneImportPhase::Completed)) << Session.GetResult().Message;
+		ASSERT_TRUE(AdvanceTo(EAssetImportPhase::Completed)) << Session.GetResult().Message;
 		Executed = Session.GetResult();
 	}
 	ASSERT_TRUE(Executed)
@@ -720,11 +721,10 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		}
 		// Retain the actual importer output for packed source channels, independent
 		// derived textures, transformed UV1, normal strength and masked rendering.
-		auto PbrImport = Durin::AssetForge::Builtins::ImportSceneAssets(
-			(std::filesystem::path(DURIN_TEST_DATA_DIR)
+		auto PbrImport = Durin::AssetForge::Builtins::ImportAssetOutputs((std::filesystem::path(DURIN_TEST_DATA_DIR)
 				/ "StaticModelMaterials/ImportedPbrContract.gltf").generic_string(),
-			MakeAssetPath("/SceneImportVulkan/Imports/PbrBaseline"),
-			Durin::FStaticMeshImportSettings::MakeDurin());
+			MakeAssetPath("/SceneImportVulkan/Imports/PbrBaseline"), Durin::FStaticMeshImportSettings::MakeDurin(),
+			{.MeshMode = Durin::AssetForge::Builtins::EAssetImportMeshMode::Combined});
 		ASSERT_TRUE(PbrImport) << PbrImport.Message;
 		Durin::FPackagePath PbrMeshPath;
 		for (const auto& Output : PbrImport.Outputs)

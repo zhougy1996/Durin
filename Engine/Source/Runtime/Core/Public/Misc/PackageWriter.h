@@ -67,18 +67,8 @@ namespace Durin
 	{
 	public:
 		virtual ~IPackageWriter() = default;
-		virtual auto SupportsRollback() const -> bool { return true; }
 		virtual auto Begin(std::vector<FPackageWriteFile> Files)
 			-> std::unique_ptr<IPackageWriteOperation> = 0;
 	};
 	CORE_API auto GetFilePackageWriter() -> std::shared_ptr<IPackageWriter>;
-	// Stage writes final files in input order, without staging siblings or backups.
-	// Reserves the output closure at Begin. Readers must use FPackageFileAccess.
-	// Rollback cannot restore overwritten bytes. AffectedFiles identifies attempted
-	// destinations for PartiallyWritten; RecoveryFiles remains empty.
-	CORE_API auto GetDirectFilePackageWriter(std::function<bool(size_t)> ShouldFail = {}) -> std::shared_ptr<IPackageWriter>;
-	namespace Private
-	{
-		CORE_API auto SetDirectPackageWriteFailureForTests(std::function<bool(size_t)> Hook) -> void;
-	}
 }

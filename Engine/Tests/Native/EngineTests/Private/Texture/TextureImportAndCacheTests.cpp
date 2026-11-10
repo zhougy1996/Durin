@@ -62,10 +62,14 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 		"/TextureImportTests/Transparent", AssetPath));
 	auto* Factory = Durin::NewObject<Durin::AssetForge::Builtins::DTexture2DFactory>(
 		nullptr, "Texture2DFactoryImportTest", Durin::EObjectFlags::Transient);
-	const Durin::FAssetToolsResult Created = Durin::IAssetTools::Get().ImportPackageLeafAssetForTesting(
-		AssetPath, Durin::DTexture2D::StaticClass(), Source.generic_string(), Factory);
+	std::string CreatedError;
+	Durin::FFeedbackContext CreatedFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
+		if (Level >= Durin::ELogLevel::Error) { if (!CreatedError.empty()) CreatedError += "\n"; CreatedError += Message; }
+	});
+	const auto Created = Durin::IAssetTools::Get().ImportPackageLeafAssetForTesting(
+		AssetPath, Durin::DTexture2D::StaticClass(), Source.generic_string(), Factory, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &CreatedFeedback);
 	Durin::Testing::TFactoryImportResult<Durin::DTexture2D> Result{
-		Created.Succeeded(), Created.Message, Durin::Cast<Durin::DTexture2D>(Created.Asset)};
+		static_cast<bool>(Created), CreatedError, Durin::Cast<Durin::DTexture2D>(Created)};
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Result.Asset, nullptr);
 	EXPECT_TRUE(Result.Asset->GetPackage()->IsDirty());

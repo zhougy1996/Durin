@@ -1,4 +1,4 @@
-#include "AssetForge/Builtins/SceneImport.h"
+#include "AssetForge/Builtins/AssetImport.h"
 #include "StaticMesh/StaticMeshImportSettings.h"
 
 #include "DObject/Package.h"

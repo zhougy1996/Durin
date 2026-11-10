@@ -4,7 +4,7 @@ Summary: Define authored, derived, cooked, and runtime asset-data ownership and 
 
 Modules: Engine, RenderCore, DerivedDataCache, MeshBuilder, TextureCompressor, AssetForgeBuiltins
 
-Last reviewed: 2026-10-31
+Last reviewed: 2026-11-10
 
 Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
@@ -87,8 +87,8 @@ validation path; relocation consumers do not repeat that validation.
 
 Saves and mutations use `FAssetWriteResult` for error, message and observed write
 effect only. Mutation file ledgers and backup roots belong to
-`FAssetMutationResultDetails`; editor deletion reports its file ledger through
-`FAssetOperationResult`. Physical save diagnostics remain in the package writer,
+`FAssetMutationResultDetails`; editor deletion operations expose their native
+write result and affected file ledger directly. Physical save diagnostics remain in the package writer,
 with retained backup paths included in failure text at the asset boundary.
 `AssetWriteResultFromRead` and `AssetWriteResultFromEncoding` are explicit
 adapters. Neither read nor encoding failures implicitly convert to a write result,

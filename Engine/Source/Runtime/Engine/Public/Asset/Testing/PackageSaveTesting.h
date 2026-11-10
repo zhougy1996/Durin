@@ -24,5 +24,4 @@ namespace Durin::Testing
 		FPackageSaveFault Fault;
 		const FPackageSaveFault* Previous;
 	};
-	ENGINE_API auto SetDirectSavePublicationFailure(bool bFail) -> void;
 }

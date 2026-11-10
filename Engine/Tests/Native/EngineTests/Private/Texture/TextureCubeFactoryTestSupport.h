@@ -11,12 +11,12 @@
 namespace Durin::AssetForge::Builtins
 {
 	inline auto SaveTextureCubeFactoryResult(
-		FAssetToolsResult Imported) -> Durin::Testing::TFactoryImportResult<Durin::DTextureCube>
+		DObject* Imported, std::string_view Error) -> Durin::Testing::TFactoryImportResult<Durin::DTextureCube>
 	{
-		auto* Texture = Cast<DTextureCube>(Imported.Asset);
+		auto* Texture = Cast<DTextureCube>(Imported);
 		if (!Imported || !Texture)
-			return {false, Imported.Message, Texture};
-		const FAssetWriteResult Saved = SavePackage(Imported.Package);
+			return {false, std::string(Error), Texture};
+		const FAssetWriteResult Saved = SavePackage(Imported->GetPackage());
 		return Saved
 			? Durin::Testing::TFactoryImportResult<Durin::DTextureCube>{true, {}, Texture}
 			: Durin::Testing::TFactoryImportResult<Durin::DTextureCube>{false, Saved.Message, Texture};
@@ -37,8 +37,12 @@ namespace Durin::AssetForge::Builtins
 		auto* Factory = NewObject<DTextureCubeFactory>(
 			nullptr, "TextureCubeFacesTestFactory", EObjectFlags::Transient);
 		Factory->ConfigureFaces(FaceFiles, Settings);
-		return SaveTextureCubeFactoryResult(IAssetTools::Get().ImportPackageLeafAssetForTesting(
-			ParsedPath, DTextureCube::StaticClass(), FaceFiles[0], Factory));
+		FFeedbackContext Feedback({}, [&](ELogLevel Level, std::string_view Message) {
+			if (Level >= ELogLevel::Error) Error += Message;
+		});
+		auto* Imported = IAssetTools::Get().ImportPackageLeafAssetForTesting(
+			ParsedPath, DTextureCube::StaticClass(), FaceFiles[0], Factory, nullptr, EObjectFlags::Public | EObjectFlags::Transactional, &Feedback);
+		return SaveTextureCubeFactoryResult(Imported, Error);
 	}
 
 	inline auto ImportTextureCubePanoramaForTest(
@@ -57,7 +61,11 @@ namespace Durin::AssetForge::Builtins
 		auto* Factory = NewObject<DTextureCubeFactory>(
 			nullptr, "TextureCubePanoramaTestFactory", EObjectFlags::Transient);
 		Factory->ConfigurePanorama(Settings);
-		return SaveTextureCubeFactoryResult(IAssetTools::Get().ImportPackageLeafAssetForTesting(
-			ParsedPath, DTextureCube::StaticClass(), PanoramaFile, Factory));
+		FFeedbackContext Feedback({}, [&](ELogLevel Level, std::string_view Message) {
+			if (Level >= ELogLevel::Error) Error += Message;
+		});
+		auto* Imported = IAssetTools::Get().ImportPackageLeafAssetForTesting(
+			ParsedPath, DTextureCube::StaticClass(), PanoramaFile, Factory, nullptr, EObjectFlags::Public | EObjectFlags::Transactional, &Feedback);
+		return SaveTextureCubeFactoryResult(Imported, Error);
 	}
 }

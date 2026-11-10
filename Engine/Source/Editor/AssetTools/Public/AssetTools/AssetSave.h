@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-#include "AssetTools/AssetOperation.h"
+#include "DObject/AssetPath.h"
 
 namespace Durin
 {
@@ -16,22 +16,9 @@ namespace Durin
 	{
 		std::vector<FPackagePath> AssetPaths;
 		EAssetSaveMode Mode = EAssetSaveMode::LoadedDirtyPackage;
-		FPublishAssetOperation Publish;
+		// Reports committed package files, including saves with pending Registry publication.
+		// The command still returns false and reports diagnostics when publication fails.
+		std::function<void(const FPackagePath&)> OnSaved;
 	};
 
-	// Asynchronous disk staging for one loaded dirty package. Calls, completion
-	// publication and destruction belong to the editor thread.
-	class ASSETTOOLS_API FAssetSaveOperation
-	{
-	public:
-		static auto Begin(const FAssetSaveRequest& Request, FAssetOperationResult& OutResult)
-			-> std::unique_ptr<FAssetSaveOperation>;
-		~FAssetSaveOperation();
-		auto IsReady() const -> bool;
-		auto Complete() -> FAssetOperationResult;
-	private:
-		FAssetSaveOperation();
-		struct FState;
-		std::unique_ptr<FState> State;
-	};
 }

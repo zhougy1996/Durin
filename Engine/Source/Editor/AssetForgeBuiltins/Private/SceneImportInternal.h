@@ -84,7 +84,7 @@ namespace Durin::AssetForge::Builtins
 		std::vector<FImportOutputSummary>& OutOutputs,
 		std::vector<FImportDiagnostic>& OutDiagnostics,
 		std::string& OutError,
-		const FAssetImportOptions& Options = FAssetImportOptions::LegacyCombined(),
+		const FAssetImportOptions& Options,
 		FImportedDocument* PreparedDocument = nullptr) -> bool;
 	auto DiscoverSceneImportDependencies(
 		std::span<const FSourceSnapshotEntry> Sources,

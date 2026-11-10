@@ -20,8 +20,8 @@ namespace Durin::Editor
 	auto FGltfAssetImportDialog::Open(std::string_view InDestinationDirectory) -> void
 	{
 		if (bImporting) return;
-		if (Session && Session->GetProgress().Phase != AssetForge::Builtins::ESceneImportPhase::Ready
-			&& Session->GetProgress().Phase != AssetForge::Builtins::ESceneImportPhase::Completed) return;
+		if (Session && Session->GetProgress().Phase != AssetForge::Builtins::EAssetImportPhase::Ready
+			&& Session->GetProgress().Phase != AssetForge::Builtins::EAssetImportPhase::Completed) return;
 		Session.reset();
 		bImporting = bReportedCompletion = false;
 		SourcePathBuffer.fill(0);
@@ -31,7 +31,7 @@ namespace Durin::Editor
 		ImportOptions = {};
 		SourceMeshes.clear();
 		SourceScenes.clear();
-		MaterialPreview = {};
+		OutputPreview = {};
 		bPreviewDirty = true;
 		DestinationDirectory.Reset(InDestinationDirectory);
 		ModalState.RequestOpen();
@@ -39,7 +39,7 @@ namespace Durin::Editor
 
 	auto FGltfAssetImportDialog::Draw(bool bAllowAssetMutation) -> void
 	{
-		using AssetForge::Builtins::ESceneImportPhase;
+		using AssetForge::Builtins::EAssetImportPhase;
 		if (Session) Session->Tick();
 		ModalState.OpenPopupIfRequested("Import glTF Assets");
 		const MonaImGui::FUIStyleMetrics Metrics = MonaImGui::GetUIStyleMetrics();
@@ -47,7 +47,7 @@ namespace Durin::Editor
 		if (!ImGui::BeginPopupModal("Import glTF Assets", nullptr,
 			ImGuiWindowFlags_NoResize
 				| ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings)) return;
-		if (Session && Session->GetProgress().Phase == ESceneImportPhase::Completed && !bReportedCompletion)
+		if (Session && Session->GetProgress().Phase == EAssetImportPhase::Completed && !bReportedCompletion)
 		{
 			bReportedCompletion = true;
 			bImporting = false;
@@ -59,7 +59,7 @@ namespace Durin::Editor
 
 			bImporting = false;
 		}
-		if (Session && Session->GetProgress().Phase == ESceneImportPhase::Completed)
+		if (Session && Session->GetProgress().Phase == EAssetImportPhase::Completed)
 		{
 			const auto& Result = Session->GetResult();
 			ImGui::SeparatorText(Result ? "Import completed" : "Import stopped");
@@ -82,8 +82,8 @@ namespace Durin::Editor
 			ImGui::EndPopup();
 			return;
 		}
-		if (Session && Session->GetProgress().Phase != ESceneImportPhase::Ready
-			&& Session->GetProgress().Phase != ESceneImportPhase::Completed)
+		if (Session && Session->GetProgress().Phase != EAssetImportPhase::Ready
+			&& Session->GetProgress().Phase != EAssetImportPhase::Completed)
 		{
 			const auto Progress = AssetForge::Builtins::MakeAssetImportFeedback(Session->GetProgress(), SourcePathBuffer.data());
 			if (DrawSlowTaskProgress(Progress, true, false))
@@ -144,15 +144,15 @@ namespace Durin::Editor
 		DrawMaterials(DestinationValidation.DirectoryPath,
 			bAllowAssetMutation && DestinationValidation && bSourceExists && bSupportedSource && bImportSettingsValid);
 
-		if (!bPreviewDirty && !MaterialPreview.Outputs.empty())
+		if (!bPreviewDirty && !OutputPreview.Outputs.empty())
 		{
 			ImGui::SeparatorText("Planned assets");
 			constexpr const char* Dispositions[] = {"Create", "Update", "Preserve", "Conflict"};
 			ImGui::BeginChild("GltfOutputPreview", ImVec2(0, MonaImGui::ScaleUI(180)), ImGuiChildFlags_Borders);
-			for (const auto& Output : MaterialPreview.Outputs)
+			for (const auto& Output : OutputPreview.Outputs)
 				ImGui::TextWrapped("%s %s: %s", Dispositions[static_cast<size_t>(Output.Disposition)],
 					Output.Role.c_str(), Output.AssetPath.ToString().c_str());
-			for (const auto& Diagnostic : MaterialPreview.Diagnostics) ImGui::TextWrapped("%s", Diagnostic.Message.c_str());
+			for (const auto& Diagnostic : OutputPreview.Diagnostics) ImGui::TextWrapped("%s", Diagnostic.Message.c_str());
 			ImGui::EndChild();
 		}
 
@@ -162,9 +162,9 @@ namespace Durin::Editor
 		else if (!bSupportedSource) ValidationMessage = "This importer supports glTF and GLB files.";
 		else if (!bImportSettingsValid) ValidationMessage = ImportSettingsError;
 		else if (!DestinationValidation) ValidationMessage = FormatContentDirectoryValidation(DestinationValidation);
-		else if (!Session || Session->GetProgress().Phase != ESceneImportPhase::Ready) ValidationMessage = "Source preparation is not ready.";
+		else if (!Session || Session->GetProgress().Phase != EAssetImportPhase::Ready) ValidationMessage = "Source preparation is not ready.";
 		else if (bPreviewDirty) ValidationMessage = "Validating output selections...";
-		else if (!MaterialPreview.bSucceeded) ValidationMessage = MaterialPreview.Message;
+		else if (!OutputPreview.bSucceeded) ValidationMessage = OutputPreview.Message;
 		DrawImportDialogWarning(ValidationMessage);
 		ImGui::TextWrapped("Reimport updates meshes and textures. Existing materials and mesh material bindings are preserved unless Rebuild materials is enabled.");
 
@@ -213,7 +213,7 @@ namespace Durin::Editor
 		MaterialOptions.Overrides.clear();
 		ImportOptions.SelectedMeshes.clear();
 		ImportOptions.SelectedScenes.clear();
-		MaterialPreview = {};
+		OutputPreview = {};
 		bPreviewDirty = true;
 		const std::string SceneName = StringUtils::SanitizeFileName(
 			std::filesystem::path(Result.FilePath).stem().generic_string(), "Scene");
@@ -247,7 +247,7 @@ namespace Durin::Editor
 	auto FGltfAssetImportDialog::DrawOutputs() -> void
 	{
 		using namespace AssetForge::Builtins;
-		if (!Session || Session->GetProgress().Phase != ESceneImportPhase::Ready) return;
+		if (!Session || Session->GetProgress().Phase != EAssetImportPhase::Ready) return;
 		if (SourceMeshes.empty() || bPreviewDirty)
 		{
 			SourceMeshes = Session->GetSourceMeshes();
@@ -357,10 +357,10 @@ namespace Durin::Editor
 			}
 		};
 		DrawSelection(MaterialOptions.Default);
-		if (!MaterialPreview.Materials.empty())
+		if (!OutputPreview.Materials.empty())
 		{
 			ImGui::BeginChild("SceneMaterials", ImVec2(0, MonaImGui::ScaleUI(240)), ImGuiChildFlags_Borders);
-			for (const auto& Row : MaterialPreview.Materials)
+			for (const auto& Row : OutputPreview.Materials)
 			{
 				ImGui::PushID(Row.StableIdentity.c_str());
 				ImGui::SeparatorText(Row.SourceName.empty() ? "Unnamed material" : Row.SourceName.c_str());
@@ -392,12 +392,12 @@ namespace Durin::Editor
 			ImGui::EndChild();
 		}
 		if (bCanPreview && bPreviewDirty && Session
-			&& Session->GetProgress().Phase == ESceneImportPhase::Ready)
+			&& Session->GetProgress().Phase == EAssetImportPhase::Ready)
 		{
-			MaterialPreview = Session->PreviewOutputs(Directory, MaterialOptions);
+			OutputPreview = Session->PreviewOutputs(Directory, MaterialOptions);
 			bPreviewDirty = false;
 		}
-		if (Session && Session->GetProgress().Phase == ESceneImportPhase::Completed && ImGui::Button("Retry preparation"))
+		if (Session && Session->GetProgress().Phase == EAssetImportPhase::Completed && ImGui::Button("Retry preparation"))
 		{
 			Session.reset();
 			bPreviewDirty = true;

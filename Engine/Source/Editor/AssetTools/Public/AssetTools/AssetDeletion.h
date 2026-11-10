@@ -4,7 +4,8 @@
 
 #include "Asset/AssetWriteResult.h"
 
-#include "AssetTools/AssetOperation.h"
+#include "AssetToolsAPI.h"
+#include "Misc/FeedbackContext.h"
 #include "AssetRegistry/Catalog.h"
 #include "Asset/PackageInspection.h"
 
@@ -109,7 +110,10 @@ namespace Durin
 		ASSETTOOLS_API auto Validate() const -> FAssetWriteResult;
 		// Rejects empty, moved-from, blocked, stale, and completed operations before I/O.
 		// The destructive callback runs once; failure reports partial effects with fenced paths.
-		ASSETTOOLS_API auto Delete(const FAssetDeletionCommit& Commit) -> FAssetOperationResult;
+		ASSETTOOLS_API auto Delete(const FAssetDeletionCommit& Commit, FFeedbackContext* Warn = nullptr) -> bool;
+		// Rejected repeated execution preserves the destructive result and file ledger.
+		ASSETTOOLS_API auto GetWriteResult() const -> const FAssetWriteResult&;
+		ASSETTOOLS_API auto GetAffectedFiles() const -> std::span<const std::filesystem::path>;
 
 	private:
 		struct FState;
@@ -117,7 +121,7 @@ namespace Durin
 
 		friend auto PrepareAssetDeletionWithEditorPolicy(
 			const FAssetDeletionRequest& Request,
-			FAssetDeletionOperation& OutOperation) -> FAssetOperationResult;
+			FAssetDeletionOperation& OutOperation, FFeedbackContext* Warn) -> bool;
 	};
 
 	using FAssetDeleteContributor = std::function<FAssetWriteResult(

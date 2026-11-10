@@ -4,7 +4,7 @@ Summary: Define Factory-backed standalone import, immutable source capture, fami
 
 Modules: CoreDObject, AssetTools, AssetForgeBuiltins, DurinEd
 
-Last reviewed: 2026-10-29
+Last reviewed: 2026-11-10
 
 Durin creates standalone authored assets through `IAssetTools` and reflected
 concrete `DFactory` classes. Texture2D, TextureCube, VolumeTexture, and StaticMesh
@@ -150,19 +150,11 @@ PostLoad policy rather than import `Recover` semantics.
 
 ## Standalone Batch Admission
 
-`FAssetImportValidation` derives success from `EAssetImportError` without stored
-messages. It owns request identity, filename/class context, factory ambiguity or
-batch collision counts, filesystem errors and a nested destination validation
-cause. Factory compatibility validation returns an error code directly. Pending
-asset-operation adapters use `FormatAssetImportValidation` explicitly and retain
-the original result in `FAssetOperationResult::ImportCause`. Single-item admission,
-batch preflight and factory compatibility rejection preserve this cause chain.
-Creation admission and invalid factory-product rejection retain `CreationCause`,
-including requested path/class/source and the actual product path/class captured
-before package cleanup. Wrong type, outer, name and top-level registration are
-distinct failures. A null factory product reports `FactoryRejected` and retains
-the bounded per-invocation `FFactoryDiagnostics` collection in `FactoryCause`
-before cleanup; an empty diagnostic collection still has a typed failure.
+Standalone creation and import return a live `DObject*`, or `nullptr` on failure.
+Optional `FFeedbackContext*` routes messages synchronously; the default context
+logs them. Invalid products report requested and actual identity/class before
+package cleanup. Factory-owned `FFactoryDiagnostics` is formatted at this boundary
+and is not retained in a high-level result or nested cause chain.
 The collection preserves report order and shares one entry-count limit across
 transitional text, typed `FFactoryError` entries and module-owned
 `IFactoryErrorDetail` payloads. The latter retain concrete typed causes behind an
@@ -252,12 +244,10 @@ failure or advisory text without storing prose or a separate success flag.
 
 `FAssetImportRequest` carries an explicit top-level destination, source filename,
 asset class, optional configured factory, context, and object flags.
-`IAssetTools::InspectImports` returns one validation per input without creating
-packages or decoding sources. It checks constructibility, writable mounted
-destinations, resident/catalog/file occupancy, and factory selection. Every item
-sharing a destination package is rejected, even with different top-level names.
-Source capture and format validation remain factory responsibilities; preflight
-does not guarantee decoding or compilation success.
+Import admission checks constructibility, writable mounted destinations,
+resident/catalog/file occupancy, and factory selection. Every item sharing a
+destination package is rejected, even with different top-level names. Source
+capture and format validation remain factory responsibilities.
 
 `ImportAssets` snapshots the request and dispatches standalone factories in input
 order on the game thread. Execution revalidates each destination using the same
@@ -265,11 +255,11 @@ admission policy as single-file `ImportAsset`. The returned object must have the
 requested class, package, and exact name. Configured factories and context objects
 are strongly retained throughout the call, including failed-package collection.
 
-Results preserve input order and distinguish `Accepted`, `Rejected`,
-`NotAttempted` after stop-on-failure, and `Canceled` before dispatch. Failure
-continues by default; stop-on-failure preserves earlier successful peers.
+The returned `std::vector<DObject*>` preserves input order. Null entries identify
+rejected, canceled or unattempted inputs; messages use the feedback context.
+Failure continues by default; stop-on-failure preserves earlier successful peers.
 Cancellation is checked between items and cannot interrupt a running factory.
-Empty batches return no results. A rejected item retains its operation diagnostic.
+Empty batches return no objects.
 
 Acceptance means the factory returned a valid live asset. It does not imply that
 deferred family compilation or persistence has completed. Successful packages
@@ -307,9 +297,9 @@ Malformed transforms, invalid parents, cycles and scene roots fail decoding.
 slots. `ExpandImportedDocument` explicitly expands the default or requested source
 scenes, applying each node's canonical global transform once. It preserves origin,
 uses each selected node once when scene roots overlap, and rejects singular mesh
-instance transforms. The Scene session uses this document boundary and expands a
-combined compatibility projection. `ImportedScene.h`, `ImportFromFile` and
-`ImportGeometryFromMemory` remain explicit legacy/standalone flattened boundaries;
+instance transforms. The asset import session uses this document boundary;
+combined mode expands the selected scene instances. `ImportedScene.h`,
+`ImportFromFile` and `ImportGeometryFromMemory` are standalone flattened boundaries;
 reflected receipt names and existing output identities are unchanged.
 
 ## Shared Asset Output Planning
@@ -337,9 +327,13 @@ selected packaged material/interface without modifying, compiling or saving it;
 its source texture products are omitted unless another output needs them or unused
 resources were explicitly requested.
 
-`PreviewOutputs` resolves paths, create/preserve/conflict dispositions, material
-policy and destination occupancy before
-building. `BeginImport` consumes that resolved preview for unchanged selections.
+`FAssetImportSession::PreviewOutputs` is the single preview boundary for glTF,
+GLB and FBX. It resolves all selected output paths, create/preserve/conflict
+dispositions, material mappings and destination occupancy from the retained
+source snapshot without decoding again or publishing assets. It returns
+`FAssetImportPreview` with `Outputs`, `Materials`, `Diagnostics` and `Message`;
+material-only views read `Materials` from that same result. `BeginImport` consumes
+the resolved preview for unchanged selections and refreshes it when needed.
 Source closure hashes are checked before product construction and again before
 publication. Publication rejects destination occupancy and mapped-material revision changes
 rather than accepting a different occupant. Existing standalone ownership,
@@ -350,17 +344,18 @@ addition to disposition. `ImportedPackages` identifies newly applied live packag
 preserved/material-mapped assets are excluded. Import applies the complete validated
 peer graph before optional saving. Saving does not change output import states.
 
-`SceneImport.h` and `SceneImportTypes.h` remain compatibility includes.
-`FSceneImportSession` aliases the shared session, whose constructor retains the
-legacy combined default when no explicit options are passed. `ImportSceneAssets`
-retains that combined policy and saved `scene:mesh:combined` identity.
+Both `FAssetImportSession` and `ImportAssetOutputs` default to split outputs.
+Combined imports explicitly pass `FAssetImportOptions` with
+`MeshMode = EAssetImportMeshMode::Combined` and use the `scene:mesh:combined`
+output identity. Public declarations live in `AssetImport.h` and
+`AssetImportTypes.h`; there are no alternate scene import entrypoints or aliases.
 
 ## Scene Import
 
-Scene import is the legacy combined-output entrypoint to the shared asset
-session. It owns a private transient dependency model for textures, materials,
-and static meshes. Sources with skins or animation channels fail before staging outputs. The private model is not
-a public AssetForge graph and is never persisted for replay.
+The shared asset import session owns a private transient dependency model for
+textures, materials, and static meshes. Sources with skins or animation channels
+fail before staging outputs. The private model is not a public AssetForge graph
+and is never persisted for replay.
 
 The importer:
 
@@ -380,8 +375,9 @@ selected destination's `Materials/M_<source name>`. CreateInstances publishes
 An import-wide selection can be overridden by stable source-material identity.
 No new shared `Materials/ImportedParents` assets are generated.
 
-`PreviewSceneMaterials` captures and decodes the source without publishing
-assets, lists resolved paths/modes/parents, and reports compatibility per material.
+`FAssetImportPreview.Materials` lists resolved material paths, modes and parents,
+and reports compatibility per material. Both import forms consume `PreviewOutputs`;
+there is no independent material preview capture or execution path.
 The mapping contract accepts the built-in full PBR Metallic/Roughness template
 and compatible imported PBR graphs with stable parameter IDs. The full template
 receives all factors, textures and UV parameters, resetting absent maps to their
@@ -426,7 +422,7 @@ texture preparation still reuse their family build adapters below that
 publication boundary. Engine exposes no generic `CreateAsset` materialization
 seam.
 
-`ImportSceneAssets` returns a complete `FSceneImportResult` report by value.
+`ImportAssetOutputs` returns a complete `FAssetImportResult` report by value.
 Its boolean conversion checks `bSucceeded`; cancellation and rejection still
 return diagnostics and any output summaries already produced. Output summaries
 are planned identities, not proof that their packages were saved.
@@ -519,7 +515,11 @@ pinned until completion, and saving waits for successful build and provenance
 publication. Ordinary factory calls remain synchronous, and reimport preserves
 its configured settings.
 
-The import queue retains Engine asset publication through `FAssetSaveOperation`;
+The import queue directly consumes Engine's `DPackage::SaveAsync` Task for disk
+saving. The Task owns final persistence and Registry publication; the queue owns
+batch presentation after observing completion. Failure tests use ordinary package
+save fault injection, so batch execution has one asynchronous save path. Importer
+teardown drops observation without leaving UI callbacks in admitted Engine work.
 CoreDObject package-only saves do not publish catalog metadata or editor notifications.
 After compilation: preparation and
 final publication run on the GameThread, while package/bulk staging and byte

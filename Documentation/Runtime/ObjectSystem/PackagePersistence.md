@@ -4,7 +4,7 @@ Summary: Define Engine-free reflected package capture, synchronous and asynchron
 
 Modules: Core, CoreDObject
 
-Last reviewed: 2026-10-31
+Last reviewed: 2026-11-10
 
 ## Ownership and Entry Points
 
@@ -69,7 +69,8 @@ this API does not add a general object loader.
 `FSavePackageContext` supplies `Tasks::TTask<FPackageSaveResult>`; Engine's
 `FAssetPackageSaveContext` supplies `Tasks::TTask<FAssetWriteResult>` with asset policy
 and Registry publication. There is no default context or implicit file-only
-fallback. Both reject direct-write flags. Options are copied at submission.
+fallback. Options are copied at submission; choosing `SaveAsync` determines
+scheduling without a second flag.
 Cancellation is supplied through `IsCancellationRequested`; the operation retains
 the copied callback through publication. Captures must own their state or keep any
 borrowed state alive until the returned task and async-save owner have retired.
@@ -134,7 +135,7 @@ Cleanup may pump other already-admitted publications; the publication guard
 remains active until the outermost publication/cleanup returns.
 
 The shared owner admits at most 64 operations and 256 MiB of detached output
-across direct and protected async saves. Slots and byte accounting remain held
+across asynchronous saves. Slots and byte accounting remain held
 through terminal publication. Admission requires a running scheduler and an
 accepting GameThread deferred executor. Disk work is gated until the completion
 task has been admitted. An event releases the gate only after an
@@ -145,8 +146,8 @@ rejected decision and cannot start a destructive write.
 `DPackage::HasAsyncFileWrites()` reports disk work only, including protected
 staging. `WaitForAsyncFileWrites()` snapshots admitted disk tasks and waits that
 cutoff, returning `FTaskWaitResult`; it does not publish, pump GameThread or wait
-for later submissions. Domain I/O errors remain in save results or the direct
-sink, independently of the worker task state. Ordinary Task waits never pump;
+for later submissions. Domain I/O errors remain in typed save results,
+independently of the worker task state. Ordinary Task waits never pump;
 a GameThread wait on an unfinished final save task is unsupported.
 
 Headless hosts initialize the deferred executor and explicitly call GameThread
@@ -232,42 +233,22 @@ causes supplement that report without discarding commit or recovery evidence.
 | Protected commit fails and restoration succeeds | `NotCommitted`, original error | Previous destination content was restored. |
 | Rollback cannot restore a member | `RecoveryRequired`, error and retained `RecoveryFiles` | Manual recovery may be necessary; failure does not imply unchanged files. |
 | Finalize fails to release a backup | `Committed`, error and retained `RecoveryFiles` | Content was committed even though cleanup failed. |
-| Direct writer fails before attempting output | `NotCommitted`, error | No destination write was attempted. |
-| Direct writer fails after attempting output | `PartiallyWritten`, error and `AffectedFiles` | Attempted files may be truncated or removed; no rollback or recovery backups exist. |
-| Direct writer finishes all output | `Committed` | `AffectedFiles` is cleared; subsequent commit/finalize observes this result. |
 
 Keep these payloads on both boolean branches. Neither a void expected value nor
 an error-only wrapper represents the phase and physical effects together.
 
-## Detached Direct Writer Primitives
-
-Core also provides `GetDirectFilePackageWriter` for detached output. Its `Stage`
-writes final destinations in input order, without creating staged or backup files.
-An empty staging marker requests removal, as in the protected writer; nonempty
-markers select writing but are not opened. It validates the complete destination
-stamp set before the first destructive operation. `Commit` and `Finalize` observe
-the result; `Rollback` cannot restore overwritten bytes, and destruction does not
-restore them. Engine uses it for admission-only `SavePackage(..., SAVE_Async)`.
-
-Failure before destructive output is `NotCommitted`. Failure after any attempted
-write or removal is conservatively `PartiallyWritten`; `AffectedFiles` names
-attempted destinations, while `RecoveryFiles` remains empty. CoreDObject preserves
-that distinction in `FPackageSaveResult`. `IPackageWriter::SupportsRollback`
-identifies protected writers; `FPackageSaveOperation` rejects direct writers
-before capture or I/O so its existing protected contract cannot be weakened.
+## Physical File Admission
 
 `FPackageFileAccess` atomically admits a set of physical paths for shared reading
 or exclusive writing. Tokens can cross threads and release without thread-affine
 mutex ownership. Keys use absolute, weakly canonical paths and Windows case
 normalization; hard-linked files are rejected because their aliases cannot safely
-be represented by independent path keys. Direct writers acquire at construction
-and retain admission through their lifetime. Protected writers acquire before
+be represented by independent path keys. Package writers acquire before
 commit and retain ownership through finalization or rollback; staging remains
 optimistic. Conflicts reject without blocking or retaining a partial reservation.
 This is process-local cooperation, not an OS lock. Engine load, inspection,
 resource registration and loose-resource reads participate in shared admission;
-`TryReadPackage` reserves the main and companion together. Direct saves retire
-and drain old lazy resources before destructive output. Explicit bundles reserve
+`TryReadPackage` reserves the main and companion together. Explicit bundles reserve
 their complete destination set before publishing any member.
 
 ## Validation

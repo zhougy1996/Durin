@@ -4,6 +4,7 @@
 
 #include "AssetToolsAPI.h"
 #include "AssetTools/AssetDeletion.h"
+#include "Misc/FeedbackContext.h"
 #include "AssetTools/AssetDuplicate.h"
 #include "AssetTools/AssetImport.h"
 #include "AssetTools/AssetMutation.h"
@@ -16,8 +17,6 @@ namespace Durin
 	class DClass;
 	class DFactory;
 	class DPackage;
-
-	using FAssetToolsResult = FAssetOperationResult;
 
 	// Coordinates generic editor asset construction and delegates specialized
 	// initialization to factories when one is available. Returned assets are live
@@ -33,17 +32,13 @@ namespace Durin
 			DClass* AssetClass,
 			const DFactory* Factory = nullptr,
 			DObject* Context = nullptr,
-			EObjectFlags Flags = EObjectFlags::Public | EObjectFlags::Transactional)
-			-> FAssetToolsResult = 0;
+			EObjectFlags Flags = EObjectFlags::Public | EObjectFlags::Transactional,
+			FFeedbackContext* Warn = nullptr)
+			-> DObject* = 0;
 
-		// Preflight creates no packages and decodes no sources. It is advisory;
-		// execution revalidates destinations. All duplicate package targets fail.
-		ASSETTOOLS_API auto InspectImports(std::span<const FAssetImportRequest> Items)
-			-> std::vector<FAssetImportValidation>;
-		// Synchronous standalone factory dispatch, without automatic save/rollback
-		// of successful peers. Scene transactions remain owned by their importer.
-		ASSETTOOLS_API auto ImportAssets(const FAssetImportBatchRequest& Request)
-			-> FAssetImportBatchResult;
+		// Input order; null entries denote rejected, canceled or unattempted imports.
+		ASSETTOOLS_API auto ImportAssets(const FAssetImportBatchRequest& Request,
+			FFeedbackContext* Warn = nullptr) -> std::vector<DObject*>;
 
 		virtual auto ImportAsset(
 			const FTopLevelAssetPath& AssetPath,
@@ -51,20 +46,22 @@ namespace Durin
 			std::string_view Filename,
 			const DFactory* Factory = nullptr,
 			DObject* Context = nullptr,
-			EObjectFlags Flags = EObjectFlags::Public | EObjectFlags::Transactional)
-			-> FAssetToolsResult = 0;
+			EObjectFlags Flags = EObjectFlags::Public | EObjectFlags::Transactional,
+			FFeedbackContext* Warn = nullptr)
+			-> DObject* = 0;
 
 		auto CreatePackageLeafAssetForTesting(
 			const FPackagePath& PackagePath,
 			DClass* AssetClass,
 			const DFactory* Factory = nullptr,
 			DObject* Context = nullptr,
-			EObjectFlags Flags = EObjectFlags::Public | EObjectFlags::Transactional) -> FAssetToolsResult
+			EObjectFlags Flags = EObjectFlags::Public | EObjectFlags::Transactional,
+			FFeedbackContext* Warn = nullptr) -> DObject*
 		{
 			FTopLevelAssetPath AssetPath;
 			if (!FTopLevelAssetPath::TryCreate(
 				PackagePath, PackagePath.GetPackageName(), AssetPath)) return {};
-			return CreateAsset(AssetPath, AssetClass, Factory, Context, Flags);
+			return CreateAsset(AssetPath, AssetClass, Factory, Context, Flags, Warn);
 		}
 
 		auto ImportPackageLeafAssetForTesting(
@@ -73,13 +70,14 @@ namespace Durin
 			std::string_view Filename,
 			const DFactory* Factory = nullptr,
 			DObject* Context = nullptr,
-			EObjectFlags Flags = EObjectFlags::Public | EObjectFlags::Transactional) -> FAssetToolsResult
+			EObjectFlags Flags = EObjectFlags::Public | EObjectFlags::Transactional,
+			FFeedbackContext* Warn = nullptr) -> DObject*
 		{
 			FTopLevelAssetPath AssetPath;
 			if (!FTopLevelAssetPath::TryCreate(
 				PackagePath, PackagePath.GetPackageName(), AssetPath)) return {};
 			return ImportAsset(
-				AssetPath, AssetClass, Filename, Factory, Context, Flags);
+				AssetPath, AssetClass, Filename, Factory, Context, Flags, Warn);
 		}
 
 		// Discards a package created through this service. Unsaved state is
@@ -92,24 +90,24 @@ namespace Durin
 			-> FPackageReloadOperation = 0;
 
 		// Chooses a collision-free copy identity, clones the persistent graph, and
-		// applies the request's dirty-versus-persisted publication policy.
-		virtual auto DuplicateAsset(const FAssetDuplicateRequest& Request)
-			-> FAssetOperationResult = 0;
+		// returns the new Dirty asset. Saving is a separate caller action.
+		virtual auto DuplicateAsset(const FAssetDuplicateRequest& Request, FFeedbackContext* Warn = nullptr)
+			-> DObject* = 0;
 		// Persists loaded dirty packages or executes canonical resave policy.
-		virtual auto SaveAssets(const FAssetSaveRequest& Request)
-			-> FAssetOperationResult = 0;
+		virtual auto SaveAssets(const FAssetSaveRequest& Request, FFeedbackContext* Warn = nullptr)
+			-> bool = 0;
 		// Executes one authored relocation job once.
-		virtual auto RelocateAssets(const FAssetRelocationRequest& Request)
-			-> FAssetOperationResult = 0;
+		virtual auto RelocateAssets(const FAssetRelocationRequest& Request, FFeedbackContext* Warn = nullptr)
+			-> bool = 0;
 		// Executes one redirect-reference canonicalization job.
 		virtual auto FixUpRedirectors(
-			const FAssetRedirectorFixupRequest& Request)
-			-> FAssetOperationResult = 0;
+			const FAssetRedirectorFixupRequest& Request, FFeedbackContext* Warn = nullptr)
+			-> bool = 0;
 		// Captures asset safety and the opaque irreversible operation without staging bytes.
 		virtual auto PrepareDeletion(
 			const FAssetDeletionRequest& Request,
-			FAssetDeletionOperation& OutOperation)
-			-> FAssetOperationResult = 0;
+			FAssetDeletionOperation& OutOperation, FFeedbackContext* Warn = nullptr)
+			-> bool = 0;
 	};
 
 }

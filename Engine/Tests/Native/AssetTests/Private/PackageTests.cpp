@@ -5272,7 +5272,7 @@ TEST(FPackageAssetTests, OrdinarySaveSurvivesUnrelatedRegistryScanFailure)
 	EXPECT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 }
 
-TEST(FPackageAssetTests, DirectSaveRetiresLazyResourcesButRetainsAuthoredBytesForRetry)
+TEST(FPackageAssetTests, SaveTaskFailurePreservesLazyBulkSourceForRetry)
 {
 	using namespace Durin;
 	InitializeAssetTests();
@@ -5283,69 +5283,51 @@ TEST(FPackageAssetTests, DirectSaveRetiresLazyResourcesButRetainsAuthoredBytesFo
 	struct FScope
 	{
 		bool bOwn;
-		~FScope()
-		{
-			(void)DPackage::DrainAsyncSaves(); SetAsyncPackageSaveSink({});
-			Private::SetDirectPackageWriteFailureForTests({});
-			if (bOwn) ShutdownTaskSystem(ETaskShutdownMode::Drain);
-		}
+		~FScope() { (void)DPackage::DrainAsyncSaves(); if (bOwn) ShutdownTaskSystem(ETaskShutdownMode::Drain); }
 	} Scope{bOwnScheduler};
 	FPackagePath Path;
-	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/DirectLazyRetry", Path));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/LazySaveRetry", Path));
 	DBulkPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
 	FByteBuffer Payload(static_cast<size_t>(EditorBulkDataExternalThreshold + 17), std::byte{0x5a});
 	ASSERT_TRUE(Asset->Payload.UpdatePayload(Payload));
 	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
 	ASSERT_TRUE(UnloadPackage(Path));
-	{
-		auto LoadedValue = LoadObjectDetailed<DBulkPackageAssetForTest>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
-		Asset = LoadedValue.value_or(nullptr);
-		ASSERT_TRUE(LoadedValue);
-	}
+	const auto Loaded = LoadObjectDetailed<DBulkPackageAssetForTest>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+	ASSERT_TRUE(Loaded);
+	Asset = *Loaded;
 	ASSERT_FALSE(Asset->Payload.IsMemoryResident());
-	auto Resource = GetPackageResourceManager().FindPackage(Path.ToString());
-	ASSERT_TRUE(Resource);
 	Asset->GetPackage()->MarkDirty();
-	auto Results = std::make_shared<std::vector<FAssetWriteResult>>();
-	SetAsyncPackageSaveSink([Results](const auto&, const auto& Result) { Results->push_back(Result); });
-	Private::SetDirectPackageWriteFailureForTests([](size_t Index) { return Index == 1; });
-	ASSERT_TRUE(SavePackageDirectAsync(Asset->GetPackage()));
-	EXPECT_TRUE(Resource->IsRetired());
-	EXPECT_TRUE(Asset->Payload.IsMemoryResident());
+	FAssetWriteResult Admission;
+	Tasks::TTask<FAssetWriteResult> Save;
+	{
+		Testing::FScopedPackageSaveFault Fault([](auto Phase, size_t) {
+			return Phase == Testing::EPackageSaveFaultPoint::PublishPackage;
+		});
+		Save = Asset->GetPackage()->SaveAsync(Admission, FAssetPackageSaveContext{});
+	}
+	ASSERT_TRUE(Save.IsValid()) << Admission.Message;
 	ASSERT_TRUE(DPackage::DrainAsyncSaves());
-	ASSERT_EQ(Results->size(), 1u);
-	EXPECT_EQ(Results->front().Effect, EAssetWriteEffect::PartiallyWritten);
-	const auto Resident = Asset->Payload.GetPayload().Wait();
-	ASSERT_TRUE(Resident);
-	EXPECT_TRUE(std::ranges::equal(Resident->GetBytes(), Payload));
-	EXPECT_EQ(Resource->ReadRange(0, 1).error().Status, EPackageResourceReadStatus::Retired);
-	Private::SetDirectPackageWriteFailureForTests({});
-	ASSERT_TRUE(SavePackageDirectAsync(Asset->GetPackage()));
-	ASSERT_TRUE(DPackage::DrainAsyncSaves());
-	ASSERT_EQ(Results->size(), 2u);
-	EXPECT_TRUE(Results->back()) << Results->back().Message;
+	ASSERT_EQ(Save.GetState(), ETaskState::Succeeded);
+	EXPECT_FALSE(Save.GetResult());
+	EXPECT_EQ(Save.GetResult().Effect, EAssetWriteEffect::None);
+	EXPECT_TRUE(Asset->GetPackage()->IsDirty());
 	EXPECT_FALSE(IsAssetRegistryProjectionFenced(Path));
-	EXPECT_FALSE(Asset->GetPackage()->IsDirty());
-	// A throwing notification must not enter the abandonment path a second time
-	// or turn an already-published direct save into an uncertain disk outcome.
-	SetAsyncPackageSaveSink([Results](const auto& SavedPath, const auto& Result) {
-		EXPECT_TRUE(IsInGameThread());
-		const auto Saved = FindPackageExact(SavedPath);
-		EXPECT_TRUE(Saved);
-		if (Saved) EXPECT_TRUE(FPackageFileAccess::TryReadPackage(Saved->PhysicalPath));
-		Results->push_back(Result);
-		throw std::runtime_error("direct save sink failure");
-	});
-	Asset->GetPackage()->MarkDirty();
-	ASSERT_TRUE(SavePackageDirectAsync(Asset->GetPackage()));
+	const auto Retained = Asset->Payload.GetPayload().Wait();
+	ASSERT_TRUE(Retained);
+	EXPECT_TRUE(std::ranges::equal(Retained->GetBytes(), Payload));
+	auto Retry = Asset->GetPackage()->SaveAsync(Admission, FAssetPackageSaveContext{});
+	ASSERT_TRUE(Retry.IsValid()) << Admission.Message;
 	ASSERT_TRUE(DPackage::DrainAsyncSaves());
-	ASSERT_EQ(Results->size(), 3u);
-	EXPECT_TRUE(Results->back());
-	PackageSavePrivate::PollAsyncSaves();
-	EXPECT_EQ(Results->size(), 3u);
-	EXPECT_FALSE(IsAssetRegistryProjectionFenced(Path));
+	ASSERT_EQ(Retry.GetState(), ETaskState::Succeeded);
+	EXPECT_TRUE(Retry.GetResult()) << Retry.GetResult().Message;
 	EXPECT_FALSE(Asset->GetPackage()->IsDirty());
+	ASSERT_TRUE(UnloadPackage(Path));
+	const auto Reloaded = LoadObjectDetailed<DBulkPackageAssetForTest>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+	ASSERT_TRUE(Reloaded);
+	const auto SavedPayload = (*Reloaded)->Payload.GetPayload().Wait();
+	ASSERT_TRUE(SavedPayload);
+	EXPECT_TRUE(std::ranges::equal(SavedPayload->GetBytes(), Payload));
 }
 
 TEST(FPackageAssetTests, AsyncSaveChecksHardReferenceIdentityButIgnoresDependencyContentAndSoftTargets)

@@ -54,8 +54,6 @@ namespace Durin
 		std::function<bool()> IsCancellationRequested;
 		ENGINE_API auto SaveAsync(DPackage*, FAssetWriteResult& Admission) const -> Tasks::TTask<FAssetWriteResult>;
 	};
-	using FAsyncPackageSaveSink = std::function<void(const FPackagePath&, const FAssetWriteResult&)>;
-	ENGINE_API auto SetAsyncPackageSaveSink(FAsyncPackageSaveSink Sink) -> void;
 
 	ENGINE_API auto SerializeAssetPackageBytes(
 		DPackage* Package,
@@ -83,8 +81,6 @@ namespace Durin
 		const FAssetPackageSaveArgs& Args = {}
 	) -> FAssetBatchSaveResult;
 	ENGINE_API auto SavePackage(DPackage* Package, const FAssetPackageSaveArgs& Args = {}) -> FAssetWriteResult;
-	// Admission-only direct output. Completion is reported to the async save sink.
-	ENGINE_API auto SavePackageDirectAsync(DPackage* Package, const FAssetPackageSaveArgs& Args = {}) -> FAssetWriteResult;
 	ENGINE_API auto AdmitAssetPackageToCatalog(
 		const FPackagePath& Path
 	) -> FAssetWriteResult;

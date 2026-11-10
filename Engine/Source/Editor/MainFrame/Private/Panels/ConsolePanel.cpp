@@ -246,13 +246,21 @@ namespace Durin::Editor::MainFrame
 						return Left.GetView() < Right.GetView();
 					});
 				const bool bDelete = Args.empty() || Args[0] == "rewrite-and-delete";
-				const FAssetOperationResult Result = IAssetTools::Get().FixUpRedirectors({
+				std::string ResultError;
+				FFeedbackContext ResultFeedback({}, [&](ELogLevel Level, std::string_view Message) {
+					if (Level >= ELogLevel::Error)
+					{
+						if (!ResultError.empty()) ResultError += "\n";
+						ResultError += Message;
+					}
+				});
+				const auto Result = IAssetTools::Get().FixUpRedirectors({
 					.Redirectors = Redirectors,
-					.bDeleteRedirectors = bDelete});
+					.bDeleteRedirectors = bDelete}, &ResultFeedback);
 				return Result ? FConsoleCommandResult::Success(std::format(
 					"Fixed up {} redirector(s) in {} mode.", Redirectors.size(),
 					bDelete ? "rewrite-and-delete" : "rewrite-only"))
-					: FConsoleCommandResult::Failure(Result.Message);
+					: FConsoleCommandResult::Failure(ResultError);
 			}});
 	}
 

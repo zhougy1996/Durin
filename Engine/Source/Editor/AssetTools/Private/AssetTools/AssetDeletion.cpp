@@ -1,7 +1,6 @@
 #include "Asset/RegistryOperations.h"
 #include "AssetTools/IAssetTools.h"
 #include "AssetDeletionInternal.h"
-#include "AssetOperationResultInternal.h"
 #include "Asset/Load.h"
 #include "Asset/MutationExtensions.h"
 #include "Asset/PackageRemoval.h"
@@ -58,6 +57,8 @@ namespace Durin
 		FAssetRegistrySnapshot PreparedSnapshot;
 		FAssetDeletionFileIdentities ConfirmedBytes;
 		std::unordered_set<std::string> RemovedFiles;
+		FAssetWriteResult LastResult;
+		std::vector<std::filesystem::path> AffectedFiles;
 		std::unordered_map<FPackagePath, std::vector<std::filesystem::path>> OutsideCompanions;
 
 		auto ValidateFiles(const FAssetDeletionCommit& Commit) -> FAssetWriteResult;
@@ -101,19 +102,27 @@ namespace Durin
 			: std::span<const FAssetDeletionBlocker>{};
 	}
 
-	auto FAssetDeletionOperation::Delete(const FAssetDeletionCommit& Commit) -> FAssetOperationResult
+	auto FAssetDeletionOperation::GetWriteResult() const -> const FAssetWriteResult&
 	{
-		std::vector<std::filesystem::path> AffectedFiles;
-		const FAssetWriteResult Result = State ? State->Delete(Commit, AffectedFiles)
-			: Error(EAssetWriteError::StaleData, "The asset deletion operation is not prepared.");
-		FAssetOperationResult Operation = AssetToolsPrivate::FromEngineResult(EAssetOperationKind::Delete, Result);
-		Operation.AffectedFiles = std::move(AffectedFiles);
-		for (const auto& Entry : GetEntries())
-			Operation.AffectedAssets.push_back(Entry.RegistryEntry.PackagePath);
-		for (const auto& Warning : GetWarnings())
-			Operation.Warnings.push_back({Warning.AssetPath, Warning.Details});
-		if (Result) Operation.Persistence = EAssetOperationPersistenceState::Persisted;
-		return Operation;
+		static const FAssetWriteResult Unavailable{EAssetWriteError::InvalidData, "No deletion operation is prepared."};
+		return State ? State->LastResult : Unavailable;
+	}
+	auto FAssetDeletionOperation::GetAffectedFiles() const -> std::span<const std::filesystem::path>
+	{
+		return State ? std::span<const std::filesystem::path>(State->AffectedFiles) : std::span<const std::filesystem::path>{};
+	}
+	auto FAssetDeletionOperation::Delete(const FAssetDeletionCommit& Commit, FFeedbackContext* Warn) -> bool
+	{
+		if (!State) { (Warn ? *Warn : FFeedbackContext::Get()).Error(GetWriteResult().Message); return false; }
+		if (State->bExecuted)
+		{
+			(Warn ? *Warn : FFeedbackContext::Get()).Error("The deletion operation has already executed.");
+			return false;
+		}
+		State->AffectedFiles.clear();
+		State->LastResult = State->Delete(Commit, State->AffectedFiles);
+		if (!State->LastResult) (Warn ? *Warn : FFeedbackContext::Get()).Error(State->LastResult.Message);
+		return static_cast<bool>(State->LastResult);
 	}
 
 	auto FAssetDeletionOperation::FState::Delete(
@@ -635,18 +644,17 @@ namespace Durin
 	}
 
 	auto PrepareAssetDeletionWithEditorPolicy(const FAssetDeletionRequest& Request,
-		FAssetDeletionOperation& OutOperation) -> FAssetOperationResult
+		FAssetDeletionOperation& OutOperation, FFeedbackContext* Warn) -> bool
 	{
 		OutOperation = FAssetDeletionOperation{};
 		OutOperation.State = std::make_unique<FAssetDeletionOperation::FState>();
 		auto& State = *OutOperation.State;
-		const FAssetWriteResult Prepared = State.Prepare(Request.AssetPaths, Request.PhysicalRoots, State.Blockers);
-		State.bPrepared = Prepared && State.Blockers.empty();
-		FAssetOperationResult Result = AssetToolsPrivate::FromEngineResult(
-			EAssetOperationKind::Delete, Prepared, Request.AssetPaths);
-		for (const auto& Warning : State.Warnings)
-			Result.Warnings.push_back({Warning.AssetPath, Warning.Details});
-		if (!State.Blockers.empty()) Result.State = EAssetOperationTerminalState::Rejected;
-		return Result;
+		State.LastResult = State.Prepare(Request.AssetPaths, Request.PhysicalRoots, State.Blockers);
+		State.bPrepared = State.LastResult && State.Blockers.empty();
+		auto& Feedback = Warn ? *Warn : FFeedbackContext::Get();
+		if (!State.LastResult) Feedback.Error(State.LastResult.Message);
+		for (const auto& Blocker : State.Blockers) Feedback.Error(Blocker.Details);
+		for (const auto& Warning : State.Warnings) Feedback.Warning(Warning.Details);
+		return State.bPrepared;
 	}
 }

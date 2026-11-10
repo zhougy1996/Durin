@@ -114,16 +114,6 @@ namespace Durin
 				throw;
 			}
 		}
-		auto SubmitAsyncSave(uint64 Bytes, std::function<void()> Write, std::function<void(bool)> Publish,
-			std::function<void()> Abandon)
-			-> FPackageSaveResult
-		{
-			FPackageSaveResult Admission;
-			(void)SubmitTypedAsyncSave<void>(Bytes, std::move(Write),
-				[Publish = std::move(Publish)](bool bSucceeded) { Publish(bSucceeded); },
-				std::move(Abandon), Admission);
-			return Admission;
-		}
 		auto PollAsyncSaves() -> void
 		{
 			check(IsInGameThread());
@@ -246,10 +236,6 @@ namespace Durin
 		const auto& Options = Context.Options;
 		check(IsInGameThread());
 		Admission = {};
-		if (Options.Flags != SAVE_None)
-		{ Admission = Fail(EPackageSaveError::InvalidPackageType, "Protected saving does not accept direct-write flags."); return {}; }
-		if (Context.Writer && !Context.Writer->SupportsRollback())
-		{ Admission = Fail(EPackageSaveError::InvalidPackageType, "Protected saves require a transactional writer."); return {}; }
 		if (!Package || !Package->IsAssetPackage() || Package->IsGraphPrivate())
 		{ Admission = Fail(EPackageSaveError::InvalidPackageType, "A live persistent package is required."); return {}; }
 		if (bAsync && !IsTaskSchedulerRunning())

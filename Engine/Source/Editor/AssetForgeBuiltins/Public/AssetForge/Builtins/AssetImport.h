@@ -30,10 +30,6 @@ namespace Durin::AssetForge::Builtins
 		bool bCreateMeshes = true;
 		bool bCreateMaterials = true;
 		bool bCreateTextures = true;
-		static auto LegacyCombined() -> FAssetImportOptions
-		{
-			return {.MeshMode = EAssetImportMeshMode::Combined};
-		}
 	};
 
 	struct FAssetImportSourceMesh
@@ -80,18 +76,7 @@ namespace Durin::AssetForge::Builtins
 		bool bCompatible = false;
 		std::string Message;
 	};
-	struct FSceneMaterialPreviewResult
-	{
-		bool bSucceeded = false;
-		std::vector<FSceneMaterialPreview> Materials;
-		std::string Message;
-	};
-	[[nodiscard]] ASSETFORGEBUILTINS_API auto PreviewSceneMaterials(
-		std::string_view SourceFile, const FPackagePath& DestinationDirectory,
-		const FStaticMeshImportSettings& Settings,
-		const FSceneMaterialImportOptions& MaterialOptions = {}) -> FSceneMaterialPreviewResult;
-
-	struct FSceneImportResult
+	struct FAssetImportResult
 	{
 		bool bSucceeded = false;
 		// Import success describes the live graph, independently of optional persistence.
@@ -113,20 +98,20 @@ namespace Durin::AssetForge::Builtins
 	};
 
 
-	enum class ESceneImportPhase : uint8
+	enum class EAssetImportPhase : uint8
 	{
 		Reading, Ready, Building, Preparing, Compiling, Applying, Saving, Finishing, Completed
 	};
-	struct FSceneImportProgress
+	struct FAssetImportProgress
 	{
-		ESceneImportPhase Phase = ESceneImportPhase::Reading;
+		EAssetImportPhase Phase = EAssetImportPhase::Reading;
 		std::string Activity;
 		size_t Completed = 0;
 		size_t Total = 0;
 		bool bCancellationRequested = false;
 	};
 
-	// GameThread-owned scene operation. Tick never waits for workers, compilation or
+	// GameThread-owned asset import operation. Tick never waits for workers, compilation or
 	// disk staging. The host must tick until completion; destruction cancels and
 	// drains outstanding work at the host's shutdown safe point.
 	class FAssetImportSession final
@@ -134,21 +119,20 @@ namespace Durin::AssetForge::Builtins
 	public:
 		ASSETFORGEBUILTINS_API FAssetImportSession(std::string SourceFile,
 			FPackagePath DestinationDirectory, FStaticMeshImportSettings Settings,
-			FAssetImportOptions Options = FAssetImportOptions::LegacyCombined());
+			FAssetImportOptions Options = {});
 		ASSETFORGEBUILTINS_API ~FAssetImportSession();
 		FAssetImportSession(const FAssetImportSession&) = delete;
 		auto operator=(const FAssetImportSession&) -> FAssetImportSession& = delete;
 		ASSETFORGEBUILTINS_API auto Tick() -> void;
 		ASSETFORGEBUILTINS_API auto Cancel() -> void;
-		ASSETFORGEBUILTINS_API auto GetProgress() const -> const FSceneImportProgress&;
-		ASSETFORGEBUILTINS_API auto GetResult() const -> const FSceneImportResult&;
+		ASSETFORGEBUILTINS_API auto GetProgress() const -> const FAssetImportProgress&;
+		ASSETFORGEBUILTINS_API auto GetResult() const -> const FAssetImportResult&;
 		ASSETFORGEBUILTINS_API auto GetSourceMeshes() const -> std::vector<FAssetImportSourceMesh>;
 		ASSETFORGEBUILTINS_API auto GetSourceScenes() const -> std::vector<FAssetImportSourceScene>;
 		ASSETFORGEBUILTINS_API auto SetOptions(FAssetImportOptions Options) -> bool;
+		// Resolves every selected output and material mapping from the captured source.
 		ASSETFORGEBUILTINS_API auto PreviewOutputs(const FPackagePath& Destination,
 			const FSceneMaterialImportOptions& Options = {}) -> FAssetImportPreview;
-		ASSETFORGEBUILTINS_API auto PreviewMaterials(const FPackagePath& Destination,
-			const FSceneMaterialImportOptions& Options) -> FSceneMaterialPreviewResult;
 		// No save arguments means import to Dirty memory only; explicit arguments request ordinary saving.
 		ASSETFORGEBUILTINS_API auto BeginImport(const FPackagePath& Destination,
 			FSceneMaterialImportOptions Options,
@@ -156,29 +140,16 @@ namespace Durin::AssetForge::Builtins
 	private:
 		friend ASSETFORGEBUILTINS_API auto ImportAssetOutputs(std::string_view, const FPackagePath&,
 			const FStaticMeshImportSettings&, const FAssetImportOptions&, const FSceneMaterialImportOptions&,
-			const std::function<bool()>&, const std::optional<FAssetPackageSaveArgs>&) -> FSceneImportResult;
+			const std::function<bool()>&, const std::optional<FAssetPackageSaveArgs>&) -> FAssetImportResult;
 		struct FImpl;
 		std::unique_ptr<FImpl> Impl;
-		friend ASSETFORGEBUILTINS_API auto ImportSceneAssets(std::string_view, const FPackagePath&,
-			const FStaticMeshImportSettings&, const std::function<bool()>&,
-			const std::optional<FAssetPackageSaveArgs>&, const FSceneMaterialImportOptions&) -> FSceneImportResult;
 	};
-
-	using FSceneImportSession = FAssetImportSession;
 
 	[[nodiscard]] ASSETFORGEBUILTINS_API auto ImportAssetOutputs(std::string_view SourceFile,
 		const FPackagePath& DestinationDirectory,
 		const FStaticMeshImportSettings& Settings = FStaticMeshImportSettings::MakeYUpNegativeZForward(),
 		const FAssetImportOptions& Options = {}, const FSceneMaterialImportOptions& Materials = {},
 		const std::function<bool()>& IsCancellationRequested = {},
-		const std::optional<FAssetPackageSaveArgs>& SaveArgs = std::nullopt) -> FSceneImportResult;
+		const std::optional<FAssetPackageSaveArgs>& SaveArgs = std::nullopt) -> FAssetImportResult;
 
-	// One-time combined import. Occupied destinations are rejected; mapped materials are preserved.
-	[[nodiscard]] ASSETFORGEBUILTINS_API auto ImportSceneAssets(
-		std::string_view SourceFile,
-		const FPackagePath& DestinationDirectory,
-		const FStaticMeshImportSettings& Settings,
-		const std::function<bool()>& IsCancellationRequested = {},
-		const std::optional<FAssetPackageSaveArgs>& SaveArgs = std::nullopt,
-		const FSceneMaterialImportOptions& MaterialOptions = {}) -> FSceneImportResult;
 }

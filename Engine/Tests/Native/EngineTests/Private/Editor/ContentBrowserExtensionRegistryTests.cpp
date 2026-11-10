@@ -263,10 +263,14 @@ namespace Durin::Editor::ContentBrowser
 			.Id = "test.deferred-creation", .Label = "Level", .DefaultName = "NewLevel",
 			.Create = [&](const FTopLevelAssetPath& Path, std::string& Error) {
 				++Creations;
-				const auto Created = IAssetTools::Get().CreateAsset(Path, DLevel::StaticClass());
-				if (!Created) { Error = Created.Message; return false; }
-				CreatedPackage = Created.Package;
-				const auto Saved = SavePackage(Created.Package);
+				std::string CreatedError;
+				Durin::FFeedbackContext CreatedFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
+					if (Level >= Durin::ELogLevel::Error) { if (!CreatedError.empty()) CreatedError += "\n"; CreatedError += Message; }
+				});
+				const auto Created = IAssetTools::Get().CreateAsset(Path, DLevel::StaticClass(), nullptr, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &CreatedFeedback);
+				if (!Created) { Error = CreatedError; return false; }
+				CreatedPackage = Created->GetPackage();
+				const auto Saved = SavePackage(Created->GetPackage());
 				Error = Saved.Message;
 				return Saved.Succeeded();
 			},

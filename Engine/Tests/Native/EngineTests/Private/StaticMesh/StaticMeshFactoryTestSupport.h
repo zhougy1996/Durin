@@ -32,13 +32,17 @@ namespace Durin::AssetForge::Builtins
 		auto* Factory = NewObject<DStaticMeshFactory>(
 			nullptr, "StaticMeshTestFactory", EObjectFlags::Transient);
 		Factory->SetImportSettings(Settings);
-		const FAssetToolsResult Imported = IAssetTools::Get().ImportPackageLeafAssetForTesting(
-			ParsedPath, DStaticMesh::StaticClass(), FilePath, Factory);
-		auto* Mesh = Cast<DStaticMesh>(Imported.Asset);
+		std::string ImportedError;
+		Durin::FFeedbackContext ImportedFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
+			if (Level >= Durin::ELogLevel::Error) { if (!ImportedError.empty()) ImportedError += "\n"; ImportedError += Message; }
+		});
+		const auto Imported = IAssetTools::Get().ImportPackageLeafAssetForTesting(
+			ParsedPath, DStaticMesh::StaticClass(), FilePath, Factory, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &ImportedFeedback);
+		auto* Mesh = Cast<DStaticMesh>(Imported);
 		if (!Imported || !Mesh)
-			return {false, Imported.Message, Mesh};
+			return {false, ImportedError, Mesh};
 		Mesh->FinishCompilation();
-		const FAssetWriteResult Saved = SavePackage(Imported.Package);
+		const FAssetWriteResult Saved = SavePackage(Imported->GetPackage());
 		return Saved
 			? Durin::Testing::TFactoryImportResult<Durin::DStaticMesh>{true, {}, Mesh}
 			: Durin::Testing::TFactoryImportResult<Durin::DStaticMesh>{false, Saved.Message, Mesh};

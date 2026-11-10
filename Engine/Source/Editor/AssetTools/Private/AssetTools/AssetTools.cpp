@@ -17,110 +17,74 @@ namespace Durin
 {
 	IMPLEMENT_MODULE(FAssetToolsModule, AssetTools)
 
-	auto MakeRejectedAssetOperation(
-		EAssetOperationKind Kind, std::string Message) -> FAssetOperationResult;
-	auto DuplicateAssetWithEditorPolicy(const FAssetDuplicateRequest& Request)
-		-> FAssetOperationResult;
-	auto SaveAssetsWithEditorPolicy(const FAssetSaveRequest& Request)
-		-> FAssetOperationResult;
-	auto RelocateAssetsWithEditorPolicy(const FAssetRelocationRequest& Request)
-		-> FAssetOperationResult;
-	auto FixUpRedirectorsWithEditorPolicy(
-		const FAssetRedirectorFixupRequest& Request) -> FAssetOperationResult;
-	auto PrepareAssetDeletionWithEditorPolicy(
-		const FAssetDeletionRequest& Request,
-		FAssetDeletionOperation& OutOperation) -> FAssetOperationResult;
+	auto DuplicateAssetWithEditorPolicy(const FAssetDuplicateRequest&, FFeedbackContext*) -> DObject*;
+	auto SaveAssetsWithEditorPolicy(const FAssetSaveRequest&, FFeedbackContext*) -> bool;
+	auto RelocateAssetsWithEditorPolicy(const FAssetRelocationRequest&, FFeedbackContext*) -> bool;
+	auto FixUpRedirectorsWithEditorPolicy(const FAssetRedirectorFixupRequest&, FFeedbackContext*) -> bool;
+	auto PrepareAssetDeletionWithEditorPolicy(const FAssetDeletionRequest&, FAssetDeletionOperation&, FFeedbackContext*) -> bool;
 
 	namespace
 	{
-		auto RejectImportValidation(EAssetOperationKind Kind, FAssetImportValidation Validation) -> FAssetOperationResult
+		auto Feedback(FFeedbackContext* Warn) -> FFeedbackContext& { return Warn ? *Warn : FFeedbackContext::Get(); }
+		auto Reject(FFeedbackContext* Warn, std::string_view Message) -> DObject*
 		{
-			auto Result = MakeRejectedAssetOperation(Kind, FormatAssetImportValidation(Validation));
-			Result.ImportCause = std::make_shared<FAssetImportValidation>(std::move(Validation));
-			return Result;
+			Feedback(Warn).Error(Message);
+			return nullptr;
 		}
-
-		auto ValidateFactory(const DFactory* Factory, const DClass* AssetClass) -> EAssetImportError
+		auto ValidateClass(DClass* Class) -> bool
 		{
-			if (!Factory) return EAssetImportError::MissingFactory;
-			const DClass* SupportedClass = Factory->GetSupportedClass();
-			if (!SupportedClass || !AssetClass->IsChildOf(SupportedClass)) return EAssetImportError::UnsupportedFactory;
-			return EAssetImportError::None;
+			return Class && Class->IsChildOf(DObject::StaticClass()) && !Class->HasAnyClassFlags(EClassFlags::Abstract);
 		}
-
-		auto InspectImport(const FAssetImportRequest& Item) -> FAssetImportValidation
+		auto FindImportFactory(const FAssetImportRequest& Item, FFeedbackContext* Warn) -> const DFactory*
 		{
-			auto Reject = [&](EAssetImportError Error) -> FAssetImportValidation {
-				return {.Error = Error, .AssetPath = Item.AssetPath.ToString(), .Filename = Item.Filename,
-					.ClassName = Item.AssetClass ? Item.AssetClass->GetName() : std::string{}};
-			};
-			if (!Item.AssetPath.IsValid())
-				return Reject(EAssetImportError::Path);
-			if (!Item.AssetClass || !Item.AssetClass->IsChildOf(DObject::StaticClass())
-				|| Item.AssetClass->HasAnyClassFlags(EClassFlags::Abstract))
-				return Reject(EAssetImportError::Class);
-			if (Item.Filename.empty())
-				return Reject(EAssetImportError::Filename);
-			const auto Destination = Editor::InspectAssetDestination(
-				Item.AssetPath.GetPackagePath().GetView());
-			if (!Destination)
-			{
-				auto Result = Reject(EAssetImportError::Destination);
-				Result.DestinationCause = std::make_shared<Editor::FAssetDestinationValidation>(Destination);
-				return Result;
-			}
-			// Also reject files not yet projected into the catalog.
+			if (!Item.AssetPath.IsValid()) { Reject(Warn, "The destination asset path is invalid."); return nullptr; }
+			if (!ValidateClass(Item.AssetClass)) { Reject(Warn, "The requested asset class cannot be constructed."); return nullptr; }
+			if (Item.Filename.empty()) { Reject(Warn, "A source filename is required for import."); return nullptr; }
+			const auto Destination = Editor::InspectAssetDestination(Item.AssetPath.GetPackagePath().GetView());
+			if (!Destination) { Reject(Warn, Editor::FormatAssetDestinationValidation(Destination)); return nullptr; }
 			std::error_code Error;
 			const bool bExists = std::filesystem::exists(Destination.PhysicalPath, Error);
-			if (Error) { auto Result = Reject(EAssetImportError::FileInspection); Result.FileCause = Error; return Result; }
-			if (bExists) return Reject(EAssetImportError::FileExists);
+			if (Error) { Reject(Warn, "The destination package could not be inspected: " + Error.message()); return nullptr; }
+			if (bExists) { Reject(Warn, "A package file already occupies the destination."); return nullptr; }
 			const DFactory* Factory = Item.Factory;
 			if (!Factory)
 			{
 				const auto Extension = std::filesystem::path(Item.Filename).extension().generic_string();
 				const auto Candidates = DFactory::FindFactories(Item.AssetClass, Extension);
 				if (Candidates.size() > 1)
-					{ auto Result = Reject(EAssetImportError::AmbiguousFactory); Result.Extension = Extension; Result.Count = Candidates.size(); return Result; }
+				{
+					Reject(Warn, std::format("Multiple factories support {} for the requested asset class.", Extension));
+					return nullptr;
+				}
 				if (!Candidates.empty()) Factory = Candidates.front();
 			}
-			// Preserve class-based fallback for factories with custom source layouts.
 			if (!Factory) Factory = DFactory::FindFactory(Item.AssetClass);
-			if (auto Error = ValidateFactory(Factory, Item.AssetClass); Error != EAssetImportError::None) return Reject(Error);
-			return {.Factory = Factory};
+			if (!Factory) { Reject(Warn, "No factory supports the requested asset."); return nullptr; }
+			const DClass* Supported = Factory->GetSupportedClass();
+			if (!Supported || !Item.AssetClass->IsChildOf(Supported))
+			{
+				Reject(Warn, "The selected factory does not support the requested asset class.");
+				return nullptr;
+			}
+			return Factory;
 		}
 	}
 
 	class FAssetTools final : public IAssetTools
 	{
 	public:
-		auto CreateAsset(
-			const FTopLevelAssetPath& AssetPath,
-			DClass* AssetClass,
-			const DFactory* Factory,
-			DObject* Context,
-			EObjectFlags Flags) -> FAssetToolsResult override
+		auto CreateAsset(const FTopLevelAssetPath& Path, DClass* Class, const DFactory* Factory,
+			DObject* Context, EObjectFlags Flags, FFeedbackContext* Warn) -> DObject* override
 		{
-			return CreateWithFactory(
-				AssetPath, AssetClass, Factory, {}, Context, Flags, false);
+			return CreateWithFactory(Path, Class, Factory, {}, Context, Flags, Warn);
 		}
-
-		auto ImportAsset(
-			const FTopLevelAssetPath& AssetPath,
-			DClass* AssetClass,
-			std::string_view Filename,
-			const DFactory* Factory,
-			DObject* Context,
-			EObjectFlags Flags) -> FAssetToolsResult override
+		auto ImportAsset(const FTopLevelAssetPath& Path, DClass* Class, std::string_view Filename,
+			const DFactory* RequestedFactory, DObject* Context, EObjectFlags Flags, FFeedbackContext* Warn) -> DObject* override
 		{
 			checkf(IsInGameThread(), "Asset import must run on the game thread.");
-			const auto Validation = InspectImport({
-				AssetPath, AssetClass, std::string(Filename), Factory, Context, Flags});
-			if (!Validation)
-				return RejectImportValidation(EAssetOperationKind::Import, Validation);
-			return CreateWithFactory(
-				AssetPath, AssetClass, Validation.Factory, Filename, Context, Flags, true);
+			const auto* Factory = FindImportFactory({Path, Class, std::string(Filename), RequestedFactory, Context, Flags}, Warn);
+			return Factory ? CreateWithFactory(Path, Class, Factory, Filename, Context, Flags, Warn) : nullptr;
 		}
-
 		auto DiscardPackage(DPackage* Package) -> bool override
 		{
 			checkf(IsInGameThread(), "Asset package discard must run on the game thread.");
@@ -145,220 +109,89 @@ namespace Durin
 			return ReloadPackages(Coordinated);
 		}
 
-		auto DuplicateAsset(const FAssetDuplicateRequest& Request)
-			-> FAssetOperationResult override
-		{
-			return DuplicateAssetWithEditorPolicy(Request);
-		}
-		auto SaveAssets(const FAssetSaveRequest& Request)
-			-> FAssetOperationResult override
-		{
-			return SaveAssetsWithEditorPolicy(Request);
-		}
-		auto RelocateAssets(const FAssetRelocationRequest& Request)
-			-> FAssetOperationResult override
-		{
-			return RelocateAssetsWithEditorPolicy(Request);
-		}
-		auto FixUpRedirectors(const FAssetRedirectorFixupRequest& Request)
-			-> FAssetOperationResult override
-		{
-			return FixUpRedirectorsWithEditorPolicy(Request);
-		}
-		auto PrepareDeletion(
-			const FAssetDeletionRequest& Request,
-			FAssetDeletionOperation& OutOperation)
-			-> FAssetOperationResult override
-		{
-			return PrepareAssetDeletionWithEditorPolicy(Request, OutOperation);
-		}
+		auto DuplicateAsset(const FAssetDuplicateRequest& Request, FFeedbackContext* Warn) -> DObject* override
+		{ return DuplicateAssetWithEditorPolicy(Request, Warn); }
+		auto SaveAssets(const FAssetSaveRequest& Request, FFeedbackContext* Warn) -> bool override
+		{ return SaveAssetsWithEditorPolicy(Request, Warn); }
+		auto RelocateAssets(const FAssetRelocationRequest& Request, FFeedbackContext* Warn) -> bool override
+		{ return RelocateAssetsWithEditorPolicy(Request, Warn); }
+		auto FixUpRedirectors(const FAssetRedirectorFixupRequest& Request, FFeedbackContext* Warn) -> bool override
+		{ return FixUpRedirectorsWithEditorPolicy(Request, Warn); }
+		auto PrepareDeletion(const FAssetDeletionRequest& Request, FAssetDeletionOperation& Operation, FFeedbackContext* Warn) -> bool override
+		{ return PrepareAssetDeletionWithEditorPolicy(Request, Operation, Warn); }
 
 	private:
-		auto CreateWithFactory(
-			const FTopLevelAssetPath& AssetPath,
-			DClass* AssetClass,
-			const DFactory* RequestedFactory,
-			std::string_view Filename,
-			DObject* Context,
-			EObjectFlags Flags,
-			bool bFromFile) -> FAssetToolsResult
+		auto CreateWithFactory(const FTopLevelAssetPath& Path, DClass* Class, const DFactory* RequestedFactory,
+			std::string_view Filename, DObject* Context, EObjectFlags Flags, FFeedbackContext* Warn) -> DObject*
 		{
-			const EAssetOperationKind Kind = bFromFile
-				? EAssetOperationKind::Import : EAssetOperationKind::Create;
-			auto Reject = [&](EAssetCreationError Code, DObject* Actual = nullptr) -> FAssetOperationResult {
-				FAssetCreationError Error{.Code = Code, .RequestedPath = AssetPath.ToString(),
-					.RequestedClass = AssetClass ? AssetClass->GetName() : std::string{}, .Filename = std::string(Filename),
-					.ActualPath = Actual ? Actual->GetObjectPath() : std::string{},
-					.ActualClass = Actual ? Actual->GetClass()->GetName() : std::string{}};
-				auto Result = MakeRejectedAssetOperation(Kind, FormatAssetCreationError(Error));
-				Result.CreationCause = std::move(Error);
-				return Result;
-			};
 			checkf(IsInGameThread(), "Asset tools creation must run on the game thread.");
-			if (!AssetPath.IsValid())
-				return Reject(EAssetCreationError::Path);
-			if (!AssetClass || !AssetClass->IsChildOf(DObject::StaticClass())
-				|| AssetClass->HasAnyClassFlags(EClassFlags::Abstract))
-				return Reject(EAssetCreationError::Class);
-			if (FindPackage(AssetPath.GetPackagePath().GetView())
-				|| FindAssetExact(AssetPath))
-				return Reject(EAssetCreationError::Occupied);
-			if (bFromFile && Filename.empty())
-				return Reject(EAssetCreationError::Filename);
-
-			const DFactory* Factory = RequestedFactory;
-			if (!Factory) Factory = DFactory::FindFactory(AssetClass);
-			if (Factory || bFromFile)
-			{
-				if (auto Error = ValidateFactory(Factory, AssetClass); Error != EAssetImportError::None)
-					return RejectImportValidation(Kind, {.Error = Error, .AssetPath = AssetPath.ToString(),
-						.Filename = std::string(Filename), .ClassName = AssetClass->GetName()});
-			}
-
-			DPackage* Package = CreatePackage(AssetPath.GetPackagePath());
-			if (!Package)
-				return Reject(EAssetCreationError::PackageCreation);
-
+			if (!Path.IsValid()) return Reject(Warn, "The destination asset path is invalid.");
+			if (!ValidateClass(Class)) return Reject(Warn, "The requested asset class cannot be constructed.");
+			if (FindPackage(Path.GetPackagePath().GetView()) || FindAssetExact(Path))
+				return Reject(Warn, std::format("Asset {} already exists.", Path.ToString()));
+			const DFactory* Factory = RequestedFactory ? RequestedFactory : DFactory::FindFactory(Class);
+			if (Factory && (!Factory->GetSupportedClass() || !Class->IsChildOf(Factory->GetSupportedClass())))
+				return Reject(Warn, "The selected factory does not support the requested asset class.");
+			auto* Package = CreatePackage(Path.GetPackagePath());
+			if (!Package) return Reject(Warn, "The destination package could not be created.");
 			FFactoryDiagnostics Diagnostics;
-			const FName AssetName(AssetPath.GetAssetName());
+			const FName Name(Path.GetAssetName());
 			DObject* Asset = nullptr;
-			if (bFromFile)
-				Asset = Factory->FactoryCreateFromFile(
-					AssetClass, Package, AssetName, Flags, Filename, Context, &Diagnostics);
-			else if (Factory)
-				Asset = Factory->FactoryCreateNew(
-					AssetClass, Package, AssetName, Flags, Context, &Diagnostics);
+			if (!Filename.empty()) Asset = Factory->FactoryCreateFromFile(Class, Package, Name, Flags, Filename, Context, &Diagnostics);
+			else if (Factory) Asset = Factory->FactoryCreateNew(Class, Package, Name, Flags, Context, &Diagnostics);
 			else
 			{
-				FStaticConstructObjectParameters Parameters{
-					AssetClass, Package, AssetName, AssetClass->GetStructureSize(), Flags};
+				FStaticConstructObjectParameters Parameters{Class, Package, Name, Class->GetStructureSize(), Flags};
 				Asset = StaticConstructObject(Parameters);
 				DObjectForceRegistration(Asset);
 			}
 			if (!Asset)
 			{
-				auto Result = Reject(EAssetCreationError::FactoryRejected);
-				Result.FactoryCause = std::make_shared<FFactoryDiagnostics>(std::move(Diagnostics));
-				if (!Result.FactoryCause->GetEntries().empty()) Result.Message = Result.FactoryCause->ToString();
+				const auto Message = Diagnostics.ToString();
+				Reject(Warn, Message.empty() ? "The factory could not construct the asset." : Message);
 				DiscardPackage(Package);
-				return Result;
+				return nullptr;
 			}
-			if (!Asset->IsA(AssetClass) || Asset->GetOuter() != Package
-				|| Asset->GetFName() != AssetName
+			if (!Asset->IsA(Class) || Asset->GetOuter() != Package || Asset->GetFName() != Name
 				|| Package->FindTopLevelAsset(Asset->GetFName()) != Asset)
 			{
-				auto Result = Reject(!Asset->IsA(AssetClass) ? EAssetCreationError::ProductType
-					: Asset->GetOuter() != Package ? EAssetCreationError::ProductOuter
-					: Asset->GetFName() != AssetName ? EAssetCreationError::ProductName
-					: EAssetCreationError::ProductRegistration, Asset);
+				const auto Message = std::format("Invalid factory product {} (class {}); expected {} (class {}) registered in its destination package.",
+					Asset->GetObjectPath(), Asset->GetClass()->GetName(), Path.ToString(), Class->GetName());
 				DiscardPackage(Package);
-				return Result;
+				return Reject(Warn, Message);
 			}
 			Package->MarkDirty();
 			Package->MarkAsNewlyCreated();
-			return {
-				.Kind = Kind,
-				.Persistence = EAssetOperationPersistenceState::Dirty,
-				.AffectedAssets = {AssetPath.GetPackagePath()},
-				.Message = Diagnostics.ToString(),
-				.Asset = Asset,
-				.Package = Package};
+			if (!Diagnostics.GetEntries().empty()) Feedback(Warn).Warning(Diagnostics.ToString());
+			return Asset;
 		}
 	};
 
-	auto FormatAssetCreationError(const FAssetCreationError& Error) -> std::string
-	{
-		switch (Error.Code)
-		{
-		case EAssetCreationError::None: return {};
-		case EAssetCreationError::FactoryRejected: return "The factory could not construct the asset.";
-		case EAssetCreationError::Path: return "The destination asset path is invalid.";
-		case EAssetCreationError::Class: return "The requested asset class cannot be constructed.";
-		case EAssetCreationError::Occupied: return std::format("Asset {} already exists.", Error.RequestedPath);
-		case EAssetCreationError::Filename: return "A source filename is required for import.";
-		case EAssetCreationError::PackageCreation: return "The destination package could not be created.";
-		case EAssetCreationError::ProductType: return "The factory returned the wrong asset class.";
-		case EAssetCreationError::ProductOuter: return "The factory returned an asset outside its package.";
-		case EAssetCreationError::ProductName: return "The factory returned an asset with the wrong name.";
-		case EAssetCreationError::ProductRegistration: return "The factory product is not registered as the top-level asset.";
-		}
-		return {};
-	}
-
-	auto FormatAssetImportValidation(const FAssetImportValidation& Result) -> std::string
-	{
-		switch (Result.Error)
-		{
-		case EAssetImportError::None: return {};
-		case EAssetImportError::Path: return "The destination asset path is invalid.";
-		case EAssetImportError::Class: return "The requested asset class cannot be constructed.";
-		case EAssetImportError::Filename: return "A source filename is required for import.";
-		case EAssetImportError::Destination: return Result.DestinationCause ? Editor::FormatAssetDestinationValidation(*Result.DestinationCause) : "The destination is unavailable.";
-		case EAssetImportError::FileInspection: return "The destination package could not be inspected: " + Result.FileCause.message();
-		case EAssetImportError::FileExists: return "A package file already occupies the destination.";
-		case EAssetImportError::AmbiguousFactory: return std::format("Multiple factories support {} for the requested asset class.", Result.Extension);
-		case EAssetImportError::MissingFactory: return "No factory supports the requested asset.";
-		case EAssetImportError::UnsupportedFactory: return "The selected factory does not support the requested asset class.";
-		case EAssetImportError::DuplicatePackage: return "Multiple imports target the same package.";
-		}
-		return {};
-	}
-
-	auto IAssetTools::InspectImports(std::span<const FAssetImportRequest> Items)
-		-> std::vector<FAssetImportValidation>
-	{
-		checkf(IsInGameThread(), "Asset import inspection must run on the game thread.");
-		std::unordered_map<FPackagePath, size_t> Counts;
-		for (const auto& Item : Items)
-			if (Item.AssetPath.IsValid()) ++Counts[Item.AssetPath.GetPackagePath()];
-		std::vector<FAssetImportValidation> Results;
-		Results.reserve(Items.size());
-		for (const auto& Item : Items)
-		{
-			if (Item.AssetPath.IsValid() && Counts[Item.AssetPath.GetPackagePath()] > 1)
-				Results.push_back({.Error = EAssetImportError::DuplicatePackage, .AssetPath = Item.AssetPath.ToString(),
-					.Count = Counts[Item.AssetPath.GetPackagePath()]});
-			else Results.push_back(InspectImport(Item));
-		}
-		return Results;
-	}
-
-	auto IAssetTools::ImportAssets(const FAssetImportBatchRequest& Request)
-		-> FAssetImportBatchResult
+	auto IAssetTools::ImportAssets(const FAssetImportBatchRequest& Request, FFeedbackContext* Warn) -> std::vector<DObject*>
 	{
 		checkf(IsInGameThread(), "Asset batch import must run on the game thread.");
-		// Own request values and pin invocation objects across failed-package GC.
-		const FAssetImportBatchRequest Batch = Request;
+		const auto Batch = Request;
 		std::vector<FStrongObjectPtr> Retained;
+		std::unordered_map<FPackagePath, size_t> Counts;
 		for (const auto& Item : Batch.Items)
 		{
 			Retained.emplace_back(Item.AssetClass);
 			Retained.emplace_back(const_cast<DFactory*>(Item.Factory));
 			Retained.emplace_back(Item.Context);
+			if (Item.AssetPath.IsValid()) ++Counts[Item.AssetPath.GetPackagePath()];
 		}
-		const auto Validation = InspectImports(Batch.Items);
-		for (const auto& Item : Validation)
-			Retained.emplace_back(const_cast<DFactory*>(Item.Factory));
-		FAssetImportBatchResult Result;
-		Result.Items.resize(Batch.Items.size());
+		std::vector<DObject*> Assets(Batch.Items.size(), nullptr);
 		for (size_t Index = 0; Index < Batch.Items.size(); ++Index)
 		{
-			if (Batch.ShouldCancel && Batch.ShouldCancel())
-			{
-				for (size_t Remaining = Index; Remaining < Result.Items.size(); ++Remaining)
-					Result.Items[Remaining].State = EAssetImportItemState::Canceled;
-				break;
-			}
+			if (Batch.ShouldCancel && Batch.ShouldCancel()) break;
 			const auto& Item = Batch.Items[Index];
-			auto& Output = Result.Items[Index];
-			Output.Operation = Validation[Index]
-				? ImportAsset(Item.AssetPath, Item.AssetClass, Item.Filename,
-					Validation[Index].Factory, Item.Context, Item.Flags)
-				: RejectImportValidation(EAssetOperationKind::Import, Validation[Index]);
-			Output.State = Output.Operation ? EAssetImportItemState::Accepted : EAssetImportItemState::Rejected;
-			if (!Output.Operation && Batch.bStopOnFailure) break;
+			if (Item.AssetPath.IsValid() && Counts[Item.AssetPath.GetPackagePath()] > 1)
+				Reject(Warn, std::format("Multiple imports target package {}.", Item.AssetPath.GetPackagePath().ToString()));
+			else Assets[Index] = ImportAsset(Item.AssetPath, Item.AssetClass, Item.Filename, Item.Factory, Item.Context, Item.Flags, Warn);
+			if (Assets[Index]) Retained.emplace_back(Assets[Index]);
+			if (!Assets[Index] && Batch.bStopOnFailure) break;
 		}
-		return Result;
+		return Assets;
 	}
 
 	auto FAssetToolsModule::StartupModule() -> void

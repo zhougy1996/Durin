@@ -173,25 +173,25 @@ TEST(FMeshCoordinateImportModelTests, AppliesSharedPresets)
 TEST(FAssetImportFeedbackTests, ProjectsPhaseCountsAndActivityWithoutOwningATask)
 {
 	using namespace Durin::AssetForge::Builtins;
-	FSceneImportProgress Progress{.Phase = ESceneImportPhase::Reading, .Activity = "Reading triangles"};
+	FAssetImportProgress Progress{.Phase = EAssetImportPhase::Reading, .Activity = "Reading triangles"};
 	auto Snapshot = MakeAssetImportFeedback(Progress, "Triangle.fbx");
 	EXPECT_FALSE(Snapshot.Fraction);
 	EXPECT_EQ(Snapshot.Title, "Importing Triangle.fbx");
 	EXPECT_NE(Snapshot.Details.find(Progress.Activity), std::string::npos);
-	Progress = {.Phase = ESceneImportPhase::Building, .Completed = 2, .Total = 4};
+	Progress = {.Phase = EAssetImportPhase::Building, .Completed = 2, .Total = 4};
 	Snapshot = MakeAssetImportFeedback(Progress, "Triangle.fbx");
 	ASSERT_TRUE(Snapshot.Fraction);
 	EXPECT_DOUBLE_EQ(*Snapshot.Fraction, 0.5);
 	EXPECT_EQ(Progress.Completed, 2u);
 	EXPECT_EQ(Progress.Total, 4u);
-	Progress = {.Phase = ESceneImportPhase::Compiling};
+	Progress = {.Phase = EAssetImportPhase::Compiling};
 	EXPECT_FALSE(MakeAssetImportFeedback(Progress, "Triangle.fbx").Fraction);
 }
 
 TEST(FAssetImportFeedbackTests, CancellationIsProjectedDirectlyFromBusinessProgress)
 {
 	using namespace Durin::AssetForge::Builtins;
-	FSceneImportProgress Progress{.Phase = ESceneImportPhase::Finishing, .bCancellationRequested = true};
+	FAssetImportProgress Progress{.Phase = EAssetImportPhase::Finishing, .bCancellationRequested = true};
 	const auto Canceled = MakeAssetImportFeedback(Progress, "Scene.gltf");
 	EXPECT_TRUE(Canceled.bCanCancel);
 	EXPECT_TRUE(Canceled.bCancelRequested);

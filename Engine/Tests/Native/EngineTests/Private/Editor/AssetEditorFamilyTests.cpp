@@ -64,12 +64,12 @@ namespace
 		{
 			FSoftObjectPath Path;
 			if (!FSoftObjectPath::TryCreate(Source.GetObjectPath(), Path)) return nullptr;
-			const auto Result = IAssetTools::Get().DuplicateAsset({.SourcePath = Path.GetAssetPath(), .DestinationDirectory = "/FamilySessions",
-				.ResolvePhysicalPackagePath = [](const FPackagePath& Package) {
-					const auto Resolved = FMountPaths::ResolveAssetPath(Package.GetView(), EMountPathExistence::AllowMissing);
-					return Resolved ? Resolved->PhysicalPath.generic_string() + ".dasset" : std::string{};
-				}});
-			return Result ? Result.Asset : nullptr;
+			std::string ResultError;
+			Durin::FFeedbackContext ResultFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
+				if (Level >= Durin::ELogLevel::Error) { if (!ResultError.empty()) ResultError += "\n"; ResultError += Message; }
+			});
+			const auto Result = IAssetTools::Get().DuplicateAsset({.SourcePath = Path.GetAssetPath(), .DestinationDirectory = "/FamilySessions"}, &ResultFeedback);
+			return Result && SavePackage(Result->GetPackage()) ? Result : nullptr;
 		}
 		Tests::FAssetThumbnailFixtureSet Fixtures;
 		FTextureEditorModule TextureModule;

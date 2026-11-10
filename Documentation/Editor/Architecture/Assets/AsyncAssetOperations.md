@@ -4,7 +4,7 @@ Summary: Define completion, compensation, and UI ownership for nonblocking edito
 
 Modules: TextureCompressor, AssetForgeBuiltins, DurinEd, TextureEditor, StaticMeshEditor, Engine
 
-Last reviewed: 2026-10-14
+Last reviewed: 2026-11-10
 
 ## Ownership Layers
 
@@ -19,7 +19,7 @@ Typed compilation domains retain their own workers, priorities, cancellation,
 and metrics. Direct standalone-family import performs synchronous detached
 preparation and explicit setter application or delegates only build work to its typed family
 domain. Shared asset import uses `FAssetImportSession` around private captured
-values; `FSceneImportSession` remains a compatibility alias. It does not introduce a generic import job framework.
+values. It does not introduce a generic import job framework.
 
 Texture2D imports commit authored Source/settings/import metadata on the
 GameThread and then start independent DDC work. Compiler completion follows
@@ -42,14 +42,17 @@ requests, cancels or drains accepted tasks, then releases captures and module
 code. Thumbnail decoding retains the unique result until this owner-side reap;
 current serials alone may publish an upload.
 
-## Scene Import Sessions
+## Asset Import Sessions
 
-AssetForgeBuiltins owns the ordinary glTF form and its `FAssetImportSession`;
-LevelEditor retains a legacy FBX `FSceneImportSession`. Both advance each frame. Selecting a
+AssetForgeBuiltins owns the glTF form; LevelEditor owns the FBX form. Both use
+`FAssetImportSession` and advance each frame. The FBX form explicitly selects
+`MeshMode = EAssetImportMeshMode::Combined`; the shared session defaults to split outputs. Selecting a
 source starts detached capture, dependency discovery and scene decoding. The Ready
-phase exposes material configuration using the retained source snapshot and parsed
-scene; destination and material changes do not decode geometry again. Coordinate
-changes create a new session. Before building, the worker rehashes the captured
+phase exposes `PreviewOutputs` for all selected outputs, material configuration
+and collision diagnostics using the retained source snapshot and parsed scene.
+Both forms use this result; destination and material changes do not decode
+geometry again. Coordinate changes create a new session. Before building, the
+worker rehashes the captured
 closure and rejects changed or missing sources. Preparation retains one bounded
 source closure per session and builds products serially to avoid unbounded parallel
 texture memory growth.
@@ -71,13 +74,17 @@ Progress reports the active phase, activity and available work counts. Cancellat
 keeps ticking through worker completion and unpublished candidate cleanup. Closing
 the active progress view requests cancellation; host destruction cancels and drains
 at its teardown safe point before module or compiler teardown. Worker captures never
-refer to widgets. The compatibility `ImportSceneAssets` entry point runs the same
+refer to widgets. The `ImportAssetOutputs` entry point runs the same
 pipeline without yielding for synchronous/headless callers.
 
 Source decoding, product construction and staged writes are nonblocking in the
 interactive path. Texture mutation may wait for a canceled predecessor to retire. Material policy checks, individual package
 capture and atomic graph commit remain owner-thread operations; the session does
 not claim a hard frame-time bound for a single large package.
+
+Duplication returns the new live object and performs no saving. The caller saves
+its package separately. Saving failures retain it for ordinary retry, without
+another duplication or graph discard.
 
 ## Compensating Operation Contract
 
@@ -106,14 +113,17 @@ not call presentation callbacks.
 
 ## Typed Adapters and UI
 
-AssetTools saves consume `DPackage::SaveAsync` with an explicit
-`FAssetPackageSaveContext`. The typed task represents final persistence and
-Registry disposition. Editor `FAssetSaveOperation::Complete` converts that result
-and emits notifications once; it never initiates publication. Normal host ticks
-advance the GameThread continuation. Headless hosts explicitly drain saves as
+Editor async consumers call `DPackage::SaveAsync` with an explicit
+`FAssetPackageSaveContext` and retain `Tasks::TTask<FAssetWriteResult>` directly.
+The Task represents final persistence and Registry disposition. Texture import
+polls `IsCompleted`, reads the result and releases observation after processing it.
+Consumers read the native write result without an editor result adapter. The
+batch owner presents its successful assets once. There is no editor save-operation
+object, result cache, separate completion protocol or synchronous batch-test bypass.
+Normal host ticks advance the GameThread continuation. Headless hosts explicitly drain saves as
 specified by [Package persistence](../../../Runtime/ObjectSystem/PackagePersistence.md#operation-lifetime-and-completion).
-Do not replace confirmation-dependent import saves with admission-only
-`SAVE_Async`; accepted direct I/O cannot justify an editor Persisted result.
+Only a completed save Task can confirm persistence; submission
+admission and disk-only waits do not confirm publication.
 
 An asset-family adapter supplies preparation, apply start, commit, rollback,
 compensation start, cancellation, and final notification callables. The adapter

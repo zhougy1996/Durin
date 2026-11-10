@@ -4,7 +4,7 @@ Summary: Define shared slow-task progress, lexical work scopes, cancellation, an
 
 Modules: Core, DurinEd, MainFrame, LevelEditor, AssetForgeBuiltins
 
-Last reviewed: 2026-10-27
+Last reviewed: 2026-11-10
 
 ## Ownership and Lifetimes
 
@@ -133,3 +133,12 @@ BuildProducts();
 The example demonstrates work accounting. Its default dialog is visible only
 when the owner supplies ordinary UI frames during the operation; a blocking
 main-thread call is not made responsive by the feedback API.
+
+## Diagnostic Messages
+
+`FFeedbackContext` also accepts a message sink and exposes `Serialize`, `Error`
+and `Warning`. A supplied sink receives severity and a borrowed message view
+synchronously on the reporting thread; it owns synchronization and copies any
+text needed after the call. The default sink uses Core logging. Reporting does
+not change slow-task status or progress, retain messages, or pump work. Editor
+commands may accept a context for diagnostics without creating a progress task.

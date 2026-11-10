@@ -1642,8 +1642,12 @@ TEST(FMaterialFunctionTests, RelocationRefreshesNestedCallersAndDeletionHonorsRe
 	CollectGarbage();
 	const std::array Removed{LeafPath, MovedPath};
 	FAssetDeletionOperation UnreferencedDeletion;
+	std::string PreparedDeletionError;
+	Durin::FFeedbackContext PreparedDeletionFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
+		if (Level >= Durin::ELogLevel::Error) { if (!PreparedDeletionError.empty()) PreparedDeletionError += "\n"; PreparedDeletionError += Message; }
+	});
 	const auto PreparedDeletion = IAssetTools::Get().PrepareDeletion(
-		{.AssetPaths = {LeafPath, MovedPath}}, UnreferencedDeletion);
+		{.AssetPaths = {LeafPath, MovedPath}}, UnreferencedDeletion, &PreparedDeletionFeedback);
 	ASSERT_TRUE(PreparedDeletion) << PreparedDeletion.Message
 		<< (UnreferencedDeletion.GetBlockers().empty() ? "" : UnreferencedDeletion.GetBlockers().front().Details);
 	ASSERT_TRUE(Testing::RemoveAssetPackagesForTests(Removed));

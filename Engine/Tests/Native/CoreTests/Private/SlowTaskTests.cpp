@@ -247,3 +247,25 @@ TEST(FSlowTaskTests, DelayedNewerTaskDoesNotHideAnOlderEligibleTask)
 	First.Complete();
 	EXPECT_FALSE(Context.GetVisibleTask());
 }
+
+TEST(FFeedbackContextTests, ReportsDiagnosticsImmediatelyWithoutChangingProgress)
+{
+	std::vector<std::pair<ELogLevel, std::string>> Messages;
+	FFeedbackContext Context({}, [&](ELogLevel Level, std::string_view Message) {
+		Messages.emplace_back(Level, Message);
+	});
+	FScopedSlowTask Task(2, "Import", Context);
+	Task.MakeDialog();
+	Task.EnterProgressFrame(1);
+	Task.EnterProgressFrame(1);
+	std::string Error = "source could not be decoded";
+	Context.Error(Error);
+	Error.clear();
+	Context.Warning("using default settings");
+	ASSERT_EQ(Messages.size(), 2u);
+	EXPECT_EQ(Messages[0].first, ELogLevel::Error);
+	EXPECT_EQ(Messages[0].second, "source could not be decoded");
+	EXPECT_EQ(Messages[1].first, ELogLevel::Warn);
+	EXPECT_DOUBLE_EQ(*Context.GetVisibleTask()->Fraction, 0.5);
+	EXPECT_EQ(Context.GetVisibleTask()->Status, ESlowTaskStatus::Running);
+}

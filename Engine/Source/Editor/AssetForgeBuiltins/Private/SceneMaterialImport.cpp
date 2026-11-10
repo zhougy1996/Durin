@@ -1,5 +1,4 @@
 #include "SceneImportInternal.h"
-#include "StaticMesh/StaticMeshImportSettings.h"
 #include "AssetForge/Builtins/PBRSurfaceMaterial.h"
 #include "Asset/Asset.h"
 #include "DObject/Package.h"
@@ -139,37 +138,5 @@ namespace Durin::AssetForge::Builtins
 			if (const auto Row = std::ranges::find(Preview, false, &FSceneMaterialPreview::bCompatible); Row != Preview.end()) Error = Row->Message;
 
 		return bValid;
-	}
-
-	auto PreviewSceneMaterials(std::string_view SourceFile, const FPackagePath& DestinationDirectory,
-		const FStaticMeshImportSettings& Settings, const FSceneMaterialImportOptions& MaterialOptions)
-		-> FSceneMaterialPreviewResult
-	{
-		FSceneMaterialPreviewResult Result;
-		if (SourceFile.empty() || !DestinationDirectory.IsValid() || !Settings.Validate())
-		{
-			Result.Message = "Select a valid source, destination and coordinate settings.";
-			return Result;
-		}
-		const auto Source = std::filesystem::absolute(SourceFile).lexically_normal().generic_string();
-		std::vector<FImportDiagnostic> Diagnostics;
-		FSourceSnapshotBuilder Builder;
-		if (!Builder.CaptureRootFilename(Source, Diagnostics) ||
-			!Builder.DiscoverSourceDependencies(DiscoverSceneImportDependencies, Diagnostics))
-		{
-			Result.Message = Diagnostics.empty() ? "Scene source could not be read." : Diagnostics.back().Message;
-			return Result;
-		}
-		auto Snapshot = Builder.Freeze(Diagnostics);
-		FAssetImportPlan Plan;
-		std::vector<FImportOutputSummary> Outputs;
-		if (!Snapshot || !BuildScenePlan(*Snapshot, DestinationDirectory, Settings, Plan, Outputs, Diagnostics, Result.Message))
-		{
-			if (Result.Message.empty()) Result.Message = "Scene preview could not be built.";
-			return Result;
-		}
-		Result.bSucceeded = ConfigureSceneMaterials(Plan, Outputs, DestinationDirectory,
-			MaterialOptions, Result.Materials, Result.Message);
-		return Result;
 	}
 }

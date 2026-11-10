@@ -129,19 +129,23 @@ namespace Durin::Editor::ContentBrowser::Private
 			&& ValidatePhysicalState() && AssetOperation.Validate();
 	}
 
-	auto FContentDeletionOperation::Execute(FContentDeletionHooks InHooks) -> FAssetOperationResult
+	auto FContentDeletionOperation::Execute(FContentDeletionHooks InHooks) -> bool
 	{
 		if (InHooks.RemoveAll) Hooks = std::move(InHooks);
 		Details.clear();
 		if (bStarted || !Plan || !Plan->CanExecute())
-			return {.Kind = EAssetOperationKind::Delete, .State = EAssetOperationTerminalState::Rejected, .Message = "Deletion is blocked or unavailable."};
-		Result = AssetOperation.Delete({
+		{
+			Result = {EAssetWriteError::InvalidData, "Deletion is blocked or unavailable."};
+			return false;
+		}
+		const bool bSucceeded = AssetOperation.Delete({
 			.Delete = [this](auto& RemovedPaths) { return DeletePhysicalRoots(RemovedPaths); },
 			.ValidateFiles = [this](FAssetDeletionFileIdentities& Identities) -> FAssetWriteResult {
 				return ValidatePhysicalState(&Identities)
 					? FAssetWriteResult{} : FAssetWriteResult{EAssetWriteError::StaleData, Details};
 			}});
+		Result = AssetOperation.GetWriteResult();
 		Details = Result.Message;
-		return Result;
+		return bSucceeded;
 	}
 } // namespace Durin::Editor::ContentBrowser::Private

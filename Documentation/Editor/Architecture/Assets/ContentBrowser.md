@@ -180,15 +180,21 @@ own asset mutation phases. Availability is advisory; execution rechecks policy.
 Save requests deduplicate package identity; duplicate uses top-level asset
 identity. Folder Fix Up rejects empty scope instead of falling through to project.
 
-Structured AssetTools results survive the browser boundary, including warnings,
-persistence, recovery identity, forward-pending state, and projection-pending
-state. The service alone notifies the host about scoped content mutations; a
-lower-level catalog publication flag does not mean the host revision was advanced.
+The browser consumes object pointers and boolean editor commands, routing
+messages through `FFeedbackContext`. Its private UI outcome retains focus/reveal
+paths, scoped content changes and native write effects needed by mixed filesystem
+operations. It owns no tagged asset-operation result or shared status projection.
+Mixed moves and fixup consume native mutation details directly to preserve partial
+commit and recovery evidence. The service alone notifies the host about observed
+content mutations; a lower-level catalog publication is not a host notification.
 The service never refreshes Model. RefreshCoordinator consumes the notification
 and owns reconciliation and derived-view refresh. **Duplicate** and `Ctrl+D` clone one
 selected real asset into the same writable folder, choosing `_Copy`, `_Copy2`,
 and later suffixes until both catalog and physical destinations are free. The
-  complete persistent object graph is copied and published as a clean package.
+complete persistent object graph is copied into live memory, then the browser
+explicitly requests saving. Duplication and save results are consumed separately.
+Save failure reports the save error and retains the copy, reveals its identity,
+and notifies the host about the live content change; ordinary Save retries it.
 `Ctrl+C` and the Copy context action accept ordinary files, folders, and mixed
 selections. A single real asset retains its canonical top-level identity on the
 system clipboard. Other selections retain an owned in-process snapshot shared
@@ -210,10 +216,11 @@ block folder copy because no generic companion duplication contract exists.
 
 Filesystem failures clean up successfully created ordinary files and empty
 folders where possible. Failed destinations that may contain partial bytes are
-reported for inspection. Once asset copies have committed or reported partial
-effects, earlier copies are retained, a full refresh is requested, and the warning
-requires inspecting the destination before retrying. Mixed copy is not an atomic
-multi-asset transaction; structured asset failure state is preserved.
+reported for inspection. Once any asset copy exists in memory, those copies and
+their destination folders are retained even if saving fails. A full refresh is
+requested and the warning identifies retained copies. Mixed copy is not an atomic
+multi-asset transaction; actual save errors and disk effects are preserved without
+classifying a known Dirty copy as uncertain disk content.
 
 Opening a
 redirector resolves and opens its final real asset; redirectors are excluded

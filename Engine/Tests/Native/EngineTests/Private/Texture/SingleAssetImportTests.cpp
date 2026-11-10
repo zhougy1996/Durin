@@ -210,7 +210,7 @@ TEST(FSingleAssetImportTests, DerivedValidationRejectsInvalidAxisAtlasAndRole)
 	Volume.SourceData.Sources.clear();
 }
 
-TEST(FSingleAssetImportTests, FactorySourceAdmissionRetainsTypedCauseAfterDiscard)
+TEST(FSingleAssetImportTests, FactorySourceAdmissionReportsDiagnosticBeforeDiscard)
 {
 	const auto Root = InitializeSingleAssetImportTests();
 	const auto Missing = Root / "MissingSource.obj";
@@ -223,21 +223,20 @@ TEST(FSingleAssetImportTests, FactorySourceAdmissionRetainsTypedCauseAfterDiscar
 	{
 		auto* Factory = Durin::NewObject<Durin::AssetForge::Builtins::DStaticMeshFactory>(
 			nullptr, "SourceRejectionFactory", Durin::EObjectFlags::Transient);
+		std::string ResultError;
+		Durin::FFeedbackContext ResultFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
+			if (Level >= Durin::ELogLevel::Error) { if (!ResultError.empty()) ResultError += "\n"; ResultError += Message; }
+		});
 		const auto Result = Durin::IAssetTools::Get().ImportPackageLeafAssetForTesting(
-			Path, Durin::DStaticMesh::StaticClass(), Source.generic_string(), Factory);
+			Path, Durin::DStaticMesh::StaticClass(), Source.generic_string(), Factory, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &ResultFeedback);
 		EXPECT_FALSE(Result);
 		EXPECT_EQ(Durin::FindResidentPackage(Path), nullptr);
-		ASSERT_TRUE(Result.FactoryCause) << Result.Message;
-		ASSERT_EQ(Result.FactoryCause->GetEntries().size(), 1u);
-		const auto& Failure = Result.FactoryCause->GetEntries()[0].Failure;
-		ASSERT_TRUE(Failure);
-		EXPECT_EQ(Failure->Code, Source == Missing
-			? Durin::EFactoryError::SourceMissing : Durin::EFactoryError::SourceFormat);
-		EXPECT_EQ(Failure->Filename, Source.generic_string());
+		EXPECT_FALSE(ResultError.empty());
+		EXPECT_NE(ResultError.find(Source.generic_string()), std::string::npos);
 	}
 }
 
-TEST(FSingleAssetImportTests, FactoryRetainsSettingsAxesAfterDiscard)
+TEST(FSingleAssetImportTests, FactoryReportsInvalidSettingsBeforeDiscard)
 {
 	InitializeSingleAssetImportTests();
 	const auto Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "Triangle.obj";
@@ -248,20 +247,16 @@ TEST(FSingleAssetImportTests, FactoryRetainsSettingsAxesAfterDiscard)
 	Durin::FStaticMeshImportSettings Settings;
 	Settings.RightAxis = Settings.ForwardAxis;
 	Factory->SetImportSettings(Settings);
+	std::string ResultError;
+	Durin::FFeedbackContext ResultFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
+		if (Level >= Durin::ELogLevel::Error) { if (!ResultError.empty()) ResultError += "\n"; ResultError += Message; }
+	});
 	const auto Result = Durin::IAssetTools::Get().ImportPackageLeafAssetForTesting(
-		Path, Durin::DStaticMesh::StaticClass(), Source.generic_string(), Factory);
+		Path, Durin::DStaticMesh::StaticClass(), Source.generic_string(), Factory, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &ResultFeedback);
 	EXPECT_FALSE(Result);
 	EXPECT_EQ(Durin::FindResidentPackage(Path), nullptr);
-	ASSERT_TRUE(Result.FactoryCause) << Result.Message;
-	ASSERT_EQ(Result.FactoryCause->GetEntries().size(), 1u);
-	const auto& Failure = Result.FactoryCause->GetEntries()[0].Failure;
-	ASSERT_TRUE(Failure);
-	EXPECT_EQ(Failure->Code, Durin::EFactoryError::StaticMeshSettings);
-	ASSERT_TRUE(Failure->StaticMeshSettingsCause);
-	EXPECT_EQ(Failure->StaticMeshSettingsCause->Code, Durin::EStaticMeshImportSettingsError::RepeatedAxis);
-	EXPECT_EQ(Failure->StaticMeshSettingsCause->ForwardAxis, Settings.ForwardAxis);
-	EXPECT_EQ(Failure->StaticMeshSettingsCause->RightAxis, Settings.RightAxis);
-	EXPECT_EQ(Failure->Filename, Source.generic_string());
+	EXPECT_FALSE(ResultError.empty());
+	EXPECT_NE(ResultError.find(Durin::FormatStaticMeshImportSettingsError(Settings.Validate().error())), std::string::npos);
 }
 
 TEST(FSingleAssetImportTests, VolumeFactoryRetainsDiagnosticAfterPackageDiscard)
@@ -281,19 +276,15 @@ TEST(FSingleAssetImportTests, VolumeFactoryRetainsDiagnosticAfterPackageDiscard)
 		const auto Expected = InvalidSettings
 			? Durin::AssetForge::Builtins::FormatVolumeTextureImportSettingsError(Factory->GetImportSettings().Validate().error())
 			: "Volume texture atlas is not PNG data.";
+		std::string ResultError;
+		Durin::FFeedbackContext ResultFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
+			if (Level >= Durin::ELogLevel::Error) { if (!ResultError.empty()) ResultError += "\n"; ResultError += Message; }
+		});
 		const auto Result = Durin::IAssetTools::Get().ImportPackageLeafAssetForTesting(
-			Path, Durin::DVolumeTexture::StaticClass(), Source.generic_string(), Factory);
+			Path, Durin::DVolumeTexture::StaticClass(), Source.generic_string(), Factory, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &ResultFeedback);
 		EXPECT_FALSE(Result);
 		EXPECT_EQ(Durin::FindResidentPackage(Path), nullptr);
-		ASSERT_TRUE(Result.FactoryCause) << Result.Message;
-		ASSERT_EQ(Result.FactoryCause->GetEntries().size(), 1u);
-		const auto& Entry = Result.FactoryCause->GetEntries()[0];
-		EXPECT_TRUE(Entry.Message.empty());
-		const auto* Detail = dynamic_cast<const Durin::AssetForge::Builtins::FVolumeTextureFactoryError*>(Entry.DomainFailure.get());
-		ASSERT_NE(Detail, nullptr);
-		using namespace Durin::AssetForge::Builtins;
-		EXPECT_EQ(Detail->Diagnostic, Expected);
-		EXPECT_EQ(Detail->Format(), Expected);
+		EXPECT_EQ(ResultError, Expected);
 	}
 }
 
