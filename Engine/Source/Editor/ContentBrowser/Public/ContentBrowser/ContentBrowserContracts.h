@@ -208,7 +208,7 @@ namespace Durin::Editor::ContentBrowser
 	};
 
 	// Supplies implementation-neutral services required to construct the browser.
-	struct FConstructionServices
+	struct FContentBrowserHostContext
 	{
 		std::function<bool(const std::string&, const std::string&)> OpenAsset;
 		std::function<uint64()> GetMountedContentMutationRevision;

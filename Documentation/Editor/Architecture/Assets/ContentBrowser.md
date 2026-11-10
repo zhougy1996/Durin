@@ -127,6 +127,29 @@ progress. An unreadable entry is skipped without truncating later siblings;
 traversal failures stop safely and appear as bounded warnings in the status bar.
 Reparse points are never followed while building the snapshot or directory tree.
 
+### Discovery Ownership And Shutdown
+
+DataSource prepares an immutable catalog projection and owned item/directory
+capture callables on the owner thread. Model invokes them synchronously or
+submits them to the existing task runtime; it does not construct worker bodies.
+`FContentBrowserItemDiscovery` performs filesystem/catalog collection and owns
+its directory index. Model retains scheduling, navigation, tree caches, request
+replacement, stale-result rejection and snapshot publication versions. DataSource
+privately owns the serial item collector, and admitted work pins its lifetime;
+Model neither constructs nor passes collectors. Independent tree captures use
+separate collectors. Before admitting a tree capture, Model refreshes its catalog
+through DataSource even when no item capture has run, so unsaved asset folders
+and recent catalog changes appear without requiring item navigation.
+Workers retain owned directory/catalog inputs and shared cancellation tokens,
+never Panel, DataSource, host callbacks or live registry pointers. Synchronous
+models use the same preparation boundary and explicitly borrow a source that
+outlives them. Failed preparation admits no capture.
+
+Stopping a Panel closes data-source admission and releases deletion sessions,
+revokes Model publication rights, cancels captures and releases thumbnail
+references. Already admitted workers finish against their owned inputs. Model
+destruction drains worker bodies before module code may unload.
+
 ### Directory Tree Snapshots
 
 Directory drawing queues missing child snapshots without performing filesystem
@@ -172,31 +195,43 @@ successful persistence refreshes and reveals the asset. A failed save exposes
 `Import > Retry Texture Saves` while retaining the complete live asset. See
 [Source File Workflows](../../Guides/SourceFileWorkflows.md) for automatic defaults.
 
-Assets open through registered asset editors. ContentBrowser's private
-`FContentBrowserOperationService` owns browser mutation orchestration. Panel
-captures intent, confirms destructive scope, and presents results; clipboard and
-Explorer remain presentation/platform actions. Menu, shortcut, and drag/drop
-mutations enter the service after the active view traversal completes. The
-service owns a mount/path snapshot independent of Model, queries current host
-mutation policy and its own admission state, and directly calls existing AssetTools
-save, duplicate, relocation, deletion, and Fix Up operations. Its constructor
-accepts only the path view, item-update notifier, and host mutation permission. AssetTools continues to
-own asset mutation phases. Availability is advisory; execution rechecks policy.
-Save requests deduplicate package identity; duplicate uses top-level asset
-identity. Folder Fix Up rejects empty scope instead of falling through to project.
+Assets open through registered asset editors. One private concrete
+`FContentBrowserDataSource` per Panel owns browser content policy, mutation
+admission and deletion sessions. The public factory receives
+`FContentBrowserHostContext` once, separately from presentation settings and
+persistence. Panel owns HostContext, DataSource and Model in that lifetime order;
+Model borrows DataSource. There is no provider registry or injectable high-level
+asset service. Host callbacks, weak asset-editor ownership and shared mounted
+content reconciliation are installed during construction.
 
-The browser service separates capability queries, execution, item updates, and UI
-synchronization. `CanModify`, `CanSaveItem`, `CanDuplicateItem`, `CanRenameItem`
-and `CanMoveItem` return `bool` and optionally populate a displayable reason.
-They do not publish diagnostics or authorize later execution; execution rechecks
-current policy and filesystem state.
+Panel captures intent, confirms destructive scope and presents results; clipboard
+and Explorer remain presentation/platform actions. Menu, shortcut and drag/drop
+mutations enter DataSource after view traversal completes. Item-facing save,
+duplicate, rename, move and copy APIs accept `FContentBrowserItem`; save
+converts to package identities and deduplicates them. Destination arguments are
+physical directories, converted from virtual UI paths at the Panel boundary.
+The clipboard duplication overload retains the explicit output item so a failed
+save can reveal the retained live copy. Project and folder Fix Up remain explicit
+maintenance operations. Existing AssetTools and filesystem code own mutation
+execution and recovery; no additional forwarding operation service remains.
+
+`CanModify`, `CanSaveItem`, `CanDuplicateItem`, `CanRenameItem`, `CanMoveItem`
+and `CanCreateFolder` return `bool` with an optional reason. Capability checks
+emit no diagnostics, reserve no resources and do not authorize subsequent I/O.
+Save eligibility checks the current writable mount and package loading state;
+canonical resave additionally requires a saved package in a scanned mount and
+is consumed by the Resave menu. Execution rechecks current host policy, mounts,
+names, sources and destinations.
+Deletion preparation remains authoritative rather than adding a second full scan
+for a deletion capability query.
 
 Commands return `bool`. Rename, immediate asset duplication and folder creation
 explicitly output the resulting `FContentBrowserItem`; no generic operation result,
 status conversion, focus hints, or nested persistence state crosses this boundary.
 Duplication may return false for save failure while its output still identifies
 the retained live copy. Folder creation first prepares a suggested name without
-writing or publishing changes. The Panel owns the temporary folder and reuses its
+writing or publishing changes. Edited names are validated through DataSource
+without repeated global diagnostics; finalization validates again before writing. The Panel owns the temporary folder and reuses its
 inline name editor in both views. Confirmation creates the exact proposed name
 only after rechecking host policy, the writable mount, the existing target,
 reparse-point boundaries and name collisions. Failure retains the editor;
@@ -208,14 +243,15 @@ The synchronous diagnostic sink presents errors and warnings independently of th
 return value. Complete diagnostics, including every recovery path, are written
 individually to Core logging and are available in Console. The Panel presents a
 brief error or warning prompt directing users to Console; it owns no diagnostic
-history or concatenated message buffer. A single item-update notifier publishes `FContentChangeBatch` for
+history or concatenated message buffer. The construction-time scoped notifier publishes `FContentChangeBatch` exactly once for
 actual content changes, including committed files with pending Registry publication.
+The unscoped host revision callback is used only as a fallback when no scoped
+notifier is supplied. Panel does not republish operation changes.
 The Panel uses explicit output items to reveal or select content. It does not
 interpret native write effects or infer refresh from command success. Native
-mutation results, recovery paths and rollback decisions remain inside the operation
-service. High-level asset-operation substitutes and directory-removal callbacks
-are not part of the service interface.
-The service never refreshes Model. RefreshCoordinator consumes the notification
+mutation results, recovery paths and rollback decisions remain inside the data source. High-level asset-operation substitutes and directory-removal callbacks
+are not part of the host construction contract.
+The data source never refreshes Model. RefreshCoordinator consumes the notification
 and owns reconciliation and derived-view refresh. **Duplicate** and `Ctrl+D` clone one
 selected real asset into the same writable folder, choosing `_Copy`, `_Copy2`,
 and later suffixes until both catalog and physical destinations are free. The
@@ -348,7 +384,7 @@ notifications are published only through the commit path, never after a rejected
 preflight. Individual assets may relocate across writable scanned mounts through
 AssetTools; ordinary files and folders stay within their source mount.
 
-The service validates all physical roots before writing: no overwrite or merge,
+The data source validates all physical roots before writing: no overwrite or merge,
 no mount roots, no destination inside a selected source, no reparse traversal,
 no unknown `.dasset` packages, and no independent managed-companion move.
 Folder companions require their owners in the asset batch. Registered packages
@@ -400,7 +436,7 @@ ordinary file or silently omitted.
 Preflight produces one immutable deletion plan shared by the confirmation modal
 and command. The plan contains the registry revision, deterministic
 physical fingerprints, sorted entries, and the minimal set of maximal roots to
-remove. A versioned session identifier binds the confirmation to its service-owned
+remove. A versioned session identifier binds the confirmation to its data-source-owned
 execution session. Copying confirmation data cannot grant execution authority:
 submission requires the exact retained confirmation owner. The session alone
 owns the move-only AssetTools operation; confirmation contains no mutable
@@ -442,7 +478,7 @@ No quarantine directory, pre-image, Restore/Purge API, editor history entry, or
 automatic retention policy exists.
 
 `DeleteItems` takes the confirmation handle by reference. If validation detects
-stale content before destructive work starts, the service replaces it from the
+stale content before destructive work starts, the data source replaces it from the
 captured request and returns false. The Panel shows the changed confirmation and
 requires another explicit confirmation. It does not retry automatically or infer
 new scope from the current UI selection.
@@ -465,7 +501,7 @@ Registry fences and recovery obligations remain at their owning boundaries.
 There is no browser-level mutable last-result cache or retry of a session that
 has begun physical deletion.
 
-If physical removal completes but Registry publication fails, the service reports
+If physical removal completes but Registry publication fails, the data source reports
 a warning, publishes the removed item updates, retires the session, clears the
 confirmation handle and returns true for physical deletion. RefreshCoordinator
 reconciliation converges from mounted authored files. The Panel never inspects

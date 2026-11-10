@@ -6,7 +6,7 @@
 
 #include "ContentBrowser/ContentBrowserTool.h"
 #include "Panels/ContentBrowserModel.h"
-#include "Operations/ContentBrowserOperationService.h"
+#include "Panels/ContentBrowserDataSource.h"
 #include "Panels/ContentBrowserItemView.h"
 #include "Panels/ContentBrowserRefreshCoordinator.h"
 #include "Threading/TaskRuntime.h"
@@ -28,36 +28,9 @@ namespace Durin::Editor::ContentBrowser::Private
 		: public IContentBrowserTool
 	{
 	public:
-		using FOpenAsset = std::function<bool(const std::string&, const std::string&)>;
-		using FGetMountedContentMutationRevision = std::function<uint64()>;
-		using FNotifyMountedContentMutation = std::function<void()>;
-		using FQueryReimport = std::function<
-			FReimportAvailability(std::string_view)>;
-		using FReimport = std::function<void(
-			bool, std::string, std::function<void(std::string)>)>;
-
-		FContentBrowserPanel(
-			FPresentationSettings InSettings,
-			FSavePresentationSettings InSaveSettings,
-			FOpenAsset InOpenAsset,
-			std::function<bool()> InCanMutate,
-			FGetMountedContentMutationRevision InGetMountedContentMutationRevision,
-			FNotifyMountedContentMutation InNotifyMountedContentMutation,
-			FQueryReimport InQueryReimport,
-			FReimport InReimport,
-			std::shared_ptr<FMountedContentReconciliationState>
-				InMountedContentReconciliationState);
+		FContentBrowserPanel(FPresentationSettings InSettings,
+			FSavePresentationSettings InSaveSettings, FContentBrowserHostContext InHost);
 		~FContentBrowserPanel() override;
-		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditors;
-		auto SetContentChangeServices(std::function<FContentChangeBatch(uint64)> Capture,
-			std::function<void(FContentChangeBatch)> Notify) -> void
-		{
-			CaptureMountedContentChanges = std::move(Capture);
-			RefreshCoordinator.SetChangeSources(CaptureMountedContentChanges, CaptureAssetQueryChanges);
-			RefreshCoordinator.SetPublicationSuspension(
-				[this](bool bSuspended) { Model.SetSnapshotPublicationSuspended(bSuspended); });
-			Operations.SetItemUpdateNotifier(std::move(Notify));
-		}
 
 
 		auto TickWhenHidden() -> void override;
@@ -126,8 +99,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto PasteContent(std::string_view DestinationDirectory = {}) -> void;
 		auto HasContentClipboard() const -> bool;
 		auto CreateFolder(std::string_view PhysicalDirectory) -> void;
-		auto SaveAssetPackage(const FPackagePath& Path) -> void;
-		auto ResaveAssetPackages(std::vector<FPackagePath> Paths) -> void;
+		auto SaveAssetPackage(const FContentBrowserItem& Item) -> void;
+		auto ResaveAssetPackages(std::vector<FContentBrowserItem> Items) -> void;
 		auto FixUpRedirector(const FContentBrowserItem& Item) -> void;
 		auto FixUpFolder(std::string_view VirtualDirectory) -> void;
 		auto FixUpProject() -> void;
@@ -157,15 +130,10 @@ namespace Durin::Editor::ContentBrowser::Private
 		FEditorSettingsPageRegistration SettingsPage;
 		FPresentationSettings PresentationSettings;
 		FSavePresentationSettings SavePresentationSettings;
-		FOpenAsset OpenAsset;
-		FGetMountedContentMutationRevision GetMountedContentMutationRevision;
-		std::function<FContentChangeBatch(uint64)> CaptureMountedContentChanges;
-		FNotifyMountedContentMutation NotifyMountedContentMutation;
-		FQueryReimport QueryReimport;
-		FReimport Reimport;
+		FContentBrowserHostContext HostContext;
 		FContentBrowserRefreshCoordinator RefreshCoordinator;
+		FContentBrowserDataSource DataSource;
 		FContentBrowserModel Model;
-		FContentBrowserOperationService Operations;
 		FContentBrowserSelection SelectionState;
 		std::array<char, 256> SearchBuffer{};
 		bool bFocusSearch = false;
@@ -181,6 +149,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			FContentBrowserItem Item;
 			std::string Directory;
 			uint64 NavigationRevision;
+			std::string ValidationError;
 		};
 		std::optional<FPendingFolder> PendingFolder;
 		std::string RenameTarget;

@@ -108,7 +108,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		const auto Presenters = CaptureHostPresenters();
 		for (const auto& Extension : *Presenters)
 			(void)DrawHostPresentation(
-				Extension, bInAllowAssetMutation, {.Lifetime = ExtensionLifetime, .AssetEditors = AssetEditors});
+				Extension, bInAllowAssetMutation, {.Lifetime = ExtensionLifetime, .AssetEditors = HostContext.AssetEditors});
 	}
 
 	auto FContentBrowserPanel::PrepareForDraw() -> void
@@ -879,24 +879,25 @@ namespace Durin::Editor::ContentBrowser::Private
 			{
 				DPackage* LoadedPackage = FindResidentPackage(PackagePath);
 				std::string SaveReason;
-				const bool bCanSave = Operations.CanSaveItem(Item.PackagePath, &SaveReason);
+				const bool bCanSave = DataSource.CanSaveItem(Item, EAssetSaveMode::LoadedDirtyPackage, &SaveReason);
+				const bool bCanResave = DataSource.CanSaveItem(Item, EAssetSaveMode::CanonicalResave);
 				ImGui::BeginDisabled(!bAllowAssetMutation);
 				if (ImGui::MenuItem("Save Package", nullptr, false, bCanSave))
-					QueueContentAction([this, PackagePath] { SaveAssetPackage(PackagePath); });
+					QueueContentAction([this, Item] { SaveAssetPackage(Item); });
 				if (!bCanSave && ImGui::IsItemHovered())
 					ImGui::SetTooltip("%s", SaveReason.c_str());
 				if (ImGui::MenuItem(LoadedPackage && LoadedPackage->IsCanonicalResaveRecommended()
-					? "Resave Package (recommended)" : "Resave Package"))
-					QueueContentAction([this, PackagePath] { ResaveAssetPackages({PackagePath}); });
+					? "Resave Package (recommended)" : "Resave Package", nullptr, false, bCanResave))
+					QueueContentAction([this, Item] { ResaveAssetPackages({Item}); });
 				if (SelectionState.Selected.size() > 1 && ImGui::MenuItem("Resave Selected Packages"))
 				{
-					std::vector<FPackagePath> SelectedPaths;
+					std::vector<FContentBrowserItem> SelectedPaths;
 					for (const FContentBrowserItem& SelectedItem : Model.GetItems())
 						if (SelectedItem.Kind == EContentBrowserItemKind::Asset
 							&& SelectionState.Selected.contains(SelectedItem.StableId()))
 						{
 							if (SelectedItem.PackagePath.IsValid())
-								SelectedPaths.push_back(SelectedItem.PackagePath);
+								SelectedPaths.push_back(SelectedItem);
 						}
 					QueueContentAction([this, Paths = std::move(SelectedPaths)]() mutable {
 						ResaveAssetPackages(std::move(Paths));
@@ -908,8 +909,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 		if (Item.Kind == EContentBrowserItemKind::Asset)
 		{
-			const auto Availability = QueryReimport
-				? QueryReimport(Item.AssetClassName)
+			const auto Availability = HostContext.QueryReimport
+				? HostContext.QueryReimport(Item.AssetClassName)
 				: FReimportAvailability{};
 			if (Availability.bCanReimport || Availability.bCanReimportFromFile)
 			{
@@ -918,8 +919,8 @@ namespace Durin::Editor::ContentBrowser::Private
 					ImGui::BeginDisabled(!bAllowAssetMutation);
 					if (ImGui::MenuItem("Reimport (source unverified)"))
 						QueueContentAction([this, Path = Item.VirtualPath] {
-							if (Reimport)
-								Reimport(false, Path, [this](std::string Message) {
+							if (HostContext.Reimport)
+								HostContext.Reimport(false, Path, [this](std::string Message) {
 										SetError(std::move(Message));
 									});
 						});
@@ -930,8 +931,8 @@ namespace Durin::Editor::ContentBrowser::Private
 					ImGui::BeginDisabled(!bAllowAssetMutation);
 					if (ImGui::MenuItem("Reimport From File..."))
 						QueueContentAction([this, Path = Item.VirtualPath] {
-							if (Reimport)
-								Reimport(true, Path, [this](std::string Message) {
+							if (HostContext.Reimport)
+								HostContext.Reimport(true, Path, [this](std::string Message) {
 									SetError(std::move(Message));
 								});
 						});
@@ -1074,12 +1075,12 @@ namespace Durin::Editor::ContentBrowser::Private
 						.RevealAsset = [this, Lifetime](std::string_view Path) { return !Lifetime.expired() && RevealAsset(Path); },
 						.RevealDirectory = [this, Lifetime](std::string_view Path) { return !Lifetime.expired() && RevealDirectory(Path); },
 						.OpenAsset = [this, Lifetime](std::string_view Path, std::string_view Class) {
-							return !Lifetime.expired() && OpenAsset && OpenAsset(std::string(Path), std::string(Class));
+							return !Lifetime.expired() && HostContext.OpenAsset && HostContext.OpenAsset(std::string(Path), std::string(Class));
 						},
 						.NotifyMountedContentChanged = [this, Lifetime] { if (!Lifetime.expired()) PublishMountedContentMutation(); },
 						.ReportError = [this, Lifetime](std::string Message) { if (!Lifetime.expired()) SetError(std::move(Message)); },
 						.HostLifetime = Lifetime, .bHasHostLifetime = true,
-						.AssetEditors = AssetEditors,
+						.AssetEditors = HostContext.AssetEditors,
 					});
 				});
 			});
@@ -1198,7 +1199,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			const std::string Destination = bPhysicalDirectory ? std::string(DestinationDirectory)
 				: Model.VirtualToPhysical(DestinationDirectory);
 			if (!Items.empty()) QueueContentAction([this, Items = std::move(Items), Destination] {
-				Operations.MoveItems(Items, Destination);
+				DataSource.BulkMoveItems(Items, Destination);
 			});
 		}
 		if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(AssetDragDropPayloadType); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(FAssetDragDropPayload))
@@ -1212,7 +1213,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				const std::string Destination = bPhysicalDirectory ? std::string(DestinationDirectory)
 					: Model.VirtualToPhysical(DestinationDirectory);
 				QueueContentAction([this, Item = std::move(Item), Destination] {
-					Operations.MoveItems(std::span{&Item, 1}, Destination);
+					DataSource.BulkMoveItems(std::span{&Item, 1}, Destination);
 				});
 			}
 		}
@@ -1290,8 +1291,13 @@ namespace Durin::Editor::ContentBrowser::Private
 			ImGui::SetKeyboardFocusHere();
 			bFocusRename = false;
 		}
+		const std::string PreviousName = RenameBuffer.data();
 		const bool bSubmit = ImGui::InputText("##Rename", RenameBuffer.data(), RenameBuffer.size(), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
 		bRenameEditorHovered = ImGui::IsItemHovered();
+		if (PendingFolder && PreviousName != RenameBuffer.data())
+			DataSource.CanCreateFolder(PendingFolder->Directory, RenameBuffer.data(), &PendingFolder->ValidationError);
+		if (PendingFolder && !PendingFolder->ValidationError.empty())
+			ImGui::TextDisabled("%s", PendingFolder->ValidationError.c_str());
 		if (bSubmit)
 			CommitRename(Item);
 		else if (ImGui::IsKeyPressed(ImGuiKey_Escape))
@@ -1379,7 +1385,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			ImGui::SameLine();
 			if (MonaImGui::DialogButton("Cancel"))
 			{
-				Operations.DismissDeletion(PendingDeletionPlan);
+				DataSource.DismissDeletion(PendingDeletionPlan);
 				PendingDeletionPlan.reset();
 				bDeletionPlanRefreshed = false;
 				ImGui::CloseCurrentPopup();

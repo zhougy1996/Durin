@@ -16,8 +16,9 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	} // namespace
 
-	FContentBrowserModel::FContentBrowserModel(bool bInAsync)
-		: bAsync(bInAsync)
+	FContentBrowserModel::FContentBrowserModel(FContentBrowserDataSource& InDataSource, bool bInAsync)
+		: DataSource(InDataSource)
+		, bAsync(bInAsync)
 	{
 	}
 
@@ -32,7 +33,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserModel::InvalidateDirectoryTree() -> void
 	{
 		bActiveTreePublishable = false;
-		TreeCancellation.Cancel();
+		TreeCancellation->Cancel();
 		DirectoryChildrenCache.clear();
 		RequestedDirectoryChildrenSnapshots.clear();
 	}
@@ -40,7 +41,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserModel::CancelPendingSnapshots() -> void
 	{
 		if (ItemsRequest) ItemsRequest->State = EItemsRequestState::Cancelled;
-		ItemsCancellation.Cancel();
+		ItemsCancellation->Cancel();
 		ItemsRequest.reset();
 		bSnapshotPublicationSuspended = false;
 		InvalidateDirectoryTree();
@@ -57,6 +58,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserModel::PumpPendingSnapshots() -> bool
 	{
+		if (!DataSource.IsAcceptingRequests()) CancelPendingSnapshots();
 		if (bSnapshotPublicationSuspended) return false;
 		// Unrelated catalog publications validate an old capture without restarting it.
 		if (IsLoading() && ItemsRequest->CatalogCursor != GetAssetQueryRevision())
@@ -92,14 +94,12 @@ namespace Durin::Editor::ContentBrowser::Private
 		{
 			ActiveItemsRequest = ItemsRequest;
 			ActiveItemsRequest->State = EItemsRequestState::Capturing;
-			ItemsCancellation = Tasks::FCancellationToken{};
-			ItemsTask = Tasks::LaunchTask(
-				"ContentBrowser.Items",
-				[Source = DataSource, Request = ActiveItemsRequest, Query = EntryStatusQuery, Cancellation = &ItemsCancellation]() {
-					Source->SetEntryStatusQueryForTesting(Query);
-					return std::make_unique<FContentBrowserItemsSnapshot>(Source->CaptureItems(
-						Request->Directory, Request->bRecursive, Request->Catalog, *Cancellation));
-				}, {.Attribution = RegisterTaskAttribution("ContentBrowser", "Items")});
+			ItemsCancellation = std::make_shared<Tasks::FCancellationToken>();
+			auto Work = DataSource.PrepareItemsCapture(ActiveItemsRequest->Directory,
+				ActiveItemsRequest->bRecursive, ActiveItemsRequest->Catalog, EntryStatusQuery, ItemsCancellation);
+			if (!Work) { CancelPendingSnapshots(); return false; }
+			ItemsTask = Tasks::LaunchTask("ContentBrowser.Items", std::move(Work),
+				{.Attribution = RegisterTaskAttribution("ContentBrowser", "Items")});
 
 		}
 		if (TreeTask.IsValid() && TreeTask.IsCompleted())
@@ -127,15 +127,12 @@ namespace Durin::Editor::ContentBrowser::Private
 			ActiveTreeDirectory = *It;
 			RequestedDirectoryChildrenSnapshots.erase(It);
 			bActiveTreePublishable = true;
-			TreeCancellation = Tasks::FCancellationToken{};
-			TreeTask = Tasks::LaunchTask(
-				"ContentBrowser.Directory",
-				[Directory = ActiveTreeDirectory, Query = EntryStatusQuery, Catalog = Catalog, Cancellation = &TreeCancellation]() {
-					FContentBrowserDataSource Source;
-					Source.SetEntryStatusQueryForTesting(Query);
-					return std::make_unique<FContentBrowserDirectorySnapshot>(
-						Source.CaptureDirectory(Directory, Catalog, *Cancellation));
-				}, {.Attribution = RegisterTaskAttribution("ContentBrowser", "Directory")});
+			TreeCancellation = std::make_shared<Tasks::FCancellationToken>();
+			Catalog = DataSource.PrepareDiscoveryCatalog(Catalog);
+			auto Work = DataSource.PrepareDirectoryCapture(ActiveTreeDirectory, Catalog, EntryStatusQuery, TreeCancellation);
+			if (!Work) { CancelPendingSnapshots(); return bPublished; }
+			TreeTask = Tasks::LaunchTask("ContentBrowser.Directory", std::move(Work),
+				{.Attribution = RegisterTaskAttribution("ContentBrowser", "Directory")});
 
 		}
 		return bPublished;
@@ -349,7 +346,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (!ActiveTreeDirectory.empty() && Invalidates(ActiveTreeDirectory))
 		{
 			bActiveTreePublishable = false;
-			TreeCancellation.Cancel();
+			TreeCancellation->Cancel();
 		}
 		bool bMoved = false;
 		for (const auto& Change : Changes.Changes)
@@ -388,12 +385,9 @@ namespace Durin::Editor::ContentBrowser::Private
 		bSnapshotInjectedForTesting = false;
 		if (bInvalidateDirectoryTree) InvalidateDirectoryTree();
 		if (ItemsRequest) ItemsRequest->State = EItemsRequestState::Cancelled;
-		ItemsCancellation.Cancel();
-		if (!Catalog || Catalog->Revision != GetAssetQueryRevision())
-		{
-			DURIN_PROFILE_CPU_ZONE_NAMED("ContentBrowser.CaptureCatalog");
-			Catalog = CaptureContentBrowserAssets();
-		}
+		ItemsCancellation->Cancel();
+		Catalog = DataSource.PrepareDiscoveryCatalog(Catalog);
+		if (!Catalog) { CancelPendingSnapshots(); return; }
 		++ItemsRequestCount;
 		bSnapshotPublicationSuspended = false;
 		EnumerationDiagnostics.clear();
@@ -408,8 +402,9 @@ namespace Durin::Editor::ContentBrowser::Private
 			(void)PumpPendingSnapshots();
 			return;
 		}
-		DataSource->SetEntryStatusQueryForTesting(EntryStatusQuery);
-		PublishItems(DataSource->CaptureItems(Session.CurrentPhysicalPath, !Session.Query.Search.empty(), Catalog));
+		auto Work = DataSource.PrepareItemsCapture(Session.CurrentPhysicalPath,
+			!Session.Query.Search.empty(), Catalog, EntryStatusQuery);
+		if (Work) PublishItems(std::move(*Work()));
 	}
 
 	auto FContentBrowserModel::PublishItems(FContentBrowserItemsSnapshot Snapshot) -> void
@@ -499,6 +494,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserModel::RequestDirectoryChildrenSnapshot(
 		std::string_view PhysicalDirectory) -> void
 	{
+		if (!DataSource.IsAcceptingRequests()) return;
 		const std::string Physical = NormalizePath(PhysicalDirectory);
 		if (!DirectoryChildrenCache.contains(Physical)
 			&& !(TreeTask.IsValid() && bActiveTreePublishable
@@ -508,15 +504,17 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserModel::RefreshRequestedDirectoryChildrenSnapshots() -> void
 	{
+		if (!DataSource.IsAcceptingRequests()) return;
 		if (bAsync) return; // The frame pump schedules a bounded serial tree lane.
+		Catalog = DataSource.PrepareDiscoveryCatalog(Catalog);
 		std::vector<std::string> Requests(
 			RequestedDirectoryChildrenSnapshots.begin(), RequestedDirectoryChildrenSnapshots.end());
 		RequestedDirectoryChildrenSnapshots.clear();
-		DataSource->SetEntryStatusQueryForTesting(EntryStatusQuery);
 		for (const std::string& Physical : Requests)
 		{
 			if (DirectoryChildrenCache.contains(Physical)) continue;
-			PublishDirectory(Physical, DataSource->CaptureDirectory(Physical, Catalog));
+			auto Work = DataSource.PrepareDirectoryCapture(Physical, Catalog, EntryStatusQuery);
+			if (Work) PublishDirectory(Physical, std::move(*Work()));
 		}
 	}
 
@@ -563,7 +561,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::error_code Error;
 		const std::filesystem::file_status Status = QueryPathStatus(Path, Error);
 		if (!Error && std::filesystem::is_directory(Status)) return true;
-		const auto Query = CaptureContentBrowserAssets();
+		const auto Query = DataSource.PrepareDiscoveryCatalog();
+		if (!Query) return {};
 		return std::ranges::any_of(Query->Items, [&](const auto& Item) {
 			const auto Directory = std::filesystem::path(Item.PhysicalPath).parent_path();
 			return ContentBrowserChanges::SamePath(Directory.generic_string(), Path.generic_string())

@@ -315,7 +315,7 @@ namespace Durin::Editor::MainFrame
 					OutError = "Could not initialize the Level Editor workspace.";
 					return false;
 				}
-				ContentBrowser::FConstructionServices Services{
+				ContentBrowser::FContentBrowserHostContext Services{
 					.OpenAsset = [Service = Context.AssetEditors](const std::string& Path,
 						const std::string& AssetClassName) {
 						auto* AssetEditors = Service.Get();

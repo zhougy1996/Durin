@@ -4,20 +4,128 @@ Summary: Align Content Browser item interfaces and ownership with UE data-source
 
 Last reviewed: 2026-11-10
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-11-10
 
 ## Current Status
 
-Planning only; implementation has not started. The baseline is commit
-`6cc14a7a0`. Previous cleanup already unified move submission, removed high-level
-asset-service injection, deferred folder creation until confirmation, moved
-thumbnail request data out of items, removed operation-owned mount snapshots,
-and removed redundant deletion-root metadata and capture version counters.
+Stages 0-4 are complete. All selected native and documentation gates passed;
+the two platform-permission skips are recorded below. The execution checkout started at
+`1f877ca0f3b0d02193e86268e2ad8986fed64363` (the plan commit); the
+proposal baseline `6cc14a7a0` is retained as historical context only.
 
-The selected direction is structural alignment, not a Service-to-Operations
-rename alone. This plan does not authorize changing deletion semantics or
-introducing a general multi-provider framework.
+Production call map: MainFrame constructs the public tool; the factory constructs
+Panel with one `FContentBrowserHostContext`. Panel owns that context, DataSource,
+and Model in lifetime order. Model borrows DataSource; synchronous tests explicitly
+construct a source before their model. Panel commands use item inputs; clipboard
+asset identity is converted to an item and virtual destinations to physical paths
+at the Panel boundary. Save accepts selected items and deduplicates packages.
+An item duplication overload with a physical destination is retained because
+clipboard paste needs both the resulting identity and save-failure reveal.
+
+Discovery remains serial per Model with a DataSource-private shared ItemDiscovery collector;
+DataSource prepares the catalog and item/directory capture callables on the owner
+thread, reusing the existing request inputs and snapshot result types. Model
+only invokes or schedules that work. Tree workers own independent
+collectors. Workers pin catalog, collector and cancellation token, never the
+DataSource or Panel. Model retains scheduling and publication rights. Failed
+preparation publishes no request. Shutdown closes source admission, releases its
+deletion sessions, cancels Model publication, and drains worker bodies before
+module unload. Synchronous calls use the same owned inputs without launching work.
+
+Deletion display declarations move to `Operations/ContentDeletionPlan.h`; the
+execution type moves to `Operations/ContentDeletionOperation.h` and remains
+constructible only by DataSource. The concrete source lives in Panels, with
+mutation implementations in `Operations/ContentBrowserItemOperations.cpp`.
+Scoped host notification is the sole publisher when supplied; the legacy host
+revision callback is a construction-time fallback. No notifier rebind is needed.
+
+Workspace symbol audit found production consumers only in Engine ContentBrowser
+and MainFrame; Sandbox and RoadWeaver have none. Behavior coverage resides in
+ContentBrowser model/panel/refresh tests and EditorAssetWorkflowTests. Existing
+filesystem fault, deletion hook, and async scan-gate seams remain; notifier setter
+usage in tests migrates to construction, and standalone Models receive explicit
+source lifetimes. No injectable high-level asset service is introduced.
+
+Final validation (Windows MSVC x64, `Win64-Debug-DurinEditor`, 14 build jobs):
+
+- `ContentBrowserWorkflowTests`: 156 passed, 2 environment skips out of 158.
+  The two existing symbolic-link tests require Windows privileges unavailable
+  on this machine; their test bodies remain enabled. Receipt:
+  `Build/.agent-state/logs/20261110-173950-402469-46284-ContentBrowserWorkflowTests.log`.
+- The tests cover the native inputs committed with this plan update on top of
+  `1f877ca0f`; subsequent edits only finalize documentation. Added coverage checks
+  prepared work after source destruction, shutdown with an admitted
+  capture, rejected preparation, silent folder validation and destination races,
+  exactly one scoped publisher, and shared-package item save deduplication.
+- Four pre-existing deletion fixtures assumed each saved package survived the
+  previous `UnloadPackage` call. That operation runs GC across all unreferenced
+  objects and returns NotFound for an already collected package. Fixtures now
+  unload only resident packages and assert every intended package is absent;
+  deletion/reference/companion assertions remain intact.
+- `EditorAssetWorkflowTests`: 44/44 passed. Receipt:
+  `Build/.agent-state/logs/20261110-174019-589324-41156-EditorAssetWorkflowTests.log`.
+  Its declared dependencies include MainFrame and ContentBrowser. MainFrame and
+  the affected host consumers compiled and linked in the initial consumer build
+  (`20261110-173522-221862-44180-cmake.log`); the final incremental build receipt
+  is `20261110-174018-073269-41156-cmake.log`. No duplicate standalone build was
+  needed for the same target inputs.
+- Changed-document validation, all-plan lifecycle validation and Git diff checks
+  passed. Workspace source/test searches found no legacy operation-service,
+  construction-services or post-construction notifier APIs. The implemented
+  ownership and lifecycle contract is in the Content Browser architecture document.
+- `test affected --explain` was rerun after the final native edits. Its Engine-wide
+  expansion comes from the explicit test CMake source-list update. Only the
+  ContentBrowser target's private source registration changed; the graph and
+  other test registrations did not. Selected gates remain ContentBrowser,
+  EditorAsset and MainFrame. Source/thumbnail implementations and renderer inputs
+  are unchanged; unrelated Python, external-tool and GPU labels do not introduce
+  additional consumers of the changed construction API.
+- Initial sandbox compilation failed with the documented MSVC C1902 PDB service
+  mismatch. The same DevTool command succeeds outside the sandbox; all subsequent
+  native gates use that environment. No all-build or application-startup gate is
+  required for this bounded private-module and construction-contract change.
+
+### Post-Implementation Review (2026-11-10)
+
+Review of `2a22f4f15` found two incomplete details and redundant migration scaffolding:
+
+- Tree work could receive a null or stale item catalog. Refresh the owned catalog
+  at tree admission in both synchronous and asynchronous modes. A regression
+  covers tree-only browsing and assets created after the last item capture.
+- Ordinary Save eligibility omitted current mount writability/loading checks,
+  and canonical-resave eligibility had no production caller. Match the native
+  admission predicates and use the canonical query in the Resave menu; retain
+  native execution revalidation and partial-save behavior.
+- Move the serial collector fully under DataSource ownership. Remove the public
+  collector factory, collector parameters and the Model collector member. Keep
+  the two concrete owned work callables: they enforce the required worker lifetime
+  boundary without introducing another request model or scheduler.
+- Remove the deletion-plan test wrapper (including its unused selection set),
+  deletion-driver adapter, 21 unused Model setups, and obsolete Panel callback
+  aliases. Construct the reimport test callback through the real host context.
+  Keep fault hooks, byte-identity, partial-failure and asynchronous lifetime tests.
+- Strengthen the existing cross-panel clipboard test with the real Transactor,
+  shared construction context, one-notification assertions and observer-panel
+  refresh, instead of adding another mock service or duplicate test fixture.
+
+Follow-up validation uses the same Windows MSVC Debug profile. The affected
+selection is ContentBrowser, EditorAsset, PythonScriptPanel, SceneImport,
+StaticMeshThumbnail and Thumbnail by module labels. This change touches only the
+private browser boundary, menu eligibility and its tests; other labeled feature
+implementations and renderer inputs are unchanged. ContentBrowser and EditorAsset
+(with its MainFrame dependency) remain the bounded gates. Follow-up validation on top of `2a22f4f15` covers the native changes in this
+review commit:
+
+- ContentBrowser: 158 passed, 2 existing Windows symlink-permission skips out of
+  160; `Build/.agent-state/logs/20261110-175230-085131-20352-ContentBrowserWorkflowTests.log`.
+- EditorAsset: 44 passed; `Build/.agent-state/logs/20261110-175053-885697-24560-EditorAssetWorkflowTests.log`.
+  MainFrame compiled and deployed in the accompanying consumer build. Later edits
+  only strengthened ContentBrowser's test source and normalized whitespace/documentation, so
+  the EditorAsset/MainFrame receipt remains applicable without a duplicate run.
+- Changed-document validation, all-plan validation, workspace obsolete-symbol
+  searches and diff checks passed. These review receipts supersede the initial
+  implementation receipts above for the final relevant native inputs.
 
 ## Goal
 
@@ -202,12 +310,12 @@ and cancellation types when wiring Model to DataSource.
 
 Dependency: this plan and the baseline source.
 
-- [ ] Audit affected symbols across Engine, Sandbox, and RoadWeaver source/tests.
-- [ ] Map every production caller to the target interface; settle discovery-work
+- [x] Audit affected symbols across Engine, Sandbox, and RoadWeaver source/tests.
+- [x] Map every production caller to the target interface; settle discovery-work
   preparation and host-context ownership without adding a parallel request model.
-- [ ] Record the lifetime sequence for synchronous tests, asynchronous panels,
+- [x] Record the lifetime sequence for synchronous tests, asynchronous panels,
   failed preparation, and shutdown; settle file placement and exact method names.
-- [ ] Inventory tests that assert behavior versus old injectable or projection APIs.
+- [x] Inventory tests that assert behavior versus old injectable or projection APIs.
 
 Completion: the call map and final interface decisions are recorded here, with
 no unresolved ownership or duplicate-notification responsibility.
@@ -216,11 +324,11 @@ no unresolved ownership or duplicate-notification responsibility.
 
 Dependency: Stage 0.
 
-- [ ] Rename the current collector to `FContentBrowserItemDiscovery` and migrate
+- [x] Rename the current collector to `FContentBrowserItemDiscovery` and migrate
   capture ownership without changing execution or publication ordering.
-- [ ] Extract deletion confirmation and execution headers; remove reverse includes
+- [x] Extract deletion confirmation and execution headers; remove reverse includes
   from deletion execution to the large operation-service header.
-- [ ] Keep native operations and deletion guarantees unchanged.
+- [x] Keep native operations and deletion guarantees unchanged.
 
 Completion: affected consumers compile; discovery, stale-result rejection,
 snapshot publication, and deletion regression tests pass. No new runtime layer
@@ -230,11 +338,11 @@ is required merely to move declarations.
 
 Dependency: Stage 1.
 
-- [ ] Establish the concrete data source and connect Model discovery preparation.
-- [ ] Move item capability and mutation admission into this boundary, reusing
+- [x] Establish the concrete data source and connect Model discovery preparation.
+- [x] Move item capability and mutation admission into this boundary, reusing
   current move/copy/save/Fix Up commit implementations.
-- [ ] Migrate Panel and tests to item-oriented inputs and necessary bulk methods.
-- [ ] Retire `FContentBrowserOperationService` and redundant public path overloads;
+- [x] Migrate Panel and tests to item-oriented inputs and necessary bulk methods.
+- [x] Retire `FContentBrowserOperationService` and redundant public path overloads;
   remove temporary adapters by the end of this stage.
 
 Completion: a production caller cannot bypass the data-source boundary to invoke
@@ -245,13 +353,13 @@ read-only checks, and recovery tests pass.
 
 Dependency: Stage 2.
 
-- [ ] Install `FContentBrowserHostContext` once at construction and remove obsolete
+- [x] Install `FContentBrowserHostContext` once at construction and remove obsolete
   post-construction setters and direct member installation.
-- [ ] Route temporary-folder validation/finalization through DataSource and retain
+- [x] Route temporary-folder validation/finalization through DataSource and retain
   Panel-owned edit state, cancellation, and reveal behavior.
-- [ ] Put deletion sessions under DataSource ownership; preserve confirmation
+- [x] Put deletion sessions under DataSource ownership; preserve confirmation
   replacement, cancellation, retry, and partial-completion behavior.
-- [ ] Verify one committed-change publisher and safe shutdown with pending work.
+- [x] Verify one committed-change publisher and safe shutdown with pending work.
 
 Completion: multi-panel notifications, temporary creation, deletion sessions,
 host shutdown, and asynchronous lifetime tests pass without new test-only service
@@ -261,14 +369,14 @@ injection. Update the implemented Content Browser contract in the same stage.
 
 Dependency: Stages 1-3.
 
-- [ ] Search all workspace projects for old symbols, redundant adapters, obsolete
+- [x] Search all workspace projects for old symbols, redundant adapters, obsolete
   includes, and tests coupled only to removed implementation details.
-- [ ] Validate `ContentBrowserWorkflowTests` and `EditorAssetWorkflowTests` against
+- [x] Validate `ContentBrowserWorkflowTests` and `EditorAssetWorkflowTests` against
   the final relevant inputs. Include thumbnail targets if their inputs change.
-- [ ] Build affected host consumers, including `MainFrame`, because the public
+- [x] Build affected host consumers, including `MainFrame`, because the public
   construction contract changes; select exact targets using the build workflow.
-- [ ] Recheck affected-test analysis and cover additional discovered consumers.
-- [ ] Record tested revision, selections, configuration, skips, and applicable
+- [x] Recheck affected-test analysis and cover additional discovered consumers.
+- [x] Record tested revision, selections, configuration, skips, and applicable
   reused receipts; validate documentation and close only satisfied checklists.
 
 Completion: no legacy operation entrypoint or duplicate construction path remains;

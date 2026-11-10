@@ -225,7 +225,8 @@ durin_add_native_test(ContentBrowserWorkflowTests
 		${_durin_content_browser_private}/Panels/ContentBrowserModel.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserQuery.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserDataSource.cpp
-		${_durin_content_browser_private}/Operations/ContentBrowserOperationService.cpp
+		${_durin_content_browser_private}/Panels/ContentBrowserItemDiscovery.cpp
+		${_durin_content_browser_private}/Operations/ContentBrowserItemOperations.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserRefreshCoordinator.cpp
 		${_durin_content_browser_private}/Operations/ContentDeletionOperation.cpp
 	LIBRARIES

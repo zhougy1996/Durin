@@ -3,8 +3,6 @@
 #include "CoreMinimal.h"
 #include "Threading/Task.h"
 
-#include "Threading/Task.h"
-
 #include "Panels/ContentBrowserDataSource.h"
 #include "Operations/ContentBrowserPaths.h"
 #include "Panels/ContentBrowserSession.h"
@@ -17,7 +15,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	public:
 		// Standalone synchronous mode supports callers without a frame pump.
 		// Editor panels opt into asynchronous mode and pump before drawing.
-		explicit FContentBrowserModel(bool bAsync = false);
+		explicit FContentBrowserModel(FContentBrowserDataSource& InDataSource, bool bAsync = false);
 		~FContentBrowserModel();
 		FContentBrowserModel(const FContentBrowserModel&) = delete;
 		auto operator=(const FContentBrowserModel&) -> FContentBrowserModel& = delete;
@@ -132,9 +130,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::optional<uint64> MountSnapshotRevision;
 		std::unordered_map<std::string, std::shared_ptr<const FContentBrowserDirectorySnapshot>> DirectoryChildrenCache;
 		std::unordered_set<std::string> RequestedDirectoryChildrenSnapshots;
-		// Only the serial item worker touches its collector; captures pin its lifetime.
-		std::shared_ptr<FContentBrowserDataSource> DataSource =
-			std::make_shared<FContentBrowserDataSource>();
+		// The Panel-owned source outlives this model and prepares owned capture work.
+		FContentBrowserDataSource& DataSource;
 		std::shared_ptr<const FContentBrowserAssetSnapshot> Catalog;
 		FEntryStatusQuery EntryStatusQuery;
 		bool bAsync = false;
@@ -155,7 +152,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::shared_ptr<FItemsRequest> ItemsRequest;
 		std::shared_ptr<FItemsRequest> ActiveItemsRequest;
 		// The model alone consumes these move-only results after worker completion.
-		Tasks::FCancellationToken ItemsCancellation, TreeCancellation;
+		std::shared_ptr<Tasks::FCancellationToken> ItemsCancellation = std::make_shared<Tasks::FCancellationToken>();
+		std::shared_ptr<Tasks::FCancellationToken> TreeCancellation = std::make_shared<Tasks::FCancellationToken>();
 		Tasks::TTask<std::unique_ptr<FContentBrowserItemsSnapshot>> ItemsTask;
 		Tasks::TTask<std::unique_ptr<FContentBrowserDirectorySnapshot>> TreeTask;
 		std::string ActiveTreeDirectory;

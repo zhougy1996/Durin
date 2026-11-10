@@ -41,48 +41,32 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 	}
 
-	auto FContentBrowserPanel::SaveAssetPackage(const FPackagePath& Path) -> void
+	auto FContentBrowserPanel::SaveAssetPackage(const FContentBrowserItem& Item) -> void
 	{
-		Operations.SaveItems({Path});
+		DataSource.BulkSaveItems(std::span(&Item, 1));
 	}
 
-	auto FContentBrowserPanel::ResaveAssetPackages(std::vector<FPackagePath> Paths) -> void
+	auto FContentBrowserPanel::ResaveAssetPackages(std::vector<FContentBrowserItem> Items) -> void
 	{
-		Operations.SaveItems(std::move(Paths), EAssetSaveMode::CanonicalResave);
+		DataSource.BulkSaveItems(Items, EAssetSaveMode::CanonicalResave);
 	}
 
-	FContentBrowserPanel::FContentBrowserPanel(
-		FPresentationSettings InSettings,
-		FSavePresentationSettings InSaveSettings,
-		FOpenAsset InOpenAsset,
-		std::function<bool()> InCanMutate,
-		FGetMountedContentMutationRevision InGetMountedContentMutationRevision,
-		FNotifyMountedContentMutation InNotifyMountedContentMutation,
-		FQueryReimport InQueryReimport,
-		FReimport InReimport,
-		std::shared_ptr<FMountedContentReconciliationState>
-			InMountedContentReconciliationState)
+	FContentBrowserPanel::FContentBrowserPanel(FPresentationSettings InSettings,
+		FSavePresentationSettings InSaveSettings, FContentBrowserHostContext InHost)
 		: PresentationSettings(std::move(InSettings))
 		, SavePresentationSettings(std::move(InSaveSettings))
-		, OpenAsset(std::move(InOpenAsset))
-		, GetMountedContentMutationRevision(
-			std::move(InGetMountedContentMutationRevision))
-		, NotifyMountedContentMutation(InNotifyMountedContentMutation)
-		, QueryReimport(std::move(InQueryReimport))
-		, Reimport(std::move(InReimport))
+		, HostContext(std::move(InHost))
 		, RefreshCoordinator(
-			GetMountedContentMutationRevision
-				? GetMountedContentMutationRevision()
-				: uint64{0},
-			GetAssetQueryRevision(),
-			std::move(InMountedContentReconciliationState))
-		, Model(true)
-		, Operations(
-			[Notify = std::move(InNotifyMountedContentMutation)](FContentChangeBatch) { if (Notify) Notify(); }, std::move(InCanMutate))
+			HostContext.GetMountedContentMutationRevision ? HostContext.GetMountedContentMutationRevision() : uint64{0},
+			GetAssetQueryRevision(), HostContext.ReconciliationState)
+		, DataSource(HostContext)
+		, Model(DataSource, true)
 		, IconSize(PresentationSettings.IconSize)
 		, DirectoryTreeWidth(PresentationSettings.TreeWidth)
 	{
-		Operations.SetDiagnosticSink([this](ELogLevel Level, std::string_view Message) {
+		RefreshCoordinator.SetChangeSources(HostContext.CaptureMountedContentChanges, CaptureAssetQueryChanges);
+		RefreshCoordinator.SetPublicationSuspension([this](bool bSuspended) { Model.SetSnapshotPublicationSuspended(bSuspended); });
+		DataSource.SetDiagnosticSink([this](ELogLevel Level, std::string_view Message) {
 			DURIN_LOG(Level, "Content Browser: {}", Message);
 			if (Level >= ELogLevel::Error) SetError("Content Browser operation failed. See Console for details.");
 			else if (Level == ELogLevel::Warn) SetWarning("Content Browser operation reported warnings. See Console for details.");
@@ -163,8 +147,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::string_view PhysicalPath,
 		bool bAddHistory) -> bool
 	{
-		if (GetMountedContentMutationRevision)
-			RefreshCoordinator.ObserveMountedContent(GetMountedContentMutationRevision());
+		if (HostContext.GetMountedContentMutationRevision)
+			RefreshCoordinator.ObserveMountedContent(HostContext.GetMountedContentMutationRevision());
 		const std::string PreviousDirectory = Model.GetCurrentPhysicalPath();
 		if (!Model.NavigateToPhysical(PhysicalPath, bAddHistory)) return false;
 		if (Model.GetCurrentPhysicalPath() == PreviousDirectory) return true;
@@ -179,8 +163,8 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::NavigateHistory(int32 Delta) -> void
 	{
-		if (GetMountedContentMutationRevision)
-			RefreshCoordinator.ObserveMountedContent(GetMountedContentMutationRevision());
+		if (HostContext.GetMountedContentMutationRevision)
+			RefreshCoordinator.ObserveMountedContent(HostContext.GetMountedContentMutationRevision());
 		const std::string PreviousDirectory = Model.GetCurrentPhysicalPath();
 		if (Model.NavigateHistory(Delta))
 		{
@@ -196,12 +180,12 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::Refresh(bool bRescanRegistry) -> void
 	{
-		if (GetMountedContentMutationRevision)
-			RefreshCoordinator.ObserveMountedContent(GetMountedContentMutationRevision());
+		if (HostContext.GetMountedContentMutationRevision)
+			RefreshCoordinator.ObserveMountedContent(HostContext.GetMountedContentMutationRevision());
 		if (bRescanRegistry)
 		{
-			const uint64 MountedContentRevision = GetMountedContentMutationRevision
-				? GetMountedContentMutationRevision()
+			const uint64 MountedContentRevision = HostContext.GetMountedContentMutationRevision
+				? HostContext.GetMountedContentMutationRevision()
 				: RefreshCoordinator.GetObservedMountedContentRevision();
 			const auto Result =
 				RefreshCoordinator.ReconcileExplicitly(
@@ -267,7 +251,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::PublishMountedContentMutation() -> void
 	{
-		if (NotifyMountedContentMutation) NotifyMountedContentMutation();
+		if (HostContext.NotifyMountedContentMutation) HostContext.NotifyMountedContentMutation();
 		SynchronizeMountedContentMutation();
 	}
 
@@ -313,8 +297,8 @@ namespace Durin::Editor::ContentBrowser::Private
 			const FObjectPathResolveResult Resolution =
 				ResolveAssetObjectPathForOperation(Path);
 			if (!Resolution || !Resolution.FinalAssetData
-				|| !OpenAsset
-				|| !OpenAsset(
+				|| !HostContext.OpenAsset
+				|| !HostContext.OpenAsset(
 					Resolution.FinalPath.ToString(),
 					Resolution.FinalAssetData->AssetClassName))
 				SetError("The redirector destination could not be opened.");
@@ -322,7 +306,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 		if (Item.Kind == EContentBrowserItemKind::Asset)
 		{
-			if (!OpenAsset || !OpenAsset(Item.VirtualPath, Item.AssetClassName))
+			if (!HostContext.OpenAsset || !HostContext.OpenAsset(Item.VirtualPath, Item.AssetClassName))
 				SetError(std::format(
 					"No editor is registered for {} assets.",
 					ContentBrowserItemView::TypeLabel(Item)));
@@ -340,7 +324,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		std::string Reason;
 		const auto Name = Item.Kind == EContentBrowserItemKind::Asset ? Item.PackagePath.GetPackageName() : std::string_view(Item.Name);
-		if (!Operations.CanRenameItem(Item, Name, &Reason)) { SetError(std::move(Reason)); return; }
+		if (!DataSource.CanRenameItem(Item, Name, &Reason)) { SetError(std::move(Reason)); return; }
 		CancelRename();
 		RenameTarget = Item.StableId();
 		RenameBuffer.fill(0);
@@ -374,8 +358,13 @@ namespace Durin::Editor::ContentBrowser::Private
 				CancelRename();
 				return false;
 			}
+			if (!DataSource.CanCreateFolder(PendingFolder->Directory, NewName, &PendingFolder->ValidationError))
+			{
+				bFocusRename = true;
+				return false;
+			}
 			FContentBrowserItem Created;
-			if (!Operations.CreateFolder(PendingFolder->Directory, NewName, Created))
+			if (!DataSource.CreateFolder(PendingFolder->Directory, NewName, Created))
 			{
 				bFocusRename = true;
 				return false;
@@ -397,7 +386,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 
 		FContentBrowserItem NewItem;
-		const bool Result = Operations.RenameItem(Item, NewName, NewItem);
+		const bool Result = DataSource.RenameItem(Item, NewName, NewItem);
 		if (!Result)
 		{
 			return false;
@@ -421,7 +410,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		const FContentBrowserItem& Item) -> void
 	{
 		FContentBrowserItem NewItem;
-		Operations.DuplicateItem(Item, NewItem);
+		DataSource.DuplicateItem(Item, NewItem);
 		if (!NewItem.StableId().empty()) SyncToItem(NewItem);
 	}
 
@@ -464,26 +453,37 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (bContent)
 		{
 			const auto PhysicalDirectory = FContentBrowserPaths::VirtualToPhysical(Directory);
-			if (Operations.CopyItems(CopiedContent, PhysicalDirectory)) NavigateToPhysical(PhysicalDirectory);
+			if (DataSource.BulkCopyItems(CopiedContent, PhysicalDirectory)) NavigateToPhysical(PhysicalDirectory);
 		}
-		else Operations.DuplicateItem(SourcePath, Directory, NewItem);
+		else
+		{
+			FContentBrowserItem Source;
+			Source.Kind = EContentBrowserItemKind::Asset;
+			Source.VirtualPath = SourcePath.ToString();
+			Source.PackagePath = SourcePath.GetPackagePath();
+			DataSource.DuplicateItem(Source, FContentBrowserPaths::VirtualToPhysical(Directory), NewItem);
+		}
 		if (!NewItem.StableId().empty()) SyncToItem(NewItem);
 
 	}
 
 	auto FContentBrowserPanel::HasContentClipboard() const -> bool
 	{
-		if (HasCopiedContent()) return static_cast<bool>(Operations.CanModify());
+		if (HasCopiedContent()) return static_cast<bool>(DataSource.CanModify());
 		FTopLevelAssetPath SourcePath;
 		if (!ReadAssetClipboard(SourcePath)) return false;
-		return static_cast<bool>(Operations.CanDuplicateItem(SourcePath));
+		FContentBrowserItem Source;
+		Source.Kind = EContentBrowserItemKind::Asset;
+		Source.VirtualPath = SourcePath.ToString();
+		Source.PackagePath = SourcePath.GetPackagePath();
+		return DataSource.CanDuplicateItem(Source);
 	}
 
 	auto FContentBrowserPanel::CreateFolder(std::string_view PhysicalDirectory) -> void
 	{
 		const std::string Directory(PhysicalDirectory);
 		FContentBrowserItem Item;
-		if (!Operations.PrepareFolder(Directory, Item)) return;
+		if (!DataSource.PrepareFolder(Directory, Item)) return;
 		if (!NavigateToPhysical(Directory)) return;
 		CancelRename();
 		PendingItemAction.reset();
@@ -521,18 +521,18 @@ namespace Durin::Editor::ContentBrowser::Private
 			}
 			Redirectors.push_back(Item.PackagePath);
 		}
-		Operations.FixUpRedirectors(Redirectors);
+		DataSource.FixUpRedirectors(Redirectors);
 	}
 
 	auto FContentBrowserPanel::FixUpFolder(
 		std::string_view VirtualDirectory) -> void
 	{
-		Operations.FixUpRedirectorsInFolder(VirtualDirectory);
+		DataSource.FixUpRedirectorsInFolder(VirtualDirectory);
 	}
 
 	auto FContentBrowserPanel::FixUpProject() -> void
 	{
-		Operations.FixUpAllRedirectors();
+		DataSource.FixUpAllRedirectors();
 	}
 
 	auto FContentBrowserPanel::FocusFolderInParent(
@@ -580,8 +580,8 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserPanel::RequestDeleteSelection() -> void
 	{
 		if (SelectionState.Selected.empty()) return;
-		Operations.DismissDeletion(PendingDeletionPlan);
-		PendingDeletionPlan = Operations.BuildDeletionPlan(
+		DataSource.DismissDeletion(PendingDeletionPlan);
+		PendingDeletionPlan = DataSource.PrepareDeleteItems(
 			ContentBrowserQuery::CopySelection(Model.GetItems(), SelectionState.Selected));
 		bDeletionPlanRefreshed = false;
 		bDeletePopupRequested = true;
@@ -595,7 +595,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			return;
 		}
 		const auto PreviousPlan = PendingDeletionPlan;
-		const bool bDeleted = Operations.DeleteItems(PendingDeletionPlan);
+		const bool bDeleted = DataSource.DeleteItems(PendingDeletionPlan);
 		if (PendingDeletionPlan && PendingDeletionPlan != PreviousPlan)
 		{
 			bDeletionPlanRefreshed = true;
@@ -612,8 +612,8 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::SynchronizeMountedContentMutation() -> void
 	{
-		const uint64 MountedContentRevision = GetMountedContentMutationRevision
-			? GetMountedContentMutationRevision()
+		const uint64 MountedContentRevision = HostContext.GetMountedContentMutationRevision
+			? HostContext.GetMountedContentMutationRevision()
 			: RefreshCoordinator.GetObservedMountedContentRevision();
 		const auto Result = RefreshCoordinator.Synchronize(
 			MountedContentRevision,
@@ -626,8 +626,8 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::RevealAsset(std::string_view AssetPath) -> bool
 	{
-		if (GetMountedContentMutationRevision)
-			RefreshCoordinator.ObserveMountedContent(GetMountedContentMutationRevision());
+		if (HostContext.GetMountedContentMutationRevision)
+			RefreshCoordinator.ObserveMountedContent(HostContext.GetMountedContentMutationRevision());
 		if (AdmissionState != EAdmissionState::Accepting)
 			return false;
 		const std::string PreviousDirectory = Model.GetCurrentPhysicalPath();
@@ -663,8 +663,11 @@ namespace Durin::Editor::ContentBrowser::Private
 		const std::weak_ptr<void> Lifetime = ExtensionLifetime;
 		ExtensionLifetime.reset();
 		StopHostPresentations(Lifetime);
-		Operations.StopRequestAdmission();
+		DataSource.StopRequestAdmission();
 		Model.CancelPendingSnapshots();
+		PendingDeletionPlan.reset();
+		DeferredTreeAction = {};
+		DeferredContentAction = {};
 		PendingItemAction.reset();
 		CancelRename();
 		if (ThumbnailReferences) ThumbnailReferences->CancelPendingRequests();

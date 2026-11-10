@@ -7,23 +7,13 @@
 namespace Durin::Editor::ContentBrowser
 {
 	auto CreateContentBrowserTool(
-		FConstructionServices Services,
+		FContentBrowserHostContext Services,
 		FPresentationSettings Settings,
 		FSavePresentationSettings SaveSettings)
 		-> std::unique_ptr<IContentBrowserTool>
 	{
-		auto Panel = std::make_unique<Private::FContentBrowserPanel>(
-			std::move(Settings), std::move(SaveSettings),
-			std::move(Services.OpenAsset), std::move(Services.CanMutateContent),
-			std::move(Services.GetMountedContentMutationRevision),
-			std::move(Services.NotifyMountedContentMutation),
-			std::move(Services.QueryReimport),
-			std::move(Services.Reimport),
-			std::move(Services.ReconciliationState));
-		Panel->SetContentChangeServices(std::move(Services.CaptureMountedContentChanges),
-			std::move(Services.NotifyScopedContentMutation));
-		Panel->AssetEditors = Services.AssetEditors;
-		return Panel;
+		return std::make_unique<Private::FContentBrowserPanel>(
+			std::move(Settings), std::move(SaveSettings), std::move(Services));
 	}
 
 } // namespace Durin::Editor::ContentBrowser

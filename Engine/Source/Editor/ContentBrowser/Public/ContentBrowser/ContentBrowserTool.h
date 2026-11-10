@@ -40,7 +40,7 @@ namespace Durin::Editor::ContentBrowser
 	};
 
 	CONTENTBROWSER_API auto CreateContentBrowserTool(
-		FConstructionServices Services,
+		FContentBrowserHostContext Services,
 		FPresentationSettings Settings,
 		FSavePresentationSettings SaveSettings)
 		-> std::unique_ptr<IContentBrowserTool>;

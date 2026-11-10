@@ -97,7 +97,8 @@ namespace Durin::Editor::ContentBrowser
 			Definition->Categories = {{Category}};
 			auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
 			ASSERT_TRUE(Registration);
-			FContentBrowserModel Model;
+			FContentBrowserDataSource ModelSource;
+			FContentBrowserModel Model(ModelSource);
 			Model.SetSnapshotForTesting("/content", {{.Kind = EContentBrowserItemKind::Asset,
 				.Name = "Typed", .PhysicalPath = "/content/Typed.dasset", .AssetClassName = Definition->ClassPath}});
 			Model.SetTypeFilter(Filter); EXPECT_EQ(1u, Model.GetItems().size()) << Category;
@@ -136,7 +137,8 @@ namespace Durin::Editor::ContentBrowser
 		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
 		ASSERT_TRUE(Registration);
 		using namespace Private;
-		FContentBrowserModel Model;
+		FContentBrowserDataSource ModelSource;
+		FContentBrowserModel Model(ModelSource);
 		Model.SetSnapshotForTesting("/content", {
 			{.Kind = EContentBrowserItemKind::Asset, .Name = "Project", .PhysicalPath = "/content/Project.dasset", .AssetClassName = "Project::DCategoryFixture"},
 			{.Kind = EContentBrowserItemKind::Asset, .Name = "Other", .PhysicalPath = "/content/Other.dasset", .AssetClassName = "Project::Other"}});
@@ -691,7 +693,8 @@ namespace Durin::Editor::ContentBrowser
 		ASSERT_TRUE(Type);
 		auto Duplicate = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition, &Error);
 		EXPECT_FALSE(Duplicate);
-		FContentBrowserModel Model;
+		FContentBrowserDataSource ModelSource;
+		FContentBrowserModel Model(ModelSource);
 		Model.SetSnapshotForTesting("/content", {
 			{.Kind = EContentBrowserItemKind::Asset, .Name = "Volume", .VirtualPath = "/Project/Volume",
 				.PhysicalPath = "/content/Volume.dasset", .AssetClassName = "FilterTest::DVolumeTexture"},
