@@ -6,6 +6,9 @@
 
 namespace Durin
 {
+	RENDERER_API auto BuildSceneViewRequirements(const FSceneView& View, const FSceneViewRenderOptions& Options,
+		const FRendererQualificationPolicy& Qualification) -> FSceneViewRequirements;
+
 	class FRDGBuilder;
 	class FSceneRenderingService;
 

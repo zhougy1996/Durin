@@ -46,6 +46,8 @@ namespace Durin
 	struct FSceneViewRequirements
 	{
 		FMainViewCullingPolicy MainViewCulling;
+		bool bForwardLocalLights = false;
+		bool bDeferredLocalLights = false;
 		FSceneFeatureDecision DirectionalShadow;
 		FSceneFeatureDecision Deferred;
 	};

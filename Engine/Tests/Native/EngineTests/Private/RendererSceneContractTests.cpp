@@ -2512,6 +2512,41 @@ TEST(FRendererSceneContractTests, LightFamiliesReplaceTypedMembershipAtomically)
 	EXPECT_EQ(Scene.GetSpotLightSceneInfos().front()->GetId().Value, 77u);
 }
 
+TEST(FRendererSceneContractTests, LocalLightConsumersFollowViewAndOutput)
+{
+	using namespace Durin;
+	FSceneView View;
+	FSceneViewRenderOptions Options;
+	FRendererQualificationPolicy Qualification;
+	auto Check = [&](bool Forward, bool Deferred) {
+		const auto Requirements = BuildSceneViewRequirements(View, Options, Qualification);
+		EXPECT_EQ(Requirements.bForwardLocalLights, Forward);
+		EXPECT_EQ(Requirements.bDeferredLocalLights, Deferred);
+	};
+	View.Settings.Mode.RenderMode = ERenderMode::Lit;
+	Check(true, true);
+	View.Settings.Mode.RasterMode = ERasterMode::Wireframe;
+	Check(true, false);
+	View.Settings.Mode.RenderMode = ERenderMode::Unlit;
+	View.Settings.Mode.RasterMode = ERasterMode::Solid;
+	Check(false, false);
+	Qualification.bEnableGBuffer = true;
+	Check(false, false);
+	Qualification.bEnableDeferredDirectional = true;
+	Check(false, true);
+	Qualification = {};
+	for (const auto Output : {EDeferredDirectionalDebugMode::Local, EDeferredDirectionalDebugMode::Final})
+	{
+		Options.DeferredDirectionalDebugMode = Output;
+		Check(false, true);
+	}
+	Options.GroundTruthAmbientOcclusionDebugMode = EGroundTruthAmbientOcclusionDebugMode::Raw;
+	Check(false, false);
+	Options.GroundTruthAmbientOcclusionDebugMode = EGroundTruthAmbientOcclusionDebugMode::Disabled;
+	Options.DeferredDirectionalDebugMode = EDeferredDirectionalDebugMode::Directional;
+	Check(false, false);
+}
+
 TEST(FRendererSceneContractTests, PreparedLightsUseStableIdAndSharedLocalBudget)
 {
 	FRenderingThreadScope RenderingThread;
@@ -2554,6 +2589,7 @@ TEST(FRendererSceneContractTests, PreparedLightsUseStableIdAndSharedLocalBudget)
 	};
 	auto Observed = std::make_shared<FObservedPreparation>();
 	Durin::FSceneView View;
+	View.Settings.Mode.RenderMode = Durin::ERenderMode::Lit;
 	View.Settings.Mode.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
 	struct FPrepareLightsCommand
 	{
@@ -2561,8 +2597,8 @@ TEST(FRendererSceneContractTests, PreparedLightsUseStableIdAndSharedLocalBudget)
 	};
 	Durin::EnqueueRenderCommand<FPrepareLightsCommand>(
 		[&Scene, View, Observed](Durin::FRHICommandListImmediate&) {
-			Observed->Lights = Durin::PrepareLightView_RenderThread(
-				Scene, View, Observed->Telemetry
+			Observed->Lights = Durin::GatherAndSortLights_RenderThread(
+				Scene, Durin::BuildSceneViewRequirements(View, {}, {}), Observed->Telemetry
 			);
 		}
 	);
@@ -2577,7 +2613,7 @@ TEST(FRendererSceneContractTests, PreparedLightsUseStableIdAndSharedLocalBudget)
 	EXPECT_EQ(Observed->Telemetry.Lighting.SelectedSpotLights, 2u);
 	EXPECT_EQ(Observed->Telemetry.Lighting.OverflowPointLights, 3u);
 	EXPECT_EQ(Observed->Telemetry.Lighting.OverflowSpotLights, 3u);
-	EXPECT_EQ(Observed->Telemetry.Lighting.PackedLightBytes, sizeof(Durin::FForwardLightingUniform));
+	EXPECT_EQ(Observed->Telemetry.Lighting.PackedLightBytes, 0u);
 }
 
 TEST(FRendererSceneContractTests, PreparedLightsCullOnlyOutsideLocalInfluenceBounds)
@@ -2600,6 +2636,7 @@ TEST(FRendererSceneContractTests, PreparedLightsCullOnlyOutsideLocalInfluenceBou
 	auto Observed = std::make_shared<std::pair<
 		Durin::FPreparedLightView, Durin::FViewRenderTelemetry>>();
 	Durin::FSceneView View;
+	View.Settings.Mode.RenderMode = Durin::ERenderMode::Lit;
 	View.ProjectionMatrix = MakePerspectiveProjection();
 	View.ViewProjectionMatrix = View.ProjectionMatrix;
 	struct FCullLightsCommand
@@ -2608,8 +2645,8 @@ TEST(FRendererSceneContractTests, PreparedLightsCullOnlyOutsideLocalInfluenceBou
 	};
 	Durin::EnqueueRenderCommand<FCullLightsCommand>(
 		[&Scene, View, Observed](Durin::FRHICommandListImmediate&) {
-			Observed->first = Durin::PrepareLightView_RenderThread(
-				Scene, View, Observed->second
+			Observed->first = Durin::GatherAndSortLights_RenderThread(
+				Scene, Durin::BuildSceneViewRequirements(View, {}, {}), Observed->second
 			);
 		}
 	);

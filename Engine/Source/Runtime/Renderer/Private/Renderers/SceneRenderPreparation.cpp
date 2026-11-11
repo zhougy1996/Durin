@@ -21,7 +21,7 @@
 
 namespace Durin
 {
-	static auto BuildSceneViewRequirements(const FSceneView& View, const FSceneViewRenderOptions& Options,
+	auto BuildSceneViewRequirements(const FSceneView& View, const FSceneViewRenderOptions& Options,
 		const FRendererQualificationPolicy& Qualification) -> FSceneViewRequirements
 	{
 		FSceneViewRequirements Result;
@@ -34,6 +34,15 @@ namespace Durin
 			Result.Deferred.Purposes = Result.Deferred.Purposes | ESceneFeaturePurpose::Debug;
 		if (Qualification.bEnableDeferredDirectional)
 			Result.Deferred.Purposes = Result.Deferred.Purposes | ESceneFeaturePurpose::Qualification;
+
+		// Lit forward surfaces include wireframe and sorted translucency in hybrid views.
+		Result.bForwardLocalLights = bLit;
+		const auto DeferredOutput = Options.DeferredDirectionalDebugMode;
+		const bool bLocalOutput = DeferredOutput == EDeferredDirectionalDebugMode::Local
+			|| DeferredOutput == EDeferredDirectionalDebugMode::Final
+			|| (DeferredOutput == EDeferredDirectionalDebugMode::Disabled && Qualification.bEnableDeferredDirectional);
+		Result.bDeferredLocalLights = Result.Deferred.HasPurpose(ESceneFeaturePurpose::Production)
+			|| (bLocalOutput && Options.GroundTruthAmbientOcclusionDebugMode == EGroundTruthAmbientOcclusionDebugMode::Disabled);
 
 		Result.DirectionalShadow = Result.Deferred;
 		if (bLit) Result.DirectionalShadow.Purposes = Result.DirectionalShadow.Purposes | ESceneFeaturePurpose::Production;
@@ -117,8 +126,8 @@ namespace Durin
 				PreparedView.Environment = FPreparedEnvironment{
 					.SkyBox = SkyBox->GetData()};
 			}
-			PreparedView.Lighting.Lights = PrepareLightView_RenderThread(
-				*Scene, RenderView, Telemetry.View
+			PreparedView.Lighting.Lights = GatherAndSortLights_RenderThread(
+				*Scene, Context.Logical.Requirements, Telemetry.View
 			);
 			if (Context.Logical.Requirements.DirectionalShadow.IsEnabled() && !PreparedView.Lighting.Lights.Directional.empty())
 			{
@@ -394,12 +403,13 @@ namespace Durin
                     Lighting.EnvironmentRotation = FVector4f(float(Q.x),float(Q.y),float(Q.z),float(Q.w));
                 }
             }
-		Telemetry.View.Lighting.PackedLightBytes = sizeof(Lighting);
 		ResolvedSceneResources.Lighting.UniformBuffer =
 			CommandList.CreateUniformBufferRange(&Lighting, sizeof(Lighting));
 		if (ResolvedSceneResources.Lighting.UniformBuffer.Buffer == nullptr
 			|| ResolvedSceneResources.Lighting.UniformBuffer.Size != sizeof(Lighting))
 			return ERenderViewResult::RendererResourcesUnavailable;
+
+		Telemetry.View.Lighting.PackedLightBytes = sizeof(Lighting);
 
 		if (PreparedView.VolumetricCloud)
 		{

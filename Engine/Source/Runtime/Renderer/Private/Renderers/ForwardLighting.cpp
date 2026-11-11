@@ -1,6 +1,6 @@
 #include "Renderers/ForwardLighting.h"
 
-#include "Renderers/SceneVisibility.h"
+#include "Renderers/SceneRenderGraphTypes.h"
 #include "Renderers/ViewPreparationMath.h"
 #include "Renderers/DirectionalShadowView.h"
 
@@ -30,30 +30,16 @@ namespace Durin
 			return std::isfinite(Intensity) && Intensity > 0.0f;
 		}
 
-		auto IsLocalVisible(
-			const FLightSceneInfo& Info,
-			const FSceneView& View,
-			const FViewFrustum* Frustum) -> bool
-		{
-			if (View.Settings.Mode.VisibilityMode != EViewVisibilityMode::Normal
-				|| Frustum == nullptr) return true;
-			return ClassifyWorldBounds(*Frustum, Info.GetInfluenceBounds())
-				!= EViewBoundsClassification::Outside;
-		}
 	}
 
-	auto PrepareLightView_RenderThread(
+	auto GatherAndSortLights_RenderThread(
 		const FScene& Scene,
-		const FSceneView& View,
+		const FSceneViewRequirements& Requirements,
 		FViewRenderTelemetry& Telemetry) -> FPreparedLightView
 	{
 		FPreparedLightView Result;
 		std::vector<FPreparedDirectionalLight> Directional;
 		std::vector<FPreparedLocalLight> Local;
-		FViewFrustum FrustumStorage;
-		const FViewFrustum* Frustum = TryBuildViewFrustum(View, FrustumStorage)
-			? &FrustumStorage : nullptr;
-
 		for (const FLightSceneInfo* Info : Scene.GetDirectionalLightSceneInfos())
 		{
 			++Telemetry.Lighting.SubmittedDirectionalLights;
@@ -111,7 +97,8 @@ namespace Durin
 				else ++Telemetry.Lighting.RejectedSpotLights;
 				return;
 			}
-			if (!IsLocalVisible(Info, View, Frustum))
+			if (Requirements.MainViewCulling.Frustum && ClassifyWorldBounds(*Requirements.MainViewCulling.Frustum,
+				Info.GetInfluenceBounds()) == EViewBoundsClassification::Outside)
 			{
 				if (Copy.Kind == ELightSceneProxyKind::Point)
 					++Telemetry.Lighting.FrustumCulledPointLights;
@@ -123,8 +110,11 @@ namespace Durin
 			Local.push_back(Copy);
 		};
 
-		for (const FLightSceneInfo* Info : Scene.GetPointLightSceneInfos()) PrepareLocal(*Info);
-		for (const FLightSceneInfo* Info : Scene.GetSpotLightSceneInfos()) PrepareLocal(*Info);
+		if (Requirements.bForwardLocalLights || Requirements.bDeferredLocalLights)
+		{
+			for (const auto* Info : Scene.GetPointLightSceneInfos()) PrepareLocal(*Info);
+			for (const auto* Info : Scene.GetSpotLightSceneInfos()) PrepareLocal(*Info);
+		}
 		std::ranges::sort(Directional, {}, [](const auto& Light) { return Light.Id.Value; });
 		std::ranges::sort(Local, {}, [](const auto& Light) { return Light.Id.Value; });
 
@@ -141,7 +131,6 @@ namespace Durin
 				(bSelected ? Telemetry.Lighting.SelectedPointLights : Telemetry.Lighting.OverflowPointLights)++;
 			else (bSelected ? Telemetry.Lighting.SelectedSpotLights : Telemetry.Lighting.OverflowSpotLights)++;
 		}
-		Telemetry.Lighting.PackedLightBytes = sizeof(FForwardLightingUniform);
 		check(Telemetry.Lighting.SubmittedDirectionalLights == Telemetry.Lighting.RejectedDirectionalLights
 			+ Telemetry.Lighting.SelectedDirectionalLights + Telemetry.Lighting.OverflowDirectionalLights);
 		check(Telemetry.Lighting.SubmittedPointLights == Telemetry.Lighting.RejectedPointLights

@@ -4,7 +4,7 @@ Summary: Define scene-light ownership, deterministic view selection, and the sha
 
 Modules: Engine, Renderer
 
-Last reviewed: 2026-09-03
+Last reviewed: 2026-11-11
 
 Directional direct lighting may be attenuated by the selected view-local
 shadow described in [Directional Shadows](DirectionalShadows.md). The shadow
@@ -69,6 +69,21 @@ part of this contract.
 
 ## Per-view selection and diagnostics
 
+The fitted `FSceneViewRequirements` declares forward and deferred local-light
+consumers before collection. Lit views can evaluate local light in forward
+materials, including sorted translucency and wireframe. Solid Lit also needs
+the production deferred pass. On Unlit views, an isolated deferred Local or
+Final output, or a qualification of composed lighting, needs the list. An AO
+diagnostic replaces that isolated output. GBuffer material capture and shadow
+depth alone request no local lights.
+
+`GatherAndSortLights_RenderThread` visits the scene's point and spot lists
+once per submission if either consumer requests them. It applies the fitted
+main-view frustum to influence bounds. A disabled or unusable frustum keeps
+otherwise valid candidates. Both passes consume the same selection. An empty
+selection sets the uniform's local count to zero. Directional light selection
+also serves shadow and cloud consumers and has its own lifetime.
+
 `FPreparedLightView` is command-local copied state. Directional candidates and
 the combined point/spot candidate list are each ordered by ascending
 `FLightComponentId`. Selection takes at most one directional light and four local
@@ -76,7 +91,9 @@ lights; point and spot lights compete in the same local budget. Sequential
 views prepare independently and do not retain `FLightSceneInfo` pointers.
 
 `FViewRenderTelemetry` records submitted, invalid/disabled, frustum-culled,
-selected, and overflow values by family plus packed bytes. Preparation asserts:
+selected, and overflow values by family. Submitted counts cover lights visited
+for this view. Resource resolution records packed bytes after a successful
+uniform allocation. Preparation asserts:
 
 ```text
 directional submitted = rejected + selected + overflow

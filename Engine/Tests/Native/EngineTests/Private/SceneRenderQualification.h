@@ -18,6 +18,7 @@
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "EngineTestSupport.h"
+#include "LightSceneTestSupport.h"
 #include "HAL/PlatformLTS.h"
 #include "Modules/ModuleManager.h"
 #include "Modules/ModuleTestSupport.h"
@@ -812,6 +813,32 @@ namespace Durin
 			return std::ranges::any_of(GSceneCloudGraphCaptures.back().Passes,
 				[&](const auto& Pass) { return Pass.Name == Name; });
 		};
+		const auto RenderUnlit = [&] {
+			return RenderOffscreen(false, false, EGroundTruthAmbientOcclusionQuality::HalfResolution, ERenderMode::Unlit);
+		};
+		const auto UnlitWithoutLocal = RenderUnlit();
+		const auto LitWithoutLocal = RenderOffscreen(false, false);
+		auto* Point = PublishLightForTest<FPointLightSceneProxy>(*Scene, FLightComponentId(22001),
+			FPointLightSceneData{.Position = {60, -35, 2510}, .Intensity = 5000.0f, .Range = 200.0f});
+		auto* Spot = PublishLightForTest<FSpotLightSceneProxy>(*Scene, FLightComponentId(22002),
+			FSpotLightSceneData{.Position = {135, -35, 2510}, .Direction = {-1, 0, 0}, .Intensity = 5000.0f, .Range = 200.0f});
+		ASSERT_TRUE(Point && Spot);
+		EXPECT_EQ(*UnlitWithoutLocal, *RenderUnlit());
+		EXPECT_EQ(GSceneCloudTelemetry.Lighting.SubmittedPointLights, 0u);
+		EXPECT_EQ(GSceneCloudTelemetry.Lighting.SubmittedSpotLights, 0u);
+		EXPECT_NE(*LitWithoutLocal, *RenderOffscreen(false, false));
+		EXPECT_EQ(GSceneCloudTelemetry.Lighting.SelectedPointLights, 1u);
+		EXPECT_EQ(GSceneCloudTelemetry.Lighting.SelectedSpotLights, 1u);
+		ExtraOptions.DeferredDirectionalDebugMode = EDeferredDirectionalDebugMode::Local;
+		RenderUnlit();
+		EXPECT_TRUE(HasPass("Scene.DeferredDirectionalLighting"));
+		EXPECT_EQ(GSceneCloudTelemetry.Lighting.SelectedPointLights, 1u);
+		EXPECT_EQ(GSceneCloudTelemetry.Lighting.SelectedSpotLights, 1u);
+		ExtraOptions = {};
+		FSceneInterfaceTestAccess::TryRemoveLightProxy(*Scene, Point);
+		FSceneInterfaceTestAccess::TryRemoveLightProxy(*Scene, Spot);
+		FlushRenderingCommands();
+
 		ExtraPolicy.bEnableGBuffer = true;
 		ExtraOptions.GBufferDebugMode = EGBufferDebugMode::Material;
 		RenderOffscreen(false, false, EGroundTruthAmbientOcclusionQuality::HalfResolution, ERenderMode::Unlit);
