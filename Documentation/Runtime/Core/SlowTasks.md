@@ -4,7 +4,7 @@ Summary: Define shared slow-task progress, lexical work scopes, cancellation, an
 
 Modules: Core, DurinEd, MainFrame, LevelEditor, AssetForgeBuiltins
 
-Last reviewed: 2026-11-10
+Last reviewed: 2026-11-11
 
 ## Ownership and Lifetimes
 
@@ -67,21 +67,22 @@ records the terminal result once cancellation has been handled.
 shared centered message, optional title/details, thin progress indicator, elapsed
 time, and optional cancellation control. `FSlowTaskDialogPresenter` adds a modal
 shell around an optional running snapshot and returns a cancel click to its
-owner. Missing or terminal snapshots close the modal. Its feedback-context
+owner. The modal uses a left-aligned primary title, muted wrapped status text,
+a rounded progress track, and a separate elapsed-time/cancel footer. Long text
+wraps within the content width; the modal stays centered as its height changes.
+Embedded presentations retain the compact centered layout. Missing or terminal
+snapshots close the modal. Its feedback-context
 overload obtains the eligible snapshot and forwards cancellation to that context.
 MainFrame continues to observe the default owner-thread context for generic slow
 tasks on ordinary UI frames.
 
-MainFrame startup projects bootstrap state and, when available, scene preparation
-progress directly into a snapshot. It displays the scene operation's elapsed
-time during scene loading and hides timing where the bootstrap model has none.
-The Level document controller projects `PendingSceneLoad->GetProgress()` into a
-modal snapshot only for interactive opens. Cancel calls the existing scene
-operation's cancellation interface; ordinary owner frames still process its
-terminal result, publish deferred document completion, and commit successful
-activation. Default-Level startup shares the loading path without a second
-modal. Neither startup nor Level switching retains a feedback Task or context
-alongside its authoritative business state.
+MainFrame projects service-bootstrap state into an embedded snapshot without
+timing data. Once workspaces are ready, the Level document controller projects
+`GetMapChangeProgress()` into a modal snapshot for both default-Level and later
+document opens. Cancel calls `CancelPendingMapChange()`; ordinary owner frames
+still process its terminal result and publish deferred document completion.
+Default-Level opening does not add another progress window. Neither startup nor
+Level switching retains a feedback Task or context alongside business state.
 
 Existing business progress can also project directly to `FSlowTaskSnapshot`
 without creating a task or feedback context. `DrawSlowTaskProgress` accepts these
