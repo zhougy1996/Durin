@@ -12,7 +12,7 @@
 #include "Threading/TaskRuntime.h"
 #include "Settings/EditorSettings.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	class FContentBrowserThumbnailReferences;
 
@@ -173,4 +173,4 @@ namespace Durin::Editor::ContentBrowser::Private
 		bool bAllowAssetMutation = true;
 		std::shared_ptr<void> ExtensionLifetime = std::make_shared<uint8>(0);
 	};
-} // namespace Durin::Editor::ContentBrowser::Private
+} // namespace Durin::ContentBrowser::Private

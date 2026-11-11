@@ -21,7 +21,7 @@
 namespace
 {
 	using namespace Durin;
-	using namespace Durin::Editor::Material;
+	using namespace Durin::MaterialEditor;
 
 	auto MakeDeclaration(std::string_view Name,
 		EMaterialParameterType Type = EMaterialParameterType::Scalar,
@@ -417,7 +417,7 @@ TEST(FMaterialParameterCollectionPersistenceTests,
 		.Action = MakeCollectionParameterCreationAction(
 			Collection->GetObjectPath(), Tint.Id, "Tint"),
 		.X = 120, .Y = 80};
-	const auto Created = FMaterialGraphDocument(*AuthoringMaterial).Create(Request, Durin::Editor::ETransactionMode::NotTransactable);
+	const auto Created = FMaterialGraphDocument(*AuthoringMaterial).Create(Request, Durin::ETransactionMode::NotTransactable);
 	ASSERT_TRUE(Created) << FormatMaterialGraphCommandResult(Created);
 	ASSERT_EQ(Created.GeneratedNodeIds.size(), 1u);
 	const auto Authored = std::ranges::find_if(

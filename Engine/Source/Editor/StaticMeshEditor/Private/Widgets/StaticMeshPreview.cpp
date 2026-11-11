@@ -7,7 +7,7 @@
 #include "Preview/OrbitAssetPreview.h"
 #include "StaticMesh/StaticMesh.h"
 
-namespace Durin::Editor::StaticMesh
+namespace Durin::StaticMeshEditor
 {
 	class FStaticMeshPreview::FImpl
 	{

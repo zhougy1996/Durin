@@ -5,7 +5,7 @@
 #include "Asset/AssetReadResult.h"
 #include "DObject/AssetPath.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	// Distinguishes folders, registered assets, and ordinary files.
 	enum class EContentBrowserItemKind : uint8

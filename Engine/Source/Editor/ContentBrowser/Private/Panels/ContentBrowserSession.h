@@ -4,7 +4,7 @@
 
 #include "Panels/ContentBrowserQuery.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	// Navigation and query choices outlive individual captures and projections.
 	// Panel selection and widget presentation remain owned by the panel.

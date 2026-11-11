@@ -44,7 +44,7 @@ namespace Durin
 		auto* Editor = GetEditor();
 		if (!IsValid(Editor)) return;
 		Editor->DispatchSubsystemCallback([&] {
-			Editor::FScopedEditorTransactionContext Context(Editor);
+			FScopedEditorTransactionContext Context(Editor);
 			Callback();
 		});
 	}

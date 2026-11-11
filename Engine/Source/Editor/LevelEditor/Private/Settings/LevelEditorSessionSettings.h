@@ -9,7 +9,7 @@ namespace Durin
 	class DLevel;
 }
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	class FEditorAssetMoveCoordinator;
 	struct FLevelEditorContext;
@@ -52,4 +52,4 @@ namespace Durin::Editor::Level
 		float DetailsPaneRatio = DefaultDetailsPaneRatio;
 		bool bDetailsPaneAutoSized = true;
 	};
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

@@ -92,7 +92,7 @@ TEST(FTextureFileImportTests, ImportsNormalSavesAndChoosesAvailableNames)
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Tga, Root / "Content" / "unnamed.dasset"));
 	std::vector<std::string> Published;
 	std::string Error;
-	Editor::Texture::FTextureFileImport Importer({
+	TextureEditor::FTextureFileImport Importer({
 		.ReportError = [&](std::string Message) { Error = std::move(Message); },
 		.AssetCreated = [&](std::string Path) { Published.push_back(std::move(Path)); }});
 	for (int Index = 1; Index <= 2; ++Index)
@@ -116,7 +116,7 @@ TEST(FTextureFileImportTests, ImportsNormalSavesAndChoosesAvailableNames)
 	EXPECT_EQ(Published.size(), 2u);
 
 	int SaveAttempts = 0;
-	Editor::Texture::FTextureFileImport RetryImporter({
+	TextureEditor::FTextureFileImport RetryImporter({
 		.AssetCreated = [&](std::string Path) { Published.push_back(std::move(Path)); }});
 	Testing::FScopedPackageSaveFault Fault([&](Testing::EPackageSaveFaultPoint Point, size_t) {
 		return Point == Testing::EPackageSaveFaultPoint::PublishPackage && ++SaveAttempts == 1;
@@ -193,7 +193,7 @@ namespace
 			Tga.insert(Tga.end(), Pixels.begin(), Pixels.end());
 			ASSERT_TRUE(FFileHelper::SaveArrayToFile(Tga, Source));
 		}
-		auto Drain(Editor::Texture::FTextureFileImport& Importer) -> bool
+		auto Drain(TextureEditor::FTextureFileImport& Importer) -> bool
 		{
 			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
 			while (Importer.IsRunning() && std::chrono::steady_clock::now() < Deadline)
@@ -545,7 +545,7 @@ TEST_F(FTextureImportQueueTests, BatchContinuesAfterFailureAndPresentsOnce)
 	const auto Second = Root / "other_normal.tga";
 	std::filesystem::copy_file(Source, Second);
 	int Assets = 0, Directories = 0;
-	Editor::Texture::FTextureFileImport Importer({
+	TextureEditor::FTextureFileImport Importer({
 		.AssetCreated = [&](std::string) { ++Assets; },
 		.ImportedDirectory = [&](std::string Directory) { EXPECT_EQ(Directory, Destination); ++Directories; }});
 	ASSERT_TRUE(Importer.Begin({(Root / "missing.png").generic_string(), Source.generic_string(),
@@ -571,7 +571,7 @@ TEST_F(FTextureImportQueueTests, BatchContinuesAfterFailureAndPresentsOnce)
 
 TEST_F(FTextureImportQueueTests, CancelBeforeCommitDiscardsPreparedSource)
 {
-	Editor::Texture::FTextureFileImport Importer;
+	TextureEditor::FTextureFileImport Importer;
 	ASSERT_TRUE(Importer.Begin({Source.generic_string()}, Destination));
 	Importer.Cancel();
 	ASSERT_TRUE(Drain(Importer));
@@ -596,7 +596,7 @@ TEST_F(FTextureImportQueueTests, CancelBeforeCommitDiscardsPreparedSource)
 TEST_F(FTextureImportQueueTests, FailedBatchSaveRetainsAssetForRetryWithoutSource)
 {
 	int Attempts = 0, Published = 0;
-	Editor::Texture::FTextureFileImport Importer({.AssetCreated = [&](std::string) { ++Published; }});
+	TextureEditor::FTextureFileImport Importer({.AssetCreated = [&](std::string) { ++Published; }});
 	Testing::FScopedPackageSaveFault Fault([&](Testing::EPackageSaveFaultPoint Point, size_t) {
 		return Point == Testing::EPackageSaveFaultPoint::PublishPackage && ++Attempts == 1;
 	});
@@ -629,7 +629,7 @@ TEST_F(FTextureImportQueueTests, TeardownJoinsCaptureWithoutPublishing)
 {
 	int Published = 0;
 	{
-		Editor::Texture::FTextureFileImport Importer({.AssetCreated = [&](std::string) { ++Published; }});
+		TextureEditor::FTextureFileImport Importer({.AssetCreated = [&](std::string) { ++Published; }});
 		ASSERT_TRUE(Importer.Begin({Source.generic_string()}, Destination));
 		Importer.Tick();
 	}
@@ -643,7 +643,7 @@ TEST_F(FTextureImportQueueTests, TeardownDrainsCompilationAndRetainsCommittedImp
 	FPackagePath Path;
 	ASSERT_TRUE(FPackagePath::TryCreate(Destination + "wall_normal", Path));
 	{
-		Editor::Texture::FTextureFileImport Importer({.AssetCreated = [&](std::string) { ++Published; }});
+		TextureEditor::FTextureFileImport Importer({.AssetCreated = [&](std::string) { ++Published; }});
 		ASSERT_TRUE(Importer.Begin({Source.generic_string()}, Destination));
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 		while (!FindResidentPackage(Path) && std::chrono::steady_clock::now() < Deadline)
@@ -670,7 +670,7 @@ TEST_F(FTextureImportQueueTests, ExternalCompilationCancellationRetainsResidentA
 	Testing::FScopedPackageSaveFault Fault([](Testing::EPackageSaveFaultPoint Point, size_t) {
 		return Point == Testing::EPackageSaveFaultPoint::PublishPackage;
 	});
-	Editor::Texture::FTextureFileImport Importer;
+	TextureEditor::FTextureFileImport Importer;
 	ASSERT_TRUE(Importer.Begin({Source.generic_string()}, Destination));
 	DPackage* Package = nullptr;
 	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
@@ -704,7 +704,7 @@ TEST_F(FTextureImportQueueTests, MutationCanceledImportDoesNotUnloadNewCompilati
 	Testing::FScopedPackageSaveFault Fault([](Testing::EPackageSaveFaultPoint Point, size_t) {
 		return Point == Testing::EPackageSaveFaultPoint::PublishPackage;
 	});
-	Editor::Texture::FTextureFileImport Importer;
+	TextureEditor::FTextureFileImport Importer;
 	ASSERT_TRUE(Importer.Begin({Source.generic_string()}, Destination));
 	DPackage* Package = nullptr;
 	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
@@ -738,7 +738,7 @@ TEST_F(FTextureImportQueueTests, MutationCanceledImportDoesNotUnloadNewCompilati
 
 TEST_F(FTextureImportQueueTests, TeardownAfterMutationCancellationRetainsReplacement)
 {
-	auto Importer = std::make_unique<Editor::Texture::FTextureFileImport>();
+	auto Importer = std::make_unique<TextureEditor::FTextureFileImport>();
 	ASSERT_TRUE(Importer->Begin({Source.generic_string()}, Destination));
 	DPackage* Package = nullptr;
 	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
@@ -792,8 +792,8 @@ TEST_F(FTextureImportQueueTests, AsyncSaveUsesExplicitCancellationForTypedPublic
 TEST_F(FTextureImportQueueTests, TeardownDropsTaskObservationWithoutLatePresentation)
 {
 	int Presented = 0;
-	auto Importer = std::make_unique<Editor::Texture::FTextureFileImport>(
-		Editor::FImportDialogCallbacks{.AssetCreated = [&](std::string) { ++Presented; }});
+	auto Importer = std::make_unique<TextureEditor::FTextureFileImport>(
+		FImportDialogCallbacks{.AssetCreated = [&](std::string) { ++Presented; }});
 	ASSERT_TRUE(Importer->Begin({Source.generic_string()}, Destination));
 	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
 	while (!Importer->GetActivity().starts_with("Saving") && std::chrono::steady_clock::now() < Deadline)

@@ -4,7 +4,7 @@
 
 #include "ContentBrowser/ContentBrowserContracts.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	// Owns a pending name and invocation; opening or cancelling never creates a package.
 	class FAssetCreationDialog

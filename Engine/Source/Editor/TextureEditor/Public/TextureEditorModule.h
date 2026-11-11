@@ -6,7 +6,7 @@
 
 #include "TextureEditorAPI.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	class DThumbnailManager;
 	class FThumbnailRendererRegistrationHandle;
@@ -23,11 +23,11 @@ namespace Durin
 		TEXTUREEDITOR_API auto StartupModule() -> void override;
 		TEXTUREEDITOR_API auto ShutdownModule() -> void override;
 	private:
-		auto RegisterContributions(Editor::DThumbnailManager& ThumbnailManager) -> bool;
+		auto RegisterContributions(DThumbnailManager& ThumbnailManager) -> bool;
 		auto UnregisterContributions() -> void;
-		Editor::FDetailCustomizationHandle DetailCustomizationRegistration;
-		std::unique_ptr<Editor::FThumbnailRendererRegistrationHandle> Texture2DThumbnailRegistration;
-		std::unique_ptr<Editor::FThumbnailRendererRegistrationHandle> TextureCubeThumbnailRegistration;
+		FDetailCustomizationHandle DetailCustomizationRegistration;
+		std::unique_ptr<FThumbnailRendererRegistrationHandle> Texture2DThumbnailRegistration;
+		std::unique_ptr<FThumbnailRendererRegistrationHandle> TextureCubeThumbnailRegistration;
 		struct FIntegrationState;
 		std::unique_ptr<FIntegrationState> Integration;
 	};

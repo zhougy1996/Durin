@@ -4,7 +4,7 @@
 #include "AssetTools/IAssetTools.h"
 #include "Panels/ContentBrowserPanel.h"
 
-namespace Durin::Editor::ContentBrowser
+namespace Durin::ContentBrowser
 {
 	auto CreateContentBrowserTool(
 		FContentBrowserHostContext Services,
@@ -16,4 +16,4 @@ namespace Durin::Editor::ContentBrowser
 			std::move(Settings), std::move(SaveSettings), std::move(Services));
 	}
 
-} // namespace Durin::Editor::ContentBrowser
+} // namespace Durin::ContentBrowser

@@ -5,7 +5,7 @@
 
 #include "LevelEditorAPI.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 
 	LEVELEDITOR_API auto CreateVolumetricCloudDetailsCustomization()

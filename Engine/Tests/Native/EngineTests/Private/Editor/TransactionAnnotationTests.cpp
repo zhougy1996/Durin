@@ -5,7 +5,7 @@ using namespace Durin::Tests::ObjectState;
 
 TEST(FEngineTransactionAnnotationTests, GeneratedComponentEventsFollowSnapshotsAndReconstructedReplayInstances)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	FTransactionEngineWorld Fixture; Tests::FTestTransactorOwner Buffer;
 	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("GeneratedEvents"); ASSERT_NE(Actor, nullptr);
 	auto Scene = [&] { return static_cast<DTransactionLifecycleScene*>(Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(0))); };
@@ -45,7 +45,7 @@ TEST(FEngineTransactionAnnotationTests, GeneratedComponentEventsFollowSnapshotsA
 
 TEST(FEngineTransactionAnnotationTests, GeneratedComponentFinalEventClosesLastSnapshotAtOriginalValue)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	FTransactionEngineWorld Fixture; Tests::FTestTransactorOwner Buffer;
 	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("GeneratedSnapshotClosure");
 	auto* Scene = static_cast<DTransactionLifecycleScene*>(Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)));
@@ -85,7 +85,7 @@ TEST(FEngineTransactionAnnotationTests, ComponentObservationFiltersConstructionT
 
 TEST(FEngineTransactionAnnotationTests, GeneratedAttachmentReferencesUsePathsAndDoNotRetainRetiredGenerations)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	FTransactionEngineWorld Fixture; Tests::FTestTransactorOwner Buffer;
 	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("GeneratedAttachmentEvents");
 	Actor->GeneratedCount = 2; ASSERT_TRUE(Actor->RerunConstructionScripts());
@@ -110,7 +110,7 @@ TEST(FEngineTransactionAnnotationTests, GeneratedAttachmentReferencesUsePathsAnd
 
 TEST(FTransBufferTests, AnnotationOnlyHistoryRestoresDesiredSideAndFlipsLiveSupplementalState)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "AnnotationOnlyHistory"));
 	Target->bAnnotationEnabled = true;
@@ -124,7 +124,7 @@ TEST(FTransBufferTests, AnnotationOnlyHistoryRestoresDesiredSideAndFlipsLiveSupp
 
 TEST(FTransBufferTests, AnnotationReferencesSurviveCallbackCollectionAndReleaseWithHistory)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "AnnotationHistoryReferences"));
 	Target->bAnnotationEnabled = true; Target->bRequestCollectionDuringAnnotation = true;
@@ -138,7 +138,7 @@ TEST(FTransBufferTests, AnnotationReferencesSurviveCallbackCollectionAndReleaseW
 
 TEST(FTransBufferTests, CompensatedLoadCompletesWithPreOperationAnnotation)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "CompensatedAnnotation"));
 	Target->bAnnotationEnabled = true; Target->SupplementalValue = 1;
@@ -156,7 +156,7 @@ TEST(FTransBufferTests, CompensatedLoadCompletesWithPreOperationAnnotation)
 
 TEST(FTransBufferTests, LaterRecordFailurePreservesOriginalAnnotationForRetry)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "AnnotatedAtomicRetry"));
 	Target->bAnnotationEnabled = true;
@@ -177,7 +177,7 @@ TEST(FTransBufferTests, LaterRecordFailurePreservesOriginalAnnotationForRetry)
 
 TEST(FTransBufferTests, WholeAnnotationKeepsFirstStateThroughRepeatedCapture)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "WholeAnnotation"));
 	Target->bAnnotationEnabled = true; Target->SupplementalValue = 1;
@@ -196,7 +196,7 @@ TEST(FTransBufferTests, WholeAnnotationKeepsFirstStateThroughRepeatedCapture)
 
 TEST(FEngineTransactionAnnotationTests, WholeRecordRestoresNativeRegistration)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	FTransactionEngineWorld Fixture; Tests::FTestTransactorOwner Buffer;
 	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("FocusedNativeActor"); ASSERT_NE(Actor, nullptr);
 	auto* Root = static_cast<DTransactionLifecycleScene*>(Actor->GetRootComponent());
@@ -215,7 +215,7 @@ TEST(FEngineTransactionAnnotationTests, WholeRecordRestoresNativeRegistration)
 
 TEST(FEngineTransactionAnnotationTests, DefaultComponentAnnotationIsImplicitAndRestoresDefaultNativeState)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DSceneComponent> Component(NewObject<DSceneComponent>(nullptr, "DefaultComponentAnnotation"));
 	Component->SetFlags(EObjectFlags::Transactional);
@@ -247,7 +247,7 @@ TEST(FEngineTransactionAnnotationTests, ExplicitAnnotationArchiveRoundTripsNativ
 
 TEST(FEngineTransactionAnnotationTests, ActorAndRootRestoreNativeLifecycleOncePerOperation)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	FTransactionEngineWorld Fixture; Tests::FTestTransactorOwner Buffer;
 	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("NativeAnnotationActor"); ASSERT_NE(Actor, nullptr);
 	auto* Root = static_cast<DTransactionLifecycleScene*>(Actor->GetRootComponent()); ASSERT_NE(Root, nullptr);
@@ -270,7 +270,7 @@ TEST(FEngineTransactionAnnotationTests, ActorAndRootRestoreNativeLifecycleOncePe
 
 TEST(FEngineTransactionAnnotationTests, GeneratedRootRecreatesWithoutRetainingOldGenerationAndRestoresExternalAttachment)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	FTransactionEngineWorld Fixture; Tests::FTestTransactorOwner Buffer;
 	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("GeneratedRootActor"); ASSERT_NE(Actor, nullptr);
 	auto* Other = Fixture.World->SpawnActor<DTransactionConstructionActor>("AttachedActor"); ASSERT_NE(Other, nullptr);
@@ -301,7 +301,7 @@ TEST(FEngineTransactionAnnotationTests, GeneratedRootRecreatesWithoutRetainingOl
 
 TEST(FEngineTransactionAnnotationTests, SerializedChildEditsAndGeneratedRootReconstructionPreserveBothPoses)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	FTransactionEngineWorld Fixture; Tests::FTestTransactorOwner Buffer;
 	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("MixedRootActor");
 	auto* Other = Fixture.World->SpawnActor<DTransactionConstructionActor>("MixedRootChild");
@@ -322,7 +322,7 @@ TEST(FEngineTransactionAnnotationTests, SerializedChildEditsAndGeneratedRootReco
 
 TEST(FEngineTransactionAnnotationTests, SwitchingGeneratedAndAuthoredRootsPreservesBothHistorySides)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	FTransactionEngineWorld Fixture; Tests::FTestTransactorOwner Buffer;
 	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("RootKindSwitchActor"); ASSERT_NE(Actor, nullptr);
 	auto* NativeRoot = Actor->GetRootComponent();
@@ -339,7 +339,7 @@ TEST(FEngineTransactionAnnotationTests, SwitchingGeneratedAndAuthoredRootsPreser
 
 TEST(FEngineTransactionAnnotationTests, FailedReconstructionCleansNewOutputAndRequiresRecovery)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	FTransactionEngineWorld Fixture; Tests::FTestTransactorOwner Buffer;
 	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("FailedReconstructionActor"); ASSERT_NE(Actor, nullptr);
 	{
@@ -358,7 +358,7 @@ TEST(FEngineTransactionAnnotationTests, FailedReconstructionCleansNewOutputAndRe
 
 TEST(FEngineTransactionAnnotationTests, ExpiredAnnotationParticipantRejectsBeforeSerializedMutation)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	FTransactionEngineWorld Fixture; Tests::FTestTransactorOwner Buffer;
 	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("AnnotationExpiryActor");
 	auto* Other = Fixture.World->SpawnActor<DTransactionConstructionActor>("AnnotationExpiryChild");
@@ -376,7 +376,7 @@ TEST(FEngineTransactionAnnotationTests, ExpiredAnnotationParticipantRejectsBefor
 
 TEST(FEngineTransactionAnnotationTests, RetirementInsideRegistrationCallbackRequiresRecoveryWithoutReinitializingGarbage)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	FTransactionEngineWorld Fixture; Tests::FTestTransactorOwner Buffer;
 	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("CallbackRetirementActor"); ASSERT_NE(Actor, nullptr);
 	auto* Root = static_cast<DTransactionLifecycleScene*>(Actor->GetRootComponent());
@@ -390,7 +390,7 @@ TEST(FEngineTransactionAnnotationTests, RetirementInsideRegistrationCallbackRequ
 
 TEST(FEngineTransactionAnnotationTests, GeneratedSceneOverridesReplayWithoutAnAuthoredPropertyRecord)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	FTransactionEngineWorld Fixture; Tests::FTestTransactorOwner Buffer;
 	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("GeneratedPoseReplay"); ASSERT_NE(Actor, nullptr);
 	auto* Scene = static_cast<DSceneComponent*>(Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)));
@@ -418,7 +418,7 @@ TEST(FEngineTransactionAnnotationTests, GeneratedSceneOverridesReplayWithoutAnAu
 
 TEST(FEngineTransactionAnnotationTests, EmptyActorAnnotationIsOmittedAndDefaultTickRestoresOnUndo)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	FTransactionEngineWorld Fixture; Tests::FTestTransactorOwner Buffer;
 	auto* Actor = Fixture.World->SpawnActor<AActor>("SparseActorAnnotation"); ASSERT_NE(Actor, nullptr);
 	ASSERT_TRUE(Actor->GetPrimaryActorTick().IsTickFunctionRegistered());
@@ -437,7 +437,7 @@ TEST(FEngineTransactionAnnotationTests, EmptyActorAnnotationIsOmittedAndDefaultT
 
 TEST(FEngineTransactionAnnotationTests, InnerRegistrationFailureRequiresRecoveryAndReleasesActorSuspension)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	FTransactionEngineWorld Fixture; Tests::FTestTransactorOwner Buffer;
 	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("InnerCallbackFailure");
 	auto* Root = static_cast<DTransactionLifecycleScene*>(Actor->GetRootComponent());
@@ -454,7 +454,7 @@ TEST(FEngineTransactionAnnotationTests, InnerRegistrationFailureRequiresRecovery
 
 TEST(FEngineTransactionAnnotationTests, AttachmentReverseLinksAreSettledBeforeHistoricalRegistrationCallback)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	FTransactionEngineWorld Fixture; Tests::FTestTransactorOwner Buffer;
 	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("AttachmentCallbackChild");
 	auto* First = Fixture.World->SpawnActor<DTransactionConstructionActor>("AttachmentCallbackFirst");

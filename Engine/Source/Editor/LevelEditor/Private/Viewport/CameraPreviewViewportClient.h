@@ -10,7 +10,7 @@ namespace Durin
 	class DCameraComponent;
 }
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 
 	// Builds a preview scene view from one reflected camera component.

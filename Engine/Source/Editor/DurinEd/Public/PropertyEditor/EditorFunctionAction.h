@@ -6,7 +6,7 @@
 #include "PropertyEditor/PropertyView.h"
 #include "Transactions/Transactor.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	// Requests own identities only; they are re-resolved after finishing a property edit.
 	struct FEditorFunctionRequest

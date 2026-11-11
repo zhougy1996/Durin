@@ -17,7 +17,7 @@
 #include "AssetForge/Builtins/StaticMeshFactory.h"
 #include "DObject/Package.h"
 
-namespace Durin::Editor::StaticMesh
+namespace Durin::StaticMeshEditor
 {
 	namespace
 	{
@@ -308,4 +308,4 @@ namespace Durin::Editor::StaticMesh
 	{
 		Callbacks.Report(std::move(Message));
 	}
-} // namespace Durin::Editor::StaticMesh
+} // namespace Durin::StaticMeshEditor

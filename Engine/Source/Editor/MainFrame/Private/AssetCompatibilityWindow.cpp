@@ -6,7 +6,7 @@
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
 	namespace
 	{

@@ -25,7 +25,7 @@ namespace
 		uint32 Invalidations = 0;
 	};
 
-	class FImmediatePickingBackend final : public Durin::Editor::Level::IViewportPickingBackend
+	class FImmediatePickingBackend final : public Durin::LevelEditor::IViewportPickingBackend
 	{
 	public:
 		explicit FImmediatePickingBackend(std::shared_ptr<FFakePickingState> InState) : State(std::move(InState)) {}
@@ -49,7 +49,7 @@ namespace
 		Durin::DWorld* World = nullptr;
 		Durin::DLevel* Level = nullptr;
 		Durin::AStaticMeshActor* Actor = nullptr;
-		Durin::Editor::Level::FLevelEditorViewportClient Client;
+		Durin::LevelEditor::FLevelEditorViewportClient Client;
 		Durin::FSceneView View;
 
 		FPickingFixture()
@@ -79,7 +79,7 @@ namespace
 }
 TEST(FViewportPickingContractTests, RejectsOutsideViewAndPreservesExactPrimitiveIdentity)
 {
-	using namespace Durin::Editor::Level;
+	using namespace Durin::LevelEditor;
 	FPickingFixture Fixture;
 	auto State = std::make_shared<FFakePickingState>();
 	Fixture.Client.SetPickingBackendForTesting(std::make_unique<FImmediatePickingBackend>(State));
@@ -96,7 +96,7 @@ TEST(FViewportPickingContractTests, RejectsOutsideViewAndPreservesExactPrimitive
 
 TEST(FViewportPickingContractTests, ReturnsBlankSpaceAndRenderingFailureImmediately)
 {
-	using namespace Durin::Editor::Level;
+	using namespace Durin::LevelEditor;
 	FPickingFixture Fixture;
 	auto State = std::make_shared<FFakePickingState>();
 	State->bReturnHit = false;
@@ -110,7 +110,7 @@ TEST(FViewportPickingContractTests, ReturnsBlankSpaceAndRenderingFailureImmediat
 
 TEST(FViewportPickingContractTests, RejectsTargetsRetiredDuringSynchronousQuery)
 {
-	using namespace Durin::Editor::Level;
+	using namespace Durin::LevelEditor;
 	FPickingFixture Fixture;
 	auto State = std::make_shared<FFakePickingState>();
 	Fixture.Client.SetPickingBackendForTesting(std::make_unique<FImmediatePickingBackend>(State));
@@ -130,12 +130,12 @@ TEST(FViewportPickingContractTests, SelectModeDuplicateAndDeleteUseStructuralHis
 {
 	FPickingFixture Fixture;
 	auto* Transactions = Fixture.Editor.GetTransactions();
-	Durin::Editor::Level::FLevelEditorContext Context;
+	Durin::LevelEditor::FLevelEditorContext Context;
 	Context.EditorHost = Fixture.Editor.GetEditor();
 	Context.Synchronize(Fixture.World);
 	Context.SelectActor(Fixture.Actor);
-	Durin::Editor::Level::FLevelViewportEditModeManager Manager;
-	Durin::Editor::Level::FLevelEditorViewportInput Input;
+	Durin::LevelEditor::FLevelViewportEditModeManager Manager;
+	Durin::LevelEditor::FLevelEditorViewportInput Input;
 	Input.bDuplicate = true;
 	ASSERT_TRUE(Manager.Tick(Context, Fixture.Client, Fixture.View, Input, Transactions));
 	auto* Copy = Context.GetPrimarySelectedActor();
@@ -165,11 +165,11 @@ TEST(FViewportPickingContractTests, SelectModeAppliesCtrlIntentWithinInputEvent)
 	Durin::FTransform ExistingTransform;
 	ExistingTransform.Translation = {1000.0, 1000.0, 1000.0};
 	Existing->SetActorTransform(ExistingTransform);
-	Durin::Editor::Level::FLevelEditorContext Context;
+	Durin::LevelEditor::FLevelEditorContext Context;
 	Context.Synchronize(Fixture.World);
 	Context.SelectActor(Existing);
-	Durin::Editor::Level::FLevelViewportEditModeManager Manager;
-	Durin::Editor::Level::FLevelEditorViewportInput Input;
+	Durin::LevelEditor::FLevelViewportEditModeManager Manager;
+	Durin::LevelEditor::FLevelEditorViewportInput Input;
 	Input.bRequestSelection = true;
 	Input.bCtrl = true;
 	Input.MousePosition = {400.0f, 300.0f};
@@ -184,7 +184,7 @@ TEST(FViewportPickingContractTests, SelectModeAppliesCtrlIntentWithinInputEvent)
 
 TEST(FViewportPickingContractTests, KeepsViewportQueriesAndCacheInvalidationIndependent)
 {
-	using namespace Durin::Editor::Level;
+	using namespace Durin::LevelEditor;
 	FPickingFixture Fixture;
 	FLevelEditorViewportClient SecondClient;
 	SecondClient.InitializeForLevel(Fixture.Level);
@@ -203,13 +203,13 @@ TEST(FViewportPickingContractTests, KeepsViewportQueriesAndCacheInvalidationInde
 TEST(FViewportPickingContractTests, MissingRendererFailsWithoutCpuFallback)
 {
 	FPickingFixture Fixture;
-	EXPECT_EQ(Fixture.Client.PickViewport(Fixture.Level, Fixture.View, {400.f,300.f}).Status, Durin::Editor::Level::EViewportPickStatus::Failed);
+	EXPECT_EQ(Fixture.Client.PickViewport(Fixture.Level, Fixture.View, {400.f,300.f}).Status, Durin::LevelEditor::EViewportPickStatus::Failed);
 }
 
 TEST(FViewportPickingContractTests, ResolvesOverlayElementAndRejectsRetiredHandle)
 {
 	using namespace Durin;
-	using namespace Durin::Editor::Level;
+	using namespace Durin::LevelEditor;
 	FPickingFixture Fixture;
 	auto State = std::make_shared<FFakePickingState>();
 	FViewportPickingService Service(std::make_unique<FImmediatePickingBackend>(State));
@@ -295,7 +295,7 @@ TEST(FViewportPickingContractTests, DecodesGpuIdAndDistanceWordsIntoTypedPixel)
 
 TEST(FViewportPickingContractTests, RejectsUnknownBackendTokensAndInvalidDistances)
 {
-	using namespace Durin::Editor::Level;
+	using namespace Durin::LevelEditor;
 	FPickingFixture Fixture;
 	auto State = std::make_shared<FFakePickingState>();
 	Fixture.Client.SetPickingBackendForTesting(std::make_unique<FImmediatePickingBackend>(State));
@@ -309,7 +309,7 @@ TEST(FViewportPickingContractTests, RejectsUnknownBackendTokensAndInvalidDistanc
 TEST(FViewportPickingContractTests, SamplesRequestedPixelFromWholeMapAndHandlesMissingMaps)
 {
 	using namespace Durin;
-	using namespace Durin::Editor::Level;
+	using namespace Durin::LevelEditor;
 	FPickingFixture Fixture;
 	auto State = std::make_shared<FFakePickingState>();
 	Fixture.Client.SetPickingBackendForTesting(std::make_unique<FImmediatePickingBackend>(State));

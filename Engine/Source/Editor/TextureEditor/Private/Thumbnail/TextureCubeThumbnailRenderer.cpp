@@ -10,7 +10,7 @@
 #include "Engine/Engine.h"
 #include "IRendererModule.h"
 
-namespace Durin::Editor::Texture
+namespace Durin::TextureEditor
 {
 	namespace
 	{
@@ -284,4 +284,4 @@ namespace Durin::Editor::Texture
 		return std::make_unique<FTextureCubeThumbnailGenerationSession>(
 			TextureCubeInput->AssetPath);
 	}
-} // namespace Durin::Editor::Texture
+} // namespace Durin::TextureEditor

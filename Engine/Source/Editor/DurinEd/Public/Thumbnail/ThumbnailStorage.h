@@ -5,7 +5,7 @@
 #include "DurinEdAPI.h"
 #include "Thumbnail/AssetThumbnailPool.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	// Reports persistent object reuse and invalid-object cleanup.
 	struct FThumbnailObjectStoreStats
@@ -55,4 +55,4 @@ namespace Durin::Editor
 	// Selects least-recently-used, unpinned allocations until the requested budget is met.
 	DURINED_API auto SelectThumbnailBudgetEvictions(
 		std::span<const FThumbnailBudgetEntry> Entries, uint64 BudgetBytes) -> std::vector<std::string>;
-} // namespace Durin::Editor
+} // namespace Durin

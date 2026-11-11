@@ -6,7 +6,7 @@
 #include "Materials/MaterialExpressionDescription.h"
 #include "Materials/MaterialExpressions.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	enum class EMaterialGraphCreationKind { Direct, AssetBound };
 	enum class EMaterialGraphPaletteShape { All, InspectOnly, Scalar, ScalarOrVector4, Float2, Adaptive, AdaptiveVector };

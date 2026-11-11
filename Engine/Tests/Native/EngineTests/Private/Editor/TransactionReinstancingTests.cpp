@@ -25,7 +25,7 @@ TEST(FTransactionTemplateTests, PublishedClassDefaultUsesModifyAndSurvivesRecrea
 	Owner->Hard = Default;
 	const auto Original = Default->Value;
 	{
-		Editor::FScopedTransaction Scope(Buffer.Get(), {"test", "Edit class default", Default});
+		FScopedTransaction Scope(Buffer.Get(), {"test", "Edit class default", Default});
 		ASSERT_TRUE(Default->Modify(false));
 		ASSERT_TRUE(Owner->Modify(false));
 		Default->Value = 37;
@@ -73,7 +73,7 @@ TEST(FTransactionTemplateTests, DefaultSubobjectHistoryResolvesRecreatedGraphWit
 	const auto Before = Component->GetRelativeTransform();
 	TStrongObjectPtr<DTransBuffer> Buffer(NewObject<DTransBuffer>(nullptr, "SubobjectHistory"));
 	{
-		Editor::FScopedTransaction Scope(Buffer.Get(), {"test", "Edit default subobject", Component});
+		FScopedTransaction Scope(Buffer.Get(), {"test", "Edit default subobject", Component});
 		ASSERT_TRUE(Component->Modify(false));
 		Component->SetRelativeLocation({12.0, 0.0, 0.0});
 		ASSERT_TRUE(Scope.End());
@@ -157,7 +157,7 @@ namespace
 		}
 		auto Record(int32 Value) -> void
 		{
-			Durin::Editor::FScopedTransaction Scope(Buffer.Get(), {"test", "Reinstanced value", Old});
+			Durin::FScopedTransaction Scope(Buffer.Get(), {"test", "Reinstanced value", Old});
 			ASSERT_TRUE(Old->Modify());
 			Old->Value = Value;
 			ASSERT_TRUE(Scope.End());
@@ -190,8 +190,8 @@ TEST(FTransactionTemplateTests, OpaqueCustomParticipantsExpireBeforeRecreatedDef
 	const auto Original = Default->Value;
 	TStrongObjectPtr<DTransBuffer> Buffer(NewObject<DTransBuffer>(nullptr, "OpaqueTemplateHistory"));
 	{
-		Editor::FScopedTransaction Scope(Buffer.Get(), {"test", "Native default command", Default});
-		ASSERT_TRUE(Editor::ApplyEditorChange(*Buffer, std::make_unique<FReinstancedValueCommand>(Default, Original, 8, false)));
+		FScopedTransaction Scope(Buffer.Get(), {"test", "Native default command", Default});
+		ASSERT_TRUE(ApplyEditorChange(*Buffer, std::make_unique<FReinstancedValueCommand>(Default, Original, 8, false)));
 		ASSERT_TRUE(Scope.End());
 	}
 	Private::ReleaseClassDefaultObjectForTests(Class);
@@ -247,7 +247,7 @@ TEST_F(FTransactionReinstancingTests, ExplicitReinstancingHookUsesTheSharedCheck
 	EXPECT_EQ(Buffer->GetUndoContext().PrimaryObject, Reinstanced);
 	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Reinstanced->Value, 0);
 	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Reinstanced->Value, 77);
-	Editor::FScopedTransaction Scope(Buffer.Get(), {"test", "Busy reinstancing", Reinstanced});
+	FScopedTransaction Scope(Buffer.Get(), {"test", "Busy reinstancing", Reinstanced});
 	EXPECT_FALSE(Buffer->OnObjectsReinstanced(Map));
 	Scope.Cancel();
 	MarkAsGarbage(Old);
@@ -495,7 +495,7 @@ TEST_F(FTransactionReinstancingTests, GeneratedSourceRejectsSameNamedAuthoredCom
 
 TEST_F(FTransactionReinstancingTests, ActorHistoryReinstancingRestoresGeneratedInstanceDataAfterReconstruction)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	auto* BeforeActor = NewObject<DTransactionConstructionActor>(Current, "Actor", EObjectFlags::Transactional);
 	auto* AfterActor = NewObject<DTransactionConstructionActor>(Candidate, "Actor", EObjectFlags::Transactional);
 	ASSERT_TRUE(BeforeActor->RerunConstructionScripts());
@@ -590,7 +590,7 @@ TEST_F(FTransactionReinstancingTests, SerializedGeneratedSourceRejectsAmbiguousO
 
 TEST_F(FTransactionReinstancingTests, UnaffectedNativeCommandMovesWithoutRequiringAReplacementHook)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	TStrongObjectPtr<DTransactionRecordParticipant> Peer(NewObject<DTransactionRecordParticipant>(nullptr, "UnaffectedNativePeer"));
 	{
 		FScopedTransaction Scope(Buffer.Get(), {"test", "Mixed affected and unaffected", Old});
@@ -609,7 +609,7 @@ TEST_F(FTransactionReinstancingTests, UnaffectedNativeCommandMovesWithoutRequiri
 
 TEST_F(FTransactionReinstancingTests, WeakOnlySerializedDependencyRebindsWithoutAcquiringCollectorOwnership)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	TStrongObjectPtr<DTransactionRecordParticipant> Peer(NewObject<DTransactionRecordParticipant>(nullptr, "WeakOnlyReinstancingPeer"));
 	TStrongObjectPtr<DTransactionRecordParticipant> KeepNew(New);
 	Peer->Weak = Old;

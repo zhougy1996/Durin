@@ -10,7 +10,7 @@
 
 namespace Durin { class DStaticMesh; }
 
-namespace Durin::Editor::StaticMesh
+namespace Durin::StaticMeshEditor
 {
 	// Hosts read-only, per-resource StaticMesh inspection documents.
 	class MStaticMeshInspector final : public FBaseAssetToolkit

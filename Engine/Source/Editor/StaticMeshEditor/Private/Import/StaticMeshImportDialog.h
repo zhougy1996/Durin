@@ -5,7 +5,7 @@
 #include "Import/ImportDialogSupport.h"
 #include "Import/MeshCoordinateImportModel.h"
 
-namespace Durin::Editor::StaticMesh
+namespace Durin::StaticMeshEditor
 {
 	// Creates one geometry-only StaticMesh without Scene materials or textures.
 	class FStaticMeshImportDialog
@@ -34,4 +34,4 @@ namespace Durin::Editor::StaticMesh
 		std::array<char, 512> SourcePathBuffer{};
 		FMeshCoordinateImportModel Coordinates;
 	};
-} // namespace Durin::Editor::StaticMesh
+} // namespace Durin::StaticMeshEditor

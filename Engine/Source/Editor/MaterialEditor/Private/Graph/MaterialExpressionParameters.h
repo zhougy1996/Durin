@@ -5,7 +5,7 @@
 #include "Materials/MaterialExpressions.h"
 #include "DObject/StrongObjectPtr.h"
 
-namespace Durin::Editor::Material::GraphEditInternals
+namespace Durin::MaterialEditor::GraphEditInternals
 {
 	struct FParameterExpressionResult
 	{
@@ -22,7 +22,7 @@ namespace Durin::Editor::Material::GraphEditInternals
 		const DMaterialExpressionParameter* Previous = nullptr) -> FMaterialGraphCommandResult;
 }
 
-namespace Durin::Editor::Material::GraphEditInternals
+namespace Durin::MaterialEditor::GraphEditInternals
 {
 	inline auto MakeParameterMask(const DMaterialExpressionParameter& Parameter, EMaterialProgramValueType Type,
 		FGuid Id = FGuid::NewGuid()) -> TStrongObjectPtr<DMaterialExpressionSwizzle>

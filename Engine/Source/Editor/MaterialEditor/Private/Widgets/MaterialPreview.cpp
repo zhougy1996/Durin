@@ -16,7 +16,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "DynamicRHI.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	namespace
 	{

@@ -4,7 +4,7 @@
 
 #include "LevelEditorCustomizations.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	auto CreatePlayerStartActorVisualizer() -> std::shared_ptr<IActorEditorVisualizer>;
 }

@@ -7,7 +7,7 @@
 #include "DObject/ObjectLifecycle.h"
 #include "Threading/RunnableThread.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	inline auto CanEditActorLevel(const DLevel* Level) -> bool
 	{

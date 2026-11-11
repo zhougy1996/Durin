@@ -8,7 +8,7 @@
 #include "Thumbnail/ThumbnailRenderer.h"
 #include "Thumbnail/DefaultSizedThumbnailRenderer.h"
 
-namespace Durin::Editor::StaticMesh
+namespace Durin::StaticMeshEditor
 {
 	// Freezes the initial StaticMesh thumbnail identity and visual policy.
 	struct FStaticMeshThumbnailRendererContract
@@ -86,4 +86,4 @@ namespace Durin::Editor::StaticMesh
 	STATICMESHEDITOR_API auto CalculateStaticMeshThumbnailRendererView(
 		const FStaticMeshThumbnailRendererViewInput& Input)
 		-> std::expected<FStaticMeshThumbnailRendererView, std::string>;
-} // namespace Durin::Editor::StaticMesh
+} // namespace Durin::StaticMeshEditor

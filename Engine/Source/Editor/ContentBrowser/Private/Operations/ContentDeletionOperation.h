@@ -4,7 +4,7 @@
 #include "AssetTools/AssetDeletion.h"
 #include "Operations/ContentDeletionPlan.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	// Narrow injection seam for deterministic destructive-deletion failure tests.
 	struct FContentDeletionHooks

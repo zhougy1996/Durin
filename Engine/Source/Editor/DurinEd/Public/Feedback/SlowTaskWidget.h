@@ -4,7 +4,7 @@
 #include "DurinEdAPI.h"
 #include "Misc/FeedbackContext.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	// Shared startup/modal content; returns Cancel. Hide elapsed time for projections without timing data.
 	DURINED_API auto DrawSlowTaskProgress(const FSlowTaskSnapshot& Task, bool bShowCancel = false, bool bShowElapsed = true) -> bool;

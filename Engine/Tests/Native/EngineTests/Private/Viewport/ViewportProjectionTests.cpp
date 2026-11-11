@@ -21,8 +21,8 @@ TEST(FLevelEditorViewportClientTests, NavigationDoesNotDirtyTheLevelPackage)
 	ASSERT_TRUE(Durin::SavePackage(Level->GetPackage()));
 	ASSERT_FALSE(Level->GetPackage()->IsDirty());
 
-	Durin::Editor::Level::FLevelEditorViewportClient Client;
-	Durin::Editor::Level::FLevelEditorViewportInput Input;
+	Durin::LevelEditor::FLevelEditorViewportClient Client;
+	Durin::LevelEditor::FLevelEditorViewportInput Input;
 	Input.bFocused = true;
 	Input.bHovered = true;
 	Input.bRightMousePressed = true;
@@ -49,7 +49,7 @@ TEST(FBoxTests, AccumulatesFinitePointsAndResets)
 
 TEST(FLevelEditorViewportClientTests, BuildsCenterPickingRayAndRejectsInvalidViewport)
 {
-	Durin::Editor::Level::FLevelEditorViewportClient Client;
+	Durin::LevelEditor::FLevelEditorViewportClient Client;
 	Durin::FVector3 Origin;
 	Durin::FVector3 Direction;
 	EXPECT_FALSE(Client.BuildPickingRay({0.0f, 0.0f}, {0.0f, 100.0f}, Origin, Direction));
@@ -60,7 +60,7 @@ TEST(FLevelEditorViewportClientTests, BuildsCenterPickingRayAndRejectsInvalidVie
 
 TEST(FLevelEditorViewportClientTests, RestoresDocumentedViewDistanceDefaults)
 {
-	using FViewportClient = Durin::Editor::Level::FLevelEditorViewportClient;
+	using FViewportClient = Durin::LevelEditor::FLevelEditorViewportClient;
 	FViewportClient Client;
 	Client.SetClipDistances(0.001f, 10000.0f);
 	Client.SetViewDistance(100.0f, 1000.0f);
@@ -83,8 +83,8 @@ TEST(FLevelEditorViewportClientTests, FocusesTheSelectedActorFromViewportInput)
 	ASSERT_NE(Actor, nullptr);
 	Actor->GetRootComponent()->SetWorldLocation({12.0, -4.0, 7.0});
 
-	Durin::Editor::Level::FLevelEditorViewportClient Client;
-	Durin::Editor::Level::FLevelEditorViewportInput Input;
+	Durin::LevelEditor::FLevelEditorViewportClient Client;
+	Durin::LevelEditor::FLevelEditorViewportInput Input;
 	Input.bFocused = true;
 	Input.bFocusSelection = true;
 	Client.Update(Level, Actor, Input);

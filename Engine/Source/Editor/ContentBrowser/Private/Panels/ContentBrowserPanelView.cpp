@@ -22,7 +22,7 @@
 #include "MonaUIBackend.h"
 #include "Math/Vector.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	using ContentBrowserItemView::FGridMetrics;
 
@@ -1397,4 +1397,4 @@ namespace Durin::Editor::ContentBrowser::Private
 		MonaImGui::ErrorDialog("Content Browser Warning", WarningMessage);
 	}
 
-} // namespace Durin::Editor::ContentBrowser::Private
+} // namespace Durin::ContentBrowser::Private

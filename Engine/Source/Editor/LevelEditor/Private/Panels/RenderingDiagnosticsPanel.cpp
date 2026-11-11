@@ -14,7 +14,7 @@
 #include "Widgets/MWindow.h"
 #include "Settings/EditorSettings.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	namespace
 	{
@@ -715,4 +715,4 @@ namespace Durin::Editor::Level
 			}
 		}
 	}
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

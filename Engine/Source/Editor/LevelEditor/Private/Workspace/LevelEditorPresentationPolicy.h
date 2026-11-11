@@ -4,7 +4,7 @@
 
 #include "Logging/Logger.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	// Classifies panel roles whose default visibility is part of the workspace layout contract.
 	enum class ELevelEditorPanelRole : uint8
@@ -19,4 +19,4 @@ namespace Durin::Editor::Level
 		return Role == ELevelEditorPanelRole::Persistent;
 	}
 
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

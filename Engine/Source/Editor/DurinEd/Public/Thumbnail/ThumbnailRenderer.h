@@ -10,8 +10,6 @@ namespace Durin
 	class DWorld;
 	class AActor;
 
-	namespace Editor
-	{
 	// Reports the renderer-owned cold-generation state observed by the shared core.
 	enum class EThumbnailRendererSessionState : uint8
 	{
@@ -90,5 +88,4 @@ namespace Durin
 		virtual auto ResetPreview() -> void = 0;
 	};
 
-	} // namespace Editor
 } // namespace Durin

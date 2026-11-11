@@ -12,7 +12,7 @@ namespace Durin { class DEditorEngine; }
 
 struct ImVec2;
 
-namespace Durin::Editor
+namespace Durin
 {
 	enum class EPlayStartLocation : uint8;
 	enum class EPlayDestination : uint8;
@@ -28,7 +28,7 @@ namespace Durin
 	struct FSceneViewportRenderGraphSnapshot;
 }
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	class FCameraPreviewViewportClient;
 	class FLevelEditorViewportClient;
@@ -99,4 +99,4 @@ namespace Durin::Editor::Level
 		EPlayDestination PreferredPlayDestination;
 		std::vector<FConsoleCommandHandle> ViewportConsoleCommandHandles;
 	};
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

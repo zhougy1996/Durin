@@ -128,11 +128,11 @@ namespace
 TEST_F(FEditorToolTests, ServiceOnlyHostStartsReadyAndKeepsToolsAvailableDuringPlay)
 {
 	auto* Editor = MakeHost();
-	EXPECT_EQ(Editor::Startup::EBootstrapState::Ready, Editor->GetStartupPhase());
+	EXPECT_EQ(EditorStartup::EBootstrapState::Ready, Editor->GetStartupPhase());
 	EXPECT_EQ(EHostStartupState::Ready, Editor->GetStartupState());
 	EXPECT_TRUE(Editor->CanTransact());
 	EXPECT_TRUE(Editor->GetCapabilities().bEditWorld);
-	FEditorEngineTestAccess::SetState(*Editor, Editor::EPlayState::Playing);
+	FEditorEngineTestAccess::SetState(*Editor, EPlayState::Playing);
 	const auto Playing = Editor->GetCapabilities();
 	EXPECT_TRUE(Playing.bTick);
 	EXPECT_TRUE(Playing.bRunTools);
@@ -140,13 +140,13 @@ TEST_F(FEditorToolTests, ServiceOnlyHostStartsReadyAndKeepsToolsAvailableDuringP
 	EXPECT_FALSE(Playing.bEditWorld);
 	// PIE control tools still need admission while the editor World is read-only.
 	EXPECT_TRUE(Editor->CanTransact());
-	FEditorEngineTestAccess::SetState(*Editor, Editor::EPlayState::Stopped);
+	FEditorEngineTestAccess::SetState(*Editor, EPlayState::Stopped);
 }
 
 TEST_F(FEditorToolTests, CommittedStartupSceneIsVisibleBeforeEditingAndSimulationAreAdmitted)
 {
 	auto* Editor = MakeHost();
-	FEditorEngineTestAccess::SetStartupPhase(*Editor, Editor::Startup::EBootstrapState::LoadingDefaultDocument);
+	FEditorEngineTestAccess::SetStartupPhase(*Editor, EditorStartup::EBootstrapState::LoadingDefaultDocument);
 	EXPECT_EQ(EHostStartupState::Pending, Editor->GetStartupState());
 	EXPECT_FALSE(Editor->GetCapabilities().bPresentWorkspace);
 	FMapChangeTestAccess::SetSceneGeneration(*Editor, 17);
@@ -157,7 +157,7 @@ TEST_F(FEditorToolTests, CommittedStartupSceneIsVisibleBeforeEditingAndSimulatio
 	EXPECT_FALSE(Committed.bRunTools);
 	EXPECT_FALSE(Committed.bEditWorld);
 	EXPECT_FALSE(Editor->CanTransact());
-	FEditorEngineTestAccess::SetStartupPhase(*Editor, Editor::Startup::EBootstrapState::Ready);
+	FEditorEngineTestAccess::SetStartupPhase(*Editor, EditorStartup::EBootstrapState::Ready);
 	EXPECT_EQ(EHostStartupState::Ready, Editor->GetStartupState());
 	EXPECT_TRUE(Editor->GetCapabilities().bTick);
 	EXPECT_TRUE(Editor->GetCapabilities().bRunTools);
@@ -175,11 +175,11 @@ TEST_F(FEditorToolTests, MapChangesFailureAndShutdownCloseTheirOwnCapabilityGate
 	EXPECT_FALSE(Loading.bRunTools);
 	EXPECT_FALSE(Loading.bEditWorld);
 	EXPECT_FALSE(Editor->CanTransact());
-	FEditorEngineTestAccess::SetStartupPhase(*Editor, Editor::Startup::EBootstrapState::Failed, "startup failed");
+	FEditorEngineTestAccess::SetStartupPhase(*Editor, EditorStartup::EBootstrapState::Failed, "startup failed");
 	EXPECT_EQ(EHostStartupState::Failed, Editor->GetStartupState());
 	EXPECT_FALSE(Editor->GetCapabilities().bTick);
 	EXPECT_FALSE(Editor->GetCapabilities().bPresentWorkspace);
-	FEditorEngineTestAccess::SetStartupPhase(*Editor, Editor::Startup::EBootstrapState::Ready);
+	FEditorEngineTestAccess::SetStartupPhase(*Editor, EditorStartup::EBootstrapState::Ready);
 	Editor->PreExit();
 	const auto Retired = Editor->GetCapabilities();
 	EXPECT_FALSE(Retired.bTick);
@@ -213,11 +213,11 @@ TEST_F(FEditorToolTests, MainFrameUpdatesOnlyOnNormalTicksAfterToolsWithoutDrawi
 		IMainFrameModule* Previous;
 		~FRestoreModule() { FEditorEngineTestAccess::BindMainFrameModule(Editor, Previous); }
 	} Restore{*Editor, FEditorEngineTestAccess::BindMainFrameModule(*Editor, &MainFrame)};
-	FEditorEngineTestAccess::SetStartupPhase(*Editor, Editor::Startup::EBootstrapState::WaitingForFirstPresent);
+	FEditorEngineTestAccess::SetStartupPhase(*Editor, EditorStartup::EBootstrapState::WaitingForFirstPresent);
 	Editor->AdvanceStartup();
 	Editor->Tick(0.25f, false);
 	EXPECT_TRUE(Events.empty());
-	FEditorEngineTestAccess::SetStartupPhase(*Editor, Editor::Startup::EBootstrapState::Ready);
+	FEditorEngineTestAccess::SetStartupPhase(*Editor, EditorStartup::EBootstrapState::Ready);
 	Editor->AdvanceStartup();
 	EXPECT_TRUE(Events.empty());
 	auto* Tools = Editor->GetEditorSubsystem<DEditorToolSubsystem>();
@@ -280,7 +280,7 @@ TEST_F(FEditorToolTests, StartupWaitsForShellFirstPresentationBeforePublishingFa
 		IMainFrameModule* Previous;
 		~FRestoreModule() { FEditorEngineTestAccess::BindMainFrameModule(Editor, Previous); }
 	} Restore{*Editor, FEditorEngineTestAccess::BindMainFrameModule(*Editor, &MainFrame)};
-	FEditorEngineTestAccess::SetStartupPhase(*Editor, Editor::Startup::EBootstrapState::WaitingForFirstPresent, "project admission failed");
+	FEditorEngineTestAccess::SetStartupPhase(*Editor, EditorStartup::EBootstrapState::WaitingForFirstPresent, "project admission failed");
 	Editor->AdvanceStartup();
 	EXPECT_EQ(EHostStartupState::Pending, Editor->GetStartupState());
 	MainFrame.bShellPresented = true;
@@ -291,7 +291,7 @@ TEST_F(FEditorToolTests, StartupWaitsForShellFirstPresentationBeforePublishingFa
 
 TEST_F(FEditorToolTests, ProjectInitializationStartsAfterShellPresentationAndStopsOnShutdown)
 {
-	using namespace Editor::Startup;
+	using namespace EditorStartup;
 	ASSERT_FALSE(HasCurrentProject());
 	ASSERT_TRUE(InitializeCurrentProject({
 		.RequestedProjectFile = FPaths::RootDir() + "Sandbox/Sandbox.dproject",
@@ -325,7 +325,7 @@ TEST_F(FEditorToolTests, ProjectInitializationStartsAfterShellPresentationAndSto
 
 TEST_F(FEditorToolTests, ProjectBrowserStartupWaitsForPresentationAndSkipsProjectWork)
 {
-	using namespace Editor::Startup;
+	using namespace EditorStartup;
 	ASSERT_FALSE(HasCurrentProject());
 	auto* Editor = MakeHost();
 	std::vector<std::string> Events;
@@ -349,7 +349,7 @@ TEST_F(FEditorToolTests, ProjectBrowserStartupWaitsForPresentationAndSkipsProjec
 
 TEST_F(FEditorToolTests, StartupWaitsForDocumentCompletionAndPrimaryScenePresentation)
 {
-	using namespace Editor::Startup;
+	using namespace EditorStartup;
 	auto* Editor = MakeHost();
 	std::vector<std::string> Events;
 	FRecordingMainFrameModule MainFrame(Events);
@@ -436,7 +436,7 @@ TEST_F(FEditorToolTests, StartupWaitsForDocumentCompletionAndPrimaryScenePresent
 
 TEST_F(FEditorToolTests, StartupDocumentFailureCancellationAndRetiredRequestCannotBecomeReady)
 {
-	using namespace Editor::Startup;
+	using namespace EditorStartup;
 	for (const auto Status : {EAssetOpenStatus::Failed, EAssetOpenStatus::Cancelled})
 	{
 		auto* Editor = MakeHost();
@@ -458,7 +458,7 @@ TEST_F(FEditorToolTests, StartupDocumentFailureCancellationAndRetiredRequestCann
 
 TEST_F(FEditorToolTests, StartupDocumentShutdownDoesNotPublishLateCompletion)
 {
-	using namespace Editor::Startup;
+	using namespace EditorStartup;
 	auto* Editor = MakeHost();
 	FEditorEngineTestAccess::SetStartupPhase(*Editor, EBootstrapState::LoadingDefaultDocument);
 	Editor->PreExit();
@@ -471,7 +471,7 @@ TEST_F(FEditorToolTests, StartupWithoutConfiguredLevelCompletesWithoutAnOpenRequ
 {
 	ASSERT_FALSE(HasCurrentProject());
 	auto* Editor = MakeHost();
-	FEditorEngineTestAccess::SetStartupPhase(*Editor, Editor::Startup::EBootstrapState::LoadingDefaultDocument);
+	FEditorEngineTestAccess::SetStartupPhase(*Editor, EditorStartup::EBootstrapState::LoadingDefaultDocument);
 	Editor->AdvanceStartup();
 	EXPECT_EQ(EHostStartupState::Ready, Editor->GetStartupState());
 	EXPECT_TRUE(Editor->GetStartupError().empty());
@@ -806,7 +806,7 @@ TEST_F(FEditorToolTests, JoinsRecordingAndKeepsDetachedEndpointSafeAfterShutdown
 	auto Endpoint = Tools->GetService();
 	auto Id = Endpoint->Submit(Request()); ASSERT_TRUE(Id);
 	{
-		Editor::FScopedTransaction Transaction(Host->GetTransactor(), {"tool test"});
+		FScopedTransaction Transaction(Host->GetTransactor(), {"tool test"});
 		Tools->TickTools();
 		EXPECT_EQ(EToolInvocationState::Completed, Endpoint->GetInvocation(*Id)->State);
 		EXPECT_EQ(1, Toolset.Executions);

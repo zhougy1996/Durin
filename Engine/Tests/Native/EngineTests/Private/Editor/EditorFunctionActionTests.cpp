@@ -21,7 +21,7 @@
 namespace
 {
 	using namespace Durin;
-	using namespace Durin::Editor;
+	using namespace Durin;
 
 	class DFunctionTarget : public DObject
 	{

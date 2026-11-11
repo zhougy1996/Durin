@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 #include "DurinEdAPI.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	// Feature-owned settings content; callbacks run on the editor game thread.
 	struct FEditorSettingsPage

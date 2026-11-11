@@ -13,7 +13,7 @@
 #include "Widgets/MWindow.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
 	struct FEditorSettingsWindowTestAccess
 	{
@@ -171,9 +171,9 @@ namespace Durin::Editor::MainFrame
 		ImGui::Render();
 		ImGui::DestroyContext(Context);
 	}
-} // namespace Durin::Editor::MainFrame
+} // namespace Durin::MainFrame
 
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
 	class FCanonicalResaveFeedbackTests : public FAssetCompatibilityAuditFixture {};
 
@@ -290,7 +290,7 @@ namespace Durin::Editor::MainFrame
 	}
 }
 
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
 	TEST(FNotificationPresentationTests, UnknownProgressHasNoFabricatedPercentage)
 	{

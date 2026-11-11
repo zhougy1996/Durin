@@ -49,7 +49,7 @@ namespace
 	}
 
 	auto MakeContext(FPropertyTransactionHarness& Transactions, std::string& Error)
-		-> Durin::Editor::FPropertyViewContext
+		-> Durin::FPropertyViewContext
 	{
 		return {.ReportError = [&Error](std::string Message) { Error = std::move(Message); }};
 	}
@@ -69,17 +69,17 @@ TEST(FStaticMeshMaterialSlotDetailsTests, BuildsFixedRowsSourcesAndKeepsDormantO
 	Component->SetStaticMesh(Mesh);
 	ASSERT_TRUE(Component->SetMaterial(SecondIndex, Override));
 
-	Durin::Editor::Level::FStaticMeshMaterialSlotDetailsModel Model(Component);
+	Durin::LevelEditor::FStaticMeshMaterialSlotDetailsModel Model(Component);
 	ASSERT_TRUE(Model.HasMesh());
 	ASSERT_EQ(Model.GetCurrentEntries().size(), 2u);
 	EXPECT_EQ(Model.GetCurrentEntries()[0].Label, "[0] Body");
-	EXPECT_EQ(Model.GetCurrentEntries()[0].Source, Durin::Editor::Level::EStaticMeshMaterialSource::MeshDefault);
+	EXPECT_EQ(Model.GetCurrentEntries()[0].Source, Durin::LevelEditor::EStaticMeshMaterialSource::MeshDefault);
 	EXPECT_EQ(Model.GetCurrentEntries()[0].Material, Default);
 	EXPECT_NE(Model.GetCurrentEntries()[0].SearchKeywords.find("Body"), std::string::npos);
-	EXPECT_EQ(Model.GetCurrentEntries()[1].Source, Durin::Editor::Level::EStaticMeshMaterialSource::ComponentOverride);
+	EXPECT_EQ(Model.GetCurrentEntries()[1].Source, Durin::LevelEditor::EStaticMeshMaterialSource::ComponentOverride);
 	EXPECT_TRUE(Model.GetCurrentEntries()[1].bHasOverride);
 	EXPECT_TRUE(Model.HasStoredOverrides());
-	const Durin::Editor::Level::FStaticMeshMaterialSlotDetailsModel DrawingModel(Component, false);
+	const Durin::LevelEditor::FStaticMeshMaterialSlotDetailsModel DrawingModel(Component, false);
 	ASSERT_EQ(DrawingModel.GetCurrentEntries().size(), Model.GetCurrentEntries().size());
 	for (size_t Index = 0; Index < Model.GetCurrentEntries().size(); ++Index)
 	{
@@ -94,16 +94,16 @@ TEST(FStaticMeshMaterialSlotDetailsTests, BuildsFixedRowsSourcesAndKeepsDormantO
 
 	auto* OtherMesh = Durin::DStaticMesh::CreateDebugTriangle();
 	Component->SetStaticMesh(OtherMesh);
-	Durin::Editor::Level::FStaticMeshMaterialSlotDetailsModel SmallerMeshModel(Component);
+	Durin::LevelEditor::FStaticMeshMaterialSlotDetailsModel SmallerMeshModel(Component);
 	ASSERT_EQ(SmallerMeshModel.GetCurrentEntries().size(), 1u);
 	EXPECT_FALSE(SmallerMeshModel.GetCurrentEntries()[0].bHasOverride);
 	EXPECT_EQ(
 		SmallerMeshModel.GetCurrentEntries()[0].Source,
-		Durin::Editor::Level::EStaticMeshMaterialSource::EngineDefault);
+		Durin::LevelEditor::EStaticMeshMaterialSource::EngineDefault);
 	EXPECT_TRUE(SmallerMeshModel.HasStoredOverrides());
 
 	Component->SetStaticMesh(nullptr);
-	Durin::Editor::Level::FStaticMeshMaterialSlotDetailsModel EmptyModel(Component);
+	Durin::LevelEditor::FStaticMeshMaterialSlotDetailsModel EmptyModel(Component);
 	EXPECT_FALSE(EmptyModel.HasMesh());
 	EXPECT_TRUE(EmptyModel.GetCurrentEntries().empty());
 	EXPECT_TRUE(EmptyModel.HasStoredOverrides());
@@ -127,16 +127,16 @@ TEST(FStaticMeshMaterialSlotDetailsTests, FiltersMaterialTypesAndUsesIndexScoped
 	auto* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "SlotTransactionComponent");
 	Component->SetStaticMesh(Mesh);
 
-	EXPECT_TRUE(Durin::Editor::Level::FStaticMeshMaterialSlotDetailsModel::IsSupportedMaterialClass(First->GetClass()));
-	EXPECT_FALSE(Durin::Editor::Level::FStaticMeshMaterialSlotDetailsModel::IsSupportedMaterialClass(Texture->GetClass()));
+	EXPECT_TRUE(Durin::LevelEditor::FStaticMeshMaterialSlotDetailsModel::IsSupportedMaterialClass(First->GetClass()));
+	EXPECT_FALSE(Durin::LevelEditor::FStaticMeshMaterialSlotDetailsModel::IsSupportedMaterialClass(Texture->GetClass()));
 	FPropertyTransactionHarness Transactions;
-	Durin::Editor::FPropertyView PropertyView;
+	Durin::FPropertyView PropertyView;
 	std::string Error;
 	const auto Context = MakeContext(Transactions, Error);
 
-	Durin::Editor::Level::FStaticMeshMaterialSlotDetailsModel Initial(Component, false);
+	Durin::LevelEditor::FStaticMeshMaterialSlotDetailsModel Initial(Component, false);
 	ASSERT_TRUE(Initial.AssignMaterial(PropertyView, Context, Initial.GetCurrentEntries()[0], First));
-	Durin::Editor::Level::FStaticMeshMaterialSlotDetailsModel WithFirst(Component, false);
+	Durin::LevelEditor::FStaticMeshMaterialSlotDetailsModel WithFirst(Component, false);
 	ASSERT_TRUE(WithFirst.AssignMaterial(PropertyView, Context, WithFirst.GetCurrentEntries()[1], Second));
 	EXPECT_EQ(Component->GetMaterialOverride(0), First);
 	EXPECT_EQ(Component->GetMaterialOverride(SecondIndex), Second);
@@ -146,20 +146,20 @@ TEST(FStaticMeshMaterialSlotDetailsTests, FiltersMaterialTypesAndUsesIndexScoped
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Component->GetMaterialOverride(SecondIndex), Second);
 
-	Durin::Editor::Level::FStaticMeshMaterialSlotDetailsModel Replace(Component, false);
+	Durin::LevelEditor::FStaticMeshMaterialSlotDetailsModel Replace(Component, false);
 	ASSERT_TRUE(Replace.AssignMaterial(PropertyView, Context, Replace.GetCurrentEntries()[0], Second, true));
 	EXPECT_EQ(Component->GetMaterialOverride(0), Second);
 	ASSERT_TRUE(PropertyView.FinishActiveEdit(&Context, true));
 	EXPECT_EQ(Component->GetMaterialOverride(0), First);
 
-	Durin::Editor::Level::FStaticMeshMaterialSlotDetailsModel Reset(Component, false);
+	Durin::LevelEditor::FStaticMeshMaterialSlotDetailsModel Reset(Component, false);
 	ASSERT_TRUE(Reset.ResetOverride(PropertyView, Context, Reset.GetCurrentEntries()[0]));
 	EXPECT_EQ(Component->GetMaterialOverride(0), nullptr);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Component->GetMaterialOverride(0), First);
 
 	Component->SetStaticMesh(Durin::DStaticMesh::CreateDebugTriangle());
-	Durin::Editor::Level::FStaticMeshMaterialSlotDetailsModel SmallerMesh(Component, false);
+	Durin::LevelEditor::FStaticMeshMaterialSlotDetailsModel SmallerMesh(Component, false);
 	ASSERT_TRUE(SmallerMesh.HasStoredOverrides());
 	ASSERT_TRUE(SmallerMesh.ClearOverrides(PropertyView, Context));
 	EXPECT_TRUE(Component->GetOverrideMaterials().empty());
@@ -199,9 +199,9 @@ TEST(FStaticMeshMaterialSlotDetailsTests, CustomizationHidesCollectionsAndTransa
 	Component->SetStaticMesh(Mesh);
 	Component->GetPackage()->ClearDirty();
 
-	Durin::Editor::Level::FLevelEditorContext LevelContext;
-	Durin::Editor::FDetailLayoutBuilder Builder("material");
-	Builder.ApplyCustomization(Component, *Durin::Editor::Level::CreateStaticMeshComponentDetailsCustomization());
+	Durin::LevelEditor::FLevelEditorContext LevelContext;
+	Durin::FDetailLayoutBuilder Builder("material");
+	Builder.ApplyCustomization(Component, *Durin::LevelEditor::CreateStaticMeshComponentDetailsCustomization());
 	EXPECT_EQ(Builder.GetVisibleRowCount(), 1u);
 	Durin::FProperty* OverridesProperty = Component->GetClass()->FindPropertyByName("OverrideMaterials");
 	ASSERT_NE(OverridesProperty, nullptr);
@@ -213,10 +213,10 @@ TEST(FStaticMeshMaterialSlotDetailsTests, CustomizationHidesCollectionsAndTransa
 
 	FPropertyTransactionHarness Transactions;
 	Transactions->EstablishSavedState(*Component->GetPackage());
-	Durin::Editor::FPropertyView PropertyView;
+	Durin::FPropertyView PropertyView;
 	std::string Error;
 	const auto Context = MakeContext(Transactions, Error);
-	Durin::Editor::Level::FStaticMeshMaterialSlotDetailsModel Model(Component);
+	Durin::LevelEditor::FStaticMeshMaterialSlotDetailsModel Model(Component);
 	ASSERT_TRUE(Model.AssignMaterial(PropertyView, Context, Model.GetCurrentEntries()[0], Material));
 	EXPECT_TRUE(Component->GetPackage()->IsDirty());
 	EXPECT_TRUE(Error.empty());

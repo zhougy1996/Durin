@@ -9,7 +9,7 @@
 #include "SceneViewProjection.h"
 #include "LevelEditorCustomizations.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	namespace
 	{
@@ -201,4 +201,4 @@ namespace Durin::Editor::Level
 		}
 		return true;
 	}
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

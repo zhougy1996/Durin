@@ -20,10 +20,10 @@ TEST(FReflectedPropertyEditSessionTests,
 	Durin::FPropertyValueSnapshot Proposed;
 	ASSERT_TRUE(Durin::CapturePropertyValue(Priority, Proposal, 0, Proposed));
 	FTestTransactorOwner Transactions;
-	Durin::Editor::FPropertyEditSession Session;
-	ASSERT_TRUE(Session.Begin(Durin::Editor::FPropertyEditTarget::ForMember(Component, Priority), "Edit Volumetric Cloud Priority", *Transactions.Get()));
-	EXPECT_EQ(Session.Apply(Proposed).GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
-	EXPECT_EQ(Session.Commit().GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
+	Durin::FPropertyEditSession Session;
+	ASSERT_TRUE(Session.Begin(Durin::FPropertyEditTarget::ForMember(Component, Priority), "Edit Volumetric Cloud Priority", *Transactions.Get()));
+	EXPECT_EQ(Session.Apply(Proposed).GetStatus(), Durin::EPropertyEditResult::Changed);
+	EXPECT_EQ(Session.Commit().GetStatus(), Durin::EPropertyEditResult::Changed);
 	EXPECT_EQ(Component->GetPriority(), 75);
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	EXPECT_EQ(Component->GetPriority(), 0);
@@ -43,13 +43,13 @@ TEST(FReflectedPropertyEditSessionTests,
 	Durin::FPropertyValueSnapshot ProposedFrequency;
 	ASSERT_TRUE(Durin::CapturePropertyValue(
 		BaseFrequency, Proposal, 0, ProposedFrequency));
-	Durin::Editor::FPropertyEditSession FrequencySession;
-	ASSERT_TRUE(FrequencySession.Begin(Durin::Editor::FPropertyEditTarget::ForMember(Component, BaseFrequency)
+	Durin::FPropertyEditSession FrequencySession;
+	ASSERT_TRUE(FrequencySession.Begin(Durin::FPropertyEditTarget::ForMember(Component, BaseFrequency)
 			.ForStructMember(BaseFrequencyX), "Edit Volumetric Cloud Base Frequency", *Transactions.Get()));
 	EXPECT_EQ(FrequencySession.Apply(ProposedFrequency).GetStatus(),
-		Durin::Editor::EPropertyEditResult::Changed);
+		Durin::EPropertyEditResult::Changed);
 	EXPECT_EQ(FrequencySession.Commit().GetStatus(),
-		Durin::Editor::EPropertyEditResult::Changed);
+		Durin::EPropertyEditResult::Changed);
 	EXPECT_EQ(Component->GetBaseFrequency(),
 		Durin::FVector3f(1.0f, 0.25f, 0.5f));
 	ASSERT_TRUE(Transactions.Get()->Undo());
@@ -77,13 +77,13 @@ TEST(FReflectedPropertyEditSessionTests, GenericHookPipelineAppliesNestedStructF
 	ProposedCamera->SetProjectionSettings(ProposedSettings);
 	Durin::FPropertyValueSnapshot Proposed;
 	ASSERT_TRUE(Durin::CapturePropertyValue(Projection, ProposedCamera, 0, Proposed));
-	const Durin::Editor::FPropertyEditTarget Target = Durin::Editor::FPropertyEditTarget::ForMember(Camera, Projection)
+	const Durin::FPropertyEditTarget Target = Durin::FPropertyEditTarget::ForMember(Camera, Projection)
 		.ForStructMember(NearClip);
-	Durin::Editor::FPropertyEditSession Session;
-	ASSERT_TRUE(Session.Begin(Target, "Generic Nested Edit", Durin::Editor::ETransactionMode::NotTransactable));
-	EXPECT_EQ(Session.Apply(Proposed).GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
+	Durin::FPropertyEditSession Session;
+	ASSERT_TRUE(Session.Begin(Target, "Generic Nested Edit", Durin::ETransactionMode::NotTransactable));
+	EXPECT_EQ(Session.Apply(Proposed).GetStatus(), Durin::EPropertyEditResult::Changed);
 	EXPECT_FLOAT_EQ(Camera->GetNearClip(), 4.0f);
-	EXPECT_EQ(Session.Cancel().GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
+	EXPECT_EQ(Session.Cancel().GetStatus(), Durin::EPropertyEditResult::Changed);
 	EXPECT_FLOAT_EQ(Camera->GetNearClip(), 0.1f);
 
 	Durin::MarkAsGarbage(Camera);
@@ -110,12 +110,12 @@ TEST(FReflectedPropertyEditSessionTests, RelativeTransformHookNormalizesAndRefre
 	Durin::FPropertyValueSnapshot Proposed;
 	ASSERT_TRUE(Durin::CapturePropertyValue(Property, ProposalObject, 0, Proposed));
 
-	Durin::Editor::FPropertyEditSession Session;
-	ASSERT_TRUE(Session.Begin(Durin::Editor::FPropertyEditTarget::ForMember(Child, Property), "Edit Transform", Durin::Editor::ETransactionMode::NotTransactable));
-	ASSERT_EQ(Session.Apply(Proposed).GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
+	Durin::FPropertyEditSession Session;
+	ASSERT_TRUE(Session.Begin(Durin::FPropertyEditTarget::ForMember(Child, Property), "Edit Transform", Durin::ETransactionMode::NotTransactable));
+	ASSERT_EQ(Session.Apply(Proposed).GetStatus(), Durin::EPropertyEditResult::Changed);
 	EXPECT_NEAR(Durin::Math::Length(Child->GetRelativeRotation()), 1.0, 1.e-8);
 	EXPECT_DOUBLE_EQ(Child->GetWorldLocation().x, 13.0);
-	ASSERT_EQ(Session.Cancel().GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
+	ASSERT_EQ(Session.Cancel().GetStatus(), Durin::EPropertyEditResult::Changed);
 	EXPECT_DOUBLE_EQ(Child->GetWorldLocation().x, 10.0);
 
 	Child->DetachFromComponent(Durin::EDetachmentTransformRule::KeepWorld);
@@ -131,16 +131,16 @@ TEST(FReflectedPropertyEditSessionTests, ArrayElementUsesStableContainerSnapshot
 	auto Array = MakeArrayProperty(*Inner);
 	FArrayValueContainer Container{{3, 7, 11}};
 	FManagedEditObserver Object;
-	Durin::Editor::FPropertyEditTarget ArrayTarget = Durin::Editor::FPropertyEditTarget::ForMember(Object.Get(), Array.get());
+	Durin::FPropertyEditTarget ArrayTarget = Durin::FPropertyEditTarget::ForMember(Object.Get(), Array.get());
 	ArrayTarget.SnapshotContainer = &Container;
-	Durin::Editor::FPropertyEditTarget ElementTarget = ArrayTarget.ForArrayElement(Inner.get(), 1);
-	Durin::Editor::FPropertyEditSession Session;
-	ASSERT_TRUE(Session.Begin(ElementTarget, "Edit Array Element", Durin::Editor::ETransactionMode::NotTransactable));
+	Durin::FPropertyEditTarget ElementTarget = ArrayTarget.ForArrayElement(Inner.get(), 1);
+	Durin::FPropertyEditSession Session;
+	ASSERT_TRUE(Session.Begin(ElementTarget, "Edit Array Element", Durin::ETransactionMode::NotTransactable));
 
 	FArrayValueContainer FirstProposal{{3, 19, 11}};
 	Durin::FPropertyValueSnapshot FirstSnapshot;
 	ASSERT_TRUE(Durin::CapturePropertyValue(Array.get(), &FirstProposal, 0, FirstSnapshot));
-	ASSERT_EQ(Session.Apply(FirstSnapshot).GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
+	ASSERT_EQ(Session.Apply(FirstSnapshot).GetStatus(), Durin::EPropertyEditResult::Changed);
 	// Whole-container restore is allowed to move storage, but path identity must
 	// keep the same continuous widget in one edit session.
 	ElementTarget = ArrayTarget.ForArrayElement(Inner.get(), 1);
@@ -148,8 +148,8 @@ TEST(FReflectedPropertyEditSessionTests, ArrayElementUsesStableContainerSnapshot
 	FArrayValueContainer SecondProposal{{3, 23, 11}};
 	Durin::FPropertyValueSnapshot SecondSnapshot;
 	ASSERT_TRUE(Durin::CapturePropertyValue(Array.get(), &SecondProposal, 0, SecondSnapshot));
-	ASSERT_EQ(Session.Apply(SecondSnapshot).GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
-	ASSERT_EQ(Session.Commit().GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
+	ASSERT_EQ(Session.Apply(SecondSnapshot).GetStatus(), Durin::EPropertyEditResult::Changed);
+	ASSERT_EQ(Session.Commit().GetStatus(), Durin::EPropertyEditResult::Changed);
 	ASSERT_EQ(Container.Values, (std::vector<int32>{3, 23, 11}));
 
 	ASSERT_EQ(Object.Changes.size(), 3u);
@@ -168,17 +168,17 @@ TEST(FReflectedPropertyEditSessionTests, ArrayStructuralKindsPublishCommittedEle
 	auto Array = MakeArrayProperty(*Inner);
 	FArrayValueContainer Container{{4, 8, 15}};
 	FManagedEditObserver Object;
-	Durin::Editor::FPropertyEditTarget Target = Durin::Editor::FPropertyEditTarget::ForMember(Object.Get(), Array.get());
+	Durin::FPropertyEditTarget Target = Durin::FPropertyEditTarget::ForMember(Object.Get(), Array.get());
 	Target.SnapshotContainer = &Container;
 	auto CommitValues = [&](std::vector<int32> Values, Durin::EPropertyChangeKind Kind) {
 		Target.Kind = Kind;
 		FArrayValueContainer Proposed{std::move(Values)};
 		Durin::FPropertyValueSnapshot Snapshot;
 		EXPECT_TRUE(Durin::CapturePropertyValue(Array.get(), &Proposed, 0, Snapshot));
-		Durin::Editor::FPropertyEditSession Session;
-		ASSERT_TRUE(Session.Begin(Target, "Edit Array Structure", Durin::Editor::ETransactionMode::NotTransactable));
-		EXPECT_EQ(Session.Apply(Snapshot).GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
-		EXPECT_EQ(Session.Commit().GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
+		Durin::FPropertyEditSession Session;
+		ASSERT_TRUE(Session.Begin(Target, "Edit Array Structure", Durin::ETransactionMode::NotTransactable));
+		EXPECT_EQ(Session.Apply(Snapshot).GetStatus(), Durin::EPropertyEditResult::Changed);
+		EXPECT_EQ(Session.Commit().GetStatus(), Durin::EPropertyEditResult::Changed);
 		EXPECT_EQ(Object.Changes.back().Kind, Kind);
 	};
 
@@ -200,21 +200,21 @@ TEST(FReflectedPropertyEditSessionTests, MapEditsPreserveStableKeyPathsAndStruct
 	auto MapProperty = MakeMapProperty(KeyProperty, *ValueProperty);
 	FMapValueContainer Container{{{"Alpha", 1}, {"Beta", 2}}};
 	FManagedEditObserver Object;
-	Durin::Editor::FPropertyEditTarget MapTarget = Durin::Editor::FPropertyEditTarget::ForMember(Object.Get(), MapProperty.get());
+	Durin::FPropertyEditTarget MapTarget = Durin::FPropertyEditTarget::ForMember(Object.Get(), MapProperty.get());
 	MapTarget.SnapshotContainer = &Container;
 	Durin::FPropertyValueSnapshot KeySnapshot;
 	const std::string Alpha = "Alpha";
 	ASSERT_TRUE(Durin::CapturePropertyValue(&KeyProperty, &Alpha, 0, KeySnapshot));
-	Durin::Editor::FPropertyEditTarget ValueTarget = MapTarget.ForMapEntry(
+	Durin::FPropertyEditTarget ValueTarget = MapTarget.ForMapEntry(
 		ValueProperty.get(), KeySnapshot, KeySnapshot.GetBytes()
 	);
-	Durin::Editor::FPropertyEditSession ValueSession;
-	ASSERT_TRUE(ValueSession.Begin(ValueTarget, "Edit Map Value", Durin::Editor::ETransactionMode::NotTransactable));
+	Durin::FPropertyEditSession ValueSession;
+	ASSERT_TRUE(ValueSession.Begin(ValueTarget, "Edit Map Value", Durin::ETransactionMode::NotTransactable));
 	FMapValueContainer ValueProposal{{{"Alpha", 9}, {"Beta", 2}}};
 	Durin::FPropertyValueSnapshot ValueSnapshot;
 	ASSERT_TRUE(Durin::CapturePropertyValue(MapProperty.get(), &ValueProposal, 0, ValueSnapshot));
-	ASSERT_EQ(ValueSession.Apply(ValueSnapshot).GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
-	ASSERT_EQ(ValueSession.Commit().GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
+	ASSERT_EQ(ValueSession.Apply(ValueSnapshot).GetStatus(), Durin::EPropertyEditResult::Changed);
+	ASSERT_EQ(ValueSession.Commit().GetStatus(), Durin::EPropertyEditResult::Changed);
 	ASSERT_EQ(Object.Changes.back().Selectors.size(), 2u);
 	EXPECT_EQ(Object.Changes.back().Selectors[0], Durin::EPropertyPathSelector::MapKey);
 	EXPECT_EQ(Object.Changes.back().MapKeyData, KeySnapshot.GetBytes());
@@ -223,17 +223,17 @@ TEST(FReflectedPropertyEditSessionTests, MapEditsPreserveStableKeyPathsAndStruct
 	auto CommitMap = [&](FStringIntMap Values, Durin::EPropertyChangeKind Kind, const std::string& PathKey) {
 		Durin::FPropertyValueSnapshot StableKey;
 		ASSERT_TRUE(Durin::CapturePropertyValue(&KeyProperty, &PathKey, 0, StableKey));
-		Durin::Editor::FPropertyEditTarget Target = MapTarget;
+		Durin::FPropertyEditTarget Target = MapTarget;
 		Target.Kind = Kind;
 		Target.Path.back().Selector = Durin::EPropertyPathSelector::MapKey;
 		Target.Path.back().MapKeyData = StableKey.GetBytes();
 		FMapValueContainer Proposed{std::move(Values)};
 		Durin::FPropertyValueSnapshot Snapshot;
 		ASSERT_TRUE(Durin::CapturePropertyValue(MapProperty.get(), &Proposed, 0, Snapshot));
-		Durin::Editor::FPropertyEditSession Session;
-		ASSERT_TRUE(Session.Begin(Target, "Edit Map Structure", Durin::Editor::ETransactionMode::NotTransactable));
-		ASSERT_EQ(Session.Apply(Snapshot).GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
-		ASSERT_EQ(Session.Commit().GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
+		Durin::FPropertyEditSession Session;
+		ASSERT_TRUE(Session.Begin(Target, "Edit Map Structure", Durin::ETransactionMode::NotTransactable));
+		ASSERT_EQ(Session.Apply(Snapshot).GetStatus(), Durin::EPropertyEditResult::Changed);
+		ASSERT_EQ(Session.Commit().GetStatus(), Durin::EPropertyEditResult::Changed);
 		EXPECT_EQ(Object.Changes.back().Kind, Kind);
 		EXPECT_EQ(Object.Changes.back().MapKeyData, StableKey.GetBytes());
 	};
@@ -245,30 +245,30 @@ TEST(FReflectedPropertyEditSessionTests, MapEditsPreserveStableKeyPathsAndStruct
 
 	Container.Values = {{"Alpha", 1}, {"Beta", 2}};
 	std::string EditedKey = "Alpha";
-	Durin::Editor::FPropertyEditTarget RenameTarget = MapTarget.ForMapEntry(
+	Durin::FPropertyEditTarget RenameTarget = MapTarget.ForMapEntry(
 		&KeyProperty, KeySnapshot, KeySnapshot.GetBytes());
 	RenameTarget.Kind = Durin::EPropertyChangeKind::MapKeyRename;
-	Durin::Editor::FPropertyEditSession RenameSession;
-	ASSERT_TRUE(RenameSession.Begin(RenameTarget, "Rename Map Key", Durin::Editor::ETransactionMode::NotTransactable));
+	Durin::FPropertyEditSession RenameSession;
+	ASSERT_TRUE(RenameSession.Begin(RenameTarget, "Rename Map Key", Durin::ETransactionMode::NotTransactable));
 	FMapValueContainer FirstRename{{{"Renamed", 1}, {"Beta", 2}}};
 	Durin::FPropertyValueSnapshot FirstRenameSnapshot;
 	ASSERT_TRUE(Durin::CapturePropertyValue(MapProperty.get(), &FirstRename, 0, FirstRenameSnapshot));
 	std::string RenameError;
 	const auto EditResult1 = RenameSession.Apply(FirstRenameSnapshot);
 	RenameError = EditResult1.Message;
-	ASSERT_EQ(EditResult1.GetStatus(), Durin::Editor::EPropertyEditResult::Changed) << RenameError;
+	ASSERT_EQ(EditResult1.GetStatus(), Durin::EPropertyEditResult::Changed) << RenameError;
 	const std::string Renamed = "Renamed";
 	Durin::FPropertyValueSnapshot RenamedKeySnapshot;
 	ASSERT_TRUE(Durin::CapturePropertyValue(&KeyProperty, &Renamed, 0, RenamedKeySnapshot));
-	Durin::Editor::FPropertyEditTarget ContinuedRename = MapTarget.ForMapEntry(
+	Durin::FPropertyEditTarget ContinuedRename = MapTarget.ForMapEntry(
 		&KeyProperty, RenamedKeySnapshot, RenamedKeySnapshot.GetBytes());
 	ContinuedRename.Kind = Durin::EPropertyChangeKind::MapKeyRename;
 	EXPECT_TRUE(RenameSession.MatchesTarget(ContinuedRename));
 	FMapValueContainer FinalRename{{{"Final", 1}, {"Beta", 2}}};
 	Durin::FPropertyValueSnapshot FinalRenameSnapshot;
 	ASSERT_TRUE(Durin::CapturePropertyValue(MapProperty.get(), &FinalRename, 0, FinalRenameSnapshot));
-	ASSERT_EQ(RenameSession.Apply(FinalRenameSnapshot).GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
-	ASSERT_EQ(RenameSession.Commit().GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
+	ASSERT_EQ(RenameSession.Apply(FinalRenameSnapshot).GetStatus(), Durin::EPropertyEditResult::Changed);
+	ASSERT_EQ(RenameSession.Commit().GetStatus(), Durin::EPropertyEditResult::Changed);
 	EXPECT_TRUE(Container.Values.contains("Final"));
 	EXPECT_FALSE(Container.Values.contains("Renamed"));
 }

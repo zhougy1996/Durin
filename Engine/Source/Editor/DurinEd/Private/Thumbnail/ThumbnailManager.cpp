@@ -3,7 +3,7 @@
 #include "Thumbnail/AssetThumbnailPool.h"
 #include "Thumbnail/ThumbnailRenderer.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	DThumbnailRenderer::DThumbnailRenderer()
 		: DObject()
@@ -22,7 +22,7 @@ namespace Durin::Editor
 	{
 		return std::unexpected("The thumbnail renderer produces no preview-scene session.");
 	}
-	namespace Detail
+	namespace ThumbnailPrivate
 	{
 		struct FAssetThumbnailGenerationLeaseState
 		{
@@ -67,14 +67,14 @@ namespace Durin::Editor
 			uint64 NextGeneration = 1;
 			bool bShuttingDown = false;
 		};
-	} // namespace Detail
+	} // namespace ThumbnailPrivate
 
 	namespace
 	{
 		auto InvalidateRendererEntry(
-			Detail::DThumbnailManagerState::FEntry& Entry) -> void
+			ThumbnailPrivate::DThumbnailManagerState::FEntry& Entry) -> void
 		{
-			for (const std::weak_ptr<Detail::FAssetThumbnailGenerationLeaseState>& WeakLease
+			for (const std::weak_ptr<ThumbnailPrivate::FAssetThumbnailGenerationLeaseState>& WeakLease
 				: Entry.Leases)
 			{
 				if (const std::shared_ptr Lease = WeakLease.lock()) Lease->Invalidate();
@@ -84,7 +84,7 @@ namespace Durin::Editor
 		}
 
 		auto RemoveRendererRegistration(
-			const std::shared_ptr<Detail::DThumbnailManagerState>& State,
+			const std::shared_ptr<ThumbnailPrivate::DThumbnailManagerState>& State,
 			uint64 RegistrationId) -> bool
 		{
 			if (!State || RegistrationId == 0) return false;
@@ -94,7 +94,7 @@ namespace Durin::Editor
 					return Pair.second.Generation == RegistrationId;
 				});
 			if (It == State->Renderers.end()) return false;
-			Detail::DThumbnailManagerState::FEntry Entry =
+			ThumbnailPrivate::DThumbnailManagerState::FEntry Entry =
 				std::move(It->second);
 			State->Renderers.erase(It);
 			InvalidateRendererEntry(Entry);
@@ -102,7 +102,7 @@ namespace Durin::Editor
 		}
 
 		auto RegisterRenderer(
-			const std::shared_ptr<Detail::DThumbnailManagerState>& State,
+			const std::shared_ptr<ThumbnailPrivate::DThumbnailManagerState>& State,
 			std::shared_ptr<DThumbnailRenderer> Renderer) -> std::expected<uint64, std::string>
 		{
 			if (State->bShuttingDown)
@@ -129,7 +129,7 @@ namespace Durin::Editor
 			const uint64 Generation = State->NextGeneration++;
 			State->Renderers.emplace(
 				Registration.AssetClassName,
-				Detail::DThumbnailManagerState::FEntry{
+				ThumbnailPrivate::DThumbnailManagerState::FEntry{
 					.Renderer = std::move(Renderer),
 					.Generation = Generation});
 			return Generation;
@@ -253,7 +253,7 @@ namespace Durin::Editor
 	}
 
 	DThumbnailManager::DThumbnailManager()
-		: State(std::make_shared<Detail::DThumbnailManagerState>())
+		: State(std::make_shared<ThumbnailPrivate::DThumbnailManagerState>())
 	{
 	}
 
@@ -307,7 +307,7 @@ namespace Durin::Editor
 				"No current thumbnail renderer is registered for asset class {}.",
 				Request.Asset.AssetClassName));
 		}
-		Detail::DThumbnailManagerState::FEntry& Entry = It->second;
+		ThumbnailPrivate::DThumbnailManagerState::FEntry& Entry = It->second;
 		auto Captured = Entry.Renderer->CaptureGenerationRequest(Request, RendererGeneration);
 		if (!Captured) return std::unexpected(std::move(Captured.error()));
 		auto& GenerationRequest = *Captured;
@@ -319,7 +319,7 @@ namespace Durin::Editor
 		GenerationRequest.RendererGeneration = RendererGeneration;
 		GenerationRequest.RequestSerial = Request.RequestSerial;
 		auto LeaseState =
-			std::make_shared<Detail::FAssetThumbnailGenerationLeaseState>();
+			std::make_shared<ThumbnailPrivate::FAssetThumbnailGenerationLeaseState>();
 		LeaseState->Cancellation = GenerationRequest.Cancellation;
 		LeaseState->Input = std::move(GenerationRequest.Input);
 		LeaseState->Renderer = Entry.Renderer;
@@ -375,4 +375,4 @@ namespace Durin::Editor
 		return Registry;
 	}
 
-} // namespace Durin::Editor
+} // namespace Durin

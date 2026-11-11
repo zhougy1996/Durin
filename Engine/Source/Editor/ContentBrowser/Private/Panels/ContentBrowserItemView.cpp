@@ -7,7 +7,7 @@
 #include "Math/Vector.h"
 #include "Misc/StringHelper.h"
 
-namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
+namespace Durin::ContentBrowser::Private::ContentBrowserItemView
 {
 	auto FGridMetrics::FromPreviewExtent(float InPreviewExtent) -> FGridMetrics
 	{
@@ -314,4 +314,4 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 			TextWidth);
 		DrawList->PopClipRect();
 	}
-} // namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
+} // namespace Durin::ContentBrowser::Private::ContentBrowserItemView

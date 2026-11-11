@@ -2,7 +2,7 @@
 
 #include "Misc/FileHelper.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	namespace
 	{
@@ -147,4 +147,4 @@ namespace Durin::Editor::ContentBrowser::Private
 		Result = AssetOperation.GetWriteResult();
 		return bSucceeded;
 	}
-} // namespace Durin::Editor::ContentBrowser::Private
+} // namespace Durin::ContentBrowser::Private

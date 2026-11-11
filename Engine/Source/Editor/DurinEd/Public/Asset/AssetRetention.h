@@ -10,7 +10,7 @@ namespace Durin
 	class DObject;
 }
 
-namespace Durin::Editor
+namespace Durin
 {
 	struct FRetainedAssetState;
 
@@ -45,4 +45,4 @@ namespace Durin::Editor
 
 		DURINED_API static auto NumRetained() -> size_t;
 	};
-} // namespace Durin::Editor
+} // namespace Durin

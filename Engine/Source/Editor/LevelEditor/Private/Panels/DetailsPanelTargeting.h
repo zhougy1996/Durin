@@ -8,7 +8,7 @@ namespace Durin
 	class DActorComponent;
 }
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 
 	namespace DetailsPanelTargeting
@@ -16,4 +16,4 @@ namespace Durin::Editor::Level
 		auto ResolveDefaultComponent(AActor* Actor) -> DActorComponent*;
 		auto ResolveSelectedComponent(AActor* Actor, DActorComponent* SelectedComponent) -> DActorComponent*;
 	} // namespace DetailsPanelTargeting
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

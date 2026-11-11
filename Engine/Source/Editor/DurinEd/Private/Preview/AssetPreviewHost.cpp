@@ -12,7 +12,7 @@
 #include "Rendering/SceneInterface.h"
 #include "Widgets/MViewport.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	namespace
 	{

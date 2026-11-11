@@ -4,7 +4,7 @@
 #include "SceneView.h"
 #include "SceneViewProjection.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	namespace
 	{

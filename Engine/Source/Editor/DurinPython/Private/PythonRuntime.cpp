@@ -65,7 +65,7 @@ namespace Durin
             struct FScope
             {
                 uint64 Id;
-                std::unique_ptr<Editor::FScopedTransaction> Native;
+                std::unique_ptr<FScopedTransaction> Native;
                 TWeakObjectPtr<DTransactor> Owner;
             };
             std::vector<FScope> Scopes;
@@ -263,9 +263,8 @@ namespace Durin
             auto* Owner = Scope.Owner.Get();
             if (!Outstanding || !Owner) return {};
             const auto& Result = Owner->GetLastResult();
-            using Editor::ETransactorResultCode;
             if (Result.Code == ETransactorResultCode::Failed || Result.Code == ETransactorResultCode::RecoveryRequired
-                || Result.Code == ETransactorResultCode::Rejected) return Editor::FormatTransactorResult(Result);
+                || Result.Code == ETransactorResultCode::Rejected) return FormatTransactorResult(Result);
             return {};
         }
         auto RequestImpl(PyObject*, PyObject* Args) -> PyObject*
@@ -299,7 +298,7 @@ namespace Durin
                 if (!PyArg_ParseTuple(Params, "s", &Description)) return nullptr;
                 const auto Id = NextIdentity++;
                 auto* Owner = CurrentEditor->GetTransactor();
-                auto Scope = std::make_unique<Editor::FScopedTransaction>(Owner, FTransactionContext{.Description = Description});
+                auto Scope = std::make_unique<FScopedTransaction>(Owner, FTransactionContext{.Description = Description});
                 if (!Scope->IsOutstanding()) return Fail("The editor rejected transaction recording.");
                 CurrentJob->Scopes.push_back({Id, std::move(Scope), TWeakObjectPtr<DTransactor>(Owner)});
                 return Py_BuildValue("KK", static_cast<unsigned long long>(CurrentJob->Id), static_cast<unsigned long long>(Id));

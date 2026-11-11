@@ -4,7 +4,7 @@
 #include "Misc/StringHelper.h"
 #include "Threading/RunnableThread.h"
 
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
 	namespace
 	{

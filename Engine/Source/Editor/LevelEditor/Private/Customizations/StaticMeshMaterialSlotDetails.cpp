@@ -15,7 +15,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "Workspace/LevelEditorContext.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	namespace
 	{

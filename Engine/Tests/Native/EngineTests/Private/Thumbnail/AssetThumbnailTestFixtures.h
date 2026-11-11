@@ -55,8 +55,8 @@ namespace Durin::Tests
 	}
 	// Standalone capture must publish cold asset/shader work on the owner thread
 	// as well as progress render commands and GPU readback.
-	inline auto FinishThumbnailCapture(Editor::FThumbnailPreviewScenePool& Pool,
-		FByteBuffer& Pixels, std::string& Error) -> Editor::EThumbnailCaptureState
+	inline auto FinishThumbnailCapture(FThumbnailPreviewScenePool& Pool,
+		FByteBuffer& Pixels, std::string& Error) -> EThumbnailCaptureState
 	{
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 		for (;;)
@@ -68,17 +68,17 @@ namespace Durin::Tests
 			if (!Capture)
 			{
 				Error = Capture.error();
-				return Editor::EThumbnailCaptureState::Failed;
+				return EThumbnailCaptureState::Failed;
 			}
 			if (Capture->has_value())
 			{
 				Pixels = std::move(**Capture);
-				return Editor::EThumbnailCaptureState::Ready;
+				return EThumbnailCaptureState::Ready;
 			}
 			if (std::chrono::steady_clock::now() >= Deadline)
 			{
 				Error = "Timed out waiting for thumbnail readback.";
-				return Editor::EThumbnailCaptureState::Failed;
+				return EThumbnailCaptureState::Failed;
 			}
 			FlushRenderingCommands();
 			std::this_thread::yield();
@@ -117,7 +117,7 @@ namespace Durin::Tests
 	{
 	public:
 		explicit FAssetThumbnailTestPool(
-			Editor::FThumbnailVisualContract InContract = {})
+			FThumbnailVisualContract InContract = {})
 			: Contract(std::move(InContract))
 			, Pool(Contract)
 			, View(MakeView(Contract))
@@ -129,7 +129,7 @@ namespace Durin::Tests
 			Reset();
 		}
 
-		auto GetPreviewScene() -> Editor::FThumbnailPreviewScenePool& { return Pool; }
+		auto GetPreviewScene() -> FThumbnailPreviewScenePool& { return Pool; }
 		auto IsAvailable() const -> bool { return Pool.IsAvailable(); }
 		auto GetDiagnostic() const -> std::string { return Pool.GetDiagnostic(); }
 		auto SetForceLOD0(bool bForceLOD0) -> void
@@ -153,9 +153,9 @@ namespace Durin::Tests
 				FSoftObjectPath SpherePath;
 				std::string Error;
 				if (!FSoftObjectPath::TryCreate(
-						Editor::FThumbnailVisualContract::SphereAssetPath,
+						FThumbnailVisualContract::SphereAssetPath,
 						SpherePath)
-					|| !Editor::FAssetRetentionService::Acquire(
+					|| !FAssetRetentionService::Acquire(
 						SpherePath, SphereAsset, Error))
 					return nullptr;
 			}
@@ -202,7 +202,7 @@ namespace Durin::Tests
 			View.VerticalFieldOfViewDegrees =
 				Math::RadiansToDegrees(2.0 * std::atan(1.0 / static_cast<double>(
 					1.0f / std::tan(Math::DegreesToRadians(
-						Editor::Texture::FTextureCubeThumbnailRendererVisualContract::
+						TextureEditor::FTextureCubeThumbnailRendererVisualContract::
 							VerticalFieldOfViewDegrees) * 0.5f))));
 			return Pool.SetView(View).and_then([&] {
 				return Pool.SetViewEnvironment({.TextureReference = TextureReference});
@@ -211,7 +211,7 @@ namespace Durin::Tests
 
 		auto SetStaticMesh(
 			DStaticMesh* StaticMesh,
-			const Editor::StaticMesh::FStaticMeshThumbnailRendererView& ThumbnailView)
+			const StaticMeshEditor::FStaticMeshThumbnailRendererView& ThumbnailView)
 			-> std::expected<void, std::string>
 		{
 			ResetActor();
@@ -266,7 +266,7 @@ namespace Durin::Tests
 		}
 
 		auto FinishCapture(Durin::FByteBuffer& OutPixels, std::string& OutError)
-			-> Editor::EThumbnailCaptureState
+			-> EThumbnailCaptureState
 		{
 			return FinishThumbnailCapture(Pool, OutPixels, OutError);
 		}
@@ -279,8 +279,8 @@ namespace Durin::Tests
 		}
 
 	private:
-		static auto MakeView(const Editor::FThumbnailVisualContract& Contract)
-			-> Editor::FThumbnailPreviewView
+		static auto MakeView(const FThumbnailVisualContract& Contract)
+			-> FThumbnailPreviewView
 		{
 			const FVector3 Eye = Math::Normalize(FVector3(
 				Contract.CameraDirectionX,
@@ -313,11 +313,11 @@ namespace Durin::Tests
 			}
 		}
 
-		Editor::FThumbnailVisualContract Contract;
-		Editor::FThumbnailPreviewScenePool Pool;
-		Editor::FThumbnailPreviewView View;
+		FThumbnailVisualContract Contract;
+		FThumbnailPreviewScenePool Pool;
+		FThumbnailPreviewView View;
 		AActor* Actor = nullptr;
-		Editor::FRetainedAsset SphereAsset;
+		FRetainedAsset SphereAsset;
 	};
 
 	inline auto MakeThumbnailFixturePath(std::string_view Value, FPackagePath& OutPath) -> bool

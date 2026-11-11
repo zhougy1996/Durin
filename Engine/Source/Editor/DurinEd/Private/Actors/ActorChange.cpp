@@ -1,6 +1,6 @@
 #include "Actors/ActorChange.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	auto FormatActorChangeError(const FActorChangeError& Error) -> std::string
 	{

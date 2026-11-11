@@ -81,18 +81,18 @@ namespace
 			return Curve->ContainerPtrToValuePtr<Durin::FSplineCurve>(Spline);
 		}
 
-		auto CurveTarget(Durin::DSplineComponent* Spline) const -> Durin::Editor::FPropertyEditTarget
+		auto CurveTarget(Durin::DSplineComponent* Spline) const -> Durin::FPropertyEditTarget
 		{
-			return Durin::Editor::FPropertyEditTarget::ForMember(Spline, Curve);
+			return Durin::FPropertyEditTarget::ForMember(Spline, Curve);
 		}
 
-		auto PointsTarget(Durin::DSplineComponent* Spline) const -> Durin::Editor::FPropertyEditTarget
+		auto PointsTarget(Durin::DSplineComponent* Spline) const -> Durin::FPropertyEditTarget
 		{
 			return CurveTarget(Spline).ForStructMember(Points);
 		}
 
 		auto PointFieldTarget(Durin::DSplineComponent* Spline, uint32 Index, Durin::FProperty* Field) const
-			-> Durin::Editor::FPropertyEditTarget
+			-> Durin::FPropertyEditTarget
 		{
 			return PointsTarget(Spline).ForArrayElement(Point, Index).ForStructMember(Field);
 		}
@@ -365,13 +365,13 @@ TEST(FSplineEditingTests, SharedTransactionsPublishSnapshotsAndPreserveStablePat
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	const uint64 MountedContentRevision =
 		Transactions->GetMountedContentMutationRevision();
-	Durin::Editor::FPropertyView View;
+	Durin::FPropertyView View;
 	std::string Error;
-	const Durin::Editor::FPropertyViewContext Context{
+	const Durin::FPropertyViewContext Context{
 		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
 	};
 	auto SubmitPosition = [&](const Durin::FVector3& Position, bool bContinuous) {
-		const Durin::Editor::FPropertyEditTarget Target = Reflection.PointFieldTarget(Spline, 1, Reflection.Position);
+		const Durin::FPropertyEditTarget Target = Reflection.PointFieldTarget(Spline, 1, Reflection.Position);
 		return View.SubmitPropertyValueEdit(Context, Target,
 			[&](Durin::FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
 				*ScratchProperty->ContainerPtrToValuePtr<Durin::FVector3>(ScratchContainer, ScratchArrayIndex) = Position;
@@ -434,9 +434,9 @@ TEST(FSplineMeshActorEditingTests, PreviewCancelUndoAndRedoRecreateSegmentsWithS
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	Level->GetPackage()->ClearDirty();
 	Transactions->EstablishSavedState(*Level->GetPackage());
-	Durin::Editor::FPropertyView View;
+	Durin::FPropertyView View;
 	std::string Error;
-	const Durin::Editor::FPropertyViewContext Context{
+	const Durin::FPropertyViewContext Context{
 		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
 	};
 	auto SubmitPosition = [&](const Durin::FVector3& Position, bool bContinuous) {
@@ -546,7 +546,7 @@ TEST(FSplineCurveTests, DistanceTableResolvesNonuniformCollinearAndInflectedCubi
 
 TEST(FSplineMeshActorEditingTests, ActorModifyRestoresInputsAfterGeneratedComponentsRetire)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	InitializeDObjectSystem();
 	auto* Level = NewObject<DLevel>(nullptr, "GeneratedTransactionLevel");
 	TStrongObjectPtr<DLevel> Root(Level);

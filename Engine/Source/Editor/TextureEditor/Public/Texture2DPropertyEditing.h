@@ -6,7 +6,7 @@
 #include "DObject/ObjectValidation.h"
 #include "Texture/Texture2DCompilationTypes.h"
 
-namespace Durin::Editor::Texture
+namespace Durin::TextureEditor
 {
 	enum class ETexture2DPropertyEditError : uint8 { Metadata, Settings, Source, Compilation, DeferredValidation };
 	class FTexture2DPropertyEditCause final : public IObjectValidationCause

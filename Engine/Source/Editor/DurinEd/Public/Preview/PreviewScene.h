@@ -14,7 +14,7 @@ namespace Durin
 	class FSceneInterface;
 }
 
-namespace Durin::Editor
+namespace Durin
 {
 	// Owns an editor-only renderer scene and the ordinary preview world that feeds it.
 	class FPreviewScene
@@ -43,4 +43,4 @@ namespace Durin::Editor
 		TObjectPtr<DLevel> Level;
 		std::string Error;
 	};
-} // namespace Durin::Editor
+} // namespace Durin

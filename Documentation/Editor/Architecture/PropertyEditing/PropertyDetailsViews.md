@@ -13,7 +13,7 @@ owns Actor/Component aggregation.
 
 ## View Ownership And Submission
 
-`Editor::FPropertyView` is an embeddable immediate-mode view, not a dockable
+`FPropertyView` is an embeddable immediate-mode view, not a dockable
 panel or standalone asset editor. A host stores one instance and supplies a
 context containing:
 
@@ -71,7 +71,7 @@ or workspace changes.
 ## Object View Customization
 
 DurinEd provides the shared property view, `FDetailCustomizationRegistry`, and
-`FDetailLayoutBuilder` under `PropertyEditor/` in the `Durin::Editor` namespace.
+`FDetailLayoutBuilder` under `PropertyEditor/` in the `Durin` namespace.
 Asset editors and Level Editor use the same layout and registration contracts. The
 registry resolves every registered class in base-to-derived order, allowing a
 derived object to compose its own rows with inherited customizations.

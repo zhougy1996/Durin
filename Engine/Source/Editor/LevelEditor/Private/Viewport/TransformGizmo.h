@@ -14,7 +14,7 @@ namespace Durin
 	class FActorCommandChange;
 }
 
-namespace Durin::Editor
+namespace Durin
 {
 }
 
@@ -24,7 +24,7 @@ namespace Durin
 	class DPackage;
 }
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	class FLevelEditorContext;
 	struct FLevelEditorViewportInput;

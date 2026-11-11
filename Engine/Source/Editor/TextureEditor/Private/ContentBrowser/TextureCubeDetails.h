@@ -4,7 +4,7 @@
 
 #include "ContentBrowser/ContentBrowserContracts.h"
 
-namespace Durin::Editor::Texture
+namespace Durin::TextureEditor
 {
 	// Inspects cube metadata without loading the asset; cached by file fingerprint and catalog revision.
 	struct FTextureCubeDetailsSnapshot

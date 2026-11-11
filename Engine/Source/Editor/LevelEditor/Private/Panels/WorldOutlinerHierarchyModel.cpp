@@ -2,7 +2,7 @@
 
 #include "Misc/StringHelper.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	auto FWorldOutlinerHierarchyModel::Reset() -> void
 	{
@@ -143,4 +143,4 @@ namespace Durin::Editor::Level
 		const auto It = KeyToNode.find(Key);
 		return It != KeyToNode.end() ? It->second : InvalidNodeIndex;
 	}
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

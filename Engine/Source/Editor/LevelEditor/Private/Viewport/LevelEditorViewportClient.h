@@ -18,7 +18,7 @@ namespace Durin
 	class DLevel;
 }
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	class IViewportPickingBackend;
 	class FViewportPickingService;

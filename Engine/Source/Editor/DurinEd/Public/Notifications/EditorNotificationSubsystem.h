@@ -18,10 +18,10 @@ namespace Durin
 		DURINED_API auto Initialize(FSubsystemCollection& Collection) -> void override;
 		DURINED_API auto Deinitialize() noexcept -> void override;
 		DURINED_API auto Tick(float DeltaSeconds) -> void;
-		auto GetManager() -> Editor::FNotificationManager& { return *Manager; }
+		auto GetManager() -> FNotificationManager& { return *Manager; }
 	private:
 		auto RequestShutdown() noexcept -> void;
-		std::unique_ptr<Editor::FNotificationManager> Manager;
+		std::unique_ptr<FNotificationManager> Manager;
 		friend class DEditorEngine;
 	};
 }

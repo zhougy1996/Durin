@@ -34,7 +34,7 @@
 namespace
 {
 	using namespace Durin;
-	using namespace Durin::Editor::Material;
+	using namespace Durin::MaterialEditor;
 	auto MakeSyntheticMaterialCompilerInput() -> Durin::MIR::FCompilerInput
 	{
 		InitializeDObjectSystem();
@@ -444,7 +444,7 @@ TEST(FMaterialQualificationTests, MaximumGraphLayoutLatency)
 
 	const auto Begin = std::chrono::steady_clock::now();
 	const FMaterialGraphCommandResult First =
-		FMaterialGraphDocument(*Material).Layout({}, Durin::Editor::ETransactionMode::NotTransactable);
+		FMaterialGraphDocument(*Material).Layout({}, Durin::ETransactionMode::NotTransactable);
 	const auto Duration = std::chrono::steady_clock::now() - Begin;
 	ASSERT_TRUE(First) << First.Message;
 	EXPECT_LT(Duration, std::chrono::seconds(1));
@@ -470,7 +470,7 @@ TEST(FMaterialQualificationTests, MaximumGraphLayoutLatency)
 				&& PositionA.Y + HeightA > PositionB.Y);
 		}
 	const FMaterialGraphCommandResult Second =
-		FMaterialGraphDocument(*Material).Layout({}, Durin::Editor::ETransactionMode::NotTransactable);
+		FMaterialGraphDocument(*Material).Layout({}, Durin::ETransactionMode::NotTransactable);
 	EXPECT_EQ(Second.Status, EMaterialGraphCommandStatus::NoChange);
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), FirstLayout);
 	std::vector<std::chrono::microseconds> Samples;
@@ -478,7 +478,7 @@ TEST(FMaterialQualificationTests, MaximumGraphLayoutLatency)
 	for (uint32 Sample = 0; Sample < 100; ++Sample)
 	{
 		const auto SampleBegin = std::chrono::steady_clock::now();
-		EXPECT_TRUE(FMaterialGraphDocument(*Material).Layout({}, Durin::Editor::ETransactionMode::NotTransactable));
+		EXPECT_TRUE(FMaterialGraphDocument(*Material).Layout({}, Durin::ETransactionMode::NotTransactable));
 		Samples.push_back(std::chrono::duration_cast<std::chrono::microseconds>(
 			std::chrono::steady_clock::now() - SampleBegin));
 	}

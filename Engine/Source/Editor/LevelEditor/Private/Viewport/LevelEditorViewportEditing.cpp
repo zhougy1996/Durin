@@ -6,7 +6,7 @@
 #include "Workspace/LevelEditorContext.h"
 #include "Actors/EditorActorSubsystem.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	namespace
 	{
@@ -200,4 +200,4 @@ namespace Durin::Editor::Level
 		ActiveId.clear();
 		LastContext = nullptr;
 	}
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

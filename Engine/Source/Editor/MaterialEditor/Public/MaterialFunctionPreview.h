@@ -4,7 +4,7 @@
 
 #include "MaterialGraphDocument.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	// Coalesces explicit requests and semantic edits across the dependency closure.
 	// Layout-only edits do not invalidate the preview. Does not retain functions.

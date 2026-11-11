@@ -474,8 +474,8 @@ struct FAssetImportSession::FImpl
 auto FAssetImportSession::FImpl::ResolveOutputs(FAssetImportResult& Result,
 	std::vector<FSceneMaterialPreview>& Materials) -> bool
 {
-	const auto Directory = Editor::InspectContentDirectory(DestinationDirectory.ToString());
-	if (!Directory) { Result.Message = Editor::FormatContentDirectoryValidation(Directory); return false; }
+	const auto Directory = InspectContentDirectory(DestinationDirectory.ToString());
+	if (!Directory) { Result.Message = FormatContentDirectoryValidation(Directory); return false; }
 	if (!ConfigureSceneMaterials(Data, Result.Outputs, DestinationDirectory,
 		MaterialOptions, Materials, Result.Message))
 	{
@@ -521,8 +521,8 @@ auto FAssetImportSession::FImpl::ResolveOutputs(FAssetImportResult& Result,
 			Error = "Output destination is occupied. One-time model imports require a new destination.";
 		if (Error.empty())
 		{
-			const auto Destination = Editor::InspectAssetDestination(Summary.AssetPath.ToString());
-			if (!Destination) Error = Editor::FormatAssetDestinationValidation(Destination);
+			const auto Destination = InspectAssetDestination(Summary.AssetPath.ToString());
+			if (!Destination) Error = FormatAssetDestinationValidation(Destination);
 		}
 		if (!Destinations.insert(Summary.AssetPath.ToString()).second) Error = "Two outputs resolve to the same destination.";
 		if (!Error.empty())

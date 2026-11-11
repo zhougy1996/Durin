@@ -4,7 +4,7 @@
 
 #include "Thumbnail/ThumbnailManager.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	// Supplies the fixed production output selected by the thumbnail contract.
 	// Requested UI dimensions are presentation-only and never expand cache identity.

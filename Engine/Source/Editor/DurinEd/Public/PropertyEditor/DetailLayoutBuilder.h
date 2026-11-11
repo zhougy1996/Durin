@@ -5,7 +5,7 @@
 #include "PropertyEditor/DetailCustomization.h"
 #include "PropertyEditor/EditorFunctionAction.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	// Summarizes rows and changes produced by an object details builder.
 	struct FDetailLayoutBuilderResult

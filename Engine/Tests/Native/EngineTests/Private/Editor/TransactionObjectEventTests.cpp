@@ -4,7 +4,7 @@ using namespace Durin::Tests::ObjectState;
 
 TEST(FTransactionObjectEventTests, OrdinaryEditAdmissionKeepsDomainParticipantsAndRejectsForeignScopes)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer, Other;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "MixedDomainFields"));
 	EXPECT_FALSE(RecordObjectForEdit(*Buffer, *Target));
@@ -24,7 +24,7 @@ TEST(FTransactionObjectEventTests, OrdinaryEditAdmissionKeepsDomainParticipantsA
 
 TEST(FTransactionObjectEventTests, FailedReplayDoesNotPublishAnExternalReferenceIntoHistory)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "RetryHistory"));
 	int DomainValue = 1;
@@ -57,7 +57,7 @@ TEST(FTransactionObjectEventTests, FailedReplayDoesNotPublishAnExternalReference
 
 TEST(FTransactionObjectEventTests, ChangedTransactionRetainsAnUnchangedObjectBaseline)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "UnchangedBaseline"));
 	int DomainValue = 1;
@@ -77,7 +77,7 @@ TEST(FTransactionObjectEventTests, ChangedTransactionRetainsAnUnchangedObjectBas
 
 TEST(FTransactionObjectEventTests, RepeatedSnapshotsRetainOneEntryAndReleaseObservationStorageAtEnd)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "BoundedSnapshots"));
 	Target->Numbers.assign(1024u, 0);
@@ -121,7 +121,7 @@ TEST(FTransactionObjectEventTests, RepeatedSnapshotsRetainOneEntryAndReleaseObse
 
 TEST(FTransactionObjectEventTests, SynchronousEventsKeepContextAndRejectRecordingReentry)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "SynchronousObjectEvents"));
 	std::vector<FTransactionObjectEvent> Events; std::vector<std::string> Trace;
@@ -159,7 +159,7 @@ TEST(FTransactionObjectEventTests, SynchronousEventsKeepContextAndRejectRecordin
 
 TEST(FTransactionObjectEventTests, CancelNoOpAndCustomOnlyDoNotInventObjectEvents)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "SilentObjectEvents"));
 	uint32 Events = 0; Target->TransactionObserver = [&](const auto&) { ++Events; };
@@ -175,7 +175,7 @@ TEST(FTransactionObjectEventTests, CancelNoOpAndCustomOnlyDoNotInventObjectEvent
 
 TEST(FTransactionObjectEventTests, CompensatedFailureEmitsNoSuccessfulReplayEvent)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "CompensatedObjectEvents"));
 	uint32 Events = 0; Target->TransactionObserver = [&](const auto&) { ++Events; };
@@ -187,7 +187,7 @@ TEST(FTransactionObjectEventTests, CompensatedFailureEmitsNoSuccessfulReplayEven
 
 TEST(FTransactionObjectEventTests, ObserverExceptionRetainsRecordingAndRequiresRecovery)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "ThrowingFinalizedEvent"));
 	Target->TransactionObserver = [](const auto&) { throw std::runtime_error("Injected object event failure."); };
@@ -199,7 +199,7 @@ TEST(FTransactionObjectEventTests, ObserverExceptionRetainsRecordingAndRequiresR
 
 TEST(FTransactionObjectEventTests, ReplayObserverExceptionKeepsCursorAndCompletedNativeState)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "ThrowingReplayEvent"));
 	{ FScopedTransaction Scope(Buffer.Get(), {"test", "Replay observer"}); ASSERT_TRUE(Target->Modify()); Target->Value = 4; }
@@ -211,7 +211,7 @@ TEST(FTransactionObjectEventTests, ReplayObserverExceptionKeepsCursorAndComplete
 
 TEST(FTransactionObjectEventTests, SnapshotsAccumulateSelectionWithoutReplacingUndoBaseline)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "SelectedSnapshots"));
 	std::vector<FTransactionObjectEvent> Events;
@@ -244,7 +244,7 @@ TEST(FTransactionObjectEventTests, SnapshotsAccumulateSelectionWithoutReplacingU
 
 TEST(FTransactionObjectEventTests, WholeObjectSnapshotsObserveNativeDataAndKeepOriginalUndo)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "WholeSnapshots"));
 	std::vector<FTransactionObjectEvent> Events; Target->TransactionObserver = [&](const auto& Event) { Events.push_back(Event); };
@@ -264,7 +264,7 @@ TEST(FTransactionObjectEventTests, WholeObjectSnapshotsObserveNativeDataAndKeepO
 
 TEST(FTransactionObjectEventTests, SnapshotObserverFailureClosesRecordingAndRetainsRecoveryGraph)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "ThrowingSnapshotEvent"));
 	ASSERT_EQ(Buffer->Begin("test", "Snapshot failure"), 0); ASSERT_TRUE(Target->Modify()); Target->Value = 1;
@@ -276,7 +276,7 @@ TEST(FTransactionObjectEventTests, SnapshotObserverFailureClosesRecordingAndReta
 
 TEST(FTransactionObjectEventTests, MultipleTargetsCompleteBeforeRecordAndAnnotationEvents)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> First(NewObject<DTransactionRecordParticipant>(nullptr, "AnnotationEventOwner"));
 	TStrongObjectPtr<DTransactionRecordParticipant> Second(NewObject<DTransactionRecordParticipant>(nullptr, "AnnotationEventPeer"));
@@ -300,7 +300,7 @@ TEST(FTransactionObjectEventTests, MultipleTargetsCompleteBeforeRecordAndAnnotat
 
 TEST(FTransactionObjectEventTests, FinalizedAnnotationComparesTheLastSnapshotAfterReturningToOriginal)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Owner(NewObject<DTransactionRecordParticipant>(nullptr, "AnnotationSnapshotOwner"));
 	TStrongObjectPtr<DTransactionRecordParticipant> Peer(NewObject<DTransactionRecordParticipant>(nullptr, "AnnotationSnapshotPeer"));
@@ -317,7 +317,7 @@ TEST(FTransactionObjectEventTests, FinalizedAnnotationComparesTheLastSnapshotAft
 
 TEST(FTransactionObjectEventTests, FinalizedClosesLastSnapshotEvenWhenHistoryReturnsToNoOp)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "SnapshotClosureNoOp"));
 	std::vector<FTransactionObjectEvent> Events;
@@ -340,7 +340,7 @@ TEST(FTransactionObjectEventTests, FinalizedClosesLastSnapshotEvenWhenHistoryRet
 
 TEST(FTransactionObjectEventTests, SelectedSnapshotClosureDoesNotReportUnobservedNetZeroFields)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "SelectedSnapshotClosure"));
 	std::vector<FTransactionObjectEvent> Events;

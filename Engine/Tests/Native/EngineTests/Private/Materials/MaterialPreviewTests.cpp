@@ -18,11 +18,11 @@ TEST(FMaterialPreviewTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 	{
 		Durin::FSoftObjectPath Path;
 		ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate(PathText, Path));
-		Durin::Editor::FRetainedAsset First;
-		Durin::Editor::FRetainedAsset Second;
+		Durin::FRetainedAsset First;
+		Durin::FRetainedAsset Second;
 		std::string Error;
-		ASSERT_TRUE(Durin::Editor::FAssetRetentionService::Acquire(Path, First, Error)) << Error;
-		ASSERT_TRUE(Durin::Editor::FAssetRetentionService::Acquire(Path, Second, Error)) << Error;
+		ASSERT_TRUE(Durin::FAssetRetentionService::Acquire(Path, First, Error)) << Error;
+		ASSERT_TRUE(Durin::FAssetRetentionService::Acquire(Path, Second, Error)) << Error;
 		EXPECT_EQ(First.Get(), Second.Get());
 		auto* Mesh = Durin::Cast<Durin::DStaticMesh>(First.Get());
 		ASSERT_NE(Mesh, nullptr) << Error;
@@ -40,7 +40,7 @@ TEST(FMaterialPreviewTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 			LOD.GetNumVertices());
 	}
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
-	EXPECT_EQ(Durin::Editor::FAssetRetentionService::NumRetained(), 0u);
+	EXPECT_EQ(Durin::FAssetRetentionService::NumRetained(), 0u);
 }
 
 TEST(FMaterialPreviewTests, EditorPreviewMeshOwnerRetainsPreparedMeshesWithoutOpenPreviews)
@@ -52,7 +52,7 @@ TEST(FMaterialPreviewTests, EditorPreviewMeshOwnerRetainsPreparedMeshesWithoutOp
 	Durin::Testing::FScopedMountRegistryFixture MountRegistry;
 	Durin::FMountPaths::InitDefaultMountPoints();
 	ASSERT_TRUE(Durin::RefreshAssetRegistry());
-	Durin::Editor::FPreviewMeshResources Resources;
+	Durin::FPreviewMeshResources Resources;
 	std::string Error;
 	ASSERT_TRUE(Resources.Initialize());
 	auto* Sphere = Resources.GetSphere();
@@ -69,12 +69,12 @@ TEST(FMaterialPreviewTests, EditorPreviewMeshOwnerRetainsPreparedMeshesWithoutOp
 	{
 		Durin::FSoftObjectPath Path;
 		ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate(Resources.SphereAssetPath, Path));
-		Durin::Editor::FRetainedAsset Consumer;
-		ASSERT_TRUE(Durin::Editor::FAssetRetentionService::Acquire(Path, Consumer, Error)) << Error;
+		Durin::FRetainedAsset Consumer;
+		ASSERT_TRUE(Durin::FAssetRetentionService::Acquire(Path, Consumer, Error)) << Error;
 		EXPECT_EQ(Consumer.Get(), Sphere);
 		Consumer = {};
 		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
-		EXPECT_EQ(Durin::Editor::FAssetRetentionService::NumRetained(), 2u);
+		EXPECT_EQ(Durin::FAssetRetentionService::NumRetained(), 2u);
 		ASSERT_TRUE(Resources.Initialize());
 		EXPECT_EQ(Resources.GetSphere(), Sphere);
 		EXPECT_EQ(Resources.GetBox(), Box);
@@ -85,7 +85,7 @@ TEST(FMaterialPreviewTests, EditorPreviewMeshOwnerRetainsPreparedMeshesWithoutOp
 	Resources.Reset();
 	EXPECT_EQ(Resources.GetSphere(), nullptr);
 	EXPECT_EQ(Resources.GetBox(), nullptr);
-	EXPECT_EQ(Durin::Editor::FAssetRetentionService::NumRetained(), 0u);
+	EXPECT_EQ(Durin::FAssetRetentionService::NumRetained(), 0u);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
@@ -107,9 +107,9 @@ TEST(FMaterialPreviewTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageColl
 	const std::string FirstLightName = std::format("MaterialPreviewLight_{}", FirstPreviewId);
 	const std::string SecondLightName = std::format("MaterialPreviewLight_{}", SecondPreviewId);
 	{
-		Durin::Editor::Material::FMaterialPreview FirstPreview(FirstPreviewId);
-		Durin::Editor::Material::FMaterialPreview SecondPreview(SecondPreviewId);
-		ASSERT_EQ(Durin::Editor::FAssetRetentionService::NumRetained(), 2u);
+		Durin::MaterialEditor::FMaterialPreview FirstPreview(FirstPreviewId);
+		Durin::MaterialEditor::FMaterialPreview SecondPreview(SecondPreviewId);
+		ASSERT_EQ(Durin::FAssetRetentionService::NumRetained(), 2u);
 		ASSERT_NE(FindObjectByName(FirstLightName), nullptr);
 		ASSERT_NE(FindObjectByName(SecondLightName), nullptr);
 
@@ -118,11 +118,11 @@ TEST(FMaterialPreviewTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageColl
 		Durin::FSoftObjectPath BoxPath;
 		ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate("/Engine/Models/Sphere.Sphere", SpherePath));
 		ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate("/Engine/Models/Box.Box", BoxPath));
-		Durin::Editor::FRetainedAsset SphereAsset;
-		Durin::Editor::FRetainedAsset BoxAsset;
+		Durin::FRetainedAsset SphereAsset;
+		Durin::FRetainedAsset BoxAsset;
 		std::string Error;
-		ASSERT_TRUE(Durin::Editor::FAssetRetentionService::Acquire(SpherePath, SphereAsset, Error)) << Error;
-		ASSERT_TRUE(Durin::Editor::FAssetRetentionService::Acquire(BoxPath, BoxAsset, Error)) << Error;
+		ASSERT_TRUE(Durin::FAssetRetentionService::Acquire(SpherePath, SphereAsset, Error)) << Error;
+		ASSERT_TRUE(Durin::FAssetRetentionService::Acquire(BoxPath, BoxAsset, Error)) << Error;
 		auto* Sphere = Durin::Cast<Durin::DStaticMesh>(SphereAsset.Get());
 		auto* Box = Durin::Cast<Durin::DStaticMesh>(BoxAsset.Get());
 		ASSERT_NE(Sphere, nullptr);
@@ -139,7 +139,7 @@ TEST(FMaterialPreviewTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageColl
 	}
 
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
-	EXPECT_EQ(Durin::Editor::FAssetRetentionService::NumRetained(), 0u);
+	EXPECT_EQ(Durin::FAssetRetentionService::NumRetained(), 0u);
 	EXPECT_EQ(FindObjectByName(FirstLightName), nullptr);
 	EXPECT_EQ(FindObjectByName(SecondLightName), nullptr);
 }

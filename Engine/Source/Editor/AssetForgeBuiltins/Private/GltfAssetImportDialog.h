@@ -6,7 +6,7 @@
 #include "Import/MeshCoordinateImportModel.h"
 #include "AssetForge/Builtins/AssetImport.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	// Imports glTF/GLB resources without a LevelEditor workspace.
 	class FGltfAssetImportDialog
@@ -44,4 +44,4 @@ namespace Durin::Editor
 		bool bImporting = false;
 		bool bReportedCompletion = false;
 	};
-} // namespace Durin::Editor
+} // namespace Durin

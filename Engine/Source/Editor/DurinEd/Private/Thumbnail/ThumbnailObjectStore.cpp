@@ -4,7 +4,7 @@
 #include "Misc/Paths.h"
 #include "Serialization/BinaryFormat.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	namespace
 	{
@@ -285,4 +285,4 @@ namespace Durin::Editor
 		}
 		return Evictions;
 	}
-} // namespace Durin::Editor
+} // namespace Durin

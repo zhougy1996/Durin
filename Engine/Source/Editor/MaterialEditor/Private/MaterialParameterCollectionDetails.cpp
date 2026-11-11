@@ -2,7 +2,7 @@
 #include "DObject/Class.h"
 #include "Materials/MaterialParameterCollection.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	namespace
 	{

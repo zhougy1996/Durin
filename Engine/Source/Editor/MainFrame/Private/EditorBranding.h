@@ -10,7 +10,7 @@ namespace Durin
 	class FRHITexture;
 }
 
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
 	// Owns the shared GPU texture built from the editor branding source image.
 	class FEditorBrandTexture

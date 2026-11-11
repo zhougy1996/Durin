@@ -4,7 +4,7 @@
 #include "DObject/StrongObjectPtr.h"
 #include "Threading/RunnableThread.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	struct FRetainedAssetState
 	{
@@ -88,4 +88,4 @@ namespace Durin::Editor
 		RemoveExpiredRetainedAssets();
 		return GetRetainedAssets().size();
 	}
-} // namespace Durin::Editor
+} // namespace Durin

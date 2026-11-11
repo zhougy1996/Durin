@@ -13,13 +13,13 @@ namespace Durin
 	struct FSceneViewportStatisticsSnapshot;
 }
 
-namespace Durin::Editor
+namespace Durin
 {
 	enum class EPlayStartLocation : uint8;
 	enum class EPlayDestination : uint8;
 }
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	class FLevelEditorViewportClient;
 	class FLevelViewportEditModeManager;
@@ -210,4 +210,4 @@ namespace Durin::Editor::Level
 		bool& bExpanded,
 		bool* OutDetailsRequested = nullptr
 	) -> FViewportStatisticsOverlayLayout;
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

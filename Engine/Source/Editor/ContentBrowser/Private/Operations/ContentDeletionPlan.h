@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	// Classifies every preflight condition that can keep a deletion plan read-only.
 	enum class EContentDeletionBlocker : uint8

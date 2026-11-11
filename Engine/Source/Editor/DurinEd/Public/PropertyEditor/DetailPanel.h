@@ -4,7 +4,7 @@
 #include "DurinEdAPI.h"
 #include "PropertyEditor/DetailLayoutBuilder.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	// Configures a shared object-details draw with optional host-specific rows.
 	struct FDetailPanelOptions

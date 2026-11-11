@@ -4,7 +4,7 @@
 
 #include "DurinEdAPI.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	using FAsyncOperationCompletion = std::function<void(bool, std::string)>;
 	using FAsyncOperationCancel = std::function<void()>;

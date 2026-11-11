@@ -9,7 +9,7 @@
 #include "DObject/TransactionObjectAnnotation.h"
 #include "DObject/ObjectGraphReplacement.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	auto FTransactionObjectRecord::HasReplacementReferences(const FObjectReplacementMap& Map) const -> bool
 	{

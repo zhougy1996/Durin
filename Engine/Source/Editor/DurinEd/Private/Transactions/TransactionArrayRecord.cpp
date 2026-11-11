@@ -8,7 +8,7 @@
 #include "DObject/Package.h"
 #include "DObject/TransactionObjectAnnotation.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	auto FTransactionArrayRecord::HasReplacementReferences(const FObjectReplacementMap& Map) const -> bool
 	{

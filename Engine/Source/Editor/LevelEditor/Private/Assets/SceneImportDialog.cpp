@@ -12,7 +12,7 @@
 #include "Feedback/SlowTaskWidget.h"
 #include "AssetForge/Builtins/ImportFeedback.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	FSceneImportDialog::FSceneImportDialog(FImportDialogCallbacks InCallbacks)
 		: Callbacks(std::move(InCallbacks)) {}
@@ -303,4 +303,4 @@ namespace Durin::Editor::Level
 	{
 		Callbacks.Report(std::move(Message));
 	}
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

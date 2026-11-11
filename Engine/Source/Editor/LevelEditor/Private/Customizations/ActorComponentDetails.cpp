@@ -15,7 +15,7 @@
 #include "MonaImGui.h"
 #include "Widgets/MonaImGuiPropertyTable.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	namespace
 	{

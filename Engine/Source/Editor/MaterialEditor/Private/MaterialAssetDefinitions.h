@@ -6,7 +6,7 @@
 #include "Toolkits/AssetEditor.h"
 #include "MaterialAssetDefinitions.gen.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	inline auto GetMaterialGraphOpenSupport(const FAssetOpenSupportArgs& Args) -> FAssetOpenSupport
 	{ return {Args.OpenMethod, Args.OpenMethod == EAssetOpenMethod::Edit}; }

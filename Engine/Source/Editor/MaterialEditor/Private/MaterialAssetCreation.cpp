@@ -21,13 +21,13 @@ namespace Durin
 		}
 		FMaterialGraphPresentation Presentation;
 		const auto Layout =
-			Editor::Material::FMaterialGraphDocument(Material).CalculateLayout({}, Presentation);
+			MaterialEditor::FMaterialGraphDocument(Material).CalculateLayout({}, Presentation);
 		if (!Layout || Material.SetMaterialGraphPresentation(
 				std::move(Presentation)) == EMaterialGraphPresentationResult::Rejected)
 		{
 			OutError = static_cast<bool>(Layout)
 				? "The new material graph presentation could not be initialized."
-				: Editor::Material::FormatMaterialGraphCommandResult(Layout);
+				: MaterialEditor::FormatMaterialGraphCommandResult(Layout);
 			return false;
 		}
 		if (RequestMaterialRecompile(Material))

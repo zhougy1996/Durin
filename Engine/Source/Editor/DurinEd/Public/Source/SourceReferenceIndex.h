@@ -5,9 +5,9 @@
 #include "DObject/AssetPath.h"
 #include "DurinEdAPI.h"
 
-namespace Durin::Editor
+namespace Durin
 {
-	namespace Private { struct FSourceReferenceSnapshot; }
+	namespace SourceReferencePrivate { struct FSourceReferenceSnapshot; }
 
 	struct FSourceReference
 	{
@@ -34,8 +34,8 @@ namespace Durin::Editor
 		DURINED_API auto GetWarning() const -> const std::string&;
 
 	private:
-		std::shared_ptr<const Private::FSourceReferenceSnapshot> Snapshot;
+		std::shared_ptr<const SourceReferencePrivate::FSourceReferenceSnapshot> Snapshot;
 		uint64 RequestedGeneration = 0;
 		size_t RequestedMaximumPackageInspections = 4096;
 	};
-} // namespace Durin::Editor
+} // namespace Durin

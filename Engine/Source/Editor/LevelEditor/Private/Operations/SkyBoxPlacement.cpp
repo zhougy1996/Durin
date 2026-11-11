@@ -14,7 +14,7 @@
 #include "Engine/Level.h"
 #include "Texture/TextureCube.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	namespace
 	{

@@ -10,7 +10,7 @@
 
 namespace Durin { class FArrayProperty; class DPackage; }
 
-namespace Durin::Editor
+namespace Durin
 {
 	// UE-style operation record. Resolve reflected storage anew after every vector
 	// relocation; only the affected elements are owned by the history entry.

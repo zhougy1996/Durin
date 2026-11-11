@@ -2,7 +2,7 @@
 
 #include "Engine/Actor.h"
 
-namespace Durin::Editor::Level::DetailsPanelTargeting
+namespace Durin::LevelEditor::DetailsPanelTargeting
 {
 	auto ResolveDefaultComponent(AActor*) -> DActorComponent*
 	{
@@ -15,4 +15,4 @@ namespace Durin::Editor::Level::DetailsPanelTargeting
 		if (Actor && Actor->OwnsComponent(SelectedComponent)) return SelectedComponent;
 		return ResolveDefaultComponent(Actor);
 	}
-} // namespace Durin::Editor::Level::DetailsPanelTargeting
+} // namespace Durin::LevelEditor::DetailsPanelTargeting

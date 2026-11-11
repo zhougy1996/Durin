@@ -18,7 +18,7 @@ namespace Durin
 	class DMaterialInstance;
 }
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	class FMaterialPreview;
 	class FMaterialGraphCanvas;

@@ -5,7 +5,7 @@
 #include "Materials/Material.h"
 #include "MonaImGui.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	namespace
 	{

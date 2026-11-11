@@ -16,7 +16,7 @@
 #include "Logging/LogMacros.h"
 #include "Threading/RunnableThread.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	namespace { thread_local TWeakObjectPtr<DEditorEngine> TransactionEditor; thread_local bool bTransactionEditorBound = false; }
 	FScopedEditorTransactionContext::FScopedEditorTransactionContext(DEditorEngine* Editor)
@@ -1064,7 +1064,6 @@ namespace Durin::Editor
 
 namespace Durin
 {
-	using namespace Editor;
 
 	DTransactor::DTransactor(const FObjectInitializer& ObjectInitializer)
 		: DObject(ObjectInitializer)
@@ -1907,8 +1906,8 @@ namespace Durin
 	{
 		struct FSourceRecord
 		{
-			std::optional<Editor::FTransactionObjectRecord> Object;
-			std::optional<Editor::FTransactionArrayRecord> Array;
+			std::optional<FTransactionObjectRecord> Object;
+			std::optional<FTransactionArrayRecord> Array;
 			const FCommandChange* Command = nullptr;
 			FPersistentObjectRef CustomObject;
 			std::vector<FPersistentObjectRef> Modified;
@@ -1917,14 +1916,14 @@ namespace Durin
 		{
 			FTransactionId Id = 0;
 			FPersistentObjectRef Primary;
-			std::vector<Editor::FTransactionPackageRevisionTransition> Transitions;
+			std::vector<FTransactionPackageRevisionTransition> Transitions;
 			std::vector<FSourceRecord> Records;
 		};
 		struct FPreparedTransaction
 		{
-			FPreparedTransaction(Editor::FTransaction Value, size_t Count) : Transaction(std::move(Value)), Records(Count) {}
-			Editor::FTransaction Transaction;
-			std::vector<std::optional<Editor::FTransactionRecord>> Records;
+			FPreparedTransaction(FTransaction Value, size_t Count) : Transaction(std::move(Value)), Records(Count) {}
+			FTransaction Transaction;
+			std::vector<std::optional<FTransactionRecord>> Records;
 		};
 		class FReferences final : public FReferenceCollector
 		{
@@ -1939,7 +1938,7 @@ namespace Durin
 		auto Prepare(const FObjectReplacementMap& InMap) -> std::expected<void, FObjectReplacementError> override
 		{
 			Abort();
-			if (Transactor.State != Editor::ETransactorState::Idle || Transactor.Pending || Transactor.ActiveCount)
+			if (Transactor.State != ETransactorState::Idle || Transactor.Pending || Transactor.ActiveCount)
 				return std::unexpected(FObjectReplacementError{.Code = EObjectReplacementError::Busy, .Reason = EObjectReplacementReason::ParticipantBusy});
 			Map = &InMap;
 			for (auto* Package : Packages)
@@ -1978,8 +1977,8 @@ namespace Durin
 				for (const auto& Record : Transaction.Records)
 				{
 					FSourceRecord Snapshot;
-					if (const auto* Object = std::get_if<Editor::FTransactionObjectRecord>(&Record.Data)) Snapshot.Object = *Object;
-					else if (const auto* Array = std::get_if<Editor::FTransactionArrayRecord>(&Record.Data)) Snapshot.Array = *Array;
+					if (const auto* Object = std::get_if<FTransactionObjectRecord>(&Record.Data)) Snapshot.Object = *Object;
+					else if (const auto* Array = std::get_if<FTransactionArrayRecord>(&Record.Data)) Snapshot.Array = *Array;
 					else Snapshot.Command = std::get<std::unique_ptr<FCommandChange>>(Record.Data).get();
 					Snapshot.CustomObject = Record.CustomObject;
 					Snapshot.Modified.assign(Record.ModifiedObjects.GetReferences().begin(), Record.ModifiedObjects.GetReferences().end());
@@ -1996,7 +1995,7 @@ namespace Durin
 					else
 					{
 						Keep[Index] = false;
-						AfterEvents.push_back({.Type = Editor::ETransactionEventType::Discarded, .Id = Transaction.Id,
+						AfterEvents.push_back({.Type = ETransactionEventType::Discarded, .Id = Transaction.Id,
 							.Description = Transaction.Context.Description, .Details = Replacement.error()});
 						for (auto* Package : Transaction.GetAffectedPackages())
 							if (Package && !Map->Find(Package) && !std::ranges::contains(Invalidated, Package)) Invalidated.push_back(Package);
@@ -2015,7 +2014,7 @@ namespace Durin
 				NewState.Package = FPersistentObjectRef(ReplacementPackage);
 				if (ReplacementPackage != Package)
 				{
-					if (!AfterRevision || AfterRevision == std::numeric_limits<Editor::FRevisionId>::max())
+					if (!AfterRevision || AfterRevision == std::numeric_limits<FRevisionId>::max())
 						return std::unexpected(FObjectReplacementError{.Code = EObjectReplacementError::BudgetExceeded});
 					const auto Revision = AfterRevision++;
 					NewState.CurrentRevision = Revision;
@@ -2047,7 +2046,7 @@ namespace Durin
 				if (Cast<DPackage>(Entry.Previous))
 					if (auto* Package = Cast<DPackage>(Entry.Replacement); Package && !AfterPackages.contains(Package))
 					{
-						if (!AfterRevision || AfterRevision == std::numeric_limits<Editor::FRevisionId>::max())
+						if (!AfterRevision || AfterRevision == std::numeric_limits<FRevisionId>::max())
 							return std::unexpected(FObjectReplacementError{.Code = EObjectReplacementError::BudgetExceeded});
 						const auto Revision = AfterRevision++;
 						AfterPackages.emplace(Package, DTransBuffer::FTrackedPackageState{
@@ -2081,7 +2080,7 @@ namespace Durin
 
 		auto Validate() const -> bool override
 		{
-			if (!bPrepared || Transactor.State != Editor::ETransactorState::Idle || Transactor.Pending || Transactor.ActiveCount
+			if (!bPrepared || Transactor.State != ETransactorState::Idle || Transactor.Pending || Transactor.ActiveCount
 				|| Transactor.HistoryRevision != BeforeHistoryRevision || Transactor.History.size() != Sources.size() || Transactor.Cursor != BeforeCursor
 				|| Transactor.OwnedBytes != BeforeBytes || Transactor.NextRevision != BeforeRevision || Transactor.MemoryBudget != BeforeBudget
 				|| Transactor.PackageStates != BeforePackages || Transactor.Events != BeforeEvents) return false;
@@ -2101,12 +2100,12 @@ namespace Durin
 					if (Current.CustomObject != Before.CustomObject || !std::ranges::equal(Current.ModifiedObjects.GetReferences(), Before.Modified)) return false;
 					if (Before.Object)
 					{
-						const auto* Object = std::get_if<Editor::FTransactionObjectRecord>(&Current.Data);
+						const auto* Object = std::get_if<FTransactionObjectRecord>(&Current.Data);
 						if (!Object || !Object->HasSameState(*Before.Object)) return false;
 					}
 					else if (Before.Array)
 					{
-						const auto* Array = std::get_if<Editor::FTransactionArrayRecord>(&Current.Data);
+						const auto* Array = std::get_if<FTransactionArrayRecord>(&Current.Data);
 						if (!Array || !Array->HasSameState(*Before.Array)) return false;
 					}
 					else if (const auto* Command = std::get_if<std::unique_ptr<FCommandChange>>(&Current.Data); !Command || Command->get() != Before.Command) return false;
@@ -2169,11 +2168,11 @@ namespace Durin
 			return true;
 		}
 	private:
-		auto PrepareTransaction(const Editor::FTransaction& Source, const FObjectReplacementMap& Mapping)
+		auto PrepareTransaction(const FTransaction& Source, const FObjectReplacementMap& Mapping)
 			-> std::expected<FPreparedTransaction, std::string>
 		{
 			if (Source.bBusy || Source.RecordingOwner) return std::unexpected("Only settled history can be reinstanced.");
-			Editor::FTransaction Transaction(Source.Id, Source.Context);
+			FTransaction Transaction(Source.Id, Source.Context);
 			Transaction.bFinalized = Source.bFinalized;
 			Transaction.OperationId = Source.OperationId;
 			Transaction.bObserverRecoveryRequired = Source.bObserverRecoveryRequired;
@@ -2211,13 +2210,13 @@ namespace Durin
 		mutable std::vector<FSourceTransaction> Sources;
 		std::vector<std::optional<FPreparedTransaction>> Replacements;
 		std::vector<bool> Keep;
-		mutable std::vector<Editor::FTransaction> AfterHistory;
+		mutable std::vector<FTransaction> AfterHistory;
 		decltype(DTransBuffer::PackageStates) BeforePackages, AfterPackages;
-		std::vector<Editor::FTransactionEvent> BeforeEvents, AfterEvents;
+		std::vector<FTransactionEvent> BeforeEvents, AfterEvents;
 		std::vector<FObjectKey> BeforeReferences;
 		std::vector<DPackage*> DirtyPackages;
 		size_t BeforeCursor = 0, AfterCursor = 0, BeforeBytes = 0, AfterBytes = 0, BeforeBudget = 0;
-		Editor::FRevisionId BeforeRevision = 0, AfterRevision = 0;
+		FRevisionId BeforeRevision = 0, AfterRevision = 0;
 		uint64 BeforeHistoryRevision = 0;
 		bool bPrepared = false, bCommitted = false;
 	};

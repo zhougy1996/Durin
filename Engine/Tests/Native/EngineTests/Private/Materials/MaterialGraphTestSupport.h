@@ -42,8 +42,8 @@
 namespace
 {
 	using namespace Durin;
-	using namespace Durin::Editor;
-	using namespace Durin::Editor::Material;
+	using namespace Durin;
+	using namespace Durin::MaterialEditor;
 
 	auto HasGraphDiagnostics(DObject& Owner) -> bool
 	{
@@ -134,7 +134,7 @@ namespace
 	{
 		DMaterial* Material = NewObject<DMaterial>(nullptr, Name);
 		if (!Material || !Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Material)
-			|| !FMaterialGraphDocument(*Material).Layout({}, Durin::Editor::ETransactionMode::NotTransactable)) return nullptr;
+			|| !FMaterialGraphDocument(*Material).Layout({}, Durin::ETransactionMode::NotTransactable)) return nullptr;
 		return Material;
 	}
 }

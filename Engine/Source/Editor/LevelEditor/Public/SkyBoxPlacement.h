@@ -17,7 +17,7 @@ namespace Durin
 	class DTextureCube;
 }
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 
 	enum class ESkyBoxPlacementError : uint8 { None, ReadOnly, TextureUnavailable, MultipleSkyBoxes, SkyBoxUnavailable, Transaction, Replay };

@@ -13,7 +13,7 @@ namespace Durin
 	class DStaticMeshComponent;
 }
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 
 	// Identifies where the displayed material for a static-mesh slot originates.

@@ -10,7 +10,7 @@
 #include "MonaImGui.h"
 #include "Widgets/MonaImGuiPropertyTable.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	FDetailLayoutBuilder::FDetailLayoutBuilder(std::string_view InSearchText, IDetailHostContext* InHostContext)
 		: SearchText(InSearchText), HostContext(InHostContext)

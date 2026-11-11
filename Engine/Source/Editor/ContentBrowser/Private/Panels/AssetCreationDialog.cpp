@@ -3,7 +3,7 @@
 #include "Import/AssetDestinationValidation.h"
 #include "MonaImGui.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	FAssetCreationDialog::FAssetCreationDialog(FAssetCreationDescriptor InDescriptor)
 		: Descriptor(std::move(InDescriptor)),
@@ -105,7 +105,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	}
 }
 
-namespace Durin::Editor::ContentBrowser
+namespace Durin::ContentBrowser
 {
 	auto RegisterAssetCreation(FAssetCreationDescriptor Descriptor, std::string& OutError)
 		-> FScopedExtensionRegistration

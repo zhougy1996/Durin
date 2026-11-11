@@ -5,7 +5,7 @@
 #include "TextureEditorAPI.h"
 #include "Texture/VolumeTexture.h"
 
-namespace Durin::Editor::Texture
+namespace Durin::TextureEditor
 {
 	enum class EVolumeTexturePreviewAxis : uint8 { XY, XZ, YZ };
 

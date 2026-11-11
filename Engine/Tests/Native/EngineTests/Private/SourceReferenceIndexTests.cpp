@@ -53,7 +53,7 @@ TEST(FSourceReferenceIndexTests, TracksSharedSourceFilesAcrossRegistryRevisions)
 	ASSERT_NE(SecondSource, nullptr);
 	ASSERT_EQ(SecondSource->Hint, SourceVirtualPath);
 
-	Durin::Editor::FSourceReferenceIndex Index;
+	Durin::FSourceReferenceIndex Index;
 	Index.Refresh();
 	EXPECT_EQ(Index.FindReferences(SourceVirtualPath).size(), 2u);
 	const uint64 FirstRevision = Index.GetRegistryRevision();
@@ -72,7 +72,7 @@ TEST(FSourceReferenceIndexTests, TracksSharedSourceFilesAcrossRegistryRevisions)
 TEST(FSourceReferenceIndexTests, BoundsPackageInspectionWork)
 {
 	InitializeDObjectSystem();
-	Durin::Editor::FSourceReferenceIndex Index;
+	Durin::FSourceReferenceIndex Index;
 	Index.Refresh(1);
 	EXPECT_LE(Index.GetInspectedPackageCount(), 1u);
 	const size_t SourceBearingAssets = std::ranges::count_if(
@@ -91,7 +91,7 @@ TEST(FSourceReferenceIndexTests, BoundsPackageInspectionWork)
 TEST(FSourceReferenceIndexTests, PublishesOneSharedAsynchronousSnapshot)
 {
 	InitializeDObjectSystem();
-	Durin::Editor::FSourceReferenceIndex First;
+	Durin::FSourceReferenceIndex First;
 	First.Invalidate();
 	First.RequestRefresh();
 	EXPECT_FALSE(First.IsCurrent());
@@ -104,7 +104,7 @@ TEST(FSourceReferenceIndexTests, PublishesOneSharedAsynchronousSnapshot)
 	}
 	ASSERT_TRUE(First.IsCurrent());
 
-	Durin::Editor::FSourceReferenceIndex Second;
+	Durin::FSourceReferenceIndex Second;
 	Second.RequestRefresh();
 	EXPECT_TRUE(Second.IsCurrent());
 	EXPECT_EQ(Second.GetRegistryRevision(), First.GetRegistryRevision());

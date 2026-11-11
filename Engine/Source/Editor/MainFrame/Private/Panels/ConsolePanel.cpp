@@ -13,7 +13,7 @@
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
 	// Retains console input and filtering state across panel reconstruction.
 	struct FConsolePanelState
@@ -578,4 +578,4 @@ namespace Durin::Editor::MainFrame
 		bHasNewConsoleRecords = false;
 		UnreadImportantRecordCount = 0;
 	}
-} // namespace Durin::Editor::MainFrame
+} // namespace Durin::MainFrame

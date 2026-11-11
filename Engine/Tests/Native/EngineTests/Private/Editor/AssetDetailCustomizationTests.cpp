@@ -21,8 +21,8 @@ TEST(FAssetDetailCustomizationTests, PreservesTextureControlsAndCollectionDeclar
 	InitializeDObjectSystem();
 	auto* Texture = Durin::NewObject<Durin::DTexture2D>(nullptr, "BuildDetailsTexture");
 	auto* Collection = Durin::NewObject<Durin::DMaterialParameterCollection>(nullptr, "DetailsCollection");
-	Durin::Editor::FDetailLayoutBuilder TextureLayout;
-	TextureLayout.ApplyCustomization(Texture, *Durin::Editor::Texture::CreateTextureBuildSettingsDetails());
+	Durin::FDetailLayoutBuilder TextureLayout;
+	TextureLayout.ApplyCustomization(Texture, *Durin::TextureEditor::CreateTextureBuildSettingsDetails());
 	EXPECT_EQ(TextureLayout.GetVisibleRowCount(), 7u);
 	EXPECT_TRUE(TextureLayout.IsReplacingDefaultProperties());
 	for (const char* Name : {"Usage", "bSRGB", "MaxResolution", "CompressionQuality", "AlphaMipMode", "AlphaCoverageThreshold"})
@@ -32,11 +32,11 @@ TEST(FAssetDetailCustomizationTests, PreservesTextureControlsAndCollectionDeclar
 		EXPECT_FALSE(TextureLayout.IsPropertyHidden(*Property));
 		EXPECT_TRUE(TextureLayout.IsDefaultPropertyPlaced(Texture, *Property, 0));
 	}
-	Durin::Editor::FDetailLayoutBuilder Search("Alpha Mip Mode");
-	Search.ApplyCustomization(Texture, *Durin::Editor::Texture::CreateTextureBuildSettingsDetails());
+	Durin::FDetailLayoutBuilder Search("Alpha Mip Mode");
+	Search.ApplyCustomization(Texture, *Durin::TextureEditor::CreateTextureBuildSettingsDetails());
 	EXPECT_EQ(Search.GetVisibleRowCount(), 1u);
-	Durin::Editor::FDetailLayoutBuilder CollectionLayout;
-	CollectionLayout.ApplyCustomization(Collection, *Durin::Editor::Material::CreateMaterialParameterCollectionDetails());
+	Durin::FDetailLayoutBuilder CollectionLayout;
+	CollectionLayout.ApplyCustomization(Collection, *Durin::MaterialEditor::CreateMaterialParameterCollectionDetails());
 	EXPECT_EQ(CollectionLayout.GetVisibleRowCount(), 1u);
 	EXPECT_FALSE(CollectionLayout.IsReplacingDefaultProperties());
 	EXPECT_FALSE(CollectionLayout.IsPropertyHidden(*Collection->GetClass()->FindPropertyByName("Declarations")));
@@ -60,14 +60,14 @@ TEST(FAssetDetailCustomizationTests, PreservesPreviewCancellationAndAssetUndoRed
 	auto* Collection = Durin::NewObject<Durin::DMaterialParameterCollection>(nullptr, "UndoDetailsCollection");
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	std::string Error;
-	Durin::Editor::FPropertyViewContext Context{.ReportError = [&](std::string Message) { Error = Message; }};
-	Durin::Editor::FPropertyView View;
+	Durin::FPropertyViewContext Context{.ReportError = [&](std::string Message) { Error = Message; }};
+	Durin::FPropertyView View;
 	ASSERT_TRUE(View.HandleOwnerContext(Context, Texture));
-	Durin::Editor::FDetailLayoutBuilder TextureLayout;
-	TextureLayout.ApplyCustomization(Texture, *Durin::Editor::Texture::CreateTextureBuildSettingsDetails());
+	Durin::FDetailLayoutBuilder TextureLayout;
+	TextureLayout.ApplyCustomization(Texture, *Durin::TextureEditor::CreateTextureBuildSettingsDetails());
 	auto* Resolution = Texture->GetClass()->FindPropertyByName("MaxResolution");
 	ASSERT_NE(Resolution, nullptr);
-	const auto Target = Durin::Editor::FPropertyEditTarget::ForMember(Texture, Resolution);
+	const auto Target = Durin::FPropertyEditTarget::ForMember(Texture, Resolution);
 	const uint32 Original = Texture->GetMaxResolution();
 	const auto AssignResolution = [](Durin::FProperty* Property, void* Container, uint32 Index) {
 		*Property->ContainerPtrToValuePtr<uint32>(Container, Index) = 512;
@@ -82,11 +82,11 @@ TEST(FAssetDetailCustomizationTests, PreservesPreviewCancellationAndAssetUndoRed
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Texture->GetMaxResolution(), 512u);
 	ASSERT_TRUE(View.HandleOwnerContext(Context, Collection));
-	Durin::Editor::FDetailLayoutBuilder CollectionLayout;
-	CollectionLayout.ApplyCustomization(Collection, *Durin::Editor::Material::CreateMaterialParameterCollectionDetails());
+	Durin::FDetailLayoutBuilder CollectionLayout;
+	CollectionLayout.ApplyCustomization(Collection, *Durin::MaterialEditor::CreateMaterialParameterCollectionDetails());
 	auto* Declarations = Collection->GetClass()->FindPropertyByName("Declarations");
 	ASSERT_NE(Declarations, nullptr);
-	ASSERT_TRUE(View.SubmitPropertyValueEdit(Context, Durin::Editor::FPropertyEditTarget::ForMember(Collection, Declarations),
+	ASSERT_TRUE(View.SubmitPropertyValueEdit(Context, Durin::FPropertyEditTarget::ForMember(Collection, Declarations),
 		[](Durin::FProperty* Property, void* Container, uint32 Index) {
 			*Property->ContainerPtrToValuePtr<std::vector<Durin::FMaterialParameterCollectionDeclaration>>(Container, Index) = {
 				{.Id = Durin::FGuid::NewGuid(), .Name = Durin::FName("Amount"), .Type = Durin::EMaterialParameterType::Scalar}};
@@ -117,16 +117,16 @@ TEST(FAssetDetailCustomizationTests, DrawsBothLayoutsThroughTheSharedPropertyTab
 	ImGui::NewFrame();
 	ImGui::SetNextWindowSize({800.0f, 700.0f});
 	ImGui::Begin("Asset Layout Rendering Test");
-	Durin::Editor::FPropertyView View;
-	const auto TextureResult = Durin::Editor::DrawDetailPanel(View, {}, Texture, {
+	Durin::FPropertyView View;
+	const auto TextureResult = Durin::DrawDetailPanel(View, {}, Texture, {
 		.PropertyTableId = "TextureAssetDetailsRows",
-		.ExtendLayout = [&](auto& Layout) { Layout.ApplyCustomization(Texture, *Durin::Editor::Texture::CreateTextureBuildSettingsDetails()); }});
+		.ExtendLayout = [&](auto& Layout) { Layout.ApplyCustomization(Texture, *Durin::TextureEditor::CreateTextureBuildSettingsDetails()); }});
 	EXPECT_TRUE(TextureResult.bOwnerReady);
 	EXPECT_TRUE(TextureResult.bTableDrawn);
 	EXPECT_EQ(TextureResult.VisibleRowCount, 7u);
-	const auto CollectionResult = Durin::Editor::DrawDetailPanel(View, {}, Collection, {
+	const auto CollectionResult = Durin::DrawDetailPanel(View, {}, Collection, {
 		.PropertyTableId = "CollectionAssetDetailsRows",
-		.ExtendLayout = [&](auto& Layout) { Layout.ApplyCustomization(Collection, *Durin::Editor::Material::CreateMaterialParameterCollectionDetails()); }});
+		.ExtendLayout = [&](auto& Layout) { Layout.ApplyCustomization(Collection, *Durin::MaterialEditor::CreateMaterialParameterCollectionDetails()); }});
 	EXPECT_TRUE(CollectionResult.bOwnerReady);
 	EXPECT_TRUE(CollectionResult.bTableDrawn);
 	EXPECT_EQ(CollectionResult.VisibleRowCount, 1u);

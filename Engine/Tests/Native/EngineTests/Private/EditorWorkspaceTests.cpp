@@ -42,22 +42,22 @@
 namespace
 {
 	// Admission-only renderer: the picker must leave generation queued after Draw.
-	class FPickerThumbnailRenderer final : public Durin::Editor::DThumbnailRenderer
+	class FPickerThumbnailRenderer final : public Durin::DThumbnailRenderer
 	{
 	public:
-		auto GetRegistration() const -> Durin::Editor::FThumbnailRenderingInfo override
+		auto GetRegistration() const -> Durin::FThumbnailRenderingInfo override
 		{
 			return {"Durin::DMaterial", "PickerThumbnailTest", 1};
 		}
-		auto CaptureGenerationRequest(const Durin::Editor::FAssetThumbnailRequest&,
-			uint64) -> std::expected<Durin::Editor::FAssetThumbnailGenerationRequest, std::string> override
+		auto CaptureGenerationRequest(const Durin::FAssetThumbnailRequest&,
+			uint64) -> std::expected<Durin::FAssetThumbnailGenerationRequest, std::string> override
 		{
 			ADD_FAILURE() << "This test must not execute thumbnail generation.";
 			return std::unexpected("Unexpected thumbnail generation.");
 		}
 	};
 
-	class FAppliedPackageEdit final : public Durin::Editor::FActorCommandChange
+	class FAppliedPackageEdit final : public Durin::FActorCommandChange
 	{
 	public:
 		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
@@ -73,7 +73,7 @@ namespace
 		{
 			return Package;
 		}
-		auto Replay(::Durin::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
+		auto Replay(::Durin::ETransactionOperation Operation) -> Durin::FActorChangeResult override
 		{
 			if (Operation == ::Durin::ETransactionOperation::Undo)
 			{
@@ -189,12 +189,12 @@ TEST(FEditorTransactorOwnershipTests, OwnsTransientBufferAndClearsOpenHistoryOnS
 	ASSERT_NE(TransProperty, nullptr);
 	EXPECT_TRUE(TransProperty->HasAnyPropertyFlags(Durin::EPropertyFlags::Transient));
 	Editor->DispatchSubsystemCallback([&] {
-		Durin::Editor::FScopedTransaction Missing(nullptr, {.Description = "No transaction owner"});
+		Durin::FScopedTransaction Missing(nullptr, {.Description = "No transaction owner"});
 		EXPECT_FALSE(Missing.IsOutstanding());
 		EXPECT_FALSE(Buffer->IsActive());
 	});
 	{
-		Durin::Editor::FScopedTransaction Scope(Editor->GetTransactor(), {.Description = "Editor transaction"});
+		Durin::FScopedTransaction Scope(Editor->GetTransactor(), {.Description = "Editor transaction"});
 		ASSERT_TRUE(Scope.IsOutstanding());
 		Scope.Cancel();
 		EXPECT_FALSE(Scope.IsOutstanding());
@@ -203,17 +203,17 @@ TEST(FEditorTransactorOwnershipTests, OwnsTransientBufferAndClearsOpenHistoryOnS
 	const auto Scope = Buffer->Begin("test", "Open during shutdown");
 	ASSERT_GE(Scope, 0);
 	Buffer->SetPrimaryUndoObject(Editor);
-	const Durin::Editor::FPropertyEditTarget Target =
-		Durin::Editor::FPropertyEditTarget::ForMember(Editor, TransProperty);
+	const Durin::FPropertyEditTarget Target =
+		Durin::FPropertyEditTarget::ForMember(Editor, TransProperty);
 	Durin::FPropertyValueSnapshotPayload Snapshot;
 	std::string Error;
 	ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValuePayload(TransProperty, Editor, 0, Snapshot))) << Durin::ToString(SnapshotResult.error());
-	auto Capture = Durin::Editor::FTransactionObjectRecord::CaptureWhole(*Editor);
-	ASSERT_TRUE(Capture) << Durin::Editor::FormatTransactionObjectRecordError(Capture.error());
+	auto Capture = Durin::FTransactionObjectRecord::CaptureWhole(*Editor);
+	ASSERT_TRUE(Capture) << Durin::FormatTransactionObjectRecordError(Capture.error());
 	ASSERT_TRUE(Durin::FTransBufferTestAccess::Record(*Buffer, std::move(*Capture)));
 	Editor->BeginDestroy();
 	EXPECT_EQ(Editor->GetTransactor(), nullptr);
-	EXPECT_EQ(Buffer->GetState(), Durin::Editor::ETransactorState::Destroying);
+	EXPECT_EQ(Buffer->GetState(), Durin::ETransactorState::Destroying);
 	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 	EXPECT_EQ(Buffer->GetUndoSize(), 0u);
 }
@@ -253,7 +253,7 @@ TEST(FEditableAssetDocumentModelTests, UndoToActivatedRevisionClearsDirtyState)
 	EXPECT_EQ(OpenRevision->CurrentRevision, OpenRevision->SavedRevision);
 
 	{
-		Durin::Editor::FScopedTransaction Recording(&Transactions, {.Description = "Edit Asset"});
+		Durin::FScopedTransaction Recording(&Transactions, {.Description = "Edit Asset"});
 		Package->MarkDirty();
 		ASSERT_TRUE(Transactions.StoreUndo(
 			std::make_unique<FAppliedPackageEdit>(*Package)));
@@ -289,7 +289,7 @@ TEST(FEditorWorkspaceManagerTests, WindowCloseRequestsCanBeDeferredAndRepeated)
 TEST(FEditorWorkspaceManagerTests, ExitSavesAllDirtyDocumentsWithoutClosingTabs)
 {
 	using namespace Durin;
-	using namespace Durin::Editor;
+	using namespace Durin;
 	FEditorDocumentManager Manager;
 	auto Workspace = std::make_shared<FTestWorkspace>("ExitTest");
 	Workspace->bTrackDirtyDocuments = true;
@@ -320,7 +320,7 @@ TEST(FEditorWorkspaceManagerTests, ExitSavesAllDirtyDocumentsWithoutClosingTabs)
 TEST(FEditorWorkspaceManagerTests, ExitRetainsAllWorkspacesWhenALaterSaveFails)
 {
 	using namespace Durin;
-	using namespace Durin::Editor;
+	using namespace Durin;
 	FEditorDocumentManager Manager, Other;
 	auto First = std::make_shared<FTestWorkspace>("First");
 	auto Second = std::make_shared<FTestWorkspace>("Second");
@@ -349,7 +349,7 @@ TEST(FEditorWorkspaceManagerTests, ExitRetainsAllWorkspacesWhenALaterSaveFails)
 TEST(FEditorWorkspaceManagerTests, ExitVetoesUnsettledPreviewsAndPendingDocuments)
 {
 	using namespace Durin;
-	using namespace Durin::Editor;
+	using namespace Durin;
 	FEditorDocumentManager Manager;
 	auto Workspace = std::make_shared<FTestWorkspace>("ExitTest");
 	const bool Attached = Manager.AttachSessionToolkit(Workspace, {});
@@ -445,7 +445,7 @@ TEST(FEditorWorkspaceManagerTests, OpensAndSwitchesMultiplePerResourceDocumentsI
 TEST(FEditorWorkspaceManagerTests, OpenAssetDocumentsRetainEveryAssetFamilyAndBlockRemovalUntilClosed)
 {
 	using namespace Durin;
-	using namespace Durin::Editor;
+	using namespace Durin;
 	Testing::InitializeAssetSystemForTests();
 	Testing::FScopedMountRegistryFixture Mounts;
 	Testing::RegisterMountPointForTests("/OpenDocumentTests/", Testing::GetTestWorkDirectory().generic_string() + "/");
@@ -498,7 +498,7 @@ TEST(FEditorWorkspaceManagerTests, OpenAssetDocumentsRetainEveryAssetFamilyAndBl
 TEST(FEditorWorkspaceManagerTests, DestroyingControllerReleasesOpenDocumentRootsWithoutSubsystem)
 {
 	using namespace Durin;
-	using namespace Durin::Editor;
+	using namespace Durin;
 	Testing::InitializeAssetSystemForTests();
 	Testing::FScopedMountRegistryFixture Mounts;
 	Testing::RegisterMountPointForTests("/UnregisterDocumentTests/", Testing::GetTestWorkDirectory().generic_string() + "/");
@@ -701,7 +701,7 @@ TEST(FEditorWorkspaceUITests, DocumentRootKeysRemainDistinctForSameNamedAssets)
 TEST(FEditorWorkspaceUITests, PreservesStableWorkspaceWindowAndDockIdentities)
 {
 	using namespace Durin;
-	using namespace Durin::Editor;
+	using namespace Durin;
 	const FAssetEditorToolkitId ToolkitId("LevelEditor");
 
 	EXPECT_EQ(TabLayout::MakeMainFrameDockSpaceName(2), "Durin.DockSpace.EditorHost.v2");
@@ -727,65 +727,65 @@ TEST(FEditorWorkspaceUITests, PreservesStableWorkspaceWindowAndDockIdentities)
 
 TEST(FAssetPickerTests, AppliesExactAndDerivedClassPolicies)
 {
-	EXPECT_TRUE(Durin::Editor::AssetPicker::MatchesClass(
+	EXPECT_TRUE(Durin::AssetPicker::MatchesClass(
 		Durin::DMaterialInstance::StaticClass(),
 		Durin::DMaterialInterface::StaticClass(),
-		Durin::Editor::EAssetClassPolicy::Derived
+		Durin::EAssetClassPolicy::Derived
 	));
-	EXPECT_FALSE(Durin::Editor::AssetPicker::MatchesClass(
+	EXPECT_FALSE(Durin::AssetPicker::MatchesClass(
 		Durin::DMaterialInstance::StaticClass(),
 		Durin::DMaterialInterface::StaticClass(),
-		Durin::Editor::EAssetClassPolicy::Exact
+		Durin::EAssetClassPolicy::Exact
 	));
-	EXPECT_TRUE(Durin::Editor::AssetPicker::MatchesClass(
+	EXPECT_TRUE(Durin::AssetPicker::MatchesClass(
 		Durin::DMaterialInterface::StaticClass(),
 		Durin::DMaterialInterface::StaticClass(),
-		Durin::Editor::EAssetClassPolicy::Exact
+		Durin::EAssetClassPolicy::Exact
 	));
-	EXPECT_TRUE(Durin::Editor::AssetPicker::MatchesClass(
+	EXPECT_TRUE(Durin::AssetPicker::MatchesClass(
 		Durin::DTexture2D::StaticClass(),
 		Durin::DTexture::StaticClass(),
-		Durin::Editor::EAssetClassPolicy::Derived
+		Durin::EAssetClassPolicy::Derived
 	));
-	EXPECT_TRUE(Durin::Editor::AssetPicker::MatchesClass(
+	EXPECT_TRUE(Durin::AssetPicker::MatchesClass(
 		Durin::DTextureCube::StaticClass(),
 		Durin::DTexture::StaticClass(),
-		Durin::Editor::EAssetClassPolicy::Derived
+		Durin::EAssetClassPolicy::Derived
 	));
-	EXPECT_FALSE(Durin::Editor::AssetPicker::MatchesClass(
+	EXPECT_FALSE(Durin::AssetPicker::MatchesClass(
 		Durin::DTexture::StaticClass(),
 		Durin::DTexture2D::StaticClass(),
-		Durin::Editor::EAssetClassPolicy::Derived
+		Durin::EAssetClassPolicy::Derived
 	));
 }
 
 TEST(FAssetPickerTests, UsesSoftPathForUnloadedCurrentSelection)
 {
 	EXPECT_EQ(
-		Durin::Editor::AssetPicker::GetAssetPathOrNone(nullptr, "/Game/Levels/Default.MainLevel", "None"),
+		Durin::AssetPicker::GetAssetPathOrNone(nullptr, "/Game/Levels/Default.MainLevel", "None"),
 		"/Game/Levels/Default.MainLevel"
 	);
-	EXPECT_EQ(Durin::Editor::AssetPicker::GetAssetPathOrNone(nullptr, {}, "None"), "None");
+	EXPECT_EQ(Durin::AssetPicker::GetAssetPathOrNone(nullptr, {}, "None"), "None");
 }
 
 TEST(FAssetPickerTests, CanPresentExactSelectionsAsPackagePaths)
 {
 	EXPECT_EQ(
-		Durin::Editor::AssetPicker::GetAssetPathDisplayName(
+		Durin::AssetPicker::GetAssetPathDisplayName(
 			"/Game/Levels/GrayboxStage15.GrayboxStage15",
-			Durin::Editor::EAssetPathDisplayMode::PackagePath),
+			Durin::EAssetPathDisplayMode::PackagePath),
 		"/Game/Levels/GrayboxStage15");
 	EXPECT_EQ(
-		Durin::Editor::AssetPicker::GetAssetPathDisplayName(
+		Durin::AssetPicker::GetAssetPathDisplayName(
 			"/Game/Levels/GrayboxStage15.GrayboxStage15",
-			Durin::Editor::EAssetPathDisplayMode::ExactAssetPath),
+			Durin::EAssetPathDisplayMode::ExactAssetPath),
 		"/Game/Levels/GrayboxStage15.GrayboxStage15");
 }
 
 TEST(FAssetPickerTests, DisplaysAssetNamesIndependentlyOfPackageNames)
 {
 	using namespace Durin;
-	using namespace Durin::Editor;
+	using namespace Durin;
 	EXPECT_EQ(FAssetPickerConfig{}.PathDisplayMode, EAssetPathDisplayMode::AssetName);
 	EXPECT_EQ(AssetPicker::GetAssetPathDisplayName(
 		"/Game/Props/Furniture.Chair", EAssetPathDisplayMode::AssetName), "Chair");
@@ -814,10 +814,10 @@ TEST(FAssetPickerTests, KeepsLoadedAssetsInTheSamePackageDistinct)
 	DObject* Table = NewObject<DObject>(Package, "Table");
 	ASSERT_NE(Chair, nullptr);
 	ASSERT_NE(Table, nullptr);
-	EXPECT_EQ(Editor::AssetPicker::GetAssetPathOrNone(Chair), "/AssetPickerTests/Furniture.Chair");
-	EXPECT_EQ(Editor::AssetPicker::GetAssetPathOrNone(Table), "/AssetPickerTests/Furniture.Table");
-	EXPECT_EQ(Editor::AssetPicker::GetAssetPathOrNone(Chair, {}, "None"), Chair->GetObjectPath());
-	EXPECT_EQ(Editor::AssetPicker::GetAssetPathOrNone(nullptr), "None");
+	EXPECT_EQ(AssetPicker::GetAssetPathOrNone(Chair), "/AssetPickerTests/Furniture.Chair");
+	EXPECT_EQ(AssetPicker::GetAssetPathOrNone(Table), "/AssetPickerTests/Furniture.Table");
+	EXPECT_EQ(AssetPicker::GetAssetPathOrNone(Chair, {}, "None"), Chair->GetObjectPath());
+	EXPECT_EQ(AssetPicker::GetAssetPathOrNone(nullptr), "None");
 	MarkObjectHierarchyAsGarbage(Package);
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
@@ -841,7 +841,7 @@ TEST(FAssetPickerTests, OpeningMaterialCandidatesCompletesPopupLayout)
 		.FormatVersion = 11, .ObjectCount = 1});
 	Publication.ReferenceFingerprints.emplace(PackagePath, FAssetPackageFingerprint{.ReaderVersion = 11});
 	ASSERT_TRUE(PublishAssetRegistryPublication(std::move(Publication)));
-	auto& ThumbnailManager = Editor::GetDefaultThumbnailManager();
+	auto& ThumbnailManager = GetDefaultThumbnailManager();
 	auto Registration = ThumbnailManager.RegisterScoped(
 		std::make_unique<FPickerThumbnailRenderer>());
 	ASSERT_TRUE(Registration) << Registration.error();
@@ -858,12 +858,12 @@ TEST(FAssetPickerTests, OpeningMaterialCandidatesCompletesPopupLayout)
 	{
 		ThumbnailPool.BeginFrame();
 		if (Frame > 1)
-			EXPECT_EQ(ThumbnailPool.Find(AssetPath).State, Editor::EAssetThumbnailState::Queued);
+			EXPECT_EQ(ThumbnailPool.Find(AssetPath).State, EAssetThumbnailState::Queued);
 		ImGui::NewFrame();
 		ImGui::SetNextWindowSize(ImVec2(400.0f, 300.0f));
 		ImGui::Begin("AssetPickerLayoutTest");
 		ImGui::OpenPopupEx(ImHashStr("##ComboPopup", 0, ImGui::GetID("##MaterialPicker")), 0);
-		const auto Result = Editor::AssetPicker::Draw({
+		const auto Result = AssetPicker::Draw({
 			.ComboId = "##MaterialPicker", .RequiredClass = DMaterial::StaticClass(),
 			.SearchText = Search,
 			.AssignSelection = [](DObject*, std::string&) { return true; },
@@ -877,25 +877,25 @@ TEST(FAssetPickerTests, OpeningMaterialCandidatesCompletesPopupLayout)
 		// visible rows start submitting requests on the following frame.
 		if (Frame > 0)
 		{
-			EXPECT_EQ(ThumbnailPool.Find(AssetPath).State, Editor::EAssetThumbnailState::Queued);
+			EXPECT_EQ(ThumbnailPool.Find(AssetPath).State, EAssetThumbnailState::Queued);
 			EXPECT_EQ(ThumbnailPool.GetStats().QueuedJobs, 1u);
 		}
 		EXPECT_EQ(ThumbnailPool.GetStats().Referencers, 0u);
 	}
-	EXPECT_EQ(Editor::GetDefaultThumbnailManager().GetSharedPool().GetStats().RetainedEntries, 1u);
+	EXPECT_EQ(GetDefaultThumbnailManager().GetSharedPool().GetStats().RetainedEntries, 1u);
 	ImGui::DestroyContext(Context);
-	Editor::GetDefaultThumbnailManager().ResetSharedPool();
+	GetDefaultThumbnailManager().ResetSharedPool();
 	Original.ExpectedRevision = GetAssetCatalogRevision();
 	EXPECT_TRUE(PublishAssetRegistryPublication(std::move(Original)));
 }
 
 TEST(FAssetPickerTests, FiltersCandidatesByPathPrefix)
 {
-	EXPECT_TRUE(Durin::Editor::AssetPicker::MatchesPathPrefix("/Engine/Materials/Default", {}));
-	EXPECT_TRUE(Durin::Editor::AssetPicker::MatchesPathPrefix("/Game/Levels/Default", "/Game/"));
-	EXPECT_TRUE(Durin::Editor::AssetPicker::MatchesPathPrefix("/Game/Levels/Default", "/Game/Levels/"));
-	EXPECT_FALSE(Durin::Editor::AssetPicker::MatchesPathPrefix("/Engine/Levels/Default", "/Game/"));
-	EXPECT_FALSE(Durin::Editor::AssetPicker::MatchesPathPrefix("/Gameplay/Levels/Default", "/Game/"));
+	EXPECT_TRUE(Durin::AssetPicker::MatchesPathPrefix("/Engine/Materials/Default", {}));
+	EXPECT_TRUE(Durin::AssetPicker::MatchesPathPrefix("/Game/Levels/Default", "/Game/"));
+	EXPECT_TRUE(Durin::AssetPicker::MatchesPathPrefix("/Game/Levels/Default", "/Game/Levels/"));
+	EXPECT_FALSE(Durin::AssetPicker::MatchesPathPrefix("/Engine/Levels/Default", "/Game/"));
+	EXPECT_FALSE(Durin::AssetPicker::MatchesPathPrefix("/Gameplay/Levels/Default", "/Game/"));
 }
 
 // Exercise real ImGui modal lifetime across host frames, including cancellation.
@@ -910,7 +910,7 @@ TEST(FSlowTaskDialogTests, ShowsProgressBlocksInputAndClosesBeforeTheNextLoad)
 	IO.DeltaTime = 1.0f / 60.0f;
 	IO.Fonts->Build();
 	FFeedbackContext Feedback;
-	Editor::FSlowTaskDialogPresenter Presenter;
+	FSlowTaskDialogPresenter Presenter;
 	auto Task = std::make_unique<FSlowTask>(0, "Opening Target...", Feedback);
 	Task->MakeDialog(true);
 	ImVec2 CancelPosition;
@@ -966,7 +966,7 @@ TEST(FSlowTaskDialogTests, IdlePresenterDoesNotOpenAModal)
 	ImGui::NewFrame();
 	ImGui::Begin("LoadingDialogHost");
 	Durin::FFeedbackContext Feedback;
-	Durin::Editor::FSlowTaskDialogPresenter Presenter;
+	Durin::FSlowTaskDialogPresenter Presenter;
 	EXPECT_FALSE(Presenter.Draw(Feedback));
 	EXPECT_EQ(ImGui::GetTopMostPopupModal(), nullptr);
 	ImGui::End();
@@ -985,7 +985,7 @@ TEST(FSlowTaskDialogTests, DelaysPresentationAndClosesOnCompletionWithALiveTask)
 	double Now = 0;
 	Durin::FFeedbackContext Feedback([&] { return Now; });
 	Durin::FSlowTask Task(100, "Preparing workspace", Feedback);
-	Durin::Editor::FSlowTaskDialogPresenter Presenter;
+	Durin::FSlowTaskDialogPresenter Presenter;
 	Task.MakeDialogDelayed(0.25);
 	auto Frame = [&](bool bExpectedModal) {
 		ImGui::NewFrame();
@@ -1005,7 +1005,7 @@ TEST(FSlowTaskDialogTests, DelaysPresentationAndClosesOnCompletionWithALiveTask)
 	// Startup presentation uses the same snapshot without opening a modal.
 	ImGui::NewFrame();
 	ImGui::Begin("StartupHost");
-	EXPECT_FALSE(Durin::Editor::DrawSlowTaskProgress(*Task.GetSnapshot()));
+	EXPECT_FALSE(Durin::DrawSlowTaskProgress(*Task.GetSnapshot()));
 	EXPECT_EQ(ImGui::GetTopMostPopupModal(), nullptr);
 	ImGui::End();
 	ImGui::Render();
@@ -1026,7 +1026,7 @@ TEST(FSlowTaskDialogTests, InlineSnapshotRoutesCancelAndCanHideUnavailableTiming
 		ImGui::NewFrame();
 		ImGui::SetNextWindowSize(ImVec2(440.0f, 220.0f));
 		ImGui::Begin("InlineProgress");
-		const bool bClicked = Durin::Editor::DrawSlowTaskProgress(Progress, true, false);
+		const bool bClicked = Durin::DrawSlowTaskProgress(Progress, true, false);
 		CancelPosition = Context->LastItemData.Rect.GetCenter();
 		EXPECT_EQ((Context->LastItemData.ItemFlags & ImGuiItemFlags_Disabled) != 0, Progress.bCancelRequested);
 		EXPECT_EQ(ImGui::GetTopMostPopupModal(), nullptr);
@@ -1058,7 +1058,7 @@ TEST(FSlowTaskDialogTests, StartupProgressWithoutFooterDoesNotExtendWindowWithAn
 	ImGui::NewFrame();
 	ImGui::Begin("StartupProgress");
 	ImGui::SetCursorPos(ImVec2(320.0f, 250.0f));
-	EXPECT_FALSE(Durin::Editor::DrawSlowTaskProgress({.Message = "Starting editor..."}, false, false));
+	EXPECT_FALSE(Durin::DrawSlowTaskProgress({.Message = "Starting editor..."}, false, false));
 	EXPECT_FALSE(ImGui::GetCurrentWindow()->DC.IsSetPos);
 	ImGui::End();
 	ImGui::Render();
@@ -1074,7 +1074,7 @@ TEST(FSlowTaskDialogTests, ProjectedModalReturnsCancelAndClosesWithoutTaskState)
 	IO.DisplaySize = ImVec2(1000.0f, 700.0f);
 	IO.DeltaTime = 1.0f / 60.0f;
 	IO.Fonts->Build();
-	Editor::FSlowTaskDialogPresenter Presenter;
+	FSlowTaskDialogPresenter Presenter;
 	std::optional<FSlowTaskSnapshot> Feedback = FSlowTaskSnapshot{
 		.Title = "Opening Target...", .Message = "Loading assets", .ElapsedSeconds = 1.25, .bCanCancel = true};
 	ImVec2 CancelPosition;

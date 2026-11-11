@@ -34,7 +34,7 @@
 #include "SkyBoxPlacement.h"
 #include "Texture/TextureCube.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	namespace
 	{
@@ -624,4 +624,4 @@ namespace Durin::Editor::Level
 			ViewportWidget->SetDesiredSize({AvailableSize.x, AvailableSize.y});
 		}
 	}
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

@@ -6,7 +6,7 @@
 #include "Toolkits/AssetEditor.h"
 #include "TextureAssetDefinition.gen.h"
 
-namespace Durin::Editor::Texture
+namespace Durin::TextureEditor
 {
 	// Texture sessions are constructed on demand rather than registered as shared workspaces.
 	DCLASS(NoClassDefaultObject)

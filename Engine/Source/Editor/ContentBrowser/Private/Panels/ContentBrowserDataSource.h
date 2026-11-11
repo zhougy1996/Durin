@@ -13,7 +13,7 @@
 #include "Panels/ContentBrowserItemDiscovery.h"
 #include "Operations/ContentDeletionOperation.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	// Owns capture preparation, item policy, mutations and deletion sessions for one browser.
 	class FContentBrowserDataSource
@@ -103,4 +103,4 @@ namespace Durin::Editor::ContentBrowser::Private
 		bool bAccepting = true;
 		std::function<void(FContentChangeBatch)> ItemUpdates;
 	};
-} // namespace Durin::Editor::ContentBrowser::Private
+} // namespace Durin::ContentBrowser::Private

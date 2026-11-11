@@ -4,7 +4,7 @@
 
 #include "Panels/ContentBrowserDataTypes.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	// Query settings carry no filesystem or registry ownership.
 	struct FContentBrowserQuerySettings

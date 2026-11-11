@@ -1,7 +1,7 @@
 #include "Feedback/SlowTaskWidget.h"
 #include "MonaImGui.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	auto DrawSlowTaskProgress(const FSlowTaskSnapshot& Task, bool bShowCancel, bool bShowElapsed) -> bool
 	{

@@ -7,12 +7,12 @@
 #include "Runtime/MonaImGui/Private/Backend/ImGuiRHIDrawState.h"
 #include "Runtime/MonaImGui/Private/Backend/ImGuiRHIBufferCapacity.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	static_assert(!std::is_copy_constructible_v<
-		::Durin::Editor::ContentBrowser::FScopedExtensionRegistration>);
+		::Durin::ContentBrowser::FScopedExtensionRegistration>);
 	static_assert(std::is_move_constructible_v<
-		::Durin::Editor::ContentBrowser::FScopedExtensionRegistration>);
+		::Durin::ContentBrowser::FScopedExtensionRegistration>);
 	TEST(FEditorUILayoutTests, SelectsResponsiveModeAtBoundaries)
 	{
 		EXPECT_EQ(ResolveEditorUILayout(-1.0f, 520.0f, 780.0f), EEditorUILayoutMode::Narrow);
@@ -300,7 +300,7 @@ namespace Durin::Editor::Level
 		EXPECT_FLOAT_EQ(TreeRowHeight, ImGui::GetFrameHeight());
 		ImGui::DestroyContext(Context);
 	}
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor
 
 TEST(FImGuiRHIDrawStateTests, RepeatedDrawsReuseBindingsAndStateChangesRemainIndependent)
 {

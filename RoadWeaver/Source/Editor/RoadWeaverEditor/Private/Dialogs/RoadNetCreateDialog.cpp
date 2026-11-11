@@ -63,7 +63,7 @@ namespace Durin::RoadNet::Editor
 			"Choose...", BrowseButtonWidth))
 			BrowseDestination();
 
-		const ::Durin::Editor::FAssetDestinationValidation DestinationValidation =
+		const ::Durin::FAssetDestinationValidation DestinationValidation =
 			Destination.Inspect();
 		const bool bParametersValid = std::isfinite(RoadLengthMeters)
 			&& RoadLengthMeters > 0.0 && LanesPerDirection >= 1
@@ -72,12 +72,12 @@ namespace Durin::RoadNet::Editor
 			&& SpeedLimitKilometersPerHour > 0.0
 			&& std::isfinite(PlanetRadiusMeters) && PlanetRadiusMeters >= 1.0 && PlanetRadiusMeters <= RoadCoordinateLimit
 			&& (!bSpherical || RoadLengthMeters < Math::Pi<double>() * PlanetRadiusMeters);
-		if (!::Durin::Editor::FormatAssetDestinationValidation(DestinationValidation).empty())
-			::Durin::Editor::DrawImportDialogWarning(::Durin::Editor::FormatAssetDestinationValidation(DestinationValidation));
+		if (!::Durin::FormatAssetDestinationValidation(DestinationValidation).empty())
+			::Durin::DrawImportDialogWarning(::Durin::FormatAssetDestinationValidation(DestinationValidation));
 		else if (!bParametersValid)
-			::Durin::Editor::DrawImportDialogWarning(
+			::Durin::DrawImportDialogWarning(
 				"Use positive road dimensions and speed, 1 to 16 lanes, radius 1 to 10000000 m, and a spherical arc shorter than half a circumference.");
-		::Durin::Editor::DrawImportDialogWarning(SubmissionError);
+		::Durin::DrawImportDialogWarning(SubmissionError);
 
 		ImGui::Spacing();
 		ImGui::Separator();
@@ -99,11 +99,11 @@ namespace Durin::RoadNet::Editor
 	auto FRoadNetCreateDialog::CreateAsset() -> bool
 	{
 		SubmissionError.clear();
-		const ::Durin::Editor::FAssetDestinationValidation DestinationValidation =
+		const ::Durin::FAssetDestinationValidation DestinationValidation =
 			Destination.Inspect();
 		if (!DestinationValidation)
 		{
-			SetError(::Durin::Editor::FormatAssetDestinationValidation(DestinationValidation));
+			SetError(::Durin::FormatAssetDestinationValidation(DestinationValidation));
 			return false;
 		}
 		const FPackagePath& PackagePath = DestinationValidation.AssetPath;
@@ -198,7 +198,7 @@ namespace Durin::RoadNet::Editor
 
 	void FRoadNetCreateDialog::BrowseDestination()
 	{
-		::Durin::Editor::FImportDialogCallbacks DialogCallbacks{
+		::Durin::FImportDialogCallbacks DialogCallbacks{
 			.ReportError = [this](std::string Message) {
 				SetError(std::move(Message));
 			}};

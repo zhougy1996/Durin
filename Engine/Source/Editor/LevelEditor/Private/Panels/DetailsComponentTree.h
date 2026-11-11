@@ -12,7 +12,7 @@ namespace Durin
 	class DSceneComponent;
 }
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	struct FLevelEditorContext;
 
@@ -32,4 +32,4 @@ namespace Durin::Editor::Level
 		FEditorRenameDialog RenameDialog;
 		bool bAddComponentAsChild = false;
 	};
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

@@ -10,7 +10,7 @@
 #include "Documents/EditorDocumentManager.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	MMaterialParameterCollectionEditor::MMaterialParameterCollectionEditor(FEditorDocumentManager& InManager) : Manager(InManager)
 	{ if (auto* Service = Manager.GetAssetEditorSubsystem()) Documents.BindEditor(Service->GetEditor()); }

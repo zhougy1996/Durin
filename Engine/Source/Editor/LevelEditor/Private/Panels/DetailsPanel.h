@@ -16,7 +16,7 @@ namespace Durin
 	class FProperty;
 }
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	class FLevelEditorSessionSettings;
 
@@ -42,4 +42,4 @@ namespace Durin::Editor::Level
 		FDetailsComponentTree ComponentTree;
 		float ComponentPaneRatio;
 	};
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

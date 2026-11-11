@@ -56,7 +56,7 @@
 
 namespace
 {
-	class FCountingTransaction final : public Durin::Editor::FActorCommandChange
+	class FCountingTransaction final : public Durin::FActorCommandChange
 	{
 	public:
 		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
@@ -68,7 +68,7 @@ namespace
 		{
 			return Operation == ::Durin::ETransactionOperation::Undo ? "Counter changed backward" : "Counter changed forward";
 		}
-		auto Replay(::Durin::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
+		auto Replay(::Durin::ETransactionOperation Operation) -> Durin::FActorChangeResult override
 		{
 			if (Operation == ::Durin::ETransactionOperation::Undo)
 			{
@@ -88,7 +88,7 @@ namespace
 		bool bFailUndo = false;
 		bool bFailRedo = false;
 	};
-	class FControlledTransaction final : public Durin::Editor::FActorCommandChange
+	class FControlledTransaction final : public Durin::FActorCommandChange
 	{
 	public:
 		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
@@ -96,17 +96,17 @@ namespace
 
 		FControlledTransaction(int& InValue, FTransactionControl& InControl) : Value(InValue), Control(InControl) {}
 		auto GetDescription() const -> std::string_view override { return "Controlled"; }
-		auto Replay(::Durin::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
+		auto Replay(::Durin::ETransactionOperation Operation) -> Durin::FActorChangeResult override
 		{
 			if (Operation == ::Durin::ETransactionOperation::Undo)
 			{
-				if (Control.bFailUndo) return {{.Code = Durin::Editor::EActorChangeError::InjectedMutation}};
+				if (Control.bFailUndo) return {{.Code = Durin::EActorChangeError::InjectedMutation}};
 				--Value;
 				return {};
 			}
 			else
 			{
-				if (Control.bFailRedo) return {{.Code = Durin::Editor::EActorChangeError::InjectedMutation}};
+				if (Control.bFailRedo) return {{.Code = Durin::EActorChangeError::InjectedMutation}};
 				++Value;
 				return {};
 			}
@@ -116,7 +116,7 @@ namespace
 		FTransactionControl& Control;
 	};
 
-	class FPackageCountingTransaction final : public Durin::Editor::FActorCommandChange
+	class FPackageCountingTransaction final : public Durin::FActorCommandChange
 	{
 	public:
 		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
@@ -137,17 +137,17 @@ namespace
 
 		auto GetDescription() const -> std::string_view override { return "Package Counting"; }
 		auto GetAffectedPackages() const -> std::span<Durin::DPackage* const> override { return Packages; }
-		auto Replay(::Durin::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
+		auto Replay(::Durin::ETransactionOperation Operation) -> Durin::FActorChangeResult override
 		{
 			if (Operation == ::Durin::ETransactionOperation::Undo)
 			{
-				if (Control && Control->bFailUndo) return {{.Code = Durin::Editor::EActorChangeError::InjectedMutation}};
+				if (Control && Control->bFailUndo) return {{.Code = Durin::EActorChangeError::InjectedMutation}};
 				Value -= Delta;
 				return {};
 			}
 			else
 			{
-				if (Control && Control->bFailRedo) return {{.Code = Durin::Editor::EActorChangeError::InjectedMutation}};
+				if (Control && Control->bFailRedo) return {{.Code = Durin::EActorChangeError::InjectedMutation}};
 				Value += Delta;
 				return {};
 			}
@@ -199,7 +199,7 @@ namespace
 		return Durin::FHitProxyMap::Create(Width, Height, std::move(Pixels));
 	}
 
-	class FCaptureHitProxyBackend final : public Durin::Editor::Level::IViewportPickingBackend
+	class FCaptureHitProxyBackend final : public Durin::LevelEditor::IViewportPickingBackend
 	{
 	public:
 		Durin::FHitProxyRenderRequest Captured;
@@ -210,7 +210,7 @@ namespace
 		}
 	};
 
-	class FTestComponentVisualizer final : public Durin::Editor::Level::IComponentEditorVisualizer
+	class FTestComponentVisualizer final : public Durin::LevelEditor::IComponentEditorVisualizer
 	{
 	public:
 		explicit FTestComponentVisualizer(int* InDrawCount = nullptr)
@@ -218,7 +218,7 @@ namespace
 		{
 		}
 
-		auto DrawVisualization(Durin::DActorComponent* Component, const Durin::Editor::Level::FEditorVisualizationContext&, Durin::Editor::Level::FEditorVisualizationCollector& Collector) const -> void override
+		auto DrawVisualization(Durin::DActorComponent* Component, const Durin::LevelEditor::FEditorVisualizationContext&, Durin::LevelEditor::FEditorVisualizationCollector& Collector) const -> void override
 		{
 			if (DrawCount) ++*DrawCount;
 			auto* SceneComponent = Durin::Cast<Durin::DSceneComponent>(Component);
@@ -232,31 +232,31 @@ namespace
 		int* DrawCount = nullptr;
 	};
 
-	class FTestActorVisualizer final : public Durin::Editor::Level::IActorEditorVisualizer
+	class FTestActorVisualizer final : public Durin::LevelEditor::IActorEditorVisualizer
 	{
 	public:
-		auto DrawVisualization(Durin::AActor*, const Durin::Editor::Level::FEditorVisualizationContext&,
-			Durin::Editor::Level::FEditorVisualizationCollector&) const -> void override
+		auto DrawVisualization(Durin::AActor*, const Durin::LevelEditor::FEditorVisualizationContext&,
+			Durin::LevelEditor::FEditorVisualizationCollector&) const -> void override
 		{
 		}
 	};
 
-	class FTestDetailsCustomization final : public Durin::Editor::IDetailCustomization
+	class FTestDetailsCustomization final : public Durin::IDetailCustomization
 	{
 	public:
-		auto CustomizeDetails(Durin::Editor::IDetailLayoutBuilder&) -> void override {}
+		auto CustomizeDetails(Durin::IDetailLayoutBuilder&) -> void override {}
 	};
 
 	struct FCustomizationGuard
 	{
-		Durin::Editor::Level::FLevelEditorCustomizationHandle Handle;
-		~FCustomizationGuard() { if (Handle) Durin::Editor::Level::FLevelEditorCustomizationRegistry::Get().Unregister(Handle); }
+		Durin::LevelEditor::FLevelEditorCustomizationHandle Handle;
+		~FCustomizationGuard() { if (Handle) Durin::LevelEditor::FLevelEditorCustomizationRegistry::Get().Unregister(Handle); }
 	};
 
 	struct FDetailCustomizationGuard
 	{
-		Durin::Editor::FDetailCustomizationHandle Handle;
-		~FDetailCustomizationGuard() { if (Handle) Durin::Editor::FDetailCustomizationRegistry::Get().Unregister(Handle); }
+		Durin::FDetailCustomizationHandle Handle;
+		~FDetailCustomizationGuard() { if (Handle) Durin::FDetailCustomizationRegistry::Get().Unregister(Handle); }
 	};
 
 	class FTestEngine final : public Durin::DEngine

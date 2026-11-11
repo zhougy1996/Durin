@@ -38,7 +38,7 @@ namespace
 
 	auto MakeRequest(
 		const Durin::FPackageData& Data,
-		uint64 Serial = 1) -> Durin::Editor::FAssetThumbnailRequest
+		uint64 Serial = 1) -> Durin::FAssetThumbnailRequest
 	{
 		return {
 			.Asset = {
@@ -48,17 +48,17 @@ namespace
 				.PackageFormatVersion = Data.FormatVersion,
 				.FileSize = static_cast<uint64>(Data.FileSize),
 				.LastWriteTimeTicks = Data.LastWriteTimeTicks},
-			.Priority = Durin::Editor::EAssetThumbnailPriority::Visible,
+			.Priority = Durin::EAssetThumbnailPriority::Visible,
 			.RequestSerial = Serial};
 	}
 
 	auto CaptureKey(
-		Durin::Editor::Material::DMaterialThumbnailRenderer& Renderer,
+		Durin::MaterialEditor::DMaterialThumbnailRenderer& Renderer,
 		const Durin::FPackageData& Data,
-		Durin::Editor::FAssetThumbnailGenerationRequest& OutRequest,
+		Durin::FAssetThumbnailGenerationRequest& OutRequest,
 		std::string& OutError) -> std::string
 	{
-		const Durin::Editor::FThumbnailRenderingInfo Registration =
+		const Durin::FThumbnailRenderingInfo Registration =
 			Renderer.GetRegistration();
 		auto CaptureResult = Renderer.CaptureGenerationRequest(
 				MakeRequest(Data), 7);
@@ -72,16 +72,16 @@ namespace
 		OutRequest.KeyInput.RendererName = Registration.RendererName;
 		OutRequest.KeyInput.GeneratorSchemaVersion =
 			Registration.GeneratorSchemaVersion;
-		return Durin::Editor::BuildAssetThumbnailCacheKey(OutRequest.KeyInput);
+		return Durin::BuildAssetThumbnailCacheKey(OutRequest.KeyInput);
 	}
 
 	auto ContainsDependency(
-		const Durin::Editor::FAssetThumbnailGenerationRequest& Request,
+		const Durin::FAssetThumbnailGenerationRequest& Request,
 		std::string_view Path) -> bool
 	{
 		return std::ranges::any_of(
 			Request.KeyInput.Dependencies,
-			[Path](const Durin::Editor::FAssetThumbnailPackageFingerprint& Dependency) {
+			[Path](const Durin::FAssetThumbnailPackageFingerprint& Dependency) {
 				return Dependency.PackagePath.GetView() == Path;
 			});
 	}
@@ -91,7 +91,7 @@ TEST(FMaterialThumbnailRendererTests, ModuleStartupPublishesIndependentRenderers
 {
 	InitializeDObjectSystem();
 	Durin::FEditorDocumentManager Manager;
-	auto& ThumbnailManager = Durin::Editor::GetDefaultThumbnailManager();
+	auto& ThumbnailManager = Durin::GetDefaultThumbnailManager();
 	Durin::FMaterialEditorModule Module;
 	Durin::FModuleTestHarness Harness("MaterialEditor");
 	Harness.Start(Module);
@@ -110,17 +110,17 @@ TEST(FMaterialThumbnailRendererTests, RendererConflictDoesNotAffectIndependentMo
 	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
 		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	Durin::FEditorDocumentManager Manager;
-	Durin::Editor::DThumbnailManager ThumbnailManager;
+	Durin::DThumbnailManager ThumbnailManager;
 	std::string Error;
 	auto Existing = ThumbnailManager.RegisterScoped(
-		std::make_unique<Durin::Editor::Material::DMaterialThumbnailRenderer>(
+		std::make_unique<Durin::MaterialEditor::DMaterialThumbnailRenderer>(
 			Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString()));
 	ASSERT_TRUE(Existing) << Existing.error();
 	Durin::FMaterialEditorModule Module;
 	Durin::FModuleTestHarness ModuleHarness("MaterialEditor");
 	ModuleHarness.Start(Module);
-	EXPECT_FALSE(ThumbnailManager.RegisterScoped(std::make_unique<Durin::Editor::Material::DMaterialThumbnailRenderer>(Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString())));
-	EXPECT_TRUE(Durin::Editor::GetDefaultThumbnailManager().Find(Durin::DMaterial::StaticClass()->GetQualifiedName().ToString()));
+	EXPECT_FALSE(ThumbnailManager.RegisterScoped(std::make_unique<Durin::MaterialEditor::DMaterialThumbnailRenderer>(Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString())));
+	EXPECT_TRUE(Durin::GetDefaultThumbnailManager().Find(Durin::DMaterial::StaticClass()->GetQualifiedName().ToString()));
 	EXPECT_FALSE(ThumbnailManager.Find(
 		Durin::DMaterial::StaticClass()->GetQualifiedName().ToString()));
 	EXPECT_TRUE(ThumbnailManager.Find(
@@ -149,14 +149,14 @@ TEST(FMaterialThumbnailRendererTests, RendererCapturesSortedTransitiveMaterialDe
 	ASSERT_NE(MaterialData, nullptr);
 	ASSERT_NE(InstanceData, nullptr);
 
-	Durin::Editor::Material::DMaterialThumbnailRenderer MaterialRenderer(
+	Durin::MaterialEditor::DMaterialThumbnailRenderer MaterialRenderer(
 		Durin::DMaterial::StaticClass()->GetQualifiedName().ToString());
-	Durin::Editor::Material::DMaterialThumbnailRenderer InstanceRenderer(
+	Durin::MaterialEditor::DMaterialThumbnailRenderer InstanceRenderer(
 		Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString());
 	EXPECT_EQ(
 		MaterialRenderer.GetRegistration().GeneratorSchemaVersion, 6u);
-	Durin::Editor::FAssetThumbnailGenerationRequest MaterialRequest;
-	Durin::Editor::FAssetThumbnailGenerationRequest InstanceRequest;
+	Durin::FAssetThumbnailGenerationRequest MaterialRequest;
+	Durin::FAssetThumbnailGenerationRequest InstanceRequest;
 	const std::string MaterialKey =
 		CaptureKey(MaterialRenderer, *MaterialData, MaterialRequest, Error);
 	ASSERT_FALSE(MaterialKey.empty()) << Error;
@@ -178,12 +178,12 @@ TEST(FMaterialThumbnailRendererTests, RendererCapturesSortedTransitiveMaterialDe
 		Durin::Tests::FAssetThumbnailFixtureSet::OverrideTexturePath));
 	EXPECT_NE(MaterialKey, InstanceKey);
 
-	Durin::Editor::FAssetThumbnailKeyInput ChangedDependency = InstanceRequest.KeyInput;
+	Durin::FAssetThumbnailKeyInput ChangedDependency = InstanceRequest.KeyInput;
 	ASSERT_FALSE(ChangedDependency.Dependencies.empty());
 	++ChangedDependency.Dependencies.front().LastWriteTimeTicks;
 	EXPECT_NE(
-		Durin::Editor::BuildAssetThumbnailCacheKey(ChangedDependency),
-		Durin::Editor::BuildAssetThumbnailCacheKey(InstanceRequest.KeyInput));
+		Durin::BuildAssetThumbnailCacheKey(ChangedDependency),
+		Durin::BuildAssetThumbnailCacheKey(InstanceRequest.KeyInput));
 }
 
 TEST(FMaterialThumbnailRendererTests, RendererRejectsMissingRegistryData)
@@ -192,9 +192,9 @@ TEST(FMaterialThumbnailRendererTests, RendererRejectsMissingRegistryData)
 	Durin::FPackagePath MissingPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/ThumbnailFixtures/Materials/M_Missing", MissingPath));
-	Durin::Editor::Material::DMaterialThumbnailRenderer Renderer(
+	Durin::MaterialEditor::DMaterialThumbnailRenderer Renderer(
 		Durin::DMaterial::StaticClass()->GetQualifiedName().ToString());
-	Durin::Editor::FAssetThumbnailGenerationRequest Captured;
+	Durin::FAssetThumbnailGenerationRequest Captured;
 	std::string Error;
 	auto CapturedResult = Renderer.CaptureGenerationRequest({
 		.Asset = {
@@ -205,7 +205,7 @@ TEST(FMaterialThumbnailRendererTests, RendererRejectsMissingRegistryData)
 			.PackageFormatVersion = 1,
 			.FileSize = 1,
 			.LastWriteTimeTicks = 1},
-		.Priority = Durin::Editor::EAssetThumbnailPriority::Visible,
+		.Priority = Durin::EAssetThumbnailPriority::Visible,
 		.RequestSerial = 1}, 1);
 	ASSERT_FALSE(CapturedResult);
 	EXPECT_NE(CapturedResult.error().find(MissingPath.ToString()), std::string::npos);
@@ -288,19 +288,19 @@ TEST(FMaterialThumbnailRendererTests, InvalidInstancePublishesOneStableDiagnosti
 		Durin::FindPackageExact(InvalidPath);
 	ASSERT_NE(Data, nullptr);
 
-	Durin::Editor::DThumbnailManager ThumbnailManager;
+	Durin::DThumbnailManager ThumbnailManager;
 	auto Handle = ThumbnailManager.RegisterScoped(
-		std::make_unique<Durin::Editor::Material::DMaterialThumbnailRenderer>(
+		std::make_unique<Durin::MaterialEditor::DMaterialThumbnailRenderer>(
 			Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString()));
 	ASSERT_TRUE(Handle) << Handle.error();
-	Durin::Editor::FAssetThumbnailPool Cache(ThumbnailManager);
+	Durin::FAssetThumbnailPool Cache(ThumbnailManager);
 	Durin::ProcessAsyncLoading();
 	Cache.BeginFrame();
-	Cache.Request(MakeRequest(*Data).Asset, Durin::Editor::EAssetThumbnailPriority::Visible);
+	Cache.Request(MakeRequest(*Data).Asset, Durin::EAssetThumbnailPriority::Visible);
 	Cache.EndFrame();
 	// The cache lookup completes asynchronously before renderer validation runs.
 	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-	while (Cache.Find(MakeAssetPath(InvalidPath)).State != Durin::Editor::EAssetThumbnailState::Failed
+	while (Cache.Find(MakeAssetPath(InvalidPath)).State != Durin::EAssetThumbnailState::Failed
 		&& std::chrono::steady_clock::now() < Deadline)
 	{
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -308,16 +308,16 @@ TEST(FMaterialThumbnailRendererTests, InvalidInstancePublishesOneStableDiagnosti
 		Cache.BeginFrame();
 		Cache.EndFrame();
 	}
-	const Durin::Editor::FAssetThumbnailView First = Cache.Find(MakeAssetPath(InvalidPath));
-	ASSERT_EQ(First.State, Durin::Editor::EAssetThumbnailState::Failed);
+	const Durin::FAssetThumbnailView First = Cache.Find(MakeAssetPath(InvalidPath));
+	ASSERT_EQ(First.State, Durin::EAssetThumbnailState::Failed);
 	EXPECT_NE(First.Diagnostic.find("parent"), std::string::npos) << First.Diagnostic;
 
 	Durin::ProcessAsyncLoading();
 	Cache.BeginFrame();
-	Cache.Request(MakeRequest(*Data).Asset, Durin::Editor::EAssetThumbnailPriority::Visible);
+	Cache.Request(MakeRequest(*Data).Asset, Durin::EAssetThumbnailPriority::Visible);
 	Cache.EndFrame();
-	const Durin::Editor::FAssetThumbnailView Repeated = Cache.Find(MakeAssetPath(InvalidPath));
-	EXPECT_EQ(Repeated.State, Durin::Editor::EAssetThumbnailState::Failed);
+	const Durin::FAssetThumbnailView Repeated = Cache.Find(MakeAssetPath(InvalidPath));
+	EXPECT_EQ(Repeated.State, Durin::EAssetThumbnailState::Failed);
 	EXPECT_EQ(Repeated.Diagnostic, First.Diagnostic);
 }
 
@@ -349,19 +349,19 @@ TEST(FMaterialThumbnailRendererTests,
 	ASSERT_NE(Material, nullptr);
 	ASSERT_NE(Material->GetPackage(), nullptr);
 
-	Durin::Editor::Material::DMaterialThumbnailRenderer Renderer(
+	Durin::MaterialEditor::DMaterialThumbnailRenderer Renderer(
 		Durin::DMaterial::StaticClass()->GetQualifiedName().ToString());
-	Durin::Editor::FAssetThumbnailGenerationRequest Request;
+	Durin::FAssetThumbnailGenerationRequest Request;
 	ASSERT_FALSE(CaptureKey(Renderer, *MaterialData, Request, Error).empty())
 		<< Error;
 	auto Session = Renderer.CreateGenerationSession(
 		Request, *Request.Input);
 	ASSERT_TRUE(Session) << Session.error();
 	ASSERT_NE(*Session, nullptr);
-	const Durin::Editor::FThumbnailRendererSessionUpdate Loaded =
+	const Durin::FThumbnailRendererSessionUpdate Loaded =
 		(*Session)->Load();
 	ASSERT_EQ(Loaded.State,
-		Durin::Editor::EThumbnailRendererSessionState::WaitingForResources)
+		Durin::EThumbnailRendererSessionState::WaitingForResources)
 		<< Loaded.Diagnostic;
 	EXPECT_FALSE((*Session)->ValidatePreparedInput());
 	(*Session)->ResetPreview();
@@ -402,7 +402,7 @@ TEST(FMaterialThumbnailRendererTests,
 
 	Durin::FSoftObjectPath SpherePath;
 	ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate(
-		Durin::Editor::FThumbnailVisualContract::SphereAssetPath, SpherePath));
+		Durin::FThumbnailVisualContract::SphereAssetPath, SpherePath));
 	Durin::DObject* SphereObject = nullptr;
 	{
 		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DObject>(SpherePath);
@@ -412,9 +412,9 @@ TEST(FMaterialThumbnailRendererTests,
 	auto* Sphere = Durin::Cast<Durin::DStaticMesh>(SphereObject);
 	ASSERT_NE(Sphere, nullptr);
 
-	Durin::Editor::Material::DMaterialThumbnailRenderer Renderer(
+	Durin::MaterialEditor::DMaterialThumbnailRenderer Renderer(
 		Durin::DMaterial::StaticClass()->GetQualifiedName().ToString());
-	Durin::Editor::FAssetThumbnailGenerationRequest Request;
+	Durin::FAssetThumbnailGenerationRequest Request;
 	ASSERT_FALSE(CaptureKey(Renderer, *MaterialData, Request, Error).empty())
 		<< Error;
 	auto Session = Renderer.CreateGenerationSession(
@@ -422,18 +422,18 @@ TEST(FMaterialThumbnailRendererTests,
 	ASSERT_TRUE(Session) << Session.error();
 	ASSERT_NE(*Session, nullptr);
 	ASSERT_EQ((*Session)->Load().State,
-		Durin::Editor::EThumbnailRendererSessionState::WaitingForResources);
+		Durin::EThumbnailRendererSessionState::WaitingForResources);
 
 	Durin::ProcessAsyncLoading(100.0, 16);
 	EXPECT_EQ((*Session)->PollResources().State,
-		Durin::Editor::EThumbnailRendererSessionState::WaitingForResources);
+		Durin::EThumbnailRendererSessionState::WaitingForResources);
 	Durin::ProcessAsyncLoading(100.0, 16);
 	ASSERT_TRUE(Durin::RequestMaterialRecompile(*Material, true));
 	ASSERT_FALSE(Material->GetMaterialCompileStatus().IsCurrent());
-	const Durin::Editor::FThumbnailRendererSessionUpdate Compiling =
+	const Durin::FThumbnailRendererSessionUpdate Compiling =
 		(*Session)->PollResources();
 	EXPECT_EQ(Compiling.State,
-		Durin::Editor::EThumbnailRendererSessionState::WaitingForResources)
+		Durin::EThumbnailRendererSessionState::WaitingForResources)
 		<< Compiling.Diagnostic;
 
 	(void)Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
@@ -445,7 +445,7 @@ TEST(FMaterialThumbnailRendererTests,
 		Durin::EStaticMeshRenderResourceReadiness::Unavailable);
 	const auto SphereCompiling = (*Session)->PollResources();
 	EXPECT_EQ(SphereCompiling.State,
-		Durin::Editor::EThumbnailRendererSessionState::WaitingForResources)
+		Durin::EThumbnailRendererSessionState::WaitingForResources)
 		<< SphereCompiling.Diagnostic;
 	EXPECT_TRUE(SphereCompiling.Diagnostic.empty());
 	(void)Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Sphere);

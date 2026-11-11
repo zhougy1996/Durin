@@ -3,7 +3,7 @@
 #include "MonaImGui.h"
 #include "Widgets/MonaImGuiPropertyTable.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	auto DrawDetailPanel(FPropertyView& View, const FPropertyViewContext& Context,
 		DObject* Object, const FDetailPanelOptions& Options) -> FDetailPanelResult

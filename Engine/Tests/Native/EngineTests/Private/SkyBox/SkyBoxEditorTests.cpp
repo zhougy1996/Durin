@@ -21,8 +21,8 @@ TEST(FSkyBoxEditorWorkflowTests, TextureAssignmentComposesWithOtherComponentFiel
 	auto* Actor = Level->SpawnActor<ASkyBoxActor>("Sky"); ASSERT_NE(Actor, nullptr);
 	auto* Component = Actor->GetSkyBoxComponent(); Component->SetTextureCube(Before.Get());
 	{
-		Editor::FScopedTransaction Scope(Transactions.Get(), {"test", "Texture and intensity"});
-		ASSERT_TRUE(Editor::Level::FSkyBoxPlacement::PlaceTextureCube(*Level, After.Get(), "Sky", Transactions.Get()));
+		FScopedTransaction Scope(Transactions.Get(), {"test", "Texture and intensity"});
+		ASSERT_TRUE(LevelEditor::FSkyBoxPlacement::PlaceTextureCube(*Level, After.Get(), "Sky", Transactions.Get()));
 		Component->SetIntensity(3.0f);
 	}
 	EXPECT_EQ(Transactions->GetTransaction(0)->GetRecordCount(), 1u);
@@ -56,19 +56,19 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 	Durin::DLevel* Level = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(LevelPath, Level));
 	Durin::Tests::FTestTransactorOwner Transactions;
-	Durin::FTransBufferTestAccess::SetState(*Transactions, Durin::Editor::ETransactorState::Undoing);
+	Durin::FTransBufferTestAccess::SetState(*Transactions, Durin::ETransactorState::Undoing);
 
-	const auto Blocked = Durin::Editor::Level::FSkyBoxPlacement::PlaceTextureCube(
+	const auto Blocked = Durin::LevelEditor::FSkyBoxPlacement::PlaceTextureCube(
 		*Level, CubeResult.Asset, "Sky", Transactions.Get());
 	ASSERT_FALSE(Blocked);
-	EXPECT_EQ(Blocked.Error, Durin::Editor::Level::ESkyBoxPlacementError::Transaction);
+	EXPECT_EQ(Blocked.Error, Durin::LevelEditor::ESkyBoxPlacementError::Transaction);
 	EXPECT_FALSE(Blocked.Message.empty());
 	const auto RejectionMessage = Blocked.Message;
 	EXPECT_EQ(Level->FindActorByName("Sky"), nullptr);
-	Durin::FTransBufferTestAccess::SetState(*Transactions, Durin::Editor::ETransactorState::Idle);
+	Durin::FTransBufferTestAccess::SetState(*Transactions, Durin::ETransactorState::Idle);
 
-	const Durin::Editor::Level::FSkyBoxPlacementResult Placement =
-		Durin::Editor::Level::FSkyBoxPlacement::PlaceTextureCube(
+	const Durin::LevelEditor::FSkyBoxPlacementResult Placement =
+		Durin::LevelEditor::FSkyBoxPlacement::PlaceTextureCube(
 			*Level, CubeResult.Asset, "Sky", Transactions.Get());
 	ASSERT_TRUE(Placement) << Placement.Message;
 	EXPECT_TRUE(Placement.bChanged);
@@ -136,8 +136,8 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 		Observation.Data.TextureReference,
 		LoadedComponent->GetTextureCube()->GetTextureReferenceRHI());
 
-	const Durin::Editor::Level::FSkyBoxPlacementResult ExistingPlacement =
-		Durin::Editor::Level::FSkyBoxPlacement::PlaceTextureCube(
+	const Durin::LevelEditor::FSkyBoxPlacementResult ExistingPlacement =
+		Durin::LevelEditor::FSkyBoxPlacement::PlaceTextureCube(
 			*LoadedLevel, LoadedComponent->GetTextureCube(), "RejectedSky", nullptr);
 	EXPECT_TRUE(ExistingPlacement);
 	EXPECT_EQ(ExistingPlacement.Actor, LoadedActor);
@@ -194,8 +194,8 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 	auto* Actor = Level->SpawnActor<Durin::ASkyBoxActor>("PanoramaSky");
 	ASSERT_NE(Actor, nullptr);
 	Durin::Tests::FTestTransactorOwner Transactions;
-	const Durin::Editor::Level::FSkyBoxPlacementResult Placement =
-		Durin::Editor::Level::FSkyBoxPlacement::PlaceTextureCube(
+	const Durin::LevelEditor::FSkyBoxPlacementResult Placement =
+		Durin::LevelEditor::FSkyBoxPlacement::PlaceTextureCube(
 			*Level, CubeResult.Asset, "UnusedName", Transactions.Get());
 	ASSERT_TRUE(Placement) << Placement.Message;
 	EXPECT_EQ(Placement.Actor, Actor);

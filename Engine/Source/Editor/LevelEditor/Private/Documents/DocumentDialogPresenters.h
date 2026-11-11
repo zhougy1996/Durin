@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	// Identifies the user decision returned by the unsaved-level modal.
 	enum class EUnsavedLevelDialogDecision : uint8
@@ -22,4 +22,4 @@ namespace Durin::Editor::Level
 		auto Draw(bool bRequestOpen, const FResolve& Resolve)
 			-> std::optional<EUnsavedLevelDialogDecision>;
 	};
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

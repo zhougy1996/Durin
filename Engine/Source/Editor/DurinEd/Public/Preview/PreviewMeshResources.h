@@ -9,7 +9,7 @@ namespace Durin
 	class DStaticMesh;
 }
 
-namespace Durin::Editor
+namespace Durin
 {
 	// Editor-session owner of the fixed material preview meshes. Consumer retention
 	// handles share these objects, so closing a preview cannot evict their resources.

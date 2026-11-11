@@ -11,7 +11,7 @@
 #include "Transactions/Transactor.h"
 
 // Private helpers shared by material graph commands, layout, and edit sessions.
-namespace Durin::Editor::Material::GraphEditInternals
+namespace Durin::MaterialEditor::GraphEditInternals
 {
 	// MaterialEditor is the presentation boundary for command failures. Recovery
 	// depends on status, never on message text or an implementation-specific cause.

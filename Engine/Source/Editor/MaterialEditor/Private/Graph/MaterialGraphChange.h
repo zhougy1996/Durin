@@ -6,7 +6,7 @@
 #include "DObject/TransactionObjectReference.h"
 #include "DObject/PropertyDiagnostic.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	enum class EMaterialChangeError : uint8 { None, TargetUnavailable, MaterialWrite, PresentationWrite, MemberUnavailable, MembershipChanged, PropertyRestore, RollbackIncomplete };
 	struct FMaterialChangeError

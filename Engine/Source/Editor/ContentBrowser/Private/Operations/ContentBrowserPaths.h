@@ -5,7 +5,7 @@
 #include "Misc/MountPaths.h"
 #include "Panels/ContentBrowserFilesystem.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	// Projects browser paths through the current mount registry; owns no registry cache.
 	class FContentBrowserPaths

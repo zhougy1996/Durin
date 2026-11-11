@@ -6,7 +6,7 @@
 #include "Engine/Level.h"
 #include "Misc/Project.h"
 
-namespace Durin::Editor::Startup
+namespace Durin::EditorStartup
 {
 	auto ResolveStartupLevel(const FProjectInfo& Project, FSoftObjectPath& OutPath, std::string& OutError) -> bool
 	{

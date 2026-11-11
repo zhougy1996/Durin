@@ -8,7 +8,7 @@
 #include "Workspace/LevelEditorContext.h"
 #include "Panels/SceneViewportPanel.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	FEditorAssetMoveCoordinator::FEditorAssetMoveCoordinator(
 		FLevelEditorContext& InContext,
@@ -66,4 +66,4 @@ namespace Durin::Editor::Level
 				"LevelEditor",
 				"Could not persist transient viewport state after asset relocation.");
 	}
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

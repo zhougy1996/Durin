@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 
 #if DURIN_LEVEL_AUTHORING_TEST_FAILURE_INJECTION
-namespace Durin::Editor::Level::Testing
+namespace Durin::LevelEditor::Testing
 {
 	enum class EStaticMeshLevelMutationFailurePoint : uint8
 	{

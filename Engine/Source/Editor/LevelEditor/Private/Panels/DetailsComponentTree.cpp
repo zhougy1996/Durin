@@ -12,7 +12,7 @@
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	namespace
 	{
@@ -331,4 +331,4 @@ namespace Durin::Editor::Level
 			ImGui::EndPopup();
 		}
 	}
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

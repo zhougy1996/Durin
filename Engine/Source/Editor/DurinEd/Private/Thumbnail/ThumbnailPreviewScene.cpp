@@ -20,7 +20,7 @@
 #include "RenderPipelineCreation.h"
 #include "SceneViewProjection.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	namespace
 	{
@@ -592,4 +592,4 @@ namespace Durin::Editor
 		Impl->Environment.reset();
 		Impl->ImageRenderer = {};
 	}
-} // namespace Durin::Editor
+} // namespace Durin

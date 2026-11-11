@@ -1,6 +1,6 @@
 #include "Panels/ContentBrowserExtensionPresentation.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	namespace
 	{

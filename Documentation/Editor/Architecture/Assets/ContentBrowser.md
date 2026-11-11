@@ -11,10 +11,10 @@ operations.
 
 Its concrete models, panel body, refresh coordination, source-thumbnail caches,
 and asset-operation helpers are owned by the `ContentBrowser` module under
-`Durin::Editor::ContentBrowser::Private`. MainFrame owns the singleton tool
+`Durin::ContentBrowser::Private`. MainFrame owns the singleton tool
 instance and its docked/drawer presentation. Shared asset
 registries, picker contracts, and thumbnail services remain in the flat
-`Durin::Editor` boundary or their runtime modules.
+`Durin` boundary or their runtime modules.
 
 Create, Import, Details, and Context Menu entries are deterministic scoped
 extensions ordered by `(Order, Id)`. LevelEditor contributes Level creation,

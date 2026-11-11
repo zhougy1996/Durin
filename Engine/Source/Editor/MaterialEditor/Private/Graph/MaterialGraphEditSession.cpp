@@ -7,7 +7,7 @@
 #include "Materials/MaterialExpressionInputs.h"
 #include "Materials/MaterialExpressionBuild.h"
 
-namespace Durin::Editor::Material::GraphEditInternals
+namespace Durin::MaterialEditor::GraphEditInternals
 {
 	namespace
 	{

@@ -19,7 +19,7 @@
 namespace
 {
 	using namespace Durin;
-	using namespace Durin::Editor::Material;
+	using namespace Durin::MaterialEditor;
 
 	class FMaterialEditingSessionTests : public testing::Test
 	{

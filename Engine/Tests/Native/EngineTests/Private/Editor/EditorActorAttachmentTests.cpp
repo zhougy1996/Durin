@@ -12,7 +12,7 @@
 namespace
 {
 	using namespace Durin;
-	using namespace Durin::Editor;
+	using namespace Durin;
 
 	struct FAttachmentFixture
 	{

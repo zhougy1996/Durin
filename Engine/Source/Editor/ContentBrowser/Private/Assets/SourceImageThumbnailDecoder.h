@@ -4,7 +4,7 @@
 
 #include "HAL/Platform.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	// Carries decoded RGBA thumbnail pixels and their dimensions.
 	struct FDecodedSourceImageThumbnail
@@ -18,4 +18,4 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto IsSupportedSourceImageExtension(std::string_view Extension) -> bool;
 	auto DecodeSourceImageThumbnail(std::string_view FilePath, uint32 MaximumDimension)
 		-> std::expected<FDecodedSourceImageThumbnail, std::string>;
-} // namespace Durin::Editor::ContentBrowser::Private
+} // namespace Durin::ContentBrowser::Private

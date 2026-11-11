@@ -382,11 +382,11 @@ namespace Durin::Tests::ObjectState
 		auto AddReferencedObjects(Durin::FReferenceCollector& Collector) -> void override
 		{
 			DObject::AddReferencedObjects(Collector);
-			for (const Durin::Editor::FTransactionObjectRecord& Snapshot : Records)
+			for (const Durin::FTransactionObjectRecord& Snapshot : Records)
 				Snapshot.AddReferencedObjects(Collector);
 		}
 
-		std::vector<Durin::Editor::FTransactionObjectRecord> Records;
+		std::vector<Durin::FTransactionObjectRecord> Records;
 	};
 
 	class FCountingReferenceCollector final : public Durin::FReferenceCollector
@@ -412,23 +412,23 @@ namespace Durin::Tests::ObjectState
 		Buffer.SetPrimaryUndoObject(Context.PrimaryObject);
 		return {Index, Buffer.GetLastResult().TransactionId};
 	}
-	inline auto EndRecording(Durin::Editor::FScopedTransaction& Scope, Durin::DTransactor& Buffer) -> Durin::Editor::FTransactorResult
+	inline auto EndRecording(Durin::FScopedTransaction& Scope, Durin::DTransactor& Buffer) -> Durin::FTransactorResult
 	{ (void)Scope.End(); return Buffer.GetLastResult(); }
-	inline auto CancelRecording(Durin::Editor::FScopedTransaction& Scope, Durin::DTransactor& Buffer) -> Durin::Editor::FTransactorResult
+	inline auto CancelRecording(Durin::FScopedTransaction& Scope, Durin::DTransactor& Buffer) -> Durin::FTransactorResult
 	{ Scope.Cancel(); return Buffer.GetLastResult(); }
-	inline auto CancelRecording(Durin::DTransactor& Buffer, int32 Index) -> Durin::Editor::FTransactorResult
+	inline auto CancelRecording(Durin::DTransactor& Buffer, int32 Index) -> Durin::FTransactorResult
 	{ Buffer.Cancel(Index); return Buffer.GetLastResult(); }
-	inline auto EndRecording(Durin::DTransactor& Buffer) -> Durin::Editor::FTransactorResult
+	inline auto EndRecording(Durin::DTransactor& Buffer) -> Durin::FTransactorResult
 	{ (void)Buffer.End(); return Buffer.GetLastResult(); }
-	inline auto ReadTransactionEvents(Durin::DTransactor& Buffer) -> std::vector<Durin::Editor::FTransactionEvent>
+	inline auto ReadTransactionEvents(Durin::DTransactor& Buffer) -> std::vector<Durin::FTransactionEvent>
 	{
-		std::vector<Durin::Editor::FTransactionEvent> Events;
+		std::vector<Durin::FTransactionEvent> Events;
 		const auto Handle = Buffer.AddTransactionListener([&](const auto& Event) { Events.push_back(Event); });
 		Buffer.DispatchEvents(); Buffer.RemoveTransactionListener(Handle);
 		return Events;
 	}
 
-	class FTestCustomChange final : public Durin::Editor::FActorCommandChange
+	class FTestCustomChange final : public Durin::FActorCommandChange
 	{
 	public:
 		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
@@ -447,12 +447,12 @@ namespace Durin::Tests::ObjectState
 		{
 			return Details;
 		}
-		auto Replay(::Durin::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
+		auto Replay(::Durin::ETransactionOperation Operation) -> Durin::FActorChangeResult override
 		{
 			if (ReplayProbe) ReplayProbe();
 			if (Operation == ::Durin::ETransactionOperation::Undo)
 			{
-				if (bFailUndo) { return {{.Code = Durin::Editor::EActorChangeError::InjectedMutation}}; }
+				if (bFailUndo) { return {{.Code = Durin::EActorChangeError::InjectedMutation}}; }
 				Value = Before;
 				bOverflowed = false;
 				return {};
@@ -461,9 +461,9 @@ namespace Durin::Tests::ObjectState
 			{
 				if (bFailRedo)
 				{
-					return {{.Code = Durin::Editor::EActorChangeError::InjectedMutation,
-						.CleanupCause = bFailCleanup ? std::make_shared<Durin::Editor::FActorChangeError>(
-							Durin::Editor::FActorChangeError{.Code = Durin::Editor::EActorChangeError::RollbackIncomplete}) : nullptr}};
+					return {{.Code = Durin::EActorChangeError::InjectedMutation,
+						.CleanupCause = bFailCleanup ? std::make_shared<Durin::FActorChangeError>(
+							Durin::FActorChangeError{.Code = Durin::EActorChangeError::RollbackIncomplete}) : nullptr}};
 				}
 				if (bGrowOnRedo) Details.resize(8192, 'x');
 				bOverflowed = bOverflowOnRedo;
@@ -520,7 +520,7 @@ namespace Durin::Tests::ObjectState
 		Durin::FPersistentObjectRef Dependency;
 	};
 
-	class FDetachedChildChange final : public Durin::Editor::FActorCommandChange
+	class FDetachedChildChange final : public Durin::FActorCommandChange
 	{
 	public:
 		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
@@ -531,7 +531,7 @@ namespace Durin::Tests::ObjectState
 			: Owner(InOwner), Child(InChild), HistoryOuter(InHistoryOuter) {}
 
 		auto GetDescription() const -> std::string_view override { return "Detach owned child"; }
-		auto Replay(::Durin::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
+		auto Replay(::Durin::ETransactionOperation Operation) -> Durin::FActorChangeResult override
 		{
 			if (Operation == ::Durin::ETransactionOperation::Undo)
 			{
@@ -586,11 +586,11 @@ namespace Durin::Tests::ObjectState
 		return Path;
 	}
 
-	inline auto CaptureRecord(DTransactionRecordParticipant* Target) -> Durin::Editor::FTransactionObjectRecord
+	inline auto CaptureRecord(DTransactionRecordParticipant* Target) -> Durin::FTransactionObjectRecord
 	{
-		auto Result = Durin::Editor::FTransactionObjectRecord::CaptureWhole(*Target);
-		EXPECT_TRUE(Result) << (Result ? "" : Durin::Editor::FormatTransactionObjectRecordError(Result.error()));
-		return Result ? std::move(*Result) : Durin::Editor::FTransactionObjectRecord{};
+		auto Result = Durin::FTransactionObjectRecord::CaptureWhole(*Target);
+		EXPECT_TRUE(Result) << (Result ? "" : Durin::FormatTransactionObjectRecordError(Result.error()));
+		return Result ? std::move(*Result) : Durin::FTransactionObjectRecord{};
 	}
 
 }

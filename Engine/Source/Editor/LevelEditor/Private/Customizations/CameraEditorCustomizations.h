@@ -5,7 +5,7 @@
 
 #include "LevelEditorCustomizations.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	auto CreateCameraComponentVisualizer() -> std::shared_ptr<IComponentEditorVisualizer>;
 	auto CreateCameraDetailsCustomization() -> std::shared_ptr<IDetailCustomization>;

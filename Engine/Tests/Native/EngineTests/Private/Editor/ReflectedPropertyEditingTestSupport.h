@@ -350,9 +350,9 @@ namespace
 		return Snapshot;
 	}
 
-	auto MakeTarget(DEditObserver& Object, const Durin::FProperty* Property, FValueContainer& Container) -> Durin::Editor::FPropertyEditTarget
+	auto MakeTarget(DEditObserver& Object, const Durin::FProperty* Property, FValueContainer& Container) -> Durin::FPropertyEditTarget
 	{
-		Durin::Editor::FPropertyEditTarget Target;
+		Durin::FPropertyEditTarget Target;
 		Target.Object = &Object;
 		Target.MemberProperty = Property;
 		Target.LeafProperty = Property;

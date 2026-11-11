@@ -26,10 +26,10 @@ namespace Durin
 		static auto SetEditorWorld(DEditorEngine& Editor, DWorld* World) -> void
 		{ Editor.EditorWorld = World; Editor.SetWorld(World); }
 
-		static auto SetState(DEditorEngine& Editor, Editor::EPlayState State) -> void
+		static auto SetState(DEditorEngine& Editor, EPlayState State) -> void
 		{ Editor.PlayState = State; }
 
-		static auto SetStartupPhase(DEditorEngine& Editor, Editor::Startup::EBootstrapState Phase, std::string Error = {}) -> void
+		static auto SetStartupPhase(DEditorEngine& Editor, EditorStartup::EBootstrapState Phase, std::string Error = {}) -> void
 		{ Editor.StartupPhase = Phase; Editor.StartupError = std::move(Error); }
 		static auto BindMainFrameModule(DEditorEngine& Editor, IMainFrameModule* Module) -> IMainFrameModule*
 		{ return std::exchange(Editor.MainFrameModule, Module); }
@@ -45,7 +45,7 @@ namespace Durin
 
 		static auto StartPlaySession(
 			DEditorEngine& Engine,
-			const Editor::FPlayRequest& Request,
+			const FPlayRequest& Request,
 			DClass* GameModeClass,
 			std::string* OutError = nullptr) -> bool
 		{
@@ -55,9 +55,9 @@ namespace Durin
 
 		static auto ConfigureMouseCapture(
 			DEditorEngine& Engine,
-			Editor::EPlayDestination Destination = Editor::EPlayDestination::EmbeddedViewport) -> void
+			EPlayDestination Destination = EPlayDestination::EmbeddedViewport) -> void
 		{
-			Engine.PlayState = Editor::EPlayState::Playing;
+			Engine.PlayState = EPlayState::Playing;
 			Engine.PlayDestination = Destination;
 		}
 

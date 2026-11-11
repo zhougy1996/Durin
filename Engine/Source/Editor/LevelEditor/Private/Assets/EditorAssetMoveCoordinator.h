@@ -4,7 +4,7 @@
 
 #include "Asset/MutationExtensions.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	class FLevelEditorSessionSettings;
 	struct FLevelEditorContext;
@@ -35,4 +35,4 @@ namespace Durin::Editor::Level
 		FSceneViewportPanel& SceneViewportPanel;
 		FAssetMoveObserverHandle ObserverHandle = 0;
 	};
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

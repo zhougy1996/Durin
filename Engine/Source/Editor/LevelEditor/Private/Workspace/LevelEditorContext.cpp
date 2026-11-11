@@ -8,7 +8,7 @@
 #include "Editor/EditorEngine.h"
 #include "Actors/EditorActorSubsystem.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	auto FLevelEditorContext::GetActorEditor() const -> DEditorActorSubsystem*
 	{
@@ -160,4 +160,4 @@ namespace Durin::Editor::Level
 		return Actor && std::ranges::contains(SelectedActors, Actor, [](const TObjectPtr<AActor>& Entry) { return Entry.Get(); });
 	}
 
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

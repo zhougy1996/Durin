@@ -7,7 +7,7 @@
 #include "Misc/Project.h"
 #include "MonaImGui.h"
 
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
 	namespace
 	{

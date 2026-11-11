@@ -8,13 +8,13 @@
 #include "MonaUIBackend.h"
 #include "Texture/Texture2D.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	namespace
 	{
 		struct FRegisteredPreview
 		{
-			Texture::FTexturePreview Preview;
+			TextureEditor::FTexturePreview Preview;
 			Mona::IMonaUIBackend* Backend = nullptr;
 		};
 		// Coalesce bounded built previews across nodes and open documents.

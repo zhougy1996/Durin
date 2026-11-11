@@ -13,7 +13,7 @@
 #include "Misc/AssertionMacros.h"
 #include "Tools/EditorScriptCall.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	namespace
 	{

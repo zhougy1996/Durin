@@ -8,13 +8,13 @@ namespace Durin
 	class DTransactor;
 }
 
-namespace Durin::Editor
+namespace Durin
 {
 	class FNotificationManager;
 	struct FTransactionEvent;
 }
 
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
 	// Identifies an editor-host status-bar tool action selected this frame.
 	enum class EEditorStatusBarAction : uint8

@@ -11,7 +11,7 @@ namespace Durin
 {
 	struct FTransBufferTestAccess
 	{
-		static auto Record(DTransBuffer& Buffer, Editor::FTransactionObjectRecord Record) -> std::expected<uint64, Editor::FTransactorResult>
+		static auto Record(DTransBuffer& Buffer, FTransactionObjectRecord Record) -> std::expected<uint64, FTransactorResult>
 		{ return static_cast<DTransactor&>(Buffer).Record(std::move(Record)); }
 
 		static auto InitializeMemoryBudget(DTransBuffer& Buffer, size_t Bytes) -> void
@@ -19,12 +19,12 @@ namespace Durin
 			check(Bytes != 0 && Buffer.NextTransactionId == 1 && !Buffer.Pending && Buffer.History.empty());
 			Buffer.MemoryBudget = Bytes;
 		}
-		static auto InstallHistory(DTransBuffer& Buffer, Editor::FTransaction Transaction) -> void
+		static auto InstallHistory(DTransBuffer& Buffer, FTransaction Transaction) -> void
 		{
 			Buffer.History.push_back(std::move(Transaction));
 			Buffer.Cursor = 1;
 		}
-		static auto SetState(DTransBuffer& Buffer, Editor::ETransactorState State) -> void
+		static auto SetState(DTransBuffer& Buffer, ETransactorState State) -> void
 		{
 			Buffer.State = State;
 		}
@@ -33,9 +33,9 @@ namespace Durin
 
 namespace Durin::Tests
 {
-	inline auto CollectTransactionEvents(DTransactor& Buffer) -> std::vector<Editor::FTransactionEvent>
+	inline auto CollectTransactionEvents(DTransactor& Buffer) -> std::vector<FTransactionEvent>
 	{
-		std::vector<Editor::FTransactionEvent> Events;
+		std::vector<FTransactionEvent> Events;
 		const auto Id = Buffer.AddTransactionListener([&](const auto& Event) { Events.push_back(Event); });
 		Buffer.DispatchEvents(); Buffer.RemoveTransactionListener(Id);
 		return Events;

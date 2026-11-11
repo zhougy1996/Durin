@@ -5,7 +5,7 @@
 TEST(FMaterialFunctionInteractionTests, PreviewWrappersCompileEveryOutputTypeWithoutChangingTheFunction)
 {
 	using namespace Durin;
-	using namespace Durin::Editor::Material;
+	using namespace Durin::MaterialEditor;
 	InitializeDObjectSystem();
 	FScopedOfflinePreparation Offline;
 	auto* Function = NewObject<DMaterialFunction>(nullptr, "PreviewFunction");
@@ -26,7 +26,7 @@ TEST(FMaterialFunctionInteractionTests, PreviewWrappersCompileEveryOutputTypeWit
 		const auto SourceExpressions = Function->GetExpressionCollection().Expressions;
 		const auto Revision = Function->GetFunctionRevision();
 		const auto Built = BuildMaterialFunctionPreview(*Function, Output.Id, *Preview);
-		ASSERT_TRUE(Built) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Built);
+		ASSERT_TRUE(Built) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Built);
 		const auto& Expressions = Preview->GetExpressionCollection().Expressions;
 		ASSERT_FALSE(Expressions.empty());
 		const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expressions.front().Get());
@@ -56,14 +56,14 @@ TEST(FMaterialFunctionInteractionTests, PreviewWrappersCompileEveryOutputTypeWit
 TEST(FMaterialFunctionInteractionTests, PreviewInvalidationTracksTransitiveEditsAndExplicitRequests)
 {
 	using namespace Durin;
-	using namespace Durin::Editor::Material;
+	using namespace Durin::MaterialEditor;
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterialFunction> Leaf(NewObject<DMaterialFunction>(nullptr, "PreviewLeaf"));
 	TStrongObjectPtr<DMaterialFunction> Wrapper(NewObject<DMaterialFunction>(nullptr, "PreviewParent"));
 	TStrongObjectPtr<DMaterialFunction> Root(NewObject<DMaterialFunction>(nullptr, "PreviewRoot"));
 	TStrongObjectPtr<DMaterialFunction> Other(NewObject<DMaterialFunction>(nullptr, "PreviewOther"));
-	ASSERT_TRUE(FMaterialGraphDocument(*Wrapper).InsertFunctionCall(*Leaf, 0, 100, Durin::Editor::ETransactionMode::NotTransactable));
-	ASSERT_TRUE(FMaterialGraphDocument(*Root).InsertFunctionCall(*Wrapper, 0, 100, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphDocument(*Wrapper).InsertFunctionCall(*Leaf, 0, 100, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphDocument(*Root).InsertFunctionCall(*Wrapper, 0, 100, Durin::ETransactionMode::NotTransactable));
 	FMaterialFunctionPreviewInvalidation First, Second;
 	First.SetFunction(Root.Get());
 	Second.SetFunction(Root.Get());
@@ -76,7 +76,7 @@ TEST(FMaterialFunctionInteractionTests, PreviewInvalidationTracksTransitiveEdits
 	EXPECT_FALSE(First.ConsumeRefreshRequest());
 	auto Port = Other->GetFunctionSignature().Outputs.front();
 	Port.Name = "Unrelated edit";
-	ASSERT_TRUE(FMaterialGraphDocument(*Other).SetPort(true, Port, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphDocument(*Other).SetPort(true, Port, Durin::ETransactionMode::NotTransactable));
 	EXPECT_FALSE(First.ConsumeRefreshRequest());
 
 	Tests::FTestEditorTransactorOwner Transactions;
@@ -99,7 +99,7 @@ TEST(FMaterialFunctionInteractionTests, PreviewInvalidationTracksTransitiveEdits
 	First.SetFunction(Other.Get());
 	EXPECT_FALSE(First.ConsumeRefreshRequest());
 	Port.Name = "Former dependency";
-	ASSERT_TRUE(FMaterialGraphDocument(*Leaf).SetPort(true, Port, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphDocument(*Leaf).SetPort(true, Port, Durin::ETransactionMode::NotTransactable));
 	EXPECT_FALSE(First.ConsumeRefreshRequest());
 	EXPECT_TRUE(Second.ConsumeRefreshRequest());
 	EXPECT_TRUE(Transactions->TryReset());

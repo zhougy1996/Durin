@@ -17,7 +17,7 @@
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "Texture/Texture2D.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	namespace
 	{
@@ -530,4 +530,4 @@ namespace Durin::Editor::Material
 			MaterialInput->AssetPath, AssetClassName);
 	}
 
-} // namespace Durin::Editor::Material
+} // namespace Durin::MaterialEditor

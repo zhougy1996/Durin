@@ -17,7 +17,7 @@
 #include "Workspace/LevelEditorUILayout.h"
 #include "Settings/EditorSettings.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	namespace
 	{
@@ -773,7 +773,7 @@ namespace Durin::Editor::Level
 		const float PlayLabelWidth = ImGui::CalcTextSize("Play").x;
 		Layout.PlayButtonWidth = FMath::Max(MonaImGui::ScaleUI(68.0f), TransformIconWidth + ContentGap + PlayLabelWidth + ContentPadding * 2.0f);
 		Layout.RuntimeButtonWidth = Layout.Height;
-		const bool bPlaying = Editor::GetTransactionEditor() && Editor::GetTransactionEditor()->IsPlaying();
+		const bool bPlaying = GetTransactionEditor() && GetTransactionEditor()->IsPlaying();
 		const float PlayControlsWidth = bPlaying ? Layout.RuntimeButtonWidth * 3.0f + Layout.DropDownWidth : Layout.PlayButtonWidth + Layout.DropDownWidth;
 		// Keep Play visually independent from both the editing tools and the viewport edge.
 		// The center anchor is preserved until responsive pressure requires it to clear the left group.
@@ -1506,4 +1506,4 @@ namespace Durin::Editor::Level
 		ImGui::PopClipRect();
 		return Layout;
 	}
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

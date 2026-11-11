@@ -4,7 +4,7 @@
 #include "MonaImGui.h"
 
 namespace Durin { class MWindow; }
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
 	class FMainFrameSettings;
 	// Presents host and feature settings in a searchable two-pane window.

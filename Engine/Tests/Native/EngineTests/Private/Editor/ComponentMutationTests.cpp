@@ -62,7 +62,7 @@ namespace Durin
 namespace
 {
 	using namespace Durin;
-	using namespace Durin::Editor;
+	using namespace Durin;
 
 
 	class FComponentTestScene final : public FSceneInterface
@@ -159,7 +159,7 @@ TEST(FActorMutationTests, DeletionRestoresEarlierPropertyHistoryExternalAttachme
 	auto* Grandchild = Level->SpawnActor<AStaticMeshActor>("Grandchild");
 	ASSERT_TRUE(Grandchild->GetRootComponent()->AttachToComponent(Light, EAttachmentTransformRule::KeepRelative));
 	{
-		Editor::FScopedTransaction Transaction(F.Transactions.Get(), {"test", "Edit actor before delete"});
+		FScopedTransaction Transaction(F.Transactions.Get(), {"test", "Edit actor before delete"});
 		(void)Actor->GetRootComponent()->Modify();
 		Actor->GetRootComponent()->SetRelativeLocation({9.0, 0.0, 0.0});
 	}
@@ -526,7 +526,7 @@ TEST(FComponentMutationTests, DeletionPreservesIdentityForEarlierPropertyHistory
 	ASSERT_TRUE(Child->AttachToComponent(Light, EAttachmentTransformRule::KeepRelative));
 	const auto Instances = F.Actor->GetInstanceComponents();
 	{
-		Editor::FScopedTransaction Transaction(F.Transactions.Get(), {"test", "Edit light before deletion"});
+		FScopedTransaction Transaction(F.Transactions.Get(), {"test", "Edit light before deletion"});
 		(void)Light->Modify();
 		Light->SetRelativeLocation({9.0, 0.0, 0.0});
 	}
@@ -543,7 +543,7 @@ TEST(FComponentMutationTests, DeletionPreservesIdentityForEarlierPropertyHistory
 	EXPECT_EQ(Child->GetWorldLocation(), Before);
 	ASSERT_TRUE(F.Scene.Lights.contains(Light));
 	EXPECT_EQ(F.Scene.Lights.at(Light), Light->GetWorldLocation());
-	ASSERT_TRUE(F.Transactions->Undo()) << Editor::FormatTransactorResult(F.Transactions->GetLastResult());
+	ASSERT_TRUE(F.Transactions->Undo()) << FormatTransactorResult(F.Transactions->GetLastResult());
 	EXPECT_EQ(Light->GetRelativeLocation(), FVector3(4.0, 0.0, 0.0));
 	ASSERT_TRUE(F.Transactions->Redo());
 	EXPECT_EQ(Light->GetRelativeLocation(), FVector3(9.0, 0.0, 0.0));
@@ -668,7 +668,7 @@ TEST(FComponentMutationTests, RenamePreservesIdentityAndEarlierPropertyHistory)
 	const FName Before = Light->GetFName();
 	const auto Path = Light->GetObjectPath();
 	{
-		Editor::FScopedTransaction Transaction(F.Transactions.Get(), {"test", "Edit before rename"});
+		FScopedTransaction Transaction(F.Transactions.Get(), {"test", "Edit before rename"});
 		(void)Light->Modify();
 		Light->SetRelativeLocation({9.0, 0.0, 0.0});
 	}
@@ -683,7 +683,7 @@ TEST(FComponentMutationTests, RenamePreservesIdentityAndEarlierPropertyHistory)
 	ASSERT_TRUE(F.Transactions->Undo());
 	EXPECT_EQ(Light->GetFName(), Before);
 	EXPECT_EQ(Light->GetObjectPath(), Path);
-	ASSERT_TRUE(F.Transactions->Undo()) << Editor::FormatTransactorResult(F.Transactions->GetLastResult());
+	ASSERT_TRUE(F.Transactions->Undo()) << FormatTransactorResult(F.Transactions->GetLastResult());
 	EXPECT_EQ(Light->GetRelativeLocation(), FVector3(3.0, 0.0, 0.0));
 	ASSERT_TRUE(F.Transactions->Redo());
 	ASSERT_TRUE(F.Transactions->Redo());
@@ -1024,7 +1024,7 @@ TEST(FActorMutationTests, UnavailableServiceAndRecoveringHistoryRejectBeforePrep
 		{ return {{.Code = EActorChangeError::RollbackIncomplete}}; }
 	};
 	auto* Recovering = F.Transactions.Get();
-	EXPECT_EQ(Durin::Editor::ApplyEditorChange(*Recovering, std::make_unique<FIncompleteChange>()).Code, ETransactorResultCode::RecoveryRequired);
+	EXPECT_EQ(Durin::ApplyEditorChange(*Recovering, std::make_unique<FIncompleteChange>()).Code, ETransactorResultCode::RecoveryRequired);
 	auto* Editor = F.Editor.GetActorEditor();
 	EXPECT_FALSE(Editor->SpawnActor(*Level, AActor::StaticClass(), "RecoveryBlocked", {}, {false}));
 	EXPECT_EQ(Level->FindActorByName("RecoveryBlocked"), nullptr);
@@ -1143,7 +1143,7 @@ TEST(FActorMutationTests, UnrecordableStructuralEditRemainsAppliedAndInvalidates
 	Package->ClearDirty();
 	F.Transactions->EstablishSavedState(*Package);
 	const auto BeforeRevision = Package->GetEditRevision();
-	const auto Result = Durin::Editor::ApplyEditorChange(*F.Transactions, std::move(Change));
+	const auto Result = Durin::ApplyEditorChange(*F.Transactions, std::move(Change));
 	EXPECT_EQ(Result.Code, ETransactorResultCode::Failed);
 	EXPECT_TRUE(Level->ContainsActor(Actor));
 	EXPECT_TRUE(Package->IsDirty());
@@ -1301,7 +1301,7 @@ TEST(FActorMutationTests, LabelAndWholeObjectModifyComposeInEitherOrderWithoutCu
     auto* Actor = Level->SpawnActor<AActor>("Original");
     ASSERT_NE(Actor, nullptr);
     {
-        Editor::FScopedTransaction Scope(F.GetTransactions(), {"test", "Modify and label"});
+        FScopedTransaction Scope(F.GetTransactions(), {"test", "Modify and label"});
         ASSERT_TRUE(F.GetActorEditor()->SetActorLabel(*Level, Actor, "Display", {false}));
         ASSERT_TRUE(Actor->Modify());
         Actor->SetHidden(true);
@@ -1317,7 +1317,7 @@ TEST(FActorMutationTests, LabelAndWholeObjectModifyComposeInEitherOrderWithoutCu
     EXPECT_EQ(F.GetTransactions()->GetTransaction(0)->GetRecordCount(), 1u);
     EXPECT_FALSE(F.GetTransactions()->GetTransaction(0)->IsOwnedByModule("DurinEd"));
     {
-        Editor::FScopedTransaction Scope(F.GetTransactions(), {"test", "Modify then label"});
+        FScopedTransaction Scope(F.GetTransactions(), {"test", "Modify then label"});
         ASSERT_TRUE(Actor->Modify()); Actor->SetHidden(false);
         ASSERT_TRUE(F.GetActorEditor()->SetActorLabel(*Level, Actor, "Next", {false}));
     }
@@ -1331,7 +1331,7 @@ TEST(FActorMutationTests, OrdinaryNameLabelAndTagsShareOneRecordAfterStructuralC
     auto* Level = F.GetWorld()->GetCurrentLevel();
     AActor* Actor = nullptr;
     {
-        Editor::FScopedTransaction Scope(F.GetTransactions(), {"test", "Create and edit"});
+        FScopedTransaction Scope(F.GetTransactions(), {"test", "Create and edit"});
         Actor = F.GetActorEditor()->SpawnActor(*Level, AActor::StaticClass(), "Created", {}, {false}); ASSERT_NE(Actor, nullptr);
         ASSERT_TRUE(F.GetActorEditor()->SetActorLabel(*Level, Actor, "Display", {false}));
         ASSERT_TRUE(F.GetActorEditor()->RenameActor(*Level, Actor, "Internal", {false}));
@@ -1524,7 +1524,7 @@ TEST(FActorMutationTests, InitialLabelIsPreparationOnlyAndRenameComposesWithEarl
     EXPECT_FALSE(Actor->SetInitialActorLabel("Rejected")); EXPECT_EQ(Actor->GetActorLabel(), "Original");
     const auto Revision = Level->GetEditorActorHierarchyRevision();
     {
-        Editor::FScopedTransaction Scope(F.GetTransactions(), {"test", "Modify and rename"});
+        FScopedTransaction Scope(F.GetTransactions(), {"test", "Modify and rename"});
         ASSERT_TRUE(Actor->Modify()); Actor->SetHidden(true);
         ASSERT_TRUE(F.GetActorEditor()->RenameActor(*Level, Actor, "NewInternal", {false}));
     }

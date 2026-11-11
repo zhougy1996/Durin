@@ -6,7 +6,7 @@ namespace Durin
 	DEditorNotificationSubsystem::DEditorNotificationSubsystem(const FObjectInitializer& Initializer) : Super(Initializer) {}
 	auto DEditorNotificationSubsystem::Initialize(FSubsystemCollection& Collection) -> void
 	{
-		Manager = std::make_unique<Editor::FNotificationManager>(
+		Manager = std::make_unique<FNotificationManager>(
 			[Host = GetEditor()](std::function<void()> Callback) { Host->DispatchSubsystemCallback(std::move(Callback)); });
 	}
 	auto DEditorNotificationSubsystem::Tick(float DeltaSeconds) -> void

@@ -11,7 +11,7 @@
 
 namespace Durin { class DClass; }
 
-namespace Durin::Editor
+namespace Durin
 {
 	// Document owners and native adapters must state editability explicitly.
 	struct FActorEditContext
@@ -83,26 +83,26 @@ namespace Durin
 		// Failed creation returns null, failed duplication an empty array, and other failures false.
 		// Successful no-ops return true without new history. Detailed recovery state belongs to the transactor.
 		DURINED_API auto SpawnActor(DLevel& Level, DClass* Class, FName Name, const FTransform& Transform,
-			const Editor::FActorEditContext& Context, std::function<void(AActor&)> Configure = {},
+			const FActorEditContext& Context, std::function<void(AActor&)> Configure = {},
 			ESpawnActorNameMode NameMode = ESpawnActorNameMode::Requested, const std::string& Label = "") -> AActor*;
-		DURINED_API auto DestroyActors(DLevel& Level, std::span<AActor* const> Actors, const Editor::FActorEditContext& Context) -> bool;
-		DURINED_API auto DuplicateActors(DLevel& Level, std::span<AActor* const> Actors, const Editor::FActorEditContext& Context) -> std::vector<TObjectPtr<AActor>>;
-		DURINED_API auto RenameActor(DLevel& Level, AActor* Actor, FName Name, const Editor::FActorEditContext& Context,
+		DURINED_API auto DestroyActors(DLevel& Level, std::span<AActor* const> Actors, const FActorEditContext& Context) -> bool;
+		DURINED_API auto DuplicateActors(DLevel& Level, std::span<AActor* const> Actors, const FActorEditContext& Context) -> std::vector<TObjectPtr<AActor>>;
+		DURINED_API auto RenameActor(DLevel& Level, AActor* Actor, FName Name, const FActorEditContext& Context,
 			ESpawnActorNameMode NameMode = ESpawnActorNameMode::Requested) -> bool;
 		DURINED_API auto SetActorLabel(DLevel& Level, AActor* Actor, const std::string& Label,
-			const Editor::FActorEditContext& Context, bool bMakeUnique = true) -> bool;
+			const FActorEditContext& Context, bool bMakeUnique = true) -> bool;
 		DURINED_API auto AttachActors(DLevel& Level, std::span<AActor* const> Actors, AActor* Parent,
-			EAttachmentTransformRule Rule, const Editor::FActorEditContext& Context) -> bool;
+			EAttachmentTransformRule Rule, const FActorEditContext& Context) -> bool;
 		DURINED_API auto DetachActors(DLevel& Level, std::span<AActor* const> Actors,
-			EDetachmentTransformRule Rule, const Editor::FActorEditContext& Context) -> bool;
-		DURINED_API auto AddComponent(AActor& Owner, DClass* Class, DSceneComponent* Parent, const Editor::FActorEditContext& Context) -> DActorComponent*;
-		DURINED_API auto DuplicateComponent(AActor& Owner, DActorComponent* Source, const Editor::FActorEditContext& Context) -> DActorComponent*;
-		DURINED_API auto DeleteComponent(AActor& Owner, DActorComponent* Component, const Editor::FActorEditContext& Context) -> bool;
-		DURINED_API auto RenameComponent(AActor& Owner, DActorComponent* Component, FName Name, const Editor::FActorEditContext& Context) -> bool;
-		DURINED_API auto ReparentComponent(AActor& Owner, DSceneComponent* Component, DSceneComponent* Parent, const Editor::FActorEditContext& Context) -> bool;
+			EDetachmentTransformRule Rule, const FActorEditContext& Context) -> bool;
+		DURINED_API auto AddComponent(AActor& Owner, DClass* Class, DSceneComponent* Parent, const FActorEditContext& Context) -> DActorComponent*;
+		DURINED_API auto DuplicateComponent(AActor& Owner, DActorComponent* Source, const FActorEditContext& Context) -> DActorComponent*;
+		DURINED_API auto DeleteComponent(AActor& Owner, DActorComponent* Component, const FActorEditContext& Context) -> bool;
+		DURINED_API auto RenameComponent(AActor& Owner, DActorComponent* Component, FName Name, const FActorEditContext& Context) -> bool;
+		DURINED_API auto ReparentComponent(AActor& Owner, DSceneComponent* Component, DSceneComponent* Parent, const FActorEditContext& Context) -> bool;
 	private:
-		auto ScriptEditContext(DLevel* Level) const -> std::optional<Editor::FActorEditContext>;
-		auto Admit(const Editor::FActorEditContext& Context, DLevel* Level, AActor* Owner = nullptr,
+		auto ScriptEditContext(DLevel* Level) const -> std::optional<FActorEditContext>;
+		auto Admit(const FActorEditContext& Context, DLevel* Level, AActor* Owner = nullptr,
 			bool bDuringEdit = false) const -> DTransactor*;
 		bool bEditing = false;
 	};

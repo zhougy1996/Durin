@@ -17,19 +17,19 @@ namespace
 		int TickCount = 0;
 	};
 
-	class FProbeEditMode final : public Durin::Editor::Level::ILevelViewportEditMode
+	class FProbeEditMode final : public Durin::LevelEditor::ILevelViewportEditMode
 	{
 	public:
 		explicit FProbeEditMode(std::shared_ptr<FEditModeProbe> InProbe) : Probe(std::move(InProbe)) {}
-		auto Enter(Durin::Editor::Level::FLevelEditorContext&) -> void override { ++Probe->EnterCount; }
-		auto Exit(Durin::Editor::Level::FLevelEditorContext&, bool bForced) -> void override { ++Probe->ExitCount; Probe->ForcedExitCount += bForced; }
-		auto Tick(Durin::Editor::Level::FLevelEditorContext&, Durin::Editor::Level::FLevelEditorViewportClient&, const Durin::FSceneView&,
-			Durin::Editor::Level::FLevelEditorViewportInput&, Durin::DTransactor*) -> bool override { ++Probe->TickCount; return true; }
+		auto Enter(Durin::LevelEditor::FLevelEditorContext&) -> void override { ++Probe->EnterCount; }
+		auto Exit(Durin::LevelEditor::FLevelEditorContext&, bool bForced) -> void override { ++Probe->ExitCount; Probe->ForcedExitCount += bForced; }
+		auto Tick(Durin::LevelEditor::FLevelEditorContext&, Durin::LevelEditor::FLevelEditorViewportClient&, const Durin::FSceneView&,
+			Durin::LevelEditor::FLevelEditorViewportInput&, Durin::DTransactor*) -> bool override { ++Probe->TickCount; return true; }
 	private:
 		std::shared_ptr<FEditModeProbe> Probe;
 	};
 
-	class FProbeTransformTarget final : public Durin::Editor::Level::ITransformGizmoTarget
+	class FProbeTransformTarget final : public Durin::LevelEditor::ITransformGizmoTarget
 	{
 	public:
 		auto IsValid() const -> bool override { return bValid; }
@@ -45,22 +45,22 @@ namespace
 		}
 		auto GetPackage() const -> Durin::DPackage* override { return Package.Get(); }
 		auto GetLabel() const -> std::string override { return "Probe"; }
-		auto GetCapabilities() const -> Durin::Editor::Level::ETransformGizmoCapability override { return Capabilities; }
+		auto GetCapabilities() const -> Durin::LevelEditor::ETransformGizmoCapability override { return Capabilities; }
 		Durin::FTransform Transform;
 		Durin::TObjectPtr<Durin::DPackage> Package;
 		std::function<bool(const Durin::FTransform&)> Setter;
-		Durin::Editor::Level::ETransformGizmoCapability Capabilities = Durin::Editor::Level::ETransformGizmoCapability::All;
+		Durin::LevelEditor::ETransformGizmoCapability Capabilities = Durin::LevelEditor::ETransformGizmoCapability::All;
 		bool bValid = true;
 	};
 
 	auto SimulateFlyNavigation(
-		Durin::Editor::Level::FLevelEditorViewportClient& Client,
+		Durin::LevelEditor::FLevelEditorViewportClient& Client,
 		Durin::DLevel* Level,
 		float DeltaSeconds,
 		int32 FrameCount
 	) -> void
 	{
-		Durin::Editor::Level::FLevelEditorViewportInput Input;
+		Durin::LevelEditor::FLevelEditorViewportInput Input;
 		Input.DeltaSeconds = DeltaSeconds;
 		Input.bHovered = true;
 		Input.bFocused = true;
@@ -82,27 +82,27 @@ TEST(FLevelViewportEditModeTests, KeepsInstancesPerManagerAndRepairsUnavailableM
 	auto ProbeA = std::make_shared<FEditModeProbe>();
 	auto ProbeB = std::make_shared<FEditModeProbe>();
 	int FactoryCount = 0;
-	auto& Registry = Durin::Editor::Level::FLevelViewportEditModeRegistry::Get();
-	const Durin::Editor::Level::FLevelViewportEditModeHandle Handle = Registry.Register({
+	auto& Registry = Durin::LevelEditor::FLevelViewportEditModeRegistry::Get();
+	const Durin::LevelEditor::FLevelViewportEditModeHandle Handle = Registry.Register({
 		.Id = "Probe",
 		.DisplayName = "Probe",
 		.Priority = 10,
-		.CanActivate = [&bAvailable](const Durin::Editor::Level::FLevelEditorContext&) { return bAvailable; },
+		.CanActivate = [&bAvailable](const Durin::LevelEditor::FLevelEditorContext&) { return bAvailable; },
 		.Factory = [&] { return std::make_unique<FProbeEditMode>(FactoryCount++ == 0 ? ProbeA : ProbeB); },
 	});
 	ASSERT_TRUE(Handle);
-	Durin::Editor::Level::FLevelEditorContext ContextA;
-	Durin::Editor::Level::FLevelEditorContext ContextB;
-	Durin::Editor::Level::FLevelViewportEditModeManager ManagerA;
-	Durin::Editor::Level::FLevelViewportEditModeManager ManagerB;
+	Durin::LevelEditor::FLevelEditorContext ContextA;
+	Durin::LevelEditor::FLevelEditorContext ContextB;
+	Durin::LevelEditor::FLevelViewportEditModeManager ManagerA;
+	Durin::LevelEditor::FLevelViewportEditModeManager ManagerB;
 	ASSERT_TRUE(ManagerA.Activate("Probe", ContextA));
 	ASSERT_TRUE(ManagerB.Activate("Probe", ContextB));
 	EXPECT_EQ(FactoryCount, 2);
 	EXPECT_NE(ManagerA.GetActiveMode(), ManagerB.GetActiveMode());
-	Durin::Editor::Level::FLevelEditorViewportClient Client;
+	Durin::LevelEditor::FLevelEditorViewportClient Client;
 	Durin::FSceneView View;
 	ASSERT_TRUE(Client.BuildViewMatrices(800, 600, View));
-	Durin::Editor::Level::FLevelEditorViewportInput Input;
+	Durin::LevelEditor::FLevelEditorViewportInput Input;
 	EXPECT_TRUE(ManagerA.Tick(ContextA, Client, View, Input, nullptr));
 	EXPECT_EQ(ProbeA->TickCount, 1);
 	bAvailable = false;
@@ -119,14 +119,14 @@ TEST(FLevelViewportEditModeTests, KeepsInstancesPerManagerAndRepairsUnavailableM
 TEST(FTransformGizmoTests, ManipulatesGenericTargetsAndCommitsWithoutActorKnowledge)
 {
 	InitializeDObjectSystem();
-	Durin::Editor::Level::FLevelEditorViewportClient Client;
+	Durin::LevelEditor::FLevelEditorViewportClient Client;
 	Durin::FSceneView View;
 	ASSERT_TRUE(Client.BuildViewMatrices(800, 600, View));
 	auto Target = std::make_shared<FProbeTransformTarget>();
 	Target->Transform.Translation = Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 5.0;
-	Durin::Editor::Level::FTransformGizmoTargetSet Targets{{Target}, "Probes"};
-	Durin::Editor::Level::FTransformGizmo Gizmo;
-	Durin::Editor::Level::FLevelEditorViewportInput Input;
+	Durin::LevelEditor::FTransformGizmoTargetSet Targets{{Target}, "Probes"};
+	Durin::LevelEditor::FTransformGizmo Gizmo;
+	Durin::LevelEditor::FLevelEditorViewportInput Input;
 	Input.ViewportSize = {800.0f, 600.0f};
 	Gizmo.Update(Targets, View, Input, nullptr);
 	Durin::FSceneView OverlayView = View;
@@ -175,8 +175,8 @@ TEST(FTransformGizmoTests, ManipulatesGenericTargetsAndCommitsWithoutActorKnowle
 		MountedContentRevision);
 	ExpectVectorNear(Target->Transform.Translation, InitialLocation);
 	EXPECT_EQ(Message, "The custom transaction target is unavailable.");
-	Target->Capabilities = Durin::Editor::Level::ETransformGizmoCapability::Translate;
-	Gizmo.SetMode(Durin::Editor::Level::ETransformGizmoMode::Rotate);
+	Target->Capabilities = Durin::LevelEditor::ETransformGizmoCapability::Translate;
+	Gizmo.SetMode(Durin::LevelEditor::ETransformGizmoMode::Rotate);
 	Gizmo.Update(Targets, View, {}, nullptr);
 	Durin::FSceneView UnsupportedView = View;
 	Gizmo.AppendOverlayPrimitives(UnsupportedView);
@@ -190,8 +190,8 @@ TEST(FLevelEditorViewportClientTests, SmoothsCombinedFlyNavigationConsistentlyAc
 	EXPECT_NO_THROW(World->InitializeSubsystems());
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "SmoothFlyLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
-	Durin::Editor::Level::FLevelEditorViewportClient SixtyHzClient;
-	Durin::Editor::Level::FLevelEditorViewportClient OneTwentyHzClient;
+	Durin::LevelEditor::FLevelEditorViewportClient SixtyHzClient;
+	Durin::LevelEditor::FLevelEditorViewportClient OneTwentyHzClient;
 
 	SimulateFlyNavigation(SixtyHzClient, Level, 1.0f / 60.0f, 60);
 	SimulateFlyNavigation(OneTwentyHzClient, Level, 1.0f / 120.0f, 120);
@@ -220,9 +220,9 @@ TEST(FLevelEditorViewportClientTests, CapsFlyMovementAcrossAnAbnormallyLongFrame
 	EXPECT_NO_THROW(World->InitializeSubsystems());
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "LongFlyFrameLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
-	Durin::Editor::Level::FLevelEditorViewportClient Client;
+	Durin::LevelEditor::FLevelEditorViewportClient Client;
 	const Durin::FVector3 InitialLocation = Client.GetCameraTransform().GetLocation();
-	Durin::Editor::Level::FLevelEditorViewportInput Input;
+	Durin::LevelEditor::FLevelEditorViewportInput Input;
 	Input.DeltaSeconds = 1.0f;
 	Input.bHovered = true;
 	Input.bFocused = true;
@@ -239,10 +239,10 @@ TEST(FLevelEditorViewportClientTests, CapsFlyMovementAcrossAnAbnormallyLongFrame
 
 TEST(FLevelEditorViewportClientTests, AdjustsAndClampsFlySpeed)
 {
-	Durin::Editor::Level::FLevelEditorViewportClient Client;
+	Durin::LevelEditor::FLevelEditorViewportClient Client;
 	Client.SetMovementSpeed(10.0f);
 	EXPECT_FLOAT_EQ(Client.GetMovementSpeed(), 10.0f);
-	Durin::Editor::Level::FLevelEditorViewportInput Input;
+	Durin::LevelEditor::FLevelEditorViewportInput Input;
 	Input.bHovered = true;
 	Input.bFocused = true;
 	Input.bRightMousePressed = true;
@@ -258,7 +258,7 @@ TEST(FLevelEditorViewportClientTests, AdjustsAndClampsFlySpeed)
 
 TEST(FLevelEditorViewportClientTests, SupportsDirectLocalAndWorldCameraMovement)
 {
-	Durin::Editor::Level::FLevelEditorViewportClient Client;
+	Durin::LevelEditor::FLevelEditorViewportClient Client;
 	const Durin::FVector3 InitialLocation = Client.GetCameraTransform().GetLocation();
 	const Durin::FVector3 Forward = Client.GetCameraTransform().GetForwardVector();
 	Client.MoveCameraLocal({25.0, 0.0, 0.0});
@@ -270,14 +270,14 @@ TEST(FLevelEditorViewportClientTests, SupportsDirectLocalAndWorldCameraMovement)
 TEST(FLevelEditorViewportClientTests, SubmitsVisualizerForActorWithoutStaticMeshAsHitProxies)
 {
 	InitializeDObjectSystem();
-	auto& Registry = Durin::Editor::Level::FLevelEditorCustomizationRegistry::Get();
+	auto& Registry = Durin::LevelEditor::FLevelEditorCustomizationRegistry::Get();
 	FCustomizationGuard Guard{Registry.RegisterComponentVisualizer(Durin::DCameraComponent::StaticClass(), std::make_shared<FTestComponentVisualizer>())};
 	ASSERT_TRUE(Guard.Handle);
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "VisualizerPickingWorld");
 	EXPECT_NO_THROW(World->InitializeSubsystems());
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "VisualizerPickingLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
-	Durin::Editor::Level::FLevelEditorViewportClient Client;
+	Durin::LevelEditor::FLevelEditorViewportClient Client;
 	Durin::ACameraActor* Camera = Level->SpawnActor<Durin::ACameraActor>("Camera");
 	ASSERT_NE(Camera, nullptr);
 	Camera->GetCameraComponent()->SetWorldLocation(Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 5.0);
@@ -286,27 +286,27 @@ TEST(FLevelEditorViewportClientTests, SubmitsVisualizerForActorWithoutStaticMesh
 	auto Backend = std::make_unique<FCaptureHitProxyBackend>();
 	auto* Capture = Backend.get();
 	Client.SetPickingBackendForTesting(std::move(Backend));
-	const Durin::Editor::Level::FViewportPickResult Pick = Client.PickViewport(Level, PickView, {400.0f, 300.0f});
-	ASSERT_EQ(Pick.Status, Durin::Editor::Level::EViewportPickStatus::Completed);
+	const Durin::LevelEditor::FViewportPickResult Pick = Client.PickViewport(Level, PickView, {400.0f, 300.0f});
+	ASSERT_EQ(Pick.Status, Durin::LevelEditor::EViewportPickStatus::Completed);
 	ASSERT_FALSE(Capture->Captured.Overlays.empty());
 	ASSERT_TRUE(Pick.Hit);
 	EXPECT_EQ(Pick.Hit->Actor.Get(), Camera);
-	EXPECT_EQ(Pick.Hit->Kind, Durin::Editor::Level::EViewportPickHitKind::EditorVisualization);
+	EXPECT_EQ(Pick.Hit->Kind, Durin::LevelEditor::EViewportPickHitKind::EditorVisualization);
 	EXPECT_FALSE(Capture->Captured.Overlays.front().bForeground);
 }
 
 TEST(FLevelEditorViewportClientTests, SubmitsPlayerStartActorVisualizerWithoutSceneGeometryAsHitProxies)
 {
 	InitializeDObjectSystem();
-	auto& Registry = Durin::Editor::Level::FLevelEditorCustomizationRegistry::Get();
+	auto& Registry = Durin::LevelEditor::FLevelEditorCustomizationRegistry::Get();
 	FCustomizationGuard Guard{Registry.RegisterActorVisualizer(
-		Durin::APlayerStart::StaticClass(), Durin::Editor::Level::CreatePlayerStartActorVisualizer())};
+		Durin::APlayerStart::StaticClass(), Durin::LevelEditor::CreatePlayerStartActorVisualizer())};
 	ASSERT_TRUE(Guard.Handle);
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "PlayerStartVisualizerPickingWorld");
 	EXPECT_NO_THROW(World->InitializeSubsystems());
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "PlayerStartVisualizerPickingLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
-	Durin::Editor::Level::FLevelEditorViewportClient Client;
+	Durin::LevelEditor::FLevelEditorViewportClient Client;
 	auto* PlayerStart = Level->SpawnActor<Durin::APlayerStart>("PlayerStart");
 	ASSERT_NE(PlayerStart, nullptr);
 	PlayerStart->GetRootComponent()->SetWorldLocation(
@@ -316,13 +316,13 @@ TEST(FLevelEditorViewportClientTests, SubmitsPlayerStartActorVisualizerWithoutSc
 	auto Backend = std::make_unique<FCaptureHitProxyBackend>();
 	auto* Capture = Backend.get();
 	Client.SetPickingBackendForTesting(std::move(Backend));
-	const Durin::Editor::Level::FViewportPickResult Pick =
+	const Durin::LevelEditor::FViewportPickResult Pick =
 		Client.PickViewport(Level, PickView, {400.0f, 300.0f});
-	ASSERT_EQ(Pick.Status, Durin::Editor::Level::EViewportPickStatus::Completed);
+	ASSERT_EQ(Pick.Status, Durin::LevelEditor::EViewportPickStatus::Completed);
 	ASSERT_FALSE(Capture->Captured.Overlays.empty());
 	ASSERT_TRUE(Pick.Hit);
 	EXPECT_EQ(Pick.Hit->Actor.Get(), PlayerStart);
-	EXPECT_EQ(Pick.Hit->Kind, Durin::Editor::Level::EViewportPickHitKind::EditorVisualization);
+	EXPECT_EQ(Pick.Hit->Kind, Durin::LevelEditor::EViewportPickHitKind::EditorVisualization);
 	EXPECT_TRUE(Capture->Captured.Overlays.front().bForeground);
 }
 
@@ -336,12 +336,12 @@ TEST(FLevelEditorViewportClientTests, ResetsIndependentViewUnlessSavedStateExist
 	Durin::ACameraActor* Camera = Level->SpawnActor<Durin::ACameraActor>("Camera");
 	ASSERT_NE(Camera, nullptr);
 	Camera->GetCameraComponent()->SetWorldLocation({100.0, 200.0, 300.0});
-	Durin::Editor::Level::FLevelEditorViewportClient Client;
+	Durin::LevelEditor::FLevelEditorViewportClient Client;
 	Client.InitializeForLevel(Level);
-	ExpectVectorNear(Client.GetCameraTransform().GetLocation(), Durin::Editor::Level::FLevelViewportCameraState{}.Location);
-	EXPECT_FLOAT_EQ(Client.GetNearClip(), Durin::Editor::Level::FLevelEditorViewportClient::DefaultNearClip);
-	EXPECT_FLOAT_EQ(Client.GetFarClip(), Durin::Editor::Level::FLevelEditorViewportClient::DefaultFarClip);
-	Durin::Editor::Level::FLevelViewportCameraState Saved;
+	ExpectVectorNear(Client.GetCameraTransform().GetLocation(), Durin::LevelEditor::FLevelViewportCameraState{}.Location);
+	EXPECT_FLOAT_EQ(Client.GetNearClip(), Durin::LevelEditor::FLevelEditorViewportClient::DefaultNearClip);
+	EXPECT_FLOAT_EQ(Client.GetFarClip(), Durin::LevelEditor::FLevelEditorViewportClient::DefaultFarClip);
+	Durin::LevelEditor::FLevelViewportCameraState Saved;
 	Saved.Location = {8.0, 9.0, 10.0};
 	Saved.OrbitPivot = {1.0, 2.0, 3.0};
 	Saved.NearClip = 2.0f;
@@ -355,8 +355,8 @@ TEST(FLevelEditorViewportClientTests, ResetsIndependentViewUnlessSavedStateExist
 	EXPECT_FLOAT_EQ(Client.GetViewFadeStart(), Saved.ViewFadeStart);
 	EXPECT_FLOAT_EQ(Client.GetViewRenderDistance(), Saved.ViewRenderDistance);
 	Client.InitializeForLevel(Level);
-	EXPECT_FLOAT_EQ(Client.GetNearClip(), Durin::Editor::Level::FLevelEditorViewportClient::DefaultNearClip);
-	EXPECT_FLOAT_EQ(Client.GetFarClip(), Durin::Editor::Level::FLevelEditorViewportClient::DefaultFarClip);
+	EXPECT_FLOAT_EQ(Client.GetNearClip(), Durin::LevelEditor::FLevelEditorViewportClient::DefaultNearClip);
+	EXPECT_FLOAT_EQ(Client.GetFarClip(), Durin::LevelEditor::FLevelEditorViewportClient::DefaultFarClip);
 }
 
 TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
@@ -370,13 +370,13 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("Selected");
 	ASSERT_NE(Actor, nullptr);
-	Durin::Editor::Level::FLevelEditorContext Context;
+	Durin::LevelEditor::FLevelEditorContext Context;
 	Context.Synchronize(World);
 	Context.SelectActor(Actor);
-	Durin::Editor::Level::FLevelEditorViewportClient Client;
+	Durin::LevelEditor::FLevelEditorViewportClient Client;
 	Durin::FSceneView View;
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
-	Durin::Editor::Level::FLevelEditorViewportInput Input;
+	Durin::LevelEditor::FLevelEditorViewportInput Input;
 	Input.ViewportSize = {800.0f, 600.0f};
 	Client.GetTransformGizmo().Update(Context, View, Input, nullptr);
 
@@ -393,7 +393,7 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	ASSERT_TRUE(Client.ProjectWorldToViewport(XHandlePoint, {800.0f, 600.0f}, HandleScreen));
 	Durin::Tests::FTestTransactorOwner TransformTransactions;
 	TransformTransactions->EstablishSavedState(*Package);
-	Durin::Editor::Level::FLevelEditorViewportInput DragInput;
+	Durin::LevelEditor::FLevelEditorViewportInput DragInput;
 	DragInput.bFocused = true;
 	DragInput.bHovered = true;
 	DragInput.bLeftMousePressed = true;
@@ -444,7 +444,7 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, TransformTransactions.Get());
 	DragInput.bLeftMouseDown = false;
 	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, TransformTransactions.Get());
-	const std::vector<Durin::Editor::FTransactionEvent> TransformEvents = Durin::Tests::CollectTransactionEvents(*TransformTransactions);
+	const std::vector<Durin::FTransactionEvent> TransformEvents = Durin::Tests::CollectTransactionEvents(*TransformTransactions);
 	ASSERT_EQ(TransformEvents.size(), 1);
 	EXPECT_EQ(TransformEvents.front().Description, "Translate 'Selected'");
 	EXPECT_NE(TransformEvents.front().Details.find("'Selected'"), std::string::npos);
@@ -456,16 +456,16 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	ASSERT_TRUE(TransformTransactions->Redo());
 	EXPECT_TRUE(Package->IsDirty());
 
-	Client.GetTransformGizmo().SetMode(Durin::Editor::Level::ETransformGizmoMode::Rotate);
+	Client.GetTransformGizmo().SetMode(Durin::LevelEditor::ETransformGizmoMode::Rotate);
 	Durin::FSceneView RotateView;
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, RotateView));
 	EXPECT_EQ(RotateView.OverlayPrimitives.size(), 3u);
-	Client.GetTransformGizmo().SetMode(Durin::Editor::Level::ETransformGizmoMode::Scale);
-	EXPECT_EQ(Client.GetTransformGizmo().GetSpace(), Durin::Editor::Level::ETransformGizmoSpace::World);
-	EXPECT_EQ(Client.GetTransformGizmo().GetEffectiveSpace(), Durin::Editor::Level::ETransformGizmoSpace::Local);
-	Client.GetTransformGizmo().SetSpace(Durin::Editor::Level::ETransformGizmoSpace::Parent);
-	EXPECT_EQ(Client.GetTransformGizmo().GetSpace(), Durin::Editor::Level::ETransformGizmoSpace::Parent);
-	EXPECT_EQ(Client.GetTransformGizmo().GetEffectiveSpace(), Durin::Editor::Level::ETransformGizmoSpace::Local);
+	Client.GetTransformGizmo().SetMode(Durin::LevelEditor::ETransformGizmoMode::Scale);
+	EXPECT_EQ(Client.GetTransformGizmo().GetSpace(), Durin::LevelEditor::ETransformGizmoSpace::World);
+	EXPECT_EQ(Client.GetTransformGizmo().GetEffectiveSpace(), Durin::LevelEditor::ETransformGizmoSpace::Local);
+	Client.GetTransformGizmo().SetSpace(Durin::LevelEditor::ETransformGizmoSpace::Parent);
+	EXPECT_EQ(Client.GetTransformGizmo().GetSpace(), Durin::LevelEditor::ETransformGizmoSpace::Parent);
+	EXPECT_EQ(Client.GetTransformGizmo().GetEffectiveSpace(), Durin::LevelEditor::ETransformGizmoSpace::Local);
 	Actor->GetRootComponent()->SetWorldRotation(Durin::Math::MakeQuaternionFromAxisAngleRadians(
 		Durin::Math::HalfPi<Durin::FReal>(), Durin::FVectorConstants::Up));
 	Client.GetTransformGizmo().Update(Context, RotateView, Input, nullptr);
@@ -476,8 +476,8 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	ExpectVectorNear(
 		Durin::Math::Normalize(Durin::FVector3(ScaleView.OverlayPrimitives.front().LocalToWorld[0])),
 		Durin::FVectorConstants::Right);
-	Client.GetTransformGizmo().SetMode(Durin::Editor::Level::ETransformGizmoMode::Translate);
-	EXPECT_EQ(Client.GetTransformGizmo().GetEffectiveSpace(), Durin::Editor::Level::ETransformGizmoSpace::Parent);
+	Client.GetTransformGizmo().SetMode(Durin::LevelEditor::ETransformGizmoMode::Translate);
+	EXPECT_EQ(Client.GetTransformGizmo().GetEffectiveSpace(), Durin::LevelEditor::ETransformGizmoSpace::Parent);
 
 	Durin::ACameraActor* Parent = Level->SpawnActor<Durin::ACameraActor>("Parent");
 	ASSERT_NE(Parent, nullptr);
@@ -513,7 +513,7 @@ TEST(FLevelEditorViewportClientTests, BuildsComponentOrientedSelectionBounds)
 
 	std::vector<Durin::TObjectPtr<Durin::AActor>> Selection;
 	Selection.emplace_back(Actor);
-	Durin::Editor::Level::FLevelEditorViewportClient Client;
+	Durin::LevelEditor::FLevelEditorViewportClient Client;
 	Client.SetSelectedActors(Selection, Actor);
 	Durin::FSceneView View;
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
@@ -679,7 +679,7 @@ TEST(FCameraPreviewViewportClientTests, BuildsViewFromAssignedCameraAndRejectsMi
 	ASSERT_NE(CameraActor, nullptr);
 	CameraActor->GetCameraComponent()->SetWorldLocation({3.0, 4.0, 5.0});
 
-	Durin::Editor::Level::FCameraPreviewViewportClient Client;
+	Durin::LevelEditor::FCameraPreviewViewportClient Client;
 	Durin::FSceneView View;
 	EXPECT_FALSE(Client.CalcSceneView(320, 180, View));
 	Client.SetCamera(CameraActor->GetCameraComponent());
@@ -696,11 +696,11 @@ namespace
 {
 	struct FGizmoGestureProbe
 	{
-		Durin::Editor::Level::FLevelEditorViewportClient Client;
+		Durin::LevelEditor::FLevelEditorViewportClient Client;
 		Durin::FSceneView View;
-		Durin::Editor::Level::FTransformGizmo Gizmo;
-		Durin::Editor::Level::FLevelEditorViewportInput Input;
-		Durin::Editor::Level::FTransformGizmoTargetSet Targets;
+		Durin::LevelEditor::FTransformGizmo Gizmo;
+		Durin::LevelEditor::FLevelEditorViewportInput Input;
+		Durin::LevelEditor::FTransformGizmoTargetSet Targets;
 		std::vector<std::shared_ptr<FProbeTransformTarget>> Objects;
 		Durin::FVector2f Motion;
 		auto Initialize(size_t Count) -> bool
@@ -789,7 +789,7 @@ TEST(FTransformGizmoTests, ReplayWriteFailureCompensatesEveryTarget)
 	const auto Before = Probe.Objects[0]->Transform; const auto Head = Buffer->GetUndoId();
 	bool bFail = true; auto Target = Probe.Objects[1];
 	Target->Setter = [Target, &bFail](const Durin::FTransform& Value) { Target->Transform = Value; return !std::exchange(bFail, false); };
-	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Buffer->GetState(), Durin::Editor::ETransactorState::Idle);
+	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Buffer->GetState(), Durin::ETransactorState::Idle);
 	for (const auto& Object : Probe.Objects) ExpectVectorNear(Object->Transform.Translation, Before.Translation);
 	EXPECT_EQ(Buffer->GetUndoId(), Head); Target->Setter = {}; ASSERT_TRUE(Buffer->Undo()); ASSERT_TRUE(Buffer->Redo());
 }
@@ -801,7 +801,7 @@ TEST(FTransformGizmoTests, ReplayRollbackFailureRequiresRecovery)
 	Probe.Begin(Buffer.Get()); Probe.Move(Buffer.Get()); Probe.Release(Buffer.Get()); ASSERT_TRUE(Buffer->CanUndo());
 	auto Target = Probe.Objects[1];
 	Target->Setter = [Target](const Durin::FTransform& Value) { Target->Transform = Value; return false; };
-	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Buffer->GetState(), Durin::Editor::ETransactorState::RecoveryRequired);
+	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Buffer->GetState(), Durin::ETransactorState::RecoveryRequired);
 	EXPECT_FALSE(Buffer->CanTransact()); Target->Setter = {};
 }
 
@@ -847,7 +847,7 @@ TEST(FTransformGizmoTests, ReleaseAndReplayNeverOverwriteAnOutsideTransform)
 		if (bCommitted) Probe.Release(Buffer.Get());
 		Probe.Objects[0]->Transform.Translation += Durin::FVector3(100, 200, 300);
 		const auto Outside = Probe.Objects[0]->Transform;
-		if (bCommitted) { EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Buffer->GetState(), Durin::Editor::ETransactorState::Idle); }
+		if (bCommitted) { EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Buffer->GetState(), Durin::ETransactorState::Idle); }
 		else { Probe.Release(Buffer.Get()); EXPECT_FALSE(Buffer->CanUndo()); }
 		EXPECT_FALSE(Probe.Gizmo.IsDragging());
 		ExpectVectorNear(Probe.Objects[0]->Transform.Translation, Outside.Translation);

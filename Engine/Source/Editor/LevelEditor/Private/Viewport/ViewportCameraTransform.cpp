@@ -2,7 +2,7 @@
 
 #include "Math/Operations.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	namespace
 	{

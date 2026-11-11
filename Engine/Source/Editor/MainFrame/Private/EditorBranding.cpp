@@ -9,7 +9,7 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
 	namespace
 	{

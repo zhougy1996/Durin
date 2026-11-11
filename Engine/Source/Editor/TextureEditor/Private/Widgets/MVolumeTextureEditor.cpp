@@ -15,7 +15,7 @@
 #include "AssetForge/Builtins/VolumeTextureImportData.h"
 #include "Workspace/VolumeTextureEditorWorkspace.h"
 
-namespace Durin::Editor::Texture
+namespace Durin::TextureEditor
 {
 	namespace
 	{

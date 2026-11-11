@@ -11,7 +11,7 @@
 #include "Misc/StringConvert.h"
 #include "Asset/AssetCompilingManager.h"
 
-namespace Durin::Editor::Texture
+namespace Durin::TextureEditor
 {
 	auto FTextureFileImport::ImportFile(std::string_view Filename, std::string_view TargetDirectory) -> DObject*
 	{

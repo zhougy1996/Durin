@@ -14,7 +14,7 @@
 #include "MonaImGui.h"
 #include "SceneViewProjection.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	namespace
 	{

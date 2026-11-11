@@ -17,7 +17,7 @@
 #include "Viewport/TransformGizmo.h"
 #include "Workspace/LevelEditorContext.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	namespace
 	{
@@ -662,4 +662,4 @@ namespace Durin::Editor::Level
 			.Factory = [] { return std::make_unique<FSplineViewportEditMode>(); },
 		});
 	}
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

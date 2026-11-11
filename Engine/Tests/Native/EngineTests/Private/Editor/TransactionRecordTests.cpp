@@ -83,7 +83,7 @@ TEST(FTransactionObjectRecordTests, RejectsIncompatibleReflectedSchemaBeforeMuta
 
 TEST(FTransactionObjectRecordTests, AnnotationPrecedesSerializationAndPreflightDoesNotRecaptureIt)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "AnnotationCaptureOwner"));
 	std::vector<std::string> Trace; Target->CaptureTrace = &Trace;
@@ -100,7 +100,7 @@ TEST(FTransactionObjectRecordTests, AnnotationPrecedesSerializationAndPreflightD
 
 TEST(FTransactionObjectRecordTests, AnnotationAllocationOverflowRejectsAccounting)
 {
-	using namespace Durin; using namespace Durin::Editor;
+	using namespace Durin; using namespace Durin;
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "AnnotationOverflowOwner"));
 	Target->bAnnotationEnabled = true; Target->AnnotationBytes = std::numeric_limits<size_t>::max();

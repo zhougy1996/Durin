@@ -4,7 +4,7 @@
 #include "Yaml/Yaml.h"
 #include "Misc/FileHelper.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	auto FMaterialEditorSessionSettings::SelectStorage(std::string InFileName) -> bool
 	{

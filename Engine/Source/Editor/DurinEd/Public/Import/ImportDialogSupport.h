@@ -5,7 +5,7 @@
 #include "Import/AssetDestinationValidation.h"
 #include "DurinEdAPI.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	// Routes feature-owned import-dialog outcomes through host-owned services.
 	struct FImportDialogCallbacks
@@ -83,4 +83,4 @@ namespace Durin::Editor
 	};
 
 	DURINED_API auto DrawImportDialogWarning(std::string_view Message) -> void;
-} // namespace Durin::Editor
+} // namespace Durin

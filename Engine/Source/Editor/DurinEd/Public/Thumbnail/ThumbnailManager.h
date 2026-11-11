@@ -9,16 +9,14 @@
 
 namespace Durin
 {
-	namespace Editor
-	{
-		class IThumbnailRendererSession;
-		class FAssetThumbnailPool;
+	class IThumbnailRendererSession;
+	class FAssetThumbnailPool;
 
-		namespace Detail
-		{
-			struct FAssetThumbnailGenerationLeaseState;
-			struct DThumbnailManagerState;
-		}
+	namespace ThumbnailPrivate
+	{
+		struct FAssetThumbnailGenerationLeaseState;
+		struct DThumbnailManagerState;
+	}
 	// Provides cooperative cancellation shared by scheduler and asynchronous completions.
 	class FAssetThumbnailCancellation
 	{
@@ -66,12 +64,12 @@ namespace Durin
 		friend class DThumbnailManager;
 		friend struct FAssetThumbnailGenerationRequest;
 		explicit FAssetThumbnailGenerationLease(
-			std::shared_ptr<Detail::FAssetThumbnailGenerationLeaseState> InState)
+			std::shared_ptr<ThumbnailPrivate::FAssetThumbnailGenerationLeaseState> InState)
 			: State(std::move(InState))
 		{
 		}
 
-		std::shared_ptr<Detail::FAssetThumbnailGenerationLeaseState> State;
+		std::shared_ptr<ThumbnailPrivate::FAssetThumbnailGenerationLeaseState> State;
 	};
 
 	// Transfers an immutable renderer request across worker and render-thread boundaries.
@@ -164,14 +162,14 @@ namespace Durin
 	private:
 		friend class DThumbnailManager;
 		FThumbnailRendererRegistrationHandle(
-			std::weak_ptr<Detail::DThumbnailManagerState> InState,
+			std::weak_ptr<ThumbnailPrivate::DThumbnailManagerState> InState,
 			uint64 InRegistrationId)
 			: State(std::move(InState))
 			, RegistrationId(InRegistrationId)
 		{
 		}
 
-		std::weak_ptr<Detail::DThumbnailManagerState> State;
+		std::weak_ptr<ThumbnailPrivate::DThumbnailManagerState> State;
 		uint64 RegistrationId = 0;
 	};
 
@@ -211,7 +209,7 @@ namespace Durin
 			const FAssetThumbnailRequest& Request,
 			uint64 RendererGeneration) -> std::expected<FAssetThumbnailGenerationRequest, std::string>;
 
-		std::shared_ptr<Detail::DThumbnailManagerState> State;
+		std::shared_ptr<ThumbnailPrivate::DThumbnailManagerState> State;
 		std::unique_ptr<FAssetThumbnailPool> SharedPool;
 	};
 
@@ -219,5 +217,4 @@ namespace Durin
 	DURINED_API auto GetDefaultThumbnailManager()
 		-> DThumbnailManager&;
 
-	} // namespace Editor
 } // namespace Durin

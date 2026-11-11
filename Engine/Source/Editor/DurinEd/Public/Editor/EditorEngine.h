@@ -16,7 +16,7 @@ namespace Durin
 	class DLevel;
 }
 
-namespace Durin::Editor
+namespace Durin
 {
 	class FNotificationManager;
 
@@ -103,9 +103,9 @@ namespace Durin
 			-> bool override;
 		DURINED_API auto Tick(float DeltaSeconds, bool bIdleMode) -> void override;
 		DURINED_API auto AdvanceStartup() -> void override;
-		auto GetStartupState() const -> EHostStartupState override { return Editor::Startup::GetBootstrapStepStatus(StartupPhase); }
-		auto GetStartupPhase() const -> Editor::Startup::EBootstrapState { return StartupPhase; }
-		DURINED_API auto GetCapabilities() const -> Editor::FEditorCapabilities;
+		auto GetStartupState() const -> EHostStartupState override { return EditorStartup::GetBootstrapStepStatus(StartupPhase); }
+		auto GetStartupPhase() const -> EditorStartup::EBootstrapState { return StartupPhase; }
+		DURINED_API auto GetCapabilities() const -> FEditorCapabilities;
 		auto GetStartupError() const -> const std::string& override { return StartupError; }
 		DURINED_API auto PreExit() -> void override;
 		DURINED_API auto BeginDestroy() -> void override;
@@ -128,9 +128,9 @@ namespace Durin
 		DURINED_API auto RemoveEditorSubsystems(FName Provider) -> void;
 		DURINED_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
 		// MainFrame phase: after transaction event publication and before notification drawing.
-		DURINED_API auto GetNotificationManager() -> Editor::FNotificationManager&;
+		DURINED_API auto GetNotificationManager() -> FNotificationManager&;
 		DURINED_API auto StartPlaySession(DLevel* SourceLevel, std::string* OutError = nullptr) -> bool;
-		DURINED_API auto StartPlaySession(const Editor::FPlayRequest& Request, std::string* OutError = nullptr) -> bool;
+		DURINED_API auto StartPlaySession(const FPlayRequest& Request, std::string* OutError = nullptr) -> bool;
 		DURINED_API auto StopPlaySession() -> void;
 		DURINED_API auto SetPlaySessionPaused(bool bPaused) -> void;
 		DURINED_API auto StepPlaySession() -> void;
@@ -143,18 +143,18 @@ namespace Durin
 		DURINED_API auto ApplyPlaySessionChanges(const std::vector<AActor*>& PlayActors, uint32* OutAppliedActorCount = nullptr, std::string* OutError = nullptr) -> bool;
 		DURINED_API auto GetEditorObjectForPlayObject(const DObject* PlayObject) const -> DObject*;
 		DURINED_API auto GetPlayViewportRenderSettingsClient() -> FViewportClient*;
-		auto GetPlayState() const -> Editor::EPlayState { return PlayState; }
-		auto IsPlaying() const -> bool { return PlayState != Editor::EPlayState::Stopped; }
-		auto IsPlaySessionPaused() const -> bool { return PlayState == Editor::EPlayState::Paused; }
+		auto GetPlayState() const -> EPlayState { return PlayState; }
+		auto IsPlaying() const -> bool { return PlayState != EPlayState::Stopped; }
+		auto IsPlaySessionPaused() const -> bool { return PlayState == EPlayState::Paused; }
 		auto GetEditorWorld() const -> DWorld* { return EditorWorld.Get(); }
 		auto ShouldDrawStartupScene() const -> bool override
 		{ return GetStartupState() == EHostStartupState::Pending && GetCapabilities().bPresentWorkspace; }
 		auto GetPlayWorld() const -> DWorld* { return PlayWorld.Get(); }
 		DURINED_API auto GetEditorWorldContext() const -> const FWorldContext&;
 		DURINED_API auto GetPIEWorldContext() const -> const FWorldContext*;
-		auto IsPlayingInNewWindow() const -> bool { return IsPlaying() && PlayDestination == Editor::EPlayDestination::NewWindow; }
-		auto GetMouseCaptureState() const -> Editor::EMouseCaptureState { return MouseCaptureState; }
-		auto IsPlayMouseCaptured() const -> bool { return MouseCaptureState == Editor::EMouseCaptureState::Captured; }
+		auto IsPlayingInNewWindow() const -> bool { return IsPlaying() && PlayDestination == EPlayDestination::NewWindow; }
+		auto GetMouseCaptureState() const -> EMouseCaptureState { return MouseCaptureState; }
+		auto IsPlayMouseCaptured() const -> bool { return MouseCaptureState == EMouseCaptureState::Captured; }
 
 	protected:
 		DURINED_API auto AdoptSceneWorld(DWorld* World, FScenePtr Scene, uint64 Generation) -> void override;
@@ -165,7 +165,7 @@ namespace Durin
 
 	private:
 		DURINED_API auto StartPlaySessionInternal(
-			const Editor::FPlayRequest& Request,
+			const FPlayRequest& Request,
 			std::optional<DClass*> GameModeOverride,
 			std::string* OutError) -> bool;
 		auto TeardownPlaySession() -> void;
@@ -183,7 +183,7 @@ namespace Durin
 		std::string StartupError;
 		std::optional<FAssetOpenItemResult> StartupDocumentOpen;
 		// Service-only hosts are usable without a shell; Init starts the production bootstrap.
-		Editor::Startup::EBootstrapState StartupPhase = Editor::Startup::EBootstrapState::Ready;
+		EditorStartup::EBootstrapState StartupPhase = EditorStartup::EBootstrapState::Ready;
 	protected:
 		DURINED_API auto InitializeEditorSubsystems() -> void;
 	private:
@@ -214,8 +214,8 @@ namespace Durin
 		DPROPERTY(Transient)
 		std::vector<TObjectPtr<DLevel>> RetiredPlayLevels;
 
-		Editor::EPlayState PlayState = Editor::EPlayState::Stopped;
-		Editor::EPlayDestination PlayDestination = Editor::EPlayDestination::EmbeddedViewport;
+		EPlayState PlayState = EPlayState::Stopped;
+		EPlayDestination PlayDestination = EPlayDestination::EmbeddedViewport;
 		std::unordered_map<DObject*, DObject*> EditorToPlayObjects;
 		std::unordered_map<DObject*, DObject*> PlayToEditorObjects;
 		std::shared_ptr<FSceneViewport> PreviousSceneViewport;
@@ -223,7 +223,7 @@ namespace Durin
 		std::shared_ptr<FSceneViewport> PlayWindowViewport;
 		std::shared_ptr<MWindow> PlayWindow;
 		std::weak_ptr<FGenericWindow> CapturedMouseWindow;
-		Editor::EMouseCaptureState MouseCaptureState = Editor::EMouseCaptureState::Released;
+		EMouseCaptureState MouseCaptureState = EMouseCaptureState::Released;
 		std::vector<std::unique_ptr<FRenderCommandFence>> RetiredPlayFences;
 		std::vector<uint64> ConsoleCommandHandles;
 		IMainFrameModule* MainFrameModule = nullptr;

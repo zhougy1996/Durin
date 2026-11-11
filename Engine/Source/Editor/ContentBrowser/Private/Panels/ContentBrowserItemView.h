@@ -7,7 +7,7 @@
 
 #include "MonaImGui.h"
 
-namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
+namespace Durin::ContentBrowser::Private::ContentBrowserItemView
 {
 	// Describes the visual fallback selected for a thumbnail renderer state.
 	enum class EThumbnailPresentation : uint8
@@ -73,4 +73,4 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 		const FGridMetrics& Metrics,
 		const ImVec2& NameMin,
 		const ImVec2& NameMax) -> void;
-} // namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
+} // namespace Durin::ContentBrowser::Private::ContentBrowserItemView

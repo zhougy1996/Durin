@@ -4,7 +4,7 @@
 
 #include "Math/Operations.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	inline constexpr double MaterialPreviewFieldOfView = 42.0;
 

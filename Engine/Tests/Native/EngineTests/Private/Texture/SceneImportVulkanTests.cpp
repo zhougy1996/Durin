@@ -139,10 +139,10 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	ASSERT_TRUE(Durin::RefreshAssetRegistry());
 	Durin::FSoftObjectPath SpherePath;
 	ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate(
-		Durin::Editor::FThumbnailVisualContract::SphereAssetPath, SpherePath));
-	Durin::Editor::FRetainedAsset PreloadedSphere;
+		Durin::FThumbnailVisualContract::SphereAssetPath, SpherePath));
+	Durin::FRetainedAsset PreloadedSphere;
 	std::string Error;
-	ASSERT_TRUE(Durin::Editor::FAssetRetentionService::Acquire(
+	ASSERT_TRUE(Durin::FAssetRetentionService::Acquire(
 		SpherePath, PreloadedSphere, Error)) << Error;
 
 	const std::filesystem::path Root =
@@ -608,7 +608,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 
 	Durin::FlushRenderingCommands();
 
-	Durin::Editor::FThumbnailVisualContract Contract;
+	Durin::FThumbnailVisualContract Contract;
 	Contract.Output.Width = 64;
 	Contract.Output.Height = 64;
 	{
@@ -620,8 +620,8 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			Durin::DStaticMesh* Mesh,
 			Durin::DMaterialInterface* Material,
 			bool bForceLOD0 = false,
-			Durin::Editor::EThumbnailCaptureState ExpectedState =
-				Durin::Editor::EThumbnailCaptureState::Ready) {
+			Durin::EThumbnailCaptureState ExpectedState =
+				Durin::EThumbnailCaptureState::Ready) {
 			Durin::FByteBuffer Pixels;
 			Pool.SetForceLOD0(bForceLOD0);
 			EXPECT_TRUE(Pool.SetMaterial(

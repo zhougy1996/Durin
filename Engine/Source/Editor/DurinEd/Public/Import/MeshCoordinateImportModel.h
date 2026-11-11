@@ -5,7 +5,7 @@
 #include "DurinEdAPI.h"
 #include "StaticMesh/StaticMeshImportSettings.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	class FMeshCoordinateImportModel
 	{

@@ -24,7 +24,7 @@
 #include "MonaImGui.h"
 #include "Widgets/MonaImGuiPropertyTable.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	namespace
 	{
@@ -255,4 +255,4 @@ namespace Durin::Editor::Level
 		const FPropertyViewContext ViewContext = MakePropertyViewContext(*Context);
 		return PropertyView.FinishActiveEdit(&ViewContext, bCancel);
 	}
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

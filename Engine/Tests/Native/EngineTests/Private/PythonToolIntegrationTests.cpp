@@ -482,7 +482,7 @@ else: raise AssertionError('null was treated as absent')
             const auto& Args = std::get<FToolValue::FObject>(Request.Arguments.Data);
             if (Args.contains("value"))
             {
-                Editor::FScopedTransaction Scope(Host->GetTransactor(), {.Description = "Native domain edit"});
+                FScopedTransaction Scope(Host->GetTransactor(), {.Description = "Native domain edit"});
                 EXPECT_TRUE(Object->Modify());
                 Object->SetRelativeLocation(FVector3(static_cast<double>(std::get<int64>(Args.at("value").Data)), 0, 0));
             }
@@ -751,7 +751,7 @@ def other():
                 return FToolResult{EToolStatus::Failed, {}, {{EToolError::TargetNotFound, "Exact fixture target retired", {}}}};
             if (std::get<uint64>(Arguments.at("revision").Data) != Revision)
                 return FToolResult{EToolStatus::Failed, {}, {{EToolError::RevisionConflict, "Prepared revision is stale", {}}}};
-            Editor::FScopedTransaction Scope(GetToolEditor(Context)->GetTransactor(), {.Description = "Apply prepared value"});
+            FScopedTransaction Scope(GetToolEditor(Context)->GetTransactor(), {.Description = "Apply prepared value"});
             EXPECT_TRUE(Resolved->Modify()); Resolved->SetRelativeLocation({static_cast<double>(std::get<int64>(std::get<FToolValue::FObject>(Request.Arguments.Data).at("value").Data)), 0, 0});
             ++Revision; return FToolResult{EToolStatus::Succeeded, Request.Arguments};
         });
@@ -793,7 +793,7 @@ def prepare():
         TStrongObjectPtr<DSceneComponent> UiObject(NewObject<DSceneComponent>(nullptr, "SharedUiRecording", EObjectFlags::Transactional));
         FToolSchema Schema(EToolValueType::Object); Schema.Properties.emplace("value", FToolSchema(EToolValueType::Integer)); Schema.Required = {"value"};
         Register(Schema, true, [&](const auto& Request, const auto& Context) {
-            Editor::FScopedTransaction Scope(GetToolEditor(Context)->GetTransactor(), {.Description = "Native edit"});
+            FScopedTransaction Scope(GetToolEditor(Context)->GetTransactor(), {.Description = "Native edit"});
             EXPECT_TRUE(Object->Modify()); Object->SetRelativeLocation({static_cast<double>(std::get<int64>(std::get<FToolValue::FObject>(Request.Arguments.Data).at("value").Data)), 0, 0});
             return FToolResult{EToolStatus::Succeeded, Request.Arguments};
         });
@@ -908,7 +908,7 @@ def work():
         FToolSchema Schema(EToolValueType::Object); Schema.Properties.emplace("value", FToolSchema(EToolValueType::Integer)); Schema.Required = {"value"};
         Register(Schema, true, [&](const auto& Request, const auto& Context) {
             EXPECT_EQ(GetToolEditor(Context), Host.Get());
-            Editor::FScopedTransaction Scope("Shared editor edit");
+            FScopedTransaction Scope("Shared editor edit");
             EXPECT_TRUE(Target->Modify());
             Target->SetRelativeLocation({static_cast<double>(std::get<int64>(std::get<FToolValue::FObject>(Request.Arguments.Data).at("value").Data)), 0, 0});
             return FToolResult{EToolStatus::Succeeded, Request.Arguments};
@@ -981,7 +981,7 @@ def wait():
         TStrongObjectPtr<DSceneComponent> Object(NewObject<DSceneComponent>(nullptr, "CrossYieldCancel", EObjectFlags::Transactional));
         FToolSchema Schema(EToolValueType::Object); Schema.Properties.emplace("value", FToolSchema(EToolValueType::Integer)); Schema.Required = {"value"};
         Register(Schema, true, [&](const auto& Request, const auto& Context) {
-            Editor::FScopedTransaction Scope(GetToolEditor(Context)->GetTransactor(), {.Description = "Native edit"});
+            FScopedTransaction Scope(GetToolEditor(Context)->GetTransactor(), {.Description = "Native edit"});
             EXPECT_TRUE(Object->Modify()); Object->SetRelativeLocation({static_cast<double>(std::get<int64>(std::get<FToolValue::FObject>(Request.Arguments.Data).at("value").Data)), 0, 0});
             return FToolResult{EToolStatus::Succeeded, Request.Arguments};
         });
@@ -1076,7 +1076,7 @@ def edit():
                 return FToolResult{EToolStatus::Failed, {}, {{EToolError::TargetNotFound, "Target retired", {}}}};
             if (std::get<uint64>(Args.at("revision").Data) != Revision)
                 return FToolResult{EToolStatus::Failed, {}, {{EToolError::RevisionConflict, "Revision changed during preparation", {}}}};
-            Editor::FScopedTransaction Apply(GetToolEditor(Context)->GetTransactor(), {.Description = "Short native apply"});
+            FScopedTransaction Apply(GetToolEditor(Context)->GetTransactor(), {.Description = "Short native apply"});
             EXPECT_TRUE(Resolved->Modify()); Resolved->SetRelativeLocation({static_cast<double>(std::get<int64>(Args.at("value").Data)), 0, 0});
             ++Revision; ++Effects; return FToolResult{EToolStatus::Succeeded, Request.Arguments};
         });
@@ -1095,7 +1095,7 @@ def prepare():
         for (int I = 0; I < 3; ++I) Host->Tick(0.0f, false);
         ASSERT_EQ(1, PendingCalls); EXPECT_FALSE(Host->GetTransactor()->IsActive());
         Host->DispatchSubsystemCallback([&] {
-            Editor::FScopedTransaction Ui(Host->GetTransactor(), {.Description = "UI changes revision"});
+            FScopedTransaction Ui(Host->GetTransactor(), {.Description = "UI changes revision"});
             EXPECT_TRUE(Object->Modify()); Object->SetRelativeLocation({2, 0, 0}); ++Revision;
         });
         Preparation.TrySetValue({EToolStatus::Succeeded, FToolValue::FObject{{"value", 4}, {"revision", uint64{1}}, {"target", "fixture"}}});
@@ -1126,7 +1126,7 @@ def edit():
 
         TStrongObjectPtr<DSceneComponent> OtherDocument(NewObject<DSceneComponent>(nullptr, "IntegratedOtherDocument", EObjectFlags::Transactional));
         Host->DispatchSubsystemCallback([&] {
-            Editor::FScopedTransaction Scope("Other document");
+            FScopedTransaction Scope("Other document");
             EXPECT_TRUE(OtherDocument->Modify()); OtherDocument->SetRelativeLocation({4, 0, 0});
         });
         EXPECT_EQ(4.0, OtherDocument->GetRelativeLocation().x);

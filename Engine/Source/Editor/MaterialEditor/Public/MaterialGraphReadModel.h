@@ -4,7 +4,7 @@
 
 #include "MaterialGraphDocument.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	// One document's event-driven inspection cache, shared by canvas and Details.
 	// Subscriptions hold weak owners; callbacks only accumulate invalidations.

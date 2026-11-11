@@ -5,7 +5,7 @@
 
 #include "StaticMeshEditorAPI.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	class DThumbnailManager;
 	class FThumbnailRendererRegistrationHandle;
@@ -22,9 +22,9 @@ namespace Durin
 		STATICMESHEDITOR_API auto StartupModule() -> void override;
 		STATICMESHEDITOR_API auto ShutdownModule() -> void override;
 	private:
-		auto RegisterContributions(Editor::DThumbnailManager& ThumbnailManager) -> bool;
+		auto RegisterContributions(DThumbnailManager& ThumbnailManager) -> bool;
 		auto UnregisterContributions() -> void;
-		std::unique_ptr<Editor::FThumbnailRendererRegistrationHandle> ThumbnailRegistration;
+		std::unique_ptr<FThumbnailRendererRegistrationHandle> ThumbnailRegistration;
 		struct FIntegrationState;
 		std::unique_ptr<FIntegrationState> Integration;
 	};

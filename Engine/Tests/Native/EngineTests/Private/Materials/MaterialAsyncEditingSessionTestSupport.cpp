@@ -16,7 +16,7 @@
 
 
 using namespace Durin;
-using namespace Durin::Editor::Material;
+using namespace Durin::MaterialEditor;
 
 // Runs inside the existing async-manager fixture, which owns the process-wide
 // compiler startup/shutdown ordering.

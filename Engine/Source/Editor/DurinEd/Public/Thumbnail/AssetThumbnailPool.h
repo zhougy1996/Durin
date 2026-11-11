@@ -5,7 +5,7 @@
 #include "Thumbnail/ThumbnailPreviewScene.h"
 #include "Thumbnail/ThumbnailManager.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	// Configures the pool's compatible project-local persistent object domain.
 	struct FAssetThumbnailPoolStorageSettings
@@ -96,4 +96,4 @@ namespace Durin::Editor
 		struct FImpl;
 		std::unique_ptr<FImpl> Impl;
 	};
-} // namespace Durin::Editor
+} // namespace Durin

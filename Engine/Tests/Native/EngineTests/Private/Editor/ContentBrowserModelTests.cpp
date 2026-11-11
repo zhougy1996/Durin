@@ -46,7 +46,7 @@
 namespace
 {
 	using namespace Durin;
-	using namespace Durin::Editor::ContentBrowser::Private;
+	using namespace Durin::ContentBrowser::Private;
 
 	auto AssetItem(const FTopLevelAssetPath& Path) -> FContentBrowserItem
 	{
@@ -166,14 +166,14 @@ namespace
 		~FBrowserScanRelease() { Gate->Release(); }
 	};
 
-	class FNoOpEditorTransaction final : public Durin::Editor::FActorCommandChange
+	class FNoOpEditorTransaction final : public Durin::FActorCommandChange
 	{
 	public:
 		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
 		{ return {}; }
 
 		auto GetDescription() const -> std::string_view override { return "No-op"; }
-		auto Replay(::Durin::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
+		auto Replay(::Durin::ETransactionOperation Operation) -> Durin::FActorChangeResult override
 		{
 			if (Operation == ::Durin::ETransactionOperation::Undo)
 			{
@@ -186,7 +186,7 @@ namespace
 		}
 	};
 
-	class FRouteOnlyThumbnailRenderer final : public Editor::DThumbnailRenderer
+	class FRouteOnlyThumbnailRenderer final : public DThumbnailRenderer
 	{
 	public:
 		explicit FRouteOnlyThumbnailRenderer(std::string InAssetClassName)
@@ -194,7 +194,7 @@ namespace
 		{
 		}
 
-		auto GetRegistration() const -> Editor::FThumbnailRenderingInfo override
+		auto GetRegistration() const -> FThumbnailRenderingInfo override
 		{
 			return {
 				.AssetClassName = AssetClassName,
@@ -203,10 +203,10 @@ namespace
 		}
 
 		auto CaptureGenerationRequest(
-			const Editor::FAssetThumbnailRequest&,
-			uint64) -> std::expected<Editor::FAssetThumbnailGenerationRequest, std::string> override
+			const FAssetThumbnailRequest&,
+			uint64) -> std::expected<FAssetThumbnailGenerationRequest, std::string> override
 		{
-			Editor::FAssetThumbnailGenerationRequest OutRequest;
+			FAssetThumbnailGenerationRequest OutRequest;
 
 			return std::unexpected("Route-only test renderer.");
 		}
@@ -411,7 +411,7 @@ TEST_F(FContentBrowserModelTests, RoutesStaticMeshAssetsToThumbnails)
 	const FPackageCatalogEntry AssetData =
 		FindPackageExact(AssetPath);
 	ASSERT_NE(AssetData, nullptr);
-	auto ThumbnailRegistration = Editor::GetDefaultThumbnailManager().RegisterScoped(
+	auto ThumbnailRegistration = GetDefaultThumbnailManager().RegisterScoped(
 			std::make_unique<FRouteOnlyThumbnailRenderer>(AssetData->TopLevelAssets.front().AssetClassName));
 	ASSERT_TRUE(ThumbnailRegistration) << ThumbnailRegistration.error();
 
@@ -429,11 +429,11 @@ TEST_F(FContentBrowserModelTests, RoutesStaticMeshAssetsToThumbnails)
 		Testing::MakePackageLeafTopLevelAssetPathForTests(AssetPath).ToString();
 	EXPECT_EQ(It->VirtualPath, ExactAssetPath);
 	FContentBrowserThumbnailReferences References;
-	References.Request(*It, Editor::EAssetThumbnailPriority::Visible);
+	References.Request(*It, EAssetThumbnailPriority::Visible);
 	EXPECT_EQ(References.GetAssetReferenceCountForTesting(), 1u);
 	// Renderer registration belongs to the request service, not a published Model row.
 	ThumbnailRegistration = {};
-	References.Request(*It, Editor::EAssetThumbnailPriority::Visible);
+	References.Request(*It, EAssetThumbnailPriority::Visible);
 	EXPECT_EQ(References.GetAssetReferenceCountForTesting(), 0u);
 
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(AssetPath));
@@ -3715,15 +3715,15 @@ TEST_F(FContentBrowserModelTests, SourceThumbnailRequestsUseFileIdentityAndInval
 		.PhysicalPath = (Root / "Content/Preview.png").generic_string(), .Extension = ".png",
 		.FileSize = 128, .LastWriteTime = std::filesystem::file_time_type::clock::now()};
 	References.BeginFrame();
-	References.Request(Image, Editor::EAssetThumbnailPriority::Visible);
-	EXPECT_EQ(References.Find(Image.StableId()).State, Editor::EAssetThumbnailState::Queued);
+	References.Request(Image, EAssetThumbnailPriority::Visible);
+	EXPECT_EQ(References.Find(Image.StableId()).State, EAssetThumbnailState::Queued);
 	EXPECT_EQ(References.GetAssetReferenceCountForTesting(), 0u);
 	References.ApplyContentChanges({.Changes = {{EContentChangeKind::Modified, Image.PhysicalPath, Image.PhysicalPath}}});
-	EXPECT_EQ(References.Find(Image.StableId()).State, Editor::EAssetThumbnailState::NotRequested);
+	EXPECT_EQ(References.Find(Image.StableId()).State, EAssetThumbnailState::NotRequested);
 	const FContentBrowserItem Text{.Kind = EContentBrowserItemKind::File,
 		.PhysicalPath = (Root / "Content/Notes.txt").generic_string(), .Extension = ".txt"};
-	References.Request(Text, Editor::EAssetThumbnailPriority::Visible);
-	EXPECT_EQ(References.Find(Text.StableId()).State, Editor::EAssetThumbnailState::NotRequested);
+	References.Request(Text, EAssetThumbnailPriority::Visible);
+	EXPECT_EQ(References.Find(Text.StableId()).State, EAssetThumbnailState::NotRequested);
 }
 
 TEST_F(FContentBrowserModelTests, ThumbnailDependencyDeletionInvalidatesOnlyCapturedDependents)
@@ -3744,9 +3744,9 @@ TEST_F(FContentBrowserModelTests, ThumbnailDependencyDeletionInvalidatesOnlyCapt
 	ASSERT_TRUE(SavePackage(Other->GetPackage()));
 	const auto OwnerData = FindPackageExact(OwnerPath);
 	const auto OtherData = FindPackageExact(OtherPath);
-	auto OwnerRenderer = Editor::GetDefaultThumbnailManager().RegisterScoped(
+	auto OwnerRenderer = GetDefaultThumbnailManager().RegisterScoped(
 		std::make_unique<FRouteOnlyThumbnailRenderer>(OwnerData->TopLevelAssets.front().AssetClassName));
-	auto OtherRenderer = Editor::GetDefaultThumbnailManager().RegisterScoped(
+	auto OtherRenderer = GetDefaultThumbnailManager().RegisterScoped(
 		std::make_unique<FRouteOnlyThumbnailRenderer>(OtherData->TopLevelAssets.front().AssetClassName));
 	ASSERT_TRUE(OwnerRenderer);
 	ASSERT_TRUE(OtherRenderer);
@@ -3757,7 +3757,7 @@ TEST_F(FContentBrowserModelTests, ThumbnailDependencyDeletionInvalidatesOnlyCapt
 		ASSERT_TRUE(Asset);
 		const auto Identity = Asset->TopLevelAssets.front().AssetPath.ToString();
 		References.Request({.Kind = EContentBrowserItemKind::Asset, .VirtualPath = Identity,
-			.PackagePath = Path}, Editor::EAssetThumbnailPriority::Prefetch);
+			.PackagePath = Path}, EAssetThumbnailPriority::Prefetch);
 	}
 	ASSERT_EQ(References.GetAssetReferenceCountForTesting(), 2u);
 	const auto Revision = GetAssetCatalogRevision();

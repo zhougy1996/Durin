@@ -5,7 +5,7 @@
 #include "Tools/EditorToolSubsystem.h"
 #include "DObject/WeakObjectPtr.h"
 
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
 	// GameThread adapter. Legacy text stays in its parser; tool text uses schema-directed conversion.
 	class FConsoleToolAdapter final

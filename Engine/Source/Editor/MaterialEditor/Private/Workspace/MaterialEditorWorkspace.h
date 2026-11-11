@@ -7,7 +7,7 @@
 #include "Framework/TabLayout.h"
 #include "Widgets/MonaImGuiWidgets.h"
 
-namespace Durin::Editor::Material::Workspace
+namespace Durin::MaterialEditor::Workspace
 {
 	inline const FAssetEditorToolkitId Type("MaterialEditor");
 	inline constexpr std::string_view RootKey = "MaterialEditor";

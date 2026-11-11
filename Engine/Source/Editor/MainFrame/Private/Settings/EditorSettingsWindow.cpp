@@ -6,7 +6,7 @@
 #include "Engine/Engine.h"
 #include "Widgets/MWindow.h"
 
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
 	namespace
 	{

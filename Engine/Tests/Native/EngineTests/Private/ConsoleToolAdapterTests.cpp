@@ -24,14 +24,14 @@ namespace
 	struct FReplayBarrier
 	{
 		explicit FReplayBarrier(Durin::DTransactor* Transactor) : Buffer(static_cast<Durin::DTransBuffer&>(*Transactor))
-		{ Durin::FTransBufferTestAccess::SetState(Buffer, Durin::Editor::ETransactorState::Undoing); }
-		~FReplayBarrier() { Durin::FTransBufferTestAccess::SetState(Buffer, Durin::Editor::ETransactorState::Idle); }
+		{ Durin::FTransBufferTestAccess::SetState(Buffer, Durin::ETransactorState::Undoing); }
+		~FReplayBarrier() { Durin::FTransBufferTestAccess::SetState(Buffer, Durin::ETransactorState::Idle); }
 		Durin::DTransBuffer& Buffer;
 	};
 }
 
 
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
 	namespace
 	{

@@ -2,7 +2,7 @@
 
 #include "MonaImGui.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	auto FContentBrowserPanel::ApplyPreferences(const FPresentationSettings& Next) -> bool
 	{

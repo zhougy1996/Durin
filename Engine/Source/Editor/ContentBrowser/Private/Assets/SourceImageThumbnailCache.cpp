@@ -11,7 +11,7 @@
 #include "Thumbnail/ThumbnailStorage.h"
 #include "Threading/Task.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	namespace
 	{
@@ -451,4 +451,4 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		return Impl->Tasks.size();
 	}
-} // namespace Durin::Editor::ContentBrowser::Private
+} // namespace Durin::ContentBrowser::Private

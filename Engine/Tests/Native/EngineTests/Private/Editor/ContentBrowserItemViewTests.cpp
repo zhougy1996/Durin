@@ -6,41 +6,41 @@
 
 #include <gtest/gtest.h>
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	TEST(FContentBrowserItemViewTests, MapsProviderStatesWithoutOwningTextures)
 	{
-		Editor::FAssetThumbnailView Thumbnail;
+		FAssetThumbnailView Thumbnail;
 		EXPECT_EQ(
 			ContentBrowserItemView::ResolveThumbnailPresentation(Thumbnail),
 			ContentBrowserItemView::EThumbnailPresentation::Icon);
 
-		Thumbnail.State = Editor::EAssetThumbnailState::Queued;
+		Thumbnail.State = EAssetThumbnailState::Queued;
 		EXPECT_EQ(
 			ContentBrowserItemView::ResolveThumbnailPresentation(Thumbnail),
 			ContentBrowserItemView::EThumbnailPresentation::Loading);
-		Thumbnail.State = Editor::EAssetThumbnailState::Loading;
+		Thumbnail.State = EAssetThumbnailState::Loading;
 		EXPECT_EQ(
 			ContentBrowserItemView::ResolveThumbnailPresentation(Thumbnail),
 			ContentBrowserItemView::EThumbnailPresentation::Loading);
-		Thumbnail.State = Editor::EAssetThumbnailState::Uploading;
+		Thumbnail.State = EAssetThumbnailState::Uploading;
 		EXPECT_EQ(
 			ContentBrowserItemView::ResolveThumbnailPresentation(Thumbnail),
 			ContentBrowserItemView::EThumbnailPresentation::Loading);
 
-		Thumbnail.State = Editor::EAssetThumbnailState::Ready;
+		Thumbnail.State = EAssetThumbnailState::Ready;
 		Thumbnail.Texture = reinterpret_cast<FRHITexture*>(1);
 		EXPECT_EQ(
 			ContentBrowserItemView::ResolveThumbnailPresentation(Thumbnail),
 			ContentBrowserItemView::EThumbnailPresentation::Ready);
 
-		Thumbnail.State = Editor::EAssetThumbnailState::Failed;
+		Thumbnail.State = EAssetThumbnailState::Failed;
 		Thumbnail.Texture = nullptr;
 		EXPECT_EQ(
 			ContentBrowserItemView::ResolveThumbnailPresentation(Thumbnail),
 			ContentBrowserItemView::EThumbnailPresentation::Failed);
 
-		Thumbnail.State = Editor::EAssetThumbnailState::Invalid;
+		Thumbnail.State = EAssetThumbnailState::Invalid;
 		EXPECT_EQ(
 			ContentBrowserItemView::ResolveThumbnailPresentation(Thumbnail),
 			ContentBrowserItemView::EThumbnailPresentation::Icon);
@@ -85,13 +85,13 @@ namespace Durin::Editor::ContentBrowser::Private
 
 		const ContentBrowserItemView::FGridMetrics Minimum =
 			ContentBrowserItemView::FGridMetrics::FromPreviewExtent(
-				::Durin::Editor::ContentBrowser::FPresentationSettings::MinimumIconSize);
+				::Durin::ContentBrowser::FPresentationSettings::MinimumIconSize);
 		const ContentBrowserItemView::FGridMetrics Default =
 			ContentBrowserItemView::FGridMetrics::FromPreviewExtent(
-				::Durin::Editor::ContentBrowser::FPresentationSettings::DefaultIconSize);
+				::Durin::ContentBrowser::FPresentationSettings::DefaultIconSize);
 		const ContentBrowserItemView::FGridMetrics Maximum =
 			ContentBrowserItemView::FGridMetrics::FromPreviewExtent(
-				::Durin::Editor::ContentBrowser::FPresentationSettings::MaximumIconSize);
+				::Durin::ContentBrowser::FPresentationSettings::MaximumIconSize);
 
 		EXPECT_LT(Minimum.CellWidth, Default.CellWidth);
 		EXPECT_LT(Default.CellWidth, Maximum.CellWidth);
@@ -99,14 +99,14 @@ namespace Durin::Editor::ContentBrowser::Private
 		EXPECT_LT(Default.TileHeight, Maximum.TileHeight);
 		EXPECT_FLOAT_EQ(
 			Minimum.PreviewExtent,
-			::Durin::Editor::ContentBrowser::FPresentationSettings::MinimumIconSize);
+			::Durin::ContentBrowser::FPresentationSettings::MinimumIconSize);
 		EXPECT_FLOAT_EQ(
 			Default.PreviewExtent,
-			::Durin::Editor::ContentBrowser::FPresentationSettings::DefaultIconSize);
+			::Durin::ContentBrowser::FPresentationSettings::DefaultIconSize);
 		EXPECT_FLOAT_EQ(
 			Maximum.PreviewExtent,
-			::Durin::Editor::ContentBrowser::FPresentationSettings::MaximumIconSize);
+			::Durin::ContentBrowser::FPresentationSettings::MaximumIconSize);
 
 		ImGui::DestroyContext(Context);
 	}
-} // namespace Durin::Editor::ContentBrowser::Private
+} // namespace Durin::ContentBrowser::Private

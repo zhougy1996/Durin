@@ -6,7 +6,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "Threading/RunnableThread.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	auto FPreviewMeshResources::Initialize() -> std::expected<void, std::string>
 	{

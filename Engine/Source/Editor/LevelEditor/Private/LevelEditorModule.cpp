@@ -45,7 +45,7 @@
 
 namespace Durin
 {
-	using namespace Editor::Level;
+	using namespace LevelEditor;
 	namespace
 	{
 		auto CreateLevelAsset(const FTopLevelAssetPath& AssetPath, std::string& OutError) -> bool
@@ -86,7 +86,7 @@ namespace Durin
 		std::unique_ptr<FEditorSubsystemRegistration> Levels;
 		std::unique_ptr<FNativeToolset> PIE;
 		FModularFeatureRegistration PIERegistration;
-		std::vector<Editor::ContentBrowser::FScopedExtensionRegistration>
+		std::vector<ContentBrowser::FScopedExtensionRegistration>
 			ContentBrowserExtensions;
 	};
 
@@ -112,30 +112,30 @@ namespace Durin
 				ProjectDefaultLevelReferenceStore.get());
 
 		auto& Registry = FLevelEditorCustomizationRegistry::Get();
-		DetailCustomizationHandles.push_back(Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(AStaticMeshActor::StaticClass(),
+		DetailCustomizationHandles.push_back(FDetailCustomizationRegistry::Get().RegisterDetailCustomization(AStaticMeshActor::StaticClass(),
 			CreateStaticMeshActorDetailsCustomization()));
-		DetailCustomizationHandles.push_back(Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(ACameraActor::StaticClass(),
+		DetailCustomizationHandles.push_back(FDetailCustomizationRegistry::Get().RegisterDetailCustomization(ACameraActor::StaticClass(),
 			CreateActorComponentDetailsCustomization([](AActor* Actor) -> DActorComponent* { return Cast<ACameraActor>(Actor)->GetCameraComponent(); })));
-		DetailCustomizationHandles.push_back(Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(ADirectionalLightActor::StaticClass(),
+		DetailCustomizationHandles.push_back(FDetailCustomizationRegistry::Get().RegisterDetailCustomization(ADirectionalLightActor::StaticClass(),
 			CreateActorComponentDetailsCustomization([](AActor* Actor) -> DActorComponent* { return Cast<ADirectionalLightActor>(Actor)->GetLightComponent(); })));
-		DetailCustomizationHandles.push_back(Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(AVolumetricCloudActor::StaticClass(),
+		DetailCustomizationHandles.push_back(FDetailCustomizationRegistry::Get().RegisterDetailCustomization(AVolumetricCloudActor::StaticClass(),
 			CreateActorComponentDetailsCustomization([](AActor* Actor) -> DActorComponent* { return Cast<AVolumetricCloudActor>(Actor)->GetVolumetricCloudComponent(); })));
 
-		DetailCustomizationHandles.push_back(Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(DSkyLightComponent::StaticClass(),
+		DetailCustomizationHandles.push_back(FDetailCustomizationRegistry::Get().RegisterDetailCustomization(DSkyLightComponent::StaticClass(),
 			CreateSkyLightDetailsCustomization()));
 
 		CustomizationHandles.push_back(Registry.RegisterActorVisualizer(APlayerStart::StaticClass(), CreatePlayerStartActorVisualizer()));
 		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DCameraComponent::StaticClass(), CreateCameraComponentVisualizer()));
 		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DDirectionalLightComponent::StaticClass(), CreateDirectionalLightComponentVisualizer()));
-		DetailCustomizationHandles.push_back(Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(DCameraComponent::StaticClass(), CreateCameraDetailsCustomization()));
+		DetailCustomizationHandles.push_back(FDetailCustomizationRegistry::Get().RegisterDetailCustomization(DCameraComponent::StaticClass(), CreateCameraDetailsCustomization()));
 		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DSplineComponent::StaticClass(), CreateSplineComponentVisualizer()));
-		DetailCustomizationHandles.push_back(Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(DSplineComponent::StaticClass(), CreateSplineDetailsCustomization()));
-		DetailCustomizationHandles.push_back(Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(ASplineMeshActor::StaticClass(), CreateSplineMeshActorDetailsCustomization()));
+		DetailCustomizationHandles.push_back(FDetailCustomizationRegistry::Get().RegisterDetailCustomization(DSplineComponent::StaticClass(), CreateSplineDetailsCustomization()));
+		DetailCustomizationHandles.push_back(FDetailCustomizationRegistry::Get().RegisterDetailCustomization(ASplineMeshActor::StaticClass(), CreateSplineMeshActorDetailsCustomization()));
 		SplineEditModeHandle = RegisterSplineViewportEditMode();
-		DetailCustomizationHandles.push_back(Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(DStaticMeshComponent::StaticClass(), CreateStaticMeshComponentDetailsCustomization()));
-		DetailCustomizationHandles.push_back(Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(DVolumetricCloudComponent::StaticClass(), CreateVolumetricCloudDetailsCustomization()));
+		DetailCustomizationHandles.push_back(FDetailCustomizationRegistry::Get().RegisterDetailCustomization(DStaticMeshComponent::StaticClass(), CreateStaticMeshComponentDetailsCustomization()));
+		DetailCustomizationHandles.push_back(FDetailCustomizationRegistry::Get().RegisterDetailCustomization(DVolumetricCloudComponent::StaticClass(), CreateVolumetricCloudDetailsCustomization()));
 		checkf(std::ranges::all_of(CustomizationHandles, [](FLevelEditorCustomizationHandle Handle) { return static_cast<bool>(Handle); }), "LevelEditor built-in customizations must register exactly once");
-		checkf(std::ranges::all_of(DetailCustomizationHandles, [](Editor::FDetailCustomizationHandle Handle) { return static_cast<bool>(Handle); }), "LevelEditor built-in detail customizations must register exactly once");
+		checkf(std::ranges::all_of(DetailCustomizationHandles, [](FDetailCustomizationHandle Handle) { return static_cast<bool>(Handle); }), "LevelEditor built-in detail customizations must register exactly once");
 		Integration->Levels = std::make_unique<FEditorSubsystemRegistration>(FSubsystemDescriptor{
 			.Type = DLevelEditorSubsystem::StaticClass(), .Provider = FModuleStartup::GetModuleName()});
 		Integration->PIE = CreatePIEToolset();
@@ -174,7 +174,7 @@ namespace Durin
 		SplineEditModeHandle = {};
 		for (auto It = CustomizationHandles.rbegin(); It != CustomizationHandles.rend(); ++It) Registry.Unregister(*It);
 		CustomizationHandles.clear();
-		for (auto It = DetailCustomizationHandles.rbegin(); It != DetailCustomizationHandles.rend(); ++It) Editor::FDetailCustomizationRegistry::Get().Unregister(*It);
+		for (auto It = DetailCustomizationHandles.rbegin(); It != DetailCustomizationHandles.rend(); ++It) FDetailCustomizationRegistry::Get().Unregister(*It);
 		DetailCustomizationHandles.clear();
 	}
 
@@ -198,7 +198,7 @@ namespace Durin
 	{
 		{
 			std::string Error;
-			auto Handle = Editor::ContentBrowser::RegisterAssetCreation({
+			auto Handle = ContentBrowser::RegisterAssetCreation({
 				.Id = "level.create-level",
 				.Label = "Level",
 				.DefaultName = "NewLevel",
@@ -213,12 +213,12 @@ namespace Durin
 			Integration->ContentBrowserExtensions.push_back(std::move(Handle));
 		}
 		std::string Error;
-		auto Handle = Editor::ContentBrowser::RegisterExtension({
+		auto Handle = ContentBrowser::RegisterExtension({
 			.Id = "level.import-scene",
 			.Label = "Scene Source (FBX)...",
-			.Category = Editor::ContentBrowser::EExtensionCategory::Import,
+			.Category = ContentBrowser::EExtensionCategory::Import,
 			.Order = 300,
-			.Mutation = Editor::ContentBrowser::EContentMutation::MutatesContent,
+			.Mutation = ContentBrowser::EContentMutation::MutatesContent,
 			.IsApplicable = [](const auto& Context) {
 				return !Context.VirtualDirectory.empty();
 			},
@@ -227,14 +227,14 @@ namespace Durin
 				if (!Service) return;
 				for (const auto& Session : Service->GetOwnedAssetEditors())
 				if (auto Toolkit = std::dynamic_pointer_cast<MLevelEditor>(Session->GetToolkit()))
-					Toolkit->RequestContentBrowserImport(Invocation.Context.VirtualDirectory, Editor::Level::EImportDialogType::Scene);
+					Toolkit->RequestContentBrowserImport(Invocation.Context.VirtualDirectory, LevelEditor::EImportDialogType::Scene);
 			},
-			.DrawHostPresentation = [](const Editor::ContentBrowser::FExtensionHost& Host, bool bAllowed) {
+			.DrawHostPresentation = [](const ContentBrowser::FExtensionHost& Host, bool bAllowed) {
 				auto* Service = Host.AssetEditors.Get();
 				if (!Service) return;
 				for (const auto& Session : Service->GetOwnedAssetEditors())
 				if (auto Toolkit = std::dynamic_pointer_cast<MLevelEditor>(Session->GetToolkit()))
-					Toolkit->DrawContentBrowserImport(Editor::Level::EImportDialogType::Scene, bAllowed);
+					Toolkit->DrawContentBrowserImport(LevelEditor::EImportDialogType::Scene, bAllowed);
 			},
 			}, Error);
 		if (!Handle.IsValid())

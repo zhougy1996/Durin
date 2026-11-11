@@ -2,7 +2,7 @@
 
 #include "Thumbnail/AssetThumbnailKey.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	struct FAssetThumbnailRequestQueue::FImpl
 	{
@@ -324,4 +324,4 @@ namespace Durin::Editor
 	{
 		return Impl->bShuttingDown;
 	}
-} // namespace Durin::Editor
+} // namespace Durin

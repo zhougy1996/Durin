@@ -4,7 +4,7 @@
 
 #include "Thumbnail/AssetThumbnailTypes.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	// Describes one package and its direct Asset Registry dependency edges.
 	struct FAssetThumbnailDependencyNode
@@ -34,4 +34,4 @@ namespace Durin::Editor
 
 	// Hashes explicit little-endian fields rather than formatted text or native struct memory.
 	DURINED_API auto BuildAssetThumbnailCacheKey(const FAssetThumbnailKeyInput& Input) -> std::string;
-} // namespace Durin::Editor
+} // namespace Durin

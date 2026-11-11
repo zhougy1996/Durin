@@ -6,7 +6,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Actor.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	namespace
 	{
@@ -33,4 +33,4 @@ namespace Durin::Editor::Level
 		if (Actor->FindComponentByClass<DStaticMeshComponent>()) return EWorldOutlinerIcon::StaticMesh;
 		return EWorldOutlinerIcon::Actor;
 	}
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

@@ -8,7 +8,7 @@
 #include "Texture/Texture2DCompilation.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 
-namespace Durin::Editor::Texture
+namespace Durin::TextureEditor
 {
 	namespace
 	{

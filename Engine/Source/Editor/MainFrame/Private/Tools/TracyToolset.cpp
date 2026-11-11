@@ -1,7 +1,7 @@
 #include "Tools/TracyToolset.h"
 #include "ProfilingToolService.h"
 
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
 	auto CreateTracyToolset(std::shared_ptr<FProfilingToolService> Service) -> std::unique_ptr<FNativeToolset>
 	{

@@ -18,14 +18,14 @@ namespace Durin
 }
 
 namespace Durin { class FEditorDocumentManager; }
-namespace Durin::Editor
+namespace Durin
 {
 	enum class EPlayStartLocation : uint8;
 	enum class EPlayDestination : uint8;
 
 }
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	class ILevelEditorPanel;
 	class FLevelEditorSessionSettings;
@@ -122,4 +122,4 @@ namespace Durin::Editor::Level
 		FDocumentId DeferredOpenDocumentId;
 		bool bReleased = false;
 	};
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

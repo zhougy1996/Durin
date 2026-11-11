@@ -5,7 +5,7 @@
 
 namespace Durin { class DActorComponent; }
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	struct FLevelEditorContext;
 

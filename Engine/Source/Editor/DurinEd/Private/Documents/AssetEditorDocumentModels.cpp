@@ -17,7 +17,7 @@ namespace Durin
 {
 	auto FEditableAssetDocumentModel::BindEditor(DEditorEngine* Editor) -> void { BoundEditor = Editor; bEditorBound = true; }
 	auto FEditableAssetDocumentModel::GetEditor() const -> DEditorEngine*
-	{ return bEditorBound ? BoundEditor.Get() : Editor::GetTransactionEditor(); }
+	{ return bEditorBound ? BoundEditor.Get() : GetTransactionEditor(); }
 	auto FReadOnlyAssetDocumentModel::RemapResourceId(std::string_view Source, std::string_view Destination) -> void
 	{ if (ActiveResourceId == Source) ActiveResourceId = Destination; }
 	auto FEditableAssetDocumentModel::ActivateReadOnly(const FEditorDocument& Document, DObject* Object) -> bool

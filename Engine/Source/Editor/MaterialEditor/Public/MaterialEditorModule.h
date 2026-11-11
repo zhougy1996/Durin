@@ -6,7 +6,7 @@
 
 #include "MaterialEditorAPI.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	class DThumbnailManager;
 	class FThumbnailRendererRegistrationHandle;
@@ -24,11 +24,11 @@ namespace Durin
 		MATERIALEDITOR_API auto ShutdownModule() -> void override;
 
 	private:
-		auto RegisterContributions(Editor::DThumbnailManager& ThumbnailManager) -> bool;
+		auto RegisterContributions(DThumbnailManager& ThumbnailManager) -> bool;
 		auto UnregisterContributions() -> void;
-		Editor::FDetailCustomizationHandle DetailCustomizationRegistration;
-		std::unique_ptr<Editor::FThumbnailRendererRegistrationHandle> MaterialThumbnailRegistration;
-		std::unique_ptr<Editor::FThumbnailRendererRegistrationHandle> MaterialInstanceThumbnailRegistration;
+		FDetailCustomizationHandle DetailCustomizationRegistration;
+		std::unique_ptr<FThumbnailRendererRegistrationHandle> MaterialThumbnailRegistration;
+		std::unique_ptr<FThumbnailRendererRegistrationHandle> MaterialInstanceThumbnailRegistration;
 		struct FIntegrationState;
 		std::unique_ptr<FIntegrationState> Integration;
 	};

@@ -3,7 +3,7 @@
 #include "Hash/XxHash.h"
 #include "Serialization/BinaryFormat.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	namespace
 	{
@@ -109,4 +109,4 @@ namespace Durin::Editor
 			WritePackageFingerprint(Writer, Dependency);
 		return FXxHash128::HashBuffer(Writer.GetBytes()).ToString();
 	}
-} // namespace Durin::Editor
+} // namespace Durin

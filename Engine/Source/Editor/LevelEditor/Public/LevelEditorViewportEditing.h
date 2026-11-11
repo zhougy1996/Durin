@@ -11,7 +11,7 @@ namespace Durin
 	class DTransactor;
 }
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	class FLevelEditorViewportClient;
 	struct FLevelEditorContext;
@@ -84,4 +84,4 @@ namespace Durin::Editor::Level
 		std::unique_ptr<ILevelViewportEditMode> ActiveMode;
 		FLevelEditorContext* LastContext = nullptr;
 	};
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

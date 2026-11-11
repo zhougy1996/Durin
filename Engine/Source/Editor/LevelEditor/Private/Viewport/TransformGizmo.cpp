@@ -14,7 +14,7 @@
 #include "Viewport/LevelEditorViewportClient.h"
 #include "MonaImGui.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	namespace
 	{
@@ -784,4 +784,4 @@ namespace Durin::Editor::Level
 			Add(EViewOverlayShape::Box, Box, ETransformGizmoHandle::Uniform);
 		}
 	}
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

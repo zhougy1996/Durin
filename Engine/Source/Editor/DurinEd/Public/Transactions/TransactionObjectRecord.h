@@ -6,7 +6,7 @@
 #include "DObject/TransactionDiff.h"
 #include "DurinEdAPI.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	struct FTransactionObjectRecordError
 	{

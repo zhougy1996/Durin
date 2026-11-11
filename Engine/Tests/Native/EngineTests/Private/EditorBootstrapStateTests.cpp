@@ -2,7 +2,7 @@
 
 #include "Editor/EditorStartup.h"
 
-namespace Durin::Editor::Startup
+namespace Durin::EditorStartup
 {
 	TEST(FEditorBootstrapStateTests, ValidatesEveryStatePairAgainstDocumentedTransitions)
 	{

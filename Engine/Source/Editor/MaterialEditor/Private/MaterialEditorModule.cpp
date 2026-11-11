@@ -21,7 +21,7 @@
 
 namespace Durin
 {
-	using namespace Editor::Material;
+	using namespace MaterialEditor;
 	namespace
 	{
 		template<typename TMaterial>
@@ -74,7 +74,7 @@ namespace Durin
 		FAssetMoveObserverHandle MoveObserver = 0;
 		auto OnAssetsRelocated(std::span<const FAssetRelocationMapping> Mappings) -> void override
 		{ FMaterialEditorSessionSettings::RemapStoredViewports(Mappings); }
-		std::vector<Editor::ContentBrowser::FScopedExtensionRegistration>
+		std::vector<ContentBrowser::FScopedExtensionRegistration>
 			ContentBrowserExtensions;
 	};
 
@@ -88,10 +88,10 @@ namespace Durin
 	auto FMaterialEditorModule::StartupModule() -> void
 	{
 		Integration->MoveObserver = RegisterAssetMoveObserver(Integration.get());
-		DetailCustomizationRegistration = Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(
-			DMaterialParameterCollection::StaticClass(), Editor::Material::CreateMaterialParameterCollectionDetails());
+		DetailCustomizationRegistration = FDetailCustomizationRegistry::Get().RegisterDetailCustomization(
+			DMaterialParameterCollection::StaticClass(), MaterialEditor::CreateMaterialParameterCollectionDetails());
 		require(static_cast<bool>(DetailCustomizationRegistration));
-		require(RegisterContributions(Editor::GetDefaultThumbnailManager()));
+		require(RegisterContributions(GetDefaultThumbnailManager()));
 	}
 
 	auto FMaterialEditorModule::ShutdownModule() -> void
@@ -99,16 +99,16 @@ namespace Durin
 		UnregisterAssetMoveObserver(Integration->MoveObserver);
 		Integration->MoveObserver = 0;
 		UnregisterContributions();
-		Editor::FDetailCustomizationRegistry::Get().Unregister(DetailCustomizationRegistration);
+		FDetailCustomizationRegistry::Get().Unregister(DetailCustomizationRegistration);
 		DetailCustomizationRegistration = {};
-		Editor::Material::FMaterialGraphCanvas::ClearSharedClipboard();
+		MaterialEditor::FMaterialGraphCanvas::ClearSharedClipboard();
 		if (GEditor)
 			checkf(GEditor->GetTransactor()
 				->DiscardCustomChangesByModule("MaterialEditor"),
 				"MaterialEditor cannot retire while one of its custom changes is active");
 	}
 
-	auto FMaterialEditorModule::RegisterContributions(Editor::DThumbnailManager& ThumbnailManager) -> bool
+	auto FMaterialEditorModule::RegisterContributions(DThumbnailManager& ThumbnailManager) -> bool
 	{
 		check(!MaterialThumbnailRegistration && !MaterialInstanceThumbnailRegistration);
 
@@ -120,7 +120,7 @@ namespace Durin
 			return false;
 		}
 		MaterialThumbnailRegistration =
-			std::make_unique<Editor::FThumbnailRendererRegistrationHandle>(
+			std::make_unique<FThumbnailRendererRegistrationHandle>(
 				std::move(*MaterialHandle));
 		auto InstanceHandle = ThumbnailManager.RegisterScoped(
 			std::make_unique<DMaterialThumbnailRenderer>(
@@ -131,12 +131,12 @@ namespace Durin
 			return false;
 		}
 		MaterialInstanceThumbnailRegistration =
-			std::make_unique<Editor::FThumbnailRendererRegistrationHandle>(
+			std::make_unique<FThumbnailRendererRegistrationHandle>(
 				std::move(*InstanceHandle));
 		const auto RegisterCreate = [this](std::string Id, std::string Label,
 			std::string BaseName, bool bInstance) {
 			std::string Error;
-			auto Handle = Editor::ContentBrowser::RegisterAssetCreation({
+			auto Handle = ContentBrowser::RegisterAssetCreation({
 				.Id = std::move(Id),
 				.Label = std::move(Label),
 				.DefaultName = std::move(BaseName),
@@ -165,7 +165,7 @@ namespace Durin
 		}
 		std::string PresentationError;
 		{
-			auto Handle = Editor::ContentBrowser::RegisterAssetCreation({
+			auto Handle = ContentBrowser::RegisterAssetCreation({
 				.Id = "material.create-function", .Label = "Material Function", .DefaultName = "NewMaterialFunction", .Order = 220,
 				.Create = CreateMaterialAsset<DMaterialFunction>,
 				.AssetClassNameToOpen = DMaterialFunction::StaticClass()->GetQualifiedName().ToString()}, PresentationError);
@@ -174,7 +174,7 @@ namespace Durin
 
 		}
 		{
-			auto Handle = Editor::ContentBrowser::RegisterAssetCreation({
+			auto Handle = ContentBrowser::RegisterAssetCreation({
 				.Id = "material.create-parameter-collection",
 				.Label = "Material Parameter Collection",
 				.DefaultName = "NewMaterialParameterCollection", .Order = 230,

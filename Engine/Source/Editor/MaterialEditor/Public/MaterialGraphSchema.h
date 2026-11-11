@@ -4,7 +4,7 @@
 
 #include "MaterialGraphOperations.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	// Stateless graph policy. Asset loading, transactions and editor services belong to callers.
 	class FMaterialGraphSchema

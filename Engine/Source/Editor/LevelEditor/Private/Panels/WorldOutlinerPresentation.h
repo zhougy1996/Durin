@@ -9,7 +9,7 @@ namespace Durin
 	class AActor;
 }
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	// Semantic icon roles keep Actor classification independent from the glyph catalog.
 	enum class EWorldOutlinerIcon : uint8
@@ -23,4 +23,4 @@ namespace Durin::Editor::Level
 	};
 
 	auto ClassifyWorldOutlinerActorIcon(AActor* Actor) -> EWorldOutlinerIcon;
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

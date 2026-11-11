@@ -4,7 +4,7 @@
 
 #include "LevelEditorAPI.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	enum class EImportDialogType : uint8
 	{
@@ -18,4 +18,4 @@ namespace Durin::Editor::Level
 		std::function<bool(std::string_view)> RevealDirectory;
 		std::function<bool()> NotifyMountedContentChanged;
 	};
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

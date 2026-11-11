@@ -40,8 +40,8 @@ namespace Durin
 			if (!Item.AssetPath.IsValid()) { Reject(Warn, "The destination asset path is invalid."); return nullptr; }
 			if (!ValidateClass(Item.AssetClass)) { Reject(Warn, "The requested asset class cannot be constructed."); return nullptr; }
 			if (Item.Filename.empty()) { Reject(Warn, "A source filename is required for import."); return nullptr; }
-			const auto Destination = Editor::InspectAssetDestination(Item.AssetPath.GetPackagePath().GetView());
-			if (!Destination) { Reject(Warn, Editor::FormatAssetDestinationValidation(Destination)); return nullptr; }
+			const auto Destination = InspectAssetDestination(Item.AssetPath.GetPackagePath().GetView());
+			if (!Destination) { Reject(Warn, FormatAssetDestinationValidation(Destination)); return nullptr; }
 			std::error_code Error;
 			const bool bExists = std::filesystem::exists(Destination.PhysicalPath, Error);
 			if (Error) { Reject(Warn, "The destination package could not be inspected: " + Error.message()); return nullptr; }

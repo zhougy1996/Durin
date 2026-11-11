@@ -58,9 +58,9 @@ namespace Durin
 			FPackagePath CandidatePath;
 			if (!FPackagePath::TryCreate(Directory + CandidateName, CandidatePath))
 				return Reject("The duplicate destination path is invalid.");
-			const auto Destination = Editor::InspectAssetDestination(CandidatePath.GetView());
+			const auto Destination = InspectAssetDestination(CandidatePath.GetView());
 			if (Destination.AssetExists()) continue;
-			if (!Destination) return Reject(Editor::FormatAssetDestinationValidation(Destination));
+			if (!Destination) return Reject(FormatAssetDestinationValidation(Destination));
 			std::string CandidatePhysical = Destination.PhysicalPath.generic_string();
 			std::error_code Error;
 			const bool bExists = std::filesystem::exists(CandidatePhysical, Error);

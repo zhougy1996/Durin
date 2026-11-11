@@ -1313,7 +1313,7 @@ TEST_F(FWorldSubsystemTests, PlayInitializationExceptionCleansUnpublishedWorldAn
 	};
 	EXPECT_THROW(Host->StartPlay(World->GetCurrentLevel()), std::runtime_error);
 	EXPECT_FALSE(Candidate.IsValid());
-	EXPECT_EQ(Host->GetPlayState(), Editor::EPlayState::Stopped);
+	EXPECT_EQ(Host->GetPlayState(), EPlayState::Stopped);
 	EXPECT_EQ(Host->GetPlayWorld(), nullptr);
 	EXPECT_EQ(Host->GetWorld(), World);
 	EXPECT_EQ(Host->GetWorldContexts().size(), 1u);
@@ -1516,7 +1516,7 @@ TEST_F(FWorldSubsystemTests, NotificationServiceOwnsFacadeAndRejectsRetainedActi
 	ASSERT_NE(Service, nullptr);
 	EXPECT_EQ(&Host->GetNotificationManager(), &Service->GetManager());
 	int Invocations = 0;
-	Host->GetNotificationManager().Post({.Message = "Ready", .Action = Editor::FNotificationAction{
+	Host->GetNotificationManager().Post({.Message = "Ready", .Action = FNotificationAction{
 		.Label = "Open", .Invoke = [&] { ++Invocations; }}});
 	Host->GetNotificationManager().Tick(0.0f);
 	ASSERT_EQ(Service->GetManager().GetNotifications().size(), 1u);
@@ -1593,7 +1593,7 @@ TEST_F(FWorldSubsystemTests, NotificationShutdownCallbackRetiresAtTheNextHostBou
 	ASSERT_NO_THROW(Host->StartEditor());
 	auto* Service = Host->GetEditorSubsystem<DEditorNotificationSubsystem>();
 	ASSERT_NE(Service, nullptr);
-	const auto Id = Host->GetNotificationManager().Post({.Message = "Stop", .Action = Editor::FNotificationAction{
+	const auto Id = Host->GetNotificationManager().Post({.Message = "Stop", .Action = FNotificationAction{
 		.Label = "Stop", .Invoke = [&] {
 			Host->RequestShutdown();
 			EXPECT_FALSE(Service->GetManager().IsAcceptingRequests());
@@ -1695,7 +1695,7 @@ TEST_F(FWorldSubsystemTests, UnpublishedWorldClosesAdmissionWhenItsEngineRetires
 
 TEST_F(FWorldSubsystemTests, ActorEditingAdmitsOnlyItsLiveHostAndEditableStoppedDocument)
 {
-	using namespace Durin::Editor;
+	using namespace Durin;
 	TStrongObjectPtr<FSubsystemEditorHost> First(NewObject<FSubsystemEditorHost>(nullptr, {}));
 	for (auto* Host : {First.Get()})
 	{

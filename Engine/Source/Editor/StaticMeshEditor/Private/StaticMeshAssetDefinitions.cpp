@@ -4,7 +4,7 @@
 #include "Widgets/MStaticMeshInspector.h"
 #include "StaticMesh/StaticMesh.h"
 
-namespace Durin::Editor::StaticMesh
+namespace Durin::StaticMeshEditor
 {
 	auto DStaticMeshAssetDefinition::GetAssetIcon() const -> std::string { return Icons::Cube; }
 	DStaticMeshAssetEditor::DStaticMeshAssetEditor(const FObjectInitializer& Initializer) : Super(Initializer) {}

@@ -11,7 +11,7 @@
 
 namespace Durin { class DVolumeTexture; struct FVolumeTexturePlatformData; }
 
-namespace Durin::Editor::Texture
+namespace Durin::TextureEditor
 {
 	class MVolumeTextureEditor final : public FBaseAssetToolkit
 	{

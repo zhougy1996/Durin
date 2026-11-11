@@ -9,7 +9,7 @@
 #include "DObject/Class.h"
 #include "Icons/FontAwesomeIcons.h"
 
-namespace Durin::Editor::Texture
+namespace Durin::TextureEditor
 {
 	DTextureCubeAssetDefinition::DTextureCubeAssetDefinition(const FObjectInitializer& Initializer) : Super(Initializer) {}
 	auto DTextureCubeAssetDefinition::GetAssetClassPath() const -> std::string { return DTextureCube::StaticClass()->GetQualifiedName().ToString(); }

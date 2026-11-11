@@ -13,7 +13,7 @@
 
 #include <gtest/gtest.h>
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	// Exercises production UI entrypoints without creating an OS window or starting a renderer.
 	struct FContentBrowserPanelTestAccess
@@ -331,7 +331,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	}
 }
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	TEST(FContentBrowserPanelExtensionTests, SelectionMigratesOrderedRenamesAndRemovesDeletedSubtrees)
 	{
@@ -358,7 +358,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	}
 }
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	TEST(FContentBrowserPanelExtensionTests, RealMenuQueriesCapabilitiesWithoutLoadingSavedPackage)
 	{
@@ -411,7 +411,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	}
 }
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	TEST(FContentBrowserPanelExtensionTests, DragPayloadSupportsMixedSelectionAndRetainsAssetCompatibility)
 	{
@@ -460,6 +460,6 @@ namespace Durin::Editor::ContentBrowser::Private
 			ImGui::ClearActiveID();
 		};
 		Drag({Asset, File}, "DURIN_CONTENT_ITEMS");
-		Drag({Asset}, ::Durin::Editor::AssetDragDropPayloadType);
+		Drag({Asset}, ::Durin::AssetDragDropPayloadType);
 	}
 }

@@ -4,7 +4,7 @@
 #include "Image/ImageDecoder.h"
 #include "Threading/Task.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	struct FAssetThumbnailGeneration::FImpl
 	{
@@ -569,4 +569,4 @@ namespace Durin::Editor
 			Stats.Evictions = Impl->Cache->Store->GetStats().Evictions;
 		return Stats;
 	}
-} // namespace Durin::Editor
+} // namespace Durin

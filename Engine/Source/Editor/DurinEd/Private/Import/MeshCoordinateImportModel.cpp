@@ -3,7 +3,7 @@
 
 #include "MonaImGui.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	auto FMeshCoordinateImportModel::Reset() -> void
 	{

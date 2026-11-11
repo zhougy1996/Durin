@@ -12,7 +12,7 @@
 #include "Icons/FontAwesomeIcons.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 
-namespace Durin::Editor::AssetPicker
+namespace Durin::AssetPicker
 {
 	namespace
 	{

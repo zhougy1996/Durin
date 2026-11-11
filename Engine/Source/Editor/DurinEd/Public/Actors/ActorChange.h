@@ -5,7 +5,7 @@
 #include "Transactions/Transaction.h"
 #include "DObject/PropertyDiagnostic.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	enum class EActorChangeError : uint8 { None, TargetUnavailable, MemberUnavailable, MembershipChanged, PropertyRestore, TransformWrite, EmptySelection, ParentMismatch, ParentInvalid, ParentCycle, AttachmentWrite, ResourceUnavailable, ActorMembership, ActorNameCollision, ActorSpawn, ActorDestroy, WorldEnding, ActorType, ActorUnsupported, ActorChanged, ActorRename, InjectedMutation, RollbackIncomplete };
 	enum class EActorMutationPhase : uint8 { None, TemporaryRename, Remove, Create, FinalRename, Update };

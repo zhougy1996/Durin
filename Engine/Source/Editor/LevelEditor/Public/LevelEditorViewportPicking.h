@@ -15,7 +15,7 @@ namespace Durin
 	class DLevel;
 }
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 
 	// Selects the semantic families considered by one viewport request.
@@ -69,4 +69,4 @@ namespace Durin::Editor::Level
 		std::optional<FViewportPickHit> Hit;
 	};
 
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

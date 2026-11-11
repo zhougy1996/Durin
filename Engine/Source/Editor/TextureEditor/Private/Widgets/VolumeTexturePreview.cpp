@@ -1,6 +1,6 @@
 #include "VolumeTexturePreview.h"
 
-namespace Durin::Editor::Texture
+namespace Durin::TextureEditor
 {
 	namespace
 	{

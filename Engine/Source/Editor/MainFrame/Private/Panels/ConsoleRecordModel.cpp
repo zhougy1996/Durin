@@ -1,6 +1,6 @@
 #include "Panels/ConsoleRecordModel.h"
 
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
 	auto FConsoleRecordModel::AddLog(FLogRecord Record) -> void
 	{
@@ -40,4 +40,4 @@ namespace Durin::Editor::MainFrame
 		while (Records.size() > MaxRecords)
 			Records.pop_front();
 	}
-} // namespace Durin::Editor::MainFrame
+} // namespace Durin::MainFrame

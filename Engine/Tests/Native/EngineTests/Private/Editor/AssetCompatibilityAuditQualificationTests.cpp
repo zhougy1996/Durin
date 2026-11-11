@@ -6,7 +6,7 @@ using FAssetCompatibilityAuditQualificationTests = FAssetCompatibilityAuditFixtu
 TEST_F(FAssetCompatibilityAuditQualificationTests, CancellationPublishesNoPartialRecordForTheInterruptedPackage)
 {
 	std::atomic_bool Started = false;
-	Durin::Editor::FAssetCompatibilityAuditModel Model(
+	Durin::FAssetCompatibilityAuditModel Model(
 		[&Started](const auto&, const auto&, const auto& IsCancelled) {
 			Started = true;
 			while (!IsCancelled()) std::this_thread::yield();
@@ -22,7 +22,7 @@ TEST_F(FAssetCompatibilityAuditQualificationTests, CancellationPublishesNoPartia
 	Model.CancelAndDrain();
 	const auto CancellationLatency = std::chrono::steady_clock::now() - CancelStarted;
 
-	EXPECT_EQ(Model.GetState(), Durin::Editor::EAssetCompatibilityAuditState::Cancelled);
+	EXPECT_EQ(Model.GetState(), Durin::EAssetCompatibilityAuditState::Cancelled);
 	EXPECT_EQ(Model.GetProgress().Completed, 0u);
 	const auto* Record = Model.FindRecord(Data.PackagePath);
 	ASSERT_NE(Record, nullptr);
@@ -37,7 +37,7 @@ TEST_F(FAssetCompatibilityAuditQualificationTests, RepresentativeCorpusMeasuresW
 {
 	constexpr uint32 PackageCount = 32;
 	std::atomic_uint32_t ProbeCount = 0;
-	Durin::Editor::FAssetCompatibilityAuditModel Model(
+	Durin::FAssetCompatibilityAuditModel Model(
 		[&ProbeCount](const auto& Input, const auto&, const auto&) {
 			++ProbeCount;
 			return MakeCompletedRecord(Input);
@@ -57,11 +57,11 @@ TEST_F(FAssetCompatibilityAuditQualificationTests, RepresentativeCorpusMeasuresW
 		Model.Tick(Assets);
 		PeakMailboxDuration = std::max(
 			PeakMailboxDuration, std::chrono::steady_clock::now() - TickStarted);
-		return Model.GetState() == Durin::Editor::EAssetCompatibilityAuditState::Completed;
+		return Model.GetState() == Durin::EAssetCompatibilityAuditState::Completed;
 	}));
 	const auto WorkerDuration = std::chrono::steady_clock::now() - WorkerStarted;
 
-	EXPECT_EQ(Model.GetState(), Durin::Editor::EAssetCompatibilityAuditState::Completed);
+	EXPECT_EQ(Model.GetState(), Durin::EAssetCompatibilityAuditState::Completed);
 	EXPECT_EQ(Model.GetProgress().Completed, PackageCount);
 	EXPECT_EQ(ProbeCount.load(), PackageCount);
 	EXPECT_LT(WorkerDuration, std::chrono::seconds(3));

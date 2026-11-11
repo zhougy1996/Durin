@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 #include "Editor/EditorEngine.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	// Defer host teardown across native construction and registration callbacks,
 	// and reject recursive edits while preparation has not entered history.

@@ -26,19 +26,19 @@ namespace
 	using FPropertyTransactionHarness = Durin::Tests::FTestEditorTransactorOwner;
 
 	auto FindEntry(
-		const Durin::Editor::Material::FMaterialParameterPanelModel& Model,
+		const Durin::MaterialEditor::FMaterialParameterPanelModel& Model,
 		const Durin::FGuid& ParameterId
-	) -> const Durin::Editor::Material::FMaterialParameterPanelEntry*
+	) -> const Durin::MaterialEditor::FMaterialParameterPanelEntry*
 	{
 		const auto Entries = Model.GetEntries();
-		const auto It = std::ranges::find(Entries, ParameterId, &Durin::Editor::Material::FMaterialParameterPanelEntry::ParameterId);
+		const auto It = std::ranges::find(Entries, ParameterId, &Durin::MaterialEditor::FMaterialParameterPanelEntry::ParameterId);
 		return It == Entries.end() ? nullptr : &*It;
 	}
 
 	auto MakeContext(
 		FPropertyTransactionHarness& Transactions,
 		std::string& Error
-	) -> Durin::Editor::FPropertyViewContext
+	) -> Durin::FPropertyViewContext
 	{
 		return {
 			.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
@@ -63,7 +63,7 @@ TEST(FMaterialParameterPanelModelTests, BuildsControlsAndResolvedSourceFromRunti
 	ASSERT_TRUE(Child->SetParent(Parent));
 	ASSERT_TRUE(Parent->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), 0.6f));
 
-	const Durin::Editor::Material::FMaterialParameterPanelModel Model(Child);
+	const Durin::MaterialEditor::FMaterialParameterPanelModel Model(Child);
 	ASSERT_EQ(Model.GetEntries().size(), 48u);
 	const auto* BaseColor = FindEntry(Model, Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value);
 	const auto* Texture = FindEntry(Model, Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Texture);
@@ -77,13 +77,13 @@ TEST(FMaterialParameterPanelModelTests, BuildsControlsAndResolvedSourceFromRunti
 	ASSERT_NE(Roughness, nullptr);
 	ASSERT_NE(UVChannel, nullptr);
 	ASSERT_NE(UVScale, nullptr);
-	EXPECT_EQ(BaseColor->Control, Durin::Editor::Material::EMaterialParameterControlKind::Color);
-	EXPECT_EQ(Texture->Control, Durin::Editor::Material::EMaterialParameterControlKind::AssetPicker);
-	EXPECT_EQ(Opacity->Control, Durin::Editor::Material::EMaterialParameterControlKind::RangedScalar);
-	EXPECT_EQ(Roughness->Control, Durin::Editor::Material::EMaterialParameterControlKind::RangedScalar);
-	EXPECT_EQ(UVChannel->Control, Durin::Editor::Material::EMaterialParameterControlKind::IntegerScalar);
+	EXPECT_EQ(BaseColor->Control, Durin::MaterialEditor::EMaterialParameterControlKind::Color);
+	EXPECT_EQ(Texture->Control, Durin::MaterialEditor::EMaterialParameterControlKind::AssetPicker);
+	EXPECT_EQ(Opacity->Control, Durin::MaterialEditor::EMaterialParameterControlKind::RangedScalar);
+	EXPECT_EQ(Roughness->Control, Durin::MaterialEditor::EMaterialParameterControlKind::RangedScalar);
+	EXPECT_EQ(UVChannel->Control, Durin::MaterialEditor::EMaterialParameterControlKind::IntegerScalar);
 	EXPECT_EQ(UVChannel->Definition->GroupName.ToString(), "Surface/Base");
-	EXPECT_EQ(UVScale->Control, Durin::Editor::Material::EMaterialParameterControlKind::Vector);
+	EXPECT_EQ(UVScale->Control, Durin::MaterialEditor::EMaterialParameterControlKind::Vector);
 	EXPECT_EQ(UVScale->Definition->Type, Durin::EMaterialParameterType::Vector4);
 	EXPECT_EQ(Opacity->Source, Parent);
 	EXPECT_FLOAT_EQ(Opacity->Value.GetScalar(), 0.6f);
@@ -104,10 +104,10 @@ TEST(FMaterialParameterPanelModelTests, IntegerPresentationCanonicalizesSubmitte
 	ASSERT_TRUE(Material->SetParent(Base));
 	ASSERT_TRUE(Material->SetScalarParameterValue(Durin::FName("BaseColorUVChannel"), 0));
 	FPropertyTransactionHarness Transactions;
-	Durin::Editor::FPropertyView PropertyView;
+	Durin::FPropertyView PropertyView;
 	std::string Error;
 	const auto Context = MakeContext(Transactions, Error);
-	const Durin::Editor::Material::FMaterialParameterPanelModel Model(Material);
+	const Durin::MaterialEditor::FMaterialParameterPanelModel Model(Material);
 	const auto* UVChannel = FindEntry(Model, Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).UVChannel);
 	ASSERT_NE(UVChannel, nullptr);
 
@@ -138,10 +138,10 @@ TEST(FMaterialParameterPanelModelTests, EnablingOverrideCopiesTheParameterType)
 	ASSERT_TRUE(Instance->SetParent(Base));
 
 	FPropertyTransactionHarness Transactions;
-	Durin::Editor::FPropertyView PropertyView;
+	Durin::FPropertyView PropertyView;
 	std::string Error;
 	const auto Context = MakeContext(Transactions, Error);
-	const Durin::Editor::Material::FMaterialParameterPanelModel Model(Instance);
+	const Durin::MaterialEditor::FMaterialParameterPanelModel Model(Instance);
 	const auto* BaseColor = FindEntry(Model, Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value);
 	ASSERT_NE(BaseColor, nullptr);
 	ASSERT_EQ(BaseColor->Definition->Type, Durin::EMaterialParameterType::Vector4);
@@ -170,17 +170,17 @@ TEST(FMaterialParameterPanelModelTests, GuidRootEditsSurviveIndexChangesAndCoale
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.3, 0.4)));
 
 	FPropertyTransactionHarness Transactions;
-	Durin::Editor::FPropertyView PropertyView;
+	Durin::FPropertyView PropertyView;
 	std::string Error;
 	const auto Context = MakeContext(Transactions, Error);
 
-	Durin::Editor::Material::FMaterialParameterPanelModel InitialModel(Instance);
+	Durin::MaterialEditor::FMaterialParameterPanelModel InitialModel(Instance);
 	const auto* InitialOpacity = FindEntry(InitialModel, Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value);
 	ASSERT_NE(InitialOpacity, nullptr);
 	ASSERT_TRUE(InitialModel.SetOverrideEnabled(PropertyView, Context, *InitialOpacity, true));
 	ASSERT_TRUE(Instance->HasLocalParameterValue(Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value));
 
-	Durin::Editor::Material::FMaterialParameterPanelModel EditModel(Instance);
+	Durin::MaterialEditor::FMaterialParameterPanelModel EditModel(Instance);
 	const auto* Opacity = FindEntry(EditModel, Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value);
 	ASSERT_NE(Opacity, nullptr);
 	ASSERT_TRUE(Opacity->bHasLocalOverride);
@@ -206,7 +206,7 @@ TEST(FMaterialParameterPanelModelTests, GuidRootEditsSurviveIndexChangesAndCoale
 	ASSERT_TRUE(Instance->GetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), Value));
 	EXPECT_FLOAT_EQ(Value, 0.25f);
 
-	Durin::Editor::Material::FMaterialParameterPanelModel CancelModel(Instance);
+	Durin::MaterialEditor::FMaterialParameterPanelModel CancelModel(Instance);
 	const auto* CancelOpacity = FindEntry(CancelModel, Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value);
 	ASSERT_NE(CancelOpacity, nullptr);
 	auto CancelValue = CancelOpacity->Value;
@@ -232,10 +232,10 @@ TEST(FMaterialParameterPanelModelTests, ResetAndOrphanRemovalAreTransactional)
 	ASSERT_TRUE(Instance->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), 0.3f));
 
 	FPropertyTransactionHarness Transactions;
-	Durin::Editor::FPropertyView PropertyView;
+	Durin::FPropertyView PropertyView;
 	std::string Error;
 	const auto Context = MakeContext(Transactions, Error);
-	Durin::Editor::Material::FMaterialParameterPanelModel OverrideModel(Instance);
+	Durin::MaterialEditor::FMaterialParameterPanelModel OverrideModel(Instance);
 	const auto* Opacity = FindEntry(OverrideModel, Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value);
 	ASSERT_NE(Opacity, nullptr);
 	ASSERT_TRUE(OverrideModel.SetOverrideEnabled(PropertyView, Context, *Opacity, false));
@@ -247,7 +247,7 @@ TEST(FMaterialParameterPanelModelTests, ResetAndOrphanRemovalAreTransactional)
 
 	ASSERT_TRUE(Instance->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), 0.3f));
 	ASSERT_TRUE(Instance->SetParent(nullptr));
-	Durin::Editor::Material::FMaterialParameterPanelModel OrphanModel(Instance);
+	Durin::MaterialEditor::FMaterialParameterPanelModel OrphanModel(Instance);
 	ASSERT_EQ(OrphanModel.GetEntries().size(), 1u);
 	const auto& Orphan = OrphanModel.GetEntries().front();
 	EXPECT_TRUE(Orphan.bOrphan);
@@ -275,16 +275,16 @@ TEST(FMaterialParameterPanelModelTests, BaseAndTexturePickerValuesUseSharedUndoH
 	ASSERT_TRUE(Instance->SetParent(Base));
 
 	FPropertyTransactionHarness Transactions;
-	Durin::Editor::FPropertyView PropertyView;
+	Durin::FPropertyView PropertyView;
 	std::string Error;
 	const auto Context = MakeContext(Transactions, Error);
 
-	Durin::Editor::Material::FMaterialParameterPanelModel BaseModel(Base);
+	Durin::MaterialEditor::FMaterialParameterPanelModel BaseModel(Base);
 	const auto* BaseOpacity = FindEntry(BaseModel, Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value);
 	ASSERT_NE(BaseOpacity, nullptr);
 	auto ScalarValue = BaseOpacity->Value;
 	ScalarValue.GetScalar() = 0.7f;
-	ASSERT_TRUE(Durin::Editor::Material::FMaterialGraphOperations::SetParameterValue(*Base, BaseOpacity->ParameterId, ScalarValue));
+	ASSERT_TRUE(Durin::MaterialEditor::FMaterialGraphOperations::SetParameterValue(*Base, BaseOpacity->ParameterId, ScalarValue));
 	float Opacity = 0.0f;
 	ASSERT_TRUE(Base->GetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), Opacity));
 	EXPECT_FLOAT_EQ(Opacity, 0.7f);
@@ -295,11 +295,11 @@ TEST(FMaterialParameterPanelModelTests, BaseAndTexturePickerValuesUseSharedUndoH
 	ASSERT_TRUE(Base->GetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), Opacity));
 	EXPECT_FLOAT_EQ(Opacity, 0.7f);
 
-	Durin::Editor::Material::FMaterialParameterPanelModel InheritedModel(Instance);
+	Durin::MaterialEditor::FMaterialParameterPanelModel InheritedModel(Instance);
 	const auto* InheritedTexture = FindEntry(InheritedModel, Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Texture);
 	ASSERT_NE(InheritedTexture, nullptr);
 	ASSERT_TRUE(InheritedModel.SetOverrideEnabled(PropertyView, Context, *InheritedTexture, true));
-	Durin::Editor::Material::FMaterialParameterPanelModel TextureModel(Instance);
+	Durin::MaterialEditor::FMaterialParameterPanelModel TextureModel(Instance);
 	const auto* TextureEntry = FindEntry(TextureModel, Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Texture);
 	ASSERT_NE(TextureEntry, nullptr);
 	auto TextureValue = TextureEntry->Value;
@@ -352,10 +352,10 @@ TEST(FMaterialParameterPanelModelTests, GraphDefaultSessionsRemainParameterScope
 	InitializeDObjectSystem();
 	auto* Base = MakeExpandedBase("PanelIdentityBase");
 	FPropertyTransactionHarness Transactions;
-	Durin::Editor::FPropertyView PropertyView;
+	Durin::FPropertyView PropertyView;
 	std::string Error;
 	const auto Context = MakeContext(Transactions, Error);
-	Durin::Editor::Material::FMaterialParameterPanelModel Model(Base);
+	Durin::MaterialEditor::FMaterialParameterPanelModel Model(Base);
 	const auto* Opacity = FindEntry(Model, Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value);
 	const auto* BaseColor = FindEntry(Model, Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value);
 	ASSERT_NE(Opacity, nullptr);
@@ -363,7 +363,7 @@ TEST(FMaterialParameterPanelModelTests, GraphDefaultSessionsRemainParameterScope
 
 	auto OpacityValue = Opacity->Value;
 	OpacityValue.GetScalar() = 0.55f;
-	Durin::Editor::Material::FMaterialGraphParameterEditSession OpacitySession, ColorSession;
+	Durin::MaterialEditor::FMaterialGraphParameterEditSession OpacitySession, ColorSession;
 	ASSERT_TRUE(OpacitySession.Begin(*Base, Opacity->ParameterId, Transactions.Get()));
 	ASSERT_TRUE(OpacitySession.Apply(OpacityValue));
 	ASSERT_TRUE(OpacitySession.Commit());
@@ -403,7 +403,7 @@ TEST(FMaterialParameterPanelModelTests, RefreshReusesDependenciesAndInvalidatesF
 	ASSERT_TRUE(Child->SetParent(Parent));
 	const auto Id = Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(
 		Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value;
-	Durin::Editor::Material::FMaterialParameterPanelModel Model(Child);
+	Durin::MaterialEditor::FMaterialParameterPanelModel Model(Child);
 	EXPECT_FALSE(Model.NeedsRefresh());
 	EXPECT_FALSE(Model.Refresh());
 	ASSERT_TRUE(Parent->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), 0.4f));
@@ -447,10 +447,10 @@ TEST(FMaterialParameterPanelModelTests, ReflectedDefaultEditsRefreshValuesWithou
 	ASSERT_TRUE(Instance->SetParent(Base));
 	const auto Id = Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(
 		Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value;
-	Durin::Editor::Material::FMaterialParameterPanelModel BaseModel(Base);
-	Durin::Editor::Material::FMaterialParameterPanelModel Model(Instance);
+	Durin::MaterialEditor::FMaterialParameterPanelModel BaseModel(Base);
+	Durin::MaterialEditor::FMaterialParameterPanelModel Model(Instance);
 	FPropertyTransactionHarness Transactions;
-	Durin::Editor::FPropertyView PropertyView;
+	Durin::FPropertyView PropertyView;
 	std::string Error;
 	const auto Context = MakeContext(Transactions, Error);
 	ASSERT_NE(FindEntry(BaseModel, Id), nullptr);
@@ -488,11 +488,11 @@ TEST(FMaterialParameterPanelModelTests, RootPanelIncludesUnreachableCustomDefaul
 	const std::array Definitions{Definition};
 	Graph.Add(Durin::EMaterialProgramOpcode::Parameter, Durin::EMaterialProgramValueType::Float4, {}, Definition.Id, {}, Definitions);
 	ASSERT_TRUE(Graph.Apply(*Material));
-	const Durin::Editor::Material::FMaterialParameterPanelModel Model(Material);
+	const Durin::MaterialEditor::FMaterialParameterPanelModel Model(Material);
 	ASSERT_EQ(Model.GetEntries().size(), 1u);
 	const auto& Entry = Model.GetEntries().front();
 	EXPECT_EQ(Entry.ParameterId, Definition.Id);
-	EXPECT_EQ(Entry.Control, Durin::Editor::Material::EMaterialParameterControlKind::Vector);
+	EXPECT_EQ(Entry.Control, Durin::MaterialEditor::EMaterialParameterControlKind::Vector);
 	EXPECT_EQ(Entry.Value.GetVector4(), Durin::FVector4(1, 2, 3, 4));
 	EXPECT_FALSE(Entry.bOrphan);
 	Durin::MarkAsGarbage(Material);
@@ -521,7 +521,7 @@ TEST(FMaterialParameterPanelModelTests, TypedResourceOutputsSkipUnusedUVDependen
 	Outputs.OpacityMask = {ResourceConsumer->Id, 5};
 	ASSERT_TRUE(Base->SetMaterialExpressions(Expressions, Outputs));
 	ASSERT_TRUE(Instance->SetParent(Base.Get()));
-	Editor::Material::FMaterialParameterPanelModel Model(Instance.Get());
+	MaterialEditor::FMaterialParameterPanelModel Model(Instance.Get());
 	EXPECT_NE(FindEntry(Model, Sample->Metadata.Id), nullptr);
 	EXPECT_EQ(FindEntry(Model, UV->Metadata.Id), nullptr);
 	Outputs.Normal = {Sample->Id, 1};
@@ -588,7 +588,7 @@ TEST(FMaterialParameterPanelModelTests, ReachabilitySharesFunctionOutputAnalysis
 	EXPECT_EQ(Initial, Sibling->GetParameterReachability());
 	EXPECT_TRUE(Initial->ParameterIds.contains(ParameterA->Metadata.Id));
 	EXPECT_FALSE(Initial->ParameterIds.contains(ParameterB->Metadata.Id));
-	Editor::Material::FMaterialParameterPanelModel Model(Instance.Get());
+	MaterialEditor::FMaterialParameterPanelModel Model(Instance.Get());
 	EXPECT_NE(FindEntry(Model, ParameterA->Metadata.Id), nullptr);
 	EXPECT_EQ(FindEntry(Model, ParameterB->Metadata.Id), nullptr);
 	ASSERT_TRUE(Instance->SetParameterValue(ParameterA->Metadata.Id, FMaterialParameterValue::MakeScalar(0.4f)));
@@ -642,7 +642,7 @@ TEST(FMaterialParameterPanelModelTests, PresentationAndCompileDoNotInvalidatePar
 	TStrongObjectPtr<DMaterial> Base(MakeExpandedBase("PanelNotifications"));
 	TStrongObjectPtr<DMaterialInstance> Instance(NewObject<DMaterialInstance>(nullptr, "PanelNotificationInstance"));
 	ASSERT_TRUE(Instance->SetParent(Base.Get()));
-	Editor::Material::FMaterialParameterPanelModel Model(Instance.Get());
+	MaterialEditor::FMaterialParameterPanelModel Model(Instance.Get());
 	const auto* Rows = Model.GetEntries().data();
 	auto Presentation = Base->GetMaterialGraphPresentation();
 	Presentation.Nodes.push_back({Base->GetOutputNode()->Id, 10, 20});
@@ -663,7 +663,7 @@ TEST(FMaterialParameterPanelModelTests, PresentationAndCompileDoNotInvalidatePar
 TEST(FMaterialParameterPanelModelTests, MetadataNotificationsReachEachObserverAcrossUndoRedo)
 {
 	using namespace Durin;
-	using namespace Durin::Editor::Material;
+	using namespace Durin::MaterialEditor;
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterial> Base(MakeExpandedBase("PanelMetadataNotifications"));
 	TStrongObjectPtr<DMaterialInstance> Instance(NewObject<DMaterialInstance>(nullptr, "PanelMetadataInstance"));
@@ -715,7 +715,7 @@ TEST(FMaterialParameterPanelModelTests, ParentPackageReplacementInvalidatesRetai
 	ASSERT_TRUE(SavePackage(Base->GetPackage()));
 	TStrongObjectPtr<DMaterialInstance> Instance(NewObject<DMaterialInstance>(nullptr, "ReloadedParentInstance"));
 	ASSERT_TRUE(Instance->SetParent(Base));
-	Editor::Material::FMaterialParameterPanelModel Model(Instance.Get());
+	MaterialEditor::FMaterialParameterPanelModel Model(Instance.Get());
 	ASSERT_TRUE(Base->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), .25f));
 	Model.Refresh();
 	EXPECT_FLOAT_EQ(FindEntry(Model, Id)->Value.GetScalar(), .25f);

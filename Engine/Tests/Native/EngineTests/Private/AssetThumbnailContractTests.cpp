@@ -20,7 +20,7 @@ namespace Durin
 {
 	namespace
 	{
-		auto PumpThumbnailPoolUntil(Editor::FAssetThumbnailPool& Pool,
+		auto PumpThumbnailPoolUntil(FAssetThumbnailPool& Pool,
 			const std::function<bool()>& IsDone) -> bool
 		{
 			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
@@ -69,7 +69,7 @@ namespace Durin
 			std::string AssetClassName,
 			uint32 FormatVersion,
 			uint64 FileSize,
-			int64 LastWriteTimeTicks) -> Editor::FAssetThumbnailPackageFingerprint
+			int64 LastWriteTimeTicks) -> FAssetThumbnailPackageFingerprint
 		{
 			const FPackagePath PackagePath = MakePath(Path);
 			FTopLevelAssetPath AssetPath;
@@ -85,15 +85,15 @@ namespace Durin
 			};
 		}
 
-		auto MakeMaterialKeyInput() -> Editor::FAssetThumbnailKeyInput
+		auto MakeMaterialKeyInput() -> FAssetThumbnailKeyInput
 		{
 			return {
 				.Asset = MakePackage("/ThumbnailTests/Materials/Preview", "DMaterial", 7, 4096, 100),
 				.RendererName = "Durin.MaterialThumbnail",
-				.GeneratorSchemaVersion = Editor::FThumbnailVisualContract::SchemaVersion,
+				.GeneratorSchemaVersion = FThumbnailVisualContract::SchemaVersion,
 				.Output = {},
-				.PreviewFixtureIdentity = std::string(Editor::FThumbnailVisualContract::SphereAssetPath),
-				.PreviewFixtureVersion = Editor::FThumbnailVisualContract::SphereFixtureVersion,
+				.PreviewFixtureIdentity = std::string(FThumbnailVisualContract::SphereAssetPath),
+				.PreviewFixtureVersion = FThumbnailVisualContract::SphereFixtureVersion,
 				.ShaderContractVersion = 1,
 				.Dependencies = {
 					MakePackage("/ThumbnailTests/Textures/BaseColor", "DTexture2D", 5, 1024, 200),
@@ -102,11 +102,11 @@ namespace Durin
 			};
 		}
 
-		class FTestThumbnailRenderer final : public Editor::DThumbnailRenderer
+		class FTestThumbnailRenderer final : public DThumbnailRenderer
 		{
 		public:
 			explicit FTestThumbnailRenderer(
-				Editor::FThumbnailRenderingInfo InRegistration,
+				FThumbnailRenderingInfo InRegistration,
 				bool bInCaptureSucceeds = true,
 				bool bInGeneratesPixels = false)
 				: Registration(std::move(InRegistration))
@@ -115,17 +115,17 @@ namespace Durin
 			{
 			}
 
-			auto GetRegistration() const -> Editor::FThumbnailRenderingInfo override
+			auto GetRegistration() const -> FThumbnailRenderingInfo override
 			{
 				return Registration;
 			}
 
 			auto CaptureGenerationRequest(
-				const Editor::FAssetThumbnailRequest& Request,
+				const FAssetThumbnailRequest& Request,
 				uint64 RendererGeneration)
-				-> std::expected<Editor::FAssetThumbnailGenerationRequest, std::string> override
+				-> std::expected<FAssetThumbnailGenerationRequest, std::string> override
 			{
-				Editor::FAssetThumbnailGenerationRequest OutRequest;
+				FAssetThumbnailGenerationRequest OutRequest;
 				if (!bCaptureSucceeds)
 				{
 					return std::unexpected("The test renderer rejected the asset.");
@@ -137,7 +137,7 @@ namespace Durin
 				OutRequest.RequestSerial = Request.RequestSerial;
 				if (bGeneratesPixels)
 				{
-					auto Pixels = std::make_shared<Editor::FAssetThumbnailGeneratedPixels>();
+					auto Pixels = std::make_shared<FAssetThumbnailGeneratedPixels>();
 					Pixels->Pixels = {
 						std::byte{32}, std::byte{32}, std::byte{32}, std::byte{255}};
 					Pixels->Width = 1;
@@ -149,7 +149,7 @@ namespace Durin
 			}
 
 		private:
-			Editor::FThumbnailRenderingInfo Registration;
+			FThumbnailRenderingInfo Registration;
 			bool bCaptureSucceeds = true;
 			bool bGeneratesPixels = false;
 		};
@@ -168,7 +168,7 @@ namespace Durin
 			uint32 ResourcePolls = 0;
 		};
 
-		class FFakeThumbnailInput final : public Editor::IAssetThumbnailGenerationInput
+		class FFakeThumbnailInput final : public IAssetThumbnailGenerationInput
 		{
 		public:
 			explicit FFakeThumbnailInput(
@@ -187,13 +187,13 @@ namespace Durin
 		};
 
 		class FFakeThumbnailPreviewScene final
-			: public Editor::IThumbnailPreviewScene
+			: public IThumbnailPreviewScene
 		{
 		public:
 			auto GetWorld() -> DWorld* override { return nullptr; }
 
 			auto SetView(
-				const Editor::FThumbnailPreviewView& View) -> std::expected<void, std::string> override
+				const FThumbnailPreviewView& View) -> std::expected<void, std::string> override
 			{
 				LastView = View;
 				return {};
@@ -206,12 +206,12 @@ namespace Durin
 				return {};
 			}
 
-			Editor::FThumbnailPreviewView LastView;
+			FThumbnailPreviewView LastView;
 			std::optional<FViewEnvironmentOverride> LastEnvironment;
 		};
 
 		class FFakeThumbnailSession final
-			: public Editor::IThumbnailRendererSession
+			: public IThumbnailRendererSession
 		{
 		public:
 			explicit FFakeThumbnailSession(
@@ -225,29 +225,29 @@ namespace Durin
 				++State->SessionDestructions;
 			}
 
-			auto Load() -> Editor::FThumbnailRendererSessionUpdate override
+			auto Load() -> FThumbnailRendererSessionUpdate override
 			{
 				return {
 					.State = State->ResourcePollsBeforeReady == 0
-						? Editor::EThumbnailRendererSessionState::ReadyToRender
-						: Editor::EThumbnailRendererSessionState::WaitingForResources};
+						? EThumbnailRendererSessionState::ReadyToRender
+						: EThumbnailRendererSessionState::WaitingForResources};
 			}
 
-			auto PollResources() -> Editor::FThumbnailRendererSessionUpdate override
+			auto PollResources() -> FThumbnailRendererSessionUpdate override
 			{
 				++State->ResourcePolls;
 				const bool bReady = State->ResourcePolls
 					> State->ResourcePollsBeforeReady;
 				return {
 					.State = bReady
-						? Editor::EThumbnailRendererSessionState::ReadyToRender
-						: Editor::EThumbnailRendererSessionState::WaitingForResources};
+						? EThumbnailRendererSessionState::ReadyToRender
+						: EThumbnailRendererSessionState::WaitingForResources};
 			}
 
 			auto PreparePreview(
-				Editor::IThumbnailPreviewScene& PreviewScene) -> std::expected<void, std::string> override
+				IThumbnailPreviewScene& PreviewScene) -> std::expected<void, std::string> override
 			{
-				Editor::FThumbnailPreviewView View;
+				FThumbnailPreviewView View;
 				View.CameraPosition = {2.0, -2.0, 1.0};
 				if (auto ViewResult = PreviewScene.SetView(View); !ViewResult) return ViewResult;
 				++State->PreviewPreparations;
@@ -276,7 +276,7 @@ namespace Durin
 		};
 
 		class FFakeThumbnailRenderer final
-			: public Editor::DThumbnailRenderer
+			: public DThumbnailRenderer
 		{
 		public:
 			explicit FFakeThumbnailRenderer(
@@ -292,7 +292,7 @@ namespace Durin
 				++State->ExtensionDestructions;
 			}
 
-			auto GetRegistration() const -> Editor::FThumbnailRenderingInfo override
+			auto GetRegistration() const -> FThumbnailRenderingInfo override
 			{
 				return {
 					.AssetClassName = AssetClassName,
@@ -301,11 +301,11 @@ namespace Durin
 			}
 
 			auto CaptureGenerationRequest(
-				const Editor::FAssetThumbnailRequest& Request,
+				const FAssetThumbnailRequest& Request,
 				uint64 RendererGeneration)
-				-> std::expected<Editor::FAssetThumbnailGenerationRequest, std::string> override
+				-> std::expected<FAssetThumbnailGenerationRequest, std::string> override
 			{
-				Editor::FAssetThumbnailGenerationRequest OutRequest;
+				FAssetThumbnailGenerationRequest OutRequest;
 				++State->Captures;
 				OutRequest.KeyInput = {
 					.Asset = Request.Asset,
@@ -323,9 +323,9 @@ namespace Durin
 			}
 
 			auto CreateGenerationSession(
-				const Editor::FAssetThumbnailGenerationRequest& Request,
-				const Editor::IAssetThumbnailGenerationInput& Input)
-				-> std::expected<std::unique_ptr<Editor::IThumbnailRendererSession>, std::string> override
+				const FAssetThumbnailGenerationRequest& Request,
+				const IAssetThumbnailGenerationInput& Input)
+				-> std::expected<std::unique_ptr<IThumbnailRendererSession>, std::string> override
 			{
 				(void)Request;
 				if (dynamic_cast<const FFakeThumbnailInput*>(&Input) == nullptr)
@@ -346,9 +346,9 @@ namespace Durin
 			std::string_view Path,
 			std::string AssetClassName,
 			uint64 RequestSerial,
-			Editor::EAssetThumbnailPriority Priority = Editor::EAssetThumbnailPriority::Prefetch,
+			EAssetThumbnailPriority Priority = EAssetThumbnailPriority::Prefetch,
 			uint64 FileSize = 100
-		) -> Editor::FAssetThumbnailRequest
+		) -> FAssetThumbnailRequest
 		{
 			return {
 				.Asset = MakePackage(Path, std::move(AssetClassName), 7, FileSize, 10),
@@ -369,10 +369,10 @@ namespace Durin
 			const FBox& Bounds,
 			double AspectRatio = 1.0) -> void
 		{
-			const Editor::StaticMesh::FStaticMeshThumbnailRendererViewInput Input{
+			const StaticMeshEditor::FStaticMeshThumbnailRendererViewInput Input{
 				.LocalBounds = Bounds,
 				.OutputAspectRatio = AspectRatio};
-			Editor::StaticMesh::FStaticMeshThumbnailRendererView View;
+			StaticMeshEditor::FStaticMeshThumbnailRendererView View;
 
 			auto ThumbnailResult1 = CalculateStaticMeshThumbnailRendererView(Input);
 			ASSERT_TRUE(ThumbnailResult1);
@@ -418,18 +418,18 @@ namespace Durin
 
 	TEST(FAssetThumbnailContractTests, StaticMeshVisualContractIsFrozen)
 	{
-		EXPECT_EQ(Editor::StaticMesh::FStaticMeshThumbnailRendererContract::AssetClassName, "DStaticMesh");
-		EXPECT_EQ(Editor::StaticMesh::FStaticMeshThumbnailRendererContract::RendererName, "Durin.StaticMeshThumbnail");
-		EXPECT_EQ(Editor::StaticMesh::FStaticMeshThumbnailRendererContract::GeneratorSchemaVersion, 2u);
+		EXPECT_EQ(StaticMeshEditor::FStaticMeshThumbnailRendererContract::AssetClassName, "DStaticMesh");
+		EXPECT_EQ(StaticMeshEditor::FStaticMeshThumbnailRendererContract::RendererName, "Durin.StaticMeshThumbnail");
+		EXPECT_EQ(StaticMeshEditor::FStaticMeshThumbnailRendererContract::GeneratorSchemaVersion, 2u);
 		EXPECT_EQ(
-			Editor::StaticMesh::FStaticMeshThumbnailRendererContract::PreviewFixtureIdentity,
+			StaticMeshEditor::FStaticMeshThumbnailRendererContract::PreviewFixtureIdentity,
 			"/Engine/Editor/StaticMeshPreview/LOD0DefaultMaterials");
-		EXPECT_EQ(Editor::StaticMesh::FStaticMeshThumbnailRendererContract::PreviewFixtureVersion, 3u);
-		EXPECT_EQ(Editor::StaticMesh::FStaticMeshThumbnailRendererContract::ShaderContractVersion, 1u);
-		EXPECT_EQ(Editor::StaticMesh::FStaticMeshThumbnailRendererContract::ImageMargin, 0.04);
-		EXPECT_EQ(Editor::StaticMesh::FStaticMeshThumbnailRendererContract::LODIndex, 0u);
-		EXPECT_FALSE(Editor::StaticMesh::FStaticMeshThumbnailRendererContract::bOutputOpaque);
-		const Editor::StaticMesh::FStaticMeshThumbnailRendererViewInput ViewInput;
+		EXPECT_EQ(StaticMeshEditor::FStaticMeshThumbnailRendererContract::PreviewFixtureVersion, 3u);
+		EXPECT_EQ(StaticMeshEditor::FStaticMeshThumbnailRendererContract::ShaderContractVersion, 1u);
+		EXPECT_EQ(StaticMeshEditor::FStaticMeshThumbnailRendererContract::ImageMargin, 0.04);
+		EXPECT_EQ(StaticMeshEditor::FStaticMeshThumbnailRendererContract::LODIndex, 0u);
+		EXPECT_FALSE(StaticMeshEditor::FStaticMeshThumbnailRendererContract::bOutputOpaque);
+		const StaticMeshEditor::FStaticMeshThumbnailRendererViewInput ViewInput;
 		EXPECT_EQ(ViewInput.CameraDirection, FVector3(2.4, -3.2, 2.4));
 	}
 
@@ -460,11 +460,11 @@ namespace Durin
 
 	TEST(FAssetThumbnailContractTests, StaticMeshBoundsFramingIsDeterministic)
 	{
-		const Editor::StaticMesh::FStaticMeshThumbnailRendererViewInput Input{
+		const StaticMeshEditor::FStaticMeshThumbnailRendererViewInput Input{
 			.LocalBounds = FBox(FVector3(3.0, -8.0, 2.0), FVector3(11.0, 4.0, 6.0)),
 			.OutputAspectRatio = 1.25};
-		Editor::StaticMesh::FStaticMeshThumbnailRendererView First;
-		Editor::StaticMesh::FStaticMeshThumbnailRendererView Second;
+		StaticMeshEditor::FStaticMeshThumbnailRendererView First;
+		StaticMeshEditor::FStaticMeshThumbnailRendererView Second;
 
 		auto ThumbnailResult2 = CalculateStaticMeshThumbnailRendererView(Input);
 		ASSERT_TRUE(ThumbnailResult2);
@@ -485,8 +485,8 @@ namespace Durin
 
 	TEST(FAssetThumbnailContractTests, StaticMeshBoundsFramingRejectsInvalidInputs)
 	{
-		auto ExpectRejected = [](Editor::StaticMesh::FStaticMeshThumbnailRendererViewInput Input) {
-			Editor::StaticMesh::FStaticMeshThumbnailRendererView View;
+		auto ExpectRejected = [](StaticMeshEditor::FStaticMeshThumbnailRendererViewInput Input) {
+			StaticMeshEditor::FStaticMeshThumbnailRendererView View;
 
 			auto ThumbnailResult4 = CalculateStaticMeshThumbnailRendererView(Input);
 			ASSERT_FALSE(ThumbnailResult4);
@@ -518,26 +518,26 @@ namespace Durin
 
 	TEST(FAssetThumbnailContractTests, IdenticalInputsProduceIdenticalKeys)
 	{
-		const Editor::FAssetThumbnailKeyInput Input = MakeMaterialKeyInput();
-		EXPECT_EQ(Editor::BuildAssetThumbnailCacheKey(Input), Editor::BuildAssetThumbnailCacheKey(Input));
+		const FAssetThumbnailKeyInput Input = MakeMaterialKeyInput();
+		EXPECT_EQ(BuildAssetThumbnailCacheKey(Input), BuildAssetThumbnailCacheKey(Input));
 	}
 
 	TEST(FAssetThumbnailContractTests, DependencyOrderDoesNotAffectKeys)
 	{
-		Editor::FAssetThumbnailKeyInput Forward = MakeMaterialKeyInput();
-		Editor::FAssetThumbnailKeyInput Reverse = Forward;
+		FAssetThumbnailKeyInput Forward = MakeMaterialKeyInput();
+		FAssetThumbnailKeyInput Reverse = Forward;
 		std::ranges::reverse(Reverse.Dependencies);
-		EXPECT_EQ(Editor::BuildAssetThumbnailCacheKey(Forward), Editor::BuildAssetThumbnailCacheKey(Reverse));
+		EXPECT_EQ(BuildAssetThumbnailCacheKey(Forward), BuildAssetThumbnailCacheKey(Reverse));
 	}
 
 	TEST(FAssetThumbnailContractTests, EveryKeyContractFieldInvalidatesTheKey)
 	{
-		const Editor::FAssetThumbnailKeyInput Base = MakeMaterialKeyInput();
-		const std::string BaseKey = Editor::BuildAssetThumbnailCacheKey(Base);
+		const FAssetThumbnailKeyInput Base = MakeMaterialKeyInput();
+		const std::string BaseKey = BuildAssetThumbnailCacheKey(Base);
 		auto ExpectChanged = [&](auto Mutate) {
-			Editor::FAssetThumbnailKeyInput Changed = Base;
+			FAssetThumbnailKeyInput Changed = Base;
 			Mutate(Changed);
-			EXPECT_NE(Editor::BuildAssetThumbnailCacheKey(Changed), BaseKey);
+			EXPECT_NE(BuildAssetThumbnailCacheKey(Changed), BaseKey);
 		};
 
 		ExpectChanged([](auto& Value) { Value.Asset.AssetPath = MakeAssetPath("/ThumbnailTests/Materials/Renamed"); });
@@ -560,7 +560,7 @@ namespace Durin
 	TEST(FAssetThumbnailContractTests, DependencyClosureIsSortedAndCycleGuarded)
 	{
 		const FPackagePath Root = MakePath("/ThumbnailTests/Materials/Instance");
-		std::vector<Editor::FAssetThumbnailDependencyNode> Forward = {
+		std::vector<FAssetThumbnailDependencyNode> Forward = {
 			{MakePackage("/ThumbnailTests/Materials/Instance", "DMaterialInstance", 7, 100, 10),
 				{MakePath("/ThumbnailTests/Textures/BaseColor"), MakePath("/ThumbnailTests/Materials/Parent")}},
 			{MakePackage("/ThumbnailTests/Materials/Parent", "DMaterial", 7, 200, 20),
@@ -569,9 +569,9 @@ namespace Durin
 			{MakePackage("/ThumbnailTests/Textures/Normal", "DTexture2D", 5, 400, 40),
 				{MakePath("/ThumbnailTests/Materials/Parent")}},
 		};
-		std::vector<Editor::FAssetThumbnailPackageFingerprint> ForwardClosure;
+		std::vector<FAssetThumbnailPackageFingerprint> ForwardClosure;
 
-		auto ForwardClosureResult = Editor::BuildAssetThumbnailDependencyClosure(Root, Forward);
+		auto ForwardClosureResult = BuildAssetThumbnailDependencyClosure(Root, Forward);
 		ASSERT_TRUE(ForwardClosureResult) << ForwardClosureResult.error();
 		ForwardClosure = std::move(*ForwardClosureResult);
 		ASSERT_EQ(ForwardClosure.size(), 3u);
@@ -580,10 +580,10 @@ namespace Durin
 		EXPECT_EQ(ForwardClosure[2].PackagePath.GetView(), "/ThumbnailTests/Textures/Normal");
 
 		std::ranges::reverse(Forward);
-		for (Editor::FAssetThumbnailDependencyNode& Node : Forward)
+		for (FAssetThumbnailDependencyNode& Node : Forward)
 			std::ranges::reverse(Node.Dependencies);
-		std::vector<Editor::FAssetThumbnailPackageFingerprint> ReverseClosure;
-		auto ReverseClosureResult = Editor::BuildAssetThumbnailDependencyClosure(Root, Forward);
+		std::vector<FAssetThumbnailPackageFingerprint> ReverseClosure;
+		auto ReverseClosureResult = BuildAssetThumbnailDependencyClosure(Root, Forward);
 		ASSERT_TRUE(ReverseClosureResult) << ReverseClosureResult.error();
 		ReverseClosure = std::move(*ReverseClosureResult);
 		EXPECT_EQ(ReverseClosure, ForwardClosure);
@@ -592,12 +592,12 @@ namespace Durin
 	TEST(FAssetThumbnailContractTests, MissingDependenciesCannotProduceTrustedClosure)
 	{
 		const FPackagePath Root = MakePath("/ThumbnailTests/Materials/Invalid");
-		const std::vector<Editor::FAssetThumbnailDependencyNode> Nodes = {
+		const std::vector<FAssetThumbnailDependencyNode> Nodes = {
 			{MakePackage("/ThumbnailTests/Materials/Invalid", "DMaterial", 7, 100, 10),
 				{MakePath("/ThumbnailTests/Textures/Missing")}},
 		};
 
-		const auto ClosureResult = Editor::BuildAssetThumbnailDependencyClosure(Root, Nodes);
+		const auto ClosureResult = BuildAssetThumbnailDependencyClosure(Root, Nodes);
 		ASSERT_FALSE(ClosureResult);
 		EXPECT_NE(ClosureResult.error().find("/ThumbnailTests/Textures/Missing"), std::string::npos);
 	}
@@ -605,20 +605,20 @@ namespace Durin
 	TEST(FAssetThumbnailContractTests, DuplicateRegistryEntriesCannotProduceAmbiguousClosure)
 	{
 		const FPackagePath Root = MakePath("/ThumbnailTests/Materials/Duplicate");
-		const std::vector<Editor::FAssetThumbnailDependencyNode> Nodes = {
+		const std::vector<FAssetThumbnailDependencyNode> Nodes = {
 			{MakePackage("/ThumbnailTests/Materials/Duplicate", "DMaterial", 7, 100, 10), {}},
 			{MakePackage("/ThumbnailTests/Materials/Duplicate", "DMaterial", 7, 100, 10), {}},
 		};
 
-		const auto ClosureResult = Editor::BuildAssetThumbnailDependencyClosure(Root, Nodes);
+		const auto ClosureResult = BuildAssetThumbnailDependencyClosure(Root, Nodes);
 		ASSERT_FALSE(ClosureResult);
 		EXPECT_NE(ClosureResult.error().find("duplicate"), std::string::npos);
 	}
 
 	TEST(FAssetThumbnailContractTests, CancellationIsSharedAcrossCapturedRequests)
 	{
-		const Editor::FAssetThumbnailCancellation Cancellation;
-		const Editor::FAssetThumbnailCancellation Captured = Cancellation;
+		const FAssetThumbnailCancellation Cancellation;
+		const FAssetThumbnailCancellation Captured = Cancellation;
 		EXPECT_FALSE(Captured.IsCancelled());
 		Cancellation.Cancel();
 		EXPECT_TRUE(Captured.IsCancelled());
@@ -626,19 +626,19 @@ namespace Durin
 
 	TEST(FAssetThumbnailContractTests, InitialFixtureAndBudgetContractsAreBounded)
 	{
-		const Editor::FThumbnailVisualContract Visual;
+		const FThumbnailVisualContract Visual;
 		EXPECT_EQ(Visual.Output.Width, Visual.Output.Height);
 		EXPECT_EQ(Visual.Output.Width, 256u);
-		EXPECT_EQ(Editor::FThumbnailVisualContract::SphereAssetPath,
+		EXPECT_EQ(FThumbnailVisualContract::SphereAssetPath,
 			"/Engine/Models/Sphere.Sphere");
-		EXPECT_EQ(Editor::FThumbnailVisualContract::SphereFixtureVersion, 1u);
-		EXPECT_EQ(Editor::FThumbnailVisualContract::OutputEncoding, "PNG");
-		EXPECT_EQ(Editor::FThumbnailVisualContract::OutputColorSpace, "sRGB");
+		EXPECT_EQ(FThumbnailVisualContract::SphereFixtureVersion, 1u);
+		EXPECT_EQ(FThumbnailVisualContract::OutputEncoding, "PNG");
+		EXPECT_EQ(FThumbnailVisualContract::OutputColorSpace, "sRGB");
 		EXPECT_TRUE(Visual.bOutputOpaque);
 		EXPECT_EQ(Visual.CubeDirectionConvention,
-			Editor::EAssetThumbnailCubeDirectionConvention::WorldSpaceReflectionVector);
+			EAssetThumbnailCubeDirectionConvention::WorldSpaceReflectionVector);
 
-		const Editor::FAssetThumbnailBudgets Budgets;
+		const FAssetThumbnailBudgets Budgets;
 		EXPECT_EQ(Budgets.MaximumRendersPerFrame, 1u);
 		EXPECT_EQ(Budgets.MaximumLivePreviewScenes, 1u);
 		EXPECT_GT(Budgets.MaximumParkedRenderedJobs, 0u);
@@ -648,7 +648,7 @@ namespace Durin
 		EXPECT_GT(Budgets.MaximumQueuedJobs, 0u);
 		EXPECT_GT(Budgets.CpuPixelBudgetBytes, 0u);
 		EXPECT_GT(Budgets.GpuTextureBudgetBytes, 0u);
-		const Editor::FAssetThumbnailPoolStorageSettings Storage;
+		const FAssetThumbnailPoolStorageSettings Storage;
 		EXPECT_GT(Storage.MaximumObjectBytes, 0u);
 		EXPECT_GT(Storage.DiskBudgetBytes, 0u);
 	}
@@ -659,20 +659,20 @@ namespace Durin
 		const Durin::FByteBuffer Payload = {
 			std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4}, std::byte{5}};
 		{
-			Editor::FThumbnailObjectStore Store({
+			FThumbnailObjectStore Store({
 				.CacheRoot = Root,
 				.ObjectExtension = ".bin"});
 			EXPECT_FALSE(Store.Store("../unsafe", Payload));
 			ASSERT_TRUE(Store.Store("material-key-01", Payload));
 		}
-		Editor::FThumbnailObjectStore WarmStore({
+		FThumbnailObjectStore WarmStore({
 			.CacheRoot = Root,
 			.ObjectExtension = ".bin"});
 		Durin::FByteBuffer Loaded;
-		EXPECT_EQ(WarmStore.Load("material-key-01", Loaded), Editor::EThumbnailObjectLoadResult::Hit);
+		EXPECT_EQ(WarmStore.Load("material-key-01", Loaded), EThumbnailObjectLoadResult::Hit);
 		EXPECT_EQ(Loaded, Payload);
 		EXPECT_EQ(WarmStore.GetStats().CacheHits, 1u);
-		EXPECT_EQ(WarmStore.Load("../unsafe", Loaded), Editor::EThumbnailObjectLoadResult::Invalid);
+		EXPECT_EQ(WarmStore.Load("../unsafe", Loaded), EThumbnailObjectLoadResult::Invalid);
 	}
 
 	TEST(FAssetThumbnailContractTests, ObjectStoreCleansMissingObjectsAndHonorsDiskBudget)
@@ -680,7 +680,7 @@ namespace Durin
 		const std::filesystem::path Root = MakeObjectStoreRoot("Cleanup");
 		const Durin::FByteBuffer Payload(80, std::byte{7});
 		{
-			Editor::FThumbnailObjectStore Store({
+			FThumbnailObjectStore Store({
 				.CacheRoot = Root,
 				.DiskBudgetBytes = 100,
 				.ObjectExtension = ".bin"});
@@ -688,57 +688,57 @@ namespace Durin
 			ASSERT_TRUE(Store.Store("object-key-02", Payload));
 			EXPECT_EQ(Store.GetStats().Evictions, 1u);
 			Durin::FByteBuffer Loaded;
-			EXPECT_EQ(Store.Load("object-key-01", Loaded), Editor::EThumbnailObjectLoadResult::Miss);
-			EXPECT_EQ(Store.Load("object-key-02", Loaded), Editor::EThumbnailObjectLoadResult::Hit);
+			EXPECT_EQ(Store.Load("object-key-01", Loaded), EThumbnailObjectLoadResult::Miss);
+			EXPECT_EQ(Store.Load("object-key-02", Loaded), EThumbnailObjectLoadResult::Hit);
 		}
 		for (const auto& Entry : std::filesystem::recursive_directory_iterator(Root / "Objects"))
 			if (Entry.path().extension() == ".bin") std::filesystem::remove(Entry.path());
-		Editor::FThumbnailObjectStore MissingObjectStore({
+		FThumbnailObjectStore MissingObjectStore({
 			.CacheRoot = Root,
 			.DiskBudgetBytes = 100,
 			.ObjectExtension = ".bin"});
 		Durin::FByteBuffer MissingBytes;
 		EXPECT_EQ(MissingObjectStore.Load("object-key-02", MissingBytes),
-			Editor::EThumbnailObjectLoadResult::Invalid);
+			EThumbnailObjectLoadResult::Invalid);
 		EXPECT_GE(MissingObjectStore.GetStats().Regenerations, 1u);
 	}
 
 	TEST(FAssetThumbnailContractTests, BudgetSelectionEvictsOldestUnpinnedAllocations)
 	{
-		const std::vector<Editor::FThumbnailBudgetEntry> Entries = {
+		const std::vector<FThumbnailBudgetEntry> Entries = {
 			{.Key = "visible", .Bytes = 60, .LastUsed = 1, .bPinned = true},
 			{.Key = "oldest", .Bytes = 40, .LastUsed = 2},
 			{.Key = "newest", .Bytes = 30, .LastUsed = 3},
 		};
-		EXPECT_EQ(Editor::SelectThumbnailBudgetEvictions(Entries, 100),
+		EXPECT_EQ(SelectThumbnailBudgetEvictions(Entries, 100),
 			std::vector<std::string>({"oldest"}));
-		EXPECT_EQ(Editor::SelectThumbnailBudgetEvictions(Entries, 50),
+		EXPECT_EQ(SelectThumbnailBudgetEvictions(Entries, 50),
 			(std::vector<std::string>{"oldest", "newest"}));
-		EXPECT_TRUE(Editor::SelectThumbnailBudgetEvictions(Entries, 200).empty());
+		EXPECT_TRUE(SelectThumbnailBudgetEvictions(Entries, 200).empty());
 	}
 
 	TEST(FAssetThumbnailContractTests, RendererRegistryRejectsInvalidAndDuplicateRegistrations)
 	{
-		Editor::DThumbnailManager Registry;
+		DThumbnailManager Registry;
 
 		const auto NullRegistration = Registry.Register(nullptr);
 		ASSERT_FALSE(NullRegistration);
 		EXPECT_FALSE(NullRegistration.error().empty());
 
 		auto Invalid = std::make_shared<FTestThumbnailRenderer>(
-			Editor::FThumbnailRenderingInfo{.AssetClassName = "DMaterial"});
+			FThumbnailRenderingInfo{.AssetClassName = "DMaterial"});
 		const auto InvalidRegistration = Registry.Register(Invalid);
 		ASSERT_FALSE(InvalidRegistration);
 		EXPECT_FALSE(InvalidRegistration.error().empty());
 
-		auto Material = std::make_shared<FTestThumbnailRenderer>(Editor::FThumbnailRenderingInfo{
+		auto Material = std::make_shared<FTestThumbnailRenderer>(FThumbnailRenderingInfo{
 			.AssetClassName = "DMaterial",
 			.RendererName = "Durin.MaterialThumbnail",
 			.GeneratorSchemaVersion = 1});
 		ASSERT_TRUE(Registry.Register(Material));
 		EXPECT_EQ(Registry.Num(), 1u);
 
-		auto Duplicate = std::make_shared<FTestThumbnailRenderer>(Editor::FThumbnailRenderingInfo{
+		auto Duplicate = std::make_shared<FTestThumbnailRenderer>(FThumbnailRenderingInfo{
 			.AssetClassName = "DMaterial",
 			.RendererName = "Durin.OtherMaterialThumbnail",
 			.GeneratorSchemaVersion = 1});
@@ -750,21 +750,21 @@ namespace Durin
 
 	TEST(FAssetThumbnailContractTests, RendererRegistryUsesExactClassesAndMonotonicGenerations)
 	{
-		Editor::DThumbnailManager Registry;
+		DThumbnailManager Registry;
 
-		auto Material = std::make_shared<FTestThumbnailRenderer>(Editor::FThumbnailRenderingInfo{
+		auto Material = std::make_shared<FTestThumbnailRenderer>(FThumbnailRenderingInfo{
 			.AssetClassName = "DMaterial",
 			.RendererName = "Durin.MaterialThumbnail",
 			.GeneratorSchemaVersion = 1});
-		auto MaterialInstance = std::make_shared<FTestThumbnailRenderer>(Editor::FThumbnailRenderingInfo{
+		auto MaterialInstance = std::make_shared<FTestThumbnailRenderer>(FThumbnailRenderingInfo{
 			.AssetClassName = "DMaterialInstance",
 			.RendererName = "Durin.MaterialThumbnail",
 			.GeneratorSchemaVersion = 1});
 		ASSERT_TRUE(Registry.Register(Material));
 		ASSERT_TRUE(Registry.Register(MaterialInstance));
 
-		const Editor::FThumbnailRendererHandle MaterialHandle = Registry.Find("DMaterial");
-		const Editor::FThumbnailRendererHandle InstanceHandle = Registry.Find("DMaterialInstance");
+		const FThumbnailRendererHandle MaterialHandle = Registry.Find("DMaterial");
+		const FThumbnailRendererHandle InstanceHandle = Registry.Find("DMaterialInstance");
 		EXPECT_TRUE(MaterialHandle);
 		EXPECT_TRUE(InstanceHandle);
 		EXPECT_NE(MaterialHandle.Generation, InstanceHandle.Generation);
@@ -774,7 +774,7 @@ namespace Durin
 		EXPECT_FALSE(Registry.Find("DMaterial"));
 		EXPECT_FALSE(Registry.Unregister("DMaterial"));
 
-		auto Replacement = std::make_shared<FTestThumbnailRenderer>(Editor::FThumbnailRenderingInfo{
+		auto Replacement = std::make_shared<FTestThumbnailRenderer>(FThumbnailRenderingInfo{
 			.AssetClassName = "DMaterial",
 			.RendererName = "Durin.MaterialThumbnail",
 			.GeneratorSchemaVersion = 2});
@@ -784,9 +784,9 @@ namespace Durin
 
 	TEST(FAssetThumbnailContractTests, RendererRegistryShutdownDropsRenderersAndClosesRegistration)
 	{
-		Editor::DThumbnailManager Registry;
+		DThumbnailManager Registry;
 
-		auto Renderer = std::make_shared<FTestThumbnailRenderer>(Editor::FThumbnailRenderingInfo{
+		auto Renderer = std::make_shared<FTestThumbnailRenderer>(FThumbnailRenderingInfo{
 			.AssetClassName = "DTextureCube",
 			.RendererName = "Durin.TextureCubeThumbnail",
 			.GeneratorSchemaVersion = 1});
@@ -801,7 +801,7 @@ namespace Durin
 
 	TEST(FAssetThumbnailContractTests, ScopedRendererRegistrationRejectsDuplicatesAndAllowsLaterReplacement)
 	{
-		Editor::DThumbnailManager Registry;
+		DThumbnailManager Registry;
 
 		auto FirstState = std::make_shared<FFakeThumbnailRendererState>();
 		auto First = Registry.RegisterScoped(
@@ -829,11 +829,11 @@ namespace Durin
 
 	TEST(FAssetThumbnailContractTests, RequiredSceneCanDeferOptionalAdmissionsWithoutLosingRequests)
 	{
-		Editor::DThumbnailManager Manager;
+		DThumbnailManager Manager;
 		auto State = std::make_shared<FFakeThumbnailRendererState>();
 		auto Registration = Manager.RegisterScoped(std::make_unique<FFakeThumbnailRenderer>(State));
 		ASSERT_TRUE(Registration) << Registration.error();
-		Editor::FAssetThumbnailPool Pool(Manager, {}, {.CacheRoot = MakeObjectStoreRoot("DeferredSceneAdmission")});
+		FAssetThumbnailPool Pool(Manager, {}, {.CacheRoot = MakeObjectStoreRoot("DeferredSceneAdmission")});
 		const auto Request = MakeThumbnailRequest("/ThumbnailTests/ScenePriority/Deferred", "DFakeRenderedAsset", 1);
 		Pool.BeginFrame();
 		Pool.Request(Request.Asset, Request.Priority);
@@ -847,22 +847,22 @@ namespace Durin
 
 	TEST(FAssetThumbnailContractTests, AssetThumbnailReferencesCoalesceAndReleasePoolPins)
 	{
-		Editor::DThumbnailManager Manager;
+		DThumbnailManager Manager;
 
 		auto State = std::make_shared<FFakeThumbnailRendererState>();
 		auto Registration = Manager.RegisterScoped(
 			std::make_unique<FFakeThumbnailRenderer>(State));
 		ASSERT_TRUE(Registration) << Registration.error();
-		Editor::FAssetThumbnailPool Pool(
+		FAssetThumbnailPool Pool(
 			Manager, {}, {.CacheRoot = MakeObjectStoreRoot("AssetThumbnailReferences")});
-		const Editor::FAssetThumbnailRequest Request = MakeThumbnailRequest(
+		const FAssetThumbnailRequest Request = MakeThumbnailRequest(
 			"/ThumbnailTests/References/Shared", "DFakeRenderedAsset", 1);
 		{
-			Editor::FAssetThumbnail First(Request.Asset, 128, 96, &Pool);
-			Editor::FAssetThumbnail Second(Request.Asset, 512, 512, &Pool);
-			First.Request(Editor::EAssetThumbnailPriority::Prefetch);
-			Second.Request(Editor::EAssetThumbnailPriority::Visible);
-			const Editor::FAssetThumbnailPoolStats Stats = Pool.GetStats();
+			FAssetThumbnail First(Request.Asset, 128, 96, &Pool);
+			FAssetThumbnail Second(Request.Asset, 512, 512, &Pool);
+			First.Request(EAssetThumbnailPriority::Prefetch);
+			Second.Request(EAssetThumbnailPriority::Visible);
+			const FAssetThumbnailPoolStats Stats = Pool.GetStats();
 			EXPECT_EQ(Stats.QueuedJobs, 1u);
 			EXPECT_EQ(Stats.PinnedEntries, 1u);
 			EXPECT_EQ(Stats.Referencers, 2u);
@@ -875,10 +875,10 @@ namespace Durin
 
 	TEST(FAssetThumbnailContractTests, PoolEvictsUnreferencedMetadataEntriesToBudget)
 	{
-		Editor::DThumbnailManager Manager;
-		Editor::FAssetThumbnailBudgets Budgets;
+		DThumbnailManager Manager;
+		FAssetThumbnailBudgets Budgets;
 		Budgets.MaximumRetainedEntries = 2;
-		Editor::FAssetThumbnailPool Pool(
+		FAssetThumbnailPool Pool(
 			Manager,
 			Budgets,
 			{.CacheRoot = MakeObjectStoreRoot("RetainedEntryBudget")});
@@ -893,7 +893,7 @@ namespace Durin
 					1,
 					100 + Index,
 					200 + Index),
-				Editor::EAssetThumbnailPriority::Prefetch);
+				EAssetThumbnailPriority::Prefetch);
 		}
 		Pool.EndFrame();
 
@@ -903,32 +903,32 @@ namespace Durin
 	TEST(FAssetThumbnailContractTests, PoolRejectsWrongSizedPersistentThumbnailBeforeUpload)
 	{
 		const std::filesystem::path Root = MakeObjectStoreRoot("WrongSizedWarmObject");
-		Editor::DThumbnailManager Manager;
+		DThumbnailManager Manager;
 
 		auto Renderer = std::make_shared<FTestThumbnailRenderer>(
-			Editor::FThumbnailRenderingInfo{
+			FThumbnailRenderingInfo{
 				.AssetClassName = "DMaterial",
 				.RendererName = "Durin.MaterialThumbnail",
 				.GeneratorSchemaVersion = 1});
 		ASSERT_TRUE(Manager.Register(Renderer));
-		const Editor::FAssetThumbnailRequest Request = MakeThumbnailRequest(
+		const FAssetThumbnailRequest Request = MakeThumbnailRequest(
 			"/ThumbnailTests/WrongSizedWarm/Material", "DMaterial", 1);
 
 		std::string CacheKey;
 		{
-			Editor::FAssetThumbnailRequestQueue Scheduler(Manager);
-			ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Request)));
+			FAssetThumbnailRequestQueue Scheduler(Manager);
+			ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Request)));
 			auto Scheduled = Scheduler.TakeNext();
 			ASSERT_TRUE(Scheduled);
 			CacheKey = Scheduled->CacheKey;
 		}
 		{
-			Editor::FThumbnailObjectStore Store({.CacheRoot = Root});
+			FThumbnailObjectStore Store({.CacheRoot = Root});
 			ASSERT_TRUE(Store.Store(
 				CacheKey, std::as_bytes(std::span{WrongSizedThumbnailPng})));
 		}
 
-		Editor::FAssetThumbnailPool Pool(Manager, {}, {.CacheRoot = Root});
+		FAssetThumbnailPool Pool(Manager, {}, {.CacheRoot = Root});
 		Pool.BeginFrame();
 		Pool.Request(Request.Asset, Request.Priority);
 		Pool.EndFrame();
@@ -939,15 +939,15 @@ namespace Durin
 		EXPECT_EQ(Pool.GetStats().Generation.Retries, 1u);
 		EXPECT_EQ(Pool.GetStats().Generation.Loads, 1u);
 		EXPECT_EQ(Pool.GetStats().UploadsQueued, 0u);
-		Editor::FThumbnailObjectStore Store({.CacheRoot = Root});
+		FThumbnailObjectStore Store({.CacheRoot = Root});
 		Durin::FByteBuffer Bytes;
-		EXPECT_EQ(Store.Load(CacheKey, Bytes), Editor::EThumbnailObjectLoadResult::Miss);
+		EXPECT_EQ(Store.Load(CacheKey, Bytes), EThumbnailObjectLoadResult::Miss);
 	}
 
 	TEST(FAssetThumbnailContractTests, SchedulersCreatedBeforeAndAfterScopedRegistrationObserveItsGeneration)
 	{
-		Editor::DThumbnailManager Registry;
-		Editor::FAssetThumbnailRequestQueue BeforeRegistration(Registry);
+		DThumbnailManager Registry;
+		FAssetThumbnailRequestQueue BeforeRegistration(Registry);
 
 		auto State = std::make_shared<FFakeThumbnailRendererState>();
 		auto Registration = Registry.RegisterScoped(
@@ -955,20 +955,20 @@ namespace Durin
 		ASSERT_TRUE(Registration) << Registration.error();
 		const uint64 Generation = Registry.Find("DFakeRenderedAsset").Generation;
 		ASSERT_NE(Generation, 0u);
-		Editor::FAssetThumbnailRequestQueue AfterRegistration(Registry);
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(BeforeRegistration.Request(MakeThumbnailRequest(
+		FAssetThumbnailRequestQueue AfterRegistration(Registry);
+		ASSERT_TRUE(IsThumbnailRequestAccepted(BeforeRegistration.Request(MakeThumbnailRequest(
 			"/ThumbnailTests/FakeRendered/BeforeRegistry",
 			"DFakeRenderedAsset",
 			1
 		))));
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(AfterRegistration.Request(MakeThumbnailRequest(
+		ASSERT_TRUE(IsThumbnailRequestAccepted(AfterRegistration.Request(MakeThumbnailRequest(
 			"/ThumbnailTests/FakeRendered/AfterRegistry",
 			"DFakeRenderedAsset",
 			1
 		))));
-		const std::optional<Editor::FAssetThumbnailScheduledRequest> BeforeJob =
+		const std::optional<FAssetThumbnailScheduledRequest> BeforeJob =
 			BeforeRegistration.TakeNext();
-		const std::optional<Editor::FAssetThumbnailScheduledRequest> AfterJob =
+		const std::optional<FAssetThumbnailScheduledRequest> AfterJob =
 			AfterRegistration.TakeNext();
 		ASSERT_TRUE(BeforeJob);
 		ASSERT_TRUE(AfterJob);
@@ -978,18 +978,18 @@ namespace Durin
 		Registration->Reset();
 		EXPECT_FALSE(BeforeRegistration.Transition(
 			*BeforeJob,
-			Editor::EAssetThumbnailState::Loading,
-			Editor::EAssetThumbnailState::WaitingForResources));
+			EAssetThumbnailState::Loading,
+			EAssetThumbnailState::WaitingForResources));
 		EXPECT_FALSE(AfterRegistration.Transition(
 			*AfterJob,
-			Editor::EAssetThumbnailState::Loading,
-			Editor::EAssetThumbnailState::WaitingForResources));
+			EAssetThumbnailState::Loading,
+			EAssetThumbnailState::WaitingForResources));
 	}
 
 	TEST(FAssetThumbnailContractTests, RenderedCachesResolveOneServiceBeforeAndAfterRegistration)
 	{
-		Editor::DThumbnailManager ThumbnailManager;
-		Editor::FAssetThumbnailPool BeforeRegistration(
+		DThumbnailManager ThumbnailManager;
+		FAssetThumbnailPool BeforeRegistration(
 			ThumbnailManager,
 			{},
 			{.CacheRoot = MakeObjectStoreRoot("CacheBeforeRegistration"),
@@ -999,45 +999,45 @@ namespace Durin
 		auto Registration = ThumbnailManager.RegisterScoped(
 			std::make_unique<FFakeThumbnailRenderer>(State));
 		ASSERT_TRUE(Registration) << Registration.error();
-		Editor::FAssetThumbnailPool AfterRegistration(
+		FAssetThumbnailPool AfterRegistration(
 			ThumbnailManager,
 			{},
 			{.CacheRoot = MakeObjectStoreRoot("CacheAfterRegistration"),
 				.ObjectExtension = ".bin"});
-		const Editor::FAssetThumbnailRequest BeforeRequest = MakeThumbnailRequest(
+		const FAssetThumbnailRequest BeforeRequest = MakeThumbnailRequest(
 			"/ThumbnailTests/FakeRendered/CacheBeforeRegistration",
 			"DFakeRenderedAsset",
 			1);
-		const Editor::FAssetThumbnailRequest AfterRequest = MakeThumbnailRequest(
+		const FAssetThumbnailRequest AfterRequest = MakeThumbnailRequest(
 			"/ThumbnailTests/FakeRendered/CacheAfterRegistration",
 			"DFakeRenderedAsset",
 			1);
 		BeforeRegistration.Request(
-			BeforeRequest.Asset, Editor::EAssetThumbnailPriority::Visible);
+			BeforeRequest.Asset, EAssetThumbnailPriority::Visible);
 		AfterRegistration.Request(
-			AfterRequest.Asset, Editor::EAssetThumbnailPriority::Visible);
+			AfterRequest.Asset, EAssetThumbnailPriority::Visible);
 		EXPECT_EQ(
 			BeforeRegistration.Find(BeforeRequest.Asset.AssetPath).State,
-			Editor::EAssetThumbnailState::Queued);
+			EAssetThumbnailState::Queued);
 		EXPECT_EQ(
 			AfterRegistration.Find(AfterRequest.Asset.AssetPath).State,
-			Editor::EAssetThumbnailState::Queued);
+			EAssetThumbnailState::Queued);
 
 		Registration->Reset();
 		BeforeRegistration.EndFrame();
 		AfterRegistration.EndFrame();
 		EXPECT_NE(
 			BeforeRegistration.Find(BeforeRequest.Asset.AssetPath).State,
-			Editor::EAssetThumbnailState::Loading);
+			EAssetThumbnailState::Loading);
 		EXPECT_NE(
 			AfterRegistration.Find(AfterRequest.Asset.AssetPath).State,
-			Editor::EAssetThumbnailState::Loading);
+			EAssetThumbnailState::Loading);
 		EXPECT_EQ(State->ExtensionDestructions, 1u);
 	}
 
 	TEST(FAssetThumbnailContractTests, ParkedResourceWaitDoesNotBlockLaterRenderedWork)
 	{
-		Editor::DThumbnailManager ThumbnailManager;
+		DThumbnailManager ThumbnailManager;
 
 		auto WaitingState = std::make_shared<FFakeThumbnailRendererState>();
 		WaitingState->ResourcePollsBeforeReady = 100;
@@ -1050,19 +1050,19 @@ namespace Durin
 			std::make_unique<FFakeThumbnailRenderer>(
 				ReadyState, "DReadyRenderedAsset"));
 		ASSERT_TRUE(ReadyRegistration) << ReadyRegistration.error();
-		Editor::FAssetThumbnailBudgets Budgets;
+		FAssetThumbnailBudgets Budgets;
 		Budgets.ResourcePollIntervalFrames = 4;
-		Editor::FAssetThumbnailPool Cache(
+		FAssetThumbnailPool Cache(
 			ThumbnailManager,
 			Budgets,
 			{.CacheRoot = MakeObjectStoreRoot("ParkedResourceWait"),
 				.ObjectExtension = ".bin"});
-		const Editor::FAssetThumbnailRequest Waiting = MakeThumbnailRequest(
+		const FAssetThumbnailRequest Waiting = MakeThumbnailRequest(
 			"/ThumbnailTests/Parked/Waiting", "DWaitingRenderedAsset", 1,
-			Editor::EAssetThumbnailPriority::Visible);
-		const Editor::FAssetThumbnailRequest Ready = MakeThumbnailRequest(
+			EAssetThumbnailPriority::Visible);
+		const FAssetThumbnailRequest Ready = MakeThumbnailRequest(
 			"/ThumbnailTests/Parked/Ready", "DReadyRenderedAsset", 1,
-			Editor::EAssetThumbnailPriority::Visible);
+			EAssetThumbnailPriority::Visible);
 
 		Cache.BeginFrame();
 		Cache.Request(Waiting.Asset, Waiting.Priority);
@@ -1071,7 +1071,7 @@ namespace Durin
 			return Cache.GetStats().ParkedResourceWaits == 1;
 		}));
 		EXPECT_EQ(Cache.Find(Waiting.Asset.AssetPath).State,
-			Editor::EAssetThumbnailState::WaitingForResources);
+			EAssetThumbnailState::WaitingForResources);
 		EXPECT_EQ(Cache.GetStats().ParkedResourceWaits, 1u);
 		EXPECT_FALSE(Cache.GetStats().bHasActiveJob);
 
@@ -1082,26 +1082,26 @@ namespace Durin
 			return ReadyState->Sessions == 1;
 		}));
 		EXPECT_EQ(Cache.Find(Waiting.Asset.AssetPath).State,
-			Editor::EAssetThumbnailState::WaitingForResources);
+			EAssetThumbnailState::WaitingForResources);
 		EXPECT_NE(Cache.Find(Ready.Asset.AssetPath).State,
-			Editor::EAssetThumbnailState::Queued);
+			EAssetThumbnailState::Queued);
 		EXPECT_EQ(Cache.GetStats().ParkedResourceWaits, 1u);
 		EXPECT_EQ(Cache.GetStats().PeakParkedResourceWaits, 1u);
 	}
 
 	TEST(FAssetThumbnailContractTests, LastReferencerCancelsParkedSessionWithoutCancellingOtherConsumers)
 	{
-		Editor::DThumbnailManager Manager;
+		DThumbnailManager Manager;
 
 		auto State = std::make_shared<FFakeThumbnailRendererState>();
 		State->ResourcePollsBeforeReady = 1000;
 		auto Registration = Manager.RegisterScoped(
 			std::make_unique<FFakeThumbnailRenderer>(State, "DNavigationAsset"));
 		ASSERT_TRUE(Registration) << Registration.error();
-		Editor::FAssetThumbnailPool Pool(Manager, {},
+		FAssetThumbnailPool Pool(Manager, {},
 			{.CacheRoot = MakeObjectStoreRoot("NavigationCancel"), .ObjectExtension = ".bin"});
 		const auto Request = MakeThumbnailRequest("/ThumbnailTests/Navigation/Asset",
-			"DNavigationAsset", 1, Editor::EAssetThumbnailPriority::Visible);
+			"DNavigationAsset", 1, EAssetThumbnailPriority::Visible);
 		Pool.AddReferencer(Request.Asset.AssetPath);
 		Pool.AddReferencer(Request.Asset.AssetPath);
 		Pool.BeginFrame();
@@ -1125,7 +1125,7 @@ namespace Durin
 
 	TEST(FAssetThumbnailContractTests, ParkedResourceWaitTimesOutAndReleasesSession)
 	{
-		Editor::DThumbnailManager ThumbnailManager;
+		DThumbnailManager ThumbnailManager;
 
 		auto State = std::make_shared<FFakeThumbnailRendererState>();
 		State->ResourcePollsBeforeReady = 100;
@@ -1133,28 +1133,28 @@ namespace Durin
 			std::make_unique<FFakeThumbnailRenderer>(
 				State, "DTimeoutRenderedAsset"));
 		ASSERT_TRUE(Registration) << Registration.error();
-		Editor::FAssetThumbnailBudgets Budgets;
+		FAssetThumbnailBudgets Budgets;
 		Budgets.ResourcePollIntervalFrames = 1;
 		Budgets.MaximumResourceWaitFrames = 2;
-		Editor::FAssetThumbnailPool Cache(
+		FAssetThumbnailPool Cache(
 			ThumbnailManager,
 			Budgets,
 			{.CacheRoot = MakeObjectStoreRoot("ParkedResourceTimeout"),
 				.ObjectExtension = ".bin"});
-		const Editor::FAssetThumbnailRequest Request = MakeThumbnailRequest(
+		const FAssetThumbnailRequest Request = MakeThumbnailRequest(
 			"/ThumbnailTests/Parked/Timeout", "DTimeoutRenderedAsset", 1,
-			Editor::EAssetThumbnailPriority::Visible);
+			EAssetThumbnailPriority::Visible);
 
 		Cache.BeginFrame();
 		Cache.Request(Request.Asset, Request.Priority);
 		Cache.EndFrame();
 		ASSERT_TRUE(PumpThumbnailPoolUntil(Cache, [&] {
-			return Cache.Find(Request.Asset.AssetPath).State == Editor::EAssetThumbnailState::Failed;
+			return Cache.Find(Request.Asset.AssetPath).State == EAssetThumbnailState::Failed;
 		}));
 
-		const Editor::FAssetThumbnailView View =
+		const FAssetThumbnailView View =
 			Cache.Find(Request.Asset.AssetPath);
-		EXPECT_EQ(View.State, Editor::EAssetThumbnailState::Failed);
+		EXPECT_EQ(View.State, EAssetThumbnailState::Failed);
 		EXPECT_NE(View.Diagnostic.find("Timed out"), std::string::npos);
 		EXPECT_EQ(Cache.GetStats().ParkedResourceWaits, 0u);
 		EXPECT_EQ(Cache.GetStats().ResourceWaitTimeouts, 1u);
@@ -1165,20 +1165,20 @@ namespace Durin
 	TEST(FAssetThumbnailContractTests, FakeThumbnailRendererRunsColdAndWarmBeforeScopedRemoval)
 	{
 		const std::filesystem::path Root = MakeObjectStoreRoot("FakeThumbnailRendererWarmHit");
-		Editor::DThumbnailManager Registry;
+		DThumbnailManager Registry;
 
 		auto State = std::make_shared<FFakeThumbnailRendererState>();
 		auto Registration = Registry.RegisterScoped(
 			std::make_unique<FFakeThumbnailRenderer>(State));
 		ASSERT_TRUE(Registration) << Registration.error();
-		Editor::FAssetThumbnailRequestQueue Scheduler(Registry);
-		Editor::FAssetThumbnailGeneration Pipeline(
+		FAssetThumbnailRequestQueue Scheduler(Registry);
+		FAssetThumbnailGeneration Pipeline(
 			Scheduler, {.CacheRoot = Root, .ObjectExtension = ".bin"});
-		const Editor::FAssetThumbnailRequest ColdRequest = MakeThumbnailRequest(
+		const FAssetThumbnailRequest ColdRequest = MakeThumbnailRequest(
 			"/ThumbnailTests/FakeRendered/ColdWarm", "DFakeRenderedAsset", 1);
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(ColdRequest)));
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(ColdRequest)));
 		Pipeline.BeginFrame();
-		std::optional<Editor::FAssetThumbnailJob> ColdJob = Pipeline.StartNext();
+		std::optional<FAssetThumbnailJob> ColdJob = Pipeline.StartNext();
 		ASSERT_TRUE(ColdJob);
 		State->SessionFailure = "";
 		const auto EmptyFailure = ColdJob->ScheduledJob.GenerationRequest.BeginRenderedSession();
@@ -1194,8 +1194,8 @@ namespace Durin
 		ASSERT_TRUE(Session) << Session.error();
 		ASSERT_NE(*Session, nullptr);
 		EXPECT_FALSE((*Session)->ValidatePreparedInput());
-		const Editor::FThumbnailRendererSessionUpdate Update = (*Session)->Load();
-		ASSERT_EQ(Update.State, Editor::EThumbnailRendererSessionState::ReadyToRender);
+		const FThumbnailRendererSessionUpdate Update = (*Session)->Load();
+		ASSERT_EQ(Update.State, EThumbnailRendererSessionState::ReadyToRender);
 		FFakeThumbnailPreviewScene PreviewScene;
 		ASSERT_TRUE((*Session)->PreparePreview(PreviewScene));
 		ASSERT_TRUE((*Session)->ValidatePreparedInput());
@@ -1213,10 +1213,10 @@ namespace Durin
 		ColdJob->ScheduledJob.GenerationRequest.ReleaseRenderedSession();
 		EXPECT_EQ(State->PreviewResets, 1u);
 
-		const Editor::FAssetThumbnailRequest WarmRequest = MakeThumbnailRequest(
+		const FAssetThumbnailRequest WarmRequest = MakeThumbnailRequest(
 			"/ThumbnailTests/FakeRendered/ColdWarm", "DFakeRenderedAsset", 2);
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(WarmRequest)));
-		Editor::FAssetThumbnailStartResult Warm = Pipeline.StartNextDetailed();
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(WarmRequest)));
+		FAssetThumbnailStartResult Warm = Pipeline.StartNextDetailed();
 		EXPECT_FALSE(Warm.ColdJob);
 		ASSERT_TRUE(Warm.WarmJob);
 		const auto EncodedBytes = std::as_bytes(std::span{Encoded});
@@ -1233,7 +1233,7 @@ namespace Durin
 		EXPECT_EQ(State->InputDestructions, 2u);
 		EXPECT_EQ(State->SessionDestructions, 1u);
 		EXPECT_EQ(State->ExtensionDestructions, 1u);
-		EXPECT_FALSE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(MakeThumbnailRequest(
+		EXPECT_FALSE(IsThumbnailRequestAccepted(Scheduler.Request(MakeThumbnailRequest(
 			"/ThumbnailTests/FakeRendered/AfterRemoval",
 			"DFakeRenderedAsset",
 			3
@@ -1242,14 +1242,14 @@ namespace Durin
 
 	TEST(FAssetThumbnailContractTests, ScopedRemovalReleasesQueuedInputBeforeReturning)
 	{
-		Editor::DThumbnailManager Registry;
+		DThumbnailManager Registry;
 
 		auto State = std::make_shared<FFakeThumbnailRendererState>();
 		auto Registration = Registry.RegisterScoped(
 			std::make_unique<FFakeThumbnailRenderer>(State));
 		ASSERT_TRUE(Registration) << Registration.error();
-		Editor::FAssetThumbnailRequestQueue Scheduler(Registry);
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(MakeThumbnailRequest(
+		FAssetThumbnailRequestQueue Scheduler(Registry);
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(MakeThumbnailRequest(
 			"/ThumbnailTests/FakeRendered/QueuedRemoval",
 			"DFakeRenderedAsset",
 			1
@@ -1267,39 +1267,39 @@ namespace Durin
 	TEST(FAssetThumbnailContractTests, ScopedRemovalRejectsEveryInFlightStateAndDrainsSession)
 	{
 		const std::array States = {
-			Editor::EAssetThumbnailState::Loading,
-			Editor::EAssetThumbnailState::WaitingForResources,
-			Editor::EAssetThumbnailState::Rendering,
-			Editor::EAssetThumbnailState::Readback,
-			Editor::EAssetThumbnailState::Encoding,
-			Editor::EAssetThumbnailState::Uploading};
+			EAssetThumbnailState::Loading,
+			EAssetThumbnailState::WaitingForResources,
+			EAssetThumbnailState::Rendering,
+			EAssetThumbnailState::Readback,
+			EAssetThumbnailState::Encoding,
+			EAssetThumbnailState::Uploading};
 		for (size_t StateIndex = 0; StateIndex < States.size(); ++StateIndex)
 		{
 			SCOPED_TRACE(static_cast<uint32>(States[StateIndex]));
-			Editor::DThumbnailManager Registry;
+			DThumbnailManager Registry;
 
 			auto State = std::make_shared<FFakeThumbnailRendererState>();
 			const std::string AssetClassName = std::format("DFakeRenderedAsset{}", StateIndex);
 			auto Registration = Registry.RegisterScoped(
 				std::make_unique<FFakeThumbnailRenderer>(State, AssetClassName));
 			ASSERT_TRUE(Registration) << Registration.error();
-			Editor::FAssetThumbnailRequestQueue Scheduler(Registry);
-			const Editor::FAssetThumbnailRequest Request = MakeThumbnailRequest(
+			FAssetThumbnailRequestQueue Scheduler(Registry);
+			const FAssetThumbnailRequest Request = MakeThumbnailRequest(
 				std::format("/ThumbnailTests/FakeRendered/InFlight{}", StateIndex),
 				AssetClassName,
 				1);
-			ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Request)));
-			std::optional<Editor::FAssetThumbnailScheduledRequest> Job = Scheduler.TakeNext();
+			ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Request)));
+			std::optional<FAssetThumbnailScheduledRequest> Job = Scheduler.TakeNext();
 			ASSERT_TRUE(Job);
 			ASSERT_TRUE(Job->GenerationRequest.BeginRenderedSession());
 
-			Editor::EAssetThumbnailState Current = Editor::EAssetThumbnailState::Loading;
-			for (const Editor::EAssetThumbnailState Next : {
-				Editor::EAssetThumbnailState::WaitingForResources,
-				Editor::EAssetThumbnailState::Rendering,
-				Editor::EAssetThumbnailState::Readback,
-				Editor::EAssetThumbnailState::Encoding,
-				Editor::EAssetThumbnailState::Uploading})
+			EAssetThumbnailState Current = EAssetThumbnailState::Loading;
+			for (const EAssetThumbnailState Next : {
+				EAssetThumbnailState::WaitingForResources,
+				EAssetThumbnailState::Rendering,
+				EAssetThumbnailState::Readback,
+				EAssetThumbnailState::Encoding,
+				EAssetThumbnailState::Uploading})
 			{
 				if (Current == States[StateIndex]) break;
 				ASSERT_TRUE(Scheduler.Transition(*Job, Current, Next));
@@ -1318,54 +1318,54 @@ namespace Durin
 			EXPECT_EQ(State->InputDestructions, 1u);
 			EXPECT_EQ(State->ExtensionDestructions, 1u);
 			EXPECT_FALSE(Scheduler.Transition(
-				*Job, Current, Editor::EAssetThumbnailState::Ready));
+				*Job, Current, EAssetThumbnailState::Ready));
 		}
 	}
 
 	TEST(FAssetThumbnailContractTests, SchedulerSkipsMissingRenderersAndRecordsRendererRejection)
 	{
-		Editor::DThumbnailManager Registry;
-		Editor::FAssetThumbnailRequestQueue Scheduler(Registry);
+		DThumbnailManager Registry;
+		FAssetThumbnailRequestQueue Scheduler(Registry);
 
-		const Editor::FAssetThumbnailRequest Missing =
+		const FAssetThumbnailRequest Missing =
 			MakeThumbnailRequest("/ThumbnailTests/Unsupported", "DUnsupported", 1);
-		EXPECT_FALSE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Missing)));
+		EXPECT_FALSE(IsThumbnailRequestAccepted(Scheduler.Request(Missing)));
 		EXPECT_EQ(Scheduler.NumQueued(), 0u);
-		EXPECT_EQ(Scheduler.Find(Missing.Asset.AssetPath).State, Editor::EAssetThumbnailState::NotRequested);
+		EXPECT_EQ(Scheduler.Find(Missing.Asset.AssetPath).State, EAssetThumbnailState::NotRequested);
 
-		auto Rejecting = std::make_shared<FTestThumbnailRenderer>(Editor::FThumbnailRenderingInfo{
+		auto Rejecting = std::make_shared<FTestThumbnailRenderer>(FThumbnailRenderingInfo{
 			.AssetClassName = "DMaterial",
 			.RendererName = "Durin.MaterialThumbnail",
 			.GeneratorSchemaVersion = 1}, false);
 		ASSERT_TRUE(Registry.Register(Rejecting));
-		const Editor::FAssetThumbnailRequest Invalid =
+		const FAssetThumbnailRequest Invalid =
 			MakeThumbnailRequest("/ThumbnailTests/Invalid", "DMaterial", 2);
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Invalid)));
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Invalid)));
 		EXPECT_FALSE(Scheduler.TakeNext());
-		const Editor::FAssetThumbnailView InvalidView = Scheduler.Find(Invalid.Asset.AssetPath);
-		EXPECT_EQ(InvalidView.State, Editor::EAssetThumbnailState::Invalid);
+		const FAssetThumbnailView InvalidView = Scheduler.Find(Invalid.Asset.AssetPath);
+		EXPECT_EQ(InvalidView.State, EAssetThumbnailState::Invalid);
 		EXPECT_EQ(InvalidView.RequestSerial, 2u);
 		EXPECT_NE(InvalidView.Diagnostic.find("rejected"), std::string::npos);
 	}
 
 	TEST(FAssetThumbnailContractTests, SchedulerDefersAndBoundsRendererCaptureUntilWorkAdmission)
 	{
-		Editor::DThumbnailManager Registry;
+		DThumbnailManager Registry;
 
 		auto State = std::make_shared<FFakeThumbnailRendererState>();
 		auto Registration = Registry.RegisterScoped(
 			std::make_unique<FFakeThumbnailRenderer>(State));
 		ASSERT_TRUE(Registration) << Registration.error();
-		Editor::FAssetThumbnailRequestQueue Scheduler(Registry);
-		const Editor::FAssetThumbnailRequest First = MakeThumbnailRequest(
+		FAssetThumbnailRequestQueue Scheduler(Registry);
+		const FAssetThumbnailRequest First = MakeThumbnailRequest(
 			"/ThumbnailTests/DeferredCapture/First", "DFakeRenderedAsset", 1);
-		const Editor::FAssetThumbnailRequest Second = MakeThumbnailRequest(
+		const FAssetThumbnailRequest Second = MakeThumbnailRequest(
 			"/ThumbnailTests/DeferredCapture/Second", "DFakeRenderedAsset", 1,
-			Editor::EAssetThumbnailPriority::Visible);
+			EAssetThumbnailPriority::Visible);
 
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(First)));
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Second)));
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Second)));
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(First)));
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Second)));
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Second)));
 		EXPECT_EQ(State->Captures, 0u);
 		EXPECT_EQ(Scheduler.NumQueued(), 2u);
 
@@ -1379,65 +1379,65 @@ namespace Durin
 
 	TEST(FAssetThumbnailContractTests, SchedulerCoalescesAndPromotesVisibleRequests)
 	{
-		Editor::DThumbnailManager Registry;
+		DThumbnailManager Registry;
 
-		auto Renderer = std::make_shared<FTestThumbnailRenderer>(Editor::FThumbnailRenderingInfo{
+		auto Renderer = std::make_shared<FTestThumbnailRenderer>(FThumbnailRenderingInfo{
 			.AssetClassName = "DMaterial",
 			.RendererName = "Durin.MaterialThumbnail",
 			.GeneratorSchemaVersion = 1});
 		ASSERT_TRUE(Registry.Register(Renderer));
-		Editor::FAssetThumbnailRequestQueue Scheduler(Registry);
-		const Editor::FAssetThumbnailRequest Prefetch =
+		FAssetThumbnailRequestQueue Scheduler(Registry);
+		const FAssetThumbnailRequest Prefetch =
 			MakeThumbnailRequest("/ThumbnailTests/Coalesced", "DMaterial", 1);
-		const Editor::FAssetThumbnailRequest Visible =
-			MakeThumbnailRequest("/ThumbnailTests/Coalesced", "DMaterial", 2, Editor::EAssetThumbnailPriority::Visible);
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Prefetch)));
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Visible)));
+		const FAssetThumbnailRequest Visible =
+			MakeThumbnailRequest("/ThumbnailTests/Coalesced", "DMaterial", 2, EAssetThumbnailPriority::Visible);
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Prefetch)));
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Visible)));
 		EXPECT_EQ(Scheduler.NumQueued(), 1u);
 		EXPECT_EQ(Scheduler.Find(Prefetch.Asset.AssetPath).RequestSerial, 2u);
 
-		std::optional<Editor::FAssetThumbnailScheduledRequest> Job = Scheduler.TakeNext();
+		std::optional<FAssetThumbnailScheduledRequest> Job = Scheduler.TakeNext();
 		ASSERT_TRUE(Job);
-		EXPECT_EQ(Job->Priority, Editor::EAssetThumbnailPriority::Visible);
+		EXPECT_EQ(Job->Priority, EAssetThumbnailPriority::Visible);
 		EXPECT_EQ(Job->GenerationRequest.RequestSerial, 2u);
-		EXPECT_EQ(Scheduler.Find(Prefetch.Asset.AssetPath).State, Editor::EAssetThumbnailState::Loading);
+		EXPECT_EQ(Scheduler.Find(Prefetch.Asset.AssetPath).State, EAssetThumbnailState::Loading);
 
-		const Editor::FAssetThumbnailRequest NewSerial =
-			MakeThumbnailRequest("/ThumbnailTests/Coalesced", "DMaterial", 3, Editor::EAssetThumbnailPriority::Visible);
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(NewSerial)));
+		const FAssetThumbnailRequest NewSerial =
+			MakeThumbnailRequest("/ThumbnailTests/Coalesced", "DMaterial", 3, EAssetThumbnailPriority::Visible);
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(NewSerial)));
 		EXPECT_TRUE(Job->GenerationRequest.Cancellation.IsCancelled());
 		EXPECT_EQ(Scheduler.NumQueued(), 1u);
-		const std::optional<Editor::FAssetThumbnailScheduledRequest> Replacement = Scheduler.TakeNext();
+		const std::optional<FAssetThumbnailScheduledRequest> Replacement = Scheduler.TakeNext();
 		ASSERT_TRUE(Replacement);
 		EXPECT_EQ(Replacement->GenerationRequest.RequestSerial, 3u);
 	}
 
 	TEST(FAssetThumbnailContractTests, SchedulerPrioritizesVisibleJobsAndEnforcesQueueBudget)
 	{
-		Editor::DThumbnailManager Registry;
+		DThumbnailManager Registry;
 
-		auto Renderer = std::make_shared<FTestThumbnailRenderer>(Editor::FThumbnailRenderingInfo{
+		auto Renderer = std::make_shared<FTestThumbnailRenderer>(FThumbnailRenderingInfo{
 			.AssetClassName = "DTextureCube",
 			.RendererName = "Durin.TextureCubeThumbnail",
 			.GeneratorSchemaVersion = 1});
 		ASSERT_TRUE(Registry.Register(Renderer));
-		Editor::FAssetThumbnailBudgets Budgets;
+		FAssetThumbnailBudgets Budgets;
 		Budgets.MaximumQueuedJobs = 2;
-		Editor::FAssetThumbnailRequestQueue Scheduler(Registry, Budgets);
-		const Editor::FAssetThumbnailRequest Prefetch =
+		FAssetThumbnailRequestQueue Scheduler(Registry, Budgets);
+		const FAssetThumbnailRequest Prefetch =
 			MakeThumbnailRequest("/ThumbnailTests/PrefetchCube", "DTextureCube", 1);
-		const Editor::FAssetThumbnailRequest Visible =
-			MakeThumbnailRequest("/ThumbnailTests/VisibleCube", "DTextureCube", 1, Editor::EAssetThumbnailPriority::Visible);
-		const Editor::FAssetThumbnailRequest Overflow =
+		const FAssetThumbnailRequest Visible =
+			MakeThumbnailRequest("/ThumbnailTests/VisibleCube", "DTextureCube", 1, EAssetThumbnailPriority::Visible);
+		const FAssetThumbnailRequest Overflow =
 			MakeThumbnailRequest("/ThumbnailTests/OverflowCube", "DTextureCube", 1);
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Prefetch)));
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Visible)));
-		EXPECT_EQ(Scheduler.Request(Overflow), Editor::EThumbnailRequestStatus::QueueFull);
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Prefetch)));
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Visible)));
+		EXPECT_EQ(Scheduler.Request(Overflow), EThumbnailRequestStatus::QueueFull);
 
-		const std::optional<Editor::FAssetThumbnailScheduledRequest> First = Scheduler.TakeNext();
+		const std::optional<FAssetThumbnailScheduledRequest> First = Scheduler.TakeNext();
 		ASSERT_TRUE(First);
 		EXPECT_EQ(First->GenerationRequest.KeyInput.Asset.AssetPath, Visible.Asset.AssetPath);
-		const std::optional<Editor::FAssetThumbnailScheduledRequest> Second = Scheduler.TakeNext();
+		const std::optional<FAssetThumbnailScheduledRequest> Second = Scheduler.TakeNext();
 		ASSERT_TRUE(Second);
 		EXPECT_EQ(Second->GenerationRequest.KeyInput.Asset.AssetPath, Prefetch.Asset.AssetPath);
 		EXPECT_FALSE(Scheduler.TakeNext());
@@ -1445,31 +1445,31 @@ namespace Durin
 
 	TEST(FAssetThumbnailContractTests, SchedulerKeepsNewerWorkForStaleSerialsAndCancelsReplacedWork)
 	{
-		Editor::DThumbnailManager Registry;
+		DThumbnailManager Registry;
 
-		auto Renderer = std::make_shared<FTestThumbnailRenderer>(Editor::FThumbnailRenderingInfo{
+		auto Renderer = std::make_shared<FTestThumbnailRenderer>(FThumbnailRenderingInfo{
 			.AssetClassName = "DMaterial",
 			.RendererName = "Durin.MaterialThumbnail",
 			.GeneratorSchemaVersion = 1});
 		ASSERT_TRUE(Registry.Register(Renderer));
-		Editor::FAssetThumbnailRequestQueue Scheduler(Registry);
-		const Editor::FAssetThumbnailRequest Current =
+		FAssetThumbnailRequestQueue Scheduler(Registry);
+		const FAssetThumbnailRequest Current =
 			MakeThumbnailRequest("/ThumbnailTests/Replaced", "DMaterial", 2);
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Current)));
-		std::optional<Editor::FAssetThumbnailScheduledRequest> Active = Scheduler.TakeNext();
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Current)));
+		std::optional<FAssetThumbnailScheduledRequest> Active = Scheduler.TakeNext();
 		ASSERT_TRUE(Active);
 
-		const Editor::FAssetThumbnailRequest Stale =
+		const FAssetThumbnailRequest Stale =
 			MakeThumbnailRequest("/ThumbnailTests/Replaced", "DMaterial", 1);
-		EXPECT_EQ(Scheduler.Request(Stale), Editor::EThumbnailRequestStatus::Coalesced);
+		EXPECT_EQ(Scheduler.Request(Stale), EThumbnailRequestStatus::Coalesced);
 		EXPECT_FALSE(Active->GenerationRequest.Cancellation.IsCancelled());
 		EXPECT_EQ(Scheduler.Find(Current.Asset.AssetPath).RequestSerial, 2u);
 		EXPECT_EQ(Scheduler.NumQueued(), 0u);
 		EXPECT_FALSE(Scheduler.TakeNext());
 
-		const Editor::FAssetThumbnailRequest Changed =
-			MakeThumbnailRequest("/ThumbnailTests/Replaced", "DMaterial", 3, Editor::EAssetThumbnailPriority::Visible, 200);
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Changed)));
+		const FAssetThumbnailRequest Changed =
+			MakeThumbnailRequest("/ThumbnailTests/Replaced", "DMaterial", 3, EAssetThumbnailPriority::Visible, 200);
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Changed)));
 		EXPECT_TRUE(Active->GenerationRequest.Cancellation.IsCancelled());
 		EXPECT_EQ(Scheduler.NumQueued(), 1u);
 		EXPECT_EQ(Scheduler.Find(Changed.Asset.AssetPath).RequestSerial, 3u);
@@ -1477,18 +1477,18 @@ namespace Durin
 
 	TEST(FAssetThumbnailContractTests, MixedRenderedKindsSharePriorityCoalescingAndQueueBudgets)
 	{
-		Editor::DThumbnailManager Registry;
+		DThumbnailManager Registry;
 
-		for (const Editor::FThumbnailRenderingInfo Registration : {
-			Editor::FThumbnailRenderingInfo{
+		for (const FThumbnailRenderingInfo Registration : {
+			FThumbnailRenderingInfo{
 				.AssetClassName = "DMaterial",
 				.RendererName = "Durin.MaterialThumbnail",
 				.GeneratorSchemaVersion = 1},
-			Editor::FThumbnailRenderingInfo{
+			FThumbnailRenderingInfo{
 				.AssetClassName = "DTextureCube",
 				.RendererName = "Durin.TextureCubeThumbnail",
 				.GeneratorSchemaVersion = 1},
-			Editor::FThumbnailRenderingInfo{
+			FThumbnailRenderingInfo{
 				.AssetClassName = "DStaticMesh",
 				.RendererName = "Durin.StaticMeshThumbnail",
 				.GeneratorSchemaVersion = 1}})
@@ -1496,32 +1496,32 @@ namespace Durin
 			ASSERT_TRUE(Registry.Register(
 				std::make_shared<FTestThumbnailRenderer>(Registration)));
 		}
-		Editor::FAssetThumbnailBudgets Budgets;
+		FAssetThumbnailBudgets Budgets;
 		Budgets.MaximumQueuedJobs = 3;
-		Editor::FAssetThumbnailRequestQueue Scheduler(Registry, Budgets);
-		const Editor::FAssetThumbnailRequest Material = MakeThumbnailRequest(
+		FAssetThumbnailRequestQueue Scheduler(Registry, Budgets);
+		const FAssetThumbnailRequest Material = MakeThumbnailRequest(
 			"/ThumbnailTests/Mixed/Material", "DMaterial", 1);
-		const Editor::FAssetThumbnailRequest Cube = MakeThumbnailRequest(
+		const FAssetThumbnailRequest Cube = MakeThumbnailRequest(
 			"/ThumbnailTests/Mixed/Cube", "DTextureCube", 1);
-		const Editor::FAssetThumbnailRequest MeshPrefetch = MakeThumbnailRequest(
+		const FAssetThumbnailRequest MeshPrefetch = MakeThumbnailRequest(
 			"/ThumbnailTests/Mixed/Mesh", "DStaticMesh", 1);
-		const Editor::FAssetThumbnailRequest MeshVisible = MakeThumbnailRequest(
+		const FAssetThumbnailRequest MeshVisible = MakeThumbnailRequest(
 			"/ThumbnailTests/Mixed/Mesh", "DStaticMesh", 2,
-			Editor::EAssetThumbnailPriority::Visible);
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Material)));
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Cube)));
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(MeshPrefetch)));
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(MeshVisible)));
+			EAssetThumbnailPriority::Visible);
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Material)));
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Cube)));
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(MeshPrefetch)));
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(MeshVisible)));
 		EXPECT_EQ(Scheduler.NumQueued(), 3u);
 
-		const std::optional<Editor::FAssetThumbnailScheduledRequest> First = Scheduler.TakeNext();
+		const std::optional<FAssetThumbnailScheduledRequest> First = Scheduler.TakeNext();
 		ASSERT_TRUE(First);
 		EXPECT_EQ(
 			First->GenerationRequest.KeyInput.Asset.AssetPath,
 			MeshVisible.Asset.AssetPath);
 		EXPECT_EQ(First->GenerationRequest.RequestSerial, 2u);
-		const std::optional<Editor::FAssetThumbnailScheduledRequest> Second = Scheduler.TakeNext();
-		const std::optional<Editor::FAssetThumbnailScheduledRequest> Third = Scheduler.TakeNext();
+		const std::optional<FAssetThumbnailScheduledRequest> Second = Scheduler.TakeNext();
+		const std::optional<FAssetThumbnailScheduledRequest> Third = Scheduler.TakeNext();
 		ASSERT_TRUE(Second);
 		ASSERT_TRUE(Third);
 		EXPECT_NE(
@@ -1532,52 +1532,52 @@ namespace Durin
 
 	TEST(FAssetThumbnailContractTests, SchedulerShutdownCancelsWorkAndRejectsNewRequests)
 	{
-		Editor::DThumbnailManager Registry;
+		DThumbnailManager Registry;
 
-		auto Renderer = std::make_shared<FTestThumbnailRenderer>(Editor::FThumbnailRenderingInfo{
+		auto Renderer = std::make_shared<FTestThumbnailRenderer>(FThumbnailRenderingInfo{
 			.AssetClassName = "DMaterial",
 			.RendererName = "Durin.MaterialThumbnail",
 			.GeneratorSchemaVersion = 1});
 		ASSERT_TRUE(Registry.Register(Renderer));
-		Editor::FAssetThumbnailRequestQueue Scheduler(Registry);
-		const Editor::FAssetThumbnailRequest Request =
+		FAssetThumbnailRequestQueue Scheduler(Registry);
+		const FAssetThumbnailRequest Request =
 			MakeThumbnailRequest("/ThumbnailTests/Shutdown", "DMaterial", 1);
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Request)));
-		std::optional<Editor::FAssetThumbnailScheduledRequest> Active = Scheduler.TakeNext();
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Request)));
+		std::optional<FAssetThumbnailScheduledRequest> Active = Scheduler.TakeNext();
 		ASSERT_TRUE(Active);
 
 		Scheduler.Shutdown();
 		EXPECT_TRUE(Scheduler.IsShuttingDown());
 		EXPECT_TRUE(Active->GenerationRequest.Cancellation.IsCancelled());
-		EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, Editor::EAssetThumbnailState::NotRequested);
-		EXPECT_EQ(Scheduler.Request(Request), Editor::EThumbnailRequestStatus::ShuttingDown);
+		EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, EAssetThumbnailState::NotRequested);
+		EXPECT_EQ(Scheduler.Request(Request), EThumbnailRequestStatus::ShuttingDown);
 	}
 
 	TEST(FAssetThumbnailContractTests, RenderedPipelinePublishesColdOutputAndServesWarmHit)
 	{
 		const std::filesystem::path Root = MakeObjectStoreRoot("RenderedPipelineWarmHit");
 		auto RunRequest = [&](uint64 Serial, bool bExpectWarmHit) {
-			Editor::DThumbnailManager Registry;
+			DThumbnailManager Registry;
 
-			auto Renderer = std::make_shared<FTestThumbnailRenderer>(Editor::FThumbnailRenderingInfo{
+			auto Renderer = std::make_shared<FTestThumbnailRenderer>(FThumbnailRenderingInfo{
 				.AssetClassName = "DMaterial",
 				.RendererName = "Durin.MaterialThumbnail",
 				.GeneratorSchemaVersion = 1});
 			EXPECT_TRUE(Registry.Register(Renderer));
-			Editor::FAssetThumbnailRequestQueue Scheduler(Registry);
-			Editor::FAssetThumbnailGeneration Pipeline(
+			FAssetThumbnailRequestQueue Scheduler(Registry);
+			FAssetThumbnailGeneration Pipeline(
 				Scheduler,
 				{.CacheRoot = Root, .ObjectExtension = ".bin"});
-			const Editor::FAssetThumbnailRequest Request =
+			const FAssetThumbnailRequest Request =
 				MakeThumbnailRequest("/ThumbnailTests/PersistentMaterial", "DMaterial", Serial);
-			EXPECT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Request)));
+			EXPECT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Request)));
 			Pipeline.BeginFrame();
-			std::optional<Editor::FAssetThumbnailJob> Job = Pipeline.StartNext();
+			std::optional<FAssetThumbnailJob> Job = Pipeline.StartNext();
 			if (bExpectWarmHit)
 			{
 				EXPECT_FALSE(Job);
-				EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, Editor::EAssetThumbnailState::Ready);
-				const Editor::FAssetThumbnailGenerationStats Stats = Pipeline.GetStats();
+				EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, EAssetThumbnailState::Ready);
+				const FAssetThumbnailGenerationStats Stats = Pipeline.GetStats();
 				EXPECT_EQ(Stats.DiskHits, 1u);
 				EXPECT_EQ(Stats.Loads, 0u);
 				EXPECT_EQ(Stats.Renders, 0u);
@@ -1593,8 +1593,8 @@ namespace Durin
 			const Durin::FByteBuffer Encoded = {
 				std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4}};
 			ASSERT_TRUE(Pipeline.CompleteEncoding(*Job, Encoded));
-			EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, Editor::EAssetThumbnailState::Ready);
-			const Editor::FAssetThumbnailGenerationStats Stats = Pipeline.GetStats();
+			EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, EAssetThumbnailState::Ready);
+			const FAssetThumbnailGenerationStats Stats = Pipeline.GetStats();
 			EXPECT_EQ(Stats.Jobs, 1u);
 			EXPECT_EQ(Stats.Loads, 1u);
 			EXPECT_EQ(Stats.Renders, 1u);
@@ -1608,22 +1608,22 @@ namespace Durin
 	TEST(FAssetThumbnailContractTests, RenderedPipelineEncodesRgbaPixelsAsDecodablePng)
 	{
 		const std::filesystem::path Root = MakeObjectStoreRoot("RenderedPipelinePng");
-		Editor::DThumbnailManager Registry;
+		DThumbnailManager Registry;
 
-		auto Renderer = std::make_shared<FTestThumbnailRenderer>(Editor::FThumbnailRenderingInfo{
+		auto Renderer = std::make_shared<FTestThumbnailRenderer>(FThumbnailRenderingInfo{
 			.AssetClassName = "DMaterial",
 			.RendererName = "Durin.MaterialThumbnail",
 			.GeneratorSchemaVersion = 1});
 		ASSERT_TRUE(Registry.Register(Renderer));
-		Editor::FAssetThumbnailRequestQueue Scheduler(Registry);
-		Editor::FAssetThumbnailGeneration Pipeline(
+		FAssetThumbnailRequestQueue Scheduler(Registry);
+		FAssetThumbnailGeneration Pipeline(
 			Scheduler,
 			{.CacheRoot = Root, .ObjectExtension = ".png"});
-		const Editor::FAssetThumbnailRequest Request =
+		const FAssetThumbnailRequest Request =
 			MakeThumbnailRequest("/ThumbnailTests/EncodedMaterial", "DMaterial", 1);
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Request)));
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Request)));
 		Pipeline.BeginFrame();
-		std::optional<Editor::FAssetThumbnailJob> Job = Pipeline.StartNext();
+		std::optional<FAssetThumbnailJob> Job = Pipeline.StartNext();
 		ASSERT_TRUE(Job);
 		const std::string CacheKey = Job->ScheduledJob.CacheKey;
 		ASSERT_TRUE(Pipeline.CompleteLoad(*Job));
@@ -1636,11 +1636,11 @@ namespace Durin
 		ASSERT_TRUE(Pipeline.CompletePixels(
 			*Job, std::as_bytes(std::span{Pixels}), 2, 1));
 
-		Editor::FThumbnailObjectStore Store({
+		FThumbnailObjectStore Store({
 			.CacheRoot = Root,
 			.ObjectExtension = ".png"});
 		Durin::FByteBuffer Encoded;
-		ASSERT_EQ(Store.Load(CacheKey, Encoded), Editor::EThumbnailObjectLoadResult::Hit);
+		ASSERT_EQ(Store.Load(CacheKey, Encoded), EThumbnailObjectLoadResult::Hit);
 		auto DecodeResult = Image::DecodeImageFromMemory(Encoded);
 		ASSERT_TRUE(DecodeResult) << Durin::Image::ToString(DecodeResult.error());
 		auto Decoded = std::move(*DecodeResult);
@@ -1654,22 +1654,22 @@ namespace Durin
 	TEST(FAssetThumbnailContractTests, RenderedPipelineRevalidatesAfterEncodingBeforePublication)
 	{
 		const std::filesystem::path Root = MakeObjectStoreRoot("RenderedPipelinePublicationValidation");
-		Editor::DThumbnailManager Registry;
+		DThumbnailManager Registry;
 
-		auto Renderer = std::make_shared<FTestThumbnailRenderer>(Editor::FThumbnailRenderingInfo{
+		auto Renderer = std::make_shared<FTestThumbnailRenderer>(FThumbnailRenderingInfo{
 			.AssetClassName = "DStaticMesh",
 			.RendererName = "Durin.StaticMeshThumbnail",
 			.GeneratorSchemaVersion = 1});
 		ASSERT_TRUE(Registry.Register(Renderer));
-		Editor::FAssetThumbnailRequestQueue Scheduler(Registry);
-		Editor::FAssetThumbnailGeneration Pipeline(
+		FAssetThumbnailRequestQueue Scheduler(Registry);
+		FAssetThumbnailGeneration Pipeline(
 			Scheduler,
 			{.CacheRoot = Root, .ObjectExtension = ".png"});
-		const Editor::FAssetThumbnailRequest Request =
+		const FAssetThumbnailRequest Request =
 			MakeThumbnailRequest("/ThumbnailTests/StaleStaticMesh", "DStaticMesh", 1);
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Request)));
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Request)));
 		Pipeline.BeginFrame();
-		std::optional<Editor::FAssetThumbnailJob> Job = Pipeline.StartNext();
+		std::optional<FAssetThumbnailJob> Job = Pipeline.StartNext();
 		ASSERT_TRUE(Job);
 		const std::string CacheKey = Job->ScheduledJob.CacheKey;
 		ASSERT_TRUE(Pipeline.CompleteLoad(*Job));
@@ -1684,30 +1684,30 @@ namespace Durin
 			1,
 			{},
 			[] { return std::string("StaticMesh changed before publication."); }));
-		EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, Editor::EAssetThumbnailState::Failed);
+		EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, EAssetThumbnailState::Failed);
 
-		Editor::FThumbnailObjectStore Store({.CacheRoot = Root, .ObjectExtension = ".png"});
+		FThumbnailObjectStore Store({.CacheRoot = Root, .ObjectExtension = ".png"});
 		Durin::FByteBuffer Encoded;
-		EXPECT_EQ(Store.Load(CacheKey, Encoded), Editor::EThumbnailObjectLoadResult::Miss);
+		EXPECT_EQ(Store.Load(CacheKey, Encoded), EThumbnailObjectLoadResult::Miss);
 	}
 
 	TEST(FAssetThumbnailContractTests, GeneratedPixelsPublishWithoutPreviewRenderAllowance)
 	{
 		const std::filesystem::path Root = MakeObjectStoreRoot("GeneratedPixels");
-		Editor::DThumbnailManager Registry;
+		DThumbnailManager Registry;
 
-		auto Renderer = std::make_shared<FTestThumbnailRenderer>(Editor::FThumbnailRenderingInfo{
+		auto Renderer = std::make_shared<FTestThumbnailRenderer>(FThumbnailRenderingInfo{
 			.AssetClassName = "DGeneratedPixelAsset",
 			.RendererName = "GeneratedPixelThumbnail",
 			.GeneratorSchemaVersion = 1});
 		ASSERT_TRUE(Registry.Register(Renderer));
-		Editor::FAssetThumbnailRequestQueue Scheduler(Registry);
-		Editor::FAssetThumbnailGeneration Pipeline(
+		FAssetThumbnailRequestQueue Scheduler(Registry);
+		FAssetThumbnailGeneration Pipeline(
 			Scheduler, {.CacheRoot = Root, .ObjectExtension = ".png"},
 			{.MaximumRendersPerFrame = 0});
-		const Editor::FAssetThumbnailRequest Request = MakeThumbnailRequest(
+		const FAssetThumbnailRequest Request = MakeThumbnailRequest(
 			"/ThumbnailTests/GeneratedPixels", "DGeneratedPixelAsset", 1);
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Request)));
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Request)));
 		Pipeline.BeginFrame();
 		auto Job = Pipeline.StartNext();
 		ASSERT_TRUE(Job);
@@ -1715,17 +1715,17 @@ namespace Durin
 		ASSERT_TRUE(Pipeline.CompleteGeneratedPixels(
 			*Job, std::as_bytes(std::span{Pixels}), 1, 1));
 		EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State,
-			Editor::EAssetThumbnailState::Ready);
+			EAssetThumbnailState::Ready);
 		EXPECT_EQ(Pipeline.GetStats().Renders, 0u);
 	}
 
 	TEST(FAssetThumbnailContractTests, GeneratedPixelsWithCapturedInputServeWarmHit)
 	{
 		const std::filesystem::path Root = MakeObjectStoreRoot("GeneratedPixelsWarmHit");
-		Editor::DThumbnailManager Registry;
+		DThumbnailManager Registry;
 
 		auto Renderer = std::make_shared<FTestThumbnailRenderer>(
-			Editor::FThumbnailRenderingInfo{
+			FThumbnailRenderingInfo{
 				.AssetClassName = "DGeneratedPixelAsset",
 				.RendererName = "GeneratedPixelThumbnail",
 				.GeneratorSchemaVersion = 1},
@@ -1733,13 +1733,13 @@ namespace Durin
 			true);
 		ASSERT_TRUE(Registry.Register(Renderer));
 
-		const Editor::FAssetThumbnailRequest Request = MakeThumbnailRequest(
+		const FAssetThumbnailRequest Request = MakeThumbnailRequest(
 			"/ThumbnailTests/GeneratedPixelsWarmHit", "DGeneratedPixelAsset", 1);
 		{
-			Editor::FAssetThumbnailRequestQueue Scheduler(Registry);
-			Editor::FAssetThumbnailGeneration Pipeline(
+			FAssetThumbnailRequestQueue Scheduler(Registry);
+			FAssetThumbnailGeneration Pipeline(
 				Scheduler, {.CacheRoot = Root, .ObjectExtension = ".png"});
-			ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Request)));
+			ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Request)));
 			auto Cold = Pipeline.StartNextDetailed();
 			ASSERT_TRUE(Cold.ColdJob);
 			const auto& Generated =
@@ -1751,43 +1751,43 @@ namespace Durin
 				Generated.Height));
 		}
 
-		Editor::FAssetThumbnailRequestQueue WarmScheduler(Registry);
-		Editor::FAssetThumbnailGeneration WarmPipeline(
+		FAssetThumbnailRequestQueue WarmScheduler(Registry);
+		FAssetThumbnailGeneration WarmPipeline(
 			WarmScheduler, {.CacheRoot = Root, .ObjectExtension = ".png"});
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(WarmScheduler.Request(Request)));
-		Editor::FAssetThumbnailStartResult Warm =
+		ASSERT_TRUE(IsThumbnailRequestAccepted(WarmScheduler.Request(Request)));
+		FAssetThumbnailStartResult Warm =
 			WarmPipeline.StartNextDetailed();
 		EXPECT_FALSE(Warm.ColdJob);
 		ASSERT_TRUE(Warm.WarmJob);
 		EXPECT_EQ(WarmScheduler.Find(Request.Asset.AssetPath).State,
-			Editor::EAssetThumbnailState::Ready);
+			EAssetThumbnailState::Ready);
 		EXPECT_EQ(WarmPipeline.GetStats().DiskHits, 1u);
 	}
 
 	TEST(FAssetThumbnailContractTests, GeneratedPixelsBypassResourceBoundRenderedJob)
 	{
 		const std::filesystem::path Root = MakeObjectStoreRoot("GeneratedPixelsFastLane");
-		Editor::DThumbnailManager Registry;
+		DThumbnailManager Registry;
 
 		ASSERT_TRUE(Registry.Register(std::make_shared<FTestThumbnailRenderer>(
-			Editor::FThumbnailRenderingInfo{
+			FThumbnailRenderingInfo{
 				.AssetClassName = "DWaitingRenderedAsset",
 				.RendererName = "WaitingThumbnail",
 				.GeneratorSchemaVersion = 1})));
 		ASSERT_TRUE(Registry.Register(std::make_shared<FTestThumbnailRenderer>(
-			Editor::FThumbnailRenderingInfo{
+			FThumbnailRenderingInfo{
 				.AssetClassName = "DGeneratedPixelAsset",
 				.RendererName = "GeneratedPixelThumbnail",
 				.GeneratorSchemaVersion = 1}, true, true)));
-		Editor::FAssetThumbnailRequestQueue Scheduler(Registry);
-		Editor::FAssetThumbnailGeneration Pipeline(
+		FAssetThumbnailRequestQueue Scheduler(Registry);
+		FAssetThumbnailGeneration Pipeline(
 			Scheduler, {.CacheRoot = Root, .ObjectExtension = ".png"});
-		const Editor::FAssetThumbnailRequest Waiting = MakeThumbnailRequest(
+		const FAssetThumbnailRequest Waiting = MakeThumbnailRequest(
 			"/ThumbnailTests/WaitingRendered", "DWaitingRenderedAsset", 1);
-		const Editor::FAssetThumbnailRequest GeneratedRequest = MakeThumbnailRequest(
+		const FAssetThumbnailRequest GeneratedRequest = MakeThumbnailRequest(
 			"/ThumbnailTests/GeneratedPixelsFastLane", "DGeneratedPixelAsset", 1);
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Waiting)));
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(GeneratedRequest)));
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Waiting)));
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(GeneratedRequest)));
 		Pipeline.BeginFrame();
 		ASSERT_TRUE(Pipeline.StartNext());
 		auto Generated = Pipeline.StartNextGeneratedPixelsDetailed();
@@ -1798,33 +1798,33 @@ namespace Durin
 			*Generated.ColdJob,
 			Pixels.Pixels, Pixels.Width, Pixels.Height));
 		EXPECT_EQ(Scheduler.Find(Waiting.Asset.AssetPath).State,
-			Editor::EAssetThumbnailState::Loading);
+			EAssetThumbnailState::Loading);
 		EXPECT_EQ(Scheduler.Find(GeneratedRequest.Asset.AssetPath).State,
-			Editor::EAssetThumbnailState::Ready);
+			EAssetThumbnailState::Ready);
 	}
 
 	TEST(FAssetThumbnailContractTests, RenderedPipelineBoundsRendersAndRejectsStaleCompletions)
 	{
-		Editor::DThumbnailManager Registry;
+		DThumbnailManager Registry;
 
-		auto Renderer = std::make_shared<FTestThumbnailRenderer>(Editor::FThumbnailRenderingInfo{
+		auto Renderer = std::make_shared<FTestThumbnailRenderer>(FThumbnailRenderingInfo{
 			.AssetClassName = "DMaterial",
 			.RendererName = "Durin.MaterialThumbnail",
 			.GeneratorSchemaVersion = 1});
 		ASSERT_TRUE(Registry.Register(Renderer));
-		Editor::FAssetThumbnailRequestQueue Scheduler(Registry);
-		Editor::FAssetThumbnailGeneration Pipeline(
+		FAssetThumbnailRequestQueue Scheduler(Registry);
+		FAssetThumbnailGeneration Pipeline(
 			Scheduler,
 			{.CacheRoot = MakeObjectStoreRoot("RenderedPipelineBounds"), .ObjectExtension = ".bin"});
-		const Editor::FAssetThumbnailRequest FirstRequest =
+		const FAssetThumbnailRequest FirstRequest =
 			MakeThumbnailRequest("/ThumbnailTests/FirstRendered", "DMaterial", 1);
-		const Editor::FAssetThumbnailRequest SecondRequest =
+		const FAssetThumbnailRequest SecondRequest =
 			MakeThumbnailRequest("/ThumbnailTests/SecondRendered", "DMaterial", 1);
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(FirstRequest)));
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(SecondRequest)));
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(FirstRequest)));
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(SecondRequest)));
 		Pipeline.BeginFrame();
-		std::optional<Editor::FAssetThumbnailJob> First = Pipeline.StartNext();
-		std::optional<Editor::FAssetThumbnailJob> Second = Pipeline.StartNext();
+		std::optional<FAssetThumbnailJob> First = Pipeline.StartNext();
+		std::optional<FAssetThumbnailJob> Second = Pipeline.StartNext();
 		ASSERT_TRUE(First);
 		ASSERT_TRUE(Second);
 		ASSERT_TRUE(Pipeline.CompleteLoad(*First));
@@ -1832,18 +1832,18 @@ namespace Durin
 		EXPECT_TRUE(Pipeline.BeginRender(*First, true));
 		EXPECT_FALSE(Pipeline.BeginRender(*Second, true));
 		EXPECT_EQ(Scheduler.Find(SecondRequest.Asset.AssetPath).State,
-			Editor::EAssetThumbnailState::WaitingForResources);
+			EAssetThumbnailState::WaitingForResources);
 
 		Pipeline.BeginFrame();
 		EXPECT_TRUE(Pipeline.BeginRender(*Second, true));
 		EXPECT_FALSE(Pipeline.CompleteReadback(*Second));
-		EXPECT_EQ(Scheduler.Find(SecondRequest.Asset.AssetPath).State, Editor::EAssetThumbnailState::Rendering);
+		EXPECT_EQ(Scheduler.Find(SecondRequest.Asset.AssetPath).State, EAssetThumbnailState::Rendering);
 		EXPECT_TRUE(Pipeline.CompleteRender(*Second));
 
-		const Editor::FAssetThumbnailRequest Replacement =
+		const FAssetThumbnailRequest Replacement =
 			MakeThumbnailRequest("/ThumbnailTests/FirstRendered", "DMaterial", 2,
-				Editor::EAssetThumbnailPriority::Visible, 200);
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Replacement)));
+				EAssetThumbnailPriority::Visible, 200);
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Replacement)));
 		EXPECT_FALSE(Pipeline.CompleteRender(*First));
 		EXPECT_TRUE(First->ScheduledJob.GenerationRequest.Cancellation.IsCancelled());
 	}
@@ -1851,20 +1851,20 @@ namespace Durin
 	TEST(FAssetThumbnailContractTests, BackgroundCachePublishesPixelsBeforeSavingAndDecodesWarmHits)
 	{
 		const auto Root = MakeObjectStoreRoot("BackgroundCacheRoundTrip");
-		Editor::DThumbnailManager Registry;
+		DThumbnailManager Registry;
 
 		ASSERT_TRUE(Registry.Register(std::make_shared<FTestThumbnailRenderer>(
-			Editor::FThumbnailRenderingInfo{.AssetClassName = "DGeneratedPixelAsset",
+			FThumbnailRenderingInfo{.AssetClassName = "DGeneratedPixelAsset",
 				.RendererName = "BackgroundPixels", .GeneratorSchemaVersion = 1}, true, true)));
-		Editor::FAssetThumbnailRequestQueue Scheduler(Registry);
-		Editor::FAssetThumbnailGeneration Pipeline(Scheduler, {.CacheRoot = Root}, {}, true);
+		FAssetThumbnailRequestQueue Scheduler(Registry);
+		FAssetThumbnailGeneration Pipeline(Scheduler, {.CacheRoot = Root}, {}, true);
 		const auto Request = MakeThumbnailRequest(
 			"/ThumbnailTests/Background/RoundTrip", "DGeneratedPixelAsset", 1);
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Request)));
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Request)));
 		const auto Pending = Pipeline.StartNextDetailed();
 		EXPECT_FALSE(Pending.ColdJob);
 		EXPECT_FALSE(Pending.WarmJob);
-		EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, Editor::EAssetThumbnailState::Loading);
+		EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, EAssetThumbnailState::Loading);
 		Pipeline.WaitForCacheTasksForTesting();
 		auto Cold = Pipeline.StartNextDetailed();
 		ASSERT_TRUE(Cold.ColdJob);
@@ -1872,18 +1872,18 @@ namespace Durin
 		ASSERT_TRUE(Pipeline.CompleteGeneratedPixels(*Cold.ColdJob,
 			Generated.Pixels, Generated.Width, Generated.Height));
 		// No cache task is pumped between accepting pixels and observing display readiness.
-		EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, Editor::EAssetThumbnailState::Ready);
+		EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, EAssetThumbnailState::Ready);
 		EXPECT_EQ(Pipeline.GetStats().CacheWrites, 0u);
 		{
-			Editor::FThumbnailObjectStore Store({.CacheRoot = Root});
+			FThumbnailObjectStore Store({.CacheRoot = Root});
 			FByteBuffer Encoded;
 			EXPECT_EQ(Store.Load(Cold.ColdJob->ScheduledJob.CacheKey, Encoded),
-				Editor::EThumbnailObjectLoadResult::Miss);
+				EThumbnailObjectLoadResult::Miss);
 		}
 		Pipeline.WaitForCacheTasksForTesting();
 		EXPECT_EQ(Pipeline.GetStats().CacheWrites, 1u);
 		Scheduler.Cancel(Request.Asset.AssetPath);
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Request)));
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Request)));
 		EXPECT_FALSE(Pipeline.StartNextDetailed().WarmJob);
 		Pipeline.WaitForCacheTasksForTesting();
 		auto Warm = Pipeline.StartNextDetailed();
@@ -1895,7 +1895,7 @@ namespace Durin
 
 		// A completed worker result still cannot publish after a refresh/cancellation.
 		Scheduler.Cancel(Request.Asset.AssetPath);
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Request)));
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Request)));
 		Pipeline.StartNextDetailed();
 		Pipeline.WaitForCacheTasksForTesting();
 		Scheduler.Cancel(Request.Asset.AssetPath);
@@ -1907,25 +1907,25 @@ namespace Durin
 
 	TEST(FAssetThumbnailContractTests, BackgroundCacheBoundsQueuedPixelsAndSkipsCanceledWrites)
 	{
-		Editor::DThumbnailManager Registry;
+		DThumbnailManager Registry;
 
 		ASSERT_TRUE(Registry.Register(std::make_shared<FTestThumbnailRenderer>(
-			Editor::FThumbnailRenderingInfo{.AssetClassName = "DGeneratedPixelAsset",
+			FThumbnailRenderingInfo{.AssetClassName = "DGeneratedPixelAsset",
 				.RendererName = "BackgroundBudget", .GeneratorSchemaVersion = 1})));
-		Editor::FAssetThumbnailRequestQueue Scheduler(Registry);
-		Editor::FAssetThumbnailGeneration Pipeline(Scheduler,
+		FAssetThumbnailRequestQueue Scheduler(Registry);
+		FAssetThumbnailGeneration Pipeline(Scheduler,
 			{.CacheRoot = MakeObjectStoreRoot("BackgroundBudget")}, {.CpuPixelBudgetBytes = 8}, true);
 		const FByteBuffer Pixels(4, std::byte{127});
 		for (uint32 Index = 0; Index < 3; ++Index)
 		{
 			const auto Request = MakeThumbnailRequest(std::format(
 				"/ThumbnailTests/Background/Budget{}", Index), "DGeneratedPixelAsset", 1);
-			ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Request)));
+			ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Request)));
 			auto Scheduled = Scheduler.TakeNext();
 			ASSERT_TRUE(Scheduled);
-			Editor::FAssetThumbnailJob Job{.ScheduledJob = std::move(*Scheduled)};
+			FAssetThumbnailJob Job{.ScheduledJob = std::move(*Scheduled)};
 			ASSERT_TRUE(Pipeline.CompleteGeneratedPixels(Job, Pixels, 1, 1));
-			EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, Editor::EAssetThumbnailState::Ready);
+			EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, EAssetThumbnailState::Ready);
 		}
 		EXPECT_EQ(Pipeline.GetStats().CacheWritesSkipped, 1u);
 		Scheduler.CancelAll();
@@ -1936,27 +1936,27 @@ namespace Durin
 	TEST(FAssetThumbnailContractTests, BackgroundCacheDrainsPendingSaveBeforeDestruction)
 	{
 		const auto Root = MakeObjectStoreRoot("BackgroundShutdown");
-		Editor::DThumbnailManager Registry;
+		DThumbnailManager Registry;
 
 		ASSERT_TRUE(Registry.Register(std::make_shared<FTestThumbnailRenderer>(
-			Editor::FThumbnailRenderingInfo{.AssetClassName = "DGeneratedPixelAsset",
+			FThumbnailRenderingInfo{.AssetClassName = "DGeneratedPixelAsset",
 				.RendererName = "BackgroundShutdown", .GeneratorSchemaVersion = 1})));
-		Editor::FAssetThumbnailRequestQueue Scheduler(Registry);
+		FAssetThumbnailRequestQueue Scheduler(Registry);
 		const auto Request = MakeThumbnailRequest(
 			"/ThumbnailTests/Background/Shutdown", "DGeneratedPixelAsset", 1);
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Request)));
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Request)));
 		auto Scheduled = Scheduler.TakeNext();
 		ASSERT_TRUE(Scheduled);
-		Editor::FAssetThumbnailJob Job{.ScheduledJob = std::move(*Scheduled)};
+		FAssetThumbnailJob Job{.ScheduledJob = std::move(*Scheduled)};
 		const FByteBuffer Pixels(4, std::byte{127});
 		{
-			Editor::FAssetThumbnailGeneration Pipeline(Scheduler, {.CacheRoot = Root}, {}, true);
+			FAssetThumbnailGeneration Pipeline(Scheduler, {.CacheRoot = Root}, {}, true);
 			ASSERT_TRUE(Pipeline.CompleteGeneratedPixels(Job, Pixels, 1, 1));
 			EXPECT_EQ(Pipeline.GetStats().CacheWrites, 0u);
 		}
-		Editor::FThumbnailObjectStore Store({.CacheRoot = Root});
+		FThumbnailObjectStore Store({.CacheRoot = Root});
 		FByteBuffer Encoded;
-		ASSERT_EQ(Store.Load(Job.ScheduledJob.CacheKey, Encoded), Editor::EThumbnailObjectLoadResult::Hit);
+		ASSERT_EQ(Store.Load(Job.ScheduledJob.CacheKey, Encoded), EThumbnailObjectLoadResult::Hit);
 		auto DecodeResult = Image::DecodeImageFromMemory(Encoded);
 		ASSERT_TRUE(DecodeResult) << Durin::Image::ToString(DecodeResult.error());
 		auto Decoded = std::move(*DecodeResult);
@@ -1965,61 +1965,61 @@ namespace Durin
 
 	TEST(FAssetThumbnailContractTests, BackgroundCacheWriteFailureKeepsPixelsReady)
 	{
-		Editor::DThumbnailManager Registry;
+		DThumbnailManager Registry;
 
 		ASSERT_TRUE(Registry.Register(std::make_shared<FTestThumbnailRenderer>(
-			Editor::FThumbnailRenderingInfo{.AssetClassName = "DGeneratedPixelAsset",
+			FThumbnailRenderingInfo{.AssetClassName = "DGeneratedPixelAsset",
 				.RendererName = "BackgroundWriteFailure", .GeneratorSchemaVersion = 1})));
-		Editor::FAssetThumbnailRequestQueue Scheduler(Registry);
-		Editor::FAssetThumbnailGeneration Pipeline(Scheduler,
+		FAssetThumbnailRequestQueue Scheduler(Registry);
+		FAssetThumbnailGeneration Pipeline(Scheduler,
 			{.CacheRoot = MakeObjectStoreRoot("BackgroundWriteFailure"), .MaximumObjectBytes = 1}, {}, true);
 		const auto Request = MakeThumbnailRequest(
 			"/ThumbnailTests/Background/WriteFailure", "DGeneratedPixelAsset", 1);
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Request)));
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Request)));
 		auto Scheduled = Scheduler.TakeNext();
 		ASSERT_TRUE(Scheduled);
-		Editor::FAssetThumbnailJob Job{.ScheduledJob = std::move(*Scheduled)};
+		FAssetThumbnailJob Job{.ScheduledJob = std::move(*Scheduled)};
 		const FByteBuffer Pixels(4, std::byte{127});
 		ASSERT_TRUE(Pipeline.CompleteGeneratedPixels(Job, Pixels, 1, 1));
 		Pipeline.WaitForCacheTasksForTesting();
 		EXPECT_EQ(Pipeline.GetStats().CacheWriteFailures, 1u);
 		EXPECT_EQ(Pipeline.GetStats().Failures, 0u);
-		EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, Editor::EAssetThumbnailState::Ready);
+		EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, EAssetThumbnailState::Ready);
 	}
 
 	TEST(FAssetThumbnailContractTests, RenderedPipelineTracksWaitFailureCancellationAndRetry)
 	{
-		Editor::DThumbnailManager Registry;
+		DThumbnailManager Registry;
 
-		auto Renderer = std::make_shared<FTestThumbnailRenderer>(Editor::FThumbnailRenderingInfo{
+		auto Renderer = std::make_shared<FTestThumbnailRenderer>(FThumbnailRenderingInfo{
 			.AssetClassName = "DTextureCube",
 			.RendererName = "Durin.TextureCubeThumbnail",
 			.GeneratorSchemaVersion = 1});
 		ASSERT_TRUE(Registry.Register(Renderer));
-		Editor::FAssetThumbnailRequestQueue Scheduler(Registry);
-		Editor::FAssetThumbnailGeneration Pipeline(
+		FAssetThumbnailRequestQueue Scheduler(Registry);
+		FAssetThumbnailGeneration Pipeline(
 			Scheduler,
 			{.CacheRoot = MakeObjectStoreRoot("RenderedPipelineCounters"), .ObjectExtension = ".bin"});
-		const Editor::FAssetThumbnailRequest Request =
+		const FAssetThumbnailRequest Request =
 			MakeThumbnailRequest("/ThumbnailTests/CounterCube", "DTextureCube", 1);
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Request)));
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Request)));
 		Pipeline.BeginFrame();
-		std::optional<Editor::FAssetThumbnailJob> Job = Pipeline.StartNext();
+		std::optional<FAssetThumbnailJob> Job = Pipeline.StartNext();
 		ASSERT_TRUE(Job);
 		ASSERT_TRUE(Pipeline.CompleteLoad(*Job));
 		EXPECT_TRUE(Pipeline.BeginRender(*Job, false));
 		EXPECT_FALSE(Pipeline.BeginRender(*Job, true, "Cube build failed."));
-		EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, Editor::EAssetThumbnailState::Failed);
+		EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, EAssetThumbnailState::Failed);
 
 		Pipeline.RecordRetry();
-		const Editor::FAssetThumbnailRequest CancelRequest =
+		const FAssetThumbnailRequest CancelRequest =
 			MakeThumbnailRequest("/ThumbnailTests/CancelledCube", "DTextureCube", 1);
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(CancelRequest)));
-		std::optional<Editor::FAssetThumbnailJob> Cancelled = Pipeline.StartNext();
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(CancelRequest)));
+		std::optional<FAssetThumbnailJob> Cancelled = Pipeline.StartNext();
 		ASSERT_TRUE(Cancelled);
 		Pipeline.Cancel(*Cancelled);
 
-		const Editor::FAssetThumbnailGenerationStats Stats = Pipeline.GetStats();
+		const FAssetThumbnailGenerationStats Stats = Pipeline.GetStats();
 		EXPECT_EQ(Stats.ResourceWaits, 1u);
 		EXPECT_EQ(Stats.Failures, 1u);
 		EXPECT_EQ(Stats.Retries, 1u);
@@ -2028,23 +2028,23 @@ namespace Durin
 
 	TEST(FAssetThumbnailContractTests, PreparationPressureDefersInsteadOfFailingAssets)
 	{
-		Editor::DThumbnailManager Manager;
+		DThumbnailManager Manager;
 		auto State = std::make_shared<FFakeThumbnailRendererState>();
 		State->ResourcePollsBeforeReady = 10000;
 		auto Registration = Manager.RegisterScoped(std::make_unique<FFakeThumbnailRenderer>(State));
 		ASSERT_TRUE(Registration);
-		Editor::FAssetThumbnailBudgets Budgets;
+		FAssetThumbnailBudgets Budgets;
 		Budgets.MaximumParkedRenderedJobs = 2;
 		Budgets.FrameTimeAllowanceSeconds = 1.0;
-		Editor::FAssetThumbnailPool Pool(Manager, Budgets,
+		FAssetThumbnailPool Pool(Manager, Budgets,
 			{.CacheRoot = MakeObjectStoreRoot("PreparationPressure")});
-		std::vector<Editor::FAssetThumbnailPackageFingerprint> Assets;
+		std::vector<FAssetThumbnailPackageFingerprint> Assets;
 		Pool.BeginFrame();
 		for (uint32 Index = 0; Index < 5; ++Index)
 		{
 			Assets.push_back(MakePackage(std::format("/ThumbnailTests/Pressure/Asset{}", Index),
 				"DFakeRenderedAsset", 1, 32, 1));
-			Pool.Request(Assets.back(), Editor::EAssetThumbnailPriority::Visible);
+			Pool.Request(Assets.back(), EAssetThumbnailPriority::Visible);
 		}
 		Pool.EndFrame();
 		ASSERT_TRUE(PumpThumbnailPoolUntil(Pool, [&] { return State->Sessions == 2; }));
@@ -2057,19 +2057,19 @@ namespace Durin
 		EXPECT_EQ(Pool.GetStats().ParkedResourceWaits, 2u);
 		EXPECT_EQ(Pool.GetStats().Generation.Failures, 0u);
 		for (const auto& Asset : Assets)
-			EXPECT_NE(Pool.Find(Asset.AssetPath).State, Editor::EAssetThumbnailState::Failed);
+			EXPECT_NE(Pool.Find(Asset.AssetPath).State, EAssetThumbnailState::Failed);
 		Pool.CancelPendingRequests();
 		EXPECT_EQ(State->SessionDestructions, 2u);
 	}
 
 	TEST(FAssetThumbnailContractTests, BackgroundPrefetchSurvivesLastUIReferencer)
 	{
-		Editor::DThumbnailManager Manager;
+		DThumbnailManager Manager;
 		auto State = std::make_shared<FFakeThumbnailRendererState>();
 		State->ResourcePollsBeforeReady = 10000;
 		auto Registration = Manager.RegisterScoped(std::make_unique<FFakeThumbnailRenderer>(State));
 		ASSERT_TRUE(Registration);
-		Editor::FAssetThumbnailPool Pool(Manager, {},
+		FAssetThumbnailPool Pool(Manager, {},
 			{.CacheRoot = MakeObjectStoreRoot("BackgroundInterest")});
 		const auto Asset = MakePackage("/ThumbnailTests/Background/Interest", "DFakeRenderedAsset", 1, 32, 1);
 		Pool.AddReferencer(Asset.AssetPath);
@@ -2084,18 +2084,18 @@ namespace Durin
 
 	TEST(FAssetThumbnailContractTests, CurrentFrameVisibilityReordersPreviouslyVisibleRequests)
 	{
-		Editor::DThumbnailManager Manager;
+		DThumbnailManager Manager;
 		ASSERT_TRUE(Manager.Register(std::make_shared<FTestThumbnailRenderer>(
-			Editor::FThumbnailRenderingInfo{.AssetClassName = "DTest", .RendererName = "Test", .GeneratorSchemaVersion = 1})));
-		Editor::FAssetThumbnailRequestQueue Queue(Manager);
+			FThumbnailRenderingInfo{.AssetClassName = "DTest", .RendererName = "Test", .GeneratorSchemaVersion = 1})));
+		FAssetThumbnailRequestQueue Queue(Manager);
 		const auto First = MakeThumbnailRequest("/ThumbnailTests/Priority/First", "DTest", 1,
-			Editor::EAssetThumbnailPriority::Visible);
+			EAssetThumbnailPriority::Visible);
 		const auto Second = MakeThumbnailRequest("/ThumbnailTests/Priority/Second", "DTest", 1,
-			Editor::EAssetThumbnailPriority::Visible);
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Queue.Request(First)));
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Queue.Request(Second)));
+			EAssetThumbnailPriority::Visible);
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Queue.Request(First)));
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Queue.Request(Second)));
 		Queue.BeginFrame();
-		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Queue.Request(Second)));
+		ASSERT_TRUE(IsThumbnailRequestAccepted(Queue.Request(Second)));
 		const auto Next = Queue.TakeNext();
 		ASSERT_TRUE(Next);
 		EXPECT_EQ(Next->GenerationRequest.KeyInput.Asset.AssetPath, Second.Asset.AssetPath);
@@ -2104,26 +2104,26 @@ namespace Durin
 	TEST(FAssetThumbnailContractTests, BatchedIndexFlushPreservesReplacementAndEvictionAccounting)
 	{
 		const auto Root = MakeObjectStoreRoot("BatchedIndex");
-		Editor::FThumbnailObjectStore Store({.CacheRoot = Root, .DiskBudgetBytes = 10, .bBatchIndexWrites = true});
+		FThumbnailObjectStore Store({.CacheRoot = Root, .DiskBudgetBytes = 10, .bBatchIndexWrites = true});
 		ASSERT_TRUE(Store.Store("aa", FByteBuffer(8, std::byte{1})));
 		ASSERT_TRUE(Store.Store("bb", FByteBuffer(8, std::byte{2})));
 		EXPECT_EQ(Store.GetStats().Evictions, 1u);
 		Store.Flush();
 		{
-			Editor::FThumbnailObjectStore Reopened({.CacheRoot = Root, .DiskBudgetBytes = 10});
+			FThumbnailObjectStore Reopened({.CacheRoot = Root, .DiskBudgetBytes = 10});
 			FByteBuffer Bytes;
-			EXPECT_EQ(Reopened.Load("aa", Bytes), Editor::EThumbnailObjectLoadResult::Miss);
-			EXPECT_EQ(Reopened.Load("bb", Bytes), Editor::EThumbnailObjectLoadResult::Hit);
+			EXPECT_EQ(Reopened.Load("aa", Bytes), EThumbnailObjectLoadResult::Miss);
+			EXPECT_EQ(Reopened.Load("bb", Bytes), EThumbnailObjectLoadResult::Hit);
 			EXPECT_EQ(Bytes, FByteBuffer(8, std::byte{2}));
 		}
 		ASSERT_TRUE(Store.Store("bb", FByteBuffer(3, std::byte{3})));
 		ASSERT_TRUE(Store.Store("cc", FByteBuffer(7, std::byte{4})));
 		EXPECT_EQ(Store.GetStats().Evictions, 1u);
 		Store.Flush();
-		Editor::FThumbnailObjectStore Reopened({.CacheRoot = Root, .DiskBudgetBytes = 10});
+		FThumbnailObjectStore Reopened({.CacheRoot = Root, .DiskBudgetBytes = 10});
 		FByteBuffer Bytes;
-		EXPECT_EQ(Reopened.Load("bb", Bytes), Editor::EThumbnailObjectLoadResult::Hit);
+		EXPECT_EQ(Reopened.Load("bb", Bytes), EThumbnailObjectLoadResult::Hit);
 		EXPECT_EQ(Bytes, FByteBuffer(3, std::byte{3}));
-		EXPECT_EQ(Reopened.Load("cc", Bytes), Editor::EThumbnailObjectLoadResult::Hit);
+		EXPECT_EQ(Reopened.Load("cc", Bytes), EThumbnailObjectLoadResult::Hit);
 	}
 } // namespace Durin

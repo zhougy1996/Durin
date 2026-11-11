@@ -4,7 +4,7 @@
 
 #include "Documents/EditorDocumentTypes.h"
 
-namespace Durin::Editor::Texture::VolumeWorkspace
+namespace Durin::TextureEditor::VolumeWorkspace
 {
 	inline const FAssetEditorToolkitId Type("VolumeTextureEditor");
 	inline constexpr std::string_view RootKey = "VolumeTextureEditor";

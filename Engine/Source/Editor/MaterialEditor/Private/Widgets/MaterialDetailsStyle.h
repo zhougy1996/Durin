@@ -4,7 +4,7 @@
 
 #include "Widgets/MonaImGuiPropertyTable.h"
 
-namespace Durin::Editor::Material::DetailsStyle
+namespace Durin::MaterialEditor::DetailsStyle
 {
 	inline auto MakeTableConfig() -> MonaImGui::PropertyEdit::FTableConfig
 	{

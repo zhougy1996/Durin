@@ -12,7 +12,7 @@
 #include "Asset/AssetDragDrop.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	namespace
 	{

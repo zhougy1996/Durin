@@ -5,7 +5,7 @@
 #include "Thumbnail/AssetThumbnail.h"
 #include "AssetRegistry/Catalog.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	class FSourceImageThumbnailCache;
 
@@ -38,4 +38,4 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::unordered_map<std::string, std::string> SourcePaths;
 		std::unordered_map<std::string, std::unique_ptr<FAssetThumbnail>> AssetThumbnails;
 	};
-} // namespace Durin::Editor::ContentBrowser::Private
+} // namespace Durin::ContentBrowser::Private

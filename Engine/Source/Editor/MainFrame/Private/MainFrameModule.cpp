@@ -52,9 +52,9 @@
 #include "Widgets/MWindow.h"
 #include "Rendering/MonaRenderer.h"
 
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
-	using namespace Startup;
+	using namespace EditorStartup;
 
 	struct FMainFrameContext
 	{
@@ -1104,15 +1104,15 @@ namespace Durin::Editor::MainFrame
 		}
 	}
 
-} // namespace Durin::Editor::MainFrame
+} // namespace Durin::MainFrame
 
 namespace Durin
 {
-	using namespace Editor::MainFrame;
+	using namespace MainFrame;
 
 	IMPLEMENT_MODULE(FMainFrameModule, MainFrame)
 
-	struct Editor::MainFrame::FMainFrameToolsetState
+	struct MainFrame::FMainFrameToolsetState
 	{
 		std::unique_ptr<FNativeToolset> Tracy;
 		FModularFeatureRegistration TracyRegistration;
@@ -1269,7 +1269,7 @@ namespace Durin
 				}
 				if (bReadyWorkspace && !Context->bProjectBrowserOpen)
 				{
-					auto& ThumbnailPool = Editor::GetDefaultThumbnailManager().GetSharedPool();
+					auto& ThumbnailPool = GetDefaultThumbnailManager().GetSharedPool();
 					ThumbnailPool.BeginFrame();
 					DrawMainFrame(
 						*Context->AssetEditors.Get(),

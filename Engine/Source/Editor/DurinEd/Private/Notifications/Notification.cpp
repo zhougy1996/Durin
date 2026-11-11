@@ -1,6 +1,6 @@
 #include "Notifications/Notification.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	namespace
 	{

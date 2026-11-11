@@ -14,17 +14,17 @@ namespace Durin
 				IAssetSaveReadinessFeature>(AssetFeatures);
 			require(SaveReadinessRegistration.IsValid());
 			std::string Error;
-			ImportExtension = Editor::ContentBrowser::RegisterExtension({
+			ImportExtension = ContentBrowser::RegisterExtension({
 				.Id = "gltf.import-assets", .Label = "glTF / GLB Assets...",
-				.Category = Editor::ContentBrowser::EExtensionCategory::Import, .Order = 310,
-				.Mutation = Editor::ContentBrowser::EContentMutation::MutatesContent,
+				.Category = ContentBrowser::EExtensionCategory::Import, .Order = 310,
+				.Mutation = ContentBrowser::EContentMutation::MutatesContent,
 				.IsApplicable = [](const auto& Context) { return !Context.VirtualDirectory.empty(); },
 				.Invoke = [this](const auto& Invocation) {
 					OwnerLifetime = Invocation.bHasHostLifetime ? std::optional(Invocation.HostLifetime) : std::nullopt;
-					ImportDialog = std::make_unique<Editor::FGltfAssetImportDialog>(Editor::ContentBrowser::MakeImportDialogCallbacks(Invocation, {}));
+					ImportDialog = std::make_unique<FGltfAssetImportDialog>(ContentBrowser::MakeImportDialogCallbacks(Invocation, {}));
 					ImportDialog->Open(Invocation.Context.VirtualDirectory);
 				},
-				.DrawHostPresentation = [this](const Editor::ContentBrowser::FExtensionHost& Host, bool bAllowed) {
+				.DrawHostPresentation = [this](const ContentBrowser::FExtensionHost& Host, bool bAllowed) {
 					if (OwnerLifetime && OwnerLifetime->expired()) { ImportDialog.reset(); OwnerLifetime.reset(); return; }
 					if (OwnerLifetime && (OwnerLifetime->owner_before(Host.Lifetime) || Host.Lifetime.owner_before(*OwnerLifetime))) return;
 					if (ImportDialog) ImportDialog->Draw(bAllowed);
@@ -47,8 +47,8 @@ namespace Durin
 		AssetForge::Builtins::FAssetForgeBuiltinsAssetFeatures AssetFeatures;
 		FModularFeatureRegistration SaveReadinessRegistration;
 		std::optional<std::weak_ptr<void>> OwnerLifetime;
-		std::unique_ptr<Editor::FGltfAssetImportDialog> ImportDialog;
-		Editor::ContentBrowser::FScopedExtensionRegistration ImportExtension;
+		std::unique_ptr<FGltfAssetImportDialog> ImportDialog;
+		ContentBrowser::FScopedExtensionRegistration ImportExtension;
 	};
 
 	IMPLEMENT_MODULE(FAssetForgeBuiltinsModule, AssetForgeBuiltins)

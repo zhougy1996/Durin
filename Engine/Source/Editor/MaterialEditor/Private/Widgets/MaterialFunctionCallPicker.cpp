@@ -2,7 +2,7 @@
 #include "Graph/MaterialGraphValueTypes.h"
 #include "MonaImGui.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	auto DrawMaterialFunctionCallInputs(DObject& Owner, const FGuid& CallId,
 		DTransactor& Transactions, std::string& Error) -> void

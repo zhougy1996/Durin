@@ -161,13 +161,13 @@ namespace
 TEST(FSceneImportTests, GltfImportExtensionDoesNotRequireLevelEditorWorkspace)
 {
 	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
-	const auto Extensions = Durin::Editor::ContentBrowser::CaptureExtensions(Durin::Editor::ContentBrowser::EExtensionCategory::Import);
+	const auto Extensions = Durin::ContentBrowser::CaptureExtensions(Durin::ContentBrowser::EExtensionCategory::Import);
 	const auto Extension = std::ranges::find(Extensions, std::string("gltf.import-assets"),
-		&Durin::Editor::ContentBrowser::FExtensionDescriptor::Id);
+		&Durin::ContentBrowser::FExtensionDescriptor::Id);
 	ASSERT_NE(Extension, Extensions.end());
 	EXPECT_TRUE(Extension->Invoke);
 	EXPECT_TRUE(Extension->DrawHostPresentation);
-	EXPECT_EQ(Extension->Mutation, Durin::Editor::ContentBrowser::EContentMutation::MutatesContent);
+	EXPECT_EQ(Extension->Mutation, Durin::ContentBrowser::EContentMutation::MutatesContent);
 }
 
 TEST(FSceneImportTests, OutputSelectionReplansCapturedDocumentWithoutReopeningSource)

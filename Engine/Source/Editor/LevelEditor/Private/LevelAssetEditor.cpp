@@ -13,7 +13,7 @@ namespace Durin
 	auto DLevelAssetEditor::CreateToolkit() -> std::shared_ptr<FAssetEditorToolkit>
 	{
 		if (!HostContext || GetToolkitMode() != EToolkitMode::WorldCentric) return {};
-		auto Toolkit = std::make_shared<Editor::Level::MLevelEditor>(HostContext->Settings, *GetDocumentManager(),
+		auto Toolkit = std::make_shared<LevelEditor::MLevelEditor>(HostContext->Settings, *GetDocumentManager(),
 			HostContext->Browser, HostContext->OpenProjectBrowser, *GetAssetEditorSubsystem()->GetEditor());
 		Toolkit->Construct();
 		return Toolkit;
@@ -41,7 +41,7 @@ namespace Durin
 				if (!Id.IsValid()) { Item.Status = EAssetOpenStatus::Failed; Item.Message = "The authoritative Level operation rejected opening."; }
 				else if (Documents->IsDocumentOpenPending(Id))
 				{
-					const auto Weak = std::weak_ptr(std::dynamic_pointer_cast<Editor::Level::MLevelEditor>(Session->GetToolkit()));
+					const auto Weak = std::weak_ptr(std::dynamic_pointer_cast<LevelEditor::MLevelEditor>(Session->GetToolkit()));
 					Item.RequestId = Args.AssetEditors->BeginOpenRequest(Target, [Weak] { const auto Toolkit = Weak.lock(); return !Toolkit || Toolkit->CancelPendingOpen(); });
 					Args.AssetEditors->BindOpenRequestToDocument(Item.RequestId, Id.Value);
 					Item.Status = EAssetOpenStatus::Pending;

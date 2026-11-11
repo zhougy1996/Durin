@@ -9,7 +9,7 @@
 #include "DObject/Package.h"
 #include "DObject/WeakObjectPtr.h"
 
-namespace Durin::Editor::Texture
+namespace Durin::TextureEditor
 {
 	namespace
 	{
@@ -161,4 +161,4 @@ namespace Durin::Editor::Texture
 		if (!Typed) { return std::unexpected("Invalid Texture2D thumbnail input."); }
 		return std::make_unique<FTextureThumbnailSession>(Typed->AssetPath);
 	}
-} // namespace Durin::Editor::Texture
+} // namespace Durin::TextureEditor

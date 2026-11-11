@@ -7,7 +7,7 @@
 #include "Materials/MaterialExpressionInputs.h"
 #include "MaterialGraphExpressionRegistry.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	auto IsGraphInputCompatible(std::span<const EMaterialProgramValueType> Accepted,
 		EMaterialProgramValueType Source) -> bool

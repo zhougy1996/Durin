@@ -11,7 +11,7 @@
 #include "MaterialGraphValueTypes.h"
 #include "Asset/Asset.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	using namespace GraphEditInternals;
 

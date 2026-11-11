@@ -6,7 +6,7 @@
 
 namespace Durin { class DClass; }
 
-namespace Durin::Editor
+namespace Durin
 {
 	// Identifies a class registration owned by an editor module.
 	struct FDetailCustomizationHandle

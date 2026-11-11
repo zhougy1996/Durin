@@ -10,7 +10,7 @@ namespace Durin
 	struct FSceneViewportStatisticsSnapshot;
 }
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	class FSceneViewportPanel;
 
@@ -42,4 +42,4 @@ namespace Durin::Editor::Level
 		float RenderGraphSidebarRatio = 0.27f;
 		std::array<char, 128> PassFilter{};
 	};
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

@@ -5,7 +5,7 @@
 #include "ContentBrowser/ContentBrowserContracts.h"
 #include "Panels/ContentBrowserModel.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	// Builds owned UI context from visible selection. Explicit directory targets replace
 	// the selection with that directory; background callers supply an empty selection.

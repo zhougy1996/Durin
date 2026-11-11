@@ -11,8 +11,6 @@ namespace Durin
 {
 	class FRHITexture;
 
-	namespace Editor
-	{
 	// Identifies the public lifecycle state of one renderer-neutral thumbnail request.
 	enum class EAssetThumbnailState : uint8
 	{
@@ -148,5 +146,4 @@ namespace Durin
 		uint64 RequestSerial = 0;
 	};
 
-	} // namespace Editor
 } // namespace Durin

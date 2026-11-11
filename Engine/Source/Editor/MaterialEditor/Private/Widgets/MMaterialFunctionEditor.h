@@ -7,7 +7,7 @@
 #include "Asset/MutationExtensions.h"
 #include "MaterialEditorAPI.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	inline const FAssetEditorToolkitId MaterialFunctionWorkspaceType("MaterialFunctionEditor");
 	class FMaterialEditorSessionSettings;

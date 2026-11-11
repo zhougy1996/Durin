@@ -246,8 +246,8 @@ namespace
 	}
 
 		auto BeginPropertyViewHostPreview(
-		Durin::Editor::FPropertyView& View,
-		const Durin::Editor::FPropertyViewContext& Context,
+		Durin::FPropertyView& View,
+		const Durin::FPropertyViewContext& Context,
 		DPropertyViewHostTestObject& Object
 	) -> bool
 	{
@@ -255,7 +255,7 @@ namespace
 		if (!View.HandleOwnerContext(Context, &Object)) return false;
 		return View.SubmitPropertyValueEdit(
 			Context,
-			Durin::Editor::FPropertyEditTarget::ForMember(&Object, Reflection.Property),
+			Durin::FPropertyEditTarget::ForMember(&Object, Reflection.Property),
 			[](Durin::FProperty* Property, void* Container, uint32 ArrayIndex) {
 				*static_cast<int32*>(Property->GetValuePtr(Container, ArrayIndex)) = 8;
 			},
@@ -290,14 +290,14 @@ TEST(FReflectedPropertyViewTests, HidesConventionalBoolPrefixFromDisplayName)
 {
 	using Durin::DurinCodeGen::EPropertyGenFlags;
 
-	EXPECT_EQ(Durin::Editor::MakePropertyDisplayName("bSimulatePhysics", EPropertyGenFlags::Bool), "Simulate Physics");
-	EXPECT_EQ(Durin::Editor::MakePropertyDisplayName("bUseHDR", EPropertyGenFlags::Bool), "Use HDR");
-	EXPECT_EQ(Durin::Editor::MakePropertyDisplayName("border", EPropertyGenFlags::Bool), "border");
-	EXPECT_EQ(Durin::Editor::MakePropertyDisplayName("b", EPropertyGenFlags::Bool), "b");
-	EXPECT_EQ(Durin::Editor::MakePropertyDisplayName("GroundHeight", EPropertyGenFlags::Float), "Ground Height");
-	EXPECT_EQ(Durin::Editor::MakePropertyDisplayName("URLValue", EPropertyGenFlags::String), "URL Value");
-	EXPECT_EQ(Durin::Editor::MakePropertyDisplayName("bSimulatePhysics", EPropertyGenFlags::String), "b Simulate Physics");
-	EXPECT_EQ(Durin::Editor::MakePropertyDisplayName("bSimulatePhysics", EPropertyGenFlags::Bool, "Simulate Physics"), "Simulate Physics");
+	EXPECT_EQ(Durin::MakePropertyDisplayName("bSimulatePhysics", EPropertyGenFlags::Bool), "Simulate Physics");
+	EXPECT_EQ(Durin::MakePropertyDisplayName("bUseHDR", EPropertyGenFlags::Bool), "Use HDR");
+	EXPECT_EQ(Durin::MakePropertyDisplayName("border", EPropertyGenFlags::Bool), "border");
+	EXPECT_EQ(Durin::MakePropertyDisplayName("b", EPropertyGenFlags::Bool), "b");
+	EXPECT_EQ(Durin::MakePropertyDisplayName("GroundHeight", EPropertyGenFlags::Float), "Ground Height");
+	EXPECT_EQ(Durin::MakePropertyDisplayName("URLValue", EPropertyGenFlags::String), "URL Value");
+	EXPECT_EQ(Durin::MakePropertyDisplayName("bSimulatePhysics", EPropertyGenFlags::String), "b Simulate Physics");
+	EXPECT_EQ(Durin::MakePropertyDisplayName("bSimulatePhysics", EPropertyGenFlags::Bool, "Simulate Physics"), "Simulate Physics");
 }
 
 TEST(FReflectedPropertyViewTests, EditObjectEnumeratesEditableStaticArrayElementsBeforeSearch)
@@ -328,8 +328,8 @@ TEST(FReflectedPropertyViewTests, EditObjectEnumeratesEditableStaticArrayElement
 	DObject Object(&TestClass, nullptr, FName("Object"));
 
 	std::vector<uint32> FilteredIndices;
-	Durin::Editor::FPropertyView View;
-	const Durin::Editor::FObjectPropertyViewResult Result = View.EditObject({}, &Object, {
+	Durin::FPropertyView View;
+	const Durin::FObjectPropertyViewResult Result = View.EditObject({}, &Object, {
 		.SearchText = "not present",
 		.Filter = [&](const FProperty& Property, uint32 ArrayIndex) {
 			EXPECT_EQ(&Property, &EditableProperty);
@@ -343,7 +343,7 @@ TEST(FReflectedPropertyViewTests, EditObjectEnumeratesEditableStaticArrayElement
 	EXPECT_EQ(FilteredIndices, (std::vector<uint32>{0, 1, 2}));
 	EXPECT_EQ(Result.VisiblePropertyCount, 0u);
 	EXPECT_FALSE(Result.bChanged);
-	EXPECT_EQ(Durin::Editor::MakePropertyLabel(EditableProperty, 2), "Test Values[2]");
+	EXPECT_EQ(Durin::MakePropertyLabel(EditableProperty, 2), "Test Values[2]");
 }
 
 TEST(FReflectedPropertyViewTests, ArrayIndexEnumFiltersGenericArraysAndFallsBackForUnknownEnums)
@@ -357,7 +357,7 @@ TEST(FReflectedPropertyViewTests, ArrayIndexEnumFiltersGenericArraysAndFallsBack
 		EPropertyFlags::Edit, 8, 0, sizeof(float), DurinCodeGen::EPropertyGenFlags::Float, nullptr);
 	TestClass.SetChildProperties(&Property);
 	DObject Object(&TestClass, nullptr, FName("Object"));
-	Editor::FPropertyView View;
+	FPropertyView View;
 	auto CollectIndices = [&]() {
 		std::vector<uint32> Indices;
 		View.EditObject({}, &Object, {
@@ -373,10 +373,10 @@ TEST(FReflectedPropertyViewTests, ArrayIndexEnumFiltersGenericArraysAndFallsBack
 	};
 	Property.SetMetaData(FName("ArrayIndexEnum"), "Durin::ECollisionResponse");
 	EXPECT_EQ(CollectIndices(), (std::vector<uint32>{0, 1, 2}));
-	EXPECT_EQ(Editor::MakePropertyLabel(Property, 1), "Overlap");
+	EXPECT_EQ(MakePropertyLabel(Property, 1), "Overlap");
 	Property.SetMetaData(FName("ArrayIndexEnum"), "Missing::Enum");
 	EXPECT_EQ(CollectIndices(), (std::vector<uint32>{0, 1, 2, 3, 4, 5, 6, 7}));
-	EXPECT_EQ(Editor::MakePropertyLabel(Property, 1), "Values[1]");
+	EXPECT_EQ(MakePropertyLabel(Property, 1), "Values[1]");
 }
 
 TEST(FReflectedPropertyViewTests, CategoriesCollapseAndSearchExpandsMatchingProperties)
@@ -391,7 +391,7 @@ TEST(FReflectedPropertyViewTests, CategoriesCollapseAndSearchExpandsMatchingProp
 	IO.IniFilename = nullptr;
 	IO.Fonts->AddFontDefault();
 	IO.Fonts->Build();
-	Durin::Editor::FPropertyView PropertyView;
+	Durin::FPropertyView PropertyView;
 
 	const auto DrawFrame = [&](std::string_view SearchText) -> int
 	{
@@ -404,7 +404,7 @@ TEST(FReflectedPropertyViewTests, CategoriesCollapseAndSearchExpandsMatchingProp
 		if (Durin::MonaImGui::PropertyEdit::BeginTable("CategoryPropertyRows"))
 		{
 			ImGui::GetStateStorage()->SetInt(ImGui::GetID("Numbers"), 0);
-			const Durin::Editor::FObjectPropertyViewResult Result =
+			const Durin::FObjectPropertyViewResult Result =
 				PropertyView.EditObject({}, &Object, {
 					.SearchText = SearchText,
 					.Filter = [&Reflection](const Durin::FProperty& Property, uint32) {
@@ -445,7 +445,7 @@ TEST(FReflectedPropertyViewTests, CollisionResponsesCollapseAndRenderNamedChanne
 	EXPECT_EQ(Channels->GetMetaData(Durin::FName("ArrayIndexEnum")), "Durin::ECollisionChannel");
 	const char* Labels[] = {"World Static", "World Dynamic", "Pawn", "Visibility", "Camera"};
 	for (uint32 Index = 0; Index < 5; ++Index)
-		EXPECT_EQ(Durin::Editor::MakePropertyLabel(*Channels, Index), Labels[Index]);
+		EXPECT_EQ(Durin::MakePropertyLabel(*Channels, Index), Labels[Index]);
 	const auto* ResponseEnum = static_cast<Durin::FEnumProperty*>(Channels)->GetEnum();
 	ASSERT_NE(ResponseEnum, nullptr);
 	EXPECT_EQ(ResponseEnum->GetValues().size(), 3u);
@@ -475,7 +475,7 @@ TEST(FReflectedPropertyViewTests, CollisionResponsesCollapseAndRenderNamedChanne
 				ImGui::GetStateStorage()->SetInt(ImGui::GetID("##Struct"), 1);
 				for (int Index = 0; Index < 5; ++Index) ImGui::PopID();
 			}
-			Durin::Editor::FPropertyView PropertyView;
+			Durin::FPropertyView PropertyView;
 			EXPECT_FALSE(PropertyView.EditProperty({}, Component, BodyInstance));
 			EXPECT_EQ(ImGui::TableGetRowIndex(), bExpandResponses ? 9 : 4);
 			Durin::MonaImGui::PropertyEdit::EndTable();
@@ -503,10 +503,10 @@ TEST(FReflectedPropertyViewTests, ObjectReplacementWaitsForFailedPreviewRestorat
 	Durin::TStrongObjectPtr<DPropertyViewHostTestObject> SecondStrong(SecondObject);
 	auto& First = *FirstObject;
 	auto& Second = *SecondObject;
-	Durin::Editor::FPropertyView View;
+	Durin::FPropertyView View;
 	uint32 ErrorReports = 0;
-	const Durin::Editor::FPropertyViewContext Context{
-		.TransactionMode = Durin::Editor::ETransactionMode::NotTransactable,
+	const Durin::FPropertyViewContext Context{
+		.TransactionMode = Durin::ETransactionMode::NotTransactable,
 		.ReportError = [&](std::string) { ++ErrorReports; },
 	};
 	First.bAllowRestore = true;
@@ -534,10 +534,10 @@ TEST(FReflectedPropertyViewTests, ReadOnlyTransitionWaitsForFailedPreviewRestora
 	auto* ObjectPtr = Durin::NewObject<DPropertyViewHostTestObject>(nullptr, Durin::FName("ReadOnly"));
 	Durin::TStrongObjectPtr<DPropertyViewHostTestObject> ObjectStrong(ObjectPtr);
 	auto& Object = *ObjectPtr;
-	Durin::Editor::FPropertyView View;
+	Durin::FPropertyView View;
 	uint32 ErrorReports = 0;
-	const Durin::Editor::FPropertyViewContext EditableContext{
-		.TransactionMode = Durin::Editor::ETransactionMode::NotTransactable,
+	const Durin::FPropertyViewContext EditableContext{
+		.TransactionMode = Durin::ETransactionMode::NotTransactable,
 		.ReportError = [&](std::string) { ++ErrorReports; },
 	};
 	Object.bAllowRestore = true;
@@ -545,7 +545,7 @@ TEST(FReflectedPropertyViewTests, ReadOnlyTransitionWaitsForFailedPreviewRestora
 	EXPECT_EQ(Object.Value, 8);
 
 	Object.bAllowRestore = false;
-	Durin::Editor::FPropertyViewContext ReadOnlyContext = EditableContext;
+	Durin::FPropertyViewContext ReadOnlyContext = EditableContext;
 	ReadOnlyContext.bReadOnly = true;
 	EXPECT_FALSE(View.HandleOwnerContext(ReadOnlyContext, &Object));
 	EXPECT_TRUE(View.IsEditingObject(&Object));
@@ -564,24 +564,24 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 	FPropertyViewHostTestReflection& Reflection = GetPropertyViewHostTestReflection();
 	DPropertyViewHostTestObject Object(Reflection.Class, Durin::FName("SoftState"));
 
-	auto State = Durin::Editor::InspectSoftObject(Reflection.SoftProperty, &Object, 0);
-	EXPECT_EQ(State.State, Durin::Editor::ESoftObjectViewState::Null);
-	EXPECT_EQ(Durin::Editor::GetSoftObjectStateLabel(State.State), "Null");
+	auto State = Durin::InspectSoftObject(Reflection.SoftProperty, &Object, 0);
+	EXPECT_EQ(State.State, Durin::ESoftObjectViewState::Null);
+	EXPECT_EQ(Durin::GetSoftObjectStateLabel(State.State), "Null");
 
 	const Durin::FSoftObjectPath MissingPath = MakeSoftObjectPropertyViewPath("Missing");
 	Object.SoftValues[0] = MissingPath;
-	State = Durin::Editor::InspectSoftObject(Reflection.SoftProperty, &Object, 0);
-	EXPECT_EQ(State.State, Durin::Editor::ESoftObjectViewState::Missing);
+	State = Durin::InspectSoftObject(Reflection.SoftProperty, &Object, 0);
+	EXPECT_EQ(State.State, Durin::ESoftObjectViewState::Missing);
 	const auto MissingState = State;
 	EXPECT_EQ(MissingState.PropertyName, Reflection.SoftProperty->NamePrivate.ToString());
 	EXPECT_EQ(MissingState.ArrayIndex, 0u);
 	ASSERT_TRUE(State.AssetCause);
-	EXPECT_EQ(State.Error, Durin::Editor::ESoftObjectViewError::Asset);
+	EXPECT_EQ(State.Error, Durin::ESoftObjectViewError::Asset);
 	EXPECT_FALSE(Object.SoftValues[0].IsValid());
 	Durin::DObject* LoadedObject = nullptr;
-	const auto Missing = Durin::Editor::LoadSoftObjectProperty(Reflection.SoftProperty, &Object, 0, LoadedObject);
+	const auto Missing = Durin::LoadSoftObjectProperty(Reflection.SoftProperty, &Object, 0, LoadedObject);
 	EXPECT_FALSE(Missing);
-	EXPECT_EQ(Missing.Error, Durin::Editor::EPropertySoftLoadError::Asset);
+	EXPECT_EQ(Missing.Error, Durin::EPropertySoftLoadError::Asset);
 	ASSERT_TRUE(Missing.AssetCause);
 	EXPECT_NE(Missing.AssetCause->Code, Durin::EAssetReadError::None);
 	EXPECT_EQ(Missing.Path, MissingPath);
@@ -596,11 +596,11 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 	ASSERT_NE(Asset, nullptr);
 	ASSERT_TRUE(Durin::SavePackage(Asset->GetPackage()));
 	Object.SoftValues[0] = AssetSoftPath;
-	State = Durin::Editor::InspectSoftObject(Reflection.SoftProperty, &Object, 0);
-	EXPECT_EQ(State.State, Durin::Editor::ESoftObjectViewState::Loaded);
+	State = Durin::InspectSoftObject(Reflection.SoftProperty, &Object, 0);
+	EXPECT_EQ(State.State, Durin::ESoftObjectViewState::Loaded);
 	EXPECT_EQ(MissingState.Path, MissingPath);
 	ASSERT_TRUE(MissingState.AssetCause);
-	EXPECT_EQ(MissingState.Error, Durin::Editor::ESoftObjectViewError::Asset);
+	EXPECT_EQ(MissingState.Error, Durin::ESoftObjectViewError::Asset);
 	EXPECT_EQ(State.LoadedObject, Asset);
 
 	Durin::FSoftObjectProperty MismatchedProperty(
@@ -608,25 +608,25 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 		Durin::EPropertyFlags::Edit, 2, Reflection.SoftProperty->GetOffset(),
 		sizeof(FSoftObjectViewValue), Durin::DPackage::StaticClass(),
 		&GetMutableSoftObjectViewValue, &GetConstSoftObjectViewValue);
-	State = Durin::Editor::InspectSoftObject(&MismatchedProperty, &Object, 0);
-	EXPECT_EQ(State.State, Durin::Editor::ESoftObjectViewState::TypeMismatch);
+	State = Durin::InspectSoftObject(&MismatchedProperty, &Object, 0);
+	EXPECT_EQ(State.State, Durin::ESoftObjectViewState::TypeMismatch);
 	ASSERT_TRUE(State.AssetCause);
-	EXPECT_EQ(State.Error, Durin::Editor::ESoftObjectViewError::Asset);
+	EXPECT_EQ(State.Error, Durin::ESoftObjectViewError::Asset);
 
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	EXPECT_FALSE(Object.SoftValues[0].IsValid());
-	State = Durin::Editor::InspectSoftObject(Reflection.SoftProperty, &Object, 0);
-	EXPECT_EQ(State.State, Durin::Editor::ESoftObjectViewState::Unloaded);
+	State = Durin::InspectSoftObject(Reflection.SoftProperty, &Object, 0);
+	EXPECT_EQ(State.State, Durin::ESoftObjectViewState::Unloaded);
 	EXPECT_EQ(State.LoadedObject, nullptr);
 	EXPECT_FALSE(Object.SoftValues[0].IsValid());
 
-	ASSERT_TRUE(Durin::Editor::LoadSoftObjectProperty(
+	ASSERT_TRUE(Durin::LoadSoftObjectProperty(
 		Reflection.SoftProperty, &Object, 0, LoadedObject));
 	ASSERT_NE(LoadedObject, nullptr);
 	EXPECT_EQ(Missing.Path, MissingPath);
 	EXPECT_TRUE(Object.SoftValues[0].IsValid());
-	State = Durin::Editor::InspectSoftObject(Reflection.SoftProperty, &Object, 0);
-	EXPECT_EQ(State.State, Durin::Editor::ESoftObjectViewState::Loaded);
+	State = Durin::InspectSoftObject(Reflection.SoftProperty, &Object, 0);
+	EXPECT_EQ(State.State, Durin::ESoftObjectViewState::Loaded);
 
 	const Durin::FSoftObjectPath AliasSoftPath = MakeSoftObjectPropertyViewPath("AliasXXX");
 	const Durin::FPackagePath AliasPath = AliasSoftPath.GetPackagePath();
@@ -635,21 +635,21 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 	ASSERT_TRUE(Durin::SavePackage(Redirector->GetPackage()));
 	ASSERT_TRUE(Durin::UnloadPackage(AliasPath));
 	Object.SoftValues[0] = AliasSoftPath;
-	State = Durin::Editor::InspectSoftObject(Reflection.SoftProperty, &Object, 0);
-	EXPECT_EQ(State.State, Durin::Editor::ESoftObjectViewState::Redirected);
+	State = Durin::InspectSoftObject(Reflection.SoftProperty, &Object, 0);
+	EXPECT_EQ(State.State, Durin::ESoftObjectViewState::Redirected);
 	EXPECT_EQ(State.Path, AliasSoftPath);
 	EXPECT_EQ(State.ResolvedPath, AssetSoftPath);
 	EXPECT_EQ(State.LoadedObject, LoadedObject);
-	EXPECT_EQ(State.Error, Durin::Editor::ESoftObjectViewError::None);
+	EXPECT_EQ(State.Error, Durin::ESoftObjectViewError::None);
 	EXPECT_FALSE(State.AssetCause);
-	EXPECT_EQ(Durin::Editor::GetSoftObjectStateLabel(State.State), "Redirected");
+	EXPECT_EQ(Durin::GetSoftObjectStateLabel(State.State), "Redirected");
 
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
-	State = Durin::Editor::InspectSoftObject(Reflection.SoftProperty, &Object, 0);
-	EXPECT_EQ(State.State, Durin::Editor::ESoftObjectViewState::Redirected);
+	State = Durin::InspectSoftObject(Reflection.SoftProperty, &Object, 0);
+	EXPECT_EQ(State.State, Durin::ESoftObjectViewState::Redirected);
 	EXPECT_EQ(State.LoadedObject, nullptr);
 	EXPECT_EQ(Durin::FindResidentPackage(AliasPath), nullptr);
-	ASSERT_TRUE(Durin::Editor::LoadSoftObjectProperty(
+	ASSERT_TRUE(Durin::LoadSoftObjectProperty(
 		Reflection.SoftProperty, &Object, 0, LoadedObject));
 	EXPECT_EQ(LoadedObject->GetPackage()->GetPackagePath(), AssetPath.ToString());
 	EXPECT_EQ(Object.SoftValues[0].ToSoftObjectPath(), AliasSoftPath);
@@ -667,19 +667,19 @@ TEST(FReflectedPropertyViewTests, WeakObjectInspectionDistinguishesNullLiveAndEx
 		sizeof(FWeakObjectViewValue), Durin::DObject::StaticClass(),
 		&GetMutableWeakObjectViewValue, &GetConstWeakObjectViewValue);
 	FWeakObjectViewValue Value;
-	auto State = Durin::Editor::InspectWeakObject(&Property, &Value);
-	EXPECT_EQ(State.State, Durin::Editor::EWeakObjectViewState::Null);
+	auto State = Durin::InspectWeakObject(&Property, &Value);
+	EXPECT_EQ(State.State, Durin::EWeakObjectViewState::Null);
 
 	Durin::DObject* Target = Durin::NewObject<Durin::DObject>(nullptr, "WeakViewTarget");
 	Value = Target;
-	State = Durin::Editor::InspectWeakObject(&Property, &Value);
-	EXPECT_EQ(State.State, Durin::Editor::EWeakObjectViewState::Live);
+	State = Durin::InspectWeakObject(&Property, &Value);
+	EXPECT_EQ(State.State, Durin::EWeakObjectViewState::Live);
 	EXPECT_EQ(State.Object, Target);
-	EXPECT_EQ(Durin::Editor::GetWeakObjectStateLabel(State.State), "Live");
+	EXPECT_EQ(Durin::GetWeakObjectStateLabel(State.State), "Live");
 
 	Durin::MarkAsGarbage(Target);
-	State = Durin::Editor::InspectWeakObject(&Property, &Value);
-	EXPECT_EQ(State.State, Durin::Editor::EWeakObjectViewState::Expired);
+	State = Durin::InspectWeakObject(&Property, &Value);
+	EXPECT_EQ(State.State, Durin::EWeakObjectViewState::Expired);
 	EXPECT_EQ(State.Object, nullptr);
 }
 
@@ -698,8 +698,8 @@ TEST(FReflectedPropertyViewTests, SoftObjectPathEditsUndoRedoFixedArrayArrayAndM
 	Object.SoftMap.emplace("Alpha", FSoftObjectViewValue(First));
 
 	FPropertyViewTestTransactorOwner Transactions;
-	Durin::Editor::FPropertyView View;
-	const Durin::Editor::FPropertyViewContext Context{
+	Durin::FPropertyView View;
+	const Durin::FPropertyViewContext Context{
 		};
 	auto AssignPath = [](Durin::FSoftObjectPath Path) {
 		return [Path = std::move(Path)](
@@ -713,7 +713,7 @@ TEST(FReflectedPropertyViewTests, SoftObjectPathEditsUndoRedoFixedArrayArrayAndM
 
 	ASSERT_TRUE(View.SubmitPropertyValueEdit(
 		Context,
-		Durin::Editor::FPropertyEditTarget::ForMember(&Object, Reflection.SoftProperty, 1),
+		Durin::FPropertyEditTarget::ForMember(&Object, Reflection.SoftProperty, 1),
 		AssignPath(Second), false));
 	EXPECT_EQ(Object.SoftValues[1].ToSoftObjectPath(), Second);
 	ASSERT_TRUE(Transactions.Get()->Undo());
@@ -722,8 +722,8 @@ TEST(FReflectedPropertyViewTests, SoftObjectPathEditsUndoRedoFixedArrayArrayAndM
 	EXPECT_EQ(Object.SoftValues[1].ToSoftObjectPath(), Second);
 	ASSERT_TRUE(Transactions.Get()->TryReset());
 
-	const Durin::Editor::FPropertyEditTarget ArrayTarget =
-		Durin::Editor::FPropertyEditTarget::ForMember(&Object, Reflection.ArrayProperty)
+	const Durin::FPropertyEditTarget ArrayTarget =
+		Durin::FPropertyEditTarget::ForMember(&Object, Reflection.ArrayProperty)
 			.ForArrayElement(Reflection.ArrayInner, 0);
 	ASSERT_TRUE(View.SubmitPropertyValueEdit(Context, ArrayTarget, AssignPath(Third), false));
 	EXPECT_EQ(Object.SoftArray[0].ToSoftObjectPath(), Third);
@@ -736,8 +736,8 @@ TEST(FReflectedPropertyViewTests, SoftObjectPathEditsUndoRedoFixedArrayArrayAndM
 	const std::string Alpha = "Alpha";
 	Durin::FPropertyValueSnapshot KeySnapshot;
 	ASSERT_TRUE(Durin::CapturePropertyValue(Reflection.MapKey, &Alpha, 0, KeySnapshot));
-	const Durin::Editor::FPropertyEditTarget MapTarget =
-		Durin::Editor::FPropertyEditTarget::ForMember(&Object, Reflection.MapProperty)
+	const Durin::FPropertyEditTarget MapTarget =
+		Durin::FPropertyEditTarget::ForMember(&Object, Reflection.MapProperty)
 			.ForMapEntry(Reflection.MapValue, KeySnapshot, KeySnapshot.GetBytes());
 	ASSERT_TRUE(View.SubmitPropertyValueEdit(Context, MapTarget, AssignPath(Fourth), false));
 	EXPECT_EQ(Object.SoftMap.at("Alpha").ToSoftObjectPath(), Fourth);
@@ -783,10 +783,10 @@ TEST(FReflectedPropertyViewTests, NumericWidgetClampsDraggingAndManualInputWitho
 		Reflection.Property->SetTypedMetadata(&Metadata);
 		auto* Object = NewObject<DPropertyViewHostTestObject>(nullptr, "NumericWidgetBounds");
 		TStrongObjectPtr<DObject> ObjectRoot(Object);
-		Editor::FPropertyView View;
+		FPropertyView View;
 		uint32 ErrorReports = 0;
-		const Editor::FPropertyViewContext Context{
-		.TransactionMode = Durin::Editor::ETransactionMode::NotTransactable,
+		const FPropertyViewContext Context{
+		.TransactionMode = Durin::ETransactionMode::NotTransactable,
 			.ReportError = [&](std::string) { ++ErrorReports; },
 		};
 		ImGuiContext* ImContext = ImGui::CreateContext();
@@ -860,15 +860,15 @@ TEST(FReflectedPropertyViewTests, InvalidBoundedEditDoesNotMutateOrCreateTransac
 	Durin::TStrongObjectPtr<Durin::DObject> ObjectRoot(ManagedObject);
 	auto& Object = *ManagedObject;
 	FPropertyViewTestTransactorOwner Transactions;
-	Durin::Editor::FPropertyView View;
+	Durin::FPropertyView View;
 	uint32 ErrorReports = 0;
-	const Durin::Editor::FPropertyViewContext Context{
+	const Durin::FPropertyViewContext Context{
 		.ReportError = [&](std::string) { ++ErrorReports; },
 	};
 
 	EXPECT_FALSE(View.SubmitPropertyValueEdit(
 		Context,
-		Durin::Editor::FPropertyEditTarget::ForMember(&Object, Reflection.Property),
+		Durin::FPropertyEditTarget::ForMember(&Object, Reflection.Property),
 		[](Durin::FProperty* Property, void* Container, uint32 ArrayIndex) {
 			*Property->ContainerPtrToValuePtr<int32>(Container, ArrayIndex) = 11;
 		}, false));
@@ -881,7 +881,7 @@ TEST(FReflectedPropertyViewTests, TypedExtensionRejectionPreservesLiveStateAndAl
 {
 	Durin::Testing::InitializeAssetSystemForTests();
 	using namespace Durin;
-	using namespace Durin::Editor;
+	using namespace Durin;
 	auto& Reflection = GetPropertyViewHostTestReflection();
 	auto* Object = NewObject<DPropertyViewHostTestObject>(nullptr, "TypedExtensionEdit");
 	TStrongObjectPtr<DObject> Root(Object);
@@ -942,7 +942,7 @@ TEST(FReflectedPropertyViewTests, TypedDeferredCompletionRejectsAndIgnoresLatePu
 {
 	Durin::Testing::InitializeAssetSystemForTests();
 	using namespace Durin;
-	using namespace Durin::Editor;
+	using namespace Durin;
 	auto& Reflection = GetPropertyViewHostTestReflection();
 	auto* Object = NewObject<DPropertyViewHostTestObject>(nullptr, "TypedDeferredEdit");
 	TStrongObjectPtr<DObject> Root(Object);
@@ -1003,7 +1003,7 @@ TEST(FReflectedPropertyViewTests, TypedDeferredCompletionRejectsAndIgnoresLatePu
 TEST(FReflectedPropertyViewTests, TargetValidationOwnsRejectedPathAndBounds)
 {
 	using namespace Durin;
-	using namespace Durin::Editor;
+	using namespace Durin;
 	auto& Reflection = GetPropertyViewHostTestReflection();
 	auto* Object = NewObject<DPropertyViewHostTestObject>(nullptr, "TypedPathTarget");
 	TStrongObjectPtr<DObject> Root(Object);
@@ -1057,7 +1057,7 @@ TEST(FReflectedPropertyViewTests, TargetValidationOwnsRejectedPathAndBounds)
 TEST(FReflectedPropertyViewTests, DraftRetainsInitializationAndRestoreCausesAcrossRetry)
 {
 	using namespace Durin;
-	using namespace Durin::Editor;
+	using namespace Durin;
 	auto& Reflection = GetPropertyViewHostTestReflection();
 	auto* Object = NewObject<DPropertyViewHostTestObject>(nullptr, "TypedDraftTarget");
 	TStrongObjectPtr<DObject> Root(Object);
@@ -1094,7 +1094,7 @@ TEST(FReflectedPropertyViewTests, HistoricalRecordsBypassNewEditExtensionValidat
 {
 	Durin::Testing::InitializeAssetSystemForTests();
 	using namespace Durin;
-	using namespace Durin::Editor;
+	using namespace Durin;
 	auto& Reflection = GetPropertyViewHostTestReflection();
 	auto* Object = NewObject<DPropertyViewHostTestObject>(nullptr, "TypedObjectRecord");
 	TStrongObjectPtr<DObject> Root(Object);
@@ -1133,10 +1133,10 @@ TEST(FReflectedPropertyViewTests, SessionMessagesSurviveResetAndRetry)
 {
 	Durin::Testing::InitializeAssetSystemForTests();
 	using namespace Durin;
-	using namespace Durin::Editor;
+	using namespace Durin;
 	FPropertyEditSession Session;
 	EXPECT_EQ(Session.Commit().GetStatus(), EPropertyEditResult::Failed);
-	const auto Missing = Session.Begin({}, "Missing target", Durin::Editor::ETransactionMode::NotTransactable);
+	const auto Missing = Session.Begin({}, "Missing target", Durin::ETransactionMode::NotTransactable);
 	EXPECT_FALSE(Missing);
 	EXPECT_EQ(Missing.GetStatus(), EPropertyEditResult::Failed);
 	const auto MissingMessage = Missing.Message;
@@ -1144,8 +1144,8 @@ TEST(FReflectedPropertyViewTests, SessionMessagesSurviveResetAndRetry)
 	auto* Object = NewObject<DPropertyViewHostTestObject>(nullptr, "TypedSessionErrors");
 	TStrongObjectPtr<DObject> Root(Object);
 	const auto Target = FPropertyEditTarget::ForMember(Object, Reflection.Property);
-	ASSERT_TRUE(Session.Begin(Target, "Owned session description", Durin::Editor::ETransactionMode::NotTransactable));
-	const auto Active = Session.Begin(Target, "Replacement description", Durin::Editor::ETransactionMode::NotTransactable);
+	ASSERT_TRUE(Session.Begin(Target, "Owned session description", Durin::ETransactionMode::NotTransactable));
+	const auto Active = Session.Begin(Target, "Replacement description", Durin::ETransactionMode::NotTransactable);
 	EXPECT_FALSE(Active);
 	const auto ActiveMessage = Active.Message;
 	const auto Invalid = Session.Apply(FPropertyValueSnapshotPayload{});

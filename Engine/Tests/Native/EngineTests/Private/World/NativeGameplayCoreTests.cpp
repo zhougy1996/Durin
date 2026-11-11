@@ -377,16 +377,16 @@ TEST(FEditorMouseCaptureTests, EscapeAndFocusLossRestoreWithoutAutomaticRecaptur
 	EXPECT_TRUE(Engine->GetGameInputState().IsEnabled());
 	EXPECT_TRUE(Durin::FEditorEngineTestAccess::KeyDown(*Engine, Window, Durin::EKey::Escape));
 	EXPECT_EQ(Window->GetCursorMode(), Durin::ECursorMode::Free);
-	EXPECT_EQ(Engine->GetMouseCaptureState(), Durin::Editor::EMouseCaptureState::Released);
+	EXPECT_EQ(Engine->GetMouseCaptureState(), Durin::EMouseCaptureState::Released);
 	EXPECT_FALSE(Engine->GetGameInputState().IsEnabled());
 	EXPECT_FALSE(Durin::FEditorEngineTestAccess::KeyDown(*Engine, Window, Durin::EKey::Escape));
 
 	ASSERT_TRUE(Engine->RequestPlayMouseCapture(Window));
 	Durin::FEditorEngineTestAccess::Focus(*Engine, Window, false);
 	EXPECT_EQ(Window->GetCursorMode(), Durin::ECursorMode::Free);
-	EXPECT_EQ(Engine->GetMouseCaptureState(), Durin::Editor::EMouseCaptureState::Suspended);
+	EXPECT_EQ(Engine->GetMouseCaptureState(), Durin::EMouseCaptureState::Suspended);
 	Durin::FEditorEngineTestAccess::Focus(*Engine, Window, true);
-	EXPECT_EQ(Engine->GetMouseCaptureState(), Durin::Editor::EMouseCaptureState::Released);
+	EXPECT_EQ(Engine->GetMouseCaptureState(), Durin::EMouseCaptureState::Released);
 	EXPECT_FALSE(Engine->GetGameInputState().IsEnabled());
 
 	Engine->StopPlaySession();
@@ -536,22 +536,22 @@ TEST(FEditorMouseCaptureTests, NewWindowClickPauseCloseAndRepeatedReleaseAreIdem
 	InitializeDObjectSystem();
 	auto* Engine = Durin::NewObject<Durin::DEditorEngine>(nullptr, "NewWindowMouseCaptureEngine");
 	auto Window = std::make_shared<FFocusedTestWindow>();
-	Durin::FEditorEngineTestAccess::ConfigureMouseCapture(*Engine, Durin::Editor::EPlayDestination::NewWindow);
+	Durin::FEditorEngineTestAccess::ConfigureMouseCapture(*Engine, Durin::EPlayDestination::NewWindow);
 	Engine->SetGameInputWindow(Window);
 	EXPECT_FALSE(Durin::FEditorEngineTestAccess::MouseDown(*Engine, Window, Durin::EMouseButton::Right));
 	ASSERT_TRUE(Durin::FEditorEngineTestAccess::MouseDown(*Engine, Window, Durin::EMouseButton::Left));
 	EXPECT_EQ(Window->GetCursorMode(), Durin::ECursorMode::Captured);
 	Engine->SetPlaySessionPaused(true);
 	EXPECT_EQ(Window->GetCursorMode(), Durin::ECursorMode::Free);
-	EXPECT_EQ(Engine->GetMouseCaptureState(), Durin::Editor::EMouseCaptureState::Released);
+	EXPECT_EQ(Engine->GetMouseCaptureState(), Durin::EMouseCaptureState::Released);
 
-	Durin::FEditorEngineTestAccess::ConfigureMouseCapture(*Engine, Durin::Editor::EPlayDestination::NewWindow);
+	Durin::FEditorEngineTestAccess::ConfigureMouseCapture(*Engine, Durin::EPlayDestination::NewWindow);
 	ASSERT_TRUE(Durin::FEditorEngineTestAccess::MouseDown(*Engine, Window, Durin::EMouseButton::Left));
 	Durin::FEditorEngineTestAccess::Close(*Engine, Window);
 	EXPECT_EQ(Window->GetCursorMode(), Durin::ECursorMode::Free);
 	Engine->ReleasePlayMouseCapture();
 	Engine->ReleasePlayMouseCapture();
-	EXPECT_EQ(Engine->GetMouseCaptureState(), Durin::Editor::EMouseCaptureState::Released);
+	EXPECT_EQ(Engine->GetMouseCaptureState(), Durin::EMouseCaptureState::Released);
 
 	Engine->StopPlaySession();
 	Durin::MarkObjectHierarchyAsGarbage(Engine);
@@ -1110,25 +1110,25 @@ TEST(FNativeGameplayPIETests, RepeatsNativeLevelStartAndEditorCameraSessionsWith
 	ASSERT_NE(AuthoredCamera, nullptr);
 	Durin::FEditorEngineTestAccess::SetEditorWorld(*Engine, EditorWorld);
 
-	Durin::Editor::FPlayRequest Request;
+	Durin::FPlayRequest Request;
 	Request.SourceLevel = EditorLevel;
 	std::string Error;
 	Durin::TStrongObjectPtr<Durin::DTransBuffer> Foreign(Durin::NewObject<Durin::DTransBuffer>(nullptr, "ForeignPlayRecording"));
 	{
-		Durin::Editor::FScopedTransaction Scope(Foreign.Get(), {.Description = "Foreign recording"});
+		Durin::FScopedTransaction Scope(Foreign.Get(), {.Description = "Foreign recording"});
 		EXPECT_FALSE(Durin::FEditorEngineTestAccess::StartPlaySession(*Engine, Request, Durin::AGameMode::StaticClass(), &Error));
 		EXPECT_FALSE(Error.empty()); EXPECT_EQ(Engine->GetPlayWorld(), nullptr);
-		EXPECT_EQ(Engine->GetPlayState(), Durin::Editor::EPlayState::Stopped);
+		EXPECT_EQ(Engine->GetPlayState(), Durin::EPlayState::Stopped);
 		if (Engine->IsPlaying()) Engine->StopPlaySession();
 	}
 	ASSERT_TRUE(Durin::FEditorEngineTestAccess::StartPlaySession(
 		*Engine, Request, Durin::AGameMode::StaticClass(), &Error)) << Error;
-	ASSERT_EQ(Engine->GetPlayState(), Durin::Editor::EPlayState::Playing);
+	ASSERT_EQ(Engine->GetPlayState(), Durin::EPlayState::Playing);
 	ASSERT_NE(Engine->GetPlayWorld(), nullptr);
 	ASSERT_NE(Engine->GetPlayWorld()->GetPackage(), nullptr);
 	EXPECT_TRUE(Engine->GetPlayWorld()->GetPackage()->IsPlayInEditor());
 	{
-		Durin::Editor::FScopedTransaction Scope(Foreign.Get(), {.Description = "Foreign apply recording"});
+		Durin::FScopedTransaction Scope(Foreign.Get(), {.Description = "Foreign apply recording"});
 		uint32 Applied = 42;
 		EXPECT_FALSE(Engine->ApplyPlaySessionChanges({}, &Applied, &Error));
 		EXPECT_EQ(Applied, 0u); EXPECT_FALSE(Error.empty()); EXPECT_TRUE(Scope.IsOutstanding());
@@ -1154,12 +1154,12 @@ TEST(FNativeGameplayPIETests, RepeatsNativeLevelStartAndEditorCameraSessionsWith
 	EXPECT_EQ(Engine->GetPIEWorldContext(), nullptr);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Durin::ResolveObjectKey(PlayPackageKey), nullptr);
-	EXPECT_EQ(Engine->GetPlayState(), Durin::Editor::EPlayState::Stopped);
+	EXPECT_EQ(Engine->GetPlayState(), Durin::EPlayState::Stopped);
 	EXPECT_EQ(Engine->GetWorld(), EditorWorld);
 	EXPECT_EQ(EditorWorld->GetCurrentLevel(), EditorLevel);
 	EXPECT_FALSE(EditorWorld->IsCollisionDebugDrawEnabled());
 
-	Request.StartLocation = Durin::Editor::EPlayStartLocation::EditorCamera;
+	Request.StartLocation = Durin::EPlayStartLocation::EditorCamera;
 	Request.CameraLocation = {11.0, 12.0, 13.0};
 	Request.CameraTarget = {12.0, 12.0, 13.0};
 	ASSERT_TRUE(Durin::FEditorEngineTestAccess::StartPlaySession(
@@ -1177,7 +1177,7 @@ TEST(FNativeGameplayPIETests, RepeatsNativeLevelStartAndEditorCameraSessionsWith
 	ASSERT_FALSE(Durin::FEditorEngineTestAccess::StartPlaySession(
 		*Engine, Request, Durin::AActor::StaticClass(), &Error));
 	EXPECT_FALSE(Error.empty());
-	EXPECT_EQ(Engine->GetPlayState(), Durin::Editor::EPlayState::Stopped);
+	EXPECT_EQ(Engine->GetPlayState(), Durin::EPlayState::Stopped);
 	EXPECT_EQ(Engine->GetPlayWorld(), nullptr);
 	EXPECT_EQ(Engine->GetWorld(), EditorWorld);
 

@@ -5,7 +5,7 @@
 #include "MonaImGui.h"
 #include "Asset/MutationExtensions.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	struct FMaterialGraphViewportState
 	{

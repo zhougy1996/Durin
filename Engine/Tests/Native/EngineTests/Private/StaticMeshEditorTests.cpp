@@ -22,7 +22,7 @@
 
 TEST(FStaticMeshEditorTests, PreviewControllerFramesAndNavigatesDeterministically)
 {
-	Durin::Editor::FOrbitAssetPreviewController Controller;
+	Durin::FOrbitAssetPreviewController Controller;
 	const Durin::FBox Bounds(Durin::FVector3(-2.0, -1.0, 3.0), Durin::FVector3(6.0, 5.0, 11.0));
 	Controller.FrameBounds(Bounds);
 	const Durin::FVector3 InitialTarget = Controller.GetTarget();
@@ -40,7 +40,7 @@ TEST(FStaticMeshEditorTests, PreviewControllerFramesAndNavigatesDeterministicall
 	EXPECT_DOUBLE_EQ(Controller.GetPitchDegrees(), 27.5);
 	Controller.Orbit(0.0f, 1000.0f);
 	EXPECT_DOUBLE_EQ(Controller.GetPitchDegrees(), 85.0);
-	Controller.ApplyInput(Durin::Editor::FAssetPreviewViewportInput{
+	Controller.ApplyInput(Durin::FAssetPreviewViewportInput{
 		.MouseWheel = 1.0f});
 	EXPECT_LT(Controller.GetDistance(), InitialDistance);
 	Controller.Pan(12.0f, -8.0f);
@@ -57,7 +57,7 @@ TEST(FStaticMeshEditorTests, ModulePublishesMetadataAndRendererWithoutCreatingAS
 {
 	InitializeDObjectSystem();
 	Durin::FEditorDocumentManager Manager;
-	auto& Thumbnails = Durin::Editor::GetDefaultThumbnailManager();
+	auto& Thumbnails = Durin::GetDefaultThumbnailManager();
 	Durin::FStaticMeshEditorModule Module;
 	Durin::FModuleTestHarness Harness("StaticMeshEditor");
 	Harness.Start(Module);
@@ -79,7 +79,7 @@ TEST(FStaticMeshEditorTests, PreviewSceneOwnsAndReleasesItsViewportComponents)
 	const std::string ActorName = std::format("StaticMeshPreviewActor_{}", PreviewId);
 	const std::string LightName = std::format("StaticMeshPreviewLightActor_{}", PreviewId);
 	{
-		Durin::Editor::StaticMesh::FStaticMeshPreview Preview(PreviewId);
+		Durin::StaticMeshEditor::FStaticMeshPreview Preview(PreviewId);
 		EXPECT_NE(FindObjectByName(ActorName), nullptr);
 		EXPECT_NE(FindObjectByName(LightName), nullptr);
 		EXPECT_FALSE(Preview.IsWireframe());
@@ -96,10 +96,10 @@ TEST(FStaticMeshEditorTests, PreviewSceneOwnsAndReleasesItsViewportComponents)
 TEST(FStaticMeshEditorTests, ThumbnailConflictDoesNotAffectEditorDiscovery)
 {
 	Durin::FEditorDocumentManager Manager;
-	Durin::Editor::DThumbnailManager ThumbnailManager;
+	Durin::DThumbnailManager ThumbnailManager;
 	std::string Error;
 	auto Existing = ThumbnailManager.RegisterScoped(
-		std::make_unique<Durin::Editor::StaticMesh::DStaticMeshThumbnailRenderer>());
+		std::make_unique<Durin::StaticMeshEditor::DStaticMeshThumbnailRenderer>());
 	ASSERT_TRUE(Existing) << Existing.error();
 	const std::string ClassName =
 		Durin::DStaticMesh::StaticClass()->GetQualifiedName().ToString();
@@ -108,7 +108,7 @@ TEST(FStaticMeshEditorTests, ThumbnailConflictDoesNotAffectEditorDiscovery)
 	Durin::FStaticMeshEditorModule Module;
 	Durin::FModuleTestHarness ModuleHarness("StaticMeshEditor");
 	ModuleHarness.Start(Module);
-	EXPECT_FALSE(ThumbnailManager.RegisterScoped(std::make_unique<Durin::Editor::StaticMesh::DStaticMeshThumbnailRenderer>()));
+	EXPECT_FALSE(ThumbnailManager.RegisterScoped(std::make_unique<Durin::StaticMeshEditor::DStaticMeshThumbnailRenderer>()));
 	EXPECT_NE(nullptr, Durin::FAssetDefinitionRegistry::Get().FindDefinition(ClassName));
 	EXPECT_EQ(
 		Manager.FindToolkit(Durin::FAssetEditorToolkitId("StaticMeshEditor")),

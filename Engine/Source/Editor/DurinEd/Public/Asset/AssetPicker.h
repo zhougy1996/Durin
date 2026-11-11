@@ -10,7 +10,7 @@ namespace Durin
 	class DObject;
 }
 
-namespace Durin::Editor
+namespace Durin
 {
 	// Selects exact-class or derived-class filtering for asset candidates.
 	enum class EAssetClassPolicy : uint8

@@ -88,21 +88,21 @@ namespace Durin
 	private:
 		auto Find(std::string_view Path) const -> DObject*
 		{ const auto It = Objects.find(std::string(Path)); return It == Objects.end() ? nullptr : It->second.Get(); }
-		auto ViewContext() -> Editor::FPropertyViewContext
+		auto ViewContext() -> FPropertyViewContext
 		{ return {.ReportError = [this](std::string Message) { Error = std::move(Message); }, .bReadOnly = IsReadOnly()}; }
 		auto DrawDetails() -> void
 		{
 			if (auto* Object = Find(Documents.GetActiveResourceId()))
 			{
 				const auto Context = ViewContext();
-				Editor::DrawDetailPanel(Properties, Context, Object);
+				DrawDetailPanel(Properties, Context, Object);
 			}
 			if (!Error.empty()) ImGui::TextWrapped("%s", Error.c_str());
 		}
 		FAssetEditorToolkitId Type{"GenericAssetEditor"};
 		FEditorDocumentManager& Manager;
 		FEditableAssetDocumentModel Documents;
-		Editor::FPropertyView Properties;
+		FPropertyView Properties;
 		std::unordered_map<std::string, TObjectPtr<DObject>> Objects;
 		std::string Error;
 	};

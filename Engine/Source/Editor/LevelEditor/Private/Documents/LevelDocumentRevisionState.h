@@ -5,7 +5,7 @@
 #include "DObject/Package.h"
 #include "Transactions/Transactor.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	// Centralizes the transaction checkpoint handoff at level-document lifecycle boundaries.
 	struct FLevelDocumentRevisionState

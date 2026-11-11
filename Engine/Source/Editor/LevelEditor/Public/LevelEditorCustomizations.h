@@ -17,7 +17,7 @@ namespace Durin
 	class DObject;
 }
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	enum class EEditorVisualizationIcon : uint8
 	{
@@ -192,4 +192,4 @@ namespace Durin::Editor::Level
 		std::unordered_map<DClass*, TEntry<IActorEditorVisualizer>> ActorVisualizers;
 		std::unordered_map<DClass*, TEntry<IComponentEditorVisualizer>> ComponentVisualizers;
 	};
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

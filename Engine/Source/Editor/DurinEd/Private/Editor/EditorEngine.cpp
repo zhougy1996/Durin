@@ -68,7 +68,7 @@ namespace Durin
 		return Index;
 	}
 	auto DEditorEngine::EndTransaction() -> int32 { return Trans ? Trans->End() : 0; }
-	auto DEditorEngine::GetCapabilities() const -> Editor::FEditorCapabilities
+	auto DEditorEngine::GetCapabilities() const -> FEditorCapabilities
 	{
 		const bool bReady = !bShutdownRequested && GetStartupState() == EHostStartupState::Ready;
 		const bool bRunTools = bReady && !IsPreparingMapChange();
@@ -77,7 +77,7 @@ namespace Durin
 			.bRunTools = bRunTools,
 			.bEditWorld = bRunTools && !IsPlaying(),
 			.bPresentWorkspace = !bShutdownRequested && (bReady
-				|| (StartupPhase == Editor::Startup::EBootstrapState::LoadingDefaultDocument && GetSceneGeneration() != 0))};
+				|| (StartupPhase == EditorStartup::EBootstrapState::LoadingDefaultDocument && GetSceneGeneration() != 0))};
 	}
 	auto DEditorEngine::CanTransact() const -> bool
 	{ return GEditor == this && GetCapabilities().bRunTools && Trans && Trans->CanTransact(); }
@@ -107,7 +107,7 @@ namespace Durin
 			return false;
 		}
 		bEditorInitStarted = true;
-		StartupPhase = Editor::Startup::EBootstrapState::ConstructingShell;
+		StartupPhase = EditorStartup::EBootstrapState::ConstructingShell;
 		StartupError = Context.ProjectAdmissionError;
 
 		bool bInitialized = InitEditorInternal(Context);
@@ -140,7 +140,7 @@ namespace Durin
 			MainFrameModule->CreateDefaultMainFrame(*this, InitContext.StartupWindow);
 			StartupWindow = InitContext.StartupWindow;
 		}
-		StartupPhase = Editor::Startup::EBootstrapState::WaitingForFirstPresent;
+		StartupPhase = EditorStartup::EBootstrapState::WaitingForFirstPresent;
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::EditorShellComplete);
 
 
@@ -173,7 +173,7 @@ namespace Durin
 	auto DEditorEngine::AdvanceStartup() -> void
 	{
 		if (bShutdownRequested || GetStartupState() != EHostStartupState::Pending) return;
-		using namespace Editor::Startup;
+		using namespace EditorStartup;
 		auto Transition = [&](EBootstrapState Phase) {
 			check(IsValidBootstrapTransition(StartupPhase, Phase));
 			StartupPhase = Phase;
@@ -290,7 +290,7 @@ namespace Durin
 			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentBegin);
 			FSoftObjectPath Path;
 			const auto* Project = GetCurrentProject();
-			if (Project && !Editor::Startup::ResolveStartupLevel(*Project, Path, StartupError))
+			if (Project && !EditorStartup::ResolveStartupLevel(*Project, Path, StartupError))
 				return EHostStartupState::Failed;
 			if (!Path.IsValid())
 				StartupDocumentOpen = FAssetOpenItemResult{.Status = EAssetOpenStatus::Completed};
@@ -491,18 +491,18 @@ namespace Durin
 
 	auto DEditorEngine::StartPlaySession(DLevel* SourceLevel, std::string* OutError) -> bool
 	{
-		Editor::FPlayRequest Request;
+		FPlayRequest Request;
 		Request.SourceLevel = SourceLevel;
 		return StartPlaySession(Request, OutError);
 	}
 
-	auto DEditorEngine::StartPlaySession(const Editor::FPlayRequest& Request, std::string* OutError) -> bool
+	auto DEditorEngine::StartPlaySession(const FPlayRequest& Request, std::string* OutError) -> bool
 	{
 		return StartPlaySessionInternal(Request, std::nullopt, OutError);
 	}
 
 	auto DEditorEngine::StartPlaySessionInternal(
-		const Editor::FPlayRequest& Request,
+		const FPlayRequest& Request,
 		std::optional<DClass*> GameModeOverride,
 		std::string* OutError) -> bool
 	{
@@ -510,7 +510,7 @@ namespace Durin
 
 		DLevel* SourceLevel = Request.SourceLevel;
 		if (OutError) OutError->clear();
-		if (PlayState != Editor::EPlayState::Stopped)
+		if (PlayState != EPlayState::Stopped)
 		{
 			if (OutError) *OutError = "A Play session is already active.";
 			return false;
@@ -526,7 +526,7 @@ namespace Durin
 			return false;
 		}
 
-		PlayState = Editor::EPlayState::Starting;
+		PlayState = EPlayState::Starting;
 		ReleasePlayMouseCapture();
 		ClearGameInputWindow();
 		// A dedicated package identifies this graph independently of runtime world type.
@@ -541,13 +541,13 @@ namespace Durin
 		{
 			DWorld* World;
 			DPackage* Package;
-			Editor::EPlayState& State;
+			EPlayState& State;
 			~FInitializationCleanup()
 			{
 				if (!World) return;
 				World->CleanupWorld();
 				MarkObjectHierarchyAsGarbage(Package);
-				State = Editor::EPlayState::Stopped;
+				State = EPlayState::Stopped;
 			}
 		} InitializationCleanup{NewPlayWorld, PlayPackage, PlayState};
 		NewPlayWorld->InitializeSubsystems(this);
@@ -567,7 +567,7 @@ namespace Durin
 		{
 			NewPlayWorld->CleanupWorld();
 			MarkObjectHierarchyAsGarbage(PlayPackage);
-			PlayState = Editor::EPlayState::Stopped;
+			PlayState = EPlayState::Stopped;
 			if (OutError) *OutError = ToString(Duplicated.error());
 			return false;
 		}
@@ -584,7 +584,7 @@ namespace Durin
 					EditorToPlayObjects.clear();
 					NewPlayWorld->CleanupWorld();
 					MarkObjectHierarchyAsGarbage(PlayPackage);
-					PlayState = Editor::EPlayState::Stopped;
+					PlayState = EPlayState::Stopped;
 					if (OutError) *OutError = SettingsResult.Message;
 					return false;
 				}
@@ -594,7 +594,7 @@ namespace Durin
 					EditorToPlayObjects.clear();
 					NewPlayWorld->CleanupWorld();
 					MarkObjectHierarchyAsGarbage(PlayPackage);
-					PlayState = Editor::EPlayState::Stopped;
+					PlayState = EPlayState::Stopped;
 					if (OutError) *OutError = Resolution.Result.Message;
 					return false;
 				}
@@ -619,13 +619,13 @@ namespace Durin
 			PlayToEditorObjects.clear();
 			NewPlayWorld->CleanupWorld();
 			MarkObjectHierarchyAsGarbage(PlayPackage);
-			PlayState = Editor::EPlayState::Stopped;
+			PlayState = EPlayState::Stopped;
 			if (OutError) *OutError = "Could not activate the duplicated Play level.";
 			return false;
 		}
 		NewPlayWorld->SetPhysicsSimulationEnabled(Request.bSimulatePhysics);
 		AActor* ViewTargetOverride = nullptr;
-		if (Request.StartLocation == Editor::EPlayStartLocation::EditorCamera)
+		if (Request.StartLocation == EPlayStartLocation::EditorCamera)
 		{
 			ACameraActor* Camera = PlayLevel->SpawnActor<ACameraActor>("PIE_EditorCamera");
 			if (!Camera || !Camera->GetCameraComponent())
@@ -639,7 +639,7 @@ namespace Durin
 			ViewTargetOverride = Camera;
 		}
 
-		if (Request.Destination == Editor::EPlayDestination::NewWindow)
+		if (Request.Destination == EPlayDestination::NewWindow)
 		{
 			PreviousSceneViewport = GetMainSceneViewport();
 			InitializePlayWindowViewportClient(
@@ -658,7 +658,7 @@ namespace Durin
 		if (const auto Reset = Trans->TryReset(); !Reset)
 		{
 			StopPlaySession();
-			if (OutError) *OutError = Editor::FormatTransactorResult(Reset);
+			if (OutError) *OutError = FormatTransactorResult(Reset);
 			return false;
 		}
 		const FWorldPlayResult PlayResult = NewPlayWorld->BeginPlay({
@@ -670,13 +670,13 @@ namespace Durin
 			if (OutError) *OutError = PlayResult.Message;
 			return false;
 		}
-		PlayState = Editor::EPlayState::Playing;
+		PlayState = EPlayState::Playing;
 		return true;
 	}
 
 	auto DEditorEngine::StopPlaySession() -> void
 	{
-		if (PlayState == Editor::EPlayState::Stopped) return;
+		if (PlayState == EPlayState::Stopped) return;
 		DWorld* WorldToRestore = EditorWorld.Get();
 		DLevel* LevelToRestore = EditorLevel.Get();
 		TeardownPlaySession();
@@ -687,8 +687,8 @@ namespace Durin
 
 	auto DEditorEngine::TeardownPlaySession() -> void
 	{
-		if (PlayState == Editor::EPlayState::Stopped) return;
-		PlayState = Editor::EPlayState::Stopping;
+		if (PlayState == EPlayState::Stopped) return;
+		PlayState = EPlayState::Stopping;
 		ReleasePlayMouseCapture();
 		ClearGameInputWindow();
 		DWorld* WorldToDestroy = PlayWorld.Get();
@@ -708,7 +708,7 @@ namespace Durin
 			RetirementFence->BeginFence();
 		}
 		SetWorld(nullptr);
-		if (PlayDestination == Editor::EPlayDestination::NewWindow)
+		if (PlayDestination == EPlayDestination::NewWindow)
 		{
 			SetMainSceneViewport(PreviousSceneViewport);
 			if (PlayWindow)
@@ -732,8 +732,8 @@ namespace Durin
 			RetiredPlayFences.emplace_back(std::move(RetirementFence));
 		}
 		Trans->Reset();
-		PlayState = Editor::EPlayState::Stopped;
-		PlayDestination = Editor::EPlayDestination::EmbeddedViewport;
+		PlayState = EPlayState::Stopped;
+		PlayDestination = EPlayDestination::EmbeddedViewport;
 		ReleaseRetiredPlaySessions();
 	}
 
@@ -754,15 +754,15 @@ namespace Durin
 
 	auto DEditorEngine::SetPlaySessionPaused(bool bPaused) -> void
 	{
-		if (PlayState != Editor::EPlayState::Playing && PlayState != Editor::EPlayState::Paused) return;
+		if (PlayState != EPlayState::Playing && PlayState != EPlayState::Paused) return;
 		if (bPaused) ReleasePlayMouseCapture();
 		if (PlayWorld) PlayWorld->SetPaused(bPaused);
-		PlayState = bPaused ? Editor::EPlayState::Paused : Editor::EPlayState::Playing;
+		PlayState = bPaused ? EPlayState::Paused : EPlayState::Playing;
 	}
 
 	auto DEditorEngine::StepPlaySession() -> void
 	{
-		if (PlayState != Editor::EPlayState::Paused || !PlayWorld) return;
+		if (PlayState != EPlayState::Paused || !PlayWorld) return;
 		ReleasePlayMouseCapture();
 		PlayWorld->RequestSingleStep();
 	}
@@ -785,23 +785,23 @@ namespace Durin
 			SuspendPlayMouseCapture();
 			return;
 		}
-		if (MouseCaptureState == Editor::EMouseCaptureState::Suspended)
-			MouseCaptureState = Editor::EMouseCaptureState::Released;
+		if (MouseCaptureState == EMouseCaptureState::Suspended)
+			MouseCaptureState = EMouseCaptureState::Released;
 		if (bCaptureClicked) RequestPlayMouseCapture(Window);
 	}
 
 	auto DEditorEngine::RequestPlayMouseCapture(const std::shared_ptr<FGenericWindow>& Window) -> bool
 	{
-		if (!Window || PlayState != Editor::EPlayState::Playing || !Window->IsFocused()) return false;
+		if (!Window || PlayState != EPlayState::Playing || !Window->IsFocused()) return false;
 		if (GameInputWindow.lock() != Window) SetGameInputWindow(Window);
-		if (MouseCaptureState == Editor::EMouseCaptureState::Captured
+		if (MouseCaptureState == EMouseCaptureState::Captured
 			&& CapturedMouseWindow.lock() == Window) return true;
 		ReleasePlayMouseCapture();
 		CapturedMouseWindow = Window;
 		Window->SetCursorMode(ECursorMode::Captured);
 		ResetGameInputMouse();
 		SetGameInputEnabled(true);
-		MouseCaptureState = Editor::EMouseCaptureState::Captured;
+		MouseCaptureState = EMouseCaptureState::Captured;
 		return true;
 	}
 
@@ -813,14 +813,14 @@ namespace Durin
 		}
 		CapturedMouseWindow.reset();
 		SetGameInputEnabled(false);
-		MouseCaptureState = Editor::EMouseCaptureState::Released;
+		MouseCaptureState = EMouseCaptureState::Released;
 	}
 
 	auto DEditorEngine::SuspendPlayMouseCapture() -> void
 	{
-		const bool bWasCaptured = MouseCaptureState == Editor::EMouseCaptureState::Captured;
+		const bool bWasCaptured = MouseCaptureState == EMouseCaptureState::Captured;
 		ReleasePlayMouseCapture();
-		if (bWasCaptured) MouseCaptureState = Editor::EMouseCaptureState::Suspended;
+		if (bWasCaptured) MouseCaptureState = EMouseCaptureState::Suspended;
 	}
 
 	auto DEditorEngine::HandleGameInputWindowFocus(
@@ -828,8 +828,8 @@ namespace Durin
 		bool bFocused) -> void
 	{
 		if (!bFocused && GameInputWindow.lock() == Window) SuspendPlayMouseCapture();
-		else if (bFocused && MouseCaptureState == Editor::EMouseCaptureState::Suspended)
-			MouseCaptureState = Editor::EMouseCaptureState::Released;
+		else if (bFocused && MouseCaptureState == EMouseCaptureState::Suspended)
+			MouseCaptureState = EMouseCaptureState::Released;
 	}
 
 	auto DEditorEngine::HandleGameInputWindowClose(const std::shared_ptr<FGenericWindow>& Window) -> void
@@ -842,7 +842,7 @@ namespace Durin
 		EKey Key,
 		bool bRepeat) -> bool
 	{
-		if (Key != EKey::Escape || bRepeat || MouseCaptureState != Editor::EMouseCaptureState::Captured) return false;
+		if (Key != EKey::Escape || bRepeat || MouseCaptureState != EMouseCaptureState::Captured) return false;
 		ReleasePlayMouseCapture();
 		return true;
 	}
@@ -852,7 +852,7 @@ namespace Durin
 		EMouseButton Button) -> bool
 	{
 		if (!IsPlayingInNewWindow() || Button != EMouseButton::Left
-			|| MouseCaptureState == Editor::EMouseCaptureState::Captured) return false;
+			|| MouseCaptureState == EMouseCaptureState::Captured) return false;
 		return RequestPlayMouseCapture(Window);
 	}
 
@@ -926,14 +926,14 @@ namespace Durin
 			Trans->InvalidateSavedState(*Package);
 		if (!Reset)
 		{
-			if (OutError) *OutError = Editor::FormatTransactorResult(Reset);
+			if (OutError) *OutError = FormatTransactorResult(Reset);
 			return false;
 		}
 		if (OutAppliedActorCount) *OutAppliedActorCount = static_cast<uint32>(SelectedRoots.size());
 		return true;
 	}
 
-	auto DEditorEngine::GetNotificationManager() -> Editor::FNotificationManager&
+	auto DEditorEngine::GetNotificationManager() -> FNotificationManager&
 	{
 		auto* Service = GetEditorSubsystem<DEditorNotificationSubsystem>();
 		require(Service);

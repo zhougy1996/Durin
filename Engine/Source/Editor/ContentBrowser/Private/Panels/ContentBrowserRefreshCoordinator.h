@@ -6,7 +6,7 @@
 #include "AssetRegistry/ContentChanges.h"
 #include "ContentBrowser/ContentBrowserContracts.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	using FMountedContentReconciliationState = ContentBrowser::FMountedContentReconciliationState;
 
@@ -74,4 +74,4 @@ namespace Durin::Editor::ContentBrowser::Private
 		uint64 ObservedAssetRegistryRevision = 0;
 		std::shared_ptr<FMountedContentReconciliationState> ReconciliationState;
 	};
-} // namespace Durin::Editor::ContentBrowser::Private
+} // namespace Durin::ContentBrowser::Private

@@ -4,7 +4,7 @@
 #include "SceneView.h"
 #include "SceneViewProjection.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	auto FCameraPreviewViewportClient::CalcSceneView(uint32 Width, uint32 Height, FSceneView& OutView) const -> bool
 	{

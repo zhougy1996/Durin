@@ -9,7 +9,7 @@
 
 namespace Durin { class DMaterialParameterCollection; }
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	class MMaterialParameterCollectionEditor final : public FBaseAssetToolkit
 	{

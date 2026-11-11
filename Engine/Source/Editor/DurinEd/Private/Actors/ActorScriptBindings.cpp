@@ -7,7 +7,6 @@
 
 namespace Durin
 {
-    using namespace Editor;
     namespace
     {
         auto RawActors(const std::vector<TObjectPtr<AActor>>& Actors) -> std::vector<AActor*>

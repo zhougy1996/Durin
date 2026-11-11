@@ -3,7 +3,7 @@
 #include "Misc/StringHelper.h"
 #include "Profiling/Profiling.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	using StringUtils::ContainsInsensitive;
 

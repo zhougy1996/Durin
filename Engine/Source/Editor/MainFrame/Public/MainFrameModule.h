@@ -4,7 +4,7 @@
 
 #include "Editor/IMainFrameModule.h"
 
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
 	struct FMainFrameContext;
 	struct FMainFrameToolsetState;
@@ -30,7 +30,7 @@ namespace Durin
 		auto TickMainFrame(float DeltaSeconds) -> void override;
 
 	private:
-		std::shared_ptr<Editor::MainFrame::FMainFrameToolsetState> Toolsets;
-		std::shared_ptr<Editor::MainFrame::FMainFrameContext> MainFrameContext;
+		std::shared_ptr<MainFrame::FMainFrameToolsetState> Toolsets;
+		std::shared_ptr<MainFrame::FMainFrameContext> MainFrameContext;
 	};
 }

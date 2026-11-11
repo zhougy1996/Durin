@@ -21,7 +21,7 @@
 #include "Widgets/MonaImGuiPropertyTable.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	namespace
 	{

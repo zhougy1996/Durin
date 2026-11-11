@@ -15,7 +15,7 @@ namespace Durin
 	struct FMapChangeProgress;
 }
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	class FEditorAssetMoveCoordinator;
 	class FLevelEditorSessionSettings;
@@ -102,4 +102,4 @@ namespace Durin::Editor::Level
 		TWeakObjectPtr<DWorld> DocumentWorld;
 		bool bPendingDocumentOpen = false;
 	};
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

@@ -14,7 +14,7 @@
 #include "NativeTestSupport.h"
 #include <gtest/gtest.h>
 
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
     struct FPythonScriptPanelTestAccess
     {
@@ -28,8 +28,8 @@ namespace Durin::Editor::MainFrame
 namespace
 {
     using namespace Durin;
-    using namespace Durin::Editor::MainFrame;
-    namespace Browser = Durin::Editor::ContentBrowser;
+    using namespace Durin::MainFrame;
+    namespace Browser = Durin::ContentBrowser;
 
     class PythonScriptPanelTests : public testing::Test
     {

@@ -6,7 +6,7 @@
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Editor/EditorEngine.h"
 
-namespace Durin::Editor::ContentBrowser
+namespace Durin::ContentBrowser
 {
 	namespace
 	{
@@ -274,4 +274,4 @@ namespace Durin::Editor::ContentBrowser
 		}
 		return DispatchHostCallback(Host.AssetEditors, [&] { Descriptor.DrawHostPresentation(Host, bAllowAssetMutation); });
 	}
-} // namespace Durin::Editor::ContentBrowser
+} // namespace Durin::ContentBrowser

@@ -52,8 +52,8 @@ namespace Durin::PythonReflection::Private
             return Error(Registry->AccessError, Path + ": target lost write admission");
         auto* Transactor = C->Host->GetTransactor();
         if (!Transactor) return Error(Registry->AccessError, Path + ": Host history is unavailable");
-        Editor::FPropertyEditSession Session;
-        if (const auto Begun = Session.Begin(Editor::FPropertyEditTarget::ForMember(Object, &P), {}, *Transactor); !Begun)
+        FPropertyEditSession Session;
+        if (const auto Begun = Session.Begin(FPropertyEditTarget::ForMember(Object, &P), {}, *Transactor); !Begun)
             return Error(Registry->AccessError, Path + ": " + Begun.Message);
         auto CloseRejected = [&]() {
             return !Session.HasChanges() && !Session.HasPendingDeferredEdit() ? Session.CancelUnchanged() : Session.Cancel();
@@ -61,7 +61,7 @@ namespace Durin::PythonReflection::Private
         try
         {
             const auto Applied = Session.Apply(Proposal);
-            if (!Applied || Applied.Status == Editor::EPropertyEditResult::Pending)
+            if (!Applied || Applied.Status == EPropertyEditResult::Pending)
             {
                 const auto Cleanup = CloseRejected();
                 auto Message = Path + ": " + (Call.GetError() ? Call.GetError()->Message : Applied.Message);

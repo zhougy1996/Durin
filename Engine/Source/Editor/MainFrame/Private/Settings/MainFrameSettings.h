@@ -6,7 +6,7 @@
 
 namespace Durin { class DEngine; }
 
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
 	// Persists main-window, appearance, and frame-pacing settings outside project settings.
 	class FMainFrameSettings

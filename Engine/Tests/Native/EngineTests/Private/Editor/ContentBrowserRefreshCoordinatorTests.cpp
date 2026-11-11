@@ -7,11 +7,11 @@
 #include "Transactions/Transaction.h"
 #include "Panels/ContentBrowserRefreshCoordinator.h"
 
-using namespace Durin::Editor::ContentBrowser::Private;
+using namespace Durin::ContentBrowser::Private;
 
 namespace
 {
-	class FRefreshTestTransaction final : public Durin::Editor::FActorCommandChange
+	class FRefreshTestTransaction final : public Durin::FActorCommandChange
 	{
 	public:
 		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override
@@ -30,7 +30,7 @@ namespace
 		{
 			return bMutatesMountedContent;
 		}
-		auto Replay(::Durin::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
+		auto Replay(::Durin::ETransactionOperation Operation) -> Durin::FActorChangeResult override
 		{
 			if (Operation == ::Durin::ETransactionOperation::Undo)
 			{
@@ -53,7 +53,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 	Durin::Tests::FTestTransactorOwner Transactions;
 	const uint64 InitialRevision =
 		Transactions->GetMountedContentMutationRevision();
-	ASSERT_TRUE(Durin::Editor::ApplyEditorChange(*Transactions,
+	ASSERT_TRUE(Durin::ApplyEditorChange(*Transactions,
 		std::make_unique<FRefreshTestTransaction>(false)));
 	EXPECT_EQ(
 		Transactions->GetMountedContentMutationRevision(), InitialRevision);
@@ -71,7 +71,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 	Durin::Tests::FTestTransactorOwner Transactions;
 	const uint64 InitialRevision =
 		Transactions->GetMountedContentMutationRevision();
-	ASSERT_TRUE(Durin::Editor::ApplyEditorChange(*Transactions,
+	ASSERT_TRUE(Durin::ApplyEditorChange(*Transactions,
 		std::make_unique<FRefreshTestTransaction>(true)));
 	EXPECT_EQ(
 		Transactions->GetMountedContentMutationRevision(), InitialRevision + 1);

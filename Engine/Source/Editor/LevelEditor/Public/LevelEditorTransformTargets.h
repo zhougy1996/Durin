@@ -12,7 +12,7 @@ namespace Durin
 	class FReferenceCollector;
 }
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	struct FLevelEditorContext;
 
@@ -62,4 +62,4 @@ namespace Durin::Editor::Level
 	};
 
 	LEVELEDITOR_API auto MakeActorTransformGizmoTargets(const FLevelEditorContext& Context) -> FTransformGizmoTargetSet;
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

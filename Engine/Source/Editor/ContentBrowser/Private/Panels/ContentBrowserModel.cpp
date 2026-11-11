@@ -7,7 +7,7 @@
 #include "Profiling/Profiling.h"
 #include "Misc/MountPaths.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	namespace
 	{
@@ -587,4 +587,4 @@ namespace Durin::Editor::ContentBrowser::Private
 		SuppressedEnumerationDiagnosticCount = 0;
 		RebuildItems();
 	}
-} // namespace Durin::Editor::ContentBrowser::Private
+} // namespace Durin::ContentBrowser::Private

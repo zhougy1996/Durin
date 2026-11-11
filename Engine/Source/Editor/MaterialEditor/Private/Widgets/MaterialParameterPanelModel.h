@@ -14,7 +14,7 @@ namespace Durin
 	struct FMaterialParameterReachability;
 }
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 
 	// Selects the editor control appropriate for one material parameter schema.

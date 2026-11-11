@@ -7,7 +7,7 @@
 #include "Materials/MaterialExpressionEditing.h"
 #include "DObject/Archive.h"
 
-namespace Durin::Editor::Material::GraphEditInternals
+namespace Durin::MaterialEditor::GraphEditInternals
 {
 	// Edits the owner's actual collection. Only touched objects are serialized;
 	// an unfinished scope restores writes without notifying observers.

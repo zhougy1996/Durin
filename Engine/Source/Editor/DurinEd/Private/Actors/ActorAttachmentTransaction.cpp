@@ -8,7 +8,7 @@
 #include "Engine/World.h"
 #include "DObject/ObjectLifecycle.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	auto FActorAttachmentTransaction::GetModifiedObjects() const -> std::vector<DObject*>
 	{

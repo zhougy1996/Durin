@@ -1,6 +1,6 @@
 #include "Graph/MaterialGraphChange.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	auto FormatMaterialChangeError(const FMaterialChangeError& Error) -> std::string
 	{

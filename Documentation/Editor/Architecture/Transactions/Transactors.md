@@ -98,7 +98,7 @@ all callers on the active editor join that global recording.
 ### Everyday Object Editing
 
 ```cpp
-Editor::FScopedTransaction Transaction("Move Actor");
+FScopedTransaction Transaction("Move Actor");
 Actor->Modify();
 Actor->SetActorTransform(NewTransform);
 ```

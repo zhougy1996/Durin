@@ -7,7 +7,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Project.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	namespace
 	{

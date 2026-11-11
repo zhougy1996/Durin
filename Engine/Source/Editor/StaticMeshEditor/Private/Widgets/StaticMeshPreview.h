@@ -6,7 +6,7 @@
 
 namespace Durin { class DStaticMesh; }
 
-namespace Durin::Editor::StaticMesh
+namespace Durin::StaticMeshEditor
 {
 	// Owns one isolated world, mesh component, light, viewport, and camera.
 	class STATICMESHEDITOR_API FStaticMeshPreview final

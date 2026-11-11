@@ -9,7 +9,7 @@
 #include "MonaImGui.h"
 #include "Widgets/MonaImGuiPropertyTable.h"
 
-namespace Durin::Editor::Texture
+namespace Durin::TextureEditor
 {
 	namespace
 	{

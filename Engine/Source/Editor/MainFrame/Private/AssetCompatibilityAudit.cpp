@@ -2,7 +2,7 @@
 #include "AssetCompatibilityAudit.h"
 #include "Misc/StringHelper.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	namespace
 	{

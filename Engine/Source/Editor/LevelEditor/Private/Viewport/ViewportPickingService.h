@@ -11,7 +11,7 @@ namespace Durin
 	class DPrimitiveComponent;
 }
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	class FEditorVisualizationCollector;
 
@@ -54,4 +54,4 @@ namespace Durin::Editor::Level
 		std::unique_ptr<IViewportPickingBackend> Backend;
 		TWeakObjectPtr<DLevel> CurrentLevel;
 	};
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

@@ -16,7 +16,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 
-namespace Durin::Editor::StaticMesh
+namespace Durin::StaticMeshEditor
 {
 	namespace
 	{
@@ -561,4 +561,4 @@ namespace Durin::Editor::StaticMesh
 		Result.FarClipDistance = FarClipDistance;
 		return Result;
 	}
-} // namespace Durin::Editor::StaticMesh
+} // namespace Durin::StaticMeshEditor

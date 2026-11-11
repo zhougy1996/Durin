@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	// Selects the default docking arrangement for the level editor.
 	enum class EEditorUILayoutMode : uint8
@@ -18,4 +18,4 @@ namespace Durin::Editor::Level
 		if (AvailableWidth >= CompactMinimumWidth) return EEditorUILayoutMode::Compact;
 		return EEditorUILayoutMode::Narrow;
 	}
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

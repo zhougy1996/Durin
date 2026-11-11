@@ -5,7 +5,7 @@
 #include "DObject/Property.h"
 #include "PropertyEditor/PropertyEditing.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	// Resolves a reflected edit path to its current property storage.
 	struct FResolvedPropertyValue

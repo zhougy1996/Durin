@@ -5,7 +5,7 @@
 #include "Engine/Level.h"
 #include "Texture/TextureCube.h"
 
-namespace Durin::Editor
+namespace Durin
 {
     auto AddStudioSkyLight(DLevel& Level) -> bool
     {

@@ -6,7 +6,7 @@
 #include "Math/Box.h"
 #include "Preview/AssetPreviewHost.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	// Deterministic camera state shared by previews that orbit an asset's bounds.
 	class FOrbitAssetPreviewController final

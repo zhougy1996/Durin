@@ -3,7 +3,7 @@
 #include "TextureEditorAPI.h"
 #include "PropertyEditor/DetailCustomization.h"
 
-namespace Durin::Editor::Texture
+namespace Durin::TextureEditor
 {
 	TEXTUREEDITOR_API auto CreateTextureBuildSettingsDetails() -> std::shared_ptr<IDetailCustomization>;
 }

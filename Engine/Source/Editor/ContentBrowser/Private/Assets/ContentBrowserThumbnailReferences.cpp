@@ -6,7 +6,7 @@
 #include "Assets/SourceImageThumbnailCache.h"
 #include "Thumbnail/ThumbnailManager.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	FContentBrowserThumbnailReferences::FContentBrowserThumbnailReferences()
 		: SourceImages(std::make_unique<FSourceImageThumbnailCache>())
@@ -119,4 +119,4 @@ namespace Durin::Editor::ContentBrowser::Private
 		AssetThumbnails.clear();
 		Dependencies.clear();
 	}
-} // namespace Durin::Editor::ContentBrowser::Private
+} // namespace Durin::ContentBrowser::Private

@@ -13,7 +13,7 @@ namespace Durin
 	class DMaterialFunction;
 }
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	// All canvas selections refer to authored expression identities.
 	using FMaterialGraphCanvasNodeId = std::variant<FGuid>;

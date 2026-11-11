@@ -13,7 +13,7 @@
 namespace
 {
 	using namespace Durin;
-	using namespace Durin::Editor;
+	using namespace Durin;
 
 
 	auto EmptyOccupancy(const FPackagePath&) -> FAssetDestinationOccupancy
@@ -157,8 +157,8 @@ TEST(FImportDialogDestinationModelTests, DelegatesValidationToAssetDestination)
 
 TEST(FMeshCoordinateImportModelTests, AppliesSharedPresets)
 {
-	Durin::Editor::FMeshCoordinateImportModel Model;
-	Model.SetPreset(Durin::Editor::FMeshCoordinateImportModel::EPreset::
+	Durin::FMeshCoordinateImportModel Model;
+	Model.SetPreset(Durin::FMeshCoordinateImportModel::EPreset::
 		YUpNegativeZForward);
 	const Durin::FStaticMeshImportSettings Expected =
 		Durin::FStaticMeshImportSettings::MakeYUpNegativeZForward();

@@ -4,7 +4,7 @@
 
 #include "DurinEdAPI.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	using FNotificationId = uint64;
 

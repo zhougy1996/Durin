@@ -12,7 +12,7 @@
 #include "Feedback/SlowTaskWidget.h"
 #include "AssetForge/Builtins/ImportFeedback.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	FGltfAssetImportDialog::FGltfAssetImportDialog(FImportDialogCallbacks InCallbacks)
 		: Callbacks(std::move(InCallbacks)) {}
@@ -408,4 +408,4 @@ namespace Durin::Editor
 	{
 		Callbacks.Report(std::move(Message));
 	}
-} // namespace Durin::Editor
+} // namespace Durin

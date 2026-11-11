@@ -6,7 +6,7 @@
 #include "Materials/MaterialTypes.h"
 #include "Materials/MaterialFunctionTypes.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	inline constexpr std::array MaterialSurfaceNames{"Base Color", "Normal", "Metallic", "Roughness", "Ambient Occlusion", "Emissive", "Opacity", "Opacity Mask"};
 	inline auto DescribeFunctionDefault(const FMaterialFunctionDefault& Value) -> std::string

@@ -5,7 +5,7 @@
 #include "DurinEdAPI.h"
 #include "Thumbnail/AssetThumbnailPool.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	// Lightweight UI reference to one canonical asset entry in a shared pool.
 	class FAssetThumbnail

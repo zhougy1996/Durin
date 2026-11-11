@@ -9,7 +9,7 @@
 #include "Rendering/SceneInterface.h"
 #include "RenderingThread.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	FPreviewScene::FPreviewScene(FName Name, std::optional<ERHIFeatureLevel> FeatureLevel)
 	{
@@ -89,4 +89,4 @@ namespace Durin::Editor
 	{
 		if (World) World->EndPlay();
 	}
-} // namespace Durin::Editor
+} // namespace Durin

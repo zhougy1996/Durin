@@ -17,7 +17,7 @@
 	#include <shellapi.h>
 #endif
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	namespace
 	{
@@ -713,4 +713,4 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		WarningMessage = std::move(Message);
 	}
-} // namespace Durin::Editor::ContentBrowser::Private
+} // namespace Durin::ContentBrowser::Private

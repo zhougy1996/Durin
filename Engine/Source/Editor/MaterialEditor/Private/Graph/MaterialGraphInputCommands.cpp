@@ -4,7 +4,7 @@
 #include "MaterialGraphEditSession.h"
 #include "Materials/MaterialExpressionInputs.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	using namespace GraphEditInternals;
 

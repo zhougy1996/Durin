@@ -10,7 +10,7 @@
 #include "DObject/StrongObjectPtr.h"
 #include "Import/ImportDialogSupport.h"
 
-namespace Durin::Editor::Texture
+namespace Durin::TextureEditor
 {
 	// UI-independent first-import/save policy. Failed saves retain resident assets
 	// and can be retried without reopening or decoding the source.

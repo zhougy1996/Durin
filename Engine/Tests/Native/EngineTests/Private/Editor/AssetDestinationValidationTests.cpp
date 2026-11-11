@@ -9,7 +9,7 @@
 namespace
 {
 	using namespace Durin;
-	using namespace Durin::Editor;
+	using namespace Durin;
 
 	auto EmptyOccupancy(const FPackagePath&) -> FAssetDestinationOccupancy
 	{

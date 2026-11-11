@@ -8,7 +8,7 @@
 #include "Transactions/Transactor.h"
 #include "Misc/MountPaths.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	auto FMaterialEditingSession::FAuthoredState::Matches(const DMaterial& Material) const -> bool
 	{

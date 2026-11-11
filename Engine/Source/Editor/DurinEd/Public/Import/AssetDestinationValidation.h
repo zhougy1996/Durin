@@ -7,7 +7,7 @@
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	enum class EAssetDestinationOccupantKind : uint8
 	{
@@ -102,4 +102,4 @@ namespace Durin::Editor
 		-> FContentDirectoryValidation;
 	DURINED_API auto ClassifyContentDirectory(const std::filesystem::path& PhysicalPath)
 		-> FContentDirectoryValidation;
-} // namespace Durin::Editor
+} // namespace Durin

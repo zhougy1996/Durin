@@ -5,7 +5,7 @@
 #include "Panels/ContentBrowserChanges.h"
 #include "Panels/ContentBrowserQuery.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	// Selection identities survive captures; only a completed projection repairs visibility.
 	struct FContentBrowserSelection

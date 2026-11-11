@@ -3,7 +3,7 @@
 #include "Misc/Paths.h"
 #include "Yaml/Yaml.h"
 
-namespace Durin::Editor::ContentBrowser
+namespace Durin::ContentBrowser
 {
 	namespace
 	{
@@ -76,4 +76,4 @@ namespace Durin::Editor::ContentBrowser
 			*OutWarning = "Could not save Content Browser settings.";
 		return false;
 	}
-} // namespace Durin::Editor::ContentBrowser
+} // namespace Durin::ContentBrowser

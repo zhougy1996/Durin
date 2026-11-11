@@ -5,7 +5,7 @@
 #include "ContentBrowser/ContentBrowserContracts.h"
 #include "ContentBrowserAPI.h"
 
-namespace Durin::Editor::ContentBrowser
+namespace Durin::ContentBrowser
 {
 	// Carries browser-owned presentation state across construction boundaries.
 	struct FPresentationSettings
@@ -51,4 +51,4 @@ namespace Durin::Editor::ContentBrowser
 		-> bool;
 	CONTENTBROWSER_API auto SavePresentationSettings(
 		const FPresentationSettings& Settings) -> bool;
-} // namespace Durin::Editor::ContentBrowser
+} // namespace Durin::ContentBrowser

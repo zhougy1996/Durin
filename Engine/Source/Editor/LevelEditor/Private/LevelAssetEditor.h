@@ -8,11 +8,11 @@
 
 namespace Durin
 {
-	namespace Editor::Level { class FLevelEditorSessionSettings; }
+	namespace LevelEditor { class FLevelEditorSessionSettings; }
 	struct FLevelEditorHostContext
 	{
-		std::shared_ptr<Editor::Level::FLevelEditorSessionSettings> Settings;
-		Editor::Level::FContentBrowserCallbacks Browser;
+		std::shared_ptr<LevelEditor::FLevelEditorSessionSettings> Settings;
+		LevelEditor::FContentBrowserCallbacks Browser;
 		std::function<void()> OpenProjectBrowser;
 	};
 	inline auto GetLevelAssetOpenSupport(const FAssetOpenSupportArgs& Args) -> FAssetOpenSupport

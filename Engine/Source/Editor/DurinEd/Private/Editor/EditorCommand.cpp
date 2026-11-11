@@ -4,7 +4,7 @@
 
 #include "DObject/ObjectLifecycle.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	auto ApplyEditorChange(DTransactor& Transactor, std::unique_ptr<FCommandChange> Change) -> FTransactorResult
 	{

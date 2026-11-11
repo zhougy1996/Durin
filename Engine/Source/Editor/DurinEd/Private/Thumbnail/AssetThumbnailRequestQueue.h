@@ -4,7 +4,7 @@
 
 #include "Thumbnail/ThumbnailManager.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	// Admission outcomes are scheduling policy, not generation errors.
 	enum class EThumbnailRequestStatus : uint8
@@ -70,4 +70,4 @@ namespace Durin::Editor
 		std::unique_ptr<FImpl> Impl;
 	};
 
-} // namespace Durin::Editor
+} // namespace Durin

@@ -5,7 +5,7 @@
 #include "LevelEditorCustomizations.h"
 #include "Rendering/PrimitiveDrawInterface.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	inline auto SubmitXRayVisibleLine(FSceneView& View,
 		const FVector3& Start, const FVector3& End, const FVector4f& Color,
@@ -62,4 +62,4 @@ namespace Durin::Editor::Level
 			SubmitXRayVisibleLine(View, Corners[Edge[0]], Corners[Edge[1]],
 				Color, {.WidthPixels = WidthPixels});
 	}
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

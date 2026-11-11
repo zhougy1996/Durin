@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	// Builds a deterministic actor hierarchy projection without owning world or UI state.
 	class FWorldOutlinerHierarchyModel
@@ -56,4 +56,4 @@ namespace Durin::Editor::Level
 		std::vector<uint8> FilterVisibility;
 		std::string CachedFilter;
 	};
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

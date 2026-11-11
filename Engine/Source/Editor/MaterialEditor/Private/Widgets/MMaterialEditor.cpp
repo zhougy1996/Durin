@@ -33,7 +33,7 @@
 #include "Widgets/MonaImGuiWidgets.h"
 #include "Texture/Texture2D.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	// The working copy retains its source independently of the document root.
 	// Both owners must participate in the same atomic source-generation replacement.

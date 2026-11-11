@@ -4,7 +4,7 @@
 #include "Misc/StringHelper.h"
 #include "Texture/TextureCube.h"
 
-namespace Durin::Editor::Texture
+namespace Durin::TextureEditor
 {
 	namespace
 	{

@@ -19,7 +19,6 @@
 
 namespace Durin
 {
-	using namespace Editor;
 	namespace
 	{
 		struct FActorState
@@ -235,7 +234,7 @@ namespace Durin
 
 		auto Execute(std::unique_ptr<FActorCommandChange> Change, std::vector<TObjectPtr<AActor>> Actors, DTransactor& Transactions) -> bool
 		{
-			const auto Result = Editor::ApplyEditorChange(Transactions, std::move(Change));
+			const auto Result = ApplyEditorChange(Transactions, std::move(Change));
 			if (!Result && Result.Code != ETransactorResultCode::RecoveryRequired)
 				for (const auto& Actor : Actors)
 					if (IsValid(Actor.Get()))
@@ -245,7 +244,7 @@ namespace Durin
 		}
 	}
 
-	auto Editor::MakeActorPresenceChange(DLevel& Level, std::span<AActor* const> Actors, bool bRemove, std::string Description) -> std::unique_ptr<FActorCommandChange>
+	auto MakeActorPresenceChange(DLevel& Level, std::span<AActor* const> Actors, bool bRemove, std::string Description) -> std::unique_ptr<FActorCommandChange>
 	{
 		if (!CanEditActorLevel(&Level) || Actors.empty()) return {};
 		std::unordered_set<AActor*> Unique;

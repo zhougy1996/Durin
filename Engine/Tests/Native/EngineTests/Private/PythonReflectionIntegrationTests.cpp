@@ -415,7 +415,7 @@ assert actors.get_all_level_actors(level)[-1] is seed
     TEST_F(PythonReflectionTests, ActorQueriesUseEditorLevelDuringPieButEditsAreDenied)
     {
         PrepareActorScene();
-        FEditorEngineTestAccess::SetState(*Host, Editor::EPlayState::Playing);
+        FEditorEngineTestAccess::SetState(*Host, EPlayState::Playing);
         const auto Result = Run(R"(
 actors = durin.get_editor_subsystem(durin.EditorActorSubsystem)
 level = actors.get_editor_level()
@@ -423,7 +423,7 @@ seed = actors.get_all_level_actors(level)[-1]
 assert actors.get_actor_info(level, seed).name == 'Seed'
 assert actors.rename_actor(level, seed, 'DuringPIE') is False
 )");
-        FEditorEngineTestAccess::SetState(*Host, Editor::EPlayState::Stopped);
+        FEditorEngineTestAccess::SetState(*Host, EPlayState::Stopped);
         EXPECT_EQ(Result.State, EPythonJobState::Succeeded) << Result.Error;
         EXPECT_FALSE(Host->GetTransactor()->CanUndo());
     }
@@ -722,12 +722,12 @@ else:
     TEST_F(PythonReflectionTests, ScriptPropertiesRejectDeferredValidationBeforeStartingWork)
     {
         PrepareScene(); ASSERT_FALSE(Host->GetTransactor()->CanUndo()) << "Fixture already has history"; bool Started = false;
-        const auto Extension = Editor::RegisterPropertyEditExtension({.PreEdit = [&](DObject& Object, FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> {
+        const auto Extension = RegisterPropertyEditExtension({.PreEdit = [&](DObject& Object, FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> {
             if (&Object == EditActor) Proposal.Defer([&](FPropertyEditDeferredCompletion) { Started = true; return [] {}; });
             return {};
         }});
         const auto Result = Run("durin.get_editor_subsystem(durin.ReflectionService).get_edit_target().value = 9");
-        Editor::UnregisterPropertyEditExtension(Extension);
+        UnregisterPropertyEditExtension(Extension);
         EXPECT_EQ(Result.State, EPythonJobState::Failed); EXPECT_FALSE(Started); EXPECT_EQ(EditActor->Value, 1);
         EXPECT_FALSE(Host->GetTransactor()->CanUndo());
     }

@@ -27,8 +27,8 @@ namespace Durin::RoadNet::Editor
 		auto BrowseDestination() -> void;
 		auto SetError(std::string Message) -> void;
 
-		::Durin::Editor::FImportDialogModalState ModalState;
-		::Durin::Editor::FImportDialogDestinationModel Destination;
+		::Durin::FImportDialogModalState ModalState;
+		::Durin::FImportDialogDestinationModel Destination;
 		FCreateDialogCallbacks Callbacks;
 		std::string SubmissionError;
 		bool bSpherical = true;

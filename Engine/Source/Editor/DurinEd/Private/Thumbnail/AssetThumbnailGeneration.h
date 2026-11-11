@@ -6,7 +6,7 @@
 #include "Thumbnail/AssetThumbnailPool.h"
 #include "AssetThumbnailRequestQueue.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	// Identifies one cold generation while asynchronous game, render, and worker completions are outstanding.
 	struct FAssetThumbnailJob
@@ -100,4 +100,4 @@ namespace Durin::Editor
 		struct FImpl;
 		std::unique_ptr<FImpl> Impl;
 	};
-} // namespace Durin::Editor
+} // namespace Durin

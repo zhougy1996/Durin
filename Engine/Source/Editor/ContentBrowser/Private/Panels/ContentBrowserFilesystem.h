@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-namespace Durin::Editor::ContentBrowser::Private::ContentBrowserFilesystem
+namespace Durin::ContentBrowser::Private::ContentBrowserFilesystem
 {
 	struct FPathProbe
 	{
@@ -43,4 +43,4 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserFilesystem
 		const std::filesystem::path Absolute = std::filesystem::absolute(Input, Error);
 		return (Error ? Input : Absolute).lexically_normal().generic_string();
 	}
-} // namespace Durin::Editor::ContentBrowser::Private::ContentBrowserFilesystem
+} // namespace Durin::ContentBrowser::Private::ContentBrowserFilesystem

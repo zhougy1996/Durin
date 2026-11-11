@@ -1,6 +1,6 @@
 #include "Async/CompensatingAsyncOperation.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	struct FCompensatingAsyncOperation::FOwnerState
 	{

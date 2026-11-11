@@ -6,7 +6,7 @@
 
 namespace Durin { class DMaterialInterface; }
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	// Owns the isolated viewport and scene used to preview editor materials.
 	class FMaterialPreview final

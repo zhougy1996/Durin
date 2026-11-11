@@ -6,7 +6,7 @@
 #include "Thumbnail/DefaultSizedThumbnailRenderer.h"
 #include "TextureEditorAPI.h"
 
-namespace Durin::Editor::Texture
+namespace Durin::TextureEditor
 {
 	// Freezes TextureEditor-owned presentation values for the wide environment view.
 	struct FTextureCubeThumbnailRendererVisualContract
@@ -42,4 +42,4 @@ namespace Durin::Editor::Texture
 			const IAssetThumbnailGenerationInput& Input)
 			-> std::expected<std::unique_ptr<IThumbnailRendererSession>, std::string> override;
 	};
-} // namespace Durin::Editor::Texture
+} // namespace Durin::TextureEditor

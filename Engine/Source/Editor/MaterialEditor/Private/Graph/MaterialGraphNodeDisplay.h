@@ -6,7 +6,7 @@
 #include "Graph/MaterialGraphValueTypes.h"
 #include "Materials/Material.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	// Keep canvas, framing and automatic layout on the same node-specific geometry.
 	inline auto IsHeaderOnlyGraphNode(const FMaterialGraphNodeView& Node) -> bool

@@ -8,7 +8,7 @@
 #include "Materials/MaterialFunction.h"
 #include "Materials/MaterialParameterCollection.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	DMaterialAssetEditor::DMaterialAssetEditor(const FObjectInitializer& Initializer) : Super(Initializer) {}
 	auto DMaterialAssetEditor::CreateToolkit() -> std::shared_ptr<FAssetEditorToolkit>

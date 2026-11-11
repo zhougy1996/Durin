@@ -8,7 +8,7 @@
 #include "RenderingThread.h"
 #include "AssetRegistry/Catalog.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	namespace
 	{
@@ -949,4 +949,4 @@ namespace Durin::Editor
 			.bHasActiveJob = Impl->PreparingJob.has_value() || Impl->CaptureJob.has_value(),
 			.bHasPreviewScene = Impl->ScenePool != nullptr};
 	}
-} // namespace Durin::Editor
+} // namespace Durin

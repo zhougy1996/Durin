@@ -6,7 +6,7 @@
 #include "MaterialGraphSchema.h"
 #include "Materials/MaterialFunction.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	// The shared owning-thread editing boundary; retains no asset or preview owner.
 	class FMaterialGraphDocument

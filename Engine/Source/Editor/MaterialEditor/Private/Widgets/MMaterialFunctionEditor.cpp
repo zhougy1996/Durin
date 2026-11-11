@@ -23,7 +23,7 @@
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Toolkits/AssetEditor.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	struct MMaterialFunctionEditor::FDocument
 	{

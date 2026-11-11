@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	// Reports whether a rename dialog is idle, accepted, or cancelled.
 	enum class EEditorRenameDialogResult : uint8
@@ -28,4 +28,4 @@ namespace Durin::Editor::Level
 		bool bRequestOpen = false;
 		bool bActive = false;
 	};
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

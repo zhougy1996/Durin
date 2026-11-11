@@ -4,7 +4,7 @@
 
 #include "Documents/EditorDocumentTypes.h"
 
-namespace Durin::Editor::Level::Workspace
+namespace Durin::LevelEditor::Workspace
 {
 	inline const FAssetEditorToolkitId Type{"LevelEditor"};
 	inline constexpr uint32 LayoutVersion = 6;

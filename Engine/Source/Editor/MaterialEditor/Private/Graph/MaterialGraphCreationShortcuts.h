@@ -5,7 +5,7 @@
 #include "MaterialGraphOperations.h"
 #include "MonaImGui.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	struct FMaterialGraphCreationShortcut
 	{

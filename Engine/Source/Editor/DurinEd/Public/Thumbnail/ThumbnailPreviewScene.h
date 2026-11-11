@@ -6,7 +6,7 @@
 #include "Thumbnail/AssetThumbnailTypes.h"
 #include "Thumbnail/ThumbnailRenderer.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	enum class EThumbnailCaptureState : uint8
 	{
@@ -57,4 +57,4 @@ namespace Durin::Editor
 		std::unique_ptr<FImpl> Impl;
 	};
 
-} // namespace Durin::Editor
+} // namespace Durin

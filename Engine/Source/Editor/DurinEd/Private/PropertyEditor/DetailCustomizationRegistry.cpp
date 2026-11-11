@@ -1,7 +1,7 @@
 #include "PropertyEditor/DetailCustomizationRegistry.h"
 #include "DObject/Class.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	auto FDetailCustomizationRegistry::Get() -> FDetailCustomizationRegistry&
 	{

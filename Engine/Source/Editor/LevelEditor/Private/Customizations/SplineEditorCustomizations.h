@@ -11,7 +11,7 @@ namespace Durin
 	class DSplineComponent;
 }
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	auto CreateSplineComponentVisualizer() -> std::shared_ptr<IComponentEditorVisualizer>;
 	auto CreateSplineDetailsCustomization() -> std::shared_ptr<IDetailCustomization>;
@@ -20,4 +20,4 @@ namespace Durin::Editor::Level
 
 	auto CalculateSplineAppendPosition(const DSplineComponent& Spline) -> FVector3;
 	auto SplitSplineSegment(DSplineComponent& Spline, uint32 SegmentIndex, double T, FGuid* OutPointId = nullptr) -> bool;
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

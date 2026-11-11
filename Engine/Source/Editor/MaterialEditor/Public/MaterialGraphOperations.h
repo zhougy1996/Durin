@@ -15,7 +15,7 @@ namespace Durin
 	class DTransactor;
 }
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	inline constexpr uint32 CurrentMaterialGraphClipboardSchemaVersion = 9;
 

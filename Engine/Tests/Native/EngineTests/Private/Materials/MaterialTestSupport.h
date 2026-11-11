@@ -503,7 +503,7 @@ namespace
 	}
 
 	auto MakeMaterialValueTarget(Durin::DMaterial* Material, const Durin::FGuid& Id, Durin::FName FieldName)
-		-> std::optional<Durin::Editor::FPropertyEditTarget>
+		-> std::optional<Durin::FPropertyEditTarget>
 	{
 		using namespace Durin;
 		for (const auto& Expression : Material->GetExpressionCollection().Expressions)
@@ -511,7 +511,7 @@ namespace
 			{
 				auto* Field = Parameter->GetClass()->FindPropertyByName("DefaultValue");
 				if (FieldName != FName("ScalarValue") || !Cast<DMaterialExpressionScalarParameter>(Parameter) || !Field) return std::nullopt;
-				return Editor::FPropertyEditTarget::ForMember(Parameter, Field);
+				return FPropertyEditTarget::ForMember(Parameter, Field);
 			}
 		return std::nullopt;
 	}

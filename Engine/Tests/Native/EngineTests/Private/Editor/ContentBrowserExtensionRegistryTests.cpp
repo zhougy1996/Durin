@@ -23,7 +23,7 @@ namespace Durin
 }
 
 
-namespace Durin::Editor::ContentBrowser
+namespace Durin::ContentBrowser
 {
 	TEST(FContentBrowserExtensionRegistryTests, StopOnlyContributionsWithdrawAndCreationCannotOutliveItsHost)
 	{
@@ -376,19 +376,19 @@ namespace Durin::Editor::ContentBrowser
 		auto B = RegisterExtension({
 			.Id = "test.order.b", .Label = "B",
 			.Category = EExtensionCategory::Import, .Order = 20,
-			.Mutation = ::Durin::Editor::ContentBrowser::EContentMutation::MutatesContent,
+			.Mutation = ::Durin::ContentBrowser::EContentMutation::MutatesContent,
 			.IsApplicable = [](const auto&) { return true; },
 			.Invoke = [](const auto&) {}}, Error);
 		auto A = RegisterExtension({
 			.Id = "test.order.a", .Label = "A",
 			.Category = EExtensionCategory::Import, .Order = 20,
-			.Mutation = ::Durin::Editor::ContentBrowser::EContentMutation::MutatesContent,
+			.Mutation = ::Durin::ContentBrowser::EContentMutation::MutatesContent,
 			.IsApplicable = [](const auto&) { return true; },
 			.Invoke = [](const auto&) {}}, Error);
 		auto First = RegisterExtension({
 			.Id = "test.order.first", .Label = "First",
 			.Category = EExtensionCategory::Import, .Order = 10,
-			.Mutation = ::Durin::Editor::ContentBrowser::EContentMutation::MutatesContent,
+			.Mutation = ::Durin::ContentBrowser::EContentMutation::MutatesContent,
 			.IsApplicable = [](const auto&) { return true; },
 			.Invoke = [](const auto&) {}}, Error);
 		ASSERT_TRUE(A.IsValid());
@@ -411,7 +411,7 @@ namespace Durin::Editor::ContentBrowser
 		auto Registration = RegisterExtension({
 			.Id = "test.lifetime", .Label = "Lifetime",
 			.Category = EExtensionCategory::Import,
-			.Mutation = ::Durin::Editor::ContentBrowser::EContentMutation::MutatesContent,
+			.Mutation = ::Durin::ContentBrowser::EContentMutation::MutatesContent,
 			.IsApplicable = [](const auto& Context) {
 				return !Context.VirtualDirectory.empty();
 			},
@@ -421,7 +421,7 @@ namespace Durin::Editor::ContentBrowser
 		auto Duplicate = RegisterExtension({
 			.Id = "test.lifetime", .Label = "Duplicate",
 			.Category = EExtensionCategory::Import,
-			.Mutation = ::Durin::Editor::ContentBrowser::EContentMutation::MutatesContent,
+			.Mutation = ::Durin::ContentBrowser::EContentMutation::MutatesContent,
 			.IsApplicable = [](const auto&) { return true; },
 			.Invoke = [](const auto&) {}}, Error);
 		EXPECT_FALSE(Duplicate.IsValid());
@@ -456,7 +456,7 @@ namespace Durin::Editor::ContentBrowser
 				.Id = Id,
 				.Label = "Category",
 				.Category = Categories[Index],
-				.Mutation = ::Durin::Editor::ContentBrowser::EContentMutation::MutatesContent,
+				.Mutation = ::Durin::ContentBrowser::EContentMutation::MutatesContent,
 				.IsApplicable = [](const auto&) { return true; },
 				.Invoke = [&Invocations](const auto&) { ++Invocations; },
 				}, Error);
@@ -499,7 +499,7 @@ namespace Durin::Editor::ContentBrowser
 				.Id = Id,
 				.Label = "Mutation Policy",
 				.Category = Category,
-				.Mutation = ::Durin::Editor::ContentBrowser::EContentMutation::MutatesContent,
+				.Mutation = ::Durin::ContentBrowser::EContentMutation::MutatesContent,
 				.IsApplicable = [](const auto&) { return true; },
 				.Invoke = [&Invocations](const auto&) { ++Invocations; },
 				.DrawHostPresentation = Category == EExtensionCategory::Import
@@ -716,4 +716,4 @@ namespace Durin::Editor::ContentBrowser
 		EXPECT_TRUE(Model.GetItems().empty());
 	}
 
-} // namespace Durin::Editor::ContentBrowser
+} // namespace Durin::ContentBrowser

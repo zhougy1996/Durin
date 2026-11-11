@@ -105,7 +105,7 @@ committed property records use collector enumeration rather than manual roots.
 
 ## Edit Targets
 
-`Editor::FPropertyEditTarget` describes:
+`FPropertyEditTarget` describes:
 
 - the owning object;
 - member and leaf properties;
@@ -161,7 +161,7 @@ Python dependency; the Python adapter owns conversion and exception mapping.
 
 ## Edit Session Lifecycle
 
-`Editor::FPropertyEditSession` implements one logical edit. Begin, Apply,
+`FPropertyEditSession` implements one logical edit. Begin, Apply,
 Commit and Cancel return `FPropertyEditOperationResult` without string outputs.
 `Status` is the sole outcome: failed, no-change, changed or pending.
 `GetStatus()` and boolean conversion use that status, never message contents.

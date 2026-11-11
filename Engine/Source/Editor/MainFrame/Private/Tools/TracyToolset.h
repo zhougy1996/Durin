@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 #include "Tools/NativeToolset.h"
 
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
 	class FProfilingToolService;
 	// Adapts managed Tracy tools without owning any interactive UI state.

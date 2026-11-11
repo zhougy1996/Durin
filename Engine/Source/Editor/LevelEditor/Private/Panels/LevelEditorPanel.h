@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	struct FLevelEditorContext;
 
@@ -27,4 +27,4 @@ namespace Durin::Editor::Level
 	private:
 		bool bOpen;
 	};
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

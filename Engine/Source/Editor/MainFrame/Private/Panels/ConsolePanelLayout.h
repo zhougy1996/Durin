@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
 	struct FConsoleVisibleRange
 	{
@@ -29,4 +29,4 @@ namespace Durin::Editor::MainFrame
 			static_cast<size_t>(std::distance(Offsets.begin(), EndIt)) + 1);
 		return {std::min(Begin, RecordCount), std::max(std::min(End, RecordCount), Begin)};
 	}
-} // namespace Durin::Editor::MainFrame
+} // namespace Durin::MainFrame

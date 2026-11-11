@@ -8,7 +8,7 @@
 #include "Misc/Paths.h"
 #include "Thumbnail/ThumbnailStorage.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	namespace
 	{
@@ -182,4 +182,4 @@ namespace Durin::Editor::ContentBrowser::Private
 			.SourceDecodes = Impl->SourceDecodes,
 			.Regenerations = StoreStats.Regenerations};
 	}
-} // namespace Durin::Editor::ContentBrowser::Private
+} // namespace Durin::ContentBrowser::Private

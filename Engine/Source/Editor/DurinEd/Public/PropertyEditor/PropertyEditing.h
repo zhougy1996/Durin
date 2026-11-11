@@ -18,7 +18,7 @@ namespace Durin
 	class FProperty;
 }
 
-namespace Durin::Editor
+namespace Durin
 {
 	struct FPropertyEditExtension
 	{

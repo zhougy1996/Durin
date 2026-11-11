@@ -2,7 +2,7 @@
 #include "DObject/Class.h"
 #include "Misc/AssertionMacros.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	namespace
 	{

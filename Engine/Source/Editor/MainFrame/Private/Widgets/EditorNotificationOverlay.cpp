@@ -9,7 +9,7 @@
 #include "MonaImGui.h"
 #include "Profiling/Profiling.h"
 
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
 	namespace
 	{

@@ -7,7 +7,7 @@
 #include "Operations/ContentBrowserPaths.h"
 #include "Panels/ContentBrowserSession.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	// Coordinates capture publication with the browser session and indexed query projection.
 	class FContentBrowserModel
@@ -166,4 +166,4 @@ namespace Durin::Editor::ContentBrowser::Private
 		FPathStatusQuery PathStatusQuery;
 		bool bSnapshotInjectedForTesting = false;
 	};
-} // namespace Durin::Editor::ContentBrowser::Private
+} // namespace Durin::ContentBrowser::Private

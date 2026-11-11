@@ -17,13 +17,13 @@ TEST(FMaterialGraphOperationsTests, SamplingOutputsRejectRetiredSelectorsWithout
 		if (Opcode == EMaterialProgramOpcode::TextureSample2D)
 		{
 			const auto Texture = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::TextureParameter, EMaterialProgramValueType::Texture2D);
-			ASSERT_TRUE(Texture) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Texture);
+			ASSERT_TRUE(Texture) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Texture);
 			Resource = {Texture.GeneratedNodeIds.front()};
 		}
 		const auto Sample = Testing::CreateGraphCatalogNode(Document, Opcode, EMaterialProgramValueType::Float4, Resource);
 		const auto Surface = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::MakeSurface, EMaterialProgramValueType::Surface);
-		ASSERT_TRUE(Sample) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Sample);
-		ASSERT_TRUE(Surface) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Surface);
+		ASSERT_TRUE(Sample) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Sample);
+		ASSERT_TRUE(Surface) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Surface);
 		const auto Id = Sample.GeneratedNodeIds.front();
 		const auto Target = Surface.GeneratedNodeIds.front();
 		const auto View = Document.Inspect();
@@ -36,7 +36,7 @@ TEST(FMaterialGraphOperationsTests, SamplingOutputsRejectRetiredSelectorsWithout
 		EXPECT_EQ(Indices, Expected);
 		for (const uint8 Index : Expected)
 		{
-			ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::Input(Target, 0), FMaterialGraphPinAddress::Output({Id, Index}), true, Durin::Editor::ETransactionMode::NotTransactable));
+			ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::Input(Target, 0), FMaterialGraphPinAddress::Output({Id, Index}), true, Durin::ETransactionMode::NotTransactable));
 			const auto Connected = Document.Inspect();
 			EXPECT_EQ(FindViewNode(Connected, Target)->Inputs[0].SourceType,
 				FindMaterialSampleOutput(Opcode, Index)->Type);
@@ -45,12 +45,12 @@ TEST(FMaterialGraphOperationsTests, SamplingOutputsRejectRetiredSelectorsWithout
 		const auto Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
 		for (const uint8 Index : {6, 8, 255})
 		{
-			EXPECT_EQ(Document.Connect(FMaterialGraphPinAddress::Input(Target, 0), FMaterialGraphPinAddress::Output({Id, Index}), true, Durin::Editor::ETransactionMode::NotTransactable).GetStatus(), EMaterialGraphCommandStatus::Rejected);
-			EXPECT_EQ(Document.Connect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialSurfaceOutput::BaseColor), FMaterialGraphPinAddress::Output({Id, Index}), true, Durin::Editor::ETransactionMode::NotTransactable).GetStatus(),
+			EXPECT_EQ(Document.Connect(FMaterialGraphPinAddress::Input(Target, 0), FMaterialGraphPinAddress::Output({Id, Index}), true, Durin::ETransactionMode::NotTransactable).GetStatus(), EMaterialGraphCommandStatus::Rejected);
+			EXPECT_EQ(Document.Connect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialSurfaceOutput::BaseColor), FMaterialGraphPinAddress::Output({Id, Index}), true, Durin::ETransactionMode::NotTransactable).GetStatus(),
 				EMaterialGraphCommandStatus::Rejected);
 		}
 		if (Opcode == EMaterialProgramOpcode::TextureSample2D)
-			EXPECT_EQ(Document.Connect(FMaterialGraphPinAddress::Input(Target, 0), FMaterialGraphPinAddress::Output({Id, 7}), true, Durin::Editor::ETransactionMode::NotTransactable).GetStatus(), EMaterialGraphCommandStatus::Rejected);
+			EXPECT_EQ(Document.Connect(FMaterialGraphPinAddress::Input(Target, 0), FMaterialGraphPinAddress::Output({Id, 7}), true, Durin::ETransactionMode::NotTransactable).GetStatus(), EMaterialGraphCommandStatus::Rejected);
 		EXPECT_EQ(CaptureExpressions(*Material), Before);
 		EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, Revision);
 	}
@@ -208,8 +208,8 @@ TEST(FMaterialGraphOperationsTests,
 	FMaterialGraphPresentation AggregatePresentation;
 	AggregatePresentation.Nodes.push_back({SurfaceId, 100, 100});
 	ASSERT_TRUE(Material->SetMaterialGraphPresentation(AggregatePresentation) != Durin::EMaterialGraphPresentationResult::Rejected);
-	ASSERT_TRUE(FMaterialGraphDocument(*Material).Disconnect(FMaterialGraphPinAddress::MaterialOutput((*Material).GetOutputNode()->Id), Durin::Editor::ETransactionMode::NotTransactable));
-	ASSERT_TRUE(FMaterialGraphDocument(*Material).Connect(FMaterialGraphPinAddress::MaterialOutput((*Material).GetOutputNode()->Id), FMaterialGraphPinAddress::Output({SurfaceId}), true, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphDocument(*Material).Disconnect(FMaterialGraphPinAddress::MaterialOutput((*Material).GetOutputNode()->Id), Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphDocument(*Material).Connect(FMaterialGraphPinAddress::MaterialOutput((*Material).GetOutputNode()->Id), FMaterialGraphPinAddress::Output({SurfaceId}), true, Durin::ETransactionMode::NotTransactable));
 	EXPECT_EQ(Material->GetExpressionOutputs().Surface.ExpressionId,
 		SurfaceId);
 	EXPECT_FALSE(Material->GetExpressionOutputs().BaseColor.Connection.ExpressionId.IsValid());
@@ -221,10 +221,10 @@ TEST(FMaterialGraphOperationsTests,
 	FMaterialGraphClipboardPayload Payload;
 	ASSERT_TRUE(FMaterialGraphDocument(*Material).CopySelection(std::array{SurfaceId}, Payload));
 	EXPECT_TRUE(Payload.bConnectAggregateSurface);
-	ASSERT_TRUE(FMaterialGraphDocument(*Material).Paste(Payload, 300, 100, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphDocument(*Material).Paste(Payload, 300, 100, Durin::ETransactionMode::NotTransactable));
 	EXPECT_NE(Material->GetExpressionOutputs().Surface.ExpressionId,
 		SurfaceId);
-	ASSERT_TRUE(FMaterialGraphDocument(*Material).Disconnect(FMaterialGraphPinAddress::MaterialOutput((*Material).GetOutputNode()->Id), Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphDocument(*Material).Disconnect(FMaterialGraphPinAddress::MaterialOutput((*Material).GetOutputNode()->Id), Durin::ETransactionMode::NotTransactable));
 	EXPECT_FALSE(Material->GetExpressionOutputs().Surface.ExpressionId.IsValid());
 	MarkAsGarbage(Material);
 	CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -350,7 +350,7 @@ TEST(FMaterialGraphOperationsTests, UVSearchAliasesCreateOneFixedWidthExpression
 		ASSERT_EQ(Matches.size(), 1u) << Query;
 		EXPECT_EQ(Matches.front().Opcode, EMaterialProgramOpcode::TextureCoordinates);
 		EXPECT_EQ(Matches.front().ResultType, EMaterialProgramValueType::Float2);
-		const auto Created = Document.CreateCatalogNode(Matches.front(), 0, 0, {}, Durin::Editor::ETransactionMode::NotTransactable);
+		const auto Created = Document.CreateCatalogNode(Matches.front(), 0, 0, {}, Durin::ETransactionMode::NotTransactable);
 		ASSERT_TRUE(Created);
 		const auto View = Document.Inspect();
 		const auto* Node = FindViewNode(View, Created.GeneratedNodeIds.front());
@@ -463,7 +463,7 @@ TEST(FMaterialGraphOperationsTests, AppendInfersWidthsAndKeepsUndoableOverflowDi
 	ASSERT_TRUE(Mask);
 	const auto MaskId = Mask.GeneratedNodeIds.front();
 	const auto Append = Testing::CreateGraphCatalogNode(Document, Op::AppendVector, Type::Float2, {MaskId});
-	ASSERT_TRUE(Append) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Append);
+	ASSERT_TRUE(Append) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Append);
 	const auto Id = Append.GeneratedNodeIds.front();
 	EXPECT_EQ(FindViewNode(Document.Inspect(), Id)->Node.ResultType, Type::Float3);
 	const auto Before = CaptureExpressions(*Material);
@@ -540,7 +540,7 @@ TEST(FMaterialGraphOperationsTests, MathWidthsPropagateBroadcastAndUndoAtomicall
 		const auto Catalog = FMaterialGraphOperations::EnumerateCatalog();
 		const auto Create = [&](EMaterialProgramOpcode Opcode, Type T) {
 			const auto Entry = std::ranges::find_if(Catalog, [&](const auto& E) { return E.Opcode == Opcode && E.ResultType == T; });
-			return Document.CreateCatalogNode(*Entry, 0, 0, {}, Durin::Editor::ETransactionMode::NotTransactable);
+			return Document.CreateCatalogNode(*Entry, 0, 0, {}, Durin::ETransactionMode::NotTransactable);
 		};
 		const auto Vector = Create(EMaterialProgramOpcode::Constant, Width);
 		const auto Scalar = Create(EMaterialProgramOpcode::Constant, Type::Float);
@@ -549,8 +549,8 @@ TEST(FMaterialGraphOperationsTests, MathWidthsPropagateBroadcastAndUndoAtomicall
 		const auto Add = Create(EMaterialProgramOpcode::Add, Type::Float);
 		ASSERT_TRUE(Vector); ASSERT_TRUE(Scalar); ASSERT_TRUE(Other); ASSERT_TRUE(Multiply); ASSERT_TRUE(Add);
 		const auto M = Multiply.GeneratedNodeIds.front(), A = Add.GeneratedNodeIds.front();
-		ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::Input(A, 0), FMaterialGraphPinAddress::Output({M}), false, Durin::Editor::ETransactionMode::NotTransactable));
-		ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::Input(M, 1), FMaterialGraphPinAddress::Output({Scalar.GeneratedNodeIds.front()}), false, Durin::Editor::ETransactionMode::NotTransactable));
+		ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::Input(A, 0), FMaterialGraphPinAddress::Output({M}), false, Durin::ETransactionMode::NotTransactable));
+		ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::Input(M, 1), FMaterialGraphPinAddress::Output({Scalar.GeneratedNodeIds.front()}), false, Durin::ETransactionMode::NotTransactable));
 		const auto Before = CaptureExpressions(*Material);
 		ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::Input(M, 0), FMaterialGraphPinAddress::Output({Vector.GeneratedNodeIds.front()}), false));
 		auto View = Document.Inspect();
@@ -572,13 +572,13 @@ TEST(FMaterialGraphOperationsTests, MathWidthsPropagateBroadcastAndUndoAtomicall
 		EXPECT_EQ(CaptureExpressions(*Material), After);
 		ASSERT_TRUE(Transactions->Undo()); EXPECT_EQ(CaptureExpressions(*Material), Before);
 		ASSERT_TRUE(Transactions->Redo()); EXPECT_EQ(CaptureExpressions(*Material), After);
-		ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::Input(M, 0), FMaterialGraphPinAddress::Output({Scalar.GeneratedNodeIds.front()}), true, Durin::Editor::ETransactionMode::NotTransactable));
+		ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::Input(M, 0), FMaterialGraphPinAddress::Output({Scalar.GeneratedNodeIds.front()}), true, Durin::ETransactionMode::NotTransactable));
 		View = Document.Inspect();
 		EXPECT_EQ(FindViewNode(View, M)->Node.ResultType, Type::Float);
 		EXPECT_EQ(FindViewNode(View, A)->Node.ResultType, Type::Float);
 		const auto MakeVector = Create(EMaterialProgramOpcode::MakeFloat2, Type::Float2);
 		ASSERT_TRUE(MakeVector);
-		ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::Input(MakeVector.GeneratedNodeIds.front(), 0), FMaterialGraphPinAddress::Output({A}), false, Durin::Editor::ETransactionMode::NotTransactable));
+		ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::Input(MakeVector.GeneratedNodeIds.front(), 0), FMaterialGraphPinAddress::Output({A}), false, Durin::ETransactionMode::NotTransactable));
 		const auto Fixed = CaptureExpressions(*Material);
 		ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::Input(M, 0), FMaterialGraphPinAddress::Output({Vector.GeneratedNodeIds.front()}), true));
 		EXPECT_TRUE(HasGraphDiagnostics(*Material));
@@ -598,7 +598,7 @@ TEST(FMaterialGraphOperationsTests, FixedInputsBroadcastScalarsAndUndoWithoutAut
 	const auto Catalog = FMaterialGraphOperations::EnumerateCatalog();
 	const auto Create = [&](EMaterialProgramOpcode Opcode, Type T) {
 		const auto Entry = std::ranges::find_if(Catalog, [&](const auto& E) { return E.Opcode == Opcode && E.ResultType == T; });
-		return Document.CreateCatalogNode(*Entry, 0, 0, {}, Durin::Editor::ETransactionMode::NotTransactable);
+		return Document.CreateCatalogNode(*Entry, 0, 0, {}, Durin::ETransactionMode::NotTransactable);
 	};
 	const auto Scalar = Create(EMaterialProgramOpcode::Constant, Type::Float);
 	const auto Vector = Create(EMaterialProgramOpcode::Constant, Type::Float2);
@@ -641,27 +641,27 @@ TEST(FMaterialGraphOperationsTests, FunctionMathAdaptsAndReportsNormalizeAndLerp
 	const auto Catalog = FMaterialGraphOperations::EnumerateCatalog();
 	const auto Create = [&](EMaterialProgramOpcode Opcode, Type T, FMaterialExpressionInput Source = {}) {
 		const auto Entry = std::ranges::find_if(Catalog, [&](const auto& E) { return E.Opcode == Opcode && E.ResultType == T; });
-		return Document.CreateCatalogNode(*Entry, 0, 0, Source, Durin::Editor::ETransactionMode::NotTransactable);
+		return Document.CreateCatalogNode(*Entry, 0, 0, Source, Durin::ETransactionMode::NotTransactable);
 	};
 	const auto Vector = Create(EMaterialProgramOpcode::Constant, Type::Float3);
 	const auto Scalar = Create(EMaterialProgramOpcode::Constant, Type::Float);
 	ASSERT_TRUE(Vector); ASSERT_TRUE(Scalar);
 	const auto V = Vector.GeneratedNodeIds.front(), S = Scalar.GeneratedNodeIds.front();
 	const auto Normalize = Create(EMaterialProgramOpcode::Normalize, Type::Float2, {V});
-	ASSERT_TRUE(Normalize) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Normalize);
+	ASSERT_TRUE(Normalize) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Normalize);
 	const auto N = Normalize.GeneratedNodeIds.front();
 	const auto Lerp = Create(EMaterialProgramOpcode::Lerp, Type::Float, {N});
-	ASSERT_TRUE(Lerp) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Lerp);
+	ASSERT_TRUE(Lerp) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Lerp);
 	const auto L = Lerp.GeneratedNodeIds.front();
 	const auto View = Document.Inspect();
 	EXPECT_EQ(FindViewNode(View, N)->Node.ResultType, Type::Float3);
 	EXPECT_EQ(FindViewNode(View, L)->Node.ResultType, Type::Float3);
-	ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::Input(N, 0), FMaterialGraphPinAddress::Output({S}), true, Durin::Editor::ETransactionMode::NotTransactable));
-	ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::Input(L, 2), FMaterialGraphPinAddress::Output({V}), false, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::Input(N, 0), FMaterialGraphPinAddress::Output({S}), true, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::Input(L, 2), FMaterialGraphPinAddress::Output({V}), false, Durin::ETransactionMode::NotTransactable));
 	EXPECT_TRUE(HasGraphDiagnostics(*Function));
-	ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::Input(L, 2), FMaterialGraphPinAddress::Output({S}), true, Durin::Editor::ETransactionMode::NotTransactable));
-	ASSERT_TRUE(Document.Disconnect(FMaterialGraphPinAddress::Input(N, 0), Durin::Editor::ETransactionMode::NotTransactable));
-	ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::Input(N, 0), FMaterialGraphPinAddress::Output({V}), false, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::Input(L, 2), FMaterialGraphPinAddress::Output({S}), true, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Document.Disconnect(FMaterialGraphPinAddress::Input(N, 0), Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::Input(N, 0), FMaterialGraphPinAddress::Output({V}), false, Durin::ETransactionMode::NotTransactable));
 }
 
 TEST(FMaterialGraphOperationsTests, EveryCatalogShapeCreatesItsConcreteExpressionWithValidDefaults)
@@ -684,13 +684,13 @@ TEST(FMaterialGraphOperationsTests, EveryCatalogShapeCreatesItsConcreteExpressio
 			const auto Type = Entry.AcceptedInputTypes.front().front();
 			if (Type == EMaterialProgramValueType::Surface || Type == EMaterialProgramValueType::Texture2D)
 			{
-				const auto Prerequisite = Document.CreateCatalogNode(Type == EMaterialProgramValueType::Surface ? *Surface : *Texture, 0, 0, {}, Durin::Editor::ETransactionMode::NotTransactable);
-				ASSERT_TRUE(Prerequisite) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Prerequisite);
+				const auto Prerequisite = Document.CreateCatalogNode(Type == EMaterialProgramValueType::Surface ? *Surface : *Texture, 0, 0, {}, Durin::ETransactionMode::NotTransactable);
+				ASSERT_TRUE(Prerequisite) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Prerequisite);
 				Source = {Prerequisite.GeneratedNodeIds.front()};
 			}
 		}
-		const auto Created = Document.CreateCatalogNode(Entry, 400, 200, Source, Durin::Editor::ETransactionMode::NotTransactable);
-		ASSERT_TRUE(Created) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Created);
+		const auto Created = Document.CreateCatalogNode(Entry, 400, 200, Source, Durin::ETransactionMode::NotTransactable);
+		ASSERT_TRUE(Created) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Created);
 		ASSERT_EQ(Created.GeneratedNodeIds.size(),
 			Entry.Opcode == EMaterialProgramOpcode::StaticSwitch ? 2u : 1u);
 		const auto& Expressions = Material->GetExpressionCollection().Expressions;
@@ -739,7 +739,7 @@ TEST(FMaterialGraphOperationsTests, EveryCatalogShapeCreatesItsConcreteExpressio
 	auto Invalid = *Surface;
 	Invalid.ExpressionClass = DMaterialExpressionScalarConstant::StaticClass();
 	const auto Before = Material->GetExpressionCollection().Expressions;
-	EXPECT_FALSE(Document.CreateCatalogNode(Invalid, 0, 0, {}, Durin::Editor::ETransactionMode::NotTransactable));
+	EXPECT_FALSE(Document.CreateCatalogNode(Invalid, 0, 0, {}, Durin::ETransactionMode::NotTransactable));
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions, Before);
 	MarkAsGarbage(Material); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
@@ -819,11 +819,11 @@ TEST(FMaterialGraphOperationsTests, CatalogPinsAgreeWithRuntimeValidation)
 			const auto Opcode = FirstType == Type::Surface ? EMaterialProgramOpcode::MakeSurface : EMaterialProgramOpcode::TextureParameter;
 			const auto Found = std::ranges::find(Catalog, Opcode, &FMaterialGraphCatalogEntry::Opcode);
 			ASSERT_NE(Found, Catalog.end());
-			const auto Created = Document.CreateCatalogNode(*Found, 0, 0, {}, Durin::Editor::ETransactionMode::NotTransactable);
+			const auto Created = Document.CreateCatalogNode(*Found, 0, 0, {}, Durin::ETransactionMode::NotTransactable);
 			ASSERT_TRUE(Created); Prerequisite = {Created.GeneratedNodeIds.front()};
 		}
-		const auto Created = Document.CreateCatalogNode(Entry, 0, 0, Prerequisite, Durin::Editor::ETransactionMode::NotTransactable);
-		ASSERT_TRUE(Created) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Created);
+		const auto Created = Document.CreateCatalogNode(Entry, 0, 0, Prerequisite, Durin::ETransactionMode::NotTransactable);
+		ASSERT_TRUE(Created) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Created);
 		const auto* Original = FindExpression<DMaterialExpression>(*Material, Created.GeneratedNodeIds.front());
 		ASSERT_NE(Original, nullptr);
 		ASSERT_EQ(Original->GetAuthoredInputCount(), Entry.AcceptedInputTypes.size());
@@ -939,7 +939,7 @@ TEST(FMaterialGraphOperationsTests, PaletteCreationAddsVisibleDefaultsInOneTrans
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	const FMaterialGraphCommandResult Created =
 		FMaterialGraphDocument(*Material).CreateCatalogNode(*Multiply, 400, 200, {});
-	ASSERT_TRUE(Created) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Created);
+	ASSERT_TRUE(Created) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Created);
 	ASSERT_EQ(Created.GeneratedNodeIds.size(), 1u);
 	const FMaterialGraphView View = FMaterialGraphDocument(*Material).Inspect();
 	const FMaterialGraphNodeView* Node = FindViewNode(View, Created.GeneratedNodeIds.front());
@@ -1004,12 +1004,12 @@ TEST(FMaterialGraphOperationsTests, CompactInputCommandsPreserveSharingFallbacks
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	FMaterialGraphDocument Document(*Material);
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
-	const auto Created = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::Multiply, EMaterialProgramValueType::Float, {}, 400, 200, Durin::Editor::ETransactionMode::Record);
-	ASSERT_TRUE(Created) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Created);
+	const auto Created = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::Multiply, EMaterialProgramValueType::Float, {}, 400, 200, Durin::ETransactionMode::Record);
+	ASSERT_TRUE(Created) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Created);
 	const auto Id = Created.GeneratedNodeIds[0];
 	const auto Before = CaptureExpressions(*Material);
 	const auto Extracted = Document.ExtractInputDefault(Id, 1, {});
-	ASSERT_TRUE(Extracted) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Extracted);
+	ASSERT_TRUE(Extracted) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Extracted);
 	const auto ExtractedId = Extracted.GeneratedNodeIds[0];
 	ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::Input(Id, 0), FMaterialGraphPinAddress::Output({ExtractedId}), false));
 	ASSERT_TRUE(Document.InlineInputNode(Id, 1, {}));
@@ -1046,15 +1046,15 @@ TEST(FMaterialGraphOperationsTests, TypedInputDefaultsCoverWidthsCoordinatesAndF
 		ASSERT_TRUE(Material->SetMaterialGraphPresentation({.Nodes = {{Id, 400, 100}}}) != Durin::EMaterialGraphPresentationResult::Rejected);
 		const FMaterialInputDefault Value{.Kind = EMaterialInputDefaultKind::Literal,
 			.Type = Add->ResultType, .Literal = {2, 3, 4, 5}};
-		ASSERT_TRUE(Document.SetInputDefault(Id, 1, Value, {}, Durin::Editor::ETransactionMode::NotTransactable));
-		EXPECT_EQ(Document.SetInputDefault(Id, 1, Value, {}, Durin::Editor::ETransactionMode::NotTransactable).GetStatus(), EMaterialGraphCommandStatus::NoChange);
-		const auto Extracted = Document.ExtractInputDefault(Id, 1, {}, Durin::Editor::ETransactionMode::NotTransactable);
-		ASSERT_TRUE(Extracted) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Extracted);
+		ASSERT_TRUE(Document.SetInputDefault(Id, 1, Value, {}, Durin::ETransactionMode::NotTransactable));
+		EXPECT_EQ(Document.SetInputDefault(Id, 1, Value, {}, Durin::ETransactionMode::NotTransactable).GetStatus(), EMaterialGraphCommandStatus::NoChange);
+		const auto Extracted = Document.ExtractInputDefault(Id, 1, {}, Durin::ETransactionMode::NotTransactable);
+		ASSERT_TRUE(Extracted) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Extracted);
 		ASSERT_EQ(Material->GetExpressionCollection().Expressions.size(), 3u);
 		EXPECT_EQ(Material->GetExpressionCollection().Expressions[Material->GetExpressionCollection().Expressions.size() - 2]->GetClass(),
 			(std::array{DMaterialExpressionScalarConstant::StaticClass(), DMaterialExpressionVector2Constant::StaticClass(),
 				DMaterialExpressionVector3Constant::StaticClass(), DMaterialExpressionVector4Constant::StaticClass()})[Width - 1]);
-		ASSERT_TRUE(Document.InlineInputNode(Id, 1, {}, Durin::Editor::ETransactionMode::NotTransactable));
+		ASSERT_TRUE(Document.InlineInputNode(Id, 1, {}, Durin::ETransactionMode::NotTransactable));
 		ASSERT_EQ(Material->GetExpressionCollection().Expressions.size(), 2u);
 		const auto* Result = Cast<DMaterialExpressionAdd>(Material->GetExpressionCollection().Expressions.front().Get());
 		ASSERT_NE(Result, nullptr);
@@ -1067,7 +1067,7 @@ TEST(FMaterialGraphOperationsTests, TypedInputDefaultsCoverWidthsCoordinatesAndF
 	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 1>{Coordinates}, {}));
 	ASSERT_TRUE(Material->SetMaterialGraphPresentation({.Nodes = {{CoordinatesId, 400, 100}}}) != Durin::EMaterialGraphPresentationResult::Rejected);
 	ASSERT_TRUE(Document.SetInputDefault(CoordinatesId, 0, {.Kind = EMaterialInputDefaultKind::Literal,
-		.Type = EMaterialProgramValueType::Float3, .Literal = {2, 3, 4}}, {}, Durin::Editor::ETransactionMode::NotTransactable));
+		.Type = EMaterialProgramValueType::Float3, .Literal = {2, 3, 4}}, {}, Durin::ETransactionMode::NotTransactable));
 	EXPECT_TRUE(HasGraphDiagnostics(*Material));
 	ASSERT_TRUE(Document.SetInputDefault(CoordinatesId, 0, {.Kind = EMaterialInputDefaultKind::Literal,
 		.Type = EMaterialProgramValueType::Float, .Literal = {2}}, {}));
@@ -1091,13 +1091,13 @@ TEST(FMaterialGraphOperationsTests, TypedInputDefaultsCoverWidthsCoordinatesAndF
 	Output->Id = FGuid::NewGuid(); Output->Port.Id = OutputId; Output->Source = {Input->Id};
 	ASSERT_TRUE(Function->SetFunctionExpressions(Durin::Testing::WithFunctionPorts(Signature, std::array<DMaterialExpression*, 2>{Input, Output})));
 	ASSERT_TRUE(Material->SetMaterialExpressions({}, {}));
-	const auto Created = Document.InsertFunctionCall(*Function, 400, 100, Durin::Editor::ETransactionMode::NotTransactable);
-	ASSERT_TRUE(Created) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Created);
+	const auto Created = Document.InsertFunctionCall(*Function, 400, 100, Durin::ETransactionMode::NotTransactable);
+	ASSERT_TRUE(Created) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Created);
 	const auto CallId = Created.GeneratedNodeIds.front();
 	ASSERT_TRUE(Document.SetInputDefault(CallId, 0, {.Kind = EMaterialInputDefaultKind::Literal,
-		.Type = EMaterialProgramValueType::Float3, .Literal = {4, 5, 6}}, InputId, Durin::Editor::ETransactionMode::NotTransactable));
-	ASSERT_TRUE(Document.ExtractInputDefault(CallId, 0, InputId, Durin::Editor::ETransactionMode::NotTransactable));
-	ASSERT_TRUE(Document.InlineInputNode(CallId, 0, InputId, Durin::Editor::ETransactionMode::NotTransactable));
+		.Type = EMaterialProgramValueType::Float3, .Literal = {4, 5, 6}}, InputId, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Document.ExtractInputDefault(CallId, 0, InputId, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Document.InlineInputNode(CallId, 0, InputId, Durin::ETransactionMode::NotTransactable));
 	const auto* Call = Cast<DMaterialExpressionFunctionCall>(Material->GetExpressionCollection().Expressions.front().Get());
 	ASSERT_NE(Call, nullptr);
 	ASSERT_EQ(Call->Inputs.size(), 1u);
@@ -1115,11 +1115,11 @@ TEST(FMaterialGraphOperationsTests, SamplingClipboardRemapsSharedExplicitCoordin
 	auto* Target = NewObject<DMaterial>(nullptr, "CompactSamplingTarget");
 	FMaterialGraphDocument Document(*Material);
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
-	const auto Created = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::TextureSampleParameter2D, EMaterialProgramValueType::Float4, {}, 400, 0, Durin::Editor::ETransactionMode::Record);
-	ASSERT_TRUE(Created) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Created);
+	const auto Created = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::TextureSampleParameter2D, EMaterialProgramValueType::Float4, {}, 400, 0, Durin::ETransactionMode::Record);
+	ASSERT_TRUE(Created) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Created);
 	const auto Id = Created.GeneratedNodeIds[0];
-	const auto CreatedUV = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::TextureCoordinates, EMaterialProgramValueType::Float2, {}, 0, 0, Durin::Editor::ETransactionMode::Record);
-	ASSERT_TRUE(CreatedUV) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(CreatedUV);
+	const auto CreatedUV = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::TextureCoordinates, EMaterialProgramValueType::Float2, {}, 0, 0, Durin::ETransactionMode::Record);
+	ASSERT_TRUE(CreatedUV) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(CreatedUV);
 	const auto CoordinatesId = CreatedUV.GeneratedNodeIds[0];
 	ASSERT_TRUE(Document.SetInputDefault(CoordinatesId, 0, {.Kind = EMaterialInputDefaultKind::Literal,
 		.Type = EMaterialProgramValueType::Float, .Literal = {1}}, {}));
@@ -1131,8 +1131,8 @@ TEST(FMaterialGraphOperationsTests, SamplingClipboardRemapsSharedExplicitCoordin
 	FMaterialGraphClipboardPayload Payload;
 	ASSERT_TRUE(Document.CopySelection(std::array{Id, CoordinatesId}, Payload));
 	EXPECT_EQ(Payload.Nodes.size(), 2u);
-	const auto Pasted = FMaterialGraphDocument(*Target).Paste(Payload, 0, 0, Durin::Editor::ETransactionMode::NotTransactable);
-	ASSERT_TRUE(Pasted) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Pasted);
+	const auto Pasted = FMaterialGraphDocument(*Target).Paste(Payload, 0, 0, Durin::ETransactionMode::NotTransactable);
+	ASSERT_TRUE(Pasted) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Pasted);
 	ASSERT_EQ(Target->GetParameterDefinitions().size(), 1u);
 	EXPECT_NE(Target->GetParameterDefinitions().front().Id, Material->GetParameterDefinitions().front().Id);
 	for (const auto& Node : Target->GetExpressionCollection().Expressions)
@@ -1143,7 +1143,7 @@ TEST(FMaterialGraphOperationsTests, SamplingClipboardRemapsSharedExplicitCoordin
 			EXPECT_TRUE(Sample->UV.Connection.ExpressionId.IsValid());
 	}
 	auto* Function = NewObject<DMaterialFunction>(nullptr, "RejectRootBindings");
-	EXPECT_FALSE(FMaterialGraphDocument(*Function).Paste(Payload, 0, 0, Durin::Editor::ETransactionMode::NotTransactable));
+	EXPECT_FALSE(FMaterialGraphDocument(*Function).Paste(Payload, 0, 0, Durin::ETransactionMode::NotTransactable));
 	MarkAsGarbage(Function);
 	MarkAsGarbage(Target);
 	MarkAsGarbage(Material);
@@ -1188,7 +1188,7 @@ TEST(FMaterialGraphOperationsTests, TypedReplacementRejectsRecursiveFunctionTarg
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	FMaterialGraphDocument Document(*Caller.Get());
 	const auto Inserted = Document.InsertFunctionCall(*Callee.Get(), 0, 0);
-	ASSERT_TRUE(Inserted) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Inserted);
+	ASSERT_TRUE(Inserted) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Inserted);
 	const auto Revision = Caller->GetFunctionRevision();
 	TStrongObjectPtr<DMaterialExpressionFunctionCall> Replacement(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
 	Replacement->Id = Inserted.GeneratedNodeIds.front();
@@ -1326,7 +1326,7 @@ TEST(FMaterialGraphOperationsTests, ParameterSharingUsesIndependentNodesAndRenam
 	FMaterialParameterDefinition Definition;
 	Definition.Name = "SharedValue";
 	Definition.Value = FMaterialParameterValue::MakeScalar(0.4f);
-	const auto Created = FMaterialGraphOperations::CreateParameter(*Material, Definition, Durin::Editor::ETransactionMode::NotTransactable);
+	const auto Created = FMaterialGraphOperations::CreateParameter(*Material, Definition, Durin::ETransactionMode::NotTransactable);
 	ASSERT_TRUE(Created) << FormatMaterialGraphCommandResult(Created);
 	ASSERT_EQ(Created.GeneratedNodeIds.size(), 1u);
 	const auto OwnerId = Created.GeneratedNodeIds.front();
@@ -1339,7 +1339,7 @@ TEST(FMaterialGraphOperationsTests, ParameterSharingUsesIndependentNodesAndRenam
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), 2u);
 	TStrongObjectPtr<DMaterialExpression> DuplicateOwner(DuplicateObject(Material->GetExpressionCollection().Expressions.front().Get(), nullptr, NAME_None).value());
 	DuplicateOwner->Id = FGuid::NewGuid();
-	ASSERT_TRUE(Document.CreateExpression(*DuplicateOwner.Get(), 0, 0, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Document.CreateExpression(*DuplicateOwner.Get(), 0, 0, Durin::ETransactionMode::NotTransactable));
 	EXPECT_EQ(Material->GetParameterDefinitions().size(), 1u);
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), 3u);
 	ASSERT_TRUE(FMaterialGraphOperations::RenameParameter(*Material, ParameterId, "RenamedShared"));
@@ -1451,7 +1451,7 @@ TEST(FMaterialGraphOperationsTests, TypedLayoutIncludesCallAndSurfaceDependencie
 	EXPECT_LT(Position(OverrideId).X, Position(CallId).X);
 	EXPECT_LT(Position(CallId).X, Testing::OutputPosition(*Material, Layout).X);
 	EXPECT_EQ(Position(ConstantId).DisplayName, "Retained label");
-	EXPECT_EQ(FMaterialGraphDocument(*Material).Layout({}, Durin::Editor::ETransactionMode::NotTransactable).GetStatus(), EMaterialGraphCommandStatus::NoChange);
+	EXPECT_EQ(FMaterialGraphDocument(*Material).Layout({}, Durin::ETransactionMode::NotTransactable).GetStatus(), EMaterialGraphCommandStatus::NoChange);
 	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, Revision);
 	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_TRUE(Transactions->Redo());
@@ -1475,7 +1475,7 @@ TEST(FMaterialGraphOperationsTests, MaximumGraphLayoutIsDeterministicAndPresenta
 		Material->GetMaterialCompileStatus().AuthoredRevision;
 
 	const FMaterialGraphCommandResult First =
-		FMaterialGraphDocument(*Material).Layout({}, Durin::Editor::ETransactionMode::NotTransactable);
+		FMaterialGraphDocument(*Material).Layout({}, Durin::ETransactionMode::NotTransactable);
 	ASSERT_TRUE(First) << FormatMaterialGraphCommandResult(First);
 	EXPECT_EQ(Material->GetMaterialGraphPresentation().Nodes.size(),
 		MaterialProgramMaxNodeCount);
@@ -1498,7 +1498,7 @@ TEST(FMaterialGraphOperationsTests, MaximumGraphLayoutIsDeterministicAndPresenta
 				&& PositionA.Y + HeightA > PositionB.Y);
 		}
 	const FMaterialGraphCommandResult Second =
-		FMaterialGraphDocument(*Material).Layout({}, Durin::Editor::ETransactionMode::NotTransactable);
+		FMaterialGraphDocument(*Material).Layout({}, Durin::ETransactionMode::NotTransactable);
 	EXPECT_EQ(Second.GetStatus(), EMaterialGraphCommandStatus::NoChange);
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), FirstLayout);
 
@@ -1565,7 +1565,7 @@ TEST(FMaterialGraphOperationsTests, LayoutReducesDenseCrossingsAndAvoidsSelected
 	}
 	auto Validation = Graph.Apply(*Material);
 	ASSERT_TRUE(Validation);
-	ASSERT_TRUE(FMaterialGraphDocument(*Material).Layout({}, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphDocument(*Material).Layout({}, Durin::ETransactionMode::NotTransactable));
 	const FMaterialGraphView View = FMaterialGraphDocument(*Material).Inspect();
 	auto Y = [&](const FGuid& Id) {
 		const FMaterialGraphNodeView* Node = FindViewNode(View, Id);
@@ -1587,8 +1587,8 @@ TEST(FMaterialGraphOperationsTests, LayoutReducesDenseCrossingsAndAvoidsSelected
 	ASSERT_NE(SelectedView, nullptr);
 	const FMaterialGraphNodePresentation Occupied{
 		Fixed, SelectedView->Presentation.X, 0};
-	ASSERT_TRUE(FMaterialGraphDocument(*Material).MoveNodes(std::span(&Occupied, 1), Durin::Editor::ETransactionMode::NotTransactable));
-	ASSERT_TRUE(FMaterialGraphDocument(*Material).Layout(std::span(&Selected, 1), Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphDocument(*Material).MoveNodes(std::span(&Occupied, 1), Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphDocument(*Material).Layout(std::span(&Selected, 1), Durin::ETransactionMode::NotTransactable));
 	const FMaterialGraphView Relayout = FMaterialGraphDocument(*Material).Inspect();
 	const auto* RelayoutSelected = FindViewNode(Relayout, Selected);
 	const auto* RelayoutFixed = FindViewNode(Relayout, Fixed);
@@ -1617,7 +1617,7 @@ TEST(FMaterialGraphOperationsTests,
 	Saturate->ResultType = EMaterialProgramValueType::Float3;
 	Saturate->Input = {Constant->Id};
 	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 2>{Constant.Get(), Saturate.Get()}, {.BaseColor = Durin::FMaterialNumericInput(Durin::FMaterialExpressionInput{Saturate->Id}, 3)}));
-	ASSERT_TRUE(FMaterialGraphDocument(*Material).Layout({}, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphDocument(*Material).Layout({}, Durin::ETransactionMode::NotTransactable));
 	std::vector<FGuid> AllNodes;
 	for (const auto& Node : Material->GetExpressionCollection().Expressions) AllNodes.push_back(Node->Id);
 	FMaterialGraphClipboardPayload Payload;
@@ -1689,7 +1689,7 @@ TEST(FMaterialGraphOperationsTests,
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(CaptureExpressions(*Material), BeforeRejected);
 
-	const FMaterialGraphCommandResult StandaloneCreated = Testing::CreateGraphConstant(FMaterialGraphDocument(*Material), 0.75f, 80, 120, Durin::Editor::ETransactionMode::Record);
+	const FMaterialGraphCommandResult StandaloneCreated = Testing::CreateGraphConstant(FMaterialGraphDocument(*Material), 0.75f, 80, 120, Durin::ETransactionMode::Record);
 	ASSERT_TRUE(StandaloneCreated);
 	const FGuid StandaloneId = StandaloneCreated.GeneratedNodeIds.front();
 	const FMaterialGraphCommandResult Duplicated =
@@ -1722,10 +1722,10 @@ TEST(FMaterialGraphOperationsTests, FunctionClipboardRetainsDependenciesAndRemap
 	Source->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	Target->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	FMaterialGraphDocument SourceDocument(*Source), TargetDocument(*Target);
-	const auto Call = SourceDocument.InsertFunctionCall(*Function, 0, 0, Durin::Editor::ETransactionMode::NotTransactable);
+	const auto Call = SourceDocument.InsertFunctionCall(*Function, 0, 0, Durin::ETransactionMode::NotTransactable);
 	ASSERT_TRUE(Call);
 	const auto OutputId = Function->GetFunctionSignature().Outputs[0].Id;
-	ASSERT_TRUE(SourceDocument.Connect(FMaterialGraphPinAddress::MaterialOutput(Source->GetOutputNode()->Id, std::nullopt), FMaterialGraphPinAddress::Output({Call.GeneratedNodeIds[0], 0, OutputId}), true, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(SourceDocument.Connect(FMaterialGraphPinAddress::MaterialOutput(Source->GetOutputNode()->Id, std::nullopt), FMaterialGraphPinAddress::Output({Call.GeneratedNodeIds[0], 0, OutputId}), true, Durin::ETransactionMode::NotTransactable));
 	FMaterialGraphClipboardPayload Payload;
 	ASSERT_TRUE(SourceDocument.CopySelection(Call.GeneratedNodeIds, Payload));
 	ASSERT_EQ(Payload.Nodes.size(), 1u);
@@ -1737,7 +1737,7 @@ TEST(FMaterialGraphOperationsTests, FunctionClipboardRetainsDependenciesAndRemap
 	EXPECT_FALSE(Payload.SourceRoot.IsValid());
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	const auto Before = CaptureExpressions(*Target);
-	const auto Pasted = TargetDocument.Paste(Payload, 100, 100, Durin::Editor::ETransactionMode::Record);
+	const auto Pasted = TargetDocument.Paste(Payload, 100, 100, Durin::ETransactionMode::Record);
 	ASSERT_TRUE(Pasted) << FormatMaterialGraphCommandResult(Pasted);
 	EXPECT_NE(Pasted.GeneratedNodeIds[0], Call.GeneratedNodeIds[0]);
 	EXPECT_EQ(Target->GetExpressionOutputs().Surface.OutputId, OutputId);
@@ -1750,7 +1750,7 @@ TEST(FMaterialGraphOperationsTests, FunctionClipboardRetainsDependenciesAndRemap
 	ASSERT_TRUE(Transactions->Redo());
 	FMaterialGraphDocument FunctionDocument(*WeakFunction.Get());
 	const auto FunctionBefore = CaptureExpressions(*WeakFunction.Get());
-	EXPECT_FALSE(FunctionDocument.Paste(Payload, 0, 0, Durin::Editor::ETransactionMode::NotTransactable));
+	EXPECT_FALSE(FunctionDocument.Paste(Payload, 0, 0, Durin::ETransactionMode::NotTransactable));
 	EXPECT_EQ(CaptureExpressions(*WeakFunction.Get()), FunctionBefore);
 	EXPECT_TRUE(Transactions->TryReset());
 	Payload = {};
@@ -1767,24 +1767,24 @@ TEST(FMaterialGraphOperationsTests, FunctionClipboardCopiesPortsAndSurfaceBindin
 	auto* Target = NewObject<DMaterialFunction>(nullptr, "ClipboardPortTarget");
 	FMaterialGraphDocument Document(*Source), Destination(*Target);
 	FMaterialFunctionPort Value{.Name = "Amount", .Default = {.Kind = EMaterialFunctionDefaultKind::Numeric}};
-	const auto Input = Document.AddPort(false, Value, {}, 0, 0, Durin::Editor::ETransactionMode::NotTransactable);
+	const auto Input = Document.AddPort(false, Value, {}, 0, 0, Durin::ETransactionMode::NotTransactable);
 	ASSERT_TRUE(Input);
 	const auto OriginalInputId = Source->GetFunctionSignature().Inputs.back().Id;
-	ASSERT_TRUE(Document.AddPort(false, {.Name = "Follow", .Default = {.Kind = EMaterialFunctionDefaultKind::Input, .InputId = OriginalInputId}}, {}, 0, 0, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Document.AddPort(false, {.Name = "Follow", .Default = {.Kind = EMaterialFunctionDefaultKind::Input, .InputId = OriginalInputId}}, {}, 0, 0, Durin::ETransactionMode::NotTransactable));
 	const auto SurfaceId = Source->GetExpressionCollection().Expressions.front()->Id;
 	auto SetExpression = Testing::MakeGraphExpression<DMaterialExpressionSetSurfaceAttributes>();
 	SetExpression->Surface = {SurfaceId};
 	SetExpression->Attributes = {{EMaterialSurfaceOutput::Metallic, {Input.GeneratedNodeIds[0]}}};
-	const auto Set = Document.CreateExpression(*SetExpression.Get(), 0, 0, Durin::Editor::ETransactionMode::NotTransactable);
+	const auto Set = Document.CreateExpression(*SetExpression.Get(), 0, 0, Durin::ETransactionMode::NotTransactable);
 	ASSERT_TRUE(Set);
-	ASSERT_TRUE(Document.AddPort(true, {.Type = EMaterialProgramValueType::Surface, .Name = "Modified"}, {Set.GeneratedNodeIds[0]}, 0, 0, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Document.AddPort(true, {.Type = EMaterialProgramValueType::Surface, .Name = "Modified"}, {Set.GeneratedNodeIds[0]}, 0, 0, Durin::ETransactionMode::NotTransactable));
 	std::vector<FGuid> Selection;
 	for (const auto& Node : Source->GetExpressionCollection().Expressions) Selection.push_back(Node->Id);
 	FMaterialGraphClipboardPayload Payload;
 	ASSERT_TRUE(Document.CopySelection(Selection, Payload));
 	const auto Before = CaptureExpressions(*Target);
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
-	const auto Pasted = Destination.Paste(Payload, 400, 100, Durin::Editor::ETransactionMode::Record);
+	const auto Pasted = Destination.Paste(Payload, 400, 100, Durin::ETransactionMode::Record);
 	ASSERT_TRUE(Pasted) << FormatMaterialGraphCommandResult(Pasted);
 	const auto& Graph = CaptureExpressions(*Target);
 	EXPECT_EQ(Graph.Signature.Inputs.size(), 4u);
@@ -1803,7 +1803,7 @@ TEST(FMaterialGraphOperationsTests, FunctionClipboardCopiesPortsAndSurfaceBindin
 	EXPECT_EQ(CaptureExpressions(*Target), Before);
 	ASSERT_TRUE(Transactions->Redo());
 	FMaterialGraphClipboardPayload Cut;
-	ASSERT_TRUE(Destination.CutSelection(Pasted.GeneratedNodeIds, Cut, Durin::Editor::ETransactionMode::Record));
+	ASSERT_TRUE(Destination.CutSelection(Pasted.GeneratedNodeIds, Cut, Durin::ETransactionMode::Record));
 	EXPECT_EQ(CaptureExpressions(*Target), Before);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Target->GetFunctionSignature().Outputs.size(), 3u);
@@ -1821,7 +1821,7 @@ TEST(FMaterialGraphOperationsTests, CommandsAreAtomicAndTransactionsRestoreSeman
 		Material->GetMaterialCompileStatus().AuthoredRevision;
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 
-	const FMaterialGraphCommandResult Created = Testing::CreateGraphConstant(FMaterialGraphDocument(*Material), 0.25f, 120, -80, Durin::Editor::ETransactionMode::Record);
+	const FMaterialGraphCommandResult Created = Testing::CreateGraphConstant(FMaterialGraphDocument(*Material), 0.25f, 120, -80, Durin::ETransactionMode::Record);
 	ASSERT_TRUE(Created) << FormatMaterialGraphCommandResult(Created);
 	ASSERT_EQ(Created.GeneratedNodeIds.size(), 1u);
 	const FGuid CreatedId = Created.GeneratedNodeIds.front();
@@ -1904,7 +1904,7 @@ TEST(FMaterialGraphOperationsTests,
 	ASSERT_TRUE(MoveSession.Apply(std::span(&Preview, 1)));
 
 	FMaterialGraphDocument Document(*Material);
-	auto Validation = Document.SetInputDefault(Material->GetOutputNode()->Id, static_cast<uint32>(EMaterialOutputPin::Roughness), {.Kind = EMaterialInputDefaultKind::Literal, .Type = EMaterialProgramValueType::Float, .Literal = {.X = .37f}}, {}, Durin::Editor::ETransactionMode::NotTransactable);
+	auto Validation = Document.SetInputDefault(Material->GetOutputNode()->Id, static_cast<uint32>(EMaterialOutputPin::Roughness), {.Kind = EMaterialInputDefaultKind::Literal, .Type = EMaterialProgramValueType::Float, .Literal = {.X = .37f}}, {}, Durin::ETransactionMode::NotTransactable);
 	ASSERT_TRUE(Validation);
 	const uint64 SemanticRevision =
 		Material->GetMaterialCompileStatus().AuthoredRevision;
@@ -2025,7 +2025,7 @@ TEST(FMaterialGraphOperationsTests, TextureEditSessionRetainsOriginalAcrossColle
 	const FGuid Id = FGuid::NewGuid();
 	ASSERT_TRUE(FMaterialGraphOperations::CreateParameter(*Material, {.Id = Id,
 		.Name = FName("Texture"), .Type = EMaterialParameterType::Texture,
-		.Value = FMaterialParameterValue::MakeTexture(Original)}, Durin::Editor::ETransactionMode::NotTransactable));
+		.Value = FMaterialParameterValue::MakeTexture(Original)}, Durin::ETransactionMode::NotTransactable));
 	FMaterialGraphParameterEditSession Session;
 	ASSERT_TRUE(Session.Begin(*Material, Id, nullptr));
 	ASSERT_TRUE(Session.Apply(FMaterialParameterValue::MakeTexture(Replacement)));
@@ -2045,8 +2045,8 @@ TEST(FMaterialGraphOperationsTests,
 	ASSERT_NE(Material, nullptr);
 	ASSERT_TRUE(FMaterialGraphOperations::SetSurfaceDefault(*Material, {
 		.Output = EMaterialSurfaceOutput::BaseColor,
-		.Value = {0.2f, 0.3f, 0.4f, 0.0f}}, Durin::Editor::ETransactionMode::NotTransactable));
-	ASSERT_TRUE(FMaterialGraphOperations::PromoteSurfaceOutputToParameter(*Material, {.Output = EMaterialSurfaceOutput::BaseColor}, Durin::Editor::ETransactionMode::NotTransactable));
+		.Value = {0.2f, 0.3f, 0.4f, 0.0f}}, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphOperations::PromoteSurfaceOutputToParameter(*Material, {.Output = EMaterialSurfaceOutput::BaseColor}, Durin::ETransactionMode::NotTransactable));
 
 	const FGuid ParameterId = Material->GetParameterDefinitions().front().Id;
 	const uint64 CompileGeneration =
@@ -2073,7 +2073,7 @@ TEST(FMaterialGraphOperationsTests,
 	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration,
 		CompileGeneration);
 	ASSERT_TRUE(Session.Commit());
-	ASSERT_TRUE(FMaterialGraphDocument(*Material).MoveMaterialOutput(713, -91, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphDocument(*Material).MoveMaterialOutput(713, -91, Durin::ETransactionMode::NotTransactable));
 
 	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_TRUE(ReadVector4Parameter(*Material,
@@ -2154,7 +2154,7 @@ TEST(FMaterialGraphOperationsTests, ForeignClipboardOwnsLocalDeclarationsAndReje
 	Node->Metadata.DisplayName = Definition.DisplayName;
 	Node->DefaultValue = Definition.Value.GetVector4();
 	ASSERT_TRUE(Source->SetMaterialExpressions(std::array<DMaterialExpression*, 1>{Node.Get()}, {}));
-	ASSERT_TRUE(FMaterialGraphDocument(*Source).Layout({}, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphDocument(*Source).Layout({}, Durin::ETransactionMode::NotTransactable));
 	ASSERT_TRUE(Target->SetMaterialExpressions({}, {}));
 	FMaterialGraphClipboardPayload Payload;
 	ASSERT_TRUE(FMaterialGraphDocument(*Source).CopySelection(std::span(&Node->Id, 1), Payload));
@@ -2175,7 +2175,7 @@ TEST(FMaterialGraphOperationsTests, ForeignClipboardOwnsLocalDeclarationsAndReje
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Target->GetParameterDefinitions().front().Id, LocalId);
 	EXPECT_EQ(Target->GetMaterialGraphPresentation(), AfterPresentation);
-	ASSERT_TRUE(FMaterialGraphDocument(*Target).Paste(Payload, 600, 200, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphDocument(*Target).Paste(Payload, 600, 200, Durin::ETransactionMode::NotTransactable));
 	EXPECT_EQ(Target->GetParameterDefinitions().size(), 1u);
 	EXPECT_EQ(Cast<DMaterialExpressionParameter>(Target->GetExpressionCollection().Expressions[Target->GetExpressionCollection().Expressions.size() - 2].Get())->Metadata.Id, LocalId);
 
@@ -2183,12 +2183,12 @@ TEST(FMaterialGraphOperationsTests, ForeignClipboardOwnsLocalDeclarationsAndReje
 	const auto BeforePresentation = Target->GetMaterialGraphPresentation();
 	const auto Revision = Target->GetMaterialCompileStatus().AuthoredRevision;
 	Cast<DMaterialExpressionParameter>(Payload.Nodes.front().Expression.Get())->Metadata.Name = {};
-	EXPECT_FALSE(FMaterialGraphDocument(*Target).Paste(Payload, 0, 0, Durin::Editor::ETransactionMode::NotTransactable));
+	EXPECT_FALSE(FMaterialGraphDocument(*Target).Paste(Payload, 0, 0, Durin::ETransactionMode::NotTransactable));
 	EXPECT_EQ(CaptureExpressions(*Target), BeforeProgram);
 	EXPECT_EQ(Target->GetMaterialGraphPresentation(), BeforePresentation);
 	EXPECT_EQ(Target->GetMaterialCompileStatus().AuthoredRevision, Revision);
 	Cast<DMaterialExpressionParameter>(Payload.Nodes.front().Expression.Get())->Metadata = {};
-	EXPECT_FALSE(FMaterialGraphDocument(*Target).Paste(Payload, 0, 0, Durin::Editor::ETransactionMode::NotTransactable));
+	EXPECT_FALSE(FMaterialGraphDocument(*Target).Paste(Payload, 0, 0, Durin::ETransactionMode::NotTransactable));
 	EXPECT_EQ(CaptureExpressions(*Target), BeforeProgram);
 	MarkAsGarbage(Source);
 	MarkAsGarbage(Target);
@@ -2208,16 +2208,16 @@ TEST(FMaterialGraphOperationsTests, SameRootClipboardCreatesIndependentSnapshotO
 	Node->Metadata.DisplayName = Definition.DisplayName;
 	Node->DefaultValue = Definition.Value.GetScalar();
 	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 1>{Node.Get()}, {}));
-	ASSERT_TRUE(FMaterialGraphDocument(*Material).Layout({}, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphDocument(*Material).Layout({}, Durin::ETransactionMode::NotTransactable));
 	FMaterialGraphClipboardPayload Payload;
 	ASSERT_TRUE(FMaterialGraphDocument(*Material).CopySelection(std::span(&Node->Id, 1), Payload));
-	ASSERT_TRUE(FMaterialGraphOperations::RenameParameter(*Material, Definition.Id, "RenamedAmount", Durin::Editor::ETransactionMode::NotTransactable));
-	ASSERT_TRUE(FMaterialGraphDocument(*Material).Paste(Payload, 400, 0, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphOperations::RenameParameter(*Material, Definition.Id, "RenamedAmount", Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphDocument(*Material).Paste(Payload, 400, 0, Durin::ETransactionMode::NotTransactable));
 	EXPECT_NE(Cast<DMaterialExpressionParameter>(Material->GetExpressionCollection().Expressions[Material->GetExpressionCollection().Expressions.size() - 2].Get())->Metadata.Id, Definition.Id);
 	EXPECT_EQ(Cast<DMaterialExpressionParameter>(Material->GetExpressionCollection().Expressions[Material->GetExpressionCollection().Expressions.size() - 2].Get())->Metadata.Name, Definition.Name);
 	EXPECT_EQ(Material->GetParameterDefinitions().size(), 2u);
 	ASSERT_TRUE(Material->SetMaterialExpressions({}, {}));
-	EXPECT_TRUE(FMaterialGraphDocument(*Material).Paste(Payload, 400, 0, Durin::Editor::ETransactionMode::NotTransactable));
+	EXPECT_TRUE(FMaterialGraphDocument(*Material).Paste(Payload, 400, 0, Durin::ETransactionMode::NotTransactable));
 	EXPECT_EQ(Material->GetParameterDefinitions().size(), 1u);
 	MarkAsGarbage(Material);
 	CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -2302,7 +2302,7 @@ TEST(FMaterialGraphOperationsTests, ClipboardRetainsTextureDefaultsAfterSourceCo
 	Node->Metadata.DisplayName = Definition.DisplayName;
 	Node->DefaultValue = Definition.Value.GetTexture();
 	ASSERT_TRUE(Source->SetMaterialExpressions(std::array<DMaterialExpression*, 1>{Node.Get()}, {}));
-	ASSERT_TRUE(FMaterialGraphDocument(*Source).Layout({}, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphDocument(*Source).Layout({}, Durin::ETransactionMode::NotTransactable));
 	FMaterialGraphClipboardPayload Payload;
 	ASSERT_TRUE(FMaterialGraphDocument(*Source).CopySelection(std::span(&Node->Id, 1), Payload));
 	Node.Reset();
@@ -2312,7 +2312,7 @@ TEST(FMaterialGraphOperationsTests, ClipboardRetainsTextureDefaultsAfterSourceCo
 	EXPECT_EQ(Payload.SourceRoot.Get(), nullptr);
 	DMaterial* Target = NewObject<DMaterial>(nullptr, "ClipboardTextureTarget");
 	ASSERT_TRUE(Target->SetMaterialExpressions({}, {}));
-	ASSERT_TRUE(FMaterialGraphDocument(*Target).Paste(Payload, 0, 0, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphDocument(*Target).Paste(Payload, 0, 0, Durin::ETransactionMode::NotTransactable));
 	EXPECT_EQ(Target->GetParameterDefinitions().front().Value.GetTexture().Texture.Get(), WeakTexture.Get());
 	MarkAsGarbage(Target);
 	CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -2416,14 +2416,14 @@ TEST(FMaterialGraphOperationsTests, SharedParametersSynchronizeRebindAndUndo)
 	FMaterialGraphDocument Document(*Material);
 	FMaterialParameterDefinition Definition;
 	Definition.Name = "Amount"; Definition.Value = FMaterialParameterValue::MakeScalar(.25f);
-	const auto A = FMaterialGraphOperations::CreateParameter(*Material, Definition, Durin::Editor::ETransactionMode::NotTransactable);
+	const auto A = FMaterialGraphOperations::CreateParameter(*Material, Definition, Durin::ETransactionMode::NotTransactable);
 	ASSERT_TRUE(A);
 	const auto Id = A.AffectedParameterIds.front();
-	const auto B = FMaterialGraphDocument(*Material).DuplicateNodes(A.GeneratedNodeIds, 100, 0, Durin::Editor::ETransactionMode::NotTransactable);
+	const auto B = FMaterialGraphDocument(*Material).DuplicateNodes(A.GeneratedNodeIds, 100, 0, Durin::ETransactionMode::NotTransactable);
 	ASSERT_TRUE(B) << FormatMaterialGraphCommandResult(B);
 	ASSERT_EQ(Material->GetParameterDefinitions().size(), 1u);
-	ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialSurfaceOutput::Metallic), FMaterialGraphPinAddress::Output({A.GeneratedNodeIds.front()}), true, Durin::Editor::ETransactionMode::NotTransactable));
-	ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialSurfaceOutput::Roughness), FMaterialGraphPinAddress::Output({B.GeneratedNodeIds.front()}), true, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialSurfaceOutput::Metallic), FMaterialGraphPinAddress::Output({A.GeneratedNodeIds.front()}), true, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialSurfaceOutput::Roughness), FMaterialGraphPinAddress::Output({B.GeneratedNodeIds.front()}), true, Durin::ETransactionMode::NotTransactable));
 	std::vector<DMaterialExpression*> Expressions;
 	for (const auto& E : Material->GetExpressionCollection().Expressions) Expressions.push_back(E.Get());
 	const auto Built = MIR::FGraphBuilder(Expressions).FinishSurface(Material->GetExpressionOutputs());
@@ -2487,7 +2487,7 @@ TEST(FMaterialGraphOperationsTests, SharedParameterValidationAndForeignPasteAreA
 	B->Metadata = A->Metadata; B->DefaultValue = .4f;
 	const std::array<DMaterialExpression*, 2> Nodes{A.Get(), B.Get()};
 	ASSERT_TRUE(Source->SetMaterialExpressions(Nodes, {}));
-	ASSERT_TRUE(FMaterialGraphDocument(*Source).Layout({}, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphDocument(*Source).Layout({}, Durin::ETransactionMode::NotTransactable));
 	const auto Before = CaptureExpressions(*Source);
 	B->DefaultValue = .7f;
 	EXPECT_FALSE(Source->SetMaterialExpressions(Nodes, {}));
@@ -2499,12 +2499,12 @@ TEST(FMaterialGraphOperationsTests, SharedParameterValidationAndForeignPasteAreA
 	FMaterialGraphClipboardPayload Payload;
 	const std::array Ids{A->Id, B->Id};
 	ASSERT_TRUE(FMaterialGraphDocument(*Source).CopySelection(Ids, Payload));
-	ASSERT_TRUE(FMaterialGraphDocument(*Target).Paste(Payload, 0, 0, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphDocument(*Target).Paste(Payload, 0, 0, Durin::ETransactionMode::NotTransactable));
 	ASSERT_EQ(Target->GetParameterDefinitions().size(), 1u);
 	const auto TargetId = Target->GetParameterDefinitions().front().Id;
 	EXPECT_NE(TargetId, A->Metadata.Id);
 	ASSERT_TRUE(Target->SetParameterValue(TargetId, FMaterialParameterValue::MakeScalar(.9f)));
-	ASSERT_TRUE(FMaterialGraphDocument(*Target).Paste(Payload, 100, 0, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphDocument(*Target).Paste(Payload, 100, 0, Durin::ETransactionMode::NotTransactable));
 	EXPECT_EQ(Target->GetParameterDefinitions().size(), 1u);
 	for (const auto& E : Target->GetExpressionCollection().Expressions)
 		if (const auto* Parameter = Cast<DMaterialExpressionScalarParameter>(E.Get())) EXPECT_FLOAT_EQ(Parameter->DefaultValue, .9f);
@@ -2512,12 +2512,12 @@ TEST(FMaterialGraphOperationsTests, SharedParameterValidationAndForeignPasteAreA
 	Conflict.Name = "Amount"; Conflict.Type = EMaterialParameterType::Vector;
 	Conflict.Value = FMaterialParameterValue::MakeVector({1, 1, 1});
 	const auto TargetBefore = CaptureExpressions(*Target);
-	const auto Rejected = FMaterialGraphOperations::CreateParameter(*Target, Conflict, Durin::Editor::ETransactionMode::NotTransactable);
+	const auto Rejected = FMaterialGraphOperations::CreateParameter(*Target, Conflict, Durin::ETransactionMode::NotTransactable);
 	ASSERT_FALSE(Rejected);
 	EXPECT_EQ(Rejected.Message.find("A parameter with this name already exists with a different type."), 0u);
 	EXPECT_EQ(CaptureExpressions(*Target), TargetBefore);
 	Conflict.Name = "IndependentAmount";
-	ASSERT_TRUE(FMaterialGraphOperations::CreateParameter(*Target, Conflict, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphOperations::CreateParameter(*Target, Conflict, Durin::ETransactionMode::NotTransactable));
 	EXPECT_EQ(Rejected.Message.find("A parameter with this name already exists with a different type."), 0u);
 
 	const auto* Existing = Cast<DMaterialExpressionParameter>(Target->GetExpressionCollection().Expressions.front().Get());
@@ -2525,12 +2525,12 @@ TEST(FMaterialGraphOperationsTests, SharedParameterValidationAndForeignPasteAreA
 	TStrongObjectPtr<DMaterialExpressionParameter> Invalid(DuplicateObject(Existing, nullptr, NAME_None).value());
 	Invalid->Metadata.Name = NAME_None;
 	const auto BeforeInvalid = CaptureExpressions(*Target);
-	const auto InvalidResult = FMaterialGraphDocument(*Target).ReplaceExpression(*Invalid.Get(), Durin::Editor::ETransactionMode::NotTransactable);
+	const auto InvalidResult = FMaterialGraphDocument(*Target).ReplaceExpression(*Invalid.Get(), Durin::ETransactionMode::NotTransactable);
 	EXPECT_FALSE(InvalidResult);
 	EXPECT_EQ(InvalidResult.Message.find("The parameter definition is invalid."), 0u);
 	EXPECT_EQ(CaptureExpressions(*Target), BeforeInvalid);
 	Invalid->Metadata.Name = "ValidRetry";
-	ASSERT_TRUE(FMaterialGraphDocument(*Target).ReplaceExpression(*Invalid.Get(), Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphDocument(*Target).ReplaceExpression(*Invalid.Get(), Durin::ETransactionMode::NotTransactable));
 	MarkAsGarbage(Source); MarkAsGarbage(Target); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
@@ -2544,7 +2544,7 @@ TEST(FMaterialGraphOperationsTests, NarrowPromotionUsesAndReusesFourComponentOwn
 	const auto Color = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float3);
 	ASSERT_TRUE(Color);
 	const auto Id = Color.GeneratedNodeIds.front();
-	ASSERT_TRUE(Document.SetConstantValue(Id, FMaterialParameterValue::MakeVector({.2, .4, .6}), Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Document.SetConstantValue(Id, FMaterialParameterValue::MakeVector({.2, .4, .6}), Durin::ETransactionMode::NotTransactable));
 	const auto Before = CaptureExpressions(*Material);
 	const auto Promoted = FMaterialGraphOperations::PromoteConstantToParameter(*Material, Id, "Tint");
 	ASSERT_TRUE(Promoted) << FormatMaterialGraphCommandResult(Promoted);
@@ -2561,7 +2561,7 @@ TEST(FMaterialGraphOperationsTests, NarrowPromotionUsesAndReusesFourComponentOwn
 	ASSERT_TRUE(Transactions->Redo());
 	const auto UV = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float2);
 	ASSERT_TRUE(UV);
-	const auto Reused = FMaterialGraphOperations::PromoteConstantToParameter(*Material, UV.GeneratedNodeIds.front(), "Tint", Durin::Editor::ETransactionMode::NotTransactable);
+	const auto Reused = FMaterialGraphOperations::PromoteConstantToParameter(*Material, UV.GeneratedNodeIds.front(), "Tint", Durin::ETransactionMode::NotTransactable);
 	ASSERT_TRUE(Reused) << FormatMaterialGraphCommandResult(Reused);
 	EXPECT_EQ(Reused.AffectedParameterIds.front(), ParameterId);
 	EXPECT_EQ(Material->GetParameterDefinitions().size(), 1u);
@@ -2609,7 +2609,7 @@ TEST(FMaterialGraphOperationsTests, OwnerPublishesCompleteCommandAndHistoryOnce)
 				EXPECT_NE(std::ranges::find(Material->GetMaterialGraphPresentation().Nodes, Node.NodeId,
 					&FMaterialGraphNodePresentation::NodeId), Material->GetMaterialGraphPresentation().Nodes.end());
 	});
-	const auto Created = Testing::CreateGraphConstant(Document, .25f, 123, 456, Durin::Editor::ETransactionMode::Record);
+	const auto Created = Testing::CreateGraphConstant(Document, .25f, 123, 456, Durin::ETransactionMode::Record);
 	ASSERT_TRUE(Created);
 	ASSERT_EQ(Events.size(), 1u);
 	ASSERT_EQ(Events.back().Nodes.size(), 1u);
@@ -2667,7 +2667,7 @@ TEST(FMaterialGraphOperationsTests, ReadModelSubscriptionsTrackReplacementDepend
 	TStrongObjectPtr<DMaterialFunction> First(NewObject<DMaterialFunction>(nullptr, "GraphObserverFirst"));
 	TStrongObjectPtr<DMaterialFunction> Second(NewObject<DMaterialFunction>(nullptr, "GraphObserverSecond"));
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
-	const auto Call = FMaterialGraphDocument(*Material.Get()).InsertFunctionCall(*First.Get(), 0, 0, Durin::Editor::ETransactionMode::NotTransactable);
+	const auto Call = FMaterialGraphDocument(*Material.Get()).InsertFunctionCall(*First.Get(), 0, 0, Durin::ETransactionMode::NotTransactable);
 	ASSERT_TRUE(Call);
 	FMaterialGraphReadModel Model;
 	const auto Catalog = FMaterialGraphOperations::EnumerateCatalog();
@@ -2680,16 +2680,16 @@ TEST(FMaterialGraphOperationsTests, ReadModelSubscriptionsTrackReplacementDepend
 	EXPECT_FALSE(Model.Refresh(*Material.Get(), Catalog).IsEmpty());
 	auto Signature = First->GetFunctionSignature();
 	Signature.Outputs[0].Name = "Old dependency";
-	ASSERT_TRUE(FMaterialGraphDocument(*First.Get()).SetPort(true, Signature.Outputs[0], Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphDocument(*First.Get()).SetPort(true, Signature.Outputs[0], Durin::ETransactionMode::NotTransactable));
 	EXPECT_TRUE(Model.Refresh(*Material.Get(), Catalog).IsEmpty());
 	Signature = Second->GetFunctionSignature();
 	Signature.Outputs[0].Name = "New dependency";
-	ASSERT_TRUE(FMaterialGraphDocument(*Second.Get()).SetPort(true, Signature.Outputs[0], Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphDocument(*Second.Get()).SetPort(true, Signature.Outputs[0], Durin::ETransactionMode::NotTransactable));
 	EXPECT_FALSE(Model.Refresh(*Material.Get(), Catalog).IsEmpty());
 	EXPECT_EQ(FindViewNode(Model.GetView(), Call.GeneratedNodeIds[0])->Outputs[0].Name, "New dependency");
 	EXPECT_TRUE(Model.Refresh(*First.Get(), Catalog).Has(EMaterialGraphChange::Reset));
 	Signature.Outputs[0].Name = "Detached dependency";
-	ASSERT_TRUE(FMaterialGraphDocument(*Second.Get()).SetPort(true, Signature.Outputs[0], Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphDocument(*Second.Get()).SetPort(true, Signature.Outputs[0], Durin::ETransactionMode::NotTransactable));
 	EXPECT_TRUE(Model.Refresh(*First.Get(), Catalog).IsEmpty());
 }
 
@@ -2782,7 +2782,7 @@ TEST(FMaterialGraphOperationsTests, VertexOffsetPinRetainsConnectionsAndDefaults
 	ASSERT_NE(Pin, Terminal->Inputs.end());
 	EXPECT_EQ(Pin->Constraint.Stages, EMaterialEvaluationStage::Vertex);
 	ASSERT_TRUE(Document.Connect(Terminal->InputAddress(*Pin), FMaterialGraphPinAddress::Output({Normal.GeneratedNodeIds.front()}), false));
-	ASSERT_TRUE(Document.SetUseMaterialAttributes(true, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Document.SetUseMaterialAttributes(true, Durin::ETransactionMode::NotTransactable));
 	View = Document.Inspect();
 	Terminal = FindViewNode(View, OutputId);
 	ASSERT_NE(Terminal, nullptr);
@@ -2848,7 +2848,7 @@ TEST(FMaterialGraphOperationsTests, MaterialOutputUsesStablePinsAndOrdinaryNodeC
 	ASSERT_TRUE(Extracted) << FormatMaterialGraphCommandResult(Extracted);
 	ASSERT_TRUE(Document.InlineInputNode(OutputId, static_cast<uint32>(EMaterialOutputPin::Metallic), {}));
 	EXPECT_FLOAT_EQ(ReadMaterialOutputDefault(Material->GetOutputNode()->Outputs, EMaterialOutputPin::Metallic)[0], .7f);
-	EXPECT_FALSE(Document.SetInputDefault(OutputId, 256, Default, {}, Durin::Editor::ETransactionMode::NotTransactable));
+	EXPECT_FALSE(Document.SetInputDefault(OutputId, 256, Default, {}, Durin::ETransactionMode::NotTransactable));
 	const auto BeforeRejected = Events.size();
 	EXPECT_FALSE(Document.RemoveNodes(std::span(&OutputId, 1)));
 	FMaterialGraphClipboardPayload Clipboard;
@@ -2907,7 +2907,7 @@ TEST(FMaterialGraphOperationsTests, ConnectionsAndReplayPreserveObjectsWithoutGr
 		ASSERT_TRUE(Transactions->Redo());
 		EXPECT_EQ(Material->GetExpressionCollection().Expressions, Original);
 		EXPECT_EQ(GDObjectArray.GetNum(), ObjectCount);
-		ASSERT_TRUE(Document.Disconnect(FMaterialGraphPinAddress::Input(Destination.GeneratedNodeIds.front(), 0), Durin::Editor::ETransactionMode::NotTransactable));
+		ASSERT_TRUE(Document.Disconnect(FMaterialGraphPinAddress::Input(Destination.GeneratedNodeIds.front(), 0), Durin::ETransactionMode::NotTransactable));
 		EXPECT_EQ(Material->GetExpressionCollection().Expressions, Original);
 		EXPECT_EQ(GDObjectArray.GetNum(), ObjectCount);
 	}
@@ -3072,7 +3072,7 @@ TEST(FMaterialGraphOperationsTests, ExtractOutputDefaultPreservesMaterialAttribu
 	Graph.Outputs.Metallic.SetConstant({.7f});
 	ASSERT_TRUE(Graph.Apply(*Material));
 	const FMaterialGraphNodePresentation Position{Material->GetOutputNode()->Id, 600, 120};
-	ASSERT_TRUE(FMaterialGraphDocument(*Material).MoveNodes(std::span(&Position, 1), Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphDocument(*Material).MoveNodes(std::span(&Position, 1), Durin::ETransactionMode::NotTransactable));
 	FMaterialGraphDocument Document(*Material);
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	const auto Before = Material->GetExpressionOutputs();
@@ -3087,7 +3087,7 @@ TEST(FMaterialGraphOperationsTests, ExtractOutputDefaultPreservesMaterialAttribu
 	EXPECT_EQ(Material->GetExpressionOutputs(), Before);
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Material->GetExpressionOutputs(), Expected);
-	ASSERT_TRUE(Document.SetUseMaterialAttributes(true, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Document.SetUseMaterialAttributes(true, Durin::ETransactionMode::NotTransactable));
 	EXPECT_EQ(Material->GetExpressionOutputs().Surface, Before.Surface);
 	std::vector<DMaterialExpression*> Expressions;
 	for (const auto& Expression : Material->GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
@@ -3129,11 +3129,11 @@ TEST(FMaterialGraphOperationsTests, OutputModeRetainsConnectionsAndUndoRestoresV
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Pins().size(), 2u);
 	// Editing either stored connection set never switches the mode or clears the other.
-	ASSERT_TRUE(Document.Disconnect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialSurfaceOutput::BaseColor), Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Document.Disconnect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialSurfaceOutput::BaseColor), Durin::ETransactionMode::NotTransactable));
 	EXPECT_TRUE(Material->GetExpressionOutputs().bUseMaterialAttributes);
 	EXPECT_EQ(Material->GetExpressionOutputs().Surface, Before.Surface);
-	ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialSurfaceOutput::BaseColor), FMaterialGraphPinAddress::Output({Before.BaseColor.Connection.ExpressionId, Before.BaseColor.Connection.OutputIndex, Before.BaseColor.Connection.OutputId}), true, Durin::Editor::ETransactionMode::NotTransactable));
-	ASSERT_TRUE(Document.Disconnect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, std::nullopt), Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialSurfaceOutput::BaseColor), FMaterialGraphPinAddress::Output({Before.BaseColor.Connection.ExpressionId, Before.BaseColor.Connection.OutputIndex, Before.BaseColor.Connection.OutputId}), true, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Document.Disconnect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, std::nullopt), Durin::ETransactionMode::NotTransactable));
 	EXPECT_EQ(Material->GetExpressionOutputs().BaseColor, Before.BaseColor);
 	// An empty packed input uses standard defaults, independently of retained individual values.
 	std::vector<DMaterialExpression*> Expressions;
@@ -3142,7 +3142,7 @@ TEST(FMaterialGraphOperationsTests, OutputModeRetainsConnectionsAndUndoRestoresV
 	ASSERT_TRUE(Built);
 	EXPECT_FALSE(Built.IR.SurfaceRoot.Inputs[0].bExpression);
 	EXPECT_EQ(Built.IR.SurfaceRoot.Inputs[0].Literal.X, 0.5f);
-	ASSERT_TRUE(Document.SetUseMaterialAttributes(false, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Document.SetUseMaterialAttributes(false, Durin::ETransactionMode::NotTransactable));
 	auto Properties = Material->GetStaticProperties();
 	Properties.ShadingModel = EMaterialShadingModel::Unlit;
 	Properties.BlendMode = EMaterialBlendMode::Masked;
@@ -3210,7 +3210,7 @@ TEST(FMaterialGraphOperationsTests, PinAddressesPreserveDefaultsAndRejectReplace
 	const FMaterialGraphPinAddress Target{Output->Node.Id, EMaterialGraphPinKind::MaterialAttribute,
 		static_cast<uint32>(EMaterialSurfaceOutput::Roughness)};
 	const auto Default = Material->GetExpressionOutputs().Roughness.Constant[0];
-	ASSERT_TRUE(Document.Connect(Target, FMaterialGraphPinAddress::Output({A.GeneratedNodeIds[0]}), false, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Document.Connect(Target, FMaterialGraphPinAddress::Output({A.GeneratedNodeIds[0]}), false, Durin::ETransactionMode::NotTransactable));
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	EXPECT_FALSE(Document.Connect(Target, FMaterialGraphPinAddress::Output({B.GeneratedNodeIds[0]}), false));
 	EXPECT_EQ(Document.Connect(Target, FMaterialGraphPinAddress::Output({A.GeneratedNodeIds[0]}), false).GetStatus(),
@@ -3235,7 +3235,7 @@ TEST(FMaterialGraphOperationsTests, PinAddressesPreserveDefaultsAndRejectReplace
 	EXPECT_EQ(Disconnected.AffectedNodeIds, ExpectedIds);
 	EXPECT_FALSE(Material->GetExpressionOutputs().Roughness.Connection.ExpressionId.IsValid());
 	EXPECT_EQ(Material->GetExpressionOutputs().Roughness.Constant[0], Default);
-	EXPECT_FALSE(Document.Connect(Target, {A.GeneratedNodeIds[0], EMaterialGraphPinKind::Input}, true, Durin::Editor::ETransactionMode::NotTransactable));
+	EXPECT_FALSE(Document.Connect(Target, {A.GeneratedNodeIds[0], EMaterialGraphPinKind::Input}, true, Durin::ETransactionMode::NotTransactable));
 }
 
 TEST(FMaterialGraphOperationsTests, SharedMoveDraftPreservesIndependentPresentationEdits)
@@ -3327,7 +3327,7 @@ TEST(FMaterialGraphOperationsTests, SharedMoveRejectsInvalidDraftsAndStaleOwners
 		EXPECT_EQ(Coordinate.Message.find("The graph move preview is outside the supported coordinate range."), 0u);
 		ASSERT_EQ(Move.GetPositions().size(), 1u);
 		EXPECT_EQ(Move.GetPositions().front().X, 400);
-		ASSERT_TRUE(Document.SetConstantValue(Id, FMaterialParameterValue::MakeScalar(.8f), Durin::Editor::ETransactionMode::NotTransactable));
+		ASSERT_TRUE(Document.SetConstantValue(Id, FMaterialParameterValue::MakeScalar(.8f), Durin::ETransactionMode::NotTransactable));
 		const auto Stale = Move.Commit();
 		EXPECT_FALSE(Stale);
 		EXPECT_EQ(Stale.Message.find("The graph changed semantically during the move."), 0u);
@@ -3476,7 +3476,7 @@ TEST(FMaterialGraphOperationsTests, GestureHistoryFailuresRemainRetryableAndCanc
 	Definition.Name = "GestureValue";
 	Definition.Type = EMaterialParameterType::Scalar;
 	Definition.Value = FMaterialParameterValue::MakeScalar(.25f);
-	const auto Created = FMaterialGraphOperations::CreateParameter(*Material, Definition, Durin::Editor::ETransactionMode::NotTransactable);
+	const auto Created = FMaterialGraphOperations::CreateParameter(*Material, Definition, Durin::ETransactionMode::NotTransactable);
 	ASSERT_TRUE(Created);
 	const auto ParameterId = Created.AffectedParameterIds.front();
 	Tests::FTestEditorTransactorOwner Transactions;
@@ -3534,7 +3534,7 @@ TEST(FMaterialGraphOperationsTests, DirectParameterHistoryFailureRestoresValueAn
 	Definition.Name = "DirectValue";
 	Definition.Type = EMaterialParameterType::Scalar;
 	Definition.Value = FMaterialParameterValue::MakeScalar(.25f);
-	const auto Created = FMaterialGraphOperations::CreateParameter(*Material, Definition, Durin::Editor::ETransactionMode::NotTransactable);
+	const auto Created = FMaterialGraphOperations::CreateParameter(*Material, Definition, Durin::ETransactionMode::NotTransactable);
 	ASSERT_TRUE(Created);
 	const auto ParameterId = Created.AffectedParameterIds.front();
 	Tests::FTestEditorTransactorOwner Transactions;
@@ -3570,7 +3570,7 @@ TEST(FMaterialGraphOperationsTests, ParameterSessionRejectionsReportFailureAndAl
 	Definition.Name = "TypedSession";
 	Definition.Type = EMaterialParameterType::Scalar;
 	Definition.Value = FMaterialParameterValue::MakeScalar(.25f);
-	const auto Created = FMaterialGraphOperations::CreateParameter(*Material, Definition, Durin::Editor::ETransactionMode::NotTransactable);
+	const auto Created = FMaterialGraphOperations::CreateParameter(*Material, Definition, Durin::ETransactionMode::NotTransactable);
 	ASSERT_TRUE(Created);
 	const auto Id = Created.AffectedParameterIds.front();
 	ASSERT_TRUE(Edit.Begin(*Material, Id));
@@ -3583,7 +3583,7 @@ TEST(FMaterialGraphOperationsTests, ParameterSessionRejectionsReportFailureAndAl
 	ASSERT_TRUE(Edit.Commit());
 	ASSERT_TRUE(Edit.Begin(*Material, Id));
 	ASSERT_TRUE(Edit.Apply(FMaterialParameterValue::MakeScalar(.5f)));
-	ASSERT_TRUE(FMaterialGraphOperations::DeleteParameter(*Material, Id, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphOperations::DeleteParameter(*Material, Id, Durin::ETransactionMode::NotTransactable));
 	const auto Restore = Edit.Cancel();
 	EXPECT_EQ(Restore.Message.find("The material rejected the original parameter value."), 0u);
 	EXPECT_FALSE(Edit.IsActive());
@@ -3604,7 +3604,7 @@ TEST(FMaterialGraphOperationsTests, BaseParameterMutationRetainsFailuresBeforePu
 	Definition.Name = "MutationCause";
 	Definition.Type = EMaterialParameterType::Scalar;
 	Definition.Value = FMaterialParameterValue::MakeScalar(.25f);
-	const auto Created = FMaterialGraphOperations::CreateParameter(*Material, Definition, Durin::Editor::ETransactionMode::NotTransactable);
+	const auto Created = FMaterialGraphOperations::CreateParameter(*Material, Definition, Durin::ETransactionMode::NotTransactable);
 	ASSERT_TRUE(Created);
 	const auto Id = Created.AffectedParameterIds.front();
 	auto* Owner = Cast<DMaterialExpressionScalarParameter>(Material->GetExpressionCollection().Expressions.front().Get());
@@ -3681,13 +3681,13 @@ TEST(FMaterialGraphOperationsTests, LayoutRejectionsLeaveAuthoredPositionsUnchan
 	const auto Bounds = Document.CalculateLayout(Oversized, Candidate);
 	EXPECT_FALSE(Bounds);
 	EXPECT_EQ(Bounds.Message.find("The material graph layout request exceeds the node bound."), 0u);
-	const auto Coordinate = Document.MoveNodes(std::array{FMaterialGraphNodePresentation{Id, MaterialGraphPresentationCoordinateLimit + 1, 0}}, Durin::Editor::ETransactionMode::NotTransactable);
+	const auto Coordinate = Document.MoveNodes(std::array{FMaterialGraphNodePresentation{Id, MaterialGraphPresentationCoordinateLimit + 1, 0}}, Durin::ETransactionMode::NotTransactable);
 	EXPECT_FALSE(Coordinate);
 	EXPECT_EQ(Coordinate.Message.find("A material graph position is outside the supported coordinate range."), 0u);
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), Before);
 	ASSERT_TRUE(Document.CalculateLayout(std::array{Id}, Candidate));
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), Before);
-	ASSERT_TRUE(Document.MoveNodes(std::array{FMaterialGraphNodePresentation{Id, 100, 200}}, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Document.MoveNodes(std::array{FMaterialGraphNodePresentation{Id, 100, 200}}, Durin::ETransactionMode::NotTransactable));
 }
 
 TEST(FMaterialGraphOperationsTests, ClipboardRejectionsReportFailureAndAllowRetry)
@@ -3797,7 +3797,7 @@ TEST(FMaterialGraphOperationsTests, ConnectionRejectionsPreserveExistingBindings
 	const auto Target = FMaterialGraphPinAddress::Input(Material->GetOutputNode()->Id,
 		static_cast<uint32>(EMaterialOutputPin::Metallic));
 	const auto Source = FMaterialGraphPinAddress::Output({Second.GeneratedNodeIds.front()});
-	ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::Input(Target.NodeId, Target.Index), FMaterialGraphPinAddress::Output({First.GeneratedNodeIds.front()}), true, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::Input(Target.NodeId, Target.Index), FMaterialGraphPinAddress::Output({First.GeneratedNodeIds.front()}), true, Durin::ETransactionMode::NotTransactable));
 	const auto Before = CaptureExpressions(*Material);
 	Tests::FTestEditorTransactorOwner Transactions;
 	const auto Occupied = Document.Connect(Target, Source, false);
@@ -3937,13 +3937,13 @@ TEST(FMaterialGraphOperationsTests, CommandStatusAndFailurePresentationAreIndepe
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	FMaterialGraphDocument Document(*Material);
-	auto Rejected = Document.SetSwizzleComponents(FGuid::NewGuid(), {}, Durin::Editor::ETransactionMode::NotTransactable);
+	auto Rejected = Document.SetSwizzleComponents(FGuid::NewGuid(), {}, Durin::ETransactionMode::NotTransactable);
 	ASSERT_FALSE(Rejected);
 	EXPECT_EQ(Rejected.GetStatus(), EMaterialGraphCommandStatus::Rejected);
 	Rejected.Message.clear();
 	ASSERT_FALSE(Rejected);
 	EXPECT_FALSE(FormatMaterialGraphCommandResult(Rejected).empty());
-	const auto NoChange = Document.RemoveNodes({}, Durin::Editor::ETransactionMode::NotTransactable);
+	const auto NoChange = Document.RemoveNodes({}, Durin::ETransactionMode::NotTransactable);
 	EXPECT_TRUE(NoChange);
 	EXPECT_FALSE(NoChange.HasError());
 	EXPECT_EQ(NoChange.GetStatus(), EMaterialGraphCommandStatus::NoChange);
@@ -3971,7 +3971,7 @@ TEST(FMaterialGraphOperationsTests, ParameterReplayRetainsMessageAndAllowsRepair
 	ASSERT_FALSE(Failed);
 	const auto Message = Failed.error();
 	EXPECT_EQ(Message, std::format("Material declaration does not exist. [parameter {}]", Definition.Id.ToString()));
-	ASSERT_TRUE(FMaterialGraphOperations::CreateParameter(*Material, Definition, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphOperations::CreateParameter(*Material, Definition, Durin::ETransactionMode::NotTransactable));
 	ASSERT_TRUE(Record.Apply(false, EPropertyChangeOrigin::Redo));
 	EXPECT_EQ(Material->FindParameterDefinition(Definition.Id)->Value.GetScalar(), .75f);
 	ASSERT_TRUE(Record.Apply(true, EPropertyChangeOrigin::Undo));
@@ -4013,12 +4013,12 @@ TEST(FMaterialGraphOperationsTests, ResetAndReenableConstantsRetainValuesAndUndo
 	ASSERT_TRUE(Document.SetInputConstantEnabled(Id, Pin, false));
 	EXPECT_FALSE(Material->GetExpressionOutputs().Roughness.UseConstant);
 	EXPECT_EQ(Material->GetExpressionOutputs().Roughness.Constant, (std::vector<float>{.5f}));
-	EXPECT_EQ(Document.SetInputConstantEnabled(Id, Pin, false, Durin::Editor::ETransactionMode::NotTransactable).GetStatus(), EMaterialGraphCommandStatus::NoChange);
+	EXPECT_EQ(Document.SetInputConstantEnabled(Id, Pin, false, Durin::ETransactionMode::NotTransactable).GetStatus(), EMaterialGraphCommandStatus::NoChange);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_TRUE(Material->GetExpressionOutputs().Roughness.UseConstant);
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_FALSE(Material->GetExpressionOutputs().Roughness.UseConstant);
-	ASSERT_TRUE(Document.SetInputConstantEnabled(Id, Pin, true, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Document.SetInputConstantEnabled(Id, Pin, true, Durin::ETransactionMode::NotTransactable));
 	EXPECT_TRUE(Material->GetExpressionOutputs().Roughness.UseConstant);
 	EXPECT_EQ(Material->GetExpressionOutputs().Roughness.Constant, (std::vector<float>{.5f}));
 }
@@ -4049,15 +4049,15 @@ TEST(FMaterialGraphOperationsTests, ClassRegistrySeparatesCreationIdentityFromSh
 	auto Forged = *Vector;
 	Forged.ExpressionClass = Scalar->ExpressionClass;
 	const auto Before = CaptureExpressions(*Material);
-	EXPECT_FALSE(Document.CreateCatalogNode(Forged, 0, 0, {}, Durin::Editor::ETransactionMode::NotTransactable));
+	EXPECT_FALSE(Document.CreateCatalogNode(Forged, 0, 0, {}, Durin::ETransactionMode::NotTransactable));
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
-	ASSERT_TRUE(Document.CreateCatalogNode(*Vector, 0, 0, {}, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Document.CreateCatalogNode(*Vector, 0, 0, {}, Durin::ETransactionMode::NotTransactable));
 	const auto* Collection = FindMaterialGraphExpressionRegistration(DMaterialExpressionCollectionParameter::StaticClass());
 	ASSERT_NE(Collection, nullptr);
 	EXPECT_EQ(Collection->CreationKind, EMaterialGraphCreationKind::AssetBound);
 	Forged.ExpressionClass = DMaterialExpressionCollectionParameter::StaticClass();
 	const auto Created = CaptureExpressions(*Material);
-	EXPECT_FALSE(Document.CreateCatalogNode(Forged, 0, 0, {}, Durin::Editor::ETransactionMode::NotTransactable));
+	EXPECT_FALSE(Document.CreateCatalogNode(Forged, 0, 0, {}, Durin::ETransactionMode::NotTransactable));
 	EXPECT_EQ(CaptureExpressions(*Material), Created);
 }
 
@@ -4070,7 +4070,7 @@ TEST(FMaterialGraphOperationsTests, InspectionFallsBackByActualClassWhenCatalogC
 	const auto Catalog = FMaterialGraphOperations::EnumerateCatalog();
 	const auto Vector = std::ranges::find(Catalog, DMaterialExpressionVector3Constant::StaticClass(), &FMaterialGraphCatalogEntry::ExpressionClass);
 	ASSERT_NE(Vector, Catalog.end());
-	const auto Created = Document.CreateCatalogNode(*Vector, 0, 0, {}, Durin::Editor::ETransactionMode::NotTransactable);
+	const auto Created = Document.CreateCatalogNode(*Vector, 0, 0, {}, Durin::ETransactionMode::NotTransactable);
 	ASSERT_TRUE(Created);
 	auto OtherClass = *Vector;
 	OtherClass.ExpressionClass = DMaterialExpressionScalarConstant::StaticClass();
@@ -4089,7 +4089,7 @@ TEST(FMaterialGraphOperationsTests, InspectionFallsBackByActualClassWhenCatalogC
 TEST(FMaterialGraphOperationsTests, CommandAdmissionRequiresEditorOrExplicitUnrecordedMode)
 {
 	InitializeDObjectSystem();
-	using Durin::Editor::ETransactionMode;
+	using Durin::ETransactionMode;
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, "AdmissionMaterial"));
 	FMaterialGraphDocument Document(*Material);
 	auto First = Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>();
@@ -4106,7 +4106,7 @@ TEST(FMaterialGraphOperationsTests, CommandAdmissionRequiresEditorOrExplicitUnre
 	EXPECT_EQ(CaptureExpressions(*Material), BeforeRecorded);
 	ASSERT_TRUE(History->Redo());
 	const auto BeforeRejected = CaptureExpressions(*Material);
-	Durin::Editor::FScopedTransaction Outer("Outer graph edit");
+	Durin::FScopedTransaction Outer("Outer graph edit");
 	auto Third = Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>();
 	EXPECT_FALSE(Document.CreateExpression(*Third, 0, 0, ETransactionMode::NotTransactable));
 	EXPECT_EQ(CaptureExpressions(*Material), BeforeRejected);

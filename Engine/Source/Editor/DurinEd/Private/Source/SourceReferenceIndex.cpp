@@ -9,9 +9,9 @@
 #include "Texture/TextureCube.h"
 #include "Texture/VolumeTexture.h"
 
-namespace Durin::Editor
+namespace Durin
 {
-	namespace Private
+	namespace SourceReferencePrivate
 	{
 		struct FSourceReferenceSnapshot
 		{
@@ -35,8 +35,8 @@ namespace Durin::Editor
 			}
 
 			std::mutex Mutex;
-			std::shared_ptr<const Private::FSourceReferenceSnapshot> Published;
-			Tasks::TTask<Private::FSourceReferenceSnapshot> BuildTask;
+			std::shared_ptr<const SourceReferencePrivate::FSourceReferenceSnapshot> Published;
+			Tasks::TTask<SourceReferencePrivate::FSourceReferenceSnapshot> BuildTask;
 			uint64 Generation = 1;
 			uint64 BuildingGeneration = 0;
 			size_t BuildingMaximumPackageInspections = 0;
@@ -82,9 +82,9 @@ namespace Durin::Editor
 		auto BuildSnapshot(
 			uint64 Generation,
 			size_t MaximumPackageInspections)
-			-> Private::FSourceReferenceSnapshot
+			-> SourceReferencePrivate::FSourceReferenceSnapshot
 		{
-			Private::FSourceReferenceSnapshot Snapshot;
+			SourceReferencePrivate::FSourceReferenceSnapshot Snapshot;
 			Snapshot.Generation = Generation;
 			Snapshot.MaximumPackageInspections = MaximumPackageInspections;
 			const FAssetCatalogSnapshot Catalog =
@@ -117,7 +117,7 @@ namespace Durin::Editor
 		auto PublishCompletedBuild(FSourceReferenceService& Service) -> void
 		{
 			if (!Service.BuildTask.IsValid() || !Service.BuildTask.IsCompleted()) return;
-			const std::shared_ptr<const Private::FSourceReferenceSnapshot> Result =
+			const std::shared_ptr<const SourceReferencePrivate::FSourceReferenceSnapshot> Result =
 				Service.BuildTask.GetResultShared();
 			if (Result && Result->Generation == Service.Generation)
 				Service.Published = Result;
@@ -177,7 +177,7 @@ namespace Durin::Editor
 				return;
 			}
 		}
-		auto Built = std::make_shared<const Private::FSourceReferenceSnapshot>(
+		auto Built = std::make_shared<const SourceReferencePrivate::FSourceReferenceSnapshot>(
 			BuildSnapshot(Generation, MaximumPackageInspections));
 		{
 			std::lock_guard Lock(Service.Mutex);
@@ -234,4 +234,4 @@ namespace Durin::Editor
 		static const std::string Empty;
 		return Snapshot ? Snapshot->Warning : Empty;
 	}
-} // namespace Durin::Editor
+} // namespace Durin

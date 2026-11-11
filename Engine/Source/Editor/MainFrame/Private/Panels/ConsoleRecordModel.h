@@ -4,7 +4,7 @@
 
 #include "Logging/Logger.h"
 
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
 	// Distinguishes log output from command history and command results.
 	enum class EConsoleRecordType
@@ -42,4 +42,4 @@ namespace Durin::Editor::MainFrame
 
 		std::deque<FConsoleRecord> Records;
 	};
-} // namespace Durin::Editor::MainFrame
+} // namespace Durin::MainFrame

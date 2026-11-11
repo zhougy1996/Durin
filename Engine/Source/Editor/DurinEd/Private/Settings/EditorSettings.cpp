@@ -1,6 +1,6 @@
 #include "Settings/EditorSettings.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	auto FEditorSettingsRegistry::Get() -> FEditorSettingsRegistry&
 	{

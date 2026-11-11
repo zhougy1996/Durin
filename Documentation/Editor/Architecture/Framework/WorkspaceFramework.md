@@ -9,26 +9,46 @@ commands, session integration, tab presentation, and document lifecycle contract
 
 ## C++ Ownership Boundary
 
-Shared toolkit, document and tab APIs live directly in `Durin`, including
-`IAssetEditorToolkit`, `FAssetEditorToolkit`, `FEditorDocumentManager`,
-`FEditorDocument`, `FDocumentId` and `FTabManager`. Responsibility-specific helpers
-remain under `Durin::TabLayout` and `Durin::DocumentUI`. There are no compatibility
-aliases in `Durin::Editor`; consumers and forward declarations use the owning
-namespace directly. Document controller internals stay in `Durin::DocumentPrivate`.
+Shared editor infrastructure lives directly in `Durin`: toolkits, documents,
+tabs, transactions, property editing, Actor/Component edit contracts, asset
+retention, import support, previews, thumbnails, notifications, and settings.
+Consumers and forward declarations use the owning namespace without compatibility
+aliases. Existing responsibility-specific groups such as `Durin::TabLayout`,
+`Durin::DocumentUI`, `Durin::AssetPicker`, and `Durin::DocumentPrivate` remain.
 
-Transaction, property, asset, preview and interaction services retain their
-existing `Durin::Editor` namespaces. Concrete editor implementation namespaces
-also remain unchanged in this migration. Runtime and reflected object types
-retain their existing identities. Module lookup strings and persisted
-window/document/layout identities are independent of these C++ namespaces.
+Concrete feature ownership follows this mapping:
+
+| Previous namespace | Owning namespace |
+| --- | --- |
+| `Durin::Editor::Level` | `Durin::LevelEditor` |
+| `Durin::Editor::Material` | `Durin::MaterialEditor` |
+| `Durin::Editor::Texture` | `Durin::TextureEditor` |
+| `Durin::Editor::StaticMesh` | `Durin::StaticMeshEditor` |
+| `Durin::Editor::MainFrame` | `Durin::MainFrame` |
+| `Durin::Editor::ContentBrowser` | `Durin::ContentBrowser` |
+| `Durin::Editor::Startup` | `Durin::EditorStartup` |
+| `Durin::Editor::AssetPicker` | `Durin::AssetPicker` |
+| `Durin::Editor` shared contracts | `Durin` |
+
+Feature-local `Workspace`, `Helpers`, `Testing`, `GraphEditInternals`, and other
+implementation groups remain under their owning feature. Shared thumbnail and
+source-reference internals use `Durin::ThumbnailPrivate` and
+`Durin::SourceReferencePrivate`, respectively. Editor feature names
+include `Editor` where needed to distinguish them from runtime asset domains.
+The existing root-owned module entry points and reflected runtime classes stay
+in `Durin`. Editor-only reflected asset definitions, asset editors, and thumbnail
+renderers follow their owning C++ namespace; they are discovered by reflected
+class relationships and `StaticClass()`, not persisted namespace strings.
+Module lookup strings, asset class paths, and persisted window/document/layout
+identities remain independent of this C++ migration.
 
 ## MainFrame Ownership
 
 `DurinEd` owns the implementation-neutral `Durin::IMainFrameModule` lifecycle
-contract and the bootstrap states under `Durin::Editor::Startup`. `DEditorEngine`
+contract and the bootstrap states under `Durin::EditorStartup`. `DEditorEngine`
 uses this interface to drive main-frame startup and shutdown. `MainFrame` depends on that contract and owns the editor
 root window plus its concrete implementation under
-`Durin::Editor::MainFrame`. `FMainFrameSettings` stores the native window size and
+`Durin::MainFrame`. `FMainFrameSettings` stores the native window size and
 maximized state together with the global UI scale and color theme in the stable
 `EditorHostSettings.yaml` file. The historical settings filename and dock/window
 identities remain unchanged for compatibility; C++ APIs use MainFrame naming. When that file does not exist, the host uses
@@ -36,7 +56,7 @@ monitor-derived defaults and creates it when host display state is first
 persisted. The reflected `DEditorEngine` remains in `Durin` and does not depend
 on `MainFrame` headers.
 
-`Editor::Level::FLevelEditorSessionSettings` persists only Level workspace state
+`LevelEditor::FLevelEditorSessionSettings` persists only Level workspace state
 such as viewport cameras, gizmo preferences, and Details layout.
 `ContentBrowserSettings.yaml` independently persists browser presentation.
 When the new file is absent it starts from defaults and does not read retired
@@ -134,7 +154,7 @@ using the already active modules and services, returning `bool` and clearing
 the startup diagnostic; workspace creation does not also store it in Project Browser.
 Once workspaces
 are available, DurinEd resolves the project's configured default level through
-`Editor::Startup::ResolveStartupLevel()`, then `DEditorEngine` starts one ordinary
+`EditorStartup::ResolveStartupLevel()`, then `DEditorEngine` starts one ordinary
 `OpenLevel()` request and owns its pending/completed/failed state. Resolution
 preserves settings diagnostics, unique top-level Level validation and redirects,
 and verifies that the resolved target belongs to the selected project mount.

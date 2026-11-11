@@ -4,7 +4,7 @@
 #include "Asset/Asset.h"
 #include "DObject/Package.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	namespace
 	{
@@ -180,4 +180,4 @@ namespace Durin::Editor
 		}
 		return InspectContentDirectory(Classified->NormalizedVirtualPath);
 	}
-} // namespace Durin::Editor
+} // namespace Durin

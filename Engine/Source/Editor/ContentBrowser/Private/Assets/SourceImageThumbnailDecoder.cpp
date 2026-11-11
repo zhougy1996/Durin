@@ -2,7 +2,7 @@
 
 #include "Image/ImageDecoder.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	namespace
 	{
@@ -79,4 +79,4 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 		return OutThumbnail;
 	}
-} // namespace Durin::Editor::ContentBrowser::Private
+} // namespace Durin::ContentBrowser::Private

@@ -382,7 +382,7 @@ namespace
 		};
 		const auto OpenB = Request(B);
 		EXPECT_EQ(EAssetOpenStatus::Pending, OpenB.Status);
-		FEditorEngineTestAccess::SetStartupPhase(*Host, Editor::Startup::EBootstrapState::LoadingDefaultDocument);
+		FEditorEngineTestAccess::SetStartupPhase(*Host, EditorStartup::EBootstrapState::LoadingDefaultDocument);
 		FEditorEngineTestAccess::SetStartupDocumentResult(*Host, OpenB);
 		Host->AdvanceStartup();
 		EXPECT_EQ(EHostStartupState::Pending, Host->GetStartupState());
@@ -406,14 +406,14 @@ namespace
 		EXPECT_EQ(Session, Service->FindEditorForAsset(B, false));
 		EXPECT_EQ(nullptr, Service->FindEditorForAsset(C, false));
 		const auto Failed = Request(C);
-		FEditorEngineTestAccess::SetStartupPhase(*Host, Editor::Startup::EBootstrapState::LoadingDefaultDocument);
+		FEditorEngineTestAccess::SetStartupPhase(*Host, EditorStartup::EBootstrapState::LoadingDefaultDocument);
 		FEditorEngineTestAccess::SetStartupDocumentResult(*Host, Failed);
 		ASSERT_TRUE(Documents->CompleteDeferredDocumentOpen(Initial.Id, false, EAssetOpenStatus::Failed, "level activation failed"));
 		Host->AdvanceStartup();
 		EXPECT_EQ(EHostStartupState::Failed, Host->GetStartupState());
 		EXPECT_EQ("level activation failed", Host->GetStartupError());
 		EXPECT_EQ(Session, Service->FindEditorForAsset(B, false));
-		FEditorEngineTestAccess::SetStartupPhase(*Host, Editor::Startup::EBootstrapState::LoadingDefaultDocument);
+		FEditorEngineTestAccess::SetStartupPhase(*Host, EditorStartup::EBootstrapState::LoadingDefaultDocument);
 		FEditorEngineTestAccess::SetStartupDocumentResult(*Host, *Service->GetOpenRequest(OpenB.RequestId));
 		Service->RetireAssetEditor(*Session);
 		Host->AdvanceStartup();
@@ -654,18 +654,18 @@ namespace
 	{
 		const auto ProcessEditor = GEditor;
 		const TStrongObjectPtr<DEditorEngine> Other(NewObject<DEditorEngine>(nullptr, {}));
-		EXPECT_EQ(ProcessEditor, Editor::GetTransactionEditor());
+		EXPECT_EQ(ProcessEditor, GetTransactionEditor());
 		{
-			Editor::FScopedEditorTransactionContext Scope(Other.Get());
-			EXPECT_EQ(Other.Get(), Editor::GetTransactionEditor());
+			FScopedEditorTransactionContext Scope(Other.Get());
+			EXPECT_EQ(Other.Get(), GetTransactionEditor());
 			EXPECT_EQ(ProcessEditor, GEditor);
 			{
-				Editor::FScopedEditorTransactionContext Nested(nullptr);
-				EXPECT_EQ(nullptr, Editor::GetTransactionEditor());
+				FScopedEditorTransactionContext Nested(nullptr);
+				EXPECT_EQ(nullptr, GetTransactionEditor());
 			}
-			EXPECT_EQ(Other.Get(), Editor::GetTransactionEditor());
+			EXPECT_EQ(Other.Get(), GetTransactionEditor());
 		}
-		EXPECT_EQ(ProcessEditor, Editor::GetTransactionEditor());
+		EXPECT_EQ(ProcessEditor, GetTransactionEditor());
 		FEditableAssetDocumentModel Documents;
 		Documents.BindEditor(nullptr);
 		EXPECT_EQ(nullptr, Documents.GetEditor());

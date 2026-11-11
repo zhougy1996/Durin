@@ -1,6 +1,6 @@
 #include "Panels/ContentBrowserRefreshCoordinator.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	FContentBrowserRefreshCoordinator::FContentBrowserRefreshCoordinator(
 		uint64 InMountedContentRevision,
@@ -133,4 +133,4 @@ namespace Durin::Editor::ContentBrowser::Private
 		Append(ObservedAssetRegistryRevision, CatalogRevision, CaptureCatalog);
 		return Result;
 	}
-} // namespace Durin::Editor::ContentBrowser::Private
+} // namespace Durin::ContentBrowser::Private

@@ -27,7 +27,7 @@
 #include "TexturePreview.h"
 #include "Workspace/TextureEditorWorkspace.h"
 
-namespace Durin::Editor::Texture
+namespace Durin::TextureEditor
 {
 	namespace
 	{

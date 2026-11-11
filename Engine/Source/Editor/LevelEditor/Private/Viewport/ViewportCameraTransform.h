@@ -4,7 +4,7 @@
 
 #include "Math/DurinMath.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	// Persists one level's editor-camera transform and visibility distances.
 	struct FLevelViewportCameraState

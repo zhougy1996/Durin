@@ -9,13 +9,13 @@
 
 namespace Durin
 {
-	using namespace Editor::StaticMesh;
+	using namespace StaticMeshEditor;
 	IMPLEMENT_MODULE(FStaticMeshEditorModule, StaticMeshEditor)
 
 	struct FStaticMeshEditorModule::FIntegrationState
 	{
-		Editor::ContentBrowser::FScopedExtensionRegistration ImportExtension;
-		std::unique_ptr<Editor::StaticMesh::FStaticMeshImportDialog> ImportDialog;
+		ContentBrowser::FScopedExtensionRegistration ImportExtension;
+		std::unique_ptr<StaticMeshEditor::FStaticMeshImportDialog> ImportDialog;
 		std::optional<std::weak_ptr<void>> OwnerLifetime;
 	};
 
@@ -27,7 +27,7 @@ namespace Durin
 
 	auto FStaticMeshEditorModule::StartupModule() -> void
 	{
-		require(RegisterContributions(Editor::GetDefaultThumbnailManager()));
+		require(RegisterContributions(GetDefaultThumbnailManager()));
 	}
 
 	auto FStaticMeshEditorModule::ShutdownModule() -> void
@@ -35,7 +35,7 @@ namespace Durin
 		UnregisterContributions();
 	}
 
-	auto FStaticMeshEditorModule::RegisterContributions(Editor::DThumbnailManager& ThumbnailManager) -> bool
+	auto FStaticMeshEditorModule::RegisterContributions(DThumbnailManager& ThumbnailManager) -> bool
 	{
 		check(!ThumbnailRegistration);
 		auto ThumbnailHandle = ThumbnailManager.RegisterScoped(
@@ -46,27 +46,27 @@ namespace Durin
 			return false;
 		}
 		ThumbnailRegistration =
-			std::make_unique<Editor::FThumbnailRendererRegistrationHandle>(
+			std::make_unique<FThumbnailRendererRegistrationHandle>(
 				std::move(*ThumbnailHandle));
 		std::string Error;
-		auto ImportExtension = Editor::ContentBrowser::RegisterExtension({
+		auto ImportExtension = ContentBrowser::RegisterExtension({
 			.Id = "static-mesh.import-static-mesh",
 			.Label = "Static Mesh (Geometry Only)...",
-			.Category = Editor::ContentBrowser::EExtensionCategory::Import,
+			.Category = ContentBrowser::EExtensionCategory::Import,
 			.Order = 400,
-			.Mutation = Editor::ContentBrowser::EContentMutation::MutatesContent,
+			.Mutation = ContentBrowser::EContentMutation::MutatesContent,
 			.IsApplicable = [](const auto& Context) {
 				return !Context.VirtualDirectory.empty();
 			},
 			.Invoke = [this](const auto& Invocation) {
 				Integration->OwnerLifetime = Invocation.bHasHostLifetime ? std::optional(Invocation.HostLifetime) : std::nullopt;
 				Integration->ImportDialog = std::make_unique<FStaticMeshImportDialog>(
-					Editor::ContentBrowser::MakeImportDialogCallbacks(Invocation, {}));
+					ContentBrowser::MakeImportDialogCallbacks(Invocation, {}));
 				if (Integration->ImportDialog)
 					Integration->ImportDialog->Open(
 						Invocation.Context.VirtualDirectory);
 			},
-			.DrawHostPresentation = [this](const Editor::ContentBrowser::FExtensionHost& Host, bool bAllowAssetMutation) {
+			.DrawHostPresentation = [this](const ContentBrowser::FExtensionHost& Host, bool bAllowAssetMutation) {
 				if (Integration->OwnerLifetime && (Integration->OwnerLifetime->owner_before(Host.Lifetime) || Host.Lifetime.owner_before(*Integration->OwnerLifetime))) return;
 				if (Integration->OwnerLifetime && Integration->OwnerLifetime->expired())
 				{ Integration->ImportDialog.reset(); Integration->OwnerLifetime.reset(); return; }

@@ -4,7 +4,7 @@
 #include "Console/ConsoleCommand.h"
 #include "Tools/Tool.h"
 
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
 	inline constexpr size_t MaxConsoleToolTextBytes = 1024 * 1024;
 	// The structured tokenizer preserves Windows paths and does not consume inline JSON.

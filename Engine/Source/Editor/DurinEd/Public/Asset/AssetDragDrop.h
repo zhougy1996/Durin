@@ -4,7 +4,7 @@
 
 #include "DurinEdAPI.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	inline constexpr const char* AssetDragDropPayloadType = "DURIN_CONTENT_ASSET";
 

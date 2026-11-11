@@ -10,7 +10,7 @@
 #include "Misc/StringHelper.h"
 #include "Materials/MaterialParameterCollection.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	namespace
 	{

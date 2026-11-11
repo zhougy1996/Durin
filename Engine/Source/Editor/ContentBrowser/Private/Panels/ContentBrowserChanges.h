@@ -5,7 +5,7 @@
 #include "AssetRegistry/ContentChanges.h"
 #include "Misc/Paths.h"
 
-namespace Durin::Editor::ContentBrowser::Private::ContentBrowserChanges
+namespace Durin::ContentBrowser::Private::ContentBrowserChanges
 {
 	// Virtual asset paths have slash-delimited, case-sensitive identities on every host.
 	inline auto AssetDirectory(std::string_view Directory) -> std::string_view

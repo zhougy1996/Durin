@@ -12,7 +12,6 @@
 
 namespace Durin
 {
-	using namespace Editor;
 	DEditorActorSubsystem::DEditorActorSubsystem(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
 	auto DEditorActorSubsystem::Admit(const FActorEditContext& Context, DLevel* Level, AActor* Owner, bool bDuringEdit) const
@@ -76,7 +75,7 @@ namespace Durin
 			bool bAttach) -> bool
 		{
 			if (Entries.empty()) return true;
-			const auto Result = Editor::ApplyEditorChange(Transactions, std::make_unique<FActorAttachmentTransaction>(std::move(Entries), bAttach));
+			const auto Result = ApplyEditorChange(Transactions, std::make_unique<FActorAttachmentTransaction>(std::move(Entries), bAttach));
 			if (!Result) return false;
 			return true;
 		}

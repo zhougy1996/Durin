@@ -7,7 +7,7 @@
 #include "Rendering/MonaRenderer.h"
 #include "Yaml/Yaml.h"
 
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
 	namespace
 	{

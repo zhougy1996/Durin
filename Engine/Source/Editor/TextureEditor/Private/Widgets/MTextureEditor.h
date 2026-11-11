@@ -13,7 +13,7 @@
 
 namespace Durin { class DTexture2D; struct FTexturePlatformData; }
 
-namespace Durin::Editor::Texture
+namespace Durin::TextureEditor
 {
 	// Hosts one texture document with preview, mip, and metadata controls.
 	class MTextureEditor final : public FBaseAssetToolkit

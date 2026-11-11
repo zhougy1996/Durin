@@ -12,7 +12,7 @@ namespace Durin
 	class DDirectionalLightComponent;
 }
 
-namespace Durin::Editor
+namespace Durin
 {
 	// Adds a common visibility gate to asset-specific preview viewport clients.
 	class FAssetPreviewViewportClient : public FViewportClient

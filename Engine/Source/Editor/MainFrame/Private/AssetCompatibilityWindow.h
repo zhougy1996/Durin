@@ -5,7 +5,7 @@
 #include "AssetCompatibilityAudit.h"
 #include "AssetMaintenance/CanonicalResave.h"
 
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
 	// On-demand project upgrade flow; host updates advance work independently of visibility.
 	class FAssetCompatibilityWindow

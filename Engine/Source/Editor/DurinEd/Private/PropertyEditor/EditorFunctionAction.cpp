@@ -6,7 +6,7 @@
 #include "DObject/Package.h"
 #include "Threading/RunnableThread.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	namespace { bool bExecutingFunction = false; }
 

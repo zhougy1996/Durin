@@ -16,7 +16,7 @@ namespace Durin
 	class FWeakObjectProperty;
 }
 
-namespace Durin::Editor
+namespace Durin
 {
 	enum class ESoftObjectViewState : uint8
 	{

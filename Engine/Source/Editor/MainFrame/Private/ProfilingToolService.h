@@ -4,7 +4,7 @@
 
 namespace Durin::Profiling { struct FConnectionState; }
 
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
 	struct FTracyToolStatus
 	{

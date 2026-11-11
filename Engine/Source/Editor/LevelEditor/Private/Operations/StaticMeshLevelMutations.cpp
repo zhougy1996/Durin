@@ -19,7 +19,7 @@
 #include "Operations/StaticMeshLevelMutationTestHooks.h"
 #endif
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	#if DURIN_LEVEL_AUTHORING_TEST_FAILURE_INJECTION
 	namespace Testing

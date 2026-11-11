@@ -23,7 +23,7 @@
 #include "MonaImGui.h"
 #include "Actors/EditorActorSubsystem.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	namespace
 	{
@@ -610,4 +610,4 @@ namespace Durin::Editor::Level
 		LastVisibleActors.swap(VisibleActors);
 		ImGui::End();
 	}
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

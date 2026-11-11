@@ -8,7 +8,7 @@
 
 namespace Durin { class DTransactor; }
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	// Owns a transient base-material working copy. Publication keeps source identity
 	// and refuses to overwrite an externally changed source package.

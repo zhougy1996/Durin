@@ -18,7 +18,7 @@
 #include "Viewport/TransformGizmo.h"
 #include "Profiling/Profiling.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	// Owns level document transitions and the unsaved-change workflow.
 	FLevelDocumentController::FLevelDocumentController(
@@ -428,4 +428,4 @@ namespace Durin::Editor::Level
 	{
 		if (ReportError) ReportError(std::move(Message));
 	}
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

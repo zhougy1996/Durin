@@ -4,7 +4,7 @@
 #include "Misc/MountPaths.h"
 #include "Profiling/Profiling.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	using ContentBrowserFilesystem::NormalizePath;
 

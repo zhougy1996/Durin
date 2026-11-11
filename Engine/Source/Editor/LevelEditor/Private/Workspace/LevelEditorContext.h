@@ -6,7 +6,7 @@
 #include "LevelEditorSelection.h"
 #include "Tools/EditorScriptCall.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	enum class EPlayStartLocation : uint8;
 	enum class EPlayDestination : uint8;
@@ -24,7 +24,7 @@ namespace Durin
 	class DEditorActorSubsystem;
 }
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	// Shares active world, selection, play, and viewport state across editor panels.
 	struct FLevelEditorContext
@@ -72,4 +72,4 @@ namespace Durin::Editor::Level
 		FEditorSubElementSelection SelectedSubElement;
 		std::vector<FEditorSubElementSelection> SelectedSubElements;
 	};
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

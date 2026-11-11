@@ -9,7 +9,7 @@
 #include "Import/ImportDialogSupport.h"
 
 namespace Durin { class DAssetEditorSubsystem; }
-namespace Durin::Editor::ContentBrowser
+namespace Durin::ContentBrowser
 {
 	// Identifies the extension surface contributed by an asset-family module.
 	enum class EExtensionCategory : uint8
@@ -261,4 +261,4 @@ namespace Durin::Editor::ContentBrowser
 	CONTENTBROWSER_API auto DrawHostPresentation(
 		const FExtensionDescriptor& Descriptor,
 		bool bAllowAssetMutation, const FExtensionHost& Host = {}) -> bool;
-} // namespace Durin::Editor::ContentBrowser
+} // namespace Durin::ContentBrowser

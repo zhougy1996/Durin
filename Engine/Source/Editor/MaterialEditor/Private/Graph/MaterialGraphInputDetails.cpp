@@ -9,7 +9,7 @@
 #include "Asset/AssetPicker.h"
 #include "Texture/Texture2D.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	auto FMaterialGraphCanvas::DrawParameterValue(
 		const FMaterialParameterDefinition& Parameter, DTransactor& Transactions) -> void

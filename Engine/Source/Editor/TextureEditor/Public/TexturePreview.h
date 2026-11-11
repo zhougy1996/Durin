@@ -13,7 +13,7 @@ namespace Durin
 	namespace Mona { class IMonaUIBackend; }
 }
 
-namespace Durin::Editor::Texture
+namespace Durin::TextureEditor
 {
 	enum class ETexturePreviewChannel : uint8
 	{

@@ -4,7 +4,7 @@
 #include "PropertyEditor/PropertyView.h"
 #include "DObject/Function.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	// Supplies optional host-specific services without a dependency on a feature editor.
 	class IDetailHostContext

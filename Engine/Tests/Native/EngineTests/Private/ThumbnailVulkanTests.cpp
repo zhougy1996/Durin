@@ -51,22 +51,22 @@
 
 namespace
 {
-	class FReadbackProbeInput final : public Durin::Editor::IAssetThumbnailGenerationInput {};
+	class FReadbackProbeInput final : public Durin::IAssetThumbnailGenerationInput {};
 
-	class FReadbackProbeSession final : public Durin::Editor::IThumbnailRendererSession
+	class FReadbackProbeSession final : public Durin::IThumbnailRendererSession
 	{
 	public:
 		explicit FReadbackProbeSession(uint32& InLoads) : Loads(InLoads) {}
-		auto Load() -> Durin::Editor::FThumbnailRendererSessionUpdate override
+		auto Load() -> Durin::FThumbnailRendererSessionUpdate override
 		{
 			++Loads;
-			return {.State = Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
+			return {.State = Durin::EThumbnailRendererSessionState::WaitingForResources};
 		}
-		auto PollResources() -> Durin::Editor::FThumbnailRendererSessionUpdate override
+		auto PollResources() -> Durin::FThumbnailRendererSessionUpdate override
 		{
-			return {.State = Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
+			return {.State = Durin::EThumbnailRendererSessionState::WaitingForResources};
 		}
-		auto PreparePreview(Durin::Editor::IThumbnailPreviewScene&) -> std::expected<void, std::string> override
+		auto PreparePreview(Durin::IThumbnailPreviewScene&) -> std::expected<void, std::string> override
 		{
 			return std::unexpected("The readback probe must never render.");
 		}
@@ -79,24 +79,24 @@ namespace
 		uint32& Loads;
 	};
 
-	class FReadbackProbeRenderer final : public Durin::Editor::DThumbnailRenderer
+	class FReadbackProbeRenderer final : public Durin::DThumbnailRenderer
 	{
 	public:
 		explicit FReadbackProbeRenderer(uint32& InLoads) : Loads(InLoads) {}
-		auto GetRegistration() const -> Durin::Editor::FThumbnailRenderingInfo override
+		auto GetRegistration() const -> Durin::FThumbnailRenderingInfo override
 		{
 			return {.AssetClassName = "DReadbackProbe", .RendererName = "ReadbackProbe", .GeneratorSchemaVersion = 1};
 		}
-		auto CaptureGenerationRequest(const Durin::Editor::FAssetThumbnailRequest&,
-			uint64) -> std::expected<Durin::Editor::FAssetThumbnailGenerationRequest, std::string> override
+		auto CaptureGenerationRequest(const Durin::FAssetThumbnailRequest&,
+			uint64) -> std::expected<Durin::FAssetThumbnailGenerationRequest, std::string> override
 		{
-			Durin::Editor::FAssetThumbnailGenerationRequest Result;
+			Durin::FAssetThumbnailGenerationRequest Result;
 			Result.Input = std::make_shared<FReadbackProbeInput>();
 			return Result;
 		}
-		auto CreateGenerationSession(const Durin::Editor::FAssetThumbnailGenerationRequest&,
-			const Durin::Editor::IAssetThumbnailGenerationInput&)
-			-> std::expected<std::unique_ptr<Durin::Editor::IThumbnailRendererSession>, std::string> override
+		auto CreateGenerationSession(const Durin::FAssetThumbnailGenerationRequest&,
+			const Durin::IAssetThumbnailGenerationInput&)
+			-> std::expected<std::unique_ptr<Durin::IThumbnailRendererSession>, std::string> override
 		{
 			return std::make_unique<FReadbackProbeSession>(Loads);
 		}
@@ -190,7 +190,7 @@ namespace
 				EXPECT_TRUE(Durin::UnloadPackage(Path, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 				EXPECT_TRUE(Durin::Testing::RemoveAssetPackageForTests(Path));
 			}
-			for (const auto Name : {Durin::Editor::FThumbnailVisualContract::SphereAssetPath, Durin::Editor::FPreviewMeshResources::BoxAssetPath})
+			for (const auto Name : {Durin::FThumbnailVisualContract::SphereAssetPath, Durin::FPreviewMeshResources::BoxAssetPath})
 			{
 				Durin::FSoftObjectPath Path;
 				if (Durin::FSoftObjectPath::TryCreate(Name, Path))
@@ -210,7 +210,7 @@ namespace
 			});
 			Durin::FlushRenderingCommands();
 			Durin::GEngine = nullptr;
-			Durin::Editor::Texture::FTexturePreview::ReleaseSharedResources();
+			Durin::TextureEditor::FTexturePreview::ReleaseSharedResources();
 			RendererLifecycle.Shutdown();
 			Durin::FlushRenderingCommands();
 			Durin::ShutdownRenderingThread();
@@ -250,7 +250,7 @@ namespace
 		FMaterialTestEngine Engine;
 		Durin::FRendererModule Renderer;
 		Durin::FModuleTestHarness RendererLifecycle{"ThumbnailVulkanRenderer"};
-		Durin::Editor::FThumbnailVisualContract Contract;
+		Durin::FThumbnailVisualContract Contract;
 		std::string Error;
 		bool bStarted = false;
 	};
@@ -316,7 +316,7 @@ TEST_F(FThumbnailVulkanTests, PreparedShadersAreSharedAndCaptureNeverCompiles)
 TEST_F(FThumbnailVulkanTests, StaticMeshSessionWaitsForMaterialPublication)
 {
 	using namespace Durin;
-	using namespace Durin::Editor;
+	using namespace Durin;
 	DStaticMesh* Mesh = nullptr;
 	const auto MeshPath = Package("SM_MaterialPublication");
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(MeshPath, Mesh));
@@ -343,8 +343,8 @@ TEST_F(FThumbnailVulkanTests, StaticMeshSessionWaitsForMaterialPublication)
 	ASSERT_FALSE(Material->GetAcceptedCompiledProgram());
 
 	const auto AssetPath = Testing::MakePackageLeafTopLevelAssetPathForTests(MeshPath);
-	StaticMesh::DStaticMeshThumbnailRenderer Extension;
-	StaticMesh::FStaticMeshThumbnailRendererGenerationInput Input(AssetPath, Contract);
+	StaticMeshEditor::DStaticMeshThumbnailRenderer Extension;
+	StaticMeshEditor::FStaticMeshThumbnailRendererGenerationInput Input(AssetPath, Contract);
 	auto Session = Extension.CreateGenerationSession({}, Input);
 	ASSERT_TRUE(Session) << Session.error();
 	EXPECT_EQ((*Session)->Load().State, EThumbnailRendererSessionState::WaitingForResources);
@@ -405,16 +405,16 @@ TEST_F(FThumbnailVulkanTests, StaticMeshSessionWaitsForMaterialPublication)
 TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRendering)
 {
 	uint32 ProbeLoads = 0;
-	auto ProbeRegistration = Durin::Editor::GetDefaultThumbnailManager().RegisterScoped(
+	auto ProbeRegistration = Durin::GetDefaultThumbnailManager().RegisterScoped(
 		std::make_unique<FReadbackProbeRenderer>(ProbeLoads));
 	ASSERT_TRUE(ProbeRegistration);
 	Durin::FPackagePath ProbePackage;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/ThumbnailVulkan/ReadbackProbe", ProbePackage));
-	const Durin::Editor::FAssetThumbnailPackageFingerprint Probe{
+	const Durin::FAssetThumbnailPackageFingerprint Probe{
 		.AssetPath = Durin::Testing::MakePackageLeafTopLevelAssetPathForTests(ProbePackage),
 		.PackagePath = ProbePackage, .AssetClassName = "DReadbackProbe"};
-	auto Registration = Durin::Editor::GetDefaultThumbnailManager().RegisterScoped(
-		std::make_unique<Durin::Editor::StaticMesh::DStaticMeshThumbnailRenderer>());
+	auto Registration = Durin::GetDefaultThumbnailManager().RegisterScoped(
+		std::make_unique<Durin::StaticMeshEditor::DStaticMeshThumbnailRenderer>());
 	ASSERT_TRUE(Registration) << Registration.error();
 	const auto StaticMeshFixturePath = Package("SM_Preview");
 	const auto StaticMeshMaterialPath = Package("M_Preview");
@@ -478,7 +478,7 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 	const auto StaticMeshExport = Durin::FindAssetExact(
 		Durin::Testing::MakePackageLeafTopLevelAssetPathForTests(StaticMeshFixturePath));
 	ASSERT_TRUE(StaticMeshExport);
-	const Durin::Editor::FAssetThumbnailPackageFingerprint StaticMeshFingerprint = {
+	const Durin::FAssetThumbnailPackageFingerprint StaticMeshFingerprint = {
 		.AssetPath = Durin::Testing::MakePackageLeafTopLevelAssetPathForTests(
 			StaticMeshAssetData->PackagePath
 		),
@@ -494,8 +494,8 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 	ASSERT_EQ(Durin::Mona::GetActiveUIBackend(), nullptr);
 	Durin::Tests::FThumbnailTestUIBackend ThumbnailUIBackend;
 	Durin::Tests::FScopedActiveUIBackend ThumbnailBackendScope(ThumbnailUIBackend);
-	auto PumpCacheToReady = [&](Durin::Editor::FAssetThumbnailPool& Cache) {
-		Durin::Editor::FAssetThumbnailView View;
+	auto PumpCacheToReady = [&](Durin::FAssetThumbnailPool& Cache) {
+		Durin::FAssetThumbnailView View;
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 		while (std::chrono::steady_clock::now() < Deadline)
 		{
@@ -506,7 +506,7 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 			Cache.BeginFrame();
 			Cache.Request(
 				StaticMeshFingerprint,
-				Durin::Editor::EAssetThumbnailPriority::Visible
+				Durin::EAssetThumbnailPriority::Visible
 			);
 			View = Cache.Find(StaticMeshFingerprint.AssetPath);
 			Cache.EndFrame();
@@ -515,7 +515,7 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 				// Do not poll capture completion: a real render/readback owns the
 				// slot throughout this interval. Other rendered assets must still load.
 				Cache.AddReferencer(Probe.AssetPath);
-				Cache.Request(Probe, Durin::Editor::EAssetThumbnailPriority::Visible);
+				Cache.Request(Probe, Durin::EAssetThumbnailPriority::Visible);
 				const auto ProbeDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
 				while (ProbeLoads == 0 && std::chrono::steady_clock::now() < ProbeDeadline)
 				{
@@ -528,7 +528,7 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 			}
 			Durin::FlushRenderingCommands();
 			std::this_thread::yield();
-			if (View.State == Durin::Editor::EAssetThumbnailState::Ready
+			if (View.State == Durin::EAssetThumbnailState::Ready
 				&& View.Texture != nullptr)
 				break;
 		}
@@ -536,13 +536,13 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 	};
 	{
 		// This fixture pumps faster than real frames; its wall-clock deadline owns timeout.
-		Durin::Editor::FAssetThumbnailPool Cache({.MaximumResourceWaitFrames = 0}, {.CacheRoot = ThumbnailCacheRoot, .ObjectExtension = ".png"});
-		const Durin::Editor::FAssetThumbnailView Ready = PumpCacheToReady(Cache);
-		ASSERT_EQ(Ready.State, Durin::Editor::EAssetThumbnailState::Ready)
+		Durin::FAssetThumbnailPool Cache({.MaximumResourceWaitFrames = 0}, {.CacheRoot = ThumbnailCacheRoot, .ObjectExtension = ".png"});
+		const Durin::FAssetThumbnailView Ready = PumpCacheToReady(Cache);
+		ASSERT_EQ(Ready.State, Durin::EAssetThumbnailState::Ready)
 			<< Ready.Diagnostic;
 		ASSERT_NE(Ready.Texture, nullptr);
 
-		const Durin::Editor::FAssetThumbnailPoolStats Stats = Cache.GetStats();
+		const Durin::FAssetThumbnailPoolStats Stats = Cache.GetStats();
 		EXPECT_EQ(Stats.Generation.Loads, 2u);
 		EXPECT_EQ(Stats.Generation.Renders, 1u);
 		EXPECT_EQ(Stats.Generation.Readbacks, 1u);
@@ -570,11 +570,11 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 		EXPECT_EQ(ThumbnailUIBackend.NumRegistered(), 0u);
 	}
 	{
-		Durin::Editor::FAssetThumbnailPool WarmCache({.MaximumResourceWaitFrames = 0}, {.CacheRoot = ThumbnailCacheRoot, .ObjectExtension = ".png"});
-		const Durin::Editor::FAssetThumbnailView Ready = PumpCacheToReady(WarmCache);
-		ASSERT_EQ(Ready.State, Durin::Editor::EAssetThumbnailState::Ready)
+		Durin::FAssetThumbnailPool WarmCache({.MaximumResourceWaitFrames = 0}, {.CacheRoot = ThumbnailCacheRoot, .ObjectExtension = ".png"});
+		const Durin::FAssetThumbnailView Ready = PumpCacheToReady(WarmCache);
+		ASSERT_EQ(Ready.State, Durin::EAssetThumbnailState::Ready)
 			<< Ready.Diagnostic;
-		const Durin::Editor::FAssetThumbnailPoolStats Stats = WarmCache.GetStats();
+		const Durin::FAssetThumbnailPoolStats Stats = WarmCache.GetStats();
 		EXPECT_EQ(Stats.Generation.DiskHits, 1u);
 		EXPECT_EQ(Stats.Generation.Loads, 0u);
 		EXPECT_EQ(Stats.Generation.Renders, 0u);
@@ -584,21 +584,21 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 		EXPECT_EQ(Stats.UploadsCompleted, 1u);
 
 		WarmCache.CancelPendingRequests();
-		const Durin::Editor::FAssetThumbnailView Retained =
+		const Durin::FAssetThumbnailView Retained =
 			WarmCache.Find(StaticMeshFingerprint.AssetPath);
-		EXPECT_EQ(Retained.State, Durin::Editor::EAssetThumbnailState::Ready);
+		EXPECT_EQ(Retained.State, Durin::EAssetThumbnailState::Ready);
 		EXPECT_EQ(Retained.Texture, Ready.Texture);
 		WarmCache.BeginFrame();
 		WarmCache.Request(
 			StaticMeshFingerprint,
-			Durin::Editor::EAssetThumbnailPriority::Visible
+			Durin::EAssetThumbnailPriority::Visible
 		);
-		const Durin::Editor::FAssetThumbnailView Revisited =
+		const Durin::FAssetThumbnailView Revisited =
 			WarmCache.Find(StaticMeshFingerprint.AssetPath);
 		WarmCache.EndFrame();
-		EXPECT_EQ(Revisited.State, Durin::Editor::EAssetThumbnailState::Ready);
+		EXPECT_EQ(Revisited.State, Durin::EAssetThumbnailState::Ready);
 		EXPECT_EQ(Revisited.Texture, Ready.Texture);
-		const Durin::Editor::FAssetThumbnailPoolStats RevisitedStats =
+		const Durin::FAssetThumbnailPoolStats RevisitedStats =
 			WarmCache.GetStats();
 		EXPECT_EQ(RevisitedStats.Generation.DiskHits, Stats.Generation.DiskHits);
 		EXPECT_EQ(RevisitedStats.UploadsQueued, Stats.UploadsQueued);
@@ -699,7 +699,7 @@ TEST_F(FThumbnailVulkanTests, EnvironmentValidationAndCancellationReleaseReferen
 	Durin::FByteBuffer UnavailableEnvironmentPixels;
 	EXPECT_EQ(
 		Pool.FinishCapture(UnavailableEnvironmentPixels, Error),
-		Durin::Editor::EThumbnailCaptureState::Failed
+		Durin::EThumbnailCaptureState::Failed
 	);
 	EXPECT_TRUE(UnavailableEnvironmentPixels.empty());
 	EXPECT_NE(Error.find("view environment"), std::string::npos);
@@ -712,7 +712,7 @@ TEST_F(FThumbnailVulkanTests, EnvironmentValidationAndCancellationReleaseReferen
 	Durin::FByteBuffer RecoveredReadback;
 	ASSERT_EQ(
 		Pool.FinishCapture(RecoveredReadback, Error),
-		Durin::Editor::EThumbnailCaptureState::Ready
+		Durin::EThumbnailCaptureState::Ready
 	) << Error;
 	EXPECT_EQ(RecoveredReadback.size(), 64u * 64u * 4u);
 	Pool.Reset();
@@ -723,7 +723,7 @@ TEST_F(FThumbnailVulkanTests, EnvironmentValidationAndCancellationReleaseReferen
 	Durin::FByteBuffer FailedEnvironmentPixels;
 	EXPECT_EQ(
 		Pool.FinishCapture(FailedEnvironmentPixels, Error),
-		Durin::Editor::EThumbnailCaptureState::Failed
+		Durin::EThumbnailCaptureState::Failed
 	);
 	EXPECT_TRUE(FailedEnvironmentPixels.empty());
 	EXPECT_NE(Error.find("view environment"), std::string::npos);
@@ -778,8 +778,8 @@ TEST_F(FThumbnailVulkanTests, EnvironmentValidationAndCancellationReleaseReferen
 TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplacedAllocation)
 {
 	using namespace Durin;
-	using namespace Durin::Editor;
-	using namespace Durin::Editor::Texture;
+	using namespace Durin;
+	using namespace Durin::TextureEditor;
 	auto* Asset = ImportTexture();
 	ASSERT_NE(Asset, nullptr);
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Asset);
@@ -904,8 +904,8 @@ TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplace
 TEST_F(FThumbnailVulkanTests, TexturePreviewPreservesRawChannelsSrgbAndAspectRatio)
 {
 	using namespace Durin;
-	using namespace Durin::Editor;
-	using namespace Durin::Editor::Texture;
+	using namespace Durin;
+	using namespace Durin::TextureEditor;
 	FTextureRHIRef Input;
 	ENQUEUE_RENDER_COMMAND(CreatePreviewTestInput)([&Input](FRHICommandListImmediate& Commands) {
 		auto Desc = FRHITextureCreateDesc::Create2D("PreviewTestInput", 2, 1, EPixelFormat::SRGBA8_UNORM);
@@ -960,12 +960,12 @@ TEST_F(FThumbnailVulkanTests, TexturePreviewPreservesRawChannelsSrgbAndAspectRat
 TEST_F(FThumbnailVulkanTests, CaptureWaitsForOptionalResourcesInsteadOfPublishingInteractiveFallback)
 {
     using namespace Durin;
-    Editor::FThumbnailPreviewScenePool Pool(Contract);
+    FThumbnailPreviewScenePool Pool(Contract);
     ASSERT_TRUE(Pool.IsAvailable()) << Pool.GetDiagnostic();
     ASSERT_TRUE(Pool.BeginCapture());
     FByteBuffer WarmPixels;
     std::string Error;
-    ASSERT_EQ(Tests::FinishThumbnailCapture(Pool, WarmPixels, Error), Editor::EThumbnailCaptureState::Ready) << Error;
+    ASSERT_EQ(Tests::FinishThumbnailCapture(Pool, WarmPixels, Error), EThumbnailCaptureState::Ready) << Error;
     ASSERT_FALSE(WarmPixels.empty());
 
     auto Policy = std::make_shared<std::unique_ptr<FScopedRendererQualificationPolicy>>();
@@ -987,7 +987,7 @@ TEST_F(FThumbnailVulkanTests, CaptureWaitsForOptionalResourcesInsteadOfPublishin
     EnqueueRenderCommand("ReleaseThumbnailOptionalResource", [Policy](FRHICommandListImmediate&) { Policy->reset(); });
     FlushRenderingCommands();
     FByteBuffer CompletePixels;
-    EXPECT_EQ(Tests::FinishThumbnailCapture(Pool, CompletePixels, Error), Editor::EThumbnailCaptureState::Ready) << Error;
+    EXPECT_EQ(Tests::FinishThumbnailCapture(Pool, CompletePixels, Error), EThumbnailCaptureState::Ready) << Error;
     EXPECT_FALSE(CompletePixels.empty());
 }
 
@@ -1010,7 +1010,7 @@ TEST_F(FThumbnailVulkanTests, CaptureDoesNotWaitForUnrelatedOptionalComponentPSO
     ASSERT_TRUE(Request.GetProgress().bRequiredReady);
     ASSERT_EQ(Request.GetProgress().State, EMaterialPSOPrecacheState::Pending);
 
-    Editor::FThumbnailPreviewScenePool Pool(Contract);
+    FThumbnailPreviewScenePool Pool(Contract);
     ASSERT_TRUE(Pool.IsAvailable()) << Pool.GetDiagnostic();
     auto* Actor = Pool.GetReusableActor("OptionalPSOFixture");
     ASSERT_NE(Actor, nullptr);
@@ -1021,7 +1021,7 @@ TEST_F(FThumbnailVulkanTests, CaptureDoesNotWaitForUnrelatedOptionalComponentPSO
     ASSERT_TRUE(Pool.BeginCapture());
     FByteBuffer Pixels;
     std::string Error;
-    EXPECT_EQ(Tests::FinishThumbnailCapture(Pool, Pixels, Error), Editor::EThumbnailCaptureState::Ready) << Error;
+    EXPECT_EQ(Tests::FinishThumbnailCapture(Pool, Pixels, Error), EThumbnailCaptureState::Ready) << Error;
     EXPECT_FALSE(Pixels.empty());
     EXPECT_TRUE(Component->IsPSOPrecaching());
     Component->GetPSOPrecacheComponentData().Reset();

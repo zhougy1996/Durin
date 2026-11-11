@@ -3,7 +3,7 @@
 #include "MaterialEditorAPI.h"
 #include "PropertyEditor/DetailCustomization.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	MATERIALEDITOR_API auto CreateMaterialParameterCollectionDetails() -> std::shared_ptr<IDetailCustomization>;
 }

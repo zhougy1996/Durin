@@ -20,7 +20,7 @@ namespace Durin
 	class DStaticMesh;
 }
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 
 	enum class EStaticMeshLevelMutationKind : uint8

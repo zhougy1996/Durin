@@ -4,19 +4,19 @@
 
 namespace
 {
-	const Durin::Editor::FNotification* FindNotification(const Durin::Editor::FNotificationManager& Manager, Durin::Editor::FNotificationId Id)
+	const Durin::FNotification* FindNotification(const Durin::FNotificationManager& Manager, Durin::FNotificationId Id)
 	{
 		const auto& Notifications = Manager.GetNotifications();
-		const auto Iterator = std::ranges::find(Notifications, Id, &Durin::Editor::FNotification::Id);
+		const auto Iterator = std::ranges::find(Notifications, Id, &Durin::FNotification::Id);
 		return Iterator == Notifications.end() ? nullptr : &*Iterator;
 	}
 }
 
 TEST(FNotificationManagerTests, AppliesDefaultLifetimeAndPausesWhileHovered)
 {
-	Durin::Editor::FNotificationManager Manager;
-	const Durin::Editor::FNotificationId Id = Manager.Post({
-		.Type = Durin::Editor::ENotificationType::Success,
+	Durin::FNotificationManager Manager;
+	const Durin::FNotificationId Id = Manager.Post({
+		.Type = Durin::ENotificationType::Success,
 		.Message = "Saved",
 		.Details = "Package '/Game/Example'",
 	});
@@ -36,33 +36,33 @@ TEST(FNotificationManagerTests, AppliesDefaultLifetimeAndPausesWhileHovered)
 
 TEST(FNotificationManagerTests, UpdatesCompletesAndFailsProgressNotifications)
 {
-	Durin::Editor::FNotificationManager Manager;
-	const Durin::Editor::FNotificationId CompletedId = Manager.BeginProgress({.Message = "Importing"});
-	const Durin::Editor::FNotificationId FailedId = Manager.BeginProgress({.Message = "Cooking", .Progress = 0.25f});
+	Durin::FNotificationManager Manager;
+	const Durin::FNotificationId CompletedId = Manager.BeginProgress({.Message = "Importing"});
+	const Durin::FNotificationId FailedId = Manager.BeginProgress({.Message = "Cooking", .Progress = 0.25f});
 	Manager.UpdateProgress(CompletedId, 1.5f, "Finalizing");
 	Manager.CompleteProgress(CompletedId, "Imported");
 	Manager.FailProgress(FailedId, "Cook failed");
 	Manager.Tick(0.0f);
 
-	const Durin::Editor::FNotification* Completed = FindNotification(Manager, CompletedId);
+	const Durin::FNotification* Completed = FindNotification(Manager, CompletedId);
 	ASSERT_NE(Completed, nullptr);
-	EXPECT_EQ(Completed->Type, Durin::Editor::ENotificationType::Success);
+	EXPECT_EQ(Completed->Type, Durin::ENotificationType::Success);
 	EXPECT_EQ(Completed->Message, "Imported");
 	EXPECT_FALSE(Completed->Progress.has_value());
 	EXPECT_TRUE(Completed->RemainingSeconds.has_value());
 
-	const Durin::Editor::FNotification* Failed = FindNotification(Manager, FailedId);
+	const Durin::FNotification* Failed = FindNotification(Manager, FailedId);
 	ASSERT_NE(Failed, nullptr);
-	EXPECT_EQ(Failed->Type, Durin::Editor::ENotificationType::Error);
+	EXPECT_EQ(Failed->Type, Durin::ENotificationType::Error);
 	EXPECT_EQ(Failed->Message, "Cook failed");
 	EXPECT_FALSE(Failed->RemainingSeconds.has_value());
 }
 
 TEST(FNotificationManagerTests, RequestsCancellationOnlyOnce)
 {
-	Durin::Editor::FNotificationManager Manager;
+	Durin::FNotificationManager Manager;
 	int CancelCount = 0;
-	const Durin::Editor::FNotificationId Id = Manager.BeginProgress({
+	const Durin::FNotificationId Id = Manager.BeginProgress({
 		.Message = "Loading",
 		.Cancel = [&CancelCount] { ++CancelCount; },
 	});
@@ -71,20 +71,20 @@ TEST(FNotificationManagerTests, RequestsCancellationOnlyOnce)
 	EXPECT_TRUE(Manager.RequestCancel(Id));
 	EXPECT_FALSE(Manager.RequestCancel(Id));
 	EXPECT_EQ(CancelCount, 1);
-	const Durin::Editor::FNotification* Notification = FindNotification(Manager, Id);
+	const Durin::FNotification* Notification = FindNotification(Manager, Id);
 	ASSERT_NE(Notification, nullptr);
 	EXPECT_TRUE(Notification->bCancelRequested);
 }
 
 TEST(FNotificationManagerTests, DistinguishesCanceledProgressAndOmitsAggregateHistory)
 {
-	Durin::Editor::FNotificationManager Manager;
-	const Durin::Editor::FNotificationId OperationId = Manager.BeginProgress({
+	Durin::FNotificationManager Manager;
+	const Durin::FNotificationId OperationId = Manager.BeginProgress({
 		.Message = "Importing texture",
-		.Presentation = Durin::Editor::ENotificationPresentation::HistoryOnly});
-	const Durin::Editor::FNotificationId AggregateId = Manager.BeginProgress({
+		.Presentation = Durin::ENotificationPresentation::HistoryOnly});
+	const Durin::FNotificationId AggregateId = Manager.BeginProgress({
 		.Message = "Importing texture",
-		.Presentation = Durin::Editor::ENotificationPresentation::StatusBar,
+		.Presentation = Durin::ENotificationPresentation::StatusBar,
 		.bRecordInHistory = false});
 	Manager.CancelProgress(OperationId, "Texture import canceled");
 	Manager.Tick(0.0f);
@@ -94,15 +94,15 @@ TEST(FNotificationManagerTests, DistinguishesCanceledProgressAndOmitsAggregateHi
 	ASSERT_EQ(Manager.GetHistory().size(), 1u);
 	EXPECT_EQ(Manager.GetHistory().front().Id, OperationId);
 	EXPECT_EQ(Manager.GetHistory().front().Type,
-		Durin::Editor::ENotificationType::Info);
+		Durin::ENotificationType::Info);
 	EXPECT_EQ(Manager.GetHistory().front().Message, "Texture import canceled");
 	EXPECT_FALSE(Manager.GetHistory().front().Cancel);
 }
 
 TEST(FNotificationManagerTests, AcceptsCommandsFromAnotherThread)
 {
-	Durin::Editor::FNotificationManager Manager;
-	Durin::Editor::FNotificationId Id = 0;
+	Durin::FNotificationManager Manager;
+	Durin::FNotificationId Id = 0;
 	std::thread Producer([&] {
 		Id = Manager.BeginProgress({.Message = "Background"});
 		Manager.UpdateProgress(Id, 0.5f, "Halfway");
@@ -110,7 +110,7 @@ TEST(FNotificationManagerTests, AcceptsCommandsFromAnotherThread)
 	Producer.join();
 	Manager.Tick(0.0f);
 
-	const Durin::Editor::FNotification* Notification = FindNotification(Manager, Id);
+	const Durin::FNotification* Notification = FindNotification(Manager, Id);
 	ASSERT_NE(Notification, nullptr);
 	ASSERT_TRUE(Notification->Progress.has_value());
 	EXPECT_FLOAT_EQ(*Notification->Progress, 0.5f);
@@ -121,8 +121,8 @@ TEST(FNotificationManagerTests, AcceptsCommandsFromAnotherThread)
 
 TEST(FNotificationManagerTests, DismissalPreservesHistoryUntilExplicitlyCleared)
 {
-	Durin::Editor::FNotificationManager Manager;
-	const Durin::Editor::FNotificationId Id = Manager.Post({.Message = "Moved Actor"});
+	Durin::FNotificationManager Manager;
+	const Durin::FNotificationId Id = Manager.Post({.Message = "Moved Actor"});
 	Manager.Tick(0.0f);
 	Manager.Dismiss(Id);
 	Manager.Tick(0.0f);
@@ -137,15 +137,15 @@ TEST(FNotificationManagerTests, DismissalPreservesHistoryUntilExplicitlyCleared)
 
 TEST(FNotificationManagerTests, RoutesStatusAndHistoryOnlyPresentationsWithoutCreatingToasts)
 {
-	Durin::Editor::FNotificationManager Manager;
-	const Durin::Editor::FNotificationId StatusId = Manager.Post({
-		.Type = Durin::Editor::ENotificationType::Success,
+	Durin::FNotificationManager Manager;
+	const Durin::FNotificationId StatusId = Manager.Post({
+		.Type = Durin::ENotificationType::Success,
 		.Message = "Changed Intensity",
-		.Presentation = Durin::Editor::ENotificationPresentation::StatusBar,
+		.Presentation = Durin::ENotificationPresentation::StatusBar,
 	});
 	Manager.Post({
 		.Message = "Recorded only",
-		.Presentation = Durin::Editor::ENotificationPresentation::HistoryOnly,
+		.Presentation = Durin::ENotificationPresentation::HistoryOnly,
 	});
 	Manager.Tick(0.0f);
 
@@ -163,11 +163,11 @@ TEST(FNotificationManagerTests, RoutesStatusAndHistoryOnlyPresentationsWithoutCr
 
 TEST(FNotificationManagerTests, ReplacesStatusFeedbackAndRetainsEachHistoryEntry)
 {
-	Durin::Editor::FNotificationManager Manager;
-	Manager.Post({.Message = "Moved Actor", .Presentation = Durin::Editor::ENotificationPresentation::StatusBar});
-	const Durin::Editor::FNotificationId LatestId = Manager.Post({
+	Durin::FNotificationManager Manager;
+	Manager.Post({.Message = "Moved Actor", .Presentation = Durin::ENotificationPresentation::StatusBar});
+	const Durin::FNotificationId LatestId = Manager.Post({
 		.Message = "Changed Rotation",
-		.Presentation = Durin::Editor::ENotificationPresentation::StatusBar,
+		.Presentation = Durin::ENotificationPresentation::StatusBar,
 	});
 	Manager.Tick(0.0f);
 
@@ -179,15 +179,15 @@ TEST(FNotificationManagerTests, ReplacesStatusFeedbackAndRetainsEachHistoryEntry
 
 TEST(FNotificationManagerTests, InvokesStatusActionAndDismissesStatusFeedback)
 {
-	Durin::Editor::FNotificationManager Manager;
+	Durin::FNotificationManager Manager;
 	int InvokeCount = 0;
-	const Durin::Editor::FNotificationId Id = Manager.Post({
+	const Durin::FNotificationId Id = Manager.Post({
 		.Message = "Changed Material",
-		.Action = Durin::Editor::FNotificationAction{
+		.Action = Durin::FNotificationAction{
 			.Label = "Undo",
 			.Invoke = [&InvokeCount] { ++InvokeCount; },
 		},
-		.Presentation = Durin::Editor::ENotificationPresentation::StatusBar,
+		.Presentation = Durin::ENotificationPresentation::StatusBar,
 	});
 	Manager.Tick(0.0f);
 
@@ -202,7 +202,7 @@ TEST(FNotificationManagerTests, InvokesStatusActionAndDismissesStatusFeedback)
 
 TEST(FNotificationManagerTests, RetirementDiscardsPendingWorkAndInvalidatesRetainedCallbacks)
 {
-	using namespace Durin::Editor;
+	using namespace Durin;
 	FNotificationManager Manager;
 	int Actions = 0;
 	const auto Id = Manager.BeginProgress({.Message = "Import", .Action = FNotificationAction{
@@ -226,7 +226,7 @@ TEST(FNotificationManagerTests, RetirementDiscardsPendingWorkAndInvalidatesRetai
 
 TEST(FNotificationManagerTests, EnablementMayRetireEntriesWithoutInvokingTheirAction)
 {
-	using namespace Durin::Editor;
+	using namespace Durin;
 	FNotificationManager Manager;
 	int Invocations = 0;
 	const auto Id = Manager.Post({.Message = "Retire", .Action = FNotificationAction{
@@ -240,7 +240,7 @@ TEST(FNotificationManagerTests, EnablementMayRetireEntriesWithoutInvokingTheirAc
 
 TEST(FNotificationManagerTests, TerminalProgressUpdatesSharePolicyAcrossPresentations)
 {
-	using namespace Durin::Editor;
+	using namespace Durin;
 	for (const auto Presentation : {ENotificationPresentation::Toast, ENotificationPresentation::StatusBar, ENotificationPresentation::HistoryOnly})
 		for (const auto Outcome : {ENotificationType::Success, ENotificationType::Error, ENotificationType::Info})
 			for (const bool bEmptyMessage : {false, true})
@@ -282,7 +282,7 @@ TEST(FNotificationManagerTests, TerminalProgressUpdatesSharePolicyAcrossPresenta
 
 TEST(FNotificationManagerTests, NonFiniteProgressUsesTheUnknownRepresentation)
 {
-	using namespace Durin::Editor;
+	using namespace Durin;
 	for (const auto Invalid : {std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(), -std::numeric_limits<float>::infinity()})
 	{
 		FNotificationManager Manager;

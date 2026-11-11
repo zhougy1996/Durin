@@ -9,7 +9,7 @@ struct ImGuiInputTextCallbackData;
 
 namespace Durin { class DEditorEngine; }
 
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
 	struct FConsolePanelState;
 	class FConsoleToolAdapter;
@@ -66,4 +66,4 @@ namespace Durin::Editor::MainFrame
 		uint8 ScrollToLatestFrames = 0;
 		uint32 UnreadImportantRecordCount = 0;
 	};
-} // namespace Durin::Editor::MainFrame
+} // namespace Durin::MainFrame

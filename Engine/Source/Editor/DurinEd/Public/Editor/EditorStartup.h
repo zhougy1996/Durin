@@ -6,7 +6,7 @@
 
 namespace Durin { class FSoftObjectPath; struct FProjectInfo; }
 
-namespace Durin::Editor::Startup
+namespace Durin::EditorStartup
 {
 	// Empty OutPath means no startup level; validation never loads or activates assets.
 	DURINED_API auto ResolveStartupLevel(const FProjectInfo& Project, FSoftObjectPath& OutPath, std::string& OutError) -> bool;

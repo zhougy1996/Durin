@@ -8,7 +8,7 @@
 #include "AssetMaintenance/CompatibilityAudit.h"
 #include "Threading/TaskRuntime.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	enum class EAssetCompatibilityAuditState : uint8
 	{

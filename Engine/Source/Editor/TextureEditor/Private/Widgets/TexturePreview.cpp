@@ -13,7 +13,7 @@
 #include "Shader/ShaderMapPreparation.h"
 #include "Texture/Texture2D.h"
 
-namespace Durin::Editor::Texture
+namespace Durin::TextureEditor
 {
 	namespace
 	{

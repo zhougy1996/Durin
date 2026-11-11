@@ -13,7 +13,7 @@
 #include "StaticMesh/StaticMeshResources.h"
 #include "Workspace/StaticMeshEditorWorkspace.h"
 
-namespace Durin::Editor::StaticMesh
+namespace Durin::StaticMeshEditor
 {
 	namespace
 	{

@@ -6,7 +6,7 @@
 
 namespace Durin { class AActor; class DActorComponent; }
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	struct FLevelEditorContext;
 	auto CreateSkyLightDetailsCustomization() -> std::shared_ptr<IDetailCustomization>;

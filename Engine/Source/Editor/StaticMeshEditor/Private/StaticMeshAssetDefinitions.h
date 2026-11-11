@@ -6,7 +6,7 @@
 #include "Toolkits/AssetEditor.h"
 #include "StaticMeshAssetDefinitions.gen.h"
 
-namespace Durin::Editor::StaticMesh
+namespace Durin::StaticMeshEditor
 {
 	DCLASS(NoClassDefaultObject)
 	class DStaticMeshAssetEditor : public DAssetEditor

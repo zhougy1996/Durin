@@ -14,7 +14,7 @@ namespace Durin
 	class DLevel;
 }
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 
 	// Builds and draws the searchable actor hierarchy for the active level.
@@ -64,4 +64,4 @@ namespace Durin::Editor::Level
 		EDetachmentTransformRule DetachmentRule = EDetachmentTransformRule::KeepWorld;
 		int ExpandRequest = 0;
 	};
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

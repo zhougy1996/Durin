@@ -8,7 +8,7 @@
 
 namespace Durin { class DMaterialInterface; }
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	// Captures deterministic material dependency keys for one exact material asset class.
 	class DMaterialThumbnailRenderer final : public DDefaultSizedThumbnailRenderer
@@ -29,4 +29,4 @@ namespace Durin::Editor::Material
 	private:
 		std::string AssetClassName;
 	};
-} // namespace Durin::Editor::Material
+} // namespace Durin::MaterialEditor

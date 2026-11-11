@@ -4,7 +4,7 @@
 
 #include "Thumbnail/ThumbnailManager.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	// Supplies source-image renderer input while keeping public lookup keyed by the requesting item.
 	struct FSourceImageThumbnailRequest
@@ -43,4 +43,4 @@ namespace Durin::Editor::ContentBrowser::Private
 		struct FImpl;
 		std::unique_ptr<FImpl> Impl;
 	};
-} // namespace Durin::Editor::ContentBrowser::Private
+} // namespace Durin::ContentBrowser::Private

@@ -8,7 +8,7 @@
 #include "Tools/TracyToolset.h"
 
 
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
 	namespace
 	{

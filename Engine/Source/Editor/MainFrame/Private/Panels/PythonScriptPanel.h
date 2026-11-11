@@ -4,7 +4,7 @@
 #include "ContentBrowser/ContentBrowserContracts.h"
 
 namespace Durin { class DEditorEngine; }
-namespace Durin::Editor::MainFrame
+namespace Durin::MainFrame
 {
     // GameThread presenter; jobs retain only the editor's detached tool endpoint.
     class FPythonScriptPanel final

@@ -4,7 +4,7 @@
 #include "MaterialGraphEditInternals.h"
 #include "MaterialGraphEditSession.h"
 
-namespace Durin::Editor::Material
+namespace Durin::MaterialEditor
 {
 	struct FMaterialFunctionPreviewInvalidation::FState
 	{

@@ -630,7 +630,7 @@ TEST_F(FAssetPackageReloadTests, ReloadRetainsCrossPackageHistoryAndRebindsTheSa
 	Transactions->EstablishSavedState(*Textures[0]->GetPackage());
 	Transactions->EstablishSavedState(*Textures[1]->GetPackage());
 	{
-		Editor::FScopedTransaction Scope(Transactions, {"test", "Cross-package edit"});
+		FScopedTransaction Scope(Transactions, {"test", "Cross-package edit"});
 		for (DTexture2D* Texture : Textures)
 		{
 			(void)Texture->Modify();
@@ -796,7 +796,7 @@ TEST_F(FAssetPackageReloadTests, SkyLightUndoRedoAndPackageReopenPreserveSourceA
     auto* Transactions=NewObject<DTransBuffer>(nullptr,"SkyLightHistory");
     TStrongObjectPtr<DTransBuffer> Root(Transactions);
     {
-        Editor::FScopedTransaction Scope(Transactions,{"test","Change Sky Light"});
+        FScopedTransaction Scope(Transactions,{"test","Change Sky Light"});
         (void)Light->Modify();
         Light->SetSource(ESkyLightSourceMode::CapturedSky,nullptr);
         Light->SetIntensity(3);
@@ -939,7 +939,7 @@ TEST_F(FAssetPackageReloadTests, DocumentDiscardPreservesReinstancedHistoryAndTr
 	EditorOwner->EstablishSavedState(*Texture->GetPackage());
 	const auto SavedSRGB = Texture->IsSRGB();
 	{
-		Editor::FScopedTransaction Scope(EditorOwner.Get(), {"test", "Discarded texture settings", Texture});
+		FScopedTransaction Scope(EditorOwner.Get(), {"test", "Discarded texture settings", Texture});
 		ASSERT_TRUE(Texture->Modify());
 		Texture->SetBuildSettings(Texture->GetUsage(), !SavedSRGB, Texture->GetMaxResolution(), Texture->GetCompressionQuality(),
 			Texture->GetAlphaMipMode(), Texture->GetAlphaCoverageThreshold());

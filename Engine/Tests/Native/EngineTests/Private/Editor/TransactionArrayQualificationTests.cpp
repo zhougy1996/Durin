@@ -6,7 +6,7 @@
 #endif
 
 using namespace Durin;
-using namespace Durin::Editor;
+using namespace Durin;
 using namespace Durin::Tests::ObjectState;
 
 namespace

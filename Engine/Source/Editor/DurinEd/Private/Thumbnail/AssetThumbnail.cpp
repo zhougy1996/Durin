@@ -2,7 +2,7 @@
 
 #include "Thumbnail/ThumbnailManager.h"
 
-namespace Durin::Editor
+namespace Durin
 {
 	FAssetThumbnail::FAssetThumbnail(FAssetThumbnailPackageFingerprint InAsset,
 		uint32 InRequestedWidth, uint32 InRequestedHeight, FAssetThumbnailPool* InPool)

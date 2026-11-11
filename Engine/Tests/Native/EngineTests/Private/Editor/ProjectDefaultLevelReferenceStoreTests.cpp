@@ -142,7 +142,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, FixUpRewritesYamlAndPreservesOther
 	FDefaultLevelScenario Scenario = BuildScenario("Rewrite");
 	auto MountFixture = ConfigureAssets(Scenario);
 	Durin::FPackagePath NotifiedPath;
-	Durin::Editor::Level::FProjectDefaultLevelReferenceStore Store(
+	Durin::LevelEditor::FProjectDefaultLevelReferenceStore Store(
 		[&](const Durin::FPackagePath& Path) { NotifiedPath = Path; },
 		[&] { return &Scenario.Project; });
 	FScopedStoreRegistration Registration(Store);
@@ -165,7 +165,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, VerificationFailureRetainsPublishe
 	FDefaultLevelScenario Scenario = BuildScenario("Restore");
 	auto MountFixture = ConfigureAssets(Scenario);
 	Durin::FPackagePath NotifiedPath;
-	Durin::Editor::Level::FProjectDefaultLevelReferenceStore Store(
+	Durin::LevelEditor::FProjectDefaultLevelReferenceStore Store(
 		[&](const Durin::FPackagePath& Path) { NotifiedPath = Path; },
 		[&] { return &Scenario.Project; });
 	FScopedStoreRegistration Registration(Store);
@@ -192,7 +192,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, CookContributesCanonicalRootWithou
 {
 	FDefaultLevelScenario Scenario = BuildScenario("CookRoot");
 	auto MountFixture = ConfigureAssets(Scenario);
-	Durin::Editor::Level::FProjectDefaultLevelReferenceStore Store(
+	Durin::LevelEditor::FProjectDefaultLevelReferenceStore Store(
 		{}, [&] { return &Scenario.Project; });
 	FScopedStoreRegistration Registration(Store);
 
@@ -271,13 +271,13 @@ TEST(FProjectDefaultLevelReferenceStoreTests, StartupResolutionFollowsRedirectsA
 	auto MountFixture = ConfigureAssets(Scenario);
 	Durin::FSoftObjectPath Path;
 	std::string Error;
-	ASSERT_TRUE(Durin::Editor::Startup::ResolveStartupLevel(Scenario.Project, Path, Error)) << Error;
+	ASSERT_TRUE(Durin::EditorStartup::ResolveStartupLevel(Scenario.Project, Path, Error)) << Error;
 	EXPECT_EQ(Path.GetPackagePath(), Scenario.NewPath);
 	EXPECT_EQ(Path.GetAssetPath().GetAssetName(), "Old");
 	EXPECT_TRUE(Error.empty());
 	// A similarly prefixed mount must not admit a resolved level from another project.
 	Scenario.Project.MountRoot = "/DefaultLevelTest";
-	EXPECT_FALSE(Durin::Editor::Startup::ResolveStartupLevel(Scenario.Project, Path, Error));
+	EXPECT_FALSE(Durin::EditorStartup::ResolveStartupLevel(Scenario.Project, Path, Error));
 	EXPECT_FALSE(Path.IsValid());
 	EXPECT_NE(Error.find("outside the selected project mount"), std::string::npos);
 }
@@ -287,7 +287,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, StartupResolutionAcceptsNoLevelAnd
 	FDefaultLevelScenario Scenario = BuildScenario("StartupConfiguration");
 	Durin::FSoftObjectPath Path;
 	std::string Error = "stale error";
-	ASSERT_TRUE(Durin::Editor::Startup::ResolveStartupLevel(Scenario.Project, Path, Error)) << Error;
+	ASSERT_TRUE(Durin::EditorStartup::ResolveStartupLevel(Scenario.Project, Path, Error)) << Error;
 	EXPECT_FALSE(Path.IsValid());
 	EXPECT_TRUE(Error.empty());
 	for (const auto Text : {"Game: [", "Game:\n  DefaultLevel: not-an-absolute-package\n"})
@@ -295,7 +295,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, StartupResolutionAcceptsNoLevelAnd
 		std::ofstream Settings(Scenario.Root / "Configs" / "Project.yaml");
 		Settings << Text;
 		Settings.close();
-		EXPECT_FALSE(Durin::Editor::Startup::ResolveStartupLevel(Scenario.Project, Path, Error));
+		EXPECT_FALSE(Durin::EditorStartup::ResolveStartupLevel(Scenario.Project, Path, Error));
 		EXPECT_FALSE(Path.IsValid());
 		EXPECT_FALSE(Error.empty());
 	}
@@ -309,14 +309,14 @@ TEST(FProjectDefaultLevelReferenceStoreTests, StartupResolutionRejectsMissingAnd
 	ASSERT_TRUE(Store.SaveDefaultLevel("/DefaultLevelTests/Levels/Missing"));
 	Durin::FSoftObjectPath Path;
 	std::string Error;
-	EXPECT_FALSE(Durin::Editor::Startup::ResolveStartupLevel(Scenario.Project, Path, Error));
+	EXPECT_FALSE(Durin::EditorStartup::ResolveStartupLevel(Scenario.Project, Path, Error));
 	EXPECT_FALSE(Error.empty());
 	ASSERT_TRUE(Store.SaveDefaultLevel(Scenario.NewPath.ToString()));
 	auto* Package = Durin::FindResidentPackage(Scenario.NewPath);
 	ASSERT_NE(Package, nullptr);
 	ASSERT_NE(Durin::NewObject<Durin::DLevel>(Package, "Secondary"), nullptr);
 	ASSERT_TRUE(Durin::SavePackage(Package));
-	EXPECT_FALSE(Durin::Editor::Startup::ResolveStartupLevel(Scenario.Project, Path, Error));
+	EXPECT_FALSE(Durin::EditorStartup::ResolveStartupLevel(Scenario.Project, Path, Error));
 	EXPECT_FALSE(Path.IsValid());
 	EXPECT_FALSE(Error.empty());
 }

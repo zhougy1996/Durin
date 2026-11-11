@@ -7,7 +7,7 @@
 #include "AssetRegistry/Catalog.h"
 #include "Threading/TaskRuntime.h"
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	struct FContentBrowserAssetSnapshot
 	{

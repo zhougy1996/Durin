@@ -6,7 +6,7 @@
 #include "Import/MeshCoordinateImportModel.h"
 #include "AssetForge/Builtins/AssetImport.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	// Imports one supported Scene source into a typed multi-asset directory.
 	class FSceneImportDialog
@@ -40,4 +40,4 @@ namespace Durin::Editor::Level
 		bool bReportedCompletion = false;
 		bool bCloseWhenFinished = false;
 	};
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

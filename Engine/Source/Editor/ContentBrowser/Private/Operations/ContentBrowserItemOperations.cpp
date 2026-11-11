@@ -17,7 +17,7 @@
 #include "Misc/StringHelper.h"
 
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	namespace
 	{
@@ -1357,9 +1357,9 @@ namespace Durin::Editor::ContentBrowser::Private
 		return Plan;
 	}
 
-} // namespace Durin::Editor::ContentBrowser::Private
+} // namespace Durin::ContentBrowser::Private
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 
 
@@ -1370,7 +1370,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 }
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	auto FContentBrowserDataSource::PrepareDeleteItems(std::span<const FContentBrowserItem> Items)
 		-> FContentDeletionPlanPtr
@@ -1451,7 +1451,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	}
 }
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	auto FContentBrowserDataSource::ValidateMoves(std::span<const FAssetRelocationMapping> Moves) const
 		-> FAssetWriteResult
@@ -1467,7 +1467,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	}
 }
 
-namespace Durin::Editor::ContentBrowser::Private
+namespace Durin::ContentBrowser::Private
 {
 	auto FContentBrowserDataSource::ReportRecovery(const FAssetMutationResultDetails& Native) const -> void
 	{

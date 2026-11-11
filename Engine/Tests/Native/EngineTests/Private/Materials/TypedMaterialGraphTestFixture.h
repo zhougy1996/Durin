@@ -27,21 +27,21 @@ namespace Durin::Testing
 		Expression->Id = Id;
 		return Expression;
 	}
-	inline auto CreateGraphConstant(const Editor::Material::FMaterialGraphDocument& Document, float Value = 0.f,
-		int32 X = 0, int32 Y = 0, Editor::ETransactionMode Mode = Editor::ETransactionMode::NotTransactable) -> Editor::Material::FMaterialGraphCommandResult
+	inline auto CreateGraphConstant(const MaterialEditor::FMaterialGraphDocument& Document, float Value = 0.f,
+		int32 X = 0, int32 Y = 0, ETransactionMode Mode = ETransactionMode::NotTransactable) -> MaterialEditor::FMaterialGraphCommandResult
 	{
 		auto Constant = MakeGraphExpression<DMaterialExpressionScalarConstant>();
 		Constant->Value = Value;
 		return Document.CreateExpression(*Constant.Get(), X, Y, Mode);
 	}
-	inline auto CreateGraphCatalogNode(const Editor::Material::FMaterialGraphDocument& Document,
+	inline auto CreateGraphCatalogNode(const MaterialEditor::FMaterialGraphDocument& Document,
 		EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type = EMaterialProgramValueType::Float,
-		FMaterialExpressionInput Input = {}, int32 X = 0, int32 Y = 0, Editor::ETransactionMode Mode = Editor::ETransactionMode::NotTransactable)
-		-> Editor::Material::FMaterialGraphCommandResult
+		FMaterialExpressionInput Input = {}, int32 X = 0, int32 Y = 0, ETransactionMode Mode = ETransactionMode::NotTransactable)
+		-> MaterialEditor::FMaterialGraphCommandResult
 	{
-		const auto Catalog = Editor::Material::FMaterialGraphOperations::EnumerateCatalog();
+		const auto Catalog = MaterialEditor::FMaterialGraphOperations::EnumerateCatalog();
 		const auto Entry = std::ranges::find_if(Catalog, [&](const auto& Value) { return Value.Opcode == Opcode && Value.ResultType == Type; });
-		if (Entry == Catalog.end()) return {.Status = Editor::Material::EMaterialGraphCommandStatus::Rejected,
+		if (Entry == Catalog.end()) return {.Status = MaterialEditor::EMaterialGraphCommandStatus::Rejected,
 			.Message = "The catalog expression shape is stale."};
 		return Document.CreateCatalogNode(*Entry, X, Y, Input, Mode);
 	}

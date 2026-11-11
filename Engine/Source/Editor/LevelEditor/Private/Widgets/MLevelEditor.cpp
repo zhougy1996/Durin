@@ -35,7 +35,7 @@
 #include "Profiling/Profiling.h"
 #include "Assets/SceneImportDialog.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	namespace
 	{
@@ -255,7 +255,7 @@ namespace Durin::Editor::Level
 		if (!Project) return false;
 		FSoftObjectPath Path;
 		std::string Error;
-		if (!Startup::ResolveStartupLevel(*Project, Path, Error))
+		if (!EditorStartup::ResolveStartupLevel(*Project, Path, Error))
 		{
 			SetError(std::move(Error));
 			return false;
@@ -768,4 +768,4 @@ namespace Durin::Editor::Level
 		ImGui::DockBuilderDockWindow(SceneViewportName.c_str(), MainDockId);
 		ImGui::DockBuilderFinish(DockSpaceId);
 	}
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

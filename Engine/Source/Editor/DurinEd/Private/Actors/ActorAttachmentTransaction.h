@@ -14,7 +14,7 @@ namespace Durin
 	class AActor;
 }
 
-namespace Durin::Editor
+namespace Durin
 {
 	// Restores actor parentage and world transforms for one hierarchy edit.
 	class FActorAttachmentTransaction final : public FActorCommandChange

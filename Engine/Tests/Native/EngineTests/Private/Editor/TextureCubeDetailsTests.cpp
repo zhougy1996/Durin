@@ -16,7 +16,7 @@
 #include <gtest/gtest.h>
 
 
-namespace Durin::Editor::Texture
+namespace Durin::TextureEditor
 {
 	TEST(FTextureCubeDetailsTests, InspectsTextureCubeDetailsWithoutLoadingPackage)
 	{
@@ -53,8 +53,8 @@ namespace Durin::Editor::Texture
 		ASSERT_TRUE(UnloadPackage(CubePath));
 		ASSERT_EQ(FindResidentPackage(CubePath), nullptr);
 
-		Editor::Texture::FTextureCubeDetailsCache Cache;
-		const Editor::Texture::FTextureCubeDetailsSnapshot& Details =
+		TextureEditor::FTextureCubeDetailsCache Cache;
+		const TextureEditor::FTextureCubeDetailsSnapshot& Details =
 			Cache.Get(PackagePath.generic_string(),
 				GetAssetCatalogRevision());
 		EXPECT_TRUE(Details.bAvailable);
@@ -97,9 +97,9 @@ namespace Durin::Editor::Texture
 			File << "a";
 		}
 		size_t BuildCount = 0;
-		Editor::Texture::FTextureCubeDetailsCache Cache(
+		TextureEditor::FTextureCubeDetailsCache Cache(
 			[&](std::string_view) {
-				Editor::Texture::FTextureCubeDetailsSnapshot Snapshot;
+				TextureEditor::FTextureCubeDetailsSnapshot Snapshot;
 				Snapshot.BuildDiagnostic = std::format("build {}", ++BuildCount);
 				return Snapshot;
 			});
@@ -124,8 +124,8 @@ namespace Durin::Editor::Texture
 		Testing::RemoveTestWorkDirectory(Root, Error);
 		std::filesystem::create_directories(Root);
 		const std::filesystem::path Missing = Root / "Missing.dasset";
-		const Editor::Texture::FTextureCubeDetailsSnapshot Unavailable =
-			Editor::Texture::BuildTextureCubeDetailsSnapshot(
+		const TextureEditor::FTextureCubeDetailsSnapshot Unavailable =
+			TextureEditor::BuildTextureCubeDetailsSnapshot(
 				Missing.generic_string());
 		EXPECT_FALSE(Unavailable.bAvailable);
 		EXPECT_FALSE(Unavailable.BuildDiagnostic.empty());
@@ -135,8 +135,8 @@ namespace Durin::Editor::Texture
 			std::ofstream File(Corrupt, std::ios::binary);
 			File << "not a package";
 		}
-		const Editor::Texture::FTextureCubeDetailsSnapshot Invalid =
-			Editor::Texture::BuildTextureCubeDetailsSnapshot(
+		const TextureEditor::FTextureCubeDetailsSnapshot Invalid =
+			TextureEditor::BuildTextureCubeDetailsSnapshot(
 				Corrupt.generic_string());
 		EXPECT_FALSE(Invalid.bAvailable);
 		EXPECT_FALSE(Invalid.BuildDiagnostic.empty());

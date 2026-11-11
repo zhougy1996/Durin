@@ -8,7 +8,7 @@
 #include "Misc/StringHelper.h"
 #include "SceneViewProjection.h"
 
-namespace Durin::Editor::Level
+namespace Durin::LevelEditor
 {
 	namespace
 	{
@@ -270,4 +270,4 @@ namespace Durin::Editor::Level
 		return FindMostSpecific<IComponentEditorVisualizer>(Class, ComponentVisualizers);
 	}
 
-} // namespace Durin::Editor::Level
+} // namespace Durin::LevelEditor

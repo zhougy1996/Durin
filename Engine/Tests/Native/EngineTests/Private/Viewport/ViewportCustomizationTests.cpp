@@ -40,19 +40,19 @@ TEST(FSplineComponentVisualizerTests, EmitsSelectableCurveLinesAndControlPointBo
 	Durin::FSceneView View;
 	View.ViewportWidth = 800;
 	View.ViewportHeight = 600;
-	Durin::Editor::Level::FEditorVisualizationCollector Collector;
-	const std::shared_ptr<Durin::Editor::Level::IComponentEditorVisualizer> Visualizer = Durin::Editor::Level::CreateSplineComponentVisualizer();
+	Durin::LevelEditor::FEditorVisualizationCollector Collector;
+	const std::shared_ptr<Durin::LevelEditor::IComponentEditorVisualizer> Visualizer = Durin::LevelEditor::CreateSplineComponentVisualizer();
 	Visualizer->DrawVisualization(Spline, {View, nullptr, true, true}, Collector);
 
 	ASSERT_FALSE(Collector.GetLines().empty());
-	EXPECT_TRUE(std::ranges::all_of(Collector.GetLines(), [Actor, Spline](const Durin::Editor::Level::FEditorVisualizationLine& Line) {
+	EXPECT_TRUE(std::ranges::all_of(Collector.GetLines(), [Actor, Spline](const Durin::LevelEditor::FEditorVisualizationLine& Line) {
 		return Line.Actor.Get() == Actor && Line.Component.Get() == Spline;
 	}));
 	EXPECT_GE(Collector.GetLines().size(), 16u);
 	ASSERT_EQ(Collector.GetBoxes().size(), Spline->GetNumSplinePoints());
-	EXPECT_TRUE(std::ranges::all_of(Collector.GetBoxes(), [Actor, Spline](const Durin::Editor::Level::FEditorVisualizationBox& Box) {
+	EXPECT_TRUE(std::ranges::all_of(Collector.GetBoxes(), [Actor, Spline](const Durin::LevelEditor::FEditorVisualizationBox& Box) {
 		return Box.Actor.Get() == Actor && Box.Component.Get() == Spline
-			&& Box.Element.Kind == Durin::Editor::Level::EEditorSubElementKind::Point;
+			&& Box.Element.Kind == Durin::LevelEditor::EEditorSubElementKind::Point;
 	}));
 
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
@@ -67,9 +67,9 @@ TEST(FVolumetricCloudDetailsCustomizationTests,
 		nullptr, "CloudDetailsActor");
 	auto* Component = Actor->GetVolumetricCloudComponent();
 	ASSERT_NE(Component, nullptr);
-	Durin::Editor::Level::FLevelEditorContext Context;
-	Durin::Editor::Level::FLevelDetailLayoutBuilder Builder(Context);
-	Builder.ApplyCustomization(Component, *Durin::Editor::Level::CreateVolumetricCloudDetailsCustomization());
+	Durin::LevelEditor::FLevelEditorContext Context;
+	Durin::LevelEditor::FLevelDetailLayoutBuilder Builder(Context);
+	Builder.ApplyCustomization(Component, *Durin::LevelEditor::CreateVolumetricCloudDetailsCustomization());
 	Durin::FProperty* Eligibility = Component->GetClass()->FindPropertyByName(
 		"EligibilityStatus");
 	ASSERT_NE(Eligibility, nullptr);
@@ -101,16 +101,16 @@ TEST(FSplineComponentVisualizerTests, PublishesStableTypedSplineElements)
 	First.TangentMode = Durin::ESplineTangentMode::ManualBroken;
 	ASSERT_TRUE(Spline->UpdateSplinePoint(0, First));
 	Durin::FSceneView View;
-	Durin::Editor::Level::FEditorVisualizationCollector Collector;
-	Durin::Editor::Level::CreateSplineComponentVisualizer()->DrawVisualization(Spline, {View, nullptr, true, true, true, {}}, Collector);
-	EXPECT_TRUE(std::ranges::any_of(Collector.GetBoxes(), [First](const Durin::Editor::Level::FEditorVisualizationBox& Box) {
-		return Box.Element.Kind == Durin::Editor::Level::EEditorSubElementKind::Point && Box.Element.StableId == First.Id;
+	Durin::LevelEditor::FEditorVisualizationCollector Collector;
+	Durin::LevelEditor::CreateSplineComponentVisualizer()->DrawVisualization(Spline, {View, nullptr, true, true, true, {}}, Collector);
+	EXPECT_TRUE(std::ranges::any_of(Collector.GetBoxes(), [First](const Durin::LevelEditor::FEditorVisualizationBox& Box) {
+		return Box.Element.Kind == Durin::LevelEditor::EEditorSubElementKind::Point && Box.Element.StableId == First.Id;
 	}));
-	EXPECT_TRUE(std::ranges::any_of(Collector.GetBoxes(), [First](const Durin::Editor::Level::FEditorVisualizationBox& Box) {
-		return Box.Element.Kind == Durin::Editor::Level::EEditorSubElementKind::LeaveTangent && Box.Element.StableId == First.Id;
+	EXPECT_TRUE(std::ranges::any_of(Collector.GetBoxes(), [First](const Durin::LevelEditor::FEditorVisualizationBox& Box) {
+		return Box.Element.Kind == Durin::LevelEditor::EEditorSubElementKind::LeaveTangent && Box.Element.StableId == First.Id;
 	}));
-	EXPECT_TRUE(std::ranges::any_of(Collector.GetLines(), [](const Durin::Editor::Level::FEditorVisualizationLine& Line) {
-		return Line.Element.Kind == Durin::Editor::Level::EEditorSubElementKind::Segment && Line.Element.SecondaryIndex == 0;
+	EXPECT_TRUE(std::ranges::any_of(Collector.GetLines(), [](const Durin::LevelEditor::FEditorVisualizationLine& Line) {
+		return Line.Element.Kind == Durin::LevelEditor::EEditorSubElementKind::Segment && Line.Element.SecondaryIndex == 0;
 	}));
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -125,11 +125,11 @@ TEST(FSplineDetailsCustomizationTests, PreservesComponentPropertiesAndHidesRawCu
 	Durin::FProperty* SplineCurve = Spline->GetClass()->FindPropertyByName("SplineCurve");
 	ASSERT_NE(SplineCurve, nullptr);
 
-	Durin::Editor::Level::FLevelEditorContext Context;
+	Durin::LevelEditor::FLevelEditorContext Context;
 	Context.SelectActor(Actor);
 	Context.SelectComponent(Spline);
-	Durin::Editor::Level::FLevelDetailLayoutBuilder Builder(Context);
-	Builder.ApplyCustomization(Spline, *Durin::Editor::Level::CreateSplineDetailsCustomization());
+	Durin::LevelEditor::FLevelDetailLayoutBuilder Builder(Context);
+	Builder.ApplyCustomization(Spline, *Durin::LevelEditor::CreateSplineDetailsCustomization());
 
 	EXPECT_FALSE(Builder.IsReplacingDefaultProperties());
 	EXPECT_TRUE(Builder.IsPropertyHidden(*SplineCurve));
@@ -145,11 +145,11 @@ TEST(FSplineDetailsCustomizationTests, EmitsVisiblePropertyTableRows)
 	auto* Actor = Durin::NewObject<Durin::AActor>(nullptr, "SplineDetailsRowsActor");
 	auto* Spline = Durin::Cast<Durin::DSplineComponent>(Actor->AddInstanceComponent(Durin::DSplineComponent::StaticClass(), "Spline"));
 	ASSERT_NE(Spline, nullptr);
-	Durin::Editor::Level::FLevelEditorContext Context;
+	Durin::LevelEditor::FLevelEditorContext Context;
 	Context.SelectActor(Actor);
 	Context.SelectComponent(Spline);
-	Durin::Editor::Level::FLevelDetailLayoutBuilder Builder(Context);
-	Builder.ApplyCustomization(Spline, *Durin::Editor::Level::CreateSplineDetailsCustomization());
+	Durin::LevelEditor::FLevelDetailLayoutBuilder Builder(Context);
+	Builder.ApplyCustomization(Spline, *Durin::LevelEditor::CreateSplineDetailsCustomization());
 
 	ImGuiContext* ImContext = ImGui::CreateContext();
 	ASSERT_NE(ImContext, nullptr);
@@ -165,8 +165,8 @@ TEST(FSplineDetailsCustomizationTests, EmitsVisiblePropertyTableRows)
 	const bool bTableOpen = Durin::MonaImGui::PropertyEdit::BeginTable("SplineDetailsRows");
 	if (bTableOpen)
 	{
-		Durin::Editor::FPropertyView PropertyView;
-		const Durin::Editor::FDetailLayoutBuilderResult Result = Builder.DrawRows(PropertyView, {});
+		Durin::FPropertyView PropertyView;
+		const Durin::FDetailLayoutBuilderResult Result = Builder.DrawRows(PropertyView, {});
 		EXPECT_EQ(Result.VisibleRowCount, 1u);
 		EXPECT_GE(ImGui::TableGetRowIndex(), 2);
 		Durin::MonaImGui::PropertyEdit::EndTable();
@@ -196,7 +196,7 @@ TEST(FSplineViewportAuthoringTests, CubicSplitPreservesShapeAndCreatesStableId)
 	for (uint32 Step = 0; Step <= 100; ++Step) Before.push_back(Spline->GetSampleAtParameter({0, Step / 100.0}).Position);
 	Durin::FGuid NewId;
 	constexpr double SplitT = 0.37;
-	ASSERT_TRUE(Durin::Editor::Level::SplitSplineSegment(*Spline, 0, SplitT, &NewId));
+	ASSERT_TRUE(Durin::LevelEditor::SplitSplineSegment(*Spline, 0, SplitT, &NewId));
 	ASSERT_TRUE(NewId.IsValid());
 	ASSERT_EQ(Spline->GetNumSplinePoints(), 3u);
 	EXPECT_EQ(Spline->GetSplinePoint(1)->Id, NewId);
@@ -223,7 +223,7 @@ TEST(FSplineViewportAuthoringTests, AppendContinuesTheTailWithoutAFullLengthJump
 	End.Position = {310.0, 420.0, 0.0};
 	ASSERT_TRUE(Spline->UpdateSplinePoint(0, Start));
 	ASSERT_TRUE(Spline->UpdateSplinePoint(1, End));
-	const Durin::FVector3 Position = Durin::Editor::Level::CalculateSplineAppendPosition(*Spline);
+	const Durin::FVector3 Position = Durin::LevelEditor::CalculateSplineAppendPosition(*Spline);
 	EXPECT_NEAR(Durin::Math::Length(Position - End.Position), 10.0, 1.e-6);
 	EXPECT_LT(Durin::Math::Length(Durin::Math::Normalize(Position - End.Position)
 		- Durin::Math::Normalize(End.Position - Start.Position)), 1.e-9);
@@ -246,28 +246,28 @@ TEST(FSplineViewportAuthoringTests, ModeUsesGuidMultiSelectionAndTransactionalDe
 	Spline->AddSplinePoint(Durin::FSplinePoint({200.0, 0.0, 0.0}));
 	const Durin::FGuid FirstId = Spline->GetSplinePoint(0)->Id;
 	const Durin::FGuid SecondId = Spline->GetSplinePoint(1)->Id;
-	Durin::Editor::Level::FLevelEditorContext Context;
+	Durin::LevelEditor::FLevelEditorContext Context;
 	Context.Synchronize(World);
 	Context.SelectActor(Actor);
 	Context.SelectComponent(Spline);
-	Context.SelectSubElement(Spline, {Durin::Editor::Level::EEditorSubElementKind::Point, FirstId});
-	Context.ToggleSubElement(Spline, {Durin::Editor::Level::EEditorSubElementKind::Point, SecondId});
+	Context.SelectSubElement(Spline, {Durin::LevelEditor::EEditorSubElementKind::Point, FirstId});
+	Context.ToggleSubElement(Spline, {Durin::LevelEditor::EEditorSubElementKind::Point, SecondId});
 	ASSERT_EQ(Context.GetSelectedSubElements().size(), 2u);
 	ASSERT_TRUE(Spline->MoveSplinePoint(0, 2));
-	EXPECT_TRUE(Context.IsSubElementSelected({Durin::Editor::Level::EEditorSubElementKind::Point, FirstId}));
+	EXPECT_TRUE(Context.IsSubElementSelected({Durin::LevelEditor::EEditorSubElementKind::Point, FirstId}));
 
-	const Durin::Editor::Level::FLevelViewportEditModeHandle Handle = Durin::Editor::Level::RegisterSplineViewportEditMode();
+	const Durin::LevelEditor::FLevelViewportEditModeHandle Handle = Durin::LevelEditor::RegisterSplineViewportEditMode();
 	ASSERT_TRUE(Handle);
-	Durin::Editor::Level::FLevelViewportEditModeManager Manager;
+	Durin::LevelEditor::FLevelViewportEditModeManager Manager;
 	ASSERT_TRUE(Manager.Activate("Spline", Context));
-	const Durin::Editor::Level::FTransformGizmoTargetSet Targets = Manager.GetActiveMode()->GetGizmoTargets(Context);
+	const Durin::LevelEditor::FTransformGizmoTargetSet Targets = Manager.GetActiveMode()->GetGizmoTargets(Context);
 	ASSERT_EQ(Targets.Targets.size(), 2u);
-	EXPECT_EQ(Targets.Targets[0]->GetCapabilities(), Durin::Editor::Level::ETransformGizmoCapability::Translate);
+	EXPECT_EQ(Targets.Targets[0]->GetCapabilities(), Durin::LevelEditor::ETransformGizmoCapability::Translate);
 
-	Durin::Editor::Level::FLevelEditorViewportClient Client;
+	Durin::LevelEditor::FLevelEditorViewportClient Client;
 	Durin::FSceneView View;
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
-	Durin::Editor::Level::FLevelEditorViewportInput Input;
+	Durin::LevelEditor::FLevelEditorViewportInput Input;
 	Input.bDelete = true;
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	ASSERT_TRUE(Manager.Tick(Context, Client, View, Input, Transactions.Get()));
@@ -277,7 +277,7 @@ TEST(FSplineViewportAuthoringTests, ModeUsesGuidMultiSelectionAndTransactionalDe
 	EXPECT_TRUE(Spline->GetSplineCurve().FindPointIndex(FirstId).has_value());
 	EXPECT_TRUE(Spline->GetSplineCurve().FindPointIndex(SecondId).has_value());
 
-	Context.SelectSubElement(Spline, {Durin::Editor::Level::EEditorSubElementKind::Point, FirstId});
+	Context.SelectSubElement(Spline, {Durin::LevelEditor::EEditorSubElementKind::Point, FirstId});
 	Input = {};
 	Input.bCancel = true;
 	ASSERT_TRUE(Manager.Tick(Context, Client, View, Input, Transactions.Get()));
@@ -287,7 +287,7 @@ TEST(FSplineViewportAuthoringTests, ModeUsesGuidMultiSelectionAndTransactionalDe
 	EXPECT_EQ(Manager.GetActiveModeId(), "Select");
 	EXPECT_EQ(Context.GetSelectedComponent(), Spline);
 	Manager.Shutdown(&Context);
-	EXPECT_TRUE(Durin::Editor::Level::FLevelViewportEditModeRegistry::Get().Unregister(Handle));
+	EXPECT_TRUE(Durin::LevelEditor::FLevelViewportEditModeRegistry::Get().Unregister(Handle));
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
@@ -316,15 +316,15 @@ TEST(FSplineMeshActorViewportTests, PointTargetRecreatesGeneratedSegmentsAndCanc
 	Durin::DSplineComponent* Spline = Actor->GetSplineComponent();
 	const Durin::FGuid MiddleId = Spline->GetSplinePoint(1)->Id;
 
-	Durin::Editor::Level::FLevelEditorContext Context;
+	Durin::LevelEditor::FLevelEditorContext Context;
 	Context.Synchronize(World);
 	Context.SelectActor(Actor);
 	Context.SelectComponent(Spline);
 	Context.SelectSubElement(Spline,
-		{Durin::Editor::Level::EEditorSubElementKind::Point, MiddleId});
-	const auto Handle = Durin::Editor::Level::RegisterSplineViewportEditMode();
+		{Durin::LevelEditor::EEditorSubElementKind::Point, MiddleId});
+	const auto Handle = Durin::LevelEditor::RegisterSplineViewportEditMode();
 	ASSERT_TRUE(Handle);
-	Durin::Editor::Level::FLevelViewportEditModeManager Manager;
+	Durin::LevelEditor::FLevelViewportEditModeManager Manager;
 	ASSERT_TRUE(Manager.Activate("Spline", Context));
 	auto Targets = Manager.GetActiveMode()->GetGizmoTargets(Context);
 	ASSERT_EQ(Targets.Targets.size(), 1u);
@@ -359,7 +359,7 @@ TEST(FSplineMeshActorViewportTests, PointTargetRecreatesGeneratedSegmentsAndCanc
 	EXPECT_EQ(RestoredFirst->GetSplineMeshParams().EndPosition, Spline->GetSplinePoint(1)->Position);
 
 	Manager.Shutdown(&Context);
-	EXPECT_TRUE(Durin::Editor::Level::FLevelViewportEditModeRegistry::Get().Unregister(Handle));
+	EXPECT_TRUE(Durin::LevelEditor::FLevelViewportEditModeRegistry::Get().Unregister(Handle));
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::MarkAsGarbage(Mesh);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -368,7 +368,7 @@ TEST(FSplineMeshActorViewportTests, PointTargetRecreatesGeneratedSegmentsAndCanc
 TEST(FLevelEditorCustomizationRegistryTests, RejectsDuplicatesFindsBaseClassAndUnregisters)
 {
 	InitializeDObjectSystem();
-	auto& Registry = Durin::Editor::Level::FLevelEditorCustomizationRegistry::Get();
+	auto& Registry = Durin::LevelEditor::FLevelEditorCustomizationRegistry::Get();
 	const auto ActorVisualizer = std::make_shared<FTestActorVisualizer>();
 	FCustomizationGuard ActorVisualizerGuard{Registry.RegisterActorVisualizer(Durin::AActor::StaticClass(), ActorVisualizer)};
 	ASSERT_TRUE(ActorVisualizerGuard.Handle);
@@ -382,19 +382,19 @@ TEST(FLevelEditorCustomizationRegistryTests, RejectsDuplicatesFindsBaseClassAndU
 	EXPECT_EQ(Registry.FindComponentVisualizer(Durin::DCameraComponent::StaticClass()), Visualizer);
 
 	const auto Details = std::make_shared<FTestDetailsCustomization>();
-	FDetailCustomizationGuard DetailsGuard{Durin::Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(Durin::DSceneComponent::StaticClass(), Details)};
+	FDetailCustomizationGuard DetailsGuard{Durin::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(Durin::DSceneComponent::StaticClass(), Details)};
 	ASSERT_TRUE(DetailsGuard.Handle);
-	EXPECT_EQ(Durin::Editor::FDetailCustomizationRegistry::Get().FindDetailCustomization(Durin::DCameraComponent::StaticClass()), Details);
+	EXPECT_EQ(Durin::FDetailCustomizationRegistry::Get().FindDetailCustomization(Durin::DCameraComponent::StaticClass()), Details);
 	const auto DerivedDetails = std::make_shared<FTestDetailsCustomization>();
-	FDetailCustomizationGuard DerivedDetailsGuard{Durin::Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(Durin::DCameraComponent::StaticClass(), DerivedDetails)};
+	FDetailCustomizationGuard DerivedDetailsGuard{Durin::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(Durin::DCameraComponent::StaticClass(), DerivedDetails)};
 	ASSERT_TRUE(DerivedDetailsGuard.Handle);
-	const auto DetailsChain = Durin::Editor::FDetailCustomizationRegistry::Get().FindDetailCustomizations(Durin::DCameraComponent::StaticClass());
+	const auto DetailsChain = Durin::FDetailCustomizationRegistry::Get().FindDetailCustomizations(Durin::DCameraComponent::StaticClass());
 	ASSERT_EQ(DetailsChain.size(), 2u);
 	EXPECT_EQ(DetailsChain[0], Details);
 	EXPECT_EQ(DetailsChain[1], DerivedDetails);
-	ASSERT_TRUE(Durin::Editor::FDetailCustomizationRegistry::Get().Unregister(DetailsGuard.Handle));
+	ASSERT_TRUE(Durin::FDetailCustomizationRegistry::Get().Unregister(DetailsGuard.Handle));
 	DetailsGuard.Handle = {};
-	EXPECT_EQ(Durin::Editor::FDetailCustomizationRegistry::Get().FindDetailCustomization(Durin::DCameraComponent::StaticClass()), DerivedDetails);
+	EXPECT_EQ(Durin::FDetailCustomizationRegistry::Get().FindDetailCustomization(Durin::DCameraComponent::StaticClass()), DerivedDetails);
 }
 
 TEST(FActorComponentDetailsTests, StaticMeshActorUsesCuratedCategoriesAndKeepsComponentSearch)
@@ -402,7 +402,7 @@ TEST(FActorComponentDetailsTests, StaticMeshActorUsesCuratedCategoriesAndKeepsCo
 	InitializeDObjectSystem();
 	auto* Actor = Durin::NewObject<Durin::AStaticMeshActor>(nullptr, "CuratedMeshActor");
 	ASSERT_NE(Actor->GetStaticMeshComponent(), nullptr);
-	Durin::Editor::Level::FLevelEditorContext Context;
+	Durin::LevelEditor::FLevelEditorContext Context;
 	for (const auto& [Search, Expected] : std::array{
 		std::pair{"", 5u}, std::pair{"Transform", 1u}, std::pair{"Location", 1u},
 		std::pair{"Static Mesh", 2u}, std::pair{"Materials", 1u}, std::pair{"Rendering", 1u},
@@ -410,9 +410,9 @@ TEST(FActorComponentDetailsTests, StaticMeshActorUsesCuratedCategoriesAndKeepsCo
 		std::pair{"DStaticMeshComponent", 4u}, std::pair{"OverrideMaterials", 0u},
 		std::pair{"ComponentToWorld", 0u}})
 	{
-		Durin::Editor::Level::FLevelDetailLayoutBuilder Builder(Context, Search);
-		Builder.ApplyCustomization(Actor, *Durin::Editor::Level::CreateStaticMeshActorDetailsCustomization());
-		Durin::Editor::Level::BuildActorComponentDetails(Context, Actor, Builder, Search);
+		Durin::LevelEditor::FLevelDetailLayoutBuilder Builder(Context, Search);
+		Builder.ApplyCustomization(Actor, *Durin::LevelEditor::CreateStaticMeshActorDetailsCustomization());
+		Durin::LevelEditor::BuildActorComponentDetails(Context, Actor, Builder, Search);
 		EXPECT_EQ(Builder.GetVisibleRowCount(), Expected) << Search;
 		EXPECT_TRUE(Builder.ShouldDrawDefaultProperty(Actor, *Actor->GetStaticMeshComponent()->GetClass()->FindPropertyByName("StaticMesh"), 0));
 		EXPECT_FALSE(Builder.ShouldDrawDefaultProperty(Actor->GetStaticMeshComponent(), *Actor->GetStaticMeshComponent()->GetClass()->FindPropertyByName("StaticMesh"), 0));
@@ -427,18 +427,18 @@ TEST(FActorComponentDetailsTests, CuratedActorTransformAndVisibilityPreserveUndo
 	auto* Actor = Durin::NewObject<Durin::AStaticMeshActor>(nullptr, "CuratedUndoActor");
 	auto* Component = Actor->GetStaticMeshComponent();
 	ASSERT_NE(Component, nullptr);
-	Durin::Editor::Level::FLevelEditorContext Context;
-	Durin::Editor::Level::FLevelDetailLayoutBuilder Builder(Context);
-	Builder.ApplyCustomization(Actor, *Durin::Editor::Level::CreateStaticMeshActorDetailsCustomization());
-	Durin::Editor::Level::BuildActorComponentDetails(Context, Actor, Builder, {});
+	Durin::LevelEditor::FLevelEditorContext Context;
+	Durin::LevelEditor::FLevelDetailLayoutBuilder Builder(Context);
+	Builder.ApplyCustomization(Actor, *Durin::LevelEditor::CreateStaticMeshActorDetailsCustomization());
+	Durin::LevelEditor::BuildActorComponentDetails(Context, Actor, Builder, {});
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
-	Durin::Editor::FPropertyView View;
-	const Durin::Editor::FPropertyViewContext ViewContext{};
+	Durin::FPropertyView View;
+	const Durin::FPropertyViewContext ViewContext{};
 	ASSERT_TRUE(View.HandleOwnerContext(ViewContext, Actor));
 	auto* Transform = Component->GetClass()->FindPropertyByName("RelativeTransform");
 	ASSERT_NE(Transform, nullptr);
 	const auto Before = Component->GetRelativeTransform();
-	ASSERT_TRUE(View.SubmitPropertyValueEdit(ViewContext, Durin::Editor::FPropertyEditTarget::ForMember(Component, Transform),
+	ASSERT_TRUE(View.SubmitPropertyValueEdit(ViewContext, Durin::FPropertyEditTarget::ForMember(Component, Transform),
 		[](Durin::FProperty* Property, void* Container, uint32 Index) {
 			Property->ContainerPtrToValuePtr<Durin::FTransform>(Container, Index)->Translation = Durin::FVector3(1.0, 2.0, 3.0);
 		}, false));
@@ -449,7 +449,7 @@ TEST(FActorComponentDetailsTests, CuratedActorTransformAndVisibilityPreserveUndo
 	EXPECT_EQ(Component->GetRelativeTransform().Translation, Durin::FVector3(1.0, 2.0, 3.0));
 	auto* Visible = Component->GetClass()->FindPropertyByName("bVisible");
 	ASSERT_NE(Visible, nullptr);
-	ASSERT_TRUE(View.SubmitPropertyValueEdit(ViewContext, Durin::Editor::FPropertyEditTarget::ForMember(Component, Visible),
+	ASSERT_TRUE(View.SubmitPropertyValueEdit(ViewContext, Durin::FPropertyEditTarget::ForMember(Component, Visible),
 		[](Durin::FProperty* Property, void* Container, uint32 Index) {
 			*Property->ContainerPtrToValuePtr<bool>(Container, Index) = false;
 		}, false));
@@ -473,14 +473,14 @@ TEST(FActorComponentDetailsTests, SearchesNamedComponentsAndKeepsRootTransformSi
 	auto* Second = Actor->AddInstanceComponent(Durin::DStaticMeshComponent::StaticClass(), "SecondaryMesh");
 	ASSERT_NE(First, nullptr);
 	ASSERT_NE(Second, nullptr);
-	Durin::Editor::Level::FLevelEditorContext Context;
+	Durin::LevelEditor::FLevelEditorContext Context;
 	for (const auto& [Search, Expected] : std::array{
 		std::pair{"Static Mesh", 2u}, std::pair{"PrimaryMesh", 1u},
 		std::pair{"RelativeTransform", 3u}, std::pair{"ComponentToWorld", 0u},
 		std::pair{"no-such-property", 0u}})
 	{
-		Durin::Editor::FDetailLayoutBuilder Builder(Search);
-		Durin::Editor::Level::BuildActorComponentDetails(Context, Actor, Builder, Search);
+		Durin::FDetailLayoutBuilder Builder(Search);
+		Durin::LevelEditor::BuildActorComponentDetails(Context, Actor, Builder, Search);
 		EXPECT_EQ(Builder.GetVisibleRowCount(), Expected) << Search;
 		EXPECT_FALSE(Builder.IsReplacingDefaultProperties());
 	}
@@ -491,23 +491,23 @@ TEST(FActorComponentDetailsTests, SearchesNamedComponentsAndKeepsRootTransformSi
 TEST(FActorComponentDetailsTests, ReusesCameraAndMaterialCustomizationsInActorTable)
 {
 	InitializeDObjectSystem();
-	auto& Registry = Durin::Editor::Level::FLevelEditorCustomizationRegistry::Get();
-	FDetailCustomizationGuard CameraGuard{Durin::Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(Durin::DCameraComponent::StaticClass(),
-		Durin::Editor::Level::CreateCameraDetailsCustomization())};
-	FDetailCustomizationGuard MeshGuard{Durin::Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(Durin::DStaticMeshComponent::StaticClass(),
-		Durin::Editor::Level::CreateStaticMeshComponentDetailsCustomization())};
+	auto& Registry = Durin::LevelEditor::FLevelEditorCustomizationRegistry::Get();
+	FDetailCustomizationGuard CameraGuard{Durin::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(Durin::DCameraComponent::StaticClass(),
+		Durin::LevelEditor::CreateCameraDetailsCustomization())};
+	FDetailCustomizationGuard MeshGuard{Durin::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(Durin::DStaticMeshComponent::StaticClass(),
+		Durin::LevelEditor::CreateStaticMeshComponentDetailsCustomization())};
 	ASSERT_TRUE(CameraGuard.Handle);
 	ASSERT_TRUE(MeshGuard.Handle);
 	auto* Actor = Durin::NewObject<Durin::AActor>(nullptr, "AggregatedCustomActor");
 	ASSERT_NE(Actor->AddInstanceComponent(Durin::DCameraComponent::StaticClass(), "ViewCamera"), nullptr);
 	ASSERT_NE(Actor->AddInstanceComponent(Durin::DStaticMeshComponent::StaticClass(), "Mesh"), nullptr);
-	Durin::Editor::Level::FLevelEditorContext Context;
+	Durin::LevelEditor::FLevelEditorContext Context;
 	for (const auto& [Search, Expected] : std::array{
 		std::pair{"Field Of View", 1u}, std::pair{"Materials", 1u},
 		std::pair{"ProjectionSettings", 0u}, std::pair{"OverrideMaterials", 0u}})
 	{
-		Durin::Editor::FDetailLayoutBuilder Builder(Search);
-		Durin::Editor::Level::BuildActorComponentDetails(Context, Actor, Builder, Search);
+		Durin::FDetailLayoutBuilder Builder(Search);
+		Durin::LevelEditor::BuildActorComponentDetails(Context, Actor, Builder, Search);
 		EXPECT_EQ(Builder.GetVisibleRowCount(), Expected) << Search;
 	}
 	ImGuiContext* ImContext = ImGui::CreateContext();
@@ -522,9 +522,9 @@ TEST(FActorComponentDetailsTests, ReusesCameraAndMaterialCustomizationsInActorTa
 	const bool bTableOpen = Durin::MonaImGui::PropertyEdit::BeginTable("AggregatedRows");
 	if (bTableOpen)
 	{
-		Durin::Editor::Level::FLevelDetailLayoutBuilder Builder(Context);
-		Durin::Editor::Level::BuildActorComponentDetails(Context, Actor, Builder, {});
-		Durin::Editor::FPropertyView View;
+		Durin::LevelEditor::FLevelDetailLayoutBuilder Builder(Context);
+		Durin::LevelEditor::BuildActorComponentDetails(Context, Actor, Builder, {});
+		Durin::FPropertyView View;
 		ASSERT_TRUE(View.HandleOwnerContext({}, Actor));
 		EXPECT_EQ(Builder.DrawRows(View, {}).VisibleRowCount, 3u);
 		EXPECT_GE(ImGui::TableGetRowIndex(), 10);
@@ -548,19 +548,19 @@ TEST(FActorComponentDetailsTests, ActorCustomizationSelectsOnlyOwnedPrimaryCompo
 	auto* Other = Durin::NewObject<Durin::AActor>(nullptr, "ForeignActor");
 	auto* Foreign = Other->AddInstanceComponent(Durin::DStaticMeshComponent::StaticClass(), "Foreign");
 	ASSERT_NE(Foreign, nullptr);
-	Durin::Editor::Level::FLevelEditorContext Context;
-	Durin::Editor::Level::FLevelDetailLayoutBuilder Builder(Context, "Static Mesh");
-	Builder.ApplyCustomization(Actor, *Durin::Editor::Level::CreateActorComponentDetailsCustomization([Primary](Durin::AActor*) { return Primary; }));
-	Durin::Editor::Level::BuildActorComponentDetails(Context, Actor, Builder, "Static Mesh");
+	Durin::LevelEditor::FLevelEditorContext Context;
+	Durin::LevelEditor::FLevelDetailLayoutBuilder Builder(Context, "Static Mesh");
+	Builder.ApplyCustomization(Actor, *Durin::LevelEditor::CreateActorComponentDetailsCustomization([Primary](Durin::AActor*) { return Primary; }));
+	Durin::LevelEditor::BuildActorComponentDetails(Context, Actor, Builder, "Static Mesh");
 	EXPECT_EQ(Builder.GetVisibleRowCount(), 1u);
-	Durin::Editor::Level::FLevelDetailLayoutBuilder FilteredBuilder(Context, "Static Mesh");
+	Durin::LevelEditor::FLevelDetailLayoutBuilder FilteredBuilder(Context, "Static Mesh");
 	const std::array Targets{Primary, Primary, Foreign};
 	FilteredBuilder.SetComponentDetailsTargets(Targets);
-	Durin::Editor::Level::BuildActorComponentDetails(Context, Actor, FilteredBuilder, "Static Mesh");
+	Durin::LevelEditor::BuildActorComponentDetails(Context, Actor, FilteredBuilder, "Static Mesh");
 	EXPECT_EQ(FilteredBuilder.GetVisibleRowCount(), 1u);
-	Durin::Editor::Level::FLevelDetailLayoutBuilder EmptyBuilder(Context, "Static Mesh");
+	Durin::LevelEditor::FLevelDetailLayoutBuilder EmptyBuilder(Context, "Static Mesh");
 	EmptyBuilder.SetComponentDetailsTargets({});
-	Durin::Editor::Level::BuildActorComponentDetails(Context, Actor, EmptyBuilder, "Static Mesh");
+	Durin::LevelEditor::BuildActorComponentDetails(Context, Actor, EmptyBuilder, "Static Mesh");
 	EXPECT_EQ(EmptyBuilder.GetVisibleRowCount(), 0u);
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
 	Durin::MarkObjectHierarchyAsGarbage(Other);
@@ -570,10 +570,10 @@ TEST(FActorComponentDetailsTests, ActorCustomizationSelectsOnlyOwnedPrimaryCompo
 TEST(FActorComponentDetailsTests, KeepsRootlessActorEmptyAndExcludesGeneratedSegments)
 {
 	InitializeDObjectSystem();
-	Durin::Editor::Level::FLevelEditorContext Context;
+	Durin::LevelEditor::FLevelEditorContext Context;
 	auto* Actor = Durin::NewObject<Durin::AActor>(nullptr, "RootlessAggregatedActor");
-	Durin::Editor::FDetailLayoutBuilder EmptyBuilder;
-	Durin::Editor::Level::BuildActorComponentDetails(Context, Actor, EmptyBuilder, {});
+	Durin::FDetailLayoutBuilder EmptyBuilder;
+	Durin::LevelEditor::BuildActorComponentDetails(Context, Actor, EmptyBuilder, {});
 	EXPECT_EQ(EmptyBuilder.GetVisibleRowCount(), 0u);
 	EXPECT_EQ(Actor->GetRootComponent(), nullptr);
 	auto* Level = Durin::NewObject<Durin::DLevel>(nullptr, "GeneratedDetailsLevel");
@@ -583,8 +583,8 @@ TEST(FActorComponentDetailsTests, KeepsRootlessActorEmptyAndExcludesGeneratedSeg
 	SplineActor->GetSplineComponent()->SetSplinePoints({
 		Durin::FSplinePoint({0.0, 0.0, 0.0}), Durin::FSplinePoint({100.0, 0.0, 0.0})});
 	ASSERT_FALSE(SplineActor->FindComponentsByClass<Durin::DSplineMeshComponent>().empty());
-	Durin::Editor::FDetailLayoutBuilder GeneratedBuilder("SplineMeshComponent");
-	Durin::Editor::Level::BuildActorComponentDetails(Context, SplineActor, GeneratedBuilder, "SplineMeshComponent");
+	Durin::FDetailLayoutBuilder GeneratedBuilder("SplineMeshComponent");
+	Durin::LevelEditor::BuildActorComponentDetails(Context, SplineActor, GeneratedBuilder, "SplineMeshComponent");
 	EXPECT_EQ(GeneratedBuilder.GetVisibleRowCount(), 0u);
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
 	Durin::MarkObjectHierarchyAsGarbage(Level);
@@ -600,9 +600,9 @@ TEST(FDetailLayoutBuilderTests, ComposesPropertiesHidingReplacementAndSearch)
 	Durin::FProperty* TransformProperty = RootComponent->GetClass()->FindPropertyByName("RelativeTransform");
 	ASSERT_NE(TransformProperty, nullptr);
 
-	Durin::Editor::FDetailLayoutBuilder Builder("rotation");
+	Durin::FDetailLayoutBuilder Builder("rotation");
 	Builder.AddProperty(RootComponent, TransformProperty, 0, {.Label = "Transform"}, "Location Rotation Scale");
-	Builder.AddCustomRow("Materials Material Slots", [](Durin::Editor::FPropertyView&, const Durin::Editor::FPropertyViewContext&) { return false; });
+	Builder.AddCustomRow("Materials Material Slots", [](Durin::FPropertyView&, const Durin::FPropertyViewContext&) { return false; });
 	Builder.HideProperty(TransformProperty);
 	Builder.ReplaceDefaultProperties();
 
@@ -619,8 +619,8 @@ TEST(FDetailLayoutBuilderTests, SearchesCategoryLabelsAndMovesPropertiesOutOfDef
 	auto* Component = Durin::NewObject<Durin::DSceneComponent>(nullptr, "CategoryComponent");
 	auto* Property = Component->GetClass()->FindPropertyByName("RelativeTransform");
 	ASSERT_NE(Property, nullptr);
-	Durin::Editor::FDetailLayoutBuilder Layout("Spatial Controls");
-	Durin::Editor::IDetailLayoutBuilder& Interface = Layout;
+	Durin::FDetailLayoutBuilder Layout("Spatial Controls");
+	Durin::IDetailLayoutBuilder& Interface = Layout;
 	auto& Category = Interface.EditCategory("Transform", "Spatial Controls");
 	EXPECT_EQ(&Category, &Interface.EditCategory("Transform"));
 	Category.AddProperty(Component, Property);
@@ -638,17 +638,17 @@ TEST(FDetailLayoutBuilderTests, BindsCustomizationContextAndRendersCategoryOrder
 {
 	InitializeDObjectSystem();
 	auto* Actor = Durin::NewObject<Durin::AActor>(nullptr, "CategoryActor");
-	Durin::Editor::Level::FLevelEditorContext Context;
+	Durin::LevelEditor::FLevelEditorContext Context;
 	std::vector<int> Order;
 	// Exercises the public interface without depending on the concrete builder.
-	class FCategoryCustomization final : public Durin::Editor::IDetailCustomization
+	class FCategoryCustomization final : public Durin::IDetailCustomization
 	{
 	public:
 		explicit FCategoryCustomization(std::vector<int>& InOrder) : Order(InOrder) {}
-		auto CustomizeDetails(Durin::Editor::IDetailLayoutBuilder& Layout) -> void override
+		auto CustomizeDetails(Durin::IDetailLayoutBuilder& Layout) -> void override
 		{
 			Object = Layout.GetObject();
-			Context = &Durin::Editor::Level::GetLevelDetailHostContext(Layout).Context;
+			Context = &Durin::LevelEditor::GetLevelDetailHostContext(Layout).Context;
 			auto& Later = Layout.EditCategory("Later");
 			Later.SetSortOrder(10);
 			Later.AddCustomRow("shared", [this](auto&, const auto&) { Order.push_back(2); return false; });
@@ -660,10 +660,10 @@ TEST(FDetailLayoutBuilderTests, BindsCustomizationContextAndRendersCategoryOrder
 		}
 		std::vector<int>& Order;
 		Durin::DObject* Object = nullptr;
-		Durin::Editor::Level::FLevelEditorContext* Context = nullptr;
+		Durin::LevelEditor::FLevelEditorContext* Context = nullptr;
 	};
 	FCategoryCustomization Customization(Order);
-	Durin::Editor::Level::FLevelDetailLayoutBuilder Layout(Context, "shared");
+	Durin::LevelEditor::FLevelDetailLayoutBuilder Layout(Context, "shared");
 	Layout.ApplyCustomization(Actor, Customization);
 	EXPECT_EQ(Customization.Object, Actor);
 	EXPECT_EQ(Customization.Context, &Context);
@@ -679,7 +679,7 @@ TEST(FDetailLayoutBuilderTests, BindsCustomizationContextAndRendersCategoryOrder
 	const bool bOpen = Durin::MonaImGui::PropertyEdit::BeginTable("CategoryRows");
 	if (bOpen)
 	{
-		Durin::Editor::FPropertyView View;
+		Durin::FPropertyView View;
 		EXPECT_EQ(Layout.DrawRows(View, {}).VisibleRowCount, 2u);
 		Durin::MonaImGui::PropertyEdit::EndTable();
 	}
@@ -704,14 +704,14 @@ TEST(FObjectPropertyViewCustomizationTests, CameraDetailsOnlyCustomizeTheCameraC
 	Durin::DCameraComponent* Component = Actor->GetCameraComponent();
 	ASSERT_NE(Component, nullptr);
 
-	Durin::Editor::Level::FLevelEditorContext Context;
-	const std::shared_ptr<Durin::Editor::IDetailCustomization> Customization = Durin::Editor::Level::CreateCameraDetailsCustomization();
-	Durin::Editor::Level::FLevelDetailLayoutBuilder ActorBuilder(Context, "camera");
+	Durin::LevelEditor::FLevelEditorContext Context;
+	const std::shared_ptr<Durin::IDetailCustomization> Customization = Durin::LevelEditor::CreateCameraDetailsCustomization();
+	Durin::LevelEditor::FLevelDetailLayoutBuilder ActorBuilder(Context, "camera");
 	ActorBuilder.ApplyCustomization(Actor, *Customization);
 	EXPECT_EQ(ActorBuilder.GetVisibleRowCount(), 0u);
 	EXPECT_FALSE(ActorBuilder.IsReplacingDefaultProperties());
 
-	Durin::Editor::Level::FLevelDetailLayoutBuilder ComponentBuilder(Context, "camera");
+	Durin::LevelEditor::FLevelDetailLayoutBuilder ComponentBuilder(Context, "camera");
 	ComponentBuilder.ApplyCustomization(Component, *Customization);
 	EXPECT_EQ(ComponentBuilder.GetVisibleRowCount(), 2u);
 	EXPECT_FALSE(ComponentBuilder.IsReplacingDefaultProperties());
@@ -735,11 +735,11 @@ TEST(FEditorVisualizationCollectorTests, UsesTheSameLinesForRenderingAndPicking)
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("Camera");
 	ASSERT_NE(Actor, nullptr);
-	Durin::Editor::Level::FLevelEditorViewportClient Client;
+	Durin::LevelEditor::FLevelEditorViewportClient Client;
 	Durin::FSceneView View;
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
 	const Durin::FVector3 Center = Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 5.0;
-	Durin::Editor::Level::FEditorVisualizationCollector Collector;
+	Durin::LevelEditor::FEditorVisualizationCollector Collector;
 	Collector.AddLine({Center - Client.GetCameraTransform().GetRightVector(), Center + Client.GetCameraTransform().GetRightVector(), {1.0f, 0.5f, 0.25f, 1.0f}, 3.0f, 7.0f, 4, Actor, Actor->GetCameraComponent()});
 	View.SimpleElements = {};
 	Collector.AppendToView(View);
@@ -750,7 +750,7 @@ TEST(FEditorVisualizationCollectorTests, UsesTheSameLinesForRenderingAndPicking)
 		WorldLines.front()->Value).Style.WidthPixels, 3.0f);
 	Durin::FVector2f ScreenCenter;
 	ASSERT_TRUE(Durin::SceneViewProjection::ProjectWorldToViewport(View, Center, ScreenCenter));
-	const Durin::Editor::Level::FEditorVisualizationHit Hit = Collector.HitTest(View, ScreenCenter);
+	const Durin::LevelEditor::FEditorVisualizationHit Hit = Collector.HitTest(View, ScreenCenter);
 	EXPECT_EQ(Hit.Actor, Actor);
 	EXPECT_EQ(Hit.Component, Actor->GetCameraComponent());
 	EXPECT_EQ(Collector.HitTest(View, ScreenCenter + Durin::FVector2f(0.0f, 50.0f)).Actor, nullptr);
@@ -758,7 +758,7 @@ TEST(FEditorVisualizationCollectorTests, UsesTheSameLinesForRenderingAndPicking)
 
 TEST(FLevelEditorViewportClientTests, PublishesWorldGridStateToTheSceneView)
 {
-	Durin::Editor::Level::FLevelEditorViewportClient Client;
+	Durin::LevelEditor::FLevelEditorViewportClient Client;
 	Durin::FSceneView View;
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
 	EXPECT_TRUE(View.EditorGrid.bVisible);
@@ -781,12 +781,12 @@ TEST(FEditorVisualizationCollectorTests, UsesTheSameIconsForRenderingAndDepthInd
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("Camera");
 	ASSERT_NE(Actor, nullptr);
-	Durin::Editor::Level::FLevelEditorViewportClient Client;
+	Durin::LevelEditor::FLevelEditorViewportClient Client;
 	Durin::FSceneView View;
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
 	const Durin::FVector3 Center = Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 5.0;
-	Durin::Editor::Level::FEditorVisualizationCollector Collector;
-	Collector.AddIcon({Durin::Editor::Level::EEditorVisualizationIcon::Camera, Center, Durin::FVector4f(1.0f), 30.0f, 3.0f, 100, Actor, Actor->GetCameraComponent(), true});
+	Durin::LevelEditor::FEditorVisualizationCollector Collector;
+	Collector.AddIcon({Durin::LevelEditor::EEditorVisualizationIcon::Camera, Center, Durin::FVector4f(1.0f), 30.0f, 3.0f, 100, Actor, Actor->GetCameraComponent(), true});
 	View.SimpleElements = {};
 	Collector.AppendToView(View);
 	const auto WorldSprites = GetWorldSimpleElements(
@@ -796,7 +796,7 @@ TEST(FEditorVisualizationCollectorTests, UsesTheSameIconsForRenderingAndDepthInd
 		WorldSprites.front()->Value).SizePixels.x, 30.0f);
 	Durin::FVector2f ScreenCenter;
 	ASSERT_TRUE(Durin::SceneViewProjection::ProjectWorldToViewport(View, Center, ScreenCenter));
-	const Durin::Editor::Level::FEditorVisualizationHit Hit = Collector.HitTest(View, ScreenCenter + Durin::FVector2f(14.0f, 0.0f));
+	const Durin::LevelEditor::FEditorVisualizationHit Hit = Collector.HitTest(View, ScreenCenter + Durin::FVector2f(14.0f, 0.0f));
 	EXPECT_EQ(Hit.Actor, Actor);
 	EXPECT_TRUE(Hit.bDepthIndependent);
 	EXPECT_EQ(Collector.HitTest(View, ScreenCenter + Durin::FVector2f(24.0f, 0.0f)).Actor, nullptr);
@@ -811,15 +811,15 @@ TEST(FEditorVisualizationCollectorTests, UsesScreenSizedBoxesForRenderingAndPick
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("Camera");
 	ASSERT_NE(Actor, nullptr);
-	Durin::Editor::Level::FLevelEditorViewportClient Client;
+	Durin::LevelEditor::FLevelEditorViewportClient Client;
 	Durin::FSceneView View;
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
 	const Durin::FVector3 Center = Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 5.0;
-	const Durin::Editor::Level::FEditorSubElementSelection Element{Durin::Editor::Level::EEditorSubElementKind::Point, Durin::FGuid::NewGuid()};
-	Durin::Editor::Level::FEditorVisualizationBox Box{Center, Durin::FVector4f(1.0f), 12.0f, 5.0f, 80,
+	const Durin::LevelEditor::FEditorSubElementSelection Element{Durin::LevelEditor::EEditorSubElementKind::Point, Durin::FGuid::NewGuid()};
+	Durin::LevelEditor::FEditorVisualizationBox Box{Center, Durin::FVector4f(1.0f), 12.0f, 5.0f, 80,
 		Actor, Actor->GetCameraComponent(), true};
 	Box.Element = Element;
-	Durin::Editor::Level::FEditorVisualizationCollector Collector;
+	Durin::LevelEditor::FEditorVisualizationCollector Collector;
 	Collector.AddBox(Box);
 	const size_t InitialPrimitiveCount = View.OverlayPrimitives.size();
 	Collector.AppendToView(View);
@@ -827,7 +827,7 @@ TEST(FEditorVisualizationCollectorTests, UsesScreenSizedBoxesForRenderingAndPick
 	EXPECT_EQ(View.OverlayPrimitives.back().Shape, Durin::EViewOverlayShape::Box);
 	Durin::FVector2f ScreenCenter;
 	ASSERT_TRUE(Durin::SceneViewProjection::ProjectWorldToViewport(View, Center, ScreenCenter));
-	const Durin::Editor::Level::FEditorVisualizationHit Hit = Collector.HitTest(View, ScreenCenter + Durin::FVector2f(10.0f, 0.0f));
+	const Durin::LevelEditor::FEditorVisualizationHit Hit = Collector.HitTest(View, ScreenCenter + Durin::FVector2f(10.0f, 0.0f));
 	EXPECT_EQ(Hit.Actor, Actor);
 	EXPECT_EQ(Hit.Component, Actor->GetCameraComponent());
 	EXPECT_EQ(Hit.Element, Element);
@@ -846,10 +846,10 @@ TEST(FEditorVisualizationCollectorTests, AppliesOptionalHoverColorWithoutRegener
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("Camera");
 	ASSERT_NE(Actor, nullptr);
-	Durin::Editor::Level::FEditorVisualizationCollector Collector;
+	Durin::LevelEditor::FEditorVisualizationCollector Collector;
 	const Durin::FVector4f BaseColor{1.0f, 0.0f, 0.0f, 1.0f};
 	const Durin::FVector4f HoverColor{0.0f, 1.0f, 0.0f, 1.0f};
-	Collector.AddIcon({Durin::Editor::Level::EEditorVisualizationIcon::Camera, {0.0, 0.0, 5.0}, BaseColor, 30.0f, 3.0f, 100,
+	Collector.AddIcon({Durin::LevelEditor::EEditorVisualizationIcon::Camera, {0.0, 0.0, 5.0}, BaseColor, 30.0f, 3.0f, 100,
 		Actor, Actor->GetCameraComponent(), true, HoverColor});
 
 	Durin::FSceneView BaseView;
@@ -885,19 +885,19 @@ TEST(FEditorVisualizationCollectorTests, PreservesExactComponentAndSubElementHit
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("Camera");
 	ASSERT_NE(Actor, nullptr);
-	Durin::Editor::Level::FLevelEditorViewportClient Client;
+	Durin::LevelEditor::FLevelEditorViewportClient Client;
 	Durin::FSceneView View;
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
 	const Durin::FVector3 Center = Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 5.0;
-	const Durin::Editor::Level::FEditorSubElementSelection Element{Durin::Editor::Level::EEditorSubElementKind::Point, Durin::FGuid::NewGuid()};
-	Durin::Editor::Level::FEditorVisualizationIcon Icon{Durin::Editor::Level::EEditorVisualizationIcon::Camera, Center, Durin::FVector4f(1.0f), 30.0f, 3.0f, 100,
+	const Durin::LevelEditor::FEditorSubElementSelection Element{Durin::LevelEditor::EEditorSubElementKind::Point, Durin::FGuid::NewGuid()};
+	Durin::LevelEditor::FEditorVisualizationIcon Icon{Durin::LevelEditor::EEditorVisualizationIcon::Camera, Center, Durin::FVector4f(1.0f), 30.0f, 3.0f, 100,
 		Actor, Actor->GetCameraComponent(), true};
 	Icon.Element = Element;
-	Durin::Editor::Level::FEditorVisualizationCollector Collector;
+	Durin::LevelEditor::FEditorVisualizationCollector Collector;
 	Collector.AddIcon(Icon);
 	Durin::FVector2f ScreenCenter;
 	ASSERT_TRUE(Durin::SceneViewProjection::ProjectWorldToViewport(View, Center, ScreenCenter));
-	const Durin::Editor::Level::FEditorVisualizationHit Hit = Collector.HitTest(View, ScreenCenter);
+	const Durin::LevelEditor::FEditorVisualizationHit Hit = Collector.HitTest(View, ScreenCenter);
 	EXPECT_EQ(Hit.Actor, Actor);
 	EXPECT_EQ(Hit.Component, Actor->GetCameraComponent());
 	EXPECT_EQ(Hit.Element, Element);
@@ -907,7 +907,7 @@ TEST(FLevelEditorViewportClientTests, ReusesOneVisualizationSnapshotAcrossInputA
 {
 	InitializeDObjectSystem();
 	int DrawCount = 0;
-	auto& Registry = Durin::Editor::Level::FLevelEditorCustomizationRegistry::Get();
+	auto& Registry = Durin::LevelEditor::FLevelEditorCustomizationRegistry::Get();
 	FCustomizationGuard Guard{Registry.RegisterComponentVisualizer(
 		Durin::DCameraComponent::StaticClass(), std::make_shared<FTestComponentVisualizer>(&DrawCount))};
 	ASSERT_TRUE(Guard.Handle);
@@ -917,7 +917,7 @@ TEST(FLevelEditorViewportClientTests, ReusesOneVisualizationSnapshotAcrossInputA
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("Camera");
 	ASSERT_NE(Actor, nullptr);
-	Durin::Editor::Level::FLevelEditorViewportClient Client;
+	Durin::LevelEditor::FLevelEditorViewportClient Client;
 	Client.InitializeForLevel(Level);
 	Actor->GetCameraComponent()->SetWorldLocation(
 		Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 5.0);
@@ -928,8 +928,8 @@ TEST(FLevelEditorViewportClientTests, ReusesOneVisualizationSnapshotAcrossInputA
 	ASSERT_TRUE(Client.BuildViewMatrices(800, 600, InteractionView));
 	Client.UpdateHoveredVisualizationWithView(Level, InteractionView, {400.0f, 300.0f});
 	Client.SetPickingBackendForTesting(std::make_unique<FCaptureHitProxyBackend>());
-	const Durin::Editor::Level::FViewportPickResult Pick = Client.PickViewport(Level, InteractionView, {400.0f, 300.0f});
-	ASSERT_EQ(Pick.Status, Durin::Editor::Level::EViewportPickStatus::Completed);
+	const Durin::LevelEditor::FViewportPickResult Pick = Client.PickViewport(Level, InteractionView, {400.0f, 300.0f});
+	ASSERT_EQ(Pick.Status, Durin::LevelEditor::EViewportPickStatus::Completed);
 	EXPECT_EQ(DrawCount, 1);
 
 	Client.PrepareSceneView(Level, 800, 600);
@@ -954,14 +954,14 @@ TEST(FCameraComponentVisualizerTests, DrawsOnlyAnIconUntilSelected)
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("Camera");
 	ASSERT_NE(Actor, nullptr);
-	Durin::Editor::Level::FLevelEditorViewportClient Client;
+	Durin::LevelEditor::FLevelEditorViewportClient Client;
 	Actor->GetCameraComponent()->SetWorldLocation(Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 5.0);
 	Durin::FSceneView View;
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
-	const std::shared_ptr<Durin::Editor::Level::IComponentEditorVisualizer> Visualizer = Durin::Editor::Level::CreateCameraComponentVisualizer();
+	const std::shared_ptr<Durin::LevelEditor::IComponentEditorVisualizer> Visualizer = Durin::LevelEditor::CreateCameraComponentVisualizer();
 	ASSERT_NE(Visualizer, nullptr);
 
-	Durin::Editor::Level::FEditorVisualizationCollector Unselected;
+	Durin::LevelEditor::FEditorVisualizationCollector Unselected;
 	Visualizer->DrawVisualization(Actor->GetCameraComponent(), {View, Level, false, false}, Unselected);
 	EXPECT_EQ(Unselected.GetIcons().size(), 1u);
 	EXPECT_TRUE(Unselected.GetLines().empty());
@@ -969,7 +969,7 @@ TEST(FCameraComponentVisualizerTests, DrawsOnlyAnIconUntilSelected)
 	EXPECT_TRUE(Unselected.GetIcons().front().HoverColor.has_value());
 
 	Actor->GetCameraComponent()->SetProjectionParameters(60.0f, 0.25f, 1.0f);
-	Durin::Editor::Level::FEditorVisualizationCollector Selected;
+	Durin::LevelEditor::FEditorVisualizationCollector Selected;
 	Visualizer->DrawVisualization(Actor->GetCameraComponent(), {View, Level, true, true}, Selected);
 	EXPECT_EQ(Selected.GetIcons().size(), 1u);
 	EXPECT_FLOAT_EQ(Selected.GetIcons().front().SizePixels, Durin::MonaImGui::ScaleUI(40.0f));
@@ -996,23 +996,23 @@ TEST(FCameraComponentVisualizerTests, UsesTheActualFarPlaneAtExtremeFieldOfView)
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("Camera");
 	ASSERT_NE(Actor, nullptr);
-	Durin::Editor::Level::FLevelEditorViewportClient Client;
+	Durin::LevelEditor::FLevelEditorViewportClient Client;
 	Actor->GetCameraComponent()->SetWorldLocation(Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 5.0);
 	Actor->GetCameraComponent()->SetProjectionParameters(170.0f, 0.1f, 1000.0f);
 	Durin::FSceneView View;
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
-	const std::shared_ptr<Durin::Editor::Level::IComponentEditorVisualizer> Visualizer = Durin::Editor::Level::CreateCameraComponentVisualizer();
-	Durin::Editor::Level::FEditorVisualizationCollector Collector;
+	const std::shared_ptr<Durin::LevelEditor::IComponentEditorVisualizer> Visualizer = Durin::LevelEditor::CreateCameraComponentVisualizer();
+	Durin::LevelEditor::FEditorVisualizationCollector Collector;
 	Visualizer->DrawVisualization(Actor->GetCameraComponent(), {View, Level, true, true}, Collector);
 	ASSERT_EQ(Collector.GetLines().size(), 13u);
-	EXPECT_EQ(std::ranges::count_if(Collector.GetLines(), [](const Durin::Editor::Level::FEditorVisualizationLine& Line) {
+	EXPECT_EQ(std::ranges::count_if(Collector.GetLines(), [](const Durin::LevelEditor::FEditorVisualizationLine& Line) {
 		return Line.Pattern == Durin::ESimpleElementLinePattern::Dashed;
 	}), 0);
 	const Durin::FVector3 Forward = Actor->GetCameraComponent()->GetWorldRotation() * Durin::FVectorConstants::Forward;
 	const Durin::FVector3 Origin = Actor->GetCameraComponent()->GetWorldLocation();
 	EXPECT_NEAR(Durin::Math::Dot(Collector.GetLines()[2].Start - Origin, Forward), 1000.0, 1.e-4);
 	EXPECT_NEAR(Durin::Math::Dot(Collector.GetLines()[2].End - Origin, Forward), 1000.0, 1.e-4);
-	EXPECT_TRUE(std::ranges::all_of(Collector.GetLines(), [](const Durin::Editor::Level::FEditorVisualizationLine& Line) {
+	EXPECT_TRUE(std::ranges::all_of(Collector.GetLines(), [](const Durin::LevelEditor::FEditorVisualizationLine& Line) {
 		return Durin::Math::IsFinite(Line.End - Line.Start)
 			&& Durin::Math::Length(Line.End - Line.Start) > Durin::SmallNumber;
 	}));
@@ -1027,27 +1027,27 @@ TEST(FDirectionalLightComponentVisualizerTests, DrawsSelectableIconAndSelectedDi
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	auto* Actor = Level->SpawnActor<Durin::ADirectionalLightActor>("DirectionalLight");
 	ASSERT_NE(Actor, nullptr);
-	Durin::Editor::Level::FLevelEditorViewportClient Client;
+	Durin::LevelEditor::FLevelEditorViewportClient Client;
 	Actor->GetLightComponent()->SetWorldLocation(Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 10.0);
 	Durin::FSceneView View;
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
-	const std::shared_ptr<Durin::Editor::Level::IComponentEditorVisualizer> Visualizer = Durin::Editor::Level::CreateDirectionalLightComponentVisualizer();
+	const std::shared_ptr<Durin::LevelEditor::IComponentEditorVisualizer> Visualizer = Durin::LevelEditor::CreateDirectionalLightComponentVisualizer();
 	ASSERT_NE(Visualizer, nullptr);
 
-	Durin::Editor::Level::FEditorVisualizationCollector Unselected;
+	Durin::LevelEditor::FEditorVisualizationCollector Unselected;
 	Visualizer->DrawVisualization(Actor->GetLightComponent(), {View, Level, false, false}, Unselected);
 	ASSERT_EQ(Unselected.GetIcons().size(), 1u);
-	EXPECT_EQ(Unselected.GetIcons().front().Icon, Durin::Editor::Level::EEditorVisualizationIcon::DirectionalLight);
+	EXPECT_EQ(Unselected.GetIcons().front().Icon, Durin::LevelEditor::EEditorVisualizationIcon::DirectionalLight);
 	EXPECT_TRUE(Unselected.GetLines().empty());
 
-	Durin::Editor::Level::FEditorVisualizationCollector Selected;
+	Durin::LevelEditor::FEditorVisualizationCollector Selected;
 	Visualizer->DrawVisualization(Actor->GetLightComponent(), {View, Level, true, true}, Selected);
 	ASSERT_EQ(Selected.GetIcons().size(), 1u);
 	ASSERT_EQ(Selected.GetLines().size(), 5u);
 	EXPECT_TRUE(Selected.GetPrimitives().empty());
 	const Durin::FVector3 Origin = Actor->GetLightComponent()->GetWorldLocation();
 	const Durin::FVector3 Forward = Actor->GetLightComponent()->GetWorldRotation() * Durin::FVectorConstants::Forward;
-	const Durin::Editor::Level::FEditorVisualizationLine& Shaft = Selected.GetLines().front();
+	const Durin::LevelEditor::FEditorVisualizationLine& Shaft = Selected.GetLines().front();
 	EXPECT_NEAR(Durin::Math::Length(Shaft.Start - Origin), 0.0, 1.e-6);
 	EXPECT_GT(Durin::Math::Dot(Shaft.End - Shaft.Start, Forward), 0.0);
 	EXPECT_FLOAT_EQ(Shaft.WidthPixels, Durin::MonaImGui::ScaleUI(2.0f));
@@ -1067,32 +1067,32 @@ TEST(FPlayerStartActorVisualizerTests, DrawsSelectableSpawnShapeAndFacingCue)
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	auto* PlayerStart = Level->SpawnActor<Durin::APlayerStart>("PlayerStart");
 	ASSERT_NE(PlayerStart, nullptr);
-	Durin::Editor::Level::FLevelEditorViewportClient Client;
+	Durin::LevelEditor::FLevelEditorViewportClient Client;
 	const Durin::FVector3 Origin = Client.GetCameraTransform().GetLocation()
 		+ Client.GetCameraTransform().GetForwardVector() * 5.0;
 	PlayerStart->GetRootComponent()->SetWorldLocation(Origin);
 	Durin::FSceneView View;
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
-	const std::shared_ptr<Durin::Editor::Level::IActorEditorVisualizer> Visualizer =
-		Durin::Editor::Level::CreatePlayerStartActorVisualizer();
+	const std::shared_ptr<Durin::LevelEditor::IActorEditorVisualizer> Visualizer =
+		Durin::LevelEditor::CreatePlayerStartActorVisualizer();
 	ASSERT_NE(Visualizer, nullptr);
 
-	Durin::Editor::Level::FEditorVisualizationCollector Unselected;
+	Durin::LevelEditor::FEditorVisualizationCollector Unselected;
 	Visualizer->DrawVisualization(PlayerStart, {View, Level, false, false}, Unselected);
 	ASSERT_EQ(Unselected.GetIcons().size(), 1u);
-	EXPECT_EQ(Unselected.GetIcons().front().Icon, Durin::Editor::Level::EEditorVisualizationIcon::PlayerStart);
+	EXPECT_EQ(Unselected.GetIcons().front().Icon, Durin::LevelEditor::EEditorVisualizationIcon::PlayerStart);
 	EXPECT_FLOAT_EQ(Unselected.GetIcons().front().SizePixels, Durin::MonaImGui::ScaleUI(36.0f));
 	EXPECT_TRUE(Unselected.GetIcons().front().HoverColor.has_value());
 	EXPECT_TRUE(Unselected.GetLines().empty());
 	EXPECT_TRUE(Unselected.GetBoxes().empty());
 	Durin::FVector2f ScreenCenter;
 	ASSERT_TRUE(Durin::SceneViewProjection::ProjectWorldToViewport(View, Origin, ScreenCenter));
-	const Durin::Editor::Level::FEditorVisualizationHit Hit = Unselected.HitTest(View, ScreenCenter);
+	const Durin::LevelEditor::FEditorVisualizationHit Hit = Unselected.HitTest(View, ScreenCenter);
 	EXPECT_EQ(Hit.Actor, PlayerStart);
 	EXPECT_EQ(Hit.Component, PlayerStart->GetRootComponent());
 	EXPECT_TRUE(Hit.bDepthIndependent);
 
-	Durin::Editor::Level::FEditorVisualizationCollector Selected;
+	Durin::LevelEditor::FEditorVisualizationCollector Selected;
 	Visualizer->DrawVisualization(PlayerStart, {View, Level, true, true}, Selected);
 	ASSERT_EQ(Selected.GetIcons().size(), 1u);
 	EXPECT_FLOAT_EQ(Selected.GetIcons().front().SizePixels, Durin::MonaImGui::ScaleUI(40.0f));
@@ -1100,7 +1100,7 @@ TEST(FPlayerStartActorVisualizerTests, DrawsSelectableSpawnShapeAndFacingCue)
 	EXPECT_EQ(Selected.GetLines().size(), 105u);
 	EXPECT_FLOAT_EQ(Selected.GetLines().front().WidthPixels, Durin::MonaImGui::ScaleUI(2.0f));
 	EXPECT_TRUE(Selected.GetPrimitives().empty());
-	const Durin::Editor::Level::FEditorVisualizationLine& ArrowShaft = Selected.GetLines()[100];
+	const Durin::LevelEditor::FEditorVisualizationLine& ArrowShaft = Selected.GetLines()[100];
 	const Durin::FVector3 Forward = PlayerStart->GetRootComponent()->GetWorldRotation()
 		* Durin::FVectorConstants::Forward;
 	EXPECT_NEAR(Durin::Math::Length(ArrowShaft.Start - (Origin + Forward * 0.4)), 0.0, 1.e-6);
@@ -1114,11 +1114,11 @@ TEST(FObjectPropertyViewCustomizationTests, CameraViewDistanceSearchAndUndoUseOr
 {
 	InitializeDObjectSystem();
 	auto* Camera = Durin::NewObject<Durin::DCameraComponent>(nullptr, "ViewDistanceCamera");
-	Durin::Editor::Level::FLevelEditorContext Context;
+	Durin::LevelEditor::FLevelEditorContext Context;
 	for (const auto Search : {"Projection", "Fade Start", "Render Distance", "View Distance"})
 	{
-		Durin::Editor::Level::FLevelDetailLayoutBuilder Layout(Context, Search);
-		Layout.ApplyCustomization(Camera, *Durin::Editor::Level::CreateCameraDetailsCustomization());
+		Durin::LevelEditor::FLevelDetailLayoutBuilder Layout(Context, Search);
+		Layout.ApplyCustomization(Camera, *Durin::LevelEditor::CreateCameraDetailsCustomization());
 		Layout.AddDefaultProperties(Camera);
 		EXPECT_EQ(Layout.GetVisibleRowCount(), 1u) << Search;
 	}
@@ -1129,11 +1129,11 @@ TEST(FObjectPropertyViewCustomizationTests, CameraViewDistanceSearchAndUndoUseOr
 	auto* Settings = Root->ContainerPtrToValuePtr<Durin::FViewDistanceSettings>(Camera);
 	const float Before = Settings->RenderDistance;
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
-	Durin::Editor::FPropertyView View;
-	const Durin::Editor::FPropertyViewContext ViewContext{};
+	Durin::FPropertyView View;
+	const Durin::FPropertyViewContext ViewContext{};
 	ASSERT_TRUE(View.HandleOwnerContext(ViewContext, Camera));
 	ASSERT_TRUE(View.SubmitPropertyValueEdit(ViewContext,
-		Durin::Editor::FPropertyEditTarget::ForMember(Camera, Root).ForStructMember(Field),
+		Durin::FPropertyEditTarget::ForMember(Camera, Root).ForStructMember(Field),
 		[](auto* Property, void* Container, uint32 Index) { *Property->template ContainerPtrToValuePtr<float>(Container, Index) = 300000.0f; }, false));
 	EXPECT_EQ(Settings->RenderDistance, 300000.0f);
 	ASSERT_TRUE(Transactions->Undo());

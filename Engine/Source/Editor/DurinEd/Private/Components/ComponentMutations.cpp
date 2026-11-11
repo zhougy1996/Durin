@@ -17,7 +17,6 @@
 
 namespace Durin
 {
-	using namespace Editor;
 	namespace
 	{
 		struct FChildAttachment
@@ -266,7 +265,7 @@ namespace Durin
 			DTransactor* Transactions) -> bool
 		{
 			if (!Transactions) return false;
-			const auto Result = Editor::ApplyEditorChange(*Transactions, std::move(Change));
+			const auto Result = ApplyEditorChange(*Transactions, std::move(Change));
 			if (!Result && Result.Code != ETransactorResultCode::RecoveryRequired && IsValid(Component))
 				if (auto* Owner = Component->GetOwner(); !IsValid(Owner) || !Owner->OwnsComponent(Component)) MarkObjectHierarchyAsGarbage(Component);
 			if (!Result) return false;
