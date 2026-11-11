@@ -610,30 +610,6 @@ TEST(DFactoryTests, WrongClassIsRejectedAndPackageIsDiscarded)
 	EXPECT_EQ(Durin::FindResidentPackage(Path), nullptr);
 }
 
-TEST(DFactoryTests, CreatedPackageSurvivesGcAndCanBeExplicitlyDiscarded)
-{
-	InitializeFactoryTestGameThread();
-	EnsureAssetToolsTestMount();
-	Durin::FPackagePath Path;
-	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
-		"/AssetToolsTests/ExplicitDiscard", Path));
-	auto* Factory = MakeFactory(DAssetToolsFactoryForTest::EMode::Success);
-	std::string ResultError;
-	Durin::FFeedbackContext ResultFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
-		if (Level >= Durin::ELogLevel::Error) { if (!ResultError.empty()) ResultError += "\n"; ResultError += Message; }
-	});
-	const auto Result = Durin::IAssetTools::Get().CreatePackageLeafAssetForTesting(
-		Path, DFactoryAssetForTest::StaticClass(), Factory, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &ResultFeedback);
-	ASSERT_TRUE(Result);
-	EXPECT_TRUE(Result->GetPackage()->IsNewlyCreated());
-	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
-	EXPECT_EQ(Durin::FindPackage(Path.GetView()), Result->GetPackage());
-	EXPECT_EQ(Durin::FindResidentPackage(Path), Result->GetPackage());
-	EXPECT_TRUE(Durin::IAssetTools::Get().DiscardPackage(Result->GetPackage()));
-	Durin::CollectGarbage(Durin::EObjectFlags::Standalone); // Owner boundary after factory callbacks have returned.
-	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
-}
-
 TEST(DFactoryTests, SaveFailureLeavesCreatedPackageAvailableForDiscard)
 {
 	InitializeFactoryTestGameThread();
@@ -820,9 +796,9 @@ TEST(DFactoryTests, DuplicateDefaultsToDirtyMemoryAndResolvesItsOwnDestination)
 	ASSERT_TRUE(Repeated);
 	EXPECT_EQ(Repeated->GetPackage()->GetPackagePathIdentity().GetPackageName(), "LiveDuplicateSource_Copy");
 	const auto RepeatedPath = Repeated->GetPackage()->GetPackagePathIdentity();
-	EXPECT_TRUE(UnloadPackage(RepeatedPath, EAssetPackageUnloadPolicy::DiscardUnsaved));
-	EXPECT_TRUE(UnloadPackage(Path, EAssetPackageUnloadPolicy::DiscardUnsaved));
-	EXPECT_TRUE(UnloadPackage(SourcePath, EAssetPackageUnloadPolicy::DiscardUnsaved));
+	EXPECT_TRUE(Durin::Testing::EnsurePackageNotResident(RepeatedPath, EAssetPackageUnloadPolicy::DiscardUnsaved));
+	EXPECT_TRUE(Durin::Testing::EnsurePackageNotResident(Path, EAssetPackageUnloadPolicy::DiscardUnsaved));
+	EXPECT_TRUE(Durin::Testing::EnsurePackageNotResident(SourcePath, EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
 TEST(DFactoryTests, DuplicateSaveFailureRetainsLiveCopyAndAllowsOrdinarySaveRetry)

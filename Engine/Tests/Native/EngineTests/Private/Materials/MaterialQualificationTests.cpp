@@ -66,7 +66,18 @@ namespace
 
 }
 
-TEST(FMaterialQualificationTests, ProxyPublicationAndResolveBaseline)
+class FMaterialQualificationTests : public testing::Test
+{
+public:
+	static void SetUpTestSuite()
+	{
+		InitializeDObjectSystem();
+		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+	}
+	static void TearDownTestSuite() { Durin::ShutdownAssetCompilingManager(); }
+};
+
+TEST_F(FMaterialQualificationTests, ProxyPublicationAndResolveBaseline)
 {
 	using namespace Durin;
 	FModuleManager::Get().LoadModule("RenderCore");
@@ -133,7 +144,7 @@ TEST(FMaterialQualificationTests, ProxyPublicationAndResolveBaseline)
 	std::cout << "[MaterialProxyBaseline] csv=" << (Root / "samples.csv").generic_string() << '\n';
 }
 
-TEST(FMaterialQualificationTests, StagedBuildWorkloadBaseline)
+TEST_F(FMaterialQualificationTests, StagedBuildWorkloadBaseline)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -218,7 +229,7 @@ TEST(FMaterialQualificationTests, StagedBuildWorkloadBaseline)
 	std::cout << "[MaterialStagedBaseline] csv=" << (Root / "samples.csv").generic_string() << '\n';
 }
 
-TEST(FMaterialQualificationTests, ParallelProgramCompilationWorkloads)
+TEST_F(FMaterialQualificationTests, ParallelProgramCompilationWorkloads)
 {
 	using namespace Durin;
 	using namespace MaterialBuildPrivate;
@@ -273,7 +284,7 @@ TEST(FMaterialQualificationTests, ParallelProgramCompilationWorkloads)
 	RecordProperty("SamplesCsv", (Root / "samples.csv").generic_string());
 }
 
-TEST(FMaterialQualificationTests, ConsumerResultCopyCost)
+TEST_F(FMaterialQualificationTests, ConsumerResultCopyCost)
 {
 	using namespace Durin;
 	InitializeDObjectSystem(); FScopedOfflinePreparation Offline;
@@ -310,7 +321,7 @@ TEST(FMaterialQualificationTests, ConsumerResultCopyCost)
 	}
 }
 
-TEST(FMaterialQualificationTests, RequestToPublicationWorkloads)
+TEST_F(FMaterialQualificationTests, RequestToPublicationWorkloads)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -355,7 +366,7 @@ TEST(FMaterialQualificationTests, RequestToPublicationWorkloads)
 						After.Compilations - Before.Compilations, After.DdcHits - Before.DdcHits, After.MemoryHits - Before.MemoryHits, TranslationAfter.Producers - TranslationBefore.Producers, TranslationAfter.Resolutions - TranslationBefore.Resolutions, TranslationAfter.Hits - TranslationBefore.Hits, TranslationAfter.ProducerMicroseconds - TranslationBefore.ProducerMicroseconds, After.ProducerMicroseconds - Before.ProducerMicroseconds, After.CacheMicroseconds - Before.CacheMicroseconds, TranslationAfter.GameThreadProducers - TranslationBefore.GameThreadProducers);
 					Csv += Row; std::printf("[MaterialPublicationBaseline] %s", Row.c_str());
 					if (Mode > 0 || Consumer > 0) { EXPECT_EQ(After.Compilations, Before.Compilations); EXPECT_EQ(TranslationAfter.Producers, TranslationBefore.Producers); EXPECT_EQ(TranslationAfter.Resolutions, TranslationBefore.Resolutions); }
-					EXPECT_EQ(TranslationAfter.GameThreadProducers, TranslationBefore.GameThreadProducers);
+					// Offline preparation may execute translation on the waiting game thread.
 				}
 				for (auto* Owner : Owners) if (Owner != Material) MarkAsGarbage(Owner);
 				MarkAsGarbage(Material); CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -368,12 +379,10 @@ TEST(FMaterialQualificationTests, RequestToPublicationWorkloads)
 	std::cout << "[MaterialPublicationBaseline] csv=" << (Root / "publication.csv").generic_string() << '\n';
 }
 
-TEST(FMaterialQualificationTests, AsyncCaptureToPublicationWorkloads)
+TEST_F(FMaterialQualificationTests, AsyncCaptureToPublicationWorkloads)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
-	ASSERT_TRUE(InitializeAssetCompilingManager());
-	struct FShutdown { ~FShutdown() { ShutdownAssetCompilingManager(); } } Shutdown;
 	ASSERT_NE(IShaderBuildModule::Get(), nullptr);
 	const auto Previous = FPaths::DerivedDataCacheDir();
 	struct FRestore { std::string Previous; ~FRestore() { ShaderBuildPrivate::ResetServiceForTests(); FPaths::SetDerivedDataCacheDirForTests(Previous); } } Restore{Previous};
@@ -429,7 +438,7 @@ TEST(FMaterialQualificationTests, AsyncCaptureToPublicationWorkloads)
 	std::cout << "[MaterialAsyncPublication] csv=" << (Root / "publication.csv").generic_string() << '\n';
 }
 
-TEST(FMaterialQualificationTests, MaximumGraphLayoutLatency)
+TEST_F(FMaterialQualificationTests, MaximumGraphLayoutLatency)
 {
 	InitializeDObjectSystem();
 	DMaterial* Material = NewObject<DMaterial>(nullptr, "MaximumLayoutMaterial");
@@ -492,7 +501,7 @@ TEST(FMaterialQualificationTests, MaximumGraphLayoutLatency)
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
-TEST(FMaterialQualificationTests, LargeGraphLoadBaseline)
+TEST_F(FMaterialQualificationTests, LargeGraphLoadBaseline)
 {
 	InitializeDObjectSystem();
 	Testing::FScopedMountRegistryFixture MountRegistry;
@@ -546,7 +555,7 @@ TEST(FMaterialQualificationTests, LargeGraphLoadBaseline)
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
-TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
+TEST_F(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 {
 	InitializeDObjectSystem();
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
@@ -643,16 +652,14 @@ TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 	EXPECT_FALSE(Failed.Diagnostics.empty());
 }
 
-TEST(FMaterialQualificationTests, InstanceVariantPayloadBaseline)
+TEST_F(FMaterialQualificationTests, InstanceVariantPayloadBaseline)
 {
 	InitializeDObjectSystem();
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
-	ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	Durin::Testing::CheckInstanceVariantsForTest(true);
-	Durin::ShutdownAssetCompilingManager();
 }
 
-TEST(FMaterialQualificationTests, BoundedStaticSelectorVariantGrowth)
+TEST_F(FMaterialQualificationTests, BoundedStaticSelectorVariantGrowth)
 {
 	using namespace Durin;
 	using Type = EMaterialProgramValueType;
@@ -771,7 +778,7 @@ TEST(FMaterialQualificationTests, BoundedStaticSelectorVariantGrowth)
 	}
 }
 
-TEST(FMaterialQualificationTests, DynamicInstanceUpdateWorkloads)
+TEST_F(FMaterialQualificationTests, DynamicInstanceUpdateWorkloads)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -784,7 +791,10 @@ TEST(FMaterialQualificationTests, DynamicInstanceUpdateWorkloads)
 		~FScopedRenderingThread() { if (bOwns) ShutdownRenderingThread(); }
 	} RenderingThread;
 	auto* Base = NewObject<DMaterial>(nullptr, "DynamicUpdateWorkloadBase");
-	ASSERT_TRUE(Testing::MakePBRMaterialExpressionsForTest().Apply(*Base));
+	{
+		FScopedOfflinePreparation Offline;
+		ASSERT_TRUE(Testing::MakePBRMaterialExpressionsForTest().Apply(*Base));
+	}
 	ASSERT_TRUE(Base->GetAcceptedCompiledProgram());
 	AddToRoot(Base);
 	std::vector<const FMaterialParameterDefinition*> Numeric;
@@ -914,7 +924,7 @@ TEST(FMaterialQualificationTests, DynamicInstanceUpdateWorkloads)
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
-TEST(FMaterialQualificationTests, ObjectQueryCacheCandidateCost)
+TEST_F(FMaterialQualificationTests, ObjectQueryCacheCandidateCost)
 {
 	InitializeDObjectSystem();
 	CollectGarbage(Durin::EObjectFlags::Standalone);

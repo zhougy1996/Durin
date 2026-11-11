@@ -187,7 +187,7 @@ namespace
 			Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 			for (const auto& Path : Packages)
 			{
-				EXPECT_TRUE(Durin::UnloadPackage(Path, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
+				EXPECT_TRUE(Durin::Testing::EnsurePackageNotResident(Path, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 				EXPECT_TRUE(Durin::Testing::RemoveAssetPackageForTests(Path));
 			}
 			for (const auto Name : {Durin::FThumbnailVisualContract::SphereAssetPath, Durin::FPreviewMeshResources::BoxAssetPath})

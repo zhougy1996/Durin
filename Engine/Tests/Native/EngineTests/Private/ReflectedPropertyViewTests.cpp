@@ -633,6 +633,7 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 	Durin::DAssetRedirector* Redirector = nullptr;
 	ASSERT_TRUE(Durin::Testing::CreateAssetRedirectorForTests(AliasPath, AssetPath, Redirector));
 	ASSERT_TRUE(Durin::SavePackage(Redirector->GetPackage()));
+	Durin::TStrongObjectPtr<Durin::DObject> TargetOwner(LoadedObject);
 	ASSERT_TRUE(Durin::UnloadPackage(AliasPath));
 	Object.SoftValues[0] = AliasSoftPath;
 	State = Durin::InspectSoftObject(Reflection.SoftProperty, &Object, 0);
@@ -644,6 +645,7 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 	EXPECT_FALSE(State.AssetCause);
 	EXPECT_EQ(Durin::GetSoftObjectStateLabel(State.State), "Redirected");
 
+	TargetOwner.Reset();
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	State = Durin::InspectSoftObject(Reflection.SoftProperty, &Object, 0);
 	EXPECT_EQ(State.State, Durin::ESoftObjectViewState::Redirected);

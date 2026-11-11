@@ -26,6 +26,7 @@
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "StaticMesh/StaticMeshSource.h"
 #include "Threading/TaskRuntime.h"
+#include "ViewRenderStatistics.h"
 #include "Viewport/LevelEditorViewportClient.h"
 #include "Workspace/LevelEditorContext.h"
 
@@ -188,11 +189,15 @@ namespace
 		auto Render(const FSceneView& View) -> FByteBuffer
 		{
 			FByteBuffer Pixels;
+			const auto Preparation = FRenderResourcePreparation::Create();
+			FSceneViewStatistics Statistics;
 			ERenderViewResult Result = ERenderViewResult::RendererResourcesPending;
 			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(45);
 			do
 			{
 				PumpGameThreadDeferredWork();
+				FAssetCompilingManager::Get().ProcessAsyncTasks();
+				DPrimitiveComponent::ProcessPSOPrecacheRequests(World);
 				ENQUEUE_RENDER_COMMAND(RenderRoadAcceptance)([&](FRHICommandListImmediate& Commands) {
 					auto Target = GDynamicRHI->RHICreateTexture(Commands,
 						FRHITextureCreateDesc::Create2D("RoadAcceptance", 256, 192, EPixelFormat::SRGBA8_UNORM)
@@ -200,13 +205,21 @@ namespace
 					ASSERT_TRUE(Target);
 					++GRenderFrameCounterRenderThread;
 					GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
-					Result = Renderer->RenderView(Commands, {Engine->GetMainScene(), View, Target, false, {}});
+					Renderer->BeginFrame_RenderThread(Commands);
+					const FSceneViewRenderRequest Request{Engine->GetMainScene(), View, Target, false, {}, &Statistics};
+					const auto State = Renderer->PrepareViewResources(Commands, Request, Preparation).State;
+					if (State == ERenderResourcePreparationState::Ready)
+						Result = Renderer->RenderView(Commands, Request);
+					else
+						Result = State == ERenderResourcePreparationState::Pending
+							? ERenderViewResult::RendererResourcesPending : ERenderViewResult::RendererResourcesUnavailable;
 					GDynamicRHI->RHIEndFrame_RenderThread(Commands);
 					if (Result == ERenderViewResult::Success)
 						GDynamicRHI->RHIReadTexture2D(Commands, Target, 0, 0, Pixels);
 				});
 				FlushRenderingCommands();
-				if (Result != ERenderViewResult::RendererResourcesPending) break;
+				if (Result == ERenderViewResult::Success && Statistics.StaticMesh.DrawCalls > 0) break;
+				if (Result != ERenderViewResult::Success && Result != ERenderViewResult::RendererResourcesPending) break;
 				std::this_thread::sleep_for(std::chrono::milliseconds(10));
 			} while (std::chrono::steady_clock::now() < Deadline);
 			EXPECT_EQ(Result, ERenderViewResult::Success);

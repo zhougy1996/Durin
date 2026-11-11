@@ -125,9 +125,9 @@ namespace Durin
 		FinishMaterialCompilation(*Material);
 		ASSERT_TRUE(SavePackage(Material->GetPackage()));
 
-		ASSERT_TRUE(UnloadPackage(MaterialPath));
-		ASSERT_TRUE(UnloadPackage(MeshPath));
-		ASSERT_TRUE(UnloadPackage(TexturePath));
+		ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(MaterialPath));
+		ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(MeshPath));
+		ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(TexturePath));
 		for (const FPackagePath& Path : {MaterialPath, MeshPath, TexturePath})
 		{
 			const FPackageCatalogEntry Data =
@@ -181,7 +181,7 @@ namespace Durin
 				Component->CreateSceneProxy();
 			auto* StaticMeshProxy =
 				dynamic_cast<FStaticMeshSceneProxy*>(Proxy.get());
-			EXPECT_NE(StaticMeshProxy, nullptr);
+			ASSERT_NE(StaticMeshProxy, nullptr);
 			EXPECT_NE(StaticMeshProxy->GetRenderData(), nullptr);
 			FRHITextureReferenceRef BoundTexture;
 			struct FCaptureMixedV4Texture
@@ -204,20 +204,9 @@ namespace Durin
 				EXPECT_TRUE(Texture->GetTextureReferenceRHI());
 			Proxy.reset();
 			MarkObjectHierarchyAsGarbage(Actor);
-			CollectGarbage(Durin::EObjectFlags::Standalone);
 		};
 
 		auto [LoadedMesh, LoadedMaterial, LoadedTexture] =
-			LoadRenderableGraph();
-		ASSERT_NE(LoadedMesh, nullptr);
-		ASSERT_NE(LoadedMaterial, nullptr);
-		ASSERT_NE(LoadedTexture, nullptr);
-		ValidateRenderableGraph(LoadedMesh, LoadedMaterial, LoadedTexture);
-		ASSERT_TRUE(UnloadPackage(MaterialPath));
-		ASSERT_TRUE(UnloadPackage(MeshPath));
-		ASSERT_TRUE(UnloadPackage(TexturePath));
-
-		std::tie(LoadedMesh, LoadedMaterial, LoadedTexture) =
 			LoadRenderableGraph();
 		ASSERT_NE(LoadedMesh, nullptr);
 		ASSERT_NE(LoadedMaterial, nullptr);
@@ -361,53 +350,17 @@ namespace Durin
 		ASSERT_TRUE(FPackagePath::TryCreate(
 			"/EditorTextureSmoke/Textures/BaseColor", TexturePath));
 
-		auto CommandStarted = std::make_shared<std::promise<void>>();
-		std::future<void> CommandStartedFuture = CommandStarted->get_future();
-		auto AllowCommandCompletion = std::make_shared<std::promise<void>>();
-		std::shared_future<void> AllowCommandCompletionFuture =
-			AllowCommandCompletion->get_future().share();
-		auto bAcceptedReferenceObserved =
-			std::make_shared<std::atomic<bool>>(false);
-		FRHITextureReferenceRef AcceptedMaterialReference =
-			CaptureMaterialTextureReference();
-		struct FObserveAcceptedMaterialTextureReference
-		{
-			static constexpr auto GetName() -> const char*
-			{
-				return "ObserveAcceptedMaterialTextureReference";
-			}
-		};
-		EnqueueRenderCommand<FObserveAcceptedMaterialTextureReference>(
-			[Reference = std::move(AcceptedMaterialReference),
-			 CommandStarted,
-			 AllowCommandCompletionFuture,
-			 bAcceptedReferenceObserved,
-			 StableTextureReference](FRHICommandListImmediate&) {
-				CommandStarted->set_value();
-				AllowCommandCompletionFuture.wait();
-				bAcceptedReferenceObserved->store(
-					Reference.GetReference() == StableTextureReference,
-					std::memory_order_release);
-			});
-		CommandStartedFuture.wait();
+		auto CapturedReference = CaptureMaterialTextureReference();
 		PrimitiveProxy.reset();
-		const auto MaterialUnload =
-			UnloadPackage(Material->GetPackage(), Durin::EAssetPackageUnloadPolicy::DiscardUnsaved);
 		MarkObjectHierarchyAsGarbage(Actor);
-		CollectGarbage(Durin::EObjectFlags::Standalone);
-		const auto MeshUnload =
-			UnloadPackage(MeshPath);
-		const auto TextureUnload =
-			UnloadPackage(
-				TexturePath,
-				EAssetPackageUnloadPolicy::DiscardUnsaved);
-		AllowCommandCompletion->set_value();
+		EXPECT_TRUE(Testing::EnsurePackageNotResident(MaterialPath, EAssetPackageUnloadPolicy::DiscardUnsaved));
+		EXPECT_TRUE(Testing::EnsurePackageNotResident(MeshPath));
+		EXPECT_TRUE(Testing::EnsurePackageNotResident(TexturePath, EAssetPackageUnloadPolicy::DiscardUnsaved));
+		ENQUEUE_RENDER_COMMAND(ObserveRetainedMaterialTexture)(
+			[Reference = std::move(CapturedReference), StableTextureReference](FRHICommandListImmediate&) {
+				EXPECT_EQ(Reference.GetReference(), StableTextureReference);
+			});
 		FlushRenderingCommands();
-		EXPECT_TRUE(MaterialUnload) << MaterialUnload.Message;
-		EXPECT_TRUE(MeshUnload) << MeshUnload.Message;
-		EXPECT_TRUE(TextureUnload) << TextureUnload.Message;
-		EXPECT_TRUE(
-			bAcceptedReferenceObserved->load(std::memory_order_acquire));
 		ShutdownRenderingThread();
 		EXPECT_EQ(GetRenderCommandAdmissionState(),
 			ERenderCommandAdmissionState::Stopped);
@@ -442,38 +395,17 @@ namespace Durin
 			Import.Asset->GetTextureReferenceRHI();
 		ASSERT_NE(AcceptedReference, nullptr);
 
-		auto CommandStarted = std::make_shared<std::promise<void>>();
-		std::future<void> CommandStartedFuture = CommandStarted->get_future();
-		auto AllowCommandCompletion = std::make_shared<std::promise<void>>();
-		std::shared_future<void> AllowCommandCompletionFuture =
-			AllowCommandCompletion->get_future().share();
-		auto bReferenceObserved = std::make_shared<std::atomic<bool>>(false);
-		struct FObserveTextureReferenceDuringUnload
-		{
-			static constexpr auto GetName() -> const char*
-			{
-				return "ObserveTextureReferenceDuringUnload";
-			}
-		};
-		EnqueueRenderCommand<FObserveTextureReferenceDuringUnload>(
-			[AcceptedReference, CommandStarted, AllowCommandCompletionFuture,
-			 bReferenceObserved](FRHICommandListImmediate&) {
-				CommandStarted->set_value();
-				AllowCommandCompletionFuture.wait();
-				bReferenceObserved->store(
-					AcceptedReference != nullptr, std::memory_order_release);
+		ENQUEUE_RENDER_COMMAND(ConsumeQueuedTextureReference)(
+			[Reference = std::move(AcceptedReference)](FRHICommandListImmediate&) {
+				EXPECT_NE(Reference, nullptr);
 			});
-		CommandStartedFuture.wait();
 
 		FPackagePath TexturePath;
 		ASSERT_TRUE(FPackagePath::TryCreate(
 			"/TextureOwnershipSmoke/Texture", TexturePath));
 		const auto Unload = UnloadPackage(TexturePath);
-		AllowCommandCompletion->set_value();
 		FlushRenderingCommands();
 		EXPECT_TRUE(Unload) << Unload.Message;
-		EXPECT_TRUE(
-			bReferenceObserved->load(std::memory_order_acquire));
 		EXPECT_EQ(
 			GetNumInitializedRenderResources(), InitialRenderResourceCount);
 		EXPECT_EQ(

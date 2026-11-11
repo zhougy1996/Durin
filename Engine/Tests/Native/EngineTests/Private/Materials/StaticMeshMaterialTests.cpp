@@ -148,8 +148,8 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotDefinitionsRoundTripWithDef
 	FirstSlot->DefaultMaterial = DefaultMaterial;
 	Import.Asset->MarkPackageDirty();
 	ASSERT_TRUE(Durin::SavePackage(Import.Asset->GetPackage()));
-	ASSERT_TRUE(Durin::UnloadPackage(MeshPath));
-	ASSERT_TRUE(Durin::UnloadPackage(MaterialPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(MeshPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(MaterialPath));
 
 	Durin::DStaticMesh* Loaded = nullptr;
 	{
@@ -164,8 +164,8 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotDefinitionsRoundTripWithDef
 	ASSERT_NE(Loaded->GetMaterialSlot(0)->DefaultMaterial.Get(), nullptr);
 	EXPECT_EQ(Loaded->GetMaterialSlot(0)->DefaultMaterial->GetPackage()->GetPackagePath(), MaterialPath.ToString());
 	EXPECT_FALSE(Loaded->GetPackage()->IsDirty());
-	ASSERT_TRUE(Durin::UnloadPackage(MeshPath));
-	ASSERT_TRUE(Durin::UnloadPackage(MaterialPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(MeshPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(MaterialPath));
 }
 
 TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotReconciliationPreservesStableIndices)
@@ -278,9 +278,9 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotReconciliationPreservesStab
 	{
 		Durin::FPackagePath Path;
 		ASSERT_TRUE(Durin::FPackagePath::TryCreate(std::format("/StaticMeshSlotReimport/{}", Name), Path));
-		ASSERT_TRUE(Durin::UnloadPackage(Path, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
+		ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(Path, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 	}
-	ASSERT_TRUE(Durin::UnloadPackage(PreservedDefaultPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(PreservedDefaultPath));
 }
 
 TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
@@ -343,12 +343,12 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 	ASSERT_TRUE(Durin::SavePackage(Component->GetPackage()));
 	EXPECT_TRUE(Transactions->TryReset());
 
-	ASSERT_TRUE(Durin::UnloadPackage(ComponentPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(ComponentPath));
 	Material = nullptr;
 	const auto MaterialUnload =
-		Durin::UnloadPackage(MaterialPath);
+		Durin::Testing::EnsurePackageNotResident(MaterialPath);
 	ASSERT_TRUE(MaterialUnload) << MaterialUnload.Message;
-	ASSERT_TRUE(Durin::UnloadPackage(MeshPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(MeshPath));
 	Component = nullptr;
 	{
 		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DStaticMeshComponent>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ComponentPath));
@@ -386,9 +386,9 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 	RenderComponent->SetStaticMesh(nullptr);
 	WaitForRenderingThread();
 
-	ASSERT_TRUE(Durin::UnloadPackage(ComponentPath));
-	ASSERT_TRUE(Durin::UnloadPackage(MaterialPath));
-	ASSERT_TRUE(Durin::UnloadPackage(
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(ComponentPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(MaterialPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(
 		MeshPath,
 		Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
@@ -453,10 +453,10 @@ namespace
 				if (Property.FieldName == "OverrideMaterials")
 					EXPECT_EQ(Property.DeclaringType, "Durin::DMeshComponent");
 
-		ASSERT_TRUE(Durin::UnloadPackage(ComponentPath));
-		ASSERT_TRUE(Durin::UnloadPackage(SecondMaterialPath));
-		ASSERT_TRUE(Durin::UnloadPackage(FirstMaterialPath));
-		ASSERT_TRUE(Durin::UnloadPackage(MeshPath));
+		ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(ComponentPath));
+		ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(SecondMaterialPath));
+		ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(FirstMaterialPath));
+		ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(MeshPath));
 
 		TComponent* Loaded = nullptr;
 		{
@@ -485,10 +485,10 @@ namespace
 				if (Property.FieldName == "OverrideMaterials")
 					EXPECT_EQ(Property.DeclaringType, "Durin::DMeshComponent");
 
-		ASSERT_TRUE(Durin::UnloadPackage(ComponentPath));
-		ASSERT_TRUE(Durin::UnloadPackage(SecondMaterialPath));
-		ASSERT_TRUE(Durin::UnloadPackage(FirstMaterialPath));
-		ASSERT_TRUE(Durin::UnloadPackage(MeshPath));
+		ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(ComponentPath));
+		ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(SecondMaterialPath));
+		ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(FirstMaterialPath));
+		ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(MeshPath));
 	}
 }
 

@@ -286,8 +286,8 @@ TEST(FAssetPackageReloadVulkanTests, DiscardRestoresRenderedWeatherAndVolumeFrom
 	MarkObjectHierarchyAsGarbage(World);
 	MarkAsGarbage(Detail);
 	CollectGarbage(Durin::EObjectFlags::Standalone);
-	ASSERT_TRUE(UnloadPackage(WeatherPath));
-	ASSERT_TRUE(UnloadPackage(VolumePath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(WeatherPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(VolumePath));
 	Weather = nullptr;
 	Volume = nullptr;
 	{
@@ -302,8 +302,8 @@ TEST(FAssetPackageReloadVulkanTests, DiscardRestoresRenderedWeatherAndVolumeFrom
 	}
 	EXPECT_EQ(Weather->GetSource().GetIdentity(), WeatherIdentity);
 	EXPECT_EQ(Volume->GetSource().GetIdentity(), VolumeIdentity);
-	ASSERT_TRUE(UnloadPackage(WeatherPath));
-	ASSERT_TRUE(UnloadPackage(VolumePath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(WeatherPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(VolumePath));
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	FlushRenderingCommands();
 	RendererLifecycle.Shutdown();

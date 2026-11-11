@@ -354,13 +354,9 @@ TEST_F(FPackagePersistenceTests, CanceledPublicationReturnsDomainCancellationBef
 	PackageSavePrivate::SetAsyncSaveAdmission(false);
 	PackageSavePrivate::PollAsyncSaves();
 	EXPECT_FALSE(Task.IsCompleted());
-	PumpGameThreadDeferredWork({.bUnlimited = true});
-	ASSERT_TRUE(Task.IsCompleted());
-	ASSERT_EQ(Task.GetState(), ETaskState::Succeeded);
-	EXPECT_EQ(Task.GetResult().Error, EPackageSaveError::Cancelled);
+	EXPECT_EQ(FinishSave(Task).Error, EPackageSaveError::Cancelled);
 	EXPECT_TRUE(Package->IsDirty());
 	EXPECT_FALSE(std::filesystem::exists(Options.Destination));
-	EXPECT_TRUE(DPackage::DrainAsyncSaves());
 	ShutdownTaskSystem(ETaskShutdownMode::Drain);
 }
 

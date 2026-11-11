@@ -85,9 +85,9 @@ TEST_F(FMaterialFunctionCookTests, CookFingerprintsNestedFunctionsWithoutProduci
 	EXPECT_EQ(Result.Packages[0].Status, ECookPackageStatus::CookHit);
 	Edited.Expressions.clear();
 	const auto ExpectedIdentity = Durin::Testing::ExpectedGameMaterialIdentity(*Material);
-	ASSERT_TRUE(UnloadPackage(MaterialPath));
-	ASSERT_TRUE(UnloadPackage(WrapperPath));
-	ASSERT_TRUE(UnloadPackage(LeafPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(MaterialPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(WrapperPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(LeafPath));
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	const auto LeafData = FindPackageExact(LeafPath);
 	ASSERT_TRUE(LeafData);

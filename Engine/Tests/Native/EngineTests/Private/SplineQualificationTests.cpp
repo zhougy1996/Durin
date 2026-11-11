@@ -89,7 +89,8 @@ TEST(FSplineMeshActorQualificationTests, FrozenThirtyTwoSegmentEditsMeetCpuAndSt
 	Actor->GetSplineComponent()->SetSplinePoints(Points);
 	auto Segments = Actor->FindComponentsByClass<DSplineMeshComponent>();
 	ASSERT_EQ(Segments.size(), 32u);
-	DActorComponent* StableFirst = Segments.front();
+	FActorGeneratedComponentKey FirstKey;
+	ASSERT_TRUE(Actor->GetGeneratedComponentKey(Segments.front(), FirstKey));
 	std::vector<double> EditMilliseconds;
 	EditMilliseconds.reserve(300);
 	for (uint32 Iteration = 0; Iteration < 320; ++Iteration)
@@ -105,7 +106,8 @@ TEST(FSplineMeshActorQualificationTests, FrozenThirtyTwoSegmentEditsMeetCpuAndSt
 	std::ranges::sort(EditMilliseconds);
 	const double P95Milliseconds = EditMilliseconds[284];
 	Segments = Actor->FindComponentsByClass<DSplineMeshComponent>();
-	EXPECT_NE(std::ranges::find(Segments, StableFirst), Segments.end());
+	ASSERT_EQ(Segments.size(), 32u);
+	EXPECT_EQ(Actor->FindGeneratedComponent(FirstKey), Segments.front());
 	for (DActorComponent* SegmentObject : Segments)
 		EXPECT_EQ(Cast<DSplineMeshComponent>(SegmentObject)->GetStaticMesh(), Mesh);
 	RecordProperty("reconstruction_32_segments_p95_ms", P95Milliseconds);

@@ -247,7 +247,7 @@ TEST(FPrimitiveComponentCollisionEditingTests, LevelPackageAndDuplicatePreserveC
 		}
 	}
 	ASSERT_TRUE(SavePackage(Level->GetPackage()));
-	ASSERT_TRUE(UnloadPackage(Path));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(Path));
 	DLevel* Loaded = nullptr;
 	{
 		auto LoadedValue = LoadObjectDetailed<DLevel>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
@@ -283,7 +283,7 @@ TEST(FPrimitiveComponentCollisionEditingTests, LevelPackageAndDuplicatePreserveC
 	}
 	MarkObjectHierarchyAsGarbage(Copy);
 	CollectGarbage(Durin::EObjectFlags::Standalone);
-	EXPECT_TRUE(UnloadPackage(Path));
+	EXPECT_TRUE(Durin::Testing::EnsurePackageNotResident(Path));
 }
 
 TEST(FPhysicsPublicContractTests, FreezesCompleteNamesAndReflectionIdentities)
@@ -1659,7 +1659,7 @@ TEST(FPhysicsBodySetupTests, PrimitiveAggregatePackagesAndDuplicatesPreserveGeom
 			FSimpleCollisionElement Element; Element.Type = EBodySetupShapeType::Sphere; Element.Dimensions = FVector3(1);
 			Element.Transform.Translation = {4, 5, 6}; ASSERT_TRUE(Body->SetSimpleCollision({Element, Element}));
 		}
-		ASSERT_TRUE(SavePackage(Body->GetPackage())); ASSERT_TRUE(UnloadPackage(Path));
+		ASSERT_TRUE(SavePackage(Body->GetPackage())); ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(Path));
 		const auto Loaded = LoadObjectDetailed<DBodySetup>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
 		ASSERT_TRUE(Loaded) << (Loaded ? std::string{} : Loaded.error().Message);
 		const auto Copied = DuplicateObject(*Loaded, nullptr, "UnifiedSimpleDuplicate"); ASSERT_TRUE(Copied);
@@ -1669,7 +1669,7 @@ TEST(FPhysicsBodySetupTests, PrimitiveAggregatePackagesAndDuplicatesPreserveGeom
 			FCollisionGeometryRef Geometry; ASSERT_TRUE(Current->BuildSimpleGeometry(Geometry));
 			EXPECT_EQ(Geometry.GetChild(0)->LocalTransform.Translation, FVector3(4, 5, 6));
 		}
-		MarkObjectHierarchyAsGarbage(*Copied); CollectGarbage(Durin::EObjectFlags::Standalone); ASSERT_TRUE(UnloadPackage(Path));
+		MarkObjectHierarchyAsGarbage(*Copied); CollectGarbage(Durin::EObjectFlags::Standalone); ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(Path));
 	}
 }
 

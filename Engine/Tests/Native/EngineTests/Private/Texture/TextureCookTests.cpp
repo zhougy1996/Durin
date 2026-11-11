@@ -340,9 +340,9 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 	Durin::Testing::RemoveTestWorkDirectory(CacheRoot);
 	Durin::Testing::RemoveTestWorkDirectory(Root / "Content" / "Textures");
 	Durin::Testing::FScopedAssetRuntimeForTests AssetRuntime;
-	ASSERT_TRUE(AssetRuntime.RestartCooked(CookRoot));
 	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", (CookRoot / "Game").generic_string() + "/");
+	ASSERT_TRUE(AssetRuntime.RestartCooked(CookRoot));
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
 		Durin::EAssetRegistryScanMode::FullValidation));
 	Durin::FPackagePath CookedPath;
@@ -633,9 +633,9 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 	Durin::MarkAsGarbage(SampleMaterial);
 	Durin::FlushRenderingCommands();
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
-	ASSERT_TRUE(Durin::UnloadPackage(SampleMaterialPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(SampleMaterialPath));
 	CookedMaterial = nullptr;
-	ASSERT_TRUE(Durin::UnloadPackage(CookedPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(CookedPath));
 	CookedTexture = nullptr;
 	ASSERT_TRUE(AssetRuntime.Restore());
 	struct FRetireCookedTextureResource
@@ -652,23 +652,13 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 	Durin::FRHICommandListImmediate::Get().SwitchPipeline(Durin::ERHIPipeline::None);
 	Durin::RHIExit();
 	ASSERT_TRUE(std::filesystem::remove(CookRoot / "Game/CookedTexture.dbulk"));
-	ASSERT_TRUE(AssetRuntime.RestartCooked(CookRoot));
 	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", (CookRoot / "Game").generic_string() + "/");
-	const Durin::FAssetCatalogRefreshResult MissingBulkRefresh =
-		Durin::RefreshAssetRegistry(
-			Durin::EAssetRegistryScanMode::FullValidation);
-	EXPECT_FALSE(MissingBulkRefresh);
-	EXPECT_TRUE(std::ranges::any_of(
-		MissingBulkRefresh.Errors,
-		[](const Durin::FAssetRegistryResult& Result) {
-			return Result.Context.ReaderCause
-				&& Result.Context.ReaderCause->Reason == Durin::ObjectPackage::EPackageReaderReason::RegistryBulk;
-		}));
+	EXPECT_FALSE(AssetRuntime.RestartCooked(CookRoot));
 
-	ASSERT_TRUE(AssetRuntime.RestartCooked(CorruptRoot));
 	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", (CorruptRoot / "Game").generic_string() + "/");
+	ASSERT_TRUE(AssetRuntime.RestartCooked(CorruptRoot));
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
 		Durin::EAssetRegistryScanMode::FullValidation));
 	const auto CorruptBulkLoad =

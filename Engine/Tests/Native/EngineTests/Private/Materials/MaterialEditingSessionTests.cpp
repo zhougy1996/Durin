@@ -61,6 +61,7 @@ namespace
 
 TEST_F(FMaterialEditingSessionTests, TypedExpressionCopiesStayIndependentAcrossApplyDiscardAndCollection)
 {
+	TStrongObjectPtr<DMaterial> SourceOwner(Source);
 	TStrongObjectPtr<DMaterialExpressionScalarParameter> Parameter(
 		NewObject<DMaterialExpressionScalarParameter>(nullptr, "SessionParameter"));
 	Parameter->Id = FGuid::NewGuid();

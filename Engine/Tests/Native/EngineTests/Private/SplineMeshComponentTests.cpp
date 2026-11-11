@@ -1053,6 +1053,7 @@ TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
 	ASSERT_TRUE(FPackagePath::TryCreate("/SplineMeshActorTests/Reconciliation", Path));
 	DLevel* Level = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Level));
+	TStrongObjectPtr<DLevel> LevelOwner(Level);
 	auto* Actor = Level->SpawnActor<ASplineMeshActor>("SplineMeshActor");
 	ASSERT_NE(Actor, nullptr);
 	auto* InitialMesh = CreateAuthoredDebugTriangle(Level, "InitialStaticMesh");
@@ -1133,6 +1134,7 @@ TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
 	Level->GetPackage()->MarkDirty();
 	const FAssetWriteResult SaveResult = SavePackage(Level->GetPackage());
 	EXPECT_TRUE(SaveResult) << SaveResult.Message;
+	LevelOwner.Reset();
 	EXPECT_TRUE(UnloadPackage(Path));
 	DObject* LoadedObject = nullptr;
 	{
@@ -1146,7 +1148,7 @@ TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
 	ASSERT_NE(LoadedActor, nullptr);
 	EXPECT_EQ(LoadedActor->GetSplineComponent()->GetNumSplinePoints(), 3u);
 	EXPECT_EQ(LoadedActor->FindComponentsByClass<DSplineMeshComponent>().size(), 2u);
-	EXPECT_TRUE(UnloadPackage(Path));
+	EXPECT_TRUE(Durin::Testing::EnsurePackageNotResident(Path));
 }
 
 TEST(FSplineMeshActorTests, ClosedLoopReorderAndEmptyCurvesPreserveGuidOwnership)

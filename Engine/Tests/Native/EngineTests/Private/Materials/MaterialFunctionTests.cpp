@@ -681,8 +681,8 @@ TEST(FMaterialFunctionTests, BaseTypedCallsRoundTripAndSnapshotsDoNotRetainOwner
 	EXPECT_EQ(References[0].ExpectedClass, "Durin::DMaterialFunctionInterface");
 	EXPECT_EQ(References[0].TargetPath.ToString(), Callee->GetObjectPath());
 	Graph.Expressions.clear(); Call.Reset(); Get.Reset(); Set.Reset();
-	ASSERT_TRUE(UnloadPackage(CallerPath));
-	ASSERT_TRUE(UnloadPackage(CalleePath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(CallerPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(CalleePath));
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	Caller = nullptr;
 	{
@@ -708,8 +708,8 @@ TEST(FMaterialFunctionTests, BaseTypedCallsRoundTripAndSnapshotsDoNotRetainOwner
 	EXPECT_EQ(Caller->GetFunctionPresentation().Nodes.size(), 1u);
 	ASSERT_EQ(Caller->GetFunctionDependencies().size(), 1u);
 	EXPECT_EQ(Caller->GetFunctionDependencies()[0]->GetFunctionSignature().Outputs[0].Id, OutputId);
-	ASSERT_TRUE(UnloadPackage(CallerPath));
-	ASSERT_TRUE(UnloadPackage(CalleePath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(CallerPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(CalleePath));
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_EQ(CapturedCallOutputs.size(), 1u);
 	EXPECT_EQ(CapturedCallOutputs[0].OutputId, OutputId);
@@ -1164,8 +1164,8 @@ TEST(FMaterialFunctionTests, ImportProvenanceRoundtripsWithoutChangingGraphOrCom
 	EXPECT_EQ(Instance->GetImportProvenance(), InstanceReceipt);
 	ASSERT_TRUE(SavePackage(Parent->GetPackage()));
 	ASSERT_TRUE(SavePackage(Instance->GetPackage()));
-	ASSERT_TRUE(UnloadPackage(InstancePath));
-	ASSERT_TRUE(UnloadPackage(ParentPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(InstancePath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(ParentPath));
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	{
 		auto LoadedValue = LoadObjectDetailed<DMaterialInstance>(Testing::MakePackageLeafAssetObjectPathForTests(InstancePath));
@@ -1178,8 +1178,8 @@ TEST(FMaterialFunctionTests, ImportProvenanceRoundtripsWithoutChangingGraphOrCom
 	EXPECT_EQ(Instance->GetImportProvenance(), InstanceReceipt);
 	EXPECT_EQ(Parent->GetExpressionOutputs(), Outputs);
 	EXPECT_EQ(Parent->GetExpressionCollection().Expressions.size(), ExpressionCount);
-	ASSERT_TRUE(UnloadPackage(InstancePath));
-	ASSERT_TRUE(UnloadPackage(ParentPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(InstancePath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(ParentPath));
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
@@ -1231,8 +1231,8 @@ TEST(FMaterialFunctionTests, TypedFieldsRoundtripAndRejectInvalidCoordinateDefau
 	ASSERT_TRUE(SavePackage(Function->GetPackage()));
 	const auto SaveMaterial = SavePackage(Material->GetPackage());
 	ASSERT_TRUE(SaveMaterial) << SaveMaterial.Message;
-	ASSERT_TRUE(UnloadPackage(MaterialPath));
-	ASSERT_TRUE(UnloadPackage(FunctionPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(MaterialPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(FunctionPath));
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	{
 		auto LoadedValue = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
@@ -1263,8 +1263,8 @@ TEST(FMaterialFunctionTests, TypedFieldsRoundtripAndRejectInvalidCoordinateDefau
 	EXPECT_EQ(Rejected.Diagnostics.front().NodeId, Invalid->Id);
 	EXPECT_EQ(Rejected.Diagnostics.front().Message, "Disconnected UV input has an output selector.");
 	EXPECT_EQ(CaptureFields(*Material), Expected);
-	ASSERT_TRUE(UnloadPackage(MaterialPath));
-	ASSERT_TRUE(UnloadPackage(FunctionPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(MaterialPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(FunctionPath));
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
@@ -1301,8 +1301,8 @@ TEST(FMaterialFunctionTests, RejectsOldRootSchemaAndPreservesCurrentFunctionRefe
 		return Reference.ExpectedClass == "Durin::DMaterialFunctionInterface"
 			&& Reference.TargetPath.ToString() == Function->GetObjectPath();
 	}));
-	ASSERT_TRUE(UnloadPackage(MaterialPath));
-	ASSERT_TRUE(UnloadPackage(FunctionPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(MaterialPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(FunctionPath));
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	Material = nullptr;
 	{
@@ -1317,8 +1317,8 @@ TEST(FMaterialFunctionTests, RejectsOldRootSchemaAndPreservesCurrentFunctionRefe
 	ASSERT_TRUE(InputCapture);
 	auto& Input = InputCapture.Snapshot->Input;
 	EXPECT_TRUE(MIR::Normalize(Input));
-	ASSERT_TRUE(UnloadPackage(MaterialPath));
-	ASSERT_TRUE(UnloadPackage(FunctionPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(MaterialPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(FunctionPath));
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
@@ -1655,7 +1655,7 @@ TEST(FMaterialFunctionTests, RelocationRefreshesNestedCallersAndDeletionHonorsRe
 	MaterialRoot.Reset();
 	MarkAsGarbage(Material);
 	CollectGarbage(Durin::EObjectFlags::Standalone);
-	ASSERT_TRUE(UnloadPackage(WrapperPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(WrapperPath));
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 

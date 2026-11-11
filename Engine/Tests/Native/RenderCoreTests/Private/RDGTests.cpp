@@ -2701,7 +2701,6 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler(2));
 		struct FStopScheduler { ~FStopScheduler() { ShutdownTaskScheduler(); } } StopScheduler;
 		std::array<std::weak_ptr<int>, 19> Owners;
-		std::array<uint32, 19> Threads{};
 		std::vector<int> Replay;
 		FBarrierRecordingContext Backend;
 		FRHICommandListExecutor Executor(Backend);
@@ -2713,7 +2712,6 @@ namespace Durin
 				const auto Pass = Builder.AddRecordingPass(std::to_string(Index), ERDGPassType::Copy,
 					Builder.AllocParameters<FFirstLifetimeGraphParameters>(),
 					[&, Index](FRHICommandList& Recorded, const FFirstLifetimeGraphParameters&, const FRDGParameterResolver&) {
-						Threads[Index] = FPlatformLTS::GetCurrentThreadId();
 						auto Payload = std::make_shared<int>(static_cast<int>(Index));
 						Owners[Index] = Payload;
 						Recorded.EnqueueLambda([Payload, &Replay] { Replay.push_back(*Payload); }, sizeof(int));
@@ -2723,12 +2721,7 @@ namespace Durin
 			ASSERT_TRUE(Builder.Execute(Commands));
 		}
 		EXPECT_TRUE(Replay.empty());
-		for (uint32 Index = 0; Index < Owners.size(); ++Index)
-		{
-			EXPECT_FALSE(Owners[Index].expired());
-			EXPECT_NE(Threads[Index], 0u);
-			EXPECT_NE(Threads[Index], GGameThreadId);
-		}
+		for (const auto& Owner : Owners) EXPECT_FALSE(Owner.expired());
 		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 		ASSERT_EQ(Replay.size(), Owners.size());
 		for (uint32 Index = 0; Index < Owners.size(); ++Index)

@@ -82,9 +82,9 @@ TEST(FMaterialPackageTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
 	EXPECT_FALSE(Instance->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), Durin::FVector3(0.2)));
 	EXPECT_FALSE(Instance->GetPackage()->IsDirty());
 	EXPECT_EQ(Instance->GetRenderChangeCount(), SavedVersion);
-	ASSERT_TRUE(Durin::UnloadPackage(InstancePath));
-	ASSERT_TRUE(Durin::UnloadPackage(BasePath));
-	ASSERT_TRUE(Durin::UnloadPackage(TexturePath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(InstancePath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(BasePath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(TexturePath));
 
 	Durin::DMaterialInstance* Loaded = nullptr;
 	{
@@ -122,11 +122,11 @@ TEST(FMaterialPackageTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
 	ASSERT_NE(LoadedBase, nullptr);
 	LoadedBase->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.6, 0.4, 0.2));
 	ExpectColorNear(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Loaded)).BaseColor, Durin::FVector4f(0.6f, 0.4f, 0.2f, 1.0f));
-	ASSERT_TRUE(Durin::UnloadPackage(InstancePath));
-	ASSERT_TRUE(Durin::UnloadPackage(
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(InstancePath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(
 		BasePath,
 		Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
-	ASSERT_TRUE(Durin::UnloadPackage(TexturePath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(TexturePath));
 }
 
 TEST(FMaterialPackageTests, TypedExpressionsRoundTripDuplicateAndRejectMalformedSaves)
@@ -277,8 +277,8 @@ TEST(FMaterialPackageTests, MissingInstanceCustomVersionRejectsInstanceWithoutCh
 	ASSERT_TRUE(Instance->SetParent(Base));
 	ASSERT_TRUE(Instance->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), 0.25f));
 	ASSERT_TRUE(Durin::SavePackage(Instance->GetPackage()));
-	ASSERT_TRUE(Durin::UnloadPackage(InstancePath));
-	ASSERT_TRUE(Durin::UnloadPackage(BasePath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(InstancePath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(BasePath));
 
 	Durin::FByteBuffer BaseBytes;
 	auto BaseBytesRead = Durin::FFileHelper::LoadFileToArray((Root / "Base.dasset"));
@@ -312,7 +312,7 @@ TEST(FMaterialPackageTests, MissingInstanceCustomVersionRejectsInstanceWithoutCh
 	LoadedBase = BaseLoad.value_or(nullptr);
 	EXPECT_TRUE(BaseLoad) << (BaseLoad ? std::string{} : BaseLoad.error().Message);
 	EXPECT_NE(LoadedBase, nullptr);
-	ASSERT_TRUE(Durin::UnloadPackage(BasePath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(BasePath));
 	Durin::FByteBuffer After;
 	auto AfterRead = Durin::FFileHelper::LoadFileToArray(Root / "Base.dasset");
 	ASSERT_TRUE(AfterRead) << AfterRead.error().ToString();
@@ -414,8 +414,8 @@ TEST(FMaterialPackageTests, AuthoredGraphVersionsLoadAfterRestartAndFunctionsDup
 	ASSERT_GT(ExpectedExpressionCount, 0u);
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 	ASSERT_TRUE(SavePackage(Function->GetPackage()));
-	ASSERT_TRUE(UnloadPackage(MaterialPath));
-	ASSERT_TRUE(UnloadPackage(FunctionPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(MaterialPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(FunctionPath));
 	Material = nullptr;
 	Function = nullptr;
 	ShutdownAssetRuntime();
@@ -458,7 +458,7 @@ TEST(FMaterialPackageTests, AuthoredGraphVersionsLoadAfterRestartAndFunctionsDup
 				[](const auto& Expression) {
 					return Cast<DMaterialExpressionPow>(Expression.Get()) != nullptr;
 				}));
-		ASSERT_TRUE(UnloadPackage(Path));
+		ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(Path));
 	}
 	ShutdownAssetRuntime();
 	CollectGarbage(Durin::EObjectFlags::Standalone);

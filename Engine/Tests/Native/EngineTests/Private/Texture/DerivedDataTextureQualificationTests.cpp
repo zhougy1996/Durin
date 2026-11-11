@@ -159,7 +159,6 @@ namespace
 			Provider->OnRecipeCompleted = {};
 			auto Retried = TexturePrivate::Build(Definition, std::move(Resolver));
 			ASSERT_EQ(Retried.Status, DerivedData::EStatus::Ok);
-			EXPECT_EQ(Retried.Status, DerivedData::EStatus::Ok);
 			EXPECT_TRUE(Retried.Output.IsValid());
 			EXPECT_EQ(Provider->BuildCalls, 2u);
 		}
@@ -261,13 +260,13 @@ TEST_F(FDerivedDataTextureQualificationTests, CancellationDiscardsCompletedRecip
 	EXPECT_EQ(Provider->BuildCalls, 1u);
 	EXPECT_FALSE(Provider->ReturnedBlocks.empty());
 
-	// Canceled products must not be applied or persisted as a cache hit.
+	// The caller discards its result. A completed DDC store remains reusable.
 	Provider->OnRecipeCompleted = {};
 	bCancelled.store(false);
 	const auto Rebuilt = BuildTexture2DPlatformData(*Request, &Control);
 	ASSERT_TRUE(Rebuilt);
 	EXPECT_TRUE(Rebuilt->IsValid());
-	EXPECT_EQ(Provider->BuildCalls, 2u);
+	EXPECT_EQ(Provider->BuildCalls, 1u);
 }
 
 TEST_F(FDerivedDataTextureQualificationTests, CubeCancellationDiscardsCompletedRecipeProduct)

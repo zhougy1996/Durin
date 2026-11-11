@@ -107,8 +107,8 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 	ASSERT_TRUE(Actor->SetActorTransform(Transform));
 	ASSERT_TRUE(Durin::SavePackage(Level->GetPackage()));
 	Transactions->Reset();
-	ASSERT_TRUE(Durin::UnloadPackage(LevelPath));
-	ASSERT_TRUE(Durin::UnloadPackage(CubePath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(LevelPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(CubePath));
 
 	Durin::DLevel* LoadedLevel = nullptr;
 	{
@@ -151,10 +151,10 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	Engine.ResetTestScene();
 	Durin::GEngine = nullptr;
-	ASSERT_TRUE(Durin::UnloadPackage(
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(
 		LevelPath,
 		Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
-	ASSERT_TRUE(Durin::UnloadPackage(CubePath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(CubePath));
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(LevelPath));
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(CubePath));
 	Durin::ShutdownRenderingThread();
@@ -207,8 +207,8 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 	EXPECT_EQ(Actor->GetSkyBoxComponent()->GetTextureCube(), CubeResult.Asset);
 	ASSERT_TRUE(Durin::SavePackage(Level->GetPackage()));
 	Transactions->Reset();
-	ASSERT_TRUE(Durin::UnloadPackage(LevelPath));
-	ASSERT_TRUE(Durin::UnloadPackage(CubePath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(LevelPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(CubePath));
 
 	Durin::DLevel* LoadedLevel = nullptr;
 	{
@@ -246,8 +246,8 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	Engine.ResetTestScene();
 	Durin::GEngine = nullptr;
-	ASSERT_TRUE(Durin::UnloadPackage(LevelPath));
-	ASSERT_TRUE(Durin::UnloadPackage(CubePath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(LevelPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(CubePath));
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(LevelPath));
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(CubePath));
 	Durin::ShutdownRenderingThread();

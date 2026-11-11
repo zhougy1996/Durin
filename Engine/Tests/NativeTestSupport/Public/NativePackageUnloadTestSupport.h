@@ -34,3 +34,16 @@ namespace Durin
 		return UnloadPackage(Package, Policy);
 	}
 }
+
+namespace Durin::Testing
+{
+	// A prior cleanup's global GC can already have collected other clean fixtures.
+	// Still use checked unloading for live packages, so owners/unsaved edits fail.
+	inline auto EnsurePackageNotResident(const FPackagePath& Path,
+		EAssetPackageUnloadPolicy Policy = EAssetPackageUnloadPolicy::RejectUnsaved) -> FAssetReadResult
+	{
+		auto Result = UnloadPackage(Path, Policy);
+		if (Path.IsValid() && Result.Error == EAssetReadError::NotFound) return {};
+		return Result;
+	}
+}

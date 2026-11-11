@@ -1,3 +1,4 @@
+#include "QualificationViewPreparation.h"
 #include "CoreMinimal.h"
 #include <gtest/gtest.h>
 #include "GeometrySubmissionTestSupport.h"
@@ -168,8 +169,10 @@ TEST(FMaterialCollectionRenderQualificationTests, RecordsStableWorldRenderViewBa
 					std::vector<int64> Samples;
 					for (int32 Sample = -30; Sample < 120; ++Sample)
 					{
+						if (Sample == -30) ASSERT_TRUE(Durin::Tests::PrepareQualificationView(Renderer, Commands, {RedWorld.Get(), View, Target, false, {}}));
 						++GRenderFrameCounterRenderThread;
 						GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
+						Renderer.BeginFrame_RenderThread(Commands);
 						const auto Begin = std::chrono::steady_clock::now();
 						const auto Result = Renderer.RenderView(Commands, {RedWorld.Get(), View, Target, false, {}});
 						const auto Ns = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - Begin).count();

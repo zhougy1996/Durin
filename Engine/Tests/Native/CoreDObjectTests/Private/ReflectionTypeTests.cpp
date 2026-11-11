@@ -3641,7 +3641,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	}
 
-	TEST(FCoreDObjectReflectionTests, PackageRetainsAllTopLevelAssetsAndBuildsStructuralObjectPaths)
+	TEST(FCoreDObjectReflectionTests, PackageIndexesTopLevelAssetsWithoutRetainingThem)
 	{
 		Durin::Testing::InitializeDObjectSystemForTests();
 		EnsurePackageTestMount();
@@ -3665,19 +3665,13 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Secondary->Rename("Package");
 		EXPECT_EQ(Secondary->GetFName(), Durin::FName("Secondary"));
 		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
-		EXPECT_TRUE(ObjectArrayContains(Package));
-		EXPECT_TRUE(ObjectArrayContains(Asset));
-		EXPECT_TRUE(ObjectArrayContains(Secondary));
-		EXPECT_FALSE(ObjectArrayContains(Inner));
-		Durin::MarkAsGarbage(Secondary);
-		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
-		EXPECT_EQ(Package->FindTopLevelAsset("Secondary"), nullptr);
+		EXPECT_TRUE(Package->GetTopLevelAssets().empty());
 
 		Durin::RemoveFromRoot(Package);
 		Durin::MarkObjectHierarchyAsGarbage(Package);
 	}
 
-	TEST(FCoreDObjectReflectionTests, CreatePackageRegistersWithoutPinAndRetainsOnlyUnsavedState)
+	TEST(FCoreDObjectReflectionTests, NewlyCreatedPackageRegistrationDoesNotRetainIt)
 	{
 		Durin::Testing::InitializeDObjectSystemForTests();
 		EnsurePackageTestMount();
@@ -3698,11 +3692,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(Durin::CreatePackage({}), nullptr);
 		Package->MarkAsNewlyCreated();
 		EXPECT_TRUE(Package->IsNewlyCreated());
-		Durin::CollectGarbage(Durin::EObjectFlags::NoFlags);
-		EXPECT_EQ(Durin::FindPackage(Path.GetView()), Package);
 		Durin::TWeakObjectPtr<Durin::DPackage> WeakPackage(Package);
-		Package->MarkAsPublished();
-		EXPECT_FALSE(Package->IsNewlyCreated());
 		Durin::CollectGarbage(Durin::EObjectFlags::NoFlags);
 		EXPECT_FALSE(WeakPackage.IsValid());
 		EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);

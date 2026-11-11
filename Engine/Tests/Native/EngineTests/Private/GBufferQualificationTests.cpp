@@ -1,3 +1,4 @@
+#include "QualificationViewPreparation.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "Materials/StandardMaterialFunctionTestFixture.h"
 #include "CoreGlobals.h"
@@ -669,8 +670,10 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 				View.Settings.Mode.bEnableSpecularAA = bEnableSpecularAA;
 				Durin::FScopedRendererQualificationPolicy Qualification({
 					.bEnableGBuffer = true});
+				ASSERT_TRUE(Durin::Tests::PrepareQualificationView(Renderer, CommandList, {&SpecularAAScene, View, Target, false, {}}));
 				++Durin::GRenderFrameCounterRenderThread;
 				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+				Renderer.BeginFrame_RenderThread(CommandList);
 				EXPECT_EQ(
 					Renderer.RenderView(CommandList, {&SpecularAAScene, View, Target, false, {}}),
 					Durin::ERenderViewResult::Success);
@@ -759,8 +762,10 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 						Durin::EViewVisibilityMode::FrustumCullingDisabled;
 					View.Settings.Mode.bEnableSpecularAA = bEnableSpecularAA;
 					View.Settings.PostProcess.bEnableFXAA = bEnableFXAA;
+					ASSERT_TRUE(Durin::Tests::PrepareQualificationView(Renderer, CommandList, {&SpecularAAScene, View, Target, false, Durin::FSceneViewRenderOptions{}}));
 					++Durin::GRenderFrameCounterRenderThread;
 					Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+					Renderer.BeginFrame_RenderThread(CommandList);
 					EXPECT_EQ(
 						Renderer.RenderView(CommandList, {&SpecularAAScene, View, Target, false, Durin::FSceneViewRenderOptions{}}),
 						Durin::ERenderViewResult::Success);
@@ -900,8 +905,10 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 			for (uint32 Frame = 0;
 				 Frame < WarmupFrames + MeasuredFrames; ++Frame)
 			{
+				if (Frame == 0) ASSERT_TRUE(Durin::Tests::PrepareQualificationView(Renderer, CommandList, {&Scene, View, Target, false, {}}));
 				++Durin::GRenderFrameCounterRenderThread;
 				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+				Renderer.BeginFrame_RenderThread(CommandList);
 				EXPECT_EQ(Renderer.RenderView(CommandList, {&Scene, View, Target, false, {}}), Durin::ERenderViewResult::Success);
 				Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 			}
@@ -1058,8 +1065,10 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 			for (uint32 Frame = 0;
 				 Frame < WarmupFrames + MeasuredFrames; ++Frame)
 			{
+				if (Frame == 0) ASSERT_TRUE(Durin::Tests::PrepareQualificationView(Renderer, CommandList, {&Scene, View, Target, false, {}}));
 				++Durin::GRenderFrameCounterRenderThread;
 				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+				Renderer.BeginFrame_RenderThread(CommandList);
 				EXPECT_EQ(Renderer.RenderView(CommandList, {&Scene, View, Target, false, {}}), Durin::ERenderViewResult::Success);
 				Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 			}
@@ -1221,8 +1230,10 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 					Durin::EGroundTruthAmbientOcclusionQuality::FullResolution;
 				Durin::FScopedRendererQualificationPolicy Qualification({
 					.bEnableGroundTruthAmbientOcclusion = true});
+				ASSERT_TRUE(Durin::Tests::PrepareQualificationView(Renderer, CommandList, {&Scene, View, Target, false, {}}));
 				++Durin::GRenderFrameCounterRenderThread;
 				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+				Renderer.BeginFrame_RenderThread(CommandList);
 				EXPECT_EQ(Renderer.RenderView(CommandList, {&Scene, View, Target, false, {}}), Durin::ERenderViewResult::Success);
 				Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 			}
@@ -1424,8 +1435,10 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 					Durin::FSceneViewRenderOptions RenderOptions;
 					RenderOptions.bEnableAsyncCompute =
 						bEnableProductionAsyncCompute;
+					if (Frame == 0) ASSERT_TRUE(Durin::Tests::PrepareQualificationView(Renderer, CommandList, {&Scene, View, Target, false, RenderOptions}));
 					++Durin::GRenderFrameCounterRenderThread;
 					Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+					Renderer.BeginFrame_RenderThread(CommandList);
 					EXPECT_EQ(Renderer.RenderView(CommandList, {&Scene, View, Target, false, RenderOptions}), Durin::ERenderViewResult::Success);
 					Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 				}
@@ -2003,8 +2016,10 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 			Durin::FSceneViewRenderOptions Options;
 			for (uint32 Frame = 0; Frame < 2; ++Frame)
 			{
+				if (Frame == 0) ASSERT_TRUE(Durin::Tests::PrepareQualificationView(Renderer, CommandList, {&Scene, View, Target, false, Options}));
 				++Durin::GRenderFrameCounterRenderThread;
 				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+				Renderer.BeginFrame_RenderThread(CommandList);
 				EXPECT_EQ(Renderer.RenderView(CommandList, {&Scene, View, Target, false, Options}), Durin::ERenderViewResult::Success);
 				Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 			}
@@ -2042,8 +2057,10 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 				Durin::EViewVisibilityMode::FrustumCullingDisabled;
 			View.Settings.AmbientOcclusion.bEnabled = false;
 			Durin::FSceneViewRenderOptions Options;
+			ASSERT_TRUE(Durin::Tests::PrepareQualificationView(Renderer, CommandList, {&Scene, View, Target, false, Options}));
 			++Durin::GRenderFrameCounterRenderThread;
 			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+			Renderer.BeginFrame_RenderThread(CommandList);
 			EXPECT_EQ(Renderer.RenderView(CommandList, {&Scene, View, Target, false, Options}), Durin::ERenderViewResult::Success);
 			Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 			EXPECT_EQ(
@@ -2062,8 +2079,10 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 				 })
 			{
 				Options.GroundTruthAmbientOcclusionDebugMode = Mode;
+				ASSERT_TRUE(Durin::Tests::PrepareQualificationView(Renderer, CommandList, {&Scene, View, Target, false, Options}));
 				++Durin::GRenderFrameCounterRenderThread;
 				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+				Renderer.BeginFrame_RenderThread(CommandList);
 				EXPECT_EQ(Renderer.RenderView(CommandList, {&Scene, View, Target, false, Options}), Durin::ERenderViewResult::Success);
 				Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 			}
@@ -2106,8 +2125,10 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 			View.Settings.Mode.VisibilityMode =
 				Durin::EViewVisibilityMode::FrustumCullingDisabled;
 			Durin::FSceneViewRenderOptions Options;
+			ASSERT_TRUE(Durin::Tests::PrepareQualificationView(Renderer, CommandList, {&Scene, View, Target, false, Options}));
 			++Durin::GRenderFrameCounterRenderThread;
 			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+			Renderer.BeginFrame_RenderThread(CommandList);
 			EXPECT_EQ(Renderer.RenderView(CommandList, {&Scene, View, Target, false, Options}), Durin::ERenderViewResult::Success);
 			Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 		}
@@ -2161,8 +2182,10 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 					? &IndirectGBufferPixels : &DirectGBufferPixels;
 				Durin::FSceneViewRenderOptions Options;
 				Options.bEnableGPUCulling = bEnableGPUCulling;
+				ASSERT_TRUE(Durin::Tests::PrepareQualificationView(Renderer, CommandList, {&GPUCullingScene, View, Target, false, Options}));
 				++Durin::GRenderFrameCounterRenderThread;
 				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+				Renderer.BeginFrame_RenderThread(CommandList);
 				EXPECT_EQ(Renderer.RenderView(CommandList, {&GPUCullingScene, View, Target, false, Options}),
 					Durin::ERenderViewResult::Success);
 				Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);

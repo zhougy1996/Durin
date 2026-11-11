@@ -1,3 +1,4 @@
+#include "QualificationViewPreparation.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "Materials/MaterialShaderMap.h"
 #include "Materials/ExplicitMaterialProgramTestFixture.h"
@@ -196,8 +197,6 @@ namespace Durin
 				const auto ProducerStart = VulkanCreationTimestamp();
 				EnqueueRenderCommand<FMaterialMeasurementCommand>([&](FRHICommandListImmediate& Cmd) {
 					RenderTimes[0] = VulkanCreationTimestamp();
-					++GRenderFrameCounterRenderThread;
-					GDynamicRHI->RHIBeginFrame_RenderThread(Cmd);
 					FSceneView View;
 					View.ViewMatrix = FMatrix(1);
 					View.ProjectionMatrix = FMatrix(1);
@@ -206,6 +205,10 @@ namespace Durin
 					View.ViewportWidth = CaptureSize; View.ViewportHeight = CaptureSize;
 					View.Settings.Mode.RenderMode = ERenderMode::Unlit;
 					View.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
+					if (Frame == 0) ASSERT_TRUE(Durin::Tests::PrepareQualificationView(Life.Renderer, Cmd, {Life.Scene->Get(), View, Life.Target, false, {}}));
+					++GRenderFrameCounterRenderThread;
+					GDynamicRHI->RHIBeginFrame_RenderThread(Cmd);
+					Life.Renderer.BeginFrame_RenderThread(Cmd);
 					EXPECT_EQ(Life.Renderer.RenderView(Cmd, {Life.Scene->Get(), View, Life.Target, false, {}}), ERenderViewResult::Success);
 					GDynamicRHI->RHIEndFrame_RenderThread(Cmd);
 					RenderTimes[1] = VulkanCreationTimestamp();

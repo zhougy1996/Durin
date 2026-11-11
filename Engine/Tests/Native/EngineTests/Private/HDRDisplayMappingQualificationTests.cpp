@@ -1,3 +1,5 @@
+#include "QualificationViewPreparation.h"
+#include "Rendering/SceneInterface.h"
 #include <gtest/gtest.h>
 #include "VulkanEngineTestSupport.h"
 
@@ -9,6 +11,7 @@
 #include "RHI.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
+#include "Threading/TaskRuntime.h"
 #include "RendererModule.h"
 #include "Renderers/PostProcessRenderer.h"
 #include "Renderers/SceneRendererProfiling.h"
@@ -55,6 +58,13 @@ namespace Durin
 			GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 			GIsGameThreadIdInitialized = true;
 		}
+		const bool OwnScheduler = !IsTaskSchedulerRunning();
+		if (OwnScheduler) ASSERT_TRUE(InitializeTaskScheduler(2));
+		struct FScopedScheduler
+		{
+			bool Owned;
+			~FScopedScheduler() { if (Owned) ShutdownTaskScheduler(); }
+		} Scheduler{OwnScheduler};
 		ASSERT_EQ(GDynamicRHI, nullptr);
 		FModuleManager::Get().LoadModule("RenderCore");
 		RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
@@ -76,12 +86,14 @@ namespace Durin
 		FModuleTestHarness RendererLifecycle("HDRDisplayMappingQualification");
 		RendererLifecycle.Start(Renderer);
 
-		auto ProfileRoute = [&Renderer](const char* TargetName, bool bEnableFXAA) {
+		auto Scene = Renderer.CreateScene();
+		ASSERT_TRUE(Scene);
+		auto ProfileRoute = [&Renderer, &Scene](const char* TargetName, bool bEnableFXAA) {
 			std::vector<FGPUTimingQueryRHIRef> Queries;
 			GDisplayTimingQueries = &Queries;
 			SetPostProcessTimingQuerySink(CaptureDisplayTiming);
 			EnqueueRenderCommand<FProfileHDRDisplayMapping>(
-				[&Renderer, TargetName, bEnableFXAA](
+				[&Renderer, &Scene, TargetName, bEnableFXAA](
 					FRHICommandListImmediate& CommandList) {
 					const auto Desc = FRHITextureCreateDesc::Create2D(
 						TargetName,
@@ -98,14 +110,17 @@ namespace Durin
 					View.ViewportHeight = TimingHeight;
 					View.ClearColor = {4.0f, 2.0f, 0.5f, 0.5f};
 					View.Settings.PostProcess.bEnableFXAA = bEnableFXAA;
+					const FSceneViewRenderRequest Request{Scene.get(), View, Target, false, {}};
+					ASSERT_TRUE(Tests::PrepareQualificationView(Renderer, CommandList, Request));
 					for (uint32 Frame = 0;
 						Frame < WarmupFrames + MeasuredFrames;
 						++Frame)
 					{
 						++GRenderFrameCounterRenderThread;
 						GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+						Renderer.BeginFrame_RenderThread(CommandList);
 						EXPECT_EQ(
-							Renderer.RenderView(CommandList, {nullptr, View, Target, false, {}}),
+							Renderer.RenderView(CommandList, Request),
 							ERenderViewResult::Success);
 						GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 					}
@@ -193,6 +208,9 @@ namespace Durin
 			EXPECT_LE(FXAAP95Increment, 90'000u);
 		}
 
+		Scene->Release();
+		Scene.reset();
+		FlushRenderingCommands();
 		RendererLifecycle.Shutdown();
 		ShutdownRenderingThread();
 		FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);

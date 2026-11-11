@@ -1,3 +1,4 @@
+#include "QualificationViewPreparation.h"
 #include <gtest/gtest.h>
 #include "VulkanEngineTestSupport.h"
 
@@ -8,6 +9,7 @@
 #include "RHI.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
+#include "Threading/TaskRuntime.h"
 #include "Renderers/VolumetricCloudRenderer.h"
 #include "RendererFeatureTargetTestFixture.h"
 #include "Renderers/VolumetricCloudShadowRenderer.h"
@@ -255,6 +257,24 @@ namespace Durin
 			const size_t P95Index = MeasuredCount == 0 ? 0 : std::min<size_t>(MeasuredCount - 1, (static_cast<size_t>(MeasuredCount) * 95 + 99) / 100 - 1);
 			return Durations.size() == MeasuredCount ? FTimingSummary{Durations[MeasuredCount / 2], Durations[P95Index]} : FTimingSummary{};
 		}
+		auto PrepareCloudResources(FRHICommandListImmediate& Commands, FVolumetricCloudRenderer& Clouds,
+			const FVolumetricCloudRenderer::FRenderInput& Input, FVolumetricCloudShadowRenderer* Shadows = nullptr) -> bool
+		{
+			return Tests::WaitForQualificationResources(Commands, [&] {
+				bool Ready = Clouds.PrepareRoute_RenderThread(Commands, Input, true, false).Route == FVolumetricCloudRenderer::ERoute::Fragment;
+				Ready &= Clouds.PrepareRoute_RenderThread(Commands, Input, true, true).Route == FVolumetricCloudRenderer::ERoute::Compute;
+				Ready &= Clouds.EnsureTemporalResources_RenderThread(Commands);
+				Ready &= Clouds.EnsureCompositeResources_RenderThread(Commands);
+				if (Shadows)
+				{
+					const FVolumetricCloudShadowRenderer::FRenderInput Shadow{
+						.bRequested = true, .View = Input.View, .QualityTier = Input.QualityTier,
+						.Width = Input.View->ViewportWidth, .Height = Input.View->ViewportHeight};
+					Ready &= Shadows->PrepareRoute_RenderThread(Commands, Shadow, true, true).Route == FVolumetricCloudShadowRenderer::ERoute::Compute;
+				}
+				return Ready ? ERenderResourcePreparationState::Ready : ERenderResourcePreparationState::Pending;
+			});
+		}
 	} // namespace
 
 	TEST(FVolumetricCloudQualificationTests, ProfilesFrozenExtentAndRouteMatrix)
@@ -264,6 +284,13 @@ namespace Durin
 			GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 			GIsGameThreadIdInitialized = true;
 		}
+		const bool OwnScheduler = !IsTaskSchedulerRunning();
+		if (OwnScheduler) ASSERT_TRUE(InitializeTaskScheduler(2));
+		struct FScopedScheduler
+		{
+			bool Owned;
+			~FScopedScheduler() { if (Owned) ShutdownTaskScheduler(); }
+		} Scheduler{OwnScheduler};
 		ASSERT_EQ(GDynamicRHI, nullptr);
 		FModuleManager::Get().LoadModule("RenderCore");
 		RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
@@ -291,12 +318,15 @@ namespace Durin
 		auto Profiles = std::make_shared<std::array<FExtentProfile, Extents.size()>>();
 		auto TierProfiles =
 			std::make_shared<std::array<FTierProfile, QualityTiers.size()>>();
+		for (size_t Index = 0; Index < QualityTiers.size(); ++Index)
+			(*TierProfiles)[Index].Tier = QualityTiers[Index];
 
 		EnqueueRenderCommand<FProfileVolumetricCloud>(
 			[&Clouds, &Coordinator, &FullscreenGeometry,
 				Profiles, TierProfiles](
 				FRHICommandListImmediate& CommandList
 			) {
+				Coordinator.Apply_RenderThread(ERendererResourceInvalidationCause::ManualRetry, {});
 				auto MakeVolume = [&CommandList](const char* Name, uint32 Size, uint8 Seed) {
 					const Durin::FByteBuffer Bytes =
 						MakeDeterministicBytes(Size, Size, Size, Seed);
@@ -408,6 +438,8 @@ namespace Durin
 						.Width = Extent.Width,
 						.Height = Extent.Height
 					};
+
+					ASSERT_TRUE(PrepareCloudResources(CommandList, Clouds, Input));
 
 					auto RunRoute = [&](FRouteProfile& Route,
 										FVolumetricCloudRenderer::FComputeTargets* SelectedCompute) {
@@ -617,7 +649,6 @@ namespace Durin
 					 ++TierIndex)
 				{
 					FTierProfile& Profile = (*TierProfiles)[TierIndex];
-					Profile.Tier = QualityTiers[TierIndex];
 					const auto Policy =
 						FVolumetricCloudSpatialRenderer::ResolveQualityPolicy(Profile.Tier);
 					const auto CloudExtent =
@@ -652,6 +683,12 @@ namespace Durin
 									 )
 										 .SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource)
 					);
+					const FSceneView PreparationView = BuildQualificationView(0);
+					const FVolumetricCloudRenderer::FRenderInput PreparationInput{
+						.bRequested = true, .View = &PreparationView, .QualityTier = Profile.Tier,
+						.Width = CloudExtent.Width, .Height = CloudExtent.Height,
+						.OutputWidth = OutputWidth, .OutputHeight = OutputHeight};
+					ASSERT_TRUE(PrepareCloudResources(CommandList, TierClouds, PreparationInput, &TierShadows));
 					FSamplerRHIRef TierSampler = TierClouds.EnsureDensitySampler_RenderThread();
 					Profile.bComplete = QualificationDepth && ShadowDepth
 										&& FragmentTargets && ComputeTargets && CompositeTargets

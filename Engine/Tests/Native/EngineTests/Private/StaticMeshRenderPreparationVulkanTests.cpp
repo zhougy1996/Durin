@@ -3948,7 +3948,8 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 	struct FSceneCleanup {
 		DWorld* High; DWorld* Low; FScenePtr& HighScene; FScenePtr& LowScene; DStaticMesh* Mesh;
 		~FSceneCleanup() {
-			High->Shutdown(); Low->Shutdown(); High->SetRenderScene(nullptr); Low->SetRenderScene(nullptr);
+			High->CleanupWorld();
+			Low->CleanupWorld();
 			HighScene->Release(); LowScene->Release(); HighScene.reset(); LowScene.reset(); FlushRenderingCommands();
 			auto* Data = FStaticMeshTestAccess::GetMutableRenderData(Mesh);
 			if (Data) EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([Data](FRHICommandListImmediate&) { Data->ReleaseResources(); });

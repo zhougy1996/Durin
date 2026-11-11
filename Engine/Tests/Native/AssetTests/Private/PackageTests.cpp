@@ -67,22 +67,6 @@
 #include "Threading/TaskRuntime.h"
 #include "DObject/PackageValueCodec.h"
 
-namespace Durin::Testing
-{
-	// A prior cleanup's global GC can already have collected other clean fixtures.
-	// Still use checked unloading for live packages, so owners/unsaved edits fail.
-	static auto EnsurePackageNotResident(const FPackagePath& Path,
-		EAssetPackageUnloadPolicy Policy = EAssetPackageUnloadPolicy::RejectUnsaved) -> FAssetReadResult
-	{
-		return FindResidentPackage(Path) ? UnloadPackage(Path, Policy) : FAssetReadResult{};
-	}
-	static auto EnsurePackageNotResident(DPackage* Package,
-		EAssetPackageUnloadPolicy Policy = EAssetPackageUnloadPolicy::RejectUnsaved) -> FAssetReadResult
-	{
-		return UnloadPackage(Package, Policy);
-	}
-}
-
 namespace AssetStructTest
 {
 	inline uint64 CodecSerializeLoadCount = 0;
@@ -8337,7 +8321,7 @@ TEST(FPackageAssetTests, CoreRegisteredPackageIsResidentWithoutAssetLayerAdoptio
 	ASSERT_NE(Package, nullptr);
 	EXPECT_EQ(Durin::FindResidentPackage(Path), Package);
 	EXPECT_FALSE(Package->IsNewlyCreated());
-	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(
+	ASSERT_TRUE(Durin::UnloadPackage(
 		Package, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
 }
@@ -10284,7 +10268,7 @@ TEST(FPackageAssetTests, PackageSavesRejectReadOnlyContentMounts)
 	EXPECT_EQ(Saved.Error, Durin::EAssetWriteError::ReadOnlyMode);
 	EXPECT_EQ(Saved.Message, "Content mount /ReadOnly/ is read-only.");
 	EXPECT_FALSE(std::filesystem::exists(Root / "Blocked.dasset"));
-	EXPECT_TRUE(Durin::Testing::EnsurePackageNotResident(
+	EXPECT_TRUE(Durin::UnloadPackage(
 		Package,
 		Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
@@ -10646,7 +10630,7 @@ TEST(FPackageAssetTests, BatchRegistryFailureKeepsEarlierSuccessAndCurrentConten
 	EXPECT_EQ(Durin::GetAssetCatalogRevision(), RevisionBeforeCommit + 1);
 	EXPECT_TRUE(Durin::FindPackageExact(ExistingPath));
 	EXPECT_TRUE(Durin::FindPackageExact(NewPath));
-	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(Added->GetPackage(), Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
+	ASSERT_TRUE(Durin::UnloadPackage(Added->GetPackage(), Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
 TEST(FPackageAssetTests, OrdinaryV8SavesAreDeterministic)

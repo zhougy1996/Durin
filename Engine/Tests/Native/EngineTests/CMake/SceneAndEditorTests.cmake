@@ -276,7 +276,7 @@ durin_add_native_test(DirectionalShadowBaselineVulkanTests
 	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for the hardware-backed baseline captures."
 	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/DirectionalShadowBaselineVulkanTests.cpp
-	LIBRARIES Core CoreDObject Engine AssetForgeBuiltins ApplicationCore RenderCore Renderer
+	LIBRARIES Core CoreDObject Engine AssetForgeBuiltins ApplicationCore RenderCore Renderer ShaderBuild
 	DATA_DIRECTORIES
 		${CMAKE_CURRENT_SOURCE_DIR}/Data/DirectionalShadowQ0
 		${CMAKE_CURRENT_SOURCE_DIR}/Data/DirectionalShadowQ1
@@ -285,7 +285,6 @@ durin_add_native_test(DirectionalShadowBaselineVulkanTests
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
-	ENVIRONMENTS authored-shaders
 	RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
 	HEAVY_RUNTIME_RATIONALE
 		"Captures the frozen Q0 directional-shadow Lit baseline through the production Vulkan renderer."

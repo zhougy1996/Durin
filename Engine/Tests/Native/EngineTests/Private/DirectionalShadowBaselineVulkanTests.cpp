@@ -1,3 +1,4 @@
+#include "QualificationViewPreparation.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "Materials/StandardMaterialFunctionTestFixture.h"
 #include "CoreGlobals.h"
@@ -84,6 +85,7 @@ namespace
 		{
 			Durin::Tests::GeometryDepthCaptureOutputs = {};
 			Durin::ShutdownAssetCompilingManager();
+			Durin::FModuleManager::Get().ShutdownModule("ShaderBuild");
 		}
 	};
 
@@ -123,6 +125,38 @@ namespace
 			return "ShadowBaselineCapture";
 		}
 	};
+
+	template<typename TCapture>
+	void CaptureReadyShadowFrame(Durin::FRendererModule& Renderer, TCapture Capture)
+	{
+		using namespace Durin;
+		const auto Preparation = FRenderResourcePreparation::Create();
+		ERenderViewResult Result = ERenderViewResult::RendererResourcesPending;
+		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+		do
+		{
+			FAssetCompilingManager::Get().ProcessAsyncTasks();
+			EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate& Commands) {
+				++GRenderFrameCounterRenderThread;
+				GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
+				Renderer.BeginFrame_RenderThread(Commands);
+				Capture(Commands, [&](const FSceneViewRenderRequest& Request) {
+					const auto State = Renderer.PrepareViewResources(Commands, Request, Preparation).State;
+					if (State == ERenderResourcePreparationState::Ready)
+						Result = Renderer.RenderView(Commands, Request);
+					else
+						Result = State == ERenderResourcePreparationState::Pending
+							? ERenderViewResult::RendererResourcesPending : ERenderViewResult::RendererResourcesUnavailable;
+					return Result == ERenderViewResult::Success;
+				});
+				GDynamicRHI->RHIEndFrame_RenderThread(Commands);
+			});
+			FlushRenderingCommands();
+			if (Result != ERenderViewResult::RendererResourcesPending) break;
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		} while (std::chrono::steady_clock::now() < Deadline);
+		EXPECT_EQ(Result, ERenderViewResult::Success);
+	}
 
 	struct FCaptureStatistics
 	{
@@ -998,12 +1032,10 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 				for (uint32 Layer = 0; Layer < Count; ++Layer)
 					Durin::Tests::ReadGeometryTexture(Commands, Depth, (*GDepthLayerCapture)[Layer], true, Layer);
 			});
-		Durin::EnqueueRenderCommand<FShadowBaselineCommand>(
+		CaptureReadyShadowFrame(Renderer,
 			[&Renderer, &Scene, &Fixture, Pixels](
-				Durin::FRHICommandListImmediate& CommandList
+				Durin::FRHICommandListImmediate& CommandList, const auto& RenderReadyView
 			) {
-				Durin::GRenderFrameCounterRenderThread++;
-				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 				const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
 									  Fixture.Name.c_str(), CaptureWidth, CaptureHeight,
 									  Durin::EPixelFormat::SRGBA8_UNORM
@@ -1051,14 +1083,12 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 				View.Settings.DirectionalShadow.MaxDistance = Fixture.ShadowDistance;
 				// Contact-shadow supplement stays off for the shadow-map-only baseline.
 				View.Settings.DirectionalShadow.bEnableContactShadows = false;
-				EXPECT_EQ(Renderer.RenderView(CommandList, {&Scene, View, Target, false, {}}), Durin::ERenderViewResult::Success);
+				if (!RenderReadyView({&Scene, View, Target, false, {}})) return;
 				ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
 					CommandList, Target, 0, 0, *Pixels
 				));
-				Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 			}
 		);
-		Durin::FlushRenderingCommands();
 		ASSERT_EQ(Pixels->size(), static_cast<size_t>(CaptureWidth) * CaptureHeight * 4u);
 		Durin::SetShadowDepthCaptureSink(nullptr);
 		GDepthLayerCapture = nullptr;
@@ -1371,8 +1401,6 @@ static void ProfileShadowPreparation(size_t PrimitiveCount, bool bBoxes)
 				for (size_t Frame = 0;
 					 Frame < WarmupFrames + MeasuredFrames; ++Frame)
 				{
-					++Durin::GRenderFrameCounterRenderThread;
-					Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 					Durin::FSceneView View;
 					constexpr double NearClip = 1.0;
 					constexpr double FarClip = 300.0;
@@ -1395,6 +1423,10 @@ static void ProfileShadowPreparation(size_t PrimitiveCount, bool bBoxes)
 					View.Settings.DirectionalShadow.FilterQuality =
 						Durin::EDirectionalShadowFilterQuality::Medium;
 					View.Settings.DirectionalShadow.bEnableContactShadows = false;
+					if (Frame == 0) ASSERT_TRUE(Durin::Tests::PrepareQualificationView(Renderer, CommandList, {&Scene, View, Target, false, {}}));
+					++Durin::GRenderFrameCounterRenderThread;
+					Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+					Renderer.BeginFrame_RenderThread(CommandList);
 					const auto SubmissionStart = std::chrono::steady_clock::now();
 					ASSERT_EQ(Renderer.RenderView(CommandList, {&Scene, View, Target, false, {}}),
 						Durin::ERenderViewResult::Success);
@@ -1624,17 +1656,15 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		Durin::SetDeferredDirectionalCaptureSink(
 			CaptureDeferredDirectional
 		);
-		Durin::EnqueueRenderCommand<FShadowBaselineCommand>(
+		CaptureReadyShadowFrame(Renderer,
 			[&Renderer, &Scene, bEnableContactShadows,
 			 bShowContactShadowDebug, bPerspective,
 			 bEnableGBufferQualification, GBufferDebugMode, RenderMode,
 			 bEnableDeferredDirectional, DeferredDebugMode, ShadowCandidate,
 			 ShadowFilter, ShadowDiagnostic, AspectRatioConstraint,
 			 bForceFragmentContactVisibility, CameraTranslationX, bReversedZ, Pixels](
-				Durin::FRHICommandListImmediate& CommandList
+				Durin::FRHICommandListImmediate& CommandList, const auto& RenderReadyView
 			) {
-				Durin::GRenderFrameCounterRenderThread++;
-				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 				const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
 									  "ContactShadowCapture", CaptureWidth, CaptureHeight,
 									  Durin::EPixelFormat::SRGBA8_UNORM
@@ -1708,14 +1738,12 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 					.bEnableDeferredDirectional = bEnableDeferredDirectional,
 					.bForceFragmentContactVisibility =
 						bForceFragmentContactVisibility});
-				EXPECT_EQ(Renderer.RenderView(CommandList, {&Scene, View, Target, false, RenderOptions}), Durin::ERenderViewResult::Success);
+				if (!RenderReadyView({&Scene, View, Target, false, RenderOptions})) return;
 				ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
 					CommandList, Target, 0, 0, *Pixels
 				));
-				Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 			}
 		);
-		Durin::FlushRenderingCommands();
 		Durin::SetHDRSceneColorCaptureSink(nullptr);
 		Durin::SetGBufferCaptureSink(nullptr);
 		Durin::SetDeferredDirectionalCaptureSink(nullptr);
