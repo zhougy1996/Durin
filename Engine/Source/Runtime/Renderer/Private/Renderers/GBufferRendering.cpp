@@ -391,14 +391,14 @@ namespace Durin
 				ERDGPassType::Compute, std::move(CullParameters),
 				[Plan = GPUCullingPlan, &Renderer = Inputs.Renderer,
 					&Telemetry = Inputs.Telemetry,
-					&View = Inputs.View, Failure = Inputs.Failure](FRHICommandListImmediate& Commands,
+					&View = Inputs.View, &Frustum = Inputs.Receiver.CullingFrustum, Failure = Inputs.Failure](FRHICommandListImmediate& Commands,
 						const FGBufferGPUCullingPassParameters& Parameters,
 						const FRDGParameterResolver& Resolver) {
 					const auto ShaderParameters = Resolver.GetShaderParameters(Parameters);
 					TScopedRendererGPUTimingQuery GPUCullingTiming(
 						Commands, GetGPUCullingTimingQuerySink());
 					Plan->bDispatched = Renderer.DispatchGPUCulling_RenderThread(
-						Commands, View, static_cast<uint32>(Plan->Candidates.size()),
+						Commands, View, Frustum, static_cast<uint32>(Plan->Candidates.size()),
 						ShaderParameters, Failure);
 					if (Plan->bDispatched)
 					{
@@ -593,13 +593,11 @@ namespace Durin
 				GPUCullingPlan && GPUCullingPlan->bDispatched
 					? InstanceTransforms : nullptr
 			);
-			if (GPUCullingPlan && GPUCullingPlan->bDispatched)
-				Telemetry.View.GBuffer.GPUCullingIndirectDraws += GPUCullingPlan->Arguments.size();
 			if (Options.bEnableGPUCulling)
 			{
-				const size_t Successful = ResolvedSceneResources.Receiver.StaticMeshes.Observations.GBufferLocalSuccessfulDraws;
-				const size_t Indirect = GPUCullingPlan && GPUCullingPlan->bDispatched ? GPUCullingPlan->Arguments.size() : 0;
-				Telemetry.View.GBuffer.GPUCullingDirectFallbackDraws += Successful >= Indirect ? Successful - Indirect : 0;
+				const auto& Submissions = ResolvedSceneResources.Receiver.StaticMeshes.Observations;
+				Telemetry.View.GBuffer.GPUCullingIndirectDraws += Submissions.GBufferIndirectSubmissions;
+				Telemetry.View.GBuffer.GPUCullingDirectFallbackDraws += Submissions.GBufferLocalDirectSubmissions;
 			}
 			CommandList.EndRenderPass();
 			Result.Status = StaticResult.bComplete

@@ -32,13 +32,15 @@ namespace
 
 	struct alignas(16) FCullingUniform
 	{
-		float ViewProjection[16];
+		float Planes[6][4];
+		float WorldOriginAndRelativeTolerance[4];
 		uint32_t CandidateCount;
-		uint32_t Padding[3];
+		uint32_t PlaneCount;
+		uint32_t Padding[2];
 	};
 
 	static_assert(sizeof(FCandidate) == 32);
-	static_assert(sizeof(FCullingUniform) == 80);
+	static_assert(sizeof(FCullingUniform) == 128);
 
 	auto CompileShaderCode(const char* FileName, const char* EntryName,
 		SlangCompileTarget TargetFormat = SLANG_METAL,
@@ -887,14 +889,10 @@ namespace
 			Candidates[1].BoundsMin = {1.6f, -0.2f, 0.2f};
 			Candidates[1].BoundsMax = {1.8f, 0.2f, 0.4f};
 			Candidates[1].TransformIndex = 9;
-			FCullingUniform Uniform = {};
-			// Match the row-major float array filled by GBufferRenderer.
-			Uniform.ViewProjection[0] = 0.5f;
-			Uniform.ViewProjection[5] = 1;
-			Uniform.ViewProjection[10] = 1;
-			Uniform.ViewProjection[15] = 1;
-			Uniform.ViewProjection[3] = 0.25f;
-			Uniform.CandidateCount = 2;
+			const FCullingUniform Uniform{
+				.Planes = {{1, 0, 0, 2.5f}, {-1, 0, 0, 1.5f}, {0, 1, 0, 1},
+					{0, -1, 0, 1}, {0, 0, 1, 0}, {0, 0, -1, 1}},
+				.WorldOriginAndRelativeTolerance = {0, 0, 0, 1e-9f}, .CandidateCount = 2, .PlaneCount = 6};
 			uint32_t Visible[4] = {0, 0, 0, 0};
 			uint32_t Indirect[5] = {3, 0, 0, 0, 2};
 			id<MTLBuffer> CandidateBuffer = [Device newBufferWithBytes:Candidates length:sizeof(Candidates) options:MTLResourceStorageModeShared];

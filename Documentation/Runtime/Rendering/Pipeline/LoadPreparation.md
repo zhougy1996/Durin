@@ -4,7 +4,7 @@ Summary: Prepare cooked material programs and exact scene Shader/PSO resources b
 
 Modules: Engine, RenderCore, Renderer, DurinEd, LevelEditor
 
-Last reviewed: 2026-10-31
+Last reviewed: 2026-11-11
 
 ## Object and program readiness
 
@@ -230,7 +230,9 @@ to render. Failed preparation remains observable without suppressing unrelated
 scene content. A Ready observer stops background pumping; explicit requests and
 Stale invalidation restart it. Later view/output/feature changes use normal local
 resource admission until another preparation is requested. Readiness describes
-the prepared configuration, rather than promising coverage of later views.
+the prepared configuration. The receiver and enabled cascades admit interactive
+draws independently. Strict preparation waits for every requested collection,
+including each eligible caster. An ordinary Unlit request has no shadow-map dependency.
 
 Screenshots, thumbnails, offline output and deterministic tests own their waiting
 policy: retain a preparation request, pump it for the actual scene/view/output,

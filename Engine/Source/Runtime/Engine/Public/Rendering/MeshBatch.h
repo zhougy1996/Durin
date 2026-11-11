@@ -6,6 +6,7 @@
 #include "Materials/MaterialRenderProxy.h"
 #include "Math/Operations.h"
 #include "Rendering/PrimitiveComponentId.h"
+#include "Rendering/PrimitiveRenderParticipation.h"
 #include "Rendering/PrimitiveCustomData.h"
 #include "Rendering/MeshBatchValidationCache.h"
 #include "VertexFactory.h"
@@ -21,12 +22,6 @@ namespace Durin
 		NearPlaneOrCameraCrossing,
 		InvalidBounds,
 		InvalidView,
-	};
-
-	enum class EMeshCollectionPurpose : uint8
-	{
-		Receiver,
-		Shadow,
 	};
 
 	// Render-thread input whose lifetime is restricted to the collection call.

@@ -10,9 +10,9 @@ struct Candidate
 
 struct CullingUniform
 {
-    float4x4 viewProjection;
-    // One aligned vector has the same 80-byte ABI on SPIR-V and Metal.
-    uint4 candidateCountAndPadding;
+    float4 planes[6];
+    float4 worldOriginAndRelativeTolerance;
+    uint4 counts; // candidates, planes, padding
 };
 
 [[vk::binding(0, 0)]] StructuredBuffer<Candidate> Candidates;
@@ -25,35 +25,23 @@ struct CullingUniform
 void CullMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     const uint index = dispatchThreadId.x;
-    if (index >= Params.candidateCountAndPadding.x)
+    if (index >= Params.counts.x)
         return;
 
     const Candidate candidate = Candidates[index];
-    const float3 boundsMin = candidate.boundsMin;
-    const float3 boundsMax = candidate.boundsMax;
-    const float3 center3 = (boundsMin + boundsMax) * 0.5;
-    const float3 extent = (boundsMax - boundsMin) * 0.5;
-    const float4 center = float4(center3, 1.0);
-    const float4 leftPlane = Params.viewProjection[3]
-        + Params.viewProjection[0];
-    const float4 rightPlane = Params.viewProjection[3]
-        - Params.viewProjection[0];
-    const float4 bottomPlane = Params.viewProjection[3]
-        + Params.viewProjection[1];
-    const float4 topPlane = Params.viewProjection[3]
-        - Params.viewProjection[1];
-    const float4 nearPlane = Params.viewProjection[2];
-    const float4 farPlane = Params.viewProjection[3]
-        - Params.viewProjection[2];
-    const bool visible = dot(leftPlane, center)
-            >= -dot(abs(leftPlane.xyz), extent)
-        && dot(rightPlane, center) >= -dot(abs(rightPlane.xyz), extent)
-        && dot(bottomPlane, center) >= -dot(abs(bottomPlane.xyz), extent)
-        && dot(topPlane, center) >= -dot(abs(topPlane.xyz), extent)
-        && dot(nearPlane, center) >= -dot(abs(nearPlane.xyz), extent)
-        && dot(farPlane, center) >= -dot(abs(farPlane.xyz), extent);
-    if (!visible)
-        return;
+    // Only tolerance uses world magnitudes. Plane distances and bounds stay camera-relative.
+    const float3 origin = Params.worldOriginAndRelativeTolerance.xyz;
+    const float3 magnitude = max(abs(origin + candidate.boundsMin), abs(origin + candidate.boundsMax));
+    const float tolerance = Params.worldOriginAndRelativeTolerance.w * max(1.0, max(magnitude.x, max(magnitude.y, magnitude.z)));
+    for (uint i = 0; i < Params.counts.y; ++i)
+    {
+        const float4 plane = Params.planes[i];
+        const float3 support = select(plane.xyz >= 0.0, candidate.boundsMax, candidate.boundsMin);
+        // Retain borderline boxes when the packed plane or dot product rounds.
+        const float roundoff = 8.0 * 1.1920929e-7 * (dot(abs(plane.xyz), abs(support)) + abs(plane.w));
+        if (dot(plane.xyz, support) + plane.w < -(tolerance + roundoff))
+            return;
+    }
 
     uint visibleSlot = 0;
     IndirectArguments.InterlockedAdd(

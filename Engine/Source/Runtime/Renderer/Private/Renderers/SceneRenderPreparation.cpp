@@ -21,6 +21,28 @@
 
 namespace Durin
 {
+	static auto BuildSceneViewRequirements(const FSceneView& View, const FSceneViewRenderOptions& Options,
+		const FRendererQualificationPolicy& Qualification) -> FSceneViewRequirements
+	{
+		FSceneViewRequirements Result;
+		Result.MainViewCulling = ResolveMainViewCullingPolicy(View);
+		const bool bLit = View.Settings.Mode.RenderMode == ERenderMode::Lit;
+		if (bLit && View.Settings.Mode.RasterMode == ERasterMode::Solid)
+			Result.Deferred.Purposes = ESceneFeaturePurpose::Production;
+		if (Options.DeferredDirectionalDebugMode != EDeferredDirectionalDebugMode::Disabled
+			|| Options.GroundTruthAmbientOcclusionDebugMode != EGroundTruthAmbientOcclusionDebugMode::Disabled)
+			Result.Deferred.Purposes = Result.Deferred.Purposes | ESceneFeaturePurpose::Debug;
+		if (Qualification.bEnableDeferredDirectional)
+			Result.Deferred.Purposes = Result.Deferred.Purposes | ESceneFeaturePurpose::Qualification;
+
+		Result.DirectionalShadow = Result.Deferred;
+		if (bLit) Result.DirectionalShadow.Purposes = Result.DirectionalShadow.Purposes | ESceneFeaturePurpose::Production;
+		const auto Diagnostic = View.Settings.DirectionalShadow.DiagnosticMode;
+		if (Diagnostic > EDirectionalShadowDiagnosticMode::Lit && Diagnostic < EDirectionalShadowDiagnosticMode::Count)
+			Result.DirectionalShadow.Purposes = Result.DirectionalShadow.Purposes | ESceneFeaturePurpose::Debug;
+		return Result;
+	}
+
 	auto FSceneRenderPipeline::PrepareView_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		FSceneFrameContext& Context
@@ -44,6 +66,7 @@ namespace Durin
 			|| PreparedView.View.MaterialTimeSeconds < 0.0)
 			PreparedView.View.MaterialTimeSeconds = FTime::Seconds() - GStartTime;
 		const FSceneView& RenderView = PreparedView.View;
+		Context.Logical.Requirements = BuildSceneViewRequirements(RenderView, Options, Context.Logical.Qualification);
 		FStaticMeshPreparationCache MeshPreparationCache;
 		Service.MeshCommandCache.BeginSubmission();
 		struct FEndCommandSubmission
@@ -74,8 +97,9 @@ namespace Durin
 		{
 			FSceneVisibilityResult& Visibility = Service.VisibilityScratch;
 			PrepareSceneVisibility(
-				*Scene, RenderView, Telemetry.View, Visibility
+				*Scene, Context.Logical.Requirements.MainViewCulling, Telemetry.View, Visibility
 			);
+			PreparedView.Receiver.CullingFrustum = Context.Logical.Requirements.MainViewCulling.Frustum;
 			ReceiverWork.emplace(StartCollectedStaticMeshView_RenderThread(CommandList,
 				CollectStaticMeshView_RenderThread(CommandList, Visibility.SceneInfos, RenderView,
 					RenderView.Settings.Mode.RasterMode, ERenderPreparationMode::Full, &MeshPreparationCache), &MeshPreparationCache));
@@ -96,7 +120,7 @@ namespace Durin
 			PreparedView.Lighting.Lights = PrepareLightView_RenderThread(
 				*Scene, RenderView, Telemetry.View
 			);
-			if (!PreparedView.Lighting.Lights.Directional.empty())
+			if (Context.Logical.Requirements.DirectionalShadow.IsEnabled() && !PreparedView.Lighting.Lights.Directional.empty())
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareDirectionalShadows");
 				++Telemetry.View.DirectionalShadow.ShadowSelectedLights;
@@ -326,8 +350,7 @@ namespace Durin
 			&& (bPrepareOnly || PreparedView.Receiver.StaticMeshes.ResourceFailurePrimitives.empty()))
 			return ERenderViewResult::RendererResourcesUnavailable;
 		const bool bRequiresDeferredOpaque =
-			View.Settings.Mode.RenderMode == ERenderMode::Lit
-			&& View.Settings.Mode.RasterMode == ERasterMode::Solid;
+			Context.Logical.Requirements.Deferred.HasPurpose(ESceneFeaturePurpose::Production);
 		ResolvedSceneResources.Receiver.StaticMeshes.Environment = Service.EnvironmentLighting.GetSceneBinding_RenderThread(Context.Logical.Scene);
 		FStaticMeshSectionResourceContext SectionResources;
 		const FGeometryResolutionResult GeometryResolution =
@@ -348,9 +371,9 @@ namespace Durin
 		const bool bShadowReady = ResolvedSceneResources.DirectionalShadow
 			&& ResolvedSceneResources.DirectionalShadow->bEnabled;
 		FRHITexture* DirectionalShadowTexture =
-			Service.DirectionalShadowRenderer.GetTexture_RenderThread();
+			bShadowReady ? Service.DirectionalShadowRenderer.GetTexture_RenderThread() : nullptr;
 		FRHISampler* DirectionalShadowSampler =
-			Service.DirectionalShadowRenderer.GetSampler_RenderThread();
+			bShadowReady ? Service.DirectionalShadowRenderer.GetSampler_RenderThread() : nullptr;
 		ResolvedSceneResources.Receiver.StaticMeshes.DirectionalShadowTexture =
 			DirectionalShadowTexture;
 		ResolvedSceneResources.Receiver.StaticMeshes.DirectionalShadowSampler =
@@ -391,6 +414,7 @@ namespace Durin
 	}
 
 	auto FSceneRenderPipeline::BuildSceneFrameFeaturePlan(
+		const FSceneViewRequirements& Requirements,
 		const FSceneRenderPlan& PreparedView,
 		const FSceneViewRenderOptions& Options,
 		uint32 Width,
@@ -405,18 +429,8 @@ namespace Durin
 			ESceneFeaturePurpose Purpose, bool bEnabled) {
 			if (bEnabled) Feature.Purposes = Feature.Purposes | Purpose;
 		};
-		const bool bProductionDeferred =
-			View.Settings.Mode.RenderMode == ERenderMode::Lit
-			&& View.Settings.Mode.RasterMode == ERasterMode::Solid;
-		AddPurpose(Plan.Deferred, ESceneFeaturePurpose::Production,
-			bProductionDeferred);
-		AddPurpose(Plan.Deferred, ESceneFeaturePurpose::Qualification,
-			Qualification.bEnableDeferredDirectional);
-		AddPurpose(Plan.Deferred, ESceneFeaturePurpose::Debug,
-			Options.DeferredDirectionalDebugMode
-				!= EDeferredDirectionalDebugMode::Disabled
-			|| Options.GroundTruthAmbientOcclusionDebugMode
-				!= EGroundTruthAmbientOcclusionDebugMode::Disabled);
+		Plan.Deferred = Requirements.Deferred;
+		const bool bProductionDeferred = Plan.RequiresProductionDeferred();
 		AddPurpose(Plan.AmbientOcclusion, ESceneFeaturePurpose::Production,
 			bProductionDeferred && View.Settings.AmbientOcclusion.bEnabled);
 		AddPurpose(Plan.AmbientOcclusion, ESceneFeaturePurpose::Qualification,

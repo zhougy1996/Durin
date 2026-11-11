@@ -16,6 +16,7 @@
 #include "Shader/ShaderCompilerCore.h"
 #include "RDG/RDGParameters.h"
 #include "SceneView.h"
+#include "Math/Operations.h"
 
 namespace Durin
 {
@@ -297,7 +298,7 @@ namespace Durin
 	}
 
 	auto FGBufferRenderer::DispatchGPUCulling_RenderThread(
-		FRHICommandListImmediate& CommandList, const FSceneView& View,
+		FRHICommandListImmediate& CommandList, const FSceneView& View, const std::optional<FViewFrustum>& Frustum,
 		uint32 CandidateCount,
 		const FRDGShaderParameterScope& GraphShaderParameters, EGPUCullingFailure Failure) -> bool
 	{
@@ -307,10 +308,18 @@ namespace Durin
 		auto* Payload = State->GPUCulling.GetPayload();
 		if (Payload == nullptr || CandidateCount == 0) return false;
 		FGBufferGPUCullingUniform Uniform;
-		for (uint32 Row = 0; Row < 4; ++Row)
-			for (uint32 Column = 0; Column < 4; ++Column)
-				Uniform.ViewProjection[Row * 4 + Column] = static_cast<float>(
-					View.GetTranslatedWorldToClip()[Column][Row]);
+		if (Frustum)
+		{
+			Uniform.WorldOriginAndRelativeTolerance = FVector4f(FVector4(View.ViewLocation, PlaneTouchRelativeEpsilon));
+			if (!Math::IsFinite(Uniform.WorldOriginAndRelativeTolerance)) return false;
+			for (const FVector4& Plane : Frustum->Planes)
+			{
+				const FVector3 Normal(Plane);
+				const FVector4f TranslatedPlane(FVector4(Normal, Plane.w + Math::Dot(Normal, View.ViewLocation)));
+				if (!Math::IsFinite(TranslatedPlane)) return false;
+				Uniform.Planes[Uniform.PlaneCount++] = TranslatedPlane;
+			}
+		}
 		Uniform.CandidateCount = CandidateCount;
 		const auto UniformBuffer = CommandList.CreateUniformBufferRange(
 			&Uniform, sizeof(Uniform));

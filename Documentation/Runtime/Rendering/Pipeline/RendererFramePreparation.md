@@ -6,7 +6,7 @@ output transactions.
 
 Modules: Engine, Renderer, RenderCore, RHI
 
-Last reviewed: 2026-10-29
+Last reviewed: 2026-11-11
 
 ## Ownership Boundary
 
@@ -110,9 +110,8 @@ task window runs. Shadow preparation starts every cascade before joining them in
 cascade order for raster bias and telemetry. Collection and shared-cache resolution
 remain rendering-thread operations; subsequent cache growth cannot change an
 already frozen input. With three cascades, one frame retains at most 32 active
-mesh preparation tasks. Component resource failures participate in local admission
-across receiver and active shadow cascades; shared resource failures retain their
-view or feature failure policy.
+mesh preparation tasks. View requirements select directional shadow work before caster discovery. Each
+receiver or cascade admits its own prepared components after resource resolution.
 
 Successful static-mesh resource initialization publishes one immutable
 `FMeshGeometryRecord` per LOD, with a process-unique nonzero record ID.
@@ -344,8 +343,9 @@ Qualification-only route selection is not part of public
 install one Renderer-private `FScopedRendererQualificationPolicy` on the
 render thread; the frame pipeline snapshots it once when the submission starts.
 That bounded value can request isolated GBuffer/deferred/GTAO work or force the
-contact/cloud fragment comparison routes. It cannot change scene preparation,
-and the former mutable volumetric-cloud preparation callback no longer exists.
+contact/cloud fragment comparison routes. A deferred qualification request
+contributes directional shadow demand before mesh collection. Tests may observe
+admitted component IDs after resolution and before graph authoring.
 Supported GBuffer, deferred, and GTAO debug modes remain explicit public view
 options and execute through the same compiled graph schedule. Timing and
 capture sinks observe completed typed pass results only.
@@ -454,10 +454,10 @@ asynchronous requests without joining them on the render thread. Preparation-onl
 calls return Pending until selected resources are ready, or fail on terminal errors
 and bounded-capacity exhaustion.
 
-Interactive rendering admits ready components before graph authoring. An unready
-section in the receiver or any enabled shadow cascade excludes every batch of
-that component from color, depth and all shadow cascades for this submission;
-unrelated components remain drawable. Material Collection schema, payload and
+Interactive rendering admits ready components before graph authoring. One unready
+section withholds the component from its receiver or cascade list. Each other
+list admits its own ready components. The receiver list supplies color, depth
+and indirect grouping with consistent membership. Material Collection schema, payload and
 uniform failures, and component-specific uniform allocation failures reject the
 affected components. Shared view uniforms and required output failures still
 propagate. Shared shadow target or view-resource failure can disable shadows;

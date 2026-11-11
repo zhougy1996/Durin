@@ -4,6 +4,6 @@ namespace Durin
 {
 	TEST(FVolumetricCloudSceneVulkanTests, EnabledCloudTraversesOffscreenAndPresentRoutes)
 	{
-		QualifySceneRenderRoutes(true);
+		QualifySceneRenderRoutes(true, true);
 	}
 }

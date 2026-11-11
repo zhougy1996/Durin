@@ -3904,7 +3904,7 @@ TEST(FRendererSceneContractTests, CollectionSnapshotsDoNotMergeAcrossConsumersOr
     EXPECT_EQ(Final, First);
 }
 
-TEST(FRendererSceneContractTests, UnreadyComponentIsExcludedAcrossBatchesAndShadowLODs)
+TEST(FRendererSceneContractTests, UnreadyReceiverComponentIsExcludedAcrossItsBatches)
 {
     using namespace Durin;
     FPreparedStaticMeshView Receiver;
@@ -3921,34 +3921,18 @@ TEST(FRendererSceneContractTests, UnreadyComponentIsExcludedAcrossBatchesAndShad
     Resolved.Draws.resize(4);
     for (auto& Draw : Resolved.Draws) Draw.bReady = true;
     Resolved.Draws[2].bReady = false;
-    std::array<FPreparedStaticMeshView, 2> Shadows;
-    for (auto& Shadow : Shadows)
-    {
-        Shadow.Primitives.resize(2);
-        // Different view/LOD ordering must still use the component identity.
-        Shadow.Primitives[0].PrimitiveId = FPrimitiveComponentId(22);
-        Shadow.Primitives[1].PrimitiveId = FPrimitiveComponentId(11);
-        Shadow.Opaque.push_back({.ResolvedIndex = 7, .PrimitiveIndex = 1});
-        Shadow.Masked.push_back({.ResolvedIndex = 9, .PrimitiveIndex = 0});
-    }
-    RemoveUnreadyStaticMeshPrimitives(Receiver, Resolved, Shadows);
+    EXPECT_EQ(AdmitStaticMeshDraws(Receiver, Resolved), 1u);
     ASSERT_EQ(Receiver.Opaque.size(), 1u);
     EXPECT_EQ(Receiver.Opaque.front().ResolvedIndex, 1u);
     EXPECT_TRUE(Receiver.Masked.empty());
     EXPECT_TRUE(Receiver.Translucent.empty());
-    for (const auto& Shadow : Shadows)
-    {
-        EXPECT_TRUE(Shadow.Opaque.empty());
-        ASSERT_EQ(Shadow.Masked.size(), 1u);
-        EXPECT_EQ(Shadow.Masked.front().ResolvedIndex, 9u);
-    }
     // No permanent visibility state: the next submission can admit the component.
     Receiver = Original;
     Resolved.Draws[2].bReady = true;
-    RemoveUnreadyStaticMeshPrimitives(Receiver, Resolved);
+    AdmitStaticMeshDraws(Receiver, Resolved);
     EXPECT_EQ(Receiver.GetNumSections(), 4u);
     Receiver.ResourceFailurePrimitives.push_back(FPrimitiveComponentId(22));
-    RemoveUnreadyStaticMeshPrimitives(Receiver, Resolved);
+    AdmitStaticMeshDraws(Receiver, Resolved);
     EXPECT_EQ(Receiver.GetNumSections(), 3u);
     EXPECT_EQ(Receiver.Opaque.front().ResolvedIndex, 0u);
 }
@@ -4000,7 +3984,7 @@ TEST(FRendererSceneContractTests, AdmissionBudgetIsSharedByViewsAndDefersResourc
     }
 }
 
-TEST(FRendererSceneContractTests, ShadowOnlyPendingComponentIsExcludedFromReceiverAndAllCascades)
+TEST(FRendererSceneContractTests, ShadowOnlyPendingComponentIsExcludedFromItsOwnCascade)
 {
     using namespace Durin;
     FPreparedStaticMeshView Receiver;
@@ -4013,14 +3997,13 @@ TEST(FRendererSceneContractTests, ShadowOnlyPendingComponentIsExcludedFromReceiv
     std::array Shadows{Receiver, Receiver};
     std::array Resources{Ready, Ready};
     Resources[1].Draws[0].bReady = false;
-    RemoveUnreadyStaticMeshPrimitives(Receiver, Ready, Shadows, Resources);
-    ASSERT_EQ(Receiver.Opaque.size(), 1u);
-    EXPECT_EQ(Receiver.Opaque.front().ResolvedIndex, 1u);
-    for (const auto& Shadow : Shadows)
-    {
-        ASSERT_EQ(Shadow.Opaque.size(), 1u);
-        EXPECT_EQ(Shadow.Opaque.front().ResolvedIndex, 1u);
-    }
+    EXPECT_EQ(AdmitStaticMeshDraws(Receiver, Ready), 0u);
+    EXPECT_EQ(AdmitStaticMeshDraws(Shadows[0], Resources[0]), 0u);
+    EXPECT_EQ(AdmitStaticMeshDraws(Shadows[1], Resources[1]), 1u);
+    EXPECT_EQ(Receiver.Opaque.size(), 2u);
+    EXPECT_EQ(Shadows[0].Opaque.size(), 2u);
+    ASSERT_EQ(Shadows[1].Opaque.size(), 1u);
+    EXPECT_EQ(Shadows[1].Opaque.front().ResolvedIndex, 1u);
 }
 
 #endif

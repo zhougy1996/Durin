@@ -4,6 +4,7 @@
 
 #include "RendererAPI.h"
 #include "Renderers/ViewRenderTelemetry.h"
+#include "Renderers/ViewPreparationMath.h"
 
 #include "SceneView.h"
 #include "Math/Box.h"
@@ -52,6 +53,9 @@ namespace Durin
 		std::vector<FPrimitiveVisibilityRecord> PrimitiveRecords;
 		std::vector<const FPrimitiveSceneInfo*> SceneInfos;
 	};
+
+	auto PrepareSceneVisibility(const FScene& Scene, const FMainViewCullingPolicy& Policy,
+		FViewRenderTelemetry& Telemetry, FSceneVisibilityResult& Result, bool bCollectPrimitiveRecords = false) -> void;
 
 	// Replaces the result while retaining capacity. Records are opt-in; pointers
 	// borrow scene storage and must be consumed before the scene is mutated.

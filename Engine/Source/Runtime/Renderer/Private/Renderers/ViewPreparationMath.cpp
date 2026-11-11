@@ -6,7 +6,6 @@ namespace Durin
 {
 	namespace
 	{
-		inline constexpr double PlaneTouchRelativeEpsilon = 1.0e-9;
 		inline constexpr double ProjectionKindEpsilon = 1.0e-12;
 
 		auto GetRow(const FMatrix& Matrix, uint32 Row) -> FVector4
@@ -120,8 +119,7 @@ namespace Durin
 		}
 		const FVector3 Center = WorldBounds.GetCenter();
 		const FVector3 Extent = WorldBounds.GetExtent();
-		const double Epsilon =
-			PlaneTouchRelativeEpsilon * GetBoundsScale(WorldBounds);
+		const double Epsilon = PlaneTouchRelativeEpsilon * GetBoundsScale(WorldBounds);
 		bool bIntersects = false;
 		for (const FVector4& Plane : Frustum.Planes)
 		{

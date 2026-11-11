@@ -333,6 +333,8 @@ namespace Durin
 		size_t GBufferSkippedDraws = 0;
 		size_t GBufferLocalAttemptedDraws = 0;
 		size_t GBufferLocalSuccessfulDraws = 0;
+		size_t GBufferLocalDirectSubmissions = 0;
+		size_t GBufferIndirectSubmissions = 0;
 		size_t GBufferLocalRejectedDraws = 0;
 		size_t GBufferLocalSkippedDraws = 0;
 		size_t GBufferSplineAttemptedDraws = 0;
@@ -383,12 +385,8 @@ namespace Durin
 		}
 	};
 
-	// Final admission after bindings are prepared. Preserve resolved indices and
-	// remove every batch of an unready component from color, depth, and shadows.
-	RENDERER_API auto RemoveUnreadyStaticMeshPrimitives(FPreparedStaticMeshView& Prepared,
-		const FResolvedStaticMeshView& Resolved,
-		std::span<FPreparedStaticMeshView> ShadowViews = {},
-		std::span<const FResolvedStaticMeshView> ShadowResources = {}) -> void;
+	// Finalize one collection's draw lists in place, preserving stable resolved indices.
+	RENDERER_API auto AdmitStaticMeshDraws(FPreparedStaticMeshView& View, const FResolvedStaticMeshView& Resources) -> size_t;
 
 	// Owns collected geometry/material values after all scene/proxy reads finish.
 	// Dynamic provider bindings retain their existing resource-retirement contract.

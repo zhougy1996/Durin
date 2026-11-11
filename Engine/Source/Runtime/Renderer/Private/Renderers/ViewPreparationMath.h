@@ -34,6 +34,15 @@ namespace Durin
 		std::array<FVector4, 6> Planes;
 	};
 
+	// Resolved once for the fitted main view. An unusable frustum keeps all bounds visible.
+	struct FMainViewCullingPolicy
+	{
+		bool bEnabled = false;
+		std::optional<FViewFrustum> Frustum;
+	};
+
+	auto ResolveMainViewCullingPolicy(const FSceneView& View) -> FMainViewCullingPolicy;
+
 	// Carries the normalized projected diameter and the reason for any maximum-detail fallback.
 	struct FProjectedScreenSizeResult
 	{
@@ -51,6 +60,8 @@ namespace Durin
 	RENDERER_API auto TryBuildViewFrustum(
 		const FSceneView& View,
 		FViewFrustum& OutFrustum) -> bool;
+
+	inline constexpr double PlaneTouchRelativeEpsilon = 1.0e-9;
 
 	// Classifies a world AABB conservatively; exact and epsilon-scale plane contact remains visible.
 	RENDERER_API auto ClassifyWorldBounds(

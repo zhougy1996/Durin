@@ -7,6 +7,7 @@
 #include "Renderers/VolumetricCloudShadowRenderer.h"
 #include "Renderers/VolumetricCloudSpatialRenderer.h"
 #include "SceneView.h"
+#include "Renderers/ViewPreparationMath.h"
 
 namespace Durin
 {
@@ -40,6 +41,13 @@ namespace Durin
 		{
 			return (static_cast<uint8>(Purposes) & static_cast<uint8>(Purpose)) != 0;
 		}
+	};
+
+	struct FSceneViewRequirements
+	{
+		FMainViewCullingPolicy MainViewCulling;
+		FSceneFeatureDecision DirectionalShadow;
+		FSceneFeatureDecision Deferred;
 	};
 
 	// Publishes the complete immutable feature policy for one scene submission.

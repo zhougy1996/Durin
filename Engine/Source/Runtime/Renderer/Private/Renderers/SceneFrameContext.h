@@ -21,6 +21,7 @@ namespace Durin
 			FRHITexture* OutputTarget = nullptr;
 			FSceneViewRenderOptions Options;
 			FRendererQualificationPolicy Qualification;
+			FSceneViewRequirements Requirements;
 			std::optional<FSceneRenderPlan> PreparedView;
 			RendererEditorAssistance::FPrepared EditorAssistance;
 			uint32 Width = 0;

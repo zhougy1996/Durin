@@ -10,15 +10,22 @@
 
 namespace Durin
 {
-	auto ClassifySceneVisibility(std::vector<FPrimitiveVisibilityInput> Inputs,
-		const FSceneView& View, bool bAllowTasks) -> FSceneVisibilityClassification
+	auto ResolveMainViewCullingPolicy(const FSceneView& View) -> FMainViewCullingPolicy
+	{
+		FMainViewCullingPolicy Policy;
+		Policy.bEnabled = View.Settings.Mode.VisibilityMode == EViewVisibilityMode::Normal;
+		FViewFrustum Frustum;
+		if (Policy.bEnabled && TryBuildViewFrustum(View, Frustum))
+			Policy.Frustum = Frustum;
+		return Policy;
+	}
+
+	static auto ClassifySceneVisibility(std::vector<FPrimitiveVisibilityInput> Inputs, const FMainViewCullingPolicy& Policy,
+		bool bAllowTasks) -> FSceneVisibilityClassification
 	{
 		using EClass = EPrimitiveVisibilityClassification;
-		FViewFrustum Frustum{};
-		const bool bCulling = View.Settings.Mode.VisibilityMode == EViewVisibilityMode::Normal;
-		const bool bValid = !bCulling || TryBuildViewFrustum(View, Frustum);
 		auto Owner = std::make_shared<const std::vector<FPrimitiveVisibilityInput>>(std::move(Inputs));
-		auto ClassifyRange = [Owner, Frustum, bCulling, bValid](size_t First, size_t Count) {
+		auto ClassifyRange = [Owner, Policy](size_t First, size_t Count) {
 			std::vector<EClass> Classes;
 			Classes.reserve(Count);
 			for (size_t Index = First; Index < First + Count; ++Index)
@@ -26,11 +33,11 @@ namespace Durin
 				const auto& Input = (*Owner)[Index];
 				EClass Classification;
 				if (!Input.bVisible) Classification = EClass::Hidden;
-				else if (!bCulling) Classification = EClass::VisibleCullingDisabled;
-				else if (!bValid) Classification = EClass::VisibleInvalidViewFallback;
+				else if (!Policy.bEnabled) Classification = EClass::VisibleCullingDisabled;
+				else if (!Policy.Frustum) Classification = EClass::VisibleInvalidViewFallback;
 				else
 				{
-					switch (ClassifyWorldBounds(Frustum, Input.WorldBounds))
+					switch (ClassifyWorldBounds(*Policy.Frustum, Input.WorldBounds))
 					{
 					case EViewBoundsClassification::Inside: Classification = EClass::VisibleInside; break;
 					case EViewBoundsClassification::Intersecting: Classification = EClass::VisibleIntersecting; break;
@@ -81,9 +88,15 @@ namespace Durin
 		return Result;
 	}
 
+	auto ClassifySceneVisibility(std::vector<FPrimitiveVisibilityInput> Inputs,
+		const FSceneView& View, bool bAllowTasks) -> FSceneVisibilityClassification
+	{
+		return ClassifySceneVisibility(std::move(Inputs), ResolveMainViewCullingPolicy(View), bAllowTasks);
+	}
+
 	auto PrepareSceneVisibility(
 		const FScene& Scene,
-		const FSceneView& View,
+		const FMainViewCullingPolicy& Policy,
 		FViewRenderTelemetry& Telemetry,
 		FSceneVisibilityResult& Result,
 		bool bCollectPrimitiveRecords) -> void
@@ -100,7 +113,7 @@ namespace Durin
 		Inputs.reserve(SceneInfos.size());
 		for (const auto* Info : SceneInfos)
 			Inputs.push_back({Info ? Info->GetWorldBounds() : FBox{}, Info && Info->IsVisible()});
-		const auto Classified = ClassifySceneVisibility(std::move(Inputs), View);
+		const auto Classified = ClassifySceneVisibility(std::move(Inputs), Policy, true);
 		for (size_t Index = 0; Index < SceneInfos.size(); ++Index)
 		{
 			const auto* SceneInfo = SceneInfos[Index];
@@ -138,6 +151,16 @@ namespace Durin
 			!bCollectPrimitiveRecords
 			|| Result.PrimitiveRecords.size() == Telemetry.Visibility.SubmittedPrimitives;
 		check(bRecordCountMatches);
+	}
+
+	auto PrepareSceneVisibility(
+		const FScene& Scene,
+		const FSceneView& View,
+		FViewRenderTelemetry& Telemetry,
+		FSceneVisibilityResult& Result,
+		bool bCollectPrimitiveRecords) -> void
+	{
+		PrepareSceneVisibility(Scene, ResolveMainViewCullingPolicy(View), Telemetry, Result, bCollectPrimitiveRecords);
 	}
 
 	auto PrepareSceneVisibility(

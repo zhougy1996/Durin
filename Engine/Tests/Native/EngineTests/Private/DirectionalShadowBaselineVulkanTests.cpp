@@ -32,6 +32,7 @@
 #include "Renderers/DeferredDirectionalLightingRenderer.h"
 #include "Renderers/DirectionalShadowView.h"
 #include "Renderers/SceneRendererProfiling.h"
+#include "Renderers/SceneRenderPlan.h"
 #include "Renderers/GBufferRenderer.h"
 #include "Renderers/SceneVisibility.h"
 #include "RenderingThread.h"
@@ -198,6 +199,7 @@ namespace
 		const char* RecordingPolicy = "auto";
 		uint32 ShadowResolution = Durin::FSceneViewDirectionalShadowSettings::DefaultResolution;
 		double ShadowDistance = Durin::FSceneViewDirectionalShadowSettings::DefaultMaxDistance;
+		bool bCullCamera = false;
 	};
 
 	// Workers receive the policy selected before dispatch, never the environment.
@@ -994,6 +996,18 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 		Fixture.ShadowDistance = Distance;
 		Fixtures.push_back(std::move(Fixture));
 	}
+	const size_t OffCameraStart = Fixtures.size();
+	for (auto Candidate : {Durin::EDirectionalShadowCandidate::SingleMap, Durin::EDirectionalShadowCandidate::ThreeCascades})
+	{
+		FFixture Receiver{.Name = std::format("off_camera_receiver_{}", static_cast<unsigned>(Candidate)),
+			.Primitives = {{{24.0, 0.0, 0.0}, {8.0, 8.0, 1.0}, 90.0}},
+			.LightDirection = {6.0, -14.0, 0.0}, .FilterQuality = Durin::EDirectionalShadowFilterQuality::Medium, .Candidate = Candidate, .bPerspective = true,
+			.ShadowDistance = 60.0, .bCullCamera = true};
+		Fixtures.push_back(Receiver);
+		Receiver.Name += "_with_caster";
+		Receiver.Primitives.push_back({{18.0, 14.0, 0.0}, {2.0, 2.0, 1.0}, 90.0});
+		Fixtures.push_back(std::move(Receiver));
+	}
 	std::vector<std::array<Durin::FByteBuffer, Durin::DirectionalShadowCascadeCount>> DepthCaptures;
 	std::vector<FCaptureStatistics> Statistics;
 	Captures.reserve(Fixtures.size());
@@ -1072,8 +1086,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 				View.ViewportWidth = CaptureWidth;
 				View.ViewportHeight = CaptureHeight;
 				View.Settings.Mode.RenderMode = Fixture.RenderMode;
-				View.Settings.Mode.VisibilityMode =
-					Durin::EViewVisibilityMode::FrustumCullingDisabled;
+				View.Settings.Mode.VisibilityMode = Fixture.bCullCamera
+					? Durin::EViewVisibilityMode::Normal : Durin::EViewVisibilityMode::FrustumCullingDisabled;
 				View.Settings.DirectionalShadow.DiagnosticMode =
 					Fixture.DiagnosticMode;
 				View.Settings.DirectionalShadow.FilterQuality =
@@ -1083,6 +1097,20 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 				View.Settings.DirectionalShadow.MaxDistance = Fixture.ShadowDistance;
 				// Contact-shadow supplement stays off for the shadow-map-only baseline.
 				View.Settings.DirectionalShadow.bEnableContactShadows = false;
+				Durin::FRendererQualificationPolicy Policy;
+				if (Fixture.bCullCamera)
+					Policy.ObserveAdmittedDraws = [&](const Durin::FSceneRenderPlan& Plan) {
+						const auto& Camera = Plan.Receiver.StaticMeshes;
+						ASSERT_EQ(Camera.GetNumSections(), 1u);
+						EXPECT_EQ(Camera.GetPrimitive(Camera.GetDraw(0))->PrimitiveId.Value, 1u);
+						ASSERT_TRUE(Plan.DirectionalShadow);
+						bool FoundCaster = false;
+						for (const auto& Cascade : Plan.DirectionalShadow->StaticMeshes)
+							for (uint32 Index = 0; Index < Cascade.GetNumSections(); ++Index)
+								FoundCaster |= Cascade.GetPrimitive(Cascade.GetDraw(Index))->PrimitiveId.Value == 2u;
+						EXPECT_EQ(FoundCaster, Fixture.Primitives.size() == 2);
+					};
+				Durin::FScopedRendererQualificationPolicy Observe(Policy);
 				if (!RenderReadyView({&Scene, View, Target, false, {}})) return;
 				ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
 					CommandList, Target, 0, 0, *Pixels
@@ -1093,7 +1121,16 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 		Durin::SetShadowDepthCaptureSink(nullptr);
 		GDepthLayerCapture = nullptr;
 		if (std::string_view(Fixture.RecordingPolicy) != "auto") DepthCaptures.push_back(std::move(DepthLayers));
-		if (Fixture.bCastShadows)
+		if (Fixture.RenderMode == Durin::ERenderMode::Unlit && Fixture.DiagnosticMode == Durin::EDirectionalShadowDiagnosticMode::Lit)
+		{
+			EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowSelectedLights, 0u);
+			EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowSceneTraversals, 0u);
+			EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowCascadeCount, 0u);
+			EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowTargetLogicalBytes, 0u);
+			EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowSuccessfulDraws, 0u);
+			EXPECT_GT(GLastTelemetry.StaticMesh.StaticMeshSuccessfulDraws, 0u);
+		}
+		else if (Fixture.bCastShadows)
 		{
 			ASSERT_TRUE(GReceivedSceneRenderGraphCapture);
 			uint32 CoveredLayers = 0;
@@ -1114,19 +1151,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 				std::string_view(Fixture.RecordingPolicy) == "parallel" ? 3u : 0u);
 			EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowSelectedLights, 1u);
 			EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowValidReceiverViews, 1u);
-			if (Fixture.RenderMode == Durin::ERenderMode::Unlit)
-			{
-				// Unlit receivers do not consume shadow output; RDG culls its producer.
-				EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowSuccessfulDraws, 0u);
-				EXPECT_TRUE(std::ranges::any_of(GLastSceneRenderGraphCapture.CullingDecisions,
-					[](const Durin::FRDGCullingDecision& Decision) {
-						return Decision.Name == "Scene.DirectionalShadow" && Decision.bCulled;
-					}));
-			}
-			else
-			{
-				EXPECT_GT(GLastTelemetry.DirectionalShadow.ShadowSuccessfulDraws, 0u);
-			}
+			EXPECT_GT(GLastTelemetry.DirectionalShadow.ShadowSuccessfulDraws, 0u);
 			EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowDiagnosticViews[static_cast<size_t>(Fixture.DiagnosticMode)], 1u);
 			EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowQualityViews[static_cast<size_t>(Fixture.FilterQuality)], 1u);
 			const Durin::FDirectionalShadowFilter ExpectedFilter =
@@ -1159,9 +1184,15 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 		{
 			EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowSelectedLights, 1u);
 			EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowValidReceiverViews, 0u);
+			EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowSceneTraversals, 0u);
 			EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowSuccessfulDraws, 0u);
 			for (const size_t DiagnosticViews : GLastTelemetry.DirectionalShadow.ShadowDiagnosticViews)
 				EXPECT_EQ(DiagnosticViews, 0u);
+		}
+		if (Fixture.bCullCamera)
+		{
+			EXPECT_EQ(GLastTelemetry.Visibility.VisiblePrimitives, 1u);
+			EXPECT_EQ(GLastTelemetry.Visibility.FrustumCulledPrimitives, Fixture.Primitives.size() - 1);
 		}
 		WritePpm(OutputDirectory / (Fixture.Name + ".ppm"), *Pixels);
 		Statistics.push_back(
@@ -1171,6 +1202,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 	}
 
 	ASSERT_EQ(Captures.size(), Fixtures.size());
+	for (size_t Index = OffCameraStart; Index < Fixtures.size(); Index += 2)
+		EXPECT_GT(CountChangedPixels(Captures[Index], Captures[Index + 1], 2), 0u) << Fixtures[Index].Name;
 	EXPECT_EQ(Captures[RecordingParityStart], Captures[RecordingParityStart + 1]);
 	EXPECT_EQ(Captures[RecordingParityStart], Captures[RecordingParityStart + 2]);
 	ASSERT_EQ(DepthCaptures.size(), 3u);

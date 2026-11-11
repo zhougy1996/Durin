@@ -317,29 +317,29 @@ namespace Durin
 		bool bObserveTelemetry = true;
 		bool bOverrideDuringRecording = false;
 		bool bEditorAssistance = false;
-		bool bDisableCPUCulling = false;
+		bool bDisableFrustumCulling = false;
 		FVector3 WorldShift{};
 		uint32 OffscreenOrdinal = 0;
 		FSceneViewStateId HistoryId;
-		auto RenderOffscreen = [&Renderer, Scene, &ExtraPolicy, &ExtraOptions, &bContactShadows, &OffscreenOrdinal, &bDisableCPUCulling, &WorldShift, &bObserveTelemetry, &bOverrideDuringRecording, &bEditorAssistance, &HistoryId, ObservePreparedDraw](
+		auto RenderOffscreen = [&Renderer, Scene, &ExtraPolicy, &ExtraOptions, &bContactShadows, &OffscreenOrdinal, &bDisableFrustumCulling, &WorldShift, &bObserveTelemetry, &bOverrideDuringRecording, &bEditorAssistance, &HistoryId, ObservePreparedDraw](
 								   bool bForceFragment, bool bAmbientOcclusion = true,
 			EGroundTruthAmbientOcclusionQuality AOQuality = EGroundTruthAmbientOcclusionQuality::HalfResolution,
 			ERenderMode RenderMode = ERenderMode::Lit,
 			ESceneRasterFailure Failure = ESceneRasterFailure::None,
-			uint32 Width = 96, uint32 Height = 64
+			uint32 Width = 96, uint32 Height = 64, ERasterMode RasterMode = ERasterMode::Solid,
+			FRenderResourcePreparation Preparation = FRenderResourcePreparation::Create()
 							   ) {
 			const uint32 PublicationsBefore = GSceneCloudTelemetryPublications;
 			auto Pixels = std::make_shared<Durin::FByteBuffer>();
 			auto Result = std::make_shared<ERenderViewResult>(
 				ERenderViewResult::RendererResourcesUnavailable
 			);
-			const auto Preparation = FRenderResourcePreparation::Create();
 			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
 			do
 			{
 			EnqueueRenderCommand<FSceneCloudRender>(
-				[&Renderer, Scene, Pixels, Result, bForceFragment, bAmbientOcclusion, AOQuality, RenderMode,
-					Failure, Width, Height, Policy = ExtraPolicy, Options = ExtraOptions, bContactShadows, bDisableCPUCulling, WorldShift, HistoryId, bEditorAssistance, bOverrideDuringRecording, ObservePreparedDraw, Preparation](
+				[&Renderer, Scene, Pixels, Result, bForceFragment, bAmbientOcclusion, AOQuality, RenderMode, RasterMode,
+					Failure, Width, Height, Policy = ExtraPolicy, Options = ExtraOptions, bContactShadows, bDisableFrustumCulling, WorldShift, HistoryId, bEditorAssistance, bOverrideDuringRecording, ObservePreparedDraw, Preparation](
 					FRHICommandListImmediate& CommandList
 				) {
 					FTextureRHIRef Output = GDynamicRHI->RHICreateTexture(
@@ -359,8 +359,9 @@ namespace Durin
 					View.ViewLocation += WorldShift;
 					View.ViewMatrix = BuildViewMatrix(View.ViewLocation, Math::Normalize(FVector3{1, 0, 0.1}));
 					View.ViewProjectionMatrix = View.ProjectionMatrix * View.ViewMatrix;
-					if (bDisableCPUCulling) View.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
+					if (bDisableFrustumCulling) View.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
 					View.Settings.Mode.RenderMode = RenderMode;
+					View.Settings.Mode.RasterMode = RasterMode;
 					View.Settings.AmbientOcclusion.bEnabled = bAmbientOcclusion;
 					View.Settings.AmbientOcclusion.Quality = AOQuality;
 					View.Settings.DirectionalShadow.bEnableContactShadows = bContactShadows;
@@ -368,7 +369,7 @@ namespace Durin
 					SelectedPolicy.bForceFragmentVolumetricCloud = bForceFragment;
 					SelectedPolicy.RasterFailure = Failure;
 					FScopedRendererQualificationPolicy Qualification(SelectedPolicy);
-					const bool bDeliberatelyPending = Policy.PendingFeature != EScenePreparationPending::None || Policy.PendingPrimitive.has_value() || Policy.PendingShadowPrimitive.has_value();
+					const bool bDeliberatelyPending = Policy.PendingFeature != EScenePreparationPending::None || Policy.PendingPrimitive.has_value() || (Policy.PendingShadowPrimitive.has_value() && RenderMode == ERenderMode::Lit);
 					const bool Prepare = Failure == ESceneRasterFailure::None;
 					Renderer.BeginFrame_RenderThread(CommandList);
 					if (Prepare)
@@ -845,7 +846,8 @@ namespace Durin
 		ExtraPolicy = {};
 		bContactShadows = false;
 
-		if (bGPUCullingQualification)
+		// The presentation smoke also runs on devices limited to direct submission.
+		if (bGPUCullingQualification && (!bPresentation || GDynamicRHI->RHIGetCapabilities()->bSupportsIndirectDraw))
 		{
 			FShaderCompileOptions DepthOptions;
 			DepthOptions.Target = std::string_view(Backend ? Backend : "") == "metal" ? MetalShaderTarget : VulkanShaderTarget;
@@ -879,21 +881,27 @@ namespace Durin
 				ASSERT_NE(GCullingDepthPipeline, nullptr);
 			});
 			FlushRenderingCommands();
-			bDisableCPUCulling = true;
 			SetGBufferCaptureSink(CaptureCullingAttachments);
 			bool bBoundary = false;
 			auto InstallGroups = [&](uint32 VisiblePerGroup, bool TwoGroups) {
 				for (uint32 Group = 0; Group < (TwoGroups ? 2u : 1u); ++Group)
+				{
+					auto Instances = std::make_shared<std::vector<FStaticMeshRenderInstance>>();
 					for (uint32 Index = 0; Index < 64; ++Index)
 					{
-						const uint32 Id = Index == 0 ? (Group == 0 ? 10001 : 10003) : 11000 + Group * 64 + Index;
-						const FVector3 Position = WorldShift + FVector3{bBoundary ? 100.0 : 100.0 + Index * 3 + Group * 5,
-							Index < VisiblePerGroup ? (bBoundary ? 100.0 : -35.0 + Group * 70 + (Index % 8) * 2) : 1000000.0,
-							bBoundary ? 2510.0 : 2510.0 + (Index / 8) * 2};
-						EXPECT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Scene, FPrimitiveComponentId(Id),
-							std::make_unique<FStaticMeshSceneProxy>(Geometry.get(), std::vector<FMaterialRenderProxyRef>{
-								(Group == 0 ? LitMaterial : MaskedMaterial)->GetRenderProxy()}), Math::TranslationMatrix(Position)));
+						// Straddle the frustum even in the zero-visible layout so CPU
+						// aggregate classification leaves the individual tests to compute.
+						const double Y = Index < VisiblePerGroup
+							? (bBoundary ? 100.0 : -35.0 + Group * 70 + (Index % 8) * 2)
+							: (Index % 2 ? 1000000.0 : -1000000.0);
+						const FVector3 Position{bBoundary ? 100.0 : 100.0 + Index * 3 + Group * 5,
+							Y, bBoundary ? 2510.0 : 2510.0 + (Index / 8) * 2};
+						Instances->push_back({.Id = Index + 1, .LocalToPrimitive = Math::TranslationMatrix(Position)});
 					}
+					EXPECT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Scene, FPrimitiveComponentId(Group == 0 ? 10001 : 10003),
+						std::make_unique<FStaticMeshSceneProxy>(Geometry.get(), std::vector<FMaterialRenderProxyRef>{
+							(Group == 0 ? LitMaterial : MaskedMaterial)->GetRenderProxy()}, Instances), Math::TranslationMatrix(WorldShift)));
+				}
 				FlushRenderingCommands();
 			};
 			auto TakeAttachments = [] {
@@ -951,11 +959,15 @@ namespace Durin
 				ASSERT_EQ(T.GPUCullingVisibility->GetState(), ERHITextureReadbackState::Ready);
 				const auto Counts = T.GPUCullingVisibility->GetCounts();
 				ASSERT_TRUE(Counts);
-				EXPECT_EQ(Counts->Visible, Groups * VisiblePerGroup);
-				EXPECT_EQ(Counts->Culled, Groups * (64 - VisiblePerGroup));
+				const uint32 ExpectedVisible = Groups * (bDisableFrustumCulling ? 64u : VisiblePerGroup);
+				EXPECT_EQ(Counts->Visible, ExpectedVisible);
+				EXPECT_EQ(Counts->Culled, Groups * 64u - ExpectedVisible);
 				std::cout << "GPU_CULLING_PARITY candidates=" << Counts->Candidates << ",visible=" << Counts->Visible
 					<< ",culled=" << Counts->Culled << ",groups=" << Groups << ",async_requested=" << Async << '\n';
 			};
+			bDisableFrustumCulling = true;
+			CheckParity(32, false, false);
+			bDisableFrustumCulling = false;
 			CheckParity(0, false, false);
 			CheckParity(32, false, false);
 			CheckParity(64, false, true);
@@ -1015,7 +1027,7 @@ namespace Durin
 			GCullingDepthShader = nullptr;
 			GCullingDepthPipeline = nullptr;
 			ExtraOptions = {};
-			bDisableCPUCulling = false;
+			bDisableFrustumCulling = false;
 		}
 
 		if (bAliasingQualification)
@@ -1118,24 +1130,103 @@ namespace Durin
 		LocalHistory.Reset();
 		Component->SetEnabled(false);
 
+		// Extend this receiver along camera depth so that its bounds cross cascade splits.
+		auto OverlapTransform = Math::TranslationMatrix(FVector3{65, -15, 2510});
+		OverlapTransform[1][0] = 1.5;
+		FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Scene, FPrimitiveComponentId(10001),
+			std::make_unique<FStaticMeshSceneProxy>(Geometry.get(),
+				std::vector<FMaterialRenderProxyRef>{LitMaterial->GetRenderProxy()}), OverlapTransform);
+		FlushRenderingCommands();
+		using FMembership = std::array<std::vector<uint64>, 1 + DirectionalShadowCascadeCount>;
+		FMembership Admitted;
+		ExtraPolicy.ObserveAdmittedDraws = [&](const FSceneRenderPlan& Plan) {
+			auto Capture = [](const FPreparedStaticMeshView& View) {
+				std::vector<uint64> Ids;
+				for (uint32 Index = 0; Index < View.GetNumSections(); ++Index)
+					Ids.push_back(View.GetPrimitive(View.GetDraw(Index))->PrimitiveId.Value);
+				return Ids;
+			};
+			Admitted = {};
+			Admitted[0] = Capture(Plan.Receiver.StaticMeshes);
+			if (Plan.DirectionalShadow)
+				for (uint32 Cascade = 0; Cascade < Plan.DirectionalShadow->View.CascadeCount; ++Cascade)
+					Admitted[1 + Cascade] = Capture(Plan.DirectionalShadow->StaticMeshes[Cascade]);
+		};
 		RenderOffscreen(false, false);
+		const FMembership Ready = Admitted;
 		const auto ReadyDraws = GSceneCloudTelemetry.GBuffer.GBufferStaticMeshSuccessfulDraws;
-		ExtraPolicy.PendingPrimitive = 10001;
+		const auto ReadyShadowDraws = GSceneCloudTelemetry.DirectionalShadow.ShadowSuccessfulDraws;
+		constexpr uint64 PendingId = 10001;
+		auto Expected = Ready;
+		ASSERT_GT(std::erase(Expected[0], PendingId), 0u);
+		ExtraPolicy.PendingPrimitive = PendingId;
 		RenderOffscreen(false, false);
+		EXPECT_EQ(Admitted, Expected);
 		EXPECT_GT(GSceneCloudTelemetry.GBuffer.GBufferStaticMeshSuccessfulDraws, 0u);
 		EXPECT_LT(GSceneCloudTelemetry.GBuffer.GBufferStaticMeshSuccessfulDraws, ReadyDraws);
-		ExtraPolicy = {};
-		RenderOffscreen(false, false);
+		EXPECT_EQ(GSceneCloudTelemetry.DirectionalShadow.ShadowSuccessfulDraws, ReadyShadowDraws);
+		ExtraPolicy.PendingPrimitive.reset();
+		Expected = Ready;
+		uint32 ParticipatingCascades = 0;
+		for (uint32 Cascade = 0; Cascade < DirectionalShadowCascadeCount; ++Cascade)
+			if (std::ranges::find(Ready[1 + Cascade], PendingId) != Ready[1 + Cascade].end())
+			{
+				++ParticipatingCascades;
+				ExtraPolicy.PendingShadowCascade = Cascade;
+			}
+		ASSERT_GE(ParticipatingCascades, 2u);
+		const uint32 TargetCascade = *ExtraPolicy.PendingShadowCascade;
+		const auto Missing = std::erase(Expected[1 + TargetCascade], PendingId);
+		ExtraPolicy.PendingShadowPrimitive = PendingId;
+		const auto ShadowPreparation = FRenderResourcePreparation::Create();
+		auto RenderShadowRequest = [&] {
+			RenderOffscreen(false, false, EGroundTruthAmbientOcclusionQuality::HalfResolution,
+				ERenderMode::Lit, ESceneRasterFailure::None, 96, 64, ERasterMode::Solid, ShadowPreparation);
+		};
+		RenderShadowRequest();
+		EXPECT_EQ(ShadowPreparation.GetProgress().State, ERenderResourcePreparationState::Pending);
+		EXPECT_EQ(Admitted, Expected);
 		EXPECT_EQ(GSceneCloudTelemetry.GBuffer.GBufferStaticMeshSuccessfulDraws, ReadyDraws);
+		EXPECT_EQ(GSceneCloudTelemetry.DirectionalShadow.ShadowSuccessfulDraws + Missing, ReadyShadowDraws);
+		EXPECT_EQ(GSceneCloudTelemetry.DirectionalShadow.ShadowCascades[TargetCascade].WithheldPrimitives, 1u);
 
-		ExtraPolicy.PendingShadowPrimitive = 10001;
-		RenderOffscreen(false, false);
-		EXPECT_TRUE(HasPass("Scene.DirectionalShadow"));
-		EXPECT_GT(GSceneCloudTelemetry.GBuffer.GBufferStaticMeshSuccessfulDraws, 0u);
-		EXPECT_LT(GSceneCloudTelemetry.GBuffer.GBufferStaticMeshSuccessfulDraws, ReadyDraws);
+		// The same pending shadow cannot delay capture for a view without shadow demand.
+		RenderOffscreen(false, false, EGroundTruthAmbientOcclusionQuality::HalfResolution, ERenderMode::Unlit);
+		EXPECT_EQ(GSceneCloudTelemetry.DirectionalShadow.ShadowSceneTraversals, 0u);
+		ExtraPolicy.PendingShadowPrimitive.reset();
+		RenderShadowRequest();
+		EXPECT_EQ(ShadowPreparation.GetProgress().State, ERenderResourcePreparationState::Ready);
+		EXPECT_EQ(Admitted, Ready);
+		EXPECT_EQ(GSceneCloudTelemetry.DirectionalShadow.ShadowSuccessfulDraws, ReadyShadowDraws);
 		ExtraPolicy = {};
-		RenderOffscreen(false, false);
-		EXPECT_EQ(GSceneCloudTelemetry.GBuffer.GBufferStaticMeshSuccessfulDraws, ReadyDraws);
+		if (GDynamicRHI->RHIGetCapabilities()->bSupportsNonSolidFill)
+		{
+			RenderOffscreen(false, false, EGroundTruthAmbientOcclusionQuality::HalfResolution,
+				ERenderMode::Lit, ESceneRasterFailure::None, 96, 64, ERasterMode::Wireframe);
+			EXPECT_TRUE(HasPass("Scene.Forward"));
+			EXPECT_GT(GSceneCloudTelemetry.StaticMesh.StaticMeshSuccessfulDraws, 0u);
+			EXPECT_EQ(GSceneCloudTelemetry.DirectionalShadow.ShadowSceneTraversals, 1u);
+		}
+
+		if (GDynamicRHI->RHIGetCapabilities()->bSupportsIndirectDraw)
+		{
+			// Leave a hole in the resolved array while a full 64-member group survives.
+			constexpr uint64 GroupStart = 12000;
+			for (uint64 Index = 0; Index < 65; ++Index)
+				FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Scene, FPrimitiveComponentId(GroupStart + Index),
+					std::make_unique<FStaticMeshSceneProxy>(Geometry.get(), std::vector{LitMaterial->GetRenderProxy()}),
+					Math::TranslationMatrix(FVector3{120.0 + Index, double(Index % 8) * 2.0, 2510.0}));
+			FlushRenderingCommands();
+			ExtraOptions.bEnableGPUCulling = true;
+			RenderOffscreen(false, false);
+			ExtraPolicy.PendingPrimitive = GroupStart + 32;
+			ExtraOptions.bEnableGPUCulling = false;
+			const auto Direct = RenderOffscreen(false, false);
+			ExtraOptions.bEnableGPUCulling = true;
+			EXPECT_EQ(*Direct, *RenderOffscreen(false, false));
+			EXPECT_EQ(GSceneCloudTelemetry.StaticMesh.WithheldPrimitives, 1u);
+			EXPECT_GT(GSceneCloudTelemetry.GBuffer.GPUCullingIndirectDraws, 0u);
+		}
 
 		SetSceneRenderGraphCaptureSink(nullptr);
 		SetViewRenderTelemetrySink(nullptr);

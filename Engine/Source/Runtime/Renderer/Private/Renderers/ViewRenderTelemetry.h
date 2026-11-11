@@ -52,6 +52,7 @@ namespace Durin
 	// Reconciles one cascade's independent caster, draw, and fitting outcomes.
 	struct FDirectionalShadowCascadeTelemetry
 	{
+		size_t WithheldPrimitives = 0;
 		double NearDepth = 0.0;
 		double FarDepth = 0.0;
 		double TransitionStartDepth = 0.0;
@@ -73,6 +74,7 @@ namespace Durin
 
 	struct FStaticMeshRenderTelemetry
 	{
+		size_t WithheldPrimitives = 0;
 		size_t VisibleStaticMeshCandidates = 0;
 		size_t PreparedStaticMeshPrimitives = 0;
 		size_t RejectedStaticMeshPrimitives = 0;

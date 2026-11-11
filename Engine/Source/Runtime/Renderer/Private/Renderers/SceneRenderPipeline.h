@@ -53,6 +53,7 @@ namespace Durin
 			FSceneFrameContext& Context, bool bPrepareOnly
 		) -> ERenderViewResult;
 		auto BuildSceneFrameFeaturePlan(
+			const FSceneViewRequirements& Requirements,
 			const FSceneRenderPlan& PreparedView,
 			const FSceneViewRenderOptions& Options,
 			uint32 Width,

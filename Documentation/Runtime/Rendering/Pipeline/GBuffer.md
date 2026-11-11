@@ -4,7 +4,7 @@ Summary: Define the qualified opaque/masked geometry transport consumed by defer
 
 Modules: RenderCore, Renderer, RHI
 
-Last reviewed: 2026-10-18
+Last reviewed: 2026-11-11
 
 ## Scope and Ownership
 
@@ -40,19 +40,24 @@ threshold. The default remains disabled after qualification.
 Admission accepts whole groups within 65,536 candidates and 4 MiB of generated
 candidate, transform, visible-index and argument storage. Rejected and smaller
 groups remain direct. Bounds and transforms use the view's translated world
-origin before FP32 upload. Compute tests all six clip planes conservatively,
-compacts candidate indices inside each group's reserved range and updates that
-group's indexed argument count. A candidate belongs to one group and emits at
-most one visible index, so its reserved capacity cannot overflow.
+origin before FP32 upload. The fitted main view resolves one culling policy.
+CPU classification tests aggregate primitive bounds. Compute tests each admitted
+instance against the same six planes, translated to the camera origin. Both tests
+use the same world-scale plane-contact margin. The GPU also allows for FP32
+roundoff in translated plane distances. Disabled culling or an unsupported
+frustum supplies zero planes. Compute then compacts every admitted instance
+into its group's reserved range and updates the indexed argument count. Each
+candidate belongs to one group and emits at most one visible index.
 
 One indirect command consumes one 20-byte indexed argument at a four-byte-aligned
 offset. `FirstIndex` and signed `VertexOffset` preserve the direct draw. Each
 group's `FirstInstance` is its visible-index range start. Slang's
 `SV_InstanceID` is relative to that start: both generated material and fixed
 vertex entries add `SV_StartInstanceLocation` before indexing visible records.
-The compute constant buffer is a matrix plus one aligned `uint4` (80 bytes on
-both targets). GPU and direct permutations own distinct per-pass fragment
-bindings even when their material expressions are identical.
+The 128-byte compute constant buffer holds six planes, the world origin and
+relative contact tolerance, and an aligned block of candidate and plane counts.
+GPU and direct permutations own distinct per-pass fragment bindings even when
+their material expressions are identical.
 
 RDG owns immutable uploads, compute storage writes, graphics storage reads and
 exact indirect-record reads. Optional async assignment is a logical role; it
@@ -126,8 +131,8 @@ travel in the selected transform record and do not fragment material bindings.
 Compatibility includes the draw command, collected
 vertex input, GPU-culling graphics pipeline, and material binding. Preparation
 stores finite world-space AABBs and transforms, then flattens each admitted
-group into one contiguous visible-instance interval. A compute pass tests the
-AABBs against the view frustum, atomically compacts transform indices, and
+group into one contiguous visible-instance interval. A compute pass applies the resolved
+culling policy, atomically compacts transform indices, and
 writes one 20-byte indexed indirect record per group. The graphics pass reads
 the exact visible/transform ranges and exact argument-record ranges; it never
 maps them or waits for a CPU readback.
@@ -173,7 +178,9 @@ contract.
 Per-view GPU-culling diagnostics report policy-disabled, unsupported,
 below-floor, incompatible, capacity, preparation and dispatch-admission outcomes,
 candidate/group/command/generated-byte counts, actual indirect and remaining
-direct draws. Compiled logical queue roles and physical graphics/compute queue
+local-domain direct draws. Submission counters advance when the draw command
+succeeds. Grouped members still count toward logical GBuffer successes.
+Compiled logical queue roles and physical graphics/compute queue
 counts are separate. A dedicated timestamp sink exposes the compute interval.
 
 Registering the view telemetry observer explicitly requests an asynchronous

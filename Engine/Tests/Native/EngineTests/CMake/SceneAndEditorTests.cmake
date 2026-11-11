@@ -285,6 +285,7 @@ durin_add_native_test(DirectionalShadowBaselineVulkanTests
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
+	# The fixture registers its depth-capture mount before starting ShaderBuild.
 	RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
 	HEAVY_RUNTIME_RATIONALE
 		"Captures the frozen Q0 directional-shadow Lit baseline through the production Vulkan renderer."

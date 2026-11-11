@@ -116,7 +116,7 @@ namespace Durin
 		Context.Logical.PreparedView = std::move(*Preparation);
 		const FSceneRenderPlan& PreparedView = *Context.Logical.PreparedView;
 		Context.Features = BuildSceneFrameFeaturePlan(
-			PreparedView, Options, Width, Height, Qualification);
+			Context.Logical.Requirements, PreparedView, Options, Width, Height, Qualification);
 		const auto& Settings = PreparedView.PreparationConfig.Settings;
 		if ((Context.Features.RequiresProductionDeferred() ? !Settings.bHybrid : !Settings.bForward)
 			|| ((Context.Features.RequiresDeferredInputs() || Context.Features.GBuffer.IsEnabled()) && !Settings.bHybrid))
@@ -146,6 +146,7 @@ namespace Durin
 		{
 			for (uint32 Cascade = 0; Cascade < PreparedView.DirectionalShadow->View.CascadeCount; ++Cascade)
 			{
+				if (Qualification.PendingShadowCascade && Cascade != *Qualification.PendingShadowCascade) continue;
 				const auto& Prepared = PreparedView.DirectionalShadow->StaticMeshes[Cascade];
 				auto& Resolved = Context.Resolved.Scene.DirectionalShadow->StaticMeshes[Cascade];
 				for (uint32 Index = 0; Index < Prepared.GetNumSections(); ++Index)
@@ -161,14 +162,14 @@ namespace Durin
 			&FSceneRenderPipeline::PrepareFeatureResources_RenderThread, bPrepareOnly);
 		if (FeatureResult != ERenderViewResult::Success) return FeatureResult;
 		if (bPrepareOnly) return ERenderViewResult::Success;
-		RemoveUnreadyStaticMeshPrimitives(Context.Logical.PreparedView->Receiver.StaticMeshes,
-			Context.Resolved.Scene.Receiver.StaticMeshes,
-			Context.Logical.PreparedView->DirectionalShadow
-				? std::span(Context.Logical.PreparedView->DirectionalShadow->StaticMeshes)
-				: std::span<FPreparedStaticMeshView>{},
-			Context.Resolved.Scene.DirectionalShadow && Context.Resolved.Scene.DirectionalShadow->bEnabled
-				? std::span<const FResolvedStaticMeshView>(Context.Resolved.Scene.DirectionalShadow->StaticMeshes)
-				: std::span<const FResolvedStaticMeshView>{});
+		auto& ViewPlan = *Context.Logical.PreparedView;
+		Telemetry.View.StaticMesh.WithheldPrimitives = AdmitStaticMeshDraws(
+			ViewPlan.Receiver.StaticMeshes, Context.Resolved.Scene.Receiver.StaticMeshes);
+		if (Context.Resolved.Scene.DirectionalShadow && Context.Resolved.Scene.DirectionalShadow->bEnabled)
+			for (uint32 Cascade = 0; Cascade < ViewPlan.DirectionalShadow->View.CascadeCount; ++Cascade)
+				Telemetry.View.DirectionalShadow.ShadowCascades[Cascade].WithheldPrimitives = AdmitStaticMeshDraws(
+					ViewPlan.DirectionalShadow->StaticMeshes[Cascade], Context.Resolved.Scene.DirectionalShadow->StaticMeshes[Cascade]);
+		if (Qualification.ObserveAdmittedDraws) Qualification.ObserveAdmittedDraws(ViewPlan);
 		Admission.reset();
 		FCloudHistoryCandidateScope CloudHistoryCandidate(ViewState);
 		BeginTemporalState_RenderThread(Context);

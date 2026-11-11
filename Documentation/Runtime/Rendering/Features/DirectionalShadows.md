@@ -4,7 +4,7 @@ Summary: Defines the selected three-cascade directional-light shadow path, deter
 
 Modules: RenderCore, Renderer, Engine, VulkanRHI
 
-Last reviewed: 2026-10-19
+Last reviewed: 2026-11-11
 
 ## Ownership and selection
 
@@ -247,8 +247,9 @@ distinct frozen colors recorded by the Q0 fixture package.
 
 Diagnostics execute only in the existing Scene Color fragment path and add no
 global mutable camera/light state, render target, pass, descriptor, or device
-wait. Disabled/failed shadows and Unlit views ignore diagnostic requests and
-match their Lit references exactly. Per-view counters report selected mode and
+wait. Ordinary Unlit views skip caster discovery and map preparation. An explicit
+shadow diagnostic retains the map producer when the light and view are eligible.
+The Unlit color output retains its ordinary shading. Per-view counters report selected mode and
 prepared bias fallback/clamp state; exact diagnostic image statistics own
 fragment-level comparison and classification evidence without GPU atomics.
 

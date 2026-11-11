@@ -25,7 +25,7 @@ namespace Durin
 		Wireframe
 	};
 
-	// Selects conservative CPU frustum classification for one submitted view.
+	// Selects conservative main-view primitive and grouped-instance frustum classification for one submitted view.
 	enum class EViewVisibilityMode : uint8
 	{
 		Normal,

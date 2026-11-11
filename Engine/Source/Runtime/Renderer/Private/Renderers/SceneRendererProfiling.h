@@ -12,6 +12,7 @@ namespace Durin
 {
 	class FRHICommandListImmediate;
 	class FRHITexture;
+	struct FSceneRenderPlan;
 	// Development-only recording failures exercise outcome propagation and abort.
 	enum class ESceneRasterFailure : uint8
 	{
@@ -45,6 +46,8 @@ namespace Durin
 		EScenePreparationPending PendingFeature = EScenePreparationPending::None;
 		std::optional<uint64> PendingPrimitive;
 		std::optional<uint64> PendingShadowPrimitive;
+		std::optional<uint32> PendingShadowCascade;
+		std::function<void(const FSceneRenderPlan&)> ObserveAdmittedDraws;
 	};
 
 	// Installs one render-thread qualification policy for the lexical duration

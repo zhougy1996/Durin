@@ -2346,12 +2346,15 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 			FByteBuffer Pixels, Shadow;
 			std::array<FByteBuffer, 5> GBuffer;
 			FViewRenderTelemetry Telemetry;
+			FGPUTimingQueryRHIRef RasterTime, CullTime;
 		};
+		auto VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
+		bool bTimePasses = false;
 		auto Render = [&](FScene* Scene, bool GPU, ERenderMode Mode, FObservation& Result) {
 			static FObservation* Sink = nullptr;
 			FSceneView View; View.ViewportWidth = 192; View.ViewportHeight = 192;
 			View.Settings.Mode.RenderMode = Mode;
-			View.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
+			View.Settings.Mode.VisibilityMode = VisibilityMode;
 			View.Settings.DirectionalShadow.Candidate = EDirectionalShadowCandidate::SingleMap;
 			FSceneViewRenderOptions Options; Options.bEnableGPUCulling = GPU;
 			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
@@ -2364,6 +2367,11 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 					.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy),
 				[&] {
 					Sink = &Result;
+					if (bTimePasses)
+					{
+						SetGBufferTimingQuerySink(+[](const FGPUTimingQueryRHIRef& Q) { Sink->RasterTime = Q; });
+						SetGPUCullingTimingQuerySink(+[](const FGPUTimingQueryRHIRef& Q) { Sink->CullTime = Q; });
+					}
 					SetViewRenderTelemetrySink(+[](const FViewRenderTelemetry& Value) { Sink->Telemetry = Value; });
 					SetGBufferCaptureSink(+[](FRHICommandListImmediate& C, FRHITexture* A, FRHITexture* B, FRHITexture* D, FRHITexture* E, FRHITexture* Z) {
 						const std::array Textures{A, B, D, E, Z};
@@ -2372,6 +2380,8 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 					SetShadowDepthCaptureSink(+[](FRHICommandListImmediate& C, FRHITexture* Texture, uint32) { ReadGeometryTexture(C, Texture, Sink->Shadow, true); });
 				},
 				[&](FRHICommandListImmediate& Commands, FRHITexture* Target) { ReadGeometryTexture(Commands, Target, Result.Pixels); }, Options);
+			SetGBufferTimingQuerySink(nullptr);
+			SetGPUCullingTimingQuerySink(nullptr);
 			Sink = nullptr;
 			EXPECT_EQ(Outcome, ERenderViewResult::Success);
 		};
@@ -2412,6 +2422,73 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 					<< " instance_uniform_bytes=" << sizeof(RendererPrivate::FStaticMeshTransformUniform) << '\n';
 			}
 		}
+		// Keep a single aggregate primitive intersecting the frustum so the CPU broad
+		// phase cannot remove its off-screen instances before indirect submission.
+		const bool bProfile = std::getenv("DURIN_PROFILE_MAIN_VIEW_CULLING") != nullptr;
+		for (const uint32 Outside : {0u, 32u})
+		{
+			auto Layout = Instances;
+			for (size_t I = 0; I < Outside; ++I) Layout[I].LocalToPrimitive[3].x += 4.0;
+			Instanced->UpdateStaticMeshRenderInstances(FPrimitiveComponentId(1000),
+				std::make_shared<const std::vector<FStaticMeshRenderInstance>>(std::move(Layout)));
+			for (const bool Enabled : {false, true})
+			{
+				VisibilityMode = Enabled ? EViewVisibilityMode::Normal : EViewVisibilityMode::FrustumCullingDisabled;
+				bTimePasses = Enabled && bProfile;
+				const int Pairs = bTimePasses ? 12 : 1;
+				for (int Pair = 0; Pair < Pairs; ++Pair)
+				{
+					FObservation D, G;
+					for (bool Indirect : {Pair % 2 == 0, Pair % 2 != 0})
+						Render(Instanced.Get(), Indirect, ERenderMode::Lit, Indirect ? G : D);
+					EXPECT_EQ(D.Pixels, G.Pixels);
+					EXPECT_EQ(D.GBuffer, G.GBuffer);
+					EXPECT_EQ(D.Telemetry.GBuffer.GBufferSuccessfulDraws, 64u);
+					EXPECT_EQ(G.Telemetry.GBuffer.GPUCullingIndirectDraws, 1u);
+					EXPECT_EQ(G.Telemetry.GBuffer.GPUCullingDirectFallbackDraws, 0u);
+					const auto& Query = G.Telemetry.GBuffer.GPUCullingVisibility;
+					ASSERT_TRUE(Query);
+					for (int Poll = 0; Poll < 60; ++Poll)
+					{
+						const auto Ready = [](const FGPUTimingQueryRHIRef& Q) {
+							return Q && Q->GetResult().State == ERHIGPUTimingResultState::Ready;
+						};
+						if (Query->GetCounts() && (!bTimePasses || (Ready(D.RasterTime) && Ready(G.RasterTime) && Ready(G.CullTime)))) break;
+						EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([](FRHICommandListImmediate& Commands) {
+							FGeometryQualificationFrame Frame(Commands);
+							Commands.PollTextureReadbacks();
+							Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+						});
+						FlushRenderingCommands();
+					}
+					const auto Counts = Query->GetCounts();
+					ASSERT_TRUE(Counts);
+					EXPECT_EQ(Counts->Candidates, 64u);
+					EXPECT_EQ(Counts->Culled, Enabled ? Outside : 0u);
+					EXPECT_EQ(Counts->Visible, 64u - (Enabled ? Outside : 0u));
+					std::cout << "MAIN_VIEW_CULLING outside=" << Outside << " enabled=" << Enabled
+						<< " pair=" << Pair << " direct_draws=" << D.Telemetry.GBuffer.GBufferSuccessfulDraws
+						<< " indirect_draws=" << G.Telemetry.GBuffer.GPUCullingIndirectDraws
+						<< " visible=" << Counts->Visible << " culled=" << Counts->Culled;
+					if (bTimePasses)
+					{
+						for (const auto& Q : {D.RasterTime, G.RasterTime, G.CullTime})
+						{
+							ASSERT_TRUE(Q);
+							ASSERT_EQ(Q->GetResult().State, ERHIGPUTimingResultState::Ready);
+						}
+						std::cout << " direct_raster_ns=" << D.RasterTime->GetResult().DurationNanoseconds
+							<< " grouped_raster_ns=" << G.RasterTime->GetResult().DurationNanoseconds
+							<< " compact_ns=" << G.CullTime->GetResult().DurationNanoseconds;
+					}
+					std::cout << '\n';
+				}
+			}
+		}
+		bTimePasses = false;
+		VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
+		Instanced->UpdateStaticMeshRenderInstances(FPrimitiveComponentId(1000),
+			std::make_shared<const std::vector<FStaticMeshRenderInstance>>(Instances));
 		auto FindFragmentType = [](std::string_view Entry) -> const FShaderType* {
 			for (const auto* Type : FShaderType::GetTypeList())
 				if (Type->GetFrequency() == EShaderFrequency::Fragment && Type->GetEntryPoint() == Entry) return Type;

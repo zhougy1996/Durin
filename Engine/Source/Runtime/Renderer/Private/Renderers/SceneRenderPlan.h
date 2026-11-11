@@ -6,6 +6,7 @@
 
 #include "Renderers/DirectionalShadowView.h"
 #include "Renderers/SceneVisibility.h"
+#include "Renderers/ViewPreparationMath.h"
 #include "Renderers/SceneViewState.h"
 #include "Renderers/StaticMeshRenderPreparation.h"
 #include "Renderers/VolumetricCloudRenderer.h"
@@ -40,6 +41,7 @@ namespace Durin
 	// Owns immutable receiver geometry.
 	struct FPreparedReceiverGeometry
 	{
+		std::optional<FViewFrustum> CullingFrustum;
 		FPreparedStaticMeshView StaticMeshes;
 	};
 

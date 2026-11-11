@@ -962,6 +962,10 @@ namespace Durin
 						VisibleInstances, InstanceTransforms
 					))
 				{
+					if (IndirectIndex != UINT32_MAX)
+						++ResolvedView.Observations.GBufferIndirectSubmissions;
+					else if (Draw.Command->PipelineKey.VertexDomain != EVertexDeformationDomain::Spline)
+						++ResolvedView.Observations.GBufferLocalDirectSubmissions;
 					bRenderedGeometry = true;
 					++ResolvedView.Observations.GBufferSuccessfulDraws;
 					RecordFamily(ResolvedView, Draw, &FStaticMeshRenderObservations::GBufferLocalSuccessfulDraws, &FStaticMeshRenderObservations::GBufferSplineSuccessfulDraws);

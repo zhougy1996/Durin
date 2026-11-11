@@ -253,6 +253,8 @@ namespace Durin
 		Collected->View.Settings.Mode = View.Settings.Mode;
 		Collected->RasterMode = RasterMode;
 		Collected->Mode = Mode;
+		const auto Purpose = Mode == ERenderPreparationMode::ShadowDepth
+			? EMeshCollectionPurpose::Shadow : EMeshCollectionPurpose::Receiver;
 		Collected->Primitives.reserve(SceneInfos.size());
 		std::vector<FMeshViewPreparationInput> ViewInputs;
 		ViewInputs.reserve(SceneInfos.size());
@@ -263,7 +265,7 @@ namespace Durin
 		{
 			auto& Input = ViewInputs.emplace_back();
 			if (!SceneInfo) continue;
-			if (!SceneInfo->GetProxy().GetRenderParticipation().IsRelevant(Mode == ERenderPreparationMode::ShadowDepth)) continue;
+			if (!SceneInfo->GetProxy().GetRenderParticipation().IsRelevant(Purpose)) continue;
 			Input.WorldBounds = SceneInfo->GetWorldBounds();
 			const auto& Proxy = SceneInfo->GetProxy();
 			// Extensions with custom collection stay dynamic until they explicitly
@@ -286,7 +288,7 @@ namespace Durin
 			Primitive.Id = SceneInfo->GetId();
 			Primitive.bSplineMesh = SceneInfo->GetKind() == EPrimitiveSceneProxyKind::SplineMesh;
 			Primitive.WorldBounds = SceneInfo->GetWorldBounds();
-			if (!SceneInfo->GetProxy().GetRenderParticipation().IsRelevant(Mode == ERenderPreparationMode::ShadowDepth))
+			if (!SceneInfo->GetProxy().GetRenderParticipation().IsRelevant(Purpose))
 			{
 				Primitive.Outcomes[static_cast<size_t>(EGeometrySubmissionOutcome::Excluded)] = 1;
 				continue;
@@ -308,8 +310,7 @@ namespace Durin
 			case EProjectedScreenSizeStatus::InvalidView: Context.ProjectionStatus = EMeshCollectionProjectionStatus::InvalidView; break;
 			}
 			Context.bForceLOD0 = View.Settings.Mode.LODMode == EViewLODMode::ForceLOD0;
-			Context.Purpose = Mode == ERenderPreparationMode::ShadowDepth
-				? EMeshCollectionPurpose::Shadow : EMeshCollectionPurpose::Receiver;
+			Context.Purpose = Purpose;
 			FMeshBatchCollector Collector(Context.Purpose, SharedCache ? &SharedCache->Admission : nullptr);
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.CollectMeshBatches");
@@ -807,31 +808,22 @@ namespace Durin
 		return Result;
 	}
 
-	auto RemoveUnreadyStaticMeshPrimitives(FPreparedStaticMeshView& Prepared,
-		const FResolvedStaticMeshView& Resolved,
-		std::span<FPreparedStaticMeshView> ShadowViews,
-		std::span<const FResolvedStaticMeshView> ShadowResources) -> void
+	auto AdmitStaticMeshDraws(FPreparedStaticMeshView& View, const FResolvedStaticMeshView& Resources) -> size_t
 	{
-		std::unordered_set<uint64> Unready;
-		auto Collect = [&](const FPreparedStaticMeshView& View, const FResolvedStaticMeshView& Resources) {
-			for (const auto Id : View.ResourceFailurePrimitives) Unready.insert(Id.Value);
-			for (const auto* Bucket : {&View.Opaque, &View.Masked, &View.Translucent})
-				for (const auto& Draw : *Bucket)
-					if (!Resources.IsReady(Draw))
-						if (const auto* Primitive = View.GetPrimitive(Draw)) Unready.insert(Primitive->PrimitiveId.Value);
-		};
-		Collect(Prepared, Resolved);
-		check(ShadowResources.empty() || ShadowResources.size() == ShadowViews.size());
-		for (size_t Index = 0; Index < ShadowResources.size(); ++Index) Collect(ShadowViews[Index], ShadowResources[Index]);
-		auto Remove = [&](FPreparedStaticMeshView& View) {
-			for (auto* Bucket : {&View.Opaque, &View.Masked, &View.Translucent})
-				std::erase_if(*Bucket, [&](const auto& Draw) {
-					const auto* Primitive = View.GetPrimitive(Draw);
-					return !Primitive || Unready.contains(Primitive->PrimitiveId.Value);
-				});
-		};
-		Remove(Prepared);
-		for (auto& Shadow : ShadowViews) Remove(Shadow);
+		std::unordered_set<uint64> Withheld;
+		for (const auto Id : View.ResourceFailurePrimitives) Withheld.insert(Id.Value);
+		for (const auto* Bucket : {&View.Opaque, &View.Masked, &View.Translucent})
+			for (const auto& Draw : *Bucket)
+				if (!Resources.IsReady(Draw))
+					if (const auto* Primitive = View.GetPrimitive(Draw))
+						Withheld.insert(Primitive->PrimitiveId.Value);
+
+		for (auto* Bucket : {&View.Opaque, &View.Masked, &View.Translucent})
+			std::erase_if(*Bucket, [&](const auto& Draw) {
+				const auto* Primitive = View.GetPrimitive(Draw);
+				return !Primitive || Withheld.contains(Primitive->PrimitiveId.Value);
+			});
+		return Withheld.size();
 	}
 
 	static auto FinalizeStaticMeshPreparation(FPreparedStaticMeshView& Result, size_t MaterialCount) -> void

@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "Renderers/SceneRendererProfiling.h"
+#include "Renderers/ViewPreparationMath.h"
 
 #include "Materials/MaterialRenderProxy.h"
 #include "RendererAPI.h"
@@ -30,11 +31,13 @@ namespace Durin
 
 	struct alignas(16) FGBufferGPUCullingUniform final
 	{
-		float ViewProjection[16]{};
+		std::array<FVector4f, 6> Planes{};
+		FVector4f WorldOriginAndRelativeTolerance{};
 		uint32 CandidateCount = 0;
-		uint32 Padding[3]{};
+		uint32 PlaneCount = 0;
+		uint32 Padding[2]{};
 	};
-	static_assert(sizeof(FGBufferGPUCullingUniform) == 80);
+	static_assert(sizeof(FGBufferGPUCullingUniform) == 128);
 
 
 	// Records geometry-buffer work into caller-provided attachments without
@@ -105,7 +108,7 @@ namespace Durin
 		auto EnsureGPUCullingResources_RenderThread(EGPUCullingFailure Failure = EGPUCullingFailure::None) -> bool;
 		auto DispatchGPUCulling_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			const FSceneView& View,
+			const FSceneView& View, const std::optional<FViewFrustum>& Frustum,
 			uint32 CandidateCount,
 			const FRDGShaderParameterScope& GraphShaderParameters,
 			EGPUCullingFailure Failure = EGPUCullingFailure::None) -> bool;
