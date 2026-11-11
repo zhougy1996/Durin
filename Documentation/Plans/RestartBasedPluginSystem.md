@@ -12,8 +12,11 @@ Completed:
 Stages 0 and 1 are complete. Stage 1 implements metadata resolution only;
 Stages 2-7 remain open. Projects is registered with a Core-only dependency, and
 Launch includes it in both runtime-variant graphs without invoking plugin startup.
-The next implementation stage is Stage 2; native plugin loading, mounts, and UI
-are not implemented by this change.
+Stage 1.1 has been added as the next required stage, ahead of Stage 2. It will
+consolidate ordinary-project and plugin metadata ownership in Projects, with
+UE-aligned project-management interfaces. It is planned only: the user deferred
+implementation on 2026-11-11. No Stage 1.1 code, build, or native-test work has
+started; native plugin loading, mounts, and UI remain later-stage work.
 
 Stage 1 acceptance (2026-11-11, Win64 Debug, windows-msvc-x64):
 
@@ -79,9 +82,11 @@ original plugin set. A cooked Game runs with only its declared plugin closure.
   continue to work without becoming plugins.
 - Introduce a small runtime `Projects` module depending on `Core`, with no
   Engine, Renderer, or editor dependencies. It owns plugin descriptors,
-  selection, and manifest admission. Keep generic loading in Core's
-  `FModuleManager`; Core must not depend back on Projects. Existing Core project
-  selection/path primitives remain in Core for this iteration.
+  project/plugin descriptors, selection, and manifest admission. Keep generic
+  loading in Core's `FModuleManager`; Core must not depend back on Projects.
+  Stage 1 retained ordinary-project management in Core as an interim boundary.
+  Stage 1.1 moves descriptor/management policy to Projects while preserving
+  Core's low-level path context and mount/module mechanisms.
 - `.dplugin` owns schema version, stable ID, display/version metadata, contained
   module paths and host/platform eligibility, required plugin dependencies,
   optional content/shader/config roots, and module startup phases. `.dmodule`
@@ -120,6 +125,7 @@ original plugin set. A cooked Game runs with only its declared plugin closure.
 | Area | Primary owner | Integration owners |
 | --- | --- | --- |
 | Discovery, descriptors, selection, manifest admission | New `Projects` runtime module | Core project/path primitives; DevTool and DHT Python descriptor readers |
+| Ordinary-project descriptors, current project, status queries, edit-session ownership | Projects after Stage 1.1 | Core mechanisms; Launch lifecycle; editor history/restart policy |
 | Module graph, reflection, generated targets | DurinHeaderTool and CMake | DurinDevTool; `.dproject`/`.dmodule` schemas |
 | Process/project startup and exit | Launch, Engine, DurinEd | Projects; Core ModuleManager |
 | Content mounts, catalogs, packages | Core, AssetRegistry, Engine | Projects supplies immutable mount definitions |
@@ -194,9 +200,119 @@ Acceptance gate:
   existing effective module roots when no plugins are enabled.
 - [x] Errors identify the descriptor and complete failing dependency chain.
 
-### Stage 2: Integrate plugin modules into build and reflection
+### Stage 1.1: Unify project management and descriptor ownership
 
 Dependencies: Stage 1.
+
+Status: Planned; implementation deferred by the user on 2026-11-11.
+
+Modules/tools: Projects, Core, Launch, Engine, DurinEd, MainFrame; all direct
+project API consumers, including DurinAssetTool and project/test targets in
+Durin.dworkspace; DHT and DevTool descriptor readers and plan-context tooling.
+
+Outcome: Projects manages ordinary projects and plugins through one descriptor
+model and an explicit current-project service, without introducing live project
+switching or changing existing startup/readiness ownership.
+
+#### UE Alignment And Selected Boundaries
+
+Use [UE Projects](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Projects)
+and [IProjectManager](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Projects/IProjectManager)
+as naming and responsibility references. Match principal concepts and observable
+semantics; retain Durin's `.dproject`/`.dmodule` formats, error values, and
+`std::expected` conventions rather than promising source or binary compatibility.
+
+| Surface | Selected Stage 1.1 behavior |
+| --- | --- |
+| FProjectDescriptor | Typed project metadata, shared read/load/validation, module roots, plugin references, and mount declarations; independent of current-project mutation |
+| IProjectManager::Get | Single service entry for ordinary-project management; Projects owns its implementation |
+| LoadProjectFile / GetCurrentProject | Load and validate a descriptor, then publish the current descriptor; separate descriptor data from derived paths/session state |
+| QueryStatusForProject / QueryStatusForCurrentProject | Read-only project status using the same descriptor validation; do not load modules, change current project, or equate valid metadata with compatible binaries |
+| LoadModulesForProject | Route existing ordinary-project module loading through the manager at the existing host startup point; Core still executes native loading |
+| SaveCurrentProjectToDisk / IsCurrentProjectDirty | Explicit descriptor editing/save contract, preserving unaffected fields and using atomic publication; failed save retains the dirty state |
+| SetPluginEnabled / RemovePluginReference | Edit requested project configuration only; removing an override differs from writing false; no change to the process's admitted active plugin set |
+
+The descriptor model may share module eligibility/loading-phase vocabulary with
+plugin metadata, following UE's FModuleDescriptor concept. Do not import every
+UE host type, phase, settings API, or IPluginManager method without a Durin need.
+Plugin module phase execution and native compatibility admission remain Stage 3;
+dependency-aware plugin UI and restart handling remain Stage 5.
+
+- Projects owns project descriptors, status queries, current-project context,
+  descriptor edit state, and project edit-session ownership. Keep descriptor
+  inspection usable without initializing Engine, Renderer, editor UI, or Python.
+- Core owns JSON/file/process primitives, generic FModuleManager, FPaths queries,
+  immutable mount registry, and containment/dependency validation. Projects
+  supplies validated path context and mount definitions; Core must not interpret
+  `.dproject` fields or acquire a dependency on Projects.
+- Projects may own recent-project record/persistence values. DurinEd/MainFrame
+  owns interactive history ordering, auto-restore choice, and unsaved-work policy;
+  Launch owns startup argument selection and deferred process relaunch. Game
+  and command-line tools must not accidentally inherit interactive editor policy.
+- Build tools retain a Python representation of the same contract. Share schemas
+  and fixtures with C++; do not embed Python in the runtime or require C++ tools
+  merely to inspect project metadata.
+
+#### Implementation Tasks
+
+- [ ] Add the typed project descriptor and UE-aligned project manager interface,
+  separating persistent descriptor state from derived context and session policy.
+- [ ] Move applicable APIs/data from Core's Project/ProjectError/ProjectHistory
+  facilities to their selected owners. Migrate all source and test consumers in
+  every workspace project; add explicit `.dmodule` dependencies where required.
+  Do not leave a permanent Core facade depending back on Projects.
+- [ ] Make current-project admission, status/history inspection, and plugin
+  resolution reuse the same project reader. Remove duplicate `.dproject` field
+  interpretation from Core path/mount code and the native plugin resolver.
+- [ ] Preserve one validated project/mount snapshot: failed inspection/admission
+  cannot publish partial current-project, path, or mount state. Retain the
+  existing immutable mount lifetime and restart-required project switching.
+- [ ] Define descriptor edit/save semantics, unknown/schema-field handling,
+  project ownership checks, and failure recovery. Keep requested descriptor
+  edits distinct from the active process selection and preserve unrelated data.
+- [ ] Keep project module load order, reflected-provider readiness, initial
+  content scan, and shutdown/relaunch placement equivalent to existing behavior;
+  coordinate with RuntimeStartupAndSceneActivation rather than adding a new loop.
+- [ ] Align Python/C++ absent-versus-empty behavior: omitted BaseModules uses
+  ModuleDirs; explicit empty BaseModules means no base roots; omitted/empty
+  Plugins means no explicit overrides. Preserve existing checked-in project roots.
+- [ ] Extend plan-context stage discovery to recognize dotted numbers so Stage
+  1.1 can be selected independently and its exact provenance is preserved.
+- [ ] Publish lasting project-management ownership/API rules in Workspace and
+  relevant lifecycle documents; revise the interim boundary recorded by Stage 1.
+
+#### Acceptance Gate
+
+- [ ] Shared fixtures establish C++/Python agreement on ordinary project fields,
+  malformed/duplicate fields, omitted/empty values, plugin references, mounts,
+  and Editor/Game root selection. Stage 1 plugin canonical fixtures remain valid
+  unless an intentional, documented correction requires updating expectations.
+- [ ] Status queries leave current context, paths, mounts, module state, and
+  history unchanged. Descriptor edits/atomic save preserve unrelated fields;
+  failed writes preserve disk contents and pending edit state. Explicit false
+  and removed plugin overrides remain observably different after reload.
+- [ ] Project Browser, explicit project opening, history/auto-restore, edit-session
+  exclusion, and deferred relaunch retain their existing contracts. Game/tool
+  project admission does not apply interactive history policy. Failed admission
+  and normal exit leave no partial context or leaked ownership.
+- [ ] Engine, Sandbox, and RoadWeaver retain expected project roots and startup
+  behavior; non-project Browser startup remains supported. Run focused project,
+  plugin, mount, startup/history/relaunch regression coverage and the corresponding
+  bounded process smokes, with evidence and platform skips recorded explicitly.
+- [ ] Dependency checks prove Core has no Projects/Engine/editor dependency and
+  Projects remains Core-only. Ordinary project inspection works in a minimal
+  native consumer. Dotted-stage plan-context discovery has focused regression
+  coverage and selects Stage 1.1 independently of completed Stage 1.
+- [ ] Because public project types move across DLL boundaries and many owners
+  gain direct dependencies, run `all` builds for Editor and Game at this stage's
+  final acceptance. This gate covers the migration's ABI/build-graph risk; reuse
+  unchanged passing results in Stage 7 rather than rerunning by commit identity.
+- [ ] Plan state and lasting documentation match the implemented boundary;
+  document and all-plan validation pass. Only then make Stage 2 executable.
+
+### Stage 2: Integrate plugin modules into build and reflection
+
+Dependencies: Stages 1 and 1.1.
 
 Modules/tools: DurinHeaderTool; CMake workspace/project/target generation;
 DurinDevTool configure/build services; CoreDObject integration fixtures.
@@ -401,7 +517,10 @@ Acceptance gate:
 
 ## Execution Order And Handoff
 
-Implement 1 -> 2 -> 3 -> 4, then UI (5) and cook (6), then qualification (7).
+Implement 1 -> 1.1 -> 2 -> 3 -> 4, then UI (5) and cook (6), then qualification (7).
+Stage 1.1 is currently a planning-only addition; execution is deferred until
+the user resumes it. Existing Stage 1 acceptance remains historical evidence,
+not evidence that the Stage 1.1 ownership migration has been performed.
 Stages 5 and 6 are logically independent after Stage 4; this is not authorization
 for concurrent writers in one checkout. Follow repository worktree ownership.
 
