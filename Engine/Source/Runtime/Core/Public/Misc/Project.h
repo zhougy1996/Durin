@@ -7,6 +7,11 @@
 
 namespace Durin
 {
+	class FJsonNodeView;
+	// Absent and empty Plugins objects both mean no explicit overrides.
+	CORE_API auto ReadProjectPluginOverrides(FJsonNodeView Root)
+		-> std::expected<std::map<std::string, bool>, std::string>;
+
 	// Holds the normalized paths and mount root of the active project.
 	struct FProjectInfo
 	{
@@ -17,6 +22,7 @@ namespace Durin
 		std::string MountRoot;
 		// Project-owned module roots enabled for this executable's runtime variant.
 		std::vector<std::string> EnabledRootModules;
+		std::map<std::string, bool> PluginOverrides;
 		bool bRecordInteractiveHistory = true;
 	};
 

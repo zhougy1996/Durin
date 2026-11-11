@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "durin-plugin-build.schema.json",
+  "title": "Durin plugin build inventory v1 (producer added in Stage 2)",
+  "type": "object", "additionalProperties": false,
+  "required": ["SchemaVersion", "SelectionFingerprint", "Identity", "Binaries"],
+  "properties": {
+    "SchemaVersion": {"const": 1},
+    "SelectionFingerprint": {"type": "string", "pattern": "^[0-9a-f]{16}$"},
+    "Identity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["EngineBuild", "Platform", "Architecture", "Configuration", "RuntimeVariant", "ToolchainABI"],
+      "properties": {
+        "EngineBuild": {"type": "string", "minLength": 1},
+        "Platform": {"type": "string", "minLength": 1},
+        "Architecture": {"type": "string", "minLength": 1},
+        "Configuration": {"enum": ["Debug", "Release", "Shipping"]},
+        "RuntimeVariant": {"enum": ["DurinEditor", "DurinGame"]},
+        "ToolchainABI": {"type": "string", "minLength": 1}
+      }
+    },
+    "Binaries": {"type": "array", "items": {
+      "type": "object", "additionalProperties": false,
+      "required": ["Module", "Owner", "Path", "RuntimeDependencies"],
+      "properties": {
+        "Module": {"type": "string", "minLength": 1},
+        "Owner": {"type": "string", "minLength": 1},
+        "Path": {"$ref": "#/$defs/relativePath"},
+        "RuntimeDependencies": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/relativePath"}}
+      }
+    }}
+  },
+  "$defs": {
+    "relativePath": {"type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*\\\\)(?!.*:)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"}
+  }
+}

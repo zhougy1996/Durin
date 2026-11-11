@@ -9,9 +9,48 @@ Completed:
 
 ## Current Status
 
-Stage 0 is complete as a planning decision only. Stages 1-7 are unimplemented;
-their checks remain open. This change authorizes and records the implementation
-path, not execution of the later stages. No plugin behavior has been validated.
+Stages 0 and 1 are complete. Stage 1 implements metadata resolution only;
+Stages 2-7 remain open. Projects is registered with a Core-only dependency, and
+Launch includes it in both runtime-variant graphs without invoking plugin startup.
+The next implementation stage is Stage 2; native plugin loading, mounts, and UI
+are not implemented by this change.
+
+Stage 1 acceptance (2026-11-11, Win64 Debug, windows-msvc-x64):
+
+- Tested base `170364896642edb210e0fe3ce60ed06a2e010dee` plus the Stage 1
+  working-tree changes. Final relevant inputs are recorded with SHA-256 hashes
+  under ignored `Build/PluginStage1/inputs.json`. Subsequent status/documentation
+  edits do not change the validated source, fixtures, schemas, or environment.
+- PluginResolutionTests passed 2/2 native tests, including all 46 shared
+  canonical-selection/error fixtures. Editor and Game are resolver query inputs
+  within this Win64 Editor native executable; this is not Game-process loading
+  qualification. Raw native output: `Build/PluginStage1/native.log`.
+- Python plugin/descriptor/workspace/scaffolding/configuration regression:
+  156 passed, 1 skipped. Includes both readers, build/selection schemas, existing
+  Engine/Sandbox/RoadWeaver roots, relocated/reordered inputs, fingerprint
+  invalidation, and a Runtime plugin consuming the real Engine descriptor graph
+  in Editor/Game selections. Report: `Build/PluginStage1/python.xml`.
+- CoreFileSystemTests: 57 passed, 2 skipped, including active-project override
+  capture and invalid-override rejection. Raw output:
+  `Build/PluginStage1/core-filesystem.log`. All three skipped tests require
+  symbolic-link creation privileges unavailable on this host; lexical path
+  escape and ordinary ownership validation passed. Native macOS execution and
+  privileged link/junction execution remain unqualified.
+- DurinLauncher, DurinAssetTool, Sandbox, and RoadWeaverEditor built successfully
+  with Win64-Debug-DurinEditor. Their relevant shared project API remained
+  unchanged during the final resolver-only refinements. Build logs are retained
+  under `Build/.agent-state/logs/20261111-161439-532335-36040-cmake.log`,
+  `20261111-161628-858099-46412-cmake.log`,
+  `20261111-161753-947340-43172-cmake.log`, and
+  `20261111-161827-170599-26960-cmake.log` in that directory.
+- Affected-test analysis expands to all because Engine's project descriptor and
+  native-test registration changed. Bounded source-plugin and Core tests plus
+  direct shared-API consumers cover Stage 1; no generated plugin target
+  selection/startup is wired yet. The explicit all-build gate stays in Stage 7.
+- Lasting Stage 1 rules, phase insertion points, and schema ownership are in
+  [Plugin metadata and selection](../Workspace/Plugins.md). Documentation and
+  all-plan validators pass; final verification receipts are retained under
+  `Build/PluginStage1/documentation.log`.
 
 Existing foundations include `FModuleManager`, `.dmodule` generation, DHT,
 extension content mounts, initialization-time shader mounts, modular features,
@@ -130,30 +169,30 @@ DurinHeaderTool schemas/readers; DurinDevTool descriptor/workspace services.
 
 Outcome: A project resolves to one validated, explainable plugin selection.
 
-- [ ] Register Projects in Engine's project/module graph without introducing
+- [x] Register Projects in Engine's project/module graph without introducing
   Core-to-Projects or Projects-to-Engine dependencies.
-- [ ] Add `.dplugin` schema and project overrides; preserve existing descriptors
+- [x] Add `.dplugin` schema and project overrides; preserve existing descriptors
   with no Plugins field. Define absent versus explicitly empty values.
-- [ ] Implement discovery, containment checks, duplicate detection, host/platform
+- [x] Implement discovery, containment checks, duplicate detection, host/platform
   filtering, required dependency closure, cycle checks, and stable ordering.
-- [ ] Validate cross-plugin `.dmodule` references against declared plugin
+- [x] Validate cross-plugin `.dmodule` references against declared plugin
   dependencies. Reject dependencies on disabled/ineligible plugin modules and
   Runtime-to-Editor links, including transitive violations.
-- [ ] Freeze phase ordering and its mapping to startup hooks, including a rule
+- [x] Freeze phase ordering and its mapping to startup hooks, including a rule
   rejecting an earlier-phase consumer of a later-phase provider.
-- [ ] Define canonical selection/build manifests with schema version, logical
+- [x] Define canonical selection/build manifests with schema version, logical
   owners, reasons for activation, inputs/fingerprints, and binary identity.
   Separate machine-local resolved paths from portable identity.
 
 Acceptance gate:
 
-- [ ] Shared fixtures produce equivalent canonical selections in Python and C++:
+- [x] Shared fixtures produce equivalent canonical selections in Python and C++:
   empty project, content-only plugin, required closure, Editor/Game selection,
   explicit-disable conflict, cycle, duplicate ID/module, missing descriptor,
   path escape, invalid phase edge, and unknown schema version.
-- [ ] Existing Engine, Sandbox, and RoadWeaver project descriptors retain their
+- [x] Existing Engine, Sandbox, and RoadWeaver project descriptors retain their
   existing effective module roots when no plugins are enabled.
-- [ ] Errors identify the descriptor and complete failing dependency chain.
+- [x] Errors identify the descriptor and complete failing dependency chain.
 
 ### Stage 2: Integrate plugin modules into build and reflection
 

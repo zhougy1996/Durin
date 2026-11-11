@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -10,6 +10,7 @@ from ..json_contract import JsonContractError, load_json_contract
 from .errors import BuildToolError
 from .models import CreateKind, ModuleKind
 from .requests import ConcreteRequest
+from .plugins import read_plugin_overrides
 
 
 DEPENDENCY_FIELDS = (
@@ -36,6 +37,7 @@ class ProjectDescriptor:
     base_modules: tuple[str, ...]
     extra_modules: Mapping[str, ProjectRuntimeVariantDescriptor]
     native_test_root: Path | None = None
+    plugin_overrides: Mapping[str, bool] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -213,6 +215,7 @@ def load_project_descriptor(
         base_modules=base_modules,
         extra_modules=runtime_variants,
         native_test_root=test_root,
+        plugin_overrides=read_plugin_overrides(data.get("Plugins", {}), resolved),
     )
 
 

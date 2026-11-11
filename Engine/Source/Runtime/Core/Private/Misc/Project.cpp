@@ -119,6 +119,28 @@ namespace Durin
 	}
 
 	auto NormalizeProjectFile(std::string_view ProjectFile) -> std::string { return Normalize(ProjectFile); }
+	auto ReadProjectPluginOverrides(FJsonNodeView Root)
+		-> std::expected<std::map<std::string, bool>, std::string>
+	{
+		std::map<std::string, bool> Result;
+		const auto Plugins = Root.GetView("Plugins");
+		if (!Plugins.IsValid()) return Result;
+		if (!Plugins.IsObject()) return std::unexpected("Plugins must be an object of plugin IDs and boolean overrides");
+		std::string Error;
+		std::set<std::string> Seen;
+		Plugins.ForEachObjectMember([&](std::string_view Key, FJsonNodeView Value) {
+			std::string Folded(Key);
+			for (char& C : Folded) if (C >= 'A' && C <= 'Z') C += 'a' - 'A';
+			const auto IsLetter = [](char C) { return (C >= 'A' && C <= 'Z') || (C >= 'a' && C <= 'z') || C == '_'; };
+			if (Key.empty() || !IsLetter(Key.front()) || !std::ranges::all_of(Key, [&](char C) {
+				return IsLetter(C) || (C >= '0' && C <= '9');
+			}) || !Value.IsBool() || !Seen.insert(Folded).second)
+				Error = "Plugins contains an invalid or duplicate override: " + std::string(Key);
+			else Result.emplace(Key, Value.GetBool());
+		});
+		if (!Error.empty()) return std::unexpected(Error);
+		return Result;
+	}
 	auto GetCurrentProject() -> const FProjectInfo* { return GCurrentProject ? &*GCurrentProject : nullptr; }
 	auto HasCurrentProject() -> bool { return GCurrentProject.has_value(); }
 
@@ -156,6 +178,14 @@ namespace Durin
 			return std::unexpected(FProjectError{EProjectError::InvalidPaths, std::move(PathError)});
 		}
 		FProjectInfo Info;
+		auto Overrides = ReadProjectPluginOverrides(Root);
+		if (!Overrides)
+		{
+			FPaths::SetProjectFile({});
+			return std::unexpected(FProjectError{EProjectError::InvalidDescriptor,
+				Normalized + ": " + Overrides.error()});
+		}
+		Info.PluginOverrides = std::move(*Overrides);
 		Info.Name = ProjectName;
 		Info.ProjectFile = Normalized;
 		Info.ProjectDir = std::filesystem::path(Normalized).parent_path().generic_string() + "/";

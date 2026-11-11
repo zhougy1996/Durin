@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "durin-plugin.schema.json",
+  "title": "Durin source plugin descriptor v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["SchemaVersion", "Id"],
+  "properties": {
+    "$schema": {"type": "string", "minLength": 1},
+    "SchemaVersion": {"type": "integer", "const": 1},
+    "Id": {"$ref": "#/$defs/id"},
+    "DisplayName": {"type": "string", "minLength": 1},
+    "Version": {"type": "string", "minLength": 1},
+    "Dependencies": {"$ref": "#/$defs/ids"},
+    "Platforms": {"$ref": "#/$defs/ids"},
+    "Content": {"type": "string", "minLength": 1},
+    "Shaders": {"type": "string", "minLength": 1},
+    "Configs": {"type": "string", "minLength": 1},
+    "Modules": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["Name", "Path"],
+        "properties": {
+          "Name": {"$ref": "#/$defs/id"},
+          "Path": {"type": "string", "minLength": 1},
+          "Host": {"enum": ["Runtime", "Editor"]},
+          "Phase": {"enum": ["Providers", "EngineReady", "EditorReady"]},
+          "Platforms": {"$ref": "#/$defs/ids"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
+    "ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}
+  }
+}

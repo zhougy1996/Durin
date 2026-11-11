@@ -1,6 +1,7 @@
 from pathlib import Path
 from dataclasses import dataclass, field
 from durin_header_tool.io.json_helper import load_json_descriptor
+from durin_header_tool.config.plugin_config import plugin_overrides
 
 
 PROJECT_SCHEMA = "durin-project.schema.json"
@@ -23,6 +24,7 @@ class DurinProjectConfig:
     extra_modules: dict[str, DurinProjectRuntimeVariantConfig] = field(default_factory=dict)
     module_dirs: dict[str, str] = field(default_factory=dict) # module name -> module dir path relative to project dir
     modules: dict[str, str] = field(default_factory=dict) # module name -> module config file path relative to project dir
+    plugin_overrides: dict[str, bool] = field(default_factory=dict)
 
     def __post_init__(self):
         self.modules.clear()
@@ -67,6 +69,7 @@ class DurinProjectConfig:
                 for runtime_variant, runtime_variant_data in raw_json_data.get("ExtraModules", {}).items()
             },
             module_dirs=dict(raw_json_data.get("ModuleDirs", {})),
+            plugin_overrides=plugin_overrides(raw_json_data.get("Plugins", {}), project_config_file_path),
         )
         instance.config_file_path = project_config_file_path
         instance.project_dir = instance.config_file_path.parent

@@ -39,6 +39,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | GPU qualification admission, quiet timing lanes, or Vulkan creation memory measurements | [Native test qualification](Development/Build/NativeTestQualification.md) |
 | Adding, classifying, registering, or changing native-test targets | [Native test authoring](Development/Build/NativeTestAuthoring.md) |
 | Workspace, project, module, or runtime-variant ownership | [Workspace projects](Workspace/WorkspaceProjects.md) |
+| Plugin descriptors, project enablement overrides, discovery, or dependency resolution | [Plugin metadata and selection](Workspace/Plugins.md) |
 | Runtime physical paths or atomic byte publication | [File I/O](Runtime/Core/FileIO.md) |
 | Native dynamic libraries, loader diagnostics, reference lifetime, or Unicode library paths | [Platform libraries](Runtime/Core/PlatformLibraries.md) |
 | Child process arguments, working directories, or environment overrides | [Platform processes](Runtime/Core/PlatformProcesses.md) |

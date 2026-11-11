@@ -17,6 +17,10 @@
     {
       "fileMatch": ["*.dmodule"],
       "url": "./Engine/Source/Programs/DurinHeaderTool/schemas/durin-module.schema.json"
+    },
+    {
+      "fileMatch": ["*.dplugin"],
+      "url": "./Engine/Source/Programs/DurinHeaderTool/schemas/durin-plugin.schema.json"
     }
   ],
   "cmake.configureOnOpen": false,

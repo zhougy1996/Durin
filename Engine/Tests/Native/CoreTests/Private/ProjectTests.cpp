@@ -375,6 +375,33 @@ TEST_F(FProjectHistoryTest, DefaultsEnabledBaseModulesToModuleDirectoryKeys)
 		(std::vector<std::string>{"Runtime", "Tools"}));
 }
 
+TEST_F(FProjectHistoryTest, RetainsPluginOverridesWithoutChangingModuleRoots)
+{
+	Durin::FProjectInitializationParams Params;
+	Params.RequestedProjectFile = WriteProject("Plugins",
+		R"({"ProjectName":"Plugins","ModuleDirs":{"Runtime":"Source/Runtime"},"Plugins":{"Water":true,"Tools":false}})");
+	const auto Result = Durin::InitializeCurrentProject(Params);
+	ASSERT_TRUE(Result) << Result.error().ToString();
+	const auto* Project = Durin::GetCurrentProject();
+	ASSERT_NE(Project, nullptr);
+	EXPECT_EQ(Project->EnabledRootModules, (std::vector<std::string>{"Runtime"}));
+	EXPECT_EQ(Project->PluginOverrides, (std::map<std::string, bool>{{"Tools", false}, {"Water", true}}));
+}
+
+TEST_F(FProjectHistoryTest, RejectsInvalidPluginOverridesBeforePublishingProject)
+{
+	for (const auto& Overrides : {R"([])", R"({"Water":1})", R"({"Water":true,"water":false})"})
+	{
+		Durin::FProjectInitializationParams Params;
+		Params.RequestedProjectFile = WriteProject("InvalidPlugins",
+			std::format(R"({{"ProjectName":"InvalidPlugins","Plugins":{}}})", Overrides));
+		const auto Result = Durin::InitializeCurrentProject(Params);
+		ASSERT_FALSE(Result);
+		EXPECT_EQ(Result.error().Code, Durin::EProjectError::InvalidDescriptor);
+		EXPECT_EQ(Durin::GetCurrentProject(), nullptr);
+	}
+}
+
 TEST_F(FProjectHistoryTest, RecordsNewestFirstDeduplicatesAndCapsHistory)
 {
 	Durin::FProjectHistory History(HistoryFile());

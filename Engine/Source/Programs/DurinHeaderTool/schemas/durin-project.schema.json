@@ -23,6 +23,12 @@
         "$ref": "#/$defs/nonEmptyString"
       }
     },
+    "Plugins": {
+      "type": "object",
+      "default": {},
+      "propertyNames": {"$ref": "#/$defs/identifier"},
+      "additionalProperties": {"type": "boolean"}
+    },
     "BaseModules": {
       "$ref": "#/$defs/identifierList",
       "default": []
