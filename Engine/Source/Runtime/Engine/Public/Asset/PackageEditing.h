@@ -33,7 +33,7 @@ namespace Durin
 	ENGINE_API auto BuildAssetRedirectorPackageBytes(
 		const FPackagePath& SourcePath,
 		std::span<const FAssetRedirectorWriteMapping> Mappings,
-		uint32 FormatVersion, FByteBuffer& OutBytes) -> FAssetWriteResult;
+		FByteBuffer& OutBytes) -> FAssetWriteResult;
 	ENGINE_API auto RewriteAssetPackageReferences(
 		FByteView Bytes, FByteView BulkBytes, const FPackagePath& PackagePath,
 		std::span<const FAssetPackageReferenceMapping> Mappings,

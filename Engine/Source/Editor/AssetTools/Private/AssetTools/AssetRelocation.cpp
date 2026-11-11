@@ -11,7 +11,6 @@
 #include "DObject/Class.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Package.h"
-#include "DObject/PackageFormat.h"
 #include "Misc/FileTime.h"
 #include "Misc/FileHelper.h"
 #include "Misc/MountPaths.h"
@@ -249,9 +248,7 @@ namespace Durin
 				RedirectMappings.push_back({Asset.AssetPath, std::move(DestinationObject)});
 			}
 			Result = BuildAssetRedirectorPackageBytes(
-				Mapping.SourcePath, RedirectMappings,
-				ObjectPackage::DastV12FormatVersion,
-				SourceRedirectorBytes);
+				Mapping.SourcePath, RedirectMappings, SourceRedirectorBytes);
 			if (!Result) return Result;
 
 			Result = AddFileEntry(

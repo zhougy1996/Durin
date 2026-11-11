@@ -2,6 +2,7 @@
 #include "AssetLiveLoadGuard.h"
 #include "AssetRuntimeStateInternal.h"
 #include "AssetPackageCodec.h"
+#include "Asset/PackageVersionPolicy.h"
 #include "AssetMutationReferenceInternal.h"
 #include "AssetPackageFingerprintInternal.h"
 #include "Threading/RunnableThread.h"
@@ -73,11 +74,10 @@ namespace Durin
 	auto BuildAssetRedirectorPackageBytes(
 		const FPackagePath& SourcePath,
 		std::span<const FAssetRedirectorWriteMapping> Mappings,
-		uint32 FormatVersion,
 		FByteBuffer& OutBytes) -> FAssetWriteResult
 	{
 		const AssetPrivate::FAssetPackageCodec* Codec =
-			AssetPrivate::FindAssetPackageWriter(FormatVersion);
+			AssetPrivate::FindAssetPackageWriter(OrdinaryAssetPackageWriterVersion);
 		if (!Codec || !Codec->bCanMutate)
 			return Error(EAssetWriteError::UnsupportedVersion,
 				"Redirector creation requires package mutation capability.");
