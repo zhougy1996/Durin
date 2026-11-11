@@ -718,6 +718,7 @@ namespace Durin::AssetPrivate::TaggedPackage
 			return ApplyLivePackageLinker(std::move(Linker), Context.PackagePath, OutPackage,
 				OutReport, {.OnSkeletonReady = OnSkeletonReady,
 					.OnSkeletonRollback = OnSkeletonRollback,
+					.MainDigest = FXxHash128::HashBuffer(Context.PackageBytes),
 					.SourceFormatVersion = Linker.FormatVersion,
 					.bCooked = Context.bCooked,
 					.Target = Context.bCooked

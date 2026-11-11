@@ -31,7 +31,7 @@ namespace Durin::AssetPrivate
      return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::AssetIdentity, .Message = "Redirector destination is invalid."});
     Capture.RedirectDestinations.emplace(Asset, std::move(Path));
    }
-  if (auto Result = SaveContext.Capture(Package, OutLinker, FormatVersion); !Result) return Result;
+  if (auto Result = SaveContext.Capture(Package, OutLinker, FormatVersion, Options.OutExports); !Result) return Result;
   return {};
  }
 }

@@ -1362,7 +1362,7 @@ namespace Durin
 
 	auto CapturePackageLinker(DPackage* Package, EDefaultDeltaMode DeltaMode,
 		const FPackageCaptureOptions& InputOptions,
-		ObjectPackage::FLinkerTables& OutLinker, uint32 FormatVersion) -> std::expected<void, FPackageCaptureError>
+		ObjectPackage::FLinkerTables& OutLinker, uint32 FormatVersion, std::vector<FObjectKey>* OutExports) -> std::expected<void, FPackageCaptureError>
 	{
 		check(IsInGameThread());
 		const auto& Options = InputOptions;
@@ -1562,6 +1562,7 @@ namespace Durin
 		std::ranges::sort(BuildDependencies);
 		BuildDependencies.erase(std::unique(BuildDependencies.begin(), BuildDependencies.end()), BuildDependencies.end());
 		OutLinker.Summary.BuildPackageDependencies = std::move(BuildDependencies);
+		if (OutExports) *OutExports = std::vector<FObjectKey>(Objects.begin(), Objects.end());
 		return {};
 	}
 

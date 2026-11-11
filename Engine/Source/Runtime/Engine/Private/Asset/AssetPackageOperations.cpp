@@ -151,7 +151,7 @@ namespace Durin
 			Prepared.Revision = Package->GetEditRevision();
 			AssetPrivate::FAssetPackageEncodedClosure Closure;
 			FAssetPackageSerializationOptions Serialization; Serialization.Mode = Mode;
-			if (auto Result = AssetPrivate::EncodeAssetPackageClosure(Package, Closure, {Serialization}); !Result)
+			if (auto Result = AssetPrivate::EncodeAssetPackageClosure(Package, Closure, {.Serialization = Serialization, .OutExports = &Prepared.DiskExports}); !Result)
 				return AssetWriteResultFromEncoding(Result);
 			// The codec validates the closure. Capture its canonical header once;
 			// publication never rebuilds metadata from mutable live objects.
@@ -163,6 +163,7 @@ namespace Durin
 			if (Package->GetEditRevision() != Prepared.Revision || Package->GetPackagePathIdentity() != Prepared.Header.PackagePath
 				|| GetPhysicalPath(Prepared.Header.PackagePath) != Prepared.Destination.generic_string())
 				return Error(EAssetWriteError::StaleData, "Package or destination changed during capture.");
+			Prepared.MainDigest = FXxHash128::HashBuffer(Closure.PackageBytes);
 			Prepared.DetachedBytes = Closure.PackageBytes.size() + Closure.BulkBytes.size();
 			Prepared.Write = BeginAssetWrite(Prepared.Destination, std::move(Closure.PackageBytes), std::move(Closure.BulkBytes),
 				MainStamp, BulkStamp);

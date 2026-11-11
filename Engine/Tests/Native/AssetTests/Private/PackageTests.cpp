@@ -46,6 +46,7 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/MathStructs.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/Internal/GarbageCollection.h"
 #include "DObject/ObjectGraphReplacement.h"
 #include "DObject/Package.h"
 #include "DObject/PackageFormat.h"
@@ -2063,6 +2064,27 @@ TEST_F(FAsyncAssetLoadTests, RestoresFlagsPerExportBeforeEditorCollection)
 }
 
 #if DURIN_WITH_EDITOR
+TEST_F(FAsyncAssetLoadTests, EditorUnloadDuringCollectionPreservesStandalone)
+{
+	using namespace Durin;
+	const auto Path = SaveAsset("UnloadDuringGC");
+	auto* Package = FindResidentPackage(Path);
+	ASSERT_NE(Package, nullptr);
+	auto* Asset = Package->GetTopLevelAssets().front();
+	Asset->SetFlags(EObjectFlags::Standalone);
+	std::string Errors;
+	Private::CollectGarbageWithPostReachability(EObjectFlags::Standalone, true, [&] {
+		EXPECT_FALSE(PackageTools::UnloadPackages(std::span{&Package, 1}, Errors));
+		EXPECT_NE(Errors.find("garbage collection"), std::string::npos);
+		EXPECT_EQ(UnloadPackage(Path).Error, EAssetReadError::InUse);
+		EXPECT_TRUE(Asset->HasAnyObjectFlags(EObjectFlags::Standalone));
+	});
+	EXPECT_EQ(FindResidentPackage(Path), Package);
+	EXPECT_TRUE(PackageTools::UnloadPackages(std::span{&Package, 1}, Errors));
+	EXPECT_TRUE(Errors.empty());
+	EXPECT_EQ(FindResidentPackage(Path), nullptr);
+}
+
 TEST_F(FAsyncAssetLoadTests, EditorBatchUnloadRestoresOnlySurvivingStandaloneExports)
 {
 	using namespace Durin;
@@ -2112,6 +2134,79 @@ TEST_F(FAsyncAssetLoadTests, FailedRuntimeUnloadDoesNotConvertNativeOwnershipInt
 	Owner.Reset();
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_FALSE(Package.IsValid());
+}
+
+TEST_F(FAsyncAssetLoadTests, UnsavedExportsCanDisappearBeforeFirstOrSubsequentSave)
+{
+	using namespace Durin;
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/UnsavedSibling", Path));
+	auto* Package = CreatePackage(Path);
+	ASSERT_NE(Package, nullptr);
+	Package->MarkAsNewlyCreated();
+	TStrongObjectPtr<DObject> Owner(NewObject<DPackageAssetForTest>(Package, "Kept"));
+	for (const char* Name : {"BeforeFirstSave", "AfterFirstSave"})
+	{
+		TWeakObjectPtr<DObject> Sibling(NewObject<DPackageAssetForTest>(Package, Name));
+		CollectGarbage(EObjectFlags::NoFlags);
+		EXPECT_FALSE(Sibling.IsValid());
+		ASSERT_TRUE(Package->IsFullyLoaded());
+		ASSERT_TRUE(SavePackage(Package));
+	}
+}
+
+TEST_F(FAsyncAssetLoadTests, PartialReloadRequiresOriginalMainAndBulkImages)
+{
+	using namespace Durin;
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/PartialReloadImages", Path));
+	auto* Package = CreatePackage(Path);
+	auto* Kept = NewObject<DPackageAssetForTest>(Package, "Kept", EObjectFlags::Public);
+	auto* Bulk = NewObject<DBulkPackageAssetForTest>(Package, "Bulk", EObjectFlags::Public);
+	ASSERT_TRUE(Bulk->Payload.UpdatePayload(FByteBuffer(EditorBulkDataExternalThreshold + 1, std::byte{0x31})));
+	Kept->Value = 77;
+	ASSERT_TRUE(SavePackage(Package));
+	const std::filesystem::path File = FindPackageExact(Path)->PhysicalPath;
+	auto Earlier = FFileHelper::LoadFileToArray(File);
+	ASSERT_TRUE(Earlier);
+	Kept->Value = 88;
+	Package->MarkDirty();
+	ASSERT_TRUE(SavePackage(Package));
+	auto Current = FFileHelper::LoadFileToArray(File);
+	ASSERT_TRUE(Current);
+	ASSERT_NE(*Current, *Earlier);
+	ASSERT_EQ(Current->size(), Earlier->size());
+	auto BulkFile = File;
+	BulkFile.replace_extension(".dbulk");
+	auto OriginalBulk = FFileHelper::LoadFileToArray(BulkFile);
+	ASSERT_TRUE(OriginalBulk);
+	ASSERT_FALSE(OriginalBulk->empty());
+	TStrongObjectPtr<DObject> Owner(Kept);
+	CollectGarbage(EObjectFlags::NoFlags);
+	Kept->Value = 99;
+	Package->MarkDirty();
+
+	auto CheckRejected = [&] {
+		const auto Result = LoadPackageDetailed(Path);
+		ASSERT_FALSE(Result);
+		EXPECT_EQ(Result.error().Code, EAssetReadError::StaleData);
+		EXPECT_FALSE(Package->IsFullyLoaded());
+		EXPECT_TRUE(Package->IsDirty());
+		EXPECT_EQ(Package->FindTopLevelAsset(FName("Bulk")), nullptr);
+		EXPECT_EQ(Package->FindTopLevelAsset(FName("Kept")), Kept);
+		EXPECT_EQ(Kept->Value, 99);
+	};
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(*Earlier, File));
+	CheckRejected();
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(*Current, File));
+	auto ChangedBulk = *OriginalBulk;
+	ChangedBulk.back() ^= std::byte{1};
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(ChangedBulk, BulkFile));
+	CheckRejected();
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(*OriginalBulk, BulkFile));
+	ASSERT_EQ(LoadPackage(Path), Package);
+	EXPECT_NE(Package->FindTopLevelAsset(FName("Bulk")), nullptr);
+	EXPECT_EQ(Kept->Value, 99);
 }
 
 TEST_F(FAsyncAssetLoadTests, NativeExportOwnersRetainOnlyTheirExportAndOuter)

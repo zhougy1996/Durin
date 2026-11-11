@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Asset/PackageSerialization.h"
 #include "DObject/Archive.h"
+#include "DObject/ObjectKey.h"
 
 namespace Durin::AssetPrivate
 {
@@ -11,5 +12,6 @@ namespace Durin::AssetPrivate
 	{
 		FAssetPackageSerializationOptions Serialization;
 		std::optional<FArchiveTarget> CookTarget;
+		std::vector<FObjectKey>* OutExports = nullptr;
 	};
 }

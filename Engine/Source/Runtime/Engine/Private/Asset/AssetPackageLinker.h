@@ -31,6 +31,7 @@ namespace Durin::AssetPrivate
 		std::function<bool(ELinkerLoadPhase, uint64)> ShouldFail;
 		std::function<FAssetReadResult(DPackage*)> OnSkeletonReady;
 		std::function<void(DPackage*)> OnSkeletonRollback;
+		FXxHash128 MainDigest{};
 		uint32 SourceFormatVersion = ObjectPackage::DastV12FormatVersion;
 		bool bCooked = false;
 		FArchiveTarget Target;

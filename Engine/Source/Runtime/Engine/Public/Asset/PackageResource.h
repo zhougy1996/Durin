@@ -118,6 +118,7 @@ namespace Durin
 		// hold their save/edit lease between this check and memory publication.
 		[[nodiscard]] ENGINE_API auto Revalidate(const std::function<bool()>& IsCancelled = {}) const
 			-> FPreparedPackageResourceResult;
+		auto GetMainDigest() const -> FXxHash128 { return MainDigest; }
 		auto GetMainBytes() const -> const FSharedByteBuffer& { return MainBytes; }
 		auto GetBulkResource() const -> const FPackageResourceHandle& { return BulkResource; }
 		auto GetRetainedBytes() const -> uint64 { return MainBytes.GetSize() + BulkExtent; }

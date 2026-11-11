@@ -530,9 +530,8 @@ namespace Durin
 				DPackage* Package = Object->GetPackage();
 				if (Package && Package != Object && Package->IsAssetPackage()
 					&& Package->HasAnyInternalFlags(EObjectInternalFlags::Reachable)
-					&& (Object->GetConstructionPurpose() == EObjectConstructionPurpose::AssetLoad
-						|| (Object->GetOuter() == Package && Package->FindTopLevelAsset(Object->GetFName()) == Object)))
-					Package->SetFullyLoaded(false);
+					&& Package->HasDiskExport(Object))
+					Package->MarkPartiallyLoaded();
 			}
 			MarkGarbageInternal(Object);
 		}

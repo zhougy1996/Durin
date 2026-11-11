@@ -204,6 +204,8 @@ namespace Durin
 	{
 		TStrongObjectPtr<DPackage> Package;
 		std::vector<FStrongObjectPtr> Exports;
+		std::vector<FObjectKey> DiskExports;
+		FXxHash128 MainDigest{};
 		FPackagePath Identity;
 		uint64 Revision = 0;
 		uint64 DetachedBytes = 0;
@@ -275,7 +277,7 @@ namespace Durin
 			|| !FFilePublicationStamp::Inspect(BulkFile.Destination, BulkStamp))
 		{ Admission = Fail(EPackageSaveError::IoError, "Cannot inspect package destination."); return {}; }
 		ObjectPackage::FLinkerTables Linker;
-		const auto CaptureResult = Data.Context.Capture(Package, Linker);
+		const auto CaptureResult = Data.Context.Capture(Package, Linker, ObjectPackage::DastV12FormatVersion, &Data.DiskExports);
 		if (!CaptureResult)
 		{
 			Admission = Fail(GetPackageCaptureSaveError(CaptureResult.error()), ToString(CaptureResult.error()));
@@ -293,6 +295,7 @@ namespace Durin
 		BulkFile.Backup = BulkFile.Destination.string() + Suffix + ".backup.tmp";
 		if (!Bulk.empty()) BulkFile.Staged = BulkFile.Destination.string() + Suffix + ".stage.tmp";
 		std::vector<FPackageWriteFile> Files;
+		Data.MainDigest = FXxHash128::HashBuffer(Bytes);
 		Data.DetachedBytes = Bytes.size() + Bulk.size();
 		Files.push_back({std::move(BulkFile), BulkStamp, std::move(Bulk)});
 		Files.push_back({std::move(MainFile), MainStamp, std::move(Bytes)});
@@ -359,6 +362,8 @@ namespace Durin
 		if (!Data.bCommitted) return Fail(EPackageSaveError::Busy, "No committed package to finalize.");
 		Data.Result = ToPackageSaveResult(Data.Write->Finalize());
 		Data.bCommitted = false;
+		if (Data.bClearDirty && Data.Package->GetPackagePathIdentity() == Data.Identity)
+			Data.Package->RecordDiskExports(std::move(Data.DiskExports), Data.MainDigest);
 		if (Data.bClearDirty && Data.Package->GetEditRevision() == Data.Revision
 			&& Data.Package->GetPackagePathIdentity() == Data.Identity) Data.Package->ClearDirty();
 		Data.Cleanup();

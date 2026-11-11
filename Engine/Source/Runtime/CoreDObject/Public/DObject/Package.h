@@ -5,6 +5,8 @@
 #include "CoreDObjectAPI.h"
 #include "DObject/AssetPath.h"
 #include "DObject/Object.h"
+#include "DObject/ObjectKey.h"
+#include "Hash/XxHash.h"
 #include "DObject/ObjectPtr.h"
 #include "DObject/PackagePersistence.h"
 
@@ -56,7 +58,10 @@ namespace Durin
 		auto GetTopLevelAssets() const -> std::span<DObject* const> { return TopLevelAssets; }
 		COREDOBJECT_API auto FindTopLevelAsset(FName Name) const -> DObject*;
 		auto IsFullyLoaded() const -> bool { return bFullyLoaded; }
-		auto SetFullyLoaded(bool bValue) -> void { bFullyLoaded = bValue; }
+		COREDOBJECT_API auto RecordDiskExports(std::vector<FObjectKey> Exports, FXxHash128 MainDigest) -> void;
+		auto GetDiskImageDigest() const -> FXxHash128 { return DiskImageDigest; }
+		auto HasDiskExport(const DObject* Object) const -> bool { return std::ranges::binary_search(DiskExports, FObjectKey(Object)); }
+		auto MarkPartiallyLoaded() -> void { bFullyLoaded = false; }
 		auto IsDirty() const -> bool { return bDirty; }
 		auto IsCanonicalResaveRecommended() const -> bool { return bCanonicalResaveRecommended; }
 		auto GetEditRevision() const -> uint64 { return EditRevision; }
@@ -102,6 +107,8 @@ namespace Durin
 		bool bGraphPrivate = false;
 		bool bPrepared = false;
 		bool bFullyLoaded = true;
+		std::vector<FObjectKey> DiskExports;
+		FXxHash128 DiskImageDigest{};
 		auto ReservePreparedPackageRegistration() -> bool;
 		auto ReleasePreparedPackageRegistration() noexcept -> void;
 		auto CommitPreparedPackageRegistration(DPackage* Previous) noexcept -> void;

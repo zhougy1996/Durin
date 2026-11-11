@@ -23,6 +23,8 @@ namespace Durin::AssetPrivate
 	{
 		TStrongObjectPtr<DPackage> Package;
 		std::vector<FStrongObjectPtr> Exports;
+		std::vector<FObjectKey> DiskExports;
+		FXxHash128 MainDigest{};
 		uint64 Revision = 0;
 		uint64 DetachedBytes = 0;
 		FAssetPackageHeader Header;

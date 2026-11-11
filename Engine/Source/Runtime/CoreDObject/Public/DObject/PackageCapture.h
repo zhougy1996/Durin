@@ -4,6 +4,7 @@
 #include "Misc/FileError.h"
 #include "CoreDObjectAPI.h"
 #include "DObject/PackageFormat.h"
+#include "DObject/ObjectKey.h"
 #include "DObject/DefaultDeltaPlan.h"
 #include "DObject/PackageSaveOverrides.h"
 #include "DObject/PackageBulkStorage.h"
@@ -108,5 +109,5 @@ namespace Durin
 	// GameThread capture. Does not validate catalog dependencies or publish assets.
 	COREDOBJECT_API auto CapturePackageLinker(DPackage* Package, EDefaultDeltaMode DeltaMode,
 		const FPackageCaptureOptions& Options, ObjectPackage::FLinkerTables& OutLinker,
-		uint32 FormatVersion = ObjectPackage::DastV12FormatVersion) -> std::expected<void, FPackageCaptureError>;
+		uint32 FormatVersion = ObjectPackage::DastV12FormatVersion, std::vector<FObjectKey>* OutExports = nullptr) -> std::expected<void, FPackageCaptureError>;
 }

@@ -165,6 +165,16 @@ namespace Durin
 		if (IsAssetPackage()) PackageFlags |= EPackageFlags::NewlyCreated;
 	}
 
+	auto DPackage::RecordDiskExports(std::vector<FObjectKey> Exports, FXxHash128 MainDigest) -> void
+	{
+		std::ranges::sort(Exports);
+		DiskExports = std::move(Exports);
+		DiskImageDigest = MainDigest;
+		bFullyLoaded = std::ranges::all_of(DiskExports, [](const FObjectKey& Key) {
+			return Key.ResolveObjectPtr() != nullptr;
+		});
+	}
+
 	auto DPackage::MarkAsPublished() -> void
 	{
 		PackageFlags &= ~EPackageFlags::NewlyCreated;

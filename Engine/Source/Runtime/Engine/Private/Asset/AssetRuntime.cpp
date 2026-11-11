@@ -621,7 +621,6 @@ namespace Durin
 		for (const auto& Member : Group)
 		{
 			Member->Phase = ELoadPhase::Ready;
-			Member->Package->SetFullyLoaded(true);
 			Member->bOwnResource = false;
 			PendingLoads.erase(Member->Path);
 			CompletionStack.pop_back();
@@ -689,6 +688,7 @@ namespace Durin
 		FAssetLoadReport* CodecReport = OutReport ? OutReport : &LocalReport;
 		FByteBuffer FileBytes;
 		FByteView Bytes;
+		auto& Record = *PendingLoads.at(Path);
 		uint64 PhysicalBulkBytes = 0;
 		if (PhysicalPath.empty()) return Error(EAssetReadError::InvalidPath, "Asset path cannot be resolved in the selected package mode.");
 		if (AsyncInputs)
@@ -703,6 +703,8 @@ namespace Durin
 		else
 		{
 			auto Loaded = FFileHelper::LoadFileToArray(PhysicalPath);
+			if (!Loaded && Record.bRestoring && Loaded.error().NativeError == std::errc::no_such_file_or_directory)
+				return Error(EAssetReadError::StaleData, "Package image is missing. Reload the full package.");
 			if (!Loaded) return Error(Loaded.error().NativeError == std::errc::no_such_file_or_directory
 				? EAssetReadError::NotFound : EAssetReadError::IoError,
 				std::format("Failed to read asset {}: {}", Path.ToString(), Loaded.error().ToString()));
@@ -716,6 +718,18 @@ namespace Durin
 			if (BulkError && BulkError != std::errc::no_such_file_or_directory)
 				return Error(EAssetReadError::IoError,
 					std::format("Asset {} bulk companion could not be inspected.", Path.ToString()));
+		}
+		if (Record.bRestoring)
+		{
+			const auto Expected = Record.Package->GetDiskImageDigest();
+			if (FXxHash128::HashBuffer(Bytes) != Expected)
+				return Error(EAssetReadError::StaleData, "Package image changed. Reload the full package.");
+			if (AsyncInputs)
+			{
+				auto Current = FFileHelper::HashFileXx128(PhysicalPath);
+				if (!Current || *Current != Expected)
+					return Error(EAssetReadError::StaleData, "Captured package image is stale. Reload the full package.");
+			}
 		}
 		++GActivePackageFileReadCount;
 		const AssetPrivate::FAssetPackageReadContext HeaderContext{
@@ -734,6 +748,8 @@ namespace Durin
 				AssetPrivate::FScopedObjectLoadPhase Phase(Path, AssetPrivate::EObjectLoadPhase::ReadHeader);
 				return Codec->ReadHeader(HeaderContext, Header);
 			}();
+			if (!Result && Record.bRestoring)
+				return Error(EAssetReadError::StaleData, "Package closure changed. Reload the full package.");
 			if (!Result) return Result;
 			AssetPrivate::FAssetPackageReadContext ReadContext{
 				.PackageBytes = Bytes, .PackagePath = Path,
@@ -749,14 +765,22 @@ namespace Durin
 				HeaderMetadata, Header.ObjectCount, &Path);
 			if (!Result) return Result;
 
-			auto& Record = *PendingLoads.at(Path);
 			ReadContext.ExistingPackage = Record.bRestoring ? Record.Package.Get() : nullptr;
 			ReadContext.ExistingObjects = Record.bRestoring ? &Record.ExistingObjects : nullptr;
-			if (Record.bRestoring) ReadContext.BulkResource = GetPackageResourceManager().FindPackage(Path.GetView());
-			if (Header.BulkSegmentExtent != 0 && !ReadContext.BulkResource)
+			if (Header.BulkSegmentExtent != 0)
 			{
 				ReadContext.BindBulkResource = [&](std::span<const FPackageBulkDataEntry> Entries,
 					FPackageResourceHandle& OutResource) -> FAssetReadResult {
+					if (Record.bRestoring)
+					{
+						auto BulkPath = std::filesystem::path(PhysicalPath).replace_extension(".dbulk");
+						auto BulkBytes = FFileHelper::LoadFileToArray(BulkPath);
+						if (!BulkBytes) return Error(EAssetReadError::StaleData, "Bulk companion is unavailable. Reload the full package.");
+						auto Resource = CreateOwnedPackageResource({Header.BulkSegmentExtent, Header.BulkSegmentDigest}, Entries, *BulkBytes);
+						if (!Resource) return Error(EAssetReadError::StaleData, "Bulk companion changed. Reload the full package.");
+						OutResource = std::move(*Resource);
+						return {};
+					}
 					auto Registration = GetPackageResourceManager().RegisterLoosePackage(
 						Path.ToString(), std::filesystem::path(PhysicalPath),
 						{Header.BulkSegmentExtent, Header.BulkSegmentDigest}, Entries);
@@ -851,14 +875,17 @@ namespace Durin
 
 	auto AssetPrivate::CheckPackageUnloadAllowed() -> FAssetReadResult
 	{
-		return FAssetLiveLoadGuard::Check("UnloadPackages", "");
+		if (auto Result = FAssetLiveLoadGuard::Check("UnloadPackages", ""); !Result) return Result;
+		if (IsGarbageCollecting())
+			return Error(EAssetReadError::InUse, "Cannot unload packages during garbage collection.");
+		return {};
 	}
 
 	auto FAssetLoadService::ReleasePackages(
 		std::span<const TWeakObjectPtr<DPackage>> Packages,
 		std::span<const TWeakObjectPtr<DPackage>> IgnoreSavedDependencies) -> FAssetReadResult
 	{
-		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("ReleasePackages", ""); !Result) return Result;
+		if (auto Result = AssetPrivate::CheckPackageUnloadAllowed(); !Result) return Result;
 		if (LoadDepth != 0 || !PendingLoads.empty())
 			return Error(EAssetReadError::InUse, "A package load is still in progress.");
 		std::unordered_set<FPackagePath> Candidates;

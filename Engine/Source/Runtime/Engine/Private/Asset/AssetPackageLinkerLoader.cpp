@@ -861,6 +861,7 @@ namespace Durin::AssetPrivate
 				FLinkerApplyDiagnostic Diagnostic;
 				if (auto Result = ApplyLinkerValues(Application, LoadOptions(Index), Diagnostic, Bindings); !Result)
 					return {.Status = Cancelled() ? S::Cancelled : S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::ApplyValues, .Message = Result.Message};
+				Application.Package->RecordDiskExports({Application.Objects.begin(), Application.Objects.end()}, Sources[Index].Storage.GetMainDigest());
 				Application.Package->ClearDirty();
 				Application.Package->SetCanonicalResaveRecommended(Application.Package->IsCanonicalResaveRecommended()
 					|| Application.Compatibility.CanonicalizedIdentityCount != 0
@@ -1119,9 +1120,11 @@ namespace Durin::AssetPrivate
 			FScopedObjectLoadPhase Timing(PackagePath, EObjectLoadPhase::ValidateLoadedGraph, Objects.size());
 			return ValidateLoadedGraphs(Objects, {.bCooked = bCooked, .bPrivateGraph = bPrivate});
 		};
+		auto DiskExports = std::vector<FObjectKey>(Objects.begin(), Objects.end());
 		auto RestoredObjects = Objects;
 		std::erase_if(RestoredObjects, [&](DObject* Object) { return Application.IsExisting(Object); });
-		auto Notify = [Objects = std::move(RestoredObjects), Package, PackagePath, bRestoring = bool(Options.ExistingPackage)]() {
+		auto Notify = [Objects = std::move(RestoredObjects), Package, PackagePath, DiskExports = std::move(DiskExports), MainDigest = Options.MainDigest, bRestoring = bool(Options.ExistingPackage)]() mutable {
+			Package->RecordDiskExports(std::move(DiskExports), MainDigest);
 			FScopedObjectLoadPhase Timing(PackagePath, EObjectLoadPhase::PostLoad, Objects.size());
 			if (!bRestoring) Package->ClearDirty();
 			for (size_t Reverse = Objects.size(); Reverse > 0; --Reverse)
