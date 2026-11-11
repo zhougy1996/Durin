@@ -2,7 +2,7 @@
 #include "Asset/OfflinePreparation.h"
 #include "Asset/LoadAudit.h"
 #include "Asset/PackageLoadTransaction.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "BulkPackageTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshCompilation.h"
@@ -21,6 +21,7 @@
 #include "Asset/AssetCook.h"
 #if DURIN_WITH_EDITOR
 	#include "AssetTools/Relocation.h"
+	#include "AssetTools/PackageUnloading.h"
 	#include "AssetTools/RedirectorFixup.h"
 	#include "AssetTools/MutationTesting.h"
 	#include "AssetMaintenance/CompatibilityAudit.h"
@@ -1997,7 +1998,7 @@ TEST_F(FAsyncAssetLoadTests, RuntimeBareLoadsAndSoftReferencesDoNotCreateResiden
 	const auto ObjectPath = Testing::MakePackageLeafAssetObjectPathForTests(Path);
 	auto* Asset = LoadObject<DPackageAssetForTest>(ObjectPath);
 	ASSERT_NE(Asset, nullptr);
-	EXPECT_EQ(Asset->GetPackage()->GetResidencyReasons(), EAssetPackageResidencyReason::None);
+	EXPECT_FALSE(Asset->GetPackage()->HasAnyObjectFlags(EObjectFlags::Standalone));
 	TSoftObjectPtr<DPackageAssetForTest> Soft(ObjectPath);
 	EXPECT_EQ(Soft.Get(), Asset);
 	TWeakObjectPtr<DPackage> Package(Asset->GetPackage());
@@ -2008,30 +2009,18 @@ TEST_F(FAsyncAssetLoadTests, RuntimeBareLoadsAndSoftReferencesDoNotCreateResiden
 	EXPECT_EQ(FindResidentPackage(Path), nullptr);
 }
 
-TEST_F(FAsyncAssetLoadTests, UnsavedResidencyEndsOnPublicationAndPreservesIndependentExplicitPins)
+TEST_F(FAsyncAssetLoadTests, DirtyRuntimeAssetsRequireAnOwnerAcrossGarbageCollection)
 {
 	using namespace Durin;
 	FPackagePath Path;
-	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/ResidencyReasons", Path));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/DirtyRuntimeAsset", Path));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
-	DPackage* Package = Asset->GetPackage();
-	EXPECT_EQ(Package->GetResidencyReasons(), EAssetPackageResidencyReason::Unsaved);
-	TWeakObjectPtr<DPackage> Weak(Package);
-	CollectGarbage(Durin::EObjectFlags::Standalone);
-	EXPECT_EQ(Weak.Get(), Package);
-	Package->SetStandaloneResidency(true);
-	Package->MarkDirty();
-	EXPECT_EQ(Package->GetResidencyReasons(), EAssetPackageResidencyReason::Unsaved | EAssetPackageResidencyReason::Explicit);
-	ASSERT_TRUE(SavePackage(Package));
-	EXPECT_FALSE(Package->IsNewlyCreated());
-	EXPECT_FALSE(Package->IsDirty());
-	EXPECT_EQ(Package->GetResidencyReasons(), EAssetPackageResidencyReason::Explicit);
-	CollectGarbage(Durin::EObjectFlags::Standalone);
-	EXPECT_EQ(Weak.Get(), Package);
-	Package->SetStandaloneResidency(false);
-	CollectGarbage(Durin::EObjectFlags::Standalone);
+	Asset->GetPackage()->MarkDirty();
+	TWeakObjectPtr<DObject> Weak(Asset);
+	CollectGarbage(EObjectFlags::NoFlags);
 	EXPECT_FALSE(Weak.IsValid());
+	EXPECT_EQ(FindResidentPackage(Path), nullptr);
 }
 
 TEST_F(FAsyncAssetLoadTests, EditorStandaloneIsAnExplicitHostPolicyIndependentOfRequestHistory)
@@ -2045,20 +2034,61 @@ TEST_F(FAsyncAssetLoadTests, EditorStandaloneIsAnExplicitHostPolicyIndependentOf
 	const auto Path = SaveAsset("EditorStandalonePolicy");
 	DPackage* Package = FindResidentPackage(Path);
 	ASSERT_NE(Package, nullptr);
-	EXPECT_EQ(Package->GetResidencyReasons(), EAssetPackageResidencyReason::EditorStandalone);
+	ASSERT_FALSE(Package->GetTopLevelAssets().empty());
+	EXPECT_TRUE(Package->GetTopLevelAssets().front()->HasAnyObjectFlags(EObjectFlags::Standalone));
+	EXPECT_FALSE(Package->HasAnyObjectFlags(EObjectFlags::Standalone));
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(FindResidentPackage(Path), Package);
 	auto Handle = GetStreamableManager().RequestSyncLoadPackage(Path);
 	Handle->ReleaseHandle();
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(FindResidentPackage(Path), Package);
-	TStrongObjectPtr<DPackage> EditorOwner(Package);
+	TStrongObjectPtr<DObject> EditorOwner(Package->GetTopLevelAssets().front());
 	EXPECT_EQ(UnloadPackage(Path).Error, EAssetReadError::InUse);
-	EXPECT_EQ(Package->GetResidencyReasons(), EAssetPackageResidencyReason::EditorStandalone);
+	ASSERT_FALSE(Package->GetTopLevelAssets().empty());
+	EXPECT_TRUE(Package->GetTopLevelAssets().front()->HasAnyObjectFlags(EObjectFlags::Standalone));
+	EXPECT_FALSE(Package->HasAnyObjectFlags(EObjectFlags::Standalone));
 	EditorOwner.Reset();
 	ASSERT_TRUE(UnloadPackage(Path));
 	EXPECT_EQ(FindResidentPackage(Path), nullptr);
 }
+
+#if DURIN_WITH_EDITOR
+TEST_F(FAsyncAssetLoadTests, EditorBatchUnloadRestoresOnlySurvivingStandaloneExports)
+{
+	using namespace Durin;
+	const auto Path = SaveAsset("EditorBatch");
+	auto* Package = FindResidentPackage(Path);
+	ASSERT_NE(Package, nullptr);
+	auto* Kept = Package->GetTopLevelAssets().front();
+	TStrongObjectPtr<DObject> Owner(Kept);
+	Kept->SetFlags(EObjectFlags::Standalone);
+	TWeakObjectPtr<DObject> Sibling(NewObject<DPackageAssetForTest>(Package, "Sibling", EObjectFlags::Standalone));
+	const auto DirtyPath = SaveAsset("EditorDirty");
+	auto* Dirty = FindResidentPackage(DirtyPath);
+	ASSERT_NE(Dirty, nullptr);
+	Dirty->MarkDirty();
+	const auto FreePath = SaveAsset("EditorFree");
+	DPackage* Packages[] = {Package, Dirty, FindResidentPackage(FreePath)};
+	std::string Errors;
+	EXPECT_TRUE(PackageTools::UnloadPackages(Packages, Errors));
+	EXPECT_NE(Errors.find(DirtyPath.ToString()), std::string::npos);
+	EXPECT_NE(Errors.find(Path.ToString()), std::string::npos);
+	EXPECT_EQ(FindResidentPackage(FreePath), nullptr);
+	EXPECT_FALSE(Sibling.IsValid());
+	EXPECT_TRUE(Kept->HasAnyObjectFlags(EObjectFlags::Standalone));
+	ASSERT_EQ(FindResidentPackage(DirtyPath), Dirty);
+	Dirty->GetTopLevelAssets().front()->SetFlags(EObjectFlags::Standalone);
+	EXPECT_TRUE(PackageTools::UnloadPackages(std::span{&Package, 1}, Errors));
+	EXPECT_FALSE(Errors.empty());
+	EXPECT_TRUE(PackageTools::UnloadPackages({}, Errors));
+	EXPECT_TRUE(Errors.empty());
+	Owner.Reset();
+	DPackage* Remaining[] = {Package, Dirty};
+	EXPECT_TRUE(PackageTools::UnloadPackages(Remaining, Errors, true));
+	EXPECT_TRUE(Errors.empty());
+}
+#endif
 
 TEST_F(FAsyncAssetLoadTests, FailedRuntimeUnloadDoesNotConvertNativeOwnershipIntoAPermanentPin)
 {
@@ -2069,13 +2099,13 @@ TEST_F(FAsyncAssetLoadTests, FailedRuntimeUnloadDoesNotConvertNativeOwnershipInt
 	TWeakObjectPtr<DPackage> Package(Owner->GetPackage());
 	EXPECT_EQ(UnloadPackage(Path).Error, EAssetReadError::InUse);
 	ASSERT_TRUE(Package.IsValid());
-	EXPECT_EQ(Package.Get()->GetResidencyReasons(), EAssetPackageResidencyReason::None);
+	EXPECT_FALSE(Package.Get()->HasAnyObjectFlags(EObjectFlags::Standalone));
 	Owner.Reset();
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_FALSE(Package.IsValid());
 }
 
-TEST_F(FAsyncAssetLoadTests, NativeExportOwnersRetainTheWholeMultiExportPackageAndReleaseIndependently)
+TEST_F(FAsyncAssetLoadTests, NativeExportOwnersRetainOnlyTheirExportAndOuter)
 {
 	using namespace Durin;
 	FPackagePath Path;
@@ -2092,10 +2122,22 @@ TEST_F(FAsyncAssetLoadTests, NativeExportOwnersRetainTheWholeMultiExportPackageA
 	TWeakObjectPtr<DObject> WeakFirst(First), WeakSecond(Second);
 	FirstOwner.Reset();
 	CollectGarbage(Durin::EObjectFlags::Standalone);
-	EXPECT_TRUE(WeakFirst.IsValid());
+	EXPECT_FALSE(WeakFirst.IsValid());
+	EXPECT_EQ(Package->FindTopLevelAsset(FName("First")), nullptr);
 	EXPECT_TRUE(WeakSecond.IsValid());
+	Second->Value = 42;
+	Package->MarkDirty();
+	EXPECT_EQ(SavePackage(Package).Error, EAssetWriteError::InUse);
+	auto Reload = GetStreamableManager().RequestAsyncLoadPackage(Path);
+	ASSERT_TRUE(PumpUntil([&] { return Reload->IsComplete(); }));
+	ASSERT_EQ(Reload->GetLoadedPackage(), Package) << Reload->GetError().Message;
+	EXPECT_TRUE(Package->IsDirty());
+	Reload->ReleaseHandle();
+	ASSERT_NE(Package->FindTopLevelAsset(FName("First")), nullptr);
+	EXPECT_EQ(Package->FindTopLevelAsset(FName("Second")), Second);
+	EXPECT_EQ(Second->Value, 42);
 	EXPECT_EQ(FindResidentPackage(Path), Package);
-	EXPECT_EQ(Package->GetResidencyReasons(), EAssetPackageResidencyReason::None);
+	EXPECT_FALSE(Package->HasAnyObjectFlags(EObjectFlags::Standalone));
 	SecondOwner.Reset();
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_FALSE(WeakFirst.IsValid());
@@ -3543,6 +3585,7 @@ TEST(FPackageAssetTests, PreparedGraphsLoadScopeRetainsOnlyAttemptDependenciesFo
 	ASSERT_TRUE(SavePackage(Other->GetPackage()));
 	Other->Value = 701;
 	Other->GetPackage()->MarkDirty();
+	Other->SetFlags(Durin::EObjectFlags::Standalone);
 	const auto OtherRevision = Other->GetPackage()->GetEditRevision();
 	for (size_t Index = 0; Index < Sources.size(); ++Index)
 	{
@@ -3562,6 +3605,7 @@ TEST(FPackageAssetTests, PreparedGraphsLoadScopeRetainsOnlyAttemptDependenciesFo
 		ASSERT_TRUE(SavePackage(Live[Index]->GetPackage()));
 		Live[Index]->Value = 91;
 		Live[Index]->GetPackage()->MarkDirty();
+	Live[Index]->SetFlags(Durin::EObjectFlags::Standalone);
 		Revisions[Index] = Live[Index]->GetPackage()->GetEditRevision();
 	}
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(DependencyPath));
@@ -3611,9 +3655,11 @@ TEST(FPackageAssetTests, PreparedGraphsLoadScopeRetainsOnlyAttemptDependenciesFo
 	Live[0]->ExternalReference = Dependency;
 	EXPECT_EQ(Scope.Unload(Targets).Error, EAssetReadError::InUse); // real live edge always protects it
 	Live[0]->ExternalReference = nullptr;
+	TStrongObjectPtr<DObject> EditOwner(Dependency);
 	Dependency->GetPackage()->MarkDirty();
 	EXPECT_EQ(Scope.Unload(Targets).Error, EAssetReadError::InUse);
 	Dependency->GetPackage()->ClearDirty();
+	EditOwner.Reset();
 	ASSERT_TRUE(Scope.Unload(Targets));
 	EXPECT_EQ(FindResidentPackage(DependencyPath), nullptr);
 	EXPECT_EQ(FindResidentPackage(BulkPath), nullptr);
@@ -3854,7 +3900,7 @@ TEST(FPackageAssetTests, ScheduledResidencyReleasePreservesSharedDependencyUntil
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(BulkPath));
 }
 
-TEST(FPackageAssetTests, StreamableReleaseKeepsIndependentStrongOwnersAndUnsavedEdits)
+TEST(FPackageAssetTests, StreamableReleaseKeepsOnlyIndependentOwners)
 {
 	using namespace Durin;
 	InitializeAssetTests();
@@ -3886,12 +3932,11 @@ TEST(FPackageAssetTests, StreamableReleaseKeepsIndependentStrongOwnersAndUnsaved
 	Package->MarkDirty();
 	Handle->ReleaseHandle();
 	CollectGarbage(Durin::EObjectFlags::Standalone);
-	EXPECT_EQ(FindResidentPackage(Path), Package);
-	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(Package, EAssetPackageUnloadPolicy::DiscardUnsaved));
+	EXPECT_EQ(FindResidentPackage(Path), nullptr);
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
 }
 
-TEST(FPackageAssetTests, StreamableReleasePreservesModifiedDependenciesWithoutCreatingCleanCache)
+TEST(FPackageAssetTests, RuntimeDirtyStateDoesNotRetainReleasedDependencies)
 {
 	using namespace Durin;
 	InitializeAssetTests();
@@ -3912,19 +3957,8 @@ TEST(FPackageAssetTests, StreamableReleasePreservesModifiedDependenciesWithoutCr
 	Handle->GetLoadedPackage()->MarkDirty();
 	Handle->ReleaseHandle();
 	CollectGarbage(Durin::EObjectFlags::Standalone);
-	EXPECT_NE(FindResidentPackage(RootPath), nullptr);
-	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(RootPath, EAssetPackageUnloadPolicy::DiscardUnsaved));
-	ASSERT_NE(FindResidentPackage(DependencyPath), nullptr);
-	EXPECT_TRUE(FindResidentPackage(DependencyPath)->IsDirty());
-	ASSERT_TRUE(SavePackage(FindResidentPackage(DependencyPath)));
-	// Saving the dependency retires its unsaved root; later requests add no cache pin.
-	Handle = GetStreamableManager().RequestSyncLoadPackage(RootPath);
-	ASSERT_FALSE(Handle->HasError());
-	Handle->ReleaseHandle();
-	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(FindResidentPackage(RootPath), nullptr);
 	EXPECT_EQ(FindResidentPackage(DependencyPath), nullptr);
-	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(DependencyPath));
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(RootPath));
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(DependencyPath));
 }
@@ -4359,6 +4393,7 @@ TEST(FPackageAssetTests, PreparedGraphsRestoreSavedBatchCyclesAndContainersWitho
 	{
 		ASSERT_TRUE(FPackagePath::TryCreate(std::format("/TestAssets/PreparedCycle{}", Index), Sources[Index].PackagePath));
 		ASSERT_TRUE(CreatePackageLeafAssetForTesting(Sources[Index].PackagePath, Live[Index]));
+	Live[Index]->SetFlags(Durin::EObjectFlags::Standalone);
 		Live[Index]->Value = static_cast<int32>(31 + Index);
 		Live[Index]->Scores = {1, 4, 9};
 		Live[Index]->NamedScores = {{"saved", 42}};
@@ -4748,6 +4783,7 @@ TEST(FPackageAssetTests, PreparedGraphsRetainSavedLazyBulkWithoutReplacingLiveRe
 	const FByteBuffer Edited(Saved.size(), std::byte{0x72});
 	ASSERT_TRUE(Live->Payload.UpdatePayload(Edited));
 	Live->GetPackage()->MarkDirty();
+	Live->SetFlags(Durin::EObjectFlags::Standalone);
 	const auto BulkFile = Testing::GetTestWorkDirectory() / "Assets" / "PreparedGraphBulk.dbulk";
 	FByteBuffer SavedSegment;
 	auto SavedSegmentRead = FFileHelper::LoadFileToArray(BulkFile);
@@ -4780,6 +4816,7 @@ TEST(FPackageAssetTests, PackageLoadBindingsResolvePrivateObjectsWithoutLiveFall
 	Live->Value = 73;
 	ASSERT_TRUE(SavePackage(Live->GetPackage()));
 	Live->GetPackage()->MarkDirty();
+	Live->SetFlags(Durin::EObjectFlags::Standalone);
 	const auto Revision = Live->GetPackage()->GetEditRevision();
 	DPackage* Private = NewObject<DPackage>(nullptr, FName(Path.GetPackageName()));
 	ASSERT_TRUE(Private->InitializePreparedAssetPackage(Path));
@@ -5148,6 +5185,7 @@ TEST(FPackageAssetTests, CyclicLoadsCompleteTogetherAndRejectPrematurePublicAcce
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(BPath, B));
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(IndependentPath, Independent));
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(ReentrantPath, Reentrant));
+	TStrongObjectPtr<DObject> FirstOwner(A), SecondOwner(B), IndependentEdit(Independent);
 	Reentrant->ExternalReference = A;
 	ASSERT_TRUE(SavePackage(Reentrant->GetPackage()));
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(ReentrantPath));
@@ -5156,6 +5194,9 @@ TEST(FPackageAssetTests, CyclicLoadsCompleteTogetherAndRejectPrematurePublicAcce
 	ASSERT_TRUE(SavePackage(A->GetPackage()));
 	ASSERT_TRUE(SavePackage(B->GetPackage()));
 	ASSERT_TRUE(SavePackage(Independent->GetPackage()));
+	FirstOwner.Reset();
+	SecondOwner.Reset();
+	IndependentEdit.Reset();
 	MarkObjectHierarchyAsGarbage(A->GetPackage());
 	MarkObjectHierarchyAsGarbage(B->GetPackage());
 	CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -5338,6 +5379,7 @@ TEST(FPackageAssetTests, PackageLoadBindingsAttachSnapshotWithoutUsingLiveBulkRe
 	const FByteBuffer Edited(Saved.size(), std::byte{0x73});
 	ASSERT_TRUE(Live->Payload.UpdatePayload(Edited));
 	Live->GetPackage()->MarkDirty();
+	Live->SetFlags(Durin::EObjectFlags::Standalone);
 	const auto Revision = Live->GetPackage()->GetEditRevision();
 	auto BulkFile = File;
 	BulkFile.replace_extension(".dbulk");
@@ -7702,13 +7744,15 @@ TEST(FPackageAssetTests, SavesLoadsContainersReferencesAndRegistryMetadata)
 
 	Durin::DPackage* Package = Asset->GetPackage();
 	ASSERT_NE(Package, nullptr);
-	EXPECT_TRUE(Package->HasAnyObjectFlags(Durin::EObjectFlags::Standalone));
+	Durin::TStrongObjectPtr<Durin::DObject> EditOwner(Asset);
+	EXPECT_FALSE(Package->HasAnyObjectFlags(Durin::EObjectFlags::Standalone));
 	EXPECT_FALSE(Package->HasAnyInternalFlags(
 		Durin::EObjectInternalFlags::RootSet));
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Durin::FindResidentPackage(Path), Package);
 	ASSERT_TRUE(Durin::SavePackage(Package));
 	ASSERT_TRUE(Durin::FindPackageExact(Path));
+	EditOwner.Reset();
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(Path));
 
 	DPackageAssetForTest* Loaded = nullptr;
@@ -8139,6 +8183,7 @@ TEST(FPackageAssetTests, DetachedEditorGraphChildIsExcludedBeforeCollectionAndRe
 	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/DetachedEditorGraph", Path));
 	DImportMetadataOwnerForTest* Owner = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Owner));
+	Owner->SetFlags(Durin::EObjectFlags::Standalone);
 	auto* Child = NewObject<DReplayImportMetadataForTest>(Owner, "Expression");
 	Child->Fingerprint = 123;
 	Owner->Graph = {Child};
@@ -10184,6 +10229,7 @@ TEST(FPackageAssetTests, ExplicitLoadScopePreservesTransientReferencesAndRetries
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SnapshotFree", FreePath));
 	DPackageAssetForTest* Owner = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(OwnerPath, Owner));
+	Owner->SetFlags(Durin::EObjectFlags::Standalone);
 	Durin::FPackageLoadTransaction Scope;
 	DPackageAssetForTest* Target = nullptr;
 	DPackageAssetForTest* Peer = nullptr;
@@ -10551,7 +10597,9 @@ TEST(FPackageAssetTests, LoadsExternalDependenciesAndPreventsPrematureUnload)
 	Owner->ExternalReference = Dependency;
 	ASSERT_TRUE(Durin::SavePackage(Owner->GetPackage()));
 	ASSERT_EQ(Durin::FindPackageExact(OwnerPath)->Dependencies.size(), 1u);
+	Durin::TStrongObjectPtr<Durin::DObject> LiveOwner(Owner);
 	EXPECT_EQ(Durin::UnloadPackage(DependencyPath).Error, Durin::EAssetReadError::InUse);
+	LiveOwner.Reset();
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(OwnerPath));
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(DependencyPath));
 
@@ -10591,6 +10639,7 @@ TEST(FPackageAssetTests, RuntimeStrongReferencePreventsUnloadAndRestoresResidenc
 
 	DPackageAssetForTest* Owner = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(OwnerPath, Owner));
+	Owner->SetFlags(Durin::EObjectFlags::Standalone);
 	Owner->ExternalReference = Target;
 	const auto Result =
 		Durin::UnloadPackage(TargetPath);

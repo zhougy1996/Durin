@@ -1,5 +1,5 @@
 #include "StaticMeshMaterialTestFixture.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "StaticMesh/StaticMeshImportSettings.h"
 
 TEST(FStaticMeshImportTests, StaticMeshSourceProvenanceLivesOutsideContentAndSurvivesAssetOperations)

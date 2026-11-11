@@ -1368,7 +1368,7 @@ namespace Durin
 		{
 			return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::PackageType});
 		}
-		if (!Package || Package->GetTopLevelAssets().empty())
+		if (!Package || !Package->IsFullyLoaded() || Package->GetTopLevelAssets().empty())
 		{
 			return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::MissingAssets});
 		}

@@ -203,6 +203,7 @@ namespace Durin
 	struct FPackageSaveOperation::FState
 	{
 		TStrongObjectPtr<DPackage> Package;
+		std::vector<FStrongObjectPtr> Exports;
 		FPackagePath Identity;
 		uint64 Revision = 0;
 		uint64 DetachedBytes = 0;
@@ -250,6 +251,7 @@ namespace Durin
 		auto Operation = std::unique_ptr<FPackageSaveOperation>(new FPackageSaveOperation());
 		auto& Data = *Operation->State;
 		Data.Package = Package;
+		for (DObject* Asset : Package->GetTopLevelAssets()) Data.Exports.emplace_back(Asset);
 		Data.Context = Context;
 		FFileReplacement MainFile, BulkFile;
 		FFilePublicationStamp MainStamp, BulkStamp;

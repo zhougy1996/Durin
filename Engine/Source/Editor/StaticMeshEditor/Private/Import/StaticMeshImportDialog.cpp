@@ -1,5 +1,6 @@
 #include "Physics/BodySetup.h"
-#include "Asset/PackageUnloading.h"
+#include "AssetTools/PackageUnloading.h"
+#include "Asset/Load.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Import/StaticMeshImportDialog.h"
 
@@ -261,7 +262,7 @@ namespace Durin::StaticMeshEditor
 		});
 		const auto Result = IAssetTools::Get().ImportAsset(
 			TopLevelAssetPath, DStaticMesh::StaticClass(),
-			SourcePathBuffer.data(), Factory, nullptr, EObjectFlags::Public | EObjectFlags::Transactional, &ResultFeedback);
+			SourcePathBuffer.data(), Factory, nullptr, Durin::DefaultAssetCreationFlags, &ResultFeedback);
 		if (!Result)
 		{
 			Operation.reset();
@@ -300,7 +301,7 @@ namespace Durin::StaticMeshEditor
 			return false;
 		}
 		Operation.reset();
-		UnloadPackage(AssetPath);
+		PackageTools::UnloadPackages(std::array{FindResidentPackage(AssetPath)});
 		return true;
 	}
 

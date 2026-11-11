@@ -76,7 +76,6 @@ namespace
 			if (Transactor) EXPECT_TRUE(Transactor->TryReset());
 			if (Package)
 			{
-				Package->SetStandaloneResidency(false);
 				PackageRoot.Reset();
 				MarkObjectHierarchyAsGarbage(Package);
 				CollectGarbage(Durin::EObjectFlags::Standalone);

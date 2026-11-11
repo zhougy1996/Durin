@@ -813,15 +813,14 @@ namespace Durin
 
 	auto FObjectGraphReplacement::CommitPrepared() noexcept -> void
 	{
-		for (const auto& Pair : Impl->Packages)
+		for (const auto& Entry : Impl->Map.GetEntries())
 		{
-			const auto Explicit = Pair.Current ? Pair.Current->GetResidencyReasons()
-				& (EAssetPackageResidencyReason::Explicit | EAssetPackageResidencyReason::EditorStandalone)
-				: EAssetPackageResidencyReason::None;
-			Pair.Prepared->SetResidencyReasons(Pair.Prepared->GetResidencyReasons() | Explicit);
-			if (Pair.Current) Pair.Current->SetStandaloneResidency(false);
-			Pair.Prepared->CommitPreparedPackageRegistration(Pair.Current);
+			if (!Entry.Previous->HasAnyObjectFlags(EObjectFlags::Standalone)) continue;
+			if (Entry.Replacement) Entry.Replacement->SetFlags(EObjectFlags::Standalone);
+			Entry.Previous->ClearFlags(EObjectFlags::Standalone);
 		}
+		for (const auto& Pair : Impl->Packages)
+			Pair.Prepared->CommitPreparedPackageRegistration(Pair.Current);
 		Impl->References.Impl->Commit();
 		for (const auto& P : Impl->Participants) P->Commit();
 		Durin::Private::InvalidateSoftObjectCaches();

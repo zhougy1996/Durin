@@ -1,6 +1,6 @@
 #include "Asset/Testing/PackageSaveTesting.h"
 #include "NativeAssetBuildTestSupport.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "Asset/PackageSerialization.h"
 #include "Import/TextureFileImport.h"
 #include "AssetForge/Builtins/Texture2DImport.h"

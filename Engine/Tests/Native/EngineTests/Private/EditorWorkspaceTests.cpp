@@ -475,7 +475,6 @@ TEST(FEditorWorkspaceManagerTests, OpenAssetDocumentsRetainEveryAssetFamilyAndBl
 		ASSERT_TRUE(Manager.OpenDocument({.ToolkitId = Workspace->GetToolkitId(),
 			.DocumentKey = "Other", .Label = "Other"}).IsValid());
 		EXPECT_EQ(ValidatePackageRemovalReferences(Paths).Error, EAssetWriteError::InUse);
-		Package->SetStandaloneResidency(false);
 		CollectGarbage(Durin::EObjectFlags::Standalone);
 		ASSERT_NE(Key.ResolveObjectPtr(), nullptr);
 		Workspace->CloseResult = EDocumentCloseResult::PendingConfirmation;

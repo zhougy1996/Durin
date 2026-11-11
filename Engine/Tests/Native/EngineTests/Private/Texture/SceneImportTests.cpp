@@ -1,6 +1,6 @@
 #include "Asset/Testing/PackageSaveTesting.h"
 #include "NativeAssetBuildTestSupport.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "StaticMesh/StaticMeshImportSettings.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "../Materials/FunctionPortTestFixture.h"

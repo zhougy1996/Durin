@@ -1,5 +1,5 @@
 #include "Texture/Texture2DBuildDiagnostics.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "DObject/PropertyChange.h"
 #include "NativeAssetBuildTestSupport.h"
 #include "../DerivedDataBuildTestSupport.h"
@@ -1871,11 +1871,11 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	Texture = nullptr;
 	Durin::Testing::FScopedAssetRuntimeForTests AssetRuntime;
+	Durin::Testing::RegisterMountPointForTests(
+		"/Game/", (CookRoot / "Game").generic_string() + "/");
 	ASSERT_TRUE(AssetRuntime.RestartCooked(CookRoot));
 	ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
 	ASSERT_TRUE(Durin::InitializeGameThreadDeferredExecutor());
-	Durin::Testing::RegisterMountPointForTests(
-		"/Game/", (CookRoot / "Game").generic_string() + "/");
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
 		Durin::EAssetRegistryScanMode::FullValidation));
 	Durin::FPackagePath CookedPath;

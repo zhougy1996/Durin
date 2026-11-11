@@ -386,6 +386,7 @@ namespace Durin::Tests
 				const auto Result = LoadObjectDetailed<DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(StaticMeshPath));
 				Loaded = Result.value_or(nullptr);
 				It->second.StaticMesh = Result ? Cast<DStaticMesh>(Loaded) : nullptr;
+				if (It->second.StaticMesh) It->second.StaticMesh->SetFlags(EObjectFlags::Standalone);
 				if (!Result || It->second.StaticMesh == nullptr)
 				{
 					OutError = (Result ? std::string{} : Result.error().Message).empty()
@@ -512,6 +513,11 @@ namespace Durin::Tests
 		if (!CubeResult) return Fail(CubeResult.Message);
 		OutFixtures.DirectionalCube = CubeResult.Asset;
 
+		// Cached editor fixtures must survive collections between toolkit operations.
+		for (DObject* Asset : std::array<DObject*, 7>{OutFixtures.Material, OutFixtures.MaterialInstance,
+			OutFixtures.InvalidMaterialInstance, OutFixtures.ParentTexture, OutFixtures.OverrideTexture,
+			OutFixtures.DirectionalCube, OutFixtures.StaticMesh})
+			Asset->SetFlags(EObjectFlags::Standalone);
 		CachedFixtures.emplace(Root, OutFixtures);
 		OutError.clear();
 		return true;

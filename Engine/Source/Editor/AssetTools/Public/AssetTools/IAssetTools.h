@@ -20,7 +20,7 @@ namespace Durin
 
 	// Coordinates generic editor asset construction and delegates specialized
 	// initialization to factories when one is available. Returned assets are live
-	// and unsaved; Standalone package residency keeps them alive.
+	// and unsaved; the default Standalone flag keeps the authored object available for editing.
 	class IAssetTools
 	{
 	public:
@@ -32,7 +32,7 @@ namespace Durin
 			DClass* AssetClass,
 			const DFactory* Factory = nullptr,
 			DObject* Context = nullptr,
-			EObjectFlags Flags = EObjectFlags::Public | EObjectFlags::Transactional,
+			EObjectFlags Flags = DefaultAssetCreationFlags,
 			FFeedbackContext* Warn = nullptr)
 			-> DObject* = 0;
 
@@ -46,7 +46,7 @@ namespace Durin
 			std::string_view Filename,
 			const DFactory* Factory = nullptr,
 			DObject* Context = nullptr,
-			EObjectFlags Flags = EObjectFlags::Public | EObjectFlags::Transactional,
+			EObjectFlags Flags = DefaultAssetCreationFlags,
 			FFeedbackContext* Warn = nullptr)
 			-> DObject* = 0;
 
@@ -55,7 +55,7 @@ namespace Durin
 			DClass* AssetClass,
 			const DFactory* Factory = nullptr,
 			DObject* Context = nullptr,
-			EObjectFlags Flags = EObjectFlags::Public | EObjectFlags::Transactional,
+			EObjectFlags Flags = DefaultAssetCreationFlags,
 			FFeedbackContext* Warn = nullptr) -> DObject*
 		{
 			FTopLevelAssetPath AssetPath;
@@ -70,7 +70,7 @@ namespace Durin
 			std::string_view Filename,
 			const DFactory* Factory = nullptr,
 			DObject* Context = nullptr,
-			EObjectFlags Flags = EObjectFlags::Public | EObjectFlags::Transactional,
+			EObjectFlags Flags = DefaultAssetCreationFlags,
 			FFeedbackContext* Warn = nullptr) -> DObject*
 		{
 			FTopLevelAssetPath AssetPath;

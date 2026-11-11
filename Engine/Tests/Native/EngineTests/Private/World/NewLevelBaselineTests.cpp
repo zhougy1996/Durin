@@ -1,5 +1,5 @@
 #include "Asset/AssetCompilingManager.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "WorldTestSupport.h"

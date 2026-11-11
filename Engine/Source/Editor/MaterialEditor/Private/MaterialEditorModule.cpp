@@ -37,7 +37,7 @@ namespace Durin
 				}
 			});
 			const auto Created = IAssetTools::Get().CreateAsset(
-				AssetPath, TMaterial::StaticClass(), nullptr, nullptr, EObjectFlags::Public | EObjectFlags::Transactional, &CreatedFeedback);
+				AssetPath, TMaterial::StaticClass(), nullptr, nullptr, Durin::DefaultAssetCreationFlags, &CreatedFeedback);
 			if (!Created)
 			{
 				OutError = CreatedError;

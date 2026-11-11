@@ -1,5 +1,5 @@
 #include "NativeAssetBuildTestSupport.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "NativeAssetTestSupport.h"
 #include "EncodedSourceSnapshot.h"
 #include "TextureTestSupport.h"

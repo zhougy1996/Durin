@@ -1,5 +1,5 @@
 #include "Editor/EditorTransactionTestSupport.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "StaticMesh/StaticMeshMaterialBinding.h"
 #include "StaticMesh/StaticMeshDerivedData.h"

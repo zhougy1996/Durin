@@ -1,5 +1,6 @@
 #include "Import/TextureFileImport.h"
-#include "Asset/PackageUnloading.h"
+#include "AssetTools/PackageUnloading.h"
+#include "Asset/Load.h"
 #include "Asset/PackageSerialization.h"
 
 #include "AssetTools/IAssetTools.h"
@@ -58,7 +59,7 @@ namespace Durin::TextureEditor
 		const bool bBatchImport = bool(Prepared);
 		Factory->SetPreparedImport(std::move(Prepared));
 		auto* Imported = IAssetTools::Get().ImportAsset(Destination, DTexture2D::StaticClass(), Filename, Factory,
-			nullptr, EObjectFlags::Public | EObjectFlags::Transactional, Warn);
+			nullptr, Durin::DefaultAssetCreationFlags, Warn);
 		if (!Imported || bBatchImport) return Imported;
 		FAssetCompilingManager::Get().FinishCompilationForObject(*Imported);
 		if (!Save(Destination.GetPackagePath())) PendingSaves.push_back(Destination.GetPackagePath());
@@ -92,7 +93,7 @@ namespace Durin::TextureEditor
 		Callbacks.Clear();
 		std::erase_if(PendingSaves, [this](const FPackagePath& Path) {
 			if (!Save(Path)) return false;
-			UnloadPackage(Path);
+			PackageTools::UnloadPackages(std::array{FindResidentPackage(Path)});
 			return true;
 		});
 	}
@@ -177,7 +178,7 @@ namespace Durin::TextureEditor
 			if (Result) { Published.push_back(Path.ToString()); ++SavedCount; ++Next; }
 			else { PendingSaves.push_back(Path); Fail("Imported, but save failed: " + Result.Message); }
 			Active.Reset();
-			if (Result && !Package->IsDirty()) UnloadPackage(Package);
+			if (Result && !Package->IsDirty()) PackageTools::UnloadPackages(std::array{Package});
 			TimingDetails += std::format(
 				"{}: prepare {:.1f} ms, compilation elapsed {:.1f} ms, save {:.1f} ms\n",
 				Filename, PreparationMilliseconds,

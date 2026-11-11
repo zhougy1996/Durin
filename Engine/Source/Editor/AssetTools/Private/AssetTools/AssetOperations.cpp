@@ -115,6 +115,7 @@ namespace Durin
 				!Duplicated ? ToString(Duplicated.error())
 					: "The source object graph could not be duplicated as an asset.");
 		}
+		DuplicatedAsset->SetFlags(EObjectFlags::Standalone);
 		DestinationPackage->MarkDirty();
 		DestinationPackage->MarkAsNewlyCreated();
 		return DuplicatedAsset;

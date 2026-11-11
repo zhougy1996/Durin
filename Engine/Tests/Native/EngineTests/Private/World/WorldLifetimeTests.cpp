@@ -1,5 +1,5 @@
 #include "WorldTestSupport.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "ComponentPSOPrecacheTestSupport.h"
 #include "Engine/MapChange.h"
 #include "Engine/WorldSubsystem.h"

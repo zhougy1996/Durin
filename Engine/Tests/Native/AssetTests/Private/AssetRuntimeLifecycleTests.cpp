@@ -1,7 +1,7 @@
 #include "Asset/Load.h"
 #include "Asset/Cook.h"
 #include "Asset/Mutation.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "Asset/RegistryOperations.h"
 #include "AssetRegistry/Scan.h"
 #include "Engine/StreamableManager.h"

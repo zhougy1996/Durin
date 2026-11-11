@@ -1,5 +1,5 @@
 #include "AssetTools/Relocation.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "Threading/TaskRuntime.h"
 #include "AssetTools/RedirectorFixup.h"
 #include "AssetTools/MutationTesting.h"
@@ -890,11 +890,11 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AuthoredPath));
 	Durin::Testing::RemoveTestWorkDirectory(SecondRoot);
 	Durin::Testing::FScopedAssetRuntimeForTests AssetRuntime;
+	Durin::Testing::RegisterMountPointForTests(
+		"/Game/", (FirstRoot / "Game").generic_string() + "/");
 	ASSERT_TRUE(AssetRuntime.RestartCooked(FirstRoot));
 	ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
 	ASSERT_TRUE(Durin::InitializeGameThreadDeferredExecutor());
-	Durin::Testing::RegisterMountPointForTests(
-		"/Game/", (FirstRoot / "Game").generic_string() + "/");
 	const Durin::FAssetCatalogRefreshResult Refresh =
 		Durin::RefreshAssetRegistry(
 			Durin::EAssetRegistryScanMode::FullValidation);

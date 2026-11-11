@@ -1,5 +1,5 @@
 #include "BulkPackageTestSupport.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "Asset/Asset.h"
 #include "Asset/PackageSerialization.h"
 #include "Asset/RegistryOperations.h"

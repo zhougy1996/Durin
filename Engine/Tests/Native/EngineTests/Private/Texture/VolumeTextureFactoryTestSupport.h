@@ -33,7 +33,7 @@ namespace Durin::AssetForge::Builtins
 			if (Level >= Durin::ELogLevel::Error) { if (!ImportedError.empty()) ImportedError += "\n"; ImportedError += Message; }
 		});
 		const auto Imported = IAssetTools::Get().ImportPackageLeafAssetForTesting(
-			ParsedPath, DVolumeTexture::StaticClass(), FilePath, Factory, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &ImportedFeedback);
+			ParsedPath, DVolumeTexture::StaticClass(), FilePath, Factory, nullptr, Durin::DefaultAssetCreationFlags, &ImportedFeedback);
 		auto* Texture = Cast<DVolumeTexture>(Imported);
 		if (!Imported || !Texture)
 			return {false, ImportedError, Texture};

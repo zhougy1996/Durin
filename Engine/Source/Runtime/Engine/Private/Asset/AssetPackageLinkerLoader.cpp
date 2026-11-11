@@ -302,6 +302,11 @@ namespace Durin::AssetPrivate
 			std::vector<FExportView> Exports;
 			std::vector<FPackagePath> LiveDependencies;
 			std::vector<DObject*> Objects;
+			const std::unordered_set<DObject*>* ExistingObjects = nullptr;
+			auto IsExisting(DObject* Object) const -> bool
+			{
+				return ExistingObjects && ExistingObjects->contains(Object);
+			}
 			DPackage* Package = nullptr;
 			FLinkerCompatibilityEvidence Compatibility;
 		};
@@ -477,7 +482,7 @@ namespace Durin::AssetPrivate
 				std::vector<DClass*> Classes;
 				std::unordered_set<DObject*> NeedsDefaults;
 				for (size_t Index = 0; Index < Objects.size(); ++Index)
-					if (Exports[Index].Export->bUseClassDefaults)
+					if (Exports[Index].Export->bUseClassDefaults && !Application.IsExisting(Objects[Index]))
 					{
 						NeedsDefaults.insert(Objects[Index]);
 						Classes.push_back(Objects[Index]->GetClass());
@@ -524,7 +529,8 @@ namespace Durin::AssetPrivate
 				{
 					LoadedCustomVersions.emplace_back(Version.Guid, Version.Version);
 				}
-				for (DObject* Object : Objects) Object->SetLoadedCustomVersions(LoadedCustomVersions);
+				for (DObject* Object : Objects)
+					if (!Application.IsExisting(Object)) Object->SetLoadedCustomVersions(LoadedCustomVersions);
 				}
 				FScopedObjectLoadPhase CompatibilityTiming(PackagePath, EObjectLoadPhase::CollectCompatibilityEvidence, Objects.size(), PropertyCount);
 				for (size_t ObjectIndex = 0; ObjectIndex < Exports.size(); ++ObjectIndex)
@@ -547,6 +553,7 @@ namespace Durin::AssetPrivate
 			}
 			for (size_t ObjectIndex = 0; ObjectIndex < Objects.size(); ++ObjectIndex)
 			{
+				if (Application.IsExisting(Objects[ObjectIndex])) continue;
 				if (ShouldFail(Options, ELinkerLoadPhase::ApplyValues, ObjectIndex))
 				{
 					LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, "Injected value application failure.");
@@ -935,7 +942,7 @@ namespace Durin::AssetPrivate
 				"Linker package identity does not match the requested package path.");
 			return Finish({EAssetReadError::InvalidPath, Diagnostic.Message});
 		}
-		if (FindPackage(PackagePath.GetView()))
+		if (FindPackage(PackagePath.GetView()) != Options.ExistingPackage)
 		{
 			LinkerApplyFail(Diagnostic, EAssetReadError::AlreadyExists,
 				std::format("A package with the requested path '{}' is already live.", PackagePath.ToString()));
@@ -949,7 +956,7 @@ namespace Durin::AssetPrivate
 		auto& Objects = Application.Objects;
 		auto& Report = Application.Compatibility;
 
-		DPackage* Package = NewObject<DPackage>(
+		DPackage* Package = Options.ExistingPackage ? Options.ExistingPackage : NewObject<DPackage>(
 			nullptr,
 			FName(PackagePath.GetPackageName()));
 		if (!Package)
@@ -971,7 +978,7 @@ namespace Durin::AssetPrivate
 					Options.OnSkeletonRollback(Package);
 			});
 			Cleanup([&] {
-				if (!bSkeletonPublished || !Options.DeferCompletion)
+				if (!Options.ExistingPackage && (!bSkeletonPublished || !Options.DeferCompletion))
 				{
 					MarkObjectHierarchyAsGarbage(Package);
 					if (Package->IsAssetPackage()) Package->RetireFailedLoadRegistration();
@@ -1003,13 +1010,20 @@ namespace Durin::AssetPrivate
 				return Finish({EAssetReadError::InvalidObjectGraph, Diagnostic.Message});
 			}
 		}
+		else if (Options.ExistingPackage) Application.ExistingObjects = Options.ExistingObjects;
 		else Package->InitializeAssetPackage(PackagePath);
 		Application.Package = Package;
 		Objects.resize(Exports.size(), nullptr);
 
+		std::vector<FStrongObjectPtr> Pins;
+		Pins.reserve(Objects.size() + 1);
+		Pins.emplace_back(Package);
+		if (Application.ExistingObjects)
+			for (DObject* Object : *Application.ExistingObjects) Pins.emplace_back(Object);
+
 		auto Construct = [&]() -> FAssetReadResult {
 			FAssetLiveLoadGuard Guard(bool(Options.DeferCompletion));
-			if (auto Result = CreateLinkerSkeleton(Application, Options, Diagnostic); !Result) return Result;
+			if (auto Result = CreateLinkerSkeleton(Application, Options, Diagnostic, &Pins); !Result) return Result;
 			return Guard.GetFailure();
 		};
 		if (auto Result = Construct(); !Result)
@@ -1036,10 +1050,6 @@ namespace Durin::AssetPrivate
 			bSkeletonPublished = true;
 		}
 
-		// Candidate children may not yet be reachable through restored properties.
-		std::vector<FStrongObjectPtr> Pins;
-		Pins.reserve(Objects.size());
-		for (DObject* Object : Objects) Pins.emplace_back(Object);
 		{
 			FScopedObjectLoadPhase DependencyTiming(PackagePath, EObjectLoadPhase::ResolveImports);
 			const auto& Dependencies = Options.bCooked ? Application.Linker.Summary.HardPackageDependencies : Application.LiveDependencies;
@@ -1103,9 +1113,11 @@ namespace Durin::AssetPrivate
 			FScopedObjectLoadPhase Timing(PackagePath, EObjectLoadPhase::ValidateLoadedGraph, Objects.size());
 			return ValidateLoadedGraphs(Objects, {.bCooked = bCooked, .bPrivateGraph = bPrivate});
 		};
-		auto Notify = [Objects, Package, PackagePath]() {
+		auto RestoredObjects = Objects;
+		std::erase_if(RestoredObjects, [&](DObject* Object) { return Application.IsExisting(Object); });
+		auto Notify = [Objects = std::move(RestoredObjects), Package, PackagePath, bRestoring = bool(Options.ExistingPackage)]() {
 			FScopedObjectLoadPhase Timing(PackagePath, EObjectLoadPhase::PostLoad, Objects.size());
-			Package->ClearDirty();
+			if (!bRestoring) Package->ClearDirty();
 			for (size_t Reverse = Objects.size(); Reverse > 0; --Reverse)
 			{
 				DObject* Object = Objects[Reverse - 1];

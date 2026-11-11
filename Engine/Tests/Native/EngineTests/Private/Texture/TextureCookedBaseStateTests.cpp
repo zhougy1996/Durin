@@ -1,6 +1,6 @@
 #include "DObject/PackageFormat.h"
 #include "TextureTestSupport.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "Threading/TaskRuntime.h"
 #include "DObject/StrongObjectPtr.h"
 

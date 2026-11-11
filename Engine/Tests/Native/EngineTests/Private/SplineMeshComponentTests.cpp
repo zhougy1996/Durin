@@ -1,5 +1,5 @@
 #include "NativeAssetBuildTestSupport.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "StaticMeshTestAccess.h"
 #include "Components/PropertyEditValidation.h"
 #include "Asset/AssetCompilingManager.h"

@@ -1,5 +1,5 @@
 #include "Panels/ContentBrowserPanel.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "Editor/BrowserDefinitionTestSupport.h"
 #include "EngineTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"

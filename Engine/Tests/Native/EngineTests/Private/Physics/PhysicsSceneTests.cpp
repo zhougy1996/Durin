@@ -1,6 +1,6 @@
 #include "NativeAssetRuntimeTestSupport.h"
 #include "NativeAssetBuildTestSupport.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "StaticMeshTestAccess.h"
 #include "../StaticMeshTestAccess.h"
 #include "World/WorldServiceTestSupport.h"

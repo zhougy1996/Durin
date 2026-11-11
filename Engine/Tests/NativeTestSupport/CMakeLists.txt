@@ -6,6 +6,7 @@ durin_target_apply_common_definitions(NativeTestSupport NativeTestSupport)
 
 target_include_directories(NativeTestSupport
 	PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/Public"
+	INTERFACE "${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private/Asset/Tools"
 )
 
 target_link_libraries(NativeTestSupport

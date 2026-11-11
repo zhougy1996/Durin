@@ -1,7 +1,7 @@
 #include "DObject/StrongObjectPtr.h"
 #include "NativeAssetRuntimeTestSupport.h"
 #include "Physics/BodySetup.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "RoadNet/RoadPropertyEditValidation.h"
 #include "RoadNet/RoadNetActor.h"
 #include "RoadNet/RoadNetBuilder.h"

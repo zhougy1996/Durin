@@ -1,5 +1,5 @@
 #include "NativeAssetBuildTestSupport.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "ContentBrowser/TextureCubeDetails.h"
 
 #include "Asset/PackageSerialization.h"

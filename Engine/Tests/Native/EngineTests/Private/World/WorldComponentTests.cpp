@@ -1,7 +1,7 @@
 #include "DObject/StrongObjectPtr.h"
 #include "NativeAssetRuntimeTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "WorldTestSupport.h"
 

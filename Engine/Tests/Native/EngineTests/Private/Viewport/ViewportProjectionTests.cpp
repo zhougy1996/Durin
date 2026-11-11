@@ -1,5 +1,5 @@
 #include "Misc/MountPathTestSupport.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "ViewportTestSupport.h"
 #include "Math/Operations.h"
 

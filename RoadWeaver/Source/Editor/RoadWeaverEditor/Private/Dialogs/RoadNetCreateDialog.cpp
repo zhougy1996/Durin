@@ -1,5 +1,4 @@
 #include "Dialogs/RoadNetCreateDialog.h"
-#include "Asset/PackageUnloading.h"
 
 #include "Asset/PackageSerialization.h"
 #include "AssetTools/IAssetTools.h"
@@ -123,7 +122,7 @@ namespace Durin::RoadNet::Editor
 			}
 		});
 		const auto Created = IAssetTools::Get().CreateAsset(
-			AssetPath, DRoadNet::StaticClass(), nullptr, nullptr, EObjectFlags::Public | EObjectFlags::Transactional, &CreatedFeedback);
+			AssetPath, DRoadNet::StaticClass(), nullptr, nullptr, Durin::DefaultAssetCreationFlags, &CreatedFeedback);
 		DRoadNet* RoadNet = Cast<DRoadNet>(Created);
 		if (!Created || !RoadNet)
 		{
@@ -183,7 +182,7 @@ namespace Durin::RoadNet::Editor
 		const FAssetWriteResult Saved = SavePackage(RoadNet->GetPackage());
 		if (!Saved)
 		{
-			UnloadPackage(PackagePath);
+			IAssetTools::Get().DiscardPackage(RoadNet->GetPackage());
 			SetError(Saved.Message.empty()
 				? "The Road Net asset could not be saved." : Saved.Message);
 			return false;

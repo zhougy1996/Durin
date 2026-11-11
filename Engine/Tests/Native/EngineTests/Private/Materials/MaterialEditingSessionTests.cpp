@@ -42,7 +42,6 @@ namespace
 		auto TearDown() -> void override
 		{
 			MarkAsGarbage(Source);
-			if (Package) Package->SetStandaloneResidency(false);
 			MarkAsGarbage(Package);
 			CollectGarbage(Durin::EObjectFlags::Standalone);
 		}

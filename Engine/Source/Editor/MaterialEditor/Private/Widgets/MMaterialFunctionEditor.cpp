@@ -99,7 +99,6 @@ namespace Durin::MaterialEditor
 		}
 		auto* Package = NewObject<DPackage>(DPackage::StaticClass(), nullptr, NAME_None, EObjectFlags::Transient);
 		Package->InitializeAssetPackage(PreviewPath);
-		Package->SetStandaloneResidency(false);
 		Document->PreviewPackage = FStrongObjectPtr(Package);
 		auto* Material = NewObject<DMaterial>(DMaterial::StaticClass(), Package, "Preview", EObjectFlags::Transient);
 		Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);

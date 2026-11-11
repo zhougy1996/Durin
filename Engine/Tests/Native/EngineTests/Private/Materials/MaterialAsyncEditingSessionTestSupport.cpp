@@ -37,7 +37,6 @@ auto QualifyMaterialEditingSessionAsync() -> void
 		~FCleanup()
 		{
 			MarkAsGarbage(Source);
-			Package->SetStandaloneResidency(false);
 			MarkAsGarbage(Package);
 		}
 	} Cleanup{Source, Package};

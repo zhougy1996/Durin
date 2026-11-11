@@ -1,5 +1,5 @@
 #include "Asset/AssetCompilingManager.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "Thumbnail/StaticMeshThumbnailRenderer.h"
 
 #include "Assets/ContentBrowserThumbnailReferences.h"

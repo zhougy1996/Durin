@@ -1,5 +1,5 @@
 #include "AssetTools/AssetToolsModule.h"
-#include "Asset/PackageUnloading.h"
+#include "AssetTools/PackageUnloading.h"
 
 #include "AssetRegistry/Catalog.h"
 #include "Asset/Load.h"
@@ -89,10 +89,8 @@ namespace Durin
 		{
 			checkf(IsInGameThread(), "Asset package discard must run on the game thread.");
 			if (!Package || !Package->IsAssetPackage()) return false;
-			FPackagePath Path;
-			if (!FPackagePath::TryCreate(Package->GetPackagePath(), Path)) return false;
-			return UnloadPackage(
-				Package, EAssetPackageUnloadPolicy::DiscardUnsaved).Succeeded();
+			std::string Errors;
+			return PackageTools::UnloadPackages(std::span{&Package, 1}, Errors, true) && Errors.empty();
 		}
 
 		auto RecoverPackages(const FPackageReloadRequest& Request)
@@ -151,6 +149,7 @@ namespace Durin
 				const auto Message = Diagnostics.ToString();
 				Reject(Warn, Message.empty() ? "The factory could not construct the asset." : Message);
 				MarkObjectHierarchyAsGarbage(Package);
+				Package->RetireFailedLoadRegistration();
 				RequestGarbageCollection();
 				return nullptr;
 			}
@@ -160,6 +159,7 @@ namespace Durin
 				const auto Message = std::format("Invalid factory product {} (class {}); expected {} (class {}) registered in its destination package.",
 					Asset->GetObjectPath(), Asset->GetClass()->GetName(), Path.ToString(), Class->GetName());
 				MarkObjectHierarchyAsGarbage(Package);
+				Package->RetireFailedLoadRegistration();
 				RequestGarbageCollection();
 				return Reject(Warn, Message);
 			}

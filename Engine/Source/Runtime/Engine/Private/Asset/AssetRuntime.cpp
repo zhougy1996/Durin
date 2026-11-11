@@ -1,7 +1,7 @@
 #include "AssetLoadAuditInternal.h"
 #include "DObject/PackagePersistence.h"
 #include "PackageLoadTransaction.h"
-#include "Asset/PackageUnloading.h"
+#include "Tools/PackageCollection.h"
 #include "DObject/SoftObjectPathServices.h"
 #include "Asset/RegistryOperations.h"
 #include "AssetRuntimeStateInternal.h"
@@ -30,6 +30,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/Internal/GarbageCollection.h"
 #include "DObject/Package.h"
 #include "Misc/FileHelper.h"
 
@@ -317,12 +318,7 @@ namespace Durin
 		}
 		if (IsPackageLoading(Path))
 			return std::unexpected(FAssetReadError{EAssetReadError::InUse, std::format("Package '{}' is not ready for public loading.", Path.ToString())});
-		if (DPackage* Resident = FindResidentPackage(Path))
-		{
-			if (RuntimeConfiguration.GetResidencyPolicy() == EAssetResidencyPolicy::Editor && !Resident->IsPlayInEditor())
-				Resident->SetResidencyReasons(Resident->GetResidencyReasons() | EAssetPackageResidencyReason::EditorStandalone);
-			return Resident;
-		}
+		if (DPackage* Resident = FindResidentPackage(Path); Resident && Resident->IsFullyLoaded()) return Resident;
 		const FPackageCatalogEntry Entry = Durin::FindPackageExact(Path);
 		if (!Entry)
 			return std::unexpected(FAssetReadError{EAssetReadError::NotFound, std::format(
@@ -465,6 +461,18 @@ namespace Durin
 		} RequestScope{LoadDepth, PreviousLoadReport};
 		auto Record = std::make_shared<FPendingLoad>();
 		Record->Path = Path;
+		if (DPackage* Resident = FindResidentPackage(Path))
+		{
+			Record->bRestoring = true;
+			Record->Package = Resident;
+			std::vector<DObject*> Objects{Resident};
+			for (size_t Index = 0; Index < Objects.size(); ++Index)
+			{
+				auto Children = GDObjectArray.GetObjectsWithOuter(Objects[Index], EObjectQueryScope::IncludeUnpublished);
+				Objects.insert(Objects.end(), Children.begin(), Children.end());
+			}
+			Record->ExistingObjects.insert(Objects.begin(), Objects.end());
+		}
 		Record->Index = Record->LowLink = NextLoadIndex++;
 		bool bCompleted = false;
 		struct FDiscardScope
@@ -519,7 +527,7 @@ namespace Durin
 				OutPackage = Target.Package.Get();
 				return {};
 			}
-			if (DPackage* Resident = FindResidentPackage(Path))
+			if (DPackage* Resident = FindResidentPackage(Path); Resident && Resident->IsFullyLoaded())
 			{
 				OutPackage = Resident;
 				return {};
@@ -601,7 +609,8 @@ namespace Durin
 		if (GOwnedLoadPackages)
 		{
 			GOwnedLoadPackages->reserve(GOwnedLoadPackages->size() + Group.size());
-			for (const auto& Member : Group) GOwnedLoadPackages->emplace_back(Member->Package.Get());
+			for (const auto& Member : Group)
+				if (!Member->bRestoring) GOwnedLoadPackages->emplace_back(Member->Package.Get());
 		}
 		for (const auto& Member : Group) Member->Phase = ELoadPhase::PostLoading;
 		for (const auto& Member : Group)
@@ -612,8 +621,10 @@ namespace Durin
 		for (const auto& Member : Group)
 		{
 			Member->Phase = ELoadPhase::Ready;
+			Member->Package->SetFullyLoaded(true);
 			if (RuntimeConfiguration.GetResidencyPolicy() == EAssetResidencyPolicy::Editor && !Member->Package->IsPlayInEditor())
-				Member->Package->SetResidencyReasons(Member->Package->GetResidencyReasons() | EAssetPackageResidencyReason::EditorStandalone);
+				for (DObject* Asset : Member->Package->GetTopLevelAssets())
+					if (!Member->ExistingObjects.contains(Asset)) Asset->SetFlags(EObjectFlags::Standalone);
 			Member->bOwnResource = false;
 			PendingLoads.erase(Member->Path);
 			CompletionStack.pop_back();
@@ -632,8 +643,17 @@ namespace Durin
 				Record->Phase = ELoadPhase::Failed;
 				if (DPackage* Package = Record->Package.Get())
 				{
-					MarkObjectHierarchyAsGarbage(Package);
-					Package->RetireFailedLoadRegistration();
+					if (Record->bRestoring)
+					{
+						for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished))
+							if (!Object->IsGarbage() && Object != Package && Object->GetPackage() == Package
+								&& !Record->ExistingObjects.contains(Object)) MarkObjectHierarchyAsGarbage(Object);
+					}
+					else
+					{
+						MarkObjectHierarchyAsGarbage(Package);
+						Package->RetireFailedLoadRegistration();
+					}
 				}
 			}
 		while (!CompletionStack.empty() && CompletionStack.back()->Index >= FirstIndex)
@@ -663,7 +683,7 @@ namespace Durin
 		DURIN_PROFILE_CPU_ZONE_NAMED("Asset.LoadPackage");
 		auto ReadAccess = FPackageFileAccess::TryReadPackage(std::filesystem::path(PhysicalPath));
 		if (!ReadAccess) return Error(EAssetReadError::InUse, "Package output is being written.");
-		if (DPackage* Resident = FindResidentPackage(Path))
+		if (DPackage* Resident = FindResidentPackage(Path); Resident && Resident->IsFullyLoaded())
 		{
 			OutPackage = Resident;
 			return {};
@@ -733,7 +753,10 @@ namespace Durin
 			if (!Result) return Result;
 
 			auto& Record = *PendingLoads.at(Path);
-			if (Header.BulkSegmentExtent != 0)
+			ReadContext.ExistingPackage = Record.bRestoring ? Record.Package.Get() : nullptr;
+			ReadContext.ExistingObjects = Record.bRestoring ? &Record.ExistingObjects : nullptr;
+			if (Record.bRestoring) ReadContext.BulkResource = GetPackageResourceManager().FindPackage(Path.GetView());
+			if (Header.BulkSegmentExtent != 0 && !ReadContext.BulkResource)
 			{
 				ReadContext.BindBulkResource = [&](std::span<const FPackageBulkDataEntry> Entries,
 					FPackageResourceHandle& OutResource) -> FAssetReadResult {
@@ -768,7 +791,7 @@ namespace Durin
 			Result = Codec->Load(
 				ReadContext, Package, CodecReport,
 				[&](DPackage* LoadedPackage) -> FAssetReadResult {
-					if (!LoadedPackage || FindPackage(Path.GetView()) != LoadedPackage || Record.Package)
+					if (!LoadedPackage || FindPackage(Path.GetView()) != LoadedPackage || (Record.Package && Record.Package.Get() != LoadedPackage))
 						return Error(EAssetReadError::AlreadyExists, "The package skeleton is already resident.");
 					Record.Package = LoadedPackage;
 					Record.Phase = ELoadPhase::Skeleton;
@@ -790,56 +813,48 @@ namespace Durin
 			? Package : nullptr;
 	}
 
-	auto FAssetLoadService::IsPackageReferenced(const DPackage* Package) const -> bool
+	namespace
 	{
-		if (!Package) return false;
-		FPackagePath Path;
-		if (!FPackagePath::TryCreate(Package->GetPackagePath(), Path)) return false;
-		for (DPackage* OtherPackage : GetResidentAssetPackages())
+		// Weak identities restore editing flags only on survivors of this collection.
+		auto GatherStandaloneObjects(DPackage* Package, std::vector<TWeakObjectPtr<DObject>>& Cleared) -> void
 		{
-			if (OtherPackage == Package) continue;
-			FPackagePath OtherPath;
-			if (!FPackagePath::TryCreate(OtherPackage->GetPackagePath(), OtherPath))
-				continue;
-			const FPackageCatalogEntry Data = FindPackageExact(OtherPath);
-			if (!Data) continue;
-			for (const FPackagePath& Dependency : Data->Dependencies)
+			std::vector<DObject*> Objects{Package};
+			for (size_t Index = 0; Index < Objects.size(); ++Index)
 			{
-				const FPackagePathResolveResult Resolution = Durin::ResolvePackagePathForOperation(Dependency);
-				if (Resolution && Resolution.FinalPath == Path) return true;
+				DObject* Object = Objects[Index];
+				if (Object->HasAnyObjectFlags(EObjectFlags::Standalone)) Cleared.emplace_back(Object);
+				auto Children = GDObjectArray.GetObjectsWithOuter(Object, EObjectQueryScope::IncludeUnpublished);
+				Objects.insert(Objects.end(), Children.begin(), Children.end());
 			}
 		}
-		return false;
+
 	}
 
-	auto FAssetLoadService::UnloadPackage(
-		const FPackagePath& Path,
-		EAssetPackageUnloadPolicy Policy) -> FAssetReadResult
+	auto AssetPrivate::CollectPackageExports(const std::unordered_set<FPackagePath>& Candidates) -> size_t
 	{
-		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("UnloadPackage", ""); !Result) return Result;
-		DPackage* Package = FindResidentPackage(Path);
-		if (!Package)
-			return Error(EAssetReadError::NotFound, "Package is not resident.");
-		if (IsPackageLoading(Path) || IsPackageReferenced(Package))
-			return Error(EAssetReadError::InUse, "Package is still referenced.");
-		const bool bHasUnsavedState =
-			Package->IsNewlyCreated() || Package->IsDirty();
-		if (bHasUnsavedState
-			&& Policy == EAssetPackageUnloadPolicy::RejectUnsaved)
-			return Error(EAssetReadError::InUse,
-				"Package has unsaved state; explicit discard policy is required.");
-		const auto Reasons = Package->GetResidencyReasons();
-		Package->SetStandaloneResidency(false);
-		CollectGarbage(Durin::EObjectFlags::Standalone);
-		if (DPackage* RemainingPackage = FindResidentPackage(Path))
-		{
-			RemainingPackage->SetResidencyReasons(Reasons);
-			return Error(EAssetReadError::InUse,
-				"Package remains referenced by live objects.");
-		}
-		GetPackageResourceManager().RetirePackage(Path.ToString());
-		Durin::Private::InvalidateSoftObjectCaches();
-		return {};
+		if (Candidates.empty()) return 0;
+		std::vector<TWeakObjectPtr<DObject>> Cleared;
+		for (const auto& Path : Candidates) GatherStandaloneObjects(FindResidentPackage(Path), Cleared);
+		for (const auto& Weak : Cleared) Weak.Get()->ClearFlags(EObjectFlags::Standalone);
+		Durin::Private::CollectGarbageWithPostReachability(EObjectFlags::Standalone, true, [&] {
+			for (const auto& Weak : Cleared)
+				if (auto* Object = Weak.Get(); Object && Object->HasAnyInternalFlags(EObjectInternalFlags::Reachable))
+					Object->SetFlags(EObjectFlags::Standalone);
+		});
+		size_t Count = 0;
+		for (const auto& Path : Candidates)
+			if (!FindResidentPackage(Path))
+			{
+				GetPackageResourceManager().RetirePackage(Path.ToString());
+				++Count;
+			}
+		if (Count) Durin::Private::InvalidateSoftObjectCaches();
+		return Count;
+	}
+
+	auto AssetPrivate::CheckPackageUnloadAllowed() -> FAssetReadResult
+	{
+		return FAssetLiveLoadGuard::Check("UnloadPackages", "");
 	}
 
 	auto FAssetLoadService::ReleasePackages(
@@ -850,7 +865,6 @@ namespace Durin
 		if (LoadDepth != 0 || !PendingLoads.empty())
 			return Error(EAssetReadError::InUse, "A package load is still in progress.");
 		std::unordered_set<FPackagePath> Candidates;
-		std::unordered_map<FPackagePath, EAssetPackageResidencyReason> OriginalReasons;
 		bool bInUse = false;
 		for (const auto& Handle : Packages)
 		{
@@ -862,7 +876,6 @@ namespace Durin
 				continue;
 			}
 			Candidates.insert(Package->GetPackagePathIdentity());
-			OriginalReasons.emplace(Package->GetPackagePathIdentity(), Package->GetResidencyReasons());
 		}
 		// Keep the disk dependency closure of every package outside the release set,
 		// including dirty/new packages. Internal cycles can be collected as one batch.
@@ -889,24 +902,15 @@ namespace Durin
 				}
 			}
 		}
-		for (const FPackagePath& Path : Candidates)
-			FindResidentPackage(Path)->SetStandaloneResidency(false);
-		if (!Candidates.empty()) CollectGarbage(Durin::EObjectFlags::Standalone);
-		bool bReleased = false;
-		for (const FPackagePath& Path : Candidates)
+		std::vector<FStrongObjectPtr> Skipped;
+		for (const auto& Handle : Packages)
 		{
-			if (DPackage* Remaining = FindResidentPackage(Path))
-			{
-				Remaining->SetResidencyReasons(OriginalReasons.at(Path));
-				bInUse = true;
-			}
-			else
-			{
-				GetPackageResourceManager().RetirePackage(Path.ToString());
-				bReleased = true;
-			}
+			DPackage* Package = Handle.Get();
+			if (!Package || Candidates.contains(Package->GetPackagePathIdentity())) continue;
+			Skipped.emplace_back(Package);
+			for (DObject* Asset : Package->GetTopLevelAssets()) Skipped.emplace_back(Asset);
 		}
-		if (bReleased) Durin::Private::InvalidateSoftObjectCaches();
+		if (AssetPrivate::CollectPackageExports(Candidates) != Candidates.size()) bInUse = true;
 		return bInUse ? Error(EAssetReadError::InUse,
 			"Packages remain referenced or have unsaved state.") : FAssetReadResult{};
 	}

@@ -94,7 +94,6 @@ namespace Durin::MaterialEditor
 		WorkingPackage = NewObject<DPackage>(DPackage::StaticClass(), nullptr,
 			NAME_None, EObjectFlags::Transient);
 		WorkingPackage->InitializeAssetPackage(Path);
-		WorkingPackage->SetStandaloneResidency(false);
 		Working = NewObject<DMaterial>(DMaterial::StaticClass(), WorkingPackage.Get(),
 			InSource.GetFName(), EObjectFlags::Transient);
 		Working->SetEditCompileMode(EMaterialEditCompileMode::Manual);

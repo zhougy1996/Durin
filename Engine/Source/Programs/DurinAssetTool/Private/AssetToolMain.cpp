@@ -1,5 +1,4 @@
 #include "HAL/PlatformLibrary.h"
-#include "Asset/PackageUnloading.h"
 #include "HAL/PlatformProcess.h"
 #include "Profiling/Profiling.h"
 #include "Asset/PackageSerialization.h"
@@ -1061,7 +1060,7 @@ int main(int ArgC, char** ArgV)
 				CreatedError += Message;
 			}
 		});
-		const auto Created = Durin::IAssetTools::Get().CreateAsset(AssetPath, Durin::DMaterial::StaticClass(), nullptr, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &CreatedFeedback);
+		const auto Created = Durin::IAssetTools::Get().CreateAsset(AssetPath, Durin::DMaterial::StaticClass(), nullptr, nullptr, Durin::DefaultAssetCreationFlags, &CreatedFeedback);
 		auto* Material = Durin::Cast<Durin::DMaterial>(Created);
 		if (!Created || !Material) { std::cerr << CreatedError << '\n'; return 1; }
 		Material->SetEditCompileMode(Durin::EMaterialEditCompileMode::Manual);
@@ -1070,14 +1069,14 @@ int main(int ArgC, char** ArgV)
 		if (!Valid)
 		{
 			std::cerr << "PBRSurfaceMaterial_MR graph validation failed.\n";
-			Durin::UnloadPackage(Path, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved);
+			Durin::IAssetTools::Get().DiscardPackage(Material->GetPackage());
 			return 1;
 		}
 		const auto Saved = Durin::SavePackage(Material->GetPackage());
 		if (!Saved)
 		{
 			std::cerr << Saved.Message << '\n';
-			Durin::UnloadPackage(Path, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved);
+			Durin::IAssetTools::Get().DiscardPackage(Material->GetPackage());
 			return 1;
 		}
 		std::cout << "Created PBRSurfaceMaterial_MR; existing materials are never replaced.\n";
@@ -1209,7 +1208,7 @@ int main(int ArgC, char** ArgV)
 					CreatedError += Message;
 				}
 			});
-			const auto Created = Durin::IAssetTools::Get().CreateAsset(AssetPath, Durin::DMaterial::StaticClass(), nullptr, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &CreatedFeedback);
+			const auto Created = Durin::IAssetTools::Get().CreateAsset(AssetPath, Durin::DMaterial::StaticClass(), nullptr, nullptr, Durin::DefaultAssetCreationFlags, &CreatedFeedback);
 			auto* Material = Durin::Cast<Durin::DMaterial>(Created);
 			if (!Created || !Material) { std::cerr << CreatedError << '\n'; return 1; }
 			const auto Saved = Durin::SavePackage(Material->GetPackage());

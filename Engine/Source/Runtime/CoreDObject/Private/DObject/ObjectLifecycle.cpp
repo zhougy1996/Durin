@@ -2,6 +2,7 @@
 
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
+#include "DObject/DObjectGlobals.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Internal/GarbageCollection.h"
 #include "DObject/Object.h"
@@ -80,7 +81,8 @@ namespace Durin
 			if (!Object || !GDObjectArray.Contains(Object) || IsPermanentObject(Object) || Object->IsGarbage()
 				|| (Object->IsTemplateObject() && !bAllowTemplate)) return;
 			Object->SetInternalFlags(EObjectInternalFlags::Garbage);
-			if (Cast<DPackage>(Object) || Cast<DPackage>(Object->GetOuter())) Private::NotifyAssetPackageChanged();
+			if (auto* Package = Cast<DPackage>(Object->GetOuter())) Package->UnregisterTopLevelAsset(Object);
+			if (Cast<DPackage>(Object)) Private::NotifyAssetPackageChanged();
             NotifyObjectReferencesInvalidated(*Object);
 			GDObjectArray.NotifyObjectMarkedGarbage();
 		}
@@ -468,6 +470,12 @@ namespace Durin
 
 	auto CollectGarbage(EObjectFlags KeepFlags, bool bPerformFullPurge) -> void
 	{
+		Private::CollectGarbageWithPostReachability(KeepFlags, bPerformFullPurge, {});
+	}
+
+	auto Private::CollectGarbageWithPostReachability(EObjectFlags KeepFlags, bool bPerformFullPurge,
+		const std::function<void()>& PostReachability) -> void
+	{
 		CheckObjectThread();
 		requiref(!IsGarbageCollecting(),
 			"CollectGarbage cannot run from collector callbacks; request GC instead.");
@@ -490,18 +498,16 @@ namespace Durin
 		Private::AddFunctionParameterReferences(Marker);
 		for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished))
 		{
-			// Residency is explicit ownership, independent of editor retention flags.
-			const auto* Package = Cast<DPackage>(Object);
 			if (!Object->IsGarbage()
 				&& (Object->HasAnyInternalFlags(EObjectInternalFlags::RootSet)
 					|| Object->HasAnyObjectFlags(KeepFlags)
-					|| IsPermanentObject(Object)
-					|| (Package && Package->GetResidencyReasons() != EAssetPackageResidencyReason::None)))
+					|| IsPermanentObject(Object)))
 			{
 				Marker.Enqueue(Object);
 			}
 		}
 		GLastGarbageCollectionStats.MarkedObjectCount = Marker.Drain();
+		if (PostReachability) PostReachability();
 		GLastGarbageCollectionStats.MarkMilliseconds = (FTime::Seconds() - MarkStartTime) * 1000.0;
 
 		std::vector<DObject*> SweepCandidates;
@@ -516,7 +522,20 @@ namespace Durin
 
 		const double SweepStartTime = FTime::Seconds();
 		std::vector<DObject*> DestroyOrder = GatherDestroyOrder(SweepCandidates);
-		for (DObject* Object : DestroyOrder) MarkGarbageInternal(Object);
+		for (DObject* Object : DestroyOrder)
+		{
+			// An unreachable export may leave its package and sibling exports alive.
+			if (!Object->IsGarbage())
+			{
+				DPackage* Package = Object->GetPackage();
+				if (Package && Package != Object && Package->IsAssetPackage()
+					&& Package->HasAnyInternalFlags(EObjectInternalFlags::Reachable)
+					&& (Object->GetConstructionPurpose() == EObjectConstructionPurpose::AssetLoad
+						|| (Object->GetOuter() == Package && Package->FindTopLevelAsset(Object->GetFName()) == Object)))
+					Package->SetFullyLoaded(false);
+			}
+			MarkGarbageInternal(Object);
+		}
 		for (auto It = DestroyOrder.rbegin(); It != DestroyOrder.rend(); ++It)
 		{
 			DObject* Object = *It;

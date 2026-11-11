@@ -1,7 +1,6 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Asset/PackageUnloading.h"
 
 #include "AssetSubsystemFwd.h"
 #include "Asset/Load.h"
@@ -34,10 +33,6 @@ namespace Durin
 		auto FindLoadedObject(const FSoftObjectPath& Path, const DClass* ExpectedClass,
 			DObject* Cached) -> DObject*;
 		auto FindResidentPackage(const FPackagePath& Path) const -> DPackage*;
-		auto UnloadPackage(
-			const FPackagePath& Path,
-			EAssetPackageUnloadPolicy Policy =
-				EAssetPackageUnloadPolicy::RejectUnsaved) -> FAssetReadResult;
 		auto ReleasePackages(std::span<const TWeakObjectPtr<DPackage>> Packages,
 			std::span<const TWeakObjectPtr<DPackage>> IgnoreSavedDependencies = {}) -> FAssetReadResult;
 
@@ -67,6 +62,8 @@ namespace Durin
 		{
 			FPackagePath Path;
 			TStrongObjectPtr<DPackage> Package;
+			bool bRestoring = false;
+			std::unordered_set<DObject*> ExistingObjects;
 			ELoadPhase Phase = ELoadPhase::Constructing;
 			uint64 Index = 0;
 			uint64 LowLink = 0;
@@ -90,7 +87,6 @@ namespace Durin
 			std::string_view PhysicalPath,
 			DPackage*& OutPackage,
 			FAssetLoadReport* OutReport = nullptr) -> FAssetReadResult;
-		auto IsPackageReferenced(const DPackage* Package) const -> bool;
 
 		FAssetRuntimeConfiguration& RuntimeConfiguration;
 		bool& bAcceptingRequests;
@@ -134,10 +130,6 @@ namespace Durin
 		auto FindResidentPackage(const FPackagePath& Path) const -> DPackage*
 		{
 			return Loader.FindResidentPackage(Path);
-		}
-		auto UnloadPackage(const FPackagePath& Path) -> FAssetReadResult
-		{
-			return Loader.UnloadPackage(Path);
 		}
 
 		FAssetLoadService& Loader;

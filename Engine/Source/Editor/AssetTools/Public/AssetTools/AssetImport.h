@@ -10,6 +10,9 @@ namespace Durin
 	class DClass;
 	class DFactory;
 
+	inline constexpr EObjectFlags DefaultAssetCreationFlags =
+		EObjectFlags::Public | EObjectFlags::Standalone | EObjectFlags::Transactional;
+
 	// One standalone output. Factories own typed settings and multi-file layouts.
 	struct FAssetImportRequest
 	{
@@ -18,7 +21,7 @@ namespace Durin
 		std::string Filename;
 		const DFactory* Factory = nullptr;
 		DObject* Context = nullptr;
-		EObjectFlags Flags = EObjectFlags::Public | EObjectFlags::Transactional;
+		EObjectFlags Flags = DefaultAssetCreationFlags;
 	};
 
 	struct FAssetImportBatchRequest

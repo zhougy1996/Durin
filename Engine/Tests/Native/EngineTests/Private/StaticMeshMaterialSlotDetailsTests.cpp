@@ -1,5 +1,5 @@
 #include "StaticMeshMaterialSlotDetails.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "PropertyEditor/DetailLayoutBuilder.h"
 
 #include "Asset/PackageSerialization.h"

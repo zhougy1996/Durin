@@ -82,9 +82,8 @@ Active requests retain selected objects and packages. `ReleaseHandle` drops
 only this request's ownership; before completion or while a callback is queued,
 release is deferred until delivery. Release never suppresses completion and
 never forces global GC. After release, successful result slots use weak identities
-and can become null after collection, while their historical reports remain. Configured editor Standalone roots and
-unsaved/explicit package roots are independent owners; their lifecycle is defined
-by [Asset Residency](AssetResidency.md).
+and can become null after collection, while their historical reports remain.
+Editor Standalone flags retain individual objects independently of handles, as described in [Asset Residency](AssetResidency.md).
 
 `CancelHandle` suppresses undelivered completion, records cancellation, immediately
 drops this consumer's retention and invokes its cancel delegate at most once.

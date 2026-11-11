@@ -135,8 +135,11 @@ namespace Durin
 			EAssetPackageSaveMode Mode, FPreparedPackageSave& Out) -> FAssetWriteResult
 		{
 			if (auto Result = AssetPrivate::ValidatePackageSaveAdmission(Path); !Result) return Result;
+			if (!Package->IsFullyLoaded())
+				return Error(EAssetWriteError::InUse, "Load the complete package before saving its exports.");
 			FPreparedPackageSave Prepared;
 			Prepared.Package = Package;
+			for (DObject* Asset : Package->GetTopLevelAssets()) Prepared.Exports.emplace_back(Asset);
 			Prepared.Destination = GetPhysicalPath(Path);
 			if (Prepared.Destination.empty()) return Error(EAssetWriteError::InvalidPath, "Cannot resolve package destination.");
 			auto ReadAccess = FPackageFileAccess::TryReadPackage(Prepared.Destination);

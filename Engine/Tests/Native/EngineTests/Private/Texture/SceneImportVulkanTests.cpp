@@ -1,5 +1,5 @@
 #include "NativeAssetBuildTestSupport.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "RenderResource.h"
 #include "Materials/MaterialShaderMap.h"
 
@@ -13,6 +13,7 @@
 #include "Asset/AssetRetention.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/ObjectPtr.h"
+#include "DObject/StrongObjectPtr.h"
 #include "DObject/DObjectArray.h"
 #include "DynamicRHI.h"
 #include "Engine/Engine.h"
@@ -121,10 +122,23 @@ namespace
 	}
 }
 
-TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
+class FSceneImportVulkanTests : public ::testing::Test
 {
-	InitializeDObjectSystem();
-	ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+protected:
+	static void SetUpTestSuite()
+	{
+		InitializeDObjectSystem();
+		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+	}
+
+	static void TearDownTestSuite()
+	{
+		Durin::ShutdownAssetCompilingManager();
+	}
+};
+
+TEST_F(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
+{
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
 	ASSERT_TRUE(Durin::InitializeGameThreadDeferredExecutor());
@@ -217,7 +231,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		};
 		ASSERT_TRUE(AdvanceTo(EAssetImportPhase::Ready)) << Session.GetResult().Message;
 		ASSERT_TRUE(Session.PreviewOutputs(DestinationDirectory, {}).bSucceeded);
-		ASSERT_TRUE(Session.BeginImport(DestinationDirectory, {}));
+		ASSERT_TRUE(Session.BeginImport(DestinationDirectory, {}, Durin::FAssetPackageSaveArgs{}));
 		ASSERT_TRUE(AdvanceTo(EAssetImportPhase::Completed)) << Session.GetResult().Message;
 		Executed = Session.GetResult();
 	}
@@ -531,6 +545,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		Durin::LoadObjectDetailed<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath));
 		ReloadedMesh = ReloadMeshResult.value_or(nullptr);
 	ASSERT_TRUE(ReloadMeshResult) << (ReloadMeshResult ? std::string{} : ReloadMeshResult.error().Message);
+	Durin::FStrongObjectPtr MeshOwner(ReloadedMesh);
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*ReloadedMesh);
 	ASSERT_NE(ReloadedMesh->GetRenderData(), nullptr);
 	const Durin::FMeshMaterialSlotDefinition* Slot =
@@ -591,6 +606,8 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		Durin::NewObject<Durin::DMaterialInstance>(nullptr, "TextureOnlyControl");
 	Durin::DMaterialInstance* FactorOnly =
 		Durin::NewObject<Durin::DMaterialInstance>(nullptr, "FactorOnlyControl");
+	Durin::FStrongObjectPtr TextureOnlyOwner(TextureOnly);
+	Durin::FStrongObjectPtr FactorOnlyOwner(FactorOnly);
 	ASSERT_TRUE(TextureOnly->SetParent(ReloadedMaterial));
 	ASSERT_TRUE(TextureOnly->SetTextureParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), ReloadedTexture));
@@ -725,7 +742,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		auto PbrImport = Durin::AssetForge::Builtins::ImportAssetOutputs((std::filesystem::path(DURIN_TEST_DATA_DIR)
 				/ "StaticModelMaterials/ImportedPbrContract.gltf").generic_string(),
 			MakeAssetPath("/SceneImportVulkan/Imports/PbrBaseline"), Durin::FStaticMeshImportSettings::MakeDurin(),
-			{.MeshMode = Durin::AssetForge::Builtins::EAssetImportMeshMode::Combined});
+			{.MeshMode = Durin::AssetForge::Builtins::EAssetImportMeshMode::Combined}, {}, {}, Durin::FAssetPackageSaveArgs{});
 		ASSERT_TRUE(PbrImport) << PbrImport.Message;
 		Durin::FPackagePath PbrMeshPath;
 		for (const auto& Output : PbrImport.Outputs)
@@ -805,14 +822,16 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		0u);
 	EXPECT_TRUE(Sphere->GetRenderData() == nullptr
 		|| Sphere->GetRenderData()->GetNumInitializedResources() == 0u);
+	FactorOnlyOwner.Reset();
+	TextureOnlyOwner.Reset();
 	Durin::MarkAsGarbage(FactorOnly);
 	Durin::MarkAsGarbage(TextureOnly);
+	MeshOwner.Reset();
 	PreloadedSphere = {};
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
-	ASSERT_TRUE(Durin::UnloadPackage(MeshPath));
-	ASSERT_TRUE(Durin::UnloadPackage(MaterialPath));
-	ASSERT_TRUE(Durin::UnloadPackage(TexturePath));
-	ASSERT_TRUE(Durin::UnloadPackage(LODContractPath));
+	for (const auto& Path : {MeshPath, MaterialPath, TexturePath, LODContractPath})
+		if (auto* Package = Durin::FindResidentPackage(Path))
+			ASSERT_TRUE(Durin::UnloadPackage(Package));
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(MeshPath));
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(MaterialPath));
@@ -820,22 +839,20 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(LODContractPath));
 	Durin::FPackagePath StudioPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Engine/Renderer/ThumbnailStudioCube", StudioPath));
-	ASSERT_TRUE(Durin::UnloadPackage(StudioPath));
+	if (auto* Package = Durin::FindResidentPackage(StudioPath))
+		ASSERT_TRUE(Durin::UnloadPackage(Package));
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	RendererLifecycle.Shutdown();
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();
 	Durin::FRHICommandListImmediate::Get().SwitchPipeline(Durin::ERHIPipeline::None);
 	Durin::RHIExit();
-	Durin::ShutdownAssetCompilingManager();
 	Durin::Testing::RemoveTestWorkDirectory(Root);
 }
 
-TEST(FSceneImportVulkanTests, PendingMeshDestructionDrainsAfterRenderFenceWithoutAnotherMark)
+TEST_F(FSceneImportVulkanTests, PendingMeshDestructionDrainsAfterRenderFenceWithoutAnotherMark)
 {
 	using namespace Durin;
-	InitializeDObjectSystem();
-	ASSERT_TRUE(InitializeAssetCompilingManager());
 	ASSERT_EQ(GDynamicRHI, nullptr);
 	FModuleManager::Get().LoadModule("RenderCore");
 	ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
@@ -846,7 +863,6 @@ TEST(FSceneImportVulkanTests, PendingMeshDestructionDrainsAfterRenderFenceWithou
 	{
 		~FCleanup()
 		{
-			ShutdownAssetCompilingManager();
 			CollectGarbage(EObjectFlags::NoFlags, false);
 			FlushRenderingCommands();
 			IncrementalPurgeGarbage(false);

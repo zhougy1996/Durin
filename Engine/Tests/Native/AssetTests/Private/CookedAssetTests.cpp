@@ -4,7 +4,7 @@
 #include "DObject/StrongObjectPtr.h"
 #include "DObject/PackageFormat.h"
 #include "DObject/PackageLinker.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include <gtest/gtest-spi.h>
 
 #include "Asset/PackageSerialization.h"

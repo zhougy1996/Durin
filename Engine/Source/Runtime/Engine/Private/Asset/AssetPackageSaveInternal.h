@@ -22,6 +22,7 @@ namespace Durin::AssetPrivate
 	struct FPreparedPackageSave
 	{
 		TStrongObjectPtr<DPackage> Package;
+		std::vector<FStrongObjectPtr> Exports;
 		uint64 Revision = 0;
 		uint64 DetachedBytes = 0;
 		FAssetPackageHeader Header;

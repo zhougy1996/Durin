@@ -1,6 +1,6 @@
 #include "NativeAssetRuntimeTestSupport.h"
 #include "PropertyEditor/PropertyView.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "PropertyEditor/PropertyValueDraft.h"
 

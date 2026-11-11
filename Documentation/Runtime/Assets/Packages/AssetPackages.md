@@ -145,12 +145,11 @@ arbitrary path.
 
 `DPackage` is an Outer-less object-graph root. CoreDObject's global object and
 package registration is the sole live identity lookup. `CreatePackage` detects
-path collisions but adds no implicit root. Explicit new/dirty declarations retain
-unsaved content until publication and clean state. Packages retain all their
-exports; a reachable export keeps its package alive through Outer.
+path collisions but adds no implicit root. NewlyCreated and Dirty record editing state.
+Each reachable export keeps its package alive through Outer. Siblings have independent lifetimes.
 
 [Asset Residency](AssetResidency.md) defines runtime owners, editor Standalone
-policy, inspectable root reasons, failure/GC boundaries and checked unloading.
+flags, partial loading, failure handling and checked unloading.
 Launch chooses the host retention policy before CDO construction, independently
 of the Authored/Cooked payload domain. Private preparation and preview graphs
 retain their actual operation/session owners.
@@ -171,18 +170,17 @@ package residency; they add no GC owner or rollback guarantee.
 For bounded ownership, use `FStreamableManager::RequestSyncLoad` or `RequestAsyncLoad` from
 `Engine/StreamableManager.h`. Both return the same `FStreamableHandle`. Active
 successful handles strongly retain the selected package/object. Loading adds no
-implicit runtime cache pin and requests have no cache-origin ledger. Independent
-unsaved, explicit and configured editor roots remain separately inspectable.
+implicit runtime cache pin. Editor Standalone retention is visible on each asset object.
 `ReleaseHandle()` and handle destruction release only that handle's strong
 references and request scheduled GC. They never collect synchronously, return
 `InUse`, or require another user to surrender its references. Other handles,
 Worlds, reflected references and native strong owners continue to retain shared
 graphs. Package resources retire only when the actual graph retires.
 
-Explicit forced unloading is a separate tools capability in
-`Asset/PackageUnloading.h`. `UnloadPackage` keeps its synchronous
-attempt-and-report contract, including unsaved-state and live-reference checks;
-it is not the ordinary request-release operation.
+Editor code uses `PackageTools::UnloadPackages` from
+`AssetTools/PackageUnloading.h` for synchronous checked unloading.
+The batch reports whether unloading processed eligible packages and supplies
+diagnostics for unsaved or referenced packages.
 
 The optional caller-owned `FAssetLoadReport*` is a request summary: paths,
 catalog revision, file reads, mutation counts and compatibility counts. Public
@@ -236,12 +234,10 @@ on failure. Scope exit restores normal loading. This guard does not intercept
 raw object lookup, direct file I/O, or work dispatched to another thread; it does
 not pin provider code or establish a complete Cook input session.
 
-Unload rejects newly created or dirty packages unless the caller explicitly
-selects `DiscardUnsaved`. It retires `Standalone`, runs GC, and succeeds only
-when no authored hard dependency or transient GC strong reference still owns
-the graph. When a transient reference keeps the graph alive, Engine restores
-`Standalone` and reports `InUse`. Failed load, deletion, and shutdown use
-separate complete-graph retirement paths.
+Editor tools can unload a batch of packages, explicitly discarding unsaved edits
+when requested. GC restores editing flags on surviving objects. The batch result,
+partial-package behavior and Cook rollback rules are defined in
+[Asset Residency](AssetResidency.md).
 
 ## Reference Model
 
@@ -586,7 +582,7 @@ and ordinary residency enumeration exclude in-flight records; public package and
 object loads return `InUse` for incomplete packages. Raw Core object existence is
 not an asset readiness guarantee. Phases are Constructing, Skeleton (dependency
 and value restoration), ValuesRestored, Validated, PostLoading, then Ready or
-Failed. Terminal records are removed; completed packages remain Standalone.
+Failed. Terminal records are removed after completion. Editor hosts mark persistent top-level assets Standalone.
 
 Hard-reference cycles form a strongly connected completion group. Every member
 restores values before any group graph validation, and every member validates

@@ -25,24 +25,13 @@ namespace Durin
 	};
 	ENUM_CLASS_FLAGS(EPackageFlags);
 
-	// Explicit GC roots for a live asset package, independent of soft references
-	// and streamable/editor strong owners. Runtime loading supplies no root.
-	enum class EAssetPackageResidencyReason : uint8
-	{
-		None = 0,
-		Unsaved = 1 << 0,
-		Explicit = 1 << 1,
-		EditorStandalone = 1 << 2,
-	};
-	ENUM_CLASS_FLAGS(EAssetPackageResidencyReason);
-
 	class DPackage;
 	COREDOBJECT_API auto GetLiveAssetPackages() -> std::vector<DPackage*>;
 	// Owner-thread revision of live asset-package membership, identity and metadata.
 	COREDOBJECT_API auto GetAssetPackageRevision() -> uint64;
 	namespace Private { COREDOBJECT_API auto NotifyAssetPackageChanged() -> void; }
 
-	// Owns every direct asset export or a module's reflected metadata under one registered path.
+	// Indexes every direct asset export or a module's reflected metadata under one registered path.
 	DCLASS(NoClassDefaultObject)
 	class DPackage : public DObject
 	{
@@ -63,8 +52,11 @@ namespace Durin
 		// Temporary string spelling shared with compiled-in packages during migration.
 		auto GetPackagePath() const -> const std::string& { return RegisteredPath; }
 		auto GetPackagePathIdentity() const -> const FPackagePath& { return PackagePath; }
+		COREDOBJECT_API auto UnregisterTopLevelAsset(DObject* Asset) -> void;
 		auto GetTopLevelAssets() const -> std::span<DObject* const> { return TopLevelAssets; }
 		COREDOBJECT_API auto FindTopLevelAsset(FName Name) const -> DObject*;
+		auto IsFullyLoaded() const -> bool { return bFullyLoaded; }
+		auto SetFullyLoaded(bool bValue) -> void { bFullyLoaded = bValue; }
 		auto IsDirty() const -> bool { return bDirty; }
 		auto IsCanonicalResaveRecommended() const -> bool { return bCanonicalResaveRecommended; }
 		auto GetEditRevision() const -> uint64 { return EditRevision; }
@@ -97,15 +89,6 @@ namespace Durin
 		auto IsPreparedAssetPackage() const -> bool { return bPrepared; }
 		COREDOBJECT_API auto RelocateAssetPackage(const FPackagePath& InPath) -> bool;
 		COREDOBJECT_API auto InitializeCppPackage(FName ModuleName) -> void;
-		auto GetResidencyReasons() const -> EAssetPackageResidencyReason { return ResidencyReasons; }
-		// Explicit pin, or explicit removal of all pins (checked discard/tools only).
-		// Ordinary owner release must drop its strong references instead.
-		COREDOBJECT_API auto SetStandaloneResidency(bool bResident) -> void;
-		// Restores the exact prior roots after a checked unload fails; never invents
-		// a new cache owner merely because another strong owner kept the graph alive.
-		COREDOBJECT_API auto SetResidencyReasons(EAssetPackageResidencyReason Reasons) -> void;
-		COREDOBJECT_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
-
 		COREDOBJECT_API auto MarkAsNewlyCreated() -> void;
 		COREDOBJECT_API auto MarkAsPublished() -> void;
 		COREDOBJECT_API auto MarkDirty() -> void;
@@ -118,8 +101,7 @@ namespace Durin
 	private:
 		bool bGraphPrivate = false;
 		bool bPrepared = false;
-		EAssetPackageResidencyReason ResidencyReasons = EAssetPackageResidencyReason::None;
-		auto RefreshUnsavedResidency() -> void;
+		bool bFullyLoaded = true;
 		auto ReservePreparedPackageRegistration() -> bool;
 		auto ReleasePreparedPackageRegistration() noexcept -> void;
 		auto CommitPreparedPackageRegistration(DPackage* Previous) noexcept -> void;
@@ -131,7 +113,7 @@ namespace Durin
 		DPROPERTY()
 		std::string RegisteredPath;
 
-		// Direct persistent exports are retained as one package residency closure.
+		// Non-owning index. Garbage marking removes entries before destruction.
 		std::vector<DObject*> TopLevelAssets;
 
 		EPackageFlags PackageFlags = EPackageFlags::None;
@@ -149,14 +131,13 @@ namespace Durin
 		uint64 EditRevision = 1;
 
 		COREDOBJECT_API auto RegisterTopLevelAsset(DObject* Asset) -> bool;
-		COREDOBJECT_API auto UnregisterTopLevelAsset(DObject* Asset) -> void;
+
 		COREDOBJECT_API auto CanUseTopLevelAssetName(FName Name, const DObject* Ignore = nullptr) const -> bool;
 
 		friend class DObject;
 	};
 
-	// Creates an empty asset package. MarkAsNewlyCreated/MarkDirty explicitly retain
-	// unsaved authored content. Invalid paths and paths already owned
+	// Creates an empty asset package. Invalid paths and paths already owned
 	// by another live package are rejected.
 	COREDOBJECT_API auto CreatePackage(const FPackagePath& Path) -> DPackage*;
 	COREDOBJECT_API auto FindPackage(std::string_view PackagePath) -> DPackage*;

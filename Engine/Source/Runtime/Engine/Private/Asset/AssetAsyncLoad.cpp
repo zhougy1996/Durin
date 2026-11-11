@@ -113,6 +113,8 @@ namespace Durin
 		std::vector<TStrongObjectPtr<DObject>> Assets;
 		std::vector<TStrongObjectPtr<DPackage>> AssetPackages;
 		std::vector<TStrongObjectPtr<DPackage>> ChildPackageRoots;
+		std::vector<FStrongObjectPtr> PackageExports;
+		std::vector<TWeakObjectPtr<DObject>> WeakPackageExports;
 		std::vector<TWeakObjectPtr<DPackage>> WeakPackageRoots;
 		std::vector<TWeakObjectPtr<DObject>> WeakAssets;
 		TStrongObjectPtr<DPackage> Package;
@@ -218,6 +220,8 @@ namespace Durin
 		Impl->WeakPackageRoots.clear();
 		for (const auto& Package : Impl->ChildPackageRoots) Impl->WeakPackageRoots.emplace_back(Package.Get());
 		Impl->ChildPackageRoots.clear();
+		for (const auto& Export : Impl->PackageExports) Impl->WeakPackageExports.emplace_back(Export.Get());
+		Impl->PackageExports.clear();
 		if (Impl->bOwnChildren)
 			for (auto& Child : Impl->Children) if (!Child->IsComplete()) Child->CancelHandle();
 		Impl->Children.clear();
@@ -280,7 +284,13 @@ namespace Durin
 			State.State = Result ? EAssetLoadState::Succeeded : EAssetLoadState::Failed;
 			if (Result)
 			{
-				if (!State.bAggregate) { State.Package = Package; State.Object = Object; }
+				if (!State.bAggregate)
+				{
+					State.Package = Package;
+					State.Object = Object;
+					if (Package && !State.ObjectPath)
+						for (DObject* Asset : Package->GetTopLevelAssets()) State.PackageExports.emplace_back(Asset);
+				}
 				State.LoadedPackage = State.Package.Get(); State.LoadedObject = State.Object.Get();
 			}
 			else State.Failure = AssetReadErrorFromResult(Result);
@@ -333,6 +343,18 @@ namespace Durin
 					State.TargetErrors[Slot] = Errors[Index];
 					State.Reports[Slot] = Reports[Index];
 				}
+			}
+			State.PackageExports.clear();
+			for (const auto& Child : State.Children)
+			{
+				if (Child->WasCanceled()) continue;
+				if (Child->Impl->bReleased)
+				{
+					for (const auto& Export : Child->Impl->WeakPackageExports)
+						if (auto* Object = Export.Get()) State.PackageExports.emplace_back(Object);
+				}
+				else for (const auto& Export : Child->Impl->PackageExports)
+					State.PackageExports.emplace_back(Export.Get());
 			}
 			State.Package = Packages.empty() ? nullptr : Packages.front().Get();
 			State.ChildPackageRoots = std::move(Packages);
@@ -562,7 +584,8 @@ namespace Durin
 					Complete(Handle, {EAssetReadError::InvalidPath, "Async load requires a valid package path."});
 					++Completed; continue;
 				}
-				if (FindResidentPackage(Root)) { Apply(Handle, &EmptyInputs); ++Completed; continue; }
+				if (auto* Resident = FindResidentPackage(Root); Resident && Resident->IsFullyLoaded())
+				{ Apply(Handle, &EmptyInputs); ++Completed; continue; }
 				const auto Existing = std::ranges::find_if(Jobs, [&](const auto& Job) { return Job->Path == Root; });
 				if (Existing != Jobs.end() && !(*Existing)->Cancellation.IsCanceled())
 				{
@@ -586,7 +609,8 @@ namespace Durin
 				while (!Paths.empty())
 				{
 					const auto Path = Paths.back(); Paths.pop_back();
-					if (!Visited.insert(Path).second || FindResidentPackage(Path)) continue;
+					if (!Visited.insert(Path).second) continue;
+					if (auto* Resident = FindResidentPackage(Path); Resident && Resident->IsFullyLoaded()) continue;
 					const auto Entry = FindPackageExact(Path);
 					if (!Entry) continue; // Only the live serializer decides which dependencies are needed.
 					Paths.insert(Paths.end(), Entry->Dependencies.begin(), Entry->Dependencies.end());

@@ -1,6 +1,6 @@
 #include "NativeAssetRuntimeTestSupport.h"
 #include "NativeAssetTestSupport.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "SkyBoxTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"

@@ -699,8 +699,6 @@ TEST(FLevelDocumentResidencyTests, CloseReleasesWorldReferenceAndSchedulesCollec
 	auto* Level = NewObject<DLevel>(Package, "Level", EObjectFlags::Public);
 	auto LoadHandle = GetStreamableManager().RequestSyncLoadPackage(Path);
 	ASSERT_TRUE(LoadHandle->IsActive());
-	// The fixture created this package directly; transfer its cache root to the handle.
-	Package->SetStandaloneResidency(false);
 	TStrongObjectPtr<DWorld> World(NewObject<DWorld>(nullptr, "ClosingResidencyWorld"));
 	ASSERT_NO_THROW(World->InitializeSubsystems());
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
@@ -730,8 +728,6 @@ TEST(FLevelDocumentResidencyTests, ReactivatedLevelRemainsAliveThroughWorldOwner
 	auto* Level = NewObject<DLevel>(Package, "Level", EObjectFlags::Public);
 	auto LoadHandle = GetStreamableManager().RequestSyncLoadPackage(Path);
 	ASSERT_TRUE(LoadHandle->IsActive());
-	// The fixture created this package directly; transfer its cache root to the handle.
-	Package->SetStandaloneResidency(false);
 	TStrongObjectPtr<DWorld> World(NewObject<DWorld>(nullptr, "ReactivatedResidencyWorld"));
 	ASSERT_NO_THROW(World->InitializeSubsystems());
 	ASSERT_TRUE(World->SetCurrentLevel(Level));

@@ -2,7 +2,7 @@
 #include "HAL/PlatformLTS.h"
 #include "Asset/Testing/PackageReloadTesting.h"
 #include "Materials/MaterialPackageReloadDiagnostic.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "CoreGlobals.h"
 #include "Asset/AssetObjectLoadTiming.h"
 #include "NativeAssetBuildTestSupport.h"
@@ -91,6 +91,10 @@ namespace
 		{
 			ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
 			Durin::Testing::InitializeAssetSystemForTests();
+			Durin::ShutdownAssetRuntime();
+			Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
+			ASSERT_TRUE(Durin::InitializeAssetRuntime(Durin::FAssetRuntimeConfiguration::Authored(
+				Durin::EAssetResidencyPolicy::Editor)));
 			Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 			Durin::FModuleManager::Get().LoadModuleChecked("ShaderBuild");
 			ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
@@ -99,6 +103,7 @@ namespace
 		static auto TearDownTestSuite() -> void
 		{
 			Durin::ShutdownAssetCompilingManager();
+			Durin::ShutdownAssetRuntime();
 			Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 			Durin::ShutdownTaskScheduler();
 		}
@@ -413,7 +418,8 @@ TEST_F(FAssetPackageReloadTests, FunctionReloadRebindsNestedCallersAndPreservesA
 	Instance.Reset();
 	Material.Reset();
 	Wrapper.Reset();
-	CollectGarbage(Durin::EObjectFlags::Standalone);
+	// Exercise actual references after the editor owners release their assets.
+	CollectGarbage(Durin::EObjectFlags::NoFlags);
 	EXPECT_EQ(FindResidentPackage(Path), nullptr);
 }
 
@@ -685,7 +691,8 @@ TEST_F(FAssetPackageReloadTests, ReloadRetainsCrossPackageHistoryAndRebindsTheSa
 	FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Textures[1]);
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Textures[1]);
 	TransactionRoot.Reset();
-	CollectGarbage(Durin::EObjectFlags::Standalone);
+	// Exercise actual references after the editor owners release their assets.
+	CollectGarbage(Durin::EObjectFlags::NoFlags);
 	EXPECT_EQ(FindResidentPackage(Paths[0]), nullptr);
 	EXPECT_EQ(FindResidentPackage(Paths[1]), nullptr);
 }

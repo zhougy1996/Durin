@@ -726,6 +726,8 @@ namespace Durin::AssetPrivate::TaggedPackage
 					.BulkResource = std::move(BulkResource),
 					.DependencyLoadPolicy = Context.DependencyLoadPolicy,
 					.bPrivateGraph = Context.bPrivateGraph,
+					.ExistingPackage = Context.ExistingPackage,
+					.ExistingObjects = Context.ExistingObjects,
 					.DeferCompletion = Context.DeferCompletion});
 		}
 

@@ -1,6 +1,6 @@
 #include "DObject/StrongObjectPtr.h"
 #include "Factories/Factory.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "AssetTools/IAssetTools.h"
 #include "Import/EditorReimportHandler.h"
 

@@ -1,5 +1,4 @@
 #include "AssetRuntimeStateInternal.h"
-#include "Asset/PackageUnloading.h"
 
 #include "DObject/Package.h"
 #include "DObject/SoftObjectPathServices.h"
@@ -87,29 +86,6 @@ namespace Durin
 	auto FindResidentPackage(const FPackagePath& Path) -> DPackage*
 	{
 		return FAssetRuntimeState::Get().GetLoadService().FindResidentPackage(Path);
-	}
-
-	auto UnloadPackage(
-		const FPackagePath& Path,
-		EAssetPackageUnloadPolicy Policy) -> FAssetReadResult
-	{
-		return FAssetRuntimeState::Get().GetLoadService().UnloadPackage(Path, Policy);
-	}
-
-	auto UnloadPackage(
-		DPackage* Package,
-		EAssetPackageUnloadPolicy Policy) -> FAssetReadResult
-	{
-		FPackagePath Path;
-		if (!Package || !Package->IsAssetPackage()
-			|| !FPackagePath::TryCreate(Package->GetPackagePath(), Path))
-			return {EAssetReadError::InvalidPackageType,
-				"The package to unload is invalid."};
-		FAssetRuntimeState& State = FAssetRuntimeState::Get();
-		if (State.GetLoadService().FindResidentPackage(Path) != Package)
-			return {EAssetReadError::NotFound,
-				"The package is not the resident package at its path."};
-		return State.GetLoadService().UnloadPackage(Path, Policy);
 	}
 
 	auto ShutdownAssetRuntime() -> void

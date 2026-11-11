@@ -1,5 +1,5 @@
 #include "BuildServiceBackendPrivate.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "CacheDispatchPrivate.h"
 #include "StaticMesh/StaticMeshDerivedDataKeyTestSupport.h"
 

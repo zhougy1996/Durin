@@ -1,5 +1,5 @@
 #include "Shader/ShaderCompilingManager.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "DObject/OverridableManager.h"
 #include "Shader/ShaderDiagnostics.h"
 #include "Asset/AssetCompilingManager.h"

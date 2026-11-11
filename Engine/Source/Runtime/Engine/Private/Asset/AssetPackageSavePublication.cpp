@@ -137,7 +137,7 @@ namespace Durin::AssetPrivate
 		if (FindResidentPackage(Path) == Package)
 		{
 			if (GetAssetRuntimeConfiguration().GetResidencyPolicy() == EAssetResidencyPolicy::Editor && !Package->IsPlayInEditor())
-				Package->SetResidencyReasons(Package->GetResidencyReasons() | EAssetPackageResidencyReason::EditorStandalone);
+				for (DObject* Asset : Package->GetTopLevelAssets()) Asset->SetFlags(EObjectFlags::Standalone);
 			Package->MarkAsPublished();
 		}
 		if (Package->GetEditRevision() == Revision) Package->ClearDirty();

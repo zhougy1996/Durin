@@ -1,5 +1,5 @@
 #include "Editor/EditorTransactionTestSupport.h"
-#include "Asset/PackageUnloading.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "MaterialGraphDocument.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 #include "MaterialGraphTestSupport.h"

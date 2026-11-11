@@ -177,8 +177,7 @@ template <typename T>
 auto ConstructSceneCandidate(const FTopLevelAssetPath &AssetPath, T *&OutAsset, std::string &OutError) -> bool
 {
 	OutAsset = nullptr;
-	DPackage *Package = NewObject<DPackage>(nullptr, FName(AssetPath.GetPackagePath().GetPackageName()),
-	                                        EObjectFlags::Standalone);
+	DPackage *Package = NewObject<DPackage>(nullptr, FName(AssetPath.GetPackagePath().GetPackageName()));
 	if (!Package || !Package->InitializePreparedAssetPackage(AssetPath.GetPackagePath()))
 	{
 		OutError = "The scene candidate package could not be created.";
@@ -1143,6 +1142,7 @@ auto FAssetImportSession::FImpl::Run() -> FSceneRoutine
 			}
 			for (const auto& Pair : Pairs)
 			{
+				for (DObject* Asset : Pair.Prepared->GetTopLevelAssets()) Asset->SetFlags(EObjectFlags::Standalone);
 				Pair.Prepared->MarkDirty();
 				Result.ImportedPackages.push_back(Pair.Prepared->GetPackagePathIdentity());
 				std::ranges::find(Result.Outputs, Pair.Prepared->GetPackagePathIdentity(),
