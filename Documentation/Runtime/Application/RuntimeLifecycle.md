@@ -176,16 +176,22 @@ dependency. Once workspace services and consumers are ready, the editor enters
 Ready and submits the configured default Level as an ordinary asset-editor open
 request. LevelEditor owns loading, document association, history, selection,
 viewport restoration, progress and errors through the same path as later opens.
-Document failure does not retire the usable editor workspace.
+Document failure does not retire the usable editor workspace. Startup advancement
+stops at service readiness; it never polls, caches terminal outcomes, or reports
+loading errors on behalf of the document controller. Empty default-Level settings
+submit no document request.
 
 Automation has a separate `GetStartupCompletion(OutError)` observation boundary.
-Editor completion requires successful default-document loading and the active
+Editor completion refreshes the submitted ordinary request through
+`DAssetEditorSubsystem::ResolveOpenResult`, which detects failed, canceled, retired
+requests and closed documents without advancing work. It then requires the active
 scene's actual primary-window presentation. `FSceneViewport::QueryPresentation()`
 validates scene generation and render outcome, then delegates current-window
 receipt matching to Mona. An auxiliary viewport, old generation, or replaced or
 removed window mapping cannot satisfy it. Without a scene, automation observes
-Mona's read-only current-window first-presentation check. Service-only hosts have
-no window requirement. Game retains its presentation-based host readiness.
+Mona's read-only current-window first-presentation check. Service-only fixtures
+remain service-ready but must supply presentation endpoints for automation
+completion, just like production hosts. Game retains its presentation-based host readiness.
 The process runner latches successful automation startup before dispatching
 startup commands or counting automated ticks, so later ordinary document changes
 do not reenter the initial presentation gate. None of these checks read profiling.

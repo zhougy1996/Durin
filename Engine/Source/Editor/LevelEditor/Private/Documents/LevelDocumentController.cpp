@@ -16,7 +16,6 @@
 #include "Misc/Project.h"
 #include "Panels/SceneViewportPanel.h"
 #include "Viewport/TransformGizmo.h"
-#include "Profiling/Profiling.h"
 
 namespace Durin::LevelEditor
 {
@@ -156,7 +155,7 @@ namespace Durin::LevelEditor
 				return ResolveUnsavedLevelDialog(Decision);
 			});
 		std::optional<FSlowTaskSnapshot> Feedback;
-		if (Context.EditorHost && Context.EditorHost->IsPreparingMapChange() && bShowLoadingProgress)
+		if (Context.EditorHost && Context.EditorHost->IsPreparingMapChange() && bPendingDocumentOpen)
 		{
 			const auto Progress = *Context.EditorHost->GetMapChangeProgress();
 			if (!IsMapChangeComplete(Progress.Phase))
@@ -211,7 +210,6 @@ namespace Durin::LevelEditor
 		{
 			return AssociateCurrentLevel() ? ELevelDocumentOpenResult::Opened : ELevelDocumentOpenResult::Rejected;
 		}
-		bShowLoadingProgress = true;
 		if (!CallbackLifetime) CallbackLifetime = std::make_shared<uint8>(0);
 		const std::weak_ptr<void> Lifetime = CallbackLifetime;
 		if (!Context.EditorHost->OpenLevel({.Path = Path,
@@ -229,9 +227,6 @@ namespace Durin::LevelEditor
 	{
 		const bool bCommitted = Progress.Phase == EMapChangePhase::Committed;
 		const bool bSucceeded = bCommitted && AssociateCurrentLevel();
-		if (bCommitted && Profiling::GetStartupMilestoneMilliseconds(Profiling::EStartupMilestone::DefaultDocumentAssetLoadBegin) >= 0
-			&& Profiling::GetStartupMilestoneMilliseconds(Profiling::EStartupMilestone::DefaultDocumentComplete) < 0)
-			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentActivationComplete);
 		const std::string Error = bCommitted && !bSucceeded
 			? "The Level Editor could not associate the opened level document." : Progress.Diagnostic;
 		if (!bSucceeded && Progress.Phase != EMapChangePhase::Canceled) SetError(Error);
@@ -414,12 +409,6 @@ namespace Durin::LevelEditor
 	auto FLevelDocumentController::PrepareLevelActivation(DLevel& Level) -> bool
 	{
 		if (!Context.World) return false;
-		if (Profiling::GetStartupMilestoneMilliseconds(Profiling::EStartupMilestone::DefaultDocumentAssetLoadBegin) >= 0
-			&& Profiling::GetStartupMilestoneMilliseconds(Profiling::EStartupMilestone::DefaultDocumentComplete) < 0)
-		{
-			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadComplete);
-			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentActivationBegin);
-		}
 		SessionSettings.CaptureViewportState(Context, SceneViewportPanel);
 		SessionSettings.Save(&SceneViewportPanel);
 		if (const auto* Previous = Context.World->GetCurrentLevel()) DocumentPackage = Previous->GetPackage();

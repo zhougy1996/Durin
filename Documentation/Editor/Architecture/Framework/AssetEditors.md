@@ -4,7 +4,7 @@ Summary: Define reflected asset-type discovery, metadata-based opening, owned ed
 
 Modules: DurinEd, TextureEditor, MainFrame, ContentBrowser
 
-Last reviewed: 2026-11-06
+Last reviewed: 2026-11-11
 
 ## Definition Discovery And Dispatch
 
@@ -37,7 +37,12 @@ groups combine requirements before any provider executes. Origin is diagnostic
 text; `bIsRestore` explicitly identifies restore operations.
 
 Pending definition work registers an identity and cancellation callback with
-`BeginOpenRequest`. `GetOpenRequest` observes completion; cancellation refusal
+`BeginOpenRequest`. `GetOpenRequest` observes stored completion.
+`ResolveOpenResult` refreshes an original Pending snapshot and validates completed
+asset/document association without mutating the submitted snapshot, focusing UI,
+or advancing loading. A retired request or closed document returns a failed
+observation; cancellation preserves its original status and diagnostic.
+Cancellation refusal
 keeps work/provider retention intact, and late completion is rejected. Deferred document candidates link to the same request identity. Publication
 updates asset associations before finishing the request; a failed/cancelled
 replacement retains the previous document. Terminal history retains the most

@@ -174,14 +174,13 @@ namespace Durin
 			const FViewportClient* SourceClient) -> void;
 
 		auto OpenDefaultLevel() -> void;
-		auto GetDefaultLevelCompletion(std::string& OutError) const -> EHostStartupState;
 		auto InitEditorInternal(const FEngineInitContext& Context) -> bool;
 		DURINED_API auto RequestSubsystemDeinitialization() -> void override;
 		DURINED_API auto RetireHostConsumers() -> void override;
 		FEditorSubsystemCollection EditorSubsystems;
 		bool bEditorInitStarted = false;
 		std::string StartupError;
-		std::optional<FAssetOpenItemResult> StartupDocumentOpen;
+		std::optional<FAssetOpenItemResult> InitialDocumentRequest;
 		// Service-only hosts are usable without a shell; Init starts the production bootstrap.
 		EditorStartup::EBootstrapState StartupPhase = EditorStartup::EBootstrapState::Ready;
 	protected:

@@ -144,7 +144,7 @@ TEST_F(FEditorToolTests, ServiceOnlyHostStartsReadyAndKeepsToolsAvailableDuringP
 TEST_F(FEditorToolTests, PresentationDoesNotGateEditorCapabilities)
 {
 	auto* Editor = MakeHost();
-	FEditorEngineTestAccess::SetStartupDocumentResult(*Editor, {.Status = EAssetOpenStatus::Pending, .RequestId = {999}});
+	FEditorEngineTestAccess::SetInitialDocumentRequest(*Editor, {.Status = EAssetOpenStatus::Pending, .RequestId = {999}});
 	EXPECT_EQ(EHostStartupState::Ready, Editor->GetStartupState());
 	EXPECT_TRUE(Editor->GetCapabilities().bPresentWorkspace);
 	EXPECT_TRUE(Editor->GetCapabilities().bTick);
@@ -311,6 +311,7 @@ TEST_F(FEditorToolTests, ProjectBrowserStartupSkipsProjectWorkWithoutPresentatio
 
 TEST_F(FEditorToolTests, AutomationWaitsForDocumentCompletionAndPrimaryScenePresentation)
 {
+	FWorkspaceProjectTestScope Project;
 	using namespace EditorStartup;
 	auto* Editor = MakeHost();
 	std::string Error;
@@ -325,16 +326,12 @@ TEST_F(FEditorToolTests, AutomationWaitsForDocumentCompletionAndPrimaryScenePres
 	FEditorEngineTestAccess::SetStartupPhase(*Editor, EBootstrapState::LoadingWorkspace, "stale error");
 	Editor->AdvanceStartup();
 	EXPECT_EQ(1, MainFrame.WorkspaceCalls);
+	EXPECT_FALSE(FEditorEngineTestAccess::HasInitialDocumentRequest(*Editor));
 	EXPECT_EQ(EHostStartupState::Ready, Editor->GetStartupState());
 	EXPECT_TRUE(Editor->CanTransact());
 	EXPECT_TRUE(Editor->GetStartupError().empty());
 	EXPECT_EQ(EBootstrapState::Ready, Editor->GetStartupPhase());
 
-	auto* World = NewObject<DWorld>(Editor, "StartupWorld");
-	World->SetWorldType(EWorldType::Editor);
-	ASSERT_NO_THROW(World->InitializeSubsystems());
-	ASSERT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World, "StartupLevel")));
-	FEditorEngineTestAccess::SetEditorWorld(*Editor, World);
 	auto SceneViewport = FSceneViewport::CreateOffscreen(nullptr);
 	SceneViewport->SetSceneGeneration(17);
 	FEditorEngineTestAccess::SetStartupViewport(*Editor, SceneViewport);
@@ -357,8 +354,18 @@ TEST_F(FEditorToolTests, AutomationWaitsForDocumentCompletionAndPrimaryScenePres
 	auto* Info = new Mona::FMonaViewportInfo();
 	Info->ViewportRHI = Primary;
 	Renderer.WindowToViewportInfoMap.emplace(Window.get(), Info);
+	EXPECT_EQ(EHostStartupState::Pending, Editor->GetStartupCompletion(Error));
+	Auxiliary->RecordSuccessfulPresentation();
+	EXPECT_EQ(EHostStartupState::Pending, Editor->GetStartupCompletion(Error));
+	Primary->RecordSuccessfulPresentation();
+	EXPECT_EQ(EHostStartupState::Ready, Editor->GetStartupCompletion(Error));
+	auto* World = NewObject<DWorld>(Editor, "StartupWorld");
+	World->SetWorldType(EWorldType::Editor);
+	ASSERT_NO_THROW(World->InitializeSubsystems());
+	ASSERT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World, "StartupLevel")));
+	FEditorEngineTestAccess::SetEditorWorld(*Editor, World);
 	const auto Receipt = SceneViewport->GetOutputReceipt();
-	FEditorEngineTestAccess::SetStartupDocumentResult(*Editor, {.Status = EAssetOpenStatus::Completed});
+	FEditorEngineTestAccess::SetInitialDocumentRequest(*Editor, {.Status = EAssetOpenStatus::Completed});
 	FMapChangeTestAccess::SetSceneGeneration(*Editor, 17);
 	Receipt->RecordProduced(17);
 	Editor->AdvanceStartup();
@@ -407,7 +414,7 @@ TEST_F(FEditorToolTests, StartupDocumentFailureCancellationAndRetiredRequestCann
 		auto* Editor = MakeHost();
 		std::string Error;
 		FEditorEngineTestAccess::SetStartupPhase(*Editor, EBootstrapState::Ready);
-		FEditorEngineTestAccess::SetStartupDocumentResult(*Editor, {.Status = Status, .Message = "owning failure or cancellation"});
+		FEditorEngineTestAccess::SetInitialDocumentRequest(*Editor, {.Status = Status, .Message = "owning failure or cancellation"});
 		Editor->AdvanceStartup();
 		EXPECT_EQ(EHostStartupState::Failed, Editor->GetStartupCompletion(Error));
 		EXPECT_EQ("owning failure or cancellation", Error);
@@ -416,7 +423,7 @@ TEST_F(FEditorToolTests, StartupDocumentFailureCancellationAndRetiredRequestCann
 	auto* Editor = MakeHost();
 	std::string Error;
 	FEditorEngineTestAccess::SetStartupPhase(*Editor, EBootstrapState::Ready);
-	FEditorEngineTestAccess::SetStartupDocumentResult(*Editor, {.Status = EAssetOpenStatus::Pending, .RequestId = {999}});
+	FEditorEngineTestAccess::SetInitialDocumentRequest(*Editor, {.Status = EAssetOpenStatus::Pending, .RequestId = {999}});
 	Editor->AdvanceStartup();
 	EXPECT_EQ(EHostStartupState::Failed, Editor->GetStartupCompletion(Error));
 	EXPECT_NE(std::string::npos, Error.find("no longer available"));
@@ -430,19 +437,20 @@ TEST_F(FEditorToolTests, StartupDocumentShutdownDoesNotPublishLateCompletion)
 	std::string Error;
 	FEditorEngineTestAccess::SetStartupPhase(*Editor, EBootstrapState::Ready);
 	Editor->PreExit();
-	FEditorEngineTestAccess::SetStartupDocumentResult(*Editor, {.Status = EAssetOpenStatus::Completed});
+	FEditorEngineTestAccess::SetInitialDocumentRequest(*Editor, {.Status = EAssetOpenStatus::Completed});
 	Editor->AdvanceStartup();
 	EXPECT_EQ(EHostStartupState::Pending, Editor->GetStartupCompletion(Error));
 }
 
-TEST_F(FEditorToolTests, StartupWithoutConfiguredLevelCompletesWithoutAnOpenRequest)
+TEST_F(FEditorToolTests, ServiceReadinessDoesNotBypassThePresentationRequirement)
 {
 	ASSERT_FALSE(HasCurrentProject());
 	auto* Editor = MakeHost();
 	std::string Error;
 	FEditorEngineTestAccess::SetStartupPhase(*Editor, EditorStartup::EBootstrapState::Ready);
 	Editor->AdvanceStartup();
-	EXPECT_EQ(EHostStartupState::Ready, Editor->GetStartupCompletion(Error));
+	EXPECT_EQ(EHostStartupState::Ready, Editor->GetStartupState());
+	EXPECT_EQ(EHostStartupState::Pending, Editor->GetStartupCompletion(Error));
 	EXPECT_TRUE(Error.empty());
 	EXPECT_FALSE(Editor->IsPreparingMapChange());
 }

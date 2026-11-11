@@ -3,9 +3,27 @@
 #include "CoreMinimal.h"
 #include "Editor/EditorEngine.h"
 #include "NativeAssetRuntimeTestSupport.h"
+#include "NativeTestSupport.h"
+#include "Misc/Project.h"
 
 namespace Durin
 {
+	// Workspace bootstrap tests supply a real project with no default document.
+	struct FWorkspaceProjectTestScope
+	{
+		FWorkspaceProjectTestScope()
+		{
+			requiref(!HasCurrentProject(), "Workspace fixture requires an unbound project.");
+			const auto Root = Testing::GetTestWorkDirectory() / "WorkspaceProject";
+			std::filesystem::create_directories(Root / "Configs");
+			const auto Project = Root / "Workspace.dproject";
+			{ std::ofstream File(Project); File << R"({"ProjectName":"Workspace","BaseModules":[]})"; }
+			{ std::ofstream File(Root / "Configs" / "Project.yaml"); File << "Game:\n  DefaultLevel: ''\n"; }
+			requiref(InitializeCurrentProject({.RequestedProjectFile = Project.string(), .bRecordInteractiveHistory = false}), "Workspace fixture project admission failed.");
+		}
+		~FWorkspaceProjectTestScope() { (void)InitializeCurrentProject({.bOpenProjectBrowser = true}); }
+	};
+
 	// Shared native-test access; production editor startup remains explicit.
 	struct FEditorEngineTestAccess
 	{
@@ -40,8 +58,11 @@ namespace Durin
 		static auto SetStartupViewport(DEditorEngine& Editor, std::shared_ptr<FSceneViewport> Viewport) -> void
 		{ Editor.MainSceneViewport = std::move(Viewport); }
 
-		static auto SetStartupDocumentResult(DEditorEngine& Editor, FAssetOpenItemResult Result) -> void
-		{ Editor.StartupDocumentOpen = std::move(Result); }
+		static auto HasInitialDocumentRequest(const DEditorEngine& Editor) -> bool
+		{ return Editor.InitialDocumentRequest.has_value(); }
+
+		static auto SetInitialDocumentRequest(DEditorEngine& Editor, FAssetOpenItemResult Result) -> void
+		{ Editor.InitialDocumentRequest = std::move(Result); }
 
 		static auto StartPlaySession(
 			DEditorEngine& Engine,

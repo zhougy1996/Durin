@@ -39,6 +39,9 @@ namespace Durin
 		DURINED_API auto CompleteOpenRequest(FAssetOpenRequestId Id,
 			EAssetOpenStatus Status, std::string Message = {}) -> bool;
 		DURINED_API auto GetOpenRequest(FAssetOpenRequestId Id) const -> std::optional<FAssetOpenItemResult>;
+		// Refreshes an ordinary open result and validates that a completed document remains open.
+		// Read-only: never advances loading, focuses UI, or changes the original snapshot.
+		DURINED_API auto ResolveOpenResult(const FAssetOpenItemResult& Initial) const -> FAssetOpenItemResult;
 		// A refused cancellation leaves pending work and its provider lifetime intact.
 		DURINED_API auto CancelOpenRequest(FAssetOpenRequestId Id) -> bool;
 		DURINED_API auto BindOpenRequestToDocument(FAssetOpenRequestId Id, uint64 DocumentId) -> bool;

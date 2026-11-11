@@ -881,6 +881,7 @@ namespace
 
 	TEST_F(FEditorSubsystemTests, WorkspaceStartupInitializesLateModuleServicesBeforeCreatingConsumers)
 	{
+		FWorkspaceProjectTestScope Project;
 		auto* Host = NewHost();
 		const FName Name("WorkspaceStartupProviderTest");
 		std::vector<std::string> Events;

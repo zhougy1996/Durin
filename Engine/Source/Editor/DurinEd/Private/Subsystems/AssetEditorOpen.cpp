@@ -198,6 +198,35 @@ namespace Durin
 		return Found == OpenRequests.end() ? std::nullopt : std::optional(Found->second.Result);
 	}
 
+	auto DAssetEditorSubsystem::ResolveOpenResult(const FAssetOpenItemResult& Initial) const -> FAssetOpenItemResult
+	{
+		auto Result = Initial;
+		if (Result.Status == EAssetOpenStatus::Pending)
+		{
+			const auto Current = GetOpenRequest(Result.RequestId);
+			if (Current) Result = *Current;
+			else
+			{
+				Result.Status = EAssetOpenStatus::Failed;
+				Result.Message = "The asset-open request is no longer available.";
+			}
+		}
+		if (Result.Status == EAssetOpenStatus::Completed && Result.Target.AssetPath.IsValid())
+		{
+			const auto Path = Result.Target.AssetPath.ToString();
+			const bool bOpen = CanCall() && std::ranges::any_of(OpenedAssets, [&](const auto& Entry) {
+				const auto* Asset = Entry.first.ResolveObjectPtr();
+				return Asset && Asset->GetObjectPath() == Path;
+			});
+			if (!bOpen)
+			{
+				Result.Status = EAssetOpenStatus::Failed;
+				Result.Message = "The asset document has been closed.";
+			}
+		}
+		return Result;
+	}
+
 	auto DAssetEditorSubsystem::CancelOpenRequest(FAssetOpenRequestId Id) -> bool
 	{
 		if (!IsInGameThread()) return false;
