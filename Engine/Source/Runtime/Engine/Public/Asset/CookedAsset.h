@@ -20,25 +20,19 @@ namespace Durin
 		CookedPayloadRequired
 	};
 
-	// Host ownership policy is independent of the source/cooked data domain.
-	// Editor Standalone roots retain editable assets until checked unloading.
-	enum class EAssetResidencyPolicy : uint8 { Runtime, Editor };
-
 	// Fixes the process asset domain and payload policy for one runtime lifetime.
 	class FAssetRuntimeConfiguration
 	{
 	public:
-		ENGINE_API static auto Authored(EAssetResidencyPolicy Residency = EAssetResidencyPolicy::Runtime) -> FAssetRuntimeConfiguration;
+		ENGINE_API static auto Authored() -> FAssetRuntimeConfiguration;
 		// Leaves OutConfiguration unchanged when the cook root is not absolute and normalized.
 		ENGINE_API static auto Cooked(
 			std::filesystem::path CookRoot,
-			FAssetRuntimeConfiguration& OutConfiguration,
-			EAssetResidencyPolicy Residency = EAssetResidencyPolicy::Runtime
+			FAssetRuntimeConfiguration& OutConfiguration
 		) -> FAssetReadResult;
 
 		auto GetExecutionDomain() const -> EAssetExecutionDomain { return ExecutionDomain; }
 		auto GetPayloadPolicy() const -> EAssetPayloadPolicy { return PayloadPolicy; }
-		auto GetResidencyPolicy() const -> EAssetResidencyPolicy { return ResidencyPolicy; }
 		auto GetCookRoot() const -> const std::filesystem::path& { return CookRoot; }
 		auto GetCookTargetPlatform() const -> ECookTargetPlatform { return CookTargetPlatform; }
 		auto IsAuthored() const -> bool
@@ -65,7 +59,6 @@ namespace Durin
 
 		EAssetExecutionDomain ExecutionDomain = EAssetExecutionDomain::Authored;
 		EAssetPayloadPolicy PayloadPolicy = EAssetPayloadPolicy::SourceAndDerivedDataAllowed;
-		EAssetResidencyPolicy ResidencyPolicy = EAssetResidencyPolicy::Runtime;
 		std::filesystem::path CookRoot;
 		ECookTargetPlatform CookTargetPlatform = ECookTargetPlatform::Win64;
 	};

@@ -439,10 +439,16 @@ namespace Durin::AssetPrivate
 				{
 					FStaticConstructObjectParameters Parameters{
 						Class, Outer, FName(Descriptor.Export->ObjectName), Class->GetStructureSize(),
-						Descriptor.OuterId == 0 ? EObjectFlags::Public : EObjectFlags::NoFlags};
+						Descriptor.Export->ObjectFlags};
 					Parameters.Purpose = EObjectConstructionPurpose::AssetLoad;
 					Object = StaticConstructObject(Parameters);
 					if (Object) DObjectForceRegistration(Object);
+				}
+				else if (!Application.IsExisting(Object))
+				{
+					// The outer constructor may have created this default subobject already.
+					Object->ClearFlags(EObjectFlags::Standalone | EObjectFlags::Transactional | EObjectFlags::Public);
+					Object->SetFlags(Descriptor.Export->ObjectFlags);
 				}
 				if (!Object)
 				{

@@ -25,12 +25,14 @@ object across collection must own it, including while editing unsaved data.
 
 ## Editing retention
 
-Launch selects the Editor residency policy for the editor host. The default
-editor factory flags include Standalone. Editor loading and publication set
-Standalone on persistent top-level assets outside PIE. The GC scheduler supplies
-Standalone as a keep flag in the editor. A game collection uses NoFlags.
-Private prepared graphs are pinned by the operation that owns them. Replacement
-transfers Standalone from each previous object to its mapped replacement.
+Editor factory defaults include Standalone. Each DAST export records its object's
+Public, Standalone, Transactional, ClassDefaultObject and DefaultSubobject flags.
+The loader applies those flags to the corresponding export during construction.
+DAST v11 export tables imply Public for top-level exports and carry no
+Standalone flags. Saving writes DAST v12 with export table version 2. Partial loads
+preserve the flags of surviving live objects. Editor GC supplies Standalone as
+a keep flag. Game GC uses NoFlags. Private prepared graphs are pinned by their
+owning operation.
 
 ## Checked unloading
 

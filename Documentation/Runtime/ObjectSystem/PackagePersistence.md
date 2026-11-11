@@ -38,7 +38,7 @@ the effective mode and generic archive target once; `BeginWrite` transfers detac
 file descriptors and buffers without recapturing objects.
 
 `CapturePackageLinker` captures reflected and native archive fields into the
-existing canonical DAST v11 linker representation. It and `FSavePackageContext::Capture`
+current DAST linker representation. It and `FSavePackageContext::Capture`
 return `std::expected<void, FPackageCaptureError>` without diagnostic output parameters. Errors own
 object/field identities, routes and numeric bounds, retain path, default-delta,
 property-value and snapshot causes, and preserve Archive code/path. Capture

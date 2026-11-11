@@ -59,7 +59,7 @@ namespace
 			ShutdownAssetRuntime(); CollectGarbage(Durin::EObjectFlags::Standalone);
 			if (bOwnScheduler) ShutdownTaskSystem(ETaskShutdownMode::Drain);
 		}
-		auto Write(std::string_view Name, FPrimaryAssetId Primary = {}, FAssetBundleData Bundles = {}, uint32 Version = ObjectPackage::DastV11FormatVersion,
+		auto Write(std::string_view Name, FPrimaryAssetId Primary = {}, FAssetBundleData Bundles = {}, uint32 Version = ObjectPackage::DastV12FormatVersion,
 			std::vector<FPackagePath> Dependencies = {}) -> void
 		{
 			ObjectPackage::FLinkerTables Linker;
@@ -480,7 +480,7 @@ TEST_F(FPrimaryAssetTests, CookUnknownDefersAndBundleReferencesRemainSeparate)
 TEST_F(FPrimaryAssetTests, CookRecursiveManagementIncludesHardClosureAndTerminatesCycles)
 {
 	Write("Leaf");
-	Write("Secondary", {}, {}, ObjectPackage::DastV11FormatVersion, {Path("Leaf").GetPackagePath()});
+	Write("Secondary", {}, {}, ObjectPackage::DastV12FormatVersion, {Path("Leaf").GetPackagePath()});
 	FAssetBundleData Bundles; ASSERT_TRUE(Bundles.AddBundleAsset(FName("Game"), Path("Secondary")));
 	ASSERT_TRUE(Bundles.AddBundleAsset(FName("Cycle"), Path("Root")));
 	Write("Root", Id("Scenario:Root"), Bundles);

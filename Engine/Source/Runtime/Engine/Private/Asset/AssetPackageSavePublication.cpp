@@ -135,11 +135,7 @@ namespace Durin::AssetPrivate
 		auto RegistryResult = Inject ? FAssetWriteResult{EAssetWriteError::StaleData, "Injected Registry publication failure."}
 			: AssetWriteResultFromRead(AssetPrivate::ToAssetResult(AssetsSaved({BuildSavedAssetMetadata(Header, Destination, Stamp.Size, Stamp.Time)}, Expected)));
 		if (FindResidentPackage(Path) == Package)
-		{
-			if (GetAssetRuntimeConfiguration().GetResidencyPolicy() == EAssetResidencyPolicy::Editor && !Package->IsPlayInEditor())
-				for (DObject* Asset : Package->GetTopLevelAssets()) Asset->SetFlags(EObjectFlags::Standalone);
 			Package->MarkAsPublished();
-		}
 		if (Package->GetEditRevision() == Revision) Package->ClearDirty();
 		auto Finalized = ToAssetWriteResult(Write.Finalize());
 		if (!RegistryResult)

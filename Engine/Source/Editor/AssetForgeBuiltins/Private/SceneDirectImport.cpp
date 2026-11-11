@@ -5,6 +5,7 @@
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "StaticMesh/StaticMeshImportSettings.h"
 #include "AssetForge/Builtins/AssetImport.h"
+#include "AssetTools/AssetImport.h"
 #include "AssetForge/Builtins/SceneImportData.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
 #include "Hash/XxHash.h"
@@ -185,7 +186,7 @@ auto ConstructSceneCandidate(const FTopLevelAssetPath &AssetPath, T *&OutAsset, 
 	}
 	const TStrongObjectPtr<DPackage> CreationOwner(Package);
 	FStaticConstructObjectParameters Parameters{T::StaticClass(), Package, FName(AssetPath.GetAssetName()),
-	                                            sizeof(T), EObjectFlags::Public};
+	                                            sizeof(T), DefaultAssetCreationFlags};
 	DObject *Object = StaticConstructObject(Parameters);
 	DObjectForceRegistration(Object);
 	OutAsset = Cast<T>(Object);
@@ -1142,7 +1143,6 @@ auto FAssetImportSession::FImpl::Run() -> FSceneRoutine
 			}
 			for (const auto& Pair : Pairs)
 			{
-				for (DObject* Asset : Pair.Prepared->GetTopLevelAssets()) Asset->SetFlags(EObjectFlags::Standalone);
 				Pair.Prepared->MarkDirty();
 				Result.ImportedPackages.push_back(Pair.Prepared->GetPackagePathIdentity());
 				std::ranges::find(Result.Outputs, Pair.Prepared->GetPackagePathIdentity(),

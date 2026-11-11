@@ -140,8 +140,7 @@ package headers and atomically publishes a complete catalog/reference projection
 before reflected default construction. It never scans authored directories or
 constructs assets to discover IDs. The Game Engine path skips authored registry
 refresh. Corrupt/missing listed headers leave the previous catalog unchanged and
-fail initialization. Cook inputs and outputs require DAST v11; earlier versions
-are rejected. Loose cooked fixtures without a manifest keep their explicit
+fail initialization. Cook accepts DAST v11 and v12 inputs and writes v12 outputs. Loose cooked fixtures without a manifest keep their explicit
 catalog-admission setup. See [runtime bootstrap](../Packages/AssetPackages.md#runtime-bootstrap).
 
 Cook reference discovery uses ordinary authored loading's generic removed-field

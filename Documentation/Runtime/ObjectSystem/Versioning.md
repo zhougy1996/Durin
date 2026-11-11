@@ -29,7 +29,7 @@ versions, never from the saved-by engine release.
 
 `FArchiveVersionContext` carries a named format version separately from
 GUID-keyed custom versions. Object-graph Archives report object-graph v2;
-authored and cooked package Archives report DAST v11. Property snapshots are
+authored and cooked package Archives report their DAST format version. Property snapshots are
 process-local and unversioned.
 
 `FCustomVersion` contains only a valid GUID and a nonnegative `int32` version.
@@ -50,7 +50,7 @@ version-manifest drift between discovery and emission. Authored and cooked captu
 share this contract. Other Archive users must persist their version context in
 their own format; declaration alone does not inject bytes into a raw stream.
 
-The v11 writer emits GUID, version, and a zero reserved framing byte. Nonzero
+The writer emits GUID, version, and a zero reserved framing byte. Nonzero
 framing flags, invalid GUIDs, negative/out-of-range versions, and duplicate
 records fail parsing; legacy emission/support/codec metadata is unsupported.
 Read-only package inspection does not require local version registration. Before
@@ -146,14 +146,12 @@ versions have no legacy load fallback.
 
 ## Authored Package Policy
 
-DAST has one permanent nonzero format GUID and current production wire version
-11. Core's bounded DURF validation selects DAST identity; CoreDObject accepts
-only v11 tables and tagged values. Saving, redirectors, relocation and fix-up
-all use v11 with registry-v4 primary/bundle metadata. All 26 tracked authored
-and cooked-fixture packages were upgraded on 2026-11-10 before retiring the v10
-reader and writer. Older package versions fail explicitly; there is no legacy
-codec or version fallback. See
-[Primary Asset Management](../Assets/Packages/PrimaryAssetManagement.md).
+DAST has one permanent nonzero format GUID. Readers accept v11 and v12, and
+ordinary saves, redirectors, relocation and reference fix-up write v12. Both
+versions use registry-v4. The v12 export table adds persistent object flags.
+Existing v11 packages remain readable and upgrade on their next write. Earlier
+versions fail explicitly. See [Asset Residency](../Assets/Packages/AssetResidency.md)
+for the v11 defaults and the v12 load mask.
 
 Every production entry requires exact package identity and, when present, the
 complete main/raw-bulk closure. Unknown format identities, unsupported DAST versions,

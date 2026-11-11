@@ -219,10 +219,10 @@ namespace
 	}
 
 	static_assert(Durin::OrdinaryAssetPackageWriterVersion ==
-		Durin::ObjectPackage::DastV11FormatVersion);
+		Durin::ObjectPackage::DastV12FormatVersion);
 	static_assert(Durin::ObjectPackage::SupportedPackageReaderVersions ==
 		decltype(Durin::ObjectPackage::SupportedPackageReaderVersions){
-			Durin::ObjectPackage::DastV11FormatVersion});
+			Durin::ObjectPackage::DastV11FormatVersion, Durin::ObjectPackage::DastV12FormatVersion});
 	static_assert(!Durin::ObjectPackage::IsSupportedPackageReaderVersion(10u));
 	static_assert(!Durin::ObjectPackage::IsSupportedPackageReaderVersion(
 		4));
@@ -2023,34 +2023,43 @@ TEST_F(FAsyncAssetLoadTests, DirtyRuntimeAssetsRequireAnOwnerAcrossGarbageCollec
 	EXPECT_EQ(FindResidentPackage(Path), nullptr);
 }
 
-TEST_F(FAsyncAssetLoadTests, EditorStandaloneIsAnExplicitHostPolicyIndependentOfRequestHistory)
+TEST_F(FAsyncAssetLoadTests, RestoresFlagsPerExportBeforeEditorCollection)
 {
 	using namespace Durin;
-	ShutdownAssetRuntime();
-	CollectGarbage(Durin::EObjectFlags::Standalone);
-	ASSERT_TRUE(InitializeAssetRuntime(FAssetRuntimeConfiguration::Authored(EAssetResidencyPolicy::Editor)));
-	EXPECT_EQ(GetAssetRuntimeConfiguration().GetResidencyPolicy(), EAssetResidencyPolicy::Editor);
-	EXPECT_FALSE(InitializeAssetRuntime(FAssetRuntimeConfiguration::Authored()));
-	const auto Path = SaveAsset("EditorStandalonePolicy");
-	DPackage* Package = FindResidentPackage(Path);
+	const auto Path = SaveAsset("ExportFlags");
+	auto* Package = FindResidentPackage(Path);
 	ASSERT_NE(Package, nullptr);
-	ASSERT_FALSE(Package->GetTopLevelAssets().empty());
-	EXPECT_TRUE(Package->GetTopLevelAssets().front()->HasAnyObjectFlags(EObjectFlags::Standalone));
-	EXPECT_FALSE(Package->HasAnyObjectFlags(EObjectFlags::Standalone));
-	CollectGarbage(Durin::EObjectFlags::Standalone);
-	EXPECT_EQ(FindResidentPackage(Path), Package);
-	auto Handle = GetStreamableManager().RequestSyncLoadPackage(Path);
-	Handle->ReleaseHandle();
-	CollectGarbage(Durin::EObjectFlags::Standalone);
-	EXPECT_EQ(FindResidentPackage(Path), Package);
-	TStrongObjectPtr<DObject> EditorOwner(Package->GetTopLevelAssets().front());
-	EXPECT_EQ(UnloadPackage(Path).Error, EAssetReadError::InUse);
-	ASSERT_FALSE(Package->GetTopLevelAssets().empty());
-	EXPECT_TRUE(Package->GetTopLevelAssets().front()->HasAnyObjectFlags(EObjectFlags::Standalone));
-	EXPECT_FALSE(Package->HasAnyObjectFlags(EObjectFlags::Standalone));
-	EditorOwner.Reset();
+	auto* Root = Package->GetTopLevelAssets().front();
+	Root->SetFlags(EObjectFlags::Transactional);
+	auto* Child = NewObject<DPackageAssetForTest>(Root, "Nested", EObjectFlags::Standalone);
+	auto* Sibling = NewObject<DPackageAssetForTest>(Package, "Sibling", EObjectFlags::Public);
+	ASSERT_NE(Child, nullptr);
+	ASSERT_NE(Sibling, nullptr);
+	Cast<DPackageAssetForTest>(Root)->ExternalReference = Child;
+	ASSERT_TRUE(SavePackage(Package));
+	EXPECT_FALSE(Root->HasAnyObjectFlags(EObjectFlags::Standalone));
+	EXPECT_FALSE(Sibling->HasAnyObjectFlags(EObjectFlags::Standalone));
 	ASSERT_TRUE(UnloadPackage(Path));
-	EXPECT_EQ(FindResidentPackage(Path), nullptr);
+
+	auto Handle = GetStreamableManager().RequestSyncLoadPackage(Path);
+	Package = Handle->GetLoadedPackage();
+	ASSERT_NE(Package, nullptr);
+	auto* LoadedRoot = Cast<DPackageAssetForTest>(Package->FindTopLevelAsset(FName("ExportFlags")));
+	ASSERT_NE(LoadedRoot, nullptr);
+	ASSERT_NE(LoadedRoot->ExternalReference.Get(), nullptr);
+	EXPECT_TRUE(LoadedRoot->ExternalReference->HasAnyObjectFlags(EObjectFlags::Standalone));
+	EXPECT_TRUE(LoadedRoot->HasAnyObjectFlags(EObjectFlags::Transactional));
+	EXPECT_FALSE(LoadedRoot->HasAnyObjectFlags(EObjectFlags::Standalone));
+	Sibling = Cast<DPackageAssetForTest>(Package->FindTopLevelAsset(FName("Sibling")));
+	ASSERT_NE(Sibling, nullptr);
+	EXPECT_FALSE(Sibling->HasAnyObjectFlags(EObjectFlags::Standalone));
+	TWeakObjectPtr<DObject> WeakSibling(Sibling), WeakRoot(LoadedRoot);
+	Handle->ReleaseHandle();
+	CollectGarbage(EObjectFlags::Standalone);
+	EXPECT_TRUE(WeakRoot.IsValid());
+	EXPECT_FALSE(WeakSibling.IsValid());
+	ASSERT_TRUE(UnloadPackage(Path));
+	EXPECT_FALSE(WeakRoot.IsValid());
 }
 
 #if DURIN_WITH_EDITOR
@@ -6325,7 +6334,7 @@ TEST(FPackageAssetTests, PackageCodecPolicyIsCompleteUniqueAndIndependentOfWireV
 	EXPECT_FALSE(Durin::AssetPrivate::ValidateAssetPackageCodecTable(DuplicateKeys, Error));
 
 	std::array DuplicateNames{Codec, Codec};
-	DuplicateNames[1].FormatVersion = Durin::ObjectPackage::DastV11FormatVersion + 1;
+	DuplicateNames[1].FormatVersion = Durin::ObjectPackage::DastV12FormatVersion + 1;
 	EXPECT_FALSE(Durin::AssetPrivate::ValidateAssetPackageCodecTable(DuplicateNames, Error));
 	std::ranges::reverse(DuplicateNames);
 	EXPECT_FALSE(Durin::AssetPrivate::ValidateAssetPackageCodecTable(DuplicateNames, Error));

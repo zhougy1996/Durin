@@ -30,7 +30,7 @@ namespace Durin
 			{
 				if (!ObjectPackage::IsSupportedPackageReaderVersion(SourceFormatVersion))
 					return Reject(EEditorBulkDataStorageError::UnsupportedVersion, SourceFormatVersion,
-						ObjectPackage::DastV11FormatVersion);
+						ObjectPackage::DastV12FormatVersion);
 				FAssetPackageField Field{.Kind = Kind,
 					.Payload = FByteBuffer(Payload.begin(), Payload.end()),
 					.SourceFormatVersion = SourceFormatVersion};

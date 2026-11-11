@@ -549,7 +549,7 @@ TEST(FCookedCatalogTests, ManifestHeadersAllowAbsentPrimaryIdentityAndPublishAto
 		FTopLevelAssetPath Path; ASSERT_TRUE(FTopLevelAssetPath::TryCreate(std::format("/TestCook/{}.{}", Name, Name), Path));
 		(bSecondary ? Secondary : Modern) = Path.GetPackagePath();
 		ObjectPackage::FLinkerTables Linker;
-		Linker.FormatVersion = ObjectPackage::DastV11FormatVersion;
+		Linker.FormatVersion = ObjectPackage::DastV12FormatVersion;
 		Linker.Summary.PackagePath = Path.GetPackagePath();
 		ObjectPackage::FPackageIndex Export; ASSERT_TRUE(ObjectPackage::FPackageIndex::TryExport(0, Export));
 		Linker.Summary.TopLevelAssets.push_back({Export, Path, "Durin::DObject", {}, bSecondary ? FPrimaryAssetId{} : Primary});

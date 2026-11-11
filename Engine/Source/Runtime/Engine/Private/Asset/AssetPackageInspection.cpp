@@ -241,7 +241,7 @@ namespace Durin
 		Durin::PackagePrivate::FByteReader Reader{Payload};
 		return AssetPrivate::DecodeReferenceByteToolValue(
 			&RootProperty, OutValue, 0, Reader, {},
-			SourceFormatVersion == 0 ? ObjectPackage::DastV11FormatVersion : SourceFormatVersion)
+			SourceFormatVersion == 0 ? ObjectPackage::DastV12FormatVersion : SourceFormatVersion)
 			&& Reader.Offset == Payload.size();
 	}
 

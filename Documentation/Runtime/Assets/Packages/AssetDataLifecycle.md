@@ -190,7 +190,7 @@ do not change scheduling or readiness ownership.
 | --- | --- | --- | --- | --- |
 | Physical source input | User-selected physical file closure | Source-specific | Explicit Import, Reimport, or Reimport From File only | Yes, after a successful authored save if reimport is not needed |
 | Object package | Mounted content directory | `.dasset` | Asset identity, editable object state, and inline canonical imported data | No |
-| Authored bulk segment | Beside its object package | `.dbulk` | External canonical imported fields selected by DAST v11 Bulk Directory metadata | No |
+| Authored bulk segment | Beside its object package | `.dbulk` | External canonical imported fields selected by DAST Bulk Directory metadata | No |
 | Derived data | `DerivedDataCache/` | `.bin` | Nothing; it accelerates editor and cook work | Yes |
 | Cooked package | `Cooked/<Platform>/...` | `.dasset` | Runtime object metadata for that cook | No |
 | Cooked bulk data | Beside its cooked package initially | `.dbulk` | Runtime payload bytes for that cook | No |
@@ -238,7 +238,7 @@ policy.
 
 ## Authored Packages
 
-An editor DAST v11 package and optional raw `.dbulk` segment contain authoritative object and source state:
+An editor DAST package and optional raw `.dbulk` segment contain authoritative object and source state:
 
 - reflected properties and cross-package asset references;
 - bounded canonical source data, inline or in authored bulk;

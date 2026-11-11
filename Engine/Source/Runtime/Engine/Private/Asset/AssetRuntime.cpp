@@ -622,9 +622,6 @@ namespace Durin
 		{
 			Member->Phase = ELoadPhase::Ready;
 			Member->Package->SetFullyLoaded(true);
-			if (RuntimeConfiguration.GetResidencyPolicy() == EAssetResidencyPolicy::Editor && !Member->Package->IsPlayInEditor())
-				for (DObject* Asset : Member->Package->GetTopLevelAssets())
-					if (!Member->ExistingObjects.contains(Asset)) Asset->SetFlags(EObjectFlags::Standalone);
 			Member->bOwnResource = false;
 			PendingLoads.erase(Member->Path);
 			CompletionStack.pop_back();

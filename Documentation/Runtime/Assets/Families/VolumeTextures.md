@@ -146,7 +146,7 @@ packed row-major depth-slice encoding whose exact byte width comes from
 `EVolumeTextureFormat`; DAST/package-resource
 placement and replacement remain authored-only capabilities.
 
-Ordinary and explicit saves emit canonical DURF/DAST v11 and only the authored
+Ordinary and explicit saves emit canonical DURF/DAST v12 and only the authored
 BulkData field. Small voxel values stay in Inline Bulk. External values produce
 one matching Bulk Directory record and a range in the stable headerless
 `<package-stem>.dbulk` segment. Other DAST versions and nested authored-bulk
@@ -181,7 +181,7 @@ depends on schema 3, with no producer word. Older payload schemas require recook
 one uncompressed field value. Cooked loading requires valid field metadata and
 payload, strips authored source by default, does not query DDC or invoke an
 importer, and fails transactionally on missing or corrupt bulk. New output is
-canonical DAST v11 plus its exact optional headerless raw `.dbulk` segment.
+canonical DAST v12 plus its exact optional headerless raw `.dbulk` segment.
 
 ## GPU resource and diagnostics
 

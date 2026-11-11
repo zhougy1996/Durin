@@ -31,7 +31,7 @@ namespace Durin::AssetPrivate
 		std::function<bool(ELinkerLoadPhase, uint64)> ShouldFail;
 		std::function<FAssetReadResult(DPackage*)> OnSkeletonReady;
 		std::function<void(DPackage*)> OnSkeletonRollback;
-		uint32 SourceFormatVersion = ObjectPackage::DastV11FormatVersion;
+		uint32 SourceFormatVersion = ObjectPackage::DastV12FormatVersion;
 		bool bCooked = false;
 		FArchiveTarget Target;
 		FPackageResourceHandle BulkResource;
@@ -117,7 +117,7 @@ namespace Durin::AssetPrivate
 		EDefaultDeltaMode DeltaMode,
 		const FAssetPackageCaptureOptions& Options,
 		ObjectPackage::FLinkerTables& OutLinker,
-		uint32 FormatVersion = ObjectPackage::DastV11FormatVersion) -> std::expected<void, FPackageCaptureError>;
+		uint32 FormatVersion = ObjectPackage::DastV12FormatVersion) -> std::expected<void, FPackageCaptureError>;
 
 	auto ApplyLivePackageLinker(
 		ObjectPackage::FLinkerTables Linker,

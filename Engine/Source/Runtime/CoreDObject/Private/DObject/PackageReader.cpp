@@ -362,7 +362,8 @@ namespace Durin::ObjectPackage
 			FBinaryReader Reader(Section(Layout, EDastSection::Exports));
 			uint32 Version = 0;
 			uint64 Count = 0;
-			if (!Reader.ReadU32(Version) || Version != DastTableVersion
+			const uint32 ExpectedVersion = Layout.FormatVersion == DastV11FormatVersion ? DastTableVersion : DastExportTableVersion;
+			if (!Reader.ReadU32(Version) || Version != ExpectedVersion
 				|| !Reader.ReadVarUInt(Count) || Count > Limits.MaximumTableEntries)
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
 					EPackageReaderReason::ExportTableHeader, "Exports");
@@ -372,12 +373,18 @@ namespace Durin::ObjectPackage
 				uint32 ObjectId = 0, ClassId = 0;
 				int64 Outer = 0;
 				FPackageIndex OuterIndex;
+				uint32 Flags = 0;
 				if (!ReadNameId(Reader, Names, ObjectId) || !ReadNameId(Reader, Names, ClassId)
-					|| !Reader.ReadVarInt(Outer) || !FPackageIndex::TryFromRaw(Outer, OuterIndex))
+					|| !Reader.ReadVarInt(Outer) || !FPackageIndex::TryFromRaw(Outer, OuterIndex)
+					|| (Version == DastExportTableVersion && !Reader.ReadU32(Flags)))
 					return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
 						EPackageReaderReason::ExportRecord, "Exports[" + std::to_string(Index) + "]");
+				if (Flags & ~static_cast<uint32>(PackageLoadFlags))
+					return Fail(Diagnostic, EPackageReaderFailure::NonCanonical, EPackageReaderReason::NonCanonicalBytes, "Exports.ObjectFlags");
+				// Legacy exports carried only the implicit public flag on top-level objects.
+				if (Version == DastTableVersion && OuterIndex.IsNull()) Flags = static_cast<uint32>(EObjectFlags::Public);
 				Exports.push_back({.ObjectName = Names[ObjectId - 1], .ClassName = Names[ClassId - 1],
-					.Outer = OuterIndex});
+					.Outer = OuterIndex, .ObjectFlags = static_cast<EObjectFlags>(Flags) & PackageLoadFlags});
 			}
 			if (!Reader.IsAtEnd()) return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
 				EPackageReaderReason::ExportTableTrailing, "Exports");

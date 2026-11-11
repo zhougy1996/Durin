@@ -5,6 +5,7 @@
 
 #include "CoreDObjectAPI.h"
 #include "DObject/AssetPath.h"
+#include "DObject/ObjectMacros.h"
 #include "Serialization/CustomVersion.h"
 #include "Serialization/Archive.h"
 
@@ -171,6 +172,9 @@ namespace Durin::ObjectPackage
 		auto operator==(const FPackageImport&) const -> bool = default;
 	};
 
+	inline constexpr EObjectFlags PackageLoadFlags = EObjectFlags::Public | EObjectFlags::Standalone
+		| EObjectFlags::Transactional | EObjectFlags::ClassDefaultObject | EObjectFlags::DefaultSubobject;
+
 	struct FPackageExport
 	{
 		std::string ObjectName;
@@ -178,6 +182,7 @@ namespace Durin::ObjectPackage
 		FPackageIndex Outer;
 		std::vector<FPropertyTag> Properties;
 		bool bUseClassDefaults = false;
+		EObjectFlags ObjectFlags = EObjectFlags::NoFlags;
 
 		auto operator==(const FPackageExport&) const -> bool = default;
 	};
@@ -228,7 +233,7 @@ namespace Durin::ObjectPackage
 	class FLinkerTables
 	{
 	public:
-		uint32 FormatVersion = 11;
+		uint32 FormatVersion = 12;
 		FPackageSummary Summary;
 		std::vector<std::string> Names;
 		std::vector<FSerializedType> Types;

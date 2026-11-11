@@ -423,7 +423,7 @@ namespace Durin::ObjectPackage
 		auto Freeze(const FLinkerTables& Linker, FFrozenPackage& Out,
 			FPackageWriterResult* Diagnostic) -> bool
 		{
-			if (!IsSupportedPackageReaderVersion(Linker.FormatVersion))
+			if (Linker.FormatVersion != DastV12FormatVersion)
 				return Fail(Diagnostic, EPackageWriterFailure::InvalidInput, EPackageWriterReason::UnsupportedVersion);
 			FFrozenPackage Frozen;
 			Frozen.Source = &Linker;
@@ -947,7 +947,7 @@ namespace Durin::ObjectPackage
 			}
 			if (!Publish(EDastSection::Imports, std::move(Writer))) return false;
 
-			Writer = MakeWriter(); Writer->WriteU32(DastTableVersion); Writer->WriteVarUInt(Frozen.ExportOrder.size());
+			Writer = MakeWriter(); Writer->WriteU32(DastExportTableVersion); Writer->WriteVarUInt(Frozen.ExportOrder.size());
 			for (uint32 OldIndex : Frozen.ExportOrder)
 			{
 				const FPackageExport& Export = Frozen.Source->Exports[OldIndex];
@@ -955,6 +955,7 @@ namespace Durin::ObjectPackage
 				Writer->WriteVarUInt(FindNameId(Frozen, Export.ClassName));
 				int64 Outer = 0; if (!RemapIndex(Frozen, Export.Outer, Outer, Diagnostic, "Exports.Outer")) return false;
 				Writer->WriteVarInt(Outer);
+				Writer->WriteU32(static_cast<uint32>(Export.ObjectFlags & PackageLoadFlags));
 			}
 			if (!Publish(EDastSection::Exports, std::move(Writer))) return false;
 

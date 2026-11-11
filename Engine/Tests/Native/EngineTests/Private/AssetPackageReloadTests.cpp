@@ -93,8 +93,7 @@ namespace
 			Durin::Testing::InitializeAssetSystemForTests();
 			Durin::ShutdownAssetRuntime();
 			Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
-			ASSERT_TRUE(Durin::InitializeAssetRuntime(Durin::FAssetRuntimeConfiguration::Authored(
-				Durin::EAssetResidencyPolicy::Editor)));
+			ASSERT_TRUE(Durin::InitializeAssetRuntime(Durin::FAssetRuntimeConfiguration::Authored()));
 			Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 			Durin::FModuleManager::Get().LoadModuleChecked("ShaderBuild");
 			ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
@@ -553,9 +552,14 @@ TEST_F(FAssetPackageReloadTests, ReloadsEveryTopLevelExportAndRebindsExternalRef
 	std::string Error;
 	ASSERT_TRUE(SetSource(*Primary, std::byte{11}, Error)) << Error;
 	ASSERT_TRUE(SetSource(*Secondary, std::byte{22}, Error)) << Error;
+	Primary->SetFlags(EObjectFlags::Standalone);
+	const auto PrimaryName = Primary->GetFName();
+	const auto SecondaryName = Secondary->GetFName();
 	const auto PrimarySaved = Primary->GetSource().GetIdentity();
 	const auto SecondarySaved = Secondary->GetSource().GetIdentity();
 	ASSERT_TRUE(SavePackage(Primary->GetPackage()));
+	Primary->ClearFlags(EObjectFlags::Standalone);
+	Secondary->SetFlags(EObjectFlags::Standalone);
 	Cloud->SetWeatherTexture(Secondary);
 	ASSERT_TRUE(SetSource(*Primary, std::byte{33}, Error)) << Error;
 	ASSERT_TRUE(SetSource(*Secondary, std::byte{44}, Error)) << Error;
@@ -567,11 +571,12 @@ TEST_F(FAssetPackageReloadTests, ReloadsEveryTopLevelExportAndRebindsExternalRef
 		[&](std::string Message) { DiscardError = std::move(Message); })) << DiscardError;
 	DPackage* Reloaded = FindResidentPackage(Path);
 	ASSERT_NE(Reloaded, nullptr);
-	ASSERT_NE(Reloaded, Primary->GetPackage());
-	auto* ReloadedPrimary = Cast<DTexture2D>(Reloaded->FindTopLevelAsset(Primary->GetFName()));
-	auto* ReloadedSecondary = Cast<DTexture2D>(Reloaded->FindTopLevelAsset(Secondary->GetFName()));
+	auto* ReloadedPrimary = Cast<DTexture2D>(Reloaded->FindTopLevelAsset(PrimaryName));
+	auto* ReloadedSecondary = Cast<DTexture2D>(Reloaded->FindTopLevelAsset(SecondaryName));
 	ASSERT_NE(ReloadedPrimary, nullptr);
 	ASSERT_NE(ReloadedSecondary, nullptr);
+	EXPECT_TRUE(ReloadedPrimary->HasAnyObjectFlags(EObjectFlags::Standalone));
+	EXPECT_FALSE(ReloadedSecondary->HasAnyObjectFlags(EObjectFlags::Standalone));
 	EXPECT_EQ(ReloadedPrimary->GetSource().GetIdentity(), PrimarySaved);
 	EXPECT_EQ(ReloadedSecondary->GetSource().GetIdentity(), SecondarySaved);
 	EXPECT_EQ(Cloud->GetWeatherTexture(), ReloadedSecondary);
@@ -592,6 +597,7 @@ TEST_F(FAssetPackageReloadTests, SecondPackagePreparationFailurePreservesTheWhol
 		ASSERT_TRUE(FPackagePath::TryCreate(
 			std::format("/AssetDiscardTests/Batch{}", Index), Paths[Index]));
 		ASSERT_TRUE(CreatePackageLeafAssetForTesting(Paths[Index], Textures[Index]));
+		Textures[Index]->SetFlags(EObjectFlags::Standalone);
 		ASSERT_TRUE(SetSource(*Textures[Index], std::byte{static_cast<unsigned char>(10 + Index)}, Error)) << Error;
 		ASSERT_TRUE(SavePackage(Textures[Index]->GetPackage()));
 		ASSERT_TRUE(SetSource(*Textures[Index], std::byte{static_cast<unsigned char>(40 + Index)}, Error)) << Error;
@@ -626,6 +632,7 @@ TEST_F(FAssetPackageReloadTests, ReloadRetainsCrossPackageHistoryAndRebindsTheSa
 		ASSERT_TRUE(FPackagePath::TryCreate(
 			std::format("/AssetDiscardTests/History{}", Index), Paths[Index]));
 		ASSERT_TRUE(CreatePackageLeafAssetForTesting(Paths[Index], Textures[Index]));
+		Textures[Index]->SetFlags(EObjectFlags::Standalone);
 		ASSERT_TRUE(SetSource(*Textures[Index], std::byte{static_cast<unsigned char>(20 + Index)}, Error)) << Error;
 		ASSERT_TRUE(SavePackage(Textures[Index]->GetPackage()));
 	}

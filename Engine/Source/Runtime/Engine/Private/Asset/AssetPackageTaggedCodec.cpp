@@ -762,6 +762,7 @@ namespace Durin::AssetPrivate::TaggedPackage
 		auto WriteLinker(ObjectPackage::FLinkerTables Linker,
 			FAssetPackageEncodedClosure& OutClosure) -> ObjectPackage::FPackageWriterResult
 		{
+			Linker.FormatVersion = ObjectPackage::DastV12FormatVersion;
 			Linker.Names.clear();
 			return EncodeLinker(Linker, OutClosure);
 		}
@@ -975,7 +976,8 @@ namespace Durin::AssetPrivate::TaggedPackage
 						.FieldName = "DestinationObject",
 						.Type = ReferenceType,
 						.Provenance = ObjectPackage::EPropertyProvenance::Explicit,
-						.Value = {.Reference = Import}}}});
+						.Value = {.Reference = Import}}},
+					.ObjectFlags = EObjectFlags::Public | EObjectFlags::Standalone});
 			}
 			std::ranges::sort(Linker.Summary.HardPackageDependencies);
 			Linker.Summary.HardPackageDependencies.erase(std::unique(
@@ -989,8 +991,8 @@ namespace Durin::AssetPrivate::TaggedPackage
 	auto GetCodec() -> const FAssetPackageCodec&
 	{
 		static const FAssetPackageCodec Codec{
-			.CodecId = "dast-v11",
-			.FormatVersion = ObjectPackage::DastV11FormatVersion,
+			.CodecId = "dast-v12",
+			.FormatVersion = ObjectPackage::DastV12FormatVersion,
 			.bCanRead = true,
 			.bCanWrite = true,
 			.bCanMutate = true,

@@ -11,6 +11,7 @@
 #include "DObject/Class.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Package.h"
+#include "DObject/PackageFormat.h"
 #include "Misc/FileTime.h"
 #include "Misc/FileHelper.h"
 #include "Misc/MountPaths.h"
@@ -249,7 +250,7 @@ namespace Durin
 			}
 			Result = BuildAssetRedirectorPackageBytes(
 				Mapping.SourcePath, RedirectMappings,
-				SourceData->FormatVersion,
+				ObjectPackage::DastV12FormatVersion,
 				SourceRedirectorBytes);
 			if (!Result) return Result;
 

@@ -167,9 +167,7 @@ namespace Durin
 		}
 		// Configure the final package domain before reflected registration creates CDOs.
 		FAssetRuntimeConfiguration AssetConfiguration = FAssetRuntimeConfiguration::Authored();
-#if DURIN_WITH_EDITOR
-		AssetConfiguration = FAssetRuntimeConfiguration::Authored(EAssetResidencyPolicy::Editor);
-#else
+#if !DURIN_WITH_EDITOR
 		const auto ConfigurationResult = FAssetRuntimeConfiguration::Cooked(
 			std::filesystem::path(FPaths::LaunchDir()).lexically_normal(), AssetConfiguration);
 		if (!ConfigurationResult)

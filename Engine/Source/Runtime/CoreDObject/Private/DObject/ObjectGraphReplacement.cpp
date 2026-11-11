@@ -816,7 +816,6 @@ namespace Durin
 		for (const auto& Entry : Impl->Map.GetEntries())
 		{
 			if (!Entry.Previous->HasAnyObjectFlags(EObjectFlags::Standalone)) continue;
-			if (Entry.Replacement) Entry.Replacement->SetFlags(EObjectFlags::Standalone);
 			Entry.Previous->ClearFlags(EObjectFlags::Standalone);
 		}
 		for (const auto& Pair : Impl->Packages)

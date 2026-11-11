@@ -78,7 +78,7 @@ archive errors into the removed `FDecodeResult`/`EDecodeError` categories.
 Core never interprets format-owned sections, asset paths, schemas, codecs, or
 publication policy.
 
-Engine consumes this envelope through canonical DAST v11 object packages. An
+Engine consumes this envelope through canonical DAST object packages. An
 authored or cooked `.dbulk` is deliberately not a DURF envelope: it is the raw
 external BulkData segment bound by its owning package's Registry and Bulk
 Directory. Embedded family payloads and raw DDC `.bin` values likewise do not

@@ -86,7 +86,7 @@ namespace Durin
 		COREDOBJECT_API auto SaveAsync(DPackage* Package, FPackageSaveResult& Admission) const
 			-> Tasks::TTask<FPackageSaveResult>;
 		auto Capture(DPackage* Package, ObjectPackage::FLinkerTables& OutLinker,
-			uint32 FormatVersion = ObjectPackage::DastV11FormatVersion) const
+			uint32 FormatVersion = ObjectPackage::DastV12FormatVersion) const
 			-> std::expected<void, FPackageCaptureError>
 		{
 			return CapturePackageLinker(Package, Options.Mode == EPackageSaveMode::Complete

@@ -65,7 +65,7 @@ removal; selection, confirmation, companions, and deletion callbacks belong to
 Ownership is deliberately one-way:
 
 - `CoreDObject` owns format-neutral linker tables, canonical tagged values,
-  production DAST v11 read/write, generic live graph capture, package persistence,
+  production DAST v11/v12 reads and v12 writes, generic live graph capture, package persistence,
   and bounded validation. See [Package Persistence](../../ObjectSystem/PackagePersistence.md).
 - `AssetRegistry` owns canonical mounted-file discovery, bounded front-matter
   reads, and immutable package metadata/dependency snapshots.
@@ -295,7 +295,7 @@ copy.
 
 ### Envelope And Sections
 
-DAST v11 main images contain the 64-byte DURF v1 preamble, a 32-byte DAST format
+DAST v11 and v12 main images contain the 64-byte DURF v1 preamble, a 32-byte DAST format
 header, and nine canonical 48-byte directory entries. The required contiguous
 sections, in order, are:
 
@@ -313,7 +313,9 @@ Each directory entry declares one section kind, version, absolute offset,
 extent, and XXH3-128 digest. Sections are contiguous, nonoverlapping, and
 completely consume the declared file. Duplicate, missing, reordered, gapped,
 overlapping, overflowing, trailing, or hash-mismatched sections are invalid.
-The first section begins at byte 528.
+The first section begins at byte 528. In the DAST v12 export table (version 2) each record ends
+with a little-endian 32-bit object flag mask after its Outer index. DAST v11 uses export table version 1. [Asset Residency](AssetResidency.md) defines the
+loadable flags and legacy defaults.
 
 The declared discovery header ends after Imports. Registry, Names, and Imports
 are therefore wholly front-matter resident; ordinary discovery never reads
@@ -328,8 +330,7 @@ hard/soft/searchable package facts, export count, and exact external-bulk extent
 and digest remain package-level. Registry section version 4 includes a separate sorted
 build-package dependency list from authored save events; it creates no runtime
 imports, plus versioned optional primary ID and bundle data in each top-level
-record. DAST v11/registry-v4 is the only reader/writer pair; earlier versions are
-rejected after the repository corpus upgrade. The rebuildable
+record. DAST v11 and v12 share registry-v4. New writes use v12. The rebuildable
 AssetRegistry cache schema is 7. See [Primary Asset Management](PrimaryAssetManagement.md). No package class, redirect, or
 main-export id exists at package level.
 
@@ -582,7 +583,7 @@ and ordinary residency enumeration exclude in-flight records; public package and
 object loads return `InUse` for incomplete packages. Raw Core object existence is
 not an asset readiness guarantee. Phases are Constructing, Skeleton (dependency
 and value restoration), ValuesRestored, Validated, PostLoading, then Ready or
-Failed. Terminal records are removed after completion. Editor hosts mark persistent top-level assets Standalone.
+Failed. Terminal records are removed after completion. Loading restores Standalone from each serialized export.
 
 Hard-reference cycles form a strongly connected completion group. Every member
 restores values before any group graph validation, and every member validates

@@ -42,6 +42,7 @@ namespace Durin::PackagePrivate
 
 		struct FCapturedObject
 		{
+			EObjectFlags ObjectFlags = EObjectFlags::NoFlags;
 			uint64 Id = 0;
 			uint64 OuterId = 0;
 			std::string ClassName;
@@ -428,6 +429,7 @@ namespace Durin::PackagePrivate
 				Record.Id = It->second;
 				Record.ClassName = Object.GetClass()->GetQualifiedName().ToString();
 				Record.ObjectName = Object.GetName();
+				Record.ObjectFlags = Object.GetObjectFlags() & ObjectPackage::PackageLoadFlags;
 				if (Object.GetOuter() != Object.GetPackage())
 				{
 					auto OuterIt = ObjectIds.find(Object.GetOuter());
@@ -1140,7 +1142,7 @@ namespace Durin::PackagePrivate
 					OutError = {.Reason = EPackageCaptureReason::OuterTopology, .ObjectPath = Object.ObjectName, .Actual = Object.OuterId}; return false;
 				}
 				Linker.Exports.push_back({.ObjectName = Object.ObjectName,
-					.ClassName = Object.ClassName, .Outer = Outer});
+					.ClassName = Object.ClassName, .Outer = Outer, .ObjectFlags = Object.ObjectFlags});
 			}
 
 			for (DObject* Asset : TopLevelAssets)

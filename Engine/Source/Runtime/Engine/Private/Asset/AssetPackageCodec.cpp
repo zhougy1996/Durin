@@ -9,7 +9,15 @@ namespace Durin::AssetPrivate
 {
 	namespace
 	{
-		const std::array Codecs{TaggedPackage::GetCodec()};
+		const auto Codecs = [] {
+			const auto& Current = TaggedPackage::GetCodec();
+			auto Legacy = Current;
+			Legacy.CodecId = "dast-v11";
+			Legacy.FormatVersion = ObjectPackage::DastV11FormatVersion;
+			Legacy.bCanWrite = false;
+			Legacy.Write = nullptr;
+			return std::array{Legacy, Current};
+		}();
 		constexpr FBinaryEnvelopeLimits PackageEnvelopeLimits{
 			16ull * 1024ull * 1024ull,
 			1024ull * 1024ull * 1024ull};
@@ -21,7 +29,7 @@ namespace Durin::AssetPrivate
 					.FormatId = ObjectPackage::DastFormatId,
 					.DebugName = std::string(ObjectPackage::DastFormatName),
 					.MinimumFormatVersion = ObjectPackage::DastV11FormatVersion,
-					.MaximumFormatVersion = ObjectPackage::DastV11FormatVersion,
+					.MaximumFormatVersion = ObjectPackage::DastV12FormatVersion,
 					.SupportedRequiredFeatures = 0,
 					.Limits = PackageEnvelopeLimits}};
 				FBinaryFormatRegistry Result;
