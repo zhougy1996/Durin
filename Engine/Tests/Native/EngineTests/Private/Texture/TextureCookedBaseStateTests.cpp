@@ -37,7 +37,7 @@ namespace
 		Durin::FAssetPackageInspection Inspection;
 		ASSERT_TRUE(Durin::InspectAssetPackage(
 			Path.generic_string(), PackagePath, Inspection));
-		EXPECT_EQ(Inspection.Header.FormatVersion, Durin::ObjectPackage::DastV11FormatVersion);
+		EXPECT_EQ(Inspection.Header.FormatVersion, Durin::ObjectPackage::DastV12FormatVersion);
 		const Durin::FAssetPackageField* Source = Inspection.FindField("Source");
 		EXPECT_EQ(Source, nullptr);
 		const Durin::FAssetPackageField* ImportData = Inspection.FindField("AssetImportData");
@@ -137,6 +137,7 @@ TEST(FTextureCookedBaseStateTests, CookedFixturesKeepNativePlatformDataIdentitie
 	Texture2D = Texture2DLoad.value_or(nullptr);
 	ASSERT_TRUE(Texture2DLoad) << (Texture2DLoad ? std::string{} : Texture2DLoad.error().Message);
 	ASSERT_NE(Texture2D, nullptr);
+	EXPECT_FALSE(Texture2D->HasAnyObjectFlags(Durin::EObjectFlags::Standalone));
 	EXPECT_FALSE(Texture2D->GetSource().IsValid());
 	EXPECT_EQ(Texture2D->GetAssetImportData(), nullptr);
 
@@ -149,6 +150,7 @@ TEST(FTextureCookedBaseStateTests, CookedFixturesKeepNativePlatformDataIdentitie
 	TextureCube = TextureCubeLoad.value_or(nullptr);
 	ASSERT_TRUE(TextureCubeLoad) << (TextureCubeLoad ? std::string{} : TextureCubeLoad.error().Message);
 	ASSERT_NE(TextureCube, nullptr);
+	EXPECT_FALSE(TextureCube->HasAnyObjectFlags(Durin::EObjectFlags::Standalone));
 	EXPECT_FALSE(TextureCube->GetSource().IsValid());
 	EXPECT_EQ(TextureCube->GetAssetImportData(), nullptr);
 
@@ -161,6 +163,7 @@ TEST(FTextureCookedBaseStateTests, CookedFixturesKeepNativePlatformDataIdentitie
 	Volume = VolumeLoad.value_or(nullptr);
 	ASSERT_TRUE(VolumeLoad) << (VolumeLoad ? std::string{} : VolumeLoad.error().Message);
 	ASSERT_NE(Volume, nullptr);
+	EXPECT_FALSE(Volume->HasAnyObjectFlags(Durin::EObjectFlags::Standalone));
 	EXPECT_FALSE(Volume->GetSource().IsValid());
 	EXPECT_EQ(Volume->GetAssetImportData(), nullptr);
 	Durin::ShutdownTaskSystem(Durin::ETaskShutdownMode::Drain);

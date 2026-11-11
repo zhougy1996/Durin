@@ -249,21 +249,31 @@ TEST(RoadSceneIntegration, CheckedInRoadLevelLoadsAndSurvivesGC)
 	ASSERT_NE(Level, nullptr);
 	std::string Error;
 	int RoadCount = 0;
+	TWeakObjectPtr<DRoadNet> EmbeddedRoadNet;
 	for (const auto& Item : Level->GetActors())
 		if (auto* Actor = Cast<ARoadNetActor>(Item.Get()))
 		{
 			++RoadCount;
+			EXPECT_FALSE(Actor->HasAnyObjectFlags(EObjectFlags::Standalone));
 			EXPECT_EQ(Actor->GetGenerationState(), "Ready") << Actor->GetDiagnostic();
 			ASSERT_NE(Actor->GetRoadNet(), nullptr);
+			EXPECT_FALSE(Actor->GetRoadNet()->HasAnyObjectFlags(EObjectFlags::Standalone));
+			EmbeddedRoadNet = TWeakObjectPtr<DRoadNet>(Actor->GetRoadNet());
 			EXPECT_TRUE(ValidateDefinition(Actor->GetRoadNet()->GetDefinition())) << Error;
 		}
 	EXPECT_GT(RoadCount, 0);
 	EXPECT_FALSE(Level->GetPackage()->IsDirty());
-	const TStrongObjectPtr<DLevel> LevelOwner(Level);
-	CollectGarbage(Durin::EObjectFlags::Standalone);
+	EXPECT_TRUE(Level->HasAnyObjectFlags(EObjectFlags::Standalone));
+	const TWeakObjectPtr<DLevel> WeakLevel(Level);
+	CollectGarbage(EObjectFlags::Standalone);
+	ASSERT_EQ(WeakLevel.Get(), Level);
+	EXPECT_TRUE(EmbeddedRoadNet.IsValid());
 	EXPECT_FALSE(Level->GetPackage()->IsDirty());
 	{ const auto Saved = SavePackage(Level->GetPackage()); ASSERT_TRUE(Saved) << Saved.Message; }
 	EXPECT_FALSE(Level->GetPackage()->IsDirty());
+	ASSERT_TRUE(UnloadPackage(Level->GetPackage()));
+	EXPECT_FALSE(WeakLevel.IsValid());
+	EXPECT_FALSE(EmbeddedRoadNet.IsValid());
 }
 
 #endif
