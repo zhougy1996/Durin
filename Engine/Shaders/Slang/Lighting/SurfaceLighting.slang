@@ -1,7 +1,7 @@
 module SurfaceLighting;
 
 import Lighting.PBRLighting;
-import Lighting.ForwardLightingUniform;
+import Lighting.ViewLightingUniform;
 
 public struct FSurfaceLightingFrame
 {
@@ -81,6 +81,14 @@ public float3 EvaluateSurfaceLocalLighting(
     return EvaluatePBRDirectLighting(
         baseColor, metallic, roughness, frame.normal,
         toLight, frame.toView, radiance);
+}
+
+public float3 AccumulateViewLocalLights(float3 result, float3 baseColor, float metallic, float roughness,
+    float3 worldPosition, FSurfaceLightingFrame frame, StructuredBuffer<FForwardLocalLightUniform> records, uint count)
+{
+    for (uint i = 0; i < count; ++i)
+        result += EvaluateSurfaceLocalLighting(baseColor, metallic, roughness, worldPosition, frame, records[i]);
+    return result;
 }
 
 public float3 EvaluateSurfaceEnvironmentLighting(

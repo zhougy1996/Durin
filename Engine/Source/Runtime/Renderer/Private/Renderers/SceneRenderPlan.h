@@ -15,6 +15,7 @@
 #include "Rendering/SkyBoxSceneProxy.h"
 #include "Renderers/ForwardLighting.h"
 #include "SceneView.h"
+#include "RDG/RDGParameters.h"
 #include "SceneRenderPreparationConfig.h"
 
 namespace Durin
@@ -36,6 +37,14 @@ namespace Durin
 	struct FResolvedLighting
 	{
 		FRHIUniformBufferRange UniformBuffer;
+		FBufferRHIRef LocalBuffer;
+		std::vector<FForwardLocalLightUniform> LocalRecords;
+		std::optional<FRDGBufferAccess> LocalRead;
+
+		auto GetLocalRange() const -> FRHIStorageBufferRange
+		{
+			return LocalBuffer ? FRHIStorageBufferRange{LocalBuffer, 0, LocalBuffer->GetSize()} : FRHIStorageBufferRange{};
+		}
 	};
 
 	// Owns immutable receiver geometry.

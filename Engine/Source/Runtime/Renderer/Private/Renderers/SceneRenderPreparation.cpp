@@ -9,6 +9,8 @@
 #include "Renderers/ForwardLighting.h"
 #include "Renderers/VolumetricCloudScenePreparation.h"
 #include "Asset/Asset.h"
+#include "DynamicRHI.h"
+#include "RHICapabilities.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "Profiling/Profiling.h"
@@ -25,6 +27,7 @@ namespace Durin
 		const FRendererQualificationPolicy& Qualification) -> FSceneViewRequirements
 	{
 		FSceneViewRequirements Result;
+		Result.LocalLightRecordBudget = Qualification.LocalLightRecordBudget.value_or(DefaultLocalLightRecordBudget);
 		Result.MainViewCulling = ResolveMainViewCullingPolicy(View);
 		const bool bLit = View.Settings.Mode.RenderMode == ERenderMode::Lit;
 		if (bLit && View.Settings.Mode.RasterMode == ERasterMode::Solid)
@@ -126,9 +129,12 @@ namespace Durin
 				PreparedView.Environment = FPreparedEnvironment{
 					.SkyBox = SkyBox->GetData()};
 			}
+			const bool MeasureLights = Context.Logical.Qualification.bMeasureLocalLights;
+			const auto GatherStart = MeasureLights ? FTime::Nanoseconds() : 0;
 			PreparedView.Lighting.Lights = GatherAndSortLights_RenderThread(
 				*Scene, Context.Logical.Requirements, Telemetry.View
 			);
+			if (MeasureLights) Telemetry.View.Lighting.GatherNanoseconds = FTime::Nanoseconds() - GatherStart;
 			if (Context.Logical.Requirements.DirectionalShadow.IsEnabled() && !PreparedView.Lighting.Lights.Directional.empty())
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareDirectionalShadows");
@@ -388,11 +394,46 @@ namespace Durin
 		ResolvedSceneResources.Receiver.StaticMeshes.DirectionalShadowSampler =
 			DirectionalShadowSampler;
 
-		FForwardLightingUniform Lighting = BuildForwardLightingUniform(
+		auto& Resources = ResolvedSceneResources.Lighting;
+		const auto* Capabilities = GDynamicRHI ? GDynamicRHI->RHIGetCapabilities() : nullptr;
+		if (!Capabilities || Capabilities->MaxStorageBufferRange < sizeof(FForwardLocalLightUniform))
+			return ERenderViewResult::RendererResourcesUnavailable;
+		const auto Budget = std::min(Context.Logical.Requirements.LocalLightRecordBudget, static_cast<uint32>(
+			Capabilities->MaxStorageBufferRange / sizeof(FForwardLocalLightUniform)));
+		const bool MeasureLights = Context.Logical.Qualification.bMeasureLocalLights;
+		const auto PackStart = MeasureLights ? FTime::Nanoseconds() : 0;
+		Resources.LocalRecords = BuildLocalLightRecords(PreparedView.Lighting.Lights, View, Budget, Telemetry.View);
+		if (MeasureLights) Telemetry.View.Lighting.PackNanoseconds = FTime::Nanoseconds() - PackStart;
+		const uint32 Count = static_cast<uint32>(Resources.LocalRecords.size());
+		const uint32 Bytes = Count * sizeof(FForwardLocalLightUniform);
+		if (Count)
+		{
+			const auto DeviceAllocatedBytes = [] {
+				return GDynamicRHI->RHIGetMemoryStatistics().Classes[
+					static_cast<uint32>(ERHIMemoryAllocationClass::DeviceLocal)].AllocationBytes;
+			};
+			const uint64 Before = MeasureLights ? DeviceAllocatedBytes() : 0;
+			if (!Context.Logical.Qualification.bFailLocalLightAllocation)
+				Resources.LocalBuffer = GDynamicRHI->RHICreateBuffer(CommandList,
+					FRHIBufferCreateDesc::Create("View.LocalLights", Bytes, sizeof(FForwardLocalLightUniform),
+						EBufferUsageFlags::StructuredBuffer | EBufferUsageFlags::DestinationCopy));
+			if (MeasureLights) Telemetry.View.Lighting.LocalDeviceAllocationBytes = DeviceAllocatedBytes() - Before;
+		}
+		else
+		{
+			// A lit permutation still reflects the descriptor when its runtime count is zero.
+			if (!Service.EmptyLocalLights)
+				Service.EmptyLocalLights = GDynamicRHI->RHICreateBuffer(CommandList, FRHIBufferCreateDesc::Create("View.EmptyLocalLights",
+					sizeof(FForwardLocalLightUniform), sizeof(FForwardLocalLightUniform), EBufferUsageFlags::StructuredBuffer));
+			Resources.LocalBuffer = Service.EmptyLocalLights;
+		}
+		if (!Resources.LocalBuffer) return ERenderViewResult::RendererResourcesUnavailable;
+		FViewLightingUniform Lighting = BuildViewLightingUniform(
 			PreparedView.Lighting.Lights, View,
 			bShadowReady && DirectionalShadowTexture != nullptr
 				&& DirectionalShadowSampler != nullptr
 				? &PreparedView.DirectionalShadow->View : nullptr);
+		Lighting.Counts[1] = Count;
         if (const auto* Scene = Context.Logical.Scene)
             if (const auto Light = Scene->GetSkyLight_RenderThread())
             {

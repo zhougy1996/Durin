@@ -149,7 +149,7 @@ namespace Durin
 
 		FStaticMeshSectionResourceContext LocalResources;
 		if (!ResourceContext) ResourceContext = &LocalResources;
-		const FForwardLightingUniform FullyUnlit{};
+		const FViewLightingUniform FullyUnlit{};
 		State->FallbackLighting = CommandList.CreateUniformBufferRange(
 			&FullyUnlit, sizeof(FullyUnlit));
 		bool bReady = State->FallbackLighting.Buffer != nullptr;

@@ -7,7 +7,7 @@ import Material.SurfaceMaterial;
 import Material.MeshUniforms;
 import Material.SpecularAntialiasing;
 import Lighting.DirectionalShadow;
-import Lighting.ForwardLightingUniform;
+import Lighting.ViewLightingUniform;
 import Lighting.PBRLighting;
 import Lighting.SurfaceLighting;
 

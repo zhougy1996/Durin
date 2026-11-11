@@ -23,7 +23,7 @@ namespace Durin
 	// Opaque producer identity; algorithm changes invalidate builds, not DMAT admission.
 	ENGINE_API auto GetMaterialBuildVersion() -> uint64;
 	ENGINE_API auto GetMaterialCompileAdapterVersion() -> uint32;
-	inline constexpr uint32 CurrentMaterialPassContractVersion = 11;
+	inline constexpr uint32 CurrentMaterialPassContractVersion = 12;
 	// Values are the persisted canonical stage-bit order. Append rather than reorder.
 	enum class EMaterialShaderEntry : uint8
 	{

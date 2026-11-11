@@ -121,6 +121,7 @@ namespace Durin
 		FRendererResourceCoordinator Coordinator;
 		FRendererRDGAllocator RDGAllocator;
 		FDefaultTextureResources DefaultTextures;
+		FBufferRHIRef EmptyLocalLights;
 		FRendererResourceRetirementQueue Retirement;
 		FEnvironmentLightingResources EnvironmentLighting;
 		RendererPrivate::FSurfaceMaterialResources SurfaceMaterials;

@@ -128,6 +128,7 @@ namespace Durin::RendererPrivate
 		FRHIUniformBufferRange ViewUniform;
 		FRHIUniformBufferRange Lighting;
 		FRHIUniformBufferRange HitProxy;
+		FRHIStorageBufferRange LocalLights{};
 	};
 	// One view-preparation scope shares existing material/primitive packets.
 	struct FMeshDrawCommandBindingCache

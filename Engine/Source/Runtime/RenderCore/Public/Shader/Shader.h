@@ -434,6 +434,16 @@ namespace Durin
 			); \
 		}
 
+	#define DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(MemberName) \
+		FRHIStorageBufferRange MemberName; \
+		static auto GetShaderParameterMemberMetadata(TShaderParameterTag<__COUNTER__>) -> FShaderParameterMemberMetadata \
+		{ \
+			return MakeShaderParameterMemberMetadata<ERHIBindingType::StorageBuffer, decltype(FParameters::MemberName), true>( \
+				#MemberName, \
+				static_cast<uint32>(offsetof(FParameters, MemberName)) \
+			); \
+		}
+
 	#define DURIN_SHADER_PARAMETER_STORAGE_BUFFER_ARRAY(MemberName, ArrayCount) \
 		DURIN_PRIVATE_SHADER_PARAMETER_ARRAY(FRHIStorageBufferRange, MemberName, ArrayCount, ERHIBindingType::StorageBuffer, false)
 

@@ -17,6 +17,7 @@ namespace Durin
 
 	struct FSceneColorPassResources final
 	{
+		std::optional<FRDGBufferAccess> LocalLights;
 		std::optional<FRDGColorAttachmentBinding> SceneColorOutput;
 		std::optional<FRDGDepthStencilAttachmentBinding> SceneDepthOutput;
 

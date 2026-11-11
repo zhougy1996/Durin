@@ -27,7 +27,7 @@ pipeline and ordering. Special-forward work is selected by the immutable view
 mode; resource failure never selects another lighting owner.
 
 The fixed lighting ABI and the shared helpers below remain common to deferred
-Lit evaluation and retained forward translucency. The selected four local
+Lit evaluation and retained forward translucency. The admitted local
 records therefore keep the same stable order, attenuation, BRDF, environment,
 emissive, and shadow semantics across the composition boundary. See
 [Deferred Directional Lighting](DeferredDirectionalLighting.md) for the
@@ -86,12 +86,11 @@ also serves shadow and cloud consumers and has its own lifetime.
 
 `FPreparedLightView` is command-local copied state. Directional candidates and
 the combined point/spot candidate list are each ordered by ascending
-`FLightComponentId`. Selection takes at most one directional light and four local
-lights; point and spot lights compete in the same local budget. Sequential
+`FLightComponentId`. Gather retains one directional light and every visible local. The renderer snapshots a local record budget per submission. Resource resolution packs the ordered prefix across both families up to that budget and the backend storage range. Ordinary views use four. Qualification can select another budget (including zero) independently for each view. Sequential
 views prepare independently and do not retain `FLightSceneInfo` pointers.
 
 `FViewRenderTelemetry` records submitted, invalid/disabled, frustum-culled,
-selected, and overflow values by family. Submitted counts cover lights visited
+visible, selected (GPU-admitted), and overflow values by family. Submitted counts cover lights visited
 for this view. Resource resolution records packed bytes after a successful
 uniform allocation. Preparation asserts:
 
@@ -101,10 +100,9 @@ point submitted = rejected + frustum culled + selected + overflow
 spot submitted = rejected + frustum culled + selected + overflow
 ```
 
-## Fixed forward ABI
+## Shared view lighting ABI
 
-One view allocates one 16-byte-aligned, 800-byte dynamic uniform range. StaticMesh
-and SplineMesh opaque, masked, and translucent draws bind the same range.
+Each view allocates a 16-byte-aligned dynamic uniform. Generated Lit surface shaders and fullscreen deferred share its count and the same read-only structured buffer.
 
 | Field | Layout | Bytes |
 | --- | --- | ---: |
@@ -112,15 +110,13 @@ and SplineMesh opaque, masked, and translucent draws bind the same range.
 | Counts | `uint4` (`x` directional, `y` local) | 16 |
 | Directional record | direction `float4`, color/intensity `float4` | 32 |
 | Directional shadow record | control, depth/splits/transition, three matrix/bias/filter/valid-region cascade records | 448 |
-| Four local records | position/inverse-range, direction/type, color/intensity, spot terms; four `float4` each | 256 |
 | Environment rotation | inverse source quaternion `float4` | 16 |
 | Environment control | intensity, maximum prefilter mip, reserved | 16 |
-| Total | 16-byte aligned | 800 |
+| Total | 16-byte aligned | 544 |
 
-The Vulkan dynamic-upload page is 4 MiB, leaving 4,193,504 bytes after one
-lighting payload before alignment and other allocations. A null or wrong-sized
-range fails the view before Scene Color; there is no previous-view fallback or
-persistent lighting resource.
+Each local record is 64 bytes. Its four vectors hold camera-relative position and inverse range, direction and type, color and intensity, and spot cone terms. RDG uploads the ordered prefix once and declares each consuming pass as a reader. A zero count binds a device-lifetime one-record dummy and queues zero bytes. Allocation failure aborts the view before graph execution. The shadow-only fallback allocates a separate zeroed common uniform.
+
+`PackedLightBytes` measures the common uniform. `LocalRecordUploadBytes` measures the queued local payload (64 bytes per admitted light, up to 256 bytes with the four-light profile) and excludes the dummy and shadow fallback.
 
 ## Direct-light equations
 
@@ -160,4 +156,4 @@ accepted incremental median for `1 + 4` over the single-directional baseline is
 1.0 ms across at least 120 measured frames. This historical forward-tier
 qualification selected `1 + 4` and rejected `1 + 8`. Current hybrid production
 timing gates belong to [Deferred Directional Lighting](DeferredDirectionalLighting.md#memory-and-qualification).
-Larger tiers require separate measured qualification.
+The 32-light qualification profile exercises the same shared buffer and counted loop. The cross-device default decision remains open. See the [view local light resources plan](../../../Plans/ViewLocalLightResources.md) for image checks and measurements.

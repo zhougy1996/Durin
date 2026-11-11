@@ -1,7 +1,7 @@
 module DeferredDirectionalLighting;
 
 import Lighting.DirectionalShadow;
-import Lighting.ForwardLightingUniform;
+import Lighting.ViewLightingUniform;
 import Lighting.PBRLighting;
 import Lighting.SurfaceLighting;
 import Material.GBufferDecode;
@@ -80,7 +80,8 @@ FDeferredLightingOutput MakeDeferredLightingOutput(
 [[vk::binding(9, 0)]] Texture2DArray<float> DirectionalShadowTexture;
 [[vk::binding(10, 0)]] SamplerComparisonState DirectionalShadowSampler;
 [[vk::binding(11, 0)]] ConstantBuffer<FDeferredDirectionalViewUniform> View;
-[[vk::binding(12, 0)]] ConstantBuffer<FForwardLightingUniform> Lighting;
+[[vk::binding(12, 0)]] ConstantBuffer<FViewLightingUniform> Lighting;
+[[vk::binding(19, 0)]] StructuredBuffer<FForwardLocalLightUniform> LocalLights;
 [[vk::binding(13, 0)]] Texture2D<float> GroundTruthAmbientOcclusionRaw;
 [[vk::binding(14, 0)]] Texture2D<float> GroundTruthAmbientOcclusionFiltered;
 [[vk::binding(15, 0)]] Texture2D<float> ContactVisibility;
@@ -204,20 +205,8 @@ FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input)
 		return MakeDeferredLightingOutput(
 			float4(1.0 - contactVisibility, 0.0, 0.0, 1.0), directional);
 
-    float3 local = float3(0.0);
-    [unroll]
-    for (uint lightIndex = 0u; lightIndex < 4u; ++lightIndex)
-    {
-        if (lightIndex >= Lighting.Counts.y)
-            break;
-        local += EvaluateSurfaceLocalLighting(
-            record.baseColor,
-            record.metallic,
-            record.roughness,
-            worldPosition,
-            frame,
-            Lighting.Local[lightIndex]);
-    }
+    float3 local = AccumulateViewLocalLights(float3(0.0), record.baseColor, record.metallic, record.roughness,
+        worldPosition, frame, LocalLights, Lighting.Counts.y);
 
     float3 environment = EvaluateSurfaceEnvironmentLighting(
         record.baseColor,

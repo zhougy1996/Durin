@@ -36,6 +36,9 @@ namespace Durin
 	// production submissions cannot request qualification-only execution.
 	struct FRendererQualificationPolicy
 	{
+		std::optional<uint32> LocalLightRecordBudget;
+		bool bMeasureLocalLights = false;
+		bool bFailLocalLightAllocation = false;
 		bool bEnableGBuffer = false;
 		bool bEnableDeferredDirectional = false;
 		bool bEnableGroundTruthAmbientOcclusion = false;

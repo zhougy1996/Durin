@@ -64,6 +64,7 @@ namespace Durin
 			FRHITexture* ContactVisibility = nullptr;
 			FRHITexture* VolumetricCloudVisibility = nullptr;
 			FRHIUniformBufferRange Lighting;
+			FRHIStorageBufferRange LocalLights;
 			const FSceneView* View = nullptr;
 			uint32 DiagnosticMode = 0;
 			uint32 GroundTruthAmbientOcclusionDebugMode = 0;

@@ -24,6 +24,7 @@
 #include "Modules/ModuleTestSupport.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialExpressions.h"
+#include "Materials/MaterialProgramCompiler.h"
 #include "Math/Operations.h"
 #include "NativeTestSupport.h"
 #include "RHI.h"
@@ -74,6 +75,9 @@ namespace Durin
 		}
 
 		FViewRenderTelemetry GSceneCloudTelemetry;
+		// Read after the offscreen submission and its synchronous readback have retired.
+		std::array<FGPUTimingQueryRHIRef, 2> GLocalLightTimingQueries;
+		uint64 GLocalLightFrameNanoseconds = 0;
 		uint32 GSceneCloudTelemetryPublications = 0;
 		std::vector<FRDGCapture> GSceneCloudGraphCaptures;
 		std::filesystem::path GSceneCloudEvidenceRoot;
@@ -390,6 +394,13 @@ namespace Durin
 						if (!bDeliberatelyPending && ObservePreparedDraw) ObservePreparedDraw(true);
 					}
 					if (bOverrideDuringRecording) SetSceneGraphAuthoringTimingSink(OverrideQualificationAfterAuthoring);
+					std::chrono::steady_clock::time_point FrameStart;
+					if (Policy.bMeasureLocalLights)
+					{
+						GLocalLightTimingQueries = {};
+						CommandList.BlockUntilGPUIdle();
+						FrameStart = std::chrono::steady_clock::now();
+					}
 					*Result = Renderer.RenderView(CommandList, {Scene, View, Output, false, Options});
 					if (bOverrideDuringRecording)
 					{
@@ -400,6 +411,12 @@ namespace Durin
 					if (Prepare && !bDeliberatelyPending && ObservePreparedDraw) ObservePreparedDraw(false);
 					GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 					CommandList.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+					if (Policy.bMeasureLocalLights)
+					{
+						CommandList.BlockUntilGPUIdle();
+						GLocalLightFrameNanoseconds = std::chrono::duration_cast<std::chrono::nanoseconds>(
+							std::chrono::steady_clock::now() - FrameStart).count();
+					}
 					if (*Result == ERenderViewResult::Success)
 					{
 						GDynamicRHI->RHIReadTexture2D(CommandList, Output, 0, 0, *Pixels);
@@ -412,7 +429,7 @@ namespace Durin
 				if (*Result != ERenderViewResult::RendererResourcesPending) break;
 				std::this_thread::sleep_for(std::chrono::milliseconds(1));
 			} while (std::chrono::steady_clock::now() < Deadline);
-			const auto Expected = Failure == ESceneRasterFailure::HybridBootstrap || Failure == ESceneRasterFailure::Forward ? ERenderViewResult::RequiredEnvironmentUnavailable : Failure != ESceneRasterFailure::None ? ERenderViewResult::RendererResourcesUnavailable :
+			const auto Expected = ExtraPolicy.bFailLocalLightAllocation ? ERenderViewResult::RendererResourcesUnavailable : Failure == ESceneRasterFailure::HybridBootstrap || Failure == ESceneRasterFailure::Forward ? ERenderViewResult::RequiredEnvironmentUnavailable : Failure != ESceneRasterFailure::None ? ERenderViewResult::RendererResourcesUnavailable :
 																																																						  ERenderViewResult::Success;
 			EXPECT_EQ(*Result, Expected);
 			++OffscreenOrdinal;
@@ -428,6 +445,7 @@ namespace Durin
 			{
 				EXPECT_EQ(GSceneCloudTelemetryPublications, PublicationsBefore + (bObserveTelemetry ? 1 : 0));
 				EXPECT_EQ(Pixels->size(), static_cast<size_t>(Width) * Height * 4);
+				if (ExtraPolicy.bMeasureLocalLights) return Pixels;
 				std::ofstream Output(GSceneCloudEvidenceRoot /
 					("pixels-" + std::to_string(OffscreenOrdinal) + ".rgba"), std::ios::binary);
 				Output.write(reinterpret_cast<const char*>(Pixels->data()), Pixels->size());
@@ -769,7 +787,7 @@ namespace Durin
 		auto* LitMaterial = MakeRouteMaterial("SceneRouteLit", EMaterialShadingModel::Lit);
 		auto* UnlitMaterial = MakeRouteMaterial("SceneRouteUnlit", EMaterialShadingModel::Unlit);
 		auto* MaskedMaterial = MakeRouteMaterial("SceneRouteMasked", EMaterialShadingModel::Lit, EMaterialBlendMode::Masked);
-		auto* TranslucentMaterial = MakeRouteMaterial("SceneRouteTranslucent", EMaterialShadingModel::Unlit, EMaterialBlendMode::Translucent);
+		auto* TranslucentMaterial = MakeRouteMaterial("SceneRouteTranslucent", EMaterialShadingModel::Lit, EMaterialBlendMode::Translucent);
 		auto Geometry = std::make_unique<FStaticMeshRenderData>();
 		Geometry->MaterialSlots = {{"Route", 0}};
 		auto& LOD = Geometry->LODResources.emplace_back();
@@ -795,6 +813,172 @@ namespace Durin
 			std::make_unique<FStaticMeshSceneProxy>(Geometry.get(),
 				std::vector<FMaterialRenderProxyRef>{LitMaterial->GetRenderProxy()}),
 			Math::TranslationMatrix(FVector3{100, -35, 2510}));
+		FlushRenderingCommands();
+
+		const auto HasPass = [](const char* Name) {
+			return std::ranges::any_of(GSceneCloudGraphCaptures.back().Passes,
+				[&](const auto& Pass) { return Pass.Name == Name; });
+		};
+		const auto RenderUnlit = [&] {
+			return RenderOffscreen(false, false, EGroundTruthAmbientOcclusionQuality::HalfResolution, ERenderMode::Unlit);
+		};
+		static FByteBuffer LocalPixels;
+		auto CaptureLocalLighting = +[](FRHICommandListImmediate& Commands, FRHITexture* Target) {
+			const auto Texture = GDynamicRHI->RHICreateTexture(Commands,
+				FRHITextureCreateDesc::Create2D("LocalLightingReadback", Target->GetSizeX(), Target->GetSizeY(), Target->GetFormat())
+				.SetFlags(ETextureCreateFlags::DestinationCopy | ETextureCreateFlags::CPUReadback));
+			ASSERT_TRUE(Texture);
+			const FRHITextureSubresourceRange Whole{ERHITextureAspect::Color, 0, 1, 0, 1};
+			Commands.TransitionTextures(std::array{FRHITextureTransition{Target, Whole, ERHIAccess::GraphicsShaderRead, ERHIAccess::TransferRead},
+				FRHITextureTransition{Texture, Whole, ERHIAccess::Discard, ERHIAccess::TransferWrite}});
+			Commands.CopyTexture(Target, Texture, std::array{FRHITextureCopyRegion{.Extent = {Target->GetSizeX(), Target->GetSizeY(), 1}}});
+			Commands.TransitionTextures(std::array{FRHITextureTransition{Target, Whole, ERHIAccess::TransferRead, ERHIAccess::GraphicsShaderRead}});
+			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(Commands, Texture, 0, 0, LocalPixels));
+		};
+		// Save the same view outputs on either side of a lighting ABI change.
+		if (const auto* Directory = std::getenv("DURIN_LOCAL_LIGHT_CAPTURES"))
+		{
+			std::filesystem::create_directories(Directory);
+			const auto Program = LitMaterial->GetAcceptedCompiledProgram();
+			ASSERT_TRUE(Program);
+			const auto& Source = Program->GetDebugData().GeneratedSource;
+			if (!Source.empty())
+			{
+				std::ofstream Shader(std::filesystem::path(Directory) / "ForwardMaterial.slang");
+				Shader << Source;
+				ASSERT_TRUE(Shader.good());
+			}
+			std::vector<FLightSceneProxy*> Lights;
+			for (uint32 Count : {0u, 1u, 4u})
+			{
+				while (Lights.size() < Count)
+				{
+					const auto Index = static_cast<uint32>(Lights.size());
+					const FLightComponentId Id(23000 + Index);
+					if (Index % 2)
+						Lights.push_back(PublishLightForTest<FSpotLightSceneProxy>(*Scene, Id,
+							FSpotLightSceneData{.Position = {135, -35.0 + Index, 2510}, .Direction = {-1, 0, 0}, .Intensity = 1800, .Range = 200}));
+					else
+						Lights.push_back(PublishLightForTest<FPointLightSceneProxy>(*Scene, Id,
+							FPointLightSceneData{.Position = {135, -35.0 + Index, 2510}, .Intensity = 1100, .Range = 200}));
+					ASSERT_TRUE(Lights.back());
+				}
+				ExtraPolicy.ObserveAdmittedDraws = [Count](const FSceneRenderPlan& Plan) {
+					ASSERT_EQ(Plan.Lighting.Lights.Local.size(), Count);
+					for (uint32 Index = 0; Index < Count; ++Index)
+						EXPECT_EQ(Plan.Lighting.Lights.Local[Index].Id.Value, 23000u + Index);
+				};
+				auto Save = [&](const char* Route, const auto& Pixels) {
+					ASSERT_EQ(Pixels->size(), 96u * 64u * (std::string_view(Route) == "local" ? 8u : 4u));
+					EXPECT_EQ(GSceneCloudTelemetry.Lighting.SelectedPointLights + GSceneCloudTelemetry.Lighting.SelectedSpotLights, Count);
+					std::ofstream File(std::filesystem::path(Directory) / (std::to_string(Count) + "-" + Route + ".rgba"), std::ios::binary);
+					File.write(reinterpret_cast<const char*>(Pixels->data()), Pixels->size());
+					ASSERT_TRUE(File.good());
+				};
+				Save("final", RenderOffscreen(false, false));
+				ExtraOptions.DeferredDirectionalDebugMode = EDeferredDirectionalDebugMode::Local;
+				LocalPixels.clear();
+				SetDeferredDirectionalCaptureSink(CaptureLocalLighting);
+				RenderUnlit();
+				SetDeferredDirectionalCaptureSink(nullptr);
+				Save("local", &LocalPixels);
+				ExtraOptions = {};
+				Save("forward", RenderOffscreen(false, false, EGroundTruthAmbientOcclusionQuality::HalfResolution,
+					ERenderMode::Lit, ESceneRasterFailure::None, 96, 64, ERasterMode::Wireframe));
+			}
+			ExtraPolicy.ObserveAdmittedDraws = {};
+			for (auto* Light : Lights) FSceneInterfaceTestAccess::TryRemoveLightProxy(*Scene, Light);
+			FlushRenderingCommands();
+		}
+		// Compare the whole receiver against the same spot rendered alone. All filler
+		// lights remain inside the view but their spheres miss the receiver.
+		enum class ELightReceiver { DeferredLocal, ForwardWireframe, LitTranslucent };
+		auto CaptureReceiver = [&](ELightReceiver Route) {
+			if (Route == ELightReceiver::ForwardWireframe)
+				return *RenderOffscreen(false, false, EGroundTruthAmbientOcclusionQuality::HalfResolution,
+					ERenderMode::Lit, ESceneRasterFailure::None, 96, 64, ERasterMode::Wireframe);
+			if (Route == ELightReceiver::LitTranslucent) return *RenderOffscreen(false, false);
+			LocalPixels.clear();
+			ExtraOptions.DeferredDirectionalDebugMode = EDeferredDirectionalDebugMode::Local;
+			SetDeferredDirectionalCaptureSink(CaptureLocalLighting);
+			RenderUnlit();
+			SetDeferredDirectionalCaptureSink(nullptr);
+			ExtraOptions = {};
+			return LocalPixels;
+		};
+		auto SetReceiver = [&](DMaterial* Material) {
+			FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Scene, FPrimitiveComponentId(10001),
+				std::make_unique<FStaticMeshSceneProxy>(Geometry.get(),
+					std::vector<FMaterialRenderProxyRef>{Material->GetRenderProxy()}),
+				Math::TranslationMatrix(FVector3{100, -35, 2510}));
+			FlushRenderingCommands();
+		};
+		for (auto Route : {ELightReceiver::DeferredLocal, ELightReceiver::ForwardWireframe, ELightReceiver::LitTranslucent})
+		{
+			SCOPED_TRACE(static_cast<int>(Route));
+			SetReceiver(Route == ELightReceiver::LitTranslucent ? TranslucentMaterial : LitMaterial);
+			auto Publish = [&](uint32 Index, bool Hits, float OuterCone = 40.f, double DirectionX = -1.0) -> FLightSceneProxy* {
+				const FLightComponentId Id(24000 + Index);
+				if (!Hits && Index % 2)
+					return PublishLightForTest<FPointLightSceneProxy>(*Scene, Id,
+						FPointLightSceneData{.Position = {300, 0, 2510}, .Intensity = 1500, .Range = 6});
+				return PublishLightForTest<FSpotLightSceneProxy>(*Scene, Id,
+					FSpotLightSceneData{.Position = Hits ? FVector3{135,-35,2510} : FVector3{300,0,2510},
+						.Direction = {DirectionX,0,0}, .Intensity = 5000, .Range = Hits ? 100.f : 6.f,
+						.InnerConeAngle = 15, .OuterConeAngle = OuterCone});
+			};
+			auto Remove = [&](FLightSceneProxy* Light) {
+				FSceneInterfaceTestAccess::TryRemoveLightProxy(*Scene, Light);
+				FlushRenderingCommands();
+			};
+			ExtraPolicy.LocalLightRecordBudget = 32;
+			const auto Dark = CaptureReceiver(Route);
+			auto* Fifth = Publish(4, true);
+			const auto Reference = CaptureReceiver(Route);
+			EXPECT_NE(Dark, Reference);
+			Remove(Fifth);
+			// A hard 15-degree edge cuts pixels from the soft 15-to-40 degree cone.
+			Fifth = Publish(4, true, 15);
+			const auto HardCone = CaptureReceiver(Route);
+			EXPECT_NE(HardCone, Reference);
+			EXPECT_NE(HardCone, Dark);
+			Remove(Fifth);
+			Fifth = Publish(4, true, 40, 1);
+			EXPECT_EQ(CaptureReceiver(Route), Dark);
+			Remove(Fifth);
+			Fifth = Publish(4, true);
+			std::vector<FLightSceneProxy*> Fillers;
+			for (uint32 Count : {5u, 8u, 32u, 33u})
+			{
+				for (uint32 Index = static_cast<uint32>(Fillers.size()); Fillers.size() < Count - 1; ++Index)
+				{
+					const uint32 Id = Index >= 4 ? Index + 1 : Index;
+					Fillers.push_back(Publish(Id, Id == 32));
+				}
+				const auto Actual = CaptureReceiver(Route);
+				EXPECT_EQ(Actual, Reference) << Count;
+				const auto& L = GSceneCloudTelemetry.Lighting;
+				EXPECT_EQ(L.VisiblePointLights + L.VisibleSpotLights, Count);
+				EXPECT_EQ(L.SelectedPointLights + L.SelectedSpotLights, std::min(Count, 32u));
+				EXPECT_EQ(L.OverflowPointLights + L.OverflowSpotLights, Count == 33 ? 1u : 0u);
+				EXPECT_EQ(L.LocalRecordUploadBytes, 64u * std::min(Count, 32u));
+				if (Count == 5)
+				{
+					ExtraPolicy.LocalLightRecordBudget = 4;
+					EXPECT_EQ(CaptureReceiver(Route), Dark);
+					ExtraPolicy.LocalLightRecordBudget = 32;
+					Remove(Fifth);
+					EXPECT_EQ(CaptureReceiver(Route), Dark);
+					Fifth = Publish(4, true);
+				}
+			}
+			// Removing light five admits the previously over-budget light 33. Its identical cone must now reproduce the single-light pixels.
+			Remove(Fifth);
+			EXPECT_EQ(CaptureReceiver(Route), Reference);
+			for (auto* Light : Fillers) Remove(Light);
+		}
+		ExtraPolicy.LocalLightRecordBudget.reset();
+		SetReceiver(LitMaterial);
 		FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Scene, FPrimitiveComponentId(10002),
 			std::make_unique<FStaticMeshSceneProxy>(Geometry.get(),
 				std::vector<FMaterialRenderProxyRef>{UnlitMaterial->GetRenderProxy()}),
@@ -809,13 +993,86 @@ namespace Durin
 			Math::TranslationMatrix(FVector3{90, 35, 2510}));
 		FlushRenderingCommands();
 
-		const auto HasPass = [](const char* Name) {
-			return std::ranges::any_of(GSceneCloudGraphCaptures.back().Passes,
-				[&](const auto& Pass) { return Pass.Name == Name; });
-		};
-		const auto RenderUnlit = [&] {
-			return RenderOffscreen(false, false, EGroundTruthAmbientOcclusionQuality::HalfResolution, ERenderMode::Unlit);
-		};
+		// Optional hardware characterization. Paired budgets alternate order each frame.
+		if (const char* Path = std::getenv("DURIN_LOCAL_LIGHT_SAMPLES"))
+		{
+			std::ofstream Samples(Path);
+			ASSERT_TRUE(Samples.good());
+			Samples << "layout,count,budget,sample,gather_ns,pack_ns,upload_bytes,allocation_bytes,completed_frame_wall_ns,deferred_ns,forward_translucent_ns\n";
+			SetSceneRenderGraphCaptureSink(nullptr);
+			SetDeferredDirectionalTimingQuerySink(+[](const FGPUTimingQueryRHIRef& Q) { GLocalLightTimingQueries[0] = Q; });
+			const auto CaptureForwardTime = +[](const FGPUTimingQueryRHIRef& Q) { GLocalLightTimingQueries[1] = Q; };
+			SetSortedTranslucencyTimingQuerySink(CaptureForwardTime);
+			ExtraPolicy.bMeasureLocalLights = true;
+			for (bool Dense : {false, true})
+			{
+				std::vector<FLightSceneProxy*> Lights;
+				for (uint32 Count : {0u, 4u, 8u, 32u})
+				{
+					while (Lights.size() < Count)
+					{
+						const uint32 I = static_cast<uint32>(Lights.size());
+						const FVector3 Position{120, Dense ? -10.0 : -75.0 + (I % 8) * 20, Dense ? 2510.0 : 2480.0 + (I / 8) * 20};
+						const float Range = Dense ? 200.f : 26.f;
+						const FLightComponentId Id(25000 + I);
+						if (I % 2)
+							Lights.push_back(PublishLightForTest<FSpotLightSceneProxy>(*Scene, Id,
+								FSpotLightSceneData{.Position = Position, .Direction = {-1,0,0}, .Intensity = 120, .Range = Range}));
+						else
+							Lights.push_back(PublishLightForTest<FPointLightSceneProxy>(*Scene, Id,
+								FPointLightSceneData{.Position = Position, .Intensity = 120, .Range = Range}));
+					}
+					FlushRenderingCommands();
+					SetSortedTranslucencyTimingQuerySink(nullptr);
+					ExtraPolicy.bMeasureLocalLights = false;
+					ExtraPolicy.LocalLightRecordBudget = 32;
+					const auto Untimed = RenderOffscreen(false, false, EGroundTruthAmbientOcclusionQuality::HalfResolution,
+						ERenderMode::Lit, ESceneRasterFailure::None, 1920, 1080);
+					SetSortedTranslucencyTimingQuerySink(CaptureForwardTime);
+					ExtraPolicy.bMeasureLocalLights = true;
+					for (int Sample = -4; Sample < 32; ++Sample)
+					{
+						FByteBuffer First;
+						for (uint32 Pair = 0; Pair < 2; ++Pair)
+						{
+							const uint32 Budget = ((Sample + 4 + Pair) % 2 == 0) ? 4 : 32;
+							ExtraPolicy.LocalLightRecordBudget = Budget;
+							const auto Image = RenderOffscreen(false, false, EGroundTruthAmbientOcclusionQuality::HalfResolution,
+								ERenderMode::Lit, ESceneRasterFailure::None, 1920, 1080);
+							const auto& L = GSceneCloudTelemetry.Lighting;
+							EXPECT_EQ(L.VisiblePointLights + L.VisibleSpotLights, Count);
+							EXPECT_EQ(L.LocalRecordUploadBytes, std::min(Count, Budget) * 64u);
+							if (Budget == 32 && Sample == -4) EXPECT_EQ(*Untimed, *Image);
+							if (Count <= 4 && Sample == 0)
+							{
+								if (!Pair) First = *Image;
+								else EXPECT_EQ(First, *Image);
+							}
+							if (Sample < 0) continue;
+							Samples << (Dense ? "dense" : "sparse") << ',' << Count << ',' << Budget << ',' << Sample
+								<< ',' << L.GatherNanoseconds << ',' << L.PackNanoseconds << ',' << L.LocalRecordUploadBytes
+								<< ',' << L.LocalDeviceAllocationBytes << ',' << GLocalLightFrameNanoseconds;
+							for (const auto& Query : GLocalLightTimingQueries)
+							{
+								ASSERT_TRUE(Query);
+								const auto Result = Query->GetResult();
+								ASSERT_EQ(Result.State, ERHIGPUTimingResultState::Ready);
+								Samples << ',' << Result.DurationNanoseconds;
+							}
+							Samples << '\n';
+						}
+					}
+				}
+				for (auto* Light : Lights) FSceneInterfaceTestAccess::TryRemoveLightProxy(*Scene, Light);
+				FlushRenderingCommands();
+			}
+			GLocalLightTimingQueries = {};
+			ExtraPolicy = {};
+			SetDeferredDirectionalTimingQuerySink(nullptr);
+			SetSortedTranslucencyTimingQuerySink(nullptr);
+			SetSceneRenderGraphCaptureSink(CaptureSceneCloudGraph);
+		}
+
 		const auto UnlitWithoutLocal = RenderUnlit();
 		const auto LitWithoutLocal = RenderOffscreen(false, false);
 		auto* Point = PublishLightForTest<FPointLightSceneProxy>(*Scene, FLightComponentId(22001),
@@ -824,14 +1081,37 @@ namespace Durin
 			FSpotLightSceneData{.Position = {135, -35, 2510}, .Direction = {-1, 0, 0}, .Intensity = 5000.0f, .Range = 200.0f});
 		ASSERT_TRUE(Point && Spot);
 		EXPECT_EQ(*UnlitWithoutLocal, *RenderUnlit());
+		EXPECT_EQ(GSceneCloudTelemetry.Lighting.LocalRecordUploadBytes, 0u);
 		EXPECT_EQ(GSceneCloudTelemetry.Lighting.SubmittedPointLights, 0u);
 		EXPECT_EQ(GSceneCloudTelemetry.Lighting.SubmittedSpotLights, 0u);
+		ExtraPolicy.bFailLocalLightAllocation = true;
+		RenderOffscreen(false, false);
+		ExtraPolicy.bFailLocalLightAllocation = false;
 		EXPECT_NE(*LitWithoutLocal, *RenderOffscreen(false, false));
+		EXPECT_EQ(GSceneCloudTelemetry.Lighting.LocalRecordUploadBytes, 128u);
 		EXPECT_EQ(GSceneCloudTelemetry.Lighting.SelectedPointLights, 1u);
 		EXPECT_EQ(GSceneCloudTelemetry.Lighting.SelectedSpotLights, 1u);
+		const auto& Graph = GSceneCloudGraphCaptures.back();
+		const auto Buffer = std::ranges::find(Graph.Resources, "Scene.LocalLights", &FRDGResourceCapture::Name);
+		ASSERT_NE(Buffer, Graph.Resources.end());
+		uint32 Writes = 0;
+		std::vector<std::string> Readers;
+		for (const auto& Use : Graph.Uses)
+		{
+			if (Use.ResourceId != Buffer->ResourceId) continue;
+			EXPECT_EQ(Use.BufferSize, 128u);
+			if (Use.Use == ERDGUse::Write) ++Writes;
+			if (Use.Use == ERDGUse::Read)
+				for (const auto& Pass : Graph.Passes)
+					if (Pass.DeclarationIndex == Use.PassDeclarationIndex) Readers.push_back(Pass.Name);
+		}
+		EXPECT_EQ(Writes, 1u);
+		EXPECT_NE(std::ranges::find(Readers, "Scene.ProductionDeferred"), Readers.end());
+		EXPECT_NE(std::ranges::find(Readers, "Scene.Color"), Readers.end());
 		ExtraOptions.DeferredDirectionalDebugMode = EDeferredDirectionalDebugMode::Local;
 		RenderUnlit();
 		EXPECT_TRUE(HasPass("Scene.DeferredDirectionalLighting"));
+		EXPECT_EQ(GSceneCloudTelemetry.Lighting.LocalRecordUploadBytes, 128u);
 		EXPECT_EQ(GSceneCloudTelemetry.Lighting.SelectedPointLights, 1u);
 		EXPECT_EQ(GSceneCloudTelemetry.Lighting.SelectedSpotLights, 1u);
 		ExtraOptions = {};

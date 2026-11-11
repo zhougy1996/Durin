@@ -56,6 +56,21 @@ namespace Durin
 		const uint32 Height = Logical.Height;
 		const bool bPresentOutput = Logical.bPresentOutput;
 		auto& Telemetry = Context.Observation.Telemetry;
+		auto& Lighting = Resolved.Scene.Lighting;
+		if (Lighting.LocalBuffer)
+		{
+			const auto Range = Lighting.GetLocalRange();
+			const bool bUpload = !Lighting.LocalRecords.empty();
+			const auto Buffer = Graph.RegisterExternalBuffer(Lighting.LocalBuffer,
+				bUpload ? "Scene.LocalLights" : "Scene.EmptyLocalLights",
+				bUpload ? ERHIAccess::None : ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+			if (bUpload)
+			{
+				Graph.QueueBufferUpload(Buffer, 0, std::as_bytes(std::span(Lighting.LocalRecords)));
+				Telemetry.View.Lighting.LocalRecordUploadBytes = Range.Size;
+			}
+			Lighting.LocalRead = FRDGBufferAccess{Buffer, 0, Range.Size, ERDGUse::Read, ERHIAccess::GraphicsShaderRead};
+		}
 		const auto GraphResources = PrepareGraphResources(Graph);
 		OutputTexture = GraphResources.Output;
 

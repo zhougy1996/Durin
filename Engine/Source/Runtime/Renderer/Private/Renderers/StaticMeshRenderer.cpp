@@ -714,7 +714,7 @@ namespace Durin
 
 	auto FStaticMeshRenderer::PrepareBindings_RenderThread(FRHICommandListImmediate& CommandList, FGBufferRenderer* GBuffer,
 		const FPreparedStaticMeshView& PreparedView, FResolvedStaticMeshView& ResolvedView,
-		const FRHIUniformBufferRange& Lighting, bool bShadow) -> bool
+		const FRHIUniformBufferRange& Lighting, bool bShadow, FRHIStorageBufferRange LocalLights) -> bool
 	{
 		check(IsInRenderingThread());
 		ResolvedView.DrawCommandStorage = std::make_shared<FDynamicMeshDrawCommandStorage>();
@@ -755,7 +755,7 @@ namespace Durin
 						|| !SameRange(Cached->Material.Uniform, Material->Uniform)
 						|| !std::ranges::equal(Cached->Material.CollectionUniforms, Material->CollectionUniforms, SameRange))) Cached.reset();
 					const FMeshDrawCommandBuildInput Input{CommandList, *Primitive, Draw, Pipeline, *Material,
-						ResolvedView.PrimitiveUniforms[Draw.PrimitiveIndex], ResolvedView.ViewUniforms[Pass], Lighting, {}};
+						ResolvedView.PrimitiveUniforms[Draw.PrimitiveIndex], ResolvedView.ViewUniforms[Pass], Lighting, {}, LocalLights};
 					if (Cacheable && !Cached)
 					{
 						FCachedPassMeshDrawListContext Context(State->DrawCommands, PassKey, Cached);

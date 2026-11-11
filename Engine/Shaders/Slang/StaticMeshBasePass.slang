@@ -6,7 +6,7 @@ import VertexFactory.SplineMeshVertexFactory;
 #endif
 import Lighting.PBRLighting;
 import Lighting.DirectionalShadow;
-import Lighting.ForwardLightingUniform;
+import Lighting.ViewLightingUniform;
 import Lighting.SurfaceLighting;
 import Material.SpecularAntialiasing;
 import Material.SurfaceMaterial;

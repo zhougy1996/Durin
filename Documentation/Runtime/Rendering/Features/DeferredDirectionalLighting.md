@@ -47,10 +47,8 @@ inputs and sequential isolation.
 The fragment shader binds, in order, four GBuffer attachments, D32, irradiance,
 prefiltered environment, the BRDF LUT, the environment sampler, the selected
 directional-shadow array and comparison sampler, one 176-byte deferred-view
-uniform, the existing 768-byte forward-lighting uniform, GTAO native raw,
-native filtered, contact visibility, and full-resolution resolved inputs. The selected
-directional, three-cascade shadow, and four local records remain byte-identical
-to forward.
+uniform, the shared 544-byte view lighting uniform, GTAO native raw,
+native filtered, contact visibility, and full-resolution resolved inputs. Slot 19 reads the same structured buffer as Lit forward materials. Both routes use the common directional and cascade constants and iterate the uploaded count (four by default, 32 in the candidate profile).
 
 The deferred-view uniform contains four projection rows, one view-to-world
 matrix, clear color, inverse viewport size, diagnostic identity, contact

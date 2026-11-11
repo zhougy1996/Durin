@@ -2466,7 +2466,15 @@ TEST(FMaterialProgramCompilerTests,
 		: Compiled.Diagnostics.front().Message);
 	EXPECT_EQ(Compiled.GetShaderMap().ShaderMapId, Normalized.Identity);
 	ASSERT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), Durin::MaterialCompiledEntryPoints.size());
-	EXPECT_EQ(Compiled.GetShaderMap().CompiledShaders[0].Reflection.ResourceBindings.size(), 21u);
+	const auto& ForwardBindings = Compiled.GetShaderMap().CompiledShaders[0].Reflection.ResourceBindings;
+	EXPECT_EQ(ForwardBindings.size(), 22u);
+	const auto LocalLights = std::ranges::find_if(ForwardBindings, [](const auto& Binding) {
+		return Binding.Name == "LocalLights";
+	});
+	ASSERT_NE(LocalLights, ForwardBindings.end());
+	EXPECT_EQ(LocalLights->SetIndex, 0u);
+	EXPECT_EQ(LocalLights->BindingIndex, 30u);
+	EXPECT_EQ(LocalLights->Type, Durin::ERHIBindingType::StorageBuffer);
 	EXPECT_EQ(Compiled.GetShaderMap().CompiledShaders[1].Reflection.ResourceBindings.size(), 14u);
 	EXPECT_TRUE(Compiled.GetShaderMap().CompiledShaders[2].Reflection.ResourceBindings.empty());
 	std::vector CorruptedStages = Compiled.GetShaderMap().CompiledShaders;
@@ -2729,7 +2737,8 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 	for (const uint32 Word : {1u, 2u})
 	{
 		auto Incompatible = CookedBytes;
-		ASSERT_TRUE(Testing::SetMaterialCookedProgramArtifactWordForTest(Incompatible, Word, 0xffffffffu));
+		ASSERT_TRUE(Testing::SetMaterialCookedProgramArtifactWordForTest(Incompatible, Word,
+			Word == 2 ? 11u : 0xffffffffu));
 		ASSERT_FALSE((Error = Testing::DecodeMaterialCookedProgramFamilyForTest(Incompatible,
 			ECookTargetPlatform::Win64, ECookTargetProfile::Game, Compiled,
 			CookedProperties, Cooked)));

@@ -309,7 +309,7 @@ namespace Durin::RendererPrivate
 					if (const auto Found = Cache.Passes.find(PassKey); Found != Cache.Passes.end()) { Out = Found->second; return true; }
 				auto Bindings = std::make_shared<FPreparedSurfaceMaterialBindings>();
 				if (!PrepareCompiledSurfaceMaterial(Shader, Layout.ForSet(0), Input.Material.Surface, {}, Input.Lighting,
-					Input.HitProxy, Input.ViewUniform, {}, {}, *Bindings)) return false;
+					Input.HitProxy, Input.ViewUniform, {}, {}, *Bindings, Input.LocalLights)) return false;
 				Out = std::move(Bindings); if (!Input.HitProxy.Buffer) Cache.Passes.emplace(PassKey, Out);
 				return true;
 			};

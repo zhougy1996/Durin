@@ -2550,70 +2550,108 @@ TEST(FRendererSceneContractTests, LocalLightConsumersFollowViewAndOutput)
 TEST(FRendererSceneContractTests, PreparedLightsUseStableIdAndSharedLocalBudget)
 {
 	FRenderingThreadScope RenderingThread;
-	Durin::FSceneTestOwner SceneOwner;
-	Durin::FScene& Scene = *SceneOwner;
-	for (uint64 Id : {101u, 100u})
+	for (const bool bReverse : {false, true})
 	{
-		Durin::FDirectionalLightSceneData Data;
-		Data.Intensity = 1.0f;
-		PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
-			Scene, Durin::FLightComponentId(Id), Data
+		Durin::FSceneTestOwner SceneOwner;
+		Durin::FScene& Scene = *SceneOwner;
+		for (uint64 Id : {101u, 100u})
+		{
+			Durin::FDirectionalLightSceneData Data;
+			Data.Intensity = 1.0f;
+			PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
+				Scene, Durin::FLightComponentId(Id), Data
+			);
+		}
+		for (uint64 Index = 0; Index < 6; ++Index)
+		{
+			const uint64 Id = bReverse ? 6 - Index : Index + 1;
+			if ((Id & 1u) == 0)
+			{
+				Durin::FPointLightSceneData Data;
+				Data.Intensity = static_cast<float>(Id);
+				Data.Range = 5.0f;
+				PublishLightForTest<Durin::FPointLightSceneProxy>(
+					Scene, Durin::FLightComponentId(Id), Data
+				);
+			}
+			else
+			{
+				Durin::FSpotLightSceneData Data;
+				Data.Intensity = static_cast<float>(Id);
+				Data.Range = 5.0f;
+				PublishLightForTest<Durin::FSpotLightSceneProxy>(
+					Scene, Durin::FLightComponentId(Id), Data
+				);
+			}
+		}
+		Durin::FlushRenderingCommands();
+		struct FObservedPreparation
+		{
+			Durin::FPreparedLightView Lights;
+			Durin::FViewRenderTelemetry Telemetry;
+		};
+		auto Observed = std::make_shared<FObservedPreparation>();
+		Durin::FSceneView View;
+		View.Settings.Mode.RenderMode = Durin::ERenderMode::Lit;
+		View.Settings.Mode.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
+		struct FPrepareLightsCommand
+		{
+			static constexpr auto GetName() -> const char* { return "PrepareLights"; }
+		};
+		Durin::EnqueueRenderCommand<FPrepareLightsCommand>(
+			[&Scene, View, Observed](Durin::FRHICommandListImmediate&) {
+				Observed->Lights = Durin::GatherAndSortLights_RenderThread(
+					Scene, Durin::BuildSceneViewRequirements(View, {}, {}), Observed->Telemetry
+				);
+			}
 		);
+		Durin::FlushRenderingCommands();
+		ASSERT_EQ(Observed->Lights.Directional.size(), 1u);
+		EXPECT_EQ(Observed->Lights.Directional.front().Id.Value, 100u);
+		ASSERT_EQ(Observed->Lights.Local.size(), 6u);
+		EXPECT_EQ(Observed->Telemetry.Lighting.VisiblePointLights, 3u);
+		EXPECT_EQ(Observed->Telemetry.Lighting.VisibleSpotLights, 3u);
+		const auto Records = Durin::BuildLocalLightRecords(Observed->Lights, View, 4, Observed->Telemetry);
+		ASSERT_EQ(Records.size(), 4u);
+		for (size_t Index = 0; Index < Records.size(); ++Index)
+			EXPECT_EQ(Records[Index].ColorIntensity.w, static_cast<float>(Index + 1));
+		for (size_t Index = 0; Index < Observed->Lights.Local.size(); ++Index)
+			EXPECT_EQ(Observed->Lights.Local[Index].Id.Value, Index + 1);
+		EXPECT_EQ(Observed->Telemetry.Lighting.OverflowDirectionalLights, 1u);
+		EXPECT_EQ(Observed->Telemetry.Lighting.SelectedPointLights, 2u);
+		EXPECT_EQ(Observed->Telemetry.Lighting.SelectedSpotLights, 2u);
+		EXPECT_EQ(Observed->Telemetry.Lighting.OverflowPointLights, 1u);
+		EXPECT_EQ(Observed->Telemetry.Lighting.OverflowSpotLights, 1u);
+		EXPECT_EQ(Observed->Telemetry.Lighting.PackedLightBytes, 0u);
 	}
-	for (uint64 Id = 10; Id > 0; --Id)
+}
+
+TEST(FRendererSceneContractTests, LocalLightAdmissionPacksOnlyTheRequestedPrefix)
+{
+	using namespace Durin;
+	FPreparedLightView Lights;
+	for (uint32 Id = 1; Id <= 33; ++Id)
 	{
-		if ((Id & 1u) == 0)
-		{
-			Durin::FPointLightSceneData Data;
-			Data.Intensity = 1.0f;
-			Data.Range = 5.0f;
-			PublishLightForTest<Durin::FPointLightSceneProxy>(
-				Scene, Durin::FLightComponentId(Id), Data
-			);
-		}
-		else
-		{
-			Durin::FSpotLightSceneData Data;
-			Data.Intensity = 1.0f;
-			Data.Range = 5.0f;
-			PublishLightForTest<Durin::FSpotLightSceneProxy>(
-				Scene, Durin::FLightComponentId(Id), Data
-			);
-		}
+		FPreparedLocalLight Light;
+		Light.Id = FLightComponentId(Id);
+		Light.Kind = Id % 2 ? ELightSceneProxyKind::Point : ELightSceneProxyKind::Spot;
+		Light.Intensity = static_cast<float>(Id);
+		Lights.Local.push_back(Light);
 	}
-	Durin::FlushRenderingCommands();
-	struct FObservedPreparation
+	FSceneView View;
+	FViewRenderTelemetry Telemetry;
+	for (uint32 Budget : {32u, 4u, 0u, 5u, 8u, 33u, 64u})
 	{
-		Durin::FPreparedLightView Lights;
-		Durin::FViewRenderTelemetry Telemetry;
-	};
-	auto Observed = std::make_shared<FObservedPreparation>();
-	Durin::FSceneView View;
-	View.Settings.Mode.RenderMode = Durin::ERenderMode::Lit;
-	View.Settings.Mode.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
-	struct FPrepareLightsCommand
-	{
-		static constexpr auto GetName() -> const char* { return "PrepareLights"; }
-	};
-	Durin::EnqueueRenderCommand<FPrepareLightsCommand>(
-		[&Scene, View, Observed](Durin::FRHICommandListImmediate&) {
-			Observed->Lights = Durin::GatherAndSortLights_RenderThread(
-				Scene, Durin::BuildSceneViewRequirements(View, {}, {}), Observed->Telemetry
-			);
-		}
-	);
-	Durin::FlushRenderingCommands();
-	ASSERT_EQ(Observed->Lights.Directional.size(), 1u);
-	EXPECT_EQ(Observed->Lights.Directional.front().Id.Value, 100u);
-	ASSERT_EQ(Observed->Lights.Local.size(), 4u);
-	for (size_t Index = 0; Index < Observed->Lights.Local.size(); ++Index)
-		EXPECT_EQ(Observed->Lights.Local[Index].Id.Value, Index + 1);
-	EXPECT_EQ(Observed->Telemetry.Lighting.OverflowDirectionalLights, 1u);
-	EXPECT_EQ(Observed->Telemetry.Lighting.SelectedPointLights, 2u);
-	EXPECT_EQ(Observed->Telemetry.Lighting.SelectedSpotLights, 2u);
-	EXPECT_EQ(Observed->Telemetry.Lighting.OverflowPointLights, 3u);
-	EXPECT_EQ(Observed->Telemetry.Lighting.OverflowSpotLights, 3u);
-	EXPECT_EQ(Observed->Telemetry.Lighting.PackedLightBytes, 0u);
+		const auto Records = BuildLocalLightRecords(Lights, View, Budget, Telemetry);
+		const auto Count = std::min(Budget, 33u);
+		ASSERT_EQ(Records.size(), Count);
+		for (uint32 Index = 0; Index < Count; ++Index)
+			EXPECT_EQ(Records[Index].ColorIntensity.w, static_cast<float>(Lights.Local[Index].Id.Value));
+		EXPECT_EQ(Telemetry.Lighting.SelectedPointLights, (Count + 1) / 2);
+		EXPECT_EQ(Telemetry.Lighting.SelectedSpotLights, Count / 2);
+		EXPECT_EQ(Telemetry.Lighting.OverflowPointLights, 17u - (Count + 1) / 2);
+		EXPECT_EQ(Telemetry.Lighting.OverflowSpotLights, 16u - Count / 2);
+	}
 }
 
 TEST(FRendererSceneContractTests, PreparedLightsCullOnlyOutsideLocalInfluenceBounds)
@@ -2632,6 +2670,7 @@ TEST(FRendererSceneContractTests, PreparedLightsCullOnlyOutsideLocalInfluenceBou
 	};
 	AddPoint(1, {3.0, 0.0, 0.0});
 	AddPoint(2, {3.0, 20.0, 0.0});
+	AddPoint(3, {3.0, 7.0, 0.0}); // Center outside the side plane, influence overlaps.
 	Durin::FlushRenderingCommands();
 	auto Observed = std::make_shared<std::pair<
 		Durin::FPreparedLightView, Durin::FViewRenderTelemetry>>();
@@ -2643,17 +2682,27 @@ TEST(FRendererSceneContractTests, PreparedLightsCullOnlyOutsideLocalInfluenceBou
 	{
 		static constexpr auto GetName() -> const char* { return "CullLights"; }
 	};
-	Durin::EnqueueRenderCommand<FCullLightsCommand>(
-		[&Scene, View, Observed](Durin::FRHICommandListImmediate&) {
-			Observed->first = Durin::GatherAndSortLights_RenderThread(
-				Scene, Durin::BuildSceneViewRequirements(View, {}, {}), Observed->second
-			);
-		}
-	);
-	Durin::FlushRenderingCommands();
-	ASSERT_EQ(Observed->first.Local.size(), 1u);
-	EXPECT_EQ(Observed->first.Local.front().Id.Value, 1u);
+	const auto Gather = [&](double CameraY, bool Cull) {
+		*Observed = {};
+		View.ViewProjectionMatrix = View.ProjectionMatrix * Durin::Math::TranslationMatrix(Durin::FVector3{0, -CameraY, 0});
+		View.Settings.Mode.VisibilityMode = Cull ? Durin::EViewVisibilityMode::Normal
+			: Durin::EViewVisibilityMode::FrustumCullingDisabled;
+		Durin::EnqueueRenderCommand<FCullLightsCommand>(
+			[&Scene, View, Observed](Durin::FRHICommandListImmediate&) {
+				Observed->first = Durin::GatherAndSortLights_RenderThread(
+					Scene, Durin::BuildSceneViewRequirements(View, {}, {}), Observed->second);
+			});
+		Durin::FlushRenderingCommands();
+		std::vector<uint64> Ids;
+		for (const auto& Light : Observed->first.Local) Ids.push_back(Light.Id.Value);
+		return Ids;
+	};
+	EXPECT_EQ(Gather(0, true), (std::vector<uint64>{1, 3}));
 	EXPECT_EQ(Observed->second.Lighting.FrustumCulledPointLights, 1u);
+	EXPECT_EQ(Gather(20, true), (std::vector<uint64>{2}));
+	EXPECT_TRUE(Gather(100, true).empty());
+	EXPECT_EQ(Gather(100, false), (std::vector<uint64>{1, 2, 3}));
+	EXPECT_EQ(Gather(0, true), (std::vector<uint64>{1, 3}));
 }
 
 TEST(FRendererSceneContractTests, SplineDeformationAndBoundsUpdateAtomicallyInTypedMembership)

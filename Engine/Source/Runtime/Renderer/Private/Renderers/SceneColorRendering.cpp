@@ -16,6 +16,7 @@ namespace Durin
 	{
 		using FParameters = FSceneColorPassResources;
 		static const std::array Members = {
+			MakeRDGBufferAccessMetadata<FParameters, decltype(FParameters::LocalLights)>("LocalLights", offsetof(FParameters, LocalLights)),
 			MakeRDGColorAttachmentBindingMetadata<FParameters, decltype(FParameters::SceneColorOutput)>("SceneColorOutput", offsetof(FParameters, SceneColorOutput)),
 			MakeRDGDepthStencilAttachmentBindingMetadata<FParameters, decltype(FParameters::SceneDepthOutput)>("SceneDepthOutput", offsetof(FParameters, SceneDepthOutput))
 		};
@@ -74,6 +75,7 @@ namespace Durin
 			"Scene.ColorValue", "scene-color-result"
 		);
 		auto Parameters = Graph.AllocParameters<FSceneColorPassParameters>();
+		if (bRequiresDeferredOpaque) Parameters->Resources.LocalLights = Inputs.Resolved.Lighting.LocalRead;
 		Parameters->BaseScene = {.Value = Inputs.BaseScene.Completion};
 		if (Inputs.VolumetricCloud.Completion)
 			Parameters->VolumetricCloud = TRDGValueRead<FVolumetricCloudPassResult>{
@@ -125,7 +127,31 @@ namespace Durin
 			if (!SceneColorResult.IsSuccess()) return;
 			ReduceStaticMeshTelemetry(RecordInputs.Receiver.StaticMeshes, Recorder.ResolvedSceneResources.Receiver.StaticMeshes, Recorder.Telemetry.View);
 		};
-		if (bRequiresDeferredOpaque)
+		const auto TimingSink = GetSortedTranslucencyTimingQuerySink();
+		if (bRequiresDeferredOpaque && TimingSink)
+		{
+			// Vulkan resets timestamp slots outside native render passes. Keep the
+			// same declared attachments and draw callback for the measured pass.
+			(void)Graph.AddPass(SceneColorPassName, ERDGPassType::Graphics, std::move(Parameters),
+				[Record = std::move(Record), TimingSink](FRHICommandListImmediate& Commands,
+					const FSceneColorPassParameters& Pass, const FRDGParameterResolver& Resolver) mutable {
+					const auto Color = MakeRDGNativeAttachmentBinding(Resolver.GetColorAttachment(Pass.Resources.SceneColorOutput));
+					const auto Depth = MakeRDGNativeAttachmentBinding(Resolver.GetDepthStencilAttachment(Pass.Resources.SceneDepthOutput));
+					FRHIRenderPassInfo Native;
+					Native.RenderTargetLayout.NumColorRenderTargets = 1;
+					Native.RenderTargetLayout.ColorAttachments[0].RenderTarget = Color.Layout;
+					Native.RenderTargetLayout.bHasDepthStencil = true;
+					Native.RenderTargetLayout.DepthStencilAttachment = Depth.Layout;
+					Color.BindColor(Native, 0);
+					Depth.BindDepthStencil(Native);
+					TScopedRendererGPUTimingQuery Timing(Commands, TimingSink);
+					Commands.BeginRenderPass(Native, "Scene.Color");
+					Record(Commands, Pass, Resolver);
+					Commands.EndRenderPass();
+					Timing.Commit();
+				});
+		}
+		else if (bRequiresDeferredOpaque)
 			(void)Graph.AddRasterPass(SceneColorPassName, std::move(Parameters), std::move(Record));
 		else
 			(void)Graph.AddPass(SceneColorPassName, ERDGPassType::Graphics, std::move(Parameters), std::move(Record));
@@ -160,12 +186,6 @@ namespace Durin
 				static_cast<float>(View.ViewportHeight)
 			);
 		};
-		const FSortedTranslucencyTimingQuerySink SortedTranslucencyTimingSink =
-			GetSortedTranslucencyTimingQuerySink();
-		TScopedRendererGPUTimingQuery SortedTranslucencyTiming(
-			CommandList, SortedTranslucencyTimingSink
-		);
-
 		SetViewRect();
 		FMeshDrawCommandStateCache TranslucentBindings;
 		for (const FPreparedStaticMeshDraw& Draw :
@@ -178,7 +198,6 @@ namespace Durin
 				ResolvedSceneResources.Receiver.StaticMeshes, true, &TranslucentBindings
 			);
 		}
-		SortedTranslucencyTiming.Commit();
 		// Lit opaque/masked sections were already consumed by GBuffer + deferred
 		// lighting, so the retained-forward attempted count intentionally does not
 		// equal every prepared section as it does in the all-forward finalizer.

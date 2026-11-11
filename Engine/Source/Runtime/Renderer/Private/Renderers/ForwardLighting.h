@@ -16,7 +16,7 @@ namespace Durin
 	struct FViewRenderTelemetry;
 
 	inline constexpr uint32 MaxPreparedDirectionalLights = 1;
-	inline constexpr uint32 MaxPreparedLocalLights = 4;
+	inline constexpr uint32 DefaultLocalLightRecordBudget = 4;
 	inline constexpr float LocalLightNearDistance = 0.05f;
 
 	struct FPreparedDirectionalLight
@@ -38,7 +38,7 @@ namespace Durin
 		float OuterConeAngle = 0.0f;
 	};
 
-	// Owns the copied, bounded direct-light set selected for one immutable view.
+	// Owns the selected directional light and all visible locals for one view.
 	struct FPreparedLightView
 	{
 		std::vector<FPreparedDirectionalLight> Directional;
@@ -87,13 +87,12 @@ namespace Durin
 	};
 
 	// Fixed reflected ABI uploaded exactly once for each rendered view.
-	struct alignas(16) FForwardLightingUniform
+	struct alignas(16) FViewLightingUniform
 	{
 		FVector4f ViewPosition{0.0f};
 		alignas(16) std::array<uint32, 4> Counts{};
 		FForwardDirectionalLightUniform Directional;
 		FForwardDirectionalShadowUniform DirectionalShadow;
-		std::array<FForwardLocalLightUniform, MaxPreparedLocalLights> Local{};
 		FVector4f EnvironmentRotation{0,0,0,1};
 		FVector4f EnvironmentControl{0,7,0,0};
 	};
@@ -107,18 +106,21 @@ namespace Durin
 	static_assert(offsetof(FForwardDirectionalShadowCascadeUniform, ValidRegion) == 112);
 	static_assert(sizeof(FForwardDirectionalShadowUniform) == 448);
 	static_assert(offsetof(FForwardDirectionalShadowUniform, Cascades) == 64);
-	static_assert(sizeof(FForwardLightingUniform) == 800);
-	static_assert(alignof(FForwardLightingUniform) == 16);
-	static_assert(offsetof(FForwardLightingUniform, DirectionalShadow) == 64);
-	static_assert(offsetof(FForwardLightingUniform, Local) == 512);
+	static_assert(sizeof(FViewLightingUniform) == 544);
+	static_assert(alignof(FViewLightingUniform) == 16);
+	static_assert(offsetof(FViewLightingUniform, DirectionalShadow) == 64);
+	static_assert(offsetof(FViewLightingUniform, EnvironmentRotation) == 512);
 
 	RENDERER_API auto GatherAndSortLights_RenderThread(
 		const FScene& Scene,
 		const FSceneViewRequirements& Requirements,
 		FViewRenderTelemetry& Telemetry) -> FPreparedLightView;
-	RENDERER_API auto BuildForwardLightingUniform(
+	RENDERER_API auto BuildLocalLightRecords(const FPreparedLightView& Lights, const FSceneView& View,
+		uint32 MaxRecords, FViewRenderTelemetry& Telemetry) -> std::vector<FForwardLocalLightUniform>;
+
+	RENDERER_API auto BuildViewLightingUniform(
 		const FPreparedLightView& Lights,
 		const FSceneView& View,
 		const FPreparedDirectionalShadowView* Shadow = nullptr)
-		-> FForwardLightingUniform;
+		-> FViewLightingUniform;
 }

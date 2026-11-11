@@ -137,7 +137,7 @@ import VertexFactory.LocalVertexFactory;
 import VertexFactory.SplineMeshVertexFactory;
 import Material.SpecularAntialiasing;
 import Lighting.DirectionalShadow;
-import Lighting.ForwardLightingUniform;
+import Lighting.ViewLightingUniform;
 import Lighting.SurfaceLighting;
 
 struct VSOutput
@@ -183,7 +183,8 @@ struct VSOutput
 		OutSource += "struct MaterialUniform\n{\n    // Reserved header; view/pass controls live in descriptor set 0.\n    float4 Reserved;\n";
 		for (uint32 Index = 0; Index < Layout.UniformFieldCount; ++Index)
 			OutSource += std::format("    float4 Value{};\n", Index);
-		OutSource += "};\n[[vk::binding(1, 0)]] ConstantBuffer<FForwardLightingUniform> Lighting;\n"
+		OutSource += "};\n[[vk::binding(1, 0)]] ConstantBuffer<FViewLightingUniform> Lighting;\n"
+			"[[vk::binding(30, 0)]] StructuredBuffer<FForwardLocalLightUniform> LocalLights;\n"
 			"[[vk::binding(2, 1)]] ConstantBuffer<MaterialUniform> Material;\n"
 			"[[vk::binding(0, 0)]] ConstantBuffer<MaterialViewUniform> MaterialView;\n"
 			"[[vk::binding(0, 1)]] ConstantBuffer<MaterialPrimitiveUniform> MaterialPrimitive;\n"
@@ -725,15 +726,8 @@ float4 FragmentMain(
             shading.effectiveRoughness, lightingFrame, toLight, radiance,
             shadow.attenuation);
     }
-    [unroll]
-    for (uint lightIndex = 0u; lightIndex < 4u; ++lightIndex)
-    {
-        if (lightIndex >= Lighting.Counts.y)
-            break;
-        direct += EvaluateSurfaceLocalLighting(s.baseColor, s.metallic,
-            shading.effectiveRoughness, input.worldPosition, lightingFrame,
-            Lighting.Local[lightIndex]);
-    }
+    direct = AccumulateViewLocalLights(direct, s.baseColor, s.metallic, shading.effectiveRoughness,
+        input.worldPosition, lightingFrame, LocalLights, Lighting.Counts.y);
     float3 environment = EvaluateSurfaceEnvironmentLighting(s.baseColor,
         s.metallic, shading.effectiveRoughness, s.ambientOcclusion,
         lightingFrame, EnvironmentIrradiance, EnvironmentPrefiltered,
@@ -1095,7 +1089,7 @@ float4 FragmentMain(
 			if (Stage.Code.IsEmpty() || Stage.SourceEntryPoint != Entry.Name
 				|| Stage.Frequency != Entry.Frequency || !Stage.Reflection.PushConstantRanges.empty()
 				|| Stage.Reflection.ResourceBindings.size()
-					> 2 * Layout.ResourceFieldCount + 12 + Collections.size())
+					> 2 * Layout.ResourceFieldCount + 13 + Collections.size())
 				return Rejected;
 			std::unordered_set<uint64> Seen;
 			for (const auto& Binding : Stage.Reflection.ResourceBindings)
@@ -1128,6 +1122,11 @@ float4 FragmentMain(
 				{
 					Expected = ERHIBindingType::StorageBuffer;
 					if (Binding.Name != (Slot == 28 ? "VisibleInstances" : "InstanceTransforms")) return Rejected;
+				}
+				else if (Slot == 30 && Entry.Entry == EMaterialShaderEntry::Forward)
+				{
+					Expected = ERHIBindingType::StorageBuffer;
+					if (Binding.Name != "LocalLights") return Rejected;
 				}
 				else if (Slot == 2 || (Entry.Entry == EMaterialShaderEntry::Forward && Slot == 1))
 				{

@@ -31,7 +31,7 @@ namespace Durin
 		return &Metadata;                                                          \
 	}
 
-	DURIN_DEFINE_METADATA(FDeferredDirectionalLightingPassResources, DURIN_TEXTURE(DirectionalShadow), DURIN_TEXTURE(GBuffer), DURIN_TEXTURE(SceneDepth), DURIN_TEXTURE(AmbientOcclusion), DURIN_TEXTURE(ContactShadowFragment), DURIN_TEXTURE(ContactShadowCompute), DURIN_TEXTURE(CloudShadowFragment), DURIN_TEXTURE(CloudShadowCompute), DURIN_TEXTURE(DefaultWhite), DURIN_TEXTURE(DefaultShadowArray), DURIN_TEXTURE(EnvironmentIrradiance), DURIN_TEXTURE(EnvironmentPrefiltered), DURIN_TEXTURE(EnvironmentBrdfLut));
+	DURIN_DEFINE_METADATA(FDeferredDirectionalLightingPassResources, MakeRDGBufferAccessMetadata<FParameters, decltype(FParameters::LocalLights)>("LocalLights", offsetof(FParameters, LocalLights)), DURIN_TEXTURE(DirectionalShadow), DURIN_TEXTURE(GBuffer), DURIN_TEXTURE(SceneDepth), DURIN_TEXTURE(AmbientOcclusion), DURIN_TEXTURE(ContactShadowFragment), DURIN_TEXTURE(ContactShadowCompute), DURIN_TEXTURE(CloudShadowFragment), DURIN_TEXTURE(CloudShadowCompute), DURIN_TEXTURE(DefaultWhite), DURIN_TEXTURE(DefaultShadowArray), DURIN_TEXTURE(EnvironmentIrradiance), DURIN_TEXTURE(EnvironmentPrefiltered), DURIN_TEXTURE(EnvironmentBrdfLut));
 
 	DURIN_DEFINE_METADATA(FDeferredLightingInputParameters, MakeRDGValueParameterMemberMetadata<FParameters, decltype(FParameters::DirectionalShadow), FDirectionalShadowPassResult>("DirectionalShadow", offsetof(FParameters, DirectionalShadow)), MakeRDGValueParameterMemberMetadata<FParameters, decltype(FParameters::GBufferCompletion), FGBufferPassResult>("GBufferCompletion", offsetof(FParameters, GBufferCompletion)), MakeRDGValueParameterMemberMetadata<FParameters, decltype(FParameters::AmbientOcclusion), FGroundTruthAmbientOcclusionPassResult>("AmbientOcclusion", offsetof(FParameters, AmbientOcclusion)), MakeRDGValueParameterMemberMetadata<FParameters, decltype(FParameters::ContactShadow), FContactShadowVisibilityPassResult>("ContactShadow", offsetof(FParameters, ContactShadow)), MakeRDGValueParameterMemberMetadata<FParameters, decltype(FParameters::CloudShadow), FVolumetricCloudShadowPassResult>("CloudShadow", offsetof(FParameters, CloudShadow)), MakeRDGNestedParameterMemberMetadata<FParameters, decltype(FParameters::Resources)>("Resources", offsetof(FParameters, Resources), FDeferredDirectionalLightingPassResources::GetRDGParametersMetadata()));
 
@@ -98,6 +98,7 @@ namespace Durin
 			);
 		auto Parameters = Graph.AllocParameters<
 			FDeferredDirectionalLightingPassParameters>();
+		Parameters->Inputs.Resources.LocalLights = Inputs.Resolved.Lighting.LocalRead;
 		Parameters->Inputs.DirectionalShadow = {
 			.Value = Inputs.DirectionalShadow.Completion
 		};
@@ -313,6 +314,7 @@ namespace Durin
 			.ContactVisibility = ContactVisibility,
 			.VolumetricCloudVisibility = CloudShadowVisibility,
 			.Lighting = Lighting,
+			.LocalLights = Resources.LocalLights ? FRHIStorageBufferRange{Resolver.GetBuffer(*Resources.LocalLights), 0, static_cast<uint32>(Resources.LocalLights->Size)} : FRHIStorageBufferRange{},
 			.View = &RenderView,
 			.DiagnosticMode = static_cast<uint32>(
 				Policy.bProduction ? EDeferredDirectionalDebugMode::Disabled : Options.DeferredDirectionalDebugMode

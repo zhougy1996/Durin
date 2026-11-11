@@ -33,7 +33,7 @@ namespace Durin
 		return &Metadata;                                                                              \
 	}
 
-	DURIN_DEFINE_METADATA(FBaseScenePassResources, DURIN_TEXTURE(DirectionalShadow), DURIN_TEXTURE(DefaultWhite), DURIN_TEXTURE(DefaultShadowArray), DURIN_TEXTURE(EnvironmentIrradiance), DURIN_TEXTURE(EnvironmentPrefiltered), DURIN_TEXTURE(EnvironmentBrdfLut), DURIN_TEXTURE(EnvironmentSky), MakeRDGColorAttachmentBindingMetadata<FParameters, decltype(FParameters::SceneColorOutput)>("SceneColorOutput", offsetof(FParameters, SceneColorOutput)), MakeRDGDepthStencilAttachmentBindingMetadata<FParameters, decltype(FParameters::SceneDepthOutput)>("SceneDepthOutput", offsetof(FParameters, SceneDepthOutput)));
+	DURIN_DEFINE_METADATA(FBaseScenePassResources, MakeRDGBufferAccessMetadata<FParameters, decltype(FParameters::LocalLights)>("LocalLights", offsetof(FParameters, LocalLights)), DURIN_TEXTURE(DirectionalShadow), DURIN_TEXTURE(DefaultWhite), DURIN_TEXTURE(DefaultShadowArray), DURIN_TEXTURE(EnvironmentIrradiance), DURIN_TEXTURE(EnvironmentPrefiltered), DURIN_TEXTURE(EnvironmentBrdfLut), DURIN_TEXTURE(EnvironmentSky), MakeRDGColorAttachmentBindingMetadata<FParameters, decltype(FParameters::SceneColorOutput)>("SceneColorOutput", offsetof(FParameters, SceneColorOutput)), MakeRDGDepthStencilAttachmentBindingMetadata<FParameters, decltype(FParameters::SceneDepthOutput)>("SceneDepthOutput", offsetof(FParameters, SceneDepthOutput)));
 	DURIN_DEFINE_METADATA(FBaseScenePassParameters, DURIN_VALUE(GBufferCompletion, FGBufferPassResult), DURIN_VALUE(Predecessor, FSceneColorPassResult), DURIN_VALUE(Completion, FSceneColorPassResult), DURIN_NESTED(Resources, FBaseScenePassResources));
 	DURIN_DEFINE_METADATA(FProductionDeferredPassParameters, DURIN_NESTED(Inputs, FDeferredLightingInputParameters), DURIN_VALUE(Predecessor, FSceneColorPassResult), DURIN_VALUE(Completion, FSceneColorPassResult), MakeRDGColorAttachmentBindingMetadata<FParameters, decltype(FParameters::SceneColorOutput)>("SceneColorOutput", offsetof(FParameters, SceneColorOutput)));
 #undef DURIN_DEFINE_METADATA
@@ -107,6 +107,7 @@ namespace Durin
 			Parameters->Resources.SceneDepthOutput = {Inputs.SceneDepth, {ERHITextureAspect::Depth, 0, 1, 0, 1}, bClearDepth ? ERHIRenderTargetLoadAction::Clear : ERHIRenderTargetLoadAction::Load};
 			if (!bHybrid || !bClearColor)
 			{
+				Parameters->Resources.LocalLights = Inputs.Resolved.Lighting.LocalRead;
 				SceneTextureGroups::FPersistentTextureReads Reads;
 				Reads.Assign(Parameters->Resources.DirectionalShadow, Inputs.DirectionalShadow.Shadow, Inputs.DirectionalShadowRenderer.GetTexture_RenderThread());
 				Reads.Assign(Parameters->Resources.DefaultWhite, Inputs.DefaultWhite, Inputs.DefaultTextures.Get_RenderThread(EDefaultTexture::White));

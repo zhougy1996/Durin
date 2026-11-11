@@ -63,9 +63,10 @@ namespace Durin
 
 		FPreparedLightView Lights;
 		Lights.Local.push_back({.Id = FLightComponentId{}, .Position = View.ViewLocation + Offset, .Range = 4.0f});
-		const auto Lighting = BuildForwardLightingUniform(Lights, View);
-		EXPECT_EQ(FVector3f(Lighting.Local[0].PositionInverseRange), FVector3f(Offset));
-		EXPECT_EQ(Lighting.ViewPosition, FVector4f(0.0f));
+		FViewRenderTelemetry Telemetry;
+		const auto Records = BuildLocalLightRecords(Lights, View, 4, Telemetry);
+		EXPECT_EQ(FVector3f(Records.at(0).PositionInverseRange), FVector3f(Offset));
+		EXPECT_EQ(BuildViewLightingUniform(Lights, View).ViewPosition, FVector4f(0.0f));
 
 		FSceneView OtherView = View;
 		OtherView.ViewLocation += FVector3{1.0, 2.0, 3.0};
@@ -93,7 +94,7 @@ namespace Durin
 		Shadow.CascadeCount = 1;
 		Shadow.ViewDepthTransform = FVector4{1, 0, 0, -View.ViewLocation.x};
 		Shadow.Cascades[0].WorldToShadowMatrix = Math::TranslationMatrix(-View.ViewLocation);
-		const auto Uniform = BuildForwardLightingUniform(Lights, View, &Shadow);
+		const auto Uniform = BuildViewLightingUniform(Lights, View, &Shadow);
 		const FVector4f Relative{12.125f, -3.25f, 0.0625f, 1.0f};
 		EXPECT_EQ(glm::transpose(Uniform.DirectionalShadow.Cascades[0].WorldToShadow) * Relative, Relative);
 		EXPECT_FLOAT_EQ(Math::Dot(Uniform.DirectionalShadow.ViewDepthTransform, Relative), 12.125f);
@@ -823,7 +824,7 @@ namespace Durin
 			uint32 Primary = 0, Adjacent = 0;
 			double Weight = 0.0;
 			EXPECT_FALSE(SelectDirectionalShadowCascade(Shadow, 65.0, Primary, Adjacent, Weight));
-			const auto Uniform = BuildForwardLightingUniform(Lights, View, &Shadow);
+			const auto Uniform = BuildViewLightingUniform(Lights, View, &Shadow);
 			for (uint32 Index = 0; Index < Shadow.CascadeCount; ++Index)
 			{
 				const auto& Cascade = Shadow.Cascades[Index];
@@ -923,7 +924,7 @@ namespace Durin
 		FPreparedDirectionalShadowView Shadow;
 		ASSERT_TRUE(TryPrepareDirectionalShadowView(
 			View, Light.Id, Light.Data, Shadow));
-		const FForwardLightingUniform Enabled = BuildForwardLightingUniform(
+		const FViewLightingUniform Enabled = BuildViewLightingUniform(
 			Lights, View, &Shadow);
 		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.Control.x, 1.0f);
 		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.Cascades[0].TexelBias.z,
@@ -939,10 +940,10 @@ namespace Durin
 			2.0f / static_cast<float>(DirectionalShadowResolution));
 
 		Shadow.LightId = FLightComponentId(5);
-		const FForwardLightingUniform Mismatch = BuildForwardLightingUniform(
+		const FViewLightingUniform Mismatch = BuildViewLightingUniform(
 			Lights, View, &Shadow);
 		EXPECT_FLOAT_EQ(Mismatch.DirectionalShadow.Control.x, 0.0f);
-		const FForwardLightingUniform Disabled = BuildForwardLightingUniform(
+		const FViewLightingUniform Disabled = BuildViewLightingUniform(
 			Lights, View, nullptr);
 		EXPECT_FLOAT_EQ(Disabled.DirectionalShadow.Control.x, 0.0f);
 	}
@@ -965,7 +966,7 @@ namespace Durin
 		Lights.Directional.push_back(Light);
 		FPreparedDirectionalShadowView Tuned;
 		ASSERT_TRUE(TryPrepareDirectionalShadowView(View, Light.Id, Light.Data, Tuned));
-		const auto Uniform = BuildForwardLightingUniform(Lights, View, &Tuned);
+		const auto Uniform = BuildViewLightingUniform(Lights, View, &Tuned);
 		for (uint32 Index = 0; Index < Tuned.CascadeCount; ++Index)
 		{
 			const auto& Bias = Tuned.Cascades[Index].Bias;

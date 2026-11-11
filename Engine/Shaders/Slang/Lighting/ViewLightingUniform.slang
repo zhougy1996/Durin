@@ -1,4 +1,4 @@
-module ForwardLightingUniform;
+module ViewLightingUniform;
 
 import Lighting.DirectionalShadow;
 
@@ -10,7 +10,7 @@ public struct FForwardLocalLightUniform
     public float4 SpotCone;
 };
 
-public struct FForwardLightingUniform
+public struct FViewLightingUniform
 {
     public float4 ViewPosition;
     public uint4 Counts;
@@ -21,7 +21,6 @@ public struct FForwardLightingUniform
     public float4 DirectionalShadowSplitDepths;
     public float4 DirectionalShadowLightTransition;
     public FDirectionalShadowCascadeUniform DirectionalShadowCascades[3];
-    public FForwardLocalLightUniform Local[4];
     public float4 EnvironmentRotation;
     public float4 EnvironmentControl;
 };

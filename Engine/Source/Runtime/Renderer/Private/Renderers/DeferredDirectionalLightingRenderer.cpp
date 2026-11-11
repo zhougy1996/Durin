@@ -40,7 +40,8 @@ namespace Durin
 	DURIN_SHADER_PARAMETER_TEXTURE(ContactVisibility);                   \
 	DURIN_SHADER_PARAMETER_TEXTURE(VolumetricCloudVisibility);           \
 	DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(View);                 \
-	DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Lighting);
+	DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Lighting);             \
+	DURIN_SHADER_PARAMETER_STORAGE_BUFFER(LocalLights);
 
 		class FDeferredDirectionalFragmentShader final : public FGlobalShader
 		{
@@ -66,7 +67,7 @@ namespace Durin
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FDeferredDirectionalFragmentShader);
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FDeferredProductionFragmentShader);
 		const FGlobalShaderSetRegistration GDeferredDirectionalShaderSet(
-			"Renderer", "DeferredDirectionalLighting.Default",
+			"Renderer", "DeferredDirectionalLighting.LocalBuffer",
 			EShaderRequestEligibility::GameAndEditor,
 			{&FDeferredDirectionalVertexShader::StaticType(),
 			 &FDeferredDirectionalFragmentShader::StaticType(),
@@ -120,7 +121,7 @@ namespace Durin
 					&FDeferredProductionFragmentShader::StaticType()};
 				FPayload Candidate;
 				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
-					"DeferredDirectionalLighting.Default", Types, true,
+					"DeferredDirectionalLighting.LocalBuffer", Types, true,
 					ReportRendererResourceCreateDiagnostic);
 				if (ShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
 				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
@@ -375,6 +376,7 @@ namespace Durin
 			ShaderParameters.VolumetricCloudVisibility = Parameters.VolumetricCloudVisibility;
 			ShaderParameters.View = ViewUniform;
 			ShaderParameters.Lighting = Parameters.Lighting;
+			ShaderParameters.LocalLights = Parameters.LocalLights;
 		};
 		if (bProduction)
 		{

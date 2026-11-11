@@ -30,6 +30,7 @@ namespace Durin
 
 	struct FBaseScenePassResources final
 	{
+		std::optional<FRDGBufferAccess> LocalLights;
 		std::optional<FRDGTextureParameter> DirectionalShadow;
 		std::optional<FRDGTextureParameter> DefaultWhite;
 		std::optional<FRDGTextureParameter> DefaultShadowArray;

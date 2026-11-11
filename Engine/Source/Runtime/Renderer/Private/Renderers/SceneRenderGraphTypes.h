@@ -46,6 +46,7 @@ namespace Durin
 	struct FSceneViewRequirements
 	{
 		FMainViewCullingPolicy MainViewCulling;
+		uint32 LocalLightRecordBudget = DefaultLocalLightRecordBudget;
 		bool bForwardLocalLights = false;
 		bool bDeferredLocalLights = false;
 		FSceneFeatureDecision DirectionalShadow;

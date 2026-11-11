@@ -118,11 +118,11 @@ step. Every hardware-linear tap is accepted only when its complete half-texel
 footprint is valid. Invalid tap weight and an invalid receiver projection
 contribute fully lit output rather than clamping inward.
 
-The reflected forward-lighting ABI is 768 bytes. Its aligned 448-byte shadow
+The shared view lighting uniform is 544 bytes. Its aligned 448-byte shadow
 block starts at offset 64, carries control, view-depth transform, four split
 boundaries, light/transition data, and three 128-byte cascade records. Each
 cascade record contains one matrix plus texel/bias, raster-bias, filter, and
-valid-region vectors. Local lights begin at offset 512.
+valid-region vectors. Environment rotation begins at offset 512. Local lights occupy a separate structured buffer.
 C++ size/offset assertions and Slang compilation/reflection tests own this
 packing.
 

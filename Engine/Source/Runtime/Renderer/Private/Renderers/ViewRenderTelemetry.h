@@ -131,6 +131,12 @@ namespace Durin
 		size_t SubmittedPointLights = 0;
 		size_t RejectedPointLights = 0;
 		size_t FrustumCulledPointLights = 0;
+		size_t VisiblePointLights = 0;
+		size_t VisibleSpotLights = 0;
+		size_t LocalRecordUploadBytes = 0;
+		uint64 GatherNanoseconds = 0;
+		uint64 PackNanoseconds = 0;
+		uint64 LocalDeviceAllocationBytes = 0;
 		size_t SelectedPointLights = 0;
 		size_t OverflowPointLights = 0;
 		size_t SubmittedSpotLights = 0;

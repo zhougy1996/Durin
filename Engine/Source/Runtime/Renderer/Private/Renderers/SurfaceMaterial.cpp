@@ -301,6 +301,7 @@ namespace Durin::RendererPrivate
 			}
 			else switch (Slot)
 			{
+			case 30: Entry.Source = ESource::LocalLights; Expected = ERHIBindingType::StorageBuffer; break;
 			case 19: Entry.Source = ESource::EnvironmentIrradiance; break;
 			case 20: Entry.Source = ESource::EnvironmentPrefiltered; break;
 			case 21: Entry.Source = ESource::EnvironmentBrdfLut; break;
@@ -320,7 +321,7 @@ namespace Durin::RendererPrivate
 		const FRHIUniformBufferRange& Lighting, const FRHIUniformBufferRange& HitProxy,
 		const FRHIUniformBufferRange& View, const FRHIUniformBufferRange& Primitive,
 		std::span<const FRHIUniformBufferRange> Collections,
-		FPreparedSurfaceMaterialBindings& OutBindings) -> bool
+		FPreparedSurfaceMaterialBindings& OutBindings, FRHIStorageBufferRange LocalLights) -> bool
 	{
 		OutBindings = {};
 		if (!Shader || !Layout.IsValid() || !Material.bCompiledLayout
@@ -339,6 +340,11 @@ namespace Durin::RendererPrivate
 			{
 			case ESource::View: Range = &View; break;
 			case ESource::Primitive: Range = &Primitive; break;
+			case ESource::LocalLights:
+				Resource.Resource = LocalLights.Buffer;
+				Resource.Offset = LocalLights.Offset;
+				Resource.Size = LocalLights.Size;
+				break;
 			case ESource::Lighting: Range = &Lighting; break;
 			case ESource::Material: Range = &MaterialBuffer; break;
 			case ESource::HitProxy: Range = &HitProxy; break;

@@ -21,6 +21,7 @@ namespace Durin
 
 	struct FDeferredDirectionalLightingPassResources final
 	{
+		std::optional<FRDGBufferAccess> LocalLights;
 		std::optional<FRDGTextureParameter> DirectionalShadow;
 		std::array<std::optional<FRDGTextureParameter>, 4> GBuffer;
 		std::optional<FRDGTextureParameter> SceneDepth;

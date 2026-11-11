@@ -107,6 +107,8 @@ namespace Durin
 			}
 			if (Copy.Kind == ELightSceneProxyKind::Spot)
 				Copy.Direction = Math::Normalize(Copy.Direction);
+			if (Copy.Kind == ELightSceneProxyKind::Point) ++Telemetry.Lighting.VisiblePointLights;
+			else ++Telemetry.Lighting.VisibleSpotLights;
 			Local.push_back(Copy);
 		};
 
@@ -122,35 +124,24 @@ namespace Durin
 		Result.Directional.assign(Directional.begin(), Directional.begin() + DirectionalCount);
 		Telemetry.Lighting.SelectedDirectionalLights = DirectionalCount;
 		Telemetry.Lighting.OverflowDirectionalLights = Directional.size() - DirectionalCount;
-		const size_t LocalCount = std::min<size_t>(Local.size(), MaxPreparedLocalLights);
-		Result.Local.assign(Local.begin(), Local.begin() + LocalCount);
-		for (size_t Index = 0; Index < Local.size(); ++Index)
-		{
-			const bool bSelected = Index < LocalCount;
-			if (Local[Index].Kind == ELightSceneProxyKind::Point)
-				(bSelected ? Telemetry.Lighting.SelectedPointLights : Telemetry.Lighting.OverflowPointLights)++;
-			else (bSelected ? Telemetry.Lighting.SelectedSpotLights : Telemetry.Lighting.OverflowSpotLights)++;
-		}
+		Result.Local = std::move(Local);
 		check(Telemetry.Lighting.SubmittedDirectionalLights == Telemetry.Lighting.RejectedDirectionalLights
 			+ Telemetry.Lighting.SelectedDirectionalLights + Telemetry.Lighting.OverflowDirectionalLights);
 		check(Telemetry.Lighting.SubmittedPointLights == Telemetry.Lighting.RejectedPointLights
-			+ Telemetry.Lighting.FrustumCulledPointLights + Telemetry.Lighting.SelectedPointLights
-			+ Telemetry.Lighting.OverflowPointLights);
+			+ Telemetry.Lighting.FrustumCulledPointLights + Telemetry.Lighting.VisiblePointLights);
 		check(Telemetry.Lighting.SubmittedSpotLights == Telemetry.Lighting.RejectedSpotLights
-			+ Telemetry.Lighting.FrustumCulledSpotLights + Telemetry.Lighting.SelectedSpotLights
-			+ Telemetry.Lighting.OverflowSpotLights);
+			+ Telemetry.Lighting.FrustumCulledSpotLights + Telemetry.Lighting.VisibleSpotLights);
 		return Result;
 	}
 
-	auto BuildForwardLightingUniform(
+	auto BuildViewLightingUniform(
 		const FPreparedLightView& Lights,
 		const FSceneView& View,
-		const FPreparedDirectionalShadowView* Shadow) -> FForwardLightingUniform
+		const FPreparedDirectionalShadowView* Shadow) -> FViewLightingUniform
 	{
-		FForwardLightingUniform Result;
+		FViewLightingUniform Result;
 		Result.ViewPosition = FVector4f(0.0f);
 		Result.Counts[0] = static_cast<uint32>(Lights.Directional.size());
-		Result.Counts[1] = static_cast<uint32>(Lights.Local.size());
 		if (!Lights.Directional.empty())
 		{
 			const auto& Light = Lights.Directional.front().Data;
@@ -217,10 +208,21 @@ namespace Durin
 				Packed.ValidRegion = {Guard, Guard, 1.0f - Guard, 1.0f - Guard};
 			}
 		}
-		for (size_t Index = 0; Index < Lights.Local.size(); ++Index)
+		return Result;
+	}
+
+	auto BuildLocalLightRecords(const FPreparedLightView& Lights, const FSceneView& View,
+		uint32 MaxRecords, FViewRenderTelemetry& Telemetry) -> std::vector<FForwardLocalLightUniform>
+	{
+		const auto Count = std::min<size_t>(Lights.Local.size(), MaxRecords);
+		std::vector<FForwardLocalLightUniform> Result(Count);
+		auto& Counters = Telemetry.Lighting;
+		Counters.SelectedPointLights = Counters.SelectedSpotLights = 0;
+		for (size_t Index = 0; Index < Count; ++Index)
 		{
 			const auto& Light = Lights.Local[Index];
-			auto& Packed = Result.Local[Index];
+			auto& Packed = Result[Index];
+			(Light.Kind == ELightSceneProxyKind::Point ? Counters.SelectedPointLights : Counters.SelectedSpotLights)++;
 			Packed.PositionInverseRange = FVector4f(
 				FVector3f(View.TranslateWorldPosition(Light.Position)), 1.0f / Light.Range);
 			Packed.DirectionType = FVector4f(
@@ -237,6 +239,12 @@ namespace Durin
 					Denominator > 1.0e-6f ? 1.0f / Denominator : 0.0f,
 					Denominator > 1.0e-6f ? 0.0f : 1.0f);
 			}
+		}
+		Counters.OverflowPointLights = Counters.OverflowSpotLights = 0;
+		for (const auto& Light : std::span(Lights.Local).subspan(Count))
+		{
+			if (Light.Kind == ELightSceneProxyKind::Point) ++Counters.OverflowPointLights;
+			else ++Counters.OverflowSpotLights;
 		}
 		return Result;
 	}

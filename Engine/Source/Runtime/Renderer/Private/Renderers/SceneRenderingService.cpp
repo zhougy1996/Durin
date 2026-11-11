@@ -159,6 +159,7 @@ namespace Durin
 		MaterialPSORequests.Invalidate();
 		PSOPrecacheValidation::Clear();
 		RetirePreparations_RenderThread();
+		EmptyLocalLights = nullptr;
 		DefaultTextures.ReleaseResources_RenderThread();
 		EnvironmentLighting.ReleaseResources_RenderThread(FRHICommandListImmediate::Get());
 		SurfaceMaterials.ReleaseResources_RenderThread();

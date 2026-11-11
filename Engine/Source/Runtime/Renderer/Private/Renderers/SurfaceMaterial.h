@@ -31,7 +31,7 @@ namespace Durin
 		public:
 			enum class ESource : uint8
 			{
-				View, Primitive, Lighting, Material, HitProxy, Texture, Sampler,
+				View, Primitive, Lighting, LocalLights, Material, HitProxy, Texture, Sampler,
 				Collection,
 				EnvironmentIrradiance, EnvironmentPrefiltered, EnvironmentBrdfLut,
 				EnvironmentSampler, DirectionalShadowTexture, DirectionalShadowSampler
@@ -75,6 +75,7 @@ namespace Durin
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FSurfaceFragmentShader)
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Lighting);
+				DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(LocalLights);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialView);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialPrimitive);
@@ -163,7 +164,7 @@ namespace Durin
 			friend RENDERER_API auto PrepareCompiledSurfaceMaterial(FRHIShader*, const FCompiledSurfaceBindingLayout&,
 				const FResolvedSurfaceMaterial&, const FRHIUniformBufferRange&, const FRHIUniformBufferRange&,
 				const FRHIUniformBufferRange&, const FRHIUniformBufferRange&, const FRHIUniformBufferRange&,
-				std::span<const FRHIUniformBufferRange>, FPreparedSurfaceMaterialBindings&) -> bool;
+				std::span<const FRHIUniformBufferRange>, FPreparedSurfaceMaterialBindings&, FRHIStorageBufferRange) -> bool;
 			std::shared_ptr<const FRHIShaderParameterBatch> Batch;
 		};
 
@@ -176,7 +177,7 @@ namespace Durin
 			const FRHIUniformBufferRange& View,
 			const FRHIUniformBufferRange& Primitive,
 			std::span<const FRHIUniformBufferRange> Collections,
-			FPreparedSurfaceMaterialBindings& OutBindings) -> bool;
+			FPreparedSurfaceMaterialBindings& OutBindings, FRHIStorageBufferRange LocalLights = {}) -> bool;
 		RENDERER_API auto PrepareCompiledSurfaceMaterial(
 			FRHIShader* Shader, const FCompiledSurfaceBindingLayout& Layout,
 			const FResolvedSurfaceMaterial& Material,
