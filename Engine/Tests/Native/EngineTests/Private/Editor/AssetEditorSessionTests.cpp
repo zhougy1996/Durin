@@ -382,10 +382,11 @@ namespace
 		};
 		const auto OpenB = Request(B);
 		EXPECT_EQ(EAssetOpenStatus::Pending, OpenB.Status);
-		FEditorEngineTestAccess::SetStartupPhase(*Host, EditorStartup::EBootstrapState::LoadingDefaultDocument);
+		std::string StartupError;
+		FEditorEngineTestAccess::SetStartupPhase(*Host, EditorStartup::EBootstrapState::Ready);
 		FEditorEngineTestAccess::SetStartupDocumentResult(*Host, OpenB);
 		Host->AdvanceStartup();
-		EXPECT_EQ(EHostStartupState::Pending, Host->GetStartupState());
+		EXPECT_EQ(EHostStartupState::Pending, Host->GetStartupCompletion(StartupError));
 		ASSERT_NE(nullptr, Open({Asset("UnrelatedSession")}));
 		Service->TickAssetEditors();
 		EXPECT_EQ(EAssetOpenStatus::Pending, Service->GetOpenRequest(OpenB.RequestId)->Status);
@@ -395,7 +396,7 @@ namespace
 		ASSERT_TRUE(Documents->CompleteDeferredDocumentOpen(Initial.Id, true));
 		EXPECT_EQ(EAssetOpenStatus::Completed, Service->GetOpenRequest(OpenB.RequestId)->Status);
 		Host->AdvanceStartup();
-		EXPECT_EQ(EHostStartupState::Ready, Host->GetStartupState()) << Host->GetStartupError();
+		EXPECT_EQ(EHostStartupState::Ready, Host->GetStartupCompletion(StartupError)) << StartupError;
 		const auto Opened = std::ranges::find(Events, EAssetEditorEvent::Opened);
 		const auto Finished = std::ranges::find(Events, EAssetEditorEvent::RequestFinished);
 		ASSERT_NE(Events.end(), Opened); ASSERT_NE(Events.end(), Finished);
@@ -406,19 +407,19 @@ namespace
 		EXPECT_EQ(Session, Service->FindEditorForAsset(B, false));
 		EXPECT_EQ(nullptr, Service->FindEditorForAsset(C, false));
 		const auto Failed = Request(C);
-		FEditorEngineTestAccess::SetStartupPhase(*Host, EditorStartup::EBootstrapState::LoadingDefaultDocument);
+		FEditorEngineTestAccess::SetStartupPhase(*Host, EditorStartup::EBootstrapState::Ready);
 		FEditorEngineTestAccess::SetStartupDocumentResult(*Host, Failed);
 		ASSERT_TRUE(Documents->CompleteDeferredDocumentOpen(Initial.Id, false, EAssetOpenStatus::Failed, "level activation failed"));
 		Host->AdvanceStartup();
-		EXPECT_EQ(EHostStartupState::Failed, Host->GetStartupState());
-		EXPECT_EQ("level activation failed", Host->GetStartupError());
+		EXPECT_EQ(EHostStartupState::Failed, Host->GetStartupCompletion(StartupError));
+		EXPECT_EQ("level activation failed", StartupError);
 		EXPECT_EQ(Session, Service->FindEditorForAsset(B, false));
-		FEditorEngineTestAccess::SetStartupPhase(*Host, EditorStartup::EBootstrapState::LoadingDefaultDocument);
+		FEditorEngineTestAccess::SetStartupPhase(*Host, EditorStartup::EBootstrapState::Ready);
 		FEditorEngineTestAccess::SetStartupDocumentResult(*Host, *Service->GetOpenRequest(OpenB.RequestId));
 		Service->RetireAssetEditor(*Session);
 		Host->AdvanceStartup();
-		EXPECT_EQ(EHostStartupState::Failed, Host->GetStartupState());
-		EXPECT_NE(std::string::npos, Host->GetStartupError().find("closed before startup completed"));
+		EXPECT_EQ(EHostStartupState::Failed, Host->GetStartupCompletion(StartupError));
+		EXPECT_NE(std::string::npos, StartupError.find("closed before startup completed"));
 	}
 
 	TEST_F(FAssetEditorSessionTests, DefaultPanelFactoriesAreOptionalForGraphOnlySessions)

@@ -14,11 +14,8 @@ namespace Durin::EditorStartup
 	// Describes the game-thread-owned, forward-only editor startup sequence.
 	enum class EBootstrapState : uint8
 	{
-		ConstructingShell,
-		WaitingForFirstPresent,
 		InitializingProject,
 		LoadingWorkspace,
-		LoadingDefaultDocument,
 		Ready,
 		Failed,
 	};
@@ -39,18 +36,10 @@ namespace Durin::EditorStartup
 	{
 		switch (From)
 		{
-		case EBootstrapState::ConstructingShell:
-			return To == EBootstrapState::WaitingForFirstPresent;
-		case EBootstrapState::WaitingForFirstPresent:
-			return To == EBootstrapState::InitializingProject
-				|| To == EBootstrapState::Ready || To == EBootstrapState::Failed;
 		case EBootstrapState::InitializingProject:
 			return To == EBootstrapState::LoadingWorkspace
-				|| To == EBootstrapState::Failed;
+				|| To == EBootstrapState::Ready || To == EBootstrapState::Failed;
 		case EBootstrapState::LoadingWorkspace:
-			return To == EBootstrapState::LoadingDefaultDocument
-				|| To == EBootstrapState::Failed;
-		case EBootstrapState::LoadingDefaultDocument:
 			return To == EBootstrapState::Ready
 				|| To == EBootstrapState::Failed;
 		case EBootstrapState::Ready:

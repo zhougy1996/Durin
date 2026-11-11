@@ -365,10 +365,12 @@ For bounded lifecycle smoke tests, use normal window startup:
 ```
 
 `--exit-after-ticks=<positive-count>` counts completed engine ticks after
-initialization and exits through `FEngineLoop::Exit`. Automated runners need an
+startup completion and exits through `FEngineLoop::Exit`. Automated runners need an
 external wall-clock timeout to bound initialization failures. Smoke tests and
 startup commands use the normal visible-window rendering path, including the
-editor's first-presentation gate.
+editor's default-document and actual primary-scene presentation checks. Without a
+scene, automation waits for the current main window's first presentation. Editor
+service initialization itself does not wait for presentation.
 
 Launch rejects `--hidden-window`, `--headless`, and dedicated lifecycle/runtime
 smoke options. Use the native test registry for qualification targets.

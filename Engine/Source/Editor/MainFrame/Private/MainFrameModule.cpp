@@ -96,8 +96,6 @@ namespace Durin::MainFrame
 		bool bExitSaveFailed = false;
 		std::shared_ptr<FMainFrameSettings> MainFrameSettings;
 		std::shared_ptr<MWindow> RootWindow;
-		TRefCountPtr<FRHIViewport> ShellViewport;
-		uint64 ShellPresentationBaseline = 0;
 		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditors;
 		std::shared_ptr<IToolkitHost> WorldHost;
 		std::shared_ptr<FProjectBrowser> ProjectBrowser;
@@ -454,32 +452,16 @@ namespace Durin::MainFrame
 				| ImGuiWindowFlags_NoNavFocus;
 			ImGui::Begin("###Durin.Editor.LoadingHost", nullptr, Flags);
 			const char* Message = "Loading project workspace...";
-			if (Editor.GetStartupPhase() == EBootstrapState::WaitingForFirstPresent)
-				Message = "Preparing editor...";
-			else if (Editor.GetStartupPhase() == EBootstrapState::InitializingProject)
+			if (Editor.GetStartupPhase() == EBootstrapState::InitializingProject)
 				Message = "Initializing project...";
-			else if (Editor.GetStartupPhase() == EBootstrapState::LoadingDefaultDocument)
-				Message = "Opening default level...";
 			FSlowTaskSnapshot Feedback{.Title = "Starting editor...", .Message = Message};
-			bool bShowElapsed = false;
-			if (Editor.GetStartupPhase() == EBootstrapState::LoadingDefaultDocument)
-			{
-				if (const auto Progress = Editor.GetMapChangeProgress(); Progress && Editor.IsPreparingMapChange())
-				{
-					Feedback.Message = Progress->Phase == EMapChangePhase::Ready
-						? "Activating level" : std::string(GetMapChangePhaseLabel(Progress->Phase));
-					Feedback.ElapsedSeconds = Progress->ElapsedSeconds;
-					bShowElapsed = true;
-				}
-				else if (Editor.GetCapabilities().bPresentWorkspace) Feedback.Message = "Waiting for the scene's first presentation";
-			}
 			const ImVec2 ContentOrigin = ImGui::GetCursorPos();
 			const ImVec2 Available = ImGui::GetContentRegionAvail();
 			const float ContentWidth = MonaImGui::ScaleUI(360.0f);
 			const float ContentHeight = MonaImGui::ScaleUI(100.0f);
 			ImGui::SetCursorPos({ContentOrigin.x + std::max(0.0f, (Available.x - ContentWidth) * 0.5f),
 				ContentOrigin.y + std::max(0.0f, (Available.y - ContentHeight) * 0.5f)});
-			DrawSlowTaskProgress(Feedback, false, bShowElapsed);
+			DrawSlowTaskProgress(Feedback, false, false);
 			ImGui::End();
 		}
 
@@ -1315,8 +1297,6 @@ namespace Durin
 				Context.RootWindow);
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::NativeViewportReady);
-		Context.ShellViewport = Mona::FMonaApplication::Get().GetRenderer()->PrepareViewportForDraw(*Context.RootWindow);
-		Context.ShellPresentationBaseline = Context.ShellViewport ? Context.ShellViewport->GetPresentationSerial() : 0;
 		Profiling::ArmEditorShellFirstPresent();
 		Context.RootWindow->ShowWindow();
 	}
@@ -1325,12 +1305,6 @@ namespace Durin
 	{
 		if (!MainFrameContext) return;
 		MainFrameContext.reset();
-	}
-
-	auto FMainFrameModule::IsShellPresented() const -> bool
-	{
-		return MainFrameContext && MainFrameContext->ShellViewport
-			&& MainFrameContext->ShellViewport->GetPresentationSerial() > MainFrameContext->ShellPresentationBaseline;
 	}
 
 	auto FMainFrameModule::LoadWorkspaceModules() -> bool

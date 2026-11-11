@@ -145,6 +145,13 @@ namespace Durin::Mona
 		}
 	}
 
+	auto FMonaRHIRenderer::IsWindowPresented(const MWindow& Window) const -> bool
+	{
+		const auto Found = WindowToViewportInfoMap.find(&Window);
+		return Found != WindowToViewportInfoMap.end() && Found->second && Found->second->ViewportRHI
+			&& Found->second->ViewportRHI->GetPresentationSerial() != 0;
+	}
+
 	auto FMonaRHIRenderer::IsOutputPresented(const MWindow& Window, const FViewportOutputReceipt& Receipt, uint64 Generation) const -> bool
 	{
 		const auto It = WindowToViewportInfoMap.find(&Window);

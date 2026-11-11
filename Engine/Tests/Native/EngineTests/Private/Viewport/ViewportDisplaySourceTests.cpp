@@ -183,6 +183,39 @@ TEST(FMonaWindowGeometryTests, KeepsActualClientSizeAfterResize)
 	EXPECT_EQ(Window.GetViewportSize(), Durin::FVector2f(3248.0f, 2128.0f));
 }
 
+TEST(FViewportPresentationTests, WindowPresentationQueryUsesOnlyTheCurrentWindowViewport)
+{
+	using namespace Durin;
+	MWindow Window;
+	MWindow OtherWindow;
+	Mona::FMonaRHIRenderer Renderer(false);
+	const Mona::FMonaRenderer& Query = Renderer;
+	EXPECT_FALSE(Query.IsWindowPresented(Window));
+	auto Primary = MakeRefCount<FTestPresentationViewport>();
+	auto Auxiliary = MakeRefCount<FTestPresentationViewport>();
+	auto Replacement = MakeRefCount<FTestPresentationViewport>();
+	auto* Info = new Mona::FMonaViewportInfo();
+	Info->ViewportRHI = Primary;
+	Info->SubmittedExtent = {640, 480};
+	Info->QueueResize({1280, 720});
+	Renderer.WindowToViewportInfoMap.emplace(&Window, Info);
+	Auxiliary->RecordSuccessfulPresentation();
+	EXPECT_FALSE(Query.IsWindowPresented(Window));
+	Primary->RecordSuccessfulPresentation();
+	EXPECT_TRUE(Query.IsWindowPresented(Window));
+	EXPECT_FALSE(Query.IsWindowPresented(OtherWindow));
+	EXPECT_EQ(Primary->RequestCount, 0u);
+	EXPECT_TRUE(Info->PendingExtent.has_value());
+	EXPECT_EQ(Info->SubmittedExtent, FIntPoint(640, 480));
+	Info->ViewportRHI = Replacement;
+	EXPECT_FALSE(Query.IsWindowPresented(Window));
+	Replacement->RecordSuccessfulPresentation();
+	EXPECT_TRUE(Query.IsWindowPresented(Window));
+	Renderer.WindowToViewportInfoMap.erase(&Window);
+	delete Info;
+	EXPECT_FALSE(Query.IsWindowPresented(Window));
+}
+
 TEST(FViewportPresentationTests, ReceiptsBelongToOneViewportGeneration)
 {
 	auto Primary = Durin::MakeRefCount<FTestPresentationViewport>();

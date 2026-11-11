@@ -76,8 +76,7 @@ namespace Durin
 			.bTick = bReady,
 			.bRunTools = bRunTools,
 			.bEditWorld = bRunTools && !IsPlaying(),
-			.bPresentWorkspace = !bShutdownRequested && (bReady
-				|| (StartupPhase == EditorStartup::EBootstrapState::LoadingDefaultDocument && GetSceneGeneration() != 0))};
+			.bPresentWorkspace = bReady};
 	}
 	auto DEditorEngine::CanTransact() const -> bool
 	{ return GEditor == this && GetCapabilities().bRunTools && Trans && Trans->CanTransact(); }
@@ -107,7 +106,7 @@ namespace Durin
 			return false;
 		}
 		bEditorInitStarted = true;
-		StartupPhase = EditorStartup::EBootstrapState::ConstructingShell;
+		StartupPhase = EditorStartup::EBootstrapState::InitializingProject;
 		StartupError = Context.ProjectAdmissionError;
 
 		bool bInitialized = InitEditorInternal(Context);
@@ -140,7 +139,6 @@ namespace Durin
 			MainFrameModule->CreateDefaultMainFrame(*this, InitContext.StartupWindow);
 			StartupWindow = InitContext.StartupWindow;
 		}
-		StartupPhase = EditorStartup::EBootstrapState::WaitingForFirstPresent;
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::EditorShellComplete);
 
 
@@ -172,7 +170,30 @@ namespace Durin
 
 	auto DEditorEngine::AdvanceStartup() -> void
 	{
-		if (bShutdownRequested || GetStartupState() != EHostStartupState::Pending) return;
+		if (bShutdownRequested) return;
+		if (GetStartupState() == EHostStartupState::Ready)
+		{
+			if (StartupDocumentOpen && StartupDocumentOpen->Status == EAssetOpenStatus::Pending)
+			{
+				auto* AssetEditors = GetEditorSubsystem<DAssetEditorSubsystem>();
+				auto Result = AssetEditors ? AssetEditors->GetOpenRequest(StartupDocumentOpen->RequestId) : std::nullopt;
+				if (!Result) Result = FAssetOpenItemResult{.Status = EAssetOpenStatus::Failed,
+					.Message = "The default level document request is no longer available."};
+				StartupDocumentOpen = std::move(Result);
+				if (StartupDocumentOpen->Status == EAssetOpenStatus::Completed)
+				{
+					Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentComplete);
+					Profiling::TryLogStartupTimingSummary();
+				}
+				else if (StartupDocumentOpen->Status != EAssetOpenStatus::Pending)
+				{
+					DURIN_ERROR("Could not open the default level: {}", StartupDocumentOpen->Message);
+					GetNotificationManager().Post({.Type = ENotificationType::Error,
+						.Message = "Could not open the default level", .Details = StartupDocumentOpen->Message});
+				}
+			}
+			return;
+		}
 		using namespace EditorStartup;
 		auto Transition = [&](EBootstrapState Phase) {
 			check(IsValidBootstrapTransition(StartupPhase, Phase));
@@ -190,8 +211,8 @@ namespace Durin
 		};
 		switch (StartupPhase)
 		{
-		case EBootstrapState::WaitingForFirstPresent:
-			if (!MainFrameModule->IsShellPresented()) return;
+		case EBootstrapState::InitializingProject:
+		{
 			if (!StartupError.empty()) { Transition(EBootstrapState::Failed); return; }
 			if (!HasCurrentProject())
 			{
@@ -199,11 +220,8 @@ namespace Durin
 				Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::WorkspaceRegistrationComplete);
 				Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultWorkspaceReady);
 				Transition(EBootstrapState::Ready);
+				return;
 			}
-			else Transition(EBootstrapState::InitializingProject);
-			return;
-		case EBootstrapState::InitializingProject:
-		{
 			std::string AdmissionError;
 			{
 
@@ -252,28 +270,10 @@ namespace Durin
 				Transition(EBootstrapState::Failed);
 				return;
 			}
-			Transition(EBootstrapState::LoadingDefaultDocument);
-			return;
-		}
-		case EBootstrapState::LoadingDefaultDocument:
-		{
-
-			const auto Document = AdvanceDefaultLevel();
 			if (bShutdownRequested) return;
-			if (Document == EHostStartupState::Ready && GetWorld() && GetWorld()->GetCurrentLevel() && MainSceneViewport)
-			{
-				const auto Window = StartupWindow.lock();
-				const auto Presentation = MainSceneViewport->QueryPresentation(GetSceneGeneration(), Window.get());
-				if (Presentation == EScenePresentationState::Failed)
-				{
-					StartupError = "The committed initial scene could not render for primary presentation.";
-					Transition(EBootstrapState::Failed);
-					return;
-				}
-				if (Presentation != EScenePresentationState::Presented) return;
-			}
-			if (Document != EHostStartupState::Pending)
-				Transition(Document == EHostStartupState::Ready ? EBootstrapState::Ready : EBootstrapState::Failed);
+			// Default content is an ordinary document request, after workspace admission.
+			Transition(EBootstrapState::Ready);
+			OpenDefaultLevel();
 			return;
 		}
 		default:
@@ -281,54 +281,100 @@ namespace Durin
 		}
 	}
 
-	auto DEditorEngine::AdvanceDefaultLevel() -> EHostStartupState
+	auto DEditorEngine::OpenDefaultLevel() -> void
 	{
-		auto* AssetEditors = GetEditorSubsystem<DAssetEditorSubsystem>();
-		if (!StartupDocumentOpen)
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentBegin);
+		FSoftObjectPath Path;
+		std::string Error;
+		const auto* Project = GetCurrentProject();
+		if (Project && !EditorStartup::ResolveStartupLevel(*Project, Path, Error))
+			StartupDocumentOpen = FAssetOpenItemResult{.Status = EAssetOpenStatus::Failed, .Message = std::move(Error)};
+		else if (!Path.IsValid())
+			StartupDocumentOpen = FAssetOpenItemResult{.Status = EAssetOpenStatus::Completed};
+		else if (auto* AssetEditors = GetEditorSubsystem<DAssetEditorSubsystem>())
 		{
-			StartupError.clear();
-			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentBegin);
-			FSoftObjectPath Path;
-			const auto* Project = GetCurrentProject();
-			if (Project && !EditorStartup::ResolveStartupLevel(*Project, Path, StartupError))
-				return EHostStartupState::Failed;
-			if (!Path.IsValid())
-				StartupDocumentOpen = FAssetOpenItemResult{.Status = EAssetOpenStatus::Completed};
-			else if (AssetEditors)
-			{
-				Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadBegin);
-				auto Opened = AssetEditors->OpenAssets({.AssetEditors = AssetEditors,
-					.Assets = {{Path, DLevel::StaticClass()->GetQualifiedName().ToString()}},
-					.Origin = "Startup"});
-				if (!Opened.Items.empty()) StartupDocumentOpen = std::move(Opened.Items.front());
-			}
+			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadBegin);
+			auto Opened = AssetEditors->OpenAssets({.AssetEditors = AssetEditors,
+				.Assets = {{Path, DLevel::StaticClass()->GetQualifiedName().ToString()}},
+				.Origin = "Startup"});
+			if (!Opened.Items.empty()) StartupDocumentOpen = std::move(Opened.Items.front());
 		}
+		if (!StartupDocumentOpen)
+			StartupDocumentOpen = FAssetOpenItemResult{.Status = EAssetOpenStatus::Failed,
+				.Message = "Could not submit the default level document request."};
+		if (StartupDocumentOpen->Status != EAssetOpenStatus::Pending && StartupDocumentOpen->Status != EAssetOpenStatus::Completed)
+		{
+			DURIN_ERROR("Could not open the default level: {}", StartupDocumentOpen->Message);
+			GetNotificationManager().Post({.Type = ENotificationType::Error,
+				.Message = "Could not open the default level", .Details = StartupDocumentOpen->Message});
+		}
+		if (StartupDocumentOpen->Status == EAssetOpenStatus::Completed)
+		{
+			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentComplete);
+			Profiling::TryLogStartupTimingSummary();
+		}
+	}
+
+	auto DEditorEngine::GetDefaultLevelCompletion(std::string& OutError) const -> EHostStartupState
+	{
+		OutError.clear();
 		if (bShutdownRequested) return EHostStartupState::Pending;
-		if (StartupDocumentOpen && StartupDocumentOpen->Status == EAssetOpenStatus::Pending)
-			StartupDocumentOpen = AssetEditors ? AssetEditors->GetOpenRequest(StartupDocumentOpen->RequestId) : std::nullopt;
-		if (!StartupDocumentOpen)
+		if (!StartupDocumentOpen) return EHostStartupState::Ready;
+		auto* AssetEditors = GetEditorSubsystem<DAssetEditorSubsystem>();
+		auto Result = StartupDocumentOpen;
+		if (Result->Status == EAssetOpenStatus::Pending)
+			Result = AssetEditors ? AssetEditors->GetOpenRequest(Result->RequestId) : std::nullopt;
+		if (!Result)
 		{
-			StartupError = "The default level document request is no longer available.";
+			OutError = "The default level document request is no longer available.";
 			return EHostStartupState::Failed;
 		}
-		if (StartupDocumentOpen->Status == EAssetOpenStatus::Pending) return EHostStartupState::Pending;
-		if (StartupDocumentOpen->Status != EAssetOpenStatus::Completed)
+		if (Result->Status == EAssetOpenStatus::Pending) return EHostStartupState::Pending;
+		if (Result->Status != EAssetOpenStatus::Completed)
 		{
-			StartupError = StartupDocumentOpen->Message.empty()
-				? "Could not open the default level document." : StartupDocumentOpen->Message;
+			OutError = Result->Message.empty() ? "Could not open the default level document." : Result->Message;
 			return EHostStartupState::Failed;
 		}
-		if (StartupDocumentOpen->Target.AssetPath.IsValid())
+		if (Result->Target.AssetPath.IsValid())
 		{
 			const auto EditedAssets = AssetEditors ? AssetEditors->GetAllEditedAssets() : std::vector<DObject*>{};
-			const auto Path = StartupDocumentOpen->Target.AssetPath.ToString();
+			const auto Path = Result->Target.AssetPath.ToString();
 			if (std::ranges::none_of(EditedAssets, [&](const DObject* Asset) { return Asset->GetObjectPath() == Path; }))
 			{
-				StartupError = "The default level document was closed before startup completed.";
+				OutError = "The default level document was closed before startup completed.";
 				return EHostStartupState::Failed;
 			}
 		}
-		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentComplete);
+		return EHostStartupState::Ready;
+	}
+
+	auto DEditorEngine::GetStartupCompletion(std::string& OutError) const -> EHostStartupState
+	{
+		OutError = StartupError;
+		if (bShutdownRequested) return EHostStartupState::Pending;
+		const auto State = GetStartupState();
+		if (State != EHostStartupState::Ready) return State;
+		const auto Document = GetDefaultLevelCompletion(OutError);
+		if (Document != EHostStartupState::Ready) return Document;
+		if (GetWorld() && GetWorld()->GetCurrentLevel())
+		{
+			if (!MainSceneViewport) return EHostStartupState::Pending;
+			const auto Window = StartupWindow.lock();
+			const auto Presentation = MainSceneViewport->QueryPresentation(GetSceneGeneration(), Window.get());
+			if (Presentation == EScenePresentationState::Failed)
+			{
+				OutError = "The committed initial scene could not render for primary presentation.";
+				return EHostStartupState::Failed;
+			}
+			if (Presentation != EScenePresentationState::Presented) return EHostStartupState::Pending;
+		}
+		else if (const auto Window = StartupWindow.lock())
+		{
+			const auto* Renderer = Mona::FMonaApplication::IsInitialized()
+				? Mona::FMonaApplication::Get().GetRenderer() : nullptr;
+			if (!Renderer || !Renderer->IsWindowPresented(*Window)) return EHostStartupState::Pending;
+		}
+		else if (bEditorInitStarted) return EHostStartupState::Pending;
 		return EHostStartupState::Ready;
 	}
 

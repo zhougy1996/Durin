@@ -103,20 +103,26 @@ namespace Durin
 
 		int ProcessResult = 0;
 		uint64 CompletedTicks = 0;
+		const bool bAutomated = Request.Automation.ExitAfterTicks || StartupCommand.Name;
+		bool bStartupCompleted = false;
 		while (!IsEngineExitRequested())
 		{
 			const auto BeforeTick = EngineLoop.GetCompletedRunningTicks();
 			EngineLoop.Tick();
-			const auto StartupState = EngineLoop.GetStartupState();
+			std::string StartupError;
+			const auto StartupState = bAutomated && !bStartupCompleted
+				? EngineLoop.GetStartupCompletion(StartupError) : EngineLoop.GetStartupState();
 			if (!IsEngineExitRequested() && StartupState == EHostStartupState::Failed
 				&& (!DURIN_WITH_EDITOR || Request.Automation.ExitAfterTicks || StartupCommand.Name))
 			{
-				DURIN_ERROR("Requested host startup failed: {}", EngineLoop.GetStartupError());
+				DURIN_ERROR("Requested host startup failed: {}",
+					StartupError.empty() ? EngineLoop.GetStartupError() : StartupError);
 				ProcessResult = 1;
 				RequestEngineExit();
 			}
 			if (IsEngineExitRequested() || StartupState != EHostStartupState::Ready
 				|| EngineLoop.GetCompletedRunningTicks() == BeforeTick) continue;
+			bStartupCompleted = true;
 			++CompletedTicks;
 			if (HasPendingStartupCommand())
 			{
@@ -141,8 +147,7 @@ namespace Durin
 			}
 		}
 
-		if (EngineLoop.GetStartupState() != EHostStartupState::Ready && ProcessResult == 0
-			&& (Request.Automation.ExitAfterTicks || StartupCommand.Name)) ProcessResult = 1;
+		if (bAutomated && !bStartupCompleted && ProcessResult == 0) ProcessResult = 1;
 		EngineLoop.Exit();
 		if (const auto Relaunch = LaunchPendingEditorRelaunch(); !Relaunch)
 			DURIN_ERROR("Failed to relaunch editor: {}", Relaunch.error().ToString());

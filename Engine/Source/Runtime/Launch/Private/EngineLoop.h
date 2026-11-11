@@ -40,6 +40,7 @@ namespace Durin
 		auto GetState() const -> EEngineLoopState { return State; }
 		auto GetStartupState() const -> EHostStartupState;
 		auto GetStartupError() const -> std::string;
+		auto GetStartupCompletion(std::string& OutError) const -> EHostStartupState;
 		auto GetCompletedRunningTicks() const -> uint64 { return CompletedRunningTicks; }
 
 	private:

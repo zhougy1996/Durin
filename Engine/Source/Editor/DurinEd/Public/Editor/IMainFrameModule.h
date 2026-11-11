@@ -14,7 +14,6 @@ namespace Durin
 		virtual auto CreateDefaultMainFrame(
 			DEditorEngine& Editor, std::shared_ptr<MWindow> StartupWindow) -> void = 0;
 		virtual auto DestroyMainFrame() -> void = 0;
-		virtual auto IsShellPresented() const -> bool = 0;
 		// Starts workspace providers, logging failures; the host then synchronizes services.
 		virtual auto LoadWorkspaceModules() -> bool = 0;
 		// Creates consumers after services are ready; clears OutError on success, fills it on failure.

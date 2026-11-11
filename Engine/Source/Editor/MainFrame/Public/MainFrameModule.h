@@ -24,7 +24,6 @@ namespace Durin
 		auto CreateDefaultMainFrame(
 			DEditorEngine& Editor, std::shared_ptr<MWindow> StartupWindow) -> void override;
 		auto DestroyMainFrame() -> void override;
-		auto IsShellPresented() const -> bool override;
 		auto LoadWorkspaceModules() -> bool override;
 		auto InitializeWorkspaces(std::string& OutError) -> bool override;
 		auto TickMainFrame(float DeltaSeconds) -> void override;

@@ -178,8 +178,8 @@ namespace Durin::Profiling
 			StartupDurationMilliseconds(EStartupMilestone::DefaultDocumentActivationBegin, EStartupMilestone::DefaultDocumentActivationComplete),
 			GetStartupMilestoneMilliseconds(EStartupMilestone::NativeViewportReady),
 			FirstPresentMilliseconds, WorkspaceReadyMilliseconds, DocumentReadyMilliseconds);
-		DURIN_DEBUG_CATEGORY("Startup", "Host readiness: {:.3f} ms | document commit to ready {:.3f} ms",
-			ReadyMilliseconds, StartupDurationMilliseconds(EStartupMilestone::DefaultDocumentComplete, EStartupMilestone::HostReady));
+		DURIN_DEBUG_CATEGORY("Startup", "Host readiness: {:.3f} ms | services ready to document commit {:.3f} ms",
+			ReadyMilliseconds, StartupDurationMilliseconds(EStartupMilestone::HostReady, EStartupMilestone::DefaultDocumentComplete));
 		return true;
 	}
 

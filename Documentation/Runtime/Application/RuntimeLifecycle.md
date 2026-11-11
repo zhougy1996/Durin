@@ -4,7 +4,7 @@ Summary: Define application startup, frame execution, project admission, and shu
 
 Modules: Launch, ApplicationCore, Engine, MonaCore, Mona, MonaImGui
 
-Last reviewed: 2026-11-10
+Last reviewed: 2026-11-11
 
 This document defines Durin's process startup, frame entry, lifecycle
 integration boundaries, and explicit process-exit ordering.
@@ -145,11 +145,11 @@ startup window and any initial project-admission error. Host startup readiness i
 separate: `GetStartupState()` reports Pending, Ready, or Failed, and the ordinary
 frame loop calls `AdvanceStartup()` outside simulation and UI callbacks. Editor
 stores only its bootstrap phase and derives host readiness from it. Service-only
-Editor hosts begin in Ready; production `Init()` enters ConstructingShell.
+Editor hosts begin in Ready; production `Init()` enters InitializingProject.
+The remaining bootstrap phases are LoadingWorkspace, Ready, and Failed.
 `GetCapabilities()` derives normal-tick, tool, World-editing and workspace-display
-admission from this phase and the current shutdown, map-change, Play and scene
-facts. Pending startup can display a committed scene while simulation, tools and
-editing remain closed. Map changes keep normal frame services available but close
+admission from service readiness and the current shutdown, map-change and Play
+facts. Presentation receipts do not gate editor capabilities. Map changes keep normal frame services available but close
 tools and editing; Play keeps control tools available while closing editor-World
 editing. Domain-specific transaction and document vetoes still apply. Editor
 modules do not depend on Launch internals.
@@ -170,28 +170,31 @@ and selects a clean process result; otherwise it selects failure. A concurrent
 close request therefore takes precedence over an initialization error for exit
 code selection, while the error remains logged.
 
-DurinEd owns the ordered bootstrap state, including project admission,
-workspace activation, default-document loading, and terminal outcome. MainFrame initializes requested workspaces and presents the engine's phase/error
-state. DurinEd selects the default Level and submits an ordinary asset-editor open
-request. LevelEditor owns loading, document association, history, selection, and
-viewport restoration through the same document path used for later Level opens;
-there is no startup-specific workspace callback protocol. DurinEd observes the
-open request's terminal result and then the primary scene presentation receipt.
-Each step advances at most once per ordinary outer frame. Shell
-presentation is observed from the retained primary RHI viewport's successful
-presentation serial, relative to its shell baseline, rather than a profiling
-timestamp. An auxiliary viewport cannot satisfy that gate. Editor and Game query
-`FSceneViewport::QueryPresentation()` for Pending, Presented or Failed. The
-viewport owns generation/render-outcome validation and delegates current-window
-receipt matching to Mona. Editor supplies its composition window; window-backed
-Game output uses its bound window. Replaced or removed mappings cannot be
-satisfied by old receipts; startup code never inspects RHI viewport identities.
+DurinEd owns project-service initialization and workspace activation. MainFrame
+presents the phase/error state, but its first presentation is not an initialization
+dependency. Once workspace services and consumers are ready, the editor enters
+Ready and submits the configured default Level as an ordinary asset-editor open
+request. LevelEditor owns loading, document association, history, selection,
+viewport restoration, progress and errors through the same path as later opens.
+Document failure does not retire the usable editor workspace.
+
+Automation has a separate `GetStartupCompletion(OutError)` observation boundary.
+Editor completion requires successful default-document loading and the active
+scene's actual primary-window presentation. `FSceneViewport::QueryPresentation()`
+validates scene generation and render outcome, then delegates current-window
+receipt matching to Mona. An auxiliary viewport, old generation, or replaced or
+removed window mapping cannot satisfy it. Without a scene, automation observes
+Mona's read-only current-window first-presentation check. Service-only hosts have
+no window requirement. Game retains its presentation-based host readiness.
+The process runner latches successful automation startup before dispatching
+startup commands or counting automated ticks, so later ordinary document changes
+do not reenter the initial presentation gate. None of these checks read profiling.
 
 `DEngine::Init()` constructs minimum runtime/renderer services without admitting
 project content or creating the initial World. After schema providers are active,
 `InitializeProjectContent()` requires a successful catalog refresh, initializes
 the default-material service, then constructs the complete Engine/World subsystem
-sets and initial World. Editor invokes this after shell presentation; Game invokes
+sets and initial World. Editor invokes this during project initialization; Game invokes
 it after loading its project providers. Material loading, fallback, and render-proxy semantics are defined by
 [Material System](../Rendering/Materials/MaterialSystem.md).
 
@@ -210,20 +213,15 @@ default-level configuration completes without a map request. Shutdown and proces
 exit stop advancement without reporting readiness or capturing input; an existing
 exit request takes precedence when the process runner selects a startup result.
 
-`DEditorEngine::Init()` constructs the production MainFrame shell and returns
-with Pending host readiness. `AdvanceStartup()` drives workspace activation and
-default-Level opening through ordinary frames. After shell presentation, the
-Editor loads `AssetForgeBuiltins` and project roots before its atomic catalog
-scan so concrete import-data and project classes are registered. Eager preview
-mesh warmup is not a shell or initial-scene dependency; preview consumers retain
-their meshes on demand. Built-in
-authoring UI starts with workspace activation. Project Browser readiness follows
-its visible host frame without loading project workspaces. Startup uses the
-ordinary event/completion/render/GC loop. Pending or failed hosts do not run
-gameplay or editor tools/scripts; necessary geometry and PSO service work remains
-pumpable. Candidate scene submissions run within normal RHI framing. After
-document commit the active scene may draw while startup still awaits its actual
-primary-window composition/presentation receipt. That gate does not read profiling.
+`DEditorEngine::Init()` constructs MainFrame and returns with Pending service
+readiness. `AdvanceStartup()` initializes project services and workspaces through
+ordinary frames, without waiting for a shell frame. Editor loads
+`AssetForgeBuiltins` and project roots before its atomic catalog scan so concrete
+import-data and project classes are registered. Preview meshes are retained on
+demand. Project Browser skips project and workspace loading. The same normal
+frame loop handles events, completions, document loading, rendering and GC.
+Pending or failed service initialization closes tools and simulation; ordinary
+map-change admission handles the default document once services become Ready.
 
 Editor default/open-Level and authored/cooked Game loading share Engine-owned
 map changes. `OpenLevel(FMapChangeRequest)` prepares and schedules activation;
@@ -248,7 +246,7 @@ Components with pending required PSOs appear after their normal owner notificati
 creates the proxy. Failed required requests keep that component withheld and
 diagnosable without failing or rolling back the map change.
 View-dependent renderer preparation runs through the committed viewport, and
-startup still waits for its actual presentation receipt before becoming ready.
+Game startup and editor automation still wait for its actual presentation receipt.
 `CommitMapChange` accepts a request for activation once ready; it never replaces
 the World inline. Failure or cancellation retires the candidate and preserves
 the old document.
@@ -283,9 +281,10 @@ and package object application remain atomic owner-thread work. Game BeginPlay
 runs once on the candidate; spawned resources use the same owner preparation paths.
 Simulation and input wait until the committed generation has actually presented.
 
-Automated running-tick counts and startup-command dispatch begin only after host
-readiness. Required startup failure returns a failed automated result even when
-the interactive Editor preserves its error/browser UI. Game startup failure also
+Automated running-tick counts and startup-command dispatch begin only after startup
+completion, including document and presentation checks. Required startup failure
+returns a failed automated result while the interactive Editor keeps its workspace
+or error/browser UI available. Game startup failure also
 terminates the process. A malformed configured default Level remains a failure,
 distinct from an intentionally empty default-Level setting.
 
@@ -327,9 +326,8 @@ drain policies rather than storing large results in the deferred executor.
 Launch keeps the frame render decision visible in `FEngineLoop::Tick()`, while
 its private `EngineFrame` component owns begin/end render-thread callbacks, UI
 and viewport submission, end-frame synchronization, and the render counter.
-The same component has a startup mode that shares those frame mechanics while
-submitting only Mona/ImGui. This mode is selected by host readiness in the same
-frame loop, after process services have entered Running. Modal continuation
+Startup uses the same render-frame path; available viewports determine scene
+submission, while host readiness controls simulation admission. Modal continuation
 frames do not reenter startup advancement or simulation.
 Responsibility-specific diagnostics own editor PIE, native gameplay, and
 task-scheduler retained state. Typed native-crash phases are resolved at the

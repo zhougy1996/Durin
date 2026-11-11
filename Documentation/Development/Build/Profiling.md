@@ -7,7 +7,8 @@ There is no separate profiling preset or output directory.
 ## Startup And Load Diagnostics
 
 Normal editor startup emits one `Ready` summary with first-presentation and host
-readiness times. Detailed startup milestones, map-change messages, object-load
+service-readiness times. Default-document completion is measured separately;
+presentation does not gate editor service readiness. Detailed startup milestones, map-change messages, object-load
 phase/work statistics, and DDC bucket messages require an explicit process flag:
 
 ```powershell

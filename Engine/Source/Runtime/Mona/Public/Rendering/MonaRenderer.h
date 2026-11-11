@@ -28,6 +28,8 @@ namespace Durin::Mona
 		// Read-only application-thread receipt check against the window's current viewport.
 		// Never creates, resizes or changes presentation policy.
 		virtual auto IsOutputPresented(const MWindow& Window, const FViewportOutputReceipt& Receipt, uint64 Generation) const -> bool = 0;
+		// Read-only first-presentation check for automation without a scene (e.g. project browser).
+		virtual auto IsWindowPresented(const MWindow& Window) const -> bool { return false; }
 
 		// Consumes the latest resize request before returning the viewport used by
 		// this draw. Callers must invoke this immediately before enqueueing work.

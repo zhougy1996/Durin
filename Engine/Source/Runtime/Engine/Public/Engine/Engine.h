@@ -81,6 +81,9 @@ namespace Durin
 		// Called once from the ordinary owner frame, outside simulation and UI callbacks.
 		virtual auto AdvanceStartup() -> void {}
 		virtual auto GetStartupState() const -> EHostStartupState { return EHostStartupState::Ready; }
+		// Automation also waits for initial document loading and actual scene presentation.
+		virtual auto GetStartupCompletion(std::string& OutError) const -> EHostStartupState
+		{ OutError = GetStartupError(); return GetStartupState(); }
 		virtual auto ShouldDrawStartupScene() const -> bool { return false; }
 		ENGINE_API virtual auto GetStartupError() const -> const std::string&;
 		// Closes admission without destroying resources; safe to call from host callbacks.

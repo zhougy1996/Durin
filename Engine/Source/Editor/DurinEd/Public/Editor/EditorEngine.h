@@ -105,6 +105,7 @@ namespace Durin
 		DURINED_API auto AdvanceStartup() -> void override;
 		auto GetStartupState() const -> EHostStartupState override { return EditorStartup::GetBootstrapStepStatus(StartupPhase); }
 		auto GetStartupPhase() const -> EditorStartup::EBootstrapState { return StartupPhase; }
+		DURINED_API auto GetStartupCompletion(std::string& OutError) const -> EHostStartupState override;
 		DURINED_API auto GetCapabilities() const -> FEditorCapabilities;
 		auto GetStartupError() const -> const std::string& override { return StartupError; }
 		DURINED_API auto PreExit() -> void override;
@@ -147,8 +148,6 @@ namespace Durin
 		auto IsPlaying() const -> bool { return PlayState != EPlayState::Stopped; }
 		auto IsPlaySessionPaused() const -> bool { return PlayState == EPlayState::Paused; }
 		auto GetEditorWorld() const -> DWorld* { return EditorWorld.Get(); }
-		auto ShouldDrawStartupScene() const -> bool override
-		{ return GetStartupState() == EHostStartupState::Pending && GetCapabilities().bPresentWorkspace; }
 		auto GetPlayWorld() const -> DWorld* { return PlayWorld.Get(); }
 		DURINED_API auto GetEditorWorldContext() const -> const FWorldContext&;
 		DURINED_API auto GetPIEWorldContext() const -> const FWorldContext*;
@@ -174,7 +173,8 @@ namespace Durin
 		DURINED_API auto InitializePlayWindowViewportClient(
 			const FViewportClient* SourceClient) -> void;
 
-		auto AdvanceDefaultLevel() -> EHostStartupState;
+		auto OpenDefaultLevel() -> void;
+		auto GetDefaultLevelCompletion(std::string& OutError) const -> EHostStartupState;
 		auto InitEditorInternal(const FEngineInitContext& Context) -> bool;
 		DURINED_API auto RequestSubsystemDeinitialization() -> void override;
 		DURINED_API auto RetireHostConsumers() -> void override;

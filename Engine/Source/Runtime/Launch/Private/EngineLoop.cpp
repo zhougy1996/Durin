@@ -320,6 +320,13 @@ namespace Durin
 		return GEngine ? GEngine->GetStartupError() : "The engine host is unavailable.";
 	}
 
+	auto FEngineLoop::GetStartupCompletion(std::string& OutError) const -> EHostStartupState
+	{
+		if (GEngine) return GEngine->GetStartupCompletion(OutError);
+		OutError = "The engine host is unavailable.";
+		return EHostStartupState::Failed;
+	}
+
 	auto FEngineLoop::GetHostFrameState() const -> FHostFrameState
 	{
 		auto& Application = Mona::FMonaApplication::Get();

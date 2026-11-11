@@ -874,7 +874,6 @@ namespace
 		std::function<void()> CreateWorkspace;
 		auto CreateDefaultMainFrame(DEditorEngine&, std::shared_ptr<MWindow>) -> void override {}
 		auto DestroyMainFrame() -> void override {}
-		auto IsShellPresented() const -> bool override { return true; }
 		auto LoadWorkspaceModules() -> bool override { return LoadModules(); }
 		auto InitializeWorkspaces(std::string&) -> bool override { CreateWorkspace(); return true; }
 		auto TickMainFrame(float) -> void override {}
@@ -903,7 +902,7 @@ namespace
 		FEditorEngineTestAccess::SetStartupPhase(*Host, EditorStartup::EBootstrapState::LoadingWorkspace);
 		Host->AdvanceStartup();
 		EXPECT_EQ((std::vector<std::string>{"module", "service", "workspace"}), Events);
-		EXPECT_EQ(EditorStartup::EBootstrapState::LoadingDefaultDocument, Host->GetStartupPhase());
+		EXPECT_EQ(EditorStartup::EBootstrapState::Ready, Host->GetStartupPhase());
 		FEditorEngineTestAccess::BindMainFrameModule(*Host, Previous);
 		EXPECT_TRUE(FModuleManager::Get().UnloadModule(Name));
 	}

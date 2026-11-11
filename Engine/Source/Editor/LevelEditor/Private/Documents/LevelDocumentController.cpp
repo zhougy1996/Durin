@@ -229,7 +229,8 @@ namespace Durin::LevelEditor
 	{
 		const bool bCommitted = Progress.Phase == EMapChangePhase::Committed;
 		const bool bSucceeded = bCommitted && AssociateCurrentLevel();
-		if (bCommitted && Context.EditorHost->GetStartupState() == EHostStartupState::Pending)
+		if (bCommitted && Profiling::GetStartupMilestoneMilliseconds(Profiling::EStartupMilestone::DefaultDocumentAssetLoadBegin) >= 0
+			&& Profiling::GetStartupMilestoneMilliseconds(Profiling::EStartupMilestone::DefaultDocumentComplete) < 0)
 			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentActivationComplete);
 		const std::string Error = bCommitted && !bSucceeded
 			? "The Level Editor could not associate the opened level document." : Progress.Diagnostic;
@@ -413,7 +414,8 @@ namespace Durin::LevelEditor
 	auto FLevelDocumentController::PrepareLevelActivation(DLevel& Level) -> bool
 	{
 		if (!Context.World) return false;
-		if (Context.EditorHost->GetStartupState() == EHostStartupState::Pending)
+		if (Profiling::GetStartupMilestoneMilliseconds(Profiling::EStartupMilestone::DefaultDocumentAssetLoadBegin) >= 0
+			&& Profiling::GetStartupMilestoneMilliseconds(Profiling::EStartupMilestone::DefaultDocumentComplete) < 0)
 		{
 			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadComplete);
 			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentActivationBegin);
