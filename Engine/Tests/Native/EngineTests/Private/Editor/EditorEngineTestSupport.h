@@ -47,8 +47,12 @@ namespace Durin
 		static auto SetState(DEditorEngine& Editor, EPlayState State) -> void
 		{ Editor.PlayState = State; }
 
-		static auto SetStartupPhase(DEditorEngine& Editor, EditorStartup::EBootstrapState Phase, std::string Error = {}) -> void
-		{ Editor.StartupPhase = Phase; Editor.StartupError = std::move(Error); }
+		static auto SetStartupState(DEditorEngine& Editor, EHostStartupState State, std::string Error = {}) -> void
+		{ Editor.StartupState = State; Editor.StartupError = std::move(Error); }
+		static auto InitializeProjectWorkspace(DEditorEngine& Editor) -> bool { return Editor.InitializeProjectWorkspace(); }
+		static auto InitializeWorkspaces(DEditorEngine& Editor) -> bool { return Editor.InitializeWorkspaces(); }
+		static auto OpenDefaultLevel(DEditorEngine& Editor) -> void { Editor.OpenDefaultLevel(); }
+
 		static auto BindMainFrameModule(DEditorEngine& Editor, IMainFrameModule* Module) -> IMainFrameModule*
 		{ return std::exchange(Editor.MainFrameModule, Module); }
 

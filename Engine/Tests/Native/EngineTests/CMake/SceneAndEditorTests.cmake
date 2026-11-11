@@ -520,7 +520,6 @@ durin_add_native_test(EditorShellTests
 	PRIVATE_SOURCE_RATIONALE
 		"LevelEditor-owned shell model white-box coverage avoids exporting private workspace and panel implementations."
 	SOURCES
-		Private/EditorBootstrapStateTests.cpp
 		Private/EditorNotificationTests.cpp
 		Private/EditorWorkspaceTests.cpp
 		Private/ViewportClosePolicyTests.cpp

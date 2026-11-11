@@ -102,7 +102,7 @@ namespace Durin
 		try
 		{
 			Advance();
-			if (Phase == EMapChangePhase::Ready && bCommitRequested && BeforeCommit)
+			if (Phase == EMapChangePhase::Ready && BeforeCommit)
 			{
 				auto PrepareCommit = std::move(BeforeCommit);
 				if (!PrepareCommit(*GetLevel())) Fail("Map activation was rejected by the caller.");
@@ -111,7 +111,7 @@ namespace Durin
 		catch (...) { Fail(DescribeException()); }
 		// Publishing the World is irreversible. Do not turn a publication fault
 		// into a recoverable preparation failure and tear down an adopted World.
-		if (Phase == EMapChangePhase::Ready && bCommitRequested)
+		if (Phase == EMapChangePhase::Ready)
 		{
 			if (bCancelRequested || World->IsShutdownRequested()) Cancel();
 			else Commit();

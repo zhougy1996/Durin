@@ -106,7 +106,7 @@ namespace Durin
 			return false;
 		}
 		bEditorInitStarted = true;
-		StartupPhase = EditorStartup::EBootstrapState::InitializingProject;
+		StartupState = EHostStartupState::Pending;
 		StartupError = Context.ProjectAdmissionError;
 
 		bool bInitialized = InitEditorInternal(Context);
@@ -164,118 +164,18 @@ namespace Durin
 				? FConsoleCommandResult::Success(std::format("Applied runtime changes from {} actor(s).", AppliedCount))
 				: FConsoleCommandResult::Failure(std::move(Error));
 		}});
-		DURIN_DEBUG("Editor initialized");
+		const bool bWorkspaceReady = InitializeProjectWorkspace();
+		if (bShutdownRequested) return false;
+		StartupState = bWorkspaceReady ? EHostStartupState::Ready : EHostStartupState::Failed;
+		if (bWorkspaceReady)
+		{
+			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::HostReady);
+			if (HasCurrentProject()) OpenDefaultLevel();
+		}
+		FShaderPipelineCache::SetBatchMode(FShaderPipelineCache::BatchMode::Background);
+		Profiling::TryLogStartupTimingSummary();
+		DURIN_DEBUG("Editor services initialized");
 		return true;
-	}
-
-	auto DEditorEngine::AdvanceStartup() -> void
-	{
-		if (bShutdownRequested) return;
-		if (GetStartupState() != EHostStartupState::Pending) return;
-		using namespace EditorStartup;
-		auto Transition = [&](EBootstrapState Phase) {
-			check(IsValidBootstrapTransition(StartupPhase, Phase));
-			StartupPhase = Phase;
-			const auto Status = GetBootstrapStepStatus(Phase);
-			if (Status == EHostStartupState::Ready)
-			{
-				Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::HostReady);
-			}
-			if (Status != EHostStartupState::Pending)
-			{
-				FShaderPipelineCache::SetBatchMode(FShaderPipelineCache::BatchMode::Background);
-				Profiling::TryLogStartupTimingSummary();
-			}
-		};
-		switch (StartupPhase)
-		{
-		case EBootstrapState::InitializingProject:
-		{
-			if (!StartupError.empty()) { Transition(EBootstrapState::Failed); return; }
-			if (!HasCurrentProject())
-			{
-				Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::WorkspaceRegistrationBegin);
-				Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::WorkspaceRegistrationComplete);
-				Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultWorkspaceReady);
-				Transition(EBootstrapState::Ready);
-				return;
-			}
-			std::string AdmissionError;
-			{
-
-				// Register every schema provider before the first content scan.
-				if (!FModuleManager::Get().LoadModule("AssetForgeBuiltins"))
-					AdmissionError = "Project admission requires AssetForgeBuiltins.";
-				const auto Modules = GetCurrentProject()->EnabledRootModules;
-				for (const auto& ModuleName : Modules)
-					if (AdmissionError.empty() && !FModuleManager::Get().LoadModule(FName(ModuleName)))
-						AdmissionError = std::format("Project module '{}' could not start.", ModuleName);
-				if (AdmissionError.empty())
-					if (const auto Content = InitializeProjectContent(); !Content) AdmissionError = Content.error();
-			}
-			if (bShutdownRequested) return;
-			EditorWorld = GetWorld();
-			if (AdmissionError.empty()) AddRegisteredEditorSubsystems();
-			if (bShutdownRequested) return;
-			if (!AdmissionError.empty())
-			{
-				StartupError = std::move(AdmissionError);
-				Transition(EBootstrapState::Failed);
-				return;
-			}
-			Transition(EBootstrapState::LoadingWorkspace);
-			return;
-		}
-		case EBootstrapState::LoadingWorkspace:
-		{
-			bool bModulesReady;
-			{
-
-				bModulesReady = MainFrameModule->LoadWorkspaceModules();
-			}
-			if (bShutdownRequested) return;
-			if (!bModulesReady)
-			{
-				StartupError = "Could not load the editor workspace modules.";
-				Transition(EBootstrapState::Failed);
-				return;
-			}
-			AddRegisteredEditorSubsystems();
-			if (bShutdownRequested) return;
-
-			if (!MainFrameModule->InitializeWorkspaces(StartupError))
-			{
-				Transition(EBootstrapState::Failed);
-				return;
-			}
-			if (bShutdownRequested) return;
-			// Default content is an ordinary document request, after workspace admission.
-			Transition(EBootstrapState::Ready);
-			OpenDefaultLevel();
-			return;
-		}
-		default:
-			return;
-		}
-	}
-
-	auto DEditorEngine::OpenDefaultLevel() -> void
-	{
-		FSoftObjectPath Path;
-		if (!EditorStartup::ResolveStartupLevel(*GetCurrentProject(), Path, StartupError))
-		{
-			DURIN_ERROR("{}", StartupError);
-			GetNotificationManager().Post({.Type = ENotificationType::Error,
-				.Message = "Could not open the default level", .Details = StartupError});
-			return;
-		}
-		if (!Path.IsValid()) return;
-		auto* AssetEditors = GetEditorSubsystem<DAssetEditorSubsystem>();
-		requiref(AssetEditors, "Workspace admission requires asset-editor services.");
-		auto Opened = AssetEditors->OpenAssets({.AssetEditors = AssetEditors,
-			.Assets = {{Path, DLevel::StaticClass()->GetQualifiedName().ToString()}}});
-		requiref(Opened.Items.size() == 1, "An asset-open request must return one result per input.");
-		InitialDocumentRequest = std::move(Opened.Items.front());
 	}
 
 	auto DEditorEngine::GetStartupCompletion(std::string& OutError) const -> EHostStartupState
@@ -292,6 +192,11 @@ namespace Durin
 			if (Result.Status != EAssetOpenStatus::Completed)
 			{
 				OutError = Result.Message.empty() ? "Could not open the initial document." : Result.Message;
+				return EHostStartupState::Failed;
+			}
+			if (Result.Target.AssetPath.IsValid() && !GetEditorSubsystem<DAssetEditorSubsystem>()->IsAssetOpen(Result.Target.AssetPath))
+			{
+				OutError = "The initial document was closed before its first presentation.";
 				return EHostStartupState::Failed;
 			}
 		}

@@ -43,6 +43,16 @@ TEST(FLaunchStartupCharacterizationTests, InvalidConfiguredLevelFailsInsteadOfOp
 	EXPECT_EQ(RunLaunchChild({"--project=" + Project.generic_string(), "--exit-after-ticks=1"}), 1u);
 }
 
+TEST(FLaunchStartupCharacterizationTests, EmptyDefaultLevelShowsWorkspaceAndExitsNormally)
+{
+	const auto Root = Durin::Testing::GetTestWorkDirectory() / "EmptyDefaultLevel";
+	std::filesystem::create_directories(Root / "Configs");
+	const auto Project = Root / "EmptyDefaultLevel.dproject";
+	{ std::ofstream File(Project); File << R"({"ProjectName":"EmptyDefaultLevel","BaseModules":[]})"; }
+	{ std::ofstream File(Root / "Configs" / "Project.yaml"); File << "Game:\n  DefaultLevel: ''\n"; }
+	EXPECT_EQ(RunLaunchChild({"--project=" + Project.generic_string(), "--exit-after-ticks=2"}), 0u);
+}
+
 TEST(FLaunchStartupCharacterizationTests, AutomatedLaunchPreservesInteractiveHistory)
 {
 	const auto History = std::filesystem::path(DURIN_LAUNCH_EXECUTABLE).parent_path()

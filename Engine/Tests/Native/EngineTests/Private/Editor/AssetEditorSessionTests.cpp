@@ -152,7 +152,7 @@ namespace
 		}
 		auto TickHost() -> void
 		{
-			FEditorEngineTestAccess::SetStartupPhase(*Host, EditorStartup::EBootstrapState::Ready);
+			FEditorEngineTestAccess::SetStartupState(*Host, EHostStartupState::Ready);
 			Host->Tick(0.0f, false);
 		}
 		std::unique_ptr<Testing::FScopedMountRegistryFixture> Mounts;
@@ -425,9 +425,15 @@ namespace
 		EXPECT_EQ(EAssetOpenStatus::Failed, Service->ResolveOpenResult(Failed).Status);
 		EXPECT_EQ("level activation failed", Service->ResolveOpenResult(Failed).Message);
 		EXPECT_EQ(Session, Service->FindEditorForAsset(B, false));
+		EXPECT_TRUE(Service->IsAssetOpen(OpenB.Target.AssetPath));
+		FEditorEngineTestAccess::SetInitialDocumentRequest(*Host, OpenB);
+		std::string CompletionError;
+		EXPECT_EQ(EHostStartupState::Pending, Host->GetStartupCompletion(CompletionError));
 		Service->RetireAssetEditor(*Session);
-		EXPECT_EQ(EAssetOpenStatus::Failed, Service->ResolveOpenResult(OpenB).Status);
-		EXPECT_EQ("The asset document has been closed.", Service->ResolveOpenResult(OpenB).Message);
+		EXPECT_EQ(EAssetOpenStatus::Completed, Service->ResolveOpenResult(OpenB).Status);
+		EXPECT_FALSE(Service->IsAssetOpen(OpenB.Target.AssetPath));
+		EXPECT_EQ(EHostStartupState::Failed, Host->GetStartupCompletion(CompletionError));
+		EXPECT_NE(std::string::npos, CompletionError.find("closed before its first presentation"));
 	}
 
 	TEST_F(FAssetEditorSessionTests, DefaultPanelFactoriesAreOptionalForGraphOnlySessions)

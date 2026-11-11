@@ -455,7 +455,7 @@ TEST_F(FGameStartupTests, CanceledOrLostInitialMapCannotBecomeReady)
 {
 	using namespace Durin;
 	FGameEngineTestAccess::AwaitStartupScene(*Engine);
-	ASSERT_TRUE(Engine->PrepareMapChange({}));
+	ASSERT_TRUE(Engine->OpenLevel(FMapChangeRequest{}));
 	Engine->CancelPendingMapChange();
 	Engine->AdvanceStartup();
 	EXPECT_EQ(Engine->GetStartupState(), EHostStartupState::Failed);

@@ -408,7 +408,7 @@ namespace
 	TEST_F(FEditorSubsystemTests, AddsAndRemovesInstancesWithoutRetiringTheActiveEditor)
 	{
 		auto* First = NewHost();
-		FEditorEngineTestAccess::SetStartupPhase(*First, EditorStartup::EBootstrapState::Ready);
+		FEditorEngineTestAccess::SetStartupState(*First, EHostStartupState::Ready);
 		ASSERT_TRUE(First->GetCapabilities().bTick);
 		auto* Tools = First->GetEditorSubsystem<DEditorToolSubsystem>();
 		auto Registration = RegisterA();
@@ -900,10 +900,9 @@ namespace
 			EXPECT_NE(nullptr, Host->GetEditorSubsystem<FDynamicEditorA>());
 		};
 		auto* Previous = FEditorEngineTestAccess::BindMainFrameModule(*Host, &Frame);
-		FEditorEngineTestAccess::SetStartupPhase(*Host, EditorStartup::EBootstrapState::LoadingWorkspace);
-		Host->AdvanceStartup();
+		EXPECT_TRUE(FEditorEngineTestAccess::InitializeWorkspaces(*Host));
 		EXPECT_EQ((std::vector<std::string>{"module", "service", "workspace"}), Events);
-		EXPECT_EQ(EditorStartup::EBootstrapState::Ready, Host->GetStartupPhase());
+		EXPECT_EQ(EHostStartupState::Ready, Host->GetStartupState());
 		FEditorEngineTestAccess::BindMainFrameModule(*Host, Previous);
 		EXPECT_TRUE(FModuleManager::Get().UnloadModule(Name));
 	}
@@ -915,17 +914,13 @@ namespace
 		Frame.CreateWorkspace = [] { ADD_FAILURE() << "Failed providers must not expose workspace consumers."; };
 		Frame.LoadModules = [] { return false; };
 		auto* Previous = FEditorEngineTestAccess::BindMainFrameModule(*Host, &Frame);
-		FEditorEngineTestAccess::SetStartupPhase(*Host, EditorStartup::EBootstrapState::LoadingWorkspace);
-		Host->AdvanceStartup();
-		EXPECT_EQ(EHostStartupState::Failed, Host->GetStartupState());
+		EXPECT_FALSE(FEditorEngineTestAccess::InitializeWorkspaces(*Host));
 		EXPECT_EQ("Could not load the editor workspace modules.", Host->GetStartupError());
 
 		auto Registration = RegisterA();
 		FDynamicEditorA::Init = [](auto&) { throw std::runtime_error("workspace service failed"); };
 		Frame.LoadModules = [] { return true; };
-		FEditorEngineTestAccess::SetStartupPhase(*Host, EditorStartup::EBootstrapState::LoadingWorkspace);
-		EXPECT_THROW(Host->AdvanceStartup(), std::runtime_error);
-		EXPECT_EQ(EditorStartup::EBootstrapState::LoadingWorkspace, Host->GetStartupPhase());
+		EXPECT_THROW(FEditorEngineTestAccess::InitializeWorkspaces(*Host), std::runtime_error);
 		EXPECT_TRUE(Host->GetStartupError().empty());
 		EXPECT_EQ(nullptr, Host->GetEditorSubsystem<FDynamicEditorA>());
 		FEditorEngineTestAccess::BindMainFrameModule(*Host, Previous);

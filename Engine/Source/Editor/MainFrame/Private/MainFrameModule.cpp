@@ -54,7 +54,6 @@
 
 namespace Durin::MainFrame
 {
-	using namespace EditorStartup;
 
 	struct FMainFrameContext
 	{
@@ -439,7 +438,7 @@ namespace Durin::MainFrame
 			if (bExit) Context.RootWindow->RequestDestroyWindow();
 		}
 
-		auto DrawLoadingState(const DEditorEngine& Editor) -> void
+		auto DrawLoadingState() -> void
 		{
 			ImGuiViewport* Viewport = ImGui::GetMainViewport();
 			ImGui::SetNextWindowPos(Viewport->WorkPos);
@@ -452,8 +451,6 @@ namespace Durin::MainFrame
 				| ImGuiWindowFlags_NoNavFocus;
 			ImGui::Begin("###Durin.Editor.LoadingHost", nullptr, Flags);
 			const char* Message = "Loading project workspace...";
-			if (Editor.GetStartupPhase() == EBootstrapState::InitializingProject)
-				Message = "Initializing project...";
 			FSlowTaskSnapshot Feedback{.Title = "Starting editor...", .Message = Message};
 			const ImVec2 ContentOrigin = ImGui::GetCursorPos();
 			const ImVec2 Available = ImGui::GetContentRegionAvail();
@@ -1268,7 +1265,7 @@ namespace Durin
 					return;
 				}
 				if (Context->bProjectBrowserOpen || !Context->bHasProject
-					|| Editor->GetStartupPhase() == EBootstrapState::Failed)
+					|| Editor->GetStartupState() == EHostStartupState::Failed)
 				{
 					Context->ProjectBrowser->Draw(
 						BrandTexture, bReadyWorkspace && Context->bProjectBrowserOpen, Editor->GetStartupError());
@@ -1276,7 +1273,7 @@ namespace Durin
 					DrawExitConfirmation(*Context);
 					return;
 				}
-				DrawLoadingState(*Editor);
+				DrawLoadingState();
 				Context->SlowTaskDialogs.Draw(FFeedbackContext::Get());
 				DrawExitConfirmation(*Context);
 			});

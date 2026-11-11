@@ -40,7 +40,7 @@ namespace Durin
 		std::shared_ptr<FStreamableHandle> Assets, Preload;
 		TStrongObjectPtr<DWorld> World;
 		FScenePtr Scene;
-		bool bAdvancing = false, bCancelRequested = false, bCommitRequested = false;
+		bool bAdvancing = false, bCancelRequested = false;
 		std::optional<DClass*> GameMode;
 		std::function<bool(DLevel&)> BeforeCommit;
 		std::function<void(const FMapChangeProgress&)> OnComplete;

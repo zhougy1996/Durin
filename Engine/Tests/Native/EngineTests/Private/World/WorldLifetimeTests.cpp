@@ -807,24 +807,21 @@ TEST(FWorldTests, CanceledMapChangePreservesTheActiveWorldAndCompletesAtTheFrame
 	FSoftObjectPath Path;
 	ASSERT_TRUE(FSoftObjectPath::TryCreate("/SceneCancellation/Candidate.Candidate", Path));
 	int Completions = 0;
-	ASSERT_TRUE(Host->PrepareMapChange({.Path = Path,
+	ASSERT_TRUE(Host->OpenLevel({.Path = Path,
 		.OnComplete = [&](const FMapChangeProgress& Progress) {
 			++Completions;
 			EXPECT_EQ(Progress.Phase, EMapChangePhase::Canceled);
 			EXPECT_FALSE(Host->IsPreparingMapChange());
 		}}));
-	EXPECT_FALSE(Host->PrepareMapChange({.Path = Path}));
+	EXPECT_FALSE(Host->OpenLevel({.Path = Path}));
 	EXPECT_FALSE(Host->OpenLevel(Path));
 	EXPECT_TRUE(Host->IsPreparingMapChange());
-	EXPECT_FALSE(Host->IsMapChangeReady());
 	EXPECT_EQ(Host->GetMapChangeProgress()->Phase, EMapChangePhase::LoadingAssets);
-	EXPECT_TRUE(Host->CommitMapChange()); // Only schedules work; never commits inline.
 	EXPECT_EQ(Host->GetWorld(), Previous);
 	Host->CancelPendingMapChange();
 	Host->CancelPendingMapChange();
 	EXPECT_EQ(Completions, 0);
 	EXPECT_EQ(Host->GetMapChangeProgress()->Phase, EMapChangePhase::Canceled);
-	EXPECT_FALSE(Host->CommitMapChange());
 	FMapChangeTestAccess::Tick(*Host);
 	FMapChangeTestAccess::Tick(*Host);
 	EXPECT_EQ(Completions, 1);
@@ -837,9 +834,8 @@ TEST(FWorldTests, CanceledMapChangePreservesTheActiveWorldAndCompletesAtTheFrame
 	EXPECT_EQ(Completed->Phase, EMapChangePhase::Canceled);
 	EXPECT_EQ(Host->GetMapChangeProgress()->ElapsedSeconds, Completed->ElapsedSeconds);
 	Host->PreExit();
-	EXPECT_FALSE(Host->PrepareMapChange({.Path = Path}));
+	EXPECT_FALSE(Host->OpenLevel({.Path = Path}));
 	EXPECT_FALSE(Host->OpenLevel(Path));
-	EXPECT_FALSE(Host->CommitMapChange());
 	auto* Retired = Host.Get();
 	Host.Reset();
 	MarkObjectHierarchyAsGarbage(Retired);
@@ -862,7 +858,7 @@ TEST(FWorldTests, MapChangeCompletionCanStartAnotherChangeWithoutOverwritingItsP
 	ASSERT_TRUE(Host->OpenLevel({.Path = Path, .OnComplete = [&](const FMapChangeProgress& Progress) {
 		++Completions;
 		EXPECT_EQ(Progress.Id, FirstId);
-		EXPECT_TRUE(Host->PrepareMapChange({.Path = Path}));
+		EXPECT_TRUE(Host->OpenLevel({.Path = Path}));
 		EXPECT_NE(Host->GetMapChangeProgress()->Id, Progress.Id);
 		throw std::runtime_error("Completion failure after starting another map change");
 	}}));
@@ -938,7 +934,15 @@ TEST(FWorldTests, MapChangeCommitsWithoutAViewportOrWaitingForComponentPSOs)
 	Component->SetStaticMesh(Mesh);
 	const auto Request = FMaterialPSOPrecacheRequestID::Rejected("Required pipeline failed");
 	Component->SetMaterialPSOPrecacheData({Request});
-	ASSERT_TRUE(Host->PrepareMapChange({.Path = Testing::MakePackageLeafAssetObjectPathForTests(PackagePath),
+	ASSERT_TRUE(Host->OpenLevel({.Path = Testing::MakePackageLeafAssetObjectPathForTests(PackagePath),
+		.BeforeCommit = [&](DLevel&) {
+			EXPECT_TRUE(Component->IsRegistered());
+			EXPECT_FALSE(Component->IsPSOPrecacheReadyForProxyCreation());
+			EXPECT_EQ(Host->GetWorld(), Previous);
+			EXPECT_EQ(Completions, 0);
+			EXPECT_EQ(Renderer.RenderCalls, 0);
+			return true;
+		},
 		.OnComplete = [&](const FMapChangeProgress& Progress) {
 			++Completions;
 			EXPECT_EQ(Progress.Phase, EMapChangePhase::Committed);
@@ -949,20 +953,11 @@ TEST(FWorldTests, MapChangeCommitsWithoutAViewportOrWaitingForComponentPSOs)
 		ProcessAsyncLoading();
 	}
 	ASSERT_EQ(Host->GetMapChangeProgress()->Phase, EMapChangePhase::RegisteringWorld);
-	for (int Frame = 0; Frame < 12 && !Host->IsMapChangeReady(); ++Frame)
+	for (int Frame = 0; Frame < 12 && Completions == 0; ++Frame)
 	{
 		FMapChangeTestAccess::Tick(*Host);
 		ProcessAsyncLoading();
 	}
-	ASSERT_TRUE(Host->IsMapChangeReady());
-	EXPECT_TRUE(Component->IsRegistered());
-	EXPECT_FALSE(Component->IsPSOPrecacheReadyForProxyCreation());
-	EXPECT_EQ(Host->GetWorld(), Previous);
-	EXPECT_EQ(Completions, 0);
-	EXPECT_EQ(Renderer.RenderCalls, 0);
-	ASSERT_TRUE(Host->CommitMapChange());
-	EXPECT_EQ(Host->GetWorld(), Previous);
-	FMapChangeTestAccess::Tick(*Host);
 	EXPECT_EQ(Completions, 1);
 	EXPECT_FALSE(Host->IsPreparingMapChange());
 	EXPECT_NE(Host->GetWorld(), Previous);
@@ -1012,7 +1007,7 @@ TEST(FWorldTests, PrimaryMapPreloadTransfersRetentionToTheWorld)
 	struct FRestore { DEngine* Previous; ~FRestore() { GEngine = Previous; } } Restore{PreviousEngine};
 	Host->SetWorld(CreateWorld(Host.Get(), EWorldType::Editor));
 	int Completions = 0;
-	ASSERT_TRUE(Host->PrepareMapChange({.Path = Testing::MakePackageLeafAssetObjectPathForTests(PackagePath), .Preload = Preload,
+	ASSERT_TRUE(Host->OpenLevel({.Path = Testing::MakePackageLeafAssetObjectPathForTests(PackagePath), .Preload = Preload,
 		.OnComplete = [&](const FMapChangeProgress& Progress) {
 			++Completions;
 			EXPECT_EQ(Progress.Phase, EMapChangePhase::Committed);
@@ -1022,13 +1017,11 @@ TEST(FWorldTests, PrimaryMapPreloadTransfersRetentionToTheWorld)
 	FMapChangeTestAccess::Tick(*Host);
 	EXPECT_EQ(Host->GetMapChangeProgress()->Phase, EMapChangePhase::LoadingAssets);
 	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-	while (!Host->IsMapChangeReady() && std::chrono::steady_clock::now() < Deadline)
+	while (Completions == 0 && std::chrono::steady_clock::now() < Deadline)
 	{
 		ProcessAsyncLoading(10, 100); FMapChangeTestAccess::Tick(*Host);
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
 	}
-	ASSERT_TRUE(Host->IsMapChangeReady());
-	ASSERT_TRUE(Host->CommitMapChange()); FMapChangeTestAccess::Tick(*Host);
 	ASSERT_EQ(Completions, 1);
 	EXPECT_EQ(Manager->GetPrimaryAssetObject(Primary), Level);
 	ASSERT_TRUE(Manager->UnloadPrimaryAsset(Primary));

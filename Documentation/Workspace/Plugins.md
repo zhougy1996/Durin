@@ -91,9 +91,9 @@ existing startup sequence; it does not add another readiness state machine.
 
 | Phase | Editor insertion point | Game insertion point |
 | --- | --- | --- |
-| Providers | AdvanceStartup, InitializingProject, before project roots and InitializeProjectContent | StartGame, before project roots and native gameplay settings resolution |
-| EngineReady | InitializingProject, after provider/project registration and before InitializeProjectContent | StartGame, after provider/project registration and before InitializeProjectContent |
-| EditorReady | LoadingWorkspace, after LoadWorkspaceModules, before AddRegisteredEditorSubsystems/InitializeWorkspaces | Not admitted |
+| Providers | Synchronous editor Init, before project roots and InitializeProjectContent | StartGame, before project roots and native gameplay settings resolution |
+| EngineReady | Synchronous editor Init, after provider/project registration and before InitializeProjectContent | StartGame, after provider/project registration and before InitializeProjectContent |
+| EditorReady | Synchronous workspace initialization, after LoadWorkspaceModules, before AddRegisteredEditorSubsystems/InitializeWorkspaces | Not admitted |
 
 Engine services already exist at these host admission points. Modules supplying
 types/subsystems needed earlier must choose Providers. Consumers cannot depend

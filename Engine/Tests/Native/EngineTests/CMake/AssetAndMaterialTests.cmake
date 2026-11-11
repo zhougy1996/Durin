@@ -92,6 +92,10 @@ durin_add_native_test(EditorOperationTests
 	DOMAINS editor-operation tools
 	MODULES asset-tools durin-ed mona
 	STACKS editor
+	PRIVATE_SOURCE_OWNER DurinEd
+	PRIVATE_SOURCE_RATIONALE "Exercises synchronous initialization through its owning module without exporting private startup controls."
+	PRIVATE_SOURCES
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/DurinEd/Private/Editor/EditorInitialization.cpp
 	SOURCES
 		Private/Editor/AssetDefinitionTests.cpp
 		Private/Editor/AssetEditorSessionTests.cpp

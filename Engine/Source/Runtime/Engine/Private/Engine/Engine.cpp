@@ -553,7 +553,7 @@ namespace Durin
 		});
 	}
 
-	auto DEngine::PrepareMapChange(FMapChangeRequest Request) -> bool
+	auto DEngine::OpenLevel(FMapChangeRequest Request) -> bool
 	{
 		CheckGameThread();
 		if (bShutdownRequested || MapChange) return false;
@@ -561,21 +561,9 @@ namespace Durin
 		MapChange.reset(new FMapChangeHandler(*this, std::move(Request)));
 		return true;
 	}
-	auto DEngine::OpenLevel(FMapChangeRequest Request) -> bool
-	{
-		return PrepareMapChange(std::move(Request)) && CommitMapChange();
-	}
 	auto DEngine::OpenLevel(const FSoftObjectPath& Path) -> bool
 	{
 		return OpenLevel(FMapChangeRequest{.Path = Path});
-	}
-	auto DEngine::CommitMapChange() -> bool
-	{
-		CheckGameThread();
-		if (bShutdownRequested || !MapChange) return false;
-		if (IsMapChangeComplete(MapChange->Phase)) return false;
-		MapChange->bCommitRequested = true;
-		return true;
 	}
 	auto DEngine::CancelPendingMapChange() -> void
 	{
@@ -583,11 +571,6 @@ namespace Durin
 		if (MapChange) MapChange->Cancel();
 	}
 	auto DEngine::IsPreparingMapChange() const -> bool { return MapChange != nullptr; }
-	auto DEngine::IsMapChangeReady() const -> bool
-	{
-		CheckGameThread();
-		return MapChange && MapChange->Phase == EMapChangePhase::Ready;
-	}
 	auto DEngine::GetMapChangeProgress() const -> std::optional<FMapChangeProgress>
 	{
 		CheckGameThread();

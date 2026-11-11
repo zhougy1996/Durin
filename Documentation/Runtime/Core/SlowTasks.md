@@ -76,8 +76,8 @@ overload obtains the eligible snapshot and forwards cancellation to that context
 MainFrame continues to observe the default owner-thread context for generic slow
 tasks on ordinary UI frames.
 
-MainFrame projects service-bootstrap state into an embedded snapshot without
-timing data. Once workspaces are ready, the Level document controller projects
+Editor service/workspace initialization is synchronous and does not own a
+per-frame progress state machine. Once Ready, the Level document controller projects
 `GetMapChangeProgress()` into a modal snapshot for both default-Level and later
 document opens. Cancel calls `CancelPendingMapChange()`; ordinary owner frames
 still process its terminal result and publish deferred document completion.

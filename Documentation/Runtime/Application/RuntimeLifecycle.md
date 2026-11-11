@@ -144,11 +144,13 @@ Host-specific startup then lives in the concrete engine overrides.
 Concrete engine initialization returns `bool` for service construction and logs
 errors where they occur. Launch supplies an `FEngineInitContext` with the primary
 startup window and any initial project-admission error. Host startup readiness is
-separate: `GetStartupState()` reports Pending, Ready, or Failed, and the ordinary
-frame loop calls `AdvanceStartup()` outside simulation and UI callbacks. Editor
-stores only its bootstrap phase and derives host readiness from it. Service-only
-Editor hosts begin in Ready; production `Init()` enters InitializingProject.
-The remaining bootstrap phases are LoadingWorkspace, Ready, and Failed.
+separate: `GetStartupState()` reports Pending, Ready, or Failed. Editor performs
+project and workspace initialization synchronously inside `Init()` and publishes
+its terminal service outcome before returning. It has no bootstrap-phase enum
+or per-frame startup override. Service-only fixtures begin in Ready. Game retains
+its ordinary-frame `AdvanceStartup()` for queued project startup and scene
+presentation. Both hosts observe callback-driven shutdown before admitting later
+initialization work.
 `GetCapabilities()` derives normal-tick, tool, World-editing and workspace-display
 admission from service readiness and the current shutdown, map-change and Play
 facts. Presentation receipts do not gate editor capabilities. Map changes keep normal frame services available but close
@@ -185,8 +187,10 @@ submit no document request.
 
 Automation has a separate `GetStartupCompletion(OutError)` observation boundary.
 Editor completion refreshes the submitted ordinary request through
-`DAssetEditorSubsystem::ResolveOpenResult`, which detects failed, canceled, retired
-requests and closed documents without advancing work. It then requires the active
+`DAssetEditorSubsystem::ResolveOpenResult`, which observes failed, canceled or
+retired requests without advancing work. A completed outcome stays completed
+when its document closes. Editor automation separately checks `IsAssetOpen` before
+accepting the initial document, then requires the active
 scene's actual primary-window presentation. `FSceneViewport::QueryPresentation()`
 validates scene generation and render outcome, then delegates current-window
 receipt matching to Mona. An auxiliary viewport, old generation, or replaced or
@@ -222,23 +226,24 @@ default-level configuration completes without a map request. Shutdown and proces
 exit stop advancement without reporting readiness or capturing input; an existing
 exit request takes precedence when the process runner selects a startup result.
 
-`DEditorEngine::Init()` constructs MainFrame and returns with Pending service
-readiness. `AdvanceStartup()` initializes project services and workspaces through
-ordinary frames, without waiting for a shell frame. Editor loads
-`AssetForgeBuiltins` and project roots before its atomic catalog scan so concrete
-import-data and project classes are registered. Preview meshes are retained on
-demand. Project Browser skips project and workspace loading. The same normal
-frame loop handles events, completions, document loading, rendering and GC.
-Pending or failed service initialization closes tools and simulation; ordinary
-map-change admission handles the default document once services become Ready.
+`DEditorEngine::Init()` constructs MainFrame, initializes project services and
+workspaces in one synchronous operation, and publishes Ready or Failed service
+readiness. Its bool still reports host construction: expected project/workspace
+failures preserve the interactive error/browser UI. Editor loads
+`AssetForgeBuiltins` and project roots before the atomic catalog scan, then
+reconciles subsystems before creating workspace consumers. Project Browser skips
+project and workspace loading. Once Ready, Editor submits the ordinary optional
+default-document request; its loading remains asynchronous in the normal frame
+loop. Presentation does not gate service initialization.
 
 Editor default/open-Level and authored/cooked Game loading share Engine-owned
-map changes. `OpenLevel(FMapChangeRequest)` prepares and schedules activation;
-ordinary callers do not own a loading operation or poll to commit it.
-`PrepareMapChange`, `IsPreparingMapChange`, `IsMapChangeReady`,
-`CommitMapChange`, and `CancelPendingMapChange` support explicit staged control.
-Only one change can be pending per Engine. Closed admission or an already pending
-change rejects a new request without changing the existing progress.
+map changes. `OpenLevel(FMapChangeRequest)` is the only admission boundary. It
+accepts one operation, and the owner frame automatically prepares and publishes
+it after successful registration and the optional `BeforeCommit` veto. Callers
+can observe `GetMapChangeProgress` and cancel through `CancelPendingMapChange`;
+there is no public Prepare/Commit/readiness-polling protocol or commit-request
+flag. Closed admission or an already pending change rejects a new request
+without changing existing progress. Opening never publishes a World inline.
 
 The private `FMapChangeHandler` retains the asynchronous asset handle and
 initializes an isolated World/Scene. Resources own preparation, publication and
@@ -256,8 +261,7 @@ creates the proxy. Failed required requests keep that component withheld and
 diagnosable without failing or rolling back the map change.
 View-dependent renderer preparation runs through the committed viewport, and
 Game startup and editor automation still wait for its actual presentation receipt.
-`CommitMapChange` accepts a request for activation once ready; it never replaces
-the World inline. Failure or cancellation retires the candidate and preserves
+Failure or cancellation retires the candidate and preserves
 the old document.
 
 Requests may supply a `BeforeCommit` veto and an `OnComplete` notification.

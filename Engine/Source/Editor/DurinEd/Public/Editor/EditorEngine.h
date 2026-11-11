@@ -4,6 +4,7 @@
 
 #include "DurinEdAPI.h"
 #include "Engine/Engine.h"
+#include "Engine/HostStartup.h"
 #include "Editor/EditorSubsystem.h"
 #include "Editor/EditorStartup.h"
 #include "AssetDefinition/AssetOpenTypes.h"
@@ -102,9 +103,7 @@ namespace Durin
 		DURINED_API auto Init(const FEngineInitContext& Context)
 			-> bool override;
 		DURINED_API auto Tick(float DeltaSeconds, bool bIdleMode) -> void override;
-		DURINED_API auto AdvanceStartup() -> void override;
-		auto GetStartupState() const -> EHostStartupState override { return EditorStartup::GetBootstrapStepStatus(StartupPhase); }
-		auto GetStartupPhase() const -> EditorStartup::EBootstrapState { return StartupPhase; }
+		auto GetStartupState() const -> EHostStartupState override { return StartupState; }
 		DURINED_API auto GetStartupCompletion(std::string& OutError) const -> EHostStartupState override;
 		DURINED_API auto GetCapabilities() const -> FEditorCapabilities;
 		auto GetStartupError() const -> const std::string& override { return StartupError; }
@@ -173,6 +172,8 @@ namespace Durin
 		DURINED_API auto InitializePlayWindowViewportClient(
 			const FViewportClient* SourceClient) -> void;
 
+		auto InitializeProjectWorkspace() -> bool;
+		auto InitializeWorkspaces() -> bool;
 		auto OpenDefaultLevel() -> void;
 		auto InitEditorInternal(const FEngineInitContext& Context) -> bool;
 		DURINED_API auto RequestSubsystemDeinitialization() -> void override;
@@ -182,7 +183,7 @@ namespace Durin
 		std::string StartupError;
 		std::optional<FAssetOpenItemResult> InitialDocumentRequest;
 		// Service-only hosts are usable without a shell; Init starts the production bootstrap.
-		EditorStartup::EBootstrapState StartupPhase = EditorStartup::EBootstrapState::Ready;
+		EHostStartupState StartupState = EHostStartupState::Ready;
 	protected:
 		DURINED_API auto InitializeEditorSubsystems() -> void;
 	private:

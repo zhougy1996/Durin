@@ -38,10 +38,12 @@ text; `bIsRestore` explicitly identifies restore operations.
 
 Pending definition work registers an identity and cancellation callback with
 `BeginOpenRequest`. `GetOpenRequest` observes stored completion.
-`ResolveOpenResult` refreshes an original Pending snapshot and validates completed
-asset/document association without mutating the submitted snapshot, focusing UI,
-or advancing loading. A retired request or closed document returns a failed
-observation; cancellation preserves its original status and diagnostic.
+`ResolveOpenResult` refreshes an original Pending snapshot without mutating it,
+focusing UI, or advancing loading. A retired request returns a failed observation;
+cancellation preserves its original status and diagnostic. Completed history
+remains Completed after the document closes. `IsAssetOpen` independently queries
+current document association by asset path. Automation may require both successful
+opening and a still-open document, without redefining the request outcome.
 Cancellation refusal
 keeps work/provider retention intact, and late completion is rejected. Deferred document candidates link to the same request identity. Publication
 updates asset associations before finishing the request; a failed/cancelled
