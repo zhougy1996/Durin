@@ -102,7 +102,9 @@ startup; the engine does not expose a partially initialized task system.
 `FEngineLoop::Init()` handles common runtime startup, including
 `ApplicationCore`, the platform half of `Mona`, the initially hidden primary window,
 `RHI`, the rendering thread, Mona rendering, and `GEngine`. Launch creates the
-final primary `MWindow` and its native window before `RHIInit()`, then passes an
+final primary `MWindow` and its native window before `RHIInit()`. Launch retains
+that window only during initialization; Mona and the concrete host own its running
+lifetime and ordinary shutdown. Launch then passes an
 explicit presentation `FRHIInitializationContext` containing the native handle.
 Vulkan creates and owns a startup presentation candidate before device
 selection. Launch carries one explicit adoption intent into Mona rendering, and
@@ -192,9 +194,10 @@ removed window mapping cannot satisfy it. Without a scene, automation observes
 Mona's read-only current-window first-presentation check. Service-only fixtures
 remain service-ready but must supply presentation endpoints for automation
 completion, just like production hosts. Game retains its presentation-based host readiness.
-The process runner latches successful automation startup before dispatching
-startup commands or counting automated ticks, so later ordinary document changes
-do not reenter the initial presentation gate. None of these checks read profiling.
+The process runner records a baseline in the EngineLoop running-tick counter
+once automation startup completes. Tick counts are derived from that baseline;
+there is no second advancing counter or separate completion flag. Later ordinary
+document changes do not reenter the initial presentation gate. None of these checks read profiling.
 
 `DEngine::Init()` constructs minimum runtime/renderer services without admitting
 project content or creating the initial World. After schema providers are active,
@@ -259,7 +262,10 @@ the old document.
 
 Requests may supply a `BeforeCommit` veto and an `OnComplete` notification.
 Editor document/transaction and viewport coordination uses these callbacks rather
-than a separate polling state machine.
+than a separate polling state machine. The Level document controller keeps one
+pending action and one path for either Level opening or project switching. A
+terminal completion consumes that action and clears the path before notifying
+the document owner; there is no additional pending-document flag.
 Callbacks run on GameThread under the host lifecycle/GC guard. Completion is
 delivered once at an ordinary frame boundary after releasing the Handler; it
 may start another change. Host shutdown discards callbacks before retiring their

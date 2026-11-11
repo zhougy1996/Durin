@@ -13,10 +13,19 @@
 #include "Engine/World.h"
 #include "Engine/Level.h"
 #include "Engine/MapChange.h"
+#include "Asset/PackageSerialization.h"
+#include "DObject/Package.h"
+#include "Misc/MountPathTestSupport.h"
+#include "NativeTestSupport.h"
 #include <gtest/gtest.h>
 
 namespace Durin
 {
+	struct FMapChangeTestAccess
+	{
+		static auto Tick(DEngine& Engine) -> void { Engine.TickMapChange(); }
+	};
+
 	// Headless presentation adapter records ownership without allocating an RHI viewport.
 	class FLevelSessionTestEngine : public DEditorEngine
 	{
@@ -34,6 +43,72 @@ namespace Durin
 namespace
 {
 	using namespace Durin;
+	TEST(FLevelAssetEditorTests, CancelingConfirmationOrLoadingCompletesOnceAndAllowsAnotherOpen)
+	{
+		Testing::InitializeAssetSystemForTests();
+		Testing::FScopedMountRegistryFixture Mounts;
+		const auto Root = Testing::CreateTestFixtureDirectory("LevelOpenCancellation");
+		Testing::RegisterMountPointForTests("/LevelOpenCancellation/", Root.generic_string() + "/");
+		auto& Module = FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
+		for (const bool bUnsavedConfirmation : {false, true})
+		{
+			SCOPED_TRACE(bUnsavedConfirmation);
+			TStrongObjectPtr<DEditorEngine> Host(NewObject<FLevelSessionTestEngine>(nullptr, {}));
+			ASSERT_NO_THROW(FEditorEngineTestAccess::StartEditor(*Host));
+			FPackagePath Path;
+			ASSERT_TRUE(FPackagePath::TryCreate(bUnsavedConfirmation ? "/LevelOpenCancellation/Unsaved" : "/LevelOpenCancellation/Loading", Path));
+			DLevel* Level = nullptr;
+			ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Level));
+			TStrongObjectPtr<DPackage> Package(Level->GetPackage());
+			struct FRelease
+			{
+				FLevelEditorModule& Module; DEditorEngine& Host; DPackage& Package;
+				~FRelease()
+				{
+					Package.ClearDirty();
+					if (auto* Service = Host.GetEditorSubsystem<DAssetEditorSubsystem>()) Module.ReleaseLevelEditor(*Service);
+					Host.PreExit();
+					MarkObjectHierarchyAsGarbage(&Host);
+					MarkObjectHierarchyAsGarbage(&Package);
+				}
+			} Release{Module, *Host, *Package};
+			ASSERT_TRUE(SavePackage(Package.Get()));
+			auto* World = NewObject<DWorld>(Host.Get(), "CancellationWorld");
+			World->SetWorldType(EWorldType::Editor);
+			World->InitializeSubsystems();
+			if (bUnsavedConfirmation)
+			{
+				ASSERT_TRUE(World->SetCurrentLevel(Level));
+				Package->MarkDirty();
+			}
+			FEditorEngineTestAccess::SetEditorWorld(*Host, World);
+			auto* Service = Host->GetEditorSubsystem<DAssetEditorSubsystem>();
+			ASSERT_TRUE(Module.InitializeLevelEditor(*Service, {}, [] {}));
+			FSoftObjectPath AssetPath;
+			ASSERT_TRUE(FSoftObjectPath::TryCreate(Level->GetObjectPath(), AssetPath));
+			int Completions = 0;
+			auto Subscription = Service->Subscribe([&](const FAssetEditorEvent& Event) {
+				if (Event.Type == EAssetEditorEvent::RequestFinished) ++Completions;
+			});
+			for (int OpenIndex = 0; OpenIndex != 2; ++OpenIndex)
+			{
+				const auto Opened = Service->OpenAssets({.AssetEditors = Service,
+					.Assets = {{AssetPath, DLevel::StaticClass()->GetQualifiedName().ToString()}}});
+				ASSERT_EQ(1u, Opened.Items.size());
+				const auto Request = Opened.Items.front();
+				ASSERT_EQ(EAssetOpenStatus::Pending, Request.Status) << Request.Message;
+				EXPECT_EQ(!bUnsavedConfirmation, Host->IsPreparingMapChange());
+				(void)Service->CancelOpenRequest(Request.RequestId);
+				FMapChangeTestAccess::Tick(*Host);
+				EXPECT_EQ(EAssetOpenStatus::Cancelled, Service->ResolveOpenResult(Request).Status);
+				EXPECT_EQ(OpenIndex + 1, Completions);
+				FMapChangeTestAccess::Tick(*Host);
+				EXPECT_EQ(OpenIndex + 1, Completions);
+				EXPECT_FALSE(Host->IsPreparingMapChange());
+			}
+		}
+	}
+
 	TEST(FLevelAssetEditorTests, SuccessiveEditorLifetimesOwnLevelSessionsAndRejectViewAndRestore)
 	{
 		Testing::InitializeDObjectSystemForTests();

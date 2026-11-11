@@ -7,8 +7,6 @@
 
 namespace Durin
 {
-	class MWindow;
-
 	// Identifies how far process-wide engine ownership has advanced.
 	enum class EEngineLoopState : uint8
 	{
@@ -53,7 +51,6 @@ namespace Durin
 		uint64 CompletedRunningTicks = 0;
 		EEngineLoopState State = EEngineLoopState::Uninitialized;
 		EInteractiveFrameState FrameState = EInteractiveFrameState::Idle;
-		std::shared_ptr<MWindow> StartupWindow;
 		bool bLoggerStarted = false;
 		bool bGameThreadDeferredExecutorStarted = false;
 		bool bInitializationCancelled = false;

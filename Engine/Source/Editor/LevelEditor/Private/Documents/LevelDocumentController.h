@@ -91,14 +91,12 @@ namespace Durin::LevelEditor
 		std::function<void(bool, bool, std::string)> CompleteDeferredOpen;
 		ELevelDocumentAction PendingAction = ELevelDocumentAction::None;
 		EQueuedPopup QueuedPopup = EQueuedPopup::None;
-		std::string PendingLevelPath;
-		std::string PendingProjectFile;
+		std::string PendingPath;
 		FUnsavedLevelDialogPresenter UnsavedLevelDialog;
 		FSlowTaskDialogPresenter LoadingDialog;
 		// Deferred completion must not borrow a controller after its document closes.
 		std::shared_ptr<void> CallbackLifetime = std::make_shared<uint8>(0);
 		TWeakObjectPtr<DPackage> DocumentPackage;
 		TWeakObjectPtr<DWorld> DocumentWorld;
-		bool bPendingDocumentOpen = false;
 	};
 } // namespace Durin::LevelEditor

@@ -215,7 +215,7 @@ namespace Durin
 			DURIN_ERROR("Engine initialization stopped because Mona platform services could not start.");
 			return false;
 		}
-		StartupWindow = std::make_shared<MWindow>();
+		const auto StartupWindow = std::make_shared<MWindow>();
 #if DURIN_WITH_EDITOR
 		StartupWindow->SetWindowDecorationMode(EWindowDecorationMode::CustomTitleBar);
 		StartupWindow->SetTitle(GetCurrentProject()
@@ -463,7 +463,6 @@ namespace Durin
 			MarkObjectHierarchyAsGarbage(GEngine);
 			GEngine = nullptr;
 		}
-		StartupWindow.reset();
 		if (IsDObjectInitialized())
 		{
 			ShutdownAssetRuntime();
