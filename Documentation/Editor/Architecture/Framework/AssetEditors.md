@@ -122,6 +122,13 @@ across session controllers. Request sequence prevents another session
 or a changed container order from retargeting an already visible prompt. Closing
 the last internal document retires its session on reconciliation.
 
+EditorEngine advances session reconciliation once per admitted editor Tick after
+the optional MainFrame update, including hosts with no window or World. It refreshes
+document state, continues pending closes and completes restore focus through the
+editor callback context. MainFrame only presents close confirmation; its result
+is reconciled on the next editor Tick. Shutdown requests stop subsequent session
+updates and service phases; owner-driven teardown remains after callbacks return.
+
 `IToolkitHost` owns presentation attachment, focus and close policy rather than
 asset ownership. `FNonWindowToolkitHost` supplies semantic standalone/world-centric
 modes for direct hosts; dirty or pending close prevents host retirement. MainFrame

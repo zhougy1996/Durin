@@ -36,7 +36,7 @@ namespace Durin
 
 	auto DTickableWorldSubsystem::GetTickableTickType() const -> ETickableTickType
 	{
-		return IsClassDefaultObject() || !bInitialized ? ETickableTickType::Never : ETickableTickType::Conditional;
+		return IsTemplateObject() || !bInitialized ? ETickableTickType::Never : ETickableTickType::Conditional;
 	}
 
 	auto DTickableWorldSubsystem::Tick(float) noexcept -> void

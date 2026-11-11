@@ -35,7 +35,8 @@ namespace Durin
 		auto RequestDeactivate() -> bool override { return Deactivate ? Deactivate() : bCanDeactivate; }
 		auto RequestCloseDocument(const FEditorDocument& Document) -> EDocumentCloseResult override
 		{ return IsDocumentDirty(Document) ? EDocumentCloseResult::PendingConfirmation : EDocumentCloseResult::Closed; }
-		auto OnIsDocumentDirty(const FEditorDocument& Document) const -> bool override { return bDirty || DirtyDocuments.contains(Document.Id.Value); }
+		auto OnIsDocumentDirty(const FEditorDocument& Document) const -> bool override
+		{ if (DirtyQuery) DirtyQuery(); return bDirty || DirtyDocuments.contains(Document.Id.Value); }
 		auto OnSaveDocument(const FEditorDocument& Document) -> bool override
 		{ if (!bSaveSucceeds) return false; bDirty = false; DirtyDocuments.erase(Document.Id.Value); return true; }
 		auto OnDiscardDocument(const FEditorDocument& Document) -> bool override { bDirty = false; DirtyDocuments.erase(Document.Id.Value); return true; }
@@ -50,6 +51,7 @@ namespace Durin
 		bool bCanDeactivate = true;
 		std::function<bool()> Deactivate;
 		std::function<bool()> Drawing;
+		std::function<void()> DirtyQuery;
 		int Saves = 0;
 		int Undos = 0;
 		FAssetEditorToolkitId Type{"SessionTest"};
@@ -137,6 +139,11 @@ namespace
 			return Service->OpenAssetEditor(FSessionTestEditor::StaticClass(), {
 				.OpenArgs = {.AssetEditors = Service, .OpenMethod = Method, .ToolkitMode = Mode, .Host = std::move(ToolkitHost)},
 				.Assets = std::move(Assets), .bPrimary = bPrimary, .InstanceKey = std::move(Role)});
+		}
+		auto TickHost() -> void
+		{
+			FEditorEngineTestAccess::SetStartupPhase(*Host, EditorStartup::EBootstrapState::Ready);
+			Host->Tick(0.0f, false);
 		}
 		std::unique_ptr<Testing::FScopedMountRegistryFixture> Mounts;
 		TStrongObjectPtr<DEditorEngine> Host;
@@ -338,16 +345,16 @@ namespace
 		auto* View = Service->FindAssetEditor(Object, EAssetOpenMethod::View, EToolkitMode::WorldCentric);
 		ASSERT_NE(nullptr, Edit); ASSERT_NE(nullptr, View);
 		ASSERT_TRUE(Service->ActivateAssetEditor(*Edit));
-		Service->TickAssetEditors();
+		TickHost();
 		EXPECT_EQ(Edit->GetToolkit(), Service->GetActiveAssetToolkit());
 		Standalone->Ready = World->Ready = true;
-		Service->TickAssetEditors();
+		TickHost();
 		EXPECT_EQ(View->GetToolkit(), Service->GetActiveAssetToolkit());
 		Standalone->Ready = World->Ready = false;
 		ASSERT_TRUE(Service->RestoreSessions(Entries).IsAccepted());
 		Edit->FocusWindow();
 		Standalone->Ready = World->Ready = true;
-		Service->TickAssetEditors();
+		TickHost();
 		EXPECT_EQ(Edit->GetToolkit(), Service->GetActiveAssetToolkit());
 	}
 
@@ -719,6 +726,58 @@ namespace
 		EXPECT_TRUE(Service->GetAllOpenEditors().empty());
 	}
 
+	TEST_F(FAssetEditorSessionTests, HeadlessEditorTickRefreshesDocumentsOnceAndRetiresEmptySessions)
+	{
+		auto* Session = Open({Asset("HeadlessRefresh")});
+		ASSERT_NE(nullptr, Session);
+		const auto Toolkit = std::dynamic_pointer_cast<FSessionTestToolkit>(Session->GetToolkit());
+		const auto Documents = Session->GetDocumentManager();
+		int Queries = 0;
+		Toolkit->DirtyQuery = [&] { ++Queries; };
+		Toolkit->bDirty = true;
+		TickHost();
+		EXPECT_EQ(1, Queries);
+		ASSERT_EQ(1u, Documents->GetDocuments().size());
+		EXPECT_TRUE(Documents->GetDocuments().front().bDirty);
+		Toolkit->bDirty = false;
+		TickHost();
+		EXPECT_EQ(2, Queries);
+		EXPECT_FALSE(Documents->GetDocuments().front().bDirty);
+		ASSERT_EQ(EDocumentCloseResult::Closed, Documents->RequestCloseDocument(Documents->GetDocuments().front().Id));
+		EXPECT_FALSE(Session->IsClosed());
+		TickHost();
+		EXPECT_TRUE(Session->IsClosed());
+		EXPECT_TRUE(Service->GetOwnedAssetEditors().empty());
+	}
+
+	TEST_F(FAssetEditorSessionTests, HeadlessRefreshShutdownStopsUpdatesUntilOwnerTeardown)
+	{
+		auto* First = Open({Asset("RefreshShutdown")});
+		auto* Later = Open({Asset("AfterRefreshShutdown")});
+		ASSERT_NE(nullptr, First); ASSERT_NE(nullptr, Later);
+		const auto Toolkit = std::dynamic_pointer_cast<FSessionTestToolkit>(First->GetToolkit());
+		const auto LaterToolkit = std::dynamic_pointer_cast<FSessionTestToolkit>(Later->GetToolkit());
+		int LaterQueries = 0;
+		LaterToolkit->DirtyQuery = [&] { ++LaterQueries; };
+		Toolkit->DirtyQuery = [&] {
+			Host->RequestShutdown();
+			Host->ForceGarbageCollection();
+			EXPECT_EQ(Service, Host->GetEditorSubsystem<DAssetEditorSubsystem>());
+			EXPECT_FALSE(First->IsClosed());
+		};
+		TickHost();
+		EXPECT_TRUE(Host->IsShutdownRequested());
+		EXPECT_TRUE(IsGarbageCollectionRequested());
+		EXPECT_EQ(0, LaterQueries);
+		EXPECT_EQ(Service, Host->GetEditorSubsystem<DAssetEditorSubsystem>());
+		EXPECT_FALSE(First->IsClosed());
+		Toolkit->DirtyQuery = {};
+		LaterToolkit->DirtyQuery = {};
+		Host->PreExit();
+		EXPECT_TRUE(First->IsClosed());
+		EXPECT_TRUE(Later->IsClosed());
+	}
+
 	TEST_F(FAssetEditorSessionTests, FailedSaveRetainsPendingCloseAndSessionUntilResolution)
 	{
 		auto* Session = Open({Asset("A")});
@@ -735,7 +794,7 @@ namespace
 		EXPECT_EQ(1u, Documents->GetDocuments().size());
 		Toolkit->bSaveSucceeds = true;
 		EXPECT_EQ(EDocumentCloseResult::Closed, Documents->ResolvePendingDocumentClose(EDocumentCloseResponse::Save));
-		Service->TickAssetEditors();
+		TickHost();
 		EXPECT_TRUE(Service->GetOwnedAssetEditors().empty());
 		EXPECT_TRUE(Service->GetAllOpenEditors().empty());
 	}
@@ -751,20 +810,20 @@ namespace
 		const auto Sequence = Documents->GetPendingCloseSequence();
 		Toolkit->bSaveSucceeds = false;
 		EXPECT_EQ(EDocumentCloseResult::PendingConfirmation, Documents->ResolvePendingDocumentClose(EDocumentCloseResponse::Save));
-		Service->TickAssetEditors();
+		TickHost();
 		EXPECT_EQ(Sequence, Documents->GetPendingCloseSequence());
 		Toolkit->bSaveSucceeds = true;
 		EXPECT_EQ(EDocumentCloseResult::Closed, Documents->ResolvePendingDocumentClose(EDocumentCloseResponse::Save));
-		Service->TickAssetEditors();
+		TickHost();
 		ASSERT_NE(nullptr, Documents->GetPendingCloseDocument());
 		EXPECT_EQ(1u, Documents->GetDocuments().size());
 		EXPECT_EQ(EDocumentCloseResult::Cancelled, Documents->ResolvePendingDocumentClose(EDocumentCloseResponse::Cancel));
-		Service->TickAssetEditors();
+		TickHost();
 		EXPECT_EQ(nullptr, Documents->GetPendingCloseDocument());
 		EXPECT_FALSE(Session->IsClosed());
 		EXPECT_FALSE(Session->CloseWindow(EAssetEditorCloseReason::CloseAllAssetEditors));
 		EXPECT_EQ(EDocumentCloseResult::Closed, Documents->ResolvePendingDocumentClose(EDocumentCloseResponse::Save));
-		Service->TickAssetEditors();
+		TickHost();
 		EXPECT_TRUE(Service->GetOwnedAssetEditors().empty());
 	}
 
@@ -819,7 +878,7 @@ namespace
 		EXPECT_FALSE(Session->IsClosed());
 		EXPECT_EQ(EDocumentCloseResult::Closed,
 			Session->GetDocumentManager()->ResolvePendingDocumentClose(EDocumentCloseResponse::Discard));
-		Service->TickAssetEditors();
+		TickHost();
 		EXPECT_TRUE(Service->GetToolkitManager().GetToolkits().empty());
 		EXPECT_TRUE(ToolkitHost->RequestClose());
 		EXPECT_FALSE(ToolkitHost->IsAvailable());

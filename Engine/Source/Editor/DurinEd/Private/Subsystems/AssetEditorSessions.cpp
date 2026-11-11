@@ -249,15 +249,20 @@ namespace Durin
 	auto DAssetEditorSubsystem::TickAssetEditors() -> void
 	{
 		if (!CanCall()) return;
-		for (const auto& Session : GetOwnedAssetEditors())
-		{
-			const auto Manager = Session->GetDocumentManager();
-			if (!Manager || Session->IsClosed()) continue;
-			Manager->RefreshDocumentState();
-			if (Session->bCloseRequested && Manager->GetCloseCancellationRevision() != Session->CloseCancellationRevision) Session->bCloseRequested = false;
-			if (Manager->GetDocuments().empty() || Session->bCloseRequested)
-				(void)Session->CloseWindow(Session->bCloseRequested ? Session->CloseReason : EAssetEditorCloseReason::AssetEditorHostClosed);
-		}
-		CompleteRestoreFocus();
+		DispatchEditorCallback([&] {
+			for (const auto& Session : GetOwnedAssetEditors())
+			{
+				if (!CanCall()) return;
+				const auto Manager = Session->GetDocumentManager();
+				if (!Manager || Session->IsClosed()) continue;
+				Manager->RefreshDocumentState();
+				if (!CanCall()) return;
+				if (!OwnsAssetEditor(*Session) || Session->IsClosed()) continue;
+				if (Session->bCloseRequested && Manager->GetCloseCancellationRevision() != Session->CloseCancellationRevision) Session->bCloseRequested = false;
+				if (Manager->GetDocuments().empty() || Session->bCloseRequested)
+					(void)Session->CloseWindow(Session->bCloseRequested ? Session->CloseReason : EAssetEditorCloseReason::AssetEditorHostClosed);
+			}
+			if (CanCall()) CompleteRestoreFocus();
+		});
 	}
 }

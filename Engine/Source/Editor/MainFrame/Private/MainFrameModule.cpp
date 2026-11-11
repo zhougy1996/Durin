@@ -1075,7 +1075,6 @@ namespace Durin::MainFrame
 					ControllerLeases.push_back(Documents);
 				}
 				if (auto* Pending = DocumentUI::FindPendingClose(CloseControllers)) DocumentUI::DrawCloseConfirmation(*Pending);
-				AssetEditors.TickAssetEditors();
 			}
 			Activity.DrawHistoryWindow();
 			PythonScripts.Draw(ViewState.bPythonOpen);
@@ -1335,7 +1334,6 @@ namespace Durin
 		if (!Editor) return;
 		ObserveMainWindowState(*Context->MainFrameSettings, *Context->RootWindow);
 		Context->AssetCompatibilityWindow->Tick(FPaths::ProjectFile(), Editor->GetCapabilities().bEditWorld && Editor->CanTransact());
-		if (auto* Service = Context->AssetEditors.Get()) Service->TickAssetEditors();
 		Context->PythonScripts->Tick();
 		Context->Console->Tick();
 		Context->Activity->Tick(Editor->GetNotificationManager(), *Editor->GetTransactor());

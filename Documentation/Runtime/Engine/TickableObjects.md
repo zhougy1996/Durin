@@ -2,7 +2,7 @@
 
 Summary: Define non-owning Tickable registration, World and Engine dispatch, and callback lifetime.
 Modules: Engine
-Last reviewed: 2026-11-10
+Last reviewed: 2026-11-11
 
 ## Registration And Ownership
 
@@ -97,7 +97,8 @@ DTickableWorldSubsystem inherits DWorldSubsystem and FTickableGameObject.
 Its constructor starts with Never. Initialize enables the resolved Tick type;
 Deinitialize unregisters it. BeginDestroy diagnoses an instance still initialized;
 it does not repair missing deinitialization. The default type is Conditional for
-initialized instances and Never for CDOs or uninitialized instances.
+initialized instances and Never for template objects (including CDOs and default
+subobjects) or uninitialized instances.
 IsAllowedToTick is a final compatibility hook (deprecated upstream) that diagnoses
 registration outside initialization; initialization state is private. Use
 IsTickable for dynamic conditions. The default Tick checks initialization.

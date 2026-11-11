@@ -384,6 +384,24 @@ TEST_F(FWorldSubsystemTests, DefaultWorldEligibilityExcludesPreviewBeforeConstru
 	EXPECT_EQ(FSubsystemProbeA::InstanceConstructions, 3);
 }
 
+TEST_F(FWorldSubsystemTests, InitializedTemplateSubsystemNeverRegistersForTick)
+{
+	auto* World = MakeWorld();
+	FWorldSubsystemCollection Collection(*World);
+	TStrongObjectPtr<FSubsystemProbeA> Template(NewObject<FSubsystemProbeA>(World, "Template", EObjectFlags::DefaultSubobject));
+	ASSERT_TRUE(Template->IsTemplateObject());
+	ASSERT_FALSE(Template->IsClassDefaultObject());
+	Template->DTickableWorldSubsystem::Initialize(Collection);
+	EXPECT_TRUE(Template->IsInitialized());
+	EXPECT_EQ(Template->GetTickableTickType(), ETickableTickType::Never);
+	int Ticks = 0;
+	FSubsystemProbeA::Callback = [&](auto&, std::string_view Event) { if (Event == "Tick") ++Ticks; };
+	FTickableGameObject::TickObjects(World, LEVELTICK_All, false, 0.0f);
+	EXPECT_EQ(0, Ticks);
+	Template->DTickableWorldSubsystem::Deinitialize();
+	MarkObjectHierarchyAsGarbage(Template.Get());
+}
+
 TEST_F(FWorldSubsystemTests, TickLifetimeStartsAtInitializeAndEndsAtCleanup)
 {
 	FWorldSubsystemRegistration Token({.Type = FSubsystemProbeA::StaticClass()});

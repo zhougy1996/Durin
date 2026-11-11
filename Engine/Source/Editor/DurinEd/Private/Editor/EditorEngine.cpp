@@ -366,6 +366,8 @@ namespace Durin
 		if (bShutdownRequested) return;
 		if (MainFrameModule) MainFrameModule->TickMainFrame(DeltaSeconds);
 		if (bShutdownRequested) return;
+		if (auto* AssetEditors = GetEditorSubsystem<DAssetEditorSubsystem>()) AssetEditors->TickAssetEditors();
+		if (bShutdownRequested) return;
 		if (auto* Notifications = GetEditorSubsystem<DEditorNotificationSubsystem>()) Notifications->Tick(DeltaSeconds);
 	}
 
