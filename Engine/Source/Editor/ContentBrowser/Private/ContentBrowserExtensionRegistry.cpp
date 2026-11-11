@@ -5,6 +5,7 @@
 #include "DObject/ObjectLifecycle.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Editor/EditorEngine.h"
+#include "Transactions/Transactor.h"
 
 namespace Durin::ContentBrowser
 {
@@ -17,7 +18,12 @@ namespace Durin::ContentBrowser
 			if (!Service || !IsValid(Service->GetEditor()) || Service->GetEditor()->IsShutdownRequested()
 				|| Service->GetEditor()->GetEditorSubsystem<DAssetEditorSubsystem>() != Service) return false;
 			bool Invoked = false;
-			Service->DispatchEditorCallback([&] { Invoked = true; Callback(); });
+			auto* Editor = Service->GetEditor();
+			Editor->DispatchSubsystemCallback([&] {
+				FScopedEditorTransactionContext Context(Editor);
+				Invoked = true;
+				Callback();
+			});
 			return Invoked;
 		}
 	}

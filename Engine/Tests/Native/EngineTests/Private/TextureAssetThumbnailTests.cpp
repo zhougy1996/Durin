@@ -76,7 +76,6 @@ protected:
 	}
 	auto TearDown() -> void override
 	{
-		if (Service) Service->ShutdownAssetEditorSessions();
 		if (Host)
 		{
 			Host->PreExit();

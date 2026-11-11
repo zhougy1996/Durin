@@ -39,10 +39,10 @@ namespace
 		auto TearDown() -> void override
 		{
 			(void)FAssetCompilingManager::Get().FinishAllCompilation();
-			if (Service) Service->ShutdownAssetEditorSessions();
+			if (Host) Host->PreExit();
 			if (CollectionWorld) { CollectionWorld->CleanupWorld(); MarkObjectHierarchyAsGarbage(CollectionWorld.Get()); CollectionWorld.Reset(); }
 			CollectionSubsystemRegistration.reset();
-			if (Host) { Host->PreExit(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); }
+			if (Host) { MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); }
 			if (MeshHarness) MeshHarness->Shutdown();
 			if (MaterialHarness) MaterialHarness->Shutdown();
 			if (TextureHarness) TextureHarness->Shutdown();

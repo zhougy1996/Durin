@@ -4,7 +4,7 @@ Summary: Define per-editor native services, reflected PIE controls, Actor/Compon
 
 Modules: DurinEd, LevelEditor, MainFrame, DurinPython, DurinMCP, Engine
 
-Last reviewed: 2026-11-10
+Last reviewed: 2026-11-11
 
 ## Host Contract
 
@@ -54,8 +54,9 @@ subsystem callback exceptions propagate after collection cleanup.
 
 The host records retirement and stops tool and notification admission once. These
 early-stop hooks are private host integration; the public subsystem lifecycle
-remains `Initialize` and `Deinitialize`. Each frame stops after the tool, script,
-World or shell callback that requested shutdown. At the safe boundary, shutdown
+remains `Initialize` and `Deinitialize`. Each frame stops after the admitted tool,
+script, World, shell or asset-session operation that requested shutdown returns.
+This does not interrupt callbacks within an admitted operation. At the safe boundary, shutdown
 stops PIE, shuts down EditorWorld, destroys shell consumers, then deinitializes
 Editor services. Base shutdown
 retires the remaining World and Engine services. The owner calls `PreExit()` after initialization, update and external callbacks
@@ -102,7 +103,10 @@ may remove a later instance. A rejected close or pending dirty-document modal
 is not reported as a completed close. Service calls require the game thread,
 registered owning host with no pending shutdown. Open/focus/close callbacks use host
 admission checks; shutdown requests close admission immediately and the owner
-executes `PreExit()` only after callbacks return. Close notifications remain legal during cleanup.
+executes `PreExit()` only after the full callback chain returns. This is a caller
+contract, not dispatcher depth tracking; admitted closes may finish after a shutdown
+request. See [asset session update and callback constraints](AssetEditors.md#methods-close-policy-and-hosts).
+Close notifications remain legal during cleanup.
 
 MainFrame supplies its host-owned `FEditorDocumentManager` to the service's workspace
 adapter. The service does not own tabs or the main window. Each committed asset

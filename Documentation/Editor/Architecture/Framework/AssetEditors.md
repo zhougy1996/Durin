@@ -75,9 +75,11 @@ succeed. `InitializeAssetEditor` admits a caller-configured reflected session
 through the same validation and publication path as class-based opening. It
 rejects foreign editor outers and reused sessions. Failed initialization publishes neither session nor asset associations.
 Switching settles the previous toolkit's previews; a deactivation veto rejects
-new session creation. Open, focus, close, frame drawing and extension commands enter the host operation
-scope. Their callbacks request GC; synchronous collection requires a later
-owner-established safe point after the public call and cleanup return.
+new session creation. Open, focus, close, frame drawing and extension commands use
+internal callback admission and transaction context. This dispatcher neither tracks
+callback depth nor guards reentry or lifetime. Callbacks request GC; synchronous
+collection requires a later owner-established safe point after the public call and
+cleanup return.
 Document models bind their history to the requesting editor. Nested asset
 callbacks select a scoped transaction editor for existing graph/property APIs,
 restoring the prior context after reentry without changing process `GEditor`.
@@ -126,8 +128,31 @@ EditorEngine advances session reconciliation once per admitted editor Tick after
 the optional MainFrame update, including hosts with no window or World. It refreshes
 document state, continues pending closes and completes restore focus through the
 editor callback context. MainFrame only presents close confirmation; its result
-is reconciled on the next editor Tick. Shutdown requests stop subsequent session
-updates and service phases; owner-driven teardown remains after callbacks return.
+is reconciled on the next editor Tick. Shutdown closes new admission immediately;
+an already admitted document refresh or session close may finish, including its
+remaining document work. The host checks shutdown after the complete operation
+returns, before the next session or service phase. This is not per-callback
+interruption or cancellation of the current close.
+
+`TickAssetEditors`, `ShutdownAssetEditorSessions` and `DispatchEditorCallback` are
+private integration, not public business APIs. EditorEngine alone drives updates.
+Deinitialize releases sessions; the internal MainFrame lifecycle also releases
+them after saving restoration state and before releasing Level host integration.
+Standalone fixtures use owner-driven `PreExit`, not subsystem teardown helpers.
+External callback owners establish their own host admission and transaction context.
+
+Calling constraints, rather than a generic callback protection framework, define
+reentry. Callbacks must not drive Editor Tick or another frame, call `PreExit`,
+collect garbage immediately, change subsystem membership or unload providers.
+Query callbacks such as `IsDocumentDirty` must not open/close documents, retire
+sessions, mutate the queried collection or recursively refresh it. Queries may
+request shutdown or GC without performing cleanup. Document-operation callbacks
+must not structurally mutate that operation's borrowed document inputs or reenter
+the same operation. Closing another session from a business callback and withdrawing
+lifecycle subscriptions remain supported; snapshots and membership checks protect
+those specific paths. Hosts retain resources until the full callback chain returns,
+then execute teardown and physical GC at their idle boundary. These constraints
+are caller obligations, not a callback-depth counter or automatic deferral scope.
 
 `IToolkitHost` owns presentation attachment, focus and close policy rather than
 asset ownership. `FNonWindowToolkitHost` supplies semantic standalone/world-centric

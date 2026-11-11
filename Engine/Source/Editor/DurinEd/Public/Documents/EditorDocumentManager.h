@@ -38,6 +38,8 @@ namespace Durin
 		DURINED_API auto RequestCloseDocument(FDocumentId DocumentId) -> EDocumentCloseResult;
 		// Applies one response to the single pending close without losing it on save or discard failure.
 		DURINED_API auto ResolvePendingDocumentClose(EDocumentCloseResponse Response) -> EDocumentCloseResult;
+		// Queries borrow live documents: callbacks must not change membership or reenter
+		// this operation. The admitted refresh completes before owners observe shutdown.
 		DURINED_API auto RefreshDocumentState() -> void;
 		DURINED_API auto NotifyPackageReloaded(DPackage* Previous, DPackage* Replacement) -> void;
 		// Migrates this manager's open-document strong references during atomic reload.

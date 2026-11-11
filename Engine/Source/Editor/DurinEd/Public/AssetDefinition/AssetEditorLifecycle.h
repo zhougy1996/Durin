@@ -6,7 +6,9 @@
 
 namespace Durin
 {
-	// Value notifications remain safe after callbacks close or collect sessions.
+	// Value notifications survive supported business reentry, such as closing other
+	// sessions or withdrawing subscriptions. Callbacks request GC/shutdown; owners
+	// collect and tear down after the complete call chain returns.
 	enum class EAssetEditorEvent : uint8 { Requested, RequestFinished, Opened, Focused, CloseRequested, AssetRemoved, Closed };
 	struct FAssetEditorEvent
 	{

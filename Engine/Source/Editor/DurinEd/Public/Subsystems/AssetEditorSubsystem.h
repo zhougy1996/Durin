@@ -12,10 +12,13 @@
 #include "AssetEditorSubsystem.gen.h"
 
 namespace Durin { class FEditorDocumentManager; class DAssetEditor; class FAssetEditorToolkit; class FToolkitManager; struct FAssetEditorInitArgs; }
+namespace Durin::MainFrame { struct FMainFrameContext; }
 
 namespace Durin
 {
 	// Tracks asset/editor associations per Editor host, independently of the main frame.
+	// Business calls run on the game thread. Callbacks may request shutdown/GC, but
+	// must not drive host updates, teardown, collection or provider unload themselves.
 	DCLASS()
 	class DAssetEditorSubsystem : public DEditorSubsystem
 	{
@@ -56,7 +59,6 @@ namespace Durin
 		auto SetToolkitHostFactory(std::function<std::shared_ptr<IToolkitHost>(const FAssetOpenArgs&)> Factory) -> void
 		{ ToolkitHostFactory = std::move(Factory); }
 		DURINED_API auto CreateToolkitHost(const FAssetOpenArgs& Args) -> std::shared_ptr<IToolkitHost>;
-		DURINED_API auto DispatchEditorCallback(std::function<void()> Callback) -> void;
 		DURINED_API auto OwnsAssetEditor(const DAssetEditor& Editor) const -> bool;
 		// Strong snapshots keep a session alive across reentrant frame/command callbacks.
 		DURINED_API auto GetOwnedAssetEditors() const -> std::vector<TStrongObjectPtr<DAssetEditor>>;
@@ -65,9 +67,8 @@ namespace Durin
 		DURINED_API auto ActivateAssetEditor(DAssetEditor& Editor) -> bool;
 		DURINED_API auto DeactivateAssetEditors() -> bool;
 		DURINED_API auto RetireAssetEditor(DAssetEditor& Editor) -> void;
-		DURINED_API auto TickAssetEditors() -> void;
-		// Host teardown releases UI/session ownership after its exit/save policy has settled.
-		DURINED_API auto ShutdownAssetEditorSessions() -> void;
+		// Subscribers may withdraw subscriptions or close other sessions. They must not
+		// recursively drive host updates or mutate a document operation's active inputs.
 		DURINED_API auto Subscribe(std::function<void(const FAssetEditorEvent&)> Callback) -> FAssetEditorSubscription;
 		DURINED_API auto GetRecentAssets() const -> std::vector<FAssetOpenTarget>;
 		DURINED_API auto GetUsage() const -> FAssetEditorUsage;
@@ -88,6 +89,18 @@ namespace Durin
 		DURINED_API auto NotifyEditorClosed(IAssetEditorInstance* Instance) -> void;
 	private:
 		friend class DAssetEditor;
+		friend class DEditorEngine;
+		friend class FAssetEditorToolkit;
+		friend class FBaseAssetToolkit;
+		friend struct MainFrame::FMainFrameContext;
+		// Internal admission and transaction context, not a reentrancy/lifetime guard.
+		DURINED_API auto DispatchEditorCallback(std::function<void()> Callback) -> void;
+		// EditorEngine alone advances once per admitted frame. Callbacks must not reenter
+		// the update; shutdown stops at completed refresh/close operation boundaries.
+		DURINED_API auto TickAssetEditors() -> void;
+		// Lifecycle owners only, after callbacks and exit/save policy have settled.
+		// Deinitialize and shell teardown share this to preserve UI/provider release order.
+		DURINED_API auto ShutdownAssetEditorSessions() -> void;
 		DURINED_API auto PublishEvent(FAssetEditorEvent Event) -> void;
 		DURINED_API auto SynchronizeSessionAssets(DAssetEditor& Editor) -> void;
 		auto CancelRestoreFocus() -> void { RestoreFocus.Reset(); }

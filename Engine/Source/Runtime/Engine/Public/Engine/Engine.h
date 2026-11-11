@@ -95,7 +95,9 @@ namespace Durin
 		ENGINE_API virtual auto CancelTransaction(int32 StartIndex = 0) -> void;
 		virtual auto CanTransact() const -> bool { return false; }
 
-		// External callbacks close admission immediately but retire consumers at the next host boundary.
+		// Entry admission only; this does not track callback depth or prevent reentry.
+		// Callbacks request shutdown/GC. The owner runs teardown/collection after the
+		// complete call chain returns; an admitted callback is not interrupted.
 		ENGINE_API auto DispatchSubsystemCallback(std::function<void()> Callback) -> void;
 		ENGINE_API virtual auto RedrawViewports() -> void;
 

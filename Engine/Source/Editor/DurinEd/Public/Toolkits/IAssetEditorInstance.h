@@ -31,6 +31,9 @@ namespace Durin
 		virtual auto FocusWindow(DObject* ObjectToFocusOn = nullptr) -> void = 0;
 		virtual auto GetLastActivationTime() -> double = 0;
 		// False includes a deferred dirty-document confirmation; never implies discard.
+		// Shutdown requests need not interrupt an admitted close. Callbacks must not
+		// recursively close this instance or drive host update/teardown; callers stop
+		// admitting subsequent operations after the current close returns.
 		virtual auto CloseWindow(EAssetEditorCloseReason InCloseReason) -> bool = 0;
 		virtual auto CloseWindow() -> bool { return CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed); }
 		virtual auto GetOpenMethod() const -> EAssetOpenMethod { return EAssetOpenMethod::Edit; }

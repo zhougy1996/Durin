@@ -255,6 +255,8 @@ namespace Durin
 				if (!CanCall()) return;
 				const auto Manager = Session->GetDocumentManager();
 				if (!Manager || Session->IsClosed()) continue;
+				// Query callbacks borrow the document set. Finish this operation before
+				// observing shutdown; callback owners must not reenter the host update.
 				Manager->RefreshDocumentState();
 				if (!CanCall()) return;
 				if (!OwnsAssetEditor(*Session) || Session->IsClosed()) continue;

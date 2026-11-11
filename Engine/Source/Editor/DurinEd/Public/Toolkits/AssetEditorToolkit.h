@@ -14,6 +14,10 @@ namespace Durin { class DPackage; class IObjectReplacementParticipant; }
 namespace Durin
 {
 	// Defines document, history, menu, and layout services hosted by the editor shell.
+	// Callbacks run synchronously on the game thread. Do not drive host updates,
+	// teardown, physical GC or provider unload; request shutdown/GC for the owner.
+	// Do not structurally mutate the manager operation's borrowed documents or
+	// recursively enter that same operation. Other-session business calls remain legal.
 	class IAssetEditorToolkit
 	{
 	public:
@@ -27,6 +31,8 @@ namespace Durin
 		// Returning false keeps the current host state active.
 		virtual auto RequestDeactivate() -> bool { return true; }
 		// Release toolkit-owned document state only when returning Closed.
+		// An admitted close may complete after a callback requests host shutdown;
+		// that request closes new admission, rather than canceling this operation.
 		virtual auto RequestCloseDocument(const FEditorDocument& Document) -> EDocumentCloseResult
 		{
 			return Document.bDirty ? EDocumentCloseResult::PendingConfirmation : EDocumentCloseResult::Closed;
@@ -47,6 +53,8 @@ namespace Durin
 		virtual auto OnPackageReloaded(DPackage*, DPackage*) -> void {}
 		virtual auto CreateReloadParticipant() -> std::shared_ptr<IObjectReplacementParticipant> { return {}; }
 		virtual auto OnResourceIdRemapped(std::string_view, std::string_view) -> void {}
+		// Queries must not mutate document/session membership or perform lifecycle work.
+		// A shutdown/GC request is permitted; owners act after the current operation returns.
 		virtual auto IsDocumentDirty(const FEditorDocument& Document) const -> bool { return Document.bDirty; }
 		virtual auto CanSaveActiveDocument() const -> bool { return false; }
 		virtual auto SaveActiveDocument() -> bool { return false; }
@@ -107,6 +115,7 @@ namespace Durin
 		virtual auto OnDrawToolkit(bool) -> bool { return false; }
 		virtual auto OnSaveDocument(const FEditorDocument&) -> bool { return false; }
 		virtual auto OnDiscardDocument(const FEditorDocument&) -> bool { return false; }
+		// Same query contract as IsDocumentDirty; const does not enforce it for providers.
 		virtual auto OnIsDocumentDirty(const FEditorDocument& Document) const -> bool { return Document.bDirty; }
 		virtual auto OnCanSaveActiveDocument() const -> bool { return false; }
 		virtual auto OnSaveActiveDocument() -> bool { return false; }
