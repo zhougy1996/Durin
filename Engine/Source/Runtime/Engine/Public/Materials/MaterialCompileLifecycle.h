@@ -53,8 +53,6 @@ namespace Durin
 	struct FMaterialCompileRequest
 	{
 		std::shared_ptr<FMaterialCompilationResource> Resource;
-		uint64 RequestId = 0;
-		uint64 ShaderRevision = 0;
 		std::shared_ptr<const MIR::FCompilerInput> CompilerInput;
 		bool bForceRecompile = false;
 		bool bSingleFlightConsumer = false;
@@ -63,9 +61,7 @@ namespace Durin
 	// Manager completion handoff; only the still-associated resource may install it.
 	struct FMaterialCompileResult
 	{
-		std::shared_ptr<FMaterialCompilationResource> Resource;
-		uint64 RequestId = 0;
-		uint64 ShaderRevision = 0;
+		std::shared_ptr<const FMaterialCompileRequest> Request;
 		FMaterialStaticProperties StaticProperties;
 		EMaterialCompileOutcome Outcome = EMaterialCompileOutcome::Failed;
 		EMaterialCompileCacheOutcome CacheOutcome = EMaterialCompileCacheOutcome::None;

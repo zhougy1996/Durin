@@ -32,6 +32,9 @@ does not alter the asset, global game quality, or RHI capability. Unsupported
 feature choices are clamped to the active device capability. Preview, Apply, and
 Save continue to use the same compiler lifecycle and accepted-program rules;
 there is no editor-only selector evaluator.
+Preview selection references an immutable Backend/FeatureLevel/Quality resource.
+Changing selectors preserves other configuration resources and their proxies;
+resource-specific synchronous preparation does not wait for another configuration.
 Thumbnail sessions and texture-node images follow the shared
 [texture preview contract](../Assets/AssetThumbnails.md#identity-and-output-size). Texture
 nodes sample published built allocations for every usage, including normals;

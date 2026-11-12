@@ -36,8 +36,9 @@ all candidates before committing, and unchanged values do not notify consumers.
 Cancellation is a request outcome; invalid input and installation failures report ordinary failure. Semantic tests
 verify rejection, failure location, retained data, and notification behavior
 without depending on complete diagnostic wording.
-Asynchronous material results carry the compilation resource association, request ID,
-captured Shader generation, outcome, cache observation and compiled program. Diagnostics retain the original
+Asynchronous material results carry the same request association object registered
+on the resource, plus outcome, cache observation and compiled program. They do
+not copy request serials or input-version qualifiers. Diagnostics retain the original
 `FMaterialProgramDiagnostic` plus the request generation used for stale editor
 navigation. There is no second result-category taxonomy, copied asset path or
 program identity on each diagnostic, or task ID forwarded through result/status
@@ -680,39 +681,48 @@ edits affect only preview rendering; Apply copies authored state to the source
 root and requests its changed dependent variants. Runtime source identity and
 publication rules remain unchanged.
 
-Default and additional FeatureLevel configurations use the same
-`FMaterialCompilationResource`, manager submission path and GameThread installation.
-Each resource owns its installed render layer, diagnostics, last attempt ID and
-live compilation association. The asset owns edit policy and enumerates its
-resources; manager associations are keyed by resource rather than asset, so
-simultaneous configurations cannot replace each other's requests. `SubmitJobs`
-accepts Shader job groups; the material-side cache operation captures inputs and
-registers resource dependencies with the manager.
+Material resources are uniquely keyed by immutable Backend, FeatureLevel and
+Quality. `SelectedResource` chooses the preview/default view; changing that
+selection never rekeys a resource, hides another configuration or replaces its
+proxy. Explicit level/quality getters always select the matching resource,
+independently of preview selection. Existing configuration proxies keep their
+identity and receive publication directly from their own resource.
 
-Semantic edits detach all obsolete resource associations immediately, before
-manual or debounced resubmission. Shared work can continue for other consumers.
-Completion installs only into the resource still associated with that request,
-and checks the captured Shader environment generation. Results do not repeat
-content revisions, target strings or program identities as publication qualifiers.
-Parent changes use ordinary authored invalidation; no parent-chain counter exists.
-Cook validates its captured authored/function inputs and Shader environment,
-independently of preview requests.
+The asset owns authored content and edit-submission revisions. Each resource
+stores one captured input stamp, installed content/environment revisions and a
+weak link to its current request. The manager and completion queue retain that
+same request object. Association identity determines whether a result can install;
+there is no separate pending boolean or request-ID copy in the result/index.
+Numeric request serials are diagnostic observations only. Public compile status
+is projected from these facts, rather than used as internal mutable storage.
+Semantic edits detach obsolete associations immediately. Shared work may continue
+for other consumers. Cook validates captured authored/function inputs and the
+Shader environment independently of preview requests.
 
-The accepted render layer remains visible during replacement compilation.
-Current compilation or installation failure clears that resource's complete
-render layer and publishes ErrorMaterial; cancellation and obsolete completions
-leave installed output intact. The status query derives `Running` from live
-compilation or cooked preparation, and reads program identity from installed
-output. Stored outcomes cannot leave the UI running after the association ends.
-There are no separate Deferred or Rejected outcomes.
+Resource cache and synchronous finish operate on one configuration. They validate
+the current input before waiting and repeat capture if the input changes while
+waiting. Asset finish enumerates that asset's outstanding resources and flushes
+scheduled edits, but does not submit manual edits or drain detached requests.
+Shader-job submission remains distinct from material capture and installation.
+
+Authored compilation and cooked reads deliver results through the same manager
+completion queue. Cooked polling only queues a result; it does not install it or
+emit success based on the default resource. Completion count and deadline apply
+before each result is installed. Each consumed result counts once; only a
+successful installation contributes an asset completion notification. Preparation
+queue registration is bookkeeping, not an additional pending asset.
+
+Installed output remains available during replacement of the same configuration.
+Failure clears only that resource's render layer; cancellation and obsolete
+completions leave installed output intact. Running derives from the current
+association, and currentness compares installed content and Shader environment.
+Changing configuration selects a different resource, so the old configuration
+cannot masquerade as the selected one. Previously compiled configurations remain
+available. There are no Deferred or Rejected outcomes.
 `IsCompilationFinished` observes all pending resource associations for the asset;
-per-FeatureLevel queries observe the selected resource. Installed validity and
-freshness remain independent of the latest attempt outcome. Freshness includes
-content, selected FeatureLevel/Quality and Shader environment; a different pending
-configuration cannot make the old configuration current. A forced compile
-or cancellation can coexist with a current valid program. Global Shader changes
-immediately stale installed programs; demanded resources rebuild eagerly and
-cold resources rebuild on demand. Dynamic instances project their parent resources.
+configuration queries observe exactly their requested resource. Global Shader
+changes stale installed output; demanded resources rebuild and cold resources
+rebuild on demand. Dynamic instances project their parent's resources.
 
 The shared compiling manager accepts queued requests and asset consumers without
 fixed count limits or an aggregate captured-input allowance. Queue memory grows
@@ -730,7 +740,7 @@ and Shader handles. `IsCompiling` and `FinishCompilation` use that owner's share
 end boundary; GameThread result publication remains
 the material lifecycle's separate responsibility.
 Equal identities share one flight and retained immutable result while keeping
-resource-local request IDs, content revisions and diagnostics. Aggregate counters retain no asset or
+resource-local diagnostics and association lifetimes. Aggregate counters retain no asset or
 terminal-request history. Aggregate selected finish and advisory cancellation
 filter both material asset classes. Cancellation only withdraws publication and
 propagates cancellation; it never waits for worker retirement. Explicit finish
@@ -793,15 +803,17 @@ artifacts follow ShaderBuild's cache-miss/repair contract.
 
 `CacheResourceShadersForRendering(EMaterialShaderPrecompileMode)` defaults to
 `Background`; `None` starts no work and `Synchronous` finishes and installs the
-owner's program before returning, reusing pending preparation. Cooked synchronous
+selected resource before returning, reusing current preparation. Cooked synchronous
 preparation can read/decode directly without a scheduler or GameThread completion
 queue. Both modes share decoding, qualification and publication. Background work
-without a running scheduler records `Failed` with a diagnostic rather than
-remaining deferred indefinitely; callers may explicitly retry synchronously.
+without a running scheduler delivers a failed completion rather than remaining
+deferred indefinitely; callers may explicitly retry synchronously.
 Accepted cooked reads can complete after scheduler shutdown. A configuration or
 payload change replaces obsolete preparation with work for the current resource;
 it does not expose an intermediate cancellation as the final outcome. Failed
 resources stop automatic pumping, and an explicit cache request can retry them.
+A cache demand survives invalidation while unfulfilled; after success it is not
+a permanent keep-warm request. Live configuration proxies supply ongoing demand.
 
 Cook prepares detached Win64 or MacOS Game programs from captured authored
 inputs and never substitutes ErrorMaterial or requires an accepted live render

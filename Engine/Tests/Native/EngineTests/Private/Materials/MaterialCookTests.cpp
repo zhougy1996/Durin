@@ -120,7 +120,7 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	Durin::FShaderCompilingManager::Get().FinishCompilationForObjects(Owners);
 	EXPECT_EQ(Cooked->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Ready);
 	ASSERT_TRUE(Cooked->GetAcceptedCompiledProgram());
-	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->Quality, Durin::GetMaterialQualityLevel());
+	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->Quality, OriginalQuality);
 	EXPECT_TRUE(Cooked->GetMaterialCookDiagnostic().empty());
 	ASSERT_TRUE(Durin::SetMaterialQualityLevel(OriginalQuality));
 	Cooked->CacheResourceShadersForRendering();
@@ -174,6 +174,66 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	EXPECT_EQ(LowProgram->FeatureLevel, Durin::ERHIFeatureLevel::ES3_1);
 	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram(), DefaultProgram);
 	{
+		using namespace Durin;
+		ASSERT_EQ(GetMaterialCompilationDiagnostics().OutstandingConsumerCount, 0u);
+		FShaderCompilingManager::Get().FinishAllCompilation();
+		std::vector<TStrongObjectPtr<DMaterial>> Budgeted;
+		for (uint32 Index = 0; Index < 2; ++Index)
+		{
+			auto* Owner = NewObject<DMaterial>(nullptr, FName(std::format("BudgetedCookedResource{}", Index)));
+			Budgeted.emplace_back(Owner);
+			const_cast<FBulkData&>(Owner->GetCookedProgramData()) = SavedCookedData;
+			Owner->CacheResourceShadersForRendering();
+			Owner->PostLoad(); // Repeated loading must detach the prior logical read as well.
+			Owner->CacheResourceShadersForRendering(ERHIFeatureLevel::ES3_1);
+		}
+		const auto ReadyCount = [&] {
+			uint32 Count = 0;
+			for (const auto& Owner : Budgeted)
+				for (const auto Level : {ERHIFeatureLevel::SM5, ERHIFeatureLevel::ES3_1})
+					Count += Owner->GetMaterialCompileStatus(Level).State == EMaterialCompileState::Ready;
+			return Count;
+		};
+		uint32 Completions = 0;
+		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+		while (ReadyCount() != 4 && std::chrono::steady_clock::now() < Deadline)
+		{
+			const auto BeforeReady = ReadyCount();
+			const auto Processed = FShaderCompilingManager::Get().ProcessAsyncResults({.MaximumCompletions = 1});
+			EXPECT_LE(Processed.ProcessedCompletionCount, 1u);
+			EXPECT_EQ(ReadyCount() - BeforeReady, Processed.ProcessedCompletionCount);
+			EXPECT_EQ(Processed.SuccessfullyCompiledAssets.size(), Processed.ProcessedCompletionCount);
+			Completions += Processed.ProcessedCompletionCount;
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+		EXPECT_EQ(ReadyCount(), 4u);
+		EXPECT_EQ(Completions, 4u);
+		const auto Empty = FShaderCompilingManager::Get().ProcessAsyncResults({.MaximumCompletions = 1});
+		EXPECT_EQ(Empty.ProcessedCompletionCount, 0u);
+		EXPECT_TRUE(Empty.SuccessfullyCompiledAssets.empty());
+
+		TStrongObjectPtr<DMaterial> FailedTier(NewObject<DMaterial>(nullptr, "CookedTierFailureEvent"));
+		const_cast<FBulkData&>(FailedTier->GetCookedProgramData()) = SavedCookedData;
+		FailedTier->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::Synchronous);
+		ASSERT_TRUE(FailedTier->IsComplete());
+		auto BadPayload = FBulkData::TryCreateDetached(InvalidProgramBytes);
+		ASSERT_TRUE(BadPayload);
+		const_cast<FBulkData&>(FailedTier->GetCookedProgramData()) = std::move(*BadPayload);
+		FailedTier->CacheResourceShadersForRendering(ERHIFeatureLevel::ES3_1);
+		uint32 Failures = 0;
+		const auto FailureDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+		while (FailedTier->IsCompiling() && std::chrono::steady_clock::now() < FailureDeadline)
+		{
+			const auto Processed = FShaderCompilingManager::Get().ProcessAsyncResults({.MaximumCompletions = 1});
+			Failures += Processed.ProcessedCompletionCount;
+			EXPECT_TRUE(Processed.SuccessfullyCompiledAssets.empty());
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+		EXPECT_EQ(Failures, 1u);
+		EXPECT_EQ(FailedTier->GetMaterialCompileStatus(ERHIFeatureLevel::ES3_1).State, EMaterialCompileState::Failed);
+		EXPECT_TRUE(FailedTier->IsComplete());
+	}
+	{
 		struct FRestoreTasks
 		{
 			bool bDeferred = Durin::GetGameThreadDeferredWorkQueueDiagnostics().bAccepting;
@@ -202,6 +262,9 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 		Offline->CacheResourceShadersForRendering(Durin::EMaterialShaderPrecompileMode::None);
 		EXPECT_EQ(Offline->GetMaterialCompileStatus().State, BeforeNone);
 		Offline->CacheResourceShadersForRendering();
+		const auto OfflineFailure = Durin::FShaderCompilingManager::Get().ProcessAsyncResults({.MaximumCompletions = 1});
+		EXPECT_EQ(OfflineFailure.ProcessedCompletionCount, 1u);
+		EXPECT_TRUE(OfflineFailure.SuccessfullyCompiledAssets.empty());
 		EXPECT_EQ(Offline->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Failed);
 		EXPECT_FALSE(Offline->IsCompiling());
 		EXPECT_FALSE(Offline->GetMaterialCookDiagnostic().empty());

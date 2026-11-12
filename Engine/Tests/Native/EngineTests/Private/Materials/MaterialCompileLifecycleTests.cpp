@@ -1561,5 +1561,74 @@ TEST_F(FMaterialAsyncCompileTests, DefaultCacheReusesTheSelectedPreviewConfigura
 	EXPECT_EQ(Material->GetAcceptedCompiledProgram()->FeatureLevel, ERHIFeatureLevel::ES3_1);
 	EXPECT_EQ(Material->GetAcceptedCompiledProgram()->Quality, EMaterialQualityLevel::Low);
 	EXPECT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
-	EXPECT_FALSE(Material->GetAcceptedCompiledProgram(ERHIFeatureLevel::SM5));
+	EXPECT_TRUE(Material->GetAcceptedCompiledProgram(ERHIFeatureLevel::SM5));
+}
+
+TEST_F(FMaterialAsyncCompileTests, ResourceKeysAndProxiesRemainStableAcrossPreviewSelection)
+{
+	using namespace Durin;
+	auto* Material = MakeObject<DMaterial>("StableConfigurationResources");
+	Material->CacheResourceShadersForRendering(ERHIFeatureLevel::SM5, EMaterialQualityLevel::High, EMaterialShaderPrecompileMode::Synchronous);
+	Material->CacheResourceShadersForRendering(ERHIFeatureLevel::ES3_1, EMaterialQualityLevel::High, EMaterialShaderPrecompileMode::Synchronous);
+	auto HighProxy = Material->GetRenderProxy(ERHIFeatureLevel::SM5, EMaterialQualityLevel::High);
+	auto LowProxy = Material->GetRenderProxy(ERHIFeatureLevel::ES3_1, EMaterialQualityLevel::High);
+	const auto HighProgram = Material->GetAcceptedCompiledProgram(ERHIFeatureLevel::SM5, EMaterialQualityLevel::High);
+	ASSERT_TRUE(Material->RequestPreviewProgramCompile(EMaterialQualityLevel::High, ERHIFeatureLevel::ES3_1));
+	Material->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::Synchronous);
+	EXPECT_EQ(Material->GetRenderProxy(ERHIFeatureLevel::SM5, EMaterialQualityLevel::High), HighProxy);
+	EXPECT_EQ(Material->GetRenderProxy(ERHIFeatureLevel::ES3_1, EMaterialQualityLevel::High), LowProxy);
+	EXPECT_EQ(Material->GetAcceptedCompiledProgram(ERHIFeatureLevel::SM5, EMaterialQualityLevel::High), HighProgram);
+	ASSERT_TRUE(Material->RequestPreviewProgramCompile(EMaterialQualityLevel::Low, ERHIFeatureLevel::ES3_1));
+	Material->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::Synchronous);
+	ASSERT_TRUE(Material->GetAcceptedCompiledProgram(ERHIFeatureLevel::ES3_1, EMaterialQualityLevel::High));
+	ASSERT_TRUE(Material->GetAcceptedCompiledProgram(ERHIFeatureLevel::ES3_1, EMaterialQualityLevel::Low));
+	EXPECT_EQ(Material->GetAcceptedCompiledProgram()->Quality, EMaterialQualityLevel::Low);
+}
+
+TEST_F(FMaterialAsyncCompileTests, SynchronousCacheReplacesAnObsoletePendingShaderEnvironment)
+{
+	using namespace Durin;
+	auto* Material = MakeObject<DMaterial>("ColdPendingShaderReload");
+	ASSERT_TRUE(RequestMaterialRecompile(*Material, true));
+	const auto Before = Material->GetMaterialCompileStatus().RequestId;
+	AdvanceShaderReloadGeneration();
+	NotifyMaterialShaderReload(false);
+	Material->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::Synchronous);
+	EXPECT_TRUE(Material->IsComplete());
+	EXPECT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
+	EXPECT_GT(Material->GetMaterialCompileStatus().RequestId, Before);
+}
+
+TEST_F(FMaterialAsyncCompileTests, SynchronousResourceCacheDoesNotWaitForAnotherConfiguration)
+{
+	using namespace Durin;
+	auto* Material = MakeObject<DMaterial>("IndependentConfigurationFinish");
+	auto* Low = MakeObject<DMaterialExpressionScalarConstant>("LowConfigurationConstant");
+	auto* High = MakeObject<DMaterialExpressionScalarConstant>("HighConfigurationConstant");
+	auto* Select = MakeObject<DMaterialExpressionQualitySwitch>("ConfigurationQualitySwitch");
+	Low->Id = FGuid::NewGuid(); Low->Value = .21319f;
+	High->Id = FGuid::NewGuid(); High->Value = .71319f;
+	Select->Id = FGuid::NewGuid(); Select->Low = {Low->Id}; Select->High = {High->Id};
+	FMaterialExpressionSurfaceOutputs Outputs; Outputs.Roughness = {Select->Id};
+	const std::array<DMaterialExpression*, 3> Expressions{Low, High, Select};
+	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
+	Material->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::Synchronous);
+	FThreadEvent Entered, Release;
+	std::atomic_bool TimedOut = false;
+	struct FRelease {
+		FThreadEvent& Event;
+		~FRelease() { Event.Trigger(); MaterialBuildPrivate::SetMaterialBuildCompletionHookForTests({}); }
+	} Cleanup{Release};
+	MaterialBuildPrivate::SetMaterialBuildCompletionHookForTests([&](EMaterialQualityLevel Quality, bool BeforeCallback) {
+		if (Quality == EMaterialQualityLevel::Low && BeforeCallback) { Entered.Trigger(); if (!Release.WaitFor(10)) TimedOut = true; }
+	});
+	Material->CacheResourceShadersForRendering(ERHIFeatureLevel::ES3_1, EMaterialQualityLevel::Low);
+	ASSERT_TRUE(Entered.WaitFor(5));
+	ASSERT_TRUE(RequestMaterialRecompile(*Material, true));
+	Material->CacheResourceShadersForRendering(ERHIFeatureLevel::SM5, EMaterialQualityLevel::High, EMaterialShaderPrecompileMode::Synchronous);
+	EXPECT_FALSE(TimedOut.load());
+	EXPECT_EQ(Material->GetMaterialCompileStatus(ERHIFeatureLevel::ES3_1, EMaterialQualityLevel::Low).State, EMaterialCompileState::Running);
+	EXPECT_TRUE(Material->GetMaterialCompileStatus(ERHIFeatureLevel::SM5, EMaterialQualityLevel::High).IsCurrent());
+	Release.Trigger();
+	FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
 }

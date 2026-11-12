@@ -769,12 +769,13 @@ namespace Durin
 		}
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
-			CompilationState.DefaultResource->RenderLayer = {};
-			CompilationState.DefaultResource->CookedPreparation.reset();
+			Private::FMaterialCompilationLifecycle::MarkCanceled(*this);
+			CompilationState.SelectedResource->RequestedInput = {};
+			CompilationState.SelectedResource->RenderLayer = {};
 			if (CookedProgramData.GetMetadata().LogicalSize == 0)
 			{
-				CompilationState.DefaultResource->CookDiagnostic = "Material cooked program is unavailable.";
-				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), CompilationState.DefaultResource->CookDiagnostic);
+				CompilationState.SelectedResource->CookDiagnostic = "Material cooked program is unavailable.";
+				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), CompilationState.SelectedResource->CookDiagnostic);
 			}
 		}
 		CacheResourceShadersForRendering();

@@ -66,7 +66,7 @@ namespace Durin
 
 	auto DMaterial::AdvanceAuthoredRevision(FObjectCacheContext* Context) -> void
 	{
-		AdvanceRevision(CompilationState.DefaultResource->Status.AuthoredRevision);
+		AdvanceRevision(CompilationState.AuthoredRevision);
 		InvalidateMaterialCompilation(false, false, Context);
 	}
 
@@ -113,7 +113,7 @@ namespace Durin
 		std::span<const FMaterialGraphNodePresentation> Positions,
 		uint64 ExpectedAuthoredRevision) -> EMaterialGraphPresentationResult
 	{
-		if (CompilationState.DefaultResource->Status.AuthoredRevision != ExpectedAuthoredRevision
+		if (CompilationState.AuthoredRevision != ExpectedAuthoredRevision
 			|| Positions.size() > MaterialProgramMaxNodeCount)
 			return EMaterialGraphPresentationResult::Rejected;
 		std::unordered_set<FGuid> RequestedNodes;
@@ -183,7 +183,7 @@ namespace Durin
 		FObjectCacheContext Context;
 		if (bShaderIdentityChanged)
 		{
-			AdvanceRevision(CompilationState.DefaultResource->Status.AuthoredRevision);
+			AdvanceRevision(CompilationState.AuthoredRevision);
 			Private::FMaterialCompilationLifecycle::ScheduleEdit(*this, &Context);
 		}
 		InvalidateMaterialCompilation(false, true, &Context);
@@ -466,16 +466,17 @@ namespace Durin
 		}
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
+			Private::FMaterialCompilationLifecycle::MarkCanceled(*this);
+			CompilationState.SelectedResource->RequestedInput = {};
 			if (CookedProgramData.GetMetadata().LogicalSize == 0)
 			{
-				CompilationState.DefaultResource->CookDiagnostic = "Material cooked program is unavailable.";
-				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), CompilationState.DefaultResource->CookDiagnostic);
+				CompilationState.SelectedResource->CookDiagnostic = "Material cooked program is unavailable.";
+				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), CompilationState.SelectedResource->CookDiagnostic);
 				return;
 			}
-			CompilationState.DefaultResource->RenderLayer.CompiledProgram.reset();
-			CompilationState.DefaultResource->CookedPreparation.reset();
-			CompilationState.DefaultResource->Diagnostics.clear();
-			CompilationState.DefaultResource->CookDiagnostic = {};
+			CompilationState.SelectedResource->RenderLayer.CompiledProgram.reset();
+			CompilationState.SelectedResource->Diagnostics.clear();
+			CompilationState.SelectedResource->CookDiagnostic = {};
 			CacheResourceShadersForRendering();
 			return;
 		}

@@ -203,23 +203,28 @@ namespace Durin
 		std::shared_ptr<const FMaterialCompilerResult> ProgramCandidate,
 		std::shared_ptr<FMaterialCompilationResource> Resource) -> std::expected<void, std::string>
 	{
-		if (!Resource) Resource = CompilationState.DefaultResource;
+		if (!Resource)
+		{
+			Resource = GetCompilationResource(ProgramCandidate->FeatureLevel, ProgramCandidate->Quality, true);
+			CompilationState.SelectedResource = Resource;
+			Resource->RequestedInput = CaptureCompilationInputStamp();
+		}
 		const auto Validated = ValidatePreparedMaterialProgram(PayloadProperties, std::move(ProgramCandidate));
 		if (!Validated) return std::unexpected(Validated.error());
 		ProgramCandidate = *Validated;
 		Resource->RenderLayer.CompiledProgram = std::move(ProgramCandidate);
 		Resource->RenderLayer.StaticProperties = PayloadProperties;
-		if (Resource == CompilationState.DefaultResource) Private::GetMaterialEditCompileQueue().Remove(FWeakObjectPtr(this));
+		if (Resource == CompilationState.SelectedResource) Private::GetMaterialEditCompileQueue().Remove(FWeakObjectPtr(this));
 		Resource->CookedPreparation.reset();
-		Resource->Status.State = EMaterialCompileState::Ready;
-		Resource->Status.CacheOutcome =
+		Resource->Outcome = EMaterialCompileState::Ready;
+		Resource->CacheOutcome =
 			EMaterialCompileCacheOutcome::None;
-		Resource->Status.RequestId = 1;
-		Resource->Status.CompiledDependencyRevision = GetShaderReloadGeneration();
-		Resource->Status.CompiledRevision = Resource->Status.AuthoredRevision;
-		Resource->Status.SubmittedRevision = Resource->Status.AuthoredRevision;
-		if (Resource == CompilationState.DefaultResource) CompilationState.EditCompileDeadline.reset();
-		Resource->Status.Target = Resource->RenderLayer.CompiledProgram->GetShaderMap().Target;
+		if (!Resource->RequestId) Resource->RequestId = ++CompilationState.NextRequestId;
+		Resource->CompiledDependencyRevision = Resource->RequestedInput.ShaderRevision;
+		Resource->CompiledRevision = Resource->RequestedInput.ContentRevision;
+		if (Resource == CompilationState.SelectedResource) CompilationState.SubmittedRevision = CompilationState.AuthoredRevision;
+		if (Resource == CompilationState.SelectedResource) CompilationState.EditCompileDeadline.reset();
+		Resource->Target = Resource->RenderLayer.CompiledProgram->GetShaderMap().Target;
 		Resource->Diagnostics.clear();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap | EMaterialRenderDirtyFlags::PipelineState);
 		return {};

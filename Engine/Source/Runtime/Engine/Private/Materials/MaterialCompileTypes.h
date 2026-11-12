@@ -66,7 +66,7 @@ namespace Durin::MaterialBuildPrivate
 		std::mutex CancellationMutex;
 		bool Force = false;
 		FMaterialProgramIdentity CanonicalIdentity;
-		std::vector<FMaterialCompileRequest> CompilingMaterialDependencies;
+		std::vector<std::shared_ptr<FMaterialCompileRequest>> CompilingMaterialDependencies;
 		std::vector<std::shared_ptr<FMaterialCompilationResource>> CompletingResources;
 		std::shared_ptr<const MIR::FCompilerInput> DiagnosticInput;
 #if DURIN_WITH_EDITOR

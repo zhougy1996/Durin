@@ -54,43 +54,65 @@ namespace Durin
 	auto FShaderCompilingManager::GetNumRemainingAssets() const -> uint64
 	{
 		return GetMaterialDiagnostics().OutstandingConsumerCount
-			+ Private::GetMaterialPreparationQueue().Num() + Private::GetMaterialEditCompileQueue().Num()
+			+ Private::GetMaterialEditCompileQueue().Num()
 			+ GetNumRemainingShaderJobs() + GetNumRemainingMaterialShaderMaps();
 	}
 	auto FShaderCompilingManager::ProcessAsyncTasks(const FAssetCompileProcessParams& Params)
 		-> FAssetCompileProcessResult
 	{ return ProcessAsyncResults(Params); }
-	auto FShaderCompilingManager::FinishCompilationForObjects(std::span<DObject* const> Objects)
-		-> FAssetCompileProcessResult
+	auto FShaderCompilingManager::ApplyMaterialResult(FMaterialCompileResult Result, FAssetCompileProcessResult& Processed) -> void
+	{
+		const auto Resource = Result.Request->Resource;
+		auto* Material = Cast<DMaterialInterface>(Resource->Material.Get());
+		FObjectCacheContext Context;
+		if (IsValid(Material) && Private::FMaterialCompilationLifecycle::Admit(*Material, std::move(Result), &Context))
+			Processed.SuccessfullyCompiledAssets.emplace_back(Material);
+	}
+
+	auto FShaderCompilingManager::FinishResourceCompilation(const std::shared_ptr<FMaterialCompilationResource>& Resource) -> FAssetCompileProcessResult
+	{
+		FAssetCompileProcessResult Processed;
+		while (const auto Association = Resource->Compilation.lock())
+		{
+			if (auto* Material = Cast<DMaterialInterface>(Resource->Material.Get()); IsValid(Material))
+				Material->PollResourcePreparation(Resource, true);
+			FShaderMapPtr Producer;
+			{
+				std::lock_guard Lock(MaterialMutex);
+				const auto Entry = MaterialRequests.find(Resource);
+				if (Entry != MaterialRequests.end() && Entry->second.Association == Association) Producer = Entry->second.Request;
+			}
+			if (Producer) { PrioritizeCompilation(Producer); FinishCompilation(Producer); }
+			const auto Consumed = ProcessMaterialResults(
+				{.MaximumCompletions = std::numeric_limits<uint32>::max()},
+				[&](FMaterialCompileResult Result) { ApplyMaterialResult(std::move(Result), Processed); }, Resource);
+			Processed.ProcessedCompletionCount += Consumed;
+		}
+		return Processed;
+	}
+
+	auto FShaderCompilingManager::FinishCompilationForObjects(std::span<DObject* const> Objects) -> FAssetCompileProcessResult
 	{
 		FAssetCompileProcessResult Aggregate;
-		std::vector<FWeakObjectPtr> Owners;
-		for (DObject* Object : Objects)
+		for (auto* Object : Objects)
 			if (auto* Material = Cast<DMaterialInterface>(Object); IsValid(Material))
 			{
+				while (Material->IsDynamicInstance() && IsValid(Material->GetParent())) Material = Material->GetParent();
 				if (Material->GetMaterialCompileStatus().HasScheduledEdits())
 					Private::FMaterialCompilationLifecycle::RequestCurrent(*Material, false);
-				Owners.push_back(FWeakObjectPtr(Material));
+				const auto Resources = Material->CompilationState.Resources;
+				for (const auto& Resource : Resources)
+				{
+					if (Resource->Compilation.expired() && (!Resource->bRequested
+						|| Material->CompilationState.SubmittedRevision != Material->CompilationState.AuthoredRevision)) continue;
+					auto Result = Material->CacheResourceShaders(Resource, EMaterialShaderPrecompileMode::Synchronous);
+					Aggregate.ProcessedCompletionCount += Result.ProcessedCompletionCount;
+					Aggregate.SuccessfullyCompiledAssets.insert(Aggregate.SuccessfullyCompiledAssets.end(), Result.SuccessfullyCompiledAssets.begin(), Result.SuccessfullyCompiledAssets.end());
+				}
 			}
-		while (std::ranges::any_of(Owners, [this](FWeakObjectPtr Owner) {
-			auto* Material = Cast<DMaterialInterface>(Owner.Get());
-			return IsValid(Material) && Material->IsCompiling();
-		}))
-		{
-			RaiseMaterialPriority(Owners);
-			auto Item = ProcessAsyncResults({.MaximumCompletions = std::numeric_limits<uint32>::max()});
-			Aggregate.ProcessedCompletionCount += Item.ProcessedCompletionCount;
-			Aggregate.SuccessfullyCompiledAssets.insert(
-				Aggregate.SuccessfullyCompiledAssets.end(),
-				Item.SuccessfullyCompiledAssets.begin(),
-				Item.SuccessfullyCompiledAssets.end());
-			if (Item.ProcessedCompletionCount == 0) std::this_thread::yield();
-		}
-		for (auto Owner : Owners)
-			if (auto* Material = Cast<DMaterialInterface>(Owner.Get()); IsValid(Material))
-				(void)Material->PumpFeatureLevelResources(true);
 		return Aggregate;
 	}
+
 	auto FShaderCompilingManager::MarkCompilationAsCanceled(std::span<DObject* const> Objects)
 		-> void
 	{
@@ -98,19 +120,7 @@ namespace Durin
 		for (DObject* Object : Objects)
 			if (auto* Material = Cast<DMaterialInterface>(Object); IsValid(Material))
 			{
-				const bool DefaultPending = Material->CompilationState.DefaultResource->bPending || Material->CompilationState.DefaultResource->CookedPreparation;
-				const bool bCanceled = CancelCompilation(FWeakObjectPtr(Material));
-				if (DefaultPending) Material->CompilationState.DefaultResource->Status.State = EMaterialCompileState::Canceled;
-				if (bCanceled || Material->CompilationState.DefaultResource->CookedPreparation)
-					Private::FMaterialCompilationLifecycle::MarkCanceled(*Material);
-				else
-				{
-					// Withdrawing an unsubmitted edit is not a request outcome.
-					Material->CompilationState.EditCompileDeadline.reset();
-					Private::GetMaterialEditCompileQueue().Remove(FWeakObjectPtr(Material));
-					Material->CancelFeatureLevelCompilation();
-					Private::GetMaterialPreparationQueue().Remove(FWeakObjectPtr(Material));
-				}
+				Private::FMaterialCompilationLifecycle::MarkCanceled(*Material);
 			}
 	}
 	auto FShaderCompilingManager::ProcessAsyncResults(const FAssetCompileProcessParams& Params) -> FAssetCompileProcessResult
@@ -130,35 +140,20 @@ namespace Durin
 				{
 					const FMaterialRenderProxyRef Proxy =
 						Material->GetRenderProxy();
-					if ((Proxy && Proxy->GetRefCount() > 2) || Material->HasFeatureLevelRenderReferences())
+					if ((Proxy && Proxy->GetRefCount() > 2) || Material->HasResourceRenderReferences())
 						RequestMaterialRecompile(*Material, ReloadMode > 1);
 				}
 		}
 
 		FAssetCompileProcessResult Processed;
-		FObjectCacheContext CompletionContext;
-		Processed.ProcessedCompletionCount = ProcessMaterialResults(Params, [&](FMaterialCompileResult Result) {
-			DObject* Object = Result.Resource->Material.Get();
-			if (auto* Material = Cast<DMaterialInterface>(Object); IsValid(Material)
-				&& Private::FMaterialCompilationLifecycle::Admit(*Material, std::move(Result), &CompletionContext))
-				Processed.SuccessfullyCompiledAssets.emplace_back(Material);
-		});
-		if (!Params.Deadline || std::chrono::steady_clock::now() < *Params.Deadline) Private::GetMaterialPreparationQueue().Process(
-			Private::MaterialPreparationMaxChecks, [this, &Params, &Processed](FWeakObjectPtr Owner) {
+		if (!Params.Deadline || std::chrono::steady_clock::now() < *Params.Deadline)
+			Private::GetMaterialPreparationQueue().Process(Private::MaterialPreparationMaxChecks, [&](FWeakObjectPtr Owner) {
 				auto* Material = Cast<DMaterialInterface>(Owner.Get());
-				if (!IsValid(Material)) return false;
-				const bool FeaturePending = Material->PumpFeatureLevelResources();
-				if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
-				{
-					if (Processed.ProcessedCompletionCount >= Params.MaximumCompletions
-						|| (Params.Deadline && std::chrono::steady_clock::now() >= *Params.Deadline)) return true;
-					if (Material->PollCookedProgramPreparation()) return true;
-					++Processed.ProcessedCompletionCount;
-					if (Material->IsComplete()) Processed.SuccessfullyCompiledAssets.emplace_back(Material);
-					return FeaturePending;
-				}
-				return FeaturePending;
+				return IsValid(Material) && Material->PumpResourcePreparations(Params);
 			});
+		Processed.ProcessedCompletionCount = ProcessMaterialResults(Params, [&](FMaterialCompileResult Result) {
+			ApplyMaterialResult(std::move(Result), Processed);
+		});
 		if (!Params.Deadline || std::chrono::steady_clock::now() < *Params.Deadline)
 			Private::GetMaterialEditCompileQueue().Process(Private::MaterialPreparationMaxChecks, [&](FWeakObjectPtr Owner) {
 				auto* Material = Cast<DMaterialInterface>(Owner.Get());
@@ -203,8 +198,8 @@ namespace Durin
 			RequestedShaderMaps.clear();
 			for (const auto& [Resource, Association] : MaterialRequests)
 			{
-				Resource->bPending = false;
-				Resource->Status.State = EMaterialCompileState::Canceled;
+				Resource->Compilation.reset();
+				Resource->Outcome = EMaterialCompileState::Canceled;
 			}
 			MaterialRequests.clear(); MaterialResults.clear(); OutstandingMaterialConsumers = 0;
 		}

@@ -28,12 +28,7 @@ namespace Durin
 	// status, diagnostics and the accepted render program.
 	struct FMaterialProgramPreparationState
 	{
-		uint64 BulkRevision = 0;
-		std::filesystem::path CookRoot;
-		ECookTargetPlatform CookTarget = ECookTargetPlatform::Win64;
-		EMaterialQualityLevel Quality;
-		ERHIFeatureLevel FeatureLevel;
-		ERHIBackend Backend;
+		FMaterialCompilationConfiguration Configuration;
 		std::optional<FPackageResourceRequest> Request;
 		std::shared_ptr<FMaterialProgramDecodeResult> Result = std::make_shared<FMaterialProgramDecodeResult>();
 		~FMaterialProgramPreparationState() { Result->Canceled = true; }
@@ -51,46 +46,30 @@ namespace Durin
 		FMaterialStaticProperties Properties;
 		std::shared_ptr<const FMaterialCompilerResult> Program;
 	};
-	struct FMaterialPreparationError
-	{
-		EMaterialCompileState State;
-		std::string Diagnostic;
-	};
-	static auto CreateProgramPreparation(const DMaterialInterface& Material, ERHIFeatureLevel Level)
+	static auto CreateProgramPreparation(const FMaterialCompilationConfiguration& Configuration)
 		-> std::shared_ptr<FMaterialProgramPreparationState>
 	{
 		auto State = std::make_shared<FMaterialProgramPreparationState>();
-		State->BulkRevision = Material.GetCookedProgramData().GetContentRevision();
-		State->CookRoot = GetAssetRuntimeConfiguration().GetCookRoot();
-		State->CookTarget = GetAssetRuntimeConfiguration().GetCookTargetPlatform();
-		State->Quality = GetMaterialQualityLevel();
-		State->FeatureLevel = Level;
-		State->Backend = PreparationBackend();
+		State->Configuration = Configuration;
 		return State;
 	}
 	static auto PollProgramPreparation(const DMaterialInterface& Material,
 		const std::shared_ptr<FMaterialProgramPreparationState>& State, bool bSynchronous)
-		-> std::expected<std::optional<FPreparedMaterialProgram>, FMaterialPreparationError>
+		-> std::expected<std::optional<FPreparedMaterialProgram>, std::string>
 	{
-		const auto Finish = [](EMaterialCompileState Status, std::string Diagnostic)
-			-> std::expected<std::optional<FPreparedMaterialProgram>, FMaterialPreparationError> {
-			return std::unexpected(FMaterialPreparationError{Status, std::move(Diagnostic)});
+		const auto Finish = [](std::string Diagnostic)
+			-> std::expected<std::optional<FPreparedMaterialProgram>, std::string> {
+			return std::unexpected(std::move(Diagnostic));
 		};
 		const auto Metadata = Material.GetCookedProgramData().GetMetadata();
-		if (!GetAssetRuntimeConfiguration().RequiresCookedPayload()
-			|| GetAssetRuntimeConfiguration().GetCookRoot() != State->CookRoot
-			|| GetAssetRuntimeConfiguration().GetCookTargetPlatform() != State->CookTarget
-			|| (Metadata.Range.Resource && Metadata.Range.Resource->IsRetired())
-			|| Material.GetCookedProgramData().GetContentRevision() != State->BulkRevision
-			|| State->Quality != GetMaterialQualityLevel()
-			|| State->FeatureLevel > PreparationFeatureLevel() || State->Backend != PreparationBackend())
-			return Finish(EMaterialCompileState::Canceled, "Cooked program request was invalidated before publication.");
+		if (Metadata.Range.Resource && Metadata.Range.Resource->IsRetired())
+			return Finish("Cooked program resource was retired before publication.");
 		if (!State->Request)
 		{
 			if (Metadata.LogicalSize == 0 || Metadata.LogicalSize > MaterialCookedProgramMaxPayloadBytes)
-				return Finish(EMaterialCompileState::Failed, "Cooked program preparation requires bounded cooked data.");
-			const auto Decode = [Result = State->Result, Quality = State->Quality,
-				Level = State->FeatureLevel, Backend = State->Backend](FByteView Bytes) {
+				return Finish("Cooked program preparation requires bounded cooked data.");
+			const auto Decode = [Result = State->Result, Quality = State->Configuration.Quality,
+				Level = State->Configuration.FeatureLevel, Backend = State->Configuration.Backend](FByteView Bytes) {
 				const auto Decoded = DecodeMaterialCookedProgramFamily(Bytes,
 					Backend == ERHIBackend::Metal ? ECookTargetPlatform::MacOS : ECookTargetPlatform::Win64,
 					ECookTargetProfile::Game, Quality, Level, {}, Result->Properties, Result->Program);
@@ -100,13 +79,13 @@ namespace Durin
 			{
 				FBulkData Snapshot = Material.GetCookedProgramData();
 				auto Read = Snapshot.AcquireRead();
-				if (!Read) return Finish(EMaterialCompileState::Failed, Read.error().Message);
+				if (!Read) return Finish(Read.error().Message);
 				Decode(Read->GetBytes());
 			}
 			else
 			{
 				if (!IsTaskSchedulerRunning())
-					return Finish(EMaterialCompileState::Failed, "Cooked program task scheduler stopped before admission.");
+					return Finish("Cooked program task scheduler stopped before admission.");
 
 				FBulkData Snapshot = Material.GetCookedProgramData();
 				State->Request = FPackageResourceRequest::Transform(Snapshot.ReloadAsync(),
@@ -123,22 +102,51 @@ namespace Durin
 			if (!State->Request->IsReady() && !bSynchronous && IsTaskSchedulerRunning()) return std::optional<FPreparedMaterialProgram>{};
 			// Join the existing read/decode even in synchronous mode; never submit it twice.
 			const auto Read = State->Request->Wait();
-			if (!Read) return Finish(EMaterialCompileState::Failed, FormatPackageResourceReadError(Read));
+			if (!Read) return Finish(FormatPackageResourceReadError(Read));
 		}
 		if (!State->Result->Program || !State->Result->Diagnostic.empty())
 		{
-			return Finish(EMaterialCompileState::Failed, State->Result->Diagnostic);
+			return Finish(State->Result->Diagnostic);
 		}
 		return FPreparedMaterialProgram{State->Result->Properties, State->Result->Program};
 	}
-	auto DMaterialInterface::GetCompilationResource(ERHIFeatureLevel Level, bool Create) const -> std::shared_ptr<FMaterialCompilationResource>
+	auto DMaterialInterface::GetCompilationResource(ERHIFeatureLevel Level, EMaterialQualityLevel Quality, bool Create) const
+		-> std::shared_ptr<FMaterialCompilationResource>
 	{
-		if (CompilationState.DefaultResource->FeatureLevel == Level
-			|| (!CompilationState.DefaultResource->RenderLayer.CompiledProgram && !CompilationState.DefaultResource->bPending && Level == PreparationFeatureLevel()))
-			return CompilationState.DefaultResource;
-		auto& Resource = FeatureLevelResources[static_cast<size_t>(Level)];
-		if (!Resource && Create) Resource = std::make_shared<FMaterialCompilationResource>();
+		const FMaterialCompilationConfiguration Key{Level, Quality, PreparationBackend()};
+		for (const auto& Resource : CompilationState.Resources)
+			if (Resource->Configuration == Key) return Resource;
+		if (!Create) return {};
+		auto Resource = std::make_shared<FMaterialCompilationResource>(Key);
+		CompilationState.Resources.push_back(Resource);
 		return Resource;
+	}
+
+	auto DMaterialInterface::GetRenderingCompilationResource() const -> std::shared_ptr<FMaterialCompilationResource>
+	{ return GetCompilationResource(PreparationFeatureLevel(), GetMaterialQualityLevel(), true); }
+
+	auto DMaterialInterface::CaptureCompilationInputStamp() const -> FMaterialCompilationInputStamp
+	{
+		return {CompilationState.AuthoredRevision, GetShaderReloadGeneration(), CookedProgramData.GetContentRevision(),
+			GetAssetRuntimeConfiguration().RequiresCookedPayload(), GetAssetRuntimeConfiguration().GetCookRoot(),
+			GetAssetRuntimeConfiguration().GetCookTargetPlatform()};
+	}
+
+	auto DMaterialInterface::GetResourceCompileStatus(const std::shared_ptr<FMaterialCompilationResource>& Resource) const -> FMaterialCompileStatus
+	{
+		FMaterialCompileStatus Status;
+		Status.AuthoredRevision = CompilationState.AuthoredRevision;
+		Status.SubmittedRevision = CompilationState.SubmittedRevision;
+		if (!Resource) return Status;
+		Status.CompiledRevision = Resource->CompiledRevision;
+		Status.CompiledDependencyRevision = Resource->CompiledDependencyRevision;
+		Status.RequestId = Resource->RequestId;
+		Status.State = Resource->Compilation.expired() ? Resource->Outcome : EMaterialCompileState::Running;
+		Status.CacheOutcome = Resource->CacheOutcome;
+		Status.Target = Resource->Target;
+		Status.CompiledIdentity = Resource->RenderLayer.CompiledProgram ? Resource->RenderLayer.CompiledProgram->GetShaderMap().ShaderMapId : FMaterialProgramIdentity{};
+		Status.bDependenciesCurrent = Resource->CompiledDependencyRevision == GetShaderReloadGeneration();
+		return Status;
 	}
 
 	auto DMaterialInterface::CacheResourceShadersForRendering(EMaterialShaderPrecompileMode Mode) -> void
@@ -146,128 +154,135 @@ namespace Durin
 		CheckGameThread();
 		if (Mode == EMaterialShaderPrecompileMode::None || IsPendingKill()) return;
 		if (IsDynamicInstance()) { if (IsValid(GetParent())) GetParent()->CacheResourceShadersForRendering(Mode); return; }
-		if (!GetAssetRuntimeConfiguration().RequiresCookedPayload()
-			&& (IsComplete() || CompilationState.DefaultResource->bPending))
-		{
-			if (Mode == EMaterialShaderPrecompileMode::Synchronous && CompilationState.DefaultResource->bPending)
-			{
-				const std::array<DObject*, 1> Objects{this};
-				FShaderCompilingManager::Get().FinishCompilationForObjects(Objects);
-			}
-			return;
-		}
-		CacheResourceShaders(CompilationState.DefaultResource, PreparationFeatureLevel(), Mode);
+		const auto& Key = CompilationState.SelectedResource->Configuration;
+		CompilationState.SelectedResource = GetCompilationResource(Key.FeatureLevel, Key.Quality, true);
+		CacheResourceShaders(CompilationState.SelectedResource, Mode);
 	}
 
 	auto DMaterialInterface::CacheResourceShadersForRendering(ERHIFeatureLevel Level, EMaterialShaderPrecompileMode Mode) -> void
+	{ CacheResourceShadersForRendering(Level, GetMaterialQualityLevel(), Mode); }
+
+	auto DMaterialInterface::CacheResourceShadersForRendering(ERHIFeatureLevel Level, EMaterialQualityLevel Quality, EMaterialShaderPrecompileMode Mode) -> void
 	{
 		CheckGameThread();
-		if (Mode == EMaterialShaderPrecompileMode::None || IsPendingKill() || !IsSupportedMaterialFeatureLevel(Level)) return;
-		if (IsDynamicInstance()) { if (IsValid(GetParent())) GetParent()->CacheResourceShadersForRendering(Level, Mode); return; }
-		CacheResourceShaders(GetCompilationResource(Level, true), Level, Mode);
+		if (Mode == EMaterialShaderPrecompileMode::None || IsPendingKill()
+			|| !IsSupportedMaterialFeatureLevel(Level) || !IsSupportedMaterialQualityLevel(Quality)) return;
+		if (IsDynamicInstance()) { if (IsValid(GetParent())) GetParent()->CacheResourceShadersForRendering(Level, Quality, Mode); return; }
+		CacheResourceShaders(GetCompilationResource(Level, Quality, true), Mode);
 	}
 
 	auto DMaterialInterface::CacheResourceShaders(const std::shared_ptr<FMaterialCompilationResource>& Resource,
-		ERHIFeatureLevel Level, EMaterialShaderPrecompileMode Mode) -> void
+		EMaterialShaderPrecompileMode Mode) -> FAssetCompileProcessResult
 	{
+		FAssetCompileProcessResult Processed;
+		const auto Finish = [&] {
+			auto Result = FShaderCompilingManager::Get().FinishResourceCompilation(Resource);
+			Processed.ProcessedCompletionCount += Result.ProcessedCompletionCount;
+			Processed.SuccessfullyCompiledAssets.insert(Processed.SuccessfullyCompiledAssets.end(), Result.SuccessfullyCompiledAssets.begin(), Result.SuccessfullyCompiledAssets.end());
+		};
 		const bool Synchronous = Mode == EMaterialShaderPrecompileMode::Synchronous;
-		const bool Cooked = GetAssetRuntimeConfiguration().RequiresCookedPayload();
-		const auto& OwnerStatus = CompilationState.DefaultResource->Status;
 		Resource->bRequested = true;
-		const bool SameInput = Resource->FeatureLevel == Level
-			&& Resource->Status.SubmittedRevision == OwnerStatus.AuthoredRevision
-			&& Resource->ShaderRevision == GetShaderReloadGeneration() && Resource->Quality == GetMaterialQualityLevel()
-			&& Resource->BulkRevision == CookedProgramData.GetContentRevision() && Resource->Backend == PreparationBackend()
-			&& Resource->bCooked == Cooked && Resource->CookRoot == GetAssetRuntimeConfiguration().GetCookRoot()
-			&& Resource->CookTarget == GetAssetRuntimeConfiguration().GetCookTargetPlatform();
-		if (!SameInput)
+		if (Resource->Configuration.FeatureLevel > PreparationFeatureLevel())
 		{
-			FShaderCompilingManager::Get().CancelCompilation(Resource);
-			Resource->CookedPreparation.reset();
-			Resource->Status.State = EMaterialCompileState::NeverRequested;
-			Resource->FeatureLevel = Level;
-			Resource->Status.AuthoredRevision = OwnerStatus.AuthoredRevision;
-			Resource->Status.SubmittedRevision = OwnerStatus.AuthoredRevision;
-			Resource->ShaderRevision = GetShaderReloadGeneration();
-			Resource->Quality = GetMaterialQualityLevel();
-			Resource->BulkRevision = CookedProgramData.GetContentRevision();
-			Resource->Backend = PreparationBackend();
-			Resource->bCooked = Cooked;
-			Resource->CookRoot = GetAssetRuntimeConfiguration().GetCookRoot();
-			Resource->CookTarget = GetAssetRuntimeConfiguration().GetCookTargetPlatform();
-		}
-		const auto Fail = [&](std::string Message) {
-			Resource->Status.State = EMaterialCompileState::Failed;
-			Resource->CookDiagnostic = std::move(Message);
+			Private::FMaterialCompilationLifecycle::ResetRequest(*this, Resource);
+			Resource->Outcome = EMaterialCompileState::Failed;
+			Resource->CookDiagnostic = "Material feature level exceeds RHI capability.";
 			Resource->bRequested = false;
 			Resource->RenderLayer = {};
-			Resource->AcceptedExpressionSources.clear();
-			Resource->CookedPreparation.reset();
 			MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap | EMaterialRenderDirtyFlags::PipelineState);
-		};
-		if (Level > PreparationFeatureLevel()) { Fail("Material feature level exceeds RHI capability."); return; }
-		if (Resource->bPending)
+			return Processed;
+		}
+		for (;;)
 		{
-			if (Synchronous)
+			const auto Stamp = CaptureCompilationInputStamp();
+			const bool SameInput = Resource->RequestedInput == Stamp;
+			if (!SameInput)
 			{
-				const std::array<DObject*, 1> Objects{this};
-				FShaderCompilingManager::Get().FinishCompilationForObjects(Objects);
+				FShaderCompilingManager::Get().CancelCompilation(Resource);
+				Resource->CookedPreparation.reset();
+				Resource->Outcome = EMaterialCompileState::NeverRequested;
 			}
-			return;
-		}
-		if (SameInput && !Resource->CookedPreparation && Resource->Status.State == EMaterialCompileState::Ready) return;
-		if (!Cooked)
-		{
-			FMaterialCompilerEnvironment Environment;
-			const auto Built = BuildDefaultMaterialCompilerEnvironment(Environment);
-			if (!Built) { Fail(Built.error()); return; }
-			Environment.FeatureLevel = Level;
-			RequestProgramCompile(GetStaticProperties(), false, nullptr, std::move(Environment), Resource);
-			if (Synchronous && Resource->bPending)
+			if (SameInput && !Resource->Compilation.expired())
 			{
-				const std::array<DObject*, 1> Objects{this};
-				FShaderCompilingManager::Get().FinishCompilationForObjects(Objects);
+				if (!Synchronous) return Processed;
+				Finish();
 			}
-			return;
+			else if (SameInput && Resource->Outcome == EMaterialCompileState::Ready)
+			{ Resource->bRequested = false; return Processed; }
+			else
+			{
+				if (Stamp.bCooked)
+				{
+					Private::FMaterialCompilationLifecycle::ResetRequest(*this, Resource);
+					Resource->Material = FWeakObjectPtr(this);
+					auto Request = std::make_shared<FMaterialCompileRequest>(FMaterialCompileRequest{.Resource = Resource});
+					Resource->Compilation = Request;
+					FShaderCompilingManager::Get().RegisterMaterialRequest(Request);
+					Resource->CookedPreparation = CreateProgramPreparation(Resource->Configuration);
+					PollResourcePreparation(Resource, Synchronous);
+				}
+				else
+				{
+					FMaterialCompilerEnvironment Environment;
+					const auto Built = BuildDefaultMaterialCompilerEnvironment(Environment);
+					if (!Built)
+					{
+						Private::FMaterialCompilationLifecycle::ResetRequest(*this, Resource);
+						Resource->Outcome = EMaterialCompileState::Failed;
+						Resource->Diagnostics = {{.Message = Built.error()}};
+						Resource->RenderLayer = {};
+						Resource->bRequested = false;
+						MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap | EMaterialRenderDirtyFlags::PipelineState);
+						return Processed;
+					}
+					RequestProgramCompile(GetStaticProperties(), false, nullptr, std::move(Environment), Resource);
+				}
+				if (!Resource->Compilation.expired())
+				{
+					Private::GetMaterialPreparationQueue().Add(FWeakObjectPtr(this));
+					if (Synchronous) Finish();
+				}
+			}
+			if (!Synchronous || Stamp == CaptureCompilationInputStamp()) return Processed;
 		}
-		if (!Resource->CookedPreparation)
-		{
-			if (!Synchronous && !IsTaskSchedulerRunning()) { Fail("Background cooked program preparation requires a running task scheduler."); return; }
-			Resource->CookDiagnostic.clear();
-			Resource->CookedPreparation = CreateProgramPreparation(*this, Level);
-		}
+	}
+
+	auto DMaterialInterface::PollResourcePreparation(const std::shared_ptr<FMaterialCompilationResource>& Resource, bool Synchronous) -> void
+	{
+		if (!Resource->CookedPreparation) return;
 		const auto Prepared = PollProgramPreparation(*this, Resource->CookedPreparation, Synchronous);
-		if (!Prepared) { Fail(Prepared.error().Diagnostic); return; }
-		if (!*Prepared) { Private::GetMaterialPreparationQueue().Add(FWeakObjectPtr(this)); return; }
-		const auto Installed = AdmitCookedProgram((*Prepared)->Properties, (*Prepared)->Program, Resource);
-		if (!Installed) Fail(Installed.error());
-		else Resource->CookDiagnostic.clear();
+		if (Prepared && !*Prepared) return;
+		FMaterialCompileResult Result{.Request = Resource->Compilation.lock()};
+		if (!Prepared)
+		{
+			Resource->CookDiagnostic = Prepared.error();
+			Result.Diagnostics = {{.Message = Prepared.error()}};
+		}
+		else
+		{
+			Result.StaticProperties = (*Prepared)->Properties;
+			Result.CompiledProgram = (*Prepared)->Program;
+			Result.Outcome = EMaterialCompileOutcome::Succeeded;
+		}
+		Resource->CookedPreparation.reset();
+		FShaderCompilingManager::Get().QueueMaterialResult(std::move(Result));
 	}
 
-	auto DMaterialInterface::PollCookedProgramPreparation(bool Synchronous) -> bool
+	auto DMaterialInterface::GetAcceptedCompiledProgram(ERHIFeatureLevel Level, EMaterialQualityLevel Quality) const -> std::shared_ptr<const FMaterialCompilerResult>
 	{
-		if (!CompilationState.DefaultResource->CookedPreparation) return false;
-		CacheResourceShaders(CompilationState.DefaultResource, PreparationFeatureLevel(), Synchronous
-			? EMaterialShaderPrecompileMode::Synchronous : EMaterialShaderPrecompileMode::Background);
-		return CompilationState.DefaultResource->CookedPreparation != nullptr;
+		if (!IsSupportedMaterialFeatureLevel(Level) || !IsSupportedMaterialQualityLevel(Quality)) return {};
+		if (IsDynamicInstance()) return IsValid(GetParent()) ? GetParent()->GetAcceptedCompiledProgram(Level, Quality) : nullptr;
+		const auto Resource = GetCompilationResource(Level, Quality);
+		return Resource ? Resource->RenderLayer.CompiledProgram : nullptr;
 	}
 
-	auto DMaterialInterface::GetAcceptedCompiledProgram(ERHIFeatureLevel Level) const -> std::shared_ptr<const FMaterialCompilerResult>
+	auto DMaterialInterface::GetMaterialResource(ERHIFeatureLevel Level, EMaterialQualityLevel Quality) const -> FMaterialResource
 	{
-		if (!IsSupportedMaterialFeatureLevel(Level)) return {};
-		if (IsDynamicInstance()) return IsValid(GetParent()) ? GetParent()->GetAcceptedCompiledProgram(Level) : nullptr;
-		const auto Resource = GetCompilationResource(Level);
-		const auto Program = Resource ? Resource->RenderLayer.CompiledProgram : nullptr;
-		return Program && Program->FeatureLevel == Level ? Program : nullptr;
-	}
-
-	auto DMaterialInterface::GetMaterialResource(ERHIFeatureLevel Level) const -> FMaterialResource
-	{
-		if (!IsSupportedMaterialFeatureLevel(Level)) return {};
+		if (!IsSupportedMaterialFeatureLevel(Level) || !IsSupportedMaterialQualityLevel(Quality)) return {};
 		if (IsDynamicInstance())
 		{
 			if (!IsValid(GetParent())) return {};
-			auto Resource = GetParent()->GetMaterialResource(Level);
+			auto Resource = GetParent()->GetMaterialResource(Level, Quality);
 			const auto* Instance = Cast<DMaterialInstance>(this);
 			for (auto& Parameter : Resource.Parameters)
 			{
@@ -277,120 +292,115 @@ namespace Durin
 			}
 			return Resource;
 		}
-		const auto State = GetCompilationResource(Level);
+		const auto State = GetCompilationResource(Level, Quality);
 		if (!State) return {};
 		auto Resource = State->RenderLayer;
-		if (Resource.CompiledProgram && Resource.CompiledProgram->FeatureLevel != Level) Resource = {};
 		const auto& Authored = GetStaticProperties();
 		if (Resource.StaticProperties && CanonicalizeMaterialShaderProperties(*Resource.StaticProperties) == CanonicalizeMaterialShaderProperties(Authored))
 		{
 			Resource.StaticProperties->bTwoSided = Authored.bTwoSided;
 			Resource.StaticProperties->DepthWritePolicy = Authored.DepthWritePolicy;
 		}
-		Resource.bIsCompiling = State->bPending || State->CookedPreparation;
+		Resource.bIsCompiling = !State->Compilation.expired();
 		return BuildMaterialResource(std::move(Resource));
 	}
 
-	auto DMaterialInterface::GetMaterialCompileStatus(ERHIFeatureLevel Level) const -> FMaterialCompileStatus
+	auto DMaterialInterface::GetMaterialCompileStatus(ERHIFeatureLevel Level, EMaterialQualityLevel Quality) const -> FMaterialCompileStatus
 	{
-		if (!IsSupportedMaterialFeatureLevel(Level)) return {.State = EMaterialCompileState::Failed};
-		if (IsDynamicInstance()) return IsValid(GetParent()) ? GetParent()->GetMaterialCompileStatus(Level) : FMaterialCompileStatus{};
-		const auto Resource = GetCompilationResource(Level);
-		if (Resource == CompilationState.DefaultResource) return GetMaterialCompileStatus();
-		if (!Resource) return {};
-		auto Status = Resource->Status;
-		Status.AuthoredRevision = CompilationState.DefaultResource->Status.AuthoredRevision;
-		Status.State = Resource->bPending || Resource->CookedPreparation ? EMaterialCompileState::Running : Status.State;
-		Status.CompiledIdentity = Resource->RenderLayer.CompiledProgram ? Resource->RenderLayer.CompiledProgram->GetShaderMap().ShaderMapId : FMaterialProgramIdentity{};
-		Status.bDependenciesCurrent = Status.CompiledDependencyRevision == GetShaderReloadGeneration()
-			&& Resource->RenderLayer.CompiledProgram && Resource->RenderLayer.CompiledProgram->FeatureLevel == Level
-			&& Resource->RenderLayer.CompiledProgram->Quality == Resource->Quality;
+		if (!IsSupportedMaterialFeatureLevel(Level) || !IsSupportedMaterialQualityLevel(Quality)) return {.State = EMaterialCompileState::Failed};
+		if (IsDynamicInstance()) return IsValid(GetParent()) ? GetParent()->GetMaterialCompileStatus(Level, Quality) : FMaterialCompileStatus{};
+		auto Status = GetResourceCompileStatus(GetCompilationResource(Level, Quality));
 		return Status;
 	}
 
-	auto DMaterialInterface::GetMaterialCookDiagnostic(ERHIFeatureLevel Level) const -> std::string
+	auto DMaterialInterface::GetMaterialCookDiagnostic(ERHIFeatureLevel Level, EMaterialQualityLevel Quality) const -> std::string
 	{
-		if (!IsSupportedMaterialFeatureLevel(Level)) return "Unsupported material feature level.";
-		if (IsDynamicInstance()) return IsValid(GetParent()) ? GetParent()->GetMaterialCookDiagnostic(Level) : "Missing material parent.";
-		const auto Resource = GetCompilationResource(Level);
+		if (!IsSupportedMaterialFeatureLevel(Level) || !IsSupportedMaterialQualityLevel(Quality)) return "Unsupported material configuration.";
+		if (IsDynamicInstance()) return IsValid(GetParent()) ? GetParent()->GetMaterialCookDiagnostic(Level, Quality) : "Missing material parent.";
+		const auto Resource = GetCompilationResource(Level, Quality);
 		if (!Resource) return {};
 		if (!Resource->CookDiagnostic.empty()) return Resource->CookDiagnostic;
 		return Resource->Diagnostics.empty() ? std::string{} : FormatMaterialProgramDiagnostics(Resource->Diagnostics, "Material compilation failed.");
 	}
 
-	auto DMaterialInterface::GetRenderProxy(ERHIFeatureLevel Level) const -> FMaterialRenderProxyRef
+	auto DMaterialInterface::GetRenderProxy(ERHIFeatureLevel Level, EMaterialQualityLevel Quality) const -> FMaterialRenderProxyRef
 	{
 		CheckGameThread();
-		if (IsTemplateObject() || !bAcceptingMaterialProxyPublications || !IsSupportedMaterialFeatureLevel(Level)) return {};
-		const auto State = GetCompilationResource(Level, true);
-		if (State == CompilationState.DefaultResource) return GetRenderProxy();
-		if (!State->Proxy) State->Proxy = MakeRefCount<FMaterialRenderProxy>();
+		if (IsTemplateObject() || !bAcceptingMaterialProxyPublications
+			|| !IsSupportedMaterialFeatureLevel(Level) || !IsSupportedMaterialQualityLevel(Quality)) return {};
+		const auto Resource = GetCompilationResource(Level, Quality, true);
+		if (!Resource->Proxy) Resource->Proxy = MakeRefCount<FMaterialRenderProxy>();
 		if (GetRenderCommandAdmissionState() == ERenderCommandAdmissionState::Running)
 		{
-			auto Resource = GetMaterialResource(Level);
-			std::ranges::sort(Resource.Parameters, {}, &FMaterialLocalRenderParameter::Id);
-			State->Proxy->QueuePublication_GameThread(std::move(Resource));
+			auto Layer = GetMaterialResource(Level, Quality);
+			std::ranges::sort(Layer.Parameters, {}, &FMaterialLocalRenderParameter::Id);
+			Resource->Proxy->QueuePublication_GameThread(std::move(Layer));
 		}
-		return State->Proxy;
+		return Resource->Proxy;
 	}
 
-	auto DMaterialInterface::PublishFeatureLevelResources() const -> void
+	auto DMaterialInterface::PublishCompilationResources() const -> void
 	{
 		if (!bAcceptingMaterialProxyPublications) return;
-		for (size_t Index = 0; Index < FeatureLevelResources.size(); ++Index)
+		for (const auto& Resource : CompilationState.Resources)
 		{
-			const auto& Resource = FeatureLevelResources[Index];
-			if (!Resource) continue;
-			if (Resource->Proxy) (void)GetRenderProxy(static_cast<ERHIFeatureLevel>(Index));
-			if (Resource->bRequested && !IsDynamicInstance())
+			if (Resource->Proxy && Resource->Configuration.Backend == PreparationBackend()
+				&& GetRenderCommandAdmissionState() == ERenderCommandAdmissionState::Running)
+			{
+				auto Layer = IsDynamicInstance()
+					? GetMaterialResource(Resource->Configuration.FeatureLevel, Resource->Configuration.Quality)
+					: BuildMaterialResource(Resource->RenderLayer);
+				Layer.bIsCompiling = !Resource->Compilation.expired();
+				std::ranges::sort(Layer.Parameters, {}, &FMaterialLocalRenderParameter::Id);
+				Resource->Proxy->QueuePublication_GameThread(std::move(Layer));
+			}
+			if (!IsDynamicInstance() && (Resource->bRequested || !Resource->Compilation.expired()
+				|| (Resource->Proxy && Resource->Proxy->GetRefCount() > 1)))
 				Private::GetMaterialPreparationQueue().Add(FWeakObjectPtr(const_cast<DMaterialInterface*>(this)));
 		}
 	}
 
-	auto DMaterialInterface::ReleaseFeatureLevelResources() -> void
+	auto DMaterialInterface::ReleaseCompilationResources() -> void
 	{
-		CancelFeatureLevelCompilation();
-		for (auto& Resource : FeatureLevelResources)
-		{
-			if (Resource) ReleaseMaterialRenderProxy_GameThread(std::move(Resource->Proxy));
-			Resource.reset();
-		}
+		CancelResourceCompilation();
+		for (const auto& Resource : CompilationState.Resources)
+			ReleaseMaterialRenderProxy_GameThread(std::move(Resource->Proxy));
 	}
 
-	auto DMaterialInterface::PumpFeatureLevelResources(bool Synchronous) -> bool
+	auto DMaterialInterface::PumpResourcePreparations(const FAssetCompileProcessParams& Params) -> bool
 	{
 		bool Pending = false;
-		for (size_t Index = 0; Index < FeatureLevelResources.size(); ++Index)
+		// Capture resources: starting a request may select or allocate another configuration.
+		const auto Resources = CompilationState.Resources;
+		for (const auto& Resource : Resources)
 		{
-			const auto Resource = FeatureLevelResources[Index];
-			if (!Resource || !Resource->bRequested || IsDynamicInstance()) continue;
-			if (!GetAssetRuntimeConfiguration().RequiresCookedPayload()
-				&& CompilationState.DefaultResource->Status.HasUnsubmittedEdits()
-				&& !Resource->bPending) continue;
-			CacheResourceShaders(Resource, static_cast<ERHIFeatureLevel>(Index), Synchronous
-				? EMaterialShaderPrecompileMode::Synchronous : EMaterialShaderPrecompileMode::Background);
-			Pending |= Resource->bPending || Resource->CookedPreparation;
+			if (Params.Deadline && std::chrono::steady_clock::now() >= *Params.Deadline) return true;
+			if (IsDynamicInstance()) continue;
+			const bool Demanded = Resource->bRequested || (Resource->Proxy && Resource->Proxy->GetRefCount() > 1);
+			if (Demanded && Resource->RequestedInput != CaptureCompilationInputStamp()
+				&& CompilationState.SubmittedRevision == CompilationState.AuthoredRevision)
+				CacheResourceShaders(Resource, EMaterialShaderPrecompileMode::Background);
+			PollResourcePreparation(Resource, false);
+			Pending |= !Resource->Compilation.expired();
 		}
 		return Pending;
 	}
 
-	auto DMaterialInterface::CancelFeatureLevelCompilation() -> void
+	auto DMaterialInterface::CancelResourceCompilation() -> void
 	{
-		for (const auto& Resource : FeatureLevelResources)
+		for (const auto& Resource : CompilationState.Resources)
 		{
-			if (!Resource) continue;
-			const bool Pending = Resource->bPending || Resource->CookedPreparation;
+			if (!Resource->Compilation.expired()) Resource->Outcome = EMaterialCompileState::Canceled;
 			FShaderCompilingManager::Get().CancelCompilation(Resource);
 			Resource->CookedPreparation.reset();
-			if (Pending) Resource->Status.State = EMaterialCompileState::Canceled;
 			Resource->bRequested = false;
 		}
 	}
 
-	auto DMaterialInterface::HasFeatureLevelRenderReferences() const -> bool
+	auto DMaterialInterface::HasResourceRenderReferences() const -> bool
 	{
-		return std::ranges::any_of(FeatureLevelResources, [](const auto& Resource) {
-			return Resource && Resource->Proxy && Resource->Proxy->GetRefCount() > 1;
+		return std::ranges::any_of(CompilationState.Resources, [](const auto& Resource) {
+			return Resource->Proxy && Resource->Proxy->GetRefCount() > 1;
 		});
 	}
 }
