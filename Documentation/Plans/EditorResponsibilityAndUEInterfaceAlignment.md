@@ -25,7 +25,9 @@ queries and owner-routed commands, retaining per-view capture and confirmation.
 Provider source interface version 2 and all Stage 3 consumer gates are validated.
 Stage 4 is complete: shared texture preview and shader/resource ownership moved
 to DurinEd, MaterialEditor no longer depends on TextureEditor, and all 91
-selected regression cases passed. Stages 5-6 have not started.
+selected regression cases passed. Stage 5 is complete: DPackageTools owns editor
+unload policy over an explicit Engine collection bridge; all 287 final selected
+cases passed. Stage 6 has not started.
 The review baseline is `656742742dc515e159f1caa2a6e67d66c4324a0d`.
 Test target names were queried from the configured native registry for
 `Win64-Debug-DurinEditor`; execution evidence is recorded below.
@@ -417,6 +419,8 @@ open and these receipts cannot qualify their future implementation.
 | Browser item versus extension-only item and Folder/Directory enum translation | Removed in the first Stage 2 checkpoint. Extensions retain value-owned selection/primary snapshots, including ordinary-file paths; no asset loading is introduced. |
 | Proposed registration-of-source-classes plus activation factory | Removed from the selected design after checking UE's direct instance registration. Preserve available/active separation and activation generations; they protect different lifetimes. |
 | Private concrete source and public provider appearing to own the same role | Private implementation renamed to request context and reused as one mutation/recovery substrate. Generic dispatch is source-owned; no forwarding aliases or second mutation engine were retained. |
+| AssetTools and native fixtures importing Engine private package collection declarations | Stage 5 replaces both include-directory injections with one public weak-identity Engine bridge. AssetTools owns dirty/transaction policy; Engine retains the one GC/flag/retirement implementation. |
+| Batch unload success based on candidate submission | Stage 5 reports actual candidate package retirement; no separate success flag can claim a wholly retained batch succeeded. |
 | New coarse source-change notification | Replaced with UE-shaped `FContentBrowserItemDataUpdate`/`QueueItemDataUpdate`, sourced from committed effects rather than operation attempts. |
 | Native Asset/File sources both contributing the same physical folder | Stage 3 collapses the duplicate executable identity. Mixed native selections share one atomic backend; unrelated providers retain separate contributors and require explicit transfer support. |
 | Discovery preparation retained in the mutation request context | Stage 3 separates per-view owned captures into the service-bound data query. Panels hold no request context; query completion uses ordinary provider enumeration. |
@@ -614,19 +618,19 @@ Scope: AssetTools `PackageUnloading`, its public API and callers; Engine
 `Private/Asset/Tools/PackageCollection.h` and implementation; reflected header
 registration where required; package and asset-workflow fixtures.
 
-- [ ] Introduce the editor-side abstract reflected `DPackageTools` facade,
+- [x] Introduce the editor-side abstract reflected `DPackageTools` facade,
   matching UE's `UPackageTools` role, with static `UnloadPackages` overloads for
   packages, packages/error/dirty policy, and `FUnloadPackageParams` options.
   Map containers and errors to Durin conventions; add reflection only for
   supported scripting signatures, not arbitrary span-based functions.
-- [ ] Preserve the AssetTools policy/Engine mechanism split. Define a narrow
+- [x] Preserve the AssetTools policy/Engine mechanism split. Define a narrow
   exported package-collection bridge under Engine Public/Asset, with explicit
   admission, candidate identity and collection-result semantics. Do not expose
   unrelated Engine internals or transfer GC ownership to AssetTools.
-- [ ] Align the outer bool with UE: true means the loaded-package set changed,
+- [x] Align the outer bool with UE: true means the loaded-package set changed,
   not merely that candidates were submitted. Preserve detailed errors for dirty
   or still-referenced packages and use the mechanism's actual outcome.
-- [ ] Migrate `PackageTools::UnloadPackages` consumers and remove the superseded
+- [x] Migrate `PackageTools::UnloadPackages` consumers and remove the superseded
   namespace API. Delete the private Engine include-directory injection and
   direct `AssetPrivate` usage from AssetTools.
 
@@ -640,6 +644,69 @@ accidental editor imports without adding an unrelated Game runtime gate.
 Acceptance: no cross-module private include remains in this bridge; policy
 results reflect actual collection outcomes and no package schema/format changes
 are needed.
+
+Stage 5 final-input evidence, 2026-11-12, inputs based on `e1ce45ae1`,
+Windows `windows-msvc-x64` / `Win64-Debug-DurinEditor`, outside-sandbox MSVC:
+
+| Selection | Result | Receipt under `Build/.agent-state/logs/` |
+| --- | --- | --- |
+| AssetPackageTests | 242 passed | `20261112-153838-411233-31268-AssetPackageTests.log` |
+| AssetRuntimeLifecycleTests | 1 passed | `20261112-153225-559151-3300-AssetRuntimeLifecycleTests.log` |
+| EditorAssetWorkflowTests | 44 passed | `20261112-153438-531447-31700-EditorAssetWorkflowTests.log` |
+| StaticMeshEditor consumer build | passed | `20261112-153444-953307-39120-cmake.log` |
+
+All 287 final cases passed without skips. New coverage verifies dirty rejection
+and explicit discard, duplicate candidates, stale weak identity versus a replacement
+resident instance, collection-time rejection, and transaction history retaining a
+package until reset is enabled. Existing tests retain clean/dirty mixed batches,
+partial success, surviving standalone flags and sibling collection. Empty and
+wholly referenced batches now correctly return false with appropriate diagnostics.
+Guarded package-loading callbacks exercise the public collection admission path
+through native fixture cleanup. The editor facade rejects before transaction reset
+or flag mutation when collection is inadmissible; Engine rechecks at execution.
+
+The abstract reflected `DPackageTools` and its nested `FUnloadPackageParams`
+follow UE 5.8 `UnrealEd/Public/PackageTools.h`. Only the class is reflected;
+span overloads are native, as UE's unload functions are not UFUNCTIONs. The
+options own their package list, include dirty policy and `bResetTransBuffer`,
+and preserve output diagnostics. Durin uses the documented changed-set bool
+meaning even for empty input, deliberately differing from UE 5.8's true-valued
+empty-array early return. No world replacement or new package schema is added.
+
+Engine's bridge accepts weak instance identities rather than paths that could
+select a replacement object. It returns admission, actual collected count and
+referenced candidate paths; private flag/GC/resource-retirement/cache mechanics
+remain in Engine. Runtime saved-dependency policy reuses that same collector.
+AssetTools retains dirty-package/export pinning and transaction policy. Removed
+namespace/header APIs and both private include-directory injections have no
+remaining production/test consumers in Engine, Sandbox or RoadWeaver.
+
+Consumer and removed-API inventories, source hashes and the Game closure inspection
+are under `Build/EditorResponsibilityAndUEInterfaceAlignment/stage5-*`.
+The Game required-module closure and existing Game Ninja graph contain no
+AssetTools/DurinEd runtime imports; runtime module manifests are unchanged.
+The additional DurinEd test link is conditional on DURIN_WITH_EDITOR. No Game
+runtime or GPU execution was required. Package test builds cover Engine,
+AssetTools and reflection; workflow and explicit mesh builds cover both changed
+feature importers. Sandbox/RoadWeaver have no affected API consumers.
+
+Affected selection expands to all tests because shared fixture CMake changed.
+Those edits remove an include-path workaround and migrate one fixture helper;
+the named owning/lifecycle/workflow targets bound the affected behavior. Stage 6
+retains the combined all-build and application gates. Later edits after lifecycle,
+workflow and mesh receipts only add package-test coverage/metadata and docs;
+their production inputs and environment remain unchanged.
+
+Resolved intermediate diagnostics: the initial build log
+`20261112-152915-196550-38136-cmake.log` found a missing private guard qualifier;
+`20261112-153503-592164-22900-cmake.log` and
+`20261112-153556-108524-26112-cmake.log` found missing test dependency/justification
+metadata. The first transaction test run
+`20261112-153735-294164-22280-AssetPackageTests.log` passed 241 cases and failed
+the new fixture because its asset lacked Transactional; adding the flag yielded
+the 242-case final pass. These are resolved failures, not acceptance passes.
+Lasting residency/package contracts, the module map and SDK export notes are
+updated; subsequent changes after native validation are documentation only.
 
 ### Stage 6: Align toolkit identities and close integrated validation
 

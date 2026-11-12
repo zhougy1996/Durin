@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 #include "Asset/Load.h"
 #include "DObject/Package.h"
-#include "PackageCollection.h"
+#include "Asset/PackageCollection.h"
 
 namespace Durin
 {
@@ -13,13 +13,15 @@ namespace Durin
 	inline auto UnloadPackage(DPackage* Package,
 		EAssetPackageUnloadPolicy Policy = EAssetPackageUnloadPolicy::RejectUnsaved) -> FAssetReadResult
 	{
-		if (auto Guard = AssetPrivate::CheckPackageUnloadAllowed(); !Guard) return Guard;
+		if (auto Guard = CheckPackageCollectionAllowed(); !Guard) return Guard;
 		if (!Package || !Package->IsAssetPackage()) return {EAssetReadError::InvalidPackageType, "Invalid package."};
 		const auto Path = Package->GetPackagePathIdentity();
 		if (FindResidentPackage(Path) != Package) return {EAssetReadError::NotFound, "Package is not resident."};
 		if ((Package->IsDirty() || Package->IsNewlyCreated()) && Policy == EAssetPackageUnloadPolicy::RejectUnsaved)
 			return {EAssetReadError::InUse, "Package has unsaved changes."};
-		if (!AssetPrivate::CollectPackageExports({Path}))
+		const auto Collection = CollectPackageExports(std::array{TWeakObjectPtr<DPackage>(Package)});
+		if (!Collection.Admission) return Collection.Admission;
+		if (!Collection.CollectedCount)
 			return {EAssetReadError::InUse, "Package remains referenced by live objects."};
 		return {};
 	}
@@ -27,7 +29,7 @@ namespace Durin
 	inline auto UnloadPackage(const FPackagePath& Path,
 		EAssetPackageUnloadPolicy Policy = EAssetPackageUnloadPolicy::RejectUnsaved) -> FAssetReadResult
 	{
-		if (auto Guard = AssetPrivate::CheckPackageUnloadAllowed(); !Guard) return Guard;
+		if (auto Guard = CheckPackageCollectionAllowed(); !Guard) return Guard;
 		if (IsPackageLoading(Path)) return {EAssetReadError::InUse, "Package loading is in progress."};
 		auto* Package = FindResidentPackage(Path);
 		if (!Package) return {EAssetReadError::NotFound, "Package is not resident."};

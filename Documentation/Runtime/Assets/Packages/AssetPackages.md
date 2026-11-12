@@ -180,9 +180,9 @@ references and request scheduled GC. They never collect synchronously, return
 Worlds, reflected references and native strong owners continue to retain shared
 graphs. Package resources retire only when the actual graph retires.
 
-Editor code uses `PackageTools::UnloadPackages` from
-`AssetTools/PackageUnloading.h` for synchronous checked unloading.
-The batch reports whether unloading processed eligible packages and supplies
+Editor code uses `DPackageTools::UnloadPackages` from
+`PackageTools.h` for synchronous checked unloading.
+The batch reports whether candidate packages actually left the resident set and supplies
 diagnostics for unsaved or referenced packages.
 
 The optional caller-owned `FAssetLoadReport*` is a request summary: paths,

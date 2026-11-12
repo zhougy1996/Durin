@@ -19,6 +19,10 @@ Shared texture preview now exports from DurinEd as `Preview/TexturePreview.h`
 in namespace `Durin`; SDK header/export inventories must use that owner rather
 than the removed TextureEditor header. This ownership migration does not qualify
 SDK packaging.
+Package unloading now exports the reflected `DPackageTools` class from
+AssetTools `PackageTools.h` and the narrow collection bridge from Engine
+`Asset/PackageCollection.h`; packaging must include those public headers and
+AssetTools reflection inputs, without Engine private include paths.
 
 The selected path is to deliver two compatible package kinds in order:
 

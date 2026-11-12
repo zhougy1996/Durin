@@ -21,7 +21,9 @@
 #include "Asset/AssetCook.h"
 #if DURIN_WITH_EDITOR
 	#include "AssetTools/Relocation.h"
-	#include "AssetTools/PackageUnloading.h"
+	#include "PackageTools.h"
+	#include "Editor/EditorEngine.h"
+	#include "Transactions/Transactor.h"
 	#include "AssetTools/RedirectorFixup.h"
 	#include "AssetTools/MutationTesting.h"
 	#include "AssetMaintenance/CompatibilityAudit.h"
@@ -2048,6 +2050,68 @@ TEST_F(FAsyncAssetLoadTests, RestoresFlagsPerExportBeforeEditorCollection)
 }
 
 #if DURIN_WITH_EDITOR
+TEST_F(FAsyncAssetLoadTests, EditorUnloadCanPreserveOrResetTransactionRetention)
+{
+	using namespace Durin;
+	TStrongObjectPtr<DEditorEngine> Editor(NewObject<DEditorEngine>(nullptr, "UnloadPolicyEditor"));
+	FScopedEditorTransactionContext Context(Editor.Get());
+	const auto Path = SaveAsset("UnloadHistory");
+	auto* Package = FindResidentPackage(Path);
+	ASSERT_NE(Package, nullptr);
+	auto* Asset = Cast<DPackageAssetForTest>(Package->GetTopLevelAssets().front());
+	ASSERT_NE(Asset, nullptr);
+	Asset->SetFlags(EObjectFlags::Transactional);
+	auto* Transactions = Editor->GetTransactor();
+	ASSERT_GE(Transactions->Begin("Test", "Retain package"), 0);
+	ASSERT_TRUE(Asset->Modify());
+	++Asset->Value;
+	Transactions->End();
+	ASSERT_GT(Transactions->GetQueueLength(), 0u);
+	DPackageTools::FUnloadPackageParams Params(std::span{&Package, 1});
+	Params.bUnloadDirtyPackages = true;
+	Params.bResetTransBuffer = false;
+	EXPECT_FALSE(DPackageTools::UnloadPackages(Params));
+	EXPECT_GT(Transactions->GetQueueLength(), 0u);
+	EXPECT_NE(Params.OutErrorMessage.find("referenced"), std::string::npos);
+	Params.bResetTransBuffer = true;
+	EXPECT_TRUE(DPackageTools::UnloadPackages(Params));
+	EXPECT_EQ(Transactions->GetQueueLength(), 0u);
+	EXPECT_TRUE(Params.OutErrorMessage.empty());
+	EXPECT_EQ(FindResidentPackage(Path), nullptr);
+}
+
+TEST_F(FAsyncAssetLoadTests, EditorUnloadOptionsAndCollectionIdentities)
+{
+	using namespace Durin;
+	const auto Path = SaveAsset("UnloadIdentity");
+	auto* Package = FindResidentPackage(Path);
+	ASSERT_NE(Package, nullptr);
+	const TWeakObjectPtr<DPackage> Old(Package);
+	DPackage* Input[] = {Package, Package, nullptr};
+	Package->MarkDirty();
+	DPackageTools::FUnloadPackageParams Params(Input);
+	Params.bResetTransBuffer = false;
+	EXPECT_FALSE(DPackageTools::UnloadPackages(Params));
+	EXPECT_NE(Params.OutErrorMessage.find("unsaved"), std::string::npos);
+	Params.bUnloadDirtyPackages = true;
+	EXPECT_TRUE(DPackageTools::UnloadPackages(Params));
+	EXPECT_TRUE(Params.OutErrorMessage.empty());
+	EXPECT_FALSE(Old.IsValid());
+	// A retired weak identity must not unload a newly loaded instance at the path.
+	auto Handle = GetStreamableManager().RequestSyncLoadPackage(Path);
+	ASSERT_NE(Handle->GetLoadedPackage(), nullptr);
+	const auto Stale = CollectPackageExports(std::array{Old});
+	EXPECT_TRUE(Stale.Admission);
+	EXPECT_EQ(Stale.CollectedCount, 0u);
+	EXPECT_EQ(FindResidentPackage(Path), Handle->GetLoadedPackage());
+	Handle->ReleaseHandle();
+	const auto Current = TWeakObjectPtr<DPackage>(FindResidentPackage(Path));
+	const auto Result = CollectPackageExports(std::array{Current, Current});
+	EXPECT_TRUE(Result.Admission);
+	EXPECT_EQ(Result.CollectedCount, 1u);
+	EXPECT_TRUE(Result.ReferencedPackages.empty());
+}
+
 TEST_F(FAsyncAssetLoadTests, EditorUnloadDuringCollectionPreservesStandalone)
 {
 	using namespace Durin;
@@ -2058,13 +2122,16 @@ TEST_F(FAsyncAssetLoadTests, EditorUnloadDuringCollectionPreservesStandalone)
 	Asset->SetFlags(EObjectFlags::Standalone);
 	std::string Errors;
 	Private::CollectGarbageWithPostReachability(EObjectFlags::Standalone, true, [&] {
-		EXPECT_FALSE(PackageTools::UnloadPackages(std::span{&Package, 1}, Errors));
+		EXPECT_FALSE(DPackageTools::UnloadPackages(std::span{&Package, 1}, Errors));
+		const auto Blocked = CollectPackageExports(std::array{TWeakObjectPtr<DPackage>(Package)});
+		EXPECT_FALSE(Blocked.Admission);
+		EXPECT_EQ(Blocked.CollectedCount, 0u);
 		EXPECT_NE(Errors.find("garbage collection"), std::string::npos);
 		EXPECT_EQ(UnloadPackage(Path).Error, EAssetReadError::InUse);
 		EXPECT_TRUE(Asset->HasAnyObjectFlags(EObjectFlags::Standalone));
 	});
 	EXPECT_EQ(FindResidentPackage(Path), Package);
-	EXPECT_TRUE(PackageTools::UnloadPackages(std::span{&Package, 1}, Errors));
+	EXPECT_TRUE(DPackageTools::UnloadPackages(std::span{&Package, 1}, Errors));
 	EXPECT_TRUE(Errors.empty());
 	EXPECT_EQ(FindResidentPackage(Path), nullptr);
 }
@@ -2086,7 +2153,7 @@ TEST_F(FAsyncAssetLoadTests, EditorBatchUnloadRestoresOnlySurvivingStandaloneExp
 	const auto FreePath = SaveAsset("EditorFree");
 	DPackage* Packages[] = {Package, Dirty, FindResidentPackage(FreePath)};
 	std::string Errors;
-	EXPECT_TRUE(PackageTools::UnloadPackages(Packages, Errors));
+	EXPECT_TRUE(DPackageTools::UnloadPackages(Packages, Errors));
 	EXPECT_NE(Errors.find(DirtyPath.ToString()), std::string::npos);
 	EXPECT_NE(Errors.find(Path.ToString()), std::string::npos);
 	EXPECT_EQ(FindResidentPackage(FreePath), nullptr);
@@ -2094,13 +2161,13 @@ TEST_F(FAsyncAssetLoadTests, EditorBatchUnloadRestoresOnlySurvivingStandaloneExp
 	EXPECT_TRUE(Kept->HasAnyObjectFlags(EObjectFlags::Standalone));
 	ASSERT_EQ(FindResidentPackage(DirtyPath), Dirty);
 	Dirty->GetTopLevelAssets().front()->SetFlags(EObjectFlags::Standalone);
-	EXPECT_TRUE(PackageTools::UnloadPackages(std::span{&Package, 1}, Errors));
+	EXPECT_FALSE(DPackageTools::UnloadPackages(std::span{&Package, 1}, Errors));
 	EXPECT_FALSE(Errors.empty());
-	EXPECT_TRUE(PackageTools::UnloadPackages({}, Errors));
+	EXPECT_FALSE(DPackageTools::UnloadPackages({}, Errors));
 	EXPECT_TRUE(Errors.empty());
 	Owner.Reset();
 	DPackage* Remaining[] = {Package, Dirty};
-	EXPECT_TRUE(PackageTools::UnloadPackages(Remaining, Errors, true));
+	EXPECT_TRUE(DPackageTools::UnloadPackages(Remaining, Errors, true));
 	EXPECT_TRUE(Errors.empty());
 }
 #endif

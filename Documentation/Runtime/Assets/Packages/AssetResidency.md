@@ -3,7 +3,7 @@
 Summary: Runtime object ownership, editor Standalone flags and checked package unloading.
 Modules: CoreDObject, Engine, Launch, AssetTools, AssetForgeBuiltins
 
-Last reviewed: 2026-11-11
+Last reviewed: 2026-11-12
 
 ## Runtime ownership
 
@@ -36,10 +36,30 @@ owning operation.
 
 ## Checked unloading
 
-AssetTools exposes `PackageTools::UnloadPackages` for a batch of live packages.
-The default policy skips dirty or newly created packages. An empty request succeeds. For a nonempty request, true means at least one
-eligible package went through unloading, including when individual objects survive. The error string describes skipped
-or still-referenced packages. An explicit discard permits unloading unsaved data.
+AssetTools exposes the abstract reflected `DPackageTools` facade in `PackageTools.h`.
+Its native static overloads accept a package span, a span/error/dirty policy, or
+`DPackageTools::FUnloadPackageParams` with an owned package list, dirty policy,
+transaction-buffer reset option and output error. Span-based functions are not
+registered as scripting functions. The default skips dirty/new packages and
+resets the active editor transaction buffer before collection. Reset rejection
+aborts collection; disabling reset preserves history references and may prevent
+unloading. Skipped packages and exports are retained through collection.
+
+True means at least one candidate package actually left the resident set. Empty,
+invalid, dirty-only and wholly referenced requests return false; partial success
+returns true while retaining unsaved/reference diagnostics. This follows UE's
+stated result meaning; unlike UE 5.8's empty-array early return, an empty Durin
+request reports no change. An explicit discard permits unsaved data loss.
+
+Engine's public `Asset/PackageCollection.h` supplies `CheckPackageCollectionAllowed`
+and `CollectPackageExports`. The latter rechecks owner-thread/load/GC admission,
+accepts weak package-instance identities, ignores stale/null/nonresident entries,
+deduplicates candidates and returns admission, actual collected count and
+referenced candidate paths. It applies no dirty-state or transaction policy.
+Only Engine owns flag mutation, GC, package-resource retirement and soft-cache
+invalidation. AssetTools and native test support require no Engine private
+include directory. Runtime release retains its saved-dependency policy and uses
+the same private collection algorithm.
 
 Unloading temporarily clears Standalone on objects in the selected packages and
 runs one collection. After reachability analysis and before purge, each reachable

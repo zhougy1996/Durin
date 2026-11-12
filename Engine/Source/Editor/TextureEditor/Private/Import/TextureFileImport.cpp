@@ -1,5 +1,5 @@
 #include "Import/TextureFileImport.h"
-#include "AssetTools/PackageUnloading.h"
+#include "PackageTools.h"
 #include "Asset/Load.h"
 #include "Asset/PackageSerialization.h"
 
@@ -93,7 +93,7 @@ namespace Durin::TextureEditor
 		Callbacks.Clear();
 		std::erase_if(PendingSaves, [this](const FPackagePath& Path) {
 			if (!Save(Path)) return false;
-			PackageTools::UnloadPackages(std::array{FindResidentPackage(Path)});
+			DPackageTools::UnloadPackages(std::array{FindResidentPackage(Path)});
 			return true;
 		});
 	}
@@ -178,7 +178,7 @@ namespace Durin::TextureEditor
 			if (Result) { Published.push_back(Path.ToString()); ++SavedCount; ++Next; }
 			else { PendingSaves.push_back(Path); Fail("Imported, but save failed: " + Result.Message); }
 			Active.Reset();
-			if (Result && !Package->IsDirty()) PackageTools::UnloadPackages(std::array{Package});
+			if (Result && !Package->IsDirty()) DPackageTools::UnloadPackages(std::array{Package});
 			TimingDetails += std::format(
 				"{}: prepare {:.1f} ms, compilation elapsed {:.1f} ms, save {:.1f} ms\n",
 				Filename, PreparationMilliseconds,

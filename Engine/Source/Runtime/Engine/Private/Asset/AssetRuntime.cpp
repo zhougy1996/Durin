@@ -1,7 +1,7 @@
 #include "AssetLoadAuditInternal.h"
 #include "DObject/PackagePersistence.h"
 #include "PackageLoadTransaction.h"
-#include "Tools/PackageCollection.h"
+#include "Asset/PackageCollection.h"
 #include "DObject/SoftObjectPathServices.h"
 #include "Asset/RegistryOperations.h"
 #include "AssetRuntimeStateInternal.h"
@@ -851,7 +851,7 @@ namespace Durin
 
 	}
 
-	auto AssetPrivate::CollectPackageExports(const std::unordered_set<FPackagePath>& Candidates) -> size_t
+	static auto CollectPackageExportsByPath(const std::unordered_set<FPackagePath>& Candidates) -> size_t
 	{
 		if (Candidates.empty()) return 0;
 		std::vector<TWeakObjectPtr<DObject>> Cleared;
@@ -873,19 +873,38 @@ namespace Durin
 		return Count;
 	}
 
-	auto AssetPrivate::CheckPackageUnloadAllowed() -> FAssetReadResult
+	auto CheckPackageCollectionAllowed() -> FAssetReadResult
 	{
-		if (auto Result = FAssetLiveLoadGuard::Check("UnloadPackages", ""); !Result) return Result;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("UnloadPackages", ""); !Result) return Result;
 		if (IsGarbageCollecting())
 			return Error(EAssetReadError::InUse, "Cannot unload packages during garbage collection.");
+		if (!FAssetRuntimeState::Get().GetLoadService().IsIdle())
+			return Error(EAssetReadError::InUse, "A package load is still in progress.");
 		return {};
+	}
+
+	auto CollectPackageExports(std::span<const TWeakObjectPtr<DPackage>> Packages) -> FPackageCollectionResult
+	{
+		FPackageCollectionResult Result;
+		Result.Admission = CheckPackageCollectionAllowed();
+		if (!Result.Admission) return Result;
+		std::unordered_set<FPackagePath> Candidates;
+		for (const auto& Weak : Packages)
+			if (auto* Package = Weak.Get(); Package && Package->IsAssetPackage()
+				&& FindResidentPackage(Package->GetPackagePathIdentity()) == Package)
+				Candidates.insert(Package->GetPackagePathIdentity());
+		Result.CollectedCount = CollectPackageExportsByPath(Candidates);
+		for (const auto& Path : Candidates)
+			if (FindResidentPackage(Path)) Result.ReferencedPackages.push_back(Path);
+		return Result;
 	}
 
 	auto FAssetLoadService::ReleasePackages(
 		std::span<const TWeakObjectPtr<DPackage>> Packages,
 		std::span<const TWeakObjectPtr<DPackage>> IgnoreSavedDependencies) -> FAssetReadResult
 	{
-		if (auto Result = AssetPrivate::CheckPackageUnloadAllowed(); !Result) return Result;
+		if (auto Result = CheckPackageCollectionAllowed(); !Result) return Result;
 		if (LoadDepth != 0 || !PendingLoads.empty())
 			return Error(EAssetReadError::InUse, "A package load is still in progress.");
 		std::unordered_set<FPackagePath> Candidates;
@@ -934,7 +953,7 @@ namespace Durin
 			Skipped.emplace_back(Package);
 			for (DObject* Asset : Package->GetTopLevelAssets()) Skipped.emplace_back(Asset);
 		}
-		if (AssetPrivate::CollectPackageExports(Candidates) != Candidates.size()) bInUse = true;
+		if (CollectPackageExportsByPath(Candidates) != Candidates.size()) bInUse = true;
 		return bInUse ? Error(EAssetReadError::InUse,
 			"Packages remain referenced or have unsaved state.") : FAssetReadResult{};
 	}

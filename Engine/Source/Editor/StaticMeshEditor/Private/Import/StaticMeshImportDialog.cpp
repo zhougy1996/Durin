@@ -1,5 +1,5 @@
 #include "Physics/BodySetup.h"
-#include "AssetTools/PackageUnloading.h"
+#include "PackageTools.h"
 #include "Asset/Load.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Import/StaticMeshImportDialog.h"
@@ -301,7 +301,7 @@ namespace Durin::StaticMeshEditor
 			return false;
 		}
 		Operation.reset();
-		PackageTools::UnloadPackages(std::array{FindResidentPackage(AssetPath)});
+		DPackageTools::UnloadPackages(std::array{FindResidentPackage(AssetPath)});
 		return true;
 	}
 

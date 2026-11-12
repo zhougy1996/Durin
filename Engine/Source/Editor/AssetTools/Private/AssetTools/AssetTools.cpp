@@ -1,5 +1,5 @@
 #include "AssetTools/AssetToolsModule.h"
-#include "AssetTools/PackageUnloading.h"
+#include "PackageTools.h"
 
 #include "AssetRegistry/Catalog.h"
 #include "Asset/Load.h"
@@ -90,7 +90,7 @@ namespace Durin
 			checkf(IsInGameThread(), "Asset package discard must run on the game thread.");
 			if (!Package || !Package->IsAssetPackage()) return false;
 			std::string Errors;
-			return PackageTools::UnloadPackages(std::span{&Package, 1}, Errors, true) && Errors.empty();
+			return DPackageTools::UnloadPackages(std::span{&Package, 1}, Errors, true) && Errors.empty();
 		}
 
 		auto RecoverPackages(const FPackageReloadRequest& Request)

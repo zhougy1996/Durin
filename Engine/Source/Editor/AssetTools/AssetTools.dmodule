@@ -12,5 +12,5 @@
         "Core",
         "CoreDObject"
     ],
-    "ReflectHeaders": []
+    "ReflectHeaders": ["Public/PackageTools.h"]
 }

@@ -10,14 +10,18 @@ durin_add_native_test(AssetRuntimeLifecycleTests
 
 set(_durin_asset_package_modules engine)
 set(_durin_asset_package_libraries)
+set(_durin_asset_package_runtime_policy)
 if(DURIN_WITH_EDITOR)
-	list(APPEND _durin_asset_package_modules asset-maintenance asset-tools)
-	list(APPEND _durin_asset_package_libraries AssetMaintenance AssetTools)
+	list(APPEND _durin_asset_package_modules asset-maintenance asset-tools durin-ed)
+	list(APPEND _durin_asset_package_libraries AssetMaintenance AssetTools DurinEd)
+	set(_durin_asset_package_runtime_policy HEAVY_RUNTIME_RATIONALE
+		"Editor package unload options exercise transaction-buffer retention and reset through a headless editor context.")
 endif()
 
 durin_add_native_test(AssetPackageTests
 	KIND feature
 	DOMAINS asset-package
+	${_durin_asset_package_runtime_policy}
 	MODULES ${_durin_asset_package_modules}
 	LIBRARIES Core CoreDObject Engine ${_durin_asset_package_libraries}
 	SOURCES Private/BulkDataTests.cpp Private/PackageTests.cpp Private/PackageCodecErrorTests.cpp
