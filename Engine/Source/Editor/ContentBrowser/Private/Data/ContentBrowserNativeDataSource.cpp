@@ -101,8 +101,8 @@ namespace Durin
 		struct FNativeItemPayload final : IContentBrowserItemDataPayload
 		{
 			FContentBrowserItem Item;
-			std::shared_ptr<FOperations> Operations;
-			FContentBrowserHostContext Host;
+			// Immutable request policy belongs to the item; execution state belongs to a command.
+			std::shared_ptr<const FContentBrowserHostContext> Host;
 		};
 		struct FNativeDeleteRequest final : IContentBrowserDeleteRequest
 		{
@@ -144,6 +144,7 @@ namespace Durin
 		auto Gather(const DContentBrowserDataSource& Source, std::span<const FContentBrowserItemData> Data, std::vector<FContentBrowserItem>& Items) -> std::shared_ptr<FOperations>
 		{
 			std::vector<std::shared_ptr<FOperations>> Contexts;
+			std::vector<std::shared_ptr<const FContentBrowserHostContext>> Policies;
 			if (Data.empty()) return {};
 			for (const auto& Entry : Data)
 			{
@@ -151,7 +152,11 @@ namespace Durin
 				auto* Native = Owner ? Cast<DContentBrowserNativeDataSource>(Owner) : nullptr;
 				auto P = Native && Native->GetOuter() == Source.GetOuter() ? Payload(*Native, Entry) : nullptr;
 				if (!P) return {};
-				if (!std::ranges::contains(Contexts, P->Operations)) Contexts.push_back(P->Operations);
+				if (!std::ranges::contains(Policies, P->Host))
+				{
+					Policies.push_back(P->Host);
+					Contexts.push_back(std::make_shared<FOperations>(*P->Host));
+				}
 				Items.push_back(P->Item);
 			}
 			return FOperations::Combine(std::move(Contexts));
@@ -166,14 +171,13 @@ namespace Durin
 		{
 			return ContentBrowser::Private::FContentBrowserPaths::VirtualToPhysical(std::string(Path));
 		}
-		auto Bind(DContentBrowserDataSource& Source, const FContentBrowserItem& Item, std::shared_ptr<FOperations> Operations, const FContentBrowserHostContext& Host = {}) -> FContentBrowserItemData
+		auto Bind(DContentBrowserDataSource& Source, const FContentBrowserItem& Item, std::shared_ptr<const FContentBrowserHostContext> Host) -> FContentBrowserItemData
 		{
 			auto P = std::make_shared<FNativeItemPayload>();
 			P->Item = Item;
 			P->Item.InternalItems.clear();
 			ResolveItemPath(P->Item);
-			P->Operations = std::move(Operations);
-			P->Host = Host;
+			P->Host = std::move(Host);
 			const auto Kind = P->Item.Kind;
 			auto VirtualPath = P->Item.VirtualPath;
 			return {Source, Kind, std::move(VirtualPath), std::move(P)};
@@ -198,14 +202,14 @@ namespace Durin
 	auto DContentBrowserNativeDataSource::CreateItemData(const FContentBrowserItem& Item, const FContentBrowserHostContext& Host) -> FContentBrowserItemData
 	{
 		if (!IsActive() || !OwnsKind(Item.Kind)) return {};
-		return Bind(*this, Item, std::make_shared<FOperations>(ScopedHost(*this, Host)), Host);
+		return Bind(*this, Item, std::make_shared<const FContentBrowserHostContext>(ScopedHost(*this, Host)));
 	}
 	auto DContentBrowserNativeDataSource::EnumerateItemsMatchingFilter(const FContentBrowserDataCompiledFilter& Filter, const std::function<bool(FContentBrowserItem&&)>& Callback, const FContentBrowserHostContext& Host) -> void
 	{
 		if (!IsActive()) return;
 		const auto Generation = GetActivationGeneration();
 		const auto MountRevision = FMountPaths::GetMountRegistryRevision();
-		auto Operations = std::make_shared<FOperations>(ScopedHost(*this, Host));
+		auto Policy = std::make_shared<const FContentBrowserHostContext>(ScopedHost(*this, Host));
 		std::shared_ptr<const ContentBrowser::Private::FContentBrowserItemsSnapshot> Snapshot;
 		if (auto Extra = std::dynamic_pointer_cast<const ContentBrowser::Private::FNativeContentBrowserFilter>(Filter.Filter.ExtraFilter)) Snapshot = Extra->Snapshot;
 		if (!Snapshot)
@@ -220,7 +224,7 @@ namespace Durin
 			if (!IsActive() || Generation != GetActivationGeneration() || MountRevision != FMountPaths::GetMountRegistryRevision()) return;
 			if (!OwnsKind(Item.Kind) || (Filter.Filter.Kind && Item.Kind != *Filter.Filter.Kind)) continue;
 			ResolveItemPath(Item);
-			Item.InternalItems = {Bind(*this, Item, Operations, Host)};
+			Item.InternalItems = {Bind(*this, Item, Policy)};
 			if (!Callback(std::move(Item))) return;
 		}
 	}
@@ -235,7 +239,7 @@ namespace Durin
 	auto DContentBrowserNativeDataSource::CanEditItem(const FContentBrowserItemData& Data, std::string*) const -> bool
 	{
 		auto P = Payload(*this, Data);
-		return P && P->Item.Kind != EContentBrowserItemKind::Folder && (P->Item.Kind == EContentBrowserItemKind::File || bool(P->Host.OpenAsset));
+		return P && P->Item.Kind != EContentBrowserItemKind::Folder && (P->Item.Kind == EContentBrowserItemKind::File || bool(P->Host->OpenAsset));
 	}
 	auto DContentBrowserNativeDataSource::EditItem(const FContentBrowserItemData& Data) -> bool
 	{
@@ -247,9 +251,9 @@ namespace Durin
 			FSoftObjectPath Path;
 			if (!FSoftObjectPath::TryCreate(Item.VirtualPath, Path)) return false;
 			const auto Result = ResolveAssetObjectPathForOperation(Path);
-			return Result && Result.FinalAssetData && P->Host.OpenAsset(Result.FinalPath.ToString(), Result.FinalAssetData->AssetClassName);
+			return Result && Result.FinalAssetData && P->Host->OpenAsset(Result.FinalPath.ToString(), Result.FinalAssetData->AssetClassName);
 		}
-		if (Item.Kind == EContentBrowserItemKind::Asset) return P->Host.OpenAsset(Item.VirtualPath, Item.AssetClassName);
+		if (Item.Kind == EContentBrowserItemKind::Asset) return P->Host->OpenAsset(Item.VirtualPath, Item.AssetClassName);
 #ifdef _WIN32
 		const auto Path = std::filesystem::path(Item.PhysicalPath).make_preferred().wstring();
 		return reinterpret_cast<intptr_t>(ShellExecuteW(nullptr, L"open", Path.c_str(), nullptr, nullptr, SW_SHOW)) > 32;
@@ -260,17 +264,17 @@ namespace Durin
 	auto DContentBrowserNativeDataSource::CanDuplicateItem(const FContentBrowserItemData& Data, std::string* Error) const -> bool
 	{
 		auto P = Payload(*this, Data);
-		return P && P->Operations->CanDuplicateItem(P->Item, Error);
+		return P && FOperations(*P->Host).CanDuplicateItem(P->Item, Error);
 	}
 	auto DContentBrowserNativeDataSource::DuplicateItem(const FContentBrowserItemData& Data, FContentBrowserItem& Out) -> bool
 	{
 		auto P = Payload(*this, Data);
 		if (!P) return false;
-		const bool Result = P->Operations->DuplicateItem(P->Item, Out);
+		const bool Result = FOperations(*P->Host).DuplicateItem(P->Item, Out);
 		if (!Out.StableId().empty())
 		{
 			ResolveItemPath(Out);
-			if (IsActive()) Out.InternalItems = {Bind(*this, Out, P->Operations, P->Host)};
+			if (IsActive()) Out.InternalItems = {Bind(*this, Out, P->Host)};
 		}
 		return Result;
 	}
@@ -286,18 +290,19 @@ namespace Durin
 		if (!IsActive()) return false;
 		const std::filesystem::path Virtual(Path);
 		const auto Directory = Destination(Virtual.parent_path().generic_string());
-		auto Operations = std::make_shared<FOperations>(ScopedHost(*this, Host));
+		auto Policy = std::make_shared<const FContentBrowserHostContext>(ScopedHost(*this, Host));
+		auto Operations = std::make_shared<FOperations>(*Policy);
 		if (!Operations->CanCreateFolder(Directory, Virtual.filename().string())) return false;
 		FContentBrowserItem Item{.Kind = EContentBrowserItemKind::Folder, .Name = Virtual.filename().string(), .VirtualPath = std::string(Path), .PhysicalPath = Destination(Path)};
-		auto Data = Bind(*this, Item, Operations, Host);
+		auto Data = Bind(*this, Item, Policy);
 		Item.InternalItems = {Data};
-		Out = {std::move(Item), [Data, Operations, Directory](std::string_view Name, std::string* Error) { return Data.GetOwnerDataSource() && Operations->CanCreateFolder(Directory, Name, Error); }, [Data, Operations, Directory, Host](std::string_view Name, FContentBrowserItem& Result) {
+		Out = {std::move(Item), [Data, Operations, Directory](std::string_view Name, std::string* Error) { return Data.GetOwnerDataSource() && Operations->CanCreateFolder(Directory, Name, Error); }, [Data, Operations, Directory, Policy](std::string_view Name, FContentBrowserItem& Result) {
     auto* Owner=Data.GetOwnerDataSource();
     if (!Owner) return false;
     TStrongObjectPtr<DContentBrowserDataSource> KeepAlive(Owner);
     if (!Operations->CreateFolder(Directory,Name,Result)) return false;
     ResolveItemPath(Result);
-    if (Data.GetOwnerDataSource()) Result.InternalItems={Bind(*Owner,Result,Operations,Host)};
+    if (Data.GetOwnerDataSource()) Result.InternalItems={Bind(*Owner,Result,Policy)};
     return true; }};
 		return true;
 	}
@@ -322,7 +327,7 @@ namespace Durin
 		auto P = Payload(*this, Item);
 		auto Mode = SaveMode(Flags);
 		if (Flags == EContentBrowserItemSaveFlags::SaveOnlyIfLoaded && (!P || !FindResidentPackage(P->Item.PackagePath))) return false;
-		return P && Mode && P->Operations->CanSaveItem(P->Item, *Mode, Error);
+		return P && Mode && FOperations(*P->Host).CanSaveItem(P->Item, *Mode, Error);
 	}
 	auto DContentBrowserNativeDataSource::BulkSaveItems(std::span<const FContentBrowserItemData> Data, EContentBrowserItemSaveFlags Flags) -> bool
 	{
@@ -344,28 +349,28 @@ namespace Durin
 	auto DContentBrowserNativeDataSource::CanRenameItem(const FContentBrowserItemData& Item, std::string_view Name, std::string* Error) const -> bool
 	{
 		auto P = Payload(*this, Item);
-		return P && P->Operations->CanRenameItem(P->Item, Name, Error);
+		return P && FOperations(*P->Host).CanRenameItem(P->Item, Name, Error);
 	}
 	auto DContentBrowserNativeDataSource::RenameItem(const FContentBrowserItemData& Item, std::string_view Name, FContentBrowserItem& Out) -> bool
 	{
 		auto P = Payload(*this, Item);
-		if (!P || !P->Operations->RenameItem(P->Item, Name, Out)) return false;
+		if (!P || !FOperations(*P->Host).RenameItem(P->Item, Name, Out)) return false;
 		ResolveItemPath(Out);
 		if (IsActive())
 		{
-			Out.InternalItems = {Bind(*this, Out, P->Operations, P->Host)};
+			Out.InternalItems = {Bind(*this, Out, P->Host)};
 		}
 		return true;
 	}
 	auto DContentBrowserNativeDataSource::CanCopyItem(const FContentBrowserItemData& Item, std::string_view Dest, std::string* Error) const -> bool
 	{
 		auto P = Payload(*this, Item);
-		return P && !Destination(Dest).empty() && P->Operations->CanCopyItem(P->Item, Destination(Dest), Error);
+		return P && !Destination(Dest).empty() && FOperations(*P->Host).CanCopyItem(P->Item, Destination(Dest), Error);
 	}
 	auto DContentBrowserNativeDataSource::CanMoveItem(const FContentBrowserItemData& Item, std::string_view Dest, std::string* Error) const -> bool
 	{
 		auto P = Payload(*this, Item);
-		return P && !Destination(Dest).empty() && P->Operations->CanMoveItem(P->Item, Destination(Dest), Error);
+		return P && !Destination(Dest).empty() && FOperations(*P->Host).CanMoveItem(P->Item, Destination(Dest), Error);
 	}
 	auto DContentBrowserNativeDataSource::BulkCopyItems(std::span<const FContentBrowserItemData> Data, std::string_view Dest) -> bool
 	{
@@ -387,7 +392,7 @@ namespace Durin
 	{
 		auto P = Payload(*this, Item);
 		if (!P) return false;
-		if (!P->Operations->CanModify(Error)) return false;
+		if (!FOperations(*P->Host).CanModify(Error)) return false;
 		const auto Mount = ContentBrowser::Private::FContentBrowserPaths::ResolveMountPath(P->Item.PhysicalPath);
 		const bool Allowed = Mount && Mount.Mount->bContentWritable
 							 && !P->Item.PhysicalPath.empty()

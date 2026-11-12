@@ -76,9 +76,13 @@ the generic abstract source retains UE-style unsupported defaults.
 Both native sources reuse `FContentBrowserRequestContext`, the single existing
 mutation/recovery substrate. This replaces the misleading private
 `FContentBrowserDataSource` name, rather than adding another operation engine.
-Payloads retain request-local policy and feedback. Same-source batches from
-different captures combine their admission predicates and execute the common
-operation implementation once; one query scope is not a new execution identity.
+Payloads retain shared immutable request-local policy and feedback, not a mutation
+executor or deletion-session container. Providers create execution contexts for
+individual commands; only pending deletion and temporary creation retain execution
+state across calls. Same-source batches from different captures combine their
+admission predicates and execute the common operation implementation once; one
+query scope is not a new execution identity. The original activation and mount
+admission identities remain captured in policy, including on returned items.
 Pure discovery preparation belongs to `FContentBrowserDataQuery`, which retains
 per-view capture state and a weak service binding, independently of mutations.
 

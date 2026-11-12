@@ -23,6 +23,9 @@ The first checkpoint's shared item interface remains the presentation boundary;
 Stage 3 is complete from `6dcb2ff4b`: every panel uses the data subsystem for
 queries and owner-routed commands, retaining per-view capture and confirmation.
 Provider source interface version 2 and all Stage 3 consumer gates are validated.
+A Stage 3 follow-up separates native item policy from command execution lifetime;
+its focused workflow/provider regression gates passed (185 passes, two existing
+Windows symlink-permission skips).
 Stage 4 is complete: shared texture preview and shader/resource ownership moved
 to DurinEd, MaterialEditor no longer depends on TextureEditor, and all 91
 selected regression cases passed. Stage 5 is complete: DPackageTools owns editor
@@ -429,6 +432,25 @@ open and these receipts cannot qualify their future implementation.
 | Virtual path, physical path and package identity stored on an item | Not proven redundant: unmounted files, logical folder navigation and package-backed operations use different identity domains. Provider payload migration should move ownership rather than delete required identities. |
 
 ### Stage 3: Migrate browser presentation and external consumers
+
+Follow-up review, 2026-11-12, based on `d645748ba`: native item payloads now
+retain shared immutable policy instead of a mutation executor and deletion-session
+map. Commands create execution contexts on demand; pending deletion and temporary
+creation alone retain them across calls. Original source/mount admission guards,
+batch policy deduplication and one atomic mixed native backend remain intact.
+This follows the UE provider/payload responsibility boundary, without claiming
+that the private Durin recovery implementation has an identical UE counterpart.
+
+Validation: Windows `windows-msvc-x64` / `Win64-Debug-DurinEditor`, outside-sandbox
+MSVC, final native inputs: `ContentBrowserWorkflowTests` 163 passed with two
+existing symlink-permission skips (`20261112-160149-332088-39172-ContentBrowserWorkflowTests.log`);
+`ContentBrowserDataTests` 22 passed (`20261112-160533-498677-40096-ContentBrowserDataTests.log`).
+Receipts are under `Build/.agent-state/logs/`. The affected selector also lists
+EditorAsset, PythonScriptPanel, SceneImport and thumbnail targets by module label;
+these are not rerun because this change is private native payload/execution lifetime,
+with no public API, extension, import or thumbnail changes. Workflow/provider suites
+cover the changed routing and lifecycle. No all-build or application-startup gate
+is claimed; Stage 6 remains outstanding.
 
 Dependencies: Stage 2. Outcome: every browser uses the data service; panel state
 and user confirmation remain local to each browser.
