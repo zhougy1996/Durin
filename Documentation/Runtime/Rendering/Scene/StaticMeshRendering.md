@@ -127,21 +127,14 @@ name, index/count, conflicting slot index and object key. Failure changes no slo
 or dirty state; same-name success is a no-op. Successful changes still update the
 live render slot, notify compilation and dirty the package.
 
-Blocking cooked CPU loading returns `FCookedMeshBlockingResult` with typed
-`FCookedMeshLoadError`, independent of CPU/GPU lifecycle status. Synchronous
-failures retain the object key and complete resource-read, product-decoding or
-candidate-publication cause. Unavailable residency has its own reason. Causes
-remain valid after retry and object retirement; preview/thumbnail adapters format
-them at presentation. Async workers and publisher callbacks return typed errors;
-terminal callbacks retain field indices, resource/product/publication causes,
-task state and completion-mailbox byte limits. A current object keeps the terminal
-error for blocking observers. Cancellation can preserve an underlying failure;
-terminal lifecycle status remains separate. Cancelled and stale results do not
-publish, and accepted retries clear the previous observation. Manager `Submit`
-returns `FCookedMeshAdmissionResult`, preserving requested and conflicting accepted
-identities, field/callback facts and flight/pending byte/count limits. Rejected
-replacement admission leaves accepted work intact and starts no resource read;
-the StaticMesh adapter retains AdmissionCause and preserves synchronous fallback.
+Blocking cooked CPU loading returns `std::expected<void, FCookedMeshLoadError>`.
+The error contains a stable category and owned diagnostic text, so callers can
+retain a failure across retry and asset retirement. The mesh separately retains
+its last error for nonblocking observers. Synchronous and asynchronous updates
+share detached decoding and GameThread publication. Cancelled or superseded
+updates cannot publish; explicit blocking retries clear the previous failure.
+See [cooked mesh residency](../../Assets/Packages/AssetDataLifecycle.md#cooked-mesh-runtime-residency)
+for update ownership, scheduling and destruction.
 
 Replacement follows one ordered protocol:
 

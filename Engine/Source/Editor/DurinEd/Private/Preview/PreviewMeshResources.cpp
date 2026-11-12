@@ -54,10 +54,10 @@ namespace Durin
 			if (!Mesh) continue;
 			if (!Mesh->GetRenderData())
 			{
-				const FCookedMeshBlockingResult Result = Mesh->EnsureRenderDataLoadedBlocking();
+				const auto Result = Mesh->EnsureRenderDataLoadedBlocking();
 				if (!Result)
 				{
-					Report(Index, FormatCookedMeshLoadError(Result.Error));
+					Report(Index, FormatCookedMeshLoadError(Result.error()));
 					continue;
 				}
 			}

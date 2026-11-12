@@ -1104,8 +1104,8 @@ TEST(FWorldTests, ResourceQueriesDoNotStartPreparationAndTextureFailureStaysOnOw
 	using namespace Durin;
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DStaticMesh> Mesh(NewObject<DStaticMesh>(nullptr, "UnpreparedMesh"));
-	EXPECT_FALSE(Mesh->GetRenderDataLoadStatus().HasCpuData());
-	EXPECT_FALSE(Mesh->GetRenderDataLoadStatus().HasFailed());
+	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
+	EXPECT_EQ(Mesh->GetRenderDataLoadError().Code, ECookedMeshLoadError::None);
 	TStrongObjectPtr<DTexture2D> Texture(NewObject<DTexture2D>(nullptr, "UnpreparedTexture"));
 	EXPECT_EQ(Texture->GetResource(), nullptr);
 	EXPECT_FALSE(Texture->HasPendingRenderResourceInitialization());

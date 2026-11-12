@@ -28,6 +28,8 @@
 #include "Asset/PackageSerialization.h"
 #include "VulkanEngineTestSupport.h"
 #include "Asset/CookedMeshLoadManager.h"
+#include "Asset/CookedMeshLoadManagerPrivate.h"
+#include "StaticMesh/StaticMeshLoadUpdate.h"
 #include "Asset/Load.h"
 #include "Asset/AssetCook.h"
 #include "Components/StaticMeshComponent.h"
@@ -228,13 +230,13 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	auto CheckCpuOnlyAndGpuInitialization = [](auto* Mesh) {
 		const auto Before = Mesh->GetRenderResourceStatus();
 		const auto Loaded = Mesh->EnsureRenderDataLoadedBlocking();
-		ASSERT_TRUE(Loaded.Succeeded()) << Durin::FormatCookedMeshLoadError(Loaded.Error);
+		ASSERT_TRUE(static_cast<bool>(Loaded)) << Durin::FormatCookedMeshLoadError(Loaded.error());
 		EXPECT_EQ(Mesh->GetRenderResourceStatus().Readiness, Durin::EStaticMeshRenderResourceReadiness::Unavailable);
 		EXPECT_FALSE(Mesh->HasPendingRenderResourceInitialization());
 		EXPECT_EQ(Mesh->GetRenderResourceStatus().Revision, Before.Revision);
 		const auto Repeated = Mesh->EnsureRenderDataLoadedBlocking();
-		ASSERT_TRUE(Repeated.Succeeded()) << Durin::FormatCookedMeshLoadError(Repeated.Error);
-		EXPECT_EQ(Repeated.Status.Generation, Loaded.Status.Generation);
+		ASSERT_TRUE(static_cast<bool>(Repeated)) << Durin::FormatCookedMeshLoadError(Repeated.error());
+		EXPECT_FALSE(Mesh->HasPendingRenderDataLoad());
 		EXPECT_EQ(Mesh->GetRenderResourceStatus().Revision, Before.Revision);
 		auto* Spline = Durin::NewObject<Durin::DSplineMeshComponent>(nullptr, "GpuReadinessSpline");
 		std::shared_ptr<const Durin::FSplineMeshDerivedState> SplineState;
@@ -246,7 +248,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 			ASSERT_TRUE(SplineState->IsValid());
 			const auto Queued = Mesh->GetRenderResourceStatus();
 			const auto WhileQueued = Mesh->EnsureRenderDataLoadedBlocking();
-			EXPECT_TRUE(WhileQueued.Succeeded());
+			EXPECT_TRUE(static_cast<bool>(WhileQueued));
 			EXPECT_EQ(Mesh->GetRenderResourceStatus().Readiness, Durin::EStaticMeshRenderResourceReadiness::Queued);
 			EXPECT_FALSE(Mesh->GetRenderResourceStatus().IsReady());
 			EXPECT_TRUE(Mesh->HasPendingRenderResourceInitialization());
@@ -358,8 +360,34 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	for (bool bUseManager : {true, false})
 	{
 		if (!bUseManager) Durin::ShutdownCookedMeshLoadManager();
+		std::unique_ptr<Durin::FCookedMeshLoadManager> Scheduler;
+		Durin::TStrongObjectPtr<Durin::DStaticMesh> Blocker;
+		if (bUseManager)
+		{
+			Scheduler = std::make_unique<Durin::FCookedMeshLoadManager>(
+				Durin::FCookedMeshLoadManagerConfig{.MaxConcurrentRequests = 1});
+			ASSERT_TRUE(Scheduler->Initialize());
+			Blocker = Durin::TStrongObjectPtr<Durin::DStaticMesh>(
+				Durin::NewObject<Durin::DStaticMesh>(nullptr, "CpuOnlyQueueBlocker"));
+			auto Bulk = Durin::FBulkData::TryCreateDetached(Durin::FByteBuffer{std::byte{0xff}});
+			ASSERT_TRUE(Bulk);
+			const_cast<Durin::FBulkData&>(Blocker->GetCookedRenderData()) = std::move(*Bulk);
+			auto Active = std::make_shared<Durin::FStaticMeshLoadUpdate>(*Blocker, false);
+			Durin::FStaticMeshTestAccess::SetPendingUpdate(Blocker.Get(), Active);
+			ASSERT_TRUE(Scheduler->Submit(Active));
+			Scheduler->Pump();
+			auto Pending = std::make_shared<Durin::FStaticMeshLoadUpdate>(*CookedMesh, false);
+			Durin::FStaticMeshTestAccess::SetPendingUpdate(CookedMesh, Pending);
+			ASSERT_TRUE(Scheduler->Submit(Pending));
+			EXPECT_EQ(Scheduler->GetDiagnostics().PendingRequestCount, 1u);
+		}
 		const auto CpuOnly = CookedMesh->EnsureRenderDataLoadedBlocking();
-		ASSERT_TRUE(CpuOnly.Succeeded()) << Durin::FormatCookedMeshLoadError(CpuOnly.Error);
+		ASSERT_TRUE(static_cast<bool>(CpuOnly)) << Durin::FormatCookedMeshLoadError(CpuOnly.error());
+		if (Scheduler)
+		{
+			for (int Pump = 0; Pump < 3; ++Pump) Scheduler->Pump();
+			Scheduler->Shutdown();
+		}
 		EXPECT_EQ(CookedMesh->GetRenderResourceStatus().Readiness, Durin::EStaticMeshRenderResourceReadiness::Unavailable);
 		EXPECT_EQ(CookedMesh->GetRenderData()->GetNumInitializedResources(), 0u);
 		ASSERT_TRUE(Durin::UnloadPackage(CookedPath));
@@ -383,16 +411,15 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	EXPECT_FALSE(CookedMesh->HasPendingRenderResourceInitialization());
 	const auto Deadline = std::chrono::steady_clock::now()
 		+ std::chrono::seconds(10);
-	Durin::FCookedMeshLoadStatus LoadStatus =
-		CookedMesh->RequestRenderDataAndResources();
-	while (!LoadStatus.HasCpuData()
+	CookedMesh->RequestRenderDataAndResources();
+	while (!CookedMesh->GetRenderData()
 		&& std::chrono::steady_clock::now() < Deadline)
 	{
 		Durin::PumpCookedMeshLoadManager();
 		std::this_thread::yield();
-		LoadStatus = CookedMesh->RequestRenderDataAndResources();
+		CookedMesh->RequestRenderDataAndResources();
 	}
-	ASSERT_TRUE(LoadStatus.HasCpuData());
+	ASSERT_NE(CookedMesh->GetRenderData(), nullptr);
 	EXPECT_EQ(
 		CookedMesh->GetRenderResourceStatus().Readiness,
 		Durin::EStaticMeshRenderResourceReadiness::Queued);
@@ -407,9 +434,8 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 		PrimitiveId, std::move(QueuedProxy), Durin::FMatrix(1.0));
 	RenderThreadBlocker.Release();
 	Durin::FlushRenderingCommands();
-	const Durin::FCookedMeshLoadStatus ReadyStatus =
-		CookedMesh->RequestRenderDataAndResources();
-	EXPECT_TRUE(ReadyStatus.HasCpuData());
+	EXPECT_TRUE(CookedMesh->RequestRenderDataAndResources());
+	EXPECT_NE(CookedMesh->GetRenderData(), nullptr);
 	EXPECT_EQ(CookedMesh->GetRenderResourceStatus().Readiness, Durin::EStaticMeshRenderResourceReadiness::Ready);
 	EXPECT_TRUE(CookedMesh->GetRenderResourceStatus().IsReady());
 
@@ -3085,7 +3111,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ReplacementRetiresOldResourcesAndI
 	EXPECT_TRUE(Mesh->GetRenderResourceStatus().IsReady());
 	EXPECT_FALSE(Durin::FStaticMeshTestAccess::ReplaceRenderData(Mesh, nullptr, {}));
 	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
-	EXPECT_TRUE(Mesh->RequestRenderDataAndResources().HasFailed());
+	EXPECT_FALSE(Mesh->RequestRenderDataAndResources());
 	EXPECT_FALSE(Mesh->GetRenderResourceStatus().IsReady());
 	MarkAsGarbage(Mesh);
 	CollectGarbage(Durin::EObjectFlags::Standalone);

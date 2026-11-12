@@ -14,8 +14,11 @@ namespace Durin
 	class FStaticMeshTestAccess
 	{
 	public:
+		static auto SetPendingUpdate(DStaticMesh* Mesh, std::shared_ptr<FStaticMeshLoadUpdate> Update) -> void
+		{ Mesh->PendingUpdate = std::move(Update); }
 		static auto SetMaterialSlots(DStaticMesh* Mesh, std::vector<FMeshMaterialSlotDefinition> Slots) -> void
 		{ Mesh->MaterialSlots = std::move(Slots); }
+#if DURIN_WITH_EDITORONLY_DATA
 		static auto MakeSlots(const FMeshDescription& Geometry) -> std::vector<FMeshMaterialSlotDefinition>
 		{
 			std::vector<FMeshMaterialSlotDefinition> Slots;
@@ -49,13 +52,16 @@ namespace Durin
 			return Mesh->BuildFromSource(EStaticMeshBuildMode::Synchronous, {.Source = Source});
 		}
 
+#endif
 		static auto ReplaceRenderData(DStaticMesh* Mesh, std::unique_ptr<FStaticMeshRenderData> Data,
 			std::vector<FMeshMaterialSlotDefinition> Slots) -> std::expected<void, std::string>
 		{ return Mesh->ReplaceRenderDataDestructively(std::move(Data), std::move(Slots)); }
+#if DURIN_WITH_EDITORONLY_DATA
 		static auto ReplaceSourceRenderData(DStaticMesh* Mesh, FStaticMeshSource Source,
 			std::unique_ptr<FStaticMeshRenderData> Data, std::vector<FMeshMaterialSlotDefinition> Slots,
 			float NormalizedSize) -> std::expected<void, std::string>
 		{ return Mesh->ReplaceSourceRenderDataDestructively(std::move(Source), std::move(Data), std::move(Slots), NormalizedSize); }
+#endif
 		static auto GetMutableRenderData(DStaticMesh* Mesh)
 			-> FStaticMeshRenderData*
 		{

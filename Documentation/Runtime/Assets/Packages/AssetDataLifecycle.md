@@ -463,49 +463,43 @@ fallback.
 
 ### Cooked mesh runtime residency
 
-`DStaticMesh` exposes side-effect-free RenderData
-getters. `RequestRenderDataAndResources()` is the ordinary non-blocking entry
-point used by mesh-component assignment, registration, and SceneProxy fallback.
-Its generation-qualified snapshot separates `Unloaded`, queued/read/decode,
-`CpuReady`, `Failed`, and `Cancelled` CPU phases from independently
-`Unavailable`, `Queued`, `Ready`, and `Failed` GPU phases. SplineMesh shares its
-source StaticMesh request and residency.
+`DStaticMesh::GetRenderData()` observes CPU residency without starting work.
+`RequestRenderDataAndResources()` starts or joins the asset's pending update and
+requests GPU initialization after CPU publication. Its boolean result means CPU
+data is resident or an update is queued, independently of GPU readiness.
+SplineMesh shares its source StaticMesh request and residency.
 
-The Engine cooked-mesh manager bounds active and pending request bytes, active
-request count, retained completion bytes, and completions published per pump.
-Its diagnostics expose current and peak counts/bytes plus cumulative async-read
-readiness, worker decode/build, and GameThread completion-publication time. The
-timings are observational: correctness gates use thread ownership and bounded
-work, while performance comparison requires a quiet qualification lane.
-Package resources perform the asynchronous reads. Worker tasks receive owned
-immutable bytes plus copied material, collision, bounds, bind-transform, bone,
-and Skeleton-compatibility facts; they never resolve or mutate a `DObject`,
-component, package, BodySetup, live Skeleton, or render resource. The GameThread
-alone rechecks object/load/resource generations and metadata identity, installs
-the detached candidate and diagnostics, queues GPU initialization, and
-invalidates registered consumers.
+The mesh holds one concrete `FStaticMeshLoadUpdate`. The update owns immutable
+bulk references, copied material/collision inputs, asynchronous reads, detached
+decoding and the CPU candidate. Queued work retains this same object and its GPU
+initialization intent. The manager bounds active I/O/worker count and estimated
+bytes, retained completion bytes, I/O polling and publications per pump; it never
+reconstructs a request from an owner key. Its configuration, queues and diagnostics
+are Engine-private.
 
-`EnsureRenderDataLoadedBlocking()` submits CPU-only work or joins an existing
-request identity, waits for that owner's manager work, and uses the shared
-synchronous fallback when necessary. Its result reports CPU residency only;
-callers explicitly call `InitResources()` and query `GetRenderResourceStatus()`
-for GPU readiness. Existing combined async requests still queue GPU initialization
-when published. Blocking loading is not used by getters, component ticks,
-SceneProxy creation, or renderer preparation. Explicit calls to
-`EnsureRenderDataLoadedBlocking()` advance a failed/cancelled CPU generation and
-repeat CPU loading. `InitResources()` queues required-success native creation;
-invalid CPU geometry remains an asset-data error rather than a GPU retry state.
-Ordinary `RequestRenderDataAndResources()` calls retain terminal failures and
-cancellations, so polling does not repeatedly submit failed work. See
-[Render Resource Lifecycle](../../Rendering/Pipeline/RenderResourceLifecycle.md#cooked-mesh-readiness).
+Workers access only captured inputs and detached products. The GameThread checks
+the current update instance, render-resource revision and metadata identity
+before publishing render/collision data and refreshing consumers. Execution
+phases live only in the update. The asset exposes current pending work and its
+last owned `FCookedMeshLoadError`, containing a stable category and diagnostic.
 
-Manager shutdown stops admission, cancels reads and decode work, reports a
-current cancellation terminal to live assets without publishing CPU or GPU
-state, and drains tasks and completions before package, task, render, or Engine
-lifetime ends. Reinitialization creates a new manager scope; a cancelled asset
-resumes through an explicit `EnsureRenderDataLoadedBlocking()` call.
-Package retirement, unload, destruction,
-or a newer generation cannot publish stale candidates.
+`EnsureRenderDataLoadedBlocking()` finishes the selected pending update or creates
+a CPU-only update. Both blocking and asynchronous execution use the same decoder
+and publication step; blocking does not pump or publish unrelated assets.
+It returns `std::expected<void, FCookedMeshLoadError>` and explicitly retries a
+prior failure or cancellation. A CPU-only update retains that intent when queued
+and after later manager pumps. Existing combined requests and registered render
+consumers may still initialize GPU resources during publication.
+`InitResources()` and `GetRenderResourceStatus()` provide the independent GPU
+initialization/readiness contract. Ordinary polling retains terminal failures.
+
+`CancelPendingRenderDataLoad()` aborts the current update. Asset destruction
+aborts it and defers final destruction until the update has retired and the
+render fence is complete. Manager shutdown stops admission, aborts queued and
+active updates, and drains them without publication before package, task, render
+or Engine teardown. An update is completed only after accepted reads and worker
+execution have finished; completion and success remain separate observations.
+See [Render Resource Lifecycle](../../Rendering/Pipeline/RenderResourceLifecycle.md#cooked-mesh-readiness).
 
 ## Cook and Publication Rules
 

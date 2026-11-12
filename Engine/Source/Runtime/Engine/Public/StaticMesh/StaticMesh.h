@@ -22,6 +22,7 @@ namespace Durin
 {
 	struct FStaticMeshSource;
 	class DAssetImportData;
+	class FStaticMeshLoadUpdate;
 
 	struct FStaticMeshCompilationRequest;
 	struct FStaticMeshCompilationDiagnostic;
@@ -136,15 +137,17 @@ namespace Durin
 		ENGINE_API auto PrepareCookedPayloads(ECookTargetPlatform Target, FBulkData& Render, FBulkData& Collision,
 			const FAssetBuildTaskContext& Control = {}) -> std::expected<void, std::string>;
 		ENGINE_API auto GetRenderData() const -> const FStaticMeshRenderData*;
-		// Starts or joins bounded cooked loading and returns immediately with the
-		// current generation-qualified CPU residency/error snapshot. Query
-		// GetRenderResourceStatus() separately. Does not retry failed/cancelled work.
-		ENGINE_API auto RequestRenderDataAndResources() -> FCookedMeshLoadStatus;
+		// Starts or joins the current CPU update and requests GPU initialization.
+		// True means CPU data is resident or an update is queued; query GPU readiness
+		// separately. Failed/cancelled loads require an explicit blocking retry.
+		ENGINE_API auto RequestRenderDataAndResources() -> bool;
 		// Blocks for CPU data only, retrying a prior CPU failure/cancellation.
 		// May perform package I/O on the GameThread; use RequestRenderDataAndResources() for polling.
 		// Does not request GPU initialization; prior rendering requests may still complete.
 		ENGINE_API auto EnsureRenderDataLoadedBlocking()
-			-> FCookedMeshBlockingResult;
+			-> std::expected<void, FCookedMeshLoadError>;
+		ENGINE_API auto HasPendingRenderDataLoad() const -> bool;
+		ENGINE_API auto CancelPendingRenderDataLoad() -> void;
 		// GameThread-only, nonblocking readiness and cache-invalidation snapshot.
 		ENGINE_API auto GetRenderResourceStatus() const
 			-> FStaticMeshRenderResourceStatus;
@@ -218,7 +221,7 @@ namespace Durin
 		ENGINE_API auto RenameMaterialSlot(uint32 SlotIndex, FName Name) -> std::expected<void, FStaticMeshSlotRenameError>;
 
 		// Owner-thread observation only; never submits or retries loading.
-		ENGINE_API auto GetRenderDataLoadStatus() const -> FCookedMeshLoadStatus;
+		ENGINE_API auto GetRenderDataLoadError() const -> const FCookedMeshLoadError&;
 #if DURIN_WITH_EDITORONLY_DATA
 		auto GetSource() const -> const FStaticMeshSource& { return Source; }
 #endif
@@ -240,6 +243,7 @@ namespace Durin
 
 	private:
 		friend class FStaticMeshTestAccess;
+		friend class FStaticMeshLoadUpdate;
 		bool bCompilationMutationBlocked = false;
 		// Owner-thread replacement invalidates old render/collision data first. Failure
 		// leaves CPU data unavailable and returns a diagnostic; no rollback is performed.
@@ -282,8 +286,6 @@ namespace Durin
 			DAssetImportData*, std::vector<FMeshMaterialSlotDefinition>*, bool) -> std::expected<void, std::string>;
 		friend ENGINE_API auto PublishStaticMeshRenderData(DStaticMesh&, std::unique_ptr<FStaticMeshRenderData>) -> std::expected<void, std::string>;
 		friend class FStaticMeshCompilingManager;
-		auto LoadCookedRenderData() -> FCookedMeshLoadResult;
-		auto SubmitCookedRenderDataRequest(bool bInitializeResources) -> bool;
 		auto RefreshQualifiedBoxBodySetup() -> void;
 
 
@@ -329,7 +331,7 @@ namespace Durin
 		FRenderCommandFence RenderResourcesFence;
 		bool bRenderResourcesRequested = false;
 		uint64 RenderResourceRevision = 1;
-		std::atomic<uint64> CookedLoadGeneration{1};
+		std::shared_ptr<FStaticMeshLoadUpdate> PendingUpdate;
 
 	};
 

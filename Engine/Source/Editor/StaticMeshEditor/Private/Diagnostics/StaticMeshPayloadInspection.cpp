@@ -1,7 +1,6 @@
 #include "Physics/PhysicsDerivedData.h"
 #include "Collision/CollisionGeometry.h"
 #include "Diagnostics/StaticMeshPayloadInspection.h"
-#include "Asset/CookedMeshLoadManager.h"
 #include "Physics/BodySetup.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
@@ -132,9 +131,8 @@ namespace Durin
 				.Diagnostic = "Cooked storage readability unverified; recook missing or invalid cooked data."});
 		}
 		Result.bCpuResident = Mesh.GetRenderData() != nullptr;
-		Result.CookedLoad = Mesh.GetRenderDataLoadStatus();
-		if (const auto* Manager = GetCookedMeshLoadManager())
-			Result.bCookedLoadPending = Manager->HasPendingRequest(FObjectKey(&Mesh), Result.CookedLoad.Generation);
+		Result.CookedLoadError = Mesh.GetRenderDataLoadError();
+		Result.bCookedLoadPending = Mesh.HasPendingRenderDataLoad();
 		Result.Gpu = Mesh.GetRenderResourceStatus();
 		Result.Operation = Mesh.GetCompilationDiagnostic();
 		Result.bOperationSourceMatches = Result.Operation.RequestId != 0

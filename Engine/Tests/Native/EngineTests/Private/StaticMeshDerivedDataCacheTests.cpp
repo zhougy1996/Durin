@@ -38,7 +38,7 @@
 #include "Physics/PhysicsSharedOutput.h"
 #include "DerivedDataBuildSession.h"
 
-#include "Asset/CookedMeshLoadManager.h"
+#include "Asset/CookedMeshLoadManagerPrivate.h"
 #include "Asset/CookedMeshProducts.h"
 #include "Asset/ResourceBuildSessions.h"
 #include "DObject/Class.h"
@@ -713,9 +713,9 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 				Path, Fixture.AssetPath.GetPackageName()));
 			CookedMesh = Loaded.value_or(nullptr);
 		ASSERT_TRUE(Loaded) << Loaded.error().Message;
-		const Durin::FCookedMeshBlockingResult LoadResult =
+		const auto LoadResult =
 			CookedMesh->EnsureRenderDataLoadedBlocking();
-		ASSERT_TRUE(LoadResult) << Durin::FormatCookedMeshLoadError(LoadResult.Error);
+		ASSERT_TRUE(LoadResult) << Durin::FormatCookedMeshLoadError(LoadResult.error());
 		ASSERT_NE(CookedMesh->GetRenderData(), nullptr);
 		Durin::FCollisionGeometryRef Geometry;
 		ASSERT_TRUE(CookedMesh->GetBodySetup()->BuildComplexGeometry(Geometry));
@@ -929,48 +929,46 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 			CookedMesh = Loaded.value_or(nullptr);
 		ASSERT_TRUE(Loaded) << Loaded.error().Message;
 		ASSERT_EQ(CookedMesh->GetRenderData(), nullptr);
-		EXPECT_FALSE(CookedMesh->RequestRenderDataAndResources().HasCpuData());
+		EXPECT_FALSE(CookedMesh->RequestRenderDataAndResources());
 		auto* FirstConsumer = Durin::NewObject<Durin::DStaticMeshComponent>(
 			nullptr, Durin::FName("CookedStaticMeshFirstConsumer"));
 		FirstConsumer->SetStaticMesh(CookedMesh);
-		EXPECT_FALSE(CookedMesh->RequestRenderDataAndResources().HasCpuData());
+		EXPECT_FALSE(CookedMesh->RequestRenderDataAndResources());
 		ASSERT_TRUE(Durin::InitializeCookedMeshLoadManager());
 		FirstConsumer->RegisterComponent();
-		const auto PendingStatus = CookedMesh->RequestRenderDataAndResources();
-		EXPECT_FALSE(PendingStatus.HasCpuData());
-		EXPECT_TRUE(Durin::GetCookedMeshLoadManager()->HasPendingRequest(
-			Durin::FObjectKey(CookedMesh), PendingStatus.Generation));
+		EXPECT_TRUE(CookedMesh->RequestRenderDataAndResources());
+		EXPECT_EQ(CookedMesh->GetRenderData(), nullptr);
+		EXPECT_TRUE(CookedMesh->HasPendingRenderDataLoad());
 		EXPECT_EQ(FirstConsumer->CreateSceneProxy(), nullptr);
 		Durin::ShutdownCookedMeshLoadManager();
-		const auto CancelledStatus = CookedMesh->RequestRenderDataAndResources();
-		EXPECT_FALSE(CancelledStatus.HasCpuData());
-		EXPECT_EQ(CancelledStatus.Error.Code, Durin::ECookedMeshLoadError::Cancelled);
+		EXPECT_FALSE(CookedMesh->RequestRenderDataAndResources());
+		const auto CancelledError = CookedMesh->GetRenderDataLoadError();
+		EXPECT_EQ(CookedMesh->GetRenderData(), nullptr);
+		EXPECT_EQ(CancelledError.Code, Durin::ECookedMeshLoadError::Cancelled);
 		for (int Poll = 0; Poll < 10; ++Poll)
 		{
 			const auto Snapshot = Durin::InspectStaticMeshPayloads(*CookedMesh);
-			EXPECT_EQ(Snapshot.CookedLoad.Error.Code, CancelledStatus.Error.Code);
+			EXPECT_EQ(Snapshot.CookedLoadError.Code, CancelledError.Code);
 			EXPECT_FALSE(Snapshot.bCookedLoadPending);
-			EXPECT_EQ(Snapshot.CookedLoad.Generation, CancelledStatus.Generation);
 			EXPECT_FALSE(Snapshot.bCpuResident);
 		}
 		ASSERT_TRUE(Durin::InitializeCookedMeshLoadManager());
-		const Durin::FCookedMeshBlockingResult RetryResult =
+		const auto RetryResult =
 			CookedMesh->EnsureRenderDataLoadedBlocking();
-		ASSERT_TRUE(RetryResult) << Durin::FormatCookedMeshLoadError(RetryResult.Error);
-		EXPECT_GT(RetryResult.Status.Generation, CancelledStatus.Generation);
+		ASSERT_TRUE(RetryResult) << Durin::FormatCookedMeshLoadError(RetryResult.error());
+		EXPECT_EQ(CookedMesh->GetRenderDataLoadError().Code, Durin::ECookedMeshLoadError::None);
 		auto FirstProxy = FirstConsumer->CreateSceneProxy();
-		const Durin::FCookedMeshLoadStatus RecoveredStatus =
+		const bool bRecovered =
 			CookedMesh->RequestRenderDataAndResources();
 		const Durin::FCookedMeshLoadDiagnostics RecoveredDiagnostics =
 			Durin::GetCookedMeshLoadManager()->GetDiagnostics();
 		if (!FirstProxy) Durin::ShutdownCookedMeshLoadManager();
 		ASSERT_NE(FirstProxy, nullptr)
-			<< "cpu_resident=" << RecoveredStatus.HasCpuData()
+			<< "cpu_resident=" << bRecovered
 			<< " failed=" << RecoveredDiagnostics.FailedCount
-			<< " stale=" << RecoveredDiagnostics.StaleCount
 			<< " in_flight=" << RecoveredDiagnostics.InFlightCount;
 		ASSERT_NE(CookedMesh->GetRenderData(), nullptr);
-		EXPECT_TRUE(CookedMesh->RequestRenderDataAndResources().HasCpuData());
+		EXPECT_TRUE(CookedMesh->RequestRenderDataAndResources());
 		auto* SplineConsumer = Durin::NewObject<Durin::DSplineMeshComponent>(
 			nullptr, Durin::FName("CookedSplineMeshConsumer"));
 		SplineConsumer->SetStaticMesh(CookedMesh);
@@ -2419,7 +2417,7 @@ TEST(FStaticMeshReplacementTests, FailureDropsDerivedDataAndValidSourceCanBeRebu
 	EXPECT_FALSE(Durin::FStaticMeshTestAccess::ReplaceRenderData(Mesh, nullptr, {}));
 	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
 	EXPECT_GT(Mesh->GetRenderResourceStatus().Revision, Revision);
-	EXPECT_TRUE(Mesh->GetRenderDataLoadStatus().HasFailed());
+	EXPECT_NE(Mesh->GetRenderDataLoadError().Code, ECookedMeshLoadError::None);
 	EXPECT_EQ(Mesh->GetCollisionBuildStatus(), EPhysicsMeshBuildStatus::Unavailable);
 	EXPECT_FALSE(Mesh->GetBodySetup()->GetResidentComplexGeometry());
 	Mesh->RebuildCollision();
@@ -2446,7 +2444,7 @@ TEST(FStaticMeshReplacementTests, FailureDropsDerivedDataAndValidSourceCanBeRebu
 	ASSERT_TRUE(Durin::FStaticMeshTestAccess::ReplaceSourceRenderData(Mesh, Source, std::move((*Product)),
 		CaptureStaticMeshReconciliation(*Mesh).MaterialSlots, Mesh->GetNormalizedSize()));
 	EXPECT_NE(Mesh->GetRenderData(), nullptr);
-	EXPECT_TRUE(Mesh->GetRenderDataLoadStatus().HasCpuData());
+	EXPECT_NE(Mesh->GetRenderData(), nullptr);
 	StaticMeshBuildTestSupport::FinishMeshBuildForTests(*Mesh);
 	EXPECT_EQ(Mesh->GetCollisionBuildStatus(), EPhysicsMeshBuildStatus::Ready);
 	EXPECT_FALSE(Mesh->GetCollisionBuildError());
@@ -2963,7 +2961,7 @@ TEST(FStaticMeshReplacementTests, ReplacementRejectsInvalidSourceSlotsAndUVChann
 	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
 }
 
-TEST(FStaticMeshCookedLoadTests, AdmissionPressureRetriesOwnersWithoutMapChange)
+TEST(FStaticMeshCookedLoadTests, QueuedUpdatesProgressWithoutRepeatedRequests)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -2978,8 +2976,8 @@ TEST(FStaticMeshCookedLoadTests, AdmissionPressureRetriesOwnersWithoutMapChange)
 	struct FManagerCleanup { ~FManagerCleanup() { ShutdownCookedMeshLoadManager(); } } ManagerCleanup;
 	std::vector<TStrongObjectPtr<DStaticMesh>> Meshes;
 	const FByteBuffer Bytes{std::byte{0xff}};
-	// More owners than the default active + pending request capacities. Invalid
-	// products let this CPU-only test prove every deferred owner eventually decodes.
+	// More updates than the active capacity. One request per asset must suffice;
+	// invalid products prove every queued update eventually reaches its decoder.
 	for (uint32 Index = 0; Index < 24; ++Index)
 	{
 		auto* Mesh = NewObject<DStaticMesh>(nullptr, FName(std::format("AdmissionMesh{}", Index)));
@@ -2989,9 +2987,9 @@ TEST(FStaticMeshCookedLoadTests, AdmissionPressureRetriesOwnersWithoutMapChange)
 		const_cast<FBulkData&>(Mesh->GetCookedRenderData()) = std::move(*Payload);
 		Mesh->RequestRenderDataAndResources();
 	}
-	EXPECT_GT(GetCookedMeshLoadManager()->GetDiagnostics().RejectedCount, 0u);
+	EXPECT_GT(GetCookedMeshLoadManager()->GetDiagnostics().PendingRequestCount, 0u);
 	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-	while (std::ranges::any_of(Meshes, [](const auto& Mesh) { return !Mesh->GetRenderDataLoadStatus().HasFailed(); })
+	while (std::ranges::any_of(Meshes, [](const auto& Mesh) { return Mesh->GetRenderDataLoadError().Code == ECookedMeshLoadError::None; })
 		&& std::chrono::steady_clock::now() < Deadline)
 	{
 		PumpCookedMeshLoadManager();
@@ -3002,7 +3000,7 @@ TEST(FStaticMeshCookedLoadTests, AdmissionPressureRetriesOwnersWithoutMapChange)
 	EXPECT_EQ(Diagnostics.FailedCount, Meshes.size());
 	for (auto& Mesh : Meshes)
 	{
-		EXPECT_TRUE(Mesh->GetRenderDataLoadStatus().HasFailed());
+		EXPECT_NE(Mesh->GetRenderDataLoadError().Code, ECookedMeshLoadError::None);
 		auto* Retired = Mesh.Get(); Mesh.Reset(); MarkAsGarbage(Retired);
 	}
 	CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -3016,7 +3014,6 @@ TEST(FStaticMeshCookedLoadTests, BlockingFailureRetainsDecodeCauseAcrossRetry)
 	std::filesystem::create_directories(Root);
 	ASSERT_TRUE(Runtime.RestartCooked(Root));
 	auto* Mesh = NewObject<DStaticMesh>(nullptr, FName("TypedCookedFailureMesh"));
-	const FObjectKey Owner(Mesh);
 	// Inject a malformed detached payload into the otherwise ordinary runtime object.
 	auto& Payload = const_cast<FBulkData&>(Mesh->GetCookedRenderData());
 	const FByteBuffer Bytes{std::byte{0xff}};
@@ -3027,40 +3024,35 @@ TEST(FStaticMeshCookedLoadTests, BlockingFailureRetainsDecodeCauseAcrossRetry)
 	}
 	const auto Failed = Mesh->EnsureRenderDataLoadedBlocking();
 	ASSERT_FALSE(Failed);
-	EXPECT_TRUE(Failed.Status.HasFailed());
-	EXPECT_EQ(Failed.Error.Code, ECookedMeshLoadError::Product);
-	EXPECT_EQ(Failed.Error.Owner, Owner);
-	EXPECT_NE(Failed.Error.Diagnostic.find("render payload decoding failed"), std::string::npos);
-	EXPECT_FALSE(Failed.Error.Diagnostic.empty());
+	EXPECT_EQ(Mesh->GetRenderDataLoadError().Code, Failed.error().Code);
+	EXPECT_EQ(Failed.error().Code, ECookedMeshLoadError::Product);
+	EXPECT_NE(Failed.error().Diagnostic.find("render payload decoding failed"), std::string::npos);
+	EXPECT_FALSE(Failed.error().Diagnostic.empty());
 	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
 	for (int Poll = 0; Poll < 3; ++Poll)
 	{
-		const auto Observed = Mesh->RequestRenderDataAndResources();
-		EXPECT_FALSE(Observed.HasCpuData());
-		EXPECT_TRUE(Observed.HasFailed());
-		EXPECT_EQ(Observed.Error.Code, Failed.Error.Code);
-		EXPECT_EQ(Observed.Error.Diagnostic, Failed.Error.Diagnostic);
-		EXPECT_EQ(Observed.Generation, Failed.Status.Generation);
+		EXPECT_FALSE(Mesh->RequestRenderDataAndResources());
+		const auto& Observed = Mesh->GetRenderDataLoadError();
+		EXPECT_EQ(Mesh->GetRenderData(), nullptr);
+		EXPECT_FALSE(Mesh->HasPendingRenderDataLoad());
+		EXPECT_EQ(Observed.Code, Failed.error().Code);
+		EXPECT_EQ(Observed.Diagnostic, Failed.error().Diagnostic);
 	}
 	ASSERT_TRUE(InitializeCookedMeshLoadManager());
-	EXPECT_TRUE(Mesh->RequestRenderDataAndResources().HasFailed());
+	EXPECT_FALSE(Mesh->RequestRenderDataAndResources());
 	EXPECT_EQ(GetCookedMeshLoadManager()->GetDiagnostics().AcceptedCount, 0u);
 	const auto AsyncFailed = Mesh->EnsureRenderDataLoadedBlocking();
 	EXPECT_FALSE(AsyncFailed);
-	EXPECT_EQ(AsyncFailed.Error.Code, ECookedMeshLoadError::Product);
-	EXPECT_EQ(AsyncFailed.Error.Owner, Owner);
-	EXPECT_NE(AsyncFailed.Error.Diagnostic.find("render payload decoding failed"), std::string::npos);
+	EXPECT_EQ(AsyncFailed.error().Code, ECookedMeshLoadError::Product);
+	EXPECT_NE(AsyncFailed.error().Diagnostic.find("render payload decoding failed"), std::string::npos);
 	ShutdownCookedMeshLoadManager();
 	Payload = FBulkData{};
 	const auto Retried = Mesh->EnsureRenderDataLoadedBlocking();
 	EXPECT_FALSE(Retried);
-	EXPECT_EQ(Retried.Error.Code, ECookedMeshLoadError::Unavailable);
-	EXPECT_EQ(Retried.Error.Owner, Owner);
-	EXPECT_GT(Retried.Status.Generation, Failed.Status.Generation);
+	EXPECT_EQ(Retried.error().Code, ECookedMeshLoadError::Unavailable);
 	ASSERT_TRUE(Runtime.Restore());
-	EXPECT_EQ(Failed.Error.Owner, Owner);
-	EXPECT_NE(Failed.Error.Diagnostic.find("render payload decoding failed"), std::string::npos);
-	EXPECT_FALSE(FormatCookedMeshLoadError(Failed.Error).empty());
+	EXPECT_NE(Failed.error().Diagnostic.find("render payload decoding failed"), std::string::npos);
+	EXPECT_FALSE(FormatCookedMeshLoadError(Failed.error()).empty());
 }
 
 TEST(FStaticMeshAuthoredCompilationTests, ReimportCommitsSourceAndMetadataDespiteDerivedDataFailure)

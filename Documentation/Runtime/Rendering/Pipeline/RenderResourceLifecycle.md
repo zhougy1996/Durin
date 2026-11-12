@@ -64,16 +64,14 @@ ordinary deferred cleanup boundary.
 
 ## Cooked mesh readiness
 
-StaticMesh CPU residency is independent of render-resource
-readiness. `FCookedMeshLoadStatus` reports CPU residency, load generation and the
-last owned load error. It does not mirror execution or GPU phases. The cooked
-load manager owns queued requests, reads, worker execution and completion;
-`HasPendingRequest(Owner, LoadGeneration)` observes unfinished accepted work for
-that generation without treating older draining work as current. Cancellation
-and shutdown report terminal errors for both queued and active current requests.
-`EnsureRenderDataLoadedBlocking()` waits for CPU residency only;
-`FCookedMeshBlockingResult::Succeeded()` reports that CPU result. It does not
-request GPU initialization. Call `InitResources()` explicitly, then query
+StaticMesh CPU residency is independent of render-resource readiness.
+`GetRenderData()` observes residency, `HasPendingRenderDataLoad()` observes the
+asset's current update, and `GetRenderDataLoadError()` returns its last owned
+failure. The asset holds one concrete pending update; that update owns reads,
+detached decoding, publication and cancellation. The manager schedules updates
+within active-work and retained-completion budgets.
+`EnsureRenderDataLoadedBlocking()` returns `std::expected<void, FCookedMeshLoadError>`
+and waits for CPU residency only. It does not request GPU initialization. Call `InitResources()` explicitly, then query
 `GetRenderResourceStatus()` to distinguish queued, ready, and invalid-CPU-data resources.
 `HasPendingRenderResourceInitialization()` is a nonblocking convenience query
 that returns true only while GPU initialization is queued. False does not imply

@@ -28,6 +28,7 @@ durin_add_native_test(CookedMeshLoadingTests
 	MODULES engine
 	SOURCES Private/CookedMeshLoadManagerTests.cpp
 	LIBRARIES Core CoreDObject Engine
+	INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private"
 )
 
 durin_add_native_test(DerivedDataCacheTests

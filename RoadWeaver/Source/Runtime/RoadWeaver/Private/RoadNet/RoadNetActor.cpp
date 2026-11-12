@@ -103,7 +103,7 @@ namespace Durin::RoadNet
 		// Package loading submits mesh compilation asynchronously; construction needs its published CPU geometry.
 		FAssetCompilingManager::Get().FinishCompilationForObject(*PreviewMesh);
 		const auto Loaded = PreviewMesh->EnsureRenderDataLoadedBlocking();
-		if (!Loaded.Status.HasCpuData()) return Fail(FormatCookedMeshLoadError(Loaded.Error));
+		if (!Loaded) return Fail(FormatCookedMeshLoadError(Loaded.error()));
 		const auto Bounds = PreviewMesh->GetLOD0LocalBounds();
 		if (!Bounds || Bounds->Max.x - Bounds->Min.x <= 1.e-6 || Bounds->Max.y - Bounds->Min.y <= 1.e-6)
 			return Fail("Preview mesh CPU data is unavailable or its X/Y extent is degenerate.");

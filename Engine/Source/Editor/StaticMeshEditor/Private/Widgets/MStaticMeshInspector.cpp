@@ -279,12 +279,10 @@ namespace Durin::StaticMeshEditor
 			ImGui::TextWrapped("Decoded authored source: %s. Render CPU data: %s.",
 				Inspection.bSourceResident ? "resident" : "not resident",
 				Inspection.bCpuResident ? "resident" : "absent");
-			ImGui::TextWrapped("Cooked load request: %s (generation %llu).",
-				Inspection.bCookedLoadPending ? "pending" : "none",
-				static_cast<unsigned long long>(Inspection.CookedLoad.Generation));
-			if (const auto Message = FormatCookedMeshLoadError(Inspection.CookedLoad.Error); !Message.empty())
+			ImGui::TextWrapped("Cooked load request: %s.", Inspection.bCookedLoadPending ? "pending" : "none");
+			if (const auto Message = FormatCookedMeshLoadError(Inspection.CookedLoadError); !Message.empty())
 				ImGui::TextWrapped("Last load error: %s", Message.c_str());
-			if (Inspection.CookedLoad.HasFailed())
+			if (Inspection.CookedLoadError.Code != ECookedMeshLoadError::None)
 				ImGui::TextWrapped("Restore or recook invalid cooked data, then explicitly retry CPU loading.");
 			if (Inspection.Gpu.Readiness == EStaticMeshRenderResourceReadiness::InvalidData)
 				ImGui::TextWrapped("CPU geometry validation failed. Correct or rebuild the asset data.");

@@ -2,7 +2,8 @@
 #include "StaticMeshPayloadPrivate.h"
 #include "StaticMeshBuildPrivate.h"
 
-#include "Asset/CookedMeshLoadManager.h"
+#include "Asset/CookedMeshLoadManagerPrivate.h"
+#include "StaticMesh/StaticMeshLoadUpdate.h"
 
 #include "DObject/Package.h"
 
@@ -107,75 +108,71 @@ namespace Durin
 		return RenderData.get();
 	}
 
-	auto DStaticMesh::RequestRenderDataAndResources() -> FCookedMeshLoadStatus
+	auto DStaticMesh::RequestRenderDataAndResources() -> bool
 	{
 		CheckStaticMeshUpdateThread();
 		if (RenderData)
 		{
-			if (!bRenderResourcesRequested)
-				InitResources();
+			if (!bRenderResourcesRequested) InitResources();
+			return true;
 		}
-		else if (!GetRenderDataLoadStatus().HasFailed())
+		if (IsPendingKill() || CookedLoadError.Code != ECookedMeshLoadError::None) return false;
+		if (PendingUpdate && !PendingUpdate->IsCompleted())
 		{
-			const auto* Manager = GetCookedMeshLoadManager();
-			if (!Manager || !Manager->HasPendingRequest(FObjectKey(this),
-				CookedLoadGeneration.load(std::memory_order_acquire)))
-				SubmitCookedRenderDataRequest(true);
+			PendingUpdate->bInitializeResources = true;
+			return true;
 		}
-		return GetRenderDataLoadStatus();
+		auto* Manager = GetCookedMeshLoadManager();
+		if (!Manager || !GetAssetRuntimeConfiguration().RequiresCookedPayload()
+			|| CookedRenderData.GetMetadata().LogicalSize == 0) return false;
+		auto Update = std::make_shared<FStaticMeshLoadUpdate>(*this, true);
+		PendingUpdate = Update;
+		return Manager->Submit(std::move(Update));
 	}
 
-	auto DStaticMesh::GetRenderDataLoadStatus() const -> FCookedMeshLoadStatus
+	auto DStaticMesh::HasPendingRenderDataLoad() const -> bool
 	{
 		CheckStaticMeshUpdateThread();
-		return {.bCpuDataResident = RenderData != nullptr,
-			.Generation = CookedLoadGeneration.load(std::memory_order_acquire),
-			.Error = CookedLoadError};
+		return PendingUpdate && !PendingUpdate->IsCompleted();
+	}
+
+	auto DStaticMesh::GetRenderDataLoadError() const -> const FCookedMeshLoadError&
+	{
+		CheckStaticMeshUpdateThread();
+		return CookedLoadError;
+	}
+
+	auto DStaticMesh::CancelPendingRenderDataLoad() -> void
+	{
+		CheckStaticMeshUpdateThread();
+		if (const auto Update = PendingUpdate)
+		{
+			Update->Abort();
+			Update->Tick();
+		}
 	}
 
 	auto DStaticMesh::EnsureRenderDataLoadedBlocking()
-		-> FCookedMeshBlockingResult
+		-> std::expected<void, FCookedMeshLoadError>
 	{
 		CheckStaticMeshUpdateThread();
-		if (GetRenderDataLoadStatus().HasFailed())
+		if (RenderData) return {};
+		auto Update = PendingUpdate;
+		if (!Update || Update->IsCompleted())
 		{
-			if (FCookedMeshLoadManager* Manager =
-				GetCookedMeshLoadManager())
-				Manager->Cancel(FObjectKey(this));
 			CookedLoadError = {};
-			CookedLoadGeneration.fetch_add(1, std::memory_order_acq_rel);
-		}
-		if (!RenderData)
-		{
-			auto* Manager = GetCookedMeshLoadManager();
-			if (!Manager || !Manager->HasPendingRequest(FObjectKey(this),
-				CookedLoadGeneration.load(std::memory_order_acquire)))
-				SubmitCookedRenderDataRequest(false);
-			if (Manager)
+			if (IsPendingKill() || !GetAssetRuntimeConfiguration().RequiresCookedPayload()
+				|| CookedRenderData.GetMetadata().LogicalSize == 0)
 			{
-				Manager->Finish(FObjectKey(this));
+				CookedLoadError = {.Code = ECookedMeshLoadError::Unavailable};
+				return std::unexpected(CookedLoadError);
 			}
+			Update = std::make_shared<FStaticMeshLoadUpdate>(*this, false);
+			PendingUpdate = Update;
 		}
-		if (!RenderData && !GetRenderDataLoadStatus().HasFailed()
-			&& GetAssetRuntimeConfiguration().RequiresCookedPayload()
-			&& CookedRenderData.GetMetadata().LogicalSize != 0)
-		{
-			if (const auto Loaded = LoadCookedRenderData(); !Loaded)
-			{
-				CookedLoadError = Loaded.Error;
-				return {.Status = GetRenderDataLoadStatus(), .Error = Loaded.Error};
-			}
-			CookedLoadError = {};
-		}
-		if (RenderData)
-		{
-			CookedLoadError = {};
-		}
-		FCookedMeshBlockingResult Result{.Status = GetRenderDataLoadStatus()};
-		if (!Result.Status.HasCpuData())
-			Result.Error = CookedLoadError.Code != ECookedMeshLoadError::None ? CookedLoadError
-				: FCookedMeshLoadError{.Code = ECookedMeshLoadError::Unavailable, .Owner = FObjectKey(this)};
-		return Result;
+		Update->Finish();
+		if (RenderData) return {};
+		return std::unexpected(CookedLoadError);
 	}
 
 	auto DStaticMesh::GetRenderResourceStatus() const
@@ -496,20 +493,22 @@ namespace Durin
 		this->CancelCompilation();
 		AssetPrivate::CancelPhysicsMeshCompilationForOwner(*this);
 		if (auto* Body = GetBodySetup()) Body->AbortPhysicsMeshAsyncCreation();
-		if (FCookedMeshLoadManager* Manager = GetCookedMeshLoadManager())
-			Manager->Cancel(FObjectKey(this));
+		CancelPendingRenderDataLoad();
 		ReleaseResources();
 		Super::BeginDestroy();
 	}
 
 	auto DStaticMesh::IsReadyForFinishDestroy() -> bool
 	{
-		return RenderResourcesFence.IsFenceComplete()
+		if (const auto Update = PendingUpdate) Update->Tick();
+		return !HasPendingRenderDataLoad() && RenderResourcesFence.IsFenceComplete()
 			&& Super::IsReadyForFinishDestroy();
 	}
 
 	auto DStaticMesh::FinishDestroy() -> void
 	{
+		check(!HasPendingRenderDataLoad());
+		PendingUpdate.reset();
 		check(RenderResourcesFence.IsFenceComplete());
 		check(!bRenderResourcesRequested);
 		check(RenderData == nullptr
@@ -626,12 +625,11 @@ namespace Durin
 		this->CancelCompilation();
 		AssetPrivate::CancelPhysicsMeshCompilationForOwner(*this);
 		if (auto* Body = GetBodySetup()) Body->AbortPhysicsMeshAsyncCreation();
-		if (auto* Manager = GetCookedMeshLoadManager()) Manager->Cancel(FObjectKey(this));
-		CookedLoadGeneration.fetch_add(1, std::memory_order_acq_rel);
+		if (const auto Update = PendingUpdate) { Update->Abort(); Update->Finish(); }
 		// Superseded cooked bytes must not restore geometry after a failed authored replacement.
 		CookedRenderData = {};
 		CookedCollisionData = {};
-		CookedLoadError = {.Code = ECookedMeshLoadError::Unavailable, .Owner = FObjectKey(this)};
+		CookedLoadError = {.Code = ECookedMeshLoadError::Unavailable};
 		RetireStaticMeshRenderData(RenderData);
 		RenderData.reset();
 		bRenderResourcesRequested = false;

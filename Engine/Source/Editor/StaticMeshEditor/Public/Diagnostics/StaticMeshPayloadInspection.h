@@ -51,7 +51,7 @@ namespace Durin
 		std::vector<FStaticMeshPayloadFieldInspection> Fields;
 		bool bSourceResident = false;
 		bool bCpuResident = false;
-		FCookedMeshLoadStatus CookedLoad;
+		FCookedMeshLoadError CookedLoadError;
 		bool bCookedLoadPending = false;
 		FStaticMeshRenderResourceStatus Gpu;
 		FStaticMeshCompilationDiagnostic Operation;
