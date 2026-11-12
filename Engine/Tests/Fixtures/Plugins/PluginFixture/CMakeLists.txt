@@ -11,3 +11,17 @@ durin_target_apply_common_definitions(PluginFixtureStartupProbe PluginFixtureSta
 target_link_libraries(PluginFixtureStartupProbe PRIVATE Core Projects CoreDObject Engine)
 set_target_properties(PluginFixtureStartupProbe PROPERTIES
  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/PluginFixtureStartupProbe/$<CONFIG>")
+
+if(DURIN_RUNTIME_VARIANT STREQUAL "DurinEditor")
+ add_executable(PluginFixtureResourcesProbe ResourcesProbe.cpp)
+ durin_target_apply_common_definitions(PluginFixtureResourcesProbe PluginFixtureResourcesProbe)
+ target_link_libraries(PluginFixtureResourcesProbe PRIVATE Core Projects CoreDObject Engine AssetRegistry RenderCore)
+ set_target_properties(PluginFixtureResourcesProbe PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/PluginFixtureResourcesProbe/$<CONFIG>")
+endif()
+
+add_executable(PluginFixtureManagementProbe ManagementProbe.cpp)
+durin_target_apply_common_definitions(PluginFixtureManagementProbe PluginFixtureManagementProbe)
+target_link_libraries(PluginFixtureManagementProbe PRIVATE Core Projects CoreDObject Engine)
+set_target_properties(PluginFixtureManagementProbe PROPERTIES
+ RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/PluginFixtureManagementProbe/$<CONFIG>")

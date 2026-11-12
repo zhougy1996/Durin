@@ -262,6 +262,12 @@ namespace Durin
 		Publication.ExpectedRevision = GetAssetCatalogRevision();
 		for (const auto& Entry : Manifest.Entries)
 		{
+            if (Entry.Kind==ECookManifestEntryKind::PluginSnapshot)
+            {
+                const auto Data=FFileHelper::LoadFileToArray(Configuration.GetCookRoot()/Entry.RelativePath);
+                if (!Data || Data->size()!=Entry.FileSize || FXxHash128::HashBuffer(*Data)!=FXxHash128{Entry.HashLow,Entry.HashHigh})
+                    return {EAssetReadError::CorruptFile,"Cooked plugin snapshot is missing or modified."};
+            }
 			if (Entry.Kind != ECookManifestEntryKind::CookedPackage) continue;
 			const std::filesystem::path Relative(Entry.RelativePath);
 			FPackagePath Path;
@@ -399,7 +405,8 @@ namespace Durin
 				|| (Entry.Kind != ECookManifestEntryKind::CookedPackage
 					&& Entry.Kind != ECookManifestEntryKind::CookedBulk
 					&& Entry.Kind != ECookManifestEntryKind::PackageBulk
-					&& Entry.Kind != ECookManifestEntryKind::ShaderLibrary)
+					&& Entry.Kind != ECookManifestEntryKind::ShaderLibrary
+                    && Entry.Kind != ECookManifestEntryKind::PluginSnapshot)
 				|| (Entry.Flags & CookManifestEntryPresent) == 0
 				|| (Entry.Flags & ~CookManifestEntryKnownFlags) != 0
 				|| (Entry.Kind != ECookManifestEntryKind::CookedPackage
@@ -488,7 +495,8 @@ namespace Durin
 				|| (Entry.Kind != ECookManifestEntryKind::CookedPackage
 					&& Entry.Kind != ECookManifestEntryKind::CookedBulk
 					&& Entry.Kind != ECookManifestEntryKind::PackageBulk
-					&& Entry.Kind != ECookManifestEntryKind::ShaderLibrary)
+					&& Entry.Kind != ECookManifestEntryKind::ShaderLibrary
+                    && Entry.Kind != ECookManifestEntryKind::PluginSnapshot)
 				|| (Entry.Flags & CookManifestEntryPresent) == 0
 				|| (Entry.Flags & ~CookManifestEntryKnownFlags) != 0
 				|| (Entry.Kind != ECookManifestEntryKind::CookedPackage

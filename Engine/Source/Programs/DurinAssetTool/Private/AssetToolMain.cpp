@@ -37,6 +37,9 @@
 #include "Misc/MountPaths.h"
 #include "Project/Project.h"
 #include "Interfaces/IProjectManager.h"
+#include "Plugins/PluginResources.h"
+#include "Plugins/PluginCook.h"
+#include "Misc/AppConfig.h"
 #include "Misc/TargetIdentity.h"
 #include "Modules/ModuleManager.h"
 #include "Materials/Material.h"
@@ -74,6 +77,7 @@ namespace
 		MaterialFunctions,
 		MaterialTemplate,
 		Cook,
+        StageInfo,
 	};
 
 	enum class EOutputFormat : uint8
@@ -114,6 +118,7 @@ namespace
 		case EOperation::MaterialFunctions: return "material-functions";
 		case EOperation::MaterialTemplate: return "material-template";
 		case EOperation::Cook: return "cook";
+        case EOperation::StageInfo: return "stage-info";
 		}
 		return "check";
 	}
@@ -206,7 +211,7 @@ namespace
 		const uint16 Allowed = Options.Operation == EOperation::MaterialTemplate
 			? Storage | OptionBit(EOption::Apply) | OptionBit(EOption::Scope)
 			: Options.Operation == EOperation::MaterialFunctions ? Storage | OptionBit(EOption::Apply) : Options.Operation == EOperation::Resave ? Resave : Options.Operation == EOperation::Check ? Check :
-															  Options.Operation == EOperation::Cook		 ? Cook : Storage;
+															  Options.Operation == EOperation::Cook ? Cook : Options.Operation == EOperation::StageInfo ? Check | OptionBit(EOption::Output) : Storage;
 		const uint16 Unexpected = Options.SpecifiedOptions & ~Allowed;
 		constexpr EOption OrderedOptions[] = {
 			EOption::Json, EOption::All, EOption::Apply, EOption::Scope,
@@ -289,6 +294,8 @@ namespace
 			OutOptions.Operation = EOperation::MaterialFunctions;
 		else if (Command == "material-template")
 			OutOptions.Operation = EOperation::MaterialTemplate;
+		else if (Command == "stage-info")
+            OutOptions.Operation = EOperation::StageInfo;
 		else if (Command == "cook")
 			OutOptions.Operation = EOperation::Cook;
 		else
@@ -854,7 +861,8 @@ namespace
 			.ExplicitRoots = std::move(Roots),
 			.IncrementalPolicy = Options.bIncremental ? ECookIncrementalPolicy::Enabled : ECookIncrementalPolicy::Disabled,
 			.bDryRun = Options.bDryRun,
-			.IsCancelled = [] { return GCancelled.load(std::memory_order_relaxed); }
+			.IsCancelled = [] { return GCancelled.load(std::memory_order_relaxed); },
+            .bCapturePluginSnapshot = true
 		};
 		(void)Coordinator.Run(Request, Result);
 		if (Options.Format == EOutputFormat::Json)
@@ -872,6 +880,43 @@ namespace
 		if (Result.Status == ECookRunStatus::Cancelled) return 130;
 		return Result.Status == ECookRunStatus::Succeeded ? 0 : 1;
 	}
+    auto RunStageInfo(const FOptions& Options) -> int
+    {
+        using namespace Durin;
+        try
+        {
+            const auto Base=std::filesystem::canonical(Options.OutputRoot);
+            const auto Bytes=FFileHelper::LoadFileToArray(Base/"CookManifest.bin");
+            FCookManifest Manifest;
+            if (!Bytes || !DecodeCookManifest(*Bytes,Manifest) || Manifest.TargetProfile!=ECookTargetProfile::Game)
+                throw std::runtime_error("Invalid Game Cook manifest");
+            FJsonDocument Report; auto Root=Report.GetMutableRoot(); Root.EnsureObject();
+            Root.SetChildValue("Platform",GetTargetPlatformName(Manifest.TargetPlatform));
+            auto Files=Root.AddArray("Files"); bool HasSnapshot=false;
+            for (const auto& Entry:Manifest.Entries)
+            {
+                const auto File=std::filesystem::canonical(Base/std::filesystem::u8path(Entry.RelativePath));
+                const auto Relative=File.lexically_relative(Base);
+                if (Relative.empty() || *Relative.begin()=="..") throw std::runtime_error("Cook output escapes its root");
+                const auto Data=FFileHelper::LoadFileToArray(File);
+                if (!Data || Data->size()!=Entry.FileSize || FXxHash128::HashBuffer(*Data)!=FXxHash128{Entry.HashLow,Entry.HashHigh})
+                    throw std::runtime_error("Missing or corrupt Cook output: "+Entry.RelativePath);
+                auto Item=Files.AppendObject(); Item.SetChildValue("Path",Entry.RelativePath);
+                Item.SetChildValue("Sha256",PluginFileSha256(File));
+                if (Entry.Kind==ECookManifestEntryKind::PluginSnapshot)
+                {
+                    if (HasSnapshot || Entry.RelativePath!="PluginCook.json") throw std::runtime_error("Invalid Cook plugin snapshot");
+                    HasSnapshot=true;
+                    Root.SetChildValue("Snapshot",std::string(reinterpret_cast<const char*>(Data->data()),Data->size()));
+                }
+            }
+            if (!HasSnapshot) throw std::runtime_error("Cook plugin snapshot is missing; recook with the current tool");
+            Root.SetChildValue("CookManifestSha256",PluginFileSha256(Base/"CookManifest.bin"));
+            std::cout<<Report.ToString()<<'\n'; return 0;
+        }
+        catch (const std::exception& Error) { std::cerr<<"Stage preflight failed: "<<Error.what()<<'\n'; return 1; }
+    }
+
 } // namespace
 
 int main(int ArgC, char** ArgV)
@@ -890,6 +935,8 @@ int main(int ArgC, char** ArgV)
 		PrintUsage();
 		return 0;
 	}
+
+    if (Options.Operation==EOperation::StageInfo) return RunStageInfo(Options);
 
 	Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
 	Durin::GIsGameThreadIdInitialized = true;
@@ -912,6 +959,18 @@ int main(int ArgC, char** ArgV)
 		Durin::LoggerInit();
 		Durin::FLogger::Get().SetConsoleLogLevel(Durin::ELogLevel::Fatal);
 	}
+    if (!Durin::IProjectManager::Get().PreparePluginStartup())
+    {
+        std::cerr << "Error: " << Durin::IProjectManager::Get().GetLastError() << '\n';
+        return 1;
+    }
+    const auto VariantConfig = std::string(DURIN_RUNTIME_VARIANT) + ".yaml";
+    std::vector<std::filesystem::path> ConfigLayers{
+        std::filesystem::path(Durin::FPaths::LaunchDir()) / "Templates" / ("TP_" + VariantConfig)};
+    for (const auto& Directory : Durin::GetActivePluginResources().ConfigDirectories) ConfigLayers.push_back(Directory / VariantConfig);
+    if (const auto* Project = Durin::GetCurrentProject()) ConfigLayers.emplace_back(std::filesystem::path(Project->ProjectDir) / "Configs" / VariantConfig);
+    ConfigLayers.emplace_back(std::filesystem::path(Durin::FPaths::LaunchConfigsDir()) / VariantConfig);
+    if (!Durin::LoadAppConfigLayers(ConfigLayers, Error)) { std::cerr << "Error: " << Error << '\n'; return 1; }
 	if (!Durin::FMountPaths::InitDefaultMountPoints(&Error, Options.Operation != EOperation::Cook))
 	{
 		std::cerr << "Error: " << Error << '\n';
@@ -971,6 +1030,7 @@ int main(int ArgC, char** ArgV)
 			Durin::ShutdownAssetCompilingManager();
 			Durin::ShutdownAssetRuntime();
 			Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
+            Durin::FModuleManager::Get().ShutdownModulesAtExit();
 			Durin::ShutdownTaskSystem(Durin::ETaskShutdownMode::Drain);
 #if DURIN_WITH_EDITOR
 			Durin::DerivedData::LogCacheDiagnostics();
@@ -1018,7 +1078,8 @@ int main(int ArgC, char** ArgV)
 	}
 #endif
 	// Project asset classes must be registered before inspection captures the schema.
-	if (!Durin::IProjectManager::Get().LoadModulesForProject())
+	if (!Durin::IProjectManager::Get().LoadModulesForProject()
+        || !Durin::IProjectManager::Get().LoadModulesForProject(Durin::ELoadingPhase::EngineReady))
 	{
 		std::cerr << Durin::IProjectManager::Get().GetLastError() << '\n';
 		return 1;

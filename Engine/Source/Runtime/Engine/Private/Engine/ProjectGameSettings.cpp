@@ -6,6 +6,7 @@
 #include "Project/Project.h"
 #include "Modules/ModuleManager.h"
 #include "Yaml/Yaml.h"
+#include "Plugins/PluginResources.h"
 
 namespace Durin
 {
@@ -61,7 +62,10 @@ namespace Durin
 		OutSettings = {};
 		OutSettings.SettingsFile = SettingsFile.generic_string();
 		FYamlDocument Document;
-		FProjectGameSettingsResult Result = LoadDocument(SettingsFile, Document);
+		std::string LoadError;
+        FProjectGameSettingsResult Result = LoadDocument(SettingsFile, Document);
+        if (!Result) return Result;
+        if (!LoadProjectConfig(SettingsFile, Document, LoadError)) return Failure(EProjectGameSettingsError::MalformedYaml, LoadError);
 		if (!Result || !Document.IsValid()) return Result;
 		const FYamlNodeView Game = Document.GetRootView().GetView("Game");
 		if (!Game.IsValid()) return {};

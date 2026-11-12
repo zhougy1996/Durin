@@ -81,7 +81,11 @@ initialization. It explicitly initializes the final Authored (Editor) or Cooked
 asset shutdown. The [asset bootstrap contract](../Assets/Packages/AssetPackages.md#runtime-bootstrap)
 defines constructor-time access and lifetime admission.
 Before mount publication or renderer initialization, Projects freezes the source
-project's plugin selection and validates its build inventory. The no-project
+project's plugin selection and validates that subset against the independently
+built available-artifact inventory. Compatible override-only changes require
+restart without a build or inventory republication. Admission also prepares
+immutable content/shader roots and ordered config inputs before their consumers.
+The no-project
 Browser admits ordinary modules only. Providers run before ordinary project
 roots; EngineReady runs before InitializeProjectContent; EditorReady runs after
 workspace module loading and before final editor subsystem/workspace admission.

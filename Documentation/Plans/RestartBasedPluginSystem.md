@@ -1,6 +1,6 @@
 # Restart-Based Plugin System Plan
 
-Summary: Add project-selected source and content plugins with deterministic build, startup, cooking, and restart-required enablement.
+Summary: Build all eligible source plugins independently of project enablement; select plugins at startup and deploy only the enabled closure.
 
 Last reviewed: 2026-11-12
 
@@ -9,13 +9,312 @@ Completed:
 
 ## Current Status
 
-Stages 0, 1, 1.1, 2, and 3 are complete for the selected Win64 source-build
-milestone. Projects now admits and freezes the native plugin set before mount/
-renderer setup; Editor and Game start its modules at the existing host phases.
-Core enforces frozen names/paths and retains plugin code through process exit.
-Stage 4 is next. Plugin content/shader/configuration consumption, management UI,
-and cooked plugin deployment remain Stages 4-7 work. Native macOS startup
-qualification remains an explicit outstanding platform gate.
+Stages 0, 1, 1.1, 2, 3, 3.1, 4, and 5 are complete for the selected Win64
+source-build milestone. Builds enumerate all eligible plugins independently of
+enablement; startup admits only the enabled subset from a version 2 inventory.
+Projects freezes descriptor-derived content/shader roots and ordered config
+inputs before consumption. Plugin assets use stable read-only virtual mounts;
+ShaderBuild consumes early roots and existing source/dependency fingerprints;
+project/application readers apply layered defaults without saving inherited data.
+Compatible override-only edits still require restart without a build. Stage 5
+implementation, automated qualification and user-reported manual acceptance
+pass. Stage 6 (cooked plugin deployment) is in progress; its design was refined on
+2026-11-12 to reuse project Cook, freeze effective Game selection and publish
+one complete Game without source-plugin dependencies. Stage 6 implementation
+is recorded as a partial, quick-validated checkpoint at the user's request. Stage 7
+integration/platform qualification remains open. Native macOS and privileged
+link/junction execution remain explicitly unqualified.
+
+Stage 6 partial checkpoint (2026-11-12, Win64 Debug):
+
+- At the user's request, stop expanding implementation and commit after bounded
+  quick validation; unfinished work and end-to-end gates are explicitly deferred.
+  Stage 6 remains In progress, with no acceptance gate closed by this checkpoint.
+- Added detached Game selection/configuration capture and CMNF PluginSnapshot
+  auxiliary publication in the existing Cook transaction. The asset tool enables
+  capture and exposes a read-only stage-info preflight that validates CMNF file
+  extents/digests before returning detached metadata. Added cooked runtime
+  inventory admission in Projects, with relative-path containment, host identity,
+  required-file hashes and frozen selection/module/configuration bindings.
+- Added an initial DevTool stage command to select matching Game artifacts,
+  inspect PE/native dependencies and prepare a whole runtime in a temporary
+  output before replacement. This command has syntax/registration/path/import
+  checks, not a successful full Cook-to-Stage qualification. Its runtime schema,
+  publication failure handling and complete native dependency coverage still
+  require dedicated positive/negative process tests before release acceptance.
+- Game Providers move before the first rendering consumer so native plugin
+  Shader declarations can be registered in time. A source-fixture Game reaches
+  initialization, runs three ticks and shuts down cleanly with this ordering;
+  that smoke does not establish cooked plugin Shader or relocated execution.
+- Quick checks pass: PluginResolutionTests 14, AssetCookTests 38,
+  AssetBulkContainerTests 11; Python Cook/plugin regressions 112 with 1
+  privileged symbolic-link skip. Source logs use prefixes
+  `20261112-205830-591092-39012`, `210156-530474-20600` and
+  `210202-587623-14652` under `Build/.agent-state/logs/`.
+  Python report: `Build/PluginStage6/python-quick.xml`.
+- DurinAssetTool and Game Launch builds pass; final logs:
+  `Build/.agent-state/logs/20261112-205833-252595-10932-cmake.log` and
+  `20261112-205840-056665-3008-cmake.log`. Shared Cook request/manifest changes
+  and the new sources make affected selection expand to all. Per the user's
+  quick-check scope, use owner builds/regressions now; broad all-build coverage
+  across projects is deferred and must not be inferred from these bounded runs.
+- Raw quick checks, source Game smoke and legacy/unbound Cook rejection are in
+  `Build/PluginStage6/quick-stage.json`, `quick-game.py`, `quick-game.json`,
+  `quick-game.log` and `quick-stage-preflight.log`. Final input hashes and the
+  tested base are retained in `Build/PluginStage6/quick-inputs.json`.
+- Deferred: the complete no-plugin/content-only/dependent Cook-to-Stage matrix;
+  an explicit-load/AlwaysCook fixture and cooked plugin reference checks;
+  native plugin Shader registration/use from the cooked library; actual target
+  configuration precedence in the staged Game; relocation with source/workspace
+  and development caches unavailable; publication rollback, corrupt/missing
+  artifacts and selection-drift negative cases; native macOS qualification.
+  Existing automated tests do not substitute for these new-feature gates.
+
+Stage 5 acceptance (2026-11-12, Win64 Debug):
+
+- Accepted implementation revision:
+  `8edd32cad50f1640726b88d16d2e50e581c290bc`. The user confirmed that manual
+  acceptance passed in this conversation and requested closing Stage 5.
+  This is user-reported acceptance, not an additional agent-run GUI test.
+- Together with the automated and process evidence below, the confirmation
+  closes the remaining UI persistence, pending-versus-active and cancelled
+  restart/unsaved-work acceptance gates. All Stage 5 checks are complete for
+  the selected Win64 source-build milestone. Earlier pending notes are
+  superseded by this receipt.
+- This closeout changes documentation only; tested source, fixture and runtime
+  inputs are unchanged, so existing passing receipts remain applicable.
+  Changed-document and all-plan validation pass. Stage 6/7 and native macOS
+  qualification remain open; the overall plan remains Active.
+
+Stage 5 presentation follow-up (2026-11-12, Win64 Debug):
+
+- Base `80a09e979` plus the window-layout inputs captured in
+  `Build/PluginStage5/ui-layout-inputs.json`. Keep the name/checkbox interaction;
+  add a full-width search/Refresh row, plugin/selection counts, wrapped names and
+  warnings, distinct catalog/filter empty states and a fixed footer for status
+  and right-aligned actions. Geometry follows UI scaling and ImGui spacing;
+  warnings/errors/info use existing semantic theme colors. Long diagnostics stay
+  in wrapped tooltips instead of pushing the action row out of view.
+- MainFrame and the Editor launcher build pass. Final MainFrame log:
+  `Build/.agent-state/logs/20261112-201330-000652-36100-cmake.log`; launcher log:
+  `20261112-201035-680732-38540-cmake.log` in the same directory. The rebuilt
+  Editor initializes, runs three ticks with the fixture project and exits cleanly
+  without error/fatal/Vulkan validation diagnostics. Raw command, DLL hash and
+  output: `Build/PluginStage5/ui-layout-smoke.py`, `ui-layout-smoke.json` and
+  `ui-layout-smoke.log`. User history/layout files are restored afterward.
+- This changes only presentation; reuse the 14-case model/Refresh/Cancel receipt
+  below because its relevant inputs are unchanged. No new tests mirror layout
+  constants or repeat unrelated native/Python/process coverage. Manual panel
+  resizing, theme/scale visual checks and final interaction were handed to the
+  user; the subsequent acceptance is recorded above. The runtime smoke does
+  not claim visual panel inspection. Documentation and all-plan validation pass.
+
+Stage 5 Refresh/Cancel follow-up (2026-11-12, Win64 Debug):
+
+- Base `8c5b64f7b533bd406d8f20a7cd7375c3986a3ee1` plus the final follow-up
+  inputs recorded in `Build/PluginStage5/refresh-inputs.json`. Refresh explicitly
+  rescans plugins and reloads disk settings/build availability; its tooltip
+  explains that unsaved choices are discarded. A failed refresh keeps the
+  previous usable session. Cancel restores only the saved in-memory snapshot
+  and does not scan, read or write descriptors/inventories.
+- PluginResolutionTests pass 14. The new rescan regression adds a nested plugin,
+  removes another, changes saved choices and removes/restores the inventory;
+  refresh updates all states without writing the descriptor. The cached-edit
+  regression now also verifies Cancel while descriptor/inventory directories
+  are unavailable. Log:
+  `Build/.agent-state/logs/20261112-200216-973700-2408-PluginResolutionTests.log`;
+  raw XML: `Build/PluginStage5/refresh-native.xml`.
+- The owning native target, actual MainFrame UI module and Game Projects build
+  cover the changed method and its only production caller. Build logs use
+  `20261112-200317-700350-36720-cmake.log` and
+  `20261112-200221-780750-30116-cmake.log` under `Build/.agent-state/logs/`.
+  The affected selector
+  also lists unrelated tool/workflow targets by module labels; symbol inspection
+  confirms they do not call the changed edit-session method. No public API/ABI,
+  resolver, startup, relaunch or build-graph change requires repeating the earlier
+  all-build/process/Python qualification. Subsequent user-reported interactive
+  acceptance is recorded above; no computer-use interaction is claimed here.
+
+Stage 5 validation (2026-11-12, Win64 Debug, windows-msvc-x64):
+
+- Tested base `4ee8a859240c13a749108c30105f5dd732f2f38d` plus the final source
+  and fixture changes. SHA-256 inputs, variants, qualified workspace and runtime
+  settings are retained under ignored `Build/PluginStage5/final-inputs.json`.
+  Temporary workspace membership and saved user UI/history settings were
+  restored after qualification. Documentation-only edits preserve these receipts.
+- Per user direction, management uses plugin names and independent checkboxes.
+  A checked request with an unchecked prerequisite remains checked and displays
+  a dependency warning; save preserves the request, while startup keeps that
+  consumer and its transitive consumers inactive. Other checkboxes are unchanged.
+  This supersedes earlier rejection/cascade semantics. Native and Python
+  resolution share this rule and optional `InactivePlugins` manifest diagnostics;
+  builds still enumerate all eligible plugins. The lasting contract is in
+  [plugin management](../Workspace/Plugins.md#editor-plugin-management).
+- Checkbox latency was caused by synchronous full-workspace resolution and
+  per-row admission on each edit. Edits now use cached metadata and only the
+  in-memory dependency graph. Full disk checks remain at open/refresh, save and
+  restart. The regression moves descriptor and inventory directories away after
+  opening, performs 4,000 successful edits and confirms restart still performs
+  fresh disk checks. Its recorded Debug fixture sample is 212,985 microseconds
+  total (about 0.053 ms/edit), not a general frame-time guarantee. Raw test
+  properties are in `Build/PluginStage5/native-plugin.xml`.
+- Both all-target builds pass, covering the shared Projects API/request changes,
+  native/Python selection integration, ordinary workspace consumers, final
+  MainFrame presentation and both plugin fixture variants. Logs:
+  `Build/.agent-state/logs/20261112-194141-945299-26780-cmake.log` and
+  `20261112-194213-124710-32068-cmake.log`.
+- Native PluginResolutionTests pass 13, including unchecked dependencies,
+  independent checked defaults, draft isolation, unavailable files during edits,
+  compatibility/build diagnostics, save failure and restart drift checks. Shared
+  golden cases cover direct/transitive blocked requests and an unaffected plugin.
+  Log: `Build/.agent-state/logs/20261112-194122-427008-28808-PluginResolutionTests.log`.
+  Python plugin/build/shared-descriptor coverage passes 90 with 1 privileged
+  symbolic-link skip (`Build/PluginStage5/python-plugin-final.xml`). An additional
+  descriptor-wide schema scan hits an existing generated negative-test descriptor
+  containing `broken` under Engine/Binaries; that broad scan is not used as
+  plugin acceptance evidence.
+- Existing document-exit protections pass 3 focused EditorShellTests cases;
+  all 4 LaunchProcessBoundaryTests pass, including explicit-project deferred
+  relaunch consumption and occupied-project admission. Logs use prefixes
+  `191346-468308-30504` and `191350-862387-24296` under
+  `Build/.agent-state/logs/`; the document/relaunch implementation is unchanged
+  by later checkbox/selection refinements.
+- Editor and Game each pass 13 process invocations: ownership-parent/child,
+  readonly, stale, disable/observe-disabled, enable/observe-enabled,
+  save-blocked/observe-blocked, re-enable/observe-enabled, missing-build and
+  observe-disabled again. Each save retains the current frozen modules and mount
+  revision. Blocked requests remain checked on reopening and load no dependent
+  native modules in the next process. Failed writes preserve drafts/file bytes;
+  a missing build permits a valid save but blocks restart readiness. Build graph
+  and inventory hashes remain unchanged across toggles. Reproduction/raw evidence:
+  `Build/PluginStage5/qualify.py`, `processes.json`, per-mode logs and
+  `<variant>-no-build-hashes.json`.
+- Four actual Editor/Game hosts pass three ticks and clean shutdown, testing
+  enabled and blocked-request configurations. Enabled modules start/stop in
+  dependency order; blocked native plugins never start, startup logs their reason,
+  and the hosts remain usable without rebuilding. No error/fatal/Vulkan validation
+  diagnostics were accepted. Evidence: `Build/PluginStage5/hosts-final.py`,
+  `hosts-final.json` and matching host logs/traces. Affected selection expands
+  to all ordinary tests for fixture/new-source/build inputs; both all-builds,
+  owner-specific regressions and real hosts bound this feature. No new GPU
+  algorithm or native test infrastructure requires broader execution.
+- The user exercised the simplified checkbox window and reported dependency
+  affordance and edit latency issues; both are corrected and covered above.
+  Final visual interaction, Save/Cancel and dirty-document restart/cancel were
+  handed to the user and subsequently accepted as recorded above. No additional
+  agent-run UI interaction is claimed. Documentation and all-plan validation pass.
+
+Stage 4 acceptance (2026-11-12, Win64 Debug, windows-msvc-x64):
+
+- Tested base `6f56507e2265fddde226e76d3bf85c2f9a5c6c96` plus final source and
+  fixture changes. SHA-256 inputs, preset identities, qualified workspace and
+  generated config/inventory inputs are retained in ignored
+  `Build/PluginStage4/final-inputs.json` and `workspace-qualified.json`.
+  Temporary workspace membership and saved user application configs were
+  restored. Later documentation edits do not change relevant executable inputs.
+- Both runtime variants passed all-target builds, covering the new Core config
+  exports, ShaderBuild-to-Projects dependency, ordinary workspace consumers,
+  DurinAssetTool and plugin fixtures. Final logs:
+  `Build/.agent-state/logs/20261112-182251-342843-34076-cmake.log` and
+  `Build/.agent-state/logs/20261112-182253-650337-32420-cmake.log`.
+- Seven independent resource processes passed: fixture creation, direct mounted
+  admission/loading, catalog scan/loading, physical plugin relocation, disabled
+  plugin-class loading, mount collision, and descriptor path escape. The virtual
+  package identity and early Shader source fingerprint survive relocation without
+  a build or inventory republication. Plugin saves return ReadOnlyMode; mount
+  dependency checks allow Game-to-plugin and required plugin-to-plugin edges,
+  and reject plugin-to-Game or undeclared sibling edges. Disabled defaults and
+  roots disappear; failed plugin-class loads preserve source bytes and publish
+  no resident package. Results, traces, scripts and logs are under
+  `Build/PluginStage4/resources.json`, `resources.py`, and matching log files.
+- Four actual Editor/Game host processes passed three ticks and clean shutdown.
+  Provider-start assertions verify that dependent plugin defaults override base
+  plugin defaults, project settings override plugin values, and saved user values
+  override project settings. A no-project Browser and real DurinAssetTool check
+  also passed; the tool reports the plugin and project-owned plugin-class assets
+  as compatible. No host error/fatal/Vulkan validation diagnostics were accepted.
+  Reproduction/evidence: `Build/PluginStage4/hosts.py`, `hosts.json`,
+  `tool-browser.json` and `asset-tool-check.log`. These 13 process cases qualify
+  source startup/resource integration, not plugin-bearing cooked deployment.
+- Native regressions passed: PluginResolutionTests 9, RenderShaderBuilderTests
+  37, AssetPackageTests 240, PrimaryAssetTests 29, project game settings 5,
+  YAML documents 8, and CoreFileSystemTests 57 with 2 link-privilege skips.
+  The ShaderBuilder test compiles the repository fixture through a plugin virtual
+  root, advances the existing reload generation after source edits, verifies
+  changed output, and verifies derived files stay outside its source directory.
+  Actual resource processes separately verify descriptor-driven early roots.
+  Existing shader dependency/manifest/cache cases remain passing; neither cache
+  identity nor source-reload policy was replaced.
+- Native logs use the `20261112-181344` (plugins), `180508` (ShaderBuilder),
+  `182231` (packages), `182249` (primary assets), `181331` (project settings),
+  `181342` (YAML) and `181536` (filesystem) prefixes under
+  `Build/.agent-state/logs/`. Source relevant to the reused focused results is
+  unchanged; final package/settings tests and process cases cover the later
+  diagnostic/exception-handling refinements. Python plugin/build/shared-descriptor
+  regression passed 88 with 1 symbolic-link privilege skip;
+  `Build/PluginStage4/python.xml`. Affected selection expands to all due to the
+  new public header, module declaration and fixture inputs. Both all-builds,
+  owner-specific regressions and real processes bound this change; no new GPU
+  algorithm or native test infrastructure was introduced.
+- Lasting resource/configuration contracts and fixture instructions are updated.
+  Maps merge recursively; later scalars/sequences replace. Bootstrap logging
+  retains its existing early saved-config policy; subsequent module consumers
+  receive the final layered document. Ordinary saves still edit raw project
+  configuration. Native macOS and privileged symlink/junction execution remain
+  unqualified; cooked plugin assets/shaders/config staging remains Stage 6 work.
+  Document and all-plan validation pass.
+
+Stage 3.1 acceptance (2026-11-12, Win64 Debug, windows-msvc-x64):
+
+- Tested base `925481217d138c4e0408d33ddf49d88d35def2b7` plus the final
+  source/fixture changes. SHA-256 inputs, target variants and the reproduction
+  script are retained under ignored `Build/PluginStage3_1/final-inputs.json` and
+  `qualify.py`. Later documentation edits do not change tested source inputs.
+  Temporary fixture membership in Durin.dworkspace was restored.
+- Both `build all` gates passed with all fixture overrides disabled:
+  Win64-Debug-DurinEditor and Win64-Debug-DurinGame. All eligible fixture modules
+  and cross-DLL reflected consumers built; Game excludes the Editor companion.
+  Logs: `Build/.agent-state/logs/20261112-173308-333435-39444-cmake.log` and
+  `Build/.agent-state/logs/20261112-173848-237025-6104-cmake.log`. Ordinary
+  Engine/Sandbox/RoadWeaver targets were included. Target/output ownership and
+  platform/configuration layout are unchanged; Stage 2 Release isolation
+  evidence remains applicable alongside current Python variant/configuration
+  coverage. An Editor fixture DLL snapshot taken during the Game build remained
+  stable through its completion/publication, recorded in
+  `editor-isolation-hashes.json`.
+- 28 independent process cases per variant passed (56 total), including six
+  actual Editor/Game hosts completing three ticks and clean shutdown. Enable,
+  persisted disable, and re-enable all work without configure/build or inventory
+  publication. `*-no-build-hashes.json` records unchanged build-graph and inventory
+  hashes across the cycles. Browser starts no plugins; edits preserve active
+  modules and mount revision; reflected providers retain phase/dependency order.
+- Both variants accept extra unselected entries with missing files and start
+  a Runtime-only host while the built, disabled consumer DLL is unavailable.
+  They reject all six incompatible identity fields, legacy inventory version,
+  stale selected descriptor inputs, wrong owners, duplicate entries, path escape,
+  missing selected modules/files/dependencies/inventory, disabled native imports,
+  and conflicting startup overrides. Expected failure probes confirm admission
+  failure before startup; provider-failure probes confirm bounded cleanup.
+  Logs, traces and case results are `DurinEditor-probes.json`,
+  `DurinGame-probes.json`, and corresponding files under `Build/PluginStage3_1`.
+- Full DHT Python regression passed 523 with 2 symbolic-link privilege skips;
+  DevTool workspace/build-configuration regression passed 55. Reports:
+  `Build/PluginStage3_1/python.xml` and `devtool.xml`. Final native
+  PluginResolutionTests passed 8/8 after restoring ordinary workspace membership;
+  log: `Build/.agent-state/logs/20261112-174242-323892-32844-PluginResolutionTests.log`.
+  Affected selection expands to all because build/inventory infrastructure
+  changed. Both all-builds, the full DHT suite, DevTool regressions, and selected
+  native/real-process coverage bound this change; Core loading/lifetime and
+  startup insertion points are unchanged, so Stage 3 worker-drain/later-provider
+  and process-boundary evidence remains applicable. GPU behavior is unchanged.
+- Stage 2 disable-removes-target/empty-inventory checks and Stage 3
+  override-causes-stale-inventory/rebuild checks are historical and replaced by
+  the new target-stability and subset-admission evidence above. Other earlier
+  acceptance evidence is retained. Ordinary module descriptor checking remains
+  conservative across the workspace; unused plugin files and inactive plugin
+  metadata do not invalidate the selected subset. Native macOS and privileged
+  symlink/junction execution remain unqualified. Lasting build/startup contracts
+  and fixture instructions are updated; document and all-plan validation pass.
 
 Stage 3 admission checkpoint (2026-11-12, not accepted):
 - Added read-only native inventory admission and a focused regression covering
@@ -164,9 +463,11 @@ that plugin discovery or enablement already works.
 ## Goal
 
 A project can enable a plugin containing Runtime and Editor modules, content,
-shaders, and configuration. Build tools and the executable agree on the selected
-set. Enablement edits affect the next process; the current process keeps its
-original plugin set. A cooked Game runs with only its declared plugin closure.
+shaders, and configuration. Source builds compile every discovered workspace
+plugin eligible for the target platform and host, regardless of project
+enablement. Startup selects a validated subset of those available artifacts.
+Enablement edits affect the next process; the current process keeps its original
+plugin set. A cooked Game runs with only its declared plugin closure.
 
 ## Selected Scope And Decisions
 
@@ -194,9 +495,15 @@ original plugin set. A cooked Game runs with only its declared plugin closure.
   remains authoritative for link dependencies and reflection headers. Version
   metadata does not promise cross-version native compatibility.
 - `.dproject` owns explicit plugin enable/disable overrides. Unmentioned plugins
-  are disabled unless required by the enabled closure. Explicit disable wins
-  over dependency activation by producing an error, never by silently breaking
-  the dependency. Do not add optional dependency/version solving in this scope.
+  are disabled unless required by the enabled closure. Explicit disable prevents
+  dependency activation: requested consumers stay inactive with a diagnostic
+  while retaining their true overrides, as refined in Stage 5. Do not add
+  optional dependency/version solving in this scope.
+- Project enablement controls startup and deployment membership, not compilation.
+  Build all eligible plugins discovered under Engine and workspace-project plugin
+  roots through the existing module pipeline; preserve platform/host filtering
+  and incremental compilation. Game builds exclude Editor modules. Keep build
+  availability, frozen startup selection, and cooked deployment closure distinct.
 - Use versioned schemas, common fixtures, and canonical resolved manifests to
   keep Python build-time and C++ startup implementations equivalent. Do not
   require embedding Python in Game or sharing implementation across languages.
@@ -207,7 +514,9 @@ original plugin set. A cooked Game runs with only its declared plugin closure.
 - Native plugins target the exact engine build identity, platform, architecture,
   configuration, runtime variant, and toolchain/ABI profile. Validate before
   loading plugin libraries. Source plugins may require configure/build before
-  restart; UI must distinguish this from restart alone.
+  restart when artifacts are missing or incompatible, or source/build inputs
+  change. Changing only enablement requires restart, without configure/build or
+  inventory republication when compatible artifacts already exist.
 - Content-only plugins are supported. Plugin content uses stable virtual roots
   such as `/Plugins/Water/`; physical relocation must not change asset identity.
 - Initial phases are provider registration before project content, engine-ready,
@@ -485,6 +794,11 @@ dependency-aware plugin UI and restart handling remain Stage 5.
 
 ### Stage 2: Integrate plugin modules into build and reflection
 
+Historical acceptance: this stage implemented selection-coupled targets and
+inventories. Preserve its completed checks and receipts. Stage 3.1 replaces
+disable-removes-target behavior and selection-bound inventory publication; the
+checks below do not establish the revised contract.
+
 Dependencies: Stages 1 and 1.1.
 
 Modules/tools: DurinHeaderTool; CMake workspace/project/target generation;
@@ -560,6 +874,11 @@ Stage 2 acceptance (2026-11-12, windows-msvc-x64):
 
 ### Stage 3: Admit and start the frozen plugin set
 
+Historical acceptance: this stage required an exact selection-bound inventory.
+Stage 3.1 replaces that equality/stale-selection rule with selected-subset
+admission. Preserve startup phases, frozen membership, loading restrictions,
+lifetime/cleanup behavior, and all original evidence below.
+
 Dependencies: Stage 2.
 
 Modules: Projects, Launch, Engine, DurinEd; narrowly scoped Core ModuleManager
@@ -597,9 +916,87 @@ Acceptance gate:
 - [x] Editing overrides during a process does not change its modules or mounts;
   a new process observes the new set after any required build.
 
+### Stage 3.1: Separate plugin builds from startup enablement
+
+Dependencies: Stages 2 and 3.
+
+Status: Completed on 2026-11-12.
+
+Modules/tools: Projects, DHT, CMake, DurinDevTool, build-inventory publication,
+Launch integration, and existing plugin fixtures/tests; retain Core loading policy.
+
+Outcome: All eligible workspace plugins are built independently of enablement;
+a new process admits only its enabled closure from available compatible artifacts.
+Changing only project plugin overrides needs restart, not configure/build.
+
+Selected adjustment (2026-11-12): Enablement is process policy, not build-target
+membership. The Stage 2/3 coupling unnecessarily invalidates usable binaries when
+only overrides change. Keep those stages complete as historical milestones and
+qualify the replacement here before implementing Stage 4. Existing Workspace and
+Runtime documents describe current code until this stage updates them.
+
+- [x] Separate build discovery/module enumeration from startup resolution. Build
+  all plugins under Engine and declared workspace-project plugin roots eligible
+  for the platform/runtime variant, regardless of project overrides. Preserve
+  descriptor boundaries, ownership, containment, collision/dependency validation,
+  Shared linkage, generated APIs/reflection, output isolation, and ordinary roots.
+  Validate eligible build modules even when disabled; do not synthesize an
+  all-enabled startup selection or let override conflicts prune build targets.
+- [x] Generate targets and native dependency closure for that build set. Make
+  normal all-target builds publish its available artifacts without requiring a
+  per-project enabled closure. Override-only edits must neither change plugin
+  target membership nor require configure/build or inventory republication
+  before startup; unrelated project build-field changes retain their behavior.
+- [x] Revise/version build inventory production, schemas, Python/C++ readers,
+  fixtures, and diagnostics together. Separate startup selection fingerprints
+  from build artifact identity and relevant per-plugin/module build inputs.
+  Preserve exact engine/platform/architecture/configuration/runtime/ABI checks;
+  distinguish override-only changes from metadata changes requiring a build.
+  Do not merely remove fingerprint validation or accept legacy inventories
+  under the new semantics without an explicit migration/rejection rule.
+- [x] Admit the enabled module subset from an inventory that may contain extra
+  disabled plugins. Validate selected owners, relevant build metadata, exact
+  binary paths, containment and required runtime files before publishing any
+  output. Missing unused-plugin files must not block an otherwise valid selected
+  closure. Never infer availability from scanning stale DLLs.
+- [x] Pass only admitted selected modules to Core; extra inventory entries grant
+  no loading permission. Validate native dependency closure so disabled plugin
+  code cannot load indirectly through a selected module's runtime dependencies.
+  Retain phase order, Browser isolation, frozen selection, process-lifetime code
+  retention, partial-failure cleanup, and no implicit build during startup.
+- [x] Update lasting build/startup contracts and fixture instructions after the
+  implementation. Preserve original Stage 2/3 receipts as historical evidence;
+  explicitly identify replaced checks and evidence reused for unchanged behavior.
+
+Acceptance gate:
+
+- [x] With all plugin overrides disabled, all-target builds still produce every
+  eligible fixture module and inventory entry. Override toggles leave targets
+  intact; Game excludes Editor modules and configuration outputs remain isolated.
+- [x] Build once, then enable a previously disabled fixture and its dependency;
+  launch a fresh Editor and Game without configure/build or inventory publication.
+  Reflected providers load in order. Disable again and restart without rebuilding;
+  disabled modules cannot load by name or through native dependency paths.
+- [x] Extra unselected inventory entries, including missing unused files, do not
+  prevent selected-subset startup. Missing selected files/dependencies, incorrect
+  owners, duplicate entries, path escape, incompatible identities, and stale
+  relevant build metadata fail with bounded diagnostics and clean teardown.
+- [x] Editing overrides leaves the current process's modules/mounts unchanged;
+  a fresh process observes the edits. Conflicting startup dependencies still
+  fail even though all applicable modules were built. Browser remains independent.
+- [x] Shared metadata/inventory regressions and Editor/Game process fixtures cover
+  the new contract. Run all builds for both runtime variants at acceptance:
+  changing generated target membership and inventory ownership affects workspace
+  build/reflection graphs. Reuse unchanged phase/lifetime coverage with rationale;
+  retain explicit macOS and privileged-link qualification gaps.
+- [x] Document and all-plan validation pass. Record final inputs, tested variants,
+  results and replaced acceptance rules; only then make Stage 4 executable.
+
 ### Stage 4: Integrate content, shaders, and plugin configuration
 
-Dependencies: Stage 3; Stage 1 supplies early root declarations.
+Dependencies: Stage 3.1; Stage 1 supplies early root declarations.
+
+Status: Completed on 2026-11-12.
 
 Modules: Projects, Core mount/configuration mechanisms, AssetRegistry, Engine,
 RenderCore, ShaderBuild; ContentBrowser only for mount presentation.
@@ -607,29 +1004,29 @@ RenderCore, ShaderBuild; ContentBrowser only for mount presentation.
 Outcome: Enabled plugin data works in authored projects without mutable mounts
 or late shader-root registration.
 
-- [ ] Merge enabled plugin mount declarations into the existing immutable mount
+- [x] Merge enabled plugin mount declarations into the existing immutable mount
   publication transaction; validate collisions, outgoing dependencies, read-only
   policy, and canonical physical containment.
-- [ ] Include eligible plugin assets in catalog discovery and direct package
+- [x] Include eligible plugin assets in catalog discovery and direct package
   loading. Preserve logical identities through physical relocation.
-- [ ] Feed descriptor-derived shader roots before ShaderBuild's initialization
+- [x] Feed descriptor-derived shader roots before ShaderBuild's initialization
   freeze. Include plugin source/dependency fingerprints in shader build/cache
   inputs, and keep derived outputs outside read-only plugin installations.
-- [ ] Define deterministic configuration precedence: engine defaults, enabled
+- [x] Define deterministic configuration precedence: engine defaults, enabled
   plugin defaults in resolved dependency order, project overrides, then existing
   user/command-line overrides where supported. Plugin defaults must not write
   into project files or replace unrelated existing precedence rules.
-- [ ] Diagnose references to disabled plugin types/assets before destructive
+- [x] Diagnose references to disabled plugin types/assets before destructive
   editing/saving can discard unresolved data. Do not silently substitute or
   resave stripped representations.
 
 Acceptance gate:
 
-- [ ] Fixture asset resolves via its plugin virtual path, survives plugin-root
+- [x] Fixture asset resolves via its plugin virtual path, survives plugin-root
   relocation, and enforces read-only and cross-mount dependency policies.
-- [ ] Fixture shader compiles through a plugin root and invalidates after source
+- [x] Fixture shader compiles through a plugin root and invalidates after source
   changes. Late-root registration is unnecessary; derived caches remain writable.
-- [ ] Plugin defaults apply only when enabled; project overrides win
+- [x] Plugin defaults apply only when enabled; project overrides win
   deterministically. Disabled referenced content/types yield actionable errors
   and cannot be silently lost through ordinary save flows.
 
@@ -637,63 +1034,163 @@ Acceptance gate:
 
 Dependencies: Stage 4.
 
+Status: Completed on 2026-11-12.
+
 Modules: Projects, DurinEd, MainFrame; reuse existing project-edit ownership,
 property/UI infrastructure, and project admission services.
 
 Outcome: Users can review and change the next-start plugin selection safely.
 
-- [ ] Show discovered plugins, current effective state, requested next-start
-  state, dependency reasons, compatibility, and build availability.
-- [ ] Preview dependency effects and reject disable requests that leave required
-  consumers enabled; offer an explicit cascade selection rather than silently
-  changing unrelated overrides.
-- [ ] Persist validated project overrides atomically through the existing edit
-  ownership contract. Display restart/build requirements without mutating the
-  current frozen selection.
-- [ ] Reuse normal unsaved-work handling before restart; preserve explicit
+- [x] Show discovered plugins as names with next-start checkboxes. Keep running
+  versus pending differences and compatibility/build diagnostics in concise
+  status text or tooltips rather than a multi-column state table.
+- [x] Keep checkbox requests independent and editable even when dependencies
+  are unchecked. Warn that a checked plugin with an explicitly disabled required
+  dependency stays inactive; persist the request and apply the same rule at
+  startup in native/Python resolution. Do not change other checkboxes. This
+  supersedes the earlier reject-on-click behavior per user direction (2026-11-12).
+  Keep structural descriptor/graph errors as errors. Cache metadata and build
+  diagnostics when opening/refreshing: checkbox clicks must only evaluate the
+  in-memory graph, with full disk validation at save/restart boundaries.
+- [x] Persist validated project overrides atomically through the existing edit
+  ownership contract. Display restart-required state for override-only changes
+  with compatible artifacts; request a build only for missing/incompatible or
+  stale build inputs. Never build or republish inventories merely to toggle a
+  plugin, and do not mutate the current frozen selection.
+- [x] Reuse normal unsaved-work handling before restart; preserve explicit
   project arguments and never discard edits through automatic relaunch.
 
 Acceptance gate:
 
-- [ ] Enabling/disabling via UI survives restart and produces the same resolved
-  set as descriptor-driven startup. Cancelled edits leave project files intact.
-- [ ] Pending state is distinct from active state. Failed writes, missing build
+- [x] Enabling/disabling via UI survives restart and produces the same resolved
+  set as descriptor-driven startup without rebuilding already-compatible plugins.
+  Cancelled edits leave project files intact.
+- [x] Pending state is distinct from active state. Failed writes, missing build
   artifacts, dependency conflicts, and cancelled restart retain a usable editor.
-- [ ] Read-only/project-ownership failures cannot partially replace descriptors;
+- [x] Read-only/project-ownership failures cannot partially replace descriptors;
   no UI action performs live module or mount changes.
 
 ### Stage 6: Cook and deploy the plugin closure
 
 Dependencies: Stage 4; Stage 5 is not required for command-line cooking.
 
+Status: In progress; implementation started on 2026-11-12.
+
 Modules/tools: Engine cook/package services; DurinDevTool cook/staging;
 ShaderBuild, RenderCore cooked libraries; DHT/CMake output inventories; Projects.
 
-Outcome: A staged Game runs independently of the source plugin directories.
+Outcome: One complete staged Game runs from its frozen plugin/runtime inventory
+and cooked outputs, independently of source plugin directories and development
+caches. Plugin resources enter the existing project Cook pipeline; plugins do
+not own a second cooker, asset registry or publication system.
 
-- [ ] Freeze and record the Game plugin closure for cook; stage required module
-  binaries, declared native runtime dependencies, reachable content, effective
-  runtime configuration, and cooked shader programs.
-- [ ] Reuse existing cook roots/reference rules. Include plugin-declared runtime
-  roots where explicit loading requires them; do not copy every asset blindly.
-- [ ] Reject references to disabled/Editor-only plugin classes and assets. Never
-  stage Editor binaries or rely on authored shader sources in Game.
-- [ ] Validate staged inventories and compatibility; reject descriptor/selection
-  drift between build, cook, and launch. Do not build implicitly during staging.
+Design boundary:
+
+- Follow UE's separation of [Build, Cook and Stage](https://dev.epicgames.com/documentation/unreal-engine/build-operations-cooking-packaging-deploying-and-running-projects-in-unreal-engine?lang=en-US),
+  [primary-asset Cook policy](https://dev.epicgames.com/documentation/en-us/unreal-engine/cooking-content-and-creating-chunks-in-unreal-engine)
+  and [cooked shader libraries](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/RenderCore/FShaderCodeLibrary),
+  while retaining Durin's existing package formats, APIs and virtual roots.
+- Preserve authored Content/Shaders/Configs ownership and stable
+  `/Plugins/<Id>/...` asset identities. Cooking changes physical storage, not
+  serialized identities or declared mount-reference permissions.
+- Ship a whole Game in this stage. Reuse current output/container formats and
+  one project Shader library; separate plugin archives, physical chunks, DLC,
+  hot installation/update and per-plugin Shader libraries are out of scope.
+  Water-specific content and rendering remain separate work.
+
+Implementation tasks:
+
+Game startup integration refinement (2026-11-12): native Shader declarations are
+registered when provider libraries load, but Mona may consume the cooked Shader
+library before StartGame. Run the existing Game Providers phase after object
+and asset-domain initialization and before first rendering consumption; retain
+its idempotent phase handling and the later EngineReady phase. Qualify ordinary
+project startup alongside plugin startup rather than adding a new state machine.
+
+- [ ] Resolve and freeze the effective Game plugin closure for the exact target
+  platform/configuration before Cook discovery. A checked request blocked by an
+  explicitly disabled dependency stays in the authored project but is absent
+  from this closure. Keep cook-host provider ownership/lifetime under the
+  existing tool contract; stage Game artifacts from the matching Game build
+  inventory, never Editor binaries. The available build inventory may remain a
+  superset and must not be rebuilt or republished merely to choose this subset.
+- [ ] Feed selected plugin mounts, types/providers and merged project defaults
+  into the existing [Cook coordinator](../Runtime/Assets/Build/Cooking.md).
+  Collect assets from existing project/default-Level roots, retained references
+  and AssetManager rules. Enabling a plugin does not retain every asset in its
+  Content directory. Declare otherwise unreachable explicit-load assets through
+  existing Primary Asset, AlwaysCook and bundle policy, using plugin defaults
+  where appropriate; do not introduce a parallel plugin Cook-root system.
+- [ ] Preserve existing reference, EditorOnly and NeverCook validation across
+  project/plugin mounts. A required reference to an inactive plugin's class or
+  asset fails Cook with its owning plugin and dependency reason; do not silently
+  remove the field/reference, activate the plugin or copy its whole directory.
+- [ ] Add selected plugin Shader inputs and required runtime programs to the
+  existing Shader Cook selection. Include programs needed by native plugin code
+  even when retained material references alone cannot discover them. Publish
+  compiled programs in the existing project `Shaders/ShaderLibrary.dslb`, under
+  the ordinary Cook transaction and target compatibility checks. Game must use
+  the cooked library without reading authored Slang sources or rebuilding from
+  a development shader cache.
+- [ ] Produce target runtime configuration from Engine defaults, selected plugin
+  defaults in dependency order, then project overrides, preserving Stage 4 merge
+  semantics. Stage only the required Project/Game configuration and preserve the
+  existing runtime user-override policy. Exclude Editor configuration, developer
+  Saved settings, source trees and Intermediate files; never write inherited
+  defaults back into authored project/plugin configuration.
+- [ ] Publish a versioned, compact cooked-plugin runtime inventory containing
+  the effective plugin/dependency identities, target/build compatibility,
+  Runtime module paths/phases and native dependencies, mount bindings and
+  required runtime configuration. Use deployment-relative paths and bind it to
+  the Cook outputs. Keep asset entries/checksums and the Shader library in the
+  existing `CookManifest.bin`; do not duplicate a second asset catalog/list.
+  Staged startup reads these inventories without scanning source `.dplugin`
+  files or requiring Durin.dworkspace, DHT or a compiler.
+- [ ] Stage only the selected Runtime/native dependency closure, reachable cooked
+  content, cooked Shader library and runtime configuration. Reuse existing
+  transactional publication: failure must not expose a runnable mixture of old
+  and new outputs. Validate selected build inputs/identity before staging and
+  reject mismatched runtime inventories, Cook identities or selection changes
+  without recooking/restaging. Do not build or Cook implicitly during staging
+  or Game startup, and do not fall back to source/development outputs. Cook
+  inputs remain stable under the existing offline Cook contract; this stage
+  does not add concurrent-edit watching or hot reload.
 
 Acceptance gate:
 
-- [ ] Relocate the staged fixture Game and run with source plugin roots and
-  development shader caches unavailable; component, asset, configuration, and
-  cooked shader behavior remain correct.
-- [ ] Disabled and Editor-only plugin binaries/data are absent from inventories;
-  dependency plugin runtime files are present and loaded in order.
-- [ ] Missing native dependency, missing explicit-load asset, missing cooked
-  shader, or mismatched selection produces a bounded diagnostic failure.
+- [ ] Cook/stage no-plugin, content-only and dependent Runtime+Editor fixtures
+  using existing tooling. Inspect inventories and physical outputs: only the
+  effective Game closure is deployed; inactive/Editor binaries and data,
+  unreferenced optional assets and developer settings are absent. Required
+  native dependencies are present and plugin modules start in dependency/phase
+  order. Selection changes reuse compatible builds without a build/inventory
+  republication; existing no-plugin deployment remains working.
+- [ ] Relocate the staged fixture Game and make source plugin roots, workspace
+  metadata, authored Shader sources and development caches unavailable. Verify
+  plugin component/type behavior, project-to-plugin and declared plugin-to-plugin
+  asset references, an explicit-load/AlwaysCook asset, configuration precedence
+  and use of the cooked plugin Shader program. Logical asset paths remain
+  `/Plugins/<Id>/...`; no source scan, compile or fallback path is exercised.
+- [ ] A checked-but-blocked plugin request is omitted from deployment while
+  unrelated valid plugins remain usable. A project root or required reference
+  to that plugin fails Cook before publication with the owning plugin/reason.
+  Required references conflicting with NeverCook or EditorOnly policy also
+  fail; unreferenced optional assets are not retained merely by plugin enablement.
+- [ ] Missing native dependency, missing explicit-load asset, missing/corrupt
+  cooked Shader library or required configuration, stale/incompatible build,
+  modified selection, or mismatched runtime/Cook inventory produces a bounded
+  diagnostic failure. Failed Cook/stage attempts retain the prior committed
+  output and never silently load a development copy.
+- [ ] Record exact target/profile, tested source and fixture inputs, selected
+  closure, clean relocation environment and negative-case results. Store raw
+  manifests, logs and reproduction scripts under ignored Build outputs or CI
+  artifacts. Reuse unchanged receipts under the testing workflow; record any
+  unqualified platform explicitly and leave final cross-platform integration
+  coverage to Stage 7.
 
 ### Stage 7: Qualify integration and publish implemented contracts
 
-Dependencies: Stages 1-6, including the management UI.
+Dependencies: Stages 1-6, including Stage 3.1 and the management UI.
 
 Modules/tools: All owners above; Engine, Sandbox, and RoadWeaver consumers;
 documentation and applicable CI jobs.
@@ -726,13 +1223,18 @@ Acceptance gate:
   unsupported platform or SDK-distribution claim is implied by Win64 success.
 - [ ] Existing projects build and start without requiring plugin configuration.
 - [ ] A developer can create a source plugin with a reflected component, shader,
-  content, and editor companion, enable it, build, restart, and deploy a Game
-  without editing Engine's per-plugin module table.
+  content, and editor companion, build it while disabled, enable it and restart
+  without another build, and deploy only the enabled Game closure without editing
+  Engine's per-plugin module table.
 - [ ] Documentation validation and all-plan lifecycle validation pass.
 
 ## Execution Order And Handoff
 
-Implement 1 -> 1.1 -> 2 -> 3 -> 4, then UI (5) and cook (6), then qualification (7).
+Implement 1 -> 1.1 -> 2 -> 3 -> 3.1 -> 4, then UI (5) and cook (6), then
+qualification (7). Stages 3.1 and 4 completed on 2026-11-12 with the acceptance
+above. Stage 5 completed on 2026-11-12 after user-reported manual acceptance;
+Stage 6 is next, followed by Stage 7 qualification. Preserve earlier receipts as
+historical evidence and apply the replacement rules recorded by Stage 3.1.
 Stage 1.1 completed on 2026-11-12 with the final acceptance above. Earlier
 checkpoint receipts remain historical; use final-input evidence for continuation.
 Stages 5 and 6 are logically independent after Stage 4; this is not authorization

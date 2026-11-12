@@ -33,6 +33,7 @@ namespace Durin
 		CookedBulk = 2,
 		PackageBulk = 3,
 		ShaderLibrary = 4,
+        PluginSnapshot = 5,
 	};
 
 	inline constexpr uint8 CookManifestEntryPresent = 1u << 0;
@@ -199,6 +200,8 @@ namespace Durin
 		FCookProgressCallback ReportProgress;
 		// Empty selects all supported material variants; the coordinator freezes/canonicalizes it.
 		std::vector<FMaterialCookConfiguration> MaterialConfigurations;
+        // Tool-hosted Cook binds plugin selection/configuration into the same transaction.
+        bool bCapturePluginSnapshot = false;
 	};
 
 
@@ -538,6 +541,8 @@ namespace Durin
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
 		std::vector<FMaterialCookConfiguration> MaterialConfigurations;
+        // Tool-hosted Cook binds plugin selection/configuration into the same transaction.
+        bool bCapturePluginSnapshot = false;
 		std::function<bool()> IsCancelled;
 		std::function<FCookInputResult(ECookBuildDependencyKind, std::string_view, FByteBuffer&)> ReadCookInput;
 		// Scheduling envelopes do not participate in cooked identities.
@@ -621,6 +626,8 @@ namespace Durin
 		bool bRetainEditorOnlyData = false;
 		std::vector<FCookSavePlan> Packages;
 		std::vector<FMaterialCookConfiguration> MaterialConfigurations;
+        // Tool-hosted Cook binds plugin selection/configuration into the same transaction.
+        bool bCapturePluginSnapshot = false;
 		FCookCancellationCheck IsCancelled;
 	};
 

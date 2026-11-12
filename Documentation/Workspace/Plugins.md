@@ -2,7 +2,7 @@
 
 Summary: Define source-plugin descriptors, project overrides, deterministic selection, source-build integration, and frozen native startup.
 
-Modules: Projects, Core
+Modules: Projects, Core, Engine, ShaderBuild, MainFrame
 
 Last reviewed: 2026-11-12
 
@@ -21,9 +21,10 @@ introduced in `Interfaces/IProjectManager.h` and `ProjectDescriptor.h`.
 Projects does not change `EnabledRootModules`. Launch has a
 build dependency on Projects so the module belongs to both runtime variants;
 Launch admits the frozen native selection before mount and renderer setup;
-the host executes its module phases before their consumers. Content, shader,
-configuration, management UI, and cooked plugin deployment integration remain
-tracked in the [implementation plan](../Plans/RestartBasedPluginSystem.md).
+the host executes its module phases before their consumers. Content mounts,
+early authored shader roots, and layered defaults are integrated.
+MainFrame provides restart-required plugin management. Cooked plugin deployment
+integration remains tracked in the [implementation plan](../Plans/RestartBasedPluginSystem.md).
 
 Core no longer parses project fields. Projects supplies validated mount values
 through Core's mount mechanism. Ordinary project admission, status/history
@@ -122,8 +123,12 @@ Semantic checks additionally enforce ownership, dependency, and phase rules.
 
 Absent Plugins and an empty object mean no explicit choices. Values must be
 boolean. Unmentioned plugins are inactive unless required by an enabled plugin.
-Explicit false conflicts with required activation and produces an error. Even
-disabled explicit IDs must refer to discovered descriptors. An enabled plugin
+An explicitly disabled required dependency leaves its requested consumers
+inactive, including transitive consumers; their true overrides remain saved.
+The selection manifest reports these requests in optional `InactivePlugins`
+entries with an ID and reason, and startup logs a warning. Unrelated valid
+plugins remain eligible. Even disabled explicit IDs must refer to discovered
+descriptors. An enabled plugin
 with an incompatible platform is an error. An unused module filtered by host or
 platform is excluded; a required edge to that module is an error.
 
@@ -159,9 +164,10 @@ Existing project roots are Providers consumers for this check.
 
 Shader-root declaration is descriptor-driven, before the initialization-time
 shader registry freezes; it is independent of module startup callbacks. These
-module hooks run at the points above. Plugin root publication and shader/config
-consumption are separate integration work; native startup alone does not mount
-plugin content or shader roots.
+module hooks run at the points above. Projects prepares descriptor-derived resource roots in the same admission pass.
+Content roots join the single immutable mount publication; ShaderBuild consumes
+shader roots before freezing its registry. Pending descriptor edits cannot
+replace these active roots.
 
 ## Canonical Selection And Build Inventory
 
@@ -189,23 +195,37 @@ bytes stay the same. Callers supply every workspace project for ownership/graph
 validation, in addition to the automatically included engine and active project.
 
 [`durin-plugin-build.schema.json`](../../Engine/Source/Programs/DurinHeaderTool/schemas/durin-plugin-build.schema.json)
-is the separate inventory contract: Stage 2 produces it and Stage 3 admits it.
-It requires SelectionFingerprint and native Identity fields EngineBuild,
-Platform, Architecture, Configuration, RuntimeVariant, and ToolchainABI. Each
-binary records Module, Owner, a contained relative Path, and RuntimeDependencies.
-Paths resolve beneath the selected build/staging root; physical lookup remains
-machine-local. The build produces this inventory. The read-only Projects API
-`AdmitPluginBuild` compares its selection fingerprint and six identity fields
-against the caller-supplied resolved selection and host identity, verifies exact
-module/owner membership, and checks binary and runtime-dependency files beneath
-the inventory directory (including canonical containment). It returns paths in
-selection order only after every check passes; failure preserves the output and
-reports a configure/build requirement. This API does not load libraries or
-authenticate binary contents. Source startup finds the inventory under the
-configured build directory's PluginBuild/<Project>/<Configuration> directory.
-The host derives EngineBuild from its engine version and the SHA-256 of its
-loaded Core library; architecture/toolchain come from its compiled CMake
-configuration. The candidate inventory never supplies the expected identity.
+is the available-artifact contract, independently of project enablement. Schema
+version 2 replaces the selection-bound version 1; startup rejects version 1 with
+a configure/build diagnostic. `Inputs` records logical descriptor paths and
+hashes for discovered plugin metadata, eligible plugin modules, and ordinary
+module descriptors. Project descriptor bytes and startup selection fingerprints
+are excluded, so override-only edits require neither a build nor republication.
+
+Native `Identity` contains EngineBuild, Platform, Architecture, Configuration,
+RuntimeVariant, and ToolchainABI. Each binary records Module, Owner, a contained
+relative Path, and RuntimeDependencies. Paths resolve beneath the inventory root.
+The read-only `AdmitPluginBuild` API compares the six identity fields against
+host-supplied values, then validates current selected plugin descriptor/module
+hashes and ordinary module descriptor hashes against build inputs. Ordinary
+module validation is conservative across the workspace; project override bytes
+and inactive plugin metadata do not invalidate selected artifacts.
+
+The inventory may contain more modules than startup selects. Admission checks
+selected ownership, paths, required files and runtime dependency closure, and
+returns only selected paths in dependency/phase order. Unused binary files may
+be absent; extra entries do not grant loading permission. Duplicate module/path
+entries, path escape and selected dependencies on unselected plugin binaries are
+rejected. Publication occurs only after every check passes; failure preserves
+the previous output. Admission does not authenticate binary contents or rebuild
+missing/stale artifacts.
+
+Source startup finds the inventory under the configured build directory's
+`PluginBuild/<Project>/<Configuration>` directory. The host derives EngineBuild
+from its engine version and the SHA-256 of its loaded Core library;
+architecture/toolchain come from its compiled CMake configuration. The candidate
+inventory never supplies the expected identity. Startup selection remains a
+separate canonical artifact describing process policy.
 
 Core freezes ordinary workspace module names and exact selected plugin paths
 once per process. A selected plugin becomes loadable only when Projects admits
@@ -226,13 +246,19 @@ this source-startup path and remains cook/deploy integration work.
 
 ## Source Build Integration
 
-DHT resolves each workspace project's selection and builds the union of required
-module targets. `owning_plugin` remains independent from `owning_project`; plugin
-modules do not enter the project's authored ModuleDirs or ordinary startup roots.
-Foreign workspace projects provide module ownership and dependency context;
-only Engine and the active project's roots participate in that project's
-selection validation. Runtime plugins can require ordinary non-root modules;
-the workspace build closure includes those modules under their original owners.
+DHT uses `config.plugin_config.enumerate_plugin_build` to discover all plugins
+under Engine and every declared workspace project's plugin roots. It enumerates
+all platform/host-eligible modules regardless of enablement overrides, validates
+the build dependency graph, and emits a build catalog with Modules and Inputs.
+It does not synthesize an all-enabled startup selection. Invalid eligible module
+metadata fails a build even when its plugin is disabled. Startup still resolves
+only Engine and the active project's plugin roots and applies project overrides.
+
+`owning_plugin` remains independent from `owning_project`; plugin modules do not
+enter authored ModuleDirs or ordinary startup roots. Plugin dependencies can
+bring ordinary non-root modules into the workspace build closure under their
+original owners. Game filters out Editor plugin modules. Enablement conflicts
+remain startup errors and do not prune compilation targets.
 
 Plugin modules use the existing add_durin_module, dependency/export metadata,
 reflection generator, PCH, include, and linking paths. DHT emits a
@@ -245,24 +271,126 @@ under `<Project>/Binaries/<Platform>/<Configuration>/Plugins/<Id>/<RuntimeVarian
 
 CMake watches discovered directory membership up to plugin boundaries and the
 consumed descriptors. A normal DevTool build reconfigures when descriptors are
-created/deleted or enablement changes. Disabled modules disappear from generated
-targets; neither existing metadata nor stale DLLs imply selection.
+created/deleted or project descriptors change. Override-only edits preserve
+plugin target membership; startup does not require this reconfiguration. Neither
+existing metadata nor stale DLLs imply startup selection.
 
-`<Project>PluginBuild` builds the selected native closure and publishes
-`PluginBuild.json`, `PluginSelection.json`, and the declared shared-library
+`<Project>PluginBuild` builds the available workspace native closure and publishes
+`PluginBuild.json`, `PluginCatalog.json`, and the declared shared-library
 dependency files beneath
 `Build/<preset>/PluginBuild/<Project>/<Configuration>/`. It participates in all
 when plugin discovery is active; a direct individual module build need not
 publish the full inventory. Paths in the inventory are relative to this root.
 EngineBuild currently combines the engine semantic version and built Core
 binary SHA-256; ToolchainABI records compiler ID/version and pointer size.
-Platform, architecture, configuration, runtime variant, and selection fingerprint
-are explicit. Publication is a build artifact operation, without startup loading,
-content cooking, or a binary compatibility guarantee.
+Platform, architecture, configuration, runtime variant, and descriptor build
+inputs are explicit. Publication is a build artifact operation, without startup
+loading, content cooking, or a binary compatibility guarantee.
 
 The repository-owned [fixture](../../Engine/Tests/Fixtures/Plugins/README.md)
 qualifies a reflected asset, a dependent plugin subclass, an Editor companion,
 and a content-only plugin with exported calls across plugin DLLs.
+
+## Plugin Content, Shaders, And Configuration
+
+`GetActivePluginResources` exposes the resource snapshot frozen by
+`PreparePluginStartup`. `ResolvePluginResources` prepares a value-only candidate;
+invalid/missing resource directories, canonical escapes, or unselected required
+dependencies preserve the caller's previous output. Declared Content, Shaders
+and Configs paths are relative to the plugin descriptor directory and must name
+contained directories. Resource paths may change physically without changing
+logical plugin/module/asset identity.
+
+Content uses `/Plugins/<Id>/`, is auto-scanned and read-only, and joins project
+mount definitions before the existing single publication transaction. The
+combined default/project/plugin definitions receive the existing collision,
+canonical overlap and containment validation. `/Game/` can reference every
+additional mount. A plugin mount can reference `/Engine/` and the content roots
+of its required dependency closure, including transitive dependencies through
+content-free plugins; it cannot reference arbitrary sibling plugins or `/Game/`.
+Catalog discovery and direct package loading use those same mount definitions.
+
+`Shaders` names the actual Slang source directory, without an implicit suffix.
+ShaderBuild registers `/Plugins/<Id>/` before its initialization freeze. The
+existing mounted-source resolver, source/dependency hashes and reload generation
+control compiler/cache invalidation. Mount-specific derived outputs live under
+the host's DerivedDataCache, never the plugin source directory. Game consumes
+cooked Shader data; plugin Shader staging remains Stage 6 work.
+
+`Configs` names a directory containing optional `Project.yaml`, `DurinEditor.yaml`
+and `DurinGame.yaml` defaults. Project settings readers merge Engine's
+`Configs/Project.yaml`, enabled plugin Project.yaml files in resolved dependency
+order, then the project's Configs/Project.yaml. `LoadProjectConfig` only applies
+those defaults to the active project's settings path; unrelated standalone stores
+retain their own inputs. Module application settings merge the deployed immutable
+`Templates/TP_<RuntimeVariant>.yaml`, ordered plugin `<RuntimeVariant>.yaml`
+files, the project's matching config, and the existing saved user application
+config last. Bootstrap logging retains its earlier saved-config initialization;
+subsequent module consumers see the final merged document. Existing command-line
+policies remain with their consumers.
+
+`LoadConfigLayers` merges maps recursively; a later scalar or sequence replaces
+the earlier value. Empty scalars/sequences are explicit overrides. Missing files
+are optional; malformed YAML or I/O failure preserves the previous output and
+reports the source file. No merge writes defaults into authored project files.
+Game/default-Level and AssetManager readers consume effective project settings;
+editing/saving continues to operate on the raw project file, preserving unrelated
+fields and preventing inherited defaults from being materialized on disk.
+
+Unavailable plugin types fail package loading before publication, with an
+enable/restart/provider diagnostic. Serialized plugin dependency mounts are
+checked before removed-field filtering, so unresolved plugin references cannot
+be silently discarded as ordinary schema evolution. Failed loads retain source
+bytes and publish no resident package; ordinary saves enforce read-only mounts.
+
+## Editor Plugin Management
+
+Open **Edit > Plugins** to review plugin names and next-start checkboxes. Search
+matches the display name or stable plugin ID. A changed running-versus-pending
+state is marked **Enabled after restart** or **Disabled after restart**. Hover
+a name for its ID/version, running state and compatibility/build diagnostics.
+Long names and dependency warnings wrap within each row. The list shows plugin
+and requested-selection counts, distinguishes an empty catalog from no search
+matches, and leaves fixed space below it for status and Save/Cancel/Restart.
+
+Changes stay local until **Save**. Checkboxes record requests independently of
+effective enablement: a checked plugin with an unchecked required dependency
+stays checked and displays **Inactive: requires ...**. It can be saved and remains
+inactive after restart until that dependency is enabled. Disabling a prerequisite
+leaves consumer checkboxes unchanged. Checkbox actions never toggle other plugins.
+Opening materializes the initial effective defaults as independent checkbox
+values without dirtying or writing the descriptor; the next save persists those
+values so unchecking a consumer cannot prune another checked plugin.
+**Cancel** restores the last saved checkbox snapshot using cached metadata;
+it neither scans nor reads or writes project/plugin files. **Refresh**, beside
+Search, rescans plugin directories and reloads descriptor/build state from disk,
+discarding unsaved checkbox edits as its tooltip explains. Closing and reopening
+also reloads from disk. Failed refreshes retain the previous usable session and
+display the error. There are no cascade controls or review modals.
+
+Saving validates the next-start dependency/resource/mount closure and uses the
+existing project-edit lease and atomic descriptor replacement. It rejects a
+descriptor changed since the window loaded, unrelated pending project edits,
+read-only files and ownership conflicts without partially replacing the file.
+Only plugin overrides change; active modules, mounts, Shader roots and effective
+configuration retain their startup snapshot. A missing or incompatible build
+does not prevent saving a valid selection, but blocks restart with a build
+diagnostic. No management action builds binaries or republishes an inventory.
+
+Saved selections differing from the running selection display a restart-required state.
+**Restart editor...** rechecks the saved descriptor and artifact admission,
+then uses the normal all-document exit workflow. Pending document operations
+and failed saves retain the editor; Cancel leaves documents open and plugin
+settings saved for a later restart. Relaunch is deferred until shutdown and
+preserves the explicit project path. Compatible override-only changes require
+no rebuild. Build and restart remain separate user actions.
+
+`FPluginEditSession` owns the value-only draft and cached metadata/diagnostics.
+Checkbox changes only evaluate the in-memory graph; they do not read files,
+hash descriptors, resolve the workspace or admit binaries. Opening/refreshing
+captures metadata and build availability; save and restart revalidate disk state
+through the shared startup services. The project manager owns persistence and
+`MainFrame` owns presentation and restart routing.
 
 ## Validation
 

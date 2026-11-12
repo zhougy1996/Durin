@@ -102,6 +102,29 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		};
 	}
 
+    TEST_F(FShaderBuilderTests, PluginVirtualRootCompilesAndInvalidatesOutsideReadOnlySource)
+    {
+        const auto Source = GetBuilderTestRoot() / "PluginSource";
+        const auto Fixture = std::filesystem::path(FPaths::EngineDir()) / "Tests/Fixtures/Plugins/PluginFixture/Plugins/PluginFixtureRuntime/Shaders/Fixture.slang";
+        std::filesystem::create_directories(Source);
+        std::filesystem::copy_file(Fixture, Source / "Fixture.slang", std::filesystem::copy_options::overwrite_existing);
+        FShaderPaths::RegisterMountPoint("/Plugins/PluginFixtureRuntime/", Source.generic_string());
+        const auto& Mounts = FShaderPaths::GetRegisteredMountPoints();
+        const auto Mount = std::ranges::find(Mounts, "/Plugins/PluginFixtureRuntime/", &FShaderPaths::FShaderMountPoint::VirtualRoot);
+        ASSERT_NE(Mount, Mounts.end());
+        EXPECT_TRUE(std::filesystem::path(Mount->CacheDir).lexically_relative(Source).generic_string().starts_with(".."));
+        Builder = std::make_unique<FShaderBuilder>();
+        const auto First = Builder->GetOrCompile("/Plugins/PluginFixtureRuntime/Fixture", MakeCompileOptions());
+        ASSERT_TRUE(First) << FormatShaderCompilerErrors(First.Errors);
+        ASSERT_FALSE(First.CompiledShaders.empty());
+        WriteTextFile(Source / "Fixture.slang", "[shader(\"vertex\")] float4 VertexMain(uint id : SV_VertexID) : SV_Position { return float4(float(id), 3, 2, 1); }\n");
+        AdvanceShaderReloadGeneration();
+        const auto Changed = Builder->GetOrCompile("/Plugins/PluginFixtureRuntime/Fixture", MakeCompileOptions());
+        ASSERT_TRUE(Changed) << FormatShaderCompilerErrors(Changed.Errors);
+        EXPECT_NE(First.CompiledShaders.front().CodeHash, Changed.CompiledShaders.front().CodeHash);
+        EXPECT_EQ(std::distance(std::filesystem::directory_iterator(Source), std::filesystem::directory_iterator()), 1);
+    }
+
 	TEST_F(FShaderBuilderTests, CompletionStatusSeparatesSuccessFailureAndCancellation)
 	{
 		FGeneratedShaderCompileRequest Request;

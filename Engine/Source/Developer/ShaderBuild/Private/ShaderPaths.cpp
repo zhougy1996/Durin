@@ -1,6 +1,7 @@
 #include "ShaderBuild/ShaderPaths.h"
 
 #include "Misc/Paths.h"
+#include "Plugins/PluginResources.h"
 #include "Misc/StringConvert.h"
 #include "Hash/XxHash.h"
 #include "Threading/RunnableThread.h"
@@ -274,6 +275,8 @@ namespace Durin::FShaderPaths
 			GShaderMountRegistry.AddDefaultProjectMountPoint("/Project/", ProjectDir);
 		}
 
+        for (const auto& Root : GetActivePluginResources().ShaderRoots)
+            GShaderMountRegistry.AddOrUpdateMountPoint(Root.VirtualRoot, Root.SourceDirectory.generic_string(), MakeDefaultCacheDirectory(Root.VirtualRoot));
 		GShaderMountRegistry.Finalize();
 	}
 } // namespace Durin::ShaderPaths

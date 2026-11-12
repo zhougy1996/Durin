@@ -15,6 +15,13 @@
         "Reasons": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
       }
     }},
+    "InactivePlugins": {"type": "array", "items": {
+      "type": "object", "additionalProperties": false, "required": ["Id", "Reason"],
+      "properties": {
+        "Id": {"type": "string", "minLength": 1},
+        "Reason": {"type": "string", "minLength": 1}
+      }
+    }},
     "Modules": {"type": "array", "items": {
       "type": "object", "additionalProperties": false, "required": ["Name", "Owner", "Host", "Phase"],
       "properties": {

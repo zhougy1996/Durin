@@ -28,6 +28,7 @@
 #include "Misc/MountPaths.h"
 #include "Project/Project.h"
 #include "Interfaces/IProjectManager.h"
+#include "Plugins/PluginResources.h"
 #include "Project/ProjectHistory.h"
 #include "Misc/Time.h"
 #include "Misc/Version.h"
@@ -113,6 +114,17 @@ namespace Durin
 			DURIN_ERROR("Plugin admission failed: {}", IProjectManager::Get().GetLastError());
 			return false;
 		}
+        // Bootstrap logging consumed only copied settings. Publish final module config
+        // before loading any project/plugin-dependent providers.
+        const auto ConfigName = std::string(DURIN_RUNTIME_VARIANT) + ".yaml";
+        std::vector<std::filesystem::path> ConfigLayers{
+            std::filesystem::path(FPaths::LaunchDir()) / "Templates" / ("TP_" + ConfigName)};
+        for (const auto& Directory : GetActivePluginResources().ConfigDirectories) ConfigLayers.push_back(Directory / ConfigName);
+        if (const auto* ActiveProject = GetCurrentProject()) ConfigLayers.emplace_back(std::filesystem::path(ActiveProject->ProjectDir) / "Configs" / ConfigName);
+        ConfigLayers.push_back(RuntimeStorage.AppConfigPath);
+        std::string ConfigError;
+        if (!LoadAppConfigLayers(ConfigLayers, ConfigError))
+        { DURIN_ERROR("Plugin application configuration failed: {}", ConfigError); return false; }
 		DURIN_PROFILE_PROGRAM_IDENTITY(
 			DURIN_RUNTIME_VARIANT,
 			GetCurrentProject() ? std::string_view{GetCurrentProject()->Name} : std::string_view{},
@@ -199,6 +211,15 @@ namespace Durin
 			return false;
 		}
 		DObjectInit();
+#if !DURIN_WITH_EDITOR
+        // Native plugin Shader declarations must exist before Mona/Renderer first
+        // opens and freezes the cooked runtime inventory. EngineReady stays later.
+        if (!IProjectManager::Get().LoadModulesForProject(ELoadingPhase::Providers))
+        {
+            DURIN_ERROR("Cooked Game providers could not start: {}",IProjectManager::Get().GetLastError());
+            return false;
+        }
+#endif
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::PreInitComplete);
 		State = EEngineLoopState::PreInitialized;
 		return true;

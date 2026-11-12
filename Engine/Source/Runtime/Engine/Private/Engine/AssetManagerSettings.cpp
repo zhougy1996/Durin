@@ -1,5 +1,6 @@
 #include "Engine/AssetManagerTypes.h"
 #include "Yaml/Yaml.h"
+#include "Plugins/PluginResources.h"
 
 namespace Durin
 {
@@ -51,12 +52,8 @@ namespace Durin
 	{
 		Out = {};
 		FYamlDocument Document;
-		if (const auto Loaded = Document.LoadFromFile(SettingsFile); !Loaded)
-		{
-			if (const auto* Error = std::get_if<FFileError>(&Loaded.error().Cause);
-				Error && Error->NativeError == std::errc::no_such_file_or_directory) return {};
-			return std::unexpected(Loaded.error().ToString());
-		}
+        std::string LoadError;
+        if (!LoadProjectConfig(SettingsFile, Document, LoadError)) return std::unexpected(LoadError);
 		auto Invalid = [&]() -> std::expected<void, std::string> {
 			return std::unexpected("Invalid AssetManager settings in '" + SettingsFile.generic_string()
 				+ "'; expected native types, valid IDs/paths, supported rules and redirect pairs.");

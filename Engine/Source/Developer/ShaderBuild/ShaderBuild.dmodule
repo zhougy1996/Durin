@@ -8,6 +8,7 @@
         "RHI",
         "RenderCore",
         "DerivedDataCache",
-        "ShaderFormat"
+        "ShaderFormat",
+        "Projects"
     ]
 }

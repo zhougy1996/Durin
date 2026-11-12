@@ -6,6 +6,7 @@
 #include "EditorBranding.h"
 #include "Feedback/SlowTaskWidget.h"
 #include "ProjectBrowser.h"
+#include "PluginManagementWindow.h"
 #include "ProfilingToolService.h"
 #include "Tools/TracyToolset.h"
 #include "Tools/NamePoolToolset.h"
@@ -94,6 +95,8 @@ namespace Durin::MainFrame
 		bool bProjectBrowserOpen = false;
 		bool bExitRequested = false;
 		bool bExitSaveFailed = false;
+        std::string PluginRestartProject;
+        FPluginManagementWindow PluginWindow;
 		std::shared_ptr<FMainFrameSettings> MainFrameSettings;
 		std::shared_ptr<MWindow> RootWindow;
 		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditors;
@@ -267,6 +270,7 @@ namespace Durin::MainFrame
 			bool bAboutDialogOpen = false;
 			FEditorSettingsWindow SettingsWindow;
 			bool bAssetUpgradeOpen = false;
+            bool bPluginsOpen = false;
 			bool bContentBrowserOpen = false;
 			bool bConsoleOpen = false;
 			bool bPythonOpen = false;
@@ -398,6 +402,17 @@ namespace Durin::MainFrame
 				for (const auto& Documents : Managers) Ready = Documents->PrepareForExit() && Ready;
 				return Ready;
 			};
+            const auto CompleteExit = [&] {
+                if (!Context.PluginRestartProject.empty())
+                {
+                    std::string Error;
+                    if (!Context.PluginWindow.CheckRestartReady(Error))
+                    { Context.PluginWindow.Report(Error); Context.PluginRestartProject.clear(); Context.bExitRequested = false; return; }
+                    const auto Project = std::exchange(Context.PluginRestartProject, {});
+                    RelaunchEditorForProject(Project);
+                }
+                else Context.RootWindow->RequestDestroyWindow();
+            };
 			const bool bPrepared = Prepare();
 			const bool bDirty = std::ranges::any_of(Managers, [](const auto& Documents) {
 				return std::ranges::any_of(Documents->GetDocuments(), &FEditorDocument::bDirty);
@@ -405,13 +420,13 @@ namespace Durin::MainFrame
 			if (bPrepared && !bDirty && !Context.bExitSaveFailed)
 			{
 				Context.bExitRequested = false;
-				Context.RootWindow->RequestDestroyWindow();
+                CompleteExit();
 				return;
 			}
 			ImGui::OpenPopup("Exit Editor###Durin.Editor.ExitConfirmation");
 			if (!ImGui::BeginPopupModal("Exit Editor###Durin.Editor.ExitConfirmation", nullptr,
 				ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) return;
-			ImGui::TextUnformatted("Save all changes before exiting?");
+			ImGui::TextUnformatted(Context.PluginRestartProject.empty() ? "Save all changes before exiting?" : "Save all changes before restarting?");
 			for (const auto& Documents : Managers)
 				for (const auto& Document : Documents->GetDocuments())
 					if (Document.bDirty) ImGui::BulletText("%s", Document.Label.c_str());
@@ -419,7 +434,7 @@ namespace Durin::MainFrame
 			if (Context.bExitSaveFailed) ImGui::TextWrapped("Some changes could not be saved. Resolve the error and retry, or cancel exit.");
 			bool bExit = false;
 			ImGui::BeginDisabled(!bPrepared);
-			if (ImGui::Button("Save All and Exit"))
+			if (ImGui::Button(Context.PluginRestartProject.empty() ? "Save All and Exit" : "Save All and Restart"))
 			{
 				bExit = true;
 				for (const auto& Documents : Managers) bExit = Documents->SaveDocumentsForExit() && bExit;
@@ -427,17 +442,18 @@ namespace Durin::MainFrame
 			}
 			ImGui::SameLine();
 			// Discard authorizes teardown only; it must not roll back live documents before approval.
-			if (ImGui::Button("Exit Without Saving")) bExit = Prepare();
+			if (ImGui::Button(Context.PluginRestartProject.empty() ? "Exit Without Saving" : "Restart Without Saving")) bExit = Prepare();
 			ImGui::EndDisabled();
 			ImGui::SameLine();
 			if (ImGui::Button("Cancel") || bExit)
 			{
 				Context.bExitRequested = false;
 				Context.bExitSaveFailed = false;
+                if (!bExit) Context.PluginRestartProject.clear();
 				ImGui::CloseCurrentPopup();
 			}
 			ImGui::EndPopup();
-			if (bExit) Context.RootWindow->RequestDestroyWindow();
+			if (bExit) CompleteExit();
 		}
 
 		auto DrawLoadingState() -> void
@@ -589,7 +605,8 @@ namespace Durin::MainFrame
 				if (ImGui::MenuItem(UndoLabel.c_str(), "Ctrl+Z", false, bCanUndo)) ActiveWorkspace->Undo();
 				if (ImGui::MenuItem(RedoLabel.c_str(), "Ctrl+Y", false, bCanRedo)) ActiveWorkspace->Redo();
 				ImGui::Separator();
-				if (ImGui::MenuItem("Editor Preferences...")) FEditorSettingsRegistry::Get().RequestOpen("editor.appearance");
+				ImGui::MenuItem("Plugins...", nullptr, &ViewState.bPluginsOpen);
+                if (ImGui::MenuItem("Editor Preferences...")) FEditorSettingsRegistry::Get().RequestOpen("editor.appearance");
 				for (const std::shared_ptr<IAssetEditorToolkit>& Workspace : Toolkits) Workspace->DrawEditMenu();
 				ImGui::EndMenu();
 			}
@@ -1263,6 +1280,10 @@ namespace Durin
 						*Context->Activity);
 					ThumbnailPool.EndFrame(Editor->GetCapabilities().bRunTools);
 					Context->SlowTaskDialogs.Draw(FFeedbackContext::Get());
+                    Context->PluginWindow.Draw(ViewState.bPluginsOpen, [&] {
+                        if (const auto* Project = GetCurrentProject())
+                        { Context->PluginRestartProject = Project->ProjectFile; Context->bExitRequested = true; }
+                    });
 					DrawExitConfirmation(*Context);
 					return;
 				}

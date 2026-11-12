@@ -33,8 +33,18 @@ def plugin_overrides(value, descriptor) -> dict[str, bool]:
     return dict(value)
 
 
-def resolve_plugins(engine_root: Path, project_file: Path, *, platform="Win64",
-                    runtime_variant="DurinEditor", project_files=(), discovery_directories=None):
+def enumerate_plugin_build(engine_root, project_file, **kwargs):
+    """Enumerate eligible workspace build modules, independently of overrides."""
+    return _resolve_plugins(engine_root, project_file, build_catalog=True, **kwargs)
+
+
+def resolve_plugins(engine_root, project_file, **kwargs):
+    """Resolve one project's startup selection; never controls compilation."""
+    return _resolve_plugins(engine_root, project_file, **kwargs)
+
+
+def _resolve_plugins(engine_root: Path, project_file: Path, *, platform="Win64",
+                    runtime_variant="DurinEditor", project_files=(), discovery_directories=None, build_catalog=False):
     """Return (portable canonical selection manifest, machine-local locations).
 
     Build artifact identity is a separate schema; source selection never invents
@@ -124,7 +134,8 @@ def resolve_plugins(engine_root: Path, project_file: Path, *, platform="Win64",
             add_module(contained(path.parent, relative) / (module + ".dmodule"),
                        "Project/" + name + "/" + module, module, "")
 
-    roots = {engine_root / "Plugins", project_file.parent / "Plugins"}
+    roots = ({p.parent / "Plugins" for p in files} if build_catalog
+             else {engine_root / "Plugins", project_file.parent / "Plugins"})
     def discover(directory, search_root):
         if discovery_directories is not None:
             discovery_directories.add(directory)
@@ -183,7 +194,7 @@ def resolve_plugins(engine_root: Path, project_file: Path, *, platform="Win64",
     for root in sorted(roots):
         discover(root, root)
     overrides = next(o for p, _, o in projects if p == project_file)
-    explicit = {name.lower(): enabled for name, enabled in overrides.items()}
+    explicit = {} if build_catalog else {name.lower(): enabled for name, enabled in overrides.items()}
     for name in explicit:
         if name not in plugins:
             fail(project_file, "missing plugin descriptor " + name, [name])
@@ -208,7 +219,24 @@ def resolve_plugins(engine_root: Path, project_file: Path, *, platform="Win64",
         selected.add(key)
         order.append(key)
     order = []
-    for key in sorted(k for k, enabled in explicit.items() if enabled):
+    inactive = {}
+    def disabled_dependency(key, seen):
+        if explicit.get(key) is False:
+            return plugins[key]["name"]
+        if key not in plugins or key in seen:
+            return None
+        seen.add(key)
+        for dependency in plugins[key]["dependencies"]:
+            disabled = disabled_dependency(dependency.lower(), seen)
+            if disabled:
+                return disabled
+        return None
+    build_roots = {k for k, p in plugins.items() if not p["platforms"] or platform in p["platforms"]}
+    for key in sorted(build_roots if build_catalog else (k for k, enabled in explicit.items() if enabled)):
+        disabled = disabled_dependency(key, set())
+        if disabled:
+            inactive[plugins[key]["name"]] = "Requires disabled plugin " + disabled
+            continue
         reasons.setdefault(key, set()).add("Explicit")
         visit(key, [plugins[key]["name"]])
 
@@ -221,7 +249,7 @@ def resolve_plugins(engine_root: Path, project_file: Path, *, platform="Win64",
     def project_roots(variant):
         roots = []
         for path, data, _ in projects:
-            if path not in (project_file, engine_root / "Engine.dproject"):
+            if not build_catalog and path not in (project_file, engine_root / "Engine.dproject"):
                 continue
             roots.extend(data.get("BaseModules", list(data.get("ModuleDirs", {}))))
             roots.extend(data.get("ExtraModules", {}).get(variant, {}).get("Modules", []))
@@ -302,9 +330,15 @@ def resolve_plugins(engine_root: Path, project_file: Path, *, platform="Win64",
             source = dict(modules[key], host="Editor" if runtime_variant == "DurinEditor" else "Runtime")
             walk_seen.clear()
             walk_module(key, [source["name"]], [], source)
+    if build_catalog:
+        # Build metadata is independent of project override bytes and startup reasons.
+        return dict(Modules=module_order, Inputs=[dict(Path=k, Hash=inputs[k])
+                    for k in sorted(inputs) if k.startswith("Plugin/") or k.count("/") == 2]), locations
     manifest = dict(SchemaVersion=1, Platform=platform, RuntimeVariant=runtime_variant,
                     Plugins=[dict(Id=plugins[k]["name"], Reasons=sorted(reasons[k])) for k in order],
                     Modules=module_order,
                     Inputs=[dict(Path=key, Hash=inputs[key]) for key in sorted(inputs)])
+    if inactive:
+        manifest["InactivePlugins"] = [dict(Id=key, Reason=inactive[key]) for key in sorted(inactive)]
     manifest["Fingerprint"] = fingerprint(canonical(manifest).encode("utf-8"))
     return manifest, locations

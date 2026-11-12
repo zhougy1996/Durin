@@ -16,6 +16,8 @@ namespace Durin
 		std::string RuntimeVariant = "DurinEditor";
 		// Browser admission validates ordinary ownership without activating project overrides.
 		bool bProjectBrowser = false;
+        // Preview project overrides without editing descriptors or admitting a process.
+        std::optional<std::map<std::string, bool>> PluginOverrides;
 	};
 
 	struct FResolvedPluginModule

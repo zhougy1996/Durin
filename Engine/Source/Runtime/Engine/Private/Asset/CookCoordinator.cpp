@@ -28,6 +28,7 @@
 #include "DObject/StrongObjectPtr.h"
 #include "Misc/FileHelper.h"
 #include "Project/Project.h"
+#include "Plugins/PluginCook.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 
@@ -361,6 +362,11 @@ namespace Durin
 			OutResult.InputFailure = {ECookInputStatus::InvalidDependency, std::move(Message)};
 			return Finish(ECookRunStatus::Failed, ECookRunError::InputFailed);
 		};
+        std::string PluginSnapshot;
+        if (Request.bCapturePluginSnapshot
+            && !CapturePluginCookSnapshot(Request.TargetPlatform==ECookTargetPlatform::Win64?"Win64":"MacOS",PluginSnapshot,OutResult.ShaderDiagnostic))
+            return PolicyFailure(OutResult.ShaderDiagnostic);
+        if (PluginSnapshot.size()>16*1024*1024) return PolicyFailure("Plugin Cook snapshot exceeds 16 MiB");
 		if (const FProjectInfo* Project = GetCurrentProject())
 		{
 			if (const auto Loaded = FProjectAssetManagerSettingsStore(std::filesystem::path(Project->ProjectDir) / "Configs" / "Project.yaml").Load(Management); !Loaded)
@@ -424,7 +430,12 @@ namespace Durin
 		std::vector<FCookSavePlan> Plans;
 		FCookState NewState{Request.TargetPlatform, Request.TargetProfile};
 		std::vector<FCookAuxiliaryOutput> AuxiliaryOutputs;
-		uint64 RetainedOutputBytes = 0;
+        uint64 RetainedOutputBytes = PluginSnapshot.size();
+        if (!PluginSnapshot.empty())
+        {
+            const auto Bytes=std::as_bytes(std::span(PluginSnapshot.data(),PluginSnapshot.size()));
+            AuxiliaryOutputs.push_back({ECookManifestEntryKind::PluginSnapshot,"PluginCook.json",FByteBuffer(Bytes.begin(),Bytes.end()),FXxHash128::HashBuffer(Bytes)});
+        }
 		FAssetCompilingManager::Get().FinishAllCompilation();
 		{
 			FScopedOfflinePreparation Preparation;

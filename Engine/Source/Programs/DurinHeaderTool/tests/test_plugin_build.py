@@ -32,7 +32,7 @@ def workspace(tmp_path, monkeypatch):
     monkeypatch.setattr(configs.environment, "DURIN_ENGINE_PROJECT_DIR", tmp_path / "Engine")
     monkeypatch.setattr(configs, "RUNTIME_VARIANT", "DurinEditor")
     monkeypatch.setattr(configs, "ARCH", "Win64")
-    for name in ("SELECTIONS", "LOCATIONS"):
+    for name in ("CATALOGS", "LOCATIONS"):
         monkeypatch.setattr(plugin_build, name, {})
     monkeypatch.setattr(plugin_build, "DISCOVERY_DIRECTORIES", set())
     return tmp_path
@@ -62,9 +62,9 @@ def test_plugin_ownership_generation_disable_and_variant(workspace, monkeypatch)
     data["Plugins"] = {"Water": False}
     project.write_text(json.dumps(data))
     configs.init_configs([project])
-    assert not any(m.owning_plugin for m in configs.module_config.MODULE_CONFIGS.values())
+    assert configs.get_module_config("WaterRuntime").owning_plugin == "Water"
     generate_project_cmake_file("Game")
-    assert "list(APPEND DURIN_PROJECT_PLUGIN_MODULES" not in utils.get_project_cmake_file_path("Game").read_text()
+    assert "list(APPEND DURIN_PROJECT_PLUGIN_MODULES WaterRuntime)" in utils.get_project_cmake_file_path("Game").read_text()
     data["Plugins"] = {"Water": True}
     project.write_text(json.dumps(data))
     configs.init_configs([project])
@@ -80,8 +80,8 @@ def test_foreign_project_roots_do_not_activate_current_project_plugins(workspace
     module.parent.mkdir(parents=True)
     module.write_text(json.dumps(dict(ModuleName="GameRoot", PublicDependencies=["WaterRuntime"])))
     configs.init_configs([project])
-    assert plugin_build.SELECTIONS["Engine"]["Plugins"] == []
-    assert plugin_build.SELECTIONS["Game"]["Modules"]
+    assert "Plugins" not in plugin_build.CATALOGS["Engine"]  # build catalog, not startup selection
+    assert plugin_build.CATALOGS["Game"]["Modules"]
     # A missing plugin requested by the active project still fails.
     data["Plugins"] = {"Water": False}
     project.write_text(json.dumps(data))
@@ -109,7 +109,7 @@ def test_inventory_is_exact_and_configuration_isolated(tmp_path):
     inventory = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(inventory)
     selection = tmp_path / "Selection.json"
-    selection.write_text(json.dumps(dict(Fingerprint="0123456789abcdef")))
+    selection.write_text(json.dumps(dict(Inputs=[dict(Path="Plugin/Water", Hash="0123456789abcdef")])))
     module, dependency = tmp_path / "Module.dll", tmp_path / "Core.dll"
     module.write_bytes(b"module")
     dependency.write_bytes(b"core")
@@ -125,3 +125,36 @@ def test_inventory_is_exact_and_configuration_isolated(tmp_path):
     result = inventory.publish(selection, inputs, tmp_path / "Debug")
     assert result["Binaries"] == []
     assert (tmp_path / "Debug/Runtime/Module.dll").exists()  # stale artifacts are not membership
+
+
+def test_blocked_requests_do_not_affect_build_catalog(workspace):
+    project = workspace / "Game/Game.dproject"
+    configs.init_configs([project])
+    original = plugin_build.CATALOGS["Game"]
+    data = json.loads(project.read_text())
+    data["Plugins"] = {"Water": True, "Foundation": False}
+    project.write_text(json.dumps(data))
+    configs.init_configs([project])
+    assert plugin_build.CATALOGS["Game"] == original
+    selection, _ = resolve_plugins(workspace / "Engine", project)
+    assert selection["Plugins"] == [] and selection["Modules"] == []
+    assert selection["InactivePlugins"] == [dict(Id="Water", Reason="Requires disabled plugin Foundation")]
+    module = workspace / "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule"
+    data["Plugins"] = {"Water": False}
+    project.write_text(json.dumps(data))
+    module.write_text('{"ModuleName":"Wrong"}')
+    with pytest.raises(ValueError, match="ModuleName mismatch"):
+        configs.init_configs([project])
+
+
+def test_build_discovers_plugins_in_other_workspace_projects(workspace):
+    import shutil
+    project = workspace / "Game/Game.dproject"
+    other = workspace / "Other/Other.dproject"
+    other.parent.mkdir()
+    other.write_text(json.dumps(dict(ProjectName="Other", BaseModules=[])))
+    shutil.move(str(workspace / "Game/Plugins"), str(other.parent / "Plugins"))
+    configs.init_configs([project, other])
+    assert configs.get_module_config("WaterRuntime").owning_project == "Other"
+    assert {m["Owner"] for m in plugin_build.CATALOGS["Game"]["Modules"]} == {"Water", "Foundation"}
+    assert resolve_plugins(workspace / "Engine", other, project_files=[project])[0]["Modules"] == []

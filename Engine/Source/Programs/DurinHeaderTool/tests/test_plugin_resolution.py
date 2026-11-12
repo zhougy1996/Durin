@@ -124,7 +124,7 @@ def test_project_module_ownership_is_one_way():
 
 def test_build_manifest_requires_complete_native_identity():
     validator = Draft202012Validator(json.loads((SCHEMAS / "durin-plugin-build.schema.json").read_text()))
-    inventory = dict(SchemaVersion=1, SelectionFingerprint="0" * 16, Binaries=[],
+    inventory = dict(SchemaVersion=2, Inputs=[], Binaries=[],
                      Identity=dict(EngineBuild="revision", Platform="Win64", Architecture="x64",
                                    Configuration="Debug", RuntimeVariant="DurinGame", ToolchainABI="msvc-profile"))
     validator.validate(inventory)

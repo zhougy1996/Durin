@@ -1,4 +1,4 @@
-"""Publish the exact selected native closure; never infer membership from DLL scans."""
+"""Publish available native artifacts independently of startup enablement; never infer membership from DLL scans."""
 import argparse
 import hashlib
 import json
@@ -6,7 +6,7 @@ from pathlib import Path
 import shutil
 
 
-def publish(selection_file: Path, inputs: Path, output: Path):
+def publish(catalog_file: Path, inputs: Path, output: Path):
     lines = inputs.read_text(encoding="utf-8").splitlines()
     identity = dict(zip(("EngineBuild", "Platform", "Architecture", "Configuration",
                          "RuntimeVariant", "ToolchainABI"), lines[:6]))
@@ -26,22 +26,22 @@ def publish(selection_file: Path, inputs: Path, output: Path):
         module, owner, dependencies = line.split("\t")
         binaries.append(dict(Module=module, Owner=owner, Path=paths[module],
                              RuntimeDependencies=sorted({paths[d] for d in dependencies.split(";") if d})))
-    selection = json.loads(selection_file.read_text(encoding="utf-8"))
-    manifest = dict(SchemaVersion=1, SelectionFingerprint=selection["Fingerprint"],
+    catalog = json.loads(catalog_file.read_text(encoding="utf-8"))
+    manifest = dict(SchemaVersion=2, Inputs=catalog["Inputs"],
                     Identity=identity, Binaries=binaries)
     output.mkdir(parents=True, exist_ok=True)
     destination = output / "PluginBuild.json"
     temporary = destination.with_suffix(".tmp")
     temporary.write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8")
     temporary.replace(destination)
-    shutil.copy2(selection_file, output / "PluginSelection.json")
+    shutil.copy2(catalog_file, output / "PluginCatalog.json")
     return manifest
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--selection", type=Path, required=True)
+    parser.add_argument("--catalog", type=Path, required=True)
     parser.add_argument("--inputs", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    publish(args.selection, args.inputs, args.output)
+    publish(args.catalog, args.inputs, args.output)

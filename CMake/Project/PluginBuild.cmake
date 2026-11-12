@@ -1,17 +1,17 @@
 include_guard(GLOBAL)
 
-function(durin_register_plugin_selection project selection_file)
+function(durin_register_plugin_catalog project catalog_file)
 	set_property(GLOBAL APPEND PROPERTY DURIN_PLUGIN_PROJECTS "${project}")
-	set_property(GLOBAL PROPERTY "DURIN_PLUGIN_SELECTION_${project}" "${selection_file}")
+	set_property(GLOBAL PROPERTY "DURIN_PLUGIN_CATALOG_${project}" "${catalog_file}")
 endfunction()
 
 # All workspace targets exist before inventories resolve their native closure.
 function(durin_generate_plugin_builds)
 	get_property(_projects GLOBAL PROPERTY DURIN_PLUGIN_PROJECTS)
 	foreach(_project IN LISTS _projects)
-		get_property(_selection_file GLOBAL PROPERTY "DURIN_PLUGIN_SELECTION_${_project}")
-		file(READ "${_selection_file}" _selection)
-		string(JSON _count LENGTH "${_selection}" Modules)
+		get_property(_catalog_file GLOBAL PROPERTY "DURIN_PLUGIN_CATALOG_${_project}")
+		file(READ "${_catalog_file}" _catalog)
+		string(JSON _count LENGTH "${_catalog}" Modules)
 		set(_binaries "")
 		set(_files "")
 		set(_build_targets)
@@ -22,8 +22,8 @@ function(durin_generate_plugin_builds)
 		if(_count GREATER 0)
 			math(EXPR _last "${_count}-1")
 			foreach(_index RANGE ${_last})
-				string(JSON _module GET "${_selection}" Modules ${_index} Name)
-				string(JSON _owner GET "${_selection}" Modules ${_index} Owner)
+				string(JSON _module GET "${_catalog}" Modules ${_index} Name)
+				string(JSON _owner GET "${_catalog}" Modules ${_index} Owner)
 				durin_collect_target_dependency_closure(_closure "${_module}")
 				list(APPEND _closure "${_module}")
 				list(REMOVE_DUPLICATES _closure)
@@ -46,8 +46,8 @@ function(durin_generate_plugin_builds)
 		file(GENERATE OUTPUT "${_spec}" CONTENT "${DURIN_ENGINE_VERSION_STRING}\n${DURIN_TARGET_PLATFORM}\n${CMAKE_SYSTEM_PROCESSOR}\n$<CONFIG>\n${DURIN_RUNTIME_VARIANT}\n${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}-${CMAKE_SIZEOF_VOID_P}\n${_binaries}---\n${_files}")
 		add_custom_target(${_project}PluginBuild ALL
 			COMMAND "${Python_EXECUTABLE}" "${DURIN_WORKSPACE_DIR}/Engine/Scripts/Build/plugin_inventory.py"
-				--selection "${_selection_file}" --inputs "${_spec}" --output "${_root}"
-			DEPENDS ${_build_targets} "${_selection_file}"
+				--catalog "${_catalog_file}" --inputs "${_spec}" --output "${_root}"
+			DEPENDS ${_build_targets} "${_catalog_file}"
 			BYPRODUCTS "${_root}/PluginBuild.json"
 			COMMENT "Publishing ${_project} plugin build inventory"
 			VERBATIM)

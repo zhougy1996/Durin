@@ -4,7 +4,7 @@ Summary: Define authored ShaderBuild caching and compiler-free cooked Shader del
 
 Modules: Engine, RenderCore, ShaderBuild, DerivedDataCache, RHI
 
-Last reviewed: 2026-11-06
+Last reviewed: 2026-11-12
 
 ShaderBuild owns Slang dependency resolution, compilation, request coalescing,
 dependency manifests, DDC orchestration, and cooked-library production.
@@ -19,6 +19,12 @@ storage remain private. Sessions accept inline or Core task scheduler adapters.
 ShaderBuild registers its compiler function under the
 [shared protocol](../../Assets/Build/DerivedDataBuild.md) and retains Shader policy,
 compiler scheduling, and single-flight ownership.
+
+Plugin shader source roots are descriptor-derived `/Plugins/<Id>/` mounts,
+published from Projects' frozen resource snapshot before ShaderBuild freezes
+its registry. They use the same dependency/source fingerprints and writable
+host cache namespaces as other mounted shaders; plugin installations receive
+no derived writes. See [plugin resources](../../../Workspace/Plugins.md#plugin-content-shaders-and-configuration).
 
 ## Results and diagnostics
 

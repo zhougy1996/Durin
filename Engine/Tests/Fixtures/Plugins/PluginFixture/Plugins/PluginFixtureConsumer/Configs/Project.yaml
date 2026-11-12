@@ -1,0 +1,5 @@
+PluginFixture:
+  Order: PluginFixtureConsumer
+  BaseOnly: present
+Game:
+  DefaultLevel: ''

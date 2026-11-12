@@ -4,11 +4,18 @@
 #include "Modules/ModuleManager.h"
 #include "Misc/StringHelper.h"
 #include "PluginStartup.h"
+#include "Plugins/PluginResources.h"
+#include "Plugins/PluginManagement.h"
+#include "Misc/FileHelper.h"
+#include "Misc/AppConfig.h"
+#include "Misc/Paths.h"
 
 namespace Durin
 {
 	namespace
 	{
+		FPluginResources ActivePluginResources;
+        std::vector<std::string> ActivePluginIds;
 		class FProjectManager final : public IProjectManager
 		{
 			std::optional<FProjectDescriptor> Descriptor;
@@ -45,7 +52,11 @@ namespace Durin
 				if (bPluginAdmissionFrozen) return !bPluginStartupFailed;
 				FPluginResolution Selection;
 				std::vector<FAdmittedPluginBinary> Binaries;
-				if (!ResolveProcessPlugins(Active ? Active->ProjectFile : "", Selection, Binaries, LastError)) return false;
+				FPluginResources Resources;
+                if (!ResolveProcessPlugins(Active ? Active->ProjectFile : "", Selection, Binaries, Resources, LastError)) return false;
+                auto Additional = Descriptor ? Descriptor->Mounts : std::vector<FMountPoint>{};
+                Additional.insert(Additional.end(), Resources.ContentMounts.begin(), Resources.ContentMounts.end());
+                if (Active && !FMountPaths::ValidateMountDefinitions(BuildProjectMountDefinitions(Active->ProjectFile, Additional), &LastError)) return false;
 				std::vector<FName> Ordinary;
 				for (const auto& Name : Selection.OrdinaryModules) Ordinary.emplace_back(Name);
 				std::vector<std::pair<FName, std::string>> ProcessModules;
@@ -56,6 +67,9 @@ namespace Durin
 						std::string(reinterpret_cast<const char*>(Utf8.data()), Utf8.size()));
 				}
 				if (!FModuleManager::Get().FreezeModuleLoading(Ordinary, ProcessModules)) return Fail("Cannot freeze module admission; restart required");
+                if (Active) FMountPaths::SetProjectMountDefinitions(std::move(Additional));
+                ActivePluginResources = std::move(Resources);
+                ActivePluginIds = Selection.Plugins;
 				PluginBinaries = std::move(Binaries);
 				bPluginAdmissionFrozen = true;
 				LastError.clear();
@@ -112,6 +126,31 @@ namespace Durin
 				bDirty = false;
 				LastError.clear(); OutReason.clear(); return true;
 			}
+            auto SavePluginOverrides(const std::map<std::string, bool>& Overrides, std::string_view ExpectedDisk, std::string& OutReason) -> bool
+            {
+                if (!Descriptor || !Active) return Fail("No project loaded", &OutReason);
+                if (bDirty) return Fail("Save the existing project descriptor edits before changing plugins", &OutReason);
+                if (auto Ownership = AcquireProjectEditOwnership(); !Ownership) return Fail(Ownership.error().ToString(), &OutReason);
+                const auto Bytes = FFileHelper::LoadFileToArray(Active->ProjectFile);
+                if (!Bytes || std::string_view(reinterpret_cast<const char*>(Bytes->data()), Bytes->size()) != ExpectedDisk)
+                    return Fail("Project descriptor changed on disk; refresh plugin management before saving", &OutReason);
+                FProjectDescriptor Candidate;
+                if (!Candidate.Load(Active->ProjectFile, LastError)) return Fail(LastError, &OutReason);
+                Candidate.PluginOverrides = Overrides;
+                FPluginManagementContext Context;
+                if (!MakePluginManagementContext(Context, LastError)) return Fail(LastError, &OutReason);
+                Context.Request.PluginOverrides = Overrides;
+                const auto Selection = ResolvePlugins(Context.Request);
+                if (!Selection) return Fail(Selection.error(), &OutReason);
+                FPluginResources Resources;
+                if (!ResolvePluginResources(*Selection, Resources, LastError)) return Fail(LastError, &OutReason);
+                auto Mounts = Candidate.Mounts;
+                Mounts.insert(Mounts.end(), Resources.ContentMounts.begin(), Resources.ContentMounts.end());
+                if (!FMountPaths::ValidateMountDefinitions(BuildProjectMountDefinitions(Active->ProjectFile, Mounts), &LastError)) return Fail(LastError, &OutReason);
+                if (!Candidate.Save(Active->ProjectFile, LastError)) return Fail(LastError, &OutReason);
+                Descriptor = std::move(Candidate); LastError.clear(); OutReason.clear(); return true;
+            }
+
 			auto SetPluginEnabled(std::string_view Name,bool bEnabled,std::string& OutReason) -> bool override
 			{
 				if (!Descriptor) return Fail("No project loaded",&OutReason);
@@ -135,6 +174,28 @@ namespace Durin
 	}
 
 	namespace { auto Manager() -> FProjectManager& { static FProjectManager Instance; return Instance; } }
+    auto GetActivePluginIds() -> std::span<const std::string> { return ActivePluginIds; }
+    auto SaveProjectPluginOverrides(const std::map<std::string, bool>& Overrides, std::string_view ExpectedDisk, std::string& OutReason) -> bool
+    { return Manager().SavePluginOverrides(Overrides, ExpectedDisk, OutReason); }
+
+    auto GetActivePluginResources() -> const FPluginResources& { return ActivePluginResources; }
+    auto LoadProjectConfig(const std::filesystem::path& File, FYamlDocument& OutDocument, std::string& OutReason) -> bool
+    {
+        try
+        {
+            std::vector<std::filesystem::path> Files;
+            const auto* Project = GetCurrentProject();
+            if (Project && std::filesystem::weakly_canonical(File) == std::filesystem::weakly_canonical(std::filesystem::path(Project->ProjectDir) / "Configs/Project.yaml"))
+            {
+                Files.emplace_back(std::filesystem::path(FPaths::EngineDir()) / "Configs/Project.yaml");
+                for (const auto& Directory : ActivePluginResources.ConfigDirectories) Files.push_back(Directory / "Project.yaml");
+            }
+            Files.push_back(File);
+            return LoadConfigLayers(Files, OutDocument, OutReason);
+        }
+        catch (const std::exception& Error) { OutReason = Error.what(); return false; }
+    }
+
 	auto IProjectManager::Get() -> IProjectManager& { return Manager(); }
 	auto InitializeCurrentProject(const FProjectInitializationParams& Params) -> std::expected<void,FProjectError>
 	{

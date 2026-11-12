@@ -17,5 +17,7 @@
       "Host": "Editor",
       "Phase": "EditorReady"
     }
-  ]
+  ],
+  "Content": "Content",
+  "Configs": "Configs"
 }

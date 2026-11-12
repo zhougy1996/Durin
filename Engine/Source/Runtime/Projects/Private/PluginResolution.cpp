@@ -1,4 +1,5 @@
 #include "Plugins/PluginResolution.h"
+#include "Plugins/PluginManagement.h"
 
 #include "Json/Json.h"
 #include "Project/Project.h"
@@ -157,6 +158,7 @@ namespace Durin
 			std::string Name;
 			std::filesystem::path Path;
 			std::vector<std::string> Dependencies, Platforms;
+            std::string DisplayName, Version;
 		};
 		struct FProject
 		{
@@ -248,7 +250,8 @@ namespace Durin
 				for (const auto& Field : {"$schema", "DisplayName", "Version"}) if (Data.Contains(Field)) (void)Text(Data, Field, Path);
 				for (const auto& Field : {"Content", "Shaders", "Configs"})
 					if (Data.Contains(Field)) (void)Contained(std::filesystem::weakly_canonical(Directory), Text(Data, Field, Path));
-				Plugins.emplace(Fold(Name), FPlugin{Name, Path, Ids(Data, "Dependencies", Path), Ids(Data, "Platforms", Path)});
+				Plugins.emplace(Fold(Name), FPlugin{Name, Path, Ids(Data, "Dependencies", Path), Ids(Data, "Platforms", Path),
+                    Text(Data, "DisplayName", Path, Name), Text(Data, "Version", Path, "Unversioned")});
 				const auto List = Data.GetView("Modules");
 				if (List.IsValid() && !List.IsArray()) Fail(Path, "Modules must be an array");
 				for (size_t I = 0; I < List.Num(); ++I)
@@ -264,6 +267,14 @@ namespace Durin
 				}
 
 			}
+            auto DisabledDependency(const std::string& Key, std::set<std::string>& Seen) const -> std::string
+            {
+                if (Explicit.contains(Key) && !Explicit.at(Key)) return Plugins.at(Key).Name;
+                if (!Plugins.contains(Key) || !Seen.insert(Key).second) return {};
+                for (const auto& Dependency : Plugins.at(Key).Dependencies)
+                    if (auto Disabled = DisabledDependency(Fold(Dependency), Seen); !Disabled.empty()) return Disabled;
+                return {};
+            }
 			auto Visit(const std::string& Key, std::vector<std::string> Chain) -> void
 			{
 				if (!Plugins.contains(Key)) Fail(Request.ProjectFile, "missing plugin descriptor " + Key, Chain);
@@ -356,7 +367,7 @@ namespace Durin
 				}
 				if (Active.contains(Key) && Done.insert(Key).second) ModuleOrder.push_back(Key);
 			}
-			auto Run() -> FPluginResolution
+			auto Run(bool bDiscoveryOnly = false) -> FPluginResolution
 			{
 				if ((Request.RuntimeVariant != "DurinEditor" && Request.RuntimeVariant != "DurinGame") || !Identifier(Request.Platform))
 					throw std::runtime_error("invalid target");
@@ -383,12 +394,23 @@ namespace Durin
 				}
 				std::set<std::filesystem::path> Roots = {EngineRoot / "Plugins", ProjectFile.parent_path() / "Plugins"};
 				for (const auto& Root : Roots) Discover(Root, Root);
-				for (const auto& Project : Projects) if (Project.Path == ProjectFile && !Request.bProjectBrowser)
-					for (const auto& [Name, Enabled] : Project.Overrides) Explicit.emplace(Fold(Name), Enabled);
+                if (bDiscoveryOnly) return std::move(Result);
+                for (const auto& Project : Projects) if (Project.Path == ProjectFile && !Request.bProjectBrowser)
+                    for (const auto& [Name, Enabled] : Request.PluginOverrides.value_or(Project.Overrides))
+                    {
+                        if (!Identifier(Name) || !Explicit.emplace(Fold(Name), Enabled).second)
+                            Fail(ProjectFile, "invalid or duplicate plugin override: " + Name);
+                    }
+                std::map<std::string, std::string> Inactive;
+                for (const auto& [Key, Enabled] : Explicit)
+					if (!Plugins.contains(Key)) Fail(ProjectFile, "missing plugin descriptor " + Key, {Key});
 				for (const auto& [Key, Enabled] : Explicit)
 				{
-					if (!Plugins.contains(Key)) Fail(ProjectFile, "missing plugin descriptor " + Key, {Key});
-					if (Enabled) { Reasons[Key].insert("Explicit"); Visit(Key, {Plugins.at(Key).Name}); }
+                    if (!Enabled) continue;
+                    std::set<std::string> Seen;
+                    const auto Disabled = DisabledDependency(Key, Seen);
+                    if (!Disabled.empty()) { Inactive[Plugins.at(Key).Name] = "Requires disabled plugin " + Disabled; continue; }
+                    Reasons[Key].insert("Explicit"); Visit(Key, {Plugins.at(Key).Name});
 				}
 				for (auto& [Key,Module]:Modules) if (!Module.Owner.empty() && Eligible(Module))
 				{
@@ -432,6 +454,12 @@ namespace Durin
 				Root.SetChildValue("SchemaVersion", 1);
 				Root.SetChildValue("Platform", Request.Platform);
 				Root.SetChildValue("RuntimeVariant", Request.RuntimeVariant);
+                if (!Inactive.empty())
+                {
+                    auto List = Root.AddArray("InactivePlugins");
+                    for (const auto& [Id, Reason] : Inactive)
+                    { auto Item = List.AppendObject(); Item.SetChildValue("Id", Id); Item.SetChildValue("Reason", Reason); }
+                }
 				auto PluginList = Root.AddArray("Plugins");
 				for (const auto& Key : Order)
 				{
@@ -459,6 +487,20 @@ namespace Durin
 		};
 	}
 
+    auto DiscoverPlugins(const FPluginResolveRequest& Request, std::vector<FPluginInfo>& OutPlugins, std::string& OutReason) -> bool
+    {
+        try
+        {
+            FResolver Resolver(Request);
+            (void)Resolver.Run(true);
+            std::vector<FPluginInfo> Result;
+            for (const auto& [Key, Plugin] : Resolver.Plugins)
+                Result.push_back({Plugin.Name, Plugin.DisplayName, Plugin.Version, Plugin.Dependencies, Plugin.Platforms, Plugin.Path});
+            OutPlugins = std::move(Result); OutReason.clear(); return true;
+        }
+        catch (const std::exception& Error) { OutReason = Error.what(); return false; }
+    }
+
 	auto ResolvePlugins(const FPluginResolveRequest& Request) -> std::expected<FPluginResolution, std::string>
 	{
 		try { return FResolver(Request).Run(); }
@@ -475,11 +517,34 @@ namespace Durin
 			if (!Selected.Parse(Selection.ManifestJson)) Fail(InventoryFile, "invalid resolved selection");
 			const auto Root = Inventory.GetRootView();
 			RejectDuplicateFields(Root, InventoryFile);
-			Fields(Root, {"SchemaVersion", "SelectionFingerprint", "Identity", "Binaries"}, InventoryFile);
-			if (!Root.GetView("SchemaVersion").IsInt() || Root.GetView("SchemaVersion").GetInt() != 1)
+			Fields(Root, {"SchemaVersion", "Inputs", "Identity", "Binaries"}, InventoryFile);
+			if (!Root.GetView("SchemaVersion").IsInt() || Root.GetView("SchemaVersion").GetInt() != 2)
 				Fail(InventoryFile, "unsupported build schema version");
-			if (Text(Root, "SelectionFingerprint", InventoryFile) != Text(Selected.GetRootView(), "Fingerprint", InventoryFile))
-				Fail(InventoryFile, "stale plugin selection");
+			const auto Inputs = Root.GetView("Inputs");
+			if (!Inputs.IsArray()) Fail(InventoryFile, "invalid build inputs");
+			std::map<std::string, std::string> BuiltInputs;
+			for (size_t I = 0; I < Inputs.Num(); ++I)
+			{
+				const auto Input = Inputs.GetView(I);
+				Fields(Input, {"Path", "Hash"}, InventoryFile);
+				if (!BuiltInputs.emplace(Text(Input, "Path", InventoryFile), Text(Input, "Hash", InventoryFile)).second)
+					Fail(InventoryFile, "duplicate build input");
+			}
+			const auto CurrentInputs = Selected.GetRootView().GetView("Inputs");
+			if (!CurrentInputs.IsArray()) Fail(InventoryFile, "invalid selection inputs");
+			for (size_t I = 0; I < CurrentInputs.Num(); ++I)
+			{
+				const auto Input = CurrentInputs.GetView(I);
+				const auto Path = Text(Input, "Path", InventoryFile);
+				const auto Slash = Path.find('/', 7);
+				const bool Plugin = Path.starts_with("Plugin/");
+				const auto Owner = Path.substr(7, Slash == std::string::npos ? Slash : Slash - 7);
+				if (Plugin ? std::ranges::find(Selection.Plugins, Owner) == Selection.Plugins.end()
+					: std::ranges::count(Path, '/') != 2) continue;
+				const auto Found = BuiltInputs.find(Path);
+				if (Found == BuiltInputs.end() || Found->second != Text(Input, "Hash", InventoryFile))
+					Fail(InventoryFile, "stale plugin build input: " + Path);
+			}
 			const auto Native = Root.GetView("Identity");
 			Fields(Native, {"EngineBuild", "Platform", "Architecture", "Configuration", "RuntimeVariant", "ToolchainABI"}, InventoryFile);
 			for (const auto& [Key, Expected] : {
@@ -494,13 +559,25 @@ namespace Durin
 				|| Text(Selected.GetRootView(), "RuntimeVariant", InventoryFile) != Identity.RuntimeVariant)
 				Fail(InventoryFile, "selection target differs from host");
 			const auto List = Root.GetView("Binaries");
-			if (!List.IsArray() || List.Num() != Selection.Modules.size()) Fail(InventoryFile, "plugin module membership differs");
+			if (!List.IsArray()) Fail(InventoryFile, "invalid plugin module inventory");
 			const auto Base = std::filesystem::canonical(InventoryFile).parent_path();
 			const auto File = [&](const std::string& Relative) {
 				const auto Path = Contained(Base, Relative);
 				if (!std::filesystem::is_regular_file(Path)) Fail(InventoryFile, "missing runtime file: " + Relative);
 				return Path;
 			};
+			// Index every declared plugin binary so native dependencies cannot smuggle
+			// disabled code into the selected closure. Unused files need not exist.
+			std::map<std::filesystem::path, std::string> PluginPaths;
+			std::set<std::string> Names;
+			for (size_t I = 0; I < List.Num(); ++I)
+			{
+				const auto Item = List.GetView(I);
+				const auto Name = Text(Item, "Module", InventoryFile);
+				if (!Names.insert(Fold(Name)).second
+					|| !PluginPaths.emplace(Contained(Base, Text(Item, "Path", InventoryFile)), Name).second)
+					Fail(InventoryFile, "duplicate plugin module or binary path");
+			}
 			std::map<std::string, FAdmittedPluginBinary> ByName;
 			for (size_t I = 0; I < List.Num(); ++I)
 			{
@@ -508,8 +585,9 @@ namespace Durin
 				Fields(Item, {"Module", "Owner", "Path", "RuntimeDependencies"}, InventoryFile);
 				const auto Name = Text(Item, "Module", InventoryFile);
 				const auto Match = std::ranges::find(Selection.Modules, Name, &FResolvedPluginModule::Name);
-				if (Match == Selection.Modules.end() || Text(Item, "Owner", InventoryFile) != Match->Owner)
-					Fail(InventoryFile, "unselected plugin module or incorrect owner: " + Name);
+				if (Match == Selection.Modules.end()) continue;
+				if (Text(Item, "Owner", InventoryFile) != Match->Owner)
+					Fail(InventoryFile, "incorrect plugin owner: " + Name);
 				FAdmittedPluginBinary Binary{*Match, File(Text(Item, "Path", InventoryFile)), {}};
 				const auto Dependencies = Item.GetView("RuntimeDependencies");
 				if (!Dependencies.IsArray()) Fail(InventoryFile, "invalid runtime dependencies");
@@ -518,12 +596,21 @@ namespace Durin
 				{
 					const auto Entry = Dependencies.GetView(J);
 					if (!Entry.IsString() || !Seen.insert(Entry.GetString()).second) Fail(InventoryFile, "invalid runtime dependency");
-					Binary.RuntimeDependencies.push_back(File(Entry.GetString()));
+					const auto Path = File(Entry.GetString());
+					if (const auto Found = PluginPaths.find(Path); Found != PluginPaths.end()
+						&& std::ranges::find(Selection.Modules, Found->second, &FResolvedPluginModule::Name) == Selection.Modules.end())
+						Fail(InventoryFile, "native dependency on disabled plugin module: " + Found->second);
+					Binary.RuntimeDependencies.push_back(Path);
 				}
 				if (!ByName.emplace(Name, std::move(Binary)).second) Fail(InventoryFile, "duplicate plugin module: " + Name);
 			}
 			std::vector<FAdmittedPluginBinary> Result;
-			for (const auto& Module : Selection.Modules) Result.push_back(std::move(ByName.at(Module.Name)));
+			for (const auto& Module : Selection.Modules)
+			{
+				const auto Found = ByName.find(Module.Name);
+				if (Found == ByName.end()) Fail(InventoryFile, "missing selected plugin module: " + Module.Name);
+				Result.push_back(std::move(Found->second));
+			}
 			OutBinaries = std::move(Result);
 			OutReason.clear();
 			return true;

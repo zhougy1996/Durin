@@ -9,5 +9,8 @@
       "Host": "Runtime",
       "Phase": "Providers"
     }
-  ]
+  ],
+  "Content": "Content",
+  "Configs": "Configs",
+  "Shaders": "Shaders"
 }

@@ -1,4 +1,5 @@
 #include "Modules/ModuleManager.h"
+#include "Misc/AppConfig.h"
 namespace Durin
 {
 	class FPluginFixtureRuntimeModule final : public IModuleInterface
@@ -15,6 +16,14 @@ namespace Durin
 	public:
 		auto StartupModule() -> void override
 		{
+            if (const char* Expected = std::getenv("DURIN_PLUGIN_FIXTURE_EXPECT_CONFIG"))
+            {
+                const auto Config = GetModuleConfig("PluginFixture");
+                if (Config.GetView("Default").GetString() != "PluginFixtureConsumer"
+                    || !Config.GetView("ProjectWins").GetBool()
+                    || Config.GetView("UserWins").GetString() != Expected)
+                    throw std::runtime_error("Plugin configuration precedence was not applied before provider startup");
+            }
 			Record("start");
 			if (const char* Fail = std::getenv("DURIN_PLUGIN_FIXTURE_FAIL");
 				Fail && std::string_view(Fail) == "PluginFixtureRuntime")

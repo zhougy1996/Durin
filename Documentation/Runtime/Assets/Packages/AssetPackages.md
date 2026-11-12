@@ -4,7 +4,7 @@ Summary: Define asset identity, canonical DAST packages, runtime residency, load
 
 Modules: AssetRegistry, Engine, CoreDObject, AssetMaintenance, AssetTools
 
-Last reviewed: 2026-11-10
+Last reviewed: 2026-11-12
 
 Durin object assets are stored as versioned `.dasset` packages. A package is a
 residency and persistence container with zero or more independently addressable
@@ -122,7 +122,10 @@ subobject string, and subobject traversal uses non-owning component views.
 Discovery rejects case-only duplicate logical package identities.
 
 The immutable Core mount registry publishes `/Engine/` and `/Game/` plus
-validated project-declared extension and external-source mounts. Typed
+validated project-declared extension/external-source mounts and the admitted
+plugins' read-only `/Plugins/<Id>/` content roots. The
+[plugin resource contract](../../../Workspace/Plugins.md#plugin-content-shaders-and-configuration)
+owns selection and dependency policy. Typed
 resolution distinguishes invalid paths, unknown mounts, unavailable content
 directories, escapes, missing files, forbidden dependencies, and read-only
 write policy. Existing paths and not-yet-created destinations are checked

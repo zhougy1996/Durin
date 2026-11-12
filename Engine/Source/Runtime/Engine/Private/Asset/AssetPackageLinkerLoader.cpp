@@ -7,6 +7,7 @@
 
 #include "AssetPackageArchive.h"
 #include "Asset/Load.h"
+#include "Misc/MountPaths.h"
 #include "AssetRuntimeStateInternal.h"
 #include "AssetRegistry/Publication.h"
 
@@ -329,6 +330,17 @@ namespace Durin::AssetPrivate
 				LinkerApplyFail(Diagnostic, Result.Error, Result.Message);
 				return Result;
 			}
+            for (const auto* Dependencies : {&Linker.Summary.HardPackageDependencies,
+                &Linker.Summary.SoftPackageDependencies, &Linker.Summary.BuildPackageDependencies})
+                for (const auto& Dependency : *Dependencies)
+                    if (Dependency.GetView().starts_with("/Plugins/")
+                        && !FMountPaths::FindMountForVirtualPath(Dependency.GetView()))
+                    {
+                        LinkerApplyFail(Diagnostic, EAssetReadError::MissingDependency,
+                            "Serialized plugin reference '" + Dependency.ToString()
+                            + "' has no active mount. Enable the required plugin and restart before editing or saving this package.");
+                        return {Diagnostic.Error, Diagnostic.Message};
+                    }
 			Application.SchemaBindings.emplace(Linker);
 			auto& SchemaBindings = *Application.SchemaBindings;
 			auto& Exports = Application.Exports;
@@ -348,7 +360,7 @@ namespace Durin::AssetPrivate
 				if (!Class)
 				{
 					LinkerApplyFail(Diagnostic, EAssetReadError::UnknownClass,
-						std::format("Serialized class '{}' is unavailable.", Object.Export->ClassName), 0, Object.Path);
+						std::format("Serialized class '{}' is unavailable. Enable its required plugin and restart, or restore its native provider, before editing or saving this package.", Object.Export->ClassName), 0, Object.Path);
 					return {EAssetReadError::UnknownClass, Diagnostic.Message};
 				}
 				for (const ObjectPackage::FPropertyTag& Property : Object.Export->Properties)
@@ -423,7 +435,7 @@ namespace Durin::AssetPrivate
 				DClass* Class = Descriptor.Class;
 				if (!Class || !Class->ClassConstructor)
 				{
-					LinkerApplyFail(Diagnostic, EAssetReadError::UnknownClass, std::format("Serialized class '{}' is unavailable.", Descriptor.Export->ClassName), 0, Descriptor.Path);
+					LinkerApplyFail(Diagnostic, EAssetReadError::UnknownClass, std::format("Serialized class '{}' is unavailable. Enable its required plugin and restart, or restore its native provider, before editing or saving this package.", Descriptor.Export->ClassName), 0, Descriptor.Path);
 					return {EAssetReadError::UnknownClass, Diagnostic.Message};
 				}
 				DObject* Outer = Descriptor.OuterId == 0 ? static_cast<DObject*>(Package)

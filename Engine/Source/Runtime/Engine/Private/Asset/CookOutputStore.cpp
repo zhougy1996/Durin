@@ -195,7 +195,7 @@ namespace Durin
 				{
 					const FCookAuxiliaryOutput& Output = AuxiliaryOutputs[Index];
 					const std::filesystem::path Relative(Output.RelativePath);
-					if (Output.Kind != ECookManifestEntryKind::ShaderLibrary
+					if ((Output.Kind != ECookManifestEntryKind::ShaderLibrary && Output.Kind != ECookManifestEntryKind::PluginSnapshot)
 						|| Output.RelativePath.empty() || Relative.is_absolute()
 						|| Relative.lexically_normal() != Relative
 						|| Relative.native().starts_with(std::filesystem::path("..").native())
