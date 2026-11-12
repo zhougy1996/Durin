@@ -262,7 +262,7 @@ TEST_F(FMaterialQualificationTests, ParallelProgramCompilationWorkloads)
 			std::vector<FMaterialBuildResult> Results(Count);
 			for (uint32 Index = 0; Index < Count; ++Index) {
 				auto Compile = MaterialBuildPrivate::FMaterialCompilation::Compile(Inputs[Index], {}, [&, Index](auto Result) { Results[Index] = std::move(Result); });
-				ASSERT_TRUE(Compile); Handles.push_back(std::move(*Compile));
+				ASSERT_TRUE(Compile); Handles.push_back(std::move(Compile));
 			}
 			for (const auto& Handle : Handles) Manager.FinishCompilation(Handle);
 			const auto Us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - Begin).count();

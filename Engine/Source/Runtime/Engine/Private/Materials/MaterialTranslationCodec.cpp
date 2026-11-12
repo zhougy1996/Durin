@@ -148,20 +148,8 @@ namespace Durin::MaterialBuildPrivate
 			return true;
 		}
 	}
-	auto EstimateTranslationCaptureBytes(const MIR::FCompilerInput& Input) -> uint64
-	{
-		uint64 Bytes = sizeof(Input) + Input.IR.Nodes.capacity() * sizeof(MIR::FNode) + Input.Parameters.capacity() * sizeof(FMaterialCompilerParameterDeclaration)
-			+ Input.Sources.capacity() * sizeof(MIR::FSource) + Input.Environment.CompilerIdentity.capacity() + Input.Environment.Target.capacity()
-			+ Input.Environment.StaticBools.capacity() * sizeof(FMaterialCompilerEnvironment::FStaticBoolValue);
-		for (const auto& Node : Input.IR.Nodes) Bytes += Node.Inputs.capacity() * sizeof(uint32);
-		for (const auto& Source : Input.Sources) Bytes += Source.FunctionAssetPath.capacity() + Source.CallPath.capacity() * sizeof(FGuid);
-		for (const auto& Collection : Input.Collections) Bytes += sizeof(Collection) + Collection.AssetPath.capacity() + Collection.DefaultPayload.capacity() + Collection.UniformLayout.Fields.capacity() * sizeof(FMaterialRenderField);
-		for (const auto& Dependency : Input.Environment.Dependencies) Bytes += sizeof(Dependency) + Dependency.VirtualPath.capacity();
-		return Bytes;
-	}
 	auto EncodeTranslationInput(const MIR::FCompilerInput& Captured) -> std::optional<FSharedByteBuffer>
 	{
-		if (EstimateTranslationCaptureBytes(Captured) > TranslationInputBytes) return {};
 		auto Parameters = Captured.Parameters;
 		std::ranges::sort(Parameters, {}, &FMaterialCompilerParameterDeclaration::Id);
 		std::vector<FMaterialParameterCollectionLayout> Collections;

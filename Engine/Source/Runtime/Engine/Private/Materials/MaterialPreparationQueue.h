@@ -6,16 +6,16 @@
 
 namespace Durin::Private
 {
-	inline constexpr uint32 MaterialCompileMaxRetryChecks = 256;
+	inline constexpr uint32 MaterialPreparationMaxChecks = 256;
 
 	// Game-thread only. Handles do not keep materials alive; generation is part
 	// of the key so a reused object slot never inherits an old registration.
-	class FMaterialCompileRetryQueue
+	class FMaterialPreparationQueue
 	{
 	public:
-		FMaterialCompileRetryQueue() = default;
-		FMaterialCompileRetryQueue(const FMaterialCompileRetryQueue&) = delete;
-		auto operator=(const FMaterialCompileRetryQueue&) -> FMaterialCompileRetryQueue& = delete;
+		FMaterialPreparationQueue() = default;
+		FMaterialPreparationQueue(const FMaterialPreparationQueue&) = delete;
+		auto operator=(const FMaterialPreparationQueue&) -> FMaterialPreparationQueue& = delete;
 
 		auto Add(FWeakObjectPtr Owner) -> void
 		{
@@ -54,5 +54,5 @@ std::list<FWeakObjectPtr> Owners;
 	};
 
 	// Shared by lifecycle and owner teardown, including edits before manager start.
-	auto GetMaterialCompileRetryQueue() -> FMaterialCompileRetryQueue&;
+	auto GetMaterialPreparationQueue() -> FMaterialPreparationQueue&;
 }

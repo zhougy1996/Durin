@@ -1,6 +1,6 @@
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialCookedProgram.h"
-#include "MaterialCompileRetryQueue.h"
+#include "MaterialPreparationQueue.h"
 #include "Asset/Asset.h"
 #include "DObject/WeakObjectPtr.h"
 #include "DynamicRHI.h"
@@ -185,9 +185,9 @@ namespace Durin
 		if (bSynchronous)
 		{
 			PollCookedProgramPreparation(true);
-			Private::GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(this));
+			Private::GetMaterialPreparationQueue().Remove(FWeakObjectPtr(this));
 		}
-		else Private::GetMaterialCompileRetryQueue().Add(FWeakObjectPtr(this));
+		else Private::GetMaterialPreparationQueue().Add(FWeakObjectPtr(this));
 	}
 	auto DMaterialInterface::PollCookedProgramPreparation(bool bSynchronous) -> bool
 	{
@@ -238,7 +238,6 @@ namespace Durin
 		std::filesystem::path CookRoot;
 		ECookTargetPlatform CookTarget = ECookTargetPlatform::Win64;
 		EMaterialQualityLevel Quality = EMaterialQualityLevel::High;
-		std::vector<FMaterialFunctionOwnerStamp> Functions;
 		FMaterialStaticProperties Properties;
 		std::shared_ptr<FMaterialProgramPreparationState> Cooked;
 		std::shared_ptr<FMaterialFeatureLevelMailbox> Mailbox;
@@ -339,7 +338,7 @@ namespace Durin
 			const auto Level = static_cast<ERHIFeatureLevel>(Index);
 			if (State->Proxy) (void)GetRenderProxy(Level);
 			if (State->bRequested && !IsDynamicInstance())
-				Private::GetMaterialCompileRetryQueue().Add(FWeakObjectPtr(const_cast<DMaterialInterface*>(this)));
+				Private::GetMaterialPreparationQueue().Add(FWeakObjectPtr(const_cast<DMaterialInterface*>(this)));
 		}
 	}
 
@@ -392,7 +391,7 @@ namespace Durin
 		const bool bCurrent = Slot->AuthoredRevision == OwnerStatus.AuthoredRevision
 			&& Slot->DependencyRevision == OwnerStatus.DependencyRevision
 			&& Slot->ShaderRevision == GetShaderReloadGeneration() && Slot->Quality == GetMaterialQualityLevel()
-			&& Slot->BulkRevision == CookedProgramData.GetContentRevision() && AreMaterialFunctionOwnersCurrent(Slot->Functions)
+			&& Slot->BulkRevision == CookedProgramData.GetContentRevision()
 			&& Slot->Backend == PreparationBackend() && Slot->bCooked == GetAssetRuntimeConfiguration().RequiresCookedPayload()
 			&& Slot->CookRoot == GetAssetRuntimeConfiguration().GetCookRoot()
 			&& Slot->CookTarget == GetAssetRuntimeConfiguration().GetCookTargetPlatform();
@@ -452,21 +451,15 @@ namespace Durin
 					auto Snapshot = SnapshotMaterialCompilerInput(*this, std::move(Environment));
 					if (!Snapshot) { Fail(EMaterialCompileState::Rejected, Snapshot.Diagnostics.empty() ? "Material capture failed." : Snapshot.Diagnostics.front().Message); return; }
 					State->Properties = Snapshot.Snapshot->Input.StaticProperties;
-					State->Functions = std::move(Snapshot.Snapshot->FunctionOwners);
 					State->Mailbox = std::make_shared<FMaterialFeatureLevelMailbox>();
 					const auto Requested = MaterialBuildPrivate::FMaterialCompilation::Compile(
 						std::make_shared<const MIR::FCompilerInput>(std::move(Snapshot.Snapshot->Input)), {.IsCancellationRequested = [Weak = std::weak_ptr(State)] { auto Owner = Weak.lock(); return !Owner || Owner->Cancellation.IsCanceled(); }},
 						[Weak = std::weak_ptr(State->Mailbox)](MaterialBuildPrivate::FMaterialBuildResult Result) {
 							if (const auto Mailbox = Weak.lock()) { std::lock_guard Lock(Mailbox->Mutex); Mailbox->Result = std::move(Result); }
 						});
-					if (!Requested)
-					{
-						State->Mailbox.reset();
-						if (Requested.error() != MaterialBuildPrivate::EMaterialCompileAdmissionError::Capacity)
-						{ Fail(EMaterialCompileState::Rejected, "Material feature-level compile admission failed."); return; }
-						State->Status.State = EMaterialCompileState::Deferred;
-					}
-					else { State->Request = *Requested; State->Status.State = EMaterialCompileState::Running; }
+					if (!Requested) { Fail(EMaterialCompileState::Rejected, "Shader compilation manager is stopped."); return; }
+					State->Request = Requested;
+					State->Status.State = EMaterialCompileState::Running;
 				}
 			}
 			if (State->Request && bSynchronous) FShaderCompilingManager::Get().FinishCompilation(State->Request);
@@ -487,7 +480,7 @@ namespace Durin
 				}
 			}
 		}
-		if (!Program) { Private::GetMaterialCompileRetryQueue().Add(FWeakObjectPtr(this)); return; }
+		if (!Program) { Private::GetMaterialPreparationQueue().Add(FWeakObjectPtr(this)); return; }
 		if (Program->FeatureLevel != Level || !ValidateMaterialCompilerResult(*Program))
 		{ Fail(EMaterialCompileState::Failed, "Prepared material program has a mismatched feature level or invalid contract."); return; }
 		const auto Validated = ValidatePreparedMaterialProgram(State->Properties, std::move(Program));

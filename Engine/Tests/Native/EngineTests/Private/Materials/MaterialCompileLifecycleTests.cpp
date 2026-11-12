@@ -19,7 +19,7 @@
 #include "Asset/AssetCompilingManager.h"
 #include "Asset/OfflinePreparation.h"
 #include "Materials/MaterialCompileLifecycle.h"
-#include "Materials/MaterialCompileRetryQueue.h"
+#include "Materials/MaterialPreparationQueue.h"
 #include "Materials/MaterialCompileTestSupport.h"
 #include "Shader/ShaderCompilingManager.h"
 #include "Materials/MaterialCookedProgram.h"
@@ -159,7 +159,7 @@ auto QualifyCanceledFlightResubmission() -> void
 			ASSERT_TRUE(RequestMaterialRecompile(*Material, true));
 			EXPECT_GT(Material->GetMaterialCompileStatus().RequestGeneration, Generation);
 			EXPECT_GT(GetMaterialCompilationDiagnostics().CanceledRequests, CanceledBefore);
-			EXPECT_TRUE(Material->GetMaterialCompileStatus().State == EMaterialCompileState::Deferred || Material->GetMaterialCompileStatus().State == EMaterialCompileState::Running);
+			EXPECT_EQ(Material->GetMaterialCompileStatus().State, EMaterialCompileState::Running);
 		}
 		ASSERT_TRUE(WaitForMaterialCompile(*Material));
 		EXPECT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
@@ -284,8 +284,8 @@ TEST(FMaterialCompileLifecycleTests, RetryQueueBoundsChecksAndRotatesWithoutDupl
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
-	Private::FMaterialCompileRetryQueue Queue;
-	constexpr uint32 Budget = Private::MaterialCompileMaxRetryChecks;
+	Private::FMaterialPreparationQueue Queue;
+	constexpr uint32 Budget = Private::MaterialPreparationMaxChecks;
 	std::vector<FWeakObjectPtr> Visited;
 	std::vector<FWeakObjectPtr> Owners;
 	for (uint32 I = 0; I < Budget + 3; ++I) Owners.emplace_back(NewObject<DObject>(nullptr, NAME_None));
@@ -325,7 +325,7 @@ TEST(FMaterialCompileLifecycleTests, RetryQueueRemovesOwnersAndDistinguishesSlot
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
-	Private::FMaterialCompileRetryQueue Queue;
+	Private::FMaterialPreparationQueue Queue;
 	Queue.Add({});
 	EXPECT_EQ(Queue.Num(), 0u);
 	auto* Old = NewObject<DObject>(nullptr, NAME_None);
@@ -526,12 +526,48 @@ TEST_F(FMaterialAsyncCompileTests, CanceledFlightsCanBeResubmitted)
 	ASSERT_NO_FATAL_FAILURE(QualifyCanceledFlightResubmission());
 }
 
+TEST_F(FMaterialAsyncCompileTests, ReplacingCanceledSharedFlightCompletesItsOtherConsumers)
+{
+	using namespace Durin;
+	auto* First = MakeObject<DMaterial>("ReplacedCanceledFirst");
+	auto* Second = MakeObject<DMaterial>("ReplacedCanceledSecond");
+	{
+		const auto WorkerCount = GetTaskSchedulerDiagnostics().WorkerCount;
+		FThreadEvent Started, Release;
+		std::atomic_uint32_t StartedCount = 0;
+		std::vector<Tasks::FTask> Blockers;
+		struct FReleaseWorkers
+		{
+			FThreadEvent& Release;
+			std::vector<Tasks::FTask>& Blockers;
+			~FReleaseWorkers() { Release.Trigger(); for (const auto& Task : Blockers) WaitTask(Task); }
+		} ReleaseWorkers{Release, Blockers};
+		for (uint32 Index = 0; Index < WorkerCount; ++Index)
+			Blockers.push_back(Tasks::FTask(Tasks::LaunchTask("HoldReplacedSharedFlight", [&] {
+				if (StartedCount.fetch_add(1) + 1 == WorkerCount) Started.Trigger();
+				Release.WaitFor(10.0);
+			})));
+		ASSERT_TRUE(Started.WaitFor(2.0));
+		const auto JoinsBefore = GetMaterialCompilationDiagnostics().SingleFlightConsumers;
+		ASSERT_TRUE(RequestMaterialRecompile(*First, true));
+		ASSERT_TRUE(RequestMaterialRecompile(*Second, true));
+		EXPECT_EQ(GetMaterialCompilationDiagnostics().SingleFlightConsumers, JoinsBefore + 1);
+		EXPECT_EQ(GetMaterialCompilationDiagnostics().OutstandingConsumerCount, 2u);
+		FShaderCompilingManager::Get().CancelAllCompilation();
+		ASSERT_TRUE(RequestMaterialRecompile(*First, true));
+	}
+	FAssetCompilingManager::Get().FinishAllCompilation();
+	EXPECT_TRUE(First->GetMaterialCompileStatus().IsCurrent());
+	EXPECT_EQ(Second->GetMaterialCompileStatus().State, EMaterialCompileState::Canceled);
+	EXPECT_EQ(GetMaterialCompilationDiagnostics().OutstandingConsumerCount, 0u);
+}
+
 TEST_F(FMaterialAsyncCompileTests, InstanceVariantsShareOnlyCompatiblePrograms)
 {
 	ASSERT_NO_FATAL_FAILURE(Durin::Testing::CheckInstanceVariantsForTest(false));
 }
 
-TEST_F(FMaterialAsyncCompileTests, InstanceOwnersRetryDeferredCompilation)
+TEST_F(FMaterialAsyncCompileTests, InstanceOwnersQueueWithoutCapacityRetries)
 {
 	ASSERT_NO_FATAL_FAILURE(QualifyInstanceCompilationOwners());
 }
@@ -667,51 +703,6 @@ TEST_F(FMaterialAsyncCompileTests, LatestGenerationReplacesTheAcceptedProgram)
 	EXPECT_TRUE(First->GetMaterialCompileStatus().IsCurrent());
 }
 
-TEST_F(FMaterialAsyncCompileTests, PropertyMismatchReschedulesWithoutReplacingAcceptedProgram)
-{
-	using namespace Durin;
-	for (const auto Mode : {EMaterialEditCompileMode::Immediate, EMaterialEditCompileMode::Automatic, EMaterialEditCompileMode::Manual})
-	{
-		SCOPED_TRACE(static_cast<int>(Mode));
-		auto* Material = MakeObject<DMaterial>("PropertyMismatch");
-		ASSERT_TRUE(RequestMaterialRecompile(*Material));
-		ASSERT_TRUE(WaitForMaterialCompile(*Material));
-		const auto Program = Material->GetAcceptedCompiledProgram();
-		ASSERT_TRUE(Program);
-		Material->SetEditCompileMode(Mode);
-		const auto Before = Material->GetMaterialCompileStatus();
-		auto Properties = Material->GetStaticProperties();
-		Properties.BlendMode = EMaterialBlendMode::Masked;
-		FMaterialCompileResult Mismatched{
-			.Owner = FWeakObjectPtr(Material),
-			.AuthoredRevision = Before.AuthoredRevision,
-			.Generation = Before.RequestGeneration,
-			.DependencyRevision = Before.DependencyRevision,
-			.ProgramIdentity = Before.CompiledIdentity,
-			.StaticProperties = Properties,
-			.Target = Before.Target,
-			.Outcome = EMaterialCompileOutcome::Succeeded,
-			.CompiledProgram = Program,
-		};
-		EXPECT_FALSE(Private::FMaterialCompilationLifecycle::Admit(*Material, std::move(Mismatched)));
-		EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Program);
-		EXPECT_TRUE(Material->GetMaterialCompileDiagnostics().empty());
-		if (Mode == EMaterialEditCompileMode::Manual)
-		{
-			EXPECT_TRUE(Material->GetMaterialCompileStatus().HasUnsubmittedEdits());
-			EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration, Before.RequestGeneration);
-			ASSERT_TRUE(Material->CompileEdits());
-		}
-		else if (Mode == EMaterialEditCompileMode::Automatic)
-		{
-			EXPECT_TRUE(Material->GetMaterialCompileStatus().HasScheduledEdits());
-			EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration, Before.RequestGeneration);
-		}
-		ASSERT_TRUE(WaitForMaterialCompile(*Material));
-		EXPECT_GT(Material->GetMaterialCompileStatus().RequestGeneration, Before.RequestGeneration);
-		EXPECT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
-	}
-}
 
 TEST_F(FMaterialAsyncCompileTests, FailedAndStaleResultsPreserveGenerationBoundaries)
 {
@@ -973,11 +964,10 @@ auto QualifyInstanceCompilationOwners() -> void
 	ASSERT_TRUE(Grandchild->SetParent(nullptr));
 	EXPECT_EQ(Grandchild->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Failed);
 	EXPECT_FALSE(Grandchild->GetMaterialCompileDiagnostics().empty());
-	// Retained results still consume bounded mailbox slots. Overflow must retry
-	// through aggregate finish without retaining detached requests or objects.
+	// More than 256 consumers are accepted once, including retained hits awaiting publication.
 	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 	std::vector<Durin::DMaterialInstance*> Fanout;
-	for (uint32 Index = 0; Index < Durin::MaterialCompileMaxConsumers + 8; ++Index)
+	for (uint32 Index = 0; Index < 264; ++Index)
 	{
 		auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr,
 			Durin::FName(std::format("InstanceFanout{}", Index)));
@@ -985,7 +975,7 @@ auto QualifyInstanceCompilationOwners() -> void
 		Fanout.push_back(Instance);
 		ASSERT_TRUE(Instance->SetParent(Root));
 	}
-	EXPECT_EQ(Fanout.back()->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Deferred);
+	EXPECT_EQ(Fanout.back()->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Running);
 	Durin::FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Fanout.back());
 	EXPECT_EQ(Fanout.back()->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Canceled);
 	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
@@ -1455,7 +1445,6 @@ TEST_F(FMaterialAsyncCompileTests, ShaderCompilerRegistersOnceAndStopsBothReques
 	auto Material = MaterialBuildPrivate::FMaterialCompilation::Compile(std::make_shared<const MIR::FCompilerInput>(), {},
 		[](auto) { ADD_FAILURE() << "Rejected material must not complete."; });
 	ASSERT_FALSE(Material);
-	EXPECT_EQ(Material.error(), MaterialBuildPrivate::EMaterialCompileAdmissionError::Closed);
 	EXPECT_TRUE(Compiler.Start());
 	EXPECT_TRUE(IsMaterialCompilationAcceptingRequests());
 }

@@ -613,7 +613,7 @@ TEST(FMaterialTranslationTests, MaterialCacheWaitReleasesTheOnlyAvailableWorker)
 	ASSERT_TRUE(Cache->Entered.WaitFor(5));
 	FThreadEvent Progress; auto Unrelated = Tasks::LaunchTask("UnrelatedMaterialProgress", [&] { Progress.Trigger(); });
 	ASSERT_TRUE(Progress.WaitFor(5));
-	Cache->Release.Trigger(); Manager.FinishCompilation(*Compile); EXPECT_FALSE(Manager.IsCompiling(*Compile)); EXPECT_EQ(Completed, 1u);
+	Cache->Release.Trigger(); Manager.FinishCompilation(Compile); EXPECT_FALSE(Manager.IsCompiling(Compile)); EXPECT_EQ(Completed, 1u);
 }
 
 TEST(FMaterialTranslationTests, RejectedHitsRebuildOnceAndStoreFailureKeepsLocalProduct)
@@ -691,7 +691,7 @@ TEST(FMaterialTranslationTests, PreservesExecutionDiagnostics)
 
 }
 
-TEST(FMaterialTranslationTests, AdmissionPrecedesCopiesAndReservationsBoundTransitionOverlap)
+TEST(FMaterialTranslationTests, QueuedRequestsExceedFormerAdmissionLimitAndDrainOnce)
 {
 	using namespace Durin; using namespace MaterialBuildPrivate;
 	auto Captured = std::make_shared<const MIR::FCompilerInput>(MakeSyntheticMaterialCompilerInput());
@@ -720,26 +720,25 @@ TEST(FMaterialTranslationTests, AdmissionPrecedesCopiesAndReservationsBoundTrans
 		}
 	} Restore{Cache, Handles, Cancellation};
 	std::atomic_uint32_t Completions = 0;
-	for (uint32 Index = 0; Index < 32; ++Index) {
+	for (uint32 Index = 0; Index < 40; ++Index) {
 		auto Compile = MaterialBuildPrivate::FMaterialCompilation::Compile(Captured, {.IsCancellationRequested = [&Cancellation] { return Cancellation.IsCanceled(); }}, [&](auto) { ++Completions; });
-		ASSERT_TRUE(Compile); Handles.push_back(std::move(*Compile));
+		ASSERT_TRUE(Compile); Handles.push_back(std::move(Compile));
 	}
 	ASSERT_TRUE(Cache->Entered.WaitFor(5));
-	auto Excess = MaterialBuildPrivate::FMaterialCompilation::Compile(Captured, {}, [](auto) { ADD_FAILURE() << "Rejected submission invoked completion"; });
-	ASSERT_FALSE(Excess); EXPECT_EQ(Excess.error(), EMaterialCompileAdmissionError::Capacity);
 	Cancellation.Cancel(); Cache->Release.Trigger();
 	for (const auto& Handle : Handles) Manager.CancelCompilation(Handle);
 	for (const auto& Handle : Handles) Manager.FinishCompilation(Handle);
-	EXPECT_EQ(Completions, 32u); Handles.clear();
+	EXPECT_EQ(Completions, 40u); Handles.clear();
 	{
 		auto Recovered = MaterialBuildPrivate::FMaterialCompilation::Compile(Captured, {.IsCancellationRequested = [&Cancellation] { return Cancellation.IsCanceled(); }}, [](auto Result) {
 			ASSERT_NE(Result.Program, nullptr); EXPECT_EQ(Result.Program->Status, EMaterialProgramStatus::Canceled);
 		});
-		ASSERT_TRUE(Recovered); Manager.FinishCompilation(*Recovered);
+		ASSERT_TRUE(Recovered); Manager.FinishCompilation(Recovered);
 	}
 	auto Input = MakeSyntheticMaterialCompilerInput(); Input.IR.Nodes.reserve(TranslationInputBytes / sizeof(MIR::FNode) + 1);
 	const auto Before = GetTranslationStats();
-	EXPECT_FALSE(EncodeTranslationInput(Input)); EXPECT_FALSE(MIR::Compile(Input));
+	// Unused vector capacity is not serialized content and does not invalidate input.
+	EXPECT_TRUE(EncodeTranslationInput(Input));
 	EXPECT_EQ(GetTranslationStats().Producers, Before.Producers);
 	FByteBuffer Oversized(TranslationOutputBytes + 1); EXPECT_FALSE(DecodeTranslationProduct(Oversized, {}, Input));
 }
@@ -766,8 +765,8 @@ TEST(FMaterialTranslationTests, CancellationDuringCacheIOCompletesAndRetiresWith
 	auto& Manager = FShaderCompilingManager::Get(); std::atomic_uint32_t Calls = 0;
 	auto Compile = MaterialBuildPrivate::FMaterialCompilation::Compile(std::make_shared<const MIR::FCompilerInput>(MakeSyntheticMaterialCompilerInput()), {}, [&](auto Result) { EXPECT_FALSE(Result); EXPECT_TRUE(Result.Program->Diagnostics.empty()); EXPECT_EQ(Result.Program->Status, EMaterialProgramStatus::Canceled); ++Calls; });
 	ASSERT_TRUE(Compile);
-	ASSERT_TRUE(Cache->Entered.WaitFor(5)); const auto Begin = std::chrono::steady_clock::now(); Manager.CancelCompilation(*Compile);
-	Cache->Release.Trigger(); Manager.FinishCompilation(*Compile); EXPECT_FALSE(Manager.IsCompiling(*Compile)); EXPECT_EQ(Calls, 1u);
+	ASSERT_TRUE(Cache->Entered.WaitFor(5)); const auto Begin = std::chrono::steady_clock::now(); Manager.CancelCompilation(Compile);
+	Cache->Release.Trigger(); Manager.FinishCompilation(Compile); EXPECT_FALSE(Manager.IsCompiling(Compile)); EXPECT_EQ(Calls, 1u);
 	RecordProperty("CacheCancelRetirementMicroseconds", std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - Begin).count());
 }
 
@@ -785,7 +784,7 @@ TEST(FMaterialProgramOwnershipTests, ManagerAndSynchronousCallersShareReuseAndFo
 		FMaterialBuildResult Result;
 		auto& Manager = FShaderCompilingManager::Get();
 		auto Compile = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {.bForceRecompile = Force}, [&](auto Value) { Result = std::move(Value); });
-		if (Compile) Manager.FinishCompilation(*Compile);
+		if (Compile) Manager.FinishCompilation(Compile);
 		return Result;
 	};
 	const auto First = Build(false);
@@ -864,8 +863,8 @@ TEST(FMaterialProgramOwnershipTests, SharedProgramSubscriptionsCancelIndependent
 		auto Second = MaterialBuildPrivate::FMaterialCompilation::Compile(Other, {.bForceRecompile = true, .IsCancellationRequested = [&] { return Observe && Cancellation[1].IsCanceled(); }}, [&](auto Result) { Results[1] = std::move(Result); ++Calls[1]; });
 		ASSERT_TRUE(Second);
 		std::shared_ptr<DerivedData::FRequestOwner> FirstOwner, FirstBuildOwner, SecondOwner;
-		{ std::lock_guard Lock((*First)->Mutex); FirstOwner = (*First)->Owner; FirstBuildOwner = (*First)->BuildOwner; }
-		{ std::lock_guard Lock((*Second)->Mutex); SecondOwner = (*Second)->Owner; }
+		{ std::lock_guard Lock((First)->Mutex); FirstOwner = (First)->Owner; FirstBuildOwner = (First)->BuildOwner; }
+		{ std::lock_guard Lock((Second)->Mutex); SecondOwner = (Second)->Owner; }
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
 		while (GetMaterialProgramCompileStatsForTests().Joins == Before.Joins && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
 		ASSERT_EQ(GetMaterialProgramCompileStatsForTests().Joins, Before.Joins + 1);
@@ -875,20 +874,20 @@ TEST(FMaterialProgramOwnershipTests, SharedProgramSubscriptionsCancelIndependent
 			Manager.ProcessAsyncResults();
 		}
 		else {
-			if (Canceled == 2) { Manager.CancelCompilation(*First); Manager.CancelCompilation(*Second); }
-			else if (Canceled >= 0) Manager.CancelCompilation(Canceled == 0 ? *First : *Second);
+			if (Canceled == 2) { Manager.CancelCompilation(First); Manager.CancelCompilation(Second); }
+			else if (Canceled >= 0) Manager.CancelCompilation(Canceled == 0 ? First : Second);
 		}
 		EXPECT_FALSE(FirstOwner->IsCanceled());
 		EXPECT_EQ(FirstBuildOwner->IsCanceled(), Canceled == 2);
-		EXPECT_EQ((*First)->Owner, FirstOwner); EXPECT_EQ((*Second)->Owner, SecondOwner); EXPECT_NE(FirstOwner, SecondOwner);
-		EXPECT_EQ((*First)->BuildCancellation.IsCanceled(), Canceled == 2);
+		EXPECT_EQ((First)->Owner, FirstOwner); EXPECT_EQ((Second)->Owner, SecondOwner); EXPECT_NE(FirstOwner, SecondOwner);
+		EXPECT_EQ((First)->BuildCancellation.IsCanceled(), Canceled == 2);
 		Cache->OthersRelease.Trigger();
 		const auto DrainDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 		if (Canceled != 2) {
 			while (Cache->Stores.load() < MaterialCompiledEntryPoints.size() && std::chrono::steady_clock::now() < DrainDeadline) std::this_thread::yield();
 			EXPECT_EQ(Cache->Stores.load(), MaterialCompiledEntryPoints.size());
 		}
-		Cache->FirstRelease.Trigger(); Manager.FinishCompilation(*Second); Manager.FinishCompilation(*First);
+		Cache->FirstRelease.Trigger(); Manager.FinishCompilation(Second); Manager.FinishCompilation(First);
 		for (size_t Index = 0; Index < Results.size(); ++Index) {
 			EXPECT_EQ(Calls[Index], 1u); ASSERT_NE(Results[Index].Program, nullptr);
 			if (Canceled == 2 || static_cast<int>(Index) == Canceled) { EXPECT_EQ(Results[Index].Program->Status, EMaterialProgramStatus::Canceled); continue; }
@@ -925,8 +924,8 @@ TEST(FMaterialProgramOwnershipTests, FailedShaderRequestsDrainWithoutPublication
 	std::atomic_uint32_t Calls = 0;
 	FMaterialBuildResult Result;
 	auto Compile = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {.bForceRecompile = true}, [&](auto Value) { Result = std::move(Value); ++Calls; });
-	ASSERT_TRUE(Compile); Manager.FinishCompilation(*Compile);
-	EXPECT_FALSE(Manager.IsCompiling(*Compile)); EXPECT_EQ(Calls, 1u);
+	ASSERT_TRUE(Compile); Manager.FinishCompilation(Compile);
+	EXPECT_FALSE(Manager.IsCompiling(Compile)); EXPECT_EQ(Calls, 1u);
 	ASSERT_NE(Result.Program, nullptr); ASSERT_FALSE(Result);
 	ASSERT_FALSE(Result.Program->Diagnostics.empty());
 	EXPECT_TRUE(Result.Program->GetShaderMap().CompiledShaders.empty());
@@ -949,7 +948,7 @@ TEST(FMaterialProgramOwnershipTests, SuccessfulSubmissionSupportsInlineShaderCal
 	auto Compile = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {.bForceRecompile = true}, [&](auto Value) { Result = std::move(Value); ++Calls; });
 	ASSERT_TRUE(Compile);
 	if (Inline) EXPECT_EQ(Calls, 1u);
-	Manager.FinishCompilation(*Compile); EXPECT_EQ(Calls, 1u);
+	Manager.FinishCompilation(Compile); EXPECT_EQ(Calls, 1u);
 	ASSERT_TRUE(Result); EXPECT_EQ(Result.Program->GetShaderMap().CompiledShaders.size(), MaterialCompiledEntryPoints.size());
 	RecordProperty("InlineExecution", Inline ? 1 : 0);
 }
@@ -973,12 +972,12 @@ TEST(FMaterialProgramOwnershipTests, CacheHandoffAllowsLookupBeforeDeliveryRetir
 	ASSERT_TRUE(Producer); ASSERT_TRUE(Ready.WaitFor(10));
 	const auto Before = GetShaderBuildStats();
 	auto Lookup = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {}, [&](auto Result) { Second = std::move(Result); });
-	ASSERT_TRUE(Lookup); Manager.FinishCompilation(*Lookup);
+	ASSERT_TRUE(Lookup); Manager.FinishCompilation(Lookup);
 	ASSERT_TRUE(Second); EXPECT_TRUE(Second.RetainedHit);
-	EXPECT_TRUE(Manager.IsCompiling(*Producer));
+	EXPECT_TRUE(Manager.IsCompiling(Producer));
 	EXPECT_EQ(GetShaderBuildStats().Compilations, Before.Compilations);
 	EXPECT_EQ(GetShaderBuildStats().MemoryHits, Before.MemoryHits);
-	Release.Trigger(); Manager.FinishCompilation(*Producer);
+	Release.Trigger(); Manager.FinishCompilation(Producer);
 	ASSERT_TRUE(First); EXPECT_EQ(First.Program->ShaderMap, Second.Program->ShaderMap);
 }
 
@@ -1003,18 +1002,18 @@ TEST(FMaterialProgramOwnershipTests, StableOwnersDoNotJoinOtherSubscriberCallbac
 	auto First = FMaterialCompilation::Compile(Input, {.bForceRecompile = true}, [](auto Result) { EXPECT_TRUE(Result); });
 	ASSERT_TRUE(First); ASSERT_TRUE(Cache->Entered.WaitFor(10));
 	auto Second = FMaterialCompilation::Compile(Input, {.bForceRecompile = true}, [&](auto Result) {
-		EXPECT_TRUE(Result); Manager.FinishCompilation(*First);
+		EXPECT_TRUE(Result); Manager.FinishCompilation(First);
 		PeerEntered.Trigger(); EXPECT_TRUE(PeerRelease.WaitFor(10));
 	});
 	ASSERT_TRUE(Second);
-	auto FirstOwner = (*First)->Owner; auto SecondOwner = (*Second)->Owner;
+	auto FirstOwner = (First)->Owner; auto SecondOwner = (Second)->Owner;
 	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
 	while (GetMaterialProgramCompileStatsForTests().Joins == Before.Joins && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
 	ASSERT_EQ(GetMaterialProgramCompileStatsForTests().Joins, Before.Joins + 1);
-	EXPECT_EQ((*First)->Owner, FirstOwner); EXPECT_EQ((*Second)->Owner, SecondOwner); EXPECT_NE(FirstOwner, SecondOwner);
+	EXPECT_EQ((First)->Owner, FirstOwner); EXPECT_EQ((Second)->Owner, SecondOwner); EXPECT_NE(FirstOwner, SecondOwner);
 	Cache->Release.Trigger(); ASSERT_TRUE(PeerEntered.WaitFor(10));
-	Manager.FinishCompilation(*First); EXPECT_TRUE(FirstOwner->Poll()); EXPECT_TRUE(Manager.IsCompiling(*Second));
-	PeerRelease.Trigger(); Manager.FinishCompilation(*Second);
+	Manager.FinishCompilation(First); EXPECT_TRUE(FirstOwner->Poll()); EXPECT_TRUE(Manager.IsCompiling(Second));
+	PeerRelease.Trigger(); Manager.FinishCompilation(Second);
 }
 
 TEST(FMaterialProgramOwnershipTests, CacheRetainsShaderMapWithoutRetainingRequestResult)
@@ -1050,29 +1049,29 @@ TEST(FMaterialProgramOwnershipTests, ShaderMapOwnsCompiledContentAndCachedMapsDo
 	auto& Manager = FShaderCompilingManager::Get();
 	FMaterialBuildResult First;
 	auto Producer = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {.bForceRecompile = true}, [&](auto Result) { First = std::move(Result); });
-	ASSERT_TRUE(Producer); Manager.FinishCompilation(*Producer);
+	ASSERT_TRUE(Producer); Manager.FinishCompilation(Producer);
 	ASSERT_TRUE(First);
 	static_assert(!std::is_same_v<FMaterialProgramCompileHandle, std::shared_ptr<FMaterialShaderMap>>);
-	EXPECT_EQ((*Producer)->GetShaderMapId(), First.Program->GetShaderMap().ShaderMapId);
-	EXPECT_NE((*Producer)->CompilingId, 0u);
+	EXPECT_EQ((Producer)->GetShaderMapId(), First.Program->GetShaderMap().ShaderMapId);
+	EXPECT_NE((Producer)->CompilingId, 0u);
 	const FMaterialShaderMap Copy(First.Program->GetShaderMap());
 	EXPECT_EQ(Copy.CompiledShaders.size(), MaterialCompiledEntryPoints.size());
-	std::vector<FMaterialProgramCompileHandle> Kept{*Producer};
+	std::vector<FMaterialProgramCompileHandle> Kept{Producer};
 	for (uint32 Index = 0; Index < 40; ++Index) {
 		FMaterialBuildResult Next;
 		auto Compile = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {}, [&](auto Result) { Next = std::move(Result); });
 		ASSERT_TRUE(Compile) << Index;
-		Manager.FinishCompilation(*Compile);
+		Manager.FinishCompilation(Compile);
 		ASSERT_TRUE(Next); EXPECT_TRUE(Next.RetainedHit);
 		EXPECT_EQ(Next.Program->ShaderMap, First.Program->ShaderMap);
-		EXPECT_NE((*Compile)->CompilingId, (*Producer)->CompilingId);
-		Kept.push_back(*Compile);
+		EXPECT_NE((Compile)->CompilingId, (Producer)->CompilingId);
+		Kept.push_back(Compile);
 	}
 	ASSERT_NE(FMaterialShaderMap::FindId(First.Program->GetShaderMap().ShaderMapId), nullptr);
-	EXPECT_FALSE(Manager.IsCompiling(*Producer));
-	Manager.PrioritizeCompilation(*Producer);
-	Manager.CancelCompilation(*Producer);
-	Manager.FinishCompilation(*Producer);
+	EXPECT_FALSE(Manager.IsCompiling(Producer));
+	Manager.PrioritizeCompilation(Producer);
+	Manager.CancelCompilation(Producer);
+	Manager.FinishCompilation(Producer);
 	EXPECT_EQ(First.Program->GetShaderMap().CompiledShaders.size(), MaterialCompiledEntryPoints.size());
 }
 
@@ -1095,12 +1094,12 @@ TEST(FMaterialProgramOwnershipTests, CancellationBeforeSubmissionRemainsLatchedA
 		EXPECT_TRUE(Request->BuildOwner->IsCanceled());
 		++Calls;
 	});
-	ASSERT_TRUE(Compile); Manager.FinishCompilation(*Compile);
-	EXPECT_FALSE(Manager.IsCompiling(*Compile));
+	ASSERT_TRUE(Compile); Manager.FinishCompilation(Compile);
+	EXPECT_FALSE(Manager.IsCompiling(Compile));
 	EXPECT_TRUE(Cancellation.IsCanceled());
 	EXPECT_EQ(Calls, 1u);
 	EXPECT_EQ(GetTranslationStats().Producers, Before.Producers);
-	EXPECT_TRUE((*Compile)->BuildCancellation.IsCanceled());
+	EXPECT_TRUE((Compile)->BuildCancellation.IsCanceled());
 }
 
 TEST(FMaterialProgramOwnershipTests, FinishAllCompilationDrainsCallbackSubmissions)
@@ -1126,7 +1125,7 @@ TEST(FMaterialProgramOwnershipTests, FinishAllCompilationDrainsCallbackSubmissio
 	// Keep callback captures alive even if a broken finish only drains one generation.
 	for (uint32 Index = 0; Index < 8; ++Index) Manager.FinishAllCompilation();
 	EXPECT_EQ(CallsAtReturn, 8u);
-	EXPECT_FALSE(Manager.IsCompiling(*First));
+	EXPECT_FALSE(Manager.IsCompiling(First));
 }
 
 TEST(FMaterialProgramOwnershipTests, CanceledSubmissionSupportsInlineAndTaskExecution)
@@ -1143,9 +1142,9 @@ TEST(FMaterialProgramOwnershipTests, CanceledSubmissionSupportsInlineAndTaskExec
 	});
 	ASSERT_TRUE(Compile);
 	if (Inline) EXPECT_EQ(Calls, 1u);
-	Manager.FinishCompilation(*Compile);
+	Manager.FinishCompilation(Compile);
 	EXPECT_EQ(Calls, 1u);
-	EXPECT_FALSE(Manager.IsCompiling(*Compile));
+	EXPECT_FALSE(Manager.IsCompiling(Compile));
 	RecordProperty("InlineExecution", Inline ? 1 : 0);
 }
 
@@ -2536,7 +2535,7 @@ TEST(FMaterialProgramCompilerTests, DirectIRNormalizationPrunesDeadCodeAndRemaps
 	Input.IR.SurfaceRoot.Inputs[0].ExpressionIndex = 3;
 	Input.Sources = {{.ExpressionIndex = 0, .NodeId = {1, 0, 0, 1}}, {.ExpressionIndex = 1, .NodeId = {1, 0, 0, 2}},
 		{.ExpressionIndex = 4, .NodeId = {1, 0, 0, 3}}};
-	for (uint32 Index = 0; Index < 32; ++Index) Input.Parameters.push_back({{2, 0, 0, Index + 1}, EMaterialParameterType::Texture});
+	for (uint32 Index = 0; Index < 40; ++Index) Input.Parameters.push_back({{2, 0, 0, Index + 1}, EMaterialParameterType::Texture});
 	const auto Baseline = MIR::Normalize(Input);
 	ASSERT_TRUE(Baseline);
 	EXPECT_EQ(Baseline.IR.Nodes.size(), 4u);

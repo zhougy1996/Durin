@@ -27,7 +27,6 @@ namespace Durin::MaterialBuildPrivate
 		explicit operator bool() const { return Program && bool(*Program); }
 	};
 
-	enum class EMaterialCompileAdmissionError { Capacity, InputTooLarge, Closed, Unavailable };
 	struct FMaterialProgramCompileOptions
 	{
 		bool bForceRecompile = false;
@@ -49,11 +48,11 @@ namespace Durin::MaterialBuildPrivate
 		ENGINE_API static auto Compile(std::shared_ptr<const MIR::FCompilerInput> Input,
 			FMaterialProgramCompileOptions Options,
 			std::function<void(FMaterialBuildResult)> Completion)
-			-> std::expected<FMaterialProgramCompileHandle, EMaterialCompileAdmissionError>;
+			-> FMaterialProgramCompileHandle;
 		ENGINE_API static auto Compile(const MIR::FCompilerInput& Input,
 			FMaterialProgramCompileOptions Options,
 			std::function<void(FMaterialBuildResult)> Completion)
-			-> std::expected<FMaterialProgramCompileHandle, EMaterialCompileAdmissionError>;
+			-> FMaterialProgramCompileHandle;
 		uint64 CompilingId = 0;
 		FMaterialProgramIdentity ShaderMapId;
 		auto GetShaderMapId() const -> FMaterialProgramIdentity
@@ -73,7 +72,6 @@ namespace Durin::MaterialBuildPrivate
 		std::shared_ptr<const MIR::FCompilerInput> DiagnosticInput;
 		std::vector<FWeakObjectPtr> Origins;
 		FWeakObjectPtr InitialOwner;
-		uint64 CapturedBytes = 0;
 #if DURIN_WITH_EDITOR
 		static auto Start(std::shared_ptr<FMaterialCompilation> ShaderMap) -> void;
 		static auto ProcessTranslation(std::shared_ptr<FMaterialCompilation> ShaderMap, FMaterialTranslatedProgram Translation) -> void;
@@ -96,12 +94,11 @@ namespace Durin::MaterialBuildPrivate
 #endif
 	};
 
-	// Request configuration/default rebinding and result budgets belong to the
+	// Request configuration/default rebinding belongs to the
 	// compilation lifecycle, rather than the immutable ShaderMap content API.
 	auto BindMaterialProgramCollections(std::shared_ptr<const FMaterialCompilerResult> Program,
 		std::span<const FMaterialParameterCollectionLayout> Collections,
 		const FMaterialCompilerEnvironment* Environment = nullptr) -> std::shared_ptr<const FMaterialCompilerResult>;
-	auto GetMaterialProgramRetainedBytes(const FMaterialCompilerResult& Result) -> uint64;
 
 	ENGINE_API auto FinalizeMaterialShaderMap(FMaterialTranslatedProgram Translation,
 		FShaderCompilerOutput Output) -> FMaterialCompilerResult;

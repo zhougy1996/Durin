@@ -28,17 +28,6 @@ namespace Durin
 		}
 
 
-		auto EstimateRequestBytes(const FMaterialCompileRequest& Request) -> uint64
-		{
-			if (!Request.CompilerInput) return 0;
-			uint64 Bytes = sizeof(Request)
-				+ MaterialBuildPrivate::EstimateTranslationCaptureBytes(*Request.CompilerInput);
-			return Bytes;
-		}
-
-
-
-
 	}
 
 	auto FShaderCompilingManager::PollMaterialCancellation() -> void
@@ -63,23 +52,24 @@ namespace Durin
 		for (const auto& ShaderMap : Pending) PrioritizeCompilation(ShaderMap);
 	}
 
-	auto FShaderCompilingManager::SubmitJobs(FMaterialCompileRequest Request) -> EMaterialCompileAdmission
+	auto FShaderCompilingManager::SubmitJobs(FMaterialCompileRequest Request) -> void
 	{
 		CheckMaterialCompileGameThread();
+		require(Request.CompilerInput);
 		CleanupFinishedShaderMaps();
-		const auto Bytes = EstimateRequestBytes(Request);
-		if (!Request.CompilerInput || Bytes > MaterialCompileMaxRequestBytes) return EMaterialCompileAdmission::Rejected;
 		(void)CancelCompilation(Request.Owner);
-		// Admission precedes encoding and normalization. Captured encoding is
-		// bounded by the input contract and belongs to GameThread snapshot capture.
-		{
-			std::scoped_lock Lock(MaterialMutex);
-			if (!IsAcceptingMaterialRequests()) return EMaterialCompileAdmission::Rejected;
-			if (OutstandingMaterialConsumers >= MaterialCompileMaxConsumers || Bytes > 128ull * 1024 * 1024 - CapturedMaterialBytes) return EMaterialCompileAdmission::Capacity;
-		}
+		// Invalid input and shutdown produce terminal results, never capacity retries.
+		const auto Fail = [&](std::string Message) {
+			auto Program = std::make_shared<FMaterialCompilerResult>();
+			Program->Diagnostics.push_back({.Message = std::move(Message)});
+			auto Result = MakeMaterialResult(Request, {.Program = std::move(Program)});
+			std::lock_guard Lock(MaterialMutex);
+			MaterialResults.push_back(std::move(Result));
+			++MaterialDiagnostics.AcceptedRequests; ++MaterialDiagnostics.FailedRequests; ++OutstandingMaterialConsumers;
+		};
+		if (!IsAcceptingMaterialRequests()) { Fail("Shader compilation manager is stopped."); return; }
 		auto Encoded = MaterialBuildPrivate::EncodeTranslationInput(*Request.CompilerInput);
-		if (!Encoded) return EMaterialCompileAdmission::Rejected;
-		const auto ShaderMapBytes = Bytes + Encoded->GetRetainedCapacityBytes();
+		if (!Encoded) { Fail("Material translation input could not be encoded."); return; }
 		auto TranslationInput = std::make_shared<const FMaterialTranslationInput>(FMaterialTranslationInput{*Encoded, FXxHash128::HashBuffer(Encoded->GetBytes())});
 		FBinaryWriter Identity;
 		Identity.WriteHash128(TranslationInput->Identity);
@@ -91,46 +81,30 @@ namespace Durin
 		const FMaterialCompileKey Key{.Identity = {.Digest = FXxHash128::HashBuffer(Identity.GetBytes())}, .bForceRecompile = Request.bForceRecompile};
 		FShaderMapPtr NewShaderMap;
 		{
-			std::scoped_lock Lock(MaterialMutex);
-			if (const auto Existing = RequestedShaderMaps.find(Key); Existing != RequestedShaderMaps.end())
+			std::lock_guard Lock(MaterialMutex);
+			if (const auto Existing = RequestedShaderMaps.find(Key); Existing != RequestedShaderMaps.end() && !Existing->second->Cancellation.IsCanceled())
 			{
-				if (Existing->second->Cancellation.IsCanceled() || Bytes > 128ull * 1024 * 1024 - CapturedMaterialBytes) return EMaterialCompileAdmission::Capacity;
 				Request.bSingleFlightConsumer = true;
 				if (!std::ranges::any_of(Existing->second->Origins, [&](auto Origin) { return SameOwner(Origin, Request.Owner); })) Existing->second->Origins.push_back(Request.Owner);
-				Existing->second->CompilingMaterialDependencies.push_back(std::move(Request)); Existing->second->CapturedBytes += Bytes; CapturedMaterialBytes += Bytes;
+				Existing->second->CompilingMaterialDependencies.push_back(std::move(Request));
 				++MaterialDiagnostics.AcceptedRequests; ++MaterialDiagnostics.SingleFlightConsumers; ++OutstandingMaterialConsumers;
-				return EMaterialCompileAdmission::Accepted;
+				return;
 			}
-			if (ShaderMapBytes > 128ull * 1024 * 1024 - CapturedMaterialBytes) return EMaterialCompileAdmission::Capacity;
 			NewShaderMap = std::make_shared<MaterialBuildPrivate::FMaterialCompilation>(); NewShaderMap->CanonicalIdentity = Key.Identity; NewShaderMap->Force = Key.bForceRecompile;
-			NewShaderMap->CapturedBytes = ShaderMapBytes; CapturedMaterialBytes += ShaderMapBytes;
 			NewShaderMap->Origins.push_back(Request.Owner);
 			NewShaderMap->InitialOwner = Request.Owner;
 			NewShaderMap->CompilingMaterialDependencies.push_back(std::move(Request));
-			RequestedShaderMaps.emplace(Key, NewShaderMap);
+			RequestedShaderMaps.insert_or_assign(Key, NewShaderMap);
 			++MaterialDiagnostics.AcceptedRequests; ++OutstandingMaterialConsumers;
 		}
 		const auto Input = NewShaderMap->CompilingMaterialDependencies.front().CompilerInput;
 		NewShaderMap->DiagnosticInput = Input;
-		auto Submitted = MaterialBuildPrivate::FMaterialCompilation::Compile(Input,
-			{.bForceRecompile = Key.bForceRecompile,
-				.EncodedInput = std::move(TranslationInput), .Request = NewShaderMap},
+		const auto Submitted = MaterialBuildPrivate::FMaterialCompilation::Compile(Input,
+			{.bForceRecompile = Key.bForceRecompile, .EncodedInput = std::move(TranslationInput), .Request = NewShaderMap},
 			[this, Weak = std::weak_ptr(NewShaderMap)](MaterialBuildPrivate::FMaterialBuildResult Build) {
-				const auto ShaderMap = Weak.lock(); if (!ShaderMap) return;
-				CompleteMaterialRequests(ShaderMap, std::move(Build));
+				if (const auto ShaderMap = Weak.lock()) CompleteMaterialRequests(ShaderMap, std::move(Build));
 			});
-		{
-			std::scoped_lock Lock(MaterialMutex);
-			if (!Submitted) {
-				RequestedShaderMaps.erase(Key);
-				CapturedMaterialBytes -= NewShaderMap->CapturedBytes;
-				--MaterialDiagnostics.AcceptedRequests; --OutstandingMaterialConsumers;
-				return Submitted.error() == MaterialBuildPrivate::EMaterialCompileAdmissionError::Capacity
-					? EMaterialCompileAdmission::Capacity : EMaterialCompileAdmission::Rejected;
-			}
-			require(*Submitted == NewShaderMap);
-		}
-		return EMaterialCompileAdmission::Accepted;
+		if (!Submitted) CompleteMaterialRequests(NewShaderMap, {});
 	}
 
 	auto FShaderCompilingManager::CancelCompilation(FWeakObjectPtr Owner) -> bool
@@ -243,8 +217,9 @@ namespace Durin
 		{
 			std::scoped_lock Lock(MaterialMutex);
 			const auto It = RequestedShaderMaps.find({ShaderMap->CanonicalIdentity, ShaderMap->Force});
-			if (It == RequestedShaderMaps.end() || It->second != ShaderMap) return;
-			RequestedShaderMaps.erase(It);
+			// A canceled map may have been replaced under the same identity. Its
+			// remaining consumers still receive their own terminal result.
+			if (It != RequestedShaderMaps.end() && It->second == ShaderMap) RequestedShaderMaps.erase(It);
 			// Normalize attribution at delivery; asset consumers can join until this lock.
 			for (auto& Consumer : ShaderMap->CompilingMaterialDependencies)
 				if (Build.SingleFlight && !Consumer.bSingleFlightConsumer) { Consumer.bSingleFlightConsumer = true; ++MaterialDiagnostics.SingleFlightConsumers; }

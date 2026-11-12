@@ -292,7 +292,7 @@ namespace Durin
 		auto Group = std::make_shared<FJobGroup>();
 		Group->Manager = &Get(); Group->MaterialCompilingId = ShaderMap->CompilingId;
 		Group->Jobs = MakeMaterialShaderStageRequests(*ShaderMap->Translation, ShaderMap->Force);
-		Group->Outputs.resize(Group->Jobs.size()); Group->MaximumBytes = MaterialCompileMaxResultBytes;
+		Group->Outputs.resize(Group->Jobs.size()); Group->MaximumBytes = std::numeric_limits<uint64>::max();
 		Group->Options = {.Priority = Priority, .IsCancelled = [Weak = std::weak_ptr(ShaderMap)] { const auto Value = Weak.lock(); return !Value || PollBuildCancellation(Value); }, .bInlineExecution = ShaderMap->Inline};
 		Group->Completion =
 			[ShaderMap](FShaderCompilerOutput Output) {

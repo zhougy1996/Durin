@@ -36,28 +36,25 @@ namespace Durin
 
 	auto MaterialBuildPrivate::FMaterialCompilation::Compile(std::shared_ptr<const MIR::FCompilerInput> Input,
 		FMaterialProgramCompileOptions Options, std::function<void(FMaterialBuildResult)> Completion)
-		-> std::expected<FMaterialProgramCompileHandle, EMaterialCompileAdmissionError>
+		-> FMaterialProgramCompileHandle
 	{ return FShaderCompilingManager::Get().Submit(std::move(Input), std::move(Options), std::move(Completion), false); }
 	auto MaterialBuildPrivate::FMaterialCompilation::Compile(const MIR::FCompilerInput& Input,
 		FMaterialProgramCompileOptions Options, std::function<void(FMaterialBuildResult)> Completion)
-		-> std::expected<FMaterialProgramCompileHandle, EMaterialCompileAdmissionError>
+		-> FMaterialProgramCompileHandle
 	{
 		auto Borrowed = std::shared_ptr<const MIR::FCompilerInput>(&Input, [](const auto*) {});
 		return FShaderCompilingManager::Get().Submit(std::move(Borrowed), std::move(Options), std::move(Completion), true);
 	}
 	auto FShaderCompilingManager::Submit(std::shared_ptr<const MIR::FCompilerInput> Input,
 		FMaterialProgramCompileOptions Options, std::function<void(FMaterialBuildResult)> Completion, bool CopyInput)
-		-> std::expected<FMaterialProgramCompileHandle, EMaterialCompileAdmissionError>
+		-> FMaterialProgramCompileHandle
 	{
 		CleanupFinishedShaderMaps();
-		if (!Input || !Completion) return std::unexpected(EMaterialCompileAdmissionError::Unavailable);
-		// Admission precedes encoding, normalization or any input/product copy.
+		if (!Input || !Completion) return {};
+		// All accepted requests join the task runtime; worker concurrency does not reject submissions.
 		FShaderMapPtr ShaderMap;
 		std::unique_lock AdmissionLock(MaterialMutex);
-			if (!Accepting) return std::unexpected(EMaterialCompileAdmissionError::Closed);
-			if (CompilingShaderMaps.size() >= MaterialCompileMaxConcurrentRequests) return std::unexpected(EMaterialCompileAdmissionError::Capacity);
-			if (EstimateTranslationCaptureBytes(*Input) > TranslationInputBytes)
-				return std::unexpected(EMaterialCompileAdmissionError::InputTooLarge);
+			if (!Accepting) return {};
 			ShaderMap = Options.Request ? std::move(Options.Request) : std::make_shared<FMaterialCompilation>();
 			require(ShaderMap->CompilingId == 0);
 			static std::atomic_uint64_t NextCompilingId = 1;
@@ -246,18 +243,17 @@ namespace Durin
 		for (const auto& ShaderMap : Finished) {
 			// Complete missing callbacks atomically with cleanup; no separate scan or fanout.
 			const auto It = RequestedShaderMaps.find({ShaderMap->CanonicalIdentity, ShaderMap->Force});
-			if (It != RequestedShaderMaps.end() && It->second == ShaderMap) {
+			if (!ShaderMap->CompilingMaterialDependencies.empty()) {
 				const bool Canceled = ShaderMap->Cancellation.IsCanceled();
 				for (const auto& Consumer : ShaderMap->CompilingMaterialDependencies)
 					MaterialResults.push_back(MakeMaterialResult(Consumer, {}, nullptr, Canceled));
 				(Canceled ? MaterialDiagnostics.CanceledRequests : MaterialDiagnostics.FailedRequests) += ShaderMap->CompilingMaterialDependencies.size();
 				ShaderMap->CompilingMaterialDependencies.clear();
-				RequestedShaderMaps.erase(It);
+				if (It != RequestedShaderMaps.end() && It->second == ShaderMap) RequestedShaderMaps.erase(It);
 			}
 			std::lock_guard RecordLock(ShaderMap->Mutex);
 			ShaderMap->Input.reset(); ShaderMap->EncodedInput.reset(); ShaderMap->Translation.reset();
 			ShaderMap->ShaderJobs.reset();
-			CapturedMaterialBytes -= ShaderMap->CapturedBytes; ShaderMap->CapturedBytes = 0;
 			ShaderMap->DiagnosticInput.reset(); ShaderMap->Origins.clear();
 			RetiredOwners.push_back(std::move(ShaderMap->Owner));
 			RetiredOwners.push_back(std::move(ShaderMap->BuildOwner));
@@ -299,16 +295,16 @@ namespace Durin
 		auto Submitted = MaterialBuildPrivate::FMaterialCompilation::Compile(Input, {.bForceRecompile = Force},
 			[&](FMaterialBuildResult Value) { Result = std::move(Value); });
 		if (!Submitted) return {.Program = std::make_shared<const FMaterialCompilerResult>(FailedMaterial())};
-		Manager.FinishCompilation(*Submitted);
+		Manager.FinishCompilation(Submitted);
 		return Result;
 	}
 #else
 	auto MaterialBuildPrivate::FMaterialCompilation::Compile(std::shared_ptr<const MIR::FCompilerInput>, FMaterialProgramCompileOptions,
-		std::function<void(FMaterialBuildResult)>) -> std::expected<FMaterialProgramCompileHandle, EMaterialCompileAdmissionError>
-	{ return std::unexpected(EMaterialCompileAdmissionError::Unavailable); }
+		std::function<void(FMaterialBuildResult)>) -> FMaterialProgramCompileHandle
+	{ return {}; }
 	auto MaterialBuildPrivate::FMaterialCompilation::Compile(const MIR::FCompilerInput&, FMaterialProgramCompileOptions,
-		std::function<void(FMaterialBuildResult)>) -> std::expected<FMaterialProgramCompileHandle, EMaterialCompileAdmissionError>
-	{ return std::unexpected(EMaterialCompileAdmissionError::Unavailable); }
+		std::function<void(FMaterialBuildResult)>) -> FMaterialProgramCompileHandle
+	{ return {}; }
 	auto FShaderCompilingManager::FinishCompilation(const FMaterialProgramCompileHandle&) -> void {}
 	auto FShaderCompilingManager::CancelCompilation(const FMaterialProgramCompileHandle&) -> void {}
 	auto FShaderCompilingManager::PrioritizeCompilation(const FMaterialProgramCompileHandle&) -> void {}
@@ -363,13 +359,8 @@ namespace Durin
 		DerivedData::FRequestBarrier DeliveryBarrier(*ShaderMap->Owner);
 		std::function<void(MaterialBuildPrivate::FMaterialBuildResult)> Callback;
 		std::vector<std::shared_ptr<FMaterialCompilation>> Subscribers;
-		// Cache hits and shared subscribers bind once, before byte-limit checks.
+		// Cache hits and shared subscribers bind once before completion.
 		if (Retained) Retained = MaterialBuildPrivate::BindMaterialProgramCollections(std::move(Retained), ShaderMap->Input->Collections, &ShaderMap->Input->Environment);
-		if ((Result && MaterialBuildPrivate::GetMaterialProgramRetainedBytes(Result) > MaterialCompileMaxResultBytes)
-			|| (Retained && *Retained && MaterialBuildPrivate::GetMaterialProgramRetainedBytes(*Retained) > MaterialCompileMaxResultBytes)) {
-			Retained.reset();
-			Result = {.Diagnostics = {{.Message = "Compiled material result exceeds the retained-result byte limit."}}};
-		}
 		const auto Quality = Retained ? Retained->Quality : Result.Quality;
 		const bool RetainedHit = bool(Retained) && !ShaderMap->SingleFlight;
 		auto Program = Retained ? std::move(Retained) : std::make_shared<const FMaterialCompilerResult>(std::move(Result));

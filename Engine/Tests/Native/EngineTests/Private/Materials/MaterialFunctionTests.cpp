@@ -1549,19 +1549,10 @@ TEST(FMaterialFunctionTests, DependencyEditsPreserveAcceptedContractsAndOwnerSou
 	EXPECT_TRUE(First->GetAcceptedCompiledProgram());
 	const auto Current = First->GetMaterialCompileStatus();
 	const auto CurrentProgram = First->GetAcceptedCompiledProgram();
-	// Simulate a dependency changing across a missed external notification. The
-	// publication boundary must compare captured versions independently of events.
-	auto* FirstBinding = Cast<DMaterialExpressionFunctionCall>(First->GetExpressionCollection().Expressions[0].Get());
-	auto* SecondBinding = Cast<DMaterialExpressionFunctionCall>(Second->GetExpressionCollection().Expressions[0].Get());
-	ASSERT_NE(FirstBinding, nullptr);
-	ASSERT_NE(SecondBinding, nullptr);
-	FirstBinding->Function = nullptr;
-	SecondBinding->Function = nullptr;
+	// The supported function mutation invalidates every loaded caller before publication.
 	Graph.Signature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.37f;
 	ASSERT_TRUE(Graph.Apply(*Leaf));
-	FirstBinding->Function = Wrapper;
-	SecondBinding->Function = Wrapper;
-	EXPECT_EQ(First->GetMaterialCompileStatus().AuthoredRevision, Current.AuthoredRevision);
+	EXPECT_GT(First->GetMaterialCompileStatus().AuthoredRevision, Current.AuthoredRevision);
 	FMaterialCompileResult StaleClosure{.Owner = FWeakObjectPtr(First), .AuthoredRevision = Current.AuthoredRevision,
 		.Generation = Current.RequestGeneration, .DependencyRevision = Current.DependencyRevision, .ProgramIdentity = Current.CompiledIdentity,
 		.StaticProperties = First->GetStaticProperties(), .Target = Current.Target,

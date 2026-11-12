@@ -99,13 +99,10 @@ namespace Durin
 		// Last scheduled or submitted schema, used to classify reflected dynamic edits.
 		FMaterialStaticProperties LastObservedShaderProperties;
 		std::vector<FMaterialCompilerParameterDeclaration> LastObservedParameters;
-		// Request-local dependency versions; excluded from shared shader artifacts.
-		std::vector<FMaterialFunctionOwnerStamp> RequestedFunctionOwners;
 		std::vector<MIR::FSource> RequestedExpressionSources;
 		std::vector<MIR::FSource> AcceptedExpressionSources;
 		FMaterialCompileStatus MaterialCompileStatus;
 		std::vector<FMaterialProgramDiagnostic> MaterialCompileDiagnostics;
-		bool bDeferredForceRecompile = false;
 	};
 
 	// Defines the shared parameter-resolution and render-update contract for materials.

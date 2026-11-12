@@ -12,11 +12,6 @@ namespace Durin
 	class FObjectCacheContext;
 	class DMaterialInterface;
 
-	inline constexpr uint32 MaterialCompileMaxConcurrentRequests = 32;
-	inline constexpr uint32 MaterialCompileMaxConsumers = 256;
-	inline constexpr uint64 MaterialCompileMaxRequestBytes = 2ull * 1024ull * 1024ull;
-	inline constexpr uint64 MaterialCompileMaxResultBytes = 8ull * 1024ull * 1024ull;
-
 	enum class EMaterialShaderPrecompileMode : uint8
 	{
 		None,
@@ -54,7 +49,6 @@ namespace Durin
 		Forced,
 	};
 
-	enum class EMaterialCompileAdmission : uint8 { Accepted, Capacity, Rejected };
 	enum class EMaterialCompileOutcome : uint8 { Succeeded, Failed, Canceled };
 
 	// Immutable snapshot captured on GameThread before Worker admission.
@@ -178,12 +172,12 @@ namespace Durin
 			ENGINE_API static auto Submit(
 				DMaterialInterface& Material,
 				MIR::FCompilerInput Input,
-				bool bForceRecompile, std::vector<FMaterialFunctionOwnerStamp> FunctionOwners = {}, FObjectCacheContext* Context = nullptr) -> bool;
+				bool bForceRecompile, FObjectCacheContext* Context = nullptr) -> bool;
 			ENGINE_API static auto Admit(
 				DMaterialInterface& Material,
 				FMaterialCompileResult Result, FObjectCacheContext* Context = nullptr) -> bool;
 			ENGINE_API static auto MarkCanceled(DMaterialInterface& Material) -> void;
-			ENGINE_API static auto RetryDeferred(DMaterialInterface& Material) -> void;
+			ENGINE_API static auto SubmitScheduledEdit(DMaterialInterface& Material) -> void;
 			ENGINE_API static auto RequestCurrent(
 				DMaterialInterface& Material, bool bForceRecompile, FObjectCacheContext* Context = nullptr) -> bool;
 		};

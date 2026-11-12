@@ -565,8 +565,8 @@ result using the current request's configuration and compatible Collection data.
 The value-returning `MIR::Compile` compatibility API copies that wrapper explicitly.
 Proxy parameter indices follow ShaderMap identity, so rebinding defaults or an
 equivalent configuration does not rebuild the parameter mapping. Existing
-assembly, publication, Cook and Renderer validation boundaries remain in force;
-result byte budgets conservatively charge shared backing storage in full.
+assembly, publication, Cook and Renderer validation boundaries remain in force.
+Cache retention accounts for shared ShaderMap backing storage.
 
 [Shader stage selection and sharing](MaterialShaderStages.md) owns geometry/Pass
 usage declarations, editor/Game stage sets and reusable stage cache identities.
@@ -581,11 +581,11 @@ material asset compiler or material-program compiling manager.
 The manager owns one active material compilation collection, captured-request and
 semantic identity indexes, and a result mailbox. Detached asset dependencies live
 on each Engine-private `FMaterialCompilation`; asset capture, edit scheduling,
-live dependency checks and installation remain in the material lifecycle.
+dependency invalidation and installation remain in the material lifecycle.
 `FMaterialCompilation::Compile` admits an internal request and returns its handle.
 The request owns its compiling ID, cancellation, material dependencies, translation,
-Shader job-group handle and completion callback. Admission failure is distinct from
-the eventual compiler result. Final assembly constructs a separate `FMaterialShaderMap`;
+Shader job-group handle and completion callback. A null handle means the manager
+is stopped or the call is invalid; execution pressure never rejects a request. Final assembly constructs a separate `FMaterialShaderMap`;
 the public map has no compilation entry point, compiling ID, request state or
 translation/Shader compiler assembly interface. `MaterialCompileTypes.h` and
 `ShaderCompilingManager.h` are Engine-private implementation headers. External
@@ -593,7 +593,7 @@ asset consumers use the material lifecycle and asset-compilation interfaces.
 The shared manager owns admission, translation and assembly tasks, semantic
 identity joining, atomic cache publication, priority, cancellation, end-boundary
 waits and cleanup. Asset admission derives from the manager and asset framework
-state. Completed requests release captures, task owners and byte allowances through
+state. Completed requests release captures and task owners through
 one cleanup path after callbacks finish; mailbox publication remains a GameThread step.
 Material stage jobs and global Shader preparation share its indexed completion,
 two-job dispatch window and aggregate output allowance. Material ShaderMaps have
@@ -608,11 +608,11 @@ group is not counted again. Standalone Shader job groups participate in the same
 remaining-work count and `FinishAllCompilation`. ShaderMap does not access manager
 locks or containers directly.
 `BindMaterialProgramCollections` is the private configuration/default binding interface. Cache
-hits and shared compilation subscribers bind at request completion before result
-byte limits are checked; fanout does not prebind subscriber results. The manager
+hits and shared compilation subscribers bind at request completion; fanout does
+not prebind subscriber results. The manager
 binds each captured asset request when it prepares publication.
 `FindId`, `Register` and content cache accounting belong to ShaderMap;
-request-result rebinding and byte accounting belong to the private lifecycle; the old program-cache service is removed. Persistent translation and
+request-result rebinding belongs to the private lifecycle; the old program-cache service is removed. Persistent translation and
 individual Shader DDC formats remain unchanged. `FinishCompilation`, `CancelCompilation`,
 `IsCompiling` and `ProcessAsyncResults` provide waiting, cancellation, end-boundary
 queries and cleanup. Assets, synchronous tools and Cook use this same
@@ -620,8 +620,9 @@ submission interface. The manager processes publication callbacks and
 updates outstanding-consumer counts internally; callers do not pair result
 processing with a separate counter operation.
 Accepted first and coalesced requests both use `Running`; editor presentation
-does not distinguish them as separate execution phases. Capacity deferral and
-scheduled edits retain their distinct retry behavior.
+does not distinguish them as separate execution phases. TaskRuntime queues CPU
+work and the shared Shader job driver dispatches stage work. There is no material
+capacity-admission result or owner-side capacity retry.
 Canonical captured requests coalesce through the manager's request index;
 that index does not own a second active collection or cleanup path.
 Each private request uses the manager's semantic identity index to share compilation and
@@ -652,13 +653,16 @@ transient working-copy root edit policy: Automatic coalesces semantic edits for 
 leaves the authored revision unsubmitted, and Immediate preserves non-editor
 callers' existing behavior. Loaded instances inherit the root policy. Scheduled
 edits carry an optional deadline independently of request execution status and
-use the bounded retry scan, without taking compiler snapshots or advancing request
+use the bounded material-preparation pump, without taking compiler snapshots or advancing request
 generations until submission. Editing does not cancel an older request; its
 captured authored revision prevents stale publication. Selected
 finish flushes scheduled automatic work; manual work requires an explicit request.
-Late results cannot replace a material with unsubmitted edits. A qualified result
-whose static properties no longer match is skipped and rescheduled through this
-same edit policy, preserving the accepted program. Replacement requests count as
+Late results cannot replace a material with unsubmitted edits. Supported material,
+parent, function and Collection schema mutation boundaries invalidate affected
+owner revisions before publication. Publication does not rescan parent chains or
+function owners, compare static properties to detect missed notifications, or
+automatically resubmit obsolete results. Raw mutation bypassing those boundaries
+is unsupported. Replacement requests count as
 ordinary canceled consumers; there is no separate supersession state or counter.
 See
 [Material editor lifecycle](../../../Editor/Architecture/Materials/MaterialEditorLifecycle.md#compile-apply-and-save)
@@ -683,8 +687,8 @@ program, layout, values and resources and publishes ErrorMaterial through the
 ordinary render proxy path. This includes normalization and dependency failures
 before worker submission. Diagnostics no longer report last-known-good display.
 Cancellation, supersession and stale results do not replace the visible generation.
-A material with no accepted result uses ErrorMaterial, including during retries
-after failure; successful admission restores ordinary rendering. Root materials
+A material with no accepted result uses ErrorMaterial, including during a new
+request after failure; successful admission restores ordinary rendering. Root materials
 and instance variants apply this rule to their own compile requests. Immutable
 compiler cache entries remain reusable after renderable generation retirement.
 The owner stores this contract using the same `FMaterialResource` value
@@ -694,34 +698,35 @@ The status records submitted and compiled authored revisions: unsubmitted edits
 are derived from the submitted revision, while current readiness requires Ready
 status, a valid compiled identity, and a compiled revision matching the authored
 revision. There is no requested identity copied back from a completed result.
-Owner and request qualifiers remain at result admission. Admission returns
-Accepted, Capacity or Rejected; worker outcomes are limited to Succeeded, Failed
-or Canceled, independently of asset-visible execution status.
+Owner and request qualifiers remain at result publication. Asset `SubmitJobs`
+returns void and delivers invalid-input or stopped-manager failures through the
+result mailbox. Worker outcomes are limited to Succeeded, Failed or Canceled,
+independently of asset-visible execution status.
 
-The shared compiling manager retains at most 32 active material compilation requests and
-256 asset consumers, with one admission limit for asset and standalone program requests,
-with 16 MiB active-product and 8 MiB assembly-overlap allowance each: aggregate
-ceilings are 512 MiB and 256 MiB respectively. Captured input is limited to 2 MiB
-per request and 128 MiB in aggregate; candidates are limited to 8 MiB, generated
-source to 1 MiB, diagnostics to the M5 64-record/512-byte limits, and shared
-in-process retention to 128 identities and 256 MiB FIFO. Active admission slots
-survive result readiness until request end. Cleanup releases input captures,
-pending outputs and request-owner dependencies; cached programs and caller-held
-ShaderMap or completed request references do not keep active compilation slots occupied.
+The shared compiling manager accepts queued requests and asset consumers without
+fixed count limits or an aggregate captured-input allowance. Queue memory grows
+with pending work; this is not a fixed-total-memory contract. TaskRuntime worker
+concurrency, the shared per-group Shader dispatch window, backend output limits
+and cache eviction govern execution and retention. Serialized translation input
+and output retain their 2 MiB and 8 MiB format bounds; unused container capacity
+is not a validity condition. Generated source retains its 1 MiB format bound,
+diagnostics retain their 64-record/512-byte limits, and shared in-process retention
+remains 128 identities and 256 MiB FIFO. Completed candidates are not rejected by
+a separate 8 MiB material-result allowance. Cleanup releases captures, outputs
+and request-owner dependencies independently of caller-held completed handles.
 A single request owner tracks translation, submission/callback barriers, CPU tasks
 and Shader handles. `IsCompiling` and `FinishCompilation` use that owner's shared
 end boundary; GameThread result publication remains
 the material lifecycle's separate responsibility.
-The aggregate capture budget also charges retained canonical translation bytes.
 Equal identities share one flight and retained immutable result while keeping
 asset-local generations and diagnostics. Aggregate counters retain no asset or
 terminal-request history. Aggregate selected finish and advisory cancellation
 filter both material asset classes; aggregate shutdown closes admission, publishes accepted
 terminal results, empties the mailbox, and releases flights and retained
-results before task-system teardown. Capacity overflow records `Deferred` state
-without retaining a request or another owner. A rotating GameThread scan retries
-at most 256 owners per pump; finish operations include deferred owners and
-cancellation/stop-admission clears their intent.
+results before task-system teardown. The rotating GameThread preparation pump
+checks at most 256 owners for edit deadlines, Cooked preparation and FeatureLevel
+resources. Capacity never registers an owner in that pump. Selected finish flushes
+scheduled edits; cancellation and stop-admission clear those edit intents.
 
 ShaderBuild owns compiled-output DDC and local dependency manifests as defined
 by [Shader Cache](../Shaders/ShaderCache.md). Engine owns the independent `Material.Translate`
@@ -750,17 +755,17 @@ completion explicitly selects compile, retained reuse, or joining a program
 flight. Canonical asset flights retain their consumer accounting; semantic joining
 tracks the existing program's completion boundary. Consumer validation runs once per
 submission; typed hit repair reuses that validated immutable input and preserves
-structured normalization errors. Compilation completion enforces the result bound;
-program-cache entries retain their charged size for replacement and eviction.
+structured normalization errors. Program-cache entries retain their charged size
+for replacement and eviction.
 Completion detaches consumers under the manager lock, builds per-consumer results
 outside it, then commits the mailbox under the lock. Detached completions remain
-visible to owner queries and cancellation, and their compile records remain charged
+visible to owner queries and cancellation, and their compile records remain retained
 until request end. Cancellation withdraws publication; shutdown drains these
 completions before clearing counters. Fanout exceptions deliver terminal failures.
 Collection binding shares schema validation and copy-on-write refresh at capture
 and publication. Publication resolves current live collection objects, exact
 nonempty asset paths and compatible schemas through a dedicated helper; missing
-objects or incompatible schemas schedule a new snapshot.
+objects or incompatible schemas reject the candidate without automatic resubmission.
 Infrastructure failures and cancellation never become persistent negatives;
 persistence failure retains a validated local product. No complete Material.Program
 record duplicates Shader bytecode. Synchronous, offline and Cook calls use the same

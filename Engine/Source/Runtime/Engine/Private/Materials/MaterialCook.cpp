@@ -1,6 +1,6 @@
 #include "Materials/Material.h"
 #include "Materials/MaterialShaderMap.h"
-#include "MaterialCompileRetryQueue.h"
+#include "MaterialPreparationQueue.h"
 #include "Shader/ShaderCompilingManager.h"
 #include "MaterialTranslationCodec.h"
 #include "DObject/ObjectKey.h"
@@ -69,9 +69,6 @@ namespace Durin
 			auto Environment = BaseEnvironment; Environment.Quality = Configuration.Quality; Environment.FeatureLevel = Configuration.FeatureLevel;
 			auto Snapshot = SnapshotMaterialCompilerInput(*this, std::move(Environment));
 			if (!Snapshot) { Context.Result = {EObjectCookError::Preparation, FormatMaterialProgramDiagnostics(Snapshot.Diagnostics, "Material Cook snapshot failed.")}; return; }
-			if (MaterialBuildPrivate::EstimateTranslationCaptureBytes(Snapshot.Snapshot->Input) > MaterialBuildPrivate::TranslationInputBytes) {
-				Context.Result = {EObjectCookError::Limit, "Material Cook snapshot exceeds its reservation."}; return;
-			}
 			FunctionOwners.insert(FunctionOwners.end(), Snapshot.Snapshot->FunctionOwners.begin(), Snapshot.Snapshot->FunctionOwners.end());
 			Inputs.push_back(std::make_shared<const MIR::FCompilerInput>(std::move(Snapshot.Snapshot->Input)));
 		}
@@ -137,7 +134,7 @@ namespace Durin
 				{ std::lock_guard Lock(Work->Mutex); Work->Failure = "Material Cook compile admission failed."; Work->Failed.store(true); }
 				Work->Cancel(); break;
 			}
-			Work->Compiles.push_back(std::move(*Submitted));
+			Work->Compiles.push_back(std::move(Submitted));
 		}
 #else
 		Context.Result = {EObjectCookError::Preparation, "Authored material Cook preparation is unavailable in this runtime."};
@@ -212,7 +209,7 @@ namespace Durin
 		ProgramCandidate = *Validated;
 		CompilationOwner.RenderLayer.CompiledProgram = std::move(ProgramCandidate);
 		CompilationOwner.RenderLayer.StaticProperties = PayloadProperties;
-		Private::GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(this));
+		Private::GetMaterialPreparationQueue().Remove(FWeakObjectPtr(this));
 		CompilationOwner.CookedPreparation.reset();
 		CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Ready;
 		CompilationOwner.MaterialCompileStatus.CacheOutcome =

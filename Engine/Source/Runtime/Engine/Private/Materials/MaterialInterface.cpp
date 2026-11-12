@@ -1,7 +1,7 @@
 #include "Materials/MaterialInterface.h"
 #include "Components/PrimitiveComponent.h"
 #include "Materials/MaterialShaderMap.h"
-#include "MaterialCompileRetryQueue.h"
+#include "MaterialPreparationQueue.h"
 #include "Materials/ObjectCacheContext.h"
 #include "MaterialLoadedQueryDiagnostics.h"
 #include "MaterialDependencyIndex.h"
@@ -317,7 +317,7 @@ namespace Durin
 		std::optional<FMaterialCompilerEnvironment> RequestedEnvironment) -> bool
 	{
 		if (IsDynamicInstance()) return false;
-		Private::GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(this));
+		Private::GetMaterialPreparationQueue().Remove(FWeakObjectPtr(this));
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return false;
 		CompilationOwner.MaterialCompileStatus.EditCompileDeadline.reset();
 		CompilationOwner.MaterialCompileStatus.SubmittedRevision = CompilationOwner.MaterialCompileStatus.AuthoredRevision;
@@ -354,7 +354,7 @@ namespace Durin
 		Input.StaticProperties = CandidateProperties;
 		CompilationOwner.LastObservedParameters = Input.Parameters;
 		return Private::FMaterialCompilationLifecycle::Submit(
-			*this, std::move(Input), bForceRecompile, std::move(Snapshot.Snapshot->FunctionOwners), Context);
+			*this, std::move(Input), bForceRecompile, Context);
 	}
 
 	auto DMaterialInterface::RequestPreviewProgramCompile(
@@ -519,7 +519,7 @@ namespace Durin
 		CompilationOwner.RenderLayer.StaticProperties = GetStaticProperties();
 		CompilationOwner.RenderLayer.Parameters = BuildMaterialResource().Parameters;
 		auto& Status = CompilationOwner.MaterialCompileStatus;
-		Private::GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(this));
+		Private::GetMaterialPreparationQueue().Remove(FWeakObjectPtr(this));
 		Status.State = EMaterialCompileState::Ready;
 		Status.CompiledIdentity = Program->GetShaderMap().ShaderMapId;
 		Status.CompiledRevision = Status.SubmittedRevision = Status.AuthoredRevision;
@@ -559,7 +559,7 @@ namespace Durin
 		PSOPrecacheOwner.Invalidate();
 		ReleaseFeatureLevelResources();
 		CompilationOwner.CookedPreparation.reset();
-		Private::GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(this));
+		Private::GetMaterialPreparationQueue().Remove(FWeakObjectPtr(this));
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*this);
 		FObjectCacheContext Context;
 		std::vector<FWeakObjectPtr> Notifications;

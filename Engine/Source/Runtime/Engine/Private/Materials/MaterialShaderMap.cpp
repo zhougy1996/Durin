@@ -43,13 +43,6 @@ namespace Durin
 			for (const auto& Node : Debug->IR.Nodes) Bytes += Node.Inputs.capacity() * sizeof(uint32);
 			return Bytes;
 		}
-		auto DiagnosticBytes(const std::vector<FMaterialProgramDiagnostic>& Diagnostics) -> uint64
-		{
-			uint64 Bytes = Diagnostics.capacity() * sizeof(FMaterialProgramDiagnostic);
-			for (const auto& Diagnostic : Diagnostics) Bytes += Diagnostic.FunctionAssetPath.capacity()
-				+ Diagnostic.CallPath.capacity() * sizeof(FGuid) + Diagnostic.Message.capacity();
-			return Bytes;
-		}
 		auto CollectionBytes(std::span<const FMaterialParameterCollectionLayout> Collections) -> uint64
 		{
 			uint64 Bytes = 0;
@@ -72,13 +65,6 @@ namespace Durin
 			Size += Shader.Reflection.PushConstantRanges.capacity() * sizeof(FPushConstantRange) + Shader.PlatformData.GetRetainedCapacityBytes();
 		}
 		return Size;
-	}
-	auto MaterialBuildPrivate::GetMaterialProgramRetainedBytes(const FMaterialCompilerResult& Result) -> uint64
-	{
-		// Charge shared backing storage in full for each independently retained result.
-		return sizeof(Result) + (Result.ShaderMap ? Result.ShaderMap->GetRetainedBytes() : 0)
-			+ Result.StaticBools.capacity() * sizeof(FMaterialCompilerEnvironment::FStaticBoolValue)
-			+ CollectionBytes(Result.ActiveCollections) + DiagnosticBytes(Result.Diagnostics);
 	}
 	auto FMaterialShaderMap::FindId(FMaterialProgramIdentity Identity) -> std::shared_ptr<const FMaterialShaderMap>
 	{ std::lock_guard Lock(CacheMutex); const auto Found = Programs.find(Identity); return Found == Programs.end() ? nullptr : Found->second; }

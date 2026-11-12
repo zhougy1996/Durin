@@ -4,7 +4,7 @@ Summary: Define material preview resources, compilation controls, Apply and Save
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-11-06
+Last reviewed: 2026-11-12
 
 Expression ownership and command publication are defined in
 [Material Graph Operations](MaterialGraphOperations.md#ownership). Panels and
@@ -173,6 +173,6 @@ preserving its authored inactive value. Effective supplying-owner labels come
 from the bounded runtime resolver. Edits use the shared reflected whole-member
 transaction path, so Undo/Redo and direct setters trigger the same owner revision
 and variant rules. Toolbar cancellation/recompile, diagnostics, last-known-good
-status and thumbnail readiness refer to the instance owner. A deferred request
-is displayed as waiting for compiler capacity. Graph navigation still belongs
+status and thumbnail readiness refer to the instance owner. Submitted work stays
+queued in the manager until execution; it never requires an editor capacity retry. Graph navigation still belongs
 to the root material document.
