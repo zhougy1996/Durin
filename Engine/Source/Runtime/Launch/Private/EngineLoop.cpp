@@ -27,6 +27,7 @@
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 #include "Project/Project.h"
+#include "Interfaces/IProjectManager.h"
 #include "Project/ProjectHistory.h"
 #include "Misc/Time.h"
 #include "Misc/Version.h"
@@ -107,6 +108,11 @@ namespace Durin
 			return false;
 		}
 #endif
+		if (!IProjectManager::Get().PreparePluginStartup())
+		{
+			DURIN_ERROR("Plugin admission failed: {}", IProjectManager::Get().GetLastError());
+			return false;
+		}
 		DURIN_PROFILE_PROGRAM_IDENTITY(
 			DURIN_RUNTIME_VARIANT,
 			GetCurrentProject() ? std::string_view{GetCurrentProject()->Name} : std::string_view{},

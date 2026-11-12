@@ -1,6 +1,6 @@
 # Plugin Metadata And Selection
 
-Summary: Define source-plugin descriptors, project overrides, deterministic selection, and source-build integration before startup loading.
+Summary: Define source-plugin descriptors, project overrides, deterministic selection, source-build integration, and frozen native startup.
 
 Modules: Projects, Core
 
@@ -20,8 +20,10 @@ their consumers now depend on Projects. The project manager/descriptor APIs are
 introduced in `Interfaces/IProjectManager.h` and `ProjectDescriptor.h`.
 Projects does not change `EnabledRootModules`. Launch has a
 build dependency on Projects so the module belongs to both runtime variants;
-plugin loading is not yet wired into Launch or host startup. Later integration
-is tracked in the [implementation plan](../Plans/RestartBasedPluginSystem.md).
+Launch admits the frozen native selection before mount and renderer setup;
+the host executes its module phases before their consumers. Content, shader,
+configuration, management UI, and cooked plugin deployment integration remain
+tracked in the [implementation plan](../Plans/RestartBasedPluginSystem.md).
 
 Core no longer parses project fields. Projects supplies validated mount values
 through Core's mount mechanism. Ordinary project admission, status/history
@@ -65,7 +67,7 @@ do not require Engine, Renderer, editor UI, or Python.
 Editor, Game, and the standalone asset tool delegate ordinary root loading to
 LoadModulesForProject at their existing pre-content points. Ordinary project
 roots use Providers; other phase calls do no ordinary-root work. Plugin phase
-execution remains the later startup integration stage. RelaunchEditorForProject
+execution follows the startup contract below. RelaunchEditorForProject
 returns void because it only queues a request and asks the host to exit. Launch
 consumes it once and reports actual process-launch failures outside Projects.
 
@@ -135,10 +137,14 @@ only to independently enabled, eligible modules, matching existing DHT rules.
 Required project-module paths into disabled plugins fail without activating them.
 Diagnostics include the descriptor and traversed module/plugin chain.
 
-## Startup Phase Contract For Later Integration
+## Frozen Native Startup
 
-The resolver validates these ordered phases. Stage 3 will insert hooks in the
-existing startup sequence; it does not add another readiness state machine.
+Launch calls IProjectManager::PreparePluginStartup before default mount
+publication and renderer/shader initialization. Projects resolves the source
+workspace and active project's on-disk descriptors, admits the inventory, and
+freezes native membership. This is independent of later descriptor edits and
+does not add another readiness state machine. The existing hosts execute these
+dependency-ordered phases:
 
 | Phase | Editor insertion point | Game insertion point |
 | --- | --- | --- |
@@ -153,7 +159,9 @@ Existing project roots are Providers consumers for this check.
 
 Shader-root declaration is descriptor-driven, before the initialization-time
 shader registry freezes; it is independent of module startup callbacks. These
-are selected integration boundaries, not claims that startup hooks already run.
+module hooks run at the points above. Plugin root publication and shader/config
+consumption are separate integration work; native startup alone does not mount
+plugin content or shader roots.
 
 ## Canonical Selection And Build Inventory
 
@@ -193,8 +201,28 @@ module/owner membership, and checks binary and runtime-dependency files beneath
 the inventory directory (including canonical containment). It returns paths in
 selection order only after every check passes; failure preserves the output and
 reports a configure/build requirement. This API does not load libraries or
-authenticate binary contents. Startup integration and host identity derivation
-remain pending.
+authenticate binary contents. Source startup finds the inventory under the
+configured build directory's PluginBuild/<Project>/<Configuration> directory.
+The host derives EngineBuild from its engine version and the SHA-256 of its
+loaded Core library; architecture/toolchain come from its compiled CMake
+configuration. The candidate inventory never supplies the expected identity.
+
+Core freezes ordinary workspace module names and exact selected plugin paths
+once per process. A selected plugin becomes loadable only when Projects admits
+its phase; unknown, disabled, and not-yet-admitted names cannot use fallback DLL
+lookup or override registration. Native dependencies come from the verified
+inventory closure. Plugin records retain native code for process lifetime,
+including factory/startup failures after native loading. Runtime unload is
+rejected even if a plugin opts into dynamic reload. Existing module shutdown
+calls run in reverse startup completion order after host consumers retire;
+partial StartupModule failures call the module's own cleanup once.
+
+Browser admission uses the build-generated ordinary module list and starts no
+project plugins. Opening a project uses the existing unsaved-work/relaunch path;
+LoadProjectFile and ClearCurrentProject cannot replace a frozen admission.
+No-plugin staged Game layouts retain source-independent ordinary startup using
+the same generated list. Plugin-bearing staged deployment is not admitted by
+this source-startup path and remains cook/deploy integration work.
 
 ## Source Build Integration
 

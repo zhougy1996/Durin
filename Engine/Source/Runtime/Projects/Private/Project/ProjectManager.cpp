@@ -3,6 +3,7 @@
 #include "ProjectContextInternal.h"
 #include "Modules/ModuleManager.h"
 #include "Misc/StringHelper.h"
+#include "PluginStartup.h"
 
 namespace Durin
 {
@@ -15,13 +16,17 @@ namespace Durin
 			mutable std::string LastError;
 			bool bDirty = false;
 			bool bModulesStarted = false;
+			bool bPluginAdmissionFrozen = false;
+			bool bPluginStartupFailed = false;
+			int CompletedPhase = -1;
+			std::vector<FAdmittedPluginBinary> PluginBinaries;
 		public:
 			auto GetLastError() const -> const std::string& override { return LastError; }
 			auto Fail(std::string Message,std::string* OutReason=nullptr) const -> bool
 			{ LastError=std::move(Message); if (OutReason) *OutReason=LastError; return false; }
 			auto LoadProjectFile(std::string_view InFile) -> bool override
 			{
-				if (bModulesStarted) return Fail("Changing the active project requires restart");
+				if (bModulesStarted || bPluginAdmissionFrozen) return Fail("Changing the active project requires restart");
 				FProjectDescriptor Candidate;
 				if (!Candidate.Load(InFile,LastError)) return false;
 				auto Committed=CommitProjectContext(InFile,Candidate);
@@ -34,20 +39,57 @@ namespace Durin
 			auto GetActiveProject() const -> const FProjectInfo* override { return Active ? &*Active : nullptr; }
 			auto SetHistoryRecording(bool Enabled) -> void { if (Active) Active->bRecordInteractiveHistory=Enabled; }
 			auto GetCurrentProject() const -> const FProjectDescriptor* override { return Descriptor ? &*Descriptor : nullptr; }
-			auto ClearCurrentProject() -> void override { ClearProjectContext(); Descriptor.reset(); Active.reset(); bDirty=false; bModulesStarted=false; }
+			auto ClearCurrentProject() -> void override { if (bPluginAdmissionFrozen) { Fail("Changing the active project requires restart"); return; } ClearProjectContext(); Descriptor.reset(); Active.reset(); bDirty=false; bModulesStarted=false; CompletedPhase=-1; bPluginStartupFailed=false; }
+			auto PreparePluginStartup() -> bool override
+			{
+				if (bPluginAdmissionFrozen) return !bPluginStartupFailed;
+				FPluginResolution Selection;
+				std::vector<FAdmittedPluginBinary> Binaries;
+				if (!ResolveProcessPlugins(Active ? Active->ProjectFile : "", Selection, Binaries, LastError)) return false;
+				std::vector<FName> Ordinary;
+				for (const auto& Name : Selection.OrdinaryModules) Ordinary.emplace_back(Name);
+				std::vector<std::pair<FName, std::string>> ProcessModules;
+				for (const auto& Binary : Binaries)
+				{
+					const auto Utf8 = Binary.Path.generic_u8string();
+					ProcessModules.emplace_back(FName(Binary.Module.Name),
+						std::string(reinterpret_cast<const char*>(Utf8.data()), Utf8.size()));
+				}
+				if (!FModuleManager::Get().FreezeModuleLoading(Ordinary, ProcessModules)) return Fail("Cannot freeze module admission; restart required");
+				PluginBinaries = std::move(Binaries);
+				bPluginAdmissionFrozen = true;
+				LastError.clear();
+				return true;
+			}
 			auto LoadModulesForProject(ELoadingPhase Phase,const std::function<bool()>& IsCanceled) -> bool override
 			{
-				if (Phase!=ELoadingPhase::Providers) { LastError.clear(); return true; }
+				if (bPluginStartupFailed) return false;
+				const auto Index = static_cast<int>(Phase);
+				if (Index < 0 || Index >= 3) return Fail("Invalid project module loading phase");
+				if (Index <= CompletedPhase) { LastError.clear(); return true; }
+				if (Index != CompletedPhase + 1) return Fail("Project module phases must start in order");
 				const auto* Context=Durin::GetCurrentProject();
-				if (!Context) { LastError.clear(); return true; }
-				const auto Roots=Context->EnabledRootModules;
-				for (const auto& Name : Roots)
+				const auto FailStartup = [&](std::string Message) { bPluginStartupFailed=true; return Fail(std::move(Message)); };
+				const std::array<std::string_view, 3> Phases{"Providers", "EngineReady", "EditorReady"};
+				for (const auto& Binary : PluginBinaries)
 				{
-					if (IsCanceled && IsCanceled()) return Fail("Project module startup canceled");
-					bModulesStarted=true;
-					if (!FModuleManager::Get().LoadModule(FName(Name))) return Fail("Project module could not start: "+Name);
+					if (Binary.Module.Phase != Phases[Index]) continue;
+					if (IsCanceled && IsCanceled()) return FailStartup("Plugin startup canceled");
+					const auto Utf8 = Binary.Path.generic_u8string();
+					const std::string Path(reinterpret_cast<const char*>(Utf8.data()), Utf8.size());
+					if (!FModuleManager::Get().AdmitProcessModule(FName(Binary.Module.Name), Path)
+						|| !FModuleManager::Get().LoadModule(FName(Binary.Module.Name)))
+						return FailStartup("Plugin module could not start: " + Binary.Module.Owner + "/" + Binary.Module.Name);
 				}
-				bModulesStarted=true;
+				if (Phase == ELoadingPhase::Providers && Context)
+					for (const auto& Name : Context->EnabledRootModules)
+					{
+						if (IsCanceled && IsCanceled()) return FailStartup("Project module startup canceled");
+						bModulesStarted=true;
+						if (!FModuleManager::Get().LoadModule(FName(Name))) return FailStartup("Project module could not start: "+Name);
+					}
+				bModulesStarted = Context != nullptr || bPluginAdmissionFrozen;
+				CompletedPhase=Index;
 				LastError.clear(); return true;
 			}
 			auto QueryStatusForProject(std::string_view InFile,FProjectStatus& OutStatus) const -> bool override

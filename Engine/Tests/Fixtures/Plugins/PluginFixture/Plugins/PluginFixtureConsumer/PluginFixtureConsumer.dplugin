@@ -9,7 +9,7 @@
       "Name": "PluginFixtureConsumer",
       "Path": "Source/PluginFixtureConsumer",
       "Host": "Runtime",
-      "Phase": "Providers"
+      "Phase": "EngineReady"
     },
     {
       "Name": "PluginFixtureEditor",

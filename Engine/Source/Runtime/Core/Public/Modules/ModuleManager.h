@@ -58,6 +58,7 @@ namespace Durin
 		FModuleHandle Handle = nullptr;
 		std::unique_ptr<IModuleInterface> Module;
 		std::atomic<EModuleState> State = EModuleState::Registered;
+		bool bProcessResident = false;
 		uint32 LoadOrder = 0;
 		uint64 OwnerGeneration = 0;
 		std::shared_ptr<Detail::FModuleOwnerState> ModuleOwner;
@@ -86,6 +87,10 @@ namespace Durin
 			return static_cast<TModuleInterface&>(Get().LoadModuleChecked(InModuleName));
 		}
 
+		// One process-wide admission boundary; ordinary modules retain normal lookup.
+		CORE_API auto FreezeModuleLoading(std::span<const FName> OrdinaryModules,
+			std::span<const std::pair<FName, std::string>> ProcessModules) -> bool;
+		CORE_API auto AdmitProcessModule(const FName& Name, const std::string& AbsolutePath) -> bool;
 		CORE_API auto AddModule(const FName& InModuleName, const std::string& FileName) -> void;
 		CORE_API auto FindModule(const FName& InModuleName) -> FModuleInfoPtr;
 		CORE_API auto LoadModule(const FName& InModuleName) -> IModuleInterface*;
@@ -110,6 +115,9 @@ namespace Durin
 		auto IsControlThread() const -> bool;
 
 		mutable std::mutex ModuleMapMutex;
+		bool bAdmissionFrozen = false;
+		std::unordered_set<FName> AdmittedModules;
+		std::unordered_map<FName, std::string> FrozenProcessModules;
 		uint32 ControlThreadId = 0;
 		uint32 NextLoadOrder = 0;
 		uint64 NextOwnerGeneration = 1;

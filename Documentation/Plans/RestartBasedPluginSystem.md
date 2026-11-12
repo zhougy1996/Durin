@@ -9,17 +9,13 @@ Completed:
 
 ## Current Status
 
-Stages 0, 1, 1.1, and 2 are complete. Stage 1.1 consolidates ordinary project
-descriptors, admission and edit state in Projects, moves mount interpretation out
-of Core, and separates host history/relaunch policy. Principal public project
-interfaces use UE-style bool/output-parameter semantics, as requested on
-2026-11-12. Stage 2 integrates selected plugin modules into the existing
-CMake/DHT pipeline and publishes native build inventories. Stages 3-7 remain
-open; Stage 3 is in progress. A read-only native build-inventory admission API
-now checks selection, host identity, exact module ownership, contained files and
-runtime dependencies, publishing ordered paths only on success. Host startup
-wiring, membership enforcement, process qualification, UI, and cooked deployment
-remain open.
+Stages 0, 1, 1.1, 2, and 3 are complete for the selected Win64 source-build
+milestone. Projects now admits and freezes the native plugin set before mount/
+renderer setup; Editor and Game start its modules at the existing host phases.
+Core enforces frozen names/paths and retains plugin code through process exit.
+Stage 4 is next. Plugin content/shader/configuration consumption, management UI,
+and cooked plugin deployment remain Stages 4-7 work. Native macOS startup
+qualification remains an explicit outstanding platform gate.
 
 Stage 3 admission checkpoint (2026-11-12, not accepted):
 - Added read-only native inventory admission and a focused regression covering
@@ -34,6 +30,57 @@ Stage 3 admission checkpoint (2026-11-12, not accepted):
   The earlier sandbox C1902 failure was resolved by the authorized external run.
   This validates the standalone admission API; host integration and process
   qualification remain open. No Stage 3 acceptance checkbox is closed.
+
+Stage 3 acceptance (2026-11-12, Win64 Debug, windows-msvc-x64):
+
+- Tested base `2e508c939207c993e165839443290cd8d5bd570f` plus the final
+  Stage 3 source/fixture changes. Input SHA-256 hashes are retained under ignored
+  `Build/PluginStage3/final-inputs.json`; later documentation edits do not alter
+  these inputs. Temporary fixture workspace membership was restored.
+- Both runtime variants passed `build all` with the fixture and again with
+  ordinary Engine/Sandbox/RoadWeaver membership. Final ordinary build logs:
+  `Build/.agent-state/logs/20261112-163825-838185-31252-cmake.log` and
+  `Build/.agent-state/logs/20261112-163912-963944-3016-cmake.log`.
+  This covers the shared Core layout and all direct project API consumers.
+- 46 independent fixture processes passed: 13 admission/startup probes per
+  variant, four persisted-edit/rebuild processes per variant, five complete
+  Editor/Game host runs, six later-provider/stale/missing-file host failures,
+  and one existing no-plugin staged Game run. Normal hosts exit after three
+  ticks with code 0; expected failures exit 1 and record bounded teardown.
+  Browser starts no plugins. Runtime reflection is available at its phase.
+  Editor starts Runtime, dependent EngineReady, then EditorReady modules; Game
+  omits the Editor module. Shutdown reverses completed startup order.
+- Probes reject all six incompatible native identity fields, stale selection,
+  missing inventory/DLL/runtime dependency, unknown explicit registration,
+  early name-based loading and runtime unload. Provider failure cleans its
+  partial state once; later-provider failure also stops the earlier provider.
+  Saving disabled overrides leaves current module membership and mount revision
+  unchanged; the next process rejects stale artifacts, then observes no native
+  plugins after rebuild despite stale DLL files. Re-enable/build restores startup.
+- Raw case results, traces and logs are in `Build/PluginStage3/`:
+  `DurinEditor-probes.json`, `DurinGame-probes.json`, both `*-cycle.json`,
+  both `*-hosts.json`, and `host-extra.json`. The reproduction scripts are
+  `qualify.py`, `cycle.py`, `hosts.py`, and `extra.py` there. The tracked
+  fixture/probe lives under `Engine/Tests/Fixtures/Plugins/PluginFixture`.
+- Final source regression: PluginResolutionTests 8/8, CoreConcurrencyTests
+  `FModule*` 11/11 (including owned worker drain and failure retention), and
+  LaunchProcessBoundaryTests 4/4. Final native logs use the
+  `20261112-162755`, `20261112-162805`, and `20261112-162810` prefixes in
+  `Build/.agent-state/logs/`. Broader affected selection is bounded by both
+  all-builds, lifecycle regressions, and real host/DLL process coverage; GPU
+  rendering behavior and the native test framework are unchanged.
+- A supplemental three-case LaunchStartupCharacterizationTests selection built,
+  but did not execute: its corrected characterization-mode invocation was
+  blocked before creation by disconnected automatic approval. It contributes
+  no passing evidence. Corresponding Browser/ordinary-host behavior is covered
+  by the direct host cases above; no whole-suite claim is made.
+- Lasting startup and source/staged boundaries are documented in
+  [Plugins](../Workspace/Plugins.md#frozen-native-startup) and
+  [Runtime lifecycle](../Runtime/Application/RuntimeLifecycle.md).
+  Missing/stale artifacts never trigger an implicit build. The existing Browser
+  relaunch/unsaved-work owner is retained. Plugin-bearing staged deployment
+  requires Stage 6; no-plugin staged startup remains source-independent.
+  Native macOS execution remains unqualified.
 
 The 2026-11-12 convergence keeps these stages unchanged: typed descriptor fields
 are the persistent authority, the manager owns both editable and active state,
@@ -521,33 +568,33 @@ and CoreDObject integration changes only where existing hooks are insufficient.
 Outcome: Editor and Game load exactly the admitted plugin module set before
 their consumers run, and report actionable startup failures.
 
-- [ ] Resolve project plugin inputs early enough to prepare immutable roots,
+- [x] Resolve project plugin inputs early enough to prepare immutable roots,
   validate build compatibility, and freeze selection before consumption.
-- [ ] Check manifests against current descriptors and binary identities before
+- [x] Check manifests against current descriptors and binary identities before
   native loading. Missing or stale source-plugin artifacts report configure/
   build requirements; never build implicitly inside startup.
-- [ ] Register exact module paths and execute dependency-aware phase order.
+- [x] Register exact module paths and execute dependency-aware phase order.
   Ensure plugin reflection/providers are ready before catalog/package loading
   and before World subsystem membership is captured.
-- [ ] Enforce admitted module membership at loading boundaries so a disabled
+- [x] Enforce admitted module membership at loading boundaries so a disabled
   plugin cannot be loaded by guessing its name or by stale output discovery.
-- [ ] Keep Project Browser admission independent of project plugins. Define the
+- [x] Keep Project Browser admission independent of project plugins. Define the
   restart path for opening a project with a different set, including plugins
   whose shaders require roots unavailable after renderer initialization.
-- [ ] Integrate partial-failure and normal-exit cleanup with existing startup/
+- [x] Integrate partial-failure and normal-exit cleanup with existing startup/
   exit owners; stop callbacks and drain work before their providers disappear.
   Retain native code through the lifetime of plugin objects/reflection metadata.
 
 Acceptance gate:
 
-- [ ] Process fixtures verify phase/dependency ordering, reflected-type
+- [x] Process fixtures verify phase/dependency ordering, reflected-type
   availability, and frozen selection in both Editor and Game.
-- [ ] Missing DLL, incompatible identity, stale selection, provider-start failure,
+- [x] Missing DLL, incompatible identity, stale selection, provider-start failure,
   and attempted disabled-module loading fail at the correct boundary with an
   error result and clean teardown. No fallback silently omits required plugins.
-- [ ] A no-project Browser starts without project plugin initialization; opening
+- [x] A no-project Browser starts without project plugin initialization; opening
   a different-set project follows the documented restart path.
-- [ ] Editing overrides during a process does not change its modules or mounts;
+- [x] Editing overrides during a process does not change its modules or mounts;
   a new process observes the new set after any required build.
 
 ### Stage 4: Integrate content, shaders, and plugin configuration

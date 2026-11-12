@@ -17,6 +17,7 @@ namespace Durin
 		virtual auto GetCurrentProject() const -> const FProjectDescriptor* = 0;
 		virtual auto GetActiveProject() const -> const FProjectInfo* = 0;
 		virtual auto ClearCurrentProject() -> void = 0;
+		virtual auto PreparePluginStartup() -> bool = 0;
 		virtual auto LoadModulesForProject(ELoadingPhase Phase = ELoadingPhase::Providers, const std::function<bool()>& IsCanceled = {}) -> bool = 0;
 		virtual auto QueryStatusForProject(std::string_view File, FProjectStatus& OutStatus) const -> bool = 0;
 		virtual auto QueryStatusForCurrentProject(FProjectStatus& OutStatus) const -> bool = 0;

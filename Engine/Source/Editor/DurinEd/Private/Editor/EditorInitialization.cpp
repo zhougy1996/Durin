@@ -35,6 +35,8 @@ namespace Durin
         if (auto Modules=IProjectManager::Get().LoadModulesForProject(ELoadingPhase::Providers, [&] { return bShutdownRequested; }); !Modules)
         { StartupError=IProjectManager::Get().GetLastError(); return false; }
 		if (bShutdownRequested) return false;
+		if (!IProjectManager::Get().LoadModulesForProject(ELoadingPhase::EngineReady, [&] { return bShutdownRequested; }))
+		{ StartupError=IProjectManager::Get().GetLastError(); return false; }
 		if (const auto Content = InitializeProjectContent(); !Content)
 		{
 			StartupError = Content.error();
@@ -58,6 +60,8 @@ namespace Durin
 			StartupError = "Could not load the editor workspace modules.";
 			return false;
 		}
+		if (!IProjectManager::Get().LoadModulesForProject(ELoadingPhase::EditorReady, [&] { return bShutdownRequested; }))
+		{ StartupError=IProjectManager::Get().GetLastError(); return false; }
 		AddRegisteredEditorSubsystems();
 		if (bShutdownRequested) return false;
 		if (!MainFrameModule->InitializeWorkspaces(StartupError)) return false;

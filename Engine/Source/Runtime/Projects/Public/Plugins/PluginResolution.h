@@ -14,6 +14,8 @@ namespace Durin
 		std::vector<std::filesystem::path> ProjectFiles;
 		std::string Platform = "Win64";
 		std::string RuntimeVariant = "DurinEditor";
+		// Browser admission validates ordinary ownership without activating project overrides.
+		bool bProjectBrowser = false;
 	};
 
 	struct FResolvedPluginModule
@@ -26,6 +28,8 @@ namespace Durin
 	struct FPluginResolution
 	{
 		std::vector<std::string> Plugins;
+		// Ordinary workspace module names allowed by the process loading boundary.
+		std::vector<std::string> OrdinaryModules;
 		std::vector<FResolvedPluginModule> Modules;
 		// Canonical UTF-8 JSON with sorted object keys; excludes absolute paths.
 		std::string ManifestJson;

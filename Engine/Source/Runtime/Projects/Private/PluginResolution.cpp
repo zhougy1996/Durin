@@ -383,7 +383,7 @@ namespace Durin
 				}
 				std::set<std::filesystem::path> Roots = {EngineRoot / "Plugins", ProjectFile.parent_path() / "Plugins"};
 				for (const auto& Root : Roots) Discover(Root, Root);
-				for (const auto& Project : Projects) if (Project.Path == ProjectFile)
+				for (const auto& Project : Projects) if (Project.Path == ProjectFile && !Request.bProjectBrowser)
 					for (const auto& [Name, Enabled] : Project.Overrides) Explicit.emplace(Fold(Name), Enabled);
 				for (const auto& [Key, Enabled] : Explicit)
 				{
@@ -400,7 +400,11 @@ namespace Durin
 				}
 				EditorOnly = Reachable("DurinEditor");
 				for (const auto& Key : Reachable("DurinGame")) EditorOnly.erase(Key);
-				for (const auto& [Key, Module] : Modules) if (!Module.Owner.empty() && Eligible(Module)) Active.insert(Key);
+				for (const auto& [Key, Module] : Modules)
+				{
+					if (Module.Owner.empty()) Result.OrdinaryModules.push_back(Module.Name);
+					else if (Eligible(Module)) Active.insert(Key);
+				}
 				std::function<void(const std::string&)> EnableModule = [&](const std::string& Key) {
 					if (!Modules.contains(Key) || !EnabledModules.insert(Key).second) return;
 					for (const auto& Dep : Edges(Modules.at(Key), false)) EnableModule(Dep);

@@ -87,6 +87,8 @@ namespace Durin
 					return std::unexpected(std::format("Invalid Game.DefaultLevel '{}': {}", Settings.DefaultLevel, ToString(Validation.error())));
 		}
 		if (bShutdownRequested || IsEngineExitRequested()) return std::unexpected("Game startup was canceled.");
+		if (!IProjectManager::Get().LoadModulesForProject(ELoadingPhase::EngineReady, [&] { return bShutdownRequested || IsEngineExitRequested(); }))
+			return std::unexpected(IProjectManager::Get().GetLastError());
 		if (const auto Content = InitializeProjectContent(); !Content) return std::unexpected(Content.error());
 		if (bShutdownRequested || IsEngineExitRequested()) return std::unexpected("Game startup was canceled.");
 		if (DefaultLevel.IsValid())

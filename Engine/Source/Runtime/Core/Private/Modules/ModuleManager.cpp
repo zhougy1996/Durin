@@ -91,10 +91,46 @@ namespace Durin
 		return FPlatformLTS::GetCurrentThreadId() == ExpectedThread;
 	}
 
+	auto FModuleManager::FreezeModuleLoading(std::span<const FName> OrdinaryModules,
+		std::span<const std::pair<FName, std::string>> ProcessModules) -> bool
+	{
+		if (!IsControlThread()) return false;
+		std::lock_guard Lock(ModuleMapMutex);
+		if (bAdmissionFrozen) return false;
+		std::unordered_set<FName> Allowed(OrdinaryModules.begin(), OrdinaryModules.end());
+		for (const auto& [Name, Info] : Modules)
+			if (Info->State.load() == EModuleState::Active && !Allowed.contains(Name)) return false;
+		std::unordered_map<FName, std::string> ExactPaths;
+		for (const auto& [Name, Path] : ProcessModules)
+			if (Allowed.contains(Name) || !std::filesystem::path(Path).is_absolute()
+				|| !ExactPaths.emplace(Name, Path).second) return false;
+		FrozenProcessModules = std::move(ExactPaths);
+		AdmittedModules = std::move(Allowed);
+		bAdmissionFrozen = true;
+		return true;
+	}
+	auto FModuleManager::AdmitProcessModule(const FName& Name, const std::string& AbsolutePath) -> bool
+	{
+		if (!IsControlThread() || !std::filesystem::path(AbsolutePath).is_absolute()) return false;
+		std::lock_guard Lock(ModuleMapMutex);
+		if (!bAdmissionFrozen || AdmittedModules.contains(Name)) return false;
+		const auto Frozen = FrozenProcessModules.find(Name);
+		if (Frozen == FrozenProcessModules.end() || Frozen->second != AbsolutePath) return false;
+		auto Info = std::make_shared<FModuleInfo>();
+		Info->ModuleName = Name;
+		Info->FileName = AbsolutePath;
+		Info->bProcessResident = true;
+		if (const auto It = Modules.find(Name); It != Modules.end()
+			&& It->second->State.load() != EModuleState::Registered) return false;
+		Modules[Name] = std::move(Info);
+		AdmittedModules.insert(Name);
+		return true;
+	}
+
 	auto FModuleManager::AddModule(const FName& InModuleName, const std::string& FileName) -> void
 	{
 		std::lock_guard Lock(ModuleMapMutex);
-		if (Modules.contains(InModuleName)) return;
+		if ((bAdmissionFrozen && !AdmittedModules.contains(InModuleName)) || Modules.contains(InModuleName)) return;
 		auto ModuleInfo = std::make_shared<FModuleInfo>();
 		ModuleInfo->ModuleName = InModuleName;
 		ModuleInfo->FileName = FileName;
@@ -137,6 +173,15 @@ namespace Durin
 			return nullptr;
 		}
 
+		{
+			std::lock_guard Lock(ModuleMapMutex);
+			if (bAdmissionFrozen && !AdmittedModules.contains(InModuleName))
+			{
+				DURIN_ERROR("Module {} is outside the admitted startup set or phase.", InModuleName.ToString());
+				return nullptr;
+			}
+		}
+
 		auto ModuleInfo = FindModule(InModuleName);
 		if (!ModuleInfo)
 		{
@@ -145,6 +190,8 @@ namespace Durin
 		}
 
 		const EModuleState ExistingState = ModuleInfo->State.load();
+		if (ModuleInfo->bProcessResident && ModuleInfo->Handle && ExistingState == EModuleState::LoadFailed)
+			return nullptr;
 		if (ExistingState == EModuleState::Active) return ModuleInfo->Module.get();
 		if (ExistingState == EModuleState::StoppedMapped
 			|| ExistingState == EModuleState::ShuttingDown || ExistingState == EModuleState::Loading)
@@ -191,7 +238,8 @@ namespace Durin
 		const auto Symbol = FPlatformLibrary::FindSymbol(ModuleHandle, "InitializeModule");
 		if (!Symbol || !*Symbol)
 		{
-			ReleaseLibrary(ModuleHandle);
+			if (ModuleInfo->bProcessResident) ModuleInfo->Handle = ModuleHandle;
+			else ReleaseLibrary(ModuleHandle);
 			ModuleInfo->State = EModuleState::LoadFailed;
 			DURIN_ERROR("Failed to get module interface: {}.",
 				Symbol ? "Null InitializeModule export" : Symbol.error().ToString());
@@ -200,21 +248,30 @@ namespace Durin
 		const auto InitializeModuleFunction = reinterpret_cast<InitializeModuleFunc>(*Symbol);
 
 		ModuleInfo->Handle = ModuleHandle;
-		ModuleInfo->Module.reset(InitializeModuleFunction());
+		try { ModuleInfo->Module.reset(InitializeModuleFunction()); }
+		catch (...)
+		{
+			ModuleInfo->State = EModuleState::LoadFailed;
+			DURIN_ERROR("Module {} factory failed.", InModuleName.ToString());
+			return nullptr;
+		}
 		if (!ModuleInfo->Module)
 		{
-			ReleaseLibrary(ModuleHandle);
-			ModuleInfo->Handle = nullptr;
+			if (!ModuleInfo->bProcessResident)
+			{
+				ReleaseLibrary(ModuleHandle);
+				ModuleInfo->Handle = nullptr;
+			}
 			ModuleInfo->State = EModuleState::LoadFailed;
 			return nullptr;
 		}
 
 		ModuleInfo->OwnerGeneration = NextOwnerGeneration++;
 		ModuleInfo->ModuleOwner = std::make_shared<Detail::FModuleOwnerState>(Detail::FModuleOwnerState{InModuleName, ModuleInfo->OwnerGeneration});
-		if (bCanProcessNewlyLoadedObjects && ProcessLoadedObjectsCallback) ProcessLoadedObjectsCallback();
 		bool bStartupFailed = false;
 		try
 		{
+			if (bCanProcessNewlyLoadedObjects && ProcessLoadedObjectsCallback) ProcessLoadedObjectsCallback();
 			Detail::FScopedModuleStartup StartupScope(InModuleName, ModuleInfo->ModuleOwner);
 			ModuleInfo->Module->StartupModule();
 		}
@@ -232,7 +289,7 @@ namespace Durin
 			ModuleInfo->State = EModuleState::StoppedMapped;
 			// Failed startup is not permission to unload process-resident code (for
 			// example, reflected types registered before StartupModule was entered).
-			if (ModuleInfo->Module->SupportsDynamicReloading())
+			if (!ModuleInfo->bProcessResident && ModuleInfo->Module->SupportsDynamicReloading())
 			{
 				ModuleInfo->State = EModuleState::ShuttingDown;
 				ModuleInfo->Module.reset();
@@ -289,7 +346,7 @@ namespace Durin
 		if (!Info || !Info->Module) return false;
 		const auto State = Info->State.load();
 		if ((State != EModuleState::Active && State != EModuleState::StoppedMapped)
-			|| !Info->Module->SupportsDynamicReloading()
+			|| Info->bProcessResident || !Info->Module->SupportsDynamicReloading()
 			|| (State == EModuleState::Active && !Info->Module->CanShutdownModule()))
 		{
 			DURIN_ERROR(STR("Module {} does not permit runtime unload in its current state."), InModuleName.ToString());
