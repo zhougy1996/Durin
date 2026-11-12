@@ -152,6 +152,9 @@ namespace Durin
 	// boundaries or before any foreign pipeline/parameter commands.
 	struct FMeshDrawCommandStateCache
 	{
+		const void* PrimitiveSnapshot = nullptr;
+		const void* MaterialSnapshot = nullptr;
+		const void* CollectionSnapshot = nullptr;
 		// Retain the bound resources while their addresses are used as cache keys.
 		std::shared_ptr<const RendererPrivate::FMeshPassPipeline> PipelineOwner;
 		std::shared_ptr<const FRHIShaderParameterBatch> VertexOwner;
@@ -195,6 +198,8 @@ namespace Durin
 		std::map<RendererPrivate::FMeshPassKey, std::shared_ptr<const RendererPrivate::FMeshPassPipeline>> Pipelines;
 		// Receipts into frame-owned pass lists; records do not own duplicate command arrays.
 		std::map<RendererPrivate::FMeshPassKey, FMeshDrawCommandHandle> Commands;
+		std::map<RendererPrivate::FMeshPassKey, std::shared_ptr<const RendererPrivate::FMeshDrawCommand>> SelectedCachedCommands;
+		std::map<RendererPrivate::FMeshPassKey, FMeshDrawCommandHandle> VisibleCommands;
 		bool bReady = false;
 	};
 

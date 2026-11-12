@@ -2124,6 +2124,12 @@ TEST(FMaterialAnimationVulkanTests, EarlyCommandsInvalidateOnTextureMaterialAndT
 				EXPECT_EQ(Telemetry.StaticMesh.StaticMeshSuccessfulDraws, 0u);
 				EXPECT_NE(Pixels[Frame], Pixels[Frame - 1]);
 			}
+			else if (Frame == 5 || Frame == 6)
+			{
+				EXPECT_EQ(Telemetry.StaticMesh.PersistentCommandHits, 2u);
+				EXPECT_EQ(Telemetry.StaticMesh.PersistentCommandMisses, 0u);
+				EXPECT_NE(Pixels[Frame], Pixels[Frame - 1]);
+			}
 			else if (Frame == 0 || Frame == 1 || Frame == 3 || Frame == 7 || Frame == 9 || Frame == 11)
 			{
 				EXPECT_EQ(Telemetry.StaticMesh.PersistentCommandHits, 2u) << Frame;
@@ -2753,7 +2759,7 @@ TEST(FMaterialParameterCollectionVulkanTests,
 		EXPECT_EQ(Updated.PersistentCommandHits, 2u);
 		EXPECT_EQ(Updated.PersistentCommandMisses, 0u);
 		EXPECT_EQ(Updated.SurfaceMaterialPreparations, 0u);
-		EXPECT_GT(Updated.PreparedSurfaceBindingBatches, 0u);
+		EXPECT_EQ(Updated.PreparedSurfaceBindingBatches, 0u);
 		EXPECT_NE(Blue, Green);
 		const auto Stable = RenderCollection(GreenWorld.Get(), Repeated);
 		EXPECT_EQ(Stable.PreparedSurfaceBindingBatches, 0u);
@@ -4271,6 +4277,9 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 					EXPECT_EQ(FrameA.Num({EMeshPipelinePass::ShadowDepth}), 1u);
 					ASSERT_TRUE(DynamicA && !DynamicA->bCached && DynamicA->VertexPassBindings);
 					EXPECT_EQ(DynamicA->VertexBindings, Cached->VertexBindings);
+					EXPECT_EQ(DynamicA->CachedCommand, Cached);
+					EXPECT_TRUE(DynamicA->VertexStreams.empty());
+					EXPECT_EQ(&DynamicA->GetGeometryCommand(), Cached.get());
 					EXPECT_EQ(DynamicA->DepthBias, *BindingDraw.RasterBias);
 					EXPECT_NE(Cached->DepthBias, DynamicA->DepthBias);
 					ViewParameters.WorldOriginHigh.x += 100;
@@ -4330,6 +4339,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 					auto NonIndexed = Detached;
 					ASSERT_TRUE(NonIndexed.SetDrawParametersAndFinalize(*Primitive, NonIndexedDraw));
 					EXPECT_FALSE(NonIndexed.IndexBuffer);
+					EXPECT_FALSE(NonIndexed.CachedCommand);
 					EXPECT_EQ(std::get<FRHIDrawArguments>(NonIndexed.DrawParameters).VertexCount, 3u);
 					const auto DepthTarget = GDynamicRHI->RHICreateTexture(Commands,
 						FRHITextureCreateDesc::Create2D("MeshCommandSubmission", 8, 8, EPixelFormat::D32)

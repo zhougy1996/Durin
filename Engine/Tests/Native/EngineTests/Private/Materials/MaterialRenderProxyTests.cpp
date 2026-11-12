@@ -154,6 +154,7 @@ TEST(FMaterialRenderProxyTests, PreboundFieldsMatchGuidWritesAndInvalidateWithTh
 	struct FCheck { static constexpr auto GetName() -> const char* { return "PreboundMaterialFields"; } };
 	EnqueueRenderCommand<FCheck>([&](FRHICommandListImmediate&) {
 		const auto Before = GetMaterialRenderProxyCounters();
+		std::shared_ptr<const FMaterialUniformBufferOwner> Publisher;
 		for (uint64 Version = 1; Version <= 3; ++Version)
 		{
 			if (Version == 2)
@@ -164,7 +165,11 @@ TEST(FMaterialRenderProxyTests, PreboundFieldsMatchGuidWritesAndInvalidateWithTh
 			}
 			Layer.Parameters[0].Value = 0.1f * Version;
 			Proxy->ApplyPublication_RenderThread(Layer);
-			const auto& Actual = Proxy->GetMaterialWithFallback().Representation;
+			const auto& Published = Proxy->GetMaterialWithFallback();
+			EXPECT_TRUE(Published.UniformBufferOwner);
+			if (Publisher) EXPECT_EQ(Published.UniformBufferOwner, Publisher);
+			Publisher = Published.UniformBufferOwner;
+			const auto& Actual = Published.Representation;
 			FMaterialRenderRepresentationBuilder ExpectedBuilder(Program->GetShaderMap().Layout);
 			for (const auto& Parameter : Layer.Parameters) ASSERT_TRUE(ApplyMaterialLocalRenderParameter(ExpectedBuilder, Parameter));
 			FMaterialRenderRepresentation Expected;

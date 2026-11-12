@@ -124,7 +124,8 @@ namespace Durin
 	{
 		const auto It = Entries.find(Key);
 		if (It == Entries.end() || It->second.Command->Material.PlanningPassIdentity != Material.PlanningPassIdentity
-			|| It->second.Command->Material.CompiledProgram != Material.CompiledProgram) return {};
+			|| It->second.Command->Material.CompiledProgram != Material.CompiledProgram
+			|| It->second.Command->Material.UniformBufferOwner != Material.UniformBufferOwner) return {};
 		It->second.bUsed = true;
 		return It->second.Command;
 	}
@@ -200,7 +201,7 @@ namespace Durin
 	auto FStaticMeshPreparationCache::ResolveMaterial(FMaterialRenderData& Material) -> std::optional<uint32>
 	{
 		const auto& Representation = Material.Representation;
-		const uint64 RecordId = Representation.GetRecordId();
+		const auto RecordId = std::make_pair(Representation.GetRecordId(), Material.UniformBufferOwner.get());
 		if (const auto It = MaterialRecordIndices.find(RecordId); It != MaterialRecordIndices.end())
 			return It->second;
 		const uint64 Hash = MaterialFactHash(Representation);
@@ -209,7 +210,7 @@ namespace Durin
 		{
 			const auto& Cached = Materials[It->second];
 			// Hash collisions and equal uniforms with different textures/layouts are distinct.
-			if (Cached.IsError() == Representation.IsError()
+			if (MaterialPublishers[It->second] == Material.UniformBufferOwner && Cached.IsError() == Representation.IsError()
 				&& Cached.GetLayout() == Representation.GetLayout()
 				&& std::ranges::equal(Cached.GetUniformPayload(), Representation.GetUniformPayload())
 				&& std::ranges::equal(Cached.GetResources(), Representation.GetResources())
@@ -225,9 +226,10 @@ namespace Durin
 		if (!ResolveMaterialBinding(Material, Binding, "StaticMeshMaterialSelection")) return std::nullopt;
 		const uint32 Index = static_cast<uint32>(Materials.size());
 		Materials.push_back(Material.Representation);
+		MaterialPublishers.push_back(Material.UniformBufferOwner);
 		// Resolution may have selected ErrorMaterial; hash its final representation.
 		MaterialIndices.emplace(MaterialFactHash(Material.Representation), Index);
-		MaterialRecordIndices.emplace(Material.Representation.GetRecordId(), Index);
+		MaterialRecordIndices.emplace(std::make_pair(Material.Representation.GetRecordId(), Material.UniformBufferOwner.get()), Index);
 		return Index;
 	}
 
@@ -488,11 +490,11 @@ namespace Durin
 					}
 					bStableMaterials &=
 						Material.Representation.GetRecordId() == Element.Material.Representation.GetRecordId() &&
-						Material.CompiledProgram == Element.Material.CompiledProgram;
+						Material.CompiledProgram == Element.Material.CompiledProgram && Material.UniformBufferOwner == Element.Material.UniformBufferOwner;
 
 					const FMeshDrawDescriptionCache::FKey Key{
 						Batch.GeometryRecord ? Batch.GeometryRecord->GetRecordId() : 0,
-						ElementIndex, Material.Representation.GetRecordId(), Policy};
+						ElementIndex, Material.Representation.GetRecordId(), Policy, reinterpret_cast<uint64>(Material.UniformBufferOwner.get())};
 					if (Batch.GeometryRecord && Cache.Commands)
 						Item.Command = Cache.Commands->Find(Key, Material);
 					if (Item.Command) Item.bTemplateReused = true;

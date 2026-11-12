@@ -531,3 +531,26 @@ TEST(FRendererSceneContractTests, CachedPassStorageBoundsRetentionAndPreservesEv
     Storage.Reset(); EXPECT_EQ(Storage.Num(), 0u); EXPECT_FALSE(Lifetime.expired());
     Held.reset(); EXPECT_TRUE(Lifetime.expired());
 }
+
+TEST(FRendererSceneContractTests, VisibleCommandsKeepSubmissionOwnersAfterCacheEviction)
+{
+    using namespace Durin; using namespace RendererPrivate;
+    FCachedMeshDrawCommandStorage Persistent;
+    const FMeshPassKey Pass{EMeshPipelinePass::Forward};
+    auto Command = Persistent.Publish(MakeStoredCommand(Pass, 41, true));
+    auto Bindings = std::make_shared<FMeshPassBindings>();
+    auto Snapshot = std::make_shared<FMeshUniformBufferSnapshot>();
+    std::weak_ptr<const FMeshDrawCommand> CommandLife = Command;
+    std::weak_ptr<const FMeshPassBindings> PassLife = Bindings;
+    std::weak_ptr<const FMeshUniformBufferSnapshot> SnapshotLife = Snapshot;
+    {
+        FDynamicMeshDrawCommandStorage Submission, Other;
+        const auto Receipt = Submission.PublishVisible(Command, Bindings, Snapshot, {1, 2, 3});
+        Persistent.Reset(); Command.reset(); Bindings.reset(); Snapshot.reset();
+        ASSERT_FALSE(CommandLife.expired()); ASSERT_FALSE(PassLife.expired()); ASSERT_FALSE(SnapshotLife.expired());
+        ASSERT_TRUE(Submission.GetVisible(Receipt)); EXPECT_FALSE(Other.GetVisible(Receipt));
+        EXPECT_EQ(Submission.GetVisible(Receipt)->Command->BatchId, 41u);
+        EXPECT_EQ(Submission.GetVisible(Receipt)->DepthBias[1], 2);
+    }
+    EXPECT_TRUE(CommandLife.expired()); EXPECT_TRUE(PassLife.expired()); EXPECT_TRUE(SnapshotLife.expired());
+}

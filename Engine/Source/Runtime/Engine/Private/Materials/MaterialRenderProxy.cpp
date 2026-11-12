@@ -211,6 +211,7 @@ namespace Durin
 		GMaterialRenderProxyCounters.ResolutionCacheMissCount.fetch_add(1);
 
 		CachedResolvedData = {};
+		CachedResolvedData.UniformBufferOwner = UniformBufferOwner;
 		if (!LocalLayer.CompiledProgram && LocalLayer.bIsCompiling)
 		{
 			++ResolutionCount;
@@ -261,6 +262,7 @@ namespace Durin
 			RecordMaterialFallbackReason(
 				EMaterialFallbackReason::MaterialDataInvalid);
 			CachedResolvedData = GetErrorMaterialRenderData();
+			CachedResolvedData.UniformBufferOwner = UniformBufferOwner;
 			GMaterialRenderProxyCounters.RepresentationValidationFailureCount
 				.fetch_add(1);
 		}

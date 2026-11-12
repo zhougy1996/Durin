@@ -32,6 +32,7 @@ namespace Durin
 		FVolumetricCloudSceneProxyDesc Desc;
 	};
 
+	struct FSceneUniformBufferOwner final {};
 	class FScene : public FSceneInterface
 	{
 	public:
@@ -57,6 +58,8 @@ namespace Durin
 		) -> void override;
 		RENDERER_API auto UpdateSkyLighting() -> void override;
 		std::shared_ptr<FSkyLightingSceneState> SkyLighting = std::make_shared<FSkyLightingSceneState>();
+		// Stable world identity; renderer resource caches own native allocations.
+		const std::shared_ptr<const FSceneUniformBufferOwner> UniformBufferOwner = std::make_shared<const FSceneUniformBufferOwner>();
 		RENDERER_API auto Release() -> void override;
 		RENDERER_API auto UpdatePrimitiveTransform(FPrimitiveComponentId PrimitiveId, const FMatrix& Transform) -> void override;
 		RENDERER_API auto UpdatePrimitiveVisibility(FPrimitiveComponentId PrimitiveId, bool bVisible) -> void override;

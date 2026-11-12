@@ -21,6 +21,7 @@ namespace Durin
 
 	namespace RendererPrivate
 	{
+		struct FVisibleMeshDrawCommand;
 		class FMeshVertexFactoryImplementation;
 		struct FStaticMeshTransformUniform
 		{
@@ -103,7 +104,8 @@ namespace Durin
 		using FTransform = FMeshBatchValidationCache::FTransform;
 		FMeshBatchValidationCache Admission;
 		std::unordered_multimap<uint64, uint32> MaterialIndices;
-		std::unordered_map<uint64, uint32> MaterialRecordIndices;
+		std::map<std::pair<uint64, const FMaterialUniformBufferOwner*>, uint32> MaterialRecordIndices;
+		std::vector<std::shared_ptr<const FMaterialUniformBufferOwner>> MaterialPublishers;
 		std::vector<FMaterialRenderRepresentation> Materials;
 		size_t TransformBuilds = 0;
 		size_t MaterialBuilds = 0;
@@ -174,7 +176,7 @@ namespace Durin
 	class FMeshDrawDescriptionCache
 	{
 	public:
-		using FKey = std::array<uint64, 4>;
+		using FKey = std::array<uint64, 5>;
 		RENDERER_API auto BeginSubmission() -> void;
 		RENDERER_API auto EndSubmission() -> void;
 		RENDERER_API auto Find(const FKey& Key, const FMaterialRenderData& Material)
@@ -343,6 +345,20 @@ namespace Durin
 		size_t GBufferSplineSkippedDraws = 0;
 	};
 
+	// A stable logical binding paired with the immutable contents selected by one view.
+	struct FMeshUniformBufferBinding
+	{
+		TRefCountPtr<FRHIUniformBuffer> Buffer;
+		// Initialized before publication, then accessed exclusively during ordered RHI replay.
+		std::shared_ptr<const FByteBuffer> CurrentData;
+	};
+	struct FMeshUniformBufferSnapshot
+	{
+		std::shared_ptr<FMeshUniformBufferBinding> Binding;
+		std::shared_ptr<const FByteBuffer> Data;
+		auto GetRange() const -> FRHIUniformBufferRange
+		{ return {Binding->Buffer.GetReference(), 0, static_cast<uint32>(Data->size()), Binding->Buffer}; }
+	};
 	// Owns fallible bindings without mutating logical draws.
 	struct FSkyLightingGeneration;
 	struct FResolvedStaticMeshView
@@ -353,6 +369,8 @@ namespace Durin
 			RendererPrivate::FResolvedSurfaceMaterial Surface;
 			FRHIUniformBufferRange Uniform;
 			std::vector<FRHIUniformBufferRange> CollectionUniforms;
+			std::shared_ptr<const FMeshUniformBufferSnapshot> Snapshot;
+			std::vector<std::shared_ptr<const FMeshUniformBufferSnapshot>> CollectionSnapshots;
 		};
 		std::vector<FResolvedMeshDrawRecord> Draws;
 		// Selected before uniform/surface preparation; stable bindings survive into recording.
@@ -361,12 +379,15 @@ namespace Durin
 		std::vector<bool> PersistentCollectionBindingsChanged;
 		// Dense primitive/material indices avoid per-draw pointer-keyed lookups.
 		std::vector<FRHIUniformBufferRange> PrimitiveUniforms;
+		std::vector<std::shared_ptr<const FMeshUniformBufferSnapshot>> PrimitiveSnapshots;
 		std::map<RendererPrivate::ESurfaceMaterialPass, FRHIUniformBufferRange> ViewUniforms;
 		// Typed surface resources can be shared by compatible mesh passes.
 		std::vector<std::map<RendererPrivate::ESurfaceMaterialPass, std::optional<FMaterialUniform>>> MaterialUniforms;
 		std::shared_ptr<RendererPrivate::FDynamicMeshDrawCommandStorage> DrawCommandStorage;
 		RENDERER_API auto GetMeshDrawCommand(const FPreparedStaticMeshDraw& Draw, RendererPrivate::FMeshPassKey Pass) const
 			-> std::shared_ptr<const RendererPrivate::FMeshDrawCommand>;
+		RENDERER_API auto GetVisibleMeshDrawCommand(const FPreparedStaticMeshDraw& Draw, RendererPrivate::FMeshPassKey Pass) const
+			-> const RendererPrivate::FVisibleMeshDrawCommand*;
 		FRHITexture* DirectionalShadowTexture = nullptr;
 		FRHISampler* DirectionalShadowSampler = nullptr;
 		FStaticMeshRenderObservations Observations;

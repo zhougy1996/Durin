@@ -6,7 +6,7 @@ output transactions.
 
 Modules: Engine, Renderer, RenderCore, RHI
 
-Last reviewed: 2026-11-11
+Last reviewed: 2026-11-12
 
 ## Ownership Boundary
 
@@ -182,6 +182,56 @@ second sort. Comparison preserves pipeline, material, vertex input,
 geometry, primitive, batch, LOD and section order, with translucent depth first.
 Cascade raster-bias magnitudes remain dynamic draw state and do not enter the
 pipeline-cache identity or mutate templates shared with another view.
+
+Final cached mesh commands retain validated geometry and stable shader bindings.
+`FVisibleMeshDrawCommand` borrows a stable command, shared `FMeshPassBindings`,
+selected uniform snapshots and optional raster bias. Submission storage retains
+one owner per distinct dependency; visible records contain no stream arrays or
+material copies. Dynamic/HitProxy commands and graph-local GPU indirect overrides
+keep their transactional command construction path.
+
+Primitive and proxy-published material uniforms have stable logical RHI objects.
+The proxy-owned `UniformBufferOwner` identifies the stable binding; immutable representation RecordIds
+continue to identify particular values. Uniform grouping preserves publisher identity
+even when two publishers have equal numeric payloads. Unowned material values (without a `UniformBufferOwner`)
+remain independent immutable publications. Both forms use the same logical Uniform
+and immutable-content snapshot preparation path. Final cache keys use immutable geometry,
+section, primitive/batch, pass, pipeline and material publisher identity rather
+than a description address that changes on numeric publication. Binding structure
+changes are checked once per distinct retained material packet during resource
+resolution; selection is carried to binding preparation instead of repeating the
+lookup and dependency scan. Unchanged cached draws bypass mesh-pass processing.
+
+Live Collection bindings are isolated by an owning Scene identity. Renderer caches
+own their logical allocations, so existing generation reset/resource release drops
+the allocations; retained submissions may finish independently. Live values and
+missing-Collection defaults use the same snapshot path. The typed cache key retains
+the Scene owner for live values or the immutable compiled-program owner for defaults,
+plus the Collection GUID. Different programs may provide different defaults for the
+same GUID; no raw-address encoding, payload hash or repeated default-payload comparison
+is needed to distinguish them. Live snapshots are still checked against the required
+schema before use. Numeric updates preserve the logical binding, while schema/size
+or native resource replacements require binding refresh.
+
+### Required snapshot and invalidation contracts
+
+- Preparation selects immutable uniform contents. Recording captures those owners;
+  only ordered RHI replay changes logical Uniform contents. Binding selects the
+  resulting physical allocation, so later updates cannot overwrite earlier draws.
+  Replay skips physical uploads when the same contents are already selected.
+- Texture references can replace native textures without replacing a material
+  publication. Resource resolution therefore retains a current-resource check per
+  distinct material packet; publication identity alone cannot prove freshness.
+- Collection versions are world-local, and program defaults can differ for the
+  same GUID. Scene ownership and immutable program ownership remain separate
+  authorities. No global dependency registry, payload-hash identity or world-local
+  version comparison is used as a substitute for ownership.
+- Cache eviction may replace a logical Uniform object. Such binding replacement,
+  shader/device generation, geometry publication and material binding structure
+  still invalidate selected stable commands. Numeric values alone do not.
+- Visible pointers borrow submission storage, which must outlive recording jobs.
+  Recorded RHI payloads retain resources through replay/GPU retirement. Cache
+  eviction and source destruction cannot invalidate an admitted submission.
 
 Recording shares a complete binding group across adjacent compatible draws.
 The group identifies the retained pipeline, vertex batch and fragment batch;

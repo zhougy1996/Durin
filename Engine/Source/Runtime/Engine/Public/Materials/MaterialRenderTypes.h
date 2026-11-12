@@ -148,8 +148,11 @@ namespace Durin
 		auto operator==(const FMaterialPlanningPassIdentity&) const -> bool = default;
 	};
 
+	struct FMaterialUniformBufferOwner final {};
 	struct FMaterialRenderData
 	{
+		// Proxy-owned stable binding identity; independent values leave it empty.
+		std::shared_ptr<const FMaterialUniformBufferOwner> UniformBufferOwner;
 		FMaterialRenderRepresentation Representation;
 		std::shared_ptr<const FMaterialCompilerResult> CompiledProgram;
 		FMaterialPlanningPassIdentity PlanningPassIdentity{

@@ -128,6 +128,7 @@ namespace Durin
 		~FMaterialRenderProxy() = default;
 
 		mutable std::atomic<uint32> ReferenceCount = 0;
+		const std::shared_ptr<const FMaterialUniformBufferOwner> UniformBufferOwner = std::make_shared<const FMaterialUniformBufferOwner>();
 		FMaterialResource LocalLayer;
 
 		FMaterialRenderData CachedResolvedData;
