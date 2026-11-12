@@ -15,6 +15,11 @@ workspace. External project creation, an installed-engine CMake package, and a
 release staging command do not yet exist. The current public headers are a
 repository build contract rather than an installed SDK contract.
 
+Shared texture preview now exports from DurinEd as `Preview/TexturePreview.h`
+in namespace `Durin`; SDK header/export inventories must use that owner rather
+than the removed TextureEditor header. This ownership migration does not qualify
+SDK packaging.
+
 The selected path is to deliver two compatible package kinds in order:
 
 1. a Source SDK that preserves the complete buildable engine source layout and

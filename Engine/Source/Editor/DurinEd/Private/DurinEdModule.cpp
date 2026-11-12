@@ -1,4 +1,5 @@
 #include "Modules/ModuleManager.h"
+#include "Preview/TexturePreview.h"
 #include "Editor/EditorEngine.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Actors/EditorActorSubsystem.h"
@@ -30,6 +31,7 @@ namespace Durin
 		{
 			if (GEditor) GEditor->RemoveEditorSubsystems(Provider);
 			AssetEditors.reset(); Tools.reset(); Notifications.reset(); Actors.reset();
+			FTexturePreview::ReleaseSharedResources();
 		}
 	private:
 		FName Provider;

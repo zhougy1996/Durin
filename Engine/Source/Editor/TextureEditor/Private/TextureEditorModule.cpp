@@ -11,7 +11,6 @@
 #include "Thumbnail/ThumbnailManager.h"
 #include "Thumbnail/TextureThumbnailRenderer.h"
 #include "Thumbnail/TextureCubeThumbnailRenderer.h"
-#include "TexturePreview.h"
 #include "Import/TextureFileImport.h"
 #include "Dialogs/FileDialog.h"
 #include "Project/Project.h"
@@ -60,7 +59,6 @@ namespace Durin
 		FDetailCustomizationRegistry::Get().Unregister(DetailCustomizationRegistration);
 		DetailCustomizationRegistration = {};
 		TextureEditor::UnregisterTexture2DPropertyEditing();
-		FTexturePreview::ReleaseSharedResources();
 	}
 
 	auto FTextureEditorModule::RegisterContributions(DThumbnailManager& ThumbnailManager) -> bool

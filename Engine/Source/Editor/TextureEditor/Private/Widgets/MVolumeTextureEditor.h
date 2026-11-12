@@ -6,7 +6,7 @@
 #include "Texture/Texture.h"
 #include "Toolkits/AssetEditorToolkit.h"
 #include "Documents/AssetEditorDocumentModels.h"
-#include "TexturePreview.h"
+#include "Preview/TexturePreview.h"
 #include "VolumeTexturePreview.h"
 
 namespace Durin { class DVolumeTexture; struct FVolumeTexturePlatformData; }

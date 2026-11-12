@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "RHIResources.h"
-#include "TextureEditorAPI.h"
+#include "DurinEdAPI.h"
 #include "Texture/Texture2DData.h"
 
 namespace Durin
@@ -13,7 +13,7 @@ namespace Durin
 	namespace Mona { class IMonaUIBackend; }
 }
 
-namespace Durin::TextureEditor
+namespace Durin
 {
 	enum class ETexturePreviewChannel : uint8
 	{
@@ -42,14 +42,15 @@ namespace Durin::TextureEditor
 
 	// Render-thread entry point shared by previews and scheduled thumbnail captures.
 	// Returns display-encoded SRGBA8, with transparent aspect-fit margins.
-	TEXTUREEDITOR_API auto RenderTexturePreview(FRHICommandListImmediate& Commands,
+	// Scheduled captures opt into CPU readback; interactive output needs no readback.
+	DURINED_API auto RenderTexturePreview(FRHICommandListImmediate& Commands,
 		FRHITexture* Input, uint32 Width, uint32 Height,
-		FTexturePreviewOptions Options) -> FTextureRHIRef;
+		FTexturePreviewOptions Options, bool bCPUReadback = false) -> FTextureRHIRef;
 
-	// Lightweight GPU texture owner for the Texture Editor preview panel.
+	// Lightweight GPU texture owner for editor preview surfaces.
 	// Upload is synchronous (FlushRenderingCommands) because uploads are
 	// bounded to one mip per user action and the user expects instant feedback.
-	class TEXTUREEDITOR_API FTexturePreview
+	class DURINED_API FTexturePreview
 	{
 	public:
 		FTexturePreview() = default;

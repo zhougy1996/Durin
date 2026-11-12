@@ -23,7 +23,9 @@ The first checkpoint's shared item interface remains the presentation boundary;
 Stage 3 is complete from `6dcb2ff4b`: every panel uses the data subsystem for
 queries and owner-routed commands, retaining per-view capture and confirmation.
 Provider source interface version 2 and all Stage 3 consumer gates are validated.
-Stages 4-6 have not started.
+Stage 4 is complete: shared texture preview and shader/resource ownership moved
+to DurinEd, MaterialEditor no longer depends on TextureEditor, and all 91
+selected regression cases passed. Stages 5-6 have not started.
 The review baseline is `656742742dc515e159f1caa2a6e67d66c4324a0d`.
 Test target names were queried from the configured native registry for
 `Win64-Debug-DurinEditor`; execution evidence is recorded below.
@@ -521,15 +523,15 @@ Scope: TextureEditor `TexturePreview.h`, its implementation and shared resource
 shutdown; DurinEd `Public/Preview` and `Private/Preview`; MaterialEditor graph
 previews; texture thumbnails; module dependencies and shader/resource discovery.
 
-- [ ] Move `FTexturePreview`, options/channel/interpretation types and
+- [x] Move `FTexturePreview`, options/channel/interpretation types and
   `RenderTexturePreview` into the shared Durin namespace and Preview folders,
   exporting them from DurinEd. Use `Preview/TexturePreview.h` consistently.
-- [ ] Keep texture editor toolbars, source/built selection, asset-specific
+- [x] Keep texture editor toolbars, source/built selection, asset-specific
   settings and volume inspection UI in TextureEditor. Do not move GPU algorithms
   or change their pixel interpretation as part of the ownership migration.
-- [ ] Transfer shared render-resource teardown to the owning shared lifecycle;
+- [x] Transfer shared render-resource teardown to the owning shared lifecycle;
   closing/unloading TextureEditor must not invalidate MaterialEditor previews.
-- [ ] Migrate all consumers and remove the MaterialEditor-to-TextureEditor
+- [x] Migrate all consumers and remove the MaterialEditor-to-TextureEditor
   dependency once no other real use remains. Do not introduce a replacement
   feature-to-feature dependency or compatibility namespace alias.
 
@@ -544,6 +546,64 @@ for a mechanical move with unchanged rendering behavior.
 Acceptance: MaterialEditor builds without TextureEditor as a dependency, both
 features retain correct preview output, and shared resources are released once
 after their consumers retire and before the render thread stops.
+
+Stage 4 final-input evidence, 2026-11-12, inputs based on `caede8f7f`,
+Windows `windows-msvc-x64` / `Win64-Debug-DurinEditor`, outside-sandbox MSVC:
+
+| Selection | Result | Receipt under `Build/.agent-state/logs/` |
+| --- | --- | --- |
+| TextureThumbnailTests | 14 passed | `20261112-151148-179655-26992-TextureThumbnailTests.log` |
+| MaterialThumbnailTests | 8 passed | `20261112-151242-257395-22612-MaterialThumbnailTests.log` |
+| MaterialEditorInteractionTests | 67 passed | `20261112-151337-811194-3740-MaterialEditorInteractionTests.log` |
+| ThumbnailVulkanTests, Stage 0 raw/channel/aspect and built-normal cases | 2 passed | `20261112-151432-942444-25364-ThumbnailVulkanTests.log` |
+
+All 91 executed cases passed without skips. The Vulkan fixture releases shared
+preview resources before renderer/thread/RHI teardown. Selected test builds
+compile all preview consumers, including both texture editor toolkits and the
+material graph, with MaterialEditor's TextureEditor dependency removed. Workspace
+source/test inventory is in `Build/EditorResponsibilityAndUEInterfaceAlignment/stage4-consumers.txt`;
+no old include, qualified shared type or shader-program consumer remains.
+The affected selector expands through shared module labels; these named tests
+bound this mechanical ownership change, while Stage 6 retains the all-build gate.
+Only documentation changed after native validation.
+
+UE 5.8 source was rechecked locally: `UnrealEd/Public/Texture2DPreview.h`
+exports `FBatchedElementTexture2DPreviewParameters`, implemented with preview
+shader registration in `UnrealEd/Private/Texture2DPreview.cpp`. TextureEditor
+viewport clients and UnrealEd texture thumbnails consume it. Durin aligns that
+shared responsibility, not an identical class signature: `FTexturePreview`
+retains its Mona registration, bounded uploads and RHI resource ownership.
+TextureEditor retains toolbars, Source/Built policy and volume slicing. DurinEd
+module shutdown now releases the shared renderer after dependent modules retire
+and before Launch stops the render thread; TextureEditor no longer releases it.
+Shader source and GPU algorithms are unchanged. No compatibility alias or
+forwarding header remains. Lasting contracts and SDK export ownership notes
+were updated alongside the module map.
+
+Stage 4 resource simplification follow-up, 2026-11-12, inputs based on
+`f8bd0fd73`, same Windows profile/preset and outside-sandbox MSVC environment:
+shared resources now live only in the creation slot payload, borrowed during a
+draw. Interactive outputs omit CPUReadback; scheduled thumbnail captures opt in
+explicitly. Synchronous uploads and rendering interpretation are unchanged.
+All Engine/Sandbox/RoadWeaver production/test roots were searched for callers.
+The affected selector expands through DurinEd labels; focused texture/material
+consumer tests and the two existing Vulkan cases cover this resource-only change.
+
+| Selection | Result | Receipt under `Build/.agent-state/logs/` |
+| --- | --- | --- |
+| TextureThumbnailTests | 14 passed | `20261112-152213-775879-31544-TextureThumbnailTests.log` |
+| MaterialThumbnailTests | 8 passed | `20261112-152224-564772-6772-MaterialThumbnailTests.log` |
+| ThumbnailVulkanTests, same two preview cases | 2 passed | `20261112-152335-654892-22744-ThumbnailVulkanTests.log` |
+
+All 24 final cases passed, no skips. Vulkan coverage now checks both interactive
+and capture allocation flags as well as the existing raw/channel/aspect and
+built-normal pixel output and backend teardown. The initial Vulkan run
+`20261112-152247-946513-27552-ThumbnailVulkanTests.log` had one passing case and
+one failure from a new assertion made while asynchronous resource preparation
+was pending. The test now waits for capture readiness before asserting interactive
+allocation flags; production code was unchanged for the successful rerun.
+Earlier CPU receipts remain applicable after this test-only correction.
+Only documentation changed after the final native run.
 
 ### Stage 5: Expose UE-shaped package tools through an explicit engine bridge
 

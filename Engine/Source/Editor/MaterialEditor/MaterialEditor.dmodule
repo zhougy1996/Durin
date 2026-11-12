@@ -4,7 +4,6 @@
     "PCH": "SharedPCH_DurinEd",
     "PrivateDependencies": [
         "AssetTools",
-        "TextureEditor",
         "Core",
         "RenderCore",
         "Engine",

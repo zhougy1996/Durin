@@ -449,7 +449,7 @@ namespace Durin
 		const auto ImageRenderer = Impl->ImageRenderer;
 		const auto Output = Impl->Output;
 		auto Shaders = ImageRenderer
-			? FShaderMapPreparation::Request("TextureEditor", {"TextureEditor.Preview"}, EShaderBuildPriority::High)
+			? FShaderMapPreparation::Request("DurinEd", {"DurinEd.TexturePreview"}, EShaderBuildPriority::High)
 			: Renderer ? Renderer->PrepareSceneThumbnailShaders() : FShaderMapPreparation{};
 		{
 			std::lock_guard Lock(Capture->Mutex);

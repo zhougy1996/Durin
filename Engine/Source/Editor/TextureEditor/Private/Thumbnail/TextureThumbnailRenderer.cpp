@@ -5,7 +5,7 @@
 
 #include "Asset/Asset.h"
 #include "Texture/Texture2D.h"
-#include "TexturePreview.h"
+#include "Preview/TexturePreview.h"
 #include "DObject/Package.h"
 #include "DObject/WeakObjectPtr.h"
 
@@ -29,7 +29,7 @@ namespace Durin::TextureEditor
 			{
 				ResetPreview();
 				AssetLoad = StreamableManager.RequestAsyncLoad(AssetPath, {}, DTexture2D::StaticClass());
-				Shaders = FShaderMapPreparation::Request("TextureEditor", {"TextureEditor.Preview"}, EShaderBuildPriority::High);
+				Shaders = FShaderMapPreparation::Request("DurinEd", {"DurinEd.TexturePreview"}, EShaderBuildPriority::High);
 				return {.State = EThumbnailRendererSessionState::WaitingForResources};
 			}
 			auto PollResources() -> FThumbnailRendererSessionUpdate override
@@ -69,7 +69,7 @@ namespace Durin::TextureEditor
 				if (!Snapshot) { return std::unexpected("Texture2D built allocation is unavailable."); }
 				return Scene.SetImageRenderer([Input = Snapshot, Display = Options](
 					FRHICommandListImmediate& Commands, uint32 Width, uint32 Height) {
-					return RenderTexturePreview(Commands, Input, Width, Height, Display);
+					return RenderTexturePreview(Commands, Input, Width, Height, Display, true);
 				});
 			}
 			auto ValidatePreparedInput() const -> std::expected<void, std::string> override

@@ -9,7 +9,7 @@
 #include "PropertyEditor/PropertyView.h"
 #include "Source/SourceReferenceIndex.h"
 #include "TextureEditorAPI.h"
-#include "TexturePreview.h"
+#include "Preview/TexturePreview.h"
 
 namespace Durin { class DTexture2D; struct FTexturePlatformData; }
 

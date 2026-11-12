@@ -63,7 +63,7 @@ folder. Module entrypoints and API export headers remain at the root.
 | `ContentBrowser` | Per-editor browser data subsystem, modular asset/file sources, opaque item payloads and owner-routed operations; browser model, presentation, settings, extensions, and asset thumbnails | [source](../../Engine/Source/Editor/ContentBrowser) |
 | `LevelEditor` | Reflected per-editor PIE services and PIE Toolset, Level workspace, scene viewport, panels, documents, selection, Level settings, and editor visualization producers built on Engine primitive drawing | [source](../../Engine/Source/Editor/LevelEditor) |
 | `MaterialEditor` | Material asset editor and material-specific editing UI | [source](../../Engine/Source/Editor/MaterialEditor) |
-| `TextureEditor` | Texture asset editor, import/build-setting UI, preview, and texture-specific diagnostics | [source](../../Engine/Source/Editor/TextureEditor) |
+| `TextureEditor` | Texture asset editor, import/build-setting UI, volume inspection, and texture-specific diagnostics | [source](../../Engine/Source/Editor/TextureEditor) |
 | `StaticMeshEditor` | Static-mesh inspector, preview, material overrides, and mesh-specific editor tools | [source](../../Engine/Source/Editor/StaticMeshEditor) |
 | `AssetForgeBuiltins` | Direct built-in texture, static-mesh, Scene, and material import implementations | [source](../../Engine/Source/Editor/AssetForgeBuiltins) |
 | `DurinLauncher` | Minimal executable entrypoint for the configured editor or game runtime variant | [source](../../Engine/Source/Editor/DurinLauncher) |

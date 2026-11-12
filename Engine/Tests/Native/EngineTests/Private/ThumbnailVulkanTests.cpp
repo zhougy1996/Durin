@@ -37,7 +37,7 @@
 #include "Thumbnail/StaticMeshThumbnailRenderer.h"
 #include "Thumbnail/TextureCubeThumbnailRenderer.h"
 #include "Thumbnail/TextureThumbnailRenderer.h"
-#include "TexturePreview.h"
+#include "Preview/TexturePreview.h"
 #include "Shader/ShaderMapPreparation.h"
 #include "Shader/IShaderBuildModule.h"
 #include "Shader/Shader.h"
@@ -210,7 +210,7 @@ namespace
 			});
 			Durin::FlushRenderingCommands();
 			Durin::GEngine = nullptr;
-			Durin::TextureEditor::FTexturePreview::ReleaseSharedResources();
+			Durin::FTexturePreview::ReleaseSharedResources();
 			RendererLifecycle.Shutdown();
 			Durin::FlushRenderingCommands();
 			Durin::ShutdownRenderingThread();
@@ -262,7 +262,7 @@ TEST_F(FThumbnailVulkanTests, PreparedShadersAreSharedAndCaptureNeverCompiles)
 	ClearShaderMapPreparations();
 	std::vector<const FShaderType*> Types;
 	ASSERT_TRUE(GetShaderRuntimeRequestBuildTypes(
-		{.Owner = "TextureEditor", .Name = "TextureEditor.Preview"}, Types));
+		{.Owner = "DurinEd", .Name = "DurinEd.TexturePreview"}, Types));
 	const auto Before = GetShaderBuildStats();
 	TRenderResourceCreationSlot<std::shared_ptr<FShaderMapBase>> Slot;
 	const FRenderResourceGeneration Generation;
@@ -285,8 +285,8 @@ TEST_F(FThumbnailVulkanTests, PreparedShadersAreSharedAndCaptureNeverCompiles)
 		EXPECT_EQ(Diagnostics, 0u);
 	}
 	EXPECT_EQ(GetShaderBuildStats().Compilations, Before.Compilations);
-	auto First = FShaderMapPreparation::Request("TextureEditor", {"TextureEditor.Preview"});
-	auto Second = FShaderMapPreparation::Request("TextureEditor", {"TextureEditor.Preview"});
+	auto First = FShaderMapPreparation::Request("DurinEd", {"DurinEd.TexturePreview"});
+	auto Second = FShaderMapPreparation::Request("DurinEd", {"DurinEd.TexturePreview"});
 	ASSERT_TRUE(WaitForResourcePublication([&] {
 		auto Ready = First.Poll();
 		return !Ready || *Ready;
@@ -309,7 +309,7 @@ TEST_F(FThumbnailVulkanTests, PreparedShadersAreSharedAndCaptureNeverCompiles)
 	ASSERT_TRUE(WaitForResourcePublication([&] { return First.Poll().value_or(false); }));
 	EXPECT_GT(GetShaderBuildStats().Compilations, Prepared.Compilations);
 	ClearShaderMapPreparations();
-	auto Invalid = FShaderMapPreparation::Request("TextureEditor", {"Missing.Program"});
+	auto Invalid = FShaderMapPreparation::Request("DurinEd", {"Missing.Program"});
 	EXPECT_FALSE(Invalid.Poll().has_value());
 }
 
@@ -928,9 +928,16 @@ TEST_F(FThumbnailVulkanTests, TexturePreviewPreservesRawChannelsSrgbAndAspectRat
 	for (const auto Channel : {ETexturePreviewChannel::RGBA, ETexturePreviewChannel::Blue, ETexturePreviewChannel::Alpha})
 	{
 		ASSERT_TRUE(Pool.SetImageRenderer([Input, Channel](FRHICommandListImmediate& Commands, uint32 W, uint32 H) {
-			return RenderTexturePreview(Commands, Input, W, H,
-				{.Usage = ETextureUsage::Normal, .Interpretation = Channel == ETexturePreviewChannel::RGBA
-					? ETexturePreviewInterpretation::Raw : ETexturePreviewInterpretation::Auto, .Channel = Channel});
+			const FTexturePreviewOptions Options{
+				.Usage = ETextureUsage::Normal, .Interpretation = Channel == ETexturePreviewChannel::RGBA
+					? ETexturePreviewInterpretation::Raw : ETexturePreviewInterpretation::Auto, .Channel = Channel};
+			auto Capture = RenderTexturePreview(Commands, Input, W, H, Options, true);
+			if (!Capture) return Capture; // Resource preparation may still be pending.
+			EXPECT_TRUE(EnumHasAnyFlags(Capture->GetFlags(), ETextureCreateFlags::CPUReadback));
+			auto Interactive = RenderTexturePreview(Commands, Input, W, H, Options);
+			EXPECT_NE(Interactive, nullptr);
+			if (Interactive) EXPECT_FALSE(EnumHasAnyFlags(Interactive->GetFlags(), ETextureCreateFlags::CPUReadback));
+			return Capture;
 		}));
 		ASSERT_TRUE(Pool.BeginCapture());
 		FlushRenderingCommands();

@@ -24,7 +24,7 @@
 #include "Texture/Texture2DCompilation.h"
 #include "Texture/Texture2DRenderResource.h"
 #include "Import/EditorReimportHandler.h"
-#include "TexturePreview.h"
+#include "Preview/TexturePreview.h"
 #include "Workspace/TextureEditorWorkspace.h"
 
 namespace Durin::TextureEditor

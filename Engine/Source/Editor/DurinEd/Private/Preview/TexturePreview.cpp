@@ -1,4 +1,4 @@
-#include "TexturePreview.h"
+#include "Preview/TexturePreview.h"
 
 #include "DynamicRHI.h"
 #include "MonaCoreGlobals.h"
@@ -13,7 +13,7 @@
 #include "Shader/ShaderMapPreparation.h"
 #include "Texture/Texture2D.h"
 
-namespace Durin::TextureEditor
+namespace Durin
 {
 	namespace
 	{
@@ -60,7 +60,7 @@ namespace Durin::TextureEditor
 		};
 
 		const FShaderProgramRegistration GTexturePreviewShaderProgram(
-			"TextureEditor", "TextureEditor.Preview",
+			"DurinEd", "DurinEd.TexturePreview",
 			EShaderRequestEligibility::EditorOnly,
 			{&FTexturePreviewVertexShader::StaticType(),
 			 &FTexturePreviewFragmentShader::StaticType()});
@@ -83,14 +83,6 @@ namespace Durin::TextureEditor
 			TRenderResourceCreationSlot<FPayload> Slot{
 				ERenderResourceGenerationDependency::Shader
 					| ERenderResourceGenerationDependency::Device};
-			std::shared_ptr<FShaderMapBase> ShaderMap;
-			TShaderRef<FTexturePreviewVertexShader> VertexShader;
-			TShaderRef<FTexturePreviewFragmentShader> FragmentShader;
-			FVertexDeclarationRHIRef VertexDeclaration;
-			FGraphicsPipelineStateRHIRef PipelineState;
-			FBufferRHIRef VertexBuffer;
-			FBufferRHIRef IndexBuffer;
-			FSamplerRHIRef Sampler;
 		};
 
 		FTexturePreviewRendererState GTexturePreviewRendererState;
@@ -110,7 +102,8 @@ namespace Durin::TextureEditor
 			return Layout;
 		}
 
-		auto EnsureTexturePreviewRendererResources(FRHICommandListImmediate& CommandList) -> bool
+		auto ResolveTexturePreviewRendererResources(FRHICommandListImmediate& CommandList)
+			-> FTexturePreviewRendererState::FPayload*
 		{
 			FTexturePreviewRendererState& State = GTexturePreviewRendererState;
 			using FResult = TRenderResourceCreateResult<
@@ -130,7 +123,7 @@ namespace Durin::TextureEditor
 						return FRenderResourceCreateError{
 							.Category = Category,
 							.Reason = Reason,
-							.Context = "TextureEditorPreview",
+							.Context = "TexturePreview",
 							.Identity = "channel-filter",
 							.Cause = std::move(Cause),
 							.RetryDependencies =
@@ -262,17 +255,7 @@ namespace Durin::TextureEditor
 						Diagnostic.Error->AttemptedGeneration.Manual,
 						FormatRenderResourceCreateError(*Diagnostic.Error));
 				});
-			if (Payload == nullptr)
-				return false;
-			State.ShaderMap = Payload->ShaderMap;
-			State.VertexShader = Payload->VertexShader;
-			State.FragmentShader = Payload->FragmentShader;
-			State.VertexDeclaration = Payload->VertexDeclaration;
-			State.PipelineState = Payload->PipelineState;
-			State.VertexBuffer = Payload->VertexBuffer;
-			State.IndexBuffer = Payload->IndexBuffer;
-			State.Sampler = Payload->Sampler;
-			return true;
+			return Payload;
 		}
 
 	}
@@ -282,7 +265,8 @@ namespace Durin::TextureEditor
 		FRHITexture* InputTexture,
 		uint32 Width,
 		uint32 Height,
-		FTexturePreviewOptions Options
+		FTexturePreviewOptions Options,
+		bool bCPUReadback
 	) -> FTextureRHIRef
 	{
 		if (GTexturePreviewRendererState.Slot.GetFailure() != nullptr)
@@ -290,9 +274,9 @@ namespace Durin::TextureEditor
 			GTexturePreviewRendererState.Generation.Advance(
 				ERenderResourceGenerationDependency::Manual);
 		}
-		if (!InputTexture
-			|| Width == 0 || Height == 0
-			|| !EnsureTexturePreviewRendererResources(CommandList))
+		if (!InputTexture || Width == 0 || Height == 0) return nullptr;
+		auto* Resources = ResolveTexturePreviewRendererResources(CommandList);
+		if (!Resources)
 		{
 			return nullptr;
 		}
@@ -302,7 +286,8 @@ namespace Durin::TextureEditor
 			Width,
 			Height,
 			EPixelFormat::SRGBA8_UNORM);
-		OutputDesc.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback);
+		OutputDesc.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource);
+		if (bCPUReadback) OutputDesc.AddFlags(ETextureCreateFlags::CPUReadback);
 		OutputDesc.SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 0.0f));
 		FTextureRHIRef OutputTexture = GDynamicRHI->RHICreateTexture(CommandList, OutputDesc);
 		if (!OutputTexture) return nullptr;
@@ -313,7 +298,7 @@ namespace Durin::TextureEditor
 		PassInfo.ColorRenderTargets[0] = OutputTexture;
 		PassInfo.ColorClearValues[0] = FClearValueBinding(0.0f, 0.0f, 0.0f, 0.0f);
 
-		FTexturePreviewRendererState& State = GTexturePreviewRendererState;
+		const auto& State = *Resources;
 		CommandList.BeginRenderPass(PassInfo, "TexturePreviewChannelPass");
 		CommandList.SetGraphicsPipelineState(*State.PipelineState);
 		const float Scale = std::min(static_cast<float>(Width) / InputTexture->GetSizeX(),

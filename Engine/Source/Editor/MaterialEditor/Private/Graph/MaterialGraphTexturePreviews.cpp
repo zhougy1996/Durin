@@ -2,7 +2,7 @@
 #include "RenderResource.h"
 #include "MaterialGraphEditSession.h"
 #include "Asset/Asset.h"
-#include "TexturePreview.h"
+#include "Preview/TexturePreview.h"
 #include "Asset/AssetDragDrop.h"
 #include "MonaCoreGlobals.h"
 #include "MonaUIBackend.h"
@@ -14,7 +14,7 @@ namespace Durin::MaterialEditor
 	{
 		struct FRegisteredPreview
 		{
-			TextureEditor::FTexturePreview Preview;
+			FTexturePreview Preview;
 			Mona::IMonaUIBackend* Backend = nullptr;
 		};
 		// Coalesce bounded built previews across nodes and open documents.

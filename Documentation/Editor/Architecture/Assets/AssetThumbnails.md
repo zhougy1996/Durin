@@ -67,7 +67,8 @@ cover saved build settings. Warm hits do not load textures or source pixels.
 Image captures use the same scheduler, cancellation, readback, and persistence
 budget as scene captures.
 
-TextureEditor owns `FTexturePreviewOptions` and `RenderTexturePreview`. Data
+DurinEd owns `FTexturePreview`, `FTexturePreviewOptions` and
+`RenderTexturePreview` in `Preview/TexturePreview.h`, under namespace `Durin`. Data
 selection (Built or explicit Source), interpretation (Auto, Raw, Normal), and
 channel inspection (RGBA/R/G/B/A) are independent. Auto reconstructs normal RG
 with the material decoder and maps signed XYZ to display RGB; individual channels
@@ -75,6 +76,14 @@ always inspect stored values. Color sampling restores sRGB display encoding
 without transforming alpha. Output fits the aspect ratio with transparent margins.
 The texture editor and material graph use the same renderer as thumbnails;
 material nodes retain and share bounded 256-pixel previews of built allocations.
+The shared shader program belongs to DurinEd. Its module shutdown releases shared
+pipelines after dependent feature consumers retire and before the render thread
+stops; unloading TextureEditor does not release material graph resources.
+Source/Built selection, build settings and volume slicing remain in TextureEditor.
+The resource-creation slot exclusively owns the shared pipeline payload; draw
+calls borrow its resolved resources without a second persistent reference set.
+Interactive preview outputs use render-target and shader-resource flags only.
+Thumbnail captures explicitly opt into CPU readback. Uploads remain synchronous.
 
 `DEditorEngine` owns `FPreviewMeshResources` for the editor session. Before
 creating the shell, it acquires `/Engine/Models/Sphere.Sphere` and
@@ -116,7 +125,7 @@ Material sessions validate the material before requesting the shared sphere.
 Scene sessions request the Renderer-owned lit-thumbnail Shader preparation
 profile after initial asset work. Material sessions start once the material
 program is accepted, overlapping remaining resource preparation without flooding
-the first asset-build queue. Texture2D sessions prepare `TextureEditor.Preview`
+the first asset-build queue. Texture2D sessions prepare `DurinEd.TexturePreview`
 at high priority alongside loading.
 `PollResources()` waits for these CPU outputs without holding the capture slot.
 The shared RenderCore preparation cache coalesces exact registered programs;
