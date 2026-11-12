@@ -186,8 +186,15 @@ It requires SelectionFingerprint and native Identity fields EngineBuild,
 Platform, Architecture, Configuration, RuntimeVariant, and ToolchainABI. Each
 binary records Module, Owner, a contained relative Path, and RuntimeDependencies.
 Paths resolve beneath the selected build/staging root; physical lookup remains
-machine-local. The build now produces this inventory; native compatibility
-admission remains the next startup integration stage.
+machine-local. The build produces this inventory. The read-only Projects API
+`AdmitPluginBuild` compares its selection fingerprint and six identity fields
+against the caller-supplied resolved selection and host identity, verifies exact
+module/owner membership, and checks binary and runtime-dependency files beneath
+the inventory directory (including canonical containment). It returns paths in
+selection order only after every check passes; failure preserves the output and
+reports a configure/build requirement. This API does not load libraries or
+authenticate binary contents. Startup integration and host identity derivation
+remain pending.
 
 ## Source Build Integration
 

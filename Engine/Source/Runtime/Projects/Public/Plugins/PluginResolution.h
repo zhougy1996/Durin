@@ -33,6 +33,24 @@ namespace Durin
 		std::map<std::string, std::filesystem::path> Locations;
 	};
 
+	// Supplied by the host from its own build, never from the candidate inventory.
+	struct FPluginBuildIdentity
+	{
+		std::string EngineBuild, Platform, Architecture, Configuration, RuntimeVariant, ToolchainABI;
+	};
+	struct FAdmittedPluginBinary
+	{
+		FResolvedPluginModule Module;
+		std::filesystem::path Path;
+		std::vector<std::filesystem::path> RuntimeDependencies;
+	};
+
+	// Read-only admission; publishes dependency/phase ordered paths only on success.
+	[[nodiscard]] PROJECTS_API auto AdmitPluginBuild(
+		const FPluginResolution& Selection, const FPluginBuildIdentity& Identity,
+		const std::filesystem::path& InventoryFile,
+		std::vector<FAdmittedPluginBinary>& OutBinaries, std::string& OutReason) -> bool;
+
 	// Failures name the descriptor and the traversed dependency chain where applicable.
 	[[nodiscard]] PROJECTS_API auto ResolvePlugins(const FPluginResolveRequest& Request)
 		-> std::expected<FPluginResolution, std::string>;

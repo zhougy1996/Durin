@@ -15,8 +15,25 @@ of Core, and separates host history/relaunch policy. Principal public project
 interfaces use UE-style bool/output-parameter semantics, as requested on
 2026-11-12. Stage 2 integrates selected plugin modules into the existing
 CMake/DHT pipeline and publishes native build inventories. Stages 3-7 remain
-open; Stage 3 is next. Plugin startup loading, UI, and cooked deployment remain
-later work.
+open; Stage 3 is in progress. A read-only native build-inventory admission API
+now checks selection, host identity, exact module ownership, contained files and
+runtime dependencies, publishing ordered paths only on success. Host startup
+wiring, membership enforcement, process qualification, UI, and cooked deployment
+remain open.
+
+Stage 3 admission checkpoint (2026-11-12, not accepted):
+- Added read-only native inventory admission and a focused regression covering
+  success, stale selection, incompatible identity, missing file, path escape,
+  wrong owner and unselected module; failure preserves the previous output.
+- Changed-document and all-plan validation passed. Outside-sandbox
+  `test PluginResolutionTests` passed 8/8 on Win64-Debug-DurinEditor with the
+  final admission source and fixture changes on base `caede8f7f6a5ab92aa29c3d73e933b07fde90ca6`. Build log:
+  `Build/.agent-state/logs/20261112-152152-509746-14984-cmake.log`;
+  native log:
+  `Build/.agent-state/logs/20261112-152207-054854-14984-PluginResolutionTests.log`.
+  The earlier sandbox C1902 failure was resolved by the authorized external run.
+  This validates the standalone admission API; host integration and process
+  qualification remain open. No Stage 3 acceptance checkbox is closed.
 
 The 2026-11-12 convergence keeps these stages unchanged: typed descriptor fields
 are the persistent authority, the manager owns both editable and active state,

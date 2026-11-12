@@ -11,6 +11,41 @@
 
 namespace
 {
+	TEST(PluginResolutionTests, BuildAdmissionRejectsDriftAndPreservesOutput)
+	{
+		using namespace Durin;
+		const auto Folder = Testing::CreateTestFixtureDirectory("PluginBuildAdmission");
+		const auto Inventory = Folder / "PluginBuild.json";
+		const auto Save = [&](const std::string& Text, const std::filesystem::path& Path) {
+			return FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Text.data(), Text.size())), Path);
+		};
+		ASSERT_TRUE(Save("fixture", Folder / "Fixture.dll"));
+		FPluginResolution Selection;
+		Selection.Modules.push_back({"Fixture", "Water", "Runtime", "Providers"});
+		Selection.ManifestJson = R"({"Fingerprint":"0123456789abcdef","Platform":"Win64","RuntimeVariant":"DurinEditor"})";
+		FPluginBuildIdentity Identity{"build", "Win64", "x64", "Debug", "DurinEditor", "abi"};
+		const std::string Valid = R"({"SchemaVersion":1,"SelectionFingerprint":"0123456789abcdef","Identity":{"EngineBuild":"build","Platform":"Win64","Architecture":"x64","Configuration":"Debug","RuntimeVariant":"DurinEditor","ToolchainABI":"abi"},"Binaries":[{"Module":"Fixture","Owner":"Water","Path":"Fixture.dll","RuntimeDependencies":[]}]})";
+		std::vector<FAdmittedPluginBinary> Output;
+		std::string Error;
+		ASSERT_TRUE(Save(Valid, Inventory));
+		ASSERT_TRUE(AdmitPluginBuild(Selection, Identity, Inventory, Output, Error)) << Error;
+		ASSERT_EQ(Output.size(), 1);
+		EXPECT_EQ(Output.front().Path, std::filesystem::canonical(Folder / "Fixture.dll"));
+		for (const auto& [Before, After] : {
+			std::pair{"0123456789abcdef", "fedcba9876543210"}, {"build", "other"},
+			{"Fixture.dll", "Missing.dll"}, {"Fixture.dll", "../Escape.dll"},
+			{"Water", "Other"}, {"Fixture", "Disabled"}})
+		{
+			auto Bad = Valid;
+			Bad.replace(Bad.find(Before), std::string(Before).size(), After);
+			ASSERT_TRUE(Save(Bad, Inventory));
+			EXPECT_FALSE(AdmitPluginBuild(Selection, Identity, Inventory, Output, Error));
+			EXPECT_NE(Error.find("configure/build"), std::string::npos);
+			ASSERT_EQ(Output.size(), 1);
+			EXPECT_EQ(Output.front().Module.Name, "Fixture");
+		}
+	}
+
 	TEST(PluginResolutionTests, SharedProjectDescriptorContract)
 	{
         std::string Error;

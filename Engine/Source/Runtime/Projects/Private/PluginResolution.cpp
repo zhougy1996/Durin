@@ -460,4 +460,75 @@ namespace Durin
 		try { return FResolver(Request).Run(); }
 		catch (const std::exception& Error) { return std::unexpected(Error.what()); }
 	}
+	auto AdmitPluginBuild(const FPluginResolution& Selection, const FPluginBuildIdentity& Identity,
+		const std::filesystem::path& InventoryFile,
+		std::vector<FAdmittedPluginBinary>& OutBinaries, std::string& OutReason) -> bool
+	{
+		try
+		{
+			FJsonDocument Inventory, Selected;
+			if (!Inventory.LoadFromFile(InventoryFile)) Fail(InventoryFile, "missing or invalid plugin build inventory");
+			if (!Selected.Parse(Selection.ManifestJson)) Fail(InventoryFile, "invalid resolved selection");
+			const auto Root = Inventory.GetRootView();
+			RejectDuplicateFields(Root, InventoryFile);
+			Fields(Root, {"SchemaVersion", "SelectionFingerprint", "Identity", "Binaries"}, InventoryFile);
+			if (!Root.GetView("SchemaVersion").IsInt() || Root.GetView("SchemaVersion").GetInt() != 1)
+				Fail(InventoryFile, "unsupported build schema version");
+			if (Text(Root, "SelectionFingerprint", InventoryFile) != Text(Selected.GetRootView(), "Fingerprint", InventoryFile))
+				Fail(InventoryFile, "stale plugin selection");
+			const auto Native = Root.GetView("Identity");
+			Fields(Native, {"EngineBuild", "Platform", "Architecture", "Configuration", "RuntimeVariant", "ToolchainABI"}, InventoryFile);
+			for (const auto& [Key, Expected] : {
+				std::pair{"EngineBuild", Identity.EngineBuild}, {"Platform", Identity.Platform},
+				{"Architecture", Identity.Architecture}, {"Configuration", Identity.Configuration},
+				{"RuntimeVariant", Identity.RuntimeVariant}, {"ToolchainABI", Identity.ToolchainABI}})
+			{
+				if (Expected.empty() || Text(Native, Key, InventoryFile) != Expected)
+					Fail(InventoryFile, "incompatible native identity: " + std::string(Key));
+			}
+			if (Text(Selected.GetRootView(), "Platform", InventoryFile) != Identity.Platform
+				|| Text(Selected.GetRootView(), "RuntimeVariant", InventoryFile) != Identity.RuntimeVariant)
+				Fail(InventoryFile, "selection target differs from host");
+			const auto List = Root.GetView("Binaries");
+			if (!List.IsArray() || List.Num() != Selection.Modules.size()) Fail(InventoryFile, "plugin module membership differs");
+			const auto Base = std::filesystem::canonical(InventoryFile).parent_path();
+			const auto File = [&](const std::string& Relative) {
+				const auto Path = Contained(Base, Relative);
+				if (!std::filesystem::is_regular_file(Path)) Fail(InventoryFile, "missing runtime file: " + Relative);
+				return Path;
+			};
+			std::map<std::string, FAdmittedPluginBinary> ByName;
+			for (size_t I = 0; I < List.Num(); ++I)
+			{
+				const auto Item = List.GetView(I);
+				Fields(Item, {"Module", "Owner", "Path", "RuntimeDependencies"}, InventoryFile);
+				const auto Name = Text(Item, "Module", InventoryFile);
+				const auto Match = std::ranges::find(Selection.Modules, Name, &FResolvedPluginModule::Name);
+				if (Match == Selection.Modules.end() || Text(Item, "Owner", InventoryFile) != Match->Owner)
+					Fail(InventoryFile, "unselected plugin module or incorrect owner: " + Name);
+				FAdmittedPluginBinary Binary{*Match, File(Text(Item, "Path", InventoryFile)), {}};
+				const auto Dependencies = Item.GetView("RuntimeDependencies");
+				if (!Dependencies.IsArray()) Fail(InventoryFile, "invalid runtime dependencies");
+				std::set<std::string> Seen;
+				for (size_t J = 0; J < Dependencies.Num(); ++J)
+				{
+					const auto Entry = Dependencies.GetView(J);
+					if (!Entry.IsString() || !Seen.insert(Entry.GetString()).second) Fail(InventoryFile, "invalid runtime dependency");
+					Binary.RuntimeDependencies.push_back(File(Entry.GetString()));
+				}
+				if (!ByName.emplace(Name, std::move(Binary)).second) Fail(InventoryFile, "duplicate plugin module: " + Name);
+			}
+			std::vector<FAdmittedPluginBinary> Result;
+			for (const auto& Module : Selection.Modules) Result.push_back(std::move(ByName.at(Module.Name)));
+			OutBinaries = std::move(Result);
+			OutReason.clear();
+			return true;
+		}
+		catch (const std::exception& Error)
+		{
+			OutReason = std::string(Error.what()) + "; configure/build the project plugin inventory before restart";
+			return false;
+		}
+	}
+
 }
