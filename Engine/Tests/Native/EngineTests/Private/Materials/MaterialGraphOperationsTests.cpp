@@ -1965,9 +1965,9 @@ TEST(FMaterialGraphOperationsTests,
 	EXPECT_EQ(PromotedDependencies.front().Id,
 		Promoted.AffectedParameterIds.front());
 	const uint64 CompileGeneration =
-		Material->GetMaterialCompileStatus().RequestGeneration;
+		Material->GetMaterialCompileStatus().RequestId;
 	ASSERT_TRUE(FMaterialGraphOperations::SetParameterValue(*Material, Promoted.AffectedParameterIds.front(), FMaterialParameterValue::MakeVector4({0.7, 0.6, 0.5, 0})));
-	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration,
+	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestId,
 		CompileGeneration);
 	ASSERT_TRUE(ReadVector4Parameter(*Material,
 		Material->FindParameterDefinition(Promoted.AffectedParameterIds.front())->Name, BaseColor));
@@ -2050,7 +2050,7 @@ TEST(FMaterialGraphOperationsTests,
 
 	const FGuid ParameterId = Material->GetParameterDefinitions().front().Id;
 	const uint64 CompileGeneration =
-		Material->GetMaterialCompileStatus().RequestGeneration;
+		Material->GetMaterialCompileStatus().RequestId;
 	FVector4 OriginalBaseColor;
 	ASSERT_TRUE(ReadVector4Parameter(*Material,
 		Material->FindParameterDefinition(ParameterId)->Name, OriginalBaseColor));
@@ -2063,14 +2063,14 @@ TEST(FMaterialGraphOperationsTests,
 	ASSERT_TRUE(ReadVector4Parameter(*Material,
 		Material->FindParameterDefinition(ParameterId)->Name, BaseColor));
 	EXPECT_EQ(BaseColor, FVector4(0.4, 0.5, 0.6, 0));
-	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration,
+	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestId,
 		CompileGeneration);
 	ASSERT_TRUE(Session.Apply(FMaterialParameterValue::MakeVector4(
 		{0.7, 0.8, 0.9, 0})));
 	ASSERT_TRUE(ReadVector4Parameter(*Material,
 		Material->FindParameterDefinition(ParameterId)->Name, BaseColor));
 	EXPECT_EQ(BaseColor, FVector4(0.7, 0.8, 0.9, 0));
-	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration,
+	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestId,
 		CompileGeneration);
 	ASSERT_TRUE(Session.Commit());
 	ASSERT_TRUE(FMaterialGraphDocument(*Material).MoveMaterialOutput(713, -91, Durin::ETransactionMode::NotTransactable));
@@ -2093,7 +2093,7 @@ TEST(FMaterialGraphOperationsTests,
 	ASSERT_TRUE(ReadVector4Parameter(*Material,
 		Material->FindParameterDefinition(ParameterId)->Name, BaseColor));
 	EXPECT_EQ(BaseColor, FVector4(0.7, 0.8, 0.9, 0));
-	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration,
+	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestId,
 		CompileGeneration);
 	EXPECT_TRUE(Transactions->TryReset());
 	MarkAsGarbage(Material);

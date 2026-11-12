@@ -270,7 +270,6 @@ namespace Durin
 		{ std::lock_guard Lock(JobMutex); for (const auto& Item : Groups) if (auto Group = Item.lock()) Pending.push_back(std::move(Group)); }
 		for (const auto& Group : Pending) Group->RequestCancel();
 		CancelMaterialCompilation();
-		FinishShaderJobs();
 	}
 	auto FShaderCompilingManager::GetPeakJobStats() const -> std::pair<uint64, uint64>
 	{ return {PeakActiveJobs.load(), PeakOutputBytes.load()}; }

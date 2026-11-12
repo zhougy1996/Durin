@@ -114,7 +114,7 @@ namespace Durin::StaticMeshEditor
 					if (!Material) continue;
 					const auto& Status = Material->GetMaterialCompileStatus();
 					if (Status.IsCurrent() && Material->GetAcceptedCompiledProgram()) continue;
-					if (Material->IsCompiling())
+					if (Material->IsCompiling() || Status.HasScheduledEdits())
 						return {.State = EThumbnailRendererSessionState::WaitingForResources};
 					const auto Diagnostics = Material->GetMaterialCompileDiagnostics();
 					return {.Diagnostic = QualifyDiagnostic(Input.AssetPath, std::format(

@@ -86,6 +86,8 @@ namespace Durin
 
 		std::unordered_map<FMaterialCompileKey, FShaderMapPtr, FMaterialCompileKeyHash> RequestedShaderMaps;
 		std::deque<FMaterialCompileResult> MaterialResults;
+		struct FMaterialRequestAssociation { FShaderMapPtr Request; uint64 RequestId = 0; };
+		std::unordered_map<FObjectKey, FMaterialRequestAssociation> MaterialRequests;
 		uint32 OutstandingMaterialConsumers = 0;
 		FMaterialCompilationDiagnostics MaterialDiagnostics;
 		auto IsAcceptingMaterialRequests() const -> bool;
@@ -95,7 +97,8 @@ namespace Durin
 		auto PollMaterialCancellation() -> void;
 		auto ProcessMaterialResults(const FAssetCompileProcessParams& Params, const std::function<void(FMaterialCompileResult)>& Process) -> uint32;
 		auto CompleteMaterialRequests(const FShaderMapPtr& ShaderMap, MaterialBuildPrivate::FMaterialBuildResult Build) -> void;
-		auto DetachMaterialOwnerLocked(FWeakObjectPtr Owner, std::vector<FShaderMapPtr>& CanceledRequests) -> bool;
+		auto CancelCompilation(FWeakObjectPtr Owner, bool bCountCancellation) -> bool;
+		auto DetachMaterialOwnerLocked(FWeakObjectPtr Owner, std::vector<FShaderMapPtr>& CanceledRequests, bool bCountCancellation) -> bool;
 		static auto MakeMaterialResult(const FMaterialCompileRequest& Request,
 			const MaterialBuildPrivate::FMaterialBuildResult& Build,
 			const MIR::FCompilerInput* DiagnosticInput = nullptr, bool Canceled = false) -> FMaterialCompileResult;

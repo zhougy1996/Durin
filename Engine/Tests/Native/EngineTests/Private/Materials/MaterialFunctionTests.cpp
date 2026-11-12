@@ -1525,7 +1525,7 @@ TEST(FMaterialFunctionTests, DependencyEditsPreserveAcceptedContractsAndOwnerSou
 		EXPECT_EQ(Caller->GetAcceptedCompiledProgram(), Caller == Second ? SecondAccepted : Caller == Child ? ChildAccepted : Accepted);
 	}
 	FMaterialCompileResult Stale{.Owner = FWeakObjectPtr(First), .AuthoredRevision = Before.AuthoredRevision,
-		.Generation = Before.RequestGeneration, .DependencyRevision = Before.DependencyRevision, .ProgramIdentity = Before.CompiledIdentity,
+		.RequestId = Before.RequestId, .DependencyRevision = Before.DependencyRevision, .ProgramIdentity = Before.CompiledIdentity,
 		.StaticProperties = First->GetStaticProperties(), .Target = Before.Target,
 		.Outcome = EMaterialCompileOutcome::Succeeded, .CompiledProgram = Accepted};
 	EXPECT_FALSE(Private::FMaterialCompilationLifecycle::Admit(*First, Stale));
@@ -1554,7 +1554,7 @@ TEST(FMaterialFunctionTests, DependencyEditsPreserveAcceptedContractsAndOwnerSou
 	ASSERT_TRUE(Graph.Apply(*Leaf));
 	EXPECT_GT(First->GetMaterialCompileStatus().AuthoredRevision, Current.AuthoredRevision);
 	FMaterialCompileResult StaleClosure{.Owner = FWeakObjectPtr(First), .AuthoredRevision = Current.AuthoredRevision,
-		.Generation = Current.RequestGeneration, .DependencyRevision = Current.DependencyRevision, .ProgramIdentity = Current.CompiledIdentity,
+		.RequestId = Current.RequestId, .DependencyRevision = Current.DependencyRevision, .ProgramIdentity = Current.CompiledIdentity,
 		.StaticProperties = First->GetStaticProperties(), .Target = Current.Target,
 		.Outcome = EMaterialCompileOutcome::Succeeded, .CompiledProgram = CurrentProgram};
 	EXPECT_FALSE(Private::FMaterialCompilationLifecycle::Admit(*First, std::move(StaleClosure)));

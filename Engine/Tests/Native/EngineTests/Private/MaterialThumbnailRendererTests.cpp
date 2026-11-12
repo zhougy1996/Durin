@@ -370,7 +370,7 @@ TEST(FMaterialThumbnailRendererTests,
 }
 
 TEST(FMaterialThumbnailRendererTests,
-	RendererWaitsForMaterialAndSphereCompilationBeforeRendering)
+	RendererUsesCurrentMaterialWhileWaitingForSphereCompilation)
 {
 	Durin::FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	InitializeDObjectSystem();
@@ -429,7 +429,9 @@ TEST(FMaterialThumbnailRendererTests,
 		Durin::EThumbnailRendererSessionState::WaitingForResources);
 	Durin::ProcessAsyncLoading(100.0, 16);
 	ASSERT_TRUE(Durin::RequestMaterialRecompile(*Material, true));
-	ASSERT_FALSE(Material->GetMaterialCompileStatus().IsCurrent());
+	ASSERT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
+	EXPECT_FALSE(Material->IsCompilationFinished());
+	EXPECT_TRUE(Material->HasValidGameThreadShaderMap());
 	const Durin::FThumbnailRendererSessionUpdate Compiling =
 		(*Session)->PollResources();
 	EXPECT_EQ(Compiling.State,

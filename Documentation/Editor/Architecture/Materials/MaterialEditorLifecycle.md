@@ -45,9 +45,10 @@ material Window menu, and is enabled by default. Opening a base material applies
 copy's Engine edit policy. Automatic edits wait for a
 400 ms quiet period before compiler-input construction. Each subsequent semantic
 edit restarts the deadline. Switching to manual removes scheduled submission;
-switching back schedules any unsubmitted edits. Compile immediately submits the
+switching back schedules any unsubmitted edits. Withdrawing an edit deadline
+does not deregister a FeatureLevel preparation already in progress. Compile immediately submits the
 working material through ordinary cache reuse. Cancel Compile cancels its pending
-work and pending Apply intent. Engine pumps automatic deadlines even for hidden
+work and pending Apply intent without blocking for worker retirement. Engine pumps automatic deadlines even for hidden
 documents. Closing the document cancels compilation and retires the working copy.
 Reopening or package replacement creates a fresh working copy with the preference.
 
@@ -61,7 +62,8 @@ submits its changed root and loaded dependent variants together. Scene reference
 keep their identity and runtime compilation retains its last-good failure policy.
 Apply does not save the package to disk.
 
-Save finishes the selected preview's compilation, applies it, then saves the
+Before applying changes, Save finishes the selected preview's pending compilation,
+even when the installed program is already current, then applies it and saves the
 source package. It never drains unrelated compiler jobs. Unapplied changes,
 preview compilation status, and source disk dirtiness are separate states. The
 document unsaved marker includes either unapplied changes or a dirty source

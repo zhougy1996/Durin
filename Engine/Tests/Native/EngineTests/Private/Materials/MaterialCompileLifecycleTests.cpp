@@ -33,7 +33,7 @@ auto QualifyMaterialFunctionCompilationAsync() -> void;
 
 namespace
 {
-	auto QualifyInstanceCompilationOwners() -> void;
+	auto QualifyInstanceCompilationStates() -> void;
 
 	auto WaitForMaterialCompile(
 		Durin::DMaterialInterface& Material,
@@ -105,7 +105,9 @@ namespace
 		ASSERT_EQ(MIR::Normalize(Input).Identity, MIR::Normalize(Other).Identity);
 		const auto Before = GetMaterialCompilationDiagnostics();
 		const auto Joins = MaterialBuildPrivate::GetMaterialProgramCompileStatsForTests().Joins;
+		Durin::Private::FMaterialCompilationLifecycle::BeginRequest(*A);
 		ASSERT_TRUE(Private::FMaterialCompilationLifecycle::Submit(*A, Input, true)); ASSERT_TRUE(Cache->Entered.WaitFor(5));
+		Durin::Private::FMaterialCompilationLifecycle::BeginRequest(*B);
 		ASSERT_TRUE(Private::FMaterialCompilationLifecycle::Submit(*B, Other, true));
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
 		while (MaterialBuildPrivate::GetMaterialProgramCompileStatsForTests().Joins == Joins && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
@@ -152,13 +154,14 @@ auto QualifyCanceledFlightResubmission() -> void
 			ASSERT_TRUE(Started.WaitFor(2.0));
 			// Force compilation so the second iteration cannot use a retained hit.
 			ASSERT_TRUE(RequestMaterialRecompile(*Material, true));
-			const auto Generation = Material->GetMaterialCompileStatus().RequestGeneration;
+			const auto Generation = Material->GetMaterialCompileStatus().RequestId;
 			const auto CanceledBefore = GetMaterialCompilationDiagnostics().CanceledRequests;
 			if (bExplicitCancel)
 				FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Material);
 			ASSERT_TRUE(RequestMaterialRecompile(*Material, true));
-			EXPECT_GT(Material->GetMaterialCompileStatus().RequestGeneration, Generation);
-			EXPECT_GT(GetMaterialCompilationDiagnostics().CanceledRequests, CanceledBefore);
+			EXPECT_GT(Material->GetMaterialCompileStatus().RequestId, Generation);
+			if (bExplicitCancel) EXPECT_GT(GetMaterialCompilationDiagnostics().CanceledRequests, CanceledBefore);
+			else EXPECT_EQ(GetMaterialCompilationDiagnostics().CanceledRequests, CanceledBefore);
 			EXPECT_EQ(Material->GetMaterialCompileStatus().State, EMaterialCompileState::Running);
 		}
 		ASSERT_TRUE(WaitForMaterialCompile(*Material));
@@ -183,8 +186,8 @@ auto QualifyEditScheduling() -> void
 	ASSERT_TRUE(WaitForMaterialCompile(*Root));
 	ASSERT_TRUE(WaitForMaterialCompile(*Child));
 	const auto Previous = Root->GetAcceptedCompiledProgram();
-	const auto Generation = Root->GetMaterialCompileStatus().RequestGeneration;
-	const auto ChildGeneration = Child->GetMaterialCompileStatus().RequestGeneration;
+	const auto Generation = Root->GetMaterialCompileStatus().RequestId;
+	const auto ChildGeneration = Child->GetMaterialCompileStatus().RequestId;
 
 	Root->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	ASSERT_TRUE(EditRoughnessDefault(*Root, 0.1f));
@@ -192,8 +195,8 @@ auto QualifyEditScheduling() -> void
 	FAssetCompilingManager::Get().ProcessAsyncTasks();
 	EXPECT_TRUE(Root->GetMaterialCompileStatus().HasUnsubmittedEdits());
 	EXPECT_TRUE(Child->GetMaterialCompileStatus().HasUnsubmittedEdits());
-	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, Generation);
-	EXPECT_EQ(Child->GetMaterialCompileStatus().RequestGeneration, ChildGeneration);
+	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestId, Generation);
+	EXPECT_EQ(Child->GetMaterialCompileStatus().RequestId, ChildGeneration);
 	EXPECT_EQ(Root->GetAcceptedCompiledProgram(), Previous);
 	EXPECT_FALSE(Root->GetMaterialCompileStatus().IsCurrent());
 	FMaterialParameterDefinition Extra;
@@ -222,7 +225,7 @@ auto QualifyEditScheduling() -> void
 	ASSERT_TRUE(WaitForMaterialCompile(*Child));
 	EXPECT_TRUE(Root->GetMaterialCompileStatus().IsCurrent());
 	EXPECT_TRUE(Child->GetMaterialCompileStatus().IsCurrent());
-	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, Generation + 1);
+	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestId, Generation + 1);
 
 	auto& Manager = FAssetCompilingManager::Get();
 	const auto RemainingBeforeSchedule = Manager.GetNumRemainingAssets();
@@ -235,14 +238,16 @@ auto QualifyEditScheduling() -> void
 	std::this_thread::sleep_for(std::chrono::milliseconds(200));
 	FAssetCompilingManager::Get().ProcessAsyncTasks();
 	EXPECT_TRUE(Root->GetMaterialCompileStatus().HasScheduledEdits());
-	EXPECT_TRUE(Root->IsCompiling());
+	EXPECT_FALSE(Root->IsCompiling());
+	EXPECT_TRUE(Root->IsCompilationFinished());
+	EXPECT_TRUE(Root->HasValidGameThreadShaderMap());
 	EXPECT_FALSE(Root->IsComplete());
 	// Pending edits retain the accepted generation rather than an error material.
 	EXPECT_TRUE(Root->GetMaterialResource().HasValidGameThreadShaderMap());
-	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, Generation + 1);
+	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestId, Generation + 1);
 	ASSERT_TRUE(WaitForMaterialCompile(*Root));
 	ASSERT_TRUE(WaitForMaterialCompile(*Child));
-	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, Generation + 2);
+	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestId, Generation + 2);
 	EXPECT_FALSE(Root->IsCompiling());
 	EXPECT_TRUE(Root->IsComplete());
 
@@ -251,17 +256,18 @@ auto QualifyEditScheduling() -> void
 	std::this_thread::sleep_for(std::chrono::milliseconds(450));
 	FAssetCompilingManager::Get().ProcessAsyncTasks();
 	EXPECT_TRUE(Root->GetMaterialCompileStatus().HasUnsubmittedEdits());
-	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, Generation + 2);
+	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestId, Generation + 2);
 	Root->SetEditCompileMode(EMaterialEditCompileMode::Automatic);
 	ASSERT_TRUE(WaitForMaterialCompile(*Root));
 	ASSERT_TRUE(WaitForMaterialCompile(*Child));
-	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, Generation + 3);
+	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestId, Generation + 3);
 	ASSERT_TRUE(EditRoughnessDefault(*Root, 0.01f));
 	const auto RemainingBeforeCancel = Manager.GetNumRemainingAssets();
 	FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Root);
 	EXPECT_EQ(Manager.GetNumRemainingAssets(), RemainingBeforeCancel - 1);
-	EXPECT_EQ(Root->GetMaterialCompileStatus().State, EMaterialCompileState::Canceled);
-	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, Generation + 3);
+	// No new request existed: canceling the edit deadline preserves the last outcome.
+	EXPECT_EQ(Root->GetMaterialCompileStatus().State, EMaterialCompileState::Ready);
+	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestId, Generation + 3);
 }
 
 }
@@ -400,22 +406,22 @@ TEST_F(FMaterialAsyncCompileTests, ShaderPrecompileModesFinishAuthoredWorkAndReu
 	FAssetCompilingManager::Get().FinishAllCompilation();
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	ASSERT_TRUE(EditRoughnessDefault(*Material, 0.03125f));
-	const auto Generation = Material->GetMaterialCompileStatus().RequestGeneration;
+	const auto Generation = Material->GetMaterialCompileStatus().RequestId;
 	Material->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::None);
 	EXPECT_TRUE(Material->GetMaterialCompileStatus().HasUnsubmittedEdits());
-	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration, Generation);
+	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestId, Generation);
 	Material->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::Synchronous);
 	ASSERT_TRUE(Material->IsComplete());
 	ASSERT_TRUE(EditRoughnessDefault(*Material, 0.03125f));
 	Material->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::Background);
-	const auto PendingGeneration = Material->GetMaterialCompileStatus().RequestGeneration;
+	const auto PendingGeneration = Material->GetMaterialCompileStatus().RequestId;
 	Material->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::Background);
-	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration, PendingGeneration);
+	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestId, PendingGeneration);
 	Material->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::Synchronous);
 	EXPECT_TRUE(Material->IsComplete());
-	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration, PendingGeneration);
+	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestId, PendingGeneration);
 	Material->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::Synchronous);
-	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration, PendingGeneration);
+	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestId, PendingGeneration);
 }
 
 TEST_F(FMaterialAsyncCompileTests, InitialCompilationQueriesDoNotSelectAnInvalidMaterial)
@@ -439,6 +445,7 @@ TEST_F(FMaterialAsyncCompileTests, InitialCompilationQueriesDoNotSelectAnInvalid
 	struct FRestore { std::shared_ptr<FGate> Cache; ~FRestore() { Cache->Release.Trigger(); FAssetCompilingManager::Get().FinishAllCompilation(); ShaderBuildPrivate::ResetServiceForTests(); } } Restore{Cache};
 	FMaterialCompilerEnvironment Environment; ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment));
 	auto Snapshot = SnapshotMaterialCompilerInput(*Material, Environment); ASSERT_TRUE(Snapshot);
+	Durin::Private::FMaterialCompilationLifecycle::BeginRequest(*Material);
 	ASSERT_TRUE(Private::FMaterialCompilationLifecycle::Submit(*Material, Snapshot.Snapshot->Input, true));
 	ASSERT_TRUE(Cache->Entered.WaitFor(5));
 	const auto Before = GetMaterialFallbackDiagnosticsSnapshot();
@@ -478,6 +485,7 @@ TEST_F(FMaterialAsyncCompileTests, SynchronousAndAsynchronousResultsAgreeOnShare
 	struct FRestore { std::shared_ptr<FGate> Cache; ~FRestore() { Cache->Release.Trigger(); FAssetCompilingManager::Get().FinishAllCompilation(); ShaderBuildPrivate::ResetServiceForTests(); } } Restore{Cache};
 	FMaterialCompilerEnvironment Environment; ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment));
 	auto Snapshot = SnapshotMaterialCompilerInput(*A, Environment); ASSERT_TRUE(Snapshot);
+	Durin::Private::FMaterialCompilationLifecycle::BeginRequest(*A);
 	ASSERT_TRUE(Private::FMaterialCompilationLifecycle::Submit(*A, Snapshot.Snapshot->Input, true));
 	ASSERT_TRUE(Cache->Entered.WaitFor(5));
 	const auto Joins = MaterialBuildPrivate::GetMaterialProgramCompileStatsForTests().Joins;
@@ -488,6 +496,7 @@ TEST_F(FMaterialAsyncCompileTests, SynchronousAndAsynchronousResultsAgreeOnShare
 	});
 	{
 		FScopedOfflinePreparation Offline;
+		Durin::Private::FMaterialCompilationLifecycle::BeginRequest(*B);
 		EXPECT_TRUE(Private::FMaterialCompilationLifecycle::Submit(*B, Snapshot.Snapshot->Input, true));
 	}
 	Releaser.join();
@@ -535,6 +544,7 @@ TEST_F(FMaterialAsyncCompileTests, ReplacingCanceledSharedFlightCompletesItsOthe
 		const auto WorkerCount = GetTaskSchedulerDiagnostics().WorkerCount;
 		FThreadEvent Started, Release;
 		std::atomic_uint32_t StartedCount = 0;
+		std::atomic_bool TimedOut = false;
 		std::vector<Tasks::FTask> Blockers;
 		struct FReleaseWorkers
 		{
@@ -545,7 +555,7 @@ TEST_F(FMaterialAsyncCompileTests, ReplacingCanceledSharedFlightCompletesItsOthe
 		for (uint32 Index = 0; Index < WorkerCount; ++Index)
 			Blockers.push_back(Tasks::FTask(Tasks::LaunchTask("HoldReplacedSharedFlight", [&] {
 				if (StartedCount.fetch_add(1) + 1 == WorkerCount) Started.Trigger();
-				Release.WaitFor(10.0);
+				if (!Release.WaitFor(5.0)) TimedOut = true;
 			})));
 		ASSERT_TRUE(Started.WaitFor(2.0));
 		const auto JoinsBefore = GetMaterialCompilationDiagnostics().SingleFlightConsumers;
@@ -554,6 +564,7 @@ TEST_F(FMaterialAsyncCompileTests, ReplacingCanceledSharedFlightCompletesItsOthe
 		EXPECT_EQ(GetMaterialCompilationDiagnostics().SingleFlightConsumers, JoinsBefore + 1);
 		EXPECT_EQ(GetMaterialCompilationDiagnostics().OutstandingConsumerCount, 2u);
 		FShaderCompilingManager::Get().CancelAllCompilation();
+		EXPECT_FALSE(TimedOut.load()) << "Cancellation waited for blocked workers";
 		ASSERT_TRUE(RequestMaterialRecompile(*First, true));
 	}
 	FAssetCompilingManager::Get().FinishAllCompilation();
@@ -569,7 +580,7 @@ TEST_F(FMaterialAsyncCompileTests, InstanceVariantsShareOnlyCompatiblePrograms)
 
 TEST_F(FMaterialAsyncCompileTests, InstanceOwnersQueueWithoutCapacityRetries)
 {
-	ASSERT_NO_FATAL_FAILURE(QualifyInstanceCompilationOwners());
+	ASSERT_NO_FATAL_FAILURE(QualifyInstanceCompilationStates());
 }
 
 TEST_F(FMaterialAsyncCompileTests, SingleFlightRetainedHitsAndDemandedReload)
@@ -623,14 +634,14 @@ TEST_F(FMaterialAsyncCompileTests, SingleFlightRetainedHitsAndDemandedReload)
 	const Durin::FMaterialRenderProxyRef DemandedProxy =
 		First->GetRenderProxy();
 	const uint64 DemandedGeneration =
-		First->GetMaterialCompileStatus().RequestGeneration;
+		First->GetMaterialCompileStatus().RequestId;
 	const uint64 UnusedGeneration =
-		Second->GetMaterialCompileStatus().RequestGeneration;
+		Second->GetMaterialCompileStatus().RequestId;
 	Durin::NotifyMaterialShaderReload(false);
 	Durin::FAssetCompilingManager::Get().ProcessAsyncTasks();
-	EXPECT_EQ(First->GetMaterialCompileStatus().RequestGeneration,
+	EXPECT_EQ(First->GetMaterialCompileStatus().RequestId,
 		DemandedGeneration + 1);
-	EXPECT_EQ(Second->GetMaterialCompileStatus().RequestGeneration,
+	EXPECT_EQ(Second->GetMaterialCompileStatus().RequestId,
 		UnusedGeneration);
 	ASSERT_TRUE(WaitForMaterialCompile(*First));
 }
@@ -648,7 +659,7 @@ TEST_F(FMaterialAsyncCompileTests, ManualEditsKeepOlderWorkAndDiscardAllObsolete
 	const auto CanceledBefore = GetMaterialCompilationDiagnostics().CanceledRequests;
 	ASSERT_TRUE(EditRoughnessDefault(*Material, 0.1f));
 	EXPECT_EQ(GetMaterialCompilationDiagnostics().CanceledRequests, CanceledBefore);
-	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration, Submitted.RequestGeneration);
+	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestId, Submitted.RequestId);
 	EXPECT_TRUE(Material->GetMaterialCompileStatus().HasUnsubmittedEdits());
 	EXPECT_FALSE(Material->GetMaterialCompileStatus().HasScheduledEdits());
 	EXPECT_FALSE(Material->GetMaterialCompileStatus().IsCurrent());
@@ -656,7 +667,7 @@ TEST_F(FMaterialAsyncCompileTests, ManualEditsKeepOlderWorkAndDiscardAllObsolete
 	{
 		FMaterialCompileResult Obsolete{
 			.Owner = FWeakObjectPtr(Material), .AuthoredRevision = Submitted.AuthoredRevision,
-			.Generation = Submitted.RequestGeneration, .DependencyRevision = Submitted.DependencyRevision,
+			.RequestId = Submitted.RequestId, .DependencyRevision = Submitted.DependencyRevision,
 			.ProgramIdentity = Accepted->GetShaderMap().ShaderMapId,
 			.StaticProperties = Material->GetStaticProperties(), .Target = Submitted.Target,
 			.Outcome = Outcome, .CompiledProgram = Accepted,
@@ -669,10 +680,72 @@ TEST_F(FMaterialAsyncCompileTests, ManualEditsKeepOlderWorkAndDiscardAllObsolete
 	EXPECT_FALSE(Material->IsCompiling());
 	EXPECT_FALSE(Material->IsComplete());
 	EXPECT_TRUE(Material->GetMaterialCompileStatus().HasUnsubmittedEdits());
-	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration, Submitted.RequestGeneration);
+	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestId, Submitted.RequestId);
 	ASSERT_TRUE(Material->CompileEdits());
 	ASSERT_TRUE(WaitForMaterialCompile(*Material));
 	EXPECT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
+}
+
+TEST_F(FMaterialAsyncCompileTests, IdleShaderReloadInvalidatesInstalledMapAndRebuildsOnDemand)
+{
+	using namespace Durin;
+	auto* Material = MakeObject<DMaterial>("IdleReload");
+	ASSERT_TRUE(RequestMaterialRecompile(*Material));
+	ASSERT_TRUE(WaitForMaterialCompile(*Material));
+	const auto Request = Material->GetMaterialCompileStatus().RequestId;
+	const auto Program = Material->GetAcceptedCompiledProgram();
+	AdvanceShaderReloadGeneration();
+	NotifyMaterialShaderReload(false);
+	EXPECT_FALSE(Material->GetMaterialCompileStatus().IsCurrent());
+	EXPECT_TRUE(Material->HasValidGameThreadShaderMap());
+	FAssetCompilingManager::Get().ProcessAsyncTasks();
+	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestId, Request);
+	EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Program);
+	Material->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::Synchronous);
+	EXPECT_GT(Material->GetMaterialCompileStatus().RequestId, Request);
+	EXPECT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
+}
+
+TEST_F(FMaterialAsyncCompileTests, ManualEditSchedulingDoesNotRemoveFeaturePreparation)
+{
+	using namespace Durin;
+	auto* Material = MakeObject<DMaterial>("IndependentPreparation");
+	Material->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::Synchronous);
+	ASSERT_TRUE(Material->HasValidGameThreadShaderMap());
+	const auto Request = Material->GetMaterialCompileStatus().RequestId;
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Automatic);
+	ASSERT_TRUE(EditRoughnessDefault(*Material, 0.139f));
+	ASSERT_TRUE(Material->GetMaterialCompileStatus().HasScheduledEdits());
+	Material->CacheResourceShadersForRendering(ERHIFeatureLevel::ES3_1);
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	ASSERT_FALSE(Material->GetMaterialCompileStatus().HasScheduledEdits());
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+	while (std::chrono::steady_clock::now() < Deadline)
+	{
+		FAssetCompilingManager::Get().ProcessAsyncTasks();
+		if (Material->GetMaterialCompileStatus(ERHIFeatureLevel::ES3_1).State == EMaterialCompileState::Ready) break;
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	}
+	EXPECT_EQ(Material->GetMaterialCompileStatus(ERHIFeatureLevel::ES3_1).State, EMaterialCompileState::Ready);
+	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestId, Request);
+	EXPECT_TRUE(Material->GetMaterialCompileStatus().HasUnsubmittedEdits());
+}
+
+TEST_F(FMaterialAsyncCompileTests, InstalledFreshnessDoesNotDependOnLatestRequestOutcome)
+{
+	using namespace Durin;
+	auto* Material = MakeObject<DMaterial>("IndependentFreshness");
+	Material->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::Synchronous);
+	ASSERT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
+	ASSERT_TRUE(RequestMaterialRecompile(*Material, true));
+	EXPECT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
+	EXPECT_TRUE(Material->HasValidGameThreadShaderMap());
+	EXPECT_FALSE(Material->IsCompilationFinished());
+	FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Material);
+	EXPECT_TRUE(Material->IsCompilationFinished());
+	EXPECT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
+	EXPECT_TRUE(Material->HasValidGameThreadShaderMap());
+	FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
 }
 
 TEST_F(FMaterialAsyncCompileTests, LatestGenerationReplacesTheAcceptedProgram)
@@ -683,13 +756,13 @@ TEST_F(FMaterialAsyncCompileTests, LatestGenerationReplacesTheAcceptedProgram)
 	const auto InitialProgram = First->GetAcceptedCompiledProgram();
 	ASSERT_TRUE(InitialProgram);
 	const uint64 InitialGeneration =
-		First->GetMaterialCompileStatus().RequestGeneration;
+		First->GetMaterialCompileStatus().RequestId;
 	auto Validation = EditRoughnessDefault(*First, 0.03125f);
 	ASSERT_TRUE(Validation);
 	EXPECT_EQ(First->GetAcceptedCompiledProgram(), InitialProgram);
 	EXPECT_FALSE(First->GetMaterialCompileStatus().IsCurrent());
 	ASSERT_TRUE((Validation = EditRoughnessDefault(*First, 0.0625f)));
-	EXPECT_EQ(First->GetMaterialCompileStatus().RequestGeneration,
+	EXPECT_EQ(First->GetMaterialCompileStatus().RequestId,
 		InitialGeneration + 2);
 	EXPECT_EQ(First->GetAcceptedCompiledProgram(), InitialProgram);
 	ASSERT_TRUE(WaitForMaterialCompile(*First))
@@ -740,7 +813,7 @@ TEST_F(FMaterialAsyncCompileTests, FailedAndStaleResultsPreserveGenerationBounda
 	Durin::FMaterialCompileResult Failed{
 		.Owner = Durin::FWeakObjectPtr(First),
 		.AuthoredRevision = Pending.AuthoredRevision,
-		.Generation = Pending.RequestGeneration,
+		.RequestId = Pending.RequestId,
 		.DependencyRevision = Pending.DependencyRevision,
 		.ProgramIdentity = Pending.CompiledIdentity,
 		.Target = Pending.Target,
@@ -749,7 +822,7 @@ TEST_F(FMaterialAsyncCompileTests, FailedAndStaleResultsPreserveGenerationBounda
 	};
 	// An obsolete failure cannot retire a newer request's visible generation.
 	auto StaleFailure = Failed;
-	--StaleFailure.Generation;
+	--StaleFailure.RequestId;
 	EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(
 		*First, std::move(StaleFailure)));
 	EXPECT_EQ(First->GetAcceptedCompiledProgram(), LastKnownGood);
@@ -768,7 +841,7 @@ TEST_F(FMaterialAsyncCompileTests, FailedAndStaleResultsPreserveGenerationBounda
 	Durin::FMaterialCompileResult Stale{
 		.Owner = Durin::FWeakObjectPtr(First),
 		.AuthoredRevision = Pending.AuthoredRevision,
-		.Generation = Pending.RequestGeneration - 1,
+		.RequestId = Pending.RequestId - 1,
 		.DependencyRevision = Pending.DependencyRevision,
 		.ProgramIdentity = LastKnownGood->GetShaderMap().ShaderMapId,
 		.Target = Pending.Target,
@@ -781,7 +854,7 @@ TEST_F(FMaterialAsyncCompileTests, FailedAndStaleResultsPreserveGenerationBounda
 	Durin::FMaterialCompileResult WrongTarget{
 		.Owner = Durin::FWeakObjectPtr(First),
 		.AuthoredRevision = Pending.AuthoredRevision,
-		.Generation = Pending.RequestGeneration,
+		.RequestId = Pending.RequestId,
 		.DependencyRevision = Pending.DependencyRevision,
 		.ProgramIdentity = LastKnownGood->GetShaderMap().ShaderMapId,
 		.Target = "wrong-target",
@@ -793,7 +866,7 @@ TEST_F(FMaterialAsyncCompileTests, FailedAndStaleResultsPreserveGenerationBounda
 	Durin::FMaterialCompileResult WrongDependency{
 		.Owner = Durin::FWeakObjectPtr(First),
 		.AuthoredRevision = Pending.AuthoredRevision,
-		.Generation = Pending.RequestGeneration,
+		.RequestId = Pending.RequestId,
 		.DependencyRevision = Pending.DependencyRevision + 1,
 		.ProgramIdentity = LastKnownGood->GetShaderMap().ShaderMapId,
 		.Target = Pending.Target,
@@ -862,7 +935,7 @@ TEST_F(FMaterialAsyncCompileTests, PendingSchemaReplacementRetainsBindingsUntilF
 		Durin::FMaterialCompileResult Failed{
 			.Owner = Durin::FWeakObjectPtr(Root),
 			.AuthoredRevision = Pending.AuthoredRevision,
-			.Generation = Pending.RequestGeneration,
+			.RequestId = Pending.RequestId,
 			.DependencyRevision = Pending.DependencyRevision,
 			.ProgramIdentity = Pending.CompiledIdentity,
 			.Target = Pending.Target,
@@ -904,7 +977,7 @@ TEST_F(FMaterialAsyncCompileTests, FunctionEditsInvalidateOwnersAndRejectStaleRe
 
 namespace
 {
-auto QualifyInstanceCompilationOwners() -> void
+auto QualifyInstanceCompilationStates() -> void
 {
 	struct FFixtureScope
 	{
@@ -1113,7 +1186,7 @@ TEST(FMaterialCompileLifecycleTests,
 	ASSERT_TRUE(WaitForMaterialCompile(*Root));
 	ASSERT_TRUE(Root->GetAcceptedCompiledProgram());
 	const auto Program = Root->GetAcceptedCompiledProgram();
-	const uint64 CompileGeneration = Root->GetMaterialCompileStatus().RequestGeneration;
+	const uint64 CompileGeneration = Root->GetMaterialCompileStatus().RequestId;
 	const FMaterialProgramStatistics Current = GetMaterialProgramStatistics(*Root);
 	EXPECT_EQ(Current.State, EMaterialProgramStatisticsState::Current);
 	EXPECT_EQ(Current.ProgramIdentity, Program->GetShaderMap().ShaderMapId);
@@ -1151,7 +1224,7 @@ TEST(FMaterialCompileLifecycleTests,
 	EXPECT_EQ(Family.DistinctStaticConfigurationCount, 2u);
 	EXPECT_EQ(Family.PendingOwnerCount, 0u);
 	EXPECT_EQ(Family.FailedOwnerCount, 0u);
-	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, CompileGeneration);
+	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestId, CompileGeneration);
 
 	Root->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	ASSERT_TRUE(EditRoughnessDefault(*Root, 0.03125f));

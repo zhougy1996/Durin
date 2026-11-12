@@ -1,3 +1,4 @@
+#include "Shader/ShaderCompilerCore.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialCookedProgram.h"
 #include "MaterialPreparationQueue.h"
@@ -157,7 +158,7 @@ namespace Durin
 			if (auto* Parent = GetParent()) Parent->CacheResourceShadersForRendering(PrecompileMode);
 			return;
 		}
-		if (IsComplete()) return;
+		if (IsComplete() && IsCompilationFinished()) return;
 		const bool bSynchronous = PrecompileMode == EMaterialShaderPrecompileMode::Synchronous;
 		if (!GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
@@ -169,9 +170,9 @@ namespace Durin
 			}
 			return;
 		}
-		if (!CompilationOwner.CookedPreparation)
+		if (!CompilationState.CookedPreparation)
 		{
-			auto& Status = CompilationOwner.MaterialCompileStatus.State;
+			auto& Status = CompilationState.MaterialCompileStatus.State;
 			MaterialCookDiagnostic.clear();
 			if (!bSynchronous && !IsTaskSchedulerRunning())
 			{
@@ -179,43 +180,42 @@ namespace Durin
 				MaterialCookDiagnostic = "Background cooked program preparation requires a running task scheduler.";
 				return;
 			}
-			CompilationOwner.CookedPreparation = CreateProgramPreparation(*this, PreparationFeatureLevel());
+			CompilationState.CookedPreparation = CreateProgramPreparation(*this, PreparationFeatureLevel());
 			Status = EMaterialCompileState::Running;
 		}
 		if (bSynchronous)
 		{
 			PollCookedProgramPreparation(true);
-			Private::GetMaterialPreparationQueue().Remove(FWeakObjectPtr(this));
 		}
 		else Private::GetMaterialPreparationQueue().Add(FWeakObjectPtr(this));
 	}
 	auto DMaterialInterface::PollCookedProgramPreparation(bool bSynchronous) -> bool
 	{
 		CheckGameThread();
-		if (!CompilationOwner.CookedPreparation) return false;
-		const auto State = CompilationOwner.CookedPreparation;
+		if (!CompilationState.CookedPreparation) return false;
+		const auto State = CompilationState.CookedPreparation;
 		if (State->FeatureLevel != PreparationFeatureLevel())
 		{
-			CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Canceled;
+			CompilationState.MaterialCompileStatus.State = EMaterialCompileState::Canceled;
 			MaterialCookDiagnostic = "Cooked program feature level changed before publication.";
-			CompilationOwner.CookedPreparation.reset();
+			CompilationState.CookedPreparation.reset();
 			return false;
 		}
 		const auto Result = PollProgramPreparation(*this, State, bSynchronous);
 		if (!Result)
 		{
-			CompilationOwner.MaterialCompileStatus.State = Result.error().State;
+			CompilationState.MaterialCompileStatus.State = Result.error().State;
 			MaterialCookDiagnostic = Result.error().Diagnostic;
-			CompilationOwner.CookedPreparation.reset();
+			CompilationState.CookedPreparation.reset();
 			return false;
 		}
 		if (!*Result) return true;
 		const auto Admitted = AdmitCookedProgram((*Result)->Properties, (*Result)->Program);
 		if (!Admitted)
 		{
-			CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Failed;
+			CompilationState.MaterialCompileStatus.State = EMaterialCompileState::Failed;
 			MaterialCookDiagnostic = Admitted.error();
-			CompilationOwner.CookedPreparation.reset();
+			CompilationState.CookedPreparation.reset();
 		}
 		else MaterialCookDiagnostic.clear();
 		return false;
@@ -232,7 +232,7 @@ namespace Durin
 		FMaterialResource Resource;
 		FMaterialCompileStatus Status;
 		std::string Diagnostic;
-		uint64 AuthoredRevision = 0, DependencyRevision = 0, ShaderRevision = 0, BulkRevision = 0;
+		uint64 AuthoredRevision = 0, ShaderRevision = 0, BulkRevision = 0;
 		ERHIBackend Backend = PreparationBackend();
 		bool bCooked = false;
 		std::filesystem::path CookRoot;
@@ -299,7 +299,10 @@ namespace Durin
 		const auto Program = GetAcceptedCompiledProgram();
 		if ((Program && Program->FeatureLevel == Level) || (!Program && Level == PreparationFeatureLevel())) return GetMaterialCompileStatus();
 		const auto& State = FeatureLevelResources[static_cast<size_t>(Level)];
-		return State ? State->Status : FMaterialCompileStatus{};
+		auto Status = State ? State->Status : FMaterialCompileStatus{};
+		Status.bHasScheduledEdits = false;
+		Status.bDependenciesCurrent = Status.CompiledDependencyRevision == GetShaderReloadGeneration();
+		return Status;
 	}
 
 	auto DMaterialInterface::GetMaterialCookDiagnostic(ERHIFeatureLevel Level) const -> std::string
@@ -375,8 +378,7 @@ namespace Durin
 		{
 			Slot->Resource = BuildMaterialResource();
 			Slot->Status = GetMaterialCompileStatus();
-			Slot->AuthoredRevision = CompilationOwner.MaterialCompileStatus.AuthoredRevision;
-			Slot->DependencyRevision = CompilationOwner.MaterialCompileStatus.DependencyRevision;
+			Slot->AuthoredRevision = CompilationState.MaterialCompileStatus.AuthoredRevision;
 			Slot->ShaderRevision = GetShaderReloadGeneration();
 			Slot->BulkRevision = CookedProgramData.GetContentRevision();
 			Slot->Quality = GetMaterialQualityLevel();
@@ -387,9 +389,8 @@ namespace Durin
 			return;
 		}
 		if (Level == PreparationFeatureLevel() && !SelectedPrimary) return;
-		const auto& OwnerStatus = CompilationOwner.MaterialCompileStatus;
+		const auto& OwnerStatus = CompilationState.MaterialCompileStatus;
 		const bool bCurrent = Slot->AuthoredRevision == OwnerStatus.AuthoredRevision
-			&& Slot->DependencyRevision == OwnerStatus.DependencyRevision
 			&& Slot->ShaderRevision == GetShaderReloadGeneration() && Slot->Quality == GetMaterialQualityLevel()
 			&& Slot->BulkRevision == CookedProgramData.GetContentRevision()
 			&& Slot->Backend == PreparationBackend() && Slot->bCooked == GetAssetRuntimeConfiguration().RequiresCookedPayload()
@@ -403,7 +404,6 @@ namespace Durin
 			Replacement->bRequested = true;
 			Slot = std::move(Replacement);
 			Slot->AuthoredRevision = OwnerStatus.AuthoredRevision;
-			Slot->DependencyRevision = OwnerStatus.DependencyRevision;
 			Slot->ShaderRevision = GetShaderReloadGeneration();
 			Slot->BulkRevision = CookedProgramData.GetContentRevision();
 			Slot->Quality = GetMaterialQualityLevel();
@@ -490,6 +490,7 @@ namespace Durin
 		State->Resource = BuildMaterialResource(State->Resource);
 		State->Status.State = EMaterialCompileState::Ready;
 		State->Status.CompiledRevision = State->Status.SubmittedRevision = State->Status.AuthoredRevision;
+		State->Status.CompiledDependencyRevision = State->ShaderRevision;
 		State->Status.CompiledIdentity = (*Validated)->GetShaderMap().ShaderMapId;
 		State->Status.Target = (*Validated)->GetShaderMap().Target;
 		State->Diagnostic.clear();

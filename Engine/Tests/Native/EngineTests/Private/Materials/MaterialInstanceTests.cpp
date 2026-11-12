@@ -289,7 +289,8 @@ TEST(FMaterialInstanceTests, DynamicInstancesAreIndependentAndDoNotDirtyTheirOwn
 	EXPECT_TRUE(First->HasAnyObjectFlags(EObjectFlags::Transient));
 	EXPECT_FALSE(Base->GetPackage()->IsDirty());
 	const auto Program = Base->GetAcceptedCompiledProgram();
-	const auto ParentGeneration = Base->GetMaterialCompileStatus().RequestGeneration;
+	const auto ParentGeneration = Base->GetMaterialCompileStatus().RequestId;
+	const auto RequestsBeforeDynamicEdit = GetMaterialCompilationDiagnostics().AcceptedRequests;
 	float Original = 0;
 	ASSERT_TRUE(Base->GetScalarParameterValue(MaterialParameters::RoughnessName(), Original));
 	ASSERT_TRUE(First->SetScalarParameterValue(MaterialParameters::RoughnessName(), 0.23f));
@@ -297,8 +298,9 @@ TEST(FMaterialInstanceTests, DynamicInstancesAreIndependentAndDoNotDirtyTheirOwn
 	EXPECT_FLOAT_EQ(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Second)).Roughness, Original);
 	EXPECT_FLOAT_EQ(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Base)).Roughness, Original);
 	EXPECT_EQ(First->GetAcceptedCompiledProgram(), Program);
-	EXPECT_EQ(Base->GetMaterialCompileStatus().RequestGeneration, ParentGeneration);
-	EXPECT_EQ(First->GetMaterialCompileStatus().RequestGeneration, 0u);
+	EXPECT_EQ(Base->GetMaterialCompileStatus().RequestId, ParentGeneration);
+	EXPECT_EQ(First->GetMaterialCompileStatus().RequestId, ParentGeneration);
+	EXPECT_EQ(GetMaterialCompilationDiagnostics().AcceptedRequests, RequestsBeforeDynamicEdit);
 	EXPECT_FALSE(RequestMaterialRecompile(*First, true));
 	EXPECT_FALSE(First->SetParent(Base));
 	EXPECT_FALSE(First->SetPropertyOverrides({}));
@@ -359,7 +361,7 @@ TEST(FMaterialInstanceTests, DynamicInstancesFollowAcceptedParentGenerationAndPr
 	EXPECT_NE(Accepted.Material.CompiledProgram, Initial.Material.CompiledProgram);
 	EXPECT_EQ(Accepted.Material.PlanningPassIdentity.ShaderMap.BlendMode, EMaterialBlendMode::Masked);
 	EXPECT_FLOAT_EQ(GetMaterialBinding(Accepted.Material).Roughness, 0.37f);
-	EXPECT_EQ(Dynamic->GetMaterialCompileStatus().RequestGeneration, 0u);
+	EXPECT_EQ(Dynamic->GetMaterialCompileStatus().RequestId, Asset->GetMaterialCompileStatus().RequestId);
 	// A broken asset chain invalidates the dynamic child rather than retaining stale code.
 	ASSERT_TRUE(Asset->SetParent(nullptr));
 	EXPECT_FALSE(Dynamic->GetAcceptedCompiledProgram());
@@ -599,11 +601,11 @@ TEST(FMaterialInstanceTests, PerFieldPropertiesPreserveIntentAndResolveSourcesAc
 	EXPECT_EQ(Durin::ResolveObjectKey(Resolved.Sources[0]), Child);
 	EXPECT_EQ(Durin::ResolveObjectKey(Resolved.Sources[3]), Parent);
 	EXPECT_EQ(Durin::ResolveObjectKey(Resolved.Sources[1]), Root);
-	const auto Generation = Root->GetMaterialCompileStatus().RequestGeneration;
+	const auto Generation = Root->GetMaterialCompileStatus().RequestId;
 	auto RootProperties = Root->GetStaticProperties();
 	RootProperties.OpacityMaskThreshold = 0.25f;
 	ASSERT_TRUE(Root->SetStaticProperties(RootProperties));
-	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, Generation);
+	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestId, Generation);
 	EXPECT_EQ(Child->GetAcceptedCompiledProgram()->ShaderMap, Root->GetAcceptedCompiledProgram()->ShaderMap);
 	ChildOverrides.Values.BlendMode = Durin::EMaterialBlendMode::Masked;
 	ASSERT_TRUE(Child->SetPropertyOverrides(ChildOverrides));

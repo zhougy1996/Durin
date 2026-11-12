@@ -769,8 +769,8 @@ namespace Durin
 		}
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
-			CompilationOwner.RenderLayer = {};
-			CompilationOwner.CookedPreparation.reset();
+			CompilationState.RenderLayer = {};
+			CompilationState.CookedPreparation.reset();
 			if (CookedProgramData.GetMetadata().LogicalSize == 0)
 			{
 				MaterialCookDiagnostic = "Material cooked program is unavailable.";

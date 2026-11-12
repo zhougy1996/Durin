@@ -285,7 +285,6 @@ namespace Durin
 		std::vector<FShaderMapPtr> Records;
 		{ std::lock_guard Lock(MaterialMutex); Records = CompilingShaderMaps; }
 		for (const auto& ShaderMap : Records) CancelCompilation(ShaderMap);
-		FinishMaterialCompilation();
 	}
 
 	auto MaterialBuildPrivate::CompileMaterialInput(const MIR::FCompilerInput& Input, bool Force) -> FMaterialBuildResult

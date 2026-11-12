@@ -1,7 +1,6 @@
 #include "Materials/ObjectCacheContext.h"
 #include "Materials/MaterialShaderMap.h"
 #include "Shader/ShaderCompilingManager.h"
-#include "Shader/ShaderMapPreparation.h"
 #include "MaterialCollectionBinding.h"
 #include "MaterialPreparationQueue.h"
 #include "Asset/OfflinePreparation.h"
@@ -12,9 +11,6 @@
 
 #include "Asset/AssetCompilingManager.h"
 #include "CoreGlobals.h"
-#include "DObject/DObjectArray.h"
-#include "DObject/ObjectLifecycle.h"
-#include "Logging/LogMacros.h"
 #include "Materials/Material.h"
 #include "Shader/ShaderCompilerCore.h"
 #include "Threading/RunnableThread.h"
@@ -36,18 +32,30 @@ namespace Durin
 		auto SameOwner(FWeakObjectPtr Left, FWeakObjectPtr Right) -> bool
 		{ return Left.GetKey() == Right.GetKey(); }
 
-		std::atomic_uint8_t GPendingShaderReloadMode = 0;
-		auto CancelMaterialCompileDomain(DMaterialInterface& Material) -> bool;
-
 	}
 
 	namespace Private
 	{
-		auto GetMaterialPreparationQueue() -> FMaterialPreparationQueue&
+		auto GetMaterialEditCompileQueue() -> FMaterialPreparationQueue&
 		{
 			CheckMaterialCompileGameThread();
 			static FMaterialPreparationQueue Queue;
 			return Queue;
+		}
+
+		auto FMaterialCompilationLifecycle::BeginRequest(DMaterialInterface& Material) -> void
+		{
+			CheckMaterialCompileGameThread();
+			Material.CompilationState.EditCompileDeadline.reset();
+			GetMaterialEditCompileQueue().Remove(FWeakObjectPtr(&Material));
+			FShaderCompilingManager::Get().CancelCompilation(FWeakObjectPtr(&Material), false);
+			auto& Status = Material.CompilationState.MaterialCompileStatus;
+			Status.SubmittedRevision = Status.AuthoredRevision;
+			Status.RequestId = AdvanceNonzero(Status.RequestId);
+			Status.State = EMaterialCompileState::Running;
+			Status.CacheOutcome = EMaterialCompileCacheOutcome::None;
+			Material.CompilationState.MaterialCompileDiagnostics.clear();
+			Material.CompilationState.RequestedExpressionSources.clear();
 		}
 
 		auto FMaterialCompilationLifecycle::ScheduleEdit(DMaterialInterface& Material, FObjectCacheContext* Context) -> void
@@ -66,22 +74,22 @@ namespace Durin
 				RequestCurrent(Material, false, Context);
 				return;
 			}
-			GetMaterialPreparationQueue().Remove(FWeakObjectPtr(&Material));
-			Material.CompilationOwner.LastObservedShaderProperties =
+			GetMaterialEditCompileQueue().Remove(FWeakObjectPtr(&Material));
+			Material.CompilationState.LastObservedShaderProperties =
 				CanonicalizeMaterialShaderProperties(Material.GetStaticProperties());
-			auto& Declarations = Material.CompilationOwner.LastObservedParameters;
+			auto& Declarations = Material.CompilationState.LastObservedParameters;
 			Declarations.clear();
 			for (const auto& Definition : Material.GetParameterDefinitions())
 				Declarations.push_back({Definition.Id, Definition.Type});
 			std::ranges::sort(Declarations, {}, &FMaterialCompilerParameterDeclaration::Id);
-			auto& Status = Material.CompilationOwner.MaterialCompileStatus;
+			auto& Status = Material.CompilationState.MaterialCompileStatus;
 			Status.CacheOutcome = EMaterialCompileCacheOutcome::None;
-			Material.CompilationOwner.MaterialCompileDiagnostics.clear();
-			Status.EditCompileDeadline.reset();
+			Material.CompilationState.MaterialCompileDiagnostics.clear();
+			Material.CompilationState.EditCompileDeadline.reset();
 			if (Mode == EMaterialEditCompileMode::Automatic)
-				Status.EditCompileDeadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(400);
-			if (Status.HasScheduledEdits())
-				GetMaterialPreparationQueue().Add(FWeakObjectPtr(&Material));
+				Material.CompilationState.EditCompileDeadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(400);
+			if (Material.CompilationState.EditCompileDeadline)
+				GetMaterialEditCompileQueue().Add(FWeakObjectPtr(&Material));
 #endif
 		}
 
@@ -91,54 +99,24 @@ namespace Durin
 			bool bForceRecompile, FObjectCacheContext* Context) -> bool
 		{
 			CheckMaterialCompileGameThread();
-			if (Material.IsDynamicInstance()) return false;
-			Material.CompilationOwner.MaterialCompileStatus.EditCompileDeadline.reset();
-			Material.CompilationOwner.MaterialCompileStatus.SubmittedRevision = Material.CompilationOwner.MaterialCompileStatus.AuthoredRevision;
-			Private::GetMaterialPreparationQueue().Remove(FWeakObjectPtr(&Material));
-			auto& Compilation = FShaderCompilingManager::Get();
-			// Construction precedes DObject handle registration. In a running engine,
-			// defer that bootstrap request to PostLoad, an authored edit, or an
-			// explicit request instead of performing expensive work on GameThread.
-			if (FWeakObjectPtr(&Material).GetKey().IsNull()
-				&& Compilation.IsAcceptingMaterialRequests())
-			{
-				Material.CompilationOwner.MaterialCompileStatus.State =
-					EMaterialCompileState::NeverRequested;
-				return true;
-			}
-			Material.CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Running;
+			auto& Status = Material.CompilationState.MaterialCompileStatus;
+			Status.DependencyRevision = GetShaderReloadGeneration();
+			Status.Target = Input.Environment.Target;
+			Material.CompilationState.RequestedExpressionSources = Input.Sources;
+			FMaterialCompileRequest Request{
+				.Owner = FWeakObjectPtr(&Material), .AuthoredRevision = Status.AuthoredRevision,
+				.RequestId = Status.RequestId, .DependencyRevision = Status.DependencyRevision,
+				.CompilerInput = std::make_shared<const MIR::FCompilerInput>(std::move(Input)),
+				.bForceRecompile = bForceRecompile};
 #if DURIN_WITH_EDITOR
-			if (Compilation.IsAcceptingMaterialRequests() && !FScopedOfflinePreparation::IsActive())
+			if (FShaderCompilingManager::Get().IsAcceptingMaterialRequests() && !FScopedOfflinePreparation::IsActive())
 			{
-				auto& Status = Material.CompilationOwner.MaterialCompileStatus;
-				Status.RequestGeneration = AdvanceNonzero(Status.RequestGeneration);
-				Status.DependencyRevision = GetShaderReloadGeneration(); Status.Target = Input.Environment.Target;
-				Status.CacheOutcome = EMaterialCompileCacheOutcome::None;
-				Material.CompilationOwner.RequestedExpressionSources = Input.Sources;
-				Material.CompilationOwner.MaterialCompileDiagnostics.clear();
-				FMaterialCompileRequest Request{
-					.Owner = FWeakObjectPtr(&Material), .AuthoredRevision = Status.AuthoredRevision,
-					.Generation = Status.RequestGeneration, .DependencyRevision = Status.DependencyRevision,
-					.CompilerInput = std::make_shared<const MIR::FCompilerInput>(std::move(Input)),
-					.bForceRecompile = bForceRecompile};
-				Compilation.SubmitJobs(std::move(Request));
+				FShaderCompilingManager::Get().SubmitJobs(std::move(Request));
 				return true;
 			}
 #endif
-			auto& Status = Material.CompilationOwner.MaterialCompileStatus;
-			Status.RequestGeneration = AdvanceNonzero(Status.RequestGeneration);
-			Status.DependencyRevision = GetShaderReloadGeneration(); Status.Target = Input.Environment.Target;
-			Status.CacheOutcome = EMaterialCompileCacheOutcome::None;
-			Material.CompilationOwner.MaterialCompileDiagnostics.clear();
-			auto Build = MaterialBuildPrivate::CompileMaterialInput(Input, bForceRecompile);
-			FMaterialCompileRequest Request{
-				.Owner = FWeakObjectPtr(&Material), .AuthoredRevision = Status.AuthoredRevision,
-				.Generation = Status.RequestGeneration, .DependencyRevision = Status.DependencyRevision,
-				.CompilerInput = std::shared_ptr<const MIR::FCompilerInput>(&Input, [](const auto*) {}),
-				.bForceRecompile = bForceRecompile};
-			Material.CompilationOwner.RequestedExpressionSources = Input.Sources;
-			auto Result = FShaderCompilingManager::MakeMaterialResult(Request, Build);
-			Admit(Material, std::move(Result), Context);
+			auto Build = MaterialBuildPrivate::CompileMaterialInput(*Request.CompilerInput, bForceRecompile);
+			Admit(Material, FShaderCompilingManager::MakeMaterialResult(Request, Build), Context);
 			return Status.State == EMaterialCompileState::Ready;
 		}
 
@@ -146,8 +124,8 @@ namespace Durin
 			DMaterialInterface& Material, FMaterialCompileResult Result, FObjectCacheContext* Context) -> bool
 		{
 				CheckMaterialCompileGameThread();
-				FMaterialCompileStatus& Status = Material.CompilationOwner.MaterialCompileStatus;
-				if (Result.Generation != Status.RequestGeneration
+				FMaterialCompileStatus& Status = Material.CompilationState.MaterialCompileStatus;
+				if (Result.RequestId != Status.RequestId
 					|| Result.AuthoredRevision != Status.AuthoredRevision
 					|| Result.DependencyRevision != Status.DependencyRevision
 					|| Result.Target != Status.Target
@@ -158,12 +136,12 @@ namespace Durin
 
 				if (!SameOwner(Result.Owner, FWeakObjectPtr(&Material))) return false;
 
-				if (!Result.ExpressionSources.empty()) Material.CompilationOwner.RequestedExpressionSources = std::move(Result.ExpressionSources);
+				if (!Result.ExpressionSources.empty()) Material.CompilationState.RequestedExpressionSources = std::move(Result.ExpressionSources);
 
 				Status.State = Result.Outcome == EMaterialCompileOutcome::Succeeded ? EMaterialCompileState::Ready
 					: Result.Outcome == EMaterialCompileOutcome::Canceled ? EMaterialCompileState::Canceled : EMaterialCompileState::Failed;
 				Status.CacheOutcome = Result.CacheOutcome;
-				Material.CompilationOwner.MaterialCompileDiagnostics = std::move(Result.Diagnostics);
+				Material.CompilationState.MaterialCompileDiagnostics = std::move(Result.Diagnostics);
 				if (Result.Outcome == EMaterialCompileOutcome::Succeeded
 					&& Result.CompiledProgram
 					&& Result.CompiledProgram->GetShaderMap().ShaderMapId == Result.ProgramIdentity
@@ -193,10 +171,11 @@ namespace Durin
 						Candidate.Parameters.push_back(BuildMaterialLocalRenderParameter(
 							Parameter.Id, Resolved.Value));
 					}
-					Material.CompilationOwner.RenderLayer = std::move(Candidate);
-					Material.CompilationOwner.AcceptedExpressionSources = Material.CompilationOwner.RequestedExpressionSources;
+					Material.CompilationState.RenderLayer = std::move(Candidate);
+					Material.CompilationState.AcceptedExpressionSources = Material.CompilationState.RequestedExpressionSources;
 					Status.CompiledIdentity = Result.ProgramIdentity;
 					Status.CompiledRevision = Result.AuthoredRevision;
+					Status.CompiledDependencyRevision = Result.DependencyRevision;
 					Material.MarkRenderDataDirty(
 						EMaterialRenderDirtyFlags::ShaderMap
 							| EMaterialRenderDirtyFlags::PipelineState, false, Context);
@@ -217,16 +196,17 @@ namespace Durin
 			DMaterialInterface& Material) -> void
 		{
 			Material.CancelFeatureLevelCompilation();
-			Material.CompilationOwner.CookedPreparation.reset();
+			Material.CompilationState.CookedPreparation.reset();
+			GetMaterialEditCompileQueue().Remove(FWeakObjectPtr(&Material));
 			GetMaterialPreparationQueue().Remove(FWeakObjectPtr(&Material));
-			Material.CompilationOwner.MaterialCompileStatus.EditCompileDeadline.reset();
-			Material.CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Canceled;
+			Material.CompilationState.EditCompileDeadline.reset();
+			Material.CompilationState.MaterialCompileStatus.State = EMaterialCompileState::Canceled;
 		}
 
 		auto FMaterialCompilationLifecycle::SubmitScheduledEdit(DMaterialInterface& Material) -> void
 		{
-			if (Material.GetMaterialCompileStatus().HasScheduledEdits()
-				&& std::chrono::steady_clock::now() < *Material.GetMaterialCompileStatus().EditCompileDeadline) return;
+			if (!Material.CompilationState.EditCompileDeadline
+				|| std::chrono::steady_clock::now() < *Material.CompilationState.EditCompileDeadline) return;
 			RequestCurrent(Material, false);
 		}
 
@@ -234,18 +214,14 @@ namespace Durin
 			DMaterialInterface& Material, bool bForceRecompile, FObjectCacheContext* Context) -> bool
 		{
 			if (Material.IsDynamicInstance()) return false;
-			Material.CompilationOwner.MaterialCompileStatus.EditCompileDeadline.reset();
-			Material.CompilationOwner.MaterialCompileStatus.SubmittedRevision = Material.CompilationOwner.MaterialCompileStatus.AuthoredRevision;
-			GetMaterialPreparationQueue().Remove(FWeakObjectPtr(&Material));
 			if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return false;
 			FResolvedMaterialProperties Resolved;
 			const auto Error = ResolveMaterialProperties(Material, Resolved);
 			if (!Error)
 			{
-				Material.CompilationOwner.MaterialCompileStatus.RequestGeneration = AdvanceNonzero(
-					Material.CompilationOwner.MaterialCompileStatus.RequestGeneration);
-				Material.CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Failed;
-				Material.CompilationOwner.MaterialCompileDiagnostics = {{
+				BeginRequest(Material);
+				Material.CompilationState.MaterialCompileStatus.State = EMaterialCompileState::Failed;
+				Material.CompilationState.MaterialCompileDiagnostics = {{
 					.Message = Error.error()}};
 				Material.RetireFailedMaterialGeneration(Context);
 				return false;
@@ -263,25 +239,15 @@ namespace Durin
 	auto HasPendingMaterialCompilation(const DMaterialInterface& Material) -> bool
 	{
 		CheckMaterialCompileGameThread();
-		const auto& Status = Material.GetMaterialCompileStatus();
 		return FShaderCompilingManager::Get().IsMaterialCompiling(FWeakObjectPtr(const_cast<DMaterialInterface*>(&Material)))
-			|| (GetAssetRuntimeConfiguration().RequiresCookedPayload() && Status.State == EMaterialCompileState::Running)
-			|| Status.HasScheduledEdits();
+			|| (GetAssetRuntimeConfiguration().RequiresCookedPayload()
+				&& Material.GetMaterialCompileStatus().State == EMaterialCompileState::Running);
 	}
 
 	auto GetMaterialCompilationDiagnostics()
 		-> FMaterialCompilationDiagnostics
 	{
 		return FShaderCompilingManager::Get().GetMaterialDiagnostics();
-	}
-
-	auto NotifyMaterialShaderReload(bool bForceRecompile) -> void
-	{
-		uint8 Desired = bForceRecompile ? 2 : 1;
-		uint8 Current = GPendingShaderReloadMode.load(std::memory_order_acquire);
-		while (Current < Desired
-			&& !GPendingShaderReloadMode.compare_exchange_weak(
-				Current, Desired, std::memory_order_acq_rel)) {}
 	}
 
 	auto RequestMaterialRecompile(
@@ -291,170 +257,4 @@ namespace Durin
 			Material, bForceRecompile);
 	}
 
-	namespace
-	{
-		auto CancelMaterialCompileDomain(DMaterialInterface& Material) -> bool
-		{
-			CheckMaterialCompileGameThread();
-			const bool bPending = HasPendingMaterialCompilation(Material);
-			Private::GetMaterialPreparationQueue().Remove(FWeakObjectPtr(&Material));
-			const bool bCanceled = FShaderCompilingManager::Get().CancelCompilation(FWeakObjectPtr(&Material));
-			if (bCanceled || bPending)
-				Private::FMaterialCompilationLifecycle::MarkCanceled(Material);
-			return bCanceled || bPending;
-		}
-	}
-
-	auto FShaderCompilingManager::Start() -> FAssetCompilerStartResult
-	{
-		if (!IsTaskSchedulerRunning()) return {EAssetCompilerStartError::SchedulerUnavailable};
-		Accepting = true; return {};
-	}
-	auto FShaderCompilingManager::StopAdmission() -> void
-	{
-		{ std::lock_guard Lock(JobMutex); Accepting = false; }
-		auto& RetryQueue = Private::GetMaterialPreparationQueue();
-		RetryQueue.Process(RetryQueue.Num(), [](FWeakObjectPtr Owner) {
-			if (auto* Material = Cast<DMaterialInterface>(Owner.Get()); IsValid(Material))
-				Private::FMaterialCompilationLifecycle::MarkCanceled(*Material);
-			return false;
-		});
-	}
-	auto FShaderCompilingManager::GetNumRemainingAssets() const -> uint64
-	{
-		return GetMaterialDiagnostics().OutstandingConsumerCount
-			+ Private::GetMaterialPreparationQueue().Num()
-			+ GetNumRemainingShaderJobs() + GetNumRemainingMaterialShaderMaps();
-	}
-	auto FShaderCompilingManager::ProcessAsyncTasks(const FAssetCompileProcessParams& Params)
-		-> FAssetCompileProcessResult
-	{ return ProcessAsyncResults(Params); }
-	auto FShaderCompilingManager::FinishCompilationForObjects(std::span<DObject* const> Objects)
-		-> FAssetCompileProcessResult
-	{
-		FAssetCompileProcessResult Aggregate;
-		std::vector<FWeakObjectPtr> Owners;
-		for (DObject* Object : Objects)
-			if (auto* Material = Cast<DMaterialInterface>(Object); IsValid(Material))
-			{
-				if (Material->GetMaterialCompileStatus().HasScheduledEdits())
-					Private::FMaterialCompilationLifecycle::RequestCurrent(*Material, false);
-				Owners.push_back(FWeakObjectPtr(Material));
-			}
-		while (std::ranges::any_of(Owners, [this](FWeakObjectPtr Owner) {
-			auto* Material = Cast<DMaterialInterface>(Owner.Get());
-			return IsValid(Material) && Material->IsCompiling();
-		}))
-		{
-			RaiseMaterialPriority(Owners);
-			auto Item = ProcessAsyncResults({.MaximumCompletions = std::numeric_limits<uint32>::max()});
-			Aggregate.ProcessedCompletionCount += Item.ProcessedCompletionCount;
-			Aggregate.SuccessfullyCompiledAssets.insert(
-				Aggregate.SuccessfullyCompiledAssets.end(),
-				Item.SuccessfullyCompiledAssets.begin(),
-				Item.SuccessfullyCompiledAssets.end());
-			if (Item.ProcessedCompletionCount == 0) std::this_thread::yield();
-		}
-		FinishMaterialCompilation(Owners);
-		for (auto Owner : Owners)
-			if (auto* Material = Cast<DMaterialInterface>(Owner.Get()); IsValid(Material))
-				(void)Material->PumpFeatureLevelResources(true);
-		return Aggregate;
-	}
-	auto FShaderCompilingManager::MarkCompilationAsCanceled(std::span<DObject* const> Objects)
-		-> void
-	{
-		for (DObject* Object : Objects)
-			if (auto* Material = Cast<DMaterialInterface>(Object); IsValid(Material))
-			{ CancelMaterialCompileDomain(*Material); Material->CancelFeatureLevelCompilation(); }
-	}
-	auto FShaderCompilingManager::ProcessAsyncResults(const FAssetCompileProcessParams& Params) -> FAssetCompileProcessResult
-	{
-		CheckMaterialCompileGameThread();
-		if (!Params.MaximumCompletions || (Params.Deadline && std::chrono::steady_clock::now() >= *Params.Deadline)) return {};
-		PollMaterialCancellation();
-		CleanupFinishedShaderMaps();
-		const uint8 ReloadMode = GPendingShaderReloadMode.exchange(
-			0, std::memory_order_acq_rel);
-		if (ReloadMode != 0)
-		{
-			const std::vector<DObject*> Objects =
-				GDObjectArray.Snapshot(EObjectQueryScope::LiveOnly);
-			for (DObject* Object : Objects)
-				if (auto* Material = Cast<DMaterialInterface>(Object); IsValid(Material))
-				{
-					const FMaterialRenderProxyRef Proxy =
-						Material->GetRenderProxy();
-					if ((Proxy && Proxy->GetRefCount() > 2) || Material->HasFeatureLevelRenderReferences())
-						RequestMaterialRecompile(*Material, ReloadMode > 1);
-				}
-		}
-
-		FAssetCompileProcessResult Processed;
-		FObjectCacheContext CompletionContext;
-		Processed.ProcessedCompletionCount = ProcessMaterialResults(Params, [&](FMaterialCompileResult Result) {
-			DObject* Object = Result.Owner.Get();
-			if (auto* Material = Cast<DMaterialInterface>(Object); IsValid(Material)
-				&& Private::FMaterialCompilationLifecycle::Admit(*Material, std::move(Result), &CompletionContext))
-				Processed.SuccessfullyCompiledAssets.emplace_back(Material);
-		});
-		if (!Params.Deadline || std::chrono::steady_clock::now() < *Params.Deadline) Private::GetMaterialPreparationQueue().Process(
-			Private::MaterialPreparationMaxChecks, [this, &Params, &Processed](FWeakObjectPtr Owner) {
-				auto* Material = Cast<DMaterialInterface>(Owner.Get());
-				if (!IsValid(Material)) return false;
-				const bool FeaturePending = Material->PumpFeatureLevelResources();
-				if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
-				{
-					if (Processed.ProcessedCompletionCount >= Params.MaximumCompletions
-						|| (Params.Deadline && std::chrono::steady_clock::now() >= *Params.Deadline)) return true;
-					if (Material->PollCookedProgramPreparation()) return true;
-					++Processed.ProcessedCompletionCount;
-					if (Material->IsComplete()) Processed.SuccessfullyCompiledAssets.emplace_back(Material);
-					return FeaturePending;
-				}
-				const auto HasScheduledEdit = [&] {
-					const auto& Status = Material->GetMaterialCompileStatus();
-					return Status.HasScheduledEdits();
-				};
-				if (!HasScheduledEdit()) return FeaturePending;
-				if (Params.Deadline && std::chrono::steady_clock::now() >= *Params.Deadline) return true;
-				if (!IsAcceptingMaterialRequests())
-					Private::FMaterialCompilationLifecycle::MarkCanceled(*Material);
-				else
-					Private::FMaterialCompilationLifecycle::SubmitScheduledEdit(*Material);
-				return HasScheduledEdit() || FeaturePending;
-			});
-		return Processed;
-	}
-	auto FShaderCompilingManager::FinishAllCompilation() -> FAssetCompileProcessResult
-	{
-		FAssetCompileProcessResult Aggregate;
-		for (;;) {
-			RaiseMaterialPriority();
-			FinishMaterialCompilation();
-			FinishShaderJobs();
-			auto Item = ProcessAsyncResults({.MaximumCompletions = std::numeric_limits<uint32>::max()});
-			Aggregate.ProcessedCompletionCount += Item.ProcessedCompletionCount;
-			Aggregate.SuccessfullyCompiledAssets.insert(Aggregate.SuccessfullyCompiledAssets.end(),
-				Item.SuccessfullyCompiledAssets.begin(), Item.SuccessfullyCompiledAssets.end());
-			if (GetNumRemainingAssets() == 0) break;
-		}
-		return Aggregate;
-	}
-	auto FShaderCompilingManager::Shutdown() -> void
-	{
-		StopAdmission();
-		CancelAllCompilation();
-		{
-			std::lock_guard Lock(MaterialMutex);
-			MaterialDiagnostics.CanceledRequests += OutstandingMaterialConsumers;
-			RequestedShaderMaps.clear(); MaterialResults.clear(); OutstandingMaterialConsumers = 0;
-		}
-		FMaterialShaderMap::ClearCache();
-		ClearShaderMapPreparations();
-	}
-	auto FShaderCompilingManager::IsAcceptingMaterialRequests() const -> bool
-	{
-		return Accepting && IsTaskSchedulerRunning() && FAssetCompilingManager::Get().IsAcceptingRequests();
-	}
 }

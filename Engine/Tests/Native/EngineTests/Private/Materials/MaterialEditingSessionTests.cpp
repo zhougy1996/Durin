@@ -131,7 +131,7 @@ TEST_F(FMaterialEditingSessionTests, PreviewCompilationIsIsolatedAndApplyPreserv
 	EXPECT_TRUE(Draft->GetPackage()->GetTopLevelAssets().empty());
 	EXPECT_FALSE(Session.HasUnappliedChanges());
 	const auto Original = Source->GetExpressionOutputs();
-	const auto Generation = Source->GetMaterialCompileStatus().RequestGeneration;
+	const auto Generation = Source->GetMaterialCompileStatus().RequestId;
 	auto* Child = NewObject<DMaterialInstance>(nullptr, "ApplyChild");
 	TStrongObjectPtr<DMaterialInstance> ChildRoot(Child);
 	ASSERT_TRUE(Child->SetParent(Source));
@@ -140,7 +140,7 @@ TEST_F(FMaterialEditingSessionTests, PreviewCompilationIsIsolatedAndApplyPreserv
 	Draft->CompileEdits();
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Draft);
 	EXPECT_EQ(Source->GetExpressionOutputs(), Original);
-	EXPECT_EQ(Source->GetMaterialCompileStatus().RequestGeneration, Generation);
+	EXPECT_EQ(Source->GetMaterialCompileStatus().RequestId, Generation);
 	EXPECT_EQ(Child->GetMaterialCompileStatus().AuthoredRevision, ChildRevision);
 	EXPECT_FALSE(Package->IsDirty());
 	ASSERT_TRUE(Session.HasUnappliedChanges());
@@ -150,9 +150,9 @@ TEST_F(FMaterialEditingSessionTests, PreviewCompilationIsIsolatedAndApplyPreserv
 	EXPECT_GT(Child->GetMaterialCompileStatus().AuthoredRevision, ChildRevision);
 	EXPECT_TRUE(Package->IsDirty());
 	EXPECT_FALSE(Session.HasUnappliedChanges());
-	const auto AppliedGeneration = Source->GetMaterialCompileStatus().RequestGeneration;
+	const auto AppliedGeneration = Source->GetMaterialCompileStatus().RequestId;
 	ASSERT_TRUE(Session.FinishAndApply(Error)) << Error;
-	EXPECT_EQ(Source->GetMaterialCompileStatus().RequestGeneration, AppliedGeneration);
+	EXPECT_EQ(Source->GetMaterialCompileStatus().RequestId, AppliedGeneration);
 	Edit(*Draft, 0.62f);
 	EXPECT_TRUE(Session.HasUnappliedChanges());
 	EXPECT_FLOAT_EQ(Source->GetExpressionOutputs().Roughness.Constant[0], 0.37f);

@@ -49,10 +49,11 @@ namespace Durin::Private
 		}
 
 	private:
-std::list<FWeakObjectPtr> Owners;
+		std::list<FWeakObjectPtr> Owners;
 		std::unordered_map<FObjectKey, std::list<FWeakObjectPtr>::iterator> Entries;
 	};
 
 	// Shared by lifecycle and owner teardown, including edits before manager start.
 	auto GetMaterialPreparationQueue() -> FMaterialPreparationQueue&;
+	auto GetMaterialEditCompileQueue() -> FMaterialPreparationQueue&;
 }

@@ -96,7 +96,7 @@ namespace Durin::MaterialEditor
 			if (!CompileStatus.IsCurrent()
 				|| Material->GetAcceptedCompiledProgram() == nullptr)
 			{
-				if (Material->IsCompiling())
+				if (Material->IsCompiling() || CompileStatus.HasScheduledEdits())
 					return FMaterialThumbnailResource{{}, false};
 				const auto Diagnostics = Material->GetMaterialCompileDiagnostics();
 				return std::unexpected(!Diagnostics.empty() && !Diagnostics.front().Message.empty()

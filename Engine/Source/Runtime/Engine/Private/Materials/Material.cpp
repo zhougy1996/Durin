@@ -66,7 +66,7 @@ namespace Durin
 
 	auto DMaterial::AdvanceAuthoredRevision(FObjectCacheContext* Context) -> void
 	{
-		AdvanceRevision(CompilationOwner.MaterialCompileStatus.AuthoredRevision);
+		AdvanceRevision(CompilationState.MaterialCompileStatus.AuthoredRevision);
 		InvalidateMaterialCompilation(false, false, Context);
 	}
 
@@ -113,7 +113,7 @@ namespace Durin
 		std::span<const FMaterialGraphNodePresentation> Positions,
 		uint64 ExpectedAuthoredRevision) -> EMaterialGraphPresentationResult
 	{
-		if (CompilationOwner.MaterialCompileStatus.AuthoredRevision != ExpectedAuthoredRevision
+		if (CompilationState.MaterialCompileStatus.AuthoredRevision != ExpectedAuthoredRevision
 			|| Positions.size() > MaterialProgramMaxNodeCount)
 			return EMaterialGraphPresentationResult::Rejected;
 		std::unordered_set<FGuid> RequestedNodes;
@@ -183,7 +183,7 @@ namespace Durin
 		FObjectCacheContext Context;
 		if (bShaderIdentityChanged)
 		{
-			AdvanceRevision(CompilationOwner.MaterialCompileStatus.AuthoredRevision);
+			AdvanceRevision(CompilationState.MaterialCompileStatus.AuthoredRevision);
 			Private::FMaterialCompilationLifecycle::ScheduleEdit(*this, &Context);
 		}
 		InvalidateMaterialCompilation(false, true, &Context);
@@ -472,9 +472,9 @@ namespace Durin
 				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), MaterialCookDiagnostic);
 				return;
 			}
-			CompilationOwner.RenderLayer.CompiledProgram.reset();
-			CompilationOwner.CookedPreparation.reset();
-			CompilationOwner.MaterialCompileDiagnostics.clear();
+			CompilationState.RenderLayer.CompiledProgram.reset();
+			CompilationState.CookedPreparation.reset();
+			CompilationState.MaterialCompileDiagnostics.clear();
 			MaterialCookDiagnostic = {};
 			CacheResourceShadersForRendering();
 			return;
@@ -519,7 +519,7 @@ namespace Durin
 		const FName Name = Event.MemberProperty->NamePrivate;
 		if (Name == FName("StaticProperties")) InvalidateMaterialCompilation(false, true, &Context);
 		if (Name == FName("ExpressionCollection") || (Name == FName("StaticProperties")
-			&& CanonicalizeMaterialShaderProperties(StaticProperties) != CompilationOwner.LastObservedShaderProperties))
+			&& CanonicalizeMaterialShaderProperties(StaticProperties) != CompilationState.LastObservedShaderProperties))
 		{
 			if (Name == FName("ExpressionCollection"))
 			{

@@ -5,7 +5,6 @@
 #include "DObject/WeakObjectPtr.h"
 #include "EngineAPI.h"
 #include "Materials/MaterialProgramCompiler.h"
-#include "Threading/TaskRuntime.h"
 
 namespace Durin
 {
@@ -56,7 +55,7 @@ namespace Durin
 	{
 		FWeakObjectPtr Owner;
 		uint64 AuthoredRevision = 0;
-		uint64 Generation = 0;
+		uint64 RequestId = 0;
 		uint64 DependencyRevision = 0;
 		std::shared_ptr<const MIR::FCompilerInput> CompilerInput;
 		bool bForceRecompile = false;
@@ -68,7 +67,7 @@ namespace Durin
 	{
 		FWeakObjectPtr Owner;
 		uint64 AuthoredRevision = 0;
-		uint64 Generation = 0;
+		uint64 RequestId = 0;
 		uint64 DependencyRevision = 0;
 		FMaterialProgramIdentity ProgramIdentity;
 		FMaterialStaticProperties StaticProperties;
@@ -81,14 +80,16 @@ namespace Durin
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;
 	};
 
-	// Asset-visible snapshot; none of its process-local ordering state is serialized.
+	// Asset-visible value snapshot. Scheduling and installed freshness are independent of request outcome.
 	struct FMaterialCompileStatus
 	{
 		uint64 AuthoredRevision = 1;
 		uint64 SubmittedRevision = 1;
 		uint64 CompiledRevision = 0;
-		std::optional<std::chrono::steady_clock::time_point> EditCompileDeadline;
-		uint64 RequestGeneration = 0;
+		uint64 CompiledDependencyRevision = 0;
+		bool bDependenciesCurrent = true;
+		bool bHasScheduledEdits = false;
+		uint64 RequestId = 0;
 		uint64 DependencyRevision = 0;
 		EMaterialCompileState State = EMaterialCompileState::NeverRequested;
 		EMaterialCompileCacheOutcome CacheOutcome =
@@ -98,14 +99,14 @@ namespace Durin
 
 		auto IsCurrent() const -> bool
 		{
-			return State == EMaterialCompileState::Ready
-				&& CompiledIdentity.IsValid() && CompiledRevision == AuthoredRevision;
+			return CompiledIdentity.IsValid() && CompiledRevision == AuthoredRevision
+				&& bDependenciesCurrent;
 		}
 		auto HasUnsubmittedEdits() const -> bool
 		{
 			return SubmittedRevision != AuthoredRevision;
 		}
-		auto HasScheduledEdits() const -> bool { return EditCompileDeadline.has_value(); }
+		auto HasScheduledEdits() const -> bool { return bHasScheduledEdits; }
 	};
 
 	// Fixed aggregate counters retain no per-request history.
@@ -167,6 +168,7 @@ namespace Durin
 	{
 		struct FMaterialCompilationLifecycle
 		{
+			ENGINE_API static auto BeginRequest(DMaterialInterface& Material) -> void;
 			// Coalesces edits before compiler-input construction, using the root's policy.
 			ENGINE_API static auto ScheduleEdit(DMaterialInterface& Material, FObjectCacheContext* Context = nullptr) -> void;
 			ENGINE_API static auto Submit(

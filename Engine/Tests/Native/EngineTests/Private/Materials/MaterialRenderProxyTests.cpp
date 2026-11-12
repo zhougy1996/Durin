@@ -1168,7 +1168,7 @@ TEST(FMaterialRenderProxyTests, FailedCompilationPublishesErrorAndRecoveryForEac
 		Durin::FMaterialCompileResult Failed{
 			.Owner = Durin::FWeakObjectPtr(Owner),
 			.AuthoredRevision = Status.AuthoredRevision,
-			.Generation = Status.RequestGeneration,
+			.RequestId = Status.RequestId,
 			.DependencyRevision = Status.DependencyRevision,
 			.ProgramIdentity = Status.CompiledIdentity,
 			.Target = Status.Target,
@@ -1195,6 +1195,7 @@ TEST(FMaterialRenderProxyTests, FailedCompilationPublishesErrorAndRecoveryForEac
 
 		const auto CompilerEnvironmentResult = Durin::BuildDefaultMaterialCompilerEnvironment(InvalidInput.Environment);
 		ASSERT_TRUE(CompilerEnvironmentResult) << CompilerEnvironmentResult.error();
+		Durin::Private::FMaterialCompilationLifecycle::BeginRequest(*Owner);
 		EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Submit(*Owner, std::move(InvalidInput), false));
 		EXPECT_EQ(Owner->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Failed);
 		ExpectRenderDataMatches(CaptureMaterialProxy(Proxy).RenderData, Durin::GetErrorMaterialRenderData());
@@ -1205,7 +1206,7 @@ TEST(FMaterialRenderProxyTests, FailedCompilationPublishesErrorAndRecoveryForEac
 		Durin::FMaterialCompileResult Rejected{
 			.Owner = Durin::FWeakObjectPtr(Owner),
 			.AuthoredRevision = Ready.AuthoredRevision,
-			.Generation = Ready.RequestGeneration,
+			.RequestId = Ready.RequestId,
 			.DependencyRevision = Ready.DependencyRevision,
 			.ProgramIdentity = Ready.CompiledIdentity,
 			.Target = Ready.Target,

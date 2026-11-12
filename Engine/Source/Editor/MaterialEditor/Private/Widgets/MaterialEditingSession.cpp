@@ -163,9 +163,7 @@ namespace Durin::MaterialEditor
 			Error = "The preview changed while Apply was compiling. Apply the latest edits again.";
 			return;
 		}
-		const auto& Status = Working->GetMaterialCompileStatus();
-		if (Status.State == EMaterialCompileState::Running
-			|| Status.State == EMaterialCompileState::Deferred) return;
+		if (!Working->IsCompilationFinished()) return;
 		bApplyPending = false;
 		ApplyCurrent(Error);
 	}
@@ -175,11 +173,10 @@ namespace Durin::MaterialEditor
 		bApplyPending = false;
 		if (!CheckSource(Error)) return false;
 		if (!HasUnappliedChanges()) return true;
-		if (!Working->GetMaterialCompileStatus().IsCurrent())
-		{
+		const auto Status = Working->GetMaterialCompileStatus();
+		if (Status.HasUnsubmittedEdits() || (!Status.IsCurrent() && Working->IsCompilationFinished()))
 			Working->CompileEdits();
-			FAssetCompilingManager::Get().FinishCompilationForObject(*Working);
-		}
+		FAssetCompilingManager::Get().FinishCompilationForObject(*Working);
 		return ApplyCurrent(Error);
 	}
 

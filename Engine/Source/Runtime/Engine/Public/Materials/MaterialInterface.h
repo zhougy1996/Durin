@@ -91,7 +91,7 @@ namespace Durin
 
 	// Per-asset compilation state never retains another material owner.
 	struct FMaterialFeatureLevelResource;
-	struct FMaterialCompilationOwnerState
+	struct FMaterialCompilationState
 	{
 		// The render-safe contract remains available while a replacement compiles.
 		FMaterialResource RenderLayer;
@@ -102,6 +102,7 @@ namespace Durin
 		std::vector<MIR::FSource> RequestedExpressionSources;
 		std::vector<MIR::FSource> AcceptedExpressionSources;
 		FMaterialCompileStatus MaterialCompileStatus;
+		std::optional<std::chrono::steady_clock::time_point> EditCompileDeadline;
 		std::vector<FMaterialProgramDiagnostic> MaterialCompileDiagnostics;
 	};
 
@@ -144,6 +145,9 @@ namespace Durin
 		// program, independently of texture residency and component PSOs.
 		ENGINE_API virtual auto IsCompiling() const -> bool;
 		ENGINE_API virtual auto IsComplete() const -> bool;
+		// Request completion says nothing about the validity or freshness of the installed map.
+		auto IsCompilationFinished() const -> bool { return !IsCompiling(); }
+		ENGINE_API auto HasValidGameThreadShaderMap() const -> bool;
 		// Background preparation publishes through the existing compiler manager.
 		// Synchronous also installs the program before returning; None starts no work.
 		ENGINE_API auto CacheResourceShadersForRendering(
@@ -156,18 +160,15 @@ namespace Durin
 			EMaterialQualityLevel Quality, ERHIFeatureLevel FeatureLevel) -> bool;
 		auto GetAcceptedExpressionSources() const -> std::span<const MIR::FSource>
 		{
-			return CompilationOwner.AcceptedExpressionSources;
+			return CompilationState.AcceptedExpressionSources;
 		}
 
 		auto GetMaterialCompileDiagnostics() const
 			-> std::span<const FMaterialProgramDiagnostic>
 		{
-			return CompilationOwner.MaterialCompileDiagnostics;
+			return CompilationState.MaterialCompileDiagnostics;
 		}
-		auto GetMaterialCompileStatus() const -> const FMaterialCompileStatus&
-		{
-			return CompilationOwner.MaterialCompileStatus;
-		}
+		ENGINE_API auto GetMaterialCompileStatus() const -> FMaterialCompileStatus;
 
 		auto GetCookedProgramData() const -> const FBulkData&
 		{
@@ -230,7 +231,7 @@ namespace Durin
 		// Invalidates authored dependencies before requesting detached replacements.
 		ENGINE_API auto InvalidateMaterialCompilation(bool bIncludeSelf = true,
 			bool bOnlyIfShaderChanged = false, FObjectCacheContext* Context = nullptr) -> void;
-		FMaterialCompilationOwnerState CompilationOwner;
+		FMaterialCompilationState CompilationState;
 
 		ENGINE_API virtual auto BuildMaterialResource() const
 			-> FMaterialResource;

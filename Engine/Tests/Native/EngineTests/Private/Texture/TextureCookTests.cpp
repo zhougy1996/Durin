@@ -488,10 +488,10 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 	auto* SampleMaterial = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "CookedTextureSampleInstance");
 	ASSERT_TRUE(SampleMaterial->SetParent(CookedMaterial));
 	EXPECT_EQ(SampleMaterial->GetAcceptedCompiledProgram(), CookedMaterial->GetAcceptedCompiledProgram());
-	const auto MaterialGeneration = SampleMaterial->GetMaterialCompileStatus().RequestGeneration;
+	const auto MaterialGeneration = SampleMaterial->GetMaterialCompileStatus().RequestId;
 	ASSERT_TRUE(SampleMaterial->SetTextureParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), CookedTexture));
-	EXPECT_EQ(SampleMaterial->GetMaterialCompileStatus().RequestGeneration, MaterialGeneration);
+	EXPECT_EQ(SampleMaterial->GetMaterialCompileStatus().RequestId, MaterialGeneration);
 	EXPECT_FALSE(Durin::RequestMaterialRecompile(*SampleMaterial));
 	EXPECT_FALSE(CookedMaterial->GetPackage()->IsDirty());
 

@@ -693,7 +693,7 @@ namespace Durin::MaterialEditor
 			}
 			else if (ImGui::Button("Compile")) RequestMaterialRecompile(*Material);
 			const FMaterialCompileStatus& Status = Material->GetMaterialCompileStatus();
-			const bool bPending = Material->IsCompiling();
+			const bool bPending = Material->IsCompiling() || Status.HasScheduledEdits();
 			if (bPending)
 			{
 				ImGui::SameLine();
@@ -865,7 +865,7 @@ namespace Durin::MaterialEditor
 		ImGui::Text("Freshness: %s", Status.IsCurrent() ? "current" : "stale");
 		ImGui::Text("Cache: %s", FormatCacheOutcome(Status.CacheOutcome));
 		ImGui::Text("Target: %s", Status.Target.empty() ? "n/a" : Status.Target.c_str());
-		ImGui::Text("Generation: %llu", static_cast<unsigned long long>(Status.RequestGeneration));
+		ImGui::Text("Generation: %llu", static_cast<unsigned long long>(Status.RequestId));
 		if (Material->GetAcceptedCompiledProgram() && !Status.IsCurrent())
 			ImGui::TextDisabled("Preview uses the last known good program.");
 		if (ImGui::CollapsingHeader("Statistics", ImGuiTreeNodeFlags_DefaultOpen))

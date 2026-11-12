@@ -590,6 +590,10 @@ the public map has no compilation entry point, compiling ID, request state or
 translation/Shader compiler assembly interface. `MaterialCompileTypes.h` and
 `ShaderCompilingManager.h` are Engine-private implementation headers. External
 asset consumers use the material lifecycle and asset-compilation interfaces.
+`ShaderCompilingManagerAssets.cpp` owns aggregate integration, reload dispatch
+and owner pumps; `MaterialCompileLifecycle.cpp` owns edit scheduling, request
+initialization and installation. Request initialization runs once before capture
+can fail. `RequestId` is an attempt identity, not an authored-content version.
 The shared manager owns admission, translation and assembly tasks, semantic
 identity joining, atomic cache publication, priority, cancellation, end-boundary
 waits and cleanup. Asset admission derives from the manager and asset framework
@@ -616,8 +620,10 @@ request-result rebinding belongs to the private lifecycle; the old program-cache
 individual Shader DDC formats remain unchanged. `FinishCompilation`, `CancelCompilation`,
 `IsCompiling` and `ProcessAsyncResults` provide waiting, cancellation, end-boundary
 queries and cleanup. Assets, synchronous tools and Cook use this same
-submission interface. The manager processes publication callbacks and
-updates outstanding-consumer counts internally; callers do not pair result
+submission interface. A material-to-current-request index covers compilation, detached fanout and
+queued publication, avoiding full request scans for status and cancellation.
+The manager processes publication callbacks and updates outstanding-consumer
+counts internally; callers do not pair result
 processing with a separate counter operation.
 Accepted first and coalesced requests both use `Running`; editor presentation
 does not distinguish them as separate execution phases. TaskRuntime queues CPU
@@ -652,9 +658,10 @@ explicit editor action use the asynchronous owner. MaterialEditor selects a
 transient working-copy root edit policy: Automatic coalesces semantic edits for 400 ms, Manual
 leaves the authored revision unsubmitted, and Immediate preserves non-editor
 callers' existing behavior. Loaded instances inherit the root policy. Scheduled
-edits carry an optional deadline independently of request execution status and
-use the bounded material-preparation pump, without taking compiler snapshots or advancing request
-generations until submission. Editing does not cancel an older request; its
+edit deadlines live in material-side scheduling state and use their own bounded
+queue, independently of Cooked and FeatureLevel preparation registrations. Status
+queries project whether an edit is scheduled. Scheduling takes no compiler
+snapshot and allocates no request ID until submission. Editing does not cancel an older request; its
 captured authored revision prevents stale publication. Selected
 finish flushes scheduled automatic work; manual work requires an explicit request.
 Late results cannot replace a material with unsubmitted edits. Supported material,
@@ -662,8 +669,8 @@ parent, function and Collection schema mutation boundaries invalidate affected
 owner revisions before publication. Publication does not rescan parent chains or
 function owners, compare static properties to detect missed notifications, or
 automatically resubmit obsolete results. Raw mutation bypassing those boundaries
-is unsupported. Replacement requests count as
-ordinary canceled consumers; there is no separate supersession state or counter.
+is unsupported. Replacement requests detach obsolete consumers without counting them as user
+cancellations; there is no separate supersession state or counter.
 See
 [Material editor lifecycle](../../../Editor/Architecture/Materials/MaterialEditorLifecycle.md#compile-apply-and-save)
 for toolbar and save behavior.
@@ -672,12 +679,12 @@ edits affect only preview rendering; Apply copies authored state to the source
 root and requests its changed dependent variants. Runtime source identity and
 publication rules remain unchanged.
 
-Authored revision, nonzero request generation, dependency generation, latest
+Authored content revision, nonzero request ID, shader dependency generation, latest
 terminal result, and accepted renderable program are independent state. A new
 request removes the same owner from obsolete work, requests cooperative
 cancellation when a flight loses its last consumer, and leaves the accepted
 last-known-good program visible. GameThread admits a mailbox result only when
-the live object-handle generation, authored revision, request generation,
+the live object-handle generation, authored revision, request ID,
 dependency generation and target match. Parent-chain changes advance the affected
 owner's authored revision rather than maintaining a second parent-chain counter.
 The candidate program identity must match its compiled ShaderMap identity. Successful
@@ -694,10 +701,16 @@ compiler cache entries remain reusable after renderable generation retirement.
 The owner stores this contract using the same `FMaterialResource` value
 published to its proxy; shader properties derive from that layer's static
 properties. There is no separate accepted-generation type or last-known-good display flag.
-The status records submitted and compiled authored revisions: unsubmitted edits
-are derived from the submitted revision, while current readiness requires Ready
-status, a valid compiled identity, and a compiled revision matching the authored
-revision. There is no requested identity copied back from a completed result.
+The value-returning status query projects submitted and installed content
+revisions, installed shader dependency generation, edit scheduling and the latest
+request outcome. `IsCurrent` compares installed content and dependency identities;
+it does not depend on the latest request being Ready. `IsCompilationFinished`
+observes the default material request association, while
+`HasValidGameThreadShaderMap` observes the installed renderable program. A forced
+request or cancellation can therefore coexist with a current valid program.
+A global shader generation change immediately makes dormant material programs
+stale; reload eagerly requests demanded materials and cold materials rebuild on
+their next resource request. FeatureLevel status follows the same dependency rule. There is no requested identity copied back from a completed result.
 Owner and request qualifiers remain at result publication. Asset `SubmitJobs`
 returns void and delivers invalid-input or stopped-manager failures through the
 result mailbox. Worker outcomes are limited to Succeeded, Failed or Canceled,
@@ -719,14 +732,19 @@ and Shader handles. `IsCompiling` and `FinishCompilation` use that owner's share
 end boundary; GameThread result publication remains
 the material lifecycle's separate responsibility.
 Equal identities share one flight and retained immutable result while keeping
-asset-local generations and diagnostics. Aggregate counters retain no asset or
+material-local request IDs, content revisions and diagnostics. Aggregate counters retain no asset or
 terminal-request history. Aggregate selected finish and advisory cancellation
-filter both material asset classes; aggregate shutdown closes admission, publishes accepted
-terminal results, empties the mailbox, and releases flights and retained
-results before task-system teardown. The rotating GameThread preparation pump
-checks at most 256 owners for edit deadlines, Cooked preparation and FeatureLevel
-resources. Capacity never registers an owner in that pump. Selected finish flushes
-scheduled edits; cancellation and stop-admission clear those edit intents.
+filter both material asset classes. Cancellation only withdraws publication and
+propagates cancellation; it never waits for worker retirement. Explicit finish
+operations wait for request ends and asset finish processes publication. Shutdown
+closes admission, cancels work, explicitly drains CPU and Shader owners, discards
+the mailbox, and releases retained results before task-system teardown.
+The edit and resource queues each check at most 256 entries per pump. Withdrawing
+an edit deadline cannot deregister Cooked or FeatureLevel preparation.
+Selected finish flushes scheduled edits; stop-admission clears edit intents while
+already accepted resource requests can drain. Withdrawing an unsubmitted edit
+preserves the latest request outcome. Dynamic instances project their parent
+resource status and do not expose a separate compilation attempt.
 
 ShaderBuild owns compiled-output DDC and local dependency manifests as defined
 by [Shader Cache](../Shaders/ShaderCache.md). Engine owns the independent `Material.Translate`

@@ -1,3 +1,4 @@
+#include "Shader/ShaderCompilerCore.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialShaderMap.h"
 #include "MaterialPreparationQueue.h"
@@ -207,21 +208,22 @@ namespace Durin
 		const auto Validated = ValidatePreparedMaterialProgram(PayloadProperties, std::move(ProgramCandidate));
 		if (!Validated) return std::unexpected(Validated.error());
 		ProgramCandidate = *Validated;
-		CompilationOwner.RenderLayer.CompiledProgram = std::move(ProgramCandidate);
-		CompilationOwner.RenderLayer.StaticProperties = PayloadProperties;
-		Private::GetMaterialPreparationQueue().Remove(FWeakObjectPtr(this));
-		CompilationOwner.CookedPreparation.reset();
-		CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Ready;
-		CompilationOwner.MaterialCompileStatus.CacheOutcome =
+		CompilationState.RenderLayer.CompiledProgram = std::move(ProgramCandidate);
+		CompilationState.RenderLayer.StaticProperties = PayloadProperties;
+		Private::GetMaterialEditCompileQueue().Remove(FWeakObjectPtr(this));
+		CompilationState.CookedPreparation.reset();
+		CompilationState.MaterialCompileStatus.State = EMaterialCompileState::Ready;
+		CompilationState.MaterialCompileStatus.CacheOutcome =
 			EMaterialCompileCacheOutcome::None;
-		CompilationOwner.MaterialCompileStatus.RequestGeneration = 1;
-		CompilationOwner.MaterialCompileStatus.CompiledRevision = CompilationOwner.MaterialCompileStatus.AuthoredRevision;
-		CompilationOwner.MaterialCompileStatus.SubmittedRevision = CompilationOwner.MaterialCompileStatus.AuthoredRevision;
-		CompilationOwner.MaterialCompileStatus.EditCompileDeadline.reset();
-		CompilationOwner.MaterialCompileStatus.CompiledIdentity =
-			CompilationOwner.RenderLayer.CompiledProgram->GetShaderMap().ShaderMapId;
-		CompilationOwner.MaterialCompileStatus.Target = CompilationOwner.RenderLayer.CompiledProgram->GetShaderMap().Target;
-		CompilationOwner.MaterialCompileDiagnostics.clear();
+		CompilationState.MaterialCompileStatus.RequestId = 1;
+		CompilationState.MaterialCompileStatus.CompiledDependencyRevision = GetShaderReloadGeneration();
+		CompilationState.MaterialCompileStatus.CompiledRevision = CompilationState.MaterialCompileStatus.AuthoredRevision;
+		CompilationState.MaterialCompileStatus.SubmittedRevision = CompilationState.MaterialCompileStatus.AuthoredRevision;
+		CompilationState.EditCompileDeadline.reset();
+		CompilationState.MaterialCompileStatus.CompiledIdentity =
+			CompilationState.RenderLayer.CompiledProgram->GetShaderMap().ShaderMapId;
+		CompilationState.MaterialCompileStatus.Target = CompilationState.RenderLayer.CompiledProgram->GetShaderMap().Target;
+		CompilationState.MaterialCompileDiagnostics.clear();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap | EMaterialRenderDirtyFlags::PipelineState);
 		return {};
 	}
