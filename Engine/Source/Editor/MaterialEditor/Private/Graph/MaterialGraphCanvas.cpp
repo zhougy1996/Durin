@@ -1180,13 +1180,10 @@ namespace Durin::MaterialEditor
 			{
 				const FMaterialCompileStatus& CompileStatus = Material->GetMaterialCompileStatus();
 				if (CompileStatus.HasUnsubmittedEdits()
-					|| CompileStatus.State == EMaterialCompileState::Deferred
 					|| CompileStatus.State == EMaterialCompileState::Running
-					|| CompileStatus.State == EMaterialCompileState::Failed
-					|| CompileStatus.State == EMaterialCompileState::Rejected)
+					|| CompileStatus.State == EMaterialCompileState::Failed)
 				{
-					const bool bFailed = CompileStatus.State == EMaterialCompileState::Failed
-						|| CompileStatus.State == EMaterialCompileState::Rejected;
+					const bool bFailed = CompileStatus.State == EMaterialCompileState::Failed;
 					const char* Label = CompileStatus.HasUnsubmittedEdits()
 						? (Material->GetAcceptedCompiledProgram()
 							? "Needs compile - preview is last known good"

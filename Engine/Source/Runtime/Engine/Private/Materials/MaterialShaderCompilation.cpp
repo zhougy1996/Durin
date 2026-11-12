@@ -56,9 +56,6 @@ namespace Durin
 		std::unique_lock AdmissionLock(MaterialMutex);
 			if (!Accepting) return {};
 			ShaderMap = Options.Request ? std::move(Options.Request) : std::make_shared<FMaterialCompilation>();
-			require(ShaderMap->CompilingId == 0);
-			static std::atomic_uint64_t NextCompilingId = 1;
-			ShaderMap->CompilingId = NextCompilingId.fetch_add(1);
 			ShaderMap->Owner = std::make_shared<DerivedData::FRequestOwner>();
 			ShaderMap->BuildOwner = std::make_shared<DerivedData::FRequestOwner>();
 			ShaderMap->Input = CopyInput ? std::make_shared<const MIR::FCompilerInput>(*Input) : std::move(Input);
@@ -254,24 +251,19 @@ namespace Durin
 			std::lock_guard RecordLock(ShaderMap->Mutex);
 			ShaderMap->Input.reset(); ShaderMap->EncodedInput.reset(); ShaderMap->Translation.reset();
 			ShaderMap->ShaderJobs.reset();
-			ShaderMap->DiagnosticInput.reset(); ShaderMap->Origins.clear();
+			ShaderMap->DiagnosticInput.reset();
 			RetiredOwners.push_back(std::move(ShaderMap->Owner));
 			RetiredOwners.push_back(std::move(ShaderMap->BuildOwner));
 			std::erase(CompilingShaderMaps, ShaderMap);
 		}
 	}
-	auto FShaderCompilingManager::FinishMaterialCompilation(std::span<const FWeakObjectPtr> Owners) -> void
+	auto FShaderCompilingManager::FinishMaterialCompilation() -> void
 	{
 		for (;;) {
 			std::vector<FShaderMapPtr> Records;
 			{
 				std::lock_guard Lock(MaterialMutex);
 				Records = CompilingShaderMaps;
-				if (!Owners.empty()) std::erase_if(Records, [&](const auto& Map) {
-					return !std::ranges::any_of(Map->Origins, [&](auto Origin) {
-						return std::ranges::any_of(Owners, [&](auto Owner) { return Origin.GetKey() == Owner.GetKey(); });
-					});
-				});
 			}
 			if (Records.empty()) return;
 			for (const auto& ShaderMap : Records) {
@@ -309,7 +301,7 @@ namespace Durin
 	auto FShaderCompilingManager::PrioritizeCompilation(const FMaterialProgramCompileHandle&) -> void {}
 	auto FShaderCompilingManager::IsCompiling(const FMaterialProgramCompileHandle&) const -> bool { return false; }
 	auto FShaderCompilingManager::CleanupFinishedShaderMaps() -> void {}
-	auto FShaderCompilingManager::FinishMaterialCompilation(std::span<const FWeakObjectPtr> Owners) -> void {}
+	auto FShaderCompilingManager::FinishMaterialCompilation() -> void {}
 	auto FShaderCompilingManager::CancelMaterialCompilation() -> void {}
 	auto MaterialBuildPrivate::CompileMaterialInput(const MIR::FCompilerInput&, bool) -> FMaterialBuildResult
 	{ return {.Program = std::make_shared<const FMaterialCompilerResult>(FMaterialCompilerResult{
@@ -320,7 +312,7 @@ namespace Durin
 	{
 #if DURIN_WITH_EDITOR
 		std::lock_guard Lock(MaterialMutex);
-		return std::ranges::count_if(CompilingShaderMaps, [this](const auto& Map) { return Map->Origins.empty() && IsCompiling(Map); });
+		return std::ranges::count_if(CompilingShaderMaps, [this](const auto& Map) { return !Map->CanonicalIdentity.IsValid() && IsCompiling(Map); });
 #else
 		return 0;
 #endif

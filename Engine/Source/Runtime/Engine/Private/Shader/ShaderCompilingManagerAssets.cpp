@@ -86,7 +86,6 @@ namespace Durin
 				Item.SuccessfullyCompiledAssets.end());
 			if (Item.ProcessedCompletionCount == 0) std::this_thread::yield();
 		}
-		FinishMaterialCompilation(Owners);
 		for (auto Owner : Owners)
 			if (auto* Material = Cast<DMaterialInterface>(Owner.Get()); IsValid(Material))
 				(void)Material->PumpFeatureLevelResources(true);
@@ -99,8 +98,10 @@ namespace Durin
 		for (DObject* Object : Objects)
 			if (auto* Material = Cast<DMaterialInterface>(Object); IsValid(Material))
 			{
+				const bool DefaultPending = Material->CompilationState.DefaultResource->bPending || Material->CompilationState.DefaultResource->CookedPreparation;
 				const bool bCanceled = CancelCompilation(FWeakObjectPtr(Material));
-				if (bCanceled || Material->CompilationState.CookedPreparation)
+				if (DefaultPending) Material->CompilationState.DefaultResource->Status.State = EMaterialCompileState::Canceled;
+				if (bCanceled || Material->CompilationState.DefaultResource->CookedPreparation)
 					Private::FMaterialCompilationLifecycle::MarkCanceled(*Material);
 				else
 				{
@@ -137,7 +138,7 @@ namespace Durin
 		FAssetCompileProcessResult Processed;
 		FObjectCacheContext CompletionContext;
 		Processed.ProcessedCompletionCount = ProcessMaterialResults(Params, [&](FMaterialCompileResult Result) {
-			DObject* Object = Result.Owner.Get();
+			DObject* Object = Result.Resource->Material.Get();
 			if (auto* Material = Cast<DMaterialInterface>(Object); IsValid(Material)
 				&& Private::FMaterialCompilationLifecycle::Admit(*Material, std::move(Result), &CompletionContext))
 				Processed.SuccessfullyCompiledAssets.emplace_back(Material);
@@ -199,7 +200,13 @@ namespace Durin
 		{
 			std::lock_guard Lock(MaterialMutex);
 			MaterialDiagnostics.CanceledRequests += OutstandingMaterialConsumers;
-			RequestedShaderMaps.clear(); MaterialRequests.clear(); MaterialResults.clear(); OutstandingMaterialConsumers = 0;
+			RequestedShaderMaps.clear();
+			for (const auto& [Resource, Association] : MaterialRequests)
+			{
+				Resource->bPending = false;
+				Resource->Status.State = EMaterialCompileState::Canceled;
+			}
+			MaterialRequests.clear(); MaterialResults.clear(); OutstandingMaterialConsumers = 0;
 		}
 		FMaterialShaderMap::ClearCache();
 		ClearShaderMapPreparations();

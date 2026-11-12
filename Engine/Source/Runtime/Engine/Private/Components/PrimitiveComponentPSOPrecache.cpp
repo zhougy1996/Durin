@@ -128,7 +128,7 @@ namespace Durin
 				auto* StatusOwner = Param.MaterialInterface;
 				while (StatusOwner && StatusOwner->IsDynamicInstance() && StatusOwner->GetParent()) StatusOwner = StatusOwner->GetParent();
 				const auto State = StatusOwner ? StatusOwner->GetMaterialCompileStatus(FeatureLevel).State : EMaterialCompileState::NeverRequested;
-				const bool Failed = State == EMaterialCompileState::Failed || State == EMaterialCompileState::Rejected
+				const bool Failed = State == EMaterialCompileState::Failed
 					|| State == EMaterialCompileState::Canceled;
 				if (Renderer && GDynamicRHI && Param.MaterialInterface
 					&& (Failed || (StatusOwner && !StatusOwner->GetMaterialCookDiagnostic(FeatureLevel).empty())))

@@ -89,21 +89,36 @@ namespace Durin
 	ENGINE_API auto GetLoadedMaterialFamilyStatistics(const DMaterialInterface& Material)
 		-> FLoadedMaterialFamilyStatistics;
 
-	// Per-asset compilation state never retains another material owner.
-	struct FMaterialFeatureLevelResource;
-	struct FMaterialCompilationState
+	// One record per material configuration. Pending work and installed output are independent.
+	struct FMaterialCompilationResource
 	{
-		// The render-safe contract remains available while a replacement compiles.
+		FWeakObjectPtr Material;
 		FMaterialResource RenderLayer;
 		std::shared_ptr<FMaterialProgramPreparationState> CookedPreparation;
-		// Last scheduled or submitted schema, used to classify reflected dynamic edits.
-		FMaterialStaticProperties LastObservedShaderProperties;
-		std::vector<FMaterialCompilerParameterDeclaration> LastObservedParameters;
+		FMaterialCompileStatus Status;
+		bool bPending = false;
+		uint64 ShaderRevision = 0;
+		ERHIFeatureLevel FeatureLevel = ERHIFeatureLevel::SM5;
+		uint64 BulkRevision = 0;
+		ERHIBackend Backend = ERHIBackend::Vulkan;
+		bool bCooked = false;
+		std::filesystem::path CookRoot;
+		ECookTargetPlatform CookTarget = ECookTargetPlatform::Win64;
+		EMaterialQualityLevel Quality = EMaterialQualityLevel::High;
 		std::vector<MIR::FSource> RequestedExpressionSources;
 		std::vector<MIR::FSource> AcceptedExpressionSources;
-		FMaterialCompileStatus MaterialCompileStatus;
+		std::vector<FMaterialProgramDiagnostic> Diagnostics;
+		std::string CookDiagnostic;
+		FMaterialRenderProxyRef Proxy;
+		bool bRequested = false;
+	};
+
+	struct FMaterialCompilationState
+	{
+		std::shared_ptr<FMaterialCompilationResource> DefaultResource = std::make_shared<FMaterialCompilationResource>();
+		FMaterialStaticProperties LastObservedShaderProperties;
+		std::vector<FMaterialCompilerParameterDeclaration> LastObservedParameters;
 		std::optional<std::chrono::steady_clock::time_point> EditCompileDeadline;
-		std::vector<FMaterialProgramDiagnostic> MaterialCompileDiagnostics;
 	};
 
 	// Defines the shared parameter-resolution and render-update contract for materials.
@@ -145,7 +160,7 @@ namespace Durin
 		// program, independently of texture residency and component PSOs.
 		ENGINE_API virtual auto IsCompiling() const -> bool;
 		ENGINE_API virtual auto IsComplete() const -> bool;
-		// Request completion says nothing about the validity or freshness of the installed map.
+		// Asset completion covers all requested configurations; installed validity is independent.
 		auto IsCompilationFinished() const -> bool { return !IsCompiling(); }
 		ENGINE_API auto HasValidGameThreadShaderMap() const -> bool;
 		// Background preparation publishes through the existing compiler manager.
@@ -160,13 +175,13 @@ namespace Durin
 			EMaterialQualityLevel Quality, ERHIFeatureLevel FeatureLevel) -> bool;
 		auto GetAcceptedExpressionSources() const -> std::span<const MIR::FSource>
 		{
-			return CompilationState.AcceptedExpressionSources;
+			return CompilationState.DefaultResource->AcceptedExpressionSources;
 		}
 
 		auto GetMaterialCompileDiagnostics() const
 			-> std::span<const FMaterialProgramDiagnostic>
 		{
-			return CompilationState.MaterialCompileDiagnostics;
+			return CompilationState.DefaultResource->Diagnostics;
 		}
 		ENGINE_API auto GetMaterialCompileStatus() const -> FMaterialCompileStatus;
 
@@ -176,7 +191,7 @@ namespace Durin
 		}
 		auto GetMaterialCookDiagnostic() const -> const std::string&
 		{
-			return MaterialCookDiagnostic;
+			return CompilationState.DefaultResource->CookDiagnostic;
 		}
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 		ENGINE_API auto BeginCacheForCookedPlatformData(FObjectCookContext& Context) -> void override;
@@ -219,15 +234,16 @@ namespace Durin
 	protected:
 		ENGINE_API auto PostEditChangePropertyWithContext(const FPropertyChangedEvent& Event, FObjectCacheContext& Context) -> void;
 		ENGINE_API auto AdmitCookedProgram(const FMaterialStaticProperties& Properties,
-			std::shared_ptr<const FMaterialCompilerResult> Program) -> std::expected<void, std::string>;
+			std::shared_ptr<const FMaterialCompilerResult> Program,
+			std::shared_ptr<FMaterialCompilationResource> Resource = {}) -> std::expected<void, std::string>;
 		// A transient runtime owner can select only an already compiled compatible variant.
 		ENGINE_API auto AdoptParentRuntimeProgram() -> bool;
 		FBulkData CookedProgramData;
-		std::string MaterialCookDiagnostic;
 		ENGINE_API auto RequestProgramCompile(
 			const FMaterialStaticProperties& CandidateProperties,
 			bool bForceRecompile = false, FObjectCacheContext* Context = nullptr,
-			std::optional<FMaterialCompilerEnvironment> RequestedEnvironment = std::nullopt) -> bool;
+			std::optional<FMaterialCompilerEnvironment> RequestedEnvironment = std::nullopt,
+			std::shared_ptr<FMaterialCompilationResource> Resource = {}) -> bool;
 		// Invalidates authored dependencies before requesting detached replacements.
 		ENGINE_API auto InvalidateMaterialCompilation(bool bIncludeSelf = true,
 			bool bOnlyIfShaderChanged = false, FObjectCacheContext* Context = nullptr) -> void;
@@ -252,9 +268,13 @@ namespace Durin
 		auto HasFeatureLevelRenderReferences() const -> bool;
 		auto ValidatePreparedMaterialProgram(const FMaterialStaticProperties& Properties,
 			std::shared_ptr<const FMaterialCompilerResult> Program) -> std::expected<std::shared_ptr<const FMaterialCompilerResult>, std::string>;
-		mutable std::array<std::shared_ptr<FMaterialFeatureLevelResource>, 3> FeatureLevelResources;
+		mutable std::array<std::shared_ptr<FMaterialCompilationResource>, 3> FeatureLevelResources;
 		friend class FShaderCompilingManager;
+		friend ENGINE_API auto HasPendingMaterialCompilation(const DMaterialInterface&) -> bool;
 		auto PollCookedProgramPreparation(bool bSynchronous = false) -> bool;
+		auto GetCompilationResource(ERHIFeatureLevel Level, bool Create = false) const -> std::shared_ptr<FMaterialCompilationResource>;
+		auto CacheResourceShaders(const std::shared_ptr<FMaterialCompilationResource>& Resource,
+			ERHIFeatureLevel Level, EMaterialShaderPrecompileMode Mode) -> void;
 		auto BroadcastParameterChanges(const TObjectCacheIterator<DMaterialInterface>& Dependents) -> void;
 	private:
 		friend struct Private::FMaterialCompilationLifecycle;

@@ -1,5 +1,6 @@
 #include "Shader/ShaderCompilingManager.h"
 #include "Materials/MaterialShaderMap.h"
+#include "Materials/MaterialInterface.h"
 #include "MaterialTranslationCodec.h"
 #include "MaterialCompileTestSupport.h"
 #include "CoreGlobals.h"
@@ -44,15 +45,15 @@ namespace Durin
 		std::vector<FShaderMapPtr> Pending;
 		{
 			std::scoped_lock Lock(MaterialMutex);
-			for (const auto& ShaderMap : CompilingShaderMaps)
-				if (Owners.empty() || std::ranges::any_of(ShaderMap->Origins, [&](auto Origin) {
-					return std::ranges::any_of(Owners, [&](auto Owner) { return SameOwner(Origin, Owner); });
-				})) Pending.push_back(ShaderMap);
+			if (Owners.empty()) Pending = CompilingShaderMaps;
+			else for (const auto& [Resource, Association] : MaterialRequests)
+				if (Association.Request && std::ranges::any_of(Owners, [&](auto Owner) { return SameOwner(Resource->Material, Owner); }))
+					Pending.push_back(Association.Request);
 		}
 		for (const auto& ShaderMap : Pending) PrioritizeCompilation(ShaderMap);
 	}
 
-	auto FShaderCompilingManager::SubmitJobs(FMaterialCompileRequest Request) -> void
+	auto FShaderCompilingManager::CacheMaterialShaders(FMaterialCompileRequest Request) -> void
 	{
 		CheckMaterialCompileGameThread();
 		require(Request.CompilerInput);
@@ -63,7 +64,7 @@ namespace Durin
 			Program->Diagnostics.push_back({.Message = std::move(Message)});
 			auto Result = MakeMaterialResult(Request, {.Program = std::move(Program)});
 			std::lock_guard Lock(MaterialMutex);
-			MaterialRequests.insert_or_assign(Request.Owner.GetKey(), FMaterialRequestAssociation{{}, Request.RequestId});
+			MaterialRequests.insert_or_assign(Request.Resource, FMaterialRequestAssociation{{}, Request.RequestId});
 			MaterialResults.push_back(std::move(Result));
 			++MaterialDiagnostics.AcceptedRequests; ++MaterialDiagnostics.FailedRequests; ++OutstandingMaterialConsumers;
 		};
@@ -85,16 +86,13 @@ namespace Durin
 			if (const auto Existing = RequestedShaderMaps.find(Key); Existing != RequestedShaderMaps.end() && !Existing->second->Cancellation.IsCanceled())
 			{
 				Request.bSingleFlightConsumer = true;
-				if (!std::ranges::any_of(Existing->second->Origins, [&](auto Origin) { return SameOwner(Origin, Request.Owner); })) Existing->second->Origins.push_back(Request.Owner);
-				MaterialRequests.insert_or_assign(Request.Owner.GetKey(), FMaterialRequestAssociation{Existing->second, Request.RequestId});
+				MaterialRequests.insert_or_assign(Request.Resource, FMaterialRequestAssociation{Existing->second, Request.RequestId});
 				Existing->second->CompilingMaterialDependencies.push_back(std::move(Request));
 				++MaterialDiagnostics.AcceptedRequests; ++MaterialDiagnostics.SingleFlightConsumers; ++OutstandingMaterialConsumers;
 				return;
 			}
 			NewShaderMap = std::make_shared<MaterialBuildPrivate::FMaterialCompilation>(); NewShaderMap->CanonicalIdentity = Key.Identity; NewShaderMap->Force = Key.bForceRecompile;
-			NewShaderMap->Origins.push_back(Request.Owner);
-			NewShaderMap->InitialOwner = Request.Owner;
-			MaterialRequests.insert_or_assign(Request.Owner.GetKey(), FMaterialRequestAssociation{NewShaderMap, Request.RequestId});
+			MaterialRequests.insert_or_assign(Request.Resource, FMaterialRequestAssociation{NewShaderMap, Request.RequestId});
 			NewShaderMap->CompilingMaterialDependencies.push_back(std::move(Request));
 			RequestedShaderMaps.insert_or_assign(Key, NewShaderMap);
 			++MaterialDiagnostics.AcceptedRequests; ++OutstandingMaterialConsumers;
@@ -115,18 +113,29 @@ namespace Durin
 	auto FShaderCompilingManager::CancelCompilation(FWeakObjectPtr Owner, bool bCountCancellation) -> bool
 	{
 		CheckMaterialCompileGameThread();
-		bool Canceled;
+		bool Canceled = false;
 		std::vector<FShaderMapPtr> Requests;
-		{ std::scoped_lock Lock(MaterialMutex); Canceled = DetachMaterialOwnerLocked(Owner, Requests, bCountCancellation); }
+		{
+			std::scoped_lock Lock(MaterialMutex);
+			std::vector<std::shared_ptr<FMaterialCompilationResource>> Resources;
+			for (const auto& [Resource, Association] : MaterialRequests)
+				if (SameOwner(Resource->Material, Owner)) Resources.push_back(Resource);
+			for (const auto& Resource : Resources)
+				Canceled |= DetachMaterialResourceLocked(Resource, Requests, bCountCancellation);
+		}
 		for (const auto& Request : Requests) CancelCompilation(Request);
 		return Canceled;
 	}
 
-	auto FShaderCompilingManager::IsMaterialCompiling(FWeakObjectPtr Owner) const -> bool
+	auto FShaderCompilingManager::CancelCompilation(const std::shared_ptr<FMaterialCompilationResource>& Resource) -> void
 	{
-		std::scoped_lock Lock(MaterialMutex);
-		return MaterialRequests.contains(Owner.GetKey());
+		CheckMaterialCompileGameThread();
+		std::vector<FShaderMapPtr> Requests;
+		{ std::scoped_lock Lock(MaterialMutex); DetachMaterialResourceLocked(Resource, Requests, false); }
+		Resource->bPending = false;
+		for (const auto& Request : Requests) CancelCompilation(Request);
 	}
+
 
 	auto FShaderCompilingManager::ProcessMaterialResults(const FAssetCompileProcessParams& Params, const std::function<void(FMaterialCompileResult)>& Process) -> uint32
 	{
@@ -138,7 +147,7 @@ namespace Durin
 				std::scoped_lock Lock(MaterialMutex);
 				if (MaterialResults.empty()) break;
 				Result = std::move(MaterialResults.front()); MaterialResults.pop_front();
-				const auto Entry = MaterialRequests.find(Result.Owner.GetKey());
+				const auto Entry = MaterialRequests.find(Result.Resource);
 				if (Entry != MaterialRequests.end() && Entry->second.RequestId == Result.RequestId) MaterialRequests.erase(Entry);
 			}
 			try { Process(std::move(Result)); }
@@ -158,7 +167,7 @@ namespace Durin
 		std::scoped_lock Lock(MaterialMutex);
 		FMaterialCompilationDiagnostics Result = MaterialDiagnostics;
 		Result.bAcceptingRequests = IsAcceptingMaterialRequests();
-		Result.InFlightCount = static_cast<uint32>(std::ranges::count_if(CompilingShaderMaps, [](const auto& Map) { return !Map->Origins.empty(); }));
+		Result.InFlightCount = static_cast<uint32>(std::ranges::count_if(CompilingShaderMaps, [](const auto& Map) { return Map->CanonicalIdentity.IsValid(); }));
 		Result.OutstandingConsumerCount = OutstandingMaterialConsumers;
 		Result.PendingPublicationCount = static_cast<uint32>(MaterialResults.size());
 		const auto Cache = FMaterialShaderMap::GetCacheStats();
@@ -172,10 +181,9 @@ namespace Durin
 		const auto State = Canceled || (Build.Program && Build.Program->Status == EMaterialProgramStatus::Canceled)
 			? EMaterialCompileOutcome::Canceled : Build ? EMaterialCompileOutcome::Succeeded : EMaterialCompileOutcome::Failed;
 		FMaterialCompileResult Result{
-			.Owner = Request.Owner, .AuthoredRevision = Request.AuthoredRevision, .RequestId = Request.RequestId,
-			.DependencyRevision = Request.DependencyRevision,
-			.ProgramIdentity = Build.Program ? Build.Program->GetShaderMap().ShaderMapId : FMaterialProgramIdentity{},
-			.StaticProperties = Request.CompilerInput->StaticProperties, .Target = Request.CompilerInput->Environment.Target,
+			.Resource = Request.Resource, .RequestId = Request.RequestId,
+			.ShaderRevision = Request.ShaderRevision,
+			.StaticProperties = Request.CompilerInput->StaticProperties,
 			.Outcome = State};
 		for (const auto& Location : Build.Sources) {
 			auto Source = Request.CompilerInput->Sources[Location.Ordinal];
@@ -222,7 +230,7 @@ namespace Durin
 			for (auto& Consumer : ShaderMap->CompilingMaterialDependencies)
 				if (Build.SingleFlight && !Consumer.bSingleFlightConsumer) { Consumer.bSingleFlightConsumer = true; ++MaterialDiagnostics.SingleFlightConsumers; }
 			Consumers = std::move(ShaderMap->CompilingMaterialDependencies);
-			for (const auto& Consumer : Consumers) ShaderMap->CompletingOwners.push_back(Consumer.Owner);
+			for (const auto& Consumer : Consumers) ShaderMap->CompletingResources.push_back(Consumer.Resource);
 		}
 		std::vector<FMaterialCompileResult> Results;
 		const bool Canceled = ShaderMap->Cancellation.IsCanceled();
@@ -259,26 +267,27 @@ namespace Durin
 				MaterialDiagnostics.CanceledRequests += Consumers.size();
 
 			for (auto& Result : Results)
-				if (std::ranges::any_of(ShaderMap->CompletingOwners, [&](auto Owner) { return SameOwner(Owner, Result.Owner); })) MaterialResults.push_back(std::move(Result));
-			ShaderMap->CompletingOwners.clear();
+				if (std::ranges::find(ShaderMap->CompletingResources, Result.Resource) != ShaderMap->CompletingResources.end()) MaterialResults.push_back(std::move(Result));
+			ShaderMap->CompletingResources.clear();
 		}
 	}
 
-	auto FShaderCompilingManager::DetachMaterialOwnerLocked(FWeakObjectPtr Owner, std::vector<FShaderMapPtr>& CanceledRequests, bool bCountCancellation) -> bool
+	auto FShaderCompilingManager::DetachMaterialResourceLocked(const std::shared_ptr<FMaterialCompilationResource>& Resource, std::vector<FShaderMapPtr>& CanceledRequests, bool bCountCancellation) -> bool
 	{
-		const auto Entry = MaterialRequests.find(Owner.GetKey());
+		const auto Entry = MaterialRequests.find(Resource);
 		if (Entry == MaterialRequests.end()) return false;
 		const auto Request = Entry->second.Request;
+		Resource->bPending = false;
+		if (bCountCancellation) Resource->Status.State = EMaterialCompileState::Canceled;
 		MaterialRequests.erase(Entry);
 		size_t Removed = 0;
 		if (Request)
 		{
-			Removed += std::erase_if(Request->CompilingMaterialDependencies, [Owner](const auto& Consumer) { return SameOwner(Consumer.Owner, Owner); });
-			Removed += std::erase_if(Request->CompletingOwners, [Owner](auto Pending) { return SameOwner(Pending, Owner); });
-			if (!SameOwner(Owner, Request->InitialOwner)) std::erase_if(Request->Origins, [Owner](auto Origin) { return SameOwner(Origin, Owner); });
-			if (Request->CompilingMaterialDependencies.empty() && Request->CompletingOwners.empty()) CanceledRequests.push_back(Request);
+			Removed += std::erase_if(Request->CompilingMaterialDependencies, [&](const auto& Consumer) { return Consumer.Resource == Resource; });
+			Removed += std::erase(Request->CompletingResources, Resource);
+			if (Request->CompilingMaterialDependencies.empty() && Request->CompletingResources.empty()) CanceledRequests.push_back(Request);
 		}
-		Removed += std::erase_if(MaterialResults, [Owner](const auto& Result) { return SameOwner(Result.Owner, Owner); });
+		Removed += std::erase_if(MaterialResults, [&](const auto& Result) { return Result.Resource == Resource; });
 		check(OutstandingMaterialConsumers >= Removed);
 		OutstandingMaterialConsumers -= static_cast<uint32>(Removed);
 		if (bCountCancellation) MaterialDiagnostics.CanceledRequests += Removed;

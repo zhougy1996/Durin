@@ -45,7 +45,7 @@ namespace Durin
 		FShaderBuildRequestOptions Options;
 		FShaderBuildCompletion Completion;
 		uint64 MaximumBytes = 0, Retained = 0, Reserved = 0;
-		uint64 MaterialCompilingId = 0;
+		bool bMaterialCompilation = false;
 		size_t Next = 0, Active = 0;
 		bool Dispatching = false, Delivering = false, Completed = false, Published = false;
 		std::atomic_bool Canceled = false, Submitted = false;
@@ -186,7 +186,7 @@ namespace Durin
 		std::erase_if(Retired, [](const auto& Item) { return !Item->IsComplete(); });
 		{
 			std::lock_guard Lock(JobMutex);
-			if (!Accepting && Group->MaterialCompilingId == 0) Group->Canceled = true;
+			if (!Accepting && !Group->bMaterialCompilation) Group->Canceled = true;
 			std::erase_if(Groups, [&](const auto& Item) { const auto Existing = Item.lock(); return !Existing || std::ranges::contains(Retired, Existing); });
 			Groups.push_back(Group);
 		}
@@ -280,7 +280,7 @@ namespace Durin
 	{
 		std::vector<std::shared_ptr<FJobGroup>> Pending;
 		{ std::lock_guard Lock(JobMutex); for (const auto& Item : Groups) if (auto Group = Item.lock()) Pending.push_back(std::move(Group)); }
-		return std::ranges::count_if(Pending, [](const auto& Group) { return Group->MaterialCompilingId == 0 && !Group->IsComplete(); });
+		return std::ranges::count_if(Pending, [](const auto& Group) { return !Group->bMaterialCompilation && !Group->IsComplete(); });
 	}
 #if DURIN_WITH_EDITOR
 	auto FShaderCompilingManager::SubmitCompileJobs(FShaderMapPtr ShaderMap) -> void
@@ -289,7 +289,7 @@ namespace Durin
 		EShaderBuildPriority Priority;
 		{ std::lock_guard Lock(ShaderMap->Mutex); Priority = static_cast<EShaderBuildPriority>(ShaderMap->BuildOwner->GetPriority()); }
 		auto Group = std::make_shared<FJobGroup>();
-		Group->Manager = &Get(); Group->MaterialCompilingId = ShaderMap->CompilingId;
+		Group->Manager = &Get(); Group->bMaterialCompilation = true;
 		Group->Jobs = MakeMaterialShaderStageRequests(*ShaderMap->Translation, ShaderMap->Force);
 		Group->Outputs.resize(Group->Jobs.size()); Group->MaximumBytes = std::numeric_limits<uint64>::max();
 		Group->Options = {.Priority = Priority, .IsCancelled = [Weak = std::weak_ptr(ShaderMap)] { const auto Value = Weak.lock(); return !Value || PollBuildCancellation(Value); }, .bInlineExecution = ShaderMap->Inline};

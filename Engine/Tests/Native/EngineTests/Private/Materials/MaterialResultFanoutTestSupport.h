@@ -43,9 +43,7 @@ inline auto CheckDetachedMaterialResultFanout(bool Shutdown) -> void
 	FMaterialCompilerEnvironment Environment; ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment));
 	auto Snapshot = SnapshotMaterialCompilerInput(*A, Environment); ASSERT_TRUE(Snapshot);
 	const auto Before = GetMaterialCompilationDiagnostics();
-	Durin::Private::FMaterialCompilationLifecycle::BeginRequest(*A);
 	ASSERT_TRUE(Private::FMaterialCompilationLifecycle::Submit(*A, Snapshot.Snapshot->Input, true)); ASSERT_TRUE(Cache->Entered.WaitFor(5));
-	Durin::Private::FMaterialCompilationLifecycle::BeginRequest(*B);
 	ASSERT_TRUE(Private::FMaterialCompilationLifecycle::Submit(*B, Snapshot.Snapshot->Input, true));
 	Cache->Release.Trigger(); ASSERT_TRUE(Entered.WaitFor(5));
 	EXPECT_TRUE(HasPendingMaterialCompilation(*A)); EXPECT_TRUE(HasPendingMaterialCompilation(*B));
@@ -70,7 +68,6 @@ inline auto CheckDetachedMaterialResultFanout(bool Shutdown) -> void
 		EXPECT_EQ(A->GetMaterialCompileStatus().State, EMaterialCompileState::Canceled);
 		EXPECT_EQ(GetMaterialCompilationDiagnostics().OutstandingConsumerCount, Before.OutstandingConsumerCount);
 		MaterialBuildPrivate::SetResultFanoutHookForTests([] { throw std::runtime_error("fanout failure"); });
-		Durin::Private::FMaterialCompilationLifecycle::BeginRequest(*A);
 		ASSERT_TRUE(Private::FMaterialCompilationLifecycle::Submit(*A, Snapshot.Snapshot->Input, true));
 		FAssetCompilingManager::Get().FinishAllCompilation();
 		EXPECT_EQ(A->GetMaterialCompileStatus().State, EMaterialCompileState::Failed);

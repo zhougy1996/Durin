@@ -8,6 +8,7 @@
 #include "MaterialDependencyIndex.h"
 
 #include "Asset/Asset.h"
+#include "Shader/ShaderCompilingManager.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Modules/ModuleManager.h"
 #include "CoreGlobals.h"
@@ -122,7 +123,7 @@ namespace Durin
 		for (const auto Handle : Owners)
 			if (auto* Material = Cast<DMaterialInterface>(ResolveObjectKey(Handle)); IsValid(Material))
 			{
-				auto& Revision = Material->CompilationState.MaterialCompileStatus.AuthoredRevision;
+				auto& Revision = Material->CompilationState.DefaultResource->Status.AuthoredRevision;
 				Revision = Revision == std::numeric_limits<uint64>::max() ? 1 : Revision + 1;
 				Private::FMaterialCompilationLifecycle::ScheduleEdit(*Material, &Context);
 			}
@@ -146,7 +147,7 @@ namespace Durin
 		const auto Owners = QueryLoadedMaterialHandles(
 			EMaterialLoadedQueryOperation::Dependents,
 			[&](const DMaterialInterface* Material) {
-				const auto Program = Material->CompilationState.RenderLayer.CompiledProgram;
+				const auto Program = Material->CompilationState.DefaultResource->RenderLayer.CompiledProgram;
 				return Program && std::ranges::contains(Program->ActiveCollections,
 					Collection.GetCollectionId(),
 					&FMaterialParameterCollectionLayout::CollectionId);
@@ -156,7 +157,7 @@ namespace Durin
 				IsValid(Material))
 			{
 				auto& Revision =
-					Material->CompilationState.MaterialCompileStatus.AuthoredRevision;
+					Material->CompilationState.DefaultResource->Status.AuthoredRevision;
 				Revision = Revision == std::numeric_limits<uint64>::max()
 					? 1 : Revision + 1;
 				Private::FMaterialCompilationLifecycle::ScheduleEdit(*Material, &Context);
@@ -286,7 +287,7 @@ namespace Durin
 			const auto& Status = Owner->GetMaterialCompileStatus();
 			const bool bPending = Owner->IsCompiling();
 			const bool bFailed = !Status.HasUnsubmittedEdits()
-				&& (Status.State == EMaterialCompileState::Failed || Status.State == EMaterialCompileState::Rejected);
+				&& (Status.State == EMaterialCompileState::Failed);
 			Result.PendingOwnerCount += bPending;
 			Result.FailedOwnerCount += bFailed;
 			const auto Program = Owner->GetAcceptedCompiledProgram();
@@ -315,12 +316,14 @@ namespace Durin
 	auto DMaterialInterface::RequestProgramCompile(
 		const FMaterialStaticProperties& CandidateProperties,
 		bool bForceRecompile, FObjectCacheContext* Context,
-		std::optional<FMaterialCompilerEnvironment> RequestedEnvironment) -> bool
+		std::optional<FMaterialCompilerEnvironment> RequestedEnvironment,
+		std::shared_ptr<FMaterialCompilationResource> Resource) -> bool
 	{
 		if (IsDynamicInstance()) return false;
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return false;
 		if (FWeakObjectPtr(this).GetKey().IsNull() && IsMaterialCompilationAcceptingRequests()) return true;
-		Private::FMaterialCompilationLifecycle::BeginRequest(*this);
+		if (!Resource) Resource = CompilationState.DefaultResource;
+		Resource->Status.AuthoredRevision = CompilationState.DefaultResource->Status.AuthoredRevision;
 		CompilationState.LastObservedShaderProperties = CanonicalizeMaterialShaderProperties(CandidateProperties);
 		FModuleManager::Get().LoadModule("RenderCore");
 		FMaterialCompilerEnvironment Environment;
@@ -330,25 +333,33 @@ namespace Durin
 		if (RequestedEnvironment) Environment = std::move(*RequestedEnvironment);
 		if (!EnvironmentError)
 		{
-			CompilationState.MaterialCompileStatus.State = EMaterialCompileState::Failed;
-			CompilationState.MaterialCompileDiagnostics = {{.Message = EnvironmentError.error()}};
-			RetireFailedMaterialGeneration(Context);
+			Private::FMaterialCompilationLifecycle::ResetRequest(*this, Resource);
+			Resource->Status.State = EMaterialCompileState::Failed;
+			Resource->Diagnostics = {{.Message = EnvironmentError.error()}};
+			Resource->bRequested = false;
+			Resource->RenderLayer = {};
+			Resource->AcceptedExpressionSources.clear();
+			MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap, false, Context);
 			return false;
 		}
 		auto Snapshot = SnapshotMaterialCompilerInput(*this, std::move(Environment));
 		if (!Snapshot)
 		{
-			auto& Status = CompilationState.MaterialCompileStatus;
+			Private::FMaterialCompilationLifecycle::ResetRequest(*this, Resource);
+			auto& Status = Resource->Status;
 			Status.State = EMaterialCompileState::Failed;
-			CompilationState.MaterialCompileDiagnostics = std::move(Snapshot.Diagnostics);
-			RetireFailedMaterialGeneration(Context);
+			Resource->Diagnostics = std::move(Snapshot.Diagnostics);
+			Resource->bRequested = false;
+			Resource->RenderLayer = {};
+			Resource->AcceptedExpressionSources.clear();
+			MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap, false, Context);
 			return false;
 		}
 		auto& Input = Snapshot.Snapshot->Input;
 		Input.StaticProperties = CandidateProperties;
 		CompilationState.LastObservedParameters = Input.Parameters;
 		return Private::FMaterialCompilationLifecycle::Submit(
-			*this, std::move(Input), bForceRecompile, Context);
+			*this, std::move(Input), bForceRecompile, Context, std::move(Resource));
 	}
 
 	auto DMaterialInterface::RequestPreviewProgramCompile(
@@ -379,7 +390,7 @@ namespace Durin
 			if (bOnlyIfShaderChanged
 				&& CanonicalizeMaterialShaderProperties(Owner->GetStaticProperties())
 					== Owner->CompilationState.LastObservedShaderProperties) continue;
-			auto& Status = Owner->CompilationState.MaterialCompileStatus;
+			auto& Status = Owner->CompilationState.DefaultResource->Status;
 			Status.AuthoredRevision = Status.AuthoredRevision == std::numeric_limits<uint64>::max()
 				? 1 : Status.AuthoredRevision + 1;
 			Private::FMaterialCompilationLifecycle::ScheduleEdit(*Owner, Context);
@@ -445,7 +456,7 @@ namespace Durin
 	{
 		if (IsDynamicInstance()) return IsValid(GetParent())
 			? GetParent()->ResolveResourceProperties() : FMaterialStaticProperties{};
-		const auto& Layer = CompilationState.RenderLayer;
+		const auto& Layer = CompilationState.DefaultResource->RenderLayer;
 		const auto& Authored = GetStaticProperties();
 		FMaterialStaticProperties Result = Layer.CompiledProgram
 			? Layer.StaticProperties.value_or(Authored) : Authored;
@@ -464,22 +475,27 @@ namespace Durin
 	auto DMaterialInterface::GetAcceptedCompiledProgram() const
 		-> std::shared_ptr<const FMaterialCompilerResult>
 	{
-		return CompilationState.RenderLayer.CompiledProgram;
+		return CompilationState.DefaultResource->RenderLayer.CompiledProgram;
 	}
 
 	auto DMaterialInterface::GetMaterialCompileStatus() const -> FMaterialCompileStatus
 	{
 		if (IsDynamicInstance()) return IsValid(GetParent()) ? GetParent()->GetMaterialCompileStatus() : FMaterialCompileStatus{};
-		auto Status = CompilationState.MaterialCompileStatus;
+		auto Status = CompilationState.DefaultResource->Status;
 		Status.bHasScheduledEdits = CompilationState.EditCompileDeadline.has_value();
-		Status.bDependenciesCurrent = Status.CompiledDependencyRevision == GetShaderReloadGeneration();
+		const auto& Resource = *CompilationState.DefaultResource;
+		if (Resource.bPending || Resource.CookedPreparation) Status.State = EMaterialCompileState::Running;
+		Status.CompiledIdentity = Resource.RenderLayer.CompiledProgram ? Resource.RenderLayer.CompiledProgram->GetShaderMap().ShaderMapId : FMaterialProgramIdentity{};
+		Status.bDependenciesCurrent = Status.CompiledDependencyRevision == GetShaderReloadGeneration()
+			&& Resource.RenderLayer.CompiledProgram && Resource.RenderLayer.CompiledProgram->FeatureLevel == Resource.FeatureLevel
+			&& Resource.RenderLayer.CompiledProgram->Quality == Resource.Quality;
 		return Status;
 	}
 
 	auto DMaterialInterface::HasValidGameThreadShaderMap() const -> bool
 	{
 		if (IsDynamicInstance()) return IsValid(GetParent()) && GetParent()->HasValidGameThreadShaderMap();
-		return CompilationState.RenderLayer.HasValidGameThreadShaderMap();
+		return CompilationState.DefaultResource->RenderLayer.HasValidGameThreadShaderMap();
 	}
 
 	auto DMaterialInterface::IsCompiling() const -> bool
@@ -493,7 +509,7 @@ namespace Durin
 	{
 		CheckMaterialQueryThread();
 		if (IsDynamicInstance()) return IsValid(GetParent()) && GetParent()->IsComplete();
-		return CompilationState.RenderLayer.CompiledProgram
+		return CompilationState.DefaultResource->RenderLayer.CompiledProgram
 			&& (GetAssetRuntimeConfiguration().RequiresCookedPayload()
 				|| GetMaterialCompileStatus().IsCurrent());
 	}
@@ -504,7 +520,7 @@ namespace Durin
 		OutTextures.clear();
 		const DMaterialInterface* Owner = this;
 		while (Owner->IsDynamicInstance() && IsValid(Owner->GetParent())) Owner = Owner->GetParent();
-		const auto& Program = Owner->CompilationState.RenderLayer.CompiledProgram;
+		const auto& Program = Owner->CompilationState.DefaultResource->RenderLayer.CompiledProgram;
 		if (!Program) return;
 		for (const auto& Parameter : Program->GetShaderMap().ActiveParameters)
 		{
@@ -518,21 +534,32 @@ namespace Durin
 
 	auto DMaterialInterface::AdoptParentRuntimeProgram() -> bool
 	{
-		CompilationState.RenderLayer = {};
-		CompilationState.AcceptedExpressionSources.clear();
+		const auto& Resource = CompilationState.DefaultResource;
+		FShaderCompilingManager::Get().CancelCompilation(Resource);
+		Resource->CookedPreparation.reset();
+		Resource->RenderLayer = {};
+		Resource->AcceptedExpressionSources.clear();
 		auto* Parent = GetParent();
 		const auto Program = Parent ? Parent->GetAcceptedCompiledProgram() : nullptr;
 		if (!Program || CanonicalizeMaterialShaderProperties(GetStaticProperties())
 			!= CanonicalizeMaterialShaderProperties(Parent->ResolveResourceProperties())) return false;
-		CompilationState.RenderLayer.CompiledProgram = Program;
-		CompilationState.RenderLayer.StaticProperties = GetStaticProperties();
-		CompilationState.RenderLayer.Parameters = BuildMaterialResource().Parameters;
-		auto& Status = CompilationState.MaterialCompileStatus;
+		CompilationState.DefaultResource->RenderLayer.CompiledProgram = Program;
+		CompilationState.DefaultResource->RenderLayer.StaticProperties = GetStaticProperties();
+		CompilationState.DefaultResource->RenderLayer.Parameters = BuildMaterialResource().Parameters;
+		auto& Status = CompilationState.DefaultResource->Status;
 		Private::GetMaterialEditCompileQueue().Remove(FWeakObjectPtr(this));
 		Status.State = EMaterialCompileState::Ready;
-		Status.CompiledIdentity = Program->GetShaderMap().ShaderMapId;
 		Status.CompiledRevision = Status.SubmittedRevision = Status.AuthoredRevision;
 		Status.CompiledDependencyRevision = Parent->GetMaterialCompileStatus().CompiledDependencyRevision;
+		Resource->Material = FWeakObjectPtr(this);
+		Resource->ShaderRevision = Status.CompiledDependencyRevision;
+		Resource->FeatureLevel = Program->FeatureLevel;
+		Resource->Quality = Program->Quality;
+		Resource->Backend = Parent->CompilationState.DefaultResource->Backend;
+		Resource->BulkRevision = CookedProgramData.GetContentRevision();
+		Resource->bCooked = GetAssetRuntimeConfiguration().RequiresCookedPayload();
+		Resource->CookRoot = GetAssetRuntimeConfiguration().GetCookRoot();
+		Resource->CookTarget = GetAssetRuntimeConfiguration().GetCookTargetPlatform();
 		CompilationState.EditCompileDeadline.reset();
 		Status.Target = Program->GetShaderMap().Target;
 		return true;
@@ -568,7 +595,7 @@ namespace Durin
 	{
 		PSOPrecacheOwner.Invalidate();
 		ReleaseFeatureLevelResources();
-		CompilationState.CookedPreparation.reset();
+		CompilationState.DefaultResource->CookedPreparation.reset();
 		Private::GetMaterialPreparationQueue().Remove(FWeakObjectPtr(this));
 		Private::GetMaterialEditCompileQueue().Remove(FWeakObjectPtr(this));
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*this);
@@ -583,9 +610,9 @@ namespace Durin
 			const auto Error = ResolveMaterialProperties(*Owner, Resolved);
 			if (Error) continue;
 			FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Owner);
-			auto& Status = Owner->CompilationState.MaterialCompileStatus;
+			auto& Status = Owner->CompilationState.DefaultResource->Status;
 			Status.State = EMaterialCompileState::Failed;
-			Owner->CompilationState.MaterialCompileDiagnostics = {{.Message = Error.error()}};
+			Owner->CompilationState.DefaultResource->Diagnostics = {{.Message = Error.error()}};
 			Owner->RetireFailedMaterialGeneration(&Context);
 			Notifications.emplace_back(Owner);
 		}
@@ -637,7 +664,7 @@ namespace Durin
 			}
 			return Layer;
 		}
-		auto Accepted = CompilationState.RenderLayer;
+		auto Accepted = CompilationState.DefaultResource->RenderLayer;
 		Accepted.CompiledProgram = GetAcceptedCompiledProgram();
 		Accepted.StaticProperties = ResolveResourceProperties();
 		Accepted.bIsCompiling = IsCompiling();
@@ -704,9 +731,8 @@ namespace Durin
 
 	auto DMaterialInterface::RetireFailedMaterialGeneration(FObjectCacheContext* Context) -> void
 	{
-		CompilationState.RenderLayer = {};
-		CompilationState.AcceptedExpressionSources.clear();
-		CompilationState.MaterialCompileStatus.CompiledIdentity = {};
+		CompilationState.DefaultResource->RenderLayer = {};
+		CompilationState.DefaultResource->AcceptedExpressionSources.clear();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap
 			| EMaterialRenderDirtyFlags::PipelineState, false, Context);
 	}
@@ -782,13 +808,13 @@ namespace Durin
 				Owner.PSOPrecacheOwner.Invalidate();
 			++Owner.RenderChangeCount;
 			if (Owner.RenderChangeCount == 0) ++Owner.RenderChangeCount;
-			if (Owner.CompilationState.RenderLayer.CompiledProgram)
+			if (Owner.CompilationState.DefaultResource->RenderLayer.CompiledProgram)
 			{
 				// Retention and publication must describe the same resolved snapshot.
 				// Update retention even when this owner cannot publish a proxy.
 				auto LocalLayer = Owner.BuildMaterialResource();
-				Owner.CompilationState.RenderLayer.Parameters = LocalLayer.Parameters;
-				Owner.CompilationState.RenderLayer.StaticProperties = LocalLayer.StaticProperties;
+				Owner.CompilationState.DefaultResource->RenderLayer.Parameters = LocalLayer.Parameters;
+				Owner.CompilationState.DefaultResource->RenderLayer.StaticProperties = LocalLayer.StaticProperties;
 				Owner.PublishMaterialRenderProxyState(std::move(LocalLayer));
 			}
 			else

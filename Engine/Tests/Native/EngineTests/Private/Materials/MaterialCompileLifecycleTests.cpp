@@ -1,3 +1,4 @@
+#include "MaterialCompileFailureTestSupport.h"
 #include "CacheDispatchPrivate.h"
 #include "MaterialResourceTestSupport.h"
 #include "MetalShaderFormat.h"
@@ -46,7 +47,6 @@ namespace
 			const Durin::EMaterialCompileState State =
 				Material.GetMaterialCompileStatus().State;
 			if (State != Durin::EMaterialCompileState::Running
-				&& State != Durin::EMaterialCompileState::Deferred
 				&& !Material.GetMaterialCompileStatus().HasScheduledEdits())
 				return State == Durin::EMaterialCompileState::Ready;
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -105,9 +105,7 @@ namespace
 		ASSERT_EQ(MIR::Normalize(Input).Identity, MIR::Normalize(Other).Identity);
 		const auto Before = GetMaterialCompilationDiagnostics();
 		const auto Joins = MaterialBuildPrivate::GetMaterialProgramCompileStatsForTests().Joins;
-		Durin::Private::FMaterialCompilationLifecycle::BeginRequest(*A);
 		ASSERT_TRUE(Private::FMaterialCompilationLifecycle::Submit(*A, Input, true)); ASSERT_TRUE(Cache->Entered.WaitFor(5));
-		Durin::Private::FMaterialCompilationLifecycle::BeginRequest(*B);
 		ASSERT_TRUE(Private::FMaterialCompilationLifecycle::Submit(*B, Other, true));
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
 		while (MaterialBuildPrivate::GetMaterialProgramCompileStatsForTests().Joins == Joins && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
@@ -445,7 +443,6 @@ TEST_F(FMaterialAsyncCompileTests, InitialCompilationQueriesDoNotSelectAnInvalid
 	struct FRestore { std::shared_ptr<FGate> Cache; ~FRestore() { Cache->Release.Trigger(); FAssetCompilingManager::Get().FinishAllCompilation(); ShaderBuildPrivate::ResetServiceForTests(); } } Restore{Cache};
 	FMaterialCompilerEnvironment Environment; ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment));
 	auto Snapshot = SnapshotMaterialCompilerInput(*Material, Environment); ASSERT_TRUE(Snapshot);
-	Durin::Private::FMaterialCompilationLifecycle::BeginRequest(*Material);
 	ASSERT_TRUE(Private::FMaterialCompilationLifecycle::Submit(*Material, Snapshot.Snapshot->Input, true));
 	ASSERT_TRUE(Cache->Entered.WaitFor(5));
 	const auto Before = GetMaterialFallbackDiagnosticsSnapshot();
@@ -485,7 +482,6 @@ TEST_F(FMaterialAsyncCompileTests, SynchronousAndAsynchronousResultsAgreeOnShare
 	struct FRestore { std::shared_ptr<FGate> Cache; ~FRestore() { Cache->Release.Trigger(); FAssetCompilingManager::Get().FinishAllCompilation(); ShaderBuildPrivate::ResetServiceForTests(); } } Restore{Cache};
 	FMaterialCompilerEnvironment Environment; ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment));
 	auto Snapshot = SnapshotMaterialCompilerInput(*A, Environment); ASSERT_TRUE(Snapshot);
-	Durin::Private::FMaterialCompilationLifecycle::BeginRequest(*A);
 	ASSERT_TRUE(Private::FMaterialCompilationLifecycle::Submit(*A, Snapshot.Snapshot->Input, true));
 	ASSERT_TRUE(Cache->Entered.WaitFor(5));
 	const auto Joins = MaterialBuildPrivate::GetMaterialProgramCompileStatsForTests().Joins;
@@ -496,7 +492,6 @@ TEST_F(FMaterialAsyncCompileTests, SynchronousAndAsynchronousResultsAgreeOnShare
 	});
 	{
 		FScopedOfflinePreparation Offline;
-		Durin::Private::FMaterialCompilationLifecycle::BeginRequest(*B);
 		EXPECT_TRUE(Private::FMaterialCompilationLifecycle::Submit(*B, Snapshot.Snapshot->Input, true));
 	}
 	Releaser.join();
@@ -646,7 +641,7 @@ TEST_F(FMaterialAsyncCompileTests, SingleFlightRetainedHitsAndDemandedReload)
 	ASSERT_TRUE(WaitForMaterialCompile(*First));
 }
 
-TEST_F(FMaterialAsyncCompileTests, ManualEditsKeepOlderWorkAndDiscardAllObsoleteOutcomes)
+TEST_F(FMaterialAsyncCompileTests, ManualEditsDetachOldRequestsAndDoNotLeaveRunningStatus)
 {
 	using namespace Durin;
 	auto* Material = MakeObject<DMaterial>("ManualEditDuringCompilation");
@@ -663,19 +658,12 @@ TEST_F(FMaterialAsyncCompileTests, ManualEditsKeepOlderWorkAndDiscardAllObsolete
 	EXPECT_TRUE(Material->GetMaterialCompileStatus().HasUnsubmittedEdits());
 	EXPECT_FALSE(Material->GetMaterialCompileStatus().HasScheduledEdits());
 	EXPECT_FALSE(Material->GetMaterialCompileStatus().IsCurrent());
-	for (const auto Outcome : {EMaterialCompileOutcome::Succeeded, EMaterialCompileOutcome::Failed, EMaterialCompileOutcome::Canceled})
-	{
-		FMaterialCompileResult Obsolete{
-			.Owner = FWeakObjectPtr(Material), .AuthoredRevision = Submitted.AuthoredRevision,
-			.RequestId = Submitted.RequestId, .DependencyRevision = Submitted.DependencyRevision,
-			.ProgramIdentity = Accepted->GetShaderMap().ShaderMapId,
-			.StaticProperties = Material->GetStaticProperties(), .Target = Submitted.Target,
-			.Outcome = Outcome, .CompiledProgram = Accepted,
-			.Diagnostics = {{.Message = "Obsolete diagnostic"}}};
-		EXPECT_FALSE(Private::FMaterialCompilationLifecycle::Admit(*Material, std::move(Obsolete)));
-		EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Accepted);
-		EXPECT_TRUE(Material->GetMaterialCompileDiagnostics().empty());
-	}
+	EXPECT_TRUE(Material->IsCompilationFinished());
+	EXPECT_NE(Material->GetMaterialCompileStatus().State, EMaterialCompileState::Running);
+	FAssetCompilingManager::Get().FinishAllCompilation();
+	EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Accepted);
+	EXPECT_TRUE(Material->GetMaterialCompileDiagnostics().empty());
+
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
 	EXPECT_FALSE(Material->IsCompiling());
 	EXPECT_FALSE(Material->IsComplete());
@@ -777,7 +765,7 @@ TEST_F(FMaterialAsyncCompileTests, LatestGenerationReplacesTheAcceptedProgram)
 }
 
 
-TEST_F(FMaterialAsyncCompileTests, FailedAndStaleResultsPreserveGenerationBoundaries)
+TEST_F(FMaterialAsyncCompileTests, FailedCompilationRetiresOutputAndCanRecover)
 {
 	auto* First = MakeObject<Durin::DMaterial>("FailedGeneration");
 	ASSERT_TRUE(Durin::RequestMaterialRecompile(*First));
@@ -802,83 +790,13 @@ TEST_F(FMaterialAsyncCompileTests, FailedAndStaleResultsPreserveGenerationBounda
 	FailedProperties.bTwoSided = !FailedProperties.bTwoSided;
 	ASSERT_TRUE(First->SetStaticProperties(FailedProperties));
 	ASSERT_TRUE((ParameterValidation = First->SetMaterialExpressions({}, {})));
-	const Durin::FMaterialCompileStatus Pending =
-		First->GetMaterialCompileStatus();
-	Durin::FAssetCompilingManager::Get().MarkCompilationAsCanceled(*First);
-	const std::vector<Durin::FMaterialProgramDiagnostic> BeforeDiagnostics(
-		First->GetMaterialCompileDiagnostics().begin(), First->GetMaterialCompileDiagnostics().end());
-	const Durin::FMaterialProgramDiagnostic FailureDiagnostic{
-		.LocationKind = Durin::EMaterialProgramDiagnosticLocationKind::Node,
-		.NodeId = Durin::FGuid::NewGuid(), .Message = "Material compile admission was rejected."};
-	Durin::FMaterialCompileResult Failed{
-		.Owner = Durin::FWeakObjectPtr(First),
-		.AuthoredRevision = Pending.AuthoredRevision,
-		.RequestId = Pending.RequestId,
-		.DependencyRevision = Pending.DependencyRevision,
-		.ProgramIdentity = Pending.CompiledIdentity,
-		.Target = Pending.Target,
-		.Outcome = Durin::EMaterialCompileOutcome::Failed,
-		.Diagnostics = {FailureDiagnostic},
-	};
-	// An obsolete failure cannot retire a newer request's visible generation.
-	auto StaleFailure = Failed;
-	--StaleFailure.RequestId;
-	EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(
-		*First, std::move(StaleFailure)));
-	EXPECT_EQ(First->GetAcceptedCompiledProgram(), LastKnownGood);
-	EXPECT_TRUE(std::ranges::equal(First->GetMaterialCompileDiagnostics(), BeforeDiagnostics));
-	EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(
-		*First, std::move(Failed)));
+	ASSERT_TRUE(Durin::Testing::FailMaterialCompilation(*First));
 	EXPECT_FALSE(First->GetAcceptedCompiledProgram());
-	EXPECT_EQ(First->GetMaterialCompileStatus().State,
-		Durin::EMaterialCompileState::Failed);
+	EXPECT_EQ(First->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Failed);
 	EXPECT_FALSE(First->GetMaterialCompileStatus().IsCurrent());
-	ASSERT_EQ(First->GetMaterialCompileDiagnostics().size(), 1u);
-	EXPECT_EQ(First->GetMaterialCompileDiagnostics().front(), FailureDiagnostic);
+	EXPECT_FALSE(First->GetMaterialCompileDiagnostics().empty());
 	ExpectColorNear(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*First)).BaseColor,
 		GetMaterialBinding(Durin::GetErrorMaterialRenderData()).BaseColor);
-
-	Durin::FMaterialCompileResult Stale{
-		.Owner = Durin::FWeakObjectPtr(First),
-		.AuthoredRevision = Pending.AuthoredRevision,
-		.RequestId = Pending.RequestId - 1,
-		.DependencyRevision = Pending.DependencyRevision,
-		.ProgramIdentity = LastKnownGood->GetShaderMap().ShaderMapId,
-		.Target = Pending.Target,
-		.Outcome = Durin::EMaterialCompileOutcome::Succeeded,
-		.CompiledProgram = LastKnownGood,
-	};
-	EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(
-		*First, std::move(Stale)));
-	EXPECT_FALSE(First->GetAcceptedCompiledProgram());
-	Durin::FMaterialCompileResult WrongTarget{
-		.Owner = Durin::FWeakObjectPtr(First),
-		.AuthoredRevision = Pending.AuthoredRevision,
-		.RequestId = Pending.RequestId,
-		.DependencyRevision = Pending.DependencyRevision,
-		.ProgramIdentity = LastKnownGood->GetShaderMap().ShaderMapId,
-		.Target = "wrong-target",
-		.Outcome = Durin::EMaterialCompileOutcome::Succeeded,
-		.CompiledProgram = LastKnownGood,
-	};
-	EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(
-		*First, std::move(WrongTarget)));
-	Durin::FMaterialCompileResult WrongDependency{
-		.Owner = Durin::FWeakObjectPtr(First),
-		.AuthoredRevision = Pending.AuthoredRevision,
-		.RequestId = Pending.RequestId,
-		.DependencyRevision = Pending.DependencyRevision + 1,
-		.ProgramIdentity = LastKnownGood->GetShaderMap().ShaderMapId,
-		.Target = Pending.Target,
-		.Outcome = Durin::EMaterialCompileOutcome::Succeeded,
-		.CompiledProgram = LastKnownGood,
-	};
-	EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(
-		*First, std::move(WrongDependency)));
-	EXPECT_FALSE(First->GetAcceptedCompiledProgram());
-
-	ASSERT_EQ(First->GetMaterialCompileDiagnostics().size(), 1u);
-	EXPECT_EQ(First->GetMaterialCompileDiagnostics().front(), FailureDiagnostic);
 
 	// Recovery replaces the error terminal, including after stale results were rejected.
 	ASSERT_TRUE(Durin::RequestMaterialRecompile(*First));
@@ -930,17 +848,7 @@ TEST_F(FMaterialAsyncCompileTests, PendingSchemaReplacementRetainsBindingsUntilF
 		ASSERT_TRUE(Graph.Apply(*Root));
 		EXPECT_FLOAT_EQ(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Root)).Metallic, 0.65f);
 		EXPECT_FLOAT_EQ(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Instance)).Metallic, 0.9f);
-		const auto Pending = Root->GetMaterialCompileStatus();
-		Durin::FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Root);
-		Durin::FMaterialCompileResult Failed{
-			.Owner = Durin::FWeakObjectPtr(Root),
-			.AuthoredRevision = Pending.AuthoredRevision,
-			.RequestId = Pending.RequestId,
-			.DependencyRevision = Pending.DependencyRevision,
-			.ProgramIdentity = Pending.CompiledIdentity,
-			.Target = Pending.Target,
-			.Outcome = Durin::EMaterialCompileOutcome::Failed};
-		EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(*Root, std::move(Failed)));
+		ASSERT_TRUE(Durin::Testing::FailMaterialCompilation(*Root));
 	}
 	EXPECT_FALSE(Root->GetAcceptedCompiledProgram());
 	ExpectColorNear(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Root)).BaseColor,
@@ -1591,14 +1499,67 @@ TEST_F(FMaterialAsyncCompileTests, CanceledFeatureLevelPreparationCanBeExplicitl
 {
 	using namespace Durin;
 	auto* Material = MakeObject<DMaterial>("CanceledFeatureResourceOwner");
-	FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
+	Material->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::Synchronous);
+	ASSERT_TRUE(Material->GetAcceptedCompiledProgram());
 	const auto Default = Material->GetAcceptedCompiledProgram();
 	Material->CacheResourceShadersForRendering(ERHIFeatureLevel::ES3_1);
 	FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Material);
 	EXPECT_EQ(Material->GetMaterialCompileStatus(ERHIFeatureLevel::ES3_1).State, EMaterialCompileState::Canceled);
+	EXPECT_EQ(Material->GetMaterialCompileStatus().State, EMaterialCompileState::Ready);
 	FAssetCompilingManager::Get().FinishAllCompilation();
 	EXPECT_EQ(Material->GetMaterialCompileStatus(ERHIFeatureLevel::ES3_1).State, EMaterialCompileState::Canceled);
 	Material->CacheResourceShadersForRendering(ERHIFeatureLevel::ES3_1, EMaterialShaderPrecompileMode::Synchronous);
 	ASSERT_TRUE(Material->GetAcceptedCompiledProgram(ERHIFeatureLevel::ES3_1));
 	EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Default);
+}
+
+TEST_F(FMaterialAsyncCompileTests, ConfigurationRequestsHaveIndependentAssociationsAndOneInvalidationBoundary)
+{
+	using namespace Durin;
+	auto* Material = MakeObject<DMaterial>("ConcurrentResourceRequests");
+	FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
+	const auto Installed = Material->GetAcceptedCompiledProgram();
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	const auto Before = GetMaterialCompilationDiagnostics().AcceptedRequests;
+	ASSERT_TRUE(RequestMaterialRecompile(*Material, true));
+	Material->CacheResourceShadersForRendering(ERHIFeatureLevel::ES3_1);
+	EXPECT_EQ(GetMaterialCompilationDiagnostics().AcceptedRequests, Before + 2);
+	EXPECT_EQ(Material->GetMaterialCompileStatus().State, EMaterialCompileState::Running);
+	EXPECT_EQ(Material->GetMaterialCompileStatus(ERHIFeatureLevel::ES3_1).State, EMaterialCompileState::Running);
+	ASSERT_TRUE(EditRoughnessDefault(*Material, 0.042f));
+	EXPECT_TRUE(Material->IsCompilationFinished());
+	EXPECT_NE(Material->GetMaterialCompileStatus().State, EMaterialCompileState::Running);
+	EXPECT_NE(Material->GetMaterialCompileStatus(ERHIFeatureLevel::ES3_1).State, EMaterialCompileState::Running);
+	const auto Detached = GetMaterialCompilationDiagnostics().AcceptedRequests;
+	FAssetCompilingManager::Get().FinishAllCompilation();
+	EXPECT_EQ(GetMaterialCompilationDiagnostics().AcceptedRequests, Detached);
+	EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Installed);
+	EXPECT_FALSE(Material->GetAcceptedCompiledProgram(ERHIFeatureLevel::ES3_1));
+	ASSERT_TRUE(Material->CompileEdits());
+	Material->CacheResourceShadersForRendering(ERHIFeatureLevel::ES3_1);
+	FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
+	EXPECT_TRUE(Material->IsCompilationFinished());
+	EXPECT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
+	EXPECT_TRUE(Material->GetMaterialCompileStatus(ERHIFeatureLevel::ES3_1).IsCurrent());
+	ASSERT_TRUE(Material->GetAcceptedCompiledProgram(ERHIFeatureLevel::ES3_1));
+	EXPECT_EQ(Material->GetAcceptedCompiledProgram()->FeatureLevel, ERHIFeatureLevel::SM5);
+	EXPECT_EQ(Material->GetAcceptedCompiledProgram(ERHIFeatureLevel::ES3_1)->FeatureLevel, ERHIFeatureLevel::ES3_1);
+}
+
+TEST_F(FMaterialAsyncCompileTests, DefaultCacheReusesTheSelectedPreviewConfiguration)
+{
+	using namespace Durin;
+	auto* Material = MakeObject<DMaterial>("SelectedConfigurationCache");
+	Material->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::Synchronous);
+	ASSERT_TRUE(Material->RequestPreviewProgramCompile(EMaterialQualityLevel::Low, ERHIFeatureLevel::ES3_1));
+	const auto Request = Material->GetMaterialCompileStatus().RequestId;
+	EXPECT_FALSE(Material->GetMaterialCompileStatus().IsCurrent());
+	EXPECT_FALSE(Material->GetAcceptedCompiledProgram(ERHIFeatureLevel::ES3_1));
+	Material->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::Synchronous);
+	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestId, Request);
+	ASSERT_TRUE(Material->GetAcceptedCompiledProgram());
+	EXPECT_EQ(Material->GetAcceptedCompiledProgram()->FeatureLevel, ERHIFeatureLevel::ES3_1);
+	EXPECT_EQ(Material->GetAcceptedCompiledProgram()->Quality, EMaterialQualityLevel::Low);
+	EXPECT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
+	EXPECT_FALSE(Material->GetAcceptedCompiledProgram(ERHIFeatureLevel::SM5));
 }

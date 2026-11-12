@@ -44,12 +44,12 @@ namespace Durin
 		auto Shutdown() -> void override;
 		auto CancelCompilation(FWeakObjectPtr Owner) -> bool;
 	private:
-		auto SubmitJobs(FMaterialCompileRequest Request) -> void;
+		auto CacheMaterialShaders(FMaterialCompileRequest Request) -> void;
 		friend class MaterialBuildPrivate::FMaterialCompilation;
 		friend auto MaterialBuildPrivate::GetMaterialProgramCompileStatsForTests() -> MaterialBuildPrivate::FMaterialProgramCompileStats;
 		friend struct Private::FMaterialCompilationLifecycle;
+		friend class DMaterialInterface;
 		friend auto IsMaterialCompilationAcceptingRequests() -> bool;
-		friend auto HasPendingMaterialCompilation(const DMaterialInterface&) -> bool;
 		friend auto GetMaterialCompilationDiagnostics() -> FMaterialCompilationDiagnostics;
 		FShaderCompilingManager();
 		struct FJobGroup;
@@ -87,18 +87,18 @@ namespace Durin
 		std::unordered_map<FMaterialCompileKey, FShaderMapPtr, FMaterialCompileKeyHash> RequestedShaderMaps;
 		std::deque<FMaterialCompileResult> MaterialResults;
 		struct FMaterialRequestAssociation { FShaderMapPtr Request; uint64 RequestId = 0; };
-		std::unordered_map<FObjectKey, FMaterialRequestAssociation> MaterialRequests;
+		std::unordered_map<std::shared_ptr<FMaterialCompilationResource>, FMaterialRequestAssociation> MaterialRequests;
 		uint32 OutstandingMaterialConsumers = 0;
 		FMaterialCompilationDiagnostics MaterialDiagnostics;
 		auto IsAcceptingMaterialRequests() const -> bool;
-		auto IsMaterialCompiling(FWeakObjectPtr Owner) const -> bool;
 		auto GetMaterialDiagnostics() const -> FMaterialCompilationDiagnostics;
 		auto RaiseMaterialPriority(std::span<const FWeakObjectPtr> Owners = {}) -> void;
 		auto PollMaterialCancellation() -> void;
 		auto ProcessMaterialResults(const FAssetCompileProcessParams& Params, const std::function<void(FMaterialCompileResult)>& Process) -> uint32;
 		auto CompleteMaterialRequests(const FShaderMapPtr& ShaderMap, MaterialBuildPrivate::FMaterialBuildResult Build) -> void;
 		auto CancelCompilation(FWeakObjectPtr Owner, bool bCountCancellation) -> bool;
-		auto DetachMaterialOwnerLocked(FWeakObjectPtr Owner, std::vector<FShaderMapPtr>& CanceledRequests, bool bCountCancellation) -> bool;
+		auto CancelCompilation(const std::shared_ptr<FMaterialCompilationResource>& Resource) -> void;
+		auto DetachMaterialResourceLocked(const std::shared_ptr<FMaterialCompilationResource>& Resource, std::vector<FShaderMapPtr>& CanceledRequests, bool bCountCancellation) -> bool;
 		static auto MakeMaterialResult(const FMaterialCompileRequest& Request,
 			const MaterialBuildPrivate::FMaterialBuildResult& Build,
 			const MIR::FCompilerInput* DiagnosticInput = nullptr, bool Canceled = false) -> FMaterialCompileResult;
@@ -111,7 +111,7 @@ namespace Durin
 			std::function<void(MaterialBuildPrivate::FMaterialBuildResult)> Completion, bool CopyInput)
 			-> MaterialBuildPrivate::FMaterialProgramCompileHandle;
 		auto CleanupFinishedShaderMaps() -> void;
-		auto FinishMaterialCompilation(std::span<const FWeakObjectPtr> Owners = {}) -> void;
+		auto FinishMaterialCompilation() -> void;
 		auto CancelMaterialCompilation() -> void;
 		auto GetNumRemainingMaterialShaderMaps() const -> uint64;
 		static auto LaunchTask(FShaderMapPtr ShaderMap, std::function<void()> Work) -> void;

@@ -53,7 +53,6 @@ namespace Durin::MaterialBuildPrivate
 			FMaterialProgramCompileOptions Options,
 			std::function<void(FMaterialBuildResult)> Completion)
 			-> FMaterialProgramCompileHandle;
-		uint64 CompilingId = 0;
 		FMaterialProgramIdentity ShaderMapId;
 		auto GetShaderMapId() const -> FMaterialProgramIdentity
 		{
@@ -68,10 +67,8 @@ namespace Durin::MaterialBuildPrivate
 		bool Force = false;
 		FMaterialProgramIdentity CanonicalIdentity;
 		std::vector<FMaterialCompileRequest> CompilingMaterialDependencies;
-		std::vector<FWeakObjectPtr> CompletingOwners;
+		std::vector<std::shared_ptr<FMaterialCompilationResource>> CompletingResources;
 		std::shared_ptr<const MIR::FCompilerInput> DiagnosticInput;
-		std::vector<FWeakObjectPtr> Origins;
-		FWeakObjectPtr InitialOwner;
 #if DURIN_WITH_EDITOR
 		static auto Start(std::shared_ptr<FMaterialCompilation> ShaderMap) -> void;
 		static auto ProcessTranslation(std::shared_ptr<FMaterialCompilation> ShaderMap, FMaterialTranslatedProgram Translation) -> void;

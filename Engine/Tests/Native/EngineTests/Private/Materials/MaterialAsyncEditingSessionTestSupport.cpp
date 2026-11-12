@@ -1,3 +1,4 @@
+#include "MaterialCompileFailureTestSupport.h"
 #include "TypedMaterialGraphTestFixture.h"
 #include "Widgets/MaterialEditingSession.h"
 #include "MaterialGraphOperations.h"
@@ -52,18 +53,7 @@ auto QualifyMaterialEditingSessionAsync() -> void
 	ASSERT_TRUE(Session.RequestApply(Error)) << Error;
 	ASSERT_TRUE(Session.IsApplyPending());
 	EXPECT_EQ(Source->GetExpressionOutputs(), Original);
-	const auto Pending = Draft->GetMaterialCompileStatus();
-	FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Draft);
-	FMaterialCompileResult Failed{
-		.Owner = FWeakObjectPtr(Draft),
-		.AuthoredRevision = Pending.AuthoredRevision,
-		.RequestId = Pending.RequestId,
-		.DependencyRevision = Pending.DependencyRevision,
-		.ProgramIdentity = Pending.CompiledIdentity,
-		.Target = Pending.Target,
-		.Outcome = EMaterialCompileOutcome::Failed,
-	};
-	EXPECT_FALSE(Private::FMaterialCompilationLifecycle::Admit(*Draft, std::move(Failed)));
+	ASSERT_TRUE(Testing::FailMaterialCompilation(*Draft));
 	Session.Tick(Error);
 	EXPECT_FALSE(Error.empty());
 	EXPECT_FALSE(Session.IsApplyPending());

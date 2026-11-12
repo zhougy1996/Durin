@@ -176,12 +176,10 @@ namespace Durin::MaterialEditor
 			switch (Status.State)
 			{
 			case EMaterialCompileState::NeverRequested: return "Not compiled";
-			case EMaterialCompileState::Deferred: return "Waiting for shader preparation";
 			case EMaterialCompileState::Running: return "Compiling";
 			case EMaterialCompileState::Ready: return "Ready";
 			case EMaterialCompileState::Failed: return "Failed";
 			case EMaterialCompileState::Canceled: return "Canceled";
-			case EMaterialCompileState::Rejected: return "Rejected";
 			}
 			return "Unknown";
 		}

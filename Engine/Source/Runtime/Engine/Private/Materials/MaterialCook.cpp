@@ -73,23 +73,20 @@ namespace Durin
 			FunctionOwners.insert(FunctionOwners.end(), Snapshot.Snapshot->FunctionOwners.begin(), Snapshot.Snapshot->FunctionOwners.end());
 			Inputs.push_back(std::make_shared<const MIR::FCompilerInput>(std::move(Snapshot.Snapshot->Input)));
 		}
-		struct FOwnerStamp { FObjectKey Owner; uint64 Authored, Dependency, Program; };
+		struct FOwnerStamp { FObjectKey Owner; uint64 Authored; };
 		std::vector<FOwnerStamp> Owners;
 		for (const DMaterialInterface* Owner = this; Owner; Owner = Owner->GetParent()) {
 			const auto& Status = Owner->GetMaterialCompileStatus();
-			const auto* Material = Cast<DMaterial>(Owner);
-			Owners.push_back({FObjectKey(Owner), Status.AuthoredRevision, Status.DependencyRevision,
-				Material ? Material->GetMaterialProgramRevision() : 0});
+			Owners.push_back({FObjectKey(Owner), Status.AuthoredRevision});
 		}
-		Preparation->ValidatePreparedInputs = [Owners = std::move(Owners), Functions = std::move(FunctionOwners)] {
+		Preparation->ValidatePreparedInputs = [Owners = std::move(Owners), Functions = std::move(FunctionOwners), ShaderRevision = GetShaderReloadGeneration()] {
+			if (ShaderRevision != GetShaderReloadGeneration()) return false;
 			if (!AreMaterialFunctionOwnersCurrent(Functions)) return false;
 			for (const auto& Stamp : Owners) {
 				const auto* Owner = Cast<DMaterialInterface>(ResolveObjectKey(Stamp.Owner));
 				if (!Owner) return false;
 				const auto& Status = Owner->GetMaterialCompileStatus();
-				const auto* Material = Cast<DMaterial>(Owner);
-				if (Stamp.Authored != Status.AuthoredRevision || Stamp.Dependency != Status.DependencyRevision
-					|| (Material && Stamp.Program != Material->GetMaterialProgramRevision())) return false;
+				if (Stamp.Authored != Status.AuthoredRevision) return false;
 			}
 			return true;
 		};
@@ -203,27 +200,27 @@ namespace Durin
 	}
 
 	auto DMaterialInterface::AdmitCookedProgram(const FMaterialStaticProperties& PayloadProperties,
-		std::shared_ptr<const FMaterialCompilerResult> ProgramCandidate) -> std::expected<void, std::string>
+		std::shared_ptr<const FMaterialCompilerResult> ProgramCandidate,
+		std::shared_ptr<FMaterialCompilationResource> Resource) -> std::expected<void, std::string>
 	{
+		if (!Resource) Resource = CompilationState.DefaultResource;
 		const auto Validated = ValidatePreparedMaterialProgram(PayloadProperties, std::move(ProgramCandidate));
 		if (!Validated) return std::unexpected(Validated.error());
 		ProgramCandidate = *Validated;
-		CompilationState.RenderLayer.CompiledProgram = std::move(ProgramCandidate);
-		CompilationState.RenderLayer.StaticProperties = PayloadProperties;
-		Private::GetMaterialEditCompileQueue().Remove(FWeakObjectPtr(this));
-		CompilationState.CookedPreparation.reset();
-		CompilationState.MaterialCompileStatus.State = EMaterialCompileState::Ready;
-		CompilationState.MaterialCompileStatus.CacheOutcome =
+		Resource->RenderLayer.CompiledProgram = std::move(ProgramCandidate);
+		Resource->RenderLayer.StaticProperties = PayloadProperties;
+		if (Resource == CompilationState.DefaultResource) Private::GetMaterialEditCompileQueue().Remove(FWeakObjectPtr(this));
+		Resource->CookedPreparation.reset();
+		Resource->Status.State = EMaterialCompileState::Ready;
+		Resource->Status.CacheOutcome =
 			EMaterialCompileCacheOutcome::None;
-		CompilationState.MaterialCompileStatus.RequestId = 1;
-		CompilationState.MaterialCompileStatus.CompiledDependencyRevision = GetShaderReloadGeneration();
-		CompilationState.MaterialCompileStatus.CompiledRevision = CompilationState.MaterialCompileStatus.AuthoredRevision;
-		CompilationState.MaterialCompileStatus.SubmittedRevision = CompilationState.MaterialCompileStatus.AuthoredRevision;
-		CompilationState.EditCompileDeadline.reset();
-		CompilationState.MaterialCompileStatus.CompiledIdentity =
-			CompilationState.RenderLayer.CompiledProgram->GetShaderMap().ShaderMapId;
-		CompilationState.MaterialCompileStatus.Target = CompilationState.RenderLayer.CompiledProgram->GetShaderMap().Target;
-		CompilationState.MaterialCompileDiagnostics.clear();
+		Resource->Status.RequestId = 1;
+		Resource->Status.CompiledDependencyRevision = GetShaderReloadGeneration();
+		Resource->Status.CompiledRevision = Resource->Status.AuthoredRevision;
+		Resource->Status.SubmittedRevision = Resource->Status.AuthoredRevision;
+		if (Resource == CompilationState.DefaultResource) CompilationState.EditCompileDeadline.reset();
+		Resource->Status.Target = Resource->RenderLayer.CompiledProgram->GetShaderMap().Target;
+		Resource->Diagnostics.clear();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap | EMaterialRenderDirtyFlags::PipelineState);
 		return {};
 	}

@@ -33,23 +33,24 @@ payloads: empty output may succeed, while retained intermediate data does not
 establish success. Failed builds/encoders clear emitted output; property resolution
 and cooked decoding publish only validated candidates. Parameter batches validate
 all candidates before committing, and unchanged values do not notify consumers.
-Cancellation and admission remain separate lifecycle outcomes. Semantic tests
+Cancellation is a request outcome; invalid input and installation failures report ordinary failure. Semantic tests
 verify rejection, failure location, retained data, and notification behavior
 without depending on complete diagnostic wording.
-Asynchronous material results carry publication qualifiers, terminal state, cache
-outcome and the compiled program. Diagnostics retain the original
+Asynchronous material results carry the compilation resource association, request ID,
+captured Shader generation, outcome, cache observation and compiled program. Diagnostics retain the original
 `FMaterialProgramDiagnostic` plus the request generation used for stale editor
 navigation. There is no second result-category taxonomy, copied asset path or
 program identity on each diagnostic, or task ID forwarded through result/status
 records. Failure details come from the original diagnostic; cancellation and
-admission rejection come from request state.
+installation failures come from the compile diagnostics.
 Synchronous and asynchronous asset compilation use one result assembly function,
 including source attribution, bounded diagnostics and retained/shared/forced cache
 outcomes. Asset requests derive the target from their captured input and retain no
 intermediate program identity or expression-source copies. The asset submission
 entry is private to the manager and material lifecycle. GameThread publication
 checks both completion count and deadline between results; unprocessed results
-remain in the mailbox, and expired budgets do not start deferred retries.
+remain in the manager completion queue. FeatureLevel resources have no separate
+mailbox, completion mutex or worker callback protocol.
 
 `GetMaterialProgramStatistics` derives a detached value snapshot from the
 currently accepted compiler result. It reports explicit absent, current, or
@@ -579,11 +580,11 @@ The asset framework registers it once as `Durin.Shader`, routing material classe
 to the same manager that owns global Shader requests. There is no separate
 material asset compiler or material-program compiling manager.
 The manager owns one active material compilation collection, captured-request and
-semantic identity indexes, and a result mailbox. Detached asset dependencies live
+semantic identity indexes, and a result mailbox. Detached resource dependencies live
 on each Engine-private `FMaterialCompilation`; asset capture, edit scheduling,
 dependency invalidation and installation remain in the material lifecycle.
 `FMaterialCompilation::Compile` admits an internal request and returns its handle.
-The request owns its compiling ID, cancellation, material dependencies, translation,
+The request owns cancellation, resource dependencies, translation,
 Shader job-group handle and completion callback. A null handle means the manager
 is stopped or the call is invalid; execution pressure never rejects a request. Final assembly constructs a separate `FMaterialShaderMap`;
 the public map has no compilation entry point, compiling ID, request state or
@@ -592,8 +593,8 @@ translation/Shader compiler assembly interface. `MaterialCompileTypes.h` and
 asset consumers use the material lifecycle and asset-compilation interfaces.
 `ShaderCompilingManagerAssets.cpp` owns aggregate integration, reload dispatch
 and owner pumps; `MaterialCompileLifecycle.cpp` owns edit scheduling, request
-initialization and installation. Request initialization runs once before capture
-can fail. `RequestId` is an attempt identity, not an authored-content version.
+initialization and installation. Capture and submission form one resource operation;
+callers do not initialize request state separately. `RequestId` is an attempt identity, not an authored-content version.
 The shared manager owns admission, translation and assembly tasks, semantic
 identity joining, atomic cache publication, priority, cancellation, end-boundary
 waits and cleanup. Asset admission derives from the manager and asset framework
@@ -607,7 +608,7 @@ neither Engine nor the asset framework. Engine owns the authored compilation
 entry points; RenderCore owns source-independent values and GPU resources.
 Stopping admission rejects new public material and Shader requests while allowing
 already-admitted material translations to submit their stage jobs and drain.
-Asset statistics count a material dependency once; its lower-level Shader job
+Asset statistics count each resource dependency once; its lower-level Shader job
 group is not counted again. Standalone Shader job groups participate in the same
 remaining-work count and `FinishAllCompilation`. ShaderMap does not access manager
 locks or containers directly.
@@ -679,42 +680,39 @@ edits affect only preview rendering; Apply copies authored state to the source
 root and requests its changed dependent variants. Runtime source identity and
 publication rules remain unchanged.
 
-Authored content revision, nonzero request ID, shader dependency generation, latest
-terminal result, and accepted renderable program are independent state. A new
-request removes the same owner from obsolete work, requests cooperative
-cancellation when a flight loses its last consumer, and leaves the accepted
-last-known-good program visible. GameThread admits a mailbox result only when
-the live object-handle generation, authored revision, request ID,
-dependency generation and target match. Parent-chain changes advance the affected
-owner's authored revision rather than maintaining a second parent-chain counter.
-The candidate program identity must match its compiled ShaderMap identity. Successful
-admission atomically replaces the complete required-stage result and proxy state;
-current compilation failure or admission rejection retires the complete accepted
-program, layout, values and resources and publishes ErrorMaterial through the
-ordinary render proxy path. This includes normalization and dependency failures
-before worker submission. Diagnostics no longer report last-known-good display.
-Cancellation, supersession and stale results do not replace the visible generation.
-A material with no accepted result uses ErrorMaterial, including during a new
-request after failure; successful admission restores ordinary rendering. Root materials
-and instance variants apply this rule to their own compile requests. Immutable
-compiler cache entries remain reusable after renderable generation retirement.
-The owner stores this contract using the same `FMaterialResource` value
-published to its proxy; shader properties derive from that layer's static
-properties. There is no separate accepted-generation type or last-known-good display flag.
-The value-returning status query projects submitted and installed content
-revisions, installed shader dependency generation, edit scheduling and the latest
-request outcome. `IsCurrent` compares installed content and dependency identities;
-it does not depend on the latest request being Ready. `IsCompilationFinished`
-observes the default material request association, while
-`HasValidGameThreadShaderMap` observes the installed renderable program. A forced
-request or cancellation can therefore coexist with a current valid program.
-A global shader generation change immediately makes dormant material programs
-stale; reload eagerly requests demanded materials and cold materials rebuild on
-their next resource request. FeatureLevel status follows the same dependency rule. There is no requested identity copied back from a completed result.
-Owner and request qualifiers remain at result publication. Asset `SubmitJobs`
-returns void and delivers invalid-input or stopped-manager failures through the
-result mailbox. Worker outcomes are limited to Succeeded, Failed or Canceled,
-independently of asset-visible execution status.
+Default and additional FeatureLevel configurations use the same
+`FMaterialCompilationResource`, manager submission path and GameThread installation.
+Each resource owns its installed render layer, diagnostics, last attempt ID and
+live compilation association. The asset owns edit policy and enumerates its
+resources; manager associations are keyed by resource rather than asset, so
+simultaneous configurations cannot replace each other's requests. `SubmitJobs`
+accepts Shader job groups; the material-side cache operation captures inputs and
+registers resource dependencies with the manager.
+
+Semantic edits detach all obsolete resource associations immediately, before
+manual or debounced resubmission. Shared work can continue for other consumers.
+Completion installs only into the resource still associated with that request,
+and checks the captured Shader environment generation. Results do not repeat
+content revisions, target strings or program identities as publication qualifiers.
+Parent changes use ordinary authored invalidation; no parent-chain counter exists.
+Cook validates its captured authored/function inputs and Shader environment,
+independently of preview requests.
+
+The accepted render layer remains visible during replacement compilation.
+Current compilation or installation failure clears that resource's complete
+render layer and publishes ErrorMaterial; cancellation and obsolete completions
+leave installed output intact. The status query derives `Running` from live
+compilation or cooked preparation, and reads program identity from installed
+output. Stored outcomes cannot leave the UI running after the association ends.
+There are no separate Deferred or Rejected outcomes.
+`IsCompilationFinished` observes all pending resource associations for the asset;
+per-FeatureLevel queries observe the selected resource. Installed validity and
+freshness remain independent of the latest attempt outcome. Freshness includes
+content, selected FeatureLevel/Quality and Shader environment; a different pending
+configuration cannot make the old configuration current. A forced compile
+or cancellation can coexist with a current valid program. Global Shader changes
+immediately stale installed programs; demanded resources rebuild eagerly and
+cold resources rebuild on demand. Dynamic instances project their parent resources.
 
 The shared compiling manager accepts queued requests and asset consumers without
 fixed count limits or an aggregate captured-input allowance. Queue memory grows
@@ -732,11 +730,13 @@ and Shader handles. `IsCompiling` and `FinishCompilation` use that owner's share
 end boundary; GameThread result publication remains
 the material lifecycle's separate responsibility.
 Equal identities share one flight and retained immutable result while keeping
-material-local request IDs, content revisions and diagnostics. Aggregate counters retain no asset or
+resource-local request IDs, content revisions and diagnostics. Aggregate counters retain no asset or
 terminal-request history. Aggregate selected finish and advisory cancellation
 filter both material asset classes. Cancellation only withdraws publication and
 propagates cancellation; it never waits for worker retirement. Explicit finish
-operations wait for request ends and asset finish processes publication. Shutdown
+operations on compile handles wait for request ends. Selected asset finish
+processes current resource publication without waiting for detached obsolete
+requests; global finish and shutdown drain all request owners. Shutdown
 closes admission, cancels work, explicitly drains CPU and Shader owners, discards
 the mailbox, and releases retained results before task-system teardown.
 The edit and resource queues each check at most 256 entries per pump. Withdrawing
@@ -798,6 +798,10 @@ preparation can read/decode directly without a scheduler or GameThread completio
 queue. Both modes share decoding, qualification and publication. Background work
 without a running scheduler records `Failed` with a diagnostic rather than
 remaining deferred indefinitely; callers may explicitly retry synchronously.
+Accepted cooked reads can complete after scheduler shutdown. A configuration or
+payload change replaces obsolete preparation with work for the current resource;
+it does not expose an intermediate cancellation as the final outcome. Failed
+resources stop automatic pumping, and an explicit cache request can retry them.
 
 Cook prepares detached Win64 or MacOS Game programs from captured authored
 inputs and never substitutes ErrorMaterial or requires an accepted live render

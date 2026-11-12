@@ -118,8 +118,10 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	ASSERT_TRUE(Durin::SetMaterialQualityLevel(OriginalQuality == Durin::EMaterialQualityLevel::High
 		? Durin::EMaterialQualityLevel::Low : Durin::EMaterialQualityLevel::High));
 	Durin::FShaderCompilingManager::Get().FinishCompilationForObjects(Owners);
-	EXPECT_EQ(Cooked->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Canceled);
-	EXPECT_FALSE(Cooked->GetMaterialCookDiagnostic().empty());
+	EXPECT_EQ(Cooked->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Ready);
+	ASSERT_TRUE(Cooked->GetAcceptedCompiledProgram());
+	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->Quality, Durin::GetMaterialQualityLevel());
+	EXPECT_TRUE(Cooked->GetMaterialCookDiagnostic().empty());
 	ASSERT_TRUE(Durin::SetMaterialQualityLevel(OriginalQuality));
 	Cooked->CacheResourceShadersForRendering();
 	const auto VersionBeforeReplace = Cooked->GetRenderChangeCount();
@@ -131,10 +133,10 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	EXPECT_EQ(Storage.GetMetadata().LogicalSize, SizeBeforeReplace);
 	EXPECT_EQ(Cooked->GetRenderChangeCount(), VersionBeforeReplace);
 	Durin::FShaderCompilingManager::Get().FinishCompilationForObjects(Owners);
-	EXPECT_EQ(Cooked->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Canceled);
-	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram(), nullptr);
-	// Multiple owners exceed the decode admission limit and finish through the
-	// ordinary compiler queue. Repeated cache calls must not duplicate work.
+	EXPECT_EQ(Cooked->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Ready);
+	EXPECT_TRUE(Cooked->GetAcceptedCompiledProgram());
+	// Multiple owners decode through the ordinary task scheduler. Repeated cache
+	// calls reuse the current resource association.
 	std::vector<Durin::TStrongObjectPtr<Durin::DMaterial>> Burst;
 	std::vector<Durin::DObject*> BurstOwners;
 	for (uint32 Index = 0; Index < 24; ++Index)
@@ -158,6 +160,13 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	Cooked->CacheResourceShadersForRendering(Durin::EMaterialShaderPrecompileMode::Synchronous);
 	ASSERT_TRUE(Cooked->IsComplete()) << Cooked->GetMaterialCookDiagnostic();
 	const auto DefaultProgram = Cooked->GetAcceptedCompiledProgram();
+	Durin::TStrongObjectPtr<Durin::DMaterialInstance> RuntimeInstance(
+		Durin::NewObject<Durin::DMaterialInstance>(nullptr, "AdoptedCookedResource", Durin::EObjectFlags::Transient));
+	ASSERT_TRUE(RuntimeInstance->SetParent(Cooked));
+	EXPECT_EQ(RuntimeInstance->GetAcceptedCompiledProgram(), DefaultProgram);
+	RuntimeInstance->CacheResourceShadersForRendering(Durin::EMaterialShaderPrecompileMode::Synchronous);
+	EXPECT_TRUE(RuntimeInstance->IsComplete()) << RuntimeInstance->GetMaterialCookDiagnostic();
+	EXPECT_EQ(RuntimeInstance->GetAcceptedCompiledProgram(), DefaultProgram);
 	Cooked->CacheResourceShadersForRendering(Durin::ERHIFeatureLevel::ES3_1,
 		Durin::EMaterialShaderPrecompileMode::Synchronous);
 	const auto LowProgram = Cooked->GetAcceptedCompiledProgram(Durin::ERHIFeatureLevel::ES3_1);
@@ -183,9 +192,9 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 		Durin::ShutdownTaskSystem(Durin::ETaskShutdownMode::Drain);
 		const std::array<Durin::DObject*, 1> PendingOwners{Pending.Get()};
 		Durin::FShaderCompilingManager::Get().FinishCompilationForObjects(PendingOwners);
-		EXPECT_EQ(Pending->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Failed);
+		EXPECT_EQ(Pending->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Ready);
 		EXPECT_FALSE(Pending->IsCompiling());
-		EXPECT_FALSE(Pending->GetMaterialCookDiagnostic().empty());
+		EXPECT_TRUE(Pending->GetMaterialCookDiagnostic().empty());
 		Durin::TStrongObjectPtr<Durin::DMaterial> Offline(
 			Durin::NewObject<Durin::DMaterial>(nullptr, "OfflineCookedProgram"));
 		const_cast<Durin::FBulkData&>(Offline->GetCookedProgramData()) = SavedCookedData;

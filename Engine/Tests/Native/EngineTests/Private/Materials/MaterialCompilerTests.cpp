@@ -1053,7 +1053,6 @@ TEST(FMaterialProgramOwnershipTests, ShaderMapOwnsCompiledContentAndCachedMapsDo
 	ASSERT_TRUE(First);
 	static_assert(!std::is_same_v<FMaterialProgramCompileHandle, std::shared_ptr<FMaterialShaderMap>>);
 	EXPECT_EQ((Producer)->GetShaderMapId(), First.Program->GetShaderMap().ShaderMapId);
-	EXPECT_NE((Producer)->CompilingId, 0u);
 	const FMaterialShaderMap Copy(First.Program->GetShaderMap());
 	EXPECT_EQ(Copy.CompiledShaders.size(), MaterialCompiledEntryPoints.size());
 	std::vector<FMaterialProgramCompileHandle> Kept{Producer};
@@ -1064,7 +1063,7 @@ TEST(FMaterialProgramOwnershipTests, ShaderMapOwnsCompiledContentAndCachedMapsDo
 		Manager.FinishCompilation(Compile);
 		ASSERT_TRUE(Next); EXPECT_TRUE(Next.RetainedHit);
 		EXPECT_EQ(Next.Program->ShaderMap, First.Program->ShaderMap);
-		EXPECT_NE((Compile)->CompilingId, (Producer)->CompilingId);
+		EXPECT_NE(Compile, Producer);
 		Kept.push_back(Compile);
 	}
 	ASSERT_NE(FMaterialShaderMap::FindId(First.Program->GetShaderMap().ShaderMapId), nullptr);

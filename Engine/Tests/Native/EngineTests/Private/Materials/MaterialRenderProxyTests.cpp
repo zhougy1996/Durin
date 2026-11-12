@@ -1,3 +1,4 @@
+#include "MaterialCompileFailureTestSupport.h"
 #include "MaterialResourceTestSupport.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "Materials/MaterialShaderMap.h"
@@ -1164,19 +1165,9 @@ TEST(FMaterialRenderProxyTests, FailedCompilationPublishesErrorAndRecoveryForEac
 		ASSERT_TRUE(Owner->GetAcceptedCompiledProgram());
 		auto Proxy = Owner->GetRenderProxy();
 		const auto Before = CaptureMaterialProxy(Proxy);
-		const auto Status = Owner->GetMaterialCompileStatus();
-		Durin::FMaterialCompileResult Failed{
-			.Owner = Durin::FWeakObjectPtr(Owner),
-			.AuthoredRevision = Status.AuthoredRevision,
-			.RequestId = Status.RequestId,
-			.DependencyRevision = Status.DependencyRevision,
-			.ProgramIdentity = Status.CompiledIdentity,
-			.Target = Status.Target,
-			.Outcome = Durin::EMaterialCompileOutcome::Failed,
-			.Diagnostics = {{.Message = "Material compile admission was rejected."}}};
-		EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(*Owner, std::move(Failed)));
+		ASSERT_TRUE(Durin::Testing::FailMaterialCompilation(*Owner));
 		EXPECT_FALSE(Owner->GetAcceptedCompiledProgram());
-		EXPECT_EQ(Owner->GetMaterialCompileDiagnostics().front().Message, "Material compile admission was rejected.");
+		EXPECT_FALSE(Owner->GetMaterialCompileDiagnostics().empty());
 
 		const auto Error = CaptureMaterialProxy(Proxy);
 		EXPECT_GT(Error.PublicationCount, Before.PublicationCount);
@@ -1195,7 +1186,6 @@ TEST(FMaterialRenderProxyTests, FailedCompilationPublishesErrorAndRecoveryForEac
 
 		const auto CompilerEnvironmentResult = Durin::BuildDefaultMaterialCompilerEnvironment(InvalidInput.Environment);
 		ASSERT_TRUE(CompilerEnvironmentResult) << CompilerEnvironmentResult.error();
-		Durin::Private::FMaterialCompilationLifecycle::BeginRequest(*Owner);
 		EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Submit(*Owner, std::move(InvalidInput), false));
 		EXPECT_EQ(Owner->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Failed);
 		ExpectRenderDataMatches(CaptureMaterialProxy(Proxy).RenderData, Durin::GetErrorMaterialRenderData());
@@ -1203,17 +1193,7 @@ TEST(FMaterialRenderProxyTests, FailedCompilationPublishesErrorAndRecoveryForEac
 		Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 		const auto Ready = Owner->GetMaterialCompileStatus();
 		ASSERT_TRUE(Ready.IsCurrent());
-		Durin::FMaterialCompileResult Rejected{
-			.Owner = Durin::FWeakObjectPtr(Owner),
-			.AuthoredRevision = Ready.AuthoredRevision,
-			.RequestId = Ready.RequestId,
-			.DependencyRevision = Ready.DependencyRevision,
-			.ProgramIdentity = Ready.CompiledIdentity,
-			.Target = Ready.Target,
-			.Outcome = Durin::EMaterialCompileOutcome::Succeeded};
-		EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(*Owner, std::move(Rejected)));
-		EXPECT_EQ(Owner->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Rejected);
-		ExpectRenderDataMatches(CaptureMaterialProxy(Proxy).RenderData, Durin::GetErrorMaterialRenderData());
+
 		Durin::ReleaseMaterialRenderProxy_GameThread(std::move(Proxy));
 	}
 	Durin::MarkAsGarbage(Instance);

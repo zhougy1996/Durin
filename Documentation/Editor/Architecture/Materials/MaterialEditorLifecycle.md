@@ -46,8 +46,10 @@ copy's Engine edit policy. Automatic edits wait for a
 400 ms quiet period before compiler-input construction. Each subsequent semantic
 edit restarts the deadline. Switching to manual removes scheduled submission;
 switching back schedules any unsubmitted edits. Withdrawing an edit deadline
-does not deregister a FeatureLevel preparation already in progress. Compile immediately submits the
-working material through ordinary cache reuse. Cancel Compile cancels its pending
+does not deregister a FeatureLevel preparation already in progress. Semantic edits immediately detach obsolete default and FeatureLevel compile
+associations while retaining installed previews. Compile submits the
+working material through ordinary cache reuse. Running indicators derive from
+live resource associations rather than a stored execution enum. Cancel Compile cancels its pending
 work and pending Apply intent without blocking for worker retirement. Engine pumps automatic deadlines even for hidden
 documents. Closing the document cancels compilation and retires the working copy.
 Reopening or package replacement creates a fresh working copy with the preference.

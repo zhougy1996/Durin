@@ -10,6 +10,7 @@ namespace Durin
 {
 	class FObjectCacheContext;
 	class DMaterialInterface;
+	struct FMaterialCompilationResource;
 
 	enum class EMaterialShaderPrecompileMode : uint8
 	{
@@ -27,16 +28,14 @@ namespace Durin
 		Manual,
 	};
 
-	// Execution status of the latest request; authored edits and deadlines are independent.
+	// Query projection: Running comes from the live resource association, other values are outcomes.
 	enum class EMaterialCompileState : uint8
 	{
 		NeverRequested,
-		Deferred,
 		Running,
 		Ready,
 		Failed,
 		Canceled,
-		Rejected,
 	};
 
 	enum class EMaterialCompileCacheOutcome : uint8
@@ -50,31 +49,26 @@ namespace Durin
 
 	enum class EMaterialCompileOutcome : uint8 { Succeeded, Failed, Canceled };
 
-	// Immutable snapshot captured on GameThread before Worker admission.
+	// Detached input plus resource association captured on GameThread before dispatch.
 	struct FMaterialCompileRequest
 	{
-		FWeakObjectPtr Owner;
-		uint64 AuthoredRevision = 0;
+		std::shared_ptr<FMaterialCompilationResource> Resource;
 		uint64 RequestId = 0;
-		uint64 DependencyRevision = 0;
+		uint64 ShaderRevision = 0;
 		std::shared_ptr<const MIR::FCompilerInput> CompilerInput;
 		bool bForceRecompile = false;
 		bool bSingleFlightConsumer = false;
 	};
 
-	// Value-owned Worker result admitted only after all owner-generation qualifiers match.
+	// Manager completion handoff; only the still-associated resource may install it.
 	struct FMaterialCompileResult
 	{
-		FWeakObjectPtr Owner;
-		uint64 AuthoredRevision = 0;
+		std::shared_ptr<FMaterialCompilationResource> Resource;
 		uint64 RequestId = 0;
-		uint64 DependencyRevision = 0;
-		FMaterialProgramIdentity ProgramIdentity;
+		uint64 ShaderRevision = 0;
 		FMaterialStaticProperties StaticProperties;
-		std::string Target;
 		EMaterialCompileOutcome Outcome = EMaterialCompileOutcome::Failed;
-		EMaterialCompileCacheOutcome CacheOutcome =
-			EMaterialCompileCacheOutcome::None;
+		EMaterialCompileCacheOutcome CacheOutcome = EMaterialCompileCacheOutcome::None;
 		std::shared_ptr<const FMaterialCompilerResult> CompiledProgram;
 		std::vector<MIR::FSource> ExpressionSources;
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;
@@ -90,7 +84,6 @@ namespace Durin
 		bool bDependenciesCurrent = true;
 		bool bHasScheduledEdits = false;
 		uint64 RequestId = 0;
-		uint64 DependencyRevision = 0;
 		EMaterialCompileState State = EMaterialCompileState::NeverRequested;
 		EMaterialCompileCacheOutcome CacheOutcome =
 			EMaterialCompileCacheOutcome::None;
@@ -168,13 +161,14 @@ namespace Durin
 	{
 		struct FMaterialCompilationLifecycle
 		{
-			ENGINE_API static auto BeginRequest(DMaterialInterface& Material) -> void;
+			ENGINE_API static auto Invalidate(DMaterialInterface& Material) -> void;
 			// Coalesces edits before compiler-input construction, using the root's policy.
 			ENGINE_API static auto ScheduleEdit(DMaterialInterface& Material, FObjectCacheContext* Context = nullptr) -> void;
 			ENGINE_API static auto Submit(
 				DMaterialInterface& Material,
 				MIR::FCompilerInput Input,
-				bool bForceRecompile, FObjectCacheContext* Context = nullptr) -> bool;
+				bool bForceRecompile, FObjectCacheContext* Context = nullptr,
+				std::shared_ptr<FMaterialCompilationResource> Resource = {}) -> bool;
 			ENGINE_API static auto Admit(
 				DMaterialInterface& Material,
 				FMaterialCompileResult Result, FObjectCacheContext* Context = nullptr) -> bool;
@@ -182,6 +176,9 @@ namespace Durin
 			ENGINE_API static auto SubmitScheduledEdit(DMaterialInterface& Material) -> void;
 			ENGINE_API static auto RequestCurrent(
 				DMaterialInterface& Material, bool bForceRecompile, FObjectCacheContext* Context = nullptr) -> bool;
+		private:
+			friend class Durin::DMaterialInterface;
+			static auto ResetRequest(DMaterialInterface& Material, const std::shared_ptr<FMaterialCompilationResource>& Resource) -> void;
 		};
 	}
 }
