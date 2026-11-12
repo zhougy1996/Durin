@@ -14,7 +14,10 @@ namespace Durin
 		bool bError = false;
 		uint64 RecordId = 0;
 		uint64 ContentHash = 0;
+		std::shared_ptr<FUniformExpressionCache> UniformExpressionCache = std::make_shared<FUniformExpressionCache>();
 	};
+	auto FMaterialRenderRepresentation::GetUniformExpressionCache() const -> std::shared_ptr<FUniformExpressionCache>
+	{ return Storage->UniformExpressionCache; }
 	namespace
 	{
 		auto SetValidationFailure(FMaterialRenderValidationDiagnostic& OutDiagnostic,

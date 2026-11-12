@@ -4,6 +4,7 @@
 
 #include "Rendering/SplineMeshSceneProxy.h"
 #include "VertexFactory.h"
+#include "UniformBuffer.h"
 
 namespace Durin
 {
@@ -34,5 +35,7 @@ namespace Durin
 			return FXxHash64::HashBuffer("SplineMeshBinding.v1");
 		}
 		FSplineMeshRenderDynamicData DynamicData;
+		// RHI state is initialized on RenderThread when this binding is prepared.
+		mutable std::shared_ptr<FUniformBuffer> UniformBuffer;
 	};
 }

@@ -9,11 +9,10 @@
 #include "RendererAPI.h"
 #include "RHICommandList.h"
 #include "RHIResources.h"
-#include "VertexFactory.h"
 
 namespace Durin
 {
-	namespace RendererPrivate { class FMeshVertexShaderBinding; class FCompiledSurfaceBindingLayout; class FPreparedSurfaceMaterialBindings; struct FMeshPassPipeline; }
+	namespace RendererPrivate { struct FMeshPassPipeline; }
 	struct FGBufferPipeline;
 	class FRendererResourceCoordinator;
 	class FRHICommandListImmediate;
@@ -95,16 +94,7 @@ namespace Durin
 			-> std::shared_ptr<const FPipeline>;
 		static auto GetPipelineResources(const std::shared_ptr<const FPipeline>& Pipeline)
 			-> std::shared_ptr<const RendererPrivate::FMeshPassPipeline>;
-		auto GetVertexBinding(const FPipeline& Pipeline, const FVertexFactoryBinding& Binding) const
-			-> std::shared_ptr<const RendererPrivate::FMeshVertexShaderBinding>;
-		auto GetFragmentShader(const FPipeline& Pipeline) const -> FRHIShader*;
-		auto GetSurfaceLayout(const FPipeline& Pipeline) const -> const RendererPrivate::FCompiledSurfaceBindingLayout&;
-		auto BindPipeline_RenderThread(
-			FRHICommandListImmediate& CommandList,
-			const FPipeline& Pipeline,
-			const std::shared_ptr<const FRHIShaderParameterBatch>& VertexBindings,
-			const RendererPrivate::FPreparedSurfaceMaterialBindings& FragmentBindings) -> bool;
-			auto ReleaseResources_RenderThread() -> void;
+		auto ReleaseResources_RenderThread() -> void;
 		auto EnsureGPUCullingResources_RenderThread(EGPUCullingFailure Failure = EGPUCullingFailure::None) -> bool;
 		auto DispatchGPUCulling_RenderThread(
 			FRHICommandListImmediate& CommandList,

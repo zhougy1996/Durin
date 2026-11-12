@@ -117,8 +117,7 @@ namespace Durin
 		struct FResolvedSurfaceMaterial
 		{
 			bool bCompiledLayout = false;
-			FMaterialRenderBinding PublishedBinding;
-			FByteView CompiledUniformPayload;
+			bool bError = false;
 			std::vector<FRHITexture*> CompiledTextures;
 			std::vector<FRHISampler*> CompiledSamplers;
 			FRHITexture* EnvironmentIrradiance = nullptr;
@@ -150,22 +149,17 @@ namespace Durin
 			}
 		};
 
-		// Prepared before recording; retains every resource referenced by the span.
-		class FPreparedSurfaceMaterialBindings
+		// Non-owning shader bindings. Sources outlive recording; RHI commands copy their payload.
+		struct FMeshDrawShaderBindings
 		{
-		public:
-			auto GetShader() const -> FRHIShader* { return Batch ? Batch->GetShader() : nullptr; }
-			auto GetResources() const -> std::span<const FRHIShaderParameterResource>
-			{
-				return Batch ? Batch->GetParameters() : std::span<const FRHIShaderParameterResource>{};
-			}
-			RENDERER_API auto Bind(FRHICommandList& CommandList) const -> bool;
-		private:
-			friend RENDERER_API auto PrepareCompiledSurfaceMaterial(FRHIShader*, const FCompiledSurfaceBindingLayout&,
-				const FResolvedSurfaceMaterial&, const FRHIUniformBufferRange&, const FRHIUniformBufferRange&,
-				const FRHIUniformBufferRange&, const FRHIUniformBufferRange&, const FRHIUniformBufferRange&,
-				std::span<const FRHIUniformBufferRange>, FPreparedSurfaceMaterialBindings&, FRHIStorageBufferRange) -> bool;
-			std::shared_ptr<const FRHIShaderParameterBatch> Batch;
+			FRHIShader* Shader = nullptr;
+			std::vector<FRHIShaderParameterResource> Parameters;
+			FMeshDrawShaderBindings() = default;
+			auto GetShader() const -> FRHIShader* { return Shader; }
+			auto GetResources() const -> std::span<const FRHIShaderParameterResource> { return Parameters; }
+			RENDERER_API auto Bind(FRHICommandList& Commands) const -> bool;
+			RENDERER_API auto operator==(const FMeshDrawShaderBindings& Other) const -> bool;
+			explicit operator bool() const { return Shader != nullptr; }
 		};
 
 		RENDERER_API auto PrepareCompiledSurfaceMaterial(
@@ -177,7 +171,7 @@ namespace Durin
 			const FRHIUniformBufferRange& View,
 			const FRHIUniformBufferRange& Primitive,
 			std::span<const FRHIUniformBufferRange> Collections,
-			FPreparedSurfaceMaterialBindings& OutBindings, FRHIStorageBufferRange LocalLights = {}) -> bool;
+			FMeshDrawShaderBindings& OutBindings, FRHIStorageBufferRange LocalLights = {}) -> bool;
 		RENDERER_API auto PrepareCompiledSurfaceMaterial(
 			FRHIShader* Shader, const FCompiledSurfaceBindingLayout& Layout,
 			const FResolvedSurfaceMaterial& Material,
@@ -186,7 +180,7 @@ namespace Durin
 			const FRHIUniformBufferRange& HitProxy,
 			const FRHIUniformBufferRange& View,
 			const FRHIUniformBufferRange& Primitive,
-			FPreparedSurfaceMaterialBindings& OutBindings) -> bool;
+			FMeshDrawShaderBindings& OutBindings) -> bool;
 
 		class FSurfaceMaterialResources final
 		{
@@ -215,7 +209,7 @@ namespace Durin
 				FRHITexture* DirectionalShadowTexture, FRHISampler* DirectionalShadowSampler,
 				FPreparedSurfaceMaterial& OutMaterial, const FRHIUniformBufferRange& SharedUniform = {}) const -> bool;
 			auto ReleaseResources_RenderThread() -> void;
-			auto AreStableResourcesCurrent_RenderThread(const FResolvedSurfaceMaterial& Material) const -> bool;
+			auto AreStableResourcesCurrent_RenderThread(const FResolvedSurfaceMaterial& Material, const FMaterialRenderRepresentation& Representation) const -> bool;
 			auto RefreshPassResources_RenderThread(ESurfaceMaterialPass Pass,
 				const std::shared_ptr<const FSkyLightingGeneration>& Environment,
 				FRHITexture* DirectionalShadowTexture, FRHISampler* DirectionalShadowSampler,

@@ -146,40 +146,21 @@ namespace Durin
 
 
 	class FRHIShaderParameterBatch;
-	namespace RendererPrivate { class FPreparedSurfaceMaterialBindings; struct FMeshDrawCommand; struct FMeshPassPipeline; class FDynamicMeshDrawCommandStorage; }
+	namespace RendererPrivate { struct FMeshDrawShaderBindings; struct FMeshDrawCommand; struct FMeshPassPipeline; class FDynamicMeshDrawCommandStorage; }
 
 	// Local to one uninterrupted mesh recording span. Callers reset at pass
 	// boundaries or before any foreign pipeline/parameter commands.
 	struct FMeshDrawCommandStateCache
 	{
-		const void* PrimitiveSnapshot = nullptr;
-		const void* MaterialSnapshot = nullptr;
-		const void* CollectionSnapshot = nullptr;
-		// Retain the bound resources while their addresses are used as cache keys.
-		std::shared_ptr<const RendererPrivate::FMeshPassPipeline> PipelineOwner;
-		std::shared_ptr<const FRHIShaderParameterBatch> VertexOwner;
-		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> FragmentOwner;
-		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> VertexPass;
-		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> FragmentPass;
+		// Borrow binding values from stable frame/command storage until recording ends.
+		const void* VertexPass = nullptr;
+		const void* FragmentPass = nullptr;
 		const void* Pipeline = nullptr;
 		const void* Vertex = nullptr;
 		const void* Fragment = nullptr;
-		auto Matches(const void* InPipeline, const void* InVertex, const void* InFragment) const -> bool
-		{
-			return InPipeline && InVertex && Pipeline == InPipeline
-				&& Vertex == InVertex && Fragment == InFragment;
-		}
 		auto Set(const void* InPipeline, const void* InVertex, const void* InFragment) -> void
 		{
 			Pipeline = InPipeline; Vertex = InVertex; Fragment = InFragment;
-		}
-		template<typename TBind>
-		auto Apply(const void* InPipeline, const void* InVertex, const void* InFragment, TBind&& Bind) -> bool
-		{
-			if (Matches(InPipeline, InVertex, InFragment)) return true;
-			if (!Bind()) { *this = {}; return false; }
-			Set(InPipeline, InVertex, InFragment);
-			return true;
 		}
 	};
 

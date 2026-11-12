@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "UniformBuffer.h"
 
 #include "RendererAPI.h"
 #include "Resources/EnvironmentLightingResources.h"
@@ -32,7 +33,6 @@ namespace Durin
 		FVolumetricCloudSceneProxyDesc Desc;
 	};
 
-	struct FSceneUniformBufferOwner final {};
 	class FScene : public FSceneInterface
 	{
 	public:
@@ -59,7 +59,7 @@ namespace Durin
 		RENDERER_API auto UpdateSkyLighting() -> void override;
 		std::shared_ptr<FSkyLightingSceneState> SkyLighting = std::make_shared<FSkyLightingSceneState>();
 		// Stable world identity; renderer resource caches own native allocations.
-		const std::shared_ptr<const FSceneUniformBufferOwner> UniformBufferOwner = std::make_shared<const FSceneUniformBufferOwner>();
+		std::unordered_map<FGuid, std::shared_ptr<FUniformBuffer>> ParameterCollectionUniformBuffers;
 		RENDERER_API auto Release() -> void override;
 		RENDERER_API auto UpdatePrimitiveTransform(FPrimitiveComponentId PrimitiveId, const FMatrix& Transform) -> void override;
 		RENDERER_API auto UpdatePrimitiveVisibility(FPrimitiveComponentId PrimitiveId, bool bVisible) -> void override;

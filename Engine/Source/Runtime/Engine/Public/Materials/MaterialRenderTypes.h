@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "UniformBuffer.h"
 
 #include "Materials/MaterialTypes.h"
 #include "Materials/MaterialCompiledLayout.h"
@@ -27,6 +28,7 @@ namespace Durin
 	// Immutable after construction; no reflected object or raw resource pointer
 	// is retained in the published representation.
 	struct FMaterialRenderBinding;
+	struct FUniformExpressionCache;
 	class FMaterialRenderRepresentation;
 	ENGINE_API auto TryGetMaterialRenderBinding(const FMaterialRenderRepresentation&,
 		FMaterialRenderBinding&, FMaterialRenderValidationDiagnostic&) -> bool;
@@ -51,6 +53,7 @@ namespace Durin
 		ENGINE_API auto GetSamplers() const -> std::span<const FMaterialSamplerState>;
 		ENGINE_API auto GetTextureFallbacks() const -> std::span<const EMaterialTextureFallback>;
 		ENGINE_API auto GetRecordId() const -> uint64;
+		ENGINE_API auto GetUniformExpressionCache() const -> std::shared_ptr<FUniformExpressionCache>;
 		ENGINE_API auto GetContentHash() const -> uint64;
 
 	private:
@@ -148,11 +151,28 @@ namespace Durin
 		auto operator==(const FMaterialPlanningPassIdentity&) const -> bool = default;
 	};
 
-	struct FMaterialUniformBufferOwner final {};
+	struct FUniformExpressionCache
+	{
+		std::shared_ptr<FUniformBuffer> UniformBuffer = FUniformBuffer::Create();
+		auto InvalidateUniformExpressionCache() -> void { CachedRepresentation = 0; ParameterCollections.clear(); }
+		auto ReleaseRHI() -> void
+		{
+			UniformBuffer->ReleaseRHI();
+			for (const auto& [Key, Buffer] : ParameterCollections) Buffer->ReleaseRHI();
+			InvalidateUniformExpressionCache();
+		}
+		ENGINE_API auto UpdateUniformBuffer(FRHICommandListBase& Commands, const FMaterialRenderRepresentation& Material)
+			-> bool;
+		ENGINE_API auto GetParameterCollectionUniformBuffer(const std::shared_ptr<const FMaterialCompilerResult>& Program,
+			FGuid Collection) -> FUniformBuffer&;
+	private:
+		uint64 CachedRepresentation = 0;
+		std::map<std::pair<std::shared_ptr<const FMaterialCompilerResult>, FGuid>, std::shared_ptr<FUniformBuffer>> ParameterCollections;
+	};
 	struct FMaterialRenderData
 	{
-		// Proxy-owned stable binding identity; independent values leave it empty.
-		std::shared_ptr<const FMaterialUniformBufferOwner> UniformBufferOwner;
+		// Actual proxy-owned expression cache; independent values use their representation cache.
+		std::shared_ptr<FUniformExpressionCache> UniformExpressionCache;
 		FMaterialRenderRepresentation Representation;
 		std::shared_ptr<const FMaterialCompilerResult> CompiledProgram;
 		FMaterialPlanningPassIdentity PlanningPassIdentity{

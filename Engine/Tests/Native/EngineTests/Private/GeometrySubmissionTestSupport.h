@@ -16,6 +16,7 @@ namespace Durin::Tests
 	class FProceduralBinding final : public FVertexFactoryInputBinding
 	{
 	public:
+		std::shared_ptr<FUniformBuffer> DeformationUniform = FUniformBuffer::Create();
 		bool bCustom = false;
 		bool bForwardOnly = false;
 		FVector4f DisplacementScale{0.0f, 0.0f, 0.0f, 1.0f};
@@ -193,14 +194,15 @@ namespace Durin::Tests
 		auto GetReflection() const -> const FShaderReflectionData* override { return Shader ? &Shader.GetShader()->GetReflection() : nullptr; }
 		auto GetRHIShader(bool bRequired) const -> FRHIShader* override { return Shader.GetRHIShader(bRequired); }
 		auto Prepare(FRHICommandListImmediate& CommandList, const FRHIUniformBufferRange& Transform,
-			const FVertexFactoryBinding& Binding) const -> std::shared_ptr<const FRHIShaderParameterBatch> override
+			const FVertexFactoryBinding& Binding) const -> RendererPrivate::FMeshDrawShaderBindings override
 		{
 			EXPECT_FALSE(CommandList.IsInsideRenderPass());
 			const auto* Typed = dynamic_cast<const FProceduralBinding*>(&Binding);
 			if (!Typed || !Typed->bCustom) return {};
 			FQualificationVertexShader::FParameters Parameters;
 			Parameters.Transform = Transform;
-			Parameters.Deformation = CommandList.CreateUniformBufferRange(&Typed->DisplacementScale, sizeof(Typed->DisplacementScale));
+			if (!Typed->DeformationUniform->Update(CommandList, std::as_bytes(std::span(&Typed->DisplacementScale, 1)))) return {};
+			Parameters.Deformation = Typed->DeformationUniform->GetRange();
 			return RendererPrivate::PrepareMeshVertexFactoryParameters(Shader, Parameters);
 		}
 	private:

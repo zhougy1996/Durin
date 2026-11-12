@@ -30,8 +30,7 @@ namespace Durin
 			auto Plan = std::make_shared<FGBufferGPUCullingPlan>();
 			Plan->ArgumentByResolvedDraw.assign(Resolved.Draws.size(),
 				FGBufferGPUCullingPlan::InvalidArgument);
-			using FGroupKey = std::tuple<const void*, const void*, const void*,
-				const void*>;
+			using FGroupKey = std::tuple<const void*, const void*, const void*>;
 			struct FPendingCandidate final
 			{
 				const FPreparedStaticMeshDraw* Draw = nullptr;
@@ -39,7 +38,7 @@ namespace Durin
 				FVector3f BoundsMin{};
 				FVector3f BoundsMax{};
 			};
-			std::map<FGroupKey, size_t> GroupByKey;
+			std::map<FGroupKey, std::vector<size_t>> GroupByKey;
 			std::vector<std::vector<FPendingCandidate>> Groups;
 			for (const auto* Bucket : {&Prepared.Opaque, &Prepared.Masked})
 			for (const FPreparedStaticMeshDraw& Draw : *Bucket)
@@ -74,15 +73,16 @@ namespace Durin
 				if (!Command || !Command->Pipeline || !Command->FragmentBindings
 					|| !Primitive->CollectedBinding)
 				{ ++Diagnostics.PreparationUnavailableCandidates; continue; }
-				const FGroupKey Key{Draw.Command.get(),
-					Primitive->CollectedBinding.get(),
-					Command->Pipeline.get(),
-					Command->FragmentBindings.get()};
-				auto [GroupIt, bInserted] = GroupByKey.try_emplace(
-					Key, Groups.size());
-				if (bInserted) Groups.emplace_back();
-				Groups[GroupIt->second].push_back(
-					{&Draw, Primitive, BoundsMin, BoundsMax});
+				const FGroupKey Key{Draw.Command.get(), Primitive->CollectedBinding.get(), Command->Pipeline};
+				auto& Variants = GroupByKey[Key];
+				const auto Found = std::ranges::find_if(Variants, [&](size_t Index) {
+					const auto Other = Resolved.GetMeshDrawCommand(*Groups[Index].front().Draw, {RendererPrivate::EMeshPipelinePass::GBuffer, true});
+					return Other && Other->FragmentBindings == Command->FragmentBindings;
+				});
+				size_t GroupIndex;
+				if (Found == Variants.end()) { GroupIndex = Groups.size(); Variants.push_back(GroupIndex); Groups.emplace_back(); }
+				else GroupIndex = *Found;
+				Groups[GroupIndex].push_back({&Draw, Primitive, BoundsMin, BoundsMax});
 			}
 
 			constexpr size_t PerCandidateBytes =

@@ -11,6 +11,7 @@
 
 namespace Durin
 {
+	namespace RendererPrivate { class FPrimitiveDrawResources; }
 	class FSplineMeshSceneProxy;
 	struct FSplineMeshRenderDynamicData;
 
@@ -24,6 +25,7 @@ namespace Durin
 			const FMatrix& InTransform);
 
 		auto GetId() const -> FPrimitiveComponentId { return Id; }
+		std::shared_ptr<RendererPrivate::FPrimitiveDrawResources> DrawResources;
 		auto GetKind() const -> EPrimitiveSceneProxyKind { return Kind; }
 		auto GetTransform() const -> const FMatrix& { return Transform; }
 		auto GetLocalBounds() const -> const FBox& { return LocalBounds; }

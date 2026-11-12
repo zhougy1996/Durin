@@ -58,9 +58,10 @@ partial facts and retries inline, draining all launched work before returning.
 an immutable `FCollectedStaticMeshView`. It owns primitive IDs and classification,
 projection fallback facts, collection outcomes, admitted batch values, and the
 view matrices/policy consumed by preparation. It does not retain scene-info or
-proxy pointers. `PrepareCollectedStaticMeshView_RenderThread` can replay those
-values after source destruction or geometry republication. The ordinary view
-entrypoint composes collection and replay. Collection also captures the canonical
+proxy pointers. Collection and preparation are valid only within their captured render frame.
+Source resource ownership is borrowed through weak primitive references; source
+removal rejects the affected preparation even if its CPU facts remain allocated.
+The ordinary view entrypoint composes collection and preparation. Collection also captures the canonical
 input binding, factory/layout compatibility, per-element pass support and dynamic
 input-validation outcome. Replay performs no factory registry lookup or virtual
 capability calls and does not repeat geometry input validation. Published geometry
@@ -183,55 +184,56 @@ geometry, primitive, batch, LOD and section order, with translucent depth first.
 Cascade raster-bias magnitudes remain dynamic draw state and do not enter the
 pipeline-cache identity or mutate templates shared with another view.
 
-Final cached mesh commands retain validated geometry and stable shader bindings.
-`FVisibleMeshDrawCommand` borrows a stable command, shared `FMeshPassBindings`,
-selected uniform snapshots and optional raster bias. Submission storage retains
-one owner per distinct dependency; visible records contain no stream arrays or
-material copies. Dynamic/HitProxy commands and graph-local GPU indirect overrides
-keep their transactional command construction path.
+`FMeshDrawCommand` directly stores draw parameters, raw vertex/index buffers,
+borrowed pipeline/input pointers and value `FMeshDrawShaderBindings`. There is no
+intermediate owning command packet. Shader bindings contain a shader pointer and
+resource parameter values; they own neither RHI resources nor resource views.
+Cache storage and visible submission storage retain command memory only. Weak
+source and pipeline references reject removed primitives and evicted pipelines.
+`FVisibleMeshDrawCommand` borrows command memory, frame pass bindings and raster
+bias. Dynamic/HitProxy and graph-local indirect commands use the same draw value.
 
-Primitive and proxy-published material uniforms have stable logical RHI objects.
-The proxy-owned `UniformBufferOwner` identifies the stable binding; immutable representation RecordIds
-continue to identify particular values. Uniform grouping preserves publisher identity
-even when two publishers have equal numeric payloads. Unowned material values (without a `UniformBufferOwner`)
-remain independent immutable publications. Both forms use the same logical Uniform
-and immutable-content snapshot preparation path. Final cache keys use immutable geometry,
-section, primitive/batch, pass, pipeline and material publisher identity rather
-than a description address that changes on numeric publication. Binding structure
-changes are checked once per distinct retained material packet during resource
-resolution; selection is carried to binding preparation instead of repeating the
-lookup and dependency scan. Unchanged cached draws bypass mesh-pass processing.
+`FMaterialRenderProxy` is a render resource and owns an actual
+`FUniformExpressionCache`. That cache owns `FUniformBuffer`, not an empty owner
+identity. Standalone immutable material representations own their own expression
+cache. Primitive scene information owns primitive uniform resources; Scene owns
+live Collection uniform resources. Missing Collection defaults live in the
+material expression cache, keyed by immutable compiled program and Collection
+GUID. Renderer no longer maintains reverse owner-to-uniform allocation maps.
+Uniform grouping preserves publisher identity even for equal numeric payloads.
+Immutable representation RecordIds identify particular values only.
 
-Live Collection bindings are isolated by an owning Scene identity. Renderer caches
-own their logical allocations, so existing generation reset/resource release drops
-the allocations; retained submissions may finish independently. Live values and
-missing-Collection defaults use the same snapshot path. The typed cache key retains
-the Scene owner for live values or the immutable compiled-program owner for defaults,
-plus the Collection GUID. Different programs may provide different defaults for the
-same GUID; no raw-address encoding, payload hash or repeated default-payload comparison
-is needed to distinguish them. Live snapshots are still checked against the required
-schema before use. Numeric updates preserve the logical binding, while schema/size
-or native resource replacements require binding refresh.
+Uniform resources retain only current CPU contents and the logical RHI buffer.
+`UpdateUniformBuffer` records equal-size updates before the consuming draws. Numeric publications reuse logical bindings;
+size/schema or native-resource replacement refreshes affected bindings. Final
+cache keys use geometry, section, primitive/batch, pass, pipeline and actual
+material cache identity. Structure checks run once per distinct material binding;
+unchanged cached draws bypass mesh-pass processing. Resource release uses the
+existing render-resource registry and ordered cleanup. See
+[Render Resource Lifecycle](RenderResourceLifecycle.md#source-owned-draw-resources).
 
-### Required snapshot and invalidation contracts
+### Required recording and invalidation contracts
 
-- Preparation selects immutable uniform contents. Recording captures those owners;
-  only ordered RHI replay changes logical Uniform contents. Binding selects the
-  resulting physical allocation, so later updates cannot overwrite earlier draws.
-  Replay skips physical uploads when the same contents are already selected.
-- Texture references can replace native textures without replacing a material
-  publication. Resource resolution therefore retains a current-resource check per
-  distinct material packet; publication identity alone cannot prove freshness.
-- Collection versions are world-local, and program defaults can differ for the
-  same GUID. Scene ownership and immutable program ownership remain separate
-  authorities. No global dependency registry, payload-hash identity or world-local
-  version comparison is used as a substitute for ownership.
-- Cache eviction may replace a logical Uniform object. Such binding replacement,
-  shader/device generation, geometry publication and material binding structure
-  still invalidate selected stable commands. Numeric values alone do not.
-- Visible pointers borrow submission storage, which must outlive recording jobs.
-  Recorded RHI payloads retain resources through replay/GPU retirement. Cache
-  eviction and source destruction cannot invalidate an admitted submission.
+- Preparation and command handles are frame-local. Source mutation, resource
+  replacement and release must follow completion of CPU preparation and recording
+  tasks. Production view rendering joins those tasks before returning to the
+  render-command stream. A captured CPU fact set is not a historical submission.
+- Persistent material, primitive and Collection buffers update in command order
+  before their draws. Each source has one current value throughout a preparation/
+  recording scope; independent historical or per-view values require separate
+  resources. View/pass uniforms have separate frame owners. Recording
+  never restores historical Uniform contents and never uploads them per draw.
+- RHI commands copy update/parameter payloads and retain resources through replay;
+  the backend retains physical allocations through GPU retirement. This lifetime
+  starts at recording and does not make cached draw descriptions resource owners.
+- Vertex-factory deformation buffers belong to their factory input binding;
+  HitProxy request storage owns its temporary pipelines and Collection buffers.
+  Binding construction cannot transfer temporary resource ownership to a draw.
+- Texture references can replace native textures independently of material
+  publication. Resource resolution checks current native resources before reuse.
+  Buffer replacement, shader/device generation, geometry publication and binding
+  structure changes invalidate affected commands; numeric values alone do not.
+
 
 Recording shares a complete binding group across adjacent compatible draws.
 The group identifies the retained pipeline, vertex batch and fragment batch;
@@ -308,8 +310,8 @@ Repeated material publications are identified by immutable record IDs; unchanged
 IDs bypass content comparison, and content hashes are computed at publication.
 Distinct IDs still undergo exact comparison when entering a submission's uniform
 groups, preserving deduplication of independently published equal materials.
-Prepared bindings and resolved surface uniform views retain the immutable material
-publication instead of copying its arrays or revalidating its layout per section.
+Prepared draw descriptions retain immutable material publications; shader bindings
+borrow their resources within the recording scope without owning a publication.
 Sort keys retain that publication too; identical IDs compare immediately and
 distinct publications preserve byte-wise uniform ordering without payload copies.
 After draw sorting, a separate dense material-group schedule assigns uniform
@@ -319,28 +321,25 @@ recording reads these arrays directly, without lazy uniform-cache searches.
 
 Local geometry with Collection-backed materials participates in the persistent
 mesh-command cache. Before probing a command, preparation validates every current
-world Collection schema and resolves immutable uniform ranges. Snapshot identity
-is retained with each cached allocation; world-local version numbers never key
-cross-world reuse. Missing world snapshots use schema-and-value-checked defaults,
-without retaining an entire compiler result just to cache fallback values.
-Default allocations key by content hash with exact schema/value collision checks,
-so retained programs with different defaults can coexist without rebinding each
-other's unchanged frames.
+world Collection schema and resolves stable uniform ranges. World-local versions
+never key cross-world reuse. Missing world snapshots use schema-checked compiled defaults. Default
+resources belong to the material expression cache, keyed by the immutable program
+and Collection GUID, so programs with different defaults remain independent.
 
 Uniform grouping additionally compares the exact ordered Collection contracts and
 defaults. Equal local uniforms/textures alone cannot merge materials that bind
 different Collections. Collection-free materials retain the existing fast group
 lookup, and splitting groups never changes translucent draw ordering.
 
-An unchanged snapshot reuses its range and stable material bindings. A changed
-snapshot allocates new storage; the cached geometry/pipeline record still counts
-as a command hit, while material-set vertex/fragment binding packets are rebuilt
-against the new ranges. Existing packets retain old allocations through counted
-owners until their consumers retire. Pass/view bindings remain submission-local.
-Generation changes clear these caches, existing texture-readiness checks still
-guard hits, and the Collection allocation cache shares the 512-entry bounded
-retention policy. Surface preparation and binding-batch counters distinguish full
-binding reuse from a command hit that refreshes Collection bindings.
+Unchanged contents reuse the source buffer without recording an update. Equal-size
+numeric changes record one ordered update per source value change; buffer
+replacement rebuilds affected bindings. Pass/view uniforms remain frame-owned.
+The command cache has a 2048-entry metadata budget; it cannot retain obsolete
+resource packets. Primitive buffers belong to their source batch slots; instance updates release
+slots for removed IDs. Material
+default slots clear when the accepted program changes. Surface preparation and
+binding counters distinguish full reuse from binding refresh.
+
 
 Mesh material descriptor set 0 contains view/pass controls and lighting resources;
 set 1 contains primitive transforms, deformation, material parameters/textures,

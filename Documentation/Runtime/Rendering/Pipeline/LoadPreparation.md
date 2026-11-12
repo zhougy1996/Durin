@@ -4,7 +4,7 @@ Summary: Prepare cooked material programs and exact scene Shader/PSO resources b
 
 Modules: Engine, RenderCore, Renderer, DurinEd, LevelEditor
 
-Last reviewed: 2026-11-11
+Last reviewed: 2026-11-12
 
 ## Object and program readiness
 
@@ -404,57 +404,32 @@ RDG buffer ranges through the same publication protocol. Existing ShaderMap/nati
 pipeline cache owners keep their generation, pending/error and retirement handling;
 no new resource service or asynchronous request framework is introduced.
 
-Each `FMeshDrawCommand` owns exactly one pass pipeline, one material snapshot,
-geometry/input ownership, primitive identity/state and that pass's binding packets.
-`SetDrawParametersAndFinalize` validates the admitted geometry through the existing
-range and Vertex Factory input contracts, then captures counted vertex streams,
-index buffer/byte offset and direct indexed or non-indexed arguments. Submission
-does not consult the source view, primitive or geometry description.
-`FMeshPassKey` identifies a pass and its direct/GPU-culling variant. Resolved pipeline
-maps and command lists use this key instead of ordinary/hybrid/GBuffer/GPU slot numbers.
-`FResolvedMeshDrawRecord` contains selected pipeline owners and frame-list receipts;
-it is never copied into a cached command. Surface/view uniforms use typed
-`ESurfaceMaterialPass` keys, while compatible Forward/Hybrid/translucency routes
-continue sharing material bindings through their common binding domain.
-`FCachedPassMeshDrawListContext` publishes stable commands with no view uniform or
-pass packets into `FCachedMeshDrawCommandStorage`, grouped by pass/variant. It retains
-counted immutable command owners until replacement, eviction or generation reset.
-`FDynamicPassMeshDrawListContext` moves view-complete commands into stable-address
-`FDynamicMeshDrawCommandStorage` owned by the resolved view; mesh HitProxy uses a
-request-local instance of the same storage. Frame pass lists contain command addresses,
-and receipts include storage identity, pass/variant and list index. Cross-view or
-stale receipts cannot resolve against another storage instance. Returned command
-references alias the frame allocation, preserving resources beyond storage-owner
-release without per-command shared-control-block allocation. The builder can reuse
-matching cached stable bindings; cached commands cannot be submitted.
-`BuildMeshDrawCommands` owns both binding collection and final command assembly;
-`SubmitDraw` is the shared submission entry for Forward, Hybrid, shadow, GBuffer
-and mesh HitProxy draws. It records the prepared pipeline/packets, streams, index
-buffer, depth bias and direct or indirect draw without resolving or creating resources.
-Pass owners still set viewport/scissor and attachments. The command captures current
-shadow cascade bias only when building a dynamic command; cached stable bindings remain reusable.
-`FMeshDrawCommandStateCache` includes view/pass packet identity and retains its bound
-pipeline and packets across transient GPU command destruction. Geometry and bias
-are applied for every draw, including binding-cache hits. Reset the state cache
-at render-pass boundaries or after foreign state commands.
-Factory-specific vertex bindings remain with the Vertex Factory;
-the shared pass layout interprets only set 0 of its reflection. HitProxy IDs are
-request-local set-1 bindings and use dynamic contexts without cached-command reuse
-or shared fragment packets containing request IDs.
-`BuildGPUCullingCommand` attaches the graph's visible-instance/transform storage
-ranges and a counted indirect argument buffer/offset just before recording; invalid
-argument ranges and incomplete GPU vertex packets cannot be submitted. Successful
-GPU completion replaces the pointer at the existing pass-list receipt instead of
-appending another visible draw. Already acquired command references remain immutable
-and valid; old versions retire with the existing frame allocation. Publication is
-serial on the render thread; shadow recording only reads completed frame storage.
+`FMeshDrawCommand` stores non-owning draw and shader-binding values. Cached storage
+owns command memory; dynamic storage owns frame-local command values. Neither
+extends source-resource lifetime. Resolved records own the frame resources needed
+for recording, and RHI commands retain their copied payloads for replay. Resolved
+view state and frame-list receipts cannot be replayed across render frames or source removal.
 
-A view-local `FMeshDrawCommandBindingCache` preserves material/primitive packet sharing
+`BuildMeshDrawCommands` validates geometry and assembles stable/pass bindings before
+recording. `SubmitDraw` records those values; pass owners supply viewport/scissor
+and attachments. `FMeshDrawCommandStateCache` borrows binding values from stable
+recording storage and compares them by value, including view/pass bindings.
+Geometry and bias apply to every draw. Reset the cache at pass boundaries or after
+foreign state commands. It does not retain pipelines or resources.
+
+`BuildGPUCullingCommand` validates graph buffer ranges and publishes a replacement
+dynamic command at the existing receipt. Retained command memory remains immutable,
+but its resources still follow the source and frame lifetime contract. HitProxy
+uses request-local dynamic storage and owns its temporary resources separately.
+The authoritative preparation, submission and invalidation rules are in
+[Renderer Frame Preparation](RendererFramePreparation.md#required-recording-and-invalidation-contracts).
+
+A view-local `FMeshDrawCommandBindingCache` reuses material/primitive binding values
 and GPU grouping. Uniform/surface resource producers keep their existing caches;
 the Static Mesh renderer owns the persistent pass storage with one shared LRU budget
 of 2048 commands across all passes/variants, preserving the former retention budget. Each pass is probed,
 built and cached independently. Keys include captured geometry description,
-primitive/batch identity, pass, GPU route and the owned pipeline identity. Optional
+primitive/batch identity, pass, GPU route and pipeline identity. Optional
 GPU dynamic binding failure publishes no frame receipt and cannot suppress a later
 GPU retry. A stable command successfully finalized before a later dynamic failure
 can remain cached; its dependencies are revalidated on subsequent preparation.

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "CoreGlobals.h"
 
 #include "RendererAPI.h"
 
@@ -10,6 +11,7 @@
 #include "Rendering/MeshBatch.h"
 #include "Rendering/PrimitiveCustomData.h"
 #include "RHIResources.h"
+#include "UniformBuffer.h"
 #include "Scene.h"
 #include "SceneView.h"
 #include "Threading/Task.h"
@@ -22,6 +24,7 @@ namespace Durin
 	namespace RendererPrivate
 	{
 		struct FVisibleMeshDrawCommand;
+		class FPrimitiveDrawResources;
 		class FMeshVertexFactoryImplementation;
 		struct FStaticMeshTransformUniform
 		{
@@ -104,8 +107,8 @@ namespace Durin
 		using FTransform = FMeshBatchValidationCache::FTransform;
 		FMeshBatchValidationCache Admission;
 		std::unordered_multimap<uint64, uint32> MaterialIndices;
-		std::map<std::pair<uint64, const FMaterialUniformBufferOwner*>, uint32> MaterialRecordIndices;
-		std::vector<std::shared_ptr<const FMaterialUniformBufferOwner>> MaterialPublishers;
+		std::map<std::pair<uint64, const FUniformExpressionCache*>, uint32> MaterialRecordIndices;
+		std::vector<std::shared_ptr<const FUniformExpressionCache>> MaterialPublishers;
 		std::vector<FMaterialRenderRepresentation> Materials;
 		size_t TransformBuilds = 0;
 		size_t MaterialBuilds = 0;
@@ -154,6 +157,8 @@ namespace Durin
 		FMatrix WorldToLocal{1.0};
 		FVector3 BoundsCenter{0.0};
 		bool bRetainedStaticMesh = false;
+		std::weak_ptr<RendererPrivate::FPrimitiveDrawResources> DrawResources;
+		bool bSourceBound = false;
 	};
 
 	// View-independent interpretation of one published element and pass policy.
@@ -237,6 +242,7 @@ namespace Durin
 
 	struct FPreparedStaticMeshView
 	{
+		uint64 RenderFrame = GRenderFrameCounterRenderThread;
 		struct FMaterialUniformGroup
 		{
 			uint32 RepresentativeDraw = 0;
@@ -345,20 +351,6 @@ namespace Durin
 		size_t GBufferSplineSkippedDraws = 0;
 	};
 
-	// A stable logical binding paired with the immutable contents selected by one view.
-	struct FMeshUniformBufferBinding
-	{
-		TRefCountPtr<FRHIUniformBuffer> Buffer;
-		// Initialized before publication, then accessed exclusively during ordered RHI replay.
-		std::shared_ptr<const FByteBuffer> CurrentData;
-	};
-	struct FMeshUniformBufferSnapshot
-	{
-		std::shared_ptr<FMeshUniformBufferBinding> Binding;
-		std::shared_ptr<const FByteBuffer> Data;
-		auto GetRange() const -> FRHIUniformBufferRange
-		{ return {Binding->Buffer.GetReference(), 0, static_cast<uint32>(Data->size()), Binding->Buffer}; }
-	};
 	// Owns fallible bindings without mutating logical draws.
 	struct FSkyLightingGeneration;
 	struct FResolvedStaticMeshView
@@ -369,8 +361,6 @@ namespace Durin
 			RendererPrivate::FResolvedSurfaceMaterial Surface;
 			FRHIUniformBufferRange Uniform;
 			std::vector<FRHIUniformBufferRange> CollectionUniforms;
-			std::shared_ptr<const FMeshUniformBufferSnapshot> Snapshot;
-			std::vector<std::shared_ptr<const FMeshUniformBufferSnapshot>> CollectionSnapshots;
 		};
 		std::vector<FResolvedMeshDrawRecord> Draws;
 		// Selected before uniform/surface preparation; stable bindings survive into recording.
@@ -379,7 +369,6 @@ namespace Durin
 		std::vector<bool> PersistentCollectionBindingsChanged;
 		// Dense primitive/material indices avoid per-draw pointer-keyed lookups.
 		std::vector<FRHIUniformBufferRange> PrimitiveUniforms;
-		std::vector<std::shared_ptr<const FMeshUniformBufferSnapshot>> PrimitiveSnapshots;
 		std::map<RendererPrivate::ESurfaceMaterialPass, FRHIUniformBufferRange> ViewUniforms;
 		// Typed surface resources can be shared by compatible mesh passes.
 		std::vector<std::map<RendererPrivate::ESurfaceMaterialPass, std::optional<FMaterialUniform>>> MaterialUniforms;
@@ -413,6 +402,7 @@ namespace Durin
 	// Dynamic provider bindings retain their existing resource-retirement contract.
 	struct FCollectedStaticMeshView
 	{
+		uint64 RenderFrame = GRenderFrameCounterRenderThread;
 		using FElementFacts = FStaticMeshSectionFact;
 		struct FBatch
 		{
@@ -429,6 +419,8 @@ namespace Durin
 		struct FPrimitive
 		{
 			FPrimitiveComponentId Id = InvalidPrimitiveComponentId;
+			std::weak_ptr<RendererPrivate::FPrimitiveDrawResources> DrawResources;
+			bool bSourceBound = false;
 			ERHIFeatureLevel FeatureLevel = ERHIFeatureLevel::SM5;
 			bool bPresent = false;
 			bool bSplineMesh = false;

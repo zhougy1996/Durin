@@ -120,6 +120,51 @@ namespace Durin
 
 	}
 
+	TEST_F(FRenderResourceLifecycleTests, DeferredSourceDestructionCanReleaseChildResources)
+	{
+		struct FSource final : FRenderResource
+		{
+			explicit FSource(std::shared_ptr<FTestRenderResource> InChild) : Child(std::move(InChild)) {}
+			std::shared_ptr<FTestRenderResource> Child;
+		};
+		const auto Events = std::make_shared<FRenderResourceEvents>();
+		auto Source = CreateRenderResource<FSource>(CreateRenderResource<FTestRenderResource>(Events));
+		EnqueueRenderCommand("InitializeNestedSource", [Source](FRHICommandListImmediate& Commands) {
+			Source->InitResource(Commands);
+			Source->Child->InitResource(Commands);
+		});
+		FlushRenderingCommands();
+		Source.reset();
+		// Drain parent release, parent cleanup, then child cleanup.
+		FlushRenderingCommands();
+		FlushRenderingCommands();
+		FlushRenderingCommands();
+		EXPECT_EQ(Events->ReleaseCount, 1);
+		EXPECT_TRUE(Events->bDestroyedOnRenderingThread);
+		EXPECT_EQ(GetNumInitializedRenderResources(), 0u);
+		EXPECT_EQ(GetNumPendingRenderResourceCleanup(), 0u);
+	}
+
+	TEST_F(FRenderResourceLifecycleTests, SharedSourceReleaseUsesOrderedCleanup)
+	{
+		const auto Events = std::make_shared<FRenderResourceEvents>();
+		auto Resource = CreateRenderResource<FTestRenderResource>(Events);
+		EnqueueRenderCommand("InitializeSharedSource", [Resource](FRHICommandListImmediate& Commands) {
+			Resource->InitResource(Commands);
+		});
+		// The accepted initialization owns the last reference; deletion must order
+		// release after initialization even without a game-thread initialization read.
+		Resource.reset();
+		FlushRenderingCommands();
+		FlushRenderingCommands();
+		EXPECT_EQ(Events->InitCount, 1);
+		EXPECT_EQ(Events->ReleaseCount, 1);
+		EXPECT_TRUE(Events->bDestroyed);
+		EXPECT_TRUE(Events->bDestroyedOnRenderingThread);
+		EXPECT_EQ(GetNumInitializedRenderResources(), 0u);
+		EXPECT_EQ(GetNumPendingRenderResourceCleanup(), 0u);
+	}
+
 	TEST_F(FRenderResourceLifecycleTests,
 		AsynchronousInitUpdateReleaseAndCleanupPreserveAffinity)
 	{

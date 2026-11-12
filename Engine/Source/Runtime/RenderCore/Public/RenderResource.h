@@ -115,6 +115,13 @@ namespace Durin
 		std::unique_ptr<FRenderResource> Resource;
 	};
 
+	// Visitors may release RHI state but must not change registry membership.
+	RENDERCORE_API auto VisitInitializedRenderResources(const std::function<void(FRenderResource&)>& Visitor) -> void;
+
+	RENDERCORE_API auto DeleteRenderResource(FRenderResource* Resource) -> void;
+	template<typename T, typename... Args> auto CreateRenderResource(Args&&... Arguments) -> std::shared_ptr<T>
+	{ return std::shared_ptr<T>(new T(std::forward<Args>(Arguments)...), [](T* Resource) { DeleteRenderResource(Resource); }); }
+
 	// These diagnostics are safe on the rendering thread or after a completed render-command fence.
 	RENDERCORE_API auto GetNumInitializedRenderResources() -> size_t;
 	RENDERCORE_API auto GetNumPendingRenderResourceCleanup() -> size_t;

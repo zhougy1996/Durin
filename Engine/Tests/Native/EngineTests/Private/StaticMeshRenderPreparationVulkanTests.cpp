@@ -1171,13 +1171,8 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			// Scene info/proxy and source view are gone, and asset resources have a
 			// new publication. Replaying the captured collection still uses old facts.
 			auto Replay = Durin::PrepareCollectedStaticMeshView_RenderThread(CommandList, Collected);
-			EXPECT_EQ(Replay.GetNumSections(), RetainedFrame.GetNumSections());
-			EXPECT_EQ(Replay.Opaque.size(), RetainedFrame.Opaque.size());
-			EXPECT_EQ(Replay.Masked.size(), RetainedFrame.Masked.size());
-			EXPECT_EQ(Replay.Translucent.size(), RetainedFrame.Translucent.size());
-			EXPECT_EQ(Replay.Primitives[0].GeometryRecord->GetRecordId(), OldRecordId);
-			EXPECT_EQ(Replay.Translucent[0].TranslucentSortDepth, RetainedFrame.Translucent[0].TranslucentSortDepth);
-			EXPECT_EQ(Replay.Opaque[0].Command->PipelineKey, RetainedFrame.Opaque[0].Command->PipelineKey);
+			// Source removal invalidates preparation; captured CPU facts are not a historical render submission.
+			EXPECT_EQ(Replay.GetNumSections(), 0u);
 			RetainedGeometry.reset();
 			EXPECT_FALSE(RetiredGeometry.expired());
 			EXPECT_TRUE(RetainedFrame.Opaque[0].Command->Vertices.IsValid());
@@ -2004,7 +1999,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 	Geometries = {};
 }
 
-TEST(FMaterialAnimationVulkanTests, EarlyCommandsInvalidateOnTextureMaterialAndTransformChanges)
+TEST(FMaterialAnimationVulkanTests, CachedCommandsInvalidateResourceChangesAndReuseNumericUpdates)
 {
 	using namespace Durin;
 	using namespace Durin::Tests;
@@ -2115,9 +2110,9 @@ TEST(FMaterialAnimationVulkanTests, EarlyCommandsInvalidateOnTextureMaterialAndT
 				ASSERT_TRUE(Builder.Build(Data.Representation, Diagnostic));
 				Publish();
 			}
-			if (Frame == 6) { Transform = Math::ScaleMatrix(FVector3(0.5)); Publish(); }
-			if (Frame == 8) Publish(false);
-			if (Frame == 9) Publish();
+			if (Frame == 6) { Transform = Math::ScaleMatrix(FVector3(0.5)); Owner->UpdatePrimitiveTransform(FPrimitiveComponentId(410), Transform); }
+			if (Frame == 8) Owner->UpdatePrimitiveVisibility(FPrimitiveComponentId(410), false);
+			if (Frame == 9) Owner->UpdatePrimitiveVisibility(FPrimitiveComponentId(410), true);
 			if (Frame == 10)
 			{
 				FMaterialRenderRepresentationBuilder Builder(Data.Representation);
@@ -2149,7 +2144,14 @@ TEST(FMaterialAnimationVulkanTests, EarlyCommandsInvalidateOnTextureMaterialAndT
 				EXPECT_EQ(Telemetry.StaticMesh.StaticMeshSuccessfulDraws, 0u);
 				EXPECT_NE(Pixels[Frame], Pixels[Frame - 1]);
 			}
-			else if (Frame == 5 || Frame == 6)
+			else if (Frame == 5)
+			{
+				// Replacing the primitive replaces the resource owner, even with the same component ID.
+				EXPECT_EQ(Telemetry.StaticMesh.PersistentCommandHits, 0u);
+				EXPECT_EQ(Telemetry.StaticMesh.PersistentCommandMisses, 2u);
+				EXPECT_NE(Pixels[Frame], Pixels[Frame - 1]);
+			}
+			else if (Frame == 6)
 			{
 				EXPECT_EQ(Telemetry.StaticMesh.PersistentCommandHits, 2u);
 				EXPECT_EQ(Telemetry.StaticMesh.PersistentCommandMisses, 0u);
@@ -4272,8 +4274,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 					FMaterialRenderValidationDiagnostic BindingDiagnostic;
 					ASSERT_TRUE(TryGetMaterialRenderBinding(BindingDraw.Command->Material.Representation, Binding, BindingDiagnostic));
 					FResolvedStaticMeshView::FMaterialUniform PassMaterial;
-					PassMaterial.Surface.bCompiledLayout = true; PassMaterial.Surface.PublishedBinding = Binding;
-					PassMaterial.Surface.CompiledUniformPayload = Binding.CompiledUniformPayload;
+					PassMaterial.Surface.bCompiledLayout = true; PassMaterial.Surface.bError = Binding.bError;
 					PassMaterial.Uniform = Commands.CreateUniformBufferRange(Binding.CompiledUniformPayload.data(), static_cast<uint32>(Binding.CompiledUniformPayload.size()));
 					const auto Transform = BuildMeshTransformUniform(*Primitive);
 					const auto PrimitiveUniform = Commands.CreateUniformBufferRange(&Transform, sizeof(Transform));
@@ -4282,11 +4283,16 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 					FMeshDrawCommandBuildInput Input{Commands, *Primitive, BindingDraw, Pipeline, PassMaterial,
 						PrimitiveUniform, Commands.CreateUniformBufferRange(&ViewParameters, sizeof(ViewParameters)), {}, {}};
 					FMeshDrawCommandBindingCache CacheA;
-					std::shared_ptr<const FMeshDrawCommand> Cached, DynamicA, DynamicB;
+					std::shared_ptr<const FMeshDrawCommand> Cached;
+					auto Source = CreateRenderResource<FPrimitiveDrawResources>();
+					auto& SourceUniform = Source->GetPrimitiveUniformBuffer(Primitive->BatchId);
+					ASSERT_TRUE(SourceUniform.Update(Commands, std::as_bytes(std::span(&Transform, 1))));
+					Input.PrimitiveUniform = SourceUniform.GetRange();
+					std::shared_ptr<const FMeshDrawCommand> DynamicA, DynamicB;
 					FCachedMeshDrawCommandStorage Persistent;
 					FDynamicMeshDrawCommandStorage FrameA, FrameB;
 					FMeshDrawCommandHandle DynamicAHandle, DynamicBHandle;
-					FCachedPassMeshDrawListContext CachedContext(Persistent, {EMeshPipelinePass::ShadowDepth}, Cached); const auto CachedContextResult = PassProcessor.AddMeshBatch(ShadowBatch, Input, CacheA, CachedContext);
+					FCachedPassMeshDrawListContext CachedContext(Persistent, {EMeshPipelinePass::ShadowDepth}, Cached, *Source); const auto CachedContextResult = PassProcessor.AddMeshBatch(ShadowBatch, Input, CacheA, CachedContext);
 					ASSERT_TRUE(CachedContextResult) << CachedContextResult.Error;
 					ASSERT_TRUE(Cached && Cached->bCached); EXPECT_EQ(Cached->Pipeline->Pass, EMeshPipelinePass::ShadowDepth);
 					EXPECT_FALSE(Cached->VertexPassBindings); EXPECT_FALSE(Cached->FragmentPassBindings); EXPECT_FALSE(Cached->ViewUniform.Buffer);
@@ -4302,11 +4308,12 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 					EXPECT_EQ(FrameA.Num({EMeshPipelinePass::ShadowDepth}), 1u);
 					ASSERT_TRUE(DynamicA && !DynamicA->bCached && DynamicA->VertexPassBindings);
 					EXPECT_EQ(DynamicA->VertexBindings, Cached->VertexBindings);
-					EXPECT_EQ(DynamicA->CachedCommand, Cached);
-					EXPECT_TRUE(DynamicA->VertexStreams.empty());
-					EXPECT_EQ(&DynamicA->GetGeometryCommand(), Cached.get());
+					EXPECT_EQ(DynamicA->VertexStreams.size(), Cached->VertexStreams.size());
+					EXPECT_EQ(DynamicA->IndexBuffer, Cached->IndexBuffer);
 					EXPECT_EQ(DynamicA->DepthBias, *BindingDraw.RasterBias);
 					EXPECT_NE(Cached->DepthBias, DynamicA->DepthBias);
+					// Each view owns its Uniform until both command lists have been recorded.
+					const auto FirstViewUniform = Input.ViewUniform;
 					ViewParameters.WorldOriginHigh.x += 100;
 					BindingDraw.RasterBias = {3.0f, 4.0f, 0.0f};
 					Input.ViewUniform = Commands.CreateUniformBufferRange(&ViewParameters, sizeof(ViewParameters));
@@ -4354,7 +4361,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 					EXPECT_EQ(StaleContextResult.Status, EShaderBuildStatus::Error); EXPECT_EQ(DynamicB, Original);
 					EXPECT_EQ(Commands.GetNumRecordedDrawCommands(), Draws);
 					// Submission consumes captured geometry, not the source view or description.
-					auto Detached = *DynamicB; Detached.Description.reset(); Detached.Input.reset();
+					auto Detached = *DynamicB; Detached.Description = nullptr; Detached.Input = nullptr;
 					auto NonIndexedDescription = std::make_shared<FMeshDrawDescription>(*BindingDraw.Command);
 					NonIndexedDescription->Geometry.bIndexed = false;
 					NonIndexedDescription->Geometry.FirstElement = 0;
@@ -4364,7 +4371,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 					auto NonIndexed = Detached;
 					ASSERT_TRUE(NonIndexed.SetDrawParametersAndFinalize(*Primitive, NonIndexedDraw));
 					EXPECT_FALSE(NonIndexed.IndexBuffer);
-					EXPECT_FALSE(NonIndexed.CachedCommand);
+					EXPECT_TRUE(NonIndexed.IsValid());
 					EXPECT_EQ(std::get<FRHIDrawArguments>(NonIndexed.DrawParameters).VertexCount, 3u);
 					const auto DepthTarget = GDynamicRHI->RHICreateTexture(Commands,
 						FRHITextureCreateDesc::Create2D("MeshCommandSubmission", 8, 8, EPixelFormat::D32)
@@ -4378,10 +4385,10 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 					EXPECT_FALSE(Cached->SubmitDraw(Commands, &SubmitCache));
 					EXPECT_TRUE(Detached.SubmitDraw(Commands, &SubmitCache));
 					EXPECT_TRUE(NonIndexed.SubmitDraw(Commands, &SubmitCache));
-					EXPECT_EQ(SubmitCache.VertexOwner, Detached.VertexBindings);
+					EXPECT_EQ(SubmitCache.Vertex, &NonIndexed.VertexBindings);
 					EXPECT_TRUE(DynamicA->SubmitDraw(Commands, &SubmitCache));
-					EXPECT_EQ(SubmitCache.VertexPass, DynamicA->VertexPassBindings);
-					EXPECT_EQ(SubmitCache.PipelineOwner, DynamicA->Pipeline);
+					EXPECT_EQ(SubmitCache.VertexPass, &DynamicA->VertexPassBindings);
+					EXPECT_EQ(SubmitCache.Pipeline, DynamicA->Pipeline);
 					Commands.EndRenderPass();
 					EXPECT_EQ(Commands.GetNumRecordedDrawCommands(), Draws + 3);
 					EXPECT_EQ(PSOPrecacheValidation::GetStatistics().Hit, 1u); // Three cached draws, one full PSO identity.

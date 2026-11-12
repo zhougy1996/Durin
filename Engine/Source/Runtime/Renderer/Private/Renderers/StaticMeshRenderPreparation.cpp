@@ -125,7 +125,7 @@ namespace Durin
 		const auto It = Entries.find(Key);
 		if (It == Entries.end() || It->second.Command->Material.PlanningPassIdentity != Material.PlanningPassIdentity
 			|| It->second.Command->Material.CompiledProgram != Material.CompiledProgram
-			|| It->second.Command->Material.UniformBufferOwner != Material.UniformBufferOwner) return {};
+			|| It->second.Command->Material.UniformExpressionCache != Material.UniformExpressionCache) return {};
 		It->second.bUsed = true;
 		return It->second.Command;
 	}
@@ -201,7 +201,7 @@ namespace Durin
 	auto FStaticMeshPreparationCache::ResolveMaterial(FMaterialRenderData& Material) -> std::optional<uint32>
 	{
 		const auto& Representation = Material.Representation;
-		const auto RecordId = std::make_pair(Representation.GetRecordId(), Material.UniformBufferOwner.get());
+		const auto RecordId = std::make_pair(Representation.GetRecordId(), Material.UniformExpressionCache.get());
 		if (const auto It = MaterialRecordIndices.find(RecordId); It != MaterialRecordIndices.end())
 			return It->second;
 		const uint64 Hash = MaterialFactHash(Representation);
@@ -210,7 +210,7 @@ namespace Durin
 		{
 			const auto& Cached = Materials[It->second];
 			// Hash collisions and equal uniforms with different textures/layouts are distinct.
-			if (MaterialPublishers[It->second] == Material.UniformBufferOwner && Cached.IsError() == Representation.IsError()
+			if (MaterialPublishers[It->second] == Material.UniformExpressionCache && Cached.IsError() == Representation.IsError()
 				&& Cached.GetLayout() == Representation.GetLayout()
 				&& std::ranges::equal(Cached.GetUniformPayload(), Representation.GetUniformPayload())
 				&& std::ranges::equal(Cached.GetResources(), Representation.GetResources())
@@ -226,10 +226,10 @@ namespace Durin
 		if (!ResolveMaterialBinding(Material, Binding, "StaticMeshMaterialSelection")) return std::nullopt;
 		const uint32 Index = static_cast<uint32>(Materials.size());
 		Materials.push_back(Material.Representation);
-		MaterialPublishers.push_back(Material.UniformBufferOwner);
+		MaterialPublishers.push_back(Material.UniformExpressionCache);
 		// Resolution may have selected ErrorMaterial; hash its final representation.
 		MaterialIndices.emplace(MaterialFactHash(Material.Representation), Index);
-		MaterialRecordIndices.emplace(std::make_pair(Material.Representation.GetRecordId(), Material.UniformBufferOwner.get()), Index);
+		MaterialRecordIndices.emplace(std::make_pair(Material.Representation.GetRecordId(), Material.UniformExpressionCache.get()), Index);
 		return Index;
 	}
 
@@ -288,6 +288,7 @@ namespace Durin
 			Primitive.FeatureLevel = SceneInfo->GetProxy().GetFeatureLevel();
 			Primitive.bRetainedStaticMesh = ViewFact.StaticBatches != nullptr;
 			Primitive.Id = SceneInfo->GetId();
+			Primitive.DrawResources = SceneInfo->DrawResources; Primitive.bSourceBound = true;
 			Primitive.bSplineMesh = SceneInfo->GetKind() == EPrimitiveSceneProxyKind::SplineMesh;
 			Primitive.WorldBounds = SceneInfo->GetWorldBounds();
 			if (!SceneInfo->GetProxy().GetRenderParticipation().IsRelevant(Purpose))
@@ -388,6 +389,11 @@ namespace Durin
 		auto& Cache = SharedCache ? *SharedCache : LocalCache;
 		auto Resolved = std::make_shared<FStaticMeshPreparationInputs>();
 		Resolved->Collected = std::move(Collected);
+		if (Resolved->Collected->RenderFrame != GRenderFrameCounterRenderThread)
+		{
+			Resolved->Collected = std::make_shared<FCollectedStaticMeshView>();
+			return Resolved;
+		}
 		const auto& View = Resolved->Collected->View;
 		const auto RasterMode = Resolved->Collected->RasterMode;
 		const auto Mode = Resolved->Collected->Mode;
@@ -490,11 +496,11 @@ namespace Durin
 					}
 					bStableMaterials &=
 						Material.Representation.GetRecordId() == Element.Material.Representation.GetRecordId() &&
-						Material.CompiledProgram == Element.Material.CompiledProgram && Material.UniformBufferOwner == Element.Material.UniformBufferOwner;
+						Material.CompiledProgram == Element.Material.CompiledProgram && Material.UniformExpressionCache == Element.Material.UniformExpressionCache;
 
 					const FMeshDrawDescriptionCache::FKey Key{
 						Batch.GeometryRecord ? Batch.GeometryRecord->GetRecordId() : 0,
-						ElementIndex, Material.Representation.GetRecordId(), Policy, reinterpret_cast<uint64>(Material.UniformBufferOwner.get())};
+						ElementIndex, Material.Representation.GetRecordId(), Policy, reinterpret_cast<uint64>(Material.UniformExpressionCache.get())};
 					if (Batch.GeometryRecord && Cache.Commands)
 						Item.Command = Cache.Commands->Find(Key, Material);
 					if (Item.Command) Item.bTemplateReused = true;
@@ -594,9 +600,15 @@ namespace Durin
 		const auto& Collected = *Resolved.Collected;
 		const auto& View = Collected.View;
 		FPreparedStaticMeshView Result;
+		Result.RenderFrame = Collected.RenderFrame;
 		Result.Primitives.reserve(PrimitiveCount);
 		auto PreparePrimitive = [&](const FCollectedStaticMeshView::FPrimitive& Primitive) {
 			DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareMeshPrimitive");
+			if (Primitive.bSourceBound && Primitive.DrawResources.expired())
+			{
+				++Result.VisibleCandidates; ++Result.RejectedPrimitives;
+				return;
+			}
 			if (!Primitive.bPresent)
 			{
 				++Result.RejectedPrimitives;
@@ -675,7 +687,7 @@ namespace Durin
 					.NormalToWorld = NormalToWorld,
 					.WorldToLocal = WorldToLocal,
 					.BoundsCenter = BoundsCenter,
-					.bRetainedStaticMesh = Primitive.bRetainedStaticMesh});
+					.bRetainedStaticMesh = Primitive.bRetainedStaticMesh, .DrawResources = Primitive.DrawResources, .bSourceBound = Primitive.bSourceBound});
 				const size_t FirstSectionCount = Result.GetNumSections();
 				const size_t FirstTriangleCount = Result.SelectedTriangles;
 
@@ -1044,6 +1056,7 @@ namespace Durin
 		}
 		if (Next != Total) return std::unexpected(EError::IncompleteCoverage);
 		FPreparedStaticMeshView Result;
+		Result.RenderFrame = Inputs->Collected->RenderFrame;
 		Result.Primitives.reserve(OutputPrimitives);
 		Result.Opaque.reserve(DrawCounts[0]);
 		Result.Masked.reserve(DrawCounts[1]);

@@ -8,6 +8,7 @@
 #include "RendererAPI.h"
 #include "Shader/MaterialShader.h"
 #include "VertexFactory.h"
+#include "Renderers/SurfaceMaterial.h"
 
 namespace Durin
 {
@@ -61,29 +62,13 @@ namespace Durin::RendererPrivate
 		bool bGPUCulling = false;
 		auto GetPassKey() const -> FMeshPassKey { return {Pass, bGPUCulling}; }
 	};
-	struct FMeshDrawPrimitiveState
-	{
-		FMatrix LocalToWorld;
-		FMatrix WorldToLocal;
-		FMatrix4f NormalToWorld;
-		FVector3 BoundsCenter;
-		FPrimitiveCustomData CustomPrimitiveData;
-		FPrimitiveCustomData CustomInstanceData;
-		auto operator==(const FMeshDrawPrimitiveState&) const -> bool = default;
-		static auto Capture(const FPreparedStaticMeshPrimitive& Primitive) -> FMeshDrawPrimitiveState
-		{
-			return {Primitive.LocalToWorld, Primitive.WorldToLocal, Primitive.NormalToWorld, Primitive.BoundsCenter,
-				Primitive.CustomPrimitiveData, Primitive.CustomInstanceData};
-		}
-	};
 	struct FMeshPassBindings
 	{
-		std::shared_ptr<const FPreparedSurfaceMaterialBindings> Vertex;
-		std::shared_ptr<const FPreparedSurfaceMaterialBindings> Fragment;
-		std::vector<std::shared_ptr<const FMeshUniformBufferSnapshot>> Collections;
+		FMeshDrawShaderBindings Vertex;
+		FMeshDrawShaderBindings Fragment;
 	};
-	// One immutable command for one pass. Cached commands contain only stable
-	// bindings; dynamic commands additionally own the view/pass binding packets.
+	class FPrimitiveDrawResources;
+	// Draw data and bindings only; resource lifetime belongs to the sources.
 	struct FMeshDrawCommand
 	{
 		using FKey = std::array<uint64, 9>;
@@ -92,58 +77,68 @@ namespace Durin::RendererPrivate
 		{
 			return {reinterpret_cast<uint64>(Description->GeometryOwner ? static_cast<const void*>(Description->GeometryOwner.get()) : Description),
 				Description->SectionIndex, PrimitiveId.Value, BatchId, static_cast<uint64>(Pipeline.Pass), Pipeline.bGPUCulling,
-				reinterpret_cast<uint64>(&Pipeline), static_cast<bool>(Description->Material.UniformBufferOwner), Description->Material.UniformBufferOwner ? reinterpret_cast<uint64>(Description->Material.UniformBufferOwner.get()) : Description->Material.Representation.GetRecordId()};
+				reinterpret_cast<uint64>(&Pipeline), static_cast<bool>(Description->Material.UniformExpressionCache), Description->Material.UniformExpressionCache ? reinterpret_cast<uint64>(Description->Material.UniformExpressionCache.get()) : Description->Material.Representation.GetRecordId()};
 		}
-		auto GetKey() const -> FKey { return MakeKey(Description.get(), PrimitiveId, BatchId, *Pipeline); }
-		RENDERER_API auto SetDrawParametersAndFinalize(const FPreparedStaticMeshPrimitive& Primitive,
-			const FPreparedStaticMeshDraw& Draw) -> bool;
-		RENDERER_API auto SubmitDraw(FRHICommandList& Commands, FMeshDrawCommandStateCache* StateCache = nullptr) const -> bool;
-		// Visible commands retain immutable cached geometry instead of copying streams
-		// or validating published draw ranges again. View bindings remain local.
-		std::shared_ptr<const FMeshDrawCommand> CachedCommand;
-		auto GetGeometryCommand() const -> const FMeshDrawCommand& { return CachedCommand ? *CachedCommand : *this; }
-		RENDERER_API auto SubmitVisible(FRHICommandList& Commands, const FMeshPassBindings& Pass,
-			const FMeshUniformBufferSnapshot* Snapshot, const std::array<float, 3>& Bias,
-			FMeshDrawCommandStateCache* StateCache = nullptr, const FMeshUniformBufferSnapshot* MaterialSnapshot = nullptr) const -> bool;
-		std::vector<FVertexInputStream> VertexStreams;
-		FBufferRHIRef IndexBuffer;
+		FKey Key{};
+		auto GetKey() const -> FKey { return Key; }
+		RENDERER_API auto IsValid() const -> bool;
+		RENDERER_API auto SetDrawParametersAndFinalize(const FPreparedStaticMeshPrimitive& Primitive, const FPreparedStaticMeshDraw& Draw) -> bool;
+		RENDERER_API auto SubmitDraw(FRHICommandList& Commands, FMeshDrawCommandStateCache* Cache = nullptr) const -> bool;
+		RENDERER_API auto SubmitVisible(FRHICommandList& Commands, const FMeshDrawShaderBindings& VertexPass, const FMeshDrawShaderBindings& FragmentPass,
+			const std::array<float, 3>& Bias, FMeshDrawCommandStateCache* Cache = nullptr) const -> bool;
+		struct FVertexStream { uint8 StreamIndex = 0; FRHIBuffer* VertexBuffer = nullptr; uint32 Offset = 0; uint16 Stride = 0; };
+		std::vector<FVertexStream> VertexStreams;
+		FRHIBuffer* IndexBuffer = nullptr;
 		uint32 IndexBufferOffset = 0;
 		std::variant<FRHIDrawArguments, FRHIDrawIndexedArguments> DrawParameters;
-		FBufferRHIRef IndirectArgs;
+		FRHIBuffer* IndirectArgs = nullptr;
 		uint64 IndirectArgsOffset = 0;
-		// Constant, slope, clamp, matching the prepared shadow bias projection.
 		std::array<float, 3> DepthBias{};
 		bool bFinalized = false;
-		FPrimitiveComponentId PrimitiveId = InvalidPrimitiveComponentId;
 		uint64 BatchId = 0;
-		std::shared_ptr<const FMeshDrawDescription> Description;
-		std::shared_ptr<const FVertexFactoryInputBinding> Input;
-		std::shared_ptr<const FMeshPassPipeline> Pipeline;
+		// Dynamic GPU completion reads these only within its preparation/recording scope.
+		const FMeshDrawDescription* Description = nullptr;
+		const FVertexFactoryInputBinding* Input = nullptr;
+		const FMeshPassPipeline* Pipeline = nullptr;
+		std::weak_ptr<const FMeshPassPipeline> PipelineLifetime;
+		bool bPipelineBound = false;
 		FRHIUniformBufferRange PrimitiveUniform;
-		std::shared_ptr<const FMeshUniformBufferSnapshot> PrimitiveSnapshot;
-		std::shared_ptr<const FMeshUniformBufferSnapshot> MaterialSnapshot;
-		FMeshDrawPrimitiveState PrimitiveState;
 		FResolvedStaticMeshView::FMaterialUniform Material;
-		std::shared_ptr<const FRHIShaderParameterBatch> VertexBindings;
-		std::shared_ptr<const FPreparedSurfaceMaterialBindings> FragmentBindings;
-		std::shared_ptr<const FPreparedSurfaceMaterialBindings> VertexPassBindings;
-		std::shared_ptr<const FPreparedSurfaceMaterialBindings> FragmentPassBindings;
-		std::vector<std::shared_ptr<const FMeshUniformBufferSnapshot>> CollectionSnapshots;
+		FMaterialRenderLayout MaterialLayout;
+		std::vector<FRHITextureReference*> MaterialResources;
+		std::vector<FMaterialSamplerState> MaterialSamplers;
+		std::vector<EMaterialTextureFallback> MaterialFallbacks;
+		FMeshDrawShaderBindings VertexBindings, FragmentBindings, VertexPassBindings, FragmentPassBindings;
 		FRHIUniformBufferRange ViewUniform;
 		bool bCached = false;
+		bool bSourceBound = false;
+		std::weak_ptr<FPrimitiveDrawResources> Source;
 	private:
-		auto SubmitBindings(FRHICommandList& Commands, const FMeshPassBindings& Pass) const -> bool;
+		auto SubmitBindings(FRHICommandList& Commands, const FMeshDrawShaderBindings& VertexPass, const FMeshDrawShaderBindings& FragmentPass) const -> bool;
 	};
-	// Borrowed records are valid while the submission storage owns their dependencies.
+	class FPrimitiveDrawResources final : public FRenderResource, public std::enable_shared_from_this<FPrimitiveDrawResources>
+	{
+	public:
+		RENDERER_API auto GetPrimitiveUniformBuffer(uint64 Batch) -> FUniformBuffer&;
+		RENDERER_API auto RetainPrimitiveUniformBuffers(std::span<const uint64> Batches) -> void;
+		auto OwnsPrimitiveUniform(uint64 Batch, const FRHIResource* Buffer) const -> bool
+		{ const auto Found = PrimitiveUniformBuffers.find(Batch); return Found != PrimitiveUniformBuffers.end() && Found->second->GetRange().Buffer == Buffer; }
+		auto ReleaseRHI() -> void override { bAvailable = false; PrimitiveUniformBuffers.clear(); }
+		auto GetFriendlyName() const -> std::string override { return "PrimitiveDrawResources"; }
+		auto IsAvailable() const -> bool { return bAvailable; }
+		RENDERER_API auto Prepare(FRHICommandListBase& Commands) -> void;
+		RENDERER_API static auto ReleaseRHIForAllResources() -> void;
+	private:
+		bool bAvailable = true;
+		std::map<uint64, std::shared_ptr<FUniformBuffer>> PrimitiveUniformBuffers;
+	};
 	struct FVisibleMeshDrawCommand
 	{
 		const FMeshDrawCommand* Command = nullptr;
 		const FMeshPassBindings* Pass = nullptr;
-		const FMeshUniformBufferSnapshot* Primitive = nullptr;
-		const FMeshUniformBufferSnapshot* Material = nullptr;
 		std::array<float, 3> DepthBias{};
 		auto SubmitDraw(FRHICommandList& Commands, FMeshDrawCommandStateCache* Cache = nullptr) const -> bool
-		{ return Command && Pass && Command->SubmitVisible(Commands, *Pass, Primitive, DepthBias, Cache, Material); }
+		{ return Command && Pass && Command->SubmitVisible(Commands, Pass->Vertex, Pass->Fragment, DepthBias, Cache); }
 	};
 	struct FMeshDrawCommandBuildInput
 	{
@@ -157,16 +152,14 @@ namespace Durin::RendererPrivate
 		FRHIUniformBufferRange Lighting;
 		FRHIUniformBufferRange HitProxy;
 		FRHIStorageBufferRange LocalLights{};
-		std::shared_ptr<const FMeshUniformBufferSnapshot> PrimitiveSnapshot;
-		std::shared_ptr<const FMeshUniformBufferSnapshot> MaterialSnapshot;
 	};
-	// One view-preparation scope shares existing material/primitive packets.
+	// One view-preparation scope reuses validated binding values.
 	struct FMeshDrawCommandBindingCache
 	{
-		using FBindings = std::shared_ptr<const FPreparedSurfaceMaterialBindings>;
+		using FBindings = FMeshDrawShaderBindings;
 		std::map<std::tuple<uint32, EMeshPipelinePass, uint32, FRHIShader*>, FBindings> Fragments;
 		std::map<std::pair<EMeshPipelinePass, FRHIShader*>, FBindings> Passes;
-		std::map<std::tuple<uint32, uint32, EMeshPipelinePass, FRHIShader*>, std::shared_ptr<const FRHIShaderParameterBatch>> Vertices;
+		std::map<std::tuple<uint32, uint32, EMeshPipelinePass, FRHIShader*>, FMeshDrawShaderBindings> Vertices;
 		std::map<const FMeshPassPipeline*, std::shared_ptr<const FMeshPassBindings>> PassGroups;
 		size_t PreparedSurfaceBindingBatches = 0, SurfaceBindingBatchReuses = 0;
 	};
@@ -178,7 +171,7 @@ namespace Durin::RendererPrivate
 		FCachedMeshDrawCommandStorage(const FCachedMeshDrawCommandStorage&) = delete;
 		auto operator=(const FCachedMeshDrawCommandStorage&) -> FCachedMeshDrawCommandStorage& = delete;
 		RENDERER_API auto Find(FMeshPassKey Pass, const FMeshDrawCommand::FKey& Key) -> std::shared_ptr<const FMeshDrawCommand>;
-		RENDERER_API auto Publish(FMeshDrawCommand Command) -> std::shared_ptr<const FMeshDrawCommand>;
+		RENDERER_API auto Publish(FMeshDrawCommand Command, FPrimitiveDrawResources& Owner) -> std::shared_ptr<const FMeshDrawCommand>;
 		RENDERER_API auto Reset() -> void;
 		auto Num() const -> size_t { return Count; }
 	private:
@@ -188,7 +181,7 @@ namespace Durin::RendererPrivate
 		uint64 Serial = 0;
 	};
 	// Stable-address frame storage. Aliasing handles retain the entire frame allocation
-	// through existing resolved-resource owners, including replaced GPU command snapshots.
+	// through resolved frame storage, including replaced indirect command values.
 	class FDynamicMeshDrawCommandStorage
 	{
 	public:
@@ -199,17 +192,16 @@ namespace Durin::RendererPrivate
 			FMeshDrawCommandHandle Replace = {}) -> FMeshDrawCommandHandle;
 		RENDERER_API auto GetCommand(FMeshDrawCommandHandle Handle) const -> std::shared_ptr<const FMeshDrawCommand>;
 		RENDERER_API auto PublishVisible(std::shared_ptr<const FMeshDrawCommand> Command,
-			std::shared_ptr<const FMeshPassBindings> Pass, std::shared_ptr<const FMeshUniformBufferSnapshot> Primitive,
-			std::array<float, 3> Bias, std::shared_ptr<const FMeshUniformBufferSnapshot> Material = {}) -> FMeshDrawCommandHandle;
+			std::shared_ptr<const FMeshPassBindings> Pass, std::array<float, 3> Bias) -> FMeshDrawCommandHandle;
 		RENDERER_API auto GetVisible(FMeshDrawCommandHandle Handle) const -> const FVisibleMeshDrawCommand*;
 		RENDERER_API auto Num(FMeshPassKey Pass) const -> size_t;
 	private:
 		struct FData
 		{
 			uint64 Id = 0;
+			uint64 Frame = 0;
 			std::map<const FMeshDrawCommand*, std::shared_ptr<const FMeshDrawCommand>> RetainedCommands;
 			std::map<const FMeshPassBindings*, std::shared_ptr<const FMeshPassBindings>> RetainedPasses;
-			std::map<const FMeshUniformBufferSnapshot*, std::shared_ptr<const FMeshUniformBufferSnapshot>> RetainedUniforms;
 			std::map<FMeshPassKey, std::vector<FVisibleMeshDrawCommand>> Visible;
 			std::deque<FMeshDrawCommand> Commands;
 			std::map<FMeshPassKey, std::vector<const FMeshDrawCommand*>> Passes;
@@ -236,13 +228,14 @@ namespace Durin::RendererPrivate
 	{
 	public:
 		FCachedPassMeshDrawListContext(FCachedMeshDrawCommandStorage& InStorage, FMeshPassKey InPass,
-			std::shared_ptr<const FMeshDrawCommand>& Out) : Storage(InStorage), Pass(InPass), Output(Out) {}
+			std::shared_ptr<const FMeshDrawCommand>& Out, FPrimitiveDrawResources& InOwner) : Storage(InStorage), Pass(InPass), Output(Out), Owner(InOwner) {}
 		RENDERER_API auto FinalizeCommand() -> void override;
 		auto IsCached() const -> bool override { return true; }
 	private:
 		FCachedMeshDrawCommandStorage& Storage;
 		FMeshPassKey Pass;
 		std::shared_ptr<const FMeshDrawCommand>& Output;
+		FPrimitiveDrawResources& Owner;
 	};
 	class FDynamicPassMeshDrawListContext : public FMeshPassDrawListContext
 	{

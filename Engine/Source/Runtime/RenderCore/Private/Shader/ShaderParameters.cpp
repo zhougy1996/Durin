@@ -138,7 +138,7 @@ namespace Durin
 		return Storage;
 	}
 
-	static auto ResolveShaderParameterResources(
+	auto ResolveShaderParameterResources(
 		const FShaderParametersMetadata& ParametersMetadata,
 		std::span<const FShaderParameterBinding> ParameterBindings,
 		const void* ParameterData

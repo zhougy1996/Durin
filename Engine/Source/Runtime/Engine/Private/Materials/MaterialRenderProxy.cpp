@@ -1,3 +1,4 @@
+#include "RHICommandList.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Materials/MaterialShaderMap.h"
 
@@ -7,6 +8,15 @@
 
 namespace Durin
 {
+	auto FMaterialRenderProxy::ReleaseRHIForAllResources() -> void
+	{
+		std::vector<FMaterialRenderProxy*> Proxies;
+		VisitInitializedRenderResources([&](FRenderResource& Resource) {
+			if (auto* Proxy = dynamic_cast<FMaterialRenderProxy*>(&Resource)) Proxies.push_back(Proxy);
+		});
+		for (auto* Proxy : Proxies) Proxy->ReleaseResource();
+	}
+
 	auto FMaterialResource::HasValidGameThreadShaderMap() const -> bool
 	{
 		return CompiledProgram && *CompiledProgram && CompiledProgram->ShaderMap;
@@ -95,6 +105,10 @@ namespace Durin
 		GMaterialRenderProxyCounters.BindingUpdateCount.fetch_add(1);
 	}
 
+	auto FMaterialRenderProxy::ReleaseRHI() -> void
+	{
+		UniformExpressionCache->ReleaseRHI();
+	}
 	auto FMaterialRenderProxy::AddRef() const -> uint32
 	{
 		const uint32 Previous =
@@ -112,7 +126,7 @@ namespace Durin
 		if (Remaining == 0)
 		{
 			std::atomic_thread_fence(std::memory_order_acquire);
-			delete this;
+			DeleteRenderResource(const_cast<FMaterialRenderProxy*>(this));
 		}
 		return Remaining;
 	}
@@ -143,6 +157,7 @@ namespace Durin
 			Publication.Parameters,
 			{},
 			&FMaterialLocalRenderParameter::Id));
+		if (LocalLayer.CompiledProgram != Publication.CompiledProgram) UniformExpressionCache->InvalidateUniformExpressionCache();
 		LocalLayer = std::move(Publication);
 		bHasResolvedData = false;
 		++PublicationCount;
@@ -211,7 +226,7 @@ namespace Durin
 		GMaterialRenderProxyCounters.ResolutionCacheMissCount.fetch_add(1);
 
 		CachedResolvedData = {};
-		CachedResolvedData.UniformBufferOwner = UniformBufferOwner;
+		CachedResolvedData.UniformExpressionCache = UniformExpressionCache;
 		if (!LocalLayer.CompiledProgram && LocalLayer.bIsCompiling)
 		{
 			++ResolutionCount;
@@ -262,7 +277,7 @@ namespace Durin
 			RecordMaterialFallbackReason(
 				EMaterialFallbackReason::MaterialDataInvalid);
 			CachedResolvedData = GetErrorMaterialRenderData();
-			CachedResolvedData.UniformBufferOwner = UniformBufferOwner;
+			CachedResolvedData.UniformExpressionCache = UniformExpressionCache;
 			GMaterialRenderProxyCounters.RepresentationValidationFailureCount
 				.fetch_add(1);
 		}

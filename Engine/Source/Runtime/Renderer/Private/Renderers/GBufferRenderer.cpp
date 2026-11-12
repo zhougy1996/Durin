@@ -214,41 +214,9 @@ namespace Durin
 		return Pipeline != nullptr ? *Pipeline : nullptr;
 	}
 
-	auto FGBufferRenderer::BindPipeline_RenderThread(
-		FRHICommandListImmediate& CommandList,
-		const FPipeline& Pipeline,
-		const std::shared_ptr<const FRHIShaderParameterBatch>& VertexBindings,
-		const RendererPrivate::FPreparedSurfaceMaterialBindings& FragmentBindings) -> bool
-	{
-		if (Pipeline.PipelineState == nullptr || FragmentBindings.GetShader() != Pipeline.FragmentShader) return false;
-		if (!VertexBindings || VertexBindings->GetShader() != Pipeline.VertexShader->GetRHIShader(false)) return false;
-		CommandList.SetGraphicsPipelineState(*Pipeline.PipelineState);
-		CommandList.SetPreparedShaderParameters(VertexBindings);
-
-		return FragmentBindings.Bind(CommandList);
-	}
-
 	auto FGBufferRenderer::GetPipelineResources(const std::shared_ptr<const FPipeline>& Pipeline)
 		-> std::shared_ptr<const RendererPrivate::FMeshPassPipeline>
 	{ return Pipeline; }
-
-	auto FGBufferRenderer::GetVertexBinding(const FPipeline& Pipeline, const FVertexFactoryBinding& Binding) const
-		-> std::shared_ptr<const RendererPrivate::FMeshVertexShaderBinding>
-	{
-		if (Binding.GetFactoryKey() != Pipeline.FactoryKey || Binding.GetLayoutKey() != Pipeline.LayoutKey) return {};
-		return Pipeline.VertexShader;
-	}
-
-	auto FGBufferRenderer::GetFragmentShader(const FPipeline& Pipeline) const -> FRHIShader*
-	{
-		return Pipeline.FragmentShader;
-	}
-
-	auto FGBufferRenderer::GetSurfaceLayout(const FPipeline& Pipeline) const
-		-> const RendererPrivate::FCompiledSurfaceBindingLayout&
-	{
-		return *Pipeline.FragmentLayout;
-	}
 
 	auto FGBufferRenderer::EnsureGPUCullingResources_RenderThread(EGPUCullingFailure Failure) -> bool
 	{

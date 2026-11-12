@@ -2,9 +2,9 @@
 
 Summary: Define RenderCore resource state, deferred C++ cleanup, producer teardown, and shutdown auditing.
 
-Modules: RenderCore, Engine, MonaImGui
+Modules: RenderCore, Engine, Renderer, MonaImGui
 
-Last reviewed: 2026-10-31
+Last reviewed: 2026-11-12
 
 `FRenderResource` owns registry membership and the rendering-thread
 initialization, update, and release state machine. This contract covers generic
@@ -61,6 +61,56 @@ Headless CPU validation accepts the prepared platform product but is not GPU
 qualification evidence. After reference commit, cloud and material consumers
 refresh their native texture-reference caches, and displaced resources follow the
 ordinary deferred cleanup boundary.
+
+## Source-owned draw resources
+
+`CreateRenderResource<T>()` pairs shared source ownership with
+`DeleteRenderResource`. While admission is running, deletion queues `ReleaseResource` when initialized
+followed by deferred cleanup, without reading render-thread state on the releasing
+thread. After admission closes, only uninitialized storage can be deleted directly. Last initialized
+owner release requires running command admission. Producers therefore release
+these owners before admission closes. `VisitInitializedRenderResources` is a
+render-thread-only registry visitor; callbacks must not change registry membership.
+Bulk release collects matching resources before releasing them. Deferred cleanup
+removes storage from its queue under the queue lock, then destroys it outside that
+lock: source destructors may release child resources and reenter cleanup.
+
+Material proxies own `FUniformExpressionCache` and its real `FUniformBuffer`.
+Standalone material representations own an expression cache too. Scene owns live
+Collection buffers; material caches own compiled-program defaults. Primitive scene
+information owns primitive buffers. Vertex-factory input bindings own deformation
+buffers. HitProxy request storage owns its temporary pipelines and Collection
+buffers. Cached `FMeshDrawCommand` values borrow these resources directly and
+store non-owning `FMeshDrawShaderBindings`. Cache and visible storage retain only
+command memory; weak source/pipeline references reject expired sources.
+
+Renderer device-resource release retires preparations and clears command metadata,
+then releases registered primitive owners, material proxies and uniform resources.
+This filtered traversal leaves independently owned asset resources untouched.
+`ReleaseResource` unregisters surviving source objects; they initialize lazily on
+next use, preserving the shutdown requirement of an empty registry.
+
+### Required lifetime boundaries
+
+- Collection, preparation and resolved draw handles belong to one render frame.
+  Source removal invalidates preparation. CPU fact retention does not authorize
+  rendering against removed sources or replaying earlier Uniform contents.
+- CPU preparation and parallel recording tasks must complete before source
+  mutation/replacement/release. View preparation joins its task work; RDG recording
+  waits for outstanding recording tasks on success and failure before returning.
+  These operations remain inside the ordered render-command scope.
+- Uniform updates and draws preserve command order. Persistent buffers retain
+  current contents only; view/pass data uses separate frame buffers. RHI commands
+  own copied update bytes and binding payloads until replay, and native allocation
+  retirement follows GPU completion. Renderer does not retain historical Uniform
+  snapshots or reference-counted binding packets.
+- Texture native replacement may occur without a new material publication, so
+  resource resolution still checks the selected native resources. Buffer/object
+  replacement invalidates bindings; numeric updates preserve logical identity.
+
+These boundaries distinguish source ownership, CPU recording lifetime and GPU
+retirement without adding another owner registry. Preparation and cache rules are
+specified in [Renderer Frame Preparation](RendererFramePreparation.md).
 
 ## Cooked mesh readiness
 

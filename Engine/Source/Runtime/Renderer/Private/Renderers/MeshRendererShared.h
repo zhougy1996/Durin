@@ -142,7 +142,7 @@ namespace Durin::RendererPrivate
 	// The factory owns set 1; camera/cascade set 0 is supplied by the pass.
 	template<typename TShader>
 	auto PrepareMeshVertexFactoryParameters(const TMaterialShaderRef<TShader>& Shader,
-		const typename TShader::FParameters& Parameters) -> std::shared_ptr<const FRHIShaderParameterBatch>
+		const typename TShader::FParameters& Parameters) -> FMeshDrawShaderBindings
 	{
 		const auto* Content = Shader.GetShader();
 		if (!Content || !Shader.GetRHIShader(false)) return {};
@@ -151,33 +151,39 @@ namespace Durin::RendererPrivate
 		std::erase_if(Bindings, [](const auto& Parameter) {
 			return Parameter.SetIndex == 0 || (Parameter.SetIndex == 1 && Parameter.BindingIndex == 2);
 		});
-		return PrepareShaderParametersImpl(Shader.GetRHIShader(false), *TShader::GetParametersMetadata(), Bindings, &Parameters);
+		FMeshDrawShaderBindings Result;
+		Result.Parameters = ResolveShaderParameterResources(*TShader::GetParametersMetadata(), Bindings, &Parameters);
+		if (std::ranges::any_of(Result.Parameters, [](const auto& Parameter) { return !Parameter.Resource; })) return {};
+		Result.Shader = Shader.GetRHIShader(false);
+		return Result;
 	}
 
 	inline auto PrepareMeshVertexMaterial(const FMeshVertexShaderBinding& Shader,
-		std::shared_ptr<const FRHIShaderParameterBatch> Base,
+		FMeshDrawShaderBindings Base,
 		const FResolvedSurfaceMaterial& Material, const FRHIUniformBufferRange& Uniform,
 		const FRHIUniformBufferRange& View, std::span<const FRHIUniformBufferRange> Collections = {}, bool bStableOnly = false)
-		-> std::shared_ptr<const FRHIShaderParameterBatch>
+		-> FMeshDrawShaderBindings
 	{
 		if (!Base) return {};
+		FMeshDrawShaderBindings Bindings(std::move(Base));
 		const auto* Reflection = Shader.GetReflection();
-		if (!Reflection) return Base;
+		if (!Reflection) return Bindings;
 		auto Remaining = *Reflection;
 		std::erase_if(Remaining.ResourceBindings, [&](const auto& Binding) {
 			if (bStableOnly && Binding.SetIndex == 0) return true;
-			return std::ranges::any_of(Base->GetParameters(), [&](const auto& Resource) {
+			return std::ranges::any_of(Bindings.GetResources(), [&](const auto& Resource) {
 				return Resource.SetIndex == Binding.SetIndex && Resource.BindingIndex == Binding.BindingIndex;
 			});
 		});
-		if (Remaining.ResourceBindings.empty()) return Base;
+		if (Remaining.ResourceBindings.empty()) return Bindings;
 		FCompiledSurfaceBindingLayout Layout(Remaining);
-		FPreparedSurfaceMaterialBindings Additional;
+		FMeshDrawShaderBindings Additional;
 		if (!PrepareCompiledSurfaceMaterial(Shader.GetRHIShader(false), Layout, Material, Uniform,
 			{}, {}, View, {}, Collections, Additional)) return {};
-		std::vector<FRHIShaderParameterResource> Resources(Base->GetParameters().begin(), Base->GetParameters().end());
+		std::vector<FRHIShaderParameterResource> Resources(Bindings.GetResources().begin(), Bindings.GetResources().end());
 		Resources.insert(Resources.end(), Additional.GetResources().begin(), Additional.GetResources().end());
-		return FRHIShaderParameterBatch::Create(Shader.GetRHIShader(false), Resources);
+		Bindings.Parameters = std::move(Resources);
+		return Bindings;
 	}
 
 	class FStaticMeshVertexShader : public FMeshMaterialShader

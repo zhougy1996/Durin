@@ -288,6 +288,11 @@ namespace Durin
 		const FShaderReflectionData& Reflection,
 		std::vector<FShaderParameterBinding>& OutBindings) -> FShaderOperationResult;
 
+	// Resolves parameter values without allocating views or retaining resources.
+	RENDERCORE_API auto ResolveShaderParameterResources(const FShaderParametersMetadata& Metadata,
+		std::span<const FShaderParameterBinding> Bindings, const void* Data)
+		-> std::vector<FRHIShaderParameterResource>;
+
 	RENDERCORE_API auto PrepareShaderParametersImpl(FRHIShader* Shader,
 		const FShaderParametersMetadata& Metadata,
 		std::span<const FShaderParameterBinding> Bindings, const void* Data)

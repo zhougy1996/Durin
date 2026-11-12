@@ -74,7 +74,7 @@ namespace Durin::RendererPrivate
 			}
 			auto Prepare(FRHICommandListImmediate& CommandList,
 				const FRHIUniformBufferRange& Transform,
-				const FVertexFactoryBinding& Binding) const -> std::shared_ptr<const FRHIShaderParameterBatch> override
+				const FVertexFactoryBinding& Binding) const -> FMeshDrawShaderBindings override
 			{
 				typename TShader::FParameters Parameters;
 				Parameters.MaterialPrimitive = Transform;
@@ -83,7 +83,9 @@ namespace Durin::RendererPrivate
 					const auto* Spline = dynamic_cast<const FSplineMeshBatchBinding*>(&Binding);
 					if (!Spline || Spline->GetLayoutKey() != FSplineMeshBatchBinding{}.GetLayoutKey()) return {};
 					const auto Uniform = MakeSplineMeshUniform(Spline->DynamicData.Params);
-					Parameters.SplineMesh = CommandList.CreateUniformBufferRange(&Uniform, sizeof(Uniform));
+					if (!Spline->UniformBuffer) Spline->UniformBuffer = FUniformBuffer::Create();
+					if (!Spline->UniformBuffer->Update(CommandList, std::as_bytes(std::span(&Uniform, 1)))) return {};
+					Parameters.SplineMesh = Spline->UniformBuffer->GetRange();
 				}
 				else if (Binding.GetLayoutKey() != FStaticMeshBatchBinding{}.GetLayoutKey()) return {};
 				return RendererPrivate::PrepareMeshVertexFactoryParameters(Shader, Parameters);
@@ -104,12 +106,12 @@ namespace Durin::RendererPrivate
 			auto Prepare(FRHICommandListImmediate&,
 				const FRHIUniformBufferRange&,
 				const FVertexFactoryBinding&) const
-				-> std::shared_ptr<const FRHIShaderParameterBatch> override
+				-> FMeshDrawShaderBindings override
 			{ return {}; }
 			auto PrepareGPUCulling(
 				const FRHIStorageBufferRange& VisibleInstances,
 				const FRHIStorageBufferRange& InstanceTransforms) const
-				-> std::shared_ptr<const FRHIShaderParameterBatch> override
+				-> FMeshDrawShaderBindings override
 			{
 				FGBufferGPUCullingVertexShader::FParameters Parameters;
 				Parameters.VisibleInstances = VisibleInstances;

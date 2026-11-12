@@ -201,14 +201,39 @@ namespace Durin
 			Resource,
 			[Resource](FRHICommandListImmediate&) {
 				check(IsInRenderingThread());
-				std::lock_guard Lock(PendingCleanupMutex);
-				const auto It = std::ranges::find_if(PendingCleanup,
-					[Resource](const FDeferredRenderResourceCleanup& Candidate) {
-						return Candidate.Resource.get() == Resource;
-					});
-				check(It != PendingCleanup.end());
-				PendingCleanup.erase(It);
+				std::unique_ptr<FRenderResource> Released;
+				{
+					std::lock_guard Lock(PendingCleanupMutex);
+					const auto It = std::ranges::find_if(PendingCleanup,
+						[Resource](const FDeferredRenderResourceCleanup& Candidate) {
+							return Candidate.Resource.get() == Resource;
+						});
+					check(It != PendingCleanup.end());
+					Released = std::move(It->Resource);
+					PendingCleanup.erase(It);
+				}
+				// Destructors may release child resources and reenter cleanup.
 			});
+	}
+
+	auto DeleteRenderResource(FRenderResource* Resource) -> void
+	{
+		if (FRenderThreadCommandPipe::GetAdmissionState() != ERenderCommandAdmissionState::Running)
+		{
+			require(!Resource->IsInitialized());
+			delete Resource;
+			return;
+		}
+		// Do not read render-thread initialization state on the releasing thread.
+		EnqueueRenderCommand("DeleteRenderResource", [Resource](FRHICommandListImmediate&) {
+			if (Resource->IsInitialized()) Resource->ReleaseResource();
+			BeginCleanupRenderResource(FDeferredRenderResourceCleanup(std::unique_ptr<FRenderResource>(Resource)));
+		});
+	}
+	auto VisitInitializedRenderResources(const std::function<void(FRenderResource&)>& Visitor) -> void
+	{
+		CheckRenderingThread();
+		for (auto* Resource : RenderResources) Visitor(*Resource);
 	}
 
 	auto GetNumInitializedRenderResources() -> size_t

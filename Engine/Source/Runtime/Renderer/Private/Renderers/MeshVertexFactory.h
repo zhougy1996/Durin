@@ -5,6 +5,7 @@
 #include "RendererAPI.h"
 #include "VertexFactory.h"
 #include "GeometrySubmission.h"
+#include "Renderers/SurfaceMaterial.h"
 #include "Shader/MaterialShader.h"
 #include "Shader/ShaderCompilerCore.h"
 
@@ -17,16 +18,18 @@ namespace Durin::RendererPrivate
 		virtual ~FMeshVertexShaderBinding() = default;
 		virtual auto GetRHIShader(bool bRequired = true) const -> FRHIShader* = 0;
 		virtual auto GetReflection() const -> const FShaderReflectionData* = 0;
-		// Runs before recording. Prepare primitive/factory data and return owned
-		// parameters without binding a pipeline or emitting draw commands.
+		// Runs before recording. Prepare primitive/factory data and return borrowed
+		// parameters without binding a pipeline or emitting draw commands. Factory
+		// sources own every resource referenced by the returned parameters; the result
+		// itself is only a preparation temporary and cannot extend resource lifetime.
 		// One primitive/shader pair may share the result across its sections.
 		virtual auto Prepare(FRHICommandListImmediate& CommandList,
 			const FRHIUniformBufferRange& Transform,
-			const FVertexFactoryBinding& Binding) const -> std::shared_ptr<const FRHIShaderParameterBatch> = 0;
+			const FVertexFactoryBinding& Binding) const -> FMeshDrawShaderBindings = 0;
 		virtual auto PrepareGPUCulling(
 			const FRHIStorageBufferRange& VisibleInstances,
 			const FRHIStorageBufferRange& InstanceTransforms) const
-			-> std::shared_ptr<const FRHIShaderParameterBatch>
+			-> FMeshDrawShaderBindings
 		{ return {}; }
 	};
 

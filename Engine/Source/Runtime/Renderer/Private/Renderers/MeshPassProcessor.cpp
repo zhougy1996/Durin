@@ -2,6 +2,7 @@
 #include "Renderers/MaterialPSOPrecacheCollector.h"
 
 #include "DynamicRHI.h"
+#include "CoreGlobals.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Materials/MaterialShaderMap.h"
 #include "Renderers/MeshPassRelevance.h"
@@ -13,21 +14,56 @@
 
 namespace Durin::RendererPrivate
 {
+	auto FMeshDrawShaderBindings::Bind(FRHICommandList& Commands) const -> bool
+	{ if (!Shader) return false; Commands.SetShaderParameters(Shader, Parameters); return true; }
+	auto FMeshDrawShaderBindings::operator==(const FMeshDrawShaderBindings& Other) const -> bool
+	{
+		return Shader == Other.Shader && std::ranges::equal(Parameters, Other.Parameters, [](const auto& A, const auto& B) {
+			return A.Resource == B.Resource && A.SetIndex == B.SetIndex && A.BindingIndex == B.BindingIndex
+				&& A.ArrayElement == B.ArrayElement && A.Type == B.Type && A.Offset == B.Offset && A.Size == B.Size;
+		});
+	}
+	auto FMeshDrawCommand::IsValid() const -> bool
+	{
+		if (bPipelineBound && PipelineLifetime.expired()) return false;
+		if (!bSourceBound) return true;
+		const auto Owner = Source.lock();
+		return Owner && Owner->IsAvailable()
+			&& (!bCached || !PrimitiveUniform.Buffer || Owner->OwnsPrimitiveUniform(BatchId, PrimitiveUniform.Buffer));
+	}
+	auto FPrimitiveDrawResources::Prepare(FRHICommandListBase& Commands) -> void
+	{ if (!IsInitialized()) InitResource(Commands); bAvailable = true; }
+	auto FPrimitiveDrawResources::GetPrimitiveUniformBuffer(uint64 Batch) -> FUniformBuffer&
+	{
+		Prepare(FRHICommandListImmediate::Get());
+		auto& Buffer = PrimitiveUniformBuffers[Batch];
+		if (!Buffer) Buffer = FUniformBuffer::Create();
+		return *Buffer;
+	}
+	auto FPrimitiveDrawResources::RetainPrimitiveUniformBuffers(std::span<const uint64> Batches) -> void
+	{
+		CheckRenderingThread();
+		const std::unordered_set<uint64> Live(Batches.begin(), Batches.end());
+		std::erase_if(PrimitiveUniformBuffers, [&](const auto& Entry) { return !Live.contains(Entry.first); });
+	}
 	auto FCachedMeshDrawCommandStorage::Find(FMeshPassKey Pass, const FMeshDrawCommand::FKey& Key) -> std::shared_ptr<const FMeshDrawCommand>
 	{
 		const auto List = Passes.find(Pass); if (List == Passes.end()) return {};
 		const auto Found = List->second.find(Key); if (Found == List->second.end()) return {};
+		if (!Found->second.Command->IsValid()) { List->second.erase(Found); --Count; return {}; }
 		Found->second.LastUsed = ++Serial;
 		return Found->second.Command;
 	}
-	auto FCachedMeshDrawCommandStorage::Publish(FMeshDrawCommand Command) -> std::shared_ptr<const FMeshDrawCommand>
+	auto FCachedMeshDrawCommandStorage::Publish(FMeshDrawCommand Command, FPrimitiveDrawResources& ResourceOwner) -> std::shared_ptr<const FMeshDrawCommand>
 	{
 		require(Command.bFinalized && Command.bCached && Command.Pipeline);
-		auto Owner = std::make_shared<const FMeshDrawCommand>(std::move(Command));
-		auto& List = Passes[Owner->Pipeline->GetPassKey()];
-		const auto [Entry, Added] = List.try_emplace(Owner->GetKey());
+		if (IsInRenderingThread()) ResourceOwner.Prepare(FRHICommandListImmediate::Get());
+		Command.Source = ResourceOwner.weak_from_this(); Command.bSourceBound = true;
+		auto Descriptor = std::make_shared<const FMeshDrawCommand>(std::move(Command));
+		auto& List = Passes[Descriptor->Pipeline->GetPassKey()];
+		const auto [Entry, Added] = List.try_emplace(Descriptor->GetKey());
 		if (Added) ++Count;
-		Entry->second = {Owner, ++Serial};
+		Entry->second = {Descriptor, ++Serial};
 		// Retain the existing 2048-command budget across all pass/variant lists.
 		while (Count > 2048)
 		{
@@ -38,12 +74,21 @@ namespace Durin::RendererPrivate
 			auto& Commands = Passes.at(OldPass); Commands.erase(OldKey); --Count;
 			if (Commands.empty()) Passes.erase(OldPass);
 		}
-		return Owner;
+		return Descriptor;
+	}
+	auto FPrimitiveDrawResources::ReleaseRHIForAllResources() -> void
+	{
+		std::vector<FPrimitiveDrawResources*> Owners;
+		VisitInitializedRenderResources([&](FRenderResource& Resource) {
+			if (auto* Primitive = dynamic_cast<FPrimitiveDrawResources*>(&Resource)) Owners.push_back(Primitive);
+		});
+		for (auto* Owner : Owners) Owner->ReleaseResource();
 	}
 	auto FCachedMeshDrawCommandStorage::Reset() -> void { Passes.clear(); Count = 0; Serial = 0; }
 	FDynamicMeshDrawCommandStorage::FDynamicMeshDrawCommandStorage() : Data(std::make_shared<FData>())
 	{
 		static std::atomic<uint64> NextId{1};
+		Data->Frame = GRenderFrameCounterRenderThread;
 		Data->Id = NextId.fetch_add(1, std::memory_order_relaxed); require(Data->Id != 0);
 	}
 	auto FDynamicMeshDrawCommandStorage::Publish(FMeshPassKey Pass, FMeshDrawCommand Command, FMeshDrawCommandHandle Replace) -> FMeshDrawCommandHandle
@@ -58,30 +103,30 @@ namespace Durin::RendererPrivate
 	}
 	auto FDynamicMeshDrawCommandStorage::GetCommand(FMeshDrawCommandHandle Handle) const -> std::shared_ptr<const FMeshDrawCommand>
 	{
-		if (!Handle || Handle.StorageId != Data->Id) return {};
+		if (!Handle || Handle.StorageId != Data->Id || Data->Frame != GRenderFrameCounterRenderThread) return {};
 		const auto List = Data->Passes.find(Handle.Pass);
 		if (List == Data->Passes.end() || Handle.Index >= List->second.size()) return {};
-		return std::shared_ptr<const FMeshDrawCommand>(Data, List->second[Handle.Index]);
+		const auto* Command = List->second[Handle.Index];
+		return Command->IsValid() ? std::shared_ptr<const FMeshDrawCommand>(Data, Command) : nullptr;
 	}
 	auto FDynamicMeshDrawCommandStorage::PublishVisible(std::shared_ptr<const FMeshDrawCommand> Command,
-		std::shared_ptr<const FMeshPassBindings> Pass, std::shared_ptr<const FMeshUniformBufferSnapshot> Primitive,
-		std::array<float, 3> Bias, std::shared_ptr<const FMeshUniformBufferSnapshot> Material) -> FMeshDrawCommandHandle
+		std::shared_ptr<const FMeshPassBindings> Pass, std::array<float, 3> Bias) -> FMeshDrawCommandHandle
 	{
 		require(Command && Command->bCached && Command->bFinalized && Pass);
 		const auto Key = Command->Pipeline->GetPassKey();
 		auto& List = Data->Visible[Key];
-		List.push_back({Command.get(), Pass.get(), Primitive.get(), Material.get(), Bias});
-		Data->RetainedCommands.try_emplace(Command.get(), std::move(Command));
+		List.push_back({Command.get(), Pass.get(), Bias});
+		Data->RetainedCommands.try_emplace(Command.get(), Command);
 		Data->RetainedPasses.try_emplace(Pass.get(), std::move(Pass));
-		if (Primitive) Data->RetainedUniforms.try_emplace(Primitive.get(), std::move(Primitive));
-		if (Material) Data->RetainedUniforms.try_emplace(Material.get(), std::move(Material));
 		return {Key, List.size() - 1, Data->Id};
 	}
 	auto FDynamicMeshDrawCommandStorage::GetVisible(FMeshDrawCommandHandle Handle) const -> const FVisibleMeshDrawCommand*
 	{
-		if (!Handle || Handle.StorageId != Data->Id) return nullptr;
+		if (!Handle || Handle.StorageId != Data->Id || Data->Frame != GRenderFrameCounterRenderThread) return nullptr;
 		const auto Found = Data->Visible.find(Handle.Pass);
-		return Found == Data->Visible.end() || Handle.Index >= Found->second.size() ? nullptr : &Found->second[Handle.Index];
+		if (Found == Data->Visible.end() || Handle.Index >= Found->second.size()) return nullptr;
+		const auto* Visible = &Found->second[Handle.Index];
+		return Visible->Command->IsValid() ? Visible : nullptr;
 	}
 	auto FDynamicMeshDrawCommandStorage::Num(FMeshPassKey Pass) const -> size_t
 	{ const auto Found = Data->Passes.find(Pass); return Found == Data->Passes.end() ? 0 : Found->second.size(); }
@@ -94,7 +139,7 @@ namespace Durin::RendererPrivate
 		auto Command = std::move(*Pending); Pending.reset(); return Command;
 	}
 	auto FCachedPassMeshDrawListContext::FinalizeCommand() -> void
-	{ Output = Storage.Publish(TakeCommand(Pass)); }
+	{ Output = Storage.Publish(TakeCommand(Pass), Owner); }
 	auto FDynamicPassMeshDrawListContext::FinalizeCommand() -> void
 	{ Output = Storage.Publish(Pass, TakeCommand(Pass), Replace); }
 
@@ -108,9 +153,9 @@ namespace Durin::RendererPrivate
 				|| Draw.Command->Indices.Range.ByteOffset > std::numeric_limits<uint32>::max()))
 			|| Draw.Command->Geometry.Validate(Draw.Command->Vertices.Range, Draw.Command->Indices.Range) != EGeometrySubmissionOutcome::Submitted
 			|| Primitive.CollectedBinding->ValidateInputs(Draw.Command->Geometry) != EGeometrySubmissionOutcome::Submitted) return false;
-		CachedCommand.reset();
-		VertexStreams = Primitive.CollectedBinding->Streams;
-		IndexBuffer = Draw.Command->Geometry.bIndexed ? Draw.Command->Indices.Buffer : FBufferRHIRef{};
+		VertexStreams.clear();
+		for (const auto& Stream : Primitive.CollectedBinding->Streams) VertexStreams.push_back({Stream.StreamIndex, Stream.VertexBuffer.GetReference(), Stream.Offset, Stream.Stride});
+		IndexBuffer = Draw.Command->Geometry.bIndexed ? Draw.Command->Indices.Buffer.GetReference() : nullptr;
 		IndexBufferOffset = IndexBuffer ? static_cast<uint32>(Draw.Command->Indices.Range.ByteOffset) : 0;
 		if (IndexBuffer) DrawParameters = Draw.Command->Geometry.GetIndexedDrawArguments();
 		else DrawParameters = Draw.Command->Geometry.GetDrawArguments();
@@ -122,43 +167,29 @@ namespace Durin::RendererPrivate
 	auto FMeshDrawCommand::SubmitDraw(FRHICommandList& Commands, FMeshDrawCommandStateCache* StateCache) const -> bool
 	{
 		if (bCached) return false;
-		if (StateCache) StateCache->CollectionSnapshot = nullptr;
-		return SubmitVisible(Commands, {VertexPassBindings, FragmentPassBindings, CollectionSnapshots}, PrimitiveSnapshot.get(), DepthBias, StateCache, MaterialSnapshot.get());
+		return SubmitVisible(Commands, VertexPassBindings, FragmentPassBindings, DepthBias, StateCache);
 	}
 
-	auto FMeshDrawCommand::SubmitVisible(FRHICommandList& Commands, const FMeshPassBindings& Pass,
-		const FMeshUniformBufferSnapshot* Snapshot, const std::array<float, 3>& Bias,
-		FMeshDrawCommandStateCache* StateCache, const FMeshUniformBufferSnapshot* MaterialSnapshot) const -> bool
+	auto FMeshDrawCommand::SubmitVisible(FRHICommandList& Commands, const FMeshDrawShaderBindings& VertexPass, const FMeshDrawShaderBindings& FragmentPass,
+		const std::array<float, 3>& Bias,
+		FMeshDrawCommandStateCache* StateCache) const -> bool
 	{
-		if (!bFinalized || !Commands.IsInsideRenderPass() || !Pipeline
+		if (!IsValid() || !bFinalized || !Commands.IsInsideRenderPass() || !Pipeline
 			|| (Pipeline->bGPUCulling && !IndirectArgs)
 			|| !std::ranges::all_of(Bias, [](float Value) { return std::isfinite(Value); })) return false;
 		FMeshDrawCommandStateCache Local;
 		auto& Cache = StateCache ? *StateCache : Local;
-		if (Cache.VertexPass != Pass.Vertex || Cache.FragmentPass != Pass.Fragment) Cache = {};
-		auto SelectContents = [&](const FMeshUniformBufferSnapshot* Selected, const void* Previous) {
-			if (!Selected || Selected == Previous) return false;
-			Commands.EnqueueLambda([Binding = Selected->Binding, Data = Selected->Data] {
-				if (Binding->CurrentData != Data)
-				{
-					Binding->Buffer->UpdateContents(*Data, {});
-					Binding->CurrentData = Data;
-				}
-			}, Selected->Data->size());
-			return true;
-		};
-		const bool PrimitiveChanged = SelectContents(Snapshot, Cache.PrimitiveSnapshot);
-		const bool MaterialChanged = SelectContents(MaterialSnapshot, Cache.MaterialSnapshot);
-		bool CollectionsChanged = Cache.CollectionSnapshot != &Pass && !Pass.Collections.empty();
-		if (CollectionsChanged) for (const auto& Collection : Pass.Collections) SelectContents(Collection.get(), nullptr);
-		if (PrimitiveChanged || MaterialChanged || CollectionsChanged) Cache = {};
-		if (!Cache.Apply(Pipeline.get(), VertexBindings.get(), FragmentBindings.get(), [&] { return SubmitBindings(Commands, Pass); })) return false;
-		Cache.PipelineOwner = Pipeline; Cache.VertexOwner = VertexBindings; Cache.FragmentOwner = FragmentBindings;
-		Cache.VertexPass = Pass.Vertex; Cache.FragmentPass = Pass.Fragment;
-		Cache.PrimitiveSnapshot = Snapshot;
-		Cache.MaterialSnapshot = MaterialSnapshot;
-		Cache.CollectionSnapshot = &Pass;
-		const auto& Geometry = GetGeometryCommand();
+		const auto* PreviousVertexPass = static_cast<const FMeshDrawShaderBindings*>(Cache.VertexPass);
+		const auto* PreviousFragmentPass = static_cast<const FMeshDrawShaderBindings*>(Cache.FragmentPass);
+		if (!PreviousVertexPass || !PreviousFragmentPass || *PreviousVertexPass != VertexPass || *PreviousFragmentPass != FragmentPass) Cache = {};
+		const auto* PreviousVertex = static_cast<const FMeshDrawShaderBindings*>(Cache.Vertex);
+		const auto* PreviousFragment = static_cast<const FMeshDrawShaderBindings*>(Cache.Fragment);
+		const bool Same = Cache.Pipeline == Pipeline && PreviousVertex && PreviousFragment
+			&& *PreviousVertex == VertexBindings && *PreviousFragment == FragmentBindings;
+		if (!Same && !SubmitBindings(Commands, VertexPass, FragmentPass)) { Cache = {}; return false; }
+		Cache.Set(Pipeline, &VertexBindings, &FragmentBindings);
+		Cache.VertexPass = &VertexPass; Cache.FragmentPass = &FragmentPass;
+		const auto& Geometry = *this;
 		for (const auto& Stream : Geometry.VertexStreams) Commands.BindVertexBuffer(Stream.StreamIndex, Stream.VertexBuffer, Stream.Offset);
 		if (Geometry.IndexBuffer) Commands.BindIndexBuffer(Geometry.IndexBuffer, Geometry.IndexBufferOffset);
 		Commands.SetDepthBias(Bias[0], Bias[2], Bias[1]);
@@ -180,15 +211,15 @@ namespace Durin::RendererPrivate
 		return true;
 	}
 
-	auto FMeshDrawCommand::SubmitBindings(FRHICommandList& Commands, const FMeshPassBindings& Pass) const -> bool
+	auto FMeshDrawCommand::SubmitBindings(FRHICommandList& Commands, const FMeshDrawShaderBindings& VertexPass, const FMeshDrawShaderBindings& FragmentPass) const -> bool
 	{
 		if (!Pipeline || !Pipeline->PipelineState || !VertexBindings
-			|| (!Pipeline->bGPUCulling && !Pass.Vertex)
-			|| (Pipeline->FragmentLayout && (!FragmentBindings || !Pass.Fragment))) return false;
+			|| (!Pipeline->bGPUCulling && !VertexPass)
+			|| (Pipeline->FragmentLayout && (!FragmentBindings || !FragmentPass))) return false;
 		Commands.SetGraphicsPipelineState(*Pipeline->PipelineState);
-		Commands.SetPreparedShaderParameters(VertexBindings);
-		if (Pass.Vertex && !Pass.Vertex->Bind(Commands)) return false;
-		return !FragmentBindings || (FragmentBindings->Bind(Commands) && Pass.Fragment->Bind(Commands));
+		if (!VertexBindings.Bind(Commands)) return false;
+		if (VertexPass && !VertexPass.Bind(Commands)) return false;
+		return !FragmentBindings || (FragmentBindings.Bind(Commands) && FragmentPass.Bind(Commands));
 	}
 
 	auto FMeshPassProcessor::SelectMeshPass(const FMeshPassProcessorBatch& Batch, FSelection& Out) const -> FShaderCompletion
@@ -238,7 +269,7 @@ namespace Durin::RendererPrivate
 		{ return FShaderCompletion::Failure("GPU draw context does not match a prepared dynamic command."); }
 		auto* Command = &DrawContext.AddCommand(Prepared);
 		const auto* Args = IndirectArgs;
-		if (!Command->bFinalized || !Command->GetGeometryCommand().IndexBuffer || !Args
+		if (!Command->bFinalized || !Command->IndexBuffer || !Args
 			|| !EnumHasAnyFlags(Args->GetUsage(), EBufferUsageFlags::DrawIndirect)
 			|| IndirectArgsOffset % sizeof(uint32) != 0 || IndirectArgsOffset > Args->GetSize()
 			|| sizeof(FRHIDrawIndexedIndirectArguments) > Args->GetSize() - IndirectArgsOffset)
@@ -284,12 +315,20 @@ namespace Durin::RendererPrivate
 		if (!Pipeline->PipelineState || !Pipeline->VertexShader || !Pipeline->FragmentShader)
 		{ return FShaderCompletion::Failure("Mesh command binding requires prepared native resources."); }
 		auto* Command = &DrawContext.AddCommand({});
-		Command->PrimitiveId = Primitive.PrimitiveId; Command->BatchId = Primitive.BatchId;
-		Command->Description = Draw.Command; Command->Input = Primitive.CollectedBinding;
-		Command->Pipeline = Pipeline; Command->PrimitiveUniform = Input.PrimitiveUniform;
-		Command->PrimitiveState = FMeshDrawPrimitiveState::Capture(Primitive);
-		if (!DrawContext.IsCached()) { Command->PrimitiveSnapshot = Input.PrimitiveSnapshot; Command->MaterialSnapshot = Input.MaterialSnapshot; }
+		Command->BatchId = Primitive.BatchId;
+		Command->Description = Draw.Command.get(); Command->Input = Primitive.CollectedBinding.get();
+		Command->Key = FMeshDrawCommand::MakeKey(Draw.Command.get(), Primitive.PrimitiveId, Primitive.BatchId, *Pipeline);
+		Command->Source = Primitive.DrawResources; Command->bSourceBound = Primitive.bSourceBound;
+		Command->PipelineLifetime = Pipeline; Command->bPipelineBound = true;
+		Command->Pipeline = Pipeline.get(); Command->PrimitiveUniform = Input.PrimitiveUniform;
 		Command->Material = Input.Material; Command->bCached = DrawContext.IsCached();
+		Command->Material.Uniform.ResourceOwner = {}; Command->PrimitiveUniform.ResourceOwner = {};
+		for (auto& Range : Command->Material.CollectionUniforms) Range.ResourceOwner = {};
+		const auto& Representation = Draw.Command->Material.Representation;
+		Command->MaterialLayout = Representation.GetLayout();
+		for (const auto& Resource : Representation.GetResources()) Command->MaterialResources.push_back(Resource.GetReference());
+		Command->MaterialSamplers.assign(Representation.GetSamplers().begin(), Representation.GetSamplers().end());
+		Command->MaterialFallbacks.assign(Representation.GetTextureFallbacks().begin(), Representation.GetTextureFallbacks().end());
 		if (!Existing && !Command->SetDrawParametersAndFinalize(Primitive, Draw))
 		{ return FShaderCompletion::Failure("Mesh command geometry finalization failed."); }
 		const auto Raster = GetPass() == EMeshPipelinePass::ShadowDepth
@@ -302,7 +341,6 @@ namespace Durin::RendererPrivate
 				return A.Buffer == B.Buffer && A.Offset == B.Offset && A.Size == B.Size;
 			};
 			if (DrawContext.IsCached() || !Existing->bFinalized || !Existing->bCached || !Existing->Pipeline || Existing->GetKey() != Command->GetKey() || Existing->Input != Command->Input
-				|| (!Input.PrimitiveSnapshot && Existing->PrimitiveState != Command->PrimitiveState)
 				|| Input.HitProxy.Buffer || !SameRange(Existing->PrimitiveUniform, Input.PrimitiveUniform)
 				|| !SameRange(Existing->Material.Uniform, Input.Material.Uniform)
 				|| Existing->Material.Surface.CompiledTextures != Input.Material.Surface.CompiledTextures
@@ -310,7 +348,8 @@ namespace Durin::RendererPrivate
 				|| !std::ranges::equal(Existing->Material.CollectionUniforms, Input.Material.CollectionUniforms,
 					SameRange))
 			{ return FShaderCompletion::Failure("Cached mesh command does not match the dynamic draw dependencies."); }
-			Command->CachedCommand = Existing;
+			Command->VertexStreams = Existing->VertexStreams; Command->IndexBuffer = Existing->IndexBuffer;
+			Command->IndexBufferOffset = Existing->IndexBufferOffset; Command->DrawParameters = Existing->DrawParameters;
 			Command->bFinalized = true;
 			Command->VertexBindings = Existing->VertexBindings;
 			Command->FragmentBindings = Existing->FragmentBindings;
@@ -343,9 +382,9 @@ namespace Durin::RendererPrivate
 			{ Command->FragmentBindings = Found->second; ++Cache.SurfaceBindingBatchReuses; }
 			else
 			{
-				auto Bindings = std::make_shared<FPreparedSurfaceMaterialBindings>();
+				FMeshDrawShaderBindings Bindings;
 				if (!PrepareCompiledSurfaceMaterial(Pipeline->FragmentShader, Layout.ForSet(1), Input.Material.Surface,
-					Input.Material.Uniform, {}, Input.HitProxy, {}, Input.PrimitiveUniform, Input.Material.CollectionUniforms, *Bindings))
+					Input.Material.Uniform, {}, Input.HitProxy, {}, Input.PrimitiveUniform, Input.Material.CollectionUniforms, Bindings))
 				{ return FShaderCompletion::Failure("Mesh stable fragment binding collection failed."); }
 				Command->FragmentBindings = std::move(Bindings);
 				if (!Input.HitProxy.Buffer) Cache.Fragments.emplace(FragmentKey, Command->FragmentBindings);
@@ -354,8 +393,7 @@ namespace Durin::RendererPrivate
 		}
 		if (!DrawContext.IsCached())
 		{
-			Command->ViewUniform = Input.ViewUniform;
-			Command->CollectionSnapshots = Input.Material.CollectionSnapshots;
+			Command->ViewUniform = Input.ViewUniform; Command->ViewUniform.ResourceOwner = {};
 			FMeshPassBindings Pass;
 			const auto Result = PreparePassBindings(Input, Cache, Pass);
 			if (!Result) return Result;
@@ -368,17 +406,16 @@ namespace Durin::RendererPrivate
 		FMeshDrawCommandBindingCache& Cache, FMeshPassBindings& Out) const -> FShaderCompletion
 	{
 		const auto& Pipeline = Input.Pipeline;
-		Out.Collections = Input.Material.CollectionSnapshots;
 		const auto BindingPass = GetPass() == EMeshPipelinePass::HybridRetainedForward || GetPass() == EMeshPipelinePass::SortedTranslucency
 			? EMeshPipelinePass::Forward : GetPass();
 		auto Collect = [&](FRHIShader* Shader, const FCompiledSurfaceBindingLayout& Layout,
-			std::shared_ptr<const FPreparedSurfaceMaterialBindings>& Bindings) -> bool {
+			FMeshDrawShaderBindings& Bindings) -> bool {
 			const auto Key = std::make_pair(BindingPass, Shader);
 			if (!Input.HitProxy.Buffer)
 				if (const auto Found = Cache.Passes.find(Key); Found != Cache.Passes.end()) { Bindings = Found->second; return true; }
-			auto Prepared = std::make_shared<FPreparedSurfaceMaterialBindings>();
+			FMeshDrawShaderBindings Prepared;
 			if (!PrepareCompiledSurfaceMaterial(Shader, Layout.ForSet(0), Input.Material.Surface, {}, Input.Lighting,
-				Input.HitProxy, Input.ViewUniform, {}, {}, *Prepared, Input.LocalLights)) return false;
+				Input.HitProxy, Input.ViewUniform, {}, {}, Prepared, Input.LocalLights)) return false;
 			Bindings = std::move(Prepared);
 			if (!Input.HitProxy.Buffer) Cache.Passes.emplace(Key, Bindings);
 			return true;

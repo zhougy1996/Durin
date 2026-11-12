@@ -115,6 +115,8 @@ namespace Durin
 			const FPreparedStaticMeshPrimitive* Primitive = nullptr;
 			const FPreparedStaticMeshDraw* Draw = nullptr;
 			FPreparedSurfaceMaterial Material;
+			std::shared_ptr<const FMeshPassPipeline> Pipeline;
+			std::vector<FRHIUniformBufferRange> Collections;
 			FRHIUniformBufferRange Transform;
 			FRHIUniformBufferRange Id;
 			FMeshDrawCommandHandle Command;
@@ -213,7 +215,7 @@ namespace Durin
 				struct FIdUniform { std::array<uint32, 4> Id; FVector4f ViewOrigin; };
 				const FIdUniform Id{{It == Ids.end() ? 0u : It->second, 0, 0, 0}, FVector4f(0.f)};
 				Item.Id = Commands.CreateUniformBufferRange(&Id, sizeof(Id));
-				std::vector<FRHIUniformBufferRange> Collections;
+				auto& Collections = Item.Collections;
 				if (const auto Program = Draw.Command->Material.CompiledProgram)
 					for (const auto& Required : Program->ActiveCollections)
 					{
@@ -229,8 +231,8 @@ namespace Durin
 					}
 				if (!bReady) break;
 				const FResolvedStaticMeshView::FMaterialUniform Material{Item.Material.Surface, Item.Material.Uniform, Collections};
-				const FMeshDrawCommandBuildInput Input{Commands, *Item.Primitive, Draw,
-					std::make_shared<const FMeshPassPipeline>(static_cast<const FMeshPassPipeline&>(Item)), Material,
+				Item.Pipeline = std::make_shared<const FMeshPassPipeline>(static_cast<const FMeshPassPipeline&>(Item));
+				const FMeshDrawCommandBuildInput Input{Commands, *Item.Primitive, Draw, Item.Pipeline, Material,
 					Item.Transform, ViewUniform, {}, Item.Id};
 				FDynamicPassMeshDrawListContext BindingContext(DrawCommands, {EMeshPipelinePass::HitProxy}, Item.Command);
 				if (!Processor.AddMeshBatch(Batch, Input, BindingCache, BindingContext)) { bReady = false; break; }

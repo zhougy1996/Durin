@@ -1,4 +1,7 @@
 #include "Renderers/SceneRenderingService.h"
+#include "UniformBuffer.h"
+#include "Materials/MaterialRenderProxy.h"
+#include "Renderers/MeshPassProcessor.h"
 
 #include "Renderers/SceneRenderPipeline.h"
 #include "Renderers/MaterialPSOPrecacheCollector.h"
@@ -164,6 +167,9 @@ namespace Durin
 		EnvironmentLighting.ReleaseResources_RenderThread(FRHICommandListImmediate::Get());
 		SurfaceMaterials.ReleaseResources_RenderThread();
 		StaticMeshRenderer.ReleaseResources_RenderThread();
+		RendererPrivate::FPrimitiveDrawResources::ReleaseRHIForAllResources();
+		FMaterialRenderProxy::ReleaseRHIForAllResources();
+		FUniformBuffer::ReleaseRHIForAllResources();
 		MeshCommandCache.Reset();
 		DirectionalShadowRenderer.ReleaseResources_RenderThread();
 		GBufferRenderer.ReleaseResources_RenderThread();

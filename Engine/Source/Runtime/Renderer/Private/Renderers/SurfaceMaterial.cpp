@@ -117,14 +117,13 @@ namespace Durin::RendererPrivate
 
 		const FRenderResourceGeneration Generation =
 			Coordinator.GetGeneration_RenderThread();
+		OutMaterial.bError = Binding.bError;
 		OutMaterial.bCompiledLayout = Binding.LayoutIdentity.Version == CompiledMaterialRenderLayoutVersion;
 		if (OutMaterial.bCompiledLayout)
 		{
 			const size_t Count = Binding.CompiledTextures.size();
 			if (Binding.CompiledSamplers.size() != Count || Binding.CompiledTextureFallbacks.size() != Count
 				|| Binding.CompiledUniformPayload.size() < MaterialUniformHeaderBytes) return false;
-			OutMaterial.PublishedBinding = Binding;
-			OutMaterial.CompiledUniformPayload = Binding.CompiledUniformPayload;
 			if (Binding.bError) return Count == 0;
 			for (size_t Index = 0; Index < Count; ++Index)
 			{
@@ -155,26 +154,28 @@ namespace Durin::RendererPrivate
 	}
 
 	auto FSurfaceMaterialResources::AreStableResourcesCurrent_RenderThread(
-		const FResolvedSurfaceMaterial& Material) const -> bool
+		const FResolvedSurfaceMaterial& Material, const FMaterialRenderRepresentation& Representation) const -> bool
 	{
 		check(IsInRenderingThread());
-		const auto& Binding = Material.PublishedBinding;
+		const auto References = Representation.GetResources();
+		const auto Samplers = Representation.GetSamplers();
+		const auto Fallbacks = Representation.GetTextureFallbacks();
 		const auto Generation = Coordinator.GetGeneration_RenderThread();
-		if (!Material.bCompiledLayout || Binding.CompiledTextures.size() != Material.CompiledTextures.size()
-			|| Binding.CompiledSamplers.size() != Material.CompiledSamplers.size()
-			|| Binding.CompiledTextureFallbacks.size() != Binding.CompiledTextures.size()) return false;
-		for (size_t Index = 0; Index < Binding.CompiledTextures.size(); ++Index)
+		if (!Material.bCompiledLayout || References.size() != Material.CompiledTextures.size()
+			|| Samplers.size() != Material.CompiledSamplers.size()
+			|| Fallbacks.size() != References.size()) return false;
+		for (size_t Index = 0; Index < References.size(); ++Index)
 		{
-			const auto* Entry = State->Samplers.Find(Binding.CompiledSamplers[Index]);
+			const auto* Entry = State->Samplers.Find(Samplers[Index]);
 			if (!Entry || HasSelectedRenderResourceGenerationChanged(Entry->Slot.GetPayloadGeneration(),
 				Generation, ERenderResourceGenerationDependency::Device) || !Entry->Slot.GetPayload()
 				|| Entry->Slot.GetPayload()->GetReference() != Material.CompiledSamplers[Index]) return false;
-			FRHITexture* Texture = Binding.CompiledTextures[Index]
-				? Binding.CompiledTextures[Index]->GetReferencedTexture_RenderThread() : nullptr;
+			FRHITexture* Texture = References[Index]
+				? References[Index]->GetReferencedTexture_RenderThread() : nullptr;
 			if (!Texture)
 			{
 				EDefaultTexture Fallback;
-				switch (Binding.CompiledTextureFallbacks[Index])
+				switch (Fallbacks[Index])
 				{
 				case EMaterialTextureFallback::White: Fallback = EDefaultTexture::White; break;
 				case EMaterialTextureFallback::Black: Fallback = EDefaultTexture::Black; break;
@@ -193,7 +194,7 @@ namespace Durin::RendererPrivate
 		FRHISampler* DirectionalShadowSampler, FResolvedSurfaceMaterial& OutMaterial) const -> bool
 	{
 		check(IsInRenderingThread());
-		if (Pass != ESurfaceMaterialPass::Forward || OutMaterial.PublishedBinding.bError) return true;
+		if (Pass != ESurfaceMaterialPass::Forward || OutMaterial.bError) return true;
 		const auto Generation = Coordinator.GetGeneration_RenderThread();
 		FRHISampler* FallbackSampler = nullptr;
 		if (OutMaterial.bCompiledLayout)
@@ -321,7 +322,7 @@ namespace Durin::RendererPrivate
 		const FRHIUniformBufferRange& Lighting, const FRHIUniformBufferRange& HitProxy,
 		const FRHIUniformBufferRange& View, const FRHIUniformBufferRange& Primitive,
 		std::span<const FRHIUniformBufferRange> Collections,
-		FPreparedSurfaceMaterialBindings& OutBindings, FRHIStorageBufferRange LocalLights) -> bool
+		FMeshDrawShaderBindings& OutBindings, FRHIStorageBufferRange LocalLights) -> bool
 	{
 		OutBindings = {};
 		if (!Shader || !Layout.IsValid() || !Material.bCompiledLayout
@@ -381,8 +382,8 @@ namespace Durin::RendererPrivate
 			if (!Resource.Resource) return false;
 			Resources.push_back(Resource);
 		}
-		OutBindings.Batch = FRHIShaderParameterBatch::Create(Shader, Resources);
-		return OutBindings.Batch != nullptr;
+		OutBindings.Shader = Shader; OutBindings.Parameters = std::move(Resources);
+		return true;
 	}
 
 	auto PrepareCompiledSurfaceMaterial(FRHIShader* Shader,
@@ -393,17 +394,10 @@ namespace Durin::RendererPrivate
 		const FRHIUniformBufferRange& HitProxy,
 		const FRHIUniformBufferRange& View,
 		const FRHIUniformBufferRange& Primitive,
-		FPreparedSurfaceMaterialBindings& OutBindings) -> bool
+		FMeshDrawShaderBindings& OutBindings) -> bool
 	{
 		return PrepareCompiledSurfaceMaterial(Shader, Layout, Material,
 			MaterialBuffer, Lighting, HitProxy, View, Primitive, {}, OutBindings);
-	}
-
-	auto FPreparedSurfaceMaterialBindings::Bind(FRHICommandList& CommandList) const -> bool
-	{
-		if (!Batch) return false;
-		CommandList.SetPreparedShaderParameters(Batch);
-		return true;
 	}
 
 } // namespace Durin::RendererPrivate
@@ -426,8 +420,8 @@ namespace Durin::RendererPrivate
 		if (OutMaterial.Surface.bCompiledLayout)
 		{
 			OutMaterial.Uniform = SharedUniform.Buffer ? SharedUniform : Commands.CreateUniformBufferRange(
-				OutMaterial.Surface.CompiledUniformPayload.data(),
-				static_cast<uint32>(OutMaterial.Surface.CompiledUniformPayload.size()));
+				Binding->CompiledUniformPayload.data(),
+				static_cast<uint32>(Binding->CompiledUniformPayload.size()));
 			return OutMaterial.Uniform.Buffer != nullptr;
 		}
 		return false;

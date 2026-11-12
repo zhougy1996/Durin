@@ -1,4 +1,5 @@
 #include "Scene.h"
+#include "Renderers/MeshPassProcessor.h"
 #include "Renderers/SceneRenderingService.h"
 #include "SceneRegistry.h"
 
@@ -292,6 +293,7 @@ namespace Durin
 				++HitProxyRevision;
 				CheckRenderingThread();
 				MaterialParameterCollections.erase(CollectionId);
+				ParameterCollectionUniformBuffers.erase(CollectionId);
 			});
 	}
 
@@ -418,6 +420,7 @@ namespace Durin
 		, LocalBounds(Proxy->GetLocalBounds())
 		, WorldBounds(TransformBounds(LocalBounds, Transform))
 	{
+		DrawResources = CreateRenderResource<RendererPrivate::FPrimitiveDrawResources>();
 	}
 
 	auto FPrimitiveSceneInfo::GetSplineMeshProxy() const -> FSplineMeshSceneProxy&
@@ -540,6 +543,9 @@ namespace Durin
 			if (const auto Found = PrimitiveInfosById.find(Id); Found != PrimitiveInfosById.end()
 				&& Found->second->GetKind() == EPrimitiveSceneProxyKind::StaticMesh)
 			{
+				std::vector<uint64> LiveBatches;
+				if (Instances) for (const auto& Instance : *Instances) LiveBatches.push_back(Instance.Id);
+				Found->second->DrawResources->RetainPrimitiveUniformBuffers(LiveBatches);
 				static_cast<FStaticMeshSceneProxy&>(Found->second->GetProxy()).SetRenderInstances(Instances);
 				Found->second->RefreshBounds();
 			}
@@ -599,6 +605,7 @@ namespace Durin
 		SkyLighting = {};
 		ProceduralSkies.clear();
 		MaterialParameterCollections.clear();
+		ParameterCollectionUniformBuffers.clear();
 	}
 
 	auto FLightSceneRegistry::Attach(FLightSceneInfo& Info) -> void

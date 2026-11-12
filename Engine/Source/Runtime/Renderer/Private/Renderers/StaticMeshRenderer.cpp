@@ -20,22 +20,6 @@ namespace Durin
 	using namespace RendererPrivate;
 	namespace
 	{
-		auto PrepareUniformSnapshot(FRHICommandListImmediate& Commands, FByteView Data,
-			const std::shared_ptr<const FMeshUniformBufferSnapshot>& Previous) -> std::shared_ptr<const FMeshUniformBufferSnapshot>
-		{
-			if (Previous && std::ranges::equal(*Previous->Data, Data)) return Previous;
-			auto Next = std::make_shared<FMeshUniformBufferSnapshot>();
-			Next->Data = std::make_shared<const FByteBuffer>(Data.begin(), Data.end());
-			if (Previous && Previous->Data->size() == Data.size()) Next->Binding = Previous->Binding;
-			else
-			{
-				Next->Binding = std::make_shared<FMeshUniformBufferBinding>();
-				Next->Binding->Buffer = Commands.CreateUniformBuffer({static_cast<uint32>(Data.size())}, ERHIBufferLifetimeUsage::MultiFrame, Data);
-				if (!Next->Binding->Buffer) return {};
-				Next->Binding->CurrentData = Next->Data;
-			}
-			return Next;
-		}
 
 		auto FinalizeResourcePreparation(
 			FResolvedStaticMeshView& ResolvedView
@@ -79,51 +63,14 @@ namespace Durin
 
 	struct FStaticMeshRenderer::FState
 	{
-		using FPrimitiveState = FMeshDrawPrimitiveState;
-		static auto CapturePrimitiveState(const FPreparedStaticMeshPrimitive& Primitive) -> FPrimitiveState
-		{ return FPrimitiveState::Capture(Primitive); }
-		using FMeshDrawCommand = RendererPrivate::FMeshDrawCommand;
 
-		struct FPrimitiveUniform
-		{
-			FPrimitiveState Value;
-			std::shared_ptr<const FMeshUniformBufferSnapshot> Snapshot;
-			FRHIUniformBufferRange Range;
-			uint64 LastUsed = 0;
-		};
-		struct FMaterialUniform
-		{
-			FMaterialRenderRepresentation Owner;
-			FRHIUniformBufferRange Range;
-			std::shared_ptr<const FMeshUniformBufferSnapshot> Snapshot;
-			uint64 LastUsed = 0;
-		};
-		// Live values belong to a Scene; defaults belong to the immutable program.
-		using FCollectionKey = std::tuple<FGuid, std::shared_ptr<const FSceneUniformBufferOwner>,
-			std::shared_ptr<const FMaterialCompilerResult>>;
-		struct FCollectionUniform
-		{
-			std::shared_ptr<const FMaterialParameterCollectionSnapshot> Source;
-			std::shared_ptr<const FMeshUniformBufferSnapshot> Uniform;
-			uint64 LastUsed = 0;
-		};
-		uint64 CacheSerial = 0;
 		uint64 ReleaseEpoch = 0;
-		template<typename TCache>
-		static auto TrimCache(TCache& Cache, size_t Limit = 512) -> void
-		{
-			if (Cache.size() <= Limit) return;
-			const auto Oldest = std::ranges::min_element(Cache, {}, [](const auto& Entry) { return Entry.second.LastUsed; });
-			Cache.erase(Oldest);
-		}
+
 		FRenderResourceGeneration DrawGeneration;
 		bool bPersistentDraws = [] {
 			const char* Setting = std::getenv("DURIN_MESH_DRAW_CACHE");
 			return !Setting || std::string_view(Setting) != "off";
 		}();
-		std::map<std::pair<uint64, uint64>, FPrimitiveUniform> PrimitiveUniforms;
-		std::map<std::pair<std::shared_ptr<const FMaterialUniformBufferOwner>, uint64>, FMaterialUniform> MaterialUniforms;
-		std::map<FCollectionKey, FCollectionUniform> CollectionUniforms;
 		static auto GetPassKey(const FPreparedStaticMeshDraw& Draw, bool Shadow = false, bool Hybrid = false) -> FMeshPassKey
 		{
 			return {Shadow ? EMeshPipelinePass::ShadowDepth : !Hybrid ? EMeshPipelinePass::Forward
@@ -135,16 +82,12 @@ namespace Durin
 			: Pipeline.Pass == EMeshPipelinePass::GBuffer ? ESurfaceMaterialPass::GBuffer : ESurfaceMaterialPass::Forward; }
 		auto IsCacheable(const FPreparedStaticMeshDraw& Draw, const FPreparedStaticMeshPrimitive& Primitive) const -> bool
 		{
-			return bPersistentDraws && Primitive.GeometryRecord && Primitive.VertexDomain == EVertexDeformationDomain::Local;
+			return bPersistentDraws && !Primitive.DrawResources.expired() && Primitive.GeometryRecord && Primitive.VertexDomain == EVertexDeformationDomain::Local;
 		}
 		FCachedMeshDrawCommandStorage DrawCommands;
 		auto ResetDrawCommands() -> void
 		{
 			DrawCommands.Reset();
-			PrimitiveUniforms.clear();
-			MaterialUniforms.clear();
-			CollectionUniforms.clear();
-			CacheSerial = 0;
 		}
 
 		using FShaderMapPayload = FMeshPassShaders;
@@ -494,16 +437,15 @@ namespace Durin
 		}
 		ResolvedView.PrimitiveUniforms.clear();
 		ResolvedView.PrimitiveUniforms.resize(PreparedView.Primitives.size());
-		ResolvedView.PrimitiveSnapshots.assign(PreparedView.Primitives.size(), {});
 		ResolvedView.PersistentCommandsReused.assign(PreparedView.GetNumSections(), false);
 		ResolvedView.PersistentCollectionBindingsChanged.assign(PreparedView.GetNumSections(), false);
 		ResolvedView.MaterialUniforms.clear();
 		ResolvedView.MaterialUniforms.resize(PreparedView.MaterialUniformGroups.size());
+		if (PreparedView.RenderFrame != GRenderFrameCounterRenderThread) return false;
 		ResolvedView.Observations.SurfaceMaterialPreparations = 0;
 		std::vector<std::set<ESurfaceMaterialPass>> Requests(PreparedView.MaterialUniformGroups.size());
 		std::vector<std::vector<FRHIUniformBufferRange>> GroupCollections(PreparedView.MaterialUniformGroups.size());
-		std::vector<std::vector<std::shared_ptr<const FMeshUniformBufferSnapshot>>> GroupCollectionSnapshots(PreparedView.MaterialUniformGroups.size());
-		std::map<FState::FCollectionKey, std::shared_ptr<const FMeshUniformBufferSnapshot>> CollectionUniforms;
+		std::map<const FUniformBuffer*, FRHIUniformBufferRange> CollectionUniforms;
 		ForEachBasePassBucket(PreparedView, [&](const auto& Bucket, EMeshBasePass Pass) {
 			for (const auto& Draw : Bucket)
 			{
@@ -540,25 +482,24 @@ namespace Durin
 					if (Snapshot && !Snapshot->Layout.HasCompatibleSchema(Required)) return false;
 					const FByteView Payload = Snapshot ? FByteView(Snapshot->Payload) : FByteView(Required.DefaultPayload);
 					if (Payload.size() != Required.UniformLayout.UniformPayloadSize) return false;
-					const FState::FCollectionKey Key{Required.CollectionId,
-						Snapshot ? Scene->UniformBufferOwner : nullptr, Snapshot ? nullptr : Program};
-					auto Local = CollectionUniforms.find(Key);
+					const auto& Material = Draw.Command->Material;
+					const auto Cache = Material.UniformExpressionCache ? Material.UniformExpressionCache : Material.Representation.GetUniformExpressionCache();
+					FUniformBuffer* Buffer;
+					if (Snapshot)
+					{
+						auto& Owned = Scene->ParameterCollectionUniformBuffers[Required.CollectionId];
+						if (!Owned) Owned = FUniformBuffer::Create();
+						Buffer = Owned.get();
+					}
+					else Buffer = &Cache->GetParameterCollectionUniformBuffer(Program, Required.CollectionId);
+					auto Local = CollectionUniforms.find(Buffer);
 					if (Local == CollectionUniforms.end())
 					{
-						const auto Existing = State->bPersistentDraws ? State->CollectionUniforms.find(Key) : State->CollectionUniforms.end();
-						const auto Previous = Existing == State->CollectionUniforms.end() ? nullptr : Existing->second.Uniform;
-						auto Uniform = Existing != State->CollectionUniforms.end() && Existing->second.Source == Snapshot
-							? Previous : PrepareUniformSnapshot(CommandList, Payload, Previous);
+						const bool Uniform = Buffer->Update(CommandList, Payload);
 						if (!Uniform) return false;
-						if (State->bPersistentDraws)
-						{
-							State->CollectionUniforms.insert_or_assign(Key, FState::FCollectionUniform{Snapshot, Uniform, ++State->CacheSerial});
-							FState::TrimCache(State->CollectionUniforms);
-						}
-						Local = CollectionUniforms.emplace(Key, std::move(Uniform)).first;
+						Local = CollectionUniforms.emplace(Buffer, Buffer->GetRange()).first;
 					}
-					GroupCollections[Group].push_back(Local->second->GetRange());
-					GroupCollectionSnapshots[Group].push_back(Local->second);
+					GroupCollections[Group].push_back(Local->second);
 				}
 				return true;
 			};
@@ -570,30 +511,16 @@ namespace Durin
 			}
 		}
 		std::vector<FRHIUniformBufferRange> GroupUniforms(Requests.size());
-		std::vector<std::shared_ptr<const FMeshUniformBufferSnapshot>> GroupSnapshots(Requests.size());
 		for (uint32 Group = 0; Group < Requests.size(); ++Group)
 		{
 			if (Requests[Group].empty()) continue;
 			const auto& Material = PreparedView.GetDraw(PreparedView.MaterialUniformGroups[Group].RepresentativeDraw).Command->Material;
-			if (!State->bPersistentDraws) continue;
-			const auto Payload = Material.Representation.GetUniformPayload();
-			if (Payload.empty()) continue;
-			const auto Key = std::make_pair(Material.UniformBufferOwner,
-				Material.UniformBufferOwner ? uint64{0} : Material.Representation.GetRecordId());
-			auto Existing = State->MaterialUniforms.find(Key);
-			std::shared_ptr<const FMeshUniformBufferSnapshot> Snapshot;
-			if (Existing != State->MaterialUniforms.end() && Existing->second.Owner.GetRecordId() == Material.Representation.GetRecordId())
-				Snapshot = Existing->second.Snapshot;
-			else
-			{
-				Snapshot = PrepareUniformSnapshot(CommandList, Payload, Existing != State->MaterialUniforms.end() ? Existing->second.Snapshot : nullptr);
-				if (!Snapshot) { if (!bAllowPartial) return false; RejectGroup(Group); continue; }
-			}
-			if (Existing == State->MaterialUniforms.end() || Existing->second.Snapshot != Snapshot) ++ResolvedView.Observations.MaterialUniformUploads;
-			GroupUniforms[Group] = Snapshot->GetRange();
-			GroupSnapshots[Group] = Snapshot;
-			State->MaterialUniforms.insert_or_assign(Key, FState::FMaterialUniform{Material.Representation, GroupUniforms[Group], Snapshot, ++State->CacheSerial});
-			FState::TrimCache(State->MaterialUniforms);
+			if (Material.Representation.GetUniformPayload().empty()) continue;
+			const auto Cache = Material.UniformExpressionCache ? Material.UniformExpressionCache : Material.Representation.GetUniformExpressionCache();
+			const bool Changed = !std::ranges::equal(Cache->UniformBuffer->GetData(), Material.Representation.GetUniformPayload());
+			if (!Cache->UpdateUniformBuffer(CommandList, Material.Representation)) { if (!bAllowPartial) return false; RejectGroup(Group); continue; }
+			if (Changed) ++ResolvedView.Observations.MaterialUniformUploads;
+			GroupUniforms[Group] = Cache->UniformBuffer->GetRange();
 		}
 		std::map<std::tuple<uint64, ESurfaceMaterialPass, const void*>, bool> MaterialResourceValidity;
 		// Probe each selected pass independently before constructing uniforms.
@@ -613,21 +540,20 @@ namespace Durin
 				const auto Existing = State->DrawCommands.Find(PassKey, FMeshDrawCommand::MakeKey(Draw.Command.get(), Primitive->PrimitiveId, Primitive->BatchId, *Pipeline));
 				if (!Existing) { AllHit = false; continue; }
 				const auto& Cached = *Existing;
-				if (Cached.Input != Primitive->CollectedBinding) { AllHit = false; continue; }
+				if (Cached.Input != Primitive->CollectedBinding.get()) { AllHit = false; continue; }
 				const auto Pass = FState::MaterialPass(*Pipeline);
 				const auto ResourceKey = std::make_tuple(Draw.Command->Material.Representation.GetRecordId(), Pass,
-					Cached.FragmentBindings ? static_cast<const void*>(Cached.FragmentBindings.get()) : static_cast<const void*>(&Cached));
+					Cached.FragmentBindings ? static_cast<const void*>(&Cached.FragmentBindings) : static_cast<const void*>(&Cached));
 				auto [ResourceValidity, NewMaterial] = MaterialResourceValidity.try_emplace(ResourceKey, false);
 				if (NewMaterial)
 				{
-					const auto& Old = Cached.Description->Material.Representation;
 					const auto& Current = Draw.Command->Material.Representation;
-					ResourceValidity->second = Old.GetLayout() == Current.GetLayout()
-						&& std::ranges::equal(Old.GetResources(), Current.GetResources())
-						&& std::ranges::equal(Old.GetSamplers(), Current.GetSamplers())
-						&& std::ranges::equal(Old.GetTextureFallbacks(), Current.GetTextureFallbacks())
+					ResourceValidity->second = Cached.MaterialLayout == Current.GetLayout()
+						&& std::ranges::equal(Cached.MaterialResources, Current.GetResources(), [](auto* A, const auto& B) { return A == B.GetReference(); })
+						&& std::ranges::equal(Cached.MaterialSamplers, Current.GetSamplers())
+						&& std::ranges::equal(Cached.MaterialFallbacks, Current.GetTextureFallbacks())
 						&& (!GroupUniforms[Draw.MaterialUniformIndex].Buffer || Cached.Material.Uniform.Buffer == GroupUniforms[Draw.MaterialUniformIndex].Buffer)
-						&& SurfaceMaterials.AreStableResourcesCurrent_RenderThread(Cached.Material.Surface);
+						&& SurfaceMaterials.AreStableResourcesCurrent_RenderThread(Cached.Material.Surface, Current);
 				}
 				if (!ResourceValidity->second) { AllHit = false; continue; }
 				const auto& CurrentCollections = GroupCollections[Draw.MaterialUniformIndex];
@@ -642,8 +568,6 @@ namespace Durin
 				if (!Material && Requests[Draw.MaterialUniformIndex].contains(Pass))
 				{
 					Material = Cached.Material; Material->CollectionUniforms = CurrentCollections;
-					Material->Snapshot = GroupSnapshots[Draw.MaterialUniformIndex];
-					Material->CollectionSnapshots = GroupCollectionSnapshots[Draw.MaterialUniformIndex];
 					if (GroupUniforms[Draw.MaterialUniformIndex].Buffer) Material->Uniform = GroupUniforms[Draw.MaterialUniformIndex];
 					if (!SurfaceMaterials.RefreshPassResources_RenderThread(Pass,
 						ResolvedView.Environment, ResolvedView.DirectionalShadowTexture, ResolvedView.DirectionalShadowSampler, Material->Surface))
@@ -670,47 +594,34 @@ namespace Durin
 			}
 			if (!NeededPrimitives[Index]) continue;
 			const auto& Primitive = PreparedView.Primitives[Index];
-			const auto Value = FState::CapturePrimitiveState(Primitive);
-			const auto Key = std::make_pair(Primitive.PrimitiveId.Value, Primitive.BatchId);
-			const bool bCacheable = State->bPersistentDraws && Primitive.GeometryRecord
-				&& Primitive.VertexDomain == EVertexDeformationDomain::Local;
-			const auto Existing = State->PrimitiveUniforms.find(Key);
+			const auto Uniform = BuildMeshTransformUniform(Primitive);
 			FRHIUniformBufferRange Range;
-			if (bCacheable && Existing != State->PrimitiveUniforms.end() && Existing->second.Value == Value)
+			if (State->bPersistentDraws && !Primitive.DrawResources.expired())
 			{
-				Range = Existing->second.Range;
-				ResolvedView.PrimitiveSnapshots[Index] = Existing->second.Snapshot;
-				Existing->second.LastUsed = ++State->CacheSerial;
-				++ResolvedView.Observations.PrimitiveUniformReuses;
+				auto& Buffer = Primitive.DrawResources.lock()->GetPrimitiveUniformBuffer(Primitive.BatchId);
+				const bool Changed = !std::ranges::equal(Buffer.GetData(), std::as_bytes(std::span(&Uniform, 1)));
+				if (Buffer.Update(CommandList, std::as_bytes(std::span(&Uniform, 1))))
+				{
+					if (Changed) ++ResolvedView.Observations.PrimitiveUniformUploads;
+					else ++ResolvedView.Observations.PrimitiveUniformReuses;
+					Range = Buffer.GetRange();
+				}
 			}
 			else
 			{
-				const auto Uniform = BuildMeshTransformUniform(Primitive);
-				if (bCacheable)
-				{
-					auto Snapshot = PrepareUniformSnapshot(CommandList, std::as_bytes(std::span(&Uniform, 1)),
-						Existing != State->PrimitiveUniforms.end() ? Existing->second.Snapshot : nullptr);
-					if (Snapshot) Range = Snapshot->GetRange();
-					ResolvedView.PrimitiveSnapshots[Index] = std::move(Snapshot);
-				}
-				else Range = CommandList.CreateUniformBufferRange(&Uniform, sizeof(Uniform));
-				if (!Range.Buffer)
-				{
-					DURIN_ERROR("Primitive uniform allocation failed for component {}", Primitive.PrimitiveId.Value);
-					if (!bAllowPartial) return false;
-					for (uint32 DrawIndex = 0; DrawIndex < PreparedView.GetNumSections(); ++DrawIndex)
-					{
-						const auto& Draw = PreparedView.GetDraw(DrawIndex);
-						if (Draw.PrimitiveIndex == Index) ResolvedView.Draws[Draw.ResolvedIndex].bReady = false;
-					}
-					continue;
-				}
+				Range = CommandList.CreateUniformBufferRange(&Uniform, sizeof(Uniform));
 				++ResolvedView.Observations.PrimitiveUniformUploads;
-				if (bCacheable)
+			}
+			if (!Range.Buffer)
+			{
+				DURIN_ERROR("Primitive uniform allocation failed for component {}", Primitive.PrimitiveId.Value);
+				if (!bAllowPartial) return false;
+				for (uint32 DrawIndex = 0; DrawIndex < PreparedView.GetNumSections(); ++DrawIndex)
 				{
-					State->PrimitiveUniforms.insert_or_assign(Key, FState::FPrimitiveUniform{Value, ResolvedView.PrimitiveSnapshots[Index], Range, ++State->CacheSerial});
-					FState::TrimCache(State->PrimitiveUniforms);
+					const auto& Draw = PreparedView.GetDraw(DrawIndex);
+					if (Draw.PrimitiveIndex == Index) ResolvedView.Draws[Draw.ResolvedIndex].bReady = false;
 				}
+				continue;
 			}
 			ResolvedView.PrimitiveUniforms[Index] = std::move(Range);
 		}
@@ -752,7 +663,7 @@ namespace Durin
 
 				}
 				ResolvedView.MaterialUniforms[Group][Pass] = FResolvedStaticMeshView::FMaterialUniform{
-					std::move(Material.Surface), Material.Uniform, RequiredCollections, GroupSnapshots[Group], GroupCollectionSnapshots[Group]};
+					std::move(Material.Surface), Material.Uniform, RequiredCollections};
 			}
 		}
 		DURIN_PROFILE_CPU_ZONE_TEXT(std::format("primitives={} material_groups={} primitive_uploads={} material_uploads={}",
@@ -801,10 +712,10 @@ namespace Durin
 					// Cache eviction may replace a logical uniform object without changing values.
 					if (Cached && Cached->PrimitiveUniform.Buffer != ResolvedView.PrimitiveUniforms[Draw.PrimitiveIndex].Buffer) Cached.reset();
 					const FMeshDrawCommandBuildInput Input{CommandList, *Primitive, Draw, Pipeline, *Material,
-						ResolvedView.PrimitiveUniforms[Draw.PrimitiveIndex], ResolvedView.ViewUniforms[Pass], Lighting, {}, LocalLights, ResolvedView.PrimitiveSnapshots[Draw.PrimitiveIndex], Material->Snapshot};
+						ResolvedView.PrimitiveUniforms[Draw.PrimitiveIndex], ResolvedView.ViewUniforms[Pass], Lighting, {}, LocalLights};
 					if (Cacheable && !Cached)
 					{
-						FCachedPassMeshDrawListContext Context(State->DrawCommands, PassKey, Cached);
+						FCachedPassMeshDrawListContext Context(State->DrawCommands, PassKey, Cached, *Primitive->DrawResources.lock());
 						const auto Result = Processor.AddMeshBatch(Batch, Input, BindingCache, Context); Ready = static_cast<bool>(Result);
 						if (!Ready) Error = Result.Error;
 					}
@@ -823,7 +734,7 @@ namespace Durin
 						{
 							const auto Bias = bShadow && Draw.RasterBias ? *Draw.RasterBias : Cached->DepthBias;
 							Record.VisibleCommands[PassKey] = ResolvedView.DrawCommandStorage->PublishVisible(Cached,
-								Group->second, Input.PrimitiveSnapshot, Bias, Input.MaterialSnapshot);
+								Group->second, Bias);
 						}
 					}
 					else if (Ready)

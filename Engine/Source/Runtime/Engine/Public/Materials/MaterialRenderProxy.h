@@ -80,10 +80,13 @@ namespace Durin
 	ENGINE_API auto RecordMaterialBindingUpdate() -> void;
 
 	// Owns render-thread material state behind one stable counted identity.
-	class FMaterialRenderProxy final
+	class FMaterialRenderProxy final : public FRenderResource
 	{
 	public:
 		FMaterialRenderProxy() = default;
+		ENGINE_API auto ReleaseRHI() -> void override;
+		ENGINE_API static auto ReleaseRHIForAllResources() -> void;
+		auto GetFriendlyName() const -> std::string override { return "MaterialRenderProxy"; }
 
 		ENGINE_API auto AddRef() const -> uint32;
 		ENGINE_API auto Release() const -> uint32;
@@ -125,10 +128,10 @@ namespace Durin
 		std::shared_ptr<const FMaterialShaderMap> BindingArtifact;
 		std::vector<FParameterBinding> ParameterBindings;
 
-		~FMaterialRenderProxy() = default;
+		~FMaterialRenderProxy() override = default;
 
 		mutable std::atomic<uint32> ReferenceCount = 0;
-		const std::shared_ptr<const FMaterialUniformBufferOwner> UniformBufferOwner = std::make_shared<const FMaterialUniformBufferOwner>();
+		const std::shared_ptr<FUniformExpressionCache> UniformExpressionCache = std::make_shared<FUniformExpressionCache>();
 		FMaterialResource LocalLayer;
 
 		FMaterialRenderData CachedResolvedData;
