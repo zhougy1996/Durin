@@ -6,7 +6,7 @@ namespace Durin::ContentBrowser::Private
 	class FContentBrowserFileDataDiscovery
 	{
 	  public:
-		auto CaptureItems(const std::string&, bool, const Tasks::FCancellationToken&) -> FContentBrowserDataCapture;
+		auto CaptureItems(const std::string&, const std::string&, bool, const Tasks::FCancellationToken&) -> FContentBrowserDataCapture;
 		auto SetEntryStatusQueryForTesting(FEntryStatusQuery Query) -> void { EntryStatusQuery = std::move(Query); }
 
 	  private:

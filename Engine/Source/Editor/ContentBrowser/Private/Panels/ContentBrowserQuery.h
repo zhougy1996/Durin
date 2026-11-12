@@ -88,6 +88,6 @@ namespace Durin::ContentBrowser::Private
 		auto TypeLabel(const FContentBrowserItem& Item) -> std::string;
 		// Materialize only selected records for command APIs that require owned values.
 		auto CopySelection(const FContentBrowserItemRange& Items,
-			const std::unordered_set<std::string>& Selection) -> std::vector<FContentBrowserItem>;
+			const FContentBrowserItemKeySet& Selection) -> std::vector<FContentBrowserItem>;
 	}
 }

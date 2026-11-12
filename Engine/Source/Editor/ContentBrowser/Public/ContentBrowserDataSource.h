@@ -80,7 +80,7 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		static constexpr std::string_view FeatureName = "ContentBrowserDataSource";
-		static constexpr uint32 FeatureVersion = 3;
+		static constexpr uint32 FeatureVersion = 5;
 		CONTENTBROWSER_API explicit DContentBrowserDataSource(const FObjectInitializer& Initializer);
 		CONTENTBROWSER_API auto Initialize(bool bAutoRegister = true) -> void;
 		CONTENTBROWSER_API virtual auto Shutdown() -> void;
@@ -93,6 +93,10 @@ namespace Durin
 		CONTENTBROWSER_API auto IsActive() const -> bool;
 		CONTENTBROWSER_API virtual auto GetDataSourceName() const -> FName;
 		virtual auto Tick(float) -> void {}
+		CONTENTBROWSER_API virtual auto GetItemAttribute(const ContentBrowser::FContentBrowserItemData&, bool IncludeMetaData, std::string_view Key, ContentBrowser::FContentBrowserItemDataAttributeValue& Out) const -> bool;
+		CONTENTBROWSER_API virtual auto GetItemAttributes(const ContentBrowser::FContentBrowserItemData&, bool IncludeMetaData, ContentBrowser::FContentBrowserItemDataAttributeValues& Out) const -> bool;
+		CONTENTBROWSER_API virtual auto GetItemPhysicalPath(const ContentBrowser::FContentBrowserItemData&, std::string& Out) const -> bool;
+		CONTENTBROWSER_API virtual auto AreItemsEquivalentForOperations(const ContentBrowser::FContentBrowserItemData&, const ContentBrowser::FContentBrowserItemData&) const -> bool;
 		virtual auto GetDiscoveryRevision() const -> uint64 { return 0; }
 		virtual auto IsDiscoveryPathAffected(uint64, std::string_view, bool) const -> bool { return true; }
 		CONTENTBROWSER_API auto QueueItemDataUpdate(ContentBrowser::FContentBrowserItemDataUpdate&& Update) -> void;

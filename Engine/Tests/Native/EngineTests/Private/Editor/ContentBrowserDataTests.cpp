@@ -1,3 +1,4 @@
+#include "Editor/ContentBrowserItemTestSupport.h"
 #include "ContentBrowserDataSubsystem.h"
 #include "ContentBrowserNativeDataSource.h"
 #include "Editor/EditorEngine.h"
@@ -12,6 +13,19 @@
 #include "AssetTools/IAssetTools.h"
 #include <gtest/gtest.h>
 
+using Durin::ContentBrowser::Private::TestKind;
+using Durin::ContentBrowser::Private::TestName;
+using Durin::ContentBrowser::Private::TestVirtualPath;
+using Durin::ContentBrowser::Private::TestPhysicalPath;
+using Durin::ContentBrowser::Private::TestPackagePath;
+using Durin::ContentBrowser::Private::TestAssetClassName;
+using Durin::ContentBrowser::Private::TestExtension;
+using Durin::ContentBrowser::Private::TestRedirectDestination;
+using Durin::ContentBrowser::Private::TestFileSize;
+using Durin::ContentBrowser::Private::TestPackageFileSize;
+using Durin::ContentBrowser::Private::TestBulkFileSize;
+using Durin::ContentBrowser::Private::TestLastWriteTime;
+
 namespace Durin
 {
 	class FProbeContentSource : public DContentBrowserDataSource
@@ -25,6 +39,25 @@ namespace Durin
 		{
 		}
 		int Copies = 0;
+		std::function<void()> BeforeAttribute;
+		auto GetItemAttribute(const ContentBrowser::FContentBrowserItemData& Item, bool IncludeMetaData, std::string_view Key, ContentBrowser::FContentBrowserItemDataAttributeValue& Out) const -> bool override
+		{
+			Out={};
+			if (Item.GetOwnerDataSource()!=this) return false;
+			if (BeforeAttribute) BeforeAttribute();
+			if (Key=="ProbeCounter") Out=ContentBrowser::FContentBrowserItemDataAttributeValue(std::numeric_limits<uint64>::max()-1);
+			else if (Key==ContentBrowser::ContentBrowserItemAttributes::ItemTypeDisplayName) Out=ContentBrowser::FContentBrowserItemDataAttributeValue("Memory object");
+			else return false;
+			if (IncludeMetaData) Out.SetMetaData({.DisplayName="Counter"});
+			return true;
+		}
+		auto GetItemAttributes(const ContentBrowser::FContentBrowserItemData& Item, bool IncludeMetaData, ContentBrowser::FContentBrowserItemDataAttributeValues& Out) const -> bool override
+		{
+			Out.clear();
+			ContentBrowser::FContentBrowserItemDataAttributeValue Value;
+			if (!GetItemAttribute(Item, IncludeMetaData, "ProbeCounter", Value)) return false;
+			Out.emplace("ProbeCounter", std::move(Value)); return true;
+		}
 		int Saves = 0;
 		std::function<void()> BeforeSave;
 		auto CanSaveItem(const ContentBrowser::FContentBrowserItemData& Item, ContentBrowser::EContentBrowserItemSaveFlags, std::string*) const -> bool override { return Item.GetOwnerDataSource() == this; }
@@ -49,8 +82,8 @@ namespace Durin
 		}
 		auto EnumerateItemsMatchingFilter(const ContentBrowser::FContentBrowserDataCompiledFilter&, const std::function<bool(ContentBrowser::FContentBrowserItem&&)>& Callback, const ContentBrowser::FContentBrowserHostContext&) -> void override
 		{
-			ContentBrowser::FContentBrowserItem Item{.Kind = Kind, .VirtualPath = ItemPath, .PhysicalPath = "/probe/item"};
-			Item.InternalItems.emplace_back(*this, Item.Kind, Item.VirtualPath, nullptr);
+			ContentBrowser::FContentBrowserItem Item;
+			Item.InternalItems.emplace_back(*this, Kind == ContentBrowser::EContentBrowserItemKind::Folder ? ContentBrowser::EContentBrowserItemFlags::Type_Folder : ContentBrowser::EContentBrowserItemFlags::Type_File, ItemPath, "", "", nullptr);
 			Callback(std::move(Item));
 		}
 	};
@@ -110,14 +143,14 @@ namespace
 		{
 			auto Items = Enumerate();
 			for (auto& Item : Items)
-				if (Item.PhysicalPath.ends_with("source.txt")) return Item.InternalItems.front();
+				if (TestPhysicalPath(Item).ends_with("source.txt")) return Item.InternalItems.front();
 			return {};
 		}
 	};
 	TEST_F(FContentBrowserDataTests, ProvidersEnumerateOpaqueItemsAndMergeFolders)
 	{
 		auto Items = Enumerate();
-		auto Folder = std::ranges::find_if(Items, [](const auto& Item) { return Item.PhysicalPath.ends_with("Sub"); });
+		auto Folder = std::ranges::find_if(Items, [](const auto& Item) { return TestPhysicalPath(Item).ends_with("Sub"); });
 		ASSERT_NE(Items.end(), Folder);
 		EXPECT_EQ(1u, Folder->InternalItems.size());
 		auto Item = File();
@@ -190,7 +223,7 @@ namespace
 		ASSERT_TRUE(Data->ActivateDataSource(FName("Probe")));
 		std::vector<FContentBrowserItem> Items;
 		Data->EnumerateItemsUnderPath("/Probe/", {}, [&](FContentBrowserItem&& Item) {
-			if (Item.VirtualPath == "/Probe/Item") Items.push_back(std::move(Item));
+			if (TestVirtualPath(Item) == "/Probe/Item") Items.push_back(std::move(Item));
 			return true;
 		});
 		ASSERT_EQ(1u, Items.size());
@@ -208,7 +241,7 @@ namespace
 		Extras.emplace_back(First.Get());
 		First->Initialize();
 		ASSERT_TRUE(Data->ActivateDataSource(FName("Probe")));
-		FContentBrowserItemData Old(*First, EContentBrowserItemKind::File, "/Probe/Old", nullptr);
+		FContentBrowserItemData Old(*First, Durin::ContentBrowser::EContentBrowserItemFlags::Type_File | Durin::ContentBrowser::EContentBrowserItemFlags::Category_Misc, "/Probe/Old", std::string{}, std::string{}, nullptr);
 		First->Shutdown();
 		TStrongObjectPtr<FProbeContentSource> Replacement(NewObject<FProbeContentSource>(Editor.Get(), {}));
 		Extras.emplace_back(Replacement.Get());
@@ -229,7 +262,7 @@ namespace
 		std::weak_ptr<FPayload> Weak = Payload;
 		auto* Source = Data->GetActiveDataSource(FName("File"));
 		ASSERT_NE(nullptr, Source);
-		FContentBrowserItemData Item(*Source, EContentBrowserItemKind::File, "/opaque", Payload);
+		FContentBrowserItemData Item(*Source, Durin::ContentBrowser::EContentBrowserItemFlags::Type_File | Durin::ContentBrowser::EContentBrowserItemFlags::Category_Misc, "/opaque", {}, {}, Payload);
 		Payload.reset();
 		EXPECT_FALSE(Weak.expired());
 		Data->DeactivateDataSource(FName("File"));
@@ -241,7 +274,7 @@ namespace
 	{
 		auto* Source = Data->GetActiveDataSource(FName("File"));
 		ASSERT_NE(nullptr, Source);
-		FContentBrowserItem Item{.Kind = EContentBrowserItemKind::File, .VirtualPath = "/ProviderTests/source.txt", .PhysicalPath = (Root / "source.txt").generic_string()};
+		FContentBrowserItem Item = Durin::ContentBrowser::Private::FContentBrowserNativeItem{.Kind = EContentBrowserItemKind::File, .VirtualPath = "/ProviderTests/source.txt", .PhysicalPath = (Root / "source.txt").generic_string()};
 		FContentBrowserHostContext Host;
 		Host.CanMutateContent = [&] { Data->DeactivateDataSource(FName("File")); return true; };
 		auto Handle = Source->CreateItemData(Item, Host);
@@ -259,7 +292,7 @@ namespace
 		Probe->Initialize();
 		ASSERT_TRUE(Data->ActivateDataSource(FName("Probe")));
 		auto Items = Enumerate();
-		const auto Folder = std::ranges::find_if(Items, [](const auto& Item) { return Item.VirtualPath == "/ProviderTests/Sub"; });
+		const auto Folder = std::ranges::find_if(Items, [](const auto& Item) { return TestVirtualPath(Item) == "/ProviderTests/Sub"; });
 		ASSERT_NE(Items.end(), Folder);
 		EXPECT_EQ(2u, Folder->InternalItems.size());
 	}
@@ -277,7 +310,7 @@ namespace
 		EXPECT_EQ(2u, Files);
 		FContentBrowserItem Renamed;
 		EXPECT_TRUE(Exact.front().Rename("facade.txt", Renamed));
-		EXPECT_EQ("/ProviderTests/facade.txt", Renamed.VirtualPath);
+		EXPECT_EQ("/ProviderTests/facade.txt", TestVirtualPath(Renamed));
 		EXPECT_TRUE(Renamed.Move("/ProviderTests/Target/"));
 		EXPECT_TRUE(std::filesystem::exists(Root / "Target/facade.txt"));
 	}
@@ -285,7 +318,7 @@ namespace
 	{
 		auto* Source = Data->GetActiveDataSource(FName("File"));
 		ASSERT_NE(nullptr, Source);
-		FContentBrowserItem Item{.Kind = EContentBrowserItemKind::File, .PhysicalPath = (Root / "source.txt").generic_string()};
+		FContentBrowserItem Item = Durin::ContentBrowser::Private::FContentBrowserNativeItem{.Kind = EContentBrowserItemKind::File, .PhysicalPath = (Root / "source.txt").generic_string()};
 		bool Allowed = true;
 		FContentBrowserHostContext Host;
 		Host.CanMutateContent = [&] { return Allowed; };
@@ -304,8 +337,8 @@ namespace
 		bool Allowed = true;
 		FContentBrowserHostContext Host;
 		Host.CanMutateContent = [&] { return Allowed; };
-		FContentBrowserItem First{.Kind = EContentBrowserItemKind::File, .PhysicalPath = (Root / "source.txt").generic_string()};
-		FContentBrowserItem Second{.Kind = EContentBrowserItemKind::File, .PhysicalPath = (Root / "second.txt").generic_string()};
+		FContentBrowserItem First = Durin::ContentBrowser::Private::FContentBrowserNativeItem{.Kind = EContentBrowserItemKind::File, .PhysicalPath = (Root / "source.txt").generic_string()};
+		FContentBrowserItem Second = Durin::ContentBrowser::Private::FContentBrowserNativeItem{.Kind = EContentBrowserItemKind::File, .PhysicalPath = (Root / "second.txt").generic_string()};
 		const std::array Handles{Source->CreateItemData(First), Source->CreateItemData(Second, Host)};
 		Allowed = false;
 		EXPECT_FALSE(Data->BulkCopyItems(Handles, "/ProviderTests/Target/"));
@@ -360,7 +393,7 @@ namespace
 		std::ofstream(Root / "second.txt") << "second";
 		size_t Files = 0;
 		Data->EnumerateItemsUnderPath("/ProviderTests/", {}, [&](FContentBrowserItem&& Item) {
-			if (Item.Kind == EContentBrowserItemKind::File)
+			if (TestKind(Item) == EContentBrowserItemKind::File)
 			{
 				++Files;
 				Data->DeactivateDataSource(FName("File"));
@@ -384,8 +417,8 @@ namespace
 		A->BeforeSave = [&] { Data->DeactivateDataSource(FName("SaveB")); Data->ActivateDataSource(FName("SaveB")); };
 		B->BeforeSave = [&] { Data->DeactivateDataSource(FName("SaveA")); Data->ActivateDataSource(FName("SaveA")); };
 		const std::array Handles{
-			FContentBrowserItemData(*A, EContentBrowserItemKind::File, "/SaveA/Item", nullptr),
-			FContentBrowserItemData(*B, EContentBrowserItemKind::File, "/SaveB/Item", nullptr)
+			FContentBrowserItemData(*A, Durin::ContentBrowser::EContentBrowserItemFlags::Type_File | Durin::ContentBrowser::EContentBrowserItemFlags::Category_Misc, "/SaveA/Item", {}, {}, nullptr),
+			FContentBrowserItemData(*B, Durin::ContentBrowser::EContentBrowserItemFlags::Type_File | Durin::ContentBrowser::EContentBrowserItemFlags::Category_Misc, "/SaveB/Item", {}, {}, nullptr)
 		};
 		EXPECT_FALSE(Data->BulkSaveItems(Handles, EContentBrowserItemSaveFlags::None));
 		EXPECT_EQ(1, A->Saves + B->Saves);
@@ -411,12 +444,12 @@ namespace
 		Extras.emplace_back(Source.Get());
 		Source->Initialize(false);
 		Source->SetDataSink(Data);
-		FContentBrowserItemData Inactive(*Source, EContentBrowserItemKind::File, "/inactive", nullptr);
+		FContentBrowserItemData Inactive(*Source, Durin::ContentBrowser::EContentBrowserItemFlags::Type_File | Durin::ContentBrowser::EContentBrowserItemFlags::Category_Misc, "/inactive", std::string{}, std::string{}, nullptr);
 		EXPECT_EQ(nullptr, Inactive.GetOwnerDataSource());
 		Source->RegisterDataSource();
 		ASSERT_TRUE(Data->ActivateDataSource(FName("Probe")));
 		EXPECT_EQ(nullptr, Inactive.GetOwnerDataSource());
-		FContentBrowserItemData Active(*Source, EContentBrowserItemKind::File, "/active", nullptr);
+		FContentBrowserItemData Active(*Source, Durin::ContentBrowser::EContentBrowserItemFlags::Type_File | Durin::ContentBrowser::EContentBrowserItemFlags::Category_Misc, "/active", std::string{}, std::string{}, nullptr);
 		EXPECT_EQ(Source.Get(), Active.GetOwnerDataSource());
 	}
 	TEST_F(FContentBrowserDataTests, AssetSaveFlagsUseTheExistingPackagePolicy)
@@ -427,7 +460,7 @@ namespace
 		ASSERT_NE(nullptr, Asset);
 		auto* Source = Data->GetActiveDataSource(FName("Asset"));
 		ASSERT_NE(nullptr, Source);
-		FContentBrowserItem Item{.Kind = EContentBrowserItemKind::Asset, .VirtualPath = Asset->GetObjectPath(), .PackagePath = Path};
+		FContentBrowserItem Item = Durin::ContentBrowser::Private::FContentBrowserNativeItem{.Kind = EContentBrowserItemKind::Asset, .VirtualPath = Asset->GetObjectPath(), .PackagePath = Path};
 		const auto Handle = Source->CreateItemData(Item);
 		const std::array Items{Handle};
 		EXPECT_TRUE(Source->CanSaveItem(Handle, EContentBrowserItemSaveFlags::SaveOnlyIfDirty));
@@ -449,13 +482,13 @@ namespace
 		ASSERT_NE(nullptr, Asset);
 		auto* Source = Data->GetActiveDataSource(FName("Asset"));
 		ASSERT_NE(nullptr, Source);
-		FContentBrowserItem Item{.Kind = EContentBrowserItemKind::Asset, .VirtualPath = Asset->GetObjectPath(), .PackagePath = Path};
+		FContentBrowserItem Item = Durin::ContentBrowser::Private::FContentBrowserNativeItem{.Kind = EContentBrowserItemKind::Asset, .VirtualPath = Asset->GetObjectPath(), .PackagePath = Path};
 		auto AssetData = Source->CreateItemData(Item);
 		ASSERT_TRUE(Data->BulkSaveItems(std::array{AssetData}, EContentBrowserItemSaveFlags::SaveOnlyIfDirty));
 		const auto Rows = Enumerate();
 		std::vector<FContentBrowserItemData> Batch;
 		for (const auto& Row : Rows)
-			if (Row.PhysicalPath.ends_with("source.txt") || Row.PackagePath == Path) Batch.insert(Batch.end(), Row.InternalItems.begin(), Row.InternalItems.end());
+			if (TestPhysicalPath(Row).ends_with("source.txt") || TestPackagePath(Row) == Path) Batch.insert(Batch.end(), Row.InternalItems.begin(), Row.InternalItems.end());
 		ASSERT_EQ(2u, Batch.size());
 		EXPECT_NE(Batch[0].GetOwnerDataSource(), Batch[1].GetOwnerDataSource());
 		std::ranges::reverse(Batch); // File adapter coordinates this mixed batch.
@@ -463,7 +496,7 @@ namespace
 		Data->Tick(0.0f);
 		EXPECT_TRUE(std::ranges::any_of(Data->GetItemDataUpdates(), [](const auto& Update) {
 			auto* Owner = Update.GetItemData().GetOwnerDataSource();
-			return Update.GetItemData().GetItemKind() == EContentBrowserItemKind::Asset && Owner && Owner->GetDataSourceName() == FName("Asset");
+			return (static_cast<uint16>(Update.GetItemData().GetItemFlags()) & static_cast<uint16>(EContentBrowserItemFlags::Category_Asset)) != 0 && Owner && Owner->GetDataSourceName() == FName("Asset");
 		}));
 		EXPECT_TRUE(std::filesystem::exists(Root / "Target/source.txt"));
 		EXPECT_TRUE(std::filesystem::exists(Root / "Target/MixedAsset.dasset"));
@@ -485,7 +518,7 @@ namespace
 		EXPECT_FALSE(Pending.ValidateItem("../escape"));
 		FContentBrowserItem Created;
 		ASSERT_TRUE(Pending.FinalizeItem("Chosen", Created));
-		EXPECT_EQ("/ProviderTests/Chosen", Created.VirtualPath);
+		EXPECT_EQ("/ProviderTests/Chosen", TestVirtualPath(Created));
 		EXPECT_TRUE(std::filesystem::is_directory(Root / "Chosen"));
 		EXPECT_FALSE(Pending.FinalizeItem("Again", Created));
 		ASSERT_TRUE(Data->CreateFolder("/ProviderTests/Another", Pending));
@@ -521,7 +554,7 @@ TEST_F(FContentBrowserDataTests, CompiledFiltersKeepSourcePartitionsAndRejectOld
 	};
 	Enumerate();
 	ASSERT_EQ(Items.size(), 1u);
-	EXPECT_EQ(Items.front().Name, "source.txt");
+	EXPECT_EQ(TestName(Items.front()), "source.txt");
 	ASSERT_TRUE(Data->DeactivateDataSource(FName("File")));
 	ASSERT_TRUE(Data->ActivateDataSource(FName("File")));
 	Enumerate();
@@ -529,6 +562,161 @@ TEST_F(FContentBrowserDataTests, CompiledFiltersKeepSourcePartitionsAndRejectOld
 	Data->CompileFilter("/ProviderTests/", {.bRecursive = true, .Kind = EContentBrowserItemKind::File}, Compiled);
 	Enumerate();
 	ASSERT_EQ(Items.size(), 2u);
-	EXPECT_TRUE(std::ranges::all_of(Items, [](const auto &Item) { return Item.Kind == EContentBrowserItemKind::File; }));
+	EXPECT_TRUE(std::ranges::all_of(Items, [](const auto &Item) { return TestKind(Item) == EContentBrowserItemKind::File; }));
 }
 } // namespace
+
+namespace
+{
+	TEST_F(FContentBrowserDataTests, LogicalKeysUseVirtualTypeAndSourceWhileAdmissionKeysRetire)
+	{
+		auto* Asset=Data->GetActiveDataSource(FName("Asset"));
+		auto* File=Data->GetActiveDataSource(FName("File"));
+		ASSERT_NE(Asset, nullptr);
+		ASSERT_NE(File, nullptr);
+		FContentBrowserItemData AssetFolder(*Asset, EContentBrowserItemFlags::Type_Folder | EContentBrowserItemFlags::Category_Asset, "/ProviderTests/Sub/", "", "", {});
+		FContentBrowserItemData FileFolder(*File, EContentBrowserItemFlags::Type_Folder | EContentBrowserItemFlags::Category_Misc, "/ProviderTests/./Sub", "", "", {});
+		EXPECT_EQ(AssetFolder.GetItemKey(), FileFolder.GetItemKey());
+		EXPECT_EQ(AssetFolder.GetItemKey().GetHash(), FileFolder.GetItemKey().GetHash());
+		EXPECT_NE(AssetFolder.GetContributionKey(), FileFolder.GetContributionKey());
+		FContentBrowserItemData First(*Asset, Durin::ContentBrowser::EContentBrowserItemFlags::Type_File | Durin::ContentBrowser::EContentBrowserItemFlags::Category_Asset, "/ProviderTests/Shared", {}, {}, {});
+		FContentBrowserItemData Same(*Asset, Durin::ContentBrowser::EContentBrowserItemFlags::Type_File | Durin::ContentBrowser::EContentBrowserItemFlags::Category_Asset, "/ProviderTests/Shared", {}, {}, {});
+		FContentBrowserItemData Other(*File, Durin::ContentBrowser::EContentBrowserItemFlags::Type_File | Durin::ContentBrowser::EContentBrowserItemFlags::Category_Misc, "/ProviderTests/Shared", {}, {}, {});
+		EXPECT_EQ(First.GetItemKey(), Same.GetItemKey());
+		EXPECT_NE(First.GetItemKey(), Other.GetItemKey());
+		EXPECT_NE(First.GetItemKey(), FContentBrowserItemKey(EContentBrowserItemFlags::Type_Folder, "/ProviderTests/Shared", {}));
+		EXPECT_EQ(FContentBrowserItemDataKey(EContentBrowserItemFlags::Type_Folder, "/ProviderTests/Sub"),
+			FContentBrowserItemDataKey(EContentBrowserItemFlags::Type_Folder | EContentBrowserItemFlags::Category_Asset | EContentBrowserItemFlags::Temporary_Creation, "/ProviderTests/Sub/"));
+		EXPECT_NE(FContentBrowserItemDataKey(EContentBrowserItemFlags::Type_Folder, "/ProviderTests/Sub"),
+			FContentBrowserItemDataKey(EContentBrowserItemFlags::Type_Folder, "/ProviderTests/sub"));
+		const auto Logical=FileFolder.GetItemKey();
+		const auto Captured=FileFolder.GetContributionKey();
+		ASSERT_TRUE(Data->DeactivateDataSource(FName("File")));
+		ASSERT_TRUE(Data->ActivateDataSource(FName("File")));
+		EXPECT_EQ(FileFolder.GetItemKey(), Logical);
+		EXPECT_EQ(FileFolder.GetContributionKey(), Captured);
+		EXPECT_EQ(FileFolder.GetOwnerDataSource(), nullptr);
+		EXPECT_EQ(FContentBrowserItemData(*File, EContentBrowserItemFlags::Type_Folder | EContentBrowserItemFlags::Category_Misc, "/ProviderTests/Sub", "", "", {}).GetItemKey(), Logical);
+		EXPECT_NE(FContentBrowserItemData(*File, EContentBrowserItemFlags::Type_Folder | EContentBrowserItemFlags::Category_Misc, "/ProviderTests/Sub", "", "", {}).GetContributionKey(), Captured);
+		std::unordered_set<FContentBrowserItemKey, FContentBrowserItemKeyHash> Keys{First.GetItemKey(), Same.GetItemKey(), Other.GetItemKey()};
+		EXPECT_EQ(Keys.size(), 2u);
+	}
+}
+
+namespace
+{
+	TEST_F(FContentBrowserDataTests, NativeAttributesPreservePrecisionMetadataAndStaleOutputRules)
+	{
+		auto Item=File();
+		FContentBrowserItemDataAttributeValue Value;
+		ASSERT_TRUE(Item.GetItemAttribute(ContentBrowserItemAttributes::ItemDiskSize, Value));
+		ASSERT_NE(Value.GetValue<uint64>(), nullptr);
+		EXPECT_EQ(*Value.GetValue<uint64>(), std::filesystem::file_size(Root/"source.txt"));
+		EXPECT_FALSE(Value.GetMetaData().has_value());
+		ASSERT_TRUE(Item.GetItemAttribute(ContentBrowserItemAttributes::ItemDiskSize, Value, true));
+		ASSERT_TRUE(Value.GetMetaData().has_value());
+		EXPECT_EQ(Value.GetMetaData()->Suffix, "bytes");
+		FContentBrowserItemDataAttributeValues Values;
+		ASSERT_TRUE(Item.GetItemAttributes(Values));
+		EXPECT_TRUE(Values.contains(std::string(ContentBrowserItemAttributes::LastWriteTime)));
+		std::string Physical;
+		ASSERT_TRUE(Item.GetItemPhysicalPath(Physical));
+		EXPECT_EQ(Physical, (Root/"source.txt").generic_string());
+		EXPECT_FALSE(Item.GetItemAttribute("Missing", Value));
+		EXPECT_FALSE(Value.IsValid());
+		ASSERT_TRUE(Data->DeactivateDataSource(FName("File")));
+		Value=FContentBrowserItemDataAttributeValue("stale"); Physical="stale";
+		EXPECT_FALSE(Item.GetItemAttribute(ContentBrowserItemAttributes::ItemDiskSize, Value));
+		EXPECT_FALSE(Value.IsValid());
+		EXPECT_FALSE(Item.GetItemAttributes(Values)); EXPECT_TRUE(Values.empty());
+		EXPECT_FALSE(Item.GetItemPhysicalPath(Physical)); EXPECT_TRUE(Physical.empty());
+	}
+	TEST_F(FContentBrowserDataTests, NonphysicalAttributesForwardAndRejectCallbackReactivation)
+	{
+		auto* Source=NewObject<FProbeContentSource>(Editor.Get(), {});
+		Extras.emplace_back(Source); Source->Initialize();
+		ASSERT_TRUE(Data->ActivateDataSource(FName("Probe")));
+		FContentBrowserItem Item;
+		Item.InternalItems.emplace_back(*Source, Durin::ContentBrowser::EContentBrowserItemFlags::Type_File | Durin::ContentBrowser::EContentBrowserItemFlags::Category_Misc, "/Probe/Item", std::string{}, std::string{}, nullptr);
+		FContentBrowserItemDataAttributeValue Value;
+		ASSERT_TRUE(Item.GetItemAttribute("ProbeCounter", Value, true));
+		ASSERT_NE(Value.GetValue<uint64>(), nullptr);
+		EXPECT_EQ(*Value.GetValue<uint64>(), std::numeric_limits<uint64>::max()-1);
+		ASSERT_TRUE(Value.GetMetaData().has_value());
+		FContentBrowserItemDataAttributeValues Values;
+		ASSERT_TRUE(Item.GetItemAttributes(Values));
+		EXPECT_EQ(Values.size(), 1u);
+		std::string Physical="stale";
+		EXPECT_FALSE(Item.GetItemPhysicalPath(Physical)); EXPECT_TRUE(Physical.empty());
+		Source->BeforeAttribute=[&] { Data->DeactivateDataSource(FName("Probe")); Data->ActivateDataSource(FName("Probe")); };
+		EXPECT_FALSE(Item.GetItemAttribute("ProbeCounter", Value)); EXPECT_FALSE(Value.IsValid());
+	}
+}
+
+namespace
+{
+	TEST_F(FContentBrowserDataTests, AttributeValuesKeepScalarTypesAndTreatNullTextAsAbsent)
+	{
+		FContentBrowserItemDataAttributeValue Signed(-7), Unsigned(7u), Boolean(true), Text("text"), Absent(static_cast<const char*>(nullptr));
+		ASSERT_NE(Signed.GetValue<int64>(), nullptr); EXPECT_EQ(*Signed.GetValue<int64>(), -7);
+		ASSERT_NE(Unsigned.GetValue<uint64>(), nullptr); EXPECT_EQ(*Unsigned.GetValue<uint64>(), 7u);
+		ASSERT_NE(Boolean.GetValue<bool>(), nullptr); EXPECT_TRUE(*Boolean.GetValue<bool>());
+		ASSERT_NE(Text.GetValue<std::string>(), nullptr); EXPECT_EQ(*Text.GetValue<std::string>(), "text");
+		EXPECT_EQ(Text.GetValue<bool>(), nullptr); EXPECT_FALSE(Absent.IsValid());
+	}
+}
+
+namespace
+{
+	TEST_F(FContentBrowserDataTests, ItemDataOwnsNamesFlagsAndDescriptionAfterWithdrawal)
+	{
+		auto* Source=Data->GetActiveDataSource(FName("File")); ASSERT_NE(Source, nullptr);
+		FContentBrowserItemData Description(*Source, Durin::ContentBrowser::EContentBrowserItemFlags::Type_File | Durin::ContentBrowser::EContentBrowserItemFlags::Category_Misc | EContentBrowserItemFlags::Temporary_Creation, "/ProviderTests/StorageName", "InternalName", "Visible name", nullptr);
+		FContentBrowserItemData Folder(*Source, EContentBrowserItemFlags::Type_Folder | EContentBrowserItemFlags::Category_Misc, "/ProviderTests/Sub/", std::string{}, std::string{}, nullptr);
+		EXPECT_EQ(Folder.GetItemType(), EContentBrowserItemFlags::Type_Folder); EXPECT_EQ(Folder.GetItemName(), "Sub");
+		EXPECT_EQ(Description.GetItemName(), "InternalName"); EXPECT_EQ(Description.GetDisplayName(), "Visible name");
+		EXPECT_NE(static_cast<uint16>(Description.GetItemFlags()) & static_cast<uint16>(EContentBrowserItemFlags::Temporary_MASK), 0);
+		EXPECT_EQ(Description.GetItemType(), EContentBrowserItemFlags::Type_File);
+		FContentBrowserItem Item; Item.InternalItems.push_back(Description);
+		EXPECT_EQ(Item.GetItemName(), "InternalName"); EXPECT_EQ(Item.GetDisplayName(), "Visible name");
+		EXPECT_EQ(Item.GetVirtualPath(), "/ProviderTests/StorageName");
+		EXPECT_EQ(FContentBrowserItemKey(Item), FContentBrowserItemKey(Description));
+		ASSERT_TRUE(Data->DeactivateDataSource(FName("File")));
+		EXPECT_EQ(Description.GetOwnerDataSource(), nullptr); EXPECT_EQ(Description.GetDisplayName(), "Visible name");
+	}
+}
+
+namespace
+{
+	TEST_F(FContentBrowserDataTests, MergedNativeFolderRetainsBothOwnersAndRenamesOneBackend)
+	{
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate("/ProviderTests/Sub/Example", Path));
+		auto* Asset = IAssetTools::Get().CreatePackageLeafAssetForTesting(Path, DObject::StaticClass());
+		ASSERT_NE(Asset, nullptr);
+		auto* Source = Data->GetActiveDataSource(FName("Asset"));
+		const auto Input = Durin::ContentBrowser::Private::MakeNativeItem({.Kind = EContentBrowserItemKind::Asset, .VirtualPath = Asset->GetObjectPath(), .PackagePath = Path}, true);
+		const std::array Handle{Source->CreateItemData(Input)};
+		ASSERT_TRUE(Data->BulkSaveItems(Handle, EContentBrowserItemSaveFlags::SaveOnlyIfDirty));
+		auto Rows = Enumerate();
+		auto Folder = std::ranges::find_if(Rows, [](const auto& Item) { return Item.GetItemKey().GetVirtualPath() == "/ProviderTests/Sub"; });
+		ASSERT_NE(Folder, Rows.end());
+		ASSERT_EQ(Folder->GetInternalItems().size(), 2u);
+		EXPECT_NE(Folder->GetInternalItems()[0].GetContributionKey(), Folder->GetInternalItems()[1].GetContributionKey());
+		EXPECT_EQ(Folder->GetInternalItems()[0].GetItemKey(), Folder->GetInternalItems()[1].GetItemKey());
+		ASSERT_TRUE(Folder->CanRename("Relocated"));
+		FContentBrowserItem Renamed;
+		ASSERT_TRUE(Folder->Rename("Relocated", Renamed));
+		Data->Tick(0);
+		EXPECT_TRUE(std::ranges::any_of(Data->GetItemDataUpdates(), [](const auto& Update) {
+			const auto* Owner = Update.GetItemData().GetOwnerDataSource();
+			return Owner && Owner->GetDataSourceName() == FName("File") && Update.GetUpdateType() == EContentBrowserItemUpdateType::Moved;
+		}));
+		// Native package relocation may retain the source directory for redirectors.
+		EXPECT_TRUE(std::filesystem::exists(Root / "Relocated/Example.dasset"));
+		Rows = Enumerate();
+		const auto Result = std::ranges::find_if(Rows, [](const auto& Item) { return Item.GetItemKey().GetVirtualPath() == "/ProviderTests/Relocated"; });
+		ASSERT_NE(Result, Rows.end());
+		EXPECT_EQ(Result->GetInternalItems().size(), 2u);
+	}
+}

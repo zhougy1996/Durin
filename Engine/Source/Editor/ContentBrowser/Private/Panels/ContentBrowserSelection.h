@@ -10,28 +10,28 @@ namespace Durin::ContentBrowser::Private
 	// Selection identities survive captures; only a completed projection repairs visibility.
 	struct FContentBrowserSelection
 	{
-		std::unordered_set<std::string> Selected;
-		std::string Anchor;
+		FContentBrowserItemKeySet Selected;
+		FContentBrowserItemKey Anchor;
 		auto Repair(const FContentBrowserItemRange& Items) -> void
 		{
 			std::erase_if(Selected, [&](const auto& Id) {
-				return std::ranges::none_of(Items, [&](const auto& Item) { return Item.StableId() == Id; });
+				return std::ranges::none_of(Items, [&](const auto& Item) { return Item.GetItemKey() == Id; });
 			});
-			if (!Selected.contains(Anchor)) Anchor.clear();
+			if (!Selected.contains(Anchor)) Anchor = {};
 		}
 		auto Select(const FContentBrowserItemRange& Items, size_t Index, bool Extend, bool Toggle) -> void
 		{
 			if (Index >= Items.size()) return;
-			const auto& Id = Items[Index].StableId();
-			if (Extend && !Anchor.empty())
+			const auto& Id = Items[Index].GetItemKey();
+			if (Extend && Anchor.IsValid())
 			{
-				const auto It = std::ranges::find_if(Items, [&](const auto& Item) { return Item.StableId() == Anchor; });
+				const auto It = std::ranges::find_if(Items, [&](const auto& Item) { return Item.GetItemKey() == Anchor; });
 				if (It != Items.end())
 				{
 					const size_t Start = static_cast<size_t>(std::distance(Items.begin(), It));
 					if (!Toggle) Selected.clear();
 					for (size_t I = std::min(Start, Index); I <= std::max(Start, Index); ++I)
-						Selected.insert(Items[I].StableId());
+						Selected.insert(Items[I].GetItemKey());
 					return;
 				}
 			}
@@ -39,36 +39,44 @@ namespace Durin::ContentBrowser::Private
 			else { Selected.clear(); Selected.insert(Id); }
 			Anchor = Id;
 		}
-		static auto Migrate(std::string& Id, const FContentChange& Change) -> void
+		// Update ownership is mandatory even when the logical key omits folder owners.
+		static auto Migrate(FContentBrowserItemKey& Key, const FContentBrowserItemDataUpdate& Update) -> bool
 		{
-			if (Id.empty()) return;
-			if (Change.Kind == EContentChangeKind::Renamed)
-			{
-				if (!Change.bDirectory && !Change.NewAssetPath.empty() && ContentBrowserChanges::MatchesAsset(Id, Change.OldAssetPath))
-					Id = Change.NewAssetPath + Id.substr(Change.OldAssetPath.size());
-				else if (Change.bDirectory && !Change.OldAssetPath.empty() && !Change.NewAssetPath.empty()
-					&& ContentBrowserChanges::WithinAssetDirectory(Id, Change.OldAssetPath))
-				{
-					Id = std::string(ContentBrowserChanges::AssetDirectory(Change.NewAssetPath))
-						+ Id.substr(ContentBrowserChanges::AssetDirectory(Change.OldAssetPath).size());
-				}
-				else ContentBrowserChanges::RemapPhysical(Id, Change);
-			}
-			else if (Change.Kind == EContentChangeKind::Removed
-				&& ((!Change.bDirectory && ContentBrowserChanges::MatchesAsset(Id, Change.OldAssetPath))
-					|| ContentBrowserChanges::SamePath(Id, Change.OldPhysicalPath)
-					|| (Change.bDirectory && (ContentBrowserChanges::Within(Id, Change.OldPhysicalPath)
-						|| ContentBrowserChanges::WithinAssetDirectory(Id, Change.OldAssetPath))))) Id.clear();
+			const auto& Data = Update.GetItemData();
+			const bool Moved = Update.GetUpdateType() == EContentBrowserItemUpdateType::Moved;
+			if (!Key.IsValid() || !Data.GetOwnerDataSource()
+				|| (!Moved && Update.GetUpdateType() != EContentBrowserItemUpdateType::Removed)) return false;
+			if (Key.GetItemType() == EContentBrowserItemFlags::Type_File && Key.GetOwnerKey() != Data.GetOwnerKey()) return false;
+			const FContentBrowserItemDataKey Previous(Data.GetItemType(), Moved ? Update.GetPreviousVirtualPath() : Data.GetVirtualPath());
+			const auto& OldPath = Previous.GetVirtualPath();
+			const auto& Path = Key.GetVirtualPath();
+			const bool Folder = Data.GetItemType() == EContentBrowserItemFlags::Type_Folder;
+			if (!(Folder ? ContentBrowserChanges::WithinAssetDirectory(Path, OldPath)
+				: Key.GetItemType() == Previous.GetItemType() && Path == OldPath)) return false;
+			Key = Moved ? FContentBrowserItemKey(Key.GetItemType(), Data.GetVirtualPath() + Path.substr(OldPath.size()), Key.GetOwnerKey())
+				: FContentBrowserItemKey{};
+			return true;
 		}
-		auto Apply(const FContentChangeBatch& Batch) -> void
+		static auto HasOtherFolderContribution(const FContentBrowserItemKey& Key, const FContentBrowserItemDataUpdate& Update,
+			std::span<const FContentBrowserItem> Items) -> bool
 		{
-			for (const auto& Change : Batch.Changes)
+			if (Key.GetItemType() != EContentBrowserItemFlags::Type_Folder) return false;
+			const auto Row = std::ranges::find_if(Items, [&](const auto& Item) { return Item.GetItemKey() == Key; });
+			return Row != Items.end() && std::ranges::any_of(Row->GetInternalItems(), [&](const auto& Data) {
+				return Data.GetOwnerDataSource() && Data.GetOwnerKey() != Update.GetItemData().GetOwnerKey();
+			});
+		}
+		auto Apply(const FContentBrowserItemDataUpdate& Update, std::span<const FContentBrowserItem> Items = {}) -> void
+		{
+			FContentBrowserItemKeySet Next;
+			for (auto Key : Selected)
 			{
-				std::unordered_set<std::string> Next;
-				for (auto Id : Selected) { Migrate(Id, Change); if (!Id.empty()) Next.insert(std::move(Id)); }
-				Selected = std::move(Next);
-				Migrate(Anchor, Change);
+				if (HasOtherFolderContribution(Key, Update, Items)) Next.insert(Key);
+				Migrate(Key, Update);
+				if (Key.IsValid()) Next.insert(std::move(Key));
 			}
+			Selected = std::move(Next);
+			if (!HasOtherFolderContribution(Anchor, Update, Items)) Migrate(Anchor, Update);
 		}
 	};
 }

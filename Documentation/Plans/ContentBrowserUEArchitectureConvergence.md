@@ -14,7 +14,14 @@ Planning baseline: `fb0f3d9dd`. Stage 0 is complete against Durin
 destinations, consumer inventory, identity and operation semantics are recorded
 below. Stage 1 is complete: providers own discovery and compiled filters, and
 list/tree browsing uses virtual provider queries with fenced asynchronous
-publication. Stage 2 is next; Stages 2–5 and the final integration gates remain open.
+publication. Stage 2 is complete: generic Item contains only ItemData
+contributions, descriptions use flags/names and opaque source payloads, metadata
+reads use source attributes, and selection/transfer/thumbnail row identities use
+typed logical and contribution keys. Native metadata lives in provider-private
+records and payloads. All native folder contributors survive aggregation while
+shared backend aliases execute once. The Stage 2 acceptance checks and affected
+workspace consumers passed the validation recorded below.
+Stages 3–5 and the final integration gates remain open.
 The baseline already routes panels through the data subsystem and providers and
 separates native item policy from command execution lifetime. Its 185 passing
 workflow/provider cases and two Windows symlink-permission skips are historical
@@ -386,19 +393,170 @@ the final relevant native inputs above.
 
 Depends on Stage 1. Outcome: generic items no longer encode native storage layouts.
 
-- [ ] Implement the frozen UE-aligned ItemData/Item/key and attribute interfaces;
+- [x] Implement the frozen UE-aligned ItemData/Item/key and attribute interfaces;
   move package, redirector and physical-file metadata into their owning payloads.
-- [ ] Replace the item-kind-dependent `StableId()` scheme with selected logical
+- [x] Replace the item-kind-dependent `StableId()` scheme with selected logical
   and contribution keys; keep distinct identity domains explicit and documented.
-- [ ] Migrate presentation, sorting, details, thumbnails, extensions, selections,
+- [x] Migrate presentation, sorting, details, thumbnails, extensions, selections,
   temporary items, clipboard and drag/drop across all workspace consumers.
-- [ ] Remove legacy public fields and adapters after migration. Do not retain a
+- [x] Remove legacy public fields and adapters after migration. Do not retain a
   parallel native snapshot as a second authoritative generic item model.
 
 Acceptance: generic selection and commands work without physical/package paths;
 merged folders preserve contributor ownership. Validate key stability, metadata
 parity, rename/move selection migration and stale transfer identities. Compile and
 test affected extension and thumbnail consumers, not only provider fixtures.
+
+Stage 2 identity increment: `ContentBrowserItemKey.h` follows verified UE
+`FContentBrowserItemDataKey`/`FContentBrowserItemKey` type masking and file-source
+partitioning. `FObjectKey` replaces a live source pointer in the key so identity
+can be compared without resolving a reflected object and cannot alias a later
+object reusing its address. Virtual paths normalize lexical components and trailing
+slashes while retaining case. Folder keys omit owners; file keys include owners.
+Durin's contribution key additionally captures owner, activation and mount epochs
+for later clipboard/drag admission migration. It never authorizes an operation.
+
+Directory aggregation now compares valid typed logical keys, removing its
+physical-path fallback. The existing native executable-contribution deduplication
+remains unchanged until its operation consumers migrate. `StableId()`, legacy
+native metadata fields and existing selection/transfer consumers still remain;
+the remaining Stage 2 checklist tasks stay open. The next increment must
+move metadata into source payloads and attributes, then migrate consumers and
+remove those legacy paths before accepting Stage 2.
+
+Identity increment validation (2026-11-12): baseline `3ac070066` plus this
+increment's source changes, profile `windows-msvc-x64`, preset
+`Win64-Debug-DurinEditor`. `ContentBrowserDataTests` passed 24/24;
+`ContentBrowserWorkflowTests` passed 167 with two Windows symlink-privilege skips.
+Receipts:
+`Build/.agent-state/logs/20261112-180149-633553-13752-ContentBrowserDataTests.log`
+and
+`Build/.agent-state/logs/20261112-180214-286534-12512-ContentBrowserWorkflowTests.log`.
+Coverage checks normalized/case-sensitive paths, category/temporary flag masking,
+source-local file identity, cross-source folder identity, hashing and the
+logical-versus-captured identity distinction after reactivation. Existing workflow
+coverage validates the changed folder comparison. Other consumers still use their
+unchanged legacy identities; their migration and extension/thumbnail validation
+remain required before Stage 2 acceptance. Changed-document validation and diff
+review passed for this increment.
+
+Stage 2 description/payload/attribute increment: ItemData owns flags, names and
+display names and supplies the flags-based UE-shaped constructor; aggregate
+accessors read primary contribution description. Key constructors accept ItemData
+or Item. Asset and File independently interpret their concrete file/folder
+payloads for attributes and optional physical paths. Payloads no longer retain a
+generic Item copy. The remaining legacy executor builds only a transient native
+view; this bridge and generic display/discovery metadata fields must disappear
+when their remaining consumers migrate. This increment does not satisfy the old
+path removal or typed selection/transfer checklist items.
+
+The attribute boundary uses owned scalar values and optional metadata, fences
+owner-thread callbacks with strong lifetime and post-dispatch admission checks,
+and preserves exact integer/time values. Type labels and file-image preview input
+now read source attributes; bare snapshot fixtures were updated to bind through
+providers. A fixture with empty legacy metadata fields can supply signed preview
+size and a native preview resource through the provider contract. Source feature
+version 4 and an explicit thumbnail-test link to the current contract module
+cover the added virtual interface. String class/type values match Durin's existing
+qualified-string asset-definition registry; native unsigned sizes preserve its
+storage types. No FName/FText conversion or generic physical fallback is added.
+
+Description/payload/attribute validation (2026-11-12), profile
+`windows-msvc-x64`, preset `Win64-Debug-DurinEditor`: Data 28/28, Workflow
+168 passed with two Windows symlink-privilege skips, Thumbnail 74/74, StaticMesh
+Thumbnail 10/10 and PythonScriptPanel 8/8. The final descriptor/virtual-interface
+inputs also passed `all`. Receipts under `Build/.agent-state/logs/`:
+`20261112-195750-727988-39924-ContentBrowserDataTests.log`,
+`20261112-195835-360112-36428-ContentBrowserWorkflowTests.log`,
+`20261112-195900-507307-36624-ThumbnailTests.log`,
+`20261112-195925-015173-25556-StaticMeshThumbnailTests.log`,
+`20261112-195935-345870-16780-PythonScriptPanelTests.log` and
+`20261112-195937-870776-32312-cmake.log`. Changed-document validation passed.
+
+Stage 2 consumer identity increment removes `StableId()` from the public item
+contract and all workspace source/test call sites. Selection, anchors, rename
+state, pending reveal actions, extension context selection and browser thumbnail
+references use typed logical keys. Native reveal APIs return accepted logical
+keys even while asynchronous rows are pending. Decoder resources retain their
+separate native-image path cache domain; asset fingerprints remain Registry
+identities. Source-qualified ItemData updates migrate selection; overlapping
+folder contributors retain the old logical selection when another source remains.
+Captured clipboard/drag rows re-enumerate by logical key and compare every
+contribution key including activation and mount admission, preventing a same-path
+file from another source or a reactivated source from borrowing a transfer.
+Remaining native metadata/discovery fields and presentation consumers still keep
+the final migration/removal checklist tasks open.
+
+Consumer identity validation (2026-11-12), `windows-msvc-x64`,
+`Win64-Debug-DurinEditor`: Workflow 168 passed/two symlink-privilege skips, Data
+28/28, Thumbnail 74/74, StaticMesh Thumbnail 10/10, PythonScriptPanel 8/8 and `all`
+build passed. Receipts under `Build/.agent-state/logs/`:
+`20261112-201218-068064-39568-ContentBrowserWorkflowTests.log`,
+`20261112-201344-782833-37716-StaticMeshThumbnailTests.log`,
+`20261112-201355-881482-33612-ContentBrowserDataTests.log`,
+`20261112-201402-224059-6260-ThumbnailTests.log`,
+`20261112-201413-124890-35456-PythonScriptPanelTests.log`,
+`20261112-201415-706826-40248-cmake.log`. Document validation and diff checks passed.
+
+Presentation metadata increment migrates sorting, icons, category/type extras,
+details and context menus to provider attribute/physical-path accessors. Python
+script menu applicability and invocation re-query the optional physical resource.
+Fixtures bind through real providers; the Python suite loads ContentBrowser before
+starting its editor host. Native discovery/operation snapshots still retain legacy
+public fields and the Stage 2 removal gate remains open. Validation:
+`ContentBrowserWorkflowTests` passed 168 with two symlink-privilege skips
+(`20261112-201925-379605-20832-ContentBrowserWorkflowTests.log`), and
+`PythonScriptPanelTests` passed 8/8
+(`20261112-202029-178735-34284-PythonScriptPanelTests.log`). Both receipts are under
+`Build/.agent-state/logs/`, profile `windows-msvc-x64`, preset
+`Win64-Debug-DurinEditor`.
+
+Stage 2 native folder ownership adjustment: executable native aliases must no
+longer be discarded during logical row aggregation. Both provider contributions
+remain visible. A source-owned equivalence predicate admits only current
+contributions to the same native folder backend; generic item commands validate
+all aliases and dispatch that single backend once. Native bulk utilities normalize
+such aliases after retaining all request policies. Generic keys never encode the
+backend path. This preserves existing single-effect native folder behavior while
+keeping unrelated merged folders conservative until Stage 3's per-contribution
+operation outcomes are implemented.
+
+The removal increment deletes generic native storage fields, duplicated Item
+description fields, ItemData's duplicated kind and its kind-based constructor.
+Private native records serve discovery and existing storage utilities; opaque
+unbound ItemData descriptions cross the worker boundary without consulting live
+mount/source state. Sources bind admission on the owner thread. Type/category
+presentation reads flags and source attributes. Temporary folder descriptions carry
+`Temporary_Creation`; the context callback-shape migration remains explicitly in
+Stage 3. Native asset thumbnail and external-drag resources use the source's
+`AssetPath` attribute rather than browser-row identity. TextureCube details and
+Python actions query optional physical paths. New acceptance cases cover two
+native folder owners with one backend rename and unmounted same-path sources
+with separate selection/transfer ownership.
+
+Stage 2 final acceptance (2026-11-12), profile `windows-msvc-x64`, preset
+`Win64-Debug-DurinEditor`: 290 tests passed, with two Windows symlink-privilege
+skips. Results: ContentBrowserData 29/29, ContentBrowserWorkflow 169 passed plus
+two skips, StaticMeshThumbnail 10/10, Thumbnail 74/74 and PythonScriptPanel 8/8.
+The `all` workspace target also passed, compiling the MainFrame, TextureEditor,
+MaterialEditor, StaticMeshEditor and RoadWeaverEditor consumers. Native folder
+relocation retains the existing redirector/cleanup policy; Stage 2 does not change
+Stage 3's operation-result semantics. The native folder test verifies two retained
+owners, a successful backend rename and mirrored File-source move updates. The
+unmounted same-path provider test verifies independent keys/selections, correct
+transfer owner dispatch, rename selection and rejection of an old clipboard path
+that still exists in another source.
+
+Final receipts under `Build/.agent-state/logs/`:
+`20261112-210048-965666-14828-ContentBrowserDataTests.log`,
+`20261112-210443-084038-40100-ContentBrowserWorkflowTests.log`,
+`20261112-210621-329273-10344-StaticMeshThumbnailTests.log`,
+`20261112-210630-231671-33024-ThumbnailTests.log`,
+`20261112-210641-948749-19448-PythonScriptPanelTests.log` and
+`20261112-210644-577608-38284-cmake.log`. The passing Data result is reused because
+later changes only affected the panel test fixtures, StaticMesh thumbnail test
+fixture and documentation; its owning source/data-test inputs were unchanged.
+Changed-document validation and diff checks passed. Stages 3–5 remain open.
 
 ### Stage 3: Separate provider operations and retire the combined executor
 

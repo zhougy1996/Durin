@@ -1,30 +1,39 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "DObject/AssetPath.h"
 #include "ContentBrowserItemData.h"
 
 namespace Durin::ContentBrowser
 {
 	// Presentation category; operation ownership belongs to the item's data source.
 
-	// Value-owned item snapshot shared by discovery, browser presentation and operations.
+	// An aggregate of source descriptions and opaque payloads.
 	struct FContentBrowserItem
 	{
-		EContentBrowserItemKind Kind = EContentBrowserItemKind::File;
-		std::string Name;
-		std::string VirtualPath;
-		FPackagePath PackagePath;
-		std::string PhysicalPath;
-		std::string AssetClassName;
-		std::string Extension;
-		FSoftObjectPath RedirectDestination;
-		uintmax_t FileSize = 0;
-		uintmax_t PackageFileSize = 0;
-		uintmax_t BulkFileSize = 0;
-		std::filesystem::file_time_type LastWriteTime{};
 		std::vector<FContentBrowserItemData> InternalItems;
 		auto GetInternalItems() const -> std::span<const FContentBrowserItemData> { return InternalItems; }
+		auto GetPrimaryInternalItem() const -> const FContentBrowserItemData* { return InternalItems.empty() ? nullptr : &InternalItems.front(); }
+		auto GetItemName() const -> const std::string& { return InternalItems.empty() ? EmptyDescription() : InternalItems.front().GetItemName(); }
+		auto GetDisplayName() const -> const std::string& { return InternalItems.empty() ? EmptyDescription() : InternalItems.front().GetDisplayName(); }
+		auto GetVirtualPath() const -> const std::string& { return InternalItems.empty() ? EmptyDescription() : InternalItems.front().GetVirtualPath(); }
+		auto GetItemFlags() const -> EContentBrowserItemFlags
+		{
+			auto Flags = EContentBrowserItemFlags::None;
+			for (const auto& Data : InternalItems) Flags = Flags | Data.GetItemFlags();
+			return Flags;
+		}
+		auto IsFolder() const -> bool { return (static_cast<uint16>(GetItemFlags()) & static_cast<uint16>(EContentBrowserItemFlags::Type_Folder)) != 0; }
+		auto IsAsset() const -> bool { return (static_cast<uint16>(GetItemFlags()) & static_cast<uint16>(EContentBrowserItemFlags::Category_Asset)) != 0; }
+		auto IsRedirector() const -> bool
+		{
+			FContentBrowserItemDataAttributeValue Value;
+			return GetItemAttribute(ContentBrowserItemAttributes::IsRedirector, Value) && Value.GetValue<bool>() && *Value.GetValue<bool>();
+		}
+		static auto EmptyDescription() -> const std::string& { static const std::string Empty; return Empty; }
+		CONTENTBROWSER_API auto GetItemAttribute(std::string_view Key, FContentBrowserItemDataAttributeValue& Out, bool IncludeMetaData = false) const -> bool;
+		CONTENTBROWSER_API auto GetItemAttributes(FContentBrowserItemDataAttributeValues& Out, bool IncludeMetaData = false) const -> bool;
+		CONTENTBROWSER_API auto GetItemPhysicalPath(std::string& Out) const -> bool;
+		auto GetItemKey() const -> FContentBrowserItemKey { return InternalItems.empty() ? FContentBrowserItemKey{} : InternalItems.front().GetItemKey(); }
 		CONTENTBROWSER_API auto CanEdit() const -> bool;
 		CONTENTBROWSER_API auto Edit() const -> bool;
 		CONTENTBROWSER_API auto CanDuplicate() const -> bool;
@@ -39,12 +48,5 @@ namespace Durin::ContentBrowser
 		CONTENTBROWSER_API auto CanMove(std::string_view Destination, std::string* Error = nullptr) const -> bool;
 		CONTENTBROWSER_API auto Move(std::string_view Destination) const -> bool;
 
-		auto StableId() const -> const std::string&
-		{
-			return Kind == EContentBrowserItemKind::Asset
-						   || Kind == EContentBrowserItemKind::Redirector ?
-					   VirtualPath :
-					   (PhysicalPath.empty() ? VirtualPath : PhysicalPath);
-		}
 	};
 } // namespace Durin::ContentBrowser

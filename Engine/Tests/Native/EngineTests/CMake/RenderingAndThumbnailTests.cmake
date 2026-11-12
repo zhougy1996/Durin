@@ -87,6 +87,7 @@ durin_add_native_test(ThumbnailTests
 		RenderCore
 		Renderer
 		DurinEd
+		ContentBrowser
 		AssetTools
 		MeshBuilder
 		AssetForgeBuiltins
@@ -196,6 +197,7 @@ durin_add_native_test(StaticMeshThumbnailTests
 		RenderCore
 		Renderer
 		DurinEd
+		ContentBrowser
 		AssetTools
 		MeshBuilder
 		AssetForgeBuiltins

@@ -127,7 +127,7 @@ namespace Durin::ContentBrowser::Private
 		// Deferred mutations are tied to navigation, not a replaceable capture request.
 		struct FPendingItemAction
 		{
-			std::string PhysicalPath;
+			FContentBrowserItemKey ItemKey;
 			uint64 NavigationRevision = 0;
 			bool bDelete = false;
 		};
@@ -170,7 +170,7 @@ namespace Durin::ContentBrowser::Private
 			std::string ValidationError;
 		};
 		std::optional<FPendingFolder> PendingFolder;
-		std::string RenameTarget;
+		FContentBrowserItemKey RenameTarget;
 		std::array<char, 256> RenameBuffer{};
 		bool bFocusRename = false;
 		bool bRenameEditorHovered = false;

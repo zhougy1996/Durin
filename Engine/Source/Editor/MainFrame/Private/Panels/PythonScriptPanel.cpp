@@ -19,15 +19,18 @@ namespace Durin::MainFrame
             .Mutation = ContentBrowser::EContentMutation::MutatesContent,
             .IsApplicable = [](const ContentBrowser::FExtensionContext& Context) {
                 if (Context.Selection.size() != 1 || !Context.PrimaryItem
-                    || Context.PrimaryItem->Kind != ContentBrowser::EContentBrowserItemKind::File
-                    || Context.PrimaryItem->StableId() != Context.Selection.front().StableId()
-                    || Context.PrimaryItem->PhysicalPath.empty()) return false;
-                auto Extension = std::filesystem::u8path(Context.PrimaryItem->PhysicalPath).extension().string();
+                    || (Context.PrimaryItem->IsFolder() || Context.PrimaryItem->IsAsset())
+                    || Context.PrimaryItem->GetItemKey() != Context.Selection.front().GetItemKey()) return false;
+                std::string PhysicalPath;
+                if (!Context.PrimaryItem->GetItemPhysicalPath(PhysicalPath)) return false;
+                auto Extension = std::filesystem::u8path(PhysicalPath).extension().string();
                 for (char& C : Extension) if (C >= 'A' && C <= 'Z') C += 'a' - 'A';
                 return Extension == ".py";
             },
             .Invoke = [this](const ContentBrowser::FExtensionInvocation& Invocation) {
-                if (!RunFile(std::filesystem::u8path(Invocation.Context.PrimaryItem->PhysicalPath)) && Invocation.ReportError)
+                std::string PhysicalPath;
+                if ((!Invocation.Context.PrimaryItem || !Invocation.Context.PrimaryItem->GetItemPhysicalPath(PhysicalPath)
+                    || !RunFile(std::filesystem::u8path(PhysicalPath))) && Invocation.ReportError)
                     Invocation.ReportError(Message);
             },
         }, Message);

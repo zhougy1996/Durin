@@ -168,7 +168,9 @@ namespace Durin::TextureEditor
 		return [Cache = std::make_shared<FTextureCubeDetailsCache>()](const ContentBrowser::FExtensionContext& Context) {
 			std::vector<ContentBrowser::FDetailRow> Rows;
 			if (Context.Selection.size() != 1) return Rows;
-			const auto& Details = Cache->Get(Context.Selection.front().PhysicalPath, Context.CatalogRevision);
+			std::string PhysicalPath;
+			if (!Context.Selection.front().GetItemPhysicalPath(PhysicalPath)) return Rows;
+			const auto& Details = Cache->Get(PhysicalPath, Context.CatalogRevision);
 			if (Details.bAvailable)
 			{
 				Rows = {{"Source Layout", Details.SourceLayout}, {"Source", Details.Source},

@@ -15,6 +15,7 @@ namespace Durin
 		CONTENTBROWSER_API explicit DContentBrowserNativeDataSource(const FObjectInitializer&);
 		CONTENTBROWSER_API auto EnumerateItemsMatchingFilter(const ContentBrowser::FContentBrowserDataCompiledFilter&, const std::function<bool(ContentBrowser::FContentBrowserItem&&)>&, const ContentBrowser::FContentBrowserHostContext& = {}) -> void override;
 		CONTENTBROWSER_API auto CreateItemData(const ContentBrowser::FContentBrowserItem&, const ContentBrowser::FContentBrowserHostContext& = {}) -> ContentBrowser::FContentBrowserItemData override;
+		CONTENTBROWSER_API auto AreItemsEquivalentForOperations(const ContentBrowser::FContentBrowserItemData&, const ContentBrowser::FContentBrowserItemData&) const -> bool override;
 		// Explicit transfer contract for the two native adapters sharing one atomic backend.
 		CONTENTBROWSER_API auto CanHandleNativeBatch(std::span<const ContentBrowser::FContentBrowserItemData>) const -> bool;
 		CONTENTBROWSER_API auto CanEditItem(const ContentBrowser::FContentBrowserItemData&, std::string* = nullptr) const -> bool override;
@@ -39,7 +40,6 @@ namespace Durin
 		CONTENTBROWSER_API auto BulkDeleteItems(std::span<const ContentBrowser::FContentBrowserItemData>, ContentBrowser::FContentBrowserDeleteContext&) -> bool override;
 
 	protected:
-		virtual auto OwnsKind(ContentBrowser::EContentBrowserItemKind) const -> bool = 0;
 	};
 	// Package-backed asset/redirector items and their logical folders.
 	DCLASS()
@@ -49,6 +49,9 @@ namespace Durin
 	public:
 		CONTENTBROWSER_API explicit DContentBrowserAssetDataSource(const FObjectInitializer&);
 		CONTENTBROWSER_API auto GetDataSourceName() const -> FName override;
+		CONTENTBROWSER_API auto GetItemAttribute(const ContentBrowser::FContentBrowserItemData&, bool, std::string_view, ContentBrowser::FContentBrowserItemDataAttributeValue&) const -> bool override;
+		CONTENTBROWSER_API auto GetItemAttributes(const ContentBrowser::FContentBrowserItemData&, bool, ContentBrowser::FContentBrowserItemDataAttributeValues&) const -> bool override;
+		CONTENTBROWSER_API auto GetItemPhysicalPath(const ContentBrowser::FContentBrowserItemData&, std::string&) const -> bool override;
 		CONTENTBROWSER_API auto CompileFilter(std::string_view, const ContentBrowser::FContentBrowserDataFilter&, ContentBrowser::FContentBrowserDataCompiledFilter&) const -> void override;
 		CONTENTBROWSER_API auto GetDiscoveryRevision() const -> uint64 override;
 		CONTENTBROWSER_API auto IsDiscoveryPathAffected(uint64, std::string_view, bool) const -> bool override;
@@ -57,7 +60,6 @@ namespace Durin
 	public:
 
 	protected:
-		CONTENTBROWSER_API auto OwnsKind(ContentBrowser::EContentBrowserItemKind) const -> bool override;
 	};
 	// Ordinary filesystem items and folders; package mutation stays in the asset substrate.
 	DCLASS()
@@ -67,9 +69,11 @@ namespace Durin
 	public:
 		CONTENTBROWSER_API explicit DContentBrowserFileDataSource(const FObjectInitializer&);
 		CONTENTBROWSER_API auto GetDataSourceName() const -> FName override;
+		CONTENTBROWSER_API auto GetItemAttribute(const ContentBrowser::FContentBrowserItemData&, bool, std::string_view, ContentBrowser::FContentBrowserItemDataAttributeValue&) const -> bool override;
+		CONTENTBROWSER_API auto GetItemAttributes(const ContentBrowser::FContentBrowserItemData&, bool, ContentBrowser::FContentBrowserItemDataAttributeValues&) const -> bool override;
+		CONTENTBROWSER_API auto GetItemPhysicalPath(const ContentBrowser::FContentBrowserItemData&, std::string&) const -> bool override;
 		CONTENTBROWSER_API auto CompileFilter(std::string_view, const ContentBrowser::FContentBrowserDataFilter&, ContentBrowser::FContentBrowserDataCompiledFilter&) const -> void override;
 
 	protected:
-		CONTENTBROWSER_API auto OwnsKind(ContentBrowser::EContentBrowserItemKind) const -> bool override;
 	};
 } // namespace Durin

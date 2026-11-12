@@ -65,8 +65,8 @@ namespace Durin::ContentBrowser::Private
 		auto ResolveMountPath(std::string_view PhysicalPath) const -> FMountPath;
 		auto VirtualToPhysical(std::string_view VirtualPath) const -> std::string;
 		// Async mode returns the accepted identity; visibility is resolved after publication.
-		auto RevealPhysicalItem(std::string_view PhysicalPath) -> std::string;
-		auto RevealAsset(std::string_view AssetPath) -> std::string;
+		auto RevealPhysicalItem(std::string_view PhysicalPath) -> FContentBrowserItemKey;
+		auto RevealAsset(std::string_view AssetPath) -> FContentBrowserItemKey;
 
 		auto GetCurrentPhysicalPath() const -> const std::string& { return Session.CurrentPhysicalPath; }
 		auto GetCurrentVirtualPath() const -> const std::string& { return Session.CurrentVirtualPath; }

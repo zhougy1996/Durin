@@ -1,3 +1,4 @@
+#include "Editor/ContentBrowserItemTestSupport.h"
 #include "Panels/ContentBrowserPanel.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/EditorEngineTestSupport.h"
@@ -17,6 +18,19 @@
 
 #include <gtest/gtest.h>
 
+using Durin::ContentBrowser::Private::TestKind;
+using Durin::ContentBrowser::Private::TestName;
+using Durin::ContentBrowser::Private::TestVirtualPath;
+using Durin::ContentBrowser::Private::TestPhysicalPath;
+using Durin::ContentBrowser::Private::TestPackagePath;
+using Durin::ContentBrowser::Private::TestAssetClassName;
+using Durin::ContentBrowser::Private::TestExtension;
+using Durin::ContentBrowser::Private::TestRedirectDestination;
+using Durin::ContentBrowser::Private::TestFileSize;
+using Durin::ContentBrowser::Private::TestPackageFileSize;
+using Durin::ContentBrowser::Private::TestBulkFileSize;
+using Durin::ContentBrowser::Private::TestLastWriteTime;
+
 namespace Durin
 {
 	class FPanelProbeSource final : public DContentBrowserDataSource
@@ -30,6 +44,7 @@ namespace Durin
 		{
 		}
 		std::string Root = "/PanelProviders/";
+		FName SourceName = FName("PanelProbe");
 		std::vector<std::string> Paths;
 		int Saves = 0, Copies = 0, Moves = 0, Opens = 0, Renames = 0, Duplicates = 0, Deletes = 0;
 		ContentBrowser::EContentBrowserItemSaveFlags LastFlags = ContentBrowser::EContentBrowserItemSaveFlags::None;
@@ -42,13 +57,13 @@ namespace Durin
 		{
 			auto CanExecute() const -> bool override { return true; }
 		};
-		auto GetDataSourceName() const -> FName override { return FName("PanelProbe"); }
-		auto MakeItem(std::string Path, const ContentBrowser::FContentBrowserHostContext& Host) -> ContentBrowser::FContentBrowserItem
+		auto GetDataSourceName() const -> FName override { return SourceName; }
+		auto MakeItem(std::string Path, const ContentBrowser::FContentBrowserHostContext& Host, ContentBrowser::EContentBrowserItemFlags Flags = ContentBrowser::EContentBrowserItemFlags::Type_File) -> ContentBrowser::FContentBrowserItem
 		{
 			auto P = std::make_shared<FPayload>();
 			P->Host = Host;
-			ContentBrowser::FContentBrowserItem Item{.Kind = ContentBrowser::EContentBrowserItemKind::File, .Name = std::filesystem::path(Path).filename().string(), .VirtualPath = Path};
-			Item.InternalItems.emplace_back(*this, Item.Kind, Path, std::move(P));
+			ContentBrowser::FContentBrowserItem Item;
+			Item.InternalItems.emplace_back(*this, Flags, Path, std::filesystem::path(Path).filename().string(), "", std::move(P));
 			return Item;
 		}
 		auto Allowed(const ContentBrowser::FContentBrowserItemData& Item) const -> bool
@@ -59,13 +74,15 @@ namespace Durin
 		}
 		auto EnumerateItemsMatchingFilter(const ContentBrowser::FContentBrowserDataCompiledFilter& Filter, const std::function<bool(ContentBrowser::FContentBrowserItem&&)>& Callback, const ContentBrowser::FContentBrowserHostContext& Host) -> void override
 		{
+			if (Filter.Path == "/" && (!Filter.Filter.Kind || *Filter.Filter.Kind == ContentBrowser::EContentBrowserItemKind::Folder))
+				if (!Callback(MakeItem(Root, Host, ContentBrowser::EContentBrowserItemFlags::Type_Folder))) return;
 			const auto Current = Paths;
 			for (const auto& Path : Current)
 			{
 				auto Parent = std::filesystem::path(Path).parent_path().generic_string() + "/";
 				auto Query = Filter.Path;
 				if (!Query.ends_with('/')) Query += '/';
-				if ((Filter.Filter.bRecursive ? Path.starts_with(Query) : Parent == Query) && (!Filter.Filter.Kind || *Filter.Filter.Kind == ContentBrowser::EContentBrowserItemKind::File))
+				if ((Filter.Filter.bRecursive ? Path.starts_with(Query) : Parent == Query) && (!TestKind(Filter.Filter) || *TestKind(Filter.Filter) == ContentBrowser::EContentBrowserItemKind::File))
 					if (!Callback(MakeItem(Path, Host))) return;
 			}
 		}
@@ -203,14 +220,17 @@ namespace Durin::ContentBrowser::Private
 			Panel.RepairSelection();
 			Panel.CompletePendingItemAction();
 		}
-		static auto RenameTarget(const FContentBrowserPanel& Panel) -> std::string { return Panel.RenameTarget; }
+		static auto RenameTarget(const FContentBrowserPanel& Panel) -> std::string { return Panel.RenameTarget.IsValid() || Panel.PendingFolder ? "renaming" : ""; }
 		static auto IsSelected(const FContentBrowserPanel& Panel, const std::string& Path) -> bool
 		{
-			return Panel.SelectionState.Selected.contains(Path);
+			return std::ranges::any_of(Panel.SelectionState.Selected, [&](const auto& Key) {
+				const FContentBrowserItemDataKey Mapped(Key.GetItemType(), Panel.Model.PhysicalToVirtualDirectory(Path));
+				return Key.GetVirtualPath() == Path || Key.GetVirtualPath() == Mapped.GetVirtualPath();
+			});
 		}
 		static auto HasVisibleItem(const FContentBrowserPanel& Panel, const std::string& Path) -> bool
 		{
-			return std::ranges::any_of(Panel.Model.GetItems(), [&](const auto& Item) { return Item.PhysicalPath == Path; });
+			return std::ranges::any_of(Panel.Model.GetItems(), [&](const auto& Item) { return TestPhysicalPath(Item) == Path; });
 		}
 		static auto Navigate(FContentBrowserPanel& Panel, const std::string& Directory) -> bool
 		{
@@ -221,7 +241,7 @@ namespace Durin::ContentBrowser::Private
 		{
 			Panel.Model.SetSnapshotForTesting(Root, std::move(Items));
 			Panel.SelectionState.Selected.clear();
-			for (const auto& Item : Panel.Model.GetItems()) Panel.SelectionState.Selected.insert(Item.StableId());
+			for (const auto& Item : Panel.Model.GetItems()) Panel.SelectionState.Selected.insert(Item.GetItemKey());
 			Panel.bShowSelectionDetails = true;
 			Panel.ViewMode = EContentBrowserViewMode::Details;
 		}
@@ -235,13 +255,24 @@ namespace Durin::ContentBrowser::Private
 		{
 			Panel.SelectionState.Selected.clear();
 			for (const auto& Item : Panel.Model.GetItems())
-				if (Item.VirtualPath == Path)
+				if (TestVirtualPath(Item) == Path)
 				{
-					Panel.SelectionState.Selected.insert(Item.StableId());
+					Panel.SelectionState.Selected.insert(Item.GetItemKey());
 					return Item;
 				}
 			return {};
 		}
+		static auto SelectSource(FContentBrowserPanel& Panel, DContentBrowserDataSource& Source) -> FContentBrowserItem
+		{
+			Panel.SelectionState.Selected.clear();
+			for (const auto& Item : Panel.Model.GetItems())
+				if (Item.GetPrimaryInternalItem() && Item.GetPrimaryInternalItem()->GetOwnerDataSource() == &Source)
+				{
+					Panel.SelectionState.Selected.insert(Item.GetItemKey()); return Item;
+				}
+			return {};
+		}
+
 		static auto Rename(FContentBrowserPanel& Panel, const FContentBrowserItem& Item, std::string_view Name) -> bool
 		{
 			Panel.BeginRename(Item);
@@ -291,10 +322,11 @@ namespace Durin::ContentBrowser::Private
 			BrowserData = Editor->GetEditorSubsystem<DContentBrowserDataSubsystem>();
 			ASSERT_NE(nullptr, BrowserData);
 		}
-		auto AddProbe(std::string Root) -> FPanelProbeSource*
+		auto AddProbe(std::string Root, FName SourceName = FName("PanelProbe")) -> FPanelProbeSource*
 		{
 			auto* Source = NewObject<FPanelProbeSource>(BrowserData, {});
 			Source->Root = std::move(Root);
+			Source->SourceName = SourceName;
 			Source->Paths = {Source->Root + "item.note"};
 			Sources.emplace_back(Source);
 			Source->Initialize();
@@ -373,9 +405,9 @@ namespace Durin::ContentBrowser::Private
 		FContentBrowserPanel Source({}, {}, Host);
 		FContentBrowserPanel Target({}, {}, Host);
 		const auto InitialRevision = Transactions->GetMountedContentMutationRevision();
-		FContentBrowserPanelTestAccess::SetSelection(Source, Root.generic_string(), {
+		FContentBrowserPanelTestAccess::SetSelection(Source, Root.generic_string(), Durin::ContentBrowser::Private::ItemDescriptions({
 			{.Kind = EContentBrowserItemKind::File, .Name = "notes.txt", .PhysicalPath = (Root / "notes.txt").generic_string()},
-			{.Kind = EContentBrowserItemKind::File, .Name = "config.json", .PhysicalPath = (Root / "config.json").generic_string()}});
+			{.Kind = EContentBrowserItemKind::File, .Name = "config.json", .PhysicalPath = (Root / "config.json").generic_string()}}));
 		FContentBrowserPanelTestAccess::Copy(Source);
 		ASSERT_TRUE(FContentBrowserPanelTestAccess::Navigate(Source, (Root / "Destination").generic_string()));
 		Source.TickWhenHidden();
@@ -524,7 +556,7 @@ namespace Durin::ContentBrowser::Private
 			.Invoke = [](const auto&) {}}, Error);
 		ASSERT_TRUE(Menu.IsValid()) << Error;
 
-		const FContentBrowserItem Asset{.Kind = EContentBrowserItemKind::Asset, .Name = "Novel",
+		const FContentBrowserItem Asset = Durin::ContentBrowser::Private::FContentBrowserNativeItem{.Kind = EContentBrowserItemKind::Asset, .Name = "Novel",
 			.VirtualPath = "/PanelTest/Novel", .PhysicalPath = Root + "/Novel.dasset",
 			.AssetClassName = "PanelTest::DNovelAsset"};
 		FContentBrowserPanelTestAccess::SetSelection(Panel, Root, {Asset});
@@ -547,8 +579,7 @@ namespace Durin::ContentBrowser::Private
 		EXPECT_NE(Single.find("Single detail rendered"), std::string::npos) << Single;
 		const std::string MenuText = Draw(true);
 		EXPECT_NE(MenuText.find("Custom context rendered"), std::string::npos) << MenuText;
-		FContentBrowserPanelTestAccess::SetSelection(Panel, Root, {Asset,
-			{.Kind = EContentBrowserItemKind::File, .Name = "Source", .PhysicalPath = Root + "/source.txt"}});
+		FContentBrowserPanelTestAccess::SetSelection(Panel, Root, {Asset, Durin::ContentBrowser::Private::FContentBrowserNativeItem{.Kind = EContentBrowserItemKind::File, .Name = "Source", .PhysicalPath = Root + "/source.txt"}});
 		const int SingleCalls = TypeDetailCalls;
 		const std::string Multiple = Draw(false);
 		EXPECT_NE(Multiple.find("Multiple details rendered"), std::string::npos) << Multiple;
@@ -567,26 +598,41 @@ namespace Durin::ContentBrowser::Private
 {
 	TEST_F(FContentBrowserPanelExtensionTests, SelectionMigratesOrderedRenamesAndRemovesDeletedSubtrees)
 	{
-		const auto Root = Testing::GetTestWorkDirectory();
-		const auto A = (Root / "A").generic_string();
-		const auto B = (Root / "B").generic_string();
-		const auto C = (Root / "C").generic_string();
+		using F = EContentBrowserItemFlags;
+		auto* Asset = BrowserData->GetActiveDataSource(FName("Asset"));
+		auto* File = BrowserData->GetActiveDataSource(FName("File"));
+		ASSERT_NE(Asset, nullptr); ASSERT_NE(File, nullptr);
+		auto Data = [&](DContentBrowserDataSource& Source, F Type, std::string Path) {
+			return FContentBrowserItemData(Source, Type, std::move(Path), "", "", {});
+		};
+		auto Key = [&](std::string_view Path, DContentBrowserDataSource* Source = nullptr, F Type = F::Type_File) {
+			return FContentBrowserItemKey(Type, Path, FObjectKey(Source ? Source : Asset));
+		};
 		FContentBrowserSelection State;
-		State.Selected = {"/Game/A/Asset.Asset", A + "/file.txt", "/Game/AB/Keep.Keep",
-			"/Game/a/Case.Case", "/Game/A.Package"};
-		State.Anchor = "/Game/A/Asset.Asset";
-		State.Apply({.Changes = {
-			{EContentChangeKind::Renamed, A, B, "/Game/A/", "/Game/B/", true},
-			{EContentChangeKind::Renamed, B, C, "/Game/B", "/Game/C", true}}});
-		EXPECT_TRUE(State.Selected.contains("/Game/C/Asset.Asset"));
-		EXPECT_TRUE(State.Selected.contains(C + "/file.txt"));
-		EXPECT_TRUE(State.Selected.contains("/Game/AB/Keep.Keep"));
-		EXPECT_TRUE(State.Selected.contains("/Game/a/Case.Case"));
-		EXPECT_TRUE(State.Selected.contains("/Game/A.Package"));
-		EXPECT_EQ(State.Anchor, "/Game/C/Asset.Asset");
-		State.Apply({.Changes = {{EContentChangeKind::Removed, C, {}, "/Game/C/", {}, true}}});
-		EXPECT_EQ(State.Selected.size(), 3u);
-		EXPECT_TRUE(State.Anchor.empty());
+		State.Selected = {Key("/Game/A/Asset.Asset"), Key("/Game/A/file.txt", File), Key("/Game/AB/Keep.Keep"),
+			Key("/Game/a/Case.Case"), Key("/Game/A.Package"), Key("/Game/A/Asset.Asset", File)};
+		State.Anchor = Key("/Game/A/Asset.Asset");
+		State.Apply(FContentBrowserItemDataUpdate::MakeItemMovedUpdate(Data(*Asset, F::Type_Folder, "/Game/B"), "/Game/A/"));
+		State.Apply(FContentBrowserItemDataUpdate::MakeItemMovedUpdate(Data(*Asset, F::Type_Folder, "/Game/C"), "/Game/B"));
+		EXPECT_TRUE(State.Selected.contains(Key("/Game/C/Asset.Asset")));
+		EXPECT_TRUE(State.Selected.contains(Key("/Game/A/file.txt", File)));
+		EXPECT_TRUE(State.Selected.contains(Key("/Game/A/Asset.Asset", File)));
+		EXPECT_TRUE(State.Selected.contains(Key("/Game/AB/Keep.Keep")));
+		EXPECT_TRUE(State.Selected.contains(Key("/Game/a/Case.Case")));
+		EXPECT_TRUE(State.Selected.contains(Key("/Game/A.Package")));
+		EXPECT_EQ(State.Anchor, Key("/Game/C/Asset.Asset"));
+		State.Apply(FContentBrowserItemDataUpdate::MakeItemRemovedUpdate(Data(*Asset, F::Type_Folder, "/Game/C")));
+		EXPECT_EQ(State.Selected.size(), 5u);
+		EXPECT_FALSE(State.Anchor.IsValid());
+
+		FContentBrowserItem Merged;
+		Merged.InternalItems = {Data(*Asset, F::Type_Folder, "/Game/Shared"), Data(*File, F::Type_Folder, "/Game/Shared")};
+		State.Selected = {Merged.GetItemKey()}; State.Anchor = Merged.GetItemKey();
+		const std::array Rows{Merged};
+		State.Apply(FContentBrowserItemDataUpdate::MakeItemMovedUpdate(Data(*Asset, F::Type_Folder, "/Game/Relocated"), "/Game/Shared"), Rows);
+		EXPECT_TRUE(State.Selected.contains(Key("/Game/Shared", nullptr, F::Type_Folder)));
+		EXPECT_TRUE(State.Selected.contains(Key("/Game/Relocated", nullptr, F::Type_Folder)));
+		EXPECT_EQ(State.Anchor, Merged.GetItemKey());
 	}
 }
 
@@ -621,15 +667,15 @@ namespace Durin::ContentBrowser::Private
 		int Queries = 0;
 		FContentBrowserPanel Panel({}, {}, {.QueryReimport = [&](std::string_view ClassName) {
 												++Queries;
-												EXPECT_EQ(ClassName, Data->TopLevelAssets.front().AssetClassName);
+												EXPECT_EQ(ClassName, TestAssetClassName(Data->TopLevelAssets.front()));
 												const auto Actions = FReimportManager::QueryReimportActions(ClassName);
 												return FReimportAvailability{Actions.bSupportsReimport, Actions.bSupportsReimportFromFile};
 											},
 											.DataSubsystem = BrowserData});
-		FContentBrowserPanelTestAccess::SetSelection(Panel, Root.generic_string(), {{
+		FContentBrowserPanelTestAccess::SetSelection(Panel, Root.generic_string(), Durin::ContentBrowser::Private::ItemDescriptions({{
 			.Kind = EContentBrowserItemKind::Asset, .Name = "Asset",
 			.VirtualPath = Data->TopLevelAssets.front().AssetPath.ToString(), .PackagePath = Path,
-			.PhysicalPath = Data->PhysicalPath, .AssetClassName = Data->TopLevelAssets.front().AssetClassName}});
+			.PhysicalPath = TestPhysicalPath(*(Data)), .AssetClassName = TestAssetClassName(Data->TopLevelAssets.front())}}));
 		for (int Frame = 0; Frame < 3; ++Frame)
 		{
 			ImGui::NewFrame();
@@ -650,6 +696,8 @@ namespace Durin::ContentBrowser::Private
 	{
 		InitializeDObjectSystem();
 		const std::string Root = Testing::CreateTestFixtureDirectory("BrowserDragPayload").generic_string();
+		const std::array Mounts{FMountPoint{.VirtualRoot = "/BrowserDrag/", .Owner = EMountOwner::Test, .Root = Root, .bAutoScan = true, .bContentWritable = true}};
+		Testing::FScopedMountRegistryFixture Registry(Mounts); ASSERT_TRUE(Registry.IsValid());
 		ImGuiContext* UI = ImGui::CreateContext();
 		struct FCleanup { ImGuiContext* UI; ~FCleanup() { ImGui::DestroyContext(UI); } } Cleanup{UI};
 		auto& IO = ImGui::GetIO();
@@ -660,9 +708,9 @@ namespace Durin::ContentBrowser::Private
 		int Width, Height;
 		IO.Fonts->GetTexDataAsRGBA32(&Pixels, &Width, &Height);
 		FContentBrowserPanel Panel({}, {}, {.ReconciliationState = std::make_shared<FMountedContentReconciliationState>(), .DataSubsystem = BrowserData});
-		const FContentBrowserItem Asset{.Kind = EContentBrowserItemKind::Asset, .Name = "Asset",
+		const FContentBrowserItem Asset = Durin::ContentBrowser::Private::FContentBrowserNativeItem{.Kind = EContentBrowserItemKind::Asset, .Name = "Asset",
 			.VirtualPath = "/BrowserDrag/Asset.Asset", .PhysicalPath = Root + "/Asset.dasset"};
-		const FContentBrowserItem File{.Kind = EContentBrowserItemKind::File, .Name = "notes.txt",
+		const FContentBrowserItem File = Durin::ContentBrowser::Private::FContentBrowserNativeItem{.Kind = EContentBrowserItemKind::File, .Name = "notes.txt", .VirtualPath = "/BrowserDrag/notes.txt",
 			.PhysicalPath = Root + "/notes.txt"};
 		auto Drag = [&](std::vector<FContentBrowserItem> Items, const char* ExpectedType) {
 			FContentBrowserPanelTestAccess::SetSelection(Panel, Root, std::move(Items));
@@ -710,9 +758,9 @@ namespace Durin::ContentBrowser::Private
 		FContentBrowserPanelTestAccess::FinishCapture(Second);
 		auto Item = FContentBrowserPanelTestAccess::Select(First, "/PanelProviders/item.note");
 		ASSERT_EQ(1u, Item.InternalItems.size());
-		EXPECT_TRUE(Item.PhysicalPath.empty());
-		EXPECT_FALSE(FContentBrowserPanelTestAccess::IsSelected(Second, Item.StableId()));
-		FContentBrowserPanelTestAccess::Select(Second, Item.VirtualPath);
+		EXPECT_TRUE(TestPhysicalPath(Item).empty());
+		EXPECT_FALSE(FContentBrowserPanelTestAccess::IsSelected(Second, Item.GetVirtualPath()));
+		FContentBrowserPanelTestAccess::Select(Second, TestVirtualPath(Item));
 		FContentBrowserPanelTestAccess::Save(First, Item);
 		FContentBrowserPanelTestAccess::Open(First, Item);
 		EXPECT_EQ(1, Probe->Saves);
@@ -724,8 +772,8 @@ namespace Durin::ContentBrowser::Private
 		FContentBrowserPanelTestAccess::FinishCapture(Second);
 		const auto Rows = FContentBrowserPanelTestAccess::Items(Second);
 		EXPECT_TRUE(FContentBrowserPanelTestAccess::IsSelected(Second, "/PanelProviders/renamed.note"));
-		EXPECT_TRUE(std::ranges::any_of(Rows, [](const auto& Row) { return Row.VirtualPath == "/PanelProviders/renamed.note"; }));
-		EXPECT_FALSE(std::ranges::any_of(Rows, [](const auto& Row) { return Row.VirtualPath == "/PanelProviders/item.note"; }));
+		EXPECT_TRUE(std::ranges::any_of(Rows, [](const auto& Row) { return TestVirtualPath(Row) == "/PanelProviders/renamed.note"; }));
+		EXPECT_FALSE(std::ranges::any_of(Rows, [](const auto& Row) { return TestVirtualPath(Row) == "/PanelProviders/item.note"; }));
 		auto Renamed = FContentBrowserPanelTestAccess::Select(First, "/PanelProviders/renamed.note");
 		ASSERT_FALSE(Renamed.InternalItems.empty()) << "First view lost the renamed provider item: " << FContentBrowserPanelTestAccess::Directory(First);
 		ASSERT_EQ(Probe, Renamed.InternalItems.front().GetOwnerDataSource());
@@ -868,5 +916,39 @@ namespace Durin::ContentBrowser::Private
 		FContentBrowserPanelTestAccess::FinishCapture(Second);
 		EXPECT_GT(FContentBrowserPanelTestAccess::Requests(Second), OtherBefore);
 		EXPECT_FALSE(FContentBrowserPanelTestAccess::Select(Second, "/PanelProviders/Else/new.note").InternalItems.empty());
+	}
+}
+
+namespace Durin::ContentBrowser::Private
+{
+	TEST_F(FContentBrowserPanelExtensionTests, UnmountedSamePathSourcesKeepSelectionsAndTransferOwnersIndependent)
+	{
+		auto* Left = AddProbe("/Unmounted/", FName("UnmountedLeft"));
+		auto* Right = AddProbe("/Unmounted/", FName("UnmountedRight"));
+		ASSERT_NE(Left, nullptr); ASSERT_NE(Right, nullptr);
+		auto* UI = ImGui::CreateContext();
+		struct FCleanup { ImGuiContext* UI; ~FCleanup() { ImGui::DestroyContext(UI); } } Cleanup{UI};
+		std::string Clipboard;
+		auto& Platform = ImGui::GetPlatformIO(); Platform.Platform_ClipboardUserData = &Clipboard;
+		Platform.Platform_GetClipboardTextFn = [](ImGuiContext* C) -> const char* { return static_cast<std::string*>(C->PlatformIO.Platform_ClipboardUserData)->c_str(); };
+		Platform.Platform_SetClipboardTextFn = [](ImGuiContext* C, const char* Text) { *static_cast<std::string*>(C->PlatformIO.Platform_ClipboardUserData) = Text; };
+		FContentBrowserHostContext Host{.DataSubsystem = BrowserData};
+		FContentBrowserPanel First({}, {}, Host), Second({}, {}, Host);
+		ASSERT_TRUE(FContentBrowserPanelTestAccess::Navigate(First, "/Unmounted"));
+		ASSERT_TRUE(FContentBrowserPanelTestAccess::Navigate(Second, "/Unmounted"));
+		FContentBrowserPanelTestAccess::FinishCapture(First); FContentBrowserPanelTestAccess::FinishCapture(Second);
+		auto A = FContentBrowserPanelTestAccess::SelectSource(First, *Left);
+		auto B = FContentBrowserPanelTestAccess::SelectSource(Second, *Right);
+		ASSERT_EQ(A.GetVirtualPath(), B.GetVirtualPath()); EXPECT_NE(A.GetItemKey(), B.GetItemKey());
+		std::string Physical; EXPECT_FALSE(B.GetItemPhysicalPath(Physical));
+		FContentBrowserPanelTestAccess::Copy(Second);
+		FContentBrowserPanelTestAccess::Paste(First, "/Unmounted/Target");
+		EXPECT_EQ(Right->Copies, 1); EXPECT_EQ(Left->Copies, 0);
+		ASSERT_TRUE(FContentBrowserPanelTestAccess::Rename(Second, B, "renamed.note"));
+		FContentBrowserPanelTestAccess::FinishCapture(Second); First.TickWhenHidden(); FContentBrowserPanelTestAccess::FinishCapture(First);
+		EXPECT_TRUE(FContentBrowserPanelTestAccess::IsSelected(First, "/Unmounted/item.note"));
+		EXPECT_TRUE(FContentBrowserPanelTestAccess::IsSelected(Second, "/Unmounted/renamed.note"));
+		FContentBrowserPanelTestAccess::Paste(First, "/Unmounted/Target");
+		EXPECT_EQ(Right->Copies, 1); EXPECT_EQ(Left->Copies, 0);
 	}
 }

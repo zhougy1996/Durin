@@ -10,7 +10,7 @@ namespace Durin::ContentBrowser::Private
 	// Builds owned UI context from visible selection. Explicit directory targets replace
 	// the selection with that directory; background callers supply an empty selection.
 	auto BuildExtensionContext(std::span<const FContentBrowserItem> Items,
-		const std::unordered_set<std::string>& Selection,
+		const FContentBrowserItemKeySet& Selection,
 		std::string_view CurrentPhysicalDirectory, std::string_view CurrentVirtualDirectory,
 		const FContentBrowserItem* PrimaryItem = nullptr,
 		std::string_view TargetPhysicalDirectory = {},

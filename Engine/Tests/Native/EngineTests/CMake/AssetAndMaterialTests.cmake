@@ -208,7 +208,7 @@ durin_add_native_test(ContentBrowserDataTests
  STACKS editor
  SOURCES Private/Editor/ContentBrowserDataTests.cpp
  LIBRARIES Core CoreDObject Engine DurinEd ContentBrowser AssetTools
- INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Private
+ INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Private ${_durin_content_browser_private}
  REQUIRES editor
  REQUIREMENT_RATIONALE "Exercises reflected editor data providers and real mounted file mutations."
  HEAVY_RUNTIME_RATIONALE "Uses the editor service and asset runtime lifetime."

@@ -8,6 +8,7 @@ namespace Durin::ContentBrowser::Private
 	{
 	  public:
 		explicit FContentBrowserDataQuery(const FContentBrowserHostContext& InHost) : Host(InHost), bServiceBound(true) {}
+		auto FindSourceKey(FName Name) const -> FObjectKey;
 		auto IsAcceptingRequests() const -> bool;
 		auto StopRequestAdmission() -> void { bAccepting = false; }
 		auto GetRevision() const -> uint64;

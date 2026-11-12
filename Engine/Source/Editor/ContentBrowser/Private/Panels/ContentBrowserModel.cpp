@@ -1,3 +1,4 @@
+#include "Data/ContentBrowserItemAttributeHelpers.h"
 #include "Threading/Task.h"
 #include "Panels/ContentBrowserModel.h"
 #include "Panels/ContentBrowserChanges.h"
@@ -285,7 +286,7 @@ namespace Durin::ContentBrowser::Private
 	}
 
 	auto FContentBrowserModel::RevealAsset(std::string_view AssetPath)
-		-> std::string
+		-> FContentBrowserItemKey
 	{
 		FTopLevelAssetPath Path;
 		if (!FTopLevelAssetPath::TryCreate(AssetPath, Path)) return {};
@@ -295,17 +296,17 @@ namespace Durin::ContentBrowser::Private
 			Session.Query.bShowRedirectors = true;
 		const auto Resolved = FMountPaths::ResolveAssetPath(Path.GetPackagePath().GetView());
 		if (!Entry.Package && !Resolved) return {};
-		const std::string Revealed = RevealPhysicalItem(Entry.Package ? Entry.Package->PhysicalPath : Resolved->PhysicalPath.generic_string() + ".dasset");
-		const std::string StablePath = Path.ToString();
-		if (bAsync) return Revealed.empty() ? std::string{} : StablePath;
+		const auto Revealed = RevealPhysicalItem(Entry.Package ? Entry.Package->PhysicalPath : Resolved->PhysicalPath.generic_string() + ".dasset");
+		const FContentBrowserItemKey Key(EContentBrowserItemFlags::Type_File, Path.ToString(), DataQuery.FindSourceKey(FName("Asset")));
+		if (bAsync) return Revealed.IsValid() ? Key : FContentBrowserItemKey{};
 		return std::ranges::any_of(
-			Items, [&StablePath](const FContentBrowserItem& Item) {
-				return Item.StableId() == StablePath;
-			}) ? StablePath : std::string{};
+			Items, [&Key](const FContentBrowserItem& Item) {
+				return Item.GetItemKey() == Key;
+			}) ? Key : FContentBrowserItemKey{};
 	}
 
 	auto FContentBrowserModel::RevealPhysicalItem(
-		std::string_view InPhysicalPath) -> std::string
+		std::string_view InPhysicalPath) -> FContentBrowserItemKey
 	{
 		const std::string PhysicalPath = NormalizePath(InPhysicalPath);
 		if (!NavigateToPhysical(
@@ -322,16 +323,17 @@ namespace Durin::ContentBrowser::Private
 		if (bAsync && IsLoading())
 		{
 			std::error_code Error;
-			return ((std::filesystem::exists(QueryPathStatus(PhysicalPath, Error)) && !Error)
-				|| DataQuery.IsProviderDirectory(PhysicalToVirtualDirectory(std::filesystem::path(PhysicalPath).parent_path().generic_string()))) ? PhysicalPath : std::string{};
+			const auto Status = QueryPathStatus(PhysicalPath, Error);
+			if ((Error || !std::filesystem::exists(Status)) && !DataQuery.IsProviderDirectory(PhysicalToVirtualDirectory(std::filesystem::path(PhysicalPath).parent_path().generic_string()))) return {};
+			const bool Folder = std::filesystem::is_directory(Status);
+			return {Folder ? EContentBrowserItemFlags::Type_Folder : EContentBrowserItemFlags::Type_File,
+				PhysicalToVirtualDirectory(PhysicalPath), Folder ? FObjectKey{} : DataQuery.FindSourceKey(FName("File"))};
 		}
-		if (std::ranges::none_of(
-				Items,
-				[&](const FContentBrowserItem& Item) {
-					return Item.StableId() == PhysicalPath;
-				}))
-			return {};
-		return PhysicalPath;
+		const auto It = std::ranges::find_if(Items, [&](const FContentBrowserItem& Item) {
+			std::string Physical;
+			return Item.GetItemPhysicalPath(Physical) && ContentBrowserChanges::SamePath(Physical, PhysicalPath);
+		});
+		return It == Items.end() ? FContentBrowserItemKey{} : It->GetItemKey();
 	}
 
 	auto FContentBrowserModel::IsAffectedBy(const FContentChangeBatch& Changes) const -> bool
@@ -340,7 +342,7 @@ namespace Durin::ContentBrowser::Private
 			if (ContentBrowserChanges::Affects(Change, Session.CurrentPhysicalPath, !Session.Query.Search.empty())) return true;
 			const auto Child = ContentBrowserChanges::IntroducedChild(Change, Session.CurrentPhysicalPath);
 			return !Child.empty() && std::ranges::none_of(PublishedSnapshot->Items, [&](const auto& Item) {
-				return Item.Kind == EContentBrowserItemKind::Folder && ContentBrowserChanges::SamePath(Item.PhysicalPath, Child);
+				return Item.IsFolder() && ContentBrowserChanges::SamePath(ItemAttributes::PhysicalPath(Item), Child);
 			});
 		});
 	}
@@ -439,9 +441,8 @@ namespace Durin::ContentBrowser::Private
 		Snapshot.Version = ++SnapshotVersion;
 		for (FContentBrowserItem& Item : Snapshot.Items)
 		{
-			if (Item.Kind == EContentBrowserItemKind::Folder)
+			if (Item.IsFolder())
 			{
-				if (Item.VirtualPath.empty()) Item.VirtualPath = PhysicalToVirtualDirectory(Item.PhysicalPath);
 			}
 		}
 		// Tree completions may have published diagnostics while item I/O was pending.

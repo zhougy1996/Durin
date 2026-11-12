@@ -28,7 +28,7 @@ namespace Durin::ContentBrowser::Private
 		{ return {Error, std::move(Message)}; }
 		auto SetQueryError(std::string* OutError, std::string_view Message) -> bool
 		{ if (OutError) *OutError = Message; return false; }
-		auto SetNewItem(FContentBrowserItem& Item, std::string Physical, std::string Virtual = {}) -> void
+		auto SetNewItem(FContentBrowserNativeItem& Item, std::string Physical, std::string Virtual = {}) -> void
 		{
 			Item.PhysicalPath = std::move(Physical);
 			Item.VirtualPath = std::move(Virtual);
@@ -143,7 +143,7 @@ namespace Durin::ContentBrowser::Private
 
 
 	auto FContentBrowserRequestContext::MakeMoveRequest(
-		const FContentBrowserItem& Item, std::string_view Directory,
+		const FContentBrowserNativeItem& Item, std::string_view Directory,
 		std::optional<std::string_view> NewName, FContentMove& OutRequest) const -> FAssetWriteResult
 	{
 		if (NewName && (NewName->empty() || *NewName == "." || *NewName == ".."
@@ -261,8 +261,8 @@ namespace Durin::ContentBrowser::Private
 	}
 
 	auto FContentBrowserRequestContext::RenameItemImpl(
-		const FContentBrowserItem& Item, std::string_view NewName,
-		FContentBrowserItem& OutNewItem, FContentChangeBatch& Changes) -> FAssetWriteResult
+		const FContentBrowserNativeItem& Item, std::string_view NewName,
+		FContentBrowserNativeItem& OutNewItem, FContentChangeBatch& Changes) -> FAssetWriteResult
 	{
 		FContentMove Request;
 		if (const auto Result = MakeMoveRequest(Item, {}, NewName, Request); !Result) return Result;
@@ -285,7 +285,7 @@ namespace Durin::ContentBrowser::Private
 	}
 
 	auto FContentBrowserRequestContext::DuplicateItem(
-		const FContentBrowserItem& Item, FContentBrowserItem& OutNewItem) -> bool
+		const FContentBrowserNativeItem& Item, FContentBrowserNativeItem& OutNewItem) -> bool
 	{
 		OutNewItem = {};
 		std::string AdmissionError;
@@ -312,8 +312,8 @@ namespace Durin::ContentBrowser::Private
 	}
 
 	auto FContentBrowserRequestContext::DuplicateItem(
-		const FContentBrowserItem& Item,
-		std::string_view PhysicalDirectory, FContentBrowserItem& OutNewItem)
+		const FContentBrowserNativeItem& Item,
+		std::string_view PhysicalDirectory, FContentBrowserNativeItem& OutNewItem)
 		-> bool
 	{
 		OutNewItem = {};
@@ -358,7 +358,7 @@ namespace Durin::ContentBrowser::Private
 	}
 
 	auto FContentBrowserRequestContext::CopyItemsImpl(
-		std::span<const FContentBrowserItem> Items, std::string_view PhysicalDirectory, FContentChangeBatch& Changes)
+		std::span<const FContentBrowserNativeItem> Items, std::string_view PhysicalDirectory, FContentChangeBatch& Changes)
 		-> FAssetWriteResult
 	{
 		std::string AdmissionError;
@@ -552,7 +552,7 @@ namespace Durin::ContentBrowser::Private
 
 
 	// All physical paths and package mappings are collected before touching disk.
-	auto FContentBrowserRequestContext::BulkMoveItems(std::span<const FContentBrowserItem> Items, std::string_view Directory) -> bool
+	auto FContentBrowserRequestContext::BulkMoveItems(std::span<const FContentBrowserNativeItem> Items, std::string_view Directory) -> bool
 	{
 		std::vector<FContentMove> Requests;
 		for (const auto& Item : Items)
@@ -768,7 +768,7 @@ namespace Durin::ContentBrowser::Private
 	}
 
 	auto FContentBrowserRequestContext::ValidateFolder(
-		std::string_view PhysicalDirectory, std::string_view Name, FContentBrowserItem& OutNewItem) const -> FAssetWriteResult
+		std::string_view PhysicalDirectory, std::string_view Name, FContentBrowserNativeItem& OutNewItem) const -> FAssetWriteResult
 	{
 		std::string AdmissionError;
 		if (!CanModify(&AdmissionError)) return Failure(EAssetWriteError::ReadOnlyMode, AdmissionError);
@@ -802,7 +802,7 @@ namespace Durin::ContentBrowser::Private
 	}
 
 	auto FContentBrowserRequestContext::PrepareFolder(
-		std::string_view Directory, FContentBrowserItem& OutNewItem) -> bool
+		std::string_view Directory, FContentBrowserNativeItem& OutNewItem) -> bool
 	{
 		OutNewItem = {};
 		for (int32 Suffix = 0; Suffix < 1000; ++Suffix)
@@ -870,7 +870,7 @@ namespace Durin::ContentBrowser::Private
 	}
 
 	auto FContentBrowserRequestContext::AnalyzeDeletion(
-		std::span<const FContentBrowserItem> Items,
+		std::span<const FContentBrowserNativeItem> Items,
 		FAssetDeletionOperation& OutOperation) const
 		-> FContentDeletionPlanPtr
 	{
@@ -899,12 +899,12 @@ namespace Durin::ContentBrowser::Private
 
 		struct FSelectedRoot
 		{
-			const FContentBrowserItem* Item = nullptr;
+			const FContentBrowserNativeItem* Item = nullptr;
 			std::string PhysicalPath;
 			const FMountPoint* Mount = nullptr;
 		};
 		std::vector<FSelectedRoot> SelectedRoots;
-		for (const FContentBrowserItem& Item : Items)
+		for (const FContentBrowserNativeItem& Item : Items)
 		{
 			const std::string PhysicalPath = NormalizePath(Item.PhysicalPath);
 			const FContentBrowserPaths::FMountPath Resolved =
@@ -1373,7 +1373,7 @@ namespace Durin::ContentBrowser::Private
 
 namespace Durin::ContentBrowser::Private
 {
-	auto FContentBrowserRequestContext::PrepareDeleteItems(std::span<const FContentBrowserItem> Items)
+	auto FContentBrowserRequestContext::PrepareDeleteItems(std::span<const FContentBrowserNativeItem> Items)
 		-> FContentDeletionPlanPtr
 	{
 		if (!bAccepting) return nullptr;
@@ -1509,7 +1509,7 @@ namespace Durin::ContentBrowser::Private
 		if (MutationAllowed && !MutationAllowed()) return SetQueryError(OutErrorMsg, "Content mutation is currently disabled.");
 		return true;
 	}
-	auto FContentBrowserRequestContext::CanSaveItem(const FContentBrowserItem& Item, EAssetSaveMode Mode, std::string* OutErrorMsg) const -> bool
+	auto FContentBrowserRequestContext::CanSaveItem(const FContentBrowserNativeItem& Item, EAssetSaveMode Mode, std::string* OutErrorMsg) const -> bool
 	{
 		if (!CanModify(OutErrorMsg)) return false;
 		if (Item.Kind != EContentBrowserItemKind::Asset || !Item.PackagePath.IsValid())
@@ -1534,7 +1534,7 @@ namespace Durin::ContentBrowser::Private
 		const auto Entry = FindAssetExact(Source);
 		return Entry && !Entry->IsRedirector() ? true : SetQueryError(OutErrorMsg, "The copied source is no longer an available real asset.");
 	}
-	auto FContentBrowserRequestContext::CanDuplicateItem(const FContentBrowserItem& Item, std::string* OutErrorMsg) const -> bool
+	auto FContentBrowserRequestContext::CanDuplicateItem(const FContentBrowserNativeItem& Item, std::string* OutErrorMsg) const -> bool
 	{
 		FTopLevelAssetPath Source;
 		if (Item.Kind != EContentBrowserItemKind::Asset || !FTopLevelAssetPath::TryCreate(Item.VirtualPath, Source))
@@ -1544,11 +1544,11 @@ namespace Durin::ContentBrowser::Private
 	auto FContentBrowserRequestContext::CanCreateFolder(std::string_view Directory, std::string_view Name, std::string* OutErrorMsg) const -> bool
 	{
 		if (OutErrorMsg) OutErrorMsg->clear();
-		FContentBrowserItem Candidate;
+		FContentBrowserNativeItem Candidate;
 		const auto Result = ValidateFolder(Directory, Name, Candidate);
 		return Result ? true : SetQueryError(OutErrorMsg, Result.Message);
 	}
-	auto FContentBrowserRequestContext::CanCopyItem(const FContentBrowserItem& Item, std::string_view Directory, std::string* OutErrorMsg) const -> bool
+	auto FContentBrowserRequestContext::CanCopyItem(const FContentBrowserNativeItem& Item, std::string_view Directory, std::string* OutErrorMsg) const -> bool
 	{
 		using namespace ContentBrowserChanges;
 		if (!CanModify(OutErrorMsg)) return false;
@@ -1570,7 +1570,7 @@ namespace Durin::ContentBrowser::Private
 			return SetQueryError(OutErrorMsg, "Copy source is unavailable or contains its destination.");
 		return true;
 	}
-	auto FContentBrowserRequestContext::CanMoveItem(const FContentBrowserItem& Item, std::string_view Destination, std::string* OutErrorMsg) const -> bool
+	auto FContentBrowserRequestContext::CanMoveItem(const FContentBrowserNativeItem& Item, std::string_view Destination, std::string* OutErrorMsg) const -> bool
 	{
 		if (!CanModify(OutErrorMsg)) return false;
 		FContentMove Request;
@@ -1579,7 +1579,7 @@ namespace Durin::ContentBrowser::Private
 		if (const auto Result = ValidateMoveRequest(Request); !Result) return SetQueryError(OutErrorMsg, Result.Message);
 		return true;
 	}
-	auto FContentBrowserRequestContext::CanRenameItem(const FContentBrowserItem& Item, std::string_view Name, std::string* OutErrorMsg) const -> bool
+	auto FContentBrowserRequestContext::CanRenameItem(const FContentBrowserNativeItem& Item, std::string_view Name, std::string* OutErrorMsg) const -> bool
 	{
 		if (!CanModify(OutErrorMsg)) return false;
 		FContentMove Request;
@@ -1587,7 +1587,7 @@ namespace Durin::ContentBrowser::Private
 		if (const auto Result = ValidateMoveRequest(Request); !Result) return SetQueryError(OutErrorMsg, Result.Message);
 		return true;
 	}
-	auto FContentBrowserRequestContext::BulkSaveItems(std::span<const FContentBrowserItem> Items, EAssetSaveMode Mode) -> bool
+	auto FContentBrowserRequestContext::BulkSaveItems(std::span<const FContentBrowserNativeItem> Items, EAssetSaveMode Mode) -> bool
 	{
 		std::string Error;
 		if (!CanModify(&Error)) return Complete({EAssetWriteError::ReadOnlyMode, Error});
@@ -1613,7 +1613,7 @@ namespace Durin::ContentBrowser::Private
 		NotifyItemsUpdated(std::move(Changes));
 		return bSaved;
 	}
-	auto FContentBrowserRequestContext::RenameItem(const FContentBrowserItem& Item, std::string_view Name, FContentBrowserItem& OutNewItem) -> bool
+	auto FContentBrowserRequestContext::RenameItem(const FContentBrowserNativeItem& Item, std::string_view Name, FContentBrowserNativeItem& OutNewItem) -> bool
 	{
 		OutNewItem = {};
 		FContentChangeBatch Changes;
@@ -1621,11 +1621,11 @@ namespace Durin::ContentBrowser::Private
 		if (Status) OutNewItem.Name = Name;
 		return Complete(Status, std::move(Changes));
 	}
-	auto FContentBrowserRequestContext::CreateFolder(std::string_view Directory, std::string_view Name, FContentBrowserItem& OutNewItem) -> bool
+	auto FContentBrowserRequestContext::CreateFolder(std::string_view Directory, std::string_view Name, FContentBrowserNativeItem& OutNewItem) -> bool
 	{
 		OutNewItem = {};
 		FContentChangeBatch Changes;
-		FContentBrowserItem Candidate;
+		FContentBrowserNativeItem Candidate;
 		const auto Status = ValidateFolder(Directory, Name, Candidate);
 		if (!Status) return Complete(Status);
 		std::error_code Error;
@@ -1635,7 +1635,7 @@ namespace Durin::ContentBrowser::Private
 		Changes.Changes.push_back({EContentChangeKind::Added, {}, OutNewItem.PhysicalPath, {}, {}, true});
 		return Complete(Status, std::move(Changes));
 	}
-	auto FContentBrowserRequestContext::BulkCopyItems(std::span<const FContentBrowserItem> Items, std::string_view Directory) -> bool
+	auto FContentBrowserRequestContext::BulkCopyItems(std::span<const FContentBrowserNativeItem> Items, std::string_view Directory) -> bool
 	{
 		FContentChangeBatch Changes;
 		const auto Status = CopyItemsImpl(Items, Directory, Changes);

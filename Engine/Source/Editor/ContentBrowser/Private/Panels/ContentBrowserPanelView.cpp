@@ -1,3 +1,4 @@
+#include "Data/ContentBrowserItemAttributeHelpers.h"
 #include "Asset/RegistryOperations.h"
 
 #include "Profiling/Profiling.h"
@@ -463,7 +464,7 @@ namespace Durin::ContentBrowser::Private
 		ThumbnailReferences->EndFrame();
 		// Resolve outside clicks after every item has been drawn so the result does not depend on whether
 		// the clicked item appears before or after the active rename editor in ImGui's submission order.
-		if (!RenameTarget.empty() && !bFocusRename && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !bRenameEditorHovered)
+		if ((RenameTarget.IsValid() || PendingFolder.has_value()) && !bFocusRename && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !bRenameEditorHovered)
 			CancelRename();
 		if (Model.IsLoading())
 			ImGui::TextDisabled("Loading content...");
@@ -488,17 +489,17 @@ namespace Durin::ContentBrowser::Private
 				CreateFolder(Model.GetCurrentPhysicalPath());
 			if (ImGui::IsKeyPressed(ImGuiKey_F5)) Refresh(true);
 			if (ImGui::IsKeyPressed(ImGuiKey_Enter) && SelectionState.Selected.size() == 1)
-				if (auto It = std::ranges::find_if(Model.GetItems(), [&](const FContentBrowserItem& Item) { return SelectionState.Selected.contains(Item.StableId()); }); It != Model.GetItems().end()) OpenItem(*It);
+				if (auto It = std::ranges::find_if(Model.GetItems(), [&](const FContentBrowserItem& Item) { return SelectionState.Selected.contains(Item.GetItemKey()); }); It != Model.GetItems().end()) OpenItem(*It);
 			if (bAllowAssetMutation && ImGui::IsKeyPressed(ImGuiKey_F2)
 				&& SelectionState.Selected.size() == 1)
 				if (auto It = std::ranges::find_if(
 						Model.GetItems(),
 						[&](const FContentBrowserItem& Item) {
-							return SelectionState.Selected.contains(Item.StableId());
+							return SelectionState.Selected.contains(Item.GetItemKey());
 						}
 					);
 					It != Model.GetItems().end()
-					&& It->CanRename(It->PackagePath.IsValid() ? It->PackagePath.GetPackageName() : std::string_view(It->Name)))
+					&& It->CanRename(ItemAttributes::PackagePath(*It).IsValid() ? ItemAttributes::PackagePath(*It).GetPackageName() : std::string_view(It->GetItemName())))
 					BeginRename(*It);
 			if (bAllowAssetMutation && ImGui::GetIO().KeyCtrl
 				&& ImGui::IsKeyPressed(ImGuiKey_D, false)
@@ -506,7 +507,7 @@ namespace Durin::ContentBrowser::Private
 				if (auto It = std::ranges::find_if(
 						Model.GetItems(),
 						[&](const FContentBrowserItem& Item) {
-							return SelectionState.Selected.contains(Item.StableId());
+							return SelectionState.Selected.contains(Item.GetItemKey());
 						}
 					);
 					It != Model.GetItems().end()
@@ -530,7 +531,7 @@ namespace Durin::ContentBrowser::Private
 
 	auto FContentBrowserPanel::DrawSelectionDetails() -> void
 	{
-		auto It = std::ranges::find_if(Model.GetItems(), [&](const FContentBrowserItem& Item) { return SelectionState.Selected.contains(Item.StableId()); });
+		auto It = std::ranges::find_if(Model.GetItems(), [&](const FContentBrowserItem& Item) { return SelectionState.Selected.contains(Item.GetItemKey()); });
 		if (It == Model.GetItems().end()) return;
 		const FContentBrowserItem& Item = *It;
 		if (ImGui::BeginTable("ContentBrowserSelectionDetails", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg))
@@ -552,12 +553,12 @@ namespace Durin::ContentBrowser::Private
 			else
 			{
 				Row("Type", ContentBrowserItemView::TypeLabel(Item));
-				Row("Virtual", Item.VirtualPath.empty() ? "-" : Item.VirtualPath);
-				Row("Physical", Item.PhysicalPath);
-				if (Item.Kind == EContentBrowserItemKind::Asset
-					|| Item.Kind == EContentBrowserItemKind::Redirector)
+				Row("Virtual", Item.GetVirtualPath().empty() ? "-" : Item.GetVirtualPath());
+				Row("Physical", ItemAttributes::PhysicalPath(Item));
+				if ((Item.IsAsset() && !Item.IsRedirector())
+					|| Item.IsRedirector())
 				{
-					const FPackagePath& Path = Item.PackagePath;
+					const FPackagePath& Path = ItemAttributes::PackagePath(Item);
 					if (Path.IsValid())
 					{
 						if (const FPackageCatalogEntry Data =
@@ -590,11 +591,11 @@ namespace Durin::ContentBrowser::Private
 									"Incomplete ({} error{})",
 									ReferenceIndex.GetErrors().size(),
 									ReferenceIndex.GetErrors().size() == 1 ? "" : "s"));
-							if (Item.Kind == EContentBrowserItemKind::Redirector)
+							if (Item.IsRedirector())
 							{
-								Row("Destination", Item.RedirectDestination.ToString());
+								Row("Destination", ItemAttributes::RedirectDestination(Item).ToString());
 								FSoftObjectPath ObjectPath;
-								FSoftObjectPath::TryCreate(Item.VirtualPath, ObjectPath);
+								FSoftObjectPath::TryCreate(Item.GetVirtualPath(), ObjectPath);
 								const FObjectPathResolveResult Resolution =
 									ResolveAssetObjectPathForOperation(ObjectPath);
 								Row("State", ResolveStateLabel(Resolution.State));
@@ -650,11 +651,11 @@ namespace Durin::ContentBrowser::Private
 					if (Index >= Model.GetItems().size()) break;
 					const FContentBrowserItem& Item = Model.GetItems()[Index];
 					ImGui::TableSetColumnIndex(Column);
-					ImGui::PushID(Item.StableId().c_str());
+					ImGui::PushID(static_cast<int>(Item.GetItemKey().GetHash()));
 					const ImVec2 TileSize(
 						ImGui::GetContentRegionAvail().x,
 						Metrics.TileHeight);
-					const bool bSelected = SelectionState.Selected.contains(Item.StableId());
+					const bool bSelected = SelectionState.Selected.contains(Item.GetItemKey());
 					const ImVec2 TileStart = ImGui::GetCursorScreenPos();
 					const ImVec2 PreviewMin = Metrics.PreviewMin(TileStart, TileSize);
 					const ImVec2 PreviewMax = Metrics.PreviewMax(TileStart, TileSize);
@@ -671,13 +672,13 @@ namespace Durin::ContentBrowser::Private
 					if (bHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
 						QueueContentAction([this, Item] { OpenItem(Item); });
 					BeginAssetDragDrop(Item);
-					if (Item.Kind == EContentBrowserItemKind::Folder) AcceptAssetDrop(Item.VirtualPath);
+					if (Item.IsFolder()) AcceptAssetDrop(Item.GetVirtualPath());
 					if (bHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
 					{
 						if (!bSelected)
 						{
 							SelectionState.Selected.clear();
-							SelectionState.Selected.insert(Item.StableId());
+							SelectionState.Selected.insert(Item.GetItemKey());
 						}
 						ImGui::OpenPopup("ItemContext");
 					}
@@ -703,7 +704,7 @@ namespace Durin::ContentBrowser::Private
 								MonaImGui::ScaleUI(1.0f));
 					}
 
-					const FAssetThumbnailView Thumbnail = ThumbnailReferences->Find(Item.StableId());
+					const FAssetThumbnailView Thumbnail = ThumbnailReferences->Find(Item.GetItemKey());
 					const ContentBrowserItemView::EThumbnailPresentation ThumbnailPresentation =
 						ContentBrowserItemView::ResolveThumbnailPresentation(Thumbnail);
 					const bool bDrewThumbnail = ContentBrowserItemView::DrawThumbnail(
@@ -721,7 +722,7 @@ namespace Durin::ContentBrowser::Private
 							PreviewMin,
 							PreviewMax);
 
-					if (RenameTarget == Item.StableId())
+					if (RenameTarget == Item.GetItemKey())
 					{
 						ImGui::SetCursorScreenPos(NameMin);
 						ImGui::SetNextItemWidth(
@@ -731,31 +732,31 @@ namespace Durin::ContentBrowser::Private
 					else
 						ContentBrowserItemView::DrawLabel(
 							Item, Metrics, NameMin, NameMax);
-					if (bHovered && RenameTarget != Item.StableId() && !ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+					if (bHovered && RenameTarget != Item.GetItemKey() && !ImGui::IsMouseDragging(ImGuiMouseButton_Left))
 					{
 						ImGui::BeginTooltip();
-						ImGui::TextUnformatted(Item.Name.c_str());
+						ImGui::TextUnformatted(Item.GetItemName().c_str());
 						ImGui::Separator();
 						ImGui::TextDisabled("Type");
 						ImGui::SameLine();
 						ImGui::TextUnformatted(ContentBrowserItemView::TypeLabel(Item).c_str());
-						if (Item.Kind != EContentBrowserItemKind::Folder)
+						if (!(Item.IsFolder()))
 						{
-							ImGui::TextDisabled(Item.Kind == EContentBrowserItemKind::File ? "Size" : "Total Size");
+							ImGui::TextDisabled((!Item.IsFolder() && !Item.IsAsset()) ? "Size" : "Total Size");
 							ImGui::SameLine();
-							ImGui::TextUnformatted(ContentBrowserItemView::FormatFileSize(Item.FileSize).c_str());
-							if (Item.BulkFileSize > 0)
+							ImGui::TextUnformatted(ContentBrowserItemView::FormatFileSize(ItemAttributes::Unsigned(Item, ContentBrowserItemAttributes::ItemDiskSize)).c_str());
+							if (ItemAttributes::Unsigned(Item, ContentBrowserItemAttributes::BulkFileSize) > 0)
 							{
 								ImGui::TextDisabled("Package (.dasset)");
 								ImGui::SameLine();
-								ImGui::TextUnformatted(ContentBrowserItemView::FormatFileSize(Item.PackageFileSize).c_str());
+								ImGui::TextUnformatted(ContentBrowserItemView::FormatFileSize(ItemAttributes::Unsigned(Item, ContentBrowserItemAttributes::PackageFileSize)).c_str());
 								ImGui::TextDisabled("Bulk Data (.dbulk)");
 								ImGui::SameLine();
-								ImGui::TextUnformatted(ContentBrowserItemView::FormatFileSize(Item.BulkFileSize).c_str());
+								ImGui::TextUnformatted(ContentBrowserItemView::FormatFileSize(ItemAttributes::Unsigned(Item, ContentBrowserItemAttributes::BulkFileSize)).c_str());
 							}
 							ImGui::TextDisabled("Modified");
 							ImGui::SameLine();
-							ImGui::TextUnformatted(ContentBrowserItemView::FormatFileTime(Item.LastWriteTime).c_str());
+							ImGui::TextUnformatted(ContentBrowserItemView::FormatFileTime(ItemAttributes::LastWriteTime(Item)).c_str());
 						}
 						if (Thumbnail.State == EAssetThumbnailState::Failed && !Thumbnail.Diagnostic.empty())
 						{
@@ -763,11 +764,11 @@ namespace Durin::ContentBrowser::Private
 							ImGui::SameLine();
 							ImGui::TextWrapped("%s", Thumbnail.Diagnostic.c_str());
 						}
-						ImGui::TextDisabled(Item.VirtualPath.empty() ? "Path" : "Virtual Path");
+						ImGui::TextDisabled(Item.GetVirtualPath().empty() ? "Path" : "Virtual Path");
 						ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30.0f);
-						ImGui::TextUnformatted((Item.PackagePath.IsValid()
-							? Item.PackagePath.ToString()
-							: (Item.VirtualPath.empty() ? Item.PhysicalPath : Item.VirtualPath)).c_str());
+						ImGui::TextUnformatted((ItemAttributes::PackagePath(Item).IsValid()
+							? ItemAttributes::PackagePath(Item).ToString()
+							: (Item.GetVirtualPath().empty() ? ItemAttributes::PhysicalPath(Item) : Item.GetVirtualPath())).c_str());
 						ImGui::PopTextWrapPos();
 						ImGui::EndTooltip();
 					}
@@ -819,18 +820,18 @@ namespace Durin::ContentBrowser::Private
 			for (int32 Index = Clipper.DisplayStart; Index < Clipper.DisplayEnd; ++Index)
 			{
 				const FContentBrowserItem& Item = Model.GetItems()[static_cast<size_t>(Index)];
-				ImGui::PushID(Item.StableId().c_str());
+				ImGui::PushID(static_cast<int>(Item.GetItemKey().GetHash()));
 				ImGui::TableNextRow();
 				ImGui::TableNextColumn();
-				if (RenameTarget == Item.StableId())
+				if (RenameTarget == Item.GetItemKey())
 					DrawRenameEditor(Item);
 				else
 				{
 					const std::string Label = std::format(
-						"{} {}", ContentBrowserItemView::Icon(Item), Item.Name);
-					ImGui::Selectable(Label.c_str(), SelectionState.Selected.contains(Item.StableId()), ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick);
+						"{} {}", ContentBrowserItemView::Icon(Item), Item.GetItemName());
+					ImGui::Selectable(Label.c_str(), SelectionState.Selected.contains(Item.GetItemKey()), ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick);
 					bContentItemHovered |= ImGui::IsItemHovered();
-					if (ImGui::IsItemClicked() && (!SelectionState.Selected.contains(Item.StableId())
+					if (ImGui::IsItemClicked() && (!SelectionState.Selected.contains(Item.GetItemKey())
 						|| ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift)) SelectItem(static_cast<size_t>(Index));
 					const ImVec2 DragDelta = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left);
 					if (ImGui::IsItemHovered() && ImGui::IsMouseReleased(ImGuiMouseButton_Left) && DragDelta.x == 0 && DragDelta.y == 0
@@ -839,13 +840,13 @@ namespace Durin::ContentBrowser::Private
 						&& ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
 						QueueContentAction([this, Item] { OpenItem(Item); });
 					BeginAssetDragDrop(Item);
-					if (Item.Kind == EContentBrowserItemKind::Folder) AcceptAssetDrop(Item.VirtualPath);
+					if (Item.IsFolder()) AcceptAssetDrop(Item.GetVirtualPath());
 					if (ImGui::BeginPopupContextItem("ItemContext"))
 					{
-						if (!SelectionState.Selected.contains(Item.StableId()))
+						if (!SelectionState.Selected.contains(Item.GetItemKey()))
 						{
 							SelectionState.Selected.clear();
-							SelectionState.Selected.insert(Item.StableId());
+							SelectionState.Selected.insert(Item.GetItemKey());
 						}
 						DrawItemContextMenu(Item);
 						ImGui::EndPopup();
@@ -854,11 +855,11 @@ namespace Durin::ContentBrowser::Private
 				ImGui::TableNextColumn();
 				ImGui::TextUnformatted(ContentBrowserItemView::TypeLabel(Item).c_str());
 				ImGui::TableNextColumn();
-				ImGui::TextUnformatted(Item.Kind == EContentBrowserItemKind::Folder ? "-"
-					: ContentBrowserItemView::FormatFileSize(Item.FileSize).c_str());
+				ImGui::TextUnformatted(Item.IsFolder() ? "-"
+					: ContentBrowserItemView::FormatFileSize(ItemAttributes::Unsigned(Item, ContentBrowserItemAttributes::ItemDiskSize)).c_str());
 				ImGui::TableNextColumn();
-				ImGui::TextUnformatted(Item.Kind == EContentBrowserItemKind::Folder ? "-"
-					: ContentBrowserItemView::FormatFileTime(Item.LastWriteTime).c_str());
+				ImGui::TextUnformatted(Item.IsFolder() ? "-"
+					: ContentBrowserItemView::FormatFileTime(ItemAttributes::LastWriteTime(Item)).c_str());
 				ImGui::PopID();
 			}
 		}
@@ -870,32 +871,32 @@ namespace Durin::ContentBrowser::Private
 	auto FContentBrowserPanel::DrawItemContextMenu(const FContentBrowserItem& Item) -> void
 	{
 		DrawExtensionMenu(EExtensionCategory::ContextMenu, MakeExtensionContext(&Item));
-		if (ImGui::MenuItem(Item.Kind == EContentBrowserItemKind::Folder ? "Open Folder" : Item.Kind == EContentBrowserItemKind::Redirector ? "Open Destination" :
+		if (ImGui::MenuItem(Item.IsFolder() ? "Open Folder" : Item.IsRedirector() ? "Open Destination" :
 																																			  "Open",
-							nullptr, false, Item.Kind == EContentBrowserItemKind::Folder || Item.CanEdit()))
+							nullptr, false, Item.IsFolder() || Item.CanEdit()))
 			QueueContentAction([this, Item] { OpenItem(Item); });
 		const auto SaveFlags = EContentBrowserItemSaveFlags::SaveOnlyIfDirty | EContentBrowserItemSaveFlags::SaveOnlyIfLoaded;
 		const bool CanSave = Item.CanSave(SaveFlags), CanResave = Item.CanSave(EContentBrowserItemSaveFlags::None);
-		if (CanSave || CanResave || Item.PackagePath.IsValid())
+		if (CanSave || CanResave || ItemAttributes::PackagePath(Item).IsValid())
 		{
-			auto* Loaded = Item.PackagePath.IsValid() ? FindResidentPackage(Item.PackagePath) : nullptr;
+			auto* Loaded = ItemAttributes::PackagePath(Item).IsValid() ? FindResidentPackage(ItemAttributes::PackagePath(Item)) : nullptr;
 			ImGui::BeginDisabled(!bAllowAssetMutation);
-			if (ImGui::MenuItem(Item.PackagePath.IsValid() ? "Save Package" : "Save", nullptr, false, CanSave)) QueueContentAction([this, Item] { SaveItem(Item); });
+			if (ImGui::MenuItem(ItemAttributes::PackagePath(Item).IsValid() ? "Save Package" : "Save", nullptr, false, CanSave)) QueueContentAction([this, Item] { SaveItem(Item); });
 			if (ImGui::MenuItem(Loaded && Loaded->IsCanonicalResaveRecommended() ? "Resave Package (recommended)" : "Resave", nullptr, false, CanResave)) QueueContentAction([this, Item] { ResaveItems({Item}); });
 			if (SelectionState.Selected.size() > 1 && ImGui::MenuItem("Resave Selected"))
 			{
 				std::vector<FContentBrowserItem> Items;
 				for (const auto& Selected : Model.GetItems())
-					if (SelectionState.Selected.contains(Selected.StableId()) && Selected.CanSave(EContentBrowserItemSaveFlags::None)) Items.push_back(Selected);
+					if (SelectionState.Selected.contains(Selected.GetItemKey()) && Selected.CanSave(EContentBrowserItemSaveFlags::None)) Items.push_back(Selected);
 				QueueContentAction([this, Items = std::move(Items)]() mutable { ResaveItems(std::move(Items)); });
 			}
 			ImGui::EndDisabled();
 			ImGui::Separator();
 		}
-		if (Item.Kind == EContentBrowserItemKind::Asset)
+		if ((Item.IsAsset() && !Item.IsRedirector()))
 		{
 			const auto Availability = HostContext.QueryReimport
-				? HostContext.QueryReimport(Item.AssetClassName)
+				? HostContext.QueryReimport(ItemAttributes::String(Item, ContentBrowserItemAttributes::Class))
 				: FReimportAvailability{};
 			if (Availability.bCanReimport || Availability.bCanReimportFromFile)
 			{
@@ -903,7 +904,7 @@ namespace Durin::ContentBrowser::Private
 				{
 					ImGui::BeginDisabled(!bAllowAssetMutation);
 					if (ImGui::MenuItem("Reimport (source unverified)"))
-						QueueContentAction([this, Path = Item.VirtualPath] {
+						QueueContentAction([this, Path = Item.GetVirtualPath()] {
 							if (HostContext.Reimport)
 								HostContext.Reimport(false, Path, [this](std::string Message) {
 										SetError(std::move(Message));
@@ -915,7 +916,7 @@ namespace Durin::ContentBrowser::Private
 				{
 					ImGui::BeginDisabled(!bAllowAssetMutation);
 					if (ImGui::MenuItem("Reimport From File..."))
-						QueueContentAction([this, Path = Item.VirtualPath] {
+						QueueContentAction([this, Path = Item.GetVirtualPath()] {
 							if (HostContext.Reimport)
 								HostContext.Reimport(true, Path, [this](std::string Message) {
 									SetError(std::move(Message));
@@ -926,24 +927,24 @@ namespace Durin::ContentBrowser::Private
 			}
 			ImGui::Separator();
 		}
-		if (Item.Kind == EContentBrowserItemKind::Folder)
+		if (Item.IsFolder())
 		{
 			if (ImGui::BeginMenu("Create"))
 			{
-				DrawCreateMenu(Item.PhysicalPath, Item.VirtualPath);
+				DrawCreateMenu(ItemAttributes::PhysicalPath(Item), Item.GetVirtualPath());
 				ImGui::EndMenu();
 			}
 			if (ImGui::BeginMenu("Import"))
 			{
-				DrawImportMenu(Item.PhysicalPath, Item.VirtualPath);
+				DrawImportMenu(ItemAttributes::PhysicalPath(Item), Item.GetVirtualPath());
 				ImGui::EndMenu();
 			}
 			ImGui::Separator();
 		}
-		if (Item.Kind == EContentBrowserItemKind::Asset
-			|| Item.Kind == EContentBrowserItemKind::Redirector)
+		if ((Item.IsAsset() && !Item.IsRedirector())
+			|| Item.IsRedirector())
 		{
-			const FPackagePath& Path = Item.PackagePath;
+			const FPackagePath& Path = ItemAttributes::PackagePath(Item);
 			if (Path.IsValid())
 			{
 				std::vector<FPackagePath> Referencers;
@@ -968,10 +969,10 @@ namespace Durin::ContentBrowser::Private
 				}
 			}
 		}
-		if (Item.Kind == EContentBrowserItemKind::Redirector)
+		if (Item.IsRedirector())
 		{
 			if (ImGui::MenuItem("Reveal Destination"))
-				QueueContentAction([this, Destination = Item.RedirectDestination] {
+				QueueContentAction([this, Destination = ItemAttributes::RedirectDestination(Item)] {
 					RevealAsset(Destination.ToString());
 				});
 			ImGui::BeginDisabled(!bAllowAssetMutation);
@@ -997,18 +998,18 @@ namespace Durin::ContentBrowser::Private
 			CopyContentSelection();
 		ImGui::BeginDisabled(!bAllowAssetMutation);
 		if (ImGui::MenuItem(
-			Item.Kind == EContentBrowserItemKind::Folder
+			Item.IsFolder()
 				? "Paste Into Folder"
 				: "Paste",
 			"Ctrl+V", false, HasContentClipboard()))
 			QueueContentAction([this, Item] {
-				PasteContent(Item.Kind == EContentBrowserItemKind::Folder
-					? std::string_view(Item.VirtualPath)
+				PasteContent(Item.IsFolder()
+					? std::string_view(Item.GetVirtualPath())
 					: std::string_view{});
 			});
 		if (ImGui::MenuItem(
 				"Rename", "F2", false,
-				SelectionState.Selected.size() == 1 && Item.CanRename(Item.PackagePath.IsValid() ? Item.PackagePath.GetPackageName() : std::string_view(Item.Name))
+				SelectionState.Selected.size() == 1 && Item.CanRename(ItemAttributes::PackagePath(Item).IsValid() ? ItemAttributes::PackagePath(Item).GetPackageName() : std::string_view(Item.GetItemName()))
 			))
 			BeginRename(Item);
 		if (ImGui::MenuItem("Delete", "Delete", false, CanDeleteSelection())) RequestDeleteSelection();
@@ -1016,14 +1017,14 @@ namespace Durin::ContentBrowser::Private
 		ImGui::Separator();
 		if (ImGui::BeginMenu("Copy Details"))
 		{
-			if (ImGui::MenuItem("Name")) CopyToClipboard(Item.Name);
-			if (!Item.VirtualPath.empty() && ImGui::MenuItem("Virtual Path"))
-				CopyToClipboard(Item.PackagePath.IsValid() ? Item.PackagePath.ToString() : Item.VirtualPath);
-			if (Item.PackagePath.IsValid() && ImGui::MenuItem("Object Path")) CopyToClipboard(Item.VirtualPath);
-			if (ImGui::MenuItem("Physical Path")) CopyToClipboard(Item.PhysicalPath);
+			if (ImGui::MenuItem("Name")) CopyToClipboard(Item.GetItemName());
+			if (!Item.GetVirtualPath().empty() && ImGui::MenuItem("Virtual Path"))
+				CopyToClipboard(ItemAttributes::PackagePath(Item).IsValid() ? ItemAttributes::PackagePath(Item).ToString() : Item.GetVirtualPath());
+			if (ItemAttributes::PackagePath(Item).IsValid() && ImGui::MenuItem("Object Path")) CopyToClipboard(Item.GetVirtualPath());
+			if (ImGui::MenuItem("Physical Path")) CopyToClipboard(ItemAttributes::PhysicalPath(Item));
 			ImGui::EndMenu();
 		}
-		if (ImGui::MenuItem("Show in Explorer")) ShowInExplorer(Item.PhysicalPath);
+		if (ImGui::MenuItem("Show in Explorer")) ShowInExplorer(ItemAttributes::PhysicalPath(Item));
 	}
 
 	auto FContentBrowserPanel::MakeExtensionContext(const FContentBrowserItem* PrimaryItem,
@@ -1136,11 +1137,11 @@ namespace Durin::ContentBrowser::Private
 
 	auto FContentBrowserPanel::BeginAssetDragDrop(const FContentBrowserItem& Item) -> void
 	{
-		if (Item.Kind == EContentBrowserItemKind::Redirector || !ImGui::BeginDragDropSource()) return;
+		if (Item.IsRedirector() || !ImGui::BeginDragDropSource()) return;
 		std::vector<FContentBrowserItem> Items;
-		if (SelectionState.Selected.contains(Item.StableId()))
+		if (SelectionState.Selected.contains(Item.GetItemKey()))
 			for (const auto& Selected : Model.GetItems())
-				if (SelectionState.Selected.contains(Selected.StableId())) Items.push_back(Selected);
+				if (SelectionState.Selected.contains(Selected.GetItemKey())) Items.push_back(Selected);
 		if (Items.empty()) Items.push_back(Item);
 		const auto* ActivePayload = ImGui::GetDragDropPayload();
 		if (!DragSnapshot || !ActivePayload || ActivePayload->DataFrameCount == -1)
@@ -1156,7 +1157,8 @@ namespace Durin::ContentBrowser::Private
 				BrowserDragParent = ActivePayload->SourceParentId;
 			}
 		}
-		if (Items.size() != 1 || Items.front().Kind != EContentBrowserItemKind::Asset)
+		const auto ResourcePath = ItemAttributes::String(Item, ContentBrowserItemAttributes::AssetPath);
+		if (Items.size() != 1 || (!Items.front().IsAsset() || Items.front().IsRedirector()) || ResourcePath.empty())
 		{
 			ImGui::SetDragDropPayload("DURIN_CONTENT_ITEMS", &DragSnapshot->Serial, sizeof(uint64), ImGuiCond_Once);
 			ImGui::Text("Move %zu content item(s)", Items.size());
@@ -1165,15 +1167,16 @@ namespace Durin::ContentBrowser::Private
 		}
 
 		FAssetDragDropPayload Payload;
-		std::memcpy(Payload.AssetPath.data(), Item.VirtualPath.data(), std::min(Item.VirtualPath.size(), Payload.AssetPath.size() - 1));
-		std::memcpy(Payload.AssetClassName.data(), Item.AssetClassName.data(), std::min(Item.AssetClassName.size(), Payload.AssetClassName.size() - 1));
+		std::memcpy(Payload.AssetPath.data(), ResourcePath.data(), std::min(ResourcePath.size(), Payload.AssetPath.size() - 1));
+		const auto ClassName = ItemAttributes::String(Item, ContentBrowserItemAttributes::Class);
+		std::memcpy(Payload.AssetClassName.data(), ClassName.data(), std::min(ClassName.size(), Payload.AssetClassName.size() - 1));
 		ImGui::SetDragDropPayload(AssetDragDropPayloadType, &Payload, sizeof(Payload));
 		if (const auto* Current = ImGui::GetDragDropPayload())
 		{
 			BrowserDragSource = Current->SourceId;
 			BrowserDragParent = Current->SourceParentId;
 		}
-		ImGui::Text("%s %s", ContentBrowserItemView::Icon(Item).c_str(), Item.Name.c_str());
+		ImGui::Text("%s %s", ContentBrowserItemView::Icon(Item).c_str(), Item.GetItemName().c_str());
 		ImGui::EndDragDropSource();
 	}
 
@@ -1218,7 +1221,7 @@ namespace Durin::ContentBrowser::Private
 		if (bBackgroundHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 		{
 			SelectionState.Selected.clear();
-			SelectionState.Anchor.clear();
+			SelectionState.Anchor = {};
 		}
 		if (ImGui::IsMouseClicked(ImGuiMouseButton_Right))
 		{
@@ -1228,7 +1231,7 @@ namespace Durin::ContentBrowser::Private
 			if (bBackgroundContextPending)
 			{
 				SelectionState.Selected.clear();
-				SelectionState.Anchor.clear();
+				SelectionState.Anchor = {};
 			}
 		}
 		if (ImGui::IsMouseReleased(ImGuiMouseButton_Right))

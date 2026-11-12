@@ -122,31 +122,20 @@ namespace Durin
 	}
 	auto DContentBrowserDataSubsystem::MergeItem(std::vector<FContentBrowserItem>& Items, FContentBrowserItem Item) -> void
 	{
-		auto Folder = Item.Kind == EContentBrowserItemKind::Folder
+		auto Folder = Item.IsFolder()
 						  ? std::ranges::find_if(Items,
 												 [&](const auto& Existing)
 												 {
-													 return Existing.Kind == Item.Kind &&
-															((!Item.VirtualPath.empty() && Existing.VirtualPath == Item.VirtualPath) ||
-															 (Item.VirtualPath.empty() && Existing.StableId() == Item.StableId()));
+													 return Item.GetItemKey().IsValid() && Existing.GetItemKey() == Item.GetItemKey();
 												 })
 						  : Items.end();
 		if (Folder == Items.end())
 			Items.push_back(std::move(Item));
 		else
 		{
-			// Both native sources use the same physical folder backend. Keep one executable identity.
-			const bool SameNativeFolder = Folder->PhysicalPath == Item.PhysicalPath &&
-										  Cast<DContentBrowserNativeDataSource>(
-											  Item.InternalItems.empty() ? nullptr : Item.InternalItems.front().GetOwnerDataSource()) &&
-										  std::ranges::all_of(Folder->InternalItems,
-															  [](const auto& Data)
-															  {
-																  auto* Owner = Data.GetOwnerDataSource();
-																  return Owner && Cast<DContentBrowserNativeDataSource>(Owner);
-															  });
-			if (!SameNativeFolder)
-				Folder->InternalItems.insert(Folder->InternalItems.end(), Item.InternalItems.begin(), Item.InternalItems.end());
+			for (auto& Data : Item.InternalItems)
+				if (std::ranges::none_of(Folder->InternalItems, [&](const auto& Existing) { return Existing.GetContributionKey() == Data.GetContributionKey(); }))
+					Folder->InternalItems.push_back(std::move(Data));
 		}
 	}
 
@@ -211,7 +200,7 @@ namespace Durin
 		const auto Slash = Target.find_last_of('/');
 		if (Slash == std::string::npos) return;
 		EnumerateItemsUnderPath(Target.substr(0, Slash + 1), {}, [&](FContentBrowserItem&& Item) {
-   std::string Candidate = Item.VirtualPath; while (Candidate.size() > 1 && Candidate.back() == '/') Candidate.pop_back();
+   std::string Candidate = Item.GetVirtualPath(); while (Candidate.size() > 1 && Candidate.back() == '/') Candidate.pop_back();
    return Candidate != Target || Callback(std::move(Item)); }, Host);
 	}
 	auto DContentBrowserDataSubsystem::BulkSaveItems(std::span<const FContentBrowserItemData> Items, EContentBrowserItemSaveFlags Flags) -> bool

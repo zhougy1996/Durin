@@ -79,9 +79,32 @@ namespace Durin
 		FContentBrowserDataCompiledFilter Compiled;
 		CompileFilter(Target.substr(0, Slash + 1), {}, Compiled);
 		EnumerateItemsMatchingFilter(Compiled, [&](FContentBrowserItem&& Item) {
-   std::string Candidate = Item.VirtualPath; while (Candidate.size() > 1 && Candidate.back() == '/') Candidate.pop_back();
+   std::string Candidate = Item.GetVirtualPath(); while (Candidate.size() > 1 && Candidate.back() == '/') Candidate.pop_back();
    return Candidate != Target || Callback(std::move(Item)); }, Host);
 	}
+	auto DContentBrowserDataSource::AreItemsEquivalentForOperations(const FContentBrowserItemData& A, const FContentBrowserItemData& B) const -> bool
+	{
+		return A.GetOwnerDataSource() == this && B.GetOwnerDataSource() == this && A.GetContributionKey() == B.GetContributionKey();
+	}
+
+	auto DContentBrowserDataSource::GetItemAttribute(const FContentBrowserItemData&, bool, std::string_view,
+													 FContentBrowserItemDataAttributeValue& Out) const -> bool
+	{
+		Out = {};
+		return false;
+	}
+	auto DContentBrowserDataSource::GetItemAttributes(const FContentBrowserItemData&, bool,
+													  FContentBrowserItemDataAttributeValues& Out) const -> bool
+	{
+		Out.clear();
+		return false;
+	}
+	auto DContentBrowserDataSource::GetItemPhysicalPath(const FContentBrowserItemData&, std::string& Out) const -> bool
+	{
+		Out.clear();
+		return false;
+	}
+
 	auto DContentBrowserDataSource::CanEditItem(const FContentBrowserItemData&, std::string*) const -> bool { return false; }
 	auto DContentBrowserDataSource::EditItem(const FContentBrowserItemData&) -> bool { return false; }
 	auto DContentBrowserDataSource::CanDuplicateItem(const FContentBrowserItemData&, std::string*) const -> bool { return false; }
@@ -104,23 +127,63 @@ namespace Durin
 namespace Durin::ContentBrowser
 {
 	FContentBrowserItemData::FContentBrowserItemData() = default;
-	FContentBrowserItemData::FContentBrowserItemData(DContentBrowserDataSource& Source, EContentBrowserItemKind K, std::string Path, std::shared_ptr<const IContentBrowserItemDataPayload> P)
-		: Kind(K)
+	FContentBrowserItemData::FContentBrowserItemData(EContentBrowserItemFlags InFlags, std::string Path, std::string InName, std::string InDisplayName, std::shared_ptr<const IContentBrowserItemDataPayload> P)
+		: Flags(InFlags)
 		, VirtualPath(std::move(Path))
+		, Name(std::move(InName))
+		, DisplayName(std::move(InDisplayName))
 		, Payload(std::move(P))
+	{
+		if (Name.empty())
+		{
+			auto LeafPath=VirtualPath;
+			while (LeafPath.size()>1 && LeafPath.back()=='/') LeafPath.pop_back();
+			Name=std::filesystem::path(LeafPath).filename().generic_string();
+		}
+		if (DisplayName.empty()) DisplayName=Name;
+	}
+	FContentBrowserItemData::FContentBrowserItemData(DContentBrowserDataSource& Source, EContentBrowserItemFlags InFlags, std::string Path, std::string InName, std::string InDisplayName, std::shared_ptr<const IContentBrowserItemDataPayload> P)
+		: FContentBrowserItemData(InFlags, std::move(Path), std::move(InName), std::move(InDisplayName), std::move(P))
 	{
 		CheckGameThread();
 		if (Source.IsActive())
 		{
-			Owner = &Source;
-			Generation = Source.GetActivationGeneration();
-			MountRevision = FMountPaths::GetMountRegistryRevision();
+			Owner=&Source; Generation=Source.GetActivationGeneration(); MountRevision=FMountPaths::GetMountRegistryRevision();
 		}
 	}
+
 	auto FContentBrowserItemData::GetOwnerDataSource() const -> DContentBrowserDataSource*
 	{
 		if (!IsInGameThread() || MountRevision != FMountPaths::GetMountRegistryRevision()) return nullptr;
 		auto* Source = Owner.Get();
 		return Source && Source->IsActive() && Source->GetActivationGeneration() == Generation ? Source : nullptr;
 	}
+	auto FContentBrowserItemData::GetItemAttribute(std::string_view Key, FContentBrowserItemDataAttributeValue& Out, bool IncludeMetaData) const -> bool
+	{
+		Out={};
+		auto* Source=GetOwnerDataSource();
+		if (!Source) return false;
+		TStrongObjectPtr<DContentBrowserDataSource> KeepAlive(Source);
+		if (Source->GetItemAttribute(*this, IncludeMetaData, Key, Out) && Out.IsValid() && GetOwnerDataSource()==Source) return true;
+		Out={}; return false;
+	}
+	auto FContentBrowserItemData::GetItemAttributes(FContentBrowserItemDataAttributeValues& Out, bool IncludeMetaData) const -> bool
+	{
+		Out.clear();
+		auto* Source=GetOwnerDataSource();
+		if (!Source) return false;
+		TStrongObjectPtr<DContentBrowserDataSource> KeepAlive(Source);
+		if (Source->GetItemAttributes(*this, IncludeMetaData, Out) && GetOwnerDataSource()==Source) return true;
+		Out.clear(); return false;
+	}
+	auto FContentBrowserItemData::GetItemPhysicalPath(std::string& Out) const -> bool
+	{
+		Out.clear();
+		auto* Source=GetOwnerDataSource();
+		if (!Source) return false;
+		TStrongObjectPtr<DContentBrowserDataSource> KeepAlive(Source);
+		if (Source->GetItemPhysicalPath(*this, Out) && !Out.empty() && GetOwnerDataSource()==Source) return true;
+		Out.clear(); return false;
+	}
+
 } // namespace Durin::ContentBrowser

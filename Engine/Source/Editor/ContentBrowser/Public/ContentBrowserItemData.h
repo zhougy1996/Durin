@@ -2,6 +2,8 @@
 #include "CoreMinimal.h"
 #include "DObject/WeakObjectPtr.h"
 #include "ContentBrowserAPI.h"
+#include "ContentBrowserItemKey.h"
+#include "ContentBrowserItemAttributes.h"
 
 namespace Durin
 {
@@ -40,18 +42,30 @@ namespace Durin::ContentBrowser
 	{
 	public:
 		CONTENTBROWSER_API FContentBrowserItemData();
-		CONTENTBROWSER_API FContentBrowserItemData(DContentBrowserDataSource& Owner, EContentBrowserItemKind Kind, std::string VirtualPath, std::shared_ptr<const IContentBrowserItemDataPayload> Payload);
+		CONTENTBROWSER_API FContentBrowserItemData(EContentBrowserItemFlags Flags, std::string VirtualPath, std::string Name, std::string DisplayName, std::shared_ptr<const IContentBrowserItemDataPayload> Payload);
+		CONTENTBROWSER_API FContentBrowserItemData(DContentBrowserDataSource& Owner, EContentBrowserItemFlags Flags, std::string VirtualPath, std::string Name, std::string DisplayName, std::shared_ptr<const IContentBrowserItemDataPayload> Payload);
 		CONTENTBROWSER_API auto GetOwnerDataSource() const -> DContentBrowserDataSource*;
 		auto GetVirtualPath() const -> const std::string& { return VirtualPath; }
-		auto GetItemKind() const -> EContentBrowserItemKind { return Kind; }
+		auto GetItemType() const -> EContentBrowserItemFlags { return static_cast<EContentBrowserItemFlags>(static_cast<uint16>(Flags) & static_cast<uint16>(EContentBrowserItemFlags::Type_MASK)); }
+		auto GetItemFlags() const -> EContentBrowserItemFlags { return Flags; }
+		auto GetItemName() const -> const std::string& { return Name; }
+		auto GetDisplayName() const -> const std::string& { return DisplayName; }
+		auto GetOwnerKey() const -> FObjectKey { return Owner.GetKey(); }
+		auto GetItemDataKey() const -> FContentBrowserItemDataKey { return FContentBrowserItemDataKey(GetItemType(), VirtualPath); }
+		auto GetItemKey() const -> FContentBrowserItemKey { return {GetItemType(), VirtualPath, Owner.GetKey()}; }
+		auto GetContributionKey() const -> FContentBrowserItemContributionKey { return {GetItemDataKey(), Owner.GetKey(), Generation, MountRevision}; }
 		auto GetPayload() const -> const std::shared_ptr<const IContentBrowserItemDataPayload>& { return Payload; }
+		CONTENTBROWSER_API auto GetItemAttribute(std::string_view Key, FContentBrowserItemDataAttributeValue& Out, bool IncludeMetaData = false) const -> bool;
+		CONTENTBROWSER_API auto GetItemAttributes(FContentBrowserItemDataAttributeValues& Out, bool IncludeMetaData = false) const -> bool;
+		CONTENTBROWSER_API auto GetItemPhysicalPath(std::string& Out) const -> bool;
 
 	private:
 		TWeakObjectPtr<DContentBrowserDataSource> Owner;
 		uint64 Generation = 0;
 		uint64 MountRevision = 0;
-		EContentBrowserItemKind Kind = EContentBrowserItemKind::File;
+		EContentBrowserItemFlags Flags = EContentBrowserItemFlags::None;
 		std::string VirtualPath;
+		std::string Name, DisplayName;
 		std::shared_ptr<const IContentBrowserItemDataPayload> Payload;
 	};
 	enum class EContentBrowserItemUpdateType : uint8

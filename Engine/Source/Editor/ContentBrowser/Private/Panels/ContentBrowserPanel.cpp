@@ -1,3 +1,4 @@
+#include "Data/ContentBrowserItemAttributeHelpers.h"
 #include "Panels/ContentBrowserPanel.h"
 #include "ContentBrowserNativeDataSource.h"
 #include "Panels/ContentBrowserFilesystem.h"
@@ -40,7 +41,7 @@ namespace Durin::ContentBrowser::Private
 	{
 		size_t Count = 0;
 		for (const auto& Item : Model.GetItems())
-			if (SelectionState.Selected.contains(Item.StableId()))
+			if (SelectionState.Selected.contains(Item.GetItemKey()))
 			{
 				if (!Item.CanDelete()) return false;
 				++Count;
@@ -58,10 +59,16 @@ namespace Durin::ContentBrowser::Private
 		for (const auto& Item : Items)
 		{
 			if (Item.InternalItems.empty()) return {};
-			auto Fresh = FindItemAtPath(Item.VirtualPath);
+			FContentBrowserItem Fresh;
+			if (auto* Service = GetDataSubsystem()) Service->EnumerateItemsAtPath(Item.GetVirtualPath(), [&](FContentBrowserItem&& Candidate) {
+				if (Candidate.GetItemKey() != Item.GetItemKey()) return true;
+				Fresh = std::move(Candidate); return false;
+			}, HostContext);
 			if (Fresh.InternalItems.size() != Item.InternalItems.size()) return {};
 			for (const auto& Data : Item.InternalItems)
-				if (!Data.GetOwnerDataSource() || std::ranges::none_of(Fresh.InternalItems, [&](const auto& Current) { return Current.GetOwnerDataSource() == Data.GetOwnerDataSource() && Current.GetVirtualPath() == Data.GetVirtualPath(); })) return {};
+				if (!Data.GetOwnerDataSource() || std::ranges::none_of(Fresh.InternalItems, [&](const auto& Current) {
+					return Current.GetOwnerDataSource() && Current.GetContributionKey() == Data.GetContributionKey();
+				})) return {};
 			Result.push_back(std::move(Fresh));
 		}
 		return Result;
@@ -236,7 +243,7 @@ namespace Durin::ContentBrowser::Private
 		CancelRename();
 		ThumbnailReferences->CancelPendingRequests();
 		SelectionState.Selected.clear();
-		SelectionState.Anchor.clear();
+		SelectionState.Anchor = {};
 		bResetContentScroll = true;
 		RepairSelection();
 		return true;
@@ -253,7 +260,7 @@ namespace Durin::ContentBrowser::Private
 			CancelRename();
 			ThumbnailReferences->CancelPendingRequests();
 			SelectionState.Selected.clear();
-			SelectionState.Anchor.clear();
+			SelectionState.Anchor = {};
 			bResetContentScroll = true;
 			RepairSelection();
 		}
@@ -314,24 +321,9 @@ namespace Durin::ContentBrowser::Private
 	{
 		for (const auto& Update : Updates)
 		{
-			if (!Update.GetItemData().GetOwnerDataSource()) continue;
-			if (Update.GetUpdateType() != EContentBrowserItemUpdateType::Moved && Update.GetUpdateType() != EContentBrowserItemUpdateType::Removed) continue;
-			FContentChange Change;
-			Change.Kind = Update.GetUpdateType() == EContentBrowserItemUpdateType::Moved ? EContentChangeKind::Renamed : EContentChangeKind::Removed;
-			Change.bDirectory = Update.GetItemData().GetItemKind() == EContentBrowserItemKind::Folder;
-			Change.OldAssetPath = Change.Kind == EContentChangeKind::Renamed ? Update.GetPreviousVirtualPath() : Update.GetItemData().GetVirtualPath();
-			if (Change.Kind == EContentChangeKind::Renamed) Change.NewAssetPath = Update.GetItemData().GetVirtualPath();
-			// Physical identities are migrated only when the visible row establishes a mounted mapping.
-			const auto Previous = std::ranges::find_if(Model.GetItemsSnapshot(), [&](const auto& Item) { return Item.VirtualPath == Change.OldAssetPath; });
-			if (Previous != Model.GetItemsSnapshot().end() && !Previous->PhysicalPath.empty()
-				&& ContentBrowserChanges::SamePath(Previous->PhysicalPath, Model.VirtualToPhysical(Change.OldAssetPath)))
-			{
-				Change.OldPhysicalPath = Previous->PhysicalPath;
-				if (Change.Kind == EContentChangeKind::Renamed) Change.NewPhysicalPath = Model.VirtualToPhysical(Change.NewAssetPath);
-			}
-			SelectionState.Apply({.Changes = {Change}});
-			FContentBrowserSelection::Migrate(RenameTarget, Change);
-			if (PendingItemAction) FContentBrowserSelection::Migrate(PendingItemAction->PhysicalPath, Change);
+			SelectionState.Apply(Update, Model.GetItemsSnapshot());
+			FContentBrowserSelection::Migrate(RenameTarget, Update);
+			if (PendingItemAction) FContentBrowserSelection::Migrate(PendingItemAction->ItemKey, Update);
 		}
 	}
 
@@ -345,18 +337,12 @@ namespace Durin::ContentBrowser::Private
 				if (!Change.OldPhysicalPath.empty()) Change.OldAssetPath = Model.PhysicalToVirtualDirectory(Change.OldPhysicalPath);
 				if (!Change.NewPhysicalPath.empty()) Change.NewAssetPath = Model.PhysicalToVirtualDirectory(Change.NewPhysicalPath);
 			}
-		SelectionState.Apply(Mapped);
-		for (const auto& Change : Mapped.Changes)
-		{
-			FContentBrowserSelection::Migrate(RenameTarget, Change);
-			if (PendingItemAction) FContentBrowserSelection::Migrate(PendingItemAction->PhysicalPath, Change);
-		}
 		ThumbnailReferences->ApplyContentChanges(Mapped);
 		const auto Navigation = Model.GetNavigationRevision();
 		if (Model.ApplyContentChanges(Mapped)) RepairSelection();
 		if (PendingItemAction && PendingItemAction->NavigationRevision == Navigation)
 		{
-			if (PendingItemAction->PhysicalPath.empty()) PendingItemAction.reset();
+			if (!PendingItemAction->ItemKey.IsValid()) PendingItemAction.reset();
 			else PendingItemAction->NavigationRevision = Model.GetNavigationRevision();
 		}
 	}
@@ -394,9 +380,9 @@ namespace Durin::ContentBrowser::Private
 	auto FContentBrowserPanel::OpenItem(const FContentBrowserItem& Item) -> void
 	{
 		if (!GetDataSubsystem()) return;
-		if (Item.Kind == EContentBrowserItemKind::Folder)
+		if (Item.IsFolder())
 		{
-			NavigateToPhysical(Item.VirtualPath);
+			NavigateToPhysical(Item.GetVirtualPath());
 			return;
 		}
 		if (!Item.Edit()) SetError("The item could not be opened by its data source.");
@@ -405,17 +391,16 @@ namespace Durin::ContentBrowser::Private
 	auto FContentBrowserPanel::BeginRename(const FContentBrowserItem& Item) -> void
 	{
 		std::string Reason;
-		const auto Name = Item.PackagePath.IsValid() ? Item.PackagePath.GetPackageName() : std::string_view(Item.Name);
+		const auto Name = ItemAttributes::RenameName(Item);
 		if (!Item.CanRename(Name, &Reason))
 		{
 			SetError(std::move(Reason));
 			return;
 		}
 		CancelRename();
-		RenameTarget = Item.StableId();
+		RenameTarget = Item.GetItemKey();
 		RenameBuffer.fill(0);
-		const std::string_view InitialName =
-			Item.PackagePath.IsValid() ? Item.PackagePath.GetPackageName() : std::string_view(Item.Name);
+		const std::string_view InitialName = Name;
 		std::memcpy(
 			RenameBuffer.data(),
 			InitialName.data(),
@@ -426,7 +411,7 @@ namespace Durin::ContentBrowser::Private
 	auto FContentBrowserPanel::CancelRename() -> void
 	{
 		PendingFolder.reset();
-		RenameTarget.clear();
+		RenameTarget = {};
 		bFocusRename = false;
 	}
 
@@ -458,11 +443,10 @@ namespace Durin::ContentBrowser::Private
 			if (!SyncToItem(Created)) SetError("The folder was created, but it could not be shown in the content browser.");
 			return true;
 		}
-		const std::string_view CurrentName =
-			Item.PackagePath.IsValid() ? Item.PackagePath.GetPackageName() : std::string_view(Item.Name);
+		const auto CurrentName = ItemAttributes::RenameName(Item);
 		if (NewName == CurrentName)
 		{
-			RenameTarget.clear();
+			RenameTarget = {};
 			return true;
 		}
 
@@ -472,25 +456,25 @@ namespace Durin::ContentBrowser::Private
 		{
 			return false;
 		}
-		RenameTarget.clear();
+		RenameTarget = {};
 		if (!SyncToItem(NewItem)) SetError("The item was renamed, but it could not be shown in the content browser.");
 		return true;
 	}
 
 	auto FContentBrowserPanel::SyncToItem(const FContentBrowserItem& Item) -> bool
 	{
-		if (Item.VirtualPath.empty()) return false;
-		auto Path = Item.VirtualPath;
+		if (Item.GetVirtualPath().empty()) return false;
+		auto Path = Item.GetVirtualPath();
 		while (Path.size() > 1 && Path.back() == '/')
 			Path.pop_back();
 		const auto Parent = std::filesystem::path(Path).parent_path().generic_string();
-		if (!NavigateToPhysical(Model.VirtualToPhysical(Parent))) return false;
+		if (!NavigateToPhysical(Parent)) return false;
 		SearchBuffer.fill(0);
 		Model.SetSearch("");
 		Model.SetTypeFilter(EContentBrowserTypeFilter::All);
 		Model.RefreshItemsSnapshot(false);
 		SelectionState.Selected.clear();
-		SelectionState.Selected.insert(Item.StableId());
+		SelectionState.Selected.insert(Item.GetItemKey());
 		return true;
 	}
 
@@ -501,14 +485,14 @@ namespace Durin::ContentBrowser::Private
 		if (!CanMutateContent()) return;
 		FContentBrowserItem NewItem;
 		Item.Duplicate(NewItem);
-		if (!NewItem.StableId().empty()) SyncToItem(NewItem);
+		if (NewItem.GetItemKey().IsValid()) SyncToItem(NewItem);
 	}
 
 	auto FContentBrowserPanel::CopyContentSelection() -> void
 	{
 		std::vector<FContentBrowserItem> Items;
 		for (const auto& Item : Model.GetItems())
-			if (SelectionState.Selected.contains(Item.StableId()))
+			if (SelectionState.Selected.contains(Item.GetItemKey()))
 			{
 				if (Item.InternalItems.empty() || std::ranges::any_of(Item.InternalItems, [](const auto& Data) { return !Data.GetOwnerDataSource(); })) return;
 				Items.push_back(Item);
@@ -516,9 +500,9 @@ namespace Durin::ContentBrowser::Private
 		if (Items.empty()) return;
 		CopiedContent.clear();
 		CopiedContentToken.clear();
-		if (Items.size() == 1 && Items.front().Kind == EContentBrowserItemKind::Asset)
+		if (Items.size() == 1 && (Items.front().IsAsset() && !Items.front().IsRedirector()))
 		{
-			CopiedContentToken = Items.front().VirtualPath;
+			CopiedContentToken = Items.front().GetVirtualPath();
 			CopiedContent = std::move(Items);
 			CopyToClipboard(CopiedContentToken);
 			return;
@@ -542,14 +526,14 @@ namespace Durin::ContentBrowser::Private
 		if (bContent)
 		{
 			auto Current = ResolveOperationItems(CopiedContent);
-			if (auto* Data = GetDataSubsystem(); Data && CanMutateContent() && Current.size() == CopiedContent.size() && Data->BulkCopyItems(CollectItemData(Current), Directory)) NavigateToPhysical(Model.VirtualToPhysical(Directory));
+			if (auto* Data = GetDataSubsystem(); Data && CanMutateContent() && Current.size() == CopiedContent.size() && Data->BulkCopyItems(CollectItemData(Current), Directory)) NavigateToPhysical(Directory);
 		}
 		else
 		{
 			const auto Source = FindItemAtPath(SourcePath.ToString());
 			if (auto* Data = GetDataSubsystem(); Data && CanMutateContent()) Data->BulkCopyItems(Source.GetInternalItems(), Directory);
 		}
-		if (!NewItem.StableId().empty()) SyncToItem(NewItem);
+		if (NewItem.GetItemKey().IsValid()) SyncToItem(NewItem);
 
 	}
 
@@ -586,9 +570,9 @@ namespace Durin::ContentBrowser::Private
 		SelectionState.Selected.clear();
 		PendingFolder = FPendingFolder{std::move(Context), Model.GetNavigationRevision()};
 		const auto& Item = PendingFolder->Context.GetItem();
-		RenameTarget = "##CreateFolder";
+		RenameTarget = {};
 		RenameBuffer.fill(0);
-		std::memcpy(RenameBuffer.data(), Item.Name.data(), std::min(Item.Name.size(), RenameBuffer.size() - 1));
+		std::memcpy(RenameBuffer.data(), Item.GetItemName().data(), std::min(Item.GetItemName().size(), RenameBuffer.size() - 1));
 		bFocusRename = true;
 		bResetContentScroll = true;
 	}
@@ -600,24 +584,24 @@ namespace Durin::ContentBrowser::Private
 		std::vector<FPackagePath> Redirectors;
 		for (const FContentBrowserItem& Candidate : Model.GetItems())
 		{
-			if (Candidate.Kind != EContentBrowserItemKind::Redirector
-				|| !SelectionState.Selected.contains(Candidate.StableId()))
+			if (!(Candidate.IsRedirector())
+				|| !SelectionState.Selected.contains(Candidate.GetItemKey()))
 				continue;
-			if (!Candidate.PackagePath.IsValid())
+			if (!ItemAttributes::PackagePath(Candidate).IsValid())
 			{
 				SetError("A selected redirector path is invalid.");
 				return;
 			}
-			Redirectors.push_back(Candidate.PackagePath);
+			Redirectors.push_back(ItemAttributes::PackagePath(Candidate));
 		}
 		if (Redirectors.empty())
 		{
-			if (!Item.PackagePath.IsValid())
+			if (!ItemAttributes::PackagePath(Item).IsValid())
 			{
 				SetError("The redirector path is invalid.");
 				return;
 			}
-			Redirectors.push_back(Item.PackagePath);
+			Redirectors.push_back(ItemAttributes::PackagePath(Item));
 		}
 		if (auto* Data = GetDataSubsystem())
 			if (auto* Source = Cast<DContentBrowserNativeDataSource>(Data->GetActiveDataSource(FName("Asset")))) Source->FixUpRedirectors(Redirectors, HostContext);
@@ -641,16 +625,16 @@ namespace Durin::ContentBrowser::Private
 	auto FContentBrowserPanel::FocusFolderInParent(
 		std::string_view PhysicalDirectory, bool bDelete) -> void
 	{
-		const std::string Physical = Model.RevealPhysicalItem(PhysicalDirectory);
+		const auto Key = Model.RevealPhysicalItem(PhysicalDirectory);
 		SearchBuffer.fill('\0');
-		if (Physical.empty())
+		if (!Key.IsValid())
 		{
 			SetError("The folder could not be shown in its mounted parent directory.");
 			return;
 		}
 		ThumbnailReferences->CancelPendingRequests();
 		bResetContentScroll = true;
-		PendingItemAction = FPendingItemAction{Physical, Model.GetNavigationRevision(), bDelete};
+		PendingItemAction = FPendingItemAction{Key, Model.GetNavigationRevision(), bDelete};
 		CompletePendingItemAction();
 	}
 
@@ -667,15 +651,15 @@ namespace Durin::ContentBrowser::Private
 		auto Action = std::move(*PendingItemAction);
 		PendingItemAction.reset();
 		const auto Items = Model.GetItems();
-		const auto It = std::ranges::find(Items, Action.PhysicalPath, &FContentBrowserItem::PhysicalPath);
+		const auto It = std::ranges::find_if(Items, [&](const auto& Item) { return Item.GetItemKey() == Action.ItemKey; });
 		if (It == Items.end())
 		{
 			SetError("The folder could not be found after refreshing its parent directory.");
 			return;
 		}
 		SelectionState.Selected.clear();
-		SelectionState.Selected.insert(It->StableId());
-		SelectionState.Anchor = It->StableId();
+		SelectionState.Selected.insert(It->GetItemKey());
+		SelectionState.Anchor = It->GetItemKey();
 		if (Action.bDelete) RequestDeleteSelection();
 		else BeginRename(*It);
 	}
@@ -714,7 +698,7 @@ namespace Durin::ContentBrowser::Private
 		if (bDeleted)
 		{
 			SelectionState.Selected.clear();
-			SelectionState.Anchor.clear();
+			SelectionState.Anchor = {};
 		}
 		bDeletionPlanRefreshed = false;
 		SynchronizeMountedContentMutation();
@@ -743,8 +727,8 @@ namespace Durin::ContentBrowser::Private
 		const auto PreviousNavigation = Model.GetNavigationRevision();
 		PendingItemAction.reset();
 		CancelRename();
-		const std::string PhysicalPath = Model.RevealAsset(AssetPath);
-		if (PhysicalPath.empty()) return false;
+		const auto Key = Model.RevealAsset(AssetPath);
+		if (!Key.IsValid()) return false;
 		SearchBuffer.fill('\0');
 		if (Model.GetNavigationRevision() != PreviousNavigation)
 		{
@@ -752,8 +736,8 @@ namespace Durin::ContentBrowser::Private
 			bResetContentScroll = true;
 		}
 		SelectionState.Selected.clear();
-		SelectionState.Selected.insert(PhysicalPath);
-		SelectionState.Anchor.clear();
+		SelectionState.Selected.insert(Key);
+		SelectionState.Anchor = {};
 		return true;
 	}
 

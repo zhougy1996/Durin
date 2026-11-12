@@ -6,6 +6,8 @@
 #include "Threading/RunnableThread.h"
 #include "ContentBrowserNativeDataSource.h"
 #include "Data/ContentBrowserDataQuery.h"
+#include "Data/ContentBrowserNativeDescription.h"
+#include "Data/ContentBrowserItemAttributeHelpers.h"
 namespace Durin::ContentBrowser::Private
 {
 	class FNativeContentBrowserTestQuery final : public FContentBrowserDataQuery, private IContentBrowserItemDataSink
@@ -21,6 +23,16 @@ namespace Durin::ContentBrowser::Private
 				Source->Initialize();
 				Source->SetDataSink(this);
 			}
+		}
+		auto BindItemForTesting(FContentBrowserItem Item) -> FContentBrowserItem
+		{
+			for (const auto& Source : StandaloneSources)
+			{
+				auto Data=Source->CreateItemData(Item);
+				if (!Data.GetOwnerDataSource()) continue;
+				Item.InternalItems = {std::move(Data)}; break;
+			}
+			return Item;
 		}
 		auto AddSource(DContentBrowserDataSource& Source) -> void
 		{
@@ -56,24 +68,52 @@ namespace Durin
 		std::function<void()> BeforeBind;
 		class FValueCapture final : public ContentBrowser::IContentBrowserDataCompiledFilter
 		{
-		public:
+		  public:
 			std::vector<ContentBrowser::FContentBrowserItem> Items;
-			auto Capture(const Tasks::FCancellationToken&, const ContentBrowser::FEntryStatusQuery&) const -> ContentBrowser::FContentBrowserDataCapture override { return {.Items=Items}; }
+			auto Capture(const Tasks::FCancellationToken&, const ContentBrowser::FEntryStatusQuery&) const
+				-> ContentBrowser::FContentBrowserDataCapture override
+			{
+				return {.Items = Items};
+			}
 		};
-		auto CompileFilter(std::string_view Path, const ContentBrowser::FContentBrowserDataFilter& Filter, ContentBrowser::FContentBrowserDataCompiledFilter& Out) const -> void override
+		auto CompileFilter(std::string_view Path, const ContentBrowser::FContentBrowserDataFilter& Filter,
+						   ContentBrowser::FContentBrowserDataCompiledFilter& Out) const -> void override
 		{
 			Super::CompileFilter(Path, Filter, Out);
-			if (!UseCompiledCapture) return;
-			auto Data=std::make_shared<FValueCapture>(); Data->Items=Rows;
-			Out.CompiledFilters[this].Data=std::move(Data);
+			if (!UseCompiledCapture)
+				return;
+			auto Data = std::make_shared<FValueCapture>();
+			Data->Items = Rows;
+			Out.CompiledFilters[this].Data = std::move(Data);
+		}
+		std::string PreviewPath;
+		auto GetItemAttribute(const ContentBrowser::FContentBrowserItemData& Data, bool IncludeMetaData, std::string_view Key, ContentBrowser::FContentBrowserItemDataAttributeValue& Out) const -> bool override
+		{
+			using namespace ContentBrowser::ContentBrowserItemAttributes;
+			Out={};
+			if (Data.GetOwnerDataSource()!=this) return false;
+			if (Key==ItemTypeDisplayName) Out=ContentBrowser::FContentBrowserItemDataAttributeValue("Memory object");
+			else if (!PreviewPath.empty() && Key==ItemDiskSize) Out=ContentBrowser::FContentBrowserItemDataAttributeValue(int64(128));
+			else if (!PreviewPath.empty() && Key==Extension) Out=ContentBrowser::FContentBrowserItemDataAttributeValue(".png");
+			else if (!PreviewPath.empty() && Key==LastWriteTime) Out=ContentBrowser::FContentBrowserItemDataAttributeValue(int64(0));
+			else return false;
+			if (IncludeMetaData) Out.SetMetaData({.DisplayName="Type"});
+			return true;
+		}
+		auto GetItemPhysicalPath(const ContentBrowser::FContentBrowserItemData& Data, std::string& Out) const -> bool override
+		{
+			Out.clear();
+			if (Data.GetOwnerDataSource()!=this || PreviewPath.empty()) return false;
+			Out=PreviewPath; return true;
 		}
 		auto GetDataSourceName() const -> FName override { return FName("Memory"); }
 		auto GetDiscoveryRevision() const -> uint64 override { return Revision; }
 		auto CreateItemData(const ContentBrowser::FContentBrowserItem& Item, const ContentBrowser::FContentBrowserHostContext& = {})
 			-> ContentBrowser::FContentBrowserItemData override
 		{
-			if (auto Callback=std::exchange(BeforeBind, {})) Callback();
-			return {*this, Item.Kind, Item.VirtualPath, {}};
+			if (auto Callback = std::exchange(BeforeBind, {}))
+				Callback();
+			return {*this, Item.GetItemFlags(), Item.GetVirtualPath(), Item.GetItemName(), Item.GetDisplayName(), {}};
 		}
 		auto EnumerateItemsMatchingFilter(const ContentBrowser::FContentBrowserDataCompiledFilter& Filter,
 										  const std::function<bool(ContentBrowser::FContentBrowserItem&&)>& Callback,
@@ -85,12 +125,12 @@ namespace Durin
 				Scope.pop_back();
 			for (auto Item : Rows)
 			{
-				const auto Relative = std::filesystem::path(Item.VirtualPath).lexically_relative(Scope);
+				const auto Relative = std::filesystem::path(Item.GetVirtualPath()).lexically_relative(Scope);
 				if (Relative.empty() || Relative == "." || *Relative.begin() == "..")
 					continue;
-				if (!Filter.Filter.bRecursive && std::filesystem::path(Item.VirtualPath).parent_path().generic_string() != Scope)
+				if (!Filter.Filter.bRecursive && std::filesystem::path(Item.GetVirtualPath()).parent_path().generic_string() != Scope)
 					continue;
-				if (Filter.Filter.Kind && *Filter.Filter.Kind != Item.Kind)
+				if (Filter.Filter.Kind && *Filter.Filter.Kind != (Item.IsFolder() ? ContentBrowser::EContentBrowserItemKind::Folder : ContentBrowser::EContentBrowserItemKind::File))
 					continue;
 				Item.InternalItems = {CreateItemData(Item)};
 				if (!Callback(std::move(Item)))

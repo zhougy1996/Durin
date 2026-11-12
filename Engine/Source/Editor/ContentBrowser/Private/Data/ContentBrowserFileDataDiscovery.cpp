@@ -1,4 +1,5 @@
 #include "Data/ContentBrowserFileDataDiscovery.h"
+#include "Data/ContentBrowserNativeDescription.h"
 #include "Panels/ContentBrowserFilesystem.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
@@ -8,7 +9,7 @@ namespace Durin::ContentBrowser::Private
 {
 	using ContentBrowserFilesystem::NormalizePath;
 
-	auto FContentBrowserFileDataDiscovery::CaptureItems(const std::string& PhysicalDirectory, bool bRecursive,
+	auto FContentBrowserFileDataDiscovery::CaptureItems(const std::string& PhysicalDirectory, const std::string& VirtualDirectory, bool bRecursive,
 														const Tasks::FCancellationToken& Cancellation) -> FContentBrowserDataCapture
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("ContentBrowser.CaptureItems");
@@ -19,6 +20,7 @@ namespace Durin::ContentBrowser::Private
 		{
 			const std::filesystem::path EntryPath = Entry.path();
 			const std::string Name = EntryPath.filename().generic_string();
+			const auto VirtualPath = (std::filesystem::path(VirtualDirectory) / EntryPath.lexically_relative(PhysicalDirectory)).lexically_normal().generic_string();
 			std::error_code EntryError;
 			const std::filesystem::file_status Status = QueryEntryStatus(Entry, EntryError);
 			if (EntryError)
@@ -31,17 +33,19 @@ namespace Durin::ContentBrowser::Private
 				return true;
 			else if (std::filesystem::is_directory(Status))
 			{
-				Result.Items.push_back({
+				Result.Items.push_back(MakeNativeItem({
 					.Kind = EContentBrowserItemKind::Folder,
 					.Name = Name,
+					.VirtualPath = VirtualPath,
 					.PhysicalPath = NormalizePath(EntryPath.generic_string()),
-				});
+				}, false));
 			}
 			else if (std::filesystem::is_regular_file(Status) && EntryPath.extension() != ".dasset")
 			{
-				FContentBrowserItem Item{
+				FContentBrowserNativeItem Item{
 					.Kind = EContentBrowserItemKind::File,
 					.Name = Name,
+					.VirtualPath = VirtualPath,
 					.PhysicalPath = NormalizePath(EntryPath.generic_string()),
 					.Extension = EntryPath.extension().generic_string(),
 				};
@@ -52,7 +56,7 @@ namespace Durin::ContentBrowser::Private
 					AddEnumerationDiagnostic(EEnumerationDiagnosticKind::Entry, EntryPath,
 											 std::format("Skipped file because its metadata could not be read: {}", EntryError.message()));
 				else
-					Result.Items.push_back(std::move(Item));
+					Result.Items.push_back(MakeNativeItem(Item, false));
 			}
 			return false;
 		};

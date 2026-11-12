@@ -1,4 +1,5 @@
 #include "ContentBrowserNativeDataSource.h"
+#include "Data/ContentBrowserNativeDescription.h"
 #include "Data/ContentBrowserFileDataDiscovery.h"
 #include "AssetRegistry/Catalog.h"
 #include "Asset/RegistryOperations.h"
@@ -12,7 +13,7 @@ namespace Durin::ContentBrowser::Private
 	struct FContentBrowserAssetSnapshot
 	{
 		uint64 Revision = 0, MountRevision = 0;
-		std::vector<FContentBrowserItem> Items;
+		std::vector<FContentBrowserNativeItem> Items;
 	};
 	using ContentBrowserFilesystem::NormalizePath;
 	auto CaptureContentBrowserAssets() -> std::shared_ptr<const FContentBrowserAssetSnapshot>
@@ -31,7 +32,7 @@ namespace Durin::ContentBrowser::Private
 			const auto Resolved = FMountPaths::ResolveAssetPath(PackagePath.GetView());
 			if (!Disk && !Resolved)
 				continue;
-			FContentBrowserItem Item{
+			FContentBrowserNativeItem Item{
 				.Kind = Asset.IsRedirector() ? EContentBrowserItemKind::Redirector : EContentBrowserItemKind::Asset,
 				.Name = AssetCounts[PackagePath] == 1 ? std::string(PackagePath.GetPackageName()) : std::string(Path.GetAssetName()),
 				.VirtualPath = Path.ToString(),
@@ -51,11 +52,11 @@ namespace Durin::ContentBrowser::Private
 		}
 		return Result;
 	}
-	auto CaptureRoots(std::string_view Path) -> std::vector<FContentBrowserItem>
+	auto CaptureRoots(std::string_view Path) -> std::vector<FContentBrowserNativeItem>
 	{
 		if (Path != "/")
 			return {};
-		std::vector<FContentBrowserItem> Roots;
+		std::vector<FContentBrowserNativeItem> Roots;
 		for (const auto& Mount : FContentBrowserPaths::CaptureMounts())
 		{
 			auto Virtual = Mount.VirtualRoot;
@@ -72,21 +73,22 @@ namespace Durin::ContentBrowser::Private
 	{
 	  public:
 		std::shared_ptr<const FContentBrowserAssetSnapshot> Catalog;
-		std::string Directory;
-		std::vector<FContentBrowserItem> Roots;
+		std::string Directory, VirtualDirectory;
+		std::vector<FContentBrowserNativeItem> Roots;
 		bool Recursive = false;
 		auto Capture(const Tasks::FCancellationToken& Cancellation, const FEntryStatusQuery&) const -> FContentBrowserDataCapture override
 		{
 			FContentBrowserDataCapture Result;
 			if (!Roots.empty())
 			{
-				Result.Items = Roots;
+				for (const auto& Root : Roots) Result.Items.push_back(MakeNativeItem(Root, true));
 				if (Recursive)
 					for (const auto& Root : Roots)
 					{
 						FAssetCompiledFilter Child;
 						Child.Catalog = Catalog;
 						Child.Directory = Root.PhysicalPath;
+						Child.VirtualDirectory = Root.VirtualPath;
 						Child.Recursive = true;
 						auto Data = Child.Capture(Cancellation, {});
 						Result.Items.insert(Result.Items.end(), std::make_move_iterator(Data.Items.begin()),
@@ -105,14 +107,14 @@ namespace Durin::ContentBrowser::Private
 				if (Parent != Directory && !FPaths::IsLexicalDescendantPath(Parent, Directory, true))
 					continue;
 				if (Recursive || Parent == Directory)
-					Result.Items.push_back(Item);
+					Result.Items.push_back(MakeNativeItem(Item, true));
 				auto Folder = std::filesystem::path(Parent);
 				while (Folder.generic_string() != Directory && FPaths::IsLexicalDescendantPath(Folder.generic_string(), Directory, true))
 				{
 					const auto Path = Folder.generic_string();
 					if ((Recursive || Folder.parent_path().generic_string() == Directory) && Folders.insert(Path).second)
-						Result.Items.push_back(
-							{.Kind = EContentBrowserItemKind::Folder, .Name = Folder.filename().generic_string(), .PhysicalPath = Path});
+						Result.Items.push_back(MakeNativeItem(
+							{.Kind = EContentBrowserItemKind::Folder, .Name = Folder.filename().generic_string(), .VirtualPath = (std::filesystem::path(VirtualDirectory) / Folder.lexically_relative(Directory)).lexically_normal().generic_string(), .PhysicalPath = Path}, true));
 					Folder = Folder.parent_path();
 				}
 			}
@@ -122,8 +124,8 @@ namespace Durin::ContentBrowser::Private
 	class FFileCompiledFilter final : public IContentBrowserDataCompiledFilter
 	{
 	  public:
-		std::string Directory;
-		std::vector<FContentBrowserItem> Roots;
+		std::string Directory, VirtualDirectory;
+		std::vector<FContentBrowserNativeItem> Roots;
 		bool Recursive = false;
 		auto Capture(const Tasks::FCancellationToken& Cancellation, const FEntryStatusQuery& Query) const
 			-> FContentBrowserDataCapture override
@@ -131,14 +133,15 @@ namespace Durin::ContentBrowser::Private
 			FContentBrowserFileDataDiscovery Discovery;
 			Discovery.SetEntryStatusQueryForTesting(Query);
 			if (Roots.empty())
-				return Discovery.CaptureItems(Directory, Recursive, Cancellation);
-			FContentBrowserDataCapture Result{.Items = Roots};
+				return Discovery.CaptureItems(Directory, VirtualDirectory, Recursive, Cancellation);
+			FContentBrowserDataCapture Result;
+			for (const auto& Root : Roots) Result.Items.push_back(MakeNativeItem(Root, false));
 			if (Recursive)
 				for (const auto& Root : Roots)
 				{
 					if (Cancellation.IsCanceled())
 						break;
-					auto Data = Discovery.CaptureItems(Root.PhysicalPath, true, Cancellation);
+					auto Data = Discovery.CaptureItems(Root.PhysicalPath, Root.VirtualPath, true, Cancellation);
 					Result.Items.insert(Result.Items.end(), std::make_move_iterator(Data.Items.begin()),
 										std::make_move_iterator(Data.Items.end()));
 					for (auto& Diagnostic : Data.Diagnostics)
@@ -189,6 +192,7 @@ namespace Durin
 		auto Data = std::make_shared<FAssetCompiledFilter>();
 		Data->Catalog = DiscoveryCatalog;
 		Data->Directory = FContentBrowserPaths::VirtualToPhysical(Path);
+		Data->VirtualDirectory = Path;
 		Data->Roots = CaptureRoots(Path);
 		Data->Recursive = Filter.bRecursive;
 		Out.CompiledFilters[this].Data = std::move(Data);
@@ -201,6 +205,7 @@ namespace Durin
 			return;
 		auto Data = std::make_shared<FFileCompiledFilter>();
 		Data->Directory = FContentBrowserPaths::VirtualToPhysical(Path);
+		Data->VirtualDirectory = Path;
 		Data->Roots = CaptureRoots(Path);
 		Data->Recursive = Filter.bRecursive;
 		Out.CompiledFilters[this].Data = std::move(Data);

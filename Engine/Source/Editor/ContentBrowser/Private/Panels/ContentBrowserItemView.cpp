@@ -1,3 +1,4 @@
+#include "Data/ContentBrowserItemAttributeHelpers.h"
 #include "Panels/ContentBrowserItemView.h"
 
 #include "ContentBrowser/ContentBrowserContracts.h"
@@ -109,11 +110,11 @@ namespace Durin::ContentBrowser::Private::ContentBrowserItemView
 
 	auto Icon(const FContentBrowserItem& Item) -> std::string
 	{
-		if (Item.Kind == EContentBrowserItemKind::Folder) return Icons::Folder;
-		if (Item.Kind == EContentBrowserItemKind::File) return Icons::File;
-		if (Item.Kind == EContentBrowserItemKind::Redirector)
+		if (Item.IsFolder()) return Icons::Folder;
+		if ((!Item.IsFolder() && !Item.IsAsset())) return Icons::File;
+		if (Item.IsRedirector())
 			return Icons::ArrowRight;
-		if (const auto Type = FindAssetTypePresentation(Item.AssetClassName); Type && !Type->Icon.empty()) return Type->Icon;
+		if (const auto Type = FindAssetTypePresentation(ItemAttributes::String(Item, ContentBrowserItemAttributes::Class)); Type && !Type->Icon.empty()) return Type->Icon;
 		return Icons::FileLines;
 	}
 
@@ -231,8 +232,8 @@ namespace Durin::ContentBrowser::Private::ContentBrowserItemView
 			Thumbnail.Texture, FVector2f(ImageSize.x, ImageSize.y));
 		ImGui::SetCursorScreenPos(CursorAfterTile);
 		DrawList->PopClipRect();
-		if (bDrewThumbnail && Item.Kind == EContentBrowserItemKind::Asset)
-			if (const auto Type = FindAssetTypePresentation(Item.AssetClassName);
+		if (bDrewThumbnail && (Item.IsAsset() && !Item.IsRedirector()))
+			if (const auto Type = FindAssetTypePresentation(ItemAttributes::String(Item, ContentBrowserItemAttributes::Class));
 				Type && !Type->ThumbnailBadgeIcon.empty())
 				DrawThumbnailBadge(*DrawList, Metrics, PreviewMax, Type->ThumbnailBadgeIcon.c_str());
 		return bDrewThumbnail;
@@ -246,11 +247,11 @@ namespace Durin::ContentBrowser::Private::ContentBrowserItemView
 		const ImVec2& PreviewMax) -> void
 	{
 		const MonaImGui::EUIThemeColor IconColorRole =
-			Item.Kind == EContentBrowserItemKind::Folder
+			Item.IsFolder()
 			? MonaImGui::EUIThemeColor::Folder
-			: Item.Kind == EContentBrowserItemKind::Asset
+			: (Item.IsAsset() && !Item.IsRedirector())
 			? MonaImGui::EUIThemeColor::Asset
-			: Item.Kind == EContentBrowserItemKind::Redirector
+			: Item.IsRedirector()
 			? MonaImGui::EUIThemeColor::Warning
 			: MonaImGui::EUIThemeColor::SourceFile;
 		const ImVec2 IconExtent = ImGui::GetFont()->CalcTextSizeA(
@@ -264,8 +265,8 @@ namespace Durin::ContentBrowser::Private::ContentBrowserItemView
 			Metrics.IconFontSize,
 			IconPosition,
 			[&] {
-				if (Item.Kind == EContentBrowserItemKind::Asset)
-					if (const auto Type = FindAssetTypePresentation(Item.AssetClassName); Type && !Type->DisplayName.empty())
+				if ((Item.IsAsset() && !Item.IsRedirector()))
+					if (const auto Type = FindAssetTypePresentation(ItemAttributes::String(Item, ContentBrowserItemAttributes::Class)); Type && !Type->DisplayName.empty())
 						return ImGui::ColorConvertFloat4ToU32(ImVec4(Type->Color[0], Type->Color[1], Type->Color[2], Type->Color[3]));
 				return MonaImGui::GetThemeColorU32(IconColorRole);
 			}(),
@@ -298,7 +299,7 @@ namespace Durin::ContentBrowser::Private::ContentBrowserItemView
 			Metrics.NameFontSize,
 			FLT_MAX,
 			TextWidth,
-			Item.Name.c_str());
+			Item.GetItemName().c_str());
 		const ImVec2 TextPosition(
 			NameMin.x + std::max(0.0f, (TextWidth - TextExtent.x) * 0.5f),
 			NameMin.y);
@@ -309,7 +310,7 @@ namespace Durin::ContentBrowser::Private::ContentBrowserItemView
 			Metrics.NameFontSize,
 			TextPosition,
 			ImGui::GetColorU32(ImGuiCol_Text),
-			Item.Name.c_str(),
+			Item.GetItemName().c_str(),
 			nullptr,
 			TextWidth);
 		DrawList->PopClipRect();

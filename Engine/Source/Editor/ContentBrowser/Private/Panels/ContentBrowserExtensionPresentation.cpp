@@ -1,9 +1,10 @@
+#include "Data/ContentBrowserItemAttributeHelpers.h"
 #include "Panels/ContentBrowserExtensionPresentation.h"
 
 namespace Durin::ContentBrowser::Private
 {
 	auto BuildExtensionContext(std::span<const FContentBrowserItem> Items,
-		const std::unordered_set<std::string>& Selection,
+		const FContentBrowserItemKeySet& Selection,
 		std::string_view CurrentPhysicalDirectory, std::string_view CurrentVirtualDirectory,
 		const FContentBrowserItem* PrimaryItem,
 		std::string_view TargetPhysicalDirectory, std::string_view TargetVirtualDirectory)
@@ -15,15 +16,15 @@ namespace Durin::ContentBrowser::Private
 		Context.PhysicalDirectory = CurrentPhysicalDirectory;
 		Context.VirtualDirectory = CurrentVirtualDirectory;
 		for (const auto& Item : Items)
-			if (Selection.contains(Item.StableId())) Context.Selection.push_back(Item);
+			if (Selection.contains(Item.GetItemKey())) Context.Selection.push_back(Item);
 		if (PrimaryItem)
 		{
 			Context.PrimaryItem = *PrimaryItem;
-			if (!Selection.contains(PrimaryItem->StableId())) Context.Selection = {*Context.PrimaryItem};
-			if (PrimaryItem->Kind == EContentBrowserItemKind::Folder)
+			if (!Selection.contains(PrimaryItem->GetItemKey())) Context.Selection = {*Context.PrimaryItem};
+			if (PrimaryItem->IsFolder())
 			{
-				Context.PhysicalDirectory = PrimaryItem->PhysicalPath;
-				Context.VirtualDirectory = PrimaryItem->VirtualPath;
+				Context.PhysicalDirectory = ItemAttributes::PhysicalPath(*PrimaryItem);
+				Context.VirtualDirectory = PrimaryItem->GetVirtualPath();
 			}
 		}
 		else if (!Context.Selection.empty()) Context.PrimaryItem = Context.Selection.front();
@@ -31,10 +32,8 @@ namespace Durin::ContentBrowser::Private
 		{
 			Context.PhysicalDirectory = TargetPhysicalDirectory;
 			Context.VirtualDirectory = TargetVirtualDirectory;
-			Context.PrimaryItem = FContentBrowserItem{
-				.Kind = EContentBrowserItemKind::Folder,
-				.VirtualPath = std::string(TargetVirtualDirectory),
-				.PhysicalPath = std::string(TargetPhysicalDirectory)};
+			Context.PrimaryItem = FContentBrowserItem{.InternalItems = {FContentBrowserItemData(
+				EContentBrowserItemFlags::Type_Folder, std::string(TargetVirtualDirectory), {}, {}, {})}};
 			Context.Selection = {*Context.PrimaryItem};
 		}
 		return Context;

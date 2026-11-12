@@ -1,3 +1,5 @@
+#include "Editor/ContentBrowserItemTestSupport.h"
+#include "Editor/ContentBrowserQueryTestSupport.h"
 #include "Panels/ContentBrowserItemView.h"
 #include "ContentBrowser/ContentBrowserTool.h"
 #include "Icons/FontAwesomeIcons.h"
@@ -5,6 +7,19 @@
 #include "NativeDObjectTestSupport.h"
 
 #include <gtest/gtest.h>
+
+using Durin::ContentBrowser::Private::TestKind;
+using Durin::ContentBrowser::Private::TestName;
+using Durin::ContentBrowser::Private::TestVirtualPath;
+using Durin::ContentBrowser::Private::TestPhysicalPath;
+using Durin::ContentBrowser::Private::TestPackagePath;
+using Durin::ContentBrowser::Private::TestAssetClassName;
+using Durin::ContentBrowser::Private::TestExtension;
+using Durin::ContentBrowser::Private::TestRedirectDestination;
+using Durin::ContentBrowser::Private::TestFileSize;
+using Durin::ContentBrowser::Private::TestPackageFileSize;
+using Durin::ContentBrowser::Private::TestBulkFileSize;
+using Durin::ContentBrowser::Private::TestLastWriteTime;
 
 namespace Durin::ContentBrowser::Private
 {
@@ -54,26 +69,27 @@ namespace Durin::ContentBrowser::Private
 		Definition->Icon = Icons::Cube; Definition->Categories = {{"Texture"}};
 		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
 		ASSERT_TRUE(Registration);
-		FContentBrowserItem Folder{
+		FContentBrowserItem Folder = Durin::ContentBrowser::Private::FContentBrowserNativeItem{
 			.Kind = EContentBrowserItemKind::Folder,
 			.Name = "Textures"};
-		FContentBrowserItem Asset{
+		FContentBrowserItem Asset = Durin::ContentBrowser::Private::FContentBrowserNativeItem{
 			.Kind = EContentBrowserItemKind::Asset,
 			.Name = "Sky",
 			.AssetClassName = "ItemViewTest::DTextureCube"};
-		FContentBrowserItem Source{
+		FContentBrowserItem Source = Durin::ContentBrowser::Private::FContentBrowserNativeItem{
 			.Kind = EContentBrowserItemKind::File,
 			.Name = "Sky.hdr",
 			.Extension = ".hdr"};
-		FContentBrowserItem Redirector{
+		FContentBrowserItem Redirector = Durin::ContentBrowser::Private::FContentBrowserNativeItem{
 			.Kind = EContentBrowserItemKind::Redirector,
 			.Name = "OldSky"};
 
-		EXPECT_EQ(ContentBrowserItemView::TypeLabel(Folder), "Folder");
-		EXPECT_EQ(ContentBrowserItemView::TypeLabel(Asset), "Texture Cube");
-		EXPECT_EQ(ContentBrowserItemView::TypeLabel(Source), "hdr file");
-		EXPECT_EQ(ContentBrowserItemView::TypeLabel(Redirector), "Redirector");
-		EXPECT_EQ(ContentBrowserItemView::Icon(Redirector), Icons::ArrowRight);
+		Durin::ContentBrowser::Private::FNativeContentBrowserTestQuery Query;
+		EXPECT_EQ(ContentBrowserItemView::TypeLabel(Query.BindItemForTesting(Folder)), "Folder");
+		EXPECT_EQ(ContentBrowserItemView::TypeLabel(Query.BindItemForTesting(Asset)), "Texture Cube");
+		EXPECT_EQ(ContentBrowserItemView::TypeLabel(Query.BindItemForTesting(Source)), "hdr file");
+		EXPECT_EQ(ContentBrowserItemView::TypeLabel(Query.BindItemForTesting(Redirector)), "Redirector");
+		EXPECT_EQ(ContentBrowserItemView::Icon(Query.BindItemForTesting(Redirector)), Icons::ArrowRight);
 		EXPECT_EQ(ContentBrowserItemView::FormatFileSize(512), "512 B");
 		EXPECT_EQ(ContentBrowserItemView::FormatFileSize(1536), "1.50 KiB");
 	}

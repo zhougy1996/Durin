@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Data/ContentBrowserNativeItem.h"
 
 #include "Asset/AssetWriteResult.h"
 #include "Misc/FeedbackContext.h"
@@ -28,27 +29,27 @@ namespace Durin::ContentBrowser::Private
 
 		// Capability queries do not report diagnostics or authorize subsequent I/O.
 		auto CanModify(std::string* OutErrorMsg = nullptr) const -> bool;
-		auto CanSaveItem(const FContentBrowserItem& Item, EAssetSaveMode Mode = EAssetSaveMode::LoadedDirtyPackage, std::string* OutErrorMsg = nullptr) const -> bool;
-		auto CanDuplicateItem(const FContentBrowserItem& Item, std::string* OutErrorMsg = nullptr) const -> bool;
-		auto CanRenameItem(const FContentBrowserItem& Item, std::string_view NewName, std::string* OutErrorMsg = nullptr) const -> bool;
-		auto CanMoveItem(const FContentBrowserItem& Item, std::string_view Destination, std::string* OutErrorMsg = nullptr) const -> bool;
-		auto CanCopyItem(const FContentBrowserItem& Item, std::string_view Destination, std::string* OutErrorMsg = nullptr) const -> bool;
+		auto CanSaveItem(const FContentBrowserNativeItem& Item, EAssetSaveMode Mode = EAssetSaveMode::LoadedDirtyPackage, std::string* OutErrorMsg = nullptr) const -> bool;
+		auto CanDuplicateItem(const FContentBrowserNativeItem& Item, std::string* OutErrorMsg = nullptr) const -> bool;
+		auto CanRenameItem(const FContentBrowserNativeItem& Item, std::string_view NewName, std::string* OutErrorMsg = nullptr) const -> bool;
+		auto CanMoveItem(const FContentBrowserNativeItem& Item, std::string_view Destination, std::string* OutErrorMsg = nullptr) const -> bool;
+		auto CanCopyItem(const FContentBrowserNativeItem& Item, std::string_view Destination, std::string* OutErrorMsg = nullptr) const -> bool;
 		auto StopRequestAdmission() -> void { bAccepting = false; DeletionSessions.clear(); }
 		// Diagnostics and committed item updates are independent of command return values.
 		auto SetDiagnosticSink(FFeedbackContext::FMessageSink Sink) -> void { Diagnostics = std::move(Sink); }
-		auto BulkSaveItems(std::span<const FContentBrowserItem> Items, EAssetSaveMode Mode = EAssetSaveMode::LoadedDirtyPackage) -> bool;
-		auto RenameItem(const FContentBrowserItem& Item, std::string_view NewName, FContentBrowserItem& OutNewItem) -> bool;
-		auto DuplicateItem(const FContentBrowserItem& Item, FContentBrowserItem& OutNewItem) -> bool;
-		auto DuplicateItem(const FContentBrowserItem& Item, std::string_view PhysicalDirectory, FContentBrowserItem& OutNewItem) -> bool;
+		auto BulkSaveItems(std::span<const FContentBrowserNativeItem> Items, EAssetSaveMode Mode = EAssetSaveMode::LoadedDirtyPackage) -> bool;
+		auto RenameItem(const FContentBrowserNativeItem& Item, std::string_view NewName, FContentBrowserNativeItem& OutNewItem) -> bool;
+		auto DuplicateItem(const FContentBrowserNativeItem& Item, FContentBrowserNativeItem& OutNewItem) -> bool;
+		auto DuplicateItem(const FContentBrowserNativeItem& Item, std::string_view PhysicalDirectory, FContentBrowserNativeItem& OutNewItem) -> bool;
 		auto CanCreateFolder(std::string_view PhysicalDirectory, std::string_view Name, std::string* OutErrorMsg = nullptr) const -> bool;
-		auto PrepareFolder(std::string_view PhysicalDirectory, FContentBrowserItem& OutNewItem) -> bool;
-		auto CreateFolder(std::string_view PhysicalDirectory, std::string_view Name, FContentBrowserItem& OutNewItem) -> bool;
-		auto BulkMoveItems(std::span<const FContentBrowserItem> Items, std::string_view PhysicalDirectory) -> bool;
-		auto BulkCopyItems(std::span<const FContentBrowserItem> Items, std::string_view PhysicalDirectory) -> bool;
+		auto PrepareFolder(std::string_view PhysicalDirectory, FContentBrowserNativeItem& OutNewItem) -> bool;
+		auto CreateFolder(std::string_view PhysicalDirectory, std::string_view Name, FContentBrowserNativeItem& OutNewItem) -> bool;
+		auto BulkMoveItems(std::span<const FContentBrowserNativeItem> Items, std::string_view PhysicalDirectory) -> bool;
+		auto BulkCopyItems(std::span<const FContentBrowserNativeItem> Items, std::string_view PhysicalDirectory) -> bool;
 		auto FixUpRedirectorsInFolder(std::string_view VirtualDirectory) -> bool;
 		auto FixUpRedirectors(std::span<const FPackagePath> Redirectors) -> bool;
 		auto FixUpAllRedirectors() -> bool;
-		auto PrepareDeleteItems(std::span<const FContentBrowserItem> Items) -> FContentDeletionPlanPtr;
+		auto PrepareDeleteItems(std::span<const FContentBrowserNativeItem> Items) -> FContentDeletionPlanPtr;
 		// Confirmation is replaced explicitly when stale. Physical completion succeeds
 		// even if Registry reconciliation is pending; that failure is reported separately.
 		auto DeleteItems(FContentDeletionPlanPtr& Confirmation, FContentDeletionHooks Hooks = {}) -> bool;
@@ -58,26 +59,26 @@ namespace Durin::ContentBrowser::Private
 		auto CanDuplicateAsset(const FTopLevelAssetPath& Source, std::string* OutErrorMsg) const -> bool;
 		struct FContentMove
 		{
-			FContentBrowserItem Item;
+			FContentBrowserNativeItem Item;
 			std::string Destination;
 		};
-		auto MakeMoveRequest(const FContentBrowserItem& Item, std::string_view Directory,
+		auto MakeMoveRequest(const FContentBrowserNativeItem& Item, std::string_view Directory,
 			std::optional<std::string_view> NewName, FContentMove& OutRequest) const -> FAssetWriteResult;
 		auto ValidateMoveRequest(const FContentMove& Request) const -> FAssetWriteResult;
 		auto MoveContent(std::span<const FContentMove> Requests, FContentChangeBatch& Changes) -> FAssetWriteResult;
-		auto AnalyzeDeletion(std::span<const FContentBrowserItem> Items,
+		auto AnalyzeDeletion(std::span<const FContentBrowserNativeItem> Items,
 			FAssetDeletionOperation& OutOperation) const -> FContentDeletionPlanPtr;
 		struct FDeletionSession
 		{
 			FContentDeletionPlanPtr Confirmation;
-			std::vector<FContentBrowserItem> Request;
+			std::vector<FContentBrowserNativeItem> Request;
 			std::unique_ptr<FContentDeletionOperation> Execution;
 		};
 		uint64 NextDeletionSession = 0;
 		std::unordered_map<uint64, FDeletionSession> DeletionSessions;
-		auto RenameItemImpl(const FContentBrowserItem& Item, std::string_view NewName, FContentBrowserItem& OutNewItem, FContentChangeBatch& Changes) -> FAssetWriteResult;
-		auto CopyItemsImpl(std::span<const FContentBrowserItem> Items, std::string_view Directory, FContentChangeBatch& Changes) -> FAssetWriteResult;
-		auto ValidateFolder(std::string_view Directory, std::string_view Name, FContentBrowserItem& OutNewItem) const -> FAssetWriteResult;
+		auto RenameItemImpl(const FContentBrowserNativeItem& Item, std::string_view NewName, FContentBrowserNativeItem& OutNewItem, FContentChangeBatch& Changes) -> FAssetWriteResult;
+		auto CopyItemsImpl(std::span<const FContentBrowserNativeItem> Items, std::string_view Directory, FContentChangeBatch& Changes) -> FAssetWriteResult;
+		auto ValidateFolder(std::string_view Directory, std::string_view Name, FContentBrowserNativeItem& OutNewItem) const -> FAssetWriteResult;
 		auto CollectRedirectors(std::string_view VirtualDirectory) const
 			-> std::vector<FPackagePath>;
 

@@ -13,9 +13,11 @@ active `DContentBrowserDataSource` instances with strong object references.
 Its built-in Asset and File sources belong to that editor. Other modules may
 initialize and register source instances whose outer is the requesting editor
 or its data subsystem. No source-class factory registry is involved.
-The source feature interface version is 3: discovery revision hooks extend the
-vtable, so providers compiled against an earlier interface must rebuild before
-registration.
+The source feature interface version is 5: flags-only descriptions, removed
+generic storage fields and the source-owned operation-equivalence predicate
+require consumers to rebuild alongside the item attribute/physical-path hooks
+extend the vtable and ItemData owns its name/display/flag description. Providers
+and consumers compiled against an earlier interface/layout must rebuild.
 
 A live registration retains its instance with a native strong reference, so
 ordinary GC cannot collect it between registration and subsystem discovery.
@@ -40,14 +42,14 @@ registrations.
 ## Items, Payloads And Filters
 
 `FContentBrowserItemData` carries a weak source identity, activation generation,
-mount-registry revision, kind, virtual path and shared immutable
+mount-registry revision, flags, kind, virtual path, item name, display name and shared immutable
 `IContentBrowserItemDataPayload`. Only the source interprets that payload.
 `GetOwnerDataSource` returns null off the owner thread, after source withdrawal,
 deactivation/reactivation, editor shutdown or mount replacement. A new source
 with the old name never inherits earlier handles.
 
-`FContentBrowserItem` retains the presentation snapshot and its constituent
-item data. Logical folders merge contributors by virtual path, independently
+`FContentBrowserItem` retains only its constituent ItemData descriptions and
+opaque payloads. Logical folders merge contributors by virtual path, independently
 of their physical storage. Its Edit, Save, Duplicate, Rename, Copy and Move methods dispatch
 through owners; the generic layer has no asset/file execution switch.
 Unrelated multi-source moves and copies reject before mutation. The two native
@@ -55,6 +57,54 @@ adapters explicitly support mixed native batches through the same atomic backend
 their duplicate physical-folder contributions retain one executable identity.
 Other providers' logical folder contributions remain distinct. Folder operations
 with multiple unrelated owners cannot silently choose one provider.
+
+`FContentBrowserItemData` supports the source/flags/path/name/display/payload
+constructor. The kind-based constructor and duplicated kind field are removed.
+Immutable worker captures can construct unbound descriptions; sources capture
+admission when binding them on the owner thread.
+Logical description getters remain readable after withdrawal; attribute access and
+operations still require current admission. Item aggregate accessors forward to
+its primary contribution. Native source payloads hold only their native storage
+records and operation policy: Asset file/folder payloads are distinct from File
+file/folder payloads, and no payload stores a complete generic item snapshot.
+
+`GetItemAttribute`, `GetItemAttributes` and `GetItemPhysicalPath` delegate to the
+owning source. Asset and File implementations interpret their own concrete
+payloads directly. Unknown attributes, unavailable paths and stale admission clear
+the output and return false. Dispatch retains a strong owner while invoking the
+source and rechecks admission afterward, including callback-driven reactivation.
+Aggregates read the first supported value and merge available attribute maps.
+A physical path is optional and does not establish an item's logical identity.
+
+Attribute values own UTF-8 strings, booleans, signed/unsigned 64-bit integers or
+doubles, plus optional display-name/tooltip/suffix/importance metadata. Durin
+retains string type/class names to match the qualified-string asset-definition
+registry and its existing string-based UI; unsigned sizes preserve its native
+package extent/file-size types. Clock values retain signed file-clock ticks.
+The shared keys `ItemTypeName`, `ItemTypeDisplayName` and `ItemDiskSize` use UE's
+names; package/bulk sizes, extension and clock fields additionally expose Durin
+metadata. File sources do not advertise package-only attributes.
+
+Type labels read provider attributes, with generic kind labels for unsupported
+attributes. File-image thumbnail requests obtain extension, optional physical
+resource path, size and time through the same boundary; they accept nonnegative
+signed or unsigned sizes. Their native image-resource cache remains separate from
+browser item identity. Presentation sorting, details, icons, category/type extras and context menus also
+read provider attributes. The Python extension queries optional physical paths
+for both applicability and invocation. Native discovery and operation inputs use a private native record and convert
+that record into descriptions and typed payloads. Generic Item contains only
+ItemData contributions, with no native metadata or duplicated description fields.
+
+Typed identity is separate from operation admission. `GetItemDataKey` returns
+the normalized virtual path and folder/file type; category and temporary flags
+are masked out. `GetItemKey` also includes the source's process-local `FObjectKey`
+for files, while folders omit it for logical aggregation. Keys preserve virtual
+path case and use no physical/package path. They remain comparable after source
+withdrawal without dereferencing the source. `GetContributionKey` additionally
+captures source ownership, activation generation and mount revision for a specific
+captured contribution. A stable logical key never makes an expired handle callable.
+Directory aggregation uses typed keys. Private native records stay inside provider discovery and storage utilities.
+`StableId()` and the generic native metadata fields have been removed.
 
 Filters are value-owned. `CompileFilter`, `EnumerateItemsMatchingFilter`,
 `EnumerateItemsUnderPath` and `EnumerateItemsAtPath` use virtual paths. The
@@ -190,3 +240,30 @@ format used by other editors.
 Creation, import, details and asset-definition registration remain independent of
 data sources. Panel and extension lifetime details are described by the
 [Content Browser contract](ContentBrowser.md).
+
+Browser selection, anchors, rename state, pending reveals, extension selection
+contexts and browser thumbnail references use `FContentBrowserItemKey`.
+`StableId()` is removed. Folder keys omit the owner; file keys include it.
+Source-qualified move/removal updates repair matching selections without changing
+another source's same-path file. A merged folder retains its original logical
+selection while other contributions survive. Clipboard and drag captures resolve
+by logical key and compare full contribution keys, including activation and mount
+admission. Image decoder cache keys remain native resource paths and asset
+thumbnail fingerprints remain Registry identities; neither is a browser row key.
+
+ItemData owns only flags, virtual path, name/display name, source admission and
+opaque payload. Generic Item aggregates those descriptions and forwards provider
+attributes. `AssetPath` is an optional native thumbnail/interop resource attribute;
+it is separate from a row's virtual path and logical key. Asset thumbnails compare
+Registry resource identities and recapture dependencies when that resource changes.
+File images query optional native resources, and external asset drag payloads are
+created only when the source supplies an asset resource identity.
+
+All merged folder contributions are retained. `AreItemsEquivalentForOperations`
+is a conservative source-owned admission predicate: the default only recognizes
+the same current contribution. Native sources additionally recognize their shared
+physical folder backend. Generic commands validate every such alias and execute
+the single backend once; native bulk requests normalize aliases after retaining
+all request policies. Native folder deltas are published for both participating
+sources so file and asset selections can follow the committed subtree move.
+Unrelated merged folders still require Stage 3's per-contribution result dispatch.

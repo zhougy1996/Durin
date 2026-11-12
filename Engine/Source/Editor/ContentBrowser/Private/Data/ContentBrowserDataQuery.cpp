@@ -1,9 +1,17 @@
+#include "Data/ContentBrowserItemAttributeHelpers.h"
 #include "Data/ContentBrowserDataQuery.h"
 #include "Misc/MountPaths.h"
 #include "Misc/Paths.h"
 #include "CoreGlobals.h"
 namespace Durin::ContentBrowser::Private
 {
+	auto FContentBrowserDataQuery::FindSourceKey(FName Name) const -> FObjectKey
+	{
+		for (const auto& Source : GetSources())
+			if (Source->GetDataSourceName() == Name) return FObjectKey(Source.Get());
+		return {};
+	}
+
 	auto FContentBrowserDataQuery::GetSources() const -> std::vector<TStrongObjectPtr<DContentBrowserDataSource>>
 	{
 		if (!IsAcceptingRequests())
@@ -102,8 +110,8 @@ namespace Durin::ContentBrowser::Private
 			Result->Capture = Work();
 			// Keep the standalone prepared result useful without its original query.
 			for (const auto& Item : Result->Capture->Items)
-				if (Item.Kind == EContentBrowserItemKind::Folder)
-					Result->Children.emplace_back(Item.VirtualPath.empty() ? Item.PhysicalPath : Item.VirtualPath);
+				if (Item.IsFolder())
+					Result->Children.emplace_back(Item.GetVirtualPath());
 			return Result;
 		};
 	}
@@ -129,8 +137,8 @@ namespace Durin::ContentBrowser::Private
 			for (size_t Index = Contribution.Begin; Index < Contribution.End; ++Index)
 			{
 				auto Item = std::move(Snapshot.Items[Index]);
-				if (Item.InternalItems.empty())
-					Item.InternalItems.push_back(Source->CreateItemData(Item, Host));
+				if (Item.InternalItems.empty() || !Item.InternalItems.front().GetOwnerDataSource())
+					Item.InternalItems = {Source->CreateItemData(Item, Host)};
 				if (!OwnsSource(Source) || Source->GetActivationGeneration()!=Contribution.Generation ||
 					FMountPaths::GetMountRegistryRevision()!=Contribution.MountRevision || FPaths::ProjectFile()!=Contribution.Project)
 				{
@@ -138,8 +146,6 @@ namespace Durin::ContentBrowser::Private
 					Result.Items.clear();
 					return Result;
 				}
-				if (Item.VirtualPath.empty() && !Item.InternalItems.empty())
-					Item.VirtualPath = Item.InternalItems.front().GetVirtualPath();
 				std::erase_if(Item.InternalItems, [&](const auto& Data) { return !OwnsSource(Data.GetOwnerDataSource()); });
 				if (Item.InternalItems.empty())
 					continue;
@@ -158,12 +164,10 @@ namespace Durin::ContentBrowser::Private
 					auto Data = Source->CreateItemData(Item, Host);
 					if (Data.GetOwnerDataSource())
 					{
-						Item.InternalItems.push_back(std::move(Data));
+						Item.InternalItems = {std::move(Data)};
 						break;
 					}
 				}
-				if (Item.VirtualPath.empty() && !Item.InternalItems.empty())
-					Item.VirtualPath = Item.InternalItems.front().GetVirtualPath();
 				Result.Items.push_back(std::move(Item));
 			}
 		}
@@ -182,8 +186,8 @@ namespace Durin::ContentBrowser::Private
 		Snapshot.Diagnostics = std::move(Data.Diagnostics);
 		Snapshot.SuppressedDiagnosticCount = Data.SuppressedDiagnosticCount;
 		for (const auto& Item : Data.Items)
-			if (Item.Kind == EContentBrowserItemKind::Folder)
-				Snapshot.Children.emplace_back(Item.PhysicalPath.empty() ? Item.VirtualPath : Item.PhysicalPath);
+			if (Item.IsFolder())
+				Snapshot.Children.emplace_back(ItemAttributes::PhysicalPath(Item).empty() ? Item.GetVirtualPath() : ItemAttributes::PhysicalPath(Item));
 		std::ranges::sort(Snapshot.Children);
 		Snapshot.Children.erase(std::unique(Snapshot.Children.begin(), Snapshot.Children.end()), Snapshot.Children.end());
 		return Snapshot;
@@ -203,10 +207,10 @@ namespace Durin::ContentBrowser::Private
 		return std::ranges::any_of(Data.Items,
 								   [&](const auto& Item)
 								   {
-									   auto Path = Item.VirtualPath;
+									   auto Path = Item.GetVirtualPath();
 									   while (Path.size() > 1 && Path.back() == '/')
 										   Path.pop_back();
-									   return Item.Kind == EContentBrowserItemKind::Folder && Path == Target;
+									   return Item.IsFolder() && Path == Target;
 								   });
 	}
 	auto FContentBrowserDataQuery::Tick(float DeltaSeconds) -> void
@@ -281,7 +285,7 @@ namespace Durin::ContentBrowser::Private
 					Scope.pop_back();
 				return P == Scope || std::filesystem::path(P).parent_path().generic_string() == Scope ||
 					   (Recursive && P.starts_with(Scope + "/")) ||
-					   (Update.GetItemData().GetItemKind() == EContentBrowserItemKind::Folder && Scope.starts_with(P + "/"));
+					   (Update.GetItemData().GetItemType() == EContentBrowserItemFlags::Type_Folder && Scope.starts_with(P + "/"));
 			};
 			return Touches(Update.GetItemData().GetVirtualPath()) ||
 				   (!Update.GetPreviousVirtualPath().empty() && Touches(Update.GetPreviousVirtualPath()));

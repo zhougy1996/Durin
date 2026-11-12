@@ -1,11 +1,13 @@
 #include "Panels/PythonScriptPanel.h"
 #include "DurinPythonModule.h"
 #include "PythonEditorSubsystem.h"
+#include "ContentBrowserDataSubsystem.h"
 #include "Editor/EditorEnvironmentTestSupport.h"
 #include "Editor/EditorEngineTestSupport.h"
 #include "Tools/EditorToolSubsystem.h"
 #include "Tools/EditorScriptCall.h"
 #include "DObject/StrongObjectPtr.h"
+#include "DObject/Class.h"
 #include "Engine/World.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
@@ -13,6 +15,40 @@
 #include "NativeDObjectTestSupport.h"
 #include "NativeTestSupport.h"
 #include <gtest/gtest.h>
+
+namespace Durin
+{
+    class FPythonBrowserSource final : public DContentBrowserDataSource
+    {
+        static auto GetPrivateStaticClass() -> DClass*;
+        DECLARE_CLASS(FPythonBrowserSource, DContentBrowserDataSource, FPythonBrowserSource::GetPrivateStaticClass)
+        DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(FPythonBrowserSource)
+    public:
+        explicit FPythonBrowserSource(const FObjectInitializer& I) : Super(I) {}
+        struct FPayload final : ContentBrowser::IContentBrowserItemDataPayload { std::string Path; };
+        auto MakeItem(const std::filesystem::path& Path, ContentBrowser::EContentBrowserItemFlags Flags = ContentBrowser::EContentBrowserItemFlags::Type_File) -> ContentBrowser::FContentBrowserItem
+        {
+            const auto Text = Path.u8string();
+            auto Payload = std::make_shared<FPayload>(); Payload->Path.assign(reinterpret_cast<const char*>(Text.data()), Text.size());
+            const auto Leaf = Path.filename().u8string();
+            const std::string Name(reinterpret_cast<const char*>(Leaf.data()), Leaf.size());
+            return {.InternalItems = {ContentBrowser::FContentBrowserItemData(*this, Flags, "/PythonScripts/" + Name, Name, "", std::move(Payload))}};
+        }
+        auto GetItemPhysicalPath(const ContentBrowser::FContentBrowserItemData& Item, std::string& Out) const -> bool override
+        {
+            Out.clear();
+            const auto Payload = std::dynamic_pointer_cast<const FPayload>(Item.GetPayload());
+            if (Item.GetOwnerDataSource() != this || !Payload) return false;
+            Out = Payload->Path; return true;
+        }
+    };
+    auto FPythonBrowserSource::GetPrivateStaticClass() -> DClass*
+    {
+        static DClass* Class = nullptr;
+        if (!Class) GetPrivateStaticClassBody("", "FPythonBrowserSource", Class, nullptr, sizeof(FPythonBrowserSource), alignof(FPythonBrowserSource), EClassFlags::None, InternalConstructor<FPythonBrowserSource>, &DContentBrowserDataSource::StaticClass);
+        return Class;
+    }
+}
 
 namespace Durin::MainFrame
 {
@@ -35,6 +71,11 @@ namespace
     {
     protected:
         TStrongObjectPtr<DEditorEngine> Host;
+        TStrongObjectPtr<FPythonBrowserSource> BrowserSource;
+        struct FBrowserSink final : Browser::IContentBrowserItemDataSink
+        {
+            auto QueueItemDataUpdate(Browser::FContentBrowserItemDataUpdate&&) -> void override {}
+        } BrowserSink;
         DEditorToolSubsystem* Tools = nullptr;
         std::unique_ptr<FPythonScriptPanel> Panel;
         FDurinPythonModule* Python = nullptr;
@@ -43,7 +84,10 @@ namespace
             Testing::InitializeDObjectSystemForTests();
             ASSERT_TRUE(FModuleManager::Get().LoadModule("Engine"));
             ASSERT_TRUE(FModuleManager::Get().LoadModule("DurinEd"));
+            ASSERT_TRUE(FModuleManager::Get().LoadModule("ContentBrowser"));
             Python = &FModuleManager::LoadModuleChecked<FDurinPythonModule>("DurinPython");
+            BrowserSource = NewObject<FPythonBrowserSource>(nullptr, {});
+            BrowserSource->Initialize(); BrowserSource->SetDataSink(&BrowserSink);
             Host = NewObject<DEditorEngine>(nullptr, {});
             ASSERT_NO_THROW(FEditorEngineTestAccess::StartEditor(*Host));
             Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>(); ASSERT_NE(Tools, nullptr);
@@ -52,6 +96,7 @@ namespace
         auto TearDown() -> void override
         {
             Panel.reset();
+            if (BrowserSource) { BrowserSource->Shutdown(); MarkObjectHierarchyAsGarbage(BrowserSource.Get()); BrowserSource.Reset(); }
             if (Host) { Host->PreExit(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); }
             CollectGarbage(Durin::EObjectFlags::Standalone);
             if (Python) { EXPECT_EQ(0u, Python->GetSession()); EXPECT_EQ(0u, Python->GetStartupJob()); }
@@ -70,11 +115,9 @@ namespace
                 if (Entry.Id == "MainFrame.RunPythonScript") return Entry;
             ADD_FAILURE() << "Python action not registered"; return {};
         }
-        static auto Context(const std::filesystem::path& Path) -> Browser::FExtensionContext
+        auto Context(const std::filesystem::path& Path) -> Browser::FExtensionContext
         {
-            const auto Utf8 = Path.u8string();
-            const std::string Text(reinterpret_cast<const char*>(Utf8.data()), Utf8.size());
-            Browser::FContentBrowserItem Item{.Kind = Browser::EContentBrowserItemKind::File, .PhysicalPath = Text};
+            const auto Item = BrowserSource->MakeItem(Path);
             return {.Selection = {Item}, .PrimaryItem = Item};
         }
         static auto Script(std::string_view Source, std::string_view Filename = "browser_script.py") -> std::filesystem::path
@@ -105,14 +148,15 @@ namespace
         EXPECT_EQ(FPythonScriptPanelTestAccess::Job(*Panel), 0u);
         auto Invalid = Selection; Invalid.Selection.clear(); EXPECT_FALSE(Entry.IsApplicable(Invalid));
         Invalid = Selection; Invalid.Selection.push_back(*Selection.PrimaryItem); EXPECT_FALSE(Entry.IsApplicable(Invalid));
-        Invalid = Selection; Invalid.PrimaryItem->Kind = Browser::EContentBrowserItemKind::Folder; EXPECT_FALSE(Entry.IsApplicable(Invalid));
+        Invalid = Selection; Invalid.PrimaryItem = BrowserSource->MakeItem("folder", Browser::EContentBrowserItemFlags::Type_Folder); EXPECT_FALSE(Entry.IsApplicable(Invalid));
         Invalid = Context("not_python.txt"); EXPECT_FALSE(Entry.IsApplicable(Invalid));
-        Invalid.PrimaryItem->Kind = Browser::EContentBrowserItemKind::Asset; EXPECT_FALSE(Entry.IsApplicable(Invalid));
+        Invalid.PrimaryItem = BrowserSource->MakeItem("asset", Browser::EContentBrowserItemFlags::Type_File | Browser::EContentBrowserItemFlags::Category_Asset); EXPECT_FALSE(Entry.IsApplicable(Invalid));
 
         ASSERT_TRUE(Browser::InvokeExtension(Entry, {.Context = Selection}));
         EXPECT_TRUE(FPythonScriptPanelTestAccess::OpenRequested(*Panel));
         const auto Job = FPythonScriptPanelTestAccess::Job(*Panel); ASSERT_NE(Job, 0u);
-        EXPECT_FALSE(Panel->RunFile(Selection.PrimaryItem->PhysicalPath));
+        std::string PhysicalPath; ASSERT_TRUE(Selection.PrimaryItem->GetItemPhysicalPath(PhysicalPath));
+        EXPECT_FALSE(Panel->RunFile(PhysicalPath));
         EXPECT_EQ(FPythonScriptPanelTestAccess::Job(*Panel), Job);
         Pump();
         const auto& Result = FPythonScriptPanelTestAccess::Result(*Panel); ASSERT_TRUE(Result);

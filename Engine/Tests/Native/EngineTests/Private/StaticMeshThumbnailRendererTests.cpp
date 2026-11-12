@@ -1,8 +1,10 @@
+#include "Editor/ContentBrowserItemTestSupport.h"
 #include "Asset/AssetCompilingManager.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "Thumbnail/StaticMeshThumbnailRenderer.h"
 
 #include "Assets/ContentBrowserThumbnailReferences.h"
+#include "Editor/ContentBrowserQueryTestSupport.h"
 #include "Panels/ContentBrowserDataTypes.h"
 #include "Thumbnail/AssetThumbnailPool.h"
 #include "Thumbnail/AssetThumbnailTestFixtures.h"
@@ -34,6 +36,19 @@
 #include <gtest/gtest.h>
 
 #include "NativeDObjectTestSupport.h"
+
+using Durin::ContentBrowser::Private::TestKind;
+using Durin::ContentBrowser::Private::TestName;
+using Durin::ContentBrowser::Private::TestVirtualPath;
+using Durin::ContentBrowser::Private::TestPhysicalPath;
+using Durin::ContentBrowser::Private::TestPackagePath;
+using Durin::ContentBrowser::Private::TestAssetClassName;
+using Durin::ContentBrowser::Private::TestExtension;
+using Durin::ContentBrowser::Private::TestRedirectDestination;
+using Durin::ContentBrowser::Private::TestFileSize;
+using Durin::ContentBrowser::Private::TestPackageFileSize;
+using Durin::ContentBrowser::Private::TestBulkFileSize;
+using Durin::ContentBrowser::Private::TestLastWriteTime;
 
 namespace
 {
@@ -73,11 +88,11 @@ namespace
 		-> Durin::FAssetThumbnailPackageFingerprint
 	{
 		return {
-			.AssetPath = MakeAssetPath(Data.PackagePath),
-			.PackagePath = Data.PackagePath,
-			.AssetClassName = Data.TopLevelAssets.front().AssetClassName,
+			.AssetPath = MakeAssetPath(TestPackagePath(Data)),
+			.PackagePath = TestPackagePath(Data),
+			.AssetClassName = TestAssetClassName(Data.TopLevelAssets.front()),
 			.PackageFormatVersion = Data.FormatVersion,
-			.FileSize = static_cast<uint64>(Data.FileSize),
+			.FileSize = static_cast<uint64>(TestFileSize(Data)),
 			.LastWriteTimeTicks = Data.LastWriteTimeTicks};
 	}
 
@@ -121,7 +136,7 @@ namespace
 		return std::ranges::any_of(
 			Request.KeyInput.Dependencies,
 			[Path](const Durin::FAssetThumbnailPackageFingerprint& Dependency) {
-				return Dependency.PackagePath.GetView() == Path;
+				return TestPackagePath(Dependency).GetView() == Path;
 			});
 	}
 
@@ -277,7 +292,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 	const Durin::FThumbnailRenderingInfo Registration =
 		Renderer.GetRegistration();
 	EXPECT_EQ(
-		Registration.AssetClassName,
+		TestAssetClassName(Registration),
 		Durin::DStaticMesh::StaticClass()->GetQualifiedName().ToString());
 	EXPECT_EQ(
 		Registration.RendererName,
@@ -294,7 +309,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 		FirstRequest.KeyInput.Dependencies,
 		{},
 		[](const Durin::FAssetThumbnailPackageFingerprint& Dependency) {
-			return Dependency.PackagePath.GetView();
+			return TestPackagePath(Dependency).GetView();
 		}));
 	EXPECT_TRUE(ContainsDependency(
 		FirstRequest,
@@ -609,43 +624,46 @@ TEST(FStaticMeshThumbnailRendererTests,
 	using Durin::ContentBrowser::FContentBrowserItem;
 	using Durin::ContentBrowser::EContentBrowserItemKind;
 	using namespace Durin::ContentBrowser::Private;
-	const FContentBrowserItem Item{
+	FNativeContentBrowserTestQuery Provider;
+	FContentBrowserNativeItem NativeInput{
 		.Kind = EContentBrowserItemKind::Asset,
 		.VirtualPath = Data->TopLevelAssets.front().AssetPath.ToString(),
 		.PackagePath = StaticMeshPath,
-		.PhysicalPath = Data->PhysicalPath,
-		.FileSize = Data->FileSize};
+		.PhysicalPath = TestPhysicalPath(*(Data)),
+		.FileSize = TestFileSize(*(Data))};
+	const FContentBrowserItem Item = Provider.BindItemForTesting(NativeInput);
 	FContentBrowserThumbnailReferences Cache;
 	Durin::ProcessAsyncLoading();
 	Cache.BeginFrame();
 	Cache.Request(Item, Durin::EAssetThumbnailPriority::Prefetch);
-	EXPECT_EQ(Cache.Find(Item.StableId()).State, Durin::EAssetThumbnailState::Queued);
+	EXPECT_EQ(Cache.Find(Item.GetItemKey()).State, Durin::EAssetThumbnailState::Queued);
 	Cache.CancelPendingRequests();
-	EXPECT_EQ(Cache.Find(Item.StableId()).State, Durin::EAssetThumbnailState::NotRequested);
+	EXPECT_EQ(Cache.Find(Item.GetItemKey()).State, Durin::EAssetThumbnailState::NotRequested);
 
 	// A stale display snapshot cannot supply the package-cache fingerprint.
-	auto StaleDisplay = Item;
-	++StaleDisplay.FileSize;
+	auto StaleInput = NativeInput; ++StaleInput.FileSize;
+	const auto StaleDisplay = Provider.BindItemForTesting(StaleInput);
 	Cache.Request(StaleDisplay, Durin::EAssetThumbnailPriority::Visible);
-	EXPECT_EQ(Cache.Find(Item.StableId()).State, Durin::EAssetThumbnailState::Queued);
+	EXPECT_EQ(Cache.Find(Item.GetItemKey()).State, Durin::EAssetThumbnailState::Queued);
 	Cache.ApplyContentChanges({.Changes = {{Durin::EContentChangeKind::Modified,
-		Item.PhysicalPath, Item.PhysicalPath}}});
-	EXPECT_EQ(Cache.Find(Item.StableId()).State, Durin::EAssetThumbnailState::NotRequested);
+		TestPhysicalPath(Item), TestPhysicalPath(Item)}}});
+	EXPECT_EQ(Cache.Find(Item.GetItemKey()).State, Durin::EAssetThumbnailState::NotRequested);
 	Cache.Request(Item, Durin::EAssetThumbnailPriority::Visible);
-	EXPECT_EQ(Cache.Find(Item.StableId()).State, Durin::EAssetThumbnailState::Queued);
+	EXPECT_EQ(Cache.Find(Item.GetItemKey()).State, Durin::EAssetThumbnailState::Queued);
 	Cache.Clear();
-	EXPECT_EQ(Cache.Find(Item.StableId()).State, Durin::EAssetThumbnailState::NotRequested);
+	EXPECT_EQ(Cache.Find(Item.GetItemKey()).State, Durin::EAssetThumbnailState::NotRequested);
 
 	// An unregistered identity cannot borrow a different asset's fingerprint.
-	auto Missing = Item;
-	Missing.VirtualPath = "/ThumbnailFixtures/Meshes/Missing.Missing";
+	auto MissingInput = NativeInput;
+	MissingInput.VirtualPath = "/ThumbnailFixtures/Meshes/Missing.Missing";
+	const auto Missing = Provider.BindItemForTesting(MissingInput);
 	Cache.Request(Missing, Durin::EAssetThumbnailPriority::Visible);
 	EXPECT_EQ(Cache.GetAssetReferenceCountForTesting(), 0u);
 	{
 		FContentBrowserThumbnailReferences ClosingCache;
 		ClosingCache.BeginFrame();
 		ClosingCache.Request(Item, Durin::EAssetThumbnailPriority::Visible);
-		EXPECT_EQ(ClosingCache.Find(Item.StableId()).State, Durin::EAssetThumbnailState::Queued);
+		EXPECT_EQ(ClosingCache.Find(Item.GetItemKey()).State, Durin::EAssetThumbnailState::Queued);
 	}
 }
 

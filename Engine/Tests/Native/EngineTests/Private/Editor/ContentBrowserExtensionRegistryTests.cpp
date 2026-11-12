@@ -1,3 +1,4 @@
+#include "Editor/ContentBrowserItemTestSupport.h"
 #include "Editor/ContentBrowserQueryTestSupport.h"
 #include <gtest/gtest.h>
 #include "Editor/BrowserDefinitionTestSupport.h"
@@ -17,6 +18,19 @@
 #include "AssetDefinition/AssetDefinitionRegistry.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
+
+using Durin::ContentBrowser::Private::TestKind;
+using Durin::ContentBrowser::Private::TestName;
+using Durin::ContentBrowser::Private::TestVirtualPath;
+using Durin::ContentBrowser::Private::TestPhysicalPath;
+using Durin::ContentBrowser::Private::TestPackagePath;
+using Durin::ContentBrowser::Private::TestAssetClassName;
+using Durin::ContentBrowser::Private::TestExtension;
+using Durin::ContentBrowser::Private::TestRedirectDestination;
+using Durin::ContentBrowser::Private::TestFileSize;
+using Durin::ContentBrowser::Private::TestPackageFileSize;
+using Durin::ContentBrowser::Private::TestBulkFileSize;
+using Durin::ContentBrowser::Private::TestLastWriteTime;
 
 namespace Durin
 {
@@ -100,8 +114,8 @@ namespace Durin::ContentBrowser
 			ASSERT_TRUE(Registration);
 			FNativeContentBrowserTestQuery ModelSource;
 			FContentBrowserModel Model(ModelSource);
-			Model.SetSnapshotForTesting("/content", {{.Kind = EContentBrowserItemKind::Asset,
-				.Name = "Typed", .PhysicalPath = "/content/Typed.dasset", .AssetClassName = Definition->ClassPath}});
+			Model.SetSnapshotForTesting("/content", Durin::ContentBrowser::Private::ItemDescriptions({{.Kind = EContentBrowserItemKind::Asset,
+				.Name = "Typed", .PhysicalPath = "/content/Typed.dasset", .AssetClassName = Definition->ClassPath}}));
 			Model.SetTypeFilter(Filter); EXPECT_EQ(1u, Model.GetItems().size()) << Category;
 			Model.SetCategoryPath({Category}); EXPECT_EQ(1u, Model.GetItems().size()) << Category;
 			Registration.Reset();
@@ -140,9 +154,9 @@ namespace Durin::ContentBrowser
 		using namespace Private;
 		FNativeContentBrowserTestQuery ModelSource;
 		FContentBrowserModel Model(ModelSource);
-		Model.SetSnapshotForTesting("/content", {
+		Model.SetSnapshotForTesting("/content", Durin::ContentBrowser::Private::ItemDescriptions({
 			{.Kind = EContentBrowserItemKind::Asset, .Name = "Project", .PhysicalPath = "/content/Project.dasset", .AssetClassName = "Project::DCategoryFixture"},
-			{.Kind = EContentBrowserItemKind::Asset, .Name = "Other", .PhysicalPath = "/content/Other.dasset", .AssetClassName = "Project::Other"}});
+			{.Kind = EContentBrowserItemKind::Asset, .Name = "Other", .PhysicalPath = "/content/Other.dasset", .AssetClassName = "Project::Other"}}));
 		const auto ObjectRevision = GDObjectArray.GetRevision();
 		const auto Type = FindAssetTypePresentation("Project::DCategoryFixture");
 		ASSERT_TRUE(Type);
@@ -153,7 +167,7 @@ namespace Durin::ContentBrowser
 		EXPECT_NE(Paths.end(), std::ranges::find(Paths, std::vector<std::string>{"Project", "Simulation"}));
 		Model.SetCategoryPath({"Project", "Simulation"});
 		ASSERT_EQ(1u, Model.GetItems().size());
-		EXPECT_EQ("Project", Model.GetItems().front().Name);
+		EXPECT_EQ("Project", TestName(Model.GetItems().front()));
 		Model.SetCategoryPath({"Project", "Missing"});
 		EXPECT_TRUE(Model.GetItems().empty());
 		const auto Revision = GetPresentationRevision();
@@ -551,7 +565,7 @@ namespace Durin::ContentBrowser
 		ASSERT_TRUE(DefinitionRegistration);
 		auto Type = RegisterAssetTypeExtras({.AssetClassName = Definition->ClassPath,
 			.Details = [](const FExtensionContext& Context) {
-				return std::vector<FDetailRow>{{"Type detail", Context.Selection.front().PhysicalPath}};
+				return std::vector<FDetailRow>{{"Type detail", TestPhysicalPath(Context.Selection.front())}};
 			}}, Error);
 		ASSERT_TRUE(Type.IsValid()) << Error;
 		auto Details = RegisterExtension({
@@ -564,22 +578,25 @@ namespace Durin::ContentBrowser
 			.Id = "test.context", .Label = "Inspect", .Category = EExtensionCategory::ContextMenu,
 			.Mutation = EContentMutation::ReadOnly,
 			.IsApplicable = [](const auto& Context) {
-				return Context.PrimaryItem && Context.PrimaryItem->AssetClassName == "Plugin::DNovelAsset";
+				return Context.PrimaryItem && TestAssetClassName(*(Context.PrimaryItem)) == "Plugin::DNovelAsset";
 			},
 			.Invoke = [&](const auto& Invocation) {
 				EXPECT_EQ(Invocation.Context.Selection.size(), 1);
 				++Invocations;
 			}}, Error);
 		ASSERT_TRUE(Command.IsValid()) << Error;
-		const std::vector<FContentBrowserItem> Items{{.Kind = EContentBrowserItemKind::Asset,
+		FNativeContentBrowserTestQuery Provider;
+		std::vector<FContentBrowserItem> Items = Durin::ContentBrowser::Private::ItemDescriptions({{.Kind = EContentBrowserItemKind::Asset,
 			.Name = "Example", .VirtualPath = "/Project/Example", .PhysicalPath = "/content/Example.dasset",
-			.AssetClassName = "Plugin::DNovelAsset"}};
-		const auto Context = BuildExtensionContext(Items, {Items.front().StableId()}, "/content", "/Project");
+			.AssetClassName = "Plugin::DNovelAsset"}});
+		for (auto& Item : Items) Item = Provider.BindItemForTesting(std::move(Item));
+		const auto Context = BuildExtensionContext(Items, {Items.front().GetItemKey()}, "/content", "/Project");
 		const auto Rows = CaptureSelectionDetails(Context);
 		ASSERT_EQ(Rows.size(), 2);
 		EXPECT_EQ(Rows[0].Value, "/content/Example.dasset");
 		EXPECT_EQ(Rows[1].Value, "Visible");
-		EXPECT_EQ(ContentBrowserItemView::TypeLabel(Items.front()), "Novel Asset");
+		FNativeContentBrowserTestQuery TypeQuery;
+		EXPECT_EQ(ContentBrowserItemView::TypeLabel(TypeQuery.BindItemForTesting(Items.front())), "Novel Asset");
 		EXPECT_EQ(ContentBrowserItemView::Icon(Items.front()), "custom icon");
 		int VisibleCommands = 0;
 		PresentExtensionMenu(EExtensionCategory::ContextMenu, Context, false,
@@ -606,26 +623,28 @@ namespace Durin::ContentBrowser
 	TEST(FContentBrowserExtensionRegistryTests, BuildsMixedSelectionAndDirectoryDestinations)
 	{
 		using namespace Private;
-		const std::vector<FContentBrowserItem> Items{
+		FNativeContentBrowserTestQuery Provider;
+		std::vector<FContentBrowserItem> Items = Durin::ContentBrowser::Private::ItemDescriptions({
 			{.Kind = EContentBrowserItemKind::Asset, .VirtualPath = "/Project/Asset",
 				.PhysicalPath = "/content/Asset.dasset", .AssetClassName = "Plugin::DAsset"},
 			{.Kind = EContentBrowserItemKind::File, .PhysicalPath = "/content/source.png"},
-			{.Kind = EContentBrowserItemKind::Folder, .VirtualPath = "/Project/Sub", .PhysicalPath = "/content/Sub"}};
+			{.Kind = EContentBrowserItemKind::Folder, .VirtualPath = "/Project/Sub", .PhysicalPath = "/content/Sub"}});
+		for (auto& Item : Items) Item = Provider.BindItemForTesting(std::move(Item));
 		const auto Mixed = BuildExtensionContext(Items,
-			{Items[0].StableId(), Items[1].StableId(), Items[2].StableId()}, "/content", "/Project", &Items[1]);
+			{Items[0].GetItemKey(), Items[1].GetItemKey(), Items[2].GetItemKey()}, "/content", "/Project", &Items[1]);
 		ASSERT_EQ(Mixed.Selection.size(), 3);
-		EXPECT_EQ(Mixed.Selection[0].Kind, EContentBrowserItemKind::Asset);
-		EXPECT_EQ(Mixed.Selection[1].Kind, EContentBrowserItemKind::File);
-		EXPECT_EQ(Mixed.Selection[2].Kind, EContentBrowserItemKind::Folder);
-		EXPECT_EQ(Mixed.PrimaryItem->PhysicalPath, "/content/source.png");
+		EXPECT_EQ(TestKind(Mixed.Selection[0]), EContentBrowserItemKind::Asset);
+		EXPECT_EQ(TestKind(Mixed.Selection[1]), EContentBrowserItemKind::File);
+		EXPECT_EQ(TestKind(Mixed.Selection[2]), EContentBrowserItemKind::Folder);
+		EXPECT_EQ(TestPhysicalPath(*(Mixed.PrimaryItem)), "/content/source.png");
 		EXPECT_EQ(Mixed.PhysicalDirectory, "/content");
 		const auto Folder = BuildExtensionContext(Items, {}, "/content", "/Project", &Items[2]);
 		EXPECT_EQ(Folder.PhysicalDirectory, "/content/Sub");
 		EXPECT_EQ(Folder.VirtualDirectory, "/Project/Sub");
-		const auto Tree = BuildExtensionContext(Items, {Items[0].StableId()}, "/content", "/Project",
+		const auto Tree = BuildExtensionContext(Items, {Items[0].GetItemKey()}, "/content", "/Project",
 			nullptr, "/external/directory", "");
 		ASSERT_EQ(Tree.Selection.size(), 1);
-		EXPECT_EQ(Tree.PrimaryItem->Kind, EContentBrowserItemKind::Folder);
+		EXPECT_EQ(TestKind(*(Tree.PrimaryItem)), EContentBrowserItemKind::Folder);
 		EXPECT_EQ(Tree.PhysicalDirectory, "/external/directory");
 		EXPECT_TRUE(Tree.VirtualDirectory.empty());
 		EXPECT_EQ(Tree.CurrentVirtualDirectory, "/Project");
@@ -696,16 +715,16 @@ namespace Durin::ContentBrowser
 		EXPECT_FALSE(Duplicate);
 		FNativeContentBrowserTestQuery ModelSource;
 		FContentBrowserModel Model(ModelSource);
-		Model.SetSnapshotForTesting("/content", {
+		Model.SetSnapshotForTesting("/content", Durin::ContentBrowser::Private::ItemDescriptions({
 			{.Kind = EContentBrowserItemKind::Asset, .Name = "Volume", .VirtualPath = "/Project/Volume",
 				.PhysicalPath = "/content/Volume.dasset", .AssetClassName = "FilterTest::DVolumeTexture"},
 			{.Kind = EContentBrowserItemKind::Asset, .Name = "Unrelated", .VirtualPath = "/Project/Other",
 				.PhysicalPath = "/content/Other.dasset", .AssetClassName = "Plugin::DVolumeTexture"},
 			{.Kind = EContentBrowserItemKind::Asset, .Name = "MaterialNamed", .VirtualPath = "/Project/Named",
-				.PhysicalPath = "/content/Named.dasset", .AssetClassName = "Plugin::DMaterialNamed"}});
+				.PhysicalPath = "/content/Named.dasset", .AssetClassName = "Plugin::DMaterialNamed"}}));
 		Model.SetTypeFilter(EContentBrowserTypeFilter::Textures);
 		ASSERT_EQ(Model.GetItems().size(), 1);
-		EXPECT_EQ(Model.GetItems().front().Name, "Volume");
+		EXPECT_EQ(TestName(Model.GetItems().front()), "Volume");
 		Model.SetTypeFilter(EContentBrowserTypeFilter::Materials);
 		EXPECT_TRUE(Model.GetItems().empty());
 		Model.SetTypeFilter(EContentBrowserTypeFilter::OtherAssets);
