@@ -585,7 +585,8 @@ namespace Durin
 						Plans.push_back(std::move(Plan));
 					}
 					NewState.Inputs = Inputs.TakeProjections();
-					if (Packages.empty()) return true;
+					// Native runtime programs are needed even when no asset retains them.
+					if (Packages.empty() && !Request.bCapturePluginSnapshot) return true;
 					if (Request.ReportProgress) Request.ReportProgress({ECookOperationStage::StageAuxiliary, {}, Packages.size(), Packages.size()});
 					if (Injected(ECookOperationStage::StageAuxiliary, 0))
 						return Finish(ECookRunStatus::Failed, ECookRunError::AuxiliaryInjectedFailure);

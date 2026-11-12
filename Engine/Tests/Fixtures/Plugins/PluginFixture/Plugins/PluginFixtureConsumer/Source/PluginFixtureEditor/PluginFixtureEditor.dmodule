@@ -4,5 +4,5 @@
   "PublicDependencies": [
     "PluginFixtureConsumer"
   ],
-  "ReflectHeaders": []
+  "ReflectHeaders": ["Public/FixtureEditorAsset.h"]
 }

@@ -103,3 +103,31 @@ inventory/build-graph hashes across the toggle cycle to exclude republication.
 The actual Plugins window additionally needs an interactive check of checkbox
 dependency warnings, pending-versus-running state and the normal unsaved-document
 restart workflow. The headless probe does not qualify presentation or relaunch.
+
+## Cook And Relocated Game Qualification
+
+The resource probe's `cook-seed` mode creates a project-owned primary asset
+referencing the Consumer plugin's asset, which references the Runtime plugin's
+asset. It also creates `Explicit`, `Optional` and a content-only `ContentAsset`.
+Runtime defaults mark `DFixtureAsset:Explicit` AlwaysCook. Cook the project root:
+the reference chain and Explicit must be present; Optional must be absent.
+`seed-editor` additionally loads EditorReady and points the project asset at an
+Editor companion type. Game Cook must fail before publication. Restore the normal
+seed and remove `EditorOnly.dasset` before subsequent positive cases.
+
+Runtime registers a reflected component and a native-only Shader program in its
+Providers library. Set `DURIN_PLUGIN_FIXTURE_COOKED=1` for staged Game execution:
+Consumer constructs that component, verifies asset values and the cross-plugin
+reference chain, and opens/loads the native program from the cooked project
+Shader library. Its trace includes `cooked-assets-shader` only after these checks.
+The existing `DURIN_PLUGIN_FIXTURE_EXPECT_CONFIG` assertion covers plugin/project/
+Saved precedence in the deployed Game as well as source hosts.
+
+Qualify no-plugin, content-only, dependent and checked-but-blocked selections in
+separate processes without rebuilding the available inventory. Use a clean project
+content view for selections that do not own plugin-typed project content; restore
+that content for required-reference rejection. Relocate the complete staged Game,
+restrict PATH to Windows system directories and make source plugins, workspace
+metadata, authored shaders and development caches unavailable during execution.
+Restore all source inputs afterward. Record positive and negative commands/logs,
+native inventory hashes and the unavailable paths under ignored `Build/` outputs.

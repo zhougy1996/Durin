@@ -8,6 +8,7 @@
 #include "Misc/Version.h"
 #include "Misc/StringHelper.h"
 #include "Misc/AppConfig.h"
+#include "Json/Json.h"
 #if defined(_WIN32)
 #include <bcrypt.h>
 #elif defined(__APPLE__)
@@ -66,6 +67,9 @@ namespace Durin
                 auto References=Item.AddArray("CanReference"); for (const auto& Reference:Mount.Dependencies) References.AppendValue(Reference);
             }
             const auto ProjectDir=std::filesystem::path(Project->ProjectDir);
+            const auto GameDefaults=FFileHelper::LoadFileToArray(std::filesystem::path(FPaths::EngineDir())/"Configs/TP_DurinGame.yaml");
+            if (!GameDefaults) throw std::runtime_error("Cannot capture Engine Game defaults");
+            Root.SetChildValue("EngineGameDefaults",std::string(reinterpret_cast<const char*>(GameDefaults->data()),GameDefaults->size()));
             for (const auto* Config:{"Project.yaml","DurinGame.yaml"})
             {
                 std::vector<std::filesystem::path> Layers{std::filesystem::path(FPaths::EngineDir())/"Configs"/(std::string_view(Config)=="DurinGame.yaml"?"TP_DurinGame.yaml":Config)};
@@ -127,6 +131,18 @@ namespace Durin
             FJsonDocument Snapshot, Frozen;
             if (!Snapshot.LoadFromFile(SnapshotFile) || !Frozen.Parse(Snapshot.GetRootView().GetView("Selection").GetString()))
                 Fail("Invalid frozen Cook plugin selection");
+            const auto Captured=Snapshot.GetRootView();
+            if (!Captured.GetView("SchemaVersion").IsInt() || Captured.GetView("SchemaVersion").GetInt()!=1)
+                Fail("Unsupported frozen Cook plugin schema");
+            const auto FrozenRoot=Frozen.GetRootView();
+            if (!FrozenRoot.GetView("SchemaVersion").IsInt() || FrozenRoot.GetView("SchemaVersion").GetInt()!=1
+                || Text(FrozenRoot,"RuntimeVariant")!="DurinGame" || Text(FrozenRoot,"Platform")!=Host.Platform
+                || !FrozenRoot.GetView("Plugins").IsArray() || !FrozenRoot.GetView("Modules").IsArray())
+                Fail("Invalid frozen Game plugin selection");
+            for (const auto& [Key,Expected]:{std::pair{"Platform",Host.Platform},{"Architecture",Host.Architecture},
+                {"Configuration",Host.Configuration},{"ToolchainABI",Host.ToolchainABI}})
+                if (Text(Captured,Key)!=Expected) Fail("Cook/runtime target identity differs: "+std::string(Key));
+            (void)Required("Shaders/ShaderLibrary.dslb");
             FJsonDocument Authored;
             if (!Authored.Parse(Snapshot.GetRootView().GetView("ProjectDescriptor").GetString())) Fail("Invalid frozen project request");
             FProjectDescriptor Project;
@@ -141,6 +157,14 @@ namespace Durin
             const auto ConfigRoot=std::filesystem::path(ProjectFile).parent_path()/"Configs";
             if (Configuration!=std::set<std::filesystem::path>{std::filesystem::weakly_canonical(ConfigRoot/"Project.yaml"),std::filesystem::weakly_canonical(ConfigRoot/"DurinGame.yaml")})
                 Fail("Staged runtime configuration bindings differ from the active project");
+            for (const auto* Name:{"Project.yaml","DurinGame.yaml"})
+            {
+                const auto Bytes=FFileHelper::LoadFileToArray(ConfigRoot/Name);
+                const auto Expected=Captured.GetView(Name);
+                if (!Bytes || !Expected.IsString()
+                    || std::string_view(reinterpret_cast<const char*>(Bytes->data()),Bytes->size())!=Expected.GetString())
+                    Fail("Runtime configuration differs from Cook: "+std::string(Name));
+            }
             FPluginResolution Selection;
             const auto Plugins=Root.GetView("Plugins");
             if (!Plugins.IsArray()) Fail("Invalid cooked plugin selection");
@@ -180,18 +204,26 @@ namespace Durin
             }
             FPluginResources Resources;
             const auto Mounts=Root.GetView("Mounts");
-            if (!Mounts.IsArray()) Fail("Invalid cooked plugin mounts");
+            const auto FrozenMounts=Captured.GetView("Mounts");
+            if (!Mounts.IsArray() || !FrozenMounts.IsArray() || Mounts.Num()!=FrozenMounts.Num()) Fail("Invalid cooked plugin mounts");
             std::set<std::string> VirtualRoots;
             for (size_t I=0;I<Mounts.Num();++I)
             {
                 const auto Item=Mounts.GetView(I); const auto Virtual=Text(Item,"VirtualRoot");
+                const auto FrozenMount=FrozenMounts.GetView(I);
+                if (Virtual!=Text(FrozenMount,"VirtualRoot")) Fail("Cook/runtime mount bindings differ");
                 if (!Virtual.starts_with("/Plugins/") || !Virtual.ends_with('/') || !VirtualRoots.insert(StringUtils::FoldAscii(Virtual)).second
                     || !PluginIds.contains(StringUtils::FoldAscii(Virtual.substr(9,Virtual.size()-10)))) Fail("Invalid cooked plugin mount identity");
                 FMountPoint Mount; Mount.VirtualRoot=Virtual; Mount.Root=Base/Virtual.substr(1,Virtual.size()-2); Mount.ContentPath="."; Mount.bContentWritable=false;
                 Mount.bAutoScan=true; Mount.Owner=EMountOwner::Extension;
                 const auto References=Item.GetView("CanReference");
-                if (!References.IsArray()) Fail("Invalid cooked mount references");
-                for (size_t J=0;J<References.Num();++J) Mount.Dependencies.push_back(References.GetView(J).GetString());
+                const auto FrozenReferences=FrozenMount.GetView("CanReference");
+                if (!References.IsArray() || !FrozenReferences.IsArray() || References.Num()!=FrozenReferences.Num()) Fail("Invalid cooked mount references");
+                for (size_t J=0;J<References.Num();++J)
+                {
+                    if (!References.GetView(J).IsString() || References.GetView(J).GetString()!=FrozenReferences.GetView(J).GetString()) Fail("Cook/runtime mount references differ");
+                    Mount.Dependencies.push_back(References.GetView(J).GetString());
+                }
                 Resources.ContentMounts.push_back(std::move(Mount));
             }
             OutSelection=std::move(Selection); OutBinaries=std::move(Binaries); OutResources=std::move(Resources); OutReason.clear(); return true;

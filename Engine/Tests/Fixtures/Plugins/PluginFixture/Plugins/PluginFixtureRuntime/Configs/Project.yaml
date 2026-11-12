@@ -1,5 +1,9 @@
 PluginFixture:
   Order: PluginFixtureRuntime
   BaseOnly: present
+AssetManager:
+  AssetRules:
+    - Id: DFixtureAsset:Explicit
+      Rules: {CookRule: AlwaysCook}
 Game:
   DefaultLevel: ''

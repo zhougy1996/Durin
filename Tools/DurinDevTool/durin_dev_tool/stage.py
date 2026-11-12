@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 import struct
 import tempfile
+import time
 
 from .errors import DevToolError
 from .build.config_io import load_configure_presets
@@ -44,7 +45,9 @@ def pe_imports(path: Path) -> list[str]:
         if data[pe:pe+4] != b"PE\0\0": raise ValueError("PE signature")
         count, optional_size = struct.unpack_from("<H",data,pe+6)[0],struct.unpack_from("<H",data,pe+20)[0]
         optional=pe+24; magic=struct.unpack_from("<H",data,optional)[0]
+        if magic not in (0x10b, 0x20b):raise ValueError("Unsupported PE optional header")
         directories=optional+(112 if magic==0x20b else 96)
+        if optional_size < directories-optional+14*8:raise ValueError("Truncated PE data directories")
         image_base=struct.unpack_from("<Q" if magic==0x20b else "<I",data,optional+(24 if magic==0x20b else 28))[0]
         sections=[struct.unpack_from("<IIII",data,optional+optional_size+i*40+8) for i in range(count)]
         def offset(rva):
@@ -61,23 +64,49 @@ def pe_imports(path: Path) -> list[str]:
                 if not any(entry):break
                 name=entry[3] if index==1 else entry[1]-(0 if entry[0]&1 else image_base)
                 start=offset(name);end=data.index(b"\0",start)
-                result.append(data[start:end].decode("ascii").casefold());cursor+=stride
+                library=data[start:end].decode("ascii").casefold()
+                if not library or "/" in library or "\\" in library or ":" in library:raise ValueError("Invalid imported library name")
+                result.append(library);cursor+=stride
         return result
     except (ValueError,IndexError,struct.error,UnicodeError) as error:
         raise DevToolError(f"Invalid PE import table: {path}: {error}") from error
+
+
+def is_system_dependency(name: str) -> bool:
+    """Only the Windows system directory/API sets may satisfy external imports."""
+    if Path(name).name != name or "/" in name or "\\" in name:
+        return False
+    if name.startswith(("api-ms-win-", "ext-ms-win-")):
+        return True
+    windows = os.environ.get("SystemRoot")
+    return bool(windows and (Path(windows) / "System32" / name).is_file())
+
+
+def replace_generation(source: Path, destination: Path) -> None:
+    # Windows scanners may briefly hold a newly copied EXE/DLL without delete
+    # sharing. Bound the retry; permanent locks still fail and roll back.
+    for attempt in range(7):
+        try:
+            os.replace(source, destination)
+            return
+        except PermissionError:
+            if os.name != "nt" or attempt == 6:
+                raise
+            time.sleep(min(0.05 * 2**attempt, 0.5))
 
 
 def stage_game(root: Path, project: Path, cook: Path, output: Path, game_runtime: Path,
                inventory_file: Path, info: dict, *, before_publish=None) -> dict:
     root=root.resolve();project=project.resolve();cook=cook.resolve();output=output.resolve();game_runtime=game_runtime.resolve()
     if output==root or root.is_relative_to(output):raise DevToolError("Stage output overlaps repository root")
-    for source in (cook,game_runtime,project.parent):
+    for source in (cook,game_runtime,project.parent,inventory_file.resolve().parent):
         if output.is_relative_to(source) or source.is_relative_to(output):raise DevToolError(f"Stage output overlaps input: {source}")
     snapshot=json.loads(info["Snapshot"])
     if snapshot.get("SchemaVersion")!=1:raise DevToolError("Unsupported Cook plugin snapshot")
+    if str(info.get("Platform", "")).casefold()!=snapshot["Platform"].casefold():raise DevToolError("Cook manifest/snapshot target mismatch")
     frozen=json.loads(snapshot["Selection"])
     workspace=json.loads((root/"Durin.dworkspace").read_text(encoding="utf-8"))
-    current,_=resolve_plugins(root/"Engine",project,platform=snapshot["Platform"],runtime_variant="DurinGame",
+    current,locations=resolve_plugins(root/"Engine",project,platform=snapshot["Platform"],runtime_variant="DurinGame",
         project_files=[root/p for p in workspace["Projects"]])
     if current!=frozen:raise DevToolError("Project/plugin selection or inputs changed since Cook; recook before staging")
     descriptor=json.loads(snapshot["ProjectDescriptor"])
@@ -106,13 +135,16 @@ def stage_game(root: Path, project: Path, cook: Path, output: Path, game_runtime
     lock=output.parent/(output.name+".stage-lock")
     try:lock.mkdir()
     except FileExistsError as error:raise DevToolError("Another stage writer owns this output") from error
-    temporary=Path(tempfile.mkdtemp(prefix=output.name+".stage-",dir=output.parent)).resolve()
+    try:
+        temporary=Path(tempfile.mkdtemp(prefix=output.name+".stage-",dir=output.parent)).resolve()
+    except BaseException:
+        lock.rmdir()
+        raise
     backup=temporary/"previous";payload=temporary/"payload"
     runtime_relative=Path("Engine/Binaries")/snapshot["Platform"]/snapshot["Configuration"]/"Runtime/DurinGame"
-    runtime=payload/runtime_relative;runtime.mkdir(parents=True)
-    (payload/"Engine/Content").mkdir(parents=True)
-    (runtime.parent.parent/"ThirdParty").mkdir(parents=True)
-    copies={};verified={}
+    runtime=payload/runtime_relative
+    preserve_backup=False
+    copies={}
     def copy(source: Path,relative: str,expected_hash=None):
         source=source.resolve();target=contained(runtime,relative)
         if not source.is_file():raise DevToolError(f"Missing required runtime dependency: {source}")
@@ -126,21 +158,35 @@ def stage_game(root: Path, project: Path, cook: Path, output: Path, game_runtime
         if sha256(target)!=digest:raise DevToolError(f"Runtime copy verification failed: {relative}")
         copies[key]=digest;return relative
     try:
+        runtime.mkdir(parents=True)
+        (payload/"Engine/Content").mkdir(parents=True)
+        (runtime.parent.parent/"ThirdParty").mkdir(parents=True)
         # Engine-owned Game modules are already host-filtered by the Game build.
         engine_binaries=[game_runtime/"DurinGame.exe",*sorted(game_runtime.glob("DurinGame-*.dll"))]
         for binary in engine_binaries:copy(binary,binary.name)
         third=game_runtime.parent.parent/"ThirdParty"
-        available={p.name.casefold():p for p in third.rglob("*.dll")}
-        queue=list(engine_binaries);visited=set()
-        while queue:
-            binary=queue.pop()
-            if binary in visited:continue
-            visited.add(binary)
-            for dependency in pe_imports(binary):
-                if dependency in available:
-                    file=available[dependency]
-                    # Keep external DLLs beside the executable; no SDK/developer tools are staged.
-                    copy(file,file.name);queue.append(file)
+        available={}
+        for file in sorted([*third.rglob("*.dll"),*game_runtime.glob("*.dll")]):
+            key=file.name.casefold()
+            if key in available and sha256(available[key])!=sha256(file):
+                raise DevToolError(f"Ambiguous native dependency: {file.name}")
+            available[key]=file
+        # Ordinary project modules keep their existing module model. Select roots
+        # explicitly, then let PE imports collect their linked native closure.
+        for logical, module_file in locations.items():
+            if not logical.startswith("Project/") or logical.count("/")!=2:continue
+            _,owner,name=logical.split("/")
+            owner_file=locations["Project/"+owner]
+            binary=owner_file.parent/"Binaries"/snapshot["Platform"]/snapshot["Configuration"]/"Runtime/DurinGame"/("DurinGame-"+name+".dll")
+            if binary.is_file():available[binary.name.casefold()]=binary
+        roots=descriptor.get("BaseModules",list(descriptor.get("ModuleDirs",{})))
+        extra=descriptor.get("ExtraModules",{}).get("DurinGame",[])
+        if isinstance(extra,dict):extra=extra.get("Modules",[])
+        for name in dict.fromkeys([*roots,*extra]):
+            filename="DurinGame-"+name+".dll"
+            source=available.get(filename.casefold())
+            if source is None:raise DevToolError(f"Missing required Game project module: {name}; build it explicitly")
+            copy(source,filename)
         for item in info["Files"]:copy(contained(cook,item["Path"]),item["Path"],item["Sha256"])
         copy(cook/"CookManifest.bin","CookManifest.bin",info["CookManifestSha256"])
         binaries=[]
@@ -154,11 +200,38 @@ def stage_game(root: Path, project: Path, cook: Path, output: Path, game_runtime
                 dependency=contained(inventory_root,raw)
                 if dependency in all_plugin_files and all_plugin_files[dependency] not in names:raise DevToolError("Native dependency on an inactive plugin")
                 # Engine DLLs bind the copies from the matching Game build, not an old inventory copy.
-                destination=dependency.name if dependency.name.startswith("DurinGame-") else "Plugins/Runtime/"+dependency.name
+                destination="Plugins/Runtime/"+dependency.name if dependency in all_plugin_files else dependency.name
                 dependencies.append(copy(dependency,destination))
             binaries.append(dict(Module=module["Name"],Owner=module["Owner"],Phase=module["Phase"],Path=relative,RuntimeDependencies=dependencies))
+        # Inspect every selected DLL, including transitive imports of plugin-native
+        # dependencies. Never satisfy an import from PATH or a development copy.
+        queue=list(runtime.rglob("*.dll"))+[runtime/"DurinGame.exe"]
+        visited=set()
+        native_paths={}
+        for file in queue:
+            key=file.name.casefold()
+            if key in native_paths and native_paths[key]!=file:
+                raise DevToolError(f"Ambiguous deployed native filename: {file.name}")
+            native_paths[key]=file
+        while queue:
+            binary=queue.pop()
+            if binary in visited:continue
+            visited.add(binary)
+            for dependency in pe_imports(binary):
+                if dependency in native_paths:continue
+                if dependency in available:
+                    source=available[dependency]
+                    copy(source,source.name)
+                    target=runtime/source.name
+                    native_paths[dependency]=target
+                    queue.append(target)
+                elif not is_system_dependency(dependency):
+                    raise DevToolError(f"Missing required native dependency: {dependency} (imported by {binary.name})")
+        # Bind the entire deployed native closure, including engine/third-party
+        # files, to admission rather than only the plugin's immediate imports.
+        native_required={p.relative_to(runtime).as_posix() for p in native_paths.values()}
         # Only the runtime project view/configuration is deployed; no source module trees.
-        descriptor.pop("$schema",None);descriptor.pop("NativeTestRoot",None)
+        descriptor.pop("$schema",None);descriptor.pop("Tests",None)
         if "ExtraModules" in descriptor:descriptor["ExtraModules"]={k:v for k,v in descriptor["ExtraModules"].items() if k=="DurinGame"}
         for mount in descriptor.get("Mounts",[]):
             mount["Root"]="CookMounts/"+mount["VirtualRoot"].strip("/");mount["ContentPath"]=".";mount.pop("AuthoringWritable",None);mount["ContentWritable"]=False
@@ -167,11 +240,16 @@ def stage_game(root: Path, project: Path, cook: Path, output: Path, game_runtime
         (target.parent/"Content").mkdir(exist_ok=True)
         for mount in snapshot["Mounts"]:contained(runtime,mount["VirtualRoot"].strip("/")).mkdir(parents=True,exist_ok=True)
         configuration=[]
+        template=runtime/"Templates/TP_DurinGame.yaml"
+        template.parent.mkdir(parents=True,exist_ok=True)
+        template.write_text(snapshot["EngineGameDefaults"],encoding="utf-8",newline="\n")
         for name in ("Project.yaml","DurinGame.yaml"):
-            relative="Project/Configs/"+name;file=contained(runtime,relative);file.parent.mkdir(parents=True,exist_ok=True);file.write_text(snapshot[name],encoding="utf-8");configuration.append(relative)
+            relative="Project/Configs/"+name;file=contained(runtime,relative);file.parent.mkdir(parents=True,exist_ok=True);file.write_text(snapshot[name],encoding="utf-8",newline="\n");configuration.append(relative)
         # Asset entries stay solely in CMNF. Admission verifies module/configuration and Cook identity.
-        required={project_relative,"CookManifest.bin","PluginCook.json",*configuration}
-        if (runtime/"Shaders/ShaderLibrary.dslb").is_file():required.add("Shaders/ShaderLibrary.dslb")
+        required={project_relative,"CookManifest.bin","PluginCook.json","Templates/TP_DurinGame.yaml",*configuration,*native_required}
+        if not (runtime/"Shaders/ShaderLibrary.dslb").is_file():
+            raise DevToolError("Cooked Shader library is missing; recook before staging")
+        required.add("Shaders/ShaderLibrary.dslb")
         for binary in binaries:required.add(binary["Path"]);required.update(binary["RuntimeDependencies"])
         files=[dict(Path=p,Sha256=sha256(contained(runtime,p))) for p in sorted(required)]
         manifest=dict(SchemaVersion=1,Identity=expected,ProjectFile=project_relative,Plugins=[p["Id"] for p in frozen["Plugins"]],
@@ -181,15 +259,20 @@ def stage_game(root: Path, project: Path, cook: Path, output: Path, game_runtime
         launcher='@echo off\n"%~dp0'+str(runtime_relative).replace('/','\\')+'\\DurinGame.exe" --project="%~dp0'+str(runtime_relative).replace('/','\\')+'\\'+project_relative.replace('/','\\')+'" %*\n'
         (payload/"RunGame.bat").write_text(launcher,encoding="utf-8")
         if before_publish:before_publish(payload)
-        if output.exists():os.replace(output,backup)
-        try:os.replace(payload,output)
-        except BaseException:
-            if backup.exists():os.replace(backup,output)
+        if output.exists():replace_generation(output,backup)
+        try:replace_generation(payload,output)
+        except BaseException as publish_error:
+            if backup.exists():
+                try:replace_generation(backup,output)
+                except OSError as rollback_error:
+                    preserve_backup=True
+                    raise DevToolError(f"Stage publication failed ({publish_error}); restore previous output from {backup}: {rollback_error}") from rollback_error
             raise
         return dict(status="succeeded",output=str(output),runtime=str(output/runtime_relative),project=project_relative,plugins=manifest["Plugins"],files=len(copies))
     finally:
         assert temporary.parent==output.parent and temporary.name.startswith(output.name+".stage-")
-        shutil.rmtree(temporary)
+        # A failed rollback must preserve the only intact previous generation.
+        if not preserve_backup:shutil.rmtree(temporary)
         lock.rmdir()
 
 
@@ -202,7 +285,16 @@ def run(namespace,*,repository_root,repository_context,stdout,stderr,**_kwargs):
         ["stage-info",f"--project={project}",f"--output={cook}","--json"],
         output=BuildOutput(color="never",output_mode=OutputMode.COMPACT,stdout=io.StringIO(),stderr=stderr),
         policy=RuntimeProcessPolicy(interruption_message="Stage preflight cancelled",capture_output=True))
-    info=json.loads(native);snapshot=json.loads(info["Snapshot"])
+    try:
+        info=json.loads(native);snapshot=json.loads(info["Snapshot"])
+        required=("Selection","ProjectDescriptor","EngineVersion","Platform","Architecture","Configuration","ToolchainABI",
+                  "Project.yaml","DurinGame.yaml","EngineGameDefaults")
+        if snapshot.get("SchemaVersion")!=1 or any(not isinstance(snapshot.get(key),str) for key in required):
+            raise ValueError("Unsupported or incomplete plugin Cook snapshot")
+        descriptor=json.loads(snapshot["ProjectDescriptor"])
+        if not isinstance(descriptor.get("ProjectName"),str):raise ValueError("Missing Cook project name")
+    except (ValueError,TypeError,KeyError,AttributeError) as error:
+        raise DevToolError(f"Invalid Stage preflight: {error}") from error
     presets=load_configure_presets(host.paths.preset_file)
     candidates=[p for p in presets.values() if p.name in host.profile.presets
         and preset_cache_string(p,"DURIN_RUNTIME_VARIANT",required=False)=="DurinGame"
@@ -212,7 +304,7 @@ def run(namespace,*,repository_root,repository_context,stdout,stderr,**_kwargs):
     if len(candidates)!=1:raise DevToolError("Select one matching --game-preset")
     game=select_runtime(repository,profile_name=host.profile.name,preset_name=candidates[0].name)
     runtime=locate_executable(game,ExecutableDescription("Game","DurinLauncher")).parent
-    inventory=preset_build_directory(game.preset,root=repository.root)/"PluginBuild"/json.loads(snapshot["ProjectDescriptor"])["ProjectName"]/preset_output_configuration(game.preset)/"PluginBuild.json"
+    inventory=preset_build_directory(game.preset,root=repository.root)/"PluginBuild"/descriptor["ProjectName"]/preset_output_configuration(game.preset)/"PluginBuild.json"
     try:report=stage_game(repository.root,project,cook,output,runtime,inventory,info)
     except (OSError,ValueError,KeyError,TypeError) as error:raise DevToolError(f"Game staging failed: {error}") from error
     if namespace.output_format=="json":print(json.dumps(report),file=stdout)

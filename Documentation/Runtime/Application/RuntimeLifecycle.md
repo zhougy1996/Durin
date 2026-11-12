@@ -4,7 +4,7 @@ Summary: Define application startup, frame execution, project admission, and shu
 
 Modules: Launch, Projects, ApplicationCore, Engine, MonaCore, Mona, MonaImGui
 
-Last reviewed: 2026-11-12
+Last reviewed: 2026-11-13
 
 This document defines Durin's process startup, frame entry, lifecycle
 integration boundaries, and explicit process-exit ordering.
@@ -89,6 +89,9 @@ The no-project
 Browser admits ordinary modules only. Providers run before ordinary project
 roots; EngineReady runs before InitializeProjectContent; EditorReady runs after
 workspace module loading and before final editor subsystem/workspace admission.
+Game runs Providers after object/asset-domain initialization and before Mona's
+first rendering consumer, so native plugin Shader declarations exist before
+the cooked runtime inventory freezes. Later phase calls remain idempotent.
 The [native plugin startup contract](../../Workspace/Plugins.md#frozen-native-startup)
 owns identity, paths, restart semantics, and the source/staged boundary. These
 hooks use the existing host initialization and failure paths. They introduce no

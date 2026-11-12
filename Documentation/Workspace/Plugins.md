@@ -1,10 +1,10 @@
 # Plugin Metadata And Selection
 
-Summary: Define source-plugin descriptors, project overrides, deterministic selection, source-build integration, and frozen native startup.
+Summary: Define plugin descriptors, project overrides, source builds, frozen startup, and cooked Game deployment.
 
 Modules: Projects, Core, Engine, ShaderBuild, MainFrame
 
-Last reviewed: 2026-11-12
+Last reviewed: 2026-11-13
 
 ## Implemented Boundary
 
@@ -23,8 +23,9 @@ build dependency on Projects so the module belongs to both runtime variants;
 Launch admits the frozen native selection before mount and renderer setup;
 the host executes its module phases before their consumers. Content mounts,
 early authored shader roots, and layered defaults are integrated.
-MainFrame provides restart-required plugin management. Cooked plugin deployment
-integration remains tracked in the [implementation plan](../Plans/RestartBasedPluginSystem.md).
+MainFrame provides restart-required plugin management. Win64 cooked Games use
+the detached deployment inventories described below; native macOS staging remains
+unqualified in the [implementation plan](../Plans/RestartBasedPluginSystem.md).
 
 Core no longer parses project fields. Projects supplies validated mount values
 through Core's mount mechanism. Ordinary project admission, status/history
@@ -240,9 +241,9 @@ partial StartupModule failures call the module's own cleanup once.
 Browser admission uses the build-generated ordinary module list and starts no
 project plugins. Opening a project uses the existing unsaved-work/relaunch path;
 LoadProjectFile and ClearCurrentProject cannot replace a frozen admission.
-No-plugin staged Game layouts retain source-independent ordinary startup using
-the same generated list. Plugin-bearing staged deployment is not admitted by
-this source-startup path and remains cook/deploy integration work.
+Staged Games use `PluginRuntime.json` beside the executable instead of this
+source-admission path. Legacy no-plugin layouts retain ordinary startup through
+the generated list; a cooked snapshot without its runtime inventory is rejected.
 
 ## Source Build Integration
 
@@ -315,7 +316,7 @@ ShaderBuild registers `/Plugins/<Id>/` before its initialization freeze. The
 existing mounted-source resolver, source/dependency hashes and reload generation
 control compiler/cache invalidation. Mount-specific derived outputs live under
 the host's DerivedDataCache, never the plugin source directory. Game consumes
-cooked Shader data; plugin Shader staging remains Stage 6 work.
+cooked Shader data. Plugin programs join the same project Shader library during Cook.
 
 `Configs` names a directory containing optional `Project.yaml`, `DurinEditor.yaml`
 and `DurinGame.yaml` defaults. Project settings readers merge Engine's
@@ -342,6 +343,48 @@ enable/restart/provider diagnostic. Serialized plugin dependency mounts are
 checked before removed-field filtering, so unresolved plugin references cannot
 be silently discarded as ordinary schema evolution. Failed loads retain source
 bytes and publish no resident package; ordinary saves enforce read-only mounts.
+
+## Cooked Game Deployment
+
+`DurinAssetTool cook` resolves the effective Game selection for its target before
+discovery and requires the admitted tool host to own the same plugin closure.
+The version 1 `PluginCook.json` snapshot captures that selection, mount permissions,
+project descriptor, target/ABI identity, Engine Game template and merged Project/
+Game defaults. It is an auxiliary output in the existing Cook transaction and
+is bound by `CookManifest.bin`; asset entries remain solely in that manifest.
+The available native build inventory stays a superset of the selected closure.
+
+Plugins use ordinary Cook reachability and AssetManager policy. Enabling a plugin
+does not retain its whole Content directory. Explicit-load assets need Primary
+Asset/AlwaysCook or bundle declarations. Native runtime Shader programs must
+register through RenderCore's existing request inventory in Providers; Cook
+publishes them in the project `Shaders/ShaderLibrary.dslb`, including programs
+with no material references. Game runs Providers after object/asset-domain setup
+and before the first rendering consumer freezes that inventory.
+
+DevTool `stage` requires an explicit Cook generation and a compatible existing
+Game build. It checks frozen selection/descriptor inputs and target identity,
+then copies retained Cook outputs, effective runtime configuration, ordinary
+project roots and the selected Runtime/native dependency closure into a temporary
+complete Game. Win64 ordinary and delay-load PE imports are inspected transitively;
+only deployed files and Windows system libraries satisfy imports. Source PATH
+searches, Editor binaries, developer Saved settings and authored shaders are
+excluded. Selection-only changes reuse compatible builds but require a fresh Cook.
+
+The version 1 `PluginRuntime.json` uses deployment-relative paths and records
+target/build identity, ordered Runtime modules, dependencies, mount bindings,
+required configuration and hashes of the required native/configuration/Cook
+inventory files. Startup validates these before publishing admission, checks
+selection/configuration/mount bindings against the Cook snapshot, and preserves
+the existing runtime Saved user-override policy. It scans no source `.dplugin`
+descriptors and needs no workspace, compiler or development Shader cache.
+
+Stage holds one output-writer lock and replaces the whole runtime directory.
+Failure before replacement preserves the previous generation; replacement failure
+restores it. If filesystem locks also prevent rollback, Stage preserves the
+backup and reports its exact recovery path. No failed publication combines files
+from different generations. Neither staging nor startup implicitly builds or
+cooks. The current native staging implementation accepts Win64 only.
 
 ## Editor Plugin Management
 

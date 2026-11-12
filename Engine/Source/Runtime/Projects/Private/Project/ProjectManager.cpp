@@ -9,6 +9,8 @@
 #include "Misc/FileHelper.h"
 #include "Misc/AppConfig.h"
 #include "Misc/Paths.h"
+#include "Logging/LogMacros.h"
+#include "Json/Json.h"
 
 namespace Durin
 {
@@ -27,6 +29,7 @@ namespace Durin
 			bool bPluginStartupFailed = false;
 			int CompletedPhase = -1;
 			std::vector<FAdmittedPluginBinary> PluginBinaries;
+            std::vector<std::string> PluginDiagnostics;
 		public:
 			auto GetLastError() const -> const std::string& override { return LastError; }
 			auto Fail(std::string Message,std::string* OutReason=nullptr) const -> bool
@@ -70,6 +73,13 @@ namespace Durin
                 if (Active) FMountPaths::SetProjectMountDefinitions(std::move(Additional));
                 ActivePluginResources = std::move(Resources);
                 ActivePluginIds = Selection.Plugins;
+                FJsonDocument Manifest;
+                if (Manifest.Parse(Selection.ManifestJson))
+                {
+                    const auto Inactive=Manifest.GetRootView().GetView("InactivePlugins");
+                    for (size_t I=0;I<Inactive.Num();++I)
+                        PluginDiagnostics.push_back("Plugin "+Inactive.GetView(I).GetView("Id").GetString()+" remains inactive: "+Inactive.GetView(I).GetView("Reason").GetString());
+                }
 				PluginBinaries = std::move(Binaries);
 				bPluginAdmissionFrozen = true;
 				LastError.clear();
@@ -85,6 +95,10 @@ namespace Durin
 				const auto* Context=Durin::GetCurrentProject();
 				const auto FailStartup = [&](std::string Message) { bPluginStartupFailed=true; return Fail(std::move(Message)); };
 				const std::array<std::string_view, 3> Phases{"Providers", "EngineReady", "EditorReady"};
+                // Hosts have initialized logging by Providers. Admission itself
+                // remains quiet for machine-readable offline tool reports.
+                if (Phase==ELoadingPhase::Providers)
+                    for (const auto& Diagnostic:PluginDiagnostics) DURIN_WARN("{}",Diagnostic);
 				for (const auto& Binary : PluginBinaries)
 				{
 					if (Binary.Module.Phase != Phases[Index]) continue;

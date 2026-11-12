@@ -1,6 +1,7 @@
 #include "Plugins/PluginResolution.h"
 #include "Plugins/PluginManagement.h"
 #include "Plugins/PluginResources.h"
+#include "Plugins/PluginCook.h"
 #include "Misc/AppConfig.h"
 #include "Json/Json.h"
 #include "Misc/FileHelper.h"
@@ -14,6 +15,56 @@
 
 namespace
 {
+    TEST(PluginResolutionTests, CookedInventoryBindsDetachedSelectionConfigurationAndMounts)
+    {
+        using namespace Durin;
+        const auto Root=Testing::CreateTestFixtureDirectory("CookedInventory");
+        const auto Save=[&](std::string_view Name,std::string_view Text) {
+            const auto File=Root/Name; std::filesystem::create_directories(File.parent_path());
+            if (!FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Text.data(),Text.size())),File)) throw std::runtime_error("Cannot write cooked fixture");
+        };
+        const std::string Project=R"({"ProjectName":"Game","BaseModules":[],"Plugins":{"Water":true}})";
+        Save("Project/Game.dproject",Project);
+        Save("Project/Configs/Project.yaml","{}"); Save("Project/Configs/DurinGame.yaml","{}");
+        Save("CookManifest.bin","manifest"); Save("Shaders/ShaderLibrary.dslb","library");
+        FJsonDocument Snapshot;
+        const auto ResetSnapshot=[&] {
+            ASSERT_TRUE(Snapshot.Parse(R"({"SchemaVersion":1,"Platform":"Win64","Architecture":"x64","Configuration":"Debug","ToolchainABI":"abi","Project.yaml":"{}","DurinGame.yaml":"{}","Mounts":[{"VirtualRoot":"/Plugins/Water/","CanReference":["/Engine/"]}]})"));
+            Snapshot.GetMutableRoot().SetChildValue("Selection",R"({"SchemaVersion":1,"Platform":"Win64","RuntimeVariant":"DurinGame","Plugins":[{"Id":"Water"}],"Modules":[]})");
+            Snapshot.GetMutableRoot().SetChildValue("ProjectDescriptor",Project);
+        };
+        ResetSnapshot();
+        const FPluginBuildIdentity Host{"host","Win64","x64","Debug","DurinGame","abi"};
+        const auto Inventory=Root/"PluginRuntime.json";
+        const auto Publish=[&](bool ChangedMount=false) {
+            Save("PluginCook.json",Snapshot.ToString());
+            FJsonDocument Document;
+            ASSERT_TRUE(Document.Parse(R"({"SchemaVersion":1,"Identity":{"EngineBuild":"host","Platform":"Win64","Architecture":"x64","Configuration":"Debug","RuntimeVariant":"DurinGame","ToolchainABI":"abi"},"ProjectFile":"Project/Game.dproject","Plugins":["Water"],"Binaries":[],"Mounts":[{"VirtualRoot":"/Plugins/Water/","CanReference":["/Engine/"]}],"ConfigurationFiles":["Project/Configs/Project.yaml","Project/Configs/DurinGame.yaml"]})"));
+            auto Output=Document.GetMutableRoot();
+            if (ChangedMount) Output.GetRef("Mounts").GetRef(0).AddArray("CanReference").AppendValue("/Game/");
+            auto Files=Output.AddArray("Files");
+            for (const auto* Name:{"Project/Game.dproject","Project/Configs/Project.yaml","Project/Configs/DurinGame.yaml","CookManifest.bin","PluginCook.json","Shaders/ShaderLibrary.dslb"})
+            {
+                auto File=Files.AppendObject(); File.SetChildValue("Path",Name); File.SetChildValue("Sha256",PluginFileSha256(Root/Name));
+            }
+            Save("PluginRuntime.json",Document.ToString());
+        };
+        FPluginResolution Selection; std::vector<FAdmittedPluginBinary> Binaries; FPluginResources Resources; std::string Error;
+        const auto Admit=[&] {return ReadPluginRuntimeInventory(Inventory,(Root/"Project/Game.dproject").generic_string(),Host,Selection,Binaries,Resources,Error);};
+        Publish(); ASSERT_TRUE(Admit()) << Error; EXPECT_EQ(Selection.Plugins,(std::vector<std::string>{"Water"}));
+        ASSERT_EQ(Resources.ContentMounts.size(),1); EXPECT_FALSE(Resources.ContentMounts[0].bContentWritable);
+        Publish(true); EXPECT_FALSE(Admit()); EXPECT_NE(Error.find("references differ"),std::string::npos) << Error;
+        // Failed admission preserves the previously usable outputs.
+        EXPECT_EQ(Selection.Plugins,(std::vector<std::string>{"Water"}));
+        Save("Project/Configs/DurinGame.yaml","modified"); Publish(); EXPECT_FALSE(Admit());
+        EXPECT_NE(Error.find("configuration differs"),std::string::npos) << Error;
+        Save("Project/Configs/DurinGame.yaml","{}");
+        Snapshot.GetMutableRoot().SetChildValue("Configuration","Release"); Publish(); EXPECT_FALSE(Admit());
+        EXPECT_NE(Error.find("target identity differs"),std::string::npos) << Error;
+        ResetSnapshot(); Publish(); Save("Shaders/ShaderLibrary.dslb","corrupt"); EXPECT_FALSE(Admit());
+        EXPECT_NE(Error.find("modified staged runtime file"),std::string::npos) << Error;
+    }
+
     auto MakePluginManagementFixture(std::string_view Name) -> Durin::FPluginManagementContext
     {
         using namespace Durin;

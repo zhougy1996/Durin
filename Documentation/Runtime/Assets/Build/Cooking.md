@@ -2,7 +2,7 @@
 
 Summary: Define offline Cook inputs, dependency reuse, typed failures, and transactional output publication.
 
-Last reviewed: 2026-11-10
+Last reviewed: 2026-11-13
 
 ## Coordinator and input ownership
 
@@ -41,6 +41,18 @@ Win64/Game and MacOS/Game Cook with retained runtime packages also supply `Shade
 validated by its producer, staged and committed with package outputs, and
 recorded in CMNF. Failure at its stage or commit participates in the same
 reverse-order rollback; it is never published beside the Cook transaction.
+
+Tool-hosted Game Cook also captures the effective Game plugin selection, target,
+mount permissions and runtime defaults before discovery. Its detached
+`PluginCook.json` is a `PluginSnapshot` CMNF auxiliary output in that same
+transaction. Plugin assets follow ordinary retained references and Primary Asset
+policy; there is no additional plugin root list. Native plugin programs join the
+existing runtime Shader inventory and project library, even without retained
+material assets. The tool publishes this library even for an empty asset set.
+Cook preflight registry failures preserve the JSON report contract and include
+registry errors and checked-but-blocked plugin dependency reasons.
+The [deployment contract](../../../Workspace/Plugins.md#cooked-game-deployment)
+owns native/configuration staging and detached startup admission.
 
 ShaderBuild accepts `FShaderCompileOptions::SourceArtifacts` for a fixed input
 session. `FShaderSourceArtifacts` copies caller buffers and exposes only const

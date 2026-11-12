@@ -39,6 +39,7 @@
 #include "Interfaces/IProjectManager.h"
 #include "Plugins/PluginResources.h"
 #include "Plugins/PluginCook.h"
+#include "Plugins/PluginManagement.h"
 #include "Misc/AppConfig.h"
 #include "Misc/TargetIdentity.h"
 #include "Modules/ModuleManager.h"
@@ -849,7 +850,26 @@ namespace
 		);
 		if (!Refresh || !Refresh.bPublished)
 		{
-			std::cerr << "Error: Cook requires a complete published asset registry.\n";
+            std::string Diagnostic="Cook requires a complete published asset registry.";
+            for (const auto& Failure:Refresh.Errors) Diagnostic+=" "+FormatAssetRegistryError(Failure);
+            FPluginManagementContext Context; std::string Reason;
+            if (MakePluginManagementContext(Context,Reason))
+                if (const auto Selection=ResolvePlugins(Context.Request); Selection)
+                {
+                    FJsonDocument Manifest;
+                    if (Manifest.Parse(Selection->ManifestJson))
+                    {
+                        const auto Inactive=Manifest.GetRootView().GetView("InactivePlugins");
+                        for (size_t I=0;I<Inactive.Num();++I)
+                            Diagnostic+=" Plugin "+Inactive.GetView(I).GetView("Id").GetString()+": "+Inactive.GetView(I).GetView("Reason").GetString()+".";
+                    }
+                }
+            FCookRunResult Result;
+            Result.TargetPlatform=ParseTargetPlatform(Options.Target).value(); Result.TargetProfile=ECookTargetProfile::Game;
+            Result.Error=ECookRunError::InputFailed;
+            Result.InputFailure={ECookInputStatus::InvalidDependency,std::move(Diagnostic)};
+            if (Options.Format==EOutputFormat::Json) std::cout<<SerializeCookRunResult(Result)<<'\n';
+            else std::cerr<<"Error: "<<FormatCookRunError(Result)<<'\n';
 			return 1;
 		}
 		FCookCoordinator Coordinator;
@@ -957,8 +977,8 @@ int main(int ArgC, char** ArgV)
 	if (Options.Operation != EOperation::Cook)
 	{
 		Durin::LoggerInit();
-		Durin::FLogger::Get().SetConsoleLogLevel(Durin::ELogLevel::Fatal);
 	}
+    Durin::FLogger::Get().SetConsoleLogLevel(Durin::ELogLevel::Fatal);
     if (!Durin::IProjectManager::Get().PreparePluginStartup())
     {
         std::cerr << "Error: " << Durin::IProjectManager::Get().GetLastError() << '\n';

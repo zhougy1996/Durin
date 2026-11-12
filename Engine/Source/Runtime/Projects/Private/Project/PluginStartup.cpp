@@ -11,7 +11,6 @@
 #include "Misc/FileHelper.h"
 #include "ProjectDescriptor.h"
 #include "OrdinaryModules.gen.h"
-#include "Logging/LogMacros.h"
 #if defined(_WIN32)
 #include <bcrypt.h>
 #elif defined(__APPLE__)
@@ -201,13 +200,6 @@ namespace Durin
 			}
 			auto Selected = ResolvePlugins(Request);
 			if (!Selected) { OutReason = Selected.error(); return false; }
-            FJsonDocument SelectionManifest;
-            if (SelectionManifest.Parse(Selected->ManifestJson))
-            {
-                const auto Inactive = SelectionManifest.GetRootView().GetView("InactivePlugins");
-                for (size_t I = 0; I < Inactive.Num(); ++I)
-                    DURIN_WARN("Plugin {} remains inactive: {}", Inactive.GetView(I).GetView("Id").GetString(), Inactive.GetView(I).GetView("Reason").GetString());
-            }
 			std::vector<FAdmittedPluginBinary> Binaries;
 			if (!ProjectFile.empty() && !Selected->Plugins.empty())
 			{

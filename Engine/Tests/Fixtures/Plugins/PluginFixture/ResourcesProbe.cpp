@@ -9,6 +9,8 @@
 #include "DObject/Class.h"
 #include "DObject/Package.h"
 #include "DObject/Object.h"
+#include "DObject/Property.h"
+#include "DObject/ObjectPtr.h"
 #include "Asset/Load.h"
 #include "Asset/PackageSerialization.h"
 #include "AssetRegistry/Scan.h"
@@ -17,7 +19,6 @@
 #include "Shader/IShaderBuildModule.h"
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
-#include <iostream>
 
 int main(int Argc, char** Argv)
 {
@@ -34,6 +35,8 @@ int main(int Argc, char** Argv)
     if (!InitializeAssetRuntime()) return 6;
     DObjectInit();
     if (!Manager.LoadModulesForProject() || !Manager.LoadModulesForProject(ELoadingPhase::EngineReady))
+    { std::cerr << Manager.GetLastError(); return 7; }
+    if (Mode=="seed-editor" && !Manager.LoadModulesForProject(ELoadingPhase::EditorReady))
     { std::cerr << Manager.GetLastError(); return 7; }
     const auto Finish = [&](int Code) { ShutdownAssetRuntime(); Modules.ShutdownModulesAtExit(); return Code; };
     FYamlDocument Config;
@@ -63,14 +66,43 @@ int main(int Argc, char** Argv)
         || FMountPaths::CheckMountDependency("/Plugins/PluginFixtureRuntime/Test", "/Plugins/PluginFixtureConsumer/Test")) return Finish(16);
     FPackagePath Asset;
     if (!FPackagePath::TryCreate("/Plugins/PluginFixtureRuntime/Asset", Asset)) return Finish(17);
-    if (Mode == "seed")
+    if (Mode == "seed" || Mode == "cook-seed" || Mode == "seed-editor")
     {
         auto* Class = FindClassByQualifiedName("Durin::PluginFixture::DFixtureAsset");
         if (!Class) return Finish(18);
-        for (const auto& Path : {Asset, ProjectAsset})
+        std::vector<FPackagePath> Paths{Asset,ProjectAsset};
+        if (Mode == "cook-seed" || Mode == "seed-editor")
+            for (const auto* Name:{"/Plugins/PluginFixtureRuntime/Explicit","/Plugins/PluginFixtureRuntime/Optional","/Plugins/PluginFixtureContent/ContentAsset","/Plugins/PluginFixtureConsumer/ConsumerAsset"})
+            {
+                FPackagePath Path; if (!FPackagePath::TryCreate(Name,Path)) return Finish(31); Paths.push_back(Path);
+            }
+        if (Mode=="seed-editor")
         {
-            auto* Package = CreatePackage(Path);
-            if (!Package || !NewObject(Class, Package, FName(Path.GetPackageName()), EObjectFlags::Public)) return Finish(19);
+            FPackagePath Path; if (!FPackagePath::TryCreate("/Plugins/PluginFixtureConsumer/EditorOnly",Path)) return Finish(31); Paths.push_back(Path);
+        }
+        std::map<FPackagePath,DObject*> Objects;
+        for (const auto& Path:Paths)
+        {
+            auto* Package=CreatePackage(Path);
+            auto* Type=Path.GetView().starts_with("/Plugins/PluginFixtureConsumer/") ? FindClassByQualifiedName("Durin::PluginFixture::DConsumerAsset") : Class;
+            if (Path.GetView().starts_with("/Plugins/PluginFixtureContent/")) Type=FindClassByQualifiedName("Durin::DPrimaryDataAsset");
+            if (Path.GetPackageName()=="EditorOnly") Type=FindClassByQualifiedName("Durin::PluginFixture::DEditorFixtureAsset");
+            auto* Object=Package && Type ? NewObject(Type,Package,FName(Path.GetPackageName()),EObjectFlags::Public) : nullptr;
+            if (!Object) return Finish(19);
+            Objects.emplace(Path,Object);
+        }
+        if (Mode == "cook-seed" || Mode == "seed-editor")
+        {
+            auto* Reference=Class->FindPropertyByName(FName("Reference"));
+            if (!Reference) return Finish(32);
+            auto* Consumer=Objects.at(Paths[5]);
+            *Reference->ContainerPtrToValuePtr<TObjectPtr<DObject>>(Objects.at(ProjectAsset))=Consumer;
+            *Reference->ContainerPtrToValuePtr<TObjectPtr<DObject>>(Consumer)=Objects.at(Asset);
+            if (Mode=="seed-editor") *Reference->ContainerPtrToValuePtr<TObjectPtr<DObject>>(Objects.at(ProjectAsset))=Objects.at(Paths.back());
+        }
+        for (const auto& Path : Paths)
+        {
+            auto* Package = Objects.at(Path)->GetPackage();
             FByteBuffer Bytes;
             const auto Encoded = SerializeAssetPackageBytes(Package, Bytes);
             if (!Encoded) { std::cerr << Encoded.Message; return Finish(20); }

@@ -243,6 +243,31 @@ are preserved even when the child exits nonzero; cancellation returns 130,
 ordinary Cook failure returns 1, and success returns 0. The child process uses
 the standard heartbeat, interruption, and command-log policy.
 
+## Game Staging
+
+`stage` publishes a complete Win64 Game from an existing Cook generation and
+matching Game build, without implicitly building or cooking:
+
+```powershell
+.\DevTool.bat stage --project Sandbox/Sandbox.dproject --cook-dir Saved/Cooked --output-dir Build/StagedGame
+```
+
+`--project`, `--cook-dir` and `--output-dir` are required; relative paths resolve
+from the checkout. The selected profile/preset hosts the read-only native Cook
+preflight. The Game preset is inferred from that profile's matching configuration;
+use `--game-preset` when it is ambiguous. `--format json` returns the staged
+runtime path, project file, effective plugin IDs and copied-file count.
+
+Run the generated `RunGame.bat`, or pass the staged project explicitly to the
+staged executable. The whole output directory can move together. Startup uses
+its frozen runtime/Cook inventories and rejects missing or modified required
+files; source directories and development caches are unnecessary. A changed
+selection requires recooking before staging, while compatible native build
+inventories can be reused. Failed publication restores the previous generation;
+an unavailable rollback leaves a backup with a reported recovery path.
+See [cooked plugin deployment](../../Workspace/Plugins.md#cooked-game-deployment)
+for inventory, dependency and configuration ownership.
+
 ## Offline Local Cache Maintenance
 
 Build `DurinCacheTool` with `build DurinCacheTool`, then run an explicit-root command:

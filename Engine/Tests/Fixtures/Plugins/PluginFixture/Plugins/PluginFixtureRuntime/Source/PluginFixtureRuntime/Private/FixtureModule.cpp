@@ -1,7 +1,14 @@
 #include "Modules/ModuleManager.h"
 #include "Misc/AppConfig.h"
+#include "Shader/Shader.h"
+#include "Shader/ShaderCookedLibrary.h"
 namespace Durin
 {
+    // A native-only program: no material asset can retain this declaration.
+    static FShaderType FixtureShader("PluginFixtureVertex", "/Plugins/PluginFixtureRuntime/Fixture",
+        EShaderFrequency::Vertex, "VertexMain");
+    static FShaderProgramRegistration FixtureProgram("PluginFixtureRuntime", "PluginFixtureProgram",
+        EShaderRequestEligibility::GameAndEditor, {&FixtureShader});
 	class FPluginFixtureRuntimeModule final : public IModuleInterface
 	{
 		auto Record(std::string_view Event) -> void

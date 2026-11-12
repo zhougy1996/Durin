@@ -40,6 +40,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | Adding, classifying, registering, or changing native-test targets | [Native test authoring](Development/Build/NativeTestAuthoring.md) |
 | Workspace, project, module, or runtime-variant ownership | [Workspace projects](Workspace/WorkspaceProjects.md) |
 | Plugin descriptors, project enablement overrides, discovery, or dependency resolution | [Plugin metadata and selection](Workspace/Plugins.md) |
+| Change project plugins in the editor, save next-start choices, or restart | [Plugin workflow](Editor/Guides/Plugins.md) |
 | Runtime physical paths or atomic byte publication | [File I/O](Runtime/Core/FileIO.md) |
 | Native dynamic libraries, loader diagnostics, reference lifetime, or Unicode library paths | [Platform libraries](Runtime/Core/PlatformLibraries.md) |
 | Child process arguments, working directories, or environment overrides | [Platform processes](Runtime/Core/PlatformProcesses.md) |
