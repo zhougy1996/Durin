@@ -1,3 +1,5 @@
+#include "Interfaces/IProjectManager.h"
+#include "TickableEditorObject.h"
 #include "Editor/EditorEngineTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "Editor/EditorSubsystem.h"
@@ -883,6 +885,8 @@ namespace
 	{
 		FWorkspaceProjectTestScope Project;
 		auto* Host = NewHost();
+		ASSERT_TRUE(IProjectManager::Get().LoadModulesForProject(ELoadingPhase::Providers));
+		ASSERT_TRUE(IProjectManager::Get().LoadModulesForProject(ELoadingPhase::EngineReady));
 		const FName Name("WorkspaceStartupProviderTest");
 		std::vector<std::string> Events;
 		FDynamicEditorA::Init = [&](auto&) { Events.emplace_back("service"); return; };
@@ -910,6 +914,8 @@ namespace
 	TEST_F(FEditorSubsystemTests, WorkspaceStartupPropagatesModuleAndServiceFailuresBeforeCreatingConsumers)
 	{
 		auto* Host = NewHost();
+		ASSERT_TRUE(IProjectManager::Get().LoadModulesForProject(ELoadingPhase::Providers));
+		ASSERT_TRUE(IProjectManager::Get().LoadModulesForProject(ELoadingPhase::EngineReady));
 		FWorkspaceStartupFrame Frame;
 		Frame.CreateWorkspace = [] { ADD_FAILURE() << "Failed providers must not expose workspace consumers."; };
 		Frame.LoadModules = [] { return false; };
@@ -1090,4 +1096,45 @@ TEST_F(FEditorSubsystemTests, FailedLateAssetEditorInitializationRetainsExisting
 	EXPECT_EQ(FFailingAssetEditorSubsystem::CleanupCalls, 1);
 	EXPECT_EQ(Host->GetEditorSubsystem<FFailingAssetEditorSubsystem>(), nullptr);
 	EXPECT_EQ(Host->GetEditorSubsystem<FDynamicEditorA>(), Existing);
+}
+
+namespace
+{
+	class FEditorTickCounter final : public Durin::FTickableEditorObject
+	{
+	public:
+		explicit FEditorTickCounter(Durin::DEditorEngine& InOwner) : Owner(InOwner) {}
+		auto GetTickableEditor() const -> Durin::DEditorEngine* override { return &Owner; }
+		auto Tick(float) noexcept -> void override { ++Count; if (Callback) Callback(); }
+		Durin::DEditorEngine& Owner;
+		int Count = 0;
+		std::function<void()> Callback;
+	};
+}
+TEST_F(FEditorSubsystemTests, EditorTickablesRunWithoutWorldsAndRemainIsolatedByOwner)
+{
+	auto* First = NewHost();
+	auto* Second = NewObject<DEditorEngine>(nullptr, {}); Hosts.emplace_back(Second);
+	FEditorTickCounter A(*First), B(*Second);
+	FEditorEngineTestAccess::SetStartupState(*First, EHostStartupState::Ready);
+	ASSERT_EQ(nullptr, First->GetWorld());
+	First->Tick(0.01f, false);
+	EXPECT_EQ(1, A.Count); EXPECT_EQ(0, B.Count);
+	FTickableEditorObject::TickObjects(*Second, 0.01f);
+	EXPECT_EQ(1, A.Count); EXPECT_EQ(1, B.Count);
+	First->PreExit();
+	First->Tick(0.01f, false);
+	EXPECT_EQ(1, A.Count);
+}
+TEST_F(FEditorSubsystemTests, EditorTickablesRespectRemovalAndDeferNewRegistrationsDuringDispatch)
+{
+	auto* Host = NewHost();
+	FEditorTickCounter First(*Host);
+	auto Removed = std::make_unique<FEditorTickCounter>(*Host);
+	std::unique_ptr<FEditorTickCounter> Added;
+	First.Callback = [&] { Removed.reset(); if (!Added) Added = std::make_unique<FEditorTickCounter>(*Host); };
+	FTickableEditorObject::TickObjects(*Host, 0.0f);
+	ASSERT_NE(nullptr, Added); EXPECT_EQ(0, Added->Count);
+	FTickableEditorObject::TickObjects(*Host, 0.0f);
+	EXPECT_EQ(2, First.Count); EXPECT_EQ(1, Added->Count);
 }

@@ -18,21 +18,21 @@ namespace Durin::ContentBrowser::Private
 			return {};
 		if (!bServiceBound)
 			return StandaloneSources;
-		auto* Service = Host.DataSubsystem.Get();
-		(void)Service->GetRevision();
-		return Service->Active;
+		auto* DataService = Service.Get();
+		(void)DataService->GetRevision();
+		return DataService->Active;
 	}
 	auto FContentBrowserDataQuery::OwnsSource(const DContentBrowserDataSource* Source) const -> bool
 	{
 		if (!IsAcceptingRequests() || !Source || !Source->IsActive())
 			return false;
 		if (bServiceBound)
-			return Host.DataSubsystem.Get()->GetActiveDataSource(Source->GetDataSourceName()) == Source;
+			return Service.Get()->GetActiveDataSource(Source->GetDataSourceName()) == Source;
 		return std::ranges::any_of(StandaloneSources, [&](const auto& Entry) { return Entry.Get() == Source; });
 	}
 	auto FContentBrowserDataQuery::IsAcceptingRequests() const -> bool
 	{
-		return bAccepting && (!bServiceBound || (Host.DataSubsystem.Get() && Host.DataSubsystem.Get()->IsActive()));
+		return bAccepting && (!bServiceBound || (Service.Get() && Service.Get()->IsActive()));
 	}
 	auto FContentBrowserDataQuery::PrepareItemsCapture(std::string Virtual, bool Recursive, FEntryStatusQuery Query,
 													   std::shared_ptr<Tasks::FCancellationToken> Cancellation) const -> FItemsCapture
@@ -69,7 +69,7 @@ namespace Durin::ContentBrowser::Private
 						Job.Items.push_back(std::move(Item));
 						return true;
 					},
-					Host);
+					Policy);
 			Jobs.push_back(std::move(Job));
 		}
 		if (!Cancellation)
@@ -138,7 +138,7 @@ namespace Durin::ContentBrowser::Private
 			{
 				auto Item = std::move(Snapshot.Items[Index]);
 				if (Item.InternalItems.empty() || !Item.InternalItems.front().GetOwnerDataSource())
-					Item.InternalItems = {Source->CreateItemData(Item, Host)};
+					Item.InternalItems = {Source->CreateItemData(Item, Policy)};
 				if (!OwnsSource(Source) || Source->GetActivationGeneration()!=Contribution.Generation ||
 					FMountPaths::GetMountRegistryRevision()!=Contribution.MountRevision || FPaths::ProjectFile()!=Contribution.Project)
 				{
@@ -161,7 +161,7 @@ namespace Durin::ContentBrowser::Private
 				{
 					if (!OwnsSource(Source.Get()))
 						continue;
-					auto Data = Source->CreateItemData(Item, Host);
+					auto Data = Source->CreateItemData(Item, Policy);
 					if (Data.GetOwnerDataSource())
 					{
 						Item.InternalItems = {std::move(Data)};
@@ -213,22 +213,15 @@ namespace Durin::ContentBrowser::Private
 									   return Item.IsFolder() && Path == Target;
 								   });
 	}
-	auto FContentBrowserDataQuery::Tick(float DeltaSeconds) -> void
-	{
-		auto* Service = Host.DataSubsystem.Get();
-		if (!IsAcceptingRequests() || !Service || Service->LastBrowserFrame == GFrameCounter)
-			return;
-		Service->LastBrowserFrame = GFrameCounter;
-		Service->Tick(DeltaSeconds);
-	}
 	auto FContentBrowserDataQuery::GetRevision() const -> uint64
 	{
 		FRevision Current;
-		if (auto* Service = Host.DataSubsystem.Get())
-			Current.Service = Service->GetRevision();
 		for (const auto& Source : GetSources())
 			if (OwnsSource(Source.Get()))
 				Current.Sources.push_back({Source.Get(), Source->GetActivationGeneration(), Source->GetDiscoveryRevision()});
+		// Provider revision queries can publish committed metadata events. Capture the
+		// service cursor after those callbacks so the snapshot covers its own baseline.
+		if (auto* DataService = Service.Get()) Current.Service = DataService->GetRevision();
 		if (!Revisions.empty())
 		{
 			const auto& Last = Revisions.rbegin()->second;
@@ -264,15 +257,15 @@ namespace Durin::ContentBrowser::Private
 			if (A.Revision != B.Revision && (!B.Source.Get() || B.Source.Get()->IsDiscoveryPathAffected(A.Revision, Directory, Recursive)))
 				return true;
 		}
-		auto* Service = Host.DataSubsystem.Get();
-		if (!Service || Before.Service == After.Service)
+		auto* DataService = Service.Get();
+		if (!DataService || Before.Service == After.Service)
 			return false;
 		Since = Before.Service;
-		if (Since < Service->SourceRevision)
+		if (Since < DataService->SourceRevision)
 			return true;
-		auto Coverage = Service->PendingUpdates.empty() ? After.Service : Service->PendingFromRevision;
-		if (!Service->PublishedUpdates.empty() && Service->PublishedToRevision >= Coverage)
-			Coverage = Service->PublishedFromRevision;
+		auto Coverage = DataService->PendingUpdates.empty() ? After.Service : DataService->PendingFromRevision;
+		if (!DataService->PublishedUpdates.empty() && DataService->PublishedToRevision >= Coverage)
+			Coverage = DataService->PublishedFromRevision;
 		if (Since < Coverage)
 			return true;
 		auto Affected = [&](const auto& Update)
@@ -290,6 +283,10 @@ namespace Durin::ContentBrowser::Private
 			return Touches(Update.GetItemData().GetVirtualPath()) ||
 				   (!Update.GetPreviousVirtualPath().empty() && Touches(Update.GetPreviousVirtualPath()));
 		};
-		return std::ranges::any_of(Service->PendingUpdates, Affected) || std::ranges::any_of(Service->PublishedUpdates, Affected);
+		for (size_t I = 0; I < DataService->PendingUpdates.size(); ++I)
+			if (DataService->PendingUpdateRevisions[I] > Since && Affected(DataService->PendingUpdates[I])) return true;
+		for (size_t I = 0; I < DataService->PublishedUpdates.size(); ++I)
+			if (DataService->PublishedUpdateRevisions[I] > Since && Affected(DataService->PublishedUpdates[I])) return true;
+		return false;
 	}
 } // namespace Durin::ContentBrowser::Private

@@ -4,7 +4,7 @@ Summary: Define per-editor native services, reflected PIE controls, Actor/Compon
 
 Modules: DurinEd, LevelEditor, MainFrame, DurinPython, DurinMCP, Engine
 
-Last reviewed: 2026-11-11
+Last reviewed: 2026-11-13
 
 ## Host Contract
 
@@ -35,6 +35,17 @@ providing module. Registration and token destruction publish changes for the act
 and later editor lifetimes; instances change only at a host safe point. Dependencies name
 concrete Editor types in the same collection. The host enumerates
 both collections for GC. Runtime Engine has no dependency on DurinEd.
+
+`FTickableEditorObject` supplies opt-in editor ticking independently of Worlds
+and browser presentation. `DEditorEngine::Tick` dispatches it once per admitted
+editor update, before tools/scripts, World and MainFrame work. Each callback names
+its owning editor; other editors' entries and shutdown owners are skipped.
+Conditional, Always and Never policies follow the common tickable base. Dispatch
+captures registration identities: removed entries are skipped, while entries
+created by a callback wait until the next dispatch. Reentrant dispatch is rejected.
+Services retain their own initialized/shutdown admission; no Tick virtual is added
+to every editor subsystem. Browser data uses this contract, and its provider
+bootstrap subsystems initialize through a declared data-service dependency.
 
 Editor Init runs base Init, loads MainFrame plus Python/MCP service providers,
 then initializes currently available Editor services before

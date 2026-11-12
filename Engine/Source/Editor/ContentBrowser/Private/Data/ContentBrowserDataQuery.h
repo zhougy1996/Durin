@@ -7,14 +7,13 @@ namespace Durin::ContentBrowser::Private
 	class FContentBrowserDataQuery
 	{
 	  public:
-		explicit FContentBrowserDataQuery(const FContentBrowserHostContext& InHost) : Host(InHost), bServiceBound(true) {}
+		explicit FContentBrowserDataQuery(TWeakObjectPtr<DContentBrowserDataSubsystem> InService, FContentBrowserOperationContext InPolicy = {}) : Service(InService), Policy(std::move(InPolicy)), bServiceBound(true) {}
 		auto FindSourceKey(FName Name) const -> FObjectKey;
 		auto IsAcceptingRequests() const -> bool;
 		auto StopRequestAdmission() -> void { bAccepting = false; }
 		auto GetRevision() const -> uint64;
 		auto IsAffectedByUpdates(uint64, std::string_view, bool) const -> bool;
 		auto IsProviderDirectory(std::string_view Virtual) const -> bool;
-		auto Tick(float DeltaSeconds) -> void;
 		auto ProjectItems(FContentBrowserItemsSnapshot, std::string_view, bool) const -> FContentBrowserItemsSnapshot;
 		auto ProjectDirectory(FContentBrowserDirectorySnapshot, std::string_view) const -> FContentBrowserDirectorySnapshot;
 		using FItemsCapture = TMoveOnlyFunction<std::unique_ptr<FContentBrowserItemsSnapshot>()>;
@@ -31,7 +30,8 @@ namespace Durin::ContentBrowser::Private
 	  private:
 		auto GetSources() const -> std::vector<TStrongObjectPtr<DContentBrowserDataSource>>;
 		auto OwnsSource(const DContentBrowserDataSource*) const -> bool;
-		FContentBrowserHostContext Host;
+		TWeakObjectPtr<DContentBrowserDataSubsystem> Service;
+		FContentBrowserOperationContext Policy;
 		bool bServiceBound = false, bAccepting = true;
 		struct FSourceRevision
 		{

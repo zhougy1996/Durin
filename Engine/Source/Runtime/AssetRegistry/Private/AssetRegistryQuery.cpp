@@ -25,6 +25,8 @@ namespace Durin
 			std::unordered_map<FObjectKey, FAssetData> Live;
 			std::unordered_set<FPackagePath> LivePackages;
 			FContentChangeJournal Changes;
+			std::vector<FContentChangeBatch> PendingEvents;
+			bool Publishing = false;
 
 			auto Synchronize() -> void
 			{
@@ -117,8 +119,31 @@ namespace Durin
 				LivePackages = std::move(CurrentPackages);
 				// Authored edits that do not alter metadata do not invalidate discovery caches.
 				if (Batch.Changes.empty() && !Batch.bFullRefresh) return;
+				// Disk publication can add/remove bytes while the same live query item
+				// remains visible. Describe the query row transition, not a duplicate add.
+				for (auto& Change : Batch.Changes)
+				{
+					FTopLevelAssetPath Path;
+					if (Change.Kind == EContentChangeKind::Added && FTopLevelAssetPath::TryCreate(Change.NewAssetPath, Path) && Snapshot.FindAssetExact(Path))
+						Change.Kind = EContentChangeKind::Modified;
+					else if (Change.Kind == EContentChangeKind::Removed && FTopLevelAssetPath::TryCreate(Change.OldAssetPath, Path) && Next.FindAssetExact(Path))
+					{
+						Change.Kind = EContentChangeKind::Modified; Change.NewPhysicalPath = std::exchange(Change.OldPhysicalPath, {}); Change.NewAssetPath = std::exchange(Change.OldAssetPath, {});
+					}
+				}
 				Snapshot = std::move(Next);
-				Changes.Append(std::move(Batch));
+				Changes.Append(Batch);
+				PendingEvents.push_back(std::move(Batch));
+				if (!Publishing)
+				{
+					Publishing = true;
+					struct FGuard { bool& Flag; ~FGuard() { Flag = false; } } Guard{Publishing};
+					while (!PendingEvents.empty())
+					{
+						auto Event = std::move(PendingEvents.front()); PendingEvents.erase(PendingEvents.begin());
+						OnAssetQueryChanged().Broadcast(Event);
+					}
+				}
 			}
 		};
 
@@ -129,6 +154,8 @@ namespace Durin
 			return State;
 		}
 	}
+
+	auto OnAssetQueryChanged() -> TMulticastDelegate<void(const FContentChangeBatch&)>& { static TMulticastDelegate<void(const FContentChangeBatch&)> Event; return Event; }
 
 	auto CaptureAssetQuerySnapshot(EAssetQuerySource Source) -> FAssetQuerySnapshot
 	{

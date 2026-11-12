@@ -129,11 +129,10 @@ namespace Durin::ContentBrowser::Private
 			bRefreshItemsOnFirstDraw = false;
 		}
 		if (!ImGui::GetCurrentContext() || !ImGui::GetDragDropPayload()) DragSnapshot.reset();
-		DataQuery.Tick(ImGui::GetCurrentContext() ? ImGui::GetIO().DeltaTime : 0.0f);
 		SynchronizeMountedContentMutation();
 		RefreshMountSnapshot();
 		Model.RefreshRequestedDirectoryChildrenSnapshots();
-		if (Model.PumpPendingSnapshots()) RepairSelection();
+		if (Model.PumpPendingSnapshots() || bSelectionRepairDeferred) RepairSelection();
 		CompletePendingItemAction();
 	}
 
@@ -449,7 +448,7 @@ namespace Durin::ContentBrowser::Private
 		bRenameEditorHovered = false;
 		if (PendingFolder)
 		{
-			const auto Item = PendingFolder->Context.GetItem();
+			const FContentBrowserItem Item{.InternalItems = {PendingFolder->Context.GetItemData()}};
 			ImGui::PushID("TemporaryFolder");
 			ImGui::TextUnformatted(Icons::Folder);
 			ImGui::SameLine();

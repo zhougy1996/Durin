@@ -1,3 +1,4 @@
+#include "TickableEditorObject.h"
 #include "Tickable.h"
 #include "Editor/EditorEngine.h"
 #include "ShaderPipelineCache.h"
@@ -233,6 +234,9 @@ namespace Durin
 	{
 		if (bShutdownRequested || !std::isfinite(DeltaSeconds) || DeltaSeconds < 0.0f) return;
 		if (!GetCapabilities().bTick) return;
+
+		FTickableEditorObject::TickObjects(*this, DeltaSeconds);
+		if (bShutdownRequested) return;
 
 		if (auto* Tools = GetCapabilities().bRunTools ? GetEditorSubsystem<DEditorToolSubsystem>() : nullptr)
 		{

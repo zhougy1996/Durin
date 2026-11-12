@@ -144,6 +144,8 @@ namespace Durin
 	// All/InMemory queries and the unified change stream belong to GameThread.
 	ASSETREGISTRY_API auto CaptureAssetQuerySnapshot(EAssetQuerySource Source = EAssetQuerySource::All) -> FAssetQuerySnapshot;
 	ASSETREGISTRY_API auto GetAssetQueryRevision() -> uint64;
+	// Owner-thread metadata events; callbacks observe the already committed query snapshot.
+	ASSETREGISTRY_API auto OnAssetQueryChanged() -> TMulticastDelegate<void(const FContentChangeBatch&)>&;
 	ASSETREGISTRY_API auto CaptureAssetQueryChanges(uint64 FromRevision) -> FContentChangeBatch;
 
 	// Owns a revision-consistent projection containing only one asset and its

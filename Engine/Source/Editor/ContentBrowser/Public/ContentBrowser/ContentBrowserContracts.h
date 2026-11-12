@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "ContentBrowserOperationContext.h"
 
 #include "DObject/AssetPath.h"
 #include "DObject/WeakObjectPtr.h"
@@ -216,6 +217,12 @@ namespace Durin::ContentBrowser
 		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditors;
 		TWeakObjectPtr<DContentBrowserDataSubsystem> DataSubsystem;
 		std::function<void(ELogLevel, std::string_view)> ReportDiagnostic;
+		operator FContentBrowserOperationContext() const
+		{
+			return {.OpenAsset = OpenAsset, .NotifyMountedContentMutation = NotifyMountedContentMutation,
+				.NotifyScopedContentMutation = NotifyScopedContentMutation, .CanMutateContent = CanMutateContent,
+				.AssetEditors = AssetEditors, .ReportDiagnostic = ReportDiagnostic};
+		}
 	};
 
 	// Exposes host-level browser requests without leaking models or UI types.

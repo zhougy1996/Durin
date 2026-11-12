@@ -5,6 +5,7 @@
 namespace Durin
 {
 	using namespace ContentBrowser;
+	auto DContentBrowserDataSource::OnDataSourceMembershipChanged() -> TMulticastDelegate<void()>& { static TMulticastDelegate<void()> Event; return Event; }
 	DContentBrowserDataSource::DContentBrowserDataSource(const FObjectInitializer& I)
 		: Super(I)
 	{
@@ -31,15 +32,19 @@ namespace Durin
 			Registration = FModularFeatureRegistry::Get().RegisterFeature<DContentBrowserDataSource>(*this);
 			RegistrationRoot = std::move(KeepAlive);
 			++Generation;
+			OnDataSourceMembershipChanged().Broadcast();
 		}
 	}
 	auto DContentBrowserDataSource::UnregisterDataSource() -> void
 	{
 		CheckGameThread();
 		requiref(!FModularFeatureRegistry::Get().IsDispatching(), "Data source withdrawal requires a modular-feature safe point.");
+		FStrongObjectPtr KeepAlive(Registration.IsValid() ? this : nullptr);
+		const bool Registered = Registration.IsValid();
 		SetDataSink(nullptr);
 		Registration.Reset();
 		RegistrationRoot.Reset();
+		if (Registered) OnDataSourceMembershipChanged().Broadcast();
 	}
 	auto DContentBrowserDataSource::Shutdown() -> void
 	{
@@ -67,9 +72,9 @@ namespace Durin
 		if (IsActive() && Update.GetItemData().GetOwnerDataSource() == this) DataSink->QueueItemDataUpdate(std::move(Update));
 	}
 	auto DContentBrowserDataSource::CompileFilter(std::string_view Path, const FContentBrowserDataFilter& Filter, FContentBrowserDataCompiledFilter& Out) const -> void { Out.Path = std::string(Path); Out.Filter = Filter; Out.CompiledFilters[this] = {GetActivationGeneration(), FMountPaths::GetMountRegistryRevision(), GetDiscoveryRevision(), {}}; }
-	auto DContentBrowserDataSource::EnumerateItemsMatchingFilter(const FContentBrowserDataCompiledFilter&, const std::function<bool(FContentBrowserItem&&)>&, const FContentBrowserHostContext&) -> void {}
-	auto DContentBrowserDataSource::CreateItemData(const FContentBrowserItem&, const FContentBrowserHostContext&) -> FContentBrowserItemData { return {}; }
-	auto DContentBrowserDataSource::EnumerateItemsAtPath(std::string_view Path, const std::function<bool(FContentBrowserItem&&)>& Callback, const FContentBrowserHostContext& Host) -> void
+	auto DContentBrowserDataSource::EnumerateItemsMatchingFilter(const FContentBrowserDataCompiledFilter&, const std::function<bool(FContentBrowserItem&&)>&, const FContentBrowserOperationContext&) -> void {}
+	auto DContentBrowserDataSource::CreateItemData(const FContentBrowserItem&, const FContentBrowserOperationContext&) -> FContentBrowserItemData { return {}; }
+	auto DContentBrowserDataSource::EnumerateItemsAtPath(std::string_view Path, const std::function<bool(FContentBrowserItem&&)>& Callback, const FContentBrowserOperationContext& Host) -> void
 	{
 		std::string Target(Path);
 		while (Target.size() > 1 && Target.back() == '/')
@@ -81,10 +86,6 @@ namespace Durin
 		EnumerateItemsMatchingFilter(Compiled, [&](FContentBrowserItem&& Item) {
    std::string Candidate = Item.GetVirtualPath(); while (Candidate.size() > 1 && Candidate.back() == '/') Candidate.pop_back();
    return Candidate != Target || Callback(std::move(Item)); }, Host);
-	}
-	auto DContentBrowserDataSource::AreItemsEquivalentForOperations(const FContentBrowserItemData& A, const FContentBrowserItemData& B) const -> bool
-	{
-		return A.GetOwnerDataSource() == this && B.GetOwnerDataSource() == this && A.GetContributionKey() == B.GetContributionKey();
 	}
 
 	auto DContentBrowserDataSource::GetItemAttribute(const FContentBrowserItemData&, bool, std::string_view,
@@ -108,21 +109,60 @@ namespace Durin
 	auto DContentBrowserDataSource::CanEditItem(const FContentBrowserItemData&, std::string*) const -> bool { return false; }
 	auto DContentBrowserDataSource::EditItem(const FContentBrowserItemData&) -> bool { return false; }
 	auto DContentBrowserDataSource::CanDuplicateItem(const FContentBrowserItemData&, std::string*) const -> bool { return false; }
-	auto DContentBrowserDataSource::DuplicateItem(const FContentBrowserItemData&, FContentBrowserItem&) -> bool { return false; }
+	auto DContentBrowserDataSource::DuplicateItem(const FContentBrowserItemData&, FContentBrowserItemData&) -> bool { return false; }
 	auto DContentBrowserDataSource::CanCreateFolder(std::string_view, std::string*) const -> bool { return false; }
-	auto DContentBrowserDataSource::CreateFolder(std::string_view, FContentBrowserItemDataTemporaryContext&, const FContentBrowserHostContext&) -> bool { return false; }
+	auto DContentBrowserDataSource::CreateFolder(std::string_view, FContentBrowserItemDataTemporaryContext&, const FContentBrowserOperationContext&) -> bool { return false; }
 
 	auto DContentBrowserDataSource::CanSaveItem(const FContentBrowserItemData&, EContentBrowserItemSaveFlags, std::string*) const -> bool { return false; }
-	auto DContentBrowserDataSource::BulkSaveItems(std::span<const FContentBrowserItemData>, EContentBrowserItemSaveFlags) -> bool { return false; }
+	auto DContentBrowserDataSource::BulkSaveItems(std::span<const FContentBrowserItemData> Items, EContentBrowserItemSaveFlags) -> ContentBrowser::FContentBrowserOperationResult
+	{
+		FContentBrowserOperationResult Result;
+		for (const auto& Item : Items) Result.Add(Item.GetContributionKey(), EContentBrowserEffectStatus::Failed, "This source does not support saving.");
+		return Result;
+	}
 	auto DContentBrowserDataSource::CanRenameItem(const FContentBrowserItemData&, std::string_view, std::string*) const -> bool { return false; }
-	auto DContentBrowserDataSource::RenameItem(const FContentBrowserItemData&, std::string_view, FContentBrowserItem&) -> bool { return false; }
+	auto DContentBrowserDataSource::PrepareRenameItem(const FContentBrowserItemData&, std::string_view) -> std::unique_ptr<FContentBrowserItemDataTransferContext> { return {}; }
+	auto DContentBrowserDataSource::RenameItem(const FContentBrowserItemData& Item, std::string_view Name, FContentBrowserItemData& Out) -> FContentBrowserOperationResult
+	{
+		TStrongObjectPtr<DContentBrowserDataSource> Lifetime(this);
+		const auto Captured = Item;
+		auto Context = PrepareRenameItem(Captured, Name);
+		Out = {};
+		if (!Context) { FContentBrowserOperationResult Result; Result.Add(Captured.GetContributionKey(), EContentBrowserEffectStatus::Failed, "The source does not support renaming."); return Result; }
+		const auto Result = Context->Execute();
+		Out = Context->GetResultItemData();
+		return Result;
+	}
+
 	auto DContentBrowserDataSource::CanCopyItem(const FContentBrowserItemData&, std::string_view, std::string*) const -> bool { return false; }
-	auto DContentBrowserDataSource::BulkCopyItems(std::span<const FContentBrowserItemData>, std::string_view) -> bool { return false; }
+	auto DContentBrowserDataSource::PrepareCopyItems(std::span<const FContentBrowserItemData>, std::string_view) -> std::unique_ptr<FContentBrowserItemDataTransferContext> { return {}; }
+	auto DContentBrowserDataSource::BulkCopyItems(std::span<const FContentBrowserItemData> Items, std::string_view Destination) -> FContentBrowserOperationResult
+	{
+		TStrongObjectPtr<DContentBrowserDataSource> Lifetime(this);
+		const std::vector<FContentBrowserItemData> Snapshot(Items.begin(), Items.end());
+		Items = Snapshot;
+		auto Context = PrepareCopyItems(Items, Destination);
+		if (Context) return Context->Execute();
+		FContentBrowserOperationResult Result;
+		for (const auto& Item : Items) Result.Add(Item.GetContributionKey(), EContentBrowserEffectStatus::Failed, "The source does not support this transfer.");
+		return Result;
+	}
 	auto DContentBrowserDataSource::CanMoveItem(const FContentBrowserItemData&, std::string_view, std::string*) const -> bool { return false; }
-	auto DContentBrowserDataSource::BulkMoveItems(std::span<const FContentBrowserItemData>, std::string_view) -> bool { return false; }
+	auto DContentBrowserDataSource::PrepareMoveItems(std::span<const FContentBrowserItemData>, std::string_view) -> std::unique_ptr<FContentBrowserItemDataTransferContext> { return {}; }
+	auto DContentBrowserDataSource::BulkMoveItems(std::span<const FContentBrowserItemData> Items, std::string_view Destination) -> FContentBrowserOperationResult
+	{
+		TStrongObjectPtr<DContentBrowserDataSource> Lifetime(this);
+		const std::vector<FContentBrowserItemData> Snapshot(Items.begin(), Items.end());
+		Items = Snapshot;
+		auto Context = PrepareMoveItems(Items, Destination);
+		if (Context) return Context->Execute();
+		FContentBrowserOperationResult Result;
+		for (const auto& Item : Items) Result.Add(Item.GetContributionKey(), EContentBrowserEffectStatus::Failed, "The source does not support this transfer.");
+		return Result;
+	}
 	auto DContentBrowserDataSource::CanDeleteItem(const FContentBrowserItemData&, std::string*) const -> bool { return false; }
 	auto DContentBrowserDataSource::PrepareDeleteItems(std::span<const FContentBrowserItemData>) -> FContentBrowserDeleteContext { return {}; }
-	auto DContentBrowserDataSource::BulkDeleteItems(std::span<const FContentBrowserItemData>, FContentBrowserDeleteContext&) -> bool { return false; }
+	auto DContentBrowserDataSource::BulkDeleteItems(std::span<const FContentBrowserItemData>, FContentBrowserDeleteContext&) -> ContentBrowser::FContentBrowserOperationResult { return {}; }
 } // namespace Durin
 namespace Durin::ContentBrowser
 {

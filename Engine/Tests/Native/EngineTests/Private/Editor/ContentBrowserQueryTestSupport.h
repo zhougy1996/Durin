@@ -41,6 +41,16 @@ namespace Durin::ContentBrowser::Private
 			Source.Initialize();
 			Source.SetDataSink(this);
 		}
+		auto BindContributionsForTesting(const FContentBrowserNativeItem& Description, const FContentBrowserOperationContext& Host) -> FContentBrowserItem
+		{
+			FContentBrowserItem Result;
+			for (const auto& Source : StandaloneSources)
+			{
+				auto Data = Source->CreateItemData(MakeNativeItem(Description, Cast<DContentBrowserAssetDataSource>(Source.Get()) != nullptr), Host);
+				if (Data.GetOwnerDataSource()) Result.InternalItems.push_back(std::move(Data));
+			}
+			return Result;
+		}
 		~FNativeContentBrowserTestQuery()
 		{
 			for (const auto& Source : StandaloneSources)
@@ -108,7 +118,7 @@ namespace Durin
 		}
 		auto GetDataSourceName() const -> FName override { return FName("Memory"); }
 		auto GetDiscoveryRevision() const -> uint64 override { return Revision; }
-		auto CreateItemData(const ContentBrowser::FContentBrowserItem& Item, const ContentBrowser::FContentBrowserHostContext& = {})
+		auto CreateItemData(const ContentBrowser::FContentBrowserItem& Item, const ContentBrowser::FContentBrowserOperationContext& = {})
 			-> ContentBrowser::FContentBrowserItemData override
 		{
 			if (auto Callback = std::exchange(BeforeBind, {}))
@@ -117,7 +127,7 @@ namespace Durin
 		}
 		auto EnumerateItemsMatchingFilter(const ContentBrowser::FContentBrowserDataCompiledFilter& Filter,
 										  const std::function<bool(ContentBrowser::FContentBrowserItem&&)>& Callback,
-										  const ContentBrowser::FContentBrowserHostContext&) -> void override
+										  const ContentBrowser::FContentBrowserOperationContext&) -> void override
 		{
 			CheckGameThread();
 			auto Scope = std::filesystem::path(Filter.Path).lexically_normal().generic_string();
@@ -141,11 +151,23 @@ namespace Durin
 		{
 			return Item.GetOwnerDataSource() == this;
 		}
-		auto BulkCopyItems(std::span<const ContentBrowser::FContentBrowserItemData>, std::string_view) -> bool override
+		auto BulkCopyItems(std::span<const ContentBrowser::FContentBrowserItemData> Items, std::string_view) -> ContentBrowser::FContentBrowserOperationResult override
 		{
 			++Copies;
-			return true;
+			ContentBrowser::FContentBrowserOperationResult Result;
+			for (const auto& Item : Items) Result.Add(Item.GetContributionKey(), ContentBrowser::EContentBrowserEffectStatus::Committed);
+			return Result;
 		}
+		auto PrepareCopyItems(std::span<const ContentBrowser::FContentBrowserItemData> Items, std::string_view Destination) -> std::unique_ptr<ContentBrowser::FContentBrowserItemDataTransferContext> override
+		{
+			std::vector<ContentBrowser::FContentBrowserItemData> Captured(Items.begin(), Items.end());
+			std::vector<ContentBrowser::FContentBrowserItemContributionKey> Keys;
+			for (const auto& Item : Captured) Keys.push_back(Item.GetContributionKey());
+			return std::make_unique<ContentBrowser::FContentBrowserItemDataTransferContext>(std::move(Keys), std::vector<ContentBrowser::FContentBrowserTransferDestination>{},
+				[this, Captured, Destination = std::string(Destination)](std::string*) { return std::ranges::all_of(Captured, [&](const auto& Item) { return Item.GetOwnerDataSource() == this && CanCopyItem(Item, Destination, nullptr) && Item.GetOwnerDataSource() == this; }); },
+				[this, Captured, Destination = std::string(Destination)](const auto&) { return BulkCopyItems(Captured, Destination); });
+		}
+
 	};
 	inline auto FVirtualBrowserQuerySource::GetPrivateStaticClass() -> DClass*
 	{

@@ -132,6 +132,8 @@ namespace Durin
 
 	}
 
+	auto GetAssetDeleteContributorRevision() -> uint64 { return DeleteContributorRevision; }
+
 	auto RegisterAssetDeleteContributor(
 		DClass* Class,
 		FAssetDeleteContributor Contributor) -> FAssetDeleteContributorHandle

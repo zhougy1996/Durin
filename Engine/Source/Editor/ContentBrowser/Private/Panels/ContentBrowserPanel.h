@@ -118,6 +118,8 @@ namespace Durin::ContentBrowser::Private
 		auto HasContentClipboard() const -> bool;
 		auto CreateFolder(std::string_view PhysicalDirectory) -> void;
 		auto SaveItem(const FContentBrowserItem& Item) -> void;
+		auto ApplySaveResult(const FContentBrowserOperationResult& Result) -> void;
+		auto ApplyTransferResult(const FContentBrowserOperationResult& Result, bool Move) -> void;
 		auto ResaveItems(std::vector<FContentBrowserItem> Items) -> void;
 		auto FixUpRedirector(const FContentBrowserItem& Item) -> void;
 		auto FixUpFolder(std::string_view VirtualDirectory) -> void;
@@ -177,6 +179,7 @@ namespace Durin::ContentBrowser::Private
 		bool bDeletePopupRequested = false;
 		bool bDeletionPlanRefreshed = false;
 		bool bRefreshItemsOnFirstDraw = true;
+		bool bSelectionRepairDeferred = false;
 		bool bResetContentScroll = false;
 		FContentBrowserDeleteContext PendingDeletion;
 		std::vector<FContentBrowserItemData> PendingDeletionItems;

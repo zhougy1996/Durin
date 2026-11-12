@@ -4,7 +4,7 @@
 
 namespace Durin::ContentBrowser::Private
 {
-	inline auto MakeNativeItemDescription(const FContentBrowserNativeItem& Item, bool AssetSource, std::shared_ptr<const FContentBrowserHostContext> Host = {}) -> FContentBrowserItemData
+	inline auto MakeNativeItemDescription(const FContentBrowserNativeItem& Item, bool AssetSource, std::shared_ptr<const FContentBrowserOperationContext> Host = {}) -> FContentBrowserItemData
 		{
 			using namespace ContentBrowser::Private;
 			auto Native=Item;

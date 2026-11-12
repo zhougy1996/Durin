@@ -50,8 +50,19 @@ namespace Durin
 		const std::string AssetName(Request.SourcePath.GetAssetName());
 		FTopLevelAssetPath DestinationAssetPath;
 		FPackagePath DestinationPackagePath;
+		if (Request.DestinationPath)
+		{
+			DestinationAssetPath = *Request.DestinationPath;
+			if (!DestinationAssetPath.IsValid()) return Reject("The exact duplicate destination is invalid.");
+			DestinationPackagePath = DestinationAssetPath.GetPackagePath();
+			const auto Destination = InspectAssetDestination(DestinationPackagePath.GetView());
+			std::error_code Error;
+			if (!Destination || Destination.AssetExists() || std::filesystem::exists(Destination.PhysicalPath, Error) || Error)
+				return Reject("The exact duplicate destination is occupied or unavailable.");
+		}
 		for (uint32 Suffix = 0; Suffix <= 10000; ++Suffix)
 		{
+			if (Request.DestinationPath) break;
 			const std::string CandidateName = Suffix == 0 ? AssetName
 				: Suffix == 1 ? AssetName + "_Copy"
 				: std::format("{}_Copy{}", AssetName, Suffix);

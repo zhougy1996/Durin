@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "ContentBrowserItemData.h"
+#include "ContentBrowserOperationResult.h"
 
 namespace Durin::ContentBrowser
 {
@@ -40,13 +41,13 @@ namespace Durin::ContentBrowser
 		CONTENTBROWSER_API auto Duplicate(FContentBrowserItem& Out) const -> bool;
 		CONTENTBROWSER_API auto CanDelete() const -> bool;
 		CONTENTBROWSER_API auto CanSave(EContentBrowserItemSaveFlags Flags) const -> bool;
-		CONTENTBROWSER_API auto Save(EContentBrowserItemSaveFlags Flags) const -> bool;
+		CONTENTBROWSER_API auto Save(EContentBrowserItemSaveFlags Flags) const -> FContentBrowserOperationResult;
 		CONTENTBROWSER_API auto CanRename(std::string_view Name, std::string* Error = nullptr) const -> bool;
-		CONTENTBROWSER_API auto Rename(std::string_view Name, FContentBrowserItem& Out) const -> bool;
+		CONTENTBROWSER_API auto Rename(std::string_view Name, FContentBrowserItem& Out) const -> FContentBrowserOperationResult;
 		CONTENTBROWSER_API auto CanCopy(std::string_view Destination, std::string* Error = nullptr) const -> bool;
-		CONTENTBROWSER_API auto Copy(std::string_view Destination) const -> bool;
+		CONTENTBROWSER_API auto Copy(std::string_view Destination) const -> FContentBrowserOperationResult;
 		CONTENTBROWSER_API auto CanMove(std::string_view Destination, std::string* Error = nullptr) const -> bool;
-		CONTENTBROWSER_API auto Move(std::string_view Destination) const -> bool;
+		CONTENTBROWSER_API auto Move(std::string_view Destination) const -> FContentBrowserOperationResult;
 
 	};
 } // namespace Durin::ContentBrowser

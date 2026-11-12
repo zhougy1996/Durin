@@ -4,8 +4,10 @@
 #include "DObject/StrongObjectPtr.h"
 #include "Modules/ModularFeature.h"
 #include "ContentBrowserItem.h"
+#include "ContentBrowserOperationResult.h"
+#include "ContentBrowserItemDataTransferContext.h"
 #include "ContentBrowserDataCapture.h"
-#include "ContentBrowser/ContentBrowserContracts.h"
+#include "ContentBrowserOperationContext.h"
 #include "ContentBrowserDataSource.gen.h"
 
 namespace Durin::ContentBrowser
@@ -35,15 +37,15 @@ namespace Durin::ContentBrowser
 	{
 	public:
 		FContentBrowserItemDataTemporaryContext() = default;
-		FContentBrowserItemDataTemporaryContext(FContentBrowserItem InItem, std::function<bool(std::string_view, std::string*)> InValidate, std::function<bool(std::string_view, FContentBrowserItem&)> InFinalize)
+		FContentBrowserItemDataTemporaryContext(FContentBrowserItemData InItem, std::function<bool(std::string_view, std::string*)> InValidate, std::function<bool(std::string_view, FContentBrowserItemData&)> InFinalize)
 			: Item(std::move(InItem))
 			, Validate(std::move(InValidate))
 			, Finalize(std::move(InFinalize))
 		{
 		}
-		auto GetItem() const -> const FContentBrowserItem& { return Item; }
+		auto GetItemData() const -> const FContentBrowserItemData& { return Item; }
 		auto ValidateItem(std::string_view Name, std::string* Error = nullptr) const -> bool { return Validate && Validate(Name, Error); }
-		auto FinalizeItem(std::string_view Name, FContentBrowserItem& Out) -> bool
+		auto FinalizeItem(std::string_view Name, FContentBrowserItemData& Out) -> bool
 		{
 			if (!ValidateItem(Name) || !Finalize || !Finalize(Name, Out)) return false;
 			Validate = {};
@@ -52,16 +54,18 @@ namespace Durin::ContentBrowser
 		}
 
 	private:
-		FContentBrowserItem Item;
+		FContentBrowserItemData Item;
 		std::function<bool(std::string_view, std::string*)> Validate;
-		std::function<bool(std::string_view, FContentBrowserItem&)> Finalize;
+		std::function<bool(std::string_view, FContentBrowserItemData&)> Finalize;
 	};
 	// Confirmed request capability; providers supply an owner-bound implementation.
+	enum class EContentBrowserDeleteValidation : uint8 { Valid, Stale, Rejected };
 	class IContentBrowserDeleteRequest
 	{
 	public:
 		virtual ~IContentBrowserDeleteRequest() = default;
 		virtual auto CanExecute() const -> bool = 0;
+		virtual auto ValidateForExecution() -> EContentBrowserDeleteValidation { return CanExecute() ? EContentBrowserDeleteValidation::Valid : EContentBrowserDeleteValidation::Rejected; }
 		virtual auto GetPreview() const -> std::shared_ptr<const FContentBrowserDeletePreview> { return {}; }
 	};
 	struct FContentBrowserDeleteContext
@@ -80,11 +84,12 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		static constexpr std::string_view FeatureName = "ContentBrowserDataSource";
-		static constexpr uint32 FeatureVersion = 5;
+		static constexpr uint32 FeatureVersion = 9;
 		CONTENTBROWSER_API explicit DContentBrowserDataSource(const FObjectInitializer& Initializer);
-		CONTENTBROWSER_API auto Initialize(bool bAutoRegister = true) -> void;
+		CONTENTBROWSER_API virtual auto Initialize(bool bAutoRegister = true) -> void;
 		CONTENTBROWSER_API virtual auto Shutdown() -> void;
 		CONTENTBROWSER_API auto BeginDestroy() -> void override;
+		CONTENTBROWSER_API static auto OnDataSourceMembershipChanged() -> TMulticastDelegate<void()>&;
 		CONTENTBROWSER_API auto RegisterDataSource() -> void;
 		CONTENTBROWSER_API auto UnregisterDataSource() -> void;
 		CONTENTBROWSER_API auto SetDataSink(ContentBrowser::IContentBrowserItemDataSink* Sink) -> void;
@@ -96,31 +101,33 @@ namespace Durin
 		CONTENTBROWSER_API virtual auto GetItemAttribute(const ContentBrowser::FContentBrowserItemData&, bool IncludeMetaData, std::string_view Key, ContentBrowser::FContentBrowserItemDataAttributeValue& Out) const -> bool;
 		CONTENTBROWSER_API virtual auto GetItemAttributes(const ContentBrowser::FContentBrowserItemData&, bool IncludeMetaData, ContentBrowser::FContentBrowserItemDataAttributeValues& Out) const -> bool;
 		CONTENTBROWSER_API virtual auto GetItemPhysicalPath(const ContentBrowser::FContentBrowserItemData&, std::string& Out) const -> bool;
-		CONTENTBROWSER_API virtual auto AreItemsEquivalentForOperations(const ContentBrowser::FContentBrowserItemData&, const ContentBrowser::FContentBrowserItemData&) const -> bool;
 		virtual auto GetDiscoveryRevision() const -> uint64 { return 0; }
 		virtual auto IsDiscoveryPathAffected(uint64, std::string_view, bool) const -> bool { return true; }
 		CONTENTBROWSER_API auto QueueItemDataUpdate(ContentBrowser::FContentBrowserItemDataUpdate&& Update) -> void;
 		CONTENTBROWSER_API virtual auto CompileFilter(std::string_view Path, const ContentBrowser::FContentBrowserDataFilter& Filter, ContentBrowser::FContentBrowserDataCompiledFilter& Out) const -> void;
-		CONTENTBROWSER_API virtual auto EnumerateItemsMatchingFilter(const ContentBrowser::FContentBrowserDataCompiledFilter& Filter, const std::function<bool(ContentBrowser::FContentBrowserItem&&)>& Callback, const ContentBrowser::FContentBrowserHostContext& Host = {}) -> void;
-		CONTENTBROWSER_API virtual auto CreateItemData(const ContentBrowser::FContentBrowserItem& Item, const ContentBrowser::FContentBrowserHostContext& Host = {}) -> ContentBrowser::FContentBrowserItemData;
-		CONTENTBROWSER_API auto EnumerateItemsAtPath(std::string_view Path, const std::function<bool(ContentBrowser::FContentBrowserItem&&)>& Callback, const ContentBrowser::FContentBrowserHostContext& Host = {}) -> void;
+		CONTENTBROWSER_API virtual auto EnumerateItemsMatchingFilter(const ContentBrowser::FContentBrowserDataCompiledFilter& Filter, const std::function<bool(ContentBrowser::FContentBrowserItem&&)>& Callback, const ContentBrowser::FContentBrowserOperationContext& Host = {}) -> void;
+		CONTENTBROWSER_API virtual auto CreateItemData(const ContentBrowser::FContentBrowserItem& Item, const ContentBrowser::FContentBrowserOperationContext& Host = {}) -> ContentBrowser::FContentBrowserItemData;
+		CONTENTBROWSER_API auto EnumerateItemsAtPath(std::string_view Path, const std::function<bool(ContentBrowser::FContentBrowserItem&&)>& Callback, const ContentBrowser::FContentBrowserOperationContext& Host = {}) -> void;
 		CONTENTBROWSER_API virtual auto CanEditItem(const ContentBrowser::FContentBrowserItemData&, std::string* Error = nullptr) const -> bool;
 		CONTENTBROWSER_API virtual auto EditItem(const ContentBrowser::FContentBrowserItemData&) -> bool;
 		CONTENTBROWSER_API virtual auto CanDuplicateItem(const ContentBrowser::FContentBrowserItemData&, std::string* Error = nullptr) const -> bool;
-		CONTENTBROWSER_API virtual auto DuplicateItem(const ContentBrowser::FContentBrowserItemData&, ContentBrowser::FContentBrowserItem& Out) -> bool;
+		CONTENTBROWSER_API virtual auto DuplicateItem(const ContentBrowser::FContentBrowserItemData&, ContentBrowser::FContentBrowserItemData& Out) -> bool;
 		CONTENTBROWSER_API virtual auto CanCreateFolder(std::string_view Path, std::string* Error = nullptr) const -> bool;
-		CONTENTBROWSER_API virtual auto CreateFolder(std::string_view Path, ContentBrowser::FContentBrowserItemDataTemporaryContext& Out, const ContentBrowser::FContentBrowserHostContext& Host = {}) -> bool;
+		CONTENTBROWSER_API virtual auto CreateFolder(std::string_view Path, ContentBrowser::FContentBrowserItemDataTemporaryContext& Out, const ContentBrowser::FContentBrowserOperationContext& Host = {}) -> bool;
 		CONTENTBROWSER_API virtual auto CanSaveItem(const ContentBrowser::FContentBrowserItemData&, ContentBrowser::EContentBrowserItemSaveFlags, std::string* Error = nullptr) const -> bool;
-		CONTENTBROWSER_API virtual auto BulkSaveItems(std::span<const ContentBrowser::FContentBrowserItemData>, ContentBrowser::EContentBrowserItemSaveFlags) -> bool;
+		CONTENTBROWSER_API virtual auto BulkSaveItems(std::span<const ContentBrowser::FContentBrowserItemData>, ContentBrowser::EContentBrowserItemSaveFlags) -> ContentBrowser::FContentBrowserOperationResult;
 		CONTENTBROWSER_API virtual auto CanRenameItem(const ContentBrowser::FContentBrowserItemData&, std::string_view, std::string* Error = nullptr) const -> bool;
-		CONTENTBROWSER_API virtual auto RenameItem(const ContentBrowser::FContentBrowserItemData&, std::string_view, ContentBrowser::FContentBrowserItem& Out) -> bool;
+		CONTENTBROWSER_API virtual auto RenameItem(const ContentBrowser::FContentBrowserItemData&, std::string_view, ContentBrowser::FContentBrowserItemData& Out) -> ContentBrowser::FContentBrowserOperationResult;
+		CONTENTBROWSER_API virtual auto PrepareRenameItem(const ContentBrowser::FContentBrowserItemData&, std::string_view) -> std::unique_ptr<ContentBrowser::FContentBrowserItemDataTransferContext>;
 		CONTENTBROWSER_API virtual auto CanCopyItem(const ContentBrowser::FContentBrowserItemData&, std::string_view, std::string* Error = nullptr) const -> bool;
-		CONTENTBROWSER_API virtual auto BulkCopyItems(std::span<const ContentBrowser::FContentBrowserItemData>, std::string_view) -> bool;
+		CONTENTBROWSER_API virtual auto BulkCopyItems(std::span<const ContentBrowser::FContentBrowserItemData>, std::string_view) -> ContentBrowser::FContentBrowserOperationResult;
+		CONTENTBROWSER_API virtual auto PrepareCopyItems(std::span<const ContentBrowser::FContentBrowserItemData>, std::string_view) -> std::unique_ptr<ContentBrowser::FContentBrowserItemDataTransferContext>;
 		CONTENTBROWSER_API virtual auto CanMoveItem(const ContentBrowser::FContentBrowserItemData&, std::string_view, std::string* Error = nullptr) const -> bool;
-		CONTENTBROWSER_API virtual auto BulkMoveItems(std::span<const ContentBrowser::FContentBrowserItemData>, std::string_view) -> bool;
+		CONTENTBROWSER_API virtual auto BulkMoveItems(std::span<const ContentBrowser::FContentBrowserItemData>, std::string_view) -> ContentBrowser::FContentBrowserOperationResult;
+		CONTENTBROWSER_API virtual auto PrepareMoveItems(std::span<const ContentBrowser::FContentBrowserItemData>, std::string_view) -> std::unique_ptr<ContentBrowser::FContentBrowserItemDataTransferContext>;
 		CONTENTBROWSER_API virtual auto CanDeleteItem(const ContentBrowser::FContentBrowserItemData&, std::string* Error = nullptr) const -> bool;
 		CONTENTBROWSER_API virtual auto PrepareDeleteItems(std::span<const ContentBrowser::FContentBrowserItemData>) -> ContentBrowser::FContentBrowserDeleteContext;
-		CONTENTBROWSER_API virtual auto BulkDeleteItems(std::span<const ContentBrowser::FContentBrowserItemData>, ContentBrowser::FContentBrowserDeleteContext&) -> bool;
+		CONTENTBROWSER_API virtual auto BulkDeleteItems(std::span<const ContentBrowser::FContentBrowserItemData>, ContentBrowser::FContentBrowserDeleteContext&) -> ContentBrowser::FContentBrowserOperationResult;
 
 	protected:
 		ContentBrowser::IContentBrowserItemDataSink* DataSink = nullptr;

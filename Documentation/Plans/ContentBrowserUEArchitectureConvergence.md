@@ -2,7 +2,7 @@
 
 Summary: Align Content Browser interfaces and implementation with UE provider ownership, item data, queries, operations, service updates, and module boundaries.
 
-Last reviewed: 2026-11-12
+Last reviewed: 2026-11-13
 
 Status: Active
 Completed:
@@ -18,10 +18,19 @@ publication. Stage 2 is complete: generic Item contains only ItemData
 contributions, descriptions use flags/names and opaque source payloads, metadata
 reads use source attributes, and selection/transfer/thumbnail row identities use
 typed logical and contribution keys. Native metadata lives in provider-private
-records and payloads. All native folder contributors survive aggregation while
-shared backend aliases execute once. The Stage 2 acceptance checks and affected
+records and payloads. All native folder contributors survive aggregation with
+source-owned contribution identities. The Stage 2 acceptance checks and affected
 workspace consumers passed the validation recorded below.
-Stages 3–5 and the final integration gates remain open.
+Stage 3 is complete: copy, move, rename and confirmed delete route through explicit
+per-effect results and source partitions. Asset owns package save, transfer,
+duplicate, redirector and editing behavior; File owns ordinary-file transfer and
+editing. `FContentBrowserRequestContext`, its old operation implementation and
+`DContentBrowserNativeDataSource` are removed. Confirmation state belongs to
+single-use requests. Final validation for this increment is recorded below;
+Stage 4 is implemented: editor-owned ticking, provider bootstrap dependencies,
+subscription-driven membership/asset updates, fenced background filesystem
+reconciliation and narrow operation contexts are in place. Stage 4 validation is
+recorded below. Stage 5 module separation and final integration gates remain open.
 The baseline already routes panels through the data subsystem and providers and
 separates native item policy from command execution lifetime. Its 185 passing
 workflow/provider cases and two Windows symlink-permission skips are historical
@@ -562,20 +571,20 @@ Changed-document validation and diff checks passed. Stages 3–5 remain open.
 
 Depends on Stage 2. Outcome: native business capabilities belong to their sources.
 
-- [ ] Align provider capability and execution signatures with the frozen UE map,
+- [x] Align provider capability and execution signatures with the frozen UE map,
   including bulk operations, returned ItemData and temporary-context behavior.
-- [ ] Move asset save/duplicate/redirector/editing behavior into the Asset provider
+- [x] Move asset save/duplicate/redirector/editing behavior into the Asset provider
   and its selected utilities; move ordinary-file behavior into the File provider.
-- [ ] Implement the selected UE-aligned mixed-folder execution and failure strategy
+- [x] Implement the selected UE-aligned mixed-folder execution and failure strategy
   using narrow native mechanisms. Preserve companion integrity and necessary local
   staging/recovery; report each committed, reverted, failed and unattempted effect.
   Update command results, notifications, selection and refresh for partial success.
-- [ ] Move confirmation and recovery state to explicit operation lifetimes.
+- [x] Move confirmation and recovery state to explicit operation lifetimes.
   Preserve stale-confirmation replacement, single-use deletion and diagnostics.
-- [ ] Remove `FContentBrowserRequestContext` and the combined behavior of
+- [x] Remove `FContentBrowserRequestContext` and the combined behavior of
   `DContentBrowserNativeDataSource` after their callers migrate. Keep only shared
   mechanisms justified in Stage 0, not renamed versions of the same broad facade.
-- [ ] Replace concrete-provider special cases for native batch routing and folder
+- [x] Replace concrete-provider special cases for native batch routing and folder
   aggregation with the selected source/transfer contracts; reject unsupported
   transfers before physical mutation.
 
@@ -585,22 +594,224 @@ save flags, redirectors,
 companion ownership, policy races, confirmed deletion, and third-party rejection.
 No provider owns a duplicate copy of the old staging/recovery implementation.
 
+Stage 3 ItemData output increment: provider rename and duplicate signatures now
+return one source-owned ItemData. Item retains the source through dispatch and
+aggregates returned data only while its owner remains current. The temporary
+creation context stores and returns ItemData directly; panel presentation and
+reveal perform aggregation. Native and nonphysical test providers and all known
+workspace consumers were migrated; source feature version is 6. The source-level
+decisions reuse the frozen Stage 0 map: the recorded UE installation is no longer
+present on this host, so no new UE implementation parity claim is made here.
+Bulk operations, explicit partial outcomes, independent source execution and
+retirement of the combined executor remain required. No Stage 3 checklist item
+is accepted in full by this increment.
+
+ItemData output validation (2026-11-12), baseline `4bfed8fbe` plus this increment,
+profile `windows-msvc-x64`, preset `Win64-Debug-DurinEditor`: the refreshed
+`test affected` selection passed all seven targets, with 370 cases passed and two
+Windows symlink-privilege skips. Data passed 31/31; Workflow passed 169 with two
+skips; EditorAssetWorkflow 44/44; PythonScriptPanel 8/8; SceneImport 34/34;
+StaticMeshThumbnail 10/10; Thumbnail 74/74. New cases cover native temporary flags,
+source-owned output, corrected-name retry, consumed callbacks, activation/mount
+invalidation and nonphysical creation through the subsystem. Existing panel
+coverage exercises rename/duplicate outputs and temporary folder reveal. The
+affected build exposed a previously unmigrated TextureCube details fixture;
+it now obtains its selection through the real provider query and still verifies
+that details do not load the package. No private native fixture injection was
+added. The initial sandbox build hit the documented MSVC C1902 failure; successful
+validation ran outside the sandbox. Receipts under `Build/.agent-state/logs/`:
+`20261112-225056-142151-17864-cmake.log` and
+`20261112-225102-217399-17864-ctest.log`.
+The `all` workspace build passed for the changed exported virtual signatures and
+source feature version, covering Engine/Sandbox/RoadWeaver and editor consumers
+(`20261112-225132-097499-12472-cmake.log`). Changed-document validation and diff
+review passed. No lifecycle or module-bootstrap behavior changed; the bounded
+startup/shutdown smoke and final module-graph gates remain in Stages 4–5.
+
+Stage 3 save-result/provider increment (2026-11-13): bulk save and Item.Save
+now return explicit contribution effects and complete/partial/failed status.
+Dispatch captures strong source lifetimes, sorts source partitions by name and
+items by virtual path, and fences membership/activation before each partition.
+The Asset source maps package effects back to all contributing item identities.
+Its package-only save utility owns save policy, package deduplication, retained
+commits and one accumulated notification; these responsibilities were removed
+from FContentBrowserRequestContext. File inherits unsupported save/duplicate
+defaults. Asset owns duplicate/redirector entrypoints, though their native
+execution still uses the request context. Asset and File independently implement
+editing. This is partial provider separation, not acceptance of executor retirement.
+
+Save-specific failure selection: continue independent capability failures and
+source failures that report no stop condition; admission loss marks remaining
+effects unattempted. A committed save followed by Registry publication failure
+reports both facts and retains the file. The native AssetTools save boolean
+cannot qualify rollback/recovery after a failed write without OnSaved, so stop
+remaining saves conservatively and retain diagnostics rather than infer effects
+or parse message text into recovery paths. Typed native recovery/cancellation
+details remain open. This does not change the selected copy/move/rename/delete
+semantics or claim that those paths already implement partial-result dispatch.
+No entire Stage 3 checklist item is closed by this increment.
+
+Save-result validation (2026-11-13), baseline `014c99359` plus this increment,
+profile `windows-msvc-x64`, preset `Win64-Debug-DurinEditor`: the explicit
+`@module=content-browser` set passed all seven targets: Data 34/34; Workflow 170
+passed with two Windows symlink-privilege skips; EditorAssetWorkflow 44/44;
+PythonScriptPanel 8/8; SceneImport 34/34; StaticMeshThumbnail 10/10; Thumbnail
+74/74. Total: 374 passed, two skipped. New coverage verifies deterministic
+partition order, continuation after independent failures, source reactivation
+fencing with captured identities, real package commits around a missing package,
+stop after injected write failure without compensating an earlier commit, and
+panel partial feedback with retained selection/refresh. Existing projection-fault
+coverage now checks separate committed and failed effects. Shared-package save
+deduplication, all save flags, redirector/edit/duplicate commands and affected
+consumers also passed.
+
+The test source-list change expands `affected` to the Engine test project; that
+is not a semantic change to all those tests. An accidentally started broad build
+was cancelled before execution, then recovered under the build workflow. The
+recovery encountered corrupt PDB information in two unrelated platform-test
+targets; only their generated artifacts were removed, normal configuration
+restored their generated scripts, and incremental recovery succeeded. No broad
+or GPU test execution was performed. Final validation ran the bounded explicit
+set above outside the sandbox using the established MSVC workaround. Receipts
+under `Build/.agent-state/logs/`:
+`20261113-022154-698632-32508-cmake.log` (recovery compilation),
+`20261113-022243-421491-17772-cmake.log` and
+`20261113-022244-301084-17772-ctest.log` (final test set).
+The final `all` workspace target passed to validate the changed virtual return
+ABI and provider exports across Engine/Sandbox/RoadWeaver
+(`20261113-022318-955649-33204-cmake.log`). Removed-save-path audit,
+changed-document validation and diff review passed. No bootstrap/lifecycle
+implementation changed; startup smoke and final split-module gates remain open.
+
+Stage 3 transfer/deletion and executor-retirement increment (2026-11-13),
+baseline `d479647f0` plus this increment:
+
+- Copy/move/rename/delete expose contribution-keyed effects, cancellation,
+  diagnostics and structured recovery paths. All source contexts validate before
+  writes; deterministic dispatch rejects unsupported sources and overlapping
+  destination ownership. Retained directories may merge; file collisions fail
+  without replacement or automatic suffixes. Descendant selections collapse.
+- Asset transfer delegates package integrity units to native duplication/relocation;
+  File uses no-replacement copies and verified source removal. Earlier commits
+  survive failures. Native uncertain writes stop remaining work and retain recovery
+  paths. Copy of custom managed companions remains unsupported and rejects before
+  mutation; no generic companion duplication contract is invented.
+- Deletion validates all confirmed partitions before destruction, fences bytes,
+  admission and contributor epochs at each effect, continues independent removal
+  failures and stops cancellation/uncertain recovery. Asset owns package/companion
+  removal; File owns ordinary entries and empty directory removal. Stale requests
+  replace the complete preview without writes; any destructive attempt consumes
+  the capability. Callback dismissal cannot resurrect or free executing state.
+- The combined executor and native source base were deleted after migrating all
+  production and test consumers. Asset actions and folder creation use narrow
+  utilities; shared policy holds admission/reporting only. Generic routing has no
+  native source casts or backend-equivalence test. Legacy transfer fixtures now
+  bind real contributions and execute Item/provider APIs.
+- UI consumes actual effects, retains surviving selection, follows committed new
+  identities and refreshes partial results. Recovery paths are logged individually.
+  Cancellation reports Cancelled plus committed/unattempted effects, rather than
+  hiding retained changes behind a failed boolean. No native revert is inferred
+  when the underlying API supplies only a failure and recovery details.
+
+Final-input validation, profile `windows-msvc-x64`, preset
+`Win64-Debug-DurinEditor`: `@module=content-browser` passed all seven targets:
+Data 39/39, Workflow 172 passed with two Windows symlink-privilege skips,
+EditorAssetWorkflow 44/44, PythonScriptPanel 8/8, SceneImport 34/34,
+StaticMeshThumbnail 10/10 and Thumbnail 74/74; total 381 passed, two skipped.
+Coverage includes mixed-folder deletion through both owners, independent deletion
+failure/continuation/fresh retry, cancellation with retained removals, transfer
+conflict/partial retry, policy withdrawal, stale/consumed confirmations, byte and
+ownership validation, companion integrity, redirectors, overlapping folder
+selections and normal provider/UI workflows. Final logs under
+`Build/.agent-state/logs/` are `20261113-040016-691415-3564-cmake.log` and
+`20261113-040027-514827-3564-ctest.log`.
+
+The explicit seven-target selection avoids unrelated Engine test execution when
+source-list changes expand `affected`. Final `all` passed across
+Engine/Sandbox/RoadWeaver for the changed virtual ABI and concrete reflection
+inheritance (`20261113-040126-464459-22520-cmake.log`; initial consumer compilation
+in `20261113-035810-747007-3612-cmake.log`). The established sandbox-only MSVC
+workaround was used. Removed-symbol/native-routing audits, diff checks and
+changed-document validation passed. No lifecycle/bootstrap behavior changed;
+final startup and split-module acceptance remain in Stages 4–5.
+
 ### Stage 4: Converge service lifecycle, registration and update flow
 
 Depends on Stage 3. Outcome: the data service operates independently of browser UI.
 
-- [ ] Move service ticking to the appropriate editor lifecycle entrypoint; remove
+- [x] Move service ticking to the appropriate editor lifecycle entrypoint; remove
   browser-driven service ticking and `LastBrowserFrame` coordination.
-- [ ] Align provider registry/filesystem event subscriptions and update delivery
+- [x] Align provider registry/filesystem event subscriptions and update delivery
   with the reference. Publish real committed effects and reconcile missed coverage.
-- [ ] Move built-in source creation/registration out of the generic subsystem;
+- [x] Move built-in source creation/registration out of the generic subsystem;
   preserve per-editor ownership, available/active separation and shutdown ordering.
-- [ ] Remove broad browser host requirements from provider query APIs; retain
+- [x] Remove broad browser host requirements from provider query APIs; retain
   operation policy/feedback and external mutation notification only where needed.
+
+Stage 4 execution decision (2026-11-13): use an editor-owned
+`FTickableEditorObject` contract dispatched by `DEditorEngine::Tick`, independent
+of worlds and presentation. Provider bootstrap subsystems declare the data service
+dependency and retire sources first. Source membership notifications and Asset
+query-journal subscriptions use owner-thread callbacks. This checkout has no
+portable directory-watcher interface; File uses cancellable background metadata
+snapshots with periodic owner-thread reconciliation instead. Captured project,
+mount, activation and mutation epochs fence publication. Incomplete scans invalidate
+coverage rather than infer removals. This is a Durin adaptation, not a claim of
+UE directory-watcher implementation parity. Module separation remains Stage 5.
 
 Acceptance: mutations and provider membership reconcile with zero open browsers;
 opening a later browser sees current data. Validate no double tick, two editors,
 hidden views, withdrawal/reactivation, publication fences and project shutdown.
+
+Stage 4 lifecycle/update increment (2026-11-13), baseline `b8399e32e` plus
+this increment: query/browser ticks and `LastBrowserFrame` are removed. Data
+service ownership is editor-scoped through `FTickableEditorObject`; source
+creation and retirement live in two dependency-ordered provider bootstrap
+subsystems, registered with the current ContentBrowser module until Stage 5.
+Membership subscriptions preserve available/active separation. Asset query
+subscriptions publish after journal/snapshot commit, serialize reentrant events
+and avoid replaying native operation deltas. File metadata reconciliation uses
+cancellable workers and owner-thread project/mount/activation/mutation fences;
+partial scans request reconciliation instead of inventing removals. Provider and
+query APIs use a narrow operation context; UI-only host state stays in the panel.
+Per-update revision markers preserve scope decisions within a frame batch, and
+late-frame selection trimming waits for owner-published move/delete events.
+
+Final-input validation used `windows-msvc-x64` / `Win64-Debug-DurinEditor`:
+
+- The explicit `@module=content-browser` selection passed all seven targets:
+  Data 45/45, Workflow 172 passed with two Windows symlink-privilege skips,
+  EditorAssetWorkflow 44/44, PythonScriptPanel 8/8, SceneImport 34/34,
+  StaticMeshThumbnail 10/10 and Thumbnail 74/74 (387 passed, two skipped).
+  Logs under `Build/.agent-state/logs/`:
+  `20261113-043159-054360-7864-cmake.log` and
+  `20261113-043216-220781-7864-ctest.log`.
+- `EditorOperationTests FEditorSubsystemTests.*` passed 41/41, including owner
+  isolation, no-World dispatch, callback-time removal/new registration and existing
+  dynamic service lifecycle checks. Two existing workspace fixtures initially
+  skipped the required Providers/EngineReady phases; they now prepare those phases
+  before asserting EditorReady service behavior. Final receipt:
+  `20261113-043144-987587-7608-EditorOperationTests.log`.
+- Owning `AssetMetadataQueryTests` passed 9/9, in
+  `20261113-043403-565228-30668-AssetMetadataQueryTests.log`.
+- Cross-project `all` passed for new virtual signatures, the AssetRegistry event
+  export, editor tick contract, bootstrap reflection and Engine/Sandbox/RoadWeaver
+  consumers: `20261113-043304-460493-33044-cmake.log`.
+- The single bounded normal-window startup characterization
+  `FLaunchStartupCharacterizationTests.EmptyDefaultLevelShowsWorkspaceAndExitsNormally`
+  passed, including workspace creation and normal automatic shutdown:
+  `20261113-043324-418362-9252-ctest.log`. The rest of the startup suite was not run.
+
+New coverage checks zero-browser asset/filesystem updates, later enumeration,
+no query-driven extra tick, bootstrap retirement/recreation, stale in-flight
+filesystem results after reactivation, inactive subscriptions, live-row initial
+save normalization and late-frame hidden-view selection. Existing mount/project
+capture fences, independent browsers and publication suspension also passed.
+`affected --explain` expands to the Engine test project because of shared test
+headers and the reflected module manifest; the bounded owning/consumer sets above
+cover these changes without unrelated GPU test execution. Removed-path audit,
+diff checks and changed-document validation passed. Stage 5 still owns module
+separation and final integration acceptance against its eventual inputs.
 
 ### Stage 5: Enforce module boundaries and close legacy paths
 

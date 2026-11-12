@@ -209,8 +209,8 @@ persistence. That host provides a weak `DContentBrowserDataSubsystem` binding;
 each panel owns only view/query state and borrows the shared data service. The
 [provider contract](ContentBrowserData.md) owns source registration, opaque payloads,
 item capabilities, batching and incremental notifications. Native providers retain
-request-local policy and deletion sessions through the single existing
-`FContentBrowserRequestContext` mutation/recovery implementation.
+request-local policy and explicit deletion requests, with provider-owned
+package/file operations and shared native recovery mechanisms.
 
 Panel captures intent, confirms destructive scope and presents results. Menus,
 shortcuts and deferred commands use `FContentBrowserItem` capabilities; batch save,
@@ -221,7 +221,7 @@ actions. Asset-specific redirector maintenance uses the native asset provider;
 creation/import/details extensions and asset definitions remain independently
 registered. All queued execution rechecks current caller and provider admission.
 
-Commands return `bool`; Rename and immediate Duplicate output the resulting item.
+Copy, move, rename and delete return explicit effect results; Rename and immediate Duplicate output resulting items. Duplicate and folder creation retain boolean creation completion.
 Native duplication may identify a retained live copy even when saving fails, so
 presentation may reveal that output without claiming persistence succeeded.
 Folder creation returns a source-owned temporary context without writing. Its
@@ -236,17 +236,16 @@ The synchronous diagnostic sink presents errors and warnings independently of th
 return value. Complete diagnostics, including every recovery path, are written
 individually to Core logging and are available in Console. The Panel presents a
 brief error or warning prompt directing users to Console; it owns no diagnostic
-history or concatenated message buffer. The construction-time scoped notifier publishes `FContentChangeBatch` exactly once for
+history or concatenated message buffer. Each executing provider accumulates and publishes `FContentChangeBatch` for
 actual content changes, including committed files with pending Registry publication.
 The unscoped host revision callback is used only as a fallback when no scoped
 notifier is supplied. Panel does not republish operation changes.
 The Panel uses explicit output items to reveal or select content. It does not
 interpret native write effects or infer refresh from command success. Native
-mutation results, recovery paths and rollback decisions remain inside the data source. High-level asset-operation substitutes and directory-removal callbacks
+write effects remain inside providers; the generic result exposes committed identities, diagnostics and recovery locations. High-level asset-operation substitutes and directory-removal callbacks
 are not part of the host construction contract.
 The data source never refreshes Model. Each view observes the data-service revision;
-RefreshCoordinator additionally consumes host/catalog notifications and owns native
-registry reconciliation. **Duplicate** and `Ctrl+D` clone one
+The data service owns source ticking independently of views. Asset query subscriptions and File background reconciliation deliver updates with no open browser. RefreshCoordinator additionally consumes external host/catalog notifications and supports explicit reconciliation. **Duplicate** and `Ctrl+D` clone one
 selected real asset into the same writable folder, choosing `_Copy`, `_Copy2`,
 and later suffixes until both catalog and physical destinations are free. The
 complete persistent object graph is copied into live memory, then the browser
@@ -259,8 +258,7 @@ system clipboard. Other selections retain an owned in-process snapshot shared
 by browser panels, guarded by a system clipboard token; replacing that token
 invalidates the selection. This is an editor clipboard, not OS file-transfer
 interoperability. `Ctrl+V` and Paste target the current folder; a folder context
-menu can paste directly into that folder. Repeated paste keeps the source and
-chooses `_Copy`, `_Copy2`, and later suffixes without overwriting existing files.
+menu can paste directly into that folder. Paste keeps source names, merges existing directories and fails existing files/packages without replacement. Retry only failed or unattempted items; Duplicate retains suffix selection.
 
 Copy preflights the entire physical scope, collapses selected descendants under
 selected folders, and preserves empty directories and hidden ordinary files.
@@ -272,13 +270,11 @@ by asset persistence, never copied independently; orphan `.dbulk` files block
 copy even inside folders. Other contributor-owned companion types currently
 block folder copy because no generic companion duplication contract exists.
 
-Filesystem failures clean up successfully created ordinary files and empty
-folders where possible. Failed destinations that may contain partial bytes are
-reported for inspection. Once any asset copy exists in memory, those copies and
-their destination folders are retained even if saving fails. A full refresh is
-requested and the warning identifies retained copies. Mixed copy is not an atomic
-multi-asset transaction; actual save errors and disk effects are preserved without
-classifying a known Dirty copy as uncertain disk content.
+Copy retains earlier successful effects after independent failures. A destination
+that may contain partial bytes is reported for inspection and stops remaining
+work. An asset copy created in memory remains available even when saving fails;
+its creation and save failure are separate effects. Cancellation retains earlier
+copies and marks remaining work unattempted. There is no whole-command rollback.
 
 Opening a
 redirector resolves and opens its final real asset; redirectors are excluded
@@ -378,21 +374,19 @@ notifications are published only through the commit path, never after a rejected
 preflight. Individual assets may relocate across writable scanned mounts through
 AssetTools; ordinary files and folders stay within their source mount.
 
-The data source validates all physical roots before writing: no overwrite or merge,
-no mount roots, no destination inside a selected source, no reparse traversal,
-no unknown `.dasset` packages, and no independent managed-companion move.
-Folder companions require their owners in the asset batch. Registered packages
-use one synchronous AssetTools relocation batch; ordinary files use journaled
-filesystem renames within the same writable scanned mount. Cross-device copying
-is not supported. Authored relocation never enters global object-edit Undo/Redo.
-
-Ordinary moves are restored on failure, with restoration failures explicitly
-reported and a full refresh requested. AssetTools retains responsibility for
-partial asset effects and backup diagnostics; there is no mixed-operation crash
-atomicity guarantee. A committed relocation with pending registry projection
-retains the ordinary moves. Source cleanup only removes empty directories;
-remaining redirectors or cleanup errors produce a warning rather than a false
-move failure. See [asset mutation](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md#synchronous-relocation).
+Provider preparation validates mounts, source/destination ancestry, reparse paths,
+unknown packages and companion ownership before writing. Shared directories merge;
+files and packages never overwrite existing destinations. Selected descendants
+collapse beneath selected folders. Package relocation runs synchronously per
+package integrity unit through AssetTools. Ordinary file moves copy without
+replacement, verify byte identities, then remove only the verified source. Failed
+source removal retains the destination and reports both paths for recovery.
+Independent failures retain prior commits; cancellation, admission loss or uncertain
+native recovery stops remaining effects. Registry publication failure retains
+committed content and requests reconciliation. Source cleanup removes only empty
+directories; retained redirectors produce a warning. Authored relocation never
+enters global object-edit Undo/Redo. See
+[asset mutation](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md#synchronous-relocation).
 
 The browser's navigation roots come from automatically scanned mounts. Providers
 may contribute logical items beneath those roots without physical storage.
@@ -465,8 +459,7 @@ cannot be undone, and must be restored through version control. ContentBrowser
 revalidates every confirmed byte identity and rejects new descendants through
 the file-validation callback invoked by AssetTools before destructive work. AssetTools revalidates the confirmed selection, companion
 ownership, warnings, and external-reference snapshots, asks Engine to release
-the eligible resident package batch, and invokes one destructive maximal-root
-callback. Engine then publishes the checked catalog removals. The move-only
+the eligible resident package batch, and invokes the host deletion phase, which removes confirmed provider-owned files and then empty directories individually. Engine then publishes the checked catalog removals. The move-only
 AssetTools operation owns the complete deletion state; no Engine deletion job
 is wrapped or exposed to ContentBrowser.
 No quarantine directory, pre-image, Restore/Purge API, editor history entry, or
@@ -475,7 +468,7 @@ automatic retention policy exists.
 `BulkDeleteItems` requires the provider-owned confirmation capability and exact
 item scope. If validation detects stale content before destructive work starts,
 the native request replaces its immutable preview from the captured request and
-returns false. The Panel shows the changed confirmation and
+returns an unattempted result. The Panel shows the changed confirmation and
 requires another explicit confirmation. It does not retry automatically or infer
 new scope from the current UI selection.
 
@@ -499,12 +492,12 @@ has begun physical deletion.
 
 If physical removal completes but Registry publication fails, the data source reports
 a warning, publishes the removed item updates, retires the session, clears the
-confirmation handle and returns true for physical deletion. RefreshCoordinator
+confirmation handle and reports committed removals plus failed projection in a partial result. RefreshCoordinator
 reconciliation converges from mounted authored files. The Panel never inspects
 `EAssetWriteEffect`, parses diagnostic prefixes, or repeats physical deletion.
 
 Successful relocation and Delete declare that they mutate mounted content
-discovery and advance the monotonic mounted-content mutation revision once.
+discovery and publish committed batches to the monotonic mounted-content mutation revision.
 Direct Content Browser
 filesystem operations and import completion publish the same invalidation
 explicitly. Ordinary object, component, reflected-property, Spline, and

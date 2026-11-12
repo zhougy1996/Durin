@@ -1,6 +1,9 @@
 #include "NativeAssetBuildTestSupport.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "ContentBrowser/TextureCubeDetails.h"
+#include "ContentBrowserDataSubsystem.h"
+#include "Editor/EditorEngineTestSupport.h"
+#include "DObject/StrongObjectPtr.h"
 
 #include "Asset/PackageSerialization.h"
 #include "Asset/Mutation.h"
@@ -22,6 +25,13 @@ namespace Durin::TextureEditor
 	{
 		InitializeDObjectSystem();
 		FModuleManager::Get().LoadModuleChecked("TextureCompressor");
+		FModuleManager::Get().LoadModuleChecked("ContentBrowser");
+		struct FEditorScope
+		{
+			TStrongObjectPtr<DEditorEngine> Editor{NewObject<DEditorEngine>(nullptr, {})};
+			~FEditorScope() { Editor->PreExit(); }
+		} EditorScope;
+		FEditorEngineTestAccess::StartEditor(*EditorScope.Editor);
 		const std::filesystem::path Root =
 			Testing::GetTestWorkDirectory() / "ContentBrowserTextureCubeDetails";
 		std::error_code Error;
@@ -71,9 +81,15 @@ namespace Durin::TextureEditor
 		ASSERT_TRUE(Presentation.IsValid()) << PresentationError;
 		ContentBrowser::FExtensionContext Context;
 		Context.CatalogRevision = GetAssetCatalogRevision();
-		Context.Selection.push_back({.Kind = ContentBrowser::EContentBrowserItemKind::Asset,
-			.PhysicalPath = PackagePath.generic_string(),
-			.AssetClassName = DTextureCube::StaticClass()->GetQualifiedName().ToString()});
+		auto* BrowserData = EditorScope.Editor->GetEditorSubsystem<DContentBrowserDataSubsystem>();
+		ASSERT_NE(nullptr, BrowserData);
+		BrowserData->EnumerateItemsUnderPath("/ContentBrowserTextureCubeDetails/",
+			{.Kind = ContentBrowser::EContentBrowserItemKind::Asset},
+			[&](ContentBrowser::FContentBrowserItem&& Item) {
+				Context.Selection.push_back(std::move(Item));
+				return true;
+			});
+		ASSERT_EQ(1u, Context.Selection.size());
 		const auto Rows = ContentBrowser::CaptureSelectionDetails(Context);
 		const auto Source = std::ranges::find(Rows, "Source", &ContentBrowser::FDetailRow::Label);
 		ASSERT_NE(Source, Rows.end());

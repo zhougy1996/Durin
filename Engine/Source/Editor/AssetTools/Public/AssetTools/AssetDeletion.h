@@ -130,6 +130,8 @@ namespace Durin
 		FAssetDeleteContribution&
 	)>;
 	using FAssetDeleteContributorHandle = uint64;
+	// Owner-thread epoch; destructive hosts fence policy callbacks between physical effects.
+	ASSETTOOLS_API auto GetAssetDeleteContributorRevision() -> uint64;
 	ASSETTOOLS_API auto RegisterAssetDeleteContributor(
 		DClass* Class,
 		FAssetDeleteContributor Contributor) -> FAssetDeleteContributorHandle;

@@ -242,9 +242,12 @@ durin_add_native_test(ContentBrowserWorkflowTests
 		${_durin_content_browser_private}/Assets/SourceImageThumbnailDiskCache.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserModel.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserQuery.cpp
-		${_durin_content_browser_private}/Data/ContentBrowserRequestContext.cpp
+		${_durin_content_browser_private}/Data/ContentBrowserMutationPolicy.cpp
+		${_durin_content_browser_private}/Data/ContentBrowserFolderOperation.cpp
+		${_durin_content_browser_private}/Data/ContentBrowserAssetActions.cpp
+		${_durin_content_browser_private}/Data/ContentBrowserAssetSave.cpp
+		${_durin_content_browser_private}/Data/ContentBrowserDeletionOperation.cpp
 		${_durin_content_browser_private}/Data/ContentBrowserDataQuery.cpp
-		${_durin_content_browser_private}/Operations/ContentBrowserItemOperations.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserRefreshCoordinator.cpp
 		${_durin_content_browser_private}/Operations/ContentDeletionOperation.cpp
 	LIBRARIES
