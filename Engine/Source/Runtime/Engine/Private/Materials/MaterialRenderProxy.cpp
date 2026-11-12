@@ -157,6 +157,13 @@ namespace Durin
 			Publication.Parameters,
 			{},
 			&FMaterialLocalRenderParameter::Id));
+		const bool SameBindings = LocalLayer.CompiledProgram == Publication.CompiledProgram
+			&& LocalLayer.StaticProperties == Publication.StaticProperties
+			&& std::ranges::equal(LocalLayer.Parameters, Publication.Parameters, [](const auto& A, const auto& B) {
+				return A.Id == B.Id && A.GetType() == B.GetType()
+					&& (A.GetType() != EMaterialParameterType::Texture || A.Value == B.Value);
+			});
+		if (!SameBindings) InvalidateRenderResourceBindings();
 		if (LocalLayer.CompiledProgram != Publication.CompiledProgram) UniformExpressionCache->InvalidateUniformExpressionCache();
 		LocalLayer = std::move(Publication);
 		bHasResolvedData = false;

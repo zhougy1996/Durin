@@ -14,7 +14,12 @@ namespace Durin
 		if (!IsInitialized()) InitResource(Commands);
 		if (Buffer && std::ranges::equal(Data, Values)) return true;
 		if (!Buffer || Data.size() != Values.size())
-			Buffer = Commands.CreateUniformBuffer({static_cast<uint32>(Values.size())}, ERHIBufferLifetimeUsage::MultiFrame, Values);
+		{
+			auto Replacement = Commands.CreateUniformBuffer({static_cast<uint32>(Values.size())}, ERHIBufferLifetimeUsage::MultiFrame, Values);
+			if (!Replacement) return false;
+			if (Buffer) InvalidateRenderResourceBindings();
+			Buffer = std::move(Replacement);
+		}
 		else Commands.UpdateUniformBuffer(Buffer, Values);
 		if (!Buffer) return false;
 		Data.assign(Values.begin(), Values.end());

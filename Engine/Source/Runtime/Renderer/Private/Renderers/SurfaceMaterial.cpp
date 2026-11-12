@@ -153,42 +153,6 @@ namespace Durin::RendererPrivate
 			DirectionalShadowSampler, OutMaterial);
 	}
 
-	auto FSurfaceMaterialResources::AreStableResourcesCurrent_RenderThread(
-		const FResolvedSurfaceMaterial& Material, const FMaterialRenderRepresentation& Representation) const -> bool
-	{
-		check(IsInRenderingThread());
-		const auto References = Representation.GetResources();
-		const auto Samplers = Representation.GetSamplers();
-		const auto Fallbacks = Representation.GetTextureFallbacks();
-		const auto Generation = Coordinator.GetGeneration_RenderThread();
-		if (!Material.bCompiledLayout || References.size() != Material.CompiledTextures.size()
-			|| Samplers.size() != Material.CompiledSamplers.size()
-			|| Fallbacks.size() != References.size()) return false;
-		for (size_t Index = 0; Index < References.size(); ++Index)
-		{
-			const auto* Entry = State->Samplers.Find(Samplers[Index]);
-			if (!Entry || HasSelectedRenderResourceGenerationChanged(Entry->Slot.GetPayloadGeneration(),
-				Generation, ERenderResourceGenerationDependency::Device) || !Entry->Slot.GetPayload()
-				|| Entry->Slot.GetPayload()->GetReference() != Material.CompiledSamplers[Index]) return false;
-			FRHITexture* Texture = References[Index]
-				? References[Index]->GetReferencedTexture_RenderThread() : nullptr;
-			if (!Texture)
-			{
-				EDefaultTexture Fallback;
-				switch (Fallbacks[Index])
-				{
-				case EMaterialTextureFallback::White: Fallback = EDefaultTexture::White; break;
-				case EMaterialTextureFallback::Black: Fallback = EDefaultTexture::Black; break;
-				case EMaterialTextureFallback::FlatRGNormal: Fallback = EDefaultTexture::FlatNormal; break;
-				default: return false;
-				}
-				Texture = DefaultTextures.Get_RenderThread(Fallback);
-			}
-			if (!Texture || Texture != Material.CompiledTextures[Index]) return false;
-		}
-		return true;
-	}
-
 	auto FSurfaceMaterialResources::RefreshPassResources_RenderThread(
 		ESurfaceMaterialPass Pass, const std::shared_ptr<const FSkyLightingGeneration>& Environment, FRHITexture* DirectionalShadowTexture,
 		FRHISampler* DirectionalShadowSampler, FResolvedSurfaceMaterial& OutMaterial) const -> bool

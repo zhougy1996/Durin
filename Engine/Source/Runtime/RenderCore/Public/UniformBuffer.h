@@ -15,7 +15,7 @@ namespace Durin
 		auto GetRange() const -> FRHIUniformBufferRange
 		{ return {Buffer.GetReference(), 0, static_cast<uint32>(Data.size()), {}}; }
 		auto GetData() const -> FByteView { return Data; }
-		auto ReleaseRHI() -> void override { Buffer = nullptr; Data.clear(); }
+		auto ReleaseRHI() -> void override { if (Buffer) InvalidateRenderResourceBindings(); Buffer = nullptr; Data.clear(); }
 		auto GetFriendlyName() const -> std::string override { return "UniformBuffer"; }
 		RENDERCORE_API static auto ReleaseRHIForAllResources() -> void;
 	private:

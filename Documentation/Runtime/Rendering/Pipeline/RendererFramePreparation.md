@@ -185,11 +185,13 @@ Cascade raster-bias magnitudes remain dynamic draw state and do not enter the
 pipeline-cache identity or mutate templates shared with another view.
 
 `FMeshDrawCommand` directly stores draw parameters, raw vertex/index buffers,
-borrowed pipeline/input pointers and value `FMeshDrawShaderBindings`. There is no
+a borrowed pipeline pointer and value `FMeshDrawShaderBindings`. There is no
 intermediate owning command packet. Shader bindings contain a shader pointer and
 resource parameter values; they own neither RHI resources nor resource views.
-Cache storage and visible submission storage retain command memory only. Weak
-source and pipeline references reject removed primitives and evicted pipelines.
+Cache storage and visible submission storage retain command memory only. Cache
+keys, source/input associations and material preparation metadata live in cache
+entries, outside the draw description. Sources actively invalidate entries before
+replacing or releasing bindings; draw submission performs no weak-owner locking.
 `FVisibleMeshDrawCommand` borrows command memory, frame pass bindings and raster
 bias. Dynamic/HitProxy and graph-local indirect commands use the same draw value.
 
@@ -207,8 +209,9 @@ Uniform resources retain only current CPU contents and the logical RHI buffer.
 `UpdateUniformBuffer` records equal-size updates before the consuming draws. Numeric publications reuse logical bindings;
 size/schema or native-resource replacement refreshes affected bindings. Final
 cache keys use geometry, section, primitive/batch, pass, pipeline and actual
-material cache identity. Structure checks run once per distinct material binding;
-unchanged cached draws bypass mesh-pass processing. Resource release uses the
+material cache identity. Binding changes invalidate cached entries at publication
+or resource replacement; unchanged cached draws bypass mesh-pass processing and
+material dependency scans. Resource release uses the
 existing render-resource registry and ordered cleanup. See
 [Render Resource Lifecycle](RenderResourceLifecycle.md#source-owned-draw-resources).
 
@@ -230,20 +233,24 @@ existing render-resource registry and ordered cleanup. See
   HitProxy request storage owns its temporary pipelines and Collection buffers.
   Binding construction cannot transfer temporary resource ownership to a draw.
 - Texture references can replace native textures independently of material
-  publication. Resource resolution checks current native resources before reuse.
-  Buffer replacement, shader/device generation, geometry publication and binding
-  structure changes invalidate affected commands; numeric values alone do not.
+  publication. `InvalidateRenderResourceBindings` announces changes before resource
+  replacement. Primitive removal/rebinding/slot removal targets that source;
+  material binding changes, Uniform replacement, texture target changes and
+  resource-slot eviction conservatively invalidate all registered command caches.
+  This deliberately avoids a second resource dependency graph. Numeric Uniform
+  updates preserve logical identity and do not invalidate commands.
+- Prepared frame storage is retired by a binding invalidation and cannot be used
+  again. Cache eviction or resource replacement during preparation/recording is
+  outside the stable-source scope; restart preparation after such an update.
 
 
-Recording shares a complete binding group across adjacent compatible draws.
-The group identifies the retained pipeline, vertex batch and fragment batch;
-changing any member submits the whole group again. A failed bind clears the
-group. The state is local to one uninterrupted mesh recording span and starts
-empty at every pass boundary or after non-mesh pipeline/parameter work. Forward,
-retained-forward, sorted translucency, GBuffer and cascades use this rule without
-reordering draws. Geometry inputs and dynamic shadow bias are still submitted
-per draw. Hit-proxy draws retain their distinct prepared ID bindings. This does
-not imply per-descriptor-set reuse when only one part of a group changes.
+Recording uses `FShaderBindingState` per shader stage. `SetOnCommandList`
+records only changed binding slots, independently for pass and mesh resources.
+Pipeline changes reset shader binding state because backend descriptor state may
+be pipeline-specific. Vertex/index buffers and dynamic depth bias are submitted
+only when their values change. State remains local to an uninterrupted recording
+span and resets at pass boundaries or after foreign RHI state changes. Draw
+ordering and distinct HitProxy ID bindings are preserved.
 
 `FStaticMeshRenderer::RecordShadow` consumes const prepared/resolved views on a
 regular command list and returns local draw observations. It does not inspect
@@ -334,8 +341,10 @@ lookup, and splitting groups never changes translucent draw ordering.
 Unchanged contents reuse the source buffer without recording an update. Equal-size
 numeric changes record one ordered update per source value change; buffer
 replacement rebuilds affected bindings. Pass/view uniforms remain frame-owned.
-The command cache has a 2048-entry metadata budget; it cannot retain obsolete
-resource packets. Primitive buffers belong to their source batch slots; instance updates release
+The command cache uses one flat hash index and retains entries until source
+invalidation, generation reset or renderer release; it has no fixed draw-count
+LRU that can evict live scene commands. Frame command/pass retention uses compact
+arrays rather than per-object tree nodes. It cannot retain resource packets. Primitive buffers belong to their source batch slots; instance updates release
 slots for removed IDs. Material
 default slots clear when the accepted program changes. Surface preparation and
 binding counters distinguish full reuse from binding refresh.

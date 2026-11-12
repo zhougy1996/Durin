@@ -280,6 +280,7 @@ namespace Durin
 				CheckRenderingThread();
 				++HitProxyRevision;
 				const auto Id = Snapshot->Layout.CollectionId;
+				if (!MaterialParameterCollections.contains(Id)) InvalidateRenderResourceBindings();
 				MaterialParameterCollections.insert_or_assign(Id, std::move(Snapshot));
 			});
 	}
@@ -292,6 +293,7 @@ namespace Durin
 			[this, CollectionId](FRHICommandListImmediate&) {
 				++HitProxyRevision;
 				CheckRenderingThread();
+				if (MaterialParameterCollections.contains(CollectionId)) InvalidateRenderResourceBindings();
 				MaterialParameterCollections.erase(CollectionId);
 				ParameterCollectionUniformBuffers.erase(CollectionId);
 			});
@@ -437,6 +439,7 @@ namespace Durin
 
 	auto FPrimitiveSceneInfo::UpdateMaterialBinding(const FMaterialRenderProxyBindingUpdate& Update) -> bool
 	{
+		DrawResources->BeginDeferredUpdateStaticMeshes();
 		return Proxy->UpdateMaterialBinding_RenderThread(Update);
 	}
 
@@ -453,6 +456,7 @@ namespace Durin
 
 	auto FScene::DetachPrimitive(FPrimitiveSceneInfo& Info) -> void
 	{
+		Info.DrawResources->BeginDeferredUpdateStaticMeshes();
 		std::erase(PrimitiveSceneInfos, &Info);
 
 	}

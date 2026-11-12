@@ -438,7 +438,6 @@ namespace Durin
 		ResolvedView.PrimitiveUniforms.clear();
 		ResolvedView.PrimitiveUniforms.resize(PreparedView.Primitives.size());
 		ResolvedView.PersistentCommandsReused.assign(PreparedView.GetNumSections(), false);
-		ResolvedView.PersistentCollectionBindingsChanged.assign(PreparedView.GetNumSections(), false);
 		ResolvedView.MaterialUniforms.clear();
 		ResolvedView.MaterialUniforms.resize(PreparedView.MaterialUniformGroups.size());
 		if (PreparedView.RenderFrame != GRenderFrameCounterRenderThread) return false;
@@ -522,7 +521,6 @@ namespace Durin
 			if (Changed) ++ResolvedView.Observations.MaterialUniformUploads;
 			GroupUniforms[Group] = Cache->UniformBuffer->GetRange();
 		}
-		std::map<std::tuple<uint64, ESurfaceMaterialPass, const void*>, bool> MaterialResourceValidity;
 		// Probe each selected pass independently before constructing uniforms.
 		for (uint32 Index = 0; Index < PreparedView.GetNumSections(); ++Index)
 		{
@@ -537,37 +535,18 @@ namespace Durin
 			{
 				if (!Pipeline) continue;
 				Any = true;
-				const auto Existing = State->DrawCommands.Find(PassKey, FMeshDrawCommand::MakeKey(Draw.Command.get(), Primitive->PrimitiveId, Primitive->BatchId, *Pipeline));
+				const auto Existing = State->DrawCommands.Find(FCachedMeshDrawCommandStorage::MakeKey(Draw.Command.get(), Primitive->PrimitiveId, Primitive->BatchId, *Pipeline));
 				if (!Existing) { AllHit = false; continue; }
 				const auto& Cached = *Existing;
 				if (Cached.Input != Primitive->CollectedBinding.get()) { AllHit = false; continue; }
 				const auto Pass = FState::MaterialPass(*Pipeline);
-				const auto ResourceKey = std::make_tuple(Draw.Command->Material.Representation.GetRecordId(), Pass,
-					Cached.FragmentBindings ? static_cast<const void*>(&Cached.FragmentBindings) : static_cast<const void*>(&Cached));
-				auto [ResourceValidity, NewMaterial] = MaterialResourceValidity.try_emplace(ResourceKey, false);
-				if (NewMaterial)
-				{
-					const auto& Current = Draw.Command->Material.Representation;
-					ResourceValidity->second = Cached.MaterialLayout == Current.GetLayout()
-						&& std::ranges::equal(Cached.MaterialResources, Current.GetResources(), [](auto* A, const auto& B) { return A == B.GetReference(); })
-						&& std::ranges::equal(Cached.MaterialSamplers, Current.GetSamplers())
-						&& std::ranges::equal(Cached.MaterialFallbacks, Current.GetTextureFallbacks())
-						&& (!GroupUniforms[Draw.MaterialUniformIndex].Buffer || Cached.Material.Uniform.Buffer == GroupUniforms[Draw.MaterialUniformIndex].Buffer)
-						&& SurfaceMaterials.AreStableResourcesCurrent_RenderThread(Cached.Material.Surface, Current);
-				}
-				if (!ResourceValidity->second) { AllHit = false; continue; }
-				const auto& CurrentCollections = GroupCollections[Draw.MaterialUniformIndex];
-				const bool SameCollections = std::ranges::equal(Cached.Material.CollectionUniforms, CurrentCollections,
-					[](const auto& A, const auto& B) { return A.Buffer == B.Buffer && A.Offset == B.Offset && A.Size == B.Size; });
-				ResolvedView.PersistentCollectionBindingsChanged[Draw.ResolvedIndex] =
-					ResolvedView.PersistentCollectionBindingsChanged[Draw.ResolvedIndex] || !SameCollections;
-				if (SameCollections) Record.SelectedCachedCommands.emplace(PassKey, Existing);
+				Record.SelectedCachedCommands.emplace(PassKey, Cached.Command);
 
 				// Primitive contents are selected below, independently of cached commands.
 				auto& Material = ResolvedView.MaterialUniforms[Draw.MaterialUniformIndex][Pass];
 				if (!Material && Requests[Draw.MaterialUniformIndex].contains(Pass))
 				{
-					Material = Cached.Material; Material->CollectionUniforms = CurrentCollections;
+					Material = Cached.Material; Material->CollectionUniforms = GroupCollections[Draw.MaterialUniformIndex];
 					if (GroupUniforms[Draw.MaterialUniformIndex].Buffer) Material->Uniform = GroupUniforms[Draw.MaterialUniformIndex];
 					if (!SurfaceMaterials.RefreshPassResources_RenderThread(Pass,
 						ResolvedView.Environment, ResolvedView.DirectionalShadowTexture, ResolvedView.DirectionalShadowSampler, Material->Surface))
@@ -709,13 +688,11 @@ namespace Durin
 					if (Cacheable)
 						if (const auto Selected = Record.SelectedCachedCommands.find(PassKey); Selected != Record.SelectedCachedCommands.end())
 							Cached = Selected->second;
-					// Cache eviction may replace a logical uniform object without changing values.
-					if (Cached && Cached->PrimitiveUniform.Buffer != ResolvedView.PrimitiveUniforms[Draw.PrimitiveIndex].Buffer) Cached.reset();
 					const FMeshDrawCommandBuildInput Input{CommandList, *Primitive, Draw, Pipeline, *Material,
 						ResolvedView.PrimitiveUniforms[Draw.PrimitiveIndex], ResolvedView.ViewUniforms[Pass], Lighting, {}, LocalLights};
 					if (Cacheable && !Cached)
 					{
-						FCachedPassMeshDrawListContext Context(State->DrawCommands, PassKey, Cached, *Primitive->DrawResources.lock());
+						FCachedPassMeshDrawListContext Context(State->DrawCommands, PassKey, Cached, Input);
 						const auto Result = Processor.AddMeshBatch(Batch, Input, BindingCache, Context); Ready = static_cast<bool>(Result);
 						if (!Ready) Error = Result.Error;
 					}
@@ -1031,8 +1008,12 @@ namespace Durin
 			FMeshDrawCommandHandle Completed;
 			FDynamicPassMeshDrawListContext Context(*ResolvedView.DrawCommandStorage, Command->Pipeline->GetPassKey(), Completed,
 				Record.Commands.at(Command->Pipeline->GetPassKey()));
+			const auto& Material = ResolvedView.MaterialUniforms[Item.MaterialUniformIndex].at(ESurfaceMaterialPass::GBuffer);
+			if (!Material) return false;
+			const FMeshDrawCommandBuildInput Input{CommandList, Primitive, Item, Record.Pipelines.at(Command->Pipeline->GetPassKey()),
+				*Material, ResolvedView.PrimitiveUniforms[Item.PrimitiveIndex], ResolvedView.ViewUniforms.at(ESurfaceMaterialPass::GBuffer)};
 			const auto Result = FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::GBuffer).BuildGPUCullingCommand(
-				Batch, *Command, {VisibleInstances, 0, VisibleInstances->GetSize()},
+				Batch, Input, *Command, {VisibleInstances, 0, VisibleInstances->GetSize()},
 				{InstanceTransforms, 0, InstanceTransforms->GetSize()}, IndirectArguments, IndirectArgumentOffset, Context);
 			if (!Result) return false;
 			Command = ResolvedView.DrawCommandStorage->GetCommand(Completed);

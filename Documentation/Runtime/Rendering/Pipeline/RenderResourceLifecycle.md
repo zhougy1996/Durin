@@ -82,7 +82,8 @@ information owns primitive buffers. Vertex-factory input bindings own deformatio
 buffers. HitProxy request storage owns its temporary pipelines and Collection
 buffers. Cached `FMeshDrawCommand` values borrow these resources directly and
 store non-owning `FMeshDrawShaderBindings`. Cache and visible storage retain only
-command memory; weak source/pipeline references reject expired sources.
+command memory. Sources announce binding invalidation before replacement or
+release; cache entries are removed and existing frame handles are retired.
 
 Renderer device-resource release retires preparations and clears command metadata,
 then releases registered primitive owners, material proxies and uniform resources.
@@ -104,9 +105,11 @@ next use, preserving the shutdown requirement of an empty registry.
   own copied update bytes and binding payloads until replay, and native allocation
   retirement follows GPU completion. Renderer does not retain historical Uniform
   snapshots or reference-counted binding packets.
-- Texture native replacement may occur without a new material publication, so
-  resource resolution still checks the selected native resources. Buffer/object
-  replacement invalidates bindings; numeric updates preserve logical identity.
+- Texture native replacement may occur without a new material publication.
+  Texture references, Uniform replacement and resource-slot eviction announce
+  invalidation before releasing the old bindings. Primitive changes target their
+  source; other binding changes currently invalidate caches conservatively.
+  Numeric Uniform updates preserve logical identity.
 
 These boundaries distinguish source ownership, CPU recording lifetime and GPU
 retirement without adding another owner registry. Preparation and cache rules are

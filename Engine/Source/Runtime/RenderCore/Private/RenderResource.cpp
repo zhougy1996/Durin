@@ -76,6 +76,11 @@ namespace Durin
 		}
 	}
 
+	auto OnRenderResourceBindingsChanged() -> TMulticastDelegate<void(const FRenderResource*)>&
+	{ static TMulticastDelegate<void(const FRenderResource*)> Changed; return Changed; }
+	auto InvalidateRenderResourceBindings(const FRenderResource* Source) -> void
+	{ OnRenderResourceBindingsChanged().Broadcast(Source); }
+
 	FRenderResource::~FRenderResource()
 	{
 		if (IsInitialized())
@@ -337,6 +342,8 @@ namespace Durin
 	{
 		check(IsInRenderingThread());
 		check(TextureReferenceRHI);
+		if (TextureReferenceRHI->GetReferencedTexture_RenderThread() != InTexture.GetReference())
+			InvalidateRenderResourceBindings();
 		if (GDynamicRHI != nullptr)
 		{
 			GDynamicRHI->RHIUpdateTextureReference(

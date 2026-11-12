@@ -477,6 +477,8 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 		Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
 		Durin::GIsGameThreadIdInitialized = true;
 	}
+	ASSERT_TRUE(Durin::FMountPaths::InitDefaultMountPoints());
+	ASSERT_TRUE(Durin::InitializeAssetRuntime());
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
 	Durin::RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
@@ -3009,8 +3011,9 @@ TEST(FMaterialParameterCollectionVulkanTests,
 		OtherSnapshot->Layout = *OtherLayout;
 		MixedWorld->UpdateMaterialParameterCollection(OtherSnapshot);
 		const auto MixedChanged = RenderCollection(MixedWorld.Get(), Repeated);
-		EXPECT_EQ(MixedChanged.PersistentCommandHits, 2u);
-		EXPECT_EQ(MixedChanged.SurfaceMaterialPreparations, 0u);
+		// A new scene Collection source conservatively invalidates cached bindings.
+		EXPECT_EQ(MixedChanged.PersistentCommandHits, 0u);
+		EXPECT_EQ(MixedChanged.SurfaceMaterialPreparations, 2u);
 		EXPECT_GT(CountDominant(Repeated, 0), 100u);
 		EXPECT_GT(CountDominant(Repeated, 1), 100u);
 		EXPECT_EQ(CountDominant(Repeated, 2), 0u);
@@ -4284,7 +4287,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 						PrimitiveUniform, Commands.CreateUniformBufferRange(&ViewParameters, sizeof(ViewParameters)), {}, {}};
 					FMeshDrawCommandBindingCache CacheA;
 					std::shared_ptr<const FMeshDrawCommand> Cached;
-					auto Source = CreateRenderResource<FPrimitiveDrawResources>();
+					const auto Source = Primitive->DrawResources.lock(); ASSERT_TRUE(Source);
 					auto& SourceUniform = Source->GetPrimitiveUniformBuffer(Primitive->BatchId);
 					ASSERT_TRUE(SourceUniform.Update(Commands, std::as_bytes(std::span(&Transform, 1))));
 					Input.PrimitiveUniform = SourceUniform.GetRange();
@@ -4292,10 +4295,10 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 					FCachedMeshDrawCommandStorage Persistent;
 					FDynamicMeshDrawCommandStorage FrameA, FrameB;
 					FMeshDrawCommandHandle DynamicAHandle, DynamicBHandle;
-					FCachedPassMeshDrawListContext CachedContext(Persistent, {EMeshPipelinePass::ShadowDepth}, Cached, *Source); const auto CachedContextResult = PassProcessor.AddMeshBatch(ShadowBatch, Input, CacheA, CachedContext);
+					FCachedPassMeshDrawListContext CachedContext(Persistent, {EMeshPipelinePass::ShadowDepth}, Cached, Input); const auto CachedContextResult = PassProcessor.AddMeshBatch(ShadowBatch, Input, CacheA, CachedContext);
 					ASSERT_TRUE(CachedContextResult) << CachedContextResult.Error;
 					ASSERT_TRUE(Cached && Cached->bCached); EXPECT_EQ(Cached->Pipeline->Pass, EMeshPipelinePass::ShadowDepth);
-					EXPECT_FALSE(Cached->VertexPassBindings); EXPECT_FALSE(Cached->FragmentPassBindings); EXPECT_FALSE(Cached->ViewUniform.Buffer);
+					EXPECT_FALSE(Cached->VertexPassBindings); EXPECT_FALSE(Cached->FragmentPassBindings);
 					EXPECT_FALSE(Cached->SubmitDraw(Commands));
 					ASSERT_TRUE(Cached->bFinalized);
 					EXPECT_EQ(Cached->VertexStreams.size(), Primitive->CollectedBinding->Streams.size());
@@ -4328,7 +4331,6 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 					EXPECT_NE(DynamicB->VertexPassBindings, DynamicA->VertexPassBindings);
 					EXPECT_EQ(DynamicB->DepthBias, *BindingDraw.RasterBias);
 					EXPECT_NE(DynamicA->DepthBias, DynamicB->DepthBias);
-					EXPECT_TRUE(DynamicB->ViewUniform.Buffer != DynamicA->ViewUniform.Buffer || DynamicB->ViewUniform.Offset != DynamicA->ViewUniform.Offset);
 					const auto Original = DynamicB;
 					auto ExpectRejected = [&](std::shared_ptr<const FMeshDrawCommand> Existing) {
 						FMeshDrawCommandBindingCache RejectedCache;
@@ -4340,14 +4342,6 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 						EXPECT_EQ(FrameB.Num({EMeshPipelinePass::ShadowDepth}), 1u);
 						EXPECT_EQ(DynamicB, Original);
 					};
-					// Equal primitive values do not make a different captured buffer range interchangeable.
-					Input.PrimitiveUniform = Commands.CreateUniformBufferRange(&Transform, sizeof(Transform));
-					ExpectRejected(Cached); Input.PrimitiveUniform = PrimitiveUniform;
-					const auto OriginalMaterialUniform = PassMaterial.Uniform;
-					PassMaterial.Uniform = PrimitiveUniform;
-					ExpectRejected(Cached); PassMaterial.Uniform = OriginalMaterialUniform;
-					PassMaterial.Surface.CompiledTextures.push_back(nullptr);
-					ExpectRejected(Cached); PassMaterial.Surface.CompiledTextures.clear();
 					// A matching shader/factory/pass is insufficient if the native PSO was built for another state.
 					auto WrongPipeline = std::make_shared<FMeshPassPipeline>(*Pipeline);
 					WrongPipeline->Description.Topology = FGraphicsPipelineStateInitializer::EPrimitiveTopology::LineList;
@@ -4356,12 +4350,9 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 					// Request-specific HitProxy bindings cannot reuse a view-independent command.
 					Input.HitProxy = PrimitiveUniform;
 					ExpectRejected(Cached); Input.HitProxy = {};
-					PassMaterial.CollectionUniforms.push_back(PrimitiveUniform);
-					FDynamicPassMeshDrawListContext StaleContext(FrameB, {EMeshPipelinePass::ShadowDepth}, DynamicBHandle); const auto StaleContextResult = PassProcessor.AddMeshBatch(ShadowBatch, Input, CacheB, StaleContext, Cached);
-					EXPECT_EQ(StaleContextResult.Status, EShaderBuildStatus::Error); EXPECT_EQ(DynamicB, Original);
 					EXPECT_EQ(Commands.GetNumRecordedDrawCommands(), Draws);
 					// Submission consumes captured geometry, not the source view or description.
-					auto Detached = *DynamicB; Detached.Description = nullptr; Detached.Input = nullptr;
+					auto Detached = *DynamicB;
 					auto NonIndexedDescription = std::make_shared<FMeshDrawDescription>(*BindingDraw.Command);
 					NonIndexedDescription->Geometry.bIndexed = false;
 					NonIndexedDescription->Geometry.FirstElement = 0;
@@ -4371,7 +4362,6 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 					auto NonIndexed = Detached;
 					ASSERT_TRUE(NonIndexed.SetDrawParametersAndFinalize(*Primitive, NonIndexedDraw));
 					EXPECT_FALSE(NonIndexed.IndexBuffer);
-					EXPECT_TRUE(NonIndexed.IsValid());
 					EXPECT_EQ(std::get<FRHIDrawArguments>(NonIndexed.DrawParameters).VertexCount, 3u);
 					const auto DepthTarget = GDynamicRHI->RHICreateTexture(Commands,
 						FRHITextureCreateDesc::Create2D("MeshCommandSubmission", 8, 8, EPixelFormat::D32)
@@ -4385,13 +4375,14 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 					EXPECT_FALSE(Cached->SubmitDraw(Commands, &SubmitCache));
 					EXPECT_TRUE(Detached.SubmitDraw(Commands, &SubmitCache));
 					EXPECT_TRUE(NonIndexed.SubmitDraw(Commands, &SubmitCache));
-					EXPECT_EQ(SubmitCache.Vertex, &NonIndexed.VertexBindings);
 					EXPECT_TRUE(DynamicA->SubmitDraw(Commands, &SubmitCache));
-					EXPECT_EQ(SubmitCache.VertexPass, &DynamicA->VertexPassBindings);
+					const auto BeforeRepeat = Commands.GetNumRecordedCommands();
+					EXPECT_TRUE(DynamicA->SubmitDraw(Commands, &SubmitCache));
+					EXPECT_EQ(Commands.GetNumRecordedCommands(), BeforeRepeat + 1);
 					EXPECT_EQ(SubmitCache.Pipeline, DynamicA->Pipeline);
 					Commands.EndRenderPass();
-					EXPECT_EQ(Commands.GetNumRecordedDrawCommands(), Draws + 3);
-					EXPECT_EQ(PSOPrecacheValidation::GetStatistics().Hit, 1u); // Three cached draws, one full PSO identity.
+					EXPECT_EQ(Commands.GetNumRecordedDrawCommands(), Draws + 4);
+					EXPECT_EQ(PSOPrecacheValidation::GetStatistics().Hit, 1u); // Four draws, one full PSO identity.
 					EXPECT_EQ(PSOPrecacheValidation::GetStatistics().Missed, 0u);
 
 					BindingContextsValidated = true;

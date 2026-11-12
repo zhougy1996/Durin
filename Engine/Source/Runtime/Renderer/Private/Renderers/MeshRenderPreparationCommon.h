@@ -4,6 +4,7 @@
 
 #include "Materials/MaterialRenderProxy.h"
 #include "RHIResources.h"
+#include "RHIShaderParameters.h"
 #include "Renderers/MeshPipelineDescription.h"
 
 namespace Durin
@@ -148,20 +149,29 @@ namespace Durin
 	class FRHIShaderParameterBatch;
 	namespace RendererPrivate { struct FMeshDrawShaderBindings; struct FMeshDrawCommand; struct FMeshPassPipeline; class FDynamicMeshDrawCommandStorage; }
 
-	// Local to one uninterrupted mesh recording span. Callers reset at pass
-	// boundaries or before any foreign pipeline/parameter commands.
+	struct FShaderBindingState
+	{
+		FRHIShader* Shader = nullptr;
+		std::vector<FRHIShaderParameterResource> Parameters;
+		std::vector<FRHIShaderParameterResource> Changed;
+	};
+	struct FMeshDrawVertexStream
+	{
+		uint8 StreamIndex = 0;
+		FRHIBuffer* VertexBuffer = nullptr;
+		uint32 Offset = 0;
+		uint16 Stride = 0;
+		auto operator==(const FMeshDrawVertexStream&) const -> bool = default;
+	};
+	// One uninterrupted recording span; reset after foreign RHI state changes.
 	struct FMeshDrawCommandStateCache
 	{
-		// Borrow binding values from stable frame/command storage until recording ends.
-		const void* VertexPass = nullptr;
-		const void* FragmentPass = nullptr;
 		const void* Pipeline = nullptr;
-		const void* Vertex = nullptr;
-		const void* Fragment = nullptr;
-		auto Set(const void* InPipeline, const void* InVertex, const void* InFragment) -> void
-		{
-			Pipeline = InPipeline; Vertex = InVertex; Fragment = InFragment;
-		}
+		FShaderBindingState Vertex, Fragment;
+		std::vector<FMeshDrawVertexStream> VertexStreams;
+		FRHIBuffer* IndexBuffer = nullptr;
+		uint32 IndexBufferOffset = 0;
+		std::optional<std::array<float, 3>> DepthBias;
 	};
 
 	// Index into one frame's pass list. The storage identity rejects stale/cross-view handles.

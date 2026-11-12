@@ -1,4 +1,5 @@
 #include "Renderers/MeshPassProcessor.h"
+#include "RendererResourceSlotCache.h"
 #include "Renderers/GBufferRendering.h"
 #include "Renderers/MeshRendererShared.h"
 #include "Materials/MaterialRenderProxy.h"
@@ -182,34 +183,6 @@ TEST(FRendererSceneContractTests, AddMeshBatchFiltersBeforeBuildingShadersOrComm
     FlushRenderingCommands();
 }
 
-TEST(FRendererSceneContractTests, PerPassMeshDrawCommandsBorrowPipelineAndMaterialState)
-{
-    using namespace Durin; using namespace RendererPrivate;
-    auto Description = std::make_shared<FMeshDrawDescription>();
-    auto Input = std::make_shared<FStaticMeshBatchBinding>();
-    auto Forward = std::make_shared<FMeshPassPipeline>(); Forward->Pass = EMeshPipelinePass::Forward;
-    auto GBuffer = std::make_shared<FMeshPassPipeline>(); GBuffer->Pass = EMeshPipelinePass::GBuffer;
-    auto GPU = std::make_shared<FMeshPassPipeline>(*GBuffer); GPU->bGPUCulling = true;
-    auto MakeCommand = [&](const std::shared_ptr<const FMeshPassPipeline>& Pipeline) {
-        auto Command = std::make_shared<FMeshDrawCommand>();
-        Command->Description = Description.get(); Command->Input = Input.get(); Command->Pipeline = Pipeline.get();
-        Command->Key = FMeshDrawCommand::MakeKey(Description.get(), FPrimitiveComponentId(17), 23, *Pipeline);
-        Command->BatchId = 23; Command->bCached = true;
-        return Command;
-    };
-    auto A = MakeCommand(Forward), B = MakeCommand(GBuffer), C = MakeCommand(GPU);
-    EXPECT_NE(A->GetKey(), B->GetKey()); EXPECT_NE(B->GetKey(), C->GetKey());
-    const auto StableKey = B->GetKey(); C.reset(); GPU.reset();
-    EXPECT_EQ(B->GetKey(), StableKey);
-    EXPECT_FALSE(A->VertexPassBindings); EXPECT_FALSE(A->FragmentPassBindings);
-    std::weak_ptr<const FMeshDrawDescription> DescriptionLifetime = Description;
-    std::weak_ptr<const FVertexFactoryInputBinding> InputLifetime = Input;
-    std::weak_ptr<const FMeshPassPipeline> PipelineLifetime = Forward;
-    Description.reset(); Input.reset(); Forward.reset(); GBuffer.reset();
-    EXPECT_TRUE(DescriptionLifetime.expired()); EXPECT_TRUE(InputLifetime.expired()); EXPECT_TRUE(PipelineLifetime.expired());
-
-}
-
 TEST(FRendererSceneContractTests, CachedAndDynamicMeshContextsRejectUnpreparedPassesWithoutPublishing)
 {
     using namespace Durin; using namespace RendererPrivate;
@@ -233,7 +206,7 @@ TEST(FRendererSceneContractTests, CachedAndDynamicMeshContextsRejectUnpreparedPa
         std::shared_ptr<const FMeshDrawCommand> Published = std::make_shared<FMeshDrawCommand>();
         const auto* Original = Published.get();
         FCachedMeshDrawCommandStorage Persistent;
-        FCachedPassMeshDrawListContext Cached(Persistent, {EMeshPipelinePass::Forward}, Published, *Source); const auto CachedResult = Processor.AddMeshBatch(Batch, Input, Cache, Cached);
+        FCachedPassMeshDrawListContext Cached(Persistent, {EMeshPipelinePass::Forward}, Published, Input); const auto CachedResult = Processor.AddMeshBatch(Batch, Input, Cache, Cached);
         EXPECT_EQ(CachedResult.Status, EShaderBuildStatus::Error); EXPECT_EQ(Published.get(), Original);
         Pipeline->Pass = EMeshPipelinePass::Forward;
         FDynamicMeshDrawCommandStorage Frame; FMeshDrawCommandHandle DynamicReceipt;
@@ -444,12 +417,13 @@ namespace
         Durin::FMeshDrawDescription Description;
         explicit FStoredCommandSource(Durin::RendererPrivate::FMeshPassKey Pass)
         { Pipeline.Pass = Pass.Pass; Pipeline.bGPUCulling = Pass.bGPUCulling; }
-        auto MakeCommand(uint64 Batch, bool Cached) const -> Durin::RendererPrivate::FMeshDrawCommand
+        auto Key(uint64 Batch) const -> Durin::RendererPrivate::FCachedMeshDrawCommandStorage::FKey
+        { return Durin::RendererPrivate::FCachedMeshDrawCommandStorage::MakeKey(&Description, Durin::InvalidPrimitiveComponentId, Batch, Pipeline); }
+        auto MakeCommand(uint64, bool Cached) const -> Durin::RendererPrivate::FMeshDrawCommand
         {
             using namespace Durin; using namespace RendererPrivate;
-            FMeshDrawCommand Command; Command.bFinalized = true; Command.bCached = Cached; Command.BatchId = Batch;
-            Command.Pipeline = &Pipeline; Command.Description = &Description;
-            Command.Key = FMeshDrawCommand::MakeKey(&Description, InvalidPrimitiveComponentId, Batch, Pipeline);
+            FMeshDrawCommand Command; Command.bFinalized = true; Command.bCached = Cached;
+            Command.Pipeline = &Pipeline;
             return Command;
         }
     };
@@ -467,19 +441,20 @@ TEST(FRendererSceneContractTests, PassCommandListsRejectCrossFrameHandles)
     EXPECT_FALSE(Frame.GetCommand(Receipt));
     GRenderFrameCounterRenderThread = OldFrame;
 }
-TEST(FRendererSceneContractTests, CachedPassStorageBoundsCommandMemory)
+TEST(FRendererSceneContractTests, CachedPassStorageRetainsLiveCommandsUntilSourceInvalidation)
 {
     using namespace Durin; using namespace RendererPrivate;
     const FMeshPassKey Pass{EMeshPipelinePass::Forward};
     FStoredCommandSource DrawSource(Pass);
     FCachedMeshDrawCommandStorage Storage;
     auto Source = CreateRenderResource<FPrimitiveDrawResources>();
-    const auto Held = Storage.Publish(DrawSource.MakeCommand(1, true), *Source);
-    const auto Key = Held->GetKey();
-    for (uint64 I = 0; I < 2050; ++I) Storage.Publish(DrawSource.MakeCommand(I + 2, true), *Source);
-    EXPECT_EQ(Storage.Num(), 2048u); EXPECT_FALSE(Storage.Find(Pass, Key));
-    EXPECT_EQ(Held->BatchId, 1u); EXPECT_TRUE(Held->IsValid());
-    Source->ReleaseRHI(); EXPECT_FALSE(Held->IsValid());
+    const auto Held = Storage.Publish(DrawSource.Key(1), DrawSource.MakeCommand(1, true), *Source);
+    const auto Key = DrawSource.Key(1);
+    for (uint64 I = 0; I < 2050; ++I) Storage.Publish(DrawSource.Key(I + 2), DrawSource.MakeCommand(I + 2, true), *Source);
+    EXPECT_EQ(Storage.Num(), 2051u); EXPECT_TRUE(Storage.Find(Key));
+    Source->BeginDeferredUpdateStaticMeshes();
+    EXPECT_EQ(Storage.Num(), 0u); EXPECT_FALSE(Storage.Find(Key));
+    EXPECT_TRUE(Held->bFinalized);
 }
 TEST(FRendererSceneContractTests, VisibleCommandMemoryDoesNotKeepSourceResourcesAlive)
 {
@@ -488,7 +463,7 @@ TEST(FRendererSceneContractTests, VisibleCommandMemoryDoesNotKeepSourceResources
     auto Source = CreateRenderResource<FPrimitiveDrawResources>();
     const FMeshPassKey Pass{EMeshPipelinePass::Forward};
     FStoredCommandSource DrawSource(Pass);
-    auto Command = Cache.Publish(DrawSource.MakeCommand(41, true), *Source);
+    auto Command = Cache.Publish(DrawSource.Key(41), DrawSource.MakeCommand(41, true), *Source);
     auto Bindings = std::make_shared<FMeshPassBindings>();
     FDynamicMeshDrawCommandStorage Submission;
     const auto Receipt = Submission.PublishVisible(Command, Bindings, {1, 2, 3});
@@ -497,7 +472,7 @@ TEST(FRendererSceneContractTests, VisibleCommandMemoryDoesNotKeepSourceResources
     Cache.Reset(); Command.reset(); Source.reset();
     EXPECT_TRUE(Life.expired());
     EXPECT_FALSE(Submission.GetVisible(Receipt));
-    EXPECT_EQ(Borrowed->Command->BatchId, 41u); EXPECT_FALSE(Borrowed->Command->IsValid());
+    EXPECT_TRUE(Borrowed->Command->bFinalized);
 }
 TEST(FRendererSceneContractTests, CachedCommandCannotReviveAReleasedSource)
 {
@@ -506,27 +481,27 @@ TEST(FRendererSceneContractTests, CachedCommandCannotReviveAReleasedSource)
     auto Source = CreateRenderResource<FPrimitiveDrawResources>();
     const FMeshPassKey Pass{EMeshPipelinePass::Forward};
     FStoredCommandSource DrawSource(Pass);
-    const auto Command = Cache.Publish(DrawSource.MakeCommand(13, true), *Source);
-    const auto Key = Command->GetKey();
-    ASSERT_TRUE(Cache.Find(Pass, Key));
+    const auto Command = Cache.Publish(DrawSource.Key(13), DrawSource.MakeCommand(13, true), *Source);
+    const auto Key = DrawSource.Key(13);
+    ASSERT_TRUE(Cache.Find(Key));
     Source->ReleaseRHI();
-    EXPECT_FALSE(Cache.Find(Pass, Key)); EXPECT_FALSE(Command->IsValid());
+    EXPECT_EQ(Cache.Num(), 0u); EXPECT_FALSE(Cache.Find(Key));
 }
-TEST(FRendererSceneContractTests, CachedCommandsRejectAnEvictedPipelineWithoutOwningIt)
+TEST(FRendererSceneContractTests, ResourceSlotEvictionInvalidatesCommandsBeforeDroppingPayloads)
 {
     using namespace Durin; using namespace RendererPrivate;
     FCachedMeshDrawCommandStorage Cache;
     auto Source = CreateRenderResource<FPrimitiveDrawResources>();
     const FMeshPassKey Pass{EMeshPipelinePass::Forward};
     FStoredCommandSource DrawSource(Pass);
-    auto Pipeline = std::make_shared<FMeshPassPipeline>(); Pipeline->Pass = Pass.Pass;
-    auto Command = DrawSource.MakeCommand(14, true);
-    Command.Pipeline = Pipeline.get(); Command.PipelineLifetime = Pipeline; Command.bPipelineBound = true;
-    const auto Key = Command.GetKey();
-    const auto Descriptor = Cache.Publish(std::move(Command), *Source);
-    ASSERT_TRUE(Cache.Find(Pass, Key));
-    Pipeline.reset();
-    EXPECT_FALSE(Descriptor->IsValid()); EXPECT_FALSE(Cache.Find(Pass, Key));
+    TRendererResourceSlotCache<int, int> Slots;
+    Slots.FindOrAddBounded(1, 1);
+    const auto Key = DrawSource.Key(14);
+    const auto Descriptor = Cache.Publish(Key, DrawSource.MakeCommand(14, true), *Source);
+    ASSERT_TRUE(Cache.Find(Key));
+    Slots.FindOrAddBounded(2, 1);
+    EXPECT_EQ(Cache.Num(), 0u); EXPECT_FALSE(Cache.Find(Key));
+    EXPECT_TRUE(Descriptor->bFinalized);
 }
 
 TEST(FRendererSceneContractTests, RemovingASourceUniformSlotInvalidatesItsCachedCommand)
@@ -541,15 +516,91 @@ TEST(FRendererSceneContractTests, RemovingASourceUniformSlotInvalidatesItsCached
         const auto InitialReferences = ObservedBuffer->GetRefCount();
         const FMeshPassKey Pass{EMeshPipelinePass::Forward};
         FStoredCommandSource DrawSource(Pass);
-        auto Draw = DrawSource.MakeCommand(45, true); Draw.PrimitiveUniform = Uniform.GetRange();
-        const auto Key = Draw.GetKey();
+        auto Draw = DrawSource.MakeCommand(45, true);
+        Draw.VertexBindings.Parameters.push_back({Uniform.GetRange().Buffer});
+        const auto Key = DrawSource.Key(45);
         FCachedMeshDrawCommandStorage Cache;
-        const auto Cached = Cache.Publish(std::move(Draw), *Source);
-        ASSERT_TRUE(Cache.Find(Pass, Key));
+        const auto Cached = Cache.Publish(Key, std::move(Draw), *Source);
+        ASSERT_TRUE(Cache.Find(Key));
         EXPECT_EQ(ObservedBuffer->GetRefCount(), InitialReferences);
         Source->RetainPrimitiveUniformBuffers({});
         EXPECT_EQ(ObservedBuffer->GetRefCount(), InitialReferences - 1);
-        EXPECT_FALSE(Cached->IsValid()); EXPECT_FALSE(Cache.Find(Pass, Key));
+        EXPECT_EQ(Cache.Num(), 0u); EXPECT_FALSE(Cache.Find(Key));
     });
     FlushRenderingCommands();
+}
+
+TEST(FRendererSceneContractTests, ShaderBindingsRecordOnlyChangedSlotsAndRespectCacheReset)
+{
+    using namespace Durin; using namespace RendererPrivate;
+    FRHICommandList Commands;
+    Commands.SwitchPipeline(ERHIPipeline::Graphics);
+    const auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Fragment, FXxHash128{}));
+    const auto A = Commands.CreateUniformBuffer({32}, ERHIBufferLifetimeUsage::MultiFrame, FByteBuffer(32));
+    const auto B = Commands.CreateUniformBuffer({32}, ERHIBufferLifetimeUsage::MultiFrame, FByteBuffer(32));
+    FMeshDrawShaderBindings Material, Pass;
+    Material.Shader = Pass.Shader = Shader.GetReference();
+    Material.Parameters = {{A.GetReference(), 1, 0, 0, ERHIBindingType::UniformBuffer, 0, 32}};
+    Pass.Parameters = {{B.GetReference(), 0, 0, 0, ERHIBindingType::UniformBuffer, 0, 32}};
+    FShaderBindingState State;
+    const auto Before = Commands.GetNumRecordedCommands();
+    ASSERT_TRUE(Material.SetOnCommandList(Commands, State));
+    ASSERT_TRUE(Pass.SetOnCommandList(Commands, State));
+    EXPECT_EQ(Commands.GetNumRecordedCommands(), Before + 2);
+    Material.SetOnCommandList(Commands, State); Pass.SetOnCommandList(Commands, State);
+    EXPECT_EQ(Commands.GetNumRecordedCommands(), Before + 2);
+    Material.Parameters[0].Resource = B.GetReference();
+    Material.SetOnCommandList(Commands, State); Pass.SetOnCommandList(Commands, State);
+    EXPECT_EQ(Commands.GetNumRecordedCommands(), Before + 3);
+    State = {};
+    Material.SetOnCommandList(Commands, State); Pass.SetOnCommandList(Commands, State);
+    EXPECT_EQ(Commands.GetNumRecordedCommands(), Before + 5);
+}
+
+TEST(FRendererSceneContractTests, NumericUniformUpdatesKeepCommandsAndReplacementRetiresPreparedHandles)
+{
+    using namespace Durin; using namespace RendererPrivate;
+    FMeshPassRenderingThreadScope RenderingThread;
+    EnqueueRenderCommand("UniformBindingInvalidation", [](FRHICommandListImmediate& Commands) {
+        auto Source = CreateRenderResource<FPrimitiveDrawResources>();
+        auto Other = CreateRenderResource<FPrimitiveDrawResources>();
+        auto& Uniform = Source->GetPrimitiveUniformBuffer(1);
+        ASSERT_TRUE(Uniform.Update(Commands, FByteBuffer(16)));
+        const FMeshPassKey Pass{EMeshPipelinePass::Forward};
+        FStoredCommandSource DrawSource(Pass);
+        FCachedMeshDrawCommandStorage Cache;
+        auto Command = DrawSource.MakeCommand(1, true);
+        Command.VertexBindings.Parameters.push_back({Uniform.GetRange().Buffer});
+        Cache.Publish(DrawSource.Key(1), std::move(Command), *Source);
+        Cache.Publish(DrawSource.Key(2), DrawSource.MakeCommand(2, true), *Other);
+        FDynamicMeshDrawCommandStorage Frame;
+        const auto Receipt = Frame.PublishVisible(Cache.Find(DrawSource.Key(1))->Command, std::make_shared<FMeshPassBindings>(), {});
+        const auto* Original = Uniform.GetRange().Buffer;
+        ASSERT_TRUE(Uniform.Update(Commands, FByteBuffer(16, std::byte{1})));
+        EXPECT_EQ(Uniform.GetRange().Buffer, Original);
+        EXPECT_EQ(Cache.Num(), 2u); EXPECT_TRUE(Frame.GetVisible(Receipt));
+        Source->BeginDeferredUpdateStaticMeshes();
+        EXPECT_FALSE(Cache.Find(DrawSource.Key(1)));
+        EXPECT_TRUE(Cache.Find(DrawSource.Key(2))); EXPECT_FALSE(Frame.GetVisible(Receipt));
+        Cache.Publish(DrawSource.Key(1), DrawSource.MakeCommand(1, true), *Source);
+        ASSERT_TRUE(Uniform.Update(Commands, FByteBuffer(32)));
+        EXPECT_NE(Uniform.GetRange().Buffer, Original);
+        EXPECT_EQ(Cache.Num(), 0u);
+    });
+    FlushRenderingCommands();
+}
+
+TEST(FRendererSceneContractTests, ReplacingDrawBindingsReusesTheSceneCacheLocation)
+{
+    using namespace Durin; using namespace RendererPrivate;
+    FStoredCommandSource DrawSource({EMeshPipelinePass::Forward});
+    auto Source = CreateRenderResource<FPrimitiveDrawResources>();
+    FCachedMeshDrawCommandStorage Cache;
+    const auto Original = DrawSource.Key(1);
+    Cache.Publish(Original, DrawSource.MakeCommand(1, true), *Source);
+    auto Replacement = Original;
+    ++Replacement.Bindings[2];
+    Cache.Publish(Replacement, DrawSource.MakeCommand(1, true), *Source);
+    EXPECT_EQ(Cache.Num(), 1u);
+    EXPECT_FALSE(Cache.Find(Original)); EXPECT_TRUE(Cache.Find(Replacement));
 }

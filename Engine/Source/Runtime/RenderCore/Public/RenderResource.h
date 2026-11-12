@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "RenderCoreAPI.h"
+#include "Delegates/Delegate.h"
 #include "RHIResources.h"
 
 #if DURIN_BUILD_DEBUG
@@ -81,6 +82,11 @@ namespace Durin
 		FName DebugOwner;
 #endif
 	};
+
+	// Sources announce binding changes before releasing/replacing referenced RHI objects.
+	// Render-thread only; null invalidates all retained bindings, otherwise only the source.
+	RENDERCORE_API auto OnRenderResourceBindingsChanged() -> TMulticastDelegate<void(const FRenderResource*)>&;
+	RENDERCORE_API auto InvalidateRenderResourceBindings(const FRenderResource* Source = nullptr) -> void;
 
 	class FDeferredRenderResourceCleanup;
 	class FTextureResource;

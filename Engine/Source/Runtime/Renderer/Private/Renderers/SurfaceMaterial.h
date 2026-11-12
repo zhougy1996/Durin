@@ -11,6 +11,7 @@
 
 namespace Durin
 {
+	struct FShaderBindingState;
 	class FDefaultTextureResources;
 	struct FSkyLightingGeneration;
 	class FGBufferRenderer;
@@ -157,7 +158,7 @@ namespace Durin
 			FMeshDrawShaderBindings() = default;
 			auto GetShader() const -> FRHIShader* { return Shader; }
 			auto GetResources() const -> std::span<const FRHIShaderParameterResource> { return Parameters; }
-			RENDERER_API auto Bind(FRHICommandList& Commands) const -> bool;
+			RENDERER_API auto SetOnCommandList(FRHICommandList& Commands, FShaderBindingState& State) const -> bool;
 			RENDERER_API auto operator==(const FMeshDrawShaderBindings& Other) const -> bool;
 			explicit operator bool() const { return Shader != nullptr; }
 		};
@@ -209,7 +210,6 @@ namespace Durin
 				FRHITexture* DirectionalShadowTexture, FRHISampler* DirectionalShadowSampler,
 				FPreparedSurfaceMaterial& OutMaterial, const FRHIUniformBufferRange& SharedUniform = {}) const -> bool;
 			auto ReleaseResources_RenderThread() -> void;
-			auto AreStableResourcesCurrent_RenderThread(const FResolvedSurfaceMaterial& Material, const FMaterialRenderRepresentation& Representation) const -> bool;
 			auto RefreshPassResources_RenderThread(ESurfaceMaterialPass Pass,
 				const std::shared_ptr<const FSkyLightingGeneration>& Environment,
 				FRHITexture* DirectionalShadowTexture, FRHISampler* DirectionalShadowSampler,
