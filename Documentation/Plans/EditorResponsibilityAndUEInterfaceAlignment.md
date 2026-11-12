@@ -2,16 +2,22 @@
 
 Summary: Align editor service updates, Content Browser data interfaces, shared texture previews, package tools, and toolkit identities with UE responsibilities.
 
-Last reviewed: 2026-11-11
+Last reviewed: 2026-11-12
 
 Status: Active
 Completed:
 
 ## Current Status
 
-The selected direction and Stage 0 UE-source interface review are recorded;
-implementation has not started. Runtime baseline capture and all implementation
-and runtime acceptance gates remain open.
+Execution started on 2026-11-12 from clean revision `3563d2bbd`.
+The intervening startup consolidation already moved session maintenance into
+DEditorEngine, made it private, removed MainFrame pumping and added headless
+close/shutdown coverage. Stage 1 must reuse that behavior, align the callback
+name and update ordering, and validate it rather than recreate it.
+Stage 0 is complete: consumer inventory, frozen decisions and focused baseline
+receipts are recorded below. Stage 1 is implemented and its focused regression
+validation passed (39 session cases and 39 host cases).
+Stages 2-6 remain unstarted.
 The review baseline is `656742742dc515e159f1caa2a6e67d66c4324a0d`.
 Test target names were queried from the configured native registry for
 `Win64-Debug-DurinEditor`; no native validation was executed for this plan.
@@ -137,6 +143,86 @@ removed before the owning stage closes.
 
 ## Implementation Stages
 
+### Stage 0 Evidence (2026-11-12)
+
+Baseline revision `3563d2bbd`, Windows `windows-msvc-x64`,
+`Win64-Debug-DurinEditor`, with only this plan edited. Native build/test ran
+outside the sandbox after the first sandboxed build reproduced MSVC C1902.
+The outside-sandbox build passed; no compiler/PDB configuration was changed.
+Receipts below are under `Build/.agent-state/logs/`:
+
+| Selection | Result | Receipt |
+| --- | --- | --- |
+| EditorOperationTests / FAssetEditorSessionTests.* | 38 passed | `20261112-102557-044445-31700-EditorOperationTests.log` |
+| ContentBrowserWorkflowTests | 158 passed, 2 skipped | `20261112-102648-395744-27368-ContentBrowserWorkflowTests.log` |
+| TextureThumbnailTests | 14 passed | `20261112-102732-539338-7868-TextureThumbnailTests.log` |
+| MaterialThumbnailTests | 8 passed | `20261112-102800-949556-23972-MaterialThumbnailTests.log` |
+| AssetPackageTests / FAsyncAssetLoadTests.Editor*Unload* | 2 passed | `20261112-102827-608613-2692-AssetPackageTests.log` |
+
+The two browser skips require Windows directory/file symlink privileges and
+remain unqualified; they are not failures or passes. All 220 executed baseline
+cases passed. The baseline does not qualify later source changes.
+
+Stage 1 affected-selection analysis expands to 20 targets through the shared
+DurinEd module label. Focused session and host targets are selected because the
+changed private method has no external source consumers and only service/shell
+ordering changes; preview/browser/package baselines are not claimed as refreshed
+behavior validation. The final combined all-build gate remains in Stage 6.
+
+### Frozen Stage 0 Contracts
+
+The workspace inventory is stored at
+`Build/EditorResponsibilityAndUEInterfaceAlignment/stage0-consumers.txt`:
+861 matching source/test lines in Engine; no current matching consumers in
+Sandbox or RoadWeaver. The search covers all six production/test roots and
+module manifests/CMake inputs. Engine owners are DurinEd/MainFrame (session
+pump), ContentBrowser (data model/discovery/operations), TextureEditor and
+MaterialEditor (shared preview), AssetTools/Engine (package collection), and
+the four feature-editor modules (toolkits). Test consumers include both
+EngineTests and AssetTests; future migrations must search those roots again.
+Public LevelEditor toolkit headers and reflected subsystem declarations are
+part of the compile closure even when project consumers currently have no hits.
+
+- Source instances belong to one editor data subsystem. Module feature
+  registrations advertise available source classes; activation constructs one
+  instance per source name, initializes it, sets its sink and publishes it only
+  after successful initialization. Deactivation removes admission before
+  detaching the sink/shutting down. Reactivation creates a new monotonically
+  identified activation generation; retained items never redirect to it.
+- Each folder item retains all source contributors under the normalized virtual
+  path. The public aggregate forwards capability/operation calls to owned item
+  data. Unsupported cross-source moves/copies are rejected for the whole batch
+  before any provider writes; independently executable same-source batches
+  retain their per-item structured outcomes.
+- Discovery workers capture immutable value snapshots, cancellation and the
+  editor/project/source generation tuple. Only owner-thread publication resolves
+  live providers. Cancellation or provider/project retirement rejects publication
+  and releases captured payloads without invoking retired code.
+- UE save flags `SaveOnlyIfDirty | SaveOnlyIfLoaded` map exactly to existing
+  `LoadedDirtyPackage`; no flags map to `CanonicalResave`. Single-flag policies
+  need explicit provider implementation and tests before being accepted; they
+  must reject unsupported requests rather than silently select another mode.
+- `FContentBrowserDeleteContext` is a move-only operation-scoped capability
+  binding source activation identity, immutable confirmation and the existing
+  retained deletion execution session. `BulkDeleteItems(items, context)` checks
+  owner, exact scope, fingerprints and admission again. Panel owns user
+  confirmation; provider owns execution. A context cannot be reused after
+  completion/cancellation or moved to another source. Existing companion policy,
+  stale-plan diagnostics and compensation remain authoritative.
+- The private asset service `HandleTicker(float)` runs once after tool/script/
+  world work and before MainFrame's frame callback. It retains the existing
+  `DispatchEditorCallback` transaction/host scope and rechecks `CanCall` after
+  callbacks. Shutdown finishes the current borrowed operation, skips subsequent
+  sessions and leaves physical teardown to the outer owner boundary. No ticker
+  callback outlives its editor; no second loop is introduced.
+- Selected baseline cases: `EditorOperationTests/FAssetEditorSessionTests.*`,
+  `ContentBrowserWorkflowTests`, `TextureThumbnailTests`, `MaterialThumbnailTests`,
+  and `AssetPackageTests/FAsyncAssetLoadTests.Editor*Unload*`. Query current target
+  membership before execution. Stage 4's bounded Vulkan cases are
+  `FThumbnailVulkanTests.TexturePreviewPreservesRawChannelsSrgbAndAspectRatio`
+  and `FThumbnailVulkanTests.Texture2DThumbnailUsesBuiltNormalAndRejectsReplacedAllocation`;
+  backend teardown coverage still requires inspection before that stage closes.
+
 ### Stage 0: Freeze interface parity and baseline evidence
 
 Dependencies: none. Outcome: an implementation-ready API inventory, adaptation
@@ -144,16 +230,16 @@ list and bounded test baseline, without treating design review as test evidence.
 
 - [x] Recheck UE source signatures and record header/method references for the
   interfaces above. Explicitly distinguish UE behavior from Durin adaptations.
-- [ ] Inventory changed symbols and consumers in all three workspace projects,
+- [x] Inventory changed symbols and consumers in all three workspace projects,
   including tests, reflection inputs, module manifests and exported headers.
-- [ ] Freeze the source initialization/activation and registration-generation
+- [x] Freeze the source initialization/activation and registration-generation
   contract, folder aggregation, async discovery ownership, save-flag mapping,
   cross-source rejection rules and confirmed-delete context.
-- [ ] Freeze the host service-update ordering and shutdown/reentrancy behavior.
+- [x] Freeze the host service-update ordering and shutdown/reentrancy behavior.
   UE's asset subsystem ticker currently handles deferred restore; Durin's
   document-close maintenance is a deliberate extension and must run each frame,
   not inherit UE's one-second ticker interval.
-- [ ] Query current registry cases and capture focused baseline receipts for
+- [x] Query current registry cases and capture focused baseline receipts for
   sessions, browser operations, preview consumers and package unloading. Record
   existing failures/skips separately with a reproducing baseline.
 
@@ -170,15 +256,15 @@ asset editor semantics through their editor frame.
 Scope: DurinEd `Subsystems/AssetEditorSubsystem`, `AssetEditorSessions`,
 `Editor/EditorEngine`; MainFrame frame/close pumping; session/host test fixtures.
 
-- [ ] Move the public `TickAssetEditors` maintenance implementation behind the
+- [x] Move the public `TickAssetEditors` maintenance implementation behind the
   private `HandleTicker(float)` entrypoint. Let DEditorEngine invoke it through
   narrow host access at the existing owner-controlled update boundary.
-- [ ] Invoke it once per admitted editor frame, after tool/script/world updates
+- [x] Invoke it once per admitted editor frame, after tool/script/world updates
   and before shell presentation. Preserve subsystem callback/transaction scopes
   and stop subsequent work immediately on shutdown or retirement requests.
-- [ ] Remove semantic maintenance from normal MainFrame ticking. Route any
+- [x] Remove semantic maintenance from normal MainFrame ticking. Route any
   special close pump through the same host boundary, never two independent pumps.
-- [ ] Migrate tests to exercise the editor frame rather than manually compensating
+- [x] Migrate tests to exercise the editor frame rather than manually compensating
   with `TickAssetEditors`. Remove the obsolete public entrypoint and consumers.
 
 Validation: focused session cases in `EditorOperationTests`, plus affected host
@@ -190,6 +276,19 @@ selected by changed headers. No new global ticker framework is needed.
 Acceptance: an editor frame without a MainFrame completes deferred semantic work;
 adding a shell does not change its outcome or advance it twice. No public caller
 or test requires `TickAssetEditors`.
+
+Stage 1 evidence, 2026-11-12: final source/test inputs based on `3563d2bbd`,
+Windows `windows-msvc-x64`, `Win64-Debug-DurinEditor`, outside-sandbox MSVC.
+`EditorOperationTests/FAssetEditorSessionTests.*` passed 39 cases, including the
+new shell-observes-refreshed-state/one-update regression; `EditorHostToolTests`
+passed 39 cases. Receipts under `Build/.agent-state/logs/` are
+`20261112-102936-325273-29048-EditorOperationTests.log` and
+`20261112-103024-629747-13424-EditorHostToolTests.log`.
+The host target build also compiled the concrete feature/editor consumer closure.
+No production/test inputs changed after these runs; subsequent edits only record
+this evidence. All workspace source/test roots have no `TickAssetEditors` hits.
+Changed-document and all-plan validation passed. No GPU or application-hosted
+validation was required for this service-ordering stage.
 
 ### Stage 2: Introduce UE-shaped browser data contracts and providers
 

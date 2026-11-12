@@ -6,6 +6,7 @@
 #include "Documents/EditorDocumentManager.h"
 #include "Documents/EditorDocumentUI.h"
 #include "Editor/EditorEngineTestSupport.h"
+#include "Editor/IMainFrameModule.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
 #include "Misc/MountPathTestSupport.h"
@@ -98,12 +99,12 @@ namespace
 {
 	using namespace Durin;
 	template<typename T>
-	concept CHasPublicAssetSessionTick = requires(T& Service) { Service.TickAssetEditors(); };
+	concept CHasPublicAssetSessionTicker = requires(T& Service) { Service.HandleTicker(0.0f); };
 	template<typename T>
 	concept CHasPublicAssetSessionShutdown = requires(T& Service) { Service.ShutdownAssetEditorSessions(); };
 	template<typename T>
 	concept CHasPublicAssetCallbackDispatch = requires(T& Service) { Service.DispatchEditorCallback([] {}); };
-	static_assert(!CHasPublicAssetSessionTick<DAssetEditorSubsystem>);
+	static_assert(!CHasPublicAssetSessionTicker<DAssetEditorSubsystem>);
 	static_assert(!CHasPublicAssetSessionShutdown<DAssetEditorSubsystem>);
 	static_assert(!CHasPublicAssetCallbackDispatch<DAssetEditorSubsystem>);
 	class FAssetEditorSessionTests : public testing::Test
@@ -764,6 +765,40 @@ namespace
 		TickHost();
 		EXPECT_TRUE(Session->IsClosed());
 		EXPECT_TRUE(Service->GetOwnedAssetEditors().empty());
+	}
+
+	TEST_F(FAssetEditorSessionTests, ShellObservesRefreshedDocumentsWithoutAdvancingSessionsAgain)
+	{
+		class FSessionFrame final : public IMainFrameModule
+		{
+		public:
+			std::function<void()> Observe;
+			auto CreateDefaultMainFrame(DEditorEngine&, std::shared_ptr<MWindow>) -> void override {}
+			auto DestroyMainFrame() -> void override {}
+			auto LoadWorkspaceModules() -> bool override { return true; }
+			auto InitializeWorkspaces(std::string&) -> bool override { return true; }
+			auto TickMainFrame(float) -> void override { Observe(); }
+		};
+		auto* Session = Open({Asset("ShellRefresh")});
+		ASSERT_NE(nullptr, Session);
+		const auto Toolkit = std::dynamic_pointer_cast<FSessionTestToolkit>(Session->GetToolkit());
+		const auto Documents = Session->GetDocumentManager();
+		int Queries = 0;
+		Toolkit->DirtyQuery = [&] { ++Queries; };
+		Toolkit->bDirty = true;
+		FSessionFrame Frame;
+		int ShellTicks = 0;
+		Frame.Observe = [&] {
+			++ShellTicks;
+			EXPECT_EQ(1, Queries);
+			EXPECT_TRUE(Documents->GetDocuments().front().bDirty);
+		};
+		auto* Previous = FEditorEngineTestAccess::BindMainFrameModule(*Host, &Frame);
+		TickHost();
+		FEditorEngineTestAccess::BindMainFrameModule(*Host, Previous);
+		EXPECT_EQ(1, Queries);
+		EXPECT_EQ(1, ShellTicks);
+		Toolkit->DirtyQuery = {};
 	}
 
 	TEST_F(FAssetEditorSessionTests, HeadlessRefreshShutdownStopsUpdatesUntilOwnerTeardown)

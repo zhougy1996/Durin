@@ -126,7 +126,7 @@ across session controllers. Request sequence prevents another session
 or a changed container order from retargeting an already visible prompt. Closing
 the last internal document retires its session on reconciliation.
 
-EditorEngine advances session reconciliation once per admitted editor Tick after
+EditorEngine advances session reconciliation once per admitted editor Tick before
 the optional MainFrame update, including hosts with no window or World. It refreshes
 document state, continues pending closes and completes restore focus through the
 editor callback context. MainFrame only presents close confirmation; its result
@@ -136,7 +136,7 @@ remaining document work. The host checks shutdown after the complete operation
 returns, before the next session or service phase. This is not per-callback
 interruption or cancellation of the current close.
 
-`TickAssetEditors`, `ShutdownAssetEditorSessions` and `DispatchEditorCallback` are
+`HandleTicker`, `ShutdownAssetEditorSessions` and `DispatchEditorCallback` are
 private integration, not public business APIs. EditorEngine alone drives updates.
 Deinitialize releases sessions; the internal MainFrame lifecycle also releases
 them after saving restoration state and before releasing Level host integration.

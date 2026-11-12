@@ -269,9 +269,9 @@ namespace Durin
 		if (bShutdownRequested) return;
 		if (bAWorldTicked) FTickableGameObject::TickObjects(nullptr, TickType, false, DeltaSeconds);
 		if (bShutdownRequested) return;
-		if (MainFrameModule) MainFrameModule->TickMainFrame(DeltaSeconds);
+		if (auto* AssetEditors = GetEditorSubsystem<DAssetEditorSubsystem>()) AssetEditors->HandleTicker(DeltaSeconds);
 		if (bShutdownRequested) return;
-		if (auto* AssetEditors = GetEditorSubsystem<DAssetEditorSubsystem>()) AssetEditors->TickAssetEditors();
+		if (MainFrameModule) MainFrameModule->TickMainFrame(DeltaSeconds);
 		if (bShutdownRequested) return;
 		if (auto* Notifications = GetEditorSubsystem<DEditorNotificationSubsystem>()) Notifications->Tick(DeltaSeconds);
 	}

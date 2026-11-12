@@ -99,7 +99,7 @@ namespace Durin
 		DURINED_API auto DispatchEditorCallback(std::function<void()> Callback) -> void;
 		// EditorEngine alone advances once per admitted frame. Callbacks must not reenter
 		// the update; shutdown stops at completed refresh/close operation boundaries.
-		DURINED_API auto TickAssetEditors() -> void;
+		DURINED_API auto HandleTicker(float DeltaSeconds) -> void;
 		// Lifecycle owners only, after callbacks and exit/save policy have settled.
 		// Deinitialize and shell teardown share this to preserve UI/provider release order.
 		DURINED_API auto ShutdownAssetEditorSessions() -> void;

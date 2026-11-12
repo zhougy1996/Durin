@@ -246,7 +246,7 @@ namespace Durin
 		PublishEvent({.Type = EAssetEditorEvent::Closed, .Session = FObjectKey(&Editor), .Method = Editor.GetOpenMethod()});
 	}
 
-	auto DAssetEditorSubsystem::TickAssetEditors() -> void
+	auto DAssetEditorSubsystem::HandleTicker(float /*DeltaSeconds*/) -> void
 	{
 		if (!CanCall()) return;
 		DispatchEditorCallback([&] {
