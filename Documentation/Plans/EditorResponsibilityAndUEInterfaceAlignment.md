@@ -31,6 +31,9 @@ to DurinEd, MaterialEditor no longer depends on TextureEditor, and all 91
 selected regression cases passed. Stage 5 is complete: DPackageTools owns editor
 unload policy over an explicit Engine collection bridge; all 287 final selected
 cases passed. Stage 6 has not started.
+The follow-up [Content Browser UE architecture convergence plan](ContentBrowserUEArchitectureConvergence.md)
+owns deeper provider discovery, item/payload, execution, lifecycle and module
+alignment. This plan retains its existing toolkit scope and final gates.
 The review baseline is `656742742dc515e159f1caa2a6e67d66c4324a0d`.
 Test target names were queried from the configured native registry for
 `Win64-Debug-DurinEditor`; execution evidence is recorded below.
