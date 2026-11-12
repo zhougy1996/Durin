@@ -188,10 +188,13 @@ pipeline-cache identity or mutate templates shared with another view.
 a borrowed pipeline pointer and value `FMeshDrawShaderBindings`. There is no
 intermediate owning command packet. Shader bindings contain a shader pointer and
 resource parameter values; they own neither RHI resources nor resource views.
-Cache storage and visible submission storage retain command memory only. Cache
-keys, source/input associations and material preparation metadata live in cache
-entries, outside the draw description. Sources actively invalidate entries before
-replacing or releasing bindings; draw submission performs no weak-owner locking.
+Scene owns cached command slots. Primitive scene resources hold
+`FCachedMeshDrawCommandInfo` locations and their actual source-owned pipelines;
+cache entries and visible storage retain command memory only. Removing a primitive
+uses its locations directly, without scanning other primitives or scenes.
+Metadata stays outside the draw description; recording performs no weak-owner
+locking. `BeginDeferredUpdateStaticMeshes` retires affected entries immediately
+and queues their deferred rebuild. Ready draws rebuild lazily during preparation.
 `FVisibleMeshDrawCommand` borrows command memory, frame pass bindings and raster
 bias. Dynamic/HitProxy and graph-local indirect commands use the same draw value.
 
@@ -205,13 +208,15 @@ GUID. Renderer no longer maintains reverse owner-to-uniform allocation maps.
 Uniform grouping preserves publisher identity even for equal numeric payloads.
 Immutable representation RecordIds identify particular values only.
 
-Uniform resources retain only current CPU contents and the logical RHI buffer.
-`UpdateUniformBuffer` records equal-size updates before the consuming draws. Numeric publications reuse logical bindings;
-size/schema or native-resource replacement refreshes affected bindings. Final
-cache keys use geometry, section, primitive/batch, pass, pipeline and actual
-material cache identity. Binding changes invalidate cached entries at publication
-or resource replacement; unchanged cached draws bypass mesh-pass processing and
-material dependency scans. Resource release uses the
+Uniform resources retain current CPU contents, the logical RHI buffer and its
+resource table. Material textures, samplers and Collection buffers are resource
+members. Cached bindings identify the stable Uniform and member index; RHI
+recording resolves current members, texture-reference targets and fallbacks.
+Numeric or resource-member updates with the same layout preserve commands.
+Layout/Shader/Uniform identity changes rebuild the affected slots. Immutable
+layout metadata is specified by the
+[Uniform resource-table contract](../RHI/RHIResourceViewsAndTransfers.md#uniform-and-storage-buffers).
+Unchanged cached draws bypass mesh-pass processing and material dependency scans. Resource release uses the
 existing render-resource registry and ordered cleanup. See
 [Render Resource Lifecycle](RenderResourceLifecycle.md#source-owned-draw-resources).
 
@@ -232,16 +237,22 @@ existing render-resource registry and ordered cleanup. See
 - Vertex-factory deformation buffers belong to their factory input binding;
   HitProxy request storage owns its temporary pipelines and Collection buffers.
   Binding construction cannot transfer temporary resource ownership to a draw.
-- Texture references can replace native textures independently of material
-  publication. `InvalidateRenderResourceBindings` announces changes before resource
-  replacement. Primitive removal/rebinding/slot removal targets that source;
-  material binding changes, Uniform replacement, texture target changes and
-  resource-slot eviction conservatively invalidate all registered command caches.
-  This deliberately avoids a second resource dependency graph. Numeric Uniform
-  updates preserve logical identity and do not invalidate commands.
-- Prepared frame storage is retired by a binding invalidation and cannot be used
-  again. Cache eviction or resource replacement during preparation/recording is
-  outside the stable-source scope; restart preparation after such an update.
+- Structural material publication calls `UpdateStaticDrawListsForMaterials` on
+  scenes actually using that proxy. `GetUsedMaterials` is the retained primitive's
+  material-use declaration; add, rebind and removal maintain those scene references.
+  Texture/Sampler parameters update the source Uniform table. Texture target changes
+  require neither command invalidation nor material-table rebuilding.
+- Primitive removal/rebinding and source-slot removal invalidate their own cached
+  locations. Retained CPU results keep `FMeshDrawCommand` and
+  `FCachedMeshDrawCommandInfo` memory only. Removal sets the old info's
+  `CommandIndex` to `INDEX_NONE`; slot reuse creates new info and cannot revive an
+  old prepared result. Scene slot/preparation metadata stays private to storage.
+  Other scenes and unrelated prepared entries remain available. There is no global resource
+  invalidation broadcast or per-frame resource-event subscription.
+- Material Uniform tables own resource references; primitive sources own active
+  pipelines. Bounded shader/pipeline lookup eviction therefore cannot destroy
+  resources referenced by live source draws. Sampler states use the finite validated
+  policy cache and are also retained by material Uniform tables.
 
 
 Recording uses `FShaderBindingState` per shader stage. `SetOnCommandList`
@@ -341,10 +352,10 @@ lookup, and splitting groups never changes translucent draw ordering.
 Unchanged contents reuse the source buffer without recording an update. Equal-size
 numeric changes record one ordered update per source value change; buffer
 replacement rebuilds affected bindings. Pass/view uniforms remain frame-owned.
-The command cache uses one flat hash index and retains entries until source
-invalidation, generation reset or renderer release; it has no fixed draw-count
-LRU that can evict live scene commands. Frame command/pass retention uses compact
-arrays rather than per-object tree nodes. It cannot retain resource packets. Primitive buffers belong to their source batch slots; instance updates release
+Scene command slots reuse vacant indices. Per-primitive command locations replace
+binding variants in place and retain no historical resource packets. Scene generation
+reset or renderer release clears the corresponding source locations. Frame
+command/pass retention uses compact arrays. Primitive buffers belong to their source batch slots; instance updates release
 slots for removed IDs. Material
 default slots clear when the accepted program changes. Surface preparation and
 binding counters distinguish full reuse from binding refresh.

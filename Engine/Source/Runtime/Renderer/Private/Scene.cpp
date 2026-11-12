@@ -280,7 +280,6 @@ namespace Durin
 				CheckRenderingThread();
 				++HitProxyRevision;
 				const auto Id = Snapshot->Layout.CollectionId;
-				if (!MaterialParameterCollections.contains(Id)) InvalidateRenderResourceBindings();
 				MaterialParameterCollections.insert_or_assign(Id, std::move(Snapshot));
 			});
 	}
@@ -293,7 +292,6 @@ namespace Durin
 			[this, CollectionId](FRHICommandListImmediate&) {
 				++HitProxyRevision;
 				CheckRenderingThread();
-				if (MaterialParameterCollections.contains(CollectionId)) InvalidateRenderResourceBindings();
 				MaterialParameterCollections.erase(CollectionId);
 				ParameterCollectionUniformBuffers.erase(CollectionId);
 			});
@@ -414,8 +412,8 @@ namespace Durin
 
 	FPrimitiveSceneInfo::FPrimitiveSceneInfo(FPrimitiveComponentId InId,
 		std::shared_ptr<FPrimitiveSceneProxy> InProxy,
-		const FMatrix& InTransform)
-		: Id(InId)
+		const FMatrix& InTransform, FScene* InScene)
+		: Scene(InScene), Id(InId)
 		, Proxy(std::move(InProxy))
 		, Kind(Proxy->GetKind())
 		, Transform(InTransform)
@@ -423,8 +421,39 @@ namespace Durin
 		, WorldBounds(TransformBounds(LocalBounds, Transform))
 	{
 		DrawResources = CreateRenderResource<RendererPrivate::FPrimitiveDrawResources>();
+		if (Scene) for (const auto& Material : Proxy->GetUsedMaterials()) if (Material) Material->AddSceneReference(*Scene);
 	}
 
+	FPrimitiveSceneInfo::~FPrimitiveSceneInfo()
+	{
+		DrawResources->RemoveCachedMeshDrawCommands();
+		if (Scene) for (const auto& Material : Proxy->GetUsedMaterials()) if (Material) Material->RemoveSceneReference(*Scene);
+	}
+	auto FScene::UpdateStaticDrawListsForMaterials(std::span<FMaterialRenderProxy* const> Materials) -> void
+	{
+		CheckRenderingThread();
+		bool Updated = false;
+		for (auto* Primitive : PrimitiveSceneInfos)
+			if (std::ranges::any_of(Primitive->GetProxy().GetUsedMaterials(), [&](const auto& Material) {
+				return std::ranges::find(Materials, Material.GetReference()) != Materials.end();
+			})) { Primitive->BeginDeferredUpdateStaticMeshes(); Updated = true; }
+		if (Updated) ++HitProxyRevision;
+	}
+	auto FPrimitiveSceneInfo::BeginDeferredUpdateStaticMeshes() -> void
+	{
+		if (bNeedsStaticMeshUpdate) return;
+		bNeedsStaticMeshUpdate = true;
+		DrawResources->RemoveCachedMeshDrawCommands();
+		if (Scene) Scene->PrimitivesNeedingStaticMeshUpdate.push_back(this);
+		else UpdateStaticMeshes();
+	}
+	auto FPrimitiveSceneInfo::UpdateStaticMeshes() -> void
+	{ bNeedsStaticMeshUpdate = false; }
+	auto FScene::UpdateStaticMeshes() -> void
+	{
+		for (auto* Primitive : PrimitivesNeedingStaticMeshUpdate) Primitive->UpdateStaticMeshes();
+		PrimitivesNeedingStaticMeshUpdate.clear();
+	}
 	auto FPrimitiveSceneInfo::GetSplineMeshProxy() const -> FSplineMeshSceneProxy&
 	{
 		check(Kind == EPrimitiveSceneProxyKind::SplineMesh);
@@ -439,8 +468,11 @@ namespace Durin
 
 	auto FPrimitiveSceneInfo::UpdateMaterialBinding(const FMaterialRenderProxyBindingUpdate& Update) -> bool
 	{
-		DrawResources->BeginDeferredUpdateStaticMeshes();
-		return Proxy->UpdateMaterialBinding_RenderThread(Update);
+		BeginDeferredUpdateStaticMeshes();
+		if (Scene) for (const auto& Material : Proxy->GetUsedMaterials()) if (Material) Material->RemoveSceneReference(*Scene);
+		const bool Updated = Proxy->UpdateMaterialBinding_RenderThread(Update);
+		if (Scene) for (const auto& Material : Proxy->GetUsedMaterials()) if (Material) Material->AddSceneReference(*Scene);
+		return Updated;
 	}
 
 	auto FPrimitiveSceneInfo::UpdateSplineMeshDynamicData(
@@ -456,7 +488,8 @@ namespace Durin
 
 	auto FScene::DetachPrimitive(FPrimitiveSceneInfo& Info) -> void
 	{
-		Info.DrawResources->BeginDeferredUpdateStaticMeshes();
+		Info.DrawResources->RemoveCachedMeshDrawCommands();
+		std::erase(PrimitivesNeedingStaticMeshUpdate, &Info);
 		std::erase(PrimitiveSceneInfos, &Info);
 
 	}
@@ -473,7 +506,7 @@ namespace Durin
 			++HitProxyRevision;
 			CheckRenderingThread();
 			requiref(!PrimitiveInfosById.contains(PrimitiveId), "A primitive scene ID cannot be published twice.");
-			auto Info = std::make_unique<FPrimitiveSceneInfo>(PrimitiveId, SharedProxy, Transform);
+			auto Info = std::make_unique<FPrimitiveSceneInfo>(PrimitiveId, SharedProxy, Transform, this);
 			Info->SetVisible(bVisible);
 			FPrimitiveSceneInfo* RawInfo = Info.get();
 			PrimitiveSceneInfos.push_back(RawInfo);
@@ -599,8 +632,11 @@ namespace Durin
 	auto FScene::Clear_RenderThread() -> void
 	{
 		CheckRenderingThread();
+		PrimitivesNeedingStaticMeshUpdate.clear();
+		for (auto* Primitive : PrimitiveSceneInfos) Primitive->DrawResources->RemoveCachedMeshDrawCommands();
 		PrimitiveSceneInfos.clear();
 		PrimitiveInfosById.clear();
+		CachedDrawLists.reset();
 		Lights->Clear();
 		SkyBoxes->Clear();
 		VolumetricClouds->Clear();

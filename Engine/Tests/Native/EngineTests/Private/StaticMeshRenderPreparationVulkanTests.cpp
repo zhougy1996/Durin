@@ -2153,6 +2153,14 @@ TEST(FMaterialAnimationVulkanTests, CachedCommandsInvalidateResourceChangesAndRe
 				EXPECT_EQ(Telemetry.StaticMesh.PersistentCommandMisses, 2u);
 				EXPECT_NE(Pixels[Frame], Pixels[Frame - 1]);
 			}
+			else if (Frame == 2 || Frame == 4)
+			{
+				// Stable texture references resolve their new target/fallback while recording.
+				EXPECT_EQ(Telemetry.StaticMesh.PersistentCommandHits, 2u);
+				EXPECT_EQ(Telemetry.StaticMesh.PersistentCommandMisses, 0u);
+				EXPECT_EQ(Telemetry.StaticMesh.SurfaceMaterialPreparations, 0u);
+				EXPECT_NE(Pixels[Frame], Pixels[Frame - 1]);
+			}
 			else if (Frame == 6)
 			{
 				EXPECT_EQ(Telemetry.StaticMesh.PersistentCommandHits, 2u);
@@ -3011,9 +3019,9 @@ TEST(FMaterialParameterCollectionVulkanTests,
 		OtherSnapshot->Layout = *OtherLayout;
 		MixedWorld->UpdateMaterialParameterCollection(OtherSnapshot);
 		const auto MixedChanged = RenderCollection(MixedWorld.Get(), Repeated);
-		// A new scene Collection source conservatively invalidates cached bindings.
-		EXPECT_EQ(MixedChanged.PersistentCommandHits, 0u);
-		EXPECT_EQ(MixedChanged.SurfaceMaterialPreparations, 2u);
+		// Collection source changes update material Uniform members, preserving commands.
+		EXPECT_EQ(MixedChanged.PersistentCommandHits, 2u);
+		EXPECT_EQ(MixedChanged.SurfaceMaterialPreparations, 0u);
 		EXPECT_GT(CountDominant(Repeated, 0), 100u);
 		EXPECT_GT(CountDominant(Repeated, 1), 100u);
 		EXPECT_EQ(CountDominant(Repeated, 2), 0u);
@@ -3025,6 +3033,8 @@ TEST(FMaterialParameterCollectionVulkanTests,
 			Proxy->Geometry = Geometry;
 			const auto Primary = MaterialProxy->GetMaterialWithFallback();
 			auto Alternate = Primary;
+			// Different simultaneous default bindings need an independent material source.
+			Alternate.UniformExpressionCache = std::make_shared<FUniformExpressionCache>();
 			auto Program = std::make_shared<FMaterialCompilerResult>(*Primary.CompiledProgram);
 			ASSERT_EQ(Program->ActiveCollections.size(), 1u);
 			Program->ActiveCollections[0].DefaultPayload = OtherLayout->DefaultPayload;

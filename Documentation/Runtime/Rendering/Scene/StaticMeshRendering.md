@@ -323,8 +323,9 @@ primitive uniform has no `LocalToClip` matrix. Camera movement and cascade
 selection therefore do not invalidate primitive uploads.
 
 The render-thread `FMeshDrawCommand` cache retains command memory and borrowed
-RHI binding values. Sources own resources and actively invalidate command entries
-before replacing bindings. Numeric transform/material updates reuse logical
+RHI binding values. Sources own resources; Scene-owned slots and per-primitive command locations
+retire affected entries before replacing binding layouts. Same-layout material
+resource changes update the stable Uniform table. Numeric transform/material updates reuse logical
 Uniform buffers. Pass resources remain frame-local. The implementation and
 required lifetime/recording boundaries are specified in
 [Renderer Frame Preparation](../Pipeline/RendererFramePreparation.md#required-recording-and-invalidation-contracts).

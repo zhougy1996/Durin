@@ -27,12 +27,42 @@ namespace Durin
 			return true;
 		}
 
-		auto ValidateUniformBufferReferences(std::span<FRHIResource* const> References) -> bool
+		auto ValidateUniformBufferReferences(const FRHIUniformBufferLayout& Layout,
+			std::span<FRHIResource* const> References, const FRHIUniformBuffer* Destination = nullptr) -> bool
 		{
-			for (const auto* Reference : References)
+			if (!Layout.Resources.empty() && Layout.Resources.size() != References.size()) return false;
+			for (size_t Index = 0; Index < References.size(); ++Index)
 			{
-				// Uniform sidecars retain GPU resources, never a cyclic uniform graph.
-				if (IsUniformBufferResource(Reference)) return false;
+				const auto* Reference = References[Index];
+				if (!Reference) continue;
+				if (IsUniformBufferResource(Reference))
+				{
+					if (Layout.Resources.empty() || (Layout.Resources[Index].Type != ERHIBindingType::UniformBuffer
+						&& Layout.Resources[Index].Type != ERHIBindingType::UniformBufferDynamic)) return false;
+					// Validate the actual ownership chain only on updates; no dependency registry.
+					std::vector<const FRHIUniformBuffer*> Pending{static_cast<const FRHIUniformBuffer*>(Reference)};
+					std::unordered_set<const FRHIUniformBuffer*> Visited;
+					while (!Pending.empty())
+					{
+						const auto* Uniform = Pending.back(); Pending.pop_back();
+						if (Uniform == Destination) return false;
+						if (!Visited.insert(Uniform).second) continue;
+						for (const auto& Child : Uniform->GetResourceTable())
+							if (IsUniformBufferResource(Child.GetReference())) Pending.push_back(static_cast<const FRHIUniformBuffer*>(Child.GetReference()));
+					}
+				}
+				if (Layout.Resources.empty()) continue;
+				const auto& Member = Layout.Resources[Index];
+				const auto Type = Reference->GetResourceType();
+				if (Member.Type == ERHIBindingType::Sampler && Type != ERHIResourceType::Sampler) return false;
+				if (Member.Type == ERHIBindingType::Texture && Type != ERHIResourceType::Texture
+					&& Type != ERHIResourceType::TextureReference && Type != ERHIResourceType::TextureView) return false;
+				if (Member.FallbackResourceIndex != INDEX_NONE_U32)
+				{
+					const auto Fallback = Member.FallbackResourceIndex;
+					if (Member.Type != ERHIBindingType::Texture || Fallback >= References.size()
+						|| !References[Fallback] || References[Fallback]->GetResourceType() != ERHIResourceType::Texture) return false;
+				}
 			}
 			return true;
 		}
@@ -114,7 +144,7 @@ namespace Durin
 		require(IsRecording());
 		requiref(ValidateUniformBufferLayout(Layout, Usage), "Invalid uniform buffer layout or lifetime usage.");
 		require(InitialData.size() == Layout.ConstantBufferSize);
-		require(ValidateUniformBufferReferences(References));
+		require(ValidateUniformBufferReferences(Layout, References));
 		return GDynamicRHI ? GDynamicRHI->RHICreateUniformBuffer(Layout, Usage, InitialData, References)
 			: TRefCountPtr<FRHIUniformBuffer>(new FRHIUniformBuffer(Layout, Usage, InitialData, References));
 	}
@@ -124,7 +154,15 @@ namespace Durin
 		: FRHIResource(ERHIResourceType::UniformBuffer), Layout(InLayout), LifetimeUsage(Usage),
 		PendingData(FRHIBufferUploadData::Copy(InitialData))
 	{
+		SetResourceTable(References);
 		for (auto* Reference : References) PendingReferences.emplace_back(Reference);
+	}
+
+	auto FRHIUniformBuffer::SetResourceTable(std::span<FRHIResource* const> References) -> void
+	{
+		require(Layout.Resources.empty() || Layout.Resources.size() == References.size());
+		ResourceTable.clear();
+		for (auto* Reference : References) ResourceTable.emplace_back(Reference);
 	}
 
 	auto FRHIUniformBuffer::UpdateContents(FByteView Data, std::span<FRHIResource* const> References) -> void
@@ -147,7 +185,8 @@ namespace Durin
 		-> void
 	{
 		require(IsRecording() && Buffer && Data.size() == Buffer->GetSize());
-		require(ValidateUniformBufferReferences(References));
+		require(ValidateUniformBufferReferences(Buffer->GetLayout(), References, Buffer));
+		Buffer->SetResourceTable(References);
 		auto Upload = FRHIBufferUploadData::Copy(Data);
 		std::vector<TRefCountPtr<FRHIResource>> Owners;
 		for (auto* Reference : References) Owners.emplace_back(Reference);

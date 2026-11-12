@@ -83,6 +83,29 @@ namespace Durin
 			CreatedViews.reserve(Output.size());
 			for (FRHIShaderParameterResource& Parameter : Output)
 			{
+				if (Parameter.ResourceIndex != INDEX_NONE_U32)
+				{
+					if (!Parameter.Resource || Parameter.Resource->GetResourceType() != ERHIResourceType::UniformBuffer)
+						return Fail("Resource table binding requires a logical Uniform Buffer.");
+					const auto* Uniform = static_cast<const FRHIUniformBuffer*>(Parameter.Resource);
+					const auto Table = Uniform->GetResourceTable();
+					const auto Index = Parameter.ResourceIndex;
+					if (Index >= Table.size() || Index >= Uniform->GetLayout().Resources.size())
+						return Fail("Uniform resource member is outside its layout.");
+					const auto& Member = Uniform->GetLayout().Resources[Index];
+					const auto IsUniform = [](ERHIBindingType Type) { return Type == ERHIBindingType::UniformBuffer || Type == ERHIBindingType::UniformBufferDynamic; };
+					if (Member.Type != Parameter.Type && !(IsUniform(Member.Type) && IsUniform(Parameter.Type)))
+						return Fail("Uniform resource member type does not match its shader binding.");
+					Parameter.Resource = Table[Index].GetReference();
+					Parameter.ResourceIndex = INDEX_NONE_U32;
+					if (Parameter.Type == ERHIBindingType::Texture)
+					{
+						if (Parameter.Resource && Parameter.Resource->GetResourceType() == ERHIResourceType::TextureReference)
+							Parameter.Resource = static_cast<FRHITextureReference*>(Parameter.Resource)->GetReferencedTexture_RenderThread();
+						if (!Parameter.Resource && Member.FallbackResourceIndex < Table.size()) Parameter.Resource = Table[Member.FallbackResourceIndex].GetReference();
+					}
+					if (!Parameter.Resource) return Fail("Uniform resource member has no resource or fallback.");
+				}
 				if (Parameter.Resource == nullptr || Parameter.Type == ERHIBindingType::Sampler) continue;
 				if (Parameter.Type == ERHIBindingType::Texture || Parameter.Type == ERHIBindingType::StorageImage)
 				{

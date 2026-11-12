@@ -355,6 +355,7 @@ namespace Durin
 	struct FSkyLightingGeneration;
 	struct FResolvedStaticMeshView
 	{
+		RendererPrivate::FCachedMeshDrawCommandStorage* CachedDrawLists = nullptr;
 		std::shared_ptr<const FSkyLightingGeneration> Environment;
 		struct FMaterialUniform
 		{

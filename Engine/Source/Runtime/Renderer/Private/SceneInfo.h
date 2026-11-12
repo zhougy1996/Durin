@@ -12,6 +12,7 @@
 namespace Durin
 {
 	namespace RendererPrivate { class FPrimitiveDrawResources; }
+	class FScene;
 	class FSplineMeshSceneProxy;
 	struct FSplineMeshRenderDynamicData;
 
@@ -22,8 +23,11 @@ namespace Durin
 		RENDERER_API FPrimitiveSceneInfo(
 			FPrimitiveComponentId InId,
 			std::shared_ptr<FPrimitiveSceneProxy> InProxy,
-			const FMatrix& InTransform);
+			const FMatrix& InTransform, FScene* InScene = nullptr);
 
+		RENDERER_API ~FPrimitiveSceneInfo();
+		RENDERER_API auto BeginDeferredUpdateStaticMeshes() -> void;
+		RENDERER_API auto UpdateStaticMeshes() -> void;
 		auto GetId() const -> FPrimitiveComponentId { return Id; }
 		std::shared_ptr<RendererPrivate::FPrimitiveDrawResources> DrawResources;
 		auto GetKind() const -> EPrimitiveSceneProxyKind { return Kind; }
@@ -46,6 +50,8 @@ namespace Durin
 			FSplineMeshRenderDynamicData DynamicData) -> bool;
 
 	private:
+		FScene* Scene = nullptr;
+		bool bNeedsStaticMeshUpdate = false;
 		FPrimitiveComponentId Id = InvalidPrimitiveComponentId;
 		std::shared_ptr<FPrimitiveSceneProxy> Proxy;
 		EPrimitiveSceneProxyKind Kind = EPrimitiveSceneProxyKind::StaticMesh;

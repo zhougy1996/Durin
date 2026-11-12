@@ -120,6 +120,7 @@ namespace Durin
 			bool bCompiledLayout = false;
 			bool bError = false;
 			std::vector<FRHITexture*> CompiledTextures;
+			std::vector<FRHITexture*> CompiledTextureFallbacks;
 			std::vector<FRHISampler*> CompiledSamplers;
 			FRHITexture* EnvironmentIrradiance = nullptr;
 			FRHITexture* EnvironmentPrefiltered = nullptr;
@@ -205,6 +206,9 @@ namespace Durin
 				FRHITexture* DirectionalShadowTexture,
 				FRHISampler* DirectionalShadowSampler,
 				FResolvedSurfaceMaterial& OutMaterial) const -> bool;
+			RENDERER_API auto UpdateUniformExpressionCache_RenderThread(FRHICommandListImmediate& Commands,
+				FUniformExpressionCache& Cache, const FMaterialRenderRepresentation& Representation,
+				const FMaterialRenderBinding& Binding, std::span<const FRHIUniformBufferRange> Collections) const -> bool;
 			auto Prepare_RenderThread(FRHICommandListImmediate& Commands, const FMaterialRenderBinding* Binding,
 				ESurfaceMaterialPass Pass, const std::shared_ptr<const FSkyLightingGeneration>& Environment,
 				FRHITexture* DirectionalShadowTexture, FRHISampler* DirectionalShadowSampler,

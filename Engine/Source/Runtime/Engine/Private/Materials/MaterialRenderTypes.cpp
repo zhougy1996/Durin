@@ -3,12 +3,12 @@
 
 namespace Durin
 {
-	auto FUniformExpressionCache::UpdateUniformBuffer(FRHICommandListBase& Commands, const FMaterialRenderRepresentation& Material)
+	auto FUniformExpressionCache::UpdateUniformBuffer(FRHICommandListBase& Commands, const FMaterialRenderRepresentation& Material,
+		std::span<FRHIResource* const> Resources, std::span<const FRHIUniformBufferResource> Members)
 		-> bool
 	{
 		CheckRenderingThread();
-		if (CachedRepresentation == Material.GetRecordId() && UniformBuffer->GetRange().Buffer) return true;
-		auto Result = UniformBuffer->Update(Commands, Material.GetUniformPayload());
+		auto Result = UniformBuffer->Update(Commands, Material.GetUniformPayload(), Resources, Members);
 		if (Result) CachedRepresentation = Material.GetRecordId();
 		return Result;
 	}

@@ -161,8 +161,10 @@ namespace Durin
 			for (const auto& [Key, Buffer] : ParameterCollections) Buffer->ReleaseRHI();
 			InvalidateUniformExpressionCache();
 		}
-		ENGINE_API auto UpdateUniformBuffer(FRHICommandListBase& Commands, const FMaterialRenderRepresentation& Material)
-			-> bool;
+		auto IsUpToDate(const FMaterialRenderRepresentation& Material) const -> bool
+		{ return CachedRepresentation == Material.GetRecordId() && UniformBuffer->GetRHI(); }
+		ENGINE_API auto UpdateUniformBuffer(FRHICommandListBase& Commands, const FMaterialRenderRepresentation& Material,
+			std::span<FRHIResource* const> Resources = {}, std::span<const FRHIUniformBufferResource> Members = {}) -> bool;
 		ENGINE_API auto GetParameterCollectionUniformBuffer(const std::shared_ptr<const FMaterialCompilerResult>& Program,
 			FGuid Collection) -> FUniformBuffer&;
 	private:

@@ -8,19 +8,21 @@ namespace Durin
 	{
 		return CreateRenderResource<FUniformBuffer>();
 	}
-	auto FUniformBuffer::Update(FRHICommandListBase& Commands, FByteView Values) -> bool
+	auto FUniformBuffer::Update(FRHICommandListBase& Commands, FByteView Values,
+		std::span<FRHIResource* const> Resources, std::span<const FRHIUniformBufferResource> Members) -> bool
 	{
 		CheckRenderingThread();
 		if (!IsInitialized()) InitResource(Commands);
-		if (Buffer && std::ranges::equal(Data, Values)) return true;
-		if (!Buffer || Data.size() != Values.size())
+		const FRHIUniformBufferLayout Layout{static_cast<uint32>(Values.size()), {Members.begin(), Members.end()}};
+		if (Buffer && Buffer->GetLayout() == Layout && std::ranges::equal(Data, Values)
+			&& std::ranges::equal(Buffer->GetResourceTable(), Resources, [](const auto& A, auto* B) { return A.GetReference() == B; })) return true;
+		if (!Buffer || Buffer->GetLayout() != Layout)
 		{
-			auto Replacement = Commands.CreateUniformBuffer({static_cast<uint32>(Values.size())}, ERHIBufferLifetimeUsage::MultiFrame, Values);
+			auto Replacement = Commands.CreateUniformBuffer(Layout, ERHIBufferLifetimeUsage::MultiFrame, Values, Resources);
 			if (!Replacement) return false;
-			if (Buffer) InvalidateRenderResourceBindings();
 			Buffer = std::move(Replacement);
 		}
-		else Commands.UpdateUniformBuffer(Buffer, Values);
+		else Commands.UpdateUniformBuffer(Buffer, Values, Resources);
 		if (!Buffer) return false;
 		Data.assign(Values.begin(), Values.end());
 		return true;

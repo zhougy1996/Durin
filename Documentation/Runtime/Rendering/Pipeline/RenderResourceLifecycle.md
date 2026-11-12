@@ -82,8 +82,9 @@ information owns primitive buffers. Vertex-factory input bindings own deformatio
 buffers. HitProxy request storage owns its temporary pipelines and Collection
 buffers. Cached `FMeshDrawCommand` values borrow these resources directly and
 store non-owning `FMeshDrawShaderBindings`. Cache and visible storage retain only
-command memory. Sources announce binding invalidation before replacement or
-release; cache entries are removed and existing frame handles are retired.
+command memory. Scene owns slots, primitives keep slot locations and actual
+pipeline resources. Primitive updates retire their own entries before replacing
+sources; retained entry memory does not authorize another submission.
 
 Renderer device-resource release retires preparations and clears command metadata,
 then releases registered primitive owners, material proxies and uniform resources.
@@ -105,11 +106,12 @@ next use, preserving the shutdown requirement of an empty registry.
   own copied update bytes and binding payloads until replay, and native allocation
   retirement follows GPU completion. Renderer does not retain historical Uniform
   snapshots or reference-counted binding packets.
-- Texture native replacement may occur without a new material publication.
-  Texture references, Uniform replacement and resource-slot eviction announce
-  invalidation before releasing the old bindings. Primitive changes target their
-  source; other binding changes currently invalidate caches conservatively.
-  Numeric Uniform updates preserve logical identity.
+- Texture native replacement may occur without a material publication. Material
+  Uniform resource members preserve TextureReference identity and per-member
+  fallback resources until recording resolves the current target. Same-layout
+  resource-table updates preserve cached draw bindings. Layout/Shader changes
+  retire affected primitive slots through their owning Scene before replacement.
+  No global invalidation delegate or per-frame subscription participates.
 
 These boundaries distinguish source ownership, CPU recording lifetime and GPU
 retirement without adding another owner registry. Preparation and cache rules are

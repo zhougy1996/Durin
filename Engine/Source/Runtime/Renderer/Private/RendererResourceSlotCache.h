@@ -3,7 +3,6 @@
 #include "CoreMinimal.h"
 
 #include "RenderResourceCreation.h"
-#include "RenderResource.h"
 
 namespace Durin
 {
@@ -132,7 +131,6 @@ namespace Durin
 
 		auto Reset() -> void
 		{
-			if (!Index.empty()) InvalidateRenderResourceBindings();
 			FIndex{}.swap(Index);
 			Oldest = Newest = nullptr;
 			NextIndex = 0;
@@ -174,7 +172,6 @@ namespace Durin
 		}
 		auto Evict(FEntry* Entry) -> void
 		{
-			InvalidateRenderResourceBindings();
 			Unlink(Entry);
 			Index.erase(Entry->Key);
 			++Evictions;

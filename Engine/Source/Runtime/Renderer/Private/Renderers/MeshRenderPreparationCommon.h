@@ -147,7 +147,7 @@ namespace Durin
 
 
 	class FRHIShaderParameterBatch;
-	namespace RendererPrivate { struct FMeshDrawShaderBindings; struct FMeshDrawCommand; struct FMeshPassPipeline; class FDynamicMeshDrawCommandStorage; }
+	namespace RendererPrivate { struct FMeshDrawShaderBindings; struct FMeshDrawCommand; struct FCachedMeshDrawCommandInfo; struct FMeshPassPipeline; class FDynamicMeshDrawCommandStorage; }
 
 	struct FShaderBindingState
 	{

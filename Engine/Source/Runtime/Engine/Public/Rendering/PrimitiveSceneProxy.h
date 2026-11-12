@@ -38,6 +38,8 @@ namespace Durin
 			CustomPrimitiveData = Value;
 			return true;
 		}
+		// Materials used by retained batches; Scene tracks structural updates through this list.
+		virtual auto GetUsedMaterials() const -> std::span<const FMaterialRenderProxyRef> { return {}; }
 		virtual auto GetKind() const -> EPrimitiveSceneProxyKind { return EPrimitiveSceneProxyKind::Generic; }
 		virtual auto GetLocalBounds() const -> FBox = 0;
 		// Optional value snapshot for threshold-based LOD preparation. Capture and

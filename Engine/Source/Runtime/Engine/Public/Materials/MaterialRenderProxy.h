@@ -9,6 +9,7 @@
 
 namespace Durin
 {
+	class FSceneInterface;
 	class FMaterialShaderMap;
 	// Owns counted RHI resources and sampling policy after leaving the object thread.
 	struct FMaterialLocalTextureValue
@@ -84,6 +85,8 @@ namespace Durin
 	{
 	public:
 		FMaterialRenderProxy() = default;
+		ENGINE_API auto AddSceneReference(FSceneInterface& Scene) -> void;
+		ENGINE_API auto RemoveSceneReference(FSceneInterface& Scene) -> void;
 		ENGINE_API auto ReleaseRHI() -> void override;
 		ENGINE_API static auto ReleaseRHIForAllResources() -> void;
 		auto GetFriendlyName() const -> std::string override { return "MaterialRenderProxy"; }
@@ -133,6 +136,7 @@ namespace Durin
 		mutable std::atomic<uint32> ReferenceCount = 0;
 		const std::shared_ptr<FUniformExpressionCache> UniformExpressionCache = std::make_shared<FUniformExpressionCache>();
 		FMaterialResource LocalLayer;
+		std::unordered_map<FSceneInterface*, uint32> SceneReferences;
 
 		FMaterialRenderData CachedResolvedData;
 		// Diagnostic counts never participate in ordering or cache validity.

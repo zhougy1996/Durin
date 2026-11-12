@@ -79,7 +79,7 @@ namespace Durin::RendererPrivate
 			++State->Counters.SamplerLookups;
 			const FMaterialSamplerState StateKey = RequiredSamplers[Role];
 			const auto PreviousEvictions = State->Samplers.GetEvictions();
-			auto& Entry = State->Samplers.FindOrAddBounded(StateKey, 128, 256 * 1024);
+			auto& Entry = State->Samplers.FindOrAdd(StateKey);
 			bool bCreationAttempted = false;
 			auto* Sampler = Entry.Slot.Resolve(
 				Coordinator.GetGeneration_RenderThread(),
@@ -130,8 +130,7 @@ namespace Durin::RendererPrivate
 				const auto* Entry = State->Samplers.Find(Binding.CompiledSamplers[Index]);
 				if (!Entry || HasSelectedRenderResourceGenerationChanged(Entry->Slot.GetPayloadGeneration(),
 					Generation, ERenderResourceGenerationDependency::Device) || !Entry->Slot.GetPayload()) return false;
-				FRHITexture* Texture = Binding.CompiledTextures[Index] != nullptr
-					? Binding.CompiledTextures[Index]->GetReferencedTexture_RenderThread() : nullptr;
+				FRHITexture* Texture = Binding.CompiledTextures[Index];
 				EDefaultTexture Fallback;
 				switch (Binding.CompiledTextureFallbacks[Index])
 				{
@@ -140,7 +139,9 @@ namespace Durin::RendererPrivate
 				case EMaterialTextureFallback::FlatRGNormal: Fallback = EDefaultTexture::FlatNormal; break;
 				default: return false;
 				}
-				if (!Texture) Texture = DefaultTextures.Get_RenderThread(Fallback);
+				FRHITexture* FallbackTexture = DefaultTextures.Get_RenderThread(Fallback);
+				if (!Texture) Texture = FallbackTexture;
+				OutMaterial.CompiledTextureFallbacks.push_back(FallbackTexture);
 				FRHISampler* Sampler = Entry->Slot.GetPayload()->GetReference();
 				if (!Texture || !Sampler) return false;
 				OutMaterial.CompiledTextures.push_back(Texture);
@@ -294,6 +295,12 @@ namespace Durin::RendererPrivate
 		std::vector<FRHIShaderParameterResource> Resources;
 		Resources.reserve(Layout.GetEntries().size());
 		using ESource = FCompiledSurfaceBindingLayout::ESource;
+		const auto* Uniform = MaterialBuffer.Buffer && MaterialBuffer.Buffer->GetResourceType() == ERHIResourceType::UniformBuffer
+			? static_cast<const FRHIUniformBuffer*>(MaterialBuffer.Buffer) : nullptr;
+		auto BindMember = [&](FRHIShaderParameterResource& Resource, uint32 Index) {
+			if (!Uniform || Index >= Uniform->GetLayout().Resources.size()) return false;
+			Resource.Resource = MaterialBuffer.Buffer; Resource.ResourceIndex = Index; return true;
+		};
 		for (const auto& Entry : Layout.GetEntries())
 		{
 			FRHIShaderParameterResource Resource;
@@ -315,13 +322,23 @@ namespace Durin::RendererPrivate
 			case ESource::HitProxy: Range = &HitProxy; break;
 			case ESource::Collection:
 				if (Entry.ResourceIndex >= Collections.size()) return false;
-				Range = &Collections[Entry.ResourceIndex]; break;
+				Range = &Collections[Entry.ResourceIndex];
+				if (BindMember(Resource, static_cast<uint32>(Material.CompiledTextures.size() * 3) + Entry.ResourceIndex)) Range = nullptr;
+				break;
 			case ESource::Texture:
 				if (Entry.ResourceIndex >= Material.CompiledTextures.size()) return false;
-				Resource.Resource = Material.CompiledTextures[Entry.ResourceIndex]; break;
+				Resource.Resource = Material.CompiledTextures[Entry.ResourceIndex];
+				if (!BindMember(Resource, Entry.ResourceIndex * 3) && Resource.Resource && Resource.Resource->GetResourceType() == ERHIResourceType::TextureReference)
+				{
+					Resource.Resource = static_cast<FRHITextureReference*>(Resource.Resource)->GetReferencedTexture_RenderThread();
+					if (!Resource.Resource && Entry.ResourceIndex < Material.CompiledTextureFallbacks.size()) Resource.Resource = Material.CompiledTextureFallbacks[Entry.ResourceIndex];
+				}
+				break;
 			case ESource::Sampler:
 				if (Entry.ResourceIndex >= Material.CompiledSamplers.size()) return false;
-				Resource.Resource = Material.CompiledSamplers[Entry.ResourceIndex]; break;
+				Resource.Resource = Material.CompiledSamplers[Entry.ResourceIndex];
+				BindMember(Resource, Entry.ResourceIndex * 3 + 1);
+				break;
 			case ESource::EnvironmentIrradiance: Resource.Resource = Material.EnvironmentIrradiance; break;
 			case ESource::EnvironmentPrefiltered: Resource.Resource = Material.EnvironmentPrefiltered; break;
 			case ESource::EnvironmentBrdfLut: Resource.Resource = Material.EnvironmentBrdfLut; break;
@@ -368,6 +385,42 @@ namespace Durin::RendererPrivate
 
 namespace Durin::RendererPrivate
 {
+	namespace
+	{
+		auto CollectMaterialUniformResources(const FResolvedSurfaceMaterial& Surface,
+			std::span<const FRHIUniformBufferRange> Collections, std::vector<FRHIResource*>& Resources,
+			std::vector<FRHIUniformBufferResource>& Members) -> void
+		{
+			for (uint32 Index = 0; Index < Surface.CompiledTextures.size(); ++Index)
+			{
+				const uint32 FallbackIndex = static_cast<uint32>(Resources.size()) + 2;
+				Resources.insert(Resources.end(), {Surface.CompiledTextures[Index], Surface.CompiledSamplers[Index], Surface.CompiledTextureFallbacks[Index]});
+				Members.insert(Members.end(), {{ERHIBindingType::Texture, FallbackIndex}, {ERHIBindingType::Sampler}, {ERHIBindingType::Texture}});
+			}
+			for (const auto& Collection : Collections)
+			{ require(Collection.Offset == 0); Resources.push_back(Collection.Buffer); Members.push_back({ERHIBindingType::UniformBuffer}); }
+		}
+	}
+	auto FSurfaceMaterialResources::UpdateUniformExpressionCache_RenderThread(FRHICommandListImmediate& Commands,
+		FUniformExpressionCache& Cache, const FMaterialRenderRepresentation& Representation,
+		const FMaterialRenderBinding& Binding, std::span<const FRHIUniformBufferRange> Collections) const -> bool
+	{
+		const auto* Uniform = Cache.UniformBuffer->GetRHI();
+		const size_t Base = Representation.GetResources().size() * 3;
+		if (Cache.IsUpToDate(Representation) && Uniform->GetResourceTable().size() == Base + Collections.size())
+		{
+			const auto Table = Uniform->GetResourceTable();
+			bool Current = true;
+			for (size_t Index = 0; Index < Collections.size(); ++Index) Current &= Table[Base + Index].GetReference() == Collections[Index].Buffer;
+			if (Current) return true;
+		}
+		FResolvedSurfaceMaterial Surface;
+		if (!Resolve_RenderThread(Binding, ESurfaceMaterialPass::GBuffer, {}, nullptr, nullptr, Surface)) return false;
+		std::vector<FRHIResource*> Resources;
+		std::vector<FRHIUniformBufferResource> Members;
+		CollectMaterialUniformResources(Surface, Collections, Resources, Members);
+		return Cache.UpdateUniformBuffer(Commands, Representation, Resources, Members);
+	}
 	auto FSurfaceMaterialResources::Prepare_RenderThread(FRHICommandListImmediate& Commands, const FMaterialRenderBinding* Binding,
 		ESurfaceMaterialPass Pass, const std::shared_ptr<const FSkyLightingGeneration>& Environment,
 		FRHITexture* DirectionalShadowTexture, FRHISampler* DirectionalShadowSampler,
@@ -383,9 +436,16 @@ namespace Durin::RendererPrivate
 		}
 		if (OutMaterial.Surface.bCompiledLayout)
 		{
-			OutMaterial.Uniform = SharedUniform.Buffer ? SharedUniform : Commands.CreateUniformBufferRange(
-				Binding->CompiledUniformPayload.data(),
-				static_cast<uint32>(Binding->CompiledUniformPayload.size()));
+			OutMaterial.Uniform = SharedUniform;
+			if (!OutMaterial.Uniform.Buffer)
+			{
+				std::vector<FRHIResource*> Resources;
+				std::vector<FRHIUniformBufferResource> Members;
+				CollectMaterialUniformResources(OutMaterial.Surface, {}, Resources, Members);
+				const auto Buffer = Commands.CreateUniformBuffer({static_cast<uint32>(Binding->CompiledUniformPayload.size()), std::move(Members)},
+					ERHIBufferLifetimeUsage::SingleFrame, Binding->CompiledUniformPayload, Resources);
+				OutMaterial.Uniform = {Buffer.GetReference(), 0, static_cast<uint32>(Binding->CompiledUniformPayload.size()), Buffer};
+			}
 			return OutMaterial.Uniform.Buffer != nullptr;
 		}
 		return false;

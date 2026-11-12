@@ -68,6 +68,8 @@ namespace Durin
 		ERHIBindingType Type = ERHIBindingType::UniformBuffer;
 		uint32 Offset = 0;
 		uint32 Size = 0;
+		// Index of a resource member in Resource (a logical Uniform Buffer), or direct binding.
+		uint32 ResourceIndex = INDEX_NONE_U32;
 	};
 
 	// Counted resources and views retained by an immutable batch. Logical resources

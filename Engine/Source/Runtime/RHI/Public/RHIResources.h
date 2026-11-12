@@ -1816,7 +1816,18 @@ namespace Durin
 	};
 
 	enum class ERHIBufferLifetimeUsage : uint8 { SingleDraw, SingleFrame, MultiFrame };
-	struct FRHIUniformBufferLayout { uint32 ConstantBufferSize = 0; };
+	struct FRHIUniformBufferResource
+	{
+		ERHIBindingType Type = ERHIBindingType::Texture;
+		uint32 FallbackResourceIndex = INDEX_NONE_U32;
+		auto operator==(const FRHIUniformBufferResource&) const -> bool = default;
+	};
+	struct FRHIUniformBufferLayout
+	{
+		uint32 ConstantBufferSize = 0;
+		std::vector<FRHIUniformBufferResource> Resources;
+		auto operator==(const FRHIUniformBufferLayout&) const -> bool = default;
+	};
 	struct FRHIBufferUploadStats
 	{
 		uint64 LiveBytes = 0;
@@ -1869,6 +1880,7 @@ namespace Durin
 		auto GetLayout() const -> const FRHIUniformBufferLayout& { return Layout; }
 		auto GetSize() const -> uint32 { return Layout.ConstantBufferSize; }
 		auto GetLifetimeUsage() const -> ERHIBufferLifetimeUsage { return LifetimeUsage; }
+		auto GetResourceTable() const -> std::span<const TRefCountPtr<FRHIResource>> { return ResourceTable; }
 		// Ordered RHI replay only. Updating does not refresh existing shader bindings.
 		RHI_API virtual auto UpdateContents(FByteView Data,
 			std::span<FRHIResource* const> References) -> void;
@@ -1877,8 +1889,12 @@ namespace Durin
 	protected:
 		auto ReleasePendingData() -> void { PendingData.reset(); PendingReferences.clear(); }
 	private:
+		friend class FRHICommandListBase;
+		// Recording-thread values; accepted commands retain their own references.
+		RHI_API auto SetResourceTable(std::span<FRHIResource* const> References) -> void;
 		const FRHIUniformBufferLayout Layout;
 		const ERHIBufferLifetimeUsage LifetimeUsage;
+		std::vector<TRefCountPtr<FRHIResource>> ResourceTable;
 		std::shared_ptr<const FRHIBufferUploadData> PendingData;
 		std::vector<TRefCountPtr<FRHIResource>> PendingReferences;
 	};

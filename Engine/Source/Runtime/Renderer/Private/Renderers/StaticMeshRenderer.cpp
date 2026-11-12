@@ -66,7 +66,6 @@ namespace Durin
 
 		uint64 ReleaseEpoch = 0;
 
-		FRenderResourceGeneration DrawGeneration;
 		bool bPersistentDraws = [] {
 			const char* Setting = std::getenv("DURIN_MESH_DRAW_CACHE");
 			return !Setting || std::string_view(Setting) != "off";
@@ -83,11 +82,6 @@ namespace Durin
 		auto IsCacheable(const FPreparedStaticMeshDraw& Draw, const FPreparedStaticMeshPrimitive& Primitive) const -> bool
 		{
 			return bPersistentDraws && !Primitive.DrawResources.expired() && Primitive.GeometryRecord && Primitive.VertexDomain == EVertexDeformationDomain::Local;
-		}
-		FCachedMeshDrawCommandStorage DrawCommands;
-		auto ResetDrawCommands() -> void
-		{
-			DrawCommands.Reset();
 		}
 
 		using FShaderMapPayload = FMeshPassShaders;
@@ -430,10 +424,14 @@ namespace Durin
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareMeshUniformGroups");
 		check(!CommandList.IsInsideRenderPass());
 		const auto Generation = Coordinator.GetGeneration_RenderThread();
-		if (State->DrawGeneration != Generation)
+		ResolvedView.CachedDrawLists = nullptr;
+		if (Scene)
 		{
-			State->ResetDrawCommands();
-			State->DrawGeneration = Generation;
+			Scene->UpdateStaticMeshes();
+			if (!Scene->CachedDrawLists) Scene->CachedDrawLists = std::make_shared<FCachedMeshDrawCommandStorage>();
+			auto& DrawLists = *Scene->CachedDrawLists;
+			if (DrawLists.Generation != Generation) { DrawLists.Reset(); DrawLists.Generation = Generation; }
+			ResolvedView.CachedDrawLists = &DrawLists;
 		}
 		ResolvedView.PrimitiveUniforms.clear();
 		ResolvedView.PrimitiveUniforms.resize(PreparedView.Primitives.size());
@@ -517,7 +515,9 @@ namespace Durin
 			if (Material.Representation.GetUniformPayload().empty()) continue;
 			const auto Cache = Material.UniformExpressionCache ? Material.UniformExpressionCache : Material.Representation.GetUniformExpressionCache();
 			const bool Changed = !std::ranges::equal(Cache->UniformBuffer->GetData(), Material.Representation.GetUniformPayload());
-			if (!Cache->UpdateUniformBuffer(CommandList, Material.Representation)) { if (!bAllowPartial) return false; RejectGroup(Group); continue; }
+			const auto& Draw = PreparedView.GetDraw(PreparedView.MaterialUniformGroups[Group].RepresentativeDraw);
+			const auto* Binding = ResolvedView.GetMaterialBinding(Draw);
+			if (!Binding || !SurfaceMaterials.UpdateUniformExpressionCache_RenderThread(CommandList, *Cache, Material.Representation, *Binding, GroupCollections[Group])) { if (!bAllowPartial) return false; RejectGroup(Group); continue; }
 			if (Changed) ++ResolvedView.Observations.MaterialUniformUploads;
 			GroupUniforms[Group] = Cache->UniformBuffer->GetRange();
 		}
@@ -526,7 +526,7 @@ namespace Durin
 		{
 			const auto& Draw = PreparedView.GetDraw(Index);
 			const auto* Primitive = PreparedView.GetPrimitive(Draw);
-			if (!ResolvedView.IsReady(Draw) || !Primitive || !State->IsCacheable(Draw, *Primitive)) continue;
+			if (!ResolvedView.IsReady(Draw) || !Primitive || (!ResolvedView.CachedDrawLists || !State->IsCacheable(Draw, *Primitive))) continue;
 			auto& Record = ResolvedView.Draws[Draw.ResolvedIndex];
 			Record.Commands = {};
 			Record.SelectedCachedCommands.clear();
@@ -535,18 +535,20 @@ namespace Durin
 			{
 				if (!Pipeline) continue;
 				Any = true;
-				const auto Existing = State->DrawCommands.Find(FCachedMeshDrawCommandStorage::MakeKey(Draw.Command.get(), Primitive->PrimitiveId, Primitive->BatchId, *Pipeline));
-				if (!Existing) { AllHit = false; continue; }
-				const auto& Cached = *Existing;
-				if (Cached.Input != Primitive->CollectedBinding.get()) { AllHit = false; continue; }
+				const auto Owner = Primitive->DrawResources.lock(); if (!Owner) { AllHit = false; continue; }
+				ResolvedView.CachedDrawLists->Attach(*Owner);
 				const auto Pass = FState::MaterialPass(*Pipeline);
-				Record.SelectedCachedCommands.emplace(PassKey, Cached.Command);
-
-				// Primitive contents are selected below, independently of cached commands.
 				auto& Material = ResolvedView.MaterialUniforms[Draw.MaterialUniformIndex][Pass];
+				FResolvedStaticMeshView::FMaterialUniform CachedMaterial;
+				const auto Existing = ResolvedView.CachedDrawLists->Find(FCachedMeshDrawCommandStorage::MakeKey(Draw.Command.get(), Primitive->PrimitiveId,
+					Primitive->BatchId, *Pipeline, GroupUniforms[Draw.MaterialUniformIndex].Buffer), *Owner,
+					Material ? nullptr : &CachedMaterial, Primitive->CollectedBinding.get());
+				if (!Existing) { AllHit = false; continue; }
+				Record.SelectedCachedCommands.emplace(PassKey, Existing);
+
 				if (!Material && Requests[Draw.MaterialUniformIndex].contains(Pass))
 				{
-					Material = Cached.Material; Material->CollectionUniforms = GroupCollections[Draw.MaterialUniformIndex];
+					Material = std::move(CachedMaterial); Material->CollectionUniforms = GroupCollections[Draw.MaterialUniformIndex];
 					if (GroupUniforms[Draw.MaterialUniformIndex].Buffer) Material->Uniform = GroupUniforms[Draw.MaterialUniformIndex];
 					if (!SurfaceMaterials.RefreshPassResources_RenderThread(Pass,
 						ResolvedView.Environment, ResolvedView.DirectionalShadowTexture, ResolvedView.DirectionalShadowSampler, Material->Surface))
@@ -670,7 +672,7 @@ namespace Durin
 			if (!Primitive || !Primitive->CollectedBinding || !Factory) { Record.bReady = false; AllReady = false; continue; }
 			if (ResolvedView.PersistentCommandsReused[Draw.ResolvedIndex]) ++ResolvedView.Observations.PersistentCommandHits;
 			else ++ResolvedView.Observations.PersistentCommandMisses;
-			const bool Cacheable = State->IsCacheable(Draw, *Primitive);
+			const bool Cacheable = ResolvedView.CachedDrawLists && State->IsCacheable(Draw, *Primitive);
 			for (auto& [PassKey, Pipeline] : Record.Pipelines)
 			{
 				if (!Pipeline) continue;
@@ -692,9 +694,10 @@ namespace Durin
 						ResolvedView.PrimitiveUniforms[Draw.PrimitiveIndex], ResolvedView.ViewUniforms[Pass], Lighting, {}, LocalLights};
 					if (Cacheable && !Cached)
 					{
-						FCachedPassMeshDrawListContext Context(State->DrawCommands, PassKey, Cached, Input);
+						FCachedPassMeshDrawListContext Context(*ResolvedView.CachedDrawLists, PassKey, Cached, Input);
 						const auto Result = Processor.AddMeshBatch(Batch, Input, BindingCache, Context); Ready = static_cast<bool>(Result);
 						if (!Ready) Error = Result.Error;
+
 					}
 					if (Ready && Cached && !PassKey.bGPUCulling)
 					{
@@ -710,8 +713,9 @@ namespace Durin
 						if (Ready)
 						{
 							const auto Bias = bShadow && Draw.RasterBias ? *Draw.RasterBias : Cached->DepthBias;
-							Record.VisibleCommands[PassKey] = ResolvedView.DrawCommandStorage->PublishVisible(Cached,
-								Group->second, Bias);
+							const auto Info = ResolvedView.CachedDrawLists->FindInfo(FCachedMeshDrawCommandStorage::MakeKey(Draw.Command.get(), Primitive->PrimitiveId,
+								Primitive->BatchId, *Pipeline, Material->Uniform.Buffer), *Primitive->DrawResources.lock());
+							Record.VisibleCommands[PassKey] = ResolvedView.DrawCommandStorage->PublishVisible(Cached, Info, Group->second, Bias);
 						}
 					}
 					else if (Ready)
@@ -1043,7 +1047,6 @@ namespace Durin
 	auto FStaticMeshRenderer::ReleaseResources_RenderThread() -> void
 	{
 		++State->ReleaseEpoch;
-		State->ResetDrawCommands();
 		check(IsInRenderingThread());
 		State->ShaderMaps.Reset();
 		State->ShadowShaderMaps.Reset();

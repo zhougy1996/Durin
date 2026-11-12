@@ -10,6 +10,7 @@
 
 namespace Durin
 {
+	class FMaterialRenderProxy;
 	class DLightComponent;
 	class IRendererModule;
 	class DPrimitiveComponent;
@@ -50,6 +51,8 @@ namespace Durin
 		) -> void = 0;
 
 		virtual auto UpdateSkyLighting() -> void = 0;
+		// Render-thread structural material update; parameter values stay in stable Uniforms.
+		virtual auto UpdateStaticDrawListsForMaterials(std::span<FMaterialRenderProxy* const>) -> void {}
 
 		virtual auto Release() -> void = 0;
 

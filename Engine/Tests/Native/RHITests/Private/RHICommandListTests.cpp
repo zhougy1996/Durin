@@ -2785,6 +2785,46 @@ namespace Durin
 		EXPECT_EQ(ReferenceA->GetRefCount(), 1u);
 	}
 
+	TEST(FRHICommandListTests, UniformResourceMembersResolveCurrentValuesAndRecordedBindingsRemainOwned)
+	{
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		auto& Commands = Executor.GetImmediateCommandList();
+		Commands.SwitchPipeline(ERHIPipeline::Graphics);
+		const auto Shader = MakeRefCount<FTestShader>(EShaderFrequency::Fragment, 1);
+		const auto A = MakeRefCount<FRHISampler>();
+		const auto B = MakeRefCount<FRHISampler>();
+		std::array<FRHIResource*, 1> References{A.GetReference()};
+		const FRHIUniformBufferLayout Layout{16, {{ERHIBindingType::Sampler}}};
+		const auto Uniform = Commands.CreateUniformBuffer(Layout, ERHIBufferLifetimeUsage::MultiFrame, FByteBuffer(16), References);
+		const FRHIShaderParameterResource Parameter{.Resource = Uniform.GetReference(), .Type = ERHIBindingType::Sampler, .ResourceIndex = 0};
+		Commands.SetShaderParameters(Shader, std::span(&Parameter, 1));
+		References[0] = B.GetReference();
+		Commands.UpdateUniformBuffer(Uniform, FByteBuffer(16), References);
+		ASSERT_EQ(Uniform->GetResourceTable()[0].GetReference(), B.GetReference());
+		Executor.Submit({}, ERHISubmitFlags::None);
+		ASSERT_EQ(Context.ObservedShaderParameters.size(), 1u);
+		EXPECT_EQ(Context.ObservedShaderParameters[0].Resource, A.GetReference());
+		Commands.SwitchPipeline(ERHIPipeline::Graphics);
+		Commands.SetShaderParameters(Shader, std::span(&Parameter, 1));
+		Executor.Submit({}, ERHISubmitFlags::None);
+		EXPECT_EQ(Context.ObservedShaderParameters[0].Resource, B.GetReference());
+		EXPECT_EQ(Uniform->GetLayout(), Layout);
+	}
+	TEST(FRHICommandListTests, TypedUniformMembersAllowAcyclicUniformReferences)
+	{
+		FRHICommandList Commands;
+		const auto Leaf = Commands.CreateUniformBuffer({16}, ERHIBufferLifetimeUsage::MultiFrame, FByteBuffer(16));
+		std::array<FRHIResource*, 1> References{Leaf.GetReference()};
+		const FRHIUniformBufferLayout Layout{16, {{ERHIBindingType::UniformBufferDynamic}}};
+		const auto Parent = Commands.CreateUniformBuffer(Layout, ERHIBufferLifetimeUsage::MultiFrame, FByteBuffer(16), References);
+		ASSERT_EQ(Parent->GetResourceTable()[0].GetReference(), Leaf.GetReference());
+		References[0] = Parent.GetReference();
+		EXPECT_DEATH_IF_SUPPORTED(Commands.UpdateUniformBuffer(Parent, FByteBuffer(16), References), "");
+		References[0] = Leaf.GetReference();
+		EXPECT_DEATH_IF_SUPPORTED(Commands.CreateUniformBuffer({16, {{ERHIBindingType::Sampler}}},
+			ERHIBufferLifetimeUsage::MultiFrame, FByteBuffer(16), References), "");
+	}
 	TEST(FRHICommandListTests, UniformValidationAndNativeViewsDoNotRecordCommands)
 	{
 		FRHICommandList Commands;

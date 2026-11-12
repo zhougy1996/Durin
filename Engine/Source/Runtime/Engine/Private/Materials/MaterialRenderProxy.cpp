@@ -3,6 +3,7 @@
 #include "Materials/MaterialShaderMap.h"
 
 #include "RenderingThread.h"
+#include "Rendering/SceneInterface.h"
 #include "Texture/Texture2D.h"
 #include "Threading/RunnableThread.h"
 
@@ -105,8 +106,18 @@ namespace Durin
 		GMaterialRenderProxyCounters.BindingUpdateCount.fetch_add(1);
 	}
 
+	auto FMaterialRenderProxy::AddSceneReference(FSceneInterface& Scene) -> void
+	{ CheckRenderingThread(); ++SceneReferences[&Scene]; }
+	auto FMaterialRenderProxy::RemoveSceneReference(FSceneInterface& Scene) -> void
+	{
+		CheckRenderingThread();
+		const auto Found = SceneReferences.find(&Scene); require(Found != SceneReferences.end() && Found->second);
+		if (!--Found->second) SceneReferences.erase(Found);
+	}
 	auto FMaterialRenderProxy::ReleaseRHI() -> void
 	{
+		FMaterialRenderProxy* Material = this;
+		for (const auto& [Scene, References] : SceneReferences) Scene->UpdateStaticDrawListsForMaterials(std::span(&Material, 1));
 		UniformExpressionCache->ReleaseRHI();
 	}
 	auto FMaterialRenderProxy::AddRef() const -> uint32
@@ -157,13 +168,11 @@ namespace Durin
 			Publication.Parameters,
 			{},
 			&FMaterialLocalRenderParameter::Id));
-		const bool SameBindings = LocalLayer.CompiledProgram == Publication.CompiledProgram
-			&& LocalLayer.StaticProperties == Publication.StaticProperties
-			&& std::ranges::equal(LocalLayer.Parameters, Publication.Parameters, [](const auto& A, const auto& B) {
-				return A.Id == B.Id && A.GetType() == B.GetType()
-					&& (A.GetType() != EMaterialParameterType::Texture || A.Value == B.Value);
-			});
-		if (!SameBindings) InvalidateRenderResourceBindings();
+		if (LocalLayer.CompiledProgram != Publication.CompiledProgram || LocalLayer.StaticProperties != Publication.StaticProperties)
+		{
+			FMaterialRenderProxy* Material = this;
+			for (const auto& [Scene, References] : SceneReferences) Scene->UpdateStaticDrawListsForMaterials(std::span(&Material, 1));
+		}
 		if (LocalLayer.CompiledProgram != Publication.CompiledProgram) UniformExpressionCache->InvalidateUniformExpressionCache();
 		LocalLayer = std::move(Publication);
 		bHasResolvedData = false;

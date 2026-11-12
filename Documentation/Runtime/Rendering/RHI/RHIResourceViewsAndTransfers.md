@@ -120,8 +120,23 @@ original backing, including refreshing existing bindings. See the
 references into the command list. Uniform binding captures the current
 immutable physical allocation during replay; subsequent updates do not rewrite
 existing bindings. Rebind parameters, including a prepared batch, to select the
-new uniform allocation. Uniform sidecars may retain ordinary GPU resources and
-views, but uniform resources are rejected to prevent ownership cycles.
+new uniform allocation.
+
+`FRHIUniformBufferLayout::Resources` describes typed resource-table members.
+`GetResourceTable` exposes the logical Uniform's counted current references.
+Updates publish current table values on the recording thread while copying an
+independent ordered replay payload. A shader parameter with a `ResourceIndex`
+identifies a member of its logical Uniform; canonicalization resolves that member
+before recording the ordinary RHI parameter command. Direct resources use
+`INDEX_NONE_U32`. The index describes layout membership, not binding identity.
+
+Material texture members can name a concrete fallback member. Recording resolves
+TextureReference targets, including null-to-fallback, before acquiring counted
+native views. Changing a target never rewrites previously recorded commands.
+Typed Uniform members can reference other Uniforms, such as Scene Collections;
+updates reject ownership cycles by checking the actual resource references, without
+maintaining a dependency registry. Untyped legacy sidecar references cannot contain
+Uniforms. These are actual Uniform resource owners, not prepared binding packets.
 
 `FRHIUniformBufferRange` represents a typed uniform resource or a native buffer
 range. `CreateUniformBufferRange` supplies counted ownership across preparation
@@ -140,7 +155,7 @@ last owner releases it. Ordinary buffers retain no permanent CPU upload copy.
 
 `CreateUniformBuffer` returns a counted resource; `UpdateUniformBuffer`,
 and `WriteBuffer` return void. Invalid ranges, resource types,
-or uniform sidecar ownership violate enforced preconditions. Native creation
+or cyclic Uniform resource ownership violate enforced preconditions. Native creation
 uses the [required-success contract](RHICommandExecution.md#required-success-resource-creation).
 Native allocation failures and OOM terminate, including deferred allocations
 during consuming replay. Executor backpressure remains
