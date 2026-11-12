@@ -1,0 +1,10 @@
+{
+  "ModuleName": "PluginFixtureConsumer",
+  "PCH": "SharedPCH_DObject",
+  "PublicDependencies": [
+    "PluginFixtureRuntime"
+  ],
+  "ReflectHeaders": [
+    "Public/FixtureConsumer.h"
+  ]
+}

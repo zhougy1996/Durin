@@ -1,0 +1,10 @@
+{
+  "ModuleName": "PluginFixtureRuntime",
+  "PCH": "SharedPCH_DObject",
+  "PublicDependencies": [
+    "Engine"
+  ],
+  "ReflectHeaders": [
+    "Public/FixtureAsset.h"
+  ]
+}

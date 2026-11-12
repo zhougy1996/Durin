@@ -17,7 +17,8 @@
         "ContentBrowser"
     ],
     "PublicDependencies": [
-        "DurinEd"
+        "DurinEd",
+        "Projects"
     ],
     "ReflectHeaders": [
         "Private/StaticMeshAssetDefinitions.h"

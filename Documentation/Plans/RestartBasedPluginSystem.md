@@ -2,21 +2,58 @@
 
 Summary: Add project-selected source and content plugins with deterministic build, startup, cooking, and restart-required enablement.
 
-Last reviewed: 2026-11-11
+Last reviewed: 2026-11-12
 
 Status: Active
 Completed:
 
 ## Current Status
 
-Stages 0 and 1 are complete. Stage 1 implements metadata resolution only;
-Stages 2-7 remain open. Projects is registered with a Core-only dependency, and
-Launch includes it in both runtime-variant graphs without invoking plugin startup.
-Stage 1.1 has been added as the next required stage, ahead of Stage 2. It will
-consolidate ordinary-project and plugin metadata ownership in Projects, with
-UE-aligned project-management interfaces. It is planned only: the user deferred
-implementation on 2026-11-11. No Stage 1.1 code, build, or native-test work has
-started; native plugin loading, mounts, and UI remain later-stage work.
+Stages 0, 1, 1.1, and 2 are complete. Stage 1.1 consolidates ordinary project
+descriptors, admission and edit state in Projects, moves mount interpretation out
+of Core, and separates host history/relaunch policy. Principal public project
+interfaces use UE-style bool/output-parameter semantics, as requested on
+2026-11-12. Stage 2 integrates selected plugin modules into the existing
+CMake/DHT pipeline and publishes native build inventories. Stages 3-7 remain
+open; Stage 3 is next. Plugin startup loading, UI, and cooked deployment remain
+later work.
+
+The 2026-11-12 convergence keeps these stages unchanged: typed descriptor fields
+are the persistent authority, the manager owns both editable and active state,
+and public bool operations report failures directly. Discovery treats a plugin
+descriptor directory as a traversal boundary, matching UE; descriptors below
+that boundary are ignored rather than audited. Module files are consumed only
+for selected, host/platform-eligible plugins. Selection exposes typed values
+alongside its canonical artifact projection.
+
+Convergence acceptance (2026-11-12, Win64 Debug, windows-msvc-x64):
+
+- Tested base `55ee89820` plus the convergence source/fixture changes. Final
+  source hashes are retained in ignored
+  `Build/PluginStage1_1/convergence-inputs.json`; documentation-only edits do not
+  change these inputs. No stage was added and Stages 2-7 remain open.
+- `build all` passed for Win64-Debug-DurinEditor and Win64-Debug-DurinGame after
+  the public interface changes. Final build logs are
+  `Build/.agent-state/logs/20261112-121153-586846-28620-cmake.log` and
+  `Build/.agent-state/logs/20261112-121255-360278-39460-cmake.log`.
+- PluginResolutionTests passed 6/6, including 49 shared plugin cases and the
+  typed edit/save, unchanged-override, active-state isolation, and typed-result
+  projection checks. Python descriptor/plugin/workspace/configuration/document
+  regressions passed 213 tests with 2 symbolic-link privilege skips.
+- CoreFileSystemTests passed 57 with 2 symbolic-link privilege skips.
+  LaunchProcessBoundaryTests passed 4/4. The selected bounded-exit,
+  missing-explicit-project, automated-history, and empty-default-Level startup
+  characterization cases passed 4/4. Reports use the `convergence-` prefix under
+  `Build/PluginStage1_1`; process-boundary coverage precedes only internal
+  manager/consumed-path refinements and remains applicable to its unchanged
+  relaunch and lease behavior.
+- The Game smoke refreshed staged binaries from the final Game build, reused
+  the existing complete Cook resources and EmptyGame fixture, and exited after
+  3 ticks with exit code 0 and no error/fatal/validation diagnostics. Log:
+  `Build/PluginStage1_1/convergence-game.log`.
+- Document and all-plan validation passed. Native macOS and privileged symbolic
+  link/junction execution remain unqualified; plugin native loading is still
+  outside this acceptance.
 
 Stage 1 acceptance (2026-11-11, Win64 Debug, windows-msvc-x64):
 
@@ -75,7 +112,7 @@ original plugin set. A cooked Game runs with only its declared plugin closure.
   outstanding gate until measured there.
 - Discover `Engine/Plugins` and `<ActiveProject>/Plugins` recursively by
   `.dplugin`; stop descending at each plugin root. Reject case-insensitive
-  plugin/module identity collisions and nested plugin ownership. Do not provide
+  plugin/module identity collisions; ignore descriptors beneath a plugin root. Do not provide
   implicit project-over-engine replacement or arbitrary search paths initially.
 - A plugin is an optional distribution/enablement container. A module remains
   the compilation, reflection, and native loading unit. Existing project modules
@@ -204,7 +241,7 @@ Acceptance gate:
 
 Dependencies: Stage 1.
 
-Status: Planned; implementation deferred by the user on 2026-11-11.
+Status: Completed on 2026-11-12.
 
 Modules/tools: Projects, Core, Launch, Engine, DurinEd, MainFrame; all direct
 project API consumers, including DurinAssetTool and project/test targets in
@@ -219,8 +256,11 @@ switching or changing existing startup/readiness ownership.
 Use [UE Projects](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Projects)
 and [IProjectManager](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Projects/IProjectManager)
 as naming and responsibility references. Match principal concepts and observable
-semantics; retain Durin's `.dproject`/`.dmodule` formats, error values, and
-`std::expected` conventions rather than promising source or binary compatibility.
+semantics, including bool results, status output parameters, and explicit failure
+reason outputs where UE uses them. Retain Durin's `.dproject`/`.dmodule` formats
+and native string/value vocabulary; internal helpers may use structured errors.
+There is no requirement to retain `std::expected` or Durin error enums on these
+principal public APIs. This alignment does not promise UE source/binary compatibility.
 
 | Surface | Selected Stage 1.1 behavior |
 | --- | --- |
@@ -255,59 +295,128 @@ dependency-aware plugin UI and restart handling remain Stage 5.
 
 #### Implementation Tasks
 
-- [ ] Add the typed project descriptor and UE-aligned project manager interface,
+- [x] Add the typed project descriptor and UE-aligned project manager interface,
   separating persistent descriptor state from derived context and session policy.
-- [ ] Move applicable APIs/data from Core's Project/ProjectError/ProjectHistory
+- [x] Move applicable APIs/data from Core's Project/ProjectError/ProjectHistory
   facilities to their selected owners. Migrate all source and test consumers in
   every workspace project; add explicit `.dmodule` dependencies where required.
   Do not leave a permanent Core facade depending back on Projects.
-- [ ] Make current-project admission, status/history inspection, and plugin
+- [x] Make current-project admission, status/history inspection, and plugin
   resolution reuse the same project reader. Remove duplicate `.dproject` field
   interpretation from Core path/mount code and the native plugin resolver.
-- [ ] Preserve one validated project/mount snapshot: failed inspection/admission
+- [x] Preserve one validated project/mount snapshot: failed inspection/admission
   cannot publish partial current-project, path, or mount state. Retain the
   existing immutable mount lifetime and restart-required project switching.
-- [ ] Define descriptor edit/save semantics, unknown/schema-field handling,
+- [x] Define descriptor edit/save semantics, unknown/schema-field handling,
   project ownership checks, and failure recovery. Keep requested descriptor
   edits distinct from the active process selection and preserve unrelated data.
-- [ ] Keep project module load order, reflected-provider readiness, initial
+- [x] Keep project module load order, reflected-provider readiness, initial
   content scan, and shutdown/relaunch placement equivalent to existing behavior;
   coordinate with RuntimeStartupAndSceneActivation rather than adding a new loop.
-- [ ] Align Python/C++ absent-versus-empty behavior: omitted BaseModules uses
+- [x] Align Python/C++ absent-versus-empty behavior: omitted BaseModules uses
   ModuleDirs; explicit empty BaseModules means no base roots; omitted/empty
   Plugins means no explicit overrides. Preserve existing checked-in project roots.
-- [ ] Extend plan-context stage discovery to recognize dotted numbers so Stage
+- [x] Extend plan-context stage discovery to recognize dotted numbers so Stage
   1.1 can be selected independently and its exact provenance is preserved.
-- [ ] Publish lasting project-management ownership/API rules in Workspace and
+- [x] Publish lasting project-management ownership/API rules in Workspace and
   relevant lifecycle documents; revise the interim boundary recorded by Stage 1.
 
 #### Acceptance Gate
 
-- [ ] Shared fixtures establish C++/Python agreement on ordinary project fields,
+- Initial tooling checkpoint: focused Python regression covers dotted-stage
+  identifiers (including distinct 1.1/1.10), completed-parent task boundaries,
+  JSON/Markdown context, and omitted/empty BaseModules in DHT/DevTool. Raw report:
+  `Build/PluginStage1_1/python.xml`: 172 passed, 2 skipped because directory
+  symbolic-link creation is unavailable. Tested base `3563d2bbd` plus this
+  checkpoint's working-tree changes. The repository's plan-context command independently
+  selects Stage 1.1; captured JSON is `Build/PluginStage1_1/context.json`.
+  Document and all-plan validation passed. This is not native project-manager acceptance;
+  the shared native descriptor fixtures, ownership migration, process smokes,
+  and Editor/Game all-build gates below remain open.
+
+- Second checkpoint (2026-11-12): PluginResolutionTests passed 3/3, including
+  the shared 46 plugin fixtures and new descriptor/status-query/atomic-save/
+  failed-save-dirty-state coverage. CoreFileSystemTests passed 57 with 2
+  symbolic-link privilege skips. Raw logs:
+  `Build/.agent-state/logs/20261112-103551-552573-20308-PluginResolutionTests.log`
+  and `Build/.agent-state/logs/20261112-103242-938457-33672-CoreFileSystemTests.log`.
+  DurinLauncher also built successfully after the DLL export/header migration;
+  final build output: `Build/.agent-state/logs/20261112-103552-940354-28780-cmake.log`.
+  This checkpoint does not close the transactional admission, shared schema,
+  lifecycle-policy, or Editor/Game all-build acceptance gates.
+
+#### Final Acceptance (2026-11-12)
+
+- Tested base `cfd97de477086d2cd22462596cc90cee1e5900bc` plus this stage's final
+  working-tree inputs. Source/fixture hashes and configuration/artifact identities
+  are retained under ignored `Build/PluginStage1_1/final-inputs.json`.
+  Final documentation/status edits do not alter the relevant validated inputs.
+- Win64 Debug Editor and Game `all` builds passed, including the standalone
+  asset-tool consumer. Final logs in `Build/.agent-state/logs/`:
+  `20261112-110554-437143-31484-cmake.log` and
+  `20261112-110616-063599-17068-cmake.log`.
+- Python regression: 210 passed, 2 directory-symlink privilege skips;
+  `Build/PluginStage1_1/final-python.xml`. Native project/manager tests: 5/5,
+  including 18 common project fixtures and all 46 unchanged plugin fixtures;
+  `Build/PluginStage1_1/native-projects.xml`. Core file/project/mount regression:
+  57 passed, 2 symlink privilege skips; `Build/PluginStage1_1/native-core.xml`.
+- Launch process boundaries: 4/4, including exclusive project ownership and
+  consume-once deferred relaunch arguments; `Build/PluginStage1_1/native-launch.xml`.
+  Selected characterization: Browser bounded exit, missing explicit project,
+  automated history preservation, and empty-default-level startup all passed
+  (4/4); `Build/PluginStage1_1/native-startup.xml`. Unrelated command-handler
+  characterization was not expanded into this selection.
+- Sandbox and RoadWeaver Editor each completed 3 ticks and clean shutdown, with
+  no error/fatal/Vulkan validation diagnostics. Logs under the same log directory:
+  `20261112-110620-118661-28068-DurinEditor.log` and
+  `20261112-110624-584498-34824-DurinEditor.log`.
+- Game completed 3 ticks and clean shutdown from an isolated staged runtime with
+  valid cooked default material, ShaderLibrary and application configuration;
+  `Build/PluginStage1_1/staged-game.log`. Cook retained one package and published
+  a validated manifest-last generation under `Build/PluginStage1_1/CookedGame`.
+  An initial uncooked Game smoke returned zero but logged missing deployment
+  resources and a Vulkan acquisition diagnostic; it was not accepted as a pass.
+  Repeating with complete staged inputs produced no error/fatal/validation
+  diagnostics. No RHI behavior or user asset was changed to mask that failure.
+- Manager queries preserve actual mount-storage addresses as well as revision,
+  path/context and ownership. Failed loads retain the active snapshot; failed
+  atomic saves retain pending dirty state. Principal APIs now match UE bool and
+  output-parameter conventions, with native strings and private structured errors.
+- Core/Projects dependency guards pass; Projects remains Core-only. Native
+  descriptor tests run without Engine/editor/Python. Dotted-stage selection and
+  existing project roots remain covered. Affected-test analysis expands to all
+  due to declaration changes; bounded behavior tests plus both explicit all-build
+  gates cover this migration. GPU performance qualification is not claimed.
+- Native execution is qualified on this Win64 host only. macOS execution and
+  privileged symlink/junction paths remain unqualified; these do not imply a
+  completed cross-platform Stage 7 gate. Document and all-plan validation pass;
+  receipts are in `Build/PluginStage1_1/final-documentation.log`.
+
+- [x] Shared fixtures establish C++/Python agreement on ordinary project fields,
   malformed/duplicate fields, omitted/empty values, plugin references, mounts,
   and Editor/Game root selection. Stage 1 plugin canonical fixtures remain valid
   unless an intentional, documented correction requires updating expectations.
-- [ ] Status queries leave current context, paths, mounts, module state, and
+- [x] Status queries leave current context, paths, mounts, module state, and
   history unchanged. Descriptor edits/atomic save preserve unrelated fields;
   failed writes preserve disk contents and pending edit state. Explicit false
   and removed plugin overrides remain observably different after reload.
-- [ ] Project Browser, explicit project opening, history/auto-restore, edit-session
+- [x] Project Browser, explicit project opening, history/auto-restore, edit-session
   exclusion, and deferred relaunch retain their existing contracts. Game/tool
   project admission does not apply interactive history policy. Failed admission
   and normal exit leave no partial context or leaked ownership.
-- [ ] Engine, Sandbox, and RoadWeaver retain expected project roots and startup
+- [x] Engine, Sandbox, and RoadWeaver retain expected project roots and startup
   behavior; non-project Browser startup remains supported. Run focused project,
   plugin, mount, startup/history/relaunch regression coverage and the corresponding
   bounded process smokes, with evidence and platform skips recorded explicitly.
-- [ ] Dependency checks prove Core has no Projects/Engine/editor dependency and
+- [x] Dependency checks prove Core has no Projects/Engine/editor dependency and
   Projects remains Core-only. Ordinary project inspection works in a minimal
   native consumer. Dotted-stage plan-context discovery has focused regression
   coverage and selects Stage 1.1 independently of completed Stage 1.
-- [ ] Because public project types move across DLL boundaries and many owners
+- [x] Because public project types move across DLL boundaries and many owners
   gain direct dependencies, run `all` builds for Editor and Game at this stage's
   final acceptance. This gate covers the migration's ABI/build-graph risk; reuse
   unchanged passing results in Stage 7 rather than rerunning by commit identity.
-- [ ] Plan state and lasting documentation match the implemented boundary;
+- [x] Plan state and lasting documentation match the implemented boundary;
   document and all-plan validation pass. Only then make Stage 2 executable.
 
 ### Stage 2: Integrate plugin modules into build and reflection
@@ -320,28 +429,70 @@ DurinDevTool configure/build services; CoreDObject integration fixtures.
 Outcome: Enabled plugin modules compile and expose reflected types through the
 existing toolchain, without hand-editing Engine's ModuleDirs for each plugin.
 
-- [ ] Feed resolved plugin modules to CMake and DHT using the selected workspace
+- [x] Feed resolved plugin modules to CMake and DHT using the selected workspace
   membership; preserve module ownership independently from project ownership.
-- [ ] Generate export headers, reflection inputs, targets, include paths, and
+- [x] Generate export headers, reflection inputs, targets, include paths, and
   dependencies through existing module mechanisms.
-- [ ] Namespace generated state and outputs by plugin ownership and relevant
+- [x] Namespace generated state and outputs by plugin ownership and relevant
   target/configuration inputs. Reconfigure when discovery or enablement changes.
-- [ ] Produce a build manifest containing exact binary paths, build identity,
+- [x] Produce a build manifest containing exact binary paths, build identity,
   selection fingerprint, and required native runtime dependencies.
-- [ ] Create a small repository-owned PluginFixture and a consumer fixture:
+- [x] Create a small repository-owned PluginFixture and a consumer fixture:
   Runtime module with a reflected component/asset, Editor companion, dependent
   plugin, and content-only plugin. Keep tests/fixtures under their owning test
   roots or ignored Build outputs; do not depend on Water development.
 
 Acceptance gate:
 
-- [ ] Enabled fixture builds in DurinEditor and DurinGame; Editor companion is
+- [x] Enabled fixture builds in DurinEditor and DurinGame; Editor companion is
   absent from the Game graph. Its reflected headers and API exports work across
   the fixture/consumer DLL boundary.
-- [ ] Disable the fixture, reconfigure, and prove its targets are absent and
+- [x] Disable the fixture, reconfigure, and prove its targets are absent and
   stale DLLs do not re-enter the selection. Re-enable and verify regeneration.
-- [ ] Configuration/variant outputs do not overwrite one another; no-plugin
+- [x] Configuration/variant outputs do not overwrite one another; no-plugin
   project builds remain unchanged in effective membership.
+
+Stage 2 acceptance (2026-11-12, windows-msvc-x64):
+
+- Tested base `e122ede14` plus this stage's final source/fixture inputs. SHA-256
+  hashes and preset identities are retained under ignored
+  `Build/PluginStage2/final-inputs.json`; final documentation edits do not affect
+  those inputs. The repository fixture lives under
+  `Engine/Tests/Fixtures/Plugins/PluginFixture` and was copied into ignored Build
+  storage for temporary workspace registration. Durin.dworkspace was restored.
+- The fixture inventory and cross-DLL consumer built and ran in
+  Win64-Debug-DurinEditor, Win64-Debug-DurinGame, and
+  Win64-Release-DurinEditor. Runtime and dependent plugin asset classes share
+  reflected inheritance across DLLs. The Editor companion is absent from the
+  Game graph. Content-only selection requires no native binary. Probes exited 0;
+  manifests satisfy the shared inventory schema and every declared file exists.
+- Disabling both overrides automatically reconfigured the Editor graph, removed
+  the plugin targets, and published an empty binary list despite existing DLLs.
+  Re-enabling regenerated targets and the consumer ran successfully. Final
+  receipts and probe logs are in `Build/PluginStage2/acceptance-final.json` and
+  the same directory. The first isolation check used a pre-reenable Debug hash
+  baseline and detected a normal re-link; after establishing a post-reenable
+  baseline, a separate Release build left every Debug DLL hash unchanged.
+- Ordinary workspace `build all` passed for both Win64 Debug variants. The
+  fixture targets and inventory targets disappear when temporary membership is
+  removed; ordinary Engine/Sandbox/RoadWeaver targets remain. Final logs:
+  `Build/.agent-state/logs/20261112-142153-937431-33440-cmake.log` and
+  `Build/.agent-state/logs/20261112-142358-326193-39336-cmake.log`. Release fixture
+  build log: `Build/.agent-state/logs/20261112-140140-758751-6840-cmake.log`.
+- Full DHT Python tests plus DevTool workspace/build-config/document regressions:
+  628 passed, 2 symbolic-link privilege skips. Native PluginResolutionTests:
+  7/7 passed, including foreign-workspace root isolation; CoreObjectTests:
+  181/181 passed. Reports: `Build/PluginStage2/python.xml`, `native.xml`, and
+  `reflection.xml`. Affected selection expands to all because CMake infrastructure
+  and unregistered fixture inputs changed. Both all-builds, direct native
+  consumers, real DLL fixture execution, and the full DHT suite cover this stage;
+  no native test execution framework, GPU behavior, or host startup changed.
+- Principal plugin modules use Shared linkage with generated API headers;
+  configuration-independent DHT data retains platform/variant/plugin ownership,
+  while native outputs also separate configuration. Implemented rules are in
+  [Plugin source build integration](../Workspace/Plugins.md#source-build-integration).
+  Document and all-plan validation passed. Native macOS remains unqualified;
+  runtime admission/loading and complete cooked deployment remain later stages.
 
 ### Stage 3: Admit and start the frozen plugin set
 
@@ -518,9 +669,8 @@ Acceptance gate:
 ## Execution Order And Handoff
 
 Implement 1 -> 1.1 -> 2 -> 3 -> 4, then UI (5) and cook (6), then qualification (7).
-Stage 1.1 is currently a planning-only addition; execution is deferred until
-the user resumes it. Existing Stage 1 acceptance remains historical evidence,
-not evidence that the Stage 1.1 ownership migration has been performed.
+Stage 1.1 completed on 2026-11-12 with the final acceptance above. Earlier
+checkpoint receipts remain historical; use final-input evidence for continuation.
 Stages 5 and 6 are logically independent after Stage 4; this is not authorization
 for concurrent writers in one checkout. Follow repository worktree ownership.
 

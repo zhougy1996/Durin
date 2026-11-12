@@ -4,7 +4,7 @@
 #include "DObject/AssetPath.h"
 #include "Engine/ProjectGameSettings.h"
 #include "Engine/Level.h"
-#include "Misc/Project.h"
+#include "Project/Project.h"
 
 namespace Durin::EditorStartup
 {

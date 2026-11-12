@@ -18,6 +18,8 @@ class DurinModuleConfig:
     module_dir: Path = Path("")
     config_file_path: Path = Path("")
     owning_project: str = ""
+    owning_plugin: str = ""
+    plugin_host: str = "Runtime"
     private_dependencies: list[str] = field(default_factory=list)
     public_dependencies: list[str] = field(default_factory=list)
     optional_private_dependencies: list[str] = field(default_factory=list)
@@ -127,7 +129,14 @@ def collect_enabled_modules_for_project(project_name: str, runtime_variant: str)
         for dep in module_config.private_dependencies + module_config.public_dependencies:
             _visit(dep)
 
-    for root_module in project_config.get_enabled_root_modules(runtime_variant):
+    plugin_roots = [m.module_name for m in MODULE_CONFIGS.values()
+                    if m.owning_plugin and (runtime_variant == "DurinEditor" or m.plugin_host != "Editor")]
+    # A selected plugin can require an ordinary module that is not itself a
+    # project root. Compute its workspace build closure before filtering owners.
+    from .project_config import PROJECT_CONFIGS
+    root_projects = PROJECT_CONFIGS.values() if plugin_roots else [project_config]
+    roots = [name for project in root_projects for name in project.get_enabled_root_modules(runtime_variant)]
+    for root_module in roots + plugin_roots:
         _visit(root_module)
 
     ENABLED_MODULES[cache_key] = enabled_modules
@@ -141,6 +150,11 @@ def is_module_enabled_for_active_runtime_variant(
     if runtime_variant is None:
         from durin_header_tool import config as configs
         runtime_variant = configs.RUNTIME_VARIANT
+    if module_name not in MODULE_CONFIGS:
+        try:
+            find_module(module_name)
+        except ValueError:
+            return False
     owning_project = get_module_config(module_name).owning_project
     return module_name in collect_enabled_modules_for_project(owning_project, runtime_variant)
 

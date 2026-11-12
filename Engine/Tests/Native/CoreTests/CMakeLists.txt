@@ -141,7 +141,7 @@ durin_add_native_test(CoreFileSystemTests
 		Private/LexicalPathTests.cpp
 		Private/PathsTests.cpp
 		Private/ProjectTests.cpp
-	LIBRARIES Core
+	LIBRARIES Core Projects
 	DATA_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/Data"
 	DATA_FILES "${DURIN_PROJECT_ROOT_DIR}/Configs/TP_DurinEditor.yaml"
 )

@@ -1,7 +1,8 @@
 #include "Plugins/PluginResolution.h"
 
 #include "Json/Json.h"
-#include "Misc/Project.h"
+#include "Project/Project.h"
+#include "ProjectDescriptor.h"
 
 namespace Durin
 {
@@ -149,6 +150,7 @@ namespace Durin
 			std::vector<std::string> Platforms;
 			std::filesystem::path Path;
 			FNode Data;
+			std::string Logical;
 		};
 		struct FPlugin
 		{
@@ -161,6 +163,7 @@ namespace Durin
 			std::filesystem::path Path;
 			FNode Data;
 			std::map<std::string, bool> Overrides;
+			FProjectDescriptor Descriptor;
 		};
 		class FResolver
 		{
@@ -205,10 +208,14 @@ namespace Durin
 				if (!Identifier(Name)) Fail(Path, "invalid module " + Name);
 				const auto Key = Fold(Name);
 				if (Modules.contains(Key)) Fail(Path, "duplicate module " + Name + " also in " + Modules.at(Key).Path.generic_string());
-				const auto Data = Read(Path, Logical);
-				if (Text(Data, "ModuleName", Path) != Name) Fail(Path, "ModuleName mismatch: " + Name);
-				for (const auto& Field : DependencyFields) (void)Ids(Data, Field, Path);
-				Modules.emplace(Key, FModule{Name, Owner, Host, Phase, std::move(Platforms), Path, Data});
+				FNode Data;
+				if (Owner.empty())
+				{
+					Data=Read(Path,Logical);
+					if (Text(Data,"ModuleName",Path)!=Name) Fail(Path,"ModuleName mismatch: "+Name);
+					for (const auto& Field:DependencyFields) (void)Ids(Data,Field,Path);
+				}
+				Modules.emplace(Key,FModule{Name,Owner,Host,Phase,std::move(Platforms),Path,Data,Logical});
 			}
 			auto Discover(const std::filesystem::path& Directory, const std::filesystem::path& SearchRoot) -> void
 			{
@@ -255,12 +262,7 @@ namespace Durin
 					const auto ModPath = Contained(std::filesystem::weakly_canonical(Directory), Text(Module, "Path", Path)) / (ModName + ".dmodule");
 					AddModule(ModPath, Logical + "/" + ModName, ModName, Name, Host, Phase, Ids(Module, "Platforms", Path));
 				}
-				for (const auto& Entry : std::filesystem::recursive_directory_iterator(Directory))
-				{
-					if (Entry.is_symlink() || std::filesystem::absolute(Entry.path()).lexically_normal() != std::filesystem::weakly_canonical(Entry.path()))
-						Fail(Entry.path(), "symbolic plugin entries are unsupported");
-					if (Entry.path().extension() == ".dplugin" && Entry.path() != Path) Fail(Entry.path(), "nested plugin ownership");
-				}
+
 			}
 			auto Visit(const std::string& Key, std::vector<std::string> Chain) -> void
 			{
@@ -293,10 +295,10 @@ namespace Durin
 				std::set<std::string> Roots;
 				for (const auto& Project : Projects)
 				{
-					if (Project.Data.Contains("BaseModules"))
-						for (const auto& Root : Ids(Project.Data, "BaseModules", Project.Path)) Roots.insert(Fold(Root));
-					else Project.Data.GetView("ModuleDirs").ForEachObjectMember([&](std::string_view Key, FNode) { Roots.insert(Fold(std::string(Key))); });
-					for (const auto& Root : Ids(Project.Data.GetView("ExtraModules").GetView(Variant), "Modules", Project.Path)) Roots.insert(Fold(Root));
+					if (Project.Path != std::filesystem::weakly_canonical(Request.ProjectFile) && Project.Path != std::filesystem::weakly_canonical(Request.EngineRoot / "Engine.dproject")) continue;
+					const auto ProjectModules = Project.Descriptor.GetEnabledRootModules(Variant);
+					if (!ProjectModules) Fail(Project.Path, ProjectModules.error());
+					for (const auto& Root : *ProjectModules) Roots.insert(Fold(Root));
 				}
 				return Roots;
 			}
@@ -367,19 +369,17 @@ namespace Durin
 				for (const auto& File : Files)
 				{
 					const auto Data = Read(File, "Pending");
-					const auto Name = Text(Data, "ProjectName", File);
+					FProjectDescriptor Descriptor;
+					std::string DescriptorError;
+					if (!Descriptor.Read(*Documents.back(), File.generic_string(), DescriptorError)) Fail(File, DescriptorError);
+					const auto Name = Descriptor.Name;
 					if (!Identifier(Name) || !Names.insert(Fold(Name)).second) Fail(File, "invalid or duplicate project " + Name);
 					RenameInput("Project/" + Name);
-					const auto Directories = Data.GetView("ModuleDirs");
-					if (Directories.IsValid() && !Directories.IsObject()) Fail(File, "ModuleDirs must be an object");
-					auto Overrides = ReadProjectPluginOverrides(Data);
-					if (!Overrides) Fail(File, Overrides.error());
-					Projects.push_back({File, Data, std::move(*Overrides)});
-					Directories.ForEachObjectMember([&](std::string_view Key, FNode Value) {
-						if (!Value.IsString()) Fail(File, "invalid ModuleDirs path");
-						const std::string ModName(Key);
-						AddModule(Contained(File.parent_path(), Value.GetString()) / (ModName + ".dmodule"), "Project/" + Name + "/" + ModName, ModName);
-					});
+					const auto Directories = Descriptor.ModuleDirs;
+					const auto Overrides = Descriptor.PluginOverrides;
+					Projects.push_back({File, Data, Overrides, std::move(Descriptor)});
+					for (const auto& [ModName, Directory] : Directories)
+						AddModule(Contained(File.parent_path(), Directory) / (ModName + ".dmodule"), "Project/" + Name + "/" + ModName, ModName);
 				}
 				std::set<std::filesystem::path> Roots = {EngineRoot / "Plugins", ProjectFile.parent_path() / "Plugins"};
 				for (const auto& Root : Roots) Discover(Root, Root);
@@ -389,6 +389,14 @@ namespace Durin
 				{
 					if (!Plugins.contains(Key)) Fail(ProjectFile, "missing plugin descriptor " + Key, {Key});
 					if (Enabled) { Reasons[Key].insert("Explicit"); Visit(Key, {Plugins.at(Key).Name}); }
+				}
+				for (auto& [Key,Module]:Modules) if (!Module.Owner.empty() && Eligible(Module))
+				{
+					const auto OwnerRoot = Plugins.at(Fold(Module.Owner)).Path.parent_path();
+					Module.Path = Contained(OwnerRoot,Module.Path.lexically_relative(OwnerRoot).generic_string());
+					Module.Data=Read(Module.Path,Module.Logical);
+					if (Text(Module.Data,"ModuleName",Module.Path)!=Module.Name) Fail(Module.Path,"ModuleName mismatch: "+Module.Name);
+					for (const auto& Field:DependencyFields) (void)Ids(Module.Data,Field,Module.Path);
 				}
 				EditorOnly = Reachable("DurinEditor");
 				for (const auto& Key : Reachable("DurinGame")) EditorOnly.erase(Key);
@@ -423,6 +431,7 @@ namespace Durin
 				auto PluginList = Root.AddArray("Plugins");
 				for (const auto& Key : Order)
 				{
+					Result.Plugins.push_back(Plugins.at(Key).Name);
 					auto Item = PluginList.AppendObject(); Item.SetChildValue("Id", Plugins.at(Key).Name);
 					auto List = Item.AddArray("Reasons"); for (const auto& Reason : Reasons[Key]) List.AppendValue(Reason);
 				}
@@ -430,6 +439,7 @@ namespace Durin
 				for (const auto& Key : ModuleOrder)
 				{
 					const auto& Module = Modules.at(Key);
+					Result.Modules.push_back({Module.Name,Module.Owner,Module.Host,Module.Phase});
 					auto Item = ModuleList.AppendObject(); Item.SetChildValue("Name", Module.Name);
 					Item.SetChildValue("Owner", Module.Owner); Item.SetChildValue("Host", Module.Host); Item.SetChildValue("Phase", Module.Phase);
 				}

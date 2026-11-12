@@ -32,3 +32,6 @@ def init_configs(project_files=()):
     load_project_config_file(engine_project_file)
     for project_file in project_files:
         load_project_config_file(project_file)
+
+    from .plugin_build import load_plugin_build_context
+    load_plugin_build_context()

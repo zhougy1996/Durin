@@ -1,0 +1,13 @@
+{
+  "SchemaVersion": 1,
+  "Id": "PluginFixtureRuntime",
+  "Dependencies": [],
+  "Modules": [
+    {
+      "Name": "PluginFixtureRuntime",
+      "Path": "Source/PluginFixtureRuntime",
+      "Host": "Runtime",
+      "Phase": "Providers"
+    }
+  ]
+}

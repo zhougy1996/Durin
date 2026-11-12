@@ -5,7 +5,7 @@
 #include "Engine/Level.h"
 #include "Engine/ProjectGameSettings.h"
 #include "Misc/FileHelper.h"
-#include "Misc/Project.h"
+#include "Project/Project.h"
 
 namespace Durin::LevelEditor
 {

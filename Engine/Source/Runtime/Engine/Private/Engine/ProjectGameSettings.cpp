@@ -3,7 +3,7 @@
 #include "Actors/GameMode.h"
 #include "DObject/DObjectGlobals.h"
 #include "Misc/FileHelper.h"
-#include "Misc/Project.h"
+#include "Project/Project.h"
 #include "Modules/ModuleManager.h"
 #include "Yaml/Yaml.h"
 

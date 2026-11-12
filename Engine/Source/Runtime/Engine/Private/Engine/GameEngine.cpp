@@ -18,7 +18,8 @@
 #include "Engine/Actor.h"
 #include "Engine/ProjectGameSettings.h"
 #include "Engine/World.h"
-#include "Misc/Project.h"
+#include "Project/Project.h"
+#include "Interfaces/IProjectManager.h"
 #include "Modules/ModuleManager.h"
 #include "Application/MonaApplication.h"
 #include "Client/SceneViewport.h"
@@ -73,13 +74,8 @@ namespace Durin
 		DClass* GameModeClass = nullptr;
 		if (const FProjectInfo* Project = GetCurrentProject())
 		{
-			const auto Modules = Project->EnabledRootModules;
-			for (const auto& ModuleName : Modules)
-			{
-				if (!FModuleManager::Get().LoadModule(FName(ModuleName)))
-					return std::unexpected(std::format("Game startup could not load project module '{}'.", ModuleName));
-				if (bShutdownRequested || IsEngineExitRequested()) return std::unexpected("Game startup was canceled.");
-			}
+            if (auto Modules=IProjectManager::Get().LoadModulesForProject(ELoadingPhase::Providers, [&] { return bShutdownRequested || IsEngineExitRequested(); }); !Modules)
+                return std::unexpected(IProjectManager::Get().GetLastError());
 			FProjectGameSettings Settings;
 			if (const auto Result = FProjectGameSettingsStore::ForProject(*Project).Load(Settings); !Result)
 				return std::unexpected(Result.Message);

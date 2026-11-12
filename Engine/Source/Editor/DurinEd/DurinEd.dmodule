@@ -2,20 +2,21 @@
     "ModuleName": "DurinEd",
     "LinkType": "Shared",
     "PCH": "SharedPCH_Engine",
-	"PrivateDependencies": [
+    "PrivateDependencies": [
         "Core",
         "RHI",
         "ApplicationCore",
-		"MonaCore",
+        "MonaCore",
         "Mona"
     ],
-	"PublicDependencies": [
-		"AssetRegistry",
+    "PublicDependencies": [
+        "AssetRegistry",
         "Engine",
         "RenderCore",
-        "MonaImGui"
+        "MonaImGui",
+        "Projects"
     ],
-	"ReflectHeaders": [
+    "ReflectHeaders": [
         "Public/AssetDefinition/AssetDefinition.h",
         "Public/Toolkits/AssetEditor.h",
         "Private/Toolkits/GenericAssetEditor.h",
@@ -24,9 +25,9 @@
         "Public/Tools/EditorToolSubsystem.h",
         "Public/Editor/EditorSubsystem.h",
         "Public/Notifications/EditorNotificationSubsystem.h",
-		"Public/Factories/Factory.h",
-		"Public/Transactions/Transactor.h",
-		"Public/Editor/EditorEngine.h",
-		"Public/Thumbnail/ThumbnailManager.h"
-	]
+        "Public/Factories/Factory.h",
+        "Public/Transactions/Transactor.h",
+        "Public/Editor/EditorEngine.h",
+        "Public/Thumbnail/ThumbnailManager.h"
+    ]
 }

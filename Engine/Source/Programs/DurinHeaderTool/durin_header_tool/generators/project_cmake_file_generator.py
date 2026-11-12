@@ -105,5 +105,7 @@ def generate_project_cmake_file(project_name: str) -> None:
     _append_project_runtime_variant_to_cmake_content(content, project_name)
     _append_project_build_variables_to_cmake_content(content, project_name)
     _append_module_dirs_to_cmake_content(content, project_name)
+    from durin_header_tool.config.plugin_build import append_plugin_cmake
+    append_plugin_cmake(content, project_name)
     output_path = utils.get_project_cmake_file_path(project_name)
     utils.generate_file(output_path, "".join(content))

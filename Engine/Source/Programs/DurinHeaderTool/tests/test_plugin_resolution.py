@@ -74,9 +74,52 @@ def test_project_readers_preserve_overrides_without_activating_modules(tmp_path,
     assert DurinProjectConfig.from_file(path).plugin_overrides == value
 
 
+@pytest.mark.parametrize('explicit', [False, True])
+def test_project_readers_distinguish_omitted_and_empty_base_modules(tmp_path, explicit):
+    path = tmp_path / 'Project.dproject'
+    data = dict(ProjectName='Project', ModuleDirs={'Runtime': 'Source/Runtime'})
+    if explicit:
+        data['BaseModules'] = []
+    path.write_text(json.dumps(data))
+    expected = [] if explicit else ['Runtime']
+    assert list(load_project_descriptor(path, schema_directory=SCHEMAS).base_modules) == expected
+    dht = DurinProjectConfig.from_file(path)
+    assert dht.get_enabled_root_modules('DurinGame') == expected
+    assert dht.get_enabled_root_modules('DurinEditor') == expected
+
+
 @pytest.mark.parametrize("name", ["durin-plugin.schema.json", "durin-plugin-selection.schema.json", "durin-plugin-build.schema.json"])
 def test_plugin_schemas(name):
     Draft202012Validator.check_schema(json.loads((SCHEMAS / name).read_text()))
+
+
+@pytest.mark.parametrize('case', json.loads((ROOT / 'Engine/Tests/Native/PluginResolutionTests/Data/Projects.json').read_text())['Cases'], ids=lambda case: case['Name'])
+def test_shared_project_descriptor_contract(case, tmp_path):
+    path=tmp_path/'Fixture.dproject'
+    path.write_text(case['Source'])
+    if not case['Valid']:
+        with pytest.raises(ValueError):
+            DurinProjectConfig.from_file(path)
+        from durin_dev_tool.build.errors import BuildToolError
+        with pytest.raises(BuildToolError):
+            load_project_descriptor(path, schema_directory=SCHEMAS)
+    else:
+        project=DurinProjectConfig.from_file(path)
+        tool=load_project_descriptor(path, schema_directory=SCHEMAS)
+        assert project.get_enabled_root_modules('DurinGame')==case['Game']
+        assert project.get_enabled_root_modules('DurinEditor')==case['Editor']
+        assert tool.plugin_overrides==project.plugin_overrides
+
+
+def test_project_module_ownership_is_one_way():
+    projects=json.loads((ROOT/'Engine/Source/Runtime/Projects/Projects.dmodule').read_text())
+    core=json.loads((ROOT/'Engine/Source/Runtime/Core/Core.dmodule').read_text())
+    dependency_fields=('PublicDependencies','PrivateDependencies','OptionalPublicDependencies','OptionalPrivateDependencies')
+    assert {item for key in dependency_fields for item in projects.get(key,[])}=={'Core'}
+    assert not ({item for key in dependency_fields for item in core.get(key,[])} & {'Projects','Engine','DurinEd','Renderer'})
+    paths=(ROOT/'Engine/Source/Runtime/Core/Private/Misc/Paths.cpp').read_text()
+    assert 'FJson' not in paths and 'ParseProjectMounts' not in paths
+    assert '"ProjectName"' not in paths and '"ModuleDirs"' not in paths
 
 
 def test_build_manifest_requires_complete_native_identity():

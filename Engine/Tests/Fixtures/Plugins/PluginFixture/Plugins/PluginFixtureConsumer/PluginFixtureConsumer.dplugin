@@ -1,0 +1,21 @@
+{
+  "SchemaVersion": 1,
+  "Id": "PluginFixtureConsumer",
+  "Dependencies": [
+    "PluginFixtureRuntime"
+  ],
+  "Modules": [
+    {
+      "Name": "PluginFixtureConsumer",
+      "Path": "Source/PluginFixtureConsumer",
+      "Host": "Runtime",
+      "Phase": "Providers"
+    },
+    {
+      "Name": "PluginFixtureEditor",
+      "Path": "Source/PluginFixtureEditor",
+      "Host": "Editor",
+      "Phase": "EditorReady"
+    }
+  ]
+}

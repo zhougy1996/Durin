@@ -47,8 +47,11 @@ def get_project_cmake_file_path(project_name: str) -> Path:
     return get_project_intermediate_build_dir(project_name) / f"{project_name}.project.cmake"
 
 def get_module_intermediate_build_dir(module_name: str) -> Path:
-    project_name = configs.get_module_config(module_name).owning_project
-    return get_project_intermediate_build_dir(project_name) / module_name
+    module = configs.get_module_config(module_name)
+    root = get_project_intermediate_build_dir(module.owning_project)
+    if module.owning_plugin:
+        root = root / "Plugins" / module.owning_plugin
+    return root / module_name
 
 def get_module_cmake_file_path(module_name: str) -> Path:
     return get_module_intermediate_build_dir(module_name) / f"{module_name}.module.cmake"

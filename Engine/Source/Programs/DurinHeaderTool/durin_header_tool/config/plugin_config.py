@@ -34,7 +34,7 @@ def plugin_overrides(value, descriptor) -> dict[str, bool]:
 
 
 def resolve_plugins(engine_root: Path, project_file: Path, *, platform="Win64",
-                    runtime_variant="DurinEditor", project_files=()):
+                    runtime_variant="DurinEditor", project_files=(), discovery_directories=None):
     """Return (portable canonical selection manifest, machine-local locations).
 
     Build artifact identity is a separate schema; source selection never invents
@@ -96,11 +96,11 @@ def resolve_plugins(engine_root: Path, project_file: Path, *, platform="Win64",
         key = name.lower()
         if key in modules:
             fail(path, "duplicate module " + name + " also in " + str(modules[key]["path"]))
-        data = read(path, logical)
-        if data.get("ModuleName") != name:
+        data = read(path, logical) if not owner else {}
+        if not owner and data.get("ModuleName") != name:
             fail(path, "ModuleName mismatch: " + name)
         modules[key] = dict(name=name, owner=owner, host=host, phase=phase,
-                            platforms=platforms or [], path=path, data=data)
+                            platforms=platforms or [], path=path, data=data, logical=logical)
         for field in DEPENDENCIES:
             ids(data, field, path)
 
@@ -126,6 +126,8 @@ def resolve_plugins(engine_root: Path, project_file: Path, *, platform="Win64",
 
     roots = {engine_root / "Plugins", project_file.parent / "Plugins"}
     def discover(directory, search_root):
+        if discovery_directories is not None:
+            discovery_directories.add(directory)
         if not directory.exists():
             return
         if directory.is_symlink() or directory.absolute() != directory.resolve():
@@ -173,16 +175,6 @@ def resolve_plugins(engine_root: Path, project_file: Path, *, platform="Win64",
                 mod_path = contained(directory.resolve(), text(module, "Path", path))
                 add_module(mod_path / (mod_name + ".dmodule"), logical + "/" + mod_name,
                            mod_name, name, host, phase, ids(module, "Platforms", path))
-            # Ownership audit only: nested descriptors are rejected, never discovered as plugins.
-            def audit(folder):
-                for child in folder.iterdir():
-                    if child.is_symlink() or child.absolute() != child.resolve():
-                        fail(child, "symbolic plugin entries are unsupported")
-                    if child.is_dir():
-                        audit(child)
-                    elif child.suffix == ".dplugin" and child != path:
-                        fail(child, "nested plugin ownership")
-            audit(directory)
             return
         for entry in entries:
             if entry.is_dir():
@@ -228,7 +220,9 @@ def resolve_plugins(engine_root: Path, project_file: Path, *, platform="Win64",
                  and not (conditional_runtime and not modules[dep.lower()]["owner"] and dep.lower() in editor_only))]
     def project_roots(variant):
         roots = []
-        for _, data, _ in projects:
+        for path, data, _ in projects:
+            if path not in (project_file, engine_root / "Engine.dproject"):
+                continue
             roots.extend(data.get("BaseModules", list(data.get("ModuleDirs", {}))))
             roots.extend(data.get("ExtraModules", {}).get(variant, {}).get("Modules", []))
         return sorted({root.lower() for root in roots})
@@ -244,9 +238,18 @@ def resolve_plugins(engine_root: Path, project_file: Path, *, platform="Win64",
         for root in project_roots(variant):
             walk(root)
         return seen
-    editor_only = reachable("DurinEditor") - reachable("DurinGame")
     def eligible(mod):
         return (not mod["owner"] or mod["owner"].lower() in selected) and (not mod["platforms"] or platform in mod["platforms"]) and (runtime_variant == "DurinEditor" or mod["host"] != "Editor")
+    for mod in modules.values():
+        if mod["owner"] and eligible(mod):
+            owner_root = plugins[mod["owner"].lower()]["path"].parent
+            mod["path"] = contained(owner_root, mod["path"].relative_to(owner_root).as_posix())
+            mod["data"] = read(mod["path"], mod["logical"])
+            if mod["data"].get("ModuleName") != mod["name"]:
+                fail(mod["path"], "ModuleName mismatch: " + mod["name"])
+            for field in DEPENDENCIES:
+                ids(mod["data"], field, mod["path"])
+    editor_only = reachable("DurinEditor") - reachable("DurinGame")
     active = {key for key, mod in modules.items() if mod["owner"] and eligible(mod)}
     def enable_module(key):
         if key in enabled_modules or key not in modules:

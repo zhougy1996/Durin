@@ -23,7 +23,10 @@ def _get_output_lock_paths(args):
             utils.get_dht_project_lock_file_path(project_config.project_name),
             *(
                 utils.get_dht_module_lock_file_path(module_name)
-                for module_name in sorted(project_config.modules)
+                for module_name in sorted(set(project_config.modules) | {
+                    m.module_name for m in configs.module_config.MODULE_CONFIGS.values()
+                    if m.owning_project == project_config.project_name and m.owning_plugin
+                })
             ),
         ]
     if args.function in {"generate_module_export_file", "generate_reflection_files"}:

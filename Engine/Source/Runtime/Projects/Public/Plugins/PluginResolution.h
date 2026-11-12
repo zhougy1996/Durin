@@ -16,8 +16,17 @@ namespace Durin
 		std::string RuntimeVariant = "DurinEditor";
 	};
 
+	struct FResolvedPluginModule
+	{
+		std::string Name;
+		std::string Owner;
+		std::string Host;
+		std::string Phase;
+	};
 	struct FPluginResolution
 	{
+		std::vector<std::string> Plugins;
+		std::vector<FResolvedPluginModule> Modules;
 		// Canonical UTF-8 JSON with sorted object keys; excludes absolute paths.
 		std::string ManifestJson;
 		// Logical descriptor identity -> canonical machine-local file path.

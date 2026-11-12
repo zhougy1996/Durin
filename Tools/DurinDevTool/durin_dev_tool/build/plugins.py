@@ -1,4 +1,4 @@
-"""Plugin metadata facade; generation/loading remains with subsequent stages."""
+"""Plugin metadata facade shared with DHT's build-time selection."""
 from functools import lru_cache
 import importlib.util
 from pathlib import Path

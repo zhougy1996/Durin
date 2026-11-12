@@ -97,6 +97,8 @@ def _make_module_cmake_file_content(module_name: str) -> str:
     if module_config.pch != "Self":
         content.append(f"set(module_pch_target \"{module_config.pch}\")\n\n")
 
+    content.append(f'set(module_plugin_owner "{module_config.owning_plugin}")\n')
+    content.append(f'set(module_metadata_dir "{utils.get_module_intermediate_build_dir(module_name).as_posix()}")\n')
     _append_module_paths_to_cmake_content(content, module_name)
     _append_module_configs_to_cmake_content(content, module_name)
 
@@ -111,6 +113,10 @@ def generate_module_cmake_file(module_name: str) -> None:
     content = _make_module_cmake_file_content(module_name)
     output_path = utils.get_module_cmake_file_path(module_name)
     utils.generate_file(output_path, content)
+    module = configs.get_module_config(module_name)
+    if module.owning_plugin:
+        utils.generate_file(output_path.parent / f"{module_name}API.h",
+            f'#pragma once\n#include "HAL/Platform.h"\n#if defined({module_name.upper()}_EXPORTS)\n#define {module.api_macro} DLLEXPORT\n#else\n#define {module.api_macro} DLLIMPORT\n#endif\n')
 
 def generate_all_module_cmake_files_for_project(project_name: str) -> None:
     project_config = configs.get_project_config(project_name)

@@ -1,4 +1,5 @@
 import pytest
+import json
 import io
 import subprocess
 from dataclasses import replace
@@ -16,12 +17,33 @@ from durin_dev_tool.documentation.archive import (
     preview_roadmap_archive,
 )
 from durin_dev_tool.documentation.model import DocumentKind, DocumentRef
-from durin_dev_tool.documentation.plans import PlanStatus, load_catalog, parse_plan, render_listing
+from durin_dev_tool.documentation.plans import PlanStatus, load_catalog, parse_plan, render_listing, render_plan_context
 from durin_dev_tool.documentation.service import DocumentWorkspace, ListDocumentsRequest
 from durin_dev_tool.documentation.tasks import load_task_catalog, parse_task
 from durin_dev_tool.errors import DevToolError
 from durin_dev_tool.registry import CommandRegistry
 PLAN_TEMPLATE = '# {title} Plan\n\nSummary: {summary}\n\nLast reviewed: 2026-07-27\n\nStatus: {status}\nCompleted:{completed}\n\n## Current Status\n'
+
+
+def test_dotted_stage_context_preserves_identifiers_and_task_boundaries(tmp_path):
+    path = tmp_path / 'Dotted.md'
+    path.write_text(PLAN_TEMPLATE.format(title='Dotted', summary='Stage selection.', status='Active', completed='')
+                    + '\n## Implementation Stages\n\n'
+                    + '### Stage 1: Complete\n\n- [x] Done.\n\n'
+                    + '### Stage 1.1: Project ownership\n\n- [ ] Migrate.\n\n'
+                    + '### Stage 1.10: Follow-up\n\n- [ ] Later.\n\n'
+                    + '### Stage 2: Build\n\n- [ ] Build.\n', encoding='utf-8')
+    plan, errors = parse_plan(path)
+    assert not errors
+    assert plan is not None
+    result = json.loads(render_plan_context(plan, repository_root=tmp_path, output_format='json'))
+    assert [stage['number'] for stage in result['stages']] == [1, '1.1', '1.10', 2]
+    assert result['stages'][0]['openTasks'] == 0
+    assert result['selectedStage']['number'] == '1.1'
+    assert result['selectedStage']['openTasks'] == 1
+    assert 'Later.' not in result['selectedStage']['content']
+    markdown = render_plan_context(plan, repository_root=tmp_path, output_format='markdown')
+    assert 'Stage 1.10: Follow-up' in markdown
 ROADMAP_TEMPLATE = '# {title} Roadmap\n\nSummary: {summary}\n\nLast reviewed: 2026-07-27\n\nStatus: {status}\nCompleted:{completed}\n\n## Current Status\n'
 TASK_TEMPLATE = '''# {title}
 

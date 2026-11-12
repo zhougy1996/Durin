@@ -91,7 +91,15 @@ function(add_durin_module module_name)
 	durin_start("Module_${module_name}")
 
 	set(_durin_module_cmake_file "${DURIN_PROJECT_INTERMEDIATE_BUILD_DIR}/${module_name}/${module_name}.module.cmake")
+	if(DEFINED DURIN_MODULE_CMAKE_FILE_${module_name})
+		set(_durin_module_cmake_file "${DURIN_MODULE_CMAKE_FILE_${module_name}}")
+	endif()
 	include("${_durin_module_cmake_file}")
+	if(module_plugin_owner)
+		set(DURIN_PROJECT_RUNTIME_OUTPUT_DIR "${DURIN_PROJECT_BIN_ROOT}/Plugins/${module_plugin_owner}/${DURIN_RUNTIME_VARIANT}")
+		set(DURIN_PROJECT_LIB_OUTPUT_ROOT "${DURIN_PROJECT_BIN_ROOT}/Plugins/${module_plugin_owner}/${DURIN_RUNTIME_VARIANT}/Lib")
+		set(DURIN_PROJECT_SYMBOL_OUTPUT_ROOT "${DURIN_PROJECT_BIN_ROOT}/Plugins/${module_plugin_owner}/${DURIN_RUNTIME_VARIANT}/Symbols")
+	endif()
 
 	list(APPEND module_private_dependencies ${module_optional_private_dependencies})
 	list(APPEND module_public_dependencies ${module_optional_public_dependencies})
@@ -171,6 +179,7 @@ function(add_durin_module module_name)
 	endif()
 
 	add_library(${module_name} ${_durin_module_link_type})
+	set_target_properties(${module_name} PROPERTIES DURIN_PLUGIN_OWNER "${module_plugin_owner}")
 	if(TARGET ${module_name}_DHT)
 		add_dependencies(${module_name} ${module_name}_DHT)
 	endif()
@@ -194,6 +203,9 @@ function(add_durin_module module_name)
 		${CMAKE_CURRENT_SOURCE_DIR}/Public
 		${module_dht_output_dir}
 	)
+	if(module_plugin_owner)
+		target_include_directories(${module_name} PUBLIC "${module_metadata_dir}")
+	endif()
 
 	target_link_libraries(${module_name} PRIVATE ${module_private_dependencies})
 	target_link_libraries(${module_name} PUBLIC ${module_public_dependencies})

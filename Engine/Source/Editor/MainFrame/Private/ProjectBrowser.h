@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-#include "Misc/ProjectHistory.h"
+#include "Project/ProjectHistory.h"
 
 namespace Durin
 {

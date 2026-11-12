@@ -3,19 +3,19 @@
     "LinkType": "Shared",
     "PCH": "SharedPCH_DurinEd",
     "PrivateDependencies": [
-		"AssetTools",
-		"AssetMaintenance",
-		"AssetRegistry",
+        "AssetTools",
+        "AssetMaintenance",
+        "AssetRegistry",
         "Core",
         "RHI",
-		"RenderCore",
+        "RenderCore",
         "Engine",
         "ApplicationCore",
         "MonaCore",
         "Mona",
         "MonaImGui",
-		"MeshBuilder",
-		"TextureCompressor",
+        "MeshBuilder",
+        "TextureCompressor",
         "AssetForgeBuiltins",
         "ContentBrowser",
         "LevelEditor",
@@ -24,5 +24,8 @@
         "StaticMeshEditor",
         "DurinEd",
         "DurinPython"
+    ],
+    "PublicDependencies": [
+        "Projects"
     ]
 }

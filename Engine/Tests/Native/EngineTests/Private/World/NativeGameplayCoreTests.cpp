@@ -7,7 +7,7 @@
 #include "Client/ViewportClient.h"
 #include "Engine/GameEngine.h"
 #include "Engine/MapChange.h"
-#include "Misc/Project.h"
+#include "Project/Project.h"
 #include "Gameplay/PawnControlIntent.h"
 #include "Input/GameInputState.h"
 #include "Window/GenericWindow.h"

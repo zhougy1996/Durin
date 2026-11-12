@@ -6,8 +6,8 @@
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 #include "Misc/MountPathTestSupport.h"
-#include "Misc/Project.h"
-#include "Misc/ProjectHistory.h"
+#include "Project/Project.h"
+#include "Project/ProjectHistory.h"
 #include "NativeTestSupport.h"
 
 #if defined(_WIN32)
@@ -197,11 +197,12 @@ TEST(FProjectTests, RejectsMissingProject)
 	Durin::FProjectInitializationParams Params;
 	Params.RequestedProjectFile = "Missing.dproject";
 	std::string Error;
+	const bool HadProject3=Durin::HasCurrentProject();
 	const auto InitializeCurrentProjectResult3 = Durin::InitializeCurrentProject(Params);
 	Error = InitializeCurrentProjectResult3 ? std::string{} : InitializeCurrentProjectResult3.error().ToString();
 	EXPECT_FALSE(InitializeCurrentProjectResult3.has_value());
 	EXPECT_FALSE(Error.empty());
-	EXPECT_FALSE(Durin::HasCurrentProject());
+	EXPECT_EQ(Durin::HasCurrentProject(), HadProject3);
 }
 
 TEST(FProjectTests, ExplicitBrowserSkipsRecentProject)
@@ -323,11 +324,12 @@ TEST_F(FProjectHistoryTest, ValidatesAdditionalMountDescriptorSchema)
 	{
 		Params.RequestedProjectFile = Descriptor;
 		Error.clear();
+		const bool HadProject7=Durin::HasCurrentProject();
 		const auto InitializeCurrentProjectResult7 = Durin::InitializeCurrentProject(Params);
 		Error = InitializeCurrentProjectResult7 ? std::string{} : InitializeCurrentProjectResult7.error().ToString();
 		EXPECT_FALSE(InitializeCurrentProjectResult7.has_value());
 		EXPECT_FALSE(Error.empty());
-		EXPECT_FALSE(Durin::HasCurrentProject());
+		EXPECT_EQ(Durin::HasCurrentProject(), HadProject7);
 	}
 }
 
@@ -340,7 +342,7 @@ TEST_F(FProjectHistoryTest, ResolvesEnabledModulesForCurrentRuntimeVariant)
 				"ProjectName":"Modules",
 				"ModuleDirs":{{"Runtime":"Source/Runtime","Editor":"Source/Editor"}},
 				"BaseModules":["Runtime"],
-				"ExtraModules":{{"{}":{{"Modules":["Editor","Runtime"]}}}}
+				"ExtraModules":{{"{}":{{"Modules":["Editor"]}}}}
 			}})",
 			DURIN_RUNTIME_VARIANT));
 	Durin::FProjectInitializationParams Params;
@@ -390,6 +392,7 @@ TEST_F(FProjectHistoryTest, RetainsPluginOverridesWithoutChangingModuleRoots)
 
 TEST_F(FProjectHistoryTest, RejectsInvalidPluginOverridesBeforePublishingProject)
 {
+	const auto* Previous = Durin::GetCurrentProject();
 	for (const auto& Overrides : {R"([])", R"({"Water":1})", R"({"Water":true,"water":false})"})
 	{
 		Durin::FProjectInitializationParams Params;
@@ -398,7 +401,7 @@ TEST_F(FProjectHistoryTest, RejectsInvalidPluginOverridesBeforePublishingProject
 		const auto Result = Durin::InitializeCurrentProject(Params);
 		ASSERT_FALSE(Result);
 		EXPECT_EQ(Result.error().Code, Durin::EProjectError::InvalidDescriptor);
-		EXPECT_EQ(Durin::GetCurrentProject(), nullptr);
+		EXPECT_EQ(Durin::GetCurrentProject(), Previous);
 	}
 }
 

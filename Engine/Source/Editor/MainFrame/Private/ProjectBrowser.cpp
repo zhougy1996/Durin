@@ -4,7 +4,7 @@
 #include "EditorBranding.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "Misc/Paths.h"
-#include "Misc/Project.h"
+#include "Project/Project.h"
 #include "MonaImGui.h"
 
 namespace Durin::MainFrame

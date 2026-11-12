@@ -1,10 +1,10 @@
 # Plugin Metadata And Selection
 
-Summary: Define source-plugin descriptors, project overrides, and deterministic metadata resolution before build or startup integration.
+Summary: Define source-plugin descriptors, project overrides, deterministic selection, and source-build integration before startup loading.
 
 Modules: Projects, Core
 
-Last reviewed: 2026-11-11
+Last reviewed: 2026-11-12
 
 ## Implemented Boundary
 
@@ -13,21 +13,72 @@ query. DHT provides `config.plugin_config.resolve_plugins`; DevTool exposes the
 same Python implementation through `build.plugins.resolve_plugins`. Neither
 resolver builds, loads native code, registers types, or publishes mounts.
 
-Core retains project admission and the current project's explicit
-`PluginOverrides`. Projects does not change `EnabledRootModules`. Launch has a
+Projects now owns project admission, the current-project context, history
+persistence, and edit-session ownership in `Project/Project.h` and related
+headers. The former Core `Misc/Project*.h` entry points have been removed and
+their consumers now depend on Projects. The project manager/descriptor APIs are
+introduced in `Interfaces/IProjectManager.h` and `ProjectDescriptor.h`.
+Projects does not change `EnabledRootModules`. Launch has a
 build dependency on Projects so the module belongs to both runtime variants;
 plugin loading is not yet wired into Launch or host startup. Later integration
 is tracked in the [implementation plan](../Plans/RestartBasedPluginSystem.md).
 
+Core no longer parses project fields. Projects supplies validated mount values
+through Core's mount mechanism. Ordinary project admission, status/history
+inspection, and native plugin selection share FProjectDescriptor. Launch selects
+interactive history restoration and executes deferred relaunch after shutdown;
+Game/tool admission does not restore editor history. MainFrame retains the
+interactive recording/unsaved-work policy and Projects persists history values.
+
+## Ordinary Project Management
+
+Principal interfaces follow UE's names and result semantics. FProjectDescriptor
+offers bool Load/Read/Save with an output failure reason. IProjectManager::Get()
+offers bool LoadProjectFile, QueryStatusForProject/CurrentProject (status output),
+LoadModulesForProject (ELoadingPhase), SaveCurrentProjectToDisk,
+SetPluginEnabled, and RemovePluginReference. Save/edit methods provide an output
+failure reason; GetLastError supplies diagnostics for load/status/module failures.
+Native strings and descriptor formats remain Durin-specific. Public principal
+interfaces are not constrained to std::expected; internal helpers may use it.
+
+GetCurrentProject on the manager returns the requested descriptor. The separate
+Project/Project.h context snapshot supplies effective paths and admitted module
+roots to existing consumers. Descriptor/plugin edits mark pending state dirty;
+saving atomically persists configuration without changing the active snapshot.
+The manager owns both states; the context accessors delegate to it. Typed
+descriptor fields are the persistent authority, including module selections,
+mounts, schema annotation, and native-test root. Save validates and serializes
+those fields without retaining a second JSON document. Setting an unchanged
+override does not mark the project dirty.
+Explicit false and removal of an override have different persisted meanings.
+Changing projects after ordinary root-module startup requires process restart.
+ClearCurrentProject is for pre-startup/teardown safe points, not live switching.
+
+Admission validates the complete descriptor, root selections, and mount values
+before publishing path/context state. A failed load leaves the previous descriptor,
+context, path, mount storage, and edit ownership intact. Queries parse detached
+values and never replace registry storage or increment its revision. Core's pure
+mount validator is shared with publication, which remains immutable. Manager
+mutation/status operations are control-thread services; detached descriptor reads
+do not require Engine, Renderer, editor UI, or Python.
+
+Editor, Game, and the standalone asset tool delegate ordinary root loading to
+LoadModulesForProject at their existing pre-content points. Ordinary project
+roots use Providers; other phase calls do no ordinary-root work. Plugin phase
+execution remains the later startup integration stage. RelaunchEditorForProject
+returns void because it only queues a request and asks the host to exit. Launch
+consumes it once and reports actual process-launch failures outside Projects.
+
 ## Descriptor v1
 
 Discover `.dplugin` files beneath `Engine/Plugins` and the selected project's
-`Plugins`. A descriptor directory owns one plugin; discovery stops there. A
-separate ownership audit rejects nested descriptors. Reject multiple descriptors
+`Plugins`. A descriptor directory owns one plugin; discovery stops there and
+ignores descriptors below that boundary, following UE. Reject multiple descriptors
 in one root, case-insensitive duplicate plugin/module IDs, and module names
 colliding with supplied project modules. Source paths must stay beneath their
-owner. Symbolic links and junction aliases within plugin trees are unsupported
-in v1, including loops and escaping entries.
+owner, including the final consumed module file. Discovery rejects symbolic
+plugin search directories and junction aliases; unconsumed content/build trees
+are not audited.
 
 ```json
 {
@@ -121,7 +172,10 @@ change detectors, not native compatibility or authenticity checks.
 
 Logical inputs are `Project/<ProjectName>`, `Project/<ProjectName>/<Module>`,
 `Plugin/<Id>`, and `Plugin/<Id>/<Module>`. All inspected descriptors, including
-inactive metadata, contribute to the discovery snapshot. Absolute paths are
+inactive plugin metadata, contribute to the discovery snapshot. Plugin module
+files are read only for selected plugins with eligible host/platform modules;
+disabled/excluded module bytes do not contribute. Native results expose typed
+Plugins and Modules; ManifestJson is their portable artifact projection. Absolute paths are
 returned separately in Locations; relocation preserves selection when descriptor
 bytes stay the same. Callers supply every workspace project for ownership/graph
 validation, in addition to the automatically included engine and active project.
@@ -132,8 +186,48 @@ It requires SelectionFingerprint and native Identity fields EngineBuild,
 Platform, Architecture, Configuration, RuntimeVariant, and ToolchainABI. Each
 binary records Module, Owner, a contained relative Path, and RuntimeDependencies.
 Paths resolve beneath the selected build/staging root; physical lookup remains
-machine-local. Stage 1 defines/tests the schema, not artifact production or
-compatibility admission.
+machine-local. The build now produces this inventory; native compatibility
+admission remains the next startup integration stage.
+
+## Source Build Integration
+
+DHT resolves each workspace project's selection and builds the union of required
+module targets. `owning_plugin` remains independent from `owning_project`; plugin
+modules do not enter the project's authored ModuleDirs or ordinary startup roots.
+Foreign workspace projects provide module ownership and dependency context;
+only Engine and the active project's roots participate in that project's
+selection validation. Runtime plugins can require ordinary non-root modules;
+the workspace build closure includes those modules under their original owners.
+
+Plugin modules use the existing add_durin_module, dependency/export metadata,
+reflection generator, PCH, include, and linking paths. DHT emits a
+`<Module>API.h` using the standard module export define. Native plugin modules
+currently require Shared linkage. Generated metadata is under
+`<Project>/Intermediate/Build/<Platform>/<RuntimeVariant>/Plugins/<Id>/<Module>`.
+It is configuration-independent, like ordinary DHT metadata. Native binaries,
+import libraries, and symbols additionally separate configuration and variant
+under `<Project>/Binaries/<Platform>/<Configuration>/Plugins/<Id>/<RuntimeVariant>`.
+
+CMake watches discovered directory membership up to plugin boundaries and the
+consumed descriptors. A normal DevTool build reconfigures when descriptors are
+created/deleted or enablement changes. Disabled modules disappear from generated
+targets; neither existing metadata nor stale DLLs imply selection.
+
+`<Project>PluginBuild` builds the selected native closure and publishes
+`PluginBuild.json`, `PluginSelection.json`, and the declared shared-library
+dependency files beneath
+`Build/<preset>/PluginBuild/<Project>/<Configuration>/`. It participates in all
+when plugin discovery is active; a direct individual module build need not
+publish the full inventory. Paths in the inventory are relative to this root.
+EngineBuild currently combines the engine semantic version and built Core
+binary SHA-256; ToolchainABI records compiler ID/version and pointer size.
+Platform, architecture, configuration, runtime variant, and selection fingerprint
+are explicit. Publication is a build artifact operation, without startup loading,
+content cooking, or a binary compatibility guarantee.
+
+The repository-owned [fixture](../../Engine/Tests/Fixtures/Plugins/README.md)
+qualifies a reflected asset, a dependent plugin subclass, an Editor companion,
+and a content-only plugin with exported calls across plugin DLLs.
 
 ## Validation
 
@@ -144,3 +238,10 @@ constraints, existing Engine/Sandbox/RoadWeaver roots, descriptor-reader parity,
 relocation, and fingerprint invalidation. CoreFileSystemTests covers active-project
 override capture and invalid input rejection. Follow the
 [testing workflow](../Agents/Testing.md) for execution.
+
+Projects.json additionally supplies common ordinary-project fixtures for native
+and Python readers. Native coverage checks query/admission failure isolation,
+mount-storage identity, pending-versus-active edits, atomic save failure, and
+case-insensitive override removal. Process coverage verifies Browser/explicit
+project admission, history protection, edit-session exclusion, and relaunch
+request consumption. Native platform qualification is recorded in the plan.

@@ -98,6 +98,8 @@ namespace Durin
 		static CORE_API auto PublishMountRegistry(std::span<const FMountPoint> Definitions,
 			std::string* OutError = nullptr) -> bool;
 		static CORE_API auto ValidateDefaultMountPoints(std::string* OutError = nullptr) -> bool;
+		static CORE_API auto ValidateMountDefinitions(std::span<const FMountPoint> Definitions, std::string* OutError = nullptr) -> bool;
+		static CORE_API auto SetProjectMountDefinitions(std::vector<FMountPoint> Definitions) -> void;
 		static CORE_API auto InitDefaultMountPoints(std::string* OutError = nullptr, bool bLogMounts = true,
             const std::filesystem::path& CookedRoot = {}) -> bool;
 	};

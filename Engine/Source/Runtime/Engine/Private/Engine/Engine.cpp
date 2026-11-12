@@ -4,7 +4,7 @@
 #include "GarbageCollectionScheduler.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Engine/AssetManager.h"
-#include "Misc/Project.h"
+#include "Project/Project.h"
 #include "Engine/MapChangeHandler.h"
 #include "Rendering/ViewportPresentation.h"
 

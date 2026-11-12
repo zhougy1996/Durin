@@ -2,28 +2,29 @@
     "ModuleName": "AssetForgeBuiltins",
     "LinkType": "Shared",
     "PCH": "SharedPCH_Engine",
-	"PrivateDependencies": [
-		"AssetTools",
-		"ContentBrowser",
-		"MeshBuilder"
-	],
-    "PublicDependencies": [
-		"Core",
-		"CoreDObject",
-		"DurinEd",
-		"Engine"
+    "PrivateDependencies": [
+        "AssetTools",
+        "ContentBrowser",
+        "MeshBuilder"
     ],
-	"ReflectHeaders": [
-		"Public/AssetForge/Builtins/Texture2DFactory.h",
-		"Public/AssetForge/Builtins/TextureCubeFactory.h",
-		"Public/AssetForge/Builtins/VolumeTextureFactory.h",
-		"Public/AssetForge/Builtins/StaticMeshFactory.h",
-		"Public/AssetForge/Builtins/StaticMeshImportData.h",
-		"Public/AssetForge/Builtins/SceneImportData.h",
-		"Public/AssetForge/Builtins/Texture2DImportData.h",
-		"Public/AssetForge/Builtins/TextureCubeImportData.h",
-		"Public/AssetForge/Builtins/VolumeTextureImportData.h"
-	],
+    "PublicDependencies": [
+        "Core",
+        "CoreDObject",
+        "DurinEd",
+        "Engine",
+        "Projects"
+    ],
+    "ReflectHeaders": [
+        "Public/AssetForge/Builtins/Texture2DFactory.h",
+        "Public/AssetForge/Builtins/TextureCubeFactory.h",
+        "Public/AssetForge/Builtins/VolumeTextureFactory.h",
+        "Public/AssetForge/Builtins/StaticMeshFactory.h",
+        "Public/AssetForge/Builtins/StaticMeshImportData.h",
+        "Public/AssetForge/Builtins/SceneImportData.h",
+        "Public/AssetForge/Builtins/Texture2DImportData.h",
+        "Public/AssetForge/Builtins/TextureCubeImportData.h",
+        "Public/AssetForge/Builtins/VolumeTextureImportData.h"
+    ],
     "OptionalPrivateDependencies": [],
     "OptionalPublicDependencies": []
 }

@@ -20,7 +20,7 @@ class DurinProjectConfig:
     native_test_root: str = ""
     project_dir: Path = Path("")
     config_file_path: Path = Path("")
-    base_modules: list[str] = field(default_factory=list)
+    base_modules: list[str] | None = None
     extra_modules: dict[str, DurinProjectRuntimeVariantConfig] = field(default_factory=dict)
     module_dirs: dict[str, str] = field(default_factory=dict) # module name -> module dir path relative to project dir
     modules: dict[str, str] = field(default_factory=dict) # module name -> module config file path relative to project dir
@@ -30,7 +30,7 @@ class DurinProjectConfig:
         self.modules.clear()
         for module_name, module_dir in self.module_dirs.items():
             self.modules[module_name] = module_dir + "/" + module_name + ".dmodule"
-        if not self.base_modules:
+        if self.base_modules is None:
             self.base_modules = list(self.module_dirs.keys())
 
     def get_enabled_root_modules(self, runtime_variant: str) -> list[str]:
@@ -61,7 +61,7 @@ class DurinProjectConfig:
         instance = cls(
             project_name=raw_json_data["ProjectName"],
             native_test_root=raw_json_data.get("Tests", {}).get("Native", {}).get("Root", ""),
-            base_modules=list(raw_json_data.get("BaseModules", [])),
+            base_modules=(list(raw_json_data["BaseModules"]) if "BaseModules" in raw_json_data else None),
             extra_modules={
                 runtime_variant: DurinProjectRuntimeVariantConfig(
                     modules=list(runtime_variant_data.get("Modules", []))

@@ -35,7 +35,8 @@
 #include "Misc/Name.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
-#include "Misc/Project.h"
+#include "Project/Project.h"
+#include "Interfaces/IProjectManager.h"
 #include "Misc/TargetIdentity.h"
 #include "Modules/ModuleManager.h"
 #include "Materials/Material.h"
@@ -1017,8 +1018,11 @@ int main(int ArgC, char** ArgV)
 	}
 #endif
 	// Project asset classes must be registered before inspection captures the schema.
-	for (const auto& Module : Durin::GetCurrentProject()->EnabledRootModules)
-		Durin::FModuleManager::Get().LoadModuleChecked(Durin::FName(Module));
+	if (!Durin::IProjectManager::Get().LoadModulesForProject())
+	{
+		std::cerr << Durin::IProjectManager::Get().GetLastError() << '\n';
+		return 1;
+	}
 	(void)Durin::DLevel::StaticClass(); // Force the Engine reflection module into this process.
 	if (Options.Operation == EOperation::Cook) return RunCook(Options);
 	if (Options.Operation == EOperation::MaterialTemplate)

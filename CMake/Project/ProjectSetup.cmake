@@ -102,6 +102,10 @@ function(add_durin_project project_name)
 	foreach(_durin_module_dir IN LISTS DURIN_PROJECT_MODULE_DIRS)
 		add_subdirectory(${_durin_module_dir})
 	endforeach()
+	foreach(_durin_plugin_module IN LISTS DURIN_PROJECT_PLUGIN_MODULES)
+		add_subdirectory("${DURIN_PLUGIN_SOURCE_${_durin_plugin_module}}"
+			"${DURIN_PLUGIN_BINARY_${_durin_plugin_module}}")
+	endforeach()
 
 	if(BUILD_TESTING)
 		if(DURIN_PROJECT_TESTS_DIR AND EXISTS "${DURIN_PROJECT_TESTS_DIR}/CMakeLists.txt")

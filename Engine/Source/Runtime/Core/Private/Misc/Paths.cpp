@@ -4,7 +4,6 @@
 #include "Misc/StringHelper.h"
 
 #include "HAL/PlatformProcess.h"
-#include "Json/Json.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
@@ -77,6 +76,7 @@ namespace Durin
 	{
 		if (ProjectFile.empty())
 		{
+			FMountPaths::SetProjectMountDefinitions({});
 			ActiveProjectFile.clear();
 			return true;
 		}
@@ -87,6 +87,7 @@ namespace Durin
 			if (OutError) *OutError = std::format("Project file does not exist or is not a .dproject file: {}", Candidate.generic_string());
 			return false;
 		}
+		if (ActiveProjectFile != Candidate) FMountPaths::SetProjectMountDefinitions({});
 		ActiveProjectFile = Candidate;
 		return true;
 	}
@@ -102,6 +103,7 @@ namespace Durin
 		bool bRegistryPublished = false;
 		uint64 MountRegistryRevision = 0;
 		bool bSuppressMountLog = false;
+		std::vector<FMountPoint> ProjectMountDefinitions;
 		using StringUtils::FoldAscii;
 
 		auto SamePathComponent(const std::filesystem::path& A, const std::filesystem::path& B) -> bool
@@ -275,110 +277,6 @@ namespace Durin
 				.RelativePath = Relative, .PhysicalPath = PhysicalPath.lexically_normal()};
 		}
 
-		auto ParseProjectMounts(std::vector<FMountPoint>& Definitions, std::string* OutError) -> bool
-		{
-			if (FPaths::ProjectFile().empty()) return true;
-			FJsonDocument Descriptor;
-			if (const auto Loaded = Descriptor.LoadFromFile(FPaths::ProjectFile()); !Loaded)
-			{
-				if (OutError) *OutError = std::format("Invalid project descriptor: {}", Loaded.error().ToString());
-				return false;
-			}
-			const FJsonNodeView Mounts = Descriptor.GetRootView().GetView("Mounts");
-			if (!Mounts.IsValid()) return true;
-			if (!Mounts.IsArray())
-			{
-				if (OutError) *OutError = "Project descriptor Mounts must be an array.";
-				return false;
-			}
-
-			const std::filesystem::path ProjectRoot = std::filesystem::path(FPaths::ProjectFile()).parent_path();
-			for (size_t Index = 0; Index < Mounts.Num(); ++Index)
-			{
-				const FJsonNodeView Entry = Mounts.GetView(Index);
-				if (!Entry.IsObject())
-				{
-					if (OutError) *OutError = std::format("Mounts[{}] must be an object.", Index);
-					return false;
-				}
-				const bool bHasContentWritable = Entry.GetView("ContentWritable").IsValid();
-				const bool bHasLegacyAuthoringWritable = Entry.GetView("AuthoringWritable").IsValid();
-				if (bHasContentWritable && bHasLegacyAuthoringWritable)
-				{
-					if (OutError) *OutError = std::format(
-						"Mounts[{}] cannot contain both ContentWritable and legacy AuthoringWritable.",
-						Index);
-					return false;
-				}
-				if (Entry.Num() != 7)
-				{
-					if (OutError) *OutError = std::format("Mounts[{}] must contain exactly seven fields.", Index);
-					return false;
-				}
-				constexpr std::array<std::string_view, 8> Fields{
-					"VirtualRoot", "Owner", "Root", "ContentPath", "AutoScan",
-					"ContentWritable", "AuthoringWritable", "Dependencies"};
-				bool bUnknownField = false;
-				Entry.ForEachObjectMember([&](const std::string_view Key, FJsonNodeView) {
-					if (!std::ranges::contains(Fields, Key)) bUnknownField = true;
-				});
-				if (bUnknownField)
-				{
-					if (OutError) *OutError = std::format("Mounts[{}] contains an unknown field.", Index);
-					return false;
-				}
-
-				std::string VirtualRoot;
-				std::string OwnerText;
-				std::string RootText;
-				std::string ContentPathText;
-				bool bAutoScan = false;
-				bool bContentWritable = false;
-				const FJsonNodeView Dependencies = Entry.GetView("Dependencies");
-				const std::string_view ContentWritableKey = bHasContentWritable
-					? "ContentWritable" : "AuthoringWritable";
-				if (!Entry.GetChildValue("VirtualRoot", VirtualRoot)
-					|| !Entry.GetChildValue("Owner", OwnerText)
-					|| !Entry.GetChildValue("Root", RootText)
-					|| !Entry.GetChildValue("ContentPath", ContentPathText)
-					|| !Entry.GetChildValue("AutoScan", bAutoScan)
-					|| !Entry.GetChildValue(ContentWritableKey, bContentWritable)
-					|| !Dependencies.IsArray()
-					|| !ValidateRelativeDefinitionPath(RootText)
-					|| !ValidateRelativeDefinitionPath(ContentPathText))
-				{
-					if (OutError) *OutError = std::format("Mounts[{}] has invalid field types or paths.", Index);
-					return false;
-				}
-				EMountOwner Owner;
-				if (OwnerText == "Extension") Owner = EMountOwner::Extension;
-				else if (OwnerText == "ExternalSources") Owner = EMountOwner::ExternalSources;
-				else
-				{
-					if (OutError) *OutError = std::format("Mounts[{}].Owner is invalid.", Index);
-					return false;
-				}
-				FMountPoint Definition{
-					.VirtualRoot = std::move(VirtualRoot),
-					.Owner = Owner,
-					.Root = (ProjectRoot / RootText).lexically_normal(),
-					.ContentPath = std::filesystem::path(ContentPathText).lexically_normal(),
-					.bAutoScan = bAutoScan,
-					.bContentWritable = bContentWritable};
-				for (size_t DependencyIndex = 0; DependencyIndex < Dependencies.Num(); ++DependencyIndex)
-				{
-					const FJsonNodeView Dependency = Dependencies.GetView(DependencyIndex);
-					if (!Dependency.IsString())
-					{
-						if (OutError) *OutError = std::format("Mounts[{}].Dependencies must contain strings.", Index);
-						return false;
-					}
-					Definition.Dependencies.push_back(Dependency.GetString());
-				}
-				Definitions.push_back(std::move(Definition));
-			}
-			return true;
-		}
 
 		auto BuildDefaultMountDefinitions(
 			std::vector<FMountPoint>& Definitions,
@@ -399,7 +297,7 @@ namespace Durin
 				std::filesystem::path(FPaths::ProjectFile()).parent_path();
 			if (std::filesystem::weakly_canonical(ProjectRoot)
 				== std::filesystem::weakly_canonical(EngineRoot))
-				return ParseProjectMounts(Definitions, OutError);
+				{ Definitions.insert(Definitions.end(), ProjectMountDefinitions.begin(), ProjectMountDefinitions.end()); return true; }
 			Definitions.push_back({
 				.VirtualRoot = std::string(FMountPaths::ProjectContentMountRoot),
 				.Owner = EMountOwner::ActiveProject,
@@ -408,7 +306,7 @@ namespace Durin
 				.bAutoScan = true,
 				.bContentWritable = true,
 				.Dependencies = {"/Engine/"}});
-			if (!ParseProjectMounts(Definitions, OutError)) return false;
+			Definitions.insert(Definitions.end(), ProjectMountDefinitions.begin(), ProjectMountDefinitions.end());
 			for (size_t Index = 2; Index < Definitions.size(); ++Index)
 				Definitions[1].Dependencies.push_back(Definitions[Index].VirtualRoot);
 			return true;
@@ -502,14 +400,11 @@ namespace Durin
 			: std::format("{}: '{}'.", Reason, Error.Path);
 	}
 
-	auto FMountPaths::PublishMountRegistry(std::span<const FMountPoint> Definitions, std::string* OutError) -> bool
-	{
-		if (bRegistryPublished)
-		{
-			if (OutError) *OutError = "Mount registry has already been published.";
-			return false;
-		}
-		std::vector<FMountPoint> Validated;
+    namespace
+    {
+        auto ValidateMountDefinitionsImpl(std::span<const FMountPoint> Definitions,
+            std::vector<FMountPoint>& Validated, std::string* OutError) -> bool
+        {
 		Validated.reserve(Definitions.size());
 		std::unordered_set<std::string> Roots;
 		for (FMountPoint Definition : Definitions)
@@ -583,6 +478,18 @@ namespace Durin
 		std::ranges::sort(Validated, [](const FMountPoint& A, const FMountPoint& B) {
 			return A.VirtualRoot.length() > B.VirtualRoot.length();
 		});
+            return true;
+        }
+    }
+	auto FMountPaths::PublishMountRegistry(std::span<const FMountPoint> Definitions, std::string* OutError) -> bool
+	{
+		if (bRegistryPublished)
+		{
+			if (OutError) *OutError = "Mount registry has already been published.";
+			return false;
+		}
+        std::vector<FMountPoint> Validated;
+        if (!ValidateMountDefinitionsImpl(Definitions, Validated, OutError)) return false;
 		MountPoints = std::move(Validated);
 		bRegistryPublished = true;
 		MountPathInternal::AdvanceRegistryRevision();
@@ -622,20 +529,15 @@ namespace Durin
 	{
 		std::vector<FMountPoint> Definitions;
 		if (!BuildDefaultMountDefinitions(Definitions, OutError)) return false;
-		std::vector<FMountPoint> SavedMounts = MountPoints;
-		const bool bSavedPublished = bRegistryPublished;
-		const bool bSavedSuppressMountLog = bSuppressMountLog;
-		const uint64 SavedRegistryRevision = MountRegistryRevision;
-		MountPoints.clear();
-		bRegistryPublished = false;
-		bSuppressMountLog = true;
-		const bool bValid = FMountPaths::PublishMountRegistry(Definitions, OutError);
-		MountPoints = std::move(SavedMounts);
-		bRegistryPublished = bSavedPublished;
-		bSuppressMountLog = bSavedSuppressMountLog;
-		MountRegistryRevision = SavedRegistryRevision;
-		return bValid;
+		return ValidateMountDefinitions(Definitions, OutError);
 	}
+	auto FMountPaths::SetProjectMountDefinitions(std::vector<FMountPoint> Definitions) -> void { ProjectMountDefinitions = std::move(Definitions); }
+
+    auto FMountPaths::ValidateMountDefinitions(std::span<const FMountPoint> Definitions, std::string* OutError) -> bool
+    {
+        std::vector<FMountPoint> Validated;
+        return ValidateMountDefinitionsImpl(Definitions,Validated,OutError);
+    }
 
 	auto FPaths::LaunchDir() -> std::string
 	{

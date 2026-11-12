@@ -1,0 +1,139 @@
+{
+  "Cases": [
+    {
+      "Name": "Minimal",
+      "Source": "{\"ProjectName\":\"Fixture\"}",
+      "Valid": true,
+      "Game": [],
+      "Editor": []
+    },
+    {
+      "Name": "OmittedRoots",
+      "Source": "{\"ProjectName\":\"Fixture\",\"ModuleDirs\":{\"Runtime\":\"Source/Runtime\"}}",
+      "Valid": true,
+      "Game": [
+        "Runtime"
+      ],
+      "Editor": [
+        "Runtime"
+      ]
+    },
+    {
+      "Name": "EmptyRoots",
+      "Source": "{\"ProjectName\":\"Fixture\",\"ModuleDirs\":{\"Runtime\":\"Source/Runtime\"},\"BaseModules\":[]}",
+      "Valid": true,
+      "Game": [],
+      "Editor": []
+    },
+    {
+      "Name": "VariantRoots",
+      "Source": "{\"ProjectName\":\"Fixture\",\"ModuleDirs\":{\"Runtime\":\"Source/Runtime\",\"Editor\":\"Source/Editor\"},\"BaseModules\":[\"Runtime\"],\"ExtraModules\":{\"DurinEditor\":{\"Modules\":[\"Editor\"]}}}",
+      "Valid": true,
+      "Game": [
+        "Runtime"
+      ],
+      "Editor": [
+        "Runtime",
+        "Editor"
+      ]
+    },
+    {
+      "Name": "EmptyPlugins",
+      "Source": "{\"ProjectName\":\"Fixture\",\"Plugins\":{}}",
+      "Valid": true,
+      "Game": [],
+      "Editor": []
+    },
+    {
+      "Name": "PluginOverrides",
+      "Source": "{\"ProjectName\":\"Fixture\",\"Plugins\":{\"Water\":true,\"Tools\":false}}",
+      "Valid": true,
+      "Game": [],
+      "Editor": []
+    },
+    {
+      "Name": "NativeTests",
+      "Source": "{\"ProjectName\":\"Fixture\",\"Tests\":{\"Native\":{\"Root\":\"Tests/Native\"}}}",
+      "Valid": true,
+      "Game": [],
+      "Editor": []
+    },
+    {
+      "Name": "ContentMount",
+      "Source": "{\"ProjectName\":\"Fixture\",\"Mounts\":[{\"VirtualRoot\":\"/Plugins/Water/\",\"Owner\":\"Extension\",\"Root\":\"Plugins/Water\",\"ContentPath\":\"Content\",\"AutoScan\":true,\"ContentWritable\":false,\"Dependencies\":[\"/Engine/\"]}]}",
+      "Valid": true,
+      "Game": [],
+      "Editor": []
+    },
+    {
+      "Name": "MissingName",
+      "Source": "{}",
+      "Valid": false,
+      "Game": [],
+      "Editor": []
+    },
+    {
+      "Name": "BooleanName",
+      "Source": "{\"ProjectName\":true}",
+      "Valid": false,
+      "Game": [],
+      "Editor": []
+    },
+    {
+      "Name": "UnknownField",
+      "Source": "{\"ProjectName\":\"Fixture\",\"Unknown\":1}",
+      "Valid": false,
+      "Game": [],
+      "Editor": []
+    },
+    {
+      "Name": "InvalidPlugin",
+      "Source": "{\"ProjectName\":\"Fixture\",\"Plugins\":[]}",
+      "Valid": false,
+      "Game": [],
+      "Editor": []
+    },
+    {
+      "Name": "BooleanRoot",
+      "Source": "{\"ProjectName\":\"Fixture\",\"BaseModules\":[false]}",
+      "Valid": false,
+      "Game": [],
+      "Editor": []
+    },
+    {
+      "Name": "InvalidVariant",
+      "Source": "{\"ProjectName\":\"Fixture\",\"ExtraModules\":{\"DurinEditor\":{\"Modules\":false}}}",
+      "Valid": false,
+      "Game": [],
+      "Editor": []
+    },
+    {
+      "Name": "InvalidDirs",
+      "Source": "{\"ProjectName\":\"Fixture\",\"ModuleDirs\":[]}",
+      "Valid": false,
+      "Game": [],
+      "Editor": []
+    },
+    {
+      "Name": "InvalidTest",
+      "Source": "{\"ProjectName\":\"Fixture\",\"Tests\":{\"Native\":{\"Root\":false}}}",
+      "Valid": false,
+      "Game": [],
+      "Editor": []
+    },
+    {
+      "Name": "InvalidMount",
+      "Source": "{\"ProjectName\":\"Fixture\",\"Mounts\":false}",
+      "Valid": false,
+      "Game": [],
+      "Editor": []
+    },
+    {
+      "Name": "DuplicateField",
+      "Source": "{\"ProjectName\":\"Fixture\",\"ProjectName\":\"Second\"}",
+      "Valid": false,
+      "Game": [],
+      "Editor": []
+    }
+  ]
+}

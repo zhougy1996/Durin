@@ -20,7 +20,7 @@
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 #include "Misc/MountPathTestSupport.h"
-#include "Misc/Project.h"
+#include "Project/Project.h"
 #include "NativeTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "Settings/ProjectDefaultLevelReferenceStore.h"

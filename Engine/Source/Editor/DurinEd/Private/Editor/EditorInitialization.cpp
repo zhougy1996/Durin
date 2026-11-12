@@ -9,7 +9,8 @@
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "Modules/ModuleManager.h"
-#include "Misc/Project.h"
+#include "Project/Project.h"
+#include "Interfaces/IProjectManager.h"
 #include "Profiling/Profiling.h"
 
 namespace Durin
@@ -31,16 +32,8 @@ namespace Durin
 			StartupError = "Project admission requires AssetForgeBuiltins.";
 			return false;
 		}
-		const auto Modules = GetCurrentProject()->EnabledRootModules;
-		for (const auto& ModuleName : Modules)
-		{
-			if (!FModuleManager::Get().LoadModule(FName(ModuleName)))
-			{
-				StartupError = std::format("Project module '{}' could not start.", ModuleName);
-				return false;
-			}
-			if (bShutdownRequested) return false;
-		}
+        if (auto Modules=IProjectManager::Get().LoadModulesForProject(ELoadingPhase::Providers, [&] { return bShutdownRequested; }); !Modules)
+        { StartupError=IProjectManager::Get().GetLastError(); return false; }
 		if (bShutdownRequested) return false;
 		if (const auto Content = InitializeProjectContent(); !Content)
 		{

@@ -1,10 +1,9 @@
 #pragma once
 
-#include "Misc/CoreTypes.h"
 
-#include "Misc/CoreStd.h"
+#include "CoreMinimal.h"
 
-#include "CoreAPI.h"
+#include "ProjectsAPI.h"
 
 namespace Durin
 {

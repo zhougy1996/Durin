@@ -33,7 +33,7 @@
 #include "Icons/FontAwesomeIcons.h"
 #include "MonaImGui.h"
 #include "Misc/Paths.h"
-#include "Misc/Project.h"
+#include "Project/Project.h"
 #include "Misc/Version.h"
 #include "RHIGlobals.h"
 #include "Profiling/Profiling.h"
@@ -1213,9 +1213,9 @@ namespace Durin
 				Context->bProjectBrowserOpen = false;
 				return true;
 			}
-			const auto RelaunchEditorForProjectResult = RelaunchEditorForProject(ProjectFile);
-			OutError = RelaunchEditorForProjectResult ? std::string{} : RelaunchEditorForProjectResult.error().ToString();
-			return RelaunchEditorForProjectResult.has_value();
+			RelaunchEditorForProject(ProjectFile);
+			OutError.clear();
+			return true;
 		});
 		Context.ProjectBrowser->SetClose([WeakContext] {
 			if (const std::shared_ptr<FMainFrameContext> Context =

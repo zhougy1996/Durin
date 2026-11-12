@@ -10,7 +10,7 @@
 #include "Rendering/MonaRHIRenderer.h"
 #include "Application/MonaApplication.h"
 #include "ApplicationCoreGlobals.h"
-#include "Misc/Project.h"
+#include "Project/Project.h"
 #include "Misc/Paths.h"
 #include "Widgets/MWindow.h"
 #include "DObject/Class.h"

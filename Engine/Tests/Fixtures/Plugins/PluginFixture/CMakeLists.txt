@@ -1,0 +1,7 @@
+add_durin_project(PluginFixture)
+if(TARGET PluginFixtureConsumer)
+ add_executable(PluginFixtureProbe Probe.cpp)
+ durin_target_apply_common_definitions(PluginFixtureProbe PluginFixtureProbe)
+ target_link_libraries(PluginFixtureProbe PRIVATE PluginFixtureConsumer)
+ set_target_properties(PluginFixtureProbe PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/PluginFixtureProbe/$<CONFIG>")
+endif()

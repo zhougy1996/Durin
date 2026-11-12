@@ -2,9 +2,9 @@
 
 Summary: Define application startup, frame execution, project admission, and shutdown ownership.
 
-Modules: Launch, ApplicationCore, Engine, MonaCore, Mona, MonaImGui
+Modules: Launch, Projects, ApplicationCore, Engine, MonaCore, Mona, MonaImGui
 
-Last reviewed: 2026-11-11
+Last reviewed: 2026-11-12
 
 This document defines Durin's process startup, frame entry, lifecycle
 integration boundaries, and explicit process-exit ordering.
@@ -404,6 +404,21 @@ summary is emitted; detailed milestone and object-load collection is opt-in.
 See [CPU profiling](../../Development/Build/Profiling.md#startup-and-load-diagnostics).
 
 ## Module Integration
+
+Projects owns project descriptors, validated current-project context, and edit
+ownership. Launch selects history restoration only for Editor startup; ordinary
+Game/tool descriptor loading does not restore history. Editor, Game and the
+asset tool call IProjectManager::LoadModulesForProject for ordinary roots before
+their existing content/provider consumers. Core executes native module loads
+and validates/publishes mount values without reading `.dproject` fields.
+The principal project interfaces follow UE bool/output-parameter conventions;
+internal structured errors remain implementation choices. See
+[Project metadata and management](../../Workspace/Plugins.md#ordinary-project-management).
+
+Relaunch requests retain detached argument values in Projects and are consumed
+once by Launch after the ordinary exit protocol. MainFrame/LevelEditor retain
+their existing unsaved-work vetoes. The actual child-process launch and wait-for-
+previous-process argument are Launch responsibilities.
 
 Launch loads modules by logical name using
 `<RuntimeVariant>-<ModuleName>.dll`. Cross-module changes must preserve both

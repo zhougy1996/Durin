@@ -11,7 +11,7 @@
 #include "DObject/WeakObjectPtr.h"
 #include "DObject/PackageFormat.h"
 #include "DObject/PackageLinker.h"
-#include "Misc/Project.h"
+#include "Project/Project.h"
 #include "Asset/AssetCompilingManager.h"
 #include "AssetRegistry/Scan.h"
 #include "Asset/Load.h"

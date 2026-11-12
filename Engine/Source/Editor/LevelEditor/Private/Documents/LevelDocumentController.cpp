@@ -13,7 +13,7 @@
 #include "Engine/World.h"
 #include "Engine/MapChange.h"
 #include "Workspace/LevelEditorContext.h"
-#include "Misc/Project.h"
+#include "Project/Project.h"
 #include "Panels/SceneViewportPanel.h"
 #include "Viewport/TransformGizmo.h"
 
@@ -102,12 +102,7 @@ namespace Durin::LevelEditor
 		}
 		else if (PendingAction == ELevelDocumentAction::OpenProject)
 		{
-			const auto Relaunch = RelaunchEditorForProject(PendingPath);
-			if (!Relaunch)
-			{
-				SetError(Relaunch.error().ToString());
-				return ELevelDocumentOpenResult::Rejected;
-			}
+			RelaunchEditorForProject(PendingPath);
 			return ELevelDocumentOpenResult::Opened;
 		}
 		return ELevelDocumentOpenResult::Rejected;

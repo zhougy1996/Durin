@@ -1,5 +1,5 @@
 #include "HAL/PlatformProcess.h"
-#include "Misc/Project.h"
+#include "Project/Project.h"
 #include "NativeTestSupport.h"
 
 #include <gtest/gtest.h>
@@ -13,6 +13,17 @@ namespace
 		if (!Result) ADD_FAILURE() << Result.error().ToString();
 		return Result.value_or(-1);
 	}
+}
+
+TEST(FLaunchProcessBoundaryTests, DeferredRelaunchRequestRetainsProjectAndIsConsumedOnce)
+{
+	const auto Project=(Durin::Testing::GetTestWorkDirectory()/"Relaunch.dproject").generic_string();
+	Durin::RelaunchEditorForProject(Project);
+	const auto Arguments=Durin::TakePendingEditorRelaunchArguments();
+	ASSERT_TRUE(Arguments);
+	ASSERT_EQ(Arguments->size(),1);
+	EXPECT_EQ(Arguments->front(),"--project="+Durin::NormalizeProjectFile(Project));
+	EXPECT_FALSE(Durin::TakePendingEditorRelaunchArguments());
 }
 
 TEST(FLaunchProcessBoundaryTests, ReportsArgumentFailureWithCommandLineStatus)

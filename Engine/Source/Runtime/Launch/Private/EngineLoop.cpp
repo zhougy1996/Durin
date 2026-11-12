@@ -26,7 +26,8 @@
 #include "Misc/AppConfig.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
-#include "Misc/Project.h"
+#include "Project/Project.h"
+#include "Project/ProjectHistory.h"
 #include "Misc/Time.h"
 #include "Misc/Version.h"
 #include "Modules/ModuleManager.h"
@@ -81,9 +82,18 @@ namespace Durin
 #endif
 		DURIN_DEBUG(STR("Launch directory: {}"), FPaths::LaunchDir());
 		DURIN_DEBUG(STR("Engine directory: {}"), FPaths::EngineDir());
+        auto SelectedProject=Params.ProjectFile.value_or("");
+#if DURIN_WITH_EDITOR
+        if (!Params.bOpenProjectBrowser && SelectedProject.empty())
+        {
+            auto History=MakeDefaultProjectHistory();
+            if (auto Loaded=History.Load(); Loaded) SelectedProject=History.GetRestoreProjectFile();
+            else ProjectAdmissionError=Loaded.error().ToString();
+        }
+#endif
 		const auto Project = InitializeCurrentProject({
 			.bOpenProjectBrowser = Params.bOpenProjectBrowser,
-			.RequestedProjectFile = Params.ProjectFile.value_or(""),
+			.RequestedProjectFile = SelectedProject,
 			.bRecordInteractiveHistory = Params.bRecordInteractiveHistory});
 		if (!Project)
 		{

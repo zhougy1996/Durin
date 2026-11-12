@@ -1,8 +1,9 @@
-#include "Misc/ProjectHistory.h"
+#include "Project/ProjectHistory.h"
+#include "ProjectDescriptor.h"
 
 #include "Json/Json.h"
 #include "Misc/Paths.h"
-#include "Misc/Project.h"
+#include "Project/Project.h"
 #include "Misc/StringHelper.h"
 #include "Yaml/Yaml.h"
 
@@ -30,15 +31,16 @@ namespace Durin
 				return;
 			}
 
-			FJsonDocument Descriptor;
-			if (const auto Loaded = Descriptor.LoadFromFile(Entry.ProjectFile); !Loaded)
+			FProjectDescriptor Descriptor;
+			std::string DescriptorError;
+            if (!Descriptor.Load(Entry.ProjectFile, DescriptorError))
 			{
 				Entry.Status = ERecentProjectStatus::Invalid;
-				Entry.Error = Loaded.error().ToString();
+				Entry.Error = DescriptorError;
 				return;
 			}
 
-			const std::string ProjectName = Descriptor.GetRootView().GetView("ProjectName").GetString();
+			const std::string ProjectName = Descriptor.Name;
 			if (ProjectName.empty())
 			{
 				Entry.Status = ERecentProjectStatus::Invalid;

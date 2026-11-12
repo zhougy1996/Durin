@@ -3,7 +3,7 @@
 #include "Dialogs/FileDialog.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
-#include "Misc/Project.h"
+#include "Project/Project.h"
 #include "MonaImGui.h"
 
 namespace Durin

@@ -27,7 +27,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Misc/FileHelper.h"
-#include "Misc/Project.h"
+#include "Project/Project.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 

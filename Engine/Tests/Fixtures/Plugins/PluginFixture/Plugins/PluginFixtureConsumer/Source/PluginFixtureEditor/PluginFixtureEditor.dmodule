@@ -1,0 +1,8 @@
+{
+  "ModuleName": "PluginFixtureEditor",
+  "PCH": "SharedPCH_DObject",
+  "PublicDependencies": [
+    "PluginFixtureConsumer"
+  ],
+  "ReflectHeaders": []
+}

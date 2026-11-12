@@ -22,7 +22,7 @@
 #include "Workspace/LevelEditorContext.h"
 #include "Workspace/LevelEditorWorkspace.h"
 #include "Workspace/LevelEditorPresentationPolicy.h"
-#include "Misc/Project.h"
+#include "Project/Project.h"
 #include "Math/Operations.h"
 #include "MonaImGui.h"
 #include "Widgets/MonaImGuiWidgets.h"

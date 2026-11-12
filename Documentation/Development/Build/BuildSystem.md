@@ -128,6 +128,12 @@ Project entry scripts such as `Engine/CMake/EngineSetup.cmake` and `Sandbox/CMak
 
 `add_durin_module(...)` imports generated per-module CMake metadata, wires reflection-generated sources and export files, applies shared PCH settings, and builds the resulting shared or static library.
 
+Selected source plugins use this same module pipeline with separate plugin and
+project ownership. CMake tracks descriptor discovery/enablement and publishes a
+configuration-specific native closure through `<Project>PluginBuild`. Generated
+state, exports, inventory identity, and the fixture contract are defined in
+[Plugin source build integration](../../Workspace/Plugins.md#source-build-integration).
+
 When `BUILD_TESTING` is enabled, `add_durin_project(...)` registers native tests
 from the project's `.dproject` `Tests.Native.Root` declaration, exposed as
 `DURIN_PROJECT_TESTS_DIR`. Omission declares no test root. All projects share

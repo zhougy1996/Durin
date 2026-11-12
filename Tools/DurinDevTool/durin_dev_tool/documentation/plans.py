@@ -373,7 +373,7 @@ def render_plan_context(
     header_end = lines.index(CURRENT_STATUS_SECTION) if current_status else len(lines)
     header = list(lines[:header_end])
 
-    stage_pattern = re.compile(r"^### Stage (?P<number>\d+): (?P<title>.+)$")
+    stage_pattern = re.compile(r"^### Stage (?P<number>\d+(?:\.\d+)*): (?P<title>.+)$")
     task_pattern = re.compile(r"^\s*- \[(?P<state>[ xX])\] ")
     stage_starts = [
         index
@@ -402,7 +402,10 @@ def render_plan_context(
         completed = sum(state.casefold() == "x" for state in task_states)
         stages.append(
             {
-                "number": int(match.group("number")),
+                # Keep integer-stage JSON compatible; dotted identifiers are
+                # strings, never floats (1.10 must not collapse into 1.1).
+                "number": (match.group("number") if "." in match.group("number")
+                           else int(match.group("number"))),
                 "title": match.group("title"),
                 "start": start,
                 "content": "\n".join(block).strip(),

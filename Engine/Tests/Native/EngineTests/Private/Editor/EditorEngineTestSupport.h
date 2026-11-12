@@ -4,7 +4,7 @@
 #include "Editor/EditorEngine.h"
 #include "NativeAssetRuntimeTestSupport.h"
 #include "NativeTestSupport.h"
-#include "Misc/Project.h"
+#include "Project/Project.h"
 
 namespace Durin
 {

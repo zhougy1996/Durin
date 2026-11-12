@@ -61,6 +61,7 @@ durin_add_native_test(LaunchProcessBoundaryTests
 	TIMEOUT 90
 	SERIAL
 	SOURCES Private/Launch/LaunchProcessBoundaryTests.cpp
+	LIBRARIES Core Projects
 	DEPENDENCIES DurinLauncher
 	COMPILE_DEFINITIONS
 		DURIN_LAUNCH_EXECUTABLE="$<TARGET_FILE:DurinLauncher>"

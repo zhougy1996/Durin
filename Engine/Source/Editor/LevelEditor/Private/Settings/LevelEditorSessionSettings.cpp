@@ -6,7 +6,7 @@
 #include "Engine/Level.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Misc/Paths.h"
-#include "Misc/Project.h"
+#include "Project/Project.h"
 #include "Panels/SceneViewportPanel.h"
 #include "Yaml/Yaml.h"
 

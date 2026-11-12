@@ -25,6 +25,11 @@ Typical workspace contents:
 
 ## Projects And Modules
 
+Runtime ordinary-project descriptors and current-project management belong to
+Projects, alongside plugin selection. Core retains physical paths and generic
+module/mount mechanisms. The principal API and pending-versus-active edit rules
+are defined by [Project metadata and management](Plugins.md#ordinary-project-management).
+
 Editor automatic restore uses the separately persisted `RestoreProjectFile` and
 `AutoRestoreEnabled` policy in `ProjectHistory.yaml`, rather than assuming the
 first recent entry is the restore target. Legacy histories initialize that target

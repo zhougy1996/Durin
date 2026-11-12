@@ -14,7 +14,7 @@
 #include "TexturePreview.h"
 #include "Import/TextureFileImport.h"
 #include "Dialogs/FileDialog.h"
-#include "Misc/Project.h"
+#include "Project/Project.h"
 #include "MonaImGui.h"
 #include "Asset/Load.h"
 #include "Editor/EditorEngine.h"
