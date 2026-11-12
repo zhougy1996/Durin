@@ -121,6 +121,19 @@ namespace Durin
 			Instances->push_back({20, FMatrix(1.0), {}});
 			Scene->UpdateStaticMeshRenderInstances(FPrimitiveComponentId{1}, Instances);
 			Run(true); Run(false); Run(true, true); Run(false);
+            FGPUSceneDynamicAllocation Dynamic;
+            EnqueueRenderCommand<FGPUSceneNativeCommand>([&](FRHICommandListImmediate&) {
+                Dynamic = Scene->GPUScene->AllocateDynamicPrimitiveRange(4);
+                for (uint32 Index = 0; Index < Dynamic.Count; ++Index) {
+                    FPrimitiveCustomData PrimitiveData, InstanceData; PrimitiveData.Values[2] = 11.f + Index; InstanceData.Values[7] = 9.f + Index;
+                    EXPECT_TRUE(Scene->GPUScene->WriteDynamicPrimitive(Dynamic, Index,
+                        Math::TranslationMatrix(FVector3(1e12 + 13.0 + Index, 0.0, 0.0)), RenderData.LocalBounds, PrimitiveData, InstanceData));
+                }
+            });
+            FlushRenderingCommands(); Run(true); Run(false);
+            EnqueueRenderCommand<FGPUSceneNativeCommand>([&](FRHICommandListImmediate&) { Scene->GPUScene->ReleaseDynamicPrimitiveRange(Dynamic); });
+            FlushRenderingCommands(); Run(false);
+            Add(4); Run(true); Run(false);
 			Scene.Reset();
 			FlushRenderingCommands();
 		}

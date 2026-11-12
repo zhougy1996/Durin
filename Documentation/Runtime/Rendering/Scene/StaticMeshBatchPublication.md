@@ -3,7 +3,7 @@
 Summary: Ordinary StaticMesh publishes immutable geometry and material inputs while each view captures instance and LOD state independently.
 Modules: Engine, Renderer
 
-Last reviewed: 2026-10-20
+Last reviewed: 2026-11-13
 
 ## Publication boundary
 
@@ -19,6 +19,12 @@ The asset shares `FStaticMeshBatchGeometry`: LOD policy/readiness and strong
 snapshots in section order. `FMeshBatch::StaticInputs` references that owner;
 its legacy material vector remains empty. Both paths pass through the same
 collector admission and renderer capability/resource validation.
+
+Persistent instance source snapshots are published independently through
+`FInstanceSceneDataBuffers`; they are not copied into geometry capability tables.
+Providers declare `EPrimitiveIdMode` and stable source instance identity during
+collection. Renderer resolves validated GPU ranges after scene updates and carries
+them on visible commands; see [GPUScene submission](GPUScene.md).
 
 Transforms, world bounds, primitive/batch IDs, custom numeric data, selected
 LOD and view/pass state are collected separately. Updating these values does
@@ -105,7 +111,9 @@ cascade loop. Hybrid/GBuffer feature preparation retains its existing path.
 Only captured ordinary, non-instanced StaticMesh inputs with the exact local
 `FStaticMeshBatchBinding` opt in. The current collected binding must match the
 description's geometry owner, with a declaration and nonempty streams. Dynamic
-providers, derived bindings and explicit instances retain direct preparation.
+providers, derived bindings and explicit instances retain independent resource
+preparation. That cache admission decision does not select direct versus
+CPU-instanced or GPU-culled submission.
 
 Entries key the immutable draw description and an explicit resource policy
 (`SamplersOnly`, `Forward` or `Shadow`). Before lookup, the current primitive
@@ -126,7 +134,7 @@ the context; pending or failed work follows the existing retry path.
 
 Hits copy only the resolved material binding and pipeline. Live texture and
 sampler currentness, collection schemas/payloads, environment and shadow pass
-refresh, instance and view Uniforms, final bindings, visibility and shadow bias
+refresh, selected scene IDs, capability-fallback and view uniforms, final bindings, visibility and shadow bias
 remain in their existing paths. Each draw still records resource readiness and
 success/failure. Context owners survive underlying cache-slot replacement and
 retire when the invocation ends; they are never shared with worker jobs or kept

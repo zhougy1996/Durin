@@ -4,7 +4,7 @@ Summary: Define the qualified opaque/masked geometry transport consumed by defer
 
 Modules: RenderCore, Renderer, RHI
 
-Last reviewed: 2026-11-12
+Last reviewed: 2026-11-13
 
 ## Scope and Ownership
 
@@ -29,39 +29,40 @@ editor-assistance geometry use their direct routes.
 
 ## Compatible Instance Culling
 
-A group shares the persistent draw description, collected vertex/index input,
-GPU-culling graphics pipeline and prepared material bindings. These owners
-freeze geometry, index range/type, material generation and non-instance values
-for the submission. Local-domain indexed draws with one original instance and
-finite authoritative world bounds are eligible. Each group needs at least 64
-candidates; this is a structural diagnostic floor, not a measured performance
-threshold. The default remains disabled after qualification.
+`FInstanceCullingManager` owns compute resources, registered views and pass-local
+contexts. GBuffer creates a context for its ordinary mesh pass; there is no
+culling-specific graphics shader, pipeline key or material stage. A group shares
+the retained description, collected inputs, prepared graphics command and material
+bindings. Eligible Local-domain indexed draws have one original instance, valid
+scene IDs, finite authoritative bounds and no instance-frequency input streams.
+Groups need at least 64 candidates. This remains a structural diagnostic floor,
+not a measured performance threshold or a reason to enable culling by default.
 
-Admission accepts whole groups within 65,536 candidates and 4 MiB of generated
-candidate, transform, visible-index and argument storage. Rejected and smaller groups use direct submission, with CPU instancing for
-compatible consecutive runs. A CPU run partly covered by indirect admission
-retains original direct commands for its remainder. Candidate bounds use the view's translated world origin before FP32 upload.
-Graphics consumes the same GPUScene geometry stage as direct drawing, using
-selected scene IDs. The legacy transform upload remains redundant and charged
-until culling inputs and budget telemetry are migrated. Groups keep scene-data
-owners separate so scoped and persistent IDs cannot alias. The fitted main view resolves one culling policy.
-CPU classification tests aggregate primitive bounds. Compute tests each admitted
-instance against the same six planes, translated to the camera origin. Both tests
-use the same world-scale plane-contact margin. The GPU also allows for FP32
-roundoff in translated plane distances. Disabled culling or an unsupported
-frustum supplies zero planes. Compute then compacts every admitted instance
-into its group's reserved range and updates the indexed argument count. Each
-candidate belongs to one group and emits at most one visible index.
+Admission accepts whole groups within 65,536 candidates and 4 MiB of transient
+storage: eight bytes per candidate, four bytes per visible ID and 20 bytes per group
+for indexed arguments. Scene capacity is accounted separately. Smaller or rejected
+groups use ordinary submission, including CPU instancing for compatible runs.
+A CPU run partly covered by indirect admission retains original commands for its
+direct remainder. Failed compute admission restores the complete CPU run.
 
-One indirect command consumes one 20-byte indexed argument at a four-byte-aligned
-offset. `FirstIndex` and signed `VertexOffset` preserve the direct draw. Each
-group's `FirstInstance` is its visible-index range start. Slang's
-`SV_InstanceID` is relative to that start: both generated material and fixed
-vertex entries add `SV_StartInstanceLocation` before indexing visible records.
-The 128-byte compute constant buffer holds six planes, the world origin and
-relative contact tolerance, and an aligned block of candidate and plane counts.
-GPU and direct permutations own distinct per-pass fragment bindings even when
-their material expressions are identical.
+Candidates carry Instance ID and argument index. Compute reads persistent and
+dynamic instance bounds and high/low origins from their shared GPUScene.
+One compute dispatch declares the shared instance-buffer read and writes visibility
+and arguments. No per-view bounds or
+transform array is generated or uploaded. The aggregate CPU broad phase remains;
+compute tests admitted instances against the same six camera-relative planes and
+world-scale contact margin, with an additional FP32 roundoff allowance. A disabled
+or unsupported frustum supplies zero planes and retains all admitted instances.
+Invalid packed bounds are retained conservatively.
+
+Each group reserves a contiguous visible-ID interval and one 20-byte indexed
+argument. `FirstIndex` and signed `VertexOffset` preserve direct geometry;
+`FirstInstance` selects the group's interval. Fixed and generated geometry stages
+add `SV_StartInstanceLocation` to relative `SV_InstanceID`. The 144-byte compute
+uniform contains six translated planes, view origin high/low, relative tolerance,
+candidate/plane counts and padding. Graphics reuses the ordinary
+command and pass bindings, overriding only the selected ID buffer and indirect
+argument range. See [GPUScene submission](../Scene/GPUScene.md#instance-culling-contexts).
 
 RDG owns immutable uploads, compute storage writes, graphics storage reads and
 exact indirect-record reads. Optional async assignment is a logical role; it
@@ -127,28 +128,12 @@ existing reversed-Z clear/write contract and is shader-readable after the
 pass. Static and spline pipelines differ only in vertex
 transport; fragment material evaluation and record encoding are shared.
 
-When GPU culling is explicitly enabled and single-command indirect draw is
-supported, groups of at least 64 otherwise identical indexed StaticMesh draws
-from either Opaque or Masked buckets can share a draw while retaining their
-matching material shader and mask behavior. Primitive/Instance numeric channels
-travel in the selected transform record and do not fragment material bindings.
-Compatibility includes the draw command, collected
-vertex input, GPU-culling graphics pipeline, and material binding. Preparation
-stores finite world-space AABBs and transforms, then flattens each admitted
-group into one contiguous visible-instance interval. A compute pass applies the resolved
-culling policy, atomically compacts transform indices, and
-writes one 20-byte indexed indirect record per group. The graphics pass reads
-the exact visible/transform ranges and exact argument-record ranges; it never
-maps them or waits for a CPU readback.
-
-Admission is bounded to 65,536 candidates and 4 MiB of generated candidate,
-visible-index, transform, and argument storage per view. Groups below the
-threshold, incompatible records, invalid bounds, unavailable shader or
-pipeline resources, unsupported devices, and pre-dispatch failure continue
-through the existing direct draw path. Once indirect work has been admitted
-and recorded, ordinary graph/submission failure remains terminal instead of
-redrawing and potentially duplicating geometry. Async-compute eligibility is a
-graph policy hint; the established graphics-queue fallback remains valid.
+The optional instance-culling route follows the admission and storage contract
+above. RDG declares scene reads, immutable ID uploads, compute output writes,
+graphics visibility reads and indirect-argument reads explicitly. It never maps
+those buffers or waits for a CPU visibility result to render. A failed graph or
+submission is terminal; it cannot trigger an unordered late redraw. Async compute
+is a scheduling hint with a graphics-queue fallback.
 
 Target publication is transactional. A partially created extent is not
 published. Shader or pipeline refresh exposes no payload until the requested
@@ -181,7 +166,8 @@ contract.
 
 Per-view GPU-culling diagnostics report policy-disabled, unsupported,
 below-floor, incompatible, capacity, preparation and dispatch-admission outcomes,
-candidate/group/command/generated-byte counts, actual indirect and remaining
+candidate/group/command/transient-byte counts, separately observed scene and
+standalone scene capacity, actual indirect and remaining
 local-domain direct draws. Submission counters advance when the draw command
 succeeds. Grouped members still count toward logical GBuffer successes.
 Compiled logical queue roles and physical graphics/compute queue
@@ -253,7 +239,7 @@ Packing changes require an explicit contract and qualification rebaseline.
 - `Engine/Source/Runtime/Renderer/Public/GBufferContract.h`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/GBufferRenderer.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/GBufferRendering.cpp`
-- `Engine/Shaders/Slang/GBufferGPUCulling.slang`
+- `Engine/Shaders/Slang/InstanceCulling.slang`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/GBufferDebugRenderer.cpp`
 - `Engine/Shaders/Slang/Material/SurfaceMaterial.slang`
 - `Engine/Shaders/Slang/Material/GBufferDecode.slang`

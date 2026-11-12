@@ -3,7 +3,7 @@
 Summary: Runtime numeric channels vary shared materials per primitive and stable StaticMesh instance without publishing new material owners.
 Modules: Engine, RenderCore, Renderer, MaterialEditor
 
-Last reviewed: 2026-11-12
+Last reviewed: 2026-11-13
 
 ## Numeric contract
 
@@ -74,7 +74,9 @@ command queue ordering as transform and material updates.
 transform/origin prefix followed by 128 Primitive and 128 Instance bytes.
 Built-in Local/Spline, shadow and HitProxy vertices construct it from selected
 [GPUScene records](../Scene/GPUScene.md#shader-access-and-submission). Unsupported
-factories retain the uniform ABI. Generated flat varyings carry only referenced
+factories retain the explicit `FMeshFallbackPrimitiveUniform` ABI. Only those
+factories populate sparse `FallbackPrimitiveUniforms`; ordinary scene meshes
+allocate no per-view Primitive uniform array. Generated flat varyings carry only referenced
 four-component slots to fragments; object-space pixel expressions load the
 selected Instance ID. A grouped fragment never depends on the representative
 draw's numeric channels.
@@ -92,9 +94,11 @@ Existing [GBuffer GPU grouping](../Pipeline/GBuffer.md#pass-and-resource-lifecyc
 Local indexed draws and at least 64 candidates. Eligible instances can share one
 indirect draw despite different numeric values. Compatible Forward/shadow draws and small groups can use ordered CPU ID runs
 independently of the GPU-culling threshold. Different material bindings or
-geometry still prevent merging; custom data alone does not guarantee fewer draws. The 4 MiB generated-buffer limit
-still charges redundant legacy 512-byte transform records until culling migration and can admit fewer candidates at the same
-budget. These costs must accompany any draw-count comparison.
+geometry still prevent merging; custom data alone does not guarantee fewer draws. The 4 MiB transient limit
+charges an eight-byte ID/argument candidate, one four-byte visible ID and one
+20-byte argument per group. Scene-buffer capacity is separate; no transform
+array is generated per view. Attribute upload bytes and retained scene capacity
+must accompany draw-count comparisons.
 
 WPO reads use the same selected data before clip transformation; masked shadows,
 hit proxies and GBuffer share the accepted vertex product. WPO does not expand

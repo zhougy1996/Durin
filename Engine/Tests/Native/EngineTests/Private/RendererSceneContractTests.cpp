@@ -520,7 +520,7 @@ static_assert(!CHasReadyDrawHash<Durin::FResolvedStaticMeshView>);
 static_assert(!CHasMaterialBindingHash<Durin::FResolvedStaticMeshView>);
 static_assert(CHasRenderObservations<Durin::FResolvedStaticMeshView>);
 static_assert(!CHasDirectExecutionCounters<Durin::FResolvedStaticMeshView>);
-static_assert(static_cast<uint8>(Durin::ERDGAllocationObservation::Count) == 16);
+static_assert(static_cast<uint8>(Durin::ERDGAllocationObservation::Count) == 15);
 
 TEST(FRendererSceneContractTests, RDGAllocationPolicyKeepsStructuralBoundary)
 {
@@ -926,14 +926,14 @@ TEST(FRendererSceneContractTests, GBufferPassParametersOwnThePilotDeclarations)
 	ASSERT_NE(Metadata, nullptr);
 	EXPECT_STREQ(Metadata->StructName, "FGBufferPassParameters");
 	EXPECT_EQ(Metadata->StructSize, sizeof(Durin::FGBufferPassParameters));
-	ASSERT_EQ(Metadata->Members.size(), 7u);
+	ASSERT_EQ(Metadata->Members.size(), 6u);
 
 	const auto& Scene = Metadata->Members[0];
     EXPECT_STREQ(Scene.Name, "GPUScene");
     EXPECT_EQ(Scene.Kind, Durin::ERDGParameterMemberKind::Nested);
     const auto* SceneMetadata = Durin::FGPUSceneReadParameters::GetRDGParametersMetadata();
     ASSERT_EQ(SceneMetadata->Members.size(), 1u);
-    EXPECT_EQ(SceneMetadata->Members[0].ArraySize, 45u);
+    EXPECT_EQ(SceneMetadata->Members[0].ArraySize, 25u);
     EXPECT_TRUE(SceneMetadata->Members[0].bOptional);
     const auto& Completion = Metadata->Members[1];
 	EXPECT_STREQ(Completion.Name, "Completion");
@@ -976,14 +976,7 @@ TEST(FRendererSceneContractTests, GBufferPassParametersOwnThePilotDeclarations)
 	EXPECT_EQ(VisibleInstances.Use, Durin::ERDGUse::Read);
 	EXPECT_EQ(VisibleInstances.Access, Durin::ERHIAccess::GraphicsShaderRead);
 
-	const auto& InstanceTransforms = Metadata->Members[5];
-	EXPECT_STREQ(InstanceTransforms.Name, "InstanceTransforms");
-	EXPECT_EQ(InstanceTransforms.Kind, Durin::ERDGParameterMemberKind::Buffer);
-	EXPECT_TRUE(InstanceTransforms.bOptional);
-	EXPECT_EQ(InstanceTransforms.Use, Durin::ERDGUse::Read);
-	EXPECT_EQ(InstanceTransforms.Access, Durin::ERHIAccess::GraphicsShaderRead);
-
-	const auto& Arguments = Metadata->Members[6];
+	const auto& Arguments = Metadata->Members[5];
 	EXPECT_STREQ(Arguments.Name, "Arguments");
 	EXPECT_EQ(Arguments.Kind, Durin::ERDGParameterMemberKind::Buffer);
 	EXPECT_TRUE(Arguments.bOptional);
@@ -994,13 +987,13 @@ TEST(FRendererSceneContractTests, GBufferPassParametersOwnThePilotDeclarations)
 TEST(FRendererSceneContractTests, GBufferGPUCullingParametersOwnExactBufferRoles)
 {
 	const Durin::FRDGParametersMetadata* Metadata =
-		Durin::FGBufferGPUCullingPassParameters::GetRDGParametersMetadata();
+		Durin::FInstanceCullingPassParameters::GetRDGParametersMetadata();
 	ASSERT_NE(Metadata, nullptr);
-	EXPECT_STREQ(Metadata->StructName, "FGBufferGPUCullingPassParameters");
-	ASSERT_EQ(Metadata->Members.size(), 3u);
-	EXPECT_EQ(Metadata->Members[0].Use, Durin::ERDGUse::ReadWrite);
+	EXPECT_STREQ(Metadata->StructName, "FInstanceCullingPassParameters");
+	ASSERT_EQ(Metadata->Members.size(), 4u);
+	EXPECT_EQ(Metadata->Members[0].Use, Durin::ERDGUse::Read);
 	EXPECT_EQ(Metadata->Members[0].Access,
-		Durin::ERHIAccess::ComputeShaderReadWrite);
+		Durin::ERHIAccess::ComputeShaderRead);
 	EXPECT_TRUE(Metadata->Members[0].bShaderBinding);
 	for (size_t Index : {1u, 2u})
 	{
@@ -1009,6 +1002,11 @@ TEST(FRendererSceneContractTests, GBufferGPUCullingParametersOwnExactBufferRoles
 			Durin::ERHIAccess::ComputeShaderReadWrite);
 		EXPECT_TRUE(Metadata->Members[Index].bShaderBinding);
 	}
+	for (size_t Index : {3u}) {
+        EXPECT_EQ(Metadata->Members[Index].Use, Durin::ERDGUse::Read);
+        EXPECT_EQ(Metadata->Members[Index].Access, Durin::ERHIAccess::ComputeShaderRead);
+        EXPECT_TRUE(Metadata->Members[Index].bShaderBinding);
+    }
 	EXPECT_STREQ(Metadata->Members[2].ShaderBindingName,
 		"IndirectArguments");
 }

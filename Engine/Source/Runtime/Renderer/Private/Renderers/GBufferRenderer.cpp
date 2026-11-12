@@ -38,32 +38,12 @@ namespace Durin
 
 		DURIN_IMPLEMENT_MATERIAL_SHADER(FGBufferFragmentShader);
 
-		class FGBufferGPUCullingComputeShader final : public FGlobalShader
-		{
-		public:
-			DURIN_BEGIN_SHADER_PARAMETERS(FGBufferGPUCullingComputeShader)
-				DURIN_SHADER_PARAMETER_GRAPH_STORAGE_BUFFER(Candidates);
-				DURIN_SHADER_PARAMETER_GRAPH_STORAGE_BUFFER(VisibleInstances);
-				DURIN_SHADER_PARAMETER_GRAPH_STORAGE_BUFFER(IndirectArguments);
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER(Params);
-			DURIN_END_SHADER_PARAMETERS();
-			DURIN_DECLARE_GLOBAL_SHADER(FGBufferGPUCullingComputeShader,
-				FGlobalShader, "/Engine/GBufferGPUCulling",
-				EShaderFrequency::Compute, "CullMain");
-		};
-		DURIN_IMPLEMENT_GLOBAL_SHADER(FGBufferGPUCullingComputeShader);
-		const FGlobalShaderSetRegistration GGBufferGPUCullingShaderSet(
-			"Renderer", "GBuffer.GPUCulling",
-			EShaderRequestEligibility::GameAndEditor,
-			{&FGBufferGPUCullingComputeShader::StaticType()});
-
 		struct FGBufferShaderMapKey
 		{
 			FMeshMaterialShaderMapIdentity Material;
 			FXxHash64 FactoryKey;
 			FXxHash64 LayoutKey;
-			bool bGPUCulling = false;
-			auto operator==(const FGBufferShaderMapKey&) const -> bool = default;
+				auto operator==(const FGBufferShaderMapKey&) const -> bool = default;
 		};
 
 		struct FGBufferPipelineKey
@@ -74,8 +54,7 @@ namespace Durin
 			FVertexDeclarationRHIRef VertexDeclaration;
 			FXxHash64 FactoryKey;
 			FXxHash64 LayoutKey;
-			bool bGPUCulling = false;
-			FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology = FGraphicsPipelineStateInitializer::EPrimitiveTopology::TriangleList;
+				FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology = FGraphicsPipelineStateInitializer::EPrimitiveTopology::TriangleList;
 			auto operator==(const FGBufferPipelineKey&) const -> bool = default;
 		};
 
@@ -83,14 +62,13 @@ namespace Durin
 			-> std::string
 		{
 			return std::format(
-				"layout-version={},layout-id={},program={},blend={},shading={},domain={},gpu-culling={},declaration={}",
+				"layout-version={},layout-id={},program={},blend={},shading={},domain={},declaration={}",
 				Key.Material.ShaderMap.RenderLayout.Version,
 				Key.Material.ShaderMap.RenderLayout.Id.ToString(),
 				Key.Material.ShaderMap.ProgramIdentity.ToString(),
 				static_cast<uint8>(Key.Material.ShaderMap.BlendMode),
 				static_cast<uint8>(Key.Material.ShaderMap.ShadingModel),
 				Key.FactoryKey.HashValue,
-				Key.bGPUCulling,
 				reinterpret_cast<uintptr_t>(
 					Key.VertexDeclaration.GetReference()));
 		}
@@ -100,12 +78,6 @@ namespace Durin
 
 	struct FGBufferRenderer::FState
 	{
-		struct FGPUCullingPayload
-		{
-			FGlobalShaderSetRef ShaderSet;
-			TShaderMapRef<FGBufferGPUCullingComputeShader> Shader;
-			FComputePipelineStateRHIRef Pipeline;
-		};
 		using FShaderMapPayload = RendererPrivate::FMeshPassShaders;
 
 		TRendererResourceSlotCache<FGBufferShaderMapKey, FShaderMapPayload, RendererPrivate::FMaterialResourceCacheKeyHash>
@@ -113,9 +85,7 @@ namespace Durin
 		TRendererResourceSlotCache<FGBufferPipelineKey, std::shared_ptr<const FPipeline>, RendererPrivate::FMaterialResourceCacheKeyHash>
 			Pipelines{ERenderResourceGenerationDependency::Shader
 				| ERenderResourceGenerationDependency::Device};
-		TRenderResourceCreationSlot<FGPUCullingPayload> GPUCulling{
-			ERenderResourceGenerationDependency::Shader
-				| ERenderResourceGenerationDependency::Device};
+
 	};
 
 	FGBufferRenderer::FGBufferRenderer(FRendererResourceCoordinator& InCoordinator)
@@ -145,18 +115,15 @@ namespace Durin
 	auto FGBufferRenderer::EnsurePipeline_RenderThread(
 		const FPipelineRequest& Request) -> std::shared_ptr<const FPipeline>
 	{
-		if (Request.bGPUCulling && Request.Failure
-			== EGPUCullingFailure::PipelineUnavailable) return nullptr;
 		if (Request.VertexDeclaration == nullptr) return nullptr;
 		const auto Factory = RendererPrivate::FindMeshVertexFactory(Request.FactoryKey);
 		if (!Factory || Factory->GetLayoutKey() != Request.LayoutKey) return nullptr;
 		const auto& Processor = RendererPrivate::FPassProcessorManager::GetMeshPassProcessor(RendererPrivate::EMeshPipelinePass::GBuffer);
 		const RendererPrivate::FMeshPassProcessorBatch Batch{Request.Material, *Factory,
-			{Request.Rasterizer, Request.Depth, {}}, Request.Topology, {}, true, Request.bGPUCulling};
+			{Request.Rasterizer, Request.Depth, {}}, Request.Topology, {}, true};
 		const FGBufferShaderMapKey ShaderKey{
 			.Material = Request.Material.ShaderMap,
-			.FactoryKey = Request.FactoryKey, .LayoutKey = Request.LayoutKey,
-			.bGPUCulling = Request.bGPUCulling};
+			.FactoryKey = Request.FactoryKey, .LayoutKey = Request.LayoutKey};
 		auto& ShaderEntry = State->ShaderMaps.FindOrAddBounded(
 			ShaderKey, RendererPrivate::MaterialShaderMapCacheEntryBudget, RendererPrivate::MaterialShaderMapCacheByteBudget);
 		using FShaderResult =
@@ -187,7 +154,7 @@ namespace Durin
 			.Depth = Request.Depth,
 			.VertexDeclaration = Request.VertexDeclaration,
 			.FactoryKey = Request.FactoryKey, .LayoutKey = Request.LayoutKey,
-			.bGPUCulling = Request.bGPUCulling, .Topology = Request.Topology};
+			.Topology = Request.Topology};
 		auto& PipelineEntry = State->Pipelines.FindOrAddBounded(
 			PipelineKey, RendererPrivate::MaterialPipelineCacheEntryBudget, RendererPrivate::MaterialPipelineCacheByteBudget);
 		FRenderResourceGeneration PipelineGeneration =
@@ -218,96 +185,10 @@ namespace Durin
 		-> std::shared_ptr<const RendererPrivate::FMeshPassPipeline>
 	{ return Pipeline; }
 
-	auto FGBufferRenderer::EnsureGPUCullingResources_RenderThread(EGPUCullingFailure Failure) -> bool
-	{
-		if (Failure == EGPUCullingFailure::ShaderUnavailable) return false;
-		using FPayload = FState::FGPUCullingPayload;
-		using FResult = TRenderResourceCreateResult<FPayload>;
-		return State->GPUCulling.Resolve(
-			Coordinator.GetGeneration_RenderThread(), []() -> FResult {
-				const std::array<const FGlobalShaderType*, 1> Types{
-					&FGBufferGPUCullingComputeShader::StaticType()};
-				FPayload Candidate;
-				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
-					"GBuffer.GPUCulling", Types, true,
-					ReportRendererResourceCreateDiagnostic);
-				if (ShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
-				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
-				if (!ShaderSetCompletion)
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::ShaderCompile,
-						"GBufferGPUCulling", "shader",
-						ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual));
-				Candidate.ShaderSet = *ShaderSetCompletion;
-				Candidate.Shader = TShaderMapRef<FGBufferGPUCullingComputeShader>(
-					Candidate.ShaderSet);
-				FRHIShader* ComputeRHI = Candidate.Shader.GetRHIShader(false);
-				if (ComputeRHI == nullptr)
-					return FResult::Pending();
-				FComputePipelineStateInitializer Initializer;
-				Initializer.ComputeShader = ComputeRHI;
-				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
-				Candidate.Pipeline = FRenderPipelineRequestScope::Compute(
-					"GBufferGPUCullingPipeline", Initializer);
-				if (Candidate.Pipeline == nullptr)
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::GraphicsPipeline,
-						"GBufferGPUCulling", "pipeline",
-						ERenderResourceCreateErrorReason::PipelinePreparationRejected,
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual
-					));
-				return FResult::Success(std::move(Candidate));
-			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable)
-			!= nullptr;
-	}
-
-	auto FGBufferRenderer::DispatchGPUCulling_RenderThread(
-		FRHICommandListImmediate& CommandList, const FSceneView& View, const std::optional<FViewFrustum>& Frustum,
-		uint32 CandidateCount,
-		const FRDGShaderParameterScope& GraphShaderParameters, EGPUCullingFailure Failure) -> bool
-	{
-		check(!CommandList.IsInsideRenderPass());
-		if (Failure == EGPUCullingFailure::ShaderUnavailable
-			|| Failure == EGPUCullingFailure::CommandAdmission) return false;
-		auto* Payload = State->GPUCulling.GetPayload();
-		if (Payload == nullptr || CandidateCount == 0) return false;
-		FGBufferGPUCullingUniform Uniform;
-		if (Frustum)
-		{
-			Uniform.WorldOriginAndRelativeTolerance = FVector4f(FVector4(View.ViewLocation, PlaneTouchRelativeEpsilon));
-			if (!Math::IsFinite(Uniform.WorldOriginAndRelativeTolerance)) return false;
-			for (const FVector4& Plane : Frustum->Planes)
-			{
-				const FVector3 Normal(Plane);
-				const FVector4f TranslatedPlane(FVector4(Normal, Plane.w + Math::Dot(Normal, View.ViewLocation)));
-				if (!Math::IsFinite(TranslatedPlane)) return false;
-				Uniform.Planes[Uniform.PlaneCount++] = TranslatedPlane;
-			}
-		}
-		Uniform.CandidateCount = CandidateCount;
-		const auto UniformBuffer = CommandList.CreateUniformBufferRange(
-			&Uniform, sizeof(Uniform));
-		if (!UniformBuffer.Buffer) return false;
-		CommandList.SwitchPipeline(ERHIPipeline::Compute);
-		CommandList.SetComputePipelineState(*Payload->Pipeline);
-		FGBufferGPUCullingComputeShader::FParameters Parameters;
-		Parameters.Params = UniformBuffer;
-		SetShaderParameters(CommandList, Payload->Shader,
-			GraphShaderParameters, Parameters);
-		CommandList.Dispatch((CandidateCount + 63u) / 64u, 1, 1);
-		CommandList.SwitchPipeline(ERHIPipeline::Graphics);
-		return true;
-	}
-
 	auto FGBufferRenderer::ReleaseResources_RenderThread() -> void
 	{
 		State->ShaderMaps.Reset();
 		State->Pipelines.Reset();
-		State->GPUCulling.Reset();
 	}
 } // namespace Durin
 
@@ -325,7 +206,7 @@ namespace Durin::RendererPrivate
 			{ return BuildMeshDrawCommands(Batch, Input, Cache, Context, std::move(Existing)); }
 			auto GetPass() const -> EMeshPipelinePass override { return EMeshPipelinePass::GBuffer; }
 			auto IsEnabled(const FSceneRenderPreparationConfig& Config) const -> bool override { return Config.Settings.bHybrid; }
-			auto GetVertexFactoryPass(bool bGPUCulling) const -> uint32 override { return bGPUCulling ? MaterialMeshPassGBufferGPUCulling : MaterialMeshPassGBuffer; }
+			auto GetVertexFactoryPass() const -> uint32 override { return MaterialMeshPassGBuffer; }
 			auto GetFragmentShader(FMaterialShaderBlendModeKey) const -> FMeshPassFragmentShader override {
 				FMeshPassFragmentShader Result{&FGBufferFragmentShader::StaticType(), +[](const FMeshMaterialShaderMap& Map) { return TMaterialShaderRef<FGBufferFragmentShader>(Map).GetRHIShader(false); }};
 				Result.ResolveLayout = +[](const FMeshMaterialShaderMap& Map) -> const FCompiledSurfaceBindingLayout* { return &TMaterialShaderRef<FGBufferFragmentShader>(Map).GetShader()->GetSurfaceLayout(); };

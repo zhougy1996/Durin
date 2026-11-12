@@ -10,6 +10,7 @@
 #include "Renderers/DirectionalShadowRenderer.h"
 #include "Renderers/DeferredDirectionalLightingRenderer.h"
 #include "Renderers/GBufferRenderer.h"
+#include "Renderers/InstanceCulling.h"
 #include "Renderers/GBufferDebugRenderer.h"
 #include "Renderers/GroundTruthAmbientOcclusionRenderer.h"
 #include "Renderers/PostProcessRenderer.h"
@@ -128,6 +129,7 @@ namespace Durin
 		FFullscreenGeometryResources FullscreenGeometry;
 		FDirectionalShadowRenderer DirectionalShadowRenderer;
 		FGBufferRenderer GBufferRenderer;
+		FInstanceCullingManager InstanceCullingManager;
 		FGBufferDebugRenderer GBufferDebugRenderer;
 		FDeferredDirectionalLightingRenderer DeferredDirectionalLightingRenderer;
 		FGroundTruthAmbientOcclusionRenderer GroundTruthAmbientOcclusionRenderer;

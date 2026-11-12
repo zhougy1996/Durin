@@ -3,7 +3,7 @@
 Summary: Material geometry and Pass usages select an atomic required stage set whose compatible binaries share independently through ShaderBuild.
 Modules: Engine, RenderCore, Renderer
 
-Last reviewed: 2026-11-12
+Last reviewed: 2026-11-13
 
 ## Declared usages
 
@@ -31,8 +31,11 @@ rejected transactionally.
 frequencies, persisted stage bits, geometry/Pass eligibility and editor-only
 selection. Compile options, identity encoding, source requests and stage
 validation consume that contract; Renderer uses named entry bits rather than
-positional constants. The seven-entry descriptor order keeps the legacy GPU-culling ordinal reserved;
-only six entries are active. The Cook container shape is unchanged.
+positional constants. The descriptor table contains six entries with persisted
+ordinals 0-5. Retired GPU-culling ordinal 6 is not a descriptor and must never be
+reused; bit 6 remains outside `MaterialAllStageMask` and rejects in compiled products.
+Legacy authored geometry usage bit 4 remains a load/edit/identity migration input,
+not a shader stage. The Cook container shape and active-stage ABI are unchanged.
 `SelectMaterialShaderStages` computes their union in canonical entry order.
 All declared passes and selection algorithms share the selected geometry entries. Editor compilation retains
 declared HitProxy use; both production Game Cook preparation paths explicitly

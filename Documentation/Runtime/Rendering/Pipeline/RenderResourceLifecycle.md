@@ -4,11 +4,11 @@ Summary: Define RenderCore resource state, deferred C++ cleanup, producer teardo
 
 Modules: RenderCore, Engine, Renderer, MonaImGui
 
-Last reviewed: 2026-11-12
+Last reviewed: 2026-11-13
 
 Scene-owned Primitive/Instance buffer mirrors, upload transactions and native
 recovery follow [Persistent GPU scene storage](../Scene/GPUScene.md). This owner
-coexists with source-owned Primitive uniforms until shader migration completes.
+coexists with source-associated Primitive uniforms for unsupported factories only.
 
 `FRenderResource` owns registry membership and the rendering-thread
 initialization, update, and release state machine. This contract covers generic
@@ -82,17 +82,25 @@ lock: source destructors may release child resources and reenter cleanup.
 Material proxies own `FUniformExpressionCache` and its real `FUniformBuffer`.
 Standalone material representations own an expression cache too. Scene owns live
 Collection buffers; material caches own compiled-program defaults. Primitive scene
-information owns primitive buffers. Vertex-factory input bindings own deformation
+information owns source cache associations and optional unsupported-factory
+uniform buffers. Scene-owned GPUScene retains the authoritative attribute buffers;
+source invalidation never turns cached command memory into resource ownership. Vertex-factory input bindings own deformation
 buffers. HitProxy request storage owns its temporary pipelines and Collection
 buffers. Cached `FMeshDrawCommand` values borrow these resources directly and
-store non-owning `FMeshDrawShaderBindings`. Cache and visible storage retain only
-command memory. Scene owns slots, primitives keep slot locations and actual
-pipeline resources. Primitive updates retire their own entries before replacing
+store non-owning `FMeshDrawShaderBindings`. Visible storage retains command memory;
+scene cache storage retains source/canonical pipelines and owns cache-wide RHI
+invalidation. `FPrimitiveSceneInfo` keeps slot locations and optional fallback
+uniforms without another render-resource wrapper. Primitive updates retire their
+own entries before replacing
 sources; retained entry memory does not authorize another submission.
 
 Renderer device-resource release retires preparations and clears command metadata,
-then releases registered primitive owners, material proxies and uniform resources.
-This filtered traversal leaves independently owned asset resources untouched.
+then releases registered scene cache storages, material proxies and uniform resources.
+The instance-culling manager releases compute slots and view contexts through
+the same device/manual/shader invalidation boundary. GPUScene rebuilds native
+attributes from current mirrors; graph-local ID lists and indirect arguments
+remain submission-owned. This filtered traversal leaves independently owned
+asset resources untouched.
 `ReleaseResource` unregisters surviving source objects; they initialize lazily on
 next use, preserving the shutdown requirement of an empty registry.
 

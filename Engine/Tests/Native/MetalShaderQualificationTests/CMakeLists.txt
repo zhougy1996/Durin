@@ -29,7 +29,7 @@ durin_add_native_test(MetalShaderQualificationTests
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Production material shader compilation uses the authored editor shader environment."
 	DATA_FILES
-		"${DURIN_PROJECT_ROOT_DIR}/Shaders/Slang/GBufferGPUCulling.slang"
+		"${DURIN_PROJECT_ROOT_DIR}/Shaders/Slang/InstanceCulling.slang"
 		"${DURIN_PROJECT_ROOT_DIR}/Shaders/Slang/ImGui.slang"
 	DATA_DIRECTORIES "${DURIN_PROJECT_ROOT_DIR}/Tests/Data/MetalShaderQualification"
 	RESOURCE_LOCKS "durin-gpu"

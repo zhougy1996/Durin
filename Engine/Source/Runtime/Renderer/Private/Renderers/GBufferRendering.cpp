@@ -15,131 +15,6 @@
 
 namespace Durin
 {
-	auto BuildGBufferGPUCullingPlan(const FPreparedStaticMeshView& Prepared,
-		const FResolvedStaticMeshView& Resolved,
-		const FSceneView& View,
-		bool bRequested, bool bIndirectDrawSupported,
-		size_t* OutOverflowCandidates, size_t MaximumGeneratedBytes,
-		FGPUCullingAdmissionDiagnostics* OutDiagnostics)
-		-> std::shared_ptr<FGBufferGPUCullingPlan>
-	{
-			if (OutOverflowCandidates) *OutOverflowCandidates = 0;
-			FGPUCullingAdmissionDiagnostics Diagnostics;
-			if (OutDiagnostics) *OutDiagnostics = {};
-			if (!bRequested || !bIndirectDrawSupported) return {};
-			auto Plan = std::make_shared<FGBufferGPUCullingPlan>();
-			Plan->ArgumentByResolvedDraw.assign(Resolved.Draws.size(),
-				FGBufferGPUCullingPlan::InvalidArgument);
-			using FGroupKey = std::tuple<const void*, const void*, const void*, const void*>;
-			struct FPendingCandidate final
-			{
-				const FPreparedStaticMeshDraw* Draw = nullptr;
-				const FPreparedStaticMeshPrimitive* Primitive = nullptr;
-				FVector3f BoundsMin{};
-				FVector3f BoundsMax{};
-			};
-			std::map<FGroupKey, std::vector<size_t>> GroupByKey;
-			std::vector<std::vector<FPendingCandidate>> Groups;
-			for (const auto* Bucket : {&Prepared.Opaque, &Prepared.Masked})
-			for (const FPreparedStaticMeshDraw& Draw : *Bucket)
-			{
-				const FPreparedStaticMeshPrimitive* Primitive =
-					Prepared.GetPrimitive(Draw);
-				if (Primitive == nullptr || !Resolved.IsReady(Draw)
-					|| Primitive->VertexDomain != EVertexDeformationDomain::Local
-					|| !Draw.Command || !Draw.Command->bSupportsGBuffer
-					|| !Draw.Command->Geometry.bIndexed
-					|| Draw.Command->Geometry.InstanceCount != 1
-					|| Draw.ResolvedIndex >= Plan->ArgumentByResolvedDraw.size()
-					|| !Primitive->WorldBounds.bIsValid
-					|| !Math::IsFinite(Primitive->WorldBounds.Min)
-					|| !Math::IsFinite(Primitive->WorldBounds.Max))
-				{
-					++Diagnostics.IncompatibleCandidates;
-					continue;
-				}
-				const FVector3 Center = Primitive->WorldBounds.GetCenter();
-				const FVector3 Extent = (Primitive->WorldBounds.Max
-					- Primitive->WorldBounds.Min) * 0.5;
-				const double RadiusSquared = Math::Dot(Extent, Extent);
-				if (!Math::IsFinite(Center) || !std::isfinite(RadiusSquared)
-					|| RadiusSquared < 0.0)
-				{ ++Diagnostics.IncompatibleCandidates; continue; }
-				const FVector3f BoundsMin(View.TranslateWorldPosition(Primitive->WorldBounds.Min));
-				const FVector3f BoundsMax(View.TranslateWorldPosition(Primitive->WorldBounds.Max));
-				if (!Math::IsFinite(BoundsMin) || !Math::IsFinite(BoundsMax))
-				{ ++Diagnostics.IncompatibleCandidates; continue; }
-				const auto Command = Resolved.GetMeshDrawCommand(Draw, {RendererPrivate::EMeshPipelinePass::GBuffer, true});
-				if (!Command || !Command->Pipeline || !Command->FragmentBindings
-					|| !Primitive->CollectedBinding)
-				{ ++Diagnostics.PreparationUnavailableCandidates; continue; }
-				const FGroupKey Key{Draw.Command.get(), Primitive->CollectedBinding.get(), Command->Pipeline,
-				Draw.PrimitiveIndex < Resolved.GPUScenePrimitives.size() ? Resolved.GPUScenePrimitives[Draw.PrimitiveIndex].Buffers.get() : nullptr};
-				auto& Variants = GroupByKey[Key];
-				const auto Found = std::ranges::find_if(Variants, [&](size_t Index) {
-					const auto Other = Resolved.GetMeshDrawCommand(*Groups[Index].front().Draw, {RendererPrivate::EMeshPipelinePass::GBuffer, true});
-					return Other && Other->FragmentBindings == Command->FragmentBindings;
-				});
-				size_t GroupIndex;
-				if (Found == Variants.end()) { GroupIndex = Groups.size(); Variants.push_back(GroupIndex); Groups.emplace_back(); }
-				else GroupIndex = *Found;
-				Groups[GroupIndex].push_back({&Draw, Primitive, BoundsMin, BoundsMax});
-			}
-
-			constexpr size_t PerCandidateBytes =
-				// Keep the ABI charge shared with direct uniform preparation.
-				sizeof(FGBufferGPUCullingCandidate) + sizeof(uint32)
-				+ sizeof(RendererPrivate::FStaticMeshTransformUniform);
-			for (const auto& Group : Groups)
-			{
-				if (Group.size() < FGBufferGPUCullingPlan::MinimumGroupCandidates)
-				{ Diagnostics.BelowThresholdCandidates += Group.size(); continue; }
-				if (Group.size() > FGBufferGPUCullingPlan::MaximumCandidates - Plan->Candidates.size())
-				{
-					if (OutOverflowCandidates) *OutOverflowCandidates += Group.size();
-					continue;
-				}
-				const size_t RequiredBytes = Group.size() * PerCandidateBytes
-					+ sizeof(FRHIDrawIndexedIndirectArguments);
-				const size_t CurrentBytes = Plan->Candidates.size()
-					* PerCandidateBytes + Plan->Arguments.size()
-					* sizeof(FRHIDrawIndexedIndirectArguments);
-				if (RequiredBytes > std::min(MaximumGeneratedBytes, FGBufferGPUCullingPlan::MaximumGeneratedBytes)
-					- CurrentBytes)
-				{
-					if (OutOverflowCandidates)
-						*OutOverflowCandidates += Group.size();
-					continue;
-				}
-				const uint32 ArgumentIndex = static_cast<uint32>(
-					Plan->Arguments.size());
-				const FRHIDrawIndexedArguments Direct =
-					Group.front().Draw->Command->Geometry.GetIndexedDrawArguments();
-				Plan->Arguments.push_back({.IndexCount = Direct.IndexCount,
-					.InstanceCount = 0, .FirstIndex = Direct.FirstIndex,
-					.VertexOffset = Direct.VertexOffset,
-					.FirstInstance = static_cast<uint32>(Plan->Candidates.size())});
-				for (size_t GroupIndex = 0; GroupIndex < Group.size(); ++GroupIndex)
-				{
-					const FPreparedStaticMeshDraw& Draw = *Group[GroupIndex].Draw;
-					const FPreparedStaticMeshPrimitive& Primitive =
-						*Group[GroupIndex].Primitive;
-					Plan->ArgumentByResolvedDraw[Draw.ResolvedIndex] = GroupIndex == 0
-						? ArgumentIndex : FGBufferGPUCullingPlan::GroupedMember;
-					const uint32 Index = static_cast<uint32>(Plan->Candidates.size());
-					Plan->Candidates.push_back({
-						.BoundsMin = Group[GroupIndex].BoundsMin,
-						.ArgumentIndex = ArgumentIndex,
-						.BoundsMax = Group[GroupIndex].BoundsMax,
-						.TransformIndex = Draw.PrimitiveIndex < Resolved.GPUScenePrimitives.size()
-							? Resolved.GPUScenePrimitives[Draw.PrimitiveIndex].InstanceId : Index});
-					const auto Transform = RendererPrivate::BuildMeshTransformUniform(Primitive);
-					Plan->Transforms.push_back(Transform);
-				}
-			}
-			if (OutDiagnostics) *OutDiagnostics = Diagnostics;
-			return Plan->Candidates.empty() ? nullptr : Plan;
-	}
 
 	namespace
 	{
@@ -149,49 +24,16 @@ namespace Durin
 			const FPreparedReceiverGeometry& Receiver,
 			FResolvedSceneResources& Resolved,
 			FSceneRenderTelemetry& Telemetry,
-			FGBufferRenderer& GBufferRenderer,
 			FStaticMeshRenderer& StaticMeshRenderer,
 			FRHITexture* SceneDepth,
 			const FGBufferRenderer::FTargets* GBufferTargets,
 			const FSceneViewRenderOptions& Options,
 			uint32 Width, uint32 Height,
 			bool bWantsIsolatedDeferred,
-			const std::shared_ptr<FGBufferGPUCullingPlan>& GPUCullingPlan,
+			const std::shared_ptr<FInstanceCullingContext>& GPUCullingPlan,
 			FRHIBuffer* IndirectArguments,
-			FRHIBuffer* VisibleInstances,
-			FRHIBuffer* InstanceTransforms)
+			FRHIBuffer* VisibleInstances)
 			-> FGBufferPassResult;
-	}
-
-	auto FGBufferGPUCullingPassParameters::GetRDGParametersMetadata()
-		-> const FRDGParametersMetadata*
-	{
-		using FParameters = FGBufferGPUCullingPassParameters;
-		static const std::array Members{
-			WithRDGShaderBinding(MakeRDGResourceParameterMemberMetadata<
-				FParameters, decltype(Candidates), FRDGBufferParameter>(
-					"Candidates", offsetof(FParameters, Candidates),
-					ERDGParameterMemberKind::Buffer, ERDGResourceKind::Buffer,
-					ERDGParameterRangeKind::BufferBytes, ERDGUse::ReadWrite,
-					ERHIAccess::ComputeShaderReadWrite), ERHIBindingType::StorageBuffer),
-			WithRDGShaderBinding(MakeRDGResourceParameterMemberMetadata<
-				FParameters, decltype(VisibleInstances), FRDGBufferParameter>(
-					"VisibleInstances", offsetof(FParameters, VisibleInstances),
-					ERDGParameterMemberKind::Buffer, ERDGResourceKind::Buffer,
-					ERDGParameterRangeKind::BufferBytes, ERDGUse::ReadWrite,
-					ERHIAccess::ComputeShaderReadWrite),
-				ERHIBindingType::StorageBuffer),
-			WithRDGShaderBinding(MakeRDGResourceParameterMemberMetadata<
-				FParameters, decltype(Arguments), FRDGBufferParameter>(
-					"IndirectArguments", offsetof(FParameters, Arguments),
-					ERDGParameterMemberKind::Buffer, ERDGResourceKind::Buffer,
-					ERDGParameterRangeKind::BufferBytes, ERDGUse::ReadWrite,
-					ERHIAccess::ComputeShaderReadWrite),
-				ERHIBindingType::StorageBuffer),
-		};
-		static const auto Metadata = MakeInlineRDGParametersMetadata<FParameters>(
-			"FGBufferGPUCullingPassParameters", Members);
-		return &Metadata;
 	}
 
 	auto FGBufferGPUCullingCopyParameters::GetRDGParametersMetadata() -> const FRDGParametersMetadata*
@@ -247,12 +89,6 @@ namespace Durin
 					ERDGParameterMemberKind::Buffer, ERDGResourceKind::Buffer,
 					ERDGParameterRangeKind::BufferBytes, ERDGUse::Read,
 					ERHIAccess::GraphicsShaderRead),
-			MakeRDGResourceParameterMemberMetadata<FGBufferPassParameters,
-				decltype(InstanceTransforms), FRDGBufferParameter>(
-					"InstanceTransforms", offsetof(FGBufferPassParameters, InstanceTransforms),
-					ERDGParameterMemberKind::Buffer, ERDGResourceKind::Buffer,
-					ERDGParameterRangeKind::BufferBytes, ERDGUse::Read,
-					ERHIAccess::GraphicsShaderRead),
 			MakeRDGIndirectArgumentMetadata<FGBufferPassParameters,
 				decltype(Arguments)>("Arguments",
 					offsetof(FGBufferPassParameters, Arguments)),
@@ -295,14 +131,15 @@ namespace Durin
 		const FRHICapabilities* Capabilities = GDynamicRHI
 			? GDynamicRHI->RHIGetCapabilities() : nullptr;
 		size_t OverflowCandidates = 0;
-		FGPUCullingAdmissionDiagnostics Admission;
-		const auto GPUCullingPlan = BuildGBufferGPUCullingPlan(
-			Inputs.Receiver.StaticMeshes, Inputs.Resolved.Receiver.StaticMeshes,
-			Inputs.View,
-			Options.bEnableGPUCulling,
-			Capabilities && Capabilities->bSupportsIndirectDraw,
-			&OverflowCandidates, Inputs.Failure == EGPUCullingFailure::MetadataBudget
-				? 0 : FGBufferGPUCullingPlan::MaximumGeneratedBytes, &Admission);
+		FInstanceCullingAdmissionDiagnostics Admission;
+        auto& CullingManager = Inputs.CullingManager;
+        CullingManager.ResetViews();
+        const auto ViewId = CullingManager.RegisterView(Inputs.View, Inputs.Receiver.CullingFrustum);
+        const auto GPUCullingPlan = CullingManager.CreateContext(ViewId, {RendererPrivate::EMeshPipelinePass::GBuffer});
+        const bool bHasGPUCandidates = GPUCullingPlan->SetupDrawCommands(
+            RendererPrivate::CollectMeshDrawCommands(Inputs.Receiver.StaticMeshes, Inputs.Resolved.Receiver.StaticMeshes,
+                {RendererPrivate::EMeshPipelinePass::GBuffer}, false), Options.bEnableGPUCulling, Capabilities && Capabilities->bSupportsIndirectDraw,
+            &OverflowCandidates, Inputs.Failure == EGPUCullingFailure::MetadataBudget ? 0 : FInstanceCullingContext::MaximumGeneratedBytes, &Admission);
 		Inputs.Telemetry.View.GBuffer.GPUCullingPolicyDisabledViews += Options.bEnableGPUCulling ? 0u : 1u;
 		Inputs.Telemetry.View.GBuffer.GPUCullingBelowThresholdCandidates += Admission.BelowThresholdCandidates;
 		Inputs.Telemetry.View.GBuffer.GPUCullingIncompatibleCandidates += Admission.IncompatibleCandidates;
@@ -312,7 +149,7 @@ namespace Durin
 		if (Options.bEnableGPUCulling)
 		{
 			++Inputs.Telemetry.View.GBuffer.GPUCullingRequestedViews;
-			if (!GPUCullingPlan)
+			if (!bHasGPUCandidates)
 			{
 				++Inputs.Telemetry.View.GBuffer.GPUCullingFallbackViews;
 				if (!Capabilities || !Capabilities->bSupportsIndirectDraw)
@@ -323,99 +160,11 @@ namespace Durin
 						.GPUCullingNoEligibleGroupFallbackViews;
 			}
 		}
-		std::optional<FRDGBufferHandle> VisibleInstances;
-		std::optional<FRDGBufferHandle> InstanceTransforms;
-		std::optional<FRDGBufferHandle> IndirectArguments;
-		const bool bObserveVisibility = IsViewRenderTelemetryObserved();
-		if (GPUCullingPlan)
-		{
-			const uint32 CandidateBytes = static_cast<uint32>(
-				GPUCullingPlan->Candidates.size()
-				* sizeof(FGBufferGPUCullingCandidate));
-			const uint32 VisibleBytes = static_cast<uint32>(
-				GPUCullingPlan->Candidates.size() * sizeof(uint32));
-			const uint32 ArgumentBytes = static_cast<uint32>(
-				GPUCullingPlan->Arguments.size()
-				* sizeof(FRHIDrawIndexedIndirectArguments));
-			const uint32 TransformBytes = static_cast<uint32>(
-				GPUCullingPlan->Transforms.size()
-				* sizeof(RendererPrivate::FStaticMeshTransformUniform));
-			Inputs.Telemetry.View.GBuffer.GPUCullingCandidates +=
-				GPUCullingPlan->Candidates.size();
-			Inputs.Telemetry.View.GBuffer.GPUCullingGroups +=
-				GPUCullingPlan->Arguments.size();
-			Inputs.Telemetry.View.GBuffer.GPUCullingCommands +=
-				GPUCullingPlan->Arguments.size();
-			Inputs.Telemetry.View.GBuffer.GPUCullingBufferBytes +=
-				CandidateBytes + VisibleBytes + ArgumentBytes + TransformBytes;
-			Inputs.Telemetry.View.GBuffer.GPUCullingAsyncComputeEligibleViews +=
-				Options.bEnableAsyncCompute ? 1u : 0u;
-			const auto Candidates = Graph.CreateBuffer({.Buffer = FRHIBufferDesc(
-				CandidateBytes, sizeof(FGBufferGPUCullingCandidate),
-				EBufferUsageFlags::StructuredBuffer
-					| EBufferUsageFlags::UnorderedAccess
-					| EBufferUsageFlags::DestinationCopy),
-				.ObservationTag = static_cast<uint32>(ERDGAllocationObservation::GPUCullingCandidates)},
-				"Scene.GBuffer.GPUCulling.Candidates");
-			VisibleInstances = Graph.CreateBuffer({.Buffer = FRHIBufferDesc(
-				VisibleBytes, sizeof(uint32), EBufferUsageFlags::StructuredBuffer
-					| EBufferUsageFlags::UnorderedAccess
-					| EBufferUsageFlags::DestinationCopy),
-				.ObservationTag = static_cast<uint32>(ERDGAllocationObservation::GPUCullingVisible)},
-				"Scene.GBuffer.GPUCulling.VisibleInstances");
-			InstanceTransforms = Graph.CreateBuffer({.Buffer = FRHIBufferDesc(
-				TransformBytes,
-				sizeof(RendererPrivate::FStaticMeshTransformUniform),
-				EBufferUsageFlags::StructuredBuffer
-					| EBufferUsageFlags::DestinationCopy),
-				.ObservationTag = static_cast<uint32>(ERDGAllocationObservation::GPUCullingTransforms)},
-				"Scene.GBuffer.GPUCulling.InstanceTransforms");
-			IndirectArguments = Graph.CreateBuffer({.Buffer = FRHIBufferDesc(
-				ArgumentBytes, sizeof(uint32), EBufferUsageFlags::UnorderedAccess
-					| EBufferUsageFlags::DrawIndirect
-					| (bObserveVisibility ? EBufferUsageFlags::SourceCopy : EBufferUsageFlags::None)
-					| EBufferUsageFlags::DestinationCopy),
-				.ObservationTag = static_cast<uint32>(ERDGAllocationObservation::GPUCullingArguments)},
-				"Scene.GBuffer.GPUCulling.Arguments");
-			Graph.QueueBufferUpload(Candidates, 0,
-				std::as_bytes(std::span(GPUCullingPlan->Candidates)));
-			Graph.QueueBufferUploadOwned(*VisibleInstances, 0,
-				FByteBuffer(VisibleBytes));
-			Graph.QueueBufferUpload(*InstanceTransforms, 0,
-				std::as_bytes(std::span(GPUCullingPlan->Transforms)));
-			Graph.QueueBufferUpload(*IndirectArguments, 0,
-				std::as_bytes(std::span(GPUCullingPlan->Arguments)));
-			auto CullParameters = Graph.AllocParameters<
-				FGBufferGPUCullingPassParameters>();
-			CullParameters->Candidates = {Candidates, 0, CandidateBytes};
-			CullParameters->VisibleInstances = {*VisibleInstances, 0, VisibleBytes};
-			CullParameters->Arguments = {*IndirectArguments, 0, ArgumentBytes};
-			const auto CullPass = Graph.AddPass("Scene.GBuffer.GPUCulling",
-				ERDGPassType::Compute, std::move(CullParameters),
-				[Plan = GPUCullingPlan, &Renderer = Inputs.Renderer,
-					&Telemetry = Inputs.Telemetry,
-					&View = Inputs.View, &Frustum = Inputs.Receiver.CullingFrustum, Failure = Inputs.Failure](FRHICommandListImmediate& Commands,
-						const FGBufferGPUCullingPassParameters& Parameters,
-						const FRDGParameterResolver& Resolver) {
-					const auto ShaderParameters = Resolver.GetShaderParameters(Parameters);
-					TScopedRendererGPUTimingQuery GPUCullingTiming(
-						Commands, GetGPUCullingTimingQuerySink());
-					Plan->bDispatched = Renderer.DispatchGPUCulling_RenderThread(
-						Commands, View, Frustum, static_cast<uint32>(Plan->Candidates.size()),
-						ShaderParameters, Failure);
-					if (Plan->bDispatched)
-					{
-						GPUCullingTiming.Commit();
-						++Telemetry.View.GBuffer.GPUCullingDispatchedViews;
-					}
-					else
-					{
-						++Telemetry.View.GBuffer.GPUCullingFallbackViews;
-						++Telemetry.View.GBuffer.GPUCullingDispatchFailureViews;
-					}
-				});
-			Graph.SetPassAsyncComputeEligible(CullPass);
-		}
+        const bool bObserveVisibility = IsViewRenderTelemetryObserved();
+        const auto DrawParams = GPUCullingPlan->BuildRenderingCommands(Graph,
+            Inputs.Telemetry.View.GBuffer, Options.bEnableAsyncCompute, bObserveVisibility, Inputs.Failure);
+        const auto& VisibleInstances = DrawParams.InstanceIdOffsetBuffer;
+        const auto& IndirectArguments = DrawParams.DrawIndirectArgsBuffer;
 		auto Parameters = Graph.AllocParameters<FGBufferPassParameters>();
 		Parameters->Completion = {GBufferCompletion};
 		Parameters->GPUScene.Add(Graph, Inputs.Resolved.Receiver.StaticMeshes);
@@ -423,22 +172,18 @@ namespace Durin
 		Parameters->Depth = FRDGDepthStencilAttachmentParameter{
 			.Texture = Inputs.Depth,
 			.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}};
-		if (GPUCullingPlan)
+		if (bHasGPUCandidates)
 		{
 			Parameters->VisibleInstances = FRDGBufferParameter{
 				*VisibleInstances, 0,
 				GPUCullingPlan->Candidates.size() * sizeof(uint32)};
-			Parameters->InstanceTransforms = FRDGBufferParameter{
-				*InstanceTransforms, 0, GPUCullingPlan->Transforms.size()
-					* sizeof(RendererPrivate::FStaticMeshTransformUniform)};
 			Parameters->Arguments = FRDGBufferParameter{
 				*IndirectArguments, 0, GPUCullingPlan->Arguments.size()
 					* sizeof(FRHIDrawIndexedIndirectArguments)};
 		}
 		const auto GBufferPass = Graph.AddPass(GBufferPassName, ERDGPassType::Graphics,
 			std::move(Parameters),
-			[&Renderer = Inputs.Renderer,
-				&StaticMeshes = Inputs.StaticMeshes,
+			[&StaticMeshes = Inputs.StaticMeshes,
 				&Resolved = Inputs.Resolved,
 				&Telemetry = Inputs.Telemetry,
 				&View = Inputs.View, &Receiver = Inputs.Receiver, &Options,
@@ -455,18 +200,16 @@ namespace Durin
 					? Resolver.GetBuffer(*PassParameters.Arguments) : nullptr;
 				FRHIBuffer* VisibleBuffer = PassParameters.VisibleInstances
 					? Resolver.GetBuffer(*PassParameters.VisibleInstances) : nullptr;
-				FRHIBuffer* TransformBuffer = PassParameters.InstanceTransforms
-					? Resolver.GetBuffer(*PassParameters.InstanceTransforms) : nullptr;
 				Resolver.WriteValue(PassParameters.Completion) =
 					RecordGBuffer_RenderThread(
-					Commands, View, Receiver, Resolved, Telemetry, Renderer,
+					Commands, View, Receiver, Resolved, Telemetry,
 					StaticMeshes, SceneDepth,
 					GBufferTargets ? &*GBufferTargets : nullptr,
 					Options, Width, Height,
 					bWantsIsolatedDeferred, GPUCullingPlan, ArgumentBuffer,
-					VisibleBuffer, TransformBuffer);
+					VisibleBuffer);
 			});
-		if (GPUCullingPlan && bObserveVisibility)
+		if (bHasGPUCandidates && bObserveVisibility)
 		{
 			const uint32 Groups = static_cast<uint32>(GPUCullingPlan->Arguments.size());
 			auto Query = std::make_shared<FGPUCullingVisibilityQuery>(
@@ -515,7 +258,6 @@ namespace Durin
 		const FPreparedReceiverGeometry& Receiver,
 		FResolvedSceneResources& ResolvedSceneResources,
 		FSceneRenderTelemetry& Telemetry,
-		FGBufferRenderer& GBufferRenderer,
 		FStaticMeshRenderer& StaticMeshRenderer,
 		FRHITexture* SceneDepth,
 		const FGBufferRenderer::FTargets* GBufferTargets,
@@ -523,10 +265,9 @@ namespace Durin
 		uint32 Width,
 		uint32 Height,
 		bool bWantsIsolatedDeferred,
-		const std::shared_ptr<FGBufferGPUCullingPlan>& GPUCullingPlan,
+		const std::shared_ptr<FInstanceCullingContext>& GPUCullingPlan,
 		FRHIBuffer* IndirectArguments,
-		FRHIBuffer* VisibleInstances,
-		FRHIBuffer* InstanceTransforms
+		FRHIBuffer* VisibleInstances
 	) -> FGBufferPassResult
 	{
 		FGBufferPassResult Result;
@@ -585,17 +326,12 @@ namespace Durin
 				static_cast<float>(RenderView.ViewportHeight)
 			);
 			const FGeometryExecutionResult StaticResult = StaticMeshRenderer.ExecuteGBuffer_RenderThread(
-				CommandList, RenderView, GBufferRenderer,
+				CommandList,
 				Receiver.StaticMeshes,
 				ResolvedSceneResources.Receiver.StaticMeshes,
-				GPUCullingPlan && GPUCullingPlan->bDispatched
-					? &GPUCullingPlan->ArgumentByResolvedDraw : nullptr,
-				GPUCullingPlan && GPUCullingPlan->bDispatched
-					? IndirectArguments : nullptr,
-				GPUCullingPlan && GPUCullingPlan->bDispatched
-					? VisibleInstances : nullptr,
-				GPUCullingPlan && GPUCullingPlan->bDispatched
-					? InstanceTransforms : nullptr
+                GPUCullingPlan.get(),
+                {.InstanceBuffer = GPUCullingPlan->bDispatched ? VisibleInstances : nullptr,
+                    .IndirectArgsBuffer = GPUCullingPlan->bDispatched ? IndirectArguments : nullptr}
 			);
 			if (Options.bEnableGPUCulling)
 			{

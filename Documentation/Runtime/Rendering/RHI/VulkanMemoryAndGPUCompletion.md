@@ -5,6 +5,12 @@ GPU-completion, reuse, destruction, and shutdown contracts.
 
 Modules: RHI, VulkanRHI
 
+Scene-data owners register a successful graph's terminal GPU completion before
+retiring Primitive/Instance allocations. Reuse waits for actual drawing and
+culling reads, including every using queue, rather than only upload completion
+or a CPU generation check. Abandoned or failed graphs supply no successful join.
+See [GPUScene retirement](../Scene/GPUScene.md#retirement-and-recovery).
+
 ## Completion Domains
 
 Context `Finalize()` seals recording and returns a uniquely owned payload; it

@@ -422,14 +422,19 @@ namespace Durin
 		, LocalBounds(Proxy->GetLocalBounds())
 		, WorldBounds(TransformBounds(LocalBounds, Transform))
 	{
-		DrawResources = CreateRenderResource<RendererPrivate::FPrimitiveDrawResources>();
 		if (Scene) for (const auto& Material : Proxy->GetUsedMaterials()) if (Material) Material->AddSceneReference(*Scene);
 	}
 
 	FPrimitiveSceneInfo::~FPrimitiveSceneInfo()
 	{
-		DrawResources->RemoveCachedMeshDrawCommands();
+		if (DrawLists) DrawLists->Detach(*this);
+		DetachFromScene();
+	}
+	auto FPrimitiveSceneInfo::DetachFromScene() -> void
+	{
+		if (DrawLists) DrawLists->Detach(*this);
 		if (Scene) for (const auto& Material : Proxy->GetUsedMaterials()) if (Material) Material->RemoveSceneReference(*Scene);
+		Scene = nullptr; bDetached = true;
 	}
 	auto FPrimitiveSceneInfo::RequestGPUSceneUpdate(EGPUSceneDirtyState Dirty) -> void
 	{
@@ -449,7 +454,7 @@ namespace Durin
 	{
 		if (bNeedsStaticMeshUpdate) return;
 		bNeedsStaticMeshUpdate = true;
-		DrawResources->RemoveCachedMeshDrawCommands();
+		RemoveCachedMeshDrawCommands();
 		if (Scene) Scene->PrimitivesNeedingStaticMeshUpdate.push_back(this);
 		else UpdateStaticMeshes();
 	}
@@ -497,7 +502,7 @@ namespace Durin
 	auto FScene::DetachPrimitive(FPrimitiveSceneInfo& Info) -> void
 	{
 		GPUScene->RemovePrimitive(Info);
-		Info.DrawResources->RemoveCachedMeshDrawCommands();
+		Info.DetachFromScene();
 		std::erase(PrimitivesNeedingStaticMeshUpdate, &Info);
 		std::erase(PrimitiveSceneInfos, &Info);
 
@@ -515,7 +520,7 @@ namespace Durin
 			++HitProxyRevision;
 			CheckRenderingThread();
 			requiref(!PrimitiveInfosById.contains(PrimitiveId), "A primitive scene ID cannot be published twice.");
-			auto Info = std::make_unique<FPrimitiveSceneInfo>(PrimitiveId, SharedProxy, Transform, this);
+			auto Info = std::make_shared<FPrimitiveSceneInfo>(PrimitiveId, SharedProxy, Transform, this);
 			Info->SetVisible(bVisible);
 			GPUScene->AddPrimitive(*Info);
 			FPrimitiveSceneInfo* RawInfo = Info.get();
@@ -595,7 +600,7 @@ namespace Durin
 			{
 				std::vector<uint64> LiveBatches;
 				if (Instances) for (const auto& Instance : *Instances) LiveBatches.push_back(Instance.Id);
-				Found->second->DrawResources->RetainPrimitiveUniformBuffers(LiveBatches);
+				Found->second->RetainPrimitiveUniformBuffers(LiveBatches);
 				static_cast<FStaticMeshSceneProxy&>(Found->second->GetProxy()).SetRenderInstances(Instances);
 				Found->second->RefreshBounds();
 				Found->second->RequestGPUSceneUpdate(EGPUSceneDirtyState::InstanceData);
@@ -650,7 +655,7 @@ namespace Durin
 		for (auto* Primitive : PrimitiveSceneInfos)
 		{
 			GPUScene->RemovePrimitive(*Primitive);
-			Primitive->DrawResources->RemoveCachedMeshDrawCommands();
+			Primitive->DetachFromScene();
 		}
 		PrimitiveSceneInfos.clear();
 		PrimitiveInfosById.clear();

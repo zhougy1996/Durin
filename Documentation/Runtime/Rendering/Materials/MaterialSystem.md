@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-11-12
+Last reviewed: 2026-11-13
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -350,14 +350,17 @@ indexed numeric variation without separate material owners.
 Their World positions follow [camera relative rendering](../Scene/CameraRelativeRendering.md#material-positions).
 Set 0 binding 0 is `MaterialView`: material time and flags, camera world position,
 viewport origin/size and reciprocal size, plus World-to-View and View-to-World.
-Set 1 binding 0 is `MaterialPrimitive`: Local-to-World, Normal-to-World,
-World-to-Local, primitive bounds center, transform flags, split world origin,
-and Primitive/Instance custom channels. World-to-Clip belongs to `MaterialView`.
-Forward, GBuffer, masked shadow, hit proxy, preview, and thumbnail populate the
-same ABI from their active view and prepared primitive. StaticMesh and SplineMesh
+Built-in geometry obtains Local-to-World, Normal-to-World, World-to-Local,
+bounds, transform flags, split origin and custom channels from selected
+[GPUScene records](../Scene/GPUScene.md#shader-access-and-submission). Set 0
+storage bindings 27/28/29/31 carry Primitive, Instance, payload and selected IDs.
+Fragments needing object-space values use the selected Instance ID as well.
+Set 1 binding 0 `MaterialPrimitive` remains the explicit unsupported-factory
+uniform fallback. World-to-Clip belongs to `MaterialView`. Forward, GBuffer,
+masked shadow, hit proxy, preview and thumbnail share these access semantics. StaticMesh and SplineMesh
 publish their post-factory tangent basis. Reflection is reachability exact, so
 programs that do not consume a field or block do not bind it, and opaque shadow
-remains resource-free.
+fragments require no surface-material resources.
 
 Base materials also persist bounded `EditorOnly` graph presentation containing
 one integral position per live node GUID and an optional integral position for

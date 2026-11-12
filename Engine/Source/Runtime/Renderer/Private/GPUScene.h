@@ -33,6 +33,23 @@ namespace Durin
 		uint64 GPUSceneResourceGeneration = 0;
 	};
 
+    // Cumulative admitted uploads plus current native capacity. Failed/abandoned
+    // transactions do not increase committed counters; capacity is not traffic.
+    struct FGPUSceneStatistics
+    {
+        uint64 UploadBytes = 0;
+        uint64 UploadRanges = 0;
+        uint64 BufferRebuilds = 0;
+        uint64 CapacityBytes = 0;
+        uint64 MirrorCapacityBytes = 0;
+    };
+
+	struct FGPUSceneDynamicAllocation
+	{
+		uint64 Id = 0;
+		uint32 PrimitiveOffset = 0, InstanceOffset = 0, Count = 0;
+	};
+
 	struct FGPUSceneUpdate;
 	struct FGPUSceneUpdateResult
 	{
@@ -47,11 +64,15 @@ namespace Durin
 	};
 
 	// Scene-owned source state survives ReleaseRHI; only committed GPU state is reset.
-	class FGPUScene final : public FRenderResource
+	class FGPUScene final : public FRenderResource, public std::enable_shared_from_this<FGPUScene>
 	{
 	public:
 		RENDERER_API FGPUScene();
 		RENDERER_API ~FGPUScene() override;
+		RENDERER_API auto AllocateDynamicPrimitiveRange(uint32 Count) -> FGPUSceneDynamicAllocation;
+		RENDERER_API auto WriteDynamicPrimitive(const FGPUSceneDynamicAllocation& Allocation, uint32 Index,
+			const FMatrix& Transform, const FBox& Bounds, const FPrimitiveCustomData& PrimitiveData, const FPrimitiveCustomData& InstanceData) -> bool;
+		RENDERER_API auto ReleaseDynamicPrimitiveRange(const FGPUSceneDynamicAllocation& Allocation) -> void;
 		RENDERER_API auto AddPrimitive(FPrimitiveSceneInfo& Info) -> void;
 		RENDERER_API auto RemovePrimitive(FPrimitiveSceneInfo& Info) -> void;
 		RENDERER_API auto RequestUpdate(FGPUScenePrimitiveHandle Handle, EGPUSceneDirtyState Dirty) -> bool;
@@ -61,6 +82,7 @@ namespace Durin
 		// never acknowledge dirty data. Dropping a result also leaves it pending.
 		RENDERER_API auto CompleteUpdate(const FRDGBuilder& GraphBuilder, const FGPUSceneUpdateResult& Result) -> bool;
 		RENDERER_API auto ReleaseRHI() -> void override;
+        RENDERER_API auto GetStatistics() const -> FGPUSceneStatistics;
 		auto GetFriendlyName() const -> std::string override { return "GPUScene"; }
 		RENDERER_API auto GetPrimitiveSceneData() const -> std::span<const FPrimitiveSceneShaderData>;
 		RENDERER_API auto GetInstanceSceneData() const -> std::span<const FInstanceSceneShaderData>;

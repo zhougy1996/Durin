@@ -4,7 +4,7 @@ Summary: Defines the selected three-cascade directional-light shadow path, deter
 
 Modules: RenderCore, Renderer, Engine, VulkanRHI
 
-Last reviewed: 2026-11-11
+Last reviewed: 2026-11-13
 
 ## Ownership and selection
 
@@ -94,6 +94,14 @@ opacity-mask rejection without declaring a color output. All shaders, PSOs,
 samplers, material resources,
 geometry bindings, height resources, and palette ranges are prepared before
 the pass begins.
+
+Built-in shadow vertices read shared GPUScene records; each cascade supplies
+its view, selected ID range and raster bias. Dirty attributes update once at the
+ordered scene boundary, rather than once per cascade. Consecutive compatible
+Local opaque/masked commands use pass-local CPU ID runs; Spline and capability
+fallbacks retain independent submission. This shares preparation and command
+state without caching shadow-map contents. Legacy primitive-uniform counters
+measure unsupported-factory transport only; they do not measure scene updates.
 
 ## Filter tiers and forward sampling
 

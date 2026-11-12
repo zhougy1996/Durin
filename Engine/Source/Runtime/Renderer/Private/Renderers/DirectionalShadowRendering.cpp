@@ -224,7 +224,7 @@ namespace Durin::RendererPrivate
 			{ return BuildMeshDrawCommands(Batch, Input, Cache, Context, std::move(Existing)); }
 			auto GetPass() const -> EMeshPipelinePass override { return EMeshPipelinePass::ShadowDepth; }
 			auto IsEnabled(const FSceneRenderPreparationConfig&) const -> bool override { return true; }
-			auto GetVertexFactoryPass(bool) const -> uint32 override { return MaterialMeshPassShadow; }
+			auto GetVertexFactoryPass() const -> uint32 override { return MaterialMeshPassShadow; }
 			auto GetFragmentShader(FMaterialShaderBlendModeKey Blend) const -> FMeshPassFragmentShader override
 			{
 				if (Blend == EMaterialBlendMode::Masked) return FragmentShader<FSurfaceMaskedShadowFragmentShader>();

@@ -57,7 +57,7 @@ TEST(FRendererSceneContractTests, MeshPassProcessorsExposeUECollectorArgumentsAn
 	EXPECT_NE(Shadow.GetFragmentShader(EMaterialBlendMode::Opaque).Type, Shadow.GetFragmentShader(EMaterialBlendMode::Masked).Type);
 	EXPECT_NE(Shadow.GetFragmentShader(EMaterialBlendMode::Masked).Type,
 		FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::Forward).GetFragmentShader(EMaterialBlendMode::Masked).Type);
-	EXPECT_EQ(FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::GBuffer).GetVertexFactoryPass(true), MaterialMeshPassGBufferGPUCulling);
+	EXPECT_EQ(FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::GBuffer).GetVertexFactoryPass(), MaterialMeshPassGBuffer);
 }
 
 TEST(FRendererSceneContractTests, MeshPassCollectorsCoverEffectiveDrawRasterStates)
@@ -205,7 +205,7 @@ TEST(FRendererSceneContractTests, CachedAndDynamicMeshContextsRejectUnpreparedPa
         const FMeshPassProcessorBatch Batch{Description->Material.PlanningPassIdentity, *Factory,
             {Description->PipelineKey.Rasterizer, Description->PipelineKey.Depth, Description->PipelineKey.ColorBlend}, Description->PipelineKey.Topology, {}};
         const auto& Processor = FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::Forward);
-        auto Source = CreateRenderResource<FPrimitiveDrawResources>();
+        auto Source = std::make_shared<FPrimitiveSceneInfo>(FPrimitiveComponentId(1), std::make_shared<FStaticMeshSceneProxy>(nullptr, std::vector<FMaterialRenderProxyRef>{}), FMatrix(1.0));
         std::shared_ptr<const FMeshDrawCommand> Published = std::make_shared<FMeshDrawCommand>();
         const auto* Original = Published.get();
         FCachedMeshDrawCommandStorage Persistent;
@@ -217,6 +217,19 @@ TEST(FRendererSceneContractTests, CachedAndDynamicMeshContextsRejectUnpreparedPa
         EXPECT_EQ(DynamicResult.Status, EShaderBuildStatus::Error); EXPECT_FALSE(DynamicReceipt); EXPECT_EQ(Frame.Num({EMeshPipelinePass::Forward}), 0u);
     });
     FlushRenderingCommands();
+}
+
+namespace
+{
+    auto BuildTestInstanceCullingPlan(const Durin::FPreparedStaticMeshView& Prepared, const Durin::FResolvedStaticMeshView& Resolved,
+        const Durin::FSceneView& View, bool Requested, bool Supported, size_t* Overflow = nullptr,
+        size_t Budget = Durin::FInstanceCullingContext::MaximumGeneratedBytes,
+        Durin::FInstanceCullingAdmissionDiagnostics* Diagnostics = nullptr) -> std::shared_ptr<Durin::FInstanceCullingContext>
+    {
+        auto Snapshot = std::make_shared<const Durin::FInstanceCullingView>(Durin::FInstanceCullingView{View.ViewLocation, {}});
+        auto Context = std::make_shared<Durin::FInstanceCullingContext>(Snapshot, Durin::RendererPrivate::FMeshPassKey{Durin::RendererPrivate::EMeshPipelinePass::GBuffer});
+        return Context->SetupDrawCommands(Durin::RendererPrivate::CollectMeshDrawCommands(Prepared, Resolved, {Durin::RendererPrivate::EMeshPipelinePass::GBuffer}, false), Requested, Supported, Overflow, Budget, Diagnostics) ? Context : nullptr;
+    }
 }
 
 TEST(FRendererSceneContractTests, GBufferGPUCullingPlanIsOptInAndPreservesIndexedArguments)
@@ -242,19 +255,28 @@ TEST(FRendererSceneContractTests, GBufferGPUCullingPlanIsOptInAndPreservesIndexe
 	const auto FragmentShader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Fragment, FXxHash128{}));
 	GPUCommand->FragmentBindings.Shader = FragmentShader.GetReference();
 	auto Pipeline = std::make_shared<RendererPrivate::FMeshPassPipeline>();
-	Pipeline->Pass = RendererPrivate::EMeshPipelinePass::GBuffer; Pipeline->bGPUCulling = true;
-	GPUCommand->Pipeline = Pipeline.get(); GPUCommand->bFinalized = true;
+	Pipeline->Pass = RendererPrivate::EMeshPipelinePass::GBuffer;
+	class FDeclaration final : public FRHIVertexDeclaration {
+        FVertexDeclarationElementList Elements;
+        auto GetElements() const -> const FVertexDeclarationElementList& override { return Elements; }
+    };
+    Pipeline->VertexDeclaration = new FDeclaration;
+    const auto IndexBuffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create("CullingIndices", 256, 4, EBufferUsageFlags::IndexBuffer));
+    GPUCommand->IndexBuffer = IndexBuffer; GPUCommand->DrawParameters = Command->Geometry.GetIndexedDrawArguments();
+    GPUCommand->Pipeline = Pipeline.get(); GPUCommand->bFinalized = true;
 	Resolved.DrawCommandStorage = std::make_shared<RendererPrivate::FDynamicMeshDrawCommandStorage>();
 	Resolved.Draws[0].Commands[Pipeline->GetPassKey()] = Resolved.DrawCommandStorage->Publish(Pipeline->GetPassKey(), std::move(*GPUCommand));
-	Prepared.Primitives[0].CollectedBinding =
-		std::shared_ptr<const FVertexFactoryInputBinding>(
-			reinterpret_cast<const FVertexFactoryInputBinding*>(uintptr_t{3}),
-			[](const FVertexFactoryInputBinding*) {});
+	Prepared.Primitives[0].CollectedBinding = std::make_shared<FStaticMeshBatchBinding>();
+
+    auto SceneData = std::make_shared<FGPUSceneBufferSet>();
+    SceneData->SceneData[1] = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create("CullingSceneInstances",
+        64 * sizeof(FInstanceSceneShaderData), 16, EBufferUsageFlags::StructuredBuffer));
+    Resolved.GPUScenePrimitives.push_back({SceneData, 0, 0});
 	FSceneView View;
-	EXPECT_FALSE(BuildGBufferGPUCullingPlan(
+	EXPECT_FALSE(BuildTestInstanceCullingPlan(
 		Prepared, Resolved, View, true, true));
 	for (size_t Index = 1;
-		Index < FGBufferGPUCullingPlan::MinimumGroupCandidates; ++Index)
+		Index < FInstanceCullingContext::MinimumGroupCandidates; ++Index)
 	{
 		Prepared.Primitives.push_back(Prepared.Primitives[0]);
 		Prepared.Primitives.back().WorldBounds = FBox(
@@ -264,57 +286,84 @@ TEST(FRendererSceneContractTests, GBufferGPUCullingPlanIsOptInAndPreservesIndexe
 			.ResolvedIndex = static_cast<uint32>(Index),
 			.PrimitiveIndex = static_cast<uint32>(Index)});
 		Resolved.Draws.push_back(Resolved.Draws[0]);
+        Resolved.GPUScenePrimitives.push_back({SceneData, static_cast<uint32>(Index), static_cast<uint32>(Index)});
 	}
-	EXPECT_FALSE(BuildGBufferGPUCullingPlan(
+	EXPECT_FALSE(BuildTestInstanceCullingPlan(
 		Prepared, Resolved, View, false, true));
-	EXPECT_FALSE(BuildGBufferGPUCullingPlan(
+	EXPECT_FALSE(BuildTestInstanceCullingPlan(
 		Prepared, Resolved, View, true, false));
-	const auto Plan = BuildGBufferGPUCullingPlan(
+	const auto Plan = BuildTestInstanceCullingPlan(
 		Prepared, Resolved, View, true, true);
 	ASSERT_TRUE(Plan);
 	ASSERT_EQ(Plan->Candidates.size(),
-		FGBufferGPUCullingPlan::MinimumGroupCandidates);
+		FInstanceCullingContext::MinimumGroupCandidates);
 	ASSERT_EQ(Plan->Arguments.size(), 1u);
-	ASSERT_EQ(Plan->Transforms.size(),
-		FGBufferGPUCullingPlan::MinimumGroupCandidates);
 	EXPECT_EQ(Plan->Arguments[0].IndexCount, 36u);
 	EXPECT_EQ(Plan->Arguments[0].InstanceCount, 0u);
 	EXPECT_EQ(Plan->Arguments[0].FirstIndex, 7u);
 	EXPECT_EQ(Plan->Arguments[0].VertexOffset, -2);
 	ASSERT_EQ(Plan->ArgumentByResolvedDraw.size(),
-		FGBufferGPUCullingPlan::MinimumGroupCandidates);
+		FInstanceCullingContext::MinimumGroupCandidates);
 	EXPECT_EQ(Plan->ArgumentByResolvedDraw.front(), 0u);
 	EXPECT_TRUE(std::all_of(Plan->ArgumentByResolvedDraw.begin() + 1,
 		Plan->ArgumentByResolvedDraw.end(), [](uint32 Value) {
-			return Value == FGBufferGPUCullingPlan::GroupedMember;
+			return Value == FInstanceCullingContext::GroupedMember;
 		}));
-	EXPECT_FLOAT_EQ(Plan->Candidates[0].BoundsMin.x, -2.0f);
-	EXPECT_EQ(Plan->Candidates[0].ArgumentIndex, 0u);
-	EXPECT_FLOAT_EQ(Plan->Transforms[0].WorldToLocal[0][0], 2.0f);
-	EXPECT_FLOAT_EQ(Plan->Transforms[0].BoundsCenter.x, 3.0f);
-	EXPECT_FLOAT_EQ(Plan->Transforms[0].BoundsCenter.y, 4.0f);
-	EXPECT_FLOAT_EQ(Plan->Transforms[0].BoundsCenter.z, 5.0f);
-	EXPECT_FLOAT_EQ(Plan->Transforms[0].BoundsCenter.w, 1.0f);
-
-	constexpr size_t PerCandidateBytes = sizeof(FGBufferGPUCullingCandidate) + sizeof(uint32)
-		+ sizeof(RendererPrivate::FStaticMeshTransformUniform);
+    EXPECT_EQ(Plan->Candidates[0].InstanceId, 0u);
+    EXPECT_EQ(Plan->Candidates[0].ArgumentIndex, 0u);
+    EXPECT_EQ(Plan->Candidates.back().InstanceId, 63u);
+    // Equivalent independent wrappers must group by effective state. Preserve
+    // prepared order: an incompatible middle draw splits the run.
+    {
+        auto Visible = RendererPrivate::CollectMeshDrawCommands(Prepared, Resolved, Pipeline->GetPassKey(), false);
+        std::vector<RendererPrivate::FMeshDrawCommand> Commands(Visible.size(), *Visible.front().Command);
+        std::vector<RendererPrivate::FMeshPassPipeline> Pipelines(Visible.size(), *Pipeline);
+        std::vector<RendererPrivate::FMeshPassBindings> Bindings(Visible.size(), *Visible.front().Pass);
+        for (size_t Index = 0; Index < Visible.size(); ++Index) {
+            Pipelines[Index].VertexDeclaration = new FDeclaration;
+            Commands[Index].Pipeline = &Pipelines[Index]; Visible[Index].Command = &Commands[Index];
+            Visible[Index].Pass = &Bindings[Index];
+            Visible[Index].SceneData.Buffers = std::make_shared<FGPUSceneBufferSet>(*Visible[Index].SceneData.Buffers);
+        }
+        FInstanceCullingManager Manager;
+        auto Context = Manager.CreateContext(Manager.RegisterView(View), Pipeline->GetPassKey());
+        EXPECT_TRUE(Context->SetupDrawCommands(Visible, true, true));
+        EXPECT_EQ(Context->Arguments.size(), 1u); EXPECT_EQ(Context->Candidates.size(), 64u);
+        Visible[32].DepthBias[0] = 1.f;
+        EXPECT_FALSE(Context->SetupDrawCommands(Visible, true, true)); EXPECT_TRUE(Context->Candidates.empty());
+        Visible[32].DepthBias[0] = 0.f; Bindings[32].Fragment.Shader = FragmentShader;
+        EXPECT_FALSE(Context->SetupDrawCommands(Visible, true, true));
+        Bindings[32].Fragment.Shader = nullptr;
+        Visible.push_back(Visible.back()); Visible.back().bSupportsInstanceCulling = false;
+        EXPECT_TRUE(Context->SetupDrawCommands(Visible, true, true));
+        FResolvedStaticMeshView Partition;
+        Partition.DynamicInstancingGroups.push_back({Pipeline->GetPassKey(), {0, 64}, true});
+        Context->bDispatched = true; Context->PrepareForSubmission(Partition);
+        EXPECT_FALSE(Partition.DynamicInstancingGroups[0].bEnabled);
+        Context->bDispatched = false; Context->PrepareForSubmission(Partition);
+        EXPECT_TRUE(Partition.DynamicInstancingGroups[0].bEnabled);
+    }
+    constexpr size_t PerCandidateBytes = sizeof(FInstanceCullingCandidate) + sizeof(uint32);
 	const size_t ExactBudget = Plan->Candidates.size() * PerCandidateBytes + sizeof(FRHIDrawIndexedIndirectArguments);
 	size_t Overflow = 0;
-	FGPUCullingAdmissionDiagnostics Admission;
-	EXPECT_TRUE(BuildGBufferGPUCullingPlan(Prepared, Resolved, View, true, true, &Overflow, ExactBudget, &Admission));
+	FInstanceCullingAdmissionDiagnostics Admission;
+	EXPECT_TRUE(BuildTestInstanceCullingPlan(Prepared, Resolved, View, true, true, &Overflow, ExactBudget, &Admission));
 	EXPECT_EQ(Overflow, 0u);
 	EXPECT_EQ(Admission.BelowThresholdCandidates, 0u);
-	EXPECT_FALSE(BuildGBufferGPUCullingPlan(Prepared, Resolved, View, true, true, &Overflow, ExactBudget - 1));
+	EXPECT_FALSE(BuildTestInstanceCullingPlan(Prepared, Resolved, View, true, true, &Overflow, ExactBudget - 1));
 	EXPECT_EQ(Overflow, 64u);
-	EXPECT_FALSE(BuildGBufferGPUCullingPlan(Prepared, Resolved, View, true, true, &Overflow, 0));
+	EXPECT_FALSE(BuildTestInstanceCullingPlan(Prepared, Resolved, View, true, true, &Overflow, 0));
 	EXPECT_EQ(Overflow, 64u);
 	{
 		auto ManyPrepared = Prepared;
 		auto ManyResolved = Resolved;
-		const size_t MaximumGroups = FGBufferGPUCullingPlan::MaximumGeneratedBytes / ExactBudget;
+		const size_t MaximumGroups = std::min(FInstanceCullingContext::MaximumGeneratedBytes / ExactBudget, FInstanceCullingContext::MaximumCandidates / 64);
 		for (size_t Group = 1; Group <= MaximumGroups; ++Group)
 		{
 			auto GroupCommand = std::make_shared<FMeshDrawDescription>(*Command);
+            auto GroupDraw = *Resolved.DrawCommandStorage->GetCommand(Resolved.Draws[0].Commands.at(Pipeline->GetPassKey()));
+            std::get<FRHIDrawIndexedArguments>(GroupDraw.DrawParameters).FirstIndex += static_cast<uint32>(Group);
+            const auto GroupReceipt = Resolved.DrawCommandStorage->Publish(Pipeline->GetPassKey(), std::move(GroupDraw));
 			for (uint32 Index = 0; Index < 64; ++Index)
 			{
 				auto Draw = Prepared.Opaque[Index];
@@ -322,9 +371,10 @@ TEST(FRendererSceneContractTests, GBufferGPUCullingPlanIsOptInAndPreservesIndexe
 				Draw.ResolvedIndex = static_cast<uint32>(ManyResolved.Draws.size());
 				ManyPrepared.Opaque.push_back(Draw);
 				ManyResolved.Draws.push_back(Resolved.Draws[Index]);
+                ManyResolved.Draws.back().Commands[Pipeline->GetPassKey()] = GroupReceipt;
 			}
 		}
-		const auto ManyPlan = BuildGBufferGPUCullingPlan(ManyPrepared, ManyResolved, View, true, true, &Overflow);
+		const auto ManyPlan = BuildTestInstanceCullingPlan(ManyPrepared, ManyResolved, View, true, true, &Overflow);
 		ASSERT_TRUE(ManyPlan);
 		ASSERT_EQ(ManyPlan->Arguments.size(), MaximumGroups);
 		EXPECT_EQ(Overflow, 64u);
@@ -337,16 +387,32 @@ TEST(FRendererSceneContractTests, GBufferGPUCullingPlanIsOptInAndPreservesIndexe
 	{
 		auto Small = Prepared;
 		Small.Opaque.pop_back();
-		EXPECT_FALSE(BuildGBufferGPUCullingPlan(Small, Resolved, View, true, true, nullptr,
-			FGBufferGPUCullingPlan::MaximumGeneratedBytes, &Admission));
+		EXPECT_FALSE(BuildTestInstanceCullingPlan(Small, Resolved, View, true, true, nullptr,
+			FInstanceCullingContext::MaximumGeneratedBytes, &Admission));
 		EXPECT_EQ(Admission.BelowThresholdCandidates, 63u);
 		Small.Opaque.clear();
-		EXPECT_FALSE(BuildGBufferGPUCullingPlan(Small, Resolved, View, true, true));
+		EXPECT_FALSE(BuildTestInstanceCullingPlan(Small, Resolved, View, true, true));
 	}
+
+    {
+        auto Invalid = Resolved;
+        Invalid.GPUScenePrimitives[0].InstanceId = 64;
+        EXPECT_FALSE(BuildTestInstanceCullingPlan(Prepared, Invalid, View, true, true, nullptr,
+            FInstanceCullingContext::MaximumGeneratedBytes, &Admission));
+        EXPECT_EQ(Admission.PreparationUnavailableCandidates, 1u);
+        EXPECT_EQ(Admission.BelowThresholdCandidates, 63u);
+        auto InstanceInput = std::make_shared<FStaticMeshBatchBinding>();
+        InstanceInput->DeclarationElements[0].InputRate = FRHIVertexElementIdentity::EInputRate::Instance;
+        auto Unsupported = Prepared;
+        for (auto& Primitive : Unsupported.Primitives) Primitive.CollectedBinding = InstanceInput;
+        EXPECT_FALSE(BuildTestInstanceCullingPlan(Unsupported, Resolved, View, true, true, nullptr,
+            FInstanceCullingContext::MaximumGeneratedBytes, &Admission));
+        EXPECT_EQ(Admission.IncompatibleCandidates, 64u);
+    }
 
 	for (auto& Primitive : Prepared.Primitives)
 		Primitive.VertexDomain = EVertexDeformationDomain::Spline;
-	EXPECT_FALSE(BuildGBufferGPUCullingPlan(
+	EXPECT_FALSE(BuildTestInstanceCullingPlan(
 		Prepared, Resolved, View, true, true));
 	// Translating the whole scene by a huge origin must not collapse GPU bounds.
 	View.ViewLocation = FVector3{1099511627776.0, -1099511627776.0, 1099511627776.0};
@@ -360,14 +426,12 @@ TEST(FRendererSceneContractTests, GBufferGPUCullingPlanIsOptInAndPreservesIndexe
 		Primitive.LocalToWorld = Math::TranslationMatrix(View.ViewLocation) * Primitive.LocalToWorld;
 		Primitive.WorldToLocal = Primitive.WorldToLocal * Math::TranslationMatrix(-View.ViewLocation);
 	}
-	const auto TranslatedPlan = BuildGBufferGPUCullingPlan(Prepared, Resolved, View, true, true);
+	const auto TranslatedPlan = BuildTestInstanceCullingPlan(Prepared, Resolved, View, true, true);
 	ASSERT_TRUE(TranslatedPlan);
 	ASSERT_EQ(TranslatedPlan->Candidates.size(), Plan->Candidates.size());
 	for (size_t Index = 0; Index < Plan->Candidates.size(); ++Index)
 	{
-		EXPECT_EQ(TranslatedPlan->Candidates[Index].BoundsMin, Plan->Candidates[Index].BoundsMin);
-		EXPECT_EQ(TranslatedPlan->Candidates[Index].BoundsMax, Plan->Candidates[Index].BoundsMax);
-		EXPECT_EQ(TranslatedPlan->Transforms[Index].LocalToWorld, Plan->Transforms[Index].LocalToWorld);
+		EXPECT_EQ(TranslatedPlan->Candidates[Index].InstanceId, Plan->Candidates[Index].InstanceId);
 	}
 
 }
@@ -419,7 +483,7 @@ namespace
         Durin::RendererPrivate::FMeshPassPipeline Pipeline;
         Durin::FMeshDrawDescription Description;
         explicit FStoredCommandSource(Durin::RendererPrivate::FMeshPassKey Pass)
-        { Pipeline.Pass = Pass.Pass; Pipeline.bGPUCulling = Pass.bGPUCulling; }
+        { Pipeline.Pass = Pass.Pass; }
         auto Key(uint64 Batch) const -> Durin::RendererPrivate::FCachedMeshDrawCommandStorage::FKey
         { return Durin::RendererPrivate::FCachedMeshDrawCommandStorage::MakeKey(&Description, Durin::InvalidPrimitiveComponentId, Batch, Pipeline); }
         auto MakeCommand(uint64, bool Cached) const -> Durin::RendererPrivate::FMeshDrawCommand
@@ -450,7 +514,7 @@ TEST(FRendererSceneContractTests, CachedPassStorageRetainsLiveCommandsUntilSourc
     const FMeshPassKey Pass{EMeshPipelinePass::Forward};
     FStoredCommandSource DrawSource(Pass);
     FCachedMeshDrawCommandStorage Storage;
-    auto Source = CreateRenderResource<FPrimitiveDrawResources>();
+    auto Source = std::make_shared<FPrimitiveSceneInfo>(FPrimitiveComponentId(1), std::make_shared<FStaticMeshSceneProxy>(nullptr, std::vector<FMaterialRenderProxyRef>{}), FMatrix(1.0));
     const auto Held = Storage.Publish(DrawSource.Key(1), DrawSource.MakeCommand(1, true), *Source);
     const auto Key = DrawSource.Key(1);
     for (uint64 I = 0; I < 2050; ++I) Storage.Publish(DrawSource.Key(I + 2), DrawSource.MakeCommand(I + 2, true), *Source);
@@ -463,7 +527,7 @@ TEST(FRendererSceneContractTests, VisibleCommandMemoryDoesNotKeepSourceResources
 {
     using namespace Durin; using namespace RendererPrivate;
     FCachedMeshDrawCommandStorage Cache;
-    auto Source = CreateRenderResource<FPrimitiveDrawResources>();
+    auto Source = std::make_shared<FPrimitiveSceneInfo>(FPrimitiveComponentId(1), std::make_shared<FStaticMeshSceneProxy>(nullptr, std::vector<FMaterialRenderProxyRef>{}), FMatrix(1.0));
     const FMeshPassKey Pass{EMeshPipelinePass::Forward};
     FStoredCommandSource DrawSource(Pass);
     auto Command = Cache.Publish(DrawSource.Key(41), DrawSource.MakeCommand(41, true), *Source);
@@ -471,7 +535,7 @@ TEST(FRendererSceneContractTests, VisibleCommandMemoryDoesNotKeepSourceResources
     FDynamicMeshDrawCommandStorage Submission;
     const auto Receipt = Submission.PublishVisible(Command, Cache.FindInfo(DrawSource.Key(41), *Source), Bindings, {1, 2, 3});
     const auto* Borrowed = Submission.GetVisible(Receipt); ASSERT_TRUE(Borrowed);
-    std::weak_ptr<FPrimitiveDrawResources> Life = Source;
+    std::weak_ptr<FPrimitiveSceneInfo> Life = Source;
     Cache.Reset(); Command.reset(); Source.reset();
     EXPECT_TRUE(Life.expired());
     EXPECT_FALSE(Submission.GetVisible(Receipt));
@@ -481,20 +545,20 @@ TEST(FRendererSceneContractTests, CachedCommandCannotReviveAReleasedSource)
 {
     using namespace Durin; using namespace RendererPrivate;
     FCachedMeshDrawCommandStorage Cache;
-    auto Source = CreateRenderResource<FPrimitiveDrawResources>();
+    auto Source = std::make_shared<FPrimitiveSceneInfo>(FPrimitiveComponentId(1), std::make_shared<FStaticMeshSceneProxy>(nullptr, std::vector<FMaterialRenderProxyRef>{}), FMatrix(1.0));
     const FMeshPassKey Pass{EMeshPipelinePass::Forward};
     FStoredCommandSource DrawSource(Pass);
     const auto Command = Cache.Publish(DrawSource.Key(13), DrawSource.MakeCommand(13, true), *Source);
     const auto Key = DrawSource.Key(13);
     ASSERT_TRUE(Cache.Find(Key, *Source));
-    Source->ReleaseRHI();
+    Source->RemoveCachedMeshDrawCommands();
     EXPECT_EQ(Cache.Num(), 0u); EXPECT_FALSE(Cache.Find(Key, *Source));
 }
 TEST(FRendererSceneContractTests, ResourceSlotEvictionDoesNotInvalidateUnrelatedSceneCommands)
 {
     using namespace Durin; using namespace RendererPrivate;
     FCachedMeshDrawCommandStorage Cache;
-    auto Source = CreateRenderResource<FPrimitiveDrawResources>();
+    auto Source = std::make_shared<FPrimitiveSceneInfo>(FPrimitiveComponentId(1), std::make_shared<FStaticMeshSceneProxy>(nullptr, std::vector<FMaterialRenderProxyRef>{}), FMatrix(1.0));
     const FMeshPassKey Pass{EMeshPipelinePass::Forward};
     FStoredCommandSource DrawSource(Pass);
     TRendererResourceSlotCache<int, int> Slots;
@@ -514,7 +578,7 @@ TEST(FRendererSceneContractTests, RemovingASourceUniformSlotInvalidatesItsCached
     using namespace Durin; using namespace RendererPrivate;
     FMeshPassRenderingThreadScope RenderingThread;
     EnqueueRenderCommand("RemoveSourceUniformSlot", [](FRHICommandListImmediate& Commands) {
-        auto Source = CreateRenderResource<FPrimitiveDrawResources>();
+        auto Source = std::make_shared<FPrimitiveSceneInfo>(FPrimitiveComponentId(1), std::make_shared<FStaticMeshSceneProxy>(nullptr, std::vector<FMaterialRenderProxyRef>{}), FMatrix(1.0));
         auto& Uniform = Source->GetPrimitiveUniformBuffer(45);
         ASSERT_TRUE(Uniform.Update(Commands, FByteBuffer(16)));
         const TRefCountPtr<FRHIResource> ObservedBuffer(Uniform.GetRange().Buffer);
@@ -562,13 +626,41 @@ TEST(FRendererSceneContractTests, ShaderBindingsRecordOnlyChangedSlotsAndRespect
     EXPECT_EQ(Commands.GetNumRecordedCommands(), Before + 5);
 }
 
+TEST(FRendererSceneContractTests, InstanceBindingOverridesPreserveSourcesAndRestoreCachedRanges)
+{
+    using namespace Durin; using namespace RendererPrivate;
+    FRHICommandList Commands; Commands.SwitchPipeline(ERHIPipeline::Graphics);
+    const auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Vertex, FXxHash128{}));
+    const auto A = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create("OriginalIds", 64, 4, EBufferUsageFlags::StructuredBuffer));
+    const auto B = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create("OverrideIds", 96, 4, EBufferUsageFlags::StructuredBuffer));
+    FMeshDrawShaderBindings Bindings; Bindings.Shader = Shader;
+    Bindings.Parameters = {{A.GetReference(), 0, 31, 0, ERHIBindingType::StorageBuffer, 0, 64}};
+    FShaderBindingState State;
+    const auto Before = Commands.GetNumRecordedCommands();
+    ASSERT_TRUE(Bindings.SetOnCommandList(Commands, State));
+    ASSERT_TRUE(Bindings.SetOnCommandList(Commands, State, B, 16));
+    ASSERT_EQ(State.Parameters.size(), 1u);
+    EXPECT_EQ(State.Parameters[0].Resource, B.GetReference());
+    EXPECT_EQ(State.Parameters[0].Offset, 16u); EXPECT_EQ(State.Parameters[0].Size, 80u);
+    EXPECT_EQ(Bindings.Parameters[0].Resource, A.GetReference());
+    EXPECT_EQ(Bindings.Parameters[0].Offset, 0u); EXPECT_EQ(Bindings.Parameters[0].Size, 64u);
+    Bindings.SetOnCommandList(Commands, State, B, 16);
+    EXPECT_EQ(Commands.GetNumRecordedCommands(), Before + 2);
+    EXPECT_FALSE(Bindings.SetOnCommandList(Commands, State, B, 97));
+    EXPECT_FALSE(Bindings.SetOnCommandList(Commands, State, B, 1));
+    ASSERT_TRUE(Bindings.SetOnCommandList(Commands, State));
+    EXPECT_EQ(Commands.GetNumRecordedCommands(), Before + 3);
+    EXPECT_EQ(State.Parameters[0].Resource, A.GetReference());
+    EXPECT_EQ(State.Parameters[0].Offset, 0u); EXPECT_EQ(State.Parameters[0].Size, 64u);
+}
+
 TEST(FRendererSceneContractTests, SourceInvalidationRetiresOnlyItsPreparedHandles)
 {
     using namespace Durin; using namespace RendererPrivate;
     FMeshPassRenderingThreadScope RenderingThread;
     EnqueueRenderCommand("UniformBindingInvalidation", [](FRHICommandListImmediate& Commands) {
-        auto Source = CreateRenderResource<FPrimitiveDrawResources>();
-        auto Other = CreateRenderResource<FPrimitiveDrawResources>();
+        auto Source = std::make_shared<FPrimitiveSceneInfo>(FPrimitiveComponentId(1), std::make_shared<FStaticMeshSceneProxy>(nullptr, std::vector<FMaterialRenderProxyRef>{}), FMatrix(1.0));
+        auto Other = std::make_shared<FPrimitiveSceneInfo>(FPrimitiveComponentId(1), std::make_shared<FStaticMeshSceneProxy>(nullptr, std::vector<FMaterialRenderProxyRef>{}), FMatrix(1.0));
         auto& Uniform = Source->GetPrimitiveUniformBuffer(1);
         ASSERT_TRUE(Uniform.Update(Commands, FByteBuffer(16)));
         const FMeshPassKey Pass{EMeshPipelinePass::Forward};
@@ -600,7 +692,7 @@ TEST(FRendererSceneContractTests, ReplacingDrawBindingsReusesTheSceneCacheLocati
 {
     using namespace Durin; using namespace RendererPrivate;
     FStoredCommandSource DrawSource({EMeshPipelinePass::Forward});
-    auto Source = CreateRenderResource<FPrimitiveDrawResources>();
+    auto Source = std::make_shared<FPrimitiveSceneInfo>(FPrimitiveComponentId(1), std::make_shared<FStaticMeshSceneProxy>(nullptr, std::vector<FMaterialRenderProxyRef>{}), FMatrix(1.0));
     FCachedMeshDrawCommandStorage Cache;
     const auto Original = DrawSource.Key(1);
     Cache.Publish(Original, DrawSource.MakeCommand(1, true), *Source);
@@ -615,8 +707,8 @@ TEST(FRendererSceneContractTests, SceneDrawSlotsAreIsolatedAndRetiredSlotsCannot
 {
     using namespace Durin; using namespace RendererPrivate;
     FStoredCommandSource DrawSource({EMeshPipelinePass::Forward});
-    auto A = CreateRenderResource<FPrimitiveDrawResources>();
-    auto B = CreateRenderResource<FPrimitiveDrawResources>();
+    auto A = std::make_shared<FPrimitiveSceneInfo>(FPrimitiveComponentId(1), std::make_shared<FStaticMeshSceneProxy>(nullptr, std::vector<FMaterialRenderProxyRef>{}), FMatrix(1.0));
+    auto B = std::make_shared<FPrimitiveSceneInfo>(FPrimitiveComponentId(1), std::make_shared<FStaticMeshSceneProxy>(nullptr, std::vector<FMaterialRenderProxyRef>{}), FMatrix(1.0));
     FCachedMeshDrawCommandStorage SceneA, SceneB;
     const auto Key = DrawSource.Key(1);
     auto First = SceneA.Publish(Key, DrawSource.MakeCommand(1, true), *A);
@@ -646,10 +738,10 @@ TEST(FRendererSceneContractTests, StructuralMaterialPublicationInvalidatesOnlyPr
         const auto& Primitives = Scene->GetPrimitiveSceneInfos(); ASSERT_EQ(Primitives.size(), 2u);
         FStoredCommandSource DrawSource({EMeshPipelinePass::Forward});
         const auto Key = DrawSource.Key(1);
-        const auto First = Scene->CachedDrawLists->Publish(Key, DrawSource.MakeCommand(1, true), *Primitives[0]->DrawResources);
-        const auto Other = Scene->CachedDrawLists->Publish(Key, DrawSource.MakeCommand(1, true), *Primitives[1]->DrawResources);
-        const auto FirstInfo = Scene->CachedDrawLists->FindInfo(Key, *Primitives[0]->DrawResources);
-        const auto OtherInfo = Scene->CachedDrawLists->FindInfo(Key, *Primitives[1]->DrawResources);
+        const auto First = Scene->CachedDrawLists->Publish(Key, DrawSource.MakeCommand(1, true), *Primitives[0]);
+        const auto Other = Scene->CachedDrawLists->Publish(Key, DrawSource.MakeCommand(1, true), *Primitives[1]);
+        const auto FirstInfo = Scene->CachedDrawLists->FindInfo(Key, *Primitives[0]);
+        const auto OtherInfo = Scene->CachedDrawLists->FindInfo(Key, *Primitives[1]);
         FMaterialResource Publication;
         Publication.StaticProperties = FMaterialStaticProperties{};
         const auto Revision = Scene->GetHitProxyRevision_RenderThread();
@@ -658,8 +750,8 @@ TEST(FRendererSceneContractTests, StructuralMaterialPublicationInvalidatesOnlyPr
         EXPECT_EQ(FirstInfo->CommandIndex, INDEX_NONE); EXPECT_NE(OtherInfo->CommandIndex, INDEX_NONE);
         EXPECT_EQ(Scene->CachedDrawLists->Num(), 1u);
         Scene->UpdateStaticMeshes();
-        const auto Rebuilt = Scene->CachedDrawLists->Publish(Key, DrawSource.MakeCommand(1, true), *Primitives[0]->DrawResources);
-        const auto RebuiltInfo = Scene->CachedDrawLists->FindInfo(Key, *Primitives[0]->DrawResources);
+        const auto Rebuilt = Scene->CachedDrawLists->Publish(Key, DrawSource.MakeCommand(1, true), *Primitives[0]);
+        const auto RebuiltInfo = Scene->CachedDrawLists->FindInfo(Key, *Primitives[0]);
         FMaterialLocalRenderParameter Scalar; Scalar.Id = FGuid::NewGuid(); Scalar.Value = 0.5f;
         Publication.Parameters.push_back(Scalar);
         A->ApplyPublication_RenderThread(std::move(Publication));
@@ -679,7 +771,7 @@ TEST(FRendererSceneContractTests, PrimitiveSourceKeepsItsPipelineAliveWhileCache
 {
     using namespace Durin; using namespace RendererPrivate;
     FStoredCommandSource DrawSource({EMeshPipelinePass::Forward});
-    auto Source = CreateRenderResource<FPrimitiveDrawResources>();
+    auto Source = std::make_shared<FPrimitiveSceneInfo>(FPrimitiveComponentId(1), std::make_shared<FStaticMeshSceneProxy>(nullptr, std::vector<FMaterialRenderProxyRef>{}), FMatrix(1.0));
     auto Pipeline = std::make_shared<FMeshPassPipeline>();
     const std::weak_ptr<const FMeshPassPipeline> Lifetime = Pipeline;
     FCachedMeshDrawCommandStorage Scene;

@@ -79,7 +79,7 @@ namespace Durin
 		ASSERT_TRUE((Error = FreezeShaderRuntimeInventory((Metal ? EShaderTargetPlatform::MacOS : EShaderTargetPlatform::Win64), EShaderTargetProfile::Game, Requests))) << std::string(Error.error());
 		const size_t FactoryRequests = std::ranges::count_if(Requests,
 			[](const auto& Request) { return Request.Owner == "MeshVertexFactory"; });
-		EXPECT_EQ(FactoryRequests, 7u);
+		EXPECT_EQ(FactoryRequests, 6u);
 		EXPECT_GT(Requests.size(), FactoryRequests);
 		FShaderCookedLibrary Library;
 		ASSERT_TRUE((Error = FShaderCookedLibrary::OpenBytes(std::make_shared<const Durin::FByteBuffer>(First), (Metal ? EShaderTargetPlatform::MacOS : EShaderTargetPlatform::Win64), EShaderTargetProfile::Game, Requests, Library))) << std::string(Error.error());

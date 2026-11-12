@@ -2,7 +2,6 @@
 
 #include "CoreMinimal.h"
 
-#include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/ViewPreparationMath.h"
 
 #include "Materials/MaterialRenderProxy.h"
@@ -18,26 +17,6 @@ namespace Durin
 	class FRHICommandListImmediate;
 	class FRDGShaderParameterScope;
 	struct FSceneView;
-
-	struct alignas(16) FGBufferGPUCullingCandidate final
-	{
-		FVector3f BoundsMin{};
-		uint32 ArgumentIndex = 0;
-		FVector3f BoundsMax{};
-		uint32 TransformIndex = 0;
-	};
-	static_assert(sizeof(FGBufferGPUCullingCandidate) == 32);
-
-	struct alignas(16) FGBufferGPUCullingUniform final
-	{
-		std::array<FVector4f, 6> Planes{};
-		FVector4f WorldOriginAndRelativeTolerance{};
-		uint32 CandidateCount = 0;
-		uint32 PlaneCount = 0;
-		uint32 Padding[2]{};
-	};
-	static_assert(sizeof(FGBufferGPUCullingUniform) == 128);
-
 
 	// Records geometry-buffer work into caller-provided attachments without
 	// selecting the production opaque rendering path.
@@ -76,9 +55,7 @@ namespace Durin
 			FVertexDeclarationRHIRef VertexDeclaration;
 			FXxHash64 FactoryKey;
 			FXxHash64 LayoutKey;
-			bool bGPUCulling = false;
-			EGPUCullingFailure Failure = EGPUCullingFailure::None;
-			FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology = FGraphicsPipelineStateInitializer::EPrimitiveTopology::TriangleList;
+				FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology = FGraphicsPipelineStateInitializer::EPrimitiveTopology::TriangleList;
 		};
 
 
@@ -95,13 +72,6 @@ namespace Durin
 		static auto GetPipelineResources(const std::shared_ptr<const FPipeline>& Pipeline)
 			-> std::shared_ptr<const RendererPrivate::FMeshPassPipeline>;
 		auto ReleaseResources_RenderThread() -> void;
-		auto EnsureGPUCullingResources_RenderThread(EGPUCullingFailure Failure = EGPUCullingFailure::None) -> bool;
-		auto DispatchGPUCulling_RenderThread(
-			FRHICommandListImmediate& CommandList,
-			const FSceneView& View, const std::optional<FViewFrustum>& Frustum,
-			uint32 CandidateCount,
-			const FRDGShaderParameterScope& GraphShaderParameters,
-			EGPUCullingFailure Failure = EGPUCullingFailure::None) -> bool;
 
 	private:
 		struct FState;

@@ -114,14 +114,7 @@ VSOutput SplineVertexMain(FLocalVertexFactoryInput input, uint instanceId : SV_I
     return EvaluateFixedGeometry(input, ResolveSceneInstanceId(instanceId, firstInstance));
 }
 #endif
-#if DURIN_GPU_CULLING
-[shader("vertex")]
-VSOutput GPUCullingVertexMain(FLocalVertexFactoryInput input, uint instanceId : SV_InstanceID,
-    uint firstInstance : SV_StartInstanceLocation)
-{
-    return EvaluateFixedGeometry(input, ResolveSceneInstanceId(instanceId, firstInstance));
-}
-#endif
+
 
 [shader("vertex")]
 VSOutput VertexMain(FLocalVertexFactoryInput input, uint instanceId : SV_InstanceID, uint firstInstance : SV_StartInstanceLocation)

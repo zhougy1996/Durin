@@ -6,7 +6,7 @@ output transactions.
 
 Modules: Engine, Renderer, RenderCore, RHI
 
-Last reviewed: 2026-11-12
+Last reviewed: 2026-11-13
 
 ## Ownership Boundary
 
@@ -188,9 +188,10 @@ pipeline-cache identity or mutate templates shared with another view.
 a borrowed pipeline pointer and value `FMeshDrawShaderBindings`. There is no
 intermediate owning command packet. Shader bindings contain a shader pointer and
 resource parameter values; they own neither RHI resources nor resource views.
-Scene owns cached command slots. Primitive scene resources hold
-`FCachedMeshDrawCommandInfo` locations and their actual source-owned pipelines;
-cache entries and visible storage retain command memory only. Removing a primitive
+Scene owns cached command slots. `FPrimitiveSceneInfo` holds
+`FCachedMeshDrawCommandInfo` locations; scene command storage retains source and
+canonical pipelines and handles cache-wide RHI invalidation. Visible storage
+retains command memory only. Removing a primitive
 uses its locations directly, without scanning other primitives or scenes.
 Metadata stays outside the draw description; recording performs no weak-owner
 locking. `BeginDeferredUpdateStaticMeshes` retires affected entries immediately
@@ -230,9 +231,17 @@ retain source arguments and receive late Instance-ID offsets/counts at submissio
 Providers declare persistent/dynamic scene identity during collection; submission
 never re-packs attributes to infer that identity. Source cache entries can share
 canonical geometry commands while retaining independent invalidation slots.
-CPU runs use effective-state equality and preserve the prepared order; see
+CPU runs and GPU candidate runs use effective-state equality and preserve the
+prepared order. `CollectMeshDrawCommands` projects prepared objects into frame-local
+visible entries; culling setup/submission consumes those entries. Submission uses
+`FMeshDrawCommandOverrideArgs` and lowered `FMeshDrawCommandSceneArgs`, so retained
+commands and pass-binding arrays remain immutable across direct/indirect selection; see
 [dynamic instancing](../Scene/GPUScene.md#cpu-dynamic-instancing).
-Unsupported factories retain their uniform route. See
+Unsupported factories alone populate sparse `FallbackPrimitiveUniforms` and
+use `GetFallbackPrimitiveUniform`; the blanket `PrepareStaticMeshPrimitiveUniforms`
+view uploader has been retired. Supported factories allocate no view-local
+Primitive uniform array. Camera and additional-view changes reuse committed
+attributes, while selected ID lists remain pass/submission owned. See
 [GPUScene storage](../Scene/GPUScene.md).
 
 - Preparation and command handles are frame-local. Source mutation, resource
@@ -762,7 +771,10 @@ into the stable public `FSceneViewStatistics` contract after command recording.
 Rendering policy and pass success never read telemetry. Profiling owns timing
 sink registration and scoped GPU queries; capture and qualification observers
 receive immutable named pass resources/results and cannot mutate the frame
-plan.
+plan. `FGPUScene::GetStatistics()` separately exposes cumulative admitted
+attribute upload bytes/ranges/rebuilds and current GPU-buffer/CPU-mirror capacities.
+Failed or abandoned updates do not increase admitted counters. Capacity is not
+upload traffic or peak backend residency; see [GPUScene](../Scene/GPUScene.md).
 
 ## Render Graph Integration Boundary
 

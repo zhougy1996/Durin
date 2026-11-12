@@ -1121,7 +1121,7 @@ float4 FragmentMain(
                 }
 				const bool bCollection = Slot >= 3 && Slot < 3 + Collections.size();
 				const bool bPrimitive = Binding.SetIndex == 1 && Slot == 0;
-				const bool bMaterialSet = bPrimitive || Slot == 2 || Slot == 27 || (Entry.Frequency == EShaderFrequency::Vertex && (Slot == 24 || Slot == 28 || Slot == 29))
+				const bool bMaterialSet = bPrimitive || Slot == 2 || Slot == 27 || (Entry.Frequency == EShaderFrequency::Vertex && Slot == 24)
 					|| bCollection || Slot >= MaterialTextureBindingBase;
 				if (Binding.SetIndex != (bMaterialSet ? 1u : 0u)) return Rejected;
 				if (bPrimitive)
@@ -1138,11 +1138,6 @@ float4 FragmentMain(
 				{
 					Expected = ERHIBindingType::UniformBuffer;
 					if (Binding.Name != "SplineMesh") return Rejected;
-				}
-				else if (Entry.Entry == EMaterialShaderEntry::GPUCullingVertex && (Slot == 28 || Slot == 29))
-				{
-					Expected = ERHIBindingType::StorageBuffer;
-					if (Binding.Name != (Slot == 28 ? "VisibleInstances" : "InstanceTransforms")) return Rejected;
 				}
 				else if (Slot == 30 && Entry.Entry == EMaterialShaderEntry::Forward)
 				{

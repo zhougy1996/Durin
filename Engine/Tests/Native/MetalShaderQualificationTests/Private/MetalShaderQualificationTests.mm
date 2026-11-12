@@ -17,30 +17,25 @@
 
 namespace
 {
-	struct FFloat3
+	struct FCandidate
 	{
-		float X, Y, Z;
-	};
-
-	struct alignas(16) FCandidate
-	{
-		FFloat3 BoundsMin;
+		uint32_t InstanceId;
 		uint32_t ArgumentIndex;
-		FFloat3 BoundsMax;
-		uint32_t TransformIndex;
 	};
 
 	struct alignas(16) FCullingUniform
 	{
 		float Planes[6][4];
 		float WorldOriginAndRelativeTolerance[4];
+		float ViewOriginLow[4];
 		uint32_t CandidateCount;
 		uint32_t PlaneCount;
-		uint32_t Padding[2];
+		uint32_t Padding0;
+		uint32_t Padding;
 	};
 
-	static_assert(sizeof(FCandidate) == 32);
-	static_assert(sizeof(FCullingUniform) == 128);
+	static_assert(sizeof(FCandidate) == 8);
+	static_assert(sizeof(FCullingUniform) == 144);
 
 	auto CompileShaderCode(const char* FileName, const char* EntryName,
 		SlangCompileTarget TargetFormat = SLANG_METAL,
@@ -114,7 +109,7 @@ namespace
 
 	auto TranslateSpirvToMetal(const std::string& Spirv,
 		SpvExecutionModel Stage = SpvExecutionModelGLCompute,
-		bool bResourceArray = false) -> std::string
+		bool bResourceArray = false, unsigned ComputeBufferCount = 4) -> std::string
 	{
 		if (Spirv.empty() || Spirv.size() % sizeof(SpvId) != 0)
 		{
@@ -153,7 +148,7 @@ namespace
 			// Fixture-specific explicit remaps also reserve vertex buffer 0 for
 			// the ImGui vertex stream. Production needs a checked allocation map.
 			const unsigned BindingCount = bResourceArray ? 3 :
-				Stage == SpvExecutionModelGLCompute ? 4 :
+				Stage == SpvExecutionModelGLCompute ? ComputeBufferCount :
 				Stage == SpvExecutionModelVertex ? 1 : 2;
 			for (unsigned Index = 0; Index < BindingCount; ++Index)
 			{
@@ -187,7 +182,7 @@ namespace
 				PushBinding.stage = Stage;
 				PushBinding.desc_set = SPVC_MSL_PUSH_CONSTANT_DESC_SET;
 				PushBinding.binding = SPVC_MSL_PUSH_CONSTANT_BINDING;
-				PushBinding.msl_buffer = 4;
+				PushBinding.msl_buffer = ComputeBufferCount;
 				BindingResult = spvc_compiler_msl_add_resource_binding_2(Compiler, &PushBinding);
 			}
 		}
@@ -864,9 +859,9 @@ namespace
 		@autoreleasepool
 		{
 			const std::string Spirv = CompileShaderCode(
-				"GBufferGPUCulling.slang", "CullMain", SLANG_SPIRV);
+				"InstanceCulling.slang", "CullMain", SLANG_SPIRV);
 			ASSERT_FALSE(Spirv.empty());
-			const std::string MetalCode = TranslateSpirvToMetal(Spirv);
+			const std::string MetalCode = TranslateSpirvToMetal(Spirv, SpvExecutionModelGLCompute, false, 5);
 			ASSERT_FALSE(MetalCode.empty());
 			NSString* MetalSource = [[NSString alloc] initWithBytes:MetalCode.data()
 				length:MetalCode.size() encoding:NSUTF8StringEncoding];
@@ -882,13 +877,14 @@ namespace
 			id<MTLComputePipelineState> Pipeline = [Device newComputePipelineStateWithFunction:Function error:&Error];
 			ASSERT_NE(Pipeline, nil) << [[Error description] UTF8String];
 
-			FCandidate Candidates[2] = {};
-			Candidates[0].BoundsMin = {-0.2f, -0.2f, 0.2f};
-			Candidates[0].BoundsMax = {0.2f, 0.2f, 0.4f};
-			Candidates[0].TransformIndex = 7;
-			Candidates[1].BoundsMin = {1.6f, -0.2f, 0.2f};
-			Candidates[1].BoundsMax = {1.8f, 0.2f, 0.4f};
-			Candidates[1].TransformIndex = 9;
+			const FCandidate Candidates[2] = {{7, 0}, {9, 0}};
+			// Packed 18-float4 scene records, indexed by persistent Instance ID.
+			float InstanceData[10][18][4] = {};
+			const float Bounds[2][2][4] = {
+				{{-0.2f, -0.2f, 0.2f, 1.f}, {0.2f, 0.2f, 0.4f, 0.f}},
+				{{1.6f, -0.2f, 0.2f, 1.f}, {1.8f, 0.2f, 0.4f, 0.f}}};
+			for (size_t Index = 0; Index < 2; ++Index)
+				std::memcpy(&InstanceData[Candidates[Index].InstanceId][14], Bounds[Index], sizeof(Bounds[Index]));
 			const FCullingUniform Uniform{
 				.Planes = {{1, 0, 0, 2.5f}, {-1, 0, 0, 1.5f}, {0, 1, 0, 1},
 					{0, -1, 0, 1}, {0, 0, 1, 0}, {0, 0, -1, 1}},
@@ -899,6 +895,8 @@ namespace
 			id<MTLBuffer> VisibleBuffer = [Device newBufferWithBytes:Visible length:sizeof(Visible) options:MTLResourceStorageModeShared];
 			id<MTLBuffer> IndirectBuffer = [Device newBufferWithBytes:Indirect length:sizeof(Indirect) options:MTLResourceStorageModeShared];
 			id<MTLBuffer> UniformBuffer = [Device newBufferWithBytes:&Uniform length:sizeof(Uniform) options:MTLResourceStorageModeShared];
+			id<MTLBuffer> InstanceBuffer = [Device newBufferWithBytes:InstanceData length:sizeof(InstanceData) options:MTLResourceStorageModeShared];
+			ASSERT_NE(InstanceBuffer, nil);
 			ASSERT_NE(CandidateBuffer, nil);
 			ASSERT_NE(VisibleBuffer, nil);
 			ASSERT_NE(IndirectBuffer, nil);
@@ -915,6 +913,7 @@ namespace
 			[Encoder setBuffer:VisibleBuffer offset:0 atIndex:1];
 			[Encoder setBuffer:IndirectBuffer offset:0 atIndex:2];
 			[Encoder setBuffer:UniformBuffer offset:0 atIndex:3];
+			[Encoder setBuffer:InstanceBuffer offset:0 atIndex:4];
 			[Encoder dispatchThreads:MTLSizeMake(2, 1, 1) threadsPerThreadgroup:MTLSizeMake(2, 1, 1)];
 			[Encoder endEncoding];
 			[Command commit];

@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "PSOPrecacheMaterial.h"
+#include "Renderers/GPUSceneRendering.h"
 #include "Renderers/MeshPipelineDescription.h"
 #include "Renderers/StaticMeshRenderPreparation.h"
 #include "RenderResourceCreation.h"
@@ -12,6 +13,7 @@
 
 namespace Durin
 {
+	class FPrimitiveSceneInfo;
 	class FShaderType;
 	class FMeshMaterialShaderMap;
 }
@@ -39,7 +41,6 @@ namespace Durin::RendererPrivate
 		FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology;
 		FPrimitiveRenderParticipation Participation;
 		bool bSupportsGBuffer = true;
-		bool bGPUCulling = false;
 		bool bReversedZ = false;
 	};
 	struct FMeshPassShaders
@@ -59,22 +60,37 @@ namespace Durin::RendererPrivate
 		FGraphicsPipelineStateRHIRef PipelineState;
 		FMeshPipelineDescription Description;
 		EMeshPipelinePass Pass = EMeshPipelinePass::Forward;
-		bool bGPUCulling = false;
-		auto GetPassKey() const -> FMeshPassKey { return {Pass, bGPUCulling}; }
+		auto GetPassKey() const -> FMeshPassKey { return {Pass}; }
 	};
 	struct FMeshPassBindings
 	{
 		FMeshDrawShaderBindings Vertex;
 		FMeshDrawShaderBindings Fragment;
 	};
-	class FPrimitiveDrawResources;
+	// Submission-scoped resources, never inserted into a retained command.
+	struct FMeshDrawCommandOverrideArgs
+	{
+		FRHIBuffer* InstanceBuffer = nullptr;
+		FRHIBuffer* IndirectArgsBuffer = nullptr;
+		uint32 InstanceDataByteOffset = 0;
+		uint64 IndirectArgsByteOffset = 0;
+	};
+	struct FMeshDrawCommandSceneArgs
+	{
+		FRHIBuffer* PrimitiveIdsBuffer = nullptr;
+		uint32 InstanceDataByteOffset = 0;
+		FRHIBuffer* IndirectArgsBuffer = nullptr;
+		uint32 PrimitiveIdOffset = INDEX_NONE_U32; // Durin shader's uint32 ID index.
+		uint64 IndirectArgsByteOffset = 0;
+		uint32 NumInstances = 0; // Zero preserves the source count.
+	};
 	// Draw data and bindings only; resource lifetime belongs to the sources.
 	struct FMeshDrawCommand
 	{
 		RENDERER_API auto SetDrawParametersAndFinalize(const FPreparedStaticMeshPrimitive& Primitive, const FPreparedStaticMeshDraw& Draw) -> bool;
 		RENDERER_API auto SubmitDraw(FRHICommandList& Commands, FMeshDrawCommandStateCache* Cache = nullptr) const -> bool;
 		RENDERER_API auto SubmitVisible(FRHICommandList& Commands, const FMeshDrawShaderBindings& VertexPass, const FMeshDrawShaderBindings& FragmentPass,
-			const std::array<float, 3>& Bias, FMeshDrawCommandStateCache* Cache = nullptr, uint32 InstanceIdOffset = INDEX_NONE_U32, uint32 InstanceCount = 0) const -> bool;
+			const std::array<float, 3>& Bias, FMeshDrawCommandStateCache* Cache, const FMeshDrawCommandSceneArgs& SceneArgs) const -> bool;
 		RENDERER_API auto MatchesForDynamicInstancing(const FMeshDrawCommand& Other) const -> bool;
 		RENDERER_API auto GetDynamicInstancingHash() const -> uint32;
 		using FVertexStream = FMeshDrawVertexStream;
@@ -100,25 +116,6 @@ namespace Durin::RendererPrivate
 		int32 StateBucketId = INDEX_NONE;
 		FMeshPassKey MeshPass;
 	};
-	class FPrimitiveDrawResources final : public FRenderResource
-	{
-	public:
-		RENDERER_API ~FPrimitiveDrawResources() override;
-		RENDERER_API auto RemoveCachedMeshDrawCommands() -> void;
-		RENDERER_API auto GetPrimitiveUniformBuffer(uint64 Batch) -> FUniformBuffer&;
-		RENDERER_API auto RetainPrimitiveUniformBuffers(std::span<const uint64> Batches) -> void;
-		RENDERER_API auto ReleaseRHI() -> void override;
-		auto GetFriendlyName() const -> std::string override { return "PrimitiveDrawResources"; }
-		RENDERER_API auto Prepare(FRHICommandListBase& Commands) -> void;
-		RENDERER_API static auto ReleaseRHIForAllResources() -> void;
-	private:
-		friend class FCachedMeshDrawCommandStorage;
-		FCachedMeshDrawCommandStorage* DrawLists = nullptr;
-		std::map<std::array<uint64, 6>, std::shared_ptr<FCachedMeshDrawCommandInfo>> CachedMeshDrawCommandInfos;
-		// Actual source-owned pipelines; cached draw descriptions never retain them.
-		std::map<size_t, std::shared_ptr<const FMeshPassPipeline>> Pipelines;
-		std::map<uint64, std::shared_ptr<FUniformBuffer>> PrimitiveUniformBuffers;
-	};
 	struct FVisibleMeshDrawCommand
 	{
 		const FMeshDrawCommand* Command = nullptr;
@@ -129,9 +126,22 @@ namespace Durin::RendererPrivate
 		uint32 NumInstances = 0; // Zero preserves the source count.
 		bool bSkipDraw = false;
 		int32 StateBucketId = INDEX_NONE;
+		FGPUScenePrimitiveData SceneData;
+		bool bSupportsInstanceCulling = false;
+		FRHIBuffer* InstanceBuffer = nullptr;
 		auto SubmitDraw(FRHICommandList& Commands, FMeshDrawCommandStateCache* Cache = nullptr) const -> bool
-		{ if (bSkipDraw) return true; return Command && Pass && (!CachedInfo || CachedInfo->CommandIndex != INDEX_NONE) && Command->SubmitVisible(Commands, Pass->Vertex, Pass->Fragment, DepthBias, Cache, PrimitiveIdBufferOffset, NumInstances); }
+		{
+			if (bSkipDraw) return true;
+			return Command && Pass && (!CachedInfo || CachedInfo->CommandIndex != INDEX_NONE)
+				&& Command->SubmitVisible(Commands, Pass->Vertex, Pass->Fragment, DepthBias, Cache,
+					{.PrimitiveIdsBuffer = InstanceBuffer, .PrimitiveIdOffset = PrimitiveIdBufferOffset, .NumInstances = NumInstances});
+		}
 	};
+	using FMeshCommandOneFrameArray = std::vector<FVisibleMeshDrawCommand>;
+	// Adapter from collection/preparation into the common mesh-command boundary.
+	RENDERER_API auto CollectMeshDrawCommands(const FPreparedStaticMeshView& Prepared,
+		const FResolvedStaticMeshView& Resolved, FMeshPassKey Pass, bool bAllowDynamicInstancing = true) -> FMeshCommandOneFrameArray;
+
 	struct FMeshDrawCommandBuildInput
 	{
 		FRHICommandListImmediate& Commands;
@@ -159,29 +169,32 @@ namespace Durin::RendererPrivate
 		size_t PreparedSurfaceBindingBatches = 0, SurfaceBindingBatchReuses = 0;
 	};
 	// Cache metadata belongs to storage, never to the RHI draw description.
-	class FCachedMeshDrawCommandStorage
+	class FCachedMeshDrawCommandStorage final : public FRenderResource
 	{
 	public:
 		struct FKey
 		{
-			std::array<uint64, 6> Mesh;
+			std::array<uint64, 5> Mesh;
 			std::array<uint64, 3> Bindings;
 		};
 		RENDERER_API static auto MakeKey(const FMeshDrawDescription* Description, FPrimitiveComponentId PrimitiveId,
 			uint64 BatchId, const FMeshPassPipeline& Pipeline, const FRHIResource* MaterialUniform = nullptr) -> FKey;
 		FCachedMeshDrawCommandStorage() = default;
+		RENDERER_API auto ReleaseRHI() -> void override;
+		RENDERER_API static auto ReleaseRHIForAllResources() -> void;
+		auto GetFriendlyName() const -> std::string override { return "CachedMeshDrawCommands"; }
 		RENDERER_API ~FCachedMeshDrawCommandStorage();
 		FCachedMeshDrawCommandStorage(const FCachedMeshDrawCommandStorage&) = delete;
 		auto operator=(const FCachedMeshDrawCommandStorage&) -> FCachedMeshDrawCommandStorage& = delete;
-		RENDERER_API auto Attach(FPrimitiveDrawResources& Owner) -> void;
-		RENDERER_API auto Find(const FKey& Key, const FPrimitiveDrawResources& Owner,
+		RENDERER_API auto Attach(FPrimitiveSceneInfo& Owner) -> void;
+		RENDERER_API auto Find(const FKey& Key, const FPrimitiveSceneInfo& Owner,
 			FResolvedStaticMeshView::FMaterialUniform* Material = nullptr, const FVertexFactoryInputBinding* Input = nullptr) const -> std::shared_ptr<const FMeshDrawCommand>;
-		RENDERER_API auto FindInfo(const FKey& Key, const FPrimitiveDrawResources& Owner) const -> std::shared_ptr<const FCachedMeshDrawCommandInfo>;
-		RENDERER_API auto Publish(const FKey& Key, FMeshDrawCommand Command, FPrimitiveDrawResources& Owner,
+		RENDERER_API auto FindInfo(const FKey& Key, const FPrimitiveSceneInfo& Owner) const -> std::shared_ptr<const FCachedMeshDrawCommandInfo>;
+		RENDERER_API auto Publish(const FKey& Key, FMeshDrawCommand Command, FPrimitiveSceneInfo& Owner,
 			const FVertexFactoryInputBinding* Input = nullptr, FResolvedStaticMeshView::FMaterialUniform Material = {},
 			std::shared_ptr<const FMeshPassPipeline> Pipeline = {}) -> std::shared_ptr<const FMeshDrawCommand>;
-		RENDERER_API auto RemovePrimitive(FPrimitiveDrawResources& Owner) -> void;
-		RENDERER_API auto Detach(FPrimitiveDrawResources& Owner) -> void;
+		RENDERER_API auto RemovePrimitive(FPrimitiveSceneInfo& Owner) -> void;
+		RENDERER_API auto Detach(FPrimitiveSceneInfo& Owner) -> void;
 		RENDERER_API auto Reset() -> void;
 		auto Num() const -> size_t { return Entries.size() - FreeIndices.size(); }
 		FRenderResourceGeneration Generation;
@@ -196,18 +209,19 @@ namespace Durin::RendererPrivate
 		{
 			std::shared_ptr<const FMeshDrawCommand> Command;
 			std::shared_ptr<const FStateBucket> StateBucket;
+			std::shared_ptr<const FMeshPassPipeline> SourcePipeline;
 			std::shared_ptr<FCachedMeshDrawCommandInfo> Info;
 			std::array<uint64, 3> Bindings;
 			const FVertexFactoryInputBinding* Input = nullptr;
 			FResolvedStaticMeshView::FMaterialUniform Material;
 		};
-		auto FindEntry(const FKey& Key, const FPrimitiveDrawResources& Owner) const -> const FEntry*;
+		auto FindEntry(const FKey& Key, const FPrimitiveSceneInfo& Owner) const -> const FEntry*;
 		auto RemoveEntry(size_t Index) -> void;
 		std::unordered_map<uint32, std::vector<std::weak_ptr<const FStateBucket>>> StateBuckets;
 		int32 NextStateBucketId = 0;
 		std::vector<std::unique_ptr<FEntry>> Entries;
 		std::vector<size_t> FreeIndices;
-		std::unordered_set<FPrimitiveDrawResources*> Sources;
+		std::unordered_set<FPrimitiveSceneInfo*> Sources;
 	};
 	// Stable-address frame storage. Aliasing handles retain the entire frame allocation
 	// through resolved frame storage, including replaced indirect command values.
@@ -307,14 +321,12 @@ namespace Durin::RendererPrivate
 			FRHIVertexDeclaration* Declaration, FGraphicsPipelineStateInitializer& Out) const -> FShaderCompletion;
 		RENDERER_API auto PreparePassBindings(const FMeshDrawCommandBuildInput& Input,
 			FMeshDrawCommandBindingCache& Cache, FMeshPassBindings& Out) const -> FShaderCompletion;
-		RENDERER_API auto BuildGPUCullingCommand(const FMeshPassProcessorBatch& Batch, const FMeshDrawCommandBuildInput& Input, const FMeshDrawCommand& Prepared,
-			FRHIStorageBufferRange VisibleInstances, FRHIStorageBufferRange InstanceTransforms,
-			FRHIBuffer* IndirectArgs, uint64 IndirectArgsOffset, FMeshPassDrawListContext& Context) const -> FShaderCompletion;
+
 		virtual auto IsEnabled(const FSceneRenderPreparationConfig& Config) const -> bool = 0;
 		RENDERER_API auto IsMeshRelevant(const FMaterialPlanningPassIdentity& Material,
 			const FPrimitiveRenderParticipation& Participation = {}, bool bSupportsGBuffer = true) const -> bool;
 		RENDERER_API auto SupportsVertexFactory(const FMeshVertexFactoryImplementation& Factory) const -> bool;
-		virtual auto GetVertexFactoryPass(bool bGPUCulling = false) const -> uint32 = 0;
+		virtual auto GetVertexFactoryPass() const -> uint32 = 0;
 		virtual auto GetFragmentShader(FMaterialShaderBlendModeKey BlendMode) const -> FMeshPassFragmentShader = 0;
 		virtual auto DescribeMeshDraw(const FMeshPipelineState& State,
 			FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology,

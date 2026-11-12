@@ -23,9 +23,9 @@
 TEST(FMaterialShaderStageTests, CanonicalEntryContractPreservesPersistedOrder)
 {
 	using namespace Durin;
-	constexpr std::array<std::string_view, 7> Names{
+	constexpr std::array<std::string_view, 6> Names{
 		"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain", "HitProxyFragmentMain",
-		"VertexMain", "SplineVertexMain", "GPUCullingVertexMain"};
+		"VertexMain", "SplineVertexMain"};
 	EXPECT_EQ(MaterialCompiledEntryPoints, Names);
 	EXPECT_EQ(MaterialAllStageMask, 63u);
 	EXPECT_EQ(MaterialFragmentStageMask, 15u);
@@ -37,12 +37,6 @@ TEST(FMaterialShaderStageTests, CanonicalEntryContractPreservesPersistedOrder)
 	{
 		EXPECT_EQ(static_cast<size_t>(MaterialShaderEntries[Index].Entry), Index);
 		EXPECT_EQ(MaterialShaderEntries[Index].GetBit(), 1u << Index);
-		if (Index >= Options.EntryPoints.size())
-		{
-			EXPECT_EQ(MaterialShaderEntries[Index].GeometryUsage, 0u);
-			EXPECT_EQ(MaterialShaderEntries[Index].PassUsage, 0u);
-			continue;
-		}
 		EXPECT_EQ(Options.EntryPoints[Index], Names[Index]);
 		EXPECT_EQ(Options.Frequencies[Index], Index < 4 ? EShaderFrequency::Fragment : EShaderFrequency::Vertex);
 	}

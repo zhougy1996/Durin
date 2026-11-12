@@ -20,14 +20,15 @@
 
 namespace Durin
 {
+	class FPrimitiveSceneInfo;
 	class FRHICommandListImmediate;
 
 	namespace RendererPrivate
 	{
 		struct FVisibleMeshDrawCommand;
-		class FPrimitiveDrawResources;
+
 		class FMeshVertexFactoryImplementation;
-		struct FStaticMeshTransformUniform
+		struct FMeshFallbackPrimitiveUniform
 		{
 			FMatrix4f LocalToWorld{1.0f};
 			FMatrix4f NormalToWorld{1.0f};
@@ -39,9 +40,9 @@ namespace Durin
 			FPrimitiveCustomData CustomPrimitiveData;
 			FPrimitiveCustomData CustomInstanceData;
 		};
-		static_assert(sizeof(FStaticMeshTransformUniform) == 512);
-		static_assert(offsetof(FStaticMeshTransformUniform, CustomPrimitiveData) == 256);
-		static_assert(offsetof(FStaticMeshTransformUniform, CustomInstanceData) == 384);
+		static_assert(sizeof(FMeshFallbackPrimitiveUniform) == 512);
+		static_assert(offsetof(FMeshFallbackPrimitiveUniform, CustomPrimitiveData) == 256);
+		static_assert(offsetof(FMeshFallbackPrimitiveUniform, CustomInstanceData) == 384);
 
 	}
 	struct FMeshDrawDescription;
@@ -161,7 +162,7 @@ namespace Durin
 		FMatrix WorldToLocal{1.0};
 		FVector3 BoundsCenter{0.0};
 		bool bRetainedStaticMesh = false;
-		std::weak_ptr<RendererPrivate::FPrimitiveDrawResources> DrawResources;
+		std::weak_ptr<FPrimitiveSceneInfo> SceneInfo;
 		bool bSourceBound = false;
 	};
 
@@ -382,15 +383,20 @@ namespace Durin
 		// Selected before uniform/surface preparation; stable bindings survive into recording.
 		std::vector<bool> PersistentCommandsReused;
 		// A retained command can reuse its geometry/pipelines while Collection ranges change.
-		// Dense primitive/material indices avoid per-draw pointer-keyed lookups.
-		std::vector<FRHIUniformBufferRange> PrimitiveUniforms;
+		// Only unsupported vertex factories allocate the legacy uniform contract.
+        std::unordered_map<uint32, FRHIUniformBufferRange> FallbackPrimitiveUniforms;
+        auto GetFallbackPrimitiveUniform(uint32 Index) const -> FRHIUniformBufferRange
+        {
+            const auto Found = FallbackPrimitiveUniforms.find(Index);
+            return Found == FallbackPrimitiveUniforms.end() ? FRHIUniformBufferRange{} : Found->second;
+        }
 		std::map<RendererPrivate::ESurfaceMaterialPass, FRHIUniformBufferRange> ViewUniforms;
 		// Typed surface resources can be shared by compatible mesh passes.
 		std::vector<std::map<RendererPrivate::ESurfaceMaterialPass, std::optional<FMaterialUniform>>> MaterialUniforms;
 		std::shared_ptr<RendererPrivate::FDynamicMeshDrawCommandStorage> DrawCommandStorage;
 		RENDERER_API auto GetMeshDrawCommand(const FPreparedStaticMeshDraw& Draw, RendererPrivate::FMeshPassKey Pass) const
 			-> std::shared_ptr<const RendererPrivate::FMeshDrawCommand>;
-		RENDERER_API auto GetVisibleMeshDrawCommand(const FPreparedStaticMeshDraw& Draw, RendererPrivate::FMeshPassKey Pass) const
+		RENDERER_API auto GetVisibleMeshDrawCommand(const FPreparedStaticMeshDraw& Draw, RendererPrivate::FMeshPassKey Pass, bool bAllowDynamicInstancing = true) const
 			-> const RendererPrivate::FVisibleMeshDrawCommand*;
 		FRHITexture* DirectionalShadowTexture = nullptr;
 		FRHISampler* DirectionalShadowSampler = nullptr;
@@ -434,7 +440,7 @@ namespace Durin
 		struct FPrimitive
 		{
 			FPrimitiveComponentId Id = InvalidPrimitiveComponentId;
-			std::weak_ptr<RendererPrivate::FPrimitiveDrawResources> DrawResources;
+			std::weak_ptr<FPrimitiveSceneInfo> SceneInfo;
 			bool bSourceBound = false;
 			FPersistentPrimitiveIndex PersistentPrimitiveIndex;
 			ERHIFeatureLevel FeatureLevel = ERHIFeatureLevel::SM5;
@@ -566,10 +572,9 @@ namespace Durin
 
 namespace Durin::RendererPrivate
 {
-	RENDERER_API auto BuildMeshTransformUniform(const FPreparedStaticMeshPrimitive& Primitive) -> FStaticMeshTransformUniform;
-	auto PrepareMeshPrimitiveUniform(FRHICommandListImmediate& Commands, const FPreparedStaticMeshPrimitive& Primitive) -> FRHIUniformBufferRange;
-	RENDERER_API auto PrepareStaticMeshPrimitiveUniforms(FRHICommandListImmediate& Commands,
-		const FPreparedStaticMeshView& Prepared, FResolvedStaticMeshView& Resolved) -> bool;
+	RENDERER_API auto BuildFallbackPrimitiveUniform(const FPreparedStaticMeshPrimitive& Primitive) -> FMeshFallbackPrimitiveUniform;
+	// Explicit uniform transport for factories without GPUScene capability.
+	auto PrepareFallbackPrimitiveUniform(FRHICommandListImmediate& Commands, const FPreparedStaticMeshPrimitive& Primitive) -> FRHIUniformBufferRange;
 	// Returns no declaration when the admitted draw's geometry is invalid.
 	auto ResolveMeshVertexDeclaration(const FPreparedStaticMeshPrimitive& Primitive,
 		const FPreparedStaticMeshDraw& Draw) -> FVertexDeclarationRHIRef;

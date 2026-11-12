@@ -65,6 +65,17 @@ compatibility scalar form is used. The recorded command retains those views,
 and Vulkan descriptor writes consume their exact native interpretation. See
 [RHI resource views and transfers](../RHI/RHIResourceViewsAndTransfers.md).
 
+## Scene resource bindings
+
+Built-in Local/Spline graphics use counted storage ranges at set 0 bindings
+27/28/29/31 for Primitive scene data, Instance scene data, Instance payload and
+selected Instance IDs. Reachability controls which resources reflect in each
+stage; selected-instance fragment expressions follow the same contract. Scene
+buffers belong to scene/dynamic upload owners and ID lists belong to submissions.
+Pass bindings declare RDG reads; retained geometry commands never own graph-local
+scene selections. `MaterialPrimitive` is reserved for the explicit unsupported-VF
+uniform path. Packing and lifecycle are owned by [GPUScene](../Scene/GPUScene.md).
+
 ## RenderCore Responsibilities
 
 RenderCore owns shader parameter declaration, validation, and cached binding resolution.

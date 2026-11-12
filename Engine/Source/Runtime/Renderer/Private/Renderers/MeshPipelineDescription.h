@@ -40,11 +40,10 @@ namespace Durin::RendererPrivate
 		HitProxy,
 	};
 
-	// Identifies a mesh pass and its direct or GPU-culling variant without positional slots.
+	// Identifies a mesh pass independently of its instance-selection algorithm.
 	struct FMeshPassKey
 	{
 		EMeshPipelinePass Pass = EMeshPipelinePass::Forward;
-		bool bGPUCulling = false;
 		auto operator<=>(const FMeshPassKey&) const = default;
 	};
 

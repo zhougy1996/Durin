@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Renderers/MeshPassProcessor.h"
 
 #include "Renderers/SceneRendererProfiling.h"
 
@@ -13,6 +14,7 @@ namespace Durin
 	class FStaticMeshSectionResourceContext;
 	enum class EStaticMeshSectionResourcePolicy : uint8;
 	class FGBufferRenderer;
+	class FInstanceCullingContext;
 	class FScene;
 	class FRendererResourceCoordinator;
 	namespace RendererPrivate { class FSurfaceMaterialResources; }
@@ -37,8 +39,7 @@ namespace Durin
 	{
 	public:
 		auto PrepareGBufferPipelines_RenderThread(FGBufferRenderer& GBuffer, const FPreparedStaticMeshView& PreparedView,
-			FResolvedStaticMeshView& ResolvedView,
-			bool bPrepareGPUCulling = false, EGPUCullingFailure Failure = EGPUCullingFailure::None) -> bool;
+			FResolvedStaticMeshView& ResolvedView) -> bool;
 			auto PrepareBindings_RenderThread(FRHICommandListImmediate& CommandList, FGBufferRenderer* GBuffer,
 			const FPreparedStaticMeshView& PreparedView, FResolvedStaticMeshView& ResolvedView,
 			const FRHIUniformBufferRange& Lighting, bool bShadow = false, FRHIStorageBufferRange LocalLights = {}, bool bDynamicInstancing = true) -> bool;
@@ -85,14 +86,10 @@ namespace Durin
 			-> void;
 		auto ExecuteGBuffer_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			const FSceneView& View,
-			FGBufferRenderer& GBuffer,
 			const FPreparedStaticMeshView& PreparedView,
 			FResolvedStaticMeshView& ResolvedView,
-			const std::vector<uint32>* IndirectArgumentByResolvedDraw = nullptr,
-			FRHIBuffer* IndirectArguments = nullptr,
-			FRHIBuffer* VisibleInstances = nullptr,
-			FRHIBuffer* InstanceTransforms = nullptr
+			const FInstanceCullingContext* InstanceCulling = nullptr,
+			const RendererPrivate::FMeshDrawCommandOverrideArgs& OverrideArgs = {}
 		) -> FGeometryExecutionResult;
 		auto ReleaseResources_RenderThread() -> void;
 
@@ -124,19 +121,6 @@ namespace Durin
 			std::shared_ptr<const RendererPrivate::FMeshPassPipeline>& OutPipeline,
 			bool bShadowDepth = false,
 			bool bHybridRetained = false
-		) -> bool;
-		auto DrawGBufferSection_RenderThread(
-			FRHICommandListImmediate& CommandList,
-			const FSceneView& View,
-			FGBufferRenderer& GBuffer,
-			const FPreparedStaticMeshPrimitive& Primitive,
-			const FPreparedStaticMeshDraw& Item,
-			const FResolvedStaticMeshView& ResolvedView,
-			FMeshDrawCommandStateCache& BindingGroup,
-			FRHIBuffer* IndirectArguments = nullptr,
-			uint64 IndirectArgumentOffset = 0,
-			FRHIBuffer* VisibleInstances = nullptr,
-			FRHIBuffer* InstanceTransforms = nullptr
 		) -> bool;
 		struct FState;
 

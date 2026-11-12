@@ -7,6 +7,9 @@
 #include "RenderPipelineCreation.h"
 #include "Renderers/MeshVertexFactory.h"
 #include "Renderers/MeshPassProcessor.h"
+#include "Renderers/InstanceCulling.h"
+#include "Renderers/RendererRDGAllocator.h"
+#include "Resources/RendererResourceCoordinator.h"
 #include "Renderers/MaterialPSOPrecacheCollector.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "Materials/MaterialShaderMap.h"
@@ -66,6 +69,7 @@
 #include "Renderers/SceneViewPreparation.h"
 #include "SceneTestAccess.h"
 #include "SceneInfo.h"
+#include "GPUScene.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/StaticMeshResources.h"
@@ -462,6 +466,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	Durin::FlushRenderingCommands();
 	SceneOwner.Reset();
+	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();
 	Durin::RHIExit();
 	Durin::ShutdownAssetRuntime();
@@ -687,22 +692,6 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			const size_t MaterialBuilds = SharedFacts.MaterialBuilds;
 			EXPECT_GT(TransformBuilds, 0u);
 			EXPECT_GT(MaterialBuilds, 0u);
-			// Multiple sections of one batch use exactly one upload in this view.
-			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
-			Durin::FResolvedStaticMeshView Uniforms;
-			const auto& Draw = First.Opaque.front();
-			ASSERT_TRUE(Durin::RendererPrivate::PrepareStaticMeshPrimitiveUniforms(CommandList, First, Uniforms));
-			const auto A = Uniforms.PrimitiveUniforms[Draw.PrimitiveIndex];
-			const auto B = Uniforms.PrimitiveUniforms[First.Masked.front().PrimitiveIndex];
-			EXPECT_NE(A.Buffer, nullptr);
-			EXPECT_EQ(A.Buffer, B.Buffer);
-			EXPECT_EQ(A.Offset, B.Offset);
-			EXPECT_EQ(Uniforms.Observations.PrimitiveUniformUploads, First.Primitives.size());
-			ASSERT_TRUE(Durin::RendererPrivate::PrepareStaticMeshPrimitiveUniforms(CommandList, First, Uniforms));
-			const auto C = Uniforms.PrimitiveUniforms[Draw.PrimitiveIndex];
-			EXPECT_TRUE(C.Buffer != A.Buffer || C.Offset != A.Offset);
-			EXPECT_EQ(Uniforms.Observations.PrimitiveUniformUploads, 2 * First.Primitives.size());
-			Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 
 			Durin::FSceneView SecondView;
 			SecondView.Settings.Mode.TranslucentSortPolicy = Durin::ETranslucentSortPolicy::Distance;
@@ -1147,8 +1136,8 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 				const auto RetainedProxy = std::make_shared<Durin::FStaticMeshSceneProxy>(RenderData.get(),
 					std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent, Opaque});
 				RetainedProxy->SetFeatureLevel(Scene.GetFeatureLevel());
-				Durin::FPrimitiveSceneInfo RetainedInfo(Durin::FPrimitiveComponentId(710), RetainedProxy, Durin::FMatrix(1.0));
-				const std::array<const Durin::FPrimitiveSceneInfo*, 1> RetainedInfos{&RetainedInfo};
+				auto RetainedInfo = std::make_shared<Durin::FPrimitiveSceneInfo>(Durin::FPrimitiveComponentId(710), RetainedProxy, Durin::FMatrix(1.0));
+				const std::array<const Durin::FPrimitiveSceneInfo*, 1> RetainedInfos{RetainedInfo.get()};
 				Durin::FSceneView SourceView;
 				Collected = Durin::CollectStaticMeshView_RenderThread(CommandList, RetainedInfos,
 					SourceView, Durin::ERasterMode::Solid);
@@ -1199,6 +1188,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 	GroupingSceneOwner.Reset();
 	OrderingSceneOwner.Reset();
 	SceneOwner.Reset();
+	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();
 	Durin::RHIExit();
 }
@@ -1366,9 +1356,12 @@ namespace
 		const Durin::FSceneView& View, const Durin::FRHITextureCreateDesc& TargetDesc,
 		const std::function<void()>& BeforeDraw = {},
 		const std::function<void(Durin::FRHICommandListImmediate&, Durin::FRHITexture*)>& AfterDraw = {},
-		const Durin::FSceneViewRenderOptions& Options = {}) -> Durin::ERenderViewResult
+		const Durin::FSceneViewRenderOptions& Options = {},
+		std::optional<Durin::EGPUCullingFailure> CullingFailure = {},
+        uint64* PreparationNanoseconds = nullptr) -> Durin::ERenderViewResult
 	{
 		using namespace Durin;
+		if (PreparationNanoseconds) *PreparationNanoseconds = 0;
 		const auto Preparation = FRenderResourcePreparation::Create();
 		FTextureRHIRef Target;
 		auto Result = ERenderViewResult::RendererResourcesPending;
@@ -1377,10 +1370,16 @@ namespace
 		{
 			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
 				FGeometryQualificationFrame Frame(Commands);
+				auto Policy = GetRendererQualificationPolicy();
+				if (CullingFailure) Policy.GPUCullingFailure = *CullingFailure;
+				FScopedRendererQualificationPolicy Qualification(Policy);
 				if (!Target) Target = GDynamicRHI->RHICreateTexture(Commands, TargetDesc);
 				if (!Target) { Result = ERenderViewResult::RendererResourcesUnavailable; return; }
 				const auto DrawsBefore = Commands.GetNumRecordedDrawCommands();
+                const auto PreparationStart = std::chrono::steady_clock::now();
 				Renderer.PrepareViewResources(Commands, {&Scene, View, Target, false, Options}, Preparation);
+                if (PreparationNanoseconds) *PreparationNanoseconds += static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    std::chrono::steady_clock::now() - PreparationStart).count());
 				EXPECT_EQ(Commands.GetNumRecordedDrawCommands(), DrawsBefore);
 				const auto State = Preparation.GetProgress().State;
 				if (State == ERenderResourcePreparationState::Pending) return;
@@ -2406,18 +2405,43 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 			FByteBuffer Pixels, Shadow;
 			std::array<FByteBuffer, 5> GBuffer;
 			FViewRenderTelemetry Telemetry;
-			FGPUTimingQueryRHIRef RasterTime, CullTime;
+			FGPUTimingQueryRHIRef RasterTime, CullTime, ShadowTime;
+            uint64 PreparationNanoseconds = 0;
 		};
 		auto VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
 		bool bDynamicInstancing = true;
+        bool bAsyncCompute = false;
+        FVector3 ViewOrigin(0.0);
+		auto CullingFailure = EGPUCullingFailure::None;
 		bool bTimePasses = false;
+        auto ShadowCandidate = EDirectionalShadowCandidate::SingleMap;
 		auto Render = [&](FScene* Scene, bool GPU, ERenderMode Mode, FObservation& Result) {
 			static FObservation* Sink = nullptr;
 			FSceneView View; View.ViewportWidth = 192; View.ViewportHeight = 192;
+			View.ViewLocation = ViewOrigin; View.ViewMatrix = Math::TranslationMatrix(-ViewOrigin);
+            if (ShadowCandidate == EDirectionalShadowCandidate::ThreeCascades)
+            {
+                // Cascades require positive +X camera depths. Map the fixture's XY
+                // planes onto that camera basis, with near/far distances 1 and 11.
+                View.ViewLocation = FVector3(0.0, 0.0, -2.0);
+                View.ViewMatrix = FMatrix(0.0);
+                View.ViewMatrix[2][0] = 1.0;
+                View.ViewMatrix[0][1] = 1.0;
+                View.ViewMatrix[1][2] = 1.0;
+                View.ViewMatrix[3][0] = 2.0;
+                View.ViewMatrix[3][3] = 1.0;
+                View.ProjectionMatrix = FMatrix(0.0);
+                View.ProjectionMatrix[1][0] = 1.0;
+                View.ProjectionMatrix[2][1] = -1.0;
+                View.ProjectionMatrix[0][2] = 0.1;
+                View.ProjectionMatrix[3][2] = -0.1;
+                View.ProjectionMatrix[3][3] = 1.0;
+            }
+            View.ViewProjectionMatrix = View.ProjectionMatrix * View.ViewMatrix;
 			View.Settings.Mode.RenderMode = Mode;
 			View.Settings.Mode.VisibilityMode = VisibilityMode;
-			View.Settings.DirectionalShadow.Candidate = EDirectionalShadowCandidate::SingleMap;
-			FSceneViewRenderOptions Options; Options.bEnableGPUCulling = GPU; Options.bEnableDynamicInstancing = bDynamicInstancing;
+			View.Settings.DirectionalShadow.Candidate = ShadowCandidate;
+			FSceneViewRenderOptions Options; Options.bEnableGPUCulling = GPU; Options.bEnableDynamicInstancing = bDynamicInstancing; Options.bEnableAsyncCompute = bAsyncCompute;
 			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
 				Result.MaterialGroups = PrepareStaticMeshView_RenderThread(Commands, Scene->GetPrimitiveSceneInfos(),
 					View, ERasterMode::Solid).MaterialUniformGroups.size();
@@ -2432,6 +2456,7 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 					{
 						SetGBufferTimingQuerySink(+[](const FGPUTimingQueryRHIRef& Q) { Sink->RasterTime = Q; });
 						SetGPUCullingTimingQuerySink(+[](const FGPUTimingQueryRHIRef& Q) { Sink->CullTime = Q; });
+                        SetShadowDepthTimingQuerySink(+[](const FGPUTimingQueryRHIRef& Q) { Sink->ShadowTime = Q; });
 					}
 					SetViewRenderTelemetrySink(+[](const FViewRenderTelemetry& Value) { Sink->Telemetry = Value; });
 					SetGBufferCaptureSink(+[](FRHICommandListImmediate& C, FRHITexture* A, FRHITexture* B, FRHITexture* D, FRHITexture* E, FRHITexture* Z) {
@@ -2440,12 +2465,26 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 					});
 					SetShadowDepthCaptureSink(+[](FRHICommandListImmediate& C, FRHITexture* Texture, uint32) { ReadGeometryTexture(C, Texture, Sink->Shadow, true); });
 				},
-				[&](FRHICommandListImmediate& Commands, FRHITexture* Target) { ReadGeometryTexture(Commands, Target, Result.Pixels); }, Options);
+				[&](FRHICommandListImmediate& Commands, FRHITexture* Target) { ReadGeometryTexture(Commands, Target, Result.Pixels); }, Options, CullingFailure, &Result.PreparationNanoseconds);
 			SetGBufferTimingQuerySink(nullptr);
 			SetGPUCullingTimingQuerySink(nullptr);
+            SetShadowDepthTimingQuerySink(nullptr);
 			Sink = nullptr;
 			EXPECT_EQ(Outcome, ERenderViewResult::Success);
 		};
+        auto ResolveCounts = [&](const FObservation& Observation) -> std::optional<FGPUCullingVisibilityCounts> {
+            const auto Query = Observation.Telemetry.GBuffer.GPUCullingVisibility;
+            if (!Query) return {};
+            for (uint32 Poll = 0; Poll < 128 && !Query->GetCounts(); ++Poll)
+            {
+                EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([](FRHICommandListImmediate& Commands) {
+                    FGeometryQualificationFrame Frame(Commands); Commands.PollTextureReadbacks();
+                    Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+                });
+                FlushRenderingCommands();
+            }
+            return Query->GetCounts();
+        };
 		FObservation Direct, Grouped, Baseline;
 		for (const auto Mode : {ERenderMode::Unlit, ERenderMode::Lit})
 		{
@@ -2491,7 +2530,7 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 				std::cout << "[CustomData] dynamic_draws=" << Baseline.Telemetry.GBuffer.GBufferSuccessfulDraws
 					<< " direct_draws=" << Direct.Telemetry.GBuffer.GBufferSuccessfulDraws
 					<< " grouped_indirect_draws=" << Grouped.Telemetry.GBuffer.GPUCullingIndirectDraws
-					<< " instance_uniform_bytes=" << sizeof(RendererPrivate::FStaticMeshTransformUniform) << '\n';
+					<< " fallback_uniform_abi_bytes=" << sizeof(RendererPrivate::FMeshFallbackPrimitiveUniform) << '\n';
 			}
 		}
 		// Small groups use CPU IDs with either GPU visibility policy. Growing the
@@ -2516,6 +2555,99 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 			}
 		}
 		Instanced->UpdateStaticMeshRenderInstances(FPrimitiveComponentId(1000), std::make_shared<const std::vector<FStaticMeshRenderInstance>>(Instances));
+		// Independently created source descriptions with equal effective state
+		// share GPU admission instead of partitioning by wrapper identity.
+		{
+			class FIndependentBindingProxy final : public FStaticMeshSceneProxy
+			{
+			public:
+				using FStaticMeshSceneProxy::FStaticMeshSceneProxy;
+                bool bDynamicSceneData = false;
+				auto CollectMeshBatches(const FMeshCollectionContext& Context, FMeshBatchCollector& Collector) const -> void override
+				{
+					FMeshBatchCollector Collected(Context.Purpose);
+					FStaticMeshSceneProxy::CollectMeshBatches(Context, Collected);
+					for (auto Batch : Collected.GetBatches())
+					{
+						if (!Geometry)
+						{
+							const auto Record = Batch.GeometryRecord->WithBinding(std::make_unique<FStaticMeshBatchBinding>(
+								static_cast<const FStaticMeshBatchBinding&>(*Batch.GeometryRecord->GetBinding())));
+							ASSERT_TRUE(Record); Geometry = *Record;
+						}
+						Batch.GeometryRecord = Geometry; Batch.Binding = Geometry->GetBinding();
+                        if (bDynamicSceneData) Batch.PrimitiveIdMode = EPrimitiveIdMode::PrimID_DynamicPrimitiveShaderData;
+						EXPECT_EQ(Collector.Add(std::move(Batch)), EGeometrySubmissionOutcome::Submitted);
+					}
+				}
+			private:
+				mutable FMeshGeometryRecord::FRef Geometry;
+			};
+			auto Small = std::vector<FStaticMeshRenderInstance>(Instances.begin(), Instances.begin() + 3);
+			for (size_t Index = 0; Index < Small.size(); ++Index)
+			{
+				auto& Transform = Small[Index].LocalToPrimitive;
+				Transform[0][0] = Transform[1][1] = Transform[2][2] = .03;
+				Transform[3] = FVector4(-.7 + .4 * Index, .96, .2, 1.0);
+			}
+			auto Extra = std::make_unique<FIndependentBindingProxy>(Geometry.get(), std::vector{Custom->GetRenderProxy()},
+				std::make_shared<const std::vector<FStaticMeshRenderInstance>>(Small));
+			ASSERT_TRUE(Extra->SetCustomPrimitiveData(PrimitiveData));
+			FSceneInterfaceTestAccess::AddPrimitiveProxy(*Instanced, FPrimitiveComponentId(1001), std::move(Extra), FMatrix(1.0));
+			FObservation D, CPU, Mixed;
+			bDynamicInstancing = false; Render(Instanced.Get(), false, ERenderMode::Lit, D);
+			bDynamicInstancing = true; Render(Instanced.Get(), false, ERenderMode::Lit, CPU);
+			Render(Instanced.Get(), true, ERenderMode::Lit, Mixed);
+			EXPECT_EQ(CPU.Pixels, D.Pixels); EXPECT_EQ(CPU.GBuffer, D.GBuffer); EXPECT_EQ(CPU.Shadow, D.Shadow);
+			EXPECT_EQ(Mixed.Pixels, D.Pixels); EXPECT_EQ(Mixed.GBuffer, D.GBuffer); EXPECT_EQ(Mixed.Shadow, D.Shadow);
+			EXPECT_EQ(D.Telemetry.StaticMesh.NativeDrawSubmissions, 67u);
+			EXPECT_EQ(CPU.Telemetry.StaticMesh.NativeDrawSubmissions, 1u);
+			EXPECT_EQ(Mixed.Telemetry.GBuffer.GPUCullingIndirectDraws, 1u);
+			EXPECT_EQ(Mixed.Telemetry.GBuffer.GPUCullingCandidates, 67u);
+			EXPECT_EQ(Mixed.Telemetry.GBuffer.GPUCullingBelowThresholdCandidates, 0u);
+			EXPECT_EQ(Mixed.Telemetry.GBuffer.GPUCullingDirectFallbackDraws, 0u);
+			EXPECT_EQ(Mixed.Telemetry.StaticMesh.NativeDrawSubmissions, 1u);
+
+			for (const auto Failure : {EGPUCullingFailure::ShaderUnavailable, EGPUCullingFailure::PipelineUnavailable, EGPUCullingFailure::MetadataBudget, EGPUCullingFailure::CommandAdmission})
+			{
+				CullingFailure = Failure;
+				FObservation Fallback; Render(Instanced.Get(), true, ERenderMode::Lit, Fallback);
+				EXPECT_EQ(Fallback.Pixels, D.Pixels); EXPECT_EQ(Fallback.GBuffer, D.GBuffer); EXPECT_EQ(Fallback.Shadow, D.Shadow);
+				EXPECT_EQ(Fallback.Telemetry.GBuffer.GPUCullingIndirectDraws, 0u);
+				EXPECT_EQ(Fallback.Telemetry.StaticMesh.NativeDrawSubmissions, 1u);
+				if (Failure == EGPUCullingFailure::MetadataBudget)
+					EXPECT_EQ(Fallback.Telemetry.GBuffer.GPUCullingOverflowCandidates, 67u);
+				else EXPECT_EQ(Fallback.Telemetry.GBuffer.GPUCullingDispatchFailureViews, 1u);
+			}
+			CullingFailure = EGPUCullingFailure::None;
+			FObservation Retried; Render(Instanced.Get(), true, ERenderMode::Lit, Retried);
+			EXPECT_EQ(Retried.Pixels, Mixed.Pixels); EXPECT_EQ(Retried.GBuffer, Mixed.GBuffer);
+			EXPECT_EQ(Retried.Telemetry.StaticMesh.NativeDrawSubmissions, 1u);
+			FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Instanced, FPrimitiveComponentId(1001));
+			FObservation Removed; Render(Instanced.Get(), true, ERenderMode::Lit, Removed);
+			EXPECT_EQ(Removed.Pixels, Grouped.Pixels); EXPECT_EQ(Removed.GBuffer, Grouped.GBuffer);
+			EXPECT_EQ(Removed.Telemetry.StaticMesh.NativeDrawSubmissions, 1u);
+            auto DynamicInstances = Instances;
+            for (auto& Instance : DynamicInstances) { Instance.LocalToPrimitive[3].x += .1; Instance.LocalToPrimitive[3].z = .1; }
+            auto DynamicProxy = std::make_unique<FIndependentBindingProxy>(Geometry.get(), std::vector{Custom->GetRenderProxy()},
+                std::make_shared<const std::vector<FStaticMeshRenderInstance>>(DynamicInstances));
+            DynamicProxy->bDynamicSceneData = true;
+            ASSERT_TRUE(DynamicProxy->SetCustomPrimitiveData(PrimitiveData));
+            FSceneInterfaceTestAccess::AddPrimitiveProxy(*Instanced, FPrimitiveComponentId(1002), std::move(DynamicProxy), FMatrix(1.0));
+            FObservation DualDirect, DualGPU;
+            bDynamicInstancing = false; Render(Instanced.Get(), false, ERenderMode::Lit, DualDirect);
+            bDynamicInstancing = true; bAsyncCompute = true; Render(Instanced.Get(), true, ERenderMode::Lit, DualGPU);
+            EXPECT_EQ(DualGPU.Pixels, DualDirect.Pixels); EXPECT_EQ(DualGPU.GBuffer, DualDirect.GBuffer); EXPECT_EQ(DualGPU.Shadow, DualDirect.Shadow);
+            EXPECT_EQ(DualGPU.Telemetry.GBuffer.GPUCullingIndirectDraws, 1u);
+            EXPECT_EQ(DualGPU.Telemetry.GBuffer.GPUCullingDispatchedViews, 1u);
+            EXPECT_EQ(DualGPU.Telemetry.GBuffer.GPUCullingBufferBytes, 128u * sizeof(FInstanceCullingCandidate) + 128u * sizeof(uint32) + sizeof(FRHIDrawIndexedIndirectArguments));
+            EXPECT_GT(DualGPU.Telemetry.GBuffer.GPUCullingSceneCapacityBytes, 0u);
+            EXPECT_EQ(DualGPU.Telemetry.GBuffer.GPUCullingStandaloneSceneCapacityBytes, 0u);
+            const auto DualCounts = ResolveCounts(DualGPU); ASSERT_TRUE(DualCounts); EXPECT_EQ(DualCounts->Visible, 128u);
+            bAsyncCompute = false;
+            FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Instanced, FPrimitiveComponentId(1002));
+
+		}
 		// Keep a single aggregate primitive intersecting the frustum so the CPU broad
 		// phase cannot remove its off-screen instances before indirect submission.
 		const bool bProfile = std::getenv("DURIN_PROFILE_MAIN_VIEW_CULLING") != nullptr;
@@ -2583,6 +2715,161 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 		VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
 		Instanced->UpdateStaticMeshRenderInstances(FPrimitiveComponentId(1000),
 			std::make_shared<const std::vector<FStaticMeshRenderInstance>>(Instances));
+        {
+            class FConservativeBoundsProxy final : public FStaticMeshSceneProxy
+            {
+            public:
+                using FStaticMeshSceneProxy::FStaticMeshSceneProxy;
+                auto GetLocalBounds() const -> FBox override { return FBox(FVector3(-10.0), FVector3(10.0)); }
+            };
+            auto Outside = Instances; for (auto& Instance : Outside) Instance.LocalToPrimitive[3].x += 4.0;
+            FSceneTestOwner Zero;
+            auto Proxy = std::make_unique<FConservativeBoundsProxy>(Geometry.get(), std::vector{Custom->GetRenderProxy()},
+                std::make_shared<const std::vector<FStaticMeshRenderInstance>>(Outside));
+            ASSERT_TRUE(Proxy->SetCustomPrimitiveData(PrimitiveData));
+            FSceneInterfaceTestAccess::AddPrimitiveProxy(*Zero, FPrimitiveComponentId(5000), std::move(Proxy), FMatrix(1.0));
+            VisibilityMode = EViewVisibilityMode::Normal;
+            FObservation D, G;
+            bDynamicInstancing = false; Render(Zero.Get(), false, ERenderMode::Lit, D);
+            bDynamicInstancing = true; Render(Zero.Get(), true, ERenderMode::Lit, G);
+            EXPECT_EQ(G.Pixels, D.Pixels); EXPECT_EQ(G.GBuffer, D.GBuffer);
+            EXPECT_EQ(G.Telemetry.GBuffer.GPUCullingCandidates, 64u);
+            const auto Counts = ResolveCounts(G); ASSERT_TRUE(Counts);
+            EXPECT_EQ(Counts->Visible, 0u); EXPECT_EQ(Counts->Culled, 64u);
+            Zero.Reset(); FlushRenderingCommands();
+        }
+        {
+            // The conservative world-relative tolerance is 1e-9: move rejected
+            // instances farther than that tolerance at the 1e12 world origin.
+            auto Layout = Instances;
+            for (size_t Index = 0; Index < 32; ++Index) Layout[Index].LocalToPrimitive[3].x += 4096.0;
+            Instanced->UpdateStaticMeshRenderInstances(FPrimitiveComponentId(1000), std::make_shared<const std::vector<FStaticMeshRenderInstance>>(Layout));
+            ViewOrigin = FVector3(1099511627776.0, -1099511627776.0, 1099511627776.0);
+            Instanced->UpdatePrimitiveTransform(FPrimitiveComponentId(1000), Math::TranslationMatrix(ViewOrigin));
+            VisibilityMode = EViewVisibilityMode::Normal;
+            for (const bool Async : {false, true})
+            {
+                bAsyncCompute = Async;
+                FObservation D, G;
+                bDynamicInstancing = false; Render(Instanced.Get(), false, ERenderMode::Lit, D);
+                bDynamicInstancing = true; Render(Instanced.Get(), true, ERenderMode::Lit, G);
+                EXPECT_EQ(G.Pixels, D.Pixels); EXPECT_EQ(G.GBuffer, D.GBuffer);
+                const auto Counts = ResolveCounts(G); ASSERT_TRUE(Counts);
+                EXPECT_EQ(Counts->Visible, 32u); EXPECT_EQ(Counts->Culled, 32u);
+                EXPECT_EQ(G.Telemetry.GBuffer.GPUCullingAsyncComputeEligibleViews, Async ? 1u : 0u);
+            }
+            bAsyncCompute = false; ViewOrigin = FVector3(0.0); VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
+            Instanced->UpdatePrimitiveTransform(FPrimitiveComponentId(1000), FMatrix(1.0));
+            Instanced->UpdateStaticMeshRenderInstances(FPrimitiveComponentId(1000), std::make_shared<const std::vector<FStaticMeshRenderInstance>>(Instances));
+        }
+        if (const char* SampleFile = std::getenv("DURIN_GPUSCENE_SAMPLE_FILE"))
+        {
+            const char* Profile = std::getenv("DURIN_GPUSCENE_SAMPLE_PROFILE");
+            const bool bReleaseSampling = Profile && std::string_view(Profile) == "release";
+            if (bReleaseSampling)
+            {
+#if !defined(NDEBUG) || DURIN_WITH_TRACY
+                FAIL() << "Release GPUScene sampling requires Release with Tracy disabled.";
+#endif
+                const char* Validation = std::getenv("DURIN_VULKAN_VALIDATION");
+                ASSERT_TRUE(Validation && std::string_view(Validation) == "off");
+                // Exclusive external GPU ownership is admitted by the operator;
+                // neither this fixture nor a CTest resource lock can establish it.
+            }
+            const uint32 Warmups = bReleaseSampling ? 30 : 2;
+            const uint32 Samples = bReleaseSampling ? 120 : 6;
+            std::string CSV = "scenario,sample,view,mode,update_ns,prepare_ns,gbuffer_ns,cull_ns,shadow_ns,attribute_upload_bytes,attribute_upload_ranges,buffer_rebuilds,scene_gpu_capacity_bytes,scene_mirror_capacity_bytes,native_draws,shadow_native_draws,persistent_hits,persistent_misses,culling_transient_bytes,shadow_cascades,shadow_target_backend_bytes\n";
+            auto Statistics = [&] {
+                FGPUSceneStatistics Result;
+                EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate&) { Result = Instanced->GPUScene->GetStatistics(); });
+                FlushRenderingCommands(); return Result;
+            };
+            auto WaitTimings = [&](const FObservation& Observation) {
+                for (uint32 Poll = 0; Poll < 128; ++Poll)
+                {
+                    const auto Ready = [](const FGPUTimingQueryRHIRef& Query) {
+                        return !Query || Query->GetResult().State == ERHIGPUTimingResultState::Ready;
+                    };
+                    if (Ready(Observation.RasterTime) && Ready(Observation.CullTime) && Ready(Observation.ShadowTime)) break;
+                    EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([](FRHICommandListImmediate& Commands) {
+                        FGeometryQualificationFrame Frame(Commands); Commands.PollTextureReadbacks(); Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+                    });
+                    FlushRenderingCommands();
+                }
+            };
+            struct FWorkload { const char* Name; uint32 Count; bool Dynamic; uint32 Views; bool Cascades; };
+            for (const auto Work : {FWorkload{"static-small", 3, false, 1, false}, FWorkload{"static-large", 256, false, 1, false},
+                FWorkload{"dynamic-large", 256, true, 1, false}, FWorkload{"multi-view", 64, false, 2, false},
+                FWorkload{"shadow-heavy", 64, false, 1, true}})
+            {
+                std::vector<FStaticMeshRenderInstance> Layout;
+                for (uint32 Index = 0; Index < Work.Count; ++Index)
+                {
+                    auto Instance = Instances[Index % Instances.size()]; Instance.Id = Index + 1;
+                    const uint32 Side = Work.Count > 64 ? 16 : 8;
+                    const double Scale = Work.Count > 64 ? .04 : .09;
+                    Instance.LocalToPrimitive = Math::ScaleMatrix(FVector3(Scale));
+                    Instance.LocalToPrimitive[3] = FVector4(-.85 + 1.7 * (Index % Side) / (Side - 1), -.85 + 1.7 * (Index / Side) / (Side - 1), .2, 1.0);
+                    Layout.push_back(Instance);
+                }
+                Instanced->UpdateStaticMeshRenderInstances(FPrimitiveComponentId(1000), std::make_shared<const std::vector<FStaticMeshRenderInstance>>(Layout));
+                ShadowCandidate = Work.Cascades ? EDirectionalShadowCandidate::ThreeCascades : EDirectionalShadowCandidate::SingleMap;
+                VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled; bTimePasses = true;
+                for (uint32 Iteration = 0; Iteration < Warmups + Samples; ++Iteration)
+                {
+                    uint64 UpdateNanoseconds = 0;
+                    if (Work.Dynamic)
+                    {
+                        const auto UpdateStart = std::chrono::steady_clock::now();
+                        Layout[0].LocalToPrimitive[3].z = .2 + .0001 * (Iteration + 1);
+                        ASSERT_TRUE(Layout[0].CustomData.Set(3, std::array{.7f + .001f * Iteration, 0.f, 0.f}));
+                        Instanced->UpdateStaticMeshRenderInstances(FPrimitiveComponentId(1000), std::make_shared<const std::vector<FStaticMeshRenderInstance>>(Layout));
+                        FlushRenderingCommands();
+                        UpdateNanoseconds = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                            std::chrono::steady_clock::now() - UpdateStart).count();
+                    }
+                    for (uint32 ViewIndex = 0; ViewIndex < Work.Views; ++ViewIndex)
+                    {
+                        ViewOrigin = FVector3(.02 * ViewIndex, 0.0, 0.0);
+                        for (uint32 Order = 0; Order < 3; ++Order)
+                        {
+                            const uint32 Mode = Iteration % 2 ? 2 - Order : Order;
+                            bDynamicInstancing = Mode != 0;
+                            const auto Before = Statistics();
+                            FObservation Observed; Render(Instanced.Get(), Mode == 2, ERenderMode::Lit, Observed);
+                            const auto After = Statistics(); WaitTimings(Observed);
+                            const auto Duration = [](const FGPUTimingQueryRHIRef& Query) -> uint64 {
+                                if (!Query) return 0;
+                                EXPECT_EQ(Query->GetResult().State, ERHIGPUTimingResultState::Ready);
+                                return Query->GetResult().DurationNanoseconds;
+                            };
+                            ASSERT_TRUE(Observed.RasterTime); ASSERT_TRUE(Observed.ShadowTime);
+                            EXPECT_EQ(Observed.Telemetry.DirectionalShadow.ShadowCascadeCount, Work.Cascades ? 3u : 1u);
+                            EXPECT_EQ(Observed.Telemetry.StaticMesh.PrimitiveUniformUploads, 0u);
+                            const auto Upload = After.UploadBytes - Before.UploadBytes;
+                            if (Iteration >= Warmups)
+                            {
+                                if (!Work.Dynamic || Order != 0 || ViewIndex != 0) EXPECT_EQ(Upload, 0u);
+                                else { EXPECT_GT(Upload, 0u); EXPECT_LE(Upload, sizeof(FPrimitiveSceneShaderData) + sizeof(FInstanceSceneShaderData) + sizeof(FPrimitiveCustomData)); }
+                                CSV += std::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n", Work.Name, Iteration - Warmups, ViewIndex, Mode,
+                                    Order == 0 && ViewIndex == 0 ? UpdateNanoseconds : 0, Observed.PreparationNanoseconds, Duration(Observed.RasterTime), Duration(Observed.CullTime), Duration(Observed.ShadowTime),
+                                    Upload, After.UploadRanges - Before.UploadRanges, After.BufferRebuilds - Before.BufferRebuilds,
+                                    After.CapacityBytes, After.MirrorCapacityBytes, Observed.Telemetry.StaticMesh.NativeDrawSubmissions,
+                                    Observed.Telemetry.DirectionalShadow.ShadowNativeDrawSubmissions, Observed.Telemetry.StaticMesh.PersistentCommandHits,
+                                    Observed.Telemetry.StaticMesh.PersistentCommandMisses, Observed.Telemetry.GBuffer.GPUCullingBufferBytes, Observed.Telemetry.DirectionalShadow.ShadowCascadeCount, Observed.Telemetry.DirectionalShadow.ShadowTargetBackendBytes);
+                            }
+                        }
+                    }
+                }
+                std::ofstream Output(std::filesystem::path(SampleFile), std::ios::binary);
+                Output.write(CSV.data(), CSV.size()); Output.flush(); ASSERT_TRUE(Output.good());
+            }
+            std::cout << "GPUScene " << (bReleaseSampling ? "Release" : "diagnostic")
+                << " samples: " << SampleFile << " warmups=" << Warmups << " samples=" << Samples
+                << " per mode/view; external quiet-lane admission required\n";
+            bTimePasses = false; bDynamicInstancing = true; ViewOrigin = FVector3(0.0); ShadowCandidate = EDirectionalShadowCandidate::SingleMap;
+            Instanced->UpdateStaticMeshRenderInstances(FPrimitiveComponentId(1000), std::make_shared<const std::vector<FStaticMeshRenderInstance>>(Instances));
+        }
 		auto FindFragmentType = [](std::string_view Entry) -> const FShaderType* {
 			for (const auto* Type : FShaderType::GetTypeList())
 				if (Type->GetFrequency() == EShaderFrequency::Fragment && Type->GetEntryPoint() == Entry) return Type;
@@ -4272,7 +4559,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 					.bTwoSided = Properties.bTwoSided, .DepthWritePolicy = Properties.DepthWritePolicy};
 				const auto Raster = DirectCollector->GetPSOPrecacheVariants(InitialConfig, {}).front().Raster;
 				FMeshPassProcessorBatch Batch{Identity, *Factory, MakeMeshPipelineState(Identity, Raster),
-					EGeometryTopology::TriangleList, {}, true, false, Raster.bReversedZ};
+					EGeometryTopology::TriangleList, {}, true, Raster.bReversedZ};
 				FMeshPassShaders Shaders;
 				const auto Generation = Renderer.GetResourceInvalidationSnapshot_RenderThread().Generation;
 				const auto ShaderContext = DirectCollector->PrepareShaders(Batch, Generation, LowResource.CompiledProgram.get(), {}, Shaders);
@@ -4339,20 +4626,22 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 					FResolvedStaticMeshView::FMaterialUniform PassMaterial;
 					PassMaterial.Surface.bCompiledLayout = true; PassMaterial.Surface.bError = Binding.bError;
 					PassMaterial.Uniform = Commands.CreateUniformBufferRange(Binding.CompiledUniformPayload.data(), static_cast<uint32>(Binding.CompiledUniformPayload.size()));
-					const auto Transform = BuildMeshTransformUniform(*Primitive);
+					const auto Transform = BuildFallbackPrimitiveUniform(*Primitive);
 					const auto PrimitiveUniform = Commands.CreateUniformBufferRange(&Transform, sizeof(Transform));
 					FMaterialViewUniform ViewParameters;
 					ViewParameters.Viewport = FVector4f(0, 0, 64, 64);
 					FMeshDrawCommandBuildInput Input{Commands, *Primitive, BindingDraw, Pipeline, PassMaterial,
 						PrimitiveUniform, Commands.CreateUniformBufferRange(&ViewParameters, sizeof(ViewParameters)), {}, {}};
-					const auto SceneData = FGPUSceneDynamicContext::Prepare(Commands, Prepared);
+					FRendererResourceCoordinator UploadCoordinator;
+                    FRendererRDGAllocator UploadAllocator(UploadCoordinator);
+                    const auto SceneData = FGPUSceneDynamicContext::Prepare(Commands, UploadAllocator, Prepared);
 					ASSERT_EQ(SceneData.size(), Prepared.Primitives.size());
 					ASSERT_TRUE(SceneData[BindingDraw.PrimitiveIndex].Buffers);
 					Input.GPUScene = SceneData[BindingDraw.PrimitiveIndex].Buffers->GetShaderParameters();
 					Input.InstanceIdOffset = SceneData[BindingDraw.PrimitiveIndex].InstanceIdOffset;
 					FMeshDrawCommandBindingCache CacheA;
 					std::shared_ptr<const FMeshDrawCommand> Cached;
-					const auto Source = Primitive->DrawResources.lock(); ASSERT_TRUE(Source);
+					const auto Source = Primitive->SceneInfo.lock(); ASSERT_TRUE(Source);
 					auto& SourceUniform = Source->GetPrimitiveUniformBuffer(Primitive->BatchId);
 					ASSERT_TRUE(SourceUniform.Update(Commands, std::as_bytes(std::span(&Transform, 1))));
 					Input.PrimitiveUniform = SourceUniform.GetRange();

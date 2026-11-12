@@ -1160,7 +1160,7 @@ namespace Durin
 			DepthOptions.Target = std::string_view(Backend ? Backend : "") == "metal" ? MetalShaderTarget : VulkanShaderTarget;
 			DepthOptions.EntryPoints = {"ComputeMain"};
 			DepthOptions.Frequencies = {EShaderFrequency::Compute};
-			const auto CullCode = FShaderCompilingManager::Get().CompileMountedSync("/Engine/GBufferGPUCulling", [&] { auto C = DepthOptions; C.EntryPoints = {"CullMain"}; return C; }());
+			const auto CullCode = FShaderCompilingManager::Get().CompileMountedSync("/Engine/InstanceCulling", [&] { auto C = DepthOptions; C.EntryPoints = {"CullMain"}; return C; }());
 			ASSERT_TRUE(CullCode) << FormatShaderCompilerErrors(CullCode.Errors);
 			{
 				std::ofstream Output(GSceneCloudEvidenceRoot / "culling-native-code.bin", std::ios::binary);
@@ -1168,8 +1168,7 @@ namespace Durin
 				Output.write(reinterpret_cast<const char*>(Bytes.data()), Bytes.size());
 			}
 			{
-				auto Options = DepthOptions; Options.EntryPoints = {"GPUCullingVertexMain"}; Options.Frequencies = {EShaderFrequency::Vertex};
-				Options.Macros = {{"DURIN_GPU_CULLING", "1"}};
+				auto Options = DepthOptions; Options.EntryPoints = {"VertexMain"}; Options.Frequencies = {EShaderFrequency::Vertex};
 				const auto Code = FShaderCompilingManager::Get().CompileMountedSync("/Engine/StaticMeshBasePass", Options);
 				ASSERT_TRUE(Code) << FormatShaderCompilerErrors(Code.Errors);
 				std::ofstream Output(GSceneCloudEvidenceRoot / "culling-vertex-native.bin", std::ios::binary);

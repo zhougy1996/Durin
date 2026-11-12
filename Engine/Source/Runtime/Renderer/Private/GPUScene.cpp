@@ -40,6 +40,9 @@ namespace Durin
 		FRHIGPUSyncPointRef LastUse;
 		std::weak_ptr<FGPUSceneUpdate> Pending;
 		uint64 Revision = 0, ResourceGeneration = 1;
+		std::unordered_map<uint64, FGPUSceneDynamicAllocation> DynamicAllocations;
+		std::vector<FGPUSceneDynamicAllocation> PendingDynamicReleases;
+        FGPUSceneStatistics Statistics;
 
 		auto RequireNoPendingUpdate() const -> void
 		{
@@ -74,6 +77,19 @@ namespace Durin
 			if (std::ranges::equal(std::as_bytes(std::span(&Values[Index], 1)), std::as_bytes(std::span(&Value, 1)))) return;
 			Values[Index] = Value; Dirty[Index] = true;
 		}
+		auto RetireDynamic(const FGPUSceneDynamicAllocation& Allocation) -> void
+		{
+			const auto Found = DynamicAllocations.find(Allocation.Id); require(Found != DynamicAllocations.end());
+			const auto Range = Found->second;
+			FreePrimitives.push_back({Range.PrimitiveOffset, Range.Count, LastUse});
+			FreeInstances.push_back({Range.InstanceOffset, Range.Count, LastUse});
+			DynamicAllocations.erase(Found);
+		}
+		auto DrainDynamicReleases() -> void
+		{
+			for (const auto& Range : PendingDynamicReleases) RetireDynamic(Range);
+			PendingDynamicReleases.clear();
+		}
 		auto RetireInstances(FPrimitiveSceneInfo& Info) -> void
 		{
 			if (Info.NumInstanceSceneDataEntries == 0) return;
@@ -83,7 +99,7 @@ namespace Durin
 				Store(Instances, InstanceDirty, Index, FInstanceSceneShaderData{});
 				Store(Payload, PayloadDirty, Index, FPrimitiveCustomData{});
 			}
-			Info.InstanceSceneDataOffset = Info.InstancePayloadDataOffset = INDEX_NONE_U32;
+			Info.InstanceSceneDataOffset = INDEX_NONE_U32;
 			Info.NumInstanceSceneDataEntries = 0;
 		}
 		auto Refresh(FPrimitiveSceneInfo& Info, uint8 Dirty) -> void
@@ -121,7 +137,6 @@ namespace Durin
 						InstanceDirty.resize(Instances.size(), true); PayloadDirty.resize(Instances.size(), true);
 					}
 					Info.InstanceSceneDataOffset = Offset;
-					Info.InstancePayloadDataOffset = Offset * (PrimitiveCustomDataFloatCount / 4);
 					Info.NumInstanceSceneDataEntries = Count;
 				}
 			}
@@ -142,6 +157,60 @@ namespace Durin
 
 	FGPUScene::FGPUScene() : State(std::make_unique<FState>()) {}
 	FGPUScene::~FGPUScene() = default;
+
+	auto FGPUScene::AllocateDynamicPrimitiveRange(uint32 Count) -> FGPUSceneDynamicAllocation
+	{
+		CheckRenderingThread(); State->RequireNoPendingUpdate(); State->DrainDynamicReleases();
+		if (Count == 0) return {};
+		FGPUSceneDynamicAllocation Result;
+		static std::atomic<uint64> NextAllocation{1};
+		Result.Id = NextAllocation.fetch_add(1, std::memory_order_relaxed); require(Result.Id != 0);
+		Result.Count = Count;
+		Result.PrimitiveOffset = FState::TakeRange(State->FreePrimitives, Count).value_or(static_cast<uint32>(State->Primitives.size()));
+		Result.InstanceOffset = FState::TakeRange(State->FreeInstances, Count).value_or(static_cast<uint32>(State->Instances.size()));
+		require(uint64(Result.PrimitiveOffset) + Count <= UINT32_MAX / sizeof(FPrimitiveSceneShaderData));
+		require(uint64(Result.InstanceOffset) + Count <= UINT32_MAX / sizeof(FInstanceSceneShaderData));
+		if (uint64(Result.PrimitiveOffset) + Count > State->Primitives.size())
+		{
+			State->Primitives.resize(size_t(Result.PrimitiveOffset) + Count);
+			State->Entries.resize(State->Primitives.size()); State->PrimitiveDirty.resize(State->Primitives.size(), true);
+		}
+		if (uint64(Result.InstanceOffset) + Count > State->Instances.size())
+		{
+			State->Instances.resize(size_t(Result.InstanceOffset) + Count); State->Payload.resize(State->Instances.size());
+			State->InstanceDirty.resize(State->Instances.size(), true); State->PayloadDirty.resize(State->Instances.size(), true);
+		}
+		State->DynamicAllocations.emplace(Result.Id, Result); ++State->Revision;
+		return Result;
+	}
+	auto FGPUScene::WriteDynamicPrimitive(const FGPUSceneDynamicAllocation& Allocation, uint32 Index,
+		const FMatrix& Transform, const FBox& Bounds, const FPrimitiveCustomData& PrimitiveData, const FPrimitiveCustomData& InstanceData) -> bool
+	{
+		CheckRenderingThread(); State->RequireNoPendingUpdate();
+		const auto Found = State->DynamicAllocations.find(Allocation.Id);
+		if (Found == State->DynamicAllocations.end() || Index >= Found->second.Count || !InstanceData.IsValid()) return false;
+		const auto& Range = Found->second;
+		const auto PrimitiveId = Range.PrimitiveOffset + Index, InstanceId = Range.InstanceOffset + Index;
+		const auto Parameters = FPrimitiveUniformShaderParametersBuilder().LocalToWorld(Transform).WorldBounds(Bounds)
+			.CustomPrimitiveData(PrimitiveData).InstanceSceneData(InstanceId, 1).Build();
+		FInstanceSceneShaderData Packed;
+		if (!Parameters || !Packed.Build(PrimitiveId, 0, InstanceId * (PrimitiveCustomDataFloatCount / 4), {}, Transform, Bounds)) return false;
+		FState::Store(State->Primitives, State->PrimitiveDirty, PrimitiveId, FPrimitiveSceneShaderData(*Parameters));
+		FState::Store(State->Instances, State->InstanceDirty, InstanceId, Packed);
+		FState::Store(State->Payload, State->PayloadDirty, InstanceId, InstanceData);
+		++State->Revision;
+		return true;
+	}
+	auto FGPUScene::ReleaseDynamicPrimitiveRange(const FGPUSceneDynamicAllocation& Allocation) -> void
+	{
+		CheckRenderingThread();
+		if (Allocation.Id == 0) return;
+		const auto Pending = State->Pending.lock();
+		if (Pending && !Pending->bCompleted) State->PendingDynamicReleases.push_back(Allocation);
+		else { State->DrainDynamicReleases(); State->RetireDynamic(Allocation); }
+		// A release never mutates packed data captured by an in-flight upload.
+		// Completion/abandonment resolves its retirement prerequisite before reuse.
+	}
 
 	auto FGPUScene::AddPrimitive(FPrimitiveSceneInfo& Info) -> void
 	{
@@ -188,7 +257,7 @@ namespace Durin
 
 	auto FGPUScene::Update(FRDGBuilder& Graph) -> FGPUSceneUpdateResult
 	{
-		CheckRenderingThread(); State->RequireNoPendingUpdate();
+		CheckRenderingThread(); State->RequireNoPendingUpdate(); State->DrainDynamicReleases();
 		if (!IsInitialized()) InitResource(FRHICommandListImmediate::Get());
 		for (auto& Entry : State->Entries)
 			if (Entry.Info && Entry.DirtyState) { State->Refresh(*Entry.Info, Entry.DirtyState); Entry.DirtyState = 0; }
@@ -277,9 +346,22 @@ namespace Durin
 		std::ranges::fill(State->PrimitiveDirty, false);
 		std::ranges::fill(State->InstanceDirty, false);
 		std::ranges::fill(State->PayloadDirty, false);
+        State->Statistics.UploadBytes += Result.UploadBytes;
+        State->Statistics.UploadRanges += Result.UploadRanges;
+        State->Statistics.BufferRebuilds += Result.BufferRebuilds;
 		State->LastUse = Graph.GetGPUCompletion();
 		return true;
 	}
+
+    auto FGPUScene::GetStatistics() const -> FGPUSceneStatistics
+    {
+        CheckRenderingThread();
+        auto Result = State->Statistics;
+        Result.MirrorCapacityBytes = State->Primitives.capacity() * sizeof(FPrimitiveSceneShaderData)
+            + State->Instances.capacity() * sizeof(FInstanceSceneShaderData) + State->Payload.capacity() * sizeof(FPrimitiveCustomData);
+        for (const auto& Buffer : GetResourceBuffers()) if (Buffer) Result.CapacityBytes += Buffer->GetSize();
+        return Result;
+    }
 
 	auto FGPUScene::ReleaseRHI() -> void
 	{

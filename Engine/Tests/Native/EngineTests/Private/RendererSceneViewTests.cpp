@@ -50,7 +50,7 @@ namespace Durin
 		Primitive.LocalToWorld = Math::TranslationMatrix(View.ViewLocation + Offset);
 		ASSERT_TRUE(Math::TryInverse(Primitive.LocalToWorld, Primitive.WorldToLocal));
 		Primitive.BoundsCenter = View.ViewLocation + Offset;
-		const auto Uniform = RendererPrivate::BuildMeshTransformUniform(Primitive);
+		const auto Uniform = RendererPrivate::BuildFallbackPrimitiveUniform(Primitive);
 		const FVector3f ViewHigh(View.ViewLocation);
 		const FVector3f ViewLow(View.ViewLocation - FVector3(ViewHigh));
 		const FVector3f Origin = (FVector3f(Uniform.WorldOriginHigh) - ViewHigh)
@@ -71,7 +71,7 @@ namespace Durin
 		FSceneView OtherView = View;
 		OtherView.ViewLocation += FVector3{1.0, 2.0, 3.0};
 		OtherView.ViewMatrix = Math::TranslationMatrix(-OtherView.ViewLocation);
-		const auto Other = RendererPrivate::BuildMeshTransformUniform(Primitive);
+		const auto Other = RendererPrivate::BuildFallbackPrimitiveUniform(Primitive);
 		EXPECT_EQ(Other.LocalToWorld, Uniform.LocalToWorld);
 		EXPECT_EQ(Other.WorldOriginHigh, Uniform.WorldOriginHigh);
 		EXPECT_EQ(Other.WorldOriginLow, Uniform.WorldOriginLow);

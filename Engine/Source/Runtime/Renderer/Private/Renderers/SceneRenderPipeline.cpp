@@ -177,6 +177,9 @@ namespace Durin
 		Submission.Render(Graph);
 		const bool GraphExecuted = ExecuteGraph_RenderThread(Graph, CommandList, OutRenderGraphCapture, Qualification);
 		if (Scene) Scene->GPUScene->RegisterGraphUse(Graph);
+		RegisterGPUSceneGraphUse(Graph, Context.Resolved.Scene.Receiver.StaticMeshes);
+		if (Context.Resolved.Scene.DirectionalShadow)
+			for (const auto& ShadowView : Context.Resolved.Scene.DirectionalShadow->StaticMeshes) RegisterGPUSceneGraphUse(Graph, ShadowView);
 		if (!GraphExecuted)
 			return ERenderViewResult::RendererResourcesUnavailable;
 		// Report the compiled assignment, independently of the async request bit.
@@ -428,12 +431,11 @@ namespace Durin
 			const bool bPrepareGPUCulling = Context.Logical.Options.bEnableGPUCulling
 				&& Capabilities != nullptr && Capabilities->bSupportsIndirectDraw;
 			if (FeaturePlan.GBuffer.IsEnabled() && bPrepareGPUCulling)
-				(void)Service.GBufferRenderer.EnsureGPUCullingResources_RenderThread(Qualification.GPUCullingFailure);
+				(void)Service.InstanceCullingManager.EnsureResources_RenderThread(Qualification.GPUCullingFailure);
 			if (FeaturePlan.GBuffer.IsEnabled())
 				FixedPipelinesReady = StaticMeshRenderer.PrepareGBufferPipelines_RenderThread(
 					Service.GBufferRenderer, PreparedView.Receiver.StaticMeshes,
-					ResolvedSceneResources.Receiver.StaticMeshes,
-					bPrepareGPUCulling, Qualification.GPUCullingFailure) || !bPrepareOnly;
+					ResolvedSceneResources.Receiver.StaticMeshes) || !bPrepareOnly;
 			if (FixedPipelinesReady)
 				FixedPipelinesReady = StaticMeshRenderer.PrepareUniforms_RenderThread(CommandList,
 					Context.Logical.Scene, RenderView,

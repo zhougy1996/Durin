@@ -339,7 +339,7 @@ namespace Durin::RendererPrivate
 			auto GetPass() const -> EMeshPipelinePass override { return Pass; }
 			auto IsEnabled(const FSceneRenderPreparationConfig& Config) const -> bool override
 			{ return Pass == EMeshPipelinePass::Forward ? Config.Settings.bForward : Config.Settings.bHybrid; }
-			auto GetVertexFactoryPass(bool) const -> uint32 override { return MaterialMeshPassForward; }
+			auto GetVertexFactoryPass() const -> uint32 override { return MaterialMeshPassForward; }
 			auto GetFragmentShader(FMaterialShaderBlendModeKey) const -> FMeshPassFragmentShader override
 			{ return FragmentShader<FSurfaceFragmentShader>(); }
 			auto GetPSOPrecacheVariants(const FSceneRenderPreparationConfig& Config, const FPSOPrecacheParams& Params) const -> std::vector<FMeshPSOPrecacheVariant> override

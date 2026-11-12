@@ -2,23 +2,28 @@
 
 Summary: Introduce persistent Primitive and Instance scene data, shared mesh-command bindings, and pass-local instance submission using UE-aligned interfaces.
 
-Last reviewed: 2026-11-12
+Last reviewed: 2026-11-13
 
 Status: Active
 Completed:
 
 ## Current Status
 
-Stage 3 implementation now includes provider-declared persistent/dynamic identity,
-effective-state command sharing and ordered CPU instancing for compatible Local
-opaque/masked and shadow draws. Per-view transform/payload comparisons and the
-ComponentId lookup map have been removed. Sources retain independent cache
-invalidation slots while equivalent commands share state buckets.
-
-At the user's request, closeout is limited to the final scene contracts, Vulkan
-regressions, workspace compilation and document checks. The extended validation
-matrix remains open; Stage 3 is not marked fully qualified. Stages 4-5 remain open,
-including removal of legacy GBuffer culling inputs. No timing speedup is claimed.
+Stages 1-4 correctness validation and workspace integration compilation are
+complete. Stage 5 has retired the remaining supported-path uniform uploader,
+dense per-primitive fallback array, culling-only stage descriptor and adapters.
+Owning runtime contracts now describe the implemented ID-based submission path.
+Windows Vulkan correctness and diagnostic workload measurements are recorded
+below. Release/Tracy-off sampling is prepared with 30 warm-ups and 120 samples
+per mode/view; the user cannot currently guarantee exclusive GPU ownership, so
+Release timing acceptance remains open. Metal and native independent-queue
+qualification remain explicit deferred tasks, as requested.
+Stage 6 primary interface and grouping alignment is implemented and locally
+validated against the inspected UE 5.8.2 model; its receipt follows.
+Stage 7 is implemented and validated: it unifies dynamic allocation with scene storage and moves primitive command
+associations into SceneInfo. Its final-input validation receipt follows; historical
+candidate sizes, dual-domain dispatch and capacity figures below describe earlier stages.
+Default culling policy is unchanged. No timing speedup is claimed.
 Implemented rules live in [GPUScene storage and submission](../Runtime/Rendering/Scene/GPUScene.md).
 
 ### Stage 1 validation receipt
@@ -124,9 +129,309 @@ Vulkan used NVIDIA GeForce GTX 1060 6GB, API 1.4.312, threaded RHI and
 use inline recording and delayed completion. At the user's request, extended
 cached-owner replacement/removal and mixed CPU/GPU partition lifecycle coverage,
 Metal execution, timing qualification and broader native consumer tests are
-skipped for this commit. Stage 3's extended validation checkbox remains open;
-these receipts establish the implemented scope without claiming full qualification.
+skipped for that commit. The follow-up receipt below covers the additional
+Stage 3 lifecycle cases; cross-backend and timing gates remain assigned to Stage 5.
 
+### Stage 3 lifecycle validation receipt
+
+Tested inputs are base `4bfed8fbe` plus the two test-source changes hashed in
+`Build/Qualification/UEAlignedGPUSceneStage3ExtendedInputs.json`. Profile:
+`windows-msvc-x64`, preset `Win64-Debug-DurinEditor`, application-hosted tests
+off. This follow-up changes fixtures and documentation only; production source,
+shaders and shared APIs are unchanged.
+
+| Selection | Result and evidence |
+| --- | --- |
+| `RendererSceneContractTests` | 157/157. The added shared-owner case verifies separately-created equivalent pipelines share a command while retaining independent source infos and lookup pipelines. Removing the canonical source preserves the survivor; replacing the survivor invalidates its old visible handle, releases both old pipelines and does not revive retired slots. Log: `Build/.agent-state/logs/20261112-224726-648201-25668-RendererSceneContractTests.log`. |
+| `StaticMeshRenderPreparationVulkanTests` | 21/21. The extended custom-data case uses independent bindings over identical native geometry to form one 67-instance CPU run and GPU groups of 64 and three. Exact color/GBuffer/shadow comparisons pass for direct, CPU-merged, mixed indirect/direct and failed-admission fallback. Native receiver draws are 67, one, four and one respectively. Budget rejection, command-admission failure, retry and source removal are checked. Log: `Build/.agent-state/logs/20261112-225249-614107-19676-StaticMeshRenderPreparationVulkanTests.log`. |
+
+The full native run exposed two existing fixture teardown sequences that closed
+render-command admission before queued scene destruction released GPUScene.
+Both now flush after resetting scene owners, before shutting down the rendering
+thread; the passing full-suite run covers those fixes and the shared test helper.
+No runtime workaround or assertion suppression was introduced.
+
+The initial stale DevTool operation was recovered after confirming its old
+process tree had exited. Owning test targets and dependencies compiled outside
+the sandbox for the established MSVC PDB-service limitation. No new workspace
+`all` build was needed for these test-only changes; the earlier workspace receipts
+remain historical evidence for their recorded environments.
+
+This run used NVIDIA GeForce RTX 3090, Vulkan 1.4.351, threaded RHI and
+`VK_LAYER_KHRONOS_validation`; the passing log contains no validation errors.
+Scene contracts use inline recording. Affected-test discovery expands the
+GPUScene fixture to unrelated Engine asset/editor suites; the two named targets
+cover all changed executable behavior. Stage 3's correctness checkbox is closed.
+Metal, broader consumer runtime coverage and timing remain Stage 5 gates;
+this receipt does not claim full cross-backend or performance qualification.
+
+
+### Stage 4 validation receipt
+
+Tested inputs are base `aeaeb77e6` plus the Stage 4 source/fixture changes hashed
+in `Build/Qualification/UEAlignedGPUSceneStage4Inputs.json`. Profile:
+`windows-msvc-x64`, preset `Win64-Debug-DurinEditor`, application-hosted tests off.
+Builds ran outside the sandbox for the established MSVC PDB-service limitation.
+Later documentation edits do not change these executable inputs.
+
+| Selection | Result and evidence |
+| --- | --- |
+| `RendererSceneContractTests` | 158/158. Covers ID/owner packing, indexed argument preservation, exact and overflowing budgets, missing/out-of-range scene IDs, instance-frequency rejection, multiple view contexts, graph abandonment, graph compile rejection, allocation failure and fresh-context retry. Dual-owner compute reads, graphics/indirect consumers and independent-compute scheduling dependencies are checked before deliberately rejecting allocation. A successful retry exercises complete CPU fallback; unchanged persistent attributes still upload zero bytes. Log: `Build/.agent-state/logs/20261113-023512-014001-10000-RendererSceneContractTests.log`. |
+| `StaticMeshRenderPreparationVulkanTests` | 21/21. Direct/CPU/GPU color, GBuffer and shadow regressions pass. The extended case checks zero/partial/full visibility, mixed CPU/GPU partitioning, persistent plus scoped dynamic owners, 1e12 origins, ordinary/async requests, four failure modes, retry and source removal. 128 candidates across two owners use two indirect draws and 2,600 transient bytes; scene capacity is reported separately. Log: `Build/.agent-state/logs/20261113-023301-145623-40192-StaticMeshRenderPreparationVulkanTests.log`. |
+| `RenderContractTests` | 246/246 RDG/RHI contracts, including queue synchronization and terminal completion behavior. Log: `Build/.agent-state/logs/20261113-023525-023578-26748-RenderContractTests.log`. |
+| `RenderShaderContractTests` | 72/72 fixed shader/layout/reflection contracts. Log: `Build/.agent-state/logs/20261113-023547-052095-26724-RenderShaderContractTests.log`. |
+| `MaterialCompilerTests` | 103/103 generated stage, reflection and persisted-product contracts. Log: `Build/.agent-state/logs/20261113-023648-378576-9896-MaterialCompilerTests.log`. |
+| `RenderShaderCookIntegrationTests` | 1/1. Deterministic Cook library construction and runtime admission pass with six ordinary VF requests after retiring the culling graphics request. Log: `Build/.agent-state/logs/20261113-023800-889696-20972-RenderShaderCookIntegrationTests.log`. |
+| `RendererRDGAllocatorTests` | 8/8 after retiring the transform allocation observation. Log: `Build/.agent-state/logs/20261113-023822-932719-10696-RendererRDGAllocatorTests.log`. |
+| `SandboxGameplayTests` / `RoadSceneIntegrationTests` | 13/13 and 5/5. Logs: `Build/.agent-state/logs/20261113-023835-381711-27432-SandboxGameplayTests.log`, `Build/.agent-state/logs/20261113-023851-910063-37960-RoadSceneIntegrationTests.log`. |
+
+Workspace `all` compilation passed in 19.83 seconds, covering remaining editor,
+tool and project consumers of the mesh-pass key, VF virtual interface and telemetry
+layout changes. Log: `Build/.agent-state/logs/20261113-023857-686485-4312-cmake.log`.
+This is an incremental integration build, not a clean rebuild or application smoke.
+Affected-test discovery expands the shared fixtures to unrelated Engine asset/editor
+suites. The named targets cover scene submission, shader contracts/Cook, RDG/RHI,
+allocation and both workspace consumers; unrelated suites were not executed.
+
+Native Vulkan used NVIDIA GeForce RTX 3090, API 1.4.351, threaded RHI with
+`VK_LAYER_KHRONOS_validation`; the passing log reports no Vulkan validation errors.
+Its graphics and compute roles share one physical queue. Native async requests
+therefore validate that fallback, while CPU contracts validate independent-queue
+planning and dependencies. They do not establish native execution on a distinct
+compute queue. Metal execution, native independent-queue qualification, broader
+workload coverage and timing remain Stage 5 gates. No culling-policy change or
+rendering speedup is claimed.
+
+
+### Stage 5 local validation and remaining qualification
+
+Tested inputs are base `bfc3dd2ea` plus the Stage 5 source/fixture hashes in
+`Build/Qualification/UEAlignedGPUSceneStage5Inputs.json`. Profile:
+`windows-msvc-x64`, preset `Win64-Debug-DurinEditor`, application-hosted tests off.
+Builds run outside the sandbox for the established MSVC PDB-service limitation.
+Later documentation edits do not invalidate runtime receipts. Affected-test
+analysis expands the shared Engine/test changes to unrelated asset/editor suites;
+selected owning suites, both project consumers and the required workspace `all`
+build cover this contract migration.
+
+| Selection | Result and evidence in `Build/.agent-state/logs/` |
+| --- | --- |
+| `RendererSceneContractTests` | 158/158, including committed upload statistics and capability fallback. `20261113-030856-670120-26648-RendererSceneContractTests.log`. |
+| `StaticMeshRenderPreparationVulkanTests` | 21/21, threaded RHI: persistent/scoped IDs, exact readbacks, direct/grouped/indirect parity, Local/Spline, WPO/custom data, hit proxy, independent factory fallback, growth/recovery and failures. `20261113-030901-238633-28136-StaticMeshRenderPreparationVulkanTests.log`. |
+| `MaterialCompilerTests` / `MaterialCookTests` | 103/103 and 6/6: six active stages, persisted ordinals, authoring migration and obsolete cooked product rejection. `20261113-030938-063370-8404-MaterialCompilerTests.log`, `20261113-030958-426280-19872-MaterialCookTests.log`. |
+| `MaterialCompileLifecycleTests` | 37/37. `20261113-031021-336189-19856-MaterialCompileLifecycleTests.log`. |
+| `RenderShaderContractTests` / `RenderShaderCookIntegrationTests` | 72/72 and 1/1. `20261113-031048-077649-12784-RenderShaderContractTests.log`, `20261113-031054-617623-23360-RenderShaderCookIntegrationTests.log`. |
+| `RenderContractTests` | 246/246. `20261113-031056-700425-8812-RenderContractTests.log`. |
+| `VolumetricCloudSceneVulkanTests` / `RendererResourceReloadVulkanTests` | 1/1 and 2/2, threaded RHI: offscreen/presentation routes, attachment parity and shader/device/manual invalidation. `20261113-031116-384232-33776-VolumetricCloudSceneVulkanTests.log`, `20261113-031132-594715-36792-RendererResourceReloadVulkanTests.log`. |
+| `SandboxGameplayTests` / `RoadSceneIntegrationTests` | 13/13 and 5/5. `20261113-031141-524213-24964-SandboxGameplayTests.log`, `20261113-031149-769365-21148-RoadSceneIntegrationTests.log`. |
+| Native inline recording | The same Vulkan static mesh, scene-route and resource-reload targets pass 21/21, 1/1 and 2/2 with `DURIN_RHI_EXECUTION=inline`. `20261113-031240-213239-31948-StaticMeshRenderPreparationVulkanTests.log`, `20261113-031252-354459-40872-VolumetricCloudSceneVulkanTests.log`, `20261113-031259-483651-5380-RendererResourceReloadVulkanTests.log`. |
+| Workspace `all` build | Incremental build passed in 6.73 seconds after the final API/build-graph migration. `20261113-031326-887845-31716-cmake.log`. Covers remaining editor/tool/provider compilation, not unexecuted behavior or a clean build. |
+
+Native Vulkan uses NVIDIA GeForce RTX 3090, API 1.4.351, driver 616.64, with
+`VK_LAYER_KHRONOS_validation`. Native graphics and compute both resolve to queue
+(0,0), so scheduled async tests exercise same-queue fallback rather than proving
+independent physical queue execution. Native Metal execution/compilation is
+unavailable on Windows. Its direct shader fixture has been migrated to the
+16-byte ID candidate, 144-byte view uniform and fifth instance-data buffer, but
+requires macOS compilation and checked readback before acceptance.
+
+The opt-in diagnostic matrix passed at
+`Build/.agent-state/logs/20261113-030817-978437-1724-StaticMeshRenderPreparationVulkanTests.log`.
+Set `DURIN_GPUSCENE_SAMPLE_FILE` to an absolute CSV path, then run
+`StaticMeshRenderPreparationVulkanTests` with selector
+`FMaterialCustomDataVulkanTests.StableInstancesMatchDynamicMaterialsAcrossPassesAndGPUGrouping`.
+Raw samples: `Build/Qualification/UEAlignedGPUSceneStage5Samples.csv`; median/p95
+summary: `Build/Qualification/UEAlignedGPUSceneStage5SamplesSummary.json`.
+There are two warm-up iterations and six measured samples per mode/view, with
+alternating direct/CPU-merged/GPU-enabled order (108 samples total). The three
+cascades use a positive-depth orthographic camera; shadow timings aggregate all
+three passes. Only the first cascade contains this fixture's casters. Culling
+remains disabled by default, with the existing 64-instance floor.
+
+All timing values below are diagnostic medians in microseconds. CPU preparation
+measures render-thread `PrepareViewResources` wall time across retries, excluding
+initial collection, readback and full frame time. This Debug/Tracy run has no
+exclusive quiet-lane admission and cannot establish a speedup or a regression.
+D/C/G denote direct, CPU-merged and GPU-enabled modes; the three-instance G case
+uses its normal CPU fallback.
+
+| Workload | CPU preparation D/C/G | GBuffer GPU D/C/G | Culling GPU G | Shadow GPU D/C/G |
+| --- | --- | --- | --- | --- |
+| Static small (3) | 1301.6 / 1451.1 / 1489.5 | 7.168 / 6.928 / 7.152 | 0 | 8.368 / 7.152 / 7.008 |
+| Static large (256) | 20286.4 / 25361.3 / 25064.6 | 36.032 / 25.568 / 24.384 | 17.216 | 38.720 / 32.592 / 34.192 |
+| Dynamic large (256) | 23285.4 / 25253.8 / 26504.0 | 67.472 / 51.984 / 50.336 | 31.264 | 77.328 / 70.912 / 70.256 |
+| Two views (64 each) | 6279.4 / 7890.7 / 7961.6 | 9.568 / 8.272 / 8.000 | 7.312 | 12.000 / 11.408 / 11.328 |
+| Three shadow cascades (64) | 6456.7 / 8153.7 / 8272.4 | 8.928 / 7.328 / 7.920 | 6.432 | 26.432 / 25.472 / 27.232 |
+
+Steady native geometry/shadow draws are N/N in D and 1/1 in C/G for N=3,256,64.
+Static, camera-only and additional-view attribute uploads are zero. One dynamic
+instance transform/custom edit commits exactly 816 bytes in three ranges once
+per iteration, charged to the first rendered mode; remaining modes upload zero.
+Steady samples rebuild no scene buffers and create no retained commands. Current
+attribute GPU capacity/CPU mirror capacity are 107296/54464 bytes for small, then
+213792/160960 bytes retained through the later smaller workloads. This explicitly
+shows high-water capacity retention. GPU culling transient storage is 5140 bytes
+for 256 or 1300 for 64; shadow backend target allocation is 50331648 bytes in
+both candidates because the existing target always reserves three array layers.
+These are component capacities, not total
+resident memory; retired generations, allocator/map overhead and other frame
+resources are excluded.
+
+Stage 5 remains open for Metal inline/threaded correctness, independent physical
+queue execution, and equivalent Release/Tracy-off measurements in an exclusive
+quiet GPU lane following the [qualification policy](../Development/Build/NativeTestQualification.md#performance-qualification-and-concurrent-agents).
+The final two Stage 5 checkboxes therefore remain open; local diagnostic samples
+do not satisfy authoritative timing acceptance.
+
+
+### Stage 5 Release sampling follow-up
+
+The user requested Release performance acceptance while deferring Metal and
+independent physical queue validation. The user then confirmed that exclusive
+GPU ownership cannot currently be guaranteed. Under the
+[quiet-lane policy](../Development/Build/NativeTestQualification.md#performance-qualification-and-concurrent-agents),
+Release timing acceptance therefore remains open; this follow-up prepares and
+checks the sampling pipeline without claiming an authoritative timing result.
+
+Tested inputs: base `31cff44b4` plus the fixture SHA-256 and exact compile command
+in `Build/Qualification/GPUSceneRelease/inputs.json`. Runtime modules, shaders
+and material/Cook ABIs are unchanged, so the preceding correctness, consumer and
+workspace `all` build receipts remain applicable. The changed fixture is built
+and checked in Release and Debug. Release uses `Win64-Release-DurinEditor`, MSVC
+19.44.35228.0, `/O2`, `NDEBUG`, and verified `DURIN_WITH_TRACY=0` after explicit
+`DURIN_ENABLE_TRACY=OFF` configuration. Sampling uses threaded RHI, validation
+off, backend compute-queue policy disabled and production async compute off.
+The five existing 192x192 workloads and direct/CPU-merged/GPU-enabled modes are
+unchanged. The `release` profile adds 30 warm-up iterations and 120 measured
+iterations per mode/view; authoritative collection requires three consecutive
+runs. The smaller default diagnostic profile retains two warm-ups/six samples.
+
+`update_ns` measures the dynamic instance edit, custom-data/vector publication
+and render-thread drain once per iteration, charged only to the first mode.
+It excludes attribute-buffer writes, which occur inside the separately timed
+resource-preparation call. It includes scheduling/wait time and cannot be
+interpreted as isolated mirror packing cost. Preparation, GBuffer/culling/shadow
+GPU durations, attribute upload bytes/ranges, native draws and component capacity
+counters retain the measurement scopes documented above.
+
+Release diagnostic execution passed: 1/1 selected case in 63.827 seconds,
+with 2160 measured rows after warm-up. Raw artifacts are under
+`Build/Qualification/GPUSceneRelease/`: `diagnostic-run-1.csv`,
+`diagnostic-run-1.xml`, `inputs.json`, and `summary.json`. The summary contains
+median/nearest-rank p95 for every mode/view workload, separate GPU pass times
+and measured-pass totals, plus upload/draw/capacity ranges. Full execution log:
+`Build/.agent-state/logs/20261113-032306-049234-35396-StaticMeshRenderPreparationVulkanTests.log`.
+Release pre-sampling correctness: 1/1,
+`Build/.agent-state/logs/20261113-032131-930493-30468-StaticMeshRenderPreparationVulkanTests.log`;
+XML `Build/Qualification/GPUSceneReleaseCorrectness.xml`. Debug validation-on
+regression: 21/21,
+`Build/.agent-state/logs/20261113-032450-710025-37712-StaticMeshRenderPreparationVulkanTests.log`;
+XML `Build/Qualification/GPUSceneRelease/debug-regression.xml`.
+
+The following values are diagnostic median/p95 in microseconds, on an Intel
+Core i7-12700 and RTX 3090 (driver 616.64, Vulkan 1.4.351, SDK 1.4.357.0).
+The GPU column sums each sample's measured GBuffer, culling and shadow durations
+before computing percentiles; it excludes lighting/postprocess/full-frame time.
+No performance conclusion follows from this nonexclusive single run.
+
+| Workload | D preparation | C preparation | G preparation | G measured GPU passes |
+| --- | --- | --- | --- | --- |
+| static-small | 132.00/165.30 | 146.30/181.60 | 148.55/182.60 | 18.29/25.18 |
+| static-large | 1451.35/1600.30 | 1781.65/1947.10 | 1780.50/1958.00 | 74.00/80.74 |
+| dynamic-large | 1645.85/2078.10 | 1871.35/2131.10 | 1979.15/2369.30 | 66.64/73.34 |
+| multi-view | 511.25/611.70 | 608.55/730.00 | 604.40/782.80 | 120.82/162.91 |
+| shadow-heavy | 520.85/663.90 | 619.95/846.30 | 621.35/752.70 | 141.63/203.90 |
+
+Dynamic edit/publication/drain CPU median/p95 is 219.85/292.70 microseconds. All 120 dynamic edits upload exactly 816 bytes
+in three ranges once; all unchanged/static/extra-view samples upload zero.
+No steady sample rebuilds a scene buffer or misses a retained command. Native
+draw counts and retained component capacities match the prior diagnostic
+matrix. Neither sample stability nor lower native draw counts establish an
+exclusive lane. Three quiet runs have deliberately not been performed.
+
+For a future exclusive window, configure Tracy off and run the same selector
+three times with distinct `DURIN_GPUSCENE_SAMPLE_FILE` CSV and `--report` XML
+paths. Set `DURIN_GPUSCENE_SAMPLE_PROFILE=release`,
+`DURIN_VULKAN_VALIDATION=off`, `DURIN_RHI_EXECUTION=threaded`,
+`DURIN_VULKAN_COMPUTE_QUEUE=disabled` and `DURIN_TEST_KEEP_WORK=1`.
+Use direct exact-target execution, since this fixture belongs to an integration
+target on Windows; `--mode qualification` filters it out of CTest and discovers
+no tests. Local reproduction helper:
+`Build/Qualification/RunUEAlignedGPUSceneRelease.ps1 -QuietGpu` (three passes,
+only after explicit quiet-lane admission); `-Diagnostic` runs one pass and
+cannot satisfy timing acceptance. The helper and raw artifacts stay in ignored
+`Build/` per the [evidence policy](../Agents/Documentation.md#validate-changes).
+
+Pending acceptance remains: three consecutive quiet Release passes with raw
+CSV/log/XML and median/nearest-rank p95 review. Metal inline/threaded and
+independent physical queue execution remain deferred TODOs. No latency threshold,
+automatic culling policy or performance acceptance checkbox is changed.
+
+
+### Stage 6 primary interface alignment
+
+The user authorized semantic changes toward the local UE 5.8.2 implementation
+(CL 56702186). Tested inputs are base `9ef5ee68d` plus source/fixture hashes and
+UE reference hashes in `Build/Qualification/UEAlignedGPUSceneStage6Inputs.json`.
+Local reference root: `D:/Programs/UE_5.8/Engine/Source/Runtime/Renderer`.
+The selected boundaries follow `Public/MeshPassProcessor.h` and
+`Private/InstanceCulling/InstanceCullingContext.cpp`; byte packing remains the
+explicit Durin ABI.
+
+- Add submission-only `FMeshDrawCommandOverrideArgs`/`FMeshDrawCommandSceneArgs`.
+  Override instance-buffer byte ranges and indirect argument ranges during
+  binding emission/submission. CPU merged entries likewise select their ID
+  buffer on visible commands. Neither route clones commands or pass-binding
+  arrays for resource replacement. A contract case verifies nonzero offsets,
+  immutable source bindings, cached-range restoration and rejected invalid offsets.
+- `CollectMeshDrawCommands` adapts prepared providers to a common visible-command
+  array. Setup consumes visible entries; submission consumes an array, start/count
+  and overrides. Contexts associate with their manager at creation, and RDG
+  results expose `InstanceIdOffsetBuffer`/`DrawIndirectArgsBuffer`. Frame storage
+  retains borrowed dynamic command values without a self-retaining alias cycle.
+- Replace GPU source-wrapper grouping with consecutive effective command/pass
+  state comparisons, including actual scene buffers and bias. Independent but
+  equivalent descriptions/declarations/buffer-set wrappers group; incompatible
+  intervening draws split runs. The native 64+3 independent-provider case now
+  emits one 67-instance indirect draw instead of one indirect plus three direct
+  draws, with identical output. A synthetic partial-admission case preserves
+  complete CPU-run restoration when dispatch fails. Existing policy and limits
+  are unchanged.
+- Keep ownership explicit: scene attribute storage and scoped dynamic buffer
+  owners remain separate in this stage. CPU fallback run storage remains an
+  adapter; this is not UE's full in-place visible-array compaction. Contexts are
+  owned by callers/graph callbacks instead of an unused manager context list.
+  Dynamic allocation-domain unification and source resource-owner migration are
+  separate work, not implied by interface-name alignment.
+
+Profile: `windows-msvc-x64`, `Win64-Debug-DurinEditor`, application-hosted tests
+off; builds run outside the sandbox for the established MSVC PDB limitation.
+Native Vulkan uses RTX 3090, API 1.4.351 with validation enabled. The affected
+selection includes unrelated material/editor suites through shared Renderer/test
+headers; the selected owning suite, shader contract suite, scene/recovery native
+paths and both workspace consumers cover this interface migration. The required
+workspace `all` build covers remaining editor/tool/provider compilation. RHI and
+material/Cook/shader byte ABIs are unchanged. A final direct-include addition only
+makes the already-used GPUScene declaration dependency explicit; the final `all`
+and Release builds cover that header, and preceding Debug results remain valid.
+
+| Selection | Result and log under `Build/.agent-state/logs/` |
+| --- | --- |
+| `RendererSceneContractTests` | 159/159: equivalent independent state grouping, order/binding breaks, partial-admission rollback, nonzero ID-buffer offsets, invalid offsets and source/cache restoration. `20261113-040410-750865-33280-RendererSceneContractTests.log`. |
+| `StaticMeshRenderPreparationVulkanTests` | 21/21 threaded: exact attributes, direct/CPU/GPU pixels, 67-instance cross-provider grouping, fallback/retry, WPO/custom data, shadows, picking and independent VF. `20261113-040450-277539-35644-StaticMeshRenderPreparationVulkanTests.log`. |
+| `RenderShaderContractTests` | 72/72. `20261113-040502-437149-27660-RenderShaderContractTests.log`. |
+| `VolumetricCloudSceneVulkanTests` / `RendererResourceReloadVulkanTests` | 1/1 and 2/2 threaded, including scene-route output and resource invalidation/recovery. `20261113-040516-143550-18608-VolumetricCloudSceneVulkanTests.log`, `20261113-040524-946091-8076-RendererResourceReloadVulkanTests.log`. |
+| `SandboxGameplayTests` / `RoadSceneIntegrationTests` | 13/13 and 5/5. `20261113-040528-060732-37904-SandboxGameplayTests.log`, `20261113-040529-951010-22296-RoadSceneIntegrationTests.log`. |
+| Vulkan inline recording | Static mesh 21/21, scene routes 1/1 and resource reload 2/2 with `DURIN_RHI_EXECUTION=inline`. `20261113-040532-718356-26372-StaticMeshRenderPreparationVulkanTests.log`, `20261113-040544-726080-15228-VolumetricCloudSceneVulkanTests.log`, `20261113-040552-556018-2784-RendererResourceReloadVulkanTests.log`. |
+| Workspace `all` | Incremental build passed in 18.99 seconds. `20261113-040620-150142-6432-cmake.log`. |
+| Release correctness | Numeric/custom-data direct/CPU/GPU case 1/1 with validation on, `Win64-Release-DurinEditor`, Tracy off. `20261113-040724-788742-16256-StaticMeshRenderPreparationVulkanTests.log`; XML `Build/Qualification/UEAlignedGPUSceneStage6Release.xml`. This is correctness coverage, not timing acceptance. |
+
+Stage 5's earlier performance samples describe their original tested inputs;
+Stage 6 changes submission/preparation work and grouping, so those timings cannot
+be reused as performance acceptance for this revision. No new timing comparison
+is claimed. Metal, native independent-queue and exclusive quiet Release timing
+qualification remain open. All scene dirty-commit and GPU-completion retirement
+semantics remain in force.
 
 ## Goal
 
@@ -476,7 +781,7 @@ unused UE indirect/root-constant override fields merely to copy the complete API
   to distinguish provider overrides; normal scene draws should select validated
   scene IDs without rebuilding attribute data to infer ownership.
 - [x] Route compatible opaque/masked and shadow submissions through CPU ID lists.
-- [ ] Validate equivalent separately-created state merges, incompatible bindings/
+- [x] Validate equivalent separately-created state merges, incompatible bindings/
   winding/bias do not merge, ordering is preserved, and growth rebinds correctly.
 
 Outcome: different transforms/custom channels share a draw when effective state
@@ -484,12 +789,34 @@ matches, including small groups. Depends on Stage 2.
 
 ### Stage 4: Generalize GPU instance culling
 
-- [ ] Add manager/context setup and BuildRenderingCommands/SubmitDrawCommands.
-- [ ] Migrate GBuffer candidate processing to IDs and persistent bounds reads;
+Stage 4 implementation decisions:
+
+- `FInstanceCullingManager` owns compute-resource readiness and registered view
+  snapshots; `FInstanceCullingContext` owns setup, graph construction and submission
+  overrides for a mesh pass. The rendering service retains the manager, while
+  graph callbacks retain contexts independently of the next view registration.
+- Candidates are 16-byte Instance ID/argument/scene-owner records. Compute reads
+  the existing 18-float4 instance ABI directly, subtracting view origin high/low
+  before adding relative bounds. Per-owner compute passes declare counted scene
+  reads and share ordered visibility/argument writes. There is no attribute mirror
+  or per-view bounds/transform upload. Invalid packed bounds remain conservative.
+- Direct and indirect rendering use the same shader, VF pass and retained command.
+  Remove the culling graphics key, shader registration and late binding rebuild.
+  Only ID bindings and argument ranges change at submission. Any admitted indirect
+  member disables its CPU run for the direct remainder; failed admission restores
+  complete CPU runs. Graph failure remains terminal, with fresh contexts on retry.
+- Keep the default-disabled policy, 64-candidate floor and 65,536-candidate/4-MiB
+  limits. Rebase transient charges to 20 bytes per candidate plus 20 per group;
+  report each referenced owner's three attribute-buffer capacities separately
+  for persistent and dynamic sources. Capacity observations are not upload costs.
+  The shared telemetry type preserves existing GBuffer counter access.
+
+- [x] Add manager/context setup and BuildRenderingCommands/SubmitDrawCommands.
+- [x] Migrate GBuffer candidate processing to IDs and persistent bounds reads;
   delete per-view Transforms generation/upload and culling-only graphics shaders.
-- [ ] Validate zero/partial/full visibility, group budgets, multiple views/graphs,
+- [x] Validate zero/partial/full visibility, group budgets, multiple views/graphs,
   CPU fallback, async queue dependencies and allocation/cancellation failure.
-- [ ] Rebase transient storage budgets and telemetry to the new record sizes;
+- [x] Rebase transient storage budgets and telemetry to the new record sizes;
   account for persistent scene capacity separately from per-view culling cost.
 
 Outcome: CPU selection and GPU culling consume the same scene attributes and
@@ -497,9 +824,28 @@ graphics path, without rendering readback. Depends on Stage 3.
 
 ### Stage 5: Qualify and retire replaced contracts
 
-- [ ] Remove obsolete supported-path uniforms, arrays, stage bits and adapters;
+Stage 5 implementation decisions:
+
+- Retire the unused blanket primitive-uniform uploader and dense uniform array.
+  Explicit unsupported-factory uniforms use a sparse fallback map; hit proxy and
+  independent/custom factory consumers remain exercised. Remove obsolete culling
+  cache-key padding and GBuffer renderer/view forwarding parameters.
+- Remove the reserved culling-stage descriptor and its dead reflection adapter.
+  Active stage ordinals 0-5 and pass contract 13 are unchanged; retired ordinal 6
+  is never reused. Preserve legacy authored GeometryUsage bit 4 load/edit
+  canonicalization, since it migrates persisted assets rather than submitting an
+  alternate graphics path. Cooked products with obsolete contracts remain rejected.
+- Expose cumulative admitted GPUScene upload bytes/ranges/rebuilds and current
+  attribute-buffer/CPU-mirror capacities. Failed or abandoned transactions do not
+  increase upload counters. These capacities exclude retired buffers and other
+  renderer/allocator memory; report shadow targets and culling transients separately.
+- Keep workload sampling opt-in through `DURIN_GPUSCENE_SAMPLE_FILE` in the
+  existing numeric-material native fixture. Timing hooks force immediate shadow
+  recording; correctness qualification separately covers ordinary recording.
+
+- [x] Remove obsolete supported-path uniforms, arrays, stage bits and adapters;
   retain only documented capability fallbacks with exercised consumers.
-- [ ] Update the owning runtime contracts listed above with implemented behavior.
+- [x] Update the owning runtime contracts listed above with implemented behavior.
 - [ ] Complete targeted correctness/native qualification and workspace integration
   gates, recording tested inputs and reusable receipts in this plan.
 - [ ] Compare static/dynamic, small/large, multi-view and shadow-heavy workloads;
@@ -507,6 +853,106 @@ graphics path, without rendering readback. Depends on Stage 3.
 
 Outcome: no duplicate authoritative path for supported scene meshes, no unmeasured
 default culling-policy change, and documented acceptance evidence. Depends on Stage 4.
+
+### Stage 6: Align mesh submission interfaces with UE
+
+The user authorized semantic alignment after reviewing local UE 5.8.2 source.
+This stage depends on Stage 4's implemented command path; deferred Stage 5
+Metal/independent-queue/quiet timing qualification does not block implementation.
+Use UE's visible-command setup and draw override/scene-argument boundaries.
+Keep Durin's counted resources, terminal graph completion and failure semantics.
+
+- [x] Add `FMeshDrawCommandOverrideArgs` and `FMeshDrawCommandSceneArgs`; apply
+  submission overrides without copying retained commands or pass binding arrays.
+- [x] Make culling setup/submission consume frame-local visible commands rather
+  than prepared StaticMesh objects, and associate contexts with their manager.
+- [x] Group culling candidates by effective command/pass state in prepared order,
+  replacing source-wrapper pointer identity. Keep the existing opt-in policy,
+  admission budgets, scoped attribute owners and complete CPU fallback.
+- [x] Migrate consumers, document the resulting contracts and validate native
+  direct/CPU/indirect parity, failure/recovery and workspace integration.
+
+Outcome: UE-shaped primary submission interfaces with stable command state and
+explicit per-submission arguments. Dynamic GPUScene range unification and
+primitive resource-owner restructuring remain separate implementation work.
+
+### Stage 7: Unify dynamic allocation and primitive cache ownership
+
+The user authorized semantic alignment with local UE 5.8.2. Follow GPUScene's
+shared persistent/dynamic instance allocation model and PrimitiveSceneInfo's
+cached-command association/removal responsibility. This stage depends on Stage 6
+and does not waive Stage 5's deferred hardware/timing qualification.
+
+- [x] Allocate scoped dynamic primitive/instance records from the owning GPUScene;
+  retain ranges through actual graph use and retire only after GPU completion.
+  Standalone editor/preview draws use a transient GPUScene with the same machinery.
+- [x] Remove the separate dynamic attribute-buffer domain and per-candidate scene
+  owner selection/dispatch. Update budgets, telemetry and explicit graph reads.
+- [x] Move cached command associations and invalidation into PrimitiveSceneInfo;
+  remove FPrimitiveDrawResources. Keep fallback uniforms source-associated and
+  retain source/canonical pipelines in the actual scene command storage.
+- [x] Validate shared-domain readbacks, growth, reuse, abandonment/recovery,
+  independent scene/preview lifetimes, source invalidation, native output parity
+  and workspace integration; update runtime contracts and receipts.
+
+Selected lifetime rules: dynamic allocation leases retain GPUScene independently
+of FScene; frame/graph owners retain leases. Freed dynamic slots keep unreferenced
+contents and do not cause clearing uploads, but cannot be reused before the last
+using graph completes. Persistent identity generations and terminal failure rules
+remain unchanged. PrimitiveSceneInfo is shared by scene membership and borrowed
+through weak frame references; it is not another RHI resource-owner wrapper.
+Scene cache storage owns cache-wide RHI invalidation and pipeline references.
+
+Outcome: one attribute allocation domain per scene and one primitive command
+association owner, with explicit submission lifetimes.
+
+### Stage 7 validation receipt
+
+Inputs are base `e3380906c` plus the source, shader and fixture hashes in
+`Build/Qualification/UEAlignedGPUSceneStage7Inputs.json`. That inventory also hashes
+the inspected local UE 5.8.2 (CL 56702186) GPUScene, PrimitiveSceneInfo and Scene
+implementations. UE's collector commits instance/payload slots through GPUScene;
+its dynamic context releases those slots. PrimitiveSceneInfo stores command infos
+and removes its scene cache associations. Durin now follows those responsibilities,
+while retaining its completion-based free-range allocator and shared lifetime leases.
+
+The separate dynamic attribute-buffer uploader, shader-side owner selector and
+per-owner dispatch loop are removed. Persistent and dynamic records share one
+attribute domain; standalone picking uses a transient GPUScene. Candidates are now
+eight bytes. The mixed 64 persistent/64 dynamic native case forms one indirect
+draw and charges 1,556 transient bytes instead of two draws/2,600 bytes. Scene
+capacity includes dynamic ranges; standalone capacity is reported separately.
+These structural observations do not establish a timing improvement.
+
+FPrimitiveDrawResources is removed. SceneInfo retains command locations and fallback
+uniform associations; scene cache entries/buckets retain source/canonical pipelines.
+Cache storage participates in device invalidation. Detach removes material/cache
+associations immediately and invalidates retained weak frame sources, even if an
+external reference keeps SceneInfo storage alive.
+
+`test affected --explain` expands to the Engine project's ordinary tests because
+native test sources changed. The bounded selection covers the changed Renderer,
+shader, recovery and frame contracts plus Editor, Sandbox and RoadWeaver consumers.
+The explicit workspace `all` gate covers remaining compilation/ABI integration.
+Profile is `windows-msvc-x64`, default `Win64-Debug-DurinEditor`, application-hosted
+tests off; native Vulkan uses the current local adapter with validation enabled.
+Builds ran outside the sandbox for the established MSVC PDB-service issue.
+
+| Selection | Final-input result and log under `Build/.agent-state/logs/` |
+| --- | --- |
+| `RendererSceneContractTests` | 163/163. Shared dynamic/persistent allocation, exact IDs, delayed drawing retirement, abandonment, reconstruction, wrong-scene token rejection, game-thread lease release and retained SceneInfo detach. `20261113-044612-157100-536-RendererSceneContractTests.log`. |
+| `RenderShaderContractTests` | 72/72. `20261113-044616-939892-38664-RenderShaderContractTests.log`. |
+| `StaticMeshRenderPreparationVulkanTests` | 21/21. Direct/CPU/GPU, GBuffer/shadow, large origins, mixed dynamic/persistent grouping and 45 exact attribute readbacks over 15 successful snapshots. Dynamic release uploads zero clearing bytes and persistent records safely reuse its range. `20261113-044635-953520-24032-StaticMeshRenderPreparationVulkanTests.log`. |
+| `RendererResourceReloadVulkanTests`, `VolumetricCloudSceneVulkanTests` | 2/2 and 1/1. `20261113-044648-743211-33676-RendererResourceReloadVulkanTests.log`, `20261113-044658-427206-33644-VolumetricCloudSceneVulkanTests.log`. |
+| Project consumers | Sandbox 13/13, RoadWeaver 5/5, Editor rendering 91/91. `20261113-044705-441507-30188-SandboxGameplayTests.log`, `20261113-044707-170850-37412-RoadSceneIntegrationTests.log`, `20261113-044717-266873-10820-EditorRenderingTests.log`. |
+| Vulkan inline recording | Same native targets pass 21/21, 1/1 and 2/2 with `DURIN_RHI_EXECUTION=inline`. `20261113-044739-817698-10728-StaticMeshRenderPreparationVulkanTests.log`, `20261113-044751-519824-23748-VolumetricCloudSceneVulkanTests.log`, `20261113-044758-615494-27320-RendererResourceReloadVulkanTests.log`. |
+| Workspace `build all` | Passed. `20261113-044818-542684-39896-cmake.log`. |
+| Release correctness | 1/1 numeric/custom-data direct/CPU/GPU case, validation on, `Win64-Release-DurinEditor`, Tracy off. `20261113-044913-853484-40300-StaticMeshRenderPreparationVulkanTests.log`; XML `Build/Qualification/UEAlignedGPUSceneStage7Release.xml`. Correctness only; no performance sampling. |
+
+Metal fixtures use the new candidate layout but native Metal execution remains
+deferred. Independent physical queues and exclusive quiet Release timing remain
+open Stage 5 gates. Earlier timing samples describe older inputs and cannot serve
+as Stage 7 performance acceptance. Culling remains disabled by default.
 
 ## Validation and Completion Gates
 

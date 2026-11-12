@@ -4,7 +4,7 @@ Summary: Define engine-to-renderer scene publication, proxies, infos, mutation, 
 
 Modules: Engine, RenderCore, Renderer
 
-Last reviewed: 2026-11-12
+Last reviewed: 2026-11-13
 
 Durin represents renderable world residents with Engine-created SceneProxy
 values and Renderer-owned scene entries. Components call only the public
@@ -35,9 +35,12 @@ is copyable; after attachment the registry entry is the only authoritative
 owner. A null proxy caused by hidden state or an unsupported render
 representation is a legal no-publication result.
 
-Removal erases primitive membership before destroying its SceneInfo and proxy
-on the rendering thread. Scene release clears candidate membership before its
-owning map. Light typed views retain their existing ownership rules. StaticMesh render data remains a non-owning borrow
+Primitive membership holds shared SceneInfo storage; frame sources hold weak
+references. Removal detaches material/cache associations and invalidates the
+source on the rendering thread before erasing membership. Externally retained
+SceneInfo storage cannot authorize drawing or retain a removed scene. Scene
+release clears candidate membership before its owning map. Light typed views
+retain their existing ownership rules. StaticMesh render data remains a non-owning borrow
 bounded by the component render-state and asset-release fence protocol.
 SplineMesh retains copied normalized deformation values and bounds while
 borrowing the source StaticMesh render data under the same retirement fence;
@@ -47,8 +50,11 @@ material proxies and SkyBox texture references remain counted references.
 
 SceneInfo also registers persistent Primitive/Instance allocations with its
 scene-owned GPUScene. Storage, source snapshots, dirty updates and GPU-safe slot
-retirement follow [Persistent GPU scene storage](GPUScene.md). Current mesh
-shaders retain their existing Uniform/temporary-buffer routes during migration.
+retirement follow [Persistent GPU scene storage](GPUScene.md). Built-in Local/Spline mesh shaders read these records through validated scene
+IDs. Transform, bounds, custom-data and instance-snapshot mutations request
+ordered updates even when offscreen. Removing membership retires ranges behind
+the terminal completion of every using graph; CPU handle generations alone do
+not authorize reuse of IDs already recorded on the GPU.
 
 `FPrimitiveSceneInfo` owns stable identity, primitive kind,
 visibility, transform, local bounds, derived world bounds, and generic primitive

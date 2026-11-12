@@ -4,7 +4,7 @@ Summary: Define static-mesh render data, scene proxies, materials, draw preparat
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-11-12
+Last reviewed: 2026-11-13
 
 SplineMesh is a distinct primitive/deformation domain that borrows these
 StaticMesh LOD resources and uses the same material/pass/LOD/lighting policy.
@@ -316,7 +316,7 @@ descriptions selected by the current submission remain owned independently.
 
 Built-in Local/Spline factories read scene-owned Primitive/Instance records for
 view-independent transforms, bounds, determinant parity and split high/low origins.
-Unsupported factories retain Primitive uniforms; see [GPUScene](GPUScene.md). Pass set 0 contains camera/cascade
+Unsupported factories retain sparse fallback Primitive uniforms; see [GPUScene](GPUScene.md). Pass set 0 contains camera/cascade
 projection, translated view matrices, camera origin, viewport, and material
 time. `Material.MeshUniforms` reconstructs translated primitive coordinates in
 the shader by subtracting high origin parts before adding low parts. The
@@ -324,7 +324,8 @@ scene record has no `LocalToClip` matrix. Camera movement and cascade
 selection therefore do not invalidate primitive uploads.
 
 The render-thread `FMeshDrawCommand` cache retains command memory and borrowed
-RHI binding values. Sources own resources; Scene-owned slots and per-primitive command locations
+RHI binding values and source/canonical pipelines. Scene-owned slots and command
+locations on `FPrimitiveSceneInfo`
 retire affected entries before replacing binding layouts. Same-layout material
 resource changes update the stable Uniform table. Numeric material updates reuse logical Uniform buffers; scene transforms patch
 persistent scene records. Pass resources remain frame-local. The implementation and
@@ -419,14 +420,19 @@ Texture resources use role-specific white, black, or flat-normal fallbacks;
 environment irradiance, prefilter, and BRDF-LUT resources are shared by the
 scene renderer and fall back together to black.
 
-After StaticMesh or SplineMesh selects its family pipeline, allocates transform
-and optional spline uniforms, and binds its geometry streams, it enters the
-shared mesh surface-pass executor. The executor preserves
-pipeline/vertex-before-fragment ordering and submits exactly one bounded draw:
+After selecting the family pipeline and geometry streams, built-in factories
+bind selected GPUScene IDs and optional spline deformation uniforms. Unsupported
+factories explicitly prepare `FMeshFallbackPrimitiveUniform`. The shared executor
+preserves pipeline/vertex-before-fragment ordering; pass-local overrides select
+direct, ordered CPU-instanced or indirect arguments:
 opaque shadow takes the zero-material fast path, masked shadow binds only the
 canonical role-7 packet, and forward binds the complete surface packet.
-GBuffer retains its pipeline/binder ownership while consuming the same uniform,
-eight textures, and shared sampler pointers. Renderer entry points assert the
+GBuffer uses the same Local geometry shader and scene bindings for direct and
+indirect rendering, with its own fragment/attachment contract. Scene-ID bindings
+and graph-local arguments never become persistent cached geometry state.
+`FMeshDrawCommandOverrideArgs` supplies graph-local resources/ranges at submission;
+`FMeshDrawCommandSceneArgs` lowers them without temporary command/binding copies.
+CPU-instance ID buffer selection likewise belongs to the visible entry. Renderer entry points assert the
 render thread, owning render-pass state, and prepared phase symmetrically.
 
 If the representation identity or field table is unsupported, the Renderer

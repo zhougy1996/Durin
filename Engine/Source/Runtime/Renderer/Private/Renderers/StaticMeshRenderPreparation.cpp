@@ -288,7 +288,7 @@ namespace Durin
 			Primitive.FeatureLevel = SceneInfo->GetProxy().GetFeatureLevel();
 			Primitive.bRetainedStaticMesh = ViewFact.StaticBatches != nullptr;
 			Primitive.Id = SceneInfo->GetId();
-			Primitive.DrawResources = SceneInfo->DrawResources; Primitive.bSourceBound = true;
+			Primitive.SceneInfo = SceneInfo->GetSceneInfoRef(); Primitive.bSourceBound = !Primitive.SceneInfo.expired();
 			Primitive.PersistentPrimitiveIndex = SceneInfo->GetPersistentIndex();
 			Primitive.bSplineMesh = SceneInfo->GetKind() == EPrimitiveSceneProxyKind::SplineMesh;
 			Primitive.WorldBounds = SceneInfo->GetWorldBounds();
@@ -605,7 +605,7 @@ namespace Durin
 		Result.Primitives.reserve(PrimitiveCount);
 		auto PreparePrimitive = [&](const FCollectedStaticMeshView::FPrimitive& Primitive) {
 			DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareMeshPrimitive");
-			if (Primitive.bSourceBound && Primitive.DrawResources.expired())
+			if (Primitive.bSourceBound && (Primitive.SceneInfo.expired() || !Primitive.SceneInfo.lock()->IsDrawSourceValid()))
 			{
 				++Result.VisibleCandidates; ++Result.RejectedPrimitives;
 				return;
@@ -691,7 +691,7 @@ namespace Durin
 					.NormalToWorld = NormalToWorld,
 					.WorldToLocal = WorldToLocal,
 					.BoundsCenter = BoundsCenter,
-					.bRetainedStaticMesh = Primitive.bRetainedStaticMesh, .DrawResources = Primitive.DrawResources, .bSourceBound = Primitive.bSourceBound});
+					.bRetainedStaticMesh = Primitive.bRetainedStaticMesh, .SceneInfo = Primitive.SceneInfo, .bSourceBound = Primitive.bSourceBound});
 				const size_t FirstSectionCount = Result.GetNumSections();
 				const size_t FirstTriangleCount = Result.SelectedTriangles;
 
@@ -1209,10 +1209,10 @@ namespace Durin
 
 namespace Durin::RendererPrivate
 {
-	auto BuildMeshTransformUniform(
-		const FPreparedStaticMeshPrimitive& Primitive) -> FStaticMeshTransformUniform
+	auto BuildFallbackPrimitiveUniform(
+		const FPreparedStaticMeshPrimitive& Primitive) -> FMeshFallbackPrimitiveUniform
 	{
-		FStaticMeshTransformUniform TransformUniform;
+		FMeshFallbackPrimitiveUniform TransformUniform;
 		TransformUniform.CustomPrimitiveData = Primitive.CustomPrimitiveData;
 		TransformUniform.CustomInstanceData = Primitive.CustomInstanceData;
 		const FVector3 Origin(Primitive.LocalToWorld[3]);
@@ -1230,27 +1230,11 @@ namespace Durin::RendererPrivate
 		return TransformUniform;
 	}
 
-	auto PrepareMeshPrimitiveUniform(FRHICommandListImmediate& Commands, const FPreparedStaticMeshPrimitive& Primitive) -> FRHIUniformBufferRange
+	auto PrepareFallbackPrimitiveUniform(FRHICommandListImmediate& Commands, const FPreparedStaticMeshPrimitive& Primitive) -> FRHIUniformBufferRange
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PreparePrimitiveUniform");
-		const auto Uniform = BuildMeshTransformUniform(Primitive);
+		const auto Uniform = BuildFallbackPrimitiveUniform(Primitive);
 		return Commands.CreateUniformBufferRange(&Uniform, sizeof(Uniform));
-	}
-
-	auto PrepareStaticMeshPrimitiveUniforms(FRHICommandListImmediate& CommandList,
-		const FPreparedStaticMeshView& Prepared,
-		FResolvedStaticMeshView& Resolved) -> bool
-	{
-		Resolved.PrimitiveUniforms.clear();
-		Resolved.PrimitiveUniforms.reserve(Prepared.Primitives.size());
-		for (const auto& Primitive : Prepared.Primitives)
-		{
-			const auto Uniform = PrepareMeshPrimitiveUniform(CommandList, Primitive);
-			if (!Uniform.Buffer) return false;
-			Resolved.PrimitiveUniforms.push_back(Uniform);
-			++Resolved.Observations.PrimitiveUniformUploads;
-		}
-		return true;
 	}
 
 	auto ResolveMeshVertexDeclaration(const FPreparedStaticMeshPrimitive& Primitive, const FPreparedStaticMeshDraw& Draw) -> FVertexDeclarationRHIRef

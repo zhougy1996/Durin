@@ -5,6 +5,12 @@ lowering, and validated recorded copies shared by RHI and Vulkan.
 
 Modules: RHI, RenderCore, VulkanRHI
 
+GPUScene is a client of ordinary structured `FRHIBuffer` storage and counted
+ranges. Dirty updates use ordered `WriteBuffer` patches; culling declares scene
+reads, ID writes and indirect reads through RDG. No GPUScene-specific RHI resource
+class or rendering readback is required. The scene-level policy is specified in
+[GPUScene](../Scene/GPUScene.md).
+
 ## Counted View Contract
 
 `FRHIBufferView` and `FRHITextureView` are immutable counted RHI resources.

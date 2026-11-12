@@ -27,7 +27,6 @@ namespace Durin
 		GPUCullingCandidates,
 		GPUCullingVisible,
 		GPUCullingArguments,
-		GPUCullingTransforms,
 		Count,
 	};
 

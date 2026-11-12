@@ -161,7 +161,7 @@ namespace Durin
 			FMeshDrawShaderBindings() = default;
 			auto GetShader() const -> FRHIShader* { return Shader; }
 			auto GetResources() const -> std::span<const FRHIShaderParameterResource> { return Parameters; }
-			RENDERER_API auto SetOnCommandList(FRHICommandList& Commands, FShaderBindingState& State) const -> bool;
+			RENDERER_API auto SetOnCommandList(FRHICommandList& Commands, FShaderBindingState& State, FRHIBuffer* InstanceBuffer = nullptr, uint32 InstanceDataByteOffset = 0) const -> bool;
 			RENDERER_API auto operator==(const FMeshDrawShaderBindings& Other) const -> bool;
 			explicit operator bool() const { return Shader != nullptr; }
 		};

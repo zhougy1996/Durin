@@ -54,7 +54,6 @@ namespace Durin::RendererPrivate
 	inline constexpr uint32 MaterialMeshPassForward = 0;
 	inline constexpr uint32 MaterialMeshPassGBuffer = 1;
 	inline constexpr uint32 MaterialMeshPassShadow = 2;
-	inline constexpr uint32 MaterialMeshPassGBufferGPUCulling = 3;
 	inline constexpr size_t MaterialShaderMapCacheEntryBudget = 256;
 	inline constexpr size_t MaterialPipelineCacheEntryBudget = 512;
 	inline constexpr size_t MaterialShaderMapCacheByteBudget = 1024 * 1024;

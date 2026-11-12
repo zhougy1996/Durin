@@ -94,7 +94,7 @@ namespace Durin
 		const auto GBufferOutput = AddGBufferPasses(Graph, { .View = PreparedRenderView,
 			.Receiver = PreparedView.Receiver,
 			.Resolved = Resolved.Scene, .Telemetry = Telemetry,
-			.Renderer = Service.GBufferRenderer,
+			.CullingManager = Service.InstanceCullingManager,
 			.StaticMeshes = Service.StaticMeshRenderer,
 			.Depth = GraphResources.SceneDepth, .Options = Options,
 			.Failure = Logical.Qualification.GPUCullingFailure,

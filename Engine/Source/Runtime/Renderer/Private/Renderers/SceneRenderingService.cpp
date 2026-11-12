@@ -25,6 +25,7 @@ namespace Durin
 		, SurfaceMaterials(Coordinator, DefaultTextures)
 		, DirectionalShadowRenderer(Coordinator)
 		, GBufferRenderer(Coordinator)
+		, InstanceCullingManager(Coordinator)
 		, GBufferDebugRenderer(Coordinator, FullscreenGeometry)
 		, DeferredDirectionalLightingRenderer(Coordinator, FullscreenGeometry)
 		, GroundTruthAmbientOcclusionRenderer(Coordinator, FullscreenGeometry)
@@ -167,12 +168,13 @@ namespace Durin
 		EnvironmentLighting.ReleaseResources_RenderThread(FRHICommandListImmediate::Get());
 		SurfaceMaterials.ReleaseResources_RenderThread();
 		StaticMeshRenderer.ReleaseResources_RenderThread();
-		RendererPrivate::FPrimitiveDrawResources::ReleaseRHIForAllResources();
+		RendererPrivate::FCachedMeshDrawCommandStorage::ReleaseRHIForAllResources();
 		FMaterialRenderProxy::ReleaseRHIForAllResources();
 		FUniformBuffer::ReleaseRHIForAllResources();
 		MeshCommandCache.Reset();
 		DirectionalShadowRenderer.ReleaseResources_RenderThread();
 		GBufferRenderer.ReleaseResources_RenderThread();
+		InstanceCullingManager.ReleaseResources_RenderThread();
 		GBufferDebugRenderer.ReleaseResources_RenderThread();
 		DeferredDirectionalLightingRenderer.ReleaseResources_RenderThread();
 		GroundTruthAmbientOcclusionRenderer.ReleaseResources_RenderThread();

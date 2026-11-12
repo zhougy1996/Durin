@@ -24,10 +24,10 @@ namespace Durin
 	ENGINE_API auto GetMaterialBuildVersion() -> uint64;
 	ENGINE_API auto GetMaterialCompileAdapterVersion() -> uint32;
 	inline constexpr uint32 CurrentMaterialPassContractVersion = 13;
-	// Values are the persisted canonical stage-bit order. Append rather than reorder.
+	// Ordinals 0-5 are persisted. Retired ordinal 6 must never be reused.
 	enum class EMaterialShaderEntry : uint8
 	{
-		Forward, GBuffer, Shadow, HitProxy, LocalVertex, SplineVertex, GPUCullingVertex,
+		Forward, GBuffer, Shadow, HitProxy, LocalVertex, SplineVertex,
 	};
 	struct FMaterialShaderEntryDescriptor
 	{
@@ -41,12 +41,11 @@ namespace Durin
 	};
 	inline constexpr std::array MaterialShaderEntries{
 		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::Forward, "FragmentMain", EShaderFrequency::Fragment, 3, 1},
-		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::GBuffer, "GeometryFragmentMain", EShaderFrequency::Fragment, 7, 2},
+		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::GBuffer, "GeometryFragmentMain", EShaderFrequency::Fragment, 3, 2},
 		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::Shadow, "ShadowFragmentMain", EShaderFrequency::Fragment, 3, 4},
 		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::HitProxy, "HitProxyFragmentMain", EShaderFrequency::Fragment, 3, 8, true},
 		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::LocalVertex, "VertexMain", EShaderFrequency::Vertex, 1, 15},
 		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::SplineVertex, "SplineVertexMain", EShaderFrequency::Vertex, 2, 15},
-		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::GPUCullingVertex, "GPUCullingVertexMain", EShaderFrequency::Vertex, 0, 0},
 	};
 	constexpr auto MaterialShaderEntryBit(EMaterialShaderEntry Entry) -> uint8
 	{

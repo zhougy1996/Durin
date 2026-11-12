@@ -4,6 +4,7 @@
 #include "Renderers/MeshVertexFactory.h"
 #include "DynamicRHI.h"
 #include "RHICommandList.h"
+#include "RenderingThread.h"
 
 namespace Durin
 {
@@ -29,67 +30,85 @@ namespace Durin
 		return {Range(SceneData[0]), Range(SceneData[1]), Range(SceneData[2]), Range(InstanceIds)};
 	}
 
-	auto FGPUSceneDynamicContext::Prepare(FRHICommandListImmediate& Commands,
+	FGPUSceneDynamicContext::FGPUSceneDynamicContext(std::shared_ptr<FGPUScene> InGPUScene) : GPUScene(std::move(InGPUScene)) { require(GPUScene); }
+	FGPUSceneDynamicContext::~FGPUSceneDynamicContext()
+	{
+		if (Allocations.empty()) return;
+		if (IsInRenderingThread()) for (const auto& Range : Allocations) GPUScene->ReleaseDynamicPrimitiveRange(Range);
+		else EnqueueRenderCommand("ReleaseDynamicGPUSceneRanges", [Scene = std::move(GPUScene), Ranges = std::move(Allocations)](FRHICommandListImmediate&) {
+			for (const auto& Range : Ranges) Scene->ReleaseDynamicPrimitiveRange(Range);
+		});
+	}
+	auto FGPUSceneDynamicContext::RegisterGraphUse(const FRDGBuilder& Graph) -> void { GPUScene->RegisterGraphUse(Graph); }
+	auto FGPUSceneDynamicContext::Prepare(FRHICommandListImmediate& Commands, FRDGAllocator& Allocator,
 		const FPreparedStaticMeshView& Prepared, FGPUScene* Scene) -> std::vector<FGPUScenePrimitiveData>
 	{
+		CheckRenderingThread();
 		std::vector<FGPUScenePrimitiveData> Result(Prepared.Primitives.size());
-		auto Persistent = std::make_shared<FGPUSceneBufferSet>();
-		auto Dynamic = std::make_shared<FGPUSceneBufferSet>();
-		if (Scene) Persistent->SceneData = Scene->GetResourceBuffers();
-		std::array<std::vector<uint32>, 2> Ids;
-		std::vector<FPrimitiveSceneShaderData> Primitives;
-		std::vector<FInstanceSceneShaderData> Instances;
-		std::vector<FPrimitiveCustomData> Payload;
 		std::vector<uint32> Counts(Result.size(), 1);
 		std::vector<bool> Supported(Result.size());
 		for (uint32 Index = 0; Index < Prepared.GetNumSections(); ++Index)
 		{
 			const auto& Draw = Prepared.GetDraw(Index);
-			if (Draw.Command)
-			{
-				Counts[Draw.PrimitiveIndex] = std::max(Counts[Draw.PrimitiveIndex], Draw.Command->Geometry.InstanceCount);
-				const auto Factory = RendererPrivate::FindMeshVertexFactory(Draw.Command->PipelineKey.FactoryKey);
-				if (Factory && Factory->SupportsGPUScene()) Supported[Draw.PrimitiveIndex] = true;
-			}
+			if (!Draw.Command) continue;
+			Counts[Draw.PrimitiveIndex] = std::max(Counts[Draw.PrimitiveIndex], Draw.Command->Geometry.InstanceCount);
+			const auto Factory = RendererPrivate::FindMeshVertexFactory(Draw.Command->PipelineKey.FactoryKey);
+			if (Factory && Factory->SupportsGPUScene()) Supported[Draw.PrimitiveIndex] = true;
 		}
+		if (std::ranges::none_of(Supported, [](bool Value) { return Value; })) return Result;
+		auto Resource = Scene ? Scene->weak_from_this().lock() : CreateRenderResource<FGPUScene>();
+		if (!Resource) return {};
+		auto Context = std::make_shared<FGPUSceneDynamicContext>(Resource);
+		auto Commit = [&] {
+			if (!Resource->IsDirty()) return true;
+			FRDGBuilder UploadGraph;
+			auto Upload = Resource->Update(UploadGraph);
+			const auto Executed = UploadGraph.Execute(Commands, &Allocator);
+			return Resource->CompleteUpdate(UploadGraph, Upload) && bool(Executed);
+		};
+		// Persistent stable-ID lookup needs the committed membership mirror.
+		if (Scene && !Commit()) return {};
+		uint32 DynamicCount = 0;
+		for (uint32 Index = 0; Index < Result.size(); ++Index)
+			if (Supported[Index] && (!Scene || Prepared.Primitives[Index].PrimitiveIdMode != EPrimitiveIdMode::PrimID_FromPrimitiveSceneInfo)) ++DynamicCount;
+		const auto Allocation = Resource->AllocateDynamicPrimitiveRange(DynamicCount);
+		if (Allocation.Count) Context->Allocations.push_back(Allocation);
+		auto Buffers = std::make_shared<FGPUSceneBufferSet>(); Buffers->DynamicContext = Context; Buffers->bStandaloneScene = !Scene;
+		std::vector<uint32> Ids;
+		uint32 DynamicIndex = 0;
 		for (uint32 Index = 0; Index < Result.size(); ++Index)
 		{
 			if (!Supported[Index]) continue;
 			const auto& Primitive = Prepared.Primitives[Index];
-			std::optional<uint32> Existing;
+			uint32 InstanceId;
 			if (Scene && Primitive.PrimitiveIdMode == EPrimitiveIdMode::PrimID_FromPrimitiveSceneInfo)
 			{
-				Existing = Scene->FindInstanceId(Primitive.PersistentPrimitiveIndex, Primitive.InstanceSceneDataId);
-				// A broken persistent reference is an admission failure, never inferred dynamic data.
-				if (!Existing || !Persistent->SceneData[0]) return {};
+				const auto Existing = Resource->FindInstanceId(Primitive.PersistentPrimitiveIndex, Primitive.InstanceSceneDataId);
+				if (!Existing) return {};
+				InstanceId = *Existing;
 			}
-			uint32 InstanceId;
-			if (Existing) InstanceId = *Existing;
 			else
 			{
-				InstanceId = static_cast<uint32>(Instances.size());
-				const auto Parameters = FPrimitiveUniformShaderParametersBuilder().LocalToWorld(Primitive.LocalToWorld)
-					.WorldBounds(Primitive.WorldBounds).CustomPrimitiveData(Primitive.CustomPrimitiveData).InstanceSceneData(InstanceId, 1).Build();
-				if (!Parameters) return {};
-				Primitives.emplace_back(*Parameters);
-				FInstanceSceneShaderData Data;
-				if (!Data.Build(InstanceId, 0, InstanceId * 8, {}, Primitive.LocalToWorld, Primitive.WorldBounds)) return {};
-				Instances.push_back(Data); Payload.push_back(Primitive.CustomInstanceData);
+				if (!Resource->WriteDynamicPrimitive(Allocation, DynamicIndex, Primitive.LocalToWorld, Primitive.WorldBounds,
+					Primitive.CustomPrimitiveData, Primitive.CustomInstanceData)) return {};
+				InstanceId = Allocation.InstanceOffset + DynamicIndex++;
 			}
-			const uint32 Group = Existing ? 0 : 1;
-			if (uint64(Ids[Group].size()) + Counts[Index] > UINT32_MAX / sizeof(uint32)) return {};
-			Result[Index] = {Existing ? Persistent : Dynamic, InstanceId, static_cast<uint32>(Ids[Group].size())};
-			Ids[Group].insert(Ids[Group].end(), Counts[Index], InstanceId);
+			if (uint64(Ids.size()) + Counts[Index] > UINT32_MAX / sizeof(uint32)) return {};
+			Result[Index] = {Buffers, InstanceId, static_cast<uint32>(Ids.size())};
+			Ids.insert(Ids.end(), Counts[Index], InstanceId);
 		}
-		if (!Instances.empty())
-		{
-			Dynamic->SceneData = {UploadGPUSceneBuffer(Commands, "DynamicGPUScene.Primitives", 16, std::as_bytes(std::span(Primitives))),
-				UploadGPUSceneBuffer(Commands, "DynamicGPUScene.Instances", 16, std::as_bytes(std::span(Instances))),
-				UploadGPUSceneBuffer(Commands, "DynamicGPUScene.Payload", 16, std::as_bytes(std::span(Payload)))};
-		}
-		Persistent->InstanceIds = UploadGPUSceneBuffer(Commands, "GPUScene.DirectInstanceIds", 4, std::as_bytes(std::span(Ids[0])));
-		Dynamic->InstanceIds = UploadGPUSceneBuffer(Commands, "DynamicGPUScene.DirectInstanceIds", 4, std::as_bytes(std::span(Ids[1])));
+		if (!Commit()) return {};
+		Buffers->SceneData = Resource->GetResourceBuffers();
+		Buffers->InstanceIds = UploadInstanceIds(Commands, Ids);
+		if (!Buffers->InstanceIds) return {};
 		return Result;
+	}
+	auto RegisterGPUSceneGraphUse(const FRDGBuilder& Graph, const FResolvedStaticMeshView& View) -> void
+	{
+		std::unordered_set<FGPUSceneDynamicContext*> Registered;
+		for (const auto& Primitive : View.GPUScenePrimitives)
+			if (Primitive.Buffers && Primitive.Buffers->DynamicContext && Registered.insert(Primitive.Buffers->DynamicContext.get()).second)
+				Primitive.Buffers->DynamicContext->RegisterGraphUse(Graph);
 	}
 
 	auto FGPUSceneReadParameters::GetRDGParametersMetadata() -> const FRDGParametersMetadata*

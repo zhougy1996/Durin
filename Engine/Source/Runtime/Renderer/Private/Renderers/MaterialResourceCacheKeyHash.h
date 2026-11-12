@@ -25,7 +25,6 @@ namespace Durin::RendererPrivate
 			Mix(static_cast<uint8>(Material.ShadingModel));
 			Mix(std::hash<float>{}(Material.OpacityMaskThreshold));
 			if constexpr (requires { Key.VertexDomain; }) Mix(static_cast<size_t>(Key.VertexDomain));
-			if constexpr (requires { Key.bGPUCulling; }) Mix(Key.bGPUCulling);
 			if constexpr (requires { Key.bHybridRetained; }) Mix(Key.bHybridRetained);
 			if constexpr (requires { Key.VertexDeclaration; })
 			{

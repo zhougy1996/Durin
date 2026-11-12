@@ -12,13 +12,14 @@
 
 namespace Durin
 {
-	namespace RendererPrivate { class FPrimitiveDrawResources; }
+	namespace RendererPrivate { class FCachedMeshDrawCommandStorage; struct FCachedMeshDrawCommandInfo; }
+	class FUniformBuffer;
 	class FScene;
 	class FSplineMeshSceneProxy;
 	struct FSplineMeshRenderDynamicData;
 
 	// Owns one primitive proxy plus Renderer-derived transform and bounds state.
-	class FPrimitiveSceneInfo final
+	class FPrimitiveSceneInfo final : public std::enable_shared_from_this<FPrimitiveSceneInfo>
 	{
 	public:
 		RENDERER_API FPrimitiveSceneInfo(
@@ -30,13 +31,16 @@ namespace Durin
 		RENDERER_API auto BeginDeferredUpdateStaticMeshes() -> void;
 		RENDERER_API auto UpdateStaticMeshes() -> void;
 		auto GetId() const -> FPrimitiveComponentId { return Id; }
+		auto IsDrawSourceValid() const -> bool { return !bDetached; }
 		auto GetPersistentIndex() const -> FPersistentPrimitiveIndex { return GPUSceneHandle.PersistentPrimitiveIndex; }
 		RENDERER_API auto RequestGPUSceneUpdate(EGPUSceneDirtyState Dirty) -> void;
 		FGPUScenePrimitiveHandle GPUSceneHandle;
 		uint32 InstanceSceneDataOffset = INDEX_NONE_U32;
 		uint32 NumInstanceSceneDataEntries = 0;
-		uint32 InstancePayloadDataOffset = INDEX_NONE_U32;
-		std::shared_ptr<RendererPrivate::FPrimitiveDrawResources> DrawResources;
+		RENDERER_API auto RemoveCachedMeshDrawCommands() -> void;
+		RENDERER_API auto GetPrimitiveUniformBuffer(uint64 Batch) -> FUniformBuffer&;
+		RENDERER_API auto RetainPrimitiveUniformBuffers(std::span<const uint64> Batches) -> void;
+		auto GetSceneInfoRef() const -> std::weak_ptr<FPrimitiveSceneInfo> { return const_cast<FPrimitiveSceneInfo*>(this)->weak_from_this(); }
 		auto GetKind() const -> EPrimitiveSceneProxyKind { return Kind; }
 		auto GetTransform() const -> const FMatrix& { return Transform; }
 		auto GetLocalBounds() const -> const FBox& { return LocalBounds; }
@@ -57,8 +61,15 @@ namespace Durin
 			FSplineMeshRenderDynamicData DynamicData) -> bool;
 
 	private:
+		friend class FScene;
+		friend class RendererPrivate::FCachedMeshDrawCommandStorage;
+		RENDERER_API auto DetachFromScene() -> void;
+		RendererPrivate::FCachedMeshDrawCommandStorage* DrawLists = nullptr;
+		std::map<std::array<uint64, 5>, std::shared_ptr<RendererPrivate::FCachedMeshDrawCommandInfo>> StaticMeshCommandInfos;
+		std::map<uint64, std::shared_ptr<FUniformBuffer>> PrimitiveUniformBuffers;
 		FScene* Scene = nullptr;
 		bool bNeedsStaticMeshUpdate = false;
+		bool bDetached = false;
 		FPrimitiveComponentId Id = InvalidPrimitiveComponentId;
 		std::shared_ptr<FPrimitiveSceneProxy> Proxy;
 		EPrimitiveSceneProxyKind Kind = EPrimitiveSceneProxyKind::StaticMesh;

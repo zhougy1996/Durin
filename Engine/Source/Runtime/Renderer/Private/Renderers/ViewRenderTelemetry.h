@@ -221,25 +221,9 @@ namespace Durin
 		std::array<size_t, 8> ContactShadowRouteReasons{};
 	};
 
-	struct FGBufferRenderTelemetry
+	// Shared instance-selection counters; GBuffer exposes them through its existing telemetry surface.
+	struct FInstanceCullingTelemetry
 	{
-		size_t GBufferEnabledViews = 0;
-		size_t GBufferUnavailableViews = 0;
-		size_t GBufferDebugViews = 0;
-		size_t GBufferDebugFailures = 0;
-		size_t GBufferAttachmentBytes = 0;
-		size_t GBufferAttemptedDraws = 0;
-		size_t GBufferSuccessfulDraws = 0;
-		size_t GBufferRejectedDraws = 0;
-		size_t GBufferSkippedDraws = 0;
-		size_t GBufferStaticMeshAttemptedDraws = 0;
-		size_t GBufferStaticMeshSuccessfulDraws = 0;
-		size_t GBufferStaticMeshRejectedDraws = 0;
-		size_t GBufferStaticMeshSkippedDraws = 0;
-		size_t GBufferSplineMeshAttemptedDraws = 0;
-		size_t GBufferSplineMeshSuccessfulDraws = 0;
-		size_t GBufferSplineMeshRejectedDraws = 0;
-		size_t GBufferSplineMeshSkippedDraws = 0;
 		size_t GPUCullingPolicyDisabledViews = 0;
 		size_t GPUCullingBelowThresholdCandidates = 0;
 		size_t GPUCullingIncompatibleCandidates = 0;
@@ -262,8 +246,33 @@ namespace Durin
 		size_t GPUCullingDirectFallbackDraws = 0;
 		std::shared_ptr<const FGPUCullingVisibilityQuery> GPUCullingVisibility;
 		size_t GPUCullingOverflowCandidates = 0;
+		// Per-pass transient charge; scene capacity is observed separately, never multiplied into the budget.
 		size_t GPUCullingBufferBytes = 0;
+		size_t GPUCullingSceneCapacityBytes = 0;
+		size_t GPUCullingStandaloneSceneCapacityBytes = 0;
 		size_t GPUCullingAsyncComputeEligibleViews = 0;
+	};
+
+	struct FGBufferRenderTelemetry : FInstanceCullingTelemetry
+	{
+
+		size_t GBufferEnabledViews = 0;
+		size_t GBufferUnavailableViews = 0;
+		size_t GBufferDebugViews = 0;
+		size_t GBufferDebugFailures = 0;
+		size_t GBufferAttachmentBytes = 0;
+		size_t GBufferAttemptedDraws = 0;
+		size_t GBufferSuccessfulDraws = 0;
+		size_t GBufferRejectedDraws = 0;
+		size_t GBufferSkippedDraws = 0;
+		size_t GBufferStaticMeshAttemptedDraws = 0;
+		size_t GBufferStaticMeshSuccessfulDraws = 0;
+		size_t GBufferStaticMeshRejectedDraws = 0;
+		size_t GBufferStaticMeshSkippedDraws = 0;
+		size_t GBufferSplineMeshAttemptedDraws = 0;
+		size_t GBufferSplineMeshSuccessfulDraws = 0;
+		size_t GBufferSplineMeshRejectedDraws = 0;
+		size_t GBufferSplineMeshSkippedDraws = 0;
 	};
 
 	struct FDeferredRenderTelemetry
