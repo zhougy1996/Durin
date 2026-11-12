@@ -9,7 +9,6 @@
 namespace Durin
 {
 	class DStaticMesh;
-	class FCookedMeshLoadManager;
 
 	// One asset's CPU load. Only Decode runs on a worker; lifecycle and publication
 	// stay on GameThread. The mesh and scheduler retain this object until completion.
@@ -24,12 +23,12 @@ namespace Durin
 		auto IsCompleted() const -> bool { return Phase == EPhase::Completed; }
 		auto IsCancelled() const -> bool { return Cancellation.IsCanceled(); }
 		auto IsSuccessfullyFinished() const -> bool { return IsCompleted() && Error.Code == ECookedMeshLoadError::None; }
+		auto Start(FTaskAttribution InAttribution) -> void;
+		auto Reject() -> void;
 
 	private:
 		friend class DStaticMesh;
-		friend class FCookedMeshLoadManager;
-		enum class EPhase : uint8 { Pending, Reading, Working, Ready, Completed };
-		auto Start(FTaskAttribution InAttribution) -> void;
+		enum class EPhase : uint8 { Pending, Reading, Working, Completed };
 		auto Decode(FByteView RenderBytes, FByteView CollisionBytes) -> void;
 		auto Complete() -> void;
 
@@ -42,8 +41,6 @@ namespace Durin
 		std::vector<FMeshMaterialSlotDefinition> MaterialSlots;
 		EBodySetupCollisionSourceMode CollisionMode;
 		ECookTargetPlatform TargetPlatform;
-		uint64 EstimatedBytes = 0;
-		uint64 RetainedBytes = 0;
 		EPhase Phase = EPhase::Pending;
 		std::vector<FPackageResourceRequest> Reads;
 		Tasks::FCancellationToken Cancellation;

@@ -2,10 +2,19 @@
 #include <semaphore>
 
 #include "Asset/CookedMeshLoadManagerPrivate.h"
+#include "Actors/StaticMeshActor.h"
+#include "Components/StaticMeshComponent.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
+#include "Engine/Level.h"
+#include "Engine/World.h"
 #include "EngineTestSupport.h"
 #include "HAL/PlatformLTS.h"
+#include "NativeTestSupport.h"
+#include "Physics/BodySetup.h"
+#include "Physics/PhysicsDerivedData.h"
+#include "Rendering/SceneInterface.h"
+#include "Rendering/SplineMeshSceneProxy.h"
 #include "Serialization/Archive.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshLoadUpdate.h"
@@ -29,7 +38,7 @@ namespace
 			-> FPackageResourceReadResult override
 		{
 			bStarted.store(true, std::memory_order_release);
-			Gate.acquire();
+			if (!bReleased.load(std::memory_order_acquire)) Gate.acquire();
 			if (bCancelled.load(std::memory_order_acquire))
 				return std::unexpected(FPackageResourceReadError{
 					.Status = EPackageResourceReadStatus::Cancelled, .Message = "Fixture read was cancelled."});
@@ -81,6 +90,41 @@ namespace
 		EXPECT_FALSE(Writer.IsError());
 		return Bytes;
 	}
+
+	class FPublicationTestScene final : public FSceneInterface
+	{
+	public:
+		auto Release() -> void override {}
+		auto AddPrimitive(DPrimitiveComponent*) -> void override
+		{
+			if (!ObservedMesh) return;
+			++Publications;
+			EXPECT_NE(ObservedMesh->GetRenderData(), nullptr);
+			EXPECT_TRUE(ObservedMesh->GetBodySetup()->GetResidentComplexGeometry());
+		}
+		auto RemovePrimitive(DPrimitiveComponent*) -> void override {}
+		auto AddLight(DLightComponent*) -> void override {}
+		auto RemoveLight(DLightComponent*) -> void override {}
+		auto AddSkyBox(DSkyBoxComponent*) -> void override {}
+		auto RemoveSkyBox(DSkyBoxComponent*) -> void override {}
+		auto AddProceduralSky(DProceduralSkyComponent*) -> void override {}
+		auto RemoveProceduralSky(DProceduralSkyComponent*) -> void override {}
+		auto AddSkyLight(DSkyLightComponent*) -> void override {}
+		auto RemoveSkyLight(DSkyLightComponent*) -> void override {}
+		auto AddVolumetricCloud(DVolumetricCloudComponent*) -> void override {}
+		auto RemoveVolumetricCloud(DVolumetricCloudComponent*) -> void override {}
+		auto UpdateSkyLighting() -> void override {}
+		auto UpdatePrimitiveTransform(FPrimitiveComponentId, const FMatrix&) -> void override {}
+		auto UpdatePrimitiveVisibility(FPrimitiveComponentId, bool) -> void override {}
+		auto UpdatePrimitiveMaterialBinding(FPrimitiveComponentId, const FMaterialRenderProxyBindingUpdate&) -> void override {}
+		auto UpdateMaterialParameterCollection(std::shared_ptr<const FMaterialParameterCollectionSnapshot>) -> void override {}
+		auto RemoveMaterialParameterCollection(FGuid) -> void override {}
+		auto UpdatePrimitiveCustomData(FPrimitiveComponentId, FPrimitiveCustomData) -> void override {}
+		auto UpdateStaticMeshRenderInstances(FPrimitiveComponentId, FStaticMeshRenderInstances) -> void override {}
+		auto UpdateSplineMeshDynamicData(FPrimitiveComponentId, FSplineMeshRenderDynamicData) -> void override {}
+		DStaticMesh* ObservedMesh = nullptr;
+		uint32 Publications = 0;
+	};
 
 	class FCookedMeshLoadManagerTests : public testing::Test
 	{
@@ -141,10 +185,10 @@ namespace
 	};
 }
 
-TEST_F(FCookedMeshLoadManagerTests, QueuesConcreteUpdatesWithinCountAndByteBudgets)
+TEST_F(FCookedMeshLoadManagerTests, QueuesConcreteUpdatesWithinConcurrencyLimit)
 {
 	const auto Bytes = MakePayload();
-	FCookedMeshLoadManager Manager({.MaxConcurrentRequests = 2, .MaxEstimatedBytes = Bytes.size() * 2});
+	FCookedMeshLoadManager Manager({.MaxConcurrentRequests = 2});
 	ASSERT_TRUE(Manager.Initialize());
 	FReadGates Gates;
 	std::vector<std::shared_ptr<FStaticMeshLoadUpdate>> Updates;
@@ -163,7 +207,6 @@ TEST_F(FCookedMeshLoadManagerTests, QueuesConcreteUpdatesWithinCountAndByteBudge
 		EXPECT_EQ(Mesh->GetRenderResourceStatus().Readiness, EStaticMeshRenderResourceReadiness::Unavailable);
 	}
 	EXPECT_EQ(Manager.GetDiagnostics().PeakInFlightCount, 2u);
-	EXPECT_LE(Manager.GetDiagnostics().PeakInFlightEstimatedBytes, Bytes.size() * 2);
 }
 
 TEST_F(FCookedMeshLoadManagerTests, CancelsQueuedAndReadingUpdatesWithoutPublishing)
@@ -288,19 +331,115 @@ TEST_F(FCookedMeshLoadManagerTests, InvalidFieldsAndDecodeAndReadFailuresStayOnA
 	EXPECT_EQ(Unreadable->GetRenderData(), nullptr);
 }
 
-TEST_F(FCookedMeshLoadManagerTests, CompletionBudgetRejectsDecodedProduct)
+TEST_F(FCookedMeshLoadManagerTests, CompletionLimitDefersResultsWithoutFailingLoads)
 {
-	FCookedMeshLoadManager Manager({.MaxPendingCompletionBytes = 1});
+	FCookedMeshLoadManager Manager({.MaxCompletionsPerPump = 1});
 	ASSERT_TRUE(Manager.Initialize());
 	FReadGates Gates;
 	const auto Bytes = MakePayload();
-	auto* Mesh = MakeMesh(Gates.Add(Bytes), Bytes.size());
-	auto Update = Submit(Manager, *Mesh);
+	for (int Index = 0; Index < 4; ++Index)
+		Submit(Manager, *MakeMesh(Gates.Add(Bytes), Bytes.size()));
+	Manager.Pump();
 	Gates.Release();
-	ASSERT_TRUE(PumpUntil(Manager, [&] { return Update->IsCompleted(); }));
-	EXPECT_FALSE(Update->IsSuccessfullyFinished());
-	EXPECT_EQ(Mesh->GetRenderDataLoadError().Code, ECookedMeshLoadError::CompletionBudget);
-	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
+	uint64 PreviousSucceeded = 0;
+	ASSERT_TRUE(PumpUntil(Manager, [&] {
+		const auto Succeeded = Manager.GetDiagnostics().SucceededCount;
+		EXPECT_LE(Succeeded - PreviousSucceeded, 1u);
+		PreviousSucceeded = Succeeded;
+		return Succeeded == 4;
+	}));
+	for (const auto& Mesh : Meshes)
+	{
+		EXPECT_NE(Mesh->GetRenderData(), nullptr);
+		EXPECT_EQ(Mesh->GetRenderDataLoadError().Code, ECookedMeshLoadError::None);
+	}
+}
+
+TEST_F(FCookedMeshLoadManagerTests, BlockingRetryRetiresCancelledQueuedAndReadingUpdates)
+{
+	Testing::FScopedAssetRuntimeForTests Runtime;
+	const auto Root = std::filesystem::absolute(Testing::GetTestWorkDirectory() / "CancelledMeshRetry");
+	std::filesystem::create_directories(Root);
+	ASSERT_TRUE(Runtime.RestartCooked(Root));
+	FCookedMeshLoadManager Manager;
+	ASSERT_TRUE(Manager.Initialize());
+	FReadGates Gates;
+	const auto Bytes = MakePayload();
+	for (bool bStartRead : {false, true})
+	{
+		auto Resource = Gates.Add(Bytes);
+		auto* Mesh = MakeMesh(Resource, Bytes.size());
+		auto Update = Submit(Manager, *Mesh);
+		if (bStartRead)
+			ASSERT_TRUE(PumpUntil(Manager, [&] { return Resource->HasStarted(); }));
+		Mesh->CancelPendingRenderDataLoad();
+		EXPECT_FALSE(Mesh->RequestRenderDataAndResources());
+		EXPECT_EQ(Mesh->HasPendingRenderDataLoad(), bStartRead);
+		Resource->Release();
+		ASSERT_TRUE(Mesh->EnsureRenderDataLoadedBlocking());
+		EXPECT_TRUE(Update->IsCompleted());
+		EXPECT_TRUE(Update->IsCancelled());
+		EXPECT_NE(Mesh->GetRenderData(), nullptr);
+		EXPECT_FALSE(Mesh->HasPendingRenderDataLoad());
+		EXPECT_EQ(Mesh->GetRenderDataLoadError().Code, ECookedMeshLoadError::None);
+		EXPECT_EQ(Mesh->GetRenderResourceStatus().Readiness, EStaticMeshRenderResourceReadiness::Unavailable);
+		Manager.Pump();
+	}
+	EXPECT_EQ(Manager.GetDiagnostics().CancelledCount, 2u);
+}
+
+TEST_F(FCookedMeshLoadManagerTests, PublicationRefreshesConsumersOnceAfterRenderAndCollisionAreInstalled)
+{
+	FPublicationTestScene Scene;
+	TStrongObjectPtr<DWorld> World(NewObject<DWorld>(nullptr, "CookedPublicationWorld"));
+	struct FWorldCleanup
+	{
+		TStrongObjectPtr<DWorld>& World;
+		~FWorldCleanup()
+		{
+			World->CleanupWorld();
+			World->SetRenderScene(nullptr);
+			auto* Retired = World.Get();
+			World.Reset();
+			MarkObjectHierarchyAsGarbage(Retired);
+		}
+	} Cleanup{World};
+	World->InitializeSubsystems();
+	ASSERT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World.Get(), "CookedPublicationLevel")));
+	World->SetRenderScene(&Scene);
+	const std::vector<FVector3> Positions{{0, 0, 0}, {1, 0, 0}, {0, 1, 0}};
+	const std::vector<uint32> Indices{0, 1, 2};
+	FPhysicsCollisionPayloadData Collision;
+	ASSERT_TRUE(MakePhysicsCollisionPayloadData(FCollisionGeometryRef::BuildTriangleMesh(Positions, Indices), Collision));
+	FByteBuffer CollisionBytes;
+	FCanonicalMemoryWriter Writer(CollisionBytes, EArchivePurpose::CookedPayload, {.Target = {"Win64", "Game"}});
+	Collision.Serialize(Writer);
+	ASSERT_FALSE(Writer.IsError()) << Writer.GetError();
+	for (bool bAsync : {false, true})
+	{
+		auto Bulk = FBulkData::TryCreateDetached(MakePayload());
+		ASSERT_TRUE(Bulk);
+		auto* Mesh = MakeMesh(std::move(*Bulk));
+		auto* Body = NewObject<DBodySetup>(Mesh, "CookedPublicationBody");
+		Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
+		ASSERT_TRUE(Mesh->SetBodySetup(Body));
+		auto CollisionBulk = FBulkData::TryCreateDetached(CollisionBytes);
+		ASSERT_TRUE(CollisionBulk);
+		const_cast<FBulkData&>(Mesh->GetCookedCollisionData()) = std::move(*CollisionBulk);
+		auto* Actor = World->SpawnActor<AStaticMeshActor>();
+		ASSERT_NE(Actor, nullptr);
+		Actor->GetStaticMeshComponent()->SetStaticMesh(Mesh);
+		Scene.ObservedMesh = Mesh;
+		Scene.Publications = 0;
+		FCookedMeshLoadManager Manager;
+		ASSERT_TRUE(Manager.Initialize());
+		auto Update = Submit(Manager, *Mesh);
+		if (bAsync) ASSERT_TRUE(PumpUntil(Manager, [&] { return Update->IsCompleted(); }));
+		else Update->Finish();
+		EXPECT_TRUE(Update->IsSuccessfullyFinished());
+		EXPECT_EQ(Scene.Publications, 1u);
+		Scene.ObservedMesh = nullptr;
+	}
 }
 
 TEST_F(FCookedMeshLoadManagerTests, MetadataChangeDiscardsCandidate)

@@ -11,9 +11,6 @@ namespace Durin
 	struct FCookedMeshLoadManagerConfig
 	{
 		uint32 MaxConcurrentRequests = 8;
-		uint64 MaxEstimatedBytes = 256ull * 1024ull * 1024ull;
-		uint64 MaxPendingCompletionBytes = 256ull * 1024ull * 1024ull;
-		uint32 MaxIoPollsPerPump = 16;
 		uint32 MaxCompletionsPerPump = 4;
 	};
 
@@ -21,18 +18,15 @@ namespace Durin
 	{
 		uint32 InFlightCount = 0;
 		uint32 PendingRequestCount = 0;
-		uint32 PendingCompletionCount = 0;
-		uint64 InFlightEstimatedBytes = 0;
-		uint64 PendingCompletionBytes = 0;
 		uint32 PeakInFlightCount = 0;
-		uint64 PeakInFlightEstimatedBytes = 0;
 		uint64 AcceptedCount = 0;
 		uint64 SucceededCount = 0;
 		uint64 FailedCount = 0;
 		uint64 CancelledCount = 0;
 	};
 
-	// GameThread scheduler. Updates own their asset association, inputs and results.
+	// GameThread scheduling limits concurrent loads and publications per pump.
+	// Updates own their asset association, execution state, inputs and results.
 	class ENGINE_API FCookedMeshLoadManager
 	{
 	public:
@@ -53,7 +47,6 @@ namespace Durin
 		FTaskAttribution Attribution;
 		std::vector<std::shared_ptr<FStaticMeshLoadUpdate>> Pending;
 		std::vector<std::shared_ptr<FStaticMeshLoadUpdate>> Active;
-		uint64 InFlightEstimatedBytes = 0;
 		FCookedMeshLoadDiagnostics Diagnostics;
 	};
 

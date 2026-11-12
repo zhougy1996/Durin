@@ -462,7 +462,6 @@ namespace Durin
 		case ECookedMeshLoadError::Publication: return "Cooked mesh publication failed.";
 		case ECookedMeshLoadError::Cancelled: return "Cooked mesh loading was cancelled.";
 		case ECookedMeshLoadError::Task: return "Cooked mesh decode task did not complete successfully.";
-		case ECookedMeshLoadError::CompletionBudget: return "Cooked mesh result exceeds the completion byte budget.";
 		}
 		return "Unknown cooked mesh load failure.";
 	}
@@ -483,7 +482,6 @@ namespace Durin
 			|| CollisionBytes > MaximumBulkDataBytes || RenderBytes > MaximumBulkDataBytes - CollisionBytes)
 			Error = {.Code = ECookedMeshLoadError::Read,
 				.Diagnostic = std::format("Cooked mesh render/collision field sizes are invalid: {} / {} bytes.", RenderBytes, CollisionBytes)};
-		else EstimatedBytes = RenderBytes + CollisionBytes;
 	}
 
 	FStaticMeshLoadUpdate::~FStaticMeshLoadUpdate()
@@ -501,6 +499,15 @@ namespace Durin
 		if (CollisionMode != EBodySetupCollisionSourceMode::None)
 			Reads.push_back(CollisionBulk.ReloadAsync());
 		Phase = EPhase::Reading;
+	}
+
+	auto FStaticMeshLoadUpdate::Reject() -> void
+	{
+		CheckGameThread();
+		check(Phase == EPhase::Pending);
+		Error = {.Code = ECookedMeshLoadError::Unavailable,
+			.Diagnostic = "Cooked mesh loading is not accepting updates."};
+		Complete();
 	}
 
 	auto FStaticMeshLoadUpdate::Abort() -> void
@@ -521,9 +528,6 @@ namespace Durin
 				.Diagnostic = AssetPrivate::FormatCookedMeshProductError(Decoded.error())};
 			return;
 		}
-		RetainedBytes = EstimatedBytes;
-		if (Product.SimpleCollision) RetainedBytes += Product.SimpleCollision.GetRetainedBytes();
-		if (Product.ComplexCollision) RetainedBytes += Product.ComplexCollision.GetRetainedBytes();
 	}
 
 	auto FStaticMeshLoadUpdate::Complete() -> void
@@ -560,7 +564,6 @@ namespace Durin
 		RenderBulk = {};
 		CollisionBulk = {};
 		MaterialSlots.clear();
-		RetainedBytes = 0;
 	}
 
 	auto FStaticMeshLoadUpdate::Tick() -> void
@@ -597,7 +600,7 @@ namespace Durin
 				}, {.Attribution = Attribution}));
 			return;
 		}
-		if (Phase == EPhase::Ready || (Phase == EPhase::Working && Task.IsCompleted()))
+		if (Phase == EPhase::Working && Task.IsCompleted())
 		{
 			if (Task.GetState() == ETaskState::Canceled) Cancellation.Cancel();
 			else if (Task.GetState() != ETaskState::Succeeded)

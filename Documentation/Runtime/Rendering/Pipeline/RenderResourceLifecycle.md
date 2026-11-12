@@ -119,7 +119,9 @@ StaticMesh CPU residency is independent of render-resource readiness.
 asset's current update, and `GetRenderDataLoadError()` returns its last owned
 failure. The asset holds one concrete pending update; that update owns reads,
 detached decoding, publication and cancellation. The manager schedules updates
-within active-work and retained-completion budgets.
+with limits on concurrent updates and completions per pump; it does not own
+execution phases, candidate products or load errors. Completion limits defer
+publication without rejecting decoded products by size.
 `EnsureRenderDataLoadedBlocking()` returns `std::expected<void, FCookedMeshLoadError>`
 and waits for CPU residency only. It does not request GPU initialization. Call `InitResources()` explicitly, then query
 `GetRenderResourceStatus()` to distinguish queued, ready, and invalid-CPU-data resources.
@@ -127,7 +129,9 @@ and waits for CPU residency only. It does not request GPU initialization. Call `
 that returns true only while GPU initialization is queued. False does not imply
 readiness: CPU loading, absent, invalid-data, and released resources also return false.
 An explicit `EnsureRenderDataLoadedBlocking()` call also retries a previous CPU
-failure/cancellation. `InitResources()` initializes resident CPU data without
+failure/cancellation, draining an already cancelled update before starting its
+retry. A combined request cannot join cancelled work while it drains.
+`InitResources()` initializes resident CPU data without
 performing package I/O; native creation failure terminates through RHI. Neither
 operation repeats completed work or duplicates an in-flight initialization.
 
@@ -143,7 +147,9 @@ Resource revision identifies publication/init/release admission, and does not
 advance merely because the render command completes.
 
 A StaticMesh or SplineMesh SceneProxy may be created from valid
-CPU data while GPU initialization is queued. Renderer preparation still checks
+CPU data while GPU initialization is queued. Render and collision publication
+share one recreate scope, so consumers refresh once after both are installed.
+Renderer preparation still checks
 the selected LOD's actual resources and rejects or falls back until they are
 ready. Because CPU publication recreates registered component render state, the
 queued-to-ready transition needs no warm-up getter, second asset assignment, or

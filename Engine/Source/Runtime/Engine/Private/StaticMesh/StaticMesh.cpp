@@ -119,6 +119,7 @@ namespace Durin
 		if (IsPendingKill() || CookedLoadError.Code != ECookedMeshLoadError::None) return false;
 		if (PendingUpdate && !PendingUpdate->IsCompleted())
 		{
+			if (PendingUpdate->IsCancelled()) return false;
 			PendingUpdate->bInitializeResources = true;
 			return true;
 		}
@@ -158,6 +159,11 @@ namespace Durin
 		CheckStaticMeshUpdateThread();
 		if (RenderData) return {};
 		auto Update = PendingUpdate;
+		if (Update && Update->IsCancelled())
+		{
+			Update->Finish();
+			Update.reset();
+		}
 		if (!Update || Update->IsCompleted())
 		{
 			CookedLoadError = {};
@@ -348,11 +354,8 @@ namespace Durin
 			if (const auto Initialized = InitializeStaticMeshCandidate(*InRenderData); !Initialized)
 				return Initialized;
 		}
-
 		const bool bCandidateResourcesInitialized = RenderData && GDynamicRHI != nullptr;
 		{
-			std::optional<FStaticMeshRenderStateRecreateContext> RecreateContext;
-			RecreateContext.emplace(this);
 #if DURIN_WITH_EDITORONLY_DATA
 			const bool bGeometryChanged = bAcceptGeometry && (!PreparedSource
 				|| Source.GetIdentity() != PreparedSource->GetIdentity()
@@ -393,6 +396,7 @@ namespace Durin
 	auto PublishStaticMeshRenderData(DStaticMesh& Mesh, std::unique_ptr<FStaticMeshRenderData> Render)
 		-> std::expected<void, std::string>
 	{
+		FStaticMeshRenderStateRecreateContext Refresh(&Mesh);
 		return Mesh.CommitPreparedMeshData(std::move(Render), nullptr, nullptr, nullptr, false);
 	}
 
@@ -446,6 +450,7 @@ namespace Durin
 				|| Render->MaterialSlots[Index].SourceMaterialIndex != Slots[Index].SourceMaterialIndex)
 				return Fail(std::string{"Prepared render material mapping changed before publication."});
 		Source.ReleaseGeometry();
+		FStaticMeshRenderStateRecreateContext Refresh(&Mesh);
 		if (const auto Published = Mesh.CommitPreparedMeshData(std::move(Render),
 			PreparedMaterialSlots, &Source, PreparedImportData); !Published)
 			return Fail(Published.error());

@@ -138,10 +138,11 @@ namespace Durin
 			const FAssetBuildTaskContext& Control = {}) -> std::expected<void, std::string>;
 		ENGINE_API auto GetRenderData() const -> const FStaticMeshRenderData*;
 		// Starts or joins the current CPU update and requests GPU initialization.
-		// True means CPU data is resident or an update is queued; query GPU readiness
+		// True means CPU data is resident or an uncancelled update is queued; query GPU readiness
 		// separately. Failed/cancelled loads require an explicit blocking retry.
 		ENGINE_API auto RequestRenderDataAndResources() -> bool;
-		// Blocks for CPU data only, retrying a prior CPU failure/cancellation.
+		// Blocks for CPU data only. Retires a prior cancelled update before retrying;
+		// failure or cancellation during this call is returned without another retry.
 		// May perform package I/O on the GameThread; use RequestRenderDataAndResources() for polling.
 		// Does not request GPU initialization; prior rendering requests may still complete.
 		ENGINE_API auto EnsureRenderDataLoadedBlocking()
@@ -275,6 +276,8 @@ namespace Durin
 		auto RefreshComplexCollisionSource() -> void;
 		auto CreateOwnPhysicsMeshInputTask(const DStaticMesh& NormalizationOwner, int32 LODIndex = 0) const
 			-> std::expected<std::unique_ptr<FPhysicsMeshInputTask>, std::string>;
+		// Installs prepared values inside the caller's render-state recreate scope.
+		// The caller finishes related collision publication before refreshing consumers.
 		auto CommitPreparedMeshData(
 			std::unique_ptr<FStaticMeshRenderData> InRenderData,
 			std::vector<FMeshMaterialSlotDefinition>*

@@ -7,7 +7,7 @@ namespace Durin
 {
 	enum class ECookedMeshLoadError : uint8
 	{
-		None, Unavailable, Read, Product, Publication, Cancelled, Task, CompletionBudget
+		None, Unavailable, Read, Product, Publication, Cancelled, Task
 	};
 
 	// The asset owns its last load failure; execution state lives in its pending update.

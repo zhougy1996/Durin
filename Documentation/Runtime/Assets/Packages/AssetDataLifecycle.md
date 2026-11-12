@@ -466,20 +466,22 @@ fallback.
 `DStaticMesh::GetRenderData()` observes CPU residency without starting work.
 `RequestRenderDataAndResources()` starts or joins the asset's pending update and
 requests GPU initialization after CPU publication. Its boolean result means CPU
-data is resident or an update is queued, independently of GPU readiness.
+data is resident or an uncancelled update is queued, independently of GPU readiness.
 SplineMesh shares its source StaticMesh request and residency.
 
 The mesh holds one concrete `FStaticMeshLoadUpdate`. The update owns immutable
 bulk references, copied material/collision inputs, asynchronous reads, detached
 decoding and the CPU candidate. Queued work retains this same object and its GPU
-initialization intent. The manager bounds active I/O/worker count and estimated
-bytes, retained completion bytes, I/O polling and publications per pump; it never
-reconstructs a request from an owner key. Its configuration, queues and diagnostics
-are Engine-private.
+initialization intent. The manager limits concurrent updates and completions per
+pump. It does not impose serialized-byte or decoded-result budgets: a completion
+limit defers publication without rejecting a valid product. Its configuration,
+queues and diagnostics are Engine-private; execution state and errors remain
+owned by the update.
 
 Workers access only captured inputs and detached products. The GameThread checks
 the current update instance, render-resource revision and metadata identity
-before publishing render/collision data and refreshing consumers. Execution
+before publishing render/collision data. One render-state recreate scope covers
+both publications and refreshes consumers after collision installation. Execution
 phases live only in the update. The asset exposes current pending work and its
 last owned `FCookedMeshLoadError`, containing a stable category and diagnostic.
 
@@ -487,13 +489,16 @@ last owned `FCookedMeshLoadError`, containing a stable category and diagnostic.
 a CPU-only update. Both blocking and asynchronous execution use the same decoder
 and publication step; blocking does not pump or publish unrelated assets.
 It returns `std::expected<void, FCookedMeshLoadError>` and explicitly retries a
-prior failure or cancellation. A CPU-only update retains that intent when queued
+prior failure or cancellation, draining a previously cancelled update first.
+Failure or cancellation during the call is returned without another retry.
+A CPU-only update retains that intent when queued
 and after later manager pumps. Existing combined requests and registered render
 consumers may still initialize GPU resources during publication.
 `InitResources()` and `GetRenderResourceStatus()` provide the independent GPU
 initialization/readiness contract. Ordinary polling retains terminal failures.
 
-`CancelPendingRenderDataLoad()` aborts the current update. Asset destruction
+`CancelPendingRenderDataLoad()` aborts the current update. A combined request
+cannot join an update that is draining after cancellation. Asset destruction
 aborts it and defers final destruction until the update has retired and the
 render fence is complete. Manager shutdown stops admission, aborts queued and
 active updates, and drains them without publication before package, task, render

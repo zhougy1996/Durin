@@ -23,8 +23,7 @@ namespace Durin
 		CheckGameThread();
 		if (bAccepting) return true;
 		if (!IsTaskSchedulerRunning() || Config.MaxConcurrentRequests == 0
-			|| Config.MaxEstimatedBytes == 0 || Config.MaxPendingCompletionBytes == 0
-			|| Config.MaxIoPollsPerPump == 0 || Config.MaxCompletionsPerPump == 0) return false;
+			|| Config.MaxCompletionsPerPump == 0) return false;
 		Attribution = RegisterTaskAttribution("Engine", "CookedMeshLoad");
 		bAccepting = true;
 		return true;
@@ -35,13 +34,12 @@ namespace Durin
 		CheckGameThread();
 		check(Update && !Update->IsCompleted());
 		if (!bAccepting)
-			Update->Error = {.Code = ECookedMeshLoadError::Unavailable,
-				.Diagnostic = "Cooked mesh loading is not accepting updates."};
-		if (Update->Error.Code != ECookedMeshLoadError::None)
 		{
-			Update->Tick();
+			Update->Reject();
 			return false;
 		}
+		Update->Tick();
+		if (Update->IsCompleted()) return false;
 		Pending.push_back(std::move(Update));
 		++Diagnostics.AcceptedCount;
 		return true;
@@ -57,42 +55,12 @@ namespace Durin
 	auto FCookedMeshLoadManager::Pump() -> uint32
 	{
 		CheckGameThread();
-		// Finished task bodies own their results until GameThread publication.
-		// Apply the aggregate completion budget before consuming any of them.
-		uint64 CompletionBytes = 0;
-		for (const auto& Update : Active)
-		{
-			if (Update->Phase == FStaticMeshLoadUpdate::EPhase::Working && Update->Task.IsCompleted())
-				Update->Phase = FStaticMeshLoadUpdate::EPhase::Ready;
-			if (Update->Phase != FStaticMeshLoadUpdate::EPhase::Ready
-				|| Update->Task.GetState() != ETaskState::Succeeded || Update->IsCancelled()
-				|| Update->Error.Code != ECookedMeshLoadError::None) continue;
-			const uint64 Bytes = Update->RetainedBytes;
-			if (Bytes == 0 || Bytes > Config.MaxPendingCompletionBytes
-				|| CompletionBytes > Config.MaxPendingCompletionBytes - Bytes)
-			{
-				Update->Product = {};
-				Update->RetainedBytes = 0;
-				Update->Error = {.Code = ECookedMeshLoadError::CompletionBudget,
-					.Diagnostic = std::format("Cooked mesh result needs {} bytes with {} reserved against a {} byte completion limit.",
-						Bytes, CompletionBytes, Config.MaxPendingCompletionBytes)};
-			}
-			else CompletionBytes += Bytes;
-		}
-
 		uint32 Completed = 0;
-		uint32 Polled = 0;
 		for (size_t Index = 0; Index < Active.size() && Completed < Config.MaxCompletionsPerPump;)
 		{
 			const auto Update = Active[Index];
-			// A worker that finishes after the budget pass waits for the next pump.
-			if (Update->Phase == FStaticMeshLoadUpdate::EPhase::Working) { ++Index; continue; }
-			if (Update->Phase == FStaticMeshLoadUpdate::EPhase::Reading
-				&& Polled++ >= Config.MaxIoPollsPerPump) { ++Index; continue; }
 			Update->Tick();
 			if (!Update->IsCompleted()) { ++Index; continue; }
-			check(InFlightEstimatedBytes >= Update->EstimatedBytes);
-			InFlightEstimatedBytes -= Update->EstimatedBytes;
 			RecordCompletion(*Update);
 			Active.erase(Active.begin() + Index);
 			++Completed;
@@ -108,21 +76,16 @@ namespace Durin
 				Pending.erase(Pending.begin() + Index);
 				continue;
 			}
-			if (!bAccepting || Active.size() >= Config.MaxConcurrentRequests
-				|| (!Active.empty() && (Update->EstimatedBytes > Config.MaxEstimatedBytes
-					|| InFlightEstimatedBytes > Config.MaxEstimatedBytes - Update->EstimatedBytes)))
+			if (!bAccepting || Active.size() >= Config.MaxConcurrentRequests)
 			{
 				++Index;
 				continue;
 			}
 			Update->Start(Attribution);
-			InFlightEstimatedBytes += Update->EstimatedBytes;
 			Active.push_back(Update);
 			Pending.erase(Pending.begin() + Index);
 			Diagnostics.PeakInFlightCount = std::max<uint32>(
 				Diagnostics.PeakInFlightCount, static_cast<uint32>(Active.size()));
-			Diagnostics.PeakInFlightEstimatedBytes = std::max(
-				Diagnostics.PeakInFlightEstimatedBytes, InFlightEstimatedBytes);
 		}
 		return Completed;
 	}
@@ -137,7 +100,6 @@ namespace Durin
 		for (const auto& Update : Active) { Update->Finish(); RecordCompletion(*Update); }
 		Pending.clear();
 		Active.clear();
-		InFlightEstimatedBytes = 0;
 	}
 
 	auto FCookedMeshLoadManager::GetDiagnostics() const -> FCookedMeshLoadDiagnostics
@@ -146,14 +108,6 @@ namespace Durin
 		auto Result = Diagnostics;
 		Result.InFlightCount = static_cast<uint32>(Active.size());
 		Result.PendingRequestCount = static_cast<uint32>(Pending.size());
-		Result.InFlightEstimatedBytes = InFlightEstimatedBytes;
-		for (const auto& Update : Active)
-			if (Update->Phase == FStaticMeshLoadUpdate::EPhase::Ready
-				|| (Update->Phase == FStaticMeshLoadUpdate::EPhase::Working && Update->Task.IsCompleted()))
-			{
-				++Result.PendingCompletionCount;
-				Result.PendingCompletionBytes += Update->RetainedBytes;
-			}
 		return Result;
 	}
 
