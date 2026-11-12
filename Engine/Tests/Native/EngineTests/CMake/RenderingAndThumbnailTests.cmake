@@ -97,6 +97,7 @@ durin_add_native_test(ThumbnailTests
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/StaticMeshEditor/Public
 		${_durin_content_browser_private}
+		${_durin_content_browser_public}
 		${CMAKE_SOURCE_DIR}/Engine/Source
 	COMPILE_DEFINITIONS CONTENTBROWSER_EXPORTS
 	REQUIRES editor
@@ -207,6 +208,7 @@ durin_add_native_test(StaticMeshThumbnailTests
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MaterialEditor/Public
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/StaticMeshEditor/Public
 		${_durin_content_browser_private}
+		${_durin_content_browser_public}
 	COMPILE_DEFINITIONS CONTENTBROWSER_EXPORTS
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."

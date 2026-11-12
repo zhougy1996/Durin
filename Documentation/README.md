@@ -74,6 +74,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | Generic Tickable registration, World/Engine dispatch, or Tick callback lifetime | [Tickable objects](Runtime/Engine/TickableObjects.md) |
 | Common subsystem lifecycle, Engine services, or scope selection | [Subsystems](Runtime/Engine/Subsystems.md) |
 | Editor subsystem services, Actor/Component structural editing, or notification lifetime | [Editor subsystems](Editor/Architecture/Framework/EditorSubsystems.md) |
+| Content Browser data sources, opaque item payloads, provider activation, or owner-routed operations | [Browser data providers](Editor/Architecture/Assets/ContentBrowserData.md) |
 | Asset definitions, editor opening, session ownership, View policy, or Toolkit lifetime | [Asset definitions and editor sessions](Editor/Architecture/Framework/AssetEditors.md) |
 | World subsystem registration, per-World services, or subsystem retirement | [World subsystems](Runtime/World/WorldSubsystems.md) |
 | Level ownership, World play state, gameplay session, lifecycle mutation, or Actor iteration | [Level system](Runtime/World/LevelSystem.md) |

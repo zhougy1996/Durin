@@ -6,6 +6,7 @@
 #include "Panels/ContentBrowserFilesystem.h"
 
 #include "DObject/Package.h"
+#include "Asset/Load.h"
 #include "Panels/ContentBrowserItemView.h"
 
 #include "Asset/PackageSerialization.h"
@@ -29,6 +30,10 @@ namespace Durin::ContentBrowser::Private
 	namespace
 	{
 		using ContentBrowserFilesystem::NormalizePath;
+
+		std::weak_ptr<const void> ActiveDragSnapshot;
+		uint64 DragSerial = 0;
+		ImGuiID BrowserDragSource = 0, BrowserDragParent = 0;
 
 		enum class EToolbarLayout : uint8
 		{
@@ -122,6 +127,8 @@ namespace Durin::ContentBrowser::Private
 			RefreshItemsSnapshot();
 			bRefreshItemsOnFirstDraw = false;
 		}
+		if (!ImGui::GetCurrentContext() || !ImGui::GetDragDropPayload()) DragSnapshot.reset();
+		DataQuery.Tick(ImGui::GetCurrentContext() ? ImGui::GetIO().DeltaTime : 0.0f);
 		SynchronizeMountedContentMutation();
 		RefreshMountSnapshot();
 		Model.RefreshRequestedDirectoryChildrenSnapshots();
@@ -447,7 +454,7 @@ namespace Durin::ContentBrowser::Private
 		bRenameEditorHovered = false;
 		if (PendingFolder)
 		{
-			const auto Item = PendingFolder->Item;
+			const auto Item = PendingFolder->Context.GetItem();
 			ImGui::PushID("TemporaryFolder");
 			ImGui::TextUnformatted(Icons::Folder);
 			ImGui::SameLine();
@@ -491,11 +498,13 @@ namespace Durin::ContentBrowser::Private
 			if (bAllowAssetMutation && ImGui::IsKeyPressed(ImGuiKey_F2)
 				&& SelectionState.Selected.size() == 1)
 				if (auto It = std::ranges::find_if(
-					Model.GetItems(),
-					[&](const FContentBrowserItem& Item) {
-						return SelectionState.Selected.contains(Item.StableId());
-					}); It != Model.GetItems().end()
-					&& It->Kind != EContentBrowserItemKind::Redirector)
+						Model.GetItems(),
+						[&](const FContentBrowserItem& Item) {
+							return SelectionState.Selected.contains(Item.StableId());
+						}
+					);
+					It != Model.GetItems().end()
+					&& It->CanRename(It->PackagePath.IsValid() ? It->PackagePath.GetPackageName() : std::string_view(It->Name)))
 					BeginRename(*It);
 			if (bAllowAssetMutation && ImGui::GetIO().KeyCtrl
 				&& ImGui::IsKeyPressed(ImGuiKey_D, false)
@@ -504,10 +513,11 @@ namespace Durin::ContentBrowser::Private
 						Model.GetItems(),
 						[&](const FContentBrowserItem& Item) {
 							return SelectionState.Selected.contains(Item.StableId());
-						});
+						}
+					);
 					It != Model.GetItems().end()
-						&& It->Kind == EContentBrowserItemKind::Asset)
-					QueueContentAction([this, Item = *It] { DuplicateAsset(Item); });
+					&& It->CanDuplicate())
+					QueueContentAction([this, Item = *It] { DuplicateItem(Item); });
 			if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_C, false))
 				CopyContentSelection();
 			if (bAllowAssetMutation && ImGui::GetIO().KeyCtrl
@@ -866,46 +876,27 @@ namespace Durin::ContentBrowser::Private
 	auto FContentBrowserPanel::DrawItemContextMenu(const FContentBrowserItem& Item) -> void
 	{
 		DrawExtensionMenu(EExtensionCategory::ContextMenu, MakeExtensionContext(&Item));
-		if (ImGui::MenuItem(Item.Kind == EContentBrowserItemKind::Folder
-			? "Open Folder"
-			: Item.Kind == EContentBrowserItemKind::Redirector
-				? "Open Destination"
-				: "Open"))
+		if (ImGui::MenuItem(Item.Kind == EContentBrowserItemKind::Folder ? "Open Folder" : Item.Kind == EContentBrowserItemKind::Redirector ? "Open Destination" :
+																																			  "Open",
+							nullptr, false, Item.Kind == EContentBrowserItemKind::Folder || Item.CanEdit()))
 			QueueContentAction([this, Item] { OpenItem(Item); });
-		if (Item.Kind == EContentBrowserItemKind::Asset)
+		const auto SaveFlags = EContentBrowserItemSaveFlags::SaveOnlyIfDirty | EContentBrowserItemSaveFlags::SaveOnlyIfLoaded;
+		const bool CanSave = Item.CanSave(SaveFlags), CanResave = Item.CanSave(EContentBrowserItemSaveFlags::None);
+		if (CanSave || CanResave || Item.PackagePath.IsValid())
 		{
-			const FPackagePath& PackagePath = Item.PackagePath;
-			if (PackagePath.IsValid())
+			auto* Loaded = Item.PackagePath.IsValid() ? FindResidentPackage(Item.PackagePath) : nullptr;
+			ImGui::BeginDisabled(!bAllowAssetMutation);
+			if (ImGui::MenuItem(Item.PackagePath.IsValid() ? "Save Package" : "Save", nullptr, false, CanSave)) QueueContentAction([this, Item] { SaveItem(Item); });
+			if (ImGui::MenuItem(Loaded && Loaded->IsCanonicalResaveRecommended() ? "Resave Package (recommended)" : "Resave", nullptr, false, CanResave)) QueueContentAction([this, Item] { ResaveItems({Item}); });
+			if (SelectionState.Selected.size() > 1 && ImGui::MenuItem("Resave Selected"))
 			{
-				DPackage* LoadedPackage = FindResidentPackage(PackagePath);
-				std::string SaveReason;
-				const bool bCanSave = DataSource.CanSaveItem(Item, EAssetSaveMode::LoadedDirtyPackage, &SaveReason);
-				const bool bCanResave = DataSource.CanSaveItem(Item, EAssetSaveMode::CanonicalResave);
-				ImGui::BeginDisabled(!bAllowAssetMutation);
-				if (ImGui::MenuItem("Save Package", nullptr, false, bCanSave))
-					QueueContentAction([this, Item] { SaveAssetPackage(Item); });
-				if (!bCanSave && ImGui::IsItemHovered())
-					ImGui::SetTooltip("%s", SaveReason.c_str());
-				if (ImGui::MenuItem(LoadedPackage && LoadedPackage->IsCanonicalResaveRecommended()
-					? "Resave Package (recommended)" : "Resave Package", nullptr, false, bCanResave))
-					QueueContentAction([this, Item] { ResaveAssetPackages({Item}); });
-				if (SelectionState.Selected.size() > 1 && ImGui::MenuItem("Resave Selected Packages"))
-				{
-					std::vector<FContentBrowserItem> SelectedPaths;
-					for (const FContentBrowserItem& SelectedItem : Model.GetItems())
-						if (SelectedItem.Kind == EContentBrowserItemKind::Asset
-							&& SelectionState.Selected.contains(SelectedItem.StableId()))
-						{
-							if (SelectedItem.PackagePath.IsValid())
-								SelectedPaths.push_back(SelectedItem);
-						}
-					QueueContentAction([this, Paths = std::move(SelectedPaths)]() mutable {
-						ResaveAssetPackages(std::move(Paths));
-					});
-				}
-				ImGui::EndDisabled();
-				ImGui::Separator();
+				std::vector<FContentBrowserItem> Items;
+				for (const auto& Selected : Model.GetItems())
+					if (SelectionState.Selected.contains(Selected.StableId()) && Selected.CanSave(EContentBrowserItemSaveFlags::None)) Items.push_back(Selected);
+				QueueContentAction([this, Items = std::move(Items)]() mutable { ResaveItems(std::move(Items)); });
 			}
+			ImGui::EndDisabled();
+			ImGui::Separator();
 		}
 		if (Item.Kind == EContentBrowserItemKind::Asset)
 		{
@@ -1000,14 +991,15 @@ namespace Durin::ContentBrowser::Private
 		}
 		ImGui::BeginDisabled(!bAllowAssetMutation);
 		if (ImGui::MenuItem(
-			"Duplicate", "Ctrl+D", false,
-			SelectionState.Selected.size() == 1
-				&& Item.Kind == EContentBrowserItemKind::Asset))
-			QueueContentAction([this, Item] { DuplicateAsset(Item); });
+				"Duplicate", "Ctrl+D", false,
+				SelectionState.Selected.size() == 1 && Item.CanDuplicate()
+			))
+			QueueContentAction([this, Item] { DuplicateItem(Item); });
 		ImGui::EndDisabled();
 		if (ImGui::MenuItem(
-			"Copy", "Ctrl+C", false,
-			!SelectionState.Selected.empty() && Item.Kind != EContentBrowserItemKind::Redirector))
+				"Copy", "Ctrl+C", false,
+				!SelectionState.Selected.empty() && !Item.InternalItems.empty()
+			))
 			CopyContentSelection();
 		ImGui::BeginDisabled(!bAllowAssetMutation);
 		if (ImGui::MenuItem(
@@ -1021,11 +1013,11 @@ namespace Durin::ContentBrowser::Private
 					: std::string_view{});
 			});
 		if (ImGui::MenuItem(
-			"Rename", "F2", false,
-			SelectionState.Selected.size() == 1
-				&& Item.Kind != EContentBrowserItemKind::Redirector))
+				"Rename", "F2", false,
+				SelectionState.Selected.size() == 1 && Item.CanRename(Item.PackagePath.IsValid() ? Item.PackagePath.GetPackageName() : std::string_view(Item.Name))
+			))
 			BeginRename(Item);
-		if (ImGui::MenuItem("Delete", "Delete")) RequestDeleteSelection();
+		if (ImGui::MenuItem("Delete", "Delete", false, CanDeleteSelection())) RequestDeleteSelection();
 		ImGui::EndDisabled();
 		ImGui::Separator();
 		if (ImGui::BeginMenu("Copy Details"))
@@ -1128,7 +1120,7 @@ namespace Durin::ContentBrowser::Private
 			QueueTreeAction([this, Directory = std::string(PhysicalDirectory)] {
 				FocusFolderInParent(Directory, false);
 			});
-		if (ImGui::MenuItem("Delete", "Delete"))
+		if (ImGui::MenuItem("Delete", "Delete", false, !SelectionState.Selected.empty() && GetDataSubsystem()))
 			QueueTreeAction([this, Directory = std::string(PhysicalDirectory)] {
 				FocusFolderInParent(Directory, true);
 			});
@@ -1156,23 +1148,37 @@ namespace Durin::ContentBrowser::Private
 			for (const auto& Selected : Model.GetItems())
 				if (SelectionState.Selected.contains(Selected.StableId())) Items.push_back(Selected);
 		if (Items.empty()) Items.push_back(Item);
+		const auto* ActivePayload = ImGui::GetDragDropPayload();
+		if (!DragSnapshot || !ActivePayload || ActivePayload->DataFrameCount == -1)
+		{
+			auto Snapshot = std::make_shared<FDragSnapshot>();
+			Snapshot->Serial = ++DragSerial;
+			Snapshot->Items = Items;
+			DragSnapshot = std::move(Snapshot);
+			ActiveDragSnapshot = DragSnapshot;
+			if (ActivePayload)
+			{
+				BrowserDragSource = ActivePayload->SourceId;
+				BrowserDragParent = ActivePayload->SourceParentId;
+			}
+		}
 		if (Items.size() != 1 || Items.front().Kind != EContentBrowserItemKind::Asset)
 		{
-			std::string Paths;
-			for (const auto& Selected : Items)
-			{
-				Paths += Selected.PhysicalPath;
-				Paths.push_back('\0');
-			}
-			ImGui::SetDragDropPayload("DURIN_CONTENT_ITEMS", Paths.data(), Paths.size(), ImGuiCond_Once);
+			ImGui::SetDragDropPayload("DURIN_CONTENT_ITEMS", &DragSnapshot->Serial, sizeof(uint64), ImGuiCond_Once);
 			ImGui::Text("Move %zu content item(s)", Items.size());
 			ImGui::EndDragDropSource();
 			return;
 		}
+
 		FAssetDragDropPayload Payload;
 		std::memcpy(Payload.AssetPath.data(), Item.VirtualPath.data(), std::min(Item.VirtualPath.size(), Payload.AssetPath.size() - 1));
 		std::memcpy(Payload.AssetClassName.data(), Item.AssetClassName.data(), std::min(Item.AssetClassName.size(), Payload.AssetClassName.size() - 1));
 		ImGui::SetDragDropPayload(AssetDragDropPayloadType, &Payload, sizeof(Payload));
+		if (const auto* Current = ImGui::GetDragDropPayload())
+		{
+			BrowserDragSource = Current->SourceId;
+			BrowserDragParent = Current->SourceParentId;
+		}
 		ImGui::Text("%s %s", ContentBrowserItemView::Icon(Item).c_str(), Item.Name.c_str());
 		ImGui::EndDragDropSource();
 	}
@@ -1183,38 +1189,30 @@ namespace Durin::ContentBrowser::Private
 		if (!ImGui::BeginDragDropTarget()) return;
 		if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload("DURIN_CONTENT_ITEMS"); Payload && Payload->IsDelivery())
 		{
-			std::vector<FContentBrowserItem> Items;
-			std::string_view Remaining(static_cast<const char*>(Payload->Data), static_cast<size_t>(Payload->DataSize));
-			while (!Remaining.empty())
-			{
-				const auto End = Remaining.find('\0');
-				if (End == std::string_view::npos || End == 0) { Items.clear(); break; }
-				std::string Path(Remaining.substr(0, End));
-				std::error_code Error;
-				const bool bFolder = std::filesystem::is_directory(Path, Error);
-				Items.push_back({.Kind = bFolder ? EContentBrowserItemKind::Folder : EContentBrowserItemKind::File,
-					.PhysicalPath = std::move(Path)});
-				Remaining.remove_prefix(End + 1);
-			}
-			const std::string Destination = bPhysicalDirectory ? std::string(DestinationDirectory)
-				: Model.VirtualToPhysical(DestinationDirectory);
-			if (!Items.empty()) QueueContentAction([this, Items = std::move(Items), Destination] {
-				DataSource.BulkMoveItems(Items, Destination);
-			});
+			auto Opaque = ActiveDragSnapshot.lock();
+			auto Snapshot = std::static_pointer_cast<const FDragSnapshot>(Opaque);
+			const auto Destination = bPhysicalDirectory ? Model.PhysicalToVirtualDirectory(DestinationDirectory) : std::string(DestinationDirectory);
+			if (Snapshot && Payload->DataSize == sizeof(uint64) && *static_cast<const uint64*>(Payload->Data) == Snapshot->Serial)
+				QueueContentAction([this, Items = Snapshot->Items, Destination] { MoveItems(Items, Destination); });
 		}
 		if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(AssetDragDropPayloadType); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(FAssetDragDropPayload))
 		{
-			const auto* AssetPayload = static_cast<const FAssetDragDropPayload*>(Payload->Data);
-			FSoftObjectPath OldObjectPath;
-			if (FSoftObjectPath::TryCreate(AssetPayload->AssetPath.data(), OldObjectPath))
+			const auto Destination = bPhysicalDirectory ? Model.PhysicalToVirtualDirectory(DestinationDirectory) : std::string(DestinationDirectory);
+			if (Payload->SourceId == BrowserDragSource && Payload->SourceParentId == BrowserDragParent)
 			{
-				FContentBrowserItem Item{.Kind = EContentBrowserItemKind::Asset,
-					.VirtualPath = OldObjectPath.ToString(), .PackagePath = OldObjectPath.GetPackagePath()};
-				const std::string Destination = bPhysicalDirectory ? std::string(DestinationDirectory)
-					: Model.VirtualToPhysical(DestinationDirectory);
-				QueueContentAction([this, Item = std::move(Item), Destination] {
-					DataSource.BulkMoveItems(std::span{&Item, 1}, Destination);
-				});
+				auto Opaque = ActiveDragSnapshot.lock();
+				auto Snapshot = std::static_pointer_cast<const FDragSnapshot>(Opaque);
+				if (Snapshot) QueueContentAction([this, Items = Snapshot->Items, Destination] { MoveItems(Items, Destination); });
+			}
+			else
+			{
+				const auto* AssetPayload = static_cast<const FAssetDragDropPayload*>(Payload->Data);
+				FSoftObjectPath Path;
+				if (FSoftObjectPath::TryCreate(AssetPayload->AssetPath.data(), Path))
+				{
+					auto Item = FindItemAtPath(Path.ToString());
+					if (!Item.InternalItems.empty()) QueueContentAction([this, Item, Destination] { MoveItems({Item}, Destination); });
+				}
 			}
 		}
 		ImGui::EndDragDropTarget();
@@ -1295,7 +1293,7 @@ namespace Durin::ContentBrowser::Private
 		const bool bSubmit = ImGui::InputText("##Rename", RenameBuffer.data(), RenameBuffer.size(), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
 		bRenameEditorHovered = ImGui::IsItemHovered();
 		if (PendingFolder && PreviousName != RenameBuffer.data())
-			DataSource.CanCreateFolder(PendingFolder->Directory, RenameBuffer.data(), &PendingFolder->ValidationError);
+			PendingFolder->Context.ValidateItem(RenameBuffer.data(), &PendingFolder->ValidationError);
 		if (PendingFolder && !PendingFolder->ValidationError.empty())
 			ImGui::TextDisabled("%s", PendingFolder->ValidationError.c_str());
 		if (bSubmit)
@@ -1313,7 +1311,8 @@ namespace Durin::ContentBrowser::Private
 		}
 		if (ImGui::BeginPopupModal("Delete Content", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
 		{
-			const FContentDeletionPlan* Plan = PendingDeletionPlan.get();
+			const auto Preview = GetDeletionPreview();
+			const auto* Plan = Preview.get();
 			if (Plan)
 			{
 				ImGui::Text("Delete %s?", Plan->DisplayName.c_str());
@@ -1343,7 +1342,7 @@ namespace Durin::ContentBrowser::Private
 						std::min<size_t>(Plan->Blockers.size(), 6);
 					for (size_t Index = 0; Index < VisibleBlockerCount; ++Index)
 					{
-						const FContentDeletionBlocker& Blocker = Plan->Blockers[Index];
+						const auto& Blocker = Plan->Blockers[Index];
 						const std::string& Label = Blocker.DisplayName.empty()
 							? Blocker.PhysicalPath
 							: Blocker.DisplayName;
@@ -1363,7 +1362,7 @@ namespace Durin::ContentBrowser::Private
 				{
 					ImGui::Spacing();
 					ImGui::Text("Deletion warnings:");
-					for (const FContentDeletionWarning& Warning : Plan->Warnings)
+					for (const auto& Warning : Plan->Warnings)
 					{
 						ImGui::BulletText("%s", Warning.DisplayName.c_str());
 						ImGui::TextWrapped("%s", Warning.Details.c_str());
@@ -1373,20 +1372,20 @@ namespace Durin::ContentBrowser::Private
 			else
 				ImGui::TextWrapped("The selected content could not be analyzed.");
 
-			const bool bBlocked = !bAllowAssetMutation || !Plan || !Plan->CanExecute();
+			const bool bBlocked = !bAllowAssetMutation || !Plan || !PendingDeletion.CanExecute();
 			const bool bDeletesFolder = Plan && Plan->Summary.FolderCount != 0;
 			ImGui::BeginDisabled(bBlocked);
 			if (MonaImGui::DialogButton(bDeletesFolder ? "Delete Folder" : "Delete"))
 			{
 				DeleteSelection();
-				if (!PendingDeletionPlan) ImGui::CloseCurrentPopup();
+				if (!PendingDeletion.Request) ImGui::CloseCurrentPopup();
 			}
 			ImGui::EndDisabled();
 			ImGui::SameLine();
 			if (MonaImGui::DialogButton("Cancel"))
 			{
-				DataSource.DismissDeletion(PendingDeletionPlan);
-				PendingDeletionPlan.reset();
+				PendingDeletion = {};
+				PendingDeletionItems.clear();
 				bDeletionPlanRefreshed = false;
 				ImGui::CloseCurrentPopup();
 			}

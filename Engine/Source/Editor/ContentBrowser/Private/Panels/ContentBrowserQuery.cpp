@@ -61,8 +61,7 @@ namespace Durin::ContentBrowser::Private
 		}
 	}
 
-	auto ContentBrowserQuery::Project(std::shared_ptr<const FContentBrowserItemsSnapshot> Snapshot,
-		std::string_view PhysicalDirectory, const FContentBrowserQuerySettings& Settings)
+	auto ContentBrowserQuery::Project(std::shared_ptr<const FContentBrowserItemsSnapshot> Snapshot, std::string_view PhysicalDirectory, const FContentBrowserQuerySettings& Settings, std::string_view VirtualDirectory)
 		-> FContentBrowserItemRange
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("ContentBrowser.Project");
@@ -88,9 +87,10 @@ namespace Durin::ContentBrowser::Private
 				&& !Settings.bShowRedirectors
 				&& Settings.TypeFilter != EContentBrowserTypeFilter::Redirectors)
 				continue;
-			const std::filesystem::path Relative =
-				std::filesystem::path(Item.PhysicalPath)
-					.lexically_relative(PhysicalDirectory);
+			auto ItemPath = Item.VirtualPath;
+			while (ItemPath.size() > 1 && ItemPath.back() == '/')
+				ItemPath.pop_back();
+			const std::filesystem::path Relative = !VirtualDirectory.empty() && !ItemPath.empty() ? std::filesystem::path(ItemPath).lexically_relative(VirtualDirectory) : std::filesystem::path(Item.PhysicalPath).lexically_relative(PhysicalDirectory);
 			if (Relative.empty() || Relative == "."
 				|| (!Relative.empty() && *Relative.begin() == ".."))
 				continue;

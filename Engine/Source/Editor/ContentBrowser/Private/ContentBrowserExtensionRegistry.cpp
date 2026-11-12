@@ -252,7 +252,7 @@ namespace Durin::ContentBrowser
 	auto CaptureSelectionDetails(const FExtensionContext& Context) -> std::vector<FDetailRow>
 	{
 		std::vector<FDetailRow> Rows;
-		if (Context.Selection.size() == 1 && Context.Selection.front().Kind == EExtensionItemKind::Asset)
+		if (Context.Selection.size() == 1 && Context.Selection.front().Kind == EContentBrowserItemKind::Asset)
 			if (const auto Type = FindAssetTypePresentation(Context.Selection.front().AssetClassName);
 				Type && Type->Details)
 				Rows = Type->Details(Context);

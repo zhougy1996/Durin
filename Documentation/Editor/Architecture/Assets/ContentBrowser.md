@@ -92,6 +92,13 @@ details, and unlocked Ctrl-wheel thumbnail resizing remain local browser control
 
 ## Content Model
 
+`ContentBrowserItem.h` publishes the value-owned `FContentBrowserItem` snapshot
+and item-kind vocabulary in `Durin::ContentBrowser`. Discovery, operations and
+extension selection contexts use this same type. Extensions retain their own
+copies; there is no extension-only item representation or stored identity copy.
+Metadata and paths remain presentation values; opaque internal item data selects
+the source that handles each operation.
+
 The model caches its directory-tree mount display data by `FMountPaths` registry
 revision. `FContentBrowserPaths` is a stateless projection over the current mount
 service, shared by navigation and operation validation. Operations retain no
@@ -129,26 +136,23 @@ Reparse points are never followed while building the snapshot or directory tree.
 
 ### Discovery Ownership And Shutdown
 
-DataSource prepares an immutable catalog projection and owned item/directory
-capture callables on the owner thread. Model invokes them synchronously or
-submits them to the existing task runtime; it does not construct worker bodies.
-`FContentBrowserItemDiscovery` performs filesystem/catalog collection and owns
-its directory index. Model retains scheduling, navigation, tree caches, request
-replacement, stale-result rejection and snapshot publication versions. DataSource
-privately owns the serial item collector, and admitted work pins its lifetime;
-Model neither constructs nor passes collectors. Independent tree captures use
-separate collectors. Before admitting a tree capture, Model refreshes its catalog
-through DataSource even when no item capture has run, so unsaved asset folders
-and recent catalog changes appear without requiring item navigation.
-Workers retain owned directory/catalog inputs and shared cancellation tokens,
-never Panel, DataSource, host callbacks or live registry pointers. Synchronous
-models use the same preparation boundary and explicitly borrow a source that
-outlives them. Failed preparation admits no capture.
+`FContentBrowserDataQuery` prepares immutable catalog projections and owned
+item/directory capture callables on the owner thread. Model schedules them through
+the existing task runtime and owns navigation, cancellation, request replacement,
+tree caches and publication versions. The query owns the serial native collector;
+independent tree captures use separate collectors. Before admitting a tree capture,
+Model refreshes the catalog so unsaved asset folders remain visible.
+Workers retain only owned directory/catalog inputs and cancellation tokens, never
+panels, providers, host callbacks or live registry pointers. Completion runs
+ordinary data-service/provider enumeration on the owner thread, using the captured
+native snapshot as an extra filter and merging other providers' contributions.
+View projection uses virtual paths, including for items without physical storage.
 
-Stopping a Panel closes data-source admission and releases deletion sessions,
-revokes Model publication rights, cancels captures and releases thumbnail
-references. Already admitted workers finish against their owned inputs. Model
-destruction drains worker bodies before module code may unload.
+Stopping a panel closes its query admission, releases temporary contexts and
+confirmed deletion capabilities, revokes publication rights, cancels captures and
+releases thumbnail references. Completed tasks are still collected after admission
+stops; their results cannot publish. Destruction drains worker bodies before module
+code may unload. Synchronous discovery fixtures use the same owned capture boundary.
 
 ### Directory Tree Snapshots
 
@@ -195,48 +199,33 @@ successful persistence refreshes and reveals the asset. A failed save exposes
 `Import > Retry Texture Saves` while retaining the complete live asset. See
 [Source File Workflows](../../Guides/SourceFileWorkflows.md) for automatic defaults.
 
-Assets open through registered asset editors. One private concrete
-`FContentBrowserDataSource` per Panel owns browser content policy, mutation
-admission and deletion sessions. The public factory receives
+Assets open through registered asset editors. The factory receives
 `FContentBrowserHostContext` once, separately from presentation settings and
-persistence. Panel owns HostContext, DataSource and Model in that lifetime order;
-Model borrows DataSource. There is no provider registry or injectable high-level
-asset service. Host callbacks, weak asset-editor ownership and shared mounted
-content reconciliation are installed during construction.
+persistence. That host provides a weak `DContentBrowserDataSubsystem` binding;
+each panel owns only view/query state and borrows the shared data service. The
+[provider contract](ContentBrowserData.md) owns source registration, opaque payloads,
+item capabilities, batching and incremental notifications. Native providers retain
+request-local policy and deletion sessions through the single existing
+`FContentBrowserRequestContext` mutation/recovery implementation.
 
-Panel captures intent, confirms destructive scope and presents results; clipboard
-and Explorer remain presentation/platform actions. Menu, shortcut and drag/drop
-mutations enter DataSource after view traversal completes. Item-facing save,
-duplicate, rename, move and copy APIs accept `FContentBrowserItem`; save
-converts to package identities and deduplicates them. Destination arguments are
-physical directories, converted from virtual UI paths at the Panel boundary.
-The clipboard duplication overload retains the explicit output item so a failed
-save can reveal the retained live copy. Project and folder Fix Up remain explicit
-maintenance operations. Existing AssetTools and filesystem code own mutation
-execution and recovery; no additional forwarding operation service remains.
+Panel captures intent, confirms destructive scope and presents results. Menus,
+shortcuts and deferred commands use `FContentBrowserItem` capabilities; batch save,
+copy, move and confirmed delete route through the data subsystem. Destinations
+remain virtual until the native adapter resolves them. There is no panel-level
+asset/file execution dispatch. Clipboard and Explorer remain presentation/platform
+actions. Asset-specific redirector maintenance uses the native asset provider;
+creation/import/details extensions and asset definitions remain independently
+registered. All queued execution rechecks current caller and provider admission.
 
-`CanModify`, `CanSaveItem`, `CanDuplicateItem`, `CanRenameItem`, `CanMoveItem`
-and `CanCreateFolder` return `bool` with an optional reason. Capability checks
-emit no diagnostics, reserve no resources and do not authorize subsequent I/O.
-Save eligibility checks the current writable mount and package loading state;
-canonical resave additionally requires a saved package in a scanned mount and
-is consumed by the Resave menu. Execution rechecks current host policy, mounts,
-names, sources and destinations.
-Deletion preparation remains authoritative rather than adding a second full scan
-for a deletion capability query.
-
-Commands return `bool`. Rename, immediate asset duplication and folder creation
-explicitly output the resulting `FContentBrowserItem`; no generic operation result,
-status conversion, focus hints, or nested persistence state crosses this boundary.
-Duplication may return false for save failure while its output still identifies
-the retained live copy. Folder creation first prepares a suggested name without
-writing or publishing changes. Edited names are validated through DataSource
-without repeated global diagnostics; finalization validates again before writing. The Panel owns the temporary folder and reuses its
-inline name editor in both views. Confirmation creates the exact proposed name
-only after rechecking host policy, the writable mount, the existing target,
-reparse-point boundaries and name collisions. Failure retains the editor;
-Escape, outside clicks, navigation and shutdown discard it without writing.
-Only successful creation publishes an added item and reveals the real folder.
+Commands return `bool`; Rename and immediate Duplicate output the resulting item.
+Native duplication may identify a retained live copy even when saving fails, so
+presentation may reveal that output without claiming persistence succeeded.
+Folder creation returns a source-owned temporary context without writing. Its
+validation/finalization callbacks retain the original directory, validate inline
+names without repeated global diagnostics and recheck current policy before
+creating content. Each panel owns its context and inline editor. Failure retains
+the editor; Escape, outside clicks, navigation and shutdown discard it without
+writing. Only successful creation publishes an added item and reveals the folder.
 The temporary item never enters the Model snapshot, selection or drag payloads.
 
 The synchronous diagnostic sink presents errors and warnings independently of the
@@ -251,8 +240,9 @@ The Panel uses explicit output items to reveal or select content. It does not
 interpret native write effects or infer refresh from command success. Native
 mutation results, recovery paths and rollback decisions remain inside the data source. High-level asset-operation substitutes and directory-removal callbacks
 are not part of the host construction contract.
-The data source never refreshes Model. RefreshCoordinator consumes the notification
-and owns reconciliation and derived-view refresh. **Duplicate** and `Ctrl+D` clone one
+The data source never refreshes Model. Each view observes the data-service revision;
+RefreshCoordinator additionally consumes host/catalog notifications and owns native
+registry reconciliation. **Duplicate** and `Ctrl+D` clone one
 selected real asset into the same writable folder, choosing `_Copy`, `_Copy2`,
 and later suffixes until both catalog and physical destinations are free. The
 complete persistent object graph is copied into live memory, then the browser
@@ -400,7 +390,8 @@ retains the ordinary moves. Source cleanup only removes empty directories;
 remaining redirectors or cleanup errors produce a warning rather than a false
 move failure. See [asset mutation](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md#synchronous-relocation).
 
-The Content Browser enumerates and navigates only automatically scanned mounts.
+The browser's navigation roots come from automatically scanned mounts. Providers
+may contribute logical items beneath those roots without physical storage.
 Filesystem-backed creation and rename operations additionally require the owning
 mount to be content-writable. These browsing constraints do not change the
 validity of typed source paths or Engine's authoring policy.
@@ -433,8 +424,8 @@ registered package, ordinary file, or asset-managed companion. An unregistered
 `.dasset` is an explicit unknown-package blocker and is never treated as an
 ordinary file or silently omitted.
 
-Preflight produces one immutable deletion plan shared by the confirmation modal
-and command. The plan contains the registry revision, deterministic
+Native preflight produces one immutable deletion plan retained by the provider.
+The modal receives an immutable presentation preview, while the native plan contains the registry revision, deterministic
 physical fingerprints, sorted entries, and the minimal set of maximal roots to
 remove. A versioned session identifier binds the confirmation to its data-source-owned
 execution session. Copying confirmation data cannot grant execution authority:
@@ -477,9 +468,10 @@ is wrapped or exposed to ContentBrowser.
 No quarantine directory, pre-image, Restore/Purge API, editor history entry, or
 automatic retention policy exists.
 
-`DeleteItems` takes the confirmation handle by reference. If validation detects
-stale content before destructive work starts, the data source replaces it from the
-captured request and returns false. The Panel shows the changed confirmation and
+`BulkDeleteItems` requires the provider-owned confirmation capability and exact
+item scope. If validation detects stale content before destructive work starts,
+the native request replaces its immutable preview from the captured request and
+returns false. The Panel shows the changed confirmation and
 requires another explicit confirmation. It does not retry automatically or infer
 new scope from the current UI selection.
 

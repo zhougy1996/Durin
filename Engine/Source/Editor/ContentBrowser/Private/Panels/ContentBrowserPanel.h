@@ -6,7 +6,7 @@
 
 #include "ContentBrowser/ContentBrowserTool.h"
 #include "Panels/ContentBrowserModel.h"
-#include "Panels/ContentBrowserDataSource.h"
+#include "ContentBrowserDataSubsystem.h"
 #include "Panels/ContentBrowserItemView.h"
 #include "Panels/ContentBrowserRefreshCoordinator.h"
 #include "Threading/TaskRuntime.h"
@@ -49,11 +49,29 @@ namespace Durin::ContentBrowser::Private
 
 	private:
 		friend struct FContentBrowserPanelTestAccess;
+		struct FDragSnapshot
+		{
+			uint64 Serial = 0;
+			std::vector<FContentBrowserItem> Items;
+		};
+		std::shared_ptr<const FDragSnapshot> DragSnapshot;
+		auto CanMutateContent() const -> bool;
+		auto CanDeleteSelection() const -> bool;
+		auto ResolveOperationItems(std::span<const FContentBrowserItem>) const -> std::vector<FContentBrowserItem>;
+
+		auto MakeRequestHost(FContentBrowserHostContext Host) -> FContentBrowserHostContext;
+		auto GetDataSubsystem() const -> DContentBrowserDataSubsystem*;
+		auto FindItemAtPath(std::string_view VirtualPath) const -> FContentBrowserItem;
+		static auto CollectItemData(std::span<const FContentBrowserItem>) -> std::vector<FContentBrowserItemData>;
+		auto MoveItems(std::vector<FContentBrowserItem>, std::string Destination) -> bool;
+		auto GetDeletionPreview() const -> std::shared_ptr<const FContentBrowserDeletePreview>;
 		auto PrepareForDraw() -> void;
 		auto DrawBrowserContents() -> void;
 		auto Refresh(bool bRescanRegistry) -> void;
 		auto RefreshPublishedContent() -> void;
 		auto ApplyContentChanges(const FContentChangeBatch& Changes) -> void;
+		auto ApplyItemDataUpdates(std::span<const FContentBrowserItemDataUpdate>) -> void;
+		FDelegateHandle ItemDataUpdatedHandle;
 		auto PublishMountedContentMutation() -> void;
 		auto RefreshItemsSnapshot() -> void;
 		auto RebuildItems() -> void;
@@ -94,13 +112,13 @@ namespace Durin::ContentBrowser::Private
 		auto CancelRename() -> void;
 		auto CommitRename(const FContentBrowserItem& Item) -> bool;
 		auto SyncToItem(const FContentBrowserItem& Item) -> bool;
-		auto DuplicateAsset(const FContentBrowserItem& Item) -> void;
+		auto DuplicateItem(const FContentBrowserItem& Item) -> void;
 		auto CopyContentSelection() -> void;
 		auto PasteContent(std::string_view DestinationDirectory = {}) -> void;
 		auto HasContentClipboard() const -> bool;
 		auto CreateFolder(std::string_view PhysicalDirectory) -> void;
-		auto SaveAssetPackage(const FContentBrowserItem& Item) -> void;
-		auto ResaveAssetPackages(std::vector<FContentBrowserItem> Items) -> void;
+		auto SaveItem(const FContentBrowserItem& Item) -> void;
+		auto ResaveItems(std::vector<FContentBrowserItem> Items) -> void;
 		auto FixUpRedirector(const FContentBrowserItem& Item) -> void;
 		auto FixUpFolder(std::string_view VirtualDirectory) -> void;
 		auto FixUpProject() -> void;
@@ -130,9 +148,10 @@ namespace Durin::ContentBrowser::Private
 		FEditorSettingsPageRegistration SettingsPage;
 		FPresentationSettings PresentationSettings;
 		FSavePresentationSettings SavePresentationSettings;
+		std::shared_ptr<void> ExtensionLifetime = std::make_shared<uint8>(0);
 		FContentBrowserHostContext HostContext;
 		FContentBrowserRefreshCoordinator RefreshCoordinator;
-		FContentBrowserDataSource DataSource;
+		FContentBrowserDataQuery DataQuery;
 		FContentBrowserModel Model;
 		FContentBrowserSelection SelectionState;
 		std::array<char, 256> SearchBuffer{};
@@ -146,8 +165,7 @@ namespace Durin::ContentBrowser::Private
 		float DirectoryTreeWidth;
 		struct FPendingFolder
 		{
-			FContentBrowserItem Item;
-			std::string Directory;
+			FContentBrowserItemDataTemporaryContext Context;
 			uint64 NavigationRevision;
 			std::string ValidationError;
 		};
@@ -160,7 +178,9 @@ namespace Durin::ContentBrowser::Private
 		bool bDeletionPlanRefreshed = false;
 		bool bRefreshItemsOnFirstDraw = true;
 		bool bResetContentScroll = false;
-		FContentDeletionPlanPtr PendingDeletionPlan;
+		FContentBrowserDeleteContext PendingDeletion;
+		std::vector<FContentBrowserItemData> PendingDeletionItems;
+		std::shared_ptr<const FContentBrowserDeletePreview> DeletionFallbackPreview;
 		std::function<void()> DeferredTreeAction;
 		std::function<void()> DeferredContentAction;
 		std::string ErrorMessage;
@@ -171,6 +191,5 @@ namespace Durin::ContentBrowser::Private
 		EAdmissionState AdmissionState =
 			EAdmissionState::Accepting;
 		bool bAllowAssetMutation = true;
-		std::shared_ptr<void> ExtensionLifetime = std::make_shared<uint8>(0);
 	};
 } // namespace Durin::ContentBrowser::Private

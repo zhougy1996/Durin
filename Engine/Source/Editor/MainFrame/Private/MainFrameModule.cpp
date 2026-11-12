@@ -26,6 +26,7 @@
 #include "Transactions/Transaction.h"
 #include "Notifications/Notification.h"
 #include "ContentBrowser/ContentBrowserTool.h"
+#include "ContentBrowserDataSubsystem.h"
 #include "Mona.h"
 #include "LevelEditorModule.h"
 #include "Thumbnail/ThumbnailManager.h"
@@ -360,6 +361,7 @@ namespace Durin::MainFrame
 					&& !BrowserSettingsWarning.empty())
 					DURIN_WARN("{}", BrowserSettingsWarning);
 				Services.AssetEditors = Context.AssetEditors;
+				Services.DataSubsystem = GEditor->GetEditorSubsystem<DContentBrowserDataSubsystem>();
 				Context.ContentBrowserTool = ContentBrowser::CreateContentBrowserTool(
 					std::move(Services),
 					std::move(BrowserSettings),

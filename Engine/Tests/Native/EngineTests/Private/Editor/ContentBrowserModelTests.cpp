@@ -12,7 +12,7 @@
 #include "Panels/ContentBrowserRefreshCoordinator.h"
 #include "Assets/ContentBrowserThumbnailReferences.h"
 #include "Editor/EditorTransactionTestSupport.h"
-#include "Panels/ContentBrowserDataSource.h"
+#include "Data/ContentBrowserRequestContext.h"
 
 #include "AssetTools/Relocation.h"
 #include "Asset/AssetCompilingManager.h"
@@ -46,6 +46,8 @@
 namespace
 {
 	using namespace Durin;
+	using Durin::ContentBrowser::FContentBrowserItem;
+	using Durin::ContentBrowser::EContentBrowserItemKind;
 	using namespace Durin::ContentBrowser::Private;
 
 	auto AssetItem(const FTopLevelAssetPath& Path) -> FContentBrowserItem
@@ -113,7 +115,7 @@ namespace
 		std::string OperationError, OperationWarning;
 		FContentChangeBatch ObservedChanges;
 		FContentBrowserItem NewItem;
-		auto Observe(FContentBrowserDataSource& Service) -> void
+		auto Observe(FContentBrowserRequestContext& Service) -> void
 		{
 			Service.SetDiagnosticSink([this](ELogLevel Level, std::string_view Message) {
 				if (Level >= ELogLevel::Error) OperationError = Message;
@@ -218,7 +220,7 @@ namespace
 
 TEST_F(FContentBrowserModelTests, MaintainsHistoryAndTruncatesForwardBranch)
 {
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource);
 	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content/A").generic_string()));
 	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content/B").generic_string()));
@@ -246,7 +248,7 @@ TEST_F(FContentBrowserModelTests, IndexedProjectionRetainsSourceItemsAcrossReque
 	FContentBrowserItemRange Original;
 	const FContentBrowserItem* First = nullptr;
 	{
-		FContentBrowserDataSource ModelSource;
+		FContentBrowserDataQuery ModelSource;
 		FContentBrowserModel Model(ModelSource);
 		const auto Directory = (Root / "Content").generic_string();
 		Model.SetSnapshotForTesting(Directory, {
@@ -334,7 +336,7 @@ TEST_F(FContentBrowserModelTests, BulkPayloadVisibilityDoesNotDependOnOwnershipO
 
 TEST_F(FContentBrowserModelTests, RepeatedNavigationToCurrentDirectoryKeepsPublishedSnapshot)
 {
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource);
 	const std::string Directory =
 		std::filesystem::absolute(Root / "Content/A")
@@ -356,7 +358,7 @@ TEST_F(FContentBrowserModelTests, RepeatedNavigationToCurrentDirectoryKeepsPubli
 
 TEST_F(FContentBrowserModelTests, DirectoryNavigationPreservesTreeChildrenSnapshots)
 {
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource);
 	const std::string TreeRoot =
 		std::filesystem::absolute(Root / "Content")
@@ -376,7 +378,7 @@ TEST_F(FContentBrowserModelTests, DirectoryNavigationPreservesTreeChildrenSnapsh
 TEST_F(FContentBrowserModelTests, RejectsUnavailableDirectoryWithoutFilesystemException)
 {
 	const std::filesystem::path Unavailable = Root / "Content/B";
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource);
 	Model.SetPathStatusQueryForTesting(
 		[Unavailable](const std::filesystem::path& Path, std::error_code& Error) {
@@ -415,7 +417,7 @@ TEST_F(FContentBrowserModelTests, RoutesStaticMeshAssetsToThumbnails)
 			std::make_unique<FRouteOnlyThumbnailRenderer>(AssetData->TopLevelAssets.front().AssetClassName));
 	ASSERT_TRUE(ThumbnailRegistration) << ThumbnailRegistration.error();
 
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 
 	FContentBrowserModel Model(ModelSource);
 	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content").generic_string()));
@@ -475,7 +477,7 @@ TEST_F(FContentBrowserModelTests, RejectsExcludedMountsAndClearsStaleCurrentDire
 		Definitions);
 	ASSERT_TRUE(Registry->IsValid()) << Registry->GetError();
 
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 
 	FContentBrowserModel Model(ModelSource);
 	Model.RefreshMountSnapshot();
@@ -489,7 +491,7 @@ TEST_F(FContentBrowserModelTests, RejectsExcludedMountsAndClearsStaleCurrentDire
 			.lexically_normal()
 			.generic_string());
 
-	FContentBrowserDataSource Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	FContentBrowserItem CreateExcludedItem;
 	const bool CreateExcluded =
@@ -536,7 +538,7 @@ TEST_F(FContentBrowserModelTests, ListsGameMountBeforeEngineMount)
 		Definitions);
 	ASSERT_TRUE(Registry->IsValid()) << Registry->GetError();
 
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 
 	FContentBrowserModel Model(ModelSource);
 	Model.RefreshMountSnapshot();
@@ -547,7 +549,7 @@ TEST_F(FContentBrowserModelTests, ListsGameMountBeforeEngineMount)
 
 TEST_F(FContentBrowserModelTests, RefreshesMountSnapshotAfterRegistryReplacementAndRestoration)
 {
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource);
 	Model.RefreshMountSnapshot();
 	ASSERT_EQ(Model.GetMounts().size(), 1u);
@@ -605,7 +607,7 @@ TEST_F(FContentBrowserModelTests, SearchesRecursivelyButBrowsesImmediateChildren
 {
 	const std::string RootPath =
 		std::filesystem::absolute(Root / "Content").lexically_normal().generic_string();
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource);
 	Model.SetSnapshotForTesting(
 		RootPath,
@@ -630,7 +632,7 @@ TEST_F(FContentBrowserModelTests, SearchesRecursivelyButBrowsesImmediateChildren
 TEST_F(FContentBrowserModelTests, AssetLifecycleNotificationsRefreshCreationSaveRenameAndDiscard)
 {
 	InitializeDObjectSystem();
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource);
 	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content/A").generic_string()));
 	FPackagePath Path, DiscardPath;
@@ -639,7 +641,7 @@ TEST_F(FContentBrowserModelTests, AssetLifecycleNotificationsRefreshCreationSave
 	const auto CreatedFrom = GetAssetQueryRevision();
 	DMaterial* Material = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Material));
-	FContentBrowserDataSource Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	EXPECT_TRUE(Operations.CanDuplicateItem(AssetItem(Path)));
 	EXPECT_TRUE(Model.ApplyContentChanges(CaptureAssetQueryChanges(CreatedFrom)));
@@ -683,7 +685,7 @@ TEST_F(FContentBrowserModelTests, ShowsAndRevealsUnsavedAssetsWithoutCreatingDir
 	EXPECT_FALSE(FindPackageExact(Path));
 	for (const bool bAsync : {false, true})
 	{
-		FContentBrowserDataSource ModelSource;
+		FContentBrowserDataQuery ModelSource;
 		FContentBrowserModel Model(ModelSource, bAsync);
 		ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content").generic_string()));
 		if (bAsync) while (Model.IsLoading()) { (void)Model.PumpPendingSnapshots(); std::this_thread::yield(); }
@@ -705,7 +707,7 @@ TEST_F(FContentBrowserModelTests, ShowsAndRevealsUnsavedAssetsWithoutCreatingDir
 		EXPECT_FALSE(std::filesystem::exists(Directory));
 	}
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource);
 	ASSERT_TRUE(Model.NavigateToPhysical(Directory.generic_string()));
 	EXPECT_EQ(Model.GetItems().size(), 1u);
@@ -722,7 +724,7 @@ TEST_F(FContentBrowserModelTests, RevealAssetClearsFiltersAndPublishesTarget)
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(AssetPath, Material));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 
 	FContentBrowserModel Model(ModelSource);
 	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content/A").generic_string()));
@@ -759,7 +761,7 @@ TEST_F(FContentBrowserModelTests, SingleAssetPackageUsesPackageNameAfterRelocati
 	ASSERT_TRUE(IAssetTools::Get().RelocateAssets({
 		.Mappings = {{SourcePath, DestinationPath}}}));
 
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 
 	FContentBrowserModel Model(ModelSource);
 	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content").generic_string()));
@@ -783,14 +785,14 @@ TEST_F(FContentBrowserModelTests, SingleAssetPackageUsesPackageNameAfterRelocati
 
 TEST_F(FContentBrowserModelTests, RevealPhysicalItemPublishesNewFolderHiddenByFilters)
 {
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource);
 	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content").generic_string()));
 	Model.SetTypeFilter(EContentBrowserTypeFilter::Files);
 	Model.SetSearch("does-not-match");
 	ASSERT_TRUE(Model.GetItems().empty());
 
-	FContentBrowserDataSource Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	FContentBrowserItem CreateResultItem;
 	const bool CreateResult =
@@ -822,7 +824,7 @@ TEST_F(FContentBrowserModelTests, DefersRecursiveEnumerationUntilSearchStarts)
 		NestedFile << "needle";
 	}
 
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 
 	FContentBrowserModel Model(ModelSource);
 	bool bObservedNestedFile = false;
@@ -860,7 +862,7 @@ TEST_F(FContentBrowserModelTests, ShowsOrdinaryFilesByDefaultAndHidesAssetPackag
 		std::ofstream(Root / "Content/Raw.dbulk") << "bulk";
 		std::ofstream(Root / "Content/Orphan.DBULK") << "orphan";
 	}
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource);
 	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content").generic_string()));
 	const auto File = std::ranges::find(Model.GetItems(), "Raw.png", &FContentBrowserItem::Name);
@@ -884,7 +886,7 @@ TEST_F(FContentBrowserModelTests, SkipsFailedSnapshotEntryAndKeepsLaterEntries)
 		std::ofstream File(ScanRoot / Name);
 		File << Name;
 	}
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource);
 	size_t QueryCount = 0;
 	Model.SetEntryStatusQueryForTesting(
@@ -913,7 +915,7 @@ TEST_F(FContentBrowserModelTests, SkipsFailedTreeEntryAndCachesDirectorySnapshot
 	for (const std::string_view Name : {"First", "Second", "Third"})
 		std::filesystem::create_directories(TreeRoot / Name);
 	size_t QueryCount = 0;
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource);
 	ASSERT_TRUE(Model.NavigateToPhysical(TreeRoot.generic_string()));
 	Model.SetEntryStatusQueryForTesting(
@@ -952,7 +954,7 @@ TEST_F(FContentBrowserModelTests, KeepsPublishedChildrenStableWhileDistinctSnaps
 		Branches.push_back(std::move(Branch));
 	}
 
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 
 	FContentBrowserModel Model(ModelSource);
 	ASSERT_TRUE(Model.NavigateToPhysical(TreeRoot.generic_string()));
@@ -982,7 +984,7 @@ TEST_F(FContentBrowserModelTests, AsyncPublishedSnapshotsSurviveTaskResetRefresh
 	FContentBrowserItemRange RetainedItems;
 	std::shared_ptr<const FContentBrowserDirectorySnapshot> RetainedTree;
 	{
-		FContentBrowserDataSource ModelSource;
+		FContentBrowserDataQuery ModelSource;
 		FContentBrowserModel Model(ModelSource, true);
 		ASSERT_TRUE(Model.NavigateToPhysical(Directory));
 		Model.RequestDirectoryChildrenSnapshot(Directory);
@@ -1023,7 +1025,7 @@ TEST_F(FContentBrowserModelTests, AsyncNavigationCancelsAndCoalescesOldRequests)
 	std::filesystem::create_directories(C / "Latest");
 	auto Gate = std::make_shared<FBrowserScanGate>();
 	auto SkippedVisits = std::make_shared<std::atomic<int>>(0);
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource, true);
 	FBrowserScanRelease Release{Gate};
 	Model.SetEntryStatusQueryForTesting([Gate, SkippedVisits, A, B](const auto& Entry, auto& Error) {
@@ -1051,7 +1053,7 @@ TEST_F(FContentBrowserModelTests, AsyncSearchPublishesUsingLatestQueryWithoutRes
 	InitializeDObjectSystem();
 	const auto A = Root / "Content/A";
 	std::filesystem::create_directories(A / "Nested/Needle");
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource, true);
 	ASSERT_TRUE(Model.NavigateToPhysical(A.generic_string()));
 	Model.WaitForPendingSnapshotsForTesting();
@@ -1078,7 +1080,7 @@ TEST_F(FContentBrowserModelTests, AsyncTreeDiscardsResultsInvalidatedDuringEnume
 	InitializeDObjectSystem();
 	const auto A = Root / "Content/A";
 	std::filesystem::create_directory(A / "Old");
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource, true);
 	auto Gate = std::make_shared<FBrowserScanGate>();
 	FBrowserScanRelease Release{Gate};
@@ -1108,7 +1110,7 @@ TEST_F(FContentBrowserModelTests, AsyncScanFailureTerminatesLoadingAndAllowsRetr
 {
 	InitializeDObjectSystem();
 	std::filesystem::create_directory(Root / "Content/A/Child");
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource, true);
 	Model.SetEntryStatusQueryForTesting([](const auto&, auto&) -> std::filesystem::file_status {
 		throw std::runtime_error("injected capture failure");
@@ -1133,7 +1135,7 @@ TEST_F(FContentBrowserModelTests, AsyncRevealReturnsIdentityBeforeDirectoryCaptu
 	InitializeDObjectSystem();
 	const auto Folder = Root / "Content/A/Revealed";
 	std::filesystem::create_directory(Folder);
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource, true);
 	auto Gate = std::make_shared<FBrowserScanGate>();
 	FBrowserScanRelease Release{Gate};
@@ -1157,7 +1159,7 @@ TEST_F(FContentBrowserModelTests, RetainedDirectorySnapshotSurvivesInvalidationA
 	std::shared_ptr<const FContentBrowserDirectorySnapshot> Published;
 	const std::string TreeRoot = (Root / "Content").generic_string();
 	{
-		FContentBrowserDataSource ModelSource;
+		FContentBrowserDataQuery ModelSource;
 		FContentBrowserModel Model(ModelSource);
 		ASSERT_TRUE(Model.NavigateToPhysical(TreeRoot));
 		Model.RequestDirectoryChildrenSnapshot(TreeRoot);
@@ -1182,7 +1184,7 @@ TEST_F(FContentBrowserModelTests, RetainedDirectorySnapshotSurvivesInvalidationA
 TEST_F(FContentBrowserModelTests, SearchEditsAndViewSettingsReuseCapturedData)
 {
 	std::filesystem::create_directories(Root / "Content/A/Nested");
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource);
 	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content").generic_string()));
 	const uint64 DirectoryVersion = Model.GetSnapshotVersion();
@@ -1218,7 +1220,7 @@ TEST_F(FContentBrowserModelTests, StagesDeepTreeRequestsWithoutInvalidatingAnces
 		Parent = std::move(Child);
 	}
 
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 
 	FContentBrowserModel Model(ModelSource);
 	ASSERT_TRUE(Model.NavigateToPhysical(TreeRoot.generic_string()));
@@ -1262,7 +1264,7 @@ TEST_F(FContentBrowserModelTests, FiltersFilesSeparatelyAndKeepsHiddenContentOpt
 {
 	const std::string RootPath =
 		std::filesystem::absolute(Root / "Content").lexically_normal().generic_string();
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource);
 	Model.SetSnapshotForTesting(
 		RootPath,
@@ -1308,7 +1310,7 @@ TEST_F(FContentBrowserModelTests, HidesRedirectorsButPreservesFoldersAndSupports
 	FPackagePath RedirectorPackagePath;
 	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/OldStone", RedirectorPackagePath));
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource);
 	Model.SetSnapshotForTesting(
 		RootPath,
@@ -1350,7 +1352,7 @@ TEST_F(FContentBrowserModelTests, KeepsFoldersFirstAndSortsEqualKeysStably)
 {
 	const std::string RootPath =
 		std::filesystem::absolute(Root / "Content").lexically_normal().generic_string();
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource);
 	Model.SetSnapshotForTesting(
 		RootPath,
@@ -1379,7 +1381,7 @@ TEST_F(FContentBrowserModelTests, KeepsFoldersFirstAndSortsEqualKeysStably)
 
 TEST_F(FContentBrowserModelTests, OperationsRejectCollisionsAndRenameOrdinaryFolders)
 {
-	FContentBrowserDataSource Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 
 	const std::filesystem::path Source = Root / "Content/source.txt";
@@ -1443,11 +1445,11 @@ TEST_F(FContentBrowserModelTests, DuplicatesAssetGraphWithFirstAvailableCopyName
 		Occupied << "unregistered collision";
 	}
 
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 
 	FContentBrowserModel Model(ModelSource);
 	Model.RefreshMountSnapshot();
-	FContentBrowserDataSource Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem Item{
 		.Kind = EContentBrowserItemKind::Asset,
@@ -1519,11 +1521,11 @@ TEST_F(FContentBrowserModelTests, UnclaimedSameStemFileRenamesIndependently)
 		Ownership.State,
 		EAssetCompanionOwnershipState::Unclaimed);
 
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 
 	FContentBrowserModel Model(ModelSource);
 	Model.RefreshMountSnapshot();
-	FContentBrowserDataSource Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem FileItem{
 		.Kind = EContentBrowserItemKind::File,
@@ -1577,7 +1579,7 @@ TEST_F(FContentBrowserModelTests, OwnedCompanionCannotMoveOrRenameIndependently)
 	ASSERT_EQ(Ownership.State, EAssetCompanionOwnershipState::Owned);
 	ASSERT_EQ(Ownership.Owners.size(), 1);
 	EXPECT_EQ(Ownership.Owners.front(), AssetPath);
-	FContentBrowserDataSource Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem CompanionItem{
 		.Kind = EContentBrowserItemKind::File,
@@ -1612,11 +1614,11 @@ TEST_F(FContentBrowserModelTests, FolderRenameRetainsSourceRedirectorAndWarnsOnC
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SourcePath, Material));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 
 	FContentBrowserModel Model(ModelSource);
 	Model.RefreshMountSnapshot();
-	FContentBrowserDataSource Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem FolderItem{
 		.Kind = EContentBrowserItemKind::Folder,
@@ -1657,7 +1659,7 @@ TEST_F(FContentBrowserModelTests, RejectsOrdinaryMutationsInReadOnlyMount)
 		Stream << "notes";
 	}
 	std::filesystem::create_directories(Folder);
-	FContentBrowserDataSource Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 
 	FContentBrowserItem CreateResultItem;
@@ -1707,7 +1709,7 @@ TEST_F(FContentBrowserModelTests, AllowsOrdinaryMutationsInWritableAutoScanMount
 		Stream << "notes";
 	}
 	std::filesystem::create_directories(Folder);
-	FContentBrowserDataSource Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 
 	FContentBrowserItem CreateResultItem;
@@ -1754,7 +1756,7 @@ TEST_F(FContentBrowserModelTests, AssetAndMixedMovesShareRenameIdentityAndNotifi
 		FContentBrowserItem{.Kind = EContentBrowserItemKind::File, .PhysicalPath = FindPackageExact(Source)->PhysicalPath},
 		FContentBrowserItem{.Kind = EContentBrowserItemKind::File, .PhysicalPath = Notes.generic_string()}};
 	int Publications = 0;
-	FContentBrowserDataSource Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); ++Publications; }});
+	FContentBrowserRequestContext Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); ++Publications; }});
 	Observe(Service);
 	ASSERT_TRUE(Service.CanMoveItem(Items.front(), (Root / "Content/B").generic_string()));
 	ASSERT_TRUE(Service.BulkMoveItems(Items, (Root / "Content/B").generic_string())) << OperationError;
@@ -1800,7 +1802,7 @@ TEST_F(FContentBrowserModelTests, AssetMoveRetainsCrossMountSupportWithoutMoving
 	DMaterial* Material = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Source, Material));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
-	FContentBrowserDataSource Service;
+	FContentBrowserRequestContext Service;
 	Observe(Service);
 	const FContentBrowserItem Asset{.Kind = EContentBrowserItemKind::Asset, .PackagePath = Source};
 	ASSERT_TRUE(Service.CanMoveItem(Asset, OtherRoot.generic_string()));
@@ -1823,7 +1825,7 @@ TEST_F(FContentBrowserModelTests, RenameRechecksDestinationAndPreservesOrdinaryE
 	std::ofstream(Source) << "source";
 	const FContentBrowserItem Item{.Kind = EContentBrowserItemKind::File, .PhysicalPath = Source.generic_string()};
 	int Publications = 0;
-	FContentBrowserDataSource Service({.NotifyScopedContentMutation = [&](FContentChangeBatch) { ++Publications; }});
+	FContentBrowserRequestContext Service({.NotifyScopedContentMutation = [&](FContentChangeBatch) { ++Publications; }});
 	Observe(Service);
 	ASSERT_TRUE(Service.CanRenameItem(Item, "renamed"));
 	std::ofstream(Target) << "collision";
@@ -1852,7 +1854,7 @@ TEST_F(FContentBrowserModelTests, RejectedMixedMoveDoesNotPublishPlannedChanges)
 		FContentBrowserItem{.Kind = EContentBrowserItemKind::Folder, .PhysicalPath = First.generic_string()},
 		FContentBrowserItem{.Kind = EContentBrowserItemKind::Folder, .PhysicalPath = Second.generic_string()}};
 	int Publications = 0;
-	FContentBrowserDataSource Service({.NotifyScopedContentMutation = [&](FContentChangeBatch) { ++Publications; }});
+	FContentBrowserRequestContext Service({.NotifyScopedContentMutation = [&](FContentChangeBatch) { ++Publications; }});
 	Observe(Service);
 	EXPECT_FALSE(Service.BulkMoveItems(Items, (Root / "Content/B").generic_string()));
 	EXPECT_EQ(Publications, 0);
@@ -1870,7 +1872,7 @@ TEST_F(FContentBrowserModelTests, OperationsPropagateMoveFailureAndUseRecursiveD
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SourcePath, Material));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 	Material->GetPackage()->MarkDirty();
-	FContentBrowserDataSource Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem AssetItem{
 		.Kind = EContentBrowserItemKind::Asset,
@@ -1934,7 +1936,7 @@ TEST_F(FContentBrowserModelTests, PackageRenameReturnsRelocatedAssetIdentity)
 		.VirtualPath = "/ContentBrowserTests/OldPackage.AssetObject",
 		.PackagePath = OldPath,
 		.PhysicalPath = (Root / "Content/OldPackage.dasset").generic_string()};
-	FContentBrowserDataSource Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 
 	FContentBrowserItem ResultItem;
@@ -1948,7 +1950,7 @@ TEST_F(FContentBrowserModelTests, PackageRenameReturnsRelocatedAssetIdentity)
 
 TEST_F(FContentBrowserModelTests, RefreshesSnapshotAfterFolderMutation)
 {
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource);
 	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content").generic_string()));
 	Model.RequestDirectoryChildrenSnapshot((Root / "Content").generic_string());
@@ -1956,7 +1958,7 @@ TEST_F(FContentBrowserModelTests, RefreshesSnapshotAfterFolderMutation)
 	const auto BeforeSnapshot = Model.GetDirectorySnapshot((Root / "Content").generic_string());
 	ASSERT_TRUE(BeforeSnapshot);
 	const size_t ChildrenBefore = BeforeSnapshot->Children.size();
-	FContentBrowserDataSource Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 
 	FContentBrowserItem CreateResultItem;
@@ -1993,11 +1995,11 @@ TEST_F(FContentBrowserModelTests, BuildsRecursiveFilterIndependentDeletionPlan)
 		HiddenFile << "secret";
 	}
 
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 
 	FContentBrowserModel Model(ModelSource);
 	Model.RefreshMountSnapshot();
-	FContentBrowserDataSource Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem RootItem{
 		.Kind = EContentBrowserItemKind::Folder,
@@ -2052,10 +2054,10 @@ TEST_F(FContentBrowserModelTests, BlocksUnknownPackagesWithoutOmittingThem)
 		std::ofstream Package(Folder / "Unregistered.dasset");
 		Package << "not a registered package";
 	}
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource);
 	Model.RefreshMountSnapshot();
-	FContentBrowserDataSource Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem FolderItem{
 		.Kind = EContentBrowserItemKind::Folder,
@@ -2093,10 +2095,10 @@ TEST(FContentDeletionAnalysisTests, RejectsReadOnlyMountBeforeMutation)
 			.bContentWritable = false}};
 	Testing::FScopedMountRegistryFixture Registry(Definitions);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource);
 	Model.RefreshMountSnapshot();
-	FContentBrowserDataSource Operations;
+	FContentBrowserRequestContext Operations;
 	const FContentBrowserItem Folder{
 		.Kind = EContentBrowserItemKind::Folder,
 		.Name = "Folder",
@@ -2362,7 +2364,7 @@ TEST_F(FContentBrowserModelTests, StandardCompanionOwnershipUsesMetadataWithoutV
 	const auto Data = FindPackageExact(Path);
 	ASSERT_NE(Data, nullptr);
 	ASSERT_GT(Data->BulkSegmentExtent, 0u);
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource);
 	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content").generic_string()));
 	const auto Item = std::ranges::find_if(Model.GetItems(), [&](const FContentBrowserItem& Entry) {
@@ -2495,7 +2497,7 @@ TEST_F(FContentBrowserModelTests, DeletionReusesConfirmationAndInspectsParticipa
 	ASSERT_NE(Reset.Handle, 0u);
 	const FContentBrowserItem Item{.Kind = EContentBrowserItemKind::File,
 		.Name = "SingleDeletionPlan", .PhysicalPath = File};
-	FContentBrowserDataSource Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Service);
 	auto Plan = Service.PrepareDeleteItems(std::span{&Item, 1});
 	ASSERT_TRUE(Plan->CanExecute());
@@ -2543,7 +2545,7 @@ TEST_F(FContentBrowserModelTests, UnrelatedStandardPackageDamageDoesNotInvalidat
 	ASSERT_TRUE(UnloadPackage(OutsidePath));
 	const auto SelectedFile = FindPackageExact(SelectedPath)->PhysicalPath;
 	const auto OutsideFile = FindPackageExact(OutsidePath)->PhysicalPath;
-	FContentBrowserDataSource Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Service);
 	const FContentBrowserItem Item{.Kind = EContentBrowserItemKind::File,
 		.Name = "ScopedDelete", .PhysicalPath = SelectedFile};
@@ -2740,7 +2742,7 @@ TEST_F(FContentBrowserModelTests, DeletionRevalidatesExternalProviderFingerprint
 	EXPECT_TRUE(std::filesystem::exists(FindPackageExact(Path)->PhysicalPath));
 	const FContentBrowserItem Item{.Kind = EContentBrowserItemKind::Asset,
 		.Name = "ProviderDeletion", .PhysicalPath = FindPackageExact(Path)->PhysicalPath};
-	FContentBrowserDataSource Service;
+	FContentBrowserRequestContext Service;
 	Observe(Service);
 	auto Confirmation = Service.PrepareDeleteItems(std::span{&Item, 1});
 	ASSERT_TRUE(Confirmation->CanExecute());
@@ -2771,11 +2773,11 @@ TEST_F(FContentBrowserModelTests, BlocksDirectoryReparseTraversal)
 	std::filesystem::create_directory_symlink(Target, Link, Ec);
 	if (Ec) GTEST_SKIP() << "Directory symlinks are unavailable: " << Ec.message();
 
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 
 	FContentBrowserModel Model(ModelSource);
 	Model.RefreshMountSnapshot();
-	FContentBrowserDataSource Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem FolderItem{
 		.Kind = EContentBrowserItemKind::Folder,
@@ -2794,7 +2796,7 @@ TEST_F(FContentBrowserModelTests, EmptyFolderDeletionIsPermanent)
 {
 	const std::filesystem::path Folder = Root / "Content/EmptyFolder";
 	std::filesystem::create_directories(Folder);
-	FContentBrowserDataSource Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem Item{
 		.Kind = EContentBrowserItemKind::Folder,
@@ -2846,11 +2848,11 @@ TEST_F(FContentBrowserModelTests, RejectsExternalCompanionOutsideContentMount)
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(AssetPath, Material));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 
 	FContentBrowserModel Model(ModelSource);
 	Model.RefreshMountSnapshot();
-	FContentBrowserDataSource Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem Item{
 		.Kind = EContentBrowserItemKind::Folder,
@@ -2921,11 +2923,11 @@ TEST_F(FContentBrowserModelTests, RejectsExternalCompanionReparsePoint)
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(AssetPath, Material));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 
 	FContentBrowserModel Model(ModelSource);
 	Model.RefreshMountSnapshot();
-	FContentBrowserDataSource Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem Item{
 		.Kind = EContentBrowserItemKind::Folder,
@@ -2985,11 +2987,11 @@ TEST_F(FContentBrowserModelTests, MixedFolderAndExternalCompanionDeleteTogether)
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(AssetPath, Material));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 
 	FContentBrowserModel Model(ModelSource);
 	Model.RefreshMountSnapshot();
-	FContentBrowserDataSource Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem Item{
 		.Kind = EContentBrowserItemKind::Folder,
@@ -3021,11 +3023,11 @@ TEST_F(FContentBrowserModelTests, DestructiveDeletionRemovesRegistryAndResidency
 	const std::filesystem::path PackagePath =
 		FindPackageExact(AssetPath)->PhysicalPath;
 
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 
 	FContentBrowserModel Model(ModelSource);
 	Model.RefreshMountSnapshot();
-	FContentBrowserDataSource Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem Item{
 		.Kind = EContentBrowserItemKind::Asset,
@@ -3080,11 +3082,11 @@ TEST_F(FContentBrowserModelTests, RedirectorDeletionRequiresClosureAndIsPermanen
 		.PhysicalPath = FinalData->PhysicalPath,
 		.AssetClassName = FinalData->TopLevelAssets.front().AssetClassName};
 
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 
 	FContentBrowserModel Model(ModelSource);
 	Model.RefreshMountSnapshot();
-	FContentBrowserDataSource Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentDeletionPlanPtr AliasOnly = Operations.PrepareDeleteItems(
 		std::span{&AliasItem, 1});
@@ -3125,7 +3127,7 @@ TEST_F(FContentBrowserModelTests, DestructiveDeletionRevalidatesConfirmedBytes)
 		File << "source";
 	}
 	const auto ConfirmedWriteTime = std::filesystem::last_write_time(SourceFile);
-	FContentBrowserDataSource Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem Item{
 		.Kind = EContentBrowserItemKind::Folder,
@@ -3149,7 +3151,7 @@ TEST_F(FContentBrowserModelTests, DeletionPlanRejectsSameSizeTimestampPreserving
 		File << "source";
 	}
 	const auto ConfirmedWriteTime = std::filesystem::last_write_time(FilePath);
-	FContentBrowserDataSource Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem Item{
 		.Kind = EContentBrowserItemKind::File,
@@ -3185,7 +3187,7 @@ TEST_F(FContentBrowserModelTests, DeletionRejectsNewUnconfirmedDescendant)
 		std::ofstream File(SourceFile);
 		File << "source";
 	}
-	FContentBrowserDataSource Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem Item{
 		.Kind = EContentBrowserItemKind::Folder,
@@ -3209,7 +3211,7 @@ TEST_F(FContentBrowserModelTests, CompletedDeletionLeavesNoRecoveryArtifact)
 		std::ofstream File(FilePath);
 		File << "evict me";
 	}
-	FContentBrowserDataSource Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Operations({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem Item{
 		.Kind = EContentBrowserItemKind::File,
@@ -3256,7 +3258,7 @@ TEST_F(FContentBrowserModelTests, ServiceRechecksPolicyAndPublishesFilesystemCha
 {
 	bool bAllowed = true;
 	int Publications = 0;
-	FContentBrowserDataSource Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = Batch; ++Publications; }, .CanMutateContent = [&] { return bAllowed; }});
+	FContentBrowserRequestContext Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = Batch; ++Publications; }, .CanMutateContent = [&] { return bAllowed; }});
 	Observe(Service);
 	ASSERT_TRUE(Service.CanModify());
 	FContentBrowserItem Prepared;
@@ -3288,7 +3290,7 @@ TEST_F(FContentBrowserModelTests, PartialBatchSaveRefreshesSuccessfulContentOnce
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Saved, SavedAsset));
 	SavedAsset->GetPackage()->MarkDirty();
 	// The second requested package is absent; the first save must still publish.
-	FContentBrowserDataSource Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = Batch; ++Publications; }, .CanMutateContent = {}});
+	FContentBrowserRequestContext Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = Batch; ++Publications; }, .CanMutateContent = {}});
 	Observe(Service);
 	const auto Result = Service.BulkSaveItems(std::array{AssetItem(Saved), AssetItem(Failed)});
 	EXPECT_FALSE(Result);
@@ -3310,7 +3312,7 @@ TEST_F(FContentBrowserModelTests, DeletionKeepsConfirmationWhilePackageIsDirty)
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 	const FContentBrowserItem Item{.Kind = EContentBrowserItemKind::Asset,
 		.Name = "DirtyConfirmation", .PhysicalPath = FindPackageExact(Path)->PhysicalPath};
-	FContentBrowserDataSource Service;
+	FContentBrowserRequestContext Service;
 	Observe(Service);
 	auto Confirmation = Service.PrepareDeleteItems(std::span{&Item, 1});
 	ASSERT_TRUE(Confirmation->CanExecute());
@@ -3335,7 +3337,7 @@ TEST_F(FContentBrowserModelTests, DeletionReadFailureKeepsConfirmationAndRevalid
 	std::ofstream(File) << "before";
 	const FContentBrowserItem Item{.Kind = EContentBrowserItemKind::File,
 		.Name = "locked-confirmation.txt", .PhysicalPath = File.generic_string()};
-	FContentBrowserDataSource Service;
+	FContentBrowserRequestContext Service;
 	Observe(Service);
 	auto Confirmation = Service.PrepareDeleteItems(std::span{&Item, 1});
 	ASSERT_TRUE(Confirmation->CanExecute());
@@ -3382,7 +3384,7 @@ TEST_F(FContentBrowserModelTests, AssetDeletionSessionRetiresAfterPartialRemoval
 			.PhysicalPath = FindPackageExact(Path)->PhysicalPath});
 	}
 	int Publications = 0;
-	FContentBrowserDataSource Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = Batch; ++Publications; }});
+	FContentBrowserRequestContext Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = Batch; ++Publications; }});
 	Observe(Service);
 	auto Confirmation = Service.PrepareDeleteItems(Items);
 	ASSERT_TRUE(Confirmation->CanExecute());
@@ -3416,7 +3418,7 @@ TEST_F(FContentBrowserModelTests, StaleConfirmationRequiresNewHandleAndUsesCaptu
 	std::ofstream(Folder / "before.txt") << "before";
 	const FContentBrowserItem Item{.Kind = EContentBrowserItemKind::Folder,
 		.Name = "confirmation", .PhysicalPath = Folder.generic_string()};
-	FContentBrowserDataSource Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Service);
 	auto Plan = Service.PrepareDeleteItems(std::span{&Item, 1});
 	auto OriginalPlan = Plan;
@@ -3444,7 +3446,7 @@ TEST_F(FContentBrowserModelTests, ServicePublishesProjectionPendingWithoutRepeat
 	const FContentBrowserItem Item{.Kind = EContentBrowserItemKind::Asset,
 		.Name = "ServiceProjection", .PhysicalPath = FindPackageExact(Path)->PhysicalPath};
 	int Publications = 0;
-	FContentBrowserDataSource Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = Batch; ++Publications; }});
+	FContentBrowserRequestContext Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = Batch; ++Publications; }});
 	Observe(Service);
 	auto Plan = Service.PrepareDeleteItems(std::span{&Item, 1});
 	int Calls = 0;
@@ -3474,7 +3476,7 @@ TEST_F(FContentBrowserModelTests, ServiceDoesNotPublishOrChangeIdentityMoves)
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Material));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 	int Publications = 0;
-	FContentBrowserDataSource Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = Batch; ++Publications; }});
+	FContentBrowserRequestContext Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = Batch; ++Publications; }});
 	Observe(Service);
 	const FContentBrowserItem Item{.Kind = EContentBrowserItemKind::Asset,
 		.Name = "Identity", .PackagePath = Path};
@@ -3492,7 +3494,7 @@ TEST_F(FContentBrowserModelTests, ScopedRefreshPreservesUnrelatedRowsAndTreeIden
 	const auto B = Root / "Content/AB";
 	std::filesystem::create_directories(A / "Child");
 	std::filesystem::create_directories(B);
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource);
 	ASSERT_TRUE(Model.NavigateToPhysical(A.generic_string()));
 	Model.RequestDirectoryChildrenSnapshot(A.generic_string());
@@ -3516,7 +3518,7 @@ TEST_F(FContentBrowserModelTests, ScopedRefreshDistinguishesRecursiveSearchAndDi
 {
 	const auto A = Root / "Content/A";
 	std::filesystem::create_directories(A / "Nested");
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource);
 	ASSERT_TRUE(Model.NavigateToPhysical(A.generic_string()));
 	FContentChangeBatch Changes{.Changes = {{EContentChangeKind::Added, {},
@@ -3539,7 +3541,7 @@ TEST_F(FContentBrowserModelTests, DirectoryRenameMigratesNavigationAndDeletionFa
 	const auto A = Root / "Content/A";
 	const auto B = Root / "Content/Renamed";
 	std::filesystem::create_directories(A / "Nested");
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource);
 	ASSERT_TRUE(Model.NavigateToPhysical(A.generic_string()));
 	ASSERT_TRUE(Model.NavigateToPhysical((A / "Nested").generic_string()));
@@ -3561,7 +3563,7 @@ TEST_F(FContentBrowserModelTests, UnrelatedChangesPreserveInFlightCaptureAndRela
 	const auto B = Root / "Content/B";
 	std::filesystem::create_directory(A / "Original");
 	auto Gate = std::make_shared<FBrowserScanGate>();
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource, true);
 	FBrowserScanRelease Release{Gate};
 	Model.SetEntryStatusQueryForTesting([Gate](const auto& Entry, auto& Error) {
@@ -3588,7 +3590,7 @@ TEST_F(FContentBrowserModelTests, MountedReconciliationFencePreventsPrematurePub
 {
 	const auto A = Root / "Content/A";
 	std::filesystem::create_directory(A / "Child");
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource, true);
 	FContentBrowserRefreshCoordinator Coordinator(1, GetAssetCatalogRevision());
 	Coordinator.SetPublicationSuspension([&](bool bSuspended) { Model.SetSnapshotPublicationSuspended(bSuspended); });
@@ -3608,7 +3610,7 @@ TEST_F(FContentBrowserModelTests, ScopedServiceNotificationsDescribeCommittedFil
 {
 	std::vector<FContentChangeBatch> Batches;
 
-	FContentBrowserDataSource Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { Batches.push_back(std::move(Batch)); }});
+	FContentBrowserRequestContext Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { Batches.push_back(std::move(Batch)); }});
 	Observe(Service);
 	FContentBrowserItem CreatedItem;
 	const auto Created = Service.CreateFolder((Root / "Content/A").generic_string(), "New Folder", CreatedItem);
@@ -3645,7 +3647,7 @@ TEST_F(FContentBrowserModelTests, CatalogChangesValidateInFlightScopeWithoutGlob
 	ASSERT_TRUE(SavePackage(BAsset->GetPackage()));
 	std::filesystem::create_directory(Root / "Content/A/Gate");
 	auto Gate = std::make_shared<FBrowserScanGate>();
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource, true);
 	FBrowserScanRelease Release{Gate};
 	Model.SetEntryStatusQueryForTesting([Gate](const auto& Entry, auto& Error) {
@@ -3686,7 +3688,7 @@ TEST_F(FContentBrowserModelTests, LocalTreeInvalidationPreservesUnrelatedInFligh
 	const auto A = Root / "Content/A";
 	const auto B = Root / "Content/B";
 	std::filesystem::create_directory(A / "Child");
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource, true);
 	ASSERT_TRUE(Model.NavigateToPhysical(B.generic_string()));
 	Model.WaitForPendingSnapshotsForTesting();
@@ -3772,7 +3774,7 @@ TEST_F(FContentBrowserModelTests, ThumbnailDependencyDeletionInvalidatesOnlyCapt
 TEST_F(FContentBrowserModelTests, AssetAdditionIntroducesMissingDirectoryWithoutInvalidatingExistingChildren)
 {
 	const auto A = Root / "Content/A";
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource);
 	ASSERT_TRUE(Model.NavigateToPhysical(A.generic_string()));
 	Model.RequestDirectoryChildrenSnapshot(A.generic_string());
@@ -3798,7 +3800,7 @@ TEST_F(FContentBrowserModelTests, FreshCatalogCaptureCanProceedWhileMountedRevis
 {
 	const auto A = Root / "Content/A";
 	std::filesystem::create_directory(A / "Child");
-	FContentBrowserDataSource ModelSource;
+	FContentBrowserDataQuery ModelSource;
 	FContentBrowserModel Model(ModelSource, true);
 	FContentBrowserRefreshCoordinator Coordinator(1, GetAssetCatalogRevision());
 	Coordinator.SetPublicationSuspension([&](bool bSuspended) { Model.SetSnapshotPublicationSuspended(bSuspended); });
@@ -3828,7 +3830,7 @@ TEST_F(FContentBrowserModelTests, ContentMovePreservesEmptyFoldersAndCollapsesDe
 		FContentBrowserItem{.Kind = EContentBrowserItemKind::File, .PhysicalPath = (Root / "Content/A/notes.txt").generic_string()}};
 
 	std::vector<FContentChangeBatch> Batches;
-	FContentBrowserDataSource Service({.NotifyScopedContentMutation = [&](auto Batch) { Batches.push_back(std::move(Batch)); }});
+	FContentBrowserRequestContext Service({.NotifyScopedContentMutation = [&](auto Batch) { Batches.push_back(std::move(Batch)); }});
 	Observe(Service);
 	const auto Result = Service.BulkMoveItems(Items, (Root / "Content/B").generic_string());
 	ASSERT_TRUE(Result) << OperationError;
@@ -3848,7 +3850,7 @@ TEST_F(FContentBrowserModelTests, ContentMovePreflightsWholeSelectionAndRejectsI
 	const std::array Items{
 		FContentBrowserItem{.Kind = EContentBrowserItemKind::File, .PhysicalPath = (Root / "Content/A/one.txt").generic_string()},
 		FContentBrowserItem{.Kind = EContentBrowserItemKind::File, .PhysicalPath = (Root / "Content/A/two.txt").generic_string()}};
-	FContentBrowserDataSource Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Service);
 	EXPECT_FALSE(Service.BulkMoveItems(Items, (Root / "Content/B").generic_string()));
 	EXPECT_TRUE(std::filesystem::exists(Root / "Content/A/one.txt"));
@@ -3872,7 +3874,7 @@ TEST_F(FContentBrowserModelTests, MixedContentMoveRestoresOrdinaryFilesWhenAsset
 	std::ofstream(Root / "Content/A/notes.txt") << "notes";
 	std::filesystem::create_directories(Root / "Content/A/Empty");
 	Material->GetPackage()->MarkDirty();
-	FContentBrowserDataSource Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Service);
 	const FContentBrowserItem Folder{.Kind = EContentBrowserItemKind::Folder,
 		.PhysicalPath = (Root / "Content/A").generic_string()};
@@ -3896,7 +3898,7 @@ TEST_F(FContentBrowserModelTests, MixedContentMoveRelocatesAssetsAndOrdinaryFile
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Source, Material));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 	std::ofstream(Root / "Content/A/notes.txt") << "notes";
-	FContentBrowserDataSource Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Service);
 	const FContentBrowserItem Folder{.Kind = EContentBrowserItemKind::Folder,
 		.PhysicalPath = (Root / "Content/A").generic_string()};
@@ -3912,7 +3914,7 @@ TEST_F(FContentBrowserModelTests, ContentMoveRejectsUnknownPackagesAndDuplicateD
 	std::ofstream(Root / "Content/A/Unknown.dasset") << "invalid package";
 	const FContentBrowserItem Folder{.Kind = EContentBrowserItemKind::Folder,
 		.PhysicalPath = (Root / "Content/A").generic_string()};
-	FContentBrowserDataSource Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Service);
 	EXPECT_FALSE(Service.BulkMoveItems(std::span{&Folder, 1}, (Root / "Content/B").generic_string()));
 	EXPECT_FALSE(std::filesystem::exists(Root / "Content/B/A"));
@@ -3933,7 +3935,7 @@ TEST_F(FContentBrowserModelTests, ContentMoveReportsNativePartialPublicationAndR
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Package, Material));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 	std::ofstream(Root / "Content/A/notes.txt") << "notes";
-	FContentBrowserDataSource Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Service);
 	std::vector<std::string> Warnings;
 	Service.SetDiagnosticSink([&](ELogLevel Level, std::string_view Message) {
@@ -3969,7 +3971,7 @@ TEST_F(FContentBrowserModelTests, ContentMoveMovesMultipleFilesAndSkipsIdentityM
 		FContentBrowserItem{.Kind = EContentBrowserItemKind::File, .PhysicalPath = (Root / "Content/A/one.txt").generic_string()},
 		FContentBrowserItem{.Kind = EContentBrowserItemKind::File, .PhysicalPath = (Root / "Content/A/two.txt").generic_string()}};
 	int Publications = 0;
-	FContentBrowserDataSource Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = Batch; ++Publications; }});
+	FContentBrowserRequestContext Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = Batch; ++Publications; }});
 	Observe(Service);
 	EXPECT_TRUE(Service.BulkMoveItems(Items, (Root / "Content/A").generic_string()));
 	EXPECT_EQ(Publications, 0);
@@ -3990,7 +3992,7 @@ TEST_F(FContentBrowserModelTests, ContentCopyPreservesBytesAndChoosesUniqueNames
 		FContentBrowserItem{.Kind = EContentBrowserItemKind::File, .PhysicalPath = (Root / "Content/B/notes.txt").generic_string()}};
 
 	int Notifications = 0;
-	FContentBrowserDataSource Service({.NotifyScopedContentMutation = [&](auto) { ++Notifications; }});
+	FContentBrowserRequestContext Service({.NotifyScopedContentMutation = [&](auto) { ++Notifications; }});
 	Observe(Service);
 	ASSERT_TRUE(Service.BulkCopyItems(Items, (Root / "Content/A").generic_string()));
 	EXPECT_EQ(Notifications, 1);
@@ -4010,7 +4012,7 @@ TEST_F(FContentBrowserModelTests, ContentCopyPreservesDirectoriesAndCollapsesSel
 	const std::array Items{
 		FContentBrowserItem{.Kind = EContentBrowserItemKind::Folder, .PhysicalPath = (Root / "Content/A").generic_string()},
 		FContentBrowserItem{.Kind = EContentBrowserItemKind::File, .PhysicalPath = (Root / "Content/A/.hidden").generic_string()}};
-	FContentBrowserDataSource Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Service);
 	ASSERT_TRUE(Service.BulkCopyItems(Items, (Root / "Content/B").generic_string()));
 	EXPECT_TRUE(std::filesystem::is_directory(Root / "Content/B/A/Empty/Nested"));
@@ -4024,7 +4026,7 @@ TEST_F(FContentBrowserModelTests, ContentCopyPreservesDirectoriesAndCollapsesSel
 TEST_F(FContentBrowserModelTests, ContentCopyPreflightsMissingSourcesPackagesBulkAndNestedDestinations)
 {
 	std::ofstream(Root / "Content/A/notes.txt") << "notes";
-	FContentBrowserDataSource Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Service);
 	const FContentBrowserItem Folder{.Kind = EContentBrowserItemKind::Folder,
 		.PhysicalPath = (Root / "Content/A").generic_string()};
@@ -4052,7 +4054,7 @@ TEST_F(FContentBrowserModelTests, MixedContentCopyDuplicatesAssetAndPreservesSou
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Source, Material));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 	std::ofstream(Root / "Content/A/notes.txt") << "notes";
-	FContentBrowserDataSource Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Service);
 	const FContentBrowserItem Folder{.Kind = EContentBrowserItemKind::Folder,
 		.PhysicalPath = (Root / "Content/A").generic_string()};
@@ -4073,7 +4075,7 @@ TEST_F(FContentBrowserModelTests, PasteSaveFailureKeepsDirtyCopyAndReportsConten
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Source, Material));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 	const auto AssetPath = Testing::MakePackageLeafTopLevelAssetPathForTests(Source);
-	FContentBrowserDataSource Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Service);
 	bool Result = false;
 	FContentBrowserItem ResultItem;
@@ -4115,7 +4117,7 @@ TEST_F(FContentBrowserModelTests, ContentCopyBulkTravelsOnlyThroughOwningAssetDu
 	ASSERT_TRUE(std::filesystem::exists(Root / "Content/A/CopyTexture.dbulk"));
 	const FContentBrowserItem Bulk{.Kind = EContentBrowserItemKind::File,
 		.PhysicalPath = (Root / "Content/A/CopyTexture.dbulk").generic_string()};
-	FContentBrowserDataSource Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FContentBrowserRequestContext Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Service);
 	EXPECT_FALSE(Service.BulkCopyItems(std::span{&Bulk, 1}, (Root / "Content/B").generic_string()));
 	const FContentBrowserItem Folder{.Kind = EContentBrowserItemKind::Folder,
@@ -4139,7 +4141,7 @@ TEST_F(FContentBrowserModelTests, SaveReportsCommittedFileWhenRegistryPublicatio
 	DMaterial* Asset = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
 	int Notifications = 0;
-	FContentBrowserDataSource Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = Batch; ++Notifications; }});
+	FContentBrowserRequestContext Service({.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = Batch; ++Notifications; }});
 	Observe(Service);
 	bool Result = false;
 	FContentBrowserItem ResultItem;
@@ -4166,7 +4168,7 @@ TEST_F(FContentBrowserModelTests, CapabilityQueriesExplainRejectionWithoutExecut
 	FContentBrowserItem Item{.Kind = EContentBrowserItemKind::File, .Name = "capability.txt", .PhysicalPath = File.generic_string()};
 	bool bAllowed = true;
 	int Updates = 0;
-	FContentBrowserDataSource Service({.NotifyScopedContentMutation = [&](FContentChangeBatch) { ++Updates; }, .CanMutateContent = [&] { return bAllowed; }});
+	FContentBrowserRequestContext Service({.NotifyScopedContentMutation = [&](FContentChangeBatch) { ++Updates; }, .CanMutateContent = [&] { return bAllowed; }});
 	Observe(Service);
 	std::string Reason;
 	EXPECT_FALSE(Service.CanRenameItem(Item, "../invalid", &Reason));
@@ -4188,7 +4190,7 @@ TEST_F(FContentBrowserModelTests, CapabilityQueriesExplainRejectionWithoutExecut
 TEST_F(FContentBrowserModelTests, SuccessfulNoOpFixUpDoesNotPublishItemUpdates)
 {
 	int Updates = 0;
-	FContentBrowserDataSource Service({.NotifyScopedContentMutation = [&](FContentChangeBatch) { ++Updates; }});
+	FContentBrowserRequestContext Service({.NotifyScopedContentMutation = [&](FContentChangeBatch) { ++Updates; }});
 	Observe(Service);
 	EXPECT_TRUE(Service.FixUpRedirectorsInFolder("/ContentBrowserTests/A/"));
 	EXPECT_EQ(Updates, 0);
@@ -4198,7 +4200,7 @@ TEST_F(FContentBrowserModelTests, SuccessfulNoOpFixUpDoesNotPublishItemUpdates)
 TEST_F(FContentBrowserModelTests, RejectedDuplicateClearsExplicitOutputWithoutPublishingUpdates)
 {
 	int Updates = 0;
-	FContentBrowserDataSource Service({.NotifyScopedContentMutation = [&](FContentChangeBatch) { ++Updates; }});
+	FContentBrowserRequestContext Service({.NotifyScopedContentMutation = [&](FContentChangeBatch) { ++Updates; }});
 	Observe(Service);
 	FContentBrowserItem Output{.Kind = EContentBrowserItemKind::Asset, .VirtualPath = "stale", .PhysicalPath = "stale"};
 	EXPECT_FALSE(Service.DuplicateItem(FContentBrowserItem{}, (Root / "Content/B").generic_string(), Output));
@@ -4213,7 +4215,7 @@ TEST_F(FContentBrowserModelTests, DataSourceShutdownCancelsPublicationAndRejects
 	const auto Directory = Root / "Content/A";
 	std::filesystem::create_directory(Directory / "Child");
 	auto Gate = std::make_shared<FBrowserScanGate>();
-	FContentBrowserDataSource Source;
+	FContentBrowserDataQuery Source;
 	FContentBrowserModel Model(Source, true);
 	FBrowserScanRelease Release{Gate};
 	Model.SetEntryStatusQueryForTesting([Gate](const auto& Entry, auto& Error) {
@@ -4226,7 +4228,6 @@ TEST_F(FContentBrowserModelTests, DataSourceShutdownCancelsPublicationAndRejects
 	const auto Version = Model.GetSnapshotVersion();
 	Source.StopRequestAdmission();
 	EXPECT_EQ(Source.PrepareDiscoveryCatalog(), nullptr);
-	EXPECT_EQ(Source.PrepareDeleteItems({}), nullptr);
 	Model.RefreshItemsSnapshot();
 	Model.RequestDirectoryChildrenSnapshot(Directory.generic_string());
 	Gate->Release();
@@ -4247,7 +4248,7 @@ TEST_F(FContentBrowserModelTests, FolderValidationIsSilentAndFinalizationRecheck
 	int Diagnostics = 0;
 	int ScopedUpdates = 0;
 	int LegacyUpdates = 0;
-	FContentBrowserDataSource Source({
+	FContentBrowserRequestContext Source({
 		.NotifyMountedContentMutation = [&] { ++LegacyUpdates; },
 		.NotifyScopedContentMutation = [&](FContentChangeBatch) { ++ScopedUpdates; }});
 	Source.SetDiagnosticSink([&](ELogLevel, std::string_view) { ++Diagnostics; });
@@ -4281,7 +4282,7 @@ TEST_F(FContentBrowserModelTests, BulkSaveDeduplicatesItemsSharingPackage)
 	FContentBrowserItem Other = AssetItem(Path);
 	Other.VirtualPath = Second->GetObjectPath();
 	int Updates = 0;
-	FContentBrowserDataSource Source({.NotifyScopedContentMutation = [&](FContentChangeBatch) { ++Updates; }});
+	FContentBrowserRequestContext Source({.NotifyScopedContentMutation = [&](FContentChangeBatch) { ++Updates; }});
 	Observe(Source);
 	ASSERT_TRUE(Source.CanSaveItem(Other));
 	ASSERT_TRUE(Source.BulkSaveItems(std::array{AssetItem(Path), Other, Other})) << OperationError;
@@ -4295,10 +4296,10 @@ TEST_F(FContentBrowserModelTests, PreparedDiscoveryOwnsInputsAfterSourceDestruct
 {
 	const auto Directory = Root / "Content/A";
 	std::filesystem::create_directory(Directory / "Child");
-	FContentBrowserDataSource::FItemsCapture Work;
-	FContentBrowserDataSource::FDirectoryCapture TreeWork;
+	FContentBrowserDataQuery::FItemsCapture Work;
+	FContentBrowserDataQuery::FDirectoryCapture TreeWork;
 	{
-		FContentBrowserDataSource Source;
+		FContentBrowserDataQuery Source;
 		auto Catalog = Source.PrepareDiscoveryCatalog();
 		Work = Source.PrepareItemsCapture(Directory.generic_string(), false, Catalog, {});
 		TreeWork = Source.PrepareDirectoryCapture(Directory.generic_string(), Catalog, {});
@@ -4325,7 +4326,7 @@ TEST_F(FContentBrowserModelTests, DirectoryCapturesPrepareCurrentCatalogWithoutI
 		ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/" + Folder + "/First/Material", FirstPath));
 		DMaterial* First = nullptr;
 		ASSERT_TRUE(CreatePackageLeafAssetForTesting(FirstPath, First));
-		FContentBrowserDataSource Source;
+		FContentBrowserDataQuery Source;
 		FContentBrowserModel Model(Source, bAsync);
 		// No navigation or item capture has prepared a catalog yet.
 		Model.RequestDirectoryChildrenSnapshot(Physical.generic_string());
@@ -4363,7 +4364,7 @@ TEST_F(FContentBrowserModelTests, SaveCapabilitiesFollowModeAndCurrentMountPolic
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
 	Asset->GetPackage()->MarkDirty();
 	const auto Item = AssetItem(Path);
-	FContentBrowserDataSource Source;
+	FContentBrowserRequestContext Source;
 	Observe(Source);
 	EXPECT_TRUE(Source.CanSaveItem(Item));
 	EXPECT_FALSE(Source.CanSaveItem(Item, EAssetSaveMode::CanonicalResave));

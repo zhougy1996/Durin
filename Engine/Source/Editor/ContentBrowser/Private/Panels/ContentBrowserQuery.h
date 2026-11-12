@@ -83,8 +83,7 @@ namespace Durin::ContentBrowser::Private
 	{
 		// Owner-thread projection: type presentations come from the editor extension registry.
 		// No filesystem enumeration, live asset-registry access, or item copies occur here.
-		auto Project(std::shared_ptr<const FContentBrowserItemsSnapshot> Snapshot,
-			std::string_view PhysicalDirectory, const FContentBrowserQuerySettings& Settings)
+		auto Project(std::shared_ptr<const FContentBrowserItemsSnapshot> Snapshot, std::string_view PhysicalDirectory, const FContentBrowserQuerySettings& Settings, std::string_view VirtualDirectory = {})
 			-> FContentBrowserItemRange;
 		auto TypeLabel(const FContentBrowserItem& Item) -> std::string;
 		// Materialize only selected records for command APIs that require owned values.

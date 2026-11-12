@@ -606,6 +606,8 @@ TEST(FStaticMeshThumbnailRendererTests,
 	const Durin::FPackageCatalogEntry Data =
 		Durin::FindPackageExact(StaticMeshPath);
 	ASSERT_NE(Data, nullptr);
+	using Durin::ContentBrowser::FContentBrowserItem;
+	using Durin::ContentBrowser::EContentBrowserItemKind;
 	using namespace Durin::ContentBrowser::Private;
 	const FContentBrowserItem Item{
 		.Kind = EContentBrowserItemKind::Asset,

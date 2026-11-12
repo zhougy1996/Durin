@@ -19,8 +19,8 @@ namespace Durin::MainFrame
             .Mutation = ContentBrowser::EContentMutation::MutatesContent,
             .IsApplicable = [](const ContentBrowser::FExtensionContext& Context) {
                 if (Context.Selection.size() != 1 || !Context.PrimaryItem
-                    || Context.PrimaryItem->Kind != ContentBrowser::EExtensionItemKind::File
-                    || Context.PrimaryItem->StableId != Context.Selection.front().StableId
+                    || Context.PrimaryItem->Kind != ContentBrowser::EContentBrowserItemKind::File
+                    || Context.PrimaryItem->StableId() != Context.Selection.front().StableId()
                     || Context.PrimaryItem->PhysicalPath.empty()) return false;
                 auto Extension = std::filesystem::u8path(Context.PrimaryItem->PhysicalPath).extension().string();
                 for (char& C : Extension) if (C >= 'A' && C <= 'Z') C += 'a' - 'A';

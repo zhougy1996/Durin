@@ -74,7 +74,7 @@ namespace
         {
             const auto Utf8 = Path.u8string();
             const std::string Text(reinterpret_cast<const char*>(Utf8.data()), Utf8.size());
-            Browser::FExtensionItem Item{Browser::EExtensionItemKind::File, Text, {}, Text, {}};
+            Browser::FContentBrowserItem Item{.Kind = Browser::EContentBrowserItemKind::File, .PhysicalPath = Text};
             return {.Selection = {Item}, .PrimaryItem = Item};
         }
         static auto Script(std::string_view Source, std::string_view Filename = "browser_script.py") -> std::filesystem::path
@@ -105,9 +105,9 @@ namespace
         EXPECT_EQ(FPythonScriptPanelTestAccess::Job(*Panel), 0u);
         auto Invalid = Selection; Invalid.Selection.clear(); EXPECT_FALSE(Entry.IsApplicable(Invalid));
         Invalid = Selection; Invalid.Selection.push_back(*Selection.PrimaryItem); EXPECT_FALSE(Entry.IsApplicable(Invalid));
-        Invalid = Selection; Invalid.PrimaryItem->Kind = Browser::EExtensionItemKind::Directory; EXPECT_FALSE(Entry.IsApplicable(Invalid));
+        Invalid = Selection; Invalid.PrimaryItem->Kind = Browser::EContentBrowserItemKind::Folder; EXPECT_FALSE(Entry.IsApplicable(Invalid));
         Invalid = Context("not_python.txt"); EXPECT_FALSE(Entry.IsApplicable(Invalid));
-        Invalid.PrimaryItem->Kind = Browser::EExtensionItemKind::Asset; EXPECT_FALSE(Entry.IsApplicable(Invalid));
+        Invalid.PrimaryItem->Kind = Browser::EContentBrowserItemKind::Asset; EXPECT_FALSE(Entry.IsApplicable(Invalid));
 
         ASSERT_TRUE(Browser::InvokeExtension(Entry, {.Context = Selection}));
         EXPECT_TRUE(FPythonScriptPanelTestAccess::OpenRequested(*Panel));

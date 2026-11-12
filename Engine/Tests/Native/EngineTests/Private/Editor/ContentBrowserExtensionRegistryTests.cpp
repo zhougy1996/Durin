@@ -97,7 +97,7 @@ namespace Durin::ContentBrowser
 			Definition->Categories = {{Category}};
 			auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
 			ASSERT_TRUE(Registration);
-			FContentBrowserDataSource ModelSource;
+			FContentBrowserDataQuery ModelSource;
 			FContentBrowserModel Model(ModelSource);
 			Model.SetSnapshotForTesting("/content", {{.Kind = EContentBrowserItemKind::Asset,
 				.Name = "Typed", .PhysicalPath = "/content/Typed.dasset", .AssetClassName = Definition->ClassPath}});
@@ -137,7 +137,7 @@ namespace Durin::ContentBrowser
 		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
 		ASSERT_TRUE(Registration);
 		using namespace Private;
-		FContentBrowserDataSource ModelSource;
+		FContentBrowserDataQuery ModelSource;
 		FContentBrowserModel Model(ModelSource);
 		Model.SetSnapshotForTesting("/content", {
 			{.Kind = EContentBrowserItemKind::Asset, .Name = "Project", .PhysicalPath = "/content/Project.dasset", .AssetClassName = "Project::DCategoryFixture"},
@@ -613,9 +613,9 @@ namespace Durin::ContentBrowser
 		const auto Mixed = BuildExtensionContext(Items,
 			{Items[0].StableId(), Items[1].StableId(), Items[2].StableId()}, "/content", "/Project", &Items[1]);
 		ASSERT_EQ(Mixed.Selection.size(), 3);
-		EXPECT_EQ(Mixed.Selection[0].Kind, EExtensionItemKind::Asset);
-		EXPECT_EQ(Mixed.Selection[1].Kind, EExtensionItemKind::File);
-		EXPECT_EQ(Mixed.Selection[2].Kind, EExtensionItemKind::Directory);
+		EXPECT_EQ(Mixed.Selection[0].Kind, EContentBrowserItemKind::Asset);
+		EXPECT_EQ(Mixed.Selection[1].Kind, EContentBrowserItemKind::File);
+		EXPECT_EQ(Mixed.Selection[2].Kind, EContentBrowserItemKind::Folder);
 		EXPECT_EQ(Mixed.PrimaryItem->PhysicalPath, "/content/source.png");
 		EXPECT_EQ(Mixed.PhysicalDirectory, "/content");
 		const auto Folder = BuildExtensionContext(Items, {}, "/content", "/Project", &Items[2]);
@@ -624,7 +624,7 @@ namespace Durin::ContentBrowser
 		const auto Tree = BuildExtensionContext(Items, {Items[0].StableId()}, "/content", "/Project",
 			nullptr, "/external/directory", "");
 		ASSERT_EQ(Tree.Selection.size(), 1);
-		EXPECT_EQ(Tree.PrimaryItem->Kind, EExtensionItemKind::Directory);
+		EXPECT_EQ(Tree.PrimaryItem->Kind, EContentBrowserItemKind::Folder);
 		EXPECT_EQ(Tree.PhysicalDirectory, "/external/directory");
 		EXPECT_TRUE(Tree.VirtualDirectory.empty());
 		EXPECT_EQ(Tree.CurrentVirtualDirectory, "/Project");
@@ -693,7 +693,7 @@ namespace Durin::ContentBrowser
 		ASSERT_TRUE(Type);
 		auto Duplicate = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition, &Error);
 		EXPECT_FALSE(Duplicate);
-		FContentBrowserDataSource ModelSource;
+		FContentBrowserDataQuery ModelSource;
 		FContentBrowserModel Model(ModelSource);
 		Model.SetSnapshotForTesting("/content", {
 			{.Kind = EContentBrowserItemKind::Asset, .Name = "Volume", .VirtualPath = "/Project/Volume",

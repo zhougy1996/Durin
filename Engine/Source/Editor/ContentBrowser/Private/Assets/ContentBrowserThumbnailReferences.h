@@ -4,12 +4,12 @@
 
 #include "Thumbnail/AssetThumbnail.h"
 #include "AssetRegistry/Catalog.h"
+#include "ContentBrowserItem.h"
 
 namespace Durin::ContentBrowser::Private
 {
 	class FSourceImageThumbnailCache;
 
-	struct FContentBrowserItem;
 
 	// Keeps ordinary-file previews private while asset entries are represented by
 	// lightweight FAssetThumbnail references into the manager-owned shared pool.

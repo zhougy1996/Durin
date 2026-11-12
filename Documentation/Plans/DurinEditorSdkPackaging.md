@@ -2,7 +2,7 @@
 
 Summary: Produce relocatable Source and Binary SDK archives that let external C++ projects build reflected modules and load them in DurinEditor.
 
-Last reviewed: 2026-10-17
+Last reviewed: 2026-11-12
 
 Status: Active
 Completed:
@@ -208,6 +208,15 @@ requirements are reported separately.
 ## Current Foundations and Gaps
 
 ### Foundations
+
+- The 2026-11-12 [browser data provider interface](../Editor/Architecture/Assets/ContentBrowserData.md)
+  adds exported ContentBrowser data-source/subsystem/item headers and reflected
+  class metadata in the existing module. SDK manifests must include these public
+  headers and generated metadata with the matching import library. This adds no
+  module or Game dependency and does not qualify SDK staging or consumption.
+  Stage 3 also binds browser hosts to the weak data subsystem and exposes temporary
+  creation contexts, provider-neutral deletion previews and item-update delegates
+  through those headers; consumers must rebuild against the matching interfaces.
 
 - Runtime project selection accepts absolute external `.dproject` paths.
 - Project roots already own their own `Content`, `Intermediate`, `Binaries`,

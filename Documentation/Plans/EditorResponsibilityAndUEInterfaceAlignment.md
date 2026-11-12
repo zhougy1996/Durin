@@ -17,10 +17,16 @@ name and update ordering, and validate it rather than recreate it.
 Stage 0 is complete: consumer inventory, frozen decisions and focused baseline
 receipts are recorded below. Stage 1 is implemented and its focused regression
 validation passed (39 session cases and 39 host cases).
-Stages 2-6 remain unstarted.
+Stage 2 is complete: provider/subsystem/payload/operation routing, incremental
+updates and all save-flag combinations are implemented and validated.
+The first checkpoint's shared item interface remains the presentation boundary;
+Stage 3 is complete from `6dcb2ff4b`: every panel uses the data subsystem for
+queries and owner-routed commands, retaining per-view capture and confirmation.
+Provider source interface version 2 and all Stage 3 consumer gates are validated.
+Stages 4-6 have not started.
 The review baseline is `656742742dc515e159f1caa2a6e67d66c4324a0d`.
 Test target names were queried from the configured native registry for
-`Win64-Debug-DurinEditor`; no native validation was executed for this plan.
+`Win64-Debug-DurinEditor`; execution evidence is recorded below.
 
 The UE source reference is the locally installed UE 5.8.0 release, changelist
 53629095, branch `++UE5+Release-5.8`. Source locations below are relative to
@@ -53,7 +59,7 @@ the reference comparison:
 | Asset editor service updates | `Source/Editor/UnrealEd/Private/Subsystems/AssetEditorSubsystem.cpp`: `Initialize`, `HandleTicker`, `Deinitialize` | Retain `DAssetEditorSubsystem`; move frame maintenance behind a private `HandleTicker(float)` callback driven by its editor host, independent of MainFrame. |
 | Browser data service | `Source/Editor/ContentBrowserData/Public/ContentBrowserDataSubsystem.h`: `UContentBrowserDataSubsystem` | `DContentBrowserDataSubsystem : DEditorSubsystem, IContentBrowserItemDataSink` owns source discovery, activation, path/filter queries and update distribution per editor. |
 | Browser providers | `Source/Editor/ContentBrowserData/Public/ContentBrowserDataSource.h`: `UContentBrowserDataSource` | Abstract `DContentBrowserDataSource : DObject, IModularFeature`, with concrete `DContentBrowserAssetDataSource` and `DContentBrowserFileDataSource`. |
-| Item ownership | `Source/Editor/ContentBrowserData/Public/ContentBrowserItemData.h` and `ContentBrowserItemDataPayload.h` | `FContentBrowserItemData`, `IContentBrowserItemDataPayload` and an aggregate `FContentBrowserItem`; operations route through the owning source. |
+| Item ownership | `Source/Editor/ContentBrowserData/Public/ContentBrowserItemData.h` (including its payload, update and sink interfaces) | `FContentBrowserItemData`, `IContentBrowserItemDataPayload`, `FContentBrowserItemDataUpdate`, `IContentBrowserItemDataSink` and an aggregate `FContentBrowserItem`; operations route through the owning source. |
 | Shared texture preview | `Source/Editor/UnrealEd/Public/Texture2DPreview.h`, used by TextureEditor viewport code | Shared preview interpretation/rendering belongs in DurinEd `Preview/`, outside the concrete TextureEditor feature. Preserve Mona/RHI ownership rather than copying UE's canvas rendering implementation. |
 | Package editing policy | `Source/Editor/UnrealEd/Public/PackageTools.h`: `UPackageTools`, `FUnloadPackageParams`; `Source/Runtime/CoreUObject/Public/UObject/PackageReload.h` | Editor-side `DPackageTools` exposes UE-shaped static unload overloads and options. Engine exposes only the narrow collection mechanism required by that policy. |
 | Toolkit identity | `Source/Editor/MaterialEditor/Private/MaterialEditor.h`, `TextureEditor/Private/TextureEditorToolkit.h`, `StaticMeshEditor/Private/StaticMeshEditor.h` | Use `FMaterialEditor`, `FTextureEditorToolkit` and `FStaticMeshEditor` for toolkit controllers; keep actual Mona widgets under `Widgets/`. |
@@ -183,12 +189,16 @@ EngineTests and AssetTests; future migrations must search those roots again.
 Public LevelEditor toolkit headers and reflected subsystem declarations are
 part of the compile closure even when project consumers currently have no hits.
 
-- Source instances belong to one editor data subsystem. Module feature
-  registrations advertise available source classes; activation constructs one
-  instance per source name, initializes it, sets its sink and publishes it only
-  after successful initialization. Deactivation removes admission before
-  detaching the sink/shutting down. Reactivation creates a new monotonically
-  identified activation generation; retained items never redirect to it.
+- Source instances are initialized and registered directly as modular features,
+  following UE `UContentBrowserDataSource::Initialize(bool)` and
+  `RegisterDataSource()`. There is no second class/factory registration registry.
+  The editor subsystem distinguishes available instances from active instances;
+  activation attaches its sink and deactivation detaches it. Deactivation first
+  closes operation admission and invalidates that activation's item handles.
+  Reactivating the same instance gives it a new activation generation, so retained
+  items cannot silently become callable again. Shutdown unregisters the instance.
+  This replaces the initial class-factory decision after checking UE's concrete
+  implementation on 2026-11-12; the extra factory layer served no required behavior.
 - Each folder item retains all source contributors under the normalized virtual
   path. The public aggregate forwards capability/operation calls to owned item
   data. Unsupported cross-source moves/copies are rejected for the whole batch
@@ -198,10 +208,10 @@ part of the compile closure even when project consumers currently have no hits.
   editor/project/source generation tuple. Only owner-thread publication resolves
   live providers. Cancellation or provider/project retirement rejects publication
   and releases captured payloads without invoking retired code.
-- UE save flags `SaveOnlyIfDirty | SaveOnlyIfLoaded` map exactly to existing
-  `LoadedDirtyPackage`; no flags map to `CanonicalResave`. Single-flag policies
-  need explicit provider implementation and tests before being accepted; they
-  must reject unsupported requests rather than silently select another mode.
+- UE save flags now support all combinations through existing package policy.
+  Dirty predicates select `LoadedDirtyPackage`; absent a dirty predicate selects
+  `CanonicalResave`. Loaded-only requests require residency and retain exports
+  through execution. Unknown bits reject; no redundant AssetTools enum was added.
 - `FContentBrowserDeleteContext` is a move-only operation-scoped capability
   binding source activation identity, immutable confirmation and the existing
   retained deletion execution session. `BulkDeleteItems(items, context)` checks
@@ -299,22 +309,23 @@ Scope: ContentBrowser public data headers; data subsystem/source registration;
 asset/file provider implementations; private discovery and operation code;
 reflection/module manifests and provider fixtures.
 
-- [ ] Add the data subsystem, abstract source, item data, payload, filter and
+- [x] Add the data subsystem, abstract source, item data, payload, filter and
   save-flag contracts from the interface map. Keep class names aligned with UE.
-- [ ] Register asset/file source types through the modular-feature mechanism;
-  create/retain per-editor instances, separate available and active sources,
+- [x] Register initialized asset/file source instances through modular features;
+  retain per-editor instances, separate available and active sources,
   and shut down sources before releasing their service/payload dependencies.
-- [ ] Move asset capabilities into the asset provider and filesystem capabilities
+- [x] Move asset capabilities into the asset provider and filesystem capabilities
   into the file provider. Call AssetTools and existing filesystem mechanisms;
   preserve staging, rollback, compensation and mutation notifications.
-- [ ] Implement logical path routing and folder aggregation. Partition batch work
+- [x] Implement logical path routing and folder aggregation. Partition batch work
   by source and reject unsupported transfers before any physical writes.
-- [ ] Keep worker captures immutable and owned. Resolve live reflected sources
+- [x] Keep worker captures immutable and owned. Resolve live reflected sources
   only at the owner-thread boundary; reject stale generation/project results.
-- [ ] Preserve the existing confirmed deletion flow through the explicit context
+- [x] Preserve the existing confirmed deletion flow through the explicit context
   adaptation. A provider capability query does not authorize later I/O.
 
-Validation: provider-focused cases in `ContentBrowserWorkflowTests`: ownership
+Validation: public provider cases in `ContentBrowserDataTests`, plus existing
+mechanism cases in `ContentBrowserWorkflowTests`: ownership
 dispatch, same-name source replacement, deactivate/reactivate, opaque payload
 release, merged folders, mixed-source selection, cross-source rejection,
 capability/execution revalidation, save-mode parity and stale confirmed deletion.
@@ -325,25 +336,123 @@ Acceptance: built-in operations use their provider contracts. Provider withdrawa
 cannot leave callable stale payloads or publish retired async results. No parallel
 legacy source continues to execute migrated operations.
 
+The implemented [provider contract](../Editor/Architecture/Assets/ContentBrowserData.md)
+owns the lasting API/lifetime rules. The old private source is now
+`FContentBrowserRequestContext`; existing panel adapters and native providers use
+that one operation implementation. Stage 3 still owns replacing the panel's direct
+request-context binding with the data service, not a second rewrite of mutations.
+UE's payload/update/sink declarations are all in `ContentBrowserItemData.h`;
+the earlier separate payload-header reference was incorrect and is corrected here.
+New APIs and reflected classes are exported by the existing ContentBrowser module;
+no new DLL or DurinGame dependency was introduced.
+
+Stage 2 final-input evidence, 2026-11-12, working inputs based on `f5093a4f3`,
+Windows `windows-msvc-x64` / `Win64-Debug-DurinEditor`, outside-sandbox MSVC:
+
+| Selection | Result | Receipt under `Build/.agent-state/logs/` |
+| --- | --- | --- |
+| ContentBrowserDataTests | 20 passed | `20261112-120148-569758-3068-ContentBrowserDataTests.log` |
+| ContentBrowserWorkflowTests | 158 passed, 2 existing symlink-privilege skips | `20261112-112933-874134-22784-ContentBrowserWorkflowTests.log` |
+| EditorHostToolTests | 39 passed | `20261112-115220-587763-30912-EditorHostToolTests.log` |
+| EditorAssetWorkflowTests | 44 passed | `20261112-113008-154379-35100-EditorAssetWorkflowTests.log` |
+| PythonScriptPanelTests | 8 passed | `20261112-113017-076547-35912-PythonScriptPanelTests.log` |
+| Editor all, Engine/Sandbox/RoadWeaver closure | passed | `20261112-113229-460750-31816-cmake.log`; final interface incremental `20261112-120149-896789-21740-cmake.log` |
+
+These are 269 executed passes and two unqualified permission skips. The final
+source changes tightened batch-save activation checks, registered-instance
+GC retention, and invalidation of handles created before activation, with
+regressions for each; the provider suite was refreshed afterward. Host lifecycle
+coverage was refreshed after the GC change. The unchanged legacy consumer
+workflows do not enter this new routing branch; their receipts remain applicable.
+The final incremental build covers the updated implementation, with the earlier
+all build covering its unchanged header/reflection and cross-project closure.
+`Build/EditorResponsibilityAndUEInterfaceAlignment/stage2-inputs.json` records
+final production/test hashes; `stage2-consumers.txt` records the consumer search.
+
+Affected selection expands to the whole Engine test project for a new test source.
+Focused owning/consumer targets are used instead: only ContentBrowser and its
+white-box workflow fixtures changed, with no runtime/rendering algorithm changes.
+One broad incremental build was required for public Item layout and reflected
+class/module-graph integration across all workspace projects. This does not close
+the later Stage 6 final-input build or application-startup gates. No GPU or native
+window qualification is claimed for Stage 2.
+
+The first Stage 2 checkpoint exposes `ContentBrowserItem.h` and one
+`FContentBrowserItem` snapshot used by discovery, operations and extension
+contexts. It deletes `FExtensionItem`, `EExtensionItemKind` and their translation
+function, including the separately stored extension stable ID. Consumers call
+the shared item's identity operation instead. This is an incremental interface
+migration; it does not yet claim UE's ItemData/payload/provider dispatch or close
+any of the full-stage checkboxes above.
+
+Checkpoint validation on 2026-11-12, inputs based on `e2be387ed`, Windows
+`windows-msvc-x64` / `Win64-Debug-DurinEditor`, outside-sandbox MSVC:
+
+| Selection | Result | Receipt under `Build/.agent-state/logs/` |
+| --- | --- | --- |
+| ContentBrowserWorkflowTests | 158 passed, 2 symlink-privilege skips | `20261112-103827-232648-33588-ContentBrowserWorkflowTests.log` |
+| EditorHostToolTests | 39 passed | `20261112-103853-171413-30760-EditorHostToolTests.log` |
+| PythonScriptPanelTests | 8 passed | `20261112-103901-602051-32944-PythonScriptPanelTests.log` |
+| EditorAssetWorkflowTests | 44 passed | `20261112-103912-385675-32832-EditorAssetWorkflowTests.log` |
+| StaticMeshThumbnailTests | 10 passed | `20261112-104041-983423-17696-StaticMeshThumbnailTests.log` |
+| ThumbnailTests | 74 passed | `20261112-104057-564443-34292-ThumbnailTests.log` |
+
+All 333 executed cases passed; two Windows permission skips remain unqualified.
+The thumbnail white-box targets require the ContentBrowser Public include
+directory now that their shared item lives there; no DLL dependency was added.
+Only test indentation/line endings and documentation changed after the receipts.
+All workspace production/test roots were checked for removed extension item
+names and the old private-qualified item name; no remaining hits exist.
+This checkpoint uses focused affected consumers rather than the final all-build
+gate: it changes a value type's ownership and extension representation, not GPU
+behavior, provider lifecycle or package operations. The full Stage 2 gates remain
+open and these receipts cannot qualify their future implementation.
+
+### Redundancy Review
+
+| Observation | Decision and retained behavior |
+| --- | --- |
+| Browser item versus extension-only item and Folder/Directory enum translation | Removed in the first Stage 2 checkpoint. Extensions retain value-owned selection/primary snapshots, including ordinary-file paths; no asset loading is introduced. |
+| Proposed registration-of-source-classes plus activation factory | Removed from the selected design after checking UE's direct instance registration. Preserve available/active separation and activation generations; they protect different lifetimes. |
+| Private concrete source and public provider appearing to own the same role | Private implementation renamed to request context and reused as one mutation/recovery substrate. Generic dispatch is source-owned; no forwarding aliases or second mutation engine were retained. |
+| New coarse source-change notification | Replaced with UE-shaped `FContentBrowserItemDataUpdate`/`QueueItemDataUpdate`, sourced from committed effects rather than operation attempts. |
+| Native Asset/File sources both contributing the same physical folder | Stage 3 collapses the duplicate executable identity. Mixed native selections share one atomic backend; unrelated providers retain separate contributors and require explicit transfer support. |
+| Discovery preparation retained in the mutation request context | Stage 3 separates per-view owned captures into the service-bound data query. Panels hold no request context; query completion uses ordinary provider enumeration. |
+| Panel-specific asset/file command branches and physical-path drag reconstruction | Stage 3 replaces them with item capabilities, virtual destinations and retained owner identities. No parallel legacy panel operation path remains. |
+| `NotifyMountedContentMutation` versus `NotifyScopedContentMutation` host callbacks | Retained at the native adapter for external create/import and registry reconciliation consumers. Provider frame updates drive browser state; the unscoped fallback still expresses unknown external coverage and is not a second mutation engine. |
+| Virtual path, physical path and package identity stored on an item | Not proven redundant: unmounted files, logical folder navigation and package-backed operations use different identity domains. Provider payload migration should move ownership rather than delete required identities. |
+
 ### Stage 3: Migrate browser presentation and external consumers
 
 Dependencies: Stage 2. Outcome: every browser uses the data service; panel state
 and user confirmation remain local to each browser.
 
+Implementation decisions, 2026-11-12: extract pure discovery preparation from the
+mutation request context into per-view query state. Pass completed native
+snapshots through the provider filter/enumeration contract on the owner thread;
+never invoke a reflected provider on a worker. Keep a weak data-subsystem binding
+in the browser host. Native Asset/File adapters explicitly support mixed native
+batches through their one existing atomic backend. Collapse their duplicate
+physical-folder operation identity while retaining unrelated providers' logical
+folder contributions. Expose immutable provider-neutral deletion previews, with
+the validated execution capability still private to its provider. Creation/import
+and definition registration remain independent of provider membership.
+
 Scope: ContentBrowser Panels/Model/Query/refresh coordinator/operations/public
 host contracts; MainFrame; AssetForgeBuiltins; LevelEditor, MaterialEditor,
 TextureEditor, StaticMeshEditor; RoadWeaverEditor contributions and all tests.
 
-- [ ] Replace per-panel concrete source ownership with a weak/service-bound data
+- [x] Replace panel-facing direct request-context dispatch with a weak/service-bound data
   subsystem reference. Keep selection, search, navigation, cancellation cursors
   and presentation settings per panel; do not put them in shared providers.
-- [ ] Migrate queries, menu capabilities, shortcuts, clipboard and drag/drop to
+- [x] Migrate queries, menu capabilities, shortcuts, clipboard and drag/drop to
   `FContentBrowserItem`/`FContentBrowserItemData` and virtual destination paths.
-- [ ] Preserve independent create/import/details extensions and metadata-driven
+- [x] Preserve independent create/import/details extensions and metadata-driven
   asset definitions. Do not merge browser provider registration with definitions.
-- [ ] Delete obsolete concrete-source APIs and central item-kind execution
-  branches; retain item kind only where it describes presentation metadata.
-- [ ] Update the implemented Content Browser contract and affected consumer docs
+- [x] Delete panel-level execution dispatch by item kind. Keep family-specific
+  validation inside native request mechanics where required for atomic mixed
+  package/file folder operations; do not duplicate staging/rollback by provider.
+- [x] Update the implemented Content Browser contract and affected consumer docs
   after the production migration is complete.
 
 Validation: `ContentBrowserWorkflowTests` and affected cases in
@@ -357,6 +466,51 @@ Acceptance: one source-routing path serves every browser and contributed action;
 a test provider works through ordinary panel commands. Existing file/asset
 workflows and destructive-operation guarantees remain covered. Search all
 workspace source/test roots for removed APIs before closing the stage.
+
+Stage 3 final-input evidence, 2026-11-12, working inputs based on `6dcb2ff4b`,
+Windows `windows-msvc-x64` / `Win64-Debug-DurinEditor`, outside-sandbox MSVC:
+
+| Selection | Result | Receipt under `Build/.agent-state/logs/` |
+| --- | --- | --- |
+| ContentBrowserWorkflowTests | 163 passed, 2 existing symlink-privilege skips | `20261112-134854-575041-36068-ContentBrowserWorkflowTests.log` |
+| ContentBrowserDataTests | 22 passed | `20261112-134910-132385-19040-ContentBrowserDataTests.log` |
+| EditorAssetWorkflowTests | 44 passed | `20261112-134918-525672-10836-EditorAssetWorkflowTests.log` |
+| EditorHostToolTests | 39 passed | `20261112-134922-041302-33424-EditorHostToolTests.log` |
+| AssetEditorFamilyTests | 7 passed | `20261112-134924-780864-21720-AssetEditorFamilyTests.log` |
+| ThumbnailTests | 74 passed | `20261112-134939-647465-3232-ThumbnailTests.log` |
+| StaticMeshThumbnailTests | 10 passed | `20261112-134944-607146-35652-StaticMeshThumbnailTests.log` |
+| Editor all, Engine/Sandbox/RoadWeaver closure | passed | `20261112-134947-900791-36124-cmake.log` |
+
+These are 359 executed passes and two unqualified permission skips. New tests
+exercise a provider with no physical item storage through ordinary panel commands,
+two independent browsers and selection migration, target policy rechecks during
+clipboard/drop routing, withdrawal/reactivation, native confirmation replacement
+and retry, mixed native batching and deferred creation. Unrelated source updates
+do not restart another view; source revisions cannot bypass a publication fence.
+Existing coverage retains ordinary files, packages, redirectors, companion policy,
+folder rollback, import/reimport, asynchronous cancellation and editor retirement.
+
+All source/test roots of Engine, Sandbox and RoadWeaver were searched. MainFrame
+now supplies the weak service binding. Feature-editor and RoadWeaver contributions
+already use the shared item/extension contracts and needed no separate operation
+adapter or registration migration. Panel dispatch no longer references the native
+mutation request context or its save-mode/physical-destination APIs. Native
+maintenance commands remain explicit asset-provider utilities, independently of
+generic item routing. The lasting contracts are in
+[Content Browser](../Editor/Architecture/Assets/ContentBrowser.md) and
+[data providers](../Editor/Architecture/Assets/ContentBrowserData.md).
+
+The affected selector expands to the entire Engine test project because a test
+CMake declaration changed and private query sources were added. The named owning
+and consumer targets above bound the changed behavior; unrelated rendering,
+physics and transport suites were not run. The all build covers public host/API
+layout, provider vtables/delegates and consumers across all workspace projects.
+No rendering algorithm changed, and no GPU qualification or full application
+startup is claimed. Stage 6 retains its later final-input/application gates.
+Raw inventories and final input hashes are under
+`Build/EditorResponsibilityAndUEInterfaceAlignment/stage3-consumers.txt` and
+`stage3-inputs.json`. Changed-document and all-plan validation passed; subsequent
+changes after these native receipts are documentation only.
 
 ### Stage 4: Place shared texture preview mechanisms in DurinEd
 

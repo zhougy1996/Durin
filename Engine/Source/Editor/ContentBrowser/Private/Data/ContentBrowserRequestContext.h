@@ -9,31 +9,22 @@
 #include "AssetTools/MutationTypes.h"
 #include "Asset/MutationExtensions.h"
 #include "ContentBrowser/ContentBrowserContracts.h"
-#include "Panels/ContentBrowserDataTypes.h"
-#include "Panels/ContentBrowserItemDiscovery.h"
 #include "Operations/ContentDeletionOperation.h"
 
 namespace Durin::ContentBrowser::Private
 {
-	// Owns capture preparation, item policy, mutations and deletion sessions for one browser.
-	class FContentBrowserDataSource
+	// Owns mutation admission and confirmed deletion state for one request scope.
+	class FContentBrowserRequestContext
 	{
 	public:
-		explicit FContentBrowserDataSource(const FContentBrowserHostContext& Host = {});
+		explicit FContentBrowserRequestContext(const FContentBrowserHostContext& Host = {});
+		static auto Combine(std::vector<std::shared_ptr<FContentBrowserRequestContext>> Contexts) -> std::shared_ptr<FContentBrowserRequestContext>;
 		auto IsAcceptingRequests() const -> bool { return bAccepting; }
-		auto PrepareDiscoveryCatalog(std::shared_ptr<const FContentBrowserAssetSnapshot> Previous = {}) const -> std::shared_ptr<const FContentBrowserAssetSnapshot>;
-		// Prepared work owns every input and may outlive this owner-thread boundary.
-		using FItemsCapture = TMoveOnlyFunction<std::unique_ptr<FContentBrowserItemsSnapshot>()>;
-		using FDirectoryCapture = TMoveOnlyFunction<std::unique_ptr<FContentBrowserDirectorySnapshot>()>;
-		auto PrepareItemsCapture(std::string Directory, bool bRecursive, std::shared_ptr<const FContentBrowserAssetSnapshot> Catalog,
-			FEntryStatusQuery Query, std::shared_ptr<Tasks::FCancellationToken> Cancellation = {}) const -> FItemsCapture;
-		auto PrepareDirectoryCapture(std::string Directory, std::shared_ptr<const FContentBrowserAssetSnapshot> Catalog,
-			FEntryStatusQuery Query, std::shared_ptr<Tasks::FCancellationToken> Cancellation = {}) const -> FDirectoryCapture;
 
-		FContentBrowserDataSource(const FContentBrowserDataSource&) = delete;
-		auto operator=(const FContentBrowserDataSource&) -> FContentBrowserDataSource& = delete;
-		FContentBrowserDataSource(FContentBrowserDataSource&&) = delete;
-		auto operator=(FContentBrowserDataSource&&) -> FContentBrowserDataSource& = delete;
+		FContentBrowserRequestContext(const FContentBrowserRequestContext&) = delete;
+		auto operator=(const FContentBrowserRequestContext&) -> FContentBrowserRequestContext& = delete;
+		FContentBrowserRequestContext(FContentBrowserRequestContext&&) = delete;
+		auto operator=(FContentBrowserRequestContext&&) -> FContentBrowserRequestContext& = delete;
 
 		// Capability queries do not report diagnostics or authorize subsequent I/O.
 		auto CanModify(std::string* OutErrorMsg = nullptr) const -> bool;
@@ -41,6 +32,7 @@ namespace Durin::ContentBrowser::Private
 		auto CanDuplicateItem(const FContentBrowserItem& Item, std::string* OutErrorMsg = nullptr) const -> bool;
 		auto CanRenameItem(const FContentBrowserItem& Item, std::string_view NewName, std::string* OutErrorMsg = nullptr) const -> bool;
 		auto CanMoveItem(const FContentBrowserItem& Item, std::string_view Destination, std::string* OutErrorMsg = nullptr) const -> bool;
+		auto CanCopyItem(const FContentBrowserItem& Item, std::string_view Destination, std::string* OutErrorMsg = nullptr) const -> bool;
 		auto StopRequestAdmission() -> void { bAccepting = false; DeletionSessions.clear(); }
 		// Diagnostics and committed item updates are independent of command return values.
 		auto SetDiagnosticSink(FFeedbackContext::FMessageSink Sink) -> void { Diagnostics = std::move(Sink); }
@@ -96,8 +88,6 @@ namespace Durin::ContentBrowser::Private
 		auto ReportRecovery(const FAssetMutationResultDetails& Native) const -> void;
 		auto Report(ELogLevel Level, std::string_view Message) const -> void;
 		auto Feedback() const -> FFeedbackContext;
-		// One serial item lane per browser; admitted work pins the collector lifetime.
-		std::shared_ptr<FContentBrowserItemDiscovery> ItemDiscovery = std::make_shared<FContentBrowserItemDiscovery>();
 		FFeedbackContext::FMessageSink Diagnostics;
 		std::function<bool()> MutationAllowed;
 		bool bAccepting = true;

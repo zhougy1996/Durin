@@ -201,6 +201,19 @@ durin_add_native_test(TextureImportWorkflowTests
 	HEAVY_RUNTIME_RATIONALE "Uses native texture compilation and editor asset persistence without an application host."
 )
 
+durin_add_native_test(ContentBrowserDataTests
+ KIND feature
+ DOMAINS asset-workflow
+ MODULES asset-tools content-browser durin-ed
+ STACKS editor
+ SOURCES Private/Editor/ContentBrowserDataTests.cpp
+ LIBRARIES Core CoreDObject Engine DurinEd ContentBrowser AssetTools
+ INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Private
+ REQUIRES editor
+ REQUIREMENT_RATIONALE "Exercises reflected editor data providers and real mounted file mutations."
+ HEAVY_RUNTIME_RATIONALE "Uses the editor service and asset runtime lifetime."
+)
+
 durin_add_native_test(ContentBrowserWorkflowTests
 	KIND feature
 	DOMAINS asset-workflow
@@ -229,7 +242,8 @@ durin_add_native_test(ContentBrowserWorkflowTests
 		${_durin_content_browser_private}/Assets/SourceImageThumbnailDiskCache.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserModel.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserQuery.cpp
-		${_durin_content_browser_private}/Panels/ContentBrowserDataSource.cpp
+		${_durin_content_browser_private}/Data/ContentBrowserRequestContext.cpp
+		${_durin_content_browser_private}/Data/ContentBrowserDataQuery.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserItemDiscovery.cpp
 		${_durin_content_browser_private}/Operations/ContentBrowserItemOperations.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserRefreshCoordinator.cpp
@@ -243,6 +257,7 @@ durin_add_native_test(ContentBrowserWorkflowTests
 		Mona
 		MonaImGui
 		DurinEd
+		ContentBrowser
 		AssetTools
 		MeshBuilder
 		TextureCompressor

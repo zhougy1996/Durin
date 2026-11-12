@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 #include "Threading/Task.h"
 
-#include "Panels/ContentBrowserDataSource.h"
+#include "Data/ContentBrowserDataQuery.h"
 #include "Operations/ContentBrowserPaths.h"
 #include "Panels/ContentBrowserSession.h"
 
@@ -15,7 +15,7 @@ namespace Durin::ContentBrowser::Private
 	public:
 		// Standalone synchronous mode supports callers without a frame pump.
 		// Editor panels opt into asynchronous mode and pump before drawing.
-		explicit FContentBrowserModel(FContentBrowserDataSource& InDataSource, bool bAsync = false);
+		explicit FContentBrowserModel(FContentBrowserDataQuery& InDataQuery, bool bAsync = false);
 		~FContentBrowserModel();
 		FContentBrowserModel(const FContentBrowserModel&) = delete;
 		auto operator=(const FContentBrowserModel&) -> FContentBrowserModel& = delete;
@@ -130,14 +130,15 @@ namespace Durin::ContentBrowser::Private
 		std::optional<uint64> MountSnapshotRevision;
 		std::unordered_map<std::string, std::shared_ptr<const FContentBrowserDirectorySnapshot>> DirectoryChildrenCache;
 		std::unordered_set<std::string> RequestedDirectoryChildrenSnapshots;
-		// The Panel-owned source outlives this model and prepares owned capture work.
-		FContentBrowserDataSource& DataSource;
+		// Per-view query state outlives the model; live source access stays on the owner thread.
+		FContentBrowserDataQuery& DataQuery;
 		std::shared_ptr<const FContentBrowserAssetSnapshot> Catalog;
 		FEntryStatusQuery EntryStatusQuery;
 		bool bAsync = false;
 		bool bSnapshotPublicationSuspended = false;
 		uint64 SnapshotVersion = 0;
 		uint64 ItemsRequestCount = 0;
+		uint64 DataRevision = 0;
 		bool bActiveTreePublishable = false;
 		enum class EItemsRequestState : uint8 { Queued, Capturing, Completed, Cancelled };
 		// The request owns its inputs and journal cursor. Replacing it retires publication rights.

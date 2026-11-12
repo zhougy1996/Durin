@@ -6,9 +6,14 @@
 #include "DObject/WeakObjectPtr.h"
 #include "AssetRegistry/ContentChanges.h"
 #include "ContentBrowserAPI.h"
+#include "ContentBrowserItem.h"
 #include "Import/ImportDialogSupport.h"
 
-namespace Durin { class DAssetEditorSubsystem; }
+namespace Durin
+{
+	class DAssetEditorSubsystem;
+	class DContentBrowserDataSubsystem;
+} // namespace Durin
 namespace Durin::ContentBrowser
 {
 	// Identifies the extension surface contributed by an asset-family module.
@@ -28,18 +33,6 @@ namespace Durin::ContentBrowser
 		Stopped,
 	};
 
-	// Identifies content without requiring a loaded asset or a virtual mount.
-	enum class EExtensionItemKind : uint8 { Asset, File, Directory, Redirector };
-	// Owns paths and class metadata for an item snapshot; non-assets may have no virtual path.
-	struct FExtensionItem
-	{
-		EExtensionItemKind Kind = EExtensionItemKind::File;
-		std::string StableId;
-		std::string VirtualPath;
-		std::string PhysicalPath;
-		std::string AssetClassName;
-	};
-
 	// Owns a selection snapshot. Target directories describe the command destination;
 	// PrimaryItem is the clicked item, or the first selected item for details.
 	struct FExtensionContext
@@ -48,8 +41,8 @@ namespace Durin::ContentBrowser
 		std::string PhysicalDirectory;
 		std::string CurrentVirtualDirectory;
 		std::string CurrentPhysicalDirectory;
-		std::vector<FExtensionItem> Selection;
-		std::optional<FExtensionItem> PrimaryItem;
+		std::vector<FContentBrowserItem> Selection;
+		std::optional<FContentBrowserItem> PrimaryItem;
 		uint64 CatalogRevision = 0;
 	};
 
@@ -221,6 +214,8 @@ namespace Durin::ContentBrowser
 		std::function<void(bool, std::string, std::function<void(std::string)>)> Reimport;
 		std::shared_ptr<FMountedContentReconciliationState> ReconciliationState;
 		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditors;
+		TWeakObjectPtr<DContentBrowserDataSubsystem> DataSubsystem;
+		std::function<void(ELogLevel, std::string_view)> ReportDiagnostic;
 	};
 
 	// Exposes host-level browser requests without leaking models or UI types.

@@ -16,8 +16,8 @@ namespace Durin::ContentBrowser::Private
 
 	} // namespace
 
-	FContentBrowserModel::FContentBrowserModel(FContentBrowserDataSource& InDataSource, bool bInAsync)
-		: DataSource(InDataSource)
+	FContentBrowserModel::FContentBrowserModel(FContentBrowserDataQuery& InDataQuery, bool bInAsync)
+		: DataQuery(InDataQuery)
 		, bAsync(bInAsync)
 	{
 	}
@@ -58,8 +58,24 @@ namespace Durin::ContentBrowser::Private
 
 	auto FContentBrowserModel::PumpPendingSnapshots() -> bool
 	{
-		if (!DataSource.IsAcceptingRequests()) CancelPendingSnapshots();
+		if (!DataQuery.IsAcceptingRequests())
+		{
+			CancelPendingSnapshots();
+			PublishedSnapshot = std::make_shared<const FContentBrowserItemsSnapshot>();
+			Items = {};
+		}
 		if (bSnapshotPublicationSuspended) return false;
+		const auto CurrentDataRevision = DataQuery.GetRevision();
+		if (DataQuery.IsAcceptingRequests() && DataRevision != CurrentDataRevision)
+		{
+			const bool Affected = DataQuery.IsAffectedByUpdates(DataRevision, Session.CurrentVirtualPath, !Session.Query.Search.empty());
+			DataRevision = CurrentDataRevision;
+			if (Affected)
+			{
+				RefreshItemsSnapshot();
+				return true;
+			}
+		}
 		// Unrelated catalog publications validate an old capture without restarting it.
 		if (IsLoading() && ItemsRequest->CatalogCursor != GetAssetQueryRevision())
 		{
@@ -95,8 +111,7 @@ namespace Durin::ContentBrowser::Private
 			ActiveItemsRequest = ItemsRequest;
 			ActiveItemsRequest->State = EItemsRequestState::Capturing;
 			ItemsCancellation = std::make_shared<Tasks::FCancellationToken>();
-			auto Work = DataSource.PrepareItemsCapture(ActiveItemsRequest->Directory,
-				ActiveItemsRequest->bRecursive, ActiveItemsRequest->Catalog, EntryStatusQuery, ItemsCancellation);
+			auto Work = DataQuery.PrepareItemsCapture(ActiveItemsRequest->Directory, ActiveItemsRequest->bRecursive, ActiveItemsRequest->Catalog, EntryStatusQuery, ItemsCancellation);
 			if (!Work) { CancelPendingSnapshots(); return false; }
 			ItemsTask = Tasks::LaunchTask("ContentBrowser.Items", std::move(Work),
 				{.Attribution = RegisterTaskAttribution("ContentBrowser", "Items")});
@@ -128,8 +143,8 @@ namespace Durin::ContentBrowser::Private
 			RequestedDirectoryChildrenSnapshots.erase(It);
 			bActiveTreePublishable = true;
 			TreeCancellation = std::make_shared<Tasks::FCancellationToken>();
-			Catalog = DataSource.PrepareDiscoveryCatalog(Catalog);
-			auto Work = DataSource.PrepareDirectoryCapture(ActiveTreeDirectory, Catalog, EntryStatusQuery, TreeCancellation);
+			Catalog = DataQuery.PrepareDiscoveryCatalog(Catalog);
+			auto Work = DataQuery.PrepareDirectoryCapture(ActiveTreeDirectory, Catalog, EntryStatusQuery, TreeCancellation);
 			if (!Work) { CancelPendingSnapshots(); return bPublished; }
 			TreeTask = Tasks::LaunchTask("ContentBrowser.Directory", std::move(Work),
 				{.Attribution = RegisterTaskAttribution("ContentBrowser", "Directory")});
@@ -382,11 +397,12 @@ namespace Durin::ContentBrowser::Private
 
 	auto FContentBrowserModel::RefreshItemsSnapshot(bool bInvalidateDirectoryTree) -> void
 	{
+		DataRevision = DataQuery.GetRevision();
 		bSnapshotInjectedForTesting = false;
 		if (bInvalidateDirectoryTree) InvalidateDirectoryTree();
 		if (ItemsRequest) ItemsRequest->State = EItemsRequestState::Cancelled;
 		ItemsCancellation->Cancel();
-		Catalog = DataSource.PrepareDiscoveryCatalog(Catalog);
+		Catalog = DataQuery.PrepareDiscoveryCatalog(Catalog);
 		if (!Catalog) { CancelPendingSnapshots(); return; }
 		++ItemsRequestCount;
 		bSnapshotPublicationSuspended = false;
@@ -402,18 +418,18 @@ namespace Durin::ContentBrowser::Private
 			(void)PumpPendingSnapshots();
 			return;
 		}
-		auto Work = DataSource.PrepareItemsCapture(Session.CurrentPhysicalPath,
-			!Session.Query.Search.empty(), Catalog, EntryStatusQuery);
+		auto Work = DataQuery.PrepareItemsCapture(Session.CurrentPhysicalPath, !Session.Query.Search.empty(), Catalog, EntryStatusQuery);
 		if (Work) PublishItems(std::move(*Work()));
 	}
 
 	auto FContentBrowserModel::PublishItems(FContentBrowserItemsSnapshot Snapshot) -> void
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("ContentBrowser.PublishItems");
+		Snapshot = DataQuery.ProjectItems(std::move(Snapshot), Session.CurrentVirtualPath, !Session.Query.Search.empty());
 		Snapshot.Version = ++SnapshotVersion;
 		for (FContentBrowserItem& Item : Snapshot.Items)
 		{
-			if (Item.Kind == EContentBrowserItemKind::Folder)
+			if (Item.Kind == EContentBrowserItemKind::Folder && Item.VirtualPath.empty())
 				Item.VirtualPath = PhysicalToVirtualDirectory(Item.PhysicalPath);
 		}
 		// Tree completions may have published diagnostics while item I/O was pending.
@@ -429,7 +445,7 @@ namespace Durin::ContentBrowser::Private
 
 	auto FContentBrowserModel::RebuildItems() -> void
 	{
-		Items = ContentBrowserQuery::Project(PublishedSnapshot, Session.CurrentPhysicalPath, Session.Query);
+		Items = ContentBrowserQuery::Project(PublishedSnapshot, Session.CurrentPhysicalPath, Session.Query, Session.CurrentVirtualPath);
 	}
 
 	auto FContentBrowserModel::SetSearch(std::string_view InSearch) -> void
@@ -494,7 +510,7 @@ namespace Durin::ContentBrowser::Private
 	auto FContentBrowserModel::RequestDirectoryChildrenSnapshot(
 		std::string_view PhysicalDirectory) -> void
 	{
-		if (!DataSource.IsAcceptingRequests()) return;
+		if (!DataQuery.IsAcceptingRequests()) return;
 		const std::string Physical = NormalizePath(PhysicalDirectory);
 		if (!DirectoryChildrenCache.contains(Physical)
 			&& !(TreeTask.IsValid() && bActiveTreePublishable
@@ -504,16 +520,16 @@ namespace Durin::ContentBrowser::Private
 
 	auto FContentBrowserModel::RefreshRequestedDirectoryChildrenSnapshots() -> void
 	{
-		if (!DataSource.IsAcceptingRequests()) return;
+		if (!DataQuery.IsAcceptingRequests()) return;
 		if (bAsync) return; // The frame pump schedules a bounded serial tree lane.
-		Catalog = DataSource.PrepareDiscoveryCatalog(Catalog);
+		Catalog = DataQuery.PrepareDiscoveryCatalog(Catalog);
 		std::vector<std::string> Requests(
 			RequestedDirectoryChildrenSnapshots.begin(), RequestedDirectoryChildrenSnapshots.end());
 		RequestedDirectoryChildrenSnapshots.clear();
 		for (const std::string& Physical : Requests)
 		{
 			if (DirectoryChildrenCache.contains(Physical)) continue;
-			auto Work = DataSource.PrepareDirectoryCapture(Physical, Catalog, EntryStatusQuery);
+			auto Work = DataQuery.PrepareDirectoryCapture(Physical, Catalog, EntryStatusQuery);
 			if (Work) PublishDirectory(Physical, std::move(*Work()));
 		}
 	}
@@ -528,6 +544,7 @@ namespace Durin::ContentBrowser::Private
 			else ++SuppressedEnumerationDiagnosticCount;
 		}
 		SuppressedEnumerationDiagnosticCount += Snapshot.SuppressedDiagnosticCount;
+		Snapshot = DataQuery.ProjectDirectory(std::move(Snapshot), Physical);
 		Snapshot.Version = ++SnapshotVersion;
 		DirectoryChildrenCache[Physical] =
 			std::make_shared<const FContentBrowserDirectorySnapshot>(std::move(Snapshot));
@@ -561,7 +578,8 @@ namespace Durin::ContentBrowser::Private
 		std::error_code Error;
 		const std::filesystem::file_status Status = QueryPathStatus(Path, Error);
 		if (!Error && std::filesystem::is_directory(Status)) return true;
-		const auto Query = DataSource.PrepareDiscoveryCatalog();
+		if (DataQuery.IsProviderDirectory(Path.generic_string())) return true;
+		const auto Query = DataQuery.PrepareDiscoveryCatalog();
 		if (!Query) return {};
 		return std::ranges::any_of(Query->Items, [&](const auto& Item) {
 			const auto Directory = std::filesystem::path(Item.PhysicalPath).parent_path();
@@ -578,8 +596,10 @@ namespace Durin::ContentBrowser::Private
 		Session.CurrentPhysicalPath = std::filesystem::path(CurrentDirectory)
 								  .lexically_normal()
 								  .generic_string();
-		PublishedSnapshot = std::make_shared<const FContentBrowserItemsSnapshot>(
-			FContentBrowserItemsSnapshot{.Items = std::move(Snapshot)});
+		Session.CurrentVirtualPath = PhysicalToVirtualDirectory(Session.CurrentPhysicalPath);
+		auto Bound = DataQuery.ProjectItems(FContentBrowserItemsSnapshot{.Items = std::move(Snapshot)}, Session.CurrentVirtualPath, false);
+		PublishedSnapshot = std::make_shared<const FContentBrowserItemsSnapshot>(std::move(Bound));
+		DataRevision = DataQuery.GetRevision();
 		bSnapshotInjectedForTesting = true;
 		DirectoryChildrenCache.clear();
 		RequestedDirectoryChildrenSnapshots.clear();

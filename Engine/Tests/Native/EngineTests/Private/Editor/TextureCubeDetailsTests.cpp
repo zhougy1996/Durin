@@ -71,7 +71,7 @@ namespace Durin::TextureEditor
 		ASSERT_TRUE(Presentation.IsValid()) << PresentationError;
 		ContentBrowser::FExtensionContext Context;
 		Context.CatalogRevision = GetAssetCatalogRevision();
-		Context.Selection.push_back({.Kind = ContentBrowser::EExtensionItemKind::Asset,
+		Context.Selection.push_back({.Kind = ContentBrowser::EContentBrowserItemKind::Asset,
 			.PhysicalPath = PackagePath.generic_string(),
 			.AssetClassName = DTextureCube::StaticClass()->GetQualifiedName().ToString()});
 		const auto Rows = ContentBrowser::CaptureSelectionDetails(Context);

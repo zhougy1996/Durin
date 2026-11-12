@@ -1,5 +1,6 @@
 {
     "ModuleName": "ContentBrowser",
+    "ReflectHeaders": ["Public/ContentBrowserDataSource.h", "Public/ContentBrowserNativeDataSource.h", "Public/ContentBrowserDataSubsystem.h"],
     "LinkType": "Shared",
     "PCH": "SharedPCH_DurinEd",
     "PrivateDependencies": [

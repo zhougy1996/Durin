@@ -15,7 +15,7 @@ namespace Durin::ContentBrowser::Private
 	class FContentDeletionOperation final
 	{
 	private:
-		friend class FContentBrowserDataSource;
+		friend class FContentBrowserRequestContext;
 		explicit FContentDeletionOperation(
 			FContentDeletionPlanPtr InPlan,
 			FAssetDeletionOperation InAssetOperation);

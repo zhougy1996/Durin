@@ -2,22 +2,6 @@
 
 namespace Durin::ContentBrowser::Private
 {
-	namespace
-	{
-		auto DescribeItem(const FContentBrowserItem& Item) -> FExtensionItem
-		{
-			EExtensionItemKind Kind = EExtensionItemKind::File;
-			switch (Item.Kind)
-			{
-			case EContentBrowserItemKind::Folder: Kind = EExtensionItemKind::Directory; break;
-			case EContentBrowserItemKind::Asset: Kind = EExtensionItemKind::Asset; break;
-			case EContentBrowserItemKind::Redirector: Kind = EExtensionItemKind::Redirector; break;
-			default: break;
-			}
-			return {Kind, Item.StableId(), Item.VirtualPath, Item.PhysicalPath, Item.AssetClassName};
-		}
-	}
-
 	auto BuildExtensionContext(std::span<const FContentBrowserItem> Items,
 		const std::unordered_set<std::string>& Selection,
 		std::string_view CurrentPhysicalDirectory, std::string_view CurrentVirtualDirectory,
@@ -31,10 +15,10 @@ namespace Durin::ContentBrowser::Private
 		Context.PhysicalDirectory = CurrentPhysicalDirectory;
 		Context.VirtualDirectory = CurrentVirtualDirectory;
 		for (const auto& Item : Items)
-			if (Selection.contains(Item.StableId())) Context.Selection.push_back(DescribeItem(Item));
+			if (Selection.contains(Item.StableId())) Context.Selection.push_back(Item);
 		if (PrimaryItem)
 		{
-			Context.PrimaryItem = DescribeItem(*PrimaryItem);
+			Context.PrimaryItem = *PrimaryItem;
 			if (!Selection.contains(PrimaryItem->StableId())) Context.Selection = {*Context.PrimaryItem};
 			if (PrimaryItem->Kind == EContentBrowserItemKind::Folder)
 			{
@@ -47,9 +31,10 @@ namespace Durin::ContentBrowser::Private
 		{
 			Context.PhysicalDirectory = TargetPhysicalDirectory;
 			Context.VirtualDirectory = TargetVirtualDirectory;
-			Context.PrimaryItem = FExtensionItem{EExtensionItemKind::Directory,
-				std::string(TargetPhysicalDirectory), std::string(TargetVirtualDirectory),
-				std::string(TargetPhysicalDirectory), {}};
+			Context.PrimaryItem = FContentBrowserItem{
+				.Kind = EContentBrowserItemKind::Folder,
+				.VirtualPath = std::string(TargetVirtualDirectory),
+				.PhysicalPath = std::string(TargetPhysicalDirectory)};
 			Context.Selection = {*Context.PrimaryItem};
 		}
 		return Context;

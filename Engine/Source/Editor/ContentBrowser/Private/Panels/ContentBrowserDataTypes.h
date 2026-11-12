@@ -3,19 +3,10 @@
 #include "CoreMinimal.h"
 
 #include "Asset/AssetReadResult.h"
-#include "DObject/AssetPath.h"
+#include "ContentBrowserItem.h"
 
 namespace Durin::ContentBrowser::Private
 {
-	// Distinguishes folders, registered assets, and ordinary files.
-	enum class EContentBrowserItemKind : uint8
-	{
-		Folder,
-		Asset,
-		Redirector,
-		File
-	};
-
 	// Selects the content category shown without changing directory navigation.
 	enum class EContentBrowserTypeFilter : uint8
 	{
@@ -37,30 +28,6 @@ namespace Durin::ContentBrowser::Private
 		Type,
 		Size,
 		Modified
-	};
-
-	// Captures one mounted content item and its searchable metadata.
-	struct FContentBrowserItem
-	{
-		EContentBrowserItemKind Kind = EContentBrowserItemKind::File;
-		std::string Name;
-		std::string VirtualPath;
-		FPackagePath PackagePath;
-		std::string PhysicalPath;
-		std::string AssetClassName;
-		std::string Extension;
-		FSoftObjectPath RedirectDestination;
-		uintmax_t FileSize = 0;
-		uintmax_t PackageFileSize = 0;
-		uintmax_t BulkFileSize = 0;
-		std::filesystem::file_time_type LastWriteTime{};
-
-		auto StableId() const -> const std::string&
-		{
-			return Kind == EContentBrowserItemKind::Asset
-				|| Kind == EContentBrowserItemKind::Redirector
-				? VirtualPath : PhysicalPath;
-		}
 	};
 
 	enum class EEnumerationDiagnosticKind : uint8
