@@ -1165,10 +1165,9 @@ TEST(FMaterialRenderProxyTests, FailedCompilationPublishesErrorAndRecoveryForEac
 			.AuthoredRevision = Status.AuthoredRevision,
 			.Generation = Status.RequestGeneration,
 			.DependencyRevision = Status.DependencyRevision,
-			.ParentChainRevision = Status.ParentChainRevision,
-			.ProgramIdentity = Status.RequestedIdentity,
+			.ProgramIdentity = Status.CompiledIdentity,
 			.Target = Status.Target,
-			.State = Durin::EMaterialCompileState::Failed,
+			.Outcome = Durin::EMaterialCompileOutcome::Failed,
 			.Diagnostics = {{.Message = "Material compile admission was rejected."}}};
 		EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(*Owner, std::move(Failed)));
 		EXPECT_FALSE(Owner->GetAcceptedCompiledProgram());
@@ -1203,10 +1202,9 @@ TEST(FMaterialRenderProxyTests, FailedCompilationPublishesErrorAndRecoveryForEac
 			.AuthoredRevision = Ready.AuthoredRevision,
 			.Generation = Ready.RequestGeneration,
 			.DependencyRevision = Ready.DependencyRevision,
-			.ParentChainRevision = Ready.ParentChainRevision,
-			.ProgramIdentity = Ready.RequestedIdentity,
+			.ProgramIdentity = Ready.CompiledIdentity,
 			.Target = Ready.Target,
-			.State = Durin::EMaterialCompileState::Ready};
+			.Outcome = Durin::EMaterialCompileOutcome::Succeeded};
 		EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(*Owner, std::move(Rejected)));
 		EXPECT_EQ(Owner->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Rejected);
 		ExpectRenderDataMatches(CaptureMaterialProxy(Proxy).RenderData, Durin::GetErrorMaterialRenderData());

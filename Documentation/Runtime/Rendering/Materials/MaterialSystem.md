@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-11-10
+Last reviewed: 2026-11-12
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -649,10 +649,12 @@ active compiling manager; construction in a running engine does not compile
 before its object handle exists. `PostLoad`, authored edits, reload, and the
 explicit editor action use the asynchronous owner. MaterialEditor selects a
 transient working-copy root edit policy: Automatic coalesces semantic edits for 400 ms, Manual
-records `NeedsCompile` without submitting, and Immediate preserves non-editor
+leaves the authored revision unsubmitted, and Immediate preserves non-editor
 callers' existing behavior. Loaded instances inherit the root policy. Scheduled
-edits use `Scheduled` state and the manager's bounded retry scan, without taking
-compiler snapshots or advancing request generations until submission. Selected
+edits carry an optional deadline independently of request execution status and
+use the bounded retry scan, without taking compiler snapshots or advancing request
+generations until submission. Editing does not cancel an older request; its
+captured authored revision prevents stale publication. Selected
 finish flushes scheduled automatic work; manual work requires an explicit request.
 Late results cannot replace a material with unsubmitted edits. A qualified result
 whose static properties no longer match is skipped and rescheduled through this
@@ -672,7 +674,9 @@ request removes the same owner from obsolete work, requests cooperative
 cancellation when a flight loses its last consumer, and leaves the accepted
 last-known-good program visible. GameThread admits a mailbox result only when
 the live object-handle generation, authored revision, request generation,
-dependency generation, parent-chain revision, target, and program identity all match. Successful
+dependency generation and target match. Parent-chain changes advance the affected
+owner's authored revision rather than maintaining a second parent-chain counter.
+The candidate program identity must match its compiled ShaderMap identity. Successful
 admission atomically replaces the complete required-stage result and proxy state;
 current compilation failure or admission rejection retires the complete accepted
 program, layout, values and resources and publishes ErrorMaterial through the
@@ -685,10 +689,14 @@ and instance variants apply this rule to their own compile requests. Immutable
 compiler cache entries remain reusable after renderable generation retirement.
 The owner stores this contract using the same `FMaterialResource` value
 published to its proxy; shader properties derive from that layer's static
-properties. There is no separate accepted-generation type, compiled authored
-revision or last-known-good display flag. Current readiness requires Ready state
-and matching requested/compiled identities; owner and revision checks remain at
-result admission.
+properties. There is no separate accepted-generation type or last-known-good display flag.
+The status records submitted and compiled authored revisions: unsubmitted edits
+are derived from the submitted revision, while current readiness requires Ready
+status, a valid compiled identity, and a compiled revision matching the authored
+revision. There is no requested identity copied back from a completed result.
+Owner and request qualifiers remain at result admission. Admission returns
+Accepted, Capacity or Rejected; worker outcomes are limited to Succeeded, Failed
+or Canceled, independently of asset-visible execution status.
 
 The shared compiling manager retains at most 32 active material compilation requests and
 256 asset consumers, with one admission limit for asset and standalone program requests,

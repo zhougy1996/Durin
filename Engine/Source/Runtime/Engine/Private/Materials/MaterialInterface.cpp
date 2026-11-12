@@ -283,11 +283,9 @@ namespace Durin
 			if (!IsValid(Owner) || Owner->IsDynamicInstance()) continue;
 			++Result.LoadedOwnerCount;
 			const auto& Status = Owner->GetMaterialCompileStatus();
-			const bool bPending = Status.State == EMaterialCompileState::Running
-				|| Status.State == EMaterialCompileState::Deferred
-				|| Status.State == EMaterialCompileState::Scheduled;
-			const bool bFailed = Status.State == EMaterialCompileState::Failed
-				|| Status.State == EMaterialCompileState::Rejected;
+			const bool bPending = Owner->IsCompiling();
+			const bool bFailed = !Status.HasUnsubmittedEdits()
+				&& (Status.State == EMaterialCompileState::Failed || Status.State == EMaterialCompileState::Rejected);
 			Result.PendingOwnerCount += bPending;
 			Result.FailedOwnerCount += bFailed;
 			const auto Program = Owner->GetAcceptedCompiledProgram();
@@ -321,6 +319,8 @@ namespace Durin
 		if (IsDynamicInstance()) return false;
 		Private::GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(this));
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return false;
+		CompilationOwner.MaterialCompileStatus.EditCompileDeadline.reset();
+		CompilationOwner.MaterialCompileStatus.SubmittedRevision = CompilationOwner.MaterialCompileStatus.AuthoredRevision;
 		CompilationOwner.LastObservedShaderProperties = CanonicalizeMaterialShaderProperties(CandidateProperties);
 		FModuleManager::Get().LoadModule("RenderCore");
 		FMaterialCompilerEnvironment Environment;
@@ -388,8 +388,6 @@ namespace Durin
 			auto& Status = Owner->CompilationOwner.MaterialCompileStatus;
 			Status.AuthoredRevision = Status.AuthoredRevision == std::numeric_limits<uint64>::max()
 				? 1 : Status.AuthoredRevision + 1;
-			Status.ParentChainRevision = Status.ParentChainRevision == std::numeric_limits<uint64>::max()
-				? 1 : Status.ParentChainRevision + 1;
 			Private::FMaterialCompilationLifecycle::ScheduleEdit(*Owner, Context);
 		}
 	}
@@ -524,7 +522,8 @@ namespace Durin
 		Private::GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(this));
 		Status.State = EMaterialCompileState::Ready;
 		Status.CompiledIdentity = Program->GetShaderMap().ShaderMapId;
-		Status.RequestedIdentity = Program->GetShaderMap().ShaderMapId;
+		Status.CompiledRevision = Status.SubmittedRevision = Status.AuthoredRevision;
+		Status.EditCompileDeadline.reset();
 		Status.Target = Program->GetShaderMap().Target;
 		return true;
 	}

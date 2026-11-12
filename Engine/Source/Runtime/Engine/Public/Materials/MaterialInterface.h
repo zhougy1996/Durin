@@ -106,7 +106,6 @@ namespace Durin
 		FMaterialCompileStatus MaterialCompileStatus;
 		std::vector<FMaterialProgramDiagnostic> MaterialCompileDiagnostics;
 		bool bDeferredForceRecompile = false;
-		std::chrono::steady_clock::time_point EditCompileDeadline;
 	};
 
 	// Defines the shared parameter-resolution and render-update contract for materials.

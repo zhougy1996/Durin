@@ -63,22 +63,22 @@ namespace Durin
 		for (const auto& ShaderMap : Pending) PrioritizeCompilation(ShaderMap);
 	}
 
-	auto FShaderCompilingManager::SubmitJobs(FMaterialCompileRequest Request) -> EMaterialCompileState
+	auto FShaderCompilingManager::SubmitJobs(FMaterialCompileRequest Request) -> EMaterialCompileAdmission
 	{
 		CheckMaterialCompileGameThread();
 		CleanupFinishedShaderMaps();
 		const auto Bytes = EstimateRequestBytes(Request);
-		if (!Request.CompilerInput || Bytes > MaterialCompileMaxRequestBytes) return EMaterialCompileState::Rejected;
+		if (!Request.CompilerInput || Bytes > MaterialCompileMaxRequestBytes) return EMaterialCompileAdmission::Rejected;
 		(void)CancelCompilation(Request.Owner);
 		// Admission precedes encoding and normalization. Captured encoding is
 		// bounded by the input contract and belongs to GameThread snapshot capture.
 		{
 			std::scoped_lock Lock(MaterialMutex);
-			if (!IsAcceptingMaterialRequests()) return EMaterialCompileState::Rejected;
-			if (OutstandingMaterialConsumers >= MaterialCompileMaxConsumers || Bytes > 128ull * 1024 * 1024 - CapturedMaterialBytes) return EMaterialCompileState::Deferred;
+			if (!IsAcceptingMaterialRequests()) return EMaterialCompileAdmission::Rejected;
+			if (OutstandingMaterialConsumers >= MaterialCompileMaxConsumers || Bytes > 128ull * 1024 * 1024 - CapturedMaterialBytes) return EMaterialCompileAdmission::Capacity;
 		}
 		auto Encoded = MaterialBuildPrivate::EncodeTranslationInput(*Request.CompilerInput);
-		if (!Encoded) return EMaterialCompileState::Rejected;
+		if (!Encoded) return EMaterialCompileAdmission::Rejected;
 		const auto ShaderMapBytes = Bytes + Encoded->GetRetainedCapacityBytes();
 		auto TranslationInput = std::make_shared<const FMaterialTranslationInput>(FMaterialTranslationInput{*Encoded, FXxHash128::HashBuffer(Encoded->GetBytes())});
 		FBinaryWriter Identity;
@@ -94,14 +94,14 @@ namespace Durin
 			std::scoped_lock Lock(MaterialMutex);
 			if (const auto Existing = RequestedShaderMaps.find(Key); Existing != RequestedShaderMaps.end())
 			{
-				if (Existing->second->Cancellation.IsCanceled() || Bytes > 128ull * 1024 * 1024 - CapturedMaterialBytes) return EMaterialCompileState::Deferred;
+				if (Existing->second->Cancellation.IsCanceled() || Bytes > 128ull * 1024 * 1024 - CapturedMaterialBytes) return EMaterialCompileAdmission::Capacity;
 				Request.bSingleFlightConsumer = true;
 				if (!std::ranges::any_of(Existing->second->Origins, [&](auto Origin) { return SameOwner(Origin, Request.Owner); })) Existing->second->Origins.push_back(Request.Owner);
 				Existing->second->CompilingMaterialDependencies.push_back(std::move(Request)); Existing->second->CapturedBytes += Bytes; CapturedMaterialBytes += Bytes;
 				++MaterialDiagnostics.AcceptedRequests; ++MaterialDiagnostics.SingleFlightConsumers; ++OutstandingMaterialConsumers;
-				return EMaterialCompileState::Running;
+				return EMaterialCompileAdmission::Accepted;
 			}
-			if (ShaderMapBytes > 128ull * 1024 * 1024 - CapturedMaterialBytes) return EMaterialCompileState::Deferred;
+			if (ShaderMapBytes > 128ull * 1024 * 1024 - CapturedMaterialBytes) return EMaterialCompileAdmission::Capacity;
 			NewShaderMap = std::make_shared<MaterialBuildPrivate::FMaterialCompilation>(); NewShaderMap->CanonicalIdentity = Key.Identity; NewShaderMap->Force = Key.bForceRecompile;
 			NewShaderMap->CapturedBytes = ShaderMapBytes; CapturedMaterialBytes += ShaderMapBytes;
 			NewShaderMap->Origins.push_back(Request.Owner);
@@ -126,11 +126,11 @@ namespace Durin
 				CapturedMaterialBytes -= NewShaderMap->CapturedBytes;
 				--MaterialDiagnostics.AcceptedRequests; --OutstandingMaterialConsumers;
 				return Submitted.error() == MaterialBuildPrivate::EMaterialCompileAdmissionError::Capacity
-					? EMaterialCompileState::Deferred : EMaterialCompileState::Rejected;
+					? EMaterialCompileAdmission::Capacity : EMaterialCompileAdmission::Rejected;
 			}
 			require(*Submitted == NewShaderMap);
 		}
-		return EMaterialCompileState::Running;
+		return EMaterialCompileAdmission::Accepted;
 	}
 
 	auto FShaderCompilingManager::CancelCompilation(FWeakObjectPtr Owner) -> bool
@@ -198,25 +198,25 @@ namespace Durin
 		const MaterialBuildPrivate::FMaterialBuildResult& Build, const MIR::FCompilerInput* DiagnosticInput, bool Canceled) -> FMaterialCompileResult
 	{
 		const auto State = Canceled || (Build.Program && Build.Program->Status == EMaterialProgramStatus::Canceled)
-			? EMaterialCompileState::Canceled : Build ? EMaterialCompileState::Ready : EMaterialCompileState::Failed;
+			? EMaterialCompileOutcome::Canceled : Build ? EMaterialCompileOutcome::Succeeded : EMaterialCompileOutcome::Failed;
 		FMaterialCompileResult Result{
 			.Owner = Request.Owner, .AuthoredRevision = Request.AuthoredRevision, .Generation = Request.Generation,
-			.DependencyRevision = Request.DependencyRevision, .ParentChainRevision = Request.ParentChainRevision,
+			.DependencyRevision = Request.DependencyRevision,
 			.ProgramIdentity = Build.Program ? Build.Program->GetShaderMap().ShaderMapId : FMaterialProgramIdentity{},
 			.StaticProperties = Request.CompilerInput->StaticProperties, .Target = Request.CompilerInput->Environment.Target,
-			.State = State};
+			.Outcome = State};
 		for (const auto& Location : Build.Sources) {
 			auto Source = Request.CompilerInput->Sources[Location.Ordinal];
 			Source.ExpressionIndex = Location.Source.ExpressionIndex;
 			Result.ExpressionSources.push_back(std::move(Source));
 		}
-		if (State == EMaterialCompileState::Ready) {
+		if (State == EMaterialCompileOutcome::Succeeded) {
 			Result.CompiledProgram = MaterialBuildPrivate::BindMaterialProgramCollections(Build.Program, Request.CompilerInput->Collections, &Request.CompilerInput->Environment);
 			Result.CacheOutcome = Build.RetainedHit ? EMaterialCompileCacheOutcome::RetainedHit
 				: Build.SingleFlight || Request.bSingleFlightConsumer ? EMaterialCompileCacheOutcome::SingleFlight
 				: Request.bForceRecompile ? EMaterialCompileCacheOutcome::Forced : EMaterialCompileCacheOutcome::Compiled;
 		}
-		if (State != EMaterialCompileState::Canceled && Build.Program) {
+		if (State != EMaterialCompileOutcome::Canceled && Build.Program) {
 			for (auto Diagnostic : Build.Program->Diagnostics) {
 				if (Result.Diagnostics.size() >= MaterialProgramMaxDiagnosticCount) break;
 				if (Diagnostic.NodeId.IsValid() && DiagnosticInput) {
@@ -253,17 +253,17 @@ namespace Durin
 		}
 		std::vector<FMaterialCompileResult> Results;
 		const bool Canceled = ShaderMap->Cancellation.IsCanceled();
-		EMaterialCompileState State = EMaterialCompileState::Failed;
+		EMaterialCompileOutcome State = EMaterialCompileOutcome::Failed;
 		try {
 			if (const auto Hook = MaterialBuildPrivate::ResultFanoutHook.Load()) (*Hook)();
 			for (const auto& Consumer : Consumers) {
 				auto Result = MakeMaterialResult(Consumer, Build, ShaderMap->DiagnosticInput.get(), Canceled);
-				State = Result.State; Results.push_back(std::move(Result));
+				State = Result.Outcome; Results.push_back(std::move(Result));
 			}
 		}
 		catch (...)
 		{
-			State = EMaterialCompileState::Failed; Results.clear();
+			State = EMaterialCompileOutcome::Failed; Results.clear();
 			for (const auto& Consumer : Consumers)
 			{
 				auto Result = MakeMaterialResult(Consumer, {});
@@ -275,14 +275,14 @@ namespace Durin
 		{
 			std::scoped_lock Lock(MaterialMutex);
 			// Detachment wins completion; subsequent cancellation withdraws publication separately.
-			if (State == EMaterialCompileState::Ready)
+			if (State == EMaterialCompileOutcome::Succeeded)
 			{
 				MaterialDiagnostics.CompletedRequests += Consumers.size();
 				if (Build.RetainedHit) MaterialDiagnostics.RetainedHits += Consumers.size();
 			}
-			else if (State == EMaterialCompileState::Failed)
+			else if (State == EMaterialCompileOutcome::Failed)
 				MaterialDiagnostics.FailedRequests += Consumers.size();
-			else if (State == EMaterialCompileState::Canceled)
+			else if (State == EMaterialCompileOutcome::Canceled)
 				MaterialDiagnostics.CanceledRequests += Consumers.size();
 
 			for (auto& Result : Results)

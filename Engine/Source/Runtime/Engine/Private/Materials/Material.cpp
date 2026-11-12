@@ -79,8 +79,7 @@ namespace Durin
 		for (auto* Owner : Context.GetMaterialsAffectedByMaterial(this))
 			if (IsValid(Owner))
 			{
-				const auto State = Owner->GetMaterialCompileStatus().State;
-				if (State == EMaterialCompileState::NeedsCompile || State == EMaterialCompileState::Scheduled)
+				if (Owner->GetMaterialCompileStatus().HasUnsubmittedEdits())
 					Private::FMaterialCompilationLifecycle::ScheduleEdit(*Owner, &Context);
 			}
 	}

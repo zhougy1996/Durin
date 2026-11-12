@@ -1521,14 +1521,13 @@ TEST(FMaterialFunctionTests, DependencyEditsPreserveAcceptedContractsAndOwnerSou
 	for (const DMaterialInterface* Caller : {static_cast<DMaterialInterface*>(First), static_cast<DMaterialInterface*>(Second),
 		static_cast<DMaterialInterface*>(Child)})
 	{
-		EXPECT_EQ(Caller->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);
+		EXPECT_TRUE(Caller->GetMaterialCompileStatus().HasUnsubmittedEdits());
 		EXPECT_EQ(Caller->GetAcceptedCompiledProgram(), Caller == Second ? SecondAccepted : Caller == Child ? ChildAccepted : Accepted);
 	}
 	FMaterialCompileResult Stale{.Owner = FWeakObjectPtr(First), .AuthoredRevision = Before.AuthoredRevision,
-		.Generation = Before.RequestGeneration, .DependencyRevision = Before.DependencyRevision,
-		.ParentChainRevision = Before.ParentChainRevision, .ProgramIdentity = Before.RequestedIdentity,
+		.Generation = Before.RequestGeneration, .DependencyRevision = Before.DependencyRevision, .ProgramIdentity = Before.CompiledIdentity,
 		.StaticProperties = First->GetStaticProperties(), .Target = Before.Target,
-		.State = EMaterialCompileState::Ready, .CompiledProgram = Accepted};
+		.Outcome = EMaterialCompileOutcome::Succeeded, .CompiledProgram = Accepted};
 	EXPECT_FALSE(Private::FMaterialCompilationLifecycle::Admit(*First, Stale));
 	EXPECT_EQ(First->GetAcceptedCompiledProgram(), Accepted);
 	ASSERT_TRUE(First->CompileEdits());
@@ -1564,13 +1563,12 @@ TEST(FMaterialFunctionTests, DependencyEditsPreserveAcceptedContractsAndOwnerSou
 	SecondBinding->Function = Wrapper;
 	EXPECT_EQ(First->GetMaterialCompileStatus().AuthoredRevision, Current.AuthoredRevision);
 	FMaterialCompileResult StaleClosure{.Owner = FWeakObjectPtr(First), .AuthoredRevision = Current.AuthoredRevision,
-		.Generation = Current.RequestGeneration, .DependencyRevision = Current.DependencyRevision,
-		.ParentChainRevision = Current.ParentChainRevision, .ProgramIdentity = Current.RequestedIdentity,
+		.Generation = Current.RequestGeneration, .DependencyRevision = Current.DependencyRevision, .ProgramIdentity = Current.CompiledIdentity,
 		.StaticProperties = First->GetStaticProperties(), .Target = Current.Target,
-		.State = EMaterialCompileState::Ready, .CompiledProgram = CurrentProgram};
+		.Outcome = EMaterialCompileOutcome::Succeeded, .CompiledProgram = CurrentProgram};
 	EXPECT_FALSE(Private::FMaterialCompilationLifecycle::Admit(*First, std::move(StaleClosure)));
 	EXPECT_EQ(First->GetAcceptedCompiledProgram(), CurrentProgram);
-	EXPECT_EQ(First->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);
+	EXPECT_TRUE(First->GetMaterialCompileStatus().HasUnsubmittedEdits());
 	ASSERT_TRUE(First->CompileEdits());
 	EXPECT_NE(First->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, CurrentProgram->GetShaderMap().ShaderMapId);
 	MarkAsGarbage(Child);
@@ -1624,7 +1622,7 @@ TEST(FMaterialFunctionTests, RelocationRefreshesNestedCallersAndDeletionHonorsRe
 	ASSERT_TRUE(RelocateAssets(Mappings).Result);
 	EXPECT_EQ(Wrapper->GetFunctionDependencies()[0].Get(), Leaf);
 	EXPECT_GT(Material->GetMaterialCompileStatus().AuthoredRevision, Revision);
-	EXPECT_EQ(Material->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);
+	EXPECT_TRUE(Material->GetMaterialCompileStatus().HasUnsubmittedEdits());
 	EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Accepted);
 	ASSERT_TRUE(Material->CompileEdits());
 	EXPECT_EQ(Material->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, Accepted->GetShaderMap().ShaderMapId);

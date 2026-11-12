@@ -44,7 +44,7 @@ namespace Durin
 		auto Shutdown() -> void override;
 		auto CancelCompilation(FWeakObjectPtr Owner) -> bool;
 	private:
-		auto SubmitJobs(FMaterialCompileRequest Request) -> EMaterialCompileState;
+		auto SubmitJobs(FMaterialCompileRequest Request) -> EMaterialCompileAdmission;
 		friend class MaterialBuildPrivate::FMaterialCompilation;
 		friend auto MaterialBuildPrivate::GetMaterialProgramCompileStatsForTests() -> MaterialBuildPrivate::FMaterialProgramCompileStats;
 		friend struct Private::FMaterialCompilationLifecycle;

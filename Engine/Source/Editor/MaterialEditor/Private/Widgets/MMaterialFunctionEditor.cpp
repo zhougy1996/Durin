@@ -394,7 +394,7 @@ namespace Durin::MaterialEditor
 			if (!Result) Error = FormatMaterialGraphCommandResult(Result);
 			else Document.Material()->CompileEdits();
 		}
-		else if (Document.Material()->GetMaterialCompileStatus().State == EMaterialCompileState::NeedsCompile)
+		else if (Document.Material()->GetMaterialCompileStatus().HasUnsubmittedEdits())
 			Document.Material()->CompileEdits();
 		const auto DockType = Workspace::MakeDocumentDockType(Tab);
 		static constexpr std::string_view PanelIds[]{"Graph", "Preview", "Details", "Inputs"};

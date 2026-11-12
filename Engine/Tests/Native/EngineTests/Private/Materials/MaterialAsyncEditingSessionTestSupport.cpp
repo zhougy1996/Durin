@@ -59,9 +59,9 @@ auto QualifyMaterialEditingSessionAsync() -> void
 		.AuthoredRevision = Pending.AuthoredRevision,
 		.Generation = Pending.RequestGeneration,
 		.DependencyRevision = Pending.DependencyRevision,
-		.ProgramIdentity = Pending.RequestedIdentity,
+		.ProgramIdentity = Pending.CompiledIdentity,
 		.Target = Pending.Target,
-		.State = EMaterialCompileState::Failed,
+		.Outcome = EMaterialCompileOutcome::Failed,
 	};
 	EXPECT_FALSE(Private::FMaterialCompilationLifecycle::Admit(*Draft, std::move(Failed)));
 	Session.Tick(Error);
@@ -98,7 +98,7 @@ auto QualifyMaterialEditingSessionAsync() -> void
 	ASSERT_TRUE(Draft->SetMaterialExpressions({}, Outputs));
 	std::this_thread::sleep_for(std::chrono::milliseconds(450));
 	FAssetCompilingManager::Get().ProcessAsyncTasks();
-	EXPECT_NE(Draft->GetMaterialCompileStatus().State, EMaterialCompileState::Scheduled);
+	EXPECT_FALSE(Draft->GetMaterialCompileStatus().HasScheduledEdits());
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Draft);
 	EXPECT_TRUE(Draft->GetMaterialCompileStatus().IsCurrent());
 	EXPECT_NE(Source->GetExpressionOutputs(), Outputs);

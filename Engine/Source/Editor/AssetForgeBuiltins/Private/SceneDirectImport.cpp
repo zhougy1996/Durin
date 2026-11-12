@@ -428,7 +428,7 @@ struct FAssetImportSession::FImpl
 	{
 		for (auto *Object : Objects)
 			if (auto *Material = Cast<DMaterialInterface>(Object);
-			    Material && Material->GetMaterialCompileStatus().State == EMaterialCompileState::Scheduled)
+			    Material && Material->GetMaterialCompileStatus().HasScheduledEdits())
 				RequestMaterialRecompile(*Material);
 		if (!bAsync)
 			FAssetCompilingManager::Get().FinishCompilationForObjects(Objects);

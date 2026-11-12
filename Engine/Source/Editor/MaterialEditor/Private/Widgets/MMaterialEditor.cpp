@@ -169,13 +169,13 @@ namespace Durin::MaterialEditor
 			return nullptr;
 		}
 
-		auto FormatCompileState(EMaterialCompileState State) -> const char*
+		auto FormatCompileState(const FMaterialCompileStatus& Status) -> const char*
 		{
-			switch (State)
+			if (Status.HasScheduledEdits()) return "Waiting for edits to finish";
+			if (Status.HasUnsubmittedEdits()) return "Needs compile";
+			switch (Status.State)
 			{
 			case EMaterialCompileState::NeverRequested: return "Not compiled";
-			case EMaterialCompileState::NeedsCompile: return "Needs compile";
-			case EMaterialCompileState::Scheduled: return "Waiting for edits to finish";
 			case EMaterialCompileState::Deferred: return "Waiting for compiler capacity";
 			case EMaterialCompileState::Running: return "Compiling";
 			case EMaterialCompileState::Ready: return "Ready";
@@ -693,9 +693,7 @@ namespace Durin::MaterialEditor
 			}
 			else if (ImGui::Button("Compile")) RequestMaterialRecompile(*Material);
 			const FMaterialCompileStatus& Status = Material->GetMaterialCompileStatus();
-			const bool bPending = Status.State == EMaterialCompileState::Deferred
-				|| Status.State == EMaterialCompileState::Running
-				|| Status.State == EMaterialCompileState::Scheduled;
+			const bool bPending = Material->IsCompiling();
 			if (bPending)
 			{
 				ImGui::SameLine();
@@ -710,7 +708,7 @@ namespace Durin::MaterialEditor
 			}
 			ImGui::SameLine();
 			auto* EditingSession = FindEditingSession(Material);
-			ImGui::TextDisabled("%s: %s%s", EditingSession ? "Preview" : "Compile", FormatCompileState(Status.State),
+			ImGui::TextDisabled("%s: %s%s", EditingSession ? "Preview" : "Compile", FormatCompileState(Status),
 				(Material->GetAcceptedCompiledProgram() && !Status.IsCurrent()) ? " (showing last known good)" : "");
 			if (EditingSession && EditingSession->GetSourceMaterial())
 			{
@@ -718,7 +716,7 @@ namespace Durin::MaterialEditor
 				if (!SourceStatus.IsCurrent())
 				{
 					ImGui::SameLine();
-					ImGui::TextDisabled("Scene: %s", FormatCompileState(SourceStatus.State));
+					ImGui::TextDisabled("Scene: %s", FormatCompileState(SourceStatus));
 				}
 			}
 		}
@@ -863,7 +861,7 @@ namespace Durin::MaterialEditor
 		}
 		const FMaterialCompileStatus& Status = Material->GetMaterialCompileStatus();
 		const bool bCanNavigateGraph = Cast<DMaterial>(Material) != nullptr;
-		ImGui::Text("Compile: %s", FormatCompileState(Status.State));
+		ImGui::Text("Compile: %s", FormatCompileState(Status));
 		ImGui::Text("Freshness: %s", Status.IsCurrent() ? "current" : "stale");
 		ImGui::Text("Cache: %s", FormatCacheOutcome(Status.CacheOutcome));
 		ImGui::Text("Target: %s", Status.Target.empty() ? "n/a" : Status.Target.c_str());
@@ -923,7 +921,7 @@ namespace Durin::MaterialEditor
 		if (const auto* Session = FindEditingSession(Material); Session && Session->GetSourceMaterial())
 		{
 			const auto* Source = Session->GetSourceMaterial();
-			ImGui::Text("Scene material: %s", FormatCompileState(Source->GetMaterialCompileStatus().State));
+			ImGui::Text("Scene material: %s", FormatCompileState(Source->GetMaterialCompileStatus()));
 			for (const auto& Diagnostic : Source->GetMaterialCompileDiagnostics())
 				ImGui::TextWrapped("Scene: %s", Diagnostic.Message.c_str());
 		}

@@ -75,12 +75,12 @@ namespace Durin
 			FunctionOwners.insert(FunctionOwners.end(), Snapshot.Snapshot->FunctionOwners.begin(), Snapshot.Snapshot->FunctionOwners.end());
 			Inputs.push_back(std::make_shared<const MIR::FCompilerInput>(std::move(Snapshot.Snapshot->Input)));
 		}
-		struct FOwnerStamp { FObjectKey Owner; uint64 Authored, Dependency, Parent, Program; };
+		struct FOwnerStamp { FObjectKey Owner; uint64 Authored, Dependency, Program; };
 		std::vector<FOwnerStamp> Owners;
 		for (const DMaterialInterface* Owner = this; Owner; Owner = Owner->GetParent()) {
 			const auto& Status = Owner->GetMaterialCompileStatus();
 			const auto* Material = Cast<DMaterial>(Owner);
-			Owners.push_back({FObjectKey(Owner), Status.AuthoredRevision, Status.DependencyRevision, Status.ParentChainRevision,
+			Owners.push_back({FObjectKey(Owner), Status.AuthoredRevision, Status.DependencyRevision,
 				Material ? Material->GetMaterialProgramRevision() : 0});
 		}
 		Preparation->ValidatePreparedInputs = [Owners = std::move(Owners), Functions = std::move(FunctionOwners)] {
@@ -91,7 +91,7 @@ namespace Durin
 				const auto& Status = Owner->GetMaterialCompileStatus();
 				const auto* Material = Cast<DMaterial>(Owner);
 				if (Stamp.Authored != Status.AuthoredRevision || Stamp.Dependency != Status.DependencyRevision
-					|| Stamp.Parent != Status.ParentChainRevision || (Material && Stamp.Program != Material->GetMaterialProgramRevision())) return false;
+					|| (Material && Stamp.Program != Material->GetMaterialProgramRevision())) return false;
 			}
 			return true;
 		};
@@ -218,8 +218,9 @@ namespace Durin
 		CompilationOwner.MaterialCompileStatus.CacheOutcome =
 			EMaterialCompileCacheOutcome::None;
 		CompilationOwner.MaterialCompileStatus.RequestGeneration = 1;
-		CompilationOwner.MaterialCompileStatus.RequestedIdentity =
-			CompilationOwner.RenderLayer.CompiledProgram->GetShaderMap().ShaderMapId;
+		CompilationOwner.MaterialCompileStatus.CompiledRevision = CompilationOwner.MaterialCompileStatus.AuthoredRevision;
+		CompilationOwner.MaterialCompileStatus.SubmittedRevision = CompilationOwner.MaterialCompileStatus.AuthoredRevision;
+		CompilationOwner.MaterialCompileStatus.EditCompileDeadline.reset();
 		CompilationOwner.MaterialCompileStatus.CompiledIdentity =
 			CompilationOwner.RenderLayer.CompiledProgram->GetShaderMap().ShaderMapId;
 		CompilationOwner.MaterialCompileStatus.Target = CompilationOwner.RenderLayer.CompiledProgram->GetShaderMap().Target;

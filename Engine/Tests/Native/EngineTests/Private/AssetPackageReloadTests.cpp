@@ -390,8 +390,8 @@ TEST_F(FAssetPackageReloadTests, FunctionReloadRebindsNestedCallersAndPreservesA
 		const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get());
 		return Call && Call->Id == InnerCall && Call->Function.Get() == Function;
 	}));
-	EXPECT_EQ(Material->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);
-	EXPECT_EQ(Instance->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);
+	EXPECT_TRUE(Material->GetMaterialCompileStatus().HasUnsubmittedEdits());
+	EXPECT_TRUE(Instance->GetMaterialCompileStatus().HasUnsubmittedEdits());
 	EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Accepted);
 	EXPECT_EQ(Instance->GetAcceptedCompiledProgram(), InstanceAccepted);
 	ASSERT_TRUE(Material->CompileEdits());

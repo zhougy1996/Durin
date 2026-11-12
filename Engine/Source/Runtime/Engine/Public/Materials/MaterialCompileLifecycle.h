@@ -33,7 +33,7 @@ namespace Durin
 		Manual,
 	};
 
-	// Separates authored freshness from the terminal state of the latest request.
+	// Execution status of the latest request; authored edits and deadlines are independent.
 	enum class EMaterialCompileState : uint8
 	{
 		NeverRequested,
@@ -43,8 +43,6 @@ namespace Durin
 		Failed,
 		Canceled,
 		Rejected,
-		NeedsCompile,
-		Scheduled,
 	};
 
 	enum class EMaterialCompileCacheOutcome : uint8
@@ -56,6 +54,9 @@ namespace Durin
 		Forced,
 	};
 
+	enum class EMaterialCompileAdmission : uint8 { Accepted, Capacity, Rejected };
+	enum class EMaterialCompileOutcome : uint8 { Succeeded, Failed, Canceled };
+
 	// Immutable snapshot captured on GameThread before Worker admission.
 	struct FMaterialCompileRequest
 	{
@@ -63,7 +64,6 @@ namespace Durin
 		uint64 AuthoredRevision = 0;
 		uint64 Generation = 0;
 		uint64 DependencyRevision = 0;
-		uint64 ParentChainRevision = 0;
 		std::shared_ptr<const MIR::FCompilerInput> CompilerInput;
 		bool bForceRecompile = false;
 		bool bSingleFlightConsumer = false;
@@ -76,11 +76,10 @@ namespace Durin
 		uint64 AuthoredRevision = 0;
 		uint64 Generation = 0;
 		uint64 DependencyRevision = 0;
-		uint64 ParentChainRevision = 0;
 		FMaterialProgramIdentity ProgramIdentity;
 		FMaterialStaticProperties StaticProperties;
 		std::string Target;
-		EMaterialCompileState State = EMaterialCompileState::Failed;
+		EMaterialCompileOutcome Outcome = EMaterialCompileOutcome::Failed;
 		EMaterialCompileCacheOutcome CacheOutcome =
 			EMaterialCompileCacheOutcome::None;
 		std::shared_ptr<const FMaterialCompilerResult> CompiledProgram;
@@ -92,26 +91,27 @@ namespace Durin
 	struct FMaterialCompileStatus
 	{
 		uint64 AuthoredRevision = 1;
+		uint64 SubmittedRevision = 1;
+		uint64 CompiledRevision = 0;
+		std::optional<std::chrono::steady_clock::time_point> EditCompileDeadline;
 		uint64 RequestGeneration = 0;
 		uint64 DependencyRevision = 0;
-		uint64 ParentChainRevision = 0;
 		EMaterialCompileState State = EMaterialCompileState::NeverRequested;
 		EMaterialCompileCacheOutcome CacheOutcome =
 			EMaterialCompileCacheOutcome::None;
-		FMaterialProgramIdentity RequestedIdentity;
 		FMaterialProgramIdentity CompiledIdentity;
 		std::string Target;
 
 		auto IsCurrent() const -> bool
 		{
 			return State == EMaterialCompileState::Ready
-				&& RequestedIdentity == CompiledIdentity;
+				&& CompiledIdentity.IsValid() && CompiledRevision == AuthoredRevision;
 		}
 		auto HasUnsubmittedEdits() const -> bool
 		{
-			return State == EMaterialCompileState::NeedsCompile
-				|| State == EMaterialCompileState::Scheduled;
+			return SubmittedRevision != AuthoredRevision;
 		}
+		auto HasScheduledEdits() const -> bool { return EditCompileDeadline.has_value(); }
 	};
 
 	// Fixed aggregate counters retain no per-request history.

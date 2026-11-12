@@ -232,7 +232,7 @@ namespace Durin
 		FMaterialResource Resource;
 		FMaterialCompileStatus Status;
 		std::string Diagnostic;
-		uint64 AuthoredRevision = 0, ParentRevision = 0, DependencyRevision = 0, ShaderRevision = 0, BulkRevision = 0;
+		uint64 AuthoredRevision = 0, DependencyRevision = 0, ShaderRevision = 0, BulkRevision = 0;
 		ERHIBackend Backend = PreparationBackend();
 		bool bCooked = false;
 		std::filesystem::path CookRoot;
@@ -377,7 +377,6 @@ namespace Durin
 			Slot->Resource = BuildMaterialResource();
 			Slot->Status = GetMaterialCompileStatus();
 			Slot->AuthoredRevision = CompilationOwner.MaterialCompileStatus.AuthoredRevision;
-			Slot->ParentRevision = CompilationOwner.MaterialCompileStatus.ParentChainRevision;
 			Slot->DependencyRevision = CompilationOwner.MaterialCompileStatus.DependencyRevision;
 			Slot->ShaderRevision = GetShaderReloadGeneration();
 			Slot->BulkRevision = CookedProgramData.GetContentRevision();
@@ -390,7 +389,7 @@ namespace Durin
 		}
 		if (Level == PreparationFeatureLevel() && !SelectedPrimary) return;
 		const auto& OwnerStatus = CompilationOwner.MaterialCompileStatus;
-		const bool bCurrent = Slot->AuthoredRevision == OwnerStatus.AuthoredRevision && Slot->ParentRevision == OwnerStatus.ParentChainRevision
+		const bool bCurrent = Slot->AuthoredRevision == OwnerStatus.AuthoredRevision
 			&& Slot->DependencyRevision == OwnerStatus.DependencyRevision
 			&& Slot->ShaderRevision == GetShaderReloadGeneration() && Slot->Quality == GetMaterialQualityLevel()
 			&& Slot->BulkRevision == CookedProgramData.GetContentRevision() && AreMaterialFunctionOwnersCurrent(Slot->Functions)
@@ -405,7 +404,6 @@ namespace Durin
 			Replacement->bRequested = true;
 			Slot = std::move(Replacement);
 			Slot->AuthoredRevision = OwnerStatus.AuthoredRevision;
-			Slot->ParentRevision = OwnerStatus.ParentChainRevision;
 			Slot->DependencyRevision = OwnerStatus.DependencyRevision;
 			Slot->ShaderRevision = GetShaderReloadGeneration();
 			Slot->BulkRevision = CookedProgramData.GetContentRevision();
@@ -415,7 +413,6 @@ namespace Durin
 			Slot->CookRoot = GetAssetRuntimeConfiguration().GetCookRoot();
 			Slot->CookTarget = GetAssetRuntimeConfiguration().GetCookTargetPlatform();
 			Slot->Status.AuthoredRevision = OwnerStatus.AuthoredRevision;
-			Slot->Status.ParentChainRevision = OwnerStatus.ParentChainRevision;
 			Slot->Status.DependencyRevision = OwnerStatus.DependencyRevision;
 		}
 		const auto State = Slot;
@@ -499,7 +496,8 @@ namespace Durin
 		State->Resource.StaticProperties = State->Properties;
 		State->Resource = BuildMaterialResource(State->Resource);
 		State->Status.State = EMaterialCompileState::Ready;
-		State->Status.CompiledIdentity = State->Status.RequestedIdentity = (*Validated)->GetShaderMap().ShaderMapId;
+		State->Status.CompiledRevision = State->Status.SubmittedRevision = State->Status.AuthoredRevision;
+		State->Status.CompiledIdentity = (*Validated)->GetShaderMap().ShaderMapId;
 		State->Status.Target = (*Validated)->GetShaderMap().Target;
 		State->Diagnostic.clear();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap | EMaterialRenderDirtyFlags::PipelineState);
