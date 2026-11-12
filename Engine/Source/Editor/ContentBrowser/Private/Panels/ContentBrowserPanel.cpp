@@ -162,7 +162,7 @@ namespace Durin::ContentBrowser::Private
 		if (!PresentationSettings.LastDirectory.empty())
 			NavigateToPhysical(
 				PresentationSettings.LastDirectory);
-		if (Model.GetCurrentPhysicalPath().empty())
+		if (Model.GetCurrentVirtualPath().empty())
 		{
 			for (const FContentBrowserModel::FMountSnapshot& Mount :
 				 Model.GetMounts())
@@ -230,9 +230,9 @@ namespace Durin::ContentBrowser::Private
 	{
 		if (HostContext.GetMountedContentMutationRevision)
 			RefreshCoordinator.ObserveMountedContent(HostContext.GetMountedContentMutationRevision());
-		const std::string PreviousDirectory = Model.GetCurrentPhysicalPath();
-		if (!Model.NavigateToPhysical(PhysicalPath, bAddHistory)) return false;
-		if (Model.GetCurrentPhysicalPath() == PreviousDirectory) return true;
+		const auto PreviousNavigation = Model.GetNavigationRevision();
+		if (!Model.NavigateToPhysical(PhysicalPath, bAddHistory) && !Model.NavigateToVirtual(PhysicalPath, bAddHistory)) return false;
+		if (Model.GetNavigationRevision() == PreviousNavigation) return true;
 		CancelRename();
 		ThumbnailReferences->CancelPendingRequests();
 		SelectionState.Selected.clear();
@@ -246,10 +246,10 @@ namespace Durin::ContentBrowser::Private
 	{
 		if (HostContext.GetMountedContentMutationRevision)
 			RefreshCoordinator.ObserveMountedContent(HostContext.GetMountedContentMutationRevision());
-		const std::string PreviousDirectory = Model.GetCurrentPhysicalPath();
+		const auto PreviousNavigation = Model.GetNavigationRevision();
 		if (Model.NavigateHistory(Delta))
 		{
-			if (Model.GetCurrentPhysicalPath() == PreviousDirectory) return;
+			if (Model.GetNavigationRevision() == PreviousNavigation) return;
 			CancelRename();
 			ThumbnailReferences->CancelPendingRequests();
 			SelectionState.Selected.clear();
@@ -284,6 +284,12 @@ namespace Durin::ContentBrowser::Private
 
 	auto FContentBrowserPanel::RefreshPublishedContent() -> void
 	{
+		if (Model.GetCurrentPhysicalPath().empty() && !Model.GetCurrentVirtualPath().empty())
+		{
+			Model.RefreshMountSnapshot();
+			RefreshItemsSnapshot();
+			return;
+		}
 		ThumbnailReferences->ApplyContentChanges({.bFullRefresh = true});
 		ThumbnailReferences->CancelPendingRequests();
 		const std::string AvailableDirectory =
@@ -390,7 +396,7 @@ namespace Durin::ContentBrowser::Private
 		if (!GetDataSubsystem()) return;
 		if (Item.Kind == EContentBrowserItemKind::Folder)
 		{
-			NavigateToPhysical(Model.VirtualToPhysical(Item.VirtualPath));
+			NavigateToPhysical(Item.VirtualPath);
 			return;
 		}
 		if (!Item.Edit()) SetError("The item could not be opened by its data source.");
@@ -734,13 +740,13 @@ namespace Durin::ContentBrowser::Private
 			RefreshCoordinator.ObserveMountedContent(HostContext.GetMountedContentMutationRevision());
 		if (AdmissionState != EAdmissionState::Accepting)
 			return false;
-		const std::string PreviousDirectory = Model.GetCurrentPhysicalPath();
+		const auto PreviousNavigation = Model.GetNavigationRevision();
 		PendingItemAction.reset();
 		CancelRename();
 		const std::string PhysicalPath = Model.RevealAsset(AssetPath);
 		if (PhysicalPath.empty()) return false;
 		SearchBuffer.fill('\0');
-		if (Model.GetCurrentPhysicalPath() != PreviousDirectory)
+		if (Model.GetNavigationRevision() != PreviousNavigation)
 		{
 			ThumbnailReferences->CancelPendingRequests();
 			bResetContentScroll = true;

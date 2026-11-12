@@ -4,6 +4,7 @@
 #include "DObject/StrongObjectPtr.h"
 #include "Modules/ModularFeature.h"
 #include "ContentBrowserItem.h"
+#include "ContentBrowserDataCapture.h"
 #include "ContentBrowser/ContentBrowserContracts.h"
 #include "ContentBrowserDataSource.gen.h"
 
@@ -79,7 +80,7 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		static constexpr std::string_view FeatureName = "ContentBrowserDataSource";
-		static constexpr uint32 FeatureVersion = 2;
+		static constexpr uint32 FeatureVersion = 3;
 		CONTENTBROWSER_API explicit DContentBrowserDataSource(const FObjectInitializer& Initializer);
 		CONTENTBROWSER_API auto Initialize(bool bAutoRegister = true) -> void;
 		CONTENTBROWSER_API virtual auto Shutdown() -> void;
@@ -92,6 +93,8 @@ namespace Durin
 		CONTENTBROWSER_API auto IsActive() const -> bool;
 		CONTENTBROWSER_API virtual auto GetDataSourceName() const -> FName;
 		virtual auto Tick(float) -> void {}
+		virtual auto GetDiscoveryRevision() const -> uint64 { return 0; }
+		virtual auto IsDiscoveryPathAffected(uint64, std::string_view, bool) const -> bool { return true; }
 		CONTENTBROWSER_API auto QueueItemDataUpdate(ContentBrowser::FContentBrowserItemDataUpdate&& Update) -> void;
 		CONTENTBROWSER_API virtual auto CompileFilter(std::string_view Path, const ContentBrowser::FContentBrowserDataFilter& Filter, ContentBrowser::FContentBrowserDataCompiledFilter& Out) const -> void;
 		CONTENTBROWSER_API virtual auto EnumerateItemsMatchingFilter(const ContentBrowser::FContentBrowserDataCompiledFilter& Filter, const std::function<bool(ContentBrowser::FContentBrowserItem&&)>& Callback, const ContentBrowser::FContentBrowserHostContext& Host = {}) -> void;

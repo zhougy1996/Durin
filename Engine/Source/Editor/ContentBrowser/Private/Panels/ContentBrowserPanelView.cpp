@@ -202,7 +202,7 @@ namespace Durin::ContentBrowser::Private
 		NextSettings.bIconSizeLocked = bIconSizeLocked;
 		NextSettings.TreeWidth = DirectoryTreeWidth;
 		NextSettings.bShowHiddenFiles = Model.IsShowingHiddenFiles();
-		NextSettings.LastDirectory = Model.GetCurrentPhysicalPath();
+		NextSettings.LastDirectory = Model.GetCurrentPhysicalPath().empty() ? Model.GetCurrentVirtualPath() : Model.GetCurrentPhysicalPath();
 		if (NextSettings != PresentationSettings)
 		{
 			PresentationSettings = std::move(NextSettings);
@@ -233,8 +233,10 @@ namespace Durin::ContentBrowser::Private
 		if (DrawToolbarIconButton(Icons::ArrowRight, "ContentBrowserForward")) NavigateHistory(1);
 		ImGui::EndDisabled();
 		ImGui::SameLine();
-		const std::filesystem::path Parent = std::filesystem::path(Model.GetCurrentPhysicalPath()).parent_path();
-		ImGui::BeginDisabled(PhysicalToVirtualDirectory(Parent.generic_string()).empty());
+		auto CurrentVirtual=Model.GetCurrentVirtualPath();
+		while(CurrentVirtual.size()>1 && CurrentVirtual.back()=='/') CurrentVirtual.pop_back();
+		const std::filesystem::path Parent = std::filesystem::path(CurrentVirtual).parent_path();
+		ImGui::BeginDisabled(Parent.empty() || Parent=="/");
 		if (DrawToolbarIconButton(Icons::ArrowUp, "ContentBrowserUp")) NavigateToPhysical(Parent.generic_string());
 		ImGui::EndDisabled();
 		ImGui::SameLine();
@@ -262,29 +264,15 @@ namespace Durin::ContentBrowser::Private
 				ImGui::PopID();
 			};
 			bool bFirst = true;
-			for (const FContentBrowserModel::FMountSnapshot& Mount : Model.GetMounts())
+			std::filesystem::path Progressive("/");
+			for (const auto& Segment : std::filesystem::path(CurrentVirtual).relative_path())
 			{
-				std::filesystem::path Relative;
-				if (!FPaths::TryMakeLexicalRelativePath(Model.GetCurrentPhysicalPath(), Mount.PhysicalRoot, Relative)) continue;
-				std::filesystem::path Progressive = Mount.PhysicalRoot;
-				std::string RootLabel = Mount.VirtualRoot;
-				if (RootLabel.starts_with('/')) RootLabel.erase(RootLabel.begin());
-				if (RootLabel.ends_with('/')) RootLabel.pop_back();
-				DrawPathSegment(RootLabel, Mount.PhysicalRoot, Relative.empty());
-				if (!Relative.empty())
-					for (const auto& Segment : Relative)
-					{
-						ImGui::SameLine();
-						ImGui::TextDisabled("/");
-						ImGui::SameLine();
-						Progressive /= Segment;
-						const std::string SegmentPath = Progressive.generic_string();
-						DrawPathSegment(Segment.generic_string(), SegmentPath, Model.GetCurrentPhysicalPath() == NormalizePath(SegmentPath));
-					}
-				bFirst = false;
-				break;
+				if (!bFirst) { ImGui::SameLine(); ImGui::TextDisabled("/"); ImGui::SameLine(); }
+				Progressive /= Segment;
+				DrawPathSegment(Segment.generic_string(), Progressive.generic_string(), Progressive.generic_string()==CurrentVirtual);
+				bFirst=false;
 			}
-			if (bFirst) ImGui::TextDisabled("No mounted directory");
+			if (bFirst) ImGui::TextDisabled("No directory selected");
 			ImGui::EndChild();
 		};
 
@@ -383,13 +371,16 @@ namespace Durin::ContentBrowser::Private
 
 	auto FContentBrowserPanel::DrawDirectoryTree() -> void
 	{
-		for (const FContentBrowserModel::FMountSnapshot& Mount : Model.GetMounts())
-		{
-			std::string Label = Mount.VirtualRoot;
-			if (Label.starts_with('/')) Label.erase(Label.begin());
-			if (Label.ends_with('/')) Label.pop_back();
-			DrawDirectoryNode(std::filesystem::path(Mount.PhysicalRoot), Label, true);
-		}
+		if (!Model.HasDirectoryChildrenSnapshot("/")) Model.RequestDirectoryChildrenSnapshot("/");
+		if (const auto Roots=Model.GetDirectorySnapshot("/"))
+			for (const auto& Root : Roots->Children)
+			{
+				auto Label=Model.PhysicalToVirtualDirectory(Root.generic_string());
+				if (Label.empty()) Label=Root.generic_string();
+				if (Label.starts_with('/')) Label.erase(Label.begin());
+				if (Label.ends_with('/')) Label.pop_back();
+				DrawDirectoryNode(Root, Label, true);
+			}
 		if (ImGui::BeginPopupContextWindow("ContentBrowserTreeBackground", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
 		{
 			const bool bCurrentIsMountRoot = std::ranges::any_of(Model.GetMounts(), [&](const FContentBrowserModel::FMountSnapshot& Mount) {
@@ -402,7 +393,7 @@ namespace Durin::ContentBrowser::Private
 
 	auto FContentBrowserPanel::DrawDirectoryNode(const std::filesystem::path& Path, std::string_view Label, bool bMountRoot) -> void
 	{
-		const std::string Physical = NormalizePath(Path.generic_string());
+		const std::string Physical = Path.lexically_normal().generic_string();
 		const bool bHasChildrenSnapshot =
 			Model.HasDirectoryChildrenSnapshot(Physical);
 		if (!bHasChildrenSnapshot)
@@ -415,9 +406,12 @@ namespace Durin::ContentBrowser::Private
 			|| std::ranges::any_of(Children, [&](const std::filesystem::path& Child) { return Model.IsShowingHiddenFiles() || !Child.filename().generic_string().starts_with('.'); });
 		ImGuiTreeNodeFlags Flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
 		if (!bHasChildren) Flags |= ImGuiTreeNodeFlags_Leaf;
-		if (Model.GetCurrentPhysicalPath() == Physical) Flags |= ImGuiTreeNodeFlags_Selected;
+		auto CurrentVirtual=Model.GetCurrentVirtualPath();
+		while(CurrentVirtual.size()>1 && CurrentVirtual.back()=='/') CurrentVirtual.pop_back();
+		const bool Selected=Model.GetCurrentPhysicalPath()==Physical || (Model.GetCurrentPhysicalPath().empty() && CurrentVirtual==Physical);
+		if (Selected) Flags |= ImGuiTreeNodeFlags_Selected;
 		if (bMountRoot) Flags |= ImGuiTreeNodeFlags_DefaultOpen;
-		const std::string NodeLabel = std::format("{} {}###{}", Model.GetCurrentPhysicalPath() == Physical ? Icons::FolderOpen : Icons::Folder, Label, Physical);
+		const std::string NodeLabel = std::format("{} {}###{}", Selected ? Icons::FolderOpen : Icons::Folder, Label, Physical);
 		const bool bOpen = ImGui::TreeNodeEx(NodeLabel.c_str(), Flags);
 		if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
 			QueueTreeAction([this, Physical] { NavigateToPhysical(Physical); });

@@ -32,6 +32,7 @@ namespace Durin
 		auto GetItemDataUpdates() const -> std::span<const ContentBrowser::FContentBrowserItemDataUpdate> { return PublishedUpdates; }
 		CONTENTBROWSER_API auto GetRevision() -> uint64;
 		CONTENTBROWSER_API auto IsActive() const -> bool;
+		CONTENTBROWSER_API auto CompileFilter(std::string_view, const ContentBrowser::FContentBrowserDataFilter&, ContentBrowser::FContentBrowserDataCompiledFilter&) -> void;
 		CONTENTBROWSER_API auto EnumerateItemsMatchingFilter(const ContentBrowser::FContentBrowserDataCompiledFilter&, const std::function<bool(ContentBrowser::FContentBrowserItem&&)>&, const ContentBrowser::FContentBrowserHostContext& = {}) -> void;
 		CONTENTBROWSER_API auto EnumerateItemsAtPath(std::string_view, const std::function<bool(ContentBrowser::FContentBrowserItem&&)>&, const ContentBrowser::FContentBrowserHostContext& = {}) -> void;
 		CONTENTBROWSER_API auto EnumerateItemsUnderPath(std::string_view Path, const ContentBrowser::FContentBrowserDataFilter&, const std::function<bool(ContentBrowser::FContentBrowserItem&&)>&, const ContentBrowser::FContentBrowserHostContext& = {}) -> void;
@@ -44,6 +45,7 @@ namespace Durin
 		CONTENTBROWSER_API auto BulkDeleteItems(std::span<const ContentBrowser::FContentBrowserItemData>, ContentBrowser::FContentBrowserDeleteContext&) -> bool;
 
 	private:
+		CONTENTBROWSER_API static auto MergeItem(std::vector<ContentBrowser::FContentBrowserItem>&, ContentBrowser::FContentBrowserItem) -> void;
 		friend class ContentBrowser::Private::FContentBrowserDataQuery;
 		std::optional<uint64> LastBrowserFrame;
 		auto RefreshSources() -> void;

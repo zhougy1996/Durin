@@ -1,6 +1,7 @@
 #include "ContentBrowserNativeDataSource.h"
+#include "ContentBrowserDataSubsystem.h"
 #include "Data/ContentBrowserRequestContext.h"
-#include "Data/ContentBrowserDataQuery.h"
+
 #include "Asset/RegistryOperations.h"
 #ifdef _WIN32
 	#include <shellapi.h>
@@ -210,16 +211,13 @@ namespace Durin
 		const auto Generation = GetActivationGeneration();
 		const auto MountRevision = FMountPaths::GetMountRegistryRevision();
 		auto Policy = std::make_shared<const FContentBrowserHostContext>(ScopedHost(*this, Host));
-		std::shared_ptr<const ContentBrowser::Private::FContentBrowserItemsSnapshot> Snapshot;
-		if (auto Extra = std::dynamic_pointer_cast<const ContentBrowser::Private::FNativeContentBrowserFilter>(Filter.Filter.ExtraFilter)) Snapshot = Extra->Snapshot;
-		if (!Snapshot)
-		{
-			ContentBrowser::Private::FContentBrowserDataQuery Query;
-			auto Capture = Query.PrepareItemsCapture(Destination(Filter.Path), Filter.Filter.bRecursive, Query.PrepareDiscoveryCatalog(), {});
-			if (!Capture) return;
-			Snapshot = Capture();
-		}
-		for (auto Item : Snapshot->Items)
+		const auto Found = Filter.CompiledFilters.find(this);
+		if (Found == Filter.CompiledFilters.end()) return;
+		if (Found->second.Generation != Generation || Found->second.MountRevision != MountRevision
+			|| Found->second.DiscoveryRevision != GetDiscoveryRevision()) return;
+		if (!Found->second.Data) return;
+		const auto Snapshot = Found->second.Data->Capture({}, {});
+		for (auto Item : Snapshot.Items)
 		{
 			if (!IsActive() || Generation != GetActivationGeneration() || MountRevision != FMountPaths::GetMountRegistryRevision()) return;
 			if (!OwnsKind(Item.Kind) || (Filter.Filter.Kind && Item.Kind != *Filter.Filter.Kind)) continue;

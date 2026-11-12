@@ -120,41 +120,88 @@ namespace Durin
 		PendingUpdates.push_back(std::move(Update));
 		++Revision;
 	}
-	auto DContentBrowserDataSubsystem::EnumerateItemsUnderPath(std::string_view Path, const FContentBrowserDataFilter& Filter, const std::function<bool(FContentBrowserItem&&)>& Callback, const FContentBrowserHostContext& Host) -> void
+	auto DContentBrowserDataSubsystem::MergeItem(std::vector<FContentBrowserItem>& Items, FContentBrowserItem Item) -> void
+	{
+		auto Folder = Item.Kind == EContentBrowserItemKind::Folder
+						  ? std::ranges::find_if(Items,
+												 [&](const auto& Existing)
+												 {
+													 return Existing.Kind == Item.Kind &&
+															((!Item.VirtualPath.empty() && Existing.VirtualPath == Item.VirtualPath) ||
+															 (Item.VirtualPath.empty() && Existing.StableId() == Item.StableId()));
+												 })
+						  : Items.end();
+		if (Folder == Items.end())
+			Items.push_back(std::move(Item));
+		else
+		{
+			// Both native sources use the same physical folder backend. Keep one executable identity.
+			const bool SameNativeFolder = Folder->PhysicalPath == Item.PhysicalPath &&
+										  Cast<DContentBrowserNativeDataSource>(
+											  Item.InternalItems.empty() ? nullptr : Item.InternalItems.front().GetOwnerDataSource()) &&
+										  std::ranges::all_of(Folder->InternalItems,
+															  [](const auto& Data)
+															  {
+																  auto* Owner = Data.GetOwnerDataSource();
+																  return Owner && Cast<DContentBrowserNativeDataSource>(Owner);
+															  });
+			if (!SameNativeFolder)
+				Folder->InternalItems.insert(Folder->InternalItems.end(), Item.InternalItems.begin(), Item.InternalItems.end());
+		}
+	}
+
+	auto DContentBrowserDataSubsystem::CompileFilter(std::string_view Path, const FContentBrowserDataFilter& Filter,
+													 FContentBrowserDataCompiledFilter& Out) -> void
+	{
+		RefreshSources();
+		Out = {std::string(Path), Filter};
+		const auto Sources = Active;
+		for (const auto& Source : Sources)
+			if (OwnsSource(Source.Get()))
+				Source->CompileFilter(Path, Filter, Out);
+	}
+	auto DContentBrowserDataSubsystem::EnumerateItemsUnderPath(std::string_view Path, const FContentBrowserDataFilter& Filter,
+															   const std::function<bool(FContentBrowserItem&&)>& Callback,
+															   const FContentBrowserHostContext& Host) -> void
+	{
+		FContentBrowserDataCompiledFilter Compiled;
+		CompileFilter(Path, Filter, Compiled);
+		EnumerateItemsMatchingFilter(Compiled, Callback, Host);
+	}
+	auto DContentBrowserDataSubsystem::EnumerateItemsMatchingFilter(const FContentBrowserDataCompiledFilter& Compiled,
+																	const std::function<bool(FContentBrowserItem&&)>& Callback,
+																	const FContentBrowserHostContext& Host) -> void
+
 	{
 		RefreshSources();
 		const auto Sources = Active;
 		std::vector<FContentBrowserItem> Items;
 		for (const auto& Source : Sources)
 		{
-			if (!OwnsSource(Source.Get())) continue;
-			FContentBrowserDataCompiledFilter Compiled;
-			Source->CompileFilter(Path, Filter, Compiled);
-			Source->EnumerateItemsMatchingFilter(Compiled, [&](FContentBrowserItem&& Item) {
-    if (!OwnsSource(Source.Get())) return false;
-    auto Folder = Item.Kind == EContentBrowserItemKind::Folder ? std::ranges::find_if(Items, [&](const auto& Existing) {
-     return Existing.Kind == Item.Kind && ((!Item.VirtualPath.empty() && Existing.VirtualPath == Item.VirtualPath)
-      || (Item.VirtualPath.empty() && Existing.StableId() == Item.StableId()));
-    }) : Items.end();
-    if (Folder == Items.end()) Items.push_back(std::move(Item));
-	else
-	{
-		// Both native sources use the same physical folder backend. Keep one executable identity.
-		const bool SameNativeFolder = Folder->PhysicalPath == Item.PhysicalPath && Cast<DContentBrowserNativeDataSource>(Source.Get())
-									  && std::ranges::all_of(Folder->InternalItems, [](const auto& Data) { auto* Owner=Data.GetOwnerDataSource(); return Owner && Cast<DContentBrowserNativeDataSource>(Owner); });
-		if (!SameNativeFolder) Folder->InternalItems.insert(Folder->InternalItems.end(), Item.InternalItems.begin(), Item.InternalItems.end());
-	}
-	return true; }, Host);
+			if (!OwnsSource(Source.Get()))
+				continue;
+			const auto Entry = Compiled.CompiledFilters.find(Source.Get());
+			if (Entry == Compiled.CompiledFilters.end() || Entry->second.Generation != Source->GetActivationGeneration() ||
+				Entry->second.MountRevision != FMountPaths::GetMountRegistryRevision() ||
+				Entry->second.DiscoveryRevision != Source->GetDiscoveryRevision())
+				continue;
+			Source->EnumerateItemsMatchingFilter(
+				Compiled,
+				[&](FContentBrowserItem&& Item)
+				{
+					if (!OwnsSource(Source.Get()))
+						return false;
+					MergeItem(Items, std::move(Item));
+					return true;
+				},
+				Host);
 		}
 		for (auto& Item : Items)
 		{
 			std::erase_if(Item.InternalItems, [&](const auto& Data) { return !OwnsSource(Data.GetOwnerDataSource()); });
-			if (!Item.InternalItems.empty() && !Callback(std::move(Item))) return;
+			if (!Item.InternalItems.empty() && !Callback(std::move(Item)))
+				return;
 		}
-	}
-	auto DContentBrowserDataSubsystem::EnumerateItemsMatchingFilter(const FContentBrowserDataCompiledFilter& Filter, const std::function<bool(FContentBrowserItem&&)>& Callback, const FContentBrowserHostContext& Host) -> void
-	{
-		EnumerateItemsUnderPath(Filter.Path, Filter.Filter, Callback, Host);
 	}
 	auto DContentBrowserDataSubsystem::EnumerateItemsAtPath(std::string_view Path, const std::function<bool(FContentBrowserItem&&)>& Callback, const FContentBrowserHostContext& Host) -> void
 	{

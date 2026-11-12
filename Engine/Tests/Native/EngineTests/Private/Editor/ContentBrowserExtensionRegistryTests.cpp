@@ -1,3 +1,4 @@
+#include "Editor/ContentBrowserQueryTestSupport.h"
 #include <gtest/gtest.h>
 #include "Editor/BrowserDefinitionTestSupport.h"
 
@@ -97,7 +98,7 @@ namespace Durin::ContentBrowser
 			Definition->Categories = {{Category}};
 			auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
 			ASSERT_TRUE(Registration);
-			FContentBrowserDataQuery ModelSource;
+			FNativeContentBrowserTestQuery ModelSource;
 			FContentBrowserModel Model(ModelSource);
 			Model.SetSnapshotForTesting("/content", {{.Kind = EContentBrowserItemKind::Asset,
 				.Name = "Typed", .PhysicalPath = "/content/Typed.dasset", .AssetClassName = Definition->ClassPath}});
@@ -137,7 +138,7 @@ namespace Durin::ContentBrowser
 		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
 		ASSERT_TRUE(Registration);
 		using namespace Private;
-		FContentBrowserDataQuery ModelSource;
+		FNativeContentBrowserTestQuery ModelSource;
 		FContentBrowserModel Model(ModelSource);
 		Model.SetSnapshotForTesting("/content", {
 			{.Kind = EContentBrowserItemKind::Asset, .Name = "Project", .PhysicalPath = "/content/Project.dasset", .AssetClassName = "Project::DCategoryFixture"},
@@ -693,7 +694,7 @@ namespace Durin::ContentBrowser
 		ASSERT_TRUE(Type);
 		auto Duplicate = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition, &Error);
 		EXPECT_FALSE(Duplicate);
-		FContentBrowserDataQuery ModelSource;
+		FNativeContentBrowserTestQuery ModelSource;
 		FContentBrowserModel Model(ModelSource);
 		Model.SetSnapshotForTesting("/content", {
 			{.Kind = EContentBrowserItemKind::Asset, .Name = "Volume", .VirtualPath = "/Project/Volume",

@@ -9,6 +9,7 @@ namespace Durin
 }
 namespace Durin::ContentBrowser
 {
+	class IContentBrowserDataCompiledFilter;
 	// Metadata category, independent of the provider that owns an item.
 	enum class EContentBrowserItemKind : uint8
 	{
@@ -100,5 +101,11 @@ namespace Durin::ContentBrowser
 	{
 		std::string Path;
 		FContentBrowserDataFilter Filter;
+		struct FSourceFilter
+		{
+			uint64 Generation = 0, MountRevision = 0, DiscoveryRevision = 0;
+			std::shared_ptr<const IContentBrowserDataCompiledFilter> Data;
+		};
+		std::map<const DContentBrowserDataSource*, FSourceFilter> CompiledFilters;
 	};
 } // namespace Durin::ContentBrowser

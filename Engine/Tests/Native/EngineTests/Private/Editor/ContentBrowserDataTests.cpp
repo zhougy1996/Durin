@@ -497,3 +497,38 @@ namespace
 	}
 
 } // namespace
+
+namespace
+{
+TEST_F(FContentBrowserDataTests, CompiledFiltersKeepSourcePartitionsAndRejectOldActivation)
+{
+	std::ofstream(Root / "Sub/nested.txt") << "nested";
+	FContentBrowserDataCompiledFilter Compiled;
+	Data->CompileFilter("/ProviderTests/", {.Kind = EContentBrowserItemKind::File}, Compiled);
+	ASSERT_EQ(Compiled.CompiledFilters.size(), 2u);
+	for (const auto &[Source, Filter] : Compiled.CompiledFilters)
+		EXPECT_NE(Filter.Data, nullptr);
+	std::vector<FContentBrowserItem> Items;
+	auto Enumerate = [&]
+	{
+		Items.clear();
+		Data->EnumerateItemsMatchingFilter(Compiled,
+										   [&](FContentBrowserItem &&Item)
+										   {
+											   Items.push_back(std::move(Item));
+											   return true;
+										   });
+	};
+	Enumerate();
+	ASSERT_EQ(Items.size(), 1u);
+	EXPECT_EQ(Items.front().Name, "source.txt");
+	ASSERT_TRUE(Data->DeactivateDataSource(FName("File")));
+	ASSERT_TRUE(Data->ActivateDataSource(FName("File")));
+	Enumerate();
+	EXPECT_TRUE(Items.empty());
+	Data->CompileFilter("/ProviderTests/", {.bRecursive = true, .Kind = EContentBrowserItemKind::File}, Compiled);
+	Enumerate();
+	ASSERT_EQ(Items.size(), 2u);
+	EXPECT_TRUE(std::ranges::all_of(Items, [](const auto &Item) { return Item.Kind == EContentBrowserItemKind::File; }));
+}
+} // namespace

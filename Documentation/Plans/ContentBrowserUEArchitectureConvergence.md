@@ -12,8 +12,9 @@ Completed:
 Planning baseline: `fb0f3d9dd`. Stage 0 is complete against Durin
 `9c22dfbe2e9ca154fa157cf9d30ef5d4cfc4d312`: the verified UE reference, migration
 destinations, consumer inventory, identity and operation semantics are recorded
-below. Stage 1 is next; production implementation has not started. Stages 1–5 and
-the final integration gates remain open.
+below. Stage 1 is complete: providers own discovery and compiled filters, and
+list/tree browsing uses virtual provider queries with fenced asynchronous
+publication. Stage 2 is next; Stages 2–5 and the final integration gates remain open.
 The baseline already routes panels through the data subsystem and providers and
 separates native item policy from command execution lifetime. Its 185 passing
 workflow/provider cases and two Windows symlink-permission skips are historical
@@ -298,23 +299,88 @@ Acceptance: every changed responsibility has a selected UE-backed destination,
 consumer set and old-path removal condition. Remaining source-dependent decisions
 block their implementation stages rather than being hidden behind fallback APIs.
 
+## Discovery Execution Decisions
+
+The verified UE source uses source-keyed compiled filter data and a File-provider
+background discovery worker. Durin implements the same ownership with an
+immutable `IContentBrowserDataCompiledFilter::Capture` value boundary on the
+existing task runtime: workers never call reflected source objects. This is a
+Durin adaptation to its owner-thread reflected dispatch and existing per-view
+cancellation/fencing contract, not an additional scheduler or combined native
+executor. The Asset provider owns registry catalog capture/cache and logical
+folder derivation; the File provider owns traversal. File captures own their
+traversal state per request rather than introducing a second persistent native
+catalog alongside the registry. Registration/event-driven service indexing remains
+in Stage 4.
+
+Sources can continue ordinary synchronous owner-thread enumeration without
+implementing a worker interface. The generic query captures those returned values;
+worker preparation is optional for a nonphysical provider. Compiled source entries
+capture activation/mount/discovery revisions; list/tree publication also checks
+path-relevant revision coverage and requeues stale captures. The native status
+callback is retained solely for deterministic failure/lifecycle tests. Interface
+feature version 3 requires providers to rebuild for the discovery revision hooks.
+The subsystem's existing folder aggregation policy is reused for both direct and
+asynchronous enumeration; Stage 1 does not change native batch execution identity.
+
+Old pure-native model fixtures now explicitly instantiate providers in test
+support. They no longer select a production fallback that scans storage without
+sources. Tests that inspected those raw native snapshots now assert virtual query
+paths and canonical provider folder paths. This changes fixture/API expectations;
+it does not relax filtering, stale-result, cancellation or operation guarantees.
+
 ### Stage 1: Move discovery and filtering into providers
 
 Depends on Stage 0. Outcome: providers originate data queries and own native work.
 
-- [ ] Move AssetRegistry captures to the Asset provider and filesystem discovery
+- [x] Move AssetRegistry captures to the Asset provider and filesystem discovery
   to the File provider, using the selected UE enumeration/filter/cache structure.
-- [ ] Implement per-source compiled filter data with appropriate invalidation;
+- [x] Implement per-source compiled filter data with appropriate invalidation;
   preserve recursion, visibility, folder, asset and ordinary-file behavior.
-- [ ] Migrate list/tree queries to virtual paths and provider enumeration. Remove
+- [x] Migrate list/tree queries to virtual paths and provider enumeration. Remove
   panel-side native catalogs and completed-snapshot transport through
   `FNativeContentBrowserFilter`; retain only provider-neutral view request state.
-- [ ] Preserve immutable worker captures and owner-thread publication with source,
+- [x] Preserve immutable worker captures and owner-thread publication with source,
   mount, project and cancellation checks. Avoid live reflected sources on workers.
 
 Acceptance: normal list/tree browsing and search do not pre-scan native storage in
 the view layer. A nonphysical fixture source participates through the same query
 path. Validate async teardown, stale results, independent views and filter parity.
+
+Stage 1 final-input evidence (2026-11-12): validated the implementation changes
+in this commit on baseline `381016afd`, profile `windows-msvc-x64`, preset
+`Win64-Debug-DurinEditor`. `ContentBrowserWorkflowTests` passed 167 cases, with
+two Windows symlink-privilege skips; `ContentBrowserDataTests` passed 23/23.
+These include provider-only nonphysical navigation/search/tree/commands, two
+independent service queries, cancellation and teardown, stale tree discovery,
+compiled-source recursion/type filtering, reactivation, and activation changes
+inside owner-thread item binding. Existing asset, file, hidden/redirector,
+unsaved-folder and native operation regressions also pass.
+
+Runtime receipts:
+`Build/.agent-state/logs/20261112-173144-192764-32284-ContentBrowserWorkflowTests.log`
+and
+`Build/.agent-state/logs/20261112-173159-191986-40908-ContentBrowserDataTests.log`.
+Incremental `MainFrame` and `RoadWeaverEditor` consumer builds passed; receipts:
+`Build/.agent-state/logs/20261112-173302-329317-6104-cmake.log` and
+`Build/.agent-state/logs/20261112-173318-001674-34724-cmake.log`.
+The initial sandboxed compile hit the documented MSVC C1902 mismatch; successful
+build/test receipts use the same configured toolchain outside that sandbox.
+
+Affected selection expanded to Engine-wide tests because of the new test-support
+header and test source-list change. The two owning targets cover the changed
+provider/query/model/extension behavior; bounded consumer builds cover the known
+cross-module and RoadWeaver consumers. Source/test audits found no direct data
+source or compiled-filter consumers in Sandbox or RoadWeaver. No renderer,
+startup/bootstrap or module-manifest production behavior changed; the final `all`
+build and startup smoke remain in their later explicit acceptance gates.
+
+Removed-path audit passed: no `FNativeContentBrowserFilter`,
+`PrepareDiscoveryCatalog`, `FContentBrowserItemDiscovery`, panel asset catalog or
+panel recursive filesystem traversal remains in the query/view source or test
+source lists. Implemented contracts were updated; changed-document validation and
+diff review passed. Later edits to this evidence are documentation-only and reuse
+the final relevant native inputs above.
 
 ### Stage 2: Converge item data, payloads, attributes and identity
 

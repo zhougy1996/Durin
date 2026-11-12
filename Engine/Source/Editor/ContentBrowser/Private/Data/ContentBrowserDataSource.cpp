@@ -66,7 +66,7 @@ namespace Durin
 	{
 		if (IsActive() && Update.GetItemData().GetOwnerDataSource() == this) DataSink->QueueItemDataUpdate(std::move(Update));
 	}
-	auto DContentBrowserDataSource::CompileFilter(std::string_view Path, const FContentBrowserDataFilter& Filter, FContentBrowserDataCompiledFilter& Out) const -> void { Out = {std::string(Path), Filter}; }
+	auto DContentBrowserDataSource::CompileFilter(std::string_view Path, const FContentBrowserDataFilter& Filter, FContentBrowserDataCompiledFilter& Out) const -> void { Out.Path = std::string(Path); Out.Filter = Filter; Out.CompiledFilters[this] = {GetActivationGeneration(), FMountPaths::GetMountRegistryRevision(), GetDiscoveryRevision(), {}}; }
 	auto DContentBrowserDataSource::EnumerateItemsMatchingFilter(const FContentBrowserDataCompiledFilter&, const std::function<bool(FContentBrowserItem&&)>&, const FContentBrowserHostContext&) -> void {}
 	auto DContentBrowserDataSource::CreateItemData(const FContentBrowserItem&, const FContentBrowserHostContext&) -> FContentBrowserItemData { return {}; }
 	auto DContentBrowserDataSource::EnumerateItemsAtPath(std::string_view Path, const std::function<bool(FContentBrowserItem&&)>& Callback, const FContentBrowserHostContext& Host) -> void

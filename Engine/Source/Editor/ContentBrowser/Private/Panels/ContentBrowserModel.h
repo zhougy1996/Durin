@@ -50,6 +50,7 @@ namespace Durin::ContentBrowser::Private
 		auto ApplyContentChanges(const FContentChangeBatch& Changes) -> bool;
 		auto IsAffectedBy(const FContentChangeBatch& Changes) const -> bool;
 		auto NavigateToPhysical(std::string_view PhysicalPath, bool bAddHistory = true) -> bool;
+		auto NavigateToVirtual(std::string_view VirtualPath, bool bAddHistory = true) -> bool;
 		auto NavigateHistory(int32 Delta) -> bool;
 
 		auto SetSearch(std::string_view Search) -> void;
@@ -132,7 +133,6 @@ namespace Durin::ContentBrowser::Private
 		std::unordered_set<std::string> RequestedDirectoryChildrenSnapshots;
 		// Per-view query state outlives the model; live source access stays on the owner thread.
 		FContentBrowserDataQuery& DataQuery;
-		std::shared_ptr<const FContentBrowserAssetSnapshot> Catalog;
 		FEntryStatusQuery EntryStatusQuery;
 		bool bAsync = false;
 		bool bSnapshotPublicationSuspended = false;
@@ -141,13 +141,11 @@ namespace Durin::ContentBrowser::Private
 		uint64 DataRevision = 0;
 		bool bActiveTreePublishable = false;
 		enum class EItemsRequestState : uint8 { Queued, Capturing, Completed, Cancelled };
-		// The request owns its inputs and journal cursor. Replacing it retires publication rights.
+		// The request owns its virtual scope and publication rights. Replacing it retires publication rights.
 		struct FItemsRequest
 		{
 			std::string Directory;
 			bool bRecursive = false;
-			std::shared_ptr<const FContentBrowserAssetSnapshot> Catalog;
-			uint64 CatalogCursor = 0;
 			EItemsRequestState State = EItemsRequestState::Queued;
 		};
 		std::shared_ptr<FItemsRequest> ItemsRequest;

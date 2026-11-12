@@ -136,17 +136,21 @@ Reparse points are never followed while building the snapshot or directory tree.
 
 ### Discovery Ownership And Shutdown
 
-`FContentBrowserDataQuery` prepares immutable catalog projections and owned
-item/directory capture callables on the owner thread. Model schedules them through
-the existing task runtime and owns navigation, cancellation, request replacement,
-tree caches and publication versions. The query owns the serial native collector;
-independent tree captures use separate collectors. Before admitting a tree capture,
-Model refreshes the catalog so unsaved asset folders remain visible.
-Workers retain only owned directory/catalog inputs and cancellation tokens, never
-panels, providers, host callbacks or live registry pointers. Completion runs
-ordinary data-service/provider enumeration on the owner thread, using the captured
-native snapshot as an extra filter and merging other providers' contributions.
-View projection uses virtual paths, including for items without physical storage.
+Providers own native discovery and compiled filters as described in the
+[data provider contract](ContentBrowserData.md#items-payloads-and-filters).
+`FContentBrowserDataQuery` routes virtual list/tree scopes to those providers and
+prepares value-owned capture work. The model schedules that work through the
+existing task runtime and owns navigation, cancellation, request replacement,
+tree presentation caches and publication versions. It retains no asset catalog
+or native collector. Source-provided root enumeration also exposes nonphysical
+folders in the directory tree; navigation and breadcrumbs use virtual paths.
+
+Workers retain immutable source-prepared values and cancellation tokens. Live
+source dispatch and payload binding stay on the owner thread. Publication checks
+the captured source/mount identity and provider/service revision coverage; stale
+results cannot become actionable rows. Directory requests compile current
+provider inputs independently of earlier list captures. Views preserve their
+selection, search, filtering, sorting and presentation state independently.
 
 Stopping a panel closes its query admission, releases temporary contexts and
 confirmed deletion capabilities, revokes publication rights, cancels captures and

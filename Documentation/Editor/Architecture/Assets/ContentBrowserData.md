@@ -13,8 +13,9 @@ active `DContentBrowserDataSource` instances with strong object references.
 Its built-in Asset and File sources belong to that editor. Other modules may
 initialize and register source instances whose outer is the requesting editor
 or its data subsystem. No source-class factory registry is involved.
-The source feature interface version is 2: Stage 3 adds virtual operation entries,
-so providers compiled against the earlier vtable must rebuild before registration.
+The source feature interface version is 3: discovery revision hooks extend the
+vtable, so providers compiled against an earlier interface must rebuild before
+registration.
 
 A live registration retains its instance with a native strong reference, so
 ordinary GC cannot collect it between registration and subsystem discovery.
@@ -56,15 +57,37 @@ Other providers' logical folder contributions remain distinct. Folder operations
 with multiple unrelated owners cannot silently choose one provider.
 
 Filters are value-owned. `CompileFilter`, `EnumerateItemsMatchingFilter`,
-`EnumerateItemsUnderPath` and `EnumerateItemsAtPath` use virtual paths at the
-public boundary. Native providers resolve physical paths internally. The native
-collector retains immutable catalog/filesystem captures, not live source or
-registry pointers. Item binding and publication run on the owner thread and
-check source admission again; retirement drops undelivered captured items.
-The optional immutable extra filter carries a completed native snapshot through
-ordinary source enumeration without repeating filesystem collection. Other
-providers still enumerate their own data on the owner thread. Virtual identities
-also support items without physical storage; view filtering uses virtual paths.
+`EnumerateItemsUnderPath` and `EnumerateItemsAtPath` use virtual paths. The
+subsystem compiles a separate source entry containing activation, mount and
+source-discovery revisions and optional immutable source-specific filter data.
+Executing an obsolete compiled entry cannot revive a withdrawn/reactivated source
+or reinterpret its scope under a replacement mount.
+
+The Asset source captures and caches its own immutable registry catalog by query
+and mount revision, deriving asset rows and logical folders. The File source owns
+filesystem traversal and compiles the physical scope from virtual paths. Both
+contribute registered mount roots through root enumeration; other providers may
+contribute roots and folders without registering physical storage. List and tree
+requests consume these ordinary source contributions, including unsaved asset
+folders. Views neither capture the asset catalog nor enumerate native directories.
+
+`IContentBrowserDataCompiledFilter::Capture` is Durin's asynchronous adaptation:
+providers prepare immutable values on the owner thread, and their capture code
+runs through the existing task runtime without dereferencing reflected sources,
+live registries, panels or host callbacks. Sources without worker preparation
+continue to implement ordinary owner-thread enumeration; the query captures those
+returned values before launching presentation work. The optional entry-status
+callback is a deterministic native-I/O test seam, unused by ordinary requests.
+There is no completed native snapshot supplied as an extra filter.
+
+Owner-thread publication binds raw contributions to their original sources and
+rechecks membership, activation, mounts and path-relevant discovery changes.
+Stale list/tree results are retried from freshly compiled input. Per-view revision
+cursors retain bounded source/service revision coverage; missing coverage causes
+conservative reconciliation. Independent queries and models never share
+cancellation or publication rights. Model destruction drains its worker bodies;
+providers/modules remain responsible for retaining their code while captured
+filter objects or payloads exist.
 
 ## Operations And Request State
 
@@ -83,8 +106,9 @@ state across calls. Same-source batches from different captures combine their
 admission predicates and execute the common operation implementation once; one
 query scope is not a new execution identity. The original activation and mount
 admission identities remain captured in policy, including on returned items.
-Pure discovery preparation belongs to `FContentBrowserDataQuery`, which retains
-per-view capture state and a weak service binding, independently of mutations.
+Provider discovery preparation is independent of mutations.
+`FContentBrowserDataQuery` retains only provider-neutral request, binding and
+revision state with a weak service binding.
 
 Mutation predicates check editor capability, source generation and mount
 revision before and after caller policy callbacks. Capabilities reserve no

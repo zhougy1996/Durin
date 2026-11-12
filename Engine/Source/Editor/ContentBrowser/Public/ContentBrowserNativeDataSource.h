@@ -3,6 +3,7 @@
 #include "ContentBrowserDataSource.h"
 #include "ContentBrowserNativeDataSource.gen.h"
 
+namespace Durin::ContentBrowser::Private { struct FContentBrowserAssetSnapshot; }
 namespace Durin
 {
 	// Reuses the existing mutation/recovery substrate through opaque native payloads.
@@ -48,6 +49,12 @@ namespace Durin
 	public:
 		CONTENTBROWSER_API explicit DContentBrowserAssetDataSource(const FObjectInitializer&);
 		CONTENTBROWSER_API auto GetDataSourceName() const -> FName override;
+		CONTENTBROWSER_API auto CompileFilter(std::string_view, const ContentBrowser::FContentBrowserDataFilter&, ContentBrowser::FContentBrowserDataCompiledFilter&) const -> void override;
+		CONTENTBROWSER_API auto GetDiscoveryRevision() const -> uint64 override;
+		CONTENTBROWSER_API auto IsDiscoveryPathAffected(uint64, std::string_view, bool) const -> bool override;
+	private:
+		mutable std::shared_ptr<const ContentBrowser::Private::FContentBrowserAssetSnapshot> DiscoveryCatalog;
+	public:
 
 	protected:
 		CONTENTBROWSER_API auto OwnsKind(ContentBrowser::EContentBrowserItemKind) const -> bool override;
@@ -60,6 +67,7 @@ namespace Durin
 	public:
 		CONTENTBROWSER_API explicit DContentBrowserFileDataSource(const FObjectInitializer&);
 		CONTENTBROWSER_API auto GetDataSourceName() const -> FName override;
+		CONTENTBROWSER_API auto CompileFilter(std::string_view, const ContentBrowser::FContentBrowserDataFilter&, ContentBrowser::FContentBrowserDataCompiledFilter&) const -> void override;
 
 	protected:
 		CONTENTBROWSER_API auto OwnsKind(ContentBrowser::EContentBrowserItemKind) const -> bool override;

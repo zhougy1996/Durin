@@ -23,7 +23,7 @@ namespace Durin::ContentBrowser::Private
 		Next.bIconSizeLocked = bIconSizeLocked;
 		Next.bShowHiddenFiles = Model.IsShowingHiddenFiles();
 		Next.TreeWidth = DirectoryTreeWidth;
-		Next.LastDirectory = Model.GetCurrentPhysicalPath();
+		Next.LastDirectory = Model.GetCurrentPhysicalPath().empty() ? Model.GetCurrentVirtualPath() : Model.GetCurrentPhysicalPath();
 		ImGui::SeparatorText("Presentation");
 		ImGui::SetNextItemWidth(MonaImGui::ScaleUI(220.0f));
 		bool bChanged = ImGui::Combo("View mode", &Mode, "Grid\0Details\0");
@@ -39,7 +39,7 @@ namespace Durin::ContentBrowser::Private
 	{
 		FPresentationSettings Next;
 		Next.TreeWidth = DirectoryTreeWidth;
-		Next.LastDirectory = Model.GetCurrentPhysicalPath();
+		Next.LastDirectory = Model.GetCurrentPhysicalPath().empty() ? Model.GetCurrentVirtualPath() : Model.GetCurrentPhysicalPath();
 		return ApplyPreferences(Next);
 	}
 }
