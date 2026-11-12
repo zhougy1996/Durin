@@ -137,7 +137,8 @@ namespace Durin
 			const FAssetBuildTaskContext& Control = {}) -> std::expected<void, std::string>;
 		ENGINE_API auto GetRenderData() const -> const FStaticMeshRenderData*;
 		// Starts or joins bounded cooked loading and returns immediately with the
-		// current generation-qualified CPU/GPU snapshot. Does not retry failed/cancelled work.
+		// current generation-qualified CPU residency/error snapshot. Query
+		// GetRenderResourceStatus() separately. Does not retry failed/cancelled work.
 		ENGINE_API auto RequestRenderDataAndResources() -> FCookedMeshLoadStatus;
 		// Blocks for CPU data only, retrying a prior CPU failure/cancellation.
 		// May perform package I/O on the GameThread; use RequestRenderDataAndResources() for polling.
@@ -328,7 +329,6 @@ namespace Durin
 		FRenderCommandFence RenderResourcesFence;
 		bool bRenderResourcesRequested = false;
 		uint64 RenderResourceRevision = 1;
-		std::atomic<ECookedMeshCpuPhase> CookedLoadPhase{ECookedMeshCpuPhase::Unloaded};
 		std::atomic<uint64> CookedLoadGeneration{1};
 
 	};

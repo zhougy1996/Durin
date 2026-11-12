@@ -52,6 +52,7 @@ namespace Durin
 		bool bSourceResident = false;
 		bool bCpuResident = false;
 		FCookedMeshLoadStatus CookedLoad;
+		bool bCookedLoadPending = false;
 		FStaticMeshRenderResourceStatus Gpu;
 		FStaticMeshCompilationDiagnostic Operation;
 		bool bOperationSourceMatches = false;

@@ -134,8 +134,7 @@ namespace Durin::StaticMeshEditor
 				if (Status.Readiness == EStaticMeshRenderResourceReadiness::Unavailable)
 				{
 					const auto LoadStatus = StaticMesh->RequestRenderDataAndResources();
-					if (LoadStatus.CpuPhase == ECookedMeshCpuPhase::Failed
-						|| LoadStatus.CpuPhase == ECookedMeshCpuPhase::Cancelled)
+					if (LoadStatus.HasFailed())
 						return {.Diagnostic = QualifyDiagnostic(Input.AssetPath, "The mesh render data could not be loaded.")};
 					if (!LoadStatus.HasCpuData())
 						return {.State = EThumbnailRendererSessionState::WaitingForResources};

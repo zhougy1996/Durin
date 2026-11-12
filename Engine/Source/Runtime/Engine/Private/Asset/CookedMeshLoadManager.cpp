@@ -45,6 +45,15 @@ namespace Durin
 			uint64 EstimatedBytes = 0;
 		};
 
+		auto NotifyCancelled(FCookedMeshLoadRequest& Request) -> void
+		{
+			if (!Request.OnTerminal) return;
+			auto* Owner = ResolveObjectKey(Request.Identity.Owner);
+			if (Owner && (!Request.IsCurrent || Request.IsCurrent(*Owner, Request.Identity)))
+				Request.OnTerminal(*Owner, Request.Identity, ECookedMeshTerminalState::Cancelled,
+					{.Code = ECookedMeshLoadError::Cancelled, .Owner = Request.Identity.Owner});
+		}
+
 		std::mutex GManagerMutex;
 		std::shared_ptr<FCookedMeshLoadManager> GManager;
 	}
@@ -571,28 +580,46 @@ namespace Durin
 	auto FCookedMeshLoadManager::Cancel(FObjectKey Owner) -> bool
 	{
 		CheckGameThread();
-		std::scoped_lock Lock(State->Mutex);
-		bool bFound = State->DeferredOwners.erase(Owner) != 0;
-		for (const std::shared_ptr<FFlight>& Flight : State->Flights)
+		std::vector<FCookedMeshLoadRequest> Cancelled;
+		bool bFound = false;
 		{
-			if (!SameOwner(Flight->Identity.Owner, Owner)) continue;
-			bFound = true;
-			Flight->Cancellation.Cancel();
-			for (FPackageResourceRequest& Read : Flight->Reads) Read.Cancel();
-		}
-		for (auto It = State->PendingRequests.begin(); It != State->PendingRequests.end();)
-		{
-			if (!SameOwner(It->Request.Identity.Owner, Owner))
+			std::scoped_lock Lock(State->Mutex);
+			bFound = State->DeferredOwners.erase(Owner) != 0;
+			for (const std::shared_ptr<FFlight>& Flight : State->Flights)
 			{
-				++It;
-				continue;
+				if (!SameOwner(Flight->Identity.Owner, Owner)) continue;
+				bFound = true;
+				Flight->Cancellation.Cancel();
+				for (FPackageResourceRequest& Read : Flight->Reads) Read.Cancel();
 			}
-			bFound = true;
-			State->PendingRequestEstimatedBytes -= It->EstimatedBytes;
-			It = State->PendingRequests.erase(It);
-			++State->Diagnostics.CancelledCount;
+			for (auto It = State->PendingRequests.begin(); It != State->PendingRequests.end();)
+			{
+				if (!SameOwner(It->Request.Identity.Owner, Owner))
+				{
+					++It;
+					continue;
+				}
+				bFound = true;
+				State->PendingRequestEstimatedBytes -= It->EstimatedBytes;
+				Cancelled.push_back(std::move(It->Request));
+				It = State->PendingRequests.erase(It);
+				++State->Diagnostics.CancelledCount;
+			}
 		}
+		for (auto& Request : Cancelled) NotifyCancelled(Request);
 		return bFound;
+	}
+
+	auto FCookedMeshLoadManager::HasPendingRequest(FObjectKey Owner, uint64 LoadGeneration) const -> bool
+	{
+		std::scoped_lock Lock(State->Mutex);
+		const auto Matches = [=](const FCookedMeshLoadIdentity& Identity) {
+			return Identity.Owner == Owner && Identity.LoadGeneration == LoadGeneration;
+		};
+		return std::ranges::any_of(State->Flights,
+			[&](const auto& Flight) { return Matches(Flight->Identity); })
+			|| std::ranges::any_of(State->PendingRequests,
+				[&](const auto& Pending) { return Matches(Pending.Request.Identity); });
 	}
 
 	auto FCookedMeshLoadManager::Finish(FObjectKey Owner) -> void
@@ -622,6 +649,7 @@ namespace Durin
 	{
 		if (!State) return;
 		if (GIsGameThreadIdInitialized) CheckGameThread();
+		std::vector<FPendingRequest> Cancelled;
 		{
 			std::scoped_lock Lock(State->Mutex);
 			if (State->ManagerState == ECookedMeshManagerState::Stopped) return;
@@ -633,9 +661,10 @@ namespace Durin
 				for (FPackageResourceRequest& Read : Flight->Reads) Read.Cancel();
 			}
 			State->Diagnostics.CancelledCount += State->PendingRequests.size();
-			State->PendingRequests.clear();
+			Cancelled = std::move(State->PendingRequests);
 			State->PendingRequestEstimatedBytes = 0;
 		}
+		for (auto& Pending : Cancelled) NotifyCancelled(Pending.Request);
 		while (true)
 		{
 			{

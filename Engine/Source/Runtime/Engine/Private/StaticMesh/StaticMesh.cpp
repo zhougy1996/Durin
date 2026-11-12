@@ -112,16 +112,14 @@ namespace Durin
 		CheckStaticMeshUpdateThread();
 		if (RenderData)
 		{
-			CookedLoadPhase.store(
-				ECookedMeshCpuPhase::CpuReady, std::memory_order_release);
 			if (!bRenderResourcesRequested)
 				InitResources();
 		}
-		else
+		else if (!GetRenderDataLoadStatus().HasFailed())
 		{
-			const ECookedMeshCpuPhase Phase =
-				CookedLoadPhase.load(std::memory_order_acquire);
-			if (Phase == ECookedMeshCpuPhase::Unloaded)
+			const auto* Manager = GetCookedMeshLoadManager();
+			if (!Manager || !Manager->HasPendingRequest(FObjectKey(this),
+				CookedLoadGeneration.load(std::memory_order_acquire)))
 				SubmitCookedRenderDataRequest(true);
 		}
 		return GetRenderDataLoadStatus();
@@ -129,68 +127,49 @@ namespace Durin
 
 	auto DStaticMesh::GetRenderDataLoadStatus() const -> FCookedMeshLoadStatus
 	{
-		const FStaticMeshRenderResourceStatus Resource = GetRenderResourceStatus();
-		ECookedMeshGpuPhase GpuPhase = ECookedMeshGpuPhase::Unavailable;
-		switch (Resource.Readiness)
-		{
-		case EStaticMeshRenderResourceReadiness::Queued: GpuPhase = ECookedMeshGpuPhase::Queued; break;
-		case EStaticMeshRenderResourceReadiness::Ready: GpuPhase = ECookedMeshGpuPhase::Ready; break;
-		case EStaticMeshRenderResourceReadiness::InvalidData: GpuPhase = ECookedMeshGpuPhase::InvalidData; break;
-		case EStaticMeshRenderResourceReadiness::Unavailable: break;
-		}
-		return {.CpuPhase = RenderData ? ECookedMeshCpuPhase::CpuReady
-			: CookedLoadPhase.load(std::memory_order_acquire),
-			.GpuPhase = GpuPhase,
+		CheckStaticMeshUpdateThread();
+		return {.bCpuDataResident = RenderData != nullptr,
 			.Generation = CookedLoadGeneration.load(std::memory_order_acquire),
-			.ResourceRevision = Resource.Revision};
+			.Error = CookedLoadError};
 	}
 
 	auto DStaticMesh::EnsureRenderDataLoadedBlocking()
 		-> FCookedMeshBlockingResult
 	{
 		CheckStaticMeshUpdateThread();
-		const ECookedMeshCpuPhase LoadPhase =
-			CookedLoadPhase.load(std::memory_order_acquire);
-		if (LoadPhase == ECookedMeshCpuPhase::Failed
-			|| LoadPhase == ECookedMeshCpuPhase::Cancelled)
+		if (GetRenderDataLoadStatus().HasFailed())
 		{
 			if (FCookedMeshLoadManager* Manager =
 				GetCookedMeshLoadManager())
 				Manager->Cancel(FObjectKey(this));
 			CookedLoadError = {};
-			CookedLoadPhase.store(ECookedMeshCpuPhase::Unloaded, std::memory_order_release);
 			CookedLoadGeneration.fetch_add(1, std::memory_order_acq_rel);
 		}
-		if (!RenderData && CookedLoadPhase.load(std::memory_order_acquire)
-			== ECookedMeshCpuPhase::Unloaded)
-			SubmitCookedRenderDataRequest(false);
-		const FCookedMeshLoadStatus Initial = GetRenderDataLoadStatus();
-		if (!Initial.HasCpuData()
-			&& Initial.CpuPhase != ECookedMeshCpuPhase::Failed)
+		if (!RenderData)
 		{
-			if (FCookedMeshLoadManager* Manager =
-				GetCookedMeshLoadManager();
-				Manager && Initial.CpuPhase != ECookedMeshCpuPhase::Unloaded)
+			auto* Manager = GetCookedMeshLoadManager();
+			if (!Manager || !Manager->HasPendingRequest(FObjectKey(this),
+				CookedLoadGeneration.load(std::memory_order_acquire)))
+				SubmitCookedRenderDataRequest(false);
+			if (Manager)
 			{
 				Manager->Finish(FObjectKey(this));
 			}
 		}
-		if (!RenderData && CookedLoadPhase.load(std::memory_order_acquire)
-			!= ECookedMeshCpuPhase::Failed
+		if (!RenderData && !GetRenderDataLoadStatus().HasFailed()
 			&& GetAssetRuntimeConfiguration().RequiresCookedPayload()
 			&& CookedRenderData.GetMetadata().LogicalSize != 0)
 		{
-			CookedLoadPhase.store(ECookedMeshCpuPhase::Reading, std::memory_order_release);
 			if (const auto Loaded = LoadCookedRenderData(); !Loaded)
 			{
-				CookedLoadPhase.store(ECookedMeshCpuPhase::Failed, std::memory_order_release);
+				CookedLoadError = Loaded.Error;
 				return {.Status = GetRenderDataLoadStatus(), .Error = Loaded.Error};
 			}
-			CookedLoadPhase.store(ECookedMeshCpuPhase::CpuReady, std::memory_order_release);
+			CookedLoadError = {};
 		}
 		if (RenderData)
 		{
-			CookedLoadPhase.store(ECookedMeshCpuPhase::CpuReady, std::memory_order_release);
+			CookedLoadError = {};
 		}
 		FCookedMeshBlockingResult Result{.Status = GetRenderDataLoadStatus()};
 		if (!Result.Status.HasCpuData())
@@ -400,6 +379,7 @@ namespace Durin
 			if (PreparedSource) Source = std::move(*PreparedSource);
 #endif
 			RenderData = std::move(InRenderData);
+			CookedLoadError = {};
 			if (bAcceptGeometry) RefreshQualifiedBoxBodySetup();
 #if DURIN_WITH_EDITORONLY_DATA
 			if (PreparedImportData) AssetImportData = PreparedImportData;
@@ -651,7 +631,7 @@ namespace Durin
 		// Superseded cooked bytes must not restore geometry after a failed authored replacement.
 		CookedRenderData = {};
 		CookedCollisionData = {};
-		CookedLoadPhase.store(ECookedMeshCpuPhase::Failed, std::memory_order_release);
+		CookedLoadError = {.Code = ECookedMeshLoadError::Unavailable, .Owner = FObjectKey(this)};
 		RetireStaticMeshRenderData(RenderData);
 		RenderData.reset();
 		bRenderResourcesRequested = false;
@@ -701,7 +681,7 @@ namespace Durin
 		{
 			return Replaced;
 		}
-		CookedLoadPhase.store(ECookedMeshCpuPhase::CpuReady, std::memory_order_release);
+		CookedLoadError = {};
 		ScheduleCollisionData(false);
 		if (bInitializeResources) InitResources();
 		return {};

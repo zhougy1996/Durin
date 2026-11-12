@@ -229,7 +229,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 		const auto Before = Mesh->GetRenderResourceStatus();
 		const auto Loaded = Mesh->EnsureRenderDataLoadedBlocking();
 		ASSERT_TRUE(Loaded.Succeeded()) << Durin::FormatCookedMeshLoadError(Loaded.Error);
-		EXPECT_EQ(Loaded.Status.GpuPhase, Durin::ECookedMeshGpuPhase::Unavailable);
+		EXPECT_EQ(Mesh->GetRenderResourceStatus().Readiness, Durin::EStaticMeshRenderResourceReadiness::Unavailable);
 		EXPECT_FALSE(Mesh->HasPendingRenderResourceInitialization());
 		EXPECT_EQ(Mesh->GetRenderResourceStatus().Revision, Before.Revision);
 		const auto Repeated = Mesh->EnsureRenderDataLoadedBlocking();
@@ -247,7 +247,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 			const auto Queued = Mesh->GetRenderResourceStatus();
 			const auto WhileQueued = Mesh->EnsureRenderDataLoadedBlocking();
 			EXPECT_TRUE(WhileQueued.Succeeded());
-			EXPECT_EQ(WhileQueued.Status.GpuPhase, Durin::ECookedMeshGpuPhase::Queued);
+			EXPECT_EQ(Mesh->GetRenderResourceStatus().Readiness, Durin::EStaticMeshRenderResourceReadiness::Queued);
 			EXPECT_FALSE(Mesh->GetRenderResourceStatus().IsReady());
 			EXPECT_TRUE(Mesh->HasPendingRenderResourceInitialization());
 			Mesh->InitResources();
@@ -360,7 +360,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 		if (!bUseManager) Durin::ShutdownCookedMeshLoadManager();
 		const auto CpuOnly = CookedMesh->EnsureRenderDataLoadedBlocking();
 		ASSERT_TRUE(CpuOnly.Succeeded()) << Durin::FormatCookedMeshLoadError(CpuOnly.Error);
-		EXPECT_EQ(CpuOnly.Status.GpuPhase, Durin::ECookedMeshGpuPhase::Unavailable);
+		EXPECT_EQ(CookedMesh->GetRenderResourceStatus().Readiness, Durin::EStaticMeshRenderResourceReadiness::Unavailable);
 		EXPECT_EQ(CookedMesh->GetRenderData()->GetNumInitializedResources(), 0u);
 		ASSERT_TRUE(Durin::UnloadPackage(CookedPath));
 		CookedMesh = nullptr;
@@ -393,7 +393,6 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 		LoadStatus = CookedMesh->RequestRenderDataAndResources();
 	}
 	ASSERT_TRUE(LoadStatus.HasCpuData());
-	EXPECT_EQ(LoadStatus.GpuPhase, Durin::ECookedMeshGpuPhase::Queued);
 	EXPECT_EQ(
 		CookedMesh->GetRenderResourceStatus().Readiness,
 		Durin::EStaticMeshRenderResourceReadiness::Queued);
@@ -410,8 +409,8 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	Durin::FlushRenderingCommands();
 	const Durin::FCookedMeshLoadStatus ReadyStatus =
 		CookedMesh->RequestRenderDataAndResources();
-	EXPECT_EQ(ReadyStatus.CpuPhase, Durin::ECookedMeshCpuPhase::CpuReady);
-	EXPECT_EQ(ReadyStatus.GpuPhase, Durin::ECookedMeshGpuPhase::Ready);
+	EXPECT_TRUE(ReadyStatus.HasCpuData());
+	EXPECT_EQ(CookedMesh->GetRenderResourceStatus().Readiness, Durin::EStaticMeshRenderResourceReadiness::Ready);
 	EXPECT_TRUE(CookedMesh->GetRenderResourceStatus().IsReady());
 
 	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
@@ -3086,7 +3085,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ReplacementRetiresOldResourcesAndI
 	EXPECT_TRUE(Mesh->GetRenderResourceStatus().IsReady());
 	EXPECT_FALSE(Durin::FStaticMeshTestAccess::ReplaceRenderData(Mesh, nullptr, {}));
 	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
-	EXPECT_EQ(Mesh->RequestRenderDataAndResources().CpuPhase, ECookedMeshCpuPhase::Failed);
+	EXPECT_TRUE(Mesh->RequestRenderDataAndResources().HasFailed());
 	EXPECT_FALSE(Mesh->GetRenderResourceStatus().IsReady());
 	MarkAsGarbage(Mesh);
 	CollectGarbage(Durin::EObjectFlags::Standalone);

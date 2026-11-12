@@ -178,6 +178,9 @@ namespace Durin
 		// of current results without waiting for unfinished package requests.
 		auto Pump() -> uint32;
 		auto Cancel(FObjectKey Owner) -> bool;
+		// Includes queued requests, I/O, worker execution and unpublished completion.
+		// Older generations being drained do not make the current generation pending.
+		auto HasPendingRequest(FObjectKey Owner, uint64 LoadGeneration) const -> bool;
 		// Explicit blocking compatibility boundary for one selected owner.
 		auto Finish(FObjectKey Owner) -> void;
 		auto StopAdmission() -> void;

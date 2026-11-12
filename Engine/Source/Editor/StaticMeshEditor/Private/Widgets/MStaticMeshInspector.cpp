@@ -279,19 +279,13 @@ namespace Durin::StaticMeshEditor
 			ImGui::TextWrapped("Decoded authored source: %s. Render CPU data: %s.",
 				Inspection.bSourceResident ? "resident" : "not resident",
 				Inspection.bCpuResident ? "resident" : "absent");
-			const char* CpuPhase = "Unloaded";
-			switch (Inspection.CookedLoad.CpuPhase)
-			{
-			case ECookedMeshCpuPhase::Unloaded: break;
-			case ECookedMeshCpuPhase::IoQueued: CpuPhase = "I/O queued"; break;
-			case ECookedMeshCpuPhase::Reading: CpuPhase = "Reading"; break;
-			case ECookedMeshCpuPhase::Decoding: CpuPhase = "Decoding"; break;
-			case ECookedMeshCpuPhase::CpuReady: CpuPhase = "CPU ready"; break;
-			case ECookedMeshCpuPhase::Failed: CpuPhase = "Failed; restore or recook cooked data before explicitly retrying loading"; break;
-			case ECookedMeshCpuPhase::Cancelled: CpuPhase = "Cancelled; explicitly request loading when needed"; break;
-			}
-			ImGui::TextWrapped("Load phase: %s (generation %llu).", CpuPhase,
+			ImGui::TextWrapped("Cooked load request: %s (generation %llu).",
+				Inspection.bCookedLoadPending ? "pending" : "none",
 				static_cast<unsigned long long>(Inspection.CookedLoad.Generation));
+			if (const auto Message = FormatCookedMeshLoadError(Inspection.CookedLoad.Error); !Message.empty())
+				ImGui::TextWrapped("Last load error: %s", Message.c_str());
+			if (Inspection.CookedLoad.HasFailed())
+				ImGui::TextWrapped("Restore or recook invalid cooked data, then explicitly retry CPU loading.");
 			if (Inspection.Gpu.Readiness == EStaticMeshRenderResourceReadiness::InvalidData)
 				ImGui::TextWrapped("CPU geometry validation failed. Correct or rebuild the asset data.");
 			ImGui::SeparatorText("Authored build operation");

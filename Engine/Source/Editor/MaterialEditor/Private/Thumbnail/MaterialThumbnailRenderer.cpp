@@ -273,8 +273,7 @@ namespace Durin::MaterialEditor
 				if (SphereStatus.Readiness == EStaticMeshRenderResourceReadiness::Unavailable)
 				{
 					const auto LoadStatus = Sphere->RequestRenderDataAndResources();
-					if (LoadStatus.CpuPhase == ECookedMeshCpuPhase::Failed
-						|| LoadStatus.CpuPhase == ECookedMeshCpuPhase::Cancelled)
+					if (LoadStatus.HasFailed())
 						return {
 							.State = EThumbnailRendererSessionState::Failed,
 							.Diagnostic = "The thumbnail sphere render data could not be loaded."};

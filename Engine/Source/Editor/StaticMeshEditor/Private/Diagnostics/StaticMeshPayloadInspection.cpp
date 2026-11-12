@@ -1,6 +1,7 @@
 #include "Physics/PhysicsDerivedData.h"
 #include "Collision/CollisionGeometry.h"
 #include "Diagnostics/StaticMeshPayloadInspection.h"
+#include "Asset/CookedMeshLoadManager.h"
 #include "Physics/BodySetup.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
@@ -132,6 +133,8 @@ namespace Durin
 		}
 		Result.bCpuResident = Mesh.GetRenderData() != nullptr;
 		Result.CookedLoad = Mesh.GetRenderDataLoadStatus();
+		if (const auto* Manager = GetCookedMeshLoadManager())
+			Result.bCookedLoadPending = Manager->HasPendingRequest(FObjectKey(&Mesh), Result.CookedLoad.Generation);
 		Result.Gpu = Mesh.GetRenderResourceStatus();
 		Result.Operation = Mesh.GetCompilationDiagnostic();
 		Result.bOperationSourceMatches = Result.Operation.RequestId != 0

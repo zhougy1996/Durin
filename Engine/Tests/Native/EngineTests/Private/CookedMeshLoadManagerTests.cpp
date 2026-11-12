@@ -287,6 +287,9 @@ TEST(FCookedMeshLoadManagerTests,
 	auto FirstResource = std::make_shared<FControlledPackageResource>();
 	ASSERT_TRUE(Manager.Submit(MakeRequest(
 		*First, 1, MakeBulkData(FirstResource), &bCurrent, &PublishCount)));
+	EXPECT_TRUE(Manager.HasPendingRequest(FObjectKey(First), 1));
+	EXPECT_FALSE(Manager.HasPendingRequest(FObjectKey(First), 2));
+	EXPECT_FALSE(Manager.HasPendingRequest(FObjectKey(Second), 1));
 	// An exact current-generation request joins the existing flight before it starts I/O.
 	auto CoalescedResource = std::make_shared<FControlledPackageResource>();
 	ASSERT_TRUE(Manager.Submit(MakeRequest(
@@ -307,6 +310,7 @@ TEST(FCookedMeshLoadManagerTests,
 		return Manager.GetDiagnostics().InFlightCount == 0;
 	}));
 	EXPECT_EQ(PublishCount, 1u);
+	EXPECT_FALSE(Manager.HasPendingRequest(FObjectKey(First), 1));
 	EXPECT_EQ(CoalescedResource->GetReadStats().RequestCount, 0u);
 
 	// A newer generation cancels the old flight and occupies one bounded
@@ -343,6 +347,9 @@ TEST(FCookedMeshLoadManagerTests,
 	EXPECT_EQ(PendingRejected.Error.RequestCount, 1u);
 	EXPECT_EQ(PendingRejected.Error.RequestLimit, 1u);
 	EXPECT_EQ(Manager.GetDiagnostics().PendingRequestCount, 1u);
+	EXPECT_TRUE(Manager.HasPendingRequest(FObjectKey(First), 10));
+	EXPECT_TRUE(Manager.HasPendingRequest(FObjectKey(First), 11));
+	EXPECT_FALSE(Manager.HasPendingRequest(FObjectKey(First), 12));
 	EXPECT_EQ(NewerResource->GetReadStats().RequestCount, 0u);
 	EXPECT_EQ(OlderResource->GetReadStats().RequestCount, 0u);
 	SupersededResource->Release();
@@ -522,6 +529,69 @@ TEST(FCookedMeshLoadManagerTests, TerminalRetainsWorkerAndPublisherCauses)
 	ASSERT_TRUE(ReadError.ReadCause);
 	EXPECT_EQ(ReadError.ReadCause->Status, EPackageResourceReadStatus::Cancelled);
 	EXPECT_FALSE(FormatPackageResourceReadError(*ReadError.ReadCause).empty());
+	if (bOwnsScheduler) ShutdownTaskScheduler(true);
+}
+
+TEST(FCookedMeshLoadManagerTests, PendingCancellationReportsCurrentGenerationWithoutStartingIo)
+{
+	InitializeDObjectSystem();
+	if (!GIsGameThreadIdInitialized)
+	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+		GIsGameThreadIdInitialized = true;
+	}
+	const bool bOwnsScheduler = !IsTaskSchedulerRunning();
+	if (bOwnsScheduler) ASSERT_TRUE(InitializeTaskScheduler(2));
+	auto* Owner = NewObject<DObject>(nullptr, "CookedMeshPendingCancellation");
+	AddToRoot(Owner);
+	const FObjectKey OwnerKey(Owner);
+	for (const bool bShutdown : {false, true})
+	{
+		FCookedMeshLoadManager Manager({.MaxConcurrentRequests = 1});
+		ASSERT_TRUE(Manager.Initialize());
+		bool bCurrent = true;
+		uint32 PublishCount = 0;
+		uint32 TerminalCount = 0;
+		FCookedMeshLoadError Error;
+		auto ActiveResource = std::make_shared<FControlledPackageResource>();
+		auto Active = MakeRequest(*Owner, 1, MakeBulkData(ActiveResource), &bCurrent, &PublishCount);
+		// The successor is current; the cancelled old flight must never overwrite its error.
+		Active.IsCurrent = [](const DObject&, const FCookedMeshLoadIdentity&) { return false; };
+		ASSERT_TRUE(Manager.Submit(std::move(Active)));
+		auto PendingResource = std::make_shared<FControlledPackageResource>();
+		auto Pending = MakeRequest(*Owner, 2, MakeBulkData(PendingResource), &bCurrent,
+			&PublishCount, 4, &TerminalCount, ECookedMeshFamily::StaticMesh, &Error);
+		Pending.OnTerminal = [&](DObject&, const FCookedMeshLoadIdentity& Identity,
+			ECookedMeshTerminalState Terminal, const FCookedMeshLoadError& Cause) {
+			EXPECT_EQ(Identity.LoadGeneration, 2u);
+			EXPECT_EQ(Terminal, ECookedMeshTerminalState::Cancelled);
+			// Terminal callbacks must be able to inspect the manager without locking recursively.
+			EXPECT_EQ(Manager.GetDiagnostics().PendingRequestCount, 0u);
+			EXPECT_FALSE(Manager.HasPendingRequest(OwnerKey, 2));
+			Error = Cause;
+			++TerminalCount;
+		};
+		EXPECT_TRUE(Manager.Submit(std::move(Pending)));
+		EXPECT_TRUE(Manager.HasPendingRequest(OwnerKey, 1));
+		EXPECT_TRUE(Manager.HasPendingRequest(OwnerKey, 2));
+		if (!bShutdown)
+		{
+			EXPECT_TRUE(Manager.Cancel(OwnerKey));
+			EXPECT_EQ(TerminalCount, 1u);
+		}
+		ActiveResource->Release();
+		Manager.Shutdown();
+		EXPECT_EQ(TerminalCount, 1u);
+		EXPECT_EQ(Error.Code, ECookedMeshLoadError::Cancelled);
+		EXPECT_EQ(Error.Owner, OwnerKey);
+		EXPECT_EQ(PublishCount, 0u);
+		EXPECT_EQ(PendingResource->GetReadStats().RequestCount, 0u);
+		EXPECT_FALSE(Manager.HasPendingRequest(OwnerKey, 1));
+		EXPECT_FALSE(Manager.HasPendingRequest(OwnerKey, 2));
+	}
+	RemoveFromRoot(Owner);
+	MarkObjectHierarchyAsGarbage(Owner);
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 	if (bOwnsScheduler) ShutdownTaskScheduler(true);
 }
 

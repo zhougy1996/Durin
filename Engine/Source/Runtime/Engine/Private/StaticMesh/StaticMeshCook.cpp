@@ -627,24 +627,17 @@ namespace Durin
 						return {.Error = {.Code = ECookedMeshLoadError::CollisionPublication}};
 					}
 				}
-				Mesh->CookedLoadPhase.store(
-					ECookedMeshCpuPhase::CpuReady, std::memory_order_release);
 				if (bInitializeResources) Mesh->InitResources();
 				Mesh->CookedLoadError = {};
 				return {};
 			},
 			.OnTerminal = [](DObject& Owner,
 				const FCookedMeshLoadIdentity&,
-				ECookedMeshTerminalState Terminal,
+				ECookedMeshTerminalState,
 				const FCookedMeshLoadError& Error) {
 				auto* Mesh = Cast<DStaticMesh>(&Owner);
 				if (!Mesh) return;
 				Mesh->CookedLoadError = Error;
-				const bool bFailed = Terminal == ECookedMeshTerminalState::Failed
-					|| Terminal == ECookedMeshTerminalState::Rejected;
-				Mesh->CookedLoadPhase.store(bFailed
-					? ECookedMeshCpuPhase::Failed
-					: ECookedMeshCpuPhase::Cancelled, std::memory_order_release);
 			}
 		};
 		if (bRequiresCollision)
@@ -658,8 +651,6 @@ namespace Durin
 			return false;
 		}
 		CookedLoadError = {};
-		CookedLoadPhase.store(
-			ECookedMeshCpuPhase::IoQueued, std::memory_order_release);
 		return true;
 	}
 
