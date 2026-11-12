@@ -873,7 +873,7 @@ TEST(FMaterialExpressionTests, BuildSamplesAndSurfaceAttributesWithoutProgramNod
 	ASSERT_TRUE(CompilerEnvironmentResult) << CompilerEnvironmentResult.error();
 	const auto Compiled = MIR::Compile(CompilerInput);
 	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "Missing diagnostic" : Compiled.Diagnostics.front().Message);
-	EXPECT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), MaterialCompiledEntryPoints.size());
+	EXPECT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), std::popcount(MaterialAllStageMask));
 	Get->AttributeMask = 2;
 	EXPECT_FALSE(MIR::BuildGraph(Expressions, Roots));
 }

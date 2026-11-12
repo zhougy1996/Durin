@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Renderers/GPUSceneRendering.h"
 
 #include "Renderers/SceneRendererProfiling.h"
 
@@ -75,6 +76,7 @@ namespace Durin
 
 	struct FGBufferPassParameters final
 	{
+		FGPUSceneReadParameters GPUScene;
 		TRDGValueWrite<FGBufferPassResult> Completion;
 		std::array<std::optional<FRDGColorAttachmentParameter>, 4> Colors;
 		std::optional<FRDGDepthStencilAttachmentParameter> Depth;

@@ -3,7 +3,7 @@
 Summary: Material geometry and Pass usages select an atomic required stage set whose compatible binaries share independently through ShaderBuild.
 Modules: Engine, RenderCore, Renderer
 
-Last reviewed: 2026-10-20
+Last reviewed: 2026-11-12
 
 ## Declared usages
 
@@ -16,9 +16,9 @@ rejected transactionally.
 
 | Geometry bit | Generated vertex entry | Availability |
 | --- | --- | --- |
-| 1 | `VertexMain` | Local direct draws |
+| 1 | `VertexMain` | Local direct and indirect draws |
 | 2 | `SplineVertexMain` | Spline direct draws |
-| 4 | `GPUCullingVertexMain` | Optional Local GBuffer grouping; requires bit 1 |
+| 4 | Reserved legacy usage | Normalized away; no generated stage |
 
 | Pass bit | Generated fragment entry |
 | --- | --- |
@@ -31,19 +31,20 @@ rejected transactionally.
 frequencies, persisted stage bits, geometry/Pass eligibility and editor-only
 selection. Compile options, identity encoding, source requests and stage
 validation consume that contract; Renderer uses named entry bits rather than
-positional constants. The existing seven-entry order and Cook schema are unchanged.
+positional constants. The seven-entry descriptor order keeps the legacy GPU-culling ordinal reserved;
+only six entries are active. The Cook container shape is unchanged.
 `SelectMaterialShaderStages` computes their union in canonical entry order.
-GPU-culling contributes a vertex only when GBuffer is selected. All declared
-passes share the selected direct geometry entries. Editor compilation retains
+All declared passes and selection algorithms share the selected geometry entries. Editor compilation retains
 declared HitProxy use; both production Game Cook preparation paths explicitly
 exclude it through `FMaterialCompilerEnvironment::bIncludeEditorPasses`.
 An editor-only material with no remaining Game use fails compilation rather
-than publishing an empty program. The default has seven editor stages and six
+than publishing an empty program. The default has six editor stages and five
 Game stages; a Local Forward-only material has two.
 
-GPU grouping remains an optional renderer optimization. A material excluding
-its GPU vertex skips GPU pipeline preparation and renders through its declared
-Local direct route, including views requesting grouping. Fixed custom vertex
+GPU grouping remains an optional renderer optimization. Local geometry uses its
+same vertex stage with either direct or GPU-selected IDs; GeometryUsage no longer
+selects a culling algorithm. New materials default to mask 3. Load/edit and
+identity canonicalization strip legacy bit 4. Fixed custom vertex
 factories retain their existing explicit opt-in contract; these masks describe
 the built-in generated Local/Spline implementation.
 
@@ -77,7 +78,7 @@ programs. Whole-material semantic joining and its existing retention bounds
 remain in place. The program compiling manager submits at most two selected stages
 concurrently through a reentrancy-safe dispatch loop, tracks each request in a
 plain compile record for cancellation/priority/draining, and never
-blocks a material worker on ShaderBuild I/O. There are at most seven selected
+blocks a material worker on ShaderBuild I/O. There are at most six selected
 requests per material. Completed stage metadata and backing capacities charge
 the existing aggregate 8 MiB material result cap before retention. Each submitted
 request receives the remaining aggregate output allowance; retained outputs plus
@@ -90,10 +91,10 @@ Inline callbacks update slots without recursively submitting more work.
 No new unbounded stage cache is introduced.
 
 The finer granularity trades extra cold session submissions for reuse: a full
-cold editor material now has seven independent ShaderBuild compilations, where
-the former request compiled seven entries in one session. Local Forward-only
+cold editor material now has six independent ShaderBuild compilations, where
+the former request compiled all entries in one session. Local Forward-only
 uses require two. Warm whole-program reuse submits no compiler work; pixel-only
-constant edits reuse all three compatible vertex products and require at most
+constant edits reuse both compatible vertex products and require at most
 four pixel compilations. These are work/artifact counts, not a cold-time or
 frame-time speedup claim.
 
@@ -113,9 +114,10 @@ shadow fragment, whose declared material Pass remains Shadow. Excluded uses
 fail admission without compiler work. Game continues to load accepted binaries
 without MIR, generated source, ShaderBuild or authoring graphs.
 
-Pass contract 11, Cook payload schema 15 and detached translation schema 2 carry
-this contract. Generator revision 14 and compile adapter 12 invalidate old
-producer results. Older cooked payloads must be rebuilt.
+Pass contract 13, Cook payload schema 15 and detached translation schema 2 carry
+this contract. Generator revision 16 and compile adapter 13 invalidate old
+producer results. Pass validation rejects old shader ABIs even though the Cook
+container schema is unchanged. Older cooked payloads must be rebuilt.
 
 The design follows UE's separation of material shaders, mesh material shaders
 and Vertex Factory permutations, and its sparse compilation selection described

@@ -289,6 +289,7 @@ namespace Durin
 			Primitive.bRetainedStaticMesh = ViewFact.StaticBatches != nullptr;
 			Primitive.Id = SceneInfo->GetId();
 			Primitive.DrawResources = SceneInfo->DrawResources; Primitive.bSourceBound = true;
+			Primitive.PersistentPrimitiveIndex = SceneInfo->GetPersistentIndex();
 			Primitive.bSplineMesh = SceneInfo->GetKind() == EPrimitiveSceneProxyKind::SplineMesh;
 			Primitive.WorldBounds = SceneInfo->GetWorldBounds();
 			if (!SceneInfo->GetProxy().GetRenderParticipation().IsRelevant(Purpose))
@@ -677,6 +678,9 @@ namespace Durin
 					.CustomInstanceData = Batch.CustomInstanceData,
 					.PrimitiveId = Primitive.Id,
 					.BatchId = Batch.BatchId,
+					.PrimitiveIdMode = Batch.PrimitiveIdMode,
+					.PersistentPrimitiveIndex = Primitive.PersistentPrimitiveIndex,
+					.InstanceSceneDataId = Batch.InstanceSceneDataId,
 					.RequestedLODIndex = RequestedLODIndex,
 					.SelectedLODIndex = SelectedLODIndex,
 					.VertexDomain = bSplineMesh ? EVertexDeformationDomain::Spline : EVertexDeformationDomain::Local,

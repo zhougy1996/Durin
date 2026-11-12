@@ -286,7 +286,7 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	}
 	ASSERT_TRUE(Cooked->GetAcceptedCompiledProgram()) << Cooked->GetMaterialCookDiagnostic();
 	EXPECT_TRUE(Cooked->GetMaterialCookDiagnostic().empty());
-	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->GetShaderMap().CompiledShaders.size(), 6u);
+	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->GetShaderMap().CompiledShaders.size(), 5u);
 	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, ExpectedIdentity);
 	for (const auto& Shader : Cooked->GetAcceptedCompiledProgram()->GetShaderMap().CompiledShaders)
 	{

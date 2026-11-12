@@ -250,6 +250,8 @@ namespace Durin
 		// Explicit pilot opt-in. Unsupported capabilities or preparation failures
 		// deterministically retain the direct GBuffer submission path.
 		bool bEnableGPUCulling = false;
+		// CPU command merging is independent of GPU visibility selection.
+		bool bEnableDynamicInstancing = true;
 		// Supported development visualization written into HDR Scene Color.
 		EGBufferDebugMode GBufferDebugMode = EGBufferDebugMode::Disabled;
 		// Supported isolated deferred component visualization.

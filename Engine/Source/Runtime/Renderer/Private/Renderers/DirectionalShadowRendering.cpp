@@ -70,6 +70,7 @@ namespace Durin
 	{
 		using FParameters = FDirectionalShadowPassResources;
 		static const std::array Members = {
+			MakeRDGNestedParameterMemberMetadata<FParameters, decltype(FParameters::GPUScene)>("GPUScene", offsetof(FParameters, GPUScene), FGPUSceneReadParameters::GetRDGParametersMetadata()),
 			MakeRDGAttachmentMetadata<FParameters, decltype(FParameters::DirectionalShadowOutput)>(
 				"DirectionalShadowOutput",
 				offsetof(FParameters, DirectionalShadowOutput),
@@ -139,6 +140,7 @@ namespace Durin
 						std::format("Scene.DirectionalShadow.Cascade{}", Cascade), "shadow-cascade-observations");
 					Complete->Cascades[Cascade] = TRDGValueRead<FStaticMeshRenderObservations>{.Value = Value};
 					auto Pass = Graph.AllocParameters<FCascadeParameters>();
+					Pass->Resources.GPUScene.Add(Graph, Resolved->DirectionalShadow->StaticMeshes[Cascade]);
 					Pass->Completion = {.Value = Value};
 					Pass->Resources.DirectionalShadowOutput = {
 						.Texture = *Inputs.Shadow, .Range = {ERHITextureAspect::Depth, 0, 1, Cascade, 1}};
@@ -169,6 +171,8 @@ namespace Durin
 			}
 		}
 		auto Parameters = Graph.AllocParameters<FDirectionalShadowPassParameters>();
+        if (Resolved->DirectionalShadow)
+            for (const auto& View : Resolved->DirectionalShadow->StaticMeshes) Parameters->Resources.GPUScene.Add(Graph, View);
 		Parameters->Completion = {.Value = DirectionalShadow};
 		if (Inputs.Shadow)
 		{

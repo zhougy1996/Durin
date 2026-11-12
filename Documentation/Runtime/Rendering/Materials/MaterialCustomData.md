@@ -3,7 +3,7 @@
 Summary: Runtime numeric channels vary shared materials per primitive and stable StaticMesh instance without publishing new material owners.
 Modules: Engine, RenderCore, Renderer, MaterialEditor
 
-Last reviewed: 2026-10-16
+Last reviewed: 2026-11-12
 
 ## Numeric contract
 
@@ -50,6 +50,12 @@ remain shared. LOD selection currently belongs to the aggregate component, not
 to independent per-instance distance selection. Instanced physics bodies,
 asset serialization and an instance-painting editor are outside this API.
 
+StaticMesh proxies additionally publish immutable `FInstanceSceneDataBuffers` to
+scene-owned storage. Renderer diffs snapshots by stable ID and patches changed
+scene records/payloads; this does not change the component snapshot API or the
+current shader transport below. Shared numeric/source values are declared in
+RenderCore. See [GPUScene storage](../Scene/GPUScene.md).
+
 Custom primitive data also reaches SplineMesh through the ordinary mesh
 collection context. Other mesh providers must copy the context's custom
 channels into their published `FMeshBatch` fields. Batch admission rejects
@@ -64,14 +70,14 @@ previous storage. Geometry descriptions, shader maps and material parameters
 remain shareable. Removal, replacement and data publication obey the same scene
 command queue ordering as transform and material updates.
 
-`MaterialPrimitiveUniform` and its CPU counterpart now occupy 512 bytes: the
-existing 256-byte transform/origin prefix, 128 Primitive bytes, then 128 Instance
-bytes. Direct, Spline and shadow vertices consume that uniform. GPU-instanced
-vertices select the same structure through the existing visible-instance index
-and `InstanceTransforms` buffer. Generated flat varyings carry only referenced
-four-component slots to the fragment stage. Consequently a grouped fragment
-reads its selected instance, independently of the representative draw's uniform.
-The transport uses no additional descriptor bindings.
+`MaterialPrimitiveUniform` remains a 512-byte semantic adapter: a 256-byte
+transform/origin prefix followed by 128 Primitive and 128 Instance bytes.
+Built-in Local/Spline, shadow and HitProxy vertices construct it from selected
+[GPUScene records](../Scene/GPUScene.md#shader-access-and-submission). Unsupported
+factories retain the uniform ABI. Generated flat varyings carry only referenced
+four-component slots to fragments; object-space pixel expressions load the
+selected Instance ID. A grouped fragment never depends on the representative
+draw's numeric channels.
 
 Material vertex shaders classify the optional Material uniform as dynamic, just
 as material fragments do. Geometry preparation leaves that binding to material
@@ -84,10 +90,10 @@ when their full material group, shader and primitive-dependency key agrees.
 
 Existing [GBuffer GPU grouping](../Pipeline/GBuffer.md#pass-and-resource-lifecycle) still requires compatible
 Local indexed draws and at least 64 candidates. Eligible instances can share one
-indirect draw despite different numeric values. Forward, shadows, small groups
-and other fallbacks retain their existing direct submission behavior; custom
-data alone does not guarantee fewer draw calls. The 4 MiB generated-buffer limit
-charges the enlarged 512-byte records and can admit fewer candidates at the same
+indirect draw despite different numeric values. Compatible Forward/shadow draws and small groups can use ordered CPU ID runs
+independently of the GPU-culling threshold. Different material bindings or
+geometry still prevent merging; custom data alone does not guarantee fewer draws. The 4 MiB generated-buffer limit
+still charges redundant legacy 512-byte transform records until culling migration and can admit fewer candidates at the same
 budget. These costs must accompany any draw-count comparison.
 
 WPO reads use the same selected data before clip transformation; masked shadows,

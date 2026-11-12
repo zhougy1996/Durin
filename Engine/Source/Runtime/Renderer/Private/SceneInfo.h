@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "RendererAPI.h"
+#include "GPUScene.h"
 
 #include "Rendering/PrimitiveComponentId.h"
 #include "Rendering/PrimitiveSceneProxy.h"
@@ -29,6 +30,12 @@ namespace Durin
 		RENDERER_API auto BeginDeferredUpdateStaticMeshes() -> void;
 		RENDERER_API auto UpdateStaticMeshes() -> void;
 		auto GetId() const -> FPrimitiveComponentId { return Id; }
+		auto GetPersistentIndex() const -> FPersistentPrimitiveIndex { return GPUSceneHandle.PersistentPrimitiveIndex; }
+		RENDERER_API auto RequestGPUSceneUpdate(EGPUSceneDirtyState Dirty) -> void;
+		FGPUScenePrimitiveHandle GPUSceneHandle;
+		uint32 InstanceSceneDataOffset = INDEX_NONE_U32;
+		uint32 NumInstanceSceneDataEntries = 0;
+		uint32 InstancePayloadDataOffset = INDEX_NONE_U32;
 		std::shared_ptr<RendererPrivate::FPrimitiveDrawResources> DrawResources;
 		auto GetKind() const -> EPrimitiveSceneProxyKind { return Kind; }
 		auto GetTransform() const -> const FMatrix& { return Transform; }

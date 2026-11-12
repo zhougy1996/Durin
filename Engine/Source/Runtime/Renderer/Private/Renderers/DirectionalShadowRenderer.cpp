@@ -66,7 +66,7 @@ namespace Durin
 	auto FDirectionalShadowRenderer::PrepareResources_RenderThread(FRHICommandListImmediate& CommandList, FScene* Scene,
 		FStaticMeshRenderer& StaticMeshes, const FPreparedDirectionalShadow& Shadow,
 		FResolvedDirectionalShadow& ResolvedShadow, FViewRenderTelemetry& Telemetry,
-		FStaticMeshSectionResourceContext* ResourceContext, bool bAllowPartial) -> bool
+		FStaticMeshSectionResourceContext* ResourceContext, bool bAllowPartial, bool bDynamicInstancing) -> bool
 	{
 		check(IsInRenderingThread());
 		check(!CommandList.IsInsideRenderPass());
@@ -166,7 +166,7 @@ namespace Durin
 			if (bReady)
 			{
 				const bool bBindingsReady = StaticMeshes.PrepareBindings_RenderThread(CommandList, nullptr,
-					Prepared, Resolved, State->FallbackLighting, true);
+					Prepared, Resolved, State->FallbackLighting, true, {}, bDynamicInstancing);
 				bComplete = bBindingsReady && bComplete;
 				bReady = bBindingsReady || bAllowPartial;
 			}
@@ -263,6 +263,7 @@ namespace Durin
 			Observations.AttemptedDraws += Counts[CascadeIndex].AttemptedDraws;
 			Observations.SuccessfulDraws += Counts[CascadeIndex].SuccessfulDraws;
 			Observations.RejectedDraws += Counts[CascadeIndex].RejectedDraws;
+			Telemetry.DirectionalShadow.ShadowNativeDrawSubmissions += Counts[CascadeIndex].NativeDrawSubmissions;
 			Telemetry.DirectionalShadow.ShadowPrimitiveUniformUploads += Observations.PrimitiveUniformUploads;
 			Telemetry.DirectionalShadow.ShadowPrimitiveUniformReuses += Observations.PrimitiveUniformReuses;
 			Telemetry.DirectionalShadow.ShadowPersistentCommandHits += Observations.PersistentCommandHits;

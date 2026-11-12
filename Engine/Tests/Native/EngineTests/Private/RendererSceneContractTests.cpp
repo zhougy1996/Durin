@@ -926,9 +926,16 @@ TEST(FRendererSceneContractTests, GBufferPassParametersOwnThePilotDeclarations)
 	ASSERT_NE(Metadata, nullptr);
 	EXPECT_STREQ(Metadata->StructName, "FGBufferPassParameters");
 	EXPECT_EQ(Metadata->StructSize, sizeof(Durin::FGBufferPassParameters));
-	ASSERT_EQ(Metadata->Members.size(), 6u);
+	ASSERT_EQ(Metadata->Members.size(), 7u);
 
-	const auto& Completion = Metadata->Members[0];
+	const auto& Scene = Metadata->Members[0];
+    EXPECT_STREQ(Scene.Name, "GPUScene");
+    EXPECT_EQ(Scene.Kind, Durin::ERDGParameterMemberKind::Nested);
+    const auto* SceneMetadata = Durin::FGPUSceneReadParameters::GetRDGParametersMetadata();
+    ASSERT_EQ(SceneMetadata->Members.size(), 1u);
+    EXPECT_EQ(SceneMetadata->Members[0].ArraySize, 45u);
+    EXPECT_TRUE(SceneMetadata->Members[0].bOptional);
+    const auto& Completion = Metadata->Members[1];
 	EXPECT_STREQ(Completion.Name, "Completion");
 	EXPECT_EQ(Completion.Kind, Durin::ERDGParameterMemberKind::ValueWrite);
 	EXPECT_EQ(Completion.ArraySize, 1u);
@@ -936,7 +943,7 @@ TEST(FRendererSceneContractTests, GBufferPassParametersOwnThePilotDeclarations)
 	EXPECT_EQ(Completion.Use, Durin::ERDGUse::Write);
 	EXPECT_TRUE(Completion.bDiscard);
 
-	const auto& Colors = Metadata->Members[1];
+	const auto& Colors = Metadata->Members[2];
 	EXPECT_STREQ(Colors.Name, "Colors");
 	EXPECT_EQ(Colors.Kind, Durin::ERDGParameterMemberKind::ManagedColorAttachment);
 	EXPECT_EQ(Colors.ArraySize, 4u);
@@ -949,7 +956,7 @@ TEST(FRendererSceneContractTests, GBufferPassParametersOwnThePilotDeclarations)
 	EXPECT_TRUE(Colors.bPassManagedTransition);
 	EXPECT_EQ(Colors.ResultAccess, Durin::ERHIAccess::GraphicsShaderRead);
 
-	const auto& Depth = Metadata->Members[2];
+	const auto& Depth = Metadata->Members[3];
 	EXPECT_STREQ(Depth.Name, "Depth");
 	EXPECT_EQ(Depth.Kind, Durin::ERDGParameterMemberKind::ManagedDepthStencilAttachment);
 	EXPECT_EQ(Depth.ArraySize, 1u);
@@ -962,21 +969,21 @@ TEST(FRendererSceneContractTests, GBufferPassParametersOwnThePilotDeclarations)
 	EXPECT_TRUE(Depth.bPassManagedTransition);
 	EXPECT_EQ(Depth.ResultAccess, Durin::ERHIAccess::GraphicsShaderRead);
 
-	const auto& VisibleInstances = Metadata->Members[3];
+	const auto& VisibleInstances = Metadata->Members[4];
 	EXPECT_STREQ(VisibleInstances.Name, "VisibleInstances");
 	EXPECT_EQ(VisibleInstances.Kind, Durin::ERDGParameterMemberKind::Buffer);
 	EXPECT_TRUE(VisibleInstances.bOptional);
 	EXPECT_EQ(VisibleInstances.Use, Durin::ERDGUse::Read);
 	EXPECT_EQ(VisibleInstances.Access, Durin::ERHIAccess::GraphicsShaderRead);
 
-	const auto& InstanceTransforms = Metadata->Members[4];
+	const auto& InstanceTransforms = Metadata->Members[5];
 	EXPECT_STREQ(InstanceTransforms.Name, "InstanceTransforms");
 	EXPECT_EQ(InstanceTransforms.Kind, Durin::ERDGParameterMemberKind::Buffer);
 	EXPECT_TRUE(InstanceTransforms.bOptional);
 	EXPECT_EQ(InstanceTransforms.Use, Durin::ERDGUse::Read);
 	EXPECT_EQ(InstanceTransforms.Access, Durin::ERHIAccess::GraphicsShaderRead);
 
-	const auto& Arguments = Metadata->Members[5];
+	const auto& Arguments = Metadata->Members[6];
 	EXPECT_STREQ(Arguments.Name, "Arguments");
 	EXPECT_EQ(Arguments.Kind, Durin::ERDGParameterMemberKind::Buffer);
 	EXPECT_TRUE(Arguments.bOptional);

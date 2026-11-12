@@ -5,6 +5,7 @@ module MaterialCompilerEnvironment;
 // shared shader modules that generated vertex and fragment stages actually consume.
 import Material.SurfaceMaterial;
 import Material.MeshUniforms;
+import SceneData;
 import Material.SpecularAntialiasing;
 import Lighting.DirectionalShadow;
 import Lighting.ViewLightingUniform;

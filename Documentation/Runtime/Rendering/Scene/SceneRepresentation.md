@@ -4,7 +4,7 @@ Summary: Define engine-to-renderer scene publication, proxies, infos, mutation, 
 
 Modules: Engine, RenderCore, Renderer
 
-Last reviewed: 2026-10-25
+Last reviewed: 2026-11-12
 
 Durin represents renderable world residents with Engine-created SceneProxy
 values and Renderer-owned scene entries. Components call only the public
@@ -44,6 +44,11 @@ borrowing the source StaticMesh render data under the same retirement fence;
 material proxies and SkyBox texture references remain counted references.
 
 ## Proxy and SceneInfo Responsibilities
+
+SceneInfo also registers persistent Primitive/Instance allocations with its
+scene-owned GPUScene. Storage, source snapshots, dirty updates and GPU-safe slot
+retirement follow [Persistent GPU scene storage](GPUScene.md). Current mesh
+shaders retain their existing Uniform/temporary-buffer routes during migration.
 
 `FPrimitiveSceneInfo` owns stable identity, primitive kind,
 visibility, transform, local bounds, derived world bounds, and generic primitive

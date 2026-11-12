@@ -33,7 +33,7 @@ namespace Durin
 		return &Metadata;                                                                              \
 	}
 
-	DURIN_DEFINE_METADATA(FBaseScenePassResources, MakeRDGBufferAccessMetadata<FParameters, decltype(FParameters::LocalLights)>("LocalLights", offsetof(FParameters, LocalLights)), DURIN_TEXTURE(DirectionalShadow), DURIN_TEXTURE(DefaultWhite), DURIN_TEXTURE(DefaultShadowArray), DURIN_TEXTURE(EnvironmentIrradiance), DURIN_TEXTURE(EnvironmentPrefiltered), DURIN_TEXTURE(EnvironmentBrdfLut), DURIN_TEXTURE(EnvironmentSky), MakeRDGColorAttachmentBindingMetadata<FParameters, decltype(FParameters::SceneColorOutput)>("SceneColorOutput", offsetof(FParameters, SceneColorOutput)), MakeRDGDepthStencilAttachmentBindingMetadata<FParameters, decltype(FParameters::SceneDepthOutput)>("SceneDepthOutput", offsetof(FParameters, SceneDepthOutput)));
+	DURIN_DEFINE_METADATA(FBaseScenePassResources, DURIN_NESTED(GPUScene, FGPUSceneReadParameters), MakeRDGBufferAccessMetadata<FParameters, decltype(FParameters::LocalLights)>("LocalLights", offsetof(FParameters, LocalLights)), DURIN_TEXTURE(DirectionalShadow), DURIN_TEXTURE(DefaultWhite), DURIN_TEXTURE(DefaultShadowArray), DURIN_TEXTURE(EnvironmentIrradiance), DURIN_TEXTURE(EnvironmentPrefiltered), DURIN_TEXTURE(EnvironmentBrdfLut), DURIN_TEXTURE(EnvironmentSky), MakeRDGColorAttachmentBindingMetadata<FParameters, decltype(FParameters::SceneColorOutput)>("SceneColorOutput", offsetof(FParameters, SceneColorOutput)), MakeRDGDepthStencilAttachmentBindingMetadata<FParameters, decltype(FParameters::SceneDepthOutput)>("SceneDepthOutput", offsetof(FParameters, SceneDepthOutput)));
 	DURIN_DEFINE_METADATA(FBaseScenePassParameters, DURIN_VALUE(GBufferCompletion, FGBufferPassResult), DURIN_VALUE(Predecessor, FSceneColorPassResult), DURIN_VALUE(Completion, FSceneColorPassResult), DURIN_NESTED(Resources, FBaseScenePassResources));
 	DURIN_DEFINE_METADATA(FProductionDeferredPassParameters, DURIN_NESTED(Inputs, FDeferredLightingInputParameters), DURIN_VALUE(Predecessor, FSceneColorPassResult), DURIN_VALUE(Completion, FSceneColorPassResult), MakeRDGColorAttachmentBindingMetadata<FParameters, decltype(FParameters::SceneColorOutput)>("SceneColorOutput", offsetof(FParameters, SceneColorOutput)));
 #undef DURIN_DEFINE_METADATA
@@ -103,6 +103,7 @@ namespace Durin
 		const auto MakeGeometryParameters = [&](TRDGValueHandle<FSceneColorPassResult> Result, bool bClearColor, bool bClearDepth) {
 			auto Parameters = Graph.AllocParameters<FBaseScenePassParameters>();
 			Parameters->Completion = {.Value = Result};
+			Parameters->Resources.GPUScene.Add(Graph, Inputs.Resolved.Receiver.StaticMeshes);
 			Parameters->Resources.SceneColorOutput = {Inputs.SceneColor, {ERHITextureAspect::Color, 0, 1, 0, 1}, bClearColor ? ERHIRenderTargetLoadAction::Clear : ERHIRenderTargetLoadAction::Load};
 			Parameters->Resources.SceneDepthOutput = {Inputs.SceneDepth, {ERHITextureAspect::Depth, 0, 1, 0, 1}, bClearDepth ? ERHIRenderTargetLoadAction::Clear : ERHIRenderTargetLoadAction::Load};
 			if (!bHybrid || !bClearColor)

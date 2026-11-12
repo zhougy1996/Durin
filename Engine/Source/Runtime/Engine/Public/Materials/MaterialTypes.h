@@ -105,9 +105,9 @@ namespace Durin
 		DPROPERTY()
 		EMaterialDepthWritePolicy DepthWritePolicy = EMaterialDepthWritePolicy::Automatic;
 
-		// Local=1, Spline=2, GPU-culling Local=4 (GBuffer only).
+		// Local=1, Spline=2. Legacy bit 4 is ignored; culling does not select a shader.
 		DPROPERTY()
-		uint8 GeometryUsage = 7;
+		uint8 GeometryUsage = 3;
 
 		// Forward=1, GBuffer=2, Shadow=4, HitProxy=8 (editor only).
 		DPROPERTY()

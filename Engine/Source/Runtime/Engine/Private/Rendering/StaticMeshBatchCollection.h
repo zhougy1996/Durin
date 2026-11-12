@@ -54,6 +54,8 @@ namespace Durin
 		FMeshBatch Batch;
 		Batch.PrimitiveId = Context.PrimitiveId;
 		Batch.BatchId = Context.BatchId;
+		Batch.PrimitiveIdMode = EPrimitiveIdMode::PrimID_FromPrimitiveSceneInfo;
+		Batch.InstanceSceneDataId = Context.InstanceSceneDataId;
 		Batch.CustomPrimitiveData = Context.CustomPrimitiveData;
 		Batch.CustomInstanceData = Context.CustomInstanceData;
 		Batch.LocalToWorld = Context.LocalToWorld;

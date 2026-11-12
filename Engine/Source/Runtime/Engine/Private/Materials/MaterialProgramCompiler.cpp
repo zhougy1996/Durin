@@ -171,6 +171,7 @@ namespace Durin
 		FShaderCompileOptions Options; Options.Target = Target;
 		for (const auto& Entry : MaterialShaderEntries)
 		{
+			if (!Entry.GeometryUsage) continue;
 			Options.EntryPoints.push_back(Entry.Name.data());
 			Options.Frequencies.push_back(Entry.Frequency);
 		}

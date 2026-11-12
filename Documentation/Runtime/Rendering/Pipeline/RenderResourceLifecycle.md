@@ -6,6 +6,10 @@ Modules: RenderCore, Engine, Renderer, MonaImGui
 
 Last reviewed: 2026-11-12
 
+Scene-owned Primitive/Instance buffer mirrors, upload transactions and native
+recovery follow [Persistent GPU scene storage](../Scene/GPUScene.md). This owner
+coexists with source-owned Primitive uniforms until shader migration completes.
+
 `FRenderResource` owns registry membership and the rendering-thread
 initialization, update, and release state machine. This contract covers generic
 RenderCore lifetime; asset-specific publication and RHI command execution stay

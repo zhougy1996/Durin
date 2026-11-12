@@ -241,11 +241,17 @@ namespace Durin::RendererPrivate
 			const bool bPrimitive = Binding.SetIndex == 1 && Slot == 0;
 			const bool bCollection = Slot >= 3
 				&& Slot < 3 + MaterialParameterCollectionMaxPerMaterial;
-			const bool bMaterialSet = bPrimitive || Slot == 2 || Slot == 27 || bCollection
-				|| Slot >= MaterialTextureBindingBase;
+			const bool bScene = Binding.SetIndex == 0 && (Slot == 27 || Slot == 28 || Slot == 29 || Slot == 31);
+			const bool bMaterialSet = !bScene && (bPrimitive || Slot == 2 || Slot == 27 || bCollection
+				|| Slot >= MaterialTextureBindingBase);
 			if (Binding.SetIndex != (bMaterialSet ? 1u : 0u)) return;
 			ERHIBindingType Expected = ERHIBindingType::Texture;
-			if (bView || bPrimitive || Slot == 1 || Slot == 2 || Slot == 27)
+			if (bScene)
+			{
+				Entry.Source = Slot == 27 ? ESource::GPUScenePrimitive : Slot == 28 ? ESource::GPUSceneInstance : Slot == 29 ? ESource::GPUScenePayload : ESource::GPUSceneInstanceIds;
+				Expected = ERHIBindingType::StorageBuffer;
+			}
+			else if (bView || bPrimitive || Slot == 1 || Slot == 2 || Slot == 27)
 			{
 				Entry.Source = bView ? ESource::View : bPrimitive ? ESource::Primitive : Slot == 27 ? ESource::HitProxy
 					: Slot == 1 ? ESource::Lighting : ESource::Material;
@@ -287,7 +293,7 @@ namespace Durin::RendererPrivate
 		const FRHIUniformBufferRange& Lighting, const FRHIUniformBufferRange& HitProxy,
 		const FRHIUniformBufferRange& View, const FRHIUniformBufferRange& Primitive,
 		std::span<const FRHIUniformBufferRange> Collections,
-		FMeshDrawShaderBindings& OutBindings, FRHIStorageBufferRange LocalLights) -> bool
+		FMeshDrawShaderBindings& OutBindings, FRHIStorageBufferRange LocalLights, const FGPUSceneShaderParameters& GPUScene) -> bool
 	{
 		OutBindings = {};
 		if (!Shader || !Layout.IsValid() || !Material.bCompiledLayout
@@ -317,7 +323,18 @@ namespace Durin::RendererPrivate
 				Resource.Offset = LocalLights.Offset;
 				Resource.Size = LocalLights.Size;
 				break;
-			case ESource::Lighting: Range = &Lighting; break;
+			case ESource::GPUScenePrimitive:
+            case ESource::GPUSceneInstance:
+            case ESource::GPUScenePayload:
+            case ESource::GPUSceneInstanceIds:
+            {
+                const auto& Data = Entry.Source == ESource::GPUScenePrimitive ? GPUScene.GPUScenePrimitiveSceneData
+                    : Entry.Source == ESource::GPUSceneInstance ? GPUScene.GPUSceneInstanceSceneData
+                    : Entry.Source == ESource::GPUScenePayload ? GPUScene.GPUSceneInstancePayloadData : GPUScene.GPUSceneInstanceIds;
+                Resource.Resource = Data.Buffer; Resource.Offset = Data.Offset; Resource.Size = Data.Size;
+                break;
+            }
+            case ESource::Lighting: Range = &Lighting; break;
 			case ESource::Material: Range = &MaterialBuffer; break;
 			case ESource::HitProxy: Range = &HitProxy; break;
 			case ESource::Collection:

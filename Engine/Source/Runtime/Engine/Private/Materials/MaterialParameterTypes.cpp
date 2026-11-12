@@ -17,6 +17,7 @@ namespace Durin
 	auto CanonicalizeMaterialShaderProperties(FMaterialStaticProperties Properties)
 		-> FMaterialStaticProperties
 	{
+		Properties.GeometryUsage &= 3;
 		if (Properties.BlendMode != EMaterialBlendMode::Masked)
 			Properties.OpacityMaskThreshold = FMaterialStaticProperties{}.OpacityMaskThreshold;
 		else if (Properties.OpacityMaskThreshold == 0.0f)

@@ -276,6 +276,12 @@ namespace Durin
 	auto FRDGBuilder::GetExecutionResult() const -> const std::optional<FRDGExecutionResult>&
 	{ return State->ExecutionResult; }
 
+	auto FRDGBuilder::GetGPUCompletion() const -> FRHIGPUSyncPointRef
+	{
+		if (!State->ExecutionResult || !State->ExecutionResult->has_value() || State->SubmissionSyncPoints.empty()) return {};
+		return State->SubmissionSyncPoints.back();
+	}
+
 	auto FRDGBuilder::HasCompiledPlan() const -> bool
 	{ return State->bCompiled; }
 

@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "GeometrySubmission.h"
+#include "InstanceUniformShaderParameters.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Math/Operations.h"
 #include "Rendering/PrimitiveComponentId.h"
@@ -15,6 +16,13 @@
 
 namespace Durin
 {
+	// Providers explicitly select the scene-info record or submission-owned data.
+	enum class EPrimitiveIdMode : uint8
+	{
+		PrimID_FromPrimitiveSceneInfo,
+		PrimID_DynamicPrimitiveShaderData,
+	};
+
 	// Renderer supplies scalar view facts; providers never depend on scene views.
 	enum class EMeshCollectionProjectionStatus : uint8
 	{
@@ -33,6 +41,7 @@ namespace Durin
 	struct FMeshCollectionContext
 	{
 		uint64 BatchId = 0;
+		FPrimitiveInstanceId InstanceSceneDataId;
 		FPrimitiveCustomData CustomPrimitiveData;
 		FPrimitiveCustomData CustomInstanceData;
 		FPrimitiveComponentId PrimitiveId = InvalidPrimitiveComponentId;
@@ -78,6 +87,8 @@ namespace Durin
 		FPrimitiveCustomData CustomInstanceData;
 		FPrimitiveComponentId PrimitiveId = InvalidPrimitiveComponentId;
 		uint64 BatchId = 0;
+		EPrimitiveIdMode PrimitiveIdMode = EPrimitiveIdMode::PrimID_DynamicPrimitiveShaderData;
+		FPrimitiveInstanceId InstanceSceneDataId;
 		FMatrix LocalToWorld{1.0};
 		FBox WorldBounds;
 		FXxHash64 FactoryKey;

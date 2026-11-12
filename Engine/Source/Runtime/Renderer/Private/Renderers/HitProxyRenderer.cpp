@@ -176,6 +176,9 @@ namespace Durin
 			if (!Entry.Id || !Entry.PrimitiveId || !Ids.emplace(Entry.PrimitiveId, Entry.Id.Value).second) { return {}; }
 		}
 		const auto ViewUniform = PrepareMeshViewUniform(Commands, View, false);
+		FResolvedStaticMeshView SceneData;
+		SceneData.GPUScenePrimitives = FGPUSceneDynamicContext::Prepare(Commands, Prepared);
+		if (SceneData.GPUScenePrimitives.size() != Prepared.Primitives.size()) return {};
 		std::vector<FHitProxyDraw> Draws;
 		bool bReady = true;
 		bool bFrameDependent = false;
@@ -210,7 +213,7 @@ namespace Durin
 				if (!SurfaceMaterials.Ensure_RenderThread(Binding, ESurfaceMaterialPass::MaskedShadow)
 					|| !SurfaceMaterials.Prepare_RenderThread(Commands, &Binding, ESurfaceMaterialPass::MaskedShadow, {}, nullptr, nullptr, Item.Material)) { bReady = false; break; }
 				if (!Processor.PreparePipeline(Batch, "HitProxy", Item, Item.Primitive->CollectedBinding->Declaration, Item)) { bReady = false; break; }
-				Item.Transform = PrepareMeshPrimitiveUniform(Commands, *Item.Primitive);
+				if (!Factory->SupportsGPUScene()) Item.Transform = PrepareMeshPrimitiveUniform(Commands, *Item.Primitive);
 				const auto It = Ids.find(Item.Primitive->PrimitiveId.Value);
 				struct FIdUniform { std::array<uint32, 4> Id; FVector4f ViewOrigin; };
 				const FIdUniform Id{{It == Ids.end() ? 0u : It->second, 0, 0, 0}, FVector4f(0.f)};
@@ -232,8 +235,11 @@ namespace Durin
 				if (!bReady) break;
 				const FResolvedStaticMeshView::FMaterialUniform Material{Item.Material.Surface, Item.Material.Uniform, Collections};
 				Item.Pipeline = std::make_shared<const FMeshPassPipeline>(static_cast<const FMeshPassPipeline&>(Item));
-				const FMeshDrawCommandBuildInput Input{Commands, *Item.Primitive, Draw, Item.Pipeline, Material,
+				FMeshDrawCommandBuildInput Input{Commands, *Item.Primitive, Draw, Item.Pipeline, Material,
 					Item.Transform, ViewUniform, {}, Item.Id};
+                const auto& GPU = SceneData.GPUScenePrimitives[Draw.PrimitiveIndex];
+                if (Factory->SupportsGPUScene() && GPU.Buffers)
+                { Input.GPUScene = GPU.Buffers->GetShaderParameters(); Input.InstanceIdOffset = GPU.InstanceIdOffset; }
 				FDynamicPassMeshDrawListContext BindingContext(DrawCommands, {EMeshPipelinePass::HitProxy}, Item.Command);
 				if (!Processor.AddMeshBatch(Batch, Input, BindingCache, BindingContext)) { bReady = false; break; }
 				Draws.push_back(std::move(Item));

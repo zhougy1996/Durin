@@ -593,34 +593,31 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 			(std::set<uint32>{0, 1, 2, 3, 4, 5, 6, 7})
 		);
 
-		ASSERT_EQ(
-			VertexShader.Reflection.ResourceBindings.size(), 2u
-		);
+		ASSERT_EQ(VertexShader.Reflection.ResourceBindings.size(), 5u);
 		ExpectBinding(VertexShader, "MaterialView", 0,
 			ERHIBindingType::UniformBuffer, EShaderStageFlags::Vertex, 0);
-		ExpectBinding(
-			VertexShader,
-			"MaterialPrimitive",
-			0,
-			ERHIBindingType::UniformBuffer,
-			EShaderStageFlags::Vertex, 1
-		);
+		ExpectBinding(VertexShader, "GPUScenePrimitiveSceneData", 27, ERHIBindingType::StorageBuffer, EShaderStageFlags::Vertex);
+		ExpectBinding(VertexShader, "GPUSceneInstanceSceneData", 28, ERHIBindingType::StorageBuffer, EShaderStageFlags::Vertex);
+		ExpectBinding(VertexShader, "GPUSceneInstancePayloadData", 29, ERHIBindingType::StorageBuffer, EShaderStageFlags::Vertex);
+		ExpectBinding(VertexShader, "GPUSceneInstanceIds", 31, ERHIBindingType::StorageBuffer, EShaderStageFlags::Vertex);
 		EXPECT_TRUE(FragmentShader.Reflection.ResourceBindings.empty());
 		EXPECT_TRUE(FragmentShader.Reflection.PushConstantRanges.empty());
 		FPipelineLayoutDesc PipelineLayout;
 		FShaderOperationResult ErrorMessage;
 		ASSERT_TRUE((ErrorMessage = BuildPipelineLayoutFromShaders(Output.CompiledShaders, PipelineLayout))) << std::string(ErrorMessage.error());
-		ASSERT_EQ(PipelineLayout.BindingLayouts.size(), 2u);
+		ASSERT_EQ(PipelineLayout.BindingLayouts.size(), 1u);
 		const auto& ViewLayout = PipelineLayout.BindingLayouts[0].BindingLayouts;
-		ASSERT_EQ(ViewLayout.size(), 1u);
+		ASSERT_EQ(ViewLayout.size(), 5u);
 		EXPECT_EQ(ViewLayout[0].Slot, 0u);
 		EXPECT_EQ(ViewLayout[0].Type, ERHIBindingType::UniformBuffer);
 		EXPECT_EQ(ViewLayout[0].StageFlags, EShaderStageFlags::Vertex);
-		const auto& SetLayout = PipelineLayout.BindingLayouts[1].BindingLayouts;
-		ASSERT_EQ(SetLayout.size(), 1u);
-		EXPECT_EQ(SetLayout[0].Slot, 0u);
-		EXPECT_EQ(SetLayout[0].Type, ERHIBindingType::UniformBuffer);
-		EXPECT_EQ(SetLayout[0].StageFlags, EShaderStageFlags::Vertex);
+		const std::array<uint32, 4> SceneSlots{27, 28, 29, 31};
+		for (size_t Index = 0; Index < SceneSlots.size(); ++Index)
+		{
+			EXPECT_EQ(ViewLayout[Index + 1].Slot, SceneSlots[Index]);
+			EXPECT_EQ(ViewLayout[Index + 1].Type, ERHIBindingType::StorageBuffer);
+			EXPECT_EQ(ViewLayout[Index + 1].StageFlags, EShaderStageFlags::Vertex);
+		}
 	}
 
 	TEST_F(FShaderReflectionTests, GeometryPassPublishesFourTargetsForEveryVertexFactoryDomain)
@@ -772,7 +769,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
 		const FShaderCode& Fragment = Output.CompiledShaders[1];
 		EXPECT_EQ(GetSpirvOutputLocations(Fragment), (std::set<uint32>{0}));
-		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 19u);
+		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 20u);
 		for (uint32 Index = 0; Index <= 7; ++Index)
 		{
 			const std::array<const char*, 8> Names{
@@ -793,5 +790,6 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		ExpectBinding(Fragment, "GroundTruthAmbientOcclusionResolved", 16, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
 		ExpectBinding(Fragment, "GroundTruthAmbientOcclusionSelector", 17, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
 		ExpectBinding(Fragment, "VolumetricCloudVisibility", 18, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "LocalLights", 19, ERHIBindingType::StorageBuffer, EShaderStageFlags::Fragment);
 	}
 } // namespace Durin

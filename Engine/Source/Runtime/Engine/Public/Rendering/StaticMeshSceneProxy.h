@@ -18,6 +18,7 @@ namespace Durin
 			std::vector<FMaterialRenderProxyRef> InMaterialProxies,
 			FStaticMeshRenderInstances InInstances = {});
 		ENGINE_API auto SetRenderInstances(FStaticMeshRenderInstances InInstances) -> bool;
+		auto GetInstanceSceneDataBuffers() const -> std::shared_ptr<const FInstanceSceneDataBuffers> override { return InstanceSceneData; }
 
 		ENGINE_API auto GetRenderData() const -> const FStaticMeshRenderData*;
 		// Explicit retained capability for ordinary, non-instanced StaticMesh.
@@ -50,6 +51,7 @@ namespace Durin
 		const FStaticMeshRenderData* RenderData = nullptr;
 		std::vector<FMaterialRenderProxyRef> Materials;
 		FStaticMeshRenderInstances Instances;
+		std::shared_ptr<const FInstanceSceneDataBuffers> InstanceSceneData;
 		mutable FStaticMeshBatchPublication::FRef StaticBatches;
 
 	};

@@ -173,13 +173,15 @@ namespace Durin
 
 	auto DMaterial::SetStaticProperties(const FMaterialStaticProperties& InProperties) -> std::expected<void, std::string>
 	{
-		const auto Error = ValidateMaterialStaticProperties(InProperties);
+		auto Properties = InProperties;
+		const auto Error = ValidateMaterialStaticProperties(Properties);
 		if (!Error) return Error;
-		if (StaticProperties == InProperties) return {};
+		Properties.GeometryUsage &= 3;
+		if (StaticProperties == Properties) return {};
 		const bool bShaderIdentityChanged =
 			CanonicalizeMaterialShaderProperties(StaticProperties)
-				!= CanonicalizeMaterialShaderProperties(InProperties);
-		StaticProperties = InProperties;
+				!= CanonicalizeMaterialShaderProperties(Properties);
+		StaticProperties = Properties;
 		FObjectCacheContext Context;
 		if (bShaderIdentityChanged)
 		{
@@ -459,6 +461,7 @@ namespace Durin
 	auto DMaterial::PostLoad() -> void
 	{
 		Super::PostLoad();
+		StaticProperties.GeometryUsage &= 3;
 		if (const auto Validation = ValidateMaterialStaticProperties(StaticProperties); !Validation)
 		{
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Validation.error());

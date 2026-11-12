@@ -4,7 +4,7 @@ Summary: Define the qualified opaque/masked geometry transport consumed by defer
 
 Modules: RenderCore, Renderer, RHI
 
-Last reviewed: 2026-11-11
+Last reviewed: 2026-11-12
 
 ## Scope and Ownership
 
@@ -38,9 +38,13 @@ candidates; this is a structural diagnostic floor, not a measured performance
 threshold. The default remains disabled after qualification.
 
 Admission accepts whole groups within 65,536 candidates and 4 MiB of generated
-candidate, transform, visible-index and argument storage. Rejected and smaller
-groups remain direct. Bounds and transforms use the view's translated world
-origin before FP32 upload. The fitted main view resolves one culling policy.
+candidate, transform, visible-index and argument storage. Rejected and smaller groups use direct submission, with CPU instancing for
+compatible consecutive runs. A CPU run partly covered by indirect admission
+retains original direct commands for its remainder. Candidate bounds use the view's translated world origin before FP32 upload.
+Graphics consumes the same GPUScene geometry stage as direct drawing, using
+selected scene IDs. The legacy transform upload remains redundant and charged
+until culling inputs and budget telemetry are migrated. Groups keep scene-data
+owners separate so scoped and persistent IDs cannot alias. The fitted main view resolves one culling policy.
 CPU classification tests aggregate primitive bounds. Compute tests each admitted
 instance against the same six planes, translated to the camera origin. Both tests
 use the same world-scale plane-contact margin. The GPU also allows for FP32

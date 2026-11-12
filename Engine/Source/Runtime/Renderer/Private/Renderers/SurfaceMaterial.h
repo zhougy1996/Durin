@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GPUSceneParameters.h"
 
 #include "Materials/MaterialRenderProxy.h"
 #include "DefaultTextures.h"
@@ -33,6 +34,7 @@ namespace Durin
 			enum class ESource : uint8
 			{
 				View, Primitive, Lighting, LocalLights, Material, HitProxy, Texture, Sampler,
+				GPUScenePrimitive, GPUSceneInstance, GPUScenePayload, GPUSceneInstanceIds,
 				Collection,
 				EnvironmentIrradiance, EnvironmentPrefiltered, EnvironmentBrdfLut,
 				EnvironmentSampler, DirectionalShadowTexture, DirectionalShadowSampler
@@ -173,7 +175,7 @@ namespace Durin
 			const FRHIUniformBufferRange& View,
 			const FRHIUniformBufferRange& Primitive,
 			std::span<const FRHIUniformBufferRange> Collections,
-			FMeshDrawShaderBindings& OutBindings, FRHIStorageBufferRange LocalLights = {}) -> bool;
+			FMeshDrawShaderBindings& OutBindings, FRHIStorageBufferRange LocalLights = {}, const FGPUSceneShaderParameters& GPUScene = {}) -> bool;
 		RENDERER_API auto PrepareCompiledSurfaceMaterial(
 			FRHIShader* Shader, const FCompiledSurfaceBindingLayout& Layout,
 			const FResolvedSurfaceMaterial& Material,

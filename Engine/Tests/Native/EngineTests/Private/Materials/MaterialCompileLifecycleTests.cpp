@@ -112,7 +112,7 @@ namespace
 		ASSERT_GT(MaterialBuildPrivate::GetMaterialProgramCompileStatsForTests().Joins, Joins);
 		Cache->Release.Trigger(); ASSERT_TRUE(WaitForMaterialCompile(*A)); ASSERT_TRUE(WaitForMaterialCompile(*B));
 		EXPECT_GT(GetMaterialCompilationDiagnostics().SingleFlightConsumers, Before.SingleFlightConsumers);
-		EXPECT_EQ(A->GetAcceptedCompiledProgram(), B->GetAcceptedCompiledProgram()); EXPECT_EQ(GetShaderBuildStats().Compilations, MaterialCompiledEntryPoints.size());
+		EXPECT_EQ(A->GetAcceptedCompiledProgram(), B->GetAcceptedCompiledProgram()); EXPECT_EQ(GetShaderBuildStats().Compilations, std::popcount(MaterialAllStageMask));
 	}
 }
 

@@ -222,6 +222,19 @@ existing render-resource registry and ordered cleanup. See
 
 ### Required recording and invalidation contracts
 
+Preparation commits dirty persistent GPUScene data in a dedicated graph before
+mesh binding resolution. Built-in geometry receives current counted scene buffers
+through pass bindings; each drawing graph declares explicit reads and registers
+its terminal GPU completion for allocation retirement. Cached geometry commands
+retain source arguments and receive late Instance-ID offsets/counts at submission.
+Providers declare persistent/dynamic scene identity during collection; submission
+never re-packs attributes to infer that identity. Source cache entries can share
+canonical geometry commands while retaining independent invalidation slots.
+CPU runs use effective-state equality and preserve the prepared order; see
+[dynamic instancing](../Scene/GPUScene.md#cpu-dynamic-instancing).
+Unsupported factories retain their uniform route. See
+[GPUScene storage](../Scene/GPUScene.md).
+
 - Preparation and command handles are frame-local. Source mutation, resource
   replacement and release must follow completion of CPU preparation and recording
   tasks. Production view rendering joins those tasks before returning to the

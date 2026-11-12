@@ -227,6 +227,7 @@ namespace Durin
 			Resolved.Observations.ResourcePreparationRejectedDraws;
 		Telemetry.StaticMesh.StaticMeshAttemptedDraws = Resolved.Observations.AttemptedDraws;
 		Telemetry.StaticMesh.StaticMeshSuccessfulDraws = Resolved.Observations.SuccessfulDraws;
+		Telemetry.StaticMesh.NativeDrawSubmissions = Resolved.Observations.NativeDrawSubmissions;
 		Telemetry.StaticMesh.StaticMeshRejectedDraws = Resolved.Observations.RejectedDraws;
 		Telemetry.StaticMesh.PersistentCommandHits = Resolved.Observations.PersistentCommandHits;
 		Telemetry.StaticMesh.PersistentCommandMisses = Resolved.Observations.PersistentCommandMisses;

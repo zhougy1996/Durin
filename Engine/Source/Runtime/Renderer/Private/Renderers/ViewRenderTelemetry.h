@@ -103,6 +103,7 @@ namespace Durin
 		size_t StaticMeshResourceRejectedDraws = 0;
 		size_t StaticMeshAttemptedDraws = 0;
 		size_t StaticMeshSuccessfulDraws = 0;
+		size_t NativeDrawSubmissions = 0;
 		size_t StaticMeshRejectedDraws = 0;
 		size_t PersistentCommandHits = 0;
 		size_t PersistentCommandMisses = 0;
@@ -176,6 +177,7 @@ namespace Durin
 		uint64 ShadowSortingBatchingNanoseconds = 0;
 		uint64 ShadowLogicalPreparationNanoseconds = 0;
 		uint64 ShadowResourcePreparationNanoseconds = 0;
+		size_t ShadowNativeDrawSubmissions = 0;
 		size_t ShadowPrimitiveUniformUploads = 0;
 		size_t ShadowPrimitiveUniformReuses = 0;
 		size_t ShadowPersistentCommandHits = 0;

@@ -17,6 +17,7 @@
 #include "Profiling/Profiling.h"
 #include "Misc/Time.h"
 #include "RHICommandList.h"
+#include "Scene.h"
 #include "Resources/RenderTargetLayouts.h"
 
 namespace Durin

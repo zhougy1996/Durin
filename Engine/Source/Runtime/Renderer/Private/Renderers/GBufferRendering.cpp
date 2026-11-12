@@ -30,7 +30,7 @@ namespace Durin
 			auto Plan = std::make_shared<FGBufferGPUCullingPlan>();
 			Plan->ArgumentByResolvedDraw.assign(Resolved.Draws.size(),
 				FGBufferGPUCullingPlan::InvalidArgument);
-			using FGroupKey = std::tuple<const void*, const void*, const void*>;
+			using FGroupKey = std::tuple<const void*, const void*, const void*, const void*>;
 			struct FPendingCandidate final
 			{
 				const FPreparedStaticMeshDraw* Draw = nullptr;
@@ -73,7 +73,8 @@ namespace Durin
 				if (!Command || !Command->Pipeline || !Command->FragmentBindings
 					|| !Primitive->CollectedBinding)
 				{ ++Diagnostics.PreparationUnavailableCandidates; continue; }
-				const FGroupKey Key{Draw.Command.get(), Primitive->CollectedBinding.get(), Command->Pipeline};
+				const FGroupKey Key{Draw.Command.get(), Primitive->CollectedBinding.get(), Command->Pipeline,
+				Draw.PrimitiveIndex < Resolved.GPUScenePrimitives.size() ? Resolved.GPUScenePrimitives[Draw.PrimitiveIndex].Buffers.get() : nullptr};
 				auto& Variants = GroupByKey[Key];
 				const auto Found = std::ranges::find_if(Variants, [&](size_t Index) {
 					const auto Other = Resolved.GetMeshDrawCommand(*Groups[Index].front().Draw, {RendererPrivate::EMeshPipelinePass::GBuffer, true});
@@ -130,7 +131,8 @@ namespace Durin
 						.BoundsMin = Group[GroupIndex].BoundsMin,
 						.ArgumentIndex = ArgumentIndex,
 						.BoundsMax = Group[GroupIndex].BoundsMax,
-						.TransformIndex = Index});
+						.TransformIndex = Draw.PrimitiveIndex < Resolved.GPUScenePrimitives.size()
+							? Resolved.GPUScenePrimitives[Draw.PrimitiveIndex].InstanceId : Index});
 					const auto Transform = RendererPrivate::BuildMeshTransformUniform(Primitive);
 					Plan->Transforms.push_back(Transform);
 				}
@@ -222,6 +224,7 @@ namespace Durin
 		-> const FRDGParametersMetadata*
 	{
 		static const std::array Members{
+            MakeRDGNestedParameterMemberMetadata<FGBufferPassParameters, decltype(GPUScene)>("GPUScene", offsetof(FGBufferPassParameters, GPUScene), FGPUSceneReadParameters::GetRDGParametersMetadata()),
 			MakeRDGValueParameterMemberMetadata<
 				FGBufferPassParameters, decltype(Completion),
 				FGBufferPassResult>("Completion",
@@ -415,6 +418,7 @@ namespace Durin
 		}
 		auto Parameters = Graph.AllocParameters<FGBufferPassParameters>();
 		Parameters->Completion = {GBufferCompletion};
+		Parameters->GPUScene.Add(Graph, Inputs.Resolved.Receiver.StaticMeshes);
 		SceneTextureGroups::FillGBuffer(GBuffer, Parameters->Colors);
 		Parameters->Depth = FRDGDepthStencilAttachmentParameter{
 			.Texture = Inputs.Depth,

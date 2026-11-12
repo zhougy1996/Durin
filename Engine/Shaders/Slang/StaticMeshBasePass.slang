@@ -11,6 +11,7 @@ import Lighting.SurfaceLighting;
 import Material.SpecularAntialiasing;
 import Material.SurfaceMaterial;
 import Material.MeshUniforms;
+import SceneData;
 
 // Shared geometry vertex stage and independent error material fragments.
 
@@ -31,12 +32,6 @@ struct VSOutput
 
 [[vk::binding(0, 0)]] ConstantBuffer<MaterialViewUniform> MaterialView;
 
-#if DURIN_GPU_CULLING
-[[vk::binding(28, 1)]] StructuredBuffer<uint> VisibleInstances;
-[[vk::binding(29, 1)]] StructuredBuffer<MaterialPrimitiveUniform> InstanceTransforms;
-#else
-[[vk::binding(0, 1)]] ConstantBuffer<MaterialPrimitiveUniform> MaterialPrimitive;
-#endif
 #if DURIN_SPLINE_MESH
 [[vk::binding(24, 1)]] ConstantBuffer<FSplineMeshUniform> SplineMesh;
 #endif
@@ -51,12 +46,7 @@ VSOutput EvaluateFixedGeometry(FLocalVertexFactoryInput input, uint instanceId)
         GetLocalVertexFactoryIntermediates(input);
 #endif
     VSOutput output;
-#if DURIN_GPU_CULLING
-    const MaterialPrimitiveUniform selectedMaterialPrimitive = TranslateMaterialPrimitive(
-        InstanceTransforms[VisibleInstances[instanceId]], MaterialView);
-#else
-    const MaterialPrimitiveUniform selectedMaterialPrimitive = TranslateMaterialPrimitive(MaterialPrimitive, MaterialView);
-#endif
+    const MaterialPrimitiveUniform selectedMaterialPrimitive = TranslateMaterialPrimitive(GetMaterialPrimitiveData(instanceId), MaterialView);
     output.pos = mul(MaterialView.WorldToClip,
         mul(selectedMaterialPrimitive.LocalToWorld, float4(vertex.localPosition, 1.0)));
     output.color = vertex.color;
@@ -119,9 +109,9 @@ uint2 HitProxyFragmentMain(VSOutput input) : SV_Target0 { return uint2(HitProxy.
 
 #if DURIN_SPLINE_MESH
 [shader("vertex")]
-VSOutput SplineVertexMain(FLocalVertexFactoryInput input, uint instanceId : SV_InstanceID)
+VSOutput SplineVertexMain(FLocalVertexFactoryInput input, uint instanceId : SV_InstanceID, uint firstInstance : SV_StartInstanceLocation)
 {
-    return EvaluateFixedGeometry(input, instanceId);
+    return EvaluateFixedGeometry(input, ResolveSceneInstanceId(instanceId, firstInstance));
 }
 #endif
 #if DURIN_GPU_CULLING
@@ -129,12 +119,12 @@ VSOutput SplineVertexMain(FLocalVertexFactoryInput input, uint instanceId : SV_I
 VSOutput GPUCullingVertexMain(FLocalVertexFactoryInput input, uint instanceId : SV_InstanceID,
     uint firstInstance : SV_StartInstanceLocation)
 {
-    return EvaluateFixedGeometry(input, instanceId + firstInstance);
+    return EvaluateFixedGeometry(input, ResolveSceneInstanceId(instanceId, firstInstance));
 }
 #endif
 
 [shader("vertex")]
-VSOutput VertexMain(FLocalVertexFactoryInput input, uint instanceId : SV_InstanceID)
+VSOutput VertexMain(FLocalVertexFactoryInput input, uint instanceId : SV_InstanceID, uint firstInstance : SV_StartInstanceLocation)
 {
-    return EvaluateFixedGeometry(input, instanceId);
+    return EvaluateFixedGeometry(input, ResolveSceneInstanceId(instanceId, firstInstance));
 }

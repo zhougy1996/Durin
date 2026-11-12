@@ -7,6 +7,7 @@
 
 namespace Durin
 {
+	// Shared producer/renderer values; deliberately independent of Engine objects.
 	inline constexpr uint32 PrimitiveCustomDataFloatCount = 32;
 	inline constexpr uint32 MaximumStaticMeshRenderInstances = 4096;
 

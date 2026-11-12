@@ -5,6 +5,7 @@
 #include "Renderers/SceneFrameContext.h"
 #include "Renderers/SceneRenderResults.h"
 #include "RDG/RDGDefinitions.h"
+#include "GPUScene.h"
 
 namespace Durin
 {

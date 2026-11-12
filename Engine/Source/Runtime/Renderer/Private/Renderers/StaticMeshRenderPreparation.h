@@ -14,6 +14,7 @@
 #include "UniformBuffer.h"
 #include "Scene.h"
 #include "SceneView.h"
+#include "Renderers/GPUSceneRendering.h"
 #include "Threading/Task.h"
 #include "Renderers/ViewPreparationMath.h"
 
@@ -145,6 +146,9 @@ namespace Durin
 		FPrimitiveCustomData CustomInstanceData;
 		FPrimitiveComponentId PrimitiveId = InvalidPrimitiveComponentId;
 		uint64 BatchId = 0;
+		EPrimitiveIdMode PrimitiveIdMode = EPrimitiveIdMode::PrimID_DynamicPrimitiveShaderData;
+		FPersistentPrimitiveIndex PersistentPrimitiveIndex;
+		FPrimitiveInstanceId InstanceSceneDataId;
 		uint32 RequestedLODIndex = 0;
 		uint32 SelectedLODIndex = 0;
 		EVertexDeformationDomain VertexDomain = EVertexDeformationDomain::Local;
@@ -334,6 +338,7 @@ namespace Durin
 		size_t ResourcePreparationRejectedDraws = 0;
 		size_t AttemptedDraws = 0;
 		size_t SuccessfulDraws = 0;
+		size_t NativeDrawSubmissions = 0;
 		size_t RejectedDraws = 0;
 		size_t GBufferAttemptedDraws = 0;
 		size_t GBufferSuccessfulDraws = 0;
@@ -355,6 +360,16 @@ namespace Durin
 	struct FSkyLightingGeneration;
 	struct FResolvedStaticMeshView
 	{
+		struct FDynamicInstancingGroup
+		{
+			RendererPrivate::FMeshPassKey Pass;
+			std::vector<uint32> Draws;
+			bool bEnabled = true;
+		};
+		std::vector<FDynamicInstancingGroup> DynamicInstancingGroups;
+		FBufferRHIRef DynamicInstancingInstanceIds;
+		FGPUScene* GPUScene = nullptr;
+		std::vector<FGPUScenePrimitiveData> GPUScenePrimitives;
 		RendererPrivate::FCachedMeshDrawCommandStorage* CachedDrawLists = nullptr;
 		std::shared_ptr<const FSkyLightingGeneration> Environment;
 		struct FMaterialUniform
@@ -421,6 +436,7 @@ namespace Durin
 			FPrimitiveComponentId Id = InvalidPrimitiveComponentId;
 			std::weak_ptr<RendererPrivate::FPrimitiveDrawResources> DrawResources;
 			bool bSourceBound = false;
+			FPersistentPrimitiveIndex PersistentPrimitiveIndex;
 			ERHIFeatureLevel FeatureLevel = ERHIFeatureLevel::SM5;
 			bool bPresent = false;
 			bool bSplineMesh = false;

@@ -166,6 +166,7 @@ namespace Durin
 	// One uninterrupted recording span; reset after foreign RHI state changes.
 	struct FMeshDrawCommandStateCache
 	{
+		uint32 DrawCalls = 0;
 		const void* Pipeline = nullptr;
 		FShaderBindingState Vertex, Fragment;
 		std::vector<FMeshDrawVertexStream> VertexStreams;
@@ -191,6 +192,7 @@ namespace Durin
 		std::map<RendererPrivate::FMeshPassKey, FMeshDrawCommandHandle> Commands;
 		std::map<RendererPrivate::FMeshPassKey, std::shared_ptr<const RendererPrivate::FMeshDrawCommand>> SelectedCachedCommands;
 		std::map<RendererPrivate::FMeshPassKey, FMeshDrawCommandHandle> VisibleCommands;
+		std::map<RendererPrivate::FMeshPassKey, std::pair<uint32, FMeshDrawCommandHandle>> DynamicInstancingCommands;
 		bool bReady = false;
 	};
 

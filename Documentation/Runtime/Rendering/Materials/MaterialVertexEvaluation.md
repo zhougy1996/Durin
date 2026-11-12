@@ -48,15 +48,15 @@ vertex evaluation traverses its input and the WPO root. Shared expressions may
 execute separately when both stages consume them.
 
 Accepted programs contain the exact declared geometry/Pass stage set, selected
-from four fragment entries and `VertexMain`, `SplineVertexMain` and
-`GPUCullingVertexMain`. Stage artifacts share independently through ShaderBuild;
+from four fragment entries and `VertexMain`/`SplineVertexMain`. Direct and
+indirect drawing share those geometry entries. Stage artifacts share independently through ShaderBuild;
 see [shader stage selection and sharing](MaterialShaderStages.md). The generated
 import closure conservatively includes both Local and Spline factories. MIR 8,
-generator revision 14, compile adapter 12, pass contract 11 and cooked payload
+generator revision 16, compile adapter 13, pass contract 13 and cooked payload
 schema 15 invalidate incompatible producer and runtime artifacts.
 
-Local and Spline vertices apply WPO after vertex-factory deformation. GPU-culling
-vertices use the selected instance transform. Clip displacement transforms the
+Local and Spline vertices apply WPO after vertex-factory deformation using the
+selected GPUScene instance transform. Clip displacement transforms the
 world offset as a homogeneous direction, preserving the active view projection.
 [Primitive and Instance custom data](MaterialCustomData.md) are Both-stage
 numeric reads; grouped fragments receive the selected instance's flat values.

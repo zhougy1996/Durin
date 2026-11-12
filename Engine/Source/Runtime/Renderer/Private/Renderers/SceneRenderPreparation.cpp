@@ -378,7 +378,7 @@ namespace Durin
 			ResolvedSceneResources.DirectionalShadow.emplace();
 			const bool bShadowReady = Service.DirectionalShadowRenderer.PrepareResources_RenderThread(CommandList, Context.Logical.Scene,
 				Service.StaticMeshRenderer, *PreparedView.DirectionalShadow, *ResolvedSceneResources.DirectionalShadow,
-				Telemetry.View, &SectionResources, !bPrepareOnly);
+				Telemetry.View, &SectionResources, !bPrepareOnly, Context.Logical.Options.bEnableDynamicInstancing);
 			if (bPrepareOnly && PreparedView.DirectionalShadow->View.bEnabled && !bShadowReady)
 				return ERenderViewResult::RendererResourcesUnavailable;
 		}

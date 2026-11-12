@@ -268,7 +268,7 @@ TEST_F(FMaterialQualificationTests, ParallelProgramCompilationWorkloads)
 			const auto Us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - Begin).count();
 			for (const auto& Result : Results) ASSERT_TRUE(Result);
 			const auto After = GetShaderBuildStats(); const auto Peaks = FShaderCompilingManager::Get().GetPeakJobStats();
-			if (Workload == 0) EXPECT_EQ(After.Compilations - Before.Compilations, 7u);
+			if (Workload == 0) EXPECT_EQ(After.Compilations - Before.Compilations, 6u);
 			if (Workload == 2) { EXPECT_EQ(After.Compilations - Before.Compilations, 4u); EXPECT_EQ(After.MemoryHits - Before.MemoryHits + After.DdcHits - Before.DdcHits, 3u); }
 			uint64 ProcessPeak = 0;
 			#ifdef _WIN32
@@ -592,7 +592,7 @@ TEST_F(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 		? "missing diagnostic"
 		: Compiled.Diagnostics.front().Message);
 	EXPECT_EQ(Compiled.GetShaderMap().ShaderMapId, Normalized.Identity);
-	ASSERT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), Durin::MaterialCompiledEntryPoints.size());
+	ASSERT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), std::popcount(Durin::MaterialAllStageMask));
 	EXPECT_EQ(Compiled.GetShaderMap().CompiledShaders[0].Reflection.ResourceBindings.size(), 21u);
 	EXPECT_EQ(Compiled.GetShaderMap().CompiledShaders[1].Reflection.ResourceBindings.size(), 14u);
 	EXPECT_TRUE(Compiled.GetShaderMap().CompiledShaders[2].Reflection.ResourceBindings.empty());

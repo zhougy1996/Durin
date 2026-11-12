@@ -39,6 +39,7 @@ namespace Durin::RendererPrivate
 		virtual ~FMeshVertexFactoryImplementation() = default;
 		virtual auto GetType() const -> const FVertexFactoryType& = 0;
 		virtual auto GetLayoutKey() const -> FXxHash64 = 0;
+		virtual auto SupportsGPUScene() const -> bool { return false; }
 		virtual auto GetShaderType(uint32 Pass) const -> FShaderType* = 0;
 		// Generated material vertex stages implement only an opted-in factory
 		// contract. An equal entry-point name does not establish compatibility.

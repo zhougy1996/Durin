@@ -18,6 +18,7 @@ namespace Durin
 {
 	namespace RendererPrivate { class FCachedMeshDrawCommandStorage; }
 	class FScene;
+	class FGPUScene;
 	class FSceneRenderingService;
 	class FPrimitiveSceneInfo;
 	class FLightSceneInfo;
@@ -60,6 +61,7 @@ namespace Durin
 		RENDERER_API auto UpdateSkyLighting() -> void override;
 		std::shared_ptr<FSkyLightingSceneState> SkyLighting = std::make_shared<FSkyLightingSceneState>();
 		std::shared_ptr<RendererPrivate::FCachedMeshDrawCommandStorage> CachedDrawLists;
+		std::shared_ptr<FGPUScene> GPUScene;
 		RENDERER_API auto UpdateStaticMeshes() -> void;
 		RENDERER_API auto UpdateStaticDrawListsForMaterials(std::span<FMaterialRenderProxy* const> Materials) -> void override;
 		// Stable world identity; renderer resource caches own native allocations.

@@ -133,6 +133,9 @@ namespace Durin
 		RENDERCORE_API auto GetState() const -> ERDGBuilderState;
 		// Absent before Execute. Duplicate execution leaves the original report unchanged.
 		RENDERCORE_API auto GetExecutionResult() const -> const std::optional<FRDGExecutionResult>&;
+		// Successful terminal join of every using queue; absent before success.
+		// Persistent external-resource owners use it to retire logical allocations.
+		RENDERCORE_API auto GetGPUCompletion() const -> FRHIGPUSyncPointRef;
 		RENDERCORE_API auto HasCompiledPlan() const -> bool;
 		RENDERCORE_API auto GetPasses() const -> std::span<const FRDGCompiledPass>;
 		RENDERCORE_API auto GetDependencies() const -> std::span<const FRDGDependency>;

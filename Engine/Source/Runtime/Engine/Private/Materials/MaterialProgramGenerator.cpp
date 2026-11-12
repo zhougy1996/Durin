@@ -125,6 +125,27 @@ namespace Durin
 		{
 			return std::unexpected("Invalid material IR for Slang generation.");
 		}
+        std::vector<bool> PixelReachable(IR.Nodes.size());
+        std::function<void(uint32)> VisitPixel = [&](uint32 Index) {
+            if (PixelReachable[Index]) return;
+            PixelReachable[Index] = true;
+            if (IR.Nodes[Index].Opcode == EMaterialProgramOpcode::VertexInterpolator) return;
+            for (const auto Child : IR.Nodes[Index].Inputs) VisitPixel(Child);
+        };
+        if (IR.SurfaceRoot.bAggregate) VisitPixel(IR.SurfaceRoot.AggregateExpressionIndex);
+        else for (const auto& Root : IR.SurfaceRoot.Inputs) if (Root.bExpression) VisitPixel(Root.ExpressionIndex);
+        bool PixelNeedsPrimitiveData = false;
+        for (uint32 Index = 0; Index < IR.Nodes.size(); ++Index)
+        {
+            if (!PixelReachable[Index]) continue;
+            const auto& Node = IR.Nodes[Index];
+            if (Node.Opcode == EMaterialProgramOpcode::ObjectPosition) PixelNeedsPrimitiveData = true;
+            if (Node.Opcode == EMaterialProgramOpcode::TransformPosition || Node.Opcode == EMaterialProgramOpcode::TransformDirection || Node.Opcode == EMaterialProgramOpcode::TransformNormal)
+            {
+                const auto Transform = Node.GetTransform();
+                PixelNeedsPrimitiveData |= Transform.Source == EMaterialCoordinateSpace::Object || Transform.Destination == EMaterialCoordinateSpace::Object;
+            }
+        }
 		std::vector<uint32> Interpolators;
 		for (uint32 Index = 0; Index < IR.Nodes.size(); ++Index)
 			if (IR.Nodes[Index].Opcode == EMaterialProgramOpcode::VertexInterpolator) Interpolators.push_back(Index);
@@ -133,6 +154,7 @@ namespace Durin
 		OutSource = R"(module DurinGeneratedMaterial;
 import Material.SurfaceMaterial;
 import Material.MeshUniforms;
+import SceneData;
 import VertexFactory.LocalVertexFactory;
 import VertexFactory.SplineMeshVertexFactory;
 import Material.SpecularAntialiasing;
@@ -178,6 +200,7 @@ struct VSOutput
 					CopyCustomData += std::format("    input.{}{} = primitive.{}[{}];\n", Name, Slot, UniformName, Slot);
 				}
 		}
+		if (PixelNeedsPrimitiveData) OutSource += std::format("    nointerpolation uint sceneInstanceId : TEXCOORD{};\n", CustomLocation);
 		OutSource += "};\n";
 		OutSource += CopyCustomData + "}\n";
 		OutSource += "struct MaterialUniform\n{\n    // Reserved header; view/pass controls live in descriptor set 0.\n    float4 Reserved;\n";
@@ -186,9 +209,7 @@ struct VSOutput
 		OutSource += "};\n[[vk::binding(1, 0)]] ConstantBuffer<FViewLightingUniform> Lighting;\n"
 			"[[vk::binding(30, 0)]] StructuredBuffer<FForwardLocalLightUniform> LocalLights;\n"
 			"[[vk::binding(2, 1)]] ConstantBuffer<MaterialUniform> Material;\n"
-			"[[vk::binding(0, 0)]] ConstantBuffer<MaterialViewUniform> MaterialView;\n"
-			"[[vk::binding(0, 1)]] ConstantBuffer<MaterialPrimitiveUniform> MaterialPrimitive;\n"
-			"MaterialPrimitiveUniform GetMaterialPrimitive() { return TranslateMaterialPrimitive(MaterialPrimitive, MaterialView); }\n";
+			"[[vk::binding(0, 0)]] ConstantBuffer<MaterialViewUniform> MaterialView;\n";
 		for (uint32 Index = 0; Index < Layout.ResourceFieldCount; ++Index)
 			OutSource += std::format(
 				"[[vk::binding({}, 1)]] Texture2D<float4> MaterialTexture{};\n"
@@ -279,6 +300,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 			OutSource += bVertex
 				? "VSOutput EvaluateGeneratedVertex(VSOutput input, MaterialPrimitiveUniform MaterialPrimitive, out float3 offset)\n{\n"
 				: "FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)\n{\n";
+            if (!bVertex && PixelNeedsPrimitiveData) OutSource += "    MaterialPrimitiveUniform MaterialPrimitive = TranslateMaterialPrimitive(GetMaterialPrimitiveData(input.sceneInstanceId), MaterialView);\n";
 			std::vector<std::string> Expressions(IR.Nodes.size());
 			uint32 LocalIndex = 0;
 			if (!bVertex)
@@ -332,7 +354,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 				case EMaterialProgramOpcode::Time: Expression = "MaterialView.Parameters.x"; break;
 				case EMaterialProgramOpcode::CameraPosition: Expression = "MaterialView.CameraWorldPosition.xyz"; break;
 				case EMaterialProgramOpcode::CameraVector: Expression = "MaterialSafeNormalize(MaterialView.CameraWorldPosition.xyz - input.worldPosition)"; break;
-				case EMaterialProgramOpcode::ObjectPosition: Expression = "GetMaterialPrimitive().BoundsCenter.xyz"; break;
+				case EMaterialProgramOpcode::ObjectPosition: Expression = "MaterialPrimitive.BoundsCenter.xyz"; break;
 				case EMaterialProgramOpcode::VertexNormal: Expression = "MaterialSafeNormalize(input.worldNormal)"; break;
 				case EMaterialProgramOpcode::ScreenPosition: Expression = "(input.pos.xy - MaterialView.Viewport.xy) * MaterialView.ReciprocalViewport.xy"; break;
 				case EMaterialProgramOpcode::ViewSize: Expression = "MaterialView.Viewport.zw"; break;
@@ -345,7 +367,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 					auto ToWorldDirection = [&](std::string_view InputValue) -> std::string {
 						switch (Transform.Source)
 						{
-						case EMaterialCoordinateSpace::Object: return std::format("mul(GetMaterialPrimitive().LocalToWorld, float4({}, 0.0)).xyz", InputValue);
+						case EMaterialCoordinateSpace::Object: return std::format("mul(MaterialPrimitive.LocalToWorld, float4({}, 0.0)).xyz", InputValue);
 						case EMaterialCoordinateSpace::World: return std::string(InputValue);
 						case EMaterialCoordinateSpace::View: return std::format("mul(MaterialView.ViewToWorld, float4({}, 0.0)).xyz", InputValue);
 						case EMaterialCoordinateSpace::Tangent: return std::format("mul({}, MaterialTangentToWorld(input))", InputValue);
@@ -355,7 +377,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 					auto FromWorldDirection = [&](std::string_view InputValue) -> std::string {
 						switch (Transform.Destination)
 						{
-						case EMaterialCoordinateSpace::Object: return std::format("mul(GetMaterialPrimitive().WorldToLocal, float4({}, 0.0)).xyz", InputValue);
+						case EMaterialCoordinateSpace::Object: return std::format("mul(MaterialPrimitive.WorldToLocal, float4({}, 0.0)).xyz", InputValue);
 						case EMaterialCoordinateSpace::World: return std::string(InputValue);
 						case EMaterialCoordinateSpace::View: return std::format("mul(MaterialView.WorldToView, float4({}, 0.0)).xyz", InputValue);
 						case EMaterialCoordinateSpace::Tangent: return std::format("mul(MaterialTangentToWorld(input), {})", InputValue);
@@ -365,11 +387,11 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 					if (Node.Opcode == EMaterialProgramOpcode::TransformPosition)
 					{
 						std::string World = Transform.Source == EMaterialCoordinateSpace::Object
-							? std::format("mul(GetMaterialPrimitive().LocalToWorld, float4({}, 1.0)).xyz", Value)
+							? std::format("mul(MaterialPrimitive.LocalToWorld, float4({}, 1.0)).xyz", Value)
 							: Transform.Source == EMaterialCoordinateSpace::View
 								? std::format("mul(MaterialView.ViewToWorld, float4({}, 1.0)).xyz", Value) : Value;
 						Expression = Transform.Destination == EMaterialCoordinateSpace::Object
-							? std::format("mul(GetMaterialPrimitive().WorldToLocal, float4({}, 1.0)).xyz", World)
+							? std::format("mul(MaterialPrimitive.WorldToLocal, float4({}, 1.0)).xyz", World)
 							: Transform.Destination == EMaterialCoordinateSpace::View
 								? std::format("mul(MaterialView.WorldToView, float4({}, 1.0)).xyz", World) : World;
 					}
@@ -380,7 +402,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 						auto ToWorldNormal = [&](std::string_view InputValue) -> std::string {
 							switch (Transform.Source)
 							{
-							case EMaterialCoordinateSpace::Object: return std::format("mul(GetMaterialPrimitive().NormalToWorld, float4({}, 0.0)).xyz", InputValue);
+							case EMaterialCoordinateSpace::Object: return std::format("mul(MaterialPrimitive.NormalToWorld, float4({}, 0.0)).xyz", InputValue);
 							case EMaterialCoordinateSpace::World: return std::string(InputValue);
 							case EMaterialCoordinateSpace::View: return std::format("mul(transpose((float3x3)MaterialView.WorldToView), {})", InputValue);
 							case EMaterialCoordinateSpace::Tangent: return std::format("mul({}, MaterialTangentToWorld(input))", InputValue);
@@ -390,7 +412,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 						auto FromWorldNormal = [&](std::string_view InputValue) -> std::string {
 							switch (Transform.Destination)
 							{
-							case EMaterialCoordinateSpace::Object: return std::format("mul(transpose((float3x3)GetMaterialPrimitive().LocalToWorld), {})", InputValue);
+							case EMaterialCoordinateSpace::Object: return std::format("mul(transpose((float3x3)MaterialPrimitive.LocalToWorld), {})", InputValue);
 							case EMaterialCoordinateSpace::World: return std::string(InputValue);
 							case EMaterialCoordinateSpace::View: return std::format("mul(transpose((float3x3)MaterialView.ViewToWorld), {})", InputValue);
 							case EMaterialCoordinateSpace::Tangent: return std::format("mul(MaterialTangentToWorld(input), {})", InputValue);
@@ -570,13 +592,11 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 		} // Stage-specific expression closures.
 		if (StageFilter != EMaterialEvaluationStage::Pixel) OutSource += R"(
 [[vk::binding(24, 1)]] ConstantBuffer<FSplineMeshUniform> SplineMesh;
-[[vk::binding(28, 1)]] StructuredBuffer<uint> VisibleInstances;
-[[vk::binding(29, 1)]] StructuredBuffer<MaterialPrimitiveUniform> InstanceTransforms;
-VSOutput EvaluateGeneratedGeometry(FLocalVertexFactoryIntermediates vertex, MaterialPrimitiveUniform primitive)
+VSOutput EvaluateGeneratedGeometry(FLocalVertexFactoryIntermediates vertex, uint sceneInstanceId)
 {
     VSOutput input = (VSOutput)0;
-    primitive = TranslateMaterialPrimitive(primitive, MaterialView);
-    input.pos = mul(MaterialView.WorldToClip, mul(primitive.LocalToWorld, float4(vertex.localPosition, 1.0)));
+    MaterialPrimitiveUniform primitive = TranslateMaterialPrimitive(GetMaterialPrimitiveData(sceneInstanceId), MaterialView);
+)" + std::string(PixelNeedsPrimitiveData ? "    input.sceneInstanceId = sceneInstanceId;\n" : "") + R"(    input.pos = mul(MaterialView.WorldToClip, mul(primitive.LocalToWorld, float4(vertex.localPosition, 1.0)));
     input.color = vertex.color;
     CopyPrimitiveCustomData(input, primitive);
     input.worldPosition = mul(primitive.LocalToWorld, float4(vertex.localPosition, 1.0)).xyz;
@@ -591,22 +611,16 @@ VSOutput EvaluateGeneratedGeometry(FLocalVertexFactoryIntermediates vertex, Mate
     return output;
 }
 [shader("vertex")]
-VSOutput VertexMain(FLocalVertexFactoryInput input, uint instanceId : SV_InstanceID)
+VSOutput VertexMain(FLocalVertexFactoryInput input, uint instanceId : SV_InstanceID, uint firstInstance : SV_StartInstanceLocation)
 {
-    return EvaluateGeneratedGeometry(GetLocalVertexFactoryIntermediates(input), MaterialPrimitive);
+    return EvaluateGeneratedGeometry(GetLocalVertexFactoryIntermediates(input), ResolveSceneInstanceId(instanceId, firstInstance));
 }
 [shader("vertex")]
-VSOutput SplineVertexMain(FLocalVertexFactoryInput input, uint instanceId : SV_InstanceID)
+VSOutput SplineVertexMain(FLocalVertexFactoryInput input, uint instanceId : SV_InstanceID, uint firstInstance : SV_StartInstanceLocation)
 {
-    return EvaluateGeneratedGeometry(GetSplineMeshVertexFactoryIntermediates(input, SplineMesh), MaterialPrimitive);
+    return EvaluateGeneratedGeometry(GetSplineMeshVertexFactoryIntermediates(input, SplineMesh), ResolveSceneInstanceId(instanceId, firstInstance));
 }
-[shader("vertex")]
-VSOutput GPUCullingVertexMain(FLocalVertexFactoryInput input, uint instanceId : SV_InstanceID,
-    uint firstInstance : SV_StartInstanceLocation)
-{
-    return EvaluateGeneratedGeometry(GetLocalVertexFactoryIntermediates(input),
-        InstanceTransforms[VisibleInstances[instanceId + firstInstance]]);
-}
+
 )";
 		if (StageFilter != EMaterialEvaluationStage::Vertex) OutSource += R"(
 struct FResolvedGeneratedSurfaceShading
@@ -1098,6 +1112,13 @@ float4 FragmentMain(
 					|| !Seen.insert((uint64(Binding.SetIndex) << 32) | Binding.BindingIndex).second) return Rejected;
 				ERHIBindingType Expected;
 				const auto Slot = Binding.BindingIndex;
+                if (Binding.SetIndex == 0 && (Slot == 27 || Slot == 28 || Slot == 29 || Slot == 31))
+                {
+                    const auto Name = Slot == 27 ? "GPUScenePrimitiveSceneData" : Slot == 28 ? "GPUSceneInstanceSceneData"
+                        : Slot == 29 ? "GPUSceneInstancePayloadData" : "GPUSceneInstanceIds";
+                    if (Binding.Name != Name || Binding.Type != ERHIBindingType::StorageBuffer) return Rejected;
+                    continue;
+                }
 				const bool bCollection = Slot >= 3 && Slot < 3 + Collections.size();
 				const bool bPrimitive = Binding.SetIndex == 1 && Slot == 0;
 				const bool bMaterialSet = bPrimitive || Slot == 2 || Slot == 27 || (Entry.Frequency == EShaderFrequency::Vertex && (Slot == 24 || Slot == 28 || Slot == 29))
@@ -1230,7 +1251,7 @@ float4 FragmentMain(
 			{ Request.EntryPoints.emplace_back(Options.EntryPoints[Index]); Request.Frequencies.push_back(Options.Frequencies[Index]); }
 		Request.Macros = std::move(Options.Macros);
 		Request.AllowedImportVirtualPrefixes = {
-			"/Engine/Material/", "/Engine/Lighting/", "/Engine/VertexFactory/"};
+			"/Engine/Material/", "/Engine/Lighting/", "/Engine/VertexFactory/", "/Engine/SceneData"};
 		Request.bForceRecompile = bForceRecompile;
 		Request.MaximumOutputBytes = 8ull * 1024 * 1024;
 		for (const auto& Dependency : Result.Dependencies)
@@ -1240,6 +1261,7 @@ float4 FragmentMain(
 				Environment.VirtualPath = Dependency.VirtualPath; Environment.ContentHash = Dependency.ContentHash;
 				for (const auto& Entry : MaterialShaderEntries)
 				{
+					if (!Entry.GeometryUsage) continue;
 					Environment.EntryPoints.emplace_back(Entry.Name);
 					Environment.Frequencies.push_back(Entry.Frequency);
 				}

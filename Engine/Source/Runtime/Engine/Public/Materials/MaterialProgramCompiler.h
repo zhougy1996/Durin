@@ -23,7 +23,7 @@ namespace Durin
 	// Opaque producer identity; algorithm changes invalidate builds, not DMAT admission.
 	ENGINE_API auto GetMaterialBuildVersion() -> uint64;
 	ENGINE_API auto GetMaterialCompileAdapterVersion() -> uint32;
-	inline constexpr uint32 CurrentMaterialPassContractVersion = 12;
+	inline constexpr uint32 CurrentMaterialPassContractVersion = 13;
 	// Values are the persisted canonical stage-bit order. Append rather than reorder.
 	enum class EMaterialShaderEntry : uint8
 	{
@@ -46,7 +46,7 @@ namespace Durin
 		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::HitProxy, "HitProxyFragmentMain", EShaderFrequency::Fragment, 3, 8, true},
 		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::LocalVertex, "VertexMain", EShaderFrequency::Vertex, 1, 15},
 		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::SplineVertex, "SplineVertexMain", EShaderFrequency::Vertex, 2, 15},
-		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::GPUCullingVertex, "GPUCullingVertexMain", EShaderFrequency::Vertex, 4, 2},
+		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::GPUCullingVertex, "GPUCullingVertexMain", EShaderFrequency::Vertex, 0, 0},
 	};
 	constexpr auto MaterialShaderEntryBit(EMaterialShaderEntry Entry) -> uint8
 	{
@@ -56,7 +56,7 @@ namespace Durin
 	{
 		uint8 Mask = 0;
 		for (const auto& Entry : MaterialShaderEntries)
-			if (Entry.Frequency == Frequency) Mask |= Entry.GetBit();
+			if (Entry.Frequency == Frequency && Entry.GeometryUsage != 0) Mask |= Entry.GetBit();
 		return Mask;
 	}
 	inline constexpr uint8 MaterialFragmentStageMask = MaterialShaderStageMask(EShaderFrequency::Fragment);

@@ -41,7 +41,7 @@ namespace Durin
 			bool bPrepareGPUCulling = false, EGPUCullingFailure Failure = EGPUCullingFailure::None) -> bool;
 			auto PrepareBindings_RenderThread(FRHICommandListImmediate& CommandList, FGBufferRenderer* GBuffer,
 			const FPreparedStaticMeshView& PreparedView, FResolvedStaticMeshView& ResolvedView,
-			const FRHIUniformBufferRange& Lighting, bool bShadow = false, FRHIStorageBufferRange LocalLights = {}) -> bool;
+			const FRHIUniformBufferRange& Lighting, bool bShadow = false, FRHIStorageBufferRange LocalLights = {}, bool bDynamicInstancing = true) -> bool;
 		FStaticMeshRenderer(
 			FRendererResourceCoordinator& InCoordinator,
 			RendererPrivate::FSurfaceMaterialResources& InSurfaceMaterials

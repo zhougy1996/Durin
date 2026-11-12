@@ -1,5 +1,6 @@
 #include "Rendering/StaticMeshSceneProxy.h"
 #include "Rendering/StaticMeshBatchCollection.h"
+#include "InstanceUniformShaderParameters.h"
 
 #include "StaticMesh/StaticMeshResources.h"
 #include "Threading/RunnableThread.h"
@@ -20,6 +21,16 @@ namespace Durin
 	{
 		if (InInstances && !ValidateStaticMeshRenderInstances(*InInstances)) return false;
 		Instances = std::move(InInstances);
+		InstanceSceneData.reset();
+		if (Instances)
+		{
+			auto Snapshot = std::make_shared<FInstanceSceneDataBuffers>();
+			Snapshot->Instances.reserve(Instances->size());
+			for (const auto& Instance : *Instances)
+				Snapshot->Instances.push_back({{Instance.Id}, Instance.LocalToPrimitive,
+					RenderData ? RenderData->LocalBounds : FBox{}, Instance.CustomData});
+			InstanceSceneData = std::move(Snapshot);
+		}
 		StaticBatches.reset();
 		return true;
 	}
@@ -168,6 +179,8 @@ namespace Durin
 		Batch.LayoutKey = Batch.Binding->GetLayoutKey();
 		Batch.PrimitiveId = Context.PrimitiveId;
 		Batch.BatchId = Context.BatchId;
+		Batch.PrimitiveIdMode = EPrimitiveIdMode::PrimID_FromPrimitiveSceneInfo;
+		Batch.InstanceSceneDataId = Context.InstanceSceneDataId;
 		Batch.LocalToWorld = Context.LocalToWorld;
 		Batch.WorldBounds = Context.WorldBounds;
 		Batch.CustomPrimitiveData = Context.CustomPrimitiveData;
@@ -187,6 +200,7 @@ namespace Durin
 		{
 			auto InstanceContext = Context;
 			InstanceContext.BatchId = Instance.Id;
+			InstanceContext.InstanceSceneDataId = {Instance.Id};
 			InstanceContext.CustomInstanceData = Instance.CustomData;
 			InstanceContext.LocalToWorld = Context.LocalToWorld * Instance.LocalToPrimitive;
 			InstanceContext.WorldBounds = TransformPrimitiveBounds(RenderData->LocalBounds, InstanceContext.LocalToWorld);

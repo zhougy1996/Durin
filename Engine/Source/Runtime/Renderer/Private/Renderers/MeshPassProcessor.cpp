@@ -79,13 +79,23 @@ namespace Durin::RendererPrivate
 		if (Owner.DrawLists) Owner.DrawLists->Detach(Owner);
 		Owner.DrawLists = this; Sources.insert(&Owner);
 	}
+	auto FCachedMeshDrawCommandStorage::RemoveEntry(size_t Index) -> void
+	{
+		const uint32 Hash = Entries[Index]->Command->GetDynamicInstancingHash();
+		Entries[Index]->Info->CommandIndex = INDEX_NONE; Entries[Index].reset();
+		if (const auto Found = StateBuckets.find(Hash); Found != StateBuckets.end())
+		{
+			std::erase_if(Found->second, [](const auto& Bucket) { return Bucket.expired(); });
+			if (Found->second.empty()) StateBuckets.erase(Found);
+		}
+	}
 	auto FCachedMeshDrawCommandStorage::RemovePrimitive(FPrimitiveDrawResources& Owner) -> void
 	{
 		for (const auto& [Key, Info] : Owner.CachedMeshDrawCommandInfos)
 		{
 			const auto Index = Info->CommandIndex;
 			require(Index < Entries.size() && Entries[Index]);
-			Entries[Index]->Info->CommandIndex = INDEX_NONE; Entries[Index].reset(); FreeIndices.push_back(Index);
+			RemoveEntry(Index); FreeIndices.push_back(Index);
 		}
 		Owner.CachedMeshDrawCommandInfos.clear(); Owner.Pipelines.clear();
 	}
@@ -94,7 +104,7 @@ namespace Durin::RendererPrivate
 	auto FCachedMeshDrawCommandStorage::Reset() -> void
 	{
 		for (auto* Source : Sources) RemovePrimitive(*Source);
-		Entries.clear(); FreeIndices.clear();
+		Entries.clear(); FreeIndices.clear(); StateBuckets.clear(); NextStateBucketId = 0;
 	}
 	auto FCachedMeshDrawCommandStorage::FindEntry(const FKey& Key, const FPrimitiveDrawResources& Owner) const -> const FEntry*
 	{
@@ -129,7 +139,7 @@ namespace Durin::RendererPrivate
 			else { Index = FreeIndices.back(); FreeIndices.pop_back(); }
 		}
 		else Index = Location->second->CommandIndex;
-		if (Entries[Index]) Entries[Index]->Info->CommandIndex = INDEX_NONE;
+		if (Entries[Index]) RemoveEntry(Index);
 		auto Info = std::make_shared<FCachedMeshDrawCommandInfo>();
 		require(Index < static_cast<size_t>(INT32_MAX));
 		Info->CommandIndex = static_cast<int32>(Index); Info->MeshPass = Command.Pipeline->GetPassKey();
@@ -138,8 +148,32 @@ namespace Durin::RendererPrivate
 		for (auto& Range : Material.CollectionUniforms) Range.ResourceOwner = {};
 		auto Entry = std::make_unique<FEntry>();
 		Entry->Info = std::move(Info);
-		Entry->Command = std::make_shared<const FMeshDrawCommand>(std::move(Command));
+		const auto Factory = FindMeshVertexFactory(Command.Pipeline->FactoryKey);
+		const bool bShare = Pipeline && Factory && Factory->SupportsGPUScene() && !Command.Pipeline->bGPUCulling
+			&& std::visit([](const auto& Args) { return Args.InstanceCount == 1; }, Command.DrawParameters)
+			&& std::ranges::none_of(Command.Pipeline->VertexDeclaration->GetElements(),
+				[](const auto& Element) { return Element.InputRate == FRHIVertexElementIdentity::EInputRate::Instance; });
+		const uint32 Hash = Command.GetDynamicInstancingHash();
+		if (bShare)
+		{
+			auto& Buckets = StateBuckets[Hash];
+			for (const auto& Weak : Buckets)
+				if (const auto Bucket = Weak.lock(); Bucket && Command.MatchesForDynamicInstancing(*Bucket->Command))
+				{ Entry->StateBucket = Bucket; break; }
+		}
+		if (!Entry->StateBucket)
+		{
+			auto Bucket = std::make_shared<FStateBucket>();
+			Bucket->Command = std::make_shared<const FMeshDrawCommand>(std::move(Command));
+			Bucket->Pipeline = Pipeline;
+			require(NextStateBucketId < INT32_MAX);
+			Bucket->Id = NextStateBucketId++; Entry->StateBucket = Bucket;
+			if (bShare) StateBuckets[Hash].push_back(Bucket);
+		}
+		Entry->Command = Entry->StateBucket->Command;
+		Entry->Info->StateBucketId = Entry->StateBucket->Id;
 		Entry->Bindings = Key.Bindings; Entry->Input = Input; Entry->Material = std::move(Material);
+		// Retain the source lookup pipeline as well as the bucket's canonical pipeline.
 		Owner.Pipelines.insert_or_assign(Index, std::move(Pipeline));
 		Entries[Index] = std::move(Entry);
 		return Entries[Index]->Command;
@@ -177,12 +211,12 @@ namespace Durin::RendererPrivate
 		return std::shared_ptr<const FMeshDrawCommand>(Data, Command);
 	}
 	auto FDynamicMeshDrawCommandStorage::PublishVisible(std::shared_ptr<const FMeshDrawCommand> Command,
-		std::shared_ptr<const FCachedMeshDrawCommandInfo> Info, std::shared_ptr<const FMeshPassBindings> Pass, std::array<float, 3> Bias) -> FMeshDrawCommandHandle
+		std::shared_ptr<const FCachedMeshDrawCommandInfo> Info, std::shared_ptr<const FMeshPassBindings> Pass, std::array<float, 3> Bias, uint32 InstanceIdOffset, uint32 InstanceCount, bool bSkipDraw, int32 StateBucketId) -> FMeshDrawCommandHandle
 	{
-		require(Command && Info && Info->CommandIndex != INDEX_NONE && Pass && Command->Pipeline->GetPassKey() == Info->MeshPass);
+		require(Command && Pass && (!Info || (Info->CommandIndex != INDEX_NONE && Command->Pipeline->GetPassKey() == Info->MeshPass)));
 		const auto Key = Command->Pipeline->GetPassKey();
 		auto& List = Data->Visible[Key];
-		List.push_back({Command.get(), Pass.get(), Info.get(), Bias});
+		List.push_back({Command.get(), Pass.get(), Info.get(), Bias, InstanceIdOffset, InstanceCount, bSkipDraw, StateBucketId});
 		Data->RetainedCommands.push_back(std::move(Command));
 		Data->RetainedInfos.push_back(std::move(Info));
 		Data->RetainedPasses.push_back(std::move(Pass));
@@ -239,12 +273,12 @@ namespace Durin::RendererPrivate
 	auto FMeshDrawCommand::SubmitDraw(FRHICommandList& Commands, FMeshDrawCommandStateCache* StateCache) const -> bool
 	{
 		if (bCached) return false;
-		return SubmitVisible(Commands, VertexPassBindings, FragmentPassBindings, DepthBias, StateCache);
+		return SubmitVisible(Commands, VertexPassBindings, FragmentPassBindings, DepthBias, StateCache, InstanceIdOffset);
 	}
 
 	auto FMeshDrawCommand::SubmitVisible(FRHICommandList& Commands, const FMeshDrawShaderBindings& VertexPass, const FMeshDrawShaderBindings& FragmentPass,
 		const std::array<float, 3>& Bias,
-		FMeshDrawCommandStateCache* StateCache) const -> bool
+		FMeshDrawCommandStateCache* StateCache, uint32 SelectedInstanceOffset, uint32 SelectedInstanceCount) const -> bool
 	{
 		if (!bFinalized || !Commands.IsInsideRenderPass() || !Pipeline
 			|| (Pipeline->bGPUCulling && !IndirectArgs)
@@ -284,8 +318,10 @@ namespace Durin::RendererPrivate
 			if (Geometry.IndexBuffer) Commands.DrawIndexedIndirect(IndirectArgs, IndirectArgsOffset);
 			else Commands.DrawIndirect(IndirectArgs, IndirectArgsOffset);
 		}
-		else if (const auto* Indexed = std::get_if<FRHIDrawIndexedArguments>(&Geometry.DrawParameters)) Commands.DrawIndexed(*Indexed);
-		else Commands.Draw(std::get<FRHIDrawArguments>(Geometry.DrawParameters));
+		else if (const auto* Indexed = std::get_if<FRHIDrawIndexedArguments>(&Geometry.DrawParameters))
+		{ auto Args = *Indexed; if (SelectedInstanceOffset != INDEX_NONE_U32) Args.FirstInstance = SelectedInstanceOffset; if (SelectedInstanceCount) Args.InstanceCount = SelectedInstanceCount; Commands.DrawIndexed(Args); }
+		else { auto Args = std::get<FRHIDrawArguments>(Geometry.DrawParameters); if (SelectedInstanceOffset != INDEX_NONE_U32) Args.FirstInstance = SelectedInstanceOffset; if (SelectedInstanceCount) Args.InstanceCount = SelectedInstanceCount; Commands.Draw(Args); }
+		++Cache.DrawCalls;
 		if (PSOPrecacheValidation::IsEnabled()) {
 			static constexpr std::array Names{"Forward", "HybridRetainedForward", "SortedTranslucency", "ShadowDepth", "GBuffer", "HitProxy"};
 			const auto Index = Pipeline->bGPUCulling ? -1 : FPSOCollectorCreateManager::GetIndex(EShadingPath::Deferred, Names[static_cast<size_t>(Pipeline->Pass)]);
@@ -350,12 +386,18 @@ namespace Durin::RendererPrivate
 			|| sizeof(FRHIDrawIndexedIndirectArguments) > Args->GetSize() - IndirectArgsOffset)
 		{ return FShaderCompletion::Failure("GPU command requires a valid indexed indirect argument range."); }
 		Command->IndirectArgs = IndirectArgs; Command->IndirectArgsOffset = IndirectArgsOffset;
+		auto GPUInput = Input;
+		GPUInput.GPUScene.GPUSceneInstanceIds = VisibleInstances;
+		FMeshDrawCommandBindingCache Cache;
+		FMeshPassBindings Pass;
 		const auto& Vertex = *Command->Pipeline->VertexShader;
 		Command->VertexBindings = PrepareMeshVertexMaterial(Vertex,
-			Vertex.PrepareGPUCulling(VisibleInstances, InstanceTransforms),
-			Input.Material.Surface, Input.Material.Uniform, Input.ViewUniform, Input.Material.CollectionUniforms);
-		if (!Command->VertexBindings)
-		{ return FShaderCompletion::Failure("GPU command vertex binding collection failed."); }
+			Vertex.Prepare(Input.Commands, {}, *Input.Primitive.CollectedBinding),
+			Input.Material.Surface, Input.Material.Uniform, {}, Input.Material.CollectionUniforms, true);
+		if (!Command->VertexBindings || !PreparePassBindings(GPUInput, Cache, Pass))
+			return FShaderCompletion::Failure("GPUScene indirect pass bindings are unavailable.");
+		Command->VertexPassBindings = std::move(Pass.Vertex); Command->FragmentPassBindings = std::move(Pass.Fragment);
+
 		DrawContext.FinalizeCommand();
 		return FShaderCompletion{};
 	}
@@ -391,6 +433,7 @@ namespace Durin::RendererPrivate
 		{ return FShaderCompletion::Failure("Mesh command binding requires prepared native resources."); }
 		auto* Command = &DrawContext.AddCommand({});
 		Command->Pipeline = Pipeline.get(); Command->bCached = DrawContext.IsCached();
+		Command->InstanceIdOffset = Command->bCached ? INDEX_NONE_U32 : Input.InstanceIdOffset;
 		if (!Existing && !Command->SetDrawParametersAndFinalize(Primitive, Draw))
 		{ return FShaderCompletion::Failure("Mesh command geometry finalization failed."); }
 		const auto Raster = GetPass() == EMeshPipelinePass::ShadowDepth
@@ -462,20 +505,19 @@ namespace Durin::RendererPrivate
 			? EMeshPipelinePass::Forward : GetPass();
 		auto Collect = [&](FRHIShader* Shader, const FCompiledSurfaceBindingLayout& Layout,
 			FMeshDrawShaderBindings& Bindings) -> bool {
-			const auto Key = std::make_pair(BindingPass, Shader);
+			const auto Key = std::make_tuple(BindingPass, Shader, Input.GPUScene.GPUSceneInstanceIds.Buffer);
 			if (!Input.HitProxy.Buffer)
 				if (const auto Found = Cache.Passes.find(Key); Found != Cache.Passes.end()) { Bindings = Found->second; return true; }
 			FMeshDrawShaderBindings Prepared;
 			if (!PrepareCompiledSurfaceMaterial(Shader, Layout.ForSet(0), Input.Material.Surface, {}, Input.Lighting,
-				Input.HitProxy, Input.ViewUniform, {}, {}, Prepared, Input.LocalLights)) return false;
+				Input.HitProxy, Input.ViewUniform, {}, {}, Prepared, Input.LocalLights, Input.GPUScene)) return false;
 			Bindings = std::move(Prepared);
 			if (!Input.HitProxy.Buffer) Cache.Passes.emplace(Key, Bindings);
 			return true;
 		};
-		if (!Pipeline->bGPUCulling)
 		{
 			const auto& Vertex = Pipeline->VertexShader;
-			const auto Found = Cache.Passes.find({BindingPass, Vertex->GetRHIShader(false)});
+			const auto Found = Cache.Passes.find({BindingPass, Vertex->GetRHIShader(false), Input.GPUScene.GPUSceneInstanceIds.Buffer});
 			if (!Input.HitProxy.Buffer && Found != Cache.Passes.end()) Out.Vertex = Found->second;
 			else
 			{
@@ -749,6 +791,10 @@ namespace Durin
 		-> const RendererPrivate::FVisibleMeshDrawCommand*
 	{
 		if (!DrawCommandStorage || Draw.ResolvedIndex >= Draws.size()) return nullptr;
+		const auto& Record = Draws[Draw.ResolvedIndex];
+		if (const auto Instanced = Record.DynamicInstancingCommands.find(Pass); Instanced != Record.DynamicInstancingCommands.end()
+			&& DynamicInstancingGroups[Instanced->second.first].bEnabled)
+			return DrawCommandStorage->GetVisible(Instanced->second.second);
 		const auto Found = Draws[Draw.ResolvedIndex].VisibleCommands.find(Pass);
 		return Found == Draws[Draw.ResolvedIndex].VisibleCommands.end() ? nullptr : DrawCommandStorage->GetVisible(Found->second);
 	}

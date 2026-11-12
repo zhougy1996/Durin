@@ -11,7 +11,10 @@ namespace Durin::RendererPrivate
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FGBufferLocalVertexShader)
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(MaterialPrimitive);
+				DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUScenePrimitiveSceneData);
+			DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUSceneInstanceSceneData);
+			DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUSceneInstancePayloadData);
+			DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUSceneInstanceIds);
 			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialView);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
 			DURIN_END_SHADER_PARAMETERS();
@@ -28,7 +31,10 @@ namespace Durin::RendererPrivate
 				FSplineMeshVertexShader::ModifyCompilationEnvironment(Parameters, Options);
 			}
 			DURIN_BEGIN_SHADER_PARAMETERS(FGBufferSplineVertexShader)
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(MaterialPrimitive);
+				DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUScenePrimitiveSceneData);
+			DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUSceneInstanceSceneData);
+			DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUSceneInstancePayloadData);
+			DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUSceneInstanceIds);
 			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialView);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(SplineMesh);
@@ -48,14 +54,17 @@ namespace Durin::RendererPrivate
 				Options.Macros.emplace_back("DURIN_GPU_CULLING", "1");
 			}
 			DURIN_BEGIN_SHADER_PARAMETERS(FGBufferGPUCullingVertexShader)
-				DURIN_SHADER_PARAMETER_STORAGE_BUFFER(VisibleInstances);
+				DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUScenePrimitiveSceneData);
+			DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUSceneInstanceSceneData);
+			DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUSceneInstancePayloadData);
+			DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUSceneInstanceIds);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialView);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
-				DURIN_SHADER_PARAMETER_STORAGE_BUFFER(InstanceTransforms);
+
 			DURIN_END_SHADER_PARAMETERS();
 			DURIN_DECLARE_MESH_MATERIAL_SHADER(FGBufferGPUCullingVertexShader,
 				FMeshMaterialShader, "/Engine/StaticMeshBasePass",
-				EShaderFrequency::Vertex, "GPUCullingVertexMain");
+				EShaderFrequency::Vertex, "VertexMain");
 		};
 
 		DURIN_IMPLEMENT_MESH_MATERIAL_SHADER(FGBufferLocalVertexShader);
@@ -77,7 +86,7 @@ namespace Durin::RendererPrivate
 				const FVertexFactoryBinding& Binding) const -> FMeshDrawShaderBindings override
 			{
 				typename TShader::FParameters Parameters;
-				Parameters.MaterialPrimitive = Transform;
+				// Scene resources are supplied by pass composition.
 				if constexpr (bSpline)
 				{
 					const auto* Spline = dynamic_cast<const FSplineMeshBatchBinding*>(&Binding);
@@ -107,15 +116,15 @@ namespace Durin::RendererPrivate
 				const FRHIUniformBufferRange&,
 				const FVertexFactoryBinding&) const
 				-> FMeshDrawShaderBindings override
-			{ return {}; }
+			{ FGBufferGPUCullingVertexShader::FParameters Parameters; return PrepareMeshVertexFactoryParameters(Shader, Parameters); }
 			auto PrepareGPUCulling(
 				const FRHIStorageBufferRange& VisibleInstances,
 				const FRHIStorageBufferRange& InstanceTransforms) const
 				-> FMeshDrawShaderBindings override
 			{
 				FGBufferGPUCullingVertexShader::FParameters Parameters;
-				Parameters.VisibleInstances = VisibleInstances;
-				Parameters.InstanceTransforms = InstanceTransforms;
+
+
 				return RendererPrivate::PrepareMeshVertexFactoryParameters(Shader, Parameters);
 			}
 		private:
@@ -136,6 +145,7 @@ namespace Durin::RendererPrivate
 				if constexpr (bSpline) return FSplineMeshBatchBinding{}.GetLayoutKey();
 				else return FStaticMeshBatchBinding{}.GetLayoutKey();
 			}
+			auto SupportsGPUScene() const -> bool override { return true; }
 			auto UsesGeneratedMaterialVertexStage(uint32 Pass) const -> bool override
 			{
 				return GetShaderType(Pass) != nullptr;

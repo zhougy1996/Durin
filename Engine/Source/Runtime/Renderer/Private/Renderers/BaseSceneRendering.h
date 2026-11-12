@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Renderers/GPUSceneRendering.h"
 
 #include "Renderers/SceneRendererProfiling.h"
 
@@ -30,6 +31,7 @@ namespace Durin
 
 	struct FBaseScenePassResources final
 	{
+		FGPUSceneReadParameters GPUScene;
 		std::optional<FRDGBufferAccess> LocalLights;
 		std::optional<FRDGTextureParameter> DirectionalShadow;
 		std::optional<FRDGTextureParameter> DefaultWhite;

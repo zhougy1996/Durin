@@ -175,8 +175,9 @@ namespace Durin
 		BeginTemporalState_RenderThread(Context);
 		FRDGBuilder Graph;
 		Submission.Render(Graph);
-		if (!ExecuteGraph_RenderThread(
-			Graph, CommandList, OutRenderGraphCapture, Qualification))
+		const bool GraphExecuted = ExecuteGraph_RenderThread(Graph, CommandList, OutRenderGraphCapture, Qualification);
+		if (Scene) Scene->GPUScene->RegisterGraphUse(Graph);
+		if (!GraphExecuted)
 			return ERenderViewResult::RendererResourcesUnavailable;
 		// Report the compiled assignment, independently of the async request bit.
 		if (Telemetry.View.GBuffer.GPUCullingDispatchedViews != 0)
@@ -442,7 +443,7 @@ namespace Durin
 				FixedPipelinesReady = StaticMeshRenderer.PrepareBindings_RenderThread(
 					CommandList, &Service.GBufferRenderer, PreparedView.Receiver.StaticMeshes,
 					ResolvedSceneResources.Receiver.StaticMeshes, ResolvedSceneResources.Lighting.UniformBuffer, false,
-				ResolvedSceneResources.Lighting.GetLocalRange()) || !bPrepareOnly;
+				ResolvedSceneResources.Lighting.GetLocalRange(), Context.Logical.Options.bEnableDynamicInstancing) || !bPrepareOnly;
 			if (FeaturePlan.Deferred.IsEnabled())
 				FixedPipelinesReady = Service.DeferredDirectionalLightingRenderer.EnsureResources_RenderThread(CommandList) && FixedPipelinesReady;
 			if (FeaturePlan.AmbientOcclusion.IsEnabled()

@@ -199,7 +199,7 @@ durin_add_native_test(StaticMeshRenderPreparationVulkanTests
 	BACKENDS vulkan
 	STACKS renderer
 	TIMEOUT 900
-	SOURCES Private/StaticMeshRenderPreparationVulkanTests.cpp Private/MeshPSOPrecacheVulkanTests.cpp
+	SOURCES Private/StaticMeshRenderPreparationVulkanTests.cpp Private/MeshPSOPrecacheVulkanTests.cpp Private/GPUSceneVulkanTests.cpp
 	LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer ShaderBuild VulkanRHI VulkanRHITestSupport Vulkan::Vulkan
 	INCLUDE_DIRECTORIES
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private

@@ -86,6 +86,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | CPU tasks, dependencies, cancellation, waiting, or worker-thread ownership | [CPU task system](Runtime/Core/TaskSystem.md) |
 | Scene viewport or window-backed rendering | [Viewport rendering](Runtime/Rendering/Pipeline/ViewportRendering.md) |
 | Persistent view identity, previous-frame metadata, temporal discontinuity, or history lifetime | [Persistent view state](Runtime/Rendering/Scene/PersistentViewState.md) |
+| Persistent Primitive/Instance GPU storage, dirty scene uploads, or allocation retirement | [GPUScene storage](Runtime/Rendering/Scene/GPUScene.md) |
 | Render-resource state, deferred C++ cleanup, producer teardown, or registry auditing | [Render resource lifecycle](Runtime/Rendering/Pipeline/RenderResourceLifecycle.md) |
 | Loading-time material program, native Shader/PSO preparation, or scene activation readiness | [Load preparation](Runtime/Rendering/Pipeline/LoadPreparation.md) |
 | Renderer resource creation failure, retry, fallback, or device invalidation | [Renderer resource recovery](Runtime/Rendering/Pipeline/RendererResourceRecovery.md) |

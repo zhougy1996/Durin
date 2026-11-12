@@ -314,24 +314,27 @@ than copying stable payloads. The description cache retains unused entries
 across visibility changes and evicts unused entries when it exceeds 512;
 descriptions selected by the current submission remain owned independently.
 
-Primitive uniforms contain view-independent transforms, bounds, determinant
-parity, and a split high/low world origin. Pass set 0 contains camera/cascade
+Built-in Local/Spline factories read scene-owned Primitive/Instance records for
+view-independent transforms, bounds, determinant parity and split high/low origins.
+Unsupported factories retain Primitive uniforms; see [GPUScene](GPUScene.md). Pass set 0 contains camera/cascade
 projection, translated view matrices, camera origin, viewport, and material
 time. `Material.MeshUniforms` reconstructs translated primitive coordinates in
 the shader by subtracting high origin parts before adding low parts. The
-primitive uniform has no `LocalToClip` matrix. Camera movement and cascade
+scene record has no `LocalToClip` matrix. Camera movement and cascade
 selection therefore do not invalidate primitive uploads.
 
 The render-thread `FMeshDrawCommand` cache retains command memory and borrowed
 RHI binding values. Sources own resources; Scene-owned slots and per-primitive command locations
 retire affected entries before replacing binding layouts. Same-layout material
-resource changes update the stable Uniform table. Numeric transform/material updates reuse logical
-Uniform buffers. Pass resources remain frame-local. The implementation and
+resource changes update the stable Uniform table. Numeric material updates reuse logical Uniform buffers; scene transforms patch
+persistent scene records. Pass resources remain frame-local. The implementation and
 required lifetime/recording boundaries are specified in
 [Renderer Frame Preparation](../Pipeline/RendererFramePreparation.md#required-recording-and-invalidation-contracts).
 Spline deformation uses dynamic commands. Parameter collections can use cached
-commands while their source buffers remain stable. This contract introduces no
-GPUScene, dynamic instancing, or staggered cascade updates.
+commands while their source buffers remain stable. Compatible Local opaque/masked commands can share cached state buckets and
+consecutive CPU-instanced submissions; see [GPUScene dynamic instancing](GPUScene.md#cpu-dynamic-instancing).
+Spline and sorted translucency retain individual commands. Staggered cascade
+updates remain outside this contract.
 
 View-local telemetry conserves visible candidates against prepared plus rejected
 primitives. Requested and selected LOD histograms each sum to prepared
