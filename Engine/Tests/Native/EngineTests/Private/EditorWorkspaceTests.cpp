@@ -52,11 +52,14 @@ namespace
 		{
 			return {"Durin::DMaterial", "PickerThumbnailTest", 1};
 		}
-		auto CaptureGenerationInput(const Durin::FAssetThumbnailPackageFingerprint& Asset) -> std::expected<Durin::FThumbnailGenerationData, std::string> override
+		auto DescribeThumbnail(const Durin::FAssetThumbnailPackageFingerprint& Asset) -> std::expected<Durin::FThumbnailCacheDescription, std::string> override
 		{
 			ADD_FAILURE() << "This test must not execute thumbnail generation.";
 			return std::unexpected("Unexpected thumbnail generation.");
 		}
+		auto CanVisualizeAsset(Durin::DObject*) const -> bool override { return true; }
+		auto Draw(Durin::DObject*, Durin::FThumbnailDrawContext&) -> void override { ADD_FAILURE() << "Unexpected drawing."; }
+
 	};
 
 	class FAppliedPackageEdit final : public Durin::FActorCommandChange

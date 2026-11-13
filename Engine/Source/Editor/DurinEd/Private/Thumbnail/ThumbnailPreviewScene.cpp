@@ -95,7 +95,7 @@ namespace Durin
 		: Impl(std::make_unique<FImpl>(Contract)) {}
 	FThumbnailPreviewScene::~FThumbnailPreviewScene()
 	{
-		checkf(!bCapturing, "Reset thumbnail capture before destroying its borrowed preview scene.");
+		checkf(!BindingOwner, "Reset thumbnail capture before destroying its borrowed preview scene.");
 	}
 	auto FThumbnailPreviewScene::IsAvailable() const -> bool
 	{

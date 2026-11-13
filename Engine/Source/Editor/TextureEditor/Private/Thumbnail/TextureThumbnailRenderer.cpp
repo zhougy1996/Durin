@@ -1,5 +1,5 @@
-#include "Engine/StreamableManager.h"
 #include "Thumbnail/ThumbnailRenderer.h"
+#include "Thumbnail/ThumbnailDrawContext.h"
 #include "Thumbnail/TextureThumbnailRenderer.h"
 #include "RenderResource.h"
 #include "Shader/ShaderMapPreparation.h"
@@ -14,38 +14,28 @@ namespace Durin::TextureEditor
 {
 	namespace
 	{
-		class FTextureThumbnailGenerationInput final : public IAssetThumbnailGenerationInput
+
+		class FTextureThumbnailDrawState final
 		{
 		public:
-			explicit FTextureThumbnailGenerationInput(FTopLevelAssetPath Path) : AssetPath(std::move(Path)) {}
-			FTopLevelAssetPath AssetPath;
-		};
-
-		class FTextureThumbnailSession final : public IThumbnailRendererSession
-		{
-		public:
-			explicit FTextureThumbnailSession(FTopLevelAssetPath Path) : AssetPath(std::move(Path)) {}
-			~FTextureThumbnailSession() override { ResetPreview(); }
-
-			auto Update() -> FThumbnailRendererSessionUpdate override
+			FTextureThumbnailDrawState(DThumbnailRenderer& InRenderer, DObject* Object, FTopLevelAssetPath Path)
+				: AssetPath(std::move(Path))
 			{
-				if (!bStarted)
-				{
-					bStarted = true;
-					AssetLoad = StreamableManager.RequestAsyncLoad(AssetPath, {}, DTexture2D::StaticClass());
-					Shaders = FShaderMapPreparation::Request("DurinEd", {"DurinEd.TexturePreview"}, EShaderBuildPriority::High);
-					return {.State = EThumbnailRendererSessionState::WaitingForResources};
-				}
+				(void)InRenderer;
+				Texture = Cast<DTexture2D>(Object);
+				Shaders = FShaderMapPreparation::Request("DurinEd", {"DurinEd.TexturePreview"}, EShaderBuildPriority::High);
+			}
 
-				if (!AssetLoad) return {.Diagnostic = "The thumbnail load was reset."};
-				if (!AssetLoad->IsComplete()) return {.State = EThumbnailRendererSessionState::WaitingForResources};
-				if (AssetLoad->HasError()) return {.Diagnostic = (AssetLoad->GetError().Message)};
+			~FTextureThumbnailDrawState() { ResetPreview(); }
+
+			auto Update() -> FThumbnailDrawResult
+			{
 				if (!bAssetLoaded)
 				{
-					Texture = Cast<DTexture2D>(AssetLoad->GetLoadedAsset());
+
 					if (!Texture.IsValid()) return {.Diagnostic = "Texture2D asset could not be loaded."};
 					if (!Texture.Get()->IsAsyncCacheComplete())
-						return {.State = EThumbnailRendererSessionState::WaitingForResources};
+						return {.State = EThumbnailDrawStatus::WaitingForResources};
 					AssetRevision = Texture.Get()->GetPackage() ? Texture.Get()->GetPackage()->GetEditRevision() : 0;
 					Platform = Texture.Get()->GetPlatformDataShared();
 					Options.Usage = Texture.Get()->GetUsage();
@@ -53,16 +43,16 @@ namespace Durin::TextureEditor
 				}
 				if (!Texture.IsValid()) return {.Diagnostic = "Texture2D asset is unavailable."};
 				if (!Texture.Get()->IsAsyncCacheComplete() || Texture.Get()->HasPendingRenderResourceInitialization())
-					return {.State = EThumbnailRendererSessionState::WaitingForResources};
+					return {.State = EThumbnailDrawStatus::WaitingForResources};
 				const auto* Resource = Texture.Get()->GetResource();
 				if (!Resource || !Resource->GetTextureRHI_GameThread())
 					return {.Diagnostic = "Texture2D built render resource is unavailable."};
 				auto ShaderReady = Shaders.Poll();
 				if (!ShaderReady) return {.Diagnostic = ShaderReady.error()};
-				return {.State = *ShaderReady ? EThumbnailRendererSessionState::ReadyToRender
-					: EThumbnailRendererSessionState::WaitingForResources};
+				return {.State = *ShaderReady ? EThumbnailDrawStatus::ReadyToRender
+					: EThumbnailDrawStatus::WaitingForResources};
 			}
-			auto PreparePreview(IThumbnailRenderContext& Context) -> std::expected<void, std::string> override
+			auto PreparePreview(FThumbnailDrawContext& Context) -> std::expected<void, std::string>
 			{
 				const auto* Asset = Texture.Get();
 				if (!Asset || !Asset->IsAsyncCacheComplete() || Asset->HasPendingRenderResourceInitialization())
@@ -76,7 +66,7 @@ namespace Durin::TextureEditor
 				});
 				return {};
 			}
-			auto ValidatePreparedInput() const -> std::expected<void, std::string> override
+			auto ValidatePreparedInput() const -> std::expected<void, std::string>
 			{
 				if (!Texture.IsValid() || !Texture.Get()->IsAsyncCacheComplete()
 					|| Texture.Get()->HasPendingRenderResourceInitialization() || !Snapshot
@@ -89,22 +79,16 @@ namespace Durin::TextureEditor
 				}
 				return {};
 			}
-			auto ResetPreview() -> void override
+			auto ResetPreview() -> void
 			{
-				bStarted = true;
 				Snapshot = nullptr;
 				Texture = nullptr;
 				Platform.reset();
 				bAssetLoaded = false;
-				if (AssetLoad) AssetLoad->CancelHandle();
-				AssetLoad.reset();
 				Shaders = {};
 			}
 		private:
-			bool bStarted = false;
 			FShaderMapPreparation Shaders;
-			FStreamableManager StreamableManager;
-			std::shared_ptr<FStreamableHandle> AssetLoad;
 			bool bAssetLoaded = false;
 			FTopLevelAssetPath AssetPath;
 			TWeakObjectPtr<DTexture2D> Texture;
@@ -126,9 +110,9 @@ namespace Durin::TextureEditor
 			.GeneratorSchemaVersion = 2};
 	}
 
-	auto DTextureThumbnailRenderer::CaptureGenerationInput(const FAssetThumbnailPackageFingerprint& Asset) -> std::expected<FThumbnailGenerationData, std::string>
+	auto DTextureThumbnailRenderer::DescribeThumbnail(const FAssetThumbnailPackageFingerprint& Asset) -> std::expected<FThumbnailCacheDescription, std::string>
 	{
-		FThumbnailGenerationData Result;
+		FThumbnailCacheDescription Result;
 
 		if (Asset.AssetClassName != GetRegistration().AssetClassName)
 		{
@@ -150,17 +134,31 @@ namespace Durin::TextureEditor
 		Result.PreviewFixtureIdentity = "Texture2D.Built.Auto.RGBA";
 		Result.PreviewFixtureVersion = 1;
 		Result.ShaderContractVersion = 2;
-		Result.Input = std::make_shared<FTextureThumbnailGenerationInput>(Asset.AssetPath);
 
 		Result.bHasTransparency = true;
 		return Result;
 	}
 
-	auto DTextureThumbnailRenderer::CreateGenerationSession(const IAssetThumbnailGenerationInput& Input)
-		-> std::unique_ptr<IThumbnailRendererSession>
+	auto DTextureThumbnailRenderer::CanVisualizeAsset(DObject* Object) const -> bool
 	{
-		const auto* Typed = dynamic_cast<const FTextureThumbnailGenerationInput*>(&Input);
-		checkf(Typed != nullptr, "Invalid Texture2D thumbnail input.");
-		return std::make_unique<FTextureThumbnailSession>(Typed->AssetPath);
+		return Cast<DTexture2D>(Object) != nullptr;
 	}
+
+	auto DTextureThumbnailRenderer::Draw(DObject* Object, FThumbnailDrawContext& Context) -> void
+	{
+		if (!CanVisualizeAsset(Object)) { Context.SetResult({.Diagnostic = "The renderer cannot visualize this asset."}); return; }
+		auto& State = Context.GetState<FTextureThumbnailDrawState>(*this, Object, Context.GetAssetPath());
+		auto Result = State.Update();
+		Context.SetResult(Result);
+		if (Result.State == EThumbnailDrawStatus::ReadyToRender)
+		{
+			if (auto Prepared = State.PreparePreview(Context); !Prepared)
+			{
+				if (Context.GetResult().State == EThumbnailDrawStatus::ReadyToRender)
+					Context.SetResult({.Diagnostic = Prepared.error()});
+			}
+			else Context.SetValidation([&State] { return State.ValidatePreparedInput(); });
+		}
+	}
+
 } // namespace Durin::TextureEditor

@@ -178,36 +178,7 @@ TEST_F(FTextureAssetSessionTests, RelocationPreservesOpenTextureRoutingAndSave)
 	EXPECT_TRUE(Session->CloseWindow(Durin::EAssetEditorCloseReason::AssetEditorHostClosed));
 }
 
-class FCapturingTextureCubeThumbnailPreviewScene final
-	: public Durin::IThumbnailRenderContext
-{
-public:
-	auto SetScene(Durin::FThumbnailPreviewScene&) -> std::expected<void, std::string> override
-	{
-		++SceneBindings;
-		return {};
-	}
-
-	auto SetView(
-		const Durin::FThumbnailPreviewView& View) -> void override
-	{
-		LastView = View;
-
-	}
-
-	auto SetViewEnvironment(
-		const Durin::FViewEnvironmentOverride& Environment) -> void override
-	{
-		LastEnvironment = Environment;
-
-	}
-
-	uint32 SceneBindings = 0;
-	Durin::FThumbnailPreviewView LastView;
-	std::optional<Durin::FViewEnvironmentOverride> LastEnvironment;
-};
-
-TEST(FTextureAssetThumbnailTests, Texture2DRendererCapturesBuiltSessionWithoutSourcePixels)
+TEST(FTextureAssetThumbnailTests, Texture2DRendererDescribesBuiltOutputWithoutSourcePixels)
 {
 	Durin::Tests::FAssetThumbnailFixtureSet Fixtures;
 	std::string Error;
@@ -223,16 +194,12 @@ TEST(FTextureAssetThumbnailTests, Texture2DRendererCapturesBuiltSessionWithoutSo
 
 	auto RendererOwner = Durin::MakeThumbnailRenderer<Durin::TextureEditor::DTextureThumbnailRenderer>();
 	auto& Renderer = *RendererOwner;
-	Durin::FThumbnailGenerationData Captured;
-	auto CapturedResult = Renderer.CaptureGenerationInput(MakeFingerprint(*Data));
+	Durin::FThumbnailCacheDescription Captured;
+	auto CapturedResult = Renderer.DescribeThumbnail(MakeFingerprint(*Data));
 	ASSERT_TRUE(CapturedResult) << CapturedResult.error();
 	Captured = std::move(*CapturedResult);
-	ASSERT_NE(Captured.Input, nullptr);
 	EXPECT_EQ(Renderer.GetRegistration().GeneratorSchemaVersion, 2u);
 	EXPECT_EQ(Captured.ShaderContractVersion, 2u);
-	auto Session = Renderer.CreateGenerationSession(*Captured.Input);
-	ASSERT_TRUE(Session);
-	ASSERT_NE(Session, nullptr);
 
 	EXPECT_EQ(Captured.Output.Width, 256u);
 	EXPECT_EQ(Captured.Output.Height, 256u);
@@ -425,8 +392,8 @@ TEST(FTextureCubeThumbnailRendererTests, RendererCapturesPackageAndCubeVisualCon
 	auto& Renderer = *RendererOwner;
 	const Durin::FThumbnailRenderingInfo Registration =
 		Renderer.GetRegistration();
-	Durin::FThumbnailGenerationData Captured;
-	auto CapturedResult = Renderer.CaptureGenerationInput(MakeFingerprint(*Data));
+	Durin::FThumbnailCacheDescription Captured;
+	auto CapturedResult = Renderer.DescribeThumbnail(MakeFingerprint(*Data));
 	ASSERT_TRUE(CapturedResult) << CapturedResult.error();
 	Captured = std::move(*CapturedResult);
 
@@ -440,10 +407,6 @@ TEST(FTextureCubeThumbnailRendererTests, RendererCapturesPackageAndCubeVisualCon
 			TextureCubeEnvironmentViewVersion);
 	EXPECT_EQ(Captured.ShaderContractVersion, 2u);
 	EXPECT_TRUE(Captured.Dependencies.empty());
-	EXPECT_NE(
-		std::dynamic_pointer_cast<
-			const Durin::TextureEditor::FTextureCubeThumbnailGenerationInput>(Captured.Input),
-		nullptr);
 
 	const auto KeyInput = Captured.MakeKeyInput(MakeFingerprint(*Data), Registration);
 	const std::string OriginalKey =
@@ -454,7 +417,7 @@ TEST(FTextureCubeThumbnailRendererTests, RendererCapturesPackageAndCubeVisualCon
 }
 
 TEST(FTextureCubeThumbnailRendererTests,
-	GenerationSessionRejectsAnUnavailableResourceSnapshot)
+	DrawJobRejectsAnUnavailableResourceSnapshot)
 {
 	Durin::Tests::FAssetThumbnailFixtureSet Fixtures;
 	std::string Error;
@@ -470,39 +433,23 @@ TEST(FTextureCubeThumbnailRendererTests,
 
 	auto RendererOwner = Durin::MakeThumbnailRenderer<Durin::TextureEditor::DTextureCubeThumbnailRenderer>();
 	auto& Renderer = *RendererOwner;
-	Durin::FThumbnailGenerationData Request;
-	auto RequestResult = Renderer.CaptureGenerationInput(MakeFingerprint(*Data));
+	Durin::FThumbnailCacheDescription Request;
+	auto RequestResult = Renderer.DescribeThumbnail(MakeFingerprint(*Data));
 	ASSERT_TRUE(RequestResult) << RequestResult.error();
 	Request = std::move(*RequestResult);
-	ASSERT_NE(Request.Input, nullptr);
-	auto Session = Renderer.CreateGenerationSession(*Request.Input);
-	ASSERT_TRUE(Session);
-	ASSERT_NE(Session, nullptr);
-	EXPECT_EQ(
-		Session->Update().State,
-		Durin::EThumbnailRendererSessionState::WaitingForResources);
-
-	FCapturingTextureCubeThumbnailPreviewScene PreviewScene;
+	Durin::FThumbnailRenderJob Job(&Renderer, MakeFingerprint(*Data));
+	EXPECT_EQ(Job.Update().State, Durin::EThumbnailDrawStatus::WaitingForResources);
 	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-	auto Update = Session->Update();
-	while (Update.State == Durin::EThumbnailRendererSessionState::WaitingForResources
-		&& std::chrono::steady_clock::now() < Deadline)
+	auto Result = Job.Update();
+	while (Result.State == Durin::EThumbnailDrawStatus::WaitingForResources && std::chrono::steady_clock::now() < Deadline)
 	{
 		Durin::ProcessAsyncLoading(100.0, 16);
 		Durin::FAssetCompilingManager::Get().ProcessAsyncTasks(false);
-		Update = Session->Update();
-		if (Update.State == Durin::EThumbnailRendererSessionState::WaitingForResources)
-			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		Result = Job.Update();
 	}
-	EXPECT_EQ(Update.State, Durin::EThumbnailRendererSessionState::Failed);
-	const auto Prepared = Session->PreparePreview(PreviewScene);
-	ASSERT_FALSE(Prepared);
-	EXPECT_FALSE(Prepared.error().empty());
-	EXPECT_EQ(PreviewScene.SceneBindings, 0u);
-	EXPECT_FALSE(PreviewScene.LastEnvironment);
-	Session->ResetPreview();
-	Session.reset();
-	EXPECT_EQ(PreviewScene.SceneBindings, 0u);
+	EXPECT_EQ(Result.State, Durin::EThumbnailDrawStatus::Failed);
+	EXPECT_FALSE(Job.Validate());
+
 }
 
 TEST(FTextureCubeThumbnailRendererTests, RendererRejectsMissingRegistryData)
@@ -513,9 +460,9 @@ TEST(FTextureCubeThumbnailRendererTests, RendererRejectsMissingRegistryData)
 		"/ThumbnailFixtures/Textures/TC_Missing", MissingPath));
 	auto RendererOwner = Durin::MakeThumbnailRenderer<Durin::TextureEditor::DTextureCubeThumbnailRenderer>();
 	auto& Renderer = *RendererOwner;
-	Durin::FThumbnailGenerationData Captured;
+	Durin::FThumbnailCacheDescription Captured;
 	std::string Error;
-	auto CapturedResult = Renderer.CaptureGenerationInput({
+	auto CapturedResult = Renderer.DescribeThumbnail({
 			.AssetPath = MakeAssetPath(MissingPath),
 			.PackagePath = MissingPath,
 			.AssetClassName =

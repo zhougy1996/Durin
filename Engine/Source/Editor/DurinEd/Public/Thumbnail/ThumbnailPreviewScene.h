@@ -23,8 +23,9 @@ namespace Durin
 		DURINED_API auto GetPreviewActor() -> AActor*;
 	private:
 		friend class FThumbnailCapture;
+		friend class FThumbnailDrawContext;
 		DURINED_API auto GetRenderScene() -> FSceneInterface*;
-		bool bCapturing = false;
+		const void* BindingOwner = nullptr;
 		struct FImpl;
 		std::unique_ptr<FImpl> Impl;
 	};

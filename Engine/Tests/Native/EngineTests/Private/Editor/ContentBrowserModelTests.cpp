@@ -229,10 +229,12 @@ namespace
 				.GeneratorSchemaVersion = 1};
 		}
 
-		auto CaptureGenerationInput(const FAssetThumbnailPackageFingerprint& Asset) -> std::expected<FThumbnailGenerationData, std::string> override
+		auto DescribeThumbnail(const FAssetThumbnailPackageFingerprint& Asset) -> std::expected<FThumbnailCacheDescription, std::string> override
 		{
 			return std::unexpected("Route-only test renderer.");
 		}
+		auto CanVisualizeAsset(DObject*) const -> bool override { return true; }
+		auto Draw(DObject*, FThumbnailDrawContext&) -> void override { ADD_FAILURE() << "Unexpected drawing."; }
 
 	private:
 		std::string AssetClassName;

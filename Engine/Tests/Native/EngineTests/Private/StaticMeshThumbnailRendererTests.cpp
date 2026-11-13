@@ -101,12 +101,12 @@ namespace
 	auto CaptureKey(
 		Durin::StaticMeshEditor::DStaticMeshThumbnailRenderer& Renderer,
 		const Durin::FAssetThumbnailPackageFingerprint& Asset,
-		Durin::FThumbnailGenerationData& OutRequest,
+		Durin::FThumbnailCacheDescription& OutRequest,
 		std::string& OutError) -> std::string
 	{
 		const Durin::FThumbnailRenderingInfo Registration =
 			Renderer.GetRegistration();
-		auto CaptureResult = Renderer.CaptureGenerationInput(Asset);
+		auto CaptureResult = Renderer.DescribeThumbnail(Asset);
 		if (!CaptureResult)
 		{
 			OutError = std::move(CaptureResult.error());
@@ -117,7 +117,7 @@ namespace
 	}
 
 	auto ContainsDependency(
-		const Durin::FThumbnailGenerationData& Request,
+		const Durin::FThumbnailCacheDescription& Request,
 		std::string_view Path) -> bool
 	{
 		return std::ranges::any_of(
@@ -200,17 +200,17 @@ TEST(FStaticMeshThumbnailRendererTests,
 
 	auto RendererOwner = Durin::MakeThumbnailRenderer<Durin::StaticMeshEditor::DStaticMeshThumbnailRenderer>();
 	auto& Renderer = *RendererOwner;
-	Durin::FThumbnailGenerationData Request;
+	Durin::FThumbnailCacheDescription Request;
 	ASSERT_FALSE(CaptureKey(Renderer, MakeFingerprint(*Data), Request, Error).empty())
 		<< Error;
-	auto Session = Renderer.CreateGenerationSession(*Request.Input);
+	auto Session = std::make_unique<Durin::FThumbnailRenderJob>(&Renderer, MakeFingerprint(*Data));
 	ASSERT_TRUE(Session);
 	ASSERT_NE(Session, nullptr);
-	const Durin::FThumbnailRendererSessionUpdate Initial = Session->Update();
+	const Durin::FThumbnailDrawResult Initial = Session->Update();
 	EXPECT_EQ(Initial.State,
-		Durin::EThumbnailRendererSessionState::WaitingForResources);
+		Durin::EThumbnailDrawStatus::WaitingForResources);
 	EXPECT_TRUE(Initial.Diagnostic.empty());
-	EXPECT_FALSE(Session->ValidatePreparedInput());
+	EXPECT_FALSE(Session->Validate());
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 	ASSERT_TRUE(Mesh->GetLOD0LocalBounds().has_value());
 	ASSERT_NE(Mesh->GetRenderData(), nullptr);
@@ -232,23 +232,21 @@ TEST(FStaticMeshThumbnailRendererTests, ColdSessionLoadsAsynchronouslyAndResetCa
 	ASSERT_NE(Data, nullptr);
 	auto RendererOwner = Durin::MakeThumbnailRenderer<StaticMeshEditor::DStaticMeshThumbnailRenderer>();
 	auto& Renderer = *RendererOwner;
-	FThumbnailGenerationData Request;
+	FThumbnailCacheDescription Request;
 	ASSERT_FALSE(CaptureKey(Renderer, MakeFingerprint(*Data), Request, Error).empty()) << Error;
 	ASSERT_TRUE(UnloadPackage(Path));
-	auto Session = Renderer.CreateGenerationSession(*Request.Input);
+	auto Session = std::make_unique<Durin::FThumbnailRenderJob>(&Renderer, MakeFingerprint(*Data));
 	ASSERT_TRUE(Session);
 	ASSERT_NE(Session, nullptr);
-	EXPECT_EQ(Session->Update().State, EThumbnailRendererSessionState::WaitingForResources);
+	EXPECT_EQ(Session->Update().State, EThumbnailDrawStatus::WaitingForResources);
 	EXPECT_EQ(FindResidentPackage(Path), nullptr);
-	EXPECT_EQ(Session->Update().State, EThumbnailRendererSessionState::WaitingForResources);
-	Session->ResetPreview();
+	EXPECT_EQ(Session->Update().State, EThumbnailDrawStatus::WaitingForResources);
+	Session.reset();
 	ProcessAsyncLoading();
 	EXPECT_EQ(FindResidentPackage(Path), nullptr);
-	EXPECT_EQ(Session->Update().State, EThumbnailRendererSessionState::Failed);
-	EXPECT_EQ(Session->Update().State, EThumbnailRendererSessionState::Failed);
 	EXPECT_EQ(FindResidentPackage(Path), nullptr);
-	Session = Renderer.CreateGenerationSession(*Request.Input);
-	EXPECT_EQ(Session->Update().State, EThumbnailRendererSessionState::WaitingForResources);
+	Session = std::make_unique<Durin::FThumbnailRenderJob>(&Renderer, MakeFingerprint(*Data));
+	EXPECT_EQ(Session->Update().State, EThumbnailDrawStatus::WaitingForResources);
 	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 	while (!FindResidentPackage(Path) && std::chrono::steady_clock::now() < Deadline)
 	{
@@ -294,7 +292,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 		Registration.GeneratorSchemaVersion,
 		Durin::StaticMeshEditor::FStaticMeshThumbnailRendererContract::GeneratorSchemaVersion);
 
-	Durin::FThumbnailGenerationData FirstRequest;
+	Durin::FThumbnailCacheDescription FirstRequest;
 	const std::string FirstKey =
 		CaptureKey(Renderer, Fingerprint, FirstRequest, Error);
 	ASSERT_FALSE(FirstKey.empty()) << Error;
@@ -310,17 +308,8 @@ TEST(FStaticMeshThumbnailRendererTests,
 	EXPECT_TRUE(ContainsDependency(
 		FirstRequest,
 		Durin::Tests::FAssetThumbnailFixtureSet::ParentTexturePath));
-	const auto Input = std::dynamic_pointer_cast<
-		const Durin::StaticMeshEditor::FStaticMeshThumbnailRendererGenerationInput>(FirstRequest.Input);
-	ASSERT_NE(Input, nullptr);
-	EXPECT_EQ(Input->AssetPath, MakeAssetPath(StaticMeshPath));
-	EXPECT_EQ(Input->VisualContract.Output, FirstRequest.Output);
-	EXPECT_FALSE(Input->VisualContract.bOutputOpaque);
-	EXPECT_EQ(Input->VisualContract.CameraDirectionX, 2.4f);
-	EXPECT_EQ(Input->VisualContract.CameraDirectionY, -3.2f);
-	EXPECT_EQ(Input->VisualContract.CameraDirectionZ, 2.4f);
 
-	Durin::FThumbnailGenerationData RepeatedRequest;
+	Durin::FThumbnailCacheDescription RepeatedRequest;
 	EXPECT_EQ(
 		CaptureKey(Renderer, Fingerprint, RepeatedRequest, Error),
 		FirstKey);
@@ -334,10 +323,10 @@ TEST(FStaticMeshThumbnailRendererTests,
 		Durin::BuildAssetThumbnailCacheKey(ChangedDependency),
 		FirstKey);
 
-	Durin::FThumbnailGenerationData WrongClassRequest;
+	Durin::FThumbnailCacheDescription WrongClassRequest;
 	Durin::FAssetThumbnailPackageFingerprint WrongClass = Fingerprint;
 	WrongClass.AssetClassName = "DMaterial";
-	auto WrongClassRequestResult = Renderer.CaptureGenerationInput(WrongClass);
+	auto WrongClassRequestResult = Renderer.DescribeThumbnail(WrongClass);
 	ASSERT_FALSE(WrongClassRequestResult);
 	EXPECT_NE(WrongClassRequestResult.error().find("wrong asset class"), std::string::npos);
 }
@@ -359,9 +348,9 @@ TEST(FStaticMeshThumbnailRendererTests,
 		.PackageFormatVersion = 1,
 		.FileSize = 1,
 		.LastWriteTimeTicks = 1};
-	Durin::FThumbnailGenerationData Captured;
+	Durin::FThumbnailCacheDescription Captured;
 	std::string Error;
-	auto CapturedResult = Renderer.CaptureGenerationInput(Missing);
+	auto CapturedResult = Renderer.DescribeThumbnail(Missing);
 	ASSERT_FALSE(CapturedResult);
 	EXPECT_NE(CapturedResult.error().find(MissingPath.ToString()), std::string::npos);
 
@@ -378,7 +367,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 	ASSERT_NE(Data, nullptr);
 	Durin::FAssetThumbnailPackageFingerprint Stale = MakeFingerprint(*Data);
 	++Stale.FileSize;
-	auto StaleResult = Renderer.CaptureGenerationInput(Stale);
+	auto StaleResult = Renderer.DescribeThumbnail(Stale);
 	ASSERT_FALSE(StaleResult);
 	EXPECT_NE(StaleResult.error().find("changed"), std::string::npos);
 }
@@ -401,7 +390,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 
 	auto RendererOwner = Durin::MakeThumbnailRenderer<Durin::StaticMeshEditor::DStaticMeshThumbnailRenderer>();
 	auto& Renderer = *RendererOwner;
-	Durin::FThumbnailGenerationData Request;
+	Durin::FThumbnailCacheDescription Request;
 	const std::string Baseline =
 		CaptureKey(Renderer, MakeFingerprint(*Data), Request, Error);
 	ASSERT_FALSE(Baseline.empty()) << Error;
@@ -492,7 +481,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 	const Durin::FAssetThumbnailPackageFingerprint Fingerprint = MakeFingerprint(*Data);
 	auto RendererOwner = Durin::MakeThumbnailRenderer<Durin::StaticMeshEditor::DStaticMeshThumbnailRenderer>();
 	auto& Renderer = *RendererOwner;
-	Durin::FThumbnailGenerationData GenerationRequest;
+	Durin::FThumbnailCacheDescription GenerationRequest;
 	const std::string CacheKey =
 		CaptureKey(Renderer, Fingerprint, GenerationRequest, Error);
 	ASSERT_FALSE(CacheKey.empty()) << Error;
@@ -560,7 +549,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 	const Durin::FAssetThumbnailPackageFingerprint Fingerprint = MakeFingerprint(*Data);
 	auto RendererOwner = Durin::MakeThumbnailRenderer<Durin::StaticMeshEditor::DStaticMeshThumbnailRenderer>();
 	auto& Renderer = *RendererOwner;
-	Durin::FThumbnailGenerationData GenerationRequest;
+	Durin::FThumbnailCacheDescription GenerationRequest;
 	const std::string CacheKey =
 		CaptureKey(Renderer, Fingerprint, GenerationRequest, Error);
 	ASSERT_FALSE(CacheKey.empty()) << Error;

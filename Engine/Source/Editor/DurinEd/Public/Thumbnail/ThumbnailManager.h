@@ -7,6 +7,8 @@
 namespace Durin
 {
 	class DThumbnailRenderer;
+	class FThumbnailRenderJob;
+	class DObject;
 	class DClass;
 	struct FThumbnailManagerTestAccess;
 	struct FAssetThumbnailGenerationRequest;
@@ -26,7 +28,7 @@ namespace Durin
 	};
 
 	// Owns one exact-class renderer registration. Reset first closes admission,
-	// invalidates captured generations, and releases renderer-owned inputs/sessions.
+	// invalidates captured generations and notifies pools to retire draw jobs.
 	class FThumbnailRendererRegistrationHandle
 	{
 	public:
@@ -72,7 +74,7 @@ namespace Durin
 		DThumbnailManager& operator=(const DThumbnailManager&) = delete;
 
 		// Unregister on GameThread after stopping thumbnail consumers and draining work,
-		// before unloading renderer code. Removal invalidates outstanding sessions.
+		// before unloading renderer code. Removal notifies pools to cancel outstanding work.
 		// The manager creates a transient renderer of the registered reflected class.
 		DURINED_API auto RegisterCustomRenderer(DClass* AssetClass, DClass* RendererClass)
 			-> std::expected<FThumbnailRendererRegistrationHandle, std::string>;
@@ -91,6 +93,11 @@ namespace Durin
 
 	private:
 		friend class FAssetThumbnailRequestQueue;
+		friend class FAssetThumbnailPool;
+		auto AttachPool(FAssetThumbnailPool* Pool) -> void;
+		auto DetachPool(FAssetThumbnailPool* Pool) -> void;
+		DURINED_API auto CreateRenderJob(const FAssetThumbnailGenerationRequest& Request) -> std::unique_ptr<FThumbnailRenderJob>;
+		DURINED_API auto SetLoadedObjectOverride(std::string_view Name, DObject* Object) -> void;
 		friend struct FThumbnailManagerTestAccess;
 		DURINED_API auto RegisterRendererInstance(DThumbnailRenderer* Renderer, std::string AssetClassName, DClass* AssetClass = nullptr)
 			-> std::expected<FThumbnailRendererRegistrationHandle, std::string>;

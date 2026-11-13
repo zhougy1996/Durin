@@ -2,6 +2,8 @@
 
 #include "Thumbnail/AssetThumbnailPool.h"
 #include "Thumbnail/ThumbnailRenderer.h"
+#include "Thumbnail/ThumbnailGenerationRequest.h"
+#include "Thumbnail/ThumbnailRenderJob.h"
 #include "DObject/StrongObjectPtr.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Class.h"
@@ -11,50 +13,23 @@ namespace Durin
 {
 	namespace ThumbnailPrivate
 	{
-		struct FAssetThumbnailGenerationLeaseState
-		{
-			FAssetThumbnailCancellation Cancellation;
-			std::shared_ptr<const IAssetThumbnailGenerationInput> Input;
-			TStrongObjectPtr<DThumbnailRenderer> Renderer;
-			std::unique_ptr<IThumbnailRendererSession> Session;
-			std::atomic<bool> bActive = true;
-
-			~FAssetThumbnailGenerationLeaseState()
-			{
-				ReleaseSession();
-			}
-
-			auto ReleaseSession() -> void
-			{
-				if (!Session) return;
-				Session->ResetPreview();
-				Session.reset();
-			}
-
-			auto Invalidate() -> void
-			{
-				if (!bActive.exchange(false, std::memory_order_acq_rel)) return;
-				Cancellation.Cancel();
-				const bool bHadSession = Session != nullptr;
-				ReleaseSession();
-				Input.reset();
-				// A capture may still borrow its scene after session invalidation.
-				// ReleaseRenderedSession retires that borrow before dropping the GC root.
-				if (!bHadSession) Renderer.Reset();
-			}
-		};
-
 		struct DThumbnailManagerState
 		{
 			struct FEntry
 			{
 				DClass* ClassNeedingThumbnail = nullptr;
 				TStrongObjectPtr<DThumbnailRenderer> Renderer;
-				std::vector<std::weak_ptr<FAssetThumbnailGenerationLeaseState>> Leases;
+				TStrongObjectPtr<DObject> LoadedOverride;
+				std::vector<std::weak_ptr<std::atomic<bool>>> Cancellations;
 				uint64 Generation = 0;
 			};
 
 			std::unordered_map<std::string, FEntry> Renderers;
+			std::vector<FAssetThumbnailPool*> Pools;
+			auto InvalidatePools(uint64 Generation) -> void
+			{
+				for (auto* Pool : Pools) Pool->InvalidateRenderer(Generation);
+			}
 			uint64 NextGeneration = 1;
 			bool bShuttingDown = false;
 		};
@@ -62,18 +37,6 @@ namespace Durin
 
 	namespace
 	{
-		auto InvalidateRendererEntry(
-			ThumbnailPrivate::DThumbnailManagerState::FEntry& Entry) -> void
-		{
-			for (const std::weak_ptr<ThumbnailPrivate::FAssetThumbnailGenerationLeaseState>& WeakLease
-				: Entry.Leases)
-			{
-				if (const std::shared_ptr Lease = WeakLease.lock()) Lease->Invalidate();
-			}
-			Entry.Leases.clear();
-			Entry.Renderer.Reset();
-		}
-
 		auto RemoveRendererRegistration(
 			const std::shared_ptr<ThumbnailPrivate::DThumbnailManagerState>& State,
 			uint64 RegistrationId) -> bool
@@ -88,7 +51,9 @@ namespace Durin
 			ThumbnailPrivate::DThumbnailManagerState::FEntry Entry =
 				std::move(It->second);
 			State->Renderers.erase(It);
-			InvalidateRendererEntry(Entry);
+			for (const auto& Weak : Entry.Cancellations) if (auto Flag = Weak.lock()) Flag->store(true, std::memory_order_release);
+			State->InvalidatePools(Entry.Generation);
+			Entry.Renderer.Reset();
 			return true;
 		}
 
@@ -140,72 +105,6 @@ namespace Durin
 	auto FAssetThumbnailCancellation::IsCancelled() const -> bool
 	{
 		return State->load(std::memory_order_acquire);
-	}
-
-	auto FAssetThumbnailGenerationLease::IsActive() const -> bool
-	{
-		return State != nullptr && State->bActive.load(std::memory_order_acquire);
-	}
-
-	auto FAssetThumbnailGenerationLease::GetInput() const
-		-> const IAssetThumbnailGenerationInput*
-	{
-		return IsActive() ? State->Input.get() : nullptr;
-	}
-
-	auto FAssetThumbnailGenerationLease::GetRenderedSession() const
-		-> IThumbnailRendererSession*
-	{
-		return IsActive() ? State->Session.get() : nullptr;
-	}
-
-	auto FAssetThumbnailGenerationLease::ReleaseRenderedSession() const -> void
-	{
-		if (!State) return;
-		State->ReleaseSession();
-		if (!State->bActive.load(std::memory_order_acquire)) State->Renderer.Reset();
-	}
-
-	auto FAssetThumbnailGenerationRequest::GetInput() const
-		-> const IAssetThumbnailGenerationInput*
-	{
-		return RendererLease.GetInput();
-	}
-
-	auto FAssetThumbnailGenerationRequest::BeginRenderedSession() const -> std::expected<IThumbnailRendererSession*, std::string>
-	{
-		const std::shared_ptr LeaseState = RendererLease.State;
-		if (!LeaseState || !LeaseState->bActive.load(std::memory_order_acquire))
-		{
-			return std::unexpected("The thumbnail renderer registration is no longer active.");
-		}
-		if (LeaseState->Session)
-		{
-			return LeaseState->Session.get();
-		}
-		if (!LeaseState->Renderer)
-		{
-			return std::unexpected("The thumbnail renderer does not implement rendered generation sessions.");
-		}
-		if (!LeaseState->Input)
-		{
-			return std::unexpected("The thumbnail renderer did not capture generation input.");
-		}
-		auto Session = LeaseState->Renderer->CreateGenerationSession(*LeaseState->Input);
-		if (!Session) return std::unexpected("The thumbnail renderer returned an empty generation session.");
-		LeaseState->Session = std::move(Session);
-		return LeaseState->Session.get();
-	}
-
-	auto FAssetThumbnailGenerationRequest::GetRenderedSession() const
-		-> IThumbnailRendererSession*
-	{
-		return RendererLease.GetRenderedSession();
-	}
-
-	auto FAssetThumbnailGenerationRequest::ReleaseRenderedSession() const -> void
-	{
-		RendererLease.ReleaseRenderedSession();
 	}
 
 	FThumbnailRendererRegistrationHandle::~FThumbnailRendererRegistrationHandle()
@@ -319,27 +218,31 @@ namespace Durin
 				Request.Asset.AssetClassName));
 		}
 		ThumbnailPrivate::DThumbnailManagerState::FEntry& Entry = It->second;
-		auto Captured = Entry.Renderer->CaptureGenerationInput(Request.Asset);
+		auto Captured = Entry.Renderer->DescribeThumbnail(Request.Asset);
 		if (!Captured) return std::unexpected(std::move(Captured.error()));
 		FAssetThumbnailGenerationRequest GenerationRequest;
 		GenerationRequest.KeyInput = Captured->MakeKeyInput(Request.Asset, Entry.Renderer->GetRegistration());
 		GenerationRequest.bHasTransparency = Captured->bHasTransparency;
 		GenerationRequest.RendererGeneration = RendererGeneration;
 		GenerationRequest.RequestSerial = Request.RequestSerial;
-		auto LeaseState =
-			std::make_shared<ThumbnailPrivate::FAssetThumbnailGenerationLeaseState>();
-		LeaseState->Cancellation = GenerationRequest.Cancellation;
-		LeaseState->Input = std::move(Captured->Input);
-		LeaseState->Renderer = Entry.Renderer;
-		Entry.Leases.erase(
-			std::remove_if(
-				Entry.Leases.begin(),
-				Entry.Leases.end(),
-				[](const auto& Lease) { return Lease.expired(); }),
-			Entry.Leases.end());
-		Entry.Leases.push_back(LeaseState);
-		GenerationRequest.RendererLease = FAssetThumbnailGenerationLease(std::move(LeaseState));
+		std::erase_if(Entry.Cancellations, [](const auto& Weak) { return Weak.expired(); });
+		Entry.Cancellations.push_back(GenerationRequest.Cancellation.State);
 		return std::move(GenerationRequest);
+	}
+
+	auto DThumbnailManager::AttachPool(FAssetThumbnailPool* Pool) -> void { State->Pools.push_back(Pool); }
+	auto DThumbnailManager::DetachPool(FAssetThumbnailPool* Pool) -> void { std::erase(State->Pools, Pool); }
+	auto DThumbnailManager::SetLoadedObjectOverride(std::string_view Name, DObject* Object) -> void
+	{
+		State->Renderers.at(std::string(Name)).LoadedOverride = TStrongObjectPtr<DObject>(Object);
+	}
+	auto DThumbnailManager::CreateRenderJob(const FAssetThumbnailGenerationRequest& Request) -> std::unique_ptr<FThumbnailRenderJob>
+	{
+		const auto It = State->Renderers.find(Request.KeyInput.Asset.AssetClassName);
+		if (It == State->Renderers.end() || It->second.Generation != Request.RendererGeneration) return nullptr;
+		const auto& Entry = It->second;
+		return std::make_unique<FThumbnailRenderJob>(Entry.Renderer.Get(), Request.KeyInput.Asset,
+			Entry.ClassNeedingThumbnail, Entry.LoadedOverride.Get());
 	}
 
 	auto DThumbnailManager::Shutdown() -> void

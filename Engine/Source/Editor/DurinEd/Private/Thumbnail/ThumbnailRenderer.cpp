@@ -1,4 +1,5 @@
 #include "Thumbnail/ThumbnailRenderer.h"
+#include "Thumbnail/ThumbnailDrawContext.h"
 #include "Thumbnail/ThumbnailPreviewScene.h"
 #include "Threading/RunnableThread.h"
 
@@ -23,7 +24,7 @@ namespace Durin
 		return *PreviewScene;
 	}
 
-	auto FThumbnailGenerationData::MakeKeyInput(const FAssetThumbnailPackageFingerprint& Asset,
+	auto FThumbnailCacheDescription::MakeKeyInput(const FAssetThumbnailPackageFingerprint& Asset,
 		const FThumbnailRenderingInfo& Renderer) const -> FAssetThumbnailKeyInput
 	{
 		return {.Asset = Asset, .RendererName = Renderer.RendererName,
@@ -33,8 +34,4 @@ namespace Durin
 			.Dependencies = Dependencies};
 	}
 
-	auto DThumbnailRenderer::CreateGenerationSession(const IAssetThumbnailGenerationInput&) -> std::unique_ptr<IThumbnailRendererSession>
-	{
-		return nullptr;
-	}
 } // namespace Durin

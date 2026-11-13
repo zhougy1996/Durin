@@ -8,6 +8,7 @@
 
 namespace Durin
 {
+	namespace ThumbnailPrivate { struct DThumbnailManagerState; }
 	class DThumbnailManager;
 
 	// Reports deterministic generation activity without exposing queue mechanics.
@@ -86,6 +87,8 @@ namespace Durin
 		DURINED_API auto GetStats() const -> FAssetThumbnailPoolStats;
 
 	private:
+		friend struct ThumbnailPrivate::DThumbnailManagerState;
+		auto InvalidateRenderer(uint64 Generation) -> void;
 		struct FImpl;
 		std::unique_ptr<FImpl> Impl;
 	};

@@ -372,15 +372,12 @@ namespace Durin
 		FByteView Pixels, uint32 Width, uint32 Height, std::string_view Error) -> bool
 	{
 		if (Impl->Fail(Job, EAssetThumbnailState::Rendering, Error)) return false;
-		if (!Impl->Scheduler.Transition(Job, EAssetThumbnailState::Rendering, EAssetThumbnailState::Readback)
-			|| !Impl->Scheduler.Transition(Job, EAssetThumbnailState::Readback, EAssetThumbnailState::Encoding))
-			return false;
-		++Impl->Stats.Readbacks;
 		const uint64 PixelCount = static_cast<uint64>(Width) * Height;
 		if (PixelCount == 0 || PixelCount > Impl->Budgets.CpuPixelBudgetBytes / 4 || Pixels.size() != PixelCount * 4)
 			Error = "Rendered-thumbnail pixels violate the RGBA8 output or CPU budget.";
-		if (Impl->Fail(Job, EAssetThumbnailState::Encoding, Error)) return false;
-		if (!Impl->Scheduler.Transition(Job, EAssetThumbnailState::Encoding, EAssetThumbnailState::Ready)) return false;
+		if (Impl->Fail(Job, EAssetThumbnailState::Rendering, Error)) return false;
+		if (!Impl->Scheduler.Transition(Job, EAssetThumbnailState::Rendering, EAssetThumbnailState::Ready)) return false;
+		++Impl->Stats.Readbacks;
 		Impl->QueueWrite(Job, Pixels, Width, Height);
 		return true;
 	}

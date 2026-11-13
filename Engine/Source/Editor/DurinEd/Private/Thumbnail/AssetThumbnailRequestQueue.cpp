@@ -249,6 +249,12 @@ namespace Durin
 		Impl->Entries.erase(It);
 	}
 
+	auto FAssetThumbnailRequestQueue::CancelRenderer(uint64 Generation) -> void
+	{
+		for (auto& [Path, Entry] : Impl->Entries)
+			if (Entry.RendererGeneration == Generation) Impl->CancelEntry(Entry);
+	}
+
 	auto FAssetThumbnailRequestQueue::CancelAll() -> void
 	{
 		for (auto& [AssetPath, Entry] : Impl->Entries)

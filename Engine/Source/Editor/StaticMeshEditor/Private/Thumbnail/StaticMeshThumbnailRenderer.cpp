@@ -1,5 +1,5 @@
-#include "Engine/StreamableManager.h"
 #include "Thumbnail/ThumbnailRenderer.h"
+#include "Thumbnail/ThumbnailDrawContext.h"
 #include "Thumbnail/ThumbnailPreviewScene.h"
 #include "Thumbnail/StaticMeshThumbnailRenderer.h"
 
@@ -48,69 +48,43 @@ namespace Durin::StaticMeshEditor
 				Detail.empty() ? "unknown preview error" : Detail);
 		}
 
-		class FStaticMeshThumbnailGenerationSession final
-			: public IThumbnailRendererSession
+		class FStaticMeshThumbnailDrawState final
 		{
 		public:
-			explicit FStaticMeshThumbnailGenerationSession(
-				DThumbnailRenderer& InRenderer,
-				FStaticMeshThumbnailRendererGenerationInput InInput)
-				: Input(std::move(InInput)), Renderer(InRenderer)
+			FStaticMeshThumbnailDrawState(DThumbnailRenderer& InRenderer, DObject* Object, FTopLevelAssetPath Path)
+				: Renderer(InRenderer), AssetPath(std::move(Path))
 			{
+				StaticMesh = Cast<DStaticMesh>(Object);
+				AssetRevision = Object->GetPackage() ? Object->GetPackage()->GetEditRevision() : 0;
+
+				const FStaticMeshThumbnailRendererViewInput ViewContract;
+				VisualContract.CameraDirectionX =
+					static_cast<float>(ViewContract.CameraDirection.x);
+				VisualContract.CameraDirectionY =
+					static_cast<float>(ViewContract.CameraDirection.y);
+				VisualContract.CameraDirectionZ =
+					static_cast<float>(ViewContract.CameraDirection.z);
+				VisualContract.VerticalFieldOfViewDegrees =
+					static_cast<float>(ViewContract.VerticalFieldOfViewDegrees);
+				VisualContract.bOutputOpaque =
+					FStaticMeshThumbnailRendererContract::bOutputOpaque;
 			}
 
-			~FStaticMeshThumbnailGenerationSession() override
+			~FStaticMeshThumbnailDrawState()
 			{
 				ResetPreview();
 			}
 
-			auto FinishLoad() -> FThumbnailRendererSessionUpdate
+			auto Update() -> FThumbnailDrawResult
 			{
-				const bool Result = !AssetLoad->HasError();
-				StaticMesh = Result ? Cast<DStaticMesh>(AssetLoad->GetLoadedAsset()) : nullptr;
-				if (!Result || StaticMesh == nullptr
-					|| StaticMesh->GetClass() != DStaticMesh::StaticClass())
-				{
-					StaticMesh = nullptr;
-					return {
-						.State = EThumbnailRendererSessionState::Failed,
-						.Diagnostic = AssetLoad->GetError().Message.empty()
-							? std::format(
-								"The requested asset '{}' is not an exact DStaticMesh.",
-								Input.AssetPath.ToString())
-							: AssetLoad->GetError().Message};
-				}
-				const DPackage* Package = StaticMesh->GetPackage();
-				if (Package == nullptr)
-					return {
-						.State = EThumbnailRendererSessionState::Failed,
-						.Diagnostic = QualifyDiagnostic(Input.AssetPath, "The asset package is unavailable.")};
-				AssetRevision = Package->GetEditRevision();
-				return PollStaticMeshReadiness();
-			}
-
-			auto Update() -> FThumbnailRendererSessionUpdate override
-			{
-				if (!bStarted)
-				{
-					bStarted = true;
-					AssetLoad = StreamableManager.RequestAsyncLoad(Input.AssetPath, {}, DStaticMesh::StaticClass());
-					return {.State = EThumbnailRendererSessionState::WaitingForResources};
-				}
-
-				if (!AssetLoad) return {.Diagnostic = "The thumbnail load was reset."};
-				if (!AssetLoad->IsComplete())
-					return {.State = EThumbnailRendererSessionState::WaitingForResources};
-				if (StaticMesh == nullptr) return FinishLoad();
 				return PollStaticMeshReadiness();
 			}
 
 		private:
-			bool bStarted = false;
 			FShaderMapPreparation Shaders;
 			bool bShadersRequested = false;
 			auto PollMaterialReadiness() const
-				-> FThumbnailRendererSessionUpdate
+				-> FThumbnailDrawResult
 			{
 				for (const auto& Slot : StaticMesh->GetMaterialSlots())
 				{
@@ -119,45 +93,45 @@ namespace Durin::StaticMeshEditor
 					const auto& Status = Material->GetMaterialCompileStatus();
 					if (Status.IsCurrent() && Material->GetAcceptedCompiledProgram()) continue;
 					if (Material->IsCompiling() || Status.HasScheduledEdits())
-						return {.State = EThumbnailRendererSessionState::WaitingForResources};
+						return {.State = EThumbnailDrawStatus::WaitingForResources};
 					const auto Diagnostics = Material->GetMaterialCompileDiagnostics();
-					return {.Diagnostic = QualifyDiagnostic(Input.AssetPath, std::format(
+					return {.Diagnostic = QualifyDiagnostic(AssetPath, std::format(
 						"Material '{}' has no current compiled program. {}", Material->GetObjectPath(),
 						Diagnostics.empty() ? std::string{} : Diagnostics.front().Message))};
 				}
-				return {.State = EThumbnailRendererSessionState::ReadyToRender};
+				return {.State = EThumbnailDrawStatus::ReadyToRender};
 			}
 			auto PollStaticMeshReadiness()
-				-> FThumbnailRendererSessionUpdate
+				-> FThumbnailDrawResult
 			{
 				if (StaticMesh->IsCompiling())
 					return {
-						.State = EThumbnailRendererSessionState::WaitingForResources};
+						.State = EThumbnailDrawStatus::WaitingForResources};
 				FStaticMeshRenderResourceStatus Status =
 					StaticMesh->GetRenderResourceStatus();
 				if (Status.Readiness == EStaticMeshRenderResourceReadiness::Unavailable)
 				{
 					StaticMesh->RequestRenderDataAndResources();
 					if (StaticMesh->GetRenderDataLoadError().Code != ECookedMeshLoadError::None)
-						return {.Diagnostic = QualifyDiagnostic(Input.AssetPath, "The mesh render data could not be loaded.")};
+						return {.Diagnostic = QualifyDiagnostic(AssetPath, "The mesh render data could not be loaded.")};
 					if (!StaticMesh->GetRenderData())
-						return {.State = EThumbnailRendererSessionState::WaitingForResources};
+						return {.State = EThumbnailDrawStatus::WaitingForResources};
 					Status = StaticMesh->GetRenderResourceStatus();
 				}
 				if (!StaticMesh->GetLOD0LocalBounds())
 				{
 					return {
-						.State = EThumbnailRendererSessionState::Failed,
+						.State = EThumbnailDrawStatus::Failed,
 						.Diagnostic = std::format(
 							"StaticMesh '{}' has no finite, valid LOD 0 bounds.",
-							Input.AssetPath.ToString())};
+							AssetPath.ToString())};
 				}
 				switch (Status.Readiness)
 				{
 				case EStaticMeshRenderResourceReadiness::Ready:
 				{
 					const auto Materials = PollMaterialReadiness();
-					if (Materials.State != EThumbnailRendererSessionState::ReadyToRender)
+					if (Materials.State != EThumbnailDrawStatus::ReadyToRender)
 						return Materials;
 					if (!bShadersRequested && GEngine && GEngine->GetRendererModule())
 					{
@@ -167,34 +141,35 @@ namespace Durin::StaticMeshEditor
 					auto ShaderReady = Shaders.Poll();
 					if (!ShaderReady) return {.Diagnostic = ShaderReady.error()};
 					return {
-						.State = *ShaderReady ? EThumbnailRendererSessionState::ReadyToRender
-							: EThumbnailRendererSessionState::WaitingForResources};
+						.State = *ShaderReady ? EThumbnailDrawStatus::ReadyToRender
+							: EThumbnailDrawStatus::WaitingForResources};
 				}
 				case EStaticMeshRenderResourceReadiness::Queued:
 					return {
-						.State = EThumbnailRendererSessionState::WaitingForResources};
+						.State = EThumbnailDrawStatus::WaitingForResources};
 				case EStaticMeshRenderResourceReadiness::InvalidData:
 					return {
-						.State = EThumbnailRendererSessionState::Failed,
+						.State = EThumbnailDrawStatus::Failed,
 						.Diagnostic = QualifyDiagnostic(
-							Input.AssetPath, "The render resource failed.")};
+							AssetPath, "The render resource failed.")};
 				case EStaticMeshRenderResourceReadiness::Unavailable:
 				default:
 					return {
-						.State = EThumbnailRendererSessionState::Failed,
+						.State = EThumbnailDrawStatus::Failed,
 						.Diagnostic = QualifyDiagnostic(
-							Input.AssetPath, "The render resource is unavailable.")};
+							AssetPath, "The render resource is unavailable.")};
 				}
 			}
 
+		public:
 			auto PreparePreview(
-				IThumbnailRenderContext& Context) -> std::expected<void, std::string> override
+				FThumbnailDrawContext& Context) -> std::expected<void, std::string>
 			{
 				ResetScenePreview();
-				if (!StaticMesh) return std::unexpected(QualifyDiagnostic(Input.AssetPath, "The StaticMesh asset is unavailable."));
+				if (!StaticMesh) return std::unexpected(QualifyDiagnostic(AssetPath, "The StaticMesh asset is unavailable."));
 				if (const auto Materials = PollMaterialReadiness();
-					Materials.State != EThumbnailRendererSessionState::ReadyToRender)
-					return std::unexpected(QualifyDiagnostic(Input.AssetPath,
+					Materials.State != EThumbnailDrawStatus::ReadyToRender)
+					return std::unexpected(QualifyDiagnostic(AssetPath,
 						Materials.Diagnostic.empty() ? "A material is still compiling." : Materials.Diagnostic));
 				for (const auto& Slot : StaticMesh->GetMaterialSlots())
 					if (auto* Material = Slot.DefaultMaterial.Get())
@@ -203,21 +178,21 @@ namespace Durin::StaticMeshEditor
 				const std::optional<FBox> Bounds = StaticMesh
 					? StaticMesh->GetLOD0LocalBounds()
 					: std::nullopt;
-				if (!Bounds) return std::unexpected(QualifyDiagnostic(Input.AssetPath, "The mesh bounds are unavailable."));
+				if (!Bounds) return std::unexpected(QualifyDiagnostic(AssetPath, "The mesh bounds are unavailable."));
 				auto ViewResult = CalculateStaticMeshThumbnailRendererView({
 						.LocalBounds = *Bounds,
 						.OutputAspectRatio =
-							static_cast<double>(Input.VisualContract.Output.Width)
-							/ static_cast<double>(Input.VisualContract.Output.Height),
+							static_cast<double>(VisualContract.Output.Width)
+							/ static_cast<double>(VisualContract.Output.Height),
 						.VerticalFieldOfViewDegrees =
-							Input.VisualContract.VerticalFieldOfViewDegrees,
+							VisualContract.VerticalFieldOfViewDegrees,
 						.CameraDirection = FVector3(
-							Input.VisualContract.CameraDirectionX,
-							Input.VisualContract.CameraDirectionY,
-							Input.VisualContract.CameraDirectionZ)});
+							VisualContract.CameraDirectionX,
+							VisualContract.CameraDirectionY,
+							VisualContract.CameraDirectionZ)});
 				if (!ViewResult)
 				{
-					return std::unexpected(QualifyDiagnostic(Input.AssetPath, ViewResult.error()));
+					return std::unexpected(QualifyDiagnostic(AssetPath, ViewResult.error()));
 				}
 				const auto& ThumbnailView = *ViewResult;
 				auto& Scene = Renderer.GetPreviewScene();
@@ -231,7 +206,7 @@ namespace Durin::StaticMeshEditor
 				{
 					ResetPreview();
 					return std::unexpected(QualifyDiagnostic(
-						Input.AssetPath, "The preview component is unavailable."));
+						AssetPath, "The preview component is unavailable."));
 				}
 				Component->ClearMaterialOverrides();
 				Component->SetStaticMesh(StaticMesh);
@@ -254,31 +229,31 @@ namespace Durin::StaticMeshEditor
 						ThumbnailView.CameraUp.y,
 						ThumbnailView.CameraUp.z},
 					.VerticalFieldOfViewDegrees =
-						Input.VisualContract.VerticalFieldOfViewDegrees,
+						VisualContract.VerticalFieldOfViewDegrees,
 					.NearClipDistance = ThumbnailView.NearClipDistance,
 					.FarClipDistance = ThumbnailView.FarClipDistance,
-					.ClearRed = Input.VisualContract.bOutputOpaque
-						? Input.VisualContract.BackgroundRed
+					.ClearRed = VisualContract.bOutputOpaque
+						? VisualContract.BackgroundRed
 						: 0.0f,
-					.ClearGreen = Input.VisualContract.bOutputOpaque
-						? Input.VisualContract.BackgroundGreen
+					.ClearGreen = VisualContract.bOutputOpaque
+						? VisualContract.BackgroundGreen
 						: 0.0f,
-					.ClearBlue = Input.VisualContract.bOutputOpaque
-						? Input.VisualContract.BackgroundBlue
+					.ClearBlue = VisualContract.bOutputOpaque
+						? VisualContract.BackgroundBlue
 						: 0.0f,
-					.ClearAlpha = Input.VisualContract.bOutputOpaque
+					.ClearAlpha = VisualContract.bOutputOpaque
 						? 1.0f
 						: 0.0f};
 				Context.SetView(View);
 				return {};
 			}
 
-			auto ValidatePreparedInput() const -> std::expected<void, std::string> override
+			auto ValidatePreparedInput() const -> std::expected<void, std::string>
 			{
 				if (StaticMesh == nullptr || Component == nullptr)
 				{
 					return std::unexpected(QualifyDiagnostic(
-						Input.AssetPath, "The StaticMesh asset is unavailable."));
+						AssetPath, "The StaticMesh asset is unavailable."));
 				}
 				const FStaticMeshRenderResourceStatus Status =
 					StaticMesh->GetRenderResourceStatus();
@@ -289,26 +264,23 @@ namespace Durin::StaticMeshEditor
 				{
 					return std::unexpected(std::format(
 						"StaticMesh '{}' changed while its thumbnail was being generated.",
-						Input.AssetPath.ToString()));
+						AssetPath.ToString()));
 				}
 				for (const auto& [Owner, Snapshot] : PreparedMaterials)
 				{
 					const auto* Material = Cast<DMaterialInterface>(Owner.Get());
 					if (!Material || !Material->GetMaterialCompileStatus().IsCurrent()
 						|| !Material->GetAcceptedCompiledProgram() || Material->GetMaterialResource() != Snapshot)
-						return std::unexpected(QualifyDiagnostic(Input.AssetPath,
+						return std::unexpected(QualifyDiagnostic(AssetPath,
 							"A material changed while its thumbnail was being generated."));
 				}
 				return {};
 			}
 
-			auto ResetPreview() -> void override
+			auto ResetPreview() -> void
 			{
-				bStarted = true;
 				ResetScenePreview();
 				StaticMesh = nullptr;
-				if (AssetLoad) AssetLoad->CancelHandle();
-				AssetLoad.reset();
 				Shaders = {};
 				bShadersRequested = false;
 			}
@@ -324,10 +296,9 @@ namespace Durin::StaticMeshEditor
 				Component = nullptr;
 			}
 
-			FStaticMeshThumbnailRendererGenerationInput Input;
+			FThumbnailVisualContract VisualContract;
+			FTopLevelAssetPath AssetPath;
 			DStaticMesh* StaticMesh = nullptr;
-			FStreamableManager StreamableManager;
-			std::shared_ptr<FStreamableHandle> AssetLoad;
 			uint64 AssetRevision = 0;
 			uint64 PreparedResourceRevision = 0;
 			std::vector<std::pair<FWeakObjectPtr, FMaterialResource>> PreparedMaterials;
@@ -350,9 +321,9 @@ namespace Durin::StaticMeshEditor
 				FStaticMeshThumbnailRendererContract::GeneratorSchemaVersion};
 	}
 
-	auto DStaticMeshThumbnailRenderer::CaptureGenerationInput(const FAssetThumbnailPackageFingerprint& Asset) -> std::expected<FThumbnailGenerationData, std::string>
+	auto DStaticMeshThumbnailRenderer::DescribeThumbnail(const FAssetThumbnailPackageFingerprint& Asset) -> std::expected<FThumbnailCacheDescription, std::string>
 	{
-		FThumbnailGenerationData Result;
+		FThumbnailCacheDescription Result;
 
 		const FThumbnailRenderingInfo Registration =
 			GetRegistration();
@@ -411,20 +382,30 @@ namespace Durin::StaticMeshEditor
 			.ShaderContractVersion =
 				FStaticMeshThumbnailRendererContract::ShaderContractVersion,
 			.Dependencies = std::move(*Dependencies)};
-		Result.Input =
-			std::make_shared<FStaticMeshThumbnailRendererGenerationInput>(
-				Asset.AssetPath, std::move(Visual));
 
 		return Result;
 	}
 
-	auto DStaticMeshThumbnailRenderer::CreateGenerationSession(const IAssetThumbnailGenerationInput& Input)
-		-> std::unique_ptr<IThumbnailRendererSession>
+	auto DStaticMeshThumbnailRenderer::CanVisualizeAsset(DObject* Object) const -> bool
 	{
-		const auto* StaticMeshInput =
-			dynamic_cast<const FStaticMeshThumbnailRendererGenerationInput*>(&Input);
-		checkf(StaticMeshInput != nullptr, "The StaticMesh thumbnail generation input is invalid.");
-		return std::make_unique<FStaticMeshThumbnailGenerationSession>(*this, *StaticMeshInput);
+		return Cast<DStaticMesh>(Object) != nullptr;
+	}
+
+	auto DStaticMeshThumbnailRenderer::Draw(DObject* Object, FThumbnailDrawContext& Context) -> void
+	{
+		if (!CanVisualizeAsset(Object)) { Context.SetResult({.Diagnostic = "The renderer cannot visualize this asset."}); return; }
+		auto& State = Context.GetState<FStaticMeshThumbnailDrawState>(*this, Object, Context.GetAssetPath());
+		auto Result = State.Update();
+		Context.SetResult(Result);
+		if (Result.State == EThumbnailDrawStatus::ReadyToRender)
+		{
+			if (auto Prepared = State.PreparePreview(Context); !Prepared)
+			{
+				if (Context.GetResult().State == EThumbnailDrawStatus::ReadyToRender)
+					Context.SetResult({.Diagnostic = Prepared.error()});
+			}
+			else Context.SetValidation([&State] { return State.ValidatePreparedInput(); });
+		}
 	}
 
 	auto CalculateStaticMeshThumbnailRendererView(

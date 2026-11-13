@@ -211,12 +211,18 @@ namespace Durin
 	{
 		Impl->CheckCanConfigure();
 		if (Impl->Scene == &Scene) return {};
-		if (Impl->Scene || Scene.bCapturing)
+		if (Impl->Scene || Scene.BindingOwner)
 			return std::unexpected("The thumbnail preview scene is already in use.");
 		if (!Scene.IsAvailable()) return std::unexpected(Scene.GetDiagnostic());
-		Scene.bCapturing = true;
+		Scene.BindingOwner = this;
 		Impl->Scene = &Scene;
 		return {};
+	}
+
+	auto FThumbnailCapture::BindDrawScene(FThumbnailPreviewScene& Scene) -> void
+	{
+		Impl->CheckCanConfigure();
+		Impl->Scene = &Scene;
 	}
 
 	auto FThumbnailCapture::SetView(const FThumbnailPreviewView& View) -> void
@@ -449,7 +455,7 @@ namespace Durin
 		Impl->View = MakeDefaultPreviewView();
 		Impl->Environment.reset();
 		Impl->ImageRenderer = {};
-		if (Impl->Scene) Impl->Scene->bCapturing = false;
+		if (Impl->Scene && Impl->Scene->BindingOwner == this) Impl->Scene->BindingOwner = nullptr;
 		Impl->Scene = nullptr;
 	}
 } // namespace Durin

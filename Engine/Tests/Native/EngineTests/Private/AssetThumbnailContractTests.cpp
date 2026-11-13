@@ -136,15 +136,15 @@ namespace Durin
 				bSmallOutput = bInSmallOutput;
 			}
 
-			auto GetRegistration() const -> FThumbnailRenderingInfo override
+			auto GetRegistration() const -> FThumbnailRenderingInfo
 			{
 				return Registration;
 			}
 
-			auto CaptureGenerationInput(const FAssetThumbnailPackageFingerprint& Asset)
-				-> std::expected<FThumbnailGenerationData, std::string> override
+			auto DescribeThumbnail(const FAssetThumbnailPackageFingerprint& Asset)
+				-> std::expected<FThumbnailCacheDescription, std::string>
 			{
-				FThumbnailGenerationData OutRequest;
+				FThumbnailCacheDescription OutRequest;
 				if (!bCaptureSucceeds)
 				{
 					return std::unexpected("The test renderer rejected the asset.");
@@ -153,6 +153,10 @@ namespace Durin
 				if (bSmallOutput) OutRequest.Output = {.Width = 1, .Height = 1};
 				return OutRequest;
 			}
+
+			auto CanVisualizeAsset(DObject*) const -> bool override { return true; }
+			auto Draw(DObject*, FThumbnailDrawContext& Context) -> void override
+			{ Context.SetResult({}); }
 
 		private:
 			FThumbnailRenderingInfo Registration;
@@ -165,74 +169,33 @@ namespace Durin
 			uint32 Captures = 0;
 			std::vector<FAssetThumbnailPackageFingerprint> Dependencies;
 			uint32 Sessions = 0;
-			bool bReturnEmptySession = false;
+
 			uint32 PreviewPreparations = 0;
 			uint32 PreviewResets = 0;
-			uint32 InputDestructions = 0;
-			uint32 SessionDestructions = 0;
+
+			uint32 DrawStateDestructions = 0;
 			uint32 ExtensionDestructions = 0;
 			uint32 ResourcePollsBeforeReady = 0;
 			uint32 ResourcePolls = 0;
 		};
 
-		class FFakeThumbnailInput final : public IAssetThumbnailGenerationInput
+		class FFakeThumbnailDrawState final
 		{
 		public:
-			explicit FFakeThumbnailInput(
+			explicit FFakeThumbnailDrawState(
 				std::shared_ptr<FFakeThumbnailRendererState> InState)
 				: State(std::move(InState))
 			{
+				++State->Sessions;
 			}
 
-			~FFakeThumbnailInput() override
+			~FFakeThumbnailDrawState()
 			{
-				++State->InputDestructions;
+				ResetPreview();
+				++State->DrawStateDestructions;
 			}
 
-		private:
-			std::shared_ptr<FFakeThumbnailRendererState> State;
-		};
-
-		class FFakeThumbnailPreviewScene final
-			: public IThumbnailRenderContext
-		{
-		public:
-			auto SetScene(FThumbnailPreviewScene&) -> std::expected<void, std::string> override { return {}; }
-
-			auto SetView(
-				const FThumbnailPreviewView& View) -> void override
-			{
-				LastView = View;
-
-			}
-
-			auto SetViewEnvironment(
-				const FViewEnvironmentOverride& Environment) -> void override
-			{
-				LastEnvironment = Environment;
-
-			}
-
-			FThumbnailPreviewView LastView;
-			std::optional<FViewEnvironmentOverride> LastEnvironment;
-		};
-
-		class FFakeThumbnailSession final
-			: public IThumbnailRendererSession
-		{
-		public:
-			explicit FFakeThumbnailSession(
-				std::shared_ptr<FFakeThumbnailRendererState> InState)
-				: State(std::move(InState))
-			{
-			}
-
-			~FFakeThumbnailSession() override
-			{
-				++State->SessionDestructions;
-			}
-
-			auto Update() -> FThumbnailRendererSessionUpdate override
+			auto Update() -> FThumbnailDrawResult
 			{
 				if (bReset) return {.Diagnostic = "The thumbnail session was reset."};
 				if (!bStarted)
@@ -240,8 +203,8 @@ namespace Durin
 					bStarted = true;
 					return {
 						.State = State->ResourcePollsBeforeReady == 0
-							? EThumbnailRendererSessionState::ReadyToRender
-							: EThumbnailRendererSessionState::WaitingForResources};
+							? EThumbnailDrawStatus::ReadyToRender
+							: EThumbnailDrawStatus::WaitingForResources};
 				}
 
 				++State->ResourcePolls;
@@ -249,12 +212,12 @@ namespace Durin
 					> State->ResourcePollsBeforeReady;
 				return {
 					.State = bReady
-						? EThumbnailRendererSessionState::ReadyToRender
-						: EThumbnailRendererSessionState::WaitingForResources};
+						? EThumbnailDrawStatus::ReadyToRender
+						: EThumbnailDrawStatus::WaitingForResources};
 			}
 
 			auto PreparePreview(
-				IThumbnailRenderContext& PreviewScene) -> std::expected<void, std::string> override
+				FThumbnailDrawContext& PreviewScene) -> std::expected<void, std::string>
 			{
 				FThumbnailPreviewView View;
 				View.CameraPosition = {2.0, -2.0, 1.0};
@@ -263,7 +226,7 @@ namespace Durin
 				return {};
 			}
 
-			auto ValidatePreparedInput() const -> std::expected<void, std::string> override
+			auto ValidatePreparedInput() const -> std::expected<void, std::string>
 			{
 				if (!bReset && State->PreviewPreparations != 0)
 				{
@@ -272,7 +235,7 @@ namespace Durin
 				return std::unexpected("The fake rendered-thumbnail input is not prepared.");
 			}
 
-			auto ResetPreview() -> void override
+			auto ResetPreview() -> void
 			{
 				if (bReset) return;
 				bReset = true;
@@ -298,12 +261,12 @@ namespace Durin
 				AssetClassName = std::move(InAssetClassName);
 			}
 
-			~FFakeThumbnailRenderer() override
+			~FFakeThumbnailRenderer()
 			{
 				if (State) ++State->ExtensionDestructions;
 			}
 
-			auto GetRegistration() const -> FThumbnailRenderingInfo override
+			auto GetRegistration() const -> FThumbnailRenderingInfo
 			{
 				return {
 					.AssetClassName = AssetClassName,
@@ -311,10 +274,10 @@ namespace Durin
 					.GeneratorSchemaVersion = 1};
 			}
 
-			auto CaptureGenerationInput(const FAssetThumbnailPackageFingerprint& Asset)
-				-> std::expected<FThumbnailGenerationData, std::string> override
+			auto DescribeThumbnail(const FAssetThumbnailPackageFingerprint& Asset)
+				-> std::expected<FThumbnailCacheDescription, std::string>
 			{
-				FThumbnailGenerationData OutRequest;
+				FThumbnailCacheDescription OutRequest;
 				++State->Captures;
 				OutRequest = {
 
@@ -323,21 +286,21 @@ namespace Durin
 					.PreviewFixtureVersion = 1,
 					.ShaderContractVersion = 1};
 				OutRequest.Dependencies = State->Dependencies;
-				OutRequest.Input =
-					std::make_shared<FFakeThumbnailInput>(State);
 
 				return OutRequest;
 			}
 
-			auto CreateGenerationSession(const IAssetThumbnailGenerationInput& Input)
-				-> std::unique_ptr<IThumbnailRendererSession> override
+			auto CanVisualizeAsset(DObject*) const -> bool override { return true; }
+			auto Draw(DObject*, FThumbnailDrawContext& Context) -> void override
 			{
-
-				checkf(dynamic_cast<const FFakeThumbnailInput*>(&Input) != nullptr,
-					"The fake rendered-thumbnail input type is invalid.");
-				if (State->bReturnEmptySession) return nullptr;
-				++State->Sessions;
-				return std::make_unique<FFakeThumbnailSession>(State);
+				auto& Drawing = Context.GetState<FFakeThumbnailDrawState>(State);
+				auto Result = Drawing.Update();
+				if (Result.State == EThumbnailDrawStatus::ReadyToRender)
+				{
+					if (auto Prepared = Drawing.PreparePreview(Context); !Prepared) Result = {.Diagnostic = Prepared.error()};
+					else Context.SetValidation([&Drawing] { return Drawing.ValidatePreparedInput(); });
+				}
+				Context.SetResult(std::move(Result));
 			}
 
 		private:
@@ -1142,10 +1105,10 @@ namespace Durin
 		Pool.EndFrame();
 		ASSERT_TRUE(PumpThumbnailPoolUntil(Pool, [&] { return Pool.GetStats().ParkedResourceWaits == 1; }));
 		Pool.RemoveReferencer(Request.Asset.AssetPath);
-		EXPECT_EQ(State->SessionDestructions, 0u);
+		EXPECT_EQ(State->DrawStateDestructions, 0u);
 		EXPECT_EQ(Pool.GetStats().ParkedResourceWaits, 1u);
 		Pool.RemoveReferencer(Request.Asset.AssetPath);
-		EXPECT_EQ(State->SessionDestructions, 1u);
+		EXPECT_EQ(State->DrawStateDestructions, 1u);
 		EXPECT_EQ(Pool.GetStats().ParkedResourceWaits, 0u);
 		Pool.AddReferencer(Request.Asset.AssetPath);
 		Pool.BeginFrame();
@@ -1192,10 +1155,27 @@ namespace Durin
 		EXPECT_EQ(Cache.GetStats().ParkedResourceWaits, 0u);
 		EXPECT_EQ(Cache.GetStats().ResourceWaitTimeouts, 1u);
 		EXPECT_EQ(State->PreviewResets, 1u);
-		EXPECT_EQ(State->SessionDestructions, 1u);
+		EXPECT_EQ(State->DrawStateDestructions, 1u);
 	}
 
-	TEST(FAssetThumbnailContractTests, FakeThumbnailRendererRunsColdAndWarmBeforeScopedRemoval)
+	TEST(FAssetThumbnailContractTests, FailedDrawWithoutDiagnosticBecomesTerminal)
+	{
+		DThumbnailManager Manager;
+		auto Renderer = MakeThumbnailRenderer<FTestThumbnailRenderer>(FThumbnailRenderingInfo{
+			.AssetClassName = "DFailedDraw", .RendererName = "FailedDraw", .GeneratorSchemaVersion = 1});
+		auto Registration = FThumbnailManagerTestAccess::RegisterScoped(Manager, Renderer);
+		ASSERT_TRUE(Registration);
+		FAssetThumbnailPool Pool(Manager, {}, {.CacheRoot = MakeObjectStoreRoot("FailedDraw")});
+		const auto Request = MakeThumbnailRequest("/ThumbnailTests/FailedDraw", "DFailedDraw", 1);
+		Pool.Request(Request.Asset, EAssetThumbnailPriority::Visible);
+		ASSERT_TRUE(PumpThumbnailPoolUntil(Pool, [&] {
+			return Pool.Find(Request.Asset.AssetPath).State == EAssetThumbnailState::Failed;
+		}));
+		EXPECT_FALSE(Pool.Find(Request.Asset.AssetPath).Diagnostic.empty());
+		EXPECT_FALSE(Pool.GetStats().bHasActiveJob);
+	}
+
+	TEST(FAssetThumbnailContractTests, ObjectRendererRunsColdAndWarmBeforeScopedRemoval)
 	{
 		const std::filesystem::path Root = MakeObjectStoreRoot("FakeThumbnailRendererWarmHit");
 		DThumbnailManager Registry;
@@ -1217,28 +1197,18 @@ namespace Durin
 		EXPECT_EQ(ColdJob->GenerationRequest.KeyInput.RendererName, "Durin.Tests.FakeThumbnail");
 		EXPECT_EQ(ColdJob->GenerationRequest.RequestSerial, ColdRequest.RequestSerial);
 		EXPECT_EQ(ColdJob->GenerationRequest.RendererGeneration, Registry.Find("DFakeRenderedAsset").Generation);
-		State->bReturnEmptySession = true;
-		const auto EmptyFailure = ColdJob->GenerationRequest.BeginRenderedSession();
-		ASSERT_FALSE(EmptyFailure);
-		EXPECT_FALSE(EmptyFailure.error().empty());
-		EXPECT_EQ(ColdJob->GenerationRequest.GetRenderedSession(), nullptr);
-		State->bReturnEmptySession = false;
-		auto Session = ColdJob->GenerationRequest.BeginRenderedSession();
-		ASSERT_TRUE(Session) << Session.error();
-		ASSERT_NE(*Session, nullptr);
-		EXPECT_FALSE((*Session)->ValidatePreparedInput());
-		const FThumbnailRendererSessionUpdate Update = (*Session)->Update();
-		ASSERT_EQ(Update.State, EThumbnailRendererSessionState::ReadyToRender);
-		FFakeThumbnailPreviewScene PreviewScene;
-		ASSERT_TRUE((*Session)->PreparePreview(PreviewScene));
-		ASSERT_TRUE((*Session)->ValidatePreparedInput());
+		auto Drawing = FThumbnailManagerTestAccess::CreateJob(Registry, ColdJob->GenerationRequest);
+		ASSERT_TRUE(Drawing);
+		EXPECT_EQ(Drawing->Update().State, EThumbnailDrawStatus::WaitingForResources);
+		ASSERT_EQ(Drawing->Update().State, EThumbnailDrawStatus::ReadyToRender);
+		ASSERT_TRUE(Drawing->Validate());
 		ASSERT_TRUE(Pipeline.CompleteLoad(*ColdJob));
 		ASSERT_TRUE(Pipeline.BeginRender(
 			*ColdJob, true));
 		const FByteBuffer Pixels(4, std::byte{127});
 		ASSERT_TRUE(Pipeline.CompleteCapture(*ColdJob, Pixels, 1, 1));
 		Pipeline.WaitForCacheTasksForTesting();
-		ColdJob->GenerationRequest.ReleaseRenderedSession();
+		Drawing.reset();
 		EXPECT_EQ(State->PreviewResets, 1u);
 
 		const FAssetThumbnailRequest WarmRequest = MakeThumbnailRequest(
@@ -1253,11 +1223,8 @@ namespace Durin
 		EXPECT_EQ(Pipeline.GetStats().DiskHits, 1u);
 
 		Registration->Reset();
-		const auto RetiredSession = ColdJob->GenerationRequest.BeginRenderedSession();
-		ASSERT_FALSE(RetiredSession);
-		EXPECT_NE(RetiredSession.error().find("no longer active"), std::string::npos);
-		EXPECT_EQ(State->InputDestructions, 2u);
-		EXPECT_EQ(State->SessionDestructions, 1u);
+		EXPECT_FALSE(FThumbnailManagerTestAccess::CreateJob(Registry, ColdJob->GenerationRequest));
+		EXPECT_EQ(State->DrawStateDestructions, 1u);
 		CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(State->ExtensionDestructions, 1u);
 		EXPECT_FALSE(IsThumbnailRequestAccepted(Scheduler.Request(MakeThumbnailRequest(
@@ -1267,14 +1234,13 @@ namespace Durin
 		))));
 	}
 
-	TEST(FAssetThumbnailContractTests, ScopedRemovalRejectsEveryInFlightStateAndDrainsSession)
+	TEST(FAssetThumbnailContractTests, ScopedRemovalRejectsEveryInFlightState)
 	{
 		const std::array States = {
 			EAssetThumbnailState::Loading,
 			EAssetThumbnailState::WaitingForResources,
 			EAssetThumbnailState::Rendering,
-			EAssetThumbnailState::Readback,
-			EAssetThumbnailState::Encoding,
+
 			EAssetThumbnailState::Uploading};
 		for (size_t StateIndex = 0; StateIndex < States.size(); ++StateIndex)
 		{
@@ -1294,14 +1260,12 @@ namespace Durin
 			ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Request)));
 			std::optional<FAssetThumbnailScheduledRequest> Job = Scheduler.TakeNext();
 			ASSERT_TRUE(Job);
-			ASSERT_TRUE(Job->GenerationRequest.BeginRenderedSession());
 
 			EAssetThumbnailState Current = EAssetThumbnailState::Loading;
 			for (const EAssetThumbnailState Next : {
 				EAssetThumbnailState::WaitingForResources,
 				EAssetThumbnailState::Rendering,
-				EAssetThumbnailState::Readback,
-				EAssetThumbnailState::Encoding,
+
 				EAssetThumbnailState::Uploading})
 			{
 				if (Current == States[StateIndex]) break;
@@ -1309,20 +1273,10 @@ namespace Durin
 				Current = Next;
 			}
 			ASSERT_EQ(Current, States[StateIndex]);
-			ASSERT_NE(Job->GenerationRequest.GetInput(), nullptr);
-			ASSERT_NE(Job->GenerationRequest.GetRenderedSession(), nullptr);
 
 			Registration->Reset();
 			EXPECT_TRUE(Job->GenerationRequest.Cancellation.IsCancelled());
-			EXPECT_EQ(Job->GenerationRequest.GetInput(), nullptr);
-			EXPECT_EQ(Job->GenerationRequest.GetRenderedSession(), nullptr);
-			EXPECT_EQ(State->PreviewResets, 1u);
-			EXPECT_EQ(State->SessionDestructions, 1u);
-			EXPECT_EQ(State->InputDestructions, 1u);
 			CollectGarbage(Durin::EObjectFlags::Standalone);
-			EXPECT_EQ(State->ExtensionDestructions, 0u);
-			// The capture owner retires its scene borrow after observing cancellation.
-			Job->GenerationRequest.ReleaseRenderedSession();
 			CollectGarbage(Durin::EObjectFlags::Standalone);
 			EXPECT_EQ(State->ExtensionDestructions, 1u);
 			EXPECT_FALSE(Scheduler.Transition(
@@ -1948,7 +1902,7 @@ namespace Durin
 		for (const auto& Asset : Assets)
 			EXPECT_NE(Pool.Find(Asset.AssetPath).State, EAssetThumbnailState::Failed);
 		Pool.CancelPendingRequests();
-		EXPECT_EQ(State->SessionDestructions, 2u);
+		EXPECT_EQ(State->DrawStateDestructions, 2u);
 	}
 
 	TEST(FAssetThumbnailContractTests, BackgroundPrefetchSurvivesLastUIReferencer)
@@ -1965,10 +1919,10 @@ namespace Durin
 		Pool.Prefetch(Asset);
 		ASSERT_TRUE(PumpThumbnailPoolUntil(Pool, [&] { return State->Sessions == 1; }));
 		Pool.RemoveReferencer(Asset.AssetPath);
-		EXPECT_EQ(State->SessionDestructions, 0u);
+		EXPECT_EQ(State->DrawStateDestructions, 0u);
 		EXPECT_EQ(Pool.GetStats().ParkedResourceWaits, 1u);
 		Pool.CancelPendingRequests();
-		EXPECT_EQ(State->SessionDestructions, 1u);
+		EXPECT_EQ(State->DrawStateDestructions, 1u);
 	}
 
 	TEST(FAssetThumbnailContractTests, CurrentFrameVisibilityReordersPreviouslyVisibleRequests)

@@ -34,13 +34,16 @@ content.
   `DurinEd`.
 
 `ThumbnailManager.h` declares registration, handles and shared-pool ownership.
-`ThumbnailRenderer.h` declares the renderer/session extension contract and its
-request, cancellation and lease types. Concrete renderers derive directly from
+`ThumbnailRenderer.h` declares cache descriptions, the loaded-object renderer
+and its capability/draw entrypoints. `ThumbnailDrawContext.h` contains the
+concrete draw setup and resource-lifetime context. Scheduler requests, cancellation and incarnation counters are
+private DurinEd contracts. Concrete renderers derive directly from
 `DThumbnailRenderer`; the fixed output contract needs no intermediate base class.
 All concrete renderers are `DCLASS` objects with initializer constructors.
 `RegisterCustomRenderer(AssetClass, RendererClass)` validates a concrete renderer
 class and constructs a transient instance through `NewObject`. The native manager
-service and its active leases retain instances with GC strong references; native
+service retains registered instances and pool-owned jobs retain active instances
+with GC strong references; native
 smart pointers never delete a renderer. One renderer class may serve multiple
 asset classes through independent registrations. The registered asset class,
 renderer class and borrowed instance are available through `GetRenderingInfo`.
@@ -48,16 +51,14 @@ Asset class names remain the unloaded-catalog lookup boundary. Production has no
 instance-registration overload; synthetic catalog tests inject managed objects
 through a private test access seam.
 
-`CaptureGenerationInput` accepts only an asset fingerprint and returns
-`FThumbnailGenerationData`: immutable feature input, output/fixture/shader key
-contributions, dependencies and transparency policy. The manager supplies the
-asset identity, registered renderer identity, generation, serial, cancellation
-and lease. `MakeKeyInput` combines the feature data with that authoritative
-identity; renderers do not assemble scheduled requests. Session construction
-accepts only the captured feature input and returns a native owning pointer.
-An input type mismatch is an implementation invariant violation, while a missing
-session is diagnosed by the core. The session factory is this engine's async
-extension, rather than an Unreal `UThumbnailRenderer` API.
+`DescribeThumbnail` accepts an unloaded asset fingerprint and returns
+`FThumbnailCacheDescription`: output/fixture/shader key contributions,
+dependencies and transparency policy. It neither loads an asset nor creates draw
+state. This cache-policy extension keeps warm hits independent of drawing.
+`MakeKeyInput` combines that description with authoritative registry identity.
+The object drawing boundary is `CanVisualizeAsset(DObject*)` and
+`Draw(DObject*, FThumbnailDrawContext&)`. There is no public session factory,
+polymorphic generation input or caller-managed session lifetime.
 `AssetThumbnailPool.h` exposes resource management without including the concrete
 preview scene. The private queue captures one pending request directly at
 admission and returns `FAssetThumbnailScheduledRequest`; it retains neither a
@@ -82,7 +83,7 @@ shader contract, and sorted dependency fingerprints. The project-local
 `DerivedDataCache/Thumbnails` store uses PNG objects and a persistent index.
 A C++ type rename alone does not change cache identity.
 
-Material and MaterialInstance sessions acquire the retained
+Material and MaterialInstance draws acquire the retained
 `/Engine/Models/Sphere` fixture and attach their material to a component in the
 renderer-owned preview scene. They perform no transient mesh import or private viewport
 allocation. Material keys include the sorted, cycle-guarded parent-material and
@@ -91,7 +92,7 @@ StaticMesh keys include LOD 0 framing and default-material closure. TextureCube
 keys preserve wide environment orientation and visual-contract versions.
 Texture2D captures the published built GPU allocation through the shared
 TextureEditor preview renderer, including compression and mip sampling. It never
-reads source art or falls back to it. Cold sessions wait for pending publication,
+reads source art or falls back to it. Cold jobs wait for pending publication,
 retain an immutable allocation snapshot, and reject changed package revisions,
 platform data, usage, or allocations before publication. Keys identify the
 Built/Auto/RGBA presentation and its shader/schema versions; package fingerprints
@@ -125,7 +126,7 @@ completes resource initialization when RHI is available; non-rendering hosts
 prepare CPU data only. Initialization is idempotent. Partial failures retain
 available assets and emit a diagnostic without preventing editor startup.
 
-Thumbnail sessions retain async-load handles and material preview documents acquire
+Pool-owned jobs retain async-load handles and material preview documents acquire
 `FAssetRetentionService` handles against these same resident objects. Closing
 documents, resetting captures, and garbage collection do not release the
 editor's handles or require rebuilding their buffers. The editor releases its
@@ -140,31 +141,38 @@ replacement, and corruption either produce a new key or reject stale work.
 
 ## Renderer Lifetime And State
 
-Renderers capture immutable generation input on the game thread. A cold miss may
-then use one renderer-owned session with these hooks:
+A cold cache miss creates one pool-owned `FThumbnailRenderJob`. The job owns
+the renderer GC reference and a nonblocking root `RequestAsyncLoad` handle.
+The first update submits loading and returns waiting, including for resident
+assets. Once loaded, the job validates the catalog class, calls
+`CanVisualizeAsset`, then invokes `Draw` while a draw slot is available.
 
-1. call `Update()` to start loading once and advance bounded resource readiness without retaining the capture slot;
-2. observe waiting, ready or failed progress with a diagnostic;
-3. bind its renderer-owned preview scene to the capture context, or supply an image renderer;
-4. validate the captured inputs before submission and once when accepting completed pixels;
-5. reset preview state idempotently and permanently retire the session.
+`Draw` reports waiting, ready or failed through its context. It never waits for
+asset compilation, shaders or GPU completion. The context owns extra dependency
+load handles, renderer-private resource snapshots, configuration and validation.
+Material's sphere uses the same context loader as other dependencies. Private
+state types describe actual resources and snapshots; none is a path-only input
+wrapper or implements a session interface.
 
-Material/MaterialInstance, StaticMesh, Texture2D and TextureCube sessions submit
-`RequestAsyncLoad` on the first `Update()` and return `WaitingForResources`
-immediately, including for resident assets. Later `Update()` calls observe request completion,
-captures asset revisions once, then checks compilation and render readiness.
-Material sessions validate the material before requesting the shared sphere.
-Scene sessions request the Renderer-owned lit-thumbnail Shader preparation
-profile after initial asset work. Material sessions start once the material
+Only a ready draw reserves its renderer scene and modifies its actor. Parked
+jobs continue root loading while another capture is active, and drawing is
+resumed when the slot is free. At most one prepared draw is selected per pass,
+so two jobs using one renderer cannot overwrite each other's scene. A ready
+job keeps its exact snapshots through submission and readback; later updates
+validate those snapshots rather than replacing them.
+
+Material draws validate the material before requesting the shared sphere.
+Scene draws request the Renderer-owned lit-thumbnail Shader preparation
+profile after initial asset work. Material draws start once the material
 program is accepted, overlapping remaining resource preparation without flooding
-the first asset-build queue. Texture2D sessions prepare `DurinEd.TexturePreview`
+the first asset-build queue. Texture2D draws prepare `DurinEd.TexturePreview`
 at high priority alongside loading.
-`Update()` waits for these CPU outputs without holding the capture slot.
+Draw attempts defer for these CPU outputs without holding the capture slot.
 The shared RenderCore preparation cache coalesces exact registered programs;
 ShaderBuild performs source capture, DDC access, and compilation on workers.
 Capture consumes completed outputs to initialize typed maps and RHI resources,
 and cannot fall back to synchronous source compilation. TextureCube and StaticMesh
-sessions use the same scene profile. Shader reload and manual retry invalidate
+draws use the same scene profile. Shader reload and manual retry invalidate
 preparation; forced reload also bypasses cached compiler outputs.
 Pending PSOs defer capture to a later frame without waiting on the rendering
 thread or reporting a resource failure. A reload detected before capture refreshes
@@ -173,7 +181,7 @@ inputs, and cancellation invalidates any queued retry.
 
 The sphere and StaticMesh use `RequestRenderDataAndResources()` for missing CPU
 render data; thumbnail polling never calls the blocking mesh-load API.
-StaticMesh sessions also wait for every assigned default material's current
+StaticMesh draws also wait for every assigned default material's current
 compiled program before declaring readiness or binding the renderer scene.
 Pending, running, deferred and scheduled material requests remain parked;
 terminal material failures report a qualified diagnostic. Scene preparation
@@ -185,76 +193,73 @@ revision hashes or diagnostic counters. Inherited changes invalidate preparation
 changes hidden by an override preserve it. Geometry residency and package-edit
 identities keep their separate existing checks.
 
-Sessions retain successful load handles through capture validation. Reset and
-destruction cancel unfinished requests and release those handles. Updating a
-reset session reports failure and never starts another load; retry creates a
-new session. Removing the
-last `FAssetThumbnail` referencer cancels UI-only queued work and releases its
-preparing, capturing or parked session immediately, while retaining cached
-pixels. Another UI referencer or explicit background interest keeps shared
-work alive. Scene-only cleanup during preparation preserves the
-load handles until the session is reset.
+The job retains successful root/dependency load handles through capture
+validation. Destroying it cancels unfinished requests, clears renderer snapshots
+and actor bindings, releases the scene reservation, then releases asset and
+renderer references. Retry creates a new job. Removing the last `FAssetThumbnail`
+referencer cancels UI-only queued work and destroys its preparing, capturing or
+parked job immediately while retaining cached pixels. Another UI referencer or
+explicit background interest keeps shared work alive.
 
 EngineLoop owns the async-load pump. Standalone thumbnail hosts and tests must
-also call `ProcessAsyncLoading`; polling a session or pool alone does not advance
+also call `ProcessAsyncLoading`; polling a job or pool alone does not advance
 package loading. The [async asset loading boundary](../../../Runtime/Assets/Packages/AssetPackages.md#runtime-lifetime)
 still performs object construction, bulk validation and PostLoad on GameThread,
 so this integration removes synchronous thumbnail load calls without promising
 that those remaining stages cannot produce a long frame.
 
 A renderer registration is qualified by a monotonically increasing generation.
-The host stops thumbnail consumers and drains work before unloading renderer code. Reset closes admission, cancels all
-captured leases, resets and destroys sessions on the game thread, releases
-immutable feature-owned input. Owners must finish any executing callbacks before
-reset; registration removal is not a concurrent-callback barrier. Queued,
-waiting, rendering, readback, encoding, and already-enqueued upload completions
-all reject the retired generation.
-Withdrawal invalidates leases and destroys sessions immediately. A lease that
-had an active session retains its renderer until the capture owner resets the
-capture context and calls `ReleaseRenderedSession`; inactive leases release
-their GC references immediately. This prevents a cancelled readback from
-borrowing a destroyed scene without retaining retired renderers in cached queue
-records. The renderer object itself is destroyed by a later GC pass. Reflection
-providers retain their mapped code under the module lifecycle contract while
-their classes and managed objects can still execute destructors.
+Withdrawal cancels its weak cancellation tickets and notifies attached pools.
+Each pool cancels matching scheduler records and destroys matching draw jobs on
+the game thread. The manager owns no draw state, input or session. Copyable
+scheduler/cache work records contain only identity and cancellation data, so
+worker tasks cannot retain feature callbacks or destroy preview state.
+Queued, loading, rendering and already-enqueued upload completions reject the
+retired generation and request serial. Owners must finish executing game-thread
+callbacks before withdrawal; registration removal is not a concurrent-callback
+barrier. The renderer object itself is destroyed by a later GC pass. Reflection
+providers retain mapped code under the module lifecycle contract while their
+classes and managed objects can still execute destructors.
 
 Each renderer lazily owns one native `FThumbnailPreviewScene`, released in
 `BeginDestroy`. Its `FPreviewScene` owns the preview world and render scene and
 keeps the world reachable through the existing preview-world lifetime contract.
 The thumbnail scene retains studio lighting and one lazily created actor.
-Material and StaticMesh sessions reuse that actor and its StaticMeshComponent,
+Material and StaticMesh draw states reuse that actor and its StaticMeshComponent,
 then clear mesh and material bindings on reset. They neither own nor destroy
 the world or actor. Different renderer registrations have independent scenes.
 There is no named fixture map or create/destroy fallback.
 
 The asset pool owns `FThumbnailCapture`: output target, view, environment,
-render submission and asynchronous readback. `IThumbnailRenderContext` exposes
-only scene binding and capture setup, with no shared-world accessor. A bound
-scene is exclusive to one capture context until `Reset`; the owner must keep
-the renderer or standalone scene alive through that reset. Reset cancels pending
-work and drops scene, environment and image-renderer bindings before releasing
-the request's renderer lease. Scene destruction drains queued render commands.
-View, environment and image-renderer setters only configure pending capture
-data and return `void`; changing setup during an in-flight capture is a
-programming error. `BeginCapture` validates the configuration at submission.
-Scene binding remains fallible and reserves the scene before the session may
-modify its actor. Completed pixels enter the pipeline through `CompleteCapture`,
-which owns the render/readback/publication transitions. The pool validates
-prepared input once at this acceptance boundary; no second validator callback
-is passed through the pixel pipeline.
+render submission and asynchronous readback. A draw context reserves its scene
+before modifying the actor and supplies setup to the capture. Capture reset
+cancels pending work and drops borrowed scene/environment/image bindings before
+the owning job destroys its context. Context destruction clears feature state
+and then releases the scene reservation. Standalone captures can reserve a scene
+directly; both paths use the same exclusive reservation. Scene destruction
+drains queued render commands.
+
+View, environment and image-renderer setters configure pending capture data and
+return `void`; changing capture setup in flight is a programming error.
+`BeginCapture` validates configuration at submission. Scene binding remains
+fallible. Completed pixels enter `CompleteCapture`, which validates pixels and
+accepts the rendering-to-ready transition before scheduling independent cache
+encoding. The pool validates draw snapshots once at this acceptance boundary.
+There are no artificial public `Readback` or `Encoding` scheduler states; GPU
+readback has its own real pending state and persistence runs independently.
 TextureCube binds its renderer scene and supplies an immutable allocation
 snapshot as a counted RHI environment value. Texture2D supplies an image renderer
 without creating or binding any preview world. The shared capture implementation
 contains no concrete asset casts, readiness rules, framing rules, or feature diagnostics.
 
-Texture-dependent sessions also retain the actual successful allocation snapshots.
+Texture-dependent draws also retain the actual successful allocation snapshots.
 Cube uses its fixed reference for capture; Material retains all built-in texture
 role dependencies and observes texture input/completion/close events. Any observed
 change invalidates delayed acceptance, including a replacement that leaves the
 stable binding pointer unchanged. Pending updates prevent readiness. Texture
-request revisions are not part of the generic session revision fields; package,
+texture request revisions are not part of generic task identity; package,
 material and mesh versions retain their own existing contracts. The engine frame
-pump advances texture ownership independently of these read-only session checks.
+pump advances texture ownership independently of these draw snapshot checks.
 
 ## Pool Scheduling And Budgets
 
@@ -290,9 +295,10 @@ create no scene. The default pool limits remain:
 | One encoded object | 16 MiB |
 | Persistent objects | 256 MiB |
 
-Jobs move through queued, loading, waiting-for-resources, rendering, readback,
-encoding, uploading, and ready states. Preparation and capture are independent.
-A waiting or ready rendered job is parked without binding a scene. One capture retains its session through
+Jobs move through queued, loading, waiting-for-resources, rendering, uploading
+and ready states. GPU readback remains internal to capture; encoding and saving
+are independent background tasks. Preparation and capture are independent.
+A waiting or ready rendered job is parked without binding a scene. One capture retains its draw job through
 readback and validation while other assets continue cache lookup and loading.
 Preparation capacity applies backpressure instead of failing queued assets.
 The pool consumes multiple cache results and admits more work within the
@@ -342,7 +348,7 @@ New pixels are validated against the current request and resource revisions on
 the game thread and submitted for UI upload without waiting for PNG encoding or
 cache publication. Cache failures do not change a display-ready request to failed.
 Workers retain only cache state, immutable inputs, and cancellation tokens;
-renderer sessions and scheduler transitions stay on the game thread. Cache write
+renderer draws and scheduler transitions stay on the game thread. Cache write
 success, failure, and skipped admission are reported separately in generation
 statistics.
 

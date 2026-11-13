@@ -4,6 +4,9 @@
 #include "NativeDObjectTestSupport.h"
 #include "Thumbnail/ThumbnailManager.h"
 #include "Thumbnail/ThumbnailRenderer.h"
+#include "Thumbnail/ThumbnailDrawContext.h"
+#include "../../../../Source/Editor/DurinEd/Private/Thumbnail/ThumbnailGenerationRequest.h"
+#include "../../../../Source/Editor/DurinEd/Private/Thumbnail/ThumbnailRenderJob.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
@@ -18,8 +21,11 @@ namespace Durin
 		static auto RegisterScoped(DThumbnailManager& Manager, DThumbnailRenderer* Renderer)
 			-> std::expected<FThumbnailRendererRegistrationHandle, std::string>
 		{
-			return Manager.RegisterRendererInstance(Renderer,
+			auto Registration = Manager.RegisterRendererInstance(Renderer,
 				Renderer ? Renderer->GetRegistration().AssetClassName : std::string{});
+			if (Registration) Manager.SetLoadedObjectOverride(Renderer->GetRegistration().AssetClassName,
+				NewObject<DObject>(nullptr, {}, EObjectFlags::Transient));
+			return Registration;
 		}
 		static auto Register(DThumbnailManager& Manager, DThumbnailRenderer* Renderer)
 			-> std::expected<void, std::string>
@@ -30,6 +36,8 @@ namespace Durin
 			Result->State.reset();
 			return {};
 		}
+		static auto CreateJob(DThumbnailManager& Manager, const FAssetThumbnailGenerationRequest& Request)
+			-> std::unique_ptr<FThumbnailRenderJob> { return Manager.CreateRenderJob(Request); }
 		static auto Unregister(DThumbnailManager& Manager, std::string_view Name) -> bool
 		{
 			return Manager.UnregisterRendererName(Name);

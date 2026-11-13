@@ -34,8 +34,6 @@ namespace Durin
 		Loading,
 		WaitingForResources,
 		Rendering,
-		Readback,
-		Encoding,
 		Uploading,
 		Ready,
 		Invalid,

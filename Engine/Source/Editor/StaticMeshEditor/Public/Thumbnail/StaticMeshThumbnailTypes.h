@@ -5,8 +5,7 @@
 #include "Math/Box.h"
 #include "Math/Transform.h"
 #include "StaticMeshEditorAPI.h"
-#include "Thumbnail/ThumbnailRenderer.h"
-
+#include "Thumbnail/AssetThumbnailTypes.h"
 
 namespace Durin::StaticMeshEditor
 {
@@ -47,23 +46,6 @@ namespace Durin::StaticMeshEditor
 		double CameraDistance = 0.0;
 		double NearClipDistance = 0.0;
 		double FarClipDistance = 0.0;
-	};
-
-	// Carries only the mounted identity and frozen visual inputs across the shared pipeline.
-	class FStaticMeshThumbnailRendererGenerationInput final
-		: public IAssetThumbnailGenerationInput
-	{
-	public:
-		FStaticMeshThumbnailRendererGenerationInput(
-			FTopLevelAssetPath InAssetPath,
-			FThumbnailVisualContract InVisualContract)
-			: AssetPath(std::move(InAssetPath))
-			, VisualContract(std::move(InVisualContract))
-		{
-		}
-
-		FTopLevelAssetPath AssetPath;
-		FThumbnailVisualContract VisualContract;
 	};
 
 	// Fits all finite, valid bounds corners, including zero-thickness bounds, inside the image margin.

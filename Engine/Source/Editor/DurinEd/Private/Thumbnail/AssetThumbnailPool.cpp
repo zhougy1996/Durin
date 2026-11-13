@@ -3,6 +3,7 @@
 #include "Thumbnail/AssetThumbnailGeneration.h"
 #include "Thumbnail/ThumbnailManager.h"
 #include "Thumbnail/ThumbnailCapture.h"
+#include "Thumbnail/ThumbnailRenderJob.h"
 
 #include "DynamicRHI.h"
 #include "MonaCoreGlobals.h"
@@ -39,10 +40,15 @@ namespace Durin
 
 	struct FAssetThumbnailPool::FImpl
 	{
+		struct FRenderedJob
+		{
+			FAssetThumbnailScheduledRequest Work;
+			std::unique_ptr<FThumbnailRenderJob> Draw;
+		};
 		struct FParkedJob
 		{
-			FAssetThumbnailScheduledRequest Job;
-			FThumbnailRendererSessionUpdate LastUpdate;
+			FRenderedJob Job;
+			FThumbnailDrawResult LastUpdate;
 			uint64 FirstWaitFrame = 0;
 			uint64 NextPollFrame = 0;
 			bool bReady = false;
@@ -76,10 +82,10 @@ namespace Durin
 		std::unordered_map<FTopLevelAssetPath, FEntry> Entries;
 		std::shared_ptr<FAssetThumbnailAsyncState> AsyncState =
 			std::make_shared<FAssetThumbnailAsyncState>();
-		std::optional<FAssetThumbnailScheduledRequest> PreparingJob;
-		// Preparation never owns the preview scene. A capture retains its session
-		// until readback and revision validation finish, while other assets load.
-		std::optional<FAssetThumbnailScheduledRequest> CaptureJob;
+		std::optional<FRenderedJob> PreparingJob;
+		// Only a ready draw reserves a scene. The pool retains its job through
+		// readback and validation while other root assets continue loading.
+		std::optional<FRenderedJob> CaptureJob;
 		std::vector<FParkedJob> ParkedJobs;
 		uint64 FrameNumber = 0;
 		uint64 CaptureOutputCreations = 0;
@@ -167,9 +173,9 @@ namespace Durin
 			return CaptureOutput->IsAvailable();
 		}
 
-		auto ReleaseJob(FAssetThumbnailScheduledRequest& Job) -> void
+		auto ReleaseJob(FRenderedJob& Job) -> void
 		{
-			Job.GenerationRequest.ReleaseRenderedSession();
+			Job.Draw.reset();
 		}
 
 		auto ResetPreparing() -> void
@@ -320,7 +326,7 @@ namespace Durin
 		auto FinishCapture() -> void
 		{
 			if (!CaptureJob || CaptureOutput == nullptr) return;
-			if (!IsCurrent(CaptureJob->GenerationRequest))
+			if (!IsCurrent(CaptureJob->Work.GenerationRequest))
 			{
 				ResetCapture();
 				return;
@@ -328,17 +334,16 @@ namespace Durin
 			auto Capture = CaptureOutput->PollCapture();
 			if (Capture && !Capture->has_value()) return;
 
-			FAssetThumbnailScheduledRequest& Job = *CaptureJob;
+			FRenderedJob& Job = *CaptureJob;
 			FAssetThumbnailGenerationRequest& Request =
-				Job.GenerationRequest;
-			IThumbnailRendererSession* Session =
-				Request.GetRenderedSession();
+				Job.Work.GenerationRequest;
+			FThumbnailRenderJob* Draw = Job.Draw.get();
 			std::string Error;
 			if (!Capture) Error = Capture.error();
-			else if (!Session) Error = "The rendered-thumbnail renderer was removed.";
-			else if (auto Valid = Session->ValidatePreparedInput(); !Valid)
+			else if (!Draw) Error = "The rendered-thumbnail renderer was removed.";
+			else if (auto Valid = Draw->Validate(); !Valid)
 				Error = Valid.error().empty() ? "The rendered-thumbnail input is no longer valid." : Valid.error();
-			if (Pipeline.CompleteCapture(Job, Capture ? FByteView(**Capture) : FByteView{},
+			if (Pipeline.CompleteCapture(Job.Work, Capture ? FByteView(**Capture) : FByteView{},
 				Request.KeyInput.Output.Width, Request.KeyInput.Output.Height, Error))
 			{
 				QueueUpload(Request, std::move(**Capture), Request.KeyInput.Output.Width, Request.KeyInput.Output.Height);
@@ -347,22 +352,22 @@ namespace Durin
 		}
 
 		auto ParkPreparing(
-			const FThumbnailRendererSessionUpdate& Update) -> void
+			const FThumbnailDrawResult& Update) -> void
 		{
 			if (!PreparingJob) return;
 			if (Budgets.MaximumParkedRenderedJobs == 0
 				|| ParkedJobs.size() >= Budgets.MaximumParkedRenderedJobs)
 			{
 				Pipeline.BeginRender(
-					*PreparingJob, false,
+					PreparingJob->Work, false,
 					"The rendered-thumbnail parked-resource budget is exhausted.");
 				ResetPreparing();
 				return;
 			}
 			if (!Pipeline.BeginRender(
-					*PreparingJob, false))
+					PreparingJob->Work, false))
 			{
-				Pipeline.Cancel(*PreparingJob);
+				Pipeline.Cancel(PreparingJob->Work);
 				ResetPreparing();
 				return;
 			}
@@ -372,44 +377,43 @@ namespace Durin
 				.FirstWaitFrame = FrameNumber,
 				.NextPollFrame = FrameNumber
 					+ std::max<uint32>(1, Budgets.ResourcePollIntervalFrames),
-				.bReady = Update.State == EThumbnailRendererSessionState::ReadyToRender});
+				.bReady = Update.State == EThumbnailDrawStatus::ReadyToRender});
 			PreparingJob.reset();
 			PeakParkedResourceWaits = std::max<uint64>(
 				PeakParkedResourceWaits, ParkedJobs.size());
 		}
 
 		auto HandlePreparedUpdate(
-			const FThumbnailRendererSessionUpdate& Update) -> void
+			const FThumbnailDrawResult& Update) -> void
 		{
 			if (!PreparingJob) return;
-			FAssetThumbnailScheduledRequest& Job = *PreparingJob;
+			FRenderedJob& Job = *PreparingJob;
 			FAssetThumbnailGenerationRequest& Request =
-				Job.GenerationRequest;
-			IThumbnailRendererSession* Session =
-				Request.GetRenderedSession();
-			if (Session == nullptr || !IsCurrent(Request))
+				Job.Work.GenerationRequest;
+			FThumbnailRenderJob* Draw = Job.Draw.get();
+			if (Draw == nullptr || !IsCurrent(Request))
 			{
 				ResetPreparing();
 				return;
 			}
-			if (Update.State == EThumbnailRendererSessionState::Failed)
+			if (Update.State == EThumbnailDrawStatus::Failed)
 			{
 				Pipeline.BeginRender(
-					Job,
+					Job.Work,
 					false,
-					Update.Diagnostic);
+					Update.Diagnostic.empty() ? "Thumbnail drawing failed." : Update.Diagnostic);
 				ResetPreparing();
 				return;
 			}
 			const bool bReady =
-				Update.State == EThumbnailRendererSessionState::ReadyToRender;
+				Update.State == EThumbnailDrawStatus::ReadyToRender;
 			if (!bReady || CaptureJob)
 			{
 				ParkPreparing(Update);
 				return;
 			}
 			if (!Pipeline.BeginRender(
-					Job,
+					Job.Work,
 					true))
 				return;
 			std::string Error;
@@ -419,15 +423,14 @@ namespace Durin
 					? CaptureOutput->GetDiagnostic()
 					: "The thumbnail capture output is unavailable.";
 			}
-			else if (auto Prepared = Session->PreparePreview(*CaptureOutput); !Prepared)
+			else if (auto Prepared = Draw->BindCapture(*CaptureOutput); !Prepared)
 			{
 				Error = Prepared.error().empty()
 					? "The renderer could not prepare its preview." : std::move(Prepared.error());
 			}
 			else
 			{
-				if (auto Capture = Session->ValidatePreparedInput().and_then(
-					[this] { return CaptureOutput->BeginCapture(); }); !Capture)
+				if (auto Capture = CaptureOutput->BeginCapture(); !Capture)
 				{
 					Error = Capture.error().empty()
 						? "The preview capture could not start." : std::move(Capture.error());
@@ -440,7 +443,7 @@ namespace Durin
 					return;
 				}
 			}
-			Pipeline.CompleteCapture(Job, {}, 0, 0, Error);
+			Pipeline.CompleteCapture(Job.Work, {}, 0, 0, Error);
 			if (CaptureOutput) CaptureOutput->Reset();
 			ResetPreparing();
 		}
@@ -448,36 +451,36 @@ namespace Durin
 		auto PollPreparing() -> void
 		{
 			if (!PreparingJob) return;
-			IThumbnailRendererSession* Session =
-				PreparingJob->GenerationRequest.GetRenderedSession();
-			if (Session == nullptr)
+			FThumbnailRenderJob* Draw = PreparingJob->Draw.get();
+			if (Draw == nullptr)
 			{
 				ResetPreparing();
 				return;
 			}
-			HandlePreparedUpdate(Session->Update());
+			HandlePreparedUpdate(Draw->Update(!CaptureJob));
 		}
 
 		auto PollParkedJobs() -> void
 		{
 			const uint64 PollInterval =
 				std::max<uint32>(1, Budgets.ResourcePollIntervalFrames);
+			bool bDrawReserved = PreparingJob.has_value() || CaptureJob.has_value()
+				|| std::ranges::any_of(ParkedJobs, [](const auto& Job) { return Job.bReady; });
 			for (size_t Index = 0; Index < ParkedJobs.size();)
 			{
 				FParkedJob& Parked = ParkedJobs[Index];
 				FAssetThumbnailGenerationRequest& Request =
-					Parked.Job.GenerationRequest;
-				IThumbnailRendererSession* Session =
-					Request.GetRenderedSession();
+					Parked.Job.Work.GenerationRequest;
+				FThumbnailRenderJob* Draw = Parked.Job.Draw.get();
 				const bool bTimedOut = !Parked.bReady
 					&& Budgets.MaximumResourceWaitFrames != 0
 					&& FrameNumber - Parked.FirstWaitFrame
 						>= Budgets.MaximumResourceWaitFrames;
-				bool bRelease = Session == nullptr || !IsCurrent(Request);
+				bool bRelease = Draw == nullptr || !IsCurrent(Request);
 				if (!bRelease && bTimedOut)
 				{
 					Pipeline.BeginRender(
-						Parked.Job, false,
+						Parked.Job.Work, false,
 						"Timed out waiting for rendered-thumbnail resources.");
 					++ResourceWaitTimeouts;
 					bRelease = true;
@@ -485,25 +488,26 @@ namespace Durin
 				if (!bRelease && !Parked.bReady
 					&& FrameNumber >= Parked.NextPollFrame)
 				{
-					Parked.LastUpdate = Session->Update();
+					Parked.LastUpdate = Draw->Update(!bDrawReserved);
 					Parked.NextPollFrame = FrameNumber + PollInterval;
 					if (Parked.LastUpdate.State
-						== EThumbnailRendererSessionState::Failed)
+						== EThumbnailDrawStatus::Failed)
 					{
 						Pipeline.BeginRender(
-							Parked.Job, false,
+							Parked.Job.Work, false,
 							Parked.LastUpdate.Diagnostic);
 						bRelease = true;
 					}
 					else if (Parked.LastUpdate.State
-						== EThumbnailRendererSessionState::ReadyToRender)
+						== EThumbnailDrawStatus::ReadyToRender)
 					{
 						Parked.bReady = true;
+						bDrawReserved = true;
 					}
 					else if (!Pipeline.BeginRender(
-							Parked.Job, false))
+							Parked.Job.Work, false))
 					{
-						Pipeline.Cancel(Parked.Job);
+						Pipeline.Cancel(Parked.Job.Work);
 						bRelease = true;
 					}
 				}
@@ -523,7 +527,7 @@ namespace Durin
 			if (PreparingJob || CaptureJob || ParkedJobs.empty()) return;
 			auto IsVisible = [this](const FParkedJob& Parked) {
 				const auto It = Entries.find(
-					Parked.Job.GenerationRequest.KeyInput.Asset.AssetPath);
+					Parked.Job.Work.GenerationRequest.KeyInput.Asset.AssetPath);
 				return It != Entries.end() && It->second.bVisible;
 			};
 			auto Selected = std::ranges::find_if(
@@ -536,7 +540,7 @@ namespace Durin
 					ParkedJobs,
 					[](const FParkedJob& Parked) { return Parked.bReady; });
 			if (Selected == ParkedJobs.end()) return;
-			FThumbnailRendererSessionUpdate Update = Selected->LastUpdate;
+			FThumbnailDrawResult Update = Selected->LastUpdate;
 			PreparingJob = std::move(Selected->Job);
 			ParkedJobs.erase(Selected);
 			HandlePreparedUpdate(Update);
@@ -570,27 +574,19 @@ namespace Durin
 				return true;
 			}
 			if (!Start.ColdJob) return Start.bProgressed;
-			PreparingJob = std::move(Start.ColdJob);
-			FAssetThumbnailScheduledRequest& Job = *PreparingJob;
-			FAssetThumbnailGenerationRequest& Request =
-				Job.GenerationRequest;
-			if (auto It = Entries.find(Request.KeyInput.Asset.AssetPath);
-				It != Entries.end())
+			PreparingJob.emplace(FRenderedJob{.Work = std::move(*Start.ColdJob)});
+			FRenderedJob& Job = *PreparingJob;
+			auto& Request = Job.Work.GenerationRequest;
+			if (auto It = Entries.find(Request.KeyInput.Asset.AssetPath); It != Entries.end())
 				It->second.bHasTransparency = Request.bHasTransparency;
-			auto Session = Request.BeginRenderedSession();
-			if (!Session)
+			Job.Draw = Manager.CreateRenderJob(Request);
+			if (!Job.Draw)
 			{
-				Pipeline.CompleteLoad(Job, Session.error());
-				ResetPreparing();
-				return true;
+				Pipeline.CompleteLoad(Job.Work, "The thumbnail renderer was removed.");
+				ResetPreparing(); return true;
 			}
-			const FThumbnailRendererSessionUpdate Update = (*Session)->Update();
-			if (!Pipeline.CompleteLoad(
-					Job, Update.Diagnostic))
-			{
-				ResetPreparing();
-				return true;
-			}
+			const auto Update = Job.Draw->Update(!CaptureJob);
+			if (!Pipeline.CompleteLoad(Job.Work, Update.Diagnostic)) { ResetPreparing(); return true; }
 			PollPreparing();
 			return true;
 		}
@@ -633,8 +629,7 @@ namespace Durin
 					|| State == EAssetThumbnailState::Loading
 					|| State == EAssetThumbnailState::WaitingForResources
 					|| State == EAssetThumbnailState::Rendering
-					|| State == EAssetThumbnailState::Readback
-					|| State == EAssetThumbnailState::Encoding
+
 					|| State == EAssetThumbnailState::Uploading;
 				BudgetEntries.push_back({
 					.Key = Path.ToString(),
@@ -676,10 +671,22 @@ namespace Durin
 		: Impl(std::make_unique<FImpl>(
 			Manager, Budgets, std::move(StoreSettings)))
 	{
+		Manager.AttachPool(this);
+	}
+
+	auto FAssetThumbnailPool::InvalidateRenderer(uint64 Generation) -> void
+	{
+		Impl->Scheduler.CancelRenderer(Generation);
+		if (Impl->CaptureJob && Impl->CaptureJob->Work.GenerationRequest.RendererGeneration == Generation) Impl->ResetCapture();
+		if (Impl->PreparingJob && Impl->PreparingJob->Work.GenerationRequest.RendererGeneration == Generation) Impl->ResetPreparing();
+		std::erase_if(Impl->ParkedJobs, [Generation](const auto& Job) {
+			return Job.Job.Work.GenerationRequest.RendererGeneration == Generation;
+		});
 	}
 
 	FAssetThumbnailPool::~FAssetThumbnailPool()
 	{
+		Impl->Manager.DetachPool(this);
 		Clear();
 		Impl->CaptureOutput.reset();
 		Impl->AsyncState.reset();
@@ -779,13 +786,13 @@ namespace Durin
 		// Directory navigation releases cold requests but retains cached pixels.
 		Impl->Scheduler.Cancel(AssetPath);
 		if (Impl->PreparingJob
-			&& Impl->PreparingJob->GenerationRequest.KeyInput.Asset.AssetPath == AssetPath)
+			&& Impl->PreparingJob->Work.GenerationRequest.KeyInput.Asset.AssetPath == AssetPath)
 			Impl->ResetPreparing();
 		if (Impl->CaptureJob
-			&& Impl->CaptureJob->GenerationRequest.KeyInput.Asset.AssetPath == AssetPath)
+			&& Impl->CaptureJob->Work.GenerationRequest.KeyInput.Asset.AssetPath == AssetPath)
 			Impl->ResetCapture();
 		std::erase_if(Impl->ParkedJobs, [&](FImpl::FParkedJob& Parked) {
-			if (Parked.Job.GenerationRequest.KeyInput.Asset.AssetPath != AssetPath) return false;
+			if (Parked.Job.Work.GenerationRequest.KeyInput.Asset.AssetPath != AssetPath) return false;
 			Impl->ReleaseJob(Parked.Job);
 			return true;
 		});
@@ -864,10 +871,10 @@ namespace Durin
 	auto FAssetThumbnailPool::CancelPendingRequests() -> void
 	{
 		Impl->BackgroundPackages.clear();
-		if (Impl->PreparingJob) Impl->Pipeline.Cancel(*Impl->PreparingJob);
-		if (Impl->CaptureJob) Impl->Pipeline.Cancel(*Impl->CaptureJob);
+		if (Impl->PreparingJob) Impl->Pipeline.Cancel(Impl->PreparingJob->Work);
+		if (Impl->CaptureJob) Impl->Pipeline.Cancel(Impl->CaptureJob->Work);
 		for (const FImpl::FParkedJob& Parked : Impl->ParkedJobs)
-			Impl->Pipeline.Cancel(Parked.Job);
+			Impl->Pipeline.Cancel(Parked.Job.Work);
 		Impl->ResetPreparing();
 		Impl->ResetCapture();
 		Impl->ResetParkedJobs();

@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-#include "Thumbnail/ThumbnailRenderer.h"
+#include "ThumbnailGenerationRequest.h"
 
 namespace Durin
 {
@@ -56,6 +56,7 @@ namespace Durin
 			EAssetThumbnailState NextState,
 			std::string_view Diagnostic = {}) -> bool;
 		DURINED_API auto Cancel(const FTopLevelAssetPath& AssetPath) -> void;
+		DURINED_API auto CancelRenderer(uint64 Generation) -> void;
 		DURINED_API auto CancelAll() -> void;
 		DURINED_API auto Shutdown() -> void;
 		DURINED_API auto NumQueued() const -> size_t;

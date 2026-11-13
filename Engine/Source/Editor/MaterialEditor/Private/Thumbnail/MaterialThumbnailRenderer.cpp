@@ -1,5 +1,5 @@
-#include "Engine/StreamableManager.h"
 #include "Thumbnail/ThumbnailRenderer.h"
+#include "Thumbnail/ThumbnailDrawContext.h"
 #include "Thumbnail/ThumbnailPreviewScene.h"
 #include "Thumbnail/MaterialThumbnailRenderer.h"
 #include "RenderResource.h"
@@ -26,19 +26,6 @@ namespace Durin::MaterialEditor
 		constexpr uint32 MaterialThumbnailGeneratorSchema = 6;
 		constexpr uint32 MaterialThumbnailShaderContract = 3;
 		constexpr float MaterialThumbnailSphereScale = 1.65f;
-
-		class FMaterialThumbnailGenerationInput final
-			: public IAssetThumbnailGenerationInput
-		{
-		public:
-			explicit FMaterialThumbnailGenerationInput(FTopLevelAssetPath InAssetPath, std::string InAssetClassName)
-				: AssetPath(std::move(InAssetPath)), AssetClassName(std::move(InAssetClassName))
-			{
-			}
-
-			FTopLevelAssetPath AssetPath;
-			std::string AssetClassName;
-		};
 
 		auto MakeFingerprint(const FPackageData& Data,
 			FTopLevelAssetPath AssetPath = {})
@@ -159,95 +146,40 @@ namespace Durin::MaterialEditor
 				.ClearAlpha = 0.0f};
 		}
 
-		class FMaterialThumbnailGenerationSession final
-			: public IThumbnailRendererSession
+		class FMaterialThumbnailDrawState final
 		{
 		public:
-			FMaterialThumbnailGenerationSession(
-				DThumbnailRenderer& InRenderer,
-				FTopLevelAssetPath InAssetPath,
-				std::string InAssetClassName)
-				: Renderer(InRenderer)
-				, AssetPath(std::move(InAssetPath))
-				, AssetClassName(std::move(InAssetClassName))
+			FMaterialThumbnailDrawState(DThumbnailRenderer& InRenderer, DObject* Object, FTopLevelAssetPath Path)
+				: Renderer(InRenderer), AssetPath(std::move(Path))
 			{
+				Material = Cast<DMaterialInterface>(Object);
 			}
 
-			~FMaterialThumbnailGenerationSession() override
+			~FMaterialThumbnailDrawState()
 			{
 				ResetPreview();
 			}
 
-			auto FinishLoad() -> FThumbnailRendererSessionUpdate
+			auto FinishLoad(FThumbnailDrawContext& Context) -> FThumbnailDrawResult
 			{
-				std::string SphereError;
-				const bool Result = !MaterialLoad->HasError();
-				Material = Result ? Cast<DMaterialInterface>(MaterialLoad->GetLoadedAsset()) : nullptr;
-				if (!Result || Material == nullptr
-					|| Material->GetClass()->GetQualifiedName().ToString() != AssetClassName)
-				{
-					Material = nullptr;
-					return {
-						.State = EThumbnailRendererSessionState::Failed,
-						.Diagnostic = MaterialLoad->GetError().Message.empty()
-							? "The requested asset is not an exact material class."
-							: MaterialLoad->GetError().Message};
-				}
-				if (auto* Instance = Cast<DMaterialInstance>(Material);
-					Instance != nullptr && Instance->GetParent() == nullptr)
-				{
-					return {
-						.State = EThumbnailRendererSessionState::Failed,
-						.Diagnostic = "The material instance has no valid parent."};
-				}
-				if (!SphereLoad)
-				{
-					FSoftObjectPath SpherePath;
-					if (!FSoftObjectPath::TryCreate(
-						FThumbnailVisualContract::SphereAssetPath, SpherePath))
-						return {.Diagnostic = "The thumbnail sphere path is invalid."};
-					SphereLoad = StreamableManager.RequestAsyncLoad(SpherePath, {}, DStaticMesh::StaticClass());
-				}
-				if (!SphereLoad->IsComplete())
-					return {.State = EThumbnailRendererSessionState::WaitingForResources};
-				SphereError = (SphereLoad->GetError().Message);
-				if (SphereLoad->HasError()
-					|| (Sphere = Cast<DStaticMesh>(SphereLoad->GetLoadedAsset())) == nullptr)
-				{
-					return {
-						.State = EThumbnailRendererSessionState::Failed,
-						.Diagnostic = SphereError.empty()
-							? "The rendered-thumbnail sphere mesh is unavailable."
-							: std::move(SphereError)};
-				}
+				if (auto* Instance = Cast<DMaterialInstance>(Material); Instance && !Instance->GetParent())
+					return {.Diagnostic = "The material instance has no valid parent."};
+				FSoftObjectPath Path;
+				if (!FSoftObjectPath::TryCreate(FThumbnailVisualContract::SphereAssetPath, Path))
+					return {.Diagnostic = "The thumbnail sphere path is invalid."};
+				Sphere = Cast<DStaticMesh>(Context.LoadAsset(Path, DStaticMesh::StaticClass()));
+				if (!Sphere) return Context.GetResult();
 				const auto Revision = GetMaterialAssetRevision(Material);
-				if (!Revision)
-				{
-					return {
-						.State = EThumbnailRendererSessionState::Failed,
-						.Diagnostic = Revision.error()};
-				}
-				AssetRevision = *Revision;
-				bAssetsLoaded = true;
-				return {
-					.State = EThumbnailRendererSessionState::WaitingForResources};
+				if (!Revision) return {.Diagnostic = Revision.error()};
+				AssetRevision = *Revision; bAssetsLoaded = true;
+				return {.State = EThumbnailDrawStatus::WaitingForResources};
 			}
 
-			auto Update() -> FThumbnailRendererSessionUpdate override
+			auto Update(FThumbnailDrawContext& Context) -> FThumbnailDrawResult
 			{
-				if (!bStarted)
-				{
-					bStarted = true;
-					MaterialLoad = StreamableManager.RequestAsyncLoad(AssetPath, {}, DMaterialInterface::StaticClass());
-					return {.State = EThumbnailRendererSessionState::WaitingForResources};
-				}
-
-				if (!MaterialLoad) return {.Diagnostic = "The thumbnail load was reset."};
-				if (!MaterialLoad->IsComplete())
-					return {.State = EThumbnailRendererSessionState::WaitingForResources};
 				if (!bAssetsLoaded)
 				{
-					const auto Loaded = FinishLoad();
+					const auto Loaded = FinishLoad(Context);
 					if (!bAssetsLoaded) return Loaded;
 				}
 				// Let the first asset builds run before admitting the larger fixed shader profile.
@@ -260,19 +192,19 @@ namespace Durin::MaterialEditor
 				auto Resource = GetMaterialResourceSnapshot(Material);
 				if (!Resource)
 					return {
-						.State = EThumbnailRendererSessionState::Failed,
+						.State = EThumbnailDrawStatus::Failed,
 						.Diagnostic = std::move(Resource.error())};
 				if (!Resource->bReady)
 					return {
-						.State = EThumbnailRendererSessionState::WaitingForResources};
+						.State = EThumbnailDrawStatus::WaitingForResources};
 				if (Sphere == nullptr)
 					return {
-						.State = EThumbnailRendererSessionState::Failed,
+						.State = EThumbnailDrawStatus::Failed,
 						.Diagnostic = "The rendered-thumbnail sphere mesh is unavailable."};
 				// PostLoad schedules mesh compilation; asset residency does not imply render data is ready.
 				if (Sphere->IsCompiling())
 					return {
-						.State = EThumbnailRendererSessionState::WaitingForResources};
+						.State = EThumbnailDrawStatus::WaitingForResources};
 				FStaticMeshRenderResourceStatus SphereStatus =
 					Sphere->GetRenderResourceStatus();
 				if (SphereStatus.Readiness == EStaticMeshRenderResourceReadiness::Unavailable)
@@ -280,16 +212,16 @@ namespace Durin::MaterialEditor
 					Sphere->RequestRenderDataAndResources();
 					if (Sphere->GetRenderDataLoadError().Code != ECookedMeshLoadError::None)
 						return {
-							.State = EThumbnailRendererSessionState::Failed,
+							.State = EThumbnailDrawStatus::Failed,
 							.Diagnostic = "The thumbnail sphere render data could not be loaded."};
 					if (!Sphere->GetRenderData())
-						return {.State = EThumbnailRendererSessionState::WaitingForResources};
+						return {.State = EThumbnailDrawStatus::WaitingForResources};
 					SphereStatus = Sphere->GetRenderResourceStatus();
 				}
 				if (SphereStatus.Readiness == EStaticMeshRenderResourceReadiness::InvalidData
 					|| SphereStatus.Readiness == EStaticMeshRenderResourceReadiness::Unavailable)
 					return {
-						.State = EThumbnailRendererSessionState::Failed,
+						.State = EThumbnailDrawStatus::Failed,
 						.Diagnostic = "The rendered-thumbnail sphere render resource is unavailable."};
 				const bool bSphereReady = SphereStatus.Readiness
 					== EStaticMeshRenderResourceReadiness::Ready;
@@ -297,12 +229,12 @@ namespace Durin::MaterialEditor
 				if (!ShaderReady) return {.Diagnostic = ShaderReady.error()};
 				return {
 					.State = Resource->bReady && bSphereReady && *ShaderReady
-						? EThumbnailRendererSessionState::ReadyToRender
-						: EThumbnailRendererSessionState::WaitingForResources};
+						? EThumbnailDrawStatus::ReadyToRender
+						: EThumbnailDrawStatus::WaitingForResources};
 			}
 
 			auto PreparePreview(
-				IThumbnailRenderContext& Context) -> std::expected<void, std::string> override
+				FThumbnailDrawContext& Context) -> std::expected<void, std::string>
 			{
 				ResetScenePreview();
 				if (!Material) { return std::unexpected("The material is unavailable."); }
@@ -346,7 +278,7 @@ namespace Durin::MaterialEditor
 				return {};
 			}
 
-			auto ValidatePreparedInput() const -> std::expected<void, std::string> override
+			auto ValidatePreparedInput() const -> std::expected<void, std::string>
 			{
 				if (Component == nullptr || !AreDependencySnapshotsCurrent())
 				{
@@ -370,25 +302,19 @@ namespace Durin::MaterialEditor
 				return {};
 			}
 
-			auto ResetPreview() -> void override
+			auto ResetPreview() -> void
 			{
-				bStarted = true;
 				ResetScenePreview();
 				DependencySnapshots.clear();
 				PreparedMaterialSnapshot = {};
 				Sphere = nullptr;
 				Material = nullptr;
 				bAssetsLoaded = false;
-				if (MaterialLoad) MaterialLoad->CancelHandle();
-				if (SphereLoad) SphereLoad->CancelHandle();
-				MaterialLoad.reset();
-				SphereLoad.reset();
 				Shaders = {};
 				bShadersRequested = false;
 			}
 
 		private:
-			bool bStarted = false;
 			FShaderMapPreparation Shaders;
 			bool bShadersRequested = false;
 			auto AreDependencySnapshotsCurrent() const -> bool
@@ -419,7 +345,6 @@ namespace Durin::MaterialEditor
 			}
 
 			FTopLevelAssetPath AssetPath;
-			std::string AssetClassName;
 			DMaterialInterface* Material = nullptr;
 			uint64 AssetRevision = 0;
 			uint64 PreparedSphereResourceRevision = 0;
@@ -427,9 +352,6 @@ namespace Durin::MaterialEditor
 			DThumbnailRenderer& Renderer;
 			DStaticMeshComponent* Component = nullptr;
 			DStaticMesh* Sphere = nullptr;
-			FStreamableManager StreamableManager;
-			std::shared_ptr<FStreamableHandle> MaterialLoad;
-			std::shared_ptr<FStreamableHandle> SphereLoad;
 			bool bAssetsLoaded = false;
 		};
 	} // namespace
@@ -448,9 +370,9 @@ namespace Durin::MaterialEditor
 			.GeneratorSchemaVersion = MaterialThumbnailGeneratorSchema};
 	}
 
-	auto DMaterialThumbnailRenderer::CaptureGenerationInput(const FAssetThumbnailPackageFingerprint& Asset) -> std::expected<FThumbnailGenerationData, std::string>
+	auto DMaterialThumbnailRenderer::DescribeThumbnail(const FAssetThumbnailPackageFingerprint& Asset) -> std::expected<FThumbnailCacheDescription, std::string>
 	{
-		FThumbnailGenerationData Result;
+		FThumbnailCacheDescription Result;
 
 		if (Asset.AssetClassName != DMaterial::StaticClass()->GetQualifiedName().ToString()
 			&& Asset.AssetClassName != DMaterialInstance::StaticClass()->GetQualifiedName().ToString())
@@ -498,19 +420,30 @@ namespace Durin::MaterialEditor
 				FThumbnailVisualContract::SphereFixtureVersion,
 			.ShaderContractVersion = MaterialThumbnailShaderContract,
 			.Dependencies = std::move(Dependencies)};
-		Result.Input =
-			std::make_shared<FMaterialThumbnailGenerationInput>(Asset.AssetPath, Asset.AssetClassName);
 
 		return Result;
 	}
 
-	auto DMaterialThumbnailRenderer::CreateGenerationSession(const IAssetThumbnailGenerationInput& Input)
-		-> std::unique_ptr<IThumbnailRendererSession>
+	auto DMaterialThumbnailRenderer::CanVisualizeAsset(DObject* Object) const -> bool
 	{
-		const auto* MaterialInput = dynamic_cast<const FMaterialThumbnailGenerationInput*>(&Input);
-		checkf(MaterialInput != nullptr, "The material thumbnail generation input is invalid.");
-		return std::make_unique<FMaterialThumbnailGenerationSession>(
-			*this, MaterialInput->AssetPath, MaterialInput->AssetClassName);
+		return Cast<DMaterialInterface>(Object) != nullptr;
+	}
+
+	auto DMaterialThumbnailRenderer::Draw(DObject* Object, FThumbnailDrawContext& Context) -> void
+	{
+		if (!CanVisualizeAsset(Object)) { Context.SetResult({.Diagnostic = "The renderer cannot visualize this asset."}); return; }
+		auto& State = Context.GetState<FMaterialThumbnailDrawState>(*this, Object, Context.GetAssetPath());
+		auto Result = State.Update(Context);
+		Context.SetResult(Result);
+		if (Result.State == EThumbnailDrawStatus::ReadyToRender)
+		{
+			if (auto Prepared = State.PreparePreview(Context); !Prepared)
+			{
+				if (Context.GetResult().State == EThumbnailDrawStatus::ReadyToRender)
+					Context.SetResult({.Diagnostic = Prepared.error()});
+			}
+			else Context.SetValidation([&State] { return State.ValidatePreparedInput(); });
+		}
 	}
 
 } // namespace Durin::MaterialEditor
