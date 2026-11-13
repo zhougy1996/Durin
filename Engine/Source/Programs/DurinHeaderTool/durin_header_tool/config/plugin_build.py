@@ -1,4 +1,4 @@
-"""Bind all eligible plugins to the existing module pipeline without changing projects."""
+"""Bind selected project plugins to the existing module pipeline."""
 from . import environment, project_config, module_config
 from .plugin_config import enumerate_plugin_build, canonical
 

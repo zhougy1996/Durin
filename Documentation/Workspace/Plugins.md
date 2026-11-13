@@ -196,12 +196,13 @@ bytes stay the same. Callers supply every workspace project for ownership/graph
 validation, in addition to the automatically included engine and active project.
 
 [`durin-plugin-build.schema.json`](../../Engine/Source/Programs/DurinHeaderTool/schemas/durin-plugin-build.schema.json)
-is the available-artifact contract, independently of project enablement. Schema
+is the available-artifact contract for a project's configured plugin selection. Schema
 version 2 replaces the selection-bound version 1; startup rejects version 1 with
 a configure/build diagnostic. `Inputs` records logical descriptor paths and
 hashes for discovered plugin metadata, eligible plugin modules, and ordinary
 module descriptors. Project descriptor bytes and startup selection fingerprints
-are excluded, so override-only edits require neither a build nor republication.
+are excluded from artifact hashes; adding selected modules requires a build and
+inventory republication before restart.
 
 Native `Identity` contains EngineBuild, Platform, Architecture, Configuration,
 RuntimeVariant, and ToolchainABI. Each binary records Module, Owner, a contained
@@ -247,19 +248,18 @@ the generated list; a cooked snapshot without its runtime inventory is rejected.
 
 ## Source Build Integration
 
-DHT uses `config.plugin_config.enumerate_plugin_build` to discover all plugins
-under Engine and every declared workspace project's plugin roots. It enumerates
-all platform/host-eligible modules regardless of enablement overrides, validates
-the build dependency graph, and emits a build catalog with Modules and Inputs.
-It does not synthesize an all-enabled startup selection. Invalid eligible module
-metadata fails a build even when its plugin is disabled. Startup still resolves
-only Engine and the active project's plugin roots and applies project overrides.
+DHT uses `config.plugin_config.enumerate_plugin_build` for each workspace project.
+It discovers plugins under Engine and that project, selects enabled plugins and
+their required dependencies, validates the selected build graph, and emits a
+build catalog with Modules and Inputs. Disabled plugin modules are not compiled
+unless another workspace project selects them. Startup resolves the same plugin
+roots and project overrides.
 
 `owning_plugin` remains independent from `owning_project`; plugin modules do not
 enter authored ModuleDirs or ordinary startup roots. Plugin dependencies can
 bring ordinary non-root modules into the workspace build closure under their
 original owners. Game filters out Editor plugin modules. Enablement conflicts
-remain startup errors and do not prune compilation targets.
+remain startup errors and remove blocked plugins from compilation targets.
 
 Plugin modules use the existing add_durin_module, dependency/export metadata,
 reflection generator, PCH, include, and linking paths. DHT emits a
@@ -272,11 +272,11 @@ under `<Project>/Binaries/<Platform>/<Configuration>/Plugins/<Id>/<RuntimeVarian
 
 CMake watches discovered directory membership up to plugin boundaries and the
 consumed descriptors. A normal DevTool build reconfigures when descriptors are
-created/deleted or project descriptors change. Override-only edits preserve
-plugin target membership; startup does not require this reconfiguration. Neither
+created/deleted or project descriptors change. Override edits may change plugin
+target membership and trigger reconfiguration. Neither
 existing metadata nor stale DLLs imply startup selection.
 
-`<Project>PluginBuild` builds the available workspace native closure and publishes
+`<Project>PluginBuild` builds the project's selected native closure and publishes
 `PluginBuild.json`, `PluginCatalog.json`, and the declared shared-library
 dependency files beneath
 `Build/<preset>/PluginBuild/<Project>/<Configuration>/`. It participates in all
@@ -418,15 +418,16 @@ read-only files and ownership conflicts without partially replacing the file.
 Only plugin overrides change; active modules, mounts, Shader roots and effective
 configuration retain their startup snapshot. A missing or incompatible build
 does not prevent saving a valid selection, but blocks restart with a build
-diagnostic. No management action builds binaries or republishes an inventory.
+diagnostic. Enabling an unbuilt plugin requires a build before restart. No
+management action builds binaries or republishes an inventory.
 
 Saved selections differing from the running selection display a restart-required state.
 **Restart editor...** rechecks the saved descriptor and artifact admission,
 then uses the normal all-document exit workflow. Pending document operations
 and failed saves retain the editor; Cancel leaves documents open and plugin
 settings saved for a later restart. Relaunch is deferred until shutdown and
-preserves the explicit project path. Compatible override-only changes require
-no rebuild. Build and restart remain separate user actions.
+preserves the explicit project path. Changes covered by an existing compatible
+inventory require no rebuild. Build and restart remain separate user actions.
 
 `FPluginEditSession` owns the value-only draft and cached metadata/diagnostics.
 Checkbox changes only evaluate the in-memory graph; they do not read files,

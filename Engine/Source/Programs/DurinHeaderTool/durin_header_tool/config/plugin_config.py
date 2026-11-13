@@ -34,12 +34,12 @@ def plugin_overrides(value, descriptor) -> dict[str, bool]:
 
 
 def enumerate_plugin_build(engine_root, project_file, **kwargs):
-    """Enumerate eligible workspace build modules, independently of overrides."""
+    """Enumerate the project's selected plugin build modules and dependencies."""
     return _resolve_plugins(engine_root, project_file, build_catalog=True, **kwargs)
 
 
 def resolve_plugins(engine_root, project_file, **kwargs):
-    """Resolve one project's startup selection; never controls compilation."""
+    """Resolve one project's startup selection."""
     return _resolve_plugins(engine_root, project_file, **kwargs)
 
 
@@ -134,8 +134,7 @@ def _resolve_plugins(engine_root: Path, project_file: Path, *, platform="Win64",
             add_module(contained(path.parent, relative) / (module + ".dmodule"),
                        "Project/" + name + "/" + module, module, "")
 
-    roots = ({p.parent / "Plugins" for p in files} if build_catalog
-             else {engine_root / "Plugins", project_file.parent / "Plugins"})
+    roots = {engine_root / "Plugins", project_file.parent / "Plugins"}
     def discover(directory, search_root):
         if discovery_directories is not None:
             discovery_directories.add(directory)
@@ -194,7 +193,7 @@ def _resolve_plugins(engine_root: Path, project_file: Path, *, platform="Win64",
     for root in sorted(roots):
         discover(root, root)
     overrides = next(o for p, _, o in projects if p == project_file)
-    explicit = {} if build_catalog else {name.lower(): enabled for name, enabled in overrides.items()}
+    explicit = {name.lower(): enabled for name, enabled in overrides.items()}
     for name in explicit:
         if name not in plugins:
             fail(project_file, "missing plugin descriptor " + name, [name])
@@ -231,8 +230,7 @@ def _resolve_plugins(engine_root: Path, project_file: Path, *, platform="Win64",
             if disabled:
                 return disabled
         return None
-    build_roots = {k for k, p in plugins.items() if not p["platforms"] or platform in p["platforms"]}
-    for key in sorted(build_roots if build_catalog else (k for k, enabled in explicit.items() if enabled)):
+    for key in sorted(k for k, enabled in explicit.items() if enabled):
         disabled = disabled_dependency(key, set())
         if disabled:
             inactive[plugins[key]["name"]] = "Requires disabled plugin " + disabled
@@ -249,7 +247,7 @@ def _resolve_plugins(engine_root: Path, project_file: Path, *, platform="Win64",
     def project_roots(variant):
         roots = []
         for path, data, _ in projects:
-            if not build_catalog and path not in (project_file, engine_root / "Engine.dproject"):
+            if path not in (project_file, engine_root / "Engine.dproject"):
                 continue
             roots.extend(data.get("BaseModules", list(data.get("ModuleDirs", {}))))
             roots.extend(data.get("ExtraModules", {}).get(variant, {}).get("Modules", []))
@@ -331,7 +329,8 @@ def _resolve_plugins(engine_root: Path, project_file: Path, *, platform="Win64",
             walk_seen.clear()
             walk_module(key, [source["name"]], [], source)
     if build_catalog:
-        # Build metadata is independent of project override bytes and startup reasons.
+        # The inventory follows the active selection while descriptor hashes
+        # remain independent of project override bytes.
         return dict(Modules=module_order, Inputs=[dict(Path=k, Hash=inputs[k])
                     for k in sorted(inputs) if k.startswith("Plugin/") or k.count("/") == 2]), locations
     manifest = dict(SchemaVersion=1, Platform=platform, RuntimeVariant=runtime_variant,
