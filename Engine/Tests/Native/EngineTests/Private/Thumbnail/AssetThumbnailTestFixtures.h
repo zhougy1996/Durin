@@ -138,14 +138,14 @@ namespace Durin::Tests
 		{
 			View.bForceLOD0 = bForceLOD0;
 		}
-		auto SetView() -> std::expected<void, std::string>
+		auto SetView() -> void
 		{
-			return Pool.SetView(View);
+			Pool.SetView(View);
 		}
 		auto SetViewEnvironment(
-			const FViewEnvironmentOverride& Environment) -> std::expected<void, std::string>
+			const FViewEnvironmentOverride& Environment) -> void
 		{
-			return Pool.SetViewEnvironment(Environment);
+			Pool.SetViewEnvironment(Environment);
 		}
 
 		auto GetSphereMesh() -> DStaticMesh*
@@ -187,7 +187,8 @@ namespace Durin::Tests
 			for (uint32 SlotIndex = 0; SlotIndex < Component->GetNumMaterials(); ++SlotIndex)
 				Component->SetMaterial(SlotIndex, Material);
 			Component->SetWorldTransform(Transform);
-			return Pool.SetView(View);
+			Pool.SetView(View);
+			return {};
 		}
 
 		auto SetTextureCube(
@@ -206,9 +207,9 @@ namespace Durin::Tests
 					1.0f / std::tan(Math::DegreesToRadians(
 						TextureEditor::FTextureCubeThumbnailRendererVisualContract::
 							VerticalFieldOfViewDegrees) * 0.5f))));
-			return Pool.SetView(View).and_then([&] {
-				return Pool.SetViewEnvironment({.TextureReference = TextureReference});
-			});
+			Pool.SetView(View);
+			Pool.SetViewEnvironment({.TextureReference = TextureReference});
+			return {};
 		}
 
 		auto SetStaticMesh(
@@ -250,7 +251,8 @@ namespace Durin::Tests
 				ThumbnailView.CameraUp.z};
 			View.NearClipDistance = ThumbnailView.NearClipDistance;
 			View.FarClipDistance = ThumbnailView.FarClipDistance;
-			return Pool.SetView(View);
+			Pool.SetView(View);
+			return {};
 		}
 
 		auto BeginCapture(bool bOutputOpaque = true) -> std::expected<void, std::string>
@@ -259,8 +261,8 @@ namespace Durin::Tests
 			View.ClearGreen = bOutputOpaque ? Contract.BackgroundGreen : 0.0f;
 			View.ClearBlue = bOutputOpaque ? Contract.BackgroundBlue : 0.0f;
 			View.ClearAlpha = bOutputOpaque ? 1.0f : 0.0f;
-			return Pool.SetScene(Scene).and_then([&] { return Pool.SetView(View); })
-				.and_then([&] { return Pool.BeginCapture(); });
+			Pool.SetView(View);
+			return Pool.SetScene(Scene).and_then([&] { return Pool.BeginCapture(); });
 		}
 
 		auto PollCapture() -> std::expected<std::optional<FByteBuffer>, std::string>

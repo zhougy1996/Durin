@@ -333,41 +333,15 @@ namespace Durin
 				Job.GenerationRequest;
 			IThumbnailRendererSession* Session =
 				Request.GetRenderedSession();
-			if (!Capture)
+			std::string Error;
+			if (!Capture) Error = Capture.error();
+			else if (!Session) Error = "The rendered-thumbnail renderer was removed.";
+			else if (auto Valid = Session->ValidatePreparedInput(); !Valid)
+				Error = Valid.error().empty() ? "The rendered-thumbnail input is no longer valid." : Valid.error();
+			if (Pipeline.CompleteCapture(Job, Capture ? FByteView(**Capture) : FByteView{},
+				Request.KeyInput.Output.Width, Request.KeyInput.Output.Height, Error))
 			{
-				Pipeline.CompleteRender(
-					Job, Capture.error());
-			}
-			else if (auto Validation = Session ? Session->ValidatePreparedInput()
-				: std::expected<void, std::string>(std::unexpected("The rendered-thumbnail renderer was removed.")); !Validation)
-			{
-				Pipeline.CompleteRender(Job, Validation.error().empty()
-					? "The rendered-thumbnail input is no longer valid." : Validation.error());
-			}
-			else if (Pipeline.CompleteRender(
-					Job)
-				&& Pipeline.CompleteReadback(
-					Job)
-				&& Pipeline.CompletePixels(
-					Job,
-					**Capture,
-					Request.KeyInput.Output.Width,
-					Request.KeyInput.Output.Height,
-					{},
-					[Session]() {
-						auto Validation = Session->ValidatePreparedInput();
-						if (Validation) return std::string{};
-						// CompletePixels uses an empty diagnostic to indicate success.
-						return Validation.error().empty()
-							? std::string("The rendered-thumbnail input is no longer valid.")
-							: std::move(Validation.error());
-					}))
-			{
-				QueueUpload(
-					Request,
-					std::move(**Capture),
-					Request.KeyInput.Output.Width,
-					Request.KeyInput.Output.Height);
+				QueueUpload(Request, std::move(**Capture), Request.KeyInput.Output.Width, Request.KeyInput.Output.Height);
 			}
 			ResetCapture();
 		}
@@ -466,8 +440,7 @@ namespace Durin
 					return;
 				}
 			}
-			Pipeline.CompleteRender(
-				Job, Error);
+			Pipeline.CompleteCapture(Job, {}, 0, 0, Error);
 			if (CaptureOutput) CaptureOutput->Reset();
 			ResetPreparing();
 		}
@@ -482,7 +455,7 @@ namespace Durin
 				ResetPreparing();
 				return;
 			}
-			HandlePreparedUpdate(Session->PollResources());
+			HandlePreparedUpdate(Session->Update());
 		}
 
 		auto PollParkedJobs() -> void
@@ -512,7 +485,7 @@ namespace Durin
 				if (!bRelease && !Parked.bReady
 					&& FrameNumber >= Parked.NextPollFrame)
 				{
-					Parked.LastUpdate = Session->PollResources();
+					Parked.LastUpdate = Session->Update();
 					Parked.NextPollFrame = FrameNumber + PollInterval;
 					if (Parked.LastUpdate.State
 						== EThumbnailRendererSessionState::Failed)
@@ -611,7 +584,7 @@ namespace Durin
 				ResetPreparing();
 				return true;
 			}
-			const FThumbnailRendererSessionUpdate Update = (*Session)->Load();
+			const FThumbnailRendererSessionUpdate Update = (*Session)->Update();
 			if (!Pipeline.CompleteLoad(
 					Job, Update.Diagnostic))
 			{

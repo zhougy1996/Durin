@@ -36,6 +36,21 @@ namespace Durin
 		virtual ~IAssetThumbnailGenerationInput() = default;
 	};
 
+	// Immutable feature data; scheduler identity and lifetime stay in the manager.
+	struct FThumbnailGenerationData
+	{
+		FAssetThumbnailOutputSettings Output;
+		std::string PreviewFixtureIdentity;
+		uint32 PreviewFixtureVersion = 0;
+		uint32 ShaderContractVersion = 0;
+		std::vector<FAssetThumbnailPackageFingerprint> Dependencies;
+		std::shared_ptr<const IAssetThumbnailGenerationInput> Input;
+		bool bHasTransparency = true;
+
+		DURINED_API auto MakeKeyInput(const FAssetThumbnailPackageFingerprint& Asset,
+			const FThumbnailRenderingInfo& Renderer) const -> FAssetThumbnailKeyInput;
+	};
+
 	// Keeps renderer-owned request data behind a core-owned invalidation boundary.
 	// Copies share only DurinEd state; renderer removal clears the input and session
 	// from every copy before the scoped registration handle returns.
@@ -66,9 +81,6 @@ namespace Durin
 	struct FAssetThumbnailGenerationRequest
 	{
 		FAssetThumbnailKeyInput KeyInput;
-		// Capture-only transfer slot. The registry moves this into RendererLease
-		// before a request enters renderer-neutral scheduling.
-		std::shared_ptr<const IAssetThumbnailGenerationInput> Input;
 		FAssetThumbnailGenerationLease RendererLease;
 		FAssetThumbnailCancellation Cancellation;
 		uint64 RendererGeneration = 0;
@@ -99,21 +111,16 @@ namespace Durin
 		DURINED_API auto GetPreviewScene() -> FThumbnailPreviewScene&;
 
 		virtual auto GetRegistration() const -> FThumbnailRenderingInfo = 0;
-		virtual auto CaptureGenerationRequest(
-			const FAssetThumbnailRequest& Request,
-			uint64 RendererGeneration) -> std::expected<FAssetThumbnailGenerationRequest, std::string> = 0;
+		virtual auto CaptureGenerationInput(const FAssetThumbnailPackageFingerprint& Asset) -> std::expected<FThumbnailGenerationData, std::string> = 0;
 		// Creates renderer-owned state for a persistent-cache miss.
-		DURINED_API virtual auto CreateGenerationSession(
-			const FAssetThumbnailGenerationRequest&,
-			const IAssetThumbnailGenerationInput&)
-			-> std::expected<std::unique_ptr<IThumbnailRendererSession>, std::string>;
+		DURINED_API virtual auto CreateGenerationSession(const IAssetThumbnailGenerationInput&)
+			-> std::unique_ptr<IThumbnailRendererSession>;
 	protected:
 		DURINED_API explicit DThumbnailRenderer(
 			const FObjectInitializer& ObjectInitializer);
 	private:
 		std::unique_ptr<FThumbnailPreviewScene> PreviewScene;
 	};
-
 
 	// Reports the renderer-owned cold-generation state observed by the shared core.
 	enum class EThumbnailRendererSessionState : uint8
@@ -162,29 +169,28 @@ namespace Durin
 
 		virtual auto SetScene(FThumbnailPreviewScene& Scene) -> std::expected<void, std::string> = 0;
 		virtual auto SetView(
-			const FThumbnailPreviewView& View) -> std::expected<void, std::string> = 0;
+			const FThumbnailPreviewView& View) -> void = 0;
 		virtual auto SetViewEnvironment(
-			const FViewEnvironmentOverride& Environment) -> std::expected<void, std::string> = 0;
-		virtual auto SetImageRenderer(FThumbnailImageRenderer Renderer) -> std::expected<void, std::string>
+			const FViewEnvironmentOverride& Environment) -> void = 0;
+		virtual auto SetImageRenderer(FThumbnailImageRenderer Renderer) -> void
 		{
-			return std::unexpected("This capture context does not support image rendering.");
+			checkf(false, "This capture context does not support image rendering.");
 		}
 	};
 
 	// Owns all renderer-specific state for one persistent-cache miss.
-	// Load submits nonblocking asset requests. PollResources captures loaded inputs once
+	// Update starts nonblocking asset requests once, captures loaded inputs once
 	// and advances nonblocking resource requests until ready. PreparePreview
 	// captures the resource inputs retained until ResetPreview; later polling must not
 	// replace them. ValidatePreparedInput rejects missing, reset, or changed inputs.
 	// Every method runs on the game thread. ResetPreview is idempotent and is called
-	// before the session can be destroyed by normal completion or renderer removal.
+	// before destruction. Reset is terminal; Update never restarts a reset session.
 	class IThumbnailRendererSession
 	{
 	public:
 		virtual ~IThumbnailRendererSession() = default;
 
-		virtual auto Load() -> FThumbnailRendererSessionUpdate = 0;
-		virtual auto PollResources() -> FThumbnailRendererSessionUpdate = 0;
+		virtual auto Update() -> FThumbnailRendererSessionUpdate = 0;
 		virtual auto PreparePreview(
 			IThumbnailRenderContext& Context) -> std::expected<void, std::string> = 0;
 		virtual auto ValidatePreparedInput() const -> std::expected<void, std::string> = 0;

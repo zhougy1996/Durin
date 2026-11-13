@@ -44,21 +44,11 @@ namespace Durin
 			FAssetThumbnailScheduledRequest& Job,
 			bool bResourcesReady,
 			std::string_view Error = {}) -> bool;
-		DURINED_API auto CompleteRender(
+		// Accepts one completed capture, validates pixels and schedules persistence.
+		DURINED_API auto CompleteCapture(
 			const FAssetThumbnailScheduledRequest& Job,
+			FByteView Pixels, uint32 Width, uint32 Height,
 			std::string_view Error = {}) -> bool;
-		DURINED_API auto CompleteReadback(
-			const FAssetThumbnailScheduledRequest& Job,
-			std::string_view Error = {}) -> bool;
-		// Validates RGBA8 pixels on the caller and makes them displayable
-		// immediately and encodes/saves independently without retaining the validator.
-		DURINED_API auto CompletePixels(
-			const FAssetThumbnailScheduledRequest& Job,
-			FByteView Pixels,
-			uint32 Width,
-			uint32 Height,
-			std::string_view Error = {},
-			std::function<std::string()> ValidateBeforePublication = {}) -> bool;
 		DURINED_API auto Cancel(const FAssetThumbnailScheduledRequest& Job) -> void;
 		DURINED_API auto RecordRetry() -> void;
 		DURINED_API auto GetStats() const -> FAssetThumbnailGenerationStats;

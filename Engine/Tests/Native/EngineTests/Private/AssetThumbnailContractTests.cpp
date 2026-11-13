@@ -50,8 +50,7 @@ namespace Durin
 		{
 			Pipeline.BeginFrame();
 			return Pipeline.CompleteLoad(Job) && Pipeline.BeginRender(Job, true)
-				&& Pipeline.CompleteRender(Job) && Pipeline.CompleteReadback(Job)
-				&& Pipeline.CompletePixels(Job, Pixels, Width, Height);
+				&& Pipeline.CompleteCapture(Job, Pixels, Width, Height);
 		}
 
 		constexpr uint8 WrongSizedThumbnailPng[] = {
@@ -142,22 +141,16 @@ namespace Durin
 				return Registration;
 			}
 
-			auto CaptureGenerationRequest(
-				const FAssetThumbnailRequest& Request,
-				uint64 RendererGeneration)
-				-> std::expected<FAssetThumbnailGenerationRequest, std::string> override
+			auto CaptureGenerationInput(const FAssetThumbnailPackageFingerprint& Asset)
+				-> std::expected<FThumbnailGenerationData, std::string> override
 			{
-				FAssetThumbnailGenerationRequest OutRequest;
+				FThumbnailGenerationData OutRequest;
 				if (!bCaptureSucceeds)
 				{
 					return std::unexpected("The test renderer rejected the asset.");
 				}
-				OutRequest.KeyInput.Asset = Request.Asset;
-				OutRequest.KeyInput.RendererName = Registration.RendererName;
-				OutRequest.KeyInput.GeneratorSchemaVersion = Registration.GeneratorSchemaVersion;
-				OutRequest.RendererGeneration = RendererGeneration;
-				OutRequest.RequestSerial = Request.RequestSerial;
-				if (bSmallOutput) OutRequest.KeyInput.Output = {.Width = 1, .Height = 1};
+
+				if (bSmallOutput) OutRequest.Output = {.Width = 1, .Height = 1};
 				return OutRequest;
 			}
 
@@ -172,7 +165,7 @@ namespace Durin
 			uint32 Captures = 0;
 			std::vector<FAssetThumbnailPackageFingerprint> Dependencies;
 			uint32 Sessions = 0;
-			std::optional<std::string> SessionFailure;
+			bool bReturnEmptySession = false;
 			uint32 PreviewPreparations = 0;
 			uint32 PreviewResets = 0;
 			uint32 InputDestructions = 0;
@@ -207,17 +200,17 @@ namespace Durin
 			auto SetScene(FThumbnailPreviewScene&) -> std::expected<void, std::string> override { return {}; }
 
 			auto SetView(
-				const FThumbnailPreviewView& View) -> std::expected<void, std::string> override
+				const FThumbnailPreviewView& View) -> void override
 			{
 				LastView = View;
-				return {};
+
 			}
 
 			auto SetViewEnvironment(
-				const FViewEnvironmentOverride& Environment) -> std::expected<void, std::string> override
+				const FViewEnvironmentOverride& Environment) -> void override
 			{
 				LastEnvironment = Environment;
-				return {};
+
 			}
 
 			FThumbnailPreviewView LastView;
@@ -239,16 +232,18 @@ namespace Durin
 				++State->SessionDestructions;
 			}
 
-			auto Load() -> FThumbnailRendererSessionUpdate override
+			auto Update() -> FThumbnailRendererSessionUpdate override
 			{
-				return {
-					.State = State->ResourcePollsBeforeReady == 0
-						? EThumbnailRendererSessionState::ReadyToRender
-						: EThumbnailRendererSessionState::WaitingForResources};
-			}
+				if (bReset) return {.Diagnostic = "The thumbnail session was reset."};
+				if (!bStarted)
+				{
+					bStarted = true;
+					return {
+						.State = State->ResourcePollsBeforeReady == 0
+							? EThumbnailRendererSessionState::ReadyToRender
+							: EThumbnailRendererSessionState::WaitingForResources};
+				}
 
-			auto PollResources() -> FThumbnailRendererSessionUpdate override
-			{
 				++State->ResourcePolls;
 				const bool bReady = State->ResourcePolls
 					> State->ResourcePollsBeforeReady;
@@ -263,7 +258,7 @@ namespace Durin
 			{
 				FThumbnailPreviewView View;
 				View.CameraPosition = {2.0, -2.0, 1.0};
-				if (auto ViewResult = PreviewScene.SetView(View); !ViewResult) return ViewResult;
+				PreviewScene.SetView(View);
 				++State->PreviewPreparations;
 				return {};
 			}
@@ -285,6 +280,7 @@ namespace Durin
 			}
 
 		private:
+			bool bStarted = false;
 			std::shared_ptr<FFakeThumbnailRendererState> State;
 			bool bReset = false;
 		};
@@ -315,40 +311,31 @@ namespace Durin
 					.GeneratorSchemaVersion = 1};
 			}
 
-			auto CaptureGenerationRequest(
-				const FAssetThumbnailRequest& Request,
-				uint64 RendererGeneration)
-				-> std::expected<FAssetThumbnailGenerationRequest, std::string> override
+			auto CaptureGenerationInput(const FAssetThumbnailPackageFingerprint& Asset)
+				-> std::expected<FThumbnailGenerationData, std::string> override
 			{
-				FAssetThumbnailGenerationRequest OutRequest;
+				FThumbnailGenerationData OutRequest;
 				++State->Captures;
-				OutRequest.KeyInput = {
-					.Asset = Request.Asset,
-					.RendererName = "Durin.Tests.FakeThumbnail",
-					.GeneratorSchemaVersion = 1,
+				OutRequest = {
+
 					.Output = {.Width = 1, .Height = 1},
 					.PreviewFixtureIdentity = "/Tests/FakeThumbnail",
 					.PreviewFixtureVersion = 1,
 					.ShaderContractVersion = 1};
-				OutRequest.KeyInput.Dependencies = State->Dependencies;
+				OutRequest.Dependencies = State->Dependencies;
 				OutRequest.Input =
 					std::make_shared<FFakeThumbnailInput>(State);
-				OutRequest.RendererGeneration = RendererGeneration;
-				OutRequest.RequestSerial = Request.RequestSerial;
+
 				return OutRequest;
 			}
 
-			auto CreateGenerationSession(
-				const FAssetThumbnailGenerationRequest& Request,
-				const IAssetThumbnailGenerationInput& Input)
-				-> std::expected<std::unique_ptr<IThumbnailRendererSession>, std::string> override
+			auto CreateGenerationSession(const IAssetThumbnailGenerationInput& Input)
+				-> std::unique_ptr<IThumbnailRendererSession> override
 			{
-				(void)Request;
-				if (dynamic_cast<const FFakeThumbnailInput*>(&Input) == nullptr)
-				{
-					return std::unexpected("The fake rendered-thumbnail input type is invalid.");
-				}
-				if (State->SessionFailure) return std::unexpected(*State->SessionFailure);
+
+				checkf(dynamic_cast<const FFakeThumbnailInput*>(&Input) != nullptr,
+					"The fake rendered-thumbnail input type is invalid.");
+				if (State->bReturnEmptySession) return nullptr;
 				++State->Sessions;
 				return std::make_unique<FFakeThumbnailSession>(State);
 			}
@@ -1226,21 +1213,21 @@ namespace Durin
 		Pipeline.BeginFrame();
 		std::optional<FAssetThumbnailScheduledRequest> ColdJob = StartThumbnailWork(Pipeline).ColdJob;
 		ASSERT_TRUE(ColdJob);
-		State->SessionFailure = "";
+		EXPECT_EQ(ColdJob->GenerationRequest.KeyInput.Asset, ColdRequest.Asset);
+		EXPECT_EQ(ColdJob->GenerationRequest.KeyInput.RendererName, "Durin.Tests.FakeThumbnail");
+		EXPECT_EQ(ColdJob->GenerationRequest.RequestSerial, ColdRequest.RequestSerial);
+		EXPECT_EQ(ColdJob->GenerationRequest.RendererGeneration, Registry.Find("DFakeRenderedAsset").Generation);
+		State->bReturnEmptySession = true;
 		const auto EmptyFailure = ColdJob->GenerationRequest.BeginRenderedSession();
 		ASSERT_FALSE(EmptyFailure);
 		EXPECT_FALSE(EmptyFailure.error().empty());
 		EXPECT_EQ(ColdJob->GenerationRequest.GetRenderedSession(), nullptr);
-		State->SessionFailure = "Renderer-specific session failure.";
-		const auto DetailedFailure = ColdJob->GenerationRequest.BeginRenderedSession();
-		ASSERT_FALSE(DetailedFailure);
-		EXPECT_EQ(DetailedFailure.error(), *State->SessionFailure);
-		State->SessionFailure.reset();
+		State->bReturnEmptySession = false;
 		auto Session = ColdJob->GenerationRequest.BeginRenderedSession();
 		ASSERT_TRUE(Session) << Session.error();
 		ASSERT_NE(*Session, nullptr);
 		EXPECT_FALSE((*Session)->ValidatePreparedInput());
-		const FThumbnailRendererSessionUpdate Update = (*Session)->Load();
+		const FThumbnailRendererSessionUpdate Update = (*Session)->Update();
 		ASSERT_EQ(Update.State, EThumbnailRendererSessionState::ReadyToRender);
 		FFakeThumbnailPreviewScene PreviewScene;
 		ASSERT_TRUE((*Session)->PreparePreview(PreviewScene));
@@ -1248,12 +1235,8 @@ namespace Durin
 		ASSERT_TRUE(Pipeline.CompleteLoad(*ColdJob));
 		ASSERT_TRUE(Pipeline.BeginRender(
 			*ColdJob, true));
-		ASSERT_TRUE(Pipeline.CompleteRender(
-			*ColdJob));
-		ASSERT_TRUE(Pipeline.CompleteReadback(
-			*ColdJob));
 		const FByteBuffer Pixels(4, std::byte{127});
-		ASSERT_TRUE(Pipeline.CompletePixels(*ColdJob, Pixels, 1, 1));
+		ASSERT_TRUE(Pipeline.CompleteCapture(*ColdJob, Pixels, 1, 1));
 		Pipeline.WaitForCacheTasksForTesting();
 		ColdJob->GenerationRequest.ReleaseRenderedSession();
 		EXPECT_EQ(State->PreviewResets, 1u);
@@ -1283,7 +1266,6 @@ namespace Durin
 			3
 		))));
 	}
-
 
 	TEST(FAssetThumbnailContractTests, ScopedRemovalRejectsEveryInFlightStateAndDrainsSession)
 	{
@@ -1614,10 +1596,8 @@ namespace Durin
 			ASSERT_TRUE(Job);
 			ASSERT_TRUE(Pipeline.CompleteLoad(*Job));
 			ASSERT_TRUE(Pipeline.BeginRender(*Job, true));
-			ASSERT_TRUE(Pipeline.CompleteRender(*Job));
-			ASSERT_TRUE(Pipeline.CompleteReadback(*Job));
 			const FByteBuffer Pixels(256 * 256 * 4, std::byte{127});
-			ASSERT_TRUE(Pipeline.CompletePixels(*Job, Pixels, 256, 256));
+			ASSERT_TRUE(Pipeline.CompleteCapture(*Job, Pixels, 256, 256));
 			Pipeline.WaitForCacheTasksForTesting();
 			EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, EAssetThumbnailState::Ready);
 			const FAssetThumbnailGenerationStats Stats = Pipeline.GetStats();
@@ -1654,12 +1634,10 @@ namespace Durin
 		const std::string CacheKey = Job->CacheKey;
 		ASSERT_TRUE(Pipeline.CompleteLoad(*Job));
 		ASSERT_TRUE(Pipeline.BeginRender(*Job, true));
-		ASSERT_TRUE(Pipeline.CompleteRender(*Job));
-		ASSERT_TRUE(Pipeline.CompleteReadback(*Job));
 		const std::array<uint8, 8> Pixels = {
 			255, 0, 0, 255,
 			0, 255, 0, 128};
-		ASSERT_TRUE(Pipeline.CompletePixels(
+		ASSERT_TRUE(Pipeline.CompleteCapture(
 			*Job, std::as_bytes(std::span{Pixels}), 2, 1));
 
 		Pipeline.WaitForCacheTasksForTesting();
@@ -1678,7 +1656,7 @@ namespace Durin
 			ExpectedPixels.begin(), ExpectedPixels.end()));
 	}
 
-	TEST(FAssetThumbnailContractTests, RenderedPipelineRevalidatesBeforePublishingAndSavingPixels)
+	TEST(FAssetThumbnailContractTests, RenderedPipelineRejectsFailedCaptureWithoutPublishingOrSavingPixels)
 	{
 		const std::filesystem::path Root = MakeObjectStoreRoot("RenderedPipelinePublicationValidation");
 		DThumbnailManager Registry;
@@ -1701,25 +1679,19 @@ namespace Durin
 		const std::string CacheKey = Job->CacheKey;
 		ASSERT_TRUE(Pipeline.CompleteLoad(*Job));
 		ASSERT_TRUE(Pipeline.BeginRender(*Job, true));
-		ASSERT_TRUE(Pipeline.CompleteRender(*Job));
-		ASSERT_TRUE(Pipeline.CompleteReadback(*Job));
 		const std::array<uint8, 4> Pixels = {255, 255, 255, 255};
-		EXPECT_FALSE(Pipeline.CompletePixels(
+		EXPECT_FALSE(Pipeline.CompleteCapture(
 			*Job,
 			std::as_bytes(std::span{Pixels}),
 			1,
 			1,
-			{},
-			[] { return std::string("StaticMesh changed before publication."); }));
+			"StaticMesh changed before publication."));
 		EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, EAssetThumbnailState::Failed);
 
 		FThumbnailObjectStore Store({.CacheRoot = Root, .ObjectExtension = ".png"});
 		Durin::FByteBuffer Encoded;
 		EXPECT_EQ(Store.Load(CacheKey, Encoded), EThumbnailObjectLoadResult::Miss);
 	}
-
-
-
 
 	TEST(FAssetThumbnailContractTests, RenderedPipelineBoundsRendersAndRejectsStaleCompletions)
 	{
@@ -1754,15 +1726,15 @@ namespace Durin
 
 		Pipeline.BeginFrame();
 		EXPECT_TRUE(Pipeline.BeginRender(*Second, true));
-		EXPECT_FALSE(Pipeline.CompleteReadback(*Second));
-		EXPECT_EQ(Scheduler.Find(SecondRequest.Asset.AssetPath).State, EAssetThumbnailState::Rendering);
-		EXPECT_TRUE(Pipeline.CompleteRender(*Second));
+		const FByteBuffer Pixels(4, std::byte{255});
+		EXPECT_TRUE(Pipeline.CompleteCapture(*Second, Pixels, 1, 1));
+		EXPECT_FALSE(Pipeline.CompleteCapture(*Second, Pixels, 1, 1));
 
 		const FAssetThumbnailRequest Replacement =
 			MakeThumbnailRequest("/ThumbnailTests/FirstRendered", "DMaterial", 2,
 				EAssetThumbnailPriority::Visible, 200);
 		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Replacement)));
-		EXPECT_FALSE(Pipeline.CompleteRender(*First));
+		EXPECT_FALSE(Pipeline.CompleteCapture(*First, Pixels, 1, 1));
 		EXPECT_TRUE(First->GenerationRequest.Cancellation.IsCancelled());
 	}
 

@@ -158,11 +158,21 @@ namespace Durin
 		FAssetThumbnailOutputSettings Output;
 		FThumbnailPreviewScene* Scene = nullptr;
 		FTextureRHIRef RenderTarget;
-		FSceneView View;
+		FThumbnailPreviewView View;
 		std::optional<FViewEnvironmentOverride> Environment;
 		FThumbnailImageRenderer ImageRenderer;
 		std::shared_ptr<FCapture> Capture = std::make_shared<FCapture>();
 		std::string Error;
+
+		auto CheckCanConfigure() -> void
+		{
+			checkf(IsInGameThread(), "Thumbnail capture setup belongs to the game thread.");
+			std::lock_guard Lock(Capture->Mutex);
+			checkf(Capture->State != EThumbnailCaptureState::Preparing
+				&& Capture->State != EThumbnailCaptureState::Rendering
+				&& Capture->State != EThumbnailCaptureState::ReadbackPending,
+				"Reset thumbnail capture before changing its setup.");
+		}
 
 		explicit FImpl(FAssetThumbnailOutputSettings InOutput) : Output(InOutput)
 		{
@@ -172,7 +182,7 @@ namespace Durin
 				Error = "Thumbnail output dimensions or renderer are unavailable.";
 				return;
 			}
-			View = BuildView(Output, MakeDefaultPreviewView());
+			View = MakeDefaultPreviewView();
 			FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D(
 				"RenderedAssetThumbnailOutput",
 				Output.Width,
@@ -199,7 +209,7 @@ namespace Durin
 	auto FThumbnailCapture::GetDiagnostic() const -> std::string { return Impl->Error; }
 	auto FThumbnailCapture::SetScene(FThumbnailPreviewScene& Scene) -> std::expected<void, std::string>
 	{
-		checkf(IsInGameThread(), "Thumbnail scene binding belongs to the game thread.");
+		Impl->CheckCanConfigure();
 		if (Impl->Scene == &Scene) return {};
 		if (Impl->Scene || Scene.bCapturing)
 			return std::unexpected("The thumbnail preview scene is already in use.");
@@ -209,79 +219,22 @@ namespace Durin
 		return {};
 	}
 
-	auto FThumbnailCapture::SetView(
-		const FThumbnailPreviewView& View) -> std::expected<void, std::string>
+	auto FThumbnailCapture::SetView(const FThumbnailPreviewView& View) -> void
 	{
-		checkf(IsInGameThread(), "Rendered thumbnail scene mutation must run on the game thread.");
-		if (!IsAvailable())
-		{
-			return std::unexpected(Impl->Error);
-		}
-		{
-			std::lock_guard Lock(Impl->Capture->Mutex);
-			if (Impl->Capture->State == EThumbnailCaptureState::Rendering
-				|| Impl->Capture->State == EThumbnailCaptureState::ReadbackPending
-				|| Impl->Capture->State == EThumbnailCaptureState::Preparing)
-			{
-				return std::unexpected("A rendered-thumbnail capture is already in flight.");
-			}
-		}
-		if (View.NearClipDistance <= 0.0
-			|| View.FarClipDistance <= View.NearClipDistance
-			|| View.VerticalFieldOfViewDegrees <= 0.0
-			|| View.VerticalFieldOfViewDegrees >= 180.0)
-		{
-			return std::unexpected("The rendered-thumbnail preview view is invalid.");
-		}
-		Impl->View = BuildView(Impl->Output, View);
-		return {};
+		Impl->CheckCanConfigure();
+		Impl->View = View;
 	}
 
-	auto FThumbnailCapture::SetViewEnvironment(
-		const FViewEnvironmentOverride& Environment) -> std::expected<void, std::string>
+	auto FThumbnailCapture::SetViewEnvironment(const FViewEnvironmentOverride& Environment) -> void
 	{
-		checkf(IsInGameThread(), "Rendered thumbnail scene mutation must run on the game thread.");
-		if (!IsAvailable())
-		{
-			return std::unexpected(Impl->Error);
-		}
-		{
-			std::lock_guard Lock(Impl->Capture->Mutex);
-			if (Impl->Capture->State == EThumbnailCaptureState::Rendering
-				|| Impl->Capture->State == EThumbnailCaptureState::ReadbackPending
-				|| Impl->Capture->State == EThumbnailCaptureState::Preparing)
-			{
-				return std::unexpected("A rendered-thumbnail capture is already in flight.");
-			}
-		}
-		if (Environment.TextureReference == nullptr
-			|| !Math::IsFinite(Environment.Rotation)
-			|| Math::LengthSquared(Environment.Rotation) <= DoubleSmallNumber
-			|| !Math::IsFinite(Environment.Tint)
-			|| !std::isfinite(Environment.Intensity)
-			|| Environment.Intensity < 0.0f)
-		{
-			return std::unexpected("The rendered-thumbnail view environment is invalid.");
-		}
+		Impl->CheckCanConfigure();
 		Impl->Environment = Environment;
-		Impl->Environment->Rotation = Math::Normalize(Environment.Rotation);
-		return {};
 	}
 
-	auto FThumbnailCapture::SetImageRenderer(FThumbnailImageRenderer Renderer)
-		-> std::expected<void, std::string>
+	auto FThumbnailCapture::SetImageRenderer(FThumbnailImageRenderer Renderer) -> void
 	{
-		checkf(IsInGameThread(), "Thumbnail image setup must run on the game thread.");
-		std::lock_guard Lock(Impl->Capture->Mutex);
-		if (!IsAvailable() || !Renderer
-			|| Impl->Capture->State == EThumbnailCaptureState::Rendering
-			|| Impl->Capture->State == EThumbnailCaptureState::ReadbackPending
-				|| Impl->Capture->State == EThumbnailCaptureState::Preparing)
-		{
-			return std::unexpected("Thumbnail image capture is unavailable or already in flight.");
-		}
+		Impl->CheckCanConfigure();
 		Impl->ImageRenderer = std::move(Renderer);
-		return {};
 	}
 
 	auto FThumbnailCapture::BeginCapture() -> std::expected<void, std::string>
@@ -294,6 +247,17 @@ namespace Durin
 
 		if (!Impl->ImageRenderer && !Impl->Scene)
 			return std::unexpected("The thumbnail capture has no preview scene or image renderer.");
+
+		const auto& ViewSetup = Impl->View;
+		if (ViewSetup.NearClipDistance <= 0.0 || ViewSetup.FarClipDistance <= ViewSetup.NearClipDistance
+			|| ViewSetup.VerticalFieldOfViewDegrees <= 0.0 || ViewSetup.VerticalFieldOfViewDegrees >= 180.0)
+			return std::unexpected("The rendered-thumbnail preview view is invalid.");
+		if (const auto& Environment = Impl->Environment; Environment
+			&& (!Environment->TextureReference || !Math::IsFinite(Environment->Rotation)
+				|| Math::LengthSquared(Environment->Rotation) <= DoubleSmallNumber
+				|| !Math::IsFinite(Environment->Tint) || !std::isfinite(Environment->Intensity)
+				|| Environment->Intensity < 0.0f))
+			return std::unexpected("The rendered-thumbnail view environment is invalid.");
 
 		uint64 Generation = 0;
 		{
@@ -337,7 +301,7 @@ namespace Durin
 		IRendererModule* Renderer = GEngine ? GEngine->GetRendererModule() : nullptr;
 		FSceneInterface* Scene = Impl->Scene ? Impl->Scene->GetRenderScene() : nullptr;
 		FTextureRHIRef RenderTarget = Impl->RenderTarget;
-		const FSceneView View = Impl->View;
+		const FSceneView View = BuildView(Impl->Output, Impl->View);
 		const auto ImageRenderer = Impl->ImageRenderer;
 		const auto Output = Impl->Output;
 		auto Shaders = ImageRenderer
@@ -347,9 +311,11 @@ namespace Durin
 			std::lock_guard Lock(Capture->Mutex);
 			Capture->Shaders = Shaders;
 		}
-		const FSceneViewRenderOptions Options{
+		FSceneViewRenderOptions Options{
 			.Environment = Impl->Environment
 		};
+		if (Options.Environment)
+			Options.Environment->Rotation = Math::Normalize(Options.Environment->Rotation);
 		ENQUEUE_RENDER_COMMAND(RenderAssetThumbnailPreview)(
 			[Capture, Generation, Renderer, Scene, RenderTarget, View, Options, ImageRenderer, Output, Preparation = Capture->Preparation, Shaders = std::move(Shaders)](
 				FRHICommandListImmediate& CommandList
@@ -480,7 +446,7 @@ namespace Durin
 			Impl->Capture->Pixels.clear();
 			Impl->Capture->Error.clear();
 		}
-		Impl->View = BuildView(Impl->Output, MakeDefaultPreviewView());
+		Impl->View = MakeDefaultPreviewView();
 		Impl->Environment.reset();
 		Impl->ImageRenderer = {};
 		if (Impl->Scene) Impl->Scene->bCapturing = false;

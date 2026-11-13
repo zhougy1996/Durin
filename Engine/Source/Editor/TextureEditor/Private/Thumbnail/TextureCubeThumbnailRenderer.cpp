@@ -100,13 +100,6 @@ namespace Durin::TextureEditor
 
 			~FTextureCubeThumbnailGenerationSession() override { ResetPreview(); }
 
-			auto Load() -> FThumbnailRendererSessionUpdate override
-			{
-				ResetPreview();
-				AssetLoad = StreamableManager.RequestAsyncLoad(AssetPath, {}, DTextureCube::StaticClass());
-				return {.State = EThumbnailRendererSessionState::WaitingForResources};
-			}
-
 			auto FinishLoad() -> FThumbnailRendererSessionUpdate
 			{
 				const bool Result = !AssetLoad->HasError();
@@ -127,8 +120,15 @@ namespace Durin::TextureEditor
 					.State = EThumbnailRendererSessionState::WaitingForResources};
 			}
 
-			auto PollResources() -> FThumbnailRendererSessionUpdate override
+			auto Update() -> FThumbnailRendererSessionUpdate override
 			{
+				if (!bStarted)
+				{
+					bStarted = true;
+					AssetLoad = StreamableManager.RequestAsyncLoad(AssetPath, {}, DTextureCube::StaticClass());
+					return {.State = EThumbnailRendererSessionState::WaitingForResources};
+				}
+
 				if (!AssetLoad) return {.Diagnostic = "The thumbnail load was reset."};
 				if (!AssetLoad->IsComplete())
 					return {.State = EThumbnailRendererSessionState::WaitingForResources};
@@ -177,9 +177,9 @@ namespace Durin::TextureEditor
 						AssetPath.ToString()));
 				}
 				if (auto Bound = Context.SetScene(Renderer.GetPreviewScene()); !Bound) return Bound;
-				if (auto ViewResult = Context.SetView(MakeTextureCubeThumbnailView()); !ViewResult)
-					return ViewResult;
-				return Context.SetViewEnvironment({.TextureReference = TextureReference});
+				Context.SetView(MakeTextureCubeThumbnailView());
+				Context.SetViewEnvironment({.TextureReference = TextureReference});
+				return {};
 			}
 
 			auto ValidatePreparedInput() const -> std::expected<void, std::string> override
@@ -198,6 +198,7 @@ namespace Durin::TextureEditor
 
 			auto ResetPreview() -> void override
 			{
+				bStarted = true;
 				Snapshot = nullptr;
 				TextureCube = nullptr;
 				bAssetLoaded = false;
@@ -208,6 +209,7 @@ namespace Durin::TextureEditor
 			}
 
 		private:
+			bool bStarted = false;
 			FShaderMapPreparation Shaders;
 			bool bShadersRequested = false;
 			FStreamableManager StreamableManager;
@@ -233,33 +235,31 @@ namespace Durin::TextureEditor
 			.GeneratorSchemaVersion = TextureCubeThumbnailGeneratorSchema};
 	}
 
-	auto DTextureCubeThumbnailRenderer::CaptureGenerationRequest(
-		const FAssetThumbnailRequest& Request,
-		uint64 RendererGeneration) -> std::expected<FAssetThumbnailGenerationRequest, std::string>
+	auto DTextureCubeThumbnailRenderer::CaptureGenerationInput(const FAssetThumbnailPackageFingerprint& Asset) -> std::expected<FThumbnailGenerationData, std::string>
 	{
-		FAssetThumbnailGenerationRequest GenerationRequest;
+		FThumbnailGenerationData Result;
 
 		const FThumbnailRenderingInfo Registration = GetRegistration();
-		if (Request.Asset.AssetClassName != Registration.AssetClassName)
+		if (Asset.AssetClassName != Registration.AssetClassName)
 		{
 			return std::unexpected("The TextureCube thumbnail renderer received the wrong asset class.");
 		}
-		const FAssetCatalogEntry Entry = FindAssetExact(Request.Asset.AssetPath, EAssetQuerySource::OnDisk);
-		if (!Entry || Entry.Package->PackagePath != Request.Asset.PackagePath)
+		const FAssetCatalogEntry Entry = FindAssetExact(Asset.AssetPath, EAssetQuerySource::OnDisk);
+		if (!Entry || Entry.Package->PackagePath != Asset.PackagePath)
 		{
 			return std::unexpected(std::format(
 				"TextureCube thumbnail registry data is missing for {}.",
-				Request.Asset.AssetPath.ToString()));
+				Asset.AssetPath.ToString()));
 		}
-		if (MakeFingerprint(*Entry.Package, *Entry.Asset) != Request.Asset)
+		if (MakeFingerprint(*Entry.Package, *Entry.Asset) != Asset)
 		{
 			return std::unexpected(std::format(
 				"TextureCube thumbnail registry data changed for {}; refresh the request snapshot.",
-				Request.Asset.AssetPath.ToString()));
+				Asset.AssetPath.ToString()));
 		}
 
 		const FThumbnailVisualContract Visual;
-		GenerationRequest.KeyInput = {
+		Result = {
 			.Output = Visual.Output,
 			.PreviewFixtureIdentity =
 				std::string(
@@ -267,26 +267,20 @@ namespace Durin::TextureEditor
 			.PreviewFixtureVersion =
 				FThumbnailVisualContract::TextureCubeEnvironmentViewVersion,
 			.ShaderContractVersion = TextureCubeThumbnailShaderContract};
-		GenerationRequest.Input =
+		Result.Input =
 			std::make_shared<FTextureCubeThumbnailGenerationInput>(
-				Request.Asset.AssetPath);
-		GenerationRequest.RendererGeneration = RendererGeneration;
-		GenerationRequest.RequestSerial = Request.RequestSerial;
-		GenerationRequest.bHasTransparency = false;
-		return GenerationRequest;
+				Asset.AssetPath);
+
+		Result.bHasTransparency = false;
+		return Result;
 	}
 
-	auto DTextureCubeThumbnailRenderer::CreateGenerationSession(
-		const FAssetThumbnailGenerationRequest&,
-		const IAssetThumbnailGenerationInput& Input)
-		-> std::expected<std::unique_ptr<IThumbnailRendererSession>, std::string>
+	auto DTextureCubeThumbnailRenderer::CreateGenerationSession(const IAssetThumbnailGenerationInput& Input)
+		-> std::unique_ptr<IThumbnailRendererSession>
 	{
 		const auto* TextureCubeInput =
 			dynamic_cast<const FTextureCubeThumbnailGenerationInput*>(&Input);
-		if (TextureCubeInput == nullptr)
-		{
-			return std::unexpected("The TextureCube thumbnail generation input is invalid.");
-		}
+		checkf(TextureCubeInput != nullptr, "The TextureCube thumbnail generation input is invalid.");
 		return std::make_unique<FTextureCubeThumbnailGenerationSession>(
 			*this, TextureCubeInput->AssetPath);
 	}

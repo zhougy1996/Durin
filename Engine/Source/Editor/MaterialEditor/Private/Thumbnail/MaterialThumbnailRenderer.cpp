@@ -178,13 +178,6 @@ namespace Durin::MaterialEditor
 				ResetPreview();
 			}
 
-			auto Load() -> FThumbnailRendererSessionUpdate override
-			{
-				ResetPreview();
-				MaterialLoad = StreamableManager.RequestAsyncLoad(AssetPath, {}, DMaterialInterface::StaticClass());
-				return {.State = EThumbnailRendererSessionState::WaitingForResources};
-			}
-
 			auto FinishLoad() -> FThumbnailRendererSessionUpdate
 			{
 				std::string SphereError;
@@ -240,8 +233,15 @@ namespace Durin::MaterialEditor
 					.State = EThumbnailRendererSessionState::WaitingForResources};
 			}
 
-			auto PollResources() -> FThumbnailRendererSessionUpdate override
+			auto Update() -> FThumbnailRendererSessionUpdate override
 			{
+				if (!bStarted)
+				{
+					bStarted = true;
+					MaterialLoad = StreamableManager.RequestAsyncLoad(AssetPath, {}, DMaterialInterface::StaticClass());
+					return {.State = EThumbnailRendererSessionState::WaitingForResources};
+				}
+
 				if (!MaterialLoad) return {.Diagnostic = "The thumbnail load was reset."};
 				if (!MaterialLoad->IsComplete())
 					return {.State = EThumbnailRendererSessionState::WaitingForResources};
@@ -342,11 +342,7 @@ namespace Durin::MaterialEditor
 				FTransform Transform;
 				Transform.Scale3D = FVector3(MaterialThumbnailSphereScale);
 				Component->SetWorldTransform(Transform);
-				if (auto ViewResult = Context.SetView(MakeMaterialPreviewView()); !ViewResult)
-				{
-					ResetPreview();
-					return std::unexpected(std::move(ViewResult.error()));
-				}
+				Context.SetView(MakeMaterialPreviewView());
 				return {};
 			}
 
@@ -376,6 +372,7 @@ namespace Durin::MaterialEditor
 
 			auto ResetPreview() -> void override
 			{
+				bStarted = true;
 				ResetScenePreview();
 				DependencySnapshots.clear();
 				PreparedMaterialSnapshot = {};
@@ -391,6 +388,7 @@ namespace Durin::MaterialEditor
 			}
 
 		private:
+			bool bStarted = false;
 			FShaderMapPreparation Shaders;
 			bool bShadersRequested = false;
 			auto AreDependencySnapshotsCurrent() const -> bool
@@ -450,51 +448,49 @@ namespace Durin::MaterialEditor
 			.GeneratorSchemaVersion = MaterialThumbnailGeneratorSchema};
 	}
 
-	auto DMaterialThumbnailRenderer::CaptureGenerationRequest(
-		const FAssetThumbnailRequest& Request,
-		uint64 RendererGeneration) -> std::expected<FAssetThumbnailGenerationRequest, std::string>
+	auto DMaterialThumbnailRenderer::CaptureGenerationInput(const FAssetThumbnailPackageFingerprint& Asset) -> std::expected<FThumbnailGenerationData, std::string>
 	{
-		FAssetThumbnailGenerationRequest GenerationRequest;
+		FThumbnailGenerationData Result;
 
-		if (Request.Asset.AssetClassName != DMaterial::StaticClass()->GetQualifiedName().ToString()
-			&& Request.Asset.AssetClassName != DMaterialInstance::StaticClass()->GetQualifiedName().ToString())
+		if (Asset.AssetClassName != DMaterial::StaticClass()->GetQualifiedName().ToString()
+			&& Asset.AssetClassName != DMaterialInstance::StaticClass()->GetQualifiedName().ToString())
 		{
 			return std::unexpected("The material thumbnail renderer received the wrong asset class.");
 		}
 
 		const FAssetDependencyClosureSnapshot Closure =
-			CaptureAssetDependencyClosure(Request.Asset.PackagePath);
+			CaptureAssetDependencyClosure(Asset.PackagePath);
 		if (!Closure)
 		{
 			return std::unexpected(FormatAssetRegistryError(Closure.Result).empty()
 				? std::format("Material thumbnail registry data is missing for {}.",
-					Request.Asset.AssetPath.ToString())
+					Asset.AssetPath.ToString())
 				: FormatAssetRegistryError(Closure.Result));
 		}
 		const auto RootIt = std::ranges::find_if(
 			Closure.Assets,
-			[&Request](const FPackageData& Data) {
-				return Data.PackagePath == Request.Asset.PackagePath;
+			[&Asset](const FPackageData& Data) {
+				return Data.PackagePath == Asset.PackagePath;
 			});
 		if (RootIt == Closure.Assets.end())
 		{
 			return std::unexpected("The material dependency closure omitted its root asset.");
 		}
 		const FPackageData* Root = &*RootIt;
-		if (MakeFingerprint(*Root, Request.Asset.AssetPath) != Request.Asset)
+		if (MakeFingerprint(*Root, Asset.AssetPath) != Asset)
 		{
 			return std::unexpected(std::format(
 				"Material thumbnail registry data changed for {}; refresh the request snapshot.",
-				Request.Asset.AssetPath.ToString()));
+				Asset.AssetPath.ToString()));
 		}
 		std::vector<FAssetThumbnailPackageFingerprint> Dependencies;
 		Dependencies.reserve(Closure.Assets.size() - 1);
 		for (const FPackageData& Data : Closure.Assets)
-			if (Data.PackagePath != Request.Asset.PackagePath)
+			if (Data.PackagePath != Asset.PackagePath)
 				Dependencies.push_back(MakeFingerprint(Data));
 
 		const FThumbnailVisualContract Visual;
-		GenerationRequest.KeyInput = {
+		Result = {
 			.Output = Visual.Output,
 			.PreviewFixtureIdentity = std::string(
 				FThumbnailVisualContract::SphereAssetPath),
@@ -502,23 +498,17 @@ namespace Durin::MaterialEditor
 				FThumbnailVisualContract::SphereFixtureVersion,
 			.ShaderContractVersion = MaterialThumbnailShaderContract,
 			.Dependencies = std::move(Dependencies)};
-		GenerationRequest.Input =
-			std::make_shared<FMaterialThumbnailGenerationInput>(Request.Asset.AssetPath, Request.Asset.AssetClassName);
-		GenerationRequest.RendererGeneration = RendererGeneration;
-		GenerationRequest.RequestSerial = Request.RequestSerial;
-		return GenerationRequest;
+		Result.Input =
+			std::make_shared<FMaterialThumbnailGenerationInput>(Asset.AssetPath, Asset.AssetClassName);
+
+		return Result;
 	}
 
-	auto DMaterialThumbnailRenderer::CreateGenerationSession(
-		const FAssetThumbnailGenerationRequest&,
-		const IAssetThumbnailGenerationInput& Input)
-		-> std::expected<std::unique_ptr<IThumbnailRendererSession>, std::string>
+	auto DMaterialThumbnailRenderer::CreateGenerationSession(const IAssetThumbnailGenerationInput& Input)
+		-> std::unique_ptr<IThumbnailRendererSession>
 	{
 		const auto* MaterialInput = dynamic_cast<const FMaterialThumbnailGenerationInput*>(&Input);
-		if (MaterialInput == nullptr)
-		{
-			return std::unexpected("The material thumbnail generation input is invalid.");
-		}
+		checkf(MaterialInput != nullptr, "The material thumbnail generation input is invalid.");
 		return std::make_unique<FMaterialThumbnailGenerationSession>(
 			*this, MaterialInput->AssetPath, MaterialInput->AssetClassName);
 	}

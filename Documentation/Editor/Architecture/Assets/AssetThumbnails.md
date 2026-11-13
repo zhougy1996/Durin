@@ -47,6 +47,17 @@ renderer class and borrowed instance are available through `GetRenderingInfo`.
 Asset class names remain the unloaded-catalog lookup boundary. Production has no
 instance-registration overload; synthetic catalog tests inject managed objects
 through a private test access seam.
+
+`CaptureGenerationInput` accepts only an asset fingerprint and returns
+`FThumbnailGenerationData`: immutable feature input, output/fixture/shader key
+contributions, dependencies and transparency policy. The manager supplies the
+asset identity, registered renderer identity, generation, serial, cancellation
+and lease. `MakeKeyInput` combines the feature data with that authoritative
+identity; renderers do not assemble scheduled requests. Session construction
+accepts only the captured feature input and returns a native owning pointer.
+An input type mismatch is an implementation invariant violation, while a missing
+session is diagnosed by the core. The session factory is this engine's async
+extension, rather than an Unreal `UThumbnailRenderer` API.
 `AssetThumbnailPool.h` exposes resource management without including the concrete
 preview scene. The private queue captures one pending request directly at
 admission and returns `FAssetThumbnailScheduledRequest`; it retains neither a
@@ -132,15 +143,15 @@ replacement, and corruption either produce a new key or reject stale work.
 Renderers capture immutable generation input on the game thread. A cold miss may
 then use one renderer-owned session with these hooks:
 
-1. request asynchronous loading of the exact asset;
-2. poll bounded resource readiness without retaining the capture slot;
+1. call `Update()` to start loading once and advance bounded resource readiness without retaining the capture slot;
+2. observe waiting, ready or failed progress with a diagnostic;
 3. bind its renderer-owned preview scene to the capture context, or supply an image renderer;
-4. validate revisions before render, readback, encoding, and publication;
-5. reset preview state idempotently.
+4. validate the captured inputs before submission and once when accepting completed pixels;
+5. reset preview state idempotently and permanently retire the session.
 
 Material/MaterialInstance, StaticMesh, Texture2D and TextureCube sessions submit
-`RequestAsyncLoad` from `Load()` and return `WaitingForResources` immediately,
-including for resident assets. `PollResources()` observes request completion,
+`RequestAsyncLoad` on the first `Update()` and return `WaitingForResources`
+immediately, including for resident assets. Later `Update()` calls observe request completion,
 captures asset revisions once, then checks compilation and render readiness.
 Material sessions validate the material before requesting the shared sphere.
 Scene sessions request the Renderer-owned lit-thumbnail Shader preparation
@@ -148,7 +159,7 @@ profile after initial asset work. Material sessions start once the material
 program is accepted, overlapping remaining resource preparation without flooding
 the first asset-build queue. Texture2D sessions prepare `DurinEd.TexturePreview`
 at high priority alongside loading.
-`PollResources()` waits for these CPU outputs without holding the capture slot.
+`Update()` waits for these CPU outputs without holding the capture slot.
 The shared RenderCore preparation cache coalesces exact registered programs;
 ShaderBuild performs source capture, DDC access, and compilation on workers.
 Capture consumes completed outputs to initialize typed maps and RHI resources,
@@ -175,7 +186,9 @@ changes hidden by an override preserve it. Geometry residency and package-edit
 identities keep their separate existing checks.
 
 Sessions retain successful load handles through capture validation. Reset and
-destruction cancel unfinished requests and release those handles. Removing the
+destruction cancel unfinished requests and release those handles. Updating a
+reset session reports failure and never starts another load; retry creates a
+new session. Removing the
 last `FAssetThumbnail` referencer cancels UI-only queued work and releases its
 preparing, capturing or parked session immediately, while retaining cached
 pixels. Another UI referencer or explicit background interest keeps shared
@@ -221,6 +234,14 @@ scene is exclusive to one capture context until `Reset`; the owner must keep
 the renderer or standalone scene alive through that reset. Reset cancels pending
 work and drops scene, environment and image-renderer bindings before releasing
 the request's renderer lease. Scene destruction drains queued render commands.
+View, environment and image-renderer setters only configure pending capture
+data and return `void`; changing setup during an in-flight capture is a
+programming error. `BeginCapture` validates the configuration at submission.
+Scene binding remains fallible and reserves the scene before the session may
+modify its actor. Completed pixels enter the pipeline through `CompleteCapture`,
+which owns the render/readback/publication transitions. The pool validates
+prepared input once at this acceptance boundary; no second validator callback
+is passed through the pixel pipeline.
 TextureCube binds its renderer scene and supplies an immutable allocation
 snapshot as a counted RHI environment value. Texture2D supplies an image renderer
 without creating or binding any preview world. The shared capture implementation

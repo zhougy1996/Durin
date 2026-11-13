@@ -52,8 +52,7 @@ namespace
 		{
 			return {"Durin::DMaterial", "PickerThumbnailTest", 1};
 		}
-		auto CaptureGenerationRequest(const Durin::FAssetThumbnailRequest&,
-			uint64) -> std::expected<Durin::FAssetThumbnailGenerationRequest, std::string> override
+		auto CaptureGenerationInput(const Durin::FAssetThumbnailPackageFingerprint& Asset) -> std::expected<Durin::FThumbnailGenerationData, std::string> override
 		{
 			ADD_FAILURE() << "This test must not execute thumbnail generation.";
 			return std::unexpected("Unexpected thumbnail generation.");
@@ -164,9 +163,6 @@ namespace
 	private:
 		Durin::FAssetEditorToolkitId ToolkitId;
 	};
-
-
-
 
 	auto OpenResource(Durin::FEditorDocumentManager& Manager, const std::shared_ptr<FTestWorkspace>& Toolkit,
 		std::string Path) -> Durin::FDocumentId
@@ -377,8 +373,6 @@ TEST(FEditorWorkspaceManagerTests, ExitVetoesUnsettledPreviewsAndPendingDocument
 	EXPECT_EQ(Workspace->SaveCount, 0);
 }
 
-
-
 TEST(FEditorWorkspaceManagerTests, ReportsDocumentVisibilityBeforeDrawing)
 {
 	ImGuiContext* Context = ImGui::CreateContext();
@@ -413,20 +407,6 @@ TEST(FEditorWorkspaceManagerTests, ReportsDocumentVisibilityBeforeDrawing)
 
 	EXPECT_EQ(Events, (std::vector<std::string>{"visible", "draw"}));
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 TEST(FEditorWorkspaceManagerTests, OpensAndSwitchesMultiplePerResourceDocumentsInOneWorkspace)
 {

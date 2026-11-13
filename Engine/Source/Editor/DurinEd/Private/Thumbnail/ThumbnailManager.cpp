@@ -191,14 +191,9 @@ namespace Durin
 		{
 			return std::unexpected("The thumbnail renderer did not capture generation input.");
 		}
-		auto Session = LeaseState->Renderer->CreateGenerationSession(*this, *LeaseState->Input);
-		if (!Session)
-			return std::unexpected(Session.error().empty()
-				? "The thumbnail renderer could not create a generation session."
-				: std::move(Session.error()));
-		if (!*Session)
-			return std::unexpected("The thumbnail renderer returned an empty generation session.");
-		LeaseState->Session = std::move(*Session);
+		auto Session = LeaseState->Renderer->CreateGenerationSession(*LeaseState->Input);
+		if (!Session) return std::unexpected("The thumbnail renderer returned an empty generation session.");
+		LeaseState->Session = std::move(Session);
 		return LeaseState->Session.get();
 	}
 
@@ -324,20 +319,17 @@ namespace Durin
 				Request.Asset.AssetClassName));
 		}
 		ThumbnailPrivate::DThumbnailManagerState::FEntry& Entry = It->second;
-		auto Captured = Entry.Renderer->CaptureGenerationRequest(Request, RendererGeneration);
+		auto Captured = Entry.Renderer->CaptureGenerationInput(Request.Asset);
 		if (!Captured) return std::unexpected(std::move(Captured.error()));
-		auto& GenerationRequest = *Captured;
-
-		const auto Registration = Entry.Renderer->GetRegistration();
-		GenerationRequest.KeyInput.Asset = Request.Asset;
-		GenerationRequest.KeyInput.RendererName = Registration.RendererName;
-		GenerationRequest.KeyInput.GeneratorSchemaVersion = Registration.GeneratorSchemaVersion;
+		FAssetThumbnailGenerationRequest GenerationRequest;
+		GenerationRequest.KeyInput = Captured->MakeKeyInput(Request.Asset, Entry.Renderer->GetRegistration());
+		GenerationRequest.bHasTransparency = Captured->bHasTransparency;
 		GenerationRequest.RendererGeneration = RendererGeneration;
 		GenerationRequest.RequestSerial = Request.RequestSerial;
 		auto LeaseState =
 			std::make_shared<ThumbnailPrivate::FAssetThumbnailGenerationLeaseState>();
 		LeaseState->Cancellation = GenerationRequest.Cancellation;
-		LeaseState->Input = std::move(GenerationRequest.Input);
+		LeaseState->Input = std::move(Captured->Input);
 		LeaseState->Renderer = Entry.Renderer;
 		Entry.Leases.erase(
 			std::remove_if(

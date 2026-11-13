@@ -367,53 +367,20 @@ namespace Durin
 		return true;
 	}
 
-	auto FAssetThumbnailGeneration::CompleteRender(
+	auto FAssetThumbnailGeneration::CompleteCapture(
 		const FAssetThumbnailScheduledRequest& Job,
-		std::string_view Error
-	) -> bool
+		FByteView Pixels, uint32 Width, uint32 Height, std::string_view Error) -> bool
 	{
-		if (Impl->Fail(Job, EAssetThumbnailState::Rendering, Error))
-			return false;
-		return Impl->Scheduler.Transition(Job,
-			EAssetThumbnailState::Rendering,
-			EAssetThumbnailState::Readback);
-	}
-
-	auto FAssetThumbnailGeneration::CompleteReadback(
-		const FAssetThumbnailScheduledRequest& Job,
-		std::string_view Error
-	) -> bool
-	{
-		if (Impl->Fail(Job, EAssetThumbnailState::Readback, Error))
-			return false;
-		if (!Impl->Scheduler.Transition(Job,
-				EAssetThumbnailState::Readback,
-				EAssetThumbnailState::Encoding))
+		if (Impl->Fail(Job, EAssetThumbnailState::Rendering, Error)) return false;
+		if (!Impl->Scheduler.Transition(Job, EAssetThumbnailState::Rendering, EAssetThumbnailState::Readback)
+			|| !Impl->Scheduler.Transition(Job, EAssetThumbnailState::Readback, EAssetThumbnailState::Encoding))
 			return false;
 		++Impl->Stats.Readbacks;
-		return true;
-	}
-
-	auto FAssetThumbnailGeneration::CompletePixels(
-		const FAssetThumbnailScheduledRequest& Job,
-		FByteView Pixels,
-		uint32 Width,
-		uint32 Height,
-		std::string_view Error,
-		std::function<std::string()> ValidateBeforePublication) -> bool
-	{
 		const uint64 PixelCount = static_cast<uint64>(Width) * Height;
-		if (Error.empty() && (PixelCount == 0 || PixelCount > Impl->Budgets.CpuPixelBudgetBytes / 4
-			|| Pixels.size() != PixelCount * 4))
+		if (PixelCount == 0 || PixelCount > Impl->Budgets.CpuPixelBudgetBytes / 4 || Pixels.size() != PixelCount * 4)
 			Error = "Rendered-thumbnail pixels violate the RGBA8 output or CPU budget.";
 		if (Impl->Fail(Job, EAssetThumbnailState::Encoding, Error)) return false;
-		if (ValidateBeforePublication)
-		{
-			const auto ValidationError = ValidateBeforePublication();
-			if (Impl->Fail(Job, EAssetThumbnailState::Encoding, ValidationError)) return false;
-		}
-		if (!Impl->Scheduler.Transition(Job, EAssetThumbnailState::Encoding,
-				EAssetThumbnailState::Ready)) return false;
+		if (!Impl->Scheduler.Transition(Job, EAssetThumbnailState::Encoding, EAssetThumbnailState::Ready)) return false;
 		Impl->QueueWrite(Job, Pixels, Width, Height);
 		return true;
 	}

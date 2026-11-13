@@ -23,10 +23,18 @@ namespace Durin
 		return *PreviewScene;
 	}
 
-	auto DThumbnailRenderer::CreateGenerationSession(
-		const FAssetThumbnailGenerationRequest&,
-		const IAssetThumbnailGenerationInput&) -> std::expected<std::unique_ptr<IThumbnailRendererSession>, std::string>
+	auto FThumbnailGenerationData::MakeKeyInput(const FAssetThumbnailPackageFingerprint& Asset,
+		const FThumbnailRenderingInfo& Renderer) const -> FAssetThumbnailKeyInput
 	{
-		return std::unexpected("The thumbnail renderer produces no preview-scene session.");
+		return {.Asset = Asset, .RendererName = Renderer.RendererName,
+			.GeneratorSchemaVersion = Renderer.GeneratorSchemaVersion,
+			.Output = Output, .PreviewFixtureIdentity = PreviewFixtureIdentity,
+			.PreviewFixtureVersion = PreviewFixtureVersion, .ShaderContractVersion = ShaderContractVersion,
+			.Dependencies = Dependencies};
+	}
+
+	auto DThumbnailRenderer::CreateGenerationSession(const IAssetThumbnailGenerationInput&) -> std::unique_ptr<IThumbnailRendererSession>
+	{
+		return nullptr;
 	}
 } // namespace Durin

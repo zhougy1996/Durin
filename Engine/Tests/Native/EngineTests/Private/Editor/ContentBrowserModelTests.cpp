@@ -229,12 +229,8 @@ namespace
 				.GeneratorSchemaVersion = 1};
 		}
 
-		auto CaptureGenerationRequest(
-			const FAssetThumbnailRequest&,
-			uint64) -> std::expected<FAssetThumbnailGenerationRequest, std::string> override
+		auto CaptureGenerationInput(const FAssetThumbnailPackageFingerprint& Asset) -> std::expected<FThumbnailGenerationData, std::string> override
 		{
-			FAssetThumbnailGenerationRequest OutRequest;
-
 			return std::unexpected("Route-only test renderer.");
 		}
 
@@ -1156,8 +1152,6 @@ TEST_F(FContentBrowserModelTests, AsyncScanFailureTerminatesLoadingAndAllowsRetr
 	EXPECT_TRUE(Model.GetEnumerationDiagnostics().empty());
 	ASSERT_EQ(Model.GetItems().size(), 1);
 }
-
-
 
 TEST_F(FContentBrowserModelTests, AsyncRevealReturnsIdentityBeforeDirectoryCaptureCompletes)
 {
@@ -4152,7 +4146,6 @@ TEST_F(FContentBrowserModelTests, PasteSaveFailureKeepsDirtyCopyAndReportsConten
 	EXPECT_TRUE(SavePackage(Copy->GetPackage()));
 	EXPECT_TRUE(std::filesystem::exists(TestPhysicalPath(ResultItem)));
 }
-
 
 TEST_F(FContentBrowserModelTests, ContentCopyBulkTravelsOnlyThroughOwningAssetDuplication)
 {

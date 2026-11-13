@@ -64,13 +64,6 @@ namespace Durin::StaticMeshEditor
 				ResetPreview();
 			}
 
-			auto Load() -> FThumbnailRendererSessionUpdate override
-			{
-				ResetPreview();
-				AssetLoad = StreamableManager.RequestAsyncLoad(Input.AssetPath, {}, DStaticMesh::StaticClass());
-				return {.State = EThumbnailRendererSessionState::WaitingForResources};
-			}
-
 			auto FinishLoad() -> FThumbnailRendererSessionUpdate
 			{
 				const bool Result = !AssetLoad->HasError();
@@ -96,8 +89,15 @@ namespace Durin::StaticMeshEditor
 				return PollStaticMeshReadiness();
 			}
 
-			auto PollResources() -> FThumbnailRendererSessionUpdate override
+			auto Update() -> FThumbnailRendererSessionUpdate override
 			{
+				if (!bStarted)
+				{
+					bStarted = true;
+					AssetLoad = StreamableManager.RequestAsyncLoad(Input.AssetPath, {}, DStaticMesh::StaticClass());
+					return {.State = EThumbnailRendererSessionState::WaitingForResources};
+				}
+
 				if (!AssetLoad) return {.Diagnostic = "The thumbnail load was reset."};
 				if (!AssetLoad->IsComplete())
 					return {.State = EThumbnailRendererSessionState::WaitingForResources};
@@ -106,6 +106,7 @@ namespace Durin::StaticMeshEditor
 			}
 
 		private:
+			bool bStarted = false;
 			FShaderMapPreparation Shaders;
 			bool bShadersRequested = false;
 			auto PollMaterialReadiness() const
@@ -268,11 +269,7 @@ namespace Durin::StaticMeshEditor
 					.ClearAlpha = Input.VisualContract.bOutputOpaque
 						? 1.0f
 						: 0.0f};
-				if (auto ViewResult = Context.SetView(View); !ViewResult)
-				{
-					ResetPreview();
-					return std::unexpected(QualifyDiagnostic(Input.AssetPath, ViewResult.error()));
-				}
+				Context.SetView(View);
 				return {};
 			}
 
@@ -307,6 +304,7 @@ namespace Durin::StaticMeshEditor
 
 			auto ResetPreview() -> void override
 			{
+				bStarted = true;
 				ResetScenePreview();
 				StaticMesh = nullptr;
 				if (AssetLoad) AssetLoad->CancelHandle();
@@ -352,15 +350,13 @@ namespace Durin::StaticMeshEditor
 				FStaticMeshThumbnailRendererContract::GeneratorSchemaVersion};
 	}
 
-	auto DStaticMeshThumbnailRenderer::CaptureGenerationRequest(
-		const FAssetThumbnailRequest& Request,
-		uint64 RendererGeneration) -> std::expected<FAssetThumbnailGenerationRequest, std::string>
+	auto DStaticMeshThumbnailRenderer::CaptureGenerationInput(const FAssetThumbnailPackageFingerprint& Asset) -> std::expected<FThumbnailGenerationData, std::string>
 	{
-		FAssetThumbnailGenerationRequest GenerationRequest;
+		FThumbnailGenerationData Result;
 
 		const FThumbnailRenderingInfo Registration =
 			GetRegistration();
-		if (Request.Asset.AssetClassName != Registration.AssetClassName)
+		if (Asset.AssetClassName != Registration.AssetClassName)
 		{
 			return std::unexpected("The StaticMesh thumbnail renderer received the wrong asset class.");
 		}
@@ -368,18 +364,18 @@ namespace Durin::StaticMeshEditor
 		const FAssetCatalogSnapshot Catalog =
 			CaptureAssetCatalogSnapshot();
 		const FPackageData* Root =
-			Catalog.FindExact(Request.Asset.PackagePath);
+			Catalog.FindExact(Asset.PackagePath);
 		if (Root == nullptr)
 		{
 			return std::unexpected(std::format(
 				"StaticMesh thumbnail registry data is missing for {}.",
-				Request.Asset.AssetPath.ToString()));
+				Asset.AssetPath.ToString()));
 		}
-		if (MakeStaticMeshThumbnailFingerprint(*Root, Request.Asset.AssetPath) != Request.Asset)
+		if (MakeStaticMeshThumbnailFingerprint(*Root, Asset.AssetPath) != Asset)
 		{
 			return std::unexpected(std::format(
 				"StaticMesh thumbnail registry data changed for {}; refresh the request snapshot.",
-				Request.Asset.AssetPath.ToString()));
+				Asset.AssetPath.ToString()));
 		}
 
 		std::vector<FAssetThumbnailDependencyNode> Nodes;
@@ -391,7 +387,7 @@ namespace Durin::StaticMeshEditor
 				.Dependencies = Data.Dependencies});
 		}
 		auto Dependencies = BuildAssetThumbnailDependencyClosure(
-			Request.Asset.PackagePath, Nodes);
+			Asset.PackagePath, Nodes);
 		if (!Dependencies) return std::unexpected(std::move(Dependencies.error()));
 
 		FThumbnailVisualContract Visual;
@@ -406,7 +402,7 @@ namespace Durin::StaticMeshEditor
 			static_cast<float>(ViewContract.VerticalFieldOfViewDegrees);
 		Visual.bOutputOpaque =
 			FStaticMeshThumbnailRendererContract::bOutputOpaque;
-		GenerationRequest.KeyInput = {
+		Result = {
 			.Output = Visual.Output,
 			.PreviewFixtureIdentity = std::string(
 				FStaticMeshThumbnailRendererContract::PreviewFixtureIdentity),
@@ -415,25 +411,19 @@ namespace Durin::StaticMeshEditor
 			.ShaderContractVersion =
 				FStaticMeshThumbnailRendererContract::ShaderContractVersion,
 			.Dependencies = std::move(*Dependencies)};
-		GenerationRequest.Input =
+		Result.Input =
 			std::make_shared<FStaticMeshThumbnailRendererGenerationInput>(
-				Request.Asset.AssetPath, std::move(Visual));
-		GenerationRequest.RendererGeneration = RendererGeneration;
-		GenerationRequest.RequestSerial = Request.RequestSerial;
-		return GenerationRequest;
+				Asset.AssetPath, std::move(Visual));
+
+		return Result;
 	}
 
-	auto DStaticMeshThumbnailRenderer::CreateGenerationSession(
-		const FAssetThumbnailGenerationRequest&,
-		const IAssetThumbnailGenerationInput& Input)
-		-> std::expected<std::unique_ptr<IThumbnailRendererSession>, std::string>
+	auto DStaticMeshThumbnailRenderer::CreateGenerationSession(const IAssetThumbnailGenerationInput& Input)
+		-> std::unique_ptr<IThumbnailRendererSession>
 	{
 		const auto* StaticMeshInput =
 			dynamic_cast<const FStaticMeshThumbnailRendererGenerationInput*>(&Input);
-		if (StaticMeshInput == nullptr)
-		{
-			return std::unexpected("The StaticMesh thumbnail generation input is invalid.");
-		}
+		checkf(StaticMeshInput != nullptr, "The StaticMesh thumbnail generation input is invalid.");
 		return std::make_unique<FStaticMeshThumbnailGenerationSession>(*this, *StaticMeshInput);
 	}
 

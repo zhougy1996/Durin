@@ -17,14 +17,10 @@ namespace Durin::StaticMeshEditor
 		STATICMESHEDITOR_API explicit DStaticMeshThumbnailRenderer(const FObjectInitializer& Initializer);
 		STATICMESHEDITOR_API auto GetRegistration() const
 			-> FThumbnailRenderingInfo override;
-		STATICMESHEDITOR_API auto CaptureGenerationRequest(
-			const FAssetThumbnailRequest& Request,
-			uint64 RendererGeneration)
-			-> std::expected<FAssetThumbnailGenerationRequest, std::string> override;
-		STATICMESHEDITOR_API auto CreateGenerationSession(
-			const FAssetThumbnailGenerationRequest& Request,
-			const IAssetThumbnailGenerationInput& Input)
-			-> std::expected<std::unique_ptr<IThumbnailRendererSession>, std::string> override;
+		STATICMESHEDITOR_API auto CaptureGenerationInput(const FAssetThumbnailPackageFingerprint& Asset)
+			-> std::expected<FThumbnailGenerationData, std::string> override;
+		STATICMESHEDITOR_API auto CreateGenerationSession(const IAssetThumbnailGenerationInput& Input)
+			-> std::unique_ptr<IThumbnailRendererSession> override;
 	};
 
 }

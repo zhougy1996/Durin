@@ -60,13 +60,16 @@ namespace
 	{
 	public:
 		explicit FReadbackProbeSession(uint32& InLoads) : Loads(InLoads) {}
-		auto Load() -> Durin::FThumbnailRendererSessionUpdate override
+
+		auto Update() -> Durin::FThumbnailRendererSessionUpdate override
 		{
-			++Loads;
-			return {.State = Durin::EThumbnailRendererSessionState::WaitingForResources};
-		}
-		auto PollResources() -> Durin::FThumbnailRendererSessionUpdate override
-		{
+			if (!bStarted)
+			{
+				bStarted = true;
+				++Loads;
+				return {.State = Durin::EThumbnailRendererSessionState::WaitingForResources};
+			}
+
 			return {.State = Durin::EThumbnailRendererSessionState::WaitingForResources};
 		}
 		auto PreparePreview(Durin::IThumbnailRenderContext&) -> std::expected<void, std::string> override
@@ -79,6 +82,7 @@ namespace
 		}
 		auto ResetPreview() -> void override {}
 	private:
+		bool bStarted = false;
 		uint32& Loads;
 	};
 
@@ -91,16 +95,14 @@ namespace
 		{
 			return {.AssetClassName = "DReadbackProbe", .RendererName = "ReadbackProbe", .GeneratorSchemaVersion = 1};
 		}
-		auto CaptureGenerationRequest(const Durin::FAssetThumbnailRequest&,
-			uint64) -> std::expected<Durin::FAssetThumbnailGenerationRequest, std::string> override
+		auto CaptureGenerationInput(const Durin::FAssetThumbnailPackageFingerprint& Asset) -> std::expected<Durin::FThumbnailGenerationData, std::string> override
 		{
-			Durin::FAssetThumbnailGenerationRequest Result;
+			Durin::FThumbnailGenerationData Result;
 			Result.Input = std::make_shared<FReadbackProbeInput>();
 			return Result;
 		}
-		auto CreateGenerationSession(const Durin::FAssetThumbnailGenerationRequest&,
-			const Durin::IAssetThumbnailGenerationInput&)
-			-> std::expected<std::unique_ptr<Durin::IThumbnailRendererSession>, std::string> override
+		auto CreateGenerationSession(const Durin::IAssetThumbnailGenerationInput&)
+			-> std::unique_ptr<Durin::IThumbnailRendererSession> override
 		{
 			return std::make_unique<FReadbackProbeSession>(*Loads);
 		}
@@ -349,9 +351,9 @@ TEST_F(FThumbnailVulkanTests, StaticMeshSessionWaitsForMaterialPublication)
 	auto ExtensionOwner = Durin::MakeThumbnailRenderer<StaticMeshEditor::DStaticMeshThumbnailRenderer>();
 	auto& Extension = *ExtensionOwner;
 	StaticMeshEditor::FStaticMeshThumbnailRendererGenerationInput Input(AssetPath, Contract);
-	auto Session = Extension.CreateGenerationSession({}, Input);
-	ASSERT_TRUE(Session) << Session.error();
-	EXPECT_EQ((*Session)->Load().State, EThumbnailRendererSessionState::WaitingForResources);
+	auto Session = Extension.CreateGenerationSession(Input);
+	ASSERT_TRUE(Session);
+	EXPECT_EQ(Session->Update().State, EThumbnailRendererSessionState::WaitingForResources);
 	auto Load = GetStreamableManager().RequestAsyncLoad(AssetPath, {}, DStaticMesh::StaticClass());
 	// Deliberately withhold material completion publication, while mesh, global
 	// shaders and asynchronous loading finish. This needs no sleeps or worker gate.
@@ -360,19 +362,19 @@ TEST_F(FThumbnailVulkanTests, StaticMeshSessionWaitsForMaterialPublication)
 		return Load->IsComplete();
 	}));
 	ASSERT_FALSE(Material->GetAcceptedCompiledProgram());
-	const auto Pending = (*Session)->PollResources();
+	const auto Pending = Session->Update();
 	ASSERT_EQ(Pending.State, EThumbnailRendererSessionState::WaitingForResources) << Pending.Diagnostic;
 	EXPECT_TRUE(Pending.Diagnostic.empty());
 
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
 	ASSERT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
 	ASSERT_TRUE(WaitForResourcePublication([&] {
-		return (*Session)->PollResources().State == EThumbnailRendererSessionState::ReadyToRender;
+		return Session->Update().State == EThumbnailRendererSessionState::ReadyToRender;
 	}));
 	FThumbnailCapture Preview(Contract.Output);
 	ASSERT_TRUE(Preview.IsAvailable()) << Preview.GetDiagnostic();
-	ASSERT_TRUE((*Session)->PreparePreview(Preview));
-	ASSERT_TRUE((*Session)->ValidatePreparedInput());
+	ASSERT_TRUE(Session->PreparePreview(Preview));
+	ASSERT_TRUE(Session->ValidatePreparedInput());
 	ASSERT_TRUE(Preview.BeginCapture());
 	std::expected<std::optional<FByteBuffer>, std::string> Capture;
 	ASSERT_TRUE(WaitForResourcePublication([&] {
@@ -397,7 +399,7 @@ TEST_F(FThumbnailVulkanTests, StaticMeshSessionWaitsForMaterialPublication)
 	auto Properties = Material->GetStaticProperties();
 	Properties.bTwoSided = !Properties.bTwoSided;
 	ASSERT_TRUE(Material->SetStaticProperties(Properties));
-	EXPECT_FALSE((*Session)->ValidatePreparedInput());
+	EXPECT_FALSE(Session->ValidatePreparedInput());
 	// Cancellation of a recompile can retain a current accepted program. Use
 	// a cold material to exercise a terminal failure with no renderable fallback.
 	DMaterial* Uncompiled = nullptr;
@@ -408,10 +410,10 @@ TEST_F(FThumbnailVulkanTests, StaticMeshSessionWaitsForMaterialPublication)
 	ASSERT_FALSE(Uncompiled->GetMaterialCompileStatus().IsCurrent());
 	FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Uncompiled);
 	ASSERT_FALSE(Uncompiled->GetAcceptedCompiledProgram());
-	const auto Canceled = (*Session)->PollResources();
+	const auto Canceled = Session->Update();
 	EXPECT_EQ(Canceled.State, EThumbnailRendererSessionState::Failed);
 	EXPECT_FALSE(Canceled.Diagnostic.empty());
-	(*Session)->ResetPreview();
+	Session->ResetPreview();
 	auto* PreviewActor = Extension.GetPreviewScene().GetPreviewActor();
 	ASSERT_NE(PreviewActor, nullptr);
 	auto* PreviewComponent = PreviewActor->FindComponentByExactClass<DStaticMeshComponent>();
@@ -643,12 +645,12 @@ TEST_F(FThumbnailVulkanTests, EnvironmentValidationAndCancellationReleaseReferen
 		CaptureCubeReference->GetRefCount();
 	const uint32 Texture2DReferenceBaseline =
 		Texture2DReference->GetRefCount();
-	ASSERT_TRUE(Pool.SetViewEnvironment(CubeEnvironment));
-	ASSERT_TRUE(Pool.SetView());
+	Pool.SetViewEnvironment(CubeEnvironment);
+	Pool.SetView();
 	EXPECT_EQ(
 		CaptureCubeReference->GetRefCount(), CubeReferenceBaseline + 1u
 	);
-	ASSERT_TRUE(Pool.SetViewEnvironment(Texture2DEnvironment));
+	Pool.SetViewEnvironment(Texture2DEnvironment);
 	EXPECT_EQ(CaptureCubeReference->GetRefCount(), CubeReferenceBaseline);
 	EXPECT_EQ(
 		Texture2DReference->GetRefCount(), Texture2DReferenceBaseline + 1u
@@ -661,8 +663,8 @@ TEST_F(FThumbnailVulkanTests, EnvironmentValidationAndCancellationReleaseReferen
 	EXPECT_EQ(
 		Texture2DReference->GetRefCount(), Texture2DReferenceBaseline
 	);
-	ASSERT_TRUE(Pool.SetView());
-	ASSERT_TRUE(Pool.SetViewEnvironment(CubeEnvironment));
+	Pool.SetView();
+	Pool.SetViewEnvironment(CubeEnvironment);
 	EXPECT_EQ(
 		CaptureCubeReference->GetRefCount(), CubeReferenceBaseline + 1u
 	);
@@ -691,7 +693,7 @@ TEST_F(FThumbnailVulkanTests, EnvironmentValidationAndCancellationReleaseReferen
 		Durin::FlushRenderingCommands();
 	};
 
-	ASSERT_TRUE(Pool.SetViewEnvironment(CubeEnvironment));
+	Pool.SetViewEnvironment(CubeEnvironment);
 	struct FClearThumbnailEnvironment
 	{
 		static constexpr auto GetName() -> const char*
@@ -722,7 +724,7 @@ TEST_F(FThumbnailVulkanTests, EnvironmentValidationAndCancellationReleaseReferen
 	Pool.Reset();
 	RestoreCubeTarget();
 
-	ASSERT_TRUE(Pool.SetViewEnvironment(CubeEnvironment));
+	Pool.SetViewEnvironment(CubeEnvironment);
 	ASSERT_TRUE(Pool.BeginCapture());
 	Durin::FlushRenderingCommands();
 	Durin::FByteBuffer RecoveredReadback;
@@ -733,7 +735,7 @@ TEST_F(FThumbnailVulkanTests, EnvironmentValidationAndCancellationReleaseReferen
 	EXPECT_EQ(RecoveredReadback.size(), 64u * 64u * 4u);
 	Pool.Reset();
 
-	ASSERT_TRUE(Pool.SetViewEnvironment(Texture2DEnvironment));
+	Pool.SetViewEnvironment(Texture2DEnvironment);
 	ASSERT_TRUE(Pool.BeginCapture());
 	Durin::FlushRenderingCommands();
 	Durin::FByteBuffer FailedEnvironmentPixels;
@@ -745,7 +747,7 @@ TEST_F(FThumbnailVulkanTests, EnvironmentValidationAndCancellationReleaseReferen
 	EXPECT_NE(Error.find("view environment"), std::string::npos);
 	Pool.Reset();
 
-	ASSERT_TRUE(Pool.SetViewEnvironment(CubeEnvironment));
+	Pool.SetViewEnvironment(CubeEnvironment);
 	struct FThumbnailCancellationGate
 	{
 		std::mutex Mutex;
@@ -830,26 +832,26 @@ TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplace
 		.LastWriteTimeTicks = Data->LastWriteTimeTicks};
 	auto RendererOwner = Durin::MakeThumbnailRenderer<DTextureThumbnailRenderer>();
 	auto& Renderer = *RendererOwner;
-	FAssetThumbnailGenerationRequest Captured;
-	auto CapturedResult = Renderer.CaptureGenerationRequest(Request, 1);
+	FThumbnailGenerationData Captured;
+	auto CapturedResult = Renderer.CaptureGenerationInput(Request.Asset);
 	ASSERT_TRUE(CapturedResult) << CapturedResult.error();
 	Captured = std::move(*CapturedResult);
 	ASSERT_NE(Captured.Input, nullptr);
-	auto Session = Renderer.CreateGenerationSession(Captured, *Captured.Input);
-	ASSERT_TRUE(Session) << Session.error();
-	ASSERT_NE(*Session, nullptr);
-	const auto Loaded = (*Session)->Load();
+	auto Session = Renderer.CreateGenerationSession(*Captured.Input);
+	ASSERT_TRUE(Session);
+	ASSERT_NE(Session, nullptr);
+	const auto Loaded = Session->Update();
 	ASSERT_EQ(Loaded.State, EThumbnailRendererSessionState::WaitingForResources);
 	FThumbnailRendererSessionUpdate Ready;
 	ASSERT_TRUE(WaitForResourcePublication([&] {
 		Durin::ProcessAsyncLoading();
-		Ready = (*Session)->PollResources();
+		Ready = Session->Update();
 		return Ready.State != EThumbnailRendererSessionState::WaitingForResources;
 	}));
 	ASSERT_EQ(Ready.State, EThumbnailRendererSessionState::ReadyToRender) << Ready.Diagnostic;
 	FThumbnailCapture Pool(Contract.Output);
-	ASSERT_TRUE((*Session)->PreparePreview(Pool)) << Error;
-	ASSERT_TRUE((*Session)->ValidatePreparedInput()) << Error;
+	ASSERT_TRUE(Session->PreparePreview(Pool)) << Error;
+	ASSERT_TRUE(Session->ValidatePreparedInput()) << Error;
 	ASSERT_TRUE(Pool.BeginCapture());
 	FlushRenderingCommands();
 	FByteBuffer Pixels;
@@ -909,11 +911,11 @@ TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplace
 	}
 
 	Asset->UpdateResource();
-	EXPECT_FALSE((*Session)->ValidatePreparedInput());
+	EXPECT_FALSE(Session->ValidatePreparedInput());
 	ASSERT_TRUE(WaitForResourcePublication([&] { return !Asset->HasPendingRenderResourceInitialization(); }));
-	EXPECT_FALSE((*Session)->ValidatePreparedInput());
-	(*Session)->ResetPreview();
-	EXPECT_FALSE((*Session)->ValidatePreparedInput());
+	EXPECT_FALSE(Session->ValidatePreparedInput());
+	Session->ResetPreview();
+	EXPECT_FALSE(Session->ValidatePreparedInput());
 }
 
 TEST_F(FThumbnailVulkanTests, TexturePreviewPreservesRawChannelsSrgbAndAspectRatio)
@@ -942,7 +944,7 @@ TEST_F(FThumbnailVulkanTests, TexturePreviewPreservesRawChannelsSrgbAndAspectRat
 	FThumbnailCapture Pool(Contract.Output);
 	for (const auto Channel : {ETexturePreviewChannel::RGBA, ETexturePreviewChannel::Blue, ETexturePreviewChannel::Alpha})
 	{
-		ASSERT_TRUE(Pool.SetImageRenderer([Input, Channel](FRHICommandListImmediate& Commands, uint32 W, uint32 H) {
+		Pool.SetImageRenderer([Input, Channel](FRHICommandListImmediate& Commands, uint32 W, uint32 H) {
 			const FTexturePreviewOptions Options{
 				.Usage = ETextureUsage::Normal, .Interpretation = Channel == ETexturePreviewChannel::RGBA
 					? ETexturePreviewInterpretation::Raw : ETexturePreviewInterpretation::Auto, .Channel = Channel};
@@ -953,7 +955,7 @@ TEST_F(FThumbnailVulkanTests, TexturePreviewPreservesRawChannelsSrgbAndAspectRat
 			EXPECT_NE(Interactive, nullptr);
 			if (Interactive) EXPECT_FALSE(EnumHasAnyFlags(Interactive->GetFlags(), ETextureCreateFlags::CPUReadback));
 			return Capture;
-		}));
+		});
 		ASSERT_TRUE(Pool.BeginCapture());
 		FlushRenderingCommands();
 		FByteBuffer Pixels;
@@ -1105,4 +1107,30 @@ TEST_F(FThumbnailVulkanTests, RendererOwnsReusableSceneAndCaptureOnlyBorrowsIt)
     CollectGarbage(EObjectFlags::Standalone);
     EXPECT_FALSE(World.IsValid());
     EXPECT_TRUE(OtherScene.IsAvailable());
+}
+
+TEST_F(FThumbnailVulkanTests, CaptureValidatesConfigurationAtSubmission)
+{
+	using namespace Durin;
+	FThumbnailPreviewScene Scene(Contract);
+	FThumbnailCapture Capture(Contract.Output);
+	ASSERT_TRUE(Capture.SetScene(Scene));
+	FThumbnailPreviewView View;
+	View.VerticalFieldOfViewDegrees = 0.0;
+	Capture.SetView(View);
+	auto InvalidView = Capture.BeginCapture();
+	ASSERT_FALSE(InvalidView);
+	EXPECT_NE(InvalidView.error().find("view is invalid"), std::string::npos);
+	Capture.Reset();
+	ASSERT_TRUE(Capture.SetScene(Scene));
+	Capture.SetViewEnvironment({});
+	auto InvalidEnvironment = Capture.BeginCapture();
+	ASSERT_FALSE(InvalidEnvironment);
+	EXPECT_NE(InvalidEnvironment.error().find("environment is invalid"), std::string::npos);
+	Capture.Reset();
+	ASSERT_TRUE(Capture.SetScene(Scene));
+	ASSERT_TRUE(Capture.BeginCapture());
+	FByteBuffer Pixels;
+	std::string Error;
+	EXPECT_EQ(Tests::FinishThumbnailCapture(Capture, Pixels, Error), EThumbnailCaptureState::Ready) << Error;
 }

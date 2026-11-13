@@ -18,13 +18,9 @@ namespace Durin::TextureEditor
 		TEXTUREEDITOR_API explicit DTextureThumbnailRenderer(const FObjectInitializer& Initializer);
 		TEXTUREEDITOR_API auto GetRegistration() const
 			-> FThumbnailRenderingInfo override;
-		TEXTUREEDITOR_API auto CaptureGenerationRequest(
-			const FAssetThumbnailRequest& Request,
-			uint64 RendererGeneration)
-			-> std::expected<FAssetThumbnailGenerationRequest, std::string> override;
-		TEXTUREEDITOR_API auto CreateGenerationSession(
-			const FAssetThumbnailGenerationRequest& Request,
-			const IAssetThumbnailGenerationInput& Input)
-			-> std::expected<std::unique_ptr<IThumbnailRendererSession>, std::string> override;
+		TEXTUREEDITOR_API auto CaptureGenerationInput(const FAssetThumbnailPackageFingerprint& Asset)
+			-> std::expected<FThumbnailGenerationData, std::string> override;
+		TEXTUREEDITOR_API auto CreateGenerationSession(const IAssetThumbnailGenerationInput& Input)
+			-> std::unique_ptr<IThumbnailRendererSession> override;
 	};
 } // namespace Durin::TextureEditor
