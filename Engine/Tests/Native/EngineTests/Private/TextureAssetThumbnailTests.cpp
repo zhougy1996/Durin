@@ -229,7 +229,6 @@ TEST(FTextureAssetThumbnailTests, Texture2DRendererCapturesBuiltSessionWithoutSo
 		MakeRequest(*Data), 7);
 	ASSERT_TRUE(CapturedResult) << CapturedResult.error();
 	Captured = std::move(*CapturedResult);
-	EXPECT_EQ(Captured.GeneratedPixels, nullptr);
 	ASSERT_NE(Captured.Input, nullptr);
 	EXPECT_EQ(Captured.KeyInput.GeneratorSchemaVersion, 2u);
 	EXPECT_EQ(Captured.KeyInput.ShaderContractVersion, 2u);

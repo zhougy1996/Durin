@@ -50,14 +50,12 @@ namespace Durin
 		FImpl(
 			FAssetThumbnailRequestQueue& InScheduler,
 			FAssetThumbnailPoolStorageSettings StoreSettings,
-			FAssetThumbnailBudgets InBudgets,
-			bool bInBackgroundCache)
+			FAssetThumbnailBudgets InBudgets)
 			: Scheduler(InScheduler)
 			, Cache(std::make_shared<FCacheState>(std::move(StoreSettings)))
 			, Budgets(InBudgets)
-			, bBackgroundCache(bInBackgroundCache)
 		{
-			Cache->Settings.bBatchIndexWrites = bBackgroundCache;
+			Cache->Settings.bBatchIndexWrites = true;
 		}
 
 		FAssetThumbnailRequestQueue& Scheduler;
@@ -65,8 +63,7 @@ namespace Durin
 		FAssetThumbnailBudgets Budgets;
 		FAssetThumbnailGenerationStats Stats;
 		uint32 RendersStartedThisFrame = 0;
-		bool bBackgroundCache = false;
-		std::array<std::deque<FCacheRead>, 2> Reads;
+		std::deque<FCacheRead> Reads;
 		// Deque entries stay stable until their completed result is consumed.
 		// Workers capture values, never this game-thread-only observer.
 		FCacheRead* ActiveRead = nullptr;
@@ -144,10 +141,9 @@ namespace Durin
 				}
 				bMaintenanceTask = false;
 			}
-			for (int32 Index = 0; Index < 2; ++Index)
+			const auto Next = std::ranges::find_if(Reads, [](const FCacheRead& Read) { return !Read.bComplete; });
+			if (Next != Reads.end())
 			{
-				const auto Next = std::ranges::find_if(Reads[Index], [](const FCacheRead& Read) { return !Read.bComplete; });
-				if (Next == Reads[Index].end()) continue;
 				ActiveRead = &*Next;
 				FCacheRead& Read = *Next;
 				const auto& Request = Read.Job.GenerationRequest;
@@ -260,10 +256,9 @@ namespace Durin
 	FAssetThumbnailGeneration::FAssetThumbnailGeneration(
 		FAssetThumbnailRequestQueue& Scheduler,
 		FAssetThumbnailPoolStorageSettings StoreSettings,
-		FAssetThumbnailBudgets Budgets,
-		bool bBackgroundCache
+		FAssetThumbnailBudgets Budgets
 	)
-		: Impl(std::make_unique<FImpl>(Scheduler, std::move(StoreSettings), Budgets, bBackgroundCache))
+		: Impl(std::make_unique<FImpl>(Scheduler, std::move(StoreSettings), Budgets))
 	{
 	}
 
@@ -281,106 +276,53 @@ namespace Durin
 	auto FAssetThumbnailGeneration::BeginFrame() -> void
 	{
 		Impl->RendersStartedThisFrame = 0;
-		if (Impl->bBackgroundCache) Impl->PumpCache();
+		Impl->PumpCache();
 	}
 
-	auto FAssetThumbnailGeneration::StartNext() -> std::optional<FAssetThumbnailJob>
-	{
-		return StartNextDetailed().ColdJob;
-	}
-
-	auto FAssetThumbnailGeneration::StartNextDetailed()
-		-> FAssetThumbnailStartResult
-	{
-		return StartNextDetailed(false);
-	}
-
-	auto FAssetThumbnailGeneration::StartNextGeneratedPixelsDetailed()
-		-> FAssetThumbnailStartResult
-	{
-		return StartNextDetailed(true);
-	}
-
-	auto FAssetThumbnailGeneration::StartNextDetailed(
-		bool bGeneratedPixelsOnly) -> FAssetThumbnailStartResult
+	auto FAssetThumbnailGeneration::StartNextDetailed() -> FAssetThumbnailStartResult
 	{
 		FAssetThumbnailStartResult Result;
-		if (Impl->bBackgroundCache)
+		Impl->PumpCache();
+		auto& Reads = Impl->Reads;
+		if (!Reads.empty() && Reads.front().bComplete)
 		{
-			Impl->PumpCache();
-			const int32 Index = bGeneratedPixelsOnly
-				? 1 : (!Impl->Reads[1].empty() && Impl->Reads[1].front().bComplete ? 1 : 0);
-			auto& Reads = Impl->Reads[Index];
-			if (!Reads.empty() && Reads.front().bComplete)
-			{
-				FImpl::FCacheRead Read = std::move(Reads.front());
-				Reads.pop_front();
-				Result.bProgressed = true;
-				Impl->RetainedBytes -= Read.ReservedBytes;
-				if (!Impl->Scheduler.Transition(Read.Job, EAssetThumbnailState::Loading,
-						Read.Result.bHit ? EAssetThumbnailState::Ready : EAssetThumbnailState::Loading)) return Result;
-				if (Read.Result.bHit)
-				{
-					++Impl->Stats.DiskHits;
-					Result.Pixels = std::move(Read.Result.Pixels);
-					Result.WarmJob = std::move(Read.Job);
-				}
-				else
-				{
-					if (Read.Result.bInvalid) ++Impl->Stats.Retries;
-					++Impl->Stats.Loads;
-					Result.ColdJob = FAssetThumbnailJob{.ScheduledJob = std::move(Read.Job)};
-				}
-				return Result;
-			}
-			// Pre-admit bounded cache queries even while earlier reads are pending.
-			if (Impl->Reads[0].size() + Impl->Reads[1].size() >= FImpl::MaximumCacheReads
-				|| (!bGeneratedPixelsOnly && Impl->Reads[0].size() >= FImpl::MaximumCacheReads - 1)) return Result;
-			auto Job = bGeneratedPixelsOnly
-				? Impl->Scheduler.TakeNextGeneratedPixels() : Impl->Scheduler.TakeNext();
-			if (!Job) return Result;
+			auto Read = std::move(Reads.front());
+			Reads.pop_front();
 			Result.bProgressed = true;
-			++Impl->Stats.Jobs;
-			const auto& Output = Job->GenerationRequest.KeyInput.Output;
-			const uint64 PixelCount = static_cast<uint64>(Output.Width) * Output.Height;
-			if (PixelCount == 0 || PixelCount > Impl->Budgets.CpuPixelBudgetBytes / 4
-				|| Impl->RetainedBytes > Impl->Budgets.CpuPixelBudgetBytes - PixelCount * 4)
-			{
-				// Skip optional cache reuse under pressure; rendering still validates output.
-				++Impl->Stats.Loads;
-				Result.ColdJob = FAssetThumbnailJob{.ScheduledJob = std::move(*Job)};
-				return Result;
-			}
-			Impl->RetainedBytes += PixelCount * 4;
-			Impl->Reads[bGeneratedPixelsOnly ? 1 : 0].push_back(
-				{.Job = std::move(*Job), .ReservedBytes = PixelCount * 4});
-			Impl->PumpCache();
-			return Result;
-		}
-		std::optional<FAssetThumbnailScheduledRequest> ScheduledJob = bGeneratedPixelsOnly
-			? Impl->Scheduler.TakeNextGeneratedPixels()
-			: Impl->Scheduler.TakeNext();
-		if (!ScheduledJob) return Result;
-		++Impl->Stats.Jobs;
-
-		const EThumbnailObjectLoadResult LoadResult =
-			Impl->Cache->GetStore().Load(ScheduledJob->CacheKey, Result.EncodedBytes);
-		if (LoadResult == EThumbnailObjectLoadResult::Hit)
-		{
-			if (Impl->Scheduler.Transition(
-					*ScheduledJob,
-					EAssetThumbnailState::Loading,
-					EAssetThumbnailState::Ready))
+			Impl->RetainedBytes -= Read.ReservedBytes;
+			if (!Impl->Scheduler.Transition(Read.Job, EAssetThumbnailState::Loading,
+					Read.Result.bHit ? EAssetThumbnailState::Ready : EAssetThumbnailState::Loading)) return Result;
+			if (Read.Result.bHit)
 			{
 				++Impl->Stats.DiskHits;
-				Result.WarmJob = std::move(*ScheduledJob);
+				Result.Pixels = std::move(Read.Result.Pixels);
+				Result.WarmJob = std::move(Read.Job);
+			}
+			else
+			{
+				if (Read.Result.bInvalid) ++Impl->Stats.Retries;
+				++Impl->Stats.Loads;
+				Result.ColdJob = FAssetThumbnailJob{.ScheduledJob = std::move(Read.Job)};
 			}
 			return Result;
 		}
-
-		++Impl->Stats.Loads;
-		Result.ColdJob = FAssetThumbnailJob{
-			.ScheduledJob = std::move(*ScheduledJob)};
+		if (Reads.size() >= FImpl::MaximumCacheReads) return Result;
+		auto Job = Impl->Scheduler.TakeNext();
+		if (!Job) return Result;
+		Result.bProgressed = true;
+		++Impl->Stats.Jobs;
+		const auto& Output = Job->GenerationRequest.KeyInput.Output;
+		const uint64 PixelCount = static_cast<uint64>(Output.Width) * Output.Height;
+		if (PixelCount == 0 || PixelCount > Impl->Budgets.CpuPixelBudgetBytes / 4
+			|| Impl->RetainedBytes > Impl->Budgets.CpuPixelBudgetBytes - PixelCount * 4)
+		{
+			++Impl->Stats.Loads;
+			Result.ColdJob = FAssetThumbnailJob{.ScheduledJob = std::move(*Job)};
+			return Result;
+		}
+		Impl->RetainedBytes += PixelCount * 4;
+		Reads.push_back({.Job = std::move(*Job), .ReservedBytes = PixelCount * 4});
+		Impl->PumpCache();
 		return Result;
 	}
 
@@ -451,36 +393,6 @@ namespace Durin
 		return true;
 	}
 
-	auto FAssetThumbnailGeneration::CompleteEncoding(
-		const FAssetThumbnailJob& Job,
-		FByteView EncodedBytes,
-		std::string_view Error
-	) -> bool
-	{
-		if (Impl->Fail(Job, EAssetThumbnailState::Encoding, Error))
-			return false;
-		if (Impl->bBackgroundCache && !EncodedBytes.empty())
-		{
-			if (!Impl->Scheduler.Transition(Job.ScheduledJob, EAssetThumbnailState::Encoding,
-					EAssetThumbnailState::Ready)) return false;
-			Impl->QueueWrite(Job, EncodedBytes);
-			return true;
-		}
-		if (EncodedBytes.empty()
-			|| !Impl->Scheduler.Transition(Job.ScheduledJob,
-				EAssetThumbnailState::Encoding,
-				EAssetThumbnailState::Encoding)
-			|| !Impl->Cache->GetStore().Store(Job.ScheduledJob.CacheKey, EncodedBytes))
-		{
-			Impl->Fail(Job, EAssetThumbnailState::Encoding,
-				"Failed to atomically publish the encoded thumbnail.");
-			return false;
-		}
-		return Impl->Scheduler.Transition(Job.ScheduledJob,
-			EAssetThumbnailState::Encoding,
-			EAssetThumbnailState::Ready);
-	}
-
 	auto FAssetThumbnailGeneration::CompletePixels(
 		const FAssetThumbnailJob& Job,
 		FByteView Pixels,
@@ -489,56 +401,20 @@ namespace Durin
 		std::string_view Error,
 		std::function<std::string()> ValidateBeforePublication) -> bool
 	{
-		if (!Error.empty())
-			return CompleteEncoding(Job, {}, Error);
-		if (Impl->bBackgroundCache)
-		{
-			const uint64 PixelCount = static_cast<uint64>(Width) * Height;
-			if (PixelCount == 0 || PixelCount > Impl->Budgets.CpuPixelBudgetBytes / 4
-				|| Pixels.size() != PixelCount * 4)
-				return CompleteEncoding(Job, {},
-					"Rendered-thumbnail pixels violate the RGBA8 output or CPU budget.");
-			if (ValidateBeforePublication)
-			{
-				const std::string ValidationError = ValidateBeforePublication();
-				if (!ValidationError.empty())
-					return CompleteEncoding(Job, {}, ValidationError);
-			}
-			if (!Impl->Scheduler.Transition(Job.ScheduledJob, EAssetThumbnailState::Encoding,
-					EAssetThumbnailState::Ready)) return false;
-			Impl->QueueWrite(Job, Pixels, Width, Height);
-			return true;
-		}
-		FByteBuffer EncodedBytes;
-		if (!Image::EncodeRgba8Png(Pixels, Width, Height, EncodedBytes))
-			return CompleteEncoding(
-				Job,
-				{},
-				"Rendered-thumbnail pixels do not match the requested RGBA8 output.");
+		const uint64 PixelCount = static_cast<uint64>(Width) * Height;
+		if (Error.empty() && (PixelCount == 0 || PixelCount > Impl->Budgets.CpuPixelBudgetBytes / 4
+			|| Pixels.size() != PixelCount * 4))
+			Error = "Rendered-thumbnail pixels violate the RGBA8 output or CPU budget.";
+		if (Impl->Fail(Job, EAssetThumbnailState::Encoding, Error)) return false;
 		if (ValidateBeforePublication)
 		{
-			const std::string ValidationError = ValidateBeforePublication();
-			if (!ValidationError.empty())
-				return CompleteEncoding(
-					Job, {}, ValidationError);
+			const auto ValidationError = ValidateBeforePublication();
+			if (Impl->Fail(Job, EAssetThumbnailState::Encoding, ValidationError)) return false;
 		}
-		return CompleteEncoding(
-			Job, EncodedBytes);
-	}
-
-	auto FAssetThumbnailGeneration::CompleteGeneratedPixels(
-		FAssetThumbnailJob& Job,
-		FByteView Pixels,
-		uint32 Width,
-		uint32 Height,
-		std::string_view Error) -> bool
-	{
-		if (Impl->Fail(Job, EAssetThumbnailState::Loading, Error)) return false;
-		if (!Impl->Scheduler.Transition(Job.ScheduledJob,
-				EAssetThumbnailState::Loading, EAssetThumbnailState::Encoding)) return false;
-
-		return CompletePixels(Job,
-			Pixels, Width, Height);
+		if (!Impl->Scheduler.Transition(Job.ScheduledJob, EAssetThumbnailState::Encoding,
+				EAssetThumbnailState::Ready)) return false;
+		Impl->QueueWrite(Job, Pixels, Width, Height);
+		return true;
 	}
 
 	auto FAssetThumbnailGeneration::Cancel(const FAssetThumbnailJob& Job) -> void
@@ -555,18 +431,8 @@ namespace Durin
 		++Impl->Stats.Retries;
 	}
 
-	auto FAssetThumbnailGeneration::InvalidatePersistentObject(
-		std::string_view CacheKey) -> void
-	{
-		require(!Impl->bBackgroundCache);
-		Impl->Cache->GetStore().Invalidate(CacheKey);
-	}
-
 	auto FAssetThumbnailGeneration::GetStats() const -> FAssetThumbnailGenerationStats
 	{
-		FAssetThumbnailGenerationStats Stats = Impl->Stats;
-		if (!Impl->bBackgroundCache && Impl->Cache->Store)
-			Stats.Evictions = Impl->Cache->Store->GetStats().Evictions;
-		return Stats;
+		return Impl->Stats;
 	}
 } // namespace Durin

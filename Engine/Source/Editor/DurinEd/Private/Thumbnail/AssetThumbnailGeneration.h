@@ -20,7 +20,6 @@ namespace Durin
 	{
 		std::optional<FAssetThumbnailJob> ColdJob;
 		std::optional<FAssetThumbnailScheduledRequest> WarmJob;
-		FByteBuffer EncodedBytes;
 		FByteBuffer Pixels;
 		bool bProgressed = false;
 	};
@@ -29,13 +28,11 @@ namespace Durin
 	class FAssetThumbnailGeneration
 	{
 	public:
-		// Background mode is used by the interactive pool. Synchronous mode supports
-		// offline generation of opaque encoded objects; a pipeline's mode is fixed.
+		// Cache reads, encoding and persistence run on bounded background tasks.
 		DURINED_API FAssetThumbnailGeneration(
 			FAssetThumbnailRequestQueue& Scheduler,
 			FAssetThumbnailPoolStorageSettings StoreSettings = {},
-			FAssetThumbnailBudgets Budgets = {},
-			bool bBackgroundCache = false);
+			FAssetThumbnailBudgets Budgets = {});
 		// Test-only drain; normal frames must never wait for cache work.
 		DURINED_API auto WaitForCacheTasksForTesting() -> void;
 		DURINED_API ~FAssetThumbnailGeneration();
@@ -45,14 +42,8 @@ namespace Durin
 
 		// Resets the render-start allowance; callers invoke this once on the game thread per editor frame.
 		DURINED_API auto BeginFrame() -> void;
-		// Returns cold work only; a persistent hit is published Ready without loading or rendering.
-		DURINED_API auto StartNext() -> std::optional<FAssetThumbnailJob>;
-		// Background mode returns no work while loading, then decoded warm pixels or
-		// cold renderer work. Synchronous mode returns opaque encoded warm bytes.
+		// Returns completed warm pixels or cold work without waiting for cache I/O.
 		DURINED_API auto StartNextDetailed() -> FAssetThumbnailStartResult;
-		// Starts only renderer-generated pixels so they can bypass a resource-bound rendered job.
-		DURINED_API auto StartNextGeneratedPixelsDetailed()
-			-> FAssetThumbnailStartResult;
 		DURINED_API auto CompleteLoad(
 			FAssetThumbnailJob& Job, std::string_view Error = {}) -> bool;
 		// Leaves the job waiting when resources are not ready and consumes no render allowance.
@@ -66,13 +57,7 @@ namespace Durin
 		DURINED_API auto CompleteReadback(
 			const FAssetThumbnailJob& Job,
 			std::string_view Error = {}) -> bool;
-		// Background mode publishes Ready and queues an optional save; synchronous
-		// mode atomically stores encoded output before publishing Ready.
-		DURINED_API auto CompleteEncoding(
-			const FAssetThumbnailJob& Job,
-			FByteView EncodedBytes,
-			std::string_view Error = {}) -> bool;
-		// Validates RGBA8 pixels on the caller. Background mode makes them displayable
+		// Validates RGBA8 pixels on the caller and makes them displayable
 		// immediately and encodes/saves independently without retaining the validator.
 		DURINED_API auto CompletePixels(
 			const FAssetThumbnailJob& Job,
@@ -81,22 +66,11 @@ namespace Durin
 			uint32 Height,
 			std::string_view Error = {},
 			std::function<std::string()> ValidateBeforePublication = {}) -> bool;
-		// Publishes canonical renderer-generated pixels without a preview scene or render allowance.
-		DURINED_API auto CompleteGeneratedPixels(
-			FAssetThumbnailJob& Job,
-			FByteView Pixels,
-			uint32 Width,
-			uint32 Height,
-			std::string_view Error = {}) -> bool;
 		DURINED_API auto Cancel(const FAssetThumbnailJob& Job) -> void;
 		DURINED_API auto RecordRetry() -> void;
-		DURINED_API auto InvalidatePersistentObject(std::string_view CacheKey) -> void;
 		DURINED_API auto GetStats() const -> FAssetThumbnailGenerationStats;
 
 	private:
-		auto StartNextDetailed(bool bGeneratedPixelsOnly)
-			-> FAssetThumbnailStartResult;
-
 		struct FImpl;
 		std::unique_ptr<FImpl> Impl;
 	};

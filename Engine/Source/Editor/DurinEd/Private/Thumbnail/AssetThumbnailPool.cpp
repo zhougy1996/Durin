@@ -7,6 +7,8 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "AssetRegistry/Catalog.h"
+#include "Misc/MountPaths.h"
+#include "Misc/Paths.h"
 
 namespace Durin
 {
@@ -46,6 +48,8 @@ namespace Durin
 		struct FEntry
 		{
 			FAssetThumbnailPackageFingerprint Fingerprint;
+			std::vector<FAssetThumbnailPackageFingerprint> Dependencies;
+			bool bDependenciesCaptured = false;
 			FTextureRHIRef Texture;
 			uint64 Serial = 1;
 			uint64 LastUsedFrame = 0;
@@ -93,16 +97,17 @@ namespace Durin
 			: Manager(InService)
 			, Budgets(InBudgets)
 			, Scheduler(Manager, Budgets)
-			, Pipeline(Scheduler, std::move(StoreSettings), Budgets, true)
+			, Pipeline(Scheduler, std::move(StoreSettings), Budgets)
 		{
-			if (Budgets.bPreGenerateOnAssetChanges) CatalogRevision = GetAssetCatalogRevision();
+			CatalogRevision = GetAssetCatalogRevision();
 		}
 
-		auto CollectBackgroundPackages() -> void
+		auto CollectBackgroundPackages(FAssetThumbnailPool& Pool) -> void
 		{
-			if (!Budgets.bPreGenerateOnAssetChanges) return;
 			const FContentChangeBatch Changes = CaptureAssetCatalogChanges(CatalogRevision);
 			CatalogRevision = Changes.ToRevision;
+			Pool.ApplyContentChanges(Changes);
+			if (!Budgets.bPreGenerateOnAssetChanges) return;
 			// Mounts and journal rollover must not generate thumbnails for a whole project.
 			if (Changes.bFullRefresh)
 			{
@@ -277,38 +282,6 @@ namespace Durin
 						State->Uploads.push_back(std::move(Result));
 					}
 				});
-		}
-
-		auto ProcessGeneratedPixels(FAssetThumbnailJob& Job) -> void
-		{
-			FAssetThumbnailGenerationRequest& Request =
-				Job.ScheduledJob.GenerationRequest;
-			if (auto It = Entries.find(Request.KeyInput.Asset.AssetPath);
-				It != Entries.end())
-				It->second.bHasTransparency = Request.bHasTransparency;
-			const std::shared_ptr<const FAssetThumbnailGeneratedPixels> Generated =
-				Request.GeneratedPixels;
-			if (!Generated)
-			{
-				Pipeline.CompleteLoad(Job,
-					"The generated-thumbnail fast lane received rendered work.");
-				return;
-			}
-			const uint64 ExpectedBytes = static_cast<uint64>(Generated->Width)
-				* Generated->Height * 4;
-			std::string Error;
-			if (Generated->Width != Request.KeyInput.Output.Width
-				|| Generated->Height != Request.KeyInput.Output.Height
-				|| Generated->Pixels.size() != ExpectedBytes
-				|| ExpectedBytes > Budgets.CpuPixelBudgetBytes)
-				Error = "Generated thumbnail pixels violate the requested output or CPU budget.";
-			if (Error.empty()
-				&& Pipeline.CompleteGeneratedPixels(Job,
-					Generated->Pixels, Generated->Width, Generated->Height))
-				QueueUpload(Request, Generated->Pixels,
-					Generated->Width, Generated->Height);
-			else if (!Error.empty())
-				Pipeline.CompleteLoad(Job, Error);
 		}
 
 		auto DrainUploads() -> void
@@ -601,11 +574,20 @@ namespace Durin
 			HandlePreparedUpdate(Update);
 		}
 
-		auto StartNext(bool bGeneratedPixelsOnly = false) -> bool
+		auto StartNext() -> bool
 		{
-			FAssetThumbnailStartResult Start = bGeneratedPixelsOnly
-				? Pipeline.StartNextGeneratedPixelsDetailed()
-				: Pipeline.StartNextDetailed();
+			FAssetThumbnailStartResult Start = Pipeline.StartNextDetailed();
+			const auto* Scheduled = Start.ColdJob ? &Start.ColdJob->ScheduledJob
+				: Start.WarmJob ? &*Start.WarmJob : nullptr;
+			if (Scheduled)
+			{
+				const auto& Input = Scheduled->GenerationRequest.KeyInput;
+				if (auto It = Entries.find(Input.Asset.AssetPath); It != Entries.end())
+				{
+					It->second.Dependencies = Input.Dependencies;
+					It->second.bDependenciesCaptured = true;
+				}
+			}
 			if (Start.WarmJob)
 			{
 				FAssetThumbnailScheduledRequest& WarmJob = *Start.WarmJob;
@@ -620,12 +602,6 @@ namespace Durin
 				return true;
 			}
 			if (!Start.ColdJob) return Start.bProgressed;
-			if (bGeneratedPixelsOnly)
-			{
-				FAssetThumbnailJob Job = std::move(*Start.ColdJob);
-				ProcessGeneratedPixels(Job);
-				return true;
-			}
 			PreparingJob = std::move(Start.ColdJob);
 			FAssetThumbnailJob& Job = *PreparingJob;
 			FAssetThumbnailGenerationRequest& Request =
@@ -633,12 +609,6 @@ namespace Durin
 			if (auto It = Entries.find(Request.KeyInput.Asset.AssetPath);
 				It != Entries.end())
 				It->second.bHasTransparency = Request.bHasTransparency;
-			if (Request.GeneratedPixels)
-			{
-				ProcessGeneratedPixels(Job);
-				ResetPreparing();
-				return true;
-			}
 			auto Session = Request.BeginRenderedSession();
 			if (!Session)
 			{
@@ -752,10 +722,10 @@ namespace Durin
 		++Impl->FrameNumber;
 		Impl->Scheduler.BeginFrame();
 		for (auto& [Path, Entry] : Impl->Entries) Entry.bVisible = false;
+		Impl->CollectBackgroundPackages(*this);
 		Impl->DrainUploads();
 		Impl->FinishCapture();
 		Impl->Pipeline.BeginFrame();
-		Impl->CollectBackgroundPackages();
 	}
 
 	auto FAssetThumbnailPool::Prefetch(const FAssetThumbnailPackageFingerprint& Asset) -> void
@@ -868,6 +838,39 @@ namespace Durin
 		++It->second.Serial;
 	}
 
+	auto FAssetThumbnailPool::ApplyContentChanges(const FContentChangeBatch& Changes) -> void
+	{
+		if (!Changes.bFullRefresh && Changes.Changes.empty()) return;
+		auto AffectsPackage = [&](const FPackagePath& Package) {
+			if (!Package.IsValid()) return false;
+			const auto Virtual = Package.ToString();
+			const auto Physical = FMountPaths::ResolveAssetPath(Virtual);
+			const auto Filename = Physical ? std::filesystem::path(Physical->PhysicalPath.generic_string() + ".dasset") : std::filesystem::path{};
+			return std::ranges::any_of(Changes.Changes, [&](const auto& Change) {
+				for (const auto* Changed : {&Change.OldAssetPath, &Change.NewAssetPath})
+				{
+					std::string_view Path = *Changed;
+					while (Path.size() > 1 && Path.ends_with('/')) Path.remove_suffix(1);
+					if (!Path.empty() && (Virtual == Path || (Path.starts_with(Virtual) && Path.size() > Virtual.size() && Path[Virtual.size()] == '.')
+						|| (Change.bDirectory && Virtual.starts_with(Path) && (Path == "/" || (Virtual.size() > Path.size() && Virtual[Path.size()] == '/'))))) return true;
+				}
+				if (Physical)
+					for (const auto* Changed : {&Change.OldPhysicalPath, &Change.NewPhysicalPath})
+					{
+						if (Changed->empty()) continue;
+						std::filesystem::path Relative;
+						if (FPaths::TryMakeLexicalRelativePath(Filename, std::filesystem::path(*Changed), Relative)
+							&& (Relative.empty() || (Change.bDirectory && FPaths::IsLexicalDescendantPath(Filename, std::filesystem::path(*Changed), true)))) return true;
+					}
+				return false;
+			});
+		};
+		for (auto& [Path, Entry] : Impl->Entries)
+			if (Changes.bFullRefresh || !Entry.bDependenciesCaptured || AffectsPackage(Path.GetPackagePath())
+				|| std::ranges::any_of(Entry.Dependencies, [&](const auto& Dependency) { return AffectsPackage(Dependency.PackagePath); }))
+				Refresh(Path);
+	}
+
 	auto FAssetThumbnailPool::EndFrame(bool bAllowNewAdmissions) -> void
 	{
 		const auto StartTime = std::chrono::steady_clock::now();
@@ -885,7 +888,7 @@ namespace Durin
 			// rather than turning otherwise valid assets into permanent failures.
 			const bool bPreparationFull = Impl->PreparingJob.has_value()
 				|| Impl->ParkedJobs.size() >= Impl->Budgets.MaximumParkedRenderedJobs;
-			if (!Impl->StartNext(bPreparationFull)) break;
+			if (bPreparationFull || !Impl->StartNext()) break;
 		}
 		Impl->EvictToBudget();
 	}

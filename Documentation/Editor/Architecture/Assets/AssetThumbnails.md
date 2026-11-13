@@ -22,8 +22,8 @@ content.
   `FThumbnailRendererRegistrationHandle` values. Material/MaterialInstance,
   Texture2D/TextureCube, and StaticMesh logic
   remains in the corresponding feature module.
-- `FAssetThumbnail` is the UI-facing reference for one canonical asset identity,
-  requested presentation size, and pool. It owns no asset, task, preview world,
+- `FAssetThumbnail` is the UI-facing reference for one canonical asset identity
+  and pool. It owns no asset, task, preview world,
   render target, or RHI resource.
 - `FAssetThumbnailPool` owns coalescing, priority, state, generation, preview
   leasing, readback, encoding, persistence, upload, pinning, LRU retention,
@@ -38,10 +38,10 @@ extension hierarchy.
 
 ## Identity And Output Size
 
-Production output is fixed at 256 by 256 pixels. Requested `FAssetThumbnail`
-dimensions are presentation-only: Content Browser scales the shared output and
-requested width/height never enter the cache key, CPU/GPU budget accounting, or
-persistent object identity. This avoids an unbounded output-size key space.
+Production output is fixed at 256 by 256 pixels. Content Browser scales the shared
+output to its card layout. `FAssetThumbnail` has no requested-size parameters;
+presentation dimensions never enter the cache key, CPU/GPU budget accounting, or
+persistent object identity.
 
 Persistent keys use a canonical little-endian encoding of:
 canonical virtual path, exact class, package fingerprint, stable renderer name,
@@ -113,7 +113,7 @@ then use one renderer-owned session with these hooks:
 
 1. request asynchronous loading of the exact asset;
 2. poll bounded resource readiness without retaining the capture slot;
-3. prepare the leased preview scene or provide canonical pixels directly;
+3. prepare the leased preview scene;
 4. validate revisions before render, readback, encoding, and publication;
 5. reset preview state idempotently.
 
@@ -258,14 +258,14 @@ initialization, object reads, PNG decoding, atomic writes, index updates,
 and disk eviction. PNG encoding runs independently on a worker, so encoding a
 previous result cannot hold the cache I/O lane. Pending queries take priority
 over queued writes; an already-running I/O operation is not preempted. Frames
-only poll task completion. Up to eight cache queries are retained, reserving
-one slot for the generated-pixel lane. Up to eight queued/encoding saves are
+only poll task completion. Up to eight cache queries are retained.
+Up to eight queued/encoding saves are
 retained in addition to an active write. Decoded-read reservations and retained
 save buffers share the CPU pixel budget. When save admission is exhausted, the
 optional cache save is skipped; display and capture remain available. Encoded
-input is additionally bounded by the maximum object size. The private generation
-coordinator retains a synchronous mode for offline opaque-object generation;
-the interactive pool always selects background mode.
+input is additionally bounded by the maximum object size. All generation uses
+this asynchronous pipeline; tests drain its tasks explicitly when observing
+persistent output. There is no separate synchronous or generated-pixel path.
 
 Interactive stores batch index mutations, publishing after sixteen mutations,
 when the save lane becomes idle, or during teardown. Direct stores retain
@@ -291,7 +291,12 @@ The process manager enables low-priority pre-generation for added or modified
 supported assets from the Asset Registry change journal. Package metadata is
 resolved during bounded admission, and work uses the ordinary cache and renderer
 pipeline. Initial catalogs, full refreshes and journal rollover never trigger
-whole-project generation. Explicitly injected pools do not subscribe by default.
+whole-project generation. Explicitly injected pools do not pre-generate by default.
+Every pool observes catalog changes for invalidation, reusing dependency
+fingerprints from captured generation requests. It refreshes affected roots and
+dependents, including retained textures with no current UI references. Missing
+capture coverage or journal coverage triggers conservative invalidation. Browser
+panels retain no separate dependency closure.
 
 ## Content Browser And Ordinary Files
 
@@ -308,6 +313,8 @@ Content Browser asset cards hold `FAssetThumbnail` references and submit only
 identity, visible/prefetch priority, refresh, and presentation requests. They do
 not choose a renderer or generation path. Navigation, filtering, replacement,
 refresh, panel close, and shutdown deterministically release references.
+Each view frame releases references outside the visible and bounded prefetch
+range, so scrolling does not pin every previously visited card against eviction.
 
 Ordinary PNG/JPEG/BMP/TGA files are not assets. Their physical-path decode,
 disk reuse, upload, and view remain in the Content Browser-private

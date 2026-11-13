@@ -33,6 +33,26 @@ namespace Durin
 			return IsDone();
 		}
 
+		auto StartThumbnailWork(FAssetThumbnailGeneration& Pipeline) -> FAssetThumbnailStartResult
+		{
+			auto Result = Pipeline.StartNextDetailed();
+			if (!Result.ColdJob && !Result.WarmJob && Result.bProgressed)
+			{
+				Pipeline.WaitForCacheTasksForTesting();
+				Result = Pipeline.StartNextDetailed();
+			}
+			return Result;
+		}
+
+		auto CompleteThumbnailPixels(FAssetThumbnailGeneration& Pipeline, FAssetThumbnailJob& Job,
+			FByteView Pixels, uint32 Width, uint32 Height) -> bool
+		{
+			Pipeline.BeginFrame();
+			return Pipeline.CompleteLoad(Job) && Pipeline.BeginRender(Job, true)
+				&& Pipeline.CompleteRender(Job) && Pipeline.CompleteReadback(Job)
+				&& Pipeline.CompletePixels(Job, Pixels, Width, Height);
+		}
+
 		constexpr uint8 WrongSizedThumbnailPng[] = {
 			137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82,
 			0, 0, 0, 2, 0, 0, 0, 1, 8, 6, 0, 0, 0, 244, 34, 127, 138,
@@ -108,10 +128,10 @@ namespace Durin
 			explicit FTestThumbnailRenderer(
 				FThumbnailRenderingInfo InRegistration,
 				bool bInCaptureSucceeds = true,
-				bool bInGeneratesPixels = false)
+				bool bInSmallOutput = false)
 				: Registration(std::move(InRegistration))
 				, bCaptureSucceeds(bInCaptureSucceeds)
-				, bGeneratesPixels(bInGeneratesPixels)
+				, bSmallOutput(bInSmallOutput)
 			{
 			}
 
@@ -135,28 +155,20 @@ namespace Durin
 				OutRequest.KeyInput.GeneratorSchemaVersion = Registration.GeneratorSchemaVersion;
 				OutRequest.RendererGeneration = RendererGeneration;
 				OutRequest.RequestSerial = Request.RequestSerial;
-				if (bGeneratesPixels)
-				{
-					auto Pixels = std::make_shared<FAssetThumbnailGeneratedPixels>();
-					Pixels->Pixels = {
-						std::byte{32}, std::byte{32}, std::byte{32}, std::byte{255}};
-					Pixels->Width = 1;
-					Pixels->Height = 1;
-					OutRequest.KeyInput.Output = {.Width = 1, .Height = 1};
-					OutRequest.GeneratedPixels = std::move(Pixels);
-				}
+				if (bSmallOutput) OutRequest.KeyInput.Output = {.Width = 1, .Height = 1};
 				return OutRequest;
 			}
 
 		private:
 			FThumbnailRenderingInfo Registration;
 			bool bCaptureSucceeds = true;
-			bool bGeneratesPixels = false;
+			bool bSmallOutput = false;
 		};
 
 		struct FFakeThumbnailRendererState
 		{
 			uint32 Captures = 0;
+			std::vector<FAssetThumbnailPackageFingerprint> Dependencies;
 			uint32 Sessions = 0;
 			std::optional<std::string> SessionFailure;
 			uint32 PreviewPreparations = 0;
@@ -315,6 +327,7 @@ namespace Durin
 					.PreviewFixtureIdentity = "/Tests/FakeThumbnail",
 					.PreviewFixtureVersion = 1,
 					.ShaderContractVersion = 1};
+				OutRequest.KeyInput.Dependencies = State->Dependencies;
 				OutRequest.Input =
 					std::make_shared<FFakeThumbnailInput>(State);
 				OutRequest.RendererGeneration = RendererGeneration;
@@ -858,16 +871,14 @@ namespace Durin
 		const FAssetThumbnailRequest Request = MakeThumbnailRequest(
 			"/ThumbnailTests/References/Shared", "DFakeRenderedAsset", 1);
 		{
-			FAssetThumbnail First(Request.Asset, 128, 96, &Pool);
-			FAssetThumbnail Second(Request.Asset, 512, 512, &Pool);
+			FAssetThumbnail First(Request.Asset, &Pool);
+			FAssetThumbnail Second(Request.Asset, &Pool);
 			First.Request(EAssetThumbnailPriority::Prefetch);
 			Second.Request(EAssetThumbnailPriority::Visible);
 			const FAssetThumbnailPoolStats Stats = Pool.GetStats();
 			EXPECT_EQ(Stats.QueuedJobs, 1u);
 			EXPECT_EQ(Stats.PinnedEntries, 1u);
 			EXPECT_EQ(Stats.Referencers, 2u);
-			EXPECT_EQ(First.GetRequestedWidth(), 128u);
-			EXPECT_EQ(Second.GetRequestedWidth(), 512u);
 		}
 		EXPECT_EQ(Pool.GetStats().PinnedEntries, 0u);
 		EXPECT_EQ(Pool.GetStats().Referencers, 0u);
@@ -1089,6 +1100,36 @@ namespace Durin
 		EXPECT_EQ(Cache.GetStats().PeakParkedResourceWaits, 1u);
 	}
 
+	TEST(FAssetThumbnailContractTests, SharedPoolInvalidatesCapturedDependenciesWithoutBrowserSnapshots)
+	{
+		DThumbnailManager Registry;
+		auto OwnerState = std::make_shared<FFakeThumbnailRendererState>();
+		auto OtherState = std::make_shared<FFakeThumbnailRendererState>();
+		OwnerState->ResourcePollsBeforeReady = OtherState->ResourcePollsBeforeReady = 1000;
+		const auto Base = MakePackage("/ThumbnailTests/Dependencies/Base", "DMaterial", 1, 100, 1);
+		OwnerState->Dependencies = {Base};
+		auto OwnerRegistration = Registry.RegisterScoped(std::make_unique<FFakeThumbnailRenderer>(OwnerState));
+		auto OtherRegistration = Registry.RegisterScoped(std::make_unique<FFakeThumbnailRenderer>(OtherState, "DOtherAsset"));
+		ASSERT_TRUE(OwnerRegistration);
+		ASSERT_TRUE(OtherRegistration);
+		FAssetThumbnailPool Pool(Registry, {.ResourcePollIntervalFrames = 1, .MaximumResourceWaitFrames = 0},
+			{.CacheRoot = MakeObjectStoreRoot("SharedDependencies")});
+		const auto Owner = MakeThumbnailRequest("/ThumbnailTests/Materials/Owner", "DFakeRenderedAsset", 1);
+		const auto Other = MakeThumbnailRequest("/ThumbnailTests/Materials/Other", "DOtherAsset", 1);
+		FAssetThumbnail OwnerReference(Owner.Asset, &Pool), OtherReference(Other.Asset, &Pool);
+		OwnerReference.Request(EAssetThumbnailPriority::Visible);
+		OtherReference.Request(EAssetThumbnailPriority::Visible);
+		ASSERT_TRUE(PumpThumbnailPoolUntil(Pool, [&] { return Pool.GetStats().ParkedResourceWaits == 2; }));
+		const auto Resolved = FMountPaths::ResolveAssetPath(Base.PackagePath.GetView());
+		ASSERT_TRUE(Resolved);
+		const auto Physical = Resolved->PhysicalPath.generic_string() + ".dasset";
+		Pool.ApplyContentChanges({.Changes = {{EContentChangeKind::Removed, Physical}}});
+		EXPECT_EQ(OwnerReference.GetView().State, EAssetThumbnailState::NotRequested);
+		EXPECT_EQ(OtherReference.GetView().State, EAssetThumbnailState::WaitingForResources);
+		Pool.ApplyContentChanges({.bFullRefresh = true});
+		EXPECT_EQ(OtherReference.GetView().State, EAssetThumbnailState::NotRequested);
+	}
+
 	TEST(FAssetThumbnailContractTests, LastReferencerCancelsParkedSessionWithoutCancellingOtherConsumers)
 	{
 		DThumbnailManager Manager;
@@ -1178,7 +1219,7 @@ namespace Durin
 			"/ThumbnailTests/FakeRendered/ColdWarm", "DFakeRenderedAsset", 1);
 		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(ColdRequest)));
 		Pipeline.BeginFrame();
-		std::optional<FAssetThumbnailJob> ColdJob = Pipeline.StartNext();
+		std::optional<FAssetThumbnailJob> ColdJob = StartThumbnailWork(Pipeline).ColdJob;
 		ASSERT_TRUE(ColdJob);
 		State->SessionFailure = "";
 		const auto EmptyFailure = ColdJob->ScheduledJob.GenerationRequest.BeginRenderedSession();
@@ -1206,22 +1247,19 @@ namespace Durin
 			*ColdJob));
 		ASSERT_TRUE(Pipeline.CompleteReadback(
 			*ColdJob));
-		const std::array<uint8, 4> Encoded = {1, 2, 3, 4};
-		ASSERT_TRUE(Pipeline.CompleteEncoding(
-			*ColdJob,
-			std::as_bytes(std::span{Encoded})));
+		const FByteBuffer Pixels(4, std::byte{127});
+		ASSERT_TRUE(Pipeline.CompletePixels(*ColdJob, Pixels, 1, 1));
+		Pipeline.WaitForCacheTasksForTesting();
 		ColdJob->ScheduledJob.GenerationRequest.ReleaseRenderedSession();
 		EXPECT_EQ(State->PreviewResets, 1u);
 
 		const FAssetThumbnailRequest WarmRequest = MakeThumbnailRequest(
 			"/ThumbnailTests/FakeRendered/ColdWarm", "DFakeRenderedAsset", 2);
 		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(WarmRequest)));
-		FAssetThumbnailStartResult Warm = Pipeline.StartNextDetailed();
+		FAssetThumbnailStartResult Warm = StartThumbnailWork(Pipeline);
 		EXPECT_FALSE(Warm.ColdJob);
 		ASSERT_TRUE(Warm.WarmJob);
-		const auto EncodedBytes = std::as_bytes(std::span{Encoded});
-		EXPECT_EQ(Warm.EncodedBytes, Durin::FByteBuffer(
-			EncodedBytes.begin(), EncodedBytes.end()));
+		EXPECT_EQ(Warm.Pixels, Pixels);
 		EXPECT_EQ(State->Captures, 2u);
 		EXPECT_EQ(State->Sessions, 1u);
 		EXPECT_EQ(Pipeline.GetStats().DiskHits, 1u);
@@ -1240,29 +1278,6 @@ namespace Durin
 		))));
 	}
 
-	TEST(FAssetThumbnailContractTests, ScopedRemovalReleasesQueuedInputBeforeReturning)
-	{
-		DThumbnailManager Registry;
-
-		auto State = std::make_shared<FFakeThumbnailRendererState>();
-		auto Registration = Registry.RegisterScoped(
-			std::make_unique<FFakeThumbnailRenderer>(State));
-		ASSERT_TRUE(Registration) << Registration.error();
-		FAssetThumbnailRequestQueue Scheduler(Registry);
-		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(MakeThumbnailRequest(
-			"/ThumbnailTests/FakeRendered/QueuedRemoval",
-			"DFakeRenderedAsset",
-			1
-		))));
-		// Capture one request without taking it into the rendered lane.
-		EXPECT_FALSE(Scheduler.TakeNextGeneratedPixels());
-		ASSERT_EQ(State->Captures, 1u);
-
-		Registration->Reset();
-		EXPECT_EQ(State->InputDestructions, 1u);
-		EXPECT_EQ(State->ExtensionDestructions, 1u);
-		EXPECT_FALSE(Scheduler.TakeNext());
-	}
 
 	TEST(FAssetThumbnailContractTests, ScopedRemovalRejectsEveryInFlightStateAndDrainsSession)
 	{
@@ -1572,7 +1587,7 @@ namespace Durin
 				MakeThumbnailRequest("/ThumbnailTests/PersistentMaterial", "DMaterial", Serial);
 			EXPECT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Request)));
 			Pipeline.BeginFrame();
-			std::optional<FAssetThumbnailJob> Job = Pipeline.StartNext();
+			std::optional<FAssetThumbnailJob> Job = StartThumbnailWork(Pipeline).ColdJob;
 			if (bExpectWarmHit)
 			{
 				EXPECT_FALSE(Job);
@@ -1590,9 +1605,9 @@ namespace Durin
 			ASSERT_TRUE(Pipeline.BeginRender(*Job, true));
 			ASSERT_TRUE(Pipeline.CompleteRender(*Job));
 			ASSERT_TRUE(Pipeline.CompleteReadback(*Job));
-			const Durin::FByteBuffer Encoded = {
-				std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4}};
-			ASSERT_TRUE(Pipeline.CompleteEncoding(*Job, Encoded));
+			const FByteBuffer Pixels(256 * 256 * 4, std::byte{127});
+			ASSERT_TRUE(Pipeline.CompletePixels(*Job, Pixels, 256, 256));
+			Pipeline.WaitForCacheTasksForTesting();
 			EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, EAssetThumbnailState::Ready);
 			const FAssetThumbnailGenerationStats Stats = Pipeline.GetStats();
 			EXPECT_EQ(Stats.Jobs, 1u);
@@ -1623,7 +1638,7 @@ namespace Durin
 			MakeThumbnailRequest("/ThumbnailTests/EncodedMaterial", "DMaterial", 1);
 		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Request)));
 		Pipeline.BeginFrame();
-		std::optional<FAssetThumbnailJob> Job = Pipeline.StartNext();
+		std::optional<FAssetThumbnailJob> Job = StartThumbnailWork(Pipeline).ColdJob;
 		ASSERT_TRUE(Job);
 		const std::string CacheKey = Job->ScheduledJob.CacheKey;
 		ASSERT_TRUE(Pipeline.CompleteLoad(*Job));
@@ -1636,6 +1651,7 @@ namespace Durin
 		ASSERT_TRUE(Pipeline.CompletePixels(
 			*Job, std::as_bytes(std::span{Pixels}), 2, 1));
 
+		Pipeline.WaitForCacheTasksForTesting();
 		FThumbnailObjectStore Store({
 			.CacheRoot = Root,
 			.ObjectExtension = ".png"});
@@ -1651,7 +1667,7 @@ namespace Durin
 			ExpectedPixels.begin(), ExpectedPixels.end()));
 	}
 
-	TEST(FAssetThumbnailContractTests, RenderedPipelineRevalidatesAfterEncodingBeforePublication)
+	TEST(FAssetThumbnailContractTests, RenderedPipelineRevalidatesBeforePublishingAndSavingPixels)
 	{
 		const std::filesystem::path Root = MakeObjectStoreRoot("RenderedPipelinePublicationValidation");
 		DThumbnailManager Registry;
@@ -1669,7 +1685,7 @@ namespace Durin
 			MakeThumbnailRequest("/ThumbnailTests/StaleStaticMesh", "DStaticMesh", 1);
 		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Request)));
 		Pipeline.BeginFrame();
-		std::optional<FAssetThumbnailJob> Job = Pipeline.StartNext();
+		std::optional<FAssetThumbnailJob> Job = StartThumbnailWork(Pipeline).ColdJob;
 		ASSERT_TRUE(Job);
 		const std::string CacheKey = Job->ScheduledJob.CacheKey;
 		ASSERT_TRUE(Pipeline.CompleteLoad(*Job));
@@ -1691,117 +1707,8 @@ namespace Durin
 		EXPECT_EQ(Store.Load(CacheKey, Encoded), EThumbnailObjectLoadResult::Miss);
 	}
 
-	TEST(FAssetThumbnailContractTests, GeneratedPixelsPublishWithoutPreviewRenderAllowance)
-	{
-		const std::filesystem::path Root = MakeObjectStoreRoot("GeneratedPixels");
-		DThumbnailManager Registry;
 
-		auto Renderer = std::make_shared<FTestThumbnailRenderer>(FThumbnailRenderingInfo{
-			.AssetClassName = "DGeneratedPixelAsset",
-			.RendererName = "GeneratedPixelThumbnail",
-			.GeneratorSchemaVersion = 1});
-		ASSERT_TRUE(Registry.Register(Renderer));
-		FAssetThumbnailRequestQueue Scheduler(Registry);
-		FAssetThumbnailGeneration Pipeline(
-			Scheduler, {.CacheRoot = Root, .ObjectExtension = ".png"},
-			{.MaximumRendersPerFrame = 0});
-		const FAssetThumbnailRequest Request = MakeThumbnailRequest(
-			"/ThumbnailTests/GeneratedPixels", "DGeneratedPixelAsset", 1);
-		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Request)));
-		Pipeline.BeginFrame();
-		auto Job = Pipeline.StartNext();
-		ASSERT_TRUE(Job);
-		const std::array<uint8, 4> Pixels{32, 32, 32, 255};
-		ASSERT_TRUE(Pipeline.CompleteGeneratedPixels(
-			*Job, std::as_bytes(std::span{Pixels}), 1, 1));
-		EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State,
-			EAssetThumbnailState::Ready);
-		EXPECT_EQ(Pipeline.GetStats().Renders, 0u);
-	}
 
-	TEST(FAssetThumbnailContractTests, GeneratedPixelsWithCapturedInputServeWarmHit)
-	{
-		const std::filesystem::path Root = MakeObjectStoreRoot("GeneratedPixelsWarmHit");
-		DThumbnailManager Registry;
-
-		auto Renderer = std::make_shared<FTestThumbnailRenderer>(
-			FThumbnailRenderingInfo{
-				.AssetClassName = "DGeneratedPixelAsset",
-				.RendererName = "GeneratedPixelThumbnail",
-				.GeneratorSchemaVersion = 1},
-			true,
-			true);
-		ASSERT_TRUE(Registry.Register(Renderer));
-
-		const FAssetThumbnailRequest Request = MakeThumbnailRequest(
-			"/ThumbnailTests/GeneratedPixelsWarmHit", "DGeneratedPixelAsset", 1);
-		{
-			FAssetThumbnailRequestQueue Scheduler(Registry);
-			FAssetThumbnailGeneration Pipeline(
-				Scheduler, {.CacheRoot = Root, .ObjectExtension = ".png"});
-			ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Request)));
-			auto Cold = Pipeline.StartNextDetailed();
-			ASSERT_TRUE(Cold.ColdJob);
-			const auto& Generated =
-				*Cold.ColdJob->ScheduledJob.GenerationRequest.GeneratedPixels;
-			ASSERT_TRUE(Pipeline.CompleteGeneratedPixels(
-				*Cold.ColdJob,
-				Generated.Pixels,
-				Generated.Width,
-				Generated.Height));
-		}
-
-		FAssetThumbnailRequestQueue WarmScheduler(Registry);
-		FAssetThumbnailGeneration WarmPipeline(
-			WarmScheduler, {.CacheRoot = Root, .ObjectExtension = ".png"});
-		ASSERT_TRUE(IsThumbnailRequestAccepted(WarmScheduler.Request(Request)));
-		FAssetThumbnailStartResult Warm =
-			WarmPipeline.StartNextDetailed();
-		EXPECT_FALSE(Warm.ColdJob);
-		ASSERT_TRUE(Warm.WarmJob);
-		EXPECT_EQ(WarmScheduler.Find(Request.Asset.AssetPath).State,
-			EAssetThumbnailState::Ready);
-		EXPECT_EQ(WarmPipeline.GetStats().DiskHits, 1u);
-	}
-
-	TEST(FAssetThumbnailContractTests, GeneratedPixelsBypassResourceBoundRenderedJob)
-	{
-		const std::filesystem::path Root = MakeObjectStoreRoot("GeneratedPixelsFastLane");
-		DThumbnailManager Registry;
-
-		ASSERT_TRUE(Registry.Register(std::make_shared<FTestThumbnailRenderer>(
-			FThumbnailRenderingInfo{
-				.AssetClassName = "DWaitingRenderedAsset",
-				.RendererName = "WaitingThumbnail",
-				.GeneratorSchemaVersion = 1})));
-		ASSERT_TRUE(Registry.Register(std::make_shared<FTestThumbnailRenderer>(
-			FThumbnailRenderingInfo{
-				.AssetClassName = "DGeneratedPixelAsset",
-				.RendererName = "GeneratedPixelThumbnail",
-				.GeneratorSchemaVersion = 1}, true, true)));
-		FAssetThumbnailRequestQueue Scheduler(Registry);
-		FAssetThumbnailGeneration Pipeline(
-			Scheduler, {.CacheRoot = Root, .ObjectExtension = ".png"});
-		const FAssetThumbnailRequest Waiting = MakeThumbnailRequest(
-			"/ThumbnailTests/WaitingRendered", "DWaitingRenderedAsset", 1);
-		const FAssetThumbnailRequest GeneratedRequest = MakeThumbnailRequest(
-			"/ThumbnailTests/GeneratedPixelsFastLane", "DGeneratedPixelAsset", 1);
-		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Waiting)));
-		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(GeneratedRequest)));
-		Pipeline.BeginFrame();
-		ASSERT_TRUE(Pipeline.StartNext());
-		auto Generated = Pipeline.StartNextGeneratedPixelsDetailed();
-		ASSERT_TRUE(Generated.ColdJob);
-		ASSERT_TRUE(Generated.ColdJob->ScheduledJob.GenerationRequest.GeneratedPixels);
-		const auto& Pixels = *Generated.ColdJob->ScheduledJob.GenerationRequest.GeneratedPixels;
-		ASSERT_TRUE(Pipeline.CompleteGeneratedPixels(
-			*Generated.ColdJob,
-			Pixels.Pixels, Pixels.Width, Pixels.Height));
-		EXPECT_EQ(Scheduler.Find(Waiting.Asset.AssetPath).State,
-			EAssetThumbnailState::Loading);
-		EXPECT_EQ(Scheduler.Find(GeneratedRequest.Asset.AssetPath).State,
-			EAssetThumbnailState::Ready);
-	}
 
 	TEST(FAssetThumbnailContractTests, RenderedPipelineBoundsRendersAndRejectsStaleCompletions)
 	{
@@ -1823,8 +1730,8 @@ namespace Durin
 		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(FirstRequest)));
 		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(SecondRequest)));
 		Pipeline.BeginFrame();
-		std::optional<FAssetThumbnailJob> First = Pipeline.StartNext();
-		std::optional<FAssetThumbnailJob> Second = Pipeline.StartNext();
+		std::optional<FAssetThumbnailJob> First = StartThumbnailWork(Pipeline).ColdJob;
+		std::optional<FAssetThumbnailJob> Second = StartThumbnailWork(Pipeline).ColdJob;
 		ASSERT_TRUE(First);
 		ASSERT_TRUE(Second);
 		ASSERT_TRUE(Pipeline.CompleteLoad(*First));
@@ -1857,7 +1764,7 @@ namespace Durin
 			FThumbnailRenderingInfo{.AssetClassName = "DGeneratedPixelAsset",
 				.RendererName = "BackgroundPixels", .GeneratorSchemaVersion = 1}, true, true)));
 		FAssetThumbnailRequestQueue Scheduler(Registry);
-		FAssetThumbnailGeneration Pipeline(Scheduler, {.CacheRoot = Root}, {}, true);
+		FAssetThumbnailGeneration Pipeline(Scheduler, {.CacheRoot = Root}, {});
 		const auto Request = MakeThumbnailRequest(
 			"/ThumbnailTests/Background/RoundTrip", "DGeneratedPixelAsset", 1);
 		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Request)));
@@ -1866,11 +1773,11 @@ namespace Durin
 		EXPECT_FALSE(Pending.WarmJob);
 		EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, EAssetThumbnailState::Loading);
 		Pipeline.WaitForCacheTasksForTesting();
-		auto Cold = Pipeline.StartNextDetailed();
+		auto Cold = StartThumbnailWork(Pipeline);
 		ASSERT_TRUE(Cold.ColdJob);
-		const auto& Generated = *Cold.ColdJob->ScheduledJob.GenerationRequest.GeneratedPixels;
-		ASSERT_TRUE(Pipeline.CompleteGeneratedPixels(*Cold.ColdJob,
-			Generated.Pixels, Generated.Width, Generated.Height));
+		const FByteBuffer Pixels(4, std::byte{32});
+		ASSERT_TRUE(CompleteThumbnailPixels(Pipeline, *Cold.ColdJob,
+			Pixels, 1, 1));
 		// No cache task is pumped between accepting pixels and observing display readiness.
 		EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, EAssetThumbnailState::Ready);
 		EXPECT_EQ(Pipeline.GetStats().CacheWrites, 0u);
@@ -1886,12 +1793,11 @@ namespace Durin
 		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Request)));
 		EXPECT_FALSE(Pipeline.StartNextDetailed().WarmJob);
 		Pipeline.WaitForCacheTasksForTesting();
-		auto Warm = Pipeline.StartNextDetailed();
+		auto Warm = StartThumbnailWork(Pipeline);
 		ASSERT_TRUE(Warm.WarmJob);
-		EXPECT_EQ(Warm.Pixels, Generated.Pixels);
-		EXPECT_TRUE(Warm.EncodedBytes.empty());
+		EXPECT_EQ(Warm.Pixels, Pixels);
 		EXPECT_EQ(Pipeline.GetStats().DiskHits, 1u);
-		EXPECT_EQ(Pipeline.GetStats().Renders, 0u);
+		EXPECT_EQ(Pipeline.GetStats().Renders, 1u);
 
 		// A completed worker result still cannot publish after a refresh/cancellation.
 		Scheduler.Cancel(Request.Asset.AssetPath);
@@ -1899,7 +1805,7 @@ namespace Durin
 		Pipeline.StartNextDetailed();
 		Pipeline.WaitForCacheTasksForTesting();
 		Scheduler.Cancel(Request.Asset.AssetPath);
-		const auto Canceled = Pipeline.StartNextDetailed();
+		const auto Canceled = StartThumbnailWork(Pipeline);
 		EXPECT_FALSE(Canceled.WarmJob);
 		EXPECT_FALSE(Canceled.ColdJob);
 		EXPECT_EQ(Pipeline.GetStats().DiskHits, 1u);
@@ -1914,7 +1820,7 @@ namespace Durin
 				.RendererName = "BackgroundBudget", .GeneratorSchemaVersion = 1})));
 		FAssetThumbnailRequestQueue Scheduler(Registry);
 		FAssetThumbnailGeneration Pipeline(Scheduler,
-			{.CacheRoot = MakeObjectStoreRoot("BackgroundBudget")}, {.CpuPixelBudgetBytes = 8}, true);
+			{.CacheRoot = MakeObjectStoreRoot("BackgroundBudget")}, {.CpuPixelBudgetBytes = 8});
 		const FByteBuffer Pixels(4, std::byte{127});
 		for (uint32 Index = 0; Index < 3; ++Index)
 		{
@@ -1924,7 +1830,7 @@ namespace Durin
 			auto Scheduled = Scheduler.TakeNext();
 			ASSERT_TRUE(Scheduled);
 			FAssetThumbnailJob Job{.ScheduledJob = std::move(*Scheduled)};
-			ASSERT_TRUE(Pipeline.CompleteGeneratedPixels(Job, Pixels, 1, 1));
+			ASSERT_TRUE(CompleteThumbnailPixels(Pipeline, Job, Pixels, 1, 1));
 			EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, EAssetThumbnailState::Ready);
 		}
 		EXPECT_EQ(Pipeline.GetStats().CacheWritesSkipped, 1u);
@@ -1950,8 +1856,8 @@ namespace Durin
 		FAssetThumbnailJob Job{.ScheduledJob = std::move(*Scheduled)};
 		const FByteBuffer Pixels(4, std::byte{127});
 		{
-			FAssetThumbnailGeneration Pipeline(Scheduler, {.CacheRoot = Root}, {}, true);
-			ASSERT_TRUE(Pipeline.CompleteGeneratedPixels(Job, Pixels, 1, 1));
+			FAssetThumbnailGeneration Pipeline(Scheduler, {.CacheRoot = Root}, {});
+			ASSERT_TRUE(CompleteThumbnailPixels(Pipeline, Job, Pixels, 1, 1));
 			EXPECT_EQ(Pipeline.GetStats().CacheWrites, 0u);
 		}
 		FThumbnailObjectStore Store({.CacheRoot = Root});
@@ -1972,7 +1878,7 @@ namespace Durin
 				.RendererName = "BackgroundWriteFailure", .GeneratorSchemaVersion = 1})));
 		FAssetThumbnailRequestQueue Scheduler(Registry);
 		FAssetThumbnailGeneration Pipeline(Scheduler,
-			{.CacheRoot = MakeObjectStoreRoot("BackgroundWriteFailure"), .MaximumObjectBytes = 1}, {}, true);
+			{.CacheRoot = MakeObjectStoreRoot("BackgroundWriteFailure"), .MaximumObjectBytes = 1}, {});
 		const auto Request = MakeThumbnailRequest(
 			"/ThumbnailTests/Background/WriteFailure", "DGeneratedPixelAsset", 1);
 		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Request)));
@@ -1980,7 +1886,7 @@ namespace Durin
 		ASSERT_TRUE(Scheduled);
 		FAssetThumbnailJob Job{.ScheduledJob = std::move(*Scheduled)};
 		const FByteBuffer Pixels(4, std::byte{127});
-		ASSERT_TRUE(Pipeline.CompleteGeneratedPixels(Job, Pixels, 1, 1));
+		ASSERT_TRUE(CompleteThumbnailPixels(Pipeline, Job, Pixels, 1, 1));
 		Pipeline.WaitForCacheTasksForTesting();
 		EXPECT_EQ(Pipeline.GetStats().CacheWriteFailures, 1u);
 		EXPECT_EQ(Pipeline.GetStats().Failures, 0u);
@@ -2004,7 +1910,7 @@ namespace Durin
 			MakeThumbnailRequest("/ThumbnailTests/CounterCube", "DTextureCube", 1);
 		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(Request)));
 		Pipeline.BeginFrame();
-		std::optional<FAssetThumbnailJob> Job = Pipeline.StartNext();
+		std::optional<FAssetThumbnailJob> Job = StartThumbnailWork(Pipeline).ColdJob;
 		ASSERT_TRUE(Job);
 		ASSERT_TRUE(Pipeline.CompleteLoad(*Job));
 		EXPECT_TRUE(Pipeline.BeginRender(*Job, false));
@@ -2015,7 +1921,7 @@ namespace Durin
 		const FAssetThumbnailRequest CancelRequest =
 			MakeThumbnailRequest("/ThumbnailTests/CancelledCube", "DTextureCube", 1);
 		ASSERT_TRUE(IsThumbnailRequestAccepted(Scheduler.Request(CancelRequest)));
-		std::optional<FAssetThumbnailJob> Cancelled = Pipeline.StartNext();
+		std::optional<FAssetThumbnailJob> Cancelled = StartThumbnailWork(Pipeline).ColdJob;
 		ASSERT_TRUE(Cancelled);
 		Pipeline.Cancel(*Cancelled);
 

@@ -34,7 +34,7 @@ namespace Durin::ContentBrowser::Private
 
 	private:
 		std::unique_ptr<FSourceImageThumbnailCache> SourceImages;
-		std::unordered_map<FContentBrowserItemKey, FAssetDependencyClosureSnapshot, FContentBrowserItemKeyHash> Dependencies;
+		std::unordered_set<FContentBrowserItemKey, FContentBrowserItemKeyHash> RequestedItems;
 		std::unordered_map<FContentBrowserItemKey, std::string, FContentBrowserItemKeyHash> SourcePaths;
 		std::unordered_map<FContentBrowserItemKey, std::unique_ptr<FAssetThumbnail>, FContentBrowserItemKeyHash> AssetThumbnails;
 	};

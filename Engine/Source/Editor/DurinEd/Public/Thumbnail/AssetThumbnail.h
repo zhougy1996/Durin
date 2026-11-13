@@ -13,8 +13,6 @@ namespace Durin
 	public:
 		DURINED_API FAssetThumbnail(
 			FAssetThumbnailPackageFingerprint Asset,
-			uint32 RequestedWidth = 256,
-			uint32 RequestedHeight = 256,
 			FAssetThumbnailPool* Pool = nullptr);
 		DURINED_API ~FAssetThumbnail();
 		FAssetThumbnail(const FAssetThumbnail&) = delete;
@@ -26,8 +24,6 @@ namespace Durin
 		DURINED_API auto Request(EAssetThumbnailPriority Priority) -> void;
 		DURINED_API auto Refresh() -> void;
 		DURINED_API auto GetView() const -> FAssetThumbnailView;
-		auto GetRequestedWidth() const -> uint32 { return RequestedWidth; }
-		auto GetRequestedHeight() const -> uint32 { return RequestedHeight; }
 		auto GetAssetPath() const -> const FTopLevelAssetPath& { return Asset.AssetPath; }
 
 	private:
@@ -35,7 +31,5 @@ namespace Durin
 
 		FAssetThumbnailPackageFingerprint Asset;
 		FAssetThumbnailPool* Pool = nullptr;
-		uint32 RequestedWidth = 256;
-		uint32 RequestedHeight = 256;
 	};
 }

@@ -4,6 +4,7 @@
 
 #include "Thumbnail/ThumbnailPreviewScene.h"
 #include "Thumbnail/ThumbnailManager.h"
+#include "AssetRegistry/ContentChanges.h"
 
 namespace Durin
 {
@@ -85,6 +86,8 @@ namespace Durin
 		DURINED_API auto AddReferencer(const FTopLevelAssetPath& AssetPath) -> void;
 		DURINED_API auto RemoveReferencer(const FTopLevelAssetPath& AssetPath) -> void;
 		DURINED_API auto Refresh(const FTopLevelAssetPath& AssetPath) -> void;
+		// Invalidates roots and captured dependencies once in the shared resource owner.
+		DURINED_API auto ApplyContentChanges(const FContentChangeBatch& Changes) -> void;
 		// Existing completions/retirement still progress while required scene work
 		// temporarily defers new optional thumbnail admissions.
 		DURINED_API auto EndFrame(bool bAllowNewAdmissions = true) -> void;

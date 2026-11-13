@@ -195,33 +195,15 @@ namespace Durin
 	auto FAssetThumbnailRequestQueue::TakeNext()
 		-> std::optional<FAssetThumbnailScheduledRequest>
 	{
-		return TakeNext(false);
-	}
-
-	auto FAssetThumbnailRequestQueue::TakeNextGeneratedPixels()
-		-> std::optional<FAssetThumbnailScheduledRequest>
-	{
-		return TakeNext(true);
-	}
-
-	auto FAssetThumbnailRequestQueue::TakeNext(bool bGeneratedPixelsOnly)
-		-> std::optional<FAssetThumbnailScheduledRequest>
-	{
 		if (Impl->bShuttingDown) return std::nullopt;
-		auto IsEligible = [bGeneratedPixelsOnly](
-			const FAssetThumbnailScheduledRequest& Job) {
-			return !bGeneratedPixelsOnly
-				|| Job.GenerationRequest.GeneratedPixels != nullptr;
-		};
 		auto SelectCaptured = [&]() {
 			auto Selected = std::ranges::find_if(
 				Impl->CapturedQueue,
 				[&](const FAssetThumbnailScheduledRequest& Job) {
-					return IsEligible(Job)
-						&& Job.Priority == EAssetThumbnailPriority::Visible;
+					return Job.Priority == EAssetThumbnailPriority::Visible;
 				});
 			if (Selected == Impl->CapturedQueue.end())
-				Selected = std::ranges::find_if(Impl->CapturedQueue, IsEligible);
+				Selected = Impl->CapturedQueue.begin();
 			return Selected;
 		};
 

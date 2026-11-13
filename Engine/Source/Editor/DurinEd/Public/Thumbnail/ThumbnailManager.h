@@ -37,15 +37,6 @@ namespace Durin
 		virtual ~IAssetThumbnailGenerationInput() = default;
 	};
 
-	// Carries renderer-generated canonical RGBA8 pixels through the shared cache pipeline.
-	struct FAssetThumbnailGeneratedPixels
-	{
-		FByteBuffer Pixels;
-		uint32 Width = 0;
-		uint32 Height = 0;
-
-	};
-
 	// Keeps renderer-owned request data behind a core-owned invalidation boundary.
 	// Copies share only DurinEd state; renderer removal clears the input and session
 	// from every copy before the scoped registration handle returns.
@@ -79,7 +70,6 @@ namespace Durin
 		// Capture-only transfer slot. The registry moves this into RendererLease
 		// before a request enters renderer-neutral scheduling.
 		std::shared_ptr<const IAssetThumbnailGenerationInput> Input;
-		std::shared_ptr<const FAssetThumbnailGeneratedPixels> GeneratedPixels;
 		FAssetThumbnailGenerationLease RendererLease;
 		FAssetThumbnailCancellation Cancellation;
 		uint64 RendererGeneration = 0;
@@ -119,8 +109,7 @@ namespace Durin
 		virtual auto CaptureGenerationRequest(
 			const FAssetThumbnailRequest& Request,
 			uint64 RendererGeneration) -> std::expected<FAssetThumbnailGenerationRequest, std::string> = 0;
-		// Renderers that require a preview scene override this cold-miss hook;
-		// canonical-pixel renderers leave it unsupported.
+		// Creates renderer-owned state for a persistent-cache miss.
 		DURINED_API virtual auto CreateGenerationSession(
 			const FAssetThumbnailGenerationRequest&,
 			const IAssetThumbnailGenerationInput&)

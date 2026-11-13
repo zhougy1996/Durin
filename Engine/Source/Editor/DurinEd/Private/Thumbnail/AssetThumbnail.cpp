@@ -5,11 +5,9 @@
 namespace Durin
 {
 	FAssetThumbnail::FAssetThumbnail(FAssetThumbnailPackageFingerprint InAsset,
-		uint32 InRequestedWidth, uint32 InRequestedHeight, FAssetThumbnailPool* InPool)
+		FAssetThumbnailPool* InPool)
 		: Asset(std::move(InAsset))
 		, Pool(InPool ? InPool : &GetDefaultThumbnailManager().GetSharedPool())
-		, RequestedWidth(std::max(1u, InRequestedWidth))
-		, RequestedHeight(std::max(1u, InRequestedHeight))
 	{
 		Pool->AddReferencer(Asset.AssetPath);
 	}
@@ -17,8 +15,7 @@ namespace Durin
 	FAssetThumbnail::~FAssetThumbnail() { Release(); }
 
 	FAssetThumbnail::FAssetThumbnail(FAssetThumbnail&& Other) noexcept
-		: Asset(std::move(Other.Asset)), Pool(std::exchange(Other.Pool, nullptr)),
-		  RequestedWidth(Other.RequestedWidth), RequestedHeight(Other.RequestedHeight)
+		: Asset(std::move(Other.Asset)), Pool(std::exchange(Other.Pool, nullptr))
 	{
 	}
 
@@ -28,8 +25,6 @@ namespace Durin
 		Release();
 		Asset = std::move(Other.Asset);
 		Pool = std::exchange(Other.Pool, nullptr);
-		RequestedWidth = Other.RequestedWidth;
-		RequestedHeight = Other.RequestedHeight;
 		return *this;
 	}
 

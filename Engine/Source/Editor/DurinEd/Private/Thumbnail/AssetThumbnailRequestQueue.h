@@ -46,9 +46,6 @@ namespace Durin
 		DURINED_API auto BeginFrame() -> void;
 		DURINED_API auto Find(const FTopLevelAssetPath& AssetPath) const -> FAssetThumbnailView;
 		DURINED_API auto TakeNext() -> std::optional<FAssetThumbnailScheduledRequest>;
-		// Selects renderer-generated pixels without waiting behind a resource-bound rendered job.
-		DURINED_API auto TakeNextGeneratedPixels()
-			-> std::optional<FAssetThumbnailScheduledRequest>;
 		// Advances a captured job only while its key, renderer generation, serial,
 		// and asset identity remain current. Resource validity belongs to the session.
 		DURINED_API auto Transition(
@@ -63,9 +60,6 @@ namespace Durin
 		DURINED_API auto IsShuttingDown() const -> bool;
 
 	private:
-		auto TakeNext(bool bGeneratedPixelsOnly)
-			-> std::optional<FAssetThumbnailScheduledRequest>;
-
 		struct FImpl;
 		std::unique_ptr<FImpl> Impl;
 	};

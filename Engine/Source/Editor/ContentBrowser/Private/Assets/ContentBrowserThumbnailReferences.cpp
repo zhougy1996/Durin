@@ -22,6 +22,7 @@ namespace Durin::ContentBrowser::Private
 
 	auto FContentBrowserThumbnailReferences::BeginFrame() -> void
 	{
+		RequestedItems.clear();
 		SourceImages->BeginFrame();
 	}
 
@@ -30,6 +31,7 @@ namespace Durin::ContentBrowser::Private
 	{
 		const auto& Identity = Item.GetItemKey();
 		if (!Identity.IsValid() || Item.IsFolder()) return;
+		RequestedItems.insert(Identity);
 		if ((!Item.IsFolder() && !Item.IsAsset()))
 		{
 			FContentBrowserItemDataAttributeValue Extension, Size, Time;
@@ -56,13 +58,12 @@ namespace Durin::ContentBrowser::Private
 		if (!Item.GetItemAttribute(ContentBrowserItemAttributes::AssetPath, Resource) || !Resource.GetValue<std::string>()
 			|| !FTopLevelAssetPath::TryCreate(*Resource.GetValue<std::string>(), Path))
 		{
-			AssetThumbnails.erase(Identity); Dependencies.erase(Identity); return;
+			AssetThumbnails.erase(Identity); return;
 		}
 		const auto Asset = FindAssetExact(Path);
 		if (!Asset || !GetDefaultThumbnailManager().Find(Asset->AssetClassName))
 		{
 			AssetThumbnails.erase(Identity);
-			Dependencies.erase(Identity);
 			return;
 		}
 		const auto Package = FindPackageExact(Path.GetPackagePath());
@@ -72,9 +73,6 @@ namespace Durin::ContentBrowser::Private
 			.FileSize = Package ? static_cast<uint64>(Package->FileSize) : 0,
 			.LastWriteTimeTicks = Package ? Package->LastWriteTimeTicks : 0};
 		auto& Thumbnail = AssetThumbnails[Identity];
-		if (Thumbnail && Thumbnail->GetAssetPath() != Path) Dependencies.erase(Identity);
-		if (!Dependencies.contains(Identity))
-			Dependencies.emplace(Identity, CaptureAssetDependencyClosure(Fingerprint.PackagePath));
 		if (!Thumbnail) Thumbnail = std::make_unique<FAssetThumbnail>(Fingerprint);
 		else Thumbnail->Reassign(Fingerprint);
 		Thumbnail->Request(Priority);
@@ -91,6 +89,9 @@ namespace Durin::ContentBrowser::Private
 
 	auto FContentBrowserThumbnailReferences::EndFrame() -> void
 	{
+		// Only visible cards and the bounded prefetch range pin shared resources.
+		std::erase_if(AssetThumbnails, [&](const auto& Entry) { return !RequestedItems.contains(Entry.first); });
+		std::erase_if(SourcePaths, [&](const auto& Entry) { return !RequestedItems.contains(Entry.first); });
 		SourceImages->EndFrame();
 	}
 
@@ -99,7 +100,8 @@ namespace Durin::ContentBrowser::Private
 		SourceImages->CancelPendingRequests();
 		// Releasing this panel's references cannot cancel another panel's entries.
 		AssetThumbnails.clear();
-		Dependencies.clear();
+		SourcePaths.clear();
+		RequestedItems.clear();
 	}
 
 	auto FContentBrowserThumbnailReferences::ApplyContentChanges(const FContentChangeBatch& Changes) -> void
@@ -113,21 +115,8 @@ namespace Durin::ContentBrowser::Private
 			if (Affected) SourceImages->Invalidate(Entry.second);
 			return Affected;
 		});
-		std::erase_if(AssetThumbnails, [&](auto& Entry) {
-			const auto It = Dependencies.find(Entry.first);
-			const bool Affected = Changes.bFullRefresh || It == Dependencies.end() || !It->second
-				|| std::ranges::any_of(Changes.Changes, [&](const auto& Change) {
-					if (ContentBrowserChanges::MatchesAsset(Entry.second->GetAssetPath().ToString(), Change.OldAssetPath)
-						|| ContentBrowserChanges::MatchesAsset(Entry.second->GetAssetPath().ToString(), Change.NewAssetPath)) return true;
-					return std::ranges::any_of(It->second.Assets, [&](const auto& Asset) {
-						return ContentBrowserChanges::SamePath(Asset.PhysicalPath, Change.OldPhysicalPath)
-							|| ContentBrowserChanges::SamePath(Asset.PhysicalPath, Change.NewPhysicalPath)
-							|| (Change.bDirectory && ContentBrowserChanges::Within(Asset.PhysicalPath, Change.OldPhysicalPath));
-					});
-				});
-			if (Affected) { Entry.second->Refresh(); Dependencies.erase(Entry.first); }
-			return Affected;
-		});
+		if (!AssetThumbnails.empty())
+			GetDefaultThumbnailManager().GetSharedPool().ApplyContentChanges(Changes);
 	}
 
 	auto FContentBrowserThumbnailReferences::Clear() -> void
@@ -135,6 +124,6 @@ namespace Durin::ContentBrowser::Private
 		SourceImages->Clear();
 		SourcePaths.clear();
 		AssetThumbnails.clear();
-		Dependencies.clear();
+		RequestedItems.clear();
 	}
 } // namespace Durin::ContentBrowser::Private

@@ -3755,7 +3755,7 @@ TEST_F(FContentBrowserModelTests, SourceThumbnailRequestsUseFileIdentityAndInval
 	EXPECT_EQ(References.Find(Text.GetItemKey()).State, EAssetThumbnailState::NotRequested);
 }
 
-TEST_F(FContentBrowserModelTests, ThumbnailDependencyDeletionInvalidatesOnlyCapturedDependents)
+TEST_F(FContentBrowserModelTests, ThumbnailReferencesReleaseCardsOutsideCurrentFrame)
 {
 	InitializeDObjectSystem();
 	FPackagePath BasePath, OwnerPath, OtherPath;
@@ -3790,13 +3790,26 @@ TEST_F(FContentBrowserModelTests, ThumbnailDependencyDeletionInvalidatesOnlyCapt
 			.PackagePath = Path}), EAssetThumbnailPriority::Prefetch);
 	}
 	ASSERT_EQ(References.GetAssetReferenceCountForTesting(), 2u);
-	const auto Revision = GetAssetCatalogRevision();
-	auto Publication = CaptureAssetRegistryPublication();
-	Publication.Assets.erase(BasePath);
-	Publication.ReferenceFingerprints.erase(BasePath);
-	ASSERT_TRUE(PublishAssetRegistryPublication(std::move(Publication)));
-	References.ApplyContentChanges(CaptureAssetCatalogChanges(Revision));
+	const auto OwnerItem = Query.BindItemForTesting(AssetItem(OwnerPath));
+	const auto OtherItem = Query.BindItemForTesting(AssetItem(OtherPath));
+	FContentBrowserThumbnailReferences SecondPanel;
+	SecondPanel.BeginFrame();
+	SecondPanel.Request(OtherItem, EAssetThumbnailPriority::Visible);
+	SecondPanel.EndFrame();
+	References.BeginFrame();
+	References.Request(OwnerItem, EAssetThumbnailPriority::Visible);
+	References.EndFrame();
 	EXPECT_EQ(References.GetAssetReferenceCountForTesting(), 1u);
+	EXPECT_EQ(SecondPanel.GetAssetReferenceCountForTesting(), 1u);
+	EXPECT_EQ(SecondPanel.Find(OtherItem.GetItemKey()).State, EAssetThumbnailState::Queued);
+	References.BeginFrame();
+	References.Request(OtherItem, EAssetThumbnailPriority::Prefetch);
+	References.EndFrame();
+	EXPECT_EQ(References.GetAssetReferenceCountForTesting(), 1u);
+	References.BeginFrame();
+	References.EndFrame();
+	EXPECT_EQ(References.GetAssetReferenceCountForTesting(), 0u);
+	EXPECT_EQ(SecondPanel.Find(OtherItem.GetItemKey()).State, EAssetThumbnailState::Queued);
 }
 
 TEST_F(FContentBrowserModelTests, AssetAdditionIntroducesMissingDirectoryWithoutInvalidatingExistingChildren)

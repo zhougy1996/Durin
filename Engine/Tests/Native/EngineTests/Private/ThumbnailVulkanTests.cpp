@@ -316,7 +316,6 @@ TEST_F(FThumbnailVulkanTests, PreparedShadersAreSharedAndCaptureNeverCompiles)
 TEST_F(FThumbnailVulkanTests, StaticMeshSessionWaitsForMaterialPublication)
 {
 	using namespace Durin;
-	using namespace Durin;
 	DStaticMesh* Mesh = nullptr;
 	const auto MeshPath = Package("SM_MaterialPublication");
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(MeshPath, Mesh));
@@ -394,8 +393,16 @@ TEST_F(FThumbnailVulkanTests, StaticMeshSessionWaitsForMaterialPublication)
 	Properties.bTwoSided = !Properties.bTwoSided;
 	ASSERT_TRUE(Material->SetStaticProperties(Properties));
 	EXPECT_FALSE((*Session)->ValidatePreparedInput());
-	ASSERT_TRUE(RequestMaterialRecompile(*Material, true));
-	FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Material);
+	// Cancellation of a recompile can retain a current accepted program. Use
+	// a cold material to exercise a terminal failure with no renderable fallback.
+	DMaterial* Uncompiled = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Package("M_CanceledThumbnail"), Uncompiled));
+	ASSERT_TRUE(SavePackage(Uncompiled->GetPackage()));
+	Mesh->SetMaterialSlotDefaultMaterial(0, Uncompiled);
+	ASSERT_TRUE(RequestMaterialRecompile(*Uncompiled, true));
+	ASSERT_FALSE(Uncompiled->GetMaterialCompileStatus().IsCurrent());
+	FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Uncompiled);
+	ASSERT_FALSE(Uncompiled->GetAcceptedCompiledProgram());
 	const auto Canceled = (*Session)->PollResources();
 	EXPECT_EQ(Canceled.State, EThumbnailRendererSessionState::Failed);
 	EXPECT_FALSE(Canceled.Diagnostic.empty());
@@ -817,7 +824,6 @@ TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplace
 	auto CapturedResult = Renderer.CaptureGenerationRequest(Request, 1);
 	ASSERT_TRUE(CapturedResult) << CapturedResult.error();
 	Captured = std::move(*CapturedResult);
-	ASSERT_EQ(Captured.GeneratedPixels, nullptr);
 	ASSERT_NE(Captured.Input, nullptr);
 	auto Session = Renderer.CreateGenerationSession(Captured, *Captured.Input);
 	ASSERT_TRUE(Session) << Session.error();
