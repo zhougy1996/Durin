@@ -192,37 +192,6 @@ durin_add_native_test(PostProcessVulkanTests
 		"Verifies demand-driven post-process PSO variants and cache reuse with native Vulkan creation."
 )
 
-if(WIN32)
-	set(_water_plugin_test_libraries)
-	set(_water_plugin_test_definitions DURIN_WATER_PLUGIN_TESTS=0)
-	if(TARGET Water)
-		list(APPEND _water_plugin_test_libraries Water)
-		set(_water_plugin_test_definitions DURIN_WATER_PLUGIN_TESTS=1)
-	endif()
-	durin_add_native_test(WaterSurfaceRenderingVulkanTests
-		KIND integration
-		DOMAINS water renderer
-		MODULES engine renderer vulkan-rhi
-		BACKENDS vulkan
-		STACKS renderer
-		ENVIRONMENTS authored-shaders
-		TIMEOUT 900
-		SOURCES Private/WaterSurfaceRenderingVulkanTests.cpp Private/WaterSurfaceComponentVulkanTests.cpp
-		LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer VulkanRHI VulkanRHITestSupport Vulkan::Vulkan ${_water_plugin_test_libraries}
-		COMPILE_DEFINITIONS ${_water_plugin_test_definitions}
-		INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
-		RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
-		HEAVY_RUNTIME_RATIONALE "Compares finite Gerstner WPO with CPU geometry and exercises Lit rendering and hit proxies."
-	)
-	unset(_water_plugin_test_libraries)
-	unset(_water_plugin_test_definitions)
-else()
-	durin_exclude_native_test_sources(
-		RATIONALE "The Water proof currently qualifies Win64 precompiled material and Shader resources only."
-		SOURCES Private/WaterSurfaceRenderingVulkanTests.cpp Private/WaterSurfaceComponentVulkanTests.cpp
-	)
-endif()
-
 durin_add_native_test(StaticMeshRenderPreparationVulkanTests
 	KIND ${_durin_vulkan_integration_kind}
 	DOMAINS static-mesh

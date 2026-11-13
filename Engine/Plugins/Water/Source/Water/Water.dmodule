@@ -1,7 +1,0 @@
-{
-  "ModuleName": "Water",
-  "LinkType": "Shared",
-  "PCH": "SharedPCH_DObject",
-  "PublicDependencies": ["Engine"],
-  "ReflectHeaders": ["Public/WaterSurfaceTypes.h", "Public/WaterSurfaceComponent.h", "Public/WaterSurfaceActor.h"]
-}

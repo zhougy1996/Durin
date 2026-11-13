@@ -66,33 +66,6 @@ def test_existing_project_roots_are_preserved(project, roots, editor):
         assert result["Plugins"] == result["Modules"] == []
 
 
-@pytest.mark.parametrize("variant", ["DurinEditor", "DurinGame"])
-@pytest.mark.parametrize("enabled", [True, False, None])
-def test_engine_water_plugin_is_explicitly_selected(tmp_path, variant, enabled):
-    from durin_header_tool.config.plugin_config import enumerate_plugin_build
-
-    project = tmp_path / "WaterValidation.dproject"
-    descriptor = dict(ProjectName="WaterValidation", BaseModules=[])
-    if enabled is not None:
-        descriptor["Plugins"] = {"Water": enabled}
-    project.write_text(json.dumps(descriptor), encoding="utf-8")
-    projects = [ROOT / name / (name + ".dproject") for name in ("Engine", "Sandbox", "RoadWeaver")]
-    options = dict(runtime_variant=variant, project_files=projects)
-    selection, locations = resolve_plugins(ROOT / "Engine", project, **options)
-    catalog, _ = enumerate_plugin_build(ROOT / "Engine", project, **options)
-    expected = ["Water"] if enabled else []
-    assert [item["Id"] for item in selection["Plugins"]] == expected
-    assert [item["Name"] for item in selection["Modules"]] == expected
-    assert [item["Name"] for item in catalog["Modules"]] == expected
-    assert locations["Plugin/Water"] == ROOT / "Engine/Plugins/Water/Water.dplugin"
-    if enabled:
-        assert selection["Modules"][0]["Host"] == "Runtime"
-        assert selection["Modules"][0]["Phase"] == "Providers"
-        assert locations["Plugin/Water/Water"].name == "Water.dmodule"
-    else:
-        assert "Plugin/Water/Water" not in locations
-
-
 @pytest.mark.parametrize("value", [{}, {"Water": True, "Tools": False}])
 def test_project_readers_preserve_overrides_without_activating_modules(tmp_path, value):
     path = tmp_path / "Project.dproject"

@@ -18,7 +18,6 @@ namespace Durin
 	{
 		GENERATED_BODY()
 	public:
-		ENGINE_API explicit DMeshComponent(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API virtual auto GetNumMaterials() const -> uint32;
 		ENGINE_API virtual auto GetMaterialIndex(FName SlotName) const -> std::optional<uint32>;
 		ENGINE_API virtual auto GetDefaultMaterial(uint32 SlotIndex) const -> DMaterialInterface*;
