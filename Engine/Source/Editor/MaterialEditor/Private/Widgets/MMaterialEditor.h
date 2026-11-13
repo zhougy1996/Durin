@@ -62,7 +62,7 @@ namespace Durin::MaterialEditor
 		auto OnHostChanged() -> void override;
 		auto ReleaseSessionUI() -> void override;
 	protected:
-		auto OnSessionBound() -> void override;
+		auto PostInitAssetEditor() -> void override;
 
 	private:
 		friend struct FMaterialEditorTestAccess;

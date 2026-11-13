@@ -25,7 +25,7 @@ namespace Durin
 		bool Closed = true;
 		for (const auto& Weak : Snapshot)
 			if (const auto Toolkit = Weak.lock())
-				if (auto* Editor = Toolkit->GetOwningAssetEditor())
+				if (auto* Editor = Toolkit->GetEditorInstance())
 					Closed = Editor->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed) && Closed;
 		if (Closed) { Toolkits.clear(); bClosed = true; }
 		return Closed;

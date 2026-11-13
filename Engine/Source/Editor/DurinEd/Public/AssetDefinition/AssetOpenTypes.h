@@ -47,39 +47,8 @@ namespace Durin
 		std::string AssetClassName;
 	};
 
-	// Pending is accepted work, not a committed editor association.
-	enum class EAssetOpenStatus : uint8
-	{
-		Unhandled, Rejected, Pending, Completed, Failed, Cancelled,
-	};
-
-	struct FAssetOpenRequestId
-	{
-		uint64 Value = 0;
-		auto IsValid() const -> bool { return Value != 0; }
-		auto operator==(const FAssetOpenRequestId&) const -> bool = default;
-	};
-
-	// Owns one input's outcome independently from the rest of a batch.
-	struct FAssetOpenItemResult
-	{
-		FAssetOpenTarget Target;
-		EAssetOpenStatus Status = EAssetOpenStatus::Unhandled;
-		FAssetOpenRequestId RequestId;
-		std::string Message;
-		auto IsAccepted() const -> bool
-		{ return Status == EAssetOpenStatus::Pending || Status == EAssetOpenStatus::Completed; }
-	};
-
-	struct FAssetOpenResult
-	{
-		std::vector<FAssetOpenItemResult> Items;
-		auto IsAccepted() const -> bool
-		{
-			return !Items.empty() && std::ranges::all_of(Items,
-				[](const auto& Item) { return Item.IsAccepted(); });
-		}
-	};
+	// Whether a definition handled the command; subsequent Level loading stays with its owner.
+	enum class EAssetCommandResult : uint8 { Handled, Unhandled };
 
 	// Explicit editor context and execution-only loading keep definitions stateless.
 	struct FAssetOpenArgs
@@ -89,12 +58,16 @@ namespace Durin
 		EAssetOpenMethod OpenMethod = EAssetOpenMethod::Edit;
 		EToolkitMode ToolkitMode = EToolkitMode::Standalone;
 		std::shared_ptr<IToolkitHost> Host;
-		std::string Origin;
 		std::string SessionRole;
 		bool bPrimary = true;
 		// Execute this selection as one compatible session, e.g. grouped restore.
 		bool bCreateSingleSession = false;
 		bool bIsRestore = false;
+		// Interactive callers may request unsaved-scene confirmation; scripts/startup do not.
+		bool bPromptToSave = false;
+
+		auto GetNormalizedRole() const -> std::string_view
+		{ return SessionRole.empty() && !bPrimary ? std::string_view("Secondary") : std::string_view(SessionRole); }
 
 		// Caller retains the loaded object before invoking any callbacks or GC.
 		DURINED_API auto LoadAsset(const FAssetOpenTarget& Target) const -> DObject*;

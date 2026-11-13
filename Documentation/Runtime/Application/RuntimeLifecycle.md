@@ -195,21 +195,19 @@ code selection, while the error remains logged.
 DurinEd owns project-service initialization and workspace activation. MainFrame
 presents the phase/error state, but its first presentation is not an initialization
 dependency. Once workspace services and consumers are ready, the editor enters
-Ready and submits the configured default Level as an ordinary asset-editor open
-request. LevelEditor owns loading, document association, history, selection,
-viewport restoration, progress and errors through the same path as later opens.
-Document failure does not retire the usable editor workspace. Startup advancement
-stops at service readiness; it never polls, caches terminal outcomes, or reports
-loading errors on behalf of the document controller. Empty default-Level settings
-submit no document request.
+Ready and dispatches the configured default Level with programmatic loading policy
+(no unsaved-scene confirmation). LevelEditor owns loading, document association,
+selection, viewport restoration, progress and errors. Document failure does not
+retire the usable workspace. The engine remembers only the configured Level path;
+there is no generic asset-open outcome or request-history cache. An empty default
+Level setting starts no load.
 
 Automation has a separate `GetStartupCompletion(OutError)` observation boundary.
-Editor completion refreshes the submitted ordinary request through
-`DAssetEditorSubsystem::ResolveOpenResult`, which observes failed, canceled or
-retired requests without advancing work. A completed outcome stays completed
-when its document closes. Editor automation separately checks `IsAssetOpen` before
-accepting the initial document, then requires the active
-scene's actual primary-window presentation. `FSceneViewport::QueryPresentation()`
+It checks whether that Level document is still pending, then verifies that the
+actual editor World contains the configured Level. Failure/cancellation or closing
+the initial scene cannot be masked by a previously successful request receipt.
+Once the correct scene is active, automation separately requires its actual
+primary-window presentation. `FSceneViewport::QueryPresentation()`
 validates scene generation and render outcome, then delegates current-window
 receipt matching to Mona. An auxiliary viewport, old generation, or replaced or
 removed window mapping cannot satisfy it. Without a scene, automation observes
@@ -279,8 +277,9 @@ creates the proxy. Failed required requests keep that component withheld and
 diagnosable without failing or rolling back the map change.
 View-dependent renderer preparation runs through the committed viewport, and
 Game startup and editor automation still wait for its actual presentation receipt.
-Failure or cancellation retires the candidate and preserves
-the old document.
+Failure or cancellation retires the unpublished candidate. Editor-level confirmation,
+current-document changes and cleanup remain the Level controller's responsibility;
+complete preservation of the previous editor scene is not an editor contract.
 
 Requests may supply a `BeforeCommit` veto and an `OnComplete` notification.
 Editor document/transaction and viewport coordination uses these callbacks rather

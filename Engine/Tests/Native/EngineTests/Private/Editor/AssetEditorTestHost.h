@@ -31,13 +31,13 @@ namespace Durin::Testing
 			FSoftObjectPath AssetPath;
 			auto* Owner = Service.Get();
 			return Owner && FSoftObjectPath::TryCreate(Path, AssetPath) && Owner->OpenAssets({.AssetEditors = Owner,
-				.Assets = {{AssetPath, std::string(Class)}}, .OpenMethod = Method}).IsAccepted();
+				.Assets = {{AssetPath, std::string(Class)}}, .OpenMethod = Method});
 		}
 		auto Shutdown() -> void
 		{
 			if (auto* Owner = Service.Get())
 				for (const auto& Session : Owner->GetOwnedAssetEditors())
-					if (!Existing.contains(FObjectKey(Session.Get()))) Owner->RetireAssetEditor(*Session);
+					if (!Existing.contains(FObjectKey(Session.Get()))) Owner->RetireAssetToolkit(*Session->GetToolkit());
 			Service = nullptr;
 			if (bOwnEditor && Editor)
 			{ Editor->PreExit(); MarkObjectHierarchyAsGarbage(Editor.Get()); }

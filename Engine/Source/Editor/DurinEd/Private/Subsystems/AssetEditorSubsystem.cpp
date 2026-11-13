@@ -10,7 +10,7 @@
 #include "AssetRegistry/Catalog.h"
 #include "DObject/SoftObjectPtr.h"
 #include "Toolkits/AssetEditor.h"
-#include "Toolkits/ToolkitManager.h"
+#include "Toolkits/AssetEditorToolkit.h"
 
 namespace Durin
 {
@@ -19,7 +19,6 @@ namespace Durin
 
 	auto DAssetEditorSubsystem::Initialize(FSubsystemCollection& Collection) -> void
 	{
-		ToolkitManager = std::make_shared<FToolkitManager>();
 	}
 
 	auto DAssetEditorSubsystem::CanCall() const -> bool
@@ -32,15 +31,8 @@ namespace Durin
 
 	auto DAssetEditorSubsystem::Deinitialize() noexcept -> void
 	{
-		std::vector<FAssetOpenRequestId> Pending;
-		for (const auto& [Id, Request] : OpenRequests)
-			if (Request.Result.Status == EAssetOpenStatus::Pending) Pending.push_back({Id});
-		for (const auto Id : Pending)
-			requiref(CancelOpenRequest(Id), "Asset-editor pending work must drain before subsystem retirement");
 		ShutdownAssetEditorSessions();
 		ToolkitHostFactory = {};
-		OpenRequests.clear();
-		CompletedRequests.clear();
 		Lifecycle.reset();
 		DispatchingDefinition.Reset();
 		OpeningPaths.clear();
@@ -81,7 +73,8 @@ namespace Durin
 				if (HasEditor(Instance) && Instance->IsPrimaryEditor() && Instance->GetOpenMethod() == EAssetOpenMethod::Edit)
 				{
 					const auto* Session = dynamic_cast<DAssetEditor*>(Instance);
-					const bool bCanonical = !Session || Session->GetInstanceKey().empty();
+					const auto* Toolkit = dynamic_cast<FAssetEditorToolkit*>(Instance);
+					const bool bCanonical = Session ? Session->GetInstanceKey().empty() : !Toolkit || Toolkit->GetInstanceKey().empty();
 					const double ActivationTime = Instance->GetLastActivationTime();
 					if (!Best || (bCanonical && !bBestCanonical) || (bCanonical == bBestCanonical && ActivationTime > BestTime))
 					{ Best = Instance; bBestCanonical = bCanonical; BestTime = ActivationTime; }
@@ -95,7 +88,7 @@ namespace Durin
 			FSoftObjectPath Path;
 			if (!FSoftObjectPath::TryCreate(Asset->GetObjectPath(), Path)) return;
 			bOpened = OpenAssets({.AssetEditors = this,
-				.Assets = {{Path, Asset->GetClass()->GetQualifiedName().ToString()}}}).IsAccepted();
+				.Assets = {{Path, Asset->GetClass()->GetQualifiedName().ToString()}}});
 			bOpened = bOpened && CanCall();
 		});
 		return bOpened;
@@ -229,7 +222,7 @@ namespace Durin
 		FSoftObjectPath Path;
 		if (FSoftObjectPath::TryCreate(Asset->GetObjectPath(), Path))
 			PublishEvent({.Type = EAssetEditorEvent::Opened, .Target = {Path, Asset->GetClass()->GetQualifiedName().ToString()},
-				.Session = FObjectKey(dynamic_cast<DAssetEditor*>(Instance)), .Method = Instance->GetOpenMethod(), .Status = EAssetOpenStatus::Completed});
+				.Session = FObjectKey(dynamic_cast<DAssetEditor*>(Instance)), .Method = Instance->GetOpenMethod(), .InstanceId = std::string(Instance->GetInstanceId())});
 	}
 
 	auto DAssetEditorSubsystem::NotifyAssetsOpened(const std::vector<DObject*>& Assets, IAssetEditorInstance* Instance) -> void
@@ -247,7 +240,7 @@ namespace Durin
 		FSoftObjectPath Path;
 		FSoftObjectPath::TryCreate(Asset->GetObjectPath(), Path);
 		FAssetEditorEvent Event{.Type = EAssetEditorEvent::AssetRemoved, .Target = {Path, Asset->GetClass()->GetQualifiedName().ToString()},
-			.Session = FObjectKey(dynamic_cast<DAssetEditor*>(Instance)), .Method = Instance->GetOpenMethod()};
+			.Session = FObjectKey(dynamic_cast<DAssetEditor*>(Instance)), .Method = Instance->GetOpenMethod(), .InstanceId = std::string(Instance->GetInstanceId())};
 		if (auto Found = OpenedAssets.find(Key); Found != OpenedAssets.end())
 		{
 			std::erase(Found->second, Instance);
@@ -279,7 +272,7 @@ namespace Durin
 			{
 				FSoftObjectPath Path; FSoftObjectPath::TryCreate(Object->GetObjectPath(), Path);
 				Events.push_back({.Type = EAssetEditorEvent::AssetRemoved, .Target = {Path, Object->GetClass()->GetQualifiedName().ToString()},
-					.Session = FObjectKey(dynamic_cast<DAssetEditor*>(Instance)), .Method = Instance->GetOpenMethod()});
+					.Session = FObjectKey(dynamic_cast<DAssetEditor*>(Instance)), .Method = Instance->GetOpenMethod(), .InstanceId = std::string(Instance->GetInstanceId())});
 			}
 		}
 		for (auto& Event : Events) PublishEvent(std::move(Event));

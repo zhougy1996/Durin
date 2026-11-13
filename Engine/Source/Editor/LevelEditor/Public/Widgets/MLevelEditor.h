@@ -45,6 +45,7 @@ namespace Durin::LevelEditor
 			FEditorDocumentManager& InWorkspaceManager,
 			FContentBrowserCallbacks InContentBrowserCallbacks,
 			std::function<void()> InOpenProjectBrowser, DEditorEngine& EditorHost);
+		LEVELEDITOR_API auto OpenLevel(const std::string& AssetPath) -> bool;
 		LEVELEDITOR_API auto CancelPendingOpen() -> bool;
 		LEVELEDITOR_API auto ReleaseSessionUI() -> void override;
 		LEVELEDITOR_API ~MLevelEditor() override;

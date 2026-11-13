@@ -1,13 +1,154 @@
 # UE Asset Editor Architecture Plan
 
-Summary: Replace workspace-bound asset-editor registration with UE-aligned asset definitions, owned editor sessions, reusable toolkits, independent hosts, and metadata-driven asset actions.
+Summary: Replace workspace-bound registration with UE-aligned asset definitions, editor instances with optional reflected owners, reusable toolkits, independent hosts, and metadata-driven actions.
 
 Last reviewed: 2026-11-13
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-11-13
 
 ## Current Status
+
+Completed on 2026-11-13 under the user's final scope decision. Stages 0-9 code
+implementation, automated qualification, shared-consumer builds and lasting
+contracts are accepted as this plan's completed scope. The previously proposed
+lifecycle-responsibility consolidation is removed from this plan; no replacement
+plan is created and no implementation of that consolidation is claimed.
+
+Real interface interaction (native dirty/pending close and host-transfer gestures,
+interactive panel/layout restart and project switching) is explicitly excluded
+from this completion scope at the user's direction. Those operations remain
+skipped and unqualified, never passed. The two Windows symlink-privilege test
+skips remain recorded limitations. Successful StaticMesh package reload and live
+direct-Toolkit host transfer were not added; their documented limitations remain.
+This completes the selected architecture migration and read-only direct pilot,
+not unrestricted UE parity or all-platform/manual acceptance.
+
+Final code is committed as `83d3b201f`; the Stage 9 final-input receipts below
+record 585 selected passes, two skips and the passing incremental all Editor
+consumer build. This closure changes documentation only. Source/test hashes are
+rechecked against `stage9-inputs.json`, so applicable runtime receipts are reused.
+Changed-document and all-plan lifecycle validation cover the completion metadata
+and scope updates. The plan remains at this path pending normal batch archival.
+
+Earlier checkpoint wording below records historical acceptance status; the final
+scope decision above supersedes any previously open native-interface gates.
+
+
+Stage 9 implementation and automated validation are complete. The default and
+StaticMesh definitions share a private default-definition execution algorithm;
+new-instance focus belongs to subsystem admission and reuse focuses once. Direct
+mutable Edit is rejected before host/document work; immutable inspectors retain
+Edit/View and mutable-feature Toolkits may use View. No new lifecycle state or
+whole-window dirty-close continuation mechanism was introduced.
+
+Final inputs are working changes based on `1c070b0f8`, Windows
+`windows-msvc-x64`, `Win64-Debug-DurinEditor`. Receipts under
+`Build/UEAssetEditorArchitecture/` are:
+
+| Selection | Outcome | Receipt |
+| --- | --- | --- |
+| EditorOperationTests | 358 passed | `stage9-framework.xml` |
+| AssetEditorFamilyTests | 10 passed | `stage9-families.xml` |
+| EditorHostToolTests | 39 passed | `stage9-host.xml` |
+| ContentBrowserWorkflowTests | 173 passed, 2 Windows symlink-privilege skips | `stage9-browser.xml` |
+| StaticMeshTests / FStaticMeshEditorTests.* | 5 passed | `stage9-mesh.xml` |
+
+These are 585 selected passes and two skips. The incremental all Editor consumer
+build passed (`20261113-145731-240979-41224-cmake.log` under
+`Build/.agent-state/logs/`), covering Engine, Sandbox and RoadWeaver. No Game
+dependency or build graph changed. `stage9-inputs.json` records final source/test
+hashes and receipt hashes/counts. The framework/host/browser/mesh receipts remain
+applicable: the last production refinement only declares that the direct Mesh
+definition has no reflected editor class; the refreshed family receipt verifies
+mixed direct/generic View groups reject in both input orders instead of falling
+back to a generic reflected editor. There were no subsequent production changes.
+
+New cases verify one Focused event for new/reused reflected and direct opens,
+mutable Edit rejection without host creation/document callbacks/publication,
+and fixed View mutation guards. Existing grouped/role/mode, provider-retention,
+load-failure and real relocation/restore coverage passes. Changed-document and
+all-plan lifecycle validation pass. Native interface interaction remains skipped
+and unqualified; at that checkpoint the plan remained Active pending the final
+scope decision recorded above.
+The follow-up interface decision preserves AssetDefinitionRegistry for discovery
+and lookup and Definition::OpenAssets for opening. The three-callback public helper
+was withdrawn before acceptance; selection policy remains a private default-definition implementation
+and the direct inspector supplies only a Toolkit identity/construction factory.
+Registry object-lifetime representation is unchanged; this aligns responsibilities,
+not UE UObject ABI or every method name.
+Lifecycle-responsibility consolidation is outside the completed scope. Native
+interface interaction remains skipped and unqualified.
+
+
+Stage 8 implementation and automated pilot qualification are complete. StaticMesh
+Inspector is a direct Toolkit/IAssetEditorInstance and allocates no reflected
+DStaticMeshAssetEditor. Texture, Material and Level retain reflected ownership.
+The final Toolkit snapshot derives from these two actual ownership collections;
+no secondary ToolkitManager registration/index or self-returning compatibility
+facade remains. Active/focus context and lifecycle InstanceId work with both forms.
+The shared admission helper preserves required-mode normalization and explicit-host
+rejection. StaticMesh definition lookup preserves inherited definition matching.
+
+Based on Stage 7 commit `44e873576`, Windows `windows-msvc-x64`,
+`Win64-Debug-DurinEditor`, final selected receipts under
+`Build/UEAssetEditorArchitecture/` are:
+
+| Selection | Outcome | Receipt |
+| --- | --- | --- |
+| EditorOperationTests | 356 passed | `stage8-framework.xml` |
+| AssetEditorFamilyTests | 8 passed | `stage8-families.xml` |
+| EditorHostToolTests | 39 passed | `stage8-host.xml` |
+| StaticMeshTests / FStaticMeshEditorTests.* | 5 passed | `stage8-mesh-editor.xml` |
+| EditorShellTests | 63 passed | `stage8-shell.xml` |
+| ContentBrowserWorkflowTests | 173 passed, 2 Windows symlink-privilege skips | `stage8-browser.xml` |
+| AssetPackageReloadTests | 21 passed | `stage8-reload.xml` |
+
+These are 665 unique selected passes and two skips. The earlier 201-case full
+StaticMesh suite also passed; its five editor cases were refreshed after the
+final mechanical test API migration and are counted only once above. The final
+incremental all build passed (`20261113-122121-590672-7472-cmake.log` under
+`Build/.agent-state/logs/`), covering Engine, Sandbox and RoadWeaver consumers.
+The final build includes the direct activation-time correction; the refreshed
+framework receipt verifies active-window ordering and the final family receipt
+covers grouped/reversed selection reuse and object convenience opening. No later
+production inputs changed. No Game dependency or build graph changed.
+The earlier shell/browser/reload receipts remain applicable: subsequent private
+admission extraction keeps reflected policy identical; final direct required-mode
+and activation-time behavior is covered by the refreshed framework and actual
+Mesh family receipts. Host behavior and the five inspector-case expectations are
+unchanged by that private activation-time fix.
+
+New cases cover direct initialization failure with no publication, required-mode
+normalization and explicit conflicts, provider withdrawal/GC, stable value-event
+identity and host close, and grouped/role/mode restore. The real Mesh case covers
+object opening, independent Edit/View inspection, immutability, resource relocation,
+GC, layout-profile stability, grouped reuse and restore without a reflected owner.
+Engine explicitly rejects StaticMesh package reload as Unsupported; the case
+verifies that rejection retains the original inspector/associations. This is not
+a successful reload claim and no Engine reload capability was added.
+`stage8-inputs.json` records final source/test and receipt hashes plus removed-symbol
+searches; `stage7-inputs.json` records the preceding cleanup commit's source blobs
+and receipts. Changed-document and all-plan validation pass. Native interface
+interaction remained skipped and unqualified at this checkpoint; completion
+uses the final scope decision above.
+
+Stage 7 implementation is complete. Based on `893c4e126`, Windows
+`windows-msvc-x64` / `Win64-Debug-DurinEditor`: EditorOperationTests 352 passed
+(`stage7-framework.xml`), EditorHostToolTests 39 passed (`stage7-host.xml`),
+AssetEditorFamilyTests 7 passed (`stage7-families.xml`), and
+ContentBrowserWorkflowTests 173 passed with two existing Windows symlink-privilege
+skips (`stage7-browser.xml`). Reports are under `Build/UEAssetEditorArchitecture/`.
+The all Editor consumer build passed (`20261113-115659-638988-24824-cmake.log`
+under `Build/.agent-state/logs/`). The subsequent test edit only removes a duplicate
+assertion and unused lease; production inputs are unchanged. Stage 8 qualification is recorded above.
+
+The 2026-11-13 follow-up review authorizes Stages 7-8 below: remove redundant
+state first, then pilot a direct StaticMesh Toolkit instance. This supersedes the
+mandatory reflected-session implementation choice, not the definition/opening,
+read-only, lifetime or host contracts. Stage 6 receipts below remain historical
+baseline evidence. Real interface interaction remains skipped and unqualified.
+
 
 Stages 0-5 implementation and Stage 6 work packages 6A-6E are implemented.
 The 2026-11-13 Stage 6 closure consolidates execution/presentation plumbing,
@@ -15,9 +156,8 @@ qualifies definition withdrawal independently of session close and pending work,
 and migrates the remaining shared API consumers. The remaining required gates
 are real interface interaction: native dirty/pending close and host transfer,
 panel/layout restart and interactive project switching. They remain explicitly
-skipped at the user's direction and unqualified. `Status: Active` and empty
-`Completed` metadata are intentional; automated closure does not complete the
-entire plan.
+skipped at the user's direction and unqualified. This historical checkpoint did
+not complete the plan; the later explicit scope decision above governs completion.
 
 The single final toolkit draw boundary retains callback/frame leases and selects
 the owning editor context; session drawing delegates without nested dispatch.
@@ -421,7 +561,7 @@ transaction services, package reload, and asynchronous operations. It does not
 require copying Slate, UE containers, every specialized editor, or unrelated
 runtime systems. Standalone and world-centric hosting, Edit/View opening,
 default editing, lifecycle events, recent assets, and session restoration are
-included. Local usage accounting is included; external telemetry collection is
+included. Local usage accounting was withdrawn in Stage 7; external telemetry collection is
 not required. Editor-mode integration must have a real toolkit extension seam;
 porting UE's individual modeling or gameplay modes is outside this plan.
 
@@ -443,12 +583,20 @@ on 2026-11-06:
   toolkit hosting, live-instance management, and asset/editor associations.
 
 These are public API references, not proof that all UE editors use the
-`UAssetEditor`/`FBaseAssetToolkit` pair. Durin selects that pair as its standard
-new implementation path. Stage 0 must record exact API/version observations and
+`UAssetEditor`/`FBaseAssetToolkit` pair. Durin initially selected that pair as its standard
+implementation path; Stages 7-8 supersede its mandatory use with a direct Toolkit pilot. Stage 0 must record exact API/version observations and
 any intentional adaptation before coding; uncertainty about undocumented UE
 internals must not be presented as a verified UE contract.
 
 ## Final Architecture
+
+Stages 7-8 amend the original target: DAssetEditor/FBaseAssetToolkit is an optional
+implementation shape, not a requirement for every asset editor. StaticMesh uses a
+direct Toolkit instance through the same definition and opening protocol. The
+implemented owning-domain contract and Stage 8 ownership decision govern this
+pilot where earlier session-only diagrams or migration rows differ. The pilot
+opens/restores both host modes; live direct-Toolkit transfer remains outside this
+bounded pilot and native transfer interaction is still unqualified.
 
 ### Definitions and Discovery
 
@@ -560,8 +708,8 @@ close requested, and closed outcomes. Reentrancy uses snapshots and lifetime
 checks. MRU and persisted session restore use canonical asset identities,
 supported method, and stable editor identity. Restore occurs after project and
 providers are ready, handles missing assets/providers per item, and cannot race
-or replace the authoritative configured startup-Level operation. Local usage
-accounting subscribes to committed lifecycle events without retaining sessions.
+or replace the authoritative configured startup-Level operation. Stage 7 removes
+unused local usage accounting while retaining lifecycle subscriptions and MRU.
 
 ### Safety and Retirement
 
@@ -634,6 +782,10 @@ level must not remove it at the definition level.
   from runtime modules to editor-only definitions.
 
 ## Frozen Execution Contracts
+
+The original stage contracts below are historical baseline decisions. Stages 7-8
+supersede mandatory reflected ownership, the unused Toolkit index and usage
+accounting; unchanged loading, close, GC and provider safety contracts remain.
 
 ### Consumer Inventory and Baseline Fixtures
 
@@ -747,7 +899,7 @@ undocumented UE internal ordering.
 | Toolkit mode/tool attachment | Scoped extension interface with no second asset route | 3 | Attach/remove a test tool and release callbacks with the session |
 | AssetEditorSubsystem notifications | Explicit committed lifecycle subscriptions | 5 | Pending failure emits no opened event; reentrant close safely removes later instances |
 | Recent and restore support | Canonical project-scoped MRU/session settings | 5 | Missing provider/item isolation, method restoration and configured-Level precedence |
-| Editor usage data | Local event-driven accounting; no external telemetry | 5 | Failed opens do not count; closing drops all strong session references |
+| Editor usage data | Withdrawn in Stage 7: no production consumer; keep lifecycle events and MRU | 7 | No counters/timing API or extra provider/session retention |
 | Module/provider retirement | Existing mapped-module and reflected teardown restrictions | 6 | Removing definition leaves dirty session alive; unsafe physical unload is refused atomically |
 
 No parity item is unassigned. Host/command fixtures cover the cross-cutting
@@ -1106,9 +1258,9 @@ remaining parity work; retain the final full-architecture acceptance gates.
 - [x] Migrate source/test consumers in every `Durin.dworkspace` project, including
   project-defined definitions/toolkits without central dispatch changes. Publish
   lasting architecture contracts and record automated parity evidence.
-- [ ] Close the remaining native-interface parity/acceptance gates. Native dirty
-  close/transfer, panel/layout restart and interactive project switching remain
-  skipped and unqualified; automated fixtures do not substitute for them.
+Excluded from completion acceptance by the final scope decision: native dirty
+close/transfer, panel/layout restart and interactive project switching remain
+skipped and unqualified. Automated fixtures are not substitute manual passes.
 
 Acceptance for 6A: no removed interface remains in production or tests; document
 activation, deferred replacement, dirty close, GC roots and atomic reload still
@@ -1143,12 +1295,100 @@ viewport records. Existing session snapshots contain no added window state.
 Old asset layout keys/APIs and fallback reads are removed across all workspace
 consumers. No real interface qualification is claimed for the skipped operations.
 
-Final acceptance: complete the validation matrix below, including the incremental
-`all` Editor build justified by exported interfaces/reflection/module closure.
-Actual interface interaction remains skipped at the user's direction and must
-stay marked unqualified; do not complete the entire plan while required gates
-remain open. Record each intentional UE adaptation; missing mechanisms cannot
-be renamed deferred to claim parity.
+Final acceptance uses the retained automated validation matrix below, including
+the incremental all Editor consumer build. Real interface interactions are
+excluded by the final explicit user scope decision and remain skipped/unqualified.
+Recorded adaptations and unsupported mechanisms are limitations of completion;
+they are not successful parity or manual-validation claims.
+
+### Stage 7: Remove redundant state before the direct Toolkit pilot
+
+Dependencies: Stage 6 automated closure. Outcome: one input for role/primary
+policy, shared identity matching, and no unused secondary Toolkit index or usage
+accounting requirement. Retain the general IAssetEditorInstance association
+contract because Stage 8 uses it; do not restrict registration to DAssetEditor.
+
+- [x] Remove the unused weak ToolkitManager index and migrate its tests to observable
+  session/host membership. A future manager must have a real ownership role.
+- [x] Keep primary and role only in FAssetOpenArgs; normalize the default secondary
+  role in one helper and share asset-set equality across reuse/admission/transfer.
+- [x] Remove local usage counters/timing and their test-only query, while retaining
+  lifecycle events, MRU, close ordering and versioned restore snapshots.
+
+Acceptance: owning framework/host/family/browser tests pass; shared consumers in
+Engine, Sandbox and RoadWeaver compile. No production ownership mechanism is
+added to satisfy a test. Record changed-document validation and final-input hashes.
+
+### Stage 8: Pilot StaticMesh as a direct Toolkit instance
+
+Dependencies: Stage 7. Outcome: StaticMesh Inspector opens through its definition
+as a Toolkit implementing IAssetEditorInstance without a DAssetEditor wrapper.
+Other families retain reflected editor ownership. UE supports both shapes; exact
+class-name parity is not a reason to add another owner or a second open pipeline.
+
+Pilot ownership decision: the subsystem retains committed direct Toolkits with
+shared ownership; reflected editors retain their own Toolkits. A derived Toolkit
+snapshot unifies presentation without duplicating session Toolkit registration.
+Hosts continue to borrow Toolkits weakly. The Toolkit supplies its effective
+instance/host/document context to common shell code, delegates to DAssetEditor
+when session-backed, and stores only the direct lifecycle state when direct.
+StaticMesh retains the existing document controller for reload/relocation and
+preview identity; no new generic controller or alternate asset loading path is
+introduced. Direct state is not a reflected object and creates no hidden Session.
+
+
+- [x] Give direct Toolkits explicit initialization, provider/object retention,
+  host attachment, focus, close and retirement. Uninitialized is not an alternate
+  production execution mode. Retain the Mesh document service for tab identity, strong roots and relocation.
+  Do not add a speculative document-free mode or generic controller during the pilot.
+- [x] Make shell presentation, active commands, close coordination and supported
+  restore enumerate both instance forms. Retain one authoritative host per instance
+  and one owner for each Toolkit; do not construct hidden reflected Session adapters.
+- [x] Migrate StaticMesh definition and remove its reflected editor wrapper. Verify
+  independent assets, reopen/focus, Edit/View immutability, grouped/role identity,
+  both semantic host modes, provider withdrawal, GC/reload/relocation and shutdown.
+- [x] Publish implemented ownership contracts and record focused receipts plus one
+  incremental all Editor build for changed exported toolkit/host interfaces.
+Native interface acceptance remains skipped and unqualified, and is excluded
+from the completed scope by the final user decision above.
+
+Acceptance: ordinary browser/object/path/restore opens still use OpenAssets;
+StaticMesh has no DStaticMeshAssetEditor allocation or separate dispatch registry.
+Failed initialization publishes no association, retired handles reject commands,
+and existing Texture/Material/Level behavior remains covered. This pilot does not
+claim real interface acceptance or enable DLL reload.
+
+### Stage 9: Consolidate definition opening and constrain direct inspection
+
+Dependencies: Stage 8 automated pilot qualification. Outcome: one Definition
+selection algorithm and one focus notification per successful new/reused open.
+Direct Toolkit admission supports immutable inspectors in Edit or View and
+mutable-feature Toolkits only when fixed to View. Writable Edit direct instances
+are rejected before host creation, document callbacks or association publication.
+No new dirty-close continuation state machine is added.
+
+- [x] Extract selection compatibility, execution-time loading/retention, reuse
+  matching, grouped/ordinary execution and per-input result assembly into a small
+  private default-definition execution function. Registry retains registration/class lookup and
+  Definition::OpenAssets remains the public type behavior, following UE's boundary.
+  StaticMesh supplies only Toolkit identity and a construction factory through a
+  protected default-definition helper. Do not expose compatibility/matching policy
+  callbacks or add a registry, controller, policy-class hierarchy or owner.
+- [x] Keep new-instance focus under subsystem admission and focus reused instances
+  once in shared Definition execution. Cover reflected and direct event counts.
+- [x] Enforce the read-only direct contract at admission, migrate direct fixtures
+  to immutable inspectors where appropriate, and prove mutable Edit is rejected
+  without host/document work while View remains read-only.
+- [x] Run focused framework/family/browser/host checks and consumer compilation;
+  publish final-input receipts and update lasting contracts. Native interaction
+  remains skipped and unqualified, outside the final completion scope.
+
+Acceptance: single/grouped selections, metadata compatibility, load failure,
+role/mode/primary reuse and provider retention preserve their existing behavior.
+New and reused opens each emit one Focused event per effective editor open. The
+same helper serves default reflected editing and StaticMesh direct inspection.
+Shared exported API changes require an incremental all Editor consumer gate for
+Engine, Sandbox and RoadWeaver. No Game dependency change is intended.
 
 ## Validation Matrix and Evidence
 
@@ -1163,7 +1403,7 @@ are starting points, not an instruction to run every target at every stage.
 | Texture, material and mesh behavior | Owning workflow/persistence/compile/preview target selections from the configured registry; include integration targets when their changed lifecycle is not covered by direct fixtures |
 | Lifetime and package operations | GC/reentrancy/teardown plus `AssetPackageReloadTests` and relevant relocation/transaction tests; pending operations must reach observable terminal outcomes |
 | Consumer API migration | Build owning modules and affected consumer targets across all projects in `Durin.dworkspace` at each shared API migration |
-| Native windows, layout and startup | Real editor smoke for both host modes, restart, dirty close, project switching, and Sandbox/RoadWeaver default-Level behavior; use application-host guidance where applicable |
+| Native windows, layout and startup | Historical startup receipts remain recorded. Real native gestures, interactive layout/restart and project switching are excluded from final acceptance by user decision; skipped and unqualified |
 | Final integration | One incremental `all` build for the selected Editor profile after final API removal; justified by foundational exported toolkit/host headers, reflection discovery and module composition changes |
 | Runtime isolation | Verify editor-only definitions do not enter Game module closure; run a targeted Game build when dependency changes affect that closure; do not add unrelated presets without a concrete risk |
 | Documentation | Changed-document validation and all-plan lifecycle validation; implemented contracts must match the final code |
@@ -1182,15 +1422,18 @@ behavioral tests rather than tests mirroring descriptor construction.
 
 ## Definition of Done
 
-- [ ] All stages and their acceptance gates have final-input evidence.
+- [x] All retained implementation stages and automated acceptance gates have
+  final-input evidence; explicitly excluded native interactions remain unqualified.
 - [x] Automatic definitions, structured opening, real sessions, both hosts,
   reusable toolkits, default editing, metadata-only queries, lifecycle events,
   MRU/restore and scoped extensions are used by production consumers.
 - [x] Every legacy route/registration/instance adapter is removed, all supported
   editor families and project consumers migrated, and no duplicate owner remains.
-- [ ] Dirty/pending close, GC/reload/relocation, transactions, compatibility,
-  startup readiness, PIE and provider retirement invariants remain qualified.
-- [ ] The UE parity matrix is closed with explicit adaptations rather than
-  unimplemented core requirements; permanent contracts are published.
-- [ ] Final build/test/document receipts are recorded; only then set Completed
-  metadata and follow the plan lifecycle/archive workflow.
+- [x] Automated dirty/pending close, GC/reload/relocation, transactions, compatibility,
+  startup readiness, PIE and provider-retirement evidence is recorded for the
+  retained scope; native gestures and unsupported Mesh reload are not claimed.
+- [x] The selected UE alignment is closed with documented adaptations, exclusions
+  and capability limits; implemented contracts are published. Removed lifecycle
+  consolidation is not a completion requirement or an implementation claim.
+- [x] Final build/test receipts are retained, completion-document validation passes,
+  and Completed metadata is set; physical archival remains a separate batch action.

@@ -81,10 +81,10 @@ namespace Durin
 		if (!Path.IsValid()) return;
 		auto* AssetEditors = GetEditorSubsystem<DAssetEditorSubsystem>();
 		requiref(AssetEditors, "Workspace admission requires asset-editor services.");
-		auto Opened = AssetEditors->OpenAssets({.AssetEditors = AssetEditors,
-			.Assets = {{Path, DLevel::StaticClass()->GetQualifiedName().ToString()}}});
-		requiref(Opened.Items.size() == 1, "An asset-open request must return one result per input.");
-		InitialDocumentRequest = std::move(Opened.Items.front());
+		InitialLevelPath = Path;
+		if (!AssetEditors->OpenAssets({.AssetEditors = AssetEditors,
+			.Assets = {{Path, DLevel::StaticClass()->GetQualifiedName().ToString()}}}))
+			StartupError = "Could not load the default level.";
 	}
 
 }

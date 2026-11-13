@@ -1608,9 +1608,9 @@ namespace Durin::MaterialEditor
 
 	auto MMaterialEditor::GetLayoutVersion() const -> uint32
 	{ return Workspace::LayoutVersion; }
-	auto MMaterialEditor::OnSessionBound() -> void
+	auto MMaterialEditor::PostInitAssetEditor() -> void
 	{
-		FBaseAssetToolkit::OnSessionBound();
+		FBaseAssetToolkit::PostInitAssetEditor();
 		if (const auto* Owner = GetOwningAssetEditor())
 			SessionSettings->SelectStorage("MaterialEditor/Profiles/" + FXxHash128::HashBuffer(GetLayoutProfileKey()).ToString() + ".yaml");
 		SettingsPage = FEditorSettingsPageRegistration({
@@ -1630,7 +1630,7 @@ namespace Durin::MaterialEditor
 		SessionSettings->Save();
 		SettingsPage = {};
 		FBaseAssetToolkit::OnHostChanged();
-		OnSessionBound();
+		PostInitAssetEditor();
 	}
 	auto MMaterialEditor::ReleaseSessionUI() -> void
 	{ SettingsPage = {}; FBaseAssetToolkit::ReleaseSessionUI(); }

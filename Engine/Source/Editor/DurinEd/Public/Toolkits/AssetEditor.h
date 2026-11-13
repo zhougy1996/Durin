@@ -3,7 +3,6 @@
 #include "CoreMinimal.h"
 #include "DurinEdAPI.h"
 #include "DObject/Object.h"
-#include "DObject/WeakObjectPtr.h"
 #include "DObject/StrongObjectPtr.h"
 #include "AssetDefinition/AssetOpenTypes.h"
 #include "Toolkits/IAssetEditorInstance.h"
@@ -20,13 +19,10 @@ namespace Durin
 	{
 		FAssetOpenArgs OpenArgs;
 		std::vector<DObject*> Assets;
-		bool bPrimary = true;
-		// Stable role distinguishes explicit additional sessions and their saved layouts.
-		std::string InstanceKey;
 		std::vector<FDocumentRequest> InitialDocuments;
 	};
 
-	// Owns one editing session; one session, not each internal document, is indexed externally.
+	// Optional reflected lifetime owner; runtime state belongs to its toolkit.
 	DCLASS(Abstract, NoClassDefaultObject)
 	class DAssetEditor : public DObject, public IAssetEditorInstance
 	{
@@ -34,26 +30,25 @@ namespace Durin
 	public:
 		DURINED_API explicit DAssetEditor(const FObjectInitializer& Initializer);
 		DURINED_API ~DAssetEditor() override;
+		DURINED_API auto OnToolkitClosed() -> void;
 		DURINED_API auto BeginDestroy() -> void override;
 		DURINED_API auto GetEditorName() const -> FName override;
-		auto IsPrimaryEditor() const -> bool override { return bPrimary; }
+		DURINED_API auto IsPrimaryEditor() const -> bool override;
 		DURINED_API auto FocusWindow(DObject* Object = nullptr) -> void override;
-		auto GetLastActivationTime() -> double override { return LastActivationTime; }
+		DURINED_API auto GetLastActivationTime() -> double override;
 		DURINED_API auto CloseWindow(EAssetEditorCloseReason Reason) -> bool override;
-		auto GetLastCloseResult() const -> EDocumentCloseResult { return LastCloseResult; }
-		auto GetOpenMethod() const -> EAssetOpenMethod override { return OpenMethod; }
+		DURINED_API auto GetOpenMethod() const -> EAssetOpenMethod override;
 		DURINED_API auto GetToolkitMode() const -> EToolkitMode;
 		auto GetToolkit() const -> std::shared_ptr<FAssetEditorToolkit> { return Toolkit; }
-		auto GetDocumentManager() const -> std::shared_ptr<FEditorDocumentManager> { return Documents; }
-		auto GetToolkitHost() const -> std::shared_ptr<IToolkitHost> { return Host; }
-		auto GetInstanceKey() const -> std::string_view { return InstanceKey; }
-		auto GetWindowId() const -> std::string_view { return WindowId; }
+		DURINED_API auto GetDocumentManager() const -> std::shared_ptr<FEditorDocumentManager>;
+		DURINED_API auto GetToolkitHost() const -> std::shared_ptr<IToolkitHost>;
+		DURINED_API auto GetInstanceKey() const -> std::string_view;
+		auto GetInstanceId() const -> std::string_view override { return GetWindowId(); }
+		DURINED_API auto GetWindowId() const -> std::string_view;
 		DURINED_API auto TransferToHost(std::shared_ptr<IToolkitHost> NewHost) -> bool;
-		DURINED_API auto DrawToolkitFrame(bool bActive) -> bool;
-		auto GetAssetEditorSubsystem() const -> DAssetEditorSubsystem* { return AssetEditors.Get(); }
+		DURINED_API auto GetAssetEditorSubsystem() const -> DAssetEditorSubsystem*;
 		DURINED_API auto GetObjectsToEdit() const -> std::vector<DObject*>;
-		DURINED_API auto SynchronizeAssets() -> void;
-		auto IsClosed() const -> bool { return bClosed; }
+		DURINED_API auto IsClosed() const -> bool;
 		auto IsInitialized() const -> bool { return bInitialized; }
 		virtual auto GetAssetOpenSupport(const FAssetOpenSupportArgs& Args) const -> FAssetOpenSupport { return GetDefaultAssetOpenSupport(Args); }
 		virtual auto SupportsRestore() const -> bool { return true; }
@@ -64,22 +59,11 @@ namespace Durin
 		friend class DAssetEditorSubsystem;
 		auto Initialize(const FAssetEditorInitArgs& Args, FStrongObjectPtr Provider) -> bool;
 		auto ReleaseToolkit() -> void;
-		auto FocusWindowImpl(DObject* Object) -> void;
-		auto CloseWindowImpl(EAssetEditorCloseReason Reason) -> bool;
-		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditors;
-		std::shared_ptr<FEditorDocumentManager> Documents;
+		// Borrowed only while CreateToolkit runs; never retained as runtime state.
+		const FAssetEditorInitArgs* InitializingArgs = nullptr;
+		std::shared_ptr<FEditorDocumentManager> InitializingDocuments;
 		std::shared_ptr<FAssetEditorToolkit> Toolkit;
-		std::shared_ptr<IToolkitHost> Host;
-		EAssetOpenMethod OpenMethod = EAssetOpenMethod::Edit;
-		EDocumentCloseResult LastCloseResult = EDocumentCloseResult::Closed;
-		double LastActivationTime = 0;
-		bool bPrimary = true;
 		bool bInitialized = false;
 		bool bClosed = false;
-		bool bCloseRequested = false;
-		uint64 CloseCancellationRevision = 0;
-		EAssetEditorCloseReason CloseReason = EAssetEditorCloseReason::AssetEditorHostClosed;
-		std::string InstanceKey;
-		std::string WindowId;
 	};
 }

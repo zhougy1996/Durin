@@ -27,6 +27,8 @@ namespace Durin
 	public:
 		virtual ~IAssetEditorInstance() = default;
 		virtual auto GetEditorName() const -> FName = 0;
+		// Runtime identity for value notifications; never persisted in restore snapshots.
+		virtual auto GetInstanceId() const -> std::string_view { return {}; }
 		virtual auto IsPrimaryEditor() const -> bool { return true; }
 		virtual auto FocusWindow(DObject* ObjectToFocusOn = nullptr) -> void = 0;
 		virtual auto GetLastActivationTime() -> double = 0;

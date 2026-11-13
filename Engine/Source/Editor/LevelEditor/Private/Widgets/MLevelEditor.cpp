@@ -186,11 +186,16 @@ namespace Durin::LevelEditor
 			*AssetMoveCoordinator,
 			[this] { EditorError.clear(); },
 			[this](std::string Message) { SetError(std::move(Message)); },
-			[this](bool bSucceeded, bool bCancelled, std::string Message) {
-				if (!DeferredOpenDocumentId.IsValid()) return;
+			[this](bool bSucceeded) {
+				if (!DeferredOpenDocumentId.IsValid())
+				{
+					if (bSucceeded && Context && Context->Level)
+						DocumentManager.OpenDocument({.ToolkitId = GetToolkitId(), .DocumentKey = "LevelEditor",
+							.ResourceId = Context->Level->GetObjectPath(), .Label = "Level Editor"});
+					return;
+				}
 				const FDocumentId CompletedId = std::exchange(DeferredOpenDocumentId, {});
-				if (!DocumentManager.CompleteDeferredDocumentOpen(CompletedId, bSucceeded,
-					bCancelled ? EAssetOpenStatus::Cancelled : EAssetOpenStatus::Failed, std::move(Message)))
+				if (!DocumentManager.CompleteDeferredDocumentOpen(CompletedId, bSucceeded))
 					SetError("The deferred level document request is no longer available.");
 			}
 		);
@@ -319,6 +324,16 @@ namespace Durin::LevelEditor
 		return Workspace::Type;
 	}
 
+	auto MLevelEditor::OpenLevel(const std::string& AssetPath) -> bool
+	{
+		if (!DocumentController) return false;
+		const auto Result = DocumentController->OpenLevel(AssetPath);
+		if (Result == ELevelDocumentOpenResult::Rejected) return false;
+		if (Result == ELevelDocumentOpenResult::Opened)
+			return DocumentManager.OpenDocument({.ToolkitId = GetToolkitId(), .DocumentKey = "LevelEditor",
+				.ResourceId = AssetPath, .Label = "Level Editor"}).IsValid();
+		return true;
+	}
 	auto MLevelEditor::CancelPendingOpen() -> bool
 	{
 		if (!DocumentController || !DocumentController->IsOpening()) return true;
@@ -330,16 +345,10 @@ namespace Durin::LevelEditor
 	{
 		if (Document.ResourceId.empty()) return EDocumentOpenResult::Opened;
 		if (!DocumentController) return EDocumentOpenResult::Rejected;
-		switch (DocumentController->OpenLevel(Document.ResourceId))
-		{
-		case ELevelDocumentOpenResult::Opened: return EDocumentOpenResult::Opened;
-		case ELevelDocumentOpenResult::AwaitingConfirmation:
-		case ELevelDocumentOpenResult::Loading:
-			DeferredOpenDocumentId = Document.Id;
-			return EDocumentOpenResult::Deferred;
-		case ELevelDocumentOpenResult::Rejected: return EDocumentOpenResult::Rejected;
-		}
-		return EDocumentOpenResult::Rejected;
+		if (!DocumentController->LoadLevel(Document.ResourceId)) return EDocumentOpenResult::Rejected;
+		if (!DocumentController->IsOpening()) return EDocumentOpenResult::Opened;
+		DeferredOpenDocumentId = Document.Id;
+		return EDocumentOpenResult::Deferred;
 	}
 
 	auto MLevelEditor::ActivateDocument(const FEditorDocument& Document) -> void

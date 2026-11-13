@@ -1,5 +1,6 @@
 #include "CoreMinimal.h"
 #include "LevelEditorModule.h"
+#include "Editor/LevelEditorSubsystem.h"
 #include "EditorEngineTestSupport.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Toolkits/AssetEditor.h"
@@ -43,7 +44,7 @@ namespace Durin
 namespace
 {
 	using namespace Durin;
-	TEST(FLevelAssetEditorTests, CancelingConfirmationOrLoadingCompletesOnceAndAllowsAnotherOpen)
+	TEST(FLevelAssetEditorTests, LevelCancellationBelongsToTheInteractiveControllerAndAllowsAnotherOpen)
 	{
 		Testing::InitializeAssetSystemForTests();
 		Testing::FScopedMountRegistryFixture Mounts;
@@ -86,26 +87,37 @@ namespace
 			ASSERT_TRUE(Module.InitializeLevelEditor(*Service, {}, [] {}));
 			FSoftObjectPath AssetPath;
 			ASSERT_TRUE(FSoftObjectPath::TryCreate(Level->GetObjectPath(), AssetPath));
-			int Completions = 0;
-			auto Subscription = Service->Subscribe([&](const FAssetEditorEvent& Event) {
-				if (Event.Type == EAssetEditorEvent::RequestFinished) ++Completions;
-			});
+			auto* Levels = Host->GetEditorSubsystem<DLevelEditorSubsystem>();
+			ASSERT_NE(nullptr, Levels);
 			for (int OpenIndex = 0; OpenIndex != 2; ++OpenIndex)
 			{
-				const auto Opened = Service->OpenAssets({.AssetEditors = Service,
-					.Assets = {{AssetPath, DLevel::StaticClass()->GetQualifiedName().ToString()}}});
-				ASSERT_EQ(1u, Opened.Items.size());
-				const auto Request = Opened.Items.front();
-				ASSERT_EQ(EAssetOpenStatus::Pending, Request.Status) << Request.Message;
+				ASSERT_TRUE(Levels->OpenLevel(AssetPath.ToString()));
 				EXPECT_EQ(!bUnsavedConfirmation, Host->IsPreparingMapChange());
-				(void)Service->CancelOpenRequest(Request.RequestId);
+				Levels->CancelLevelLoad();
 				FMapChangeTestAccess::Tick(*Host);
-				EXPECT_EQ(EAssetOpenStatus::Cancelled, Service->ResolveOpenResult(Request).Status);
-				EXPECT_EQ(OpenIndex + 1, Completions);
-				FMapChangeTestAccess::Tick(*Host);
-				EXPECT_EQ(OpenIndex + 1, Completions);
 				EXPECT_FALSE(Host->IsPreparingMapChange());
+				const auto Progress = Host->GetMapChangeProgress();
+				if (!bUnsavedConfirmation) ASSERT_TRUE(Progress.has_value());
+				if (Progress) EXPECT_EQ(EMapChangePhase::Canceled, Progress->Phase);
 			}
+			if (bUnsavedConfirmation)
+			{
+				// Programmatic loading of the current level does not enter unsaved confirmation.
+				ASSERT_TRUE(Levels->LoadLevel(AssetPath.ToString()));
+				EXPECT_FALSE(Host->IsPreparingMapChange());
+				auto* Owner = Module.GetOrCreateLevelEditor(*Service);
+				EXPECT_FALSE(Owner->GetDocumentManager()->IsDocumentOpenPending(AssetPath.ToString()));
+			}
+			else
+			{
+				// Host retirement must cancel Level-owned work before asset Toolkit teardown.
+				ASSERT_TRUE(Levels->LoadLevel(AssetPath.ToString()));
+				ASSERT_TRUE(Host->IsPreparingMapChange());
+				Host->PreExit();
+				EXPECT_EQ(nullptr, Host->GetEditorSubsystem<DAssetEditorSubsystem>());
+			}
+
+
 		}
 	}
 
@@ -128,7 +140,7 @@ namespace
 				Hosts.clear(); CollectGarbage(Durin::EObjectFlags::Standalone);
 			}
 		} Release{Module, Hosts};
-		const auto* Definition = FAssetDefinitionRegistry::Get().FindDefinition(DLevel::StaticClass()->GetQualifiedName().ToString());
+		const auto* Definition = FAssetDefinitionRegistry::Get().GetAssetDefinitionForClass(DLevel::StaticClass());
 		ASSERT_NE(nullptr, Definition);
 		EXPECT_FALSE(Definition->GetAssetOpenSupport({EAssetOpenMethod::View}).IsSupported);
 		EXPECT_EQ(EToolkitMode::WorldCentric, Definition->GetAssetOpenSupport({EAssetOpenMethod::Edit}).RequiredToolkitMode);
@@ -155,7 +167,6 @@ namespace
 			EXPECT_FALSE(Sessions.front()->GetAssetOpenSupport({EAssetOpenMethod::View}).IsSupported);
 			EXPECT_TRUE(Service->CaptureSessions().empty());
 			EXPECT_EQ(1u, Sessions.front()->GetDocumentManager()->GetDocuments().size());
-			EXPECT_EQ(0u, Service->GetUsage().Opened);
 			EXPECT_FALSE(Sessions.front()->TransferToHost(std::make_shared<FNonWindowToolkitHost>()));
 			EXPECT_EQ(EToolkitMode::WorldCentric, Sessions.front()->GetToolkitMode());
 			if (Index == 0)

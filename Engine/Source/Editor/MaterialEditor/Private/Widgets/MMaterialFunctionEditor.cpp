@@ -464,9 +464,9 @@ namespace Durin::MaterialEditor
 
 	auto MMaterialFunctionEditor::GetLayoutVersion() const -> uint32
 	{ return Workspace::FunctionLayoutVersion; }
-	auto MMaterialFunctionEditor::OnSessionBound() -> void
+	auto MMaterialFunctionEditor::PostInitAssetEditor() -> void
 	{
-		FBaseAssetToolkit::OnSessionBound();
+		FBaseAssetToolkit::PostInitAssetEditor();
 		if (const auto* Owner = GetOwningAssetEditor())
 			SessionSettings->SelectStorage("MaterialEditor/Profiles/" + FXxHash128::HashBuffer(GetLayoutProfileKey()).ToString() + ".yaml");
 	}
@@ -474,7 +474,7 @@ namespace Durin::MaterialEditor
 	{
 		SessionSettings->Save();
 		FBaseAssetToolkit::OnHostChanged();
-		OnSessionBound();
+		PostInitAssetEditor();
 	}
 
 }

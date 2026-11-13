@@ -1,7 +1,6 @@
 #include "Toolkits/AssetEditor.h"
 #include "Toolkits/AssetEditorToolkit.h"
 #include "Toolkits/ToolkitHost.h"
-#include "Toolkits/ToolkitManager.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Documents/EditorDocumentManager.h"
 #include "Documents/EditorDocumentUI.h"
@@ -9,6 +8,8 @@
 #include "Editor/IMainFrameModule.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
+#include "Engine/World.h"
+#include "Engine/Level.h"
 #include "Misc/MountPathTestSupport.h"
 #include "NativeTestSupport.h"
 #include "NativeDObjectTestSupport.h"
@@ -58,6 +59,12 @@ namespace Durin
 		FAssetEditorToolkitId Type{"SessionTest"};
 	};
 
+	class FReadOnlyDirectTestToolkit final : public FSessionTestToolkit
+	{
+	protected:
+		auto CanEditAssets() const -> bool override { return false; }
+	};
+
 	class FSessionTestEditor : public DAssetEditor
 	{
 		static auto GetPrivateStaticClass() -> DClass*;
@@ -84,12 +91,12 @@ namespace Durin
 		std::string AssetClassPath = DObject::StaticClass()->GetQualifiedName().ToString();
 		DClass* EditorClassOverride = nullptr;
 		auto CanRegisterStatically() const -> bool override { return false; }
-		auto OpenAssets(const FAssetOpenArgs& Args) const -> FAssetOpenResult override
+		auto OpenAssets(const FAssetOpenArgs& Args) const -> EAssetCommandResult override
 		{ return OpenOverride ? OpenOverride(Args) : Super::OpenAssets(Args); }
 		auto GetAssetOpenSupport(const FAssetOpenSupportArgs& Args) const -> FAssetOpenSupport override
 		{ auto Support = Super::GetAssetOpenSupport(Args); Support.RequiredToolkitMode = RequiredMode; return Support; }
 		std::optional<EToolkitMode> RequiredMode;
-		std::function<FAssetOpenResult(const FAssetOpenArgs&)> OpenOverride;
+		std::function<EAssetCommandResult(const FAssetOpenArgs&)> OpenOverride;
 	};
 	IMPLEMENT_CLASS_NO_AUTO_REGISTRATION(FGenericSessionTestDefinition)
 }
@@ -147,8 +154,8 @@ namespace
 			EToolkitMode Mode = EToolkitMode::Standalone) -> DAssetEditor*
 		{
 			return Service->OpenAssetEditor(FSessionTestEditor::StaticClass(), {
-				.OpenArgs = {.AssetEditors = Service, .OpenMethod = Method, .ToolkitMode = Mode, .Host = std::move(ToolkitHost)},
-				.Assets = std::move(Assets), .bPrimary = bPrimary, .InstanceKey = std::move(Role)});
+				.OpenArgs = {.AssetEditors = Service, .OpenMethod = Method, .ToolkitMode = Mode, .Host = std::move(ToolkitHost), .SessionRole = std::move(Role), .bPrimary = bPrimary},
+				.Assets = std::move(Assets)});
 		}
 		auto TickHost() -> void
 		{
@@ -166,14 +173,14 @@ namespace
 	{
 		auto* Definition = NewObject<FGenericSessionTestDefinition>(nullptr, {});
 		Definition->EditorClassOverride = FSessionTestEditor::StaticClass();
-		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
+		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
 		ASSERT_TRUE(Registration);
 		const FObjectKey Provider(Definition);
 		auto* Object = Asset("WithdrawnProvider");
 		FSoftObjectPath Path;
 		ASSERT_TRUE(FSoftObjectPath::TryCreate(Object->GetObjectPath(), Path));
 		const FAssetOpenTarget Target{Path, Object->GetClass()->GetQualifiedName().ToString()};
-		ASSERT_TRUE(Service->OpenAssets({.AssetEditors = Service, .Assets = {Target}}).IsAccepted());
+		ASSERT_TRUE(Service->OpenAssets({.AssetEditors = Service, .Assets = {Target}}));
 		auto* Session = dynamic_cast<DAssetEditor*>(Service->FindEditorForAsset(Object, false));
 		ASSERT_NE(nullptr, Session);
 		auto Toolkit = std::dynamic_pointer_cast<FSessionTestToolkit>(Session->GetToolkit());
@@ -196,6 +203,198 @@ namespace
 		EXPECT_EQ(nullptr, Provider.ResolveObjectPtr());
 	}
 
+	TEST_F(FAssetEditorSessionTests, DirectAdmissionRejectsWritableEditBeforeCreatingAHostButAllowsReadOnlyView)
+	{
+		auto* Definition = NewObject<FGenericSessionTestDefinition>(nullptr, {});
+		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
+		ASSERT_TRUE(Registration);
+		int Hosts = 0;
+		Service->SetToolkitHostFactory([&](const FAssetOpenArgs& Args) {
+			++Hosts; return std::make_shared<FNonWindowToolkitHost>(Args.ToolkitMode);
+		});
+		class FCountingToolkit final : public FSessionTestToolkit
+		{
+		public:
+			auto OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult override
+			{ ++DocumentsOpened; return FSessionTestToolkit::OpenDocument(Document); }
+			int DocumentsOpened = 0;
+		};
+		auto Toolkit = std::make_shared<FCountingToolkit>();
+		const std::vector<DObject*> Objects{Asset("ReadOnlyDirectContract")};
+		EXPECT_FALSE(Service->InitializeDirectToolkit(Toolkit, std::make_shared<FEditorDocumentManager>(),
+			{.AssetEditors = Service}, Objects));
+		EXPECT_EQ(0, Hosts);
+		EXPECT_EQ(0, Toolkit->DocumentsOpened);
+		EXPECT_EQ(nullptr, Toolkit->GetEditorInstance());
+		EXPECT_TRUE(Service->GetAllOpenEditors().empty());
+		ASSERT_TRUE(Service->InitializeDirectToolkit(Toolkit, std::make_shared<FEditorDocumentManager>(),
+			{.AssetEditors = Service, .OpenMethod = EAssetOpenMethod::View}, Objects));
+		EXPECT_EQ(1, Hosts);
+		EXPECT_EQ(1, Toolkit->DocumentsOpened);
+		EXPECT_TRUE(Toolkit->IsReadOnly());
+		EXPECT_FALSE(Toolkit->SaveActiveDocument());
+		EXPECT_FALSE(Toolkit->Undo());
+		EXPECT_EQ(0, Toolkit->Saves); EXPECT_EQ(0, Toolkit->Undos);
+		EXPECT_TRUE(Toolkit->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed));
+	}
+
+	TEST_F(FAssetEditorSessionTests, DefaultDefinitionFocusesNewAndReusedEditorsExactlyOnce)
+	{
+		auto* Definition = NewObject<FGenericSessionTestDefinition>(nullptr, {});
+		Definition->EditorClassOverride = FSessionTestEditor::StaticClass();
+		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
+		ASSERT_TRUE(Registration);
+		auto* Object = Asset("FocusExactlyOnce"); FSoftObjectPath Path;
+		ASSERT_TRUE(FSoftObjectPath::TryCreate(Object->GetObjectPath(), Path));
+		const FAssetOpenArgs Args{.AssetEditors = Service, .Assets = {{Path, Object->GetClass()->GetQualifiedName().ToString()}}};
+		int Opened = 0, Focused = 0;
+		auto Subscription = Service->Subscribe([&](const auto& Event) {
+			if (Event.Type == EAssetEditorEvent::Opened) ++Opened;
+			if (Event.Type == EAssetEditorEvent::Focused) ++Focused;
+		});
+		ASSERT_TRUE(Service->OpenAssets(Args));
+		EXPECT_EQ(1, Opened); EXPECT_EQ(1, Focused);
+		ASSERT_TRUE(Service->OpenAssets(Args));
+		EXPECT_EQ(1, Opened); EXPECT_EQ(2, Focused);
+		EXPECT_EQ(1u, Service->GetAssetToolkits().size());
+	}
+
+	TEST_F(FAssetEditorSessionTests, DirectToolkitAdmissionNormalizesRequiredModeAndRejectsExplicitConflict)
+	{
+		auto* Definition = NewObject<FGenericSessionTestDefinition>(nullptr, {});
+		Definition->RequiredMode = EToolkitMode::WorldCentric;
+		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
+		ASSERT_TRUE(Registration);
+		const std::vector<DObject*> Objects{Asset("DirectRequiredMode")};
+		auto Rejected = std::make_shared<FReadOnlyDirectTestToolkit>();
+		EXPECT_FALSE(Service->InitializeDirectToolkit(Rejected, std::make_shared<FEditorDocumentManager>(),
+			{.AssetEditors = Service, .Host = std::make_shared<FNonWindowToolkitHost>()}, Objects));
+		EXPECT_TRUE(Service->GetAssetToolkits().empty());
+		auto Accepted = std::make_shared<FReadOnlyDirectTestToolkit>();
+		ASSERT_TRUE(Service->InitializeDirectToolkit(Accepted, std::make_shared<FEditorDocumentManager>(), {.AssetEditors = Service}, Objects));
+		EXPECT_EQ(EToolkitMode::WorldCentric, Accepted->GetToolkitMode());
+		EXPECT_TRUE(Accepted->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed));
+	}
+
+	TEST_F(FAssetEditorSessionTests, FailedDirectAttachmentRetiresTheCandidateAndPublishesNothing)
+	{
+		class FRejectingHost final : public FNonWindowToolkitHost
+		{
+		public:
+			auto AttachToolkit(std::shared_ptr<FAssetEditorToolkit>) -> bool override { return false; }
+		};
+		auto* Definition = NewObject<FGenericSessionTestDefinition>(nullptr, {});
+		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
+		ASSERT_TRUE(Registration);
+		auto Toolkit = std::make_shared<FReadOnlyDirectTestToolkit>();
+		int Draws = 0;
+		Toolkit->Drawing = [&] { ++Draws; return true; };
+		EXPECT_FALSE(Toolkit->IsSessionActive());
+		EXPECT_FALSE(Toolkit->DrawToolkit(true));
+		EXPECT_FALSE(Toolkit->SaveActiveDocument());
+		auto* Object = Asset("FailedDirect");
+		const std::vector<DObject*> Objects{Object};
+		EXPECT_FALSE(Service->InitializeDirectToolkit(Toolkit, std::make_shared<FEditorDocumentManager>(),
+			{.AssetEditors = Service, .Host = std::make_shared<FRejectingHost>()}, Objects));
+		EXPECT_TRUE(Toolkit->IsRetired());
+		EXPECT_FALSE(Toolkit->DrawToolkit(true));
+		EXPECT_FALSE(Toolkit->SaveActiveDocument());
+		EXPECT_EQ(0, Draws);
+		EXPECT_TRUE(Service->GetOwnedAssetEditors().empty());
+		EXPECT_TRUE(Service->GetAssetToolkits().empty());
+		EXPECT_TRUE(Service->GetAllOpenEditors().empty());
+	}
+
+	TEST_F(FAssetEditorSessionTests, DirectToolkitRetainsWithdrawnProviderWithoutCreatingAReflectedSession)
+	{
+		auto* Definition = NewObject<FGenericSessionTestDefinition>(nullptr, {});
+		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
+		ASSERT_TRUE(Registration);
+		const FObjectKey Provider(Definition);
+		std::shared_ptr<FReadOnlyDirectTestToolkit> Toolkit;
+		std::vector<FAssetEditorEvent> Events;
+		auto Subscription = Service->Subscribe([&](const auto& Event) { Events.push_back(Event); });
+		Definition->OpenOverride = [&](const FAssetOpenArgs& Args) {
+			Toolkit = std::make_shared<FReadOnlyDirectTestToolkit>();
+			auto Documents = std::make_shared<FEditorDocumentManager>();
+			std::vector<DObject*> Objects;
+			for (const auto& Target : Args.Assets) Objects.push_back(Args.LoadAsset(Target));
+			const bool Opened = Service->InitializeDirectToolkit(Toolkit, Documents, Args, Objects);
+			return Opened ? EAssetCommandResult::Handled : EAssetCommandResult::Unhandled;
+		};
+		auto* Object = Asset("DirectProvider");
+		FSoftObjectPath Path; ASSERT_TRUE(FSoftObjectPath::TryCreate(Object->GetObjectPath(), Path));
+		const auto SemanticHost = std::make_shared<FNonWindowToolkitHost>();
+		ASSERT_TRUE(Service->OpenAssets({.AssetEditors = Service,
+			.Assets = {{Path, Object->GetClass()->GetQualifiedName().ToString()}}, .Host = SemanticHost}));
+		ASSERT_TRUE(Toolkit);
+		EXPECT_TRUE(Service->GetOwnedAssetEditors().empty());
+		EXPECT_EQ(nullptr, Toolkit->GetOwningAssetEditor());
+		EXPECT_EQ(Toolkit.get(), Service->FindEditorForAsset(Object, false));
+		EXPECT_EQ(Toolkit, Service->GetActiveAssetToolkit());
+		Registration.Reset();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
+		EXPECT_EQ(Definition, Provider.ResolveObjectPtr());
+		EXPECT_TRUE(Toolkit->IsSessionActive());
+		int Draws = 0;
+		Toolkit->Drawing = [&] { ++Draws; return true; };
+		EXPECT_TRUE(Toolkit->DrawToolkit(true));
+		EXPECT_EQ(1, Draws);
+		EXPECT_TRUE(SemanticHost->RequestClose());
+		EXPECT_TRUE(Service->GetAssetToolkits().empty());
+		EXPECT_TRUE(Service->GetAllOpenEditors().empty());
+		for (const auto& Event : Events)
+			if (Event.Type == EAssetEditorEvent::Opened || Event.Type == EAssetEditorEvent::Focused || Event.Type == EAssetEditorEvent::Closed)
+				EXPECT_EQ(Toolkit->GetInstanceId(), Event.InstanceId);
+		EXPECT_FALSE(Toolkit->DrawToolkit(true));
+		EXPECT_FALSE(Toolkit->SaveActiveDocument());
+		EXPECT_EQ(1, Draws);
+		Toolkit.reset();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
+		EXPECT_EQ(nullptr, Provider.ResolveObjectPtr());
+	}
+
+	TEST_F(FAssetEditorSessionTests, DirectToolkitRestorePreservesGroupsRolesAndHostModes)
+	{
+		auto* Definition = NewObject<FGenericSessionTestDefinition>(nullptr, {});
+		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
+		ASSERT_TRUE(Registration);
+		Definition->OpenOverride = [&](const FAssetOpenArgs& Args) {
+			auto Toolkit = std::make_shared<FReadOnlyDirectTestToolkit>();
+			std::vector<DObject*> Objects;
+			for (const auto& Target : Args.Assets) Objects.push_back(Args.LoadAsset(Target));
+			const bool Opened = Service->InitializeDirectToolkit(Toolkit, std::make_shared<FEditorDocumentManager>(), Args, Objects);
+			return Opened ? EAssetCommandResult::Handled : EAssetCommandResult::Unhandled;
+		};
+		std::vector<FAssetOpenTarget> Targets;
+		for (const auto* Name : {"DirectRestoreA", "DirectRestoreB"})
+		{
+			auto* Object = Asset(Name); FSoftObjectPath Path;
+			ASSERT_TRUE(FSoftObjectPath::TryCreate(Object->GetObjectPath(), Path));
+			Targets.push_back({Path, Object->GetClass()->GetQualifiedName().ToString()});
+		}
+		const std::vector<FAssetEditorRestoreEntry> Entries{
+			{.Assets = Targets, .Method = EAssetOpenMethod::View, .Mode = EToolkitMode::WorldCentric, .Role = "Inspect", .bPrimary = false},
+			{.Assets = {Targets.front()}, .Method = EAssetOpenMethod::Edit, .Mode = EToolkitMode::Standalone}};
+		ASSERT_TRUE(Service->RestoreSessions(Entries));
+		ASSERT_EQ(2u, Service->GetAssetToolkits().size());
+		EXPECT_TRUE(Service->GetOwnedAssetEditors().empty());
+		const auto Captured = Service->CaptureSessions();
+		ASSERT_EQ(2u, Captured.size());
+		EXPECT_EQ("Inspect", Captured.front().Role);
+		EXPECT_EQ(EAssetOpenMethod::View, Captured.front().Method);
+		EXPECT_EQ(EToolkitMode::WorldCentric, Captured.front().Mode);
+		EXPECT_EQ(2u, Captured.front().Assets.size());
+		const auto Earlier = Service->GetAssetToolkits().front();
+		const auto PreviousActivation = Earlier->GetLastActivationTime();
+		ASSERT_TRUE(Service->ActivateAssetToolkit(*Earlier));
+		EXPECT_GT(Earlier->GetLastActivationTime(), PreviousActivation);
+		ASSERT_TRUE(Service->CloseAllAssetEditors());
+		ASSERT_TRUE(Service->RestoreSessions(Captured));
+		EXPECT_EQ(2u, Service->GetAssetToolkits().size());
+		EXPECT_TRUE(Service->CloseAllAssetEditors());
+	}
+
 	TEST_F(FAssetEditorSessionTests, LifecyclePublishesCommittedAssociationsAndAllowsReentrantClose)
 	{
 		std::vector<EAssetEditorEvent> Events;
@@ -209,12 +408,8 @@ namespace
 		});
 		auto* Session = Open({Asset("Lifecycle")});
 		ASSERT_NE(nullptr, Session);
-		const auto Opened = Service->GetUsage().Opened;
-		Session->SynchronizeAssets();
-		EXPECT_EQ(Opened, Service->GetUsage().Opened);
 		EXPECT_EQ(1u, Service->GetOwnedAssetEditors().size());
 		EXPECT_EQ(EAssetEditorEvent::Opened, Events.front());
-		EXPECT_EQ(1u, Service->GetUsage().Closed);
 		Subscription.Reset();
 		const auto Count = Events.size();
 		Session->CloseWindow(EAssetEditorCloseReason::CloseAllAssetEditors);
@@ -224,7 +419,7 @@ namespace
 	TEST_F(FAssetEditorSessionTests, GroupDispatchCreatesOnceAndOrdinaryBatchKeepsIndividualSessions)
 	{
 		auto* Definition = NewObject<FGenericSessionTestDefinition>(nullptr, {});
-		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
+		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
 		auto* A = Asset("BatchA"); auto* B = Asset("BatchB");
 		FSoftObjectPath PathA, PathB;
 		ASSERT_TRUE(FSoftObjectPath::TryCreate(A->GetObjectPath(), PathA));
@@ -235,12 +430,12 @@ namespace
 			++Calls; EXPECT_EQ(2u, Args.Assets.size());
 			return Definition->DAssetDefinitionDefault::OpenAssets(Args);
 		};
-		ASSERT_TRUE(Service->OpenAssets({.AssetEditors = Service, .Assets = Targets, .bCreateSingleSession = true}).IsAccepted());
+		ASSERT_TRUE(Service->OpenAssets({.AssetEditors = Service, .Assets = Targets, .bCreateSingleSession = true}));
 		EXPECT_EQ(1, Calls);
 		ASSERT_EQ(1u, Service->GetOwnedAssetEditors().size());
 		EXPECT_EQ(2u, Service->GetOwnedAssetEditors().front()->GetObjectsToEdit().size());
 		ASSERT_TRUE(Service->CloseAllAssetEditors());
-		ASSERT_TRUE(Service->OpenAssets({.AssetEditors = Service, .Assets = Targets}).IsAccepted());
+		ASSERT_TRUE(Service->OpenAssets({.AssetEditors = Service, .Assets = Targets}));
 		EXPECT_EQ(2, Calls);
 		EXPECT_EQ(2u, Service->GetOwnedAssetEditors().size());
 	}
@@ -250,8 +445,8 @@ namespace
 		auto* First = NewObject<FGenericSessionTestDefinition>(nullptr, {});
 		auto* Second = NewObject<FGenericSessionTestDefinition>(nullptr, {});
 		Second->AssetClassPath = FSessionTestEditor::StaticClass()->GetQualifiedName().ToString();
-		auto RegistrationA = FAssetDefinitionRegistry::Get().RegisterDefinition(*First);
-		auto RegistrationB = FAssetDefinitionRegistry::Get().RegisterDefinition(*Second);
+		auto RegistrationA = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*First);
+		auto RegistrationB = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Second);
 		ASSERT_TRUE(RegistrationA); ASSERT_TRUE(RegistrationB);
 		auto* A = Asset("MixedA");
 		auto* B = NewObject<FSessionTestEditor>(Package.Get(), "MixedB");
@@ -261,19 +456,55 @@ namespace
 		ASSERT_TRUE(FSoftObjectPath::TryCreate("/AssetEditorSessions/Missing.Asset", Missing));
 		int Calls = 0;
 		First->OpenOverride = [&](const FAssetOpenArgs& Args) { ++Calls; return First->DAssetDefinitionDefault::OpenAssets(Args); };
-		Second->OpenOverride = [&](const FAssetOpenArgs&) { ADD_FAILURE() << "Grouped selection must execute once"; return FAssetOpenResult{}; };
+		Second->OpenOverride = [&](const FAssetOpenArgs&) { ADD_FAILURE() << "Grouped selection must execute once"; return EAssetCommandResult::Unhandled; };
 		FAssetOpenArgs Args{.AssetEditors = Service, .Assets = {{PathA, First->AssetClassPath}, {PathB, Second->AssetClassPath}}, .bCreateSingleSession = true};
-		ASSERT_TRUE(Service->OpenAssets(Args).IsAccepted());
+		ASSERT_TRUE(Service->OpenAssets(Args));
 		EXPECT_EQ(1, Calls); EXPECT_EQ(1u, Service->GetOwnedAssetEditors().size());
 		ASSERT_TRUE(Service->CloseAllAssetEditors());
 		Second->EditorClassOverride = FSessionTestEditor::StaticClass();
-		EXPECT_FALSE(Service->OpenAssets(Args).IsAccepted());
+		EXPECT_FALSE(Service->OpenAssets(Args));
 		EXPECT_TRUE(Service->GetOwnedAssetEditors().empty());
 		Args.Assets[1] = {Missing, First->AssetClassPath};
 		const auto MissingResult = Service->OpenAssets(Args);
-		ASSERT_EQ(2u, MissingResult.Items.size());
-		for (const auto& Item : MissingResult.Items) EXPECT_EQ(EAssetOpenStatus::Failed, Item.Status);
+		EXPECT_FALSE(MissingResult);
 		EXPECT_TRUE(Service->GetOwnedAssetEditors().empty());
+	}
+
+	TEST_F(FAssetEditorSessionTests, StartupLevelObservationUsesPendingDocumentAndActualWorldInsteadOfRequestHistory)
+	{
+		auto* Session = Open({Asset("ExistingDocument")});
+		ASSERT_NE(nullptr, Session);
+		const auto Toolkit = std::dynamic_pointer_cast<FSessionTestToolkit>(Session->GetToolkit());
+		const auto Documents = Toolkit->GetDocumentManager();
+		const auto Original = Documents->GetDocuments().front();
+		auto* Level = NewObject<DLevel>(Package.Get(), "InitialLevel");
+		FSoftObjectPath Path;
+		ASSERT_TRUE(FSoftObjectPath::TryCreate(Level->GetObjectPath(), Path));
+		FEditorEngineTestAccess::SetInitialLevelPath(*Host, Path);
+		FEditorEngineTestAccess::SetStartupState(*Host, EHostStartupState::Ready);
+		Toolkit->bDeferOpen = true;
+		const auto Deferred = Documents->OpenDocument({.ToolkitId = Toolkit->GetToolkitId(),
+			.DocumentKey = Original.DocumentKey, .ResourceId = Path.ToString(), .Label = "Initial Level"});
+		ASSERT_TRUE(Deferred.IsValid());
+		std::string Error;
+		EXPECT_EQ(EHostStartupState::Pending, Host->GetStartupCompletion(Error));
+		EXPECT_TRUE(Error.empty());
+		ASSERT_TRUE(Documents->CompleteDeferredDocumentOpen(Deferred, false));
+		EXPECT_EQ(EHostStartupState::Failed, Host->GetStartupCompletion(Error));
+		EXPECT_FALSE(Error.empty());
+		Toolkit->bDeferOpen = false;
+		ASSERT_TRUE(Documents->OpenDocument({.ToolkitId = Toolkit->GetToolkitId(),
+			.DocumentKey = Original.DocumentKey, .ResourceId = Path.ToString(), .Label = "Initial Level"}).IsValid());
+		auto* World = NewObject<DWorld>(Host.Get(), "InitialWorld");
+		World->SetWorldType(EWorldType::Editor);
+		World->InitializeSubsystems();
+		ASSERT_TRUE(World->SetCurrentLevel(Level));
+		FEditorEngineTestAccess::SetEditorWorld(*Host, World);
+		// Loading succeeded; first-frame presentation remains a separate startup gate.
+		EXPECT_EQ(EHostStartupState::Pending, Host->GetStartupCompletion(Error));
+		EXPECT_TRUE(Error.empty());
+		ASSERT_TRUE(World->SetCurrentLevel(nullptr));
+		EXPECT_EQ(EHostStartupState::Failed, Host->GetStartupCompletion(Error));
 	}
 
 	TEST_F(FAssetEditorSessionTests, ConfiguredSessionInitializationAndSharedHostHaveOneOwner)
@@ -287,9 +518,8 @@ namespace
 		auto* B = Open({Asset("OwnerB")}, EAssetOpenMethod::Edit, true, {}, {}, EToolkitMode::WorldCentric);
 		ASSERT_NE(nullptr, B);
 		EXPECT_EQ(A->GetToolkitHost(), B->GetToolkitHost());
-		const auto ToolkitB = B->GetToolkit();
 		ASSERT_TRUE(A->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed));
-		EXPECT_EQ(SharedHost, Service->GetToolkitManager().GetHost(*ToolkitB));
+		EXPECT_EQ(SharedHost, B->GetToolkitHost());
 		EXPECT_TRUE(SharedHost->IsAvailable()); EXPECT_FALSE(B->IsClosed());
 		auto* Foreign = NewObject<FSessionTestEditor>(nullptr, {});
 		EXPECT_EQ(nullptr, Service->InitializeAssetEditor(*Foreign, Args));
@@ -299,7 +529,7 @@ namespace
 	{
 		auto* Definition = NewObject<FGenericSessionTestDefinition>(nullptr, {});
 		Definition->RequiredMode = EToolkitMode::WorldCentric;
-		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
+		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
 		int Created = 0;
 		FSessionTestEditor::Factory = [&] { ++Created; return std::make_shared<FSessionTestToolkit>(); };
 		auto* A = Asset("RequiredHost");
@@ -316,7 +546,7 @@ namespace
 	TEST_F(FAssetEditorSessionTests, RestoreRoundTripsGroupsRolesViewAndReportsMissingItems)
 	{
 		auto* Definition = NewObject<FGenericSessionTestDefinition>(nullptr, {});
-		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
+		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
 		ASSERT_TRUE(Registration);
 		auto* A = Asset("RestoreA"); auto* B = Asset("RestoreB");
 		FSoftObjectPath PathA, PathB, MissingPath;
@@ -327,13 +557,13 @@ namespace
 		const FAssetOpenTarget TargetB{PathB, B->GetClass()->GetQualifiedName().ToString()};
 		const std::vector<FAssetEditorRestoreEntry> Entries{{.Assets = {TargetA, TargetB}, .Method = EAssetOpenMethod::View,
 			.Mode = EToolkitMode::WorldCentric, .Role = "RestoreInspection", .bPrimary = false}};
-		ASSERT_TRUE(Service->RestoreSessions(Entries).IsAccepted());
+		ASSERT_TRUE(Service->RestoreSessions(Entries));
 		ASSERT_EQ(1u, Service->GetOwnedAssetEditors().size());
 		EXPECT_EQ(2u, Service->GetOwnedAssetEditors().front()->GetObjectsToEdit().size());
 		const auto Path = (Testing::GetTestWorkDirectory() / "AssetEditorRestore.yaml").generic_string();
 		ASSERT_TRUE(Service->SaveSessionState(Path));
 		ASSERT_TRUE(Service->CloseAllAssetEditors());
-		ASSERT_TRUE(Service->LoadSessionState(Path).IsAccepted());
+		ASSERT_TRUE(Service->LoadSessionState(Path));
 		const auto Restored = Service->CaptureSessions();
 		ASSERT_EQ(1u, Restored.size());
 		EXPECT_EQ(2u, Restored.front().Assets.size());
@@ -344,22 +574,20 @@ namespace
 		const std::vector<FAssetEditorRestoreEntry> Mixed{{.Assets = {TargetA}},
 			{.Assets = {{MissingPath, TargetA.AssetClassName}}}};
 		const auto Result = Service->RestoreSessions(Mixed);
-		ASSERT_EQ(2u, Result.Items.size());
-		EXPECT_EQ(EAssetOpenStatus::Completed, Result.Items.front().Status);
-		EXPECT_EQ(EAssetOpenStatus::Failed, Result.Items.back().Status);
+		EXPECT_FALSE(Result);
+		EXPECT_FALSE(Service->GetAssetToolkits().empty());
 		EXPECT_TRUE(Service->CloseAllAssetEditors());
 		Registration.Reset();
 		const auto MissingProvider = Service->LoadSessionState(Path);
-		ASSERT_EQ(2u, MissingProvider.Items.size());
-		EXPECT_FALSE(MissingProvider.IsAccepted());
+		EXPECT_FALSE(MissingProvider);
 		EXPECT_TRUE(Service->GetOwnedAssetEditors().empty());
 		FYamlDocument Snapshot;
 		ASSERT_TRUE(Snapshot.LoadFromFile(Path));
 		Snapshot.GetMutableRoot().SetChildValue("Project", "AnotherProject.dproject");
 		ASSERT_TRUE(Snapshot.SaveToFile(Path));
 		const auto WrongProject = Service->LoadSessionState(Path);
-		ASSERT_EQ(1u, WrongProject.Items.size());
-		EXPECT_EQ(EAssetOpenStatus::Rejected, WrongProject.Items.front().Status);
+		EXPECT_FALSE(WrongProject);
+		EXPECT_FALSE(WrongProject);
 	}
 
 	TEST_F(FAssetEditorSessionTests, RestoreFocusWaitsForPresentationAndExplicitFocusCancelsIt)
@@ -372,7 +600,7 @@ namespace
 			bool Ready = false;
 		};
 		auto* Definition = NewObject<FGenericSessionTestDefinition>(nullptr, {});
-		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
+		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
 		ASSERT_TRUE(Registration);
 		const auto Standalone = std::make_shared<FWaitingHost>(EToolkitMode::Standalone);
 		const auto World = std::make_shared<FWaitingHost>(EToolkitMode::WorldCentric);
@@ -384,91 +612,25 @@ namespace
 		const FAssetOpenTarget Target{Path, Object->GetClass()->GetQualifiedName().ToString()};
 		const std::vector<FAssetEditorRestoreEntry> Entries{{.Assets = {Target}},
 			{.Assets = {Target}, .Method = EAssetOpenMethod::View, .Mode = EToolkitMode::WorldCentric}};
-		ASSERT_TRUE(Service->RestoreSessions(Entries).IsAccepted());
+		ASSERT_TRUE(Service->RestoreSessions(Entries));
 		auto* Edit = Service->FindAssetEditor(Object, EAssetOpenMethod::Edit);
 		auto* View = Service->FindAssetEditor(Object, EAssetOpenMethod::View, EToolkitMode::WorldCentric);
 		ASSERT_NE(nullptr, Edit); ASSERT_NE(nullptr, View);
-		ASSERT_TRUE(Service->ActivateAssetEditor(*Edit));
+		ASSERT_TRUE(Service->ActivateAssetToolkit(*Edit->GetToolkit()));
 		TickHost();
 		EXPECT_EQ(Edit->GetToolkit(), Service->GetActiveAssetToolkit());
 		Standalone->Ready = World->Ready = true;
 		TickHost();
 		EXPECT_EQ(View->GetToolkit(), Service->GetActiveAssetToolkit());
 		Standalone->Ready = World->Ready = false;
-		ASSERT_TRUE(Service->RestoreSessions(Entries).IsAccepted());
+		ASSERT_TRUE(Service->RestoreSessions(Entries));
 		Edit->FocusWindow();
 		Standalone->Ready = World->Ready = true;
 		TickHost();
 		EXPECT_EQ(Edit->GetToolkit(), Service->GetActiveAssetToolkit());
 	}
 
-	TEST_F(FAssetEditorSessionTests, DeferredReplacementPublishesOnlyAfterAssociationAndCancellationKeepsCurrentAsset)
-	{
-		auto* A = Asset("DeferredA"); auto* B = Asset("DeferredB"); auto* C = Asset("DeferredC");
-		auto* Session = Open({A});
-		ASSERT_NE(nullptr, Session);
-		const auto Toolkit = std::dynamic_pointer_cast<FSessionTestToolkit>(Session->GetToolkit());
-		const auto Documents = Session->GetDocumentManager();
-		const auto Initial = Documents->GetDocuments().front();
-		Toolkit->bDeferOpen = true;
-		auto* Definition = NewObject<FGenericSessionTestDefinition>(nullptr, {});
-		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
-		ASSERT_TRUE(Registration);
-		Definition->OpenOverride = [&](const FAssetOpenArgs& Args) {
-			const auto Id = Documents->OpenDocument({.ToolkitId = Initial.ToolkitId, .DocumentKey = Initial.DocumentKey,
-				.ResourceId = Args.Assets.front().AssetPath.ToString(), .Label = "Deferred scene"});
-			EXPECT_TRUE(Id.IsValid());
-			const auto Request = Service->BeginOpenRequest(Args.Assets.front(), [] { return false; });
-			EXPECT_TRUE(Service->BindOpenRequestToDocument(Request, Id.Value));
-			return FAssetOpenResult{{{.Target = Args.Assets.front(), .Status = EAssetOpenStatus::Pending, .RequestId = Request}}};
-		};
-		std::vector<EAssetEditorEvent> Events;
-		auto Subscription = Service->Subscribe([&](const FAssetEditorEvent& Event) {
-			Events.push_back(Event.Type);
-			if (Event.Type == EAssetEditorEvent::Opened && Event.Target.AssetPath.ToString() == B->GetObjectPath()) EXPECT_EQ(Session, Service->FindEditorForAsset(B, false));
-		});
-		auto Request = [&](DObject* Object) {
-			FSoftObjectPath Path; EXPECT_TRUE(FSoftObjectPath::TryCreate(Object->GetObjectPath(), Path));
-			return Service->OpenAssets({.AssetEditors = Service, .Assets = {{Path, Object->GetClass()->GetQualifiedName().ToString()}}}).Items.front();
-		};
-		const auto OpenB = Request(B);
-		EXPECT_EQ(EAssetOpenStatus::Pending, OpenB.Status);
-		EXPECT_EQ(EAssetOpenStatus::Pending, Service->ResolveOpenResult(OpenB).Status);
-		ASSERT_NE(nullptr, Open({Asset("UnrelatedSession")}));
-		Host->Tick(0.0f, false); // Pending startup does not admit ordinary service updates.
-		EXPECT_EQ(EAssetOpenStatus::Pending, Service->GetOpenRequest(OpenB.RequestId)->Status);
-		Events.clear();
-		EXPECT_EQ(Session, Service->FindEditorForAsset(A, false));
-		EXPECT_EQ(nullptr, Service->FindEditorForAsset(B, false));
-		ASSERT_TRUE(Documents->CompleteDeferredDocumentOpen(Initial.Id, true));
-		EXPECT_EQ(EAssetOpenStatus::Completed, Service->GetOpenRequest(OpenB.RequestId)->Status);
-		EXPECT_EQ(EAssetOpenStatus::Completed, Service->ResolveOpenResult(OpenB).Status);
-		EXPECT_EQ(EAssetOpenStatus::Pending, OpenB.Status); // Observing completion does not mutate the submitted snapshot.
-		const auto Opened = std::ranges::find(Events, EAssetEditorEvent::Opened);
-		const auto Finished = std::ranges::find(Events, EAssetEditorEvent::RequestFinished);
-		ASSERT_NE(Events.end(), Opened); ASSERT_NE(Events.end(), Finished);
-		EXPECT_LT(Opened - Events.begin(), Finished - Events.begin());
-		const auto OpenC = Request(C);
-		ASSERT_TRUE(Documents->CompleteDeferredDocumentOpen(Initial.Id, false, EAssetOpenStatus::Cancelled));
-		EXPECT_EQ(EAssetOpenStatus::Cancelled, Service->GetOpenRequest(OpenC.RequestId)->Status);
-		EXPECT_EQ(EAssetOpenStatus::Cancelled, Service->ResolveOpenResult(OpenC).Status);
-		EXPECT_EQ(Session, Service->FindEditorForAsset(B, false));
-		EXPECT_EQ(nullptr, Service->FindEditorForAsset(C, false));
-		const auto Failed = Request(C);
-		ASSERT_TRUE(Documents->CompleteDeferredDocumentOpen(Initial.Id, false, EAssetOpenStatus::Failed, "level activation failed"));
-		EXPECT_EQ(EAssetOpenStatus::Failed, Service->ResolveOpenResult(Failed).Status);
-		EXPECT_EQ("level activation failed", Service->ResolveOpenResult(Failed).Message);
-		EXPECT_EQ(Session, Service->FindEditorForAsset(B, false));
-		EXPECT_TRUE(Service->IsAssetOpen(OpenB.Target.AssetPath));
-		FEditorEngineTestAccess::SetInitialDocumentRequest(*Host, OpenB);
-		std::string CompletionError;
-		EXPECT_EQ(EHostStartupState::Pending, Host->GetStartupCompletion(CompletionError));
-		Service->RetireAssetEditor(*Session);
-		EXPECT_EQ(EAssetOpenStatus::Completed, Service->ResolveOpenResult(OpenB).Status);
-		EXPECT_FALSE(Service->IsAssetOpen(OpenB.Target.AssetPath));
-		EXPECT_EQ(EHostStartupState::Failed, Host->GetStartupCompletion(CompletionError));
-		EXPECT_NE(std::string::npos, CompletionError.find("closed before its first presentation"));
-	}
+
 
 	TEST_F(FAssetEditorSessionTests, DefaultPanelFactoriesAreOptionalForGraphOnlySessions)
 	{
@@ -645,9 +807,9 @@ namespace
 		{
 			ImGui::NewFrame();
 			ImGui::SetNextWindowSize(ImVec2(500, 500), ImGuiCond_Always);
-			Group->DrawToolkitFrame(false);
+			Group->GetToolkit()->DrawToolkit(false);
 			ImGui::SetNextWindowSize(ImVec2(500, 500), ImGuiCond_Always);
-			Single->DrawToolkitFrame(true);
+			Single->GetToolkit()->DrawToolkit(true);
 			ImGui::Render();
 			EXPECT_EQ(0, Context->ErrorCountCurrentFrame);
 		}
@@ -670,24 +832,24 @@ namespace
 	TEST_F(FAssetEditorSessionTests, DefaultDefinitionCreatesAndReusesGenericEditAndViewSessions)
 	{
 		auto* Definition = NewObject<FGenericSessionTestDefinition>(nullptr, {});
-		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
+		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
 		ASSERT_TRUE(Registration);
 		auto* Object = Asset("GenericAsset");
 		FSoftObjectPath Path;
 		ASSERT_TRUE(FSoftObjectPath::TryCreate(Object->GetObjectPath(), Path));
 		FAssetOpenArgs Args{.AssetEditors = Service, .Assets = {{Path, Object->GetClass()->GetQualifiedName().ToString()}}, .OpenMethod = EAssetOpenMethod::View};
 		const auto Flags = Object->GetObjectFlags();
-		ASSERT_EQ(EAssetOpenStatus::Completed, Service->OpenAssets(Args).Items.front().Status);
+		ASSERT_TRUE(Service->OpenAssets(Args));
 		auto* View = Service->FindAssetEditor(Object, EAssetOpenMethod::View);
 		ASSERT_NE(nullptr, View);
 		EXPECT_EQ("GenericAssetEditor", View->GetEditorName().ToString());
 		EXPECT_EQ(Flags, Object->GetObjectFlags());
 		EXPECT_FALSE(View->GetToolkit()->CanSaveActiveDocument());
 		EXPECT_FALSE(View->GetToolkit()->SaveActiveDocument());
-		EXPECT_EQ(EAssetOpenStatus::Completed, Service->OpenAssets(Args).Items.front().Status);
+		EXPECT_TRUE(Service->OpenAssets(Args));
 		EXPECT_EQ(1u, Service->GetOwnedAssetEditors().size());
 		Args.OpenMethod = EAssetOpenMethod::Edit;
-		ASSERT_EQ(EAssetOpenStatus::Completed, Service->OpenAssets(Args).Items.front().Status);
+		ASSERT_TRUE(Service->OpenAssets(Args));
 		auto* Edit = Service->FindAssetEditor(Object, EAssetOpenMethod::Edit);
 		ASSERT_NE(nullptr, Edit);
 		EXPECT_NE(View, Edit);
@@ -913,6 +1075,55 @@ namespace
 		EXPECT_TRUE(Later->IsClosed());
 	}
 
+	TEST_F(FAssetEditorSessionTests, ToolkitClosePublishesCapturedViewIdentityAndReleasesReflectedOwner)
+	{
+		auto* Session = Open({Asset("ViewClose")}, EAssetOpenMethod::View);
+		ASSERT_NE(nullptr, Session);
+		const TStrongObjectPtr<DAssetEditor> KeepAlive(Session);
+		const auto Toolkit = Session->GetToolkit();
+		const auto SessionKey = FObjectKey(Session);
+		const std::string InstanceId(Session->GetInstanceId());
+		int Closed = 0;
+		auto Subscription = Service->Subscribe([&](const FAssetEditorEvent& Event) {
+			if (Event.Type != EAssetEditorEvent::Closed) return;
+			++Closed;
+			EXPECT_EQ(SessionKey, Event.Session);
+			EXPECT_EQ(InstanceId, Event.InstanceId);
+			EXPECT_EQ(EAssetOpenMethod::View, Event.Method);
+			EXPECT_TRUE(Session->IsClosed());
+			EXPECT_EQ(nullptr, Session->GetToolkit());
+			EXPECT_FALSE(Service->OwnsToolkit(*Toolkit));
+		});
+		EXPECT_TRUE(Toolkit->CloseWindow(EAssetEditorCloseReason::CloseAllAssetEditors));
+		EXPECT_TRUE(Session->CloseWindow(EAssetEditorCloseReason::CloseAllAssetEditors));
+		EXPECT_EQ(1, Closed);
+		EXPECT_TRUE(Toolkit->IsRetired());
+		EXPECT_TRUE(Service->GetAllOpenEditors().empty());
+	}
+
+	TEST_F(FAssetEditorSessionTests, DirectPendingCloseCancellationStopsWholeWindowContinuation)
+	{
+		auto Toolkit = std::make_shared<FReadOnlyDirectTestToolkit>();
+		auto Documents = std::make_shared<FEditorDocumentManager>();
+		std::vector<DObject*> Assets{Asset("DirectA"), Asset("DirectB")};
+		ASSERT_TRUE(Service->InitializeDirectToolkit(Toolkit, Documents, {.AssetEditors = Service}, Assets));
+		int Requests = 0;
+		Toolkit->CloseRequest = [&](const FEditorDocument&) {
+			++Requests; return EDocumentCloseResult::PendingConfirmation;
+		};
+		EXPECT_FALSE(Toolkit->CloseWindow(EAssetEditorCloseReason::CloseAllAssetEditors));
+		EXPECT_EQ(1, Requests);
+		(void)Documents->ResolvePendingDocumentClose(EDocumentCloseResponse::Cancel);
+		TickHost();
+		EXPECT_EQ(1, Requests);
+		EXPECT_EQ(2u, Documents->GetDocuments().size());
+		EXPECT_TRUE(Service->OwnsToolkit(*Toolkit));
+		Toolkit->CloseRequest = {};
+		EXPECT_TRUE(Toolkit->CloseWindow(EAssetEditorCloseReason::CloseAllAssetEditors));
+		EXPECT_TRUE(Toolkit->IsRetired());
+		EXPECT_TRUE(Service->GetAllOpenEditors().empty());
+	}
+
 	TEST_F(FAssetEditorSessionTests, FailedSaveRetainsPendingCloseAndSessionUntilResolution)
 	{
 		auto* Session = Open({Asset("A")});
@@ -921,7 +1132,7 @@ namespace
 		Toolkit->bDirty = true;
 		Toolkit->bSaveSucceeds = false;
 		EXPECT_FALSE(Session->CloseWindow(EAssetEditorCloseReason::CloseAllAssetEditors));
-		EXPECT_EQ(EDocumentCloseResult::PendingConfirmation, Session->GetLastCloseResult());
+		EXPECT_NE(nullptr, Session->GetDocumentManager()->GetPendingCloseDocument());
 		const auto Documents = Session->GetDocumentManager();
 		EXPECT_EQ(EDocumentCloseResult::PendingConfirmation,
 			Documents->ResolvePendingDocumentClose(EDocumentCloseResponse::Save));
@@ -995,7 +1206,7 @@ namespace
 			EXPECT_TRUE(Session->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed));
 			return true;
 		};
-		EXPECT_FALSE(Session->DrawToolkitFrame(true));
+		EXPECT_FALSE(Session->GetToolkit()->DrawToolkit(true));
 		EXPECT_EQ(1, Draws);
 		EXPECT_TRUE(Toolkit->IsRetired());
 		EXPECT_FALSE(Toolkit->DrawToolkit(true));
@@ -1013,6 +1224,8 @@ namespace
 		CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(nullptr, SessionKey.ResolveObjectPtr());
 		EXPECT_EQ(nullptr, Toolkit->GetOwningAssetEditor());
+		EXPECT_EQ(nullptr, Toolkit->GetEditorInstance());
+		EXPECT_FALSE(Toolkit->SupportsRestore());
 		EXPECT_FALSE(Toolkit->CanUndo());
 		EXPECT_FALSE(Toolkit->Undo());
 	}
@@ -1024,15 +1237,15 @@ namespace
 		ASSERT_NE(nullptr, Session);
 		const auto Toolkit = std::dynamic_pointer_cast<FSessionTestToolkit>(Session->GetToolkit());
 		Toolkit->bDirty = true;
-		EXPECT_EQ(ToolkitHost, Service->GetToolkitManager().GetHost(*Toolkit));
-		EXPECT_EQ(1u, Service->GetToolkitManager().GetToolkits().size());
+		EXPECT_EQ(ToolkitHost, Session->GetToolkitHost());
+		EXPECT_EQ(1u, Service->GetOwnedAssetEditors().size());
 		EXPECT_FALSE(ToolkitHost->RequestClose());
 		EXPECT_TRUE(ToolkitHost->IsAvailable());
 		EXPECT_FALSE(Session->IsClosed());
 		EXPECT_EQ(EDocumentCloseResult::Closed,
 			Session->GetDocumentManager()->ResolvePendingDocumentClose(EDocumentCloseResponse::Discard));
 		TickHost();
-		EXPECT_TRUE(Service->GetToolkitManager().GetToolkits().empty());
+		EXPECT_TRUE(Service->GetOwnedAssetEditors().empty());
 		EXPECT_TRUE(ToolkitHost->RequestClose());
 		EXPECT_FALSE(ToolkitHost->IsAvailable());
 	}
@@ -1056,7 +1269,6 @@ namespace
 		EXPECT_FALSE(Escaped->DrawToolkit(true));
 		EXPECT_EQ(0, Draws);
 		EXPECT_TRUE(Service->GetOwnedAssetEditors().empty());
-		EXPECT_TRUE(Service->GetToolkitManager().GetToolkits().empty());
 		EXPECT_TRUE(Service->GetAllOpenEditors().empty());
 	}
 
@@ -1141,7 +1353,7 @@ namespace
 		const auto WorldHost = std::make_shared<FNonWindowToolkitHost>(EToolkitMode::WorldCentric);
 		ASSERT_TRUE(Session->TransferToHost(WorldHost));
 		EXPECT_EQ(EToolkitMode::WorldCentric, Session->GetToolkitMode());
-		EXPECT_EQ(WorldHost, Service->GetToolkitManager().GetHost(*Toolkit));
+		EXPECT_EQ(WorldHost, Session->GetToolkitHost());
 		EXPECT_EQ(Toolkit, Session->GetToolkit());
 		EXPECT_EQ(Documents, Session->GetDocumentManager());
 		EXPECT_EQ(OriginalKey, Toolkit->GetPresentationRootKey("Editor"));

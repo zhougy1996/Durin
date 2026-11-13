@@ -62,11 +62,11 @@ namespace Durin
 		static auto SetStartupViewport(DEditorEngine& Editor, std::shared_ptr<FSceneViewport> Viewport) -> void
 		{ Editor.MainSceneViewport = std::move(Viewport); }
 
-		static auto HasInitialDocumentRequest(const DEditorEngine& Editor) -> bool
-		{ return Editor.InitialDocumentRequest.has_value(); }
+		static auto HasInitialLevelPath(const DEditorEngine& Editor) -> bool
+		{ return Editor.InitialLevelPath.IsValid(); }
 
-		static auto SetInitialDocumentRequest(DEditorEngine& Editor, FAssetOpenItemResult Result) -> void
-		{ Editor.InitialDocumentRequest = std::move(Result); }
+		static auto SetInitialLevelPath(DEditorEngine& Editor, FSoftObjectPath Path) -> void
+		{ Editor.InitialLevelPath = std::move(Path); }
 
 		static auto StartPlaySession(
 			DEditorEngine& Engine,

@@ -50,12 +50,13 @@ namespace Durin::LevelEditor
 			FEditorAssetMoveCoordinator& InAssetMoveCoordinator,
 			std::function<void()> InClearError,
 			std::function<void(std::string)> InReportError,
-			std::function<void(bool, bool, std::string)> InCompleteDeferredOpen
+			std::function<void(bool)> InCompleteDeferredOpen
 		);
 
 		auto RequestOpenProject(std::string ProjectFile) -> void;
 		// Interactive entry point: resolves unsaved changes before loading the selected level.
 		auto OpenLevel(std::string Path) -> ELevelDocumentOpenResult;
+		auto LoadLevel(std::string Path) -> bool;
 		auto DrawDialogs() -> void;
 		auto CanSaveCurrentLevel() const -> bool;
 		auto IsOpening() const -> bool;
@@ -74,9 +75,9 @@ namespace Durin::LevelEditor
 
 		auto ExecutePendingAction() -> ELevelDocumentOpenResult;
 		// No save prompt. Completion is delivered after activation by the ordinary host frame.
-		auto LoadLevel(std::string_view Path) -> ELevelDocumentOpenResult;
+		auto StartLevelLoad(std::string_view Path) -> ELevelDocumentOpenResult;
 		auto ResolveUnsavedLevelDialog(EUnsavedLevelDialogDecision Decision) -> bool;
-		auto CompletePendingDocumentOpen(bool bSucceeded, bool bCancelled = false, std::string Message = {}) -> void;
+		auto CompletePendingDocumentOpen(bool bSucceeded) -> void;
 		auto AssociateCurrentLevel() -> bool;
 		auto PrepareLevelActivation(DLevel& Level) -> bool;
 		auto CompleteMapChange(const FMapChangeProgress& Progress) -> void;
@@ -88,7 +89,7 @@ namespace Durin::LevelEditor
 		FEditorAssetMoveCoordinator& AssetMoveCoordinator;
 		std::function<void()> ClearError;
 		std::function<void(std::string)> ReportError;
-		std::function<void(bool, bool, std::string)> CompleteDeferredOpen;
+		std::function<void(bool)> CompleteDeferredOpen;
 		ELevelDocumentAction PendingAction = ELevelDocumentAction::None;
 		EQueuedPopup QueuedPopup = EQueuedPopup::None;
 		std::string PendingPath;

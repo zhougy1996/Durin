@@ -181,7 +181,7 @@ namespace Durin
 		FEditorSubsystemCollection EditorSubsystems;
 		bool bEditorInitStarted = false;
 		std::string StartupError;
-		std::optional<FAssetOpenItemResult> InitialDocumentRequest;
+		FSoftObjectPath InitialLevelPath;
 		// Service-only hosts are usable without a shell; Init starts the production bootstrap.
 		EHostStartupState StartupState = EHostStartupState::Ready;
 	protected:

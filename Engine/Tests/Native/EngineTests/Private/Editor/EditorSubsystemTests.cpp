@@ -122,8 +122,8 @@ namespace Durin
 		auto CanRegisterStatically() const -> bool override { return false; }
 		auto GetAssetOpenSupport(const FAssetOpenSupportArgs& Args) const -> FAssetOpenSupport override
 		{ return {Args.OpenMethod, Args.OpenMethod == EAssetOpenMethod::Edit || (Args.OpenMethod == EAssetOpenMethod::View && bSupportsView), RequiredMode}; }
-		auto OpenAssets(const FAssetOpenArgs& Args) const -> FAssetOpenResult override { return Open(Args); }
-		std::function<FAssetOpenResult(const FAssetOpenArgs&)> Open;
+		auto OpenAssets(const FAssetOpenArgs& Args) const -> EAssetCommandResult override { return Open(Args); }
+		std::function<EAssetCommandResult(const FAssetOpenArgs&)> Open;
 		bool bSupportsView = false;
 		std::optional<EToolkitMode> RequiredMode;
 	};
@@ -175,7 +175,7 @@ namespace
 		}
 	};
 
-	TEST_F(FEditorSubsystemTests, DefinitionDispatchPreservesMixedResultsAndDeduplicatesInputs)
+	TEST_F(FEditorSubsystemTests, DefinitionDispatchAttemptsValidInputsAndDeduplicatesSelection)
 	{
 		FDefinitionTestMount Mount;
 		auto* Service = NewHost()->GetEditorSubsystem<DAssetEditorSubsystem>();
@@ -183,17 +183,13 @@ namespace
 		int Opens = 0;
 		Definition->Open = [&](const FAssetOpenArgs& Args) {
 			++Opens;
-			return FAssetOpenResult{{{.Target = Args.Assets.front(), .Status = EAssetOpenStatus::Completed}}};
+			return EAssetCommandResult::Handled;
 		};
-		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
+		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
 		ASSERT_TRUE(Registration);
 		const auto Target = DefinitionTarget();
 		const auto Result = Service->OpenAssets({.AssetEditors = Service, .Assets = {Target, {}, Target}});
-		ASSERT_EQ(3u, Result.Items.size());
-		EXPECT_EQ(EAssetOpenStatus::Completed, Result.Items[0].Status);
-		EXPECT_EQ(EAssetOpenStatus::Rejected, Result.Items[1].Status);
-		EXPECT_EQ(EAssetOpenStatus::Completed, Result.Items[2].Status);
-		EXPECT_FALSE(Result.IsAccepted());
+		EXPECT_FALSE(Result);
 		EXPECT_EQ(1, Opens);
 	}
 
@@ -212,43 +208,32 @@ namespace
 			EXPECT_EQ(B.AssetPath, Args.Assets[1].AssetPath);
 			// Every member is reserved before the provider executes.
 			const auto Recursive = Service->OpenAssets(Args);
-			for (const auto& Item : Recursive.Items) EXPECT_EQ(EAssetOpenStatus::Rejected, Item.Status);
-			FAssetOpenResult Result;
-			for (const auto& Target : Args.Assets) Result.Items.push_back({.Target = Target, .Status = EAssetOpenStatus::Completed});
-			return Result;
+			EXPECT_FALSE(Recursive);
+			return EAssetCommandResult::Handled;
 		};
-		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
+		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
 		const auto Result = Service->OpenAssets({.AssetEditors = Service, .Assets = {A, B, A, Conflict}});
-		ASSERT_EQ(4u, Result.Items.size());
+		EXPECT_FALSE(Result);
 		EXPECT_EQ(1, Calls);
-		for (size_t I = 0; I < 3; ++I) EXPECT_EQ(EAssetOpenStatus::Completed, Result.Items[I].Status);
-		EXPECT_EQ(EAssetOpenStatus::Rejected, Result.Items[3].Status);
 	}
 
-	TEST_F(FEditorSubsystemTests, PendingViewBatchRetainsMethodAndProviderForEveryItem)
+	TEST_F(FEditorSubsystemTests, NestedCommandsRestoreTheOuterDefinitionProviderWithoutResultSlots)
 	{
 		FDefinitionTestMount Mount;
 		auto* Service = NewHost()->GetEditorSubsystem<DAssetEditorSubsystem>();
 		auto* Definition = NewObject<FDynamicOpenDefinition>(nullptr, {});
-		Definition->bSupportsView = true;
+		const auto A = DefinitionTarget(), B = DefinitionTarget("/AssetEditorTests/Nested.Asset");
+		int Calls = 0;
 		Definition->Open = [&](const FAssetOpenArgs& Args) {
-			FAssetOpenResult Result;
-			for (const auto& Target : Args.Assets) Result.Items.push_back({.Target = Target, .Status = EAssetOpenStatus::Pending,
-				.RequestId = Service->BeginOpenRequest(Target, [] { return true; })});
-			return Result;
+			++Calls;
+			if (Args.Assets.front().AssetPath == A.AssetPath)
+				EXPECT_FALSE(Service->OpenAssets({.AssetEditors = Service, .Assets = {B}}));
+			else return EAssetCommandResult::Unhandled;
+			return EAssetCommandResult::Handled;
 		};
-		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
-		std::vector<EAssetOpenMethod> Methods;
-		auto Subscription = Service->Subscribe([&](const FAssetEditorEvent& Event) {
-			if (Event.Type == EAssetEditorEvent::RequestFinished) Methods.push_back(Event.Method);
-		});
-		const auto Result = Service->OpenAssets({.AssetEditors = Service,
-			.Assets = {DefinitionTarget(), DefinitionTarget("/AssetEditorTests/Other.Asset")}, .OpenMethod = EAssetOpenMethod::View});
-		ASSERT_TRUE(Result.IsAccepted());
-		Registration.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
-		for (const auto& Item : Result.Items) EXPECT_TRUE(Service->CompleteOpenRequest(Item.RequestId, EAssetOpenStatus::Completed));
-		ASSERT_EQ(2u, Methods.size());
-		EXPECT_EQ(EAssetOpenMethod::View, Methods[0]); EXPECT_EQ(EAssetOpenMethod::View, Methods[1]);
+		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
+		EXPECT_TRUE(Service->OpenAssets({.AssetEditors = Service, .Assets = {A}}));
+		EXPECT_EQ(2, Calls);
 	}
 
 	TEST_F(FEditorSubsystemTests, SupportNormalizesRequiredModeAndRejectsExplicitHostBeforeExecution)
@@ -260,21 +245,21 @@ namespace
 		int Calls = 0;
 		Definition->Open = [&](const FAssetOpenArgs& Args) {
 			++Calls; EXPECT_EQ(EToolkitMode::WorldCentric, Args.ToolkitMode);
-			EXPECT_EQ("Restore", Args.Origin); EXPECT_FALSE(Args.bIsRestore);
-			return FAssetOpenResult{{{.Target = Args.Assets.front(), .Status = EAssetOpenStatus::Completed}}};
+			EXPECT_FALSE(Args.bIsRestore);
+			return EAssetCommandResult::Handled;
 		};
-		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
+		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
 		EXPECT_TRUE(Service->CanOpenAsset(DefinitionTarget()));
-		FAssetOpenArgs Args{.AssetEditors = Service, .Assets = {DefinitionTarget()}, .Origin = "Restore"};
-		EXPECT_TRUE(Service->OpenAssets(Args).IsAccepted());
+		FAssetOpenArgs Args{.AssetEditors = Service, .Assets = {DefinitionTarget()}};
+		EXPECT_TRUE(Service->OpenAssets(Args));
 		Args.Host = std::make_shared<FNonWindowToolkitHost>();
-		EXPECT_EQ(EAssetOpenStatus::Rejected, Service->OpenAssets(Args).Items.front().Status);
+		EXPECT_FALSE(Service->OpenAssets(Args));
 		EXPECT_EQ(1, Calls);
 		Args.Host = std::make_shared<FNonWindowToolkitHost>(EToolkitMode::WorldCentric);
-		EXPECT_TRUE(Service->OpenAssets(Args).IsAccepted()); EXPECT_EQ(2, Calls);
+		EXPECT_TRUE(Service->OpenAssets(Args)); EXPECT_EQ(2, Calls);
 		Definition->RequiredMode.reset();
 		// An explicit host determines the effective mode even when the preference differs.
-		EXPECT_TRUE(Service->OpenAssets(Args).IsAccepted()); EXPECT_EQ(3, Calls);
+		EXPECT_TRUE(Service->OpenAssets(Args)); EXPECT_EQ(3, Calls);
 	}
 
 	TEST_F(FEditorSubsystemTests, IncompatibleRequiredModesRejectAnEntireGroupBeforeExecution)
@@ -285,95 +270,12 @@ namespace
 		auto* Second = NewObject<FDynamicOpenDefinition>(nullptr, {});
 		First->RequiredMode = EToolkitMode::WorldCentric;
 		Second->RequiredMode = EToolkitMode::Standalone; Second->ClassPath = "ModeTest::DAsset";
-		First->Open = Second->Open = [](const FAssetOpenArgs&) { ADD_FAILURE() << "Incompatible group must not execute"; return FAssetOpenResult{}; };
-		auto A = FAssetDefinitionRegistry::Get().RegisterDefinition(*First);
-		auto B = FAssetDefinitionRegistry::Get().RegisterDefinition(*Second);
+		First->Open = Second->Open = [](const FAssetOpenArgs&) { ADD_FAILURE() << "Incompatible group must not execute"; return EAssetCommandResult::Unhandled; };
+		auto A = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*First);
+		auto B = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Second);
 		auto Other = DefinitionTarget("/AssetEditorTests/Other.Asset"); Other.AssetClassName = Second->ClassPath;
 		const auto Result = Service->OpenAssets({.AssetEditors = Service, .Assets = {DefinitionTarget(), Other}, .bCreateSingleSession = true});
-		ASSERT_EQ(2u, Result.Items.size());
-		for (const auto& Item : Result.Items) EXPECT_EQ(EAssetOpenStatus::Rejected, Item.Status);
-	}
-
-	TEST_F(FEditorSubsystemTests, PendingDefinitionRequestRetainsProviderUntilCancellationAndRejectsLateCompletion)
-	{
-		FDefinitionTestMount Mount;
-		auto* Service = NewHost()->GetEditorSubsystem<DAssetEditorSubsystem>();
-		auto* Definition = NewObject<FDynamicOpenDefinition>(nullptr, {});
-		const FObjectKey Provider(Definition);
-		int Cancellations = 0;
-		Definition->Open = [&](const FAssetOpenArgs& Args) {
-			const auto Id = Args.AssetEditors->BeginOpenRequest(Args.Assets.front(), [&] { ++Cancellations; return true; });
-			return FAssetOpenResult{{{.Target = Args.Assets.front(), .Status = EAssetOpenStatus::Pending, .RequestId = Id}}};
-		};
-		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
-		const auto Opened = Service->OpenAssets({.AssetEditors = Service, .Assets = {DefinitionTarget()}});
-		ASSERT_EQ(1u, Opened.Items.size());
-		const auto Id = Opened.Items.front().RequestId;
-		ASSERT_TRUE(Id.IsValid());
-		EXPECT_EQ(EAssetOpenStatus::Pending, Opened.Items.front().Status);
-		EXPECT_TRUE(Service->GetAllOpenEditors().empty());
-		Registration.Reset();
-		CollectGarbage(Durin::EObjectFlags::Standalone);
-		EXPECT_EQ(Definition, Provider.ResolveObjectPtr());
-		EXPECT_TRUE(Service->CancelOpenRequest(Id));
-		EXPECT_EQ(1, Cancellations);
-		ASSERT_TRUE(Service->GetOpenRequest(Id));
-		EXPECT_EQ(EAssetOpenStatus::Cancelled, Service->GetOpenRequest(Id)->Status);
-		EXPECT_FALSE(Service->CompleteOpenRequest(Id, EAssetOpenStatus::Completed));
-		CollectGarbage(Durin::EObjectFlags::Standalone);
-		EXPECT_EQ(nullptr, Provider.ResolveObjectPtr());
-	}
-
-	TEST_F(FEditorSubsystemTests, TerminalHistoryIsBoundedWithoutEvictingPendingWork)
-	{
-		FDefinitionTestMount Mount;
-		auto* Service = NewHost()->GetEditorSubsystem<DAssetEditorSubsystem>();
-		auto* Definition = NewObject<FDynamicOpenDefinition>(nullptr, {});
-		std::vector<FAssetOpenRequestId> Ids;
-		Definition->Open = [&](const FAssetOpenArgs& Args) {
-			for (int Index = 0; Index != 300; ++Index)
-			{
-				const auto Id = Service->BeginOpenRequest(Args.Assets.front(), [] { return true; });
-				Ids.push_back(Id);
-				if (Index) EXPECT_TRUE(Service->CompleteOpenRequest(Id, EAssetOpenStatus::Completed));
-			}
-			return FAssetOpenResult{{{.Target = Args.Assets.front(), .Status = EAssetOpenStatus::Pending, .RequestId = Ids.front()}}};
-		};
-		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
-		EXPECT_EQ(EAssetOpenStatus::Pending, Service->OpenAssets({.AssetEditors = Service, .Assets = {DefinitionTarget()}}).Items.front().Status);
-		ASSERT_TRUE(Service->GetOpenRequest(Ids.front()));
-		EXPECT_EQ(EAssetOpenStatus::Pending, Service->GetOpenRequest(Ids.front())->Status);
-		EXPECT_FALSE(Service->GetOpenRequest(Ids[1]));
-		EXPECT_EQ(EAssetOpenStatus::Completed, Service->GetOpenRequest(Ids.back())->Status);
-		EXPECT_TRUE(Service->CancelOpenRequest(Ids.front()));
-		EXPECT_EQ(EAssetOpenStatus::Cancelled, Service->GetOpenRequest(Ids.front())->Status);
-	}
-
-	TEST_F(FEditorSubsystemTests, RefusedCancellationLeavesRequestPendingAndProviderRetained)
-	{
-		FDefinitionTestMount Mount;
-		auto* Service = NewHost()->GetEditorSubsystem<DAssetEditorSubsystem>();
-		auto* Definition = NewObject<FDynamicOpenDefinition>(nullptr, {});
-		Definition->Open = [&](const FAssetOpenArgs& Args) {
-			const auto Id = Service->BeginOpenRequest(Args.Assets.front(), [] { return false; });
-			return FAssetOpenResult{{{.Target = Args.Assets.front(), .Status = EAssetOpenStatus::Pending, .RequestId = Id}}};
-		};
-		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
-		const auto Result = Service->OpenAssets({.AssetEditors = Service, .Assets = {DefinitionTarget()}});
-		const auto Id = Result.Items.front().RequestId;
-		const FObjectKey Provider(Definition);
-		Registration.Reset();
-		CollectGarbage(Durin::EObjectFlags::Standalone);
-		EXPECT_EQ(Definition, Provider.ResolveObjectPtr());
-		ASSERT_TRUE(Id.IsValid());
-		EXPECT_FALSE(Service->CancelOpenRequest(Id));
-		EXPECT_EQ(EAssetOpenStatus::Pending, Service->GetOpenRequest(Id)->Status);
-		CollectGarbage(Durin::EObjectFlags::Standalone);
-		EXPECT_EQ(Definition, Provider.ResolveObjectPtr());
-		EXPECT_TRUE(Service->CompleteOpenRequest(Id, EAssetOpenStatus::Failed, "Provider failed."));
-		EXPECT_EQ("Provider failed.", Service->GetOpenRequest(Id)->Message);
-		CollectGarbage(Durin::EObjectFlags::Standalone);
-		EXPECT_EQ(nullptr, Provider.ResolveObjectPtr());
+		EXPECT_FALSE(Result);
 	}
 
 	TEST_F(FEditorSubsystemTests, DefinitionDispatchRejectsRecursionAndUnsupportedViewBeforeExecution)
@@ -385,34 +287,17 @@ namespace
 		Definition->Open = [&](const FAssetOpenArgs& Args) {
 			++Opens;
 			const auto Recursive = Service->OpenAssets(Args);
-			EXPECT_EQ(EAssetOpenStatus::Rejected, Recursive.Items.front().Status);
-			return FAssetOpenResult{{{.Target = Args.Assets.front(), .Status = EAssetOpenStatus::Completed}}};
+			EXPECT_FALSE(Recursive);
+			return EAssetCommandResult::Handled;
 		};
-		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
+		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
 		FAssetOpenArgs Args{.AssetEditors = Service, .Assets = {DefinitionTarget()}, .OpenMethod = EAssetOpenMethod::View};
 		EXPECT_FALSE(Service->CanOpenAsset(Args.Assets.front(), EAssetOpenMethod::View));
-		EXPECT_EQ(EAssetOpenStatus::Rejected, Service->OpenAssets(Args).Items.front().Status);
+		EXPECT_FALSE(Service->OpenAssets(Args));
 		EXPECT_EQ(0, Opens);
 		Args.OpenMethod = EAssetOpenMethod::Edit;
-		EXPECT_TRUE(Service->OpenAssets(Args).IsAccepted());
+		EXPECT_TRUE(Service->OpenAssets(Args));
 		EXPECT_EQ(1, Opens);
-	}
-
-	TEST_F(FEditorSubsystemTests, InlinePendingCompletionPreservesItsTerminalOutcome)
-	{
-		FDefinitionTestMount Mount;
-		auto* Service = NewHost()->GetEditorSubsystem<DAssetEditorSubsystem>();
-		auto* Definition = NewObject<FDynamicOpenDefinition>(nullptr, {});
-		Definition->Open = [&](const FAssetOpenArgs& Args) {
-			const auto Id = Service->BeginOpenRequest(Args.Assets.front(), [] { return true; });
-			EXPECT_TRUE(Service->CompleteOpenRequest(Id, EAssetOpenStatus::Completed));
-			return FAssetOpenResult{{{.Target = Args.Assets.front(), .Status = EAssetOpenStatus::Pending, .RequestId = Id}}};
-		};
-		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
-		const auto Result = Service->OpenAssets({.AssetEditors = Service, .Assets = {DefinitionTarget()}});
-		ASSERT_EQ(1u, Result.Items.size());
-		EXPECT_EQ(EAssetOpenStatus::Completed, Result.Items.front().Status);
-		EXPECT_TRUE(Result.IsAccepted());
 	}
 
 	TEST_F(FEditorSubsystemTests, AddsAndRemovesInstancesWithoutRetiringTheActiveEditor)
@@ -609,20 +494,6 @@ namespace
 		FDynamicEditorA::Init = {}; FDynamicEditorA::Deinit = {};
 	}
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 	TEST_F(FEditorSubsystemTests, RepeatedAdditionReusesTheInstanceUntilExplicitRemoval)
 	{
 		auto* Host = NewHost(); auto A = RegisterA(); int Initializations = 0, Cleanups = 0;
@@ -805,10 +676,6 @@ namespace
 		EXPECT_EQ(1, *Stopped);
 		EXPECT_TRUE(Host->AreEditorSubsystemsInitialized());
 	}
-
-
-
-
 
 	TEST_F(FEditorSubsystemTests, FailedModuleStartupCanReleaseUninstantiatedRegistrationsDuringHostCallback)
 	{
@@ -1052,23 +919,21 @@ namespace
 		Service->NotifyEditorClosed(&Instance);
 	}
 
-
 	TEST_F(FEditorSubsystemTests, RejectingDefinitionDoesNotFallBackAndMissingDefinitionsAreUnhandled)
 	{
 		FDefinitionTestMount Mount;
 		auto* Service = NewHost()->GetEditorSubsystem<DAssetEditorSubsystem>();
 		auto* Definition = NewObject<FDynamicOpenDefinition>(nullptr, {});
 		Definition->Open = [](const FAssetOpenArgs& Args) {
-			return FAssetOpenResult{{{.Target = Args.Assets.front(), .Status = EAssetOpenStatus::Rejected}}};
+			return EAssetCommandResult::Unhandled;
 		};
-		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
+		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
 		const FAssetOpenArgs Args{.AssetEditors = Service, .Assets = {DefinitionTarget()}};
-		EXPECT_EQ(EAssetOpenStatus::Rejected, Service->OpenAssets(Args).Items.front().Status);
+		EXPECT_FALSE(Service->OpenAssets(Args));
 		Registration.Reset();
-		EXPECT_EQ(EAssetOpenStatus::Unhandled, Service->OpenAssets(Args).Items.front().Status);
+		EXPECT_FALSE(Service->OpenAssets(Args));
 		EXPECT_TRUE(Service->GetAllOpenEditors().empty());
 	}
-
 
 }
 

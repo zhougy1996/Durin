@@ -97,17 +97,17 @@ protected:
 
 TEST_F(FTextureAssetSessionTests, DefinitionCreatesAndReusesRealTextureSessionsWithSeparateViewIdentity)
 {
-	const auto* Definition = Durin::FAssetDefinitionRegistry::Get().FindDefinition(Args.Assets.front().AssetClassName);
+	const auto* Definition = Durin::FAssetDefinitionRegistry::Get().GetAssetDefinitionForClass(Args.Assets.front().AssetClassName);
 	ASSERT_NE(nullptr, Definition);
 	EXPECT_TRUE(Definition->GetAssetOpenSupport({Durin::EAssetOpenMethod::View}).IsSupported);
-	ASSERT_TRUE(Service->OpenAssets(Args).IsAccepted());
+	ASSERT_TRUE(Service->OpenAssets(Args));
 	ASSERT_EQ(1u, Service->GetOwnedAssetEditors().size());
 	const auto Edit = Service->GetOwnedAssetEditors().front();
-	ASSERT_TRUE(Service->OpenAssets(Args).IsAccepted());
+	ASSERT_TRUE(Service->OpenAssets(Args));
 	EXPECT_EQ(1u, Service->GetOwnedAssetEditors().size());
 	EXPECT_EQ(Edit->GetToolkit(), Service->GetActiveAssetToolkit());
 	Args.OpenMethod = Durin::EAssetOpenMethod::View;
-	ASSERT_TRUE(Service->OpenAssets(Args).IsAccepted());
+	ASSERT_TRUE(Service->OpenAssets(Args));
 	EXPECT_EQ(2u, Service->GetOwnedAssetEditors().size());
 	const auto View = Service->GetActiveAssetToolkit();
 	ASSERT_TRUE(View);
@@ -121,7 +121,7 @@ TEST_F(FTextureAssetSessionTests, DefinitionCreatesAndReusesRealTextureSessionsW
 
 TEST_F(FTextureAssetSessionTests, DiscardMigratesSessionRootsAndRebindsAssetAssociations)
 {
-	ASSERT_TRUE(Service->OpenAssets(Args).IsAccepted());
+	ASSERT_TRUE(Service->OpenAssets(Args));
 	ASSERT_EQ(1u, Service->GetOwnedAssetEditors().size());
 	const auto Session = Service->GetOwnedAssetEditors().front();
 	const auto Objects = Session->GetObjectsToEdit();
@@ -140,7 +140,7 @@ TEST_F(FTextureAssetSessionTests, DiscardMigratesSessionRootsAndRebindsAssetAsso
 TEST_F(FTextureAssetSessionTests, ExistingViewDoesNotInterceptADefaultEditOpen)
 {
 	Args.OpenMethod = Durin::EAssetOpenMethod::View;
-	ASSERT_TRUE(Service->OpenAssets(Args).IsAccepted());
+	ASSERT_TRUE(Service->OpenAssets(Args));
 	ASSERT_TRUE(Service->GetActiveAssetToolkit()->IsReadOnly());
 	auto* Object = Args.LoadAsset(Args.Assets.front());
 	ASSERT_NE(nullptr, Object);
@@ -167,7 +167,7 @@ TEST_F(FTextureAssetSessionTests, RelocationPreservesOpenTextureRoutingAndSave)
 	Durin::FSoftObjectPath DuplicatedPath;
 	ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate(Duplicate->GetObjectPath(), DuplicatedPath));
 	Args.Assets.front().AssetPath = DuplicatedPath;
-	ASSERT_TRUE(Service->OpenAssets(Args).IsAccepted());
+	ASSERT_TRUE(Service->OpenAssets(Args));
 	const auto Session = Service->GetOwnedAssetEditors().front();
 	Durin::FPackagePath Destination;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(DuplicatedPath.GetPackagePath().ToString() + "Moved", Destination));
@@ -403,7 +403,7 @@ TEST(FTextureAssetThumbnailTests,
 	auto Workspace = Session->GetToolkit();
 	ASSERT_NE(Workspace, nullptr);
 	ImGui::SetNextWindowSize(ImVec2(1280.0f, 720.0f), ImGuiCond_Always);
-	EXPECT_NO_FATAL_FAILURE(Session->DrawToolkitFrame(true));
+	EXPECT_NO_FATAL_FAILURE(Session->GetToolkit()->DrawToolkit(true));
 	ImGui::EndFrame();
 	ImGui::DestroyContext(Context);
 	ASSERT_EQ(Manager.RequestCloseDocument(Manager.GetDocuments().front().Id),

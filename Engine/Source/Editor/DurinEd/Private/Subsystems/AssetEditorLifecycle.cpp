@@ -1,5 +1,6 @@
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Toolkits/AssetEditor.h"
+#include "Toolkits/AssetEditorToolkit.h"
 #include "Toolkits/ToolkitHost.h"
 #include "DObject/Class.h"
 #include "Misc/Paths.h"
@@ -29,8 +30,6 @@ namespace Durin
 		uint64 NextId = 1;
 		std::map<uint64, std::function<void(const FAssetEditorEvent&)>> Subscribers;
 		std::vector<FAssetOpenTarget> Recent;
-		FAssetEditorUsage Usage;
-		std::unordered_map<FObjectKey, double, FObjectKeyHash> Started;
 	};
 	auto DAssetEditorSubsystem::Subscribe(std::function<void(const FAssetEditorEvent&)> Callback) -> FAssetEditorSubscription
 	{
@@ -45,19 +44,8 @@ namespace Durin
 	auto DAssetEditorSubsystem::PublishEvent(FAssetEditorEvent Event) -> void
 	{
 		if (!Lifecycle) Lifecycle = std::make_shared<FLifecycleState>();
+		if (Event.InstanceId.empty()) if (const auto* Session = Cast<DAssetEditor>(Event.Session.ResolveObjectPtr())) Event.InstanceId = Session->GetInstanceId();
 		const auto State = Lifecycle;
-		if (Event.Type == EAssetEditorEvent::Opened)
-		{
-			++State->Usage.Opened;
-			if (Event.Session.ResolveObjectPtr()) State->Started.try_emplace(Event.Session, FTime::Seconds());
-		}
-		else if (Event.Type == EAssetEditorEvent::Focused) ++State->Usage.Focused;
-		else if (Event.Type == EAssetEditorEvent::Closed)
-		{
-			++State->Usage.Closed;
-			if (const auto Found = State->Started.find(Event.Session); Found != State->Started.end())
-			{ State->Usage.EditingSeconds += FTime::Seconds() - Found->second; State->Started.erase(Found); }
-		}
 		if ((Event.Type == EAssetEditorEvent::Opened || Event.Type == EAssetEditorEvent::Focused) && Event.Target.AssetPath.IsValid())
 		{
 			std::erase_if(State->Recent, [&](const auto& Target) { return Target.AssetPath == Event.Target.AssetPath; });
@@ -68,30 +56,10 @@ namespace Durin
 		for (const auto& [Id, Callback] : Snapshot)
 			if (State->Subscribers.contains(Id)) DispatchEditorCallback([&] { Callback(Event); });
 	}
-	auto DAssetEditorSubsystem::GetUsage() const -> FAssetEditorUsage
-	{
-		auto Usage = Lifecycle ? Lifecycle->Usage : FAssetEditorUsage{};
-		if (Lifecycle) for (const auto& [Key, Started] : Lifecycle->Started) Usage.EditingSeconds += FTime::Seconds() - Started;
-		return Usage;
-	}
 	auto DAssetEditorSubsystem::GetRecentAssets() const -> std::vector<FAssetOpenTarget> { return Lifecycle ? Lifecycle->Recent : std::vector<FAssetOpenTarget>{}; }
-	auto DAssetEditorSubsystem::SynchronizeSessionAssets(DAssetEditor& Editor) -> void
-	{
-		const auto Objects = Editor.GetObjectsToEdit();
-		const auto Found = OpenedEditors.find(&Editor);
-		const auto Previous = Found == OpenedEditors.end() ? std::vector<FObjectKey>{} : Found->second;
-		for (const auto& Key : Previous)
-			if (std::ranges::none_of(Objects, [&](auto* Object) { return FObjectKey(Object) == Key; }))
-				if (auto* Object = Key.ResolveObjectPtr()) NotifyAssetClosed(Object, &Editor);
-		for (auto* Object : Objects)
-		{
-			if (!OwnsAssetEditor(Editor) || Editor.IsClosed()) break;
-			NotifyAssetOpened(Object, &Editor);
-		}
-	}
 	auto DAssetEditorSubsystem::CaptureSessions() const -> std::vector<FAssetEditorRestoreEntry>
 	{
-		auto Sessions = GetOwnedAssetEditors();
+		auto Sessions = GetAssetToolkits();
 		std::vector<FAssetEditorRestoreEntry> Result;
 		for (const auto& Session : Sessions)
 		{
@@ -109,28 +77,28 @@ namespace Durin
 		}
 		return Result;
 	}
-	auto DAssetEditorSubsystem::RestoreSessions(std::span<const FAssetEditorRestoreEntry> Entries) -> FAssetOpenResult
+	auto DAssetEditorSubsystem::RestoreSessions(std::span<const FAssetEditorRestoreEntry> Entries) -> bool
 	{
-		FAssetOpenResult Result;
+		bool Restored = true;
 		for (const auto& Entry : Entries)
 		{
 			auto Opened = OpenAssets({.AssetEditors = this, .Assets = Entry.Assets, .OpenMethod = Entry.Method,
-				.ToolkitMode = Entry.Mode, .Origin = "Restore", .SessionRole = Entry.Role, .bPrimary = Entry.bPrimary,
+				.ToolkitMode = Entry.Mode, .SessionRole = Entry.Role, .bPrimary = Entry.bPrimary,
 				.bCreateSingleSession = Entry.Assets.size() > 1, .bIsRestore = true});
-			Result.Items.insert(Result.Items.end(), std::make_move_iterator(Opened.Items.begin()), std::make_move_iterator(Opened.Items.end()));
+			Restored = Opened && Restored;
 		}
-		const auto Sessions = GetOwnedAssetEditors();
-		if (!Sessions.empty() && Sessions.back()->SupportsRestore()) RestoreFocus = Sessions.back().Get();
+		const auto Sessions = GetAssetToolkits();
+		if (!Sessions.empty() && Sessions.back()->SupportsRestore()) RestoreFocus = Sessions.back();
 		CompleteRestoreFocus();
-		return Result;
+		return Restored;
 	}
 	auto DAssetEditorSubsystem::CompleteRestoreFocus() -> void
 	{
-		auto* Session = RestoreFocus.Get();
-		if (!Session || !OwnsAssetEditor(*Session) || Session->IsClosed()) { RestoreFocus.Reset(); return; }
-		for (const auto& Open : GetOwnedAssetEditors())
+		const auto Session = RestoreFocus.lock();
+		if (!Session || !OwnsToolkit(*Session) || Session->IsClosed()) { RestoreFocus.reset(); return; }
+		for (const auto& Open : GetAssetToolkits())
 			if (const auto Host = Open->GetToolkitHost(); Host && !Host->IsReadyForFocus()) return;
-		RestoreFocus.Reset();
+		RestoreFocus.reset();
 		Session->FocusWindow();
 	}
 	namespace
@@ -166,14 +134,14 @@ namespace Durin
 		std::filesystem::create_directories(std::filesystem::path(FilePath).parent_path(), Error);
 		return !Error && static_cast<bool>(Document.SaveToFile(FilePath));
 	}
-	auto DAssetEditorSubsystem::LoadSessionState(std::string FilePath) -> FAssetOpenResult
+	auto DAssetEditorSubsystem::LoadSessionState(std::string FilePath) -> bool
 	{
 		FYamlDocument Document;
 		FilePath = StatePath(std::move(FilePath));
-		if (!std::filesystem::exists(FilePath)) return {};
+		if (!std::filesystem::exists(FilePath)) return true;
 		if (!Document.LoadFromFile(FilePath) || Document.GetRootView().GetView("Version").GetInt() != 1
 			|| Document.GetRootView().GetView("Project").GetString() != FPaths::ProjectFile())
-			return {{{.Status = EAssetOpenStatus::Rejected, .Message = "The session snapshot is invalid or belongs to another project."}}};
+			return false;
 		const auto Root = Document.GetRootView();
 		const auto Nodes = Root.GetView("Sessions");
 		std::vector<FAssetEditorRestoreEntry> Entries;

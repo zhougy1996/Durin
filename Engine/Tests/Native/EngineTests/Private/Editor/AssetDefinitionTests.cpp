@@ -64,37 +64,41 @@ namespace
 	{
 		FAssetDefinitionRegistry Registry;
 		auto* Base = Definition(DObject::StaticClass()->GetQualifiedName().ToString());
-		auto BaseRegistration = Registry.RegisterDefinition(*Base);
+		auto BaseRegistration = Registry.RegisterAssetDefinition(*Base);
 		ASSERT_TRUE(BaseRegistration);
 		const auto Path = DPackage::StaticClass()->GetQualifiedName().ToString();
-		EXPECT_EQ(Base, Registry.FindDefinition(Path));
-		const auto Revision = Registry.GetRevision();
+		EXPECT_EQ(Base, Registry.GetAssetDefinitionForClass(Path));
+		EXPECT_EQ(Base, Registry.GetAssetDefinitionForClass(DPackage::StaticClass()));
+		const auto Revision = Registry.GetAssetDefinitionVersion();
 		auto* Exact = Definition(Path);
-		auto ExactRegistration = Registry.RegisterDefinition(*Exact);
+		auto ExactRegistration = Registry.RegisterAssetDefinition(*Exact);
 		ASSERT_TRUE(ExactRegistration);
-		EXPECT_GT(Registry.GetRevision(), Revision);
-		EXPECT_EQ(Exact, Registry.FindDefinition(Path));
+		EXPECT_GT(Registry.GetAssetDefinitionVersion(), Revision);
+		EXPECT_EQ(Exact, Registry.GetAssetDefinitionForClass(Path));
+		EXPECT_EQ(Exact, Registry.GetAssetDefinitionForClass(DPackage::StaticClass()));
+		EXPECT_EQ(nullptr, Registry.GetAssetDefinitionForClass(nullptr));
 		ExactRegistration.Reset();
-		EXPECT_EQ(Base, Registry.FindDefinition(Path));
+		EXPECT_EQ(Base, Registry.GetAssetDefinitionForClass(Path));
+		EXPECT_EQ(Base, Registry.GetAssetDefinitionForClass(DPackage::StaticClass()));
 		BaseRegistration.Reset();
-		EXPECT_EQ(nullptr, Registry.FindDefinition(Path));
+		EXPECT_EQ(nullptr, Registry.GetAssetDefinitionForClass(Path));
 	}
 
 	TEST_F(FAssetDefinitionTests, DuplicateAndInvalidDefinitionsLeaveMembershipAndRevisionUnchanged)
 	{
 		FAssetDefinitionRegistry Registry;
 		auto* First = Definition("Test.Asset");
-		auto Registration = Registry.RegisterDefinition(*First);
+		auto Registration = Registry.RegisterAssetDefinition(*First);
 		ASSERT_TRUE(Registration);
-		const auto Revision = Registry.GetRevision();
+		const auto Revision = Registry.GetAssetDefinitionVersion();
 		std::string Error;
-		EXPECT_FALSE(Registry.RegisterDefinition(*Definition("Test.Asset"), &Error));
+		EXPECT_FALSE(Registry.RegisterAssetDefinition(*Definition("Test.Asset"), &Error));
 		EXPECT_NE(std::string::npos, Error.find("Test.Asset"));
-		EXPECT_EQ(Revision, Registry.GetRevision());
-		EXPECT_FALSE(Registry.RegisterDefinition(*Definition(""), &Error));
+		EXPECT_EQ(Revision, Registry.GetAssetDefinitionVersion());
+		EXPECT_FALSE(Registry.RegisterAssetDefinition(*Definition(""), &Error));
 		EXPECT_FALSE(Error.empty());
-		EXPECT_EQ(First, Registry.FindDefinition("Test.Asset"));
-		EXPECT_EQ(Revision, Registry.GetRevision());
+		EXPECT_EQ(First, Registry.GetAssetDefinitionForClass("Test.Asset"));
+		EXPECT_EQ(Revision, Registry.GetAssetDefinitionVersion());
 	}
 
 	TEST_F(FAssetDefinitionTests, DynamicLeaseRetainsDefinitionAcrossCollectionAndReleasesItOnReset)
@@ -102,27 +106,27 @@ namespace
 		FAssetDefinitionRegistry Registry;
 		auto* Object = Definition("Test.Asset");
 		const FObjectKey Key(Object);
-		auto Registration = Registry.RegisterDefinition(*Object);
+		auto Registration = Registry.RegisterAssetDefinition(*Object);
 		CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(Object, Key.ResolveObjectPtr());
-		EXPECT_EQ(Object, Registry.FindDefinition("Test.Asset"));
+		EXPECT_EQ(Object, Registry.GetAssetDefinitionForClass("Test.Asset"));
 		Registration.Reset();
 		CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(nullptr, Key.ResolveObjectPtr());
-		EXPECT_EQ(nullptr, Registry.FindDefinition("Test.Asset"));
+		EXPECT_EQ(nullptr, Registry.GetAssetDefinitionForClass("Test.Asset"));
 	}
 
 	TEST_F(FAssetDefinitionTests, OldLeaseCannotRemoveAReplacementDefinition)
 	{
 		FAssetDefinitionRegistry Registry;
 		auto* First = Definition("Test.Asset");
-		auto Old = Registry.RegisterDefinition(*First);
-		Registry.UnregisterDefinition(FObjectKey(First));
+		auto Old = Registry.RegisterAssetDefinition(*First);
+		Registry.UnregisterAssetDefinition(FObjectKey(First));
 		auto* Replacement = Definition("Test.Asset");
-		auto Current = Registry.RegisterDefinition(*Replacement);
+		auto Current = Registry.RegisterAssetDefinition(*Replacement);
 		ASSERT_TRUE(Current);
 		Old.Reset();
-		EXPECT_EQ(Replacement, Registry.FindDefinition("Test.Asset"));
+		EXPECT_EQ(Replacement, Registry.GetAssetDefinitionForClass("Test.Asset"));
 	}
 
 	TEST_F(FAssetDefinitionTests, LeaseMayOutliveRegistryWithoutKeepingDefinitionAlive)
@@ -133,7 +137,7 @@ namespace
 			FAssetDefinitionRegistry Registry;
 			auto* Object = Definition("Test.Asset");
 			Key = FObjectKey(Object);
-			Registration = Registry.RegisterDefinition(*Object);
+			Registration = Registry.RegisterAssetDefinition(*Object);
 			ASSERT_TRUE(Registration);
 		}
 		EXPECT_FALSE(Registration.IsValid());
@@ -145,26 +149,26 @@ namespace
 	TEST_F(FAssetDefinitionTests, LateClassDefaultObjectRegistersAndRetiresAutomatically)
 	{
 		auto& Registry = FAssetDefinitionRegistry::Get();
-		EXPECT_EQ(nullptr, Registry.FindDefinition("Test.AutomaticAsset"));
+		EXPECT_EQ(nullptr, Registry.GetAssetDefinitionForClass("Test.AutomaticAsset"));
 		DClass* Class = FAutomaticTestAssetDefinition::StaticClass();
 		const std::array<DClass*, 1> Classes{Class};
 		ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
 		const auto* Default = Cast<DAssetDefinition>(Class->GetDefaultObject());
 		ASSERT_NE(nullptr, Default);
-		EXPECT_EQ(Default, Registry.FindDefinition("Test.AutomaticAsset"));
+		EXPECT_EQ(Default, Registry.GetAssetDefinitionForClass("Test.AutomaticAsset"));
 		Private::ReleaseClassDefaultObjectForTests(Class);
 		CollectGarbage(Durin::EObjectFlags::Standalone);
-		EXPECT_EQ(nullptr, Registry.FindDefinition("Test.AutomaticAsset"));
+		EXPECT_EQ(nullptr, Registry.GetAssetDefinitionForClass("Test.AutomaticAsset"));
 	}
 
 	TEST_F(FAssetDefinitionTests, MetadataQueriesDoNotConstructOrLoadObjects)
 	{
 		FAssetDefinitionRegistry Registry;
 		auto* Object = Definition("UnloadedProject.Asset");
-		auto Registration = Registry.RegisterDefinition(*Object);
+		auto Registration = Registry.RegisterAssetDefinition(*Object);
 		const auto ObjectRevision = GDObjectArray.GetRevision();
-		EXPECT_EQ(Object, Registry.FindDefinition("UnloadedProject.Asset"));
-		EXPECT_EQ(nullptr, Registry.FindDefinition("UnknownProject.Asset"));
+		EXPECT_EQ(Object, Registry.GetAssetDefinitionForClass("UnloadedProject.Asset"));
+		EXPECT_EQ(nullptr, Registry.GetAssetDefinitionForClass("UnknownProject.Asset"));
 		EXPECT_TRUE(Object->GetAssetCategories().empty());
 		EXPECT_TRUE(Object->GetAssetOpenSupport({EAssetOpenMethod::Edit}).IsSupported);
 		EXPECT_FALSE(Object->GetAssetOpenSupport({EAssetOpenMethod::View}).IsSupported);

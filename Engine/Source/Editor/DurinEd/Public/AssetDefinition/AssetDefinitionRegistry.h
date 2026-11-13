@@ -7,6 +7,7 @@
 namespace Durin
 {
 	class DAssetDefinition;
+	class DClass;
 	namespace AssetDefinitionPrivate { struct FRegistryState; }
 
 	// Retains a dynamic definition until removal; may safely outlive its registry.
@@ -39,13 +40,14 @@ namespace Durin
 		DURINED_API static auto Get() -> FAssetDefinitionRegistry&;
 		// Returned definitions are borrowed until the next lifecycle mutation.
 		// Exact identity wins; missing reflected classes still support exact lookup.
-		DURINED_API auto FindDefinition(std::string_view AssetClassPath) -> const DAssetDefinition*;
-		DURINED_API auto RegisterDefinition(DAssetDefinition& Definition,
+		DURINED_API auto GetAssetDefinitionForClass(const DClass* AssetClass) -> const DAssetDefinition*;
+		DURINED_API auto GetAssetDefinitionForClass(std::string_view AssetClassPath) -> const DAssetDefinition*;
+		DURINED_API auto RegisterAssetDefinition(DAssetDefinition& Definition,
 			std::string* OutError = nullptr) -> FAssetDefinitionRegistration;
 		DURINED_API auto RegisterClassDefaultObject(DAssetDefinition& Definition,
 			std::string* OutError = nullptr) -> bool;
-		DURINED_API auto UnregisterDefinition(FObjectKey Definition) -> void;
-		DURINED_API auto GetRevision() const -> uint64;
+		DURINED_API auto UnregisterAssetDefinition(FObjectKey Definition) -> void;
+		DURINED_API auto GetAssetDefinitionVersion() const -> uint64;
 		DURINED_API auto GetRegisteredClassPaths() const -> std::vector<std::string>;
 	private:
 		std::shared_ptr<AssetDefinitionPrivate::FRegistryState> State;

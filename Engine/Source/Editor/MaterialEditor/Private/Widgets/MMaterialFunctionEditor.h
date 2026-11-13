@@ -42,7 +42,7 @@ namespace Durin::MaterialEditor
 		auto GetLastError() const -> std::string_view { return Error; }
 		auto OnHostChanged() -> void override;
 	protected:
-		auto OnSessionBound() -> void override;
+		auto PostInitAssetEditor() -> void override;
 	private:
 		struct FDocument;
 		auto Find(std::string_view Resource) const -> FDocument*;

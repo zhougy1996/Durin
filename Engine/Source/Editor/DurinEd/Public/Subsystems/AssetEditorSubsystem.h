@@ -11,7 +11,7 @@
 #include "DObject/StrongObjectPtr.h"
 #include "AssetEditorSubsystem.gen.h"
 
-namespace Durin { class FEditorDocumentManager; class DAssetEditor; class FAssetEditorToolkit; class FToolkitManager; struct FAssetEditorInitArgs; }
+namespace Durin { class FEditorDocumentManager; class DAssetEditor; class FAssetEditorToolkit; struct FAssetEditorInitArgs; }
 namespace Durin::MainFrame { struct FMainFrameContext; }
 
 namespace Durin
@@ -35,21 +35,8 @@ namespace Durin
 		DURINED_API auto OpenEditorsForAssets(const std::vector<std::string>& AssetsToOpen) -> void;
 		DURINED_API auto CanOpenAsset(const FAssetOpenTarget& Target,
 			EAssetOpenMethod Method = EAssetOpenMethod::Edit) -> bool;
-		DURINED_API auto OpenAssets(const FAssetOpenArgs& Args) -> FAssetOpenResult;
-		// Definition callbacks create pending work while dispatch retains their provider object.
-		DURINED_API auto BeginOpenRequest(FAssetOpenTarget Target,
-			std::function<bool()> Cancel) -> FAssetOpenRequestId;
-		DURINED_API auto CompleteOpenRequest(FAssetOpenRequestId Id,
-			EAssetOpenStatus Status, std::string Message = {}) -> bool;
-		DURINED_API auto GetOpenRequest(FAssetOpenRequestId Id) const -> std::optional<FAssetOpenItemResult>;
-		// Refreshes the historical outcome of an ordinary open request.
-		// Read-only: never advances loading, focuses UI, or changes the original snapshot.
-		DURINED_API auto ResolveOpenResult(const FAssetOpenItemResult& Initial) const -> FAssetOpenItemResult;
-		// Current document association, independent of the request's terminal result.
+		DURINED_API auto OpenAssets(const FAssetOpenArgs& Args) -> bool;
 		DURINED_API auto IsAssetOpen(const FSoftObjectPath& Path) const -> bool;
-		// A refused cancellation leaves pending work and its provider lifetime intact.
-		DURINED_API auto CancelOpenRequest(FAssetOpenRequestId Id) -> bool;
-		DURINED_API auto BindOpenRequestToDocument(FAssetOpenRequestId Id, uint64 DocumentId) -> bool;
 		// Creates and commits a reflected session only after all initial documents open.
 		DURINED_API auto OpenAssetEditor(DClass* EditorClass, const FAssetEditorInitArgs& Args) -> DAssetEditor*;
 		// Publishes a caller-configured reflected session only after successful initialization.
@@ -64,20 +51,25 @@ namespace Durin
 		DURINED_API auto OwnsAssetEditor(const DAssetEditor& Editor) const -> bool;
 		// Strong snapshots keep a session alive across reentrant frame/command callbacks.
 		DURINED_API auto GetOwnedAssetEditors() const -> std::vector<TStrongObjectPtr<DAssetEditor>>;
+		// Reflected sessions own their toolkit; direct admission owns read-only instances only.
+		// Mutable-feature Toolkits require View; writable Edit is rejected before host/document work.
+		DURINED_API auto InitializeDirectToolkit(std::shared_ptr<FAssetEditorToolkit> Toolkit,
+			std::shared_ptr<FEditorDocumentManager> Documents, const FAssetOpenArgs& Args,
+			std::span<DObject* const> Assets) -> bool;
+		DURINED_API auto GetAssetToolkits() const -> std::vector<std::shared_ptr<FAssetEditorToolkit>>;
+		DURINED_API auto OwnsToolkit(const FAssetEditorToolkit& Toolkit) const -> bool;
+		DURINED_API auto ActivateAssetToolkit(FAssetEditorToolkit& Toolkit) -> bool;
+		DURINED_API auto RetireAssetToolkit(FAssetEditorToolkit& Toolkit) -> void;
 		DURINED_API auto GetActiveAssetToolkit() const -> std::shared_ptr<FAssetEditorToolkit>;
-		DURINED_API auto GetToolkitManager() const -> FToolkitManager&;
-		DURINED_API auto ActivateAssetEditor(DAssetEditor& Editor) -> bool;
 		DURINED_API auto DeactivateAssetEditors() -> bool;
-		DURINED_API auto RetireAssetEditor(DAssetEditor& Editor) -> void;
 		// Subscribers may withdraw subscriptions or close other sessions. They must not
 		// recursively drive host updates or mutate a document operation's active inputs.
 		DURINED_API auto Subscribe(std::function<void(const FAssetEditorEvent&)> Callback) -> FAssetEditorSubscription;
 		DURINED_API auto GetRecentAssets() const -> std::vector<FAssetOpenTarget>;
-		DURINED_API auto GetUsage() const -> FAssetEditorUsage;
 		DURINED_API auto CaptureSessions() const -> std::vector<FAssetEditorRestoreEntry>;
-		DURINED_API auto RestoreSessions(std::span<const FAssetEditorRestoreEntry> Entries) -> FAssetOpenResult;
+		DURINED_API auto RestoreSessions(std::span<const FAssetEditorRestoreEntry> Entries) -> bool;
 		DURINED_API auto SaveSessionState(std::string FilePath = {}) const -> bool;
-		DURINED_API auto LoadSessionState(std::string FilePath = {}) -> FAssetOpenResult;
+		DURINED_API auto LoadSessionState(std::string FilePath = {}) -> bool;
 		DURINED_API auto FindEditorForAsset(DObject* Asset, bool bFocusIfOpen) -> IAssetEditorInstance*;
 		DURINED_API auto FindEditorsForAsset(DObject* Asset) -> std::vector<IAssetEditorInstance*>;
 		DURINED_API auto GetAllEditedAssets() -> std::vector<DObject*>;
@@ -104,36 +96,22 @@ namespace Durin
 		// Deinitialize and shell teardown share this to preserve UI/provider release order.
 		DURINED_API auto ShutdownAssetEditorSessions() -> void;
 		DURINED_API auto PublishEvent(FAssetEditorEvent Event) -> void;
-		DURINED_API auto SynchronizeSessionAssets(DAssetEditor& Editor) -> void;
-		auto CancelRestoreFocus() -> void { RestoreFocus.Reset(); }
+		auto SynchronizeToolkitAssets(FAssetEditorToolkit& Toolkit) -> void;
+		auto CancelRestoreFocus() -> void { RestoreFocus.reset(); }
 		auto CanCall() const -> bool;
 		auto HasEditor(IAssetEditorInstance* Instance) const -> bool;
 		auto CreateAssetEditor(DAssetEditor& Session, const FAssetEditorInitArgs& Args) -> DAssetEditor*;
-		auto CompleteDocumentOpen(uint64 DocumentId, EAssetOpenStatus Status, std::string Message = {}) -> void;
 		auto CompleteRestoreFocus() -> void;
-		struct FOpenRequest
-		{
-			FAssetOpenItemResult Result;
-			FStrongObjectPtr Definition;
-			FObjectKey ProviderIdentity;
-			std::function<bool()> Cancel;
-			uint64 DocumentId = 0;
-			EAssetOpenMethod Method = EAssetOpenMethod::Edit;
-		};
-		std::unordered_map<uint64, FOpenRequest> OpenRequests;
 		std::unordered_set<FSoftObjectPath> OpeningPaths;
 		FStrongObjectPtr DispatchingDefinition;
-		EAssetOpenMethod DispatchingOpenMethod = EAssetOpenMethod::Edit;
-		uint64 NextOpenRequestId = 1;
 		std::unordered_map<FObjectKey, TStrongObjectPtr<DAssetEditor>, FObjectKeyHash> Sessions;
-		TWeakObjectPtr<DAssetEditor> ActiveSession;
-		TWeakObjectPtr<DAssetEditor> RestoreFocus;
-		std::shared_ptr<FToolkitManager> ToolkitManager;
+		std::weak_ptr<FAssetEditorToolkit> ActiveToolkit;
+		std::vector<std::shared_ptr<FAssetEditorToolkit>> DirectToolkits;
+		std::weak_ptr<FAssetEditorToolkit> RestoreFocus;
 		std::function<std::shared_ptr<IToolkitHost>(const FAssetOpenArgs&)> ToolkitHostFactory;
 		bool bStoppingSessions = false;
 		struct FLifecycleState;
 		std::shared_ptr<FLifecycleState> Lifecycle;
-		std::vector<uint64> CompletedRequests;
 		// Non-owning instance registry, as in UE. Instances notify before destruction.
 		std::unordered_map<FObjectKey, std::vector<IAssetEditorInstance*>, FObjectKeyHash> OpenedAssets;
 		std::unordered_map<IAssetEditorInstance*, std::vector<FObjectKey>> OpenedEditors;

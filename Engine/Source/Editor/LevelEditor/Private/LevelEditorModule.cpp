@@ -156,7 +156,7 @@ namespace Durin
 		Integration->PIE.reset();
 		for (auto* Object : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly))
 			if (auto* Session = Cast<DLevelAssetEditor>(Object); Session && !Session->IsClosed())
-				if (auto* Service = Session->GetAssetEditorSubsystem()) Service->RetireAssetEditor(*Session);
+				if (auto* Service = Session->GetAssetEditorSubsystem()) Service->RetireAssetToolkit(*Session->GetToolkit());
 		if (GEditor)
 		{
 			const auto Discarded = GEditor->GetTransactor()->DiscardCustomChangesByModule("LevelEditor");
@@ -263,7 +263,7 @@ namespace Durin
 	LEVELEDITOR_API auto FLevelEditorModule::ReleaseLevelEditor(DAssetEditorSubsystem& AssetEditors) -> void
 	{
 		for (const auto& Session : AssetEditors.GetOwnedAssetEditors())
-			if (Cast<DLevelAssetEditor>(Session.Get())) AssetEditors.RetireAssetEditor(*Session);
+			if (Cast<DLevelAssetEditor>(Session.Get())) AssetEditors.RetireAssetToolkit(*Session->GetToolkit());
 		if (auto* Levels = AssetEditors.GetEditor()->GetEditorSubsystem<DLevelEditorSubsystem>()) Levels->SetHostContext({});
 	}
 

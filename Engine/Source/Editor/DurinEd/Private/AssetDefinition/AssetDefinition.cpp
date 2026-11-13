@@ -5,56 +5,91 @@
 #include "DObject/Class.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "Toolkits/GenericAssetEditor.h"
+#include "Toolkits/AssetEditor.h"
+#include "Toolkits/AssetEditorToolkit.h"
+#include "Toolkits/AssetEditorIdentity.h"
+#include "Documents/EditorDocumentManager.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 
 namespace Durin
 {
-	DAssetDefinition::DAssetDefinition(const FObjectInitializer& Initializer) : Super(Initializer) {}
-	DAssetDefinitionDefault::DAssetDefinitionDefault(const FObjectInitializer& Initializer) : Super(Initializer) {}
-	auto DAssetDefinitionDefault::GetAssetIcon() const -> std::string { return Icons::FileLines; }
-	auto DAssetDefinitionDefault::GetAssetEditorClass() const -> DClass* { return DGenericAssetEditor::StaticClass(); }
-	auto DAssetDefinitionDefault::OpenAssets(const FAssetOpenArgs& Args) const -> FAssetOpenResult
+	auto DAssetDefinitionDefault::ExecuteOpenAssets(const FAssetOpenArgs& Args,
+		std::variant<DClass*, const FAssetEditorToolkitId*> EditorType,
+		const std::function<std::shared_ptr<FAssetEditorToolkit>(std::span<DObject* const>)>& CreateEditor) const -> EAssetCommandResult
 	{
-		FAssetOpenResult Result;
+		bool Opened = true;
+		const auto* ReflectedType = std::get_if<DClass*>(&EditorType);
 		const auto OpenSelection = [&](std::span<const FAssetOpenTarget> Targets) {
 			std::vector<FStrongObjectPtr> Roots;
 			std::vector<DObject*> Assets;
 			std::string Error;
 			for (const auto& Target : Targets)
 			{
-				const auto* Definition = Cast<DAssetDefinitionDefault>(FAssetDefinitionRegistry::Get().FindDefinition(Target.AssetClassName));
-				if (!Definition || !Definition->GetAssetOpenSupport({Args.OpenMethod}).ResolveToolkitMode(Args.ToolkitMode, Args.ToolkitMode) || Definition->GetAssetEditorClass() != GetAssetEditorClass())
+				const auto* Definition = FAssetDefinitionRegistry::Get().GetAssetDefinitionForClass(Target.AssetClassName);
+				const auto* Default = Cast<DAssetDefinitionDefault>(Definition);
+				const bool Compatible = ReflectedType
+					? Default && Default->GetAssetEditorClass() == *ReflectedType : Definition == this;
+				if (!Definition || !Compatible)
 				{ Error = "The selected assets require incompatible editors."; break; }
+				const auto Support = Definition->GetAssetOpenSupport({Args.OpenMethod});
+				if (Support.OpenMethod != Args.OpenMethod || !Support.ResolveToolkitMode(Args.ToolkitMode, Args.ToolkitMode))
+				{ Error = "The selected assets do not support the requested method or host."; break; }
 				Roots.emplace_back(Args.LoadAsset(Target));
 				if (!Roots.back()) { Error = "The selected asset could not be loaded."; break; }
 				if (std::ranges::find(Assets, Roots.back().Get()) == Assets.end()) Assets.push_back(Roots.back().Get());
 			}
-			DAssetEditor* Session = nullptr;
+			std::shared_ptr<FAssetEditorToolkit> Toolkit;
 			if (Error.empty() && Args.AssetEditors)
 			{
-				const auto Role = Args.SessionRole.empty() && !Args.bPrimary ? "Secondary" : Args.SessionRole;
-				for (const auto& Existing : Args.AssetEditors->GetOwnedAssetEditors())
+				for (const auto& Existing : Args.AssetEditors->GetAssetToolkits())
 				{
+					const auto* Owner = Existing->GetOwningAssetEditor();
+					const bool MatchesType = ReflectedType ? Owner && Owner->GetClass() == *ReflectedType
+						: Existing->GetToolkitId() == *std::get<const FAssetEditorToolkitId*>(EditorType);
+					if (!MatchesType || Existing->GetOpenMethod() != Args.OpenMethod
+						|| Existing->GetToolkitMode() != Args.ToolkitMode || Existing->GetInstanceKey() != Args.GetNormalizedRole()
+						|| Existing->IsPrimaryEditor() != Args.bPrimary || (Args.Host && Existing->GetToolkitHost() != Args.Host)) continue;
 					const auto Objects = Existing->GetObjectsToEdit();
-					if (Existing->GetClass() == GetAssetEditorClass() && Existing->GetOpenMethod() == Args.OpenMethod
-						&& Existing->GetToolkitMode() == Args.ToolkitMode && Existing->GetInstanceKey() == Role
-						&& Existing->IsPrimaryEditor() == Args.bPrimary && (!Args.Host || Existing->GetToolkitHost() == Args.Host)
-						&& (Args.bCreateSingleSession ? Objects.size() == Assets.size() && std::ranges::all_of(Assets,
-							[&](auto* Asset) { return std::ranges::find(Objects, Asset) != Objects.end(); })
-							: std::ranges::find(Objects, Assets.front()) != Objects.end())
-						&& (!Session || Existing->GetLastActivationTime() > Session->GetLastActivationTime())) Session = Existing.Get();
+					const bool MatchesAssets = Args.bCreateSingleSession ? HaveSameEditedAssets(Objects, Assets)
+						: std::ranges::find(Objects, Assets.front()) != Objects.end();
+					if (MatchesAssets && (!Toolkit || Existing->GetLastActivationTime() > Toolkit->GetLastActivationTime())) Toolkit = Existing;
 				}
-				if (!Session) Session = Args.AssetEditors->OpenAssetEditor(GetAssetEditorClass(), {
-					.OpenArgs = Args, .Assets = Assets, .bPrimary = Args.bPrimary, .InstanceKey = Role});
-				if (Session) Session->FocusWindow(Assets.front());
+				if (Toolkit) Toolkit->FocusWindow(Assets.front());
+				else Toolkit = CreateEditor(Assets);
 			}
-			if (!Session && Error.empty()) Error = "The asset editor session could not be initialized.";
-			for (const auto& Target : Targets) Result.Items.push_back({.Target = Target,
-				.Status = Session ? EAssetOpenStatus::Completed : EAssetOpenStatus::Failed, .Message = Error});
+			if (!Toolkit && Error.empty()) Error = "The asset editor could not be initialized.";
+			if (!Toolkit)
+			{ Opened = false; DURIN_WARN("Asset editor open failed: {}", Error); }
 		};
 		if (Args.bCreateSingleSession && !Args.Assets.empty()) OpenSelection(Args.Assets);
 		else for (const auto& Target : Args.Assets) OpenSelection(std::span(&Target, 1));
-		return Result;
+		return Opened ? EAssetCommandResult::Handled : EAssetCommandResult::Unhandled;
+	}
+
+	DAssetDefinition::DAssetDefinition(const FObjectInitializer& Initializer) : Super(Initializer) {}
+	DAssetDefinitionDefault::DAssetDefinitionDefault(const FObjectInitializer& Initializer) : Super(Initializer) {}
+	auto DAssetDefinitionDefault::GetAssetIcon() const -> std::string { return Icons::FileLines; }
+	auto DAssetDefinitionDefault::GetAssetEditorClass() const -> DClass* { return DGenericAssetEditor::StaticClass(); }
+	auto DAssetDefinitionDefault::OpenAssets(const FAssetOpenArgs& Args) const -> EAssetCommandResult
+	{
+		auto* EditorClass = GetAssetEditorClass();
+		return ExecuteOpenAssets(Args, EditorClass,
+			[&](std::span<DObject* const> Assets) -> std::shared_ptr<FAssetEditorToolkit> {
+				auto* Session = Args.AssetEditors->OpenAssetEditor(EditorClass, {
+					.OpenArgs = Args, .Assets = std::vector<DObject*>(Assets.begin(), Assets.end())});
+				return Session ? Session->GetToolkit() : nullptr;
+			});
+	}
+
+	auto DAssetDefinitionDefault::OpenAssetsWithToolkit(const FAssetOpenArgs& Args, const FAssetEditorToolkitId& ToolkitId,
+		const std::function<std::shared_ptr<FAssetEditorToolkit>(FEditorDocumentManager&)>& CreateToolkit) const -> EAssetCommandResult
+	{
+		return ExecuteOpenAssets(Args, &ToolkitId,
+			[&](std::span<DObject* const> Assets) -> std::shared_ptr<FAssetEditorToolkit> {
+				auto Documents = std::make_shared<FEditorDocumentManager>();
+				auto Toolkit = CreateToolkit(*Documents);
+				return Args.AssetEditors->InitializeDirectToolkit(Toolkit, Documents, Args, Assets) ? Toolkit : nullptr;
+			});
 	}
 
 	auto DAssetDefinitionDefault::GetAssetDisplayName() const -> std::string
@@ -77,17 +112,12 @@ namespace Durin
 
 	auto DAssetDefinition::BeginDestroy() -> void
 	{
-		FAssetDefinitionRegistry::Get().UnregisterDefinition(FObjectKey(this));
+		FAssetDefinitionRegistry::Get().UnregisterAssetDefinition(FObjectKey(this));
 		Super::BeginDestroy();
 	}
 
-	auto DAssetDefinition::OpenAssets(const FAssetOpenArgs& Args) const -> FAssetOpenResult
-	{
-		FAssetOpenResult Result;
-		for (const auto& Target : Args.Assets)
-			Result.Items.push_back({.Target = Target, .Status = EAssetOpenStatus::Unhandled});
-		return Result;
-	}
+	auto DAssetDefinition::OpenAssets(const FAssetOpenArgs&) const -> EAssetCommandResult
+	{ return EAssetCommandResult::Unhandled; }
 
 	auto FAssetOpenArgs::LoadAsset(const FAssetOpenTarget& Target) const -> DObject*
 	{

@@ -67,7 +67,7 @@ namespace Durin::ContentBrowser::Private
 		auto* Definition = NewObject<FBrowserTestDefinition>(nullptr, {});
 		Definition->ClassPath = "ItemViewTest::DTextureCube"; Definition->DisplayName = "Texture Cube";
 		Definition->Icon = Icons::Cube; Definition->Categories = {{"Texture"}};
-		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
+		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
 		ASSERT_TRUE(Registration);
 		FContentBrowserItem Folder = Durin::ContentBrowser::Private::FContentBrowserNativeItem{
 			.Kind = EContentBrowserItemKind::Folder,

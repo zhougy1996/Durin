@@ -92,7 +92,7 @@ namespace Durin
 		static FAssetDefinitionRegistry Registry;
 		return Registry;
 	}
-	auto FAssetDefinitionRegistry::GetRevision() const -> uint64 { return State->Revision; }
+	auto FAssetDefinitionRegistry::GetAssetDefinitionVersion() const -> uint64 { return State->Revision; }
 	auto FAssetDefinitionRegistry::GetRegisteredClassPaths() const -> std::vector<std::string>
 	{
 		require(IsInGameThread());
@@ -102,7 +102,7 @@ namespace Durin
 		std::ranges::sort(Result);
 		return Result;
 	}
-	auto FAssetDefinitionRegistry::RegisterDefinition(DAssetDefinition& Definition,
+	auto FAssetDefinitionRegistry::RegisterAssetDefinition(DAssetDefinition& Definition,
 		std::string* OutError) -> FAssetDefinitionRegistration
 	{
 		FAssetDefinitionRegistration Registration;
@@ -120,13 +120,15 @@ namespace Durin
 		}
 		return AssetDefinitionPrivate::Insert(*State, Definition, false, OutError) != 0;
 	}
-	auto FAssetDefinitionRegistry::UnregisterDefinition(FObjectKey Definition) -> void
+	auto FAssetDefinitionRegistry::UnregisterAssetDefinition(FObjectKey Definition) -> void
 	{
 		require(IsInGameThread());
 		if (std::erase_if(State->Entries, [&](const auto& Pair) { return Pair.second.Definition == Definition; }))
 			++State->Revision;
 	}
-	auto FAssetDefinitionRegistry::FindDefinition(std::string_view AssetClassPath) -> const DAssetDefinition*
+	auto FAssetDefinitionRegistry::GetAssetDefinitionForClass(const DClass* AssetClass) -> const DAssetDefinition*
+	{ return AssetClass ? GetAssetDefinitionForClass(AssetClass->GetQualifiedName().ToString()) : nullptr; }
+	auto FAssetDefinitionRegistry::GetAssetDefinitionForClass(std::string_view AssetClassPath) -> const DAssetDefinition*
 	{
 		require(IsInGameThread());
 		// No ancestor cache: late derived definitions and removals take effect immediately.

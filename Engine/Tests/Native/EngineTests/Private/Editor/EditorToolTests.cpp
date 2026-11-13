@@ -21,7 +21,6 @@
 
 #include <gtest/gtest.h>
 
-
 namespace Durin
 {
 	struct FMapChangeTestAccess
@@ -144,15 +143,14 @@ TEST_F(FEditorToolTests, ServiceOnlyHostStartsReadyAndKeepsToolsAvailableDuringP
 TEST_F(FEditorToolTests, PresentationDoesNotGateEditorCapabilities)
 {
 	auto* Editor = MakeHost();
-	FEditorEngineTestAccess::SetInitialDocumentRequest(*Editor, {.Status = EAssetOpenStatus::Pending, .RequestId = {999}});
 	EXPECT_EQ(EHostStartupState::Ready, Editor->GetStartupState());
 	EXPECT_TRUE(Editor->GetCapabilities().bPresentWorkspace);
 	EXPECT_TRUE(Editor->GetCapabilities().bTick);
 	EXPECT_TRUE(Editor->CanTransact());
 	EXPECT_FALSE(Editor->ShouldDrawStartupScene());
 	std::string Error;
-	EXPECT_EQ(EHostStartupState::Failed, Editor->GetStartupCompletion(Error));
-	EXPECT_NE(std::string::npos, Error.find("no longer available"));
+	EXPECT_EQ(EHostStartupState::Pending, Editor->GetStartupCompletion(Error));
+	EXPECT_TRUE(Error.empty());
 	EXPECT_EQ(EHostStartupState::Ready, Editor->GetStartupState());
 }
 
@@ -323,7 +321,7 @@ TEST_F(FEditorToolTests, AutomationWaitsForDocumentCompletionAndPrimaryScenePres
 	ASSERT_TRUE(FEditorEngineTestAccess::InitializeWorkspaces(*Editor)) << Editor->GetStartupError();
 	FEditorEngineTestAccess::OpenDefaultLevel(*Editor);
 	EXPECT_EQ(1, MainFrame.WorkspaceCalls);
-	EXPECT_FALSE(FEditorEngineTestAccess::HasInitialDocumentRequest(*Editor));
+	EXPECT_FALSE(FEditorEngineTestAccess::HasInitialLevelPath(*Editor));
 	EXPECT_EQ(EHostStartupState::Ready, Editor->GetStartupState());
 	EXPECT_TRUE(Editor->CanTransact());
 	EXPECT_TRUE(Editor->GetStartupError().empty());
@@ -362,7 +360,6 @@ TEST_F(FEditorToolTests, AutomationWaitsForDocumentCompletionAndPrimaryScenePres
 	ASSERT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World, "StartupLevel")));
 	FEditorEngineTestAccess::SetEditorWorld(*Editor, World);
 	const auto Receipt = SceneViewport->GetOutputReceipt();
-	FEditorEngineTestAccess::SetInitialDocumentRequest(*Editor, {.Status = EAssetOpenStatus::Completed});
 	FMapChangeTestAccess::SetSceneGeneration(*Editor, 17);
 	Receipt->RecordProduced(17);
 	EXPECT_EQ(EHostStartupState::Pending, Editor->GetStartupCompletion(Error));
@@ -393,36 +390,13 @@ TEST_F(FEditorToolTests, AutomationWaitsForDocumentCompletionAndPrimaryScenePres
 	EXPECT_EQ("workspace initialization failed", Editor->GetStartupError());
 }
 
-TEST_F(FEditorToolTests, StartupDocumentFailureCancellationAndRetiredRequestCannotBecomeReady)
-{
-	using namespace EditorStartup;
-	for (const auto Status : {EAssetOpenStatus::Failed, EAssetOpenStatus::Cancelled})
-	{
-		auto* Editor = MakeHost();
-		std::string Error;
-		FEditorEngineTestAccess::SetStartupState(*Editor, EHostStartupState::Ready);
-		FEditorEngineTestAccess::SetInitialDocumentRequest(*Editor, {.Status = Status, .Message = "owning failure or cancellation"});
-		EXPECT_EQ(EHostStartupState::Failed, Editor->GetStartupCompletion(Error));
-		EXPECT_EQ("owning failure or cancellation", Error);
-		Editor->PreExit();
-	}
-	auto* Editor = MakeHost();
-	std::string Error;
-	FEditorEngineTestAccess::SetStartupState(*Editor, EHostStartupState::Ready);
-	FEditorEngineTestAccess::SetInitialDocumentRequest(*Editor, {.Status = EAssetOpenStatus::Pending, .RequestId = {999}});
-	EXPECT_EQ(EHostStartupState::Failed, Editor->GetStartupCompletion(Error));
-	EXPECT_NE(std::string::npos, Error.find("no longer available"));
-	Editor->PreExit();
-}
-
-TEST_F(FEditorToolTests, StartupDocumentShutdownDoesNotPublishLateCompletion)
+TEST_F(FEditorToolTests, ShutdownPreventsStartupCompletion)
 {
 	using namespace EditorStartup;
 	auto* Editor = MakeHost();
 	std::string Error;
 	FEditorEngineTestAccess::SetStartupState(*Editor, EHostStartupState::Ready);
 	Editor->PreExit();
-	FEditorEngineTestAccess::SetInitialDocumentRequest(*Editor, {.Status = EAssetOpenStatus::Completed});
 	EXPECT_EQ(EHostStartupState::Pending, Editor->GetStartupCompletion(Error));
 }
 

@@ -84,7 +84,7 @@ namespace Durin
 	) -> bool
 	{
 		const auto Toolkit = std::dynamic_pointer_cast<FAssetEditorToolkit>(DocumentManager.FindToolkit(ToolkitId));
-		if (auto* Session = Toolkit ? Toolkit->GetOwningAssetEditor() : nullptr)
+		if (const auto Session = Toolkit; Session && Session->GetEditorInstance())
 		{
 			const auto Documents = DocumentManager.GetDocuments();
 			if (Documents.empty()) return false;

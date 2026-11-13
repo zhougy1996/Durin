@@ -2,7 +2,7 @@
 
 Summary: Define reflected asset-type discovery, metadata-based opening, owned editor sessions, toolkit lifetime, and host integration.
 
-Modules: DurinEd, TextureEditor, MainFrame, ContentBrowser
+Modules: DurinEd, LevelEditor, TextureEditor, StaticMeshEditor, MainFrame, ContentBrowser
 
 Last reviewed: 2026-11-13
 
@@ -19,59 +19,76 @@ modules are unavailable for dispatch unless the provider is Active; reflected
 types without a managed module record support direct native fixtures.
 
 `DAssetEditorSubsystem::OpenAssets` takes explicit requesting subsystem context,
-object-path/class metadata, method, host/mode and origin. It preserves per-item
-results, deduplicates selections, rejects recursion, and retains definitions
-across callbacks. It sends each definition one ordered unique metadata batch and
-expands results back to original input order. Conflicting metadata is rejected.
-A definition rejection is final; absent definitions return Unhandled. Object convenience opens focus an existing
-primary Edit instance first; a View instance cannot intercept an Edit open.
-Path opens use resident objects or registry metadata,
-falling back to execution-time loading when class metadata is unavailable.
+object-path/class metadata, method and host/mode. It returns a command boolean,
+deduplicates selections, rejects recursion and retains definitions across callbacks.
+Each definition receives an ordered unique batch. Invalid ordinary inputs do not
+prevent valid inputs from executing, but make the overall return false; a requested
+single-session group rejects atomically at metadata preflight. There is no per-input
+result DTO, request ID, completion table, terminal history or result-refresh API.
+
+Definition `OpenAssets` returns UE's `EAssetCommandResult` (`Handled` or `Unhandled`).
+An unhandled command does not fall back to a generic editor. Default definitions
+report load/construction diagnostics at the execution site; presentation callers may
+show an immediate aggregate failure. These are command returns, not asynchronous
+completion receipts. In particular Level may accept work that finishes on later
+frames; callers needing scene completion observe the Level/document state.
 
 `GetAssetOpenSupport(FAssetOpenSupportArgs)` returns the requested method, support
 and optional required toolkit mode, following the [UE response shape](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Editor/AssetDefinition/FAssetOpenSupport).
 It is metadata-only. Dispatch resolves the effective mode before executing the
-definition: a required mode overrides the requested preference, an explicit host
-supplies its own mode, and conflicting explicit hosts are rejected. Single-session
-groups combine requirements before any provider executes. Origin is diagnostic
-text; `bIsRestore` explicitly identifies restore operations.
+definition. A required mode overrides the preference; an explicit host supplies its
+mode and incompatible explicit hosts reject. Groups combine requirements before
+execution. `bIsRestore` identifies restoration. `bPromptToSave` is execution policy
+for interactive Level commands; startup and programmatic calls leave it false.
 
-Pending definition work registers an identity and cancellation callback with
-`BeginOpenRequest`. `GetOpenRequest` observes stored completion.
-`ResolveOpenResult` refreshes an original Pending snapshot without mutating it,
-focusing UI, or advancing loading. A retired request returns a failed observation;
-cancellation preserves its original status and diagnostic. Completed history
-remains Completed after the document closes. `IsAssetOpen` independently queries
-current document association by asset path. Automation may require both successful
-opening and a still-open document, without redefining the request outcome.
-Cancellation refusal
-keeps work/provider retention intact, and late completion is rejected. Deferred document candidates link to the same request identity. Publication
-updates asset associations before finishing the request; a failed/cancelled
-replacement retains the previous document. Terminal history retains the most
-recent 256 outcomes and never evicts pending work. Ordinary session creation
-requires synchronous initial documents; Level creates its explicit empty host
-document first and delegates later asynchronous scene changes to its controller.
-`FAssetOpenArgs::Assets` is the only selection. `bCreateSingleSession` requests
-one compatible session (including grouped restore); the selected definition is
-invoked once. Default execution checks compatible editor classes, loads each
-unique asset once and initializes one session. Ordinary batches create/focus
-individual sessions. A group with unavailable metadata is rejected before
-execution, and a failed group load publishes no session. Level rejects multi-scene
-grouping. Pending outcomes retain their originating Edit/View method.
-`DAssetDefinitionDefault` supplies common display/category metadata and ordinary
-open execution. Definitions may select a feature session class; the default is
-the generic reflected-property session, supporting Edit and View. A project type
-can inherit this behavior without adding central dispatch code. Asset load and
-compatibility rejection remain authoritative.
+Level owns delayed scene loading, confirmation and cancellation. Generic document
+ownership publishes deferred candidates through `CompleteDeferredDocumentOpen(Id,
+bSucceeded)` and exposes current pending state; it does not forward completion to an
+asset-request service. Toolkit ownership retains the provider during the operation.
+The engine's existing scene loading implementation remains shared with runtime
+consumers; the editor adds no requirement to preserve a complete old-scene graph
+on loading failure or cancellation.
+
+The registry remains responsible for definition discovery, registration and class
+lookup; it does not execute opens or own editor instances. `DAssetDefinition::OpenAssets`
+is the public type-level opening operation, following UE's registry/definition
+responsibility boundary. Default reflected editing and direct StaticMesh inspection
+share `DAssetDefinitionDefault::ExecuteOpenAssets`, a private implementation for
+selection compatibility, loading/retention, instance matching and grouping.
+The protected `OpenAssetsWithToolkit` convenience method takes a Toolkit identity
+and construction factory. A direct definition reports no reflected editor class,
+so mixed generic/direct groups reject rather than opening through a generic fallback.
+Compatibility and reuse policies are not public callback
+interfaces and no extra registry or controller is introduced.
+
+New-instance focus belongs to subsystem admission. The shared Definition execution
+only focuses reused instances, so both new and reused opens publish one Focused
+event per effective editor open. Grouped assets create/focus one editor; ordinary
+selections retain their per-editor behavior.
+
+Registry lookup uses `GetAssetDefinitionForClass` for either a loaded `DClass` or
+an unloaded class-path identity. `RegisterAssetDefinition`,
+`UnregisterAssetDefinition` and `GetAssetDefinitionVersion` expose registration
+and invalidation; scoped registration tokens and automatic CDO registration retain
+their existing lifetime contracts.
 
 ## Session And Toolkit Ownership
 
-`DAssetEditorSubsystem` strongly owns committed `DAssetEditor` objects per
-`DEditorEngine`. Each session is the single externally indexed
-`IAssetEditorInstance`, may edit several assets, and may be primary or secondary.
-`FToolkitManager` indexes weak toolkits; host lookup derives from their owning
-session. The session is authoritative for its host binding and derives its mode
-from the host.
+`DAssetEditorSubsystem` coordinates two editor-instance shapes per `DEditorEngine`.
+Texture, Material and Level use reflected `DAssetEditor` owners; each owns its
+Toolkit and is the externally indexed `IAssetEditorInstance`. StaticMesh Inspector
+uses a directly owned `FAssetEditorToolkit` implementing `IAssetEditorInstance`,
+without allocating a reflected editor. The subsystem strongly retains committed
+direct Toolkits; hosts borrow them weakly. A reflected Toolkit reports its optional
+owner as the externally indexed instance and is not independently registered. Both shapes support
+multiple assets, primary/secondary roles and the same definition/open pipeline.
+Toolkit enumeration derives from committed editor ownership; no secondary weak
+ToolkitManager index is maintained. The Toolkit owns host binding and derives its
+mode from the host. `GetAssetToolkits` creates a bounded strong snapshot from the
+two actual ownership collections; it is not a second registration index.
+Primary and role inputs exist only in `FAssetOpenArgs`; `GetNormalizedRole`
+selects the default secondary role once. Asset-set identity ignores ordering and
+duplicate input objects through the shared `HaveSameEditedAssets` helper.
 A session is admitted only after all initial documents and host attachment
 succeed. `InitializeAssetEditor` admits a caller-configured reflected session
 through the same validation and publication path as class-based opening. It
@@ -87,18 +104,31 @@ callbacks select a scoped transaction editor for existing graph/property APIs,
 restoring the prior context after reentry without changing process `GEditor`.
 An expired bound editor cannot redirect commands to another editor.
 
-A session owns its toolkit and document controller. `DAssetEditor::DrawToolkitFrame`
-leases the current toolkit and delegates to its final `DrawToolkit` boundary. That
-boundary alone admits the callback and establishes the owning-editor transaction
-context; it retains the session and toolkit while feature drawing runs. A draw
-callback can request its own close, and retired toolkits reject later frames. Toolkit callback/frame leases
-can extend C++ lifetime; the toolkit retains its controller and definition
-provider, while the controller stores only a weak toolkit and its callback holds
-a weak reflected session. These references form no ownership cycle. A toolkit
-binds only once, even after its weak owner expires. Closing removes external
-associations and live-toolkit membership before releasing session UI ownership.
-An escaped frame lease does not keep the reflected session alive or allow later
-notifications through a retired owner.
+`FAssetEditorToolkit` owns the document controller, host, provider lease, open
+method, role, runtime identity, activation time and whole-window close continuation
+for both instance shapes. `InitAssetEditor` initializes either shape through one
+implementation; subsystem admission remains responsible for validation and
+publication. `PostInitAssetEditor` is the feature initialization hook. Focus,
+activation, retirement, per-frame reconciliation and shutdown use the same Toolkit
+path rather than forwarding back to a reflected owner.
+
+`DAssetEditor` supplies the optional reflected lifetime, `CreateToolkit` and
+`OnToolkitClosed` coordination. Its instance methods delegate to its Toolkit;
+only the reflected object's initialized/closed lifetime markers survive Toolkit
+release. `CreateToolkit` may borrow initialization arguments and the controller
+while constructing its feature; these temporary inputs are cleared before normal
+execution. No persistent second host, identity or close state lives in the owner.
+
+Callers draw the Toolkit through its final `DrawToolkit` boundary; there is no
+reflected-owner drawing wrapper. That boundary alone admits the callback and establishes the requesting
+editor's transaction context; it retains the reflected owner, when present, and
+Toolkit while feature drawing runs. A draw callback can request its own close,
+and retired Toolkits reject later frames. Escaped C++ leases retain the controller
+and provider but do not retain the reflected owner. The controller stores only a
+weak Toolkit, including in its association callback. These references form no
+ownership cycle. A Toolkit initializes only once, even after its weak owner
+expires. Retirement disables callbacks and detaches UI before the subsystem
+releases the actual owner and publishes its captured closing identity.
 
 Each session-local `FEditorDocumentManager` has one attached toolkit, no registered
 asset routes, and plain collector-visible document roots rather than editor-instance
@@ -107,18 +137,34 @@ refreshes toolkit references and external associations. Package relocation maps
 canonical asset/subobject paths while preserving export names, not just package
 strings. `OnResourceIdRemapped` updates feature caches and active-resource state.
 
+Direct Toolkit admission is read-only: intrinsically immutable inspectors may
+use Edit or View, while otherwise editable feature Toolkits must be fixed to View.
+Writable Edit is rejected before host creation, document callbacks or association
+publication. Shared close continuation does not widen this admission contract;
+the direct entrypoint remains unsuitable for general writable-editor initialization.
+
+Direct Toolkit initialization is an explicit subsystem admission operation. It
+checks the requesting editor, metadata support, asset-set identity and host mode,
+opens documents and attaches presentation before publishing associations. Failure
+retires the candidate and publishes nothing. Uninitialized and retired Toolkits
+cannot draw or execute commands. Both shapes use the same final draw/command
+boundary and owning-editor transaction context. Direct close removes associations
+and ownership, detaches its host and retires UI; a borrowed Toolkit lease retains
+its provider until released, while rejecting subsequent frames and commands.
+
 ## Methods, Close Policy, And Hosts
 
 `FAssetEditorToolkit` guards Save, Discard, Undo, Redo and dirty/save capability
 before calling feature hooks, including rejecting commands from retired frame
-leases. View is fixed when the toolkit binds to its session.
+leases. View is fixed during reflected or direct Toolkit initialization.
 Texture property contexts are read-only, mutation/reimport/build controls are
 disabled, and direct save/reimport entrypoints also reject View. Read-only document
 activation does not install transaction flags or package checkpoints. Edit and
 View root identities differ; existing Edit root keys are preserved.
 Session admission combines its feature support policy with applicable asset
 definition requirements before creating a host or toolkit. Direct creation cannot
-bypass read-only or required-mode restrictions. Host transfer uses the same check.
+bypass read-only or required-mode restrictions. Reflected-session host transfer uses the same check. The direct read-only pilot
+opens/restores in either host mode; live direct-Toolkit transfer is not added.
 Material graph and Level definitions/sessions share stateless feature policies;
 toolkits no longer expose duplicate support methods. Material and MaterialFunction
 graph sessions support Edit only; unsupported View opens are explicit rejections. Collection, VolumeTexture and generic property
@@ -164,13 +210,13 @@ are caller obligations, not a callback-depth counter or automatic deferral scope
 asset ownership. `FNonWindowToolkitHost` supplies semantic standalone/world-centric
 modes for direct hosts; dirty or pending close prevents host retirement. MainFrame
 installs an editor-local host factory with one shared world-centric host.
-Standalone hosts remain independent per session. Detaching one world-centric
+Standalone hosts remain independent per editor instance. Detaching one world-centric
 toolkit preserves the other attachments. Standalone roots force independent native
 Mona/ImGui viewports; world-centric roots attach to the Level-owning MainFrame dock.
-The native viewport close bridge authorizes closure through the session first,
+The native viewport close bridge authorizes closure through the effective editor instance first,
 keeping a dirty or pending window alive. Scoped generation-aware policies are
-removed on detachment and backend shutdown. A standalone native host attaches one
-session; tools extend that session rather than creating another root.
+removed on detachment and backend shutdown. A standalone native host attaches one editor instance; tools extend that instance
+rather than creating another root.
 
 A grouped session has one root with internal document tabs. Resource paths identify
 edited assets; a process-unique runtime `WindowId` isolates each session's root,
@@ -180,7 +226,7 @@ window identity. `GetLayoutName`/`GetLayoutVersion` declare a stable toolkit lay
 identity does not include assets or group hashes. Additional identical sessions
 still require distinct named roles. Transfer settles previews and rejects failed
 attachment or a destination session collision before detaching its previous host.
-MainFrame routes active commands to the session toolkit. It includes all session
+MainFrame routes active commands to the effective Toolkit for either instance shape. It includes all session
 controllers in exit preparation/save and releases their UI before feature module
 integrations retire. This teardown does not execute asset Discard.
 
@@ -234,6 +280,12 @@ browser. Feature import controllers cancel/drain when their requesting host ends
 
 ## Lifecycle And Session Restoration
 
+Lifecycle values carry a runtime `InstanceId` for both editor shapes. `Session`
+is an optional reflected-object key and is empty for direct Toolkits. Notifications
+never retain an editor. Runtime instance IDs do not enter restore snapshots.
+Snapshot capture, restore focus, shell menus, drawing and close coordination
+operate on both shapes through effective Toolkit/instance context.
+
 `Subscribe` returns a scoped, non-owning lifecycle subscription. Value payloads
 carry canonical metadata and weak object keys. Requested precedes definition
 execution; Opened follows association publication; AssetRemoved follows index
@@ -241,10 +293,8 @@ removal; Closed follows retirement. Subscriber snapshots permit callbacks to
 withdraw subscriptions or close other sessions. Association reconciliation is
 incremental, avoiding false close/open churn on ordinary refresh.
 
-Usage is local to the editor lifetime: committed asset-association opens, explicit
-focus notifications, retired sessions and elapsed editing time. No external
-telemetry is sent. Recent assets are canonical, unique and limited to 32; opens
-and focus update recency, and authoritative relocation remaps entries.
+Local usage counters and editing-time accounting are not maintained. Lifecycle
+notifications drive MRU and subscribers without an unused statistics subsystem.
 
 MainFrame automatically restores supported ordinary sessions and saves a version-1
 snapshot on orderly host retirement. Files live under the launch config directory
@@ -277,35 +327,53 @@ Texture2D uses automatically registered `DTextureAssetDefinition` and on-demand
 and reimport services remain feature-owned. Reimport callbacks use weak toolkit
 leases and reject retired sessions. Closing View does not cancel compilation;
 closing Edit preserves compilation still observed by another editor. VolumeTexture,
-Material, MaterialInstance, MaterialFunction, Collection and StaticMesh also use
+Material, MaterialInstance, MaterialFunction and Collection also use
 on-demand reflected sessions. TextureCube metadata is definition-backed and its
-View method uses the generic inspector. Ordinary feature module startup registers
+View method uses the generic inspector. StaticMesh overrides definition execution
+to initialize direct Inspector Toolkits; repeated opens focus the matching
+method/mode/role/asset selection. Mesh remains immutable in both Edit and View.
+Its existing Engine package reload limitation remains an explicit Unsupported
+failure without replacing the original graph; this migration adds no mesh reload
+participant or new Engine capability. Ordinary feature module startup registers
 independent creation/import/details/thumbnail contributions. MainFrame loads the
 built-in modules without connecting toolkit batches or import callbacks.
-Level uses `DLevelAssetDefinition` and a specialized `DLevelAssetEditor` with
-one stable LevelEditor document. Its scene controller still owns loading,
-confirmation, map cancellation, PIE restrictions, startup association and first
-presentation. The Level toolkit only supports Edit in its owning world-centric
-host. Closing/reopening that surface does not introduce a second scene-loading
-route. The per-editor Level subsystem retains host settings and browser callbacks
-for reopening; each configured reflected Level session receives that context before
-initialization. The module has no host/session map, and lookups use committed
-asset sessions. Module startup retains only independent feature registrations.
+Level uses `DLevelAssetDefinition` and a specialized `DLevelAssetEditor` with one
+stable document. The definition forwards to `DLevelEditorSubsystem`. Programmatic
+`LoadLevel` starts loading without an unsaved-changes prompt; interactive `OpenLevel`
+resolves Save/Discard/Cancel first. `CancelLevelLoad` cancels the current Level
+operation directly and settles its deferred document immediately; a later Engine
+callback observes no pending action. Host shutdown may discard that callback.
+Confirmation cancellation and load cancellation are no longer
+public asset-request outcomes. These services use the same Level controller;
+there is no second scene-loading implementation. Durin retains asynchronous loading
+internally, so its load boolean means accepted/already active, not a promise that
+rendering has completed. This timing differs from UE's conventional LoadMap return.
+
+Startup stores only the configured Level path, observes current pending documents
+and the actual editor World, then independently checks primary-window presentation.
+No historical operation result can make a missing or different scene ready. The
+Level subsystem depends on the asset-editor service for teardown ordering and
+cancels its own work before retirement. MainFrame releases the Level owner before
+retiring remaining asset Toolkits. Level still supports Edit in its world-centric
+host and opts out of asset-session restore. Host settings/browser callbacks live
+in the per-editor Level subsystem; there is no module-owned host/session map.
+
 Registration batches/handles, route tables, singleton descriptors, workspace
 instance adapters and shell document registries have been removed.
 
 Definition registration withdrawal prevents new dispatch without closing existing
-sessions. Dirty sessions and pending requests retain their provider independently
-of the registry lease. Refused cancellation retains pending work; terminal
-completion releases its provider after the callback returns. A retained toolkit
+sessions. Live Toolkits retain their provider independently of the registry lease, including
+while a Level document is loading. A retained toolkit
 lease retains its provider until the lease itself is released. These are object
 lifetime guarantees, not permission to unload provider machine code. Module unload
 preflight rejects non-reloadable/process-resident providers before shutdown;
 unsupported editor DLL reload remains disabled under the
 `FModuleManager::UnloadModule` preflight contract.
 
-Full native interaction qualification stays open in
-the [UE asset editor architecture plan](../../../Plans/UEAssetEditorArchitecture.md).
+Native interface interaction remains skipped and unqualified. It was explicitly
+excluded from the completion scope of the
+[UE asset editor architecture plan](../../../Plans/UEAssetEditorArchitecture.md);
+completion of that plan is not a manual interface-acceptance claim.
 
 The [subsystem host contract](EditorSubsystems.md) owns service admission and
 retirement. The [workspace framework](WorkspaceFramework.md) retains the current

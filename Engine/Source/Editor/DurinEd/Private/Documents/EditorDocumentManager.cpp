@@ -253,15 +253,13 @@ namespace Durin
 		return State->Documents.back().Id;
 	}
 
-	auto FEditorDocumentManager::CompleteDeferredDocumentOpen(FDocumentId DocumentId, bool bSucceeded, EAssetOpenStatus FailureStatus, std::string Message) -> bool
+	auto FEditorDocumentManager::CompleteDeferredDocumentOpen(FDocumentId DocumentId, bool bSucceeded) -> bool
 	{
 		const auto Pending = State->DeferredDocumentOpens.find(DocumentId.Value);
 		if (Pending == State->DeferredDocumentOpens.end()) return false;
 		if (!bSucceeded)
 		{
 			State->DeferredDocumentOpens.erase(Pending);
-			if (auto* Service = State->AssetEditorSubsystem.Get())
-				Service->CompleteDocumentOpen(DocumentId.Value, FailureStatus, std::move(Message));
 			return true;
 		}
 
@@ -270,8 +268,6 @@ namespace Durin
 		const std::shared_ptr<IAssetEditorToolkit> Workspace = FindToolkit(Document.ToolkitId);
 		if (!Workspace)
 		{
-			if (auto* Service = State->AssetEditorSubsystem.Get())
-				Service->CompleteDocumentOpen(DocumentId.Value, EAssetOpenStatus::Failed);
 			return false;
 		}
 
@@ -285,11 +281,13 @@ namespace Durin
 		Workspace->ActivateDocument(*OpenedDocument);
 		State->ActiveDocumentId = OpenedDocument->Id;
 		SynchronizeAssets();
-		if (auto* Service = State->AssetEditorSubsystem.Get())
-			Service->CompleteDocumentOpen(DocumentId.Value, EAssetOpenStatus::Completed);
 		return true;
 	}
 
+	auto FEditorDocumentManager::IsDocumentOpenPending(std::string_view ResourceId) const -> bool
+	{
+		return std::ranges::any_of(State->DeferredDocumentOpens, [&](const auto& Entry) { return Entry.second.ResourceId == ResourceId; });
+	}
 	auto FEditorDocumentManager::IsDocumentOpenPending(FDocumentId DocumentId) const -> bool
 	{
 		return State->DeferredDocumentOpens.contains(DocumentId.Value);
@@ -322,8 +320,6 @@ namespace Durin
 		}
 		if (State->DeferredDocumentOpens.erase(DocumentId.Value) != 0)
 		{
-			if (auto* Service = State->AssetEditorSubsystem.Get())
-				Service->CompleteDocumentOpen(DocumentId.Value, EAssetOpenStatus::Cancelled);
 			return EDocumentCloseResult::Closed;
 		}
 		const auto Found = std::ranges::find(State->Documents, DocumentId, &FEditorDocument::Id);

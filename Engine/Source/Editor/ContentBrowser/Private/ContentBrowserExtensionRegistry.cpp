@@ -203,7 +203,7 @@ namespace Durin::ContentBrowser
 				Result->ThumbnailBadgeIcon = It->second.ThumbnailBadgeIcon;
 			}
 		}
-		if (const auto* Definition = FAssetDefinitionRegistry::Get().FindDefinition(QualifiedClassName))
+		if (const auto* Definition = FAssetDefinitionRegistry::Get().GetAssetDefinitionForClass(QualifiedClassName))
 		{
 			const FStrongObjectPtr Lease(const_cast<DAssetDefinition*>(Definition));
 			if (!Result) Result.emplace();
@@ -232,7 +232,7 @@ namespace Durin::ContentBrowser
 	{
 		const auto State = GetRegistryState();
 		std::scoped_lock Lock(State->Mutex);
-		return State->PresentationRevision + FAssetDefinitionRegistry::Get().GetRevision();
+		return State->PresentationRevision + FAssetDefinitionRegistry::Get().GetAssetDefinitionVersion();
 	}
 	auto StopHostPresentations(const std::weak_ptr<void>& HostLifetime) -> void
 	{

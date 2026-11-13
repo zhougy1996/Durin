@@ -134,7 +134,7 @@ namespace Durin::ContentBrowser
 		{
 			auto* Definition = NewObject<FBrowserTestDefinition>(nullptr, {});
 			Definition->Categories = {{Category}};
-			auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
+			auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
 			ASSERT_TRUE(Registration);
 			FNativeContentBrowserTestQuery ModelSource;
 			FContentBrowserModel Model(ModelSource);
@@ -151,7 +151,7 @@ namespace Durin::ContentBrowser
 	{
 		InitializeDObjectSystem();
 		auto* Definition = NewObject<FBrowserTestDefinition>(nullptr, {});
-		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
+		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
 		ASSERT_TRUE(Registration);
 		std::string Error;
 		auto Extras = RegisterAssetTypeExtras({.AssetClassName = Definition->ClassPath, .ThumbnailBadgeIcon = "badge"}, Error);
@@ -173,7 +173,7 @@ namespace Durin::ContentBrowser
 	{
 		InitializeDObjectSystem();
 		auto* Definition = NewObject<FBrowserTestDefinition>(nullptr, {});
-		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
+		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
 		ASSERT_TRUE(Registration);
 		using namespace Private;
 		FNativeContentBrowserTestQuery ModelSource;
@@ -585,7 +585,7 @@ namespace Durin::ContentBrowser
 		auto* Definition = NewObject<FBrowserTestDefinition>(nullptr, {});
 		Definition->ClassPath = "Plugin::DNovelAsset"; Definition->DisplayName = "Novel Asset";
 		Definition->Icon = "custom icon"; Definition->Categories = {{"Texture"}};
-		auto DefinitionRegistration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
+		auto DefinitionRegistration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
 		ASSERT_TRUE(DefinitionRegistration);
 		auto Type = RegisterAssetTypeExtras({.AssetClassName = Definition->ClassPath,
 			.Details = [](const FExtensionContext& Context) {
@@ -733,9 +733,9 @@ namespace Durin::ContentBrowser
 		auto* Definition = NewObject<FBrowserTestDefinition>(nullptr, {});
 		Definition->ClassPath = "FilterTest::DVolumeTexture"; Definition->DisplayName = "Localized Material label";
 		Definition->Icon = "texture"; Definition->Categories = {{"Texture"}};
-		auto Type = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
+		auto Type = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
 		ASSERT_TRUE(Type);
-		auto Duplicate = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition, &Error);
+		auto Duplicate = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition, &Error);
 		EXPECT_FALSE(Duplicate);
 		FNativeContentBrowserTestQuery ModelSource;
 		FContentBrowserModel Model(ModelSource);

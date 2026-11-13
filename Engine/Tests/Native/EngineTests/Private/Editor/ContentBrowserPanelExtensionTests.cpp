@@ -572,7 +572,7 @@ namespace Durin::ContentBrowser::Private
 		int TypeDetailCalls = 0;
 		auto* Definition = NewObject<FBrowserTestDefinition>(nullptr, {});
 		Definition->ClassPath = "PanelTest::DNovelAsset"; Definition->DisplayName = "Novel asset"; Definition->Icon = "*";
-		auto DefinitionRegistration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
+		auto DefinitionRegistration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
 		ASSERT_TRUE(DefinitionRegistration);
 		auto Type = RegisterAssetTypeExtras({
 			.AssetClassName = Definition->ClassPath,

@@ -50,7 +50,7 @@ namespace Durin
 	FBaseAssetToolkit::FBaseAssetToolkit()
 		: UI(std::make_shared<FToolkitUIState>()) {}
 	FBaseAssetToolkit::~FBaseAssetToolkit() = default;
-	auto FBaseAssetToolkit::OnSessionBound() -> void
+	auto FBaseAssetToolkit::PostInitAssetEditor() -> void
 	{
 		if (DefaultPanels) { RestorePanelLayout(); return; }
 		FToolkitUIExtension Defaults;
@@ -67,8 +67,7 @@ namespace Durin
 	auto FBaseAssetToolkit::RegisterUIExtension(FToolkitUIExtension Extension) -> FToolkitUIRegistration
 	{
 		FToolkitUIRegistration Result;
-		const auto* Owner = GetOwningAssetEditor();
-		if (UI->bRetired || IsRetired() || (Owner ? Owner->IsClosed() : !IsSessionActive())) return Result;
+		if (UI->bRetired || IsRetired()) return Result;
 		std::unordered_set<std::string> Panels, Commands;
 		for (const auto& Entry : UI->Entries)
 		{
@@ -93,8 +92,8 @@ namespace Durin
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (UI->bRetired || !IsSessionActive()) return false;
-		const auto* Owner = GetOwningAssetEditor();
-		if (!Owner || !Owner->GetAssetEditorSubsystem() || Owner->GetAssetEditorSubsystem()->GetActiveAssetToolkit().get() != this) return false;
+		const auto* Service = GetAssetEditorSubsystem();
+		if (!Service || Service->GetActiveAssetToolkit().get() != this) return false;
 		for (const auto& Entry : UI->Entries)
 			for (const auto& Command : Entry.Extension.Commands)
 				if (Command.Id == Id)
@@ -108,11 +107,10 @@ namespace Durin
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		const auto Lease = weak_from_this().lock();
-		auto* Owner = GetOwningAssetEditor();
-		if (!Owner || !Lease) return false;
-		const FStrongObjectPtr KeepAlive(Owner);
+		if (!GetEditorInstance() || !Lease) return false;
+		const FStrongObjectPtr KeepAlive(GetOwningAssetEditor());
 		bool Executed = false;
-		if (auto* Service = Owner->GetAssetEditorSubsystem())
+		if (auto* Service = GetAssetEditorSubsystem())
 			Service->DispatchEditorCallback([&] {
 				if (!CanInvokeCommand(Id) || UI->bRetired || !IsSessionActive()
 					|| Service->GetActiveAssetToolkit().get() != this) return;
@@ -141,15 +139,14 @@ namespace Durin
 			for (const auto& Panel : Entry.Extension.Panels) { UI->Visibility[Panel.Id] = Panel.bInitiallyOpen; UI->DirtyPanels.insert(Panel.Id); }
 		UI->Save();
 		if (ImGui::GetCurrentContext())
-			if (const auto* Owner = GetOwningAssetEditor())
+			if (GetEditorInstance())
 				ImGui::DockBuilderRemoveNode(TabLayout::MakeDockSpaceId(FAssetEditorToolkitId(GetPresentationRootKey(GetToolkitId().GetValue())), 1));
 	}
 	auto FBaseAssetToolkit::RestorePanelLayout(std::string FilePath) -> bool
 	{
 		if (FilePath.empty())
 		{
-			const auto* Owner = GetOwningAssetEditor();
-			if (!Owner) return false;
+			if (!GetEditorInstance()) return false;
 			FilePath = FPaths::LaunchConfigsDir() + "AssetEditorPanels/" + FXxHash128::HashBuffer(GetLayoutProfileKey()).ToString() + ".yaml";
 		}
 		UI->FilePath = std::move(FilePath);
@@ -183,8 +180,7 @@ namespace Durin
 					ImGui::EndDisabled(); ImGui::SameLine();
 				}
 		ImGui::NewLine();
-		const auto* Owner = GetOwningAssetEditor();
-		if (!Owner || UI->bRetired) return;
+		if (!GetEditorInstance() || UI->bRetired) return;
 		const FAssetEditorToolkitId LayoutId(GetPresentationRootKey(GetToolkitId().GetValue()));
 		std::vector<std::string_view> PanelIds;
 		for (const auto& Entry : Snapshot) for (const auto& Panel : Entry.Extension.Panels) PanelIds.push_back(Panel.Id);
@@ -241,9 +237,9 @@ namespace Durin
 	auto FBaseAssetToolkit::SaveDockLayout(std::string_view Slot, const FAssetEditorToolkitId& DockType,
 		uint32 Version, std::span<const std::string_view> Panels) -> void
 	{
-		const auto* Owner = GetOwningAssetEditor();
-		if (!ImGui::GetCurrentContext() || !IsSessionActive() || !Owner
-			|| Owner->GetAssetEditorSubsystem()->GetActiveAssetToolkit().get() != this) return;
+		const auto* Service = GetAssetEditorSubsystem();
+		if (!ImGui::GetCurrentContext() || !IsSessionActive() || !Service
+			|| Service->GetActiveAssetToolkit().get() != this) return;
 		const auto* Root = ImGui::DockBuilderGetNode(TabLayout::MakeDockSpaceId(DockType, Version));
 		if (!Root) return;
 		// Cache only live changes. The named template is serialized by ImGui's existing handler.

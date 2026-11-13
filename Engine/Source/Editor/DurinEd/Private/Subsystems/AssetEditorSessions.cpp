@@ -1,18 +1,18 @@
 #include "Subsystems/AssetEditorSubsystem.h"
+#include "Subsystems/AssetEditorOpenSupport.h"
 #include "Threading/RunnableThread.h"
 #include "CoreGlobals.h"
 
 #include "Toolkits/AssetEditor.h"
+#include "Toolkits/AssetEditorIdentity.h"
 #include "AssetDefinition/AssetDefinition.h"
 #include "AssetDefinition/AssetDefinitionRegistry.h"
 #include "Toolkits/AssetEditorToolkit.h"
 #include "Documents/EditorDocumentManager.h"
 #include "Editor/EditorEngine.h"
-#include "Toolkits/ToolkitManager.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Class.h"
 #include "Toolkits/ToolkitHost.h"
-#include "Misc/Time.h"
 
 namespace Durin
 {
@@ -21,20 +21,7 @@ namespace Durin
 		auto GetSessionOpenSupport(const DAssetEditor& Session, std::span<DObject* const> Assets,
 			EAssetOpenMethod Method) -> FAssetOpenSupport
 		{
-			auto Support = Session.GetAssetOpenSupport({Method});
-			if (Support.OpenMethod != Method) return {Method, false};
-			for (auto* Asset : Assets)
-			{
-				if (!IsValid(Asset)) return {Method, false};
-				if (const auto* Definition = FAssetDefinitionRegistry::Get().FindDefinition(Asset->GetClass()->GetQualifiedName().ToString()))
-				{
-					const auto AssetSupport = Definition->GetAssetOpenSupport({Method});
-					if (!AssetSupport.IsSupported || AssetSupport.OpenMethod != Method
-						|| (Support.RequiredToolkitMode && AssetSupport.RequiredToolkitMode && Support.RequiredToolkitMode != AssetSupport.RequiredToolkitMode)) return {Method, false};
-					if (AssetSupport.RequiredToolkitMode) Support.RequiredToolkitMode = AssetSupport.RequiredToolkitMode;
-				}
-			}
-			return Support;
+			return GetAssetSelectionOpenSupport(Assets, Method, Session.GetAssetOpenSupport({Method}));
 		}
 	}
 	auto DAssetEditorSubsystem::OwnsAssetEditor(const DAssetEditor& Editor) const -> bool
@@ -87,22 +74,19 @@ namespace Durin
 	{
 		if (!CanCall() || Args.OpenArgs.AssetEditors != this) return nullptr;
 		const auto* EditorClass = Candidate.GetClass();
-		std::unordered_set<FObjectKey, FObjectKeyHash> RequestedAssets;
 		std::vector<FStrongObjectPtr> RequestedRoots;
 		for (auto* Asset : Args.Assets)
 		{
 			if (!IsValid(Asset)) return nullptr;
-			RequestedAssets.emplace(Asset);
 			RequestedRoots.emplace_back(Asset);
 		}
-		const std::string Role = Args.InstanceKey.empty() && !Args.bPrimary ? "Secondary" : Args.InstanceKey;
+		const std::string Role = std::string(Args.OpenArgs.GetNormalizedRole());
 		for (const auto& Existing : GetOwnedAssetEditors())
 		{
 			if (Existing->GetClass() != EditorClass || Existing->GetOpenMethod() != Args.OpenArgs.OpenMethod
 				|| Existing->GetToolkitMode() != Args.OpenArgs.ToolkitMode || Existing->GetInstanceKey() != Role) continue;
 			const auto Objects = Existing->GetObjectsToEdit();
-			if (Objects.size() == RequestedAssets.size() && std::ranges::all_of(Objects,
-				[&](DObject* Asset) { return RequestedAssets.contains(FObjectKey(Asset)); })) return nullptr;
+			if (HaveSameEditedAssets(Objects, Args.Assets)) return nullptr;
 		}
 		if (const auto Previous = GetActiveAssetToolkit())
 		{
@@ -113,16 +97,13 @@ namespace Durin
 		const TStrongObjectPtr<DAssetEditor> KeepAlive(Session);
 		if (!Session->Initialize(Args, DispatchingDefinition) || !CanCall())
 		{ Session->bClosed = true; Session->ReleaseToolkit(); MarkObjectHierarchyAsGarbage(Session); return nullptr; }
-		if (!ToolkitManager->RegisterToolkit(Session->GetToolkit()))
-		{ Session->bClosed = true; Session->ReleaseToolkit(); MarkObjectHierarchyAsGarbage(Session); return nullptr; }
 		Sessions.emplace(FObjectKey(Session), KeepAlive);
-		Session->SynchronizeAssets();
+		SynchronizeToolkitAssets(*Session->GetToolkit());
 		if (!CanCall() || Session->IsClosed() || !Sessions.contains(FObjectKey(Session))) return nullptr;
 		Session->FocusWindow();
 		return CanCall() && !Session->IsClosed() ? Session : nullptr;
 	}
 
-	auto DAssetEditorSubsystem::GetToolkitManager() const -> FToolkitManager& { return *ToolkitManager; }
 
 	auto DAssetEditorSubsystem::GetOwnedAssetEditors() const -> std::vector<TStrongObjectPtr<DAssetEditor>>
 	{
@@ -168,22 +149,19 @@ namespace Durin
 				|| !Documents || !Documents->PrepareForExit()) return;
 			if (!CanCall() || Editor.IsClosed()) return;
 			if (Host == PreviousHost) { Transferred = true; return; }
-			std::unordered_set<FObjectKey, FObjectKeyHash> MovingAssets;
-			for (auto* Asset : Editor.GetObjectsToEdit()) MovingAssets.emplace(Asset);
 			for (const auto& Other : GetOwnedAssetEditors())
 			{
 				if (Other.Get() == &Editor || Other->GetClass() != Editor.GetClass()
 					|| Other->GetOpenMethod() != Editor.GetOpenMethod() || Other->GetToolkitMode() != Host->GetToolkitMode()
 					|| Other->GetInstanceKey() != Editor.GetInstanceKey()) continue;
 				const auto Assets = Other->GetObjectsToEdit();
-				if (Assets.size() == MovingAssets.size() && std::ranges::all_of(Assets,
-					[&](DObject* Asset) { return MovingAssets.contains(FObjectKey(Asset)); })) return;
+				if (HaveSameEditedAssets(Assets, Editor.GetObjectsToEdit())) return;
 			}
 			if (!Host->AttachToolkit(Toolkit)) return;
 			if (!CanCall() || Editor.IsClosed())
 			{ Host->DetachToolkit(*Toolkit); return; }
 			if (PreviousHost) PreviousHost->DetachToolkit(*Toolkit);
-			Editor.Host = Host;
+			Toolkit->Host = Host;
 			Toolkit->OnHostChanged();
 			Transferred = true;
 		});
@@ -192,24 +170,14 @@ namespace Durin
 
 	auto DAssetEditorSubsystem::GetActiveAssetToolkit() const -> std::shared_ptr<FAssetEditorToolkit>
 	{
-		const auto* Session = ActiveSession.Get();
-		return Session && !Session->IsClosed() ? Session->GetToolkit() : nullptr;
-	}
-
-	auto DAssetEditorSubsystem::ActivateAssetEditor(DAssetEditor& Editor) -> bool
-	{
-		if (!CanCall() || !Sessions.contains(FObjectKey(&Editor))) return false;
-		if (const auto Previous = GetActiveAssetToolkit(); Previous && Previous != Editor.GetToolkit()
-			&& !Previous->RequestDeactivate()) return false;
-		if (ActiveSession.Get() != &Editor) Editor.LastActivationTime = FTime::Seconds();
-		ActiveSession = &Editor;
-		return true;
+		const auto Toolkit = ActiveToolkit.lock();
+		return Toolkit && !Toolkit->IsRetired() ? Toolkit : nullptr;
 	}
 
 	auto DAssetEditorSubsystem::DeactivateAssetEditors() -> bool
 	{
 		if (const auto Toolkit = GetActiveAssetToolkit(); Toolkit && !Toolkit->RequestDeactivate()) return false;
-		ActiveSession.Reset();
+		ActiveToolkit.reset();
 		return true;
 	}
 
@@ -217,52 +185,32 @@ namespace Durin
 	{
 		if (bStoppingSessions) return;
 		struct FStopScope { bool& Flag; explicit FStopScope(bool& Value) : Flag(Value) { Flag = true; } ~FStopScope() { Flag = false; } } StopScope(bStoppingSessions);
-		for (const auto& Session : GetOwnedAssetEditors())
+		for (const auto& Toolkit : GetAssetToolkits())
 		{
-			if (const auto Documents = Session->GetDocumentManager())
-				requiref(Documents->PrepareForExit(), "Session operations must settle before host teardown");
-			Session->bClosed = true;
-			NotifyEditorClosed(Session.Get());
-			Session->ReleaseToolkit();
-			PublishEvent({.Type = EAssetEditorEvent::Closed, .Session = FObjectKey(Session.Get()), .Method = Session->GetOpenMethod()});
+			requiref(Toolkit->GetDocumentManager()->PrepareForExit(), "Toolkit operations must settle before host teardown");
+			RetireAssetToolkit(*Toolkit);
 		}
-		ActiveSession.Reset();
+		ActiveToolkit.reset();
 		Sessions.clear();
-		if (ToolkitManager) ToolkitManager->Clear();
-		RestoreFocus.Reset();
-	}
-
-	auto DAssetEditorSubsystem::RetireAssetEditor(DAssetEditor& Editor) -> void
-	{
-		if (!Sessions.contains(FObjectKey(&Editor))) return;
-		const TStrongObjectPtr<DAssetEditor> KeepAlive(&Editor);
-		Editor.bClosed = true;
-		Editor.bCloseRequested = false;
-		if (auto Toolkit = Editor.GetToolkit()) ToolkitManager->UnregisterToolkit(*Toolkit);
-		NotifyEditorClosed(&Editor);
-		if (ActiveSession.Get() == &Editor) ActiveSession.Reset();
-		Sessions.erase(FObjectKey(&Editor));
-		Editor.ReleaseToolkit();
-		PublishEvent({.Type = EAssetEditorEvent::Closed, .Session = FObjectKey(&Editor), .Method = Editor.GetOpenMethod()});
+		RestoreFocus.reset();
 	}
 
 	auto DAssetEditorSubsystem::HandleTicker(float /*DeltaSeconds*/) -> void
 	{
 		if (!CanCall()) return;
 		DispatchEditorCallback([&] {
-			for (const auto& Session : GetOwnedAssetEditors())
+			for (const auto& Toolkit : GetAssetToolkits())
 			{
 				if (!CanCall()) return;
-				const auto Manager = Session->GetDocumentManager();
-				if (!Manager || Session->IsClosed()) continue;
-				// Query callbacks borrow the document set. Finish this operation before
-				// observing shutdown; callback owners must not reenter the host update.
-				Manager->RefreshDocumentState();
+				if (!OwnsToolkit(*Toolkit) || Toolkit->IsRetired()) continue;
+				const auto Documents = Toolkit->GetDocumentManager();
+				Documents->RefreshDocumentState();
 				if (!CanCall()) return;
-				if (!OwnsAssetEditor(*Session) || Session->IsClosed()) continue;
-				if (Session->bCloseRequested && Manager->GetCloseCancellationRevision() != Session->CloseCancellationRevision) Session->bCloseRequested = false;
-				if (Manager->GetDocuments().empty() || Session->bCloseRequested)
-					(void)Session->CloseWindow(Session->bCloseRequested ? Session->CloseReason : EAssetEditorCloseReason::AssetEditorHostClosed);
+				if (!OwnsToolkit(*Toolkit) || Toolkit->IsRetired()) continue;
+				if (Toolkit->bCloseRequested && Documents->GetCloseCancellationRevision() != Toolkit->CloseCancellationRevision)
+					Toolkit->bCloseRequested = false;
+				if (Documents->GetDocuments().empty() || Toolkit->bCloseRequested)
+					(void)Toolkit->CloseWindow(Toolkit->bCloseRequested ? Toolkit->CloseReason : EAssetEditorCloseReason::AssetEditorHostClosed);
 			}
 			if (CanCall()) CompleteRestoreFocus();
 		});

@@ -48,7 +48,7 @@ namespace
 			if (TextureHarness) TextureHarness->Shutdown();
 			CollectGarbage(Durin::EObjectFlags::Standalone);
 		}
-		auto Open(DObject& Object, EAssetOpenMethod Method = EAssetOpenMethod::Edit) -> FAssetOpenResult
+		auto Open(DObject& Object, EAssetOpenMethod Method = EAssetOpenMethod::Edit) -> bool
 		{
 			FSoftObjectPath Path;
 			if (!FSoftObjectPath::TryCreate(Object.GetObjectPath(), Path)) return {};
@@ -87,7 +87,7 @@ namespace
 		for (auto* Class : {DTexture2D::StaticClass(), DVolumeTexture::StaticClass(), DStaticMesh::StaticClass(),
 			DMaterial::StaticClass(), DMaterialInstance::StaticClass(), DMaterialFunction::StaticClass(), DMaterialParameterCollection::StaticClass()})
 		{
-			const auto* Definition = FAssetDefinitionRegistry::Get().FindDefinition(Class->GetQualifiedName().ToString());
+			const auto* Definition = FAssetDefinitionRegistry::Get().GetAssetDefinitionForClass(Class);
 			ASSERT_NE(nullptr, Definition) << Class->GetName();
 			EXPECT_FALSE(Definition->GetAssetDisplayName().empty());
 			EXPECT_FALSE(Definition->GetAssetCategories().empty());
@@ -101,7 +101,7 @@ namespace
 		{
 			auto* Object = Duplicate(*Source);
 			ASSERT_NE(nullptr, Object);
-			ASSERT_EQ(EAssetOpenStatus::Completed, Open(*Object).Items.front().Status);
+			ASSERT_TRUE(Open(*Object));
 			auto* Session = Service->FindAssetEditor(Object, EAssetOpenMethod::Edit);
 			ASSERT_NE(nullptr, Session);
 			EXPECT_TRUE(Session->GetToolkit()->CanSaveActiveDocument());
@@ -110,26 +110,65 @@ namespace
 			const auto Document = Session->GetDocumentManager()->GetDocuments().front();
 			ASSERT_TRUE(Session->GetToolkit()->DiscardDocument(Document)) << Session->GetToolkit()->GetLastOperationError();
 			Object = Session->GetObjectsToEdit().front();
-			EXPECT_EQ(EAssetOpenStatus::Rejected, Open(*Object, EAssetOpenMethod::View).Items.front().Status);
+			EXPECT_FALSE(Open(*Object, EAssetOpenMethod::View));
 			EXPECT_EQ(nullptr, Service->OpenAssetEditor(Session->GetClass(), {
-				.OpenArgs = {.AssetEditors = Service, .OpenMethod = EAssetOpenMethod::View}, .Assets = {Object}, .InstanceKey = "BypassAttempt"}));
-			EXPECT_EQ(EAssetOpenStatus::Completed, Open(*Object).Items.front().Status);
+				.OpenArgs = {.AssetEditors = Service, .OpenMethod = EAssetOpenMethod::View, .SessionRole = "BypassAttempt"}, .Assets = {Object}}));
+			EXPECT_TRUE(Open(*Object));
 		}
 		const auto Sessions = Service->GetOwnedAssetEditors();
 		ASSERT_EQ(2u, Sessions.size());
 		EXPECT_NE(Sessions.front()->GetToolkit(), Sessions.back()->GetToolkit());
 	}
 
+	TEST_F(FAssetEditorFamilyTests, MixedDirectMeshAndGenericInspectorGroupsRejectBothInputOrders)
+	{
+		FSoftObjectPath CubePath, MeshPath;
+		ASSERT_TRUE(FSoftObjectPath::TryCreate(Fixtures.DirectionalCube->GetObjectPath(), CubePath));
+		ASSERT_TRUE(FSoftObjectPath::TryCreate(Fixtures.StaticMesh->GetObjectPath(), MeshPath));
+		std::vector<FAssetOpenTarget> Targets{
+			{CubePath, Fixtures.DirectionalCube->GetClass()->GetQualifiedName().ToString()},
+			{MeshPath, Fixtures.StaticMesh->GetClass()->GetQualifiedName().ToString()}};
+		for (int Order = 0; Order != 2; ++Order)
+		{
+			const auto Result = Service->OpenAssets({.AssetEditors = Service, .Assets = Targets,
+				.OpenMethod = EAssetOpenMethod::View, .bCreateSingleSession = true});
+			EXPECT_FALSE(Result);
+			EXPECT_TRUE(Service->GetAssetToolkits().empty());
+			EXPECT_TRUE(Service->GetAllOpenEditors().empty());
+			std::ranges::reverse(Targets);
+		}
+	}
+
+	TEST_F(FAssetEditorFamilyTests, DirectMeshDefinitionFocusesNewAndReusedInspectorsExactlyOnce)
+	{
+		int Opened = 0, Focused = 0;
+		auto Subscription = Service->Subscribe([&](const auto& Event) {
+			if (Event.Type == EAssetEditorEvent::Opened) ++Opened;
+			if (Event.Type == EAssetEditorEvent::Focused) ++Focused;
+		});
+		ASSERT_TRUE(Open(*Fixtures.StaticMesh));
+		EXPECT_EQ(1, Opened); EXPECT_EQ(1, Focused);
+		const auto Toolkit = Service->GetActiveAssetToolkit();
+		ASSERT_TRUE(Open(*Fixtures.StaticMesh));
+		EXPECT_EQ(1, Opened); EXPECT_EQ(2, Focused);
+		EXPECT_EQ(Toolkit, Service->GetActiveAssetToolkit());
+		EXPECT_EQ(1u, Service->GetAssetToolkits().size());
+		EXPECT_TRUE(Service->GetOwnedAssetEditors().empty());
+	}
+
 	TEST_F(FAssetEditorFamilyTests, MeshIsReadOnlyAndVolumeAndCollectionSupportView)
 	{
-		ASSERT_EQ(EAssetOpenStatus::Completed, Open(*Fixtures.StaticMesh).Items.front().Status);
-		const auto Mesh = Service->GetOwnedAssetEditors().front();
-		EXPECT_FALSE(Mesh->GetToolkit()->CanSaveActiveDocument());
-		EXPECT_FALSE(Mesh->GetToolkit()->SaveActiveDocument());
-		EXPECT_FALSE(Mesh->GetToolkit()->CanUndo());
-		EXPECT_TRUE(Mesh->GetToolkit()->IsReadOnly());
-		EXPECT_TRUE(Mesh->GetToolkit()->GetPresentationRootKey("StaticMeshEditor").starts_with("StaticMeshEditor.Window."));
-		const auto MeshToolkit = std::dynamic_pointer_cast<FBaseAssetToolkit>(Mesh->GetToolkit());
+		ASSERT_TRUE(Open(*Fixtures.StaticMesh));
+		const auto Mesh = Service->GetAssetToolkits().front();
+		EXPECT_TRUE(Service->GetOwnedAssetEditors().empty());
+		EXPECT_EQ(nullptr, Mesh->GetOwningAssetEditor());
+		EXPECT_EQ(Mesh.get(), Service->FindEditorForAsset(Fixtures.StaticMesh, false));
+		EXPECT_FALSE(Mesh->CanSaveActiveDocument());
+		EXPECT_FALSE(Mesh->SaveActiveDocument());
+		EXPECT_FALSE(Mesh->CanUndo());
+		EXPECT_TRUE(Mesh->IsReadOnly());
+		EXPECT_TRUE(Mesh->GetPresentationRootKey("StaticMeshEditor").starts_with("StaticMeshEditor.Window."));
+		const auto MeshToolkit = std::dynamic_pointer_cast<FBaseAssetToolkit>(Mesh);
 		int Mutations = 0;
 		auto Tool = MeshToolkit->RegisterUIExtension({.Commands = {{.Id = "MutateMesh", .Label = "Mutate mesh", .Execute = [&] { ++Mutations; }}}});
 		ASSERT_TRUE(Tool);
@@ -140,11 +179,11 @@ namespace
 		ASSERT_NE(nullptr, Volume); ASSERT_NE(nullptr, Collection);
 		for (auto* Object : {static_cast<DObject*>(Volume), static_cast<DObject*>(Collection)})
 		{
-			ASSERT_EQ(EAssetOpenStatus::Completed, Open(*Object, EAssetOpenMethod::View).Items.front().Status);
+			ASSERT_TRUE(Open(*Object, EAssetOpenMethod::View));
 			auto* View = Service->FindAssetEditor(Object, EAssetOpenMethod::View);
 			ASSERT_NE(nullptr, View);
 			EXPECT_FALSE(View->GetToolkit()->SaveActiveDocument());
-			ASSERT_EQ(EAssetOpenStatus::Completed, Open(*Object).Items.front().Status);
+			ASSERT_TRUE(Open(*Object));
 			EXPECT_NE(View, Service->FindAssetEditor(Object, EAssetOpenMethod::Edit));
 		}
 	}
@@ -153,12 +192,12 @@ namespace
 	{
 		auto* Function = Create<DMaterialFunction>("Function");
 		ASSERT_NE(nullptr, Function);
-		ASSERT_EQ(EAssetOpenStatus::Completed, Open(*Function).Items.front().Status);
+		ASSERT_TRUE(Open(*Function));
 		auto* Session = Service->FindAssetEditor(Function, EAssetOpenMethod::Edit);
 		ASSERT_NE(nullptr, Session);
 		EXPECT_EQ("MaterialFunctionEditor", Session->GetEditorName().ToString());
 		EXPECT_TRUE(Session->GetToolkit()->CanSaveActiveDocument());
-		EXPECT_EQ(EAssetOpenStatus::Rejected, Open(*Function, EAssetOpenMethod::View).Items.front().Status);
+		EXPECT_FALSE(Open(*Function, EAssetOpenMethod::View));
 		EXPECT_TRUE(Session->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed));
 	}
 
@@ -175,7 +214,7 @@ namespace
 		auto* WorldState = CollectionWorld->GetSubsystem<DMaterialParameterCollectionSubsystem>();
 		ASSERT_NE(nullptr, WorldState);
 		ASSERT_TRUE(WorldState->SetValue(*Collection, Declaration.Id, FVector4(7)));
-		ASSERT_TRUE(Open(*Collection).IsAccepted());
+		ASSERT_TRUE(Open(*Collection));
 		auto* Session = Service->FindAssetEditor(Collection, EAssetOpenMethod::Edit);
 		ASSERT_NE(nullptr, Session);
 		const auto Document = Session->GetDocumentManager()->GetDocuments().front();
@@ -206,12 +245,87 @@ namespace
 		EXPECT_TRUE(WorldState->SetValue(*Replacement, Declaration.Id, FVector4(9)));
 	}
 
+	TEST_F(FAssetEditorFamilyTests, DirectMeshRelocationRestoreAndUnsupportedReloadPreserveTheInspector)
+	{
+		auto* Object = Duplicate(*Fixtures.StaticMesh);
+		ASSERT_NE(nullptr, Object);
+		(void)FAssetCompilingManager::Get().FinishCompilationForObject(*Object);
+		ASSERT_TRUE(Open(*Object));
+		const auto Edit = Service->GetActiveAssetToolkit();
+		ASSERT_TRUE(Edit);
+		EXPECT_EQ(nullptr, Edit->GetOwningAssetEditor());
+		EXPECT_TRUE(Service->OpenEditorForAsset(Object));
+		EXPECT_EQ(Edit, Service->GetActiveAssetToolkit());
+		FSoftObjectPath Source;
+		ASSERT_TRUE(FSoftObjectPath::TryCreate(Object->GetObjectPath(), Source));
+		ASSERT_TRUE(Service->OpenAssets({.AssetEditors = Service,
+			.Assets = {{Source, Object->GetClass()->GetQualifiedName().ToString()}}, .OpenMethod = EAssetOpenMethod::View,
+			.ToolkitMode = EToolkitMode::WorldCentric, .SessionRole = "Inspection", .bPrimary = false}));
+		const auto View = Service->GetActiveAssetToolkit();
+		ASSERT_NE(Edit, View);
+		EXPECT_TRUE(Service->GetOwnedAssetEditors().empty());
+		for (const auto& Toolkit : {Edit, View})
+		{
+			EXPECT_TRUE(Toolkit->IsReadOnly());
+			EXPECT_FALSE(Toolkit->SaveActiveDocument());
+			EXPECT_FALSE(Toolkit->Undo());
+		}
+		const auto Window = Edit->GetPresentationRootKey("StaticMeshEditor");
+		const auto Profile = Edit->GetLayoutProfileKey();
+		FPackageReloadRequest Request{.Packages = {Object->GetPackage()}};
+		Request.Participants.push_back(Edit->GetDocumentManager()->CreateDocumentReloadParticipant());
+		Request.Participants.push_back(View->GetDocumentManager()->CreateDocumentReloadParticipant());
+		const auto Reload = ReloadPackages(Request).Wait();
+		EXPECT_EQ(EPackageReloadStatus::Failed, Reload.Status);
+		EXPECT_EQ(EPackageReloadFailure::Unsupported, Reload.Failure);
+		EXPECT_EQ(Edit.get(), Service->FindEditorForAsset(Object, false));
+		FPackagePath Destination;
+		ASSERT_TRUE(FPackagePath::TryCreate(Source.GetPackagePath().ToString() + "Moved", Destination));
+		const FAssetRelocationMapping Mapping{Source.GetPackagePath(), Destination};
+		ASSERT_TRUE(RelocateAssets(std::span{&Mapping, 1}).Result);
+		for (const auto& Toolkit : {Edit, View})
+			EXPECT_EQ(Object->GetObjectPath(), Toolkit->GetDocumentManager()->GetDocuments().front().ResourceId);
+		EXPECT_EQ(Window, Edit->GetPresentationRootKey("StaticMeshEditor"));
+		EXPECT_EQ(Profile, Edit->GetLayoutProfileKey());
+		CollectGarbage(Durin::EObjectFlags::Standalone);
+		EXPECT_EQ(Edit.get(), Service->FindEditorForAsset(Object, false));
+		auto* Second = Duplicate(*Fixtures.StaticMesh);
+		ASSERT_NE(nullptr, Second);
+		FSoftObjectPath MovedPath, SecondPath;
+		ASSERT_TRUE(FSoftObjectPath::TryCreate(Object->GetObjectPath(), MovedPath));
+		ASSERT_TRUE(FSoftObjectPath::TryCreate(Second->GetObjectPath(), SecondPath));
+		ASSERT_TRUE(Service->OpenAssets({.AssetEditors = Service,
+			.Assets = {{MovedPath, Object->GetClass()->GetQualifiedName().ToString()}, {SecondPath, Second->GetClass()->GetQualifiedName().ToString()}},
+			.OpenMethod = EAssetOpenMethod::View, .ToolkitMode = EToolkitMode::WorldCentric,
+			.SessionRole = "GroupInspection", .bPrimary = false, .bCreateSingleSession = true}));
+		EXPECT_EQ(2u, Service->GetActiveAssetToolkit()->GetDocumentManager()->GetDocuments().size());
+		const auto Group = Service->GetActiveAssetToolkit();
+		ASSERT_TRUE(Service->OpenAssets({.AssetEditors = Service,
+			.Assets = {{SecondPath, Second->GetClass()->GetQualifiedName().ToString()}, {MovedPath, Object->GetClass()->GetQualifiedName().ToString()}},
+			.OpenMethod = EAssetOpenMethod::View, .ToolkitMode = EToolkitMode::WorldCentric,
+			.SessionRole = "GroupInspection", .bPrimary = false, .bCreateSingleSession = true}));
+		EXPECT_EQ(Group, Service->GetActiveAssetToolkit());
+		const auto Snapshot = Service->CaptureSessions();
+		ASSERT_EQ(3u, Snapshot.size());
+		ASSERT_TRUE(Service->CloseAllAssetEditors());
+		EXPECT_TRUE(Edit->IsRetired()); EXPECT_TRUE(View->IsRetired());
+		ASSERT_TRUE(Service->RestoreSessions(Snapshot));
+		EXPECT_TRUE(Service->GetOwnedAssetEditors().empty());
+		ASSERT_EQ(3u, Service->GetAssetToolkits().size());
+		for (const auto& Toolkit : Service->GetAssetToolkits())
+			if (Toolkit->GetOpenMethod() == EAssetOpenMethod::Edit)
+			{
+				EXPECT_EQ(Profile, Toolkit->GetLayoutProfileKey());
+				EXPECT_NE(Window, Toolkit->GetPresentationRootKey("StaticMeshEditor"));
+			}
+	}
+
 	TEST_F(FAssetEditorFamilyTests, MaterialRelocationRekeysWorkingSessionAndRetainsSave)
 	{
 		auto* Object = Duplicate(*Fixtures.Material);
 		ASSERT_NE(nullptr, Object);
 		(void)FAssetCompilingManager::Get().FinishCompilationForObject(*Object);
-		ASSERT_TRUE(Open(*Object).IsAccepted());
+		ASSERT_TRUE(Open(*Object));
 		auto* Session = Service->FindAssetEditor(Object, EAssetOpenMethod::Edit);
 		ASSERT_NE(nullptr, Session);
 		const auto Window = Session->GetToolkit()->GetPresentationRootKey("MaterialEditor");
@@ -229,7 +343,7 @@ namespace
 		EXPECT_TRUE(Session->GetToolkit()->SaveActiveDocument());
 		const auto Snapshot = Service->CaptureSessions();
 		ASSERT_TRUE(Service->CloseAllAssetEditors());
-		ASSERT_TRUE(Service->RestoreSessions(Snapshot).IsAccepted());
+		ASSERT_TRUE(Service->RestoreSessions(Snapshot));
 		auto* Restored = Service->FindAssetEditor(Object, EAssetOpenMethod::Edit);
 		ASSERT_NE(nullptr, Restored);
 		EXPECT_EQ(Profile, Restored->GetToolkit()->GetLayoutProfileKey());
@@ -251,7 +365,7 @@ namespace
 		ASSERT_TRUE(SetSource(std::byte{17}));
 		(void)FAssetCompilingManager::Get().FinishCompilationForObject(*Volume);
 		ASSERT_TRUE(SavePackage(Volume->GetPackage()));
-		ASSERT_TRUE(Open(*Volume).IsAccepted());
+		ASSERT_TRUE(Open(*Volume));
 		auto* Session = Service->FindAssetEditor(Volume, EAssetOpenMethod::Edit);
 		ASSERT_NE(nullptr, Session);
 		ASSERT_TRUE(SetSource(std::byte{39}));

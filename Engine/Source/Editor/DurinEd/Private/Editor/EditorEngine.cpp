@@ -6,6 +6,8 @@
 #include "Notifications/Notification.h"
 #include "Notifications/EditorNotificationSubsystem.h"
 #include "Subsystems/AssetEditorSubsystem.h"
+#include "Toolkits/AssetEditorToolkit.h"
+#include "Documents/EditorDocumentManager.h"
 #include "Transactions/Transaction.h"
 #include "Transactions/Transactor.h"
 
@@ -186,18 +188,14 @@ namespace Durin
 		const auto State = GetStartupState();
 		if (State != EHostStartupState::Ready) return State;
 		if (!StartupError.empty()) return EHostStartupState::Failed;
-		if (InitialDocumentRequest)
+		if (InitialLevelPath.IsValid())
 		{
-			const auto Result = GetEditorSubsystem<DAssetEditorSubsystem>()->ResolveOpenResult(*InitialDocumentRequest);
-			if (Result.Status == EAssetOpenStatus::Pending) return EHostStartupState::Pending;
-			if (Result.Status != EAssetOpenStatus::Completed)
+			for (const auto& Toolkit : GetEditorSubsystem<DAssetEditorSubsystem>()->GetAssetToolkits())
+				if (Toolkit->GetDocumentManager()->IsDocumentOpenPending(InitialLevelPath.ToString())) return EHostStartupState::Pending;
+			if (!GetWorld() || !GetWorld()->GetCurrentLevel() || GetWorld()->GetCurrentLevel()->GetObjectPath() != InitialLevelPath.ToString())
 			{
-				OutError = Result.Message.empty() ? "Could not open the initial document." : Result.Message;
-				return EHostStartupState::Failed;
-			}
-			if (Result.Target.AssetPath.IsValid() && !GetEditorSubsystem<DAssetEditorSubsystem>()->IsAssetOpen(Result.Target.AssetPath))
-			{
-				OutError = "The initial document was closed before its first presentation.";
+				const auto Progress = GetMapChangeProgress();
+				OutError = Progress && !Progress->Diagnostic.empty() ? Progress->Diagnostic : "The initial level did not become active or was closed before presentation.";
 				return EHostStartupState::Failed;
 			}
 		}
@@ -331,7 +329,7 @@ namespace Durin
 		if (Trans) Trans->Cancel();
 		if (EditorWorld) EditorWorld->CleanupWorld();
 		StartupWindow.reset();
-		InitialDocumentRequest.reset();
+		InitialLevelPath = {};
 		if (MainFrameModule) MainFrameModule->DestroyMainFrame();
 		EditorSubsystems.Deinitialize();
 	}
@@ -356,7 +354,7 @@ namespace Durin
 		ConsoleCommandHandles.clear();
 		MainFrameModule = nullptr;
 		StartupWindow.reset();
-		InitialDocumentRequest.reset();
+		InitialLevelPath = {};
 		EditorLevel = nullptr;
 		EditorWorld = nullptr;
 		DEngine::BeginDestroy();
