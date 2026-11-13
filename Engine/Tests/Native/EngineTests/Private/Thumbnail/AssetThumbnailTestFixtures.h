@@ -36,7 +36,7 @@
 #include "Thumbnail/ThumbnailPreviewScene.h"
 #include "RenderingThread.h"
 #include "Threading/TaskRuntime.h"
-#include "Thumbnail/StaticMeshThumbnailRenderer.h"
+#include "Thumbnail/StaticMeshThumbnailTypes.h"
 #include "Thumbnail/TextureCubeThumbnailRenderer.h"
 #include "Texture/Texture2D.h"
 #include "AssetForge/Builtins/Texture2DImport.h"

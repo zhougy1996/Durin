@@ -336,6 +336,8 @@ namespace Durin::StaticMeshEditor
 		};
 	} // namespace
 
+	DStaticMeshThumbnailRenderer::DStaticMeshThumbnailRenderer(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
 	auto DStaticMeshThumbnailRenderer::GetRegistration() const
 		-> FThumbnailRenderingInfo
 	{

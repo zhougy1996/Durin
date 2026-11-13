@@ -15,6 +15,7 @@
         "DurinEd"
     ],
     "ReflectHeaders": [
-        "Private/MaterialAssetDefinitions.h"
+        "Private/MaterialAssetDefinitions.h",
+        "Public/Thumbnail/MaterialThumbnailRenderer.h"
     ]
 }

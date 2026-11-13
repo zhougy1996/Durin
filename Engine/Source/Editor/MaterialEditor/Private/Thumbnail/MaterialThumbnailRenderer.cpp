@@ -30,12 +30,13 @@ namespace Durin::MaterialEditor
 			: public IAssetThumbnailGenerationInput
 		{
 		public:
-			explicit FMaterialThumbnailGenerationInput(FTopLevelAssetPath InAssetPath)
-				: AssetPath(std::move(InAssetPath))
+			explicit FMaterialThumbnailGenerationInput(FTopLevelAssetPath InAssetPath, std::string InAssetClassName)
+				: AssetPath(std::move(InAssetPath)), AssetClassName(std::move(InAssetClassName))
 			{
 			}
 
 			FTopLevelAssetPath AssetPath;
+			std::string AssetClassName;
 		};
 
 		auto MakeFingerprint(const FPackageData& Data,
@@ -443,8 +444,8 @@ namespace Durin::MaterialEditor
 	} // namespace
 
 	DMaterialThumbnailRenderer::DMaterialThumbnailRenderer(
-		std::string InAssetClassName)
-		: AssetClassName(std::move(InAssetClassName))
+		const FObjectInitializer& Initializer)
+		: Super(Initializer)
 	{
 	}
 
@@ -452,7 +453,6 @@ namespace Durin::MaterialEditor
 		-> FThumbnailRenderingInfo
 	{
 		return {
-			.AssetClassName = AssetClassName,
 			.RendererName = "MaterialRenderedThumbnail",
 			.GeneratorSchemaVersion = MaterialThumbnailGeneratorSchema};
 	}
@@ -463,7 +463,8 @@ namespace Durin::MaterialEditor
 	{
 		FAssetThumbnailGenerationRequest GenerationRequest;
 
-		if (Request.Asset.AssetClassName != AssetClassName)
+		if (Request.Asset.AssetClassName != DMaterial::StaticClass()->GetQualifiedName().ToString()
+			&& Request.Asset.AssetClassName != DMaterialInstance::StaticClass()->GetQualifiedName().ToString())
 		{
 			return std::unexpected("The material thumbnail renderer received the wrong asset class.");
 		}
@@ -509,7 +510,7 @@ namespace Durin::MaterialEditor
 			.ShaderContractVersion = MaterialThumbnailShaderContract,
 			.Dependencies = std::move(Dependencies)};
 		GenerationRequest.Input =
-			std::make_shared<FMaterialThumbnailGenerationInput>(Request.Asset.AssetPath);
+			std::make_shared<FMaterialThumbnailGenerationInput>(Request.Asset.AssetPath, Request.Asset.AssetClassName);
 		GenerationRequest.RendererGeneration = RendererGeneration;
 		GenerationRequest.RequestSerial = Request.RequestSerial;
 		return GenerationRequest;
@@ -526,7 +527,7 @@ namespace Durin::MaterialEditor
 			return std::unexpected("The material thumbnail generation input is invalid.");
 		}
 		return std::make_unique<FMaterialThumbnailGenerationSession>(
-			MaterialInput->AssetPath, AssetClassName);
+			MaterialInput->AssetPath, MaterialInput->AssetClassName);
 	}
 
 } // namespace Durin::MaterialEditor

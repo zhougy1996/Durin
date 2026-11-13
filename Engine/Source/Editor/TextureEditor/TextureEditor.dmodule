@@ -2,7 +2,9 @@
     "ModuleName": "TextureEditor",
     "LinkType": "Shared",
     "ReflectHeaders": [
-        "Private/TextureAssetDefinition.h"
+        "Private/TextureAssetDefinition.h",
+        "Public/Thumbnail/TextureThumbnailRenderer.h",
+        "Public/Thumbnail/TextureCubeThumbnailRenderer.h"
     ],
     "PCH": "SharedPCH_DurinEd",
     "PrivateDependencies": [

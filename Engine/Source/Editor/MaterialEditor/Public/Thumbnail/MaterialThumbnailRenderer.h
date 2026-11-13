@@ -5,15 +5,19 @@
 #include "MaterialEditorAPI.h"
 #include "Thumbnail/ThumbnailRenderer.h"
 
+#include "MaterialThumbnailRenderer.gen.h"
+
 namespace Durin { class DMaterialInterface; }
 
 namespace Durin::MaterialEditor
 {
 	// Captures deterministic material dependency keys for one exact material asset class.
+	DCLASS()
 	class DMaterialThumbnailRenderer final : public DThumbnailRenderer
 	{
+		GENERATED_BODY()
 	public:
-		MATERIALEDITOR_API explicit DMaterialThumbnailRenderer(std::string AssetClassName);
+		MATERIALEDITOR_API explicit DMaterialThumbnailRenderer(const FObjectInitializer& Initializer);
 
 		MATERIALEDITOR_API auto GetRegistration() const -> FThumbnailRenderingInfo override;
 		MATERIALEDITOR_API auto CaptureGenerationRequest(
@@ -25,7 +29,5 @@ namespace Durin::MaterialEditor
 			const IAssetThumbnailGenerationInput& Input)
 			-> std::expected<std::unique_ptr<IThumbnailRendererSession>, std::string> override;
 
-	private:
-		std::string AssetClassName;
 	};
 } // namespace Durin::MaterialEditor

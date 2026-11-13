@@ -1,3 +1,4 @@
+#include "ThumbnailManagerTestSupport.h"
 #include "Editor/EditorEngine.h"
 #include "Thumbnail/ThumbnailRenderer.h"
 #include "Thumbnail/ThumbnailManager.h"
@@ -213,10 +214,11 @@ namespace
 
 	class FRouteOnlyThumbnailRenderer final : public DThumbnailRenderer
 	{
+		DURIN_TEST_THUMBNAIL_RENDERER(FRouteOnlyThumbnailRenderer)
 	public:
-		explicit FRouteOnlyThumbnailRenderer(std::string InAssetClassName)
-			: AssetClassName(std::move(InAssetClassName))
+		auto Configure(std::string InAssetClassName) -> void
 		{
+			AssetClassName = std::move(InAssetClassName);
 		}
 
 		auto GetRegistration() const -> FThumbnailRenderingInfo override
@@ -440,8 +442,8 @@ TEST_F(FContentBrowserModelTests, RoutesStaticMeshAssetsToThumbnails)
 	const FPackageCatalogEntry AssetData =
 		FindPackageExact(AssetPath);
 	ASSERT_NE(AssetData, nullptr);
-	auto ThumbnailRegistration = GetDefaultThumbnailManager().RegisterScoped(
-			std::make_unique<FRouteOnlyThumbnailRenderer>(TestAssetClassName(AssetData->TopLevelAssets.front())));
+	auto ThumbnailRegistration = Durin::FThumbnailManagerTestAccess::RegisterScoped(GetDefaultThumbnailManager(),
+			Durin::MakeThumbnailRenderer<FRouteOnlyThumbnailRenderer>(TestAssetClassName(AssetData->TopLevelAssets.front())));
 	ASSERT_TRUE(ThumbnailRegistration) << ThumbnailRegistration.error();
 
 	FNativeContentBrowserTestQuery ModelSource;
@@ -3775,10 +3777,10 @@ TEST_F(FContentBrowserModelTests, ThumbnailReferencesReleaseCardsOutsideCurrentF
 	ASSERT_TRUE(SavePackage(Other->GetPackage()));
 	const auto OwnerData = FindPackageExact(OwnerPath);
 	const auto OtherData = FindPackageExact(OtherPath);
-	auto OwnerRenderer = GetDefaultThumbnailManager().RegisterScoped(
-		std::make_unique<FRouteOnlyThumbnailRenderer>(TestAssetClassName(OwnerData->TopLevelAssets.front())));
-	auto OtherRenderer = GetDefaultThumbnailManager().RegisterScoped(
-		std::make_unique<FRouteOnlyThumbnailRenderer>(TestAssetClassName(OtherData->TopLevelAssets.front())));
+	auto OwnerRenderer = Durin::FThumbnailManagerTestAccess::RegisterScoped(GetDefaultThumbnailManager(),
+		Durin::MakeThumbnailRenderer<FRouteOnlyThumbnailRenderer>(TestAssetClassName(OwnerData->TopLevelAssets.front())));
+	auto OtherRenderer = Durin::FThumbnailManagerTestAccess::RegisterScoped(GetDefaultThumbnailManager(),
+		Durin::MakeThumbnailRenderer<FRouteOnlyThumbnailRenderer>(TestAssetClassName(OtherData->TopLevelAssets.front())));
 	ASSERT_TRUE(OwnerRenderer);
 	ASSERT_TRUE(OtherRenderer);
 	FNativeContentBrowserTestQuery Query;

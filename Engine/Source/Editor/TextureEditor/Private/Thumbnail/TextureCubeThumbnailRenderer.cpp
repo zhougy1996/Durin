@@ -219,6 +219,8 @@ namespace Durin::TextureEditor
 		};
 	} // namespace
 
+	DTextureCubeThumbnailRenderer::DTextureCubeThumbnailRenderer(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
 	auto DTextureCubeThumbnailRenderer::GetRegistration() const
 		-> FThumbnailRenderingInfo
 	{

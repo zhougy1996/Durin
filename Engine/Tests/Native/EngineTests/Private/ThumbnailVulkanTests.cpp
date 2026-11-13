@@ -1,3 +1,4 @@
+#include "ThumbnailManagerTestSupport.h"
 #include "Engine/StreamableManager.h"
 #include "Thumbnail/ThumbnailManager.h"
 #include "ComponentPSOPrecacheTestSupport.h"
@@ -82,8 +83,9 @@ namespace
 
 	class FReadbackProbeRenderer final : public Durin::DThumbnailRenderer
 	{
+		DURIN_TEST_THUMBNAIL_RENDERER(FReadbackProbeRenderer)
 	public:
-		explicit FReadbackProbeRenderer(uint32& InLoads) : Loads(InLoads) {}
+		auto Configure(uint32& InLoads) -> void { Loads = &InLoads; }
 		auto GetRegistration() const -> Durin::FThumbnailRenderingInfo override
 		{
 			return {.AssetClassName = "DReadbackProbe", .RendererName = "ReadbackProbe", .GeneratorSchemaVersion = 1};
@@ -99,10 +101,10 @@ namespace
 			const Durin::IAssetThumbnailGenerationInput&)
 			-> std::expected<std::unique_ptr<Durin::IThumbnailRendererSession>, std::string> override
 		{
-			return std::make_unique<FReadbackProbeSession>(Loads);
+			return std::make_unique<FReadbackProbeSession>(*Loads);
 		}
 	private:
-		uint32& Loads;
+		uint32* Loads = nullptr;
 	};
 
 	// Render completion precedes the task-scheduled GameThread publication receipt.
@@ -343,7 +345,8 @@ TEST_F(FThumbnailVulkanTests, StaticMeshSessionWaitsForMaterialPublication)
 	ASSERT_FALSE(Material->GetAcceptedCompiledProgram());
 
 	const auto AssetPath = Testing::MakePackageLeafTopLevelAssetPathForTests(MeshPath);
-	StaticMeshEditor::DStaticMeshThumbnailRenderer Extension;
+	auto ExtensionOwner = Durin::MakeThumbnailRenderer<StaticMeshEditor::DStaticMeshThumbnailRenderer>();
+	auto& Extension = *ExtensionOwner;
 	StaticMeshEditor::FStaticMeshThumbnailRendererGenerationInput Input(AssetPath, Contract);
 	auto Session = Extension.CreateGenerationSession({}, Input);
 	ASSERT_TRUE(Session) << Session.error();
@@ -413,16 +416,15 @@ TEST_F(FThumbnailVulkanTests, StaticMeshSessionWaitsForMaterialPublication)
 TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRendering)
 {
 	uint32 ProbeLoads = 0;
-	auto ProbeRegistration = Durin::GetDefaultThumbnailManager().RegisterScoped(
-		std::make_unique<FReadbackProbeRenderer>(ProbeLoads));
+	auto ProbeRegistration = Durin::FThumbnailManagerTestAccess::RegisterScoped(Durin::GetDefaultThumbnailManager(),
+		Durin::MakeThumbnailRenderer<FReadbackProbeRenderer>(ProbeLoads));
 	ASSERT_TRUE(ProbeRegistration);
 	Durin::FPackagePath ProbePackage;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/ThumbnailVulkan/ReadbackProbe", ProbePackage));
 	const Durin::FAssetThumbnailPackageFingerprint Probe{
 		.AssetPath = Durin::Testing::MakePackageLeafTopLevelAssetPathForTests(ProbePackage),
 		.PackagePath = ProbePackage, .AssetClassName = "DReadbackProbe"};
-	auto Registration = Durin::GetDefaultThumbnailManager().RegisterScoped(
-		std::make_unique<Durin::StaticMeshEditor::DStaticMeshThumbnailRenderer>());
+	auto Registration = Durin::GetDefaultThumbnailManager().RegisterCustomRenderer(Durin::DStaticMesh::StaticClass(), Durin::StaticMeshEditor::DStaticMeshThumbnailRenderer::StaticClass());
 	ASSERT_TRUE(Registration) << Registration.error();
 	const auto StaticMeshFixturePath = Package("SM_Preview");
 	const auto StaticMeshMaterialPath = Package("M_Preview");
@@ -820,7 +822,8 @@ TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplace
 		.PackagePath = Packages.back(), .AssetClassName = AssetData.Asset->AssetClassName,
 		.PackageFormatVersion = Data->FormatVersion, .FileSize = static_cast<uint64>(Data->FileSize),
 		.LastWriteTimeTicks = Data->LastWriteTimeTicks};
-	DTextureThumbnailRenderer Renderer;
+	auto RendererOwner = Durin::MakeThumbnailRenderer<DTextureThumbnailRenderer>();
+	auto& Renderer = *RendererOwner;
 	FAssetThumbnailGenerationRequest Captured;
 	auto CapturedResult = Renderer.CaptureGenerationRequest(Request, 1);
 	ASSERT_TRUE(CapturedResult) << CapturedResult.error();
@@ -865,8 +868,7 @@ TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplace
 	EXPECT_EQ(Pixels[Center + 3], std::byte{255});
 	Pool.Reset();
 	// Exercise the complete cold/warm scheduler path, not only the renderer session.
-	auto Registration = GetDefaultThumbnailManager().RegisterScoped(
-		std::make_unique<DTextureThumbnailRenderer>());
+	auto Registration = GetDefaultThumbnailManager().RegisterCustomRenderer(DTexture2D::StaticClass(), DTextureThumbnailRenderer::StaticClass());
 	ASSERT_TRUE(Registration) << Registration.error();
 	Tests::FThumbnailTestUIBackend Backend;
 	Tests::FScopedActiveUIBackend BackendScope(Backend);

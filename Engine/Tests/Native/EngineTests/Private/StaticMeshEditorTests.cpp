@@ -1,3 +1,4 @@
+#include "ThumbnailManagerTestSupport.h"
 #include "Editor/AssetEditorTestHost.h"
 #include "Thumbnail/ThumbnailManager.h"
 #include "Toolkits/AssetEditorToolkit.h"
@@ -99,8 +100,7 @@ TEST(FStaticMeshEditorTests, ThumbnailConflictDoesNotAffectEditorDiscovery)
 	Durin::FEditorDocumentManager Manager;
 	Durin::DThumbnailManager ThumbnailManager;
 	std::string Error;
-	auto Existing = ThumbnailManager.RegisterScoped(
-		std::make_unique<Durin::StaticMeshEditor::DStaticMeshThumbnailRenderer>());
+	auto Existing = ThumbnailManager.RegisterCustomRenderer(Durin::DStaticMesh::StaticClass(), Durin::StaticMeshEditor::DStaticMeshThumbnailRenderer::StaticClass());
 	ASSERT_TRUE(Existing) << Existing.error();
 	const std::string ClassName =
 		Durin::DStaticMesh::StaticClass()->GetQualifiedName().ToString();
@@ -109,7 +109,7 @@ TEST(FStaticMeshEditorTests, ThumbnailConflictDoesNotAffectEditorDiscovery)
 	Durin::FStaticMeshEditorModule Module;
 	Durin::FModuleTestHarness ModuleHarness("StaticMeshEditor");
 	ModuleHarness.Start(Module);
-	EXPECT_FALSE(ThumbnailManager.RegisterScoped(std::make_unique<Durin::StaticMeshEditor::DStaticMeshThumbnailRenderer>()));
+	EXPECT_FALSE(ThumbnailManager.RegisterCustomRenderer(Durin::DStaticMesh::StaticClass(), Durin::StaticMeshEditor::DStaticMeshThumbnailRenderer::StaticClass()));
 	EXPECT_NE(nullptr, Durin::FAssetDefinitionRegistry::Get().FindDefinition(ClassName));
 	EXPECT_EQ(
 		Manager.FindToolkit(Durin::FAssetEditorToolkitId("StaticMeshEditor")),

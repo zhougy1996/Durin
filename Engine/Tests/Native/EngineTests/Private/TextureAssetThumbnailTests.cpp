@@ -1,3 +1,4 @@
+#include "ThumbnailManagerTestSupport.h"
 #include "Editor/AssetEditorTestHost.h"
 #include "Thumbnail/ThumbnailRenderer.h"
 #include "Thumbnail/ThumbnailManager.h"
@@ -224,7 +225,8 @@ TEST(FTextureAssetThumbnailTests, Texture2DRendererCapturesBuiltSessionWithoutSo
 		Durin::FindPackageExact(TexturePath);
 	ASSERT_NE(Data, nullptr);
 
-	Durin::TextureEditor::DTextureThumbnailRenderer Renderer;
+	auto RendererOwner = Durin::MakeThumbnailRenderer<Durin::TextureEditor::DTextureThumbnailRenderer>();
+	auto& Renderer = *RendererOwner;
 	Durin::FAssetThumbnailGenerationRequest Captured;
 	auto CapturedResult = Renderer.CaptureGenerationRequest(
 		MakeRequest(*Data), 7);
@@ -353,13 +355,12 @@ TEST(FTextureAssetThumbnailTests, RendererConflictDoesNotAffectIndependentModule
 	Durin::FEditorDocumentManager Manager;
 	Durin::DThumbnailManager ThumbnailManager;
 	std::string Error;
-	auto Existing = ThumbnailManager.RegisterScoped(
-		std::make_unique<Durin::TextureEditor::DTextureCubeThumbnailRenderer>());
+	auto Existing = ThumbnailManager.RegisterCustomRenderer(Durin::DTextureCube::StaticClass(), Durin::TextureEditor::DTextureCubeThumbnailRenderer::StaticClass());
 	ASSERT_TRUE(Existing) << Existing.error();
 	Durin::FTextureEditorModule Module;
 	Durin::FModuleTestHarness ModuleHarness("TextureEditor");
 	ModuleHarness.Start(Module);
-	EXPECT_FALSE(ThumbnailManager.RegisterScoped(std::make_unique<Durin::TextureEditor::DTextureCubeThumbnailRenderer>()));
+	EXPECT_FALSE(ThumbnailManager.RegisterCustomRenderer(Durin::DTextureCube::StaticClass(), Durin::TextureEditor::DTextureCubeThumbnailRenderer::StaticClass()));
 	EXPECT_TRUE(Durin::GetDefaultThumbnailManager().Find(Durin::DTexture2D::StaticClass()->GetQualifiedName().ToString()));
 	EXPECT_FALSE(ThumbnailManager.Find(
 		Durin::DTexture2D::StaticClass()->GetQualifiedName().ToString()));
@@ -426,7 +427,8 @@ TEST(FTextureCubeThumbnailRendererTests, RendererCapturesPackageAndCubeVisualCon
 		Durin::FindPackageExact(CubePath);
 	ASSERT_NE(Data, nullptr);
 
-	Durin::TextureEditor::DTextureCubeThumbnailRenderer Renderer;
+	auto RendererOwner = Durin::MakeThumbnailRenderer<Durin::TextureEditor::DTextureCubeThumbnailRenderer>();
+	auto& Renderer = *RendererOwner;
 	const Durin::FThumbnailRenderingInfo Registration =
 		Renderer.GetRegistration();
 	Durin::FAssetThumbnailGenerationRequest Captured;
@@ -477,7 +479,8 @@ TEST(FTextureCubeThumbnailRendererTests,
 		Durin::FindPackageExact(CubePath);
 	ASSERT_NE(Data, nullptr);
 
-	Durin::TextureEditor::DTextureCubeThumbnailRenderer Renderer;
+	auto RendererOwner = Durin::MakeThumbnailRenderer<Durin::TextureEditor::DTextureCubeThumbnailRenderer>();
+	auto& Renderer = *RendererOwner;
 	Durin::FAssetThumbnailGenerationRequest Request;
 	auto RequestResult = Renderer.CaptureGenerationRequest(
 		MakeRequest(*Data), 1);
@@ -520,7 +523,8 @@ TEST(FTextureCubeThumbnailRendererTests, RendererRejectsMissingRegistryData)
 	Durin::FPackagePath MissingPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/ThumbnailFixtures/Textures/TC_Missing", MissingPath));
-	Durin::TextureEditor::DTextureCubeThumbnailRenderer Renderer;
+	auto RendererOwner = Durin::MakeThumbnailRenderer<Durin::TextureEditor::DTextureCubeThumbnailRenderer>();
+	auto& Renderer = *RendererOwner;
 	Durin::FAssetThumbnailGenerationRequest Captured;
 	std::string Error;
 	auto CapturedResult = Renderer.CaptureGenerationRequest({

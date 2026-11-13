@@ -112,9 +112,7 @@ namespace Durin
 	{
 		check(!MaterialThumbnailRegistration && !MaterialInstanceThumbnailRegistration);
 
-		auto MaterialHandle = ThumbnailManager.RegisterScoped(
-			std::make_unique<DMaterialThumbnailRenderer>(
-				DMaterial::StaticClass()->GetQualifiedName().ToString()));
+		auto MaterialHandle = ThumbnailManager.RegisterCustomRenderer(DMaterial::StaticClass(), DMaterialThumbnailRenderer::StaticClass());
 		if (!MaterialHandle)
 		{
 			return false;
@@ -122,9 +120,7 @@ namespace Durin
 		MaterialThumbnailRegistration =
 			std::make_unique<FThumbnailRendererRegistrationHandle>(
 				std::move(*MaterialHandle));
-		auto InstanceHandle = ThumbnailManager.RegisterScoped(
-			std::make_unique<DMaterialThumbnailRenderer>(
-				DMaterialInstance::StaticClass()->GetQualifiedName().ToString()));
+		auto InstanceHandle = ThumbnailManager.RegisterCustomRenderer(DMaterialInstance::StaticClass(), DMaterialThumbnailRenderer::StaticClass());
 		if (!InstanceHandle)
 		{
 			MaterialThumbnailRegistration.reset();

@@ -7,7 +7,10 @@
 namespace Durin
 {
 	class DThumbnailRenderer;
+	class DClass;
+	struct FThumbnailManagerTestAccess;
 	struct FAssetThumbnailGenerationRequest;
+	struct FThumbnailRenderingInfo;
 	class FAssetThumbnailPool;
 
 	namespace ThumbnailPrivate
@@ -45,6 +48,7 @@ namespace Durin
 
 	private:
 		friend class DThumbnailManager;
+		friend struct FThumbnailManagerTestAccess;
 		FThumbnailRendererRegistrationHandle(
 			std::weak_ptr<ThumbnailPrivate::DThumbnailManagerState> InState,
 			uint64 InRegistrationId)
@@ -69,13 +73,11 @@ namespace Durin
 
 		// Unregister on GameThread after stopping thumbnail consumers and draining work,
 		// before unloading renderer code. Removal invalidates outstanding sessions.
-		DURINED_API auto Register(
-			std::shared_ptr<DThumbnailRenderer> Renderer) -> std::expected<void, std::string>;
-		DURINED_API auto RegisterScoped(
-			std::unique_ptr<DThumbnailRenderer> Renderer)
+		// The manager creates a transient renderer of the registered reflected class.
+		DURINED_API auto RegisterCustomRenderer(DClass* AssetClass, DClass* RendererClass)
 			-> std::expected<FThumbnailRendererRegistrationHandle, std::string>;
-		// Reports whether a registration was removed; absence needs no diagnostic.
-		DURINED_API auto Unregister(std::string_view AssetClassName) -> bool;
+		DURINED_API auto UnregisterCustomRenderer(DClass* AssetClass) -> bool;
+		DURINED_API auto GetRenderingInfo(DClass* AssetClass) const -> std::optional<FThumbnailRenderingInfo>;
 		DURINED_API auto Find(std::string_view AssetClassName) const -> FThumbnailRendererHandle;
 		DURINED_API auto Shutdown() -> void;
 		DURINED_API auto IsShuttingDown() const -> bool;
@@ -89,6 +91,10 @@ namespace Durin
 
 	private:
 		friend class FAssetThumbnailRequestQueue;
+		friend struct FThumbnailManagerTestAccess;
+		DURINED_API auto RegisterRendererInstance(DThumbnailRenderer* Renderer, std::string AssetClassName, DClass* AssetClass = nullptr)
+			-> std::expected<FThumbnailRendererRegistrationHandle, std::string>;
+		DURINED_API auto UnregisterRendererName(std::string_view AssetClassName) -> bool;
 		auto Capture(
 			const FAssetThumbnailRequest& Request,
 			uint64 RendererGeneration) -> std::expected<FAssetThumbnailGenerationRequest, std::string>;

@@ -1,3 +1,4 @@
+#include "ThumbnailManagerTestSupport.h"
 #include "NativeAssetRuntimeTestSupport.h"
 #include "Thumbnail/ThumbnailRenderer.h"
 #include "Asset/Asset.h"
@@ -45,6 +46,7 @@ namespace
 	// Admission-only renderer: the picker must leave generation queued after Draw.
 	class FPickerThumbnailRenderer final : public Durin::DThumbnailRenderer
 	{
+		DURIN_TEST_THUMBNAIL_RENDERER(FPickerThumbnailRenderer)
 	public:
 		auto GetRegistration() const -> Durin::FThumbnailRenderingInfo override
 		{
@@ -842,8 +844,8 @@ TEST(FAssetPickerTests, OpeningMaterialCandidatesCompletesPopupLayout)
 	Publication.ReferenceFingerprints.emplace(PackagePath, FAssetPackageFingerprint{.ReaderVersion = 11});
 	ASSERT_TRUE(PublishAssetRegistryPublication(std::move(Publication)));
 	auto& ThumbnailManager = GetDefaultThumbnailManager();
-	auto Registration = ThumbnailManager.RegisterScoped(
-		std::make_unique<FPickerThumbnailRenderer>());
+	auto Registration = Durin::FThumbnailManagerTestAccess::RegisterScoped(ThumbnailManager,
+		Durin::MakeThumbnailRenderer<FPickerThumbnailRenderer>());
 	ASSERT_TRUE(Registration) << Registration.error();
 	auto& ThumbnailPool = ThumbnailManager.GetSharedPool();
 	ImGuiContext* Context = ImGui::CreateContext();

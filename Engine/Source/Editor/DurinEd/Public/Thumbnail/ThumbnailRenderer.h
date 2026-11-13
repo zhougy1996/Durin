@@ -11,6 +11,7 @@
 namespace Durin
 {
 	class DThumbnailManager;
+	class DThumbnailRenderer;
 	class IThumbnailRendererSession;
 	namespace ThumbnailPrivate { struct FAssetThumbnailGenerationLeaseState; }
 
@@ -82,14 +83,6 @@ namespace Durin
 		DURINED_API auto ReleaseRenderedSession() const -> void;
 	};
 
-	// Describes one exact-class renderer registration and its generator schema.
-	struct FThumbnailRenderingInfo
-	{
-		std::string AssetClassName;
-		std::string RendererName;
-		uint32 GeneratorSchemaVersion = 0;
-	};
-
 	// Captures renderer-owned immutable generation data on the game thread.
 	// Registration and removal are game-thread operations; removal first cancels
 	// and drains captured requests.
@@ -99,7 +92,6 @@ namespace Durin
 		GENERATED_BODY()
 
 	public:
-		DURINED_API DThumbnailRenderer();
 		virtual ~DThumbnailRenderer() = default;
 
 		virtual auto GetRegistration() const -> FThumbnailRenderingInfo = 0;

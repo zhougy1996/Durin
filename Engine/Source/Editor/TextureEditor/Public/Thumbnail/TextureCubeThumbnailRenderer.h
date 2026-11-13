@@ -5,6 +5,8 @@
 #include "Thumbnail/ThumbnailRenderer.h"
 #include "TextureEditorAPI.h"
 
+#include "TextureCubeThumbnailRenderer.gen.h"
+
 namespace Durin::TextureEditor
 {
 	// Freezes TextureEditor-owned presentation values for the wide environment view.
@@ -27,9 +29,12 @@ namespace Durin::TextureEditor
 	};
 
 	// Captures the exact TextureCube package identity and preview visual contract.
+	DCLASS()
 	class DTextureCubeThumbnailRenderer final : public DThumbnailRenderer
 	{
+		GENERATED_BODY()
 	public:
+		TEXTUREEDITOR_API explicit DTextureCubeThumbnailRenderer(const FObjectInitializer& Initializer);
 		TEXTUREEDITOR_API auto GetRegistration() const
 			-> FThumbnailRenderingInfo override;
 		TEXTUREEDITOR_API auto CaptureGenerationRequest(

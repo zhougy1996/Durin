@@ -21,6 +21,7 @@
         "Projects"
     ],
     "ReflectHeaders": [
-        "Private/StaticMeshAssetDefinitions.h"
+        "Private/StaticMeshAssetDefinitions.h",
+        "Public/Thumbnail/StaticMeshThumbnailRenderer.h"
     ]
 }

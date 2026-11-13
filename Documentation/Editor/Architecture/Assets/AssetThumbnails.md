@@ -18,8 +18,8 @@ content.
 - `DThumbnailManager` maps one exact asset class to one renderer generation.
   It rejects duplicate registration, owns the shared default pool, and performs
   explicit shutdown.
-- Feature editor modules own their concrete renderer objects and move-only
-  `FThumbnailRendererRegistrationHandle` values. Material/MaterialInstance,
+- Feature editor modules register reflected concrete renderer classes and own
+  move-only `FThumbnailRendererRegistrationHandle` values. Material/MaterialInstance,
   Texture2D/TextureCube, and StaticMesh logic
   remains in the corresponding feature module.
 - `FAssetThumbnail` is the UI-facing reference for one canonical asset identity
@@ -37,6 +37,16 @@ content.
 `ThumbnailRenderer.h` declares the renderer/session extension contract and its
 request, cancellation and lease types. Concrete renderers derive directly from
 `DThumbnailRenderer`; the fixed output contract needs no intermediate base class.
+All concrete renderers are `DCLASS` objects with initializer constructors.
+`RegisterCustomRenderer(AssetClass, RendererClass)` validates a concrete renderer
+class and constructs a transient instance through `NewObject`. The native manager
+service and its active leases retain instances with GC strong references; native
+smart pointers never delete a renderer. One renderer class may serve multiple
+asset classes through independent registrations. The registered asset class,
+renderer class and borrowed instance are available through `GetRenderingInfo`.
+Asset class names remain the unloaded-catalog lookup boundary. Production has no
+instance-registration overload; synthetic catalog tests inject managed objects
+through a private test access seam.
 `AssetThumbnailPool.h` exposes resource management without including the concrete
 preview scene. The private queue captures one pending request directly at
 admission and returns `FAssetThumbnailScheduledRequest`; it retains neither a
@@ -186,6 +196,10 @@ immutable feature-owned input. Owners must finish any executing callbacks before
 reset; registration removal is not a concurrent-callback barrier. Queued,
 waiting, rendering, readback, encoding, and already-enqueued upload completions
 all reject the retired generation.
+Withdrawal releases GC references after invalidating leases and destroying
+sessions; the renderer object itself is destroyed by a later GC pass. Reflection
+providers retain their mapped code under the module lifecycle contract while
+their classes and managed objects can still execute destructors.
 
 The shared preview pool owns its world, camera/view, environment value, light,
 output target, capture, and readback. It can retain generic named Actor fixtures

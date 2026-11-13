@@ -9,6 +9,21 @@
 
 namespace Durin
 {
+	class DClass;
+	class DThumbnailRenderer;
+
+	// Describes one exact-class renderer registration and its generator schema.
+	struct FThumbnailRenderingInfo
+	{
+		std::string AssetClassName;
+		std::string RendererName;
+		uint32 GeneratorSchemaVersion = 0;
+		// Borrowed registration objects, populated by the manager's lookup.
+		DClass* ClassNeedingThumbnail = nullptr;
+		DClass* RendererClass = nullptr;
+		DThumbnailRenderer* Renderer = nullptr;
+	};
+
 	class FRHITexture;
 
 	// Identifies the public lifecycle state of one renderer-neutral thumbnail request.

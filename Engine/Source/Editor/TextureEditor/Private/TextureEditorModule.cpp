@@ -66,8 +66,7 @@ namespace Durin
 		check(!Texture2DThumbnailRegistration && !TextureCubeThumbnailRegistration);
 		Integration->FileImport = std::make_shared<TextureEditor::FTextureFileImport>();
 
-		auto Texture2DHandle = ThumbnailManager.RegisterScoped(
-			std::make_unique<DTextureThumbnailRenderer>());
+		auto Texture2DHandle = ThumbnailManager.RegisterCustomRenderer(DTexture2D::StaticClass(), DTextureThumbnailRenderer::StaticClass());
 		if (!Texture2DHandle)
 		{
 			UnregisterContributions();
@@ -76,8 +75,7 @@ namespace Durin
 		Texture2DThumbnailRegistration =
 			std::make_unique<FThumbnailRendererRegistrationHandle>(
 				std::move(*Texture2DHandle));
-		auto TextureCubeHandle = ThumbnailManager.RegisterScoped(
-			std::make_unique<DTextureCubeThumbnailRenderer>());
+		auto TextureCubeHandle = ThumbnailManager.RegisterCustomRenderer(DTextureCube::StaticClass(), DTextureCubeThumbnailRenderer::StaticClass());
 		if (!TextureCubeHandle)
 		{
 			UnregisterContributions();
