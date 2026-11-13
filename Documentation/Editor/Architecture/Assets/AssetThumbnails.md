@@ -13,7 +13,7 @@ content.
 ## Public Model And Ownership
 
 - `DurinEd` owns `DThumbnailManager`, `DThumbnailRenderer`,
-  `DDefaultSizedThumbnailRenderer`, `FThumbnailRenderingInfo`,
+  `FThumbnailRenderingInfo`,
   `FAssetThumbnail`, and `FAssetThumbnailPool`.
 - `DThumbnailManager` maps one exact asset class to one renderer generation.
   It rejects duplicate registration, owns the shared default pool, and performs
@@ -28,8 +28,19 @@ content.
 - `FAssetThumbnailPool` owns coalescing, priority, state, generation, preview
   leasing, readback, encoding, persistence, upload, pinning, LRU retention,
   cancellation, diagnostics, and statistics.
-- Persistent object-store, CPU RGBA8 transfer, and queue/index types remain
-  private to `DurinEd`.
+- The public persistent object store is shared with ordinary-file thumbnail
+  caches. Its `FThumbnailObjectStoreSettings` and budget helpers depend on no
+  asset pool or preview scene. Queue/index implementations remain private to
+  `DurinEd`.
+
+`ThumbnailManager.h` declares registration, handles and shared-pool ownership.
+`ThumbnailRenderer.h` declares the renderer/session extension contract and its
+request, cancellation and lease types. Concrete renderers derive directly from
+`DThumbnailRenderer`; the fixed output contract needs no intermediate base class.
+`AssetThumbnailPool.h` exposes resource management without including the concrete
+preview scene. The private queue captures one pending request directly at
+admission and returns `FAssetThumbnailScheduledRequest`; it retains neither a
+second captured-work queue nor a single-field job wrapper.
 
 The process manager lazily creates one shared pool. Tests and isolated editor
 tools may inject a local manager into a local pool. Manager and renderer public

@@ -28,6 +28,6 @@
         "Public/Factories/Factory.h",
         "Public/Transactions/Transactor.h",
         "Public/Editor/EditorEngine.h",
-        "Public/Thumbnail/ThumbnailManager.h"
+        "Public/Thumbnail/ThumbnailRenderer.h"
     ]
 }

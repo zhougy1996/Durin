@@ -1,4 +1,5 @@
 #include "Editor/AssetEditorTestHost.h"
+#include "Thumbnail/ThumbnailManager.h"
 #include "Toolkits/AssetEditorToolkit.h"
 #include "AssetDefinition/AssetDefinition.h"
 #include "AssetDefinition/AssetDefinitionRegistry.h"

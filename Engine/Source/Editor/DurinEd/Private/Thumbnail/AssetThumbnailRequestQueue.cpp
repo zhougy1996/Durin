@@ -1,6 +1,8 @@
 #include "Thumbnail/AssetThumbnailRequestQueue.h"
+#include "Thumbnail/ThumbnailRenderer.h"
 
 #include "Thumbnail/AssetThumbnailKey.h"
+#include "Thumbnail/ThumbnailManager.h"
 
 namespace Durin
 {
@@ -21,7 +23,6 @@ namespace Durin
 		FAssetThumbnailBudgets Budgets;
 		std::unordered_map<std::string, FEntry> Entries;
 		std::vector<FAssetThumbnailRequest> PendingRequests;
-		std::vector<FAssetThumbnailScheduledRequest> CapturedQueue;
 		bool bShuttingDown = false;
 
 		auto RemovePendingRequest(const FTopLevelAssetPath& AssetPath) -> void
@@ -32,19 +33,10 @@ namespace Durin
 				});
 		}
 
-		auto RemoveCapturedJob(const FTopLevelAssetPath& AssetPath) -> void
-		{
-			std::erase_if(CapturedQueue,
-				[&AssetPath](const FAssetThumbnailScheduledRequest& Job) {
-					return Job.GenerationRequest.KeyInput.Asset.AssetPath == AssetPath;
-				});
-		}
-
 		auto CancelEntry(FEntry& Entry) -> void
 		{
 			if (Entry.bCaptured) Entry.GenerationRequest.Cancellation.Cancel();
 			RemovePendingRequest(Entry.Request.Asset.AssetPath);
-			RemoveCapturedJob(Entry.Request.Asset.AssetPath);
 		}
 
 		auto PromoteQueuedRequest(
@@ -55,14 +47,11 @@ namespace Durin
 			for (FAssetThumbnailRequest& Pending : PendingRequests)
 				if (Pending.Asset.AssetPath == AssetPath)
 					Pending.Priority = EAssetThumbnailPriority::Visible;
-			for (FAssetThumbnailScheduledRequest& Captured : CapturedQueue)
-				if (Captured.GenerationRequest.KeyInput.Asset.AssetPath == AssetPath)
-					Captured.Priority = EAssetThumbnailPriority::Visible;
 		}
 
-		auto CaptureNextPending() -> bool
+		auto CaptureNextPending() -> std::optional<FAssetThumbnailScheduledRequest>
 		{
-			if (PendingRequests.empty()) return false;
+			if (PendingRequests.empty()) return std::nullopt;
 			auto Selected = std::ranges::find_if(
 				PendingRequests,
 				[](const FAssetThumbnailRequest& Request) {
@@ -74,7 +63,7 @@ namespace Durin
 
 			const std::string AssetPath = Request.Asset.AssetPath.ToString();
 			const auto Existing = Entries.find(AssetPath);
-			if (Existing == Entries.end()) return false;
+			if (Existing == Entries.end()) return std::nullopt;
 			FEntry& Entry = Existing->second;
 			const FThumbnailRendererHandle CurrentRenderer =
 				Registry.Find(Request.Asset.AssetClassName);
@@ -84,7 +73,7 @@ namespace Durin
 				|| Entry.Request.Asset != Request.Asset
 				|| !CurrentRenderer
 				|| CurrentRenderer.Generation != Entry.RendererGeneration)
-				return false;
+				return std::nullopt;
 
 			auto Captured = Registry.Capture(Request, Entry.RendererGeneration);
 			if (!Captured)
@@ -93,7 +82,7 @@ namespace Durin
 				Entry.Diagnostic = Captured.error().empty()
 					? "The thumbnail renderer rejected the asset."
 					: std::move(Captured.error());
-				return false;
+				return std::nullopt;
 			}
 
 			auto GenerationRequest = std::move(*Captured);
@@ -101,11 +90,10 @@ namespace Durin
 			Entry.GenerationRequest = GenerationRequest;
 			Entry.bCaptured = true;
 			Entry.Diagnostic.clear();
-			CapturedQueue.push_back({
+			return FAssetThumbnailScheduledRequest{
 				.CacheKey = Entry.CacheKey,
 				.Priority = Request.Priority,
-				.GenerationRequest = std::move(GenerationRequest)});
-			return true;
+				.GenerationRequest = std::move(GenerationRequest)};
 		}
 	};
 
@@ -127,7 +115,6 @@ namespace Durin
 	{
 		// Visibility belongs to the current frame, not to an asset's first request.
 		for (auto& Request : Impl->PendingRequests) Request.Priority = EAssetThumbnailPriority::Prefetch;
-		for (auto& Job : Impl->CapturedQueue) Job.Priority = EAssetThumbnailPriority::Prefetch;
 	}
 
 	auto FAssetThumbnailRequestQueue::Request(
@@ -165,7 +152,7 @@ namespace Durin
 			Impl->Entries.erase(Existing);
 		}
 
-		if (Impl->PendingRequests.size() + Impl->CapturedQueue.size()
+		if (Impl->PendingRequests.size()
 			>= Impl->Budgets.MaximumQueuedJobs)
 		{
 			return EThumbnailRequestStatus::QueueFull;
@@ -196,29 +183,10 @@ namespace Durin
 		-> std::optional<FAssetThumbnailScheduledRequest>
 	{
 		if (Impl->bShuttingDown) return std::nullopt;
-		auto SelectCaptured = [&]() {
-			auto Selected = std::ranges::find_if(
-				Impl->CapturedQueue,
-				[&](const FAssetThumbnailScheduledRequest& Job) {
-					return Job.Priority == EAssetThumbnailPriority::Visible;
-				});
-			if (Selected == Impl->CapturedQueue.end())
-				Selected = Impl->CapturedQueue.begin();
-			return Selected;
-		};
-
-		auto Selected = SelectCaptured();
-		if (Selected == Impl->CapturedQueue.end())
-		{
-			// Capture may traverse registry dependencies and hash generation inputs.
-			// Admit one uncaptured request per take so UI submission stays cheap.
-			Impl->CaptureNextPending();
-			Selected = SelectCaptured();
-		}
-		if (Selected == Impl->CapturedQueue.end()) return std::nullopt;
-
-		FAssetThumbnailScheduledRequest Job = std::move(*Selected);
-		Impl->CapturedQueue.erase(Selected);
+		// Capture once at admission; there is no intermediate captured-work queue.
+		auto Captured = Impl->CaptureNextPending();
+		if (!Captured) return std::nullopt;
+		FAssetThumbnailScheduledRequest Job = std::move(*Captured);
 		const std::string AssetPath =
 			Job.GenerationRequest.KeyInput.Asset.AssetPath.ToString();
 		const auto Entry = Impl->Entries.find(AssetPath);
@@ -286,7 +254,6 @@ namespace Durin
 		for (auto& [AssetPath, Entry] : Impl->Entries)
 			if (Entry.bCaptured) Entry.GenerationRequest.Cancellation.Cancel();
 		Impl->PendingRequests.clear();
-		Impl->CapturedQueue.clear();
 		Impl->Entries.clear();
 	}
 
@@ -299,7 +266,7 @@ namespace Durin
 
 	auto FAssetThumbnailRequestQueue::NumQueued() const -> size_t
 	{
-		return Impl->PendingRequests.size() + Impl->CapturedQueue.size();
+		return Impl->PendingRequests.size();
 	}
 
 	auto FAssetThumbnailRequestQueue::IsShuttingDown() const -> bool

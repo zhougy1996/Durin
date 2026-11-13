@@ -1,4 +1,5 @@
 #include "Engine/StreamableManager.h"
+#include "Thumbnail/ThumbnailManager.h"
 #include "ComponentPSOPrecacheTestSupport.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "NativeAssetBuildTestSupport.h"

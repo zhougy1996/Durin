@@ -1,4 +1,6 @@
 #include "Editor/EditorEngine.h"
+#include "Thumbnail/ThumbnailRenderer.h"
+#include "Thumbnail/ThumbnailManager.h"
 #include "Editor/EditorEngineTestSupport.h"
 #include "Editor/ContentBrowserQueryTestSupport.h"
 #include "Editor/ContentBrowserTransferTestSupport.h"

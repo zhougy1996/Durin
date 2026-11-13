@@ -44,7 +44,7 @@ namespace Durin
 
 	struct FThumbnailObjectStore::FImpl
 	{
-		explicit FImpl(FAssetThumbnailPoolStorageSettings InSettings)
+		explicit FImpl(FThumbnailObjectStoreSettings InSettings)
 			: Settings(std::move(InSettings))
 		{
 			if (Settings.CacheRoot.empty())
@@ -56,7 +56,7 @@ namespace Durin
 			if (Entries.size() != PreviousCount) SaveIndex();
 		}
 
-		FAssetThumbnailPoolStorageSettings Settings;
+		FThumbnailObjectStoreSettings Settings;
 		std::unordered_map<std::string, FObjectIndexEntry> Entries;
 		FThumbnailObjectStoreStats Stats;
 		uint64 AccessCounter = 0;
@@ -154,7 +154,7 @@ namespace Durin
 		}
 	};
 
-	FThumbnailObjectStore::FThumbnailObjectStore(FAssetThumbnailPoolStorageSettings Settings)
+	FThumbnailObjectStore::FThumbnailObjectStore(FThumbnailObjectStoreSettings Settings)
 		: Impl(std::make_unique<FImpl>(std::move(Settings)))
 	{
 	}

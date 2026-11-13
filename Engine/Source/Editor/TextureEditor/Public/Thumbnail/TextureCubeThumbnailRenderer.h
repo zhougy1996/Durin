@@ -3,7 +3,6 @@
 #include "CoreMinimal.h"
 
 #include "Thumbnail/ThumbnailRenderer.h"
-#include "Thumbnail/DefaultSizedThumbnailRenderer.h"
 #include "TextureEditorAPI.h"
 
 namespace Durin::TextureEditor
@@ -28,7 +27,7 @@ namespace Durin::TextureEditor
 	};
 
 	// Captures the exact TextureCube package identity and preview visual contract.
-	class DTextureCubeThumbnailRenderer final : public DDefaultSizedThumbnailRenderer
+	class DTextureCubeThumbnailRenderer final : public DThumbnailRenderer
 	{
 	public:
 		TEXTUREEDITOR_API auto GetRegistration() const

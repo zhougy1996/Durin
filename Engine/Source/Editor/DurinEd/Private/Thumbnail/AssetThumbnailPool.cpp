@@ -1,5 +1,8 @@
 #include "Thumbnail/AssetThumbnailPool.h"
+#include "Thumbnail/ThumbnailRenderer.h"
 #include "Thumbnail/AssetThumbnailGeneration.h"
+#include "Thumbnail/ThumbnailManager.h"
+#include "Thumbnail/ThumbnailPreviewScene.h"
 
 #include "DynamicRHI.h"
 #include "MonaCoreGlobals.h"
@@ -38,7 +41,7 @@ namespace Durin
 	{
 		struct FParkedJob
 		{
-			FAssetThumbnailJob Job;
+			FAssetThumbnailScheduledRequest Job;
 			FThumbnailRendererSessionUpdate LastUpdate;
 			uint64 FirstWaitFrame = 0;
 			uint64 NextPollFrame = 0;
@@ -73,10 +76,10 @@ namespace Durin
 		std::unordered_map<FTopLevelAssetPath, FEntry> Entries;
 		std::shared_ptr<FAssetThumbnailAsyncState> AsyncState =
 			std::make_shared<FAssetThumbnailAsyncState>();
-		std::optional<FAssetThumbnailJob> PreparingJob;
+		std::optional<FAssetThumbnailScheduledRequest> PreparingJob;
 		// Preparation never owns the preview scene. A capture retains its session
 		// until readback and revision validation finish, while other assets load.
-		std::optional<FAssetThumbnailJob> CaptureJob;
+		std::optional<FAssetThumbnailScheduledRequest> CaptureJob;
 		std::vector<FParkedJob> ParkedJobs;
 		uint64 FrameNumber = 0;
 		uint64 PreviewSceneCreations = 0;
@@ -93,7 +96,7 @@ namespace Durin
 		FImpl(
 			DThumbnailManager& InService,
 			FAssetThumbnailBudgets InBudgets,
-			FAssetThumbnailPoolStorageSettings StoreSettings)
+			FThumbnailObjectStoreSettings StoreSettings)
 			: Manager(InService)
 			, Budgets(InBudgets)
 			, Scheduler(Manager, Budgets)
@@ -165,10 +168,10 @@ namespace Durin
 			return ScenePool->IsAvailable();
 		}
 
-		auto ReleaseJob(FAssetThumbnailJob& Job) -> void
+		auto ReleaseJob(FAssetThumbnailScheduledRequest& Job) -> void
 		{
 			FAssetThumbnailGenerationRequest& Request =
-				Job.ScheduledJob.GenerationRequest;
+				Job.GenerationRequest;
 			if (IThumbnailRendererSession* Session =
 				Request.GetRenderedSession())
 			{
@@ -325,7 +328,7 @@ namespace Durin
 		auto FinishCapture() -> void
 		{
 			if (!CaptureJob || ScenePool == nullptr) return;
-			if (!IsCurrent(CaptureJob->ScheduledJob.GenerationRequest))
+			if (!IsCurrent(CaptureJob->GenerationRequest))
 			{
 				ResetCapture();
 				return;
@@ -333,9 +336,9 @@ namespace Durin
 			auto Capture = ScenePool->PollCapture();
 			if (Capture && !Capture->has_value()) return;
 
-			FAssetThumbnailJob& Job = *CaptureJob;
+			FAssetThumbnailScheduledRequest& Job = *CaptureJob;
 			FAssetThumbnailGenerationRequest& Request =
-				Job.ScheduledJob.GenerationRequest;
+				Job.GenerationRequest;
 			IThumbnailRendererSession* Session =
 				Request.GetRenderedSession();
 			if (!Capture)
@@ -413,9 +416,9 @@ namespace Durin
 			const FThumbnailRendererSessionUpdate& Update) -> void
 		{
 			if (!PreparingJob) return;
-			FAssetThumbnailJob& Job = *PreparingJob;
+			FAssetThumbnailScheduledRequest& Job = *PreparingJob;
 			FAssetThumbnailGenerationRequest& Request =
-				Job.ScheduledJob.GenerationRequest;
+				Job.GenerationRequest;
 			IThumbnailRendererSession* Session =
 				Request.GetRenderedSession();
 			if (Session == nullptr || !IsCurrent(Request))
@@ -481,7 +484,7 @@ namespace Durin
 		{
 			if (!PreparingJob) return;
 			IThumbnailRendererSession* Session =
-				PreparingJob->ScheduledJob.GenerationRequest.GetRenderedSession();
+				PreparingJob->GenerationRequest.GetRenderedSession();
 			if (Session == nullptr)
 			{
 				ResetPreparing();
@@ -498,7 +501,7 @@ namespace Durin
 			{
 				FParkedJob& Parked = ParkedJobs[Index];
 				FAssetThumbnailGenerationRequest& Request =
-					Parked.Job.ScheduledJob.GenerationRequest;
+					Parked.Job.GenerationRequest;
 				IThumbnailRendererSession* Session =
 					Request.GetRenderedSession();
 				const bool bTimedOut = !Parked.bReady
@@ -555,7 +558,7 @@ namespace Durin
 			if (PreparingJob || CaptureJob || ParkedJobs.empty()) return;
 			auto IsVisible = [this](const FParkedJob& Parked) {
 				const auto It = Entries.find(
-					Parked.Job.ScheduledJob.GenerationRequest.KeyInput.Asset.AssetPath);
+					Parked.Job.GenerationRequest.KeyInput.Asset.AssetPath);
 				return It != Entries.end() && It->second.bVisible;
 			};
 			auto Selected = std::ranges::find_if(
@@ -577,7 +580,7 @@ namespace Durin
 		auto StartNext() -> bool
 		{
 			FAssetThumbnailStartResult Start = Pipeline.StartNextDetailed();
-			const auto* Scheduled = Start.ColdJob ? &Start.ColdJob->ScheduledJob
+			const auto* Scheduled = Start.ColdJob ? &*Start.ColdJob
 				: Start.WarmJob ? &*Start.WarmJob : nullptr;
 			if (Scheduled)
 			{
@@ -603,9 +606,9 @@ namespace Durin
 			}
 			if (!Start.ColdJob) return Start.bProgressed;
 			PreparingJob = std::move(Start.ColdJob);
-			FAssetThumbnailJob& Job = *PreparingJob;
+			FAssetThumbnailScheduledRequest& Job = *PreparingJob;
 			FAssetThumbnailGenerationRequest& Request =
-				Job.ScheduledJob.GenerationRequest;
+				Job.GenerationRequest;
 			if (auto It = Entries.find(Request.KeyInput.Asset.AssetPath);
 				It != Entries.end())
 				It->second.bHasTransparency = Request.bHasTransparency;
@@ -693,7 +696,7 @@ namespace Durin
 
 	FAssetThumbnailPool::FAssetThumbnailPool(
 		FAssetThumbnailBudgets Budgets,
-		FAssetThumbnailPoolStorageSettings StoreSettings)
+		FThumbnailObjectStoreSettings StoreSettings)
 		: FAssetThumbnailPool(
 			GetDefaultThumbnailManager(),
 			Budgets,
@@ -704,7 +707,7 @@ namespace Durin
 	FAssetThumbnailPool::FAssetThumbnailPool(
 		DThumbnailManager& Manager,
 		FAssetThumbnailBudgets Budgets,
-		FAssetThumbnailPoolStorageSettings StoreSettings)
+		FThumbnailObjectStoreSettings StoreSettings)
 		: Impl(std::make_unique<FImpl>(
 			Manager, Budgets, std::move(StoreSettings)))
 	{
@@ -811,13 +814,13 @@ namespace Durin
 		// Directory navigation releases cold requests but retains cached pixels.
 		Impl->Scheduler.Cancel(AssetPath);
 		if (Impl->PreparingJob
-			&& Impl->PreparingJob->ScheduledJob.GenerationRequest.KeyInput.Asset.AssetPath == AssetPath)
+			&& Impl->PreparingJob->GenerationRequest.KeyInput.Asset.AssetPath == AssetPath)
 			Impl->ResetPreparing();
 		if (Impl->CaptureJob
-			&& Impl->CaptureJob->ScheduledJob.GenerationRequest.KeyInput.Asset.AssetPath == AssetPath)
+			&& Impl->CaptureJob->GenerationRequest.KeyInput.Asset.AssetPath == AssetPath)
 			Impl->ResetCapture();
 		std::erase_if(Impl->ParkedJobs, [&](FImpl::FParkedJob& Parked) {
-			if (Parked.Job.ScheduledJob.GenerationRequest.KeyInput.Asset.AssetPath != AssetPath) return false;
+			if (Parked.Job.GenerationRequest.KeyInput.Asset.AssetPath != AssetPath) return false;
 			Impl->ReleaseJob(Parked.Job);
 			return true;
 		});

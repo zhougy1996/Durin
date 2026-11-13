@@ -4,14 +4,13 @@
 
 #include "MaterialEditorAPI.h"
 #include "Thumbnail/ThumbnailRenderer.h"
-#include "Thumbnail/DefaultSizedThumbnailRenderer.h"
 
 namespace Durin { class DMaterialInterface; }
 
 namespace Durin::MaterialEditor
 {
 	// Captures deterministic material dependency keys for one exact material asset class.
-	class DMaterialThumbnailRenderer final : public DDefaultSizedThumbnailRenderer
+	class DMaterialThumbnailRenderer final : public DThumbnailRenderer
 	{
 	public:
 		MATERIALEDITOR_API explicit DMaterialThumbnailRenderer(std::string AssetClassName);

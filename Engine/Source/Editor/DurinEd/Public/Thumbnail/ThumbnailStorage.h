@@ -3,10 +3,22 @@
 #include "CoreMinimal.h"
 
 #include "DurinEdAPI.h"
-#include "Thumbnail/AssetThumbnailPool.h"
+
 
 namespace Durin
 {
+	// Configures the shared persistent thumbnail object store.
+	struct FThumbnailObjectStoreSettings
+	{
+		std::filesystem::path CacheRoot;
+		uint32 FormatVersion = 1;
+		uint64 DiskBudgetBytes = 256ull * 1024ull * 1024ull;
+		uint64 MaximumObjectBytes = 16ull * 1024ull * 1024ull;
+		std::string ObjectExtension = ".png";
+		// Interactive workers batch index publication; direct stores remain durable per write.
+		bool bBatchIndexWrites = false;
+	};
+
 	// Reports persistent object reuse and invalid-object cleanup.
 	struct FThumbnailObjectStoreStats
 	{
@@ -26,7 +38,7 @@ namespace Durin
 	class DURINED_API FThumbnailObjectStore
 	{
 	public:
-		explicit FThumbnailObjectStore(FAssetThumbnailPoolStorageSettings Settings = {});
+		explicit FThumbnailObjectStore(FThumbnailObjectStoreSettings Settings = {});
 		~FThumbnailObjectStore();
 
 		FThumbnailObjectStore(const FThumbnailObjectStore&) = delete;

@@ -8,17 +8,10 @@
 
 namespace Durin
 {
-	// Identifies one cold generation while asynchronous game, render, and worker completions are outstanding.
-	struct FAssetThumbnailJob
-	{
-		FAssetThumbnailScheduledRequest ScheduledJob;
-
-	};
-
 	// Distinguishes a persistent warm hit from cold renderer work without loading the asset.
 	struct FAssetThumbnailStartResult
 	{
-		std::optional<FAssetThumbnailJob> ColdJob;
+		std::optional<FAssetThumbnailScheduledRequest> ColdJob;
 		std::optional<FAssetThumbnailScheduledRequest> WarmJob;
 		FByteBuffer Pixels;
 		bool bProgressed = false;
@@ -31,7 +24,7 @@ namespace Durin
 		// Cache reads, encoding and persistence run on bounded background tasks.
 		DURINED_API FAssetThumbnailGeneration(
 			FAssetThumbnailRequestQueue& Scheduler,
-			FAssetThumbnailPoolStorageSettings StoreSettings = {},
+			FThumbnailObjectStoreSettings StoreSettings = {},
 			FAssetThumbnailBudgets Budgets = {});
 		// Test-only drain; normal frames must never wait for cache work.
 		DURINED_API auto WaitForCacheTasksForTesting() -> void;
@@ -45,28 +38,28 @@ namespace Durin
 		// Returns completed warm pixels or cold work without waiting for cache I/O.
 		DURINED_API auto StartNextDetailed() -> FAssetThumbnailStartResult;
 		DURINED_API auto CompleteLoad(
-			FAssetThumbnailJob& Job, std::string_view Error = {}) -> bool;
+			FAssetThumbnailScheduledRequest& Job, std::string_view Error = {}) -> bool;
 		// Leaves the job waiting when resources are not ready and consumes no render allowance.
 		DURINED_API auto BeginRender(
-			FAssetThumbnailJob& Job,
+			FAssetThumbnailScheduledRequest& Job,
 			bool bResourcesReady,
 			std::string_view Error = {}) -> bool;
 		DURINED_API auto CompleteRender(
-			const FAssetThumbnailJob& Job,
+			const FAssetThumbnailScheduledRequest& Job,
 			std::string_view Error = {}) -> bool;
 		DURINED_API auto CompleteReadback(
-			const FAssetThumbnailJob& Job,
+			const FAssetThumbnailScheduledRequest& Job,
 			std::string_view Error = {}) -> bool;
 		// Validates RGBA8 pixels on the caller and makes them displayable
 		// immediately and encodes/saves independently without retaining the validator.
 		DURINED_API auto CompletePixels(
-			const FAssetThumbnailJob& Job,
+			const FAssetThumbnailScheduledRequest& Job,
 			FByteView Pixels,
 			uint32 Width,
 			uint32 Height,
 			std::string_view Error = {},
 			std::function<std::string()> ValidateBeforePublication = {}) -> bool;
-		DURINED_API auto Cancel(const FAssetThumbnailJob& Job) -> void;
+		DURINED_API auto Cancel(const FAssetThumbnailScheduledRequest& Job) -> void;
 		DURINED_API auto RecordRetry() -> void;
 		DURINED_API auto GetStats() const -> FAssetThumbnailGenerationStats;
 

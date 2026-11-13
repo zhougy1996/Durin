@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-#include "Thumbnail/ThumbnailManager.h"
+#include "Thumbnail/AssetThumbnailTypes.h"
 
 namespace Durin::ContentBrowser::Private
 {

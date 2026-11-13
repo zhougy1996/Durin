@@ -2,23 +2,13 @@
 
 #include "CoreMinimal.h"
 
-#include "Thumbnail/ThumbnailPreviewScene.h"
-#include "Thumbnail/ThumbnailManager.h"
+#include "Thumbnail/AssetThumbnailTypes.h"
+#include "Thumbnail/ThumbnailStorage.h"
 #include "AssetRegistry/ContentChanges.h"
 
 namespace Durin
 {
-	// Configures the pool's compatible project-local persistent object domain.
-	struct FAssetThumbnailPoolStorageSettings
-	{
-		std::filesystem::path CacheRoot;
-		uint32 FormatVersion = 1;
-		uint64 DiskBudgetBytes = 256ull * 1024ull * 1024ull;
-		uint64 MaximumObjectBytes = 16ull * 1024ull * 1024ull;
-		std::string ObjectExtension = ".png";
-		// Interactive workers batch index publication; direct stores remain durable per write.
-		bool bBatchIndexWrites = false;
-	};
+	class DThumbnailManager;
 
 	// Reports deterministic generation activity without exposing queue mechanics.
 	struct FAssetThumbnailGenerationStats
@@ -66,11 +56,11 @@ namespace Durin
 	public:
 		DURINED_API explicit FAssetThumbnailPool(
 			FAssetThumbnailBudgets Budgets = {},
-			FAssetThumbnailPoolStorageSettings StoreSettings = {});
+			FThumbnailObjectStoreSettings StoreSettings = {});
 		DURINED_API explicit FAssetThumbnailPool(
 			DThumbnailManager& Manager,
 			FAssetThumbnailBudgets Budgets = {},
-			FAssetThumbnailPoolStorageSettings StoreSettings = {});
+			FThumbnailObjectStoreSettings StoreSettings = {});
 		DURINED_API ~FAssetThumbnailPool();
 
 		FAssetThumbnailPool(const FAssetThumbnailPool&) = delete;

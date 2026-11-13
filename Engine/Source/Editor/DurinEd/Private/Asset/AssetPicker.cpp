@@ -1,4 +1,5 @@
 #include "Asset/AssetPicker.h"
+#include "Thumbnail/ThumbnailManager.h"
 
 #include "Asset/Asset.h"
 #include "Thumbnail/AssetThumbnailPool.h"

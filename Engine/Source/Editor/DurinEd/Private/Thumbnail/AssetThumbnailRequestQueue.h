@@ -2,10 +2,12 @@
 
 #include "CoreMinimal.h"
 
-#include "Thumbnail/ThumbnailManager.h"
+#include "Thumbnail/ThumbnailRenderer.h"
 
 namespace Durin
 {
+	class DThumbnailManager;
+
 	// Admission outcomes are scheduling policy, not generation errors.
 	enum class EThumbnailRequestStatus : uint8
 	{

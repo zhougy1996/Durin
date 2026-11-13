@@ -3,10 +3,119 @@
 #include "CoreMinimal.h"
 
 #include "SceneView.h"
-#include "Thumbnail/ThumbnailManager.h"
+#include "Thumbnail/AssetThumbnailKey.h"
+#include "DObject/Object.h"
+
+#include "ThumbnailRenderer.gen.h"
 
 namespace Durin
 {
+	class DThumbnailManager;
+	class IThumbnailRendererSession;
+	namespace ThumbnailPrivate { struct FAssetThumbnailGenerationLeaseState; }
+
+	// Provides cooperative cancellation shared by scheduler and asynchronous completions.
+	class FAssetThumbnailCancellation
+	{
+	public:
+		DURINED_API FAssetThumbnailCancellation();
+
+		DURINED_API auto Cancel() const -> void;
+		DURINED_API auto IsCancelled() const -> bool;
+
+	private:
+		std::shared_ptr<std::atomic<bool>> State;
+	};
+
+	// Owns renderer-specific immutable data captured on the game thread.
+	class IAssetThumbnailGenerationInput
+	{
+	public:
+		virtual ~IAssetThumbnailGenerationInput() = default;
+	};
+
+	// Keeps renderer-owned request data behind a core-owned invalidation boundary.
+	// Copies share only DurinEd state; renderer removal clears the input and session
+	// from every copy before the scoped registration handle returns.
+	class FAssetThumbnailGenerationLease
+	{
+	public:
+		FAssetThumbnailGenerationLease() = default;
+
+		DURINED_API auto IsActive() const -> bool;
+		DURINED_API auto GetInput() const -> const IAssetThumbnailGenerationInput*;
+		DURINED_API auto GetRenderedSession() const
+			-> IThumbnailRendererSession*;
+		DURINED_API auto ReleaseRenderedSession() const -> void;
+
+	private:
+		friend class DThumbnailManager;
+		friend struct FAssetThumbnailGenerationRequest;
+		explicit FAssetThumbnailGenerationLease(
+			std::shared_ptr<ThumbnailPrivate::FAssetThumbnailGenerationLeaseState> InState)
+			: State(std::move(InState))
+		{
+		}
+
+		std::shared_ptr<ThumbnailPrivate::FAssetThumbnailGenerationLeaseState> State;
+	};
+
+	// Transfers an immutable renderer request across worker and render-thread boundaries.
+	struct FAssetThumbnailGenerationRequest
+	{
+		FAssetThumbnailKeyInput KeyInput;
+		// Capture-only transfer slot. The registry moves this into RendererLease
+		// before a request enters renderer-neutral scheduling.
+		std::shared_ptr<const IAssetThumbnailGenerationInput> Input;
+		FAssetThumbnailGenerationLease RendererLease;
+		FAssetThumbnailCancellation Cancellation;
+		uint64 RendererGeneration = 0;
+		uint64 RequestSerial = 0;
+		// Renderer-selected UI compositing policy; it does not affect persistent identity.
+		bool bHasTransparency = true;
+
+		DURINED_API auto GetInput() const -> const IAssetThumbnailGenerationInput*;
+		DURINED_API auto BeginRenderedSession() const
+			-> std::expected<IThumbnailRendererSession*, std::string>;
+		DURINED_API auto GetRenderedSession() const
+			-> IThumbnailRendererSession*;
+		DURINED_API auto ReleaseRenderedSession() const -> void;
+	};
+
+	// Describes one exact-class renderer registration and its generator schema.
+	struct FThumbnailRenderingInfo
+	{
+		std::string AssetClassName;
+		std::string RendererName;
+		uint32 GeneratorSchemaVersion = 0;
+	};
+
+	// Captures renderer-owned immutable generation data on the game thread.
+	// Registration and removal are game-thread operations; removal first cancels
+	// and drains captured requests.
+	DCLASS(Abstract)
+	class DThumbnailRenderer : public DObject
+	{
+		GENERATED_BODY()
+
+	public:
+		DURINED_API DThumbnailRenderer();
+		virtual ~DThumbnailRenderer() = default;
+
+		virtual auto GetRegistration() const -> FThumbnailRenderingInfo = 0;
+		virtual auto CaptureGenerationRequest(
+			const FAssetThumbnailRequest& Request,
+			uint64 RendererGeneration) -> std::expected<FAssetThumbnailGenerationRequest, std::string> = 0;
+		// Creates renderer-owned state for a persistent-cache miss.
+		DURINED_API virtual auto CreateGenerationSession(
+			const FAssetThumbnailGenerationRequest&,
+			const IAssetThumbnailGenerationInput&)
+			-> std::expected<std::unique_ptr<IThumbnailRendererSession>, std::string>;
+	protected:
+		DURINED_API explicit DThumbnailRenderer(
+			const FObjectInitializer& ObjectInitializer);
+	};
+
 	class DWorld;
 	class AActor;
 

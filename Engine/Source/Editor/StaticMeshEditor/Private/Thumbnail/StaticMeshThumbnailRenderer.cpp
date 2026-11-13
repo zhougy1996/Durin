@@ -1,4 +1,5 @@
 #include "Engine/StreamableManager.h"
+#include "Thumbnail/ThumbnailRenderer.h"
 #include "Thumbnail/StaticMeshThumbnailRenderer.h"
 
 // StaticMeshEditor owns the complete StaticMesh thumbnail extension.

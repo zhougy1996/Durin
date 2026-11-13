@@ -1,4 +1,5 @@
 #include "Editor/AssetEditorTestHost.h"
+#include "Thumbnail/ThumbnailRenderer.h"
 #include "Thumbnail/ThumbnailManager.h"
 #include "Thumbnail/TextureCubeThumbnailRenderer.h"
 #include "Thumbnail/TextureThumbnailRenderer.h"

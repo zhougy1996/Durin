@@ -1,4 +1,6 @@
 #include "Editor/ContentBrowserItemTestSupport.h"
+#include "Thumbnail/ThumbnailRenderer.h"
+#include "Thumbnail/ThumbnailManager.h"
 #include "Asset/AssetCompilingManager.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "Thumbnail/StaticMeshThumbnailRenderer.h"

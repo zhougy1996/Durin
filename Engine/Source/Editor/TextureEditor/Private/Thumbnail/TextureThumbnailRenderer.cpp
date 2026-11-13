@@ -1,4 +1,5 @@
 #include "Engine/StreamableManager.h"
+#include "Thumbnail/ThumbnailRenderer.h"
 #include "Thumbnail/TextureThumbnailRenderer.h"
 #include "RenderResource.h"
 #include "Shader/ShaderMapPreparation.h"

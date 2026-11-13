@@ -1,4 +1,5 @@
 #include "Thumbnail/ThumbnailManager.h"
+#include "Thumbnail/ThumbnailRenderer.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Thumbnail/MaterialThumbnailRenderer.h"
 #include "Thumbnail/AssetThumbnailPool.h"

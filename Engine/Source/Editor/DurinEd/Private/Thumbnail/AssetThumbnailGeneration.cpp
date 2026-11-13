@@ -1,4 +1,5 @@
 #include "Thumbnail/AssetThumbnailGeneration.h"
+#include "Thumbnail/ThumbnailRenderer.h"
 
 #include "Image/ImageEncoder.h"
 #include "Image/ImageDecoder.h"
@@ -14,7 +15,7 @@ namespace Durin
 		// its initial index scan. No task retains a renderer, session, or scheduler.
 		struct FCacheState
 		{
-			FAssetThumbnailPoolStorageSettings Settings;
+			FThumbnailObjectStoreSettings Settings;
 			std::unique_ptr<FThumbnailObjectStore> Store;
 			auto GetStore() -> FThumbnailObjectStore&
 			{
@@ -49,7 +50,7 @@ namespace Durin
 
 		FImpl(
 			FAssetThumbnailRequestQueue& InScheduler,
-			FAssetThumbnailPoolStorageSettings StoreSettings,
+			FThumbnailObjectStoreSettings StoreSettings,
 			FAssetThumbnailBudgets InBudgets)
 			: Scheduler(InScheduler)
 			, Cache(std::make_shared<FCacheState>(std::move(StoreSettings)))
@@ -211,7 +212,7 @@ namespace Durin
 				});
 		}
 
-		auto QueueWrite(const FAssetThumbnailJob& Job, FByteView Bytes,
+		auto QueueWrite(const FAssetThumbnailScheduledRequest& Job, FByteView Bytes,
 			uint32 Width = 0, uint32 Height = 0) -> void
 		{
 			// Persistence is optional. A slow disk must not accumulate unlimited pixels
@@ -224,9 +225,9 @@ namespace Durin
 				return;
 			}
 			RetainedBytes += Bytes.size();
-			(Width != 0 ? PendingEncodes : Writes).push_back({Job.ScheduledJob.CacheKey,
+			(Width != 0 ? PendingEncodes : Writes).push_back({Job.CacheKey,
 				FByteBuffer(Bytes.begin(), Bytes.end()),
-				Job.ScheduledJob.GenerationRequest.Cancellation, Width, Height});
+				Job.GenerationRequest.Cancellation, Width, Height});
 		}
 
 		auto DrainCache() -> void
@@ -241,12 +242,12 @@ namespace Durin
 		}
 
 		auto Fail(
-			const FAssetThumbnailJob& Job,
+			const FAssetThumbnailScheduledRequest& Job,
 			EAssetThumbnailState ExpectedState,
 			std::string_view Error) -> bool
 		{
 			if (Error.empty()) return false;
-			if (!Scheduler.Transition(Job.ScheduledJob, ExpectedState, EAssetThumbnailState::Failed, Error))
+			if (!Scheduler.Transition(Job, ExpectedState, EAssetThumbnailState::Failed, Error))
 				return false;
 			++Stats.Failures;
 			return true;
@@ -255,7 +256,7 @@ namespace Durin
 
 	FAssetThumbnailGeneration::FAssetThumbnailGeneration(
 		FAssetThumbnailRequestQueue& Scheduler,
-		FAssetThumbnailPoolStorageSettings StoreSettings,
+		FThumbnailObjectStoreSettings StoreSettings,
 		FAssetThumbnailBudgets Budgets
 	)
 		: Impl(std::make_unique<FImpl>(Scheduler, std::move(StoreSettings), Budgets))
@@ -302,7 +303,7 @@ namespace Durin
 			{
 				if (Read.Result.bInvalid) ++Impl->Stats.Retries;
 				++Impl->Stats.Loads;
-				Result.ColdJob = FAssetThumbnailJob{.ScheduledJob = std::move(Read.Job)};
+				Result.ColdJob = std::move(Read.Job);
 			}
 			return Result;
 		}
@@ -317,7 +318,7 @@ namespace Durin
 			|| Impl->RetainedBytes > Impl->Budgets.CpuPixelBudgetBytes - PixelCount * 4)
 		{
 			++Impl->Stats.Loads;
-			Result.ColdJob = FAssetThumbnailJob{.ScheduledJob = std::move(*Job)};
+			Result.ColdJob = std::move(*Job);
 			return Result;
 		}
 		Impl->RetainedBytes += PixelCount * 4;
@@ -327,12 +328,12 @@ namespace Durin
 	}
 
 	auto FAssetThumbnailGeneration::CompleteLoad(
-		FAssetThumbnailJob& Job,
+		FAssetThumbnailScheduledRequest& Job,
 		std::string_view Error
 	) -> bool
 	{
 		if (Impl->Fail(Job, EAssetThumbnailState::Loading, Error)) return false;
-		if (!Impl->Scheduler.Transition(Job.ScheduledJob, EAssetThumbnailState::Loading,
+		if (!Impl->Scheduler.Transition(Job, EAssetThumbnailState::Loading,
 				EAssetThumbnailState::WaitingForResources))
 			return false;
 
@@ -340,7 +341,7 @@ namespace Durin
 	}
 
 	auto FAssetThumbnailGeneration::BeginRender(
-		FAssetThumbnailJob& Job,
+		FAssetThumbnailScheduledRequest& Job,
 		bool bResourcesReady,
 		std::string_view Error
 	) -> bool
@@ -350,13 +351,13 @@ namespace Durin
 		if (!bResourcesReady)
 		{
 			++Impl->Stats.ResourceWaits;
-			return Impl->Scheduler.Transition(Job.ScheduledJob,
+			return Impl->Scheduler.Transition(Job,
 				EAssetThumbnailState::WaitingForResources,
 				EAssetThumbnailState::WaitingForResources);
 		}
 		if (Impl->RendersStartedThisFrame >= Impl->Budgets.MaximumRendersPerFrame)
 			return false;
-		if (!Impl->Scheduler.Transition(Job.ScheduledJob,
+		if (!Impl->Scheduler.Transition(Job,
 				EAssetThumbnailState::WaitingForResources,
 				EAssetThumbnailState::Rendering))
 			return false;
@@ -367,25 +368,25 @@ namespace Durin
 	}
 
 	auto FAssetThumbnailGeneration::CompleteRender(
-		const FAssetThumbnailJob& Job,
+		const FAssetThumbnailScheduledRequest& Job,
 		std::string_view Error
 	) -> bool
 	{
 		if (Impl->Fail(Job, EAssetThumbnailState::Rendering, Error))
 			return false;
-		return Impl->Scheduler.Transition(Job.ScheduledJob,
+		return Impl->Scheduler.Transition(Job,
 			EAssetThumbnailState::Rendering,
 			EAssetThumbnailState::Readback);
 	}
 
 	auto FAssetThumbnailGeneration::CompleteReadback(
-		const FAssetThumbnailJob& Job,
+		const FAssetThumbnailScheduledRequest& Job,
 		std::string_view Error
 	) -> bool
 	{
 		if (Impl->Fail(Job, EAssetThumbnailState::Readback, Error))
 			return false;
-		if (!Impl->Scheduler.Transition(Job.ScheduledJob,
+		if (!Impl->Scheduler.Transition(Job,
 				EAssetThumbnailState::Readback,
 				EAssetThumbnailState::Encoding))
 			return false;
@@ -394,7 +395,7 @@ namespace Durin
 	}
 
 	auto FAssetThumbnailGeneration::CompletePixels(
-		const FAssetThumbnailJob& Job,
+		const FAssetThumbnailScheduledRequest& Job,
 		FByteView Pixels,
 		uint32 Width,
 		uint32 Height,
@@ -411,17 +412,17 @@ namespace Durin
 			const auto ValidationError = ValidateBeforePublication();
 			if (Impl->Fail(Job, EAssetThumbnailState::Encoding, ValidationError)) return false;
 		}
-		if (!Impl->Scheduler.Transition(Job.ScheduledJob, EAssetThumbnailState::Encoding,
+		if (!Impl->Scheduler.Transition(Job, EAssetThumbnailState::Encoding,
 				EAssetThumbnailState::Ready)) return false;
 		Impl->QueueWrite(Job, Pixels, Width, Height);
 		return true;
 	}
 
-	auto FAssetThumbnailGeneration::Cancel(const FAssetThumbnailJob& Job) -> void
+	auto FAssetThumbnailGeneration::Cancel(const FAssetThumbnailScheduledRequest& Job) -> void
 	{
-		if (!Job.ScheduledJob.GenerationRequest.Cancellation.IsCancelled())
+		if (!Job.GenerationRequest.Cancellation.IsCancelled())
 		{
-			Impl->Scheduler.Cancel(Job.ScheduledJob.GenerationRequest.KeyInput.Asset.AssetPath);
+			Impl->Scheduler.Cancel(Job.GenerationRequest.KeyInput.Asset.AssetPath);
 			++Impl->Stats.Cancellations;
 		}
 	}

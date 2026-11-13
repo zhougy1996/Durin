@@ -3,13 +3,12 @@
 #include "CoreMinimal.h"
 
 #include "Thumbnail/ThumbnailRenderer.h"
-#include "Thumbnail/DefaultSizedThumbnailRenderer.h"
 #include "TextureEditorAPI.h"
 
 namespace Durin::TextureEditor
 {
 	// Captures built GPU texture output through the shared thumbnail scheduler.
-	class DTextureThumbnailRenderer final : public DDefaultSizedThumbnailRenderer
+	class DTextureThumbnailRenderer final : public DThumbnailRenderer
 	{
 	public:
 		TEXTUREEDITOR_API auto GetRegistration() const

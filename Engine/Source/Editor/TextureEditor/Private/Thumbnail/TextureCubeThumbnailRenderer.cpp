@@ -1,4 +1,5 @@
 #include "Engine/StreamableManager.h"
+#include "Thumbnail/ThumbnailRenderer.h"
 #include "Thumbnail/TextureCubeThumbnailRenderer.h"
 #include "DObject/WeakObjectPtr.h"
 

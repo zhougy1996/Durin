@@ -1,4 +1,5 @@
 #include "NativeAssetRuntimeTestSupport.h"
+#include "Thumbnail/ThumbnailRenderer.h"
 #include "Asset/Asset.h"
 #include "Feedback/SlowTaskWidget.h"
 #include "Misc/SlowTask.h"

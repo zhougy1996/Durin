@@ -6,7 +6,6 @@
 #include "Math/Transform.h"
 #include "StaticMeshEditorAPI.h"
 #include "Thumbnail/ThumbnailRenderer.h"
-#include "Thumbnail/DefaultSizedThumbnailRenderer.h"
 
 namespace Durin::StaticMeshEditor
 {
@@ -67,7 +66,7 @@ namespace Durin::StaticMeshEditor
 	};
 
 	// Captures the exact StaticMesh fingerprint and sorted transitive dependency closure.
-	class DStaticMeshThumbnailRenderer final : public DDefaultSizedThumbnailRenderer
+	class DStaticMeshThumbnailRenderer final : public DThumbnailRenderer
 	{
 	public:
 		STATICMESHEDITOR_API auto GetRegistration() const
