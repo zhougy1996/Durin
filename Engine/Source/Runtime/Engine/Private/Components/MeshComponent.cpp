@@ -11,6 +11,8 @@
 
 namespace Durin
 {
+	DMeshComponent::DMeshComponent(const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer) {}
+
 	auto DMeshComponent::CollectMeshPSOPrecacheData(const FPSOPrecacheParams& Params,
 		FComponentPSOPrecacheParamsList& OutParams, std::string_view FactoryName, bool bOrientationChanging) -> void
 	{
