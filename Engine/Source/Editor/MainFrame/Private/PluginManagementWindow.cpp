@@ -80,7 +80,10 @@ namespace Durin::MainFrame
                     ImGui::TextWrapped("%s", Row.Reason.c_str()); ImGui::PopStyleColor();
                 }
                 else if (Row.bNextStart && !Row.bBuildAvailable)
-                    ImGui::TextColored(Warning, "Build required before restart");
+                {
+                    ImGui::TextColored(ErrorColor, "Cannot load on restart");
+                    Tooltip(Row.Availability);
+                }
                 else if (Row.bActive != Row.bNextStart)
                     ImGui::TextDisabled("%s after restart", Row.bNextStart ? "Enabled" : "Disabled");
                 ImGui::EndGroup(); ImGui::EndGroup();
@@ -103,9 +106,19 @@ namespace Durin::MainFrame
         if (Session->IsDirty()) ImGui::TextColored(Warning, "Unsaved changes");
         else if (Session->RequiresRestart()) ImGui::TextColored(Info, "Restart required to apply saved changes");
         else ImGui::TextDisabled("No restart needed");
-        if (!Error.empty()) { ImGui::TextColored(ErrorColor, "Action failed. Hover for details."); Tooltip(Error); }
+        if (!Error.empty())
+        {
+            ImGui::TextColored(ErrorColor, "Action failed. Hover for details."); Tooltip(Error);
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Copy diagnostic")) ImGui::SetClipboardText(Error.c_str());
+        }
         else if (!Session->IsSelectionValid()) { ImGui::TextColored(ErrorColor, "Plugin selection needs attention."); Tooltip(Session->GetValidationError()); }
-        else if (!Session->GetBuildError().empty()) { ImGui::TextColored(Warning, "Build required before restart."); Tooltip(Session->GetBuildError()); }
+        else if (!Session->GetBuildError().empty())
+        {
+            ImGui::TextColored(ErrorColor, "Cannot load on restart."); Tooltip(Session->GetBuildError());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Copy diagnostic")) ImGui::SetClipboardText(Session->GetBuildError().c_str());
+        }
         else ImGui::Dummy(ImVec2(0, ImGui::GetTextLineHeight()));
         const float SaveWidth = ButtonWidth("Save");
         const float CancelWidth = ButtonWidth("Cancel");
@@ -119,7 +132,7 @@ namespace Durin::MainFrame
         if (ImGui::Button("Cancel", ImVec2(CancelWidth, 0))) (void)Session->Revert(Error);
         ImGui::EndDisabled(); ImGui::SameLine();
         ImGui::BeginDisabled(Session->IsDirty() || !Session->RequiresRestart()
-            || !Session->IsSelectionValid() || !Session->GetBuildError().empty());
+            || !Session->IsSelectionValid());
         if (ImGui::Button("Restart editor...", ImVec2(RestartWidth, 0)))
         {
             if (Session->CheckRestartReady(Error)) RequestRestart();

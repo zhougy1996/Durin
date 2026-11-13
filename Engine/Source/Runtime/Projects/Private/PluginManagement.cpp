@@ -182,6 +182,8 @@ namespace Durin
         if (!Disk || *Disk != DiskSnapshot) { OutReason = "Project descriptor changed; refresh before restarting"; return false; }
         const auto Selection = Resolve(Saved, OutReason);
         if (!Selection) return false;
-        return Available(*Selection, OutReason);
+        const bool Ready = Available(*Selection, OutReason);
+        RefreshBuildAvailability(); Rebuild();
+        return Ready;
     }
 }

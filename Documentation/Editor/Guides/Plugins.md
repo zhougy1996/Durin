@@ -7,7 +7,10 @@ Last reviewed: 2026-11-13
 
 Open a project and choose **Edit > Plugins...**. Search by name or plugin ID,
 then use the independent checkboxes to select the next-start requests. Hover a
-row to inspect its running state and build availability. The running editor
+row to inspect its running state and build availability. A selected plugin with
+missing or incompatible build artifacts shows **Cannot load on restart** in red; hover
+that status for the specific diagnostic, or copy the window's build diagnostic.
+The running editor
 keeps its current modules, mounts and defaults until restart.
 
 A checked plugin can require another plugin. Unchecking its prerequisite leaves
@@ -28,7 +31,7 @@ project. Missing, incompatible or stale native artifacts require an explicit
 build first; the window does not build them. Compatible enable/disable changes
 need only a restart.
 
-Source builds compile all eligible discovered plugins even while disabled. For
+Source builds compile plugins selected by the project and their dependencies. For
 descriptor/resource authoring, follow the [plugin contract](../../Workspace/Plugins.md).
 Deploying the saved Game selection additionally requires a new Cook and Stage;
 see [Game staging](../../Development/Tooling/DurinDevTool.md#game-staging).
