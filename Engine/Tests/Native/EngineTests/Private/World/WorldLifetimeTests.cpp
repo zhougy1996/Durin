@@ -769,7 +769,8 @@ TEST(FWorldTests, SceneReplacementPreservesPlayingComponentLifecycleAndBoundTime
 	World->SetRenderScene(&First);
 	auto* Actor = World->SpawnActor<Durin::ADirectionalLightActor>("ReregisterLight");
 	auto* Component = Actor->GetLightComponent();
-	ASSERT_TRUE(World->BeginPlay({}));
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 	const auto Before = Component->CaptureLifecycleState();
 	int Calls = 0;
 	const auto Timer = World->GetTimerManager().SetTimerForObjectNextTick(Component, [&](Durin::DObject&) { ++Calls; });

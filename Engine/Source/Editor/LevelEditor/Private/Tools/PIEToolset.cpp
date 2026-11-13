@@ -11,10 +11,10 @@ namespace Durin
 		{
 			return {EToolStatus::Failed, {}, {{EToolError::DomainFailure, std::move(Message), {}}}};
 		}
-		auto ToToolResult(FLevelEditorPlayResult Result) -> FToolResult
+		auto Success(const DLevelEditorSubsystem& Levels, std::string Message) -> FToolResult
 		{
-			if (!Result.bSucceeded) return Failure(std::move(Result.Message));
-			return {EToolStatus::Succeeded, FToolValue::FObject{{"message", std::move(Result.Message)}, {"state", std::move(Result.State)}}};
+			const auto State = !Levels.IsInPlayInEditor() ? "stopped" : Levels.IsPlaySessionPaused() ? "paused" : "playing";
+			return {EToolStatus::Succeeded, FToolValue::FObject{{"message", std::move(Message)}, {"state", State}}};
 		}
 	}
 	auto CreatePIEToolset() -> std::unique_ptr<FNativeToolset>
@@ -47,10 +47,24 @@ namespace Durin
 				if (!Editor) return Failure("The admitting editor is unavailable.");
 				auto* Levels = Editor->GetEditorSubsystem<DLevelEditorSubsystem>();
 				if (!Levels) return Failure("The level editor service is unavailable.");
-				if (Request.Address.Tool == "status") return ToToolResult(Levels->GetPlayStatus());
-				if (Request.Address.Tool == "play") return ToToolResult(Levels->StartPlaySession());
-				if (Request.Address.Tool == "stop") return ToToolResult(Levels->StopPlaySession());
-				return ToToolResult(Levels->SetPlaySessionPaused(std::get<bool>(std::get<FToolValue::FObject>(Request.Arguments.Data).at("paused").Data)));
+				if (Request.Address.Tool == "status") return Success(*Levels,
+					!Levels->IsInPlayInEditor() ? "Stopped" : Levels->IsPlaySessionPaused() ? "Paused" : "Playing");
+				if (Request.Address.Tool == "play")
+				{
+					if (Levels->IsInPlayInEditor()) return Failure("A Play session is already active.");
+					Levels->EditorRequestBeginPlay();
+					return Levels->IsInPlayInEditor() ? Success(*Levels, "Play session started.")
+						: Failure("Could not start the Play session. See editor diagnostics for details.");
+				}
+				if (!Levels->IsInPlayInEditor()) return Failure("No Play session is active.");
+				if (Request.Address.Tool == "stop")
+				{
+					Levels->EditorRequestEndPlay();
+					return !Levels->IsInPlayInEditor() ? Success(*Levels, "Play session stopped.") : Failure("Could not stop the Play session.");
+				}
+				const bool Paused = std::get<bool>(std::get<FToolValue::FObject>(Request.Arguments.Data).at("paused").Data);
+				return Levels->SetPlaySessionPaused(Paused) ? Success(*Levels, Paused ? "Play paused." : "Play resumed.")
+					: Failure("Could not change the Play pause state.");
 			};
 			Bindings.push_back(std::move(Binding));
 		}

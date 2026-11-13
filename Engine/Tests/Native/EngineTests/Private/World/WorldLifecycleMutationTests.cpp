@@ -482,7 +482,8 @@ TEST(FWorldLifecycleMutationTests, BeginPlayQueuesLevelReplacementUntilTheNextTi
 			}
 		};
 
-	EXPECT_EQ(World->BeginPlay({}).Error, Durin::EWorldPlayError::PlayAborted);
+	World->BeginPlay({});
+	EXPECT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Stopped);
 	EXPECT_NE(World->GetCurrentLevel(), Replacement);
 	World->Tick({});
 
@@ -492,7 +493,7 @@ TEST(FWorldLifecycleMutationTests, BeginPlayQueuesLevelReplacementUntilTheNextTi
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
-TEST(FWorldLifecycleMutationTests, BeginPlayReportsAbortedWhenACallbackEndsTheWorld)
+TEST(FWorldLifecycleMutationTests, BeginPlayStopsWhenACallbackEndsTheWorld)
 {
 	FMutationCallbackScope CallbackScope;
 	Durin::DWorld* World = CreateWorld();
@@ -506,9 +507,8 @@ TEST(FWorldLifecycleMutationTests, BeginPlayReportsAbortedWhenACallbackEndsTheWo
 			if (&Actor == Stopper && Event == ETestLifecycleEvent::BeginMutation) World->EndPlay();
 		};
 
-	const Durin::FWorldPlayResult Result = World->BeginPlay({});
+	World->BeginPlay({});
 
-	EXPECT_EQ(Result.Error, Durin::EWorldPlayError::PlayAborted);
 	EXPECT_FALSE(World->HasBegunPlay());
 	EXPECT_EQ(std::ranges::count_if(
 		World->GetActors(),
@@ -523,7 +523,8 @@ TEST(FWorldLifecycleMutationTests, DirectLevelReplacementIsRejectedWhilePlaying)
 	Durin::DLevel* Original = World->GetCurrentLevel();
 	Durin::DLevel* Replacement = Durin::NewObject<Durin::DLevel>(World, "Replacement");
 	ASSERT_NE(Replacement, nullptr);
-	ASSERT_TRUE(World->BeginPlay({}));
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 
 	EXPECT_FALSE(World->SetCurrentLevel(Replacement));
 	EXPECT_EQ(World->GetCurrentLevel(), Original);

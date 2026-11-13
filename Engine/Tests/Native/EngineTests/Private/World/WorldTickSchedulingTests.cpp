@@ -102,7 +102,8 @@ TEST(FWorldTickSchedulingTests, TicksOwnerBeforeSameGroupComponentAndKeepsCompon
 	std::vector<std::string> Events;
 	FTickSchedulingTestActor::Callback = [&](FTickSchedulingTestActor&) { Events.emplace_back("Actor"); };
 	FTickSchedulingTestComponent::Callback = [&](FTickSchedulingTestComponent&) { Events.emplace_back("Component"); };
-	ASSERT_TRUE(World->BeginPlay({}));
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 
 	World->Tick({.DeltaSeconds = 1.0f / 60.0f});
 	EXPECT_EQ(Events, (std::vector<std::string>{"Actor", "Component"}));
@@ -130,7 +131,8 @@ TEST(FWorldTickSchedulingTests, SelfDestructionCancelsFutureTicks)
 		++TickCount;
 		EXPECT_TRUE(Actor->DestroyInstanceComponent(Component));
 	};
-	ASSERT_TRUE(World->BeginPlay({}));
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 
 	World->Tick({});
 	World->Tick({});
@@ -156,7 +158,8 @@ TEST(FWorldTickSchedulingTests, SiblingDestructionSkipsTheCancelledQueueSlot)
 		if (&Candidate == Destroyer) EXPECT_TRUE(Actor->DestroyInstanceComponent(Target));
 		if (&Candidate == Target) ++TargetTicks;
 	};
-	ASSERT_TRUE(World->BeginPlay({}));
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 
 	World->Tick({});
 
@@ -180,7 +183,8 @@ TEST(FWorldTickSchedulingTests, AddedSameGroupComponentStartsOnTheNextFrame)
 		if (&Candidate == Adder && !Added) Added = AddTickComponent(Actor, "Added");
 		else if (&Candidate == Added) ++AddedTicks;
 	};
-	ASSERT_TRUE(World->BeginPlay({}));
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 
 	World->Tick({});
 	ASSERT_NE(Added, nullptr);
@@ -212,7 +216,8 @@ TEST(FWorldTickSchedulingTests, DisableEnableCannotReviveAStaleQueueSlot)
 		}
 		if (&Candidate == Target) ++TargetTicks;
 	};
-	ASSERT_TRUE(World->BeginPlay({}));
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 
 	World->Tick({});
 	EXPECT_EQ(TargetTicks, 0u);
@@ -244,7 +249,8 @@ TEST(FWorldTickSchedulingTests, UnregisterRegisterCannotReviveAStaleQueueSlot)
 		}
 		if (&Candidate == Target) ++TargetTicks;
 	};
-	ASSERT_TRUE(World->BeginPlay({}));
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 
 	World->Tick({});
 	EXPECT_EQ(TargetTicks, 0u);
@@ -278,7 +284,8 @@ TEST(FWorldTickSchedulingTests, FutureGroupRegistrationExecutesInTheSameFrame)
 			++PhysicsTicks;
 		}
 	};
-	ASSERT_TRUE(World->BeginPlay({}));
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 
 	World->Tick({});
 
@@ -306,7 +313,8 @@ TEST(FWorldTickSchedulingTests, RunsGroupsInSerialOrder)
 		if (&Candidate == Physics) Events.emplace_back("Physics");
 		if (&Candidate == Post) Events.emplace_back("PostPhysics");
 	};
-	ASSERT_TRUE(World->BeginPlay({}));
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 
 	World->Tick({});
 
@@ -330,7 +338,8 @@ TEST(FWorldTickSchedulingTests, OwnerDestructionStopsRemainingComponentTicks)
 		if (&Candidate == Destroyer) EXPECT_TRUE(World->DestroyActor(Actor));
 		if (&Candidate == Target) ++TargetTicks;
 	};
-	ASSERT_TRUE(World->BeginPlay({}));
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 
 	World->Tick({});
 
@@ -357,7 +366,8 @@ TEST(FWorldTickSchedulingTests, PendingLevelTransitionStopsTheActiveGroup)
 		if (&Candidate == Requester) EXPECT_TRUE(World->RequestLevelTransition(Replacement));
 		if (&Candidate == Target) ++TargetTicks;
 	};
-	ASSERT_TRUE(World->BeginPlay({}));
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 
 	World->Tick({});
 
@@ -381,7 +391,8 @@ TEST(FWorldTickSchedulingTests, LargeRegisteredSetExecutesExactlyOncePerFrame)
 	}
 	uint32 TickCount = 0;
 	FTickSchedulingTestComponent::Callback = [&](FTickSchedulingTestComponent&) { ++TickCount; };
-	ASSERT_TRUE(World->BeginPlay({}));
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 
 	World->Tick({});
 	EXPECT_EQ(TickCount, ComponentCount);

@@ -429,13 +429,16 @@ TEST_F(FGameStartupTests, ModuleSettingsAndPathErrorsShareTheStartupFailureBound
 		const auto Project = Root / "Startup.dproject";
 		{
 			std::ofstream Descriptor(Project);
-			Descriptor << "{\"ProjectName\":\"StartupTest\",\"BaseModules\":" << Scenario.Modules << "}";
+			Descriptor << "{\"ProjectName\":\"StartupTest\",\"ModuleDirs\":{\"MissingGameStartupModule\":\"Source/MissingGameStartupModule\"},\"BaseModules\":" << Scenario.Modules << "}";
 			ASSERT_TRUE(Descriptor.good());
 			std::ofstream Settings(Root / "Configs" / "Project.yaml");
 			Settings << Scenario.Settings;
 			ASSERT_TRUE(Settings.good());
 		}
-		ASSERT_TRUE(InitializeCurrentProject({.RequestedProjectFile = Project.generic_string(), .bRecordInteractiveHistory = false}));
+		// A failed module startup closes project switching until the test retires its project.
+		ASSERT_TRUE(InitializeCurrentProject({.bOpenProjectBrowser = true}));
+		const auto Admission = InitializeCurrentProject({.RequestedProjectFile = Project.generic_string(), .bRecordInteractiveHistory = false});
+		ASSERT_TRUE(Admission) << Admission.error().ToString();
 		bSelectedProject = true;
 		FGameEngineTestAccess::QueueStartup(*Engine);
 		EXPECT_EQ(Engine->GetStartupState(), EHostStartupState::Pending);
@@ -587,14 +590,16 @@ TEST(FNativeGameplayPossessionTests, PairsTransfersAndUnpossessesSymmetrically)
 	auto* SecondController = World->SpawnActor<Durin::AController>("SecondController");
 	auto* FirstPawn = World->SpawnActor<Durin::APawn>("FirstPawn");
 	auto* SecondPawn = World->SpawnActor<Durin::APawn>("SecondPawn");
-	ASSERT_TRUE(FirstController->Possess(FirstPawn));
+	FirstController->Possess(FirstPawn);
 	EXPECT_EQ(FirstController->GetPawn(), FirstPawn);
 	EXPECT_EQ(FirstPawn->GetController(), FirstController);
-	EXPECT_TRUE(FirstController->Possess(FirstPawn));
-	ASSERT_TRUE(FirstController->Possess(SecondPawn));
+	FirstController->Possess(FirstPawn);
+	EXPECT_EQ(FirstController->GetPawn(), FirstPawn);
+	EXPECT_EQ(FirstPawn->GetController(), FirstController);
+	FirstController->Possess(SecondPawn);
 	EXPECT_EQ(FirstPawn->GetController(), nullptr);
 	EXPECT_EQ(FirstController->GetPawn(), SecondPawn);
-	ASSERT_TRUE(SecondController->Possess(SecondPawn));
+	SecondController->Possess(SecondPawn);
 	EXPECT_EQ(FirstController->GetPawn(), nullptr);
 	EXPECT_EQ(SecondController->GetPawn(), SecondPawn);
 	EXPECT_EQ(SecondPawn->GetController(), SecondController);
@@ -613,16 +618,14 @@ TEST(FNativeGameplayPossessionTests, RejectsCrossWorldWithoutMutatingExistingPai
 	auto* Controller = FirstWorld->SpawnActor<Durin::AController>("Controller");
 	auto* FirstPawn = FirstWorld->SpawnActor<Durin::APawn>("FirstPawn");
 	auto* ForeignPawn = SecondWorld->SpawnActor<Durin::APawn>("ForeignPawn");
-	ASSERT_TRUE(Controller->Possess(FirstPawn));
-	const Durin::FPossessionResult Result = Controller->Possess(ForeignPawn);
-	EXPECT_EQ(Result.Error, Durin::EPossessionError::InvalidMembership);
+	Controller->Possess(FirstPawn);
+	Controller->Possess(ForeignPawn);
 	EXPECT_EQ(Controller->GetPawn(), FirstPawn);
 	EXPECT_EQ(FirstPawn->GetController(), Controller);
 	EXPECT_EQ(ForeignPawn->GetController(), nullptr);
 	auto* DestroyedPawn = FirstWorld->SpawnActor<Durin::APawn>("DestroyedPawn");
 	ASSERT_TRUE(FirstWorld->DestroyActor(DestroyedPawn));
-	const Durin::FPossessionResult Destroyed = Controller->Possess(DestroyedPawn);
-	EXPECT_EQ(Destroyed.Error, Durin::EPossessionError::PawnUnavailable);
+	Controller->Possess(DestroyedPawn);
 	EXPECT_EQ(Controller->GetPawn(), FirstPawn);
 	EXPECT_EQ(FirstPawn->GetController(), Controller);
 	Durin::MarkObjectHierarchyAsGarbage(FirstWorld);
@@ -635,16 +638,20 @@ TEST(FNativeGameplayPossessionTests, ClearsPairsOnDestructionEndPlayAndLevelRepl
 	Durin::DWorld* World = CreateWorld();
 	auto* Controller = World->SpawnActor<Durin::AController>("Controller");
 	auto* Pawn = World->SpawnActor<Durin::APawn>("Pawn");
-	ASSERT_TRUE(Controller->Possess(Pawn));
+	Controller->Possess(Pawn);
+	ASSERT_EQ(Controller->GetPawn(), Pawn);
 	ASSERT_TRUE(World->DestroyActor(Pawn));
 	EXPECT_EQ(Controller->GetPawn(), nullptr);
 	Pawn = World->SpawnActor<Durin::APawn>("ReplacementPawn");
-	ASSERT_TRUE(Controller->Possess(Pawn));
-	ASSERT_TRUE(World->BeginPlay({}));
+	Controller->Possess(Pawn);
+	ASSERT_EQ(Controller->GetPawn(), Pawn);
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 	World->EndPlay();
 	EXPECT_EQ(Controller->GetPawn(), nullptr);
 	EXPECT_EQ(Pawn->GetController(), nullptr);
-	ASSERT_TRUE(Controller->Possess(Pawn));
+	Controller->Possess(Pawn);
+	ASSERT_EQ(Controller->GetPawn(), Pawn);
 	Durin::DLevel* ReplacementLevel = Durin::NewObject<Durin::DLevel>(World, "ReplacementLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(ReplacementLevel));
 	EXPECT_EQ(Controller->GetPawn(), nullptr);
@@ -658,7 +665,8 @@ TEST(FNativeGameplayBootstrapTests, LifecycleOnlyPlayCreatesNoGameplayActors)
 	Durin::DWorld* World = CreateWorld();
 	World->SpawnActor<Durin::ACameraActor>("AuthoredCamera");
 	const size_t ActorCount = World->GetActors().size();
-	ASSERT_TRUE(World->BeginPlay({}));
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 	EXPECT_EQ(World->GetActors().size(), ActorCount);
 	EXPECT_EQ(World->GetGameMode(), nullptr);
 	EXPECT_EQ(World->GetLocalPlayerController(), nullptr);
@@ -677,7 +685,8 @@ TEST(FNativeGameplayBootstrapTests, UsesFirstStablePlayerStartAndTearsDownOnlyRu
 	ASSERT_NE(FirstStart, nullptr);
 	ASSERT_NE(SecondStart, nullptr);
 	const size_t AuthoredCount = World->GetActors().size();
-	ASSERT_TRUE(World->BeginPlay({.GameModeClass = Durin::AGameMode::StaticClass()}));
+	World->BeginPlay({.GameModeClass = Durin::AGameMode::StaticClass()});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 	ASSERT_NE(World->GetGameMode(), nullptr);
 	ASSERT_NE(World->GetLocalPlayerController(), nullptr);
 	ASSERT_NE(World->GetDefaultPawn(), nullptr);
@@ -702,27 +711,27 @@ TEST(FNativeGameplayBootstrapTests, RollsBackMissingStartAndInvalidSelectedClass
 	Durin::DWorld* World = CreateWorld();
 	auto* Authored = World->SpawnActor<Durin::ACameraActor>("AuthoredCamera");
 	const size_t AuthoredCount = World->GetActors().size();
-	Durin::FWorldPlayResult Result = World->BeginPlay({.GameModeClass = Durin::AGameMode::StaticClass()});
-	EXPECT_EQ(Result.Error, Durin::EWorldPlayError::MissingPlayerStart);
+	World->BeginPlay({.GameModeClass = Durin::AGameMode::StaticClass()});
+	EXPECT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Stopped);
 	EXPECT_FALSE(World->HasBegunPlay());
 	EXPECT_EQ(World->GetActors().size(), AuthoredCount);
 	EXPECT_TRUE(World->ContainsActor(Authored));
 	SpawnPlayerStart(*World, "Start", {0.0, 0.0, 0.0});
 	const size_t CountWithStart = World->GetActors().size();
-	Result = World->BeginPlay({.GameModeClass = InvalidPawnGameModeClass()});
-	EXPECT_EQ(Result.Error, Durin::EWorldPlayError::InvalidPawnClass);
+	World->BeginPlay({.GameModeClass = InvalidPawnGameModeClass()});
+	EXPECT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Stopped);
 	EXPECT_FALSE(World->HasBegunPlay());
 	EXPECT_EQ(World->GetActors().size(), CountWithStart);
-	Result = World->BeginPlay({.GameModeClass = UnplaceablePawnGameModeClass()});
-	EXPECT_EQ(Result.Error, Durin::EWorldPlayError::PawnPlacementFailed);
+	World->BeginPlay({.GameModeClass = UnplaceablePawnGameModeClass()});
+	EXPECT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Stopped);
 	EXPECT_FALSE(World->HasBegunPlay());
 	EXPECT_EQ(World->GetActors().size(), CountWithStart);
 	Durin::DWorld* ForeignWorld = CreateWorld();
 	auto* ForeignCamera = ForeignWorld->SpawnActor<Durin::ACameraActor>("ForeignCamera");
-	Result = World->BeginPlay({
+	World->BeginPlay({
 		.GameModeClass = Durin::AGameMode::StaticClass(),
 		.ViewTargetOverride = ForeignCamera});
-	EXPECT_EQ(Result.Error, Durin::EWorldPlayError::ViewTargetRejected);
+	EXPECT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Stopped);
 	EXPECT_FALSE(World->HasBegunPlay());
 	EXPECT_EQ(World->GetActors().size(), CountWithStart);
 	Durin::MarkObjectHierarchyAsGarbage(World);
@@ -734,7 +743,8 @@ TEST(FNativeGameplayBootstrapTests, RestartsPawnAndLeavesControllerUnpossessedOn
 {
 	Durin::DWorld* World = CreateWorld();
 	auto* Start = SpawnPlayerStart(*World, "Start", {3.0, 4.0, 5.0});
-	ASSERT_TRUE(World->BeginPlay({.GameModeClass = IntentGameModeClass()}));
+	World->BeginPlay({.GameModeClass = IntentGameModeClass()});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 	auto* Controller = World->GetLocalPlayerController();
 	auto* OldPawn = static_cast<FIntentPawn*>(World->GetDefaultPawn());
 	ASSERT_NE(Controller, nullptr);
@@ -768,7 +778,8 @@ TEST(FNativeGameplayBootstrapTests, RestartDefersLevelReplacementRequestedByPawn
 	FIntentPawnCallbackScope CallbackScope;
 	Durin::DWorld* World = CreateWorld();
 	SpawnPlayerStart(*World, "Start", {0.0, 0.0, 0.0});
-	ASSERT_TRUE(World->BeginPlay({.GameModeClass = IntentGameModeClass()}));
+	World->BeginPlay({.GameModeClass = IntentGameModeClass()});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 	Durin::DLevel* OriginalLevel = World->GetCurrentLevel();
 	Durin::DLevel* Replacement = Durin::NewObject<Durin::DLevel>(World, "ReplacementLevel");
 	ASSERT_NE(Replacement, nullptr);
@@ -796,7 +807,8 @@ TEST(FNativeGameplayBootstrapTests, RestartDefersLevelClearRequestedByPawnBeginP
 	FIntentPawnCallbackScope CallbackScope;
 	Durin::DWorld* World = CreateWorld();
 	SpawnPlayerStart(*World, "Start", {0.0, 0.0, 0.0});
-	ASSERT_TRUE(World->BeginPlay({.GameModeClass = IntentGameModeClass()}));
+	World->BeginPlay({.GameModeClass = IntentGameModeClass()});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 	Durin::DLevel* OriginalLevel = World->GetCurrentLevel();
 	FIntentPawn::BeginPlayCallback = [World](FIntentPawn&)
 	{
@@ -821,7 +833,8 @@ TEST(FNativeGameplayBootstrapTests, RestartRejectsSynchronousLevelClearFromPawnB
 	FIntentPawnCallbackScope CallbackScope;
 	Durin::DWorld* World = CreateWorld();
 	SpawnPlayerStart(*World, "Start", {0.0, 0.0, 0.0});
-	ASSERT_TRUE(World->BeginPlay({.GameModeClass = IntentGameModeClass()}));
+	World->BeginPlay({.GameModeClass = IntentGameModeClass()});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 	Durin::DLevel* OriginalLevel = World->GetCurrentLevel();
 	bool bClearRejected = false;
 	FIntentPawn::BeginPlayCallback = [World, &bClearRejected](FIntentPawn&)
@@ -844,7 +857,8 @@ TEST(FNativeGameplayControlTests, ClampsConsumesAndSuppressesIntentAcrossPause)
 {
 	Durin::DWorld* World = CreateWorld();
 	SpawnPlayerStart(*World, "Start", {0.0, 0.0, 0.0});
-	ASSERT_TRUE(World->BeginPlay({.GameModeClass = IntentGameModeClass()}));
+	World->BeginPlay({.GameModeClass = IntentGameModeClass()});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 	auto* Controller = static_cast<FIntentPlayerController*>(World->GetLocalPlayerController());
 	auto* Pawn = static_cast<FIntentPawn*>(World->GetDefaultPawn());
 	auto* Movement = static_cast<FIntentMovementComponent*>(
@@ -910,7 +924,8 @@ TEST(FNativeGameplayControlTests, RawTransitionsBecomeOneUseIntentAndFocusLossRe
 {
 	Durin::DWorld* World = CreateWorld();
 	SpawnPlayerStart(*World, "Start", {0.0, 0.0, 0.0});
-	ASSERT_TRUE(World->BeginPlay({.GameModeClass = IntentGameModeClass()}));
+	World->BeginPlay({.GameModeClass = IntentGameModeClass()});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 	auto* Controller = static_cast<FIntentPlayerController*>(World->GetLocalPlayerController());
 	auto* Pawn = static_cast<FIntentPawn*>(World->GetDefaultPawn());
 	auto* Movement = static_cast<FIntentMovementComponent*>(
@@ -953,7 +968,8 @@ TEST(FNativeGameplayControlTests, ActionsCancelOnPauseStepRestartAndStop)
 	using namespace Durin;
 	DWorld* World = CreateWorld();
 	SpawnPlayerStart(*World, "Start", {0.0, 0.0, 0.0});
-	ASSERT_TRUE(World->BeginPlay({.GameModeClass = IntentGameModeClass()}));
+	World->BeginPlay({.GameModeClass = IntentGameModeClass()});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 	auto* Controller = static_cast<FIntentPlayerController*>(World->GetLocalPlayerController());
 	Controller->SetUseRawMapping(true);
 	FGameInputState Input;
@@ -1006,7 +1022,8 @@ TEST(FNativeGameplayControlTests, DefersLevelReplacementRequestedByInputMapping)
 {
 	Durin::DWorld* World = CreateWorld();
 	SpawnPlayerStart(*World, "Start", {0.0, 0.0, 0.0});
-	ASSERT_TRUE(World->BeginPlay({.GameModeClass = IntentGameModeClass()}));
+	World->BeginPlay({.GameModeClass = IntentGameModeClass()});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 	auto* Controller = static_cast<FIntentPlayerController*>(World->GetLocalPlayerController());
 	ASSERT_NE(Controller, nullptr);
 	Controller->SetWorldToClearDuringBuild(World);
@@ -1026,15 +1043,17 @@ TEST(FNativeGameplayViewTargetTests, RejectsForeignTargetsAndClearsDestroyedTarg
 {
 	Durin::DWorld* World = CreateWorld();
 	SpawnPlayerStart(*World, "Start", {0.0, 0.0, 0.0});
-	ASSERT_TRUE(World->BeginPlay({.GameModeClass = Durin::AGameMode::StaticClass()}));
+	World->BeginPlay({.GameModeClass = Durin::AGameMode::StaticClass()});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 	auto* Controller = World->GetLocalPlayerController();
 	auto* Camera = World->SpawnActor<Durin::ACameraActor>("OverrideCamera");
-	ASSERT_TRUE(Controller->SetViewTarget(Camera));
+	Controller->SetViewTarget(nullptr);
+	EXPECT_EQ(Controller->GetViewTarget(), nullptr);
+	Controller->SetViewTarget(Camera);
 	EXPECT_EQ(Controller->GetViewTarget(), Camera);
 	Durin::DWorld* ForeignWorld = CreateWorld();
 	auto* ForeignCamera = ForeignWorld->SpawnActor<Durin::ACameraActor>("ForeignCamera");
-	const Durin::FViewTargetResult Rejected = Controller->SetViewTarget(ForeignCamera);
-	EXPECT_EQ(Rejected.Error, Durin::EViewTargetError::InvalidMembership);
+	Controller->SetViewTarget(ForeignCamera);
 	EXPECT_EQ(Controller->GetViewTarget(), Camera);
 	ASSERT_TRUE(World->DestroyActor(Camera));
 	EXPECT_EQ(Controller->GetViewTarget(), nullptr);
@@ -1191,7 +1210,8 @@ TEST(FNativeGameplayControlTests, InputStopRequestsWaitForWorldOperationCompleti
 	{
 		Durin::DWorld* World = CreateWorld();
 		SpawnPlayerStart(*World, "Start", {0.0, 0.0, 0.0});
-		ASSERT_TRUE(World->BeginPlay({.GameModeClass = IntentGameModeClass()}));
+		World->BeginPlay({.GameModeClass = IntentGameModeClass()});
+		ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 		auto* Controller = static_cast<FIntentPlayerController*>(World->GetLocalPlayerController());
 		auto* Level = World->GetCurrentLevel();
 		int Inputs = 0;
@@ -1203,7 +1223,7 @@ TEST(FNativeGameplayControlTests, InputStopRequestsWaitForWorldOperationCompleti
 			EXPECT_TRUE(World->HasBegunPlay());
 			EXPECT_EQ(World->GetCurrentLevel(), Level);
 			EXPECT_FALSE(World->SetCurrentLevel(nullptr));
-			EXPECT_FALSE(World->BeginPlay({}));
+			World->BeginPlay({});
 			Durin::RequestGarbageCollection();
 			EXPECT_TRUE(Durin::IsGarbageCollectionRequested());
 			EXPECT_FALSE(Controller->IsPendingKill());
@@ -1215,7 +1235,8 @@ TEST(FNativeGameplayControlTests, InputStopRequestsWaitForWorldOperationCompleti
 		EXPECT_EQ(World->GetCurrentLevel(), bShutdown ? nullptr : Level);
 		if (!bShutdown)
 		{
-			ASSERT_TRUE(World->BeginPlay({.GameModeClass = IntentGameModeClass()}));
+			World->BeginPlay({.GameModeClass = IntentGameModeClass()});
+			ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 			World->Tick({});
 		}
 		Durin::MarkObjectHierarchyAsGarbage(World);

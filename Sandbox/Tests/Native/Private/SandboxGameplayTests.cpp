@@ -123,8 +123,8 @@ namespace
 
 	auto BeginGameplay(Durin::DWorld& World) -> Durin::Sandbox::APlayerPawn*
 	{
-		const Durin::FWorldPlayResult Result = World.BeginPlay({.GameModeClass = ResolveSandboxGameMode()});
-		EXPECT_TRUE(Result) << Result.Message;
+		World.BeginPlay({.GameModeClass = ResolveSandboxGameMode()});
+		EXPECT_EQ(World.GetPlayState(), Durin::EWorldPlayState::Playing);
 		return Durin::Cast<Durin::Sandbox::APlayerPawn>(World.GetDefaultPawn());
 	}
 

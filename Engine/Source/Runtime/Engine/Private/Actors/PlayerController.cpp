@@ -12,15 +12,15 @@ namespace Durin
 	{
 	}
 
-	auto APlayerController::SetViewTarget(AActor* Target) -> FViewTargetResult
+	auto APlayerController::SetViewTarget(AActor* Target) -> void
 	{
 		if (!Target)
 		{
 			ViewTarget = nullptr;
-			return {};
+			return;
 		}
-		if (IsPendingKill() || IsBeingDestroyed()) return {EViewTargetError::ControllerUnavailable, "The player controller is being destroyed."};
-		if (Target->IsPendingKill() || Target->IsBeingDestroyed()) return {EViewTargetError::TargetUnavailable, "The requested view target is being destroyed."};
+		if (IsPendingKill() || IsBeingDestroyed()) { DURIN_WARN("The player controller is being destroyed."); return; }
+		if (Target->IsPendingKill() || Target->IsBeingDestroyed()) { DURIN_WARN("The requested view target is being destroyed."); return; }
 		auto* ControllerLevel = Cast<DLevel>(GetOuter());
 		auto* TargetLevel = Cast<DLevel>(Target->GetOuter());
 		DWorld* World = ControllerLevel ? ControllerLevel->GetWorld() : nullptr;
@@ -29,11 +29,11 @@ namespace Durin
 			|| !ControllerLevel->ContainsActor(this)
 			|| !ControllerLevel->ContainsActor(Target))
 		{
-			return {EViewTargetError::InvalidMembership, "The view target must be a live actor in the controller's active World level."};
+			DURIN_WARN("The view target must be a live actor in the controller's active World level.");
+			return;
 		}
-		if (World->IsEndingPlay()) return {EViewTargetError::WorldEnding, "View targets cannot change while the World is ending play."};
+		if (World->IsEndingPlay()) { DURIN_WARN("View targets cannot change while the World is ending play."); return; }
 		ViewTarget = Target;
-		return {};
 	}
 
 	auto APlayerController::BuildControlIntent(const FInputActionSnapshot&) const -> FPawnControlIntent

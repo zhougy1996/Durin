@@ -32,7 +32,8 @@ namespace
 		auto SetUp() -> void override
 		{
 			World = CreateWorld();
-			ASSERT_TRUE(World->BeginPlay({}));
+			World->BeginPlay({});
+			ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 		}
 		auto TearDown() -> void override
 		{
@@ -236,7 +237,8 @@ TEST_F(FWorldTimerTests, GarbageMarkedTargetsAreSkippedAndForeignWorldHandlesRej
 {
 	auto& Timers = World->GetTimerManager();
 	auto* Other = CreateWorld();
-	ASSERT_TRUE(Other->BeginPlay({}));
+	Other->BeginPlay({});
+	ASSERT_EQ(Other->GetPlayState(), Durin::EWorldPlayState::Playing);
 	auto* Actor = World->SpawnActor<Durin::AActor>();
 	int Calls = 0;
 	const auto Handle = Timers.SetTimerForObjectNextTick(Actor, [&](Durin::DObject&) { ++Calls; });
@@ -260,7 +262,8 @@ TEST_F(FWorldTimerTests, EndPlayCallbackStopsBatchAndNewPlayInvalidatesOldHandle
 	EXPECT_FALSE(World->HasBegunPlay());
 	EXPECT_FALSE(Timers.IsTimerActive(Old));
 	EXPECT_EQ(Timers.SetTimerForNextTick([] {}).Generation, 0u);
-	ASSERT_TRUE(World->BeginPlay({}));
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 	const auto Fresh = Timers.SetTimerForNextTick([&] { ++Calls; });
 	EXPECT_FALSE(Timers.ClearTimer(Old));
 	Tick();
@@ -372,7 +375,8 @@ TEST_F(FWorldTimerTests, BeginPlayCanRegisterBoundTimersBeforeTheFirstFrame)
 			[&](Durin::DObject& Target) { EXPECT_EQ(&Target, Actor); ++Calls; });
 		EXPECT_NE(Handle.Generation, 0u);
 	};
-	ASSERT_TRUE(World->BeginPlay({}));
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 	EXPECT_EQ(Calls, 0);
 	Tick();
 	EXPECT_EQ(Calls, 1);

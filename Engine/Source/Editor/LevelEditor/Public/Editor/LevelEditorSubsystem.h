@@ -8,18 +8,6 @@
 namespace Durin
 {
 	struct FLevelEditorHostContext;
-	DSTRUCT()
-	struct FLevelEditorPlayResult
-	{
-		GENERATED_BODY()
-		DPROPERTY()
-		bool bSucceeded = false;
-		DPROPERTY()
-		std::string Message;
-		DPROPERTY()
-		std::string State;
-	};
-
 	// Per-host scripting entrypoints; the editor engine owns the actual PIE lifetime.
 	DCLASS()
 	class DLevelEditorSubsystem : public DEditorSubsystem
@@ -36,17 +24,19 @@ namespace Durin
 		LEVELEDITOR_API auto OpenLevel(const std::string& AssetPath) -> bool;
 		LEVELEDITOR_API auto CancelLevelLoad() -> void;
 		DFUNCTION(Category = "Play in Editor")
-		LEVELEDITOR_API auto GetPlayStatus() const -> FLevelEditorPlayResult;
+		LEVELEDITOR_API auto IsInPlayInEditor() const -> bool;
 		DFUNCTION(Category = "Play in Editor")
-		LEVELEDITOR_API auto StartPlaySession() -> FLevelEditorPlayResult;
+		LEVELEDITOR_API auto EditorRequestBeginPlay() -> void;
 		DFUNCTION(Category = "Play in Editor")
-		LEVELEDITOR_API auto StopPlaySession() -> FLevelEditorPlayResult;
+		LEVELEDITOR_API auto EditorRequestEndPlay() -> void;
 		DFUNCTION(Category = "Play in Editor")
-		LEVELEDITOR_API auto SetPlaySessionPaused(bool bPaused) -> FLevelEditorPlayResult;
+		LEVELEDITOR_API auto SetPlaySessionPaused(bool bPaused) -> bool;
+		DFUNCTION(Category = "Play in Editor")
+		LEVELEDITOR_API auto IsPlaySessionPaused() const -> bool;
 		auto SetHostContext(std::shared_ptr<FLevelEditorHostContext> Context) -> void { HostContext = std::move(Context); }
 		auto GetHostContext() const -> std::shared_ptr<FLevelEditorHostContext> { return HostContext; }
 	private:
 		std::shared_ptr<FLevelEditorHostContext> HostContext;
-		auto Admit() const -> std::expected<DEditorEngine*, FLevelEditorPlayResult>;
+		auto GetActiveEditor() const -> DEditorEngine*;
 	};
 }

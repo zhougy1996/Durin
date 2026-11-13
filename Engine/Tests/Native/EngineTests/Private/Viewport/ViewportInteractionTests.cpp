@@ -598,9 +598,10 @@ TEST(FViewportSelectionTests, PrefersViewportClientThenControllerTargetThenPrima
 	ASSERT_NE(ControllerCamera, nullptr);
 	ControllerCamera->GetCameraComponent()->SetWorldLocation({21.0, 22.0, 23.0});
 	ASSERT_NE(Level->SpawnActor<Durin::APlayerStart>("Start"), nullptr);
-	ASSERT_TRUE(World->BeginPlay({
+	World->BeginPlay({
 		.GameModeClass = Durin::AGameMode::StaticClass(),
-		.ViewTargetOverride = ControllerCamera}));
+		.ViewTargetOverride = ControllerCamera});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 	Engine.SetTestWorld(World);
 	Durin::FViewportClient FallbackClient;
 	FallbackClient.SetViewSettings({

@@ -18,9 +18,9 @@ namespace Durin
 {
 	namespace
 	{
-		auto PlayFailure(EWorldPlayError Error, std::string Message) -> FWorldPlayResult
+		auto PlayFailure(std::string_view Message) -> void
 		{
-			return {Error, std::move(Message)};
+			DURIN_WARN("Cannot begin World play: {}", Message);
 		}
 
 		auto RestartFailure(EPlayerRestartError Error, std::string Message) -> FPlayerRestartResult
@@ -29,20 +29,20 @@ namespace Durin
 		}
 	}
 
-	auto DWorld::BeginPlay(const FWorldPlayRequest& Request) -> FWorldPlayResult
+	auto DWorld::BeginPlay(const FWorldPlayRequest& Request) -> void
 	{
 		if (Operation != EOperation::Idle)
-			return PlayFailure(EWorldPlayError::InvalidState, "World operation is in progress.");
+			return PlayFailure("World operation is in progress.");
 		FOperationScope OperationScope(*this, EOperation::BeginningPlay);
 		return BeginPlayInternal(Request);
 	}
 
-	auto DWorld::BeginPlayInternal(const FWorldPlayRequest& Request) -> FWorldPlayResult
+	auto DWorld::BeginPlayInternal(const FWorldPlayRequest& Request) -> void
 	{
 		if (!CanDispatchSubsystems() || PlayState != EWorldPlayState::Stopped)
-			return PlayFailure(EWorldPlayError::InvalidState, "The World must be stopped before play begins.");
+			return PlayFailure("The World must be stopped before play begins.");
 		if (!CurrentLevel)
-			return PlayFailure(EWorldPlayError::MissingLevel, "The World has no active level.");
+			return PlayFailure("The World has no active level.");
 
 		AGameMode* ExpectedGameMode = nullptr;
 		APlayerController* ExpectedController = nullptr;
@@ -50,7 +50,7 @@ namespace Durin
 		if (Request.GameModeClass)
 		{
 			if (!CanConstructObjectOfClass(Request.GameModeClass, AGameMode::StaticClass()))
-				return PlayFailure(EWorldPlayError::InvalidGameModeClass, "The requested game-mode class is not a constructible AGameMode.");
+				return PlayFailure("The requested game-mode class is not a constructible AGameMode.");
 
 			DLevel* Level = CurrentLevel.Get();
 			std::vector<TObjectPtr<AActor>> CreatedActors;
@@ -64,59 +64,59 @@ namespace Durin
 			};
 
 			auto* GameMode = Cast<AGameMode>(Level->SpawnActor(Request.GameModeClass, "GameMode"));
-			if (!GameMode) return PlayFailure(EWorldPlayError::GameModeSpawnFailed, "Could not spawn the requested game mode.");
+			if (!GameMode) return PlayFailure("Could not spawn the requested game mode.");
 			CreatedActors.emplace_back(GameMode);
 			DClass* ControllerClass = GameMode->GetPlayerControllerClass();
 			if (!CanConstructObjectOfClass(ControllerClass, APlayerController::StaticClass()))
 			{
 				Rollback();
-				return PlayFailure(EWorldPlayError::InvalidPlayerControllerClass, "The game mode selected an invalid player-controller class.");
+				return PlayFailure("The game mode selected an invalid player-controller class.");
 			}
 			DClass* PawnClass = GameMode->GetDefaultPawnClass();
 			if (!CanConstructObjectOfClass(PawnClass, APawn::StaticClass()))
 			{
 				Rollback();
-				return PlayFailure(EWorldPlayError::InvalidPawnClass, "The game mode selected an invalid default-pawn class.");
+				return PlayFailure("The game mode selected an invalid default-pawn class.");
 			}
 			APlayerStart* PlayerStart = GameMode->ChoosePlayerStart(*this);
 			if (!PlayerStart || !Level->ContainsActor(PlayerStart))
 			{
 				Rollback();
-				return PlayFailure(EWorldPlayError::MissingPlayerStart, "The active level has no valid player start.");
+				return PlayFailure("The active level has no valid player start.");
 			}
 
 			auto* Controller = Cast<APlayerController>(Level->SpawnActor(ControllerClass, "LocalPlayerController"));
 			if (!Controller)
 			{
 				Rollback();
-				return PlayFailure(EWorldPlayError::PlayerControllerSpawnFailed, "Could not spawn the local player controller.");
+				return PlayFailure("Could not spawn the local player controller.");
 			}
 			CreatedActors.emplace_back(Controller);
 			auto* Pawn = Cast<APawn>(Level->SpawnActor(PawnClass, "DefaultPawn"));
 			if (!Pawn)
 			{
 				Rollback();
-				return PlayFailure(EWorldPlayError::PawnSpawnFailed, "Could not spawn the default pawn.");
+				return PlayFailure("Could not spawn the default pawn.");
 			}
 			CreatedActors.emplace_back(Pawn);
 			if (!Pawn->SetActorTransform(PlayerStart->GetActorTransform()))
 			{
 				Rollback();
-				return PlayFailure(EWorldPlayError::PawnPlacementFailed, "Could not place the default pawn at the selected player start.");
+				return PlayFailure("Could not place the default pawn at the selected player start.");
 			}
-			const FPossessionResult Possession = Controller->Possess(Pawn);
-			if (!Possession)
+			Controller->Possess(Pawn);
+			if (Controller->GetPawn() != Pawn || Pawn->GetController() != Controller)
 			{
 				Rollback();
-				return PlayFailure(EWorldPlayError::PossessionFailed, std::format("Could not possess the default pawn: {}", Possession.Message));
+				return PlayFailure("Could not possess the default pawn.");
 			}
 			if (Request.ViewTargetOverride)
 			{
-				const FViewTargetResult ViewResult = Controller->SetViewTarget(Request.ViewTargetOverride);
-				if (!ViewResult)
+				Controller->SetViewTarget(Request.ViewTargetOverride);
+				if (Controller->GetViewTarget() != Request.ViewTargetOverride)
 				{
 					Rollback();
-					return PlayFailure(EWorldPlayError::ViewTargetRejected, std::format("Could not apply the requested view target: {}", ViewResult.Message));
+					return PlayFailure("Could not apply the requested view target.");
 				}
 			}
 
@@ -132,7 +132,7 @@ namespace Durin
 			if (!CanDispatchSubsystems())
 			{
 				Rollback();
-				return PlayFailure(EWorldPlayError::PlayAborted, "Native gameplay bootstrap requested a lifecycle transition.");
+				return PlayFailure("Native gameplay bootstrap requested a lifecycle transition.");
 			}
 		}
 
@@ -144,7 +144,7 @@ namespace Durin
 		if (!CanDispatchSubsystems() || PlayState != EWorldPlayState::BeginningPlay)
 		{
 			EndPlayInternal();
-			return PlayFailure(EWorldPlayError::PlayAborted, "Subsystem BeginPlay interrupted play.");
+			return PlayFailure("Subsystem BeginPlay interrupted play.");
 		}
 		const std::vector<TObjectPtr<AActor>> Actors = CapturedLevel->GetActors();
 		for (const TObjectPtr<AActor>& Actor : Actors)
@@ -162,7 +162,7 @@ namespace Durin
 		if (!CanDispatchSubsystems() || PlayState != EWorldPlayState::BeginningPlay || CurrentLevel.Get() != CapturedLevel)
 		{
 			EndPlayInternal();
-			return PlayFailure(EWorldPlayError::PlayAborted, "Play was interrupted by a gameplay callback.");
+			return PlayFailure("Play was interrupted by a gameplay callback.");
 		}
 		if (Request.GameModeClass
 			&& (!GameplaySession
@@ -176,10 +176,10 @@ namespace Durin
 				|| ExpectedPawn->GetController() != ExpectedController))
 		{
 			EndPlayInternal();
-			return PlayFailure(EWorldPlayError::PlayAborted, "Native gameplay bootstrap was invalidated by a BeginPlay callback.");
+			return PlayFailure("Native gameplay bootstrap was invalidated by a BeginPlay callback.");
 		}
 		PlayState = EWorldPlayState::Playing;
-		return {};
+		return;
 	}
 
 	auto DWorld::SetTimeScale(float InTimeScale) -> bool
@@ -326,20 +326,20 @@ namespace Durin
 			CurrentLevel->DestroyActor(Pawn);
 			return RestartFailure(EPlayerRestartError::PawnPlacementFailed, "Could not place the replacement pawn.");
 		}
-		const FPossessionResult Possession = Controller->Possess(Pawn);
-		if (!Possession)
+		Controller->Possess(Pawn);
+		if (Controller->GetPawn() != Pawn || Pawn->GetController() != Controller)
 		{
 			CurrentLevel->DestroyActor(Pawn);
-			return RestartFailure(EPlayerRestartError::PossessionFailed, std::format("Could not possess the replacement pawn: {}", Possession.Message));
+			return RestartFailure(EPlayerRestartError::PossessionFailed, "Could not possess the replacement pawn.");
 		}
 		if (Request.ViewTargetOverride)
 		{
-			const FViewTargetResult ViewResult = Controller->SetViewTarget(Request.ViewTargetOverride);
-			if (!ViewResult)
+			Controller->SetViewTarget(Request.ViewTargetOverride);
+			if (Controller->GetViewTarget() != Request.ViewTargetOverride)
 			{
 				Controller->UnPossess();
 				CurrentLevel->DestroyActor(Pawn);
-				return RestartFailure(EPlayerRestartError::ViewTargetRejected, std::format("Could not apply the replacement view target: {}", ViewResult.Message));
+				return RestartFailure(EPlayerRestartError::ViewTargetRejected, "Could not apply the replacement view target.");
 			}
 		}
 		GameplaySession->DefaultPawn = Pawn;

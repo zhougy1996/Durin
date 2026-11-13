@@ -4,7 +4,7 @@ Summary: Define levels, actors, world ownership, lifecycle mutation, and iterati
 
 Modules: Engine
 
-Last reviewed: 2026-11-10
+Last reviewed: 2026-11-13
 
 `DLevel` is the persistent scene asset. A packaged level is a top-level asset
 in a `.dasset` package. Levels retain actors through reflected `TObjectPtr` arrays.
@@ -154,6 +154,19 @@ while beginning or playing dispatches Actor BeginPlay exactly once through the
 Spawn path. Spawn is rejected before allocation while the World is ending.
 Repeated or recursive World BeginPlay and EndPlay calls are idempotent.
 
+`AController::Possess`, `APlayerController::SetViewTarget`, and
+`DWorld::BeginPlay` are synchronous `void` commands, matching the UE interface
+shape. Rejected operations log their reason at the owning boundary; there is no
+stored command result or completion history. Possession and view-target callers
+query `GetPawn`, `GetController`, and `GetViewTarget`. Startup hosts check
+`GetPlayState() == EWorldPlayState::Playing` after `BeginPlay` returns, since
+callbacks can interrupt startup and `HasBegunPlay()` also includes Actor startup.
+Invalid possession or view-target membership preserves the existing association;
+failed gameplay bootstrap retires its newly created actors and leaves the World
+stopped. Durin retains an explicit `FWorldPlayRequest` for lifecycle-only Worlds
+and optional native gameplay bootstrap; UE configures these through its broader
+game-mode and World initialization lifecycle.
+
 Process placement of World Tick and the GameThread completion pumps is defined
 by [Runtime Lifecycle](../Application/RuntimeLifecycle.md).
 
@@ -209,9 +222,9 @@ order supplies the pawn transform. The World places and possesses the pawn,
 publishes its private gameplay-session roles, and only then dispatches the
 subsystem callbacks followed by the normal forward Actor BeginPlay pass.
 
-Any class, start, spawn, placement, possession, or view-target failure returns
-an `FWorldPlayResult`, destroys partial runtime Actors in reverse creation
-order, preserves authored Actors, and leaves the World stopped. EndPlay first
+Any class, start, spawn, placement, possession, or view-target failure logs its
+diagnostic, destroys partial runtime Actors in reverse creation order, preserves
+authored Actors, and leaves the World stopped. EndPlay first
 routes the normal reverse Actor pass and then destroys only the session-created
 Actors. `RestartPlayer` preserves the controller, removes the old pawn, and
 uses the same select/place/possess ordering; a failed restart leaves the

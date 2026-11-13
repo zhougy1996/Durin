@@ -626,8 +626,12 @@ TEST_F(FWorldSubsystemTests, SurvivesLevelReplacementAndPairsRepeatedPlay)
 		if (Event == "Attach" || Event == "Detach") EXPECT_NE(Object.GetWorld()->GetCurrentLevel(), nullptr);
 	};
 	ASSERT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World, "First")));
-	ASSERT_TRUE(World->BeginPlay({})); World->EndPlay();
-	ASSERT_TRUE(World->BeginPlay({})); World->EndPlay();
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
+	World->EndPlay();
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
+	World->EndPlay();
 	ASSERT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World, "Second")));
 	EXPECT_EQ(World->GetSubsystem<FSubsystemProbeA>(), Instance);
 	World->CleanupWorld();
@@ -651,7 +655,8 @@ TEST_F(FWorldSubsystemTests, BeginPlayRetirementCompletesBatchBeforeReverseClean
 			EXPECT_FALSE(World->HasBegunPlay());
 		}
 	};
-	EXPECT_EQ(World->BeginPlay({}).Error, EWorldPlayError::PlayAborted);
+	World->BeginPlay({});
+	EXPECT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Stopped);
 	EXPECT_FALSE(World->AreSubsystemsInitialized());
 	EXPECT_EQ(Events, (std::vector<std::string>{"A.Begin", "B.Begin", "B.End", "A.End", "B.Detach", "A.Detach", "B.Deinit", "A.Deinit"}));
 	World->CleanupWorld();
@@ -674,13 +679,15 @@ TEST_F(FWorldSubsystemTests, EndPlayRequestDuringBeginPairsWholeBatchAndAllowsAn
 		}
 		if (Event == "End") { ++Ends; World->EndPlay(); }
 	};
-	EXPECT_EQ(World->BeginPlay({}).Error, EWorldPlayError::PlayAborted);
+	World->BeginPlay({});
+	EXPECT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Stopped);
 	EXPECT_EQ(Begins, 2); EXPECT_EQ(Ends, 2);
 	EXPECT_TRUE(World->AreSubsystemsInitialized());
 	EXPECT_EQ(World->GetPlayState(), EWorldPlayState::Stopped);
 	World->EndPlay(); EXPECT_EQ(Ends, 2);
 	bRequestEnd = false;
-	ASSERT_TRUE(World->BeginPlay({}));
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 	World->EndPlay();
 	EXPECT_EQ(Begins, 4); EXPECT_EQ(Ends, 4);
 }
@@ -698,11 +705,13 @@ TEST_F(FWorldSubsystemTests, BootstrapStopDoesNotEnterOrEndSubsystemPlayBatch)
 		if (Event == "Begin") ++Begins;
 		if (Event == "End") ++Ends;
 	};
-	EXPECT_EQ(World->BeginPlay({.GameModeClass = FStoppingBootstrapGameMode::StaticClass()}).Error, EWorldPlayError::PlayAborted);
+	World->BeginPlay({.GameModeClass = FStoppingBootstrapGameMode::StaticClass()});
+	EXPECT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Stopped);
 	EXPECT_EQ(Begins, 0); EXPECT_EQ(Ends, 0);
 	EXPECT_EQ(Level->GetActors().size(), 1u);
 	EXPECT_EQ(World->GetPlayState(), EWorldPlayState::Stopped);
-	ASSERT_TRUE(World->BeginPlay({.GameModeClass = AGameMode::StaticClass()}));
+	World->BeginPlay({.GameModeClass = AGameMode::StaticClass()});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 	World->EndPlay();
 	EXPECT_EQ(Begins, 2); EXPECT_EQ(Ends, 2);
 }
@@ -775,7 +784,8 @@ TEST_F(FWorldSubsystemTests, PauseOptInSingleStepAndPlayLifetimeAreIndependent)
 		EXPECT_EQ(Ticks, 2);
 		EXPECT_FLOAT_EQ(Service->LastDelta, 0.1f);
 		ASSERT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World, "Level")));
-		ASSERT_TRUE(World->BeginPlay({}));
+		World->BeginPlay({});
+		ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 		World->SetPaused(true);
 		World->Tick({});
 		EXPECT_EQ(Ticks, 2);
@@ -801,7 +811,8 @@ TEST_F(FWorldSubsystemTests, TickRunsAfterTimersAndHonorsTheirRetirementRequests
 	auto* World = MakeWorld();
 	World->InitializeSubsystems();
 	ASSERT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World, "Level")));
-	ASSERT_TRUE(World->BeginPlay({}));
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 	std::vector<std::string> Events;
 	FSubsystemProbeA::Callback = [&](auto&, std::string_view Event) {
 		if (Event == "Tick") Events.emplace_back(Event);
@@ -923,7 +934,8 @@ TEST_F(FWorldSubsystemTests, TickEndPlayCompletesBatchAndRetainsServicesForAnoth
 	FWorldSubsystemRegistration B({.Type = FSubsystemProbeB::StaticClass()});
 	auto* World = MakeWorld(); ASSERT_NO_THROW(World->InitializeSubsystems());
 	ASSERT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World, "Level")));
-	ASSERT_TRUE(World->BeginPlay({}));
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 	int Ticks = 0;
 	FSubsystemProbeA::Callback = [&](FSubsystemProbeA& Object, std::string_view Event) {
 		if (Event == "Tick") {
@@ -934,7 +946,8 @@ TEST_F(FWorldSubsystemTests, TickEndPlayCompletesBatchAndRetainsServicesForAnoth
 	World->Tick({});
 	EXPECT_EQ(Ticks, 2); EXPECT_FALSE(World->HasBegunPlay());
 	EXPECT_TRUE(World->AreSubsystemsInitialized());
-	ASSERT_TRUE(World->BeginPlay({}));
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 }
 
 TEST_F(FWorldSubsystemTests, AttachmentTransitionCompletesBatchAndAppliesAtNextTick)
@@ -976,9 +989,11 @@ TEST_F(FWorldSubsystemTests, ServiceSpawnedActorsBeginOnlyAfterAllServicesAndBoo
 		if (Object.GetClass() == FSubsystemProbeA::StaticClass()) Spawned = World->SpawnActor<AActor>("ServiceActor");
 		EXPECT_TRUE(Spawned && !Spawned->HasBegunPlay());
 	};
-	EXPECT_EQ(World->BeginPlay({.GameModeClass = AGameMode::StaticClass()}).Error, EWorldPlayError::MissingPlayerStart);
+	World->BeginPlay({.GameModeClass = AGameMode::StaticClass()});
+	EXPECT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Stopped);
 	EXPECT_EQ(BeginCount, 0);
-	ASSERT_TRUE(World->BeginPlay({}));
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 	EXPECT_EQ(BeginCount, 2);
 	ASSERT_NE(Spawned, nullptr); EXPECT_TRUE(Spawned->HasBegunPlay());
 }
@@ -1009,7 +1024,8 @@ TEST_F(FWorldSubsystemTests, TransitionOwnsTargetAcrossEndPlayAndPreservesNextRe
 	auto* World = MakeWorld(); ASSERT_NO_THROW(World->InitializeSubsystems());
 	auto* First = NewObject<DLevel>(World, "First");
 	ASSERT_TRUE(World->SetCurrentLevel(First));
-	ASSERT_TRUE(World->BeginPlay({}));
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 	auto* Second = NewObject<DLevel>(World, "Second");
 	auto* Third = NewObject<DLevel>(World, "Third");
 	bool bRequested = false;
@@ -1038,7 +1054,8 @@ TEST_F(FWorldSubsystemTests, TickRequestsCollectionAndRejectsRecursiveWorldOpera
 	FWorldSubsystemRegistration A({.Type = FSubsystemProbeA::StaticClass()});
 	auto* World = MakeWorld(); ASSERT_NO_THROW(World->InitializeSubsystems());
 	ASSERT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World, "Level")));
-	ASSERT_TRUE(World->BeginPlay({}));
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 	TObjectPtr<DObject> Garbage = NewObject<DObject>(nullptr, "DeferredGarbage");
 	int Ticks = 0;
 	FSubsystemProbeA::Callback = [&](FSubsystemProbeA&, std::string_view Event) {
@@ -1046,7 +1063,7 @@ TEST_F(FWorldSubsystemTests, TickRequestsCollectionAndRejectsRecursiveWorldOpera
 		++Ticks;
 		World->Tick({});
 		World->EndPlay();
-		EXPECT_FALSE(World->BeginPlay({}));
+		World->BeginPlay({});
 		EXPECT_TRUE(World->HasBegunPlay());
 		MarkAsGarbage(Garbage.Get());
 		RequestGarbageCollection();
@@ -1059,7 +1076,8 @@ TEST_F(FWorldSubsystemTests, TickRequestsCollectionAndRejectsRecursiveWorldOpera
 
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Garbage.Get(), nullptr);
-	ASSERT_TRUE(World->BeginPlay({}));
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 	FSubsystemProbeA::Callback = {};
 	World->Tick({}); // Previous frame must have ended before the next StartFrame.
 }
@@ -1070,7 +1088,8 @@ TEST_F(FWorldSubsystemTests, EndPlayCanQueueReturnToOriginalLevelDuringTransitio
 	auto* World = MakeWorld(); ASSERT_NO_THROW(World->InitializeSubsystems());
 	auto* First = NewObject<DLevel>(World, "First");
 	ASSERT_TRUE(World->SetCurrentLevel(First));
-	ASSERT_TRUE(World->BeginPlay({}));
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 	auto* Second = NewObject<DLevel>(World, "Second");
 	FSubsystemProbeA::Callback = [&](FSubsystemProbeA&, std::string_view Event) {
 		if (Event == "End") EXPECT_TRUE(World->RequestLevelTransition(First));
@@ -1814,7 +1833,8 @@ TEST_F(FWorldSubsystemTests, StructuralActorEditingRejectsSubsystemBeginPlayBefo
 		EXPECT_FALSE(Host->GetTransactor()->Undo());
 		EXPECT_EQ(Host->GetTransactor()->GetUndoId(), UndoId);
 	};
-	ASSERT_TRUE(World->BeginPlay({}));
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 	EXPECT_EQ(Calls, 1);
 	World->EndPlay();
 	ASSERT_TRUE(Host->GetTransactor()->Undo());

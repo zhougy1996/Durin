@@ -11,25 +11,6 @@ namespace Durin
 {
 	class APawn;
 
-	// Categorizes every observable possession rejection without relying on log output.
-	enum class EPossessionError : uint8
-	{
-		None,
-		NullPawn,
-		ControllerUnavailable,
-		PawnUnavailable,
-		InvalidMembership,
-		WorldEnding
-	};
-
-	struct FPossessionResult
-	{
-		EPossessionError Error = EPossessionError::None;
-		std::string Message;
-
-		explicit operator bool() const { return Error == EPossessionError::None; }
-	};
-
 	// Owns the authoritative mutation boundary for reciprocal controller/pawn possession.
 	DCLASS()
 	class AController : public AActor
@@ -37,7 +18,7 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		ENGINE_API explicit AController(const FObjectInitializer& ObjectInitializer);
-		ENGINE_API auto Possess(APawn* Pawn) -> FPossessionResult;
+		ENGINE_API auto Possess(APawn* Pawn) -> void;
 		ENGINE_API auto UnPossess() -> void;
 		ENGINE_API auto EndPlay() -> void override;
 

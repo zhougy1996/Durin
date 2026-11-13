@@ -52,7 +52,8 @@ TEST(FComponentInstanceLifecycleTests, OrdinaryReregistrationPreservesPlayInitia
 	FTransactionEngineWorld Fixture(EWorldType::Game);
 	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("OrdinaryReregister"); ASSERT_NE(Actor, nullptr);
 	auto* Root = static_cast<DTransactionLifecycleScene*>(Actor->GetRootComponent());
-	ASSERT_TRUE(Fixture.World->BeginPlay({}));
+	Fixture.World->BeginPlay({});
+	ASSERT_EQ(Fixture.World->GetPlayState(), Durin::EWorldPlayState::Playing);
 	ASSERT_TRUE(Root->SetComponentTickGroup(ETickingGroup::PostPhysics)); Root->SetComponentTickEnabled(true);
 	const auto Before = Root->CaptureLifecycleState();
 	int TimerCalls = 0;

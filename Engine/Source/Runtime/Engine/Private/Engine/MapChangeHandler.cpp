@@ -145,8 +145,8 @@ namespace Durin
 			if (bCancelRequested) return;
 			if (GameMode.has_value())
 			{
-				const auto Play = World->BeginPlay({.GameModeClass = *GameMode});
-				if (!Play) return Fail(Play.Message);
+				World->BeginPlay({.GameModeClass = *GameMode});
+				if (World->GetPlayState() != EWorldPlayState::Playing) return Fail("The loaded World could not begin play. See World diagnostics for details.");
 				if (bCancelRequested) return;
 			}
 			SetPhase(EMapChangePhase::Ready);

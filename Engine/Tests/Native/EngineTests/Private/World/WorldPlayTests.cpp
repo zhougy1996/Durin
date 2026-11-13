@@ -96,7 +96,8 @@ TEST(FNativeConstructionPIETests, SplineMeshActorRegeneratesTransientSegmentsAnd
 		EXPECT_EQ(PlaySegment->GetCreationMethod(), Durin::EComponentCreationMethod::Generated);
 		EXPECT_TRUE(PlaySegment->IsRegistered());
 	}
-	ASSERT_TRUE(PlayWorld->BeginPlay({}));
+	PlayWorld->BeginPlay({});
+	ASSERT_EQ(PlayWorld->GetPlayState(), Durin::EWorldPlayState::Playing);
 	for (Durin::DActorComponent* PlaySegment : PlaySegments) EXPECT_TRUE(PlaySegment->HasBegunPlay());
 	Durin::FSplinePoint Edited = *PlayActor->GetSplineComponent()->GetSplinePoint(1);
 	Edited.Position.y = 35.0;

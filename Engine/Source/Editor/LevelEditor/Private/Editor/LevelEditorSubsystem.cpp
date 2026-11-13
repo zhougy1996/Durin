@@ -10,18 +10,6 @@
 
 namespace Durin
 {
-	namespace
-	{
-		auto Result(bool bSucceeded, std::string Message, const DEditorEngine* Editor = nullptr) -> FLevelEditorPlayResult
-		{
-			FLevelEditorPlayResult Value;
-			Value.bSucceeded = bSucceeded;
-			Value.Message = std::move(Message);
-			if (Editor) Value.State = !Editor->IsPlaying() ? "stopped" : Editor->IsPlaySessionPaused() ? "paused" : "playing";
-			return Value;
-		}
-	}
-
 	DLevelEditorSubsystem::DLevelEditorSubsystem(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
 	auto DLevelEditorSubsystem::Initialize(FSubsystemCollection& Collection) -> void
@@ -29,7 +17,7 @@ namespace Durin
 
 	auto DLevelEditorSubsystem::LoadLevel(const std::string& AssetPath) -> bool
 	{
-		if (!Admit()) return false;
+		if (!GetActiveEditor()) return false;
 		auto* Assets = GetEditor()->GetEditorSubsystem<DAssetEditorSubsystem>();
 		if (!Assets) return false;
 		auto* Owner = FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor").GetOrCreateLevelEditor(*Assets);
@@ -41,7 +29,7 @@ namespace Durin
 	}
 	auto DLevelEditorSubsystem::OpenLevel(const std::string& AssetPath) -> bool
 	{
-		if (!Admit()) return false;
+		if (!GetActiveEditor()) return false;
 		auto* Assets = GetEditor()->GetEditorSubsystem<DAssetEditorSubsystem>();
 		if (!Assets) return false;
 		auto* Owner = FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor").GetOrCreateLevelEditor(*Assets);
@@ -61,45 +49,47 @@ namespace Durin
 		HostContext.reset();
 	}
 
-	auto DLevelEditorSubsystem::Admit() const -> std::expected<DEditorEngine*, FLevelEditorPlayResult>
+	auto DLevelEditorSubsystem::GetActiveEditor() const -> DEditorEngine*
 	{
-		if (!IsInGameThread()) return std::unexpected(Result(false, "Play controls require the game thread."));
-		if (!IsValid(this)) return std::unexpected(Result(false, "The level editor service is unavailable."));
+		if (!IsInGameThread() || !IsValid(this)) return nullptr;
 		auto* Editor = GetEditor();
-		if (!IsValid(Editor) || Editor->IsShutdownRequested() || Editor->GetEditorSubsystem<DLevelEditorSubsystem>() != this)
-			return std::unexpected(Result(false, "The level editor service is unavailable or retiring."));
-		return Editor;
+		return IsValid(Editor) && !Editor->IsShutdownRequested()
+			&& Editor->GetEditorSubsystem<DLevelEditorSubsystem>() == this ? Editor : nullptr;
 	}
 
-	auto DLevelEditorSubsystem::GetPlayStatus() const -> FLevelEditorPlayResult
+	auto DLevelEditorSubsystem::IsInPlayInEditor() const -> bool
 	{
-		auto Editor = Admit(); if (!Editor) return Editor.error();
-		return Result(true, !(*Editor)->IsPlaying() ? "Stopped" : (*Editor)->IsPlaySessionPaused() ? "Paused" : "Playing", *Editor);
+		const auto* Editor = GetActiveEditor();
+		return Editor && Editor->IsPlaying();
 	}
 
-	auto DLevelEditorSubsystem::StartPlaySession() -> FLevelEditorPlayResult
+	auto DLevelEditorSubsystem::EditorRequestBeginPlay() -> void
 	{
-		auto Editor = Admit(); if (!Editor) return Editor.error();
-		if (!(*Editor)->GetEditorWorld()) return Result(false, "The editor world is unavailable.", *Editor);
+		auto* Editor = GetActiveEditor();
+		if (!Editor || Editor->IsPlaying()) return;
+		if (!Editor->GetEditorWorld())
+		{ DURIN_WARN("Cannot begin PIE: the editor world is unavailable."); return; }
 		std::string Error;
-		if (!(*Editor)->StartPlaySession((*Editor)->GetEditorWorld()->GetCurrentLevel(), &Error))
-			return Result(false, std::move(Error), *Editor);
-		return Result(true, "Play session started.", *Editor);
+		if (!Editor->StartPlaySession(Editor->GetEditorWorld()->GetCurrentLevel(), &Error))
+			DURIN_WARN("Cannot begin PIE: {}", Error);
 	}
 
-	auto DLevelEditorSubsystem::StopPlaySession() -> FLevelEditorPlayResult
+	auto DLevelEditorSubsystem::EditorRequestEndPlay() -> void
 	{
-		auto Editor = Admit(); if (!Editor) return Editor.error();
-		if (!(*Editor)->IsPlaying()) return Result(false, "No Play session is active.", *Editor);
-		(*Editor)->StopPlaySession();
-		return Result(true, "Play session stopped.", *Editor);
+		if (auto* Editor = GetActiveEditor()) Editor->StopPlaySession();
 	}
 
-	auto DLevelEditorSubsystem::SetPlaySessionPaused(bool bPaused) -> FLevelEditorPlayResult
+	auto DLevelEditorSubsystem::SetPlaySessionPaused(bool bPaused) -> bool
 	{
-		auto Editor = Admit(); if (!Editor) return Editor.error();
-		if (!(*Editor)->IsPlaying()) return Result(false, "No Play session is active.", *Editor);
-		(*Editor)->SetPlaySessionPaused(bPaused);
-		return Result(true, bPaused ? "Play paused." : "Play resumed.", *Editor);
+		auto* Editor = GetActiveEditor();
+		if (!Editor || !Editor->IsPlaying()) return false;
+		Editor->SetPlaySessionPaused(bPaused);
+		return Editor->IsPlaySessionPaused() == bPaused;
+	}
+
+	auto DLevelEditorSubsystem::IsPlaySessionPaused() const -> bool
+	{
+		const auto* Editor = GetActiveEditor();
+		return Editor && Editor->IsPlaying() && Editor->IsPlaySessionPaused();
 	}
 }

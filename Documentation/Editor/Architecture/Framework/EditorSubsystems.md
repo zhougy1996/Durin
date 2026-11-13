@@ -175,22 +175,29 @@ unimplemented. Concrete module startup/rollback stays in MainFrame during migrat
 
 `DLevelEditorSubsystem` in `Editor/LevelEditorSubsystem.h` belongs to LevelEditor,
 which depends publicly on DurinEd's subsystem contract. Each editor owns one instance
-that survives repeated PIE sessions. Its `DFUNCTION` entrypoints are
-`GetPlayStatus()`, `StartPlaySession()`, `StopPlaySession()` and
-`SetPlaySessionPaused(bool bPaused)`. They return the reflected
-`FLevelEditorPlayResult` containing `bSucceeded`, `Message` and `State`.
-Admission requires GameThread, a live service registered with its owning host
-with no pending host shutdown. Rejected admission leaves State empty; admitted
-calls report `stopped`, `playing` or `paused`, including business failures.
+that survives repeated PIE sessions. Its main reflected interfaces follow UE's
+LevelEditorSubsystem: `EditorRequestBeginPlay()` and `EditorRequestEndPlay()`
+return void; `IsInPlayInEditor()` returns bool. Begin/end requests do not return a
+status snapshot, and repeated requests have no effect once the target state is
+already reached. Durin's pause extension uses `SetPlaySessionPaused(bool)` with a
+bool return and the independent `IsPlaySessionPaused()` query.
 
-The subsystem owns script-facing domain checks and delegates actual play-world
-creation, teardown and pause changes to `DEditorEngine`. Stopping or pausing
-without an active session fails; starting without a current editor level fails.
-These methods are not `CallInEditor` actions and do not create Undo transactions
-or automatically grant Python/MCP exposure. The existing `editor.pie` Toolset
-resolves this service on its admitting host and converts successful results to
-the unchanged `{message, state}` contract; failures remain DomainFailure
-diagnostics. Python and MCP continue through the existing tool service.
+Admission requires GameThread and a live service registered with its own active
+host, with no pending shutdown. Rejected commands do nothing and queries return
+false. A retained service cannot redirect calls to a later editor. The private
+admission helper returns the active editor pointer rather than a PIE result DTO.
+Actual creation, teardown and pause state remain in `DEditorEngine`; these requests
+execute synchronously in the current implementation and add no queue or completion
+history. Begin failures are logged at the request boundary. The methods are not
+`CallInEditor` actions and create no Undo transactions or implicit external exposure.
+
+The `editor.pie` Toolset owns transport-facing success/failure policy, messages and
+serialization of `stopped`, `playing` or `paused`. It queries current engine state
+through the service and preserves its `{message, state}` success schema and
+DomainFailure diagnostics. A repeated native end request is harmless; a tool stop
+without active PIE still reports a domain failure. Python/MCP use the existing tool
+service. No `FLevelEditorPlayResult` or cached status strings are maintained by the
+Level subsystem.
 
 LevelEditor's module startup publishes both the subsystem provider and PIE
 Toolset without constructing a workspace or native window. Workspace activation

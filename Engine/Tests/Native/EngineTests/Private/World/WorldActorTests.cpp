@@ -152,7 +152,8 @@ TEST(FNativeConstructionTests, RecreatesComponentsWithImmediateOwnershipAndLiveL
 	const auto Before = Actor->ConstructionCalls; Actor->bRequestAgain = true;
 	ASSERT_TRUE(Actor->RerunConstructionScripts()); EXPECT_EQ(Actor->ConstructionCalls, Before + 2);
 	First = Actor->Acquired[0]; Actor->bReconstructOnBeginPlay = true;
-	ASSERT_TRUE(World->BeginPlay({}));
+	World->BeginPlay({});
+	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
 	EXPECT_TRUE(Actor->bOutputStableDuringBeginPlay);
 	EXPECT_TRUE(First->IsPendingKill());
 	First = Actor->Acquired[0]; EXPECT_TRUE(First->HasBegunPlay());

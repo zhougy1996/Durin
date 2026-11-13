@@ -41,39 +41,11 @@ namespace Durin
 		EndingPlay
 	};
 
-	// Categorizes native gameplay bootstrap failures at the World publication boundary.
-	enum class EWorldPlayError : uint8
-	{
-		None,
-		InvalidState,
-		MissingLevel,
-		CollisionNotReady,
-		InvalidGameModeClass,
-		GameModeSpawnFailed,
-		InvalidPlayerControllerClass,
-		InvalidPawnClass,
-		MissingPlayerStart,
-		PlayerControllerSpawnFailed,
-		PawnSpawnFailed,
-		PawnPlacementFailed,
-		PossessionFailed,
-		ViewTargetRejected,
-		PlayAborted
-	};
-
 	// Requests either lifecycle-only play or one native local-player gameplay session.
 	struct FWorldPlayRequest
 	{
 		DClass* GameModeClass = nullptr;
 		AActor* ViewTargetOverride = nullptr;
-	};
-
-	struct FWorldPlayResult
-	{
-		EWorldPlayError Error = EWorldPlayError::None;
-		std::string Message;
-
-		explicit operator bool() const { return Error == EWorldPlayError::None; }
 	};
 
 	// Makes per-tick timing and the optional Engine-owned raw input source explicit.
@@ -151,7 +123,8 @@ namespace Durin
 		ENGINE_API auto SetCurrentLevel(DLevel* Level, bool bDestroyPreviousOwnedLevel = true) -> bool;
 		// Queues one Level change for the next World tick so callbacks cannot invalidate their active lifecycle stack.
 		ENGINE_API auto RequestLevelTransition(DLevel* Level, bool bDestroyPreviousOwnedLevel = true) -> bool;
-		ENGINE_API auto BeginPlay(const FWorldPlayRequest& Request) -> FWorldPlayResult;
+		// Synchronous lifecycle command. Check GetPlayState() after callbacks for completed startup.
+		ENGINE_API auto BeginPlay(const FWorldPlayRequest& Request = {}) -> void;
 		ENGINE_API auto Tick(const FWorldTickContext& Context) -> void;
 		// During an operation, requests a stop; entered callbacks and the Tick frame finish first.
 		ENGINE_API auto EndPlay() -> void;
@@ -263,7 +236,7 @@ namespace Durin
 		bool bBeginningSubsystemPlay = false;
 		auto CanDispatchSubsystems() const -> bool;
 		auto FlushLifecycleRequests() -> void;
-		auto BeginPlayInternal(const FWorldPlayRequest& Request) -> FWorldPlayResult;
+		auto BeginPlayInternal(const FWorldPlayRequest& Request) -> void;
 		auto EndPlayInternal() -> void;
 		auto SetCurrentLevelInternal(DLevel* Level, bool bDestroyPreviousOwnedLevel) -> bool;
 		friend class FWorldSubsystemCollection;

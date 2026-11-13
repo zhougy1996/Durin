@@ -555,13 +555,13 @@ namespace Durin
 			if (OutError) *OutError = FormatTransactorResult(Reset);
 			return false;
 		}
-		const FWorldPlayResult PlayResult = NewPlayWorld->BeginPlay({
+		NewPlayWorld->BeginPlay({
 			.GameModeClass = GameModeClass,
 			.ViewTargetOverride = ViewTargetOverride});
-		if (!PlayResult)
+		if (NewPlayWorld->GetPlayState() != EWorldPlayState::Playing)
 		{
 			StopPlaySession();
-			if (OutError) *OutError = PlayResult.Message;
+			if (OutError) *OutError = "The Play World could not begin play. See World diagnostics for details.";
 			return false;
 		}
 		PlayState = EPlayState::Playing;
