@@ -56,15 +56,39 @@ TEST(FMaterialProgramOwnershipTests, ConfigurationCopiesShareArtifactsAndEditorD
 	ASSERT_TRUE(Configured.Program && *Configured.Program);
 	EXPECT_TRUE(Configured.RetainedHit);
 	EXPECT_EQ(Configured.Program->GetShaderMap().ShaderMapId, Original->GetShaderMap().ShaderMapId);
-	EXPECT_EQ(Configured.Program->ShaderMap, Original->ShaderMap);
+	EXPECT_EQ(Configured.Program->Resource.ShaderMap, Original->Resource.ShaderMap);
 	EXPECT_EQ(Configured.Program->GetShaderMap().DebugData, Original->GetShaderMap().DebugData);
-	EXPECT_EQ(Configured.Program->Quality, EMaterialQualityLevel::Low);
-	EXPECT_EQ(Original->Quality, EMaterialQualityLevel::High);
+	EXPECT_EQ(Configured.Program->Resource.Quality, EMaterialQualityLevel::Low);
+	EXPECT_EQ(Original->Resource.Quality, EMaterialQualityLevel::High);
 	EXPECT_TRUE(ValidateMaterialCompilerResult(*Configured.Program));
 	const auto Value = MIR::Compile(Input);
-	EXPECT_EQ(Value.ShaderMap, Original->ShaderMap);
+	EXPECT_EQ(Value.Resource.ShaderMap, Original->Resource.ShaderMap);
 	EXPECT_EQ(Value.GetShaderMap().DebugData, Original->GetShaderMap().DebugData);
-	EXPECT_EQ(Value.Quality, EMaterialQualityLevel::Low);
+	EXPECT_EQ(Value.Resource.Quality, EMaterialQualityLevel::Low);
+}
+
+TEST(FMaterialProgramOwnershipTests, ResourcePresenceValidationAndCompletionAreIndependent)
+{
+	using namespace Durin;
+	static_assert(!std::is_base_of_v<FMaterialProgramResource, FMaterialCompilerResult>);
+	static_assert(!std::is_convertible_v<FMaterialCompilerResult, FMaterialProgramResource>);
+	static_assert(!std::is_constructible_v<bool, FMaterialProgramResource>);
+	FMaterialProgramResource Empty;
+	EXPECT_FALSE(Empty.HasShaderMap());
+	EXPECT_FALSE(Empty.IsValid());
+	Empty.ShaderMap = std::make_shared<FMaterialShaderMap>();
+	EXPECT_TRUE(Empty.HasShaderMap());
+	EXPECT_FALSE(Empty.IsValid());
+
+	InitializeDObjectSystem();
+	MIR::FCompilerInput Input{.IR = MakeDefaultMaterialCompilerIR()};
+	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment));
+	auto Completed = MIR::Compile(Input);
+	ASSERT_TRUE(Completed);
+	ASSERT_TRUE(Completed.Resource.IsValid());
+	Completed.Status = EMaterialProgramStatus::Error;
+	EXPECT_FALSE(ValidateMaterialCompilerResult(Completed));
+	EXPECT_TRUE(Completed.Resource.IsValid());
 }
 
 TEST(FMaterialCustomDataTests, NumericRangesAndStableInstanceSnapshotsAreAtomic)
@@ -284,7 +308,7 @@ TEST(FMaterialShaderStageTests, PixelEditsShareVertexProductsAndRequiredSetsAdmi
 	{
 		auto Broken = Selected;
 		auto BrokenArtifact = std::make_shared<FMaterialShaderMap>(Selected.GetShaderMap());
-		Broken.ShaderMap = BrokenArtifact;
+		Broken.Resource.ShaderMap = BrokenArtifact;
 		if (Kind == 0) BrokenArtifact->CompiledShaders.pop_back();
 		if (Kind == 1) BrokenArtifact->CompiledShaders.push_back(Cold.GetShaderMap().CompiledShaders[5]);
 		if (Kind == 2) std::swap(BrokenArtifact->CompiledShaders[0], BrokenArtifact->CompiledShaders[1]);
@@ -292,11 +316,11 @@ TEST(FMaterialShaderStageTests, PixelEditsShareVertexProductsAndRequiredSetsAdmi
 		EXPECT_FALSE(ValidateMaterialCompilerResult(Broken));
 	}
 	FByteBuffer Bytes;
-	ASSERT_TRUE(Testing::EncodeMaterialCookedProgramFamilyForTest(Selected, Input.StaticProperties,
+	ASSERT_TRUE(Testing::EncodeMaterialCookedProgramFamilyForTest(Selected.Resource, Input.StaticProperties,
 		ECookTargetPlatform::Win64, ECookTargetProfile::Game, Bytes));
-	FMaterialStaticProperties LoadedProperties; std::shared_ptr<const FMaterialCompilerResult> Loaded;
+	FMaterialStaticProperties LoadedProperties; std::shared_ptr<const FMaterialProgramResource> Loaded;
 	ASSERT_TRUE(Testing::DecodeMaterialCookedProgramFamilyForTest(Bytes, ECookTargetPlatform::Win64,
-		ECookTargetProfile::Game, Selected, LoadedProperties, Loaded));
+		ECookTargetProfile::Game, Selected.Resource, LoadedProperties, Loaded));
 	ASSERT_TRUE(Loaded);
 	EXPECT_EQ(LoadedProperties, Input.StaticProperties);
 	EXPECT_EQ(Loaded->GetShaderMap().RequiredStages, Selected.GetShaderMap().RequiredStages);
@@ -793,25 +817,25 @@ TEST(FMaterialProgramOwnershipTests, ManagerAndSynchronousCallersShareReuseAndFo
 	ASSERT_TRUE(Warm);
 	EXPECT_TRUE(Warm.RetainedHit);
 	EXPECT_NE(Warm.Program, First.Program);
-	EXPECT_EQ(Warm.Program->ShaderMap, First.Program->ShaderMap);
-	EXPECT_EQ(FMaterialShaderMap::FindId(First.Program->GetShaderMap().ShaderMapId), First.Program->ShaderMap);
+	EXPECT_EQ(Warm.Program->Resource.ShaderMap, First.Program->Resource.ShaderMap);
+	EXPECT_EQ(FMaterialShaderMap::FindId(First.Program->GetShaderMap().ShaderMapId), First.Program->Resource.ShaderMap);
 	auto LowInput = *Input; LowInput.Environment.Quality = EMaterialQualityLevel::Low;
 	const auto Low = CompileMaterialInput(LowInput, false);
 	ASSERT_TRUE(Low); EXPECT_TRUE(Low.RetainedHit);
-	EXPECT_EQ(Low.Program->ShaderMap, First.Program->ShaderMap);
-	EXPECT_EQ(Low.Program->Quality, EMaterialQualityLevel::Low);
-	EXPECT_EQ(First.Program->Quality, Input->Environment.Quality);
+	EXPECT_EQ(Low.Program->Resource.ShaderMap, First.Program->Resource.ShaderMap);
+	EXPECT_EQ(Low.Program->Resource.Quality, EMaterialQualityLevel::Low);
+	EXPECT_EQ(First.Program->Resource.Quality, Input->Environment.Quality);
 	const auto BeforeForce = GetTranslationStats();
 	const auto Forced = Build(true);
 	ASSERT_TRUE(Forced);
 	EXPECT_FALSE(Forced.RetainedHit);
 	EXPECT_EQ(GetTranslationStats().Producers, BeforeForce.Producers + 1);
-	EXPECT_NE(Forced.Program->ShaderMap, First.Program->ShaderMap);
+	EXPECT_NE(Forced.Program->Resource.ShaderMap, First.Program->Resource.ShaderMap);
 	const auto AfterForce = CompileMaterialInput(*Input, false);
 	ASSERT_TRUE(AfterForce);
 	EXPECT_TRUE(AfterForce.RetainedHit);
 	EXPECT_NE(AfterForce.Program, Forced.Program);
-	EXPECT_EQ(AfterForce.Program->ShaderMap, Forced.Program->ShaderMap);
+	EXPECT_EQ(AfterForce.Program->Resource.ShaderMap, Forced.Program->Resource.ShaderMap);
 }
 
 TEST(FMaterialProgramOwnershipTests, SharedProgramSubscriptionsCancelIndependentlyAndAssembleInCanonicalOrder)
@@ -902,7 +926,7 @@ TEST(FMaterialProgramOwnershipTests, SharedProgramSubscriptionsCancelIndependent
 			ASSERT_EQ(Shaders.size(), std::popcount(MaterialAllStageMask));
 			for (size_t Stage = 0; Stage < Shaders.size(); ++Stage) EXPECT_EQ(Shaders[Stage].SourceEntryPoint, MaterialCompiledEntryPoints[Stage]);
 		}
-		if (Canceled == -1) EXPECT_EQ(Results[0].Program->ShaderMap, Results[1].Program->ShaderMap);
+		if (Canceled == -1) EXPECT_EQ(Results[0].Program->Resource.ShaderMap, Results[1].Program->Resource.ShaderMap);
 		if (Canceled != 2) EXPECT_EQ(GetShaderBuildStats().Compilations, std::popcount(MaterialAllStageMask));
 		EXPECT_EQ(FShaderCompilingManager::Get().GetPeakJobStats().first, 2u);
 		EXPECT_LE(FShaderCompilingManager::Get().GetPeakJobStats().second, 2 * 256ull * 1024 * 1024);
@@ -977,7 +1001,7 @@ TEST(FMaterialProgramOwnershipTests, CacheHandoffAllowsLookupBeforeDeliveryRetir
 	EXPECT_EQ(GetShaderBuildStats().Compilations, Before.Compilations);
 	EXPECT_EQ(GetShaderBuildStats().MemoryHits, Before.MemoryHits);
 	Release.Trigger(); Manager.FinishCompilation(Producer);
-	ASSERT_TRUE(First); EXPECT_EQ(First.Program->ShaderMap, Second.Program->ShaderMap);
+	ASSERT_TRUE(First); EXPECT_EQ(First.Program->Resource.ShaderMap, Second.Program->Resource.ShaderMap);
 }
 
 TEST(FMaterialProgramOwnershipTests, StableOwnersDoNotJoinOtherSubscriberCallbacks)
@@ -1024,7 +1048,7 @@ TEST(FMaterialProgramOwnershipTests, CacheRetainsShaderMapWithoutRetainingReques
 	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input->Environment));
 	auto First = CompileMaterialInput(*Input, true); ASSERT_TRUE(First);
 	const auto Identity = First.Program->GetShaderMap().ShaderMapId;
-	const auto ShaderMap = First.Program->ShaderMap;
+	const auto ShaderMap = First.Program->Resource.ShaderMap;
 	std::weak_ptr<const FMaterialCompilerResult> Result = First.Program;
 	First.Program.reset();
 	EXPECT_TRUE(Result.expired());
@@ -1032,7 +1056,7 @@ TEST(FMaterialProgramOwnershipTests, CacheRetainsShaderMapWithoutRetainingReques
 	EXPECT_EQ(FMaterialShaderMap::GetCacheStats().second, ShaderMap->GetRetainedBytes());
 	const auto Warm = CompileMaterialInput(*Input, false);
 	ASSERT_TRUE(Warm); EXPECT_TRUE(Warm.RetainedHit);
-	EXPECT_EQ(Warm.Program->ShaderMap, ShaderMap);
+	EXPECT_EQ(Warm.Program->Resource.ShaderMap, ShaderMap);
 	EXPECT_EQ(Warm.Program->GetShaderMap().Target, ShaderMap->Target);
 	EXPECT_EQ(Warm.Program->GetShaderMap().CompilerIdentity, ShaderMap->CompilerIdentity);
 }
@@ -1061,7 +1085,7 @@ TEST(FMaterialProgramOwnershipTests, ShaderMapOwnsCompiledContentAndCachedMapsDo
 		ASSERT_TRUE(Compile) << Index;
 		Manager.FinishCompilation(Compile);
 		ASSERT_TRUE(Next); EXPECT_TRUE(Next.RetainedHit);
-		EXPECT_EQ(Next.Program->ShaderMap, First.Program->ShaderMap);
+		EXPECT_EQ(Next.Program->Resource.ShaderMap, First.Program->Resource.ShaderMap);
 		EXPECT_NE(Compile, Producer);
 		Kept.push_back(Compile);
 	}
@@ -1220,16 +1244,16 @@ TEST(FMaterialTranslationTests, SplitCompilationPreservesArtifactsAndRejectsMism
 	ASSERT_FALSE(Warned.Diagnostics.empty());
 	EXPECT_FLOAT_EQ(Warned.GetShaderMap().CompileTime, .031f);
 	FMaterialShaderMap::ClearCache();
-	ASSERT_EQ(FMaterialShaderMap::Register(Warned.ShaderMap), Warned.ShaderMap);
+	ASSERT_EQ(FMaterialShaderMap::Register(Warned.Resource.ShaderMap), Warned.Resource.ShaderMap);
 	const auto Before = GetShaderBuildStats();
 	const auto Warm = MaterialBuildPrivate::CompileMaterialInput(Input, false);
 	ASSERT_TRUE(Warm);
 	EXPECT_TRUE(Warm.RetainedHit);
-	EXPECT_EQ(Warm.Program->ShaderMap, Warned.ShaderMap);
+	EXPECT_EQ(Warm.Program->Resource.ShaderMap, Warned.Resource.ShaderMap);
 	EXPECT_TRUE(Warm.Program->Diagnostics.empty());
 	EXPECT_FLOAT_EQ(Warm.Program->GetShaderMap().CompileTime, Warned.GetShaderMap().CompileTime);
 	EXPECT_EQ(GetShaderBuildStats().Compilations, Before.Compilations);
-	const FMaterialShaderMap Copy(*Warned.ShaderMap);
+	const FMaterialShaderMap Copy(*Warned.Resource.ShaderMap);
 	EXPECT_FLOAT_EQ(Copy.CompileTime, Warned.GetShaderMap().CompileTime);
 	FMaterialShaderMap::ClearCache();
 	for (uint32 Variant = 0; Variant < 3; ++Variant)
@@ -1364,10 +1388,10 @@ TEST(FMaterialCompilerTests, MetalMaterialProgramCompilesAndCooks)
 		ECookTargetProfile::Game, Bytes);
 	ASSERT_TRUE(Error) << Error.error();
 	FMaterialStaticProperties Properties;
-	std::shared_ptr<const FMaterialCompilerResult> Decoded;
+	std::shared_ptr<const FMaterialProgramResource> Decoded;
 	Error = DecodeMaterialCookedProgramFamily(Bytes,
 		ECookTargetPlatform::MacOS, ECookTargetProfile::Game,
-		Compiled.Quality, Compiled.FeatureLevel, {}, Properties, Decoded);
+		Compiled.Resource.Quality, Compiled.Resource.FeatureLevel, {}, Properties, Decoded);
 	ASSERT_TRUE(Error) << Error.error();
 	ASSERT_TRUE(Decoded);
 	EXPECT_EQ(Decoded->GetShaderMap().ShaderMapId, Compiled.GetShaderMap().ShaderMapId);
@@ -1474,7 +1498,7 @@ TEST(FMaterialDiagnosticTests, SynchronousResultsRequireExplicitCompletedSuccess
 	FMaterialCompilerResult Unusable;
 	auto DiagnosticMap = std::make_shared<FMaterialShaderMap>();
 	DiagnosticMap->DebugData = std::make_shared<const FMaterialProgramDebugData>(FMaterialProgramDebugData{.GeneratedSource = "retained diagnostic context"});
-	Unusable.ShaderMap = DiagnosticMap;
+	Unusable.Resource.ShaderMap = DiagnosticMap;
 	EXPECT_FALSE(Unusable);
 	EXPECT_FALSE(ValidateMaterialCompilerResult(Unusable));
 }
@@ -1930,7 +1954,7 @@ TEST(FMaterialDiagnosticTests, FailedCodecsDoNotPublishPartialProducts)
 	FMaterialStaticProperties Properties;
 	Properties.OpacityMaskThreshold = 0.25f;
 	const auto Original = Properties;
-	auto Previous = std::make_shared<const FMaterialCompilerResult>();
+	auto Previous = std::make_shared<const FMaterialProgramResource>();
 	auto Program = Previous;
 	const auto Decoded = DecodeMaterialCookedProgramFamily({},
 		ECookTargetPlatform::Win64, ECookTargetProfile::Game,
@@ -2717,12 +2741,12 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 	EXPECT_TRUE(ValidateMaterialCompiledStages(Compiled.GetShaderMap().CompiledShaders, Compiled.GetShaderMap().Layout));
 	EXPECT_TRUE(ValidateMaterialCompilerResult(Compiled));
 	FByteBuffer CookedBytes;
-	ASSERT_TRUE((Error = Testing::EncodeMaterialCookedProgramFamilyForTest(Compiled, Input.StaticProperties,
+	ASSERT_TRUE((Error = Testing::EncodeMaterialCookedProgramFamilyForTest(Compiled.Resource, Input.StaticProperties,
 		ECookTargetPlatform::Win64, ECookTargetProfile::Game, CookedBytes))) << Error.error();
 	FMaterialStaticProperties CookedProperties;
-	std::shared_ptr<const FMaterialCompilerResult> Cooked;
+	std::shared_ptr<const FMaterialProgramResource> Cooked;
 	ASSERT_TRUE((Error = Testing::DecodeMaterialCookedProgramFamilyForTest(CookedBytes,
-		ECookTargetPlatform::Win64, ECookTargetProfile::Game, Compiled,
+		ECookTargetPlatform::Win64, ECookTargetProfile::Game, Compiled.Resource,
 		CookedProperties, Cooked))) << Error.error();
 	ASSERT_NE(Cooked, nullptr);
 	EXPECT_EQ(Cooked->GetShaderMap().Layout, Compiled.GetShaderMap().Layout);
@@ -2739,7 +2763,7 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 		ASSERT_TRUE(Testing::SetMaterialCookedProgramArtifactWordForTest(Incompatible, Word,
 			Word == 2 ? 11u : 0xffffffffu));
 		ASSERT_FALSE((Error = Testing::DecodeMaterialCookedProgramFamilyForTest(Incompatible,
-			ECookTargetPlatform::Win64, ECookTargetProfile::Game, Compiled,
+			ECookTargetPlatform::Win64, ECookTargetProfile::Game, Compiled.Resource,
 			CookedProperties, Cooked)));
 		if (Word == 1)
 			EXPECT_EQ(Error.error(), "Material cooked program format is incompatible; recook from authored assets.");
@@ -2750,13 +2774,13 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 	{
 		auto Invalid = Compiled;
 		auto InvalidArtifact = std::make_shared<FMaterialShaderMap>(Compiled.GetShaderMap());
-		Invalid.ShaderMap = InvalidArtifact;
+		Invalid.Resource.ShaderMap = InvalidArtifact;
 		if (Mutation == 0) InvalidArtifact->Layout.Fields.front().Offset += 4;
 		if (Mutation == 1) InvalidArtifact->Layout.Identity.Id = FGuid::NewGuid();
 		if (Mutation == 2) InvalidArtifact->Layout.UniformPayloadSize += 16;
 		if (Mutation == 3) InvalidArtifact->ActiveParameters.pop_back();
 		if (Mutation == 4) InvalidArtifact->CompiledShaders.front().BinaryEntryPoint.clear();
-		EXPECT_FALSE((Error = Testing::EncodeMaterialCookedProgramFamilyForTest(Invalid, Input.StaticProperties,
+		EXPECT_FALSE((Error = Testing::EncodeMaterialCookedProgramFamilyForTest(Invalid.Resource, Input.StaticProperties,
 			ECookTargetPlatform::Win64, ECookTargetProfile::Game, Reencoded)));
 	}
 	const auto AcceptedCooked = Cooked;
@@ -2764,7 +2788,7 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 	{
 		auto Broken = CookedBytes; Broken[Position] ^= std::byte{1};
 		EXPECT_FALSE((Error = Testing::DecodeMaterialCookedProgramFamilyForTest(Broken,
-			ECookTargetPlatform::Win64, ECookTargetProfile::Game, Compiled,
+			ECookTargetPlatform::Win64, ECookTargetProfile::Game, Compiled.Resource,
 			CookedProperties, Cooked)));
 		EXPECT_EQ(Cooked, AcceptedCooked);
 	}
@@ -2772,18 +2796,18 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 	ASSERT_TRUE(Testing::SetMaterialCookedProgramFamilyVersionForTest(
 		LegacyCooked, 3));
 	ASSERT_FALSE((Error = Testing::DecodeMaterialCookedProgramFamilyForTest(LegacyCooked,
-		ECookTargetPlatform::Win64, ECookTargetProfile::Game, Compiled,
+		ECookTargetPlatform::Win64, ECookTargetProfile::Game, Compiled.Resource,
 		CookedProperties, Cooked)));
 	EXPECT_EQ(Error.error(), "Material cooked program format is incompatible; recook from authored assets.");
 
 	auto InvalidResult = Compiled;
 	auto InvalidArtifact = std::make_shared<FMaterialShaderMap>(Compiled.GetShaderMap());
-	InvalidResult.ShaderMap = InvalidArtifact;
+	InvalidResult.Resource.ShaderMap = InvalidArtifact;
 	InvalidArtifact->ActiveParameters.pop_back();
 	EXPECT_FALSE(ValidateMaterialCompilerResult(InvalidResult));
 	InvalidResult = Compiled;
 	InvalidArtifact = std::make_shared<FMaterialShaderMap>(Compiled.GetShaderMap());
-	InvalidResult.ShaderMap = InvalidArtifact;
+	InvalidResult.Resource.ShaderMap = InvalidArtifact;
 	InvalidArtifact->CompiledShaders.pop_back();
 	EXPECT_FALSE(ValidateMaterialCompilerResult(InvalidResult));
 	InvalidResult = Compiled;

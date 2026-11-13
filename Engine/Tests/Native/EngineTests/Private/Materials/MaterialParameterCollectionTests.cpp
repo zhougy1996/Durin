@@ -288,8 +288,7 @@ TEST_F(FMaterialParameterCollectionTests,
 	EXPECT_EQ(Refreshed->ShaderMap, First->ShaderMap);
 	EXPECT_EQ(Refreshed->GetShaderMap().DebugData, First->GetShaderMap().DebugData);
 	EXPECT_EQ(First->ActiveCollections.front().DefaultPayload, FirstDefaults);
-	EXPECT_EQ(Material->GetMaterialCompileStatus().CacheOutcome,
-		EMaterialCompileCacheOutcome::RetainedHit);
+	EXPECT_TRUE(Material->GetMaterialCompileDebugInfo().CacheInfo.bRetainedHit);
 	ASSERT_EQ(Refreshed->ActiveCollections.size(), 1u);
 	EXPECT_NE(Refreshed->ActiveCollections.front().DefaultPayload,
 		FirstDefaults);
@@ -300,7 +299,7 @@ TEST_F(FMaterialParameterCollectionTests,
 		Material->GetStaticProperties(), ECookTargetPlatform::Win64,
 		ECookTargetProfile::Game, Bytes))) << Error.error();
 	FMaterialStaticProperties DecodedProperties;
-	std::shared_ptr<const FMaterialCompilerResult> Decoded;
+	std::shared_ptr<const FMaterialProgramResource> Decoded;
 	ASSERT_TRUE((Error = Testing::DecodeMaterialCookedProgramFamilyForTest(Bytes,
 		ECookTargetPlatform::Win64, ECookTargetProfile::Game,
 		*Refreshed, DecodedProperties, Decoded))) << Error.error();

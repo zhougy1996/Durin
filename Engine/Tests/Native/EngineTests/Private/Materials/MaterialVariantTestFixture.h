@@ -34,7 +34,7 @@ namespace Durin::Testing
 		ASSERT_TRUE(InputCapture);
 		auto& Input = InputCapture.Snapshot->Input;
 
-		const auto Before = Durin::GetMaterialCompilationDiagnostics();
+		const auto Before = Durin::GetMaterialCompilationStatistics();
 		std::array<Durin::DMaterialInstance*, 8> Instances{};
 		std::vector<Durin::FMaterialProgramIdentity> Identities;
 		uint32 CompatibleOwners = 0;
@@ -73,7 +73,7 @@ namespace Durin::Testing
 		ASSERT_TRUE(Instances[7]->SetParent(Instances[6]));
 		ASSERT_TRUE(Instances[0]->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::MetallicName(), 0.7f));
 		Durin::FAssetCompilingManager::Get().FinishAllCompilation();
-		const auto After = Durin::GetMaterialCompilationDiagnostics();
+		const auto After = Durin::GetMaterialCompilationStatistics();
 		for (auto* Instance : Instances)
 			if (Instance->GetAcceptedCompiledProgram()) ++CompatibleOwners;
 		EXPECT_EQ(Identities.size(), 4u);

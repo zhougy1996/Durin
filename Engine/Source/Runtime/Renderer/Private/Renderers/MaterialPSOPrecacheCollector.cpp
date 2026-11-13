@@ -43,7 +43,7 @@ namespace Durin::RendererPrivate
     struct FMeshPSOPrecacheResources::FState
     {
         FMeshMaterialShaderMapIdentity Identity;
-        std::shared_ptr<const FMaterialCompilerResult> Program;
+        std::shared_ptr<const FMaterialProgramResource> Program;
         FPSOPrecacheVertexFactoryData VertexFactoryData;
         FRenderResourceGeneration Generation;
         FShaderMapPreparation FixedShaders;

@@ -53,7 +53,7 @@ namespace Durin
 	}
 	auto FShaderCompilingManager::GetNumRemainingAssets() const -> uint64
 	{
-		return GetMaterialDiagnostics().OutstandingConsumerCount
+		return GetMaterialStatistics().OutstandingConsumerCount
 			+ Private::GetMaterialEditCompileQueue().Num()
 			+ GetNumRemainingShaderJobs() + GetNumRemainingMaterialShaderMaps();
 	}
@@ -194,7 +194,7 @@ namespace Durin
 		FinishShaderJobs();
 		{
 			std::lock_guard Lock(MaterialMutex);
-			MaterialDiagnostics.CanceledRequests += OutstandingMaterialConsumers;
+			MaterialStatistics.CanceledRequests += OutstandingMaterialConsumers;
 			RequestedShaderMaps.clear();
 			for (const auto& [Resource, Association] : MaterialRequests)
 			{

@@ -3374,7 +3374,7 @@ TEST(FMaterialParameterCollectionVulkanTests,
 			auto Alternate = Primary;
 			// Different simultaneous default bindings need an independent material source.
 			Alternate.UniformExpressionCache = std::make_shared<FUniformExpressionCache>();
-			auto Program = std::make_shared<FMaterialCompilerResult>(*Primary.CompiledProgram);
+			auto Program = std::make_shared<FMaterialProgramResource>(*Primary.CompiledProgram);
 			ASSERT_EQ(Program->ActiveCollections.size(), 1u);
 			Program->ActiveCollections[0].DefaultPayload = OtherLayout->DefaultPayload;
 			Alternate.CompiledProgram = std::move(Program);

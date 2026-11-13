@@ -131,28 +131,28 @@ TEST_F(FMaterialEditingSessionTests, PreviewCompilationIsIsolatedAndApplyPreserv
 	EXPECT_TRUE(Draft->GetPackage()->GetTopLevelAssets().empty());
 	EXPECT_FALSE(Session.HasUnappliedChanges());
 	const auto Original = Source->GetExpressionOutputs();
-	const auto Generation = Source->GetMaterialCompileStatus().RequestId;
+	const auto Generation = Source->GetMaterialCompileDebugInfo().RequestId;
 	auto* Child = NewObject<DMaterialInstance>(nullptr, "ApplyChild");
 	TStrongObjectPtr<DMaterialInstance> ChildRoot(Child);
 	ASSERT_TRUE(Child->SetParent(Source));
-	const auto ChildRevision = Child->GetMaterialCompileStatus().AuthoredRevision;
+	const auto ChildRevision = Child->GetMaterialCompileDebugInfo().AuthoredRevision;
 	Edit(*Draft, 0.37f);
 	Draft->CompileEdits();
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Draft);
 	EXPECT_EQ(Source->GetExpressionOutputs(), Original);
-	EXPECT_EQ(Source->GetMaterialCompileStatus().RequestId, Generation);
-	EXPECT_EQ(Child->GetMaterialCompileStatus().AuthoredRevision, ChildRevision);
+	EXPECT_EQ(Source->GetMaterialCompileDebugInfo().RequestId, Generation);
+	EXPECT_EQ(Child->GetMaterialCompileDebugInfo().AuthoredRevision, ChildRevision);
 	EXPECT_FALSE(Package->IsDirty());
 	ASSERT_TRUE(Session.HasUnappliedChanges());
 	ASSERT_TRUE(Session.FinishAndApply(Error)) << Error;
 	EXPECT_EQ(Child->GetParent(), Source);
 	EXPECT_EQ(Source->GetExpressionOutputs(), Draft->GetExpressionOutputs());
-	EXPECT_GT(Child->GetMaterialCompileStatus().AuthoredRevision, ChildRevision);
+	EXPECT_GT(Child->GetMaterialCompileDebugInfo().AuthoredRevision, ChildRevision);
 	EXPECT_TRUE(Package->IsDirty());
 	EXPECT_FALSE(Session.HasUnappliedChanges());
-	const auto AppliedGeneration = Source->GetMaterialCompileStatus().RequestId;
+	const auto AppliedGeneration = Source->GetMaterialCompileDebugInfo().RequestId;
 	ASSERT_TRUE(Session.FinishAndApply(Error)) << Error;
-	EXPECT_EQ(Source->GetMaterialCompileStatus().RequestId, AppliedGeneration);
+	EXPECT_EQ(Source->GetMaterialCompileDebugInfo().RequestId, AppliedGeneration);
 	Edit(*Draft, 0.62f);
 	EXPECT_TRUE(Session.HasUnappliedChanges());
 	EXPECT_FLOAT_EQ(Source->GetExpressionOutputs().Roughness.Constant[0], 0.37f);
@@ -209,10 +209,10 @@ TEST_F(FMaterialEditingSessionTests, FunctionCallDraftIsCompleteAndAppliesBindin
 	ASSERT_TRUE(Session.FinishAndApply(Error)) << Error;
 	EXPECT_EQ(GetCall(*Source)->Function.Get(), Second);
 	EXPECT_FALSE(Session.HasUnappliedChanges());
-	const auto Revision = Source->GetMaterialCompileStatus().AuthoredRevision;
+	const auto Revision = Source->GetMaterialCompileDebugInfo().AuthoredRevision;
 	Call->Id = FGuid::NewGuid();
 	EXPECT_FALSE(Source->SetMaterialExpressions(Expressions, Outputs));
-	EXPECT_EQ(Source->GetMaterialCompileStatus().AuthoredRevision, Revision);
+	EXPECT_EQ(Source->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
 	EXPECT_EQ(GetCall(*Source)->Id, CallId);
 }
 

@@ -42,7 +42,7 @@ TEST(FMaterialGraphOperationsTests, SamplingOutputsRejectRetiredSelectorsWithout
 				FindMaterialSampleOutput(Opcode, Index)->Type);
 		}
 		const auto Before = CaptureExpressions(*Material);
-		const auto Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
+		const auto Revision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 		for (const uint8 Index : {6, 8, 255})
 		{
 			EXPECT_EQ(Document.Connect(FMaterialGraphPinAddress::Input(Target, 0), FMaterialGraphPinAddress::Output({Id, Index}), true, Durin::ETransactionMode::NotTransactable).GetStatus(), EMaterialGraphCommandStatus::Rejected);
@@ -52,7 +52,7 @@ TEST(FMaterialGraphOperationsTests, SamplingOutputsRejectRetiredSelectorsWithout
 		if (Opcode == EMaterialProgramOpcode::TextureSample2D)
 			EXPECT_EQ(Document.Connect(FMaterialGraphPinAddress::Input(Target, 0), FMaterialGraphPinAddress::Output({Id, 7}), true, Durin::ETransactionMode::NotTransactable).GetStatus(), EMaterialGraphCommandStatus::Rejected);
 		EXPECT_EQ(CaptureExpressions(*Material), Before);
-		EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, Revision);
+		EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
 	}
 }
 
@@ -72,10 +72,10 @@ TEST(FMaterialGraphOperationsTests, DeclarationAndFloat4ReferenceUndoTogether)
 	Parameter->DefaultValue = Definition.Value.GetVector4();
 	FMaterialGraphDocument Document(*Material);
 	const auto Original = CaptureExpressions(*Material);
-	const uint64 Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
+	const uint64 Revision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 	ASSERT_TRUE(Document.CreateExpression(*Parameter, 0, 0));
 	const auto Program = CaptureExpressions(*Material);
-	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, Revision + 1);
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision + 1);
 	ASSERT_NE(Material->FindParameterDefinition(Definition.Id), nullptr);
 	EXPECT_EQ(Material->FindParameterDefinition(Definition.Id)->Value.GetVector4(),
 		Definition.Value.GetVector4());
@@ -98,7 +98,7 @@ TEST(FMaterialGraphOperationsTests, PresentationWritesReportChangesAndPreserveSe
 	DMaterial* Material = MakeExpandedGraphMaterial("PresentationResults");
 	ASSERT_NE(Material, nullptr);
 	const auto ProgramRevision = Material->GetMaterialProgramRevision();
-	const auto AuthoredRevision = Material->GetMaterialCompileStatus().AuthoredRevision;
+	const auto AuthoredRevision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 	const auto Definitions = Material->GetParameterDefinitions();
 	const std::vector<FMaterialParameterDefinition> BeforeDefinitions(Definitions.begin(), Definitions.end());
 	int Notifications = 0;
@@ -141,7 +141,7 @@ TEST(FMaterialGraphOperationsTests, PresentationWritesReportChangesAndPreserveSe
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), AfterMove);
 	EXPECT_EQ(Notifications, 2);
 	EXPECT_EQ(Material->GetMaterialProgramRevision(), ProgramRevision);
-	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, AuthoredRevision);
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, AuthoredRevision);
 	EXPECT_TRUE(std::ranges::equal(Material->GetParameterDefinitions(), BeforeDefinitions));
 	Material->GetGraphChanges().Unsubscribe(Observer);
 	MarkAsGarbage(Material);
@@ -290,13 +290,13 @@ TEST(FMaterialGraphOperationsTests, MaterialOutputMovementIsPresentationOnlyAndT
 	InitializeDObjectSystem();
 	DMaterial* Material = MakeExpandedGraphMaterial("MaterialOutputMovement");
 	ASSERT_NE(Material, nullptr);
-	const uint64 Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
+	const uint64 Revision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	const FMaterialGraphPresentation OriginalPresentation =
 		Material->GetMaterialGraphPresentation();
 
 	ASSERT_TRUE(FMaterialGraphDocument(*Material).MoveMaterialOutput(520, -80));
-	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, Revision);
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
 	EXPECT_TRUE(Material->GetOutputNode() != nullptr);
 	EXPECT_EQ(Testing::OutputPosition(*Material, Material->GetMaterialGraphPresentation()).X, 520);
 	EXPECT_EQ(Testing::OutputPosition(*Material, Material->GetMaterialGraphPresentation()).Y, -80);
@@ -1172,10 +1172,10 @@ TEST(FMaterialGraphOperationsTests, ReplacementDraftCannotMutateOwnerOrHistoryAf
 	EXPECT_FLOAT_EQ(Read(), 0.25f);
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_FLOAT_EQ(Read(), 0.5f);
-	const auto Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
+	const auto Revision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 	Constant->Value = std::numeric_limits<float>::quiet_NaN();
 	EXPECT_FALSE(Document.SetConstantValue(Constant->Id, FMaterialParameterValue::MakeScalar(Constant->Value)));
-	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, Revision);
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FLOAT_EQ(Read(), 0.25f);
 }
@@ -1233,11 +1233,11 @@ TEST(FMaterialGraphOperationsTests, TypedReplacementKeepsIndependentHistoryAndSw
 	const auto ReadComponents = [&]() { return Cast<DMaterialExpressionSwizzle>(Material->GetExpressionCollection().Expressions[1].Get())->Components; };
 	ASSERT_TRUE(Document.SetSwizzleComponents(Swizzle->Id, std::array<uint8, 1>{3}));
 	EXPECT_EQ(ReadComponents(), (std::vector<uint8>{3}));
-	const auto Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
+	const auto Revision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 	EXPECT_FALSE(Document.SetSwizzleComponents(Swizzle->Id, std::array<uint8, 1>{4}));
 	EXPECT_FALSE(Document.SetSwizzleComponents(Swizzle->Id, {}));
 	EXPECT_FALSE(Document.SetConstantValue(Id, FMaterialParameterValue::MakeTexture(nullptr)));
-	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, Revision);
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(ReadComponents(), (std::vector<uint8>{0, 1}));
 	ASSERT_TRUE(Transactions->Redo());
@@ -1305,11 +1305,11 @@ TEST(FMaterialGraphOperationsTests, ConstantPaletteUsesOneEntryAndTypeChangesPre
 	ASSERT_TRUE(ApplyValue());
 	ASSERT_TRUE(FMaterialGraphDocument(*Material).Connect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialSurfaceOutput::Roughness), FMaterialGraphPinAddress::Output({NodeId}), true));
 	const auto Connected = CaptureExpressions(*Material);
-	const auto Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
+	const auto Revision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 	ResultType = EMaterialProgramValueType::Float4;
 	ASSERT_TRUE(ApplyValue());
 	EXPECT_TRUE(HasGraphDiagnostics(*Material));
-	EXPECT_GT(Material->GetMaterialCompileStatus().AuthoredRevision, Revision);
+	EXPECT_GT(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(CaptureExpressions(*Material), Connected);
 	ASSERT_TRUE(Transactions->Undo());
@@ -1439,7 +1439,7 @@ TEST(FMaterialGraphOperationsTests, TypedLayoutIncludesCallAndSurfaceDependencie
 	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 4>{Call, Override, Base, Constant},
 		{.Surface = {CallId, 0, OutputPort}, .bUseMaterialAttributes = true}));
 	ASSERT_TRUE(Material->SetMaterialGraphPresentation({.Nodes = {{ConstantId, 100, 100, "Retained label"}}}) != Durin::EMaterialGraphPresentationResult::Rejected);
-	const auto Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
+	const auto Revision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	ASSERT_TRUE(FMaterialGraphDocument(*Material).Layout({}));
 	const auto Layout = Material->GetMaterialGraphPresentation();
@@ -1452,11 +1452,11 @@ TEST(FMaterialGraphOperationsTests, TypedLayoutIncludesCallAndSurfaceDependencie
 	EXPECT_LT(Position(CallId).X, Testing::OutputPosition(*Material, Layout).X);
 	EXPECT_EQ(Position(ConstantId).DisplayName, "Retained label");
 	EXPECT_EQ(FMaterialGraphDocument(*Material).Layout({}, Durin::ETransactionMode::NotTransactable).GetStatus(), EMaterialGraphCommandStatus::NoChange);
-	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, Revision);
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
 	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), Layout);
-	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, Revision);
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
 	EXPECT_TRUE(Transactions->TryReset());
 	MarkAsGarbage(Material); MarkAsGarbage(Function); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
@@ -1472,7 +1472,7 @@ TEST(FMaterialGraphOperationsTests, MaximumGraphLayoutIsDeterministicAndPresenta
 	ASSERT_TRUE(Graph.Apply(*Material));
 	const auto MaximumGraph = CaptureExpressions(*Material);
 	const uint64 SemanticRevision =
-		Material->GetMaterialCompileStatus().AuthoredRevision;
+		Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 
 	const FMaterialGraphCommandResult First =
 		FMaterialGraphDocument(*Material).Layout({}, Durin::ETransactionMode::NotTransactable);
@@ -1480,7 +1480,7 @@ TEST(FMaterialGraphOperationsTests, MaximumGraphLayoutIsDeterministicAndPresenta
 	EXPECT_EQ(Material->GetMaterialGraphPresentation().Nodes.size(),
 		MaterialProgramMaxNodeCount);
 	EXPECT_EQ(CaptureExpressions(*Material), MaximumGraph);
-	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision,
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision,
 		SemanticRevision);
 	const FMaterialGraphPresentation FirstLayout =
 		Material->GetMaterialGraphPresentation();
@@ -1818,7 +1818,7 @@ TEST(FMaterialGraphOperationsTests, CommandsAreAtomicAndTransactionsRestoreSeman
 	ASSERT_NE(Material, nullptr);
 	const auto OriginalGraph = CaptureExpressions(*Material);
 	const uint64 OriginalRevision =
-		Material->GetMaterialCompileStatus().AuthoredRevision;
+		Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 
 	const FMaterialGraphCommandResult Created = Testing::CreateGraphConstant(FMaterialGraphDocument(*Material), 0.25f, 120, -80, Durin::ETransactionMode::Record);
@@ -1827,16 +1827,16 @@ TEST(FMaterialGraphOperationsTests, CommandsAreAtomicAndTransactionsRestoreSeman
 	const FGuid CreatedId = Created.GeneratedNodeIds.front();
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(),
 		OriginalGraph.Expressions.size() + 1);
-	EXPECT_GT(Material->GetMaterialCompileStatus().AuthoredRevision,
+	EXPECT_GT(Material->GetMaterialCompileDebugInfo().AuthoredRevision,
 		OriginalRevision);
 	const uint64 SemanticRevision =
-		Material->GetMaterialCompileStatus().AuthoredRevision;
+		Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 
 	const FMaterialGraphNodePresentation Moved{CreatedId, 320, 160};
 	const FMaterialGraphCommandResult Move =
 		FMaterialGraphDocument(*Material).MoveNodes(std::span(&Moved, 1));
 	ASSERT_TRUE(Move) << FormatMaterialGraphCommandResult(Move);
-	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision,
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision,
 		SemanticRevision);
 	const FMaterialGraphView MovedGraph = FMaterialGraphDocument(*Material).Inspect();
 	const FMaterialGraphNodeView* MovedView = FindViewNode(MovedGraph, CreatedId);
@@ -1849,7 +1849,7 @@ TEST(FMaterialGraphOperationsTests, CommandsAreAtomicAndTransactionsRestoreSeman
 	EXPECT_EQ(Rejected.GetStatus(), EMaterialGraphCommandStatus::Rejected);
 	EXPECT_FALSE(Rejected.Diagnostics.empty());
 	EXPECT_EQ(CaptureExpressions(*Material), BeforeRejected);
-	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision,
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision,
 		SemanticRevision);
 
 	ASSERT_TRUE(Transactions->Undo());
@@ -1907,14 +1907,14 @@ TEST(FMaterialGraphOperationsTests,
 	auto Validation = Document.SetInputDefault(Material->GetOutputNode()->Id, static_cast<uint32>(EMaterialOutputPin::Roughness), {.Kind = EMaterialInputDefaultKind::Literal, .Type = EMaterialProgramValueType::Float, .Literal = {.X = .37f}}, {}, Durin::ETransactionMode::NotTransactable);
 	ASSERT_TRUE(Validation);
 	const uint64 SemanticRevision =
-		Material->GetMaterialCompileStatus().AuthoredRevision;
+		Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 
 	const FMaterialGraphNodePresentation StalePreview{NodeId, 640, 360};
 	const FMaterialGraphCommandResult Rejected =
 		MoveSession.Apply(std::span(&StalePreview, 1));
 	EXPECT_EQ(Rejected.GetStatus(), EMaterialGraphCommandStatus::Rejected);
 	EXPECT_FALSE(MoveSession.IsActive());
-	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision,
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision,
 		SemanticRevision);
 	EXPECT_FLOAT_EQ(Material->GetExpressionOutputs().Roughness.Constant[0],
 		0.37f);
@@ -1965,9 +1965,9 @@ TEST(FMaterialGraphOperationsTests,
 	EXPECT_EQ(PromotedDependencies.front().Id,
 		Promoted.AffectedParameterIds.front());
 	const uint64 CompileGeneration =
-		Material->GetMaterialCompileStatus().RequestId;
+		Material->GetMaterialCompileDebugInfo().RequestId;
 	ASSERT_TRUE(FMaterialGraphOperations::SetParameterValue(*Material, Promoted.AffectedParameterIds.front(), FMaterialParameterValue::MakeVector4({0.7, 0.6, 0.5, 0})));
-	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestId,
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().RequestId,
 		CompileGeneration);
 	ASSERT_TRUE(ReadVector4Parameter(*Material,
 		Material->FindParameterDefinition(Promoted.AffectedParameterIds.front())->Name, BaseColor));
@@ -2050,7 +2050,7 @@ TEST(FMaterialGraphOperationsTests,
 
 	const FGuid ParameterId = Material->GetParameterDefinitions().front().Id;
 	const uint64 CompileGeneration =
-		Material->GetMaterialCompileStatus().RequestId;
+		Material->GetMaterialCompileDebugInfo().RequestId;
 	FVector4 OriginalBaseColor;
 	ASSERT_TRUE(ReadVector4Parameter(*Material,
 		Material->FindParameterDefinition(ParameterId)->Name, OriginalBaseColor));
@@ -2063,14 +2063,14 @@ TEST(FMaterialGraphOperationsTests,
 	ASSERT_TRUE(ReadVector4Parameter(*Material,
 		Material->FindParameterDefinition(ParameterId)->Name, BaseColor));
 	EXPECT_EQ(BaseColor, FVector4(0.4, 0.5, 0.6, 0));
-	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestId,
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().RequestId,
 		CompileGeneration);
 	ASSERT_TRUE(Session.Apply(FMaterialParameterValue::MakeVector4(
 		{0.7, 0.8, 0.9, 0})));
 	ASSERT_TRUE(ReadVector4Parameter(*Material,
 		Material->FindParameterDefinition(ParameterId)->Name, BaseColor));
 	EXPECT_EQ(BaseColor, FVector4(0.7, 0.8, 0.9, 0));
-	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestId,
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().RequestId,
 		CompileGeneration);
 	ASSERT_TRUE(Session.Commit());
 	ASSERT_TRUE(FMaterialGraphDocument(*Material).MoveMaterialOutput(713, -91, Durin::ETransactionMode::NotTransactable));
@@ -2093,7 +2093,7 @@ TEST(FMaterialGraphOperationsTests,
 	ASSERT_TRUE(ReadVector4Parameter(*Material,
 		Material->FindParameterDefinition(ParameterId)->Name, BaseColor));
 	EXPECT_EQ(BaseColor, FVector4(0.7, 0.8, 0.9, 0));
-	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestId,
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().RequestId,
 		CompileGeneration);
 	EXPECT_TRUE(Transactions->TryReset());
 	MarkAsGarbage(Material);
@@ -2160,14 +2160,14 @@ TEST(FMaterialGraphOperationsTests, ForeignClipboardOwnsLocalDeclarationsAndReje
 	ASSERT_TRUE(FMaterialGraphDocument(*Source).CopySelection(std::span(&Node->Id, 1), Payload));
 	ASSERT_EQ(Payload.Nodes.size(), 1u);
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
-	const auto BeforeRevision = Target->GetMaterialCompileStatus().AuthoredRevision;
+	const auto BeforeRevision = Target->GetMaterialCompileDebugInfo().AuthoredRevision;
 	const auto Pasted = FMaterialGraphDocument(*Target).Paste(Payload, 300, 200);
 	ASSERT_TRUE(Pasted) << FormatMaterialGraphCommandResult(Pasted);
 	ASSERT_EQ(Target->GetParameterDefinitions().size(), 1u);
 	const auto LocalId = Target->GetParameterDefinitions().front().Id;
 	EXPECT_NE(LocalId, Definition.Id);
 	EXPECT_EQ(Cast<DMaterialExpressionParameter>(Target->GetExpressionCollection().Expressions.front().Get())->Metadata.Id, LocalId);
-	EXPECT_EQ(Target->GetMaterialCompileStatus().AuthoredRevision, BeforeRevision + 1);
+	EXPECT_EQ(Target->GetMaterialCompileDebugInfo().AuthoredRevision, BeforeRevision + 1);
 	const auto AfterPresentation = Target->GetMaterialGraphPresentation();
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_TRUE(Target->GetParameterDefinitions().empty());
@@ -2181,12 +2181,12 @@ TEST(FMaterialGraphOperationsTests, ForeignClipboardOwnsLocalDeclarationsAndReje
 
 	const auto BeforeProgram = CaptureExpressions(*Target);
 	const auto BeforePresentation = Target->GetMaterialGraphPresentation();
-	const auto Revision = Target->GetMaterialCompileStatus().AuthoredRevision;
+	const auto Revision = Target->GetMaterialCompileDebugInfo().AuthoredRevision;
 	Cast<DMaterialExpressionParameter>(Payload.Nodes.front().Expression.Get())->Metadata.Name = {};
 	EXPECT_FALSE(FMaterialGraphDocument(*Target).Paste(Payload, 0, 0, Durin::ETransactionMode::NotTransactable));
 	EXPECT_EQ(CaptureExpressions(*Target), BeforeProgram);
 	EXPECT_EQ(Target->GetMaterialGraphPresentation(), BeforePresentation);
-	EXPECT_EQ(Target->GetMaterialCompileStatus().AuthoredRevision, Revision);
+	EXPECT_EQ(Target->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
 	Cast<DMaterialExpressionParameter>(Payload.Nodes.front().Expression.Get())->Metadata = {};
 	EXPECT_FALSE(FMaterialGraphDocument(*Target).Paste(Payload, 0, 0, Durin::ETransactionMode::NotTransactable));
 	EXPECT_EQ(CaptureExpressions(*Target), BeforeProgram);
@@ -2264,12 +2264,12 @@ TEST(FMaterialGraphOperationsTests, DeclarationCommandsAndConstantPromotionShare
 	Constant->Value = {1, 2, 3, 4};
 	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 1>{Constant.Get()}, {}));
 	const auto Original = CaptureExpressions(*Material);
-	const auto Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
+	const auto Revision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 	const auto Promoted = FMaterialGraphOperations::PromoteConstantToParameter(*Material, Constant->Id, "Tint");
 	ASSERT_TRUE(Promoted) << FormatMaterialGraphCommandResult(Promoted);
 	ASSERT_EQ(Promoted.AffectedParameterIds.size(), 1u);
 	const auto TintId = Promoted.AffectedParameterIds.front();
-	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, Revision + 1);
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision + 1);
 	EXPECT_EQ(Material->FindParameterDefinition(TintId)->Value.GetVector4(), FVector4(1, 2, 3, 4));
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions.front()->Id, Constant->Id);
 	EXPECT_EQ(Cast<DMaterialExpressionParameter>(Material->GetExpressionCollection().Expressions.front().Get())->Metadata.Id, TintId);
@@ -2717,7 +2717,7 @@ TEST(FMaterialGraphOperationsTests, ReadModelPositionUpdatesAndReentrantPublicat
 	});
 	auto Position = Material->GetMaterialGraphPresentation();
 	Position.Nodes[0].X = 111;
-	const auto CompileRevision = Material->GetMaterialCompileStatus().AuthoredRevision;
+	const auto CompileRevision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 	ASSERT_TRUE(Material->SetMaterialGraphPresentation(Position) != Durin::EMaterialGraphPresentationResult::Rejected);
 	EXPECT_EQ(Events, 2);
 	EXPECT_EQ(MaximumDepth, 1);
@@ -2726,7 +2726,7 @@ TEST(FMaterialGraphOperationsTests, ReadModelPositionUpdatesAndReentrantPublicat
 	EXPECT_EQ(Change.Nodes[0].Flags, EMaterialGraphNodeChange::Position);
 	EXPECT_EQ(Model.GetView().Nodes.data(), Storage);
 	EXPECT_EQ(FindViewNode(Model.GetView(), Position.Nodes[0].NodeId)->Presentation.X, 222);
-	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, CompileRevision);
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, CompileRevision);
 	Material->GetGraphChanges().Unsubscribe(Handle);
 }
 
@@ -2831,10 +2831,10 @@ TEST(FMaterialGraphOperationsTests, MaterialOutputUsesStablePinsAndOrdinaryNodeC
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FALSE(Material->GetOutputNode()->Outputs.Roughness.Connection.ExpressionId.IsValid());
 	ASSERT_TRUE(Transactions->Redo());
-	const auto Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
+	const auto Revision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 	const FMaterialGraphNodePresentation Position{OutputId, 600, 120};
 	ASSERT_TRUE(FMaterialGraphDocument(*Material.Get()).MoveNodes(std::span(&Position, 1)));
-	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, Revision);
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
 	ASSERT_EQ(Events.back().Nodes.size(), 1u);
 	EXPECT_EQ(Events.back().Nodes.front().Flags, EMaterialGraphNodeChange::Position);
 	const FMaterialInputDefault Default{.Kind = EMaterialInputDefaultKind::Literal,
@@ -3171,7 +3171,7 @@ TEST(FMaterialGraphOperationsTests, CreationRequestConnectsAndUndoesAsOneEdit)
 	ASSERT_NE(Entry, Catalog.end());
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	const auto Before = CaptureExpressions(*Material);
-	const auto Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
+	const auto Revision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 	const auto Action = MakeCreationAction(*Entry);
 	EXPECT_TRUE(Document.CanCreate(Action, EMaterialProgramValueType::Float));
 	EXPECT_FALSE(Document.CanCreate(Action, EMaterialProgramValueType::Surface));
@@ -3183,7 +3183,7 @@ TEST(FMaterialGraphOperationsTests, CreationRequestConnectsAndUndoesAsOneEdit)
 	ASSERT_NE(Node, nullptr);
 	EXPECT_EQ(Node->Inputs.front().Link.SourceNodeId, Scalar.GeneratedNodeIds.front());
 	EXPECT_EQ(Node->Presentation.X, 120);
-	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, Revision + 1);
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision + 1);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
 	EXPECT_FALSE(Transactions->CanUndo());
@@ -3417,7 +3417,7 @@ TEST(FMaterialGraphOperationsTests, GraphSessionRetainsHistoryFailureAcrossRollb
 	ASSERT_TRUE(Created);
 	const auto NodeId = Created.GeneratedNodeIds.front();
 	const auto Before = CaptureExpressions(*Material.Get());
-	const auto Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
+	const auto Revision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Undoing);
 	const auto Rejected = Document.SetConstantValue(NodeId, FMaterialParameterValue::MakeScalar(.75f));
@@ -3426,7 +3426,7 @@ TEST(FMaterialGraphOperationsTests, GraphSessionRetainsHistoryFailureAcrossRollb
 	EXPECT_NE(Rejected.Message.find("The active editor transaction service is unavailable or busy."), std::string::npos);
 	EXPECT_FALSE(Rejected.Message.empty());
 	EXPECT_EQ(CaptureExpressions(*Material.Get()), Before);
-	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, Revision);
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
 	EXPECT_FALSE(Transactions->CanUndo());
 	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Idle);
 	ASSERT_TRUE(Document.SetConstantValue(NodeId, FMaterialParameterValue::MakeScalar(.75f)));

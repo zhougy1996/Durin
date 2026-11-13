@@ -50,7 +50,7 @@ namespace Durin
 		friend struct Private::FMaterialCompilationLifecycle;
 		friend class DMaterialInterface;
 		friend auto IsMaterialCompilationAcceptingRequests() -> bool;
-		friend auto GetMaterialCompilationDiagnostics() -> FMaterialCompilationDiagnostics;
+		friend auto GetMaterialCompilationStatistics() -> FMaterialCompilationStatistics;
 		FShaderCompilingManager();
 		struct FJobGroup;
 		auto FinishShaderJobs() -> void;
@@ -89,9 +89,9 @@ namespace Durin
 		struct FMaterialRequestAssociation { FShaderMapPtr Request; std::shared_ptr<const FMaterialCompileRequest> Association; };
 		std::unordered_map<std::shared_ptr<FMaterialCompilationResource>, FMaterialRequestAssociation> MaterialRequests;
 		uint32 OutstandingMaterialConsumers = 0;
-		FMaterialCompilationDiagnostics MaterialDiagnostics;
+		FMaterialCompilationStatistics MaterialStatistics;
 		auto IsAcceptingMaterialRequests() const -> bool;
-		auto GetMaterialDiagnostics() const -> FMaterialCompilationDiagnostics;
+		auto GetMaterialStatistics() const -> FMaterialCompilationStatistics;
 		auto RaiseMaterialPriority(std::span<const FWeakObjectPtr> Owners = {}) -> void;
 		auto PollMaterialCancellation() -> void;
 		auto ProcessMaterialResults(const FAssetCompileProcessParams& Params, const std::function<void(FMaterialCompileResult)>& Process,

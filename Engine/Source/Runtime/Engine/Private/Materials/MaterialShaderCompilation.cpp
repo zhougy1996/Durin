@@ -125,10 +125,13 @@ namespace Durin
 			std::lock_guard Lock(MaterialMutex);
 			// Cache lookup and joining observe the same handoff as completion.
 			if (!ShaderMap->Force)
-				if (auto Cached = FMaterialShaderMap::FindId(ShaderMap->ShaderMapId))
-					return std::make_shared<const FMaterialCompilerResult>(FMaterialCompilerResult{
-						.Status = EMaterialProgramStatus::Ok, .ActiveCollections = Cached->CollectionLayouts,
-						.ShaderMap = Cached});
+				if (auto Cached = FMaterialShaderMap::FindId(ShaderMap->ShaderMapId)) {
+					FMaterialCompilerResult Result;
+					Result.Resource.ActiveCollections = Cached->CollectionLayouts;
+					Result.Resource.ShaderMap = std::move(Cached);
+					Result.Status = EMaterialProgramStatus::Ok;
+					return std::make_shared<const FMaterialCompilerResult>(std::move(Result));
+				}
 			auto& Programs = CompilingPrograms[ShaderMap->Force];
 			const auto Entry = Programs.find(ShaderMap->ShaderMapId);
 			auto Existing = Entry == Programs.end() ? FShaderMapPtr{} : Entry->second.lock();
@@ -159,10 +162,10 @@ namespace Durin
 		Subscribers = std::move(ShaderMap->CompileDependencies);
 		// Publish before removing the in-flight identity, under the lookup lock.
 		if (*Program && !RetainedHit && !ShaderMap->SingleFlight) {
-			const auto Canonical = FMaterialShaderMap::Register(Program->ShaderMap, ShaderMap->Force);
-			if (Canonical != Program->ShaderMap) {
+			const auto Canonical = FMaterialShaderMap::Register(Program->Resource.ShaderMap, ShaderMap->Force);
+			if (Canonical != Program->Resource.ShaderMap) {
 				auto Result = std::make_shared<FMaterialCompilerResult>(*Program);
-				Result->ShaderMap = Canonical;
+				Result->Resource.ShaderMap = Canonical;
 				Program = std::move(Result);
 			}
 		}
@@ -244,7 +247,7 @@ namespace Durin
 				const bool Canceled = ShaderMap->Cancellation.IsCanceled();
 				for (const auto& Consumer : ShaderMap->CompilingMaterialDependencies)
 					MaterialResults.push_back(MakeMaterialResult(Consumer, {}, nullptr, Canceled));
-				(Canceled ? MaterialDiagnostics.CanceledRequests : MaterialDiagnostics.FailedRequests) += ShaderMap->CompilingMaterialDependencies.size();
+				(Canceled ? MaterialStatistics.CanceledRequests : MaterialStatistics.FailedRequests) += ShaderMap->CompilingMaterialDependencies.size();
 				ShaderMap->CompilingMaterialDependencies.clear();
 				if (It != RequestedShaderMaps.end() && It->second == ShaderMap) RequestedShaderMaps.erase(It);
 			}
@@ -351,8 +354,17 @@ namespace Durin
 		std::function<void(MaterialBuildPrivate::FMaterialBuildResult)> Callback;
 		std::vector<std::shared_ptr<FMaterialCompilation>> Subscribers;
 		// Cache hits and shared subscribers bind once before completion.
-		if (Retained) Retained = MaterialBuildPrivate::BindMaterialProgramCollections(std::move(Retained), ShaderMap->Input->Collections, &ShaderMap->Input->Environment);
-		const auto Quality = Retained ? Retained->Quality : Result.Quality;
+		if (Retained) {
+			auto Bound = MaterialBuildPrivate::BindMaterialProgramCollections(
+				std::make_shared<const FMaterialProgramResource>(Retained->Resource),
+				ShaderMap->Input->Collections, &ShaderMap->Input->Environment);
+			if (Bound) {
+				auto Rebound = std::make_shared<FMaterialCompilerResult>(*Retained);
+				Rebound->Resource = std::move(*Bound);
+				Retained = std::move(Rebound);
+			} else Retained.reset();
+		}
+		const auto Quality = Retained ? Retained->Resource.Quality : Result.Resource.Quality;
 		const bool RetainedHit = bool(Retained) && !ShaderMap->SingleFlight;
 		auto Program = Retained ? std::move(Retained) : std::make_shared<const FMaterialCompilerResult>(std::move(Result));
 		auto Build = FShaderCompilingManager::Get().FinalizeCompilation(
@@ -410,11 +422,13 @@ namespace Durin
 		Artifact->RequiredStages = Translation.RequiredStages;
 		Artifact->DebugData = std::make_shared<const FMaterialProgramDebugData>(FMaterialProgramDebugData{
 			.IR = std::move(Translation.IR), .GeneratedSource = std::move(Translation.GeneratedSource)});
-		FMaterialCompilerResult Result{
-			.Quality = Translation.Quality, .FeatureLevel = Translation.FeatureLevel,
-			.StaticBools = std::move(Translation.StaticBools), .ActiveCollections = std::move(Translation.ActiveCollections),
-			.ShaderMap = Artifact,
-			.Diagnostics = std::move(Translation.Diagnostics)};
+		FMaterialCompilerResult Result;
+		Result.Resource.Quality = Translation.Quality;
+		Result.Resource.FeatureLevel = Translation.FeatureLevel;
+		Result.Resource.StaticBools = std::move(Translation.StaticBools);
+		Result.Resource.ActiveCollections = std::move(Translation.ActiveCollections);
+		Result.Resource.ShaderMap = Artifact;
+		Result.Diagnostics = std::move(Translation.Diagnostics);
 		if (Translation.Status == EMaterialProgramStatus::Canceled || Output.Status == EShaderBuildStatus::Canceled)
 			return {.Status = EMaterialProgramStatus::Canceled};
 		if (!Translation) return Result;
@@ -429,7 +443,7 @@ namespace Durin
 		const auto Reflection = std::ranges::all_of(Output.CompiledShaders,
 			[&](const auto& Shader) { return Shader.Target == Target; })
 			? ValidateMaterialCompiledStages(Output.CompiledShaders,
-				Artifact->Layout, Translation.ResourceLimits, Result.ActiveCollections, Artifact->RequiredStages)
+				Artifact->Layout, Translation.ResourceLimits, Result.Resource.ActiveCollections, Artifact->RequiredStages)
 			: FMaterialLayoutValidationResult{.Error = EMaterialLayoutError::InvalidReflection};
 		if (!Reflection)
 		{
@@ -438,7 +452,7 @@ namespace Durin
 		}
 		Artifact->CompiledShaders = std::move(Output.CompiledShaders);
 		Artifact->CompileTime = Translation.CompileTime;
-		Artifact->SetCollectionLayouts(Result.ActiveCollections);
+		Artifact->SetCollectionLayouts(Result.Resource.ActiveCollections);
 		Result.Status = EMaterialProgramStatus::Ok;
 		return Result;
 	}

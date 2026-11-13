@@ -234,7 +234,6 @@ namespace Durin
 		if (Material.IsDynamicInstance() && IsValid(Material.GetParent()))
 			StatusOwner = Material.GetParent();
 		const auto& Status = StatusOwner->GetMaterialCompileStatus();
-		Result.CacheOutcome = Status.CacheOutcome;
 		const auto Program = Material.GetAcceptedCompiledProgram();
 		if (!Program) return Result;
 		Result.State = Status.IsCurrent()
@@ -486,7 +485,7 @@ namespace Durin
 
 
 	auto DMaterialInterface::GetAcceptedCompiledProgram() const
-		-> std::shared_ptr<const FMaterialCompilerResult>
+		-> std::shared_ptr<const FMaterialProgramResource>
 	{
 		return CompilationState.SelectedResource->RenderLayer.CompiledProgram;
 	}
@@ -560,7 +559,6 @@ namespace Durin
 		Resource->RequestedInput = CaptureCompilationInputStamp();
 		Resource->RequestedInput.ShaderRevision = Resource->CompiledDependencyRevision;
 		CompilationState.EditCompileDeadline.reset();
-		Resource->Target = Program->GetShaderMap().Target;
 		return true;
 	}
 

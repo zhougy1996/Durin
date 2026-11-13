@@ -311,20 +311,29 @@ namespace Durin
 		MIR::FModule IR;
 		std::string GeneratedSource;
 	};
-	struct FMaterialCompilerResult
+	// Accepted configuration and material-local collection bindings. No request state or errors.
+	struct FMaterialProgramResource
 	{
-		EMaterialProgramStatus Status = EMaterialProgramStatus::Error;
 		EMaterialQualityLevel Quality = EMaterialQualityLevel::High;
 		ERHIFeatureLevel FeatureLevel = ERHIFeatureLevel::SM5;
 		std::vector<FMaterialCompilerEnvironment::FStaticBoolValue> StaticBools;
 		std::vector<FMaterialParameterCollectionLayout> ActiveCollections;
 		std::shared_ptr<const FMaterialShaderMap> ShaderMap;
-		std::vector<FMaterialProgramDiagnostic> Diagnostics;
 
 		ENGINE_API auto GetShaderMap() const -> const FMaterialShaderMap&;
-
 		ENGINE_API auto GetDebugData() const -> const FMaterialProgramDebugData&;
+		auto HasShaderMap() const -> bool { return ShaderMap != nullptr; }
+		ENGINE_API auto IsValid() const -> bool;
+	};
 
+	// Transient compiler completion; publication copies only the resource payload.
+	struct FMaterialCompilerResult
+	{
+		FMaterialProgramResource Resource;
+		EMaterialProgramStatus Status = EMaterialProgramStatus::Error;
+		std::vector<FMaterialProgramDiagnostic> Diagnostics;
+		auto GetShaderMap() const -> const FMaterialShaderMap& { return Resource.GetShaderMap(); }
+		auto GetDebugData() const -> const FMaterialProgramDebugData& { return Resource.GetDebugData(); }
 		explicit operator bool() const { return Status == EMaterialProgramStatus::Ok; }
 	};
 
@@ -378,6 +387,8 @@ namespace Durin
 		explicit operator bool() const { return bSucceeded; }
 	};
 
+	[[nodiscard]] ENGINE_API auto ValidateMaterialProgramResource(
+		const FMaterialProgramResource& Result) -> FMaterialLayoutValidationResult;
 	[[nodiscard]] ENGINE_API auto ValidateMaterialCompilerResult(
 		const FMaterialCompilerResult& Result) -> FMaterialLayoutValidationResult;
 	[[nodiscard]] ENGINE_API auto GenerateMaterialProgramSlang(

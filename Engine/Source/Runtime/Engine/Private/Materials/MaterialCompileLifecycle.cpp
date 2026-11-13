@@ -51,7 +51,7 @@ namespace Durin
 			Resource->RequestedInput = Material.CaptureCompilationInputStamp();
 			Resource->RequestId = Material.CompilationState.NextRequestId = AdvanceNonzero(Material.CompilationState.NextRequestId);
 			Resource->Outcome = EMaterialCompileState::NeverRequested;
-			Resource->CacheOutcome = EMaterialCompileCacheOutcome::None;
+			Resource->CacheInfo = {};
 			Resource->CookDiagnostic.clear();
 			Resource->Diagnostics.clear();
 			Resource->RequestedExpressionSources.clear();
@@ -99,7 +99,7 @@ namespace Durin
 				Declarations.push_back({Definition.Id, Definition.Type});
 			std::ranges::sort(Declarations, {}, &FMaterialCompilerParameterDeclaration::Id);
 			auto& Status = *Material.CompilationState.SelectedResource;
-			Status.CacheOutcome = EMaterialCompileCacheOutcome::None;
+			Status.CacheInfo = {};
 			Material.CompilationState.SelectedResource->Diagnostics.clear();
 			Material.CompilationState.EditCompileDeadline.reset();
 			if (Mode == EMaterialEditCompileMode::Automatic)
@@ -122,7 +122,7 @@ namespace Durin
 				Material.CompilationState.SelectedResource = Resource;
 			}
 			ResetRequest(Material, Resource);
-			Resource->Target = Input.Environment.Target;
+
 			Resource->RequestedExpressionSources = Input.Sources;
 			Resource->Material = FWeakObjectPtr(&Material);
 			Resource->bRequested = true;
@@ -164,14 +164,14 @@ namespace Durin
 
 			if (!Result.ExpressionSources.empty()) Resource->RequestedExpressionSources = std::move(Result.ExpressionSources);
 
-			Status.Outcome = Result.Outcome == EMaterialCompileOutcome::Succeeded ? EMaterialCompileState::Ready
-				: Result.Outcome == EMaterialCompileOutcome::Canceled ? EMaterialCompileState::Canceled : EMaterialCompileState::Failed;
+			Status.Outcome = Result.Outcome == EMaterialProgramStatus::Ok ? EMaterialCompileState::Ready
+				: Result.Outcome == EMaterialProgramStatus::Canceled ? EMaterialCompileState::Canceled : EMaterialCompileState::Failed;
 			if (Status.Outcome == EMaterialCompileState::Canceled) Resource->bRequested = false;
-			Status.CacheOutcome = Result.CacheOutcome;
+			Status.CacheInfo = Result.CacheInfo;
 			Resource->Diagnostics = std::move(Result.Diagnostics);
-			if (Result.Outcome == EMaterialCompileOutcome::Succeeded
+			if (Result.Outcome == EMaterialProgramStatus::Ok
 				&& Result.CompiledProgram
-				&& ValidateMaterialCompilerResult(*Result.CompiledProgram))
+				&& ValidateMaterialProgramResource(*Result.CompiledProgram))
 			{
 				if (!Result.Request->CompilerInput)
 				{
@@ -217,7 +217,7 @@ namespace Durin
 				return true;
 			}
 
-			if (Result.Outcome == EMaterialCompileOutcome::Succeeded)
+			if (Result.Outcome == EMaterialProgramStatus::Ok)
 			{
 				Status.Outcome = EMaterialCompileState::Failed;
 			}
@@ -279,10 +279,10 @@ namespace Durin
 		return std::ranges::any_of(Material.CompilationState.Resources, Pending);
 	}
 
-	auto GetMaterialCompilationDiagnostics()
-		-> FMaterialCompilationDiagnostics
+	auto GetMaterialCompilationStatistics()
+		-> FMaterialCompilationStatistics
 	{
-		return FShaderCompilingManager::Get().GetMaterialDiagnostics();
+		return FShaderCompilingManager::Get().GetMaterialStatistics();
 	}
 
 	auto RequestMaterialRecompile(

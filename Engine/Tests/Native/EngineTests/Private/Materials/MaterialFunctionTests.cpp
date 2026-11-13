@@ -1146,7 +1146,7 @@ TEST(FMaterialFunctionTests, ImportProvenanceRoundtripsWithoutChangingGraphOrCom
 	ASSERT_TRUE(Instance->SetParent(Parent));
 	const auto Outputs = Parent->GetExpressionOutputs();
 	const auto ExpressionCount = Parent->GetExpressionCollection().Expressions.size();
-	const auto Revision = Parent->GetMaterialCompileStatus().AuthoredRevision;
+	const auto Revision = Parent->GetMaterialCompileDebugInfo().AuthoredRevision;
 	const FMaterialImportProvenance ParentReceipt{.RecipeId = "Durin.ImportedSurface", .RecipeVersion = 1,
 		.StructuralKey = "Durin.ImportedSurface:1;d;d;d;d;d;d;d;d"};
 	auto InstanceReceipt = ParentReceipt;
@@ -1154,7 +1154,7 @@ TEST(FMaterialFunctionTests, ImportProvenanceRoundtripsWithoutChangingGraphOrCom
 	InstanceReceipt.OutputIdentity = "scene:material:stable";
 	ASSERT_TRUE(Parent->SetImportProvenance(ParentReceipt));
 	ASSERT_TRUE(Instance->SetImportProvenance(InstanceReceipt));
-	EXPECT_EQ(Parent->GetMaterialCompileStatus().AuthoredRevision, Revision);
+	EXPECT_EQ(Parent->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
 	EXPECT_EQ(Parent->GetExpressionOutputs(), Outputs);
 	EXPECT_EQ(Parent->GetExpressionCollection().Expressions.size(), ExpressionCount);
 	EXPECT_TRUE(Parent->GetParameterDefinitions().empty());
@@ -1512,9 +1512,9 @@ TEST(FMaterialFunctionTests, DependencyEditsPreserveAcceptedContractsAndOwnerSou
 	ASSERT_FALSE(Second->GetAcceptedExpressionSources().empty());
 	EXPECT_EQ(First->GetAcceptedExpressionSources()[0].CallPath[0], FirstCall);
 	EXPECT_EQ(Second->GetAcceptedExpressionSources()[0].CallPath[0], SecondCall);
-	const auto Before = First->GetMaterialCompileStatus();
+	const auto Before = First->GetMaterialCompileDebugInfo();
 	ASSERT_TRUE(Leaf->SetFunctionPresentation({.Nodes = {{Leaf->GetExpressionCollection().Expressions[0]->Id, 70, 80}}}));
-	EXPECT_EQ(First->GetMaterialCompileStatus().AuthoredRevision, Before.AuthoredRevision);
+	EXPECT_EQ(First->GetMaterialCompileDebugInfo().AuthoredRevision, Before.AuthoredRevision);
 	auto Graph = CaptureFunctionExpressions(*Leaf);
 	Graph.Signature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.21f;
 	ASSERT_TRUE(Graph.Apply(*Leaf));
@@ -1543,12 +1543,12 @@ TEST(FMaterialFunctionTests, DependencyEditsPreserveAcceptedContractsAndOwnerSou
 	ASSERT_TRUE(OriginalWrapper.Apply(*Wrapper));
 	ASSERT_TRUE(First->CompileEdits());
 	EXPECT_TRUE(First->GetAcceptedCompiledProgram());
-	const auto Current = First->GetMaterialCompileStatus();
+	const auto Current = First->GetMaterialCompileDebugInfo();
 	const auto CurrentProgram = First->GetAcceptedCompiledProgram();
 	// The supported function mutation invalidates every loaded caller before publication.
 	Graph.Signature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.37f;
 	ASSERT_TRUE(Graph.Apply(*Leaf));
-	EXPECT_GT(First->GetMaterialCompileStatus().AuthoredRevision, Current.AuthoredRevision);
+	EXPECT_GT(First->GetMaterialCompileDebugInfo().AuthoredRevision, Current.AuthoredRevision);
 
 	EXPECT_EQ(First->GetAcceptedCompiledProgram(), CurrentProgram);
 	EXPECT_TRUE(First->GetMaterialCompileStatus().HasUnsubmittedEdits());
@@ -1599,12 +1599,12 @@ TEST(FMaterialFunctionTests, RelocationRefreshesNestedCallersAndDeletionHonorsRe
 	ASSERT_TRUE(PublishRootFunction(*Material, *Wrapper, CallId));
 	ASSERT_TRUE(Material->CompileEdits());
 	const auto Accepted = Material->GetAcceptedCompiledProgram();
-	const auto Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
+	const auto Revision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 	const auto OriginalLeafPath = Leaf->GetObjectPath();
 	const std::array Mappings{FAssetRelocationMapping{LeafPath, MovedPath}};
 	ASSERT_TRUE(RelocateAssets(Mappings).Result);
 	EXPECT_EQ(Wrapper->GetFunctionDependencies()[0].Get(), Leaf);
-	EXPECT_GT(Material->GetMaterialCompileStatus().AuthoredRevision, Revision);
+	EXPECT_GT(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
 	EXPECT_TRUE(Material->GetMaterialCompileStatus().HasUnsubmittedEdits());
 	EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Accepted);
 	ASSERT_TRUE(Material->CompileEdits());

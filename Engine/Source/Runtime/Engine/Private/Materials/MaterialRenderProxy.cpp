@@ -20,7 +20,7 @@ namespace Durin
 
 	auto FMaterialResource::HasValidGameThreadShaderMap() const -> bool
 	{
-		return CompiledProgram && *CompiledProgram && CompiledProgram->ShaderMap;
+		return CompiledProgram && CompiledProgram->HasShaderMap();
 	}
 	namespace
 	{

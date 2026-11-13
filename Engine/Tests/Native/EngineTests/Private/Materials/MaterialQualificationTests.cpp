@@ -89,7 +89,7 @@ TEST_F(FMaterialQualificationTests, ProxyPublicationAndResolveBaseline)
 	struct FMeasure { static constexpr auto GetName() -> const char* { return "MaterialProxyBaseline"; } };
 	for (const uint32 Count : {8u, 32u, 128u})
 	{
-		auto Program = std::make_shared<FMaterialCompilerResult>();
+		auto Program = std::make_shared<FMaterialProgramResource>();
 		auto Artifact = std::make_shared<FMaterialShaderMap>();
 		Program->ShaderMap = Artifact;
 		FMaterialResource Layer;
@@ -307,11 +307,11 @@ TEST_F(FMaterialQualificationTests, ConsumerResultCopyCost)
 		for (uint32 Index = 0; Index < 500; ++Index)
 		{
 			const auto Begin = std::chrono::steady_clock::now();
-			auto Copy = std::make_shared<FMaterialCompilerResult>(Program);
+			auto Copy = std::make_shared<FMaterialProgramResource>(Program.Resource);
 			Copy->Quality = EMaterialQualityLevel::Low;
 			Samples.push_back(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - Begin).count());
 			ASSERT_EQ(Copy->GetShaderMap().ShaderMapId, Program.GetShaderMap().ShaderMapId);
-			ASSERT_EQ(Copy->ShaderMap, Program.ShaderMap);
+			ASSERT_EQ(Copy->ShaderMap, Program.Resource.ShaderMap);
 			ASSERT_EQ(Copy->GetShaderMap().DebugData, Program.GetShaderMap().DebugData);
 			ASSERT_EQ(Copy->GetShaderMap().CompiledShaders.front().Code.data(), Program.GetShaderMap().CompiledShaders.front().Code.data());
 		}
@@ -449,7 +449,7 @@ TEST_F(FMaterialQualificationTests, MaximumGraphLayoutLatency)
 		Graph.Expressions.emplace_back(Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>().Get());
 	ASSERT_TRUE(Graph.Apply(*Material));
 	const uint64 SemanticRevision =
-		Material->GetMaterialCompileStatus().AuthoredRevision;
+		Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 
 	const auto Begin = std::chrono::steady_clock::now();
 	const FMaterialGraphCommandResult First =
@@ -459,7 +459,7 @@ TEST_F(FMaterialQualificationTests, MaximumGraphLayoutLatency)
 	EXPECT_LT(Duration, std::chrono::seconds(1));
 	EXPECT_EQ(Material->GetMaterialGraphPresentation().Nodes.size(),
 		MaterialProgramMaxNodeCount);
-	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision,
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision,
 		SemanticRevision);
 	const FMaterialGraphPresentation FirstLayout =
 		Material->GetMaterialGraphPresentation();
@@ -615,7 +615,7 @@ TEST_F(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 		SpirvBytes += Compiled.GetShaderMap().CompiledShaders[Index].Code.size();
 	}
 	Durin::FByteBuffer CookedBytes;
-	ASSERT_TRUE((Error = Durin::Testing::EncodeMaterialCookedProgramFamilyForTest(Compiled, {},
+	ASSERT_TRUE((Error = Durin::Testing::EncodeMaterialCookedProgramFamilyForTest(Compiled.Resource, {},
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game, CookedBytes))) << Error.error();
 	RecordProperty("GeneratedSourceBytes", Compiled.GetDebugData().GeneratedSource.size());
@@ -754,11 +754,11 @@ TEST_F(FMaterialQualificationTests, BoundedStaticSelectorVariantGrowth)
 					Program.GetDebugData().GeneratedSource.size());
 				Programs.push_back(std::move(Program));
 			}
-		std::vector<const FMaterialCompilerResult*> ProgramPointers;
+		std::vector<const FMaterialProgramResource*> ProgramPointers;
 		std::unordered_set<FMaterialProgramIdentity> Identities;
 		for (const auto& Program : Programs)
 		{
-			ProgramPointers.push_back(&Program);
+			ProgramPointers.push_back(&Program.Resource);
 			Identities.insert(Program.GetShaderMap().ShaderMapId);
 		}
 		FByteBuffer Cooked;

@@ -142,7 +142,7 @@ TEST(FMaterialRenderProxyTests, PreboundFieldsMatchGuidWritesAndInvalidateWithTh
 		{FGuid{3,0,0,1}, FVector3(0.3, 0.4, 0.5)},
 		{FGuid{4,0,0,1}, FVector4(0.6, 0.7, 0.8, 0.9)},
 		{FGuid{5,0,0,1}, FMaterialLocalTextureValue{.TextureFallback = EMaterialTextureFallback::Black}}};
-	auto Program = std::make_shared<FMaterialCompilerResult>();
+	auto Program = std::make_shared<FMaterialProgramResource>();
 	auto Artifact = std::make_shared<FMaterialShaderMap>();
 	Program->ShaderMap = Artifact;
 	for (const auto& Parameter : Layer.Parameters) Artifact->ActiveParameters.push_back({Parameter.Id, Parameter.GetType()});
@@ -160,7 +160,7 @@ TEST(FMaterialRenderProxyTests, PreboundFieldsMatchGuidWritesAndInvalidateWithTh
 		{
 			if (Version == 2)
 			{
-				auto Configured = std::make_shared<FMaterialCompilerResult>(*Program);
+				auto Configured = std::make_shared<FMaterialProgramResource>(*Program);
 				Configured->Quality = EMaterialQualityLevel::Low;
 				Layer.CompiledProgram = std::move(Configured);
 			}
@@ -184,7 +184,7 @@ TEST(FMaterialRenderProxyTests, PreboundFieldsMatchGuidWritesAndInvalidateWithTh
 		EXPECT_EQ(GetMaterialRenderProxyCounters().ParameterBindingBuildCount - Before.ParameterBindingBuildCount, 1u);
 		EXPECT_EQ(GetMaterialRenderProxyCounters().IndexedParameterWriteCount - Before.IndexedParameterWriteCount, 15u);
 		// Removing the first declaration shifts every later field's index.
-		auto Replacement = std::make_shared<FMaterialCompilerResult>(*Program);
+		auto Replacement = std::make_shared<FMaterialProgramResource>(*Program);
 		auto ReplacementArtifact = std::make_shared<FMaterialShaderMap>(Program->GetShaderMap());
 		Replacement->ShaderMap = ReplacementArtifact;
 		ReplacementArtifact->ActiveParameters.erase(Replacement->GetShaderMap().ActiveParameters.begin());

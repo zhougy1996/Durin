@@ -76,8 +76,8 @@ namespace Durin
 		struct FOwnerStamp { FObjectKey Owner; uint64 Authored; };
 		std::vector<FOwnerStamp> Owners;
 		for (const DMaterialInterface* Owner = this; Owner; Owner = Owner->GetParent()) {
-			const auto& Status = Owner->GetMaterialCompileStatus();
-			Owners.push_back({FObjectKey(Owner), Status.AuthoredRevision});
+			const auto Revision = Owner->GetMaterialContentRevision();
+			Owners.push_back({FObjectKey(Owner), Revision});
 		}
 		Preparation->ValidatePreparedInputs = [Owners = std::move(Owners), Functions = std::move(FunctionOwners), ShaderRevision = GetShaderReloadGeneration()] {
 			if (ShaderRevision != GetShaderReloadGeneration()) return false;
@@ -85,8 +85,8 @@ namespace Durin
 			for (const auto& Stamp : Owners) {
 				const auto* Owner = Cast<DMaterialInterface>(ResolveObjectKey(Stamp.Owner));
 				if (!Owner) return false;
-				const auto& Status = Owner->GetMaterialCompileStatus();
-				if (Stamp.Authored != Status.AuthoredRevision) return false;
+				const auto Revision = Owner->GetMaterialContentRevision();
+				if (Stamp.Authored != Revision) return false;
 			}
 			return true;
 		};
@@ -104,10 +104,10 @@ namespace Durin
 			}
 			if (Preparation->Lifecycle.CheckCancellation()) return;
 			if (Work->Failed.load()) { Preparation->Lifecycle.Result = {EObjectCookError::Preparation, Work->Failure}; return; }
-			std::vector<const FMaterialCompilerResult*> Programs;
+			std::vector<const FMaterialProgramResource*> Programs;
 			for (const auto& Result : Work->Results) {
 				if (!Result || !*Result) { Preparation->Lifecycle.Result = {EObjectCookError::Cancelled, {}}; return; }
-				Programs.push_back(&*Result);
+				Programs.push_back(&Result->Resource);
 			}
 			FByteBuffer Bytes;
 			const auto Encoded = EncodeMaterialCookedProgramFamily(Programs, Properties, Platform, ECookTargetProfile::Game, Bytes);
@@ -157,7 +157,7 @@ namespace Durin
 	}
 
 	auto DMaterialInterface::ValidatePreparedMaterialProgram(const FMaterialStaticProperties& PayloadProperties,
-		std::shared_ptr<const FMaterialCompilerResult> ProgramCandidate) -> std::expected<std::shared_ptr<const FMaterialCompilerResult>, std::string>
+		std::shared_ptr<const FMaterialProgramResource> ProgramCandidate) -> std::expected<std::shared_ptr<const FMaterialProgramResource>, std::string>
 	{
 		const auto ExpectedProperties = CanonicalizeMaterialShaderProperties(GetStaticProperties());
 		if (PayloadProperties != ExpectedProperties)
@@ -174,7 +174,7 @@ namespace Durin
 		}
 		if (!ProgramCandidate->ActiveCollections.empty())
 		{
-			auto ResolvedProgram = std::make_shared<FMaterialCompilerResult>(
+			auto ResolvedProgram = std::make_shared<FMaterialProgramResource>(
 				*ProgramCandidate);
 			for (auto& Required : ResolvedProgram->ActiveCollections)
 			{
@@ -199,7 +199,7 @@ namespace Durin
 	}
 
 	auto DMaterialInterface::AdmitCookedProgram(const FMaterialStaticProperties& PayloadProperties,
-		std::shared_ptr<const FMaterialCompilerResult> ProgramCandidate,
+		std::shared_ptr<const FMaterialProgramResource> ProgramCandidate,
 		std::shared_ptr<FMaterialCompilationResource> Resource) -> std::expected<void, std::string>
 	{
 		if (!Resource)
@@ -216,14 +216,13 @@ namespace Durin
 		if (Resource == CompilationState.SelectedResource) Private::GetMaterialEditCompileQueue().Remove(FWeakObjectPtr(this));
 		Resource->CookedPreparation.reset();
 		Resource->Outcome = EMaterialCompileState::Ready;
-		Resource->CacheOutcome =
-			EMaterialCompileCacheOutcome::None;
+		Resource->CacheInfo = {};
 		if (!Resource->RequestId) Resource->RequestId = ++CompilationState.NextRequestId;
 		Resource->CompiledDependencyRevision = Resource->RequestedInput.ShaderRevision;
 		Resource->CompiledRevision = Resource->RequestedInput.ContentRevision;
 		if (Resource == CompilationState.SelectedResource) CompilationState.SubmittedRevision = CompilationState.AuthoredRevision;
 		if (Resource == CompilationState.SelectedResource) CompilationState.EditCompileDeadline.reset();
-		Resource->Target = Resource->RenderLayer.CompiledProgram->GetShaderMap().Target;
+
 		Resource->Diagnostics.clear();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap | EMaterialRenderDirtyFlags::PipelineState);
 		return {};
@@ -243,18 +242,18 @@ namespace Durin
 				return FShaderCompletion::Failure("Material cooked program data is unavailable or targets another platform.");
 			auto Read = CookedProgramData.AcquireRead();
 			if (!Read) return FShaderCompletion::Failure("Material cooked program data could not be read.");
-			std::vector<std::shared_ptr<const FMaterialCompilerResult>> Variants;
+			std::vector<std::shared_ptr<const FMaterialProgramResource>> Variants;
 			FMaterialStaticProperties Properties;
 			for (const auto& Configuration : *Configurations)
 			{
 				if (Control.IsCancelled()) return FShaderCompletion::Canceled();
-				std::shared_ptr<const FMaterialCompilerResult> Program;
+				std::shared_ptr<const FMaterialProgramResource> Program;
 				const auto Decoded = DecodeMaterialCookedProgramFamily(Read->GetBytes(), TargetPlatform,
 					ECookTargetProfile::Game, Configuration.Quality, Configuration.FeatureLevel, {}, Properties, Program);
 				if (!Decoded) return FShaderCompletion::Failure(Decoded.error());
 				Variants.push_back(std::move(Program));
 			}
-			std::vector<const FMaterialCompilerResult*> Programs;
+			std::vector<const FMaterialProgramResource*> Programs;
 			for (const auto& Variant : Variants) Programs.push_back(Variant.get());
 			FByteBuffer Bytes;
 			const auto Encoded = EncodeMaterialCookedProgramFamily(Programs, Properties,
@@ -289,8 +288,8 @@ namespace Durin
 			Variants.push_back(std::move(Compiled));
 		}
 		if (Control.IsCancelled()) return FShaderCompletion::Canceled();
-		std::vector<const FMaterialCompilerResult*> Programs;
-		for (const auto& Variant : Variants) Programs.push_back(&Variant);
+		std::vector<const FMaterialProgramResource*> Programs;
+		for (const auto& Variant : Variants) Programs.push_back(&Variant.Resource);
 		FByteBuffer Bytes;
 		const auto Encoded = EncodeMaterialCookedProgramFamily(Programs,
 			CanonicalizeMaterialShaderProperties(GetStaticProperties()), TargetPlatform, ECookTargetProfile::Game, Bytes);

@@ -14,7 +14,7 @@ namespace Durin::MaterialEditor
 	{
 		auto GraphSemanticRevision(const DObject& Owner) -> uint64
 		{
-			if (const auto* Material = Cast<DMaterial>(&Owner)) return Material->GetMaterialCompileStatus().AuthoredRevision;
+			if (const auto* Material = Cast<DMaterial>(&Owner)) return Material->GetMaterialContentRevision();
 			return Cast<DMaterialFunction>(&Owner)->GetFunctionRevision();
 		}
 	}

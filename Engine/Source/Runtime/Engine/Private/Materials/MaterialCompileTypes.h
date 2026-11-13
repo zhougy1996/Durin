@@ -12,6 +12,31 @@
 
 namespace Durin { struct FMaterialTranslationInput; struct FMaterialTranslatedProgram; class FShaderBuildHandle; }
 
+namespace Durin
+{
+	// Detached input plus resource association captured on GameThread before dispatch.
+	struct FMaterialCompileRequest
+	{
+		std::shared_ptr<FMaterialCompilationResource> Resource;
+		std::shared_ptr<const MIR::FCompilerInput> CompilerInput;
+		bool bForceRecompile = false;
+		bool bSingleFlightConsumer = false;
+	};
+
+	// Manager completion handoff; only the still-associated resource may install it.
+	struct FMaterialCompileResult
+	{
+		std::shared_ptr<const FMaterialCompileRequest> Request;
+		FMaterialStaticProperties StaticProperties;
+		EMaterialProgramStatus Outcome = EMaterialProgramStatus::Error;
+		FMaterialCompileCacheInfo CacheInfo;
+		std::shared_ptr<const FMaterialProgramResource> CompiledProgram;
+		std::vector<MIR::FSource> ExpressionSources;
+		std::vector<FMaterialProgramDiagnostic> Diagnostics;
+	};
+
+}
+
 namespace Durin::MaterialBuildPrivate
 {
 
@@ -93,9 +118,9 @@ namespace Durin::MaterialBuildPrivate
 
 	// Request configuration/default rebinding belongs to the
 	// compilation lifecycle, rather than the immutable ShaderMap content API.
-	auto BindMaterialProgramCollections(std::shared_ptr<const FMaterialCompilerResult> Program,
+	auto BindMaterialProgramCollections(std::shared_ptr<const FMaterialProgramResource> Program,
 		std::span<const FMaterialParameterCollectionLayout> Collections,
-		const FMaterialCompilerEnvironment* Environment = nullptr) -> std::shared_ptr<const FMaterialCompilerResult>;
+		const FMaterialCompilerEnvironment* Environment = nullptr) -> std::shared_ptr<const FMaterialProgramResource>;
 
 	ENGINE_API auto FinalizeMaterialShaderMap(FMaterialTranslatedProgram Translation,
 		FShaderCompilerOutput Output) -> FMaterialCompilerResult;

@@ -330,23 +330,23 @@ TEST(FMaterialDependencyTests, InstancePropertyEditPublishesDependentsOnce)
 	ASSERT_NE(ParentProperty, nullptr);
 	ASSERT_NE(OverridesProperty, nullptr);
 	ASSERT_NE(ScalarProperty, nullptr);
-	const auto Revision = Instance->GetMaterialCompileStatus().AuthoredRevision;
-	const auto ChildRevision = Child->GetMaterialCompileStatus().AuthoredRevision;
+	const auto Revision = Instance->GetMaterialCompileDebugInfo().AuthoredRevision;
+	const auto ChildRevision = Child->GetMaterialCompileDebugInfo().AuthoredRevision;
 	// Static edits share one snapshot between compilation and publication queries.
 	ExpectSingleNotification(ParentProperty, 2);
-	EXPECT_EQ(Instance->GetMaterialCompileStatus().AuthoredRevision, Revision + 1);
-	EXPECT_EQ(Child->GetMaterialCompileStatus().AuthoredRevision, ChildRevision + 1);
+	EXPECT_EQ(Instance->GetMaterialCompileDebugInfo().AuthoredRevision, Revision + 1);
+	EXPECT_EQ(Child->GetMaterialCompileDebugInfo().AuthoredRevision, ChildRevision + 1);
 	auto* Overrides = OverridesProperty->ContainerPtrToValuePtr<Durin::FMaterialPropertyOverrides>(Instance);
 	Overrides->bOverrideShadingModel = true;
 	Overrides->Values.ShadingModel = Durin::EMaterialShadingModel::Unlit;
 	ExpectSingleNotification(OverridesProperty, 2);
-	EXPECT_EQ(Instance->GetMaterialCompileStatus().AuthoredRevision, Revision + 2);
-	EXPECT_EQ(Child->GetMaterialCompileStatus().AuthoredRevision, ChildRevision + 2);
+	EXPECT_EQ(Instance->GetMaterialCompileDebugInfo().AuthoredRevision, Revision + 2);
+	EXPECT_EQ(Child->GetMaterialCompileDebugInfo().AuthoredRevision, ChildRevision + 2);
 	EXPECT_EQ(Child->GetStaticProperties().ShadingModel, Durin::EMaterialShadingModel::Unlit);
-	const auto DynamicRevision = Instance->GetMaterialCompileStatus().AuthoredRevision;
+	const auto DynamicRevision = Instance->GetMaterialCompileDebugInfo().AuthoredRevision;
 	ExpectSingleNotification(ScalarProperty, 1);
 	ExpectSingleNotification(nullptr, 1);
-	EXPECT_EQ(Instance->GetMaterialCompileStatus().AuthoredRevision, DynamicRevision);
+	EXPECT_EQ(Instance->GetMaterialCompileDebugInfo().AuthoredRevision, DynamicRevision);
 
 	Durin::MarkAsGarbage(Child);
 	Durin::MarkAsGarbage(Instance);

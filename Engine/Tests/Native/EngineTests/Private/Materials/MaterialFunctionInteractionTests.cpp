@@ -40,14 +40,14 @@ TEST(FMaterialFunctionInteractionTests, PreviewWrappersCompileEveryOutputTypeWit
 		EXPECT_EQ(Function->GetFunctionRevision(), Revision);
 		const auto Before = Preview->GetExpressionCollection().Expressions;
 		const auto BeforeOutputs = Preview->GetExpressionOutputs();
-		const auto BeforeRevision = Preview->GetMaterialCompileStatus().AuthoredRevision;
+		const auto BeforeRevision = Preview->GetMaterialCompileDebugInfo().AuthoredRevision;
 		const auto MissingId = FGuid::NewGuid();
 		const auto Missing = BuildMaterialFunctionPreview(*Function, MissingId, *Preview);
 		ASSERT_FALSE(Missing);
 		EXPECT_EQ(Missing.Message.find("The preview output no longer exists."), 0u);
 		EXPECT_EQ(Preview->GetExpressionCollection().Expressions, Before);
 		EXPECT_EQ(Preview->GetExpressionOutputs(), BeforeOutputs);
-		EXPECT_EQ(Preview->GetMaterialCompileStatus().AuthoredRevision, BeforeRevision);
+		EXPECT_EQ(Preview->GetMaterialCompileDebugInfo().AuthoredRevision, BeforeRevision);
 		ASSERT_TRUE(BuildMaterialFunctionPreview(*Function, Output.Id, *Preview));
 	}
 	MarkAsGarbage(Preview); MarkAsGarbage(Function); CollectGarbage(Durin::EObjectFlags::Standalone);

@@ -15,7 +15,7 @@ namespace Durin
 	struct FMaterialPSOPrecacheParams
 	{
 		FMaterialPlanningPassIdentity Material;
-		std::shared_ptr<const FMaterialCompilerResult> CompiledProgram;
+		std::shared_ptr<const FMaterialProgramResource> CompiledProgram;
 		FPSOPrecacheVertexFactoryData VertexFactoryData;
 		FPSOPrecacheParams PrecachePSOParams;
 		EPSOPrecachePriority Priority = EPSOPrecachePriority::Medium;

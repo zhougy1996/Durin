@@ -42,12 +42,12 @@ inline auto CheckDetachedMaterialResultFanout(bool Shutdown) -> void
 	MaterialBuildPrivate::SetResultFanoutHookForTests([&] { Entered.Trigger(); EXPECT_TRUE(Release.WaitFor(10)); });
 	FMaterialCompilerEnvironment Environment; ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment));
 	auto Snapshot = SnapshotMaterialCompilerInput(*A, Environment); ASSERT_TRUE(Snapshot);
-	const auto Before = GetMaterialCompilationDiagnostics();
+	const auto Before = GetMaterialCompilationStatistics();
 	ASSERT_TRUE(Private::FMaterialCompilationLifecycle::Submit(*A, Snapshot.Snapshot->Input, true)); ASSERT_TRUE(Cache->Entered.WaitFor(5));
 	ASSERT_TRUE(Private::FMaterialCompilationLifecycle::Submit(*B, Snapshot.Snapshot->Input, true));
 	Cache->Release.Trigger(); ASSERT_TRUE(Entered.WaitFor(5));
 	EXPECT_TRUE(HasPendingMaterialCompilation(*A)); EXPECT_TRUE(HasPendingMaterialCompilation(*B));
-	EXPECT_EQ(GetMaterialCompilationDiagnostics().OutstandingConsumerCount, Before.OutstandingConsumerCount + 2);
+	EXPECT_EQ(GetMaterialCompilationStatistics().OutstandingConsumerCount, Before.OutstandingConsumerCount + 2);
 	if (Shutdown)
 	{
 		std::thread Releaser([&] {
@@ -56,23 +56,23 @@ inline auto CheckDetachedMaterialResultFanout(bool Shutdown) -> void
 			Release.Trigger();
 		});
 		ShutdownAssetCompilingManager(); Releaser.join();
-		EXPECT_EQ(GetMaterialCompilationDiagnostics().OutstandingConsumerCount, 0u);
+		EXPECT_EQ(GetMaterialCompilationStatistics().OutstandingConsumerCount, 0u);
 	}
 	else
 	{
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*A);
 		EXPECT_FALSE(HasPendingMaterialCompilation(*A)); EXPECT_TRUE(HasPendingMaterialCompilation(*B));
-		EXPECT_EQ(GetMaterialCompilationDiagnostics().OutstandingConsumerCount, Before.OutstandingConsumerCount + 1);
+		EXPECT_EQ(GetMaterialCompilationStatistics().OutstandingConsumerCount, Before.OutstandingConsumerCount + 1);
 		Release.Trigger(); FAssetCompilingManager::Get().FinishCompilationForObject(*B);
 		ASSERT_TRUE(B->GetMaterialCompileStatus().IsCurrent());
 		EXPECT_EQ(A->GetMaterialCompileStatus().State, EMaterialCompileState::Canceled);
-		EXPECT_EQ(GetMaterialCompilationDiagnostics().OutstandingConsumerCount, Before.OutstandingConsumerCount);
+		EXPECT_EQ(GetMaterialCompilationStatistics().OutstandingConsumerCount, Before.OutstandingConsumerCount);
 		MaterialBuildPrivate::SetResultFanoutHookForTests([] { throw std::runtime_error("fanout failure"); });
 		ASSERT_TRUE(Private::FMaterialCompilationLifecycle::Submit(*A, Snapshot.Snapshot->Input, true));
 		FAssetCompilingManager::Get().FinishAllCompilation();
 		EXPECT_EQ(A->GetMaterialCompileStatus().State, EMaterialCompileState::Failed);
 		EXPECT_FALSE(HasPendingMaterialCompilation(*A));
-		EXPECT_EQ(GetMaterialCompilationDiagnostics().OutstandingConsumerCount, Before.OutstandingConsumerCount);
+		EXPECT_EQ(GetMaterialCompilationStatistics().OutstandingConsumerCount, Before.OutstandingConsumerCount);
 	}
 }
 }

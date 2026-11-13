@@ -488,7 +488,7 @@ namespace Durin::RendererPrivate
 		return FShaderCompletion{};
 	}
 	auto FMeshPassProcessor::PrepareShaders(const FMeshPassProcessorBatch& Batch, const FRenderResourceGeneration& Generation,
-		const FMaterialCompilerResult* Program, const FShaderCompileOptions& Options, FMeshPassShaders& Out,
+		const FMaterialProgramResource* Program, const FShaderCompileOptions& Options, FMeshPassShaders& Out,
 		ERenderResourceCreateErrorCategory* FailureCategory) const -> FShaderCompletion
 	{
 		if (FailureCategory) *FailureCategory = ERenderResourceCreateErrorCategory::InvalidConfiguration;

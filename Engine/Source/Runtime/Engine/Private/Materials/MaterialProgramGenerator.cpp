@@ -1056,10 +1056,22 @@ float4 FragmentMain(
 		return Result;
 	}
 
+	auto FMaterialProgramResource::IsValid() const -> bool
+	{
+		return bool(ValidateMaterialProgramResource(*this));
+	}
+
 	auto ValidateMaterialCompilerResult(const FMaterialCompilerResult& Result)
 		-> FMaterialLayoutValidationResult
 	{
-		if (!Result || !Result.ShaderMap || !Result.GetShaderMap().ShaderMapId.IsValid()
+		if (!Result) return {.Error = EMaterialLayoutError::InvalidIdentity};
+		return ValidateMaterialProgramResource(Result.Resource);
+	}
+
+	auto ValidateMaterialProgramResource(const FMaterialProgramResource& Result)
+		-> FMaterialLayoutValidationResult
+	{
+		if (!Result.HasShaderMap() || !Result.GetShaderMap().ShaderMapId.IsValid()
 			|| Result.GetShaderMap().PassContractVersion != CurrentMaterialPassContractVersion)
 			return {.Error = EMaterialLayoutError::InvalidIdentity};
 		const auto& Artifact = Result.GetShaderMap();

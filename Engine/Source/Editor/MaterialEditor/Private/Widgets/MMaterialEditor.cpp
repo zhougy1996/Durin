@@ -184,18 +184,7 @@ namespace Durin::MaterialEditor
 			return "Unknown";
 		}
 
-		auto FormatCacheOutcome(EMaterialCompileCacheOutcome Outcome) -> const char*
-		{
-			switch (Outcome)
-			{
-			case EMaterialCompileCacheOutcome::None: return "none";
-			case EMaterialCompileCacheOutcome::RetainedHit: return "retained hit";
-			case EMaterialCompileCacheOutcome::SingleFlight: return "shared flight";
-			case EMaterialCompileCacheOutcome::Compiled: return "compiled";
-			case EMaterialCompileCacheOutcome::Forced: return "forced";
-			}
-			return "unknown";
-		}
+
 	}
 
 	class FMaterialParameterPanelCache
@@ -861,13 +850,18 @@ namespace Durin::MaterialEditor
 		const bool bCanNavigateGraph = Cast<DMaterial>(Material) != nullptr;
 		ImGui::Text("Compile: %s", FormatCompileState(Status));
 		ImGui::Text("Freshness: %s", Status.IsCurrent() ? "current" : "stale");
-		ImGui::Text("Cache: %s", FormatCacheOutcome(Status.CacheOutcome));
-		ImGui::Text("Target: %s", Status.Target.empty() ? "n/a" : Status.Target.c_str());
-		ImGui::Text("Generation: %llu", static_cast<unsigned long long>(Status.RequestId));
+
 		if (Material->GetAcceptedCompiledProgram() && !Status.IsCurrent())
 			ImGui::TextDisabled("Preview uses the last known good program.");
 		if (ImGui::CollapsingHeader("Statistics", ImGuiTreeNodeFlags_DefaultOpen))
 		{
+			const auto Debug = Material->GetMaterialCompileDebugInfo();
+			ImGui::Text("Request: %llu; target: %s", static_cast<unsigned long long>(Debug.RequestId),
+				Debug.Target.empty() ? "n/a" : Debug.Target.c_str());
+			ImGui::Text("Retained hit: %s; shared: %s; forced: %s",
+				Debug.CacheInfo.bRetainedHit ? "yes" : "no",
+				Debug.CacheInfo.bSharedCompilation ? "yes" : "no",
+				Debug.CacheInfo.bForced ? "yes" : "no");
 			const FMaterialProgramStatistics Statistics =
 				GetMaterialProgramStatistics(*Material);
 			const FLoadedMaterialFamilyStatistics Family =
@@ -904,8 +898,8 @@ namespace Durin::MaterialEditor
 			ImGui::TextDisabled("Current loaded snapshot; pending %llu, failed %llu",
 				static_cast<unsigned long long>(Family.PendingOwnerCount),
 				static_cast<unsigned long long>(Family.FailedOwnerCount));
-			const FMaterialCompilationDiagnostics Compilation =
-				GetMaterialCompilationDiagnostics();
+			const FMaterialCompilationStatistics Compilation =
+				GetMaterialCompilationStatistics();
 			const FMaterialRenderProxyCounters Proxies =
 				GetMaterialRenderProxyCounters();
 			ImGui::Text("Process compile requests: %llu accepted, %llu completed, %llu failed",

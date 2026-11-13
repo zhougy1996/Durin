@@ -38,68 +38,44 @@ namespace Durin
 		Canceled,
 	};
 
-	enum class EMaterialCompileCacheOutcome : uint8
+	// Independent observations of the most recent request, for compiler debugging.
+	struct FMaterialCompileCacheInfo
 	{
-		None,
-		RetainedHit,
-		SingleFlight,
-		Compiled,
-		Forced,
+		bool bRetainedHit = false;
+		bool bSharedCompilation = false;
+		bool bForced = false;
 	};
 
-	enum class EMaterialCompileOutcome : uint8 { Succeeded, Failed, Canceled };
+	struct FMaterialCompileRequest;
+	struct FMaterialCompileResult;
 
-	// Detached input plus resource association captured on GameThread before dispatch.
-	struct FMaterialCompileRequest
-	{
-		std::shared_ptr<FMaterialCompilationResource> Resource;
-		std::shared_ptr<const MIR::FCompilerInput> CompilerInput;
-		bool bForceRecompile = false;
-		bool bSingleFlightConsumer = false;
-	};
-
-	// Manager completion handoff; only the still-associated resource may install it.
-	struct FMaterialCompileResult
-	{
-		std::shared_ptr<const FMaterialCompileRequest> Request;
-		FMaterialStaticProperties StaticProperties;
-		EMaterialCompileOutcome Outcome = EMaterialCompileOutcome::Failed;
-		EMaterialCompileCacheOutcome CacheOutcome = EMaterialCompileCacheOutcome::None;
-		std::shared_ptr<const FMaterialCompilerResult> CompiledProgram;
-		std::vector<MIR::FSource> ExpressionSources;
-		std::vector<FMaterialProgramDiagnostic> Diagnostics;
-	};
-
-	// Asset-visible value snapshot. Scheduling and installed freshness are independent of request outcome.
+	// Derived owner-facing state; revision bookkeeping and compiler statistics stay separate.
 	struct FMaterialCompileStatus
+	{
+		EMaterialCompileState State = EMaterialCompileState::NeverRequested;
+		bool bCurrent = false;
+		bool bHasUnsubmittedEdits = false;
+		bool bHasScheduledEdits = false;
+		auto IsCurrent() const -> bool { return bCurrent; }
+		auto HasUnsubmittedEdits() const -> bool { return bHasUnsubmittedEdits; }
+		auto HasScheduledEdits() const -> bool { return bHasScheduledEdits; }
+	};
+
+	// On-demand debug snapshot; never used for scheduling or admission decisions.
+	struct FMaterialCompileDebugInfo
 	{
 		uint64 AuthoredRevision = 1;
 		uint64 SubmittedRevision = 1;
 		uint64 CompiledRevision = 0;
 		uint64 CompiledDependencyRevision = 0;
-		bool bDependenciesCurrent = true;
-		bool bHasScheduledEdits = false;
 		uint64 RequestId = 0;
-		EMaterialCompileState State = EMaterialCompileState::NeverRequested;
-		EMaterialCompileCacheOutcome CacheOutcome =
-			EMaterialCompileCacheOutcome::None;
+		FMaterialCompileCacheInfo CacheInfo;
 		FMaterialProgramIdentity CompiledIdentity;
 		std::string Target;
-
-		auto IsCurrent() const -> bool
-		{
-			return CompiledIdentity.IsValid() && CompiledRevision == AuthoredRevision
-				&& bDependenciesCurrent;
-		}
-		auto HasUnsubmittedEdits() const -> bool
-		{
-			return SubmittedRevision != AuthoredRevision;
-		}
-		auto HasScheduledEdits() const -> bool { return bHasScheduledEdits; }
 	};
 
 	// Fixed aggregate counters retain no per-request history.
-	struct FMaterialCompilationDiagnostics
+	struct FMaterialCompilationStatistics
 	{
 		bool bAcceptingRequests = false;
 		uint64 AcceptedRequests = 0;
@@ -128,7 +104,6 @@ namespace Durin
 	{
 		EMaterialProgramStatisticsState State = EMaterialProgramStatisticsState::Absent;
 		FMaterialProgramIdentity ProgramIdentity;
-		EMaterialCompileCacheOutcome CacheOutcome = EMaterialCompileCacheOutcome::None;
 		uint64 NormalizedIRNodeCount = 0;
 		uint64 ActiveParameterCount = 0;
 		uint64 UniformPayloadBytes = 0;
@@ -145,8 +120,8 @@ namespace Durin
 	ENGINE_API auto IsMaterialCompilationAcceptingRequests() -> bool;
 	// GameThread-only observation including canceled work awaiting owner-side reap.
 	ENGINE_API auto HasPendingMaterialCompilation(const DMaterialInterface& Material) -> bool;
-	ENGINE_API auto GetMaterialCompilationDiagnostics()
-		-> FMaterialCompilationDiagnostics;
+	ENGINE_API auto GetMaterialCompilationStatistics()
+		-> FMaterialCompilationStatistics;
 
 	// Thread-safe reload notification; object discovery and requests remain GameThread-only.
 	ENGINE_API auto NotifyMaterialShaderReload(bool bForceRecompile) -> void;

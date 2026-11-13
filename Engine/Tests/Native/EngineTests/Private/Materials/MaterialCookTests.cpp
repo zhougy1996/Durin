@@ -175,7 +175,7 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram(), DefaultProgram);
 	{
 		using namespace Durin;
-		ASSERT_EQ(GetMaterialCompilationDiagnostics().OutstandingConsumerCount, 0u);
+		ASSERT_EQ(GetMaterialCompilationStatistics().OutstandingConsumerCount, 0u);
 		FShaderCompilingManager::Get().FinishAllCompilation();
 		std::vector<TStrongObjectPtr<DMaterial>> Budgeted;
 		for (uint32 Index = 0; Index < 2; ++Index)
@@ -304,7 +304,7 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	auto ResavedRead = Resaved->AcquireRead();
 	ASSERT_TRUE(ResavedRead);
 	Durin::FMaterialStaticProperties ResavedProperties;
-	std::shared_ptr<const Durin::FMaterialCompilerResult> ResavedProgram;
+	std::shared_ptr<const Durin::FMaterialProgramResource> ResavedProgram;
 	ASSERT_TRUE(Durin::DecodeMaterialCookedProgramFamily(ResavedRead->GetBytes(),
 		Metal ? Durin::ECookTargetPlatform::MacOS : Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game, Durin::GetMaterialQualityLevel(), Durin::ERHIFeatureLevel::SM5, {}, ResavedProperties, ResavedProgram));

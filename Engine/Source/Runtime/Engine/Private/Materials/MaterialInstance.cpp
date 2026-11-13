@@ -307,7 +307,7 @@ namespace Durin
 
 
 	auto DMaterialInstance::GetAcceptedCompiledProgram() const
-		-> std::shared_ptr<const FMaterialCompilerResult>
+		-> std::shared_ptr<const FMaterialProgramResource>
 	{
 		if (bDynamicInstance) return IsValid(Parent.Get()) ? Parent->GetAcceptedCompiledProgram() : nullptr;
 		FResolvedMaterialProperties Resolved;

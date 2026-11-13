@@ -239,8 +239,8 @@ namespace Durin
 			return FMaterialPSOPrecacheRequestID::Rejected("Invalid material PSO precache parameters or unsupported Vertex Factory.");
 		if (Params.CompiledProgram)
 		{
-			if (!*Params.CompiledProgram || Params.CompiledProgram->FeatureLevel != Params.FeatureLevel
-				|| !ValidateMaterialCompilerResult(*Params.CompiledProgram)
+			if (Params.CompiledProgram->FeatureLevel != Params.FeatureLevel
+				|| !ValidateMaterialProgramResource(*Params.CompiledProgram)
 				|| Params.CompiledProgram->GetShaderMap().ShaderMapId != Params.Material.ShaderMap.ProgramIdentity
 				|| Params.CompiledProgram->GetShaderMap().Layout.Identity != Params.Material.ShaderMap.RenderLayout)
 				return FMaterialPSOPrecacheRequestID::Rejected("Material PSO request requires a matching accepted program.");

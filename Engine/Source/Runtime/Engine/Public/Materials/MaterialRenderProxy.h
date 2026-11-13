@@ -35,7 +35,7 @@ namespace Durin
 	{
 		std::vector<FMaterialLocalRenderParameter> Parameters;
 		std::optional<FMaterialStaticProperties> StaticProperties;
-		std::shared_ptr<const FMaterialCompilerResult> CompiledProgram;
+		std::shared_ptr<const FMaterialProgramResource> CompiledProgram;
 		// Only meaningful without an accepted program; retained programs stay usable.
 		bool bIsCompiling = false;
 		ENGINE_API auto HasValidGameThreadShaderMap() const -> bool;

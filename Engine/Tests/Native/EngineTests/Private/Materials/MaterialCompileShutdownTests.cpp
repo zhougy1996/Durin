@@ -43,10 +43,10 @@ TEST(FMaterialCompileShutdownTests, ShutdownDrainsFunctionOwnersAndDetachedFanou
 		}));
 	ASSERT_TRUE(Started.WaitFor(2));
 	for (auto& Material : Materials) ASSERT_TRUE(RequestMaterialRecompile(*Material, true));
-	EXPECT_GE(GetMaterialCompilationDiagnostics().OutstandingConsumerCount, 2u);
+	EXPECT_GE(GetMaterialCompilationStatistics().OutstandingConsumerCount, 2u);
 	Release.Trigger();
 	ASSERT_NO_FATAL_FAILURE(Testing::CheckDetachedMaterialResultFanout(true));
-	const auto Shutdown = GetMaterialCompilationDiagnostics();
+	const auto Shutdown = GetMaterialCompilationStatistics();
 	EXPECT_FALSE(Shutdown.bAcceptingRequests);
 	EXPECT_EQ(Shutdown.InFlightCount, 0u);
 	EXPECT_EQ(Shutdown.OutstandingConsumerCount, 0u);

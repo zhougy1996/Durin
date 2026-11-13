@@ -19,14 +19,14 @@ namespace Durin
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
 		auto* Source = NewObject<DMaterial>(nullptr, "CookedSceneMaterial");
 		AddToRoot(Source);
-		auto CookProgram = [](DMaterialInterface& Material, FMaterialStaticProperties& Properties) -> std::shared_ptr<const FMaterialCompilerResult> {
+		auto CookProgram = [](DMaterialInterface& Material, FMaterialStaticProperties& Properties) -> std::shared_ptr<const FMaterialProgramResource> {
 			auto Cooked = Material.PrepareCookedProgram(ECookTargetPlatform::MacOS, {});
 			EXPECT_TRUE(Cooked) << Cooked.Diagnostic;
 			if (!Cooked) return nullptr;
 			auto Read = Cooked->AcquireRead();
 			EXPECT_TRUE(Read);
 			if (!Read) return nullptr;
-			std::shared_ptr<const FMaterialCompilerResult> Program;
+			std::shared_ptr<const FMaterialProgramResource> Program;
 			const auto Decoded = DecodeMaterialCookedProgramFamily(Read->GetBytes(), ECookTargetPlatform::MacOS,
 				ECookTargetProfile::Game, GetMaterialQualityLevel(), ERHIFeatureLevel::SM5, {}, Properties, Program);
 			EXPECT_TRUE(Decoded) << Decoded.error();

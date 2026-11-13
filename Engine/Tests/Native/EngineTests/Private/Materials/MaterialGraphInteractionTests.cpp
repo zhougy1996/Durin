@@ -23,7 +23,7 @@ TEST(FMaterialGraphInteractionTests, ParameterValueControlsPreviewCoalesceAndCan
 			: FMaterialParameterValue::MakeVector4({.2, .3, .4, 1});
 		ASSERT_TRUE(FMaterialGraphOperations::CreateParameter(*Material, Definition, Durin::ETransactionMode::NotTransactable));
 		const auto Original = Material->FindParameterDefinition(Definition.Id)->Value;
-		const auto Generation = Material->GetMaterialCompileStatus().RequestId;
+		const auto Generation = Material->GetMaterialCompileDebugInfo().RequestId;
 		Durin::Tests::FTestEditorTransactorOwner Transactions;
 		int Errors = 0;
 		FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Material), {.ReportError = [&](std::string Error) { ++Errors; ADD_FAILURE() << Error; }}};
@@ -72,7 +72,7 @@ TEST(FMaterialGraphInteractionTests, ParameterValueControlsPreviewCoalesceAndCan
 		Frame({Start.x + 60, Start.y}, true, false);
 		EXPECT_EQ(Material->FindParameterDefinition(Definition.Id)->Value, Preview);
 		EXPECT_EQ((Transactions->GetQueueLength() - Transactions->GetUndoCount()), 0u);
-		EXPECT_EQ(Material->GetMaterialCompileStatus().RequestId, Generation);
+		EXPECT_EQ(Material->GetMaterialCompileDebugInfo().RequestId, Generation);
 		EXPECT_EQ(Errors, 0);
 		Canvas.CancelInteraction();
 		ImGui::DestroyContext(Context);
@@ -489,7 +489,7 @@ TEST(FMaterialGraphInteractionTests, NodePinChevronExpandsOnlyClickedNodeWithout
 	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::CanTogglePins(Canvas, FirstId));
 	EXPECT_FALSE(FMaterialGraphCanvasTestAccess::CanTogglePins(Canvas, Material->GetOutputNode()->Id));
 	const auto Presentation = Material->GetMaterialGraphPresentation();
-	const auto Generation = Material->GetMaterialCompileStatus().RequestId;
+	const auto Generation = Material->GetMaterialCompileDebugInfo().RequestId;
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	auto* Context = ImGui::CreateContext();
 	auto& IO = ImGui::GetIO();
@@ -519,7 +519,7 @@ TEST(FMaterialGraphInteractionTests, NodePinChevronExpandsOnlyClickedNodeWithout
 	Frame(Arrow, false); Frame(Arrow, true); Frame(Arrow, false);
 	EXPECT_EQ(FindViewNode(FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material), FirstId)->Inputs.size(), CollapsedCount);
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), Presentation);
-	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestId, Generation);
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().RequestId, Generation);
 	EXPECT_EQ((Transactions->GetQueueLength() - Transactions->GetUndoCount()), 0u);
 	EXPECT_TRUE(Canvas.GetSelection().empty());
 	Canvas.CancelInteraction();
@@ -726,9 +726,9 @@ TEST(FMaterialGraphInteractionTests, CanvasPositionRefreshPreservesTopologyStora
 	EXPECT_EQ(FindViewNode(FMaterialGraphCanvasTestAccess::Details(Canvas, *Material), ParameterId)->PrimaryLabel,
 		Material->FindParameterDefinition(Definition.Id)->DisplayName);
 	FMaterialGraphCanvasTestAccess::PrepareVisuals(Canvas);
-	const auto AuthoredRevision = Material->GetMaterialCompileStatus().AuthoredRevision;
+	const auto AuthoredRevision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 	ASSERT_TRUE(Material->SetParameterValue(Definition.Id, FMaterialParameterValue::MakeScalar(.75f)));
-	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, AuthoredRevision);
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, AuthoredRevision);
 	FMaterialGraphCanvasTestAccess::Details(Canvas, *Material);
 	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::TopologyStale(Canvas));
 	FMaterialGraphCanvasTestAccess::PrepareVisuals(Canvas);

@@ -94,12 +94,12 @@ auto QualifyMaterialEditingSessionAsync() -> void
 	EXPECT_NE(Source->GetExpressionOutputs(), Outputs);
 	// Apply must wait for a pending attempt even when the installed content is current.
 	ASSERT_TRUE(RequestMaterialRecompile(*Draft, true));
-	const auto ForcedRequest = Draft->GetMaterialCompileStatus().RequestId;
+	const auto ForcedRequest = Draft->GetMaterialCompileDebugInfo().RequestId;
 	ASSERT_TRUE(Draft->GetMaterialCompileStatus().IsCurrent());
 	ASSERT_FALSE(Draft->IsCompilationFinished());
 	Error.clear();
 	ASSERT_TRUE(Session.FinishAndApply(Error)) << Error;
 	EXPECT_TRUE(Draft->IsCompilationFinished());
-	EXPECT_EQ(Draft->GetMaterialCompileStatus().RequestId, ForcedRequest);
+	EXPECT_EQ(Draft->GetMaterialCompileDebugInfo().RequestId, ForcedRequest);
 	EXPECT_EQ(Source->GetExpressionOutputs(), Outputs);
 }
