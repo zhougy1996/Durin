@@ -365,7 +365,14 @@ namespace Durin::MainFrame
 					&& !BrowserSettingsWarning.empty())
 					DURIN_WARN("{}", BrowserSettingsWarning);
 				Services.AssetEditors = Context.AssetEditors;
-				Services.DataSubsystem = GEditor->GetEditorSubsystem<DContentBrowserDataSubsystem>();
+				auto* BrowserData = GEditor->GetEditorSubsystem<DContentBrowserDataSubsystem>();
+				if (!BrowserData || !BrowserData->GetActiveDataSource(FName("Asset"))
+					|| !BrowserData->GetActiveDataSource(FName("File")))
+				{
+					OutError = "Could not initialize the Content Browser data providers.";
+					return false;
+				}
+				Services.DataSubsystem = BrowserData;
 				Context.ContentBrowserTool = ContentBrowser::CreateContentBrowserTool(
 					std::move(Services),
 					std::move(BrowserSettings),
@@ -1330,7 +1337,7 @@ namespace Durin
 	{
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::WorkspaceRegistrationBegin);
 		DURIN_PROFILE_CPU_ZONE_NAMED("Startup.WorkspaceModules");
-		for (const auto* Name : {"LevelEditor", "MaterialEditor", "TextureEditor", "StaticMeshEditor"})
+		for (const auto* Name : {"ContentBrowser", "LevelEditor", "MaterialEditor", "TextureEditor", "StaticMeshEditor"})
 			if (!FModuleManager::Get().LoadModule(Name))
 			{
 				DURIN_ERROR("Workspace module '{}' could not start.", Name);
