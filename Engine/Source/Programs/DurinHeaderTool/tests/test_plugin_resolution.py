@@ -58,12 +58,12 @@ def test_existing_project_roots_are_preserved(project, roots, editor):
     assert list(devtool.base_modules) == roots
     assert dht.get_enabled_root_modules("DurinGame") == roots
     assert dht.get_enabled_root_modules("DurinEditor") == roots + editor
-    assert devtool.plugin_overrides == dht.plugin_overrides == {}
+    assert list(devtool.plugin_dependencies) == dht.plugin_dependencies == []
     for variant in ("DurinEditor", "DurinGame"):
         result, _ = resolve_plugins(ROOT / "Engine", path, runtime_variant=variant,
                                     project_files=[ROOT / name / (name + ".dproject")
                                                    for name in ("Engine", "Sandbox", "RoadWeaver")])
-        assert result["Plugins"] == result["Modules"] == []
+        assert isinstance(result["Plugins"], list) and isinstance(result["Modules"], list)
 
 
 @pytest.mark.parametrize("variant", ["DurinEditor", "DurinGame"])
@@ -74,7 +74,8 @@ def test_engine_water_plugin_is_explicitly_selected(tmp_path, variant, enabled):
     project = tmp_path / "WaterValidation.dproject"
     descriptor = dict(ProjectName="WaterValidation", BaseModules=[])
     if enabled is not None:
-        descriptor["Plugins"] = {"Water": enabled}
+        (tmp_path / "Configs").mkdir()
+        (tmp_path / "Configs/Plugins.json").write_text(json.dumps({"Plugins": {"Water": enabled}}))
     project.write_text(json.dumps(descriptor), encoding="utf-8")
     projects = [ROOT / name / (name + ".dproject") for name in ("Engine", "Sandbox", "RoadWeaver")]
     options = dict(runtime_variant=variant, project_files=projects)
@@ -83,7 +84,7 @@ def test_engine_water_plugin_is_explicitly_selected(tmp_path, variant, enabled):
     expected = ["Water"] if enabled else []
     assert [item["Id"] for item in selection["Plugins"]] == expected
     assert [item["Name"] for item in selection["Modules"]] == expected
-    assert [item["Name"] for item in catalog["Modules"]] == expected
+    assert [item["Name"] for item in catalog["Modules"]] == ["Water"]
     assert locations["Plugin/Water"] == ROOT / "Engine/Plugins/Water/Water.dplugin"
     if enabled:
         assert selection["Modules"][0]["Host"] == "Runtime"
@@ -93,12 +94,12 @@ def test_engine_water_plugin_is_explicitly_selected(tmp_path, variant, enabled):
         assert "Plugin/Water/Water" not in locations
 
 
-@pytest.mark.parametrize("value", [{}, {"Water": True, "Tools": False}])
+@pytest.mark.parametrize("value", [[], ["Water", "Tools"]])
 def test_project_readers_preserve_overrides_without_activating_modules(tmp_path, value):
     path = tmp_path / "Project.dproject"
-    path.write_text(json.dumps(dict(ProjectName="Project", Plugins=value)))
-    assert load_project_descriptor(path, schema_directory=SCHEMAS).plugin_overrides == value
-    assert DurinProjectConfig.from_file(path).plugin_overrides == value
+    path.write_text(json.dumps(dict(ProjectName="Project", PluginDependencies=value)))
+    assert list(load_project_descriptor(path, schema_directory=SCHEMAS).plugin_dependencies) == value
+    assert DurinProjectConfig.from_file(path).plugin_dependencies == value
 
 
 @pytest.mark.parametrize('explicit', [False, True])
@@ -135,7 +136,7 @@ def test_shared_project_descriptor_contract(case, tmp_path):
         tool=load_project_descriptor(path, schema_directory=SCHEMAS)
         assert project.get_enabled_root_modules('DurinGame')==case['Game']
         assert project.get_enabled_root_modules('DurinEditor')==case['Editor']
-        assert tool.plugin_overrides==project.plugin_overrides
+        assert list(tool.plugin_dependencies)==project.plugin_dependencies
 
 
 def test_project_module_ownership_is_one_way():
@@ -189,7 +190,7 @@ def test_runtime_plugin_can_consume_real_engine_module_graph(tmp_path, variant):
         relative = Path(name) / (name + ".dproject")
         data = json.loads((ROOT / relative).read_text())
         if name == "Sandbox":
-            data["Plugins"] = {"Probe": True}
+            data["PluginDependencies"] = ["Probe"]
         target = tmp_path / relative
         target.parent.mkdir(parents=True)
         target.write_text(json.dumps(data))

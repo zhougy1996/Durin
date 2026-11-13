@@ -1,5 +1,4 @@
 {
   "ProjectName": "WaterSurfaceFixture",
-  "BaseModules": [],
-  "Plugins": {"Water": true}
+  "BaseModules": []
 }

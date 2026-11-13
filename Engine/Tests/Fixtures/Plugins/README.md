@@ -94,10 +94,10 @@ Saving must retain the current process's frozen module selection and mount
 revision; the next process must consume the saved overrides without rebuilding.
 Readonly and stale modes check failed-save isolation. Ownership-parent holds the
 project's edit lease while its child verifies failed-save isolation. Missing-build temporarily moves
-the inventory after startup admission: valid overrides still save, but restart
-readiness fails. Save-blocked unchecks Runtime while Consumer stays checked;
+the inventory after startup admission: valid startup overrides still save and restart remains available; unavailable
+plugins are diagnosed on startup. Save-blocked unchecks Runtime while Consumer stays checked;
 observe-blocked verifies the next process remains usable, keeps Consumer's saved
-request and loads neither native plugin. Restore the original descriptor after qualification, and compare
+request and loads neither native plugin. Restore the original `Configs/Plugins.json` after qualification, and compare
 inventory/build-graph hashes across the toggle cycle to exclude republication.
 
 The actual Plugins window additionally needs an interactive check of checkbox

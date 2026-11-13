@@ -39,14 +39,14 @@
     },
     {
       "Name": "EmptyPlugins",
-      "Source": "{\"ProjectName\":\"Fixture\",\"Plugins\":{}}",
+      "Source": "{\"ProjectName\":\"Fixture\",\"PluginDependencies\":[]}",
       "Valid": true,
       "Game": [],
       "Editor": []
     },
     {
       "Name": "PluginOverrides",
-      "Source": "{\"ProjectName\":\"Fixture\",\"Plugins\":{\"Water\":true,\"Tools\":false}}",
+      "Source": "{\"ProjectName\":\"Fixture\",\"PluginDependencies\":[\"Water\"]}",
       "Valid": true,
       "Game": [],
       "Editor": []
@@ -134,6 +134,21 @@
       "Valid": false,
       "Game": [],
       "Editor": []
+    },
+    {
+      "Name": "InvalidPluginDependenciesType",
+      "Source": "{\"PluginDependencies\":{},\"ProjectName\":\"Fixture\"}",
+      "Valid": false
+    },
+    {
+      "Name": "InvalidPluginDependencyName",
+      "Source": "{\"PluginDependencies\":[\"../Water\"],\"ProjectName\":\"Fixture\"}",
+      "Valid": false
+    },
+    {
+      "Name": "DuplicatePluginDependency",
+      "Source": "{\"PluginDependencies\":[\"Water\",\"water\"],\"ProjectName\":\"Fixture\"}",
+      "Valid": false
     }
   ]
 }

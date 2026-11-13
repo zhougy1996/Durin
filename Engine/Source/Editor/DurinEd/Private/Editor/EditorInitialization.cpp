@@ -11,6 +11,7 @@
 #include "Modules/ModuleManager.h"
 #include "Project/Project.h"
 #include "Interfaces/IProjectManager.h"
+#include "Plugins/PluginManagement.h"
 #include "Profiling/Profiling.h"
 
 namespace Durin
@@ -37,7 +38,7 @@ namespace Durin
 		if (bShutdownRequested) return false;
 		if (!IProjectManager::Get().LoadModulesForProject(ELoadingPhase::EngineReady, [&] { return bShutdownRequested; }))
 		{ StartupError=IProjectManager::Get().GetLastError(); return false; }
-		if (const auto Content = InitializeProjectContent(); !Content)
+		if (const auto Content = IProjectManager::Get().AreProjectModulesAvailable() ? InitializeProjectContent() : std::expected<void, std::string>{}; !Content)
 		{
 			StartupError = Content.error();
 			return false;
@@ -62,6 +63,8 @@ namespace Durin
 		}
 		if (!IProjectManager::Get().LoadModulesForProject(ELoadingPhase::EditorReady, [&] { return bShutdownRequested; }))
 		{ StartupError=IProjectManager::Get().GetLastError(); return false; }
+        for (const auto& Diagnostic : GetPluginStartupDiagnostics())
+            GetNotificationManager().Post({.Type = ENotificationType::Warning, .Message = "A plugin could not be enabled", .Details = Diagnostic});
 		AddRegisteredEditorSubsystems();
 		if (bShutdownRequested) return false;
 		if (!MainFrameModule->InitializeWorkspaces(StartupError)) return false;

@@ -23,15 +23,16 @@ namespace Durin
     };
     PROJECTS_API auto MakePluginManagementContext(FPluginManagementContext& OutContext, std::string& OutReason) -> bool;
     PROJECTS_API auto GetActivePluginIds() -> std::span<const std::string>;
-    // Atomic manager-owned edit/save. A stale UI session cannot overwrite later descriptor edits.
+    PROJECTS_API auto GetPluginStartupDiagnostics() -> std::span<const std::string>;
+    // Atomic startup-config save; stale sessions cannot overwrite changes to either input file.
     PROJECTS_API auto SaveProjectPluginOverrides(const std::map<std::string, bool>& Overrides,
-        std::string_view ExpectedDisk, std::string& OutReason) -> bool;
+        std::string_view ExpectedDisk, std::string_view ExpectedProjectDisk, std::string& OutReason) -> bool;
 
     struct FPluginManagementRow
     {
         FPluginInfo Info;
         std::optional<bool> Override;
-        bool bRequested = false, bActive = false, bNextStart = false, bCompatible = true, bBuildAvailable = false;
+        bool bRequired = false, bRequested = false, bActive = false, bNextStart = false, bCompatible = true, bBuildAvailable = false;
         std::string Reason, Availability;
     };
     class FPluginEditSession
@@ -57,7 +58,7 @@ namespace Durin
         std::vector<FPluginInfo> Catalog;
         std::vector<FPluginManagementRow> Rows;
         std::map<std::string, bool> Saved, Draft;
-        std::string DiskSnapshot, ValidationError, BuildError;
+        std::string DiskSnapshot, ProjectSnapshot, ValidationError, BuildError;
         bool bRestartRequired = false;
         auto Rebuild() -> void;
         auto RefreshBuildAvailability() -> void;

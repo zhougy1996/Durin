@@ -4,7 +4,9 @@
   "title": "Durin project descriptor",
   "type": "object",
   "additionalProperties": false,
-  "required": ["ProjectName"],
+  "required": [
+    "ProjectName"
+  ],
   "properties": {
     "$schema": {
       "type": "string",
@@ -23,12 +25,6 @@
         "$ref": "#/$defs/nonEmptyString"
       }
     },
-    "Plugins": {
-      "type": "object",
-      "default": {},
-      "propertyNames": {"$ref": "#/$defs/identifier"},
-      "additionalProperties": {"type": "boolean"}
-    },
     "BaseModules": {
       "$ref": "#/$defs/identifierList",
       "default": []
@@ -44,11 +40,20 @@
       }
     },
     "Tests": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "properties": {
         "Native": {
-          "type": "object", "additionalProperties": false, "required": ["Root"],
-          "properties": {"Root": {"$ref": "#/$defs/nonEmptyString"}}
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "Root"
+          ],
+          "properties": {
+            "Root": {
+              "$ref": "#/$defs/nonEmptyString"
+            }
+          }
         }
       }
     },
@@ -58,6 +63,13 @@
       "uniqueItems": true,
       "items": {
         "$ref": "#/$defs/mount"
+      }
+    },
+    "PluginDependencies": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/identifier"
       }
     }
   },
@@ -108,7 +120,10 @@
           "$ref": "#/$defs/virtualRoot"
         },
         "Owner": {
-          "enum": ["Extension", "ExternalSources"]
+          "enum": [
+            "Extension",
+            "ExternalSources"
+          ]
         },
         "Root": {
           "$ref": "#/$defs/nonEmptyString"

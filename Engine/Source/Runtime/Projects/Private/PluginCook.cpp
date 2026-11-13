@@ -60,6 +60,9 @@ namespace Durin
             const auto ProjectBytes=FFileHelper::LoadFileToArray(Project->ProjectFile);
             if (!ProjectBytes) throw std::runtime_error("Cannot capture project descriptor");
             Root.SetChildValue("ProjectDescriptor",std::string(reinterpret_cast<const char*>(ProjectBytes->data()),ProjectBytes->size()));
+            const auto Startup = ReadPluginStartupSnapshot(Project->ProjectFile);
+            if (!Startup) throw std::runtime_error(Startup.error());
+            Root.SetChildValue("PluginStartupConfig", Startup->empty() ? std::string("{}") : *Startup);
             auto Mounts=Root.AddArray("Mounts");
             for (const auto& Mount:Resources.ContentMounts)
             {
@@ -147,8 +150,13 @@ namespace Durin
             if (!Authored.Parse(Snapshot.GetRootView().GetView("ProjectDescriptor").GetString())) Fail("Invalid frozen project request");
             FProjectDescriptor Project;
             if (!Project.Load(ProjectFile,OutReason)) Fail(OutReason);
-            const auto Requests=ReadProjectPluginOverrides(Authored.GetRootView());
-            if (!Requests || *Requests!=Project.PluginOverrides) Fail("Staged plugin requests differ from the Cook selection");
+            FProjectDescriptor FrozenProject;
+            if (!FrozenProject.Read(Authored, ProjectFile, OutReason) || FrozenProject.PluginDependencies != Project.PluginDependencies)
+                Fail("Staged project dependencies differ from Cook");
+            const auto StartupFile = Required((std::filesystem::path(Text(Root,"ProjectFile")).parent_path()/"Configs/Plugins.json").generic_string());
+            const auto Startup = ReadPluginStartupSnapshot(ProjectFile);
+            if (!Startup || !Captured.GetView("PluginStartupConfig").IsString() || *Startup != Captured.GetView("PluginStartupConfig").GetString())
+                Fail("Staged plugin startup configuration differs from Cook");
 
             const auto Configs=Root.GetView("ConfigurationFiles");
             if (!Configs.IsArray() || Configs.Num()!=2) Fail("Missing staged runtime configuration");

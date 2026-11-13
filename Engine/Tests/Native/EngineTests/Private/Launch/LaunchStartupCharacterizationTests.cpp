@@ -53,6 +53,22 @@ TEST(FLaunchStartupCharacterizationTests, EmptyDefaultLevelShowsWorkspaceAndExit
 	EXPECT_EQ(RunLaunchChild({"--project=" + Project.generic_string(), "--exit-after-ticks=2"}), 0u);
 }
 
+TEST(FLaunchStartupCharacterizationTests, UnavailablePluginKeepsEditorAvailable)
+{
+    for (const bool Required : {false, true})
+    {
+        const auto Root = Durin::Testing::GetTestWorkDirectory() / (Required ? "MissingRequiredPlugin" : "MissingOptionalPlugin");
+        std::filesystem::create_directories(Root / "Configs");
+        const auto Project = Root / "PluginRecovery.dproject";
+        { std::ofstream File(Project); File << (Required
+            ? R"({"ProjectName":"PluginRecovery","BaseModules":[],"PluginDependencies":["UnavailableTestPlugin"]})"
+            : R"({"ProjectName":"PluginRecovery","BaseModules":[]})"); }
+        { std::ofstream File(Root / "Configs/Plugins.json"); File << R"({"Plugins":{"UnavailableTestPlugin":true}})"; }
+        { std::ofstream File(Root / "Configs/Project.yaml"); File << "Game:\n  DefaultLevel: ''\n"; }
+        EXPECT_EQ(RunLaunchChild({"--project=" + Project.generic_string(), "--exit-after-ticks=2"}), 0u);
+    }
+}
+
 TEST(FLaunchStartupCharacterizationTests, AutomatedLaunchPreservesInteractiveHistory)
 {
 	const auto History = std::filesystem::path(DURIN_LAUNCH_EXECUTABLE).parent_path()

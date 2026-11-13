@@ -8,8 +8,15 @@
 namespace Durin
 {
 	class FJsonNodeView;
-	// Absent and empty Plugins objects both mean no explicit overrides.
+	// Startup choices live in Configs/Plugins.json, independently of the build graph.
 	PROJECTS_API auto ReadProjectPluginOverrides(FJsonNodeView Root)
+		-> std::expected<std::map<std::string, bool>, std::string>;
+
+	PROJECTS_API auto PluginStartupConfigFile(const std::filesystem::path& ProjectFile) -> std::filesystem::path;
+	// An absent file is represented by an empty snapshot; existing unreadable files fail.
+	PROJECTS_API auto ReadPluginStartupSnapshot(const std::filesystem::path& ProjectFile)
+		-> std::expected<std::string, std::string>;
+	PROJECTS_API auto LoadPluginStartupOverrides(const std::filesystem::path& ProjectFile)
 		-> std::expected<std::map<std::string, bool>, std::string>;
 
 	// Holds the normalized paths and mount root of the active project.
@@ -22,7 +29,7 @@ namespace Durin
 		std::string MountRoot;
 		// Project-owned module roots enabled for this executable's runtime variant.
 		std::vector<std::string> EnabledRootModules;
-		std::map<std::string, bool> PluginOverrides;
+		std::vector<std::string> PluginDependencies;
 		bool bRecordInteractiveHistory = false;
 	};
 

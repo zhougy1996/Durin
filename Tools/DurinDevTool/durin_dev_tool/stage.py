@@ -111,6 +111,9 @@ def stage_game(root: Path, project: Path, cook: Path, output: Path, game_runtime
     if current!=frozen:raise DevToolError("Project/plugin selection or inputs changed since Cook; recook before staging")
     descriptor=json.loads(snapshot["ProjectDescriptor"])
     if descriptor!=json.loads(project.read_text(encoding="utf-8")):raise DevToolError("Project descriptor changed since Cook")
+    startup_file=project.parent/"Configs/Plugins.json"
+    startup=startup_file.read_bytes().decode("utf-8") if startup_file.exists() else "{}"
+    if snapshot.get("PluginStartupConfig")!=startup:raise DevToolError("Plugin startup configuration differs from Cook; recook before staging")
     if snapshot["Platform"]!="Win64":raise DevToolError("Native staging is currently qualified for Win64 only")
     expected={key:snapshot[key] for key in ("Platform","Architecture","Configuration","ToolchainABI")}
     expected.update(EngineBuild=snapshot["EngineVersion"]+":"+sha256(game_runtime/"DurinGame-Core.dll"),RuntimeVariant="DurinGame")
@@ -242,11 +245,13 @@ def stage_game(root: Path, project: Path, cook: Path, output: Path, game_runtime
         configuration=[]
         template=runtime/"Templates/TP_DurinGame.yaml"
         template.parent.mkdir(parents=True,exist_ok=True)
+        startup=contained(runtime,"Project/Configs/Plugins.json");startup.parent.mkdir(parents=True,exist_ok=True)
+        startup.write_text(snapshot["PluginStartupConfig"],encoding="utf-8",newline="\n")
         template.write_text(snapshot["EngineGameDefaults"],encoding="utf-8",newline="\n")
         for name in ("Project.yaml","DurinGame.yaml"):
             relative="Project/Configs/"+name;file=contained(runtime,relative);file.parent.mkdir(parents=True,exist_ok=True);file.write_text(snapshot[name],encoding="utf-8",newline="\n");configuration.append(relative)
         # Asset entries stay solely in CMNF. Admission verifies module/configuration and Cook identity.
-        required={project_relative,"CookManifest.bin","PluginCook.json","Templates/TP_DurinGame.yaml",*configuration,*native_required}
+        required={project_relative,"Project/Configs/Plugins.json","CookManifest.bin","PluginCook.json","Templates/TP_DurinGame.yaml",*configuration,*native_required}
         if not (runtime/"Shaders/ShaderLibrary.dslb").is_file():
             raise DevToolError("Cooked Shader library is missing; recook before staging")
         required.add("Shaders/ShaderLibrary.dslb")
@@ -287,7 +292,7 @@ def run(namespace,*,repository_root,repository_context,stdout,stderr,**_kwargs):
         policy=RuntimeProcessPolicy(interruption_message="Stage preflight cancelled",capture_output=True))
     try:
         info=json.loads(native);snapshot=json.loads(info["Snapshot"])
-        required=("Selection","ProjectDescriptor","EngineVersion","Platform","Architecture","Configuration","ToolchainABI",
+        required=("Selection","ProjectDescriptor","PluginStartupConfig","EngineVersion","Platform","Architecture","Configuration","ToolchainABI",
                   "Project.yaml","DurinGame.yaml","EngineGameDefaults")
         if snapshot.get("SchemaVersion")!=1 or any(not isinstance(snapshot.get(key),str) for key in required):
             raise ValueError("Unsupported or incomplete plugin Cook snapshot")

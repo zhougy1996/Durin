@@ -352,6 +352,13 @@ namespace Durin
 					if (Modules.contains(Dep))
 					{
 						const auto& Target = Modules.at(Dep);
+                        if (!Target.Owner.empty() && Module.Owner.empty() && Eligible(Target))
+                        {
+                            const auto Project = std::ranges::find_if(Projects, [&](const auto& Item) { return Item.Descriptor.ModuleDirs.contains(Module.Name); });
+                            if (Project == Projects.end() || std::ranges::none_of(Project->Descriptor.PluginDependencies,
+                                [&](const auto& Id) { return Fold(Id) == Fold(Target.Owner); }))
+                                Fail(Module.Path, "undeclared project plugin dependency: " + Target.Owner, Next);
+                        }
 						if (Source.Host == "Runtime" && (Target.Host == "Editor" || (Target.Owner.empty() && EditorOnly.contains(Dep))))
 							Fail(Module.Path, "Runtime-to-Editor dependency", Next);
 						if (!Target.Owner.empty() && !Module.Owner.empty() && Fold(Module.Owner) != Fold(Target.Owner))
@@ -387,20 +394,46 @@ namespace Durin
 					if (!Identifier(Name) || !Names.insert(Fold(Name)).second) Fail(File, "invalid or duplicate project " + Name);
 					RenameInput("Project/" + Name);
 					const auto Directories = Descriptor.ModuleDirs;
-					const auto Overrides = Descriptor.PluginOverrides;
+					std::map<std::string, bool> Overrides; for (const auto& Id : Descriptor.PluginDependencies) Overrides.emplace(Id, true);
 					Projects.push_back({File, Data, Overrides, std::move(Descriptor)});
 					for (const auto& [ModName, Directory] : Directories)
 						AddModule(Contained(File.parent_path(), Directory) / (ModName + ".dmodule"), "Project/" + Name + "/" + ModName, ModName);
 				}
 				std::set<std::filesystem::path> Roots = {EngineRoot / "Plugins", ProjectFile.parent_path() / "Plugins"};
 				for (const auto& Root : Roots) Discover(Root, Root);
-                if (bDiscoveryOnly) return std::move(Result);
+                if (bDiscoveryOnly)
+                {
+                    for (const auto& [Key, Module] : Modules) if (Module.Owner.empty()) Result.OrdinaryModules.push_back(Module.Name);
+                    return std::move(Result);
+                }
+                std::set<std::string> Required;
                 for (const auto& Project : Projects) if (Project.Path == ProjectFile && !Request.bProjectBrowser)
-                    for (const auto& [Name, Enabled] : Request.PluginOverrides.value_or(Project.Overrides))
+                {
+                    auto Overrides = Request.PluginOverrides;
+                    if (!Overrides)
                     {
+                        auto Loaded = LoadPluginStartupOverrides(ProjectFile);
+                        if (!Loaded) Fail(PluginStartupConfigFile(ProjectFile), Loaded.error());
+                        Overrides = std::move(*Loaded);
+                    }
+                    const auto Snapshot = ReadPluginStartupSnapshot(ProjectFile);
+                    if (!Snapshot) Fail(ProjectFile, Snapshot.error());
+                    Inputs["Startup/" + Project.Descriptor.Name] = Hash(*Snapshot);
+                    Result.Locations["Startup/" + Project.Descriptor.Name] = PluginStartupConfigFile(ProjectFile);
+                    for (const auto& [Name, Enabled] : *Overrides)
                         if (!Identifier(Name) || !Explicit.emplace(Fold(Name), Enabled).second)
                             Fail(ProjectFile, "invalid or duplicate plugin override: " + Name);
-                    }
+                    const auto Require = [&](auto&& Self, const std::string& Id) -> void {
+                        const auto Key = Fold(Id);
+                        if (!Required.insert(Key).second) return;
+                        if (!Plugins.contains(Key)) Fail(ProjectFile, "missing plugin descriptor " + Id, {Id});
+                        if (Explicit.contains(Key) && !Explicit.at(Key)) Fail(ProjectFile, "Cannot disable project-required plugin " + Id);
+                        Explicit[Key] = true;
+                        for (const auto& Dependency : Plugins.at(Key).Dependencies) Self(Self, Dependency);
+                    };
+                    if (!Request.bRecoverySelection)
+                        for (const auto& [Id, Enabled] : Project.Overrides) Require(Require, Id);
+                }
                 std::map<std::string, std::string> Inactive;
                 for (const auto& [Key, Enabled] : Explicit)
 					if (!Plugins.contains(Key)) Fail(ProjectFile, "missing plugin descriptor " + Key, {Key});
@@ -441,7 +474,7 @@ namespace Durin
 				{
 					WalkSeen.clear(); WalkModule(Key, {Modules.at(Key).Name}, {}, Modules.at(Key));
 				}
-				if (std::ranges::any_of(Modules, [](const auto& Pair) { return !Pair.second.Owner.empty(); }))
+				if (!Request.bRecoverySelection && std::ranges::any_of(Modules, [](const auto& Pair) { return !Pair.second.Owner.empty(); }))
 					for (const auto& Key : ProjectRoots(Request.RuntimeVariant))
 					{
 						if (!Modules.contains(Key)) Fail(ProjectFile, "missing module " + Key, {Key});

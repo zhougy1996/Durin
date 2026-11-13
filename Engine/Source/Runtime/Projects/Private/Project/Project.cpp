@@ -105,18 +105,21 @@ namespace Durin
 	auto FProjectDescriptor::Read(const FJsonDocument& Source, std::string_view File, std::string& OutFailReason) -> bool
 	{
 		const auto Root=Source.GetRootView();
-		if (!ValidateObjectFields(Root,{"$schema","ProjectName","ModuleDirs","BaseModules","ExtraModules","Tests","Mounts","Plugins"}))
+		if (!ValidateObjectFields(Root,{"$schema","ProjectName","ModuleDirs","BaseModules","ExtraModules","Tests","Mounts","PluginDependencies"}))
 			return Fail(OutFailReason,"Invalid or duplicate project fields");
 		const auto ProjectName = Root.GetView("ProjectName").GetString();
 		if (!IsIdentifier(ProjectName)) return Fail(OutFailReason, "Project descriptor has no valid ProjectName");
 		if (Root.Contains("$schema") && (!Root.GetView("$schema").IsString() || Root.GetView("$schema").GetString().empty()))
 			return Fail(OutFailReason,"Invalid schema annotation");
-		auto Overrides = ReadProjectPluginOverrides(Root);
-		if (!Overrides) return Fail(OutFailReason, Overrides.error());
+
 		FProjectDescriptor Parsed;
 
 		Parsed.Name = ProjectName;
-		Parsed.PluginOverrides = std::move(*Overrides);
+		if (Root.Contains("PluginDependencies"))
+		{
+			std::unordered_set<std::string> Seen;
+			if (!ReadModuleArray(Root.GetView("PluginDependencies"), "PluginDependencies", Parsed.PluginDependencies, Seen, &OutFailReason)) return false;
+		}
 		std::string Error;
 		std::set<std::string> ModuleNames;
 		const auto Directories = Root.GetView("ModuleDirs");
@@ -194,7 +197,7 @@ namespace Durin
 		auto Variants=Root.AddObject("ExtraModules");
 		for (const auto& [Key,Names]:ExtraModules) { auto List=Variants.AddObject(Key).AddArray("Modules"); for (const auto& Item:Names) List.AppendValue(Item); }
 		if (NativeTestRoot) Root.AddObject("Tests").AddObject("Native").SetChildValue("Root",*NativeTestRoot);
-		auto Plugins=Root.AddObject("Plugins"); for (const auto& [Key,Enabled]:PluginOverrides) Plugins.SetChildValue(Key,Enabled);
+		auto Plugins=Root.AddArray("PluginDependencies"); for (const auto& Name:PluginDependencies) Plugins.AppendValue(Name);
 		auto MountList=Root.AddArray("Mounts");
 		const auto OwnerRoot=std::filesystem::path(Normalize(File)).parent_path();
 		for (const auto& Mount:Mounts)
@@ -212,6 +215,30 @@ namespace Durin
 		if (auto Saved=FFileHelper::SaveArrayToFileAtomically(FByteView(reinterpret_cast<const std::byte*>(Text.data()),Text.size()),std::string(File)); !Saved)
 			return Fail(OutFailReason,Saved.error().ToString());
 		OutFailReason.clear(); return true;
+	}
+
+	auto PluginStartupConfigFile(const std::filesystem::path& ProjectFile) -> std::filesystem::path
+	{ return ProjectFile.parent_path() / "Configs/Plugins.json"; }
+	auto ReadPluginStartupSnapshot(const std::filesystem::path& ProjectFile) -> std::expected<std::string, std::string>
+	{
+		const auto File = PluginStartupConfigFile(ProjectFile);
+		std::error_code Error;
+		const bool Exists = std::filesystem::exists(File, Error);
+		if (Error) return std::unexpected("Cannot inspect plugin startup configuration: " + File.generic_string());
+		if (!Exists) return std::string{};
+		const auto Bytes = FFileHelper::LoadFileToArray(File);
+		if (!Bytes) return std::unexpected("Cannot read plugin startup configuration: " + File.generic_string());
+		return std::string(reinterpret_cast<const char*>(Bytes->data()), Bytes->size());
+	}
+	auto LoadPluginStartupOverrides(const std::filesystem::path& ProjectFile) -> std::expected<std::map<std::string, bool>, std::string>
+	{
+		const auto Snapshot = ReadPluginStartupSnapshot(ProjectFile);
+		if (!Snapshot) return std::unexpected(Snapshot.error());
+		if (Snapshot->empty() && !std::filesystem::exists(PluginStartupConfigFile(ProjectFile))) return std::map<std::string, bool>{};
+		FJsonDocument Document;
+		if (!Document.Parse(*Snapshot) || !ValidateObjectFields(Document.GetRootView(), {"Plugins"}))
+			return std::unexpected("Invalid plugin startup configuration: " + PluginStartupConfigFile(ProjectFile).generic_string());
+		return ReadProjectPluginOverrides(Document.GetRootView());
 	}
 
 	auto ReadProjectPluginOverrides(FJsonNodeView Root)
@@ -247,7 +274,7 @@ namespace Durin
 		Info.Name=Descriptor.Name; Info.ProjectFile=Normalized;
 		Info.ProjectDir=std::filesystem::path(Normalized).parent_path().generic_string()+"/";
 		Info.ContentDir=Info.ProjectDir+"Content/"; Info.MountRoot="/Game/";
-		Info.EnabledRootModules=std::move(*Roots); Info.PluginOverrides=Descriptor.PluginOverrides;
+		Info.EnabledRootModules=std::move(*Roots); Info.PluginDependencies=Descriptor.PluginDependencies;
 		Info.bRecordInteractiveHistory=false;
 		if (!FPaths::SetProjectFile(Normalized, &Error))
 			return std::unexpected(Error);

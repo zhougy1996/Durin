@@ -25,8 +25,8 @@ def resolve_plugins(engine_root, project_file, **kwargs):
         raise BuildToolError(str(error)) from error
 
 
-def read_plugin_overrides(value, descriptor):
+def read_plugin_dependencies(value, descriptor):
     try:
-        return _resolver().plugin_overrides(value, descriptor)
+        return tuple(_resolver().plugin_dependencies(value, descriptor))
     except ValueError as error:
         raise BuildToolError(str(error)) from error

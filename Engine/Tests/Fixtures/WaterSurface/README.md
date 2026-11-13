@@ -15,8 +15,8 @@ Copy each probe beside the corresponding inventory's Runtime binaries under
 `Build/<preset>/PluginBuild/WaterSurfaceFixture/Debug/Runtime`. The startup probe
 also needs that variant's Projects library beside it. Run with the absolute
 fixture project filename followed by `enabled`. Then save `Water:false` in the
-disposable project and run `disabled` in a fresh process without rebuilding.
-Restore its original descriptor before further positive runs. The probe rejects
+disposable project's `Configs/Plugins.json` and run `disabled` in a fresh process without rebuilding.
+Restore its original startup configuration before further positive runs. The probe rejects
 early loading before Providers and checks that the reflected water actor is
 present only for the enabled process.
 

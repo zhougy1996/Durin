@@ -17,8 +17,12 @@ def load_plugin_build_context():
         if module_config.MODULE_CONFIGS[name].owning_plugin:
             del module_config.MODULE_CONFIGS[name]
     module_config.ENABLED_MODULES.clear()
-    if not any(p.plugin_overrides or (p.project_dir / "Plugins").exists() for p in projects):
+    if not any(p.plugin_dependencies or (p.project_dir / "Plugins").exists() for p in projects):
         return
+    # Preserve ordinary descriptor schema diagnostics before graph enumeration.
+    for project in projects:
+        for relative in project.modules.values():
+            module_config.DurinModuleConfig.from_file(project.project_dir / relative)
     files = [p.config_file_path for p in projects]
     for project in projects:
         DISCOVERY_DIRECTORIES.add(project.project_dir)

@@ -2,6 +2,7 @@
 #include "Plugins/PluginResources.h"
 #include "Plugins/PluginCook.h"
 #include "Plugins/PluginManagement.h"
+#include "Misc/AppConfig.h"
 #include "Project/Project.h"
 #include "Json/Json.h"
 #include "Misc/Paths.h"
@@ -95,6 +96,9 @@ namespace Durin
                         if (!std::filesystem::exists(File)) continue;
                         const auto Relation = std::filesystem::canonical(File).lexically_relative(Configs);
                         if (Relation.empty() || *Relation.begin() == "..") throw std::runtime_error("Plugin config escapes its root: " + File.generic_string());
+                        FYamlDocument Parsed; std::string Error;
+                        const std::array Files{File};
+                        if (!LoadConfigLayers(Files, Parsed, Error)) throw std::runtime_error(Error);
                     }
                     Result.ConfigDirectories.push_back(Configs);
                 }
@@ -146,7 +150,8 @@ namespace Durin
     }
 
 	auto ResolveProcessPlugins(std::string_view ProjectFile, FPluginResolution& OutSelection,
-		std::vector<FAdmittedPluginBinary>& OutBinaries, FPluginResources& OutResources, std::string& OutReason) -> bool
+		std::vector<FAdmittedPluginBinary>& OutBinaries, FPluginResources& OutResources, std::string& OutReason,
+        bool bAllowUnavailablePlugins, std::vector<std::string>& OutDiagnostics) -> bool
 	{
 		try
 		{
@@ -178,8 +183,9 @@ namespace Durin
 				{
 					FProjectDescriptor Descriptor;
 					if (!Descriptor.Load(ProjectFile, OutReason)) return false;
-					for (const auto& [Name, Enabled] : Descriptor.PluginOverrides)
-						if (Enabled) throw std::runtime_error("Source plugin admission requires workspace descriptors; staged plugin deployment is not available");
+					const auto Overrides = LoadPluginStartupOverrides(std::filesystem::path(ProjectFile));
+                    if (!Overrides) throw std::runtime_error(Overrides.error());
+                    if (!Descriptor.PluginDependencies.empty() || std::ranges::any_of(*Overrides, [](const auto& Entry) { return Entry.second; })) throw std::runtime_error("Source plugin admission requires workspace descriptors; staged plugin deployment is not available");
 				}
 				FPluginResolution Empty;
 				for (const auto* Name : GOrdinaryModuleNames) Empty.OrdinaryModules.emplace_back(Name);
@@ -198,6 +204,17 @@ namespace Durin
 				if (!Projects.GetView(I).IsString()) throw std::runtime_error("Invalid workspace project path");
 				Request.ProjectFiles.push_back(WorkspaceRoot / Projects.GetView(I).GetString());
 			}
+            if (bAllowUnavailablePlugins && !ProjectFile.empty())
+            {
+                FProjectDescriptor Project;
+                if (!Project.Load(ProjectFile, OutReason)) throw std::runtime_error(OutReason);
+                FPluginBuildIdentity Identity{std::string(GetEngineVersionString()) + ":" + HostCoreHash(),
+                    Request.Platform, DURIN_PLUGIN_ARCHITECTURE, DURIN_BUILD_TYPE_STRING, Request.RuntimeVariant, DURIN_PLUGIN_TOOLCHAIN};
+                const auto Inventory = std::filesystem::path(DURIN_PLUGIN_BUILD_ROOT) / Project.Name / DURIN_BUILD_TYPE_STRING / "PluginBuild.json";
+                if (!ResolveAvailablePlugins(Request, Identity, Inventory, OutSelection, OutBinaries, OutResources, OutDiagnostics, OutReason))
+                    throw std::runtime_error(OutReason);
+                return true;
+            }
 			auto Selected = ResolvePlugins(Request);
 			if (!Selected) { OutReason = Selected.error(); return false; }
 			std::vector<FAdmittedPluginBinary> Binaries;
@@ -222,6 +239,14 @@ namespace Durin
 		}
 		catch (const std::exception& Error)
 		{
+            if (bAllowUnavailablePlugins)
+            {
+                OutDiagnostics.push_back(std::string("Plugin startup failed; plugins were skipped: ") + Error.what());
+                OutSelection = {};
+                for (const auto* Name : GOrdinaryModuleNames) OutSelection.OrdinaryModules.emplace_back(Name);
+                OutBinaries.clear(); OutResources = {}; OutReason.clear();
+                return true;
+            }
 			OutReason = std::string(Error.what()) + "; configure/build required before restart";
 			return false;
 		}

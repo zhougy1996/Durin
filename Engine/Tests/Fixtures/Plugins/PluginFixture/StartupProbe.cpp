@@ -1,5 +1,6 @@
 #include "Interfaces/IProjectManager.h"
 #include "Project/Project.h"
+#include "Plugins/PluginManagement.h"
 #include "Modules/ModuleManager.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Class.h"
@@ -53,8 +54,11 @@ int main(int Argc, char** Argv)
 	if (!Modules.IsModuleLoaded("PluginFixtureRuntime") || Modules.IsModuleLoaded("PluginFixtureConsumer")) return 10;
 	if (!FindClassByQualifiedName("Durin::PluginFixture::DFixtureAsset")) return 11;
 	std::string Error;
-	if (!Projects.SetPluginEnabled("PluginFixtureConsumer", false, Error)) return 12;
-	if (Mode == "save-disable" && !Projects.SaveCurrentProjectToDisk(Error)) return 21;
+    FPluginManagementContext Context;
+    if (!MakePluginManagementContext(Context, Error)) return 12;
+    FPluginEditSession Session;
+    if (!Session.Open(Context, Error) || !Session.SetEnabled("PluginFixtureConsumer", false, Error)) return 12;
+    if (Mode == "save-disable" && !Session.Save(Error)) return 21;
 	if (FMountPaths::GetMountRegistryRevision() != MountRevision) return 22;
 	if (!Load(ELoadingPhase::EngineReady)) return 13;
 	if (!Modules.IsModuleLoaded("PluginFixtureConsumer")

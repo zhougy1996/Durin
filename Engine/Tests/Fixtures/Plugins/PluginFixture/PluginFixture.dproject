@@ -1,8 +1,4 @@
 {
   "ProjectName": "PluginFixture",
-  "BaseModules": [],
-  "Plugins": {
-    "PluginFixtureConsumer": true,
-    "PluginFixtureContent": true
-  }
+  "BaseModules": []
 }

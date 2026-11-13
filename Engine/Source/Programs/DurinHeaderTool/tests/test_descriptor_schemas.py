@@ -41,12 +41,12 @@ def test_all_tracked_descriptors_match_their_schema():
     project_paths = sorted(
         [WORKSPACE_ROOT / "Engine" / "Engine.dproject", WORKSPACE_ROOT / "Sandbox" / "Sandbox.dproject"]
     )
-    module_paths = sorted(
-        [
-            *WORKSPACE_ROOT.glob("Engine/**/*.dmodule"),
-            *WORKSPACE_ROOT.glob("Sandbox/**/*.dmodule"),
-        ]
+    tracked = subprocess.run(
+        ["git", "-c", f"safe.directory={WORKSPACE_ROOT.as_posix()}", "-C", str(WORKSPACE_ROOT),
+         "ls-files", "--", "Engine/**/*.dmodule", "Sandbox/**/*.dmodule"],
+        check=True, capture_output=True, text=True,
     )
+    module_paths = sorted(WORKSPACE_ROOT / path for path in tracked.stdout.splitlines())
 
     assert len(project_paths) == 2
     assert module_paths

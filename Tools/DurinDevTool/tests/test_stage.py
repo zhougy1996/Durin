@@ -21,9 +21,10 @@ def write(path: Path, value: bytes | str | dict) -> Path:
 @pytest.fixture
 def deployment(tmp_path, monkeypatch):
     root = tmp_path / "source"
-    project = write(root / "Game/Game.dproject", {"ProjectName": "Game", "BaseModules": [], "Plugins": {"Water": True}})
+    project = write(root / "Game/Game.dproject", {"ProjectName": "Game", "BaseModules": []})
     write(root / "Engine/Engine.dproject", {"ProjectName": "Engine", "BaseModules": []})
     write(root / "Durin.dworkspace", {"Projects": ["Engine/Engine.dproject", "Game/Game.dproject"]})
+    write(root / "Game/Configs/Plugins.json", {"Plugins": {"Water": True}})
     write(root / "Game/Plugins/Water/Water.dplugin", {
         "SchemaVersion": 1, "Id": "Water", "Modules": [{"Name": "Water", "Path": "Source"}]})
     write(root / "Game/Plugins/Water/Source/Water.dmodule", {"ModuleName": "Water"})
@@ -40,7 +41,7 @@ def deployment(tmp_path, monkeypatch):
     write(inventory, dict(SchemaVersion=2, Identity=identity, Inputs=selection["Inputs"], Binaries=[
         dict(Module="Water", Owner="Water", Path="Runtime/Water.dll", RuntimeDependencies=["Runtime/native.dll"])]))
     snapshot = dict(SchemaVersion=1, EngineVersion="1", Selection=json.dumps(selection),
-        ProjectDescriptor=project.read_text(), EngineGameDefaults="{}\n", Mounts=[], **{k: identity[k] for k in ("Platform", "Architecture", "Configuration", "ToolchainABI")},
+        ProjectDescriptor=project.read_text(), PluginStartupConfig=(project.parent/"Configs/Plugins.json").read_text(), EngineGameDefaults="{}\n", Mounts=[], **{k: identity[k] for k in ("Platform", "Architecture", "Configuration", "ToolchainABI")},
         **{"Project.yaml": "{}", "DurinGame.yaml": "{}"})
     cook = root / "Cook"
     write(cook / "PluginCook.json", snapshot)
@@ -67,13 +68,15 @@ def test_stage_selects_runtime_and_transitive_native_closure(deployment):
     assert not list(deployment["output"].rglob("*.dplugin"))
     assert not list(deployment["output"].rglob("*DurinEditor*"))
     assert (runtime / "Templates/TP_DurinGame.yaml").read_bytes() == b"{}\n"
+    assert (runtime / "Project/Configs/Plugins.json").read_bytes() == (deployment["project"].parent/"Configs/Plugins.json").read_bytes()
 
 
 def recapture(deployment):
     selection, _ = stage.resolve_plugins(deployment["root"] / "Engine", deployment["project"],
         platform="Win64", runtime_variant="DurinGame", project_files=[deployment["root"] / "Engine/Engine.dproject", deployment["project"]])
     snapshot = json.loads(deployment["info"]["Snapshot"])
-    snapshot.update(Selection=json.dumps(selection), ProjectDescriptor=deployment["project"].read_text())
+    snapshot.update(Selection=json.dumps(selection), ProjectDescriptor=deployment["project"].read_text(),
+        PluginStartupConfig=(deployment["project"].parent/"Configs/Plugins.json").read_text())
     deployment["info"]["Snapshot"] = json.dumps(snapshot)
     write(deployment["cook"] / "PluginCook.json", snapshot)
     for item in deployment["info"]["Files"]:
@@ -85,7 +88,7 @@ def recapture(deployment):
 
 @pytest.mark.parametrize("plugins", [{}, {"Water": True}])
 def test_stage_handles_no_native_plugins(deployment, plugins):
-    write(deployment["project"], dict(ProjectName="Game", BaseModules=[], Plugins=plugins))
+    write(deployment["project"].parent/"Configs/Plugins.json", {"Plugins":plugins})
     write(deployment["root"] / "Game/Plugins/Water/Water.dplugin", dict(SchemaVersion=1, Id="Water"))
     recapture(deployment)
     result = stage.stage_game(**deployment)
@@ -122,8 +125,7 @@ def test_stage_rejects_invalid_inputs_preserving_previous_generation(deployment,
         write(deployment["cook"] / "PluginCook.json", "corrupt")
     elif failure == "selection":
         descriptor = json.loads(deployment["project"].read_text())
-        descriptor["Plugins"]["Water"] = False
-        write(deployment["project"], descriptor)
+        write(deployment["project"].parent/"Configs/Plugins.json", {"Plugins":{"Water":False}})
     elif failure == "identity":
         inventory = json.loads(deployment["inventory_file"].read_text())
         inventory["Identity"]["Configuration"] = "Release"

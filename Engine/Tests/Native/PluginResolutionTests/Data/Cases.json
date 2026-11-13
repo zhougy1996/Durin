@@ -7,89 +7,96 @@
         "Game/Game.dproject": "{\"ProjectName\":\"Game\"}"
       },
       "Variant": "DurinEditor",
-      "Manifest": "{\"Fingerprint\":\"c5414c30e05bcfa4\",\"Inputs\":[{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"f537fa00105c799f\",\"Path\":\"Project/Game\"}],\"Modules\":[],\"Platform\":\"Win64\",\"Plugins\":[],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
+      "Manifest": "{\"Fingerprint\":\"0edf5078192c6b7d\",\"Inputs\":[{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"f537fa00105c799f\",\"Path\":\"Project/Game\"},{\"Hash\":\"cbf29ce484222325\",\"Path\":\"Startup/Game\"}],\"Modules\":[],\"Platform\":\"Win64\",\"Plugins\":[],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
     },
     {
       "Name": "EmptyOverrides",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{},\"ProjectName\":\"Game\"}"
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{}}"
       },
       "Variant": "DurinEditor",
-      "Manifest": "{\"Fingerprint\":\"08d2791663ce9352\",\"Inputs\":[{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"e797455001fceaa1\",\"Path\":\"Project/Game\"}],\"Modules\":[],\"Platform\":\"Win64\",\"Plugins\":[],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
+      "Manifest": "{\"Fingerprint\":\"5385be9046e49e88\",\"Inputs\":[{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"f537fa00105c799f\",\"Path\":\"Project/Game\"},{\"Hash\":\"26feb5f631e4e49f\",\"Path\":\"Startup/Game\"}],\"Modules\":[],\"Platform\":\"Win64\",\"Plugins\":[],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
     },
     {
       "Name": "ContentOnly",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[],\"Id\":\"Water\",\"Modules\":[],\"SchemaVersion\":1}"
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[],\"Id\":\"Water\",\"Modules\":[],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
-      "Manifest": "{\"Fingerprint\":\"636e1b2a358dfac8\",\"Inputs\":[{\"Hash\":\"c2867729d47f4bfb\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"284cb48ba320fab6\",\"Path\":\"Project/Game\"}],\"Modules\":[],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Water\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
+      "Manifest": "{\"Fingerprint\":\"bde82191c047557f\",\"Inputs\":[{\"Hash\":\"c2867729d47f4bfb\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"f537fa00105c799f\",\"Path\":\"Project/Game\"},{\"Hash\":\"1fe5c255e5f1f4c2\",\"Path\":\"Startup/Game\"}],\"Modules\":[],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Water\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
     },
     {
       "Name": "UnicodeMetadata",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Content\":\"Content\",\"Dependencies\":[],\"DisplayName\":\"水体\",\"Id\":\"Water\",\"Modules\":[],\"SchemaVersion\":1}"
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
+        "Game/Plugins/Water/Water.dplugin": "{\"Content\":\"Content\",\"Dependencies\":[],\"DisplayName\":\"\u59d8\u7fe0\u7d8b\",\"Id\":\"Water\",\"Modules\":[],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
-      "Manifest": "{\"Fingerprint\":\"27df728803524691\",\"Inputs\":[{\"Hash\":\"764417a3415c1fe0\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"284cb48ba320fab6\",\"Path\":\"Project/Game\"}],\"Modules\":[],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Water\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
+      "Manifest": "{\"Fingerprint\":\"cbffadc1168bf257\",\"Inputs\":[{\"Hash\":\"17e200ee712151ba\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"f537fa00105c799f\",\"Path\":\"Project/Game\"},{\"Hash\":\"1fe5c255e5f1f4c2\",\"Path\":\"Startup/Game\"}],\"Modules\":[],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Water\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
     },
     {
       "Name": "DependencyEditor",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
-      "Manifest": "{\"Fingerprint\":\"19b8f474dde2ed83\",\"Inputs\":[{\"Hash\":\"1934cff629f69de2\",\"Path\":\"Plugin/Foundation\"},{\"Hash\":\"a71e5108db8cb261\",\"Path\":\"Plugin/Foundation/FoundationRuntime\"},{\"Hash\":\"29df48c94d3632b7\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"c8292b42ef52ed52\",\"Path\":\"Plugin/Water/WaterRuntime\"},{\"Hash\":\"1e3bb76949da67b1\",\"Path\":\"Plugin/Water/WaterTools\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"284cb48ba320fab6\",\"Path\":\"Project/Game\"}],\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Owner\":\"Foundation\",\"Phase\":\"Providers\"},{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Owner\":\"Water\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Owner\":\"Water\",\"Phase\":\"EditorReady\"}],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Foundation\",\"Reasons\":[\"RequiredBy:Water\"]},{\"Id\":\"Water\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
+      "Manifest": "{\"Fingerprint\":\"45e39683968d31d8\",\"Inputs\":[{\"Hash\":\"1934cff629f69de2\",\"Path\":\"Plugin/Foundation\"},{\"Hash\":\"a71e5108db8cb261\",\"Path\":\"Plugin/Foundation/FoundationRuntime\"},{\"Hash\":\"29df48c94d3632b7\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"c8292b42ef52ed52\",\"Path\":\"Plugin/Water/WaterRuntime\"},{\"Hash\":\"1e3bb76949da67b1\",\"Path\":\"Plugin/Water/WaterTools\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"f537fa00105c799f\",\"Path\":\"Project/Game\"},{\"Hash\":\"1fe5c255e5f1f4c2\",\"Path\":\"Startup/Game\"}],\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Owner\":\"Foundation\",\"Phase\":\"Providers\"},{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Owner\":\"Water\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Owner\":\"Water\",\"Phase\":\"EditorReady\"}],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Foundation\",\"Reasons\":[\"RequiredBy:Water\"]},{\"Id\":\"Water\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
     },
     {
       "Name": "DependencyGame",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinGame",
-      "Manifest": "{\"Fingerprint\":\"f4db50b0b3e20929\",\"Inputs\":[{\"Hash\":\"1934cff629f69de2\",\"Path\":\"Plugin/Foundation\"},{\"Hash\":\"a71e5108db8cb261\",\"Path\":\"Plugin/Foundation/FoundationRuntime\"},{\"Hash\":\"29df48c94d3632b7\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"c8292b42ef52ed52\",\"Path\":\"Plugin/Water/WaterRuntime\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"284cb48ba320fab6\",\"Path\":\"Project/Game\"}],\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Owner\":\"Foundation\",\"Phase\":\"Providers\"},{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Owner\":\"Water\",\"Phase\":\"Providers\"}],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Foundation\",\"Reasons\":[\"RequiredBy:Water\"]},{\"Id\":\"Water\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinGame\",\"SchemaVersion\":1}"
+      "Manifest": "{\"Fingerprint\":\"f8c9c30bc02a0b0e\",\"Inputs\":[{\"Hash\":\"1934cff629f69de2\",\"Path\":\"Plugin/Foundation\"},{\"Hash\":\"a71e5108db8cb261\",\"Path\":\"Plugin/Foundation/FoundationRuntime\"},{\"Hash\":\"29df48c94d3632b7\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"c8292b42ef52ed52\",\"Path\":\"Plugin/Water/WaterRuntime\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"f537fa00105c799f\",\"Path\":\"Project/Game\"},{\"Hash\":\"1fe5c255e5f1f4c2\",\"Path\":\"Startup/Game\"}],\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Owner\":\"Foundation\",\"Phase\":\"Providers\"},{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Owner\":\"Water\",\"Phase\":\"Providers\"}],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Foundation\",\"Reasons\":[\"RequiredBy:Water\"]},{\"Id\":\"Water\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinGame\",\"SchemaVersion\":1}"
     },
     {
       "Name": "DisabledDependency",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Foundation\":false,\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Foundation\":false,\"Water\":true}}"
       },
       "Variant": "DurinEditor",
-      "Manifest": "{\"Fingerprint\":\"21e9566c43985408\",\"InactivePlugins\":[{\"Id\":\"Water\",\"Reason\":\"Requires disabled plugin Foundation\"}],\"Inputs\":[{\"Hash\":\"1934cff629f69de2\",\"Path\":\"Plugin/Foundation\"},{\"Hash\":\"29df48c94d3632b7\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"1763f7a3e13e9636\",\"Path\":\"Project/Game\"}],\"Modules\":[],\"Platform\":\"Win64\",\"Plugins\":[],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
+      "Manifest": "{\"Fingerprint\":\"4c69824c8a8e2edb\",\"InactivePlugins\":[{\"Id\":\"Water\",\"Reason\":\"Requires disabled plugin Foundation\"}],\"Inputs\":[{\"Hash\":\"1934cff629f69de2\",\"Path\":\"Plugin/Foundation\"},{\"Hash\":\"29df48c94d3632b7\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"f537fa00105c799f\",\"Path\":\"Project/Game\"},{\"Hash\":\"c3bd64c328f76342\",\"Path\":\"Startup/Game\"}],\"Modules\":[],\"Platform\":\"Win64\",\"Plugins\":[],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
     },
     {
       "Name": "PluginCycle",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[\"Water\"],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
       "Error": "plugin dependency cycle",
@@ -99,10 +106,11 @@
       "Name": "MissingDependency",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
       "Error": "missing plugin descriptor",
@@ -112,12 +120,13 @@
       "Name": "PluginPlatform",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"Platforms\":[\"Mac\"],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
       "Error": "ineligible plugin platform",
@@ -127,12 +136,13 @@
       "Name": "ModulePlatform",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\",\"Platforms\":[\"Mac\"]}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
       "Error": "disabled or ineligible module",
@@ -142,12 +152,13 @@
       "Name": "UndeclaredDependency",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
       "Error": "undeclared plugin dependency",
@@ -157,12 +168,13 @@
       "Name": "PhaseEdge",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"EngineReady\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
       "Error": "invalid phase edge",
@@ -172,12 +184,13 @@
       "Name": "RuntimeEditor",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"WaterTools\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
       "Error": "Runtime-to-Editor dependency",
@@ -187,13 +200,14 @@
       "Name": "TransitiveRuntimeEditor",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[\"FoundationTools\"]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"FoundationTools\",\"Path\":\"Source/FoundationTools\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
         "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
-        "Game/Plugins/Foundation/Source/FoundationTools/FoundationTools.dmodule": "{\"ModuleName\":\"FoundationTools\"}"
+        "Game/Plugins/Foundation/Source/FoundationTools/FoundationTools.dmodule": "{\"ModuleName\":\"FoundationTools\"}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
       "Error": "Runtime-to-Editor dependency"
@@ -202,12 +216,13 @@
       "Name": "MissingModule",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"Missing\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
       "Error": "missing module",
@@ -217,12 +232,13 @@
       "Name": "ModuleCycle",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"WaterRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
       "Error": "module dependency cycle",
@@ -232,26 +248,28 @@
       "Name": "OptionalMissing",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"OptionalPrivateDependencies\":[\"Absent\"],\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
-      "Manifest": "{\"Fingerprint\":\"c77b69da21d30949\",\"Inputs\":[{\"Hash\":\"1934cff629f69de2\",\"Path\":\"Plugin/Foundation\"},{\"Hash\":\"a71e5108db8cb261\",\"Path\":\"Plugin/Foundation/FoundationRuntime\"},{\"Hash\":\"29df48c94d3632b7\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"cf27608274aad9ff\",\"Path\":\"Plugin/Water/WaterRuntime\"},{\"Hash\":\"1e3bb76949da67b1\",\"Path\":\"Plugin/Water/WaterTools\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"284cb48ba320fab6\",\"Path\":\"Project/Game\"}],\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Owner\":\"Foundation\",\"Phase\":\"Providers\"},{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Owner\":\"Water\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Owner\":\"Water\",\"Phase\":\"EditorReady\"}],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Foundation\",\"Reasons\":[\"RequiredBy:Water\"]},{\"Id\":\"Water\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
+      "Manifest": "{\"Fingerprint\":\"daf05b90f844be8a\",\"Inputs\":[{\"Hash\":\"1934cff629f69de2\",\"Path\":\"Plugin/Foundation\"},{\"Hash\":\"a71e5108db8cb261\",\"Path\":\"Plugin/Foundation/FoundationRuntime\"},{\"Hash\":\"29df48c94d3632b7\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"cf27608274aad9ff\",\"Path\":\"Plugin/Water/WaterRuntime\"},{\"Hash\":\"1e3bb76949da67b1\",\"Path\":\"Plugin/Water/WaterTools\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"f537fa00105c799f\",\"Path\":\"Project/Game\"},{\"Hash\":\"1fe5c255e5f1f4c2\",\"Path\":\"Startup/Game\"}],\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Owner\":\"Foundation\",\"Phase\":\"Providers\"},{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Owner\":\"Water\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Owner\":\"Water\",\"Phase\":\"EditorReady\"}],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Foundation\",\"Reasons\":[\"RequiredBy:Water\"]},{\"Id\":\"Water\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
     },
     {
       "Name": "UnknownVersion",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":2}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":2}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
       "Error": "unknown schema version"
@@ -260,12 +278,13 @@
       "Name": "BooleanVersion",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":true}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":true}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
       "Error": "unknown schema version"
@@ -274,12 +293,13 @@
       "Name": "UnknownField",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1,\"Unknown\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1,\"Unknown\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
       "Error": "unknown schema version"
@@ -288,12 +308,13 @@
       "Name": "PathEscape",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"../Escape\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"../Escape\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
       "Error": "path escape"
@@ -302,12 +323,13 @@
       "Name": "AbsolutePath",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Content\":\"D:/Escape\",\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Content\":\"D:/Escape\",\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
       "Error": "path escape"
@@ -316,12 +338,13 @@
       "Name": "RuntimeEditorPhase",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"EditorReady\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"EditorReady\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
       "Error": "invalid host/phase"
@@ -330,12 +353,13 @@
       "Name": "UnknownHost",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Unknown\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Unknown\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
       "Error": "invalid host/phase"
@@ -344,12 +368,13 @@
       "Name": "DuplicateDependency",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\",\"foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\",\"foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
       "Error": "invalid identifier list"
@@ -358,13 +383,14 @@
       "Name": "DuplicatePlugin",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
         "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
-        "Engine/Plugins/Duplicate/water.dplugin": "{\"Dependencies\":[],\"Id\":\"water\",\"Modules\":[],\"SchemaVersion\":1}"
+        "Engine/Plugins/Duplicate/water.dplugin": "{\"Dependencies\":[],\"Id\":\"water\",\"Modules\":[],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
       "Error": "duplicate plugin"
@@ -373,14 +399,15 @@
       "Name": "DuplicateModule",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
         "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Other/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[]}",
-        "Game/Plugins/Other/Other.dplugin": "{\"Dependencies\":[],\"Id\":\"Other\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Other/Other.dplugin": "{\"Dependencies\":[],\"Id\":\"Other\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
       "Error": "duplicate module"
@@ -389,28 +416,30 @@
       "Name": "NestedPluginIgnored",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
         "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
-        "Game/Plugins/Water/Nested/Nested.dplugin": "{\"Dependencies\":[],\"Id\":\"Nested\",\"Modules\":[],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Nested/Nested.dplugin": "{\"Dependencies\":[],\"Id\":\"Nested\",\"Modules\":[],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
-      "Manifest": "{\"Fingerprint\":\"19b8f474dde2ed83\",\"Inputs\":[{\"Hash\":\"1934cff629f69de2\",\"Path\":\"Plugin/Foundation\"},{\"Hash\":\"a71e5108db8cb261\",\"Path\":\"Plugin/Foundation/FoundationRuntime\"},{\"Hash\":\"29df48c94d3632b7\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"c8292b42ef52ed52\",\"Path\":\"Plugin/Water/WaterRuntime\"},{\"Hash\":\"1e3bb76949da67b1\",\"Path\":\"Plugin/Water/WaterTools\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"284cb48ba320fab6\",\"Path\":\"Project/Game\"}],\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Owner\":\"Foundation\",\"Phase\":\"Providers\"},{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Owner\":\"Water\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Owner\":\"Water\",\"Phase\":\"EditorReady\"}],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Foundation\",\"Reasons\":[\"RequiredBy:Water\"]},{\"Id\":\"Water\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
+      "Manifest": "{\"Fingerprint\":\"45e39683968d31d8\",\"Inputs\":[{\"Hash\":\"1934cff629f69de2\",\"Path\":\"Plugin/Foundation\"},{\"Hash\":\"a71e5108db8cb261\",\"Path\":\"Plugin/Foundation/FoundationRuntime\"},{\"Hash\":\"29df48c94d3632b7\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"c8292b42ef52ed52\",\"Path\":\"Plugin/Water/WaterRuntime\"},{\"Hash\":\"1e3bb76949da67b1\",\"Path\":\"Plugin/Water/WaterTools\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"f537fa00105c799f\",\"Path\":\"Project/Game\"},{\"Hash\":\"1fe5c255e5f1f4c2\",\"Path\":\"Startup/Game\"}],\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Owner\":\"Foundation\",\"Phase\":\"Providers\"},{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Owner\":\"Water\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Owner\":\"Water\",\"Phase\":\"EditorReady\"}],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Foundation\",\"Reasons\":[\"RequiredBy:Water\"]},{\"Id\":\"Water\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
     },
     {
       "Name": "MultipleDescriptors",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
         "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
-        "Game/Plugins/Water/Second.dplugin": "{\"Id\":\"Second\",\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Second.dplugin": "{\"Id\":\"Second\",\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
       "Error": "multiple plugin descriptors"
@@ -419,12 +448,13 @@
       "Name": "DuplicateOverride",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true,\"water\":false},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true,\"water\":false}}"
       },
       "Variant": "DurinEditor",
       "Error": "duplicate override"
@@ -433,12 +463,13 @@
       "Name": "MissingRequested",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Missing\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Missing\":true}}"
       },
       "Variant": "DurinEditor",
       "Error": "missing plugin descriptor",
@@ -448,7 +479,8 @@
       "Name": "InvalidOverrides",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":[],\"ProjectName\":\"Game\"}"
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":[]}"
       },
       "Variant": "DurinEditor",
       "Error": "Plugins must be an object"
@@ -457,12 +489,13 @@
       "Name": "DuplicateJsonField",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"SchemaVersion\":1,\"Id\":\"Water\",\"Id\":\"Other\"}"
+        "Game/Plugins/Water/Water.dplugin": "{\"SchemaVersion\":1,\"Id\":\"Water\",\"Id\":\"Other\"}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
       "Error": "duplicate JSON field"
@@ -471,12 +504,13 @@
       "Name": "ModuleNameMismatch",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"Other\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
       "Error": "ModuleName mismatch"
@@ -485,10 +519,11 @@
       "Name": "ProjectDisabledDependency",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"BaseModules\":[\"GameRuntime\"],\"ModuleDirs\":{\"GameRuntime\":\"Source/GameRuntime\"},\"Plugins\":{\"Off\":false},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"BaseModules\":[\"GameRuntime\"],\"ModuleDirs\":{\"GameRuntime\":\"Source/GameRuntime\"},\"ProjectName\":\"Game\"}",
         "Game/Plugins/Off/Source/OffRuntime/OffRuntime.dmodule": "{\"ModuleName\":\"OffRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Off/Off.dplugin": "{\"Dependencies\":[],\"Id\":\"Off\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"OffRuntime\",\"Path\":\"Source/OffRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
-        "Game/Source/GameRuntime/GameRuntime.dmodule": "{\"ModuleName\":\"GameRuntime\",\"PublicDependencies\":[\"OffRuntime\"]}"
+        "Game/Source/GameRuntime/GameRuntime.dmodule": "{\"ModuleName\":\"GameRuntime\",\"PublicDependencies\":[\"OffRuntime\"]}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Off\":false}}"
       },
       "Variant": "DurinEditor",
       "Error": "disabled or ineligible module",
@@ -498,11 +533,12 @@
       "Name": "ExistingEditorDependency",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"BaseModules\":[\"Runtime\"],\"ExtraModules\":{\"DurinEditor\":{\"Modules\":[\"Editor\"]}},\"ModuleDirs\":{\"Editor\":\"Source/Editor\",\"Runtime\":\"Source/Runtime\"},\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"BaseModules\":[\"Runtime\"],\"ExtraModules\":{\"DurinEditor\":{\"Modules\":[\"Editor\"]}},\"ModuleDirs\":{\"Editor\":\"Source/Editor\",\"Runtime\":\"Source/Runtime\"},\"ProjectName\":\"Game\"}",
         "Game/Source/Runtime/Runtime.dmodule": "{\"ModuleName\":\"Runtime\"}",
         "Game/Source/Editor/Editor.dmodule": "{\"ModuleName\":\"Editor\"}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"Editor\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
       "Error": "Runtime-to-Editor dependency",
@@ -512,42 +548,45 @@
       "Name": "AllDisabled",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":false},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":false}}"
       },
       "Variant": "DurinEditor",
-      "Manifest": "{\"Fingerprint\":\"9e363a555ba67471\",\"Inputs\":[{\"Hash\":\"1934cff629f69de2\",\"Path\":\"Plugin/Foundation\"},{\"Hash\":\"29df48c94d3632b7\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"7f0c9ae2a2c94f33\",\"Path\":\"Project/Game\"}],\"Modules\":[],\"Platform\":\"Win64\",\"Plugins\":[],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
+      "Manifest": "{\"Fingerprint\":\"0072e2a3a12358ac\",\"Inputs\":[{\"Hash\":\"1934cff629f69de2\",\"Path\":\"Plugin/Foundation\"},{\"Hash\":\"29df48c94d3632b7\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"f537fa00105c799f\",\"Path\":\"Project/Game\"},{\"Hash\":\"77ef697e9e3bec49\",\"Path\":\"Startup/Game\"}],\"Modules\":[],\"Platform\":\"Win64\",\"Plugins\":[],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
     },
     {
       "Name": "ThreePluginChain",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[\"ThirdRuntime\"]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[\"Third\"],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
         "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Third/Source/ThirdRuntime/ThirdRuntime.dmodule": "{\"ModuleName\":\"ThirdRuntime\",\"PublicDependencies\":[]}",
-        "Game/Plugins/Third/Third.dplugin": "{\"Dependencies\":[],\"Id\":\"Third\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"ThirdRuntime\",\"Path\":\"Source/ThirdRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Third/Third.dplugin": "{\"Dependencies\":[],\"Id\":\"Third\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"ThirdRuntime\",\"Path\":\"Source/ThirdRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
-      "Manifest": "{\"Fingerprint\":\"925cac0a80f692d0\",\"Inputs\":[{\"Hash\":\"1b1652c8d4d7c609\",\"Path\":\"Plugin/Foundation\"},{\"Hash\":\"f4d8d41bde0299e0\",\"Path\":\"Plugin/Foundation/FoundationRuntime\"},{\"Hash\":\"986b336a67f86fe2\",\"Path\":\"Plugin/Third\"},{\"Hash\":\"75197e6df3af92a7\",\"Path\":\"Plugin/Third/ThirdRuntime\"},{\"Hash\":\"29df48c94d3632b7\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"c8292b42ef52ed52\",\"Path\":\"Plugin/Water/WaterRuntime\"},{\"Hash\":\"1e3bb76949da67b1\",\"Path\":\"Plugin/Water/WaterTools\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"284cb48ba320fab6\",\"Path\":\"Project/Game\"}],\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"ThirdRuntime\",\"Owner\":\"Third\",\"Phase\":\"Providers\"},{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Owner\":\"Foundation\",\"Phase\":\"Providers\"},{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Owner\":\"Water\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Owner\":\"Water\",\"Phase\":\"EditorReady\"}],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Third\",\"Reasons\":[\"RequiredBy:Foundation\"]},{\"Id\":\"Foundation\",\"Reasons\":[\"RequiredBy:Water\"]},{\"Id\":\"Water\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
+      "Manifest": "{\"Fingerprint\":\"b93304bdecc2bfdb\",\"Inputs\":[{\"Hash\":\"1b1652c8d4d7c609\",\"Path\":\"Plugin/Foundation\"},{\"Hash\":\"f4d8d41bde0299e0\",\"Path\":\"Plugin/Foundation/FoundationRuntime\"},{\"Hash\":\"986b336a67f86fe2\",\"Path\":\"Plugin/Third\"},{\"Hash\":\"75197e6df3af92a7\",\"Path\":\"Plugin/Third/ThirdRuntime\"},{\"Hash\":\"29df48c94d3632b7\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"c8292b42ef52ed52\",\"Path\":\"Plugin/Water/WaterRuntime\"},{\"Hash\":\"1e3bb76949da67b1\",\"Path\":\"Plugin/Water/WaterTools\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"f537fa00105c799f\",\"Path\":\"Project/Game\"},{\"Hash\":\"1fe5c255e5f1f4c2\",\"Path\":\"Startup/Game\"}],\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"ThirdRuntime\",\"Owner\":\"Third\",\"Phase\":\"Providers\"},{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Owner\":\"Foundation\",\"Phase\":\"Providers\"},{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Owner\":\"Water\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Owner\":\"Water\",\"Phase\":\"EditorReady\"}],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Third\",\"Reasons\":[\"RequiredBy:Foundation\"]},{\"Id\":\"Foundation\",\"Reasons\":[\"RequiredBy:Water\"]},{\"Id\":\"Water\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
     },
     {
       "Name": "OptionalEditorEnabled",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"OptionalPrivateDependencies\":[\"WaterTools\"],\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
       "Error": "Runtime-to-Editor dependency",
@@ -557,25 +596,27 @@
       "Name": "OptionalEditorExcluded",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"OptionalPrivateDependencies\":[\"WaterTools\"],\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinGame",
-      "Manifest": "{\"Fingerprint\":\"ffb782f196a2c895\",\"Inputs\":[{\"Hash\":\"1934cff629f69de2\",\"Path\":\"Plugin/Foundation\"},{\"Hash\":\"a71e5108db8cb261\",\"Path\":\"Plugin/Foundation/FoundationRuntime\"},{\"Hash\":\"29df48c94d3632b7\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"3281aeb9678fa46c\",\"Path\":\"Plugin/Water/WaterRuntime\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"284cb48ba320fab6\",\"Path\":\"Project/Game\"}],\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Owner\":\"Foundation\",\"Phase\":\"Providers\"},{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Owner\":\"Water\",\"Phase\":\"Providers\"}],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Foundation\",\"Reasons\":[\"RequiredBy:Water\"]},{\"Id\":\"Water\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinGame\",\"SchemaVersion\":1}"
+      "Manifest": "{\"Fingerprint\":\"6e890d3d33c1baaa\",\"Inputs\":[{\"Hash\":\"1934cff629f69de2\",\"Path\":\"Plugin/Foundation\"},{\"Hash\":\"a71e5108db8cb261\",\"Path\":\"Plugin/Foundation/FoundationRuntime\"},{\"Hash\":\"29df48c94d3632b7\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"3281aeb9678fa46c\",\"Path\":\"Plugin/Water/WaterRuntime\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"f537fa00105c799f\",\"Path\":\"Project/Game\"},{\"Hash\":\"1fe5c255e5f1f4c2\",\"Path\":\"Startup/Game\"}],\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Owner\":\"Foundation\",\"Phase\":\"Providers\"},{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Owner\":\"Water\",\"Phase\":\"Providers\"}],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Foundation\",\"Reasons\":[\"RequiredBy:Water\"]},{\"Id\":\"Water\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinGame\",\"SchemaVersion\":1}"
     },
     {
       "Name": "TransitiveDisabledProjectDependency",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"BaseModules\":[\"Root\"],\"ModuleDirs\":{\"Bridge\":\"Source/Bridge\",\"Root\":\"Source/Root\"},\"Plugins\":{\"Off\":false},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"BaseModules\":[\"Root\"],\"ModuleDirs\":{\"Bridge\":\"Source/Bridge\",\"Root\":\"Source/Root\"},\"ProjectName\":\"Game\"}",
         "Game/Plugins/Off/Source/OffRuntime/OffRuntime.dmodule": "{\"ModuleName\":\"OffRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Off/Off.dplugin": "{\"Dependencies\":[],\"Id\":\"Off\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"OffRuntime\",\"Path\":\"Source/OffRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Source/Root/Root.dmodule": "{\"ModuleName\":\"Root\",\"PublicDependencies\":[\"Bridge\"]}",
-        "Game/Source/Bridge/Bridge.dmodule": "{\"ModuleName\":\"Bridge\",\"PublicDependencies\":[\"OffRuntime\"]}"
+        "Game/Source/Bridge/Bridge.dmodule": "{\"ModuleName\":\"Bridge\",\"PublicDependencies\":[\"OffRuntime\"]}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Off\":false}}"
       },
       "Variant": "DurinEditor",
       "Error": "disabled or ineligible module",
@@ -585,49 +626,53 @@
       "Name": "ModulePlatformExcluded",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\",\"Platforms\":[\"Mac\"]}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\",\"Platforms\":[\"Mac\"]}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
-      "Manifest": "{\"Fingerprint\":\"68f291257df9d269\",\"Inputs\":[{\"Hash\":\"9dab6cf5b993e5d9\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"284cb48ba320fab6\",\"Path\":\"Project/Game\"}],\"Modules\":[],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Water\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
+      "Manifest": "{\"Fingerprint\":\"16b7698ff8009ca2\",\"Inputs\":[{\"Hash\":\"9dab6cf5b993e5d9\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"f537fa00105c799f\",\"Path\":\"Project/Game\"},{\"Hash\":\"1fe5c255e5f1f4c2\",\"Path\":\"Startup/Game\"}],\"Modules\":[],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Water\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
     },
     {
       "Name": "ExistingConditionalEditorImplementation",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"BaseModules\":[\"Runtime\"],\"ExtraModules\":{\"DurinEditor\":{\"Modules\":[\"Editor\"]}},\"ModuleDirs\":{\"Editor\":\"Source/Editor\",\"Runtime\":\"Source/Runtime\"},\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"BaseModules\":[\"Runtime\"],\"ExtraModules\":{\"DurinEditor\":{\"Modules\":[\"Editor\"]}},\"ModuleDirs\":{\"Editor\":\"Source/Editor\",\"Runtime\":\"Source/Runtime\"},\"ProjectName\":\"Game\"}",
         "Game/Source/Runtime/Runtime.dmodule": "{\"ModuleName\":\"Runtime\",\"OptionalPrivateDependencies\":[\"Editor\"]}",
         "Game/Source/Editor/Editor.dmodule": "{\"ModuleName\":\"Editor\"}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"Runtime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
-      "Manifest": "{\"Fingerprint\":\"08ad051850587fff\",\"Inputs\":[{\"Hash\":\"c6f2ebc779d46d18\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"5f70f20ebd24ce07\",\"Path\":\"Plugin/Water/WaterRuntime\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"e957a6eae161052e\",\"Path\":\"Project/Game\"},{\"Hash\":\"fc00396fcf20429b\",\"Path\":\"Project/Game/Editor\"},{\"Hash\":\"6e0a42fca0e24009\",\"Path\":\"Project/Game/Runtime\"}],\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Owner\":\"Water\",\"Phase\":\"Providers\"}],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Water\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
+      "Manifest": "{\"Fingerprint\":\"9a05b0d5ef03cfcc\",\"Inputs\":[{\"Hash\":\"c6f2ebc779d46d18\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"5f70f20ebd24ce07\",\"Path\":\"Plugin/Water/WaterRuntime\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"e91136ed859dc7c7\",\"Path\":\"Project/Game\"},{\"Hash\":\"fc00396fcf20429b\",\"Path\":\"Project/Game/Editor\"},{\"Hash\":\"6e0a42fca0e24009\",\"Path\":\"Project/Game/Runtime\"},{\"Hash\":\"1fe5c255e5f1f4c2\",\"Path\":\"Startup/Game\"}],\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Owner\":\"Water\",\"Phase\":\"Providers\"}],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Water\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
     },
     {
       "Name": "ExistingConditionalGameImplementation",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"BaseModules\":[\"Runtime\"],\"ExtraModules\":{\"DurinEditor\":{\"Modules\":[\"Editor\"]}},\"ModuleDirs\":{\"Editor\":\"Source/Editor\",\"Runtime\":\"Source/Runtime\"},\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"BaseModules\":[\"Runtime\"],\"ExtraModules\":{\"DurinEditor\":{\"Modules\":[\"Editor\"]}},\"ModuleDirs\":{\"Editor\":\"Source/Editor\",\"Runtime\":\"Source/Runtime\"},\"ProjectName\":\"Game\"}",
         "Game/Source/Runtime/Runtime.dmodule": "{\"ModuleName\":\"Runtime\",\"OptionalPrivateDependencies\":[\"Editor\"]}",
         "Game/Source/Editor/Editor.dmodule": "{\"ModuleName\":\"Editor\"}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"Runtime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinGame",
-      "Manifest": "{\"Fingerprint\":\"32b27a168aeca67c\",\"Inputs\":[{\"Hash\":\"c6f2ebc779d46d18\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"5f70f20ebd24ce07\",\"Path\":\"Plugin/Water/WaterRuntime\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"e957a6eae161052e\",\"Path\":\"Project/Game\"},{\"Hash\":\"fc00396fcf20429b\",\"Path\":\"Project/Game/Editor\"},{\"Hash\":\"6e0a42fca0e24009\",\"Path\":\"Project/Game/Runtime\"}],\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Owner\":\"Water\",\"Phase\":\"Providers\"}],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Water\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinGame\",\"SchemaVersion\":1}"
+      "Manifest": "{\"Fingerprint\":\"9a7beb180cc9aa73\",\"Inputs\":[{\"Hash\":\"c6f2ebc779d46d18\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"5f70f20ebd24ce07\",\"Path\":\"Plugin/Water/WaterRuntime\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"e91136ed859dc7c7\",\"Path\":\"Project/Game\"},{\"Hash\":\"fc00396fcf20429b\",\"Path\":\"Project/Game/Editor\"},{\"Hash\":\"6e0a42fca0e24009\",\"Path\":\"Project/Game/Runtime\"},{\"Hash\":\"1fe5c255e5f1f4c2\",\"Path\":\"Startup/Game\"}],\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Owner\":\"Water\",\"Phase\":\"Providers\"}],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Water\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinGame\",\"SchemaVersion\":1}"
     },
     {
       "Name": "InvalidSchemaAnnotation",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"$schema\":false,\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"$schema\":false,\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
       "Error": "invalid string: $schema"
@@ -636,73 +681,118 @@
       "Name": "DisabledModuleFilesIgnored",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":false},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "broken",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":false}}"
       },
       "Variant": "DurinEditor",
-      "Manifest": "{\"Fingerprint\":\"9e363a555ba67471\",\"Inputs\":[{\"Hash\":\"1934cff629f69de2\",\"Path\":\"Plugin/Foundation\"},{\"Hash\":\"29df48c94d3632b7\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"7f0c9ae2a2c94f33\",\"Path\":\"Project/Game\"}],\"Modules\":[],\"Platform\":\"Win64\",\"Plugins\":[],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
+      "Manifest": "{\"Fingerprint\":\"0072e2a3a12358ac\",\"Inputs\":[{\"Hash\":\"1934cff629f69de2\",\"Path\":\"Plugin/Foundation\"},{\"Hash\":\"29df48c94d3632b7\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"f537fa00105c799f\",\"Path\":\"Project/Game\"},{\"Hash\":\"77ef697e9e3bec49\",\"Path\":\"Startup/Game\"}],\"Modules\":[],\"Platform\":\"Win64\",\"Plugins\":[],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
     },
     {
       "Name": "ExcludedEditorModuleFileIgnored",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}"
+        "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinGame",
-      "Manifest": "{\"Fingerprint\":\"f4db50b0b3e20929\",\"Inputs\":[{\"Hash\":\"1934cff629f69de2\",\"Path\":\"Plugin/Foundation\"},{\"Hash\":\"a71e5108db8cb261\",\"Path\":\"Plugin/Foundation/FoundationRuntime\"},{\"Hash\":\"29df48c94d3632b7\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"c8292b42ef52ed52\",\"Path\":\"Plugin/Water/WaterRuntime\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"284cb48ba320fab6\",\"Path\":\"Project/Game\"}],\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Owner\":\"Foundation\",\"Phase\":\"Providers\"},{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Owner\":\"Water\",\"Phase\":\"Providers\"}],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Foundation\",\"Reasons\":[\"RequiredBy:Water\"]},{\"Id\":\"Water\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinGame\",\"SchemaVersion\":1}"
+      "Manifest": "{\"Fingerprint\":\"f8c9c30bc02a0b0e\",\"Inputs\":[{\"Hash\":\"1934cff629f69de2\",\"Path\":\"Plugin/Foundation\"},{\"Hash\":\"a71e5108db8cb261\",\"Path\":\"Plugin/Foundation/FoundationRuntime\"},{\"Hash\":\"29df48c94d3632b7\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"c8292b42ef52ed52\",\"Path\":\"Plugin/Water/WaterRuntime\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"f537fa00105c799f\",\"Path\":\"Project/Game\"},{\"Hash\":\"1fe5c255e5f1f4c2\",\"Path\":\"Startup/Game\"}],\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Owner\":\"Foundation\",\"Phase\":\"Providers\"},{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Owner\":\"Water\",\"Phase\":\"Providers\"}],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Foundation\",\"Reasons\":[\"RequiredBy:Water\"]},{\"Id\":\"Water\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinGame\",\"SchemaVersion\":1}"
     },
     {
       "Name": "PluginRootTraversalBoundary",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
         "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Content/Arbitrary/Bad.dplugin": "broken",
-        "Game/Plugins/Water/Unusual/Deep/Bad.dplugin": "broken"
+        "Game/Plugins/Water/Unusual/Deep/Bad.dplugin": "broken",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
-      "Manifest": "{\"Fingerprint\":\"19b8f474dde2ed83\",\"Inputs\":[{\"Hash\":\"1934cff629f69de2\",\"Path\":\"Plugin/Foundation\"},{\"Hash\":\"a71e5108db8cb261\",\"Path\":\"Plugin/Foundation/FoundationRuntime\"},{\"Hash\":\"29df48c94d3632b7\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"c8292b42ef52ed52\",\"Path\":\"Plugin/Water/WaterRuntime\"},{\"Hash\":\"1e3bb76949da67b1\",\"Path\":\"Plugin/Water/WaterTools\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"284cb48ba320fab6\",\"Path\":\"Project/Game\"}],\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Owner\":\"Foundation\",\"Phase\":\"Providers\"},{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Owner\":\"Water\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Owner\":\"Water\",\"Phase\":\"EditorReady\"}],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Foundation\",\"Reasons\":[\"RequiredBy:Water\"]},{\"Id\":\"Water\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
+      "Manifest": "{\"Fingerprint\":\"45e39683968d31d8\",\"Inputs\":[{\"Hash\":\"1934cff629f69de2\",\"Path\":\"Plugin/Foundation\"},{\"Hash\":\"a71e5108db8cb261\",\"Path\":\"Plugin/Foundation/FoundationRuntime\"},{\"Hash\":\"29df48c94d3632b7\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"c8292b42ef52ed52\",\"Path\":\"Plugin/Water/WaterRuntime\"},{\"Hash\":\"1e3bb76949da67b1\",\"Path\":\"Plugin/Water/WaterTools\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"f537fa00105c799f\",\"Path\":\"Project/Game\"},{\"Hash\":\"1fe5c255e5f1f4c2\",\"Path\":\"Startup/Game\"}],\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Owner\":\"Foundation\",\"Phase\":\"Providers\"},{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Owner\":\"Water\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Owner\":\"Water\",\"Phase\":\"EditorReady\"}],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Foundation\",\"Reasons\":[\"RequiredBy:Water\"]},{\"Id\":\"Water\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
     },
     {
       "Name": "TransitiveDisabledPluginRequest",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Water\":true,\"Foundation\":true,\"Third\":false},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[\"Third\"],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
         "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
-        "Game/Plugins/Third/Third.dplugin": "{\"SchemaVersion\":1,\"Id\":\"Third\"}"
+        "Game/Plugins/Third/Third.dplugin": "{\"SchemaVersion\":1,\"Id\":\"Third\"}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true,\"Foundation\":true,\"Third\":false}}"
       },
       "Variant": "DurinEditor",
-      "Manifest": "{\"Fingerprint\":\"64f28e4a8a61af47\",\"InactivePlugins\":[{\"Id\":\"Foundation\",\"Reason\":\"Requires disabled plugin Third\"},{\"Id\":\"Water\",\"Reason\":\"Requires disabled plugin Third\"}],\"Inputs\":[{\"Hash\":\"1b1652c8d4d7c609\",\"Path\":\"Plugin/Foundation\"},{\"Hash\":\"dd46ddec6343949d\",\"Path\":\"Plugin/Third\"},{\"Hash\":\"29df48c94d3632b7\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"a2b1d08508d92711\",\"Path\":\"Project/Game\"}],\"Modules\":[],\"Platform\":\"Win64\",\"Plugins\":[],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
+      "Manifest": "{\"Fingerprint\":\"cfaff6b47aac7eaf\",\"InactivePlugins\":[{\"Id\":\"Foundation\",\"Reason\":\"Requires disabled plugin Third\"},{\"Id\":\"Water\",\"Reason\":\"Requires disabled plugin Third\"}],\"Inputs\":[{\"Hash\":\"1b1652c8d4d7c609\",\"Path\":\"Plugin/Foundation\"},{\"Hash\":\"dd46ddec6343949d\",\"Path\":\"Plugin/Third\"},{\"Hash\":\"29df48c94d3632b7\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"f537fa00105c799f\",\"Path\":\"Project/Game\"},{\"Hash\":\"21266453dcc5fd6f\",\"Path\":\"Startup/Game\"}],\"Modules\":[],\"Platform\":\"Win64\",\"Plugins\":[],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
     },
     {
       "Name": "IndependentPluginWithBlockedRequest",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
-        "Game/Game.dproject": "{\"Plugins\":{\"Foundation\":false,\"Water\":true,\"Independent\":true},\"ProjectName\":\"Game\"}",
+        "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
         "Game/Plugins/Water/Source/WaterRuntime/WaterRuntime.dmodule": "{\"ModuleName\":\"WaterRuntime\",\"PublicDependencies\":[\"FoundationRuntime\"]}",
         "Game/Plugins/Water/Source/WaterTools/WaterTools.dmodule": "{\"ModuleName\":\"WaterTools\",\"PublicDependencies\":[\"WaterRuntime\"]}",
         "Game/Plugins/Water/Water.dplugin": "{\"Dependencies\":[\"Foundation\"],\"Id\":\"Water\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"WaterRuntime\",\"Path\":\"Source/WaterRuntime\",\"Phase\":\"Providers\"},{\"Host\":\"Editor\",\"Name\":\"WaterTools\",\"Path\":\"Source/WaterTools\",\"Phase\":\"EditorReady\"}],\"SchemaVersion\":1}",
-        "Game/Plugins/Independent/Independent.dplugin": "{\"SchemaVersion\":1,\"Id\":\"Independent\"}"
+        "Game/Plugins/Independent/Independent.dplugin": "{\"SchemaVersion\":1,\"Id\":\"Independent\"}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Foundation\":false,\"Water\":true,\"Independent\":true}}"
       },
       "Variant": "DurinEditor",
-      "Manifest": "{\"Fingerprint\":\"796688cdeaae9eb3\",\"InactivePlugins\":[{\"Id\":\"Water\",\"Reason\":\"Requires disabled plugin Foundation\"}],\"Inputs\":[{\"Hash\":\"1934cff629f69de2\",\"Path\":\"Plugin/Foundation\"},{\"Hash\":\"07fff00a743306ca\",\"Path\":\"Plugin/Independent\"},{\"Hash\":\"29df48c94d3632b7\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"a92cc1a2e796dd9a\",\"Path\":\"Project/Game\"}],\"Modules\":[],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Independent\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
+      "Manifest": "{\"Fingerprint\":\"2365e04b7a277aef\",\"InactivePlugins\":[{\"Id\":\"Water\",\"Reason\":\"Requires disabled plugin Foundation\"}],\"Inputs\":[{\"Hash\":\"1934cff629f69de2\",\"Path\":\"Plugin/Foundation\"},{\"Hash\":\"07fff00a743306ca\",\"Path\":\"Plugin/Independent\"},{\"Hash\":\"29df48c94d3632b7\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"f537fa00105c799f\",\"Path\":\"Project/Game\"},{\"Hash\":\"ac01391dd6c6b79e\",\"Path\":\"Startup/Game\"}],\"Modules\":[],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Independent\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
+    },
+    {
+      "Name": "UndeclaredProjectPluginDependency",
+      "Files": {
+        "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
+        "Game/Game.dproject": "{\"BaseModules\":[\"GameRuntime\"],\"ModuleDirs\":{\"GameRuntime\":\"Source/GameRuntime\"},\"ProjectName\":\"Game\"}",
+        "Game/Plugins/Off/Source/OffRuntime/OffRuntime.dmodule": "{\"ModuleName\":\"OffRuntime\",\"PublicDependencies\":[]}",
+        "Game/Plugins/Off/Off.dplugin": "{\"Dependencies\":[],\"Id\":\"Off\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"OffRuntime\",\"Path\":\"Source/OffRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
+        "Game/Source/GameRuntime/GameRuntime.dmodule": "{\"ModuleName\":\"GameRuntime\",\"PublicDependencies\":[\"OffRuntime\"]}",
+        "Game/Configs/Plugins.json": "{\"Plugins\": {\"Off\": true}}"
+      },
+      "Variant": "DurinEditor",
+      "Error": "undeclared project plugin dependency",
+      "Chain": "GameRuntime -> OffRuntime"
+    },
+    {
+      "Name": "DeclaredProjectPluginDependency",
+      "Files": {
+        "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
+        "Game/Game.dproject": "{\"BaseModules\":[\"GameRuntime\"],\"ModuleDirs\":{\"GameRuntime\":\"Source/GameRuntime\"},\"PluginDependencies\":[\"Off\"],\"ProjectName\":\"Game\"}",
+        "Game/Plugins/Off/Source/OffRuntime/OffRuntime.dmodule": "{\"ModuleName\":\"OffRuntime\",\"PublicDependencies\":[]}",
+        "Game/Plugins/Off/Off.dplugin": "{\"Dependencies\":[],\"Id\":\"Off\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"OffRuntime\",\"Path\":\"Source/OffRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
+        "Game/Source/GameRuntime/GameRuntime.dmodule": "{\"ModuleName\":\"GameRuntime\",\"PublicDependencies\":[\"OffRuntime\"]}",
+        "Game/Configs/Plugins.json": "{}"
+      },
+      "Variant": "DurinEditor",
+      "Manifest": "{\"Fingerprint\":\"352f8f6492eff511\",\"Inputs\":[{\"Hash\":\"0b68dc9d64c7b63e\",\"Path\":\"Plugin/Off\"},{\"Hash\":\"2961e853c95e34bb\",\"Path\":\"Plugin/Off/OffRuntime\"},{\"Hash\":\"1c147e689497556f\",\"Path\":\"Project/Engine\"},{\"Hash\":\"1a5ce6f8681b554e\",\"Path\":\"Project/Game\"},{\"Hash\":\"986a3af1a87ddcf1\",\"Path\":\"Project/Game/GameRuntime\"},{\"Hash\":\"08f44b07b5901a25\",\"Path\":\"Startup/Game\"}],\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"OffRuntime\",\"Owner\":\"Off\",\"Phase\":\"Providers\"}],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Off\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinEditor\",\"SchemaVersion\":1}"
+    },
+    {
+      "Name": "CannotDisableProjectPluginDependency",
+      "Files": {
+        "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
+        "Game/Game.dproject": "{\"BaseModules\":[\"GameRuntime\"],\"ModuleDirs\":{\"GameRuntime\":\"Source/GameRuntime\"},\"PluginDependencies\":[\"Off\"],\"ProjectName\":\"Game\"}",
+        "Game/Plugins/Off/Source/OffRuntime/OffRuntime.dmodule": "{\"ModuleName\":\"OffRuntime\",\"PublicDependencies\":[]}",
+        "Game/Plugins/Off/Off.dplugin": "{\"Dependencies\":[],\"Id\":\"Off\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"OffRuntime\",\"Path\":\"Source/OffRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",
+        "Game/Source/GameRuntime/GameRuntime.dmodule": "{\"ModuleName\":\"GameRuntime\",\"PublicDependencies\":[\"OffRuntime\"]}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Off\":false}}"
+      },
+      "Variant": "DurinEditor",
+      "Error": "Cannot disable project-required plugin"
     }
   ]
 }

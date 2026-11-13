@@ -13,7 +13,7 @@ namespace Durin
 	public:
 		std::string Name;
 		std::map<std::string, std::string> ModuleDirs;
-		std::map<std::string, bool> PluginOverrides;
+		std::vector<std::string> PluginDependencies;
 		std::vector<FMountPoint> Mounts;
 		std::optional<std::vector<std::string>> BaseModules;
 		std::map<std::string,std::vector<std::string>> ExtraModules;

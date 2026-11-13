@@ -23,7 +23,9 @@ namespace
             const auto File=Root/Name; std::filesystem::create_directories(File.parent_path());
             if (!FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Text.data(),Text.size())),File)) throw std::runtime_error("Cannot write cooked fixture");
         };
-        const std::string Project=R"({"ProjectName":"Game","BaseModules":[],"Plugins":{"Water":true}})";
+        const std::string Project=R"({"ProjectName":"Game","BaseModules":[]})";
+        const std::string Startup=R"({"Plugins":{"Water":true}})";
+        Save("Project/Configs/Plugins.json", Startup);
         Save("Project/Game.dproject",Project);
         Save("Project/Configs/Project.yaml","{}"); Save("Project/Configs/DurinGame.yaml","{}");
         Save("CookManifest.bin","manifest"); Save("Shaders/ShaderLibrary.dslb","library");
@@ -32,6 +34,7 @@ namespace
             ASSERT_TRUE(Snapshot.Parse(R"({"SchemaVersion":1,"Platform":"Win64","Architecture":"x64","Configuration":"Debug","ToolchainABI":"abi","Project.yaml":"{}","DurinGame.yaml":"{}","Mounts":[{"VirtualRoot":"/Plugins/Water/","CanReference":["/Engine/"]}]})"));
             Snapshot.GetMutableRoot().SetChildValue("Selection",R"({"SchemaVersion":1,"Platform":"Win64","RuntimeVariant":"DurinGame","Plugins":[{"Id":"Water"}],"Modules":[]})");
             Snapshot.GetMutableRoot().SetChildValue("ProjectDescriptor",Project);
+            Snapshot.GetMutableRoot().SetChildValue("PluginStartupConfig",Startup);
         };
         ResetSnapshot();
         const FPluginBuildIdentity Host{"host","Win64","x64","Debug","DurinGame","abi"};
@@ -43,7 +46,7 @@ namespace
             auto Output=Document.GetMutableRoot();
             if (ChangedMount) Output.GetRef("Mounts").GetRef(0).AddArray("CanReference").AppendValue("/Game/");
             auto Files=Output.AddArray("Files");
-            for (const auto* Name:{"Project/Game.dproject","Project/Configs/Project.yaml","Project/Configs/DurinGame.yaml","CookManifest.bin","PluginCook.json","Shaders/ShaderLibrary.dslb"})
+            for (const auto* Name:{"Project/Game.dproject","Project/Configs/Plugins.json","Project/Configs/Project.yaml","Project/Configs/DurinGame.yaml","CookManifest.bin","PluginCook.json","Shaders/ShaderLibrary.dslb"})
             {
                 auto File=Files.AppendObject(); File.SetChildValue("Path",Name); File.SetChildValue("Sha256",PluginFileSha256(Root/Name));
             }
@@ -74,16 +77,17 @@ namespace
             if (!FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Text.data(), Text.size())), File)) throw std::runtime_error("Cannot prepare management fixture");
         };
         Save(Root / "Engine/Engine.dproject", R"({"ProjectName":"Engine","BaseModules":[]})");
-        Save(Root / "Game/Game.dproject", R"({"ProjectName":"Game","BaseModules":[],"Plugins":{}})");
+        Save(Root / "Game/Game.dproject", R"({"ProjectName":"Game","BaseModules":[]})");
+        Save(Root / "Game/Configs/Plugins.json", R"({"Plugins":{}})");
         Save(Root / "Game/Plugins/Base/Base.dplugin", R"({"SchemaVersion":1,"Id":"Base","DisplayName":"Base plugin","Modules":[{"Name":"BaseRuntime","Path":"Source"}]})");
         Save(Root / "Game/Plugins/Base/Source/BaseRuntime.dmodule", R"({"ModuleName":"BaseRuntime"})");
-        Save(Root / "Game/Plugins/Water/Water.dplugin", R"({"SchemaVersion":1,"Id":"Water","Dependencies":["Base"]})");
+        Save(Root / "Game/Plugins/TestWater/TestWater.dplugin", R"({"SchemaVersion":1,"Id":"TestWater","Dependencies":["Base"]})");
         Save(Root / "Game/Plugins/Other/Other.dplugin", R"({"SchemaVersion":1,"Id":"Other","Platforms":["MacOS"]})");
         FPluginManagementContext Context;
         Context.Request.EngineRoot = Root / "Engine"; Context.Request.ProjectFile = Root / "Game/Game.dproject";
         Context.Identity = {"host", "Win64", "x64", "Debug", "DurinEditor", "abi"};
         Context.InventoryFile = Root / "Inventory/PluginBuild.json";
-        auto Request = Context.Request; Request.PluginOverrides = std::map<std::string, bool>{{"Water",true}};
+        auto Request = Context.Request; Request.PluginOverrides = std::map<std::string, bool>{{"TestWater",true}};
         const auto Selection = ResolvePlugins(Request);
         if (!Selection) throw std::runtime_error(Selection.error());
         FJsonDocument Selected; if (!Selected.Parse(Selection->ManifestJson)) throw std::runtime_error("Invalid fixture selection");
@@ -98,6 +102,71 @@ namespace
         Save(Context.InventoryFile, Inventory.ToString()); Save(Root / "Inventory/Base.dll","fixture");
         return Context;
     }
+    TEST(PluginResolutionTests, StartupSavePreservesProjectBytesAndRejectsStaleStartupEdits)
+    {
+        using namespace Durin;
+        const auto Context = MakePluginManagementFixture("StartupSaveIsolation");
+        auto& Manager = IProjectManager::Get(); Manager.ClearCurrentProject();
+        ASSERT_TRUE(Manager.LoadProjectFile(Context.Request.ProjectFile.generic_string()));
+        const auto Before = FFileHelper::LoadFileToArray(Context.Request.ProjectFile);
+        FPluginEditSession Session, Stale; std::string Error;
+        ASSERT_TRUE(Session.Open(Context, Error)); ASSERT_TRUE(Stale.Open(Context, Error));
+        ASSERT_TRUE(Session.SetEnabled("Base", true, Error));
+        ASSERT_TRUE(Session.Save(Error)) << Error;
+        EXPECT_EQ(*Before, *FFileHelper::LoadFileToArray(Context.Request.ProjectFile));
+        EXPECT_FALSE(Manager.IsCurrentProjectDirty());
+        const auto Startup = LoadPluginStartupOverrides(Context.Request.ProjectFile);
+        ASSERT_TRUE(Startup); EXPECT_TRUE(Startup->at("Base"));
+        ASSERT_TRUE(Session.CheckRestartReady(Error)) << Error;
+        auto MissingBuild = Context; MissingBuild.InventoryFile = Context.InventoryFile.parent_path()/"Unavailable.json";
+        FPluginEditSession Unavailable; ASSERT_TRUE(Unavailable.Open(MissingBuild, Error));
+        EXPECT_FALSE(Unavailable.GetBuildError().empty());
+        EXPECT_TRUE(Unavailable.CheckRestartReady(Error)) << Error;
+        ASSERT_TRUE(Stale.SetEnabled("TestWater", true, Error));
+        EXPECT_FALSE(Stale.Save(Error)); EXPECT_NE(Error.find("changed"), std::string::npos);
+        EXPECT_EQ(*Before, *FFileHelper::LoadFileToArray(Context.Request.ProjectFile));
+        Manager.ClearCurrentProject();
+    }
+    TEST(PluginResolutionTests, ProjectDependenciesLockTheirTransitiveStartupProviders)
+    {
+        using namespace Durin;
+        const auto Context = MakePluginManagementFixture("RequiredStartupProviders");
+        FProjectDescriptor Descriptor; std::string Error;
+        ASSERT_TRUE(Descriptor.Load(Context.Request.ProjectFile.generic_string(), Error));
+        Descriptor.PluginDependencies = {"TestWater"};
+        ASSERT_TRUE(Descriptor.Save(Context.Request.ProjectFile.generic_string(), Error));
+        FPluginEditSession Session; ASSERT_TRUE(Session.Open(Context, Error)) << Error;
+        EXPECT_FALSE(Session.IsDirty());
+        for (const auto* Id : {"TestWater", "Base"})
+        {
+            const auto Row = std::ranges::find(Session.GetRows(), Id, [](const auto& Item) { return Item.Info.Id; });
+            ASSERT_NE(Row, Session.GetRows().end()); EXPECT_TRUE(Row->bRequired); EXPECT_TRUE(Row->bNextStart);
+            EXPECT_FALSE(Session.SetEnabled(Id, false, Error));
+        }
+    }
+    TEST(PluginResolutionTests, UnavailablePluginsAndConsumersDoNotBlockIndependentStartupProviders)
+    {
+        using namespace Durin;
+        const auto Context = MakePluginManagementFixture("RecoverUnavailablePlugins");
+        const auto Save = [](const std::filesystem::path& File, std::string_view Text) {
+            std::filesystem::create_directories(File.parent_path());
+            ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Text.data(), Text.size())), File));
+        };
+        Save(Context.Request.ProjectFile.parent_path()/"Plugins/Missing/Missing.dplugin",
+            R"({"SchemaVersion":1,"Id":"Missing","Modules":[{"Name":"MissingRuntime","Path":"Source"}]})");
+        Save(Context.Request.ProjectFile.parent_path()/"Plugins/Missing/Source/MissingRuntime.dmodule", R"({"ModuleName":"MissingRuntime"})");
+        Save(Context.Request.ProjectFile.parent_path()/"Plugins/Consumer/Consumer.dplugin", R"({"SchemaVersion":1,"Id":"Consumer","Dependencies":["Missing"]})");
+        Save(PluginStartupConfigFile(Context.Request.ProjectFile), R"({"Plugins":{"Base":true,"Consumer":true,"Missing":true,"Unknown":true}})");
+        const auto Before = ReadPluginStartupSnapshot(Context.Request.ProjectFile);
+        FPluginResolution Selection; std::vector<FAdmittedPluginBinary> Binaries;
+        FPluginResources Resources; std::vector<std::string> Diagnostics; std::string Error;
+        ASSERT_TRUE(ResolveAvailablePlugins(Context.Request, Context.Identity, Context.InventoryFile,
+            Selection, Binaries, Resources, Diagnostics, Error)) << Error;
+        EXPECT_EQ(Selection.Plugins, (std::vector<std::string>{"Base"}));
+        ASSERT_EQ(Binaries.size(), 1); EXPECT_EQ(Binaries[0].Module.Name, "BaseRuntime");
+        EXPECT_EQ(Diagnostics.size(), 3);
+        EXPECT_EQ(ReadPluginStartupSnapshot(Context.Request.ProjectFile), Before);
+    }
     TEST(PluginResolutionTests, PluginManagementAttributesMissingBinaryToItsPlugin)
     {
         using namespace Durin;
@@ -109,7 +178,7 @@ namespace
         };
         Save(Root / "Plugins/Missing/Missing.dplugin", R"({"SchemaVersion":1,"Id":"Missing","Modules":[{"Name":"MissingRuntime","Path":"Source"}]})");
         Save(Root / "Plugins/Missing/Source/MissingRuntime.dmodule", R"({"ModuleName":"MissingRuntime"})");
-        Save(Context.Request.ProjectFile, R"({"ProjectName":"Game","BaseModules":[],"Plugins":{"Base":true,"Missing":true}})");
+        Save(PluginStartupConfigFile(Context.Request.ProjectFile), R"({"Plugins":{"Base":true,"Missing":true}})");
         FPluginEditSession Session; std::string Error;
         ASSERT_TRUE(Session.Open(Context, Error)) << Error;
         const auto& Rows = Session.GetRows();
@@ -129,16 +198,16 @@ namespace
         FPluginEditSession Session; std::string Error;
         ASSERT_TRUE(Session.Open(Context,Error)) << Error;
         ASSERT_EQ(Session.GetRows().size(),3); EXPECT_FALSE(Session.IsDirty());
-        ASSERT_TRUE(Session.SetEnabled("Water",true,Error));
-        EXPECT_TRUE(Session.GetOverrides().at("Water")); EXPECT_FALSE(Session.GetOverrides().at("Base"));
-        const auto Water = [&]() -> const FPluginManagementRow& { return *std::ranges::find(Session.GetRows(),"Water",[](const auto& Row){return Row.Info.Id;}); };
-        EXPECT_TRUE(Water().bRequested); EXPECT_FALSE(Water().bNextStart);
-        EXPECT_NE(Water().Reason.find("requires Base"),std::string::npos);
+        ASSERT_TRUE(Session.SetEnabled("TestWater",true,Error));
+        EXPECT_TRUE(Session.GetOverrides().at("TestWater")); EXPECT_FALSE(Session.GetOverrides().at("Base"));
+        const auto TestWater = [&]() -> const FPluginManagementRow& { return *std::ranges::find(Session.GetRows(),"TestWater",[](const auto& Row){return Row.Info.Id;}); };
+        EXPECT_TRUE(TestWater().bRequested); EXPECT_FALSE(TestWater().bNextStart);
+        EXPECT_NE(TestWater().Reason.find("requires Base"),std::string::npos);
         EXPECT_TRUE(Session.IsSelectionValid()); EXPECT_TRUE(Session.IsDirty()); EXPECT_FALSE(Session.RequiresRestart());
         ASSERT_TRUE(Session.SetEnabled("Base",true,Error));
-        EXPECT_TRUE(Water().bRequested); EXPECT_TRUE(Water().bNextStart); EXPECT_TRUE(Session.RequiresRestart());
+        EXPECT_TRUE(TestWater().bRequested); EXPECT_TRUE(TestWater().bNextStart); EXPECT_TRUE(Session.RequiresRestart());
         ASSERT_TRUE(Session.SetEnabled("Base",false,Error));
-        EXPECT_TRUE(Water().bRequested); EXPECT_FALSE(Water().bNextStart);
+        EXPECT_TRUE(TestWater().bRequested); EXPECT_FALSE(TestWater().bNextStart);
         EXPECT_EQ(*FFileHelper::LoadFileToArray(Context.Request.ProjectFile),*Before); EXPECT_EQ(FMountPaths::GetMountRegistryRevision(),Revision);
         ASSERT_TRUE(Session.Revert(Error)); EXPECT_FALSE(Session.IsDirty());
     }
@@ -146,12 +215,12 @@ namespace
     {
         using namespace Durin;
         const auto Context = MakePluginManagementFixture("ManagementIndependentChecks");
-        const std::string Descriptor=R"({"ProjectName":"Game","BaseModules":[],"Plugins":{"Water":true}})";
-        ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Descriptor.data(),Descriptor.size())),Context.Request.ProjectFile));
+        const std::string Descriptor=R"({"Plugins":{"TestWater":true}})";
+        ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Descriptor.data(),Descriptor.size())),PluginStartupConfigFile(Context.Request.ProjectFile)));
         FPluginEditSession Session; std::string Error;
         ASSERT_TRUE(Session.Open(Context,Error)); EXPECT_FALSE(Session.IsDirty());
-        ASSERT_TRUE(Session.SetEnabled("Water",false,Error));
-        EXPECT_TRUE(Session.GetOverrides().at("Base")); EXPECT_FALSE(Session.GetOverrides().at("Water"));
+        ASSERT_TRUE(Session.SetEnabled("TestWater",false,Error));
+        EXPECT_TRUE(Session.GetOverrides().at("Base")); EXPECT_FALSE(Session.GetOverrides().at("TestWater"));
         const auto Base=std::ranges::find(Session.GetRows(),"Base",[](const auto& Row){return Row.Info.Id;});
         ASSERT_NE(Base,Session.GetRows().end()); EXPECT_TRUE(Base->bRequested); EXPECT_TRUE(Base->bNextStart);
     }
@@ -167,17 +236,17 @@ namespace
         const auto Begin=std::chrono::steady_clock::now();
         for (size_t I=0; I<1000; ++I)
         {
-            ASSERT_TRUE(Session.SetEnabled("Water",true,Error));
+            ASSERT_TRUE(Session.SetEnabled("TestWater",true,Error));
             ASSERT_TRUE(Session.SetEnabled("Base",true,Error));
             ASSERT_TRUE(Session.SetEnabled("Base",false,Error));
-            ASSERT_TRUE(Session.SetEnabled("Water",false,Error));
+            ASSERT_TRUE(Session.SetEnabled("TestWater",false,Error));
         }
         const auto Micros=std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now()-Begin).count();
         RecordProperty("CachedCheckbox4000EditsMicroseconds",std::to_string(Micros));
         EXPECT_FALSE(Session.IsDirty()); EXPECT_TRUE(Session.IsSelectionValid());
-        ASSERT_TRUE(Session.SetEnabled("Water",true,Error)); EXPECT_TRUE(Session.IsDirty());
+        ASSERT_TRUE(Session.SetEnabled("TestWater",true,Error)); EXPECT_TRUE(Session.IsDirty());
         ASSERT_TRUE(Session.Revert(Error)) << Error;
-        EXPECT_FALSE(Session.IsDirty()); EXPECT_FALSE(Session.GetOverrides().at("Water"));
+        EXPECT_FALSE(Session.IsDirty()); EXPECT_FALSE(Session.GetOverrides().at("TestWater"));
         EXPECT_EQ(Session.GetRows().size(),3);
         EXPECT_FALSE(Session.CheckRestartReady(Error));
     }
@@ -189,15 +258,15 @@ namespace
         ASSERT_TRUE(Session.Open(Context,Error));
         const auto Base=[&]() -> const FPluginManagementRow& { return *std::ranges::find(Session.GetRows(),"Base",[](const auto& Row){return Row.Info.Id;}); };
         EXPECT_TRUE(Base().bBuildAvailable);
-        ASSERT_TRUE(Session.SetEnabled("Water",true,Error));
+        ASSERT_TRUE(Session.SetEnabled("TestWater",true,Error));
         const auto Root=Context.Request.ProjectFile.parent_path().parent_path();
         const auto Plugin=Root/"Game/Plugins/Tools/Utility/Utility.dplugin";
         std::filesystem::create_directories(Plugin.parent_path());
         const std::string Metadata=R"({"SchemaVersion":1,"Id":"Utility","Version":"2"})";
         ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Metadata.data(),Metadata.size())),Plugin));
         std::filesystem::rename(Root/"Game/Plugins/Other",Root/"OtherOffline");
-        const std::string Saved=R"({"ProjectName":"Game","BaseModules":[],"Plugins":{"Base":true}})";
-        ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Saved.data(),Saved.size())),Context.Request.ProjectFile));
+        const std::string Saved=R"({"Plugins":{"Base":true}})";
+        ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Saved.data(),Saved.size())),PluginStartupConfigFile(Context.Request.ProjectFile)));
         const auto DiskBeforeRefresh=FFileHelper::LoadFileToArray(Context.Request.ProjectFile);
         ASSERT_TRUE(DiskBeforeRefresh);
         std::filesystem::rename(Context.InventoryFile,Root/"InventoryOffline.json");
@@ -207,7 +276,7 @@ namespace
         // Refresh uses the same open/rescan path as the window's Refresh button.
         ASSERT_TRUE(Session.Open(Context,Error)) << Error;
         EXPECT_FALSE(Session.IsDirty()); EXPECT_TRUE(Base().bRequested); EXPECT_FALSE(Base().bBuildAvailable);
-        EXPECT_FALSE(Session.GetOverrides().at("Water")); EXPECT_FALSE(Session.GetBuildError().empty());
+        EXPECT_FALSE(Session.GetOverrides().at("TestWater")); EXPECT_FALSE(Session.GetBuildError().empty());
         EXPECT_EQ(Session.GetRows().size(),3);
         EXPECT_TRUE(std::ranges::none_of(Session.GetRows(),[](const auto& Row){return Row.Info.Id=="Other";}));
         const auto Utility=std::ranges::find(Session.GetRows(),"Utility",[](const auto& Row){return Row.Info.Id;});
@@ -225,7 +294,7 @@ namespace
         FPluginEditSession Session; std::string Error; std::vector<std::string> Effects;
         ASSERT_TRUE(Session.Open(Context,Error));
         ASSERT_TRUE(Session.SetEnabled("Base",true,Error));
-        ASSERT_TRUE(Session.SetEnabled("Water",true,Error));
+        ASSERT_TRUE(Session.SetEnabled("TestWater",true,Error));
         EXPECT_TRUE(Session.IsSelectionValid()); EXPECT_FALSE(Session.GetBuildError().empty());
         EXPECT_FALSE(Session.CheckRestartReady(Error)); EXPECT_TRUE(Session.IsDirty());
         const auto Before=FFileHelper::LoadFileToArray(Context.Request.ProjectFile);
@@ -373,7 +442,7 @@ namespace
         std::string Error;
 		auto& Manager=Durin::IProjectManager::Get(); Manager.ClearCurrentProject();
 		const auto Folder=Durin::Testing::CreateTestFixtureDirectory("AdmissionSnapshot");
-		const auto File=Folder/"Fixture.dproject"; const std::string Text=R"({"ProjectName":"Fixture","BaseModules":[],"Plugins":{"Water":true}})";
+		const auto File=Folder/"Fixture.dproject"; const std::string Text=R"({"ProjectName":"Fixture","BaseModules":[],"PluginDependencies":["Water"]})";
 		ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Text.data(),Text.size())),File));
 		ASSERT_TRUE(Manager.LoadProjectFile(File.generic_string()));
 		const auto* Active=Durin::GetCurrentProject(); const auto Path=Durin::FPaths::ProjectFile();
@@ -388,12 +457,10 @@ namespace
         ASSERT_TRUE(Manager.QueryStatusForProject(File.generic_string(), ProjectStatus));
 		EXPECT_EQ(Durin::GetCurrentProject(),Active); EXPECT_EQ(Durin::FMountPaths::GetMountRegistryRevision(),Revision);
 		EXPECT_EQ(Durin::FMountPaths::GetRegisteredMountPoints().data(),MountStorage);
-		ASSERT_TRUE(Manager.SetPluginEnabled("water",false, Error));
-		EXPECT_TRUE(Active->PluginOverrides.at("Water"));
-		ASSERT_TRUE(Manager.SaveCurrentProjectToDisk(Error)); EXPECT_FALSE(Manager.IsCurrentProjectDirty());
-		Durin::FProjectDescriptor Reload; ASSERT_TRUE(Reload.Load(File.generic_string(), Error)); EXPECT_FALSE(Reload.PluginOverrides.at("Water"));
-		ASSERT_TRUE(Manager.RemovePluginReference("WATER", Error)); ASSERT_TRUE(Manager.SaveCurrentProjectToDisk(Error));
-		ASSERT_TRUE(Reload.Load(File.generic_string(), Error)); EXPECT_TRUE(Reload.PluginOverrides.empty());
+        EXPECT_EQ(Active->PluginDependencies, (std::vector<std::string>{"Water"}));
+        ASSERT_TRUE(Manager.SaveCurrentProjectToDisk(Error)); EXPECT_FALSE(Manager.IsCurrentProjectDirty());
+        Durin::FProjectDescriptor Reload; ASSERT_TRUE(Reload.Load(File.generic_string(), Error));
+        EXPECT_EQ(Reload.PluginDependencies, Active->PluginDependencies);
 		ASSERT_TRUE(Manager.LoadModulesForProject());
 		EXPECT_FALSE(Manager.LoadProjectFile(File.generic_string()));
 		Manager.ClearCurrentProject(); EXPECT_FALSE(Durin::HasCurrentProject()); EXPECT_EQ(Manager.GetCurrentProject(),nullptr);
@@ -404,7 +471,7 @@ namespace
         std::string Error;
 		const auto Folder = Durin::Testing::CreateTestFixtureDirectory("ProjectManager");
 		const auto File = Folder / "Fixture.dproject";
-		const std::string Source = R"({"ProjectName":"Fixture","BaseModules":[],"Plugins":{"Water":true},"Tests":{"Native":{"Root":"Tests"}}})";
+		const std::string Source = R"({"ProjectName":"Fixture","BaseModules":[],"PluginDependencies":["Water"],"Tests":{"Native":{"Root":"Tests"}}})";
 		ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Source.data(), Source.size())), File));
 		auto& Manager = Durin::IProjectManager::Get();
 		const auto* Previous = Durin::GetCurrentProject();
@@ -417,27 +484,22 @@ namespace
 		ASSERT_TRUE(Descriptor.Load(File.generic_string(), Error));
 		ASSERT_TRUE(Descriptor.GetEnabledRootModules("DurinGame"));
 		EXPECT_TRUE(Descriptor.GetEnabledRootModules("DurinGame")->empty());
-		Descriptor.PluginOverrides["Water"] = false;
+		Descriptor.PluginDependencies.clear();
 		ASSERT_TRUE(Descriptor.Save(File.generic_string(), Error));
 		Durin::FJsonDocument Saved;
 		ASSERT_TRUE(Saved.LoadFromFile(File));
 		EXPECT_EQ(Saved.GetRootView().GetView("Tests").GetView("Native").GetView("Root").GetString(), "Tests");
-		EXPECT_FALSE(Saved.GetRootView().GetView("Plugins").GetView("Water").GetBool());
+		EXPECT_EQ(Saved.GetRootView().GetView("PluginDependencies").Num(), 0);
 		ASSERT_TRUE(Manager.LoadProjectFile(File.generic_string()));
-		ASSERT_TRUE(Manager.SetPluginEnabled("Water", false, Error));
-		EXPECT_FALSE(Manager.IsCurrentProjectDirty());
-		ASSERT_TRUE(Manager.SetPluginEnabled("Water", true, Error));
-		EXPECT_TRUE(Manager.IsCurrentProjectDirty());
+        EXPECT_FALSE(Manager.IsCurrentProjectDirty());
 		const auto Backup=Folder / "Backup.dproject";
 		std::filesystem::rename(File, Backup);
 		std::filesystem::create_directory(File);
 		EXPECT_FALSE(Manager.SaveCurrentProjectToDisk(Error));
-		EXPECT_TRUE(Manager.IsCurrentProjectDirty());
+		EXPECT_FALSE(Manager.IsCurrentProjectDirty());
 		std::filesystem::remove(File);
 		std::filesystem::rename(Backup, File);
-		ASSERT_TRUE(Manager.RemovePluginReference("Water", Error));
-		EXPECT_TRUE(Manager.GetCurrentProject()->PluginOverrides.empty());
-		EXPECT_FALSE(Manager.SetPluginEnabled("../Invalid", true, Error));
+        EXPECT_TRUE(Manager.GetCurrentProject()->PluginDependencies.empty());
 		Manager.ClearCurrentProject();
 	}
 
@@ -543,7 +605,7 @@ namespace
 			return Durin::FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Text.data(), Text.size())), Root / Path);
 		};
 		ASSERT_TRUE(Write("Engine/Engine.dproject", R"({"ProjectName":"Engine"})"));
-		ASSERT_TRUE(Write("Game/Game.dproject", R"({"ProjectName":"Game","ModuleDirs":{"Root":"Source/Root"},"Plugins":{"Water":true}})"));
+		ASSERT_TRUE(Write("Game/Game.dproject", R"({"ProjectName":"Game","ModuleDirs":{"Root":"Source/Root"},"PluginDependencies":["Water"]})"));
 		ASSERT_TRUE(Write("Game/Source/Root/Root.dmodule", R"({"ModuleName":"Root","PublicDependencies":["Water"]})"));
 		ASSERT_TRUE(Write("Game/Plugins/Water/Water.dplugin", R"({"SchemaVersion":1,"Id":"Water","Modules":[{"Name":"Water","Path":"Source/Water"}]})"));
 		ASSERT_TRUE(Write("Game/Plugins/Water/Source/Water/Water.dmodule", R"({"ModuleName":"Water"})"));

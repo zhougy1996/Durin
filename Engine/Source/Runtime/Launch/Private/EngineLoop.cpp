@@ -109,7 +109,7 @@ namespace Durin
 			return false;
 		}
 #endif
-		if (!IProjectManager::Get().PreparePluginStartup())
+		if (!IProjectManager::Get().PreparePluginStartup(DURIN_WITH_EDITOR != 0))
 		{
 			DURIN_ERROR("Plugin admission failed: {}", IProjectManager::Get().GetLastError());
 			return false;

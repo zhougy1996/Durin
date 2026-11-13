@@ -1,0 +1,6 @@
+{
+  "Plugins": {
+    "PluginFixtureConsumer": true,
+    "PluginFixtureContent": true
+  }
+}

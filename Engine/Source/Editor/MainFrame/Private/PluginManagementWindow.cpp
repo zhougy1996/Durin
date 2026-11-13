@@ -70,10 +70,13 @@ namespace Durin::MainFrame
                 if (Visible++) ImGui::Separator();
                 ImGui::Spacing(); ImGui::PushID(Row.Info.Id.c_str()); ImGui::BeginGroup();
                 bool Enabled = Row.bRequested;
+                ImGui::BeginDisabled(Row.bRequired);
                 if (ImGui::Checkbox("##Enabled", &Enabled)) Change = {{Row.Info.Id, Enabled}};
+                ImGui::EndDisabled();
                 ImGui::SameLine(); ImGui::BeginGroup();
                 ImGui::TextWrapped("%s", Row.Info.DisplayName.c_str());
-                if (ImGui::IsItemClicked()) Change = {{Row.Info.Id, !Row.bRequested}};
+                if (!Row.bRequired && ImGui::IsItemClicked()) Change = {{Row.Info.Id, !Row.bRequested}};
+                if (Row.bRequired) ImGui::TextDisabled("Required by project");
                 if (Row.bRequested && !Row.bNextStart)
                 {
                     ImGui::PushStyleColor(ImGuiCol_Text, Warning);
@@ -81,7 +84,7 @@ namespace Durin::MainFrame
                 }
                 else if (Row.bNextStart && !Row.bBuildAvailable)
                 {
-                    ImGui::TextColored(ErrorColor, "Cannot load on restart");
+                    ImGui::TextColored(Warning, "Will be skipped on restart");
                     Tooltip(Row.Availability);
                 }
                 else if (Row.bActive != Row.bNextStart)
@@ -115,7 +118,7 @@ namespace Durin::MainFrame
         else if (!Session->IsSelectionValid()) { ImGui::TextColored(ErrorColor, "Plugin selection needs attention."); Tooltip(Session->GetValidationError()); }
         else if (!Session->GetBuildError().empty())
         {
-            ImGui::TextColored(ErrorColor, "Cannot load on restart."); Tooltip(Session->GetBuildError());
+            ImGui::TextColored(Warning, "Unavailable plugins will be skipped on restart."); Tooltip(Session->GetBuildError());
             ImGui::SameLine();
             if (ImGui::SmallButton("Copy diagnostic")) ImGui::SetClipboardText(Session->GetBuildError().c_str());
         }

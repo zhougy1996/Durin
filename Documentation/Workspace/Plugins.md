@@ -1,6 +1,6 @@
 # Plugin Metadata And Selection
 
-Summary: Define plugin descriptors, project overrides, source builds, frozen startup, and cooked Game deployment.
+Summary: Define plugin descriptors, project dependencies, startup choices, source builds, frozen startup, and cooked Game deployment.
 
 Modules: Projects, Core, Engine, ShaderBuild, MainFrame
 
@@ -39,22 +39,20 @@ interactive recording/unsaved-work policy and Projects persists history values.
 Principal interfaces follow UE's names and result semantics. FProjectDescriptor
 offers bool Load/Read/Save with an output failure reason. IProjectManager::Get()
 offers bool LoadProjectFile, QueryStatusForProject/CurrentProject (status output),
-LoadModulesForProject (ELoadingPhase), SaveCurrentProjectToDisk,
-SetPluginEnabled, and RemovePluginReference. Save/edit methods provide an output
+LoadModulesForProject (ELoadingPhase), and SaveCurrentProjectToDisk. Save/edit methods provide an output
 failure reason; GetLastError supplies diagnostics for load/status/module failures.
 Native strings and descriptor formats remain Durin-specific. Public principal
 interfaces are not constrained to std::expected; internal helpers may use it.
 
 GetCurrentProject on the manager returns the requested descriptor. The separate
 Project/Project.h context snapshot supplies effective paths and admitted module
-roots to existing consumers. Descriptor/plugin edits mark pending state dirty;
+roots to existing consumers. Descriptor edits mark pending state dirty;
 saving atomically persists configuration without changing the active snapshot.
 The manager owns both states; the context accessors delegate to it. Typed
 descriptor fields are the persistent authority, including module selections,
 mounts, schema annotation, and native-test root. Save validates and serializes
-those fields without retaining a second JSON document. Setting an unchanged
-override does not mark the project dirty.
-Explicit false and removal of an override have different persisted meanings.
+those fields without retaining a second JSON document. Startup choices are saved separately and never dirty the project descriptor.
+Explicit false and removal of a startup override have different meanings.
 Changing projects after ordinary root-module startup requires process restart.
 ClearCurrentProject is for pre-startup/teardown safe points, not live switching.
 
@@ -116,24 +114,42 @@ The structural authority is
 [`durin-plugin.schema.json`](../../Engine/Source/Programs/DurinHeaderTool/schemas/durin-plugin.schema.json).
 Semantic checks additionally enforce ownership, dependency, and phase rules.
 
-## Project Overrides And Dependencies
+## Project Dependencies And Startup Configuration
+
+The project descriptor declares required plugin providers, not optional startup choices:
 
 ```json
-{"ProjectName": "Example", "Plugins": {"Water": true, "UnusedTools": false}}
+{"ProjectName": "Example", "PluginDependencies": ["Water"]}
 ```
 
-Absent Plugins and an empty object mean no explicit choices. Values must be
-boolean. Unmentioned plugins are inactive unless required by an enabled plugin.
-An explicitly disabled required dependency leaves its requested consumers
-inactive, including transitive consumers; their true overrides remain saved.
-The selection manifest reports these requests in optional `InactivePlugins`
-entries with an ID and reason, and startup logs a warning. Unrelated valid
-plugins remain eligible. Even disabled explicit IDs must refer to discovered
-descriptors. An enabled plugin
-with an incompatible platform is an error. An unused module filtered by host or
-platform is excluded; a required edge to that module is an error.
+These dependencies and their transitive plugin providers are required at startup.
+The Plugins window marks them **Required by project** and prevents disabling them.
+Ordinary project module/link edges remain in `.dmodule`; `PluginDependencies`
+declares the project-level requirement for those providers. A project module's
+edge to a selected plugin requires a direct project declaration; an optional
+startup request cannot satisfy an undeclared structural dependency.
 
-Plugin Dependencies activates required plugins; `.dmodule` owns module/link
+Optional startup requests live in the project's version-controlled
+`Configs/Plugins.json`, independently of `.dproject`:
+
+```json
+{"Plugins": {"Water": true, "UnusedTools": false}}
+```
+
+An absent file or empty object supplies no optional requests. Values must be
+boolean. Unmentioned plugins are inactive unless required by a selected plugin
+or the project. An explicitly disabled optional dependency leaves its requested
+consumers inactive; their true requests remain saved. The selection manifest
+reports these requests in `InactivePlugins` with an ID and reason. Disabling a
+project-required provider is invalid. Legacy `.dproject` `Plugins` fields must
+be moved to the startup file; use `PluginDependencies` for required providers.
+
+Startup choices never select build targets, enter build catalog inputs, or become
+CMake configure dependencies. Startup selection fingerprints include a logical
+`Startup/<ProjectName>` input, including an empty hash for an absent file. Changing
+startup choices invalidates Cook/Stage selection without invalidating native builds.
+
+Plugin `Dependencies` activates required plugins; `.dmodule` owns module/link
 edges. A module edge to another plugin requires that plugin in its owner's
 direct Dependencies. Transitive paths are checked edge by edge. Runtime plugin
 modules cannot reach Editor plugin modules or existing project modules reachable
@@ -147,7 +163,7 @@ Diagnostics include the descriptor and traversed module/plugin chain.
 
 Launch calls IProjectManager::PreparePluginStartup before default mount
 publication and renderer/shader initialization. Projects resolves the source
-workspace and active project's on-disk descriptors, admits the inventory, and
+workspace and active project's descriptors and startup configuration, admits the inventory, and
 freezes native membership. This is independent of later descriptor edits and
 does not add another readiness state machine. The existing hosts execute these
 dependency-ordered phases:
@@ -249,17 +265,17 @@ the generated list; a cooked snapshot without its runtime inventory is rejected.
 ## Source Build Integration
 
 DHT uses `config.plugin_config.enumerate_plugin_build` for each workspace project.
-It discovers plugins under Engine and that project, selects enabled plugins and
-their required dependencies, validates the selected build graph, and emits a
-build catalog with Modules and Inputs. Disabled plugin modules are not compiled
-unless another workspace project selects them. Startup resolves the same plugin
-roots and project overrides.
+It discovers plugins under Engine and that project and builds every plugin
+compatible with the target platform and runtime variant, plus their dependencies.
+Disabled plugins are still compiled; Editor modules are excluded from Game.
+Neither DHT nor CMake reads `Configs/Plugins.json` to construct the build graph.
+Project `PluginDependencies` remain authored structural dependencies.
 
 `owning_plugin` remains independent from `owning_project`; plugin modules do not
 enter authored ModuleDirs or ordinary startup roots. Plugin dependencies can
 bring ordinary non-root modules into the workspace build closure under their
-original owners. Game filters out Editor plugin modules. Enablement conflicts
-remain startup errors and remove blocked plugins from compilation targets.
+original owners. Game filters out Editor plugin modules. Optional enablement conflicts affect startup selection only; they never remove
+plugins from compilation targets.
 
 Plugin modules use the existing add_durin_module, dependency/export metadata,
 reflection generator, PCH, include, and linking paths. DHT emits a
@@ -272,15 +288,15 @@ under `<Project>/Binaries/<Platform>/<Configuration>/Plugins/<Id>/<RuntimeVarian
 
 CMake watches discovered directory membership up to plugin boundaries and the
 consumed descriptors. A normal DevTool build reconfigures when descriptors are
-created/deleted or project descriptors change. Override edits may change plugin
-target membership and trigger reconfiguration. Neither
+created/deleted or structural project descriptors change. Startup configuration
+edits do not trigger reconfiguration. Neither
 existing metadata nor stale DLLs imply startup selection.
 
-`<Project>PluginBuild` builds the project's selected native closure and publishes
+`<Project>PluginBuild` builds the project's available native plugin closure and publishes
 `PluginBuild.json` and the declared shared-library
 dependency files beneath
 `Build/<preset>/PluginBuild/<Project>/<Configuration>/`. It participates in all
-when that project selects plugins; a direct individual module build need not
+when compatible plugins are discovered; a direct individual module build need not
 publish the full inventory. Paths in the inventory are relative to this root.
 EngineBuild currently combines the engine semantic version and built Core
 binary SHA-256; ToolchainABI records compiler ID/version and pointer size.
@@ -349,7 +365,7 @@ bytes and publish no resident package; ordinary saves enforce read-only mounts.
 `DurinAssetTool cook` resolves the effective Game selection for its target before
 discovery and requires the admitted tool host to own the same plugin closure.
 The version 1 `PluginCook.json` snapshot captures that selection, mount permissions,
-project descriptor, target/ABI identity, Engine Game template and merged Project/
+project descriptor, startup configuration, target/ABI identity, Engine Game template and merged Project/
 Game defaults. It is an auxiliary output in the existing Cook transaction and
 is bound by `CookManifest.bin`; asset entries remain solely in that manifest.
 The available native build inventory stays a superset of the selected closure.
@@ -402,7 +418,7 @@ stays checked and displays **Inactive: requires ...**. It can be saved and remai
 inactive after restart until that dependency is enabled. Disabling a prerequisite
 leaves consumer checkboxes unchanged. Checkbox actions never toggle other plugins.
 Opening materializes the initial effective defaults as independent checkbox
-values without dirtying or writing the descriptor; the next save persists those
+values without dirtying or writing the descriptor or startup configuration; the next save persists those
 values so unchecking a consumer cannot prune another checked plugin.
 **Cancel** restores the last saved checkbox snapshot using cached metadata;
 it neither scans nor reads or writes project/plugin files. **Refresh**, beside
@@ -412,17 +428,17 @@ also reloads from disk. Failed refreshes retain the previous usable session and
 display the error. There are no cascade controls or review modals.
 
 Saving validates the next-start dependency/resource/mount closure and uses the
-existing project-edit lease and atomic descriptor replacement. It rejects a
-descriptor changed since the window loaded, unrelated pending project edits,
+existing project-edit lease and atomic startup-file replacement. It rejects a
+project descriptor or startup file changed since the window loaded, pending project edits,
 read-only files and ownership conflicts without partially replacing the file.
-Only plugin overrides change; active modules, mounts, Shader roots and effective
+Only `Configs/Plugins.json` changes; active modules, mounts, Shader roots and effective
 configuration retain their startup snapshot. A missing or incompatible build
-does not prevent saving a valid selection, but blocks restart with a build
-diagnostic. Enabling an unbuilt plugin requires a build before restart. No
+does not prevent saving or restarting a valid selection. The window warns that
+unavailable plugins will be skipped; build them explicitly to activate them. No
 management action builds binaries or republishes an inventory.
 
 Saved selections differing from the running selection display a restart-required state.
-**Restart editor...** rechecks the saved descriptor and artifact admission,
+**Restart editor...** rechecks the saved project/startup files and selection,
 then uses the normal all-document exit workflow. Pending document operations
 and failed saves retain the editor; Cancel leaves documents open and plugin
 settings saved for a later restart. Relaunch is deferred until shutdown and
@@ -433,8 +449,24 @@ inventory require no rebuild. Build and restart remain separate user actions.
 Checkbox changes only evaluate the in-memory graph; they do not read files,
 hash descriptors, resolve the workspace or admit binaries. Opening/refreshing
 captures metadata and build availability; save and restart revalidate disk state
-through the shared startup services. The project manager owns persistence and
+through the shared startup services. The project manager owns startup-file persistence and
 `MainFrame` owns presentation and restart routing.
+
+### Editor Startup Failures
+
+Interactive Editor admission validates optional plugin closures independently.
+Missing descriptors, incompatible or absent native artifacts, and invalid resource
+roots skip the affected request and dependent requests while unrelated usable
+plugins remain eligible. Invalid startup configuration or catalog-wide metadata
+failure retains the Editor with diagnostics. Saved requests are never rewritten
+on startup failure. Strict resolution/admission remains available to tools and tests.
+
+Module factory/startup failures skip the remaining modules of that plugin and its
+dependent plugins. Already loaded native code remains resident through shutdown;
+published resource roots are not removed live. If a project-required provider is
+unavailable, project root modules/content initialization are withheld while the
+Editor and Plugins window remain available for diagnosis. Startup logs and Editor
+notifications report failed plugins. Cook and staged Game admission remain strict.
 
 ## Validation
 

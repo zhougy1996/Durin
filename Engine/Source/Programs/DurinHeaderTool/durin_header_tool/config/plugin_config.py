@@ -33,8 +33,16 @@ def plugin_overrides(value, descriptor) -> dict[str, bool]:
     return dict(value)
 
 
+def plugin_dependencies(value, descriptor) -> list[str]:
+    if (not isinstance(value, list)
+            or any(not isinstance(v, str) or not IDENTIFIER.fullmatch(v) for v in value)
+            or len({v.lower() for v in value}) != len(value)):
+        raise ValueError(f"{descriptor}: invalid PluginDependencies identifier list")
+    return list(value)
+
+
 def enumerate_plugin_build(engine_root, project_file, **kwargs):
-    """Enumerate the project's selected plugin build modules and dependencies."""
+    """Enumerate all discovered target-compatible plugins without reading startup choices."""
     return _resolve_plugins(engine_root, project_file, build_catalog=True, **kwargs)
 
 
@@ -128,7 +136,9 @@ def _resolve_plugins(engine_root: Path, project_file: Path, *, platform="Win64",
         directories = data.get("ModuleDirs", {})
         if not isinstance(directories, dict):
             fail(path, "ModuleDirs must be an object")
-        overrides = plugin_overrides(data.get("Plugins", {}), path)
+        overrides = {name: True for name in ids(data, "PluginDependencies", path)}
+        if "Plugins" in data:
+            fail(path, "Move plugin startup choices to Configs/Plugins.json; use PluginDependencies for required plugins")
         projects.append((path, data, overrides))
         for module, relative in sorted(directories.items()):
             add_module(contained(path.parent, relative) / (module + ".dmodule"),
@@ -193,7 +203,37 @@ def _resolve_plugins(engine_root: Path, project_file: Path, *, platform="Win64",
     for root in sorted(roots):
         discover(root, root)
     overrides = next(o for p, _, o in projects if p == project_file)
-    explicit = {name.lower(): enabled for name, enabled in overrides.items()}
+    required = {name.lower() for name in overrides}
+    startup = project_file.parent / "Configs/Plugins.json"
+    if build_catalog:
+        explicit = {key: True for key, plugin in plugins.items()
+                    if not plugin["platforms"] or platform in plugin["platforms"]}
+    else:
+        if startup.exists():
+            startup_data = read(startup, "Startup/" + next(d["ProjectName"] for p, d, _ in projects if p == project_file))
+            if set(startup_data) - {"Plugins"}:
+                fail(startup, "unknown startup configuration field")
+            overrides = plugin_overrides(startup_data.get("Plugins", {}), startup)
+        else:
+            name = next(d["ProjectName"] for p, d, _ in projects if p == project_file)
+            inputs["Startup/" + name] = fingerprint(b"")
+            locations["Startup/" + name] = startup
+            overrides = {}
+        explicit = {name.lower(): enabled for name, enabled in overrides.items()}
+    seen_required = set()
+    def require(key):
+        if key in seen_required:
+            return
+        seen_required.add(key)
+        if key not in plugins:
+            fail(project_file, "missing plugin descriptor " + key, [key])
+        if explicit.get(key) is False:
+            fail(project_file, "Cannot disable project-required plugin " + plugins[key]["name"])
+        explicit[key] = True
+        for dependency in plugins[key]["dependencies"]:
+            require(dependency.lower())
+    for key in sorted(required):
+        require(key)
     for name in explicit:
         if name not in plugins:
             fail(project_file, "missing plugin descriptor " + name, [name])
@@ -305,6 +345,10 @@ def _resolve_plugins(engine_root: Path, project_file: Path, *, platform="Win64",
             target = modules.get(dep)
             next_chain = chain + [target["name"] if target else dep]
             if target:
+                if target["owner"] and not mod["owner"] and eligible(target):
+                    declarations = next(o for _, data, o in projects if mod["name"] in data.get("ModuleDirs", {}))
+                    if target["owner"].lower() not in {name.lower() for name in declarations}:
+                        fail(mod["path"], "undeclared project plugin dependency: " + target["owner"], next_chain)
                 if source["host"] == "Runtime" and (target["host"] == "Editor" or (not target["owner"] and dep in editor_only)):
                     fail(mod["path"], "Runtime-to-Editor dependency", next_chain)
                 if target["owner"] and mod["owner"] and mod["owner"].lower() != target["owner"].lower():
@@ -329,8 +373,7 @@ def _resolve_plugins(engine_root: Path, project_file: Path, *, platform="Win64",
             walk_seen.clear()
             walk_module(key, [source["name"]], [], source)
     if build_catalog:
-        # The inventory follows the active selection while descriptor hashes
-        # remain independent of project override bytes.
+        # Startup configuration never enters catalog inputs or configure watches.
         return dict(Modules=module_order, Inputs=[dict(Path=k, Hash=inputs[k])
                     for k in sorted(inputs) if k.startswith("Plugin/") or k.count("/") == 2]), locations
     manifest = dict(SchemaVersion=1, Platform=platform, RuntimeVariant=runtime_variant,

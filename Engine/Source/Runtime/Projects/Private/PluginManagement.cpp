@@ -39,7 +39,13 @@ namespace Durin
         const auto Disk = ReadDisk(InContext.Request.ProjectFile);
         if (!Disk) { OutReason = "Cannot read project descriptor"; return false; }
         Context = std::move(InContext); Catalog = std::move(Discovered);
-        Draft = Descriptor.PluginOverrides; DiskSnapshot = *Disk;
+        auto Startup = LoadPluginStartupOverrides(Context.Request.ProjectFile);
+        const auto StartupDisk = ReadPluginStartupSnapshot(Context.Request.ProjectFile);
+        if (!Startup || !StartupDisk) { OutReason = !Startup ? Startup.error() : StartupDisk.error(); return false; }
+        Draft = std::move(*Startup); DiskSnapshot = *StartupDisk; ProjectSnapshot = *Disk;
+        for (const auto& Id : Descriptor.PluginDependencies)
+            if (std::ranges::none_of(Catalog, [&](const auto& Info) { return StringUtils::FoldAscii(Info.Id) == StringUtils::FoldAscii(Id); }))
+                Catalog.push_back({Id, Id + " (missing descriptor)", "", {}, {}, {}});
         // Missing references remain editable so a running editor can repair disk drift.
         for (const auto& [Id, Enabled] : Draft)
             if (std::ranges::none_of(Catalog, [&](const auto& Info) { return StringUtils::FoldAscii(Info.Id) == StringUtils::FoldAscii(Id); }))
@@ -59,6 +65,19 @@ namespace Durin
             Row.bCompatible = !Info.DescriptorFile.empty() && (Info.Platforms.empty()
                 || std::ranges::find(Info.Platforms, Context.Request.Platform) != Info.Platforms.end());
             Rows.push_back(std::move(Row));
+        }
+        std::set<std::string> Required;
+        const auto Require = [&](auto&& Self, std::string_view Id) -> void {
+            const auto Key = StringUtils::FoldAscii(std::string(Id));
+            if (!Required.insert(Key).second) return;
+            for (const auto& Info : Catalog) if (StringUtils::FoldAscii(Info.Id) == Key)
+                for (const auto& Dependency : Info.Dependencies) Self(Self, Dependency);
+        };
+        for (const auto& Id : Descriptor.PluginDependencies) Require(Require, Id);
+        for (auto& Row : Rows)
+        {
+            Row.bRequired = Required.contains(StringUtils::FoldAscii(Row.Info.Id));
+            if (Row.bRequired) SetOverride(Draft, Row.Info.Id, true);
         }
         Saved = Draft;
         RefreshBuildAvailability(); Rebuild(); OutReason.clear(); return true;
@@ -167,6 +186,8 @@ namespace Durin
     {
         const auto Info = std::ranges::find_if(Catalog, [&](const auto& Item) { return StringUtils::FoldAscii(Item.Id) == StringUtils::FoldAscii(std::string(Id)); });
         if (Info == Catalog.end()) { OutReason = "Unknown plugin"; return false; }
+        for (const auto& Row : Rows) if (Row.bRequired && Row.Info.Id == Info->Id && Enabled != true)
+        { OutReason = "Cannot disable project-required plugin " + Info->Id; return false; }
         std::set<std::string> Before;
         for (const auto& Row : Rows) if (Row.bNextStart) Before.insert(Row.Info.Id);
         SetOverride(Draft, Info->Id, Enabled); Rebuild();
@@ -186,8 +207,8 @@ namespace Durin
         const auto* Project = GetCurrentProject();
         if (!Project || NormalizeProjectFile(Context.Request.ProjectFile.generic_string()) != Project->ProjectFile)
         { OutReason = "The plugin edit session does not belong to the active project"; return false; }
-        if (!SaveProjectPluginOverrides(Draft, DiskSnapshot, OutReason)) return false;
-        const auto Disk = ReadDisk(Context.Request.ProjectFile);
+        if (!SaveProjectPluginOverrides(Draft, DiskSnapshot, ProjectSnapshot, OutReason)) return false;
+        const auto Disk = ReadPluginStartupSnapshot(Context.Request.ProjectFile);
         if (!Disk) { OutReason = "Saved descriptor cannot be reread; refresh plugin management"; return false; }
         DiskSnapshot = *Disk; Saved = Draft; RefreshBuildAvailability(); Rebuild(); OutReason.clear(); return true;
     }
@@ -198,12 +219,10 @@ namespace Durin
     auto FPluginEditSession::CheckRestartReady(std::string& OutReason) -> bool
     {
         if (IsDirty()) { OutReason = "Save plugin changes before restarting"; return false; }
-        const auto Disk = ReadDisk(Context.Request.ProjectFile);
-        if (!Disk || *Disk != DiskSnapshot) { OutReason = "Project descriptor changed; refresh before restarting"; return false; }
-        const auto Selection = Resolve(Saved, OutReason);
-        if (!Selection) return false;
-        const bool Ready = Available(*Selection, OutReason);
+        const auto Disk = ReadPluginStartupSnapshot(Context.Request.ProjectFile);
+        if (!Disk || *Disk != DiskSnapshot || ReadDisk(Context.Request.ProjectFile) != std::optional<std::string>(ProjectSnapshot)) { OutReason = "Project descriptor changed; refresh before restarting"; return false; }
         RefreshBuildAvailability(); Rebuild();
-        return Ready;
+        // Missing optional artifacts are reported by startup without losing the editor.
+        OutReason.clear(); return true;
     }
 }

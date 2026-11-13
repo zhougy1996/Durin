@@ -17,7 +17,7 @@ def add_water_surface():
     if water_type is None:
         raise RuntimeError(
             'Water is unavailable. Enable "Plugins": {"Water": true} in the '
-            "project's .dproject, build its <Project>PluginBuild target and restart the editor."
+            "project's Configs/Plugins.json, build its <Project>PluginBuild target and restart the editor."
         )
 
     actors = durin.get_editor_subsystem(durin.EditorActorSubsystem)
