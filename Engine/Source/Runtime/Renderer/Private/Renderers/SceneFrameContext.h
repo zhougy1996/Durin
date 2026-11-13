@@ -10,6 +10,7 @@
 
 namespace Durin
 {
+	class FGPUSceneDynamicContext;
 	// Owns all submission-local state and keeps policy, resources, transaction,
 	// and observation lifetimes distinct.
 	struct FSceneFrameContext final
@@ -32,6 +33,7 @@ namespace Durin
 		struct FResolved final
 		{
 			FResolvedSceneResources Scene;
+			std::shared_ptr<FGPUSceneDynamicContext> GPUSceneDynamicContext;
 		};
 
 		struct FTransaction final

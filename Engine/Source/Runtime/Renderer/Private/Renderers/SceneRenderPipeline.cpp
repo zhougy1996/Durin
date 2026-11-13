@@ -2,6 +2,7 @@
 #include "Renderers/SceneRenderingService.h"
 #include "Renderers/SceneViewPreparation.h"
 #include "Renderers/SceneRenderer.h"
+#include "Renderers/MeshPassProcessor.h"
 
 #include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/SceneRenderPlan.h"
@@ -165,10 +166,18 @@ namespace Durin
 		auto& ViewPlan = *Context.Logical.PreparedView;
 		Telemetry.View.StaticMesh.WithheldPrimitives = AdmitStaticMeshDraws(
 			ViewPlan.Receiver.StaticMeshes, Context.Resolved.Scene.Receiver.StaticMeshes);
+		if (Options.bEnableDynamicInstancing && !RendererPrivate::SetupMeshDrawCommandDynamicInstancing(
+			CommandList, ViewPlan.Receiver.StaticMeshes, Context.Resolved.Scene.Receiver.StaticMeshes))
+			return ERenderViewResult::RendererResourcesUnavailable;
 		if (Context.Resolved.Scene.DirectionalShadow && Context.Resolved.Scene.DirectionalShadow->bEnabled)
 			for (uint32 Cascade = 0; Cascade < ViewPlan.DirectionalShadow->View.CascadeCount; ++Cascade)
+			{
 				Telemetry.View.DirectionalShadow.ShadowCascades[Cascade].WithheldPrimitives = AdmitStaticMeshDraws(
 					ViewPlan.DirectionalShadow->StaticMeshes[Cascade], Context.Resolved.Scene.DirectionalShadow->StaticMeshes[Cascade]);
+				if (Options.bEnableDynamicInstancing && !RendererPrivate::SetupMeshDrawCommandDynamicInstancing(CommandList,
+					ViewPlan.DirectionalShadow->StaticMeshes[Cascade], Context.Resolved.Scene.DirectionalShadow->StaticMeshes[Cascade]))
+					return ERenderViewResult::RendererResourcesUnavailable;
+			}
 		if (Qualification.ObserveAdmittedDraws) Qualification.ObserveAdmittedDraws(ViewPlan);
 		Admission.reset();
 		FCloudHistoryCandidateScope CloudHistoryCandidate(ViewState);
@@ -176,10 +185,7 @@ namespace Durin
 		FRDGBuilder Graph;
 		Submission.Render(Graph);
 		const bool GraphExecuted = ExecuteGraph_RenderThread(Graph, CommandList, OutRenderGraphCapture, Qualification);
-		if (Scene) Scene->GPUScene->RegisterGraphUse(Graph);
-		RegisterGPUSceneGraphUse(Graph, Context.Resolved.Scene.Receiver.StaticMeshes);
-		if (Context.Resolved.Scene.DirectionalShadow)
-			for (const auto& ShadowView : Context.Resolved.Scene.DirectionalShadow->StaticMeshes) RegisterGPUSceneGraphUse(Graph, ShadowView);
+		if (Context.Resolved.GPUSceneDynamicContext) Context.Resolved.GPUSceneDynamicContext->RegisterGraphUse(Graph);
 		if (!GraphExecuted)
 			return ERenderViewResult::RendererResourcesUnavailable;
 		// Report the compiled assignment, independently of the async request bit.
@@ -445,7 +451,7 @@ namespace Durin
 				FixedPipelinesReady = StaticMeshRenderer.PrepareBindings_RenderThread(
 					CommandList, &Service.GBufferRenderer, PreparedView.Receiver.StaticMeshes,
 					ResolvedSceneResources.Receiver.StaticMeshes, ResolvedSceneResources.Lighting.UniformBuffer, false,
-				ResolvedSceneResources.Lighting.GetLocalRange(), Context.Logical.Options.bEnableDynamicInstancing) || !bPrepareOnly;
+				ResolvedSceneResources.Lighting.GetLocalRange(), false, Context.Resolved.GPUSceneDynamicContext) || !bPrepareOnly;
 			if (FeaturePlan.Deferred.IsEnabled())
 				FixedPipelinesReady = Service.DeferredDirectionalLightingRenderer.EnsureResources_RenderThread(CommandList) && FixedPipelinesReady;
 			if (FeaturePlan.AmbientOcclusion.IsEnabled()

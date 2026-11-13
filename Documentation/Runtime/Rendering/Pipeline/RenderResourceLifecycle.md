@@ -88,7 +88,7 @@ source invalidation never turns cached command memory into resource ownership. V
 buffers. HitProxy request storage owns its temporary pipelines and Collection
 buffers. Cached `FMeshDrawCommand` values borrow these resources directly and
 store non-owning `FMeshDrawShaderBindings`. Visible storage retains command memory;
-scene cache storage retains source/canonical pipelines and owns cache-wide RHI
+scene cache storage retains canonical pipelines and owns cache-wide RHI
 invalidation. `FPrimitiveSceneInfo` keeps slot locations and optional fallback
 uniforms without another render-resource wrapper. Primitive updates retire their
 own entries before replacing

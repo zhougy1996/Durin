@@ -1,4 +1,6 @@
 #include "Renderers/SceneRenderPipeline.h"
+#include "Renderers/GPUSceneRendering.h"
+#include "GPUScene.h"
 #include "Renderers/StaticMeshSectionResources.h"
 #include "Renderers/SceneRenderingService.h"
 #include "Renderers/SceneViewPreparation.h"
@@ -359,6 +361,10 @@ namespace Durin
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.ResolveSceneResources");
 		const auto& PreparedView = *Context.Logical.PreparedView;
 		FResolvedSceneResources& ResolvedSceneResources = Context.Resolved.Scene;
+		if (!Context.Resolved.GPUSceneDynamicContext)
+			Context.Resolved.GPUSceneDynamicContext = std::make_shared<FGPUSceneDynamicContext>(
+				Context.Logical.Scene ? Context.Logical.Scene->GPUScene : CreateRenderResource<FGPUScene>());
+
 		FSceneRenderTelemetry& Telemetry = Context.Observation.Telemetry;
 		const FSceneView& View = PreparedView.View;
 		if (PreparedView.Receiver.StaticMeshes.bResourceFailure
@@ -378,7 +384,7 @@ namespace Durin
 			ResolvedSceneResources.DirectionalShadow.emplace();
 			const bool bShadowReady = Service.DirectionalShadowRenderer.PrepareResources_RenderThread(CommandList, Context.Logical.Scene,
 				Service.StaticMeshRenderer, *PreparedView.DirectionalShadow, *ResolvedSceneResources.DirectionalShadow,
-				Telemetry.View, &SectionResources, !bPrepareOnly, Context.Logical.Options.bEnableDynamicInstancing);
+				Telemetry.View, &SectionResources, !bPrepareOnly, false, Context.Resolved.GPUSceneDynamicContext);
 			if (bPrepareOnly && PreparedView.DirectionalShadow->View.bEnabled && !bShadowReady)
 				return ERenderViewResult::RendererResourcesUnavailable;
 		}

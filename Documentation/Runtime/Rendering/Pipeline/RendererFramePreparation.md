@@ -189,8 +189,8 @@ a borrowed pipeline pointer and value `FMeshDrawShaderBindings`. There is no
 intermediate owning command packet. Shader bindings contain a shader pointer and
 resource parameter values; they own neither RHI resources nor resource views.
 Scene owns cached command slots. `FPrimitiveSceneInfo` holds
-`FCachedMeshDrawCommandInfo` locations; scene command storage retains source and
-canonical pipelines and handles cache-wide RHI invalidation. Visible storage
+`FCachedMeshDrawCommandInfo` locations; scene command storage retains canonical
+pipelines with structural lookup identity and handles cache-wide RHI invalidation. Visible storage
 retains command memory only. Removing a primitive
 uses its locations directly, without scanning other primitives or scenes.
 Metadata stays outside the draw description; recording performs no weak-owner
@@ -231,7 +231,8 @@ retain source arguments and receive late Instance-ID offsets/counts at submissio
 Providers declare persistent/dynamic scene identity during collection; submission
 never re-packs attributes to infer that identity. Source cache entries can share
 canonical geometry commands while retaining independent invalidation slots.
-CPU runs and GPU candidate runs use effective-state equality and preserve the
+CPU instancing and GPU admission reuse ordered effective-state runs formed after
+final draw admission and preserve the
 prepared order. `CollectMeshDrawCommands` projects prepared objects into frame-local
 visible entries; culling setup/submission consumes those entries. Submission uses
 `FMeshDrawCommandOverrideArgs` and lowered `FMeshDrawCommandSceneArgs`, so retained

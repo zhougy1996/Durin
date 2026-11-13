@@ -351,6 +351,44 @@ namespace
 		EXPECT_EQ(Run().UploadBytes, 0u);
 	}
 
+	TEST_F(FGPUSceneTests, SubmissionDynamicContextReusesFactsAcrossViewsWithoutOverwritingSnapshots)
+	{
+		Add(1); Run();
+		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+			auto& Commands = Executor.GetImmediateCommandList();
+			auto GPU = (*Scene)->GPUScene;
+			auto Context = std::make_shared<FGPUSceneDynamicContext>(GPU);
+			FPreparedStaticMeshView Prepared;
+			FPreparedStaticMeshPrimitive Primitive; Primitive.LocalToWorld = FMatrix(1.0);
+			Primitive.WorldBounds = FBox(FVector3(-1.0), FVector3(1.0));
+			Primitive.PrimitiveIdMode = EPrimitiveIdMode::PrimID_DynamicPrimitiveShaderData;
+			Prepared.Primitives.push_back(Primitive); Prepared.Primitives.push_back(Primitive);
+			auto Description = std::make_shared<FMeshDrawDescription>();
+			Description->PipelineKey.FactoryKey = FStaticMeshBatchBinding{}.GetFactoryKey(); Description->Geometry.InstanceCount = 1;
+			for (uint32 Index = 0; Index < 2; ++Index) { FPreparedStaticMeshDraw Draw; Draw.Command = Description; Draw.PrimitiveIndex = Index; Prepared.Opaque.push_back(Draw); }
+			const auto First = FGPUSceneDynamicContext::Prepare(Commands, Allocator, Prepared, GPU.get(), Context);
+			ASSERT_EQ(First.size(), 2u); EXPECT_EQ(First[0].InstanceId, First[1].InstanceId);
+			const auto Count = GPU->GetInstanceSceneData().size(); const auto Bytes = GPU->GetStatistics().UploadBytes;
+			const auto Again = FGPUSceneDynamicContext::Prepare(Commands, Allocator, Prepared, GPU.get(), Context);
+			ASSERT_EQ(Again.size(), 2u); EXPECT_EQ(Again[0].InstanceId, First[0].InstanceId);
+			EXPECT_EQ(Again[0].Buffers->DynamicContext, First[0].Buffers->DynamicContext);
+			EXPECT_EQ(GPU->GetInstanceSceneData().size(), Count); EXPECT_EQ(GPU->GetStatistics().UploadBytes, Bytes);
+			const auto Old = GPU->GetInstanceSceneData()[First[0].InstanceId];
+			Prepared.Primitives[0].CustomInstanceData.Values[0] = 7.f;
+			const auto Changed = FGPUSceneDynamicContext::Prepare(Commands, Allocator, Prepared, GPU.get(), Context);
+			ASSERT_EQ(Changed.size(), 2u); EXPECT_NE(Changed[0].InstanceId, First[0].InstanceId);
+			EXPECT_EQ(Changed[1].InstanceId, First[1].InstanceId);
+			EXPECT_TRUE(std::ranges::equal(std::as_bytes(std::span(&Old, 1)), std::as_bytes(GPU->GetInstanceSceneData().subspan(First[0].InstanceId, 1))));
+			EXPECT_FLOAT_EQ(GPU->GetInstancePayloadData()[Changed[0].InstanceId].Values[0], 7.f);
+			const auto Independent = FGPUSceneDynamicContext::Prepare(Commands, Allocator, Prepared);
+			ASSERT_EQ(Independent.size(), 2u); EXPECT_NE(Independent[0].Buffers->DynamicContext, Context);
+			EXPECT_NE(Independent[0].Buffers->SceneData[1], Changed[0].Buffers->SceneData[1]);
+			auto OtherGPU = CreateRenderResource<FGPUScene>();
+			EXPECT_TRUE(FGPUSceneDynamicContext::Prepare(Commands, Allocator, Prepared, OtherGPU.get(), Context).empty());
+		});
+		FlushRenderingCommands();
+	}
+
 	TEST_F(FGPUSceneTests, DynamicInstancingMatchesEffectiveStateAndPreservesOrderedRuns)
 	{
 		using namespace RendererPrivate;
@@ -403,6 +441,8 @@ namespace
 			ASSERT_TRUE(SetupMeshDrawCommandDynamicInstancing(Commands, Prepared, Resolved));
 			ASSERT_EQ(Resolved.DynamicInstancingGroups.size(), 1u);
 			EXPECT_EQ(Resolved.DynamicInstancingGroups[0].Draws, (std::vector<uint32>{0, 1}));
+			ASSERT_EQ(Resolved.MeshDrawCommandRuns[{EMeshPipelinePass::Forward}].size(), 3u);
+			EXPECT_EQ(Resolved.MeshDrawCommandRuns[{EMeshPipelinePass::Forward}][0], (std::vector<uint32>{0, 1}));
 			const auto* Leader = Resolved.GetVisibleMeshDrawCommand(Prepared.Opaque[0], {EMeshPipelinePass::Forward});
 			const auto* Follower = Resolved.GetVisibleMeshDrawCommand(Prepared.Opaque[1], {EMeshPipelinePass::Forward});
 			ASSERT_TRUE(Leader && Follower);
@@ -422,7 +462,7 @@ namespace
 		FlushRenderingCommands();
 	}
 
-	TEST_F(FGPUSceneTests, SharedCommandOwnersRetainPipelinesAndInvalidateIndependently)
+	TEST_F(FGPUSceneTests, SharedCommandsRetainOnlyCanonicalPipelineAndInvalidateIndependently)
 	{
 		using namespace RendererPrivate;
 		class FDeclaration final : public FRHIVertexDeclaration
@@ -444,6 +484,12 @@ namespace
 			FMeshDrawDescription Description;
 			const auto KeyA = Cache.MakeKey(&Description, FPrimitiveComponentId{1}, 1, *A);
 			const auto KeyB = Cache.MakeKey(&Description, FPrimitiveComponentId{2}, 1, *B);
+			EXPECT_EQ(KeyA.Pipeline, KeyB.Pipeline);
+			auto ChangedState = *B; ChangedState.Description.Rasterizer.LineWidth = 3.f;
+			EXPECT_NE(KeyA.Pipeline, ChangedState.GetIdentity());
+			ChangedState = *B; ChangedState.LayoutKey = FXxHash64{123};
+			EXPECT_NE(KeyA.Pipeline, ChangedState.GetIdentity());
+			EXPECT_EQ(Cache.MakeKey(&Description, FPrimitiveComponentId{1}, 1, *B).Pipeline, KeyA.Pipeline);
 			auto MakeCommand = [](const FMeshPassPipeline* Pipeline) {
 				FMeshDrawCommand Command; Command.Pipeline = Pipeline;
 				Command.bFinalized = true; Command.bCached = true;
@@ -461,14 +507,14 @@ namespace
 			A.reset(); B.reset();
 			SourceA->RemoveCachedMeshDrawCommands();
 			EXPECT_FALSE(Frame.GetVisible(VisibleA)); EXPECT_TRUE(Frame.GetVisible(VisibleB));
-			EXPECT_FALSE(LifeA.expired()); EXPECT_FALSE(LifeB.expired());
+			EXPECT_FALSE(LifeA.expired()); EXPECT_TRUE(LifeB.expired());
 			EXPECT_EQ(Cache.Find(KeyB, *SourceB), Second);
 			EXPECT_EQ(Second->Pipeline, LifeA.lock().get());
 			// A binding replacement must retire B's old visible handle without
 			// reviving A, even when the scene cache reuses an existing slot.
-			auto ReplacementPipeline = std::make_shared<FMeshPassPipeline>(*LifeB.lock());
+			auto ReplacementPipeline = std::make_shared<FMeshPassPipeline>(*LifeA.lock());
 			auto Replacement = MakeCommand(ReplacementPipeline.get()); Replacement.DepthBias[0] = 1.f;
-			auto ReplacementKey = KeyB; ++ReplacementKey.Bindings[2];
+			auto ReplacementKey = KeyB; ++ReplacementKey.Bindings[1];
 			const auto Rebuilt = Cache.Publish(ReplacementKey, Replacement, *SourceB, nullptr, {}, ReplacementPipeline);
 			EXPECT_NE(Rebuilt, Second); EXPECT_EQ(Cache.Num(), 1u);
 			EXPECT_FALSE(Frame.GetVisible(VisibleA)); EXPECT_FALSE(Frame.GetVisible(VisibleB));

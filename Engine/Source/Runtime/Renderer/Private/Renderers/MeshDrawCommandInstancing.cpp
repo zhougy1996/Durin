@@ -1,6 +1,7 @@
 #include "Renderers/MeshPassProcessor.h"
 #include "Renderers/MeshVertexFactory.h"
 #include "RHICommandList.h"
+#include "InstanceUniformShaderParameters.h"
 
 namespace Durin::RendererPrivate
 {
@@ -96,6 +97,10 @@ namespace Durin::RendererPrivate
 				Visible = *Resolved.DrawCommandStorage->GetVisible(Handle);
 			}
 			if (Draw.PrimitiveIndex < Resolved.GPUScenePrimitives.size()) Visible.SceneData = Resolved.GPUScenePrimitives[Draw.PrimitiveIndex];
+			Visible.bSupportsDynamicInstancing = Index < Prepared.Opaque.size() + Prepared.Masked.size()
+				&& Primitive->VertexDomain == EVertexDeformationDomain::Local && Draw.Command && Draw.Command->Geometry.InstanceCount == 1
+				&& Primitive->CollectedBinding && std::ranges::none_of(Primitive->CollectedBinding->DeclarationElements,
+					[](const auto& Element) { return Element.InputRate == FRHIVertexElementIdentity::EInputRate::Instance; });
 			Visible.bSupportsInstanceCulling = Index < Prepared.Opaque.size() + Prepared.Masked.size() && Primitive->VertexDomain == EVertexDeformationDomain::Local
 				&& Draw.Command && Draw.Command->Geometry.bIndexed && Draw.Command->Geometry.InstanceCount == 1
 				&& (Pass.Pass != EMeshPipelinePass::GBuffer || Draw.Command->bSupportsGBuffer)
@@ -106,84 +111,69 @@ namespace Durin::RendererPrivate
 		return Result;
 	}
 
+	auto BuildMeshDrawCommandRuns(std::span<const FVisibleMeshDrawCommand> Visible) -> std::vector<FMeshDrawCommandRun>
+	{
+		std::vector<FMeshDrawCommandRun> Runs;
+		for (uint32 Index = 0; Index < Visible.size(); ++Index)
+		{
+			const auto& Current = Visible[Index];
+			if ((!Current.bSupportsDynamicInstancing && !Current.bSupportsInstanceCulling)
+				|| !Current.Command || !Current.Pass || !Current.SceneData.Buffers) continue;
+			const auto& Instances = Current.SceneData.Buffers->SceneData[1];
+			if (Instances && Current.SceneData.InstanceId >= Instances->GetSize() / sizeof(FInstanceSceneShaderData)) continue;
+			bool bContinue = false;
+			if (!Runs.empty() && Runs.back().back() + 1 == Index)
+			{
+				const auto& Previous = Visible[Runs.back().back()];
+				bContinue = Current.Command->MatchesForDynamicInstancing(*Previous.Command)
+					&& Current.SceneData.Buffers->SceneData == Previous.SceneData.Buffers->SceneData
+					&& Current.DepthBias == Previous.DepthBias && Current.Pass->Vertex == Previous.Pass->Vertex
+					&& Current.Pass->Fragment == Previous.Pass->Fragment
+					&& Current.bSupportsInstanceCulling == Previous.bSupportsInstanceCulling;
+			}
+			if (!bContinue) Runs.emplace_back();
+			Runs.back().push_back(Index);
+		}
+		return Runs;
+	}
+
 	auto SetupMeshDrawCommandDynamicInstancing(FRHICommandListImmediate& Commands,
 		const FPreparedStaticMeshView& Prepared, FResolvedStaticMeshView& Resolved) -> bool
 	{
-		struct FCandidate
-		{
-			const FPreparedStaticMeshDraw* Draw;
-			const FMeshDrawCommand* Command;
-			FMeshPassBindings Bindings;
-			std::array<float, 3> Bias;
-			uint32 InstanceId;
-			int32 StateBucketId;
-		};
-		struct FRun { FMeshPassKey Pass; std::vector<FCandidate> Candidates; };
-		std::vector<FRun> Runs;
+		struct FPassRuns { FMeshPassKey Pass; FMeshCommandOneFrameArray Visible; };
+		std::vector<FPassRuns> Passes;
 		std::vector<uint32> Ids;
+		Resolved.MeshDrawCommandRuns.clear();
 		for (const auto Pass : {EMeshPipelinePass::Forward, EMeshPipelinePass::HybridRetainedForward, EMeshPipelinePass::ShadowDepth, EMeshPipelinePass::GBuffer})
-		for (const auto* Bucket : {&Prepared.Opaque, &Prepared.Masked})
 		{
-			std::unordered_map<size_t, std::vector<FCandidate>> Buckets;
-			int32 NextBucket = 0;
-			bool bContinueRun = false;
-			for (const auto& Draw : *Bucket)
-			{
-				const auto* Primitive = Prepared.GetPrimitive(Draw);
-				const auto Command = Resolved.GetMeshDrawCommand(Draw, {Pass});
-				if (!Primitive || !Resolved.IsReady(Draw) || !Command || Command->IndirectArgs
-					|| Primitive->VertexDomain != EVertexDeformationDomain::Local || Draw.Command->Geometry.InstanceCount != 1
-					|| Draw.PrimitiveIndex >= Resolved.GPUScenePrimitives.size() || !Resolved.GPUScenePrimitives[Draw.PrimitiveIndex].Buffers
-					|| std::ranges::any_of(Primitive->CollectedBinding->DeclarationElements,
-						[](const auto& Element) { return Element.InputRate == FRHIVertexElementIdentity::EInputRate::Instance; }))
-				{ bContinueRun = false; continue; }
-				FMeshPassBindings Bindings{Command->VertexPassBindings, Command->FragmentPassBindings};
-				auto Bias = Command->DepthBias;
-				if (const auto* Visible = Resolved.GetVisibleMeshDrawCommand(Draw, {Pass}))
-				{ Bindings = *Visible->Pass; Bias = Visible->DepthBias; }
-				FCandidate Candidate{&Draw, Command.get(), std::move(Bindings), Bias,
-					Resolved.GPUScenePrimitives[Draw.PrimitiveIndex].InstanceId, INDEX_NONE};
-				size_t Hash = Command->GetDynamicInstancingHash();
-				Combine(Hash, BindingHash(Candidate.Bindings.Vertex)); Combine(Hash, BindingHash(Candidate.Bindings.Fragment));
-				for (float Value : Bias) Combine(Hash, std::hash<float>{}(Value));
-				auto& States = Buckets[Hash];
-				const auto Found = std::ranges::find_if(States, [&](const auto& Other) {
-					return Command->MatchesForDynamicInstancing(*Other.Command) && Candidate.Bias == Other.Bias
-						&& Candidate.Bindings.Vertex == Other.Bindings.Vertex && Candidate.Bindings.Fragment == Other.Bindings.Fragment;
-				});
-				if (Found == States.end()) { Candidate.StateBucketId = NextBucket++; States.push_back(Candidate); }
-				else Candidate.StateBucketId = Found->StateBucketId;
-				// Keep the prepared order. Never pull a command across an intervening
-				// incompatible draw, and never visit sorted translucent buckets.
-				if (!bContinueRun || Runs.back().Candidates.back().StateBucketId != Candidate.StateBucketId)
-					Runs.push_back({{Pass}, {}});
-				Runs.back().Candidates.push_back(std::move(Candidate)); bContinueRun = true;
-			}
+			auto& Entry = Passes.emplace_back(FPassRuns{{Pass}, CollectMeshDrawCommands(Prepared, Resolved, {Pass}, false)});
+			auto& Runs = Resolved.MeshDrawCommandRuns[{Pass}];
+			Runs = BuildMeshDrawCommandRuns(Entry.Visible);
+			for (const auto& Run : Runs) if (Run.size() > 1)
+				for (uint32 Index : Run) Ids.push_back(Entry.Visible[Index].SceneData.InstanceId);
 		}
-		for (const auto& Run : Runs) if (Run.Candidates.size() > 1)
-			for (const auto& Candidate : Run.Candidates) Ids.push_back(Candidate.InstanceId);
 		if (Ids.empty()) return true;
 		if (Ids.size() > UINT32_MAX / sizeof(uint32)) return false;
 		Resolved.DynamicInstancingInstanceIds = FGPUSceneDynamicContext::UploadInstanceIds(Commands, Ids);
 		if (!Resolved.DynamicInstancingInstanceIds) return false;
 		uint32 Offset = 0;
-		for (const auto& Run : Runs)
+		for (const auto& Entry : Passes)
+		for (const auto& Run : Resolved.MeshDrawCommandRuns[Entry.Pass])
 		{
-			if (Run.Candidates.size() < 2) continue;
+			if (Run.size() < 2) continue;
 			const uint32 GroupIndex = static_cast<uint32>(Resolved.DynamicInstancingGroups.size());
-			auto& Group = Resolved.DynamicInstancingGroups.emplace_back(); Group.Pass = Run.Pass;
-			auto Bindings = std::make_shared<FMeshPassBindings>(Run.Candidates.front().Bindings);
-			for (size_t Index = 0; Index < Run.Candidates.size(); ++Index)
+			auto& Group = Resolved.DynamicInstancingGroups.emplace_back(); Group.Pass = Entry.Pass; Group.Draws = Run;
+			const auto& Leader = Entry.Visible[Run.front()];
+			auto Bindings = std::make_shared<FMeshPassBindings>(*Leader.Pass);
+			for (uint32 Index : Run)
 			{
-				const auto& Candidate = Run.Candidates[Index];
-				Group.Draws.push_back(Candidate.Draw->ResolvedIndex);
-				const auto Handle = Resolved.DrawCommandStorage->PublishVisible({.Command = Candidate.Command,
-					.DepthBias = Candidate.Bias, .PrimitiveIdBufferOffset = Offset,
-					.NumInstances = static_cast<uint32>(Run.Candidates.size()), .bSkipDraw = Index != 0,
-					.StateBucketId = Candidate.StateBucketId, .InstanceBuffer = Resolved.DynamicInstancingInstanceIds}, Bindings);
-				Resolved.Draws[Candidate.Draw->ResolvedIndex].DynamicInstancingCommands[Run.Pass] = {GroupIndex, Handle};
+				auto Visible = Entry.Visible[Index];
+				Visible.PrimitiveIdBufferOffset = Offset; Visible.NumInstances = static_cast<uint32>(Run.size());
+				Visible.bSkipDraw = Index != Run.front(); Visible.InstanceBuffer = Resolved.DynamicInstancingInstanceIds;
+				const auto Handle = Resolved.DrawCommandStorage->PublishVisible(Visible, Bindings);
+				Resolved.Draws[Index].DynamicInstancingCommands[Entry.Pass] = {GroupIndex, Handle};
 			}
-			Offset += static_cast<uint32>(Run.Candidates.size());
+			Offset += static_cast<uint32>(Run.size());
 		}
 		return true;
 	}

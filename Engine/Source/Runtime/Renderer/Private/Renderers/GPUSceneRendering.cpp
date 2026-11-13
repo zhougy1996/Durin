@@ -1,6 +1,7 @@
 #include "Renderers/GPUSceneRendering.h"
 #include "Renderers/StaticMeshRenderPreparation.h"
 #include "GPUScene.h"
+#include "PrimitiveSceneShaderData.h"
 #include "Renderers/MeshVertexFactory.h"
 #include "DynamicRHI.h"
 #include "RHICommandList.h"
@@ -41,7 +42,7 @@ namespace Durin
 	}
 	auto FGPUSceneDynamicContext::RegisterGraphUse(const FRDGBuilder& Graph) -> void { GPUScene->RegisterGraphUse(Graph); }
 	auto FGPUSceneDynamicContext::Prepare(FRHICommandListImmediate& Commands, FRDGAllocator& Allocator,
-		const FPreparedStaticMeshView& Prepared, FGPUScene* Scene) -> std::vector<FGPUScenePrimitiveData>
+		const FPreparedStaticMeshView& Prepared, FGPUScene* Scene, std::shared_ptr<FGPUSceneDynamicContext> Context) -> std::vector<FGPUScenePrimitiveData>
 	{
 		CheckRenderingThread();
 		std::vector<FGPUScenePrimitiveData> Result(Prepared.Primitives.size());
@@ -56,9 +57,10 @@ namespace Durin
 			if (Factory && Factory->SupportsGPUScene()) Supported[Draw.PrimitiveIndex] = true;
 		}
 		if (std::ranges::none_of(Supported, [](bool Value) { return Value; })) return Result;
-		auto Resource = Scene ? Scene->weak_from_this().lock() : CreateRenderResource<FGPUScene>();
+		auto Resource = Context ? Context->GPUScene : Scene ? Scene->weak_from_this().lock() : CreateRenderResource<FGPUScene>();
+		if (Scene && Resource.get() != Scene) return {};
 		if (!Resource) return {};
-		auto Context = std::make_shared<FGPUSceneDynamicContext>(Resource);
+		if (!Context) Context = std::make_shared<FGPUSceneDynamicContext>(Resource);
 		auto Commit = [&] {
 			if (!Resource->IsDirty()) return true;
 			FRDGBuilder UploadGraph;
@@ -68,14 +70,38 @@ namespace Durin
 		};
 		// Persistent stable-ID lookup needs the committed membership mirror.
 		if (Scene && !Commit()) return {};
-		uint32 DynamicCount = 0;
+		std::map<uint32, FDynamicPrimitiveKey> Keys;
+		std::map<FDynamicPrimitiveKey, uint32> NewRecords;
 		for (uint32 Index = 0; Index < Result.size(); ++Index)
-			if (Supported[Index] && (!Scene || Prepared.Primitives[Index].PrimitiveIdMode != EPrimitiveIdMode::PrimID_FromPrimitiveSceneInfo)) ++DynamicCount;
-		const auto Allocation = Resource->AllocateDynamicPrimitiveRange(DynamicCount);
+		{
+			const auto& Primitive = Prepared.Primitives[Index];
+			if (!Supported[Index] || (Scene && Primitive.PrimitiveIdMode == EPrimitiveIdMode::PrimID_FromPrimitiveSceneInfo)) continue;
+			// Normalize allocation-dependent indices; compare exactly the transported facts.
+			const auto Parameters = FPrimitiveUniformShaderParametersBuilder().LocalToWorld(Primitive.LocalToWorld)
+				.WorldBounds(Primitive.WorldBounds).CustomPrimitiveData(Primitive.CustomPrimitiveData).InstanceSceneData(0, 1).Build();
+			FInstanceSceneShaderData Instance;
+			if (!Parameters || !Primitive.CustomInstanceData.IsValid()
+				|| !Instance.Build(0, 0, 0, {}, Primitive.LocalToWorld, Primitive.WorldBounds)) return {};
+			const FPrimitiveSceneShaderData Packed(*Parameters);
+			auto& Key = Keys[Index];
+			std::memcpy(Key.data(), &Packed, sizeof(Packed));
+			std::memcpy(Key.data() + sizeof(Packed), &Instance, sizeof(Instance));
+			std::memcpy(Key.data() + sizeof(Packed) + sizeof(Instance), &Primitive.CustomInstanceData, sizeof(Primitive.CustomInstanceData));
+			if (!Context->DynamicInstances.contains(Key)) NewRecords.try_emplace(Key, Index);
+		}
+		const auto Allocation = Resource->AllocateDynamicPrimitiveRange(static_cast<uint32>(NewRecords.size()));
 		if (Allocation.Count) Context->Allocations.push_back(Allocation);
+		uint32 DynamicIndex = 0;
+		for (const auto& [Key, Index] : NewRecords)
+		{
+			const auto& Primitive = Prepared.Primitives[Index];
+			if (!Resource->WriteDynamicPrimitive(Allocation, DynamicIndex, Primitive.LocalToWorld, Primitive.WorldBounds,
+				Primitive.CustomPrimitiveData, Primitive.CustomInstanceData)) return {};
+			Context->DynamicInstances.emplace(Key, Allocation.InstanceOffset + DynamicIndex++);
+		}
+
 		auto Buffers = std::make_shared<FGPUSceneBufferSet>(); Buffers->DynamicContext = Context; Buffers->bStandaloneScene = !Scene;
 		std::vector<uint32> Ids;
-		uint32 DynamicIndex = 0;
 		for (uint32 Index = 0; Index < Result.size(); ++Index)
 		{
 			if (!Supported[Index]) continue;
@@ -89,9 +115,7 @@ namespace Durin
 			}
 			else
 			{
-				if (!Resource->WriteDynamicPrimitive(Allocation, DynamicIndex, Primitive.LocalToWorld, Primitive.WorldBounds,
-					Primitive.CustomPrimitiveData, Primitive.CustomInstanceData)) return {};
-				InstanceId = Allocation.InstanceOffset + DynamicIndex++;
+				InstanceId = Context->DynamicInstances.at(Keys[Index]);
 			}
 			if (uint64(Ids.size()) + Counts[Index] > UINT32_MAX / sizeof(uint32)) return {};
 			Result[Index] = {Buffers, InstanceId, static_cast<uint32>(Ids.size())};
@@ -102,13 +126,6 @@ namespace Durin
 		Buffers->InstanceIds = UploadInstanceIds(Commands, Ids);
 		if (!Buffers->InstanceIds) return {};
 		return Result;
-	}
-	auto RegisterGPUSceneGraphUse(const FRDGBuilder& Graph, const FResolvedStaticMeshView& View) -> void
-	{
-		std::unordered_set<FGPUSceneDynamicContext*> Registered;
-		for (const auto& Primitive : View.GPUScenePrimitives)
-			if (Primitive.Buffers && Primitive.Buffers->DynamicContext && Registered.insert(Primitive.Buffers->DynamicContext.get()).second)
-				Primitive.Buffers->DynamicContext->RegisterGraphUse(Graph);
 	}
 
 	auto FGPUSceneReadParameters::GetRDGParametersMetadata() -> const FRDGParametersMetadata*

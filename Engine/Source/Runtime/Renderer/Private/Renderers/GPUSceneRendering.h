@@ -4,6 +4,8 @@
 #include "RendererAPI.h"
 #include "GPUSceneParameters.h"
 #include "GPUScene.h"
+#include "PrimitiveSceneShaderData.h"
+#include "InstanceUniformShaderParameters.h"
 #include "RDG/RDG.h"
 
 namespace Durin
@@ -37,13 +39,14 @@ namespace Durin
 		RENDERER_API auto RegisterGraphUse(const FRDGBuilder& Graph) -> void;
 		RENDERER_API static auto UploadInstanceIds(FRHICommandListImmediate& Commands, std::span<const uint32> Ids) -> FBufferRHIRef;
 		RENDERER_API static auto Prepare(FRHICommandListImmediate& Commands, FRDGAllocator& Allocator,
-			const FPreparedStaticMeshView& Prepared, FGPUScene* Scene = nullptr)
+			const FPreparedStaticMeshView& Prepared, FGPUScene* Scene = nullptr, std::shared_ptr<FGPUSceneDynamicContext> Context = {})
 			-> std::vector<FGPUScenePrimitiveData>;
 	private:
 		std::shared_ptr<FGPUScene> GPUScene;
 		std::vector<FGPUSceneDynamicAllocation> Allocations;
+		using FDynamicPrimitiveKey = std::array<std::byte, sizeof(FPrimitiveSceneShaderData) + sizeof(FInstanceSceneShaderData) + sizeof(FPrimitiveCustomData)>;
+		std::map<FDynamicPrimitiveKey, uint32> DynamicInstances;
 	};
-	RENDERER_API auto RegisterGPUSceneGraphUse(const FRDGBuilder& Graph, const FResolvedStaticMeshView& View) -> void;
 
 	struct FGPUSceneReadParameters
 	{

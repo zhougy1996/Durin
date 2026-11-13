@@ -44,6 +44,9 @@ for indexed arguments. Scene capacity is accounted separately. Smaller or reject
 groups use ordinary submission, including CPU instancing for compatible runs.
 A CPU run partly covered by indirect admission retains original commands for its
 direct remainder. Failed compute admission restores the complete CPU run.
+CPU and GPU paths consume the same ordered effective-state runs. GPU admission
+adds indexed-draw, valid-ID, domain, threshold and budget checks without rebuilding
+state groups. Production forms runs after component-level draw admission.
 
 Candidates carry Instance ID and argument index. Compute reads persistent and
 dynamic instance bounds and high/low origins from their shared GPUScene.

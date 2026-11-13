@@ -66,7 +66,7 @@ namespace Durin
 	auto FDirectionalShadowRenderer::PrepareResources_RenderThread(FRHICommandListImmediate& CommandList, FScene* Scene,
 		FStaticMeshRenderer& StaticMeshes, const FPreparedDirectionalShadow& Shadow,
 		FResolvedDirectionalShadow& ResolvedShadow, FViewRenderTelemetry& Telemetry,
-		FStaticMeshSectionResourceContext* ResourceContext, bool bAllowPartial, bool bDynamicInstancing) -> bool
+		FStaticMeshSectionResourceContext* ResourceContext, bool bAllowPartial, bool bDynamicInstancing, std::shared_ptr<FGPUSceneDynamicContext> DynamicContext) -> bool
 	{
 		check(IsInRenderingThread());
 		check(!CommandList.IsInsideRenderPass());
@@ -166,7 +166,7 @@ namespace Durin
 			if (bReady)
 			{
 				const bool bBindingsReady = StaticMeshes.PrepareBindings_RenderThread(CommandList, nullptr,
-					Prepared, Resolved, State->FallbackLighting, true, {}, bDynamicInstancing);
+					Prepared, Resolved, State->FallbackLighting, true, {}, bDynamicInstancing, DynamicContext);
 				bComplete = bBindingsReady && bComplete;
 				bReady = bBindingsReady || bAllowPartial;
 			}

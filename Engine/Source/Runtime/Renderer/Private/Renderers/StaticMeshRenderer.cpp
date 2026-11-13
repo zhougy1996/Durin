@@ -665,15 +665,15 @@ namespace Durin
 
 	auto FStaticMeshRenderer::PrepareBindings_RenderThread(FRHICommandListImmediate& CommandList, FGBufferRenderer* GBuffer,
 		const FPreparedStaticMeshView& PreparedView, FResolvedStaticMeshView& ResolvedView,
-		const FRHIUniformBufferRange& Lighting, bool bShadow, FRHIStorageBufferRange LocalLights, bool bDynamicInstancing) -> bool
+		const FRHIUniformBufferRange& Lighting, bool bShadow, FRHIStorageBufferRange LocalLights, bool bDynamicInstancing, std::shared_ptr<FGPUSceneDynamicContext> DynamicContext) -> bool
 	{
 		check(IsInRenderingThread());
 		ResolvedView.DrawCommandStorage = std::make_shared<FDynamicMeshDrawCommandStorage>();
 		FRendererRDGAllocator UploadAllocator(Coordinator);
-		ResolvedView.GPUScenePrimitives = FGPUSceneDynamicContext::Prepare(CommandList, UploadAllocator, PreparedView, ResolvedView.GPUScene);
+		ResolvedView.GPUScenePrimitives = FGPUSceneDynamicContext::Prepare(CommandList, UploadAllocator, PreparedView, ResolvedView.GPUScene, std::move(DynamicContext));
 		if (ResolvedView.GPUScenePrimitives.size() != PreparedView.Primitives.size()) return false;
 		for (auto& Record : ResolvedView.Draws) { Record.Commands.clear(); Record.VisibleCommands.clear(); Record.DynamicInstancingCommands.clear(); }
-		ResolvedView.DynamicInstancingGroups.clear(); ResolvedView.DynamicInstancingInstanceIds = {};
+		ResolvedView.MeshDrawCommandRuns.clear(); ResolvedView.DynamicInstancingGroups.clear(); ResolvedView.DynamicInstancingInstanceIds = {};
 		FMeshDrawCommandBindingCache BindingCache;
 		bool AllReady = true;
 		for (uint32 Index = 0; Index < PreparedView.GetNumSections(); ++Index)

@@ -42,7 +42,7 @@ namespace Durin
 			FResolvedStaticMeshView& ResolvedView) -> bool;
 			auto PrepareBindings_RenderThread(FRHICommandListImmediate& CommandList, FGBufferRenderer* GBuffer,
 			const FPreparedStaticMeshView& PreparedView, FResolvedStaticMeshView& ResolvedView,
-			const FRHIUniformBufferRange& Lighting, bool bShadow = false, FRHIStorageBufferRange LocalLights = {}, bool bDynamicInstancing = true) -> bool;
+			const FRHIUniformBufferRange& Lighting, bool bShadow = false, FRHIStorageBufferRange LocalLights = {}, bool bDynamicInstancing = true, std::shared_ptr<FGPUSceneDynamicContext> DynamicContext = {}) -> bool;
 		FStaticMeshRenderer(
 			FRendererResourceCoordinator& InCoordinator,
 			RendererPrivate::FSurfaceMaterialResources& InSurfaceMaterials

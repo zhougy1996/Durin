@@ -139,7 +139,7 @@ namespace Durin
         const bool bHasGPUCandidates = GPUCullingPlan->SetupDrawCommands(
             RendererPrivate::CollectMeshDrawCommands(Inputs.Receiver.StaticMeshes, Inputs.Resolved.Receiver.StaticMeshes,
                 {RendererPrivate::EMeshPipelinePass::GBuffer}, false), Options.bEnableGPUCulling, Capabilities && Capabilities->bSupportsIndirectDraw,
-            &OverflowCandidates, Inputs.Failure == EGPUCullingFailure::MetadataBudget ? 0 : FInstanceCullingContext::MaximumGeneratedBytes, &Admission);
+            &OverflowCandidates, Inputs.Failure == EGPUCullingFailure::MetadataBudget ? 0 : FInstanceCullingContext::MaximumGeneratedBytes, &Admission, Inputs.Resolved.Receiver.StaticMeshes.MeshDrawCommandRuns[{RendererPrivate::EMeshPipelinePass::GBuffer}]);
 		Inputs.Telemetry.View.GBuffer.GPUCullingPolicyDisabledViews += Options.bEnableGPUCulling ? 0u : 1u;
 		Inputs.Telemetry.View.GBuffer.GPUCullingBelowThresholdCandidates += Admission.BelowThresholdCandidates;
 		Inputs.Telemetry.View.GBuffer.GPUCullingIncompatibleCandidates += Admission.IncompatibleCandidates;

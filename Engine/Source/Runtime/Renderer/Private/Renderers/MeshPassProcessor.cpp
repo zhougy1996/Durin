@@ -1,4 +1,5 @@
 #include "Renderers/MeshPassProcessor.h"
+#include "Renderers/MeshVertexFactory.h"
 #include "SceneInfo.h"
 #include "Renderers/MaterialPSOPrecacheCollector.h"
 
@@ -44,13 +45,19 @@ namespace Durin::RendererPrivate
 				&& A.ArrayElement == B.ArrayElement && A.Type == B.Type && A.Offset == B.Offset && A.Size == B.Size && A.ResourceIndex == B.ResourceIndex;
 		});
 	}
+	auto FMeshPassPipeline::GetIdentity() const -> FMeshPipelineIdentity
+	{
+		return {Description, Pass, FactoryKey, LayoutKey, VertexShader ? VertexShader->GetRHIShader(false) : nullptr,
+			FragmentShader, VertexDeclaration ? VertexDeclaration->GetElements() : FVertexDeclarationElementList{},
+			ShaderMap ? ShaderMap.GetPipelineLayout() : FPipelineLayoutDesc{}, VertexFactoryPass, bool(ShaderMap)};
+	}
 	auto FCachedMeshDrawCommandStorage::MakeKey(const FMeshDrawDescription* Description, FPrimitiveComponentId PrimitiveId,
 		uint64 BatchId, const FMeshPassPipeline& Pipeline, const FRHIResource* MaterialUniform) -> FKey
 	{
 		return {{reinterpret_cast<uint64>(Description->GeometryOwner ? static_cast<const void*>(Description->GeometryOwner.get()) : Description),
 			Description->SectionIndex, PrimitiveId.Value, BatchId, static_cast<uint64>(Pipeline.Pass)},
-			{reinterpret_cast<uint64>(&Pipeline), static_cast<bool>(Description->Material.UniformExpressionCache),
-			MaterialUniform ? reinterpret_cast<uint64>(MaterialUniform) : Description->Material.UniformExpressionCache ? reinterpret_cast<uint64>(Description->Material.UniformExpressionCache.get()) : Description->Material.Representation.GetRecordId()}};
+			{static_cast<bool>(Description->Material.UniformExpressionCache),
+			MaterialUniform ? reinterpret_cast<uint64>(MaterialUniform) : Description->Material.UniformExpressionCache ? reinterpret_cast<uint64>(Description->Material.UniformExpressionCache.get()) : Description->Material.Representation.GetRecordId()}, Pipeline.GetIdentity()};
 	}
 	FCachedMeshDrawCommandStorage::~FCachedMeshDrawCommandStorage()
 	{
@@ -97,7 +104,7 @@ namespace Durin::RendererPrivate
 		const auto Found = Owner.StaticMeshCommandInfos.find(Key.Mesh);
 		if (Found == Owner.StaticMeshCommandInfos.end()) return nullptr;
 		const auto& Entry = Entries[Found->second->CommandIndex];
-		return Entry && Entry->Bindings == Key.Bindings ? Entry.get() : nullptr;
+		return Entry && Entry->Bindings == Key.Bindings && Entry->Pipeline == Key.Pipeline ? Entry.get() : nullptr;
 	}
 	auto FCachedMeshDrawCommandStorage::Find(const FKey& Key, const FPrimitiveSceneInfo& Owner,
 		FResolvedStaticMeshView::FMaterialUniform* Material, const FVertexFactoryInputBinding* Input) const -> std::shared_ptr<const FMeshDrawCommand>
@@ -157,9 +164,8 @@ namespace Durin::RendererPrivate
 		}
 		Entry->Command = Entry->StateBucket->Command;
 		Entry->Info->StateBucketId = Entry->StateBucket->Id;
-		Entry->Bindings = Key.Bindings; Entry->Input = Input; Entry->Material = std::move(Material);
-		// Retain the source lookup pipeline as well as the bucket's canonical pipeline.
-		Entry->SourcePipeline = std::move(Pipeline);
+		Entry->Bindings = Key.Bindings; Entry->Pipeline = Key.Pipeline; Entry->Input = Input; Entry->Material = std::move(Material);
+		// Only the state bucket retains its canonical pipeline. Lookup uses value identity.
 		Entries[Index] = std::move(Entry);
 		return Entries[Index]->Command;
 	}

@@ -23,6 +23,9 @@ validated against the inspected UE 5.8.2 model; its receipt follows.
 Stage 7 is implemented and validated: it unifies dynamic allocation with scene storage and moves primitive command
 associations into SceneInfo. Its final-input validation receipt follows; historical
 candidate sizes, dual-domain dispatch and capacity figures below describe earlier stages.
+Stage 8 is implemented and validated: shared CPU/GPU ordered runs, submission-scoped dynamic context
+reuse and structural pipeline lookup identity. Its final-input receipt follows;
+source pipeline retention described in Stage 7 is superseded by canonical-only retention.
 Default culling policy is unchanged. No timing speedup is claimed.
 Implemented rules live in [GPUScene storage and submission](../Runtime/Rendering/Scene/GPUScene.md).
 
@@ -953,6 +956,69 @@ Metal fixtures use the new candidate layout but native Metal execution remains
 deferred. Independent physical queues and exclusive quiet Release timing remain
 open Stage 5 gates. Earlier timing samples describe older inputs and cannot serve
 as Stage 7 performance acceptance. Culling remains disabled by default.
+
+### Stage 8: Unify command grouping and submission identity
+
+The user authorized UE-aligned semantics for the follow-up review findings.
+Implement in order: shared CPU/GPU ordered runs, scene-render-scoped dynamic
+context, then value-based pipeline identity. Preserve complete CPU fallback,
+explicit graph reads and GPU-completion retirement; Stage 5 deferred gates remain.
+
+- [x] Build ordered effective-state runs once and reuse them for CPU instancing
+  and GPU admission. Remove pass-local hash buckets and duplicate grouping.
+- [x] Share a dynamic context across receiver/cascades in one scene submission,
+  reusing identical dynamic records and registering terminal graph use once.
+  Independent picking/preview submissions keep independent contexts.
+- [x] Replace pipeline-pointer cache identity with structural pipeline identity;
+  remove source lookup pipeline retention, keeping the canonical pipeline alive.
+- [x] Validate ordering, mixed CPU/GPU fallback, cross-view dynamic reuse,
+  changed-fact separation, cache replacement and resource recovery. Run owning
+  and affected consumer tests and the workspace all integration build because
+  frame/context and command-cache interfaces cross renderer feature boundaries.
+
+### Stage 8 validation receipt
+
+Inputs are base `90beb040b` plus the final source/fixture hashes in
+`Build/Qualification/UEAlignedGPUSceneStage8Inputs.json`, which also hashes the
+local UE 5.8.2 (CL 56702186) reference files. UE's InstanceCulling setup compacts
+commands and selects direct/indirect submission, its SceneRenderer holds the dynamic
+context, and minimal pipeline state IDs replace wrapper identity. Durin follows
+these responsibilities without introducing another global pipeline-ID registry.
+
+`BuildMeshDrawCommandRuns` now supplies both CPU instancing and GPU admission.
+Production forms runs after final component admission; GPU selection reuses the
+same members. Pass-local hash buckets and transient state numbering are removed.
+CPU fallback remains complete on failed GPU admission/dispatch. The shared dynamic
+context interns normalized packed facts within one submission; receiver/cascades
+reuse identical records and changed facts preserve earlier snapshots. Independent
+preview/picking contexts remain separate. One terminal graph-use registration
+replaces scene plus per-view registrations. Scene command lookup compares pipeline
+state/layout/shader/declaration values; source wrappers may expire while the shared
+canonical pipeline survives until its last command association is removed.
+
+`test affected --explain` selects additional material/editor feature targets from
+the Renderer module label. The bounded selection covers changed grouping, pipeline
+cache, shader, graph execution/recovery and scene routes, plus Editor, Sandbox and
+RoadWeaver consumers. The explicit workspace `all` gate covers other compilation
+consumers. Profile: `windows-msvc-x64`, default `Win64-Debug-DurinEditor`, application
+tests off; native Vulkan validation enabled. Builds ran outside the sandbox for the
+established MSVC PDB-service incompatibility.
+
+| Selection | Final-input result and log under `Build/.agent-state/logs/` |
+| --- | --- |
+| `RendererSceneContractTests` | 164/164. Shared run membership/ordering and eligibility splits, complete fallback, cross-view dynamic reuse with zero repeated attribute upload, changed-fact snapshot isolation, independent preview domains, canonical-only pipeline lifetime and source invalidation. `20261113-124611-953571-12100-RendererSceneContractTests.log`. |
+| `RenderShaderContractTests` | 72/72. `20261113-124620-850470-10612-RenderShaderContractTests.log`. |
+| `StaticMeshRenderPreparationVulkanTests` | 21/21, including direct/CPU/GPU, mixed admission/fallback, GBuffer/shadow, exact GPUScene readbacks and large-origin output. `20261113-124638-928892-25000-StaticMeshRenderPreparationVulkanTests.log`. |
+| Resource recovery and scene routes | 2/2 and 1/1. `20261113-124656-475450-19420-RendererResourceReloadVulkanTests.log`, `20261113-124705-802591-18776-VolumetricCloudSceneVulkanTests.log`. |
+| Project consumers | Sandbox 13/13, RoadWeaver 5/5, Editor rendering 91/91. `20261113-124719-584363-28460-SandboxGameplayTests.log`, `20261113-124740-663114-3452-RoadSceneIntegrationTests.log`, `20261113-124800-539070-26308-EditorRenderingTests.log`. |
+| Vulkan inline recording | Same native targets pass 21/21, 1/1 and 2/2 with `DURIN_RHI_EXECUTION=inline`. `20261113-124818-607835-16576-StaticMeshRenderPreparationVulkanTests.log`, `20261113-124829-745201-22020-VolumetricCloudSceneVulkanTests.log`, `20261113-124836-701498-29424-RendererResourceReloadVulkanTests.log`. |
+| Workspace `build all` | Passed. `20261113-124838-745203-28308-cmake.log`. |
+| Release correctness | 1/1 numeric/custom-data direct/CPU/GPU case, validation on, `Win64-Release-DurinEditor`, Tracy off. `20261113-125112-969154-10408-StaticMeshRenderPreparationVulkanTests.log`; XML `Build/Qualification/UEAlignedGPUSceneStage8Release.xml`. Correctness only. |
+
+No new timing samples were collected. The dynamic fact cache and value-based
+lookup add CPU bookkeeping, so structural cleanup alone makes no performance
+claim. Default culling policy is unchanged. Metal, native independent queues and
+exclusive quiet Release timing remain Stage 5 follow-ups.
 
 ## Validation and Completion Gates
 

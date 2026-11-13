@@ -7,6 +7,7 @@
 
 namespace Durin
 {
+	class FGPUSceneDynamicContext;
 	class FRendererResourceCoordinator;
 	class FRHICommandListImmediate;
 	class FRHICommandList;
@@ -54,7 +55,7 @@ namespace Durin
 		auto PrepareResources_RenderThread(FRHICommandListImmediate& CommandList, FScene* Scene,
 			FStaticMeshRenderer& StaticMeshes, const FPreparedDirectionalShadow& Shadow,
 			FResolvedDirectionalShadow& ResolvedShadow, FViewRenderTelemetry& Telemetry,
-			FStaticMeshSectionResourceContext* ResourceContext = nullptr, bool bAllowPartial = false, bool bDynamicInstancing = true) -> bool;
+			FStaticMeshSectionResourceContext* ResourceContext = nullptr, bool bAllowPartial = false, bool bDynamicInstancing = true, std::shared_ptr<FGPUSceneDynamicContext> DynamicContext = {}) -> bool;
 		auto Render_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			FRHITexture* Target,

@@ -183,7 +183,7 @@ namespace Durin
 	}
 	auto FInstanceCullingContext::SetupDrawCommands(std::span<const RendererPrivate::FVisibleMeshDrawCommand> VisibleMeshDrawCommands,
 		bool bRequested, bool bIndirectDrawSupported, size_t* OutOverflowCandidates, size_t MaximumGeneratedBytes,
-		FInstanceCullingAdmissionDiagnostics* OutDiagnostics) -> bool
+		FInstanceCullingAdmissionDiagnostics* OutDiagnostics, std::span<const RendererPrivate::FMeshDrawCommandRun> Runs) -> bool
 	{
 		require(!bBuilt);
 		Candidates.clear(); Arguments.clear(); InstanceSceneData = {}; DynamicContexts.clear(); bDispatched = false;
@@ -193,8 +193,9 @@ namespace Durin
 		FInstanceCullingAdmissionDiagnostics Diagnostics;
 		if (OutDiagnostics) *OutDiagnostics = {};
 		if (!bRequested || !bIndirectDrawSupported) return false;
-		struct FPendingCandidate { uint32 DrawIndex; };
-		std::vector<std::vector<FPendingCandidate>> Groups;
+		const auto LocalRuns = Runs.empty() ? RendererPrivate::BuildMeshDrawCommandRuns(VisibleMeshDrawCommands) : std::vector<RendererPrivate::FMeshDrawCommandRun>{};
+		if (Runs.empty()) Runs = LocalRuns;
+		std::vector<bool> Admitted(VisibleMeshDrawCommands.size());
 		for (uint32 Index = 0; Index < VisibleMeshDrawCommands.size(); ++Index)
 		{
 			const auto& Visible = VisibleMeshDrawCommands[Index];
@@ -218,21 +219,12 @@ namespace Durin
 			}
 			if (Source.Buffers->DynamicContext && std::ranges::find(DynamicContexts, Source.Buffers->DynamicContext) == DynamicContexts.end())
 				DynamicContexts.push_back(Source.Buffers->DynamicContext);
-			bool bContinue = false;
-			if (!Groups.empty() && Groups.back().back().DrawIndex + 1 == Index)
-			{
-				const auto& Previous = VisibleMeshDrawCommands[Groups.back().back().DrawIndex];
-				bContinue = Command->MatchesForDynamicInstancing(*Previous.Command)
-					&& Source.Buffers->SceneData == Previous.SceneData.Buffers->SceneData
-					&& Visible.DepthBias == Previous.DepthBias && Visible.Pass->Vertex == Previous.Pass->Vertex
-					&& Visible.Pass->Fragment == Previous.Pass->Fragment;
-			}
-			if (!bContinue) Groups.emplace_back();
-			Groups.back().push_back({Index});
+			Admitted[Index] = true;
 		}
 		constexpr size_t PerCandidateBytes = sizeof(FInstanceCullingCandidate) + sizeof(uint32);
-		for (const auto& Group : Groups)
+		for (const auto& Group : Runs)
 		{
+			if (std::ranges::any_of(Group, [&](uint32 Index) { return !Admitted[Index]; })) continue;
 			if (Group.size() < MinimumGroupCandidates) { Diagnostics.BelowThresholdCandidates += Group.size(); continue; }
 			const size_t RequiredBytes = Group.size() * PerCandidateBytes + sizeof(FRHIDrawIndexedIndirectArguments);
 			const size_t CurrentBytes = Candidates.size() * PerCandidateBytes + Arguments.size() * sizeof(FRHIDrawIndexedIndirectArguments);
@@ -240,14 +232,14 @@ namespace Durin
 				|| RequiredBytes > std::min(MaximumGeneratedBytes, FInstanceCullingContext::MaximumGeneratedBytes) - CurrentBytes)
 			{ if (OutOverflowCandidates) *OutOverflowCandidates += Group.size(); continue; }
 			const uint32 ArgumentIndex = static_cast<uint32>(Arguments.size());
-			const auto Direct = std::get<FRHIDrawIndexedArguments>(VisibleMeshDrawCommands[Group.front().DrawIndex].Command->DrawParameters);
+			const auto Direct = std::get<FRHIDrawIndexedArguments>(VisibleMeshDrawCommands[Group.front()].Command->DrawParameters);
 			Arguments.push_back({.IndexCount = Direct.IndexCount, .InstanceCount = 0, .FirstIndex = Direct.FirstIndex,
 				.VertexOffset = Direct.VertexOffset, .FirstInstance = static_cast<uint32>(Candidates.size())});
 			for (size_t Index = 0; Index < Group.size(); ++Index)
 			{
 				const auto& Item = Group[Index];
-				ArgumentByResolvedDraw[Item.DrawIndex] = Index == 0 ? ArgumentIndex : GroupedMember;
-				Candidates.push_back({VisibleMeshDrawCommands[Item.DrawIndex].SceneData.InstanceId, ArgumentIndex});
+				ArgumentByResolvedDraw[Item] = Index == 0 ? ArgumentIndex : GroupedMember;
+				Candidates.push_back({VisibleMeshDrawCommands[Item].SceneData.InstanceId, ArgumentIndex});
 			}
 		}
 		if (OutDiagnostics) *OutDiagnostics = Diagnostics;

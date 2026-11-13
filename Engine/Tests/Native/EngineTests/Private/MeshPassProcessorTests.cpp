@@ -327,7 +327,9 @@ TEST(FRendererSceneContractTests, GBufferGPUCullingPlanIsOptInAndPreservesIndexe
         }
         FInstanceCullingManager Manager;
         auto Context = Manager.CreateContext(Manager.RegisterView(View), Pipeline->GetPassKey());
-        EXPECT_TRUE(Context->SetupDrawCommands(Visible, true, true));
+        const auto Runs = RendererPrivate::BuildMeshDrawCommandRuns(Visible);
+        ASSERT_EQ(Runs.size(), 1u); EXPECT_EQ(Runs.front().size(), 64u);
+        EXPECT_TRUE(Context->SetupDrawCommands(Visible, true, true, nullptr, FInstanceCullingContext::MaximumGeneratedBytes, nullptr, Runs));
         EXPECT_EQ(Context->Arguments.size(), 1u); EXPECT_EQ(Context->Candidates.size(), 64u);
         Visible[32].DepthBias[0] = 1.f;
         EXPECT_FALSE(Context->SetupDrawCommands(Visible, true, true)); EXPECT_TRUE(Context->Candidates.empty());
@@ -697,7 +699,7 @@ TEST(FRendererSceneContractTests, ReplacingDrawBindingsReusesTheSceneCacheLocati
     const auto Original = DrawSource.Key(1);
     Cache.Publish(Original, DrawSource.MakeCommand(1, true), *Source);
     auto Replacement = Original;
-    ++Replacement.Bindings[2];
+    ++Replacement.Bindings[1];
     Cache.Publish(Replacement, DrawSource.MakeCommand(1, true), *Source);
     EXPECT_EQ(Cache.Num(), 1u);
     EXPECT_FALSE(Cache.Find(Original, *Source)); EXPECT_TRUE(Cache.Find(Replacement, *Source));

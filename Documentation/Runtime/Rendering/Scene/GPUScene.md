@@ -119,8 +119,13 @@ supplies no scene and uses scoped records.
 GPUScene as persistent records. A submission commits updates with an explicit
 RDG allocator, then snapshots the final buffers after any growth. Standalone
 consumers create a transient GPUScene through the same allocation/upload path.
-Factories
-opt in through `SupportsGPUScene`; unsupported factories retain uniform access.
+One scene submission retains a shared context across receiver and shadow views.
+Normalized packed Primitive/Instance/payload bytes identify dynamic facts within
+that context. Identical facts reuse a record; changed facts allocate a new record
+without overwriting earlier view snapshots. This cache ends with the submission;
+independent preview/picking requests use independent contexts. The submission
+registers terminal drawing-graph use once through its shared context.
+Factories opt in through `SupportsGPUScene`; unsupported factories retain uniform access.
 It creates a direct ID list, repeating the selected ID for existing multi-instance
 geometry. `InstanceIdOffset` overrides emitted `FirstInstance`; source draw
 arguments stay unchanged. Both direct and indirect vertices index the ID list
@@ -138,13 +143,19 @@ be checked. Pipeline and binding wrapper addresses do not determine compatibilit
 Source cache slots remain per Primitive/batch; eligible identical cached commands
 share a state bucket and command allocation. Each source retains its own
 `FCachedMeshDrawCommandInfo` and invalidation identity on `FPrimitiveSceneInfo`.
-Scene command storage retains source lookup pipelines; the shared bucket retains
-its canonical pipeline until its last source entry is
-removed. Replacing or removing one source retires only that source's visible
+Cache lookup uses structural pipeline identity: pass, raster/depth/blend/target
+description, factory/layout, native shader identities and declaration elements.
+Pipeline wrapper addresses do not enter the key. Only the shared state bucket
+retains its canonical pipeline until its last source entry is removed; equivalent
+source wrappers need no additional retention. Replacing or removing one source retires only that source's visible
 handles; other sources can continue using the shared command and pipeline.
 Weak lookup buckets are pruned when their last source entry is removed.
 
-Pass preparation merges consecutive compatible opaque/masked Local runs in
+`BuildMeshDrawCommandRuns` forms consecutive effective-state runs shared by CPU
+instancing and GPU admission. Production builds these after final component draw
+admission and reuses the same membership for GPU selection; no pass-local hash
+buckets or separate CPU/GPU state numbering are needed. Eligibility changes split
+runs. CPU submission merges compatible opaque/masked Local runs in
 Forward, retained Forward, GBuffer and shadows. It preserves prepared order;
 Spline, sorted translucency, unsupported factories, original multi-instance draws
 and instance-frequency vertex streams remain separate. Visible records carry

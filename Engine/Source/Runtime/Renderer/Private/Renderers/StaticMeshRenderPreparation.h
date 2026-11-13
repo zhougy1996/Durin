@@ -368,6 +368,7 @@ namespace Durin
 			bool bEnabled = true;
 		};
 		std::vector<FDynamicInstancingGroup> DynamicInstancingGroups;
+		std::map<RendererPrivate::FMeshPassKey, std::vector<std::vector<uint32>>> MeshDrawCommandRuns;
 		FBufferRHIRef DynamicInstancingInstanceIds;
 		FGPUScene* GPUScene = nullptr;
 		std::vector<FGPUScenePrimitiveData> GPUScenePrimitives;
