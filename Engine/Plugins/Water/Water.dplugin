@@ -1,0 +1,11 @@
+{
+  "SchemaVersion": 1,
+  "Id": "Water",
+  "DisplayName": "Water",
+  "Version": "1.0",
+  "Platforms": ["Win64"],
+  "Content": "Content",
+  "Modules": [
+    {"Name": "Water", "Path": "Source/Water", "Host": "Runtime", "Phase": "Providers"}
+  ]
+}

@@ -588,6 +588,10 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 	ASSERT_NE(Source, nullptr);
 	auto UsageProperties = Source->GetStaticProperties();
 	UsageProperties.GeometryUsage = 1; UsageProperties.PassUsage = 7;
+	// Pipeline-only properties stay in the package, while the program family
+	// contains canonical Shader properties. Their difference must load normally.
+	UsageProperties.bTwoSided = true;
+	UsageProperties.DepthWritePolicy = EMaterialDepthWritePolicy::Disabled;
 	ASSERT_TRUE(Source->SetStaticProperties(UsageProperties));
 	FMaterialParameterDefinition Tint, Texture;
 	Tint.Id = FGuid::NewGuid(); Tint.Name = FName("CookedTint"); Tint.DisplayName = "Cooked Tint";
@@ -662,6 +666,8 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetShaderMap().Layout, ExpectedLayout);
 		EXPECT_EQ(Loaded->GetStaticProperties().GeometryUsage, 1u);
 		EXPECT_EQ(Loaded->GetStaticProperties().PassUsage, 7u);
+		EXPECT_TRUE(Loaded->GetStaticProperties().bTwoSided);
+		EXPECT_EQ(Loaded->GetStaticProperties().DepthWritePolicy, EMaterialDepthWritePolicy::Disabled);
 		EXPECT_TRUE(Loaded->GetExpressionCollection().Expressions.empty());
 		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GetDebugData().IR.Nodes.empty());
 		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GetDebugData().GeneratedSource.empty());

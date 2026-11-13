@@ -159,8 +159,7 @@ namespace Durin
 	auto DMaterialInterface::ValidatePreparedMaterialProgram(const FMaterialStaticProperties& PayloadProperties,
 		std::shared_ptr<const FMaterialCompilerResult> ProgramCandidate) -> std::expected<std::shared_ptr<const FMaterialCompilerResult>, std::string>
 	{
-		auto ExpectedProperties = GetStaticProperties();
-		ExpectedProperties.OpacityMaskThreshold = CanonicalizeMaterialShaderProperties(ExpectedProperties).OpacityMaskThreshold;
+		const auto ExpectedProperties = CanonicalizeMaterialShaderProperties(GetStaticProperties());
 		if (PayloadProperties != ExpectedProperties)
 		{
 			return std::unexpected("payload static properties do not match package metadata.");
