@@ -14,6 +14,7 @@
 #include "Rendering/SceneInterface.h"
 #include "Math/Operations.h"
 #include "Preview/PreviewScene.h"
+#include "PSOPrecacheComponent.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "Shader/ShaderMapPreparation.h"
@@ -432,7 +433,8 @@ namespace Durin
 				if (auto* Primitive = Cast<DPrimitiveComponent>(Owned.Get()); Primitive && Primitive->IsVisible())
 				{
 					const bool bPending = Primitive->CheckPSOPrecachingAndBoostPriority(EPSOPrecachePriority::Highest);
-					if (!Primitive->GetPSOPrecacheComponentData().IsReadyForProxyCreation())
+					if (IsComponentPSOPrecachingEnabled()
+						&& !Primitive->GetPSOPrecacheComponentData().IsReadyForProxyCreation())
 					{
 						std::lock_guard Lock(Capture->Mutex);
 						Capture->State = bPending ? EThumbnailCaptureState::Preparing : EThumbnailCaptureState::Failed;

@@ -998,6 +998,27 @@ TEST_F(FThumbnailVulkanTests, CaptureWaitsForOptionalResourcesInsteadOfPublishin
     EXPECT_FALSE(CompletePixels.empty());
 }
 
+TEST_F(FThumbnailVulkanTests, CaptureSucceedsWithComponentPSOPrecachingDisabled)
+{
+	using namespace Durin;
+	Tests::FScopedComponentPSOPrecacheMode PrecacheMode(EComponentPSOPrecacheMode::Disabled);
+	FThumbnailPreviewScenePool Pool(Contract);
+	ASSERT_TRUE(Pool.IsAvailable()) << Pool.GetDiagnostic();
+	auto* Actor = Pool.GetReusableActor("DisabledPSOPrecacheActor");
+	ASSERT_NE(Actor, nullptr);
+	auto* Component = Cast<DStaticMeshComponent>(Actor->AddInstanceComponent(
+		DStaticMeshComponent::StaticClass(), "DisabledPSOPrecacheComponent"));
+	ASSERT_NE(Component, nullptr);
+	ASSERT_TRUE(Component->IsVisible());
+	ASSERT_FALSE(Component->GetPSOPrecacheComponentData().IsReadyForProxyCreation());
+	ASSERT_TRUE(Pool.BeginCapture());
+	FByteBuffer Pixels;
+	std::string Error;
+	ASSERT_EQ(Tests::FinishThumbnailCapture(Pool, Pixels, Error), EThumbnailCaptureState::Ready) << Error;
+	EXPECT_FALSE(Pixels.empty());
+	EXPECT_FALSE(Component->GetPSOPrecacheComponentData().IsPSOPrecacheCalled());
+}
+
 TEST_F(FThumbnailVulkanTests, CaptureDoesNotWaitForUnrelatedOptionalComponentPSOs)
 {
 	Durin::Tests::FScopedComponentPSOPrecacheMode PrecacheMode(Durin::EComponentPSOPrecacheMode::Enabled);
