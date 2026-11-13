@@ -39,7 +39,7 @@ namespace Durin
 		{
 			if (!Impl->Load) return {.Diagnostic = "The thumbnail asset load is unavailable."};
 			if (!Impl->Load->IsComplete()) return {.State = EThumbnailDrawStatus::WaitingForResources};
-			if (Impl->Load->HasError()) return {.Diagnostic = Impl->Load->GetError().Message};
+			if (Impl->Load->HasError()) return {.Diagnostic = Impl->Load->GetError().Message.empty() ? "The thumbnail asset could not be loaded." : Impl->Load->GetError().Message};
 			Object = Impl->Load->GetLoadedAsset();
 			if (!Object || Object->GetClass()->GetQualifiedName().ToString() != Impl->Asset.AssetClassName)
 				return {.Diagnostic = "The thumbnail asset does not match its catalog class."};
@@ -52,6 +52,7 @@ namespace Durin
 			return Impl->Context->GetResult();
 		}
 		if (!bAllowDraw) return {.State = EThumbnailDrawStatus::WaitingForResources};
+		Impl->Context->ResetResult();
 		Impl->Renderer->Draw(Object, *Impl->Context);
 		return Impl->Context->GetResult();
 	}

@@ -101,7 +101,7 @@ TEST(FStaticMeshEditorTests, ThumbnailConflictDoesNotAffectEditorDiscovery)
 	Durin::DThumbnailManager ThumbnailManager;
 	std::string Error;
 	auto Existing = ThumbnailManager.RegisterCustomRenderer(Durin::DStaticMesh::StaticClass(), Durin::StaticMeshEditor::DStaticMeshThumbnailRenderer::StaticClass());
-	ASSERT_TRUE(Existing) << Existing.error();
+	ASSERT_TRUE(Existing);
 	const std::string ClassName =
 		Durin::DStaticMesh::StaticClass()->GetQualifiedName().ToString();
 	const uint64 ExistingGeneration = ThumbnailManager.Find(ClassName).Generation;

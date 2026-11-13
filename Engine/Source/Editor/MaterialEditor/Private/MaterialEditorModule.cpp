@@ -119,7 +119,7 @@ namespace Durin
 		}
 		MaterialThumbnailRegistration =
 			std::make_unique<FThumbnailRendererRegistrationHandle>(
-				std::move(*MaterialHandle));
+				std::move(MaterialHandle));
 		auto InstanceHandle = ThumbnailManager.RegisterCustomRenderer(DMaterialInstance::StaticClass(), DMaterialThumbnailRenderer::StaticClass());
 		if (!InstanceHandle)
 		{
@@ -128,7 +128,7 @@ namespace Durin
 		}
 		MaterialInstanceThumbnailRegistration =
 			std::make_unique<FThumbnailRendererRegistrationHandle>(
-				std::move(*InstanceHandle));
+				std::move(InstanceHandle));
 		const auto RegisterCreate = [this](std::string Id, std::string Label,
 			std::string BaseName, bool bInstance) {
 			std::string Error;

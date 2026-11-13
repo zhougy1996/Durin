@@ -829,7 +829,7 @@ TEST(FAssetPickerTests, OpeningMaterialCandidatesCompletesPopupLayout)
 	auto& ThumbnailManager = GetDefaultThumbnailManager();
 	auto Registration = Durin::FThumbnailManagerTestAccess::RegisterScoped(ThumbnailManager,
 		Durin::MakeThumbnailRenderer<FPickerThumbnailRenderer>());
-	ASSERT_TRUE(Registration) << Registration.error();
+	ASSERT_TRUE(Registration);
 	auto& ThumbnailPool = ThumbnailManager.GetSharedPool();
 	ImGuiContext* Context = ImGui::CreateContext();
 	ImGuiIO& IO = ImGui::GetIO();

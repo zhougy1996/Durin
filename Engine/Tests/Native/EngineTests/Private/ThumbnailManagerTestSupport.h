@@ -19,7 +19,7 @@ namespace Durin
 	struct FThumbnailManagerTestAccess
 	{
 		static auto RegisterScoped(DThumbnailManager& Manager, DThumbnailRenderer* Renderer)
-			-> std::expected<FThumbnailRendererRegistrationHandle, std::string>
+			-> FThumbnailRendererRegistrationHandle
 		{
 			auto Registration = Manager.RegisterRendererInstance(Renderer,
 				Renderer ? Renderer->GetRegistration().AssetClassName : std::string{});
@@ -28,13 +28,13 @@ namespace Durin
 			return Registration;
 		}
 		static auto Register(DThumbnailManager& Manager, DThumbnailRenderer* Renderer)
-			-> std::expected<void, std::string>
+			-> bool
 		{
 			auto Result = RegisterScoped(Manager, Renderer);
-			if (!Result) return std::unexpected(Result.error());
-			Result->RegistrationId = 0;
-			Result->State.reset();
-			return {};
+			if (!Result) return false;
+			Result.RegistrationId = 0;
+			Result.State.reset();
+			return true;
 		}
 		static auto CreateJob(DThumbnailManager& Manager, const FAssetThumbnailGenerationRequest& Request)
 			-> std::unique_ptr<FThumbnailRenderJob> { return Manager.CreateRenderJob(Request); }

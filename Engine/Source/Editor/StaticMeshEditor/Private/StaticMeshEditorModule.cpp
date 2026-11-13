@@ -46,7 +46,7 @@ namespace Durin
 		}
 		ThumbnailRegistration =
 			std::make_unique<FThumbnailRendererRegistrationHandle>(
-				std::move(*ThumbnailHandle));
+				std::move(ThumbnailHandle));
 		std::string Error;
 		auto ImportExtension = ContentBrowser::RegisterExtension({
 			.Id = "static-mesh.import-static-mesh",

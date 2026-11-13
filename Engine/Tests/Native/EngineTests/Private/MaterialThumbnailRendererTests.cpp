@@ -86,7 +86,7 @@ TEST(FMaterialThumbnailRendererTests, ReflectedRegistrationOwnsRendererUntilWith
 	Durin::DThumbnailManager Manager;
 	auto Registered = Manager.RegisterCustomRenderer(Durin::DMaterial::StaticClass(),
 		Durin::MaterialEditor::DMaterialThumbnailRenderer::StaticClass());
-	ASSERT_TRUE(Registered) << Registered.error();
+	ASSERT_TRUE(Registered);
 	const auto Info = Manager.GetRenderingInfo(Durin::DMaterial::StaticClass());
 	ASSERT_TRUE(Info);
 	EXPECT_EQ(Info->ClassNeedingThumbnail, Durin::DMaterial::StaticClass());
@@ -94,7 +94,7 @@ TEST(FMaterialThumbnailRendererTests, ReflectedRegistrationOwnsRendererUntilWith
 	Durin::TWeakObjectPtr<Durin::DThumbnailRenderer> Weak(Info->Renderer);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_NE(Weak.Get(), nullptr);
-	Registered->Reset();
+	Registered.Reset();
 	EXPECT_FALSE(Manager.GetRenderingInfo(Durin::DMaterial::StaticClass()));
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Weak.Get(), nullptr);
@@ -149,7 +149,7 @@ TEST(FMaterialThumbnailRendererTests, RendererConflictDoesNotAffectIndependentMo
 	Durin::DThumbnailManager ThumbnailManager;
 	std::string Error;
 	auto Existing = ThumbnailManager.RegisterCustomRenderer(Durin::DMaterialInstance::StaticClass(), Durin::MaterialEditor::DMaterialThumbnailRenderer::StaticClass());
-	ASSERT_TRUE(Existing) << Existing.error();
+	ASSERT_TRUE(Existing);
 	Durin::FMaterialEditorModule Module;
 	Durin::FModuleTestHarness ModuleHarness("MaterialEditor");
 	ModuleHarness.Start(Module);
@@ -321,7 +321,7 @@ TEST(FMaterialThumbnailRendererTests, InvalidInstancePublishesOneStableDiagnosti
 
 	Durin::DThumbnailManager ThumbnailManager;
 	auto Handle = ThumbnailManager.RegisterCustomRenderer(Durin::DMaterialInstance::StaticClass(), Durin::MaterialEditor::DMaterialThumbnailRenderer::StaticClass());
-	ASSERT_TRUE(Handle) << Handle.error();
+	ASSERT_TRUE(Handle);
 	Durin::FAssetThumbnailPool Cache(ThumbnailManager);
 	Durin::ProcessAsyncLoading();
 	Cache.BeginFrame();

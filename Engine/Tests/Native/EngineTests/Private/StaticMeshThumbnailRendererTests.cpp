@@ -83,7 +83,7 @@ namespace
 		std::string Error;
 		auto Handle = Durin::GetDefaultThumbnailManager().RegisterCustomRenderer(Durin::DStaticMesh::StaticClass(), Durin::StaticMeshEditor::DStaticMeshThumbnailRenderer::StaticClass());
 		EXPECT_TRUE(Handle) << Error;
-		return Handle ? std::move(*Handle) : Durin::FThumbnailRendererRegistrationHandle{};
+		return Handle ? std::move(Handle) : Durin::FThumbnailRendererRegistrationHandle{};
 	}
 
 	auto MakeFingerprint(const Durin::FPackageData& Data)

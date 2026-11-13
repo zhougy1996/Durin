@@ -156,7 +156,7 @@ namespace Durin
 
 			auto CanVisualizeAsset(DObject*) const -> bool override { return true; }
 			auto Draw(DObject*, FThumbnailDrawContext& Context) -> void override
-			{ Context.SetResult({}); }
+			{ Context.Fail({}); }
 
 		private:
 			FThumbnailRenderingInfo Registration;
@@ -226,13 +226,13 @@ namespace Durin
 				return {};
 			}
 
-			auto ValidatePreparedInput() const -> std::expected<void, std::string>
+			auto IsSnapshotCurrent() const -> bool
 			{
 				if (!bReset && State->PreviewPreparations != 0)
 				{
-					return {};
+					return true;
 				}
-				return std::unexpected("The fake rendered-thumbnail input is not prepared.");
+				return false;
 			}
 
 			auto ResetPreview() -> void
@@ -298,9 +298,10 @@ namespace Durin
 				if (Result.State == EThumbnailDrawStatus::ReadyToRender)
 				{
 					if (auto Prepared = Drawing.PreparePreview(Context); !Prepared) Result = {.Diagnostic = Prepared.error()};
-					else Context.SetValidation([&Drawing] { return Drawing.ValidatePreparedInput(); });
+					else Context.SetValidation([&Drawing] { return Drawing.IsSnapshotCurrent(); });
 				}
-				Context.SetResult(std::move(Result));
+				if (Result.State == EThumbnailDrawStatus::Failed) Context.Fail(std::move(Result.Diagnostic));
+				else if (Result.State == EThumbnailDrawStatus::ReadyToRender) Context.MarkReady();
 			}
 
 		private:
@@ -688,13 +689,11 @@ namespace Durin
 
 		const auto NullRegistration = Durin::FThumbnailManagerTestAccess::Register(Registry, nullptr);
 		ASSERT_FALSE(NullRegistration);
-		EXPECT_FALSE(NullRegistration.error().empty());
 
 		auto Invalid = Durin::MakeThumbnailRenderer<FTestThumbnailRenderer>(
 			FThumbnailRenderingInfo{.AssetClassName = "DMaterial"});
 		const auto InvalidRegistration = Durin::FThumbnailManagerTestAccess::Register(Registry, Invalid);
 		ASSERT_FALSE(InvalidRegistration);
-		EXPECT_FALSE(InvalidRegistration.error().empty());
 
 		auto Material = Durin::MakeThumbnailRenderer<FTestThumbnailRenderer>(FThumbnailRenderingInfo{
 			.AssetClassName = "DMaterial",
@@ -709,7 +708,6 @@ namespace Durin
 			.GeneratorSchemaVersion = 1});
 		const auto DuplicateRegistration = Durin::FThumbnailManagerTestAccess::Register(Registry, Duplicate);
 		ASSERT_FALSE(DuplicateRegistration);
-		EXPECT_NE(DuplicateRegistration.error().find("DMaterial"), std::string::npos);
 		EXPECT_EQ(Registry.Num(), 1u);
 	}
 
@@ -771,26 +769,25 @@ namespace Durin
 		auto FirstState = std::make_shared<FFakeThumbnailRendererState>();
 		auto First = Durin::FThumbnailManagerTestAccess::RegisterScoped(Registry,
 			Durin::MakeThumbnailRenderer<FFakeThumbnailRenderer>(FirstState));
-		ASSERT_TRUE(First) << First.error();
+		ASSERT_TRUE(First);
 		const uint64 FirstGeneration = Registry.Find("DFakeRenderedAsset").Generation;
 
 		auto DuplicateState = std::make_shared<FFakeThumbnailRendererState>();
 		auto Duplicate = Durin::FThumbnailManagerTestAccess::RegisterScoped(Registry,
 			Durin::MakeThumbnailRenderer<FFakeThumbnailRenderer>(DuplicateState));
 		ASSERT_FALSE(Duplicate);
-		EXPECT_NE(Duplicate.error().find("DFakeRenderedAsset"), std::string::npos);
 		CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(DuplicateState->ExtensionDestructions, 1u);
 		EXPECT_EQ(Registry.Find("DFakeRenderedAsset").Generation, FirstGeneration);
 
-		First->Reset();
+		First.Reset();
 		EXPECT_FALSE(Registry.Find("DFakeRenderedAsset"));
 		CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(FirstState->ExtensionDestructions, 1u);
 		auto ReplacementState = std::make_shared<FFakeThumbnailRendererState>();
 		auto Replacement = Durin::FThumbnailManagerTestAccess::RegisterScoped(Registry,
 			Durin::MakeThumbnailRenderer<FFakeThumbnailRenderer>(ReplacementState));
-		ASSERT_TRUE(Replacement) << Replacement.error();
+		ASSERT_TRUE(Replacement);
 		EXPECT_GT(Registry.Find("DFakeRenderedAsset").Generation, FirstGeneration);
 	}
 
@@ -799,7 +796,7 @@ namespace Durin
 		DThumbnailManager Manager;
 		auto State = std::make_shared<FFakeThumbnailRendererState>();
 		auto Registration = Durin::FThumbnailManagerTestAccess::RegisterScoped(Manager, Durin::MakeThumbnailRenderer<FFakeThumbnailRenderer>(State));
-		ASSERT_TRUE(Registration) << Registration.error();
+		ASSERT_TRUE(Registration);
 		FAssetThumbnailPool Pool(Manager, {}, {.CacheRoot = MakeObjectStoreRoot("DeferredSceneAdmission")});
 		const auto Request = MakeThumbnailRequest("/ThumbnailTests/ScenePriority/Deferred", "DFakeRenderedAsset", 1);
 		Pool.BeginFrame();
@@ -819,7 +816,7 @@ namespace Durin
 		auto State = std::make_shared<FFakeThumbnailRendererState>();
 		auto Registration = Durin::FThumbnailManagerTestAccess::RegisterScoped(Manager,
 			Durin::MakeThumbnailRenderer<FFakeThumbnailRenderer>(State));
-		ASSERT_TRUE(Registration) << Registration.error();
+		ASSERT_TRUE(Registration);
 		FAssetThumbnailPool Pool(
 			Manager, {}, {.CacheRoot = MakeObjectStoreRoot("AssetThumbnailReferences")});
 		const FAssetThumbnailRequest Request = MakeThumbnailRequest(
@@ -917,7 +914,7 @@ namespace Durin
 		auto State = std::make_shared<FFakeThumbnailRendererState>();
 		auto Registration = Durin::FThumbnailManagerTestAccess::RegisterScoped(Registry,
 			Durin::MakeThumbnailRenderer<FFakeThumbnailRenderer>(State));
-		ASSERT_TRUE(Registration) << Registration.error();
+		ASSERT_TRUE(Registration);
 		const uint64 Generation = Registry.Find("DFakeRenderedAsset").Generation;
 		ASSERT_NE(Generation, 0u);
 		FAssetThumbnailRequestQueue AfterRegistration(Registry);
@@ -940,7 +937,7 @@ namespace Durin
 		EXPECT_EQ(BeforeJob->GenerationRequest.RendererGeneration, Generation);
 		EXPECT_EQ(AfterJob->GenerationRequest.RendererGeneration, Generation);
 
-		Registration->Reset();
+		Registration.Reset();
 		EXPECT_FALSE(BeforeRegistration.Transition(
 			*BeforeJob,
 			EAssetThumbnailState::Loading,
@@ -963,7 +960,7 @@ namespace Durin
 		auto State = std::make_shared<FFakeThumbnailRendererState>();
 		auto Registration = Durin::FThumbnailManagerTestAccess::RegisterScoped(ThumbnailManager,
 			Durin::MakeThumbnailRenderer<FFakeThumbnailRenderer>(State));
-		ASSERT_TRUE(Registration) << Registration.error();
+		ASSERT_TRUE(Registration);
 		FAssetThumbnailPool AfterRegistration(
 			ThumbnailManager,
 			{},
@@ -988,7 +985,7 @@ namespace Durin
 			AfterRegistration.Find(AfterRequest.Asset.AssetPath).State,
 			EAssetThumbnailState::Queued);
 
-		Registration->Reset();
+		Registration.Reset();
 		BeforeRegistration.EndFrame();
 		AfterRegistration.EndFrame();
 		EXPECT_NE(
@@ -1011,11 +1008,11 @@ namespace Durin
 		auto WaitingRegistration = Durin::FThumbnailManagerTestAccess::RegisterScoped(ThumbnailManager,
 			Durin::MakeThumbnailRenderer<FFakeThumbnailRenderer>(
 				WaitingState, "DWaitingRenderedAsset"));
-		ASSERT_TRUE(WaitingRegistration) << WaitingRegistration.error();
+		ASSERT_TRUE(WaitingRegistration);
 		auto ReadyRegistration = Durin::FThumbnailManagerTestAccess::RegisterScoped(ThumbnailManager,
 			Durin::MakeThumbnailRenderer<FFakeThumbnailRenderer>(
 				ReadyState, "DReadyRenderedAsset"));
-		ASSERT_TRUE(ReadyRegistration) << ReadyRegistration.error();
+		ASSERT_TRUE(ReadyRegistration);
 		FAssetThumbnailBudgets Budgets;
 		Budgets.ResourcePollIntervalFrames = 4;
 		FAssetThumbnailPool Cache(
@@ -1093,7 +1090,7 @@ namespace Durin
 		State->ResourcePollsBeforeReady = 1000;
 		auto Registration = Durin::FThumbnailManagerTestAccess::RegisterScoped(Manager,
 			Durin::MakeThumbnailRenderer<FFakeThumbnailRenderer>(State, "DNavigationAsset"));
-		ASSERT_TRUE(Registration) << Registration.error();
+		ASSERT_TRUE(Registration);
 		FAssetThumbnailPool Pool(Manager, {},
 			{.CacheRoot = MakeObjectStoreRoot("NavigationCancel"), .ObjectExtension = ".bin"});
 		const auto Request = MakeThumbnailRequest("/ThumbnailTests/Navigation/Asset",
@@ -1128,7 +1125,7 @@ namespace Durin
 		auto Registration = Durin::FThumbnailManagerTestAccess::RegisterScoped(ThumbnailManager,
 			Durin::MakeThumbnailRenderer<FFakeThumbnailRenderer>(
 				State, "DTimeoutRenderedAsset"));
-		ASSERT_TRUE(Registration) << Registration.error();
+		ASSERT_TRUE(Registration);
 		FAssetThumbnailBudgets Budgets;
 		Budgets.ResourcePollIntervalFrames = 1;
 		Budgets.MaximumResourceWaitFrames = 2;
@@ -1183,7 +1180,7 @@ namespace Durin
 		auto State = std::make_shared<FFakeThumbnailRendererState>();
 		auto Registration = Durin::FThumbnailManagerTestAccess::RegisterScoped(Registry,
 			Durin::MakeThumbnailRenderer<FFakeThumbnailRenderer>(State));
-		ASSERT_TRUE(Registration) << Registration.error();
+		ASSERT_TRUE(Registration);
 		FAssetThumbnailRequestQueue Scheduler(Registry);
 		FAssetThumbnailGeneration Pipeline(
 			Scheduler, {.CacheRoot = Root, .ObjectExtension = ".bin"});
@@ -1222,7 +1219,7 @@ namespace Durin
 		EXPECT_EQ(State->Sessions, 1u);
 		EXPECT_EQ(Pipeline.GetStats().DiskHits, 1u);
 
-		Registration->Reset();
+		Registration.Reset();
 		EXPECT_FALSE(FThumbnailManagerTestAccess::CreateJob(Registry, ColdJob->GenerationRequest));
 		EXPECT_EQ(State->DrawStateDestructions, 1u);
 		CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -1251,7 +1248,7 @@ namespace Durin
 			const std::string AssetClassName = std::format("DFakeRenderedAsset{}", StateIndex);
 			auto Registration = Durin::FThumbnailManagerTestAccess::RegisterScoped(Registry,
 				Durin::MakeThumbnailRenderer<FFakeThumbnailRenderer>(State, AssetClassName));
-			ASSERT_TRUE(Registration) << Registration.error();
+			ASSERT_TRUE(Registration);
 			FAssetThumbnailRequestQueue Scheduler(Registry);
 			const FAssetThumbnailRequest Request = MakeThumbnailRequest(
 				std::format("/ThumbnailTests/FakeRendered/InFlight{}", StateIndex),
@@ -1274,7 +1271,7 @@ namespace Durin
 			}
 			ASSERT_EQ(Current, States[StateIndex]);
 
-			Registration->Reset();
+			Registration.Reset();
 			EXPECT_TRUE(Job->GenerationRequest.Cancellation.IsCancelled());
 			CollectGarbage(Durin::EObjectFlags::Standalone);
 			CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -1317,7 +1314,7 @@ namespace Durin
 		auto State = std::make_shared<FFakeThumbnailRendererState>();
 		auto Registration = Durin::FThumbnailManagerTestAccess::RegisterScoped(Registry,
 			Durin::MakeThumbnailRenderer<FFakeThumbnailRenderer>(State));
-		ASSERT_TRUE(Registration) << Registration.error();
+		ASSERT_TRUE(Registration);
 		FAssetThumbnailRequestQueue Scheduler(Registry);
 		const FAssetThumbnailRequest First = MakeThumbnailRequest(
 			"/ThumbnailTests/DeferredCapture/First", "DFakeRenderedAsset", 1);

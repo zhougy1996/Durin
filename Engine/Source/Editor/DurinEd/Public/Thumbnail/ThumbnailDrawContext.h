@@ -9,22 +9,8 @@ namespace Durin
 	class DObject;
 	class DClass;
 	class FThumbnailPreviewScene;
-	// Reports the renderer-owned cold-generation state observed by the shared core.
-	enum class EThumbnailDrawStatus : uint8
-	{
-		WaitingForResources,
-		ReadyToRender,
-		Failed
-	};
-
-	// A draw can defer without reserving a scene; diagnostics describe terminal failures.
-	struct FThumbnailDrawResult
-	{
-		EThumbnailDrawStatus State =
-			EThumbnailDrawStatus::Failed;
-
-		std::string Diagnostic;
-	};
+	class FThumbnailRenderJob;
+	struct FThumbnailDrawResult;
 
 	// Describes a renderer-selected camera without exposing concrete asset types.
 	struct FThumbnailPreviewView
@@ -66,16 +52,21 @@ namespace Durin
 		}
 		DURINED_API auto GetAssetPath() const -> const FTopLevelAssetPath&;
 		DURINED_API auto LoadAsset(const FSoftObjectPath& Path, DClass* Class) -> DObject*;
-		DURINED_API auto SetResult(FThumbnailDrawResult Result) -> void;
-		DURINED_API auto GetResult() const -> FThumbnailDrawResult;
-		DURINED_API auto SetValidation(std::function<std::expected<void, std::string>()> Validator) -> void;
-		DURINED_API auto Validate() const -> std::expected<void, std::string>;
-		DURINED_API auto SetScene(FThumbnailPreviewScene& Scene) -> std::expected<void, std::string>;
+		// A draw starts waiting; only completed setup marks it ready.
+		DURINED_API auto MarkReady() -> void;
+		DURINED_API auto Fail(std::string Diagnostic) -> void;
+		DURINED_API auto SetValidation(std::function<bool()> Validator) -> void;
+		// False defers for a busy scene; an unavailable scene fails this draw.
+		DURINED_API auto TrySetScene(FThumbnailPreviewScene& Scene) -> bool;
 		DURINED_API auto SetView(const FThumbnailPreviewView& View) -> void;
 		DURINED_API auto SetViewEnvironment(const FViewEnvironmentOverride& Environment) -> void;
 		DURINED_API auto SetImageRenderer(FThumbnailImageRenderer Renderer) -> void;
-		DURINED_API auto BindCapture(class FThumbnailCapture& Capture) -> std::expected<void, std::string>;
 	private:
+		friend class FThumbnailRenderJob;
+		auto ResetResult() -> void;
+		auto GetResult() const -> FThumbnailDrawResult;
+		auto Validate() const -> std::expected<void, std::string>;
+		auto BindCapture(class FThumbnailCapture& Capture) -> std::expected<void, std::string>;
 		struct FImpl;
 		std::unique_ptr<FImpl> Impl;
 		std::shared_ptr<void> State;

@@ -59,28 +59,26 @@ namespace Durin
 
 		auto RegisterRenderer(
 			const std::shared_ptr<ThumbnailPrivate::DThumbnailManagerState>& State,
-			TStrongObjectPtr<DThumbnailRenderer> Renderer, std::string AssetClassName) -> std::expected<uint64, std::string>
+			TStrongObjectPtr<DThumbnailRenderer> Renderer, std::string AssetClassName) -> uint64
 		{
 			if (State->bShuttingDown)
 			{
-				return std::unexpected("Thumbnail renderer registration is closed during shutdown.");
+				return 0;
 			}
 			if (!Renderer)
 			{
-				return std::unexpected("Cannot register a null thumbnail renderer.");
+				return 0;
 			}
 			FThumbnailRenderingInfo Registration = Renderer->GetRegistration();
 			Registration.AssetClassName = std::move(AssetClassName);
 			if (Registration.AssetClassName.empty() || Registration.RendererName.empty()
 				|| Registration.GeneratorSchemaVersion == 0)
 			{
-				return std::unexpected("Thumbnail renderers require an asset class, renderer name, and nonzero generator schema.");
+				return 0;
 			}
 			if (State->Renderers.contains(Registration.AssetClassName))
 			{
-				return std::unexpected(std::format(
-					"A thumbnail renderer is already registered for asset class {}.",
-					Registration.AssetClassName));
+				return 0;
 			}
 			const uint64 Generation = State->NextGeneration++;
 			State->Renderers.emplace(
@@ -150,27 +148,27 @@ namespace Durin
 	}
 
 	auto DThumbnailManager::RegisterCustomRenderer(DClass* AssetClass, DClass* RendererClass)
-		-> std::expected<FThumbnailRendererRegistrationHandle, std::string>
+		-> FThumbnailRendererRegistrationHandle
 	{
 		if (!AssetClass || !AssetClass->IsChildOf(DObject::StaticClass())
 			|| !CanConstructObjectOfClass(RendererClass, DThumbnailRenderer::StaticClass()))
-			return std::unexpected("Thumbnail registration requires an asset class and a concrete thumbnail renderer class.");
-		if (State->bShuttingDown) return std::unexpected("Thumbnail renderer registration is closed during shutdown.");
+			return {};
+		if (State->bShuttingDown) return {};
 		const auto Name = AssetClass->GetQualifiedName().ToString();
-		if (State->Renderers.contains(Name)) return std::unexpected("A thumbnail renderer is already registered for asset class " + Name);
+		if (State->Renderers.contains(Name)) return {};
 		TStrongObjectPtr<DThumbnailRenderer> Renderer(static_cast<DThumbnailRenderer*>(NewObject(RendererClass, nullptr, {}, EObjectFlags::Transient)));
 		return RegisterRendererInstance(Renderer.Get(), Name, AssetClass);
 	}
 
 	auto DThumbnailManager::RegisterRendererInstance(DThumbnailRenderer* Renderer, std::string AssetClassName, DClass* AssetClass)
-		-> std::expected<FThumbnailRendererRegistrationHandle, std::string>
+		-> FThumbnailRendererRegistrationHandle
 	{
 		if (!Renderer || !IsValid(Renderer) || !Renderer->GetClass()->IsChildOf(DThumbnailRenderer::StaticClass()))
-			return std::unexpected("Thumbnail renderer must be a live reflected object.");
+			return {};
 		const auto Id = RegisterRenderer(State, TStrongObjectPtr<DThumbnailRenderer>(Renderer), AssetClassName);
-		if (!Id) return std::unexpected(Id.error());
+		if (!Id) return {};
 		State->Renderers.at(AssetClassName).ClassNeedingThumbnail = AssetClass;
-		return FThumbnailRendererRegistrationHandle(State, *Id);
+		return FThumbnailRendererRegistrationHandle(State, Id);
 	}
 
 	auto DThumbnailManager::GetRenderingInfo(DClass* AssetClass) const -> std::optional<FThumbnailRenderingInfo>

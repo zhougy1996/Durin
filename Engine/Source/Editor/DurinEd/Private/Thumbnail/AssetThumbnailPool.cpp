@@ -342,7 +342,7 @@ namespace Durin
 			if (!Capture) Error = Capture.error();
 			else if (!Draw) Error = "The rendered-thumbnail renderer was removed.";
 			else if (auto Valid = Draw->Validate(); !Valid)
-				Error = Valid.error().empty() ? "The rendered-thumbnail input is no longer valid." : Valid.error();
+				Error = Valid.error();
 			if (Pipeline.CompleteCapture(Job.Work, Capture ? FByteView(**Capture) : FByteView{},
 				Request.KeyInput.Output.Width, Request.KeyInput.Output.Height, Error))
 			{
@@ -401,7 +401,7 @@ namespace Durin
 				Pipeline.BeginRender(
 					Job.Work,
 					false,
-					Update.Diagnostic.empty() ? "Thumbnail drawing failed." : Update.Diagnostic);
+					Update.Diagnostic);
 				ResetPreparing();
 				return;
 			}
@@ -425,15 +425,13 @@ namespace Durin
 			}
 			else if (auto Prepared = Draw->BindCapture(*CaptureOutput); !Prepared)
 			{
-				Error = Prepared.error().empty()
-					? "The renderer could not prepare its preview." : std::move(Prepared.error());
+				Error = std::move(Prepared.error());
 			}
 			else
 			{
 				if (auto Capture = CaptureOutput->BeginCapture(); !Capture)
 				{
-					Error = Capture.error().empty()
-						? "The preview capture could not start." : std::move(Capture.error());
+					Error = std::move(Capture.error());
 				}
 				else
 				{

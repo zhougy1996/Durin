@@ -28,45 +28,39 @@ namespace Durin::TextureEditor
 
 			~FTextureThumbnailDrawState() { ResetPreview(); }
 
-			auto Update() -> FThumbnailDrawResult
+			auto Draw(FThumbnailDrawContext& Context) -> void
 			{
 				if (!bAssetLoaded)
 				{
 
-					if (!Texture.IsValid()) return {.Diagnostic = "Texture2D asset could not be loaded."};
+					if (!Texture.IsValid()) return Context.Fail("Texture2D asset could not be loaded.");
 					if (!Texture.Get()->IsAsyncCacheComplete())
-						return {.State = EThumbnailDrawStatus::WaitingForResources};
+						return;
 					AssetRevision = Texture.Get()->GetPackage() ? Texture.Get()->GetPackage()->GetEditRevision() : 0;
 					Platform = Texture.Get()->GetPlatformDataShared();
 					Options.Usage = Texture.Get()->GetUsage();
 					bAssetLoaded = true;
 				}
-				if (!Texture.IsValid()) return {.Diagnostic = "Texture2D asset is unavailable."};
+				if (!Texture.IsValid()) return Context.Fail("Texture2D asset is unavailable.");
 				if (!Texture.Get()->IsAsyncCacheComplete() || Texture.Get()->HasPendingRenderResourceInitialization())
-					return {.State = EThumbnailDrawStatus::WaitingForResources};
+					return;
 				const auto* Resource = Texture.Get()->GetResource();
 				if (!Resource || !Resource->GetTextureRHI_GameThread())
-					return {.Diagnostic = "Texture2D built render resource is unavailable."};
+					return Context.Fail("Texture2D built render resource is unavailable.");
 				auto ShaderReady = Shaders.Poll();
-				if (!ShaderReady) return {.Diagnostic = ShaderReady.error()};
-				return {.State = *ShaderReady ? EThumbnailDrawStatus::ReadyToRender
-					: EThumbnailDrawStatus::WaitingForResources};
-			}
-			auto PreparePreview(FThumbnailDrawContext& Context) -> std::expected<void, std::string>
-			{
-				const auto* Asset = Texture.Get();
-				if (!Asset || !Asset->IsAsyncCacheComplete() || Asset->HasPendingRenderResourceInitialization())
-					return std::unexpected("Texture2D render resource is not ready.");
-				const auto* Resource = Asset->GetResource();
+				if (!ShaderReady) return Context.Fail(ShaderReady.error());
+				if (!*ShaderReady) return;
 				Snapshot = Resource ? Resource->GetTextureRHI_GameThread() : FTextureRHIRef{};
-				if (!Snapshot) { return std::unexpected("Texture2D built allocation is unavailable."); }
+				if (!Snapshot) { return Context.Fail("Texture2D built allocation is unavailable."); }
 				Context.SetImageRenderer([Input = Snapshot, Display = Options](
 					FRHICommandListImmediate& Commands, uint32 Width, uint32 Height) {
 					return RenderTexturePreview(Commands, Input, Width, Height, Display, true);
 				});
-				return {};
+				Context.SetValidation([this] { return IsSnapshotCurrent(); });
+				Context.MarkReady();
 			}
-			auto ValidatePreparedInput() const -> std::expected<void, std::string>
+
+			auto IsSnapshotCurrent() const -> bool
 			{
 				if (!Texture.IsValid() || !Texture.Get()->IsAsyncCacheComplete()
 					|| Texture.Get()->HasPendingRenderResourceInitialization() || !Snapshot
@@ -75,9 +69,9 @@ namespace Durin::TextureEditor
 					|| Texture.Get()->GetPlatformDataShared() != Platform || Texture.Get()->GetUsage() != Options.Usage
 					|| (Texture.Get()->GetPackage() ? Texture.Get()->GetPackage()->GetEditRevision() : 0) != AssetRevision)
 				{
-					return std::unexpected("Texture2D changed while its thumbnail was being generated.");
+					return false;
 				}
-				return {};
+				return true;
 			}
 			auto ResetPreview() -> void
 			{
@@ -146,19 +140,9 @@ namespace Durin::TextureEditor
 
 	auto DTextureThumbnailRenderer::Draw(DObject* Object, FThumbnailDrawContext& Context) -> void
 	{
-		if (!CanVisualizeAsset(Object)) { Context.SetResult({.Diagnostic = "The renderer cannot visualize this asset."}); return; }
+		if (!CanVisualizeAsset(Object)) return Context.Fail("The renderer cannot visualize this asset.");
 		auto& State = Context.GetState<FTextureThumbnailDrawState>(*this, Object, Context.GetAssetPath());
-		auto Result = State.Update();
-		Context.SetResult(Result);
-		if (Result.State == EThumbnailDrawStatus::ReadyToRender)
-		{
-			if (auto Prepared = State.PreparePreview(Context); !Prepared)
-			{
-				if (Context.GetResult().State == EThumbnailDrawStatus::ReadyToRender)
-					Context.SetResult({.Diagnostic = Prepared.error()});
-			}
-			else Context.SetValidation([&State] { return State.ValidatePreparedInput(); });
-		}
+		State.Draw(Context);
 	}
 
 } // namespace Durin::TextureEditor

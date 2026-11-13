@@ -41,7 +41,9 @@ private DurinEd contracts. Concrete renderers derive directly from
 `DThumbnailRenderer`; the fixed output contract needs no intermediate base class.
 All concrete renderers are `DCLASS` objects with initializer constructors.
 `RegisterCustomRenderer(AssetClass, RendererClass)` validates a concrete renderer
-class and constructs a transient instance through `NewObject`. The native manager
+class and constructs a transient instance through `NewObject`. It returns a
+move-only registration handle, empty on failure; registration does not retain or
+return diagnostic strings. The native manager
 service retains registered instances and pool-owned jobs retain active instances
 with GC strong references; native
 smart pointers never delete a renderer. One renderer class may serve multiple
@@ -147,9 +149,19 @@ The first update submits loading and returns waiting, including for resident
 assets. Once loaded, the job validates the catalog class, calls
 `CanVisualizeAsset`, then invokes `Draw` while a draw slot is available.
 
-`Draw` reports waiting, ready or failed through its context. It never waits for
+Each `Draw` starts waiting. Returning without marking completion defers the
+attempt; `MarkReady` completes setup and `Fail` records a terminal reason.
+`TrySetScene` returns false when another job reserves the scene, leaving the
+draw waiting; an unavailable scene fails the context. There is no parallel
+`expected` result to reconcile with context state. Draw status/results, capture
+binding and validation execution are private job operations. Renderer snapshot
+validation is a boolean predicate; the core reports one stale-resource reason.
+Renderers combine readiness and preview setup in one draw operation.
+`Draw` never waits for
 asset compilation, shaders or GPU completion. The context owns extra dependency
 load handles, renderer-private resource snapshots, configuration and validation.
+Terminal drawing failures receive a default reason at the context boundary when
+needed; the pool forwards that reason without repeated fallback wrappers.
 Material's sphere uses the same context loader as other dependencies. Private
 state types describe actual resources and snapshots; none is a path-only input
 wrapper or implements a session interface.
@@ -184,7 +196,7 @@ render data; thumbnail polling never calls the blocking mesh-load API.
 StaticMesh draws also wait for every assigned default material's current
 compiled program before declaring readiness or binding the renderer scene.
 Pending, running, deferred and scheduled material requests remain parked;
-terminal material failures report a qualified diagnostic. Scene preparation
+terminal material failures report the underlying failure reason. Scene preparation
 captures weak material identities and owned effective material snapshots. These
 contain the accepted program, static properties and flattened parameter values,
 including counted texture references and sampler state. Validation compares

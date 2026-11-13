@@ -76,8 +76,9 @@ namespace Durin
 		// Unregister on GameThread after stopping thumbnail consumers and draining work,
 		// before unloading renderer code. Removal notifies pools to cancel outstanding work.
 		// The manager creates a transient renderer of the registered reflected class.
+		// Returns an empty handle on failure; successful handles own registration.
 		DURINED_API auto RegisterCustomRenderer(DClass* AssetClass, DClass* RendererClass)
-			-> std::expected<FThumbnailRendererRegistrationHandle, std::string>;
+			-> FThumbnailRendererRegistrationHandle;
 		DURINED_API auto UnregisterCustomRenderer(DClass* AssetClass) -> bool;
 		DURINED_API auto GetRenderingInfo(DClass* AssetClass) const -> std::optional<FThumbnailRenderingInfo>;
 		DURINED_API auto Find(std::string_view AssetClassName) const -> FThumbnailRendererHandle;
@@ -100,7 +101,7 @@ namespace Durin
 		DURINED_API auto SetLoadedObjectOverride(std::string_view Name, DObject* Object) -> void;
 		friend struct FThumbnailManagerTestAccess;
 		DURINED_API auto RegisterRendererInstance(DThumbnailRenderer* Renderer, std::string AssetClassName, DClass* AssetClass = nullptr)
-			-> std::expected<FThumbnailRendererRegistrationHandle, std::string>;
+			-> FThumbnailRendererRegistrationHandle;
 		DURINED_API auto UnregisterRendererName(std::string_view AssetClassName) -> bool;
 		auto Capture(
 			const FAssetThumbnailRequest& Request,

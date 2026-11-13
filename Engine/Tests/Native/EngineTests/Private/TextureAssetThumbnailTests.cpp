@@ -317,7 +317,7 @@ TEST(FTextureAssetThumbnailTests, RendererConflictDoesNotAffectIndependentModule
 	Durin::DThumbnailManager ThumbnailManager;
 	std::string Error;
 	auto Existing = ThumbnailManager.RegisterCustomRenderer(Durin::DTextureCube::StaticClass(), Durin::TextureEditor::DTextureCubeThumbnailRenderer::StaticClass());
-	ASSERT_TRUE(Existing) << Existing.error();
+	ASSERT_TRUE(Existing);
 	Durin::FTextureEditorModule Module;
 	Durin::FModuleTestHarness ModuleHarness("TextureEditor");
 	ModuleHarness.Start(Module);

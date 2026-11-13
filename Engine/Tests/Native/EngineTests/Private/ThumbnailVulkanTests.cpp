@@ -74,7 +74,7 @@ namespace
 		{
 			auto& Started = Context.GetState<bool>(false);
 			if (!Started) { Started = true; ++*Loads; }
-			Context.SetResult({.State = Durin::EThumbnailDrawStatus::WaitingForResources});
+			// Leaving the context unchanged defers the draw.
 		}
 
 	private:
@@ -408,7 +408,7 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 		.AssetPath = Durin::Testing::MakePackageLeafTopLevelAssetPathForTests(ProbePackage),
 		.PackagePath = ProbePackage, .AssetClassName = "DReadbackProbe"};
 	auto Registration = Durin::GetDefaultThumbnailManager().RegisterCustomRenderer(Durin::DStaticMesh::StaticClass(), Durin::StaticMeshEditor::DStaticMeshThumbnailRenderer::StaticClass());
-	ASSERT_TRUE(Registration) << Registration.error();
+	ASSERT_TRUE(Registration);
 	const auto StaticMeshFixturePath = Package("SM_Preview");
 	const auto StaticMeshMaterialPath = Package("M_Preview");
 	Durin::DStaticMesh* StaticMeshFixture = nullptr;
@@ -854,7 +854,7 @@ TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplace
 	Pool.Reset();
 	// Exercise the complete cold/warm scheduler path, not only the renderer session.
 	auto Registration = GetDefaultThumbnailManager().RegisterCustomRenderer(DTexture2D::StaticClass(), DTextureThumbnailRenderer::StaticClass());
-	ASSERT_TRUE(Registration) << Registration.error();
+	ASSERT_TRUE(Registration);
 	Tests::FThumbnailTestUIBackend Backend;
 	Tests::FScopedActiveUIBackend BackendScope(Backend);
 	const auto CacheRoot = Testing::GetTestWorkDirectory() / "BuiltTextureThumbnailCache";

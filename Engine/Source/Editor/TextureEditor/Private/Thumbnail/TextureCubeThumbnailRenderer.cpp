@@ -102,65 +102,54 @@ namespace Durin::TextureEditor
 
 			~FTextureCubeThumbnailDrawState() { ResetPreview(); }
 
-			auto Update() -> FThumbnailDrawResult
+			auto Draw(FThumbnailDrawContext& Context) -> void
 			{
 				auto Readiness = CheckTextureCubeReadiness(TextureCube.Get());
 				if (!Readiness)
-					return {
-						.State = EThumbnailDrawStatus::Failed,
-						.Diagnostic = std::move(Readiness.error())};
+					return Context.Fail(std::move(Readiness.error()));
 				if (*Readiness && !bShadersRequested && GEngine && GEngine->GetRendererModule())
 				{
 					Shaders = GEngine->GetRendererModule()->PrepareSceneThumbnailShaders();
 					bShadersRequested = true;
 				}
 				auto ShaderReady = Shaders.Poll();
-				if (!ShaderReady) return {.Diagnostic = ShaderReady.error()};
-				return {
-					.State = *Readiness && *ShaderReady
-						? EThumbnailDrawStatus::ReadyToRender
-						: EThumbnailDrawStatus::WaitingForResources};
-			}
+				if (!ShaderReady) return Context.Fail(ShaderReady.error());
+				if (!(*Readiness && *ShaderReady)) return;
 
-			auto PreparePreview(
-				FThumbnailDrawContext& Context) -> std::expected<void, std::string>
-			{
 				if (!TextureCube.IsValid())
 				{
-					return std::unexpected(std::format(
+					return Context.Fail(std::format(
 						"The rendered-thumbnail TextureCube {} is unavailable.",
 						AssetPath.ToString()));
 				}
-				auto Readiness = CheckTextureCubeReadiness(TextureCube.Get());
-				if (!Readiness) return std::unexpected(std::move(Readiness.error()));
-				if (!*Readiness) return std::unexpected("The TextureCube render resource is not ready.");
 				Snapshot = TextureCube.Get()->GetResource()->GetTextureRHI_GameThread();
 				const FRHITextureReferenceRef TextureReference = Snapshot
 					? FTextureReference(Snapshot).GetTextureReferenceRHI() : FRHITextureReferenceRef{};
 				if (TextureReference == nullptr)
 				{
-					return std::unexpected(std::format(
+					return Context.Fail(std::format(
 						"The rendered-thumbnail TextureCube {} has no texture reference.",
 						AssetPath.ToString()));
 				}
-				if (auto Bound = Context.SetScene(Renderer.GetPreviewScene()); !Bound) return Bound;
+				if (!Context.TrySetScene(Renderer.GetPreviewScene())) return;
 				Context.SetView(MakeTextureCubeThumbnailView());
 				Context.SetViewEnvironment({.TextureReference = TextureReference});
-				return {};
+				Context.SetValidation([this] { return IsSnapshotCurrent(); });
+				Context.MarkReady();
 			}
 
-			auto ValidatePreparedInput() const -> std::expected<void, std::string>
+			auto IsSnapshotCurrent() const -> bool
 			{
 				auto Readiness = CheckTextureCubeReadiness(TextureCube.Get());
-				if (!Readiness) return std::unexpected(std::move(Readiness.error()));
+				if (!Readiness) return false;
 				if (!*Readiness || !TextureCube.IsValid()
 					|| (TextureCube.Get()->GetPackage() ? TextureCube.Get()->GetPackage()->GetEditRevision() : 0) != AssetRevision
 					|| TextureCube.Get()->GetSource().GetIdentity() != SourceIdentity
 					|| !Snapshot || TextureCube.Get()->GetResource()->GetTextureRHI_GameThread() != Snapshot)
 				{
-					return std::unexpected("The TextureCube changed while its thumbnail was being generated.");
+					return false;
 				}
-				return {};
+				return true;
 			}
 
 			auto ResetPreview() -> void
@@ -238,19 +227,9 @@ namespace Durin::TextureEditor
 
 	auto DTextureCubeThumbnailRenderer::Draw(DObject* Object, FThumbnailDrawContext& Context) -> void
 	{
-		if (!CanVisualizeAsset(Object)) { Context.SetResult({.Diagnostic = "The renderer cannot visualize this asset."}); return; }
+		if (!CanVisualizeAsset(Object)) return Context.Fail("The renderer cannot visualize this asset.");
 		auto& State = Context.GetState<FTextureCubeThumbnailDrawState>(*this, Object, Context.GetAssetPath());
-		auto Result = State.Update();
-		Context.SetResult(Result);
-		if (Result.State == EThumbnailDrawStatus::ReadyToRender)
-		{
-			if (auto Prepared = State.PreparePreview(Context); !Prepared)
-			{
-				if (Context.GetResult().State == EThumbnailDrawStatus::ReadyToRender)
-					Context.SetResult({.Diagnostic = Prepared.error()});
-			}
-			else Context.SetValidation([&State] { return State.ValidatePreparedInput(); });
-		}
+		State.Draw(Context);
 	}
 
 } // namespace Durin::TextureEditor

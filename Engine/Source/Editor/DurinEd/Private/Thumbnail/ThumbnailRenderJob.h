@@ -5,6 +5,23 @@
 #include "Thumbnail/AssetThumbnailTypes.h"
 namespace Durin
 {
+	// Reports the renderer-owned cold-generation state observed by the shared core.
+	enum class EThumbnailDrawStatus : uint8
+	{
+		WaitingForResources,
+		ReadyToRender,
+		Failed
+	};
+
+	// A draw can defer without reserving a scene; diagnostics describe terminal failures.
+	struct FThumbnailDrawResult
+	{
+		EThumbnailDrawStatus State =
+			EThumbnailDrawStatus::Failed;
+
+		std::string Diagnostic;
+	};
+
 	class FThumbnailRenderJob final
 	{
 	public:

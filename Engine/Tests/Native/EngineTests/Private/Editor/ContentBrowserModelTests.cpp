@@ -442,7 +442,7 @@ TEST_F(FContentBrowserModelTests, RoutesStaticMeshAssetsToThumbnails)
 	ASSERT_NE(AssetData, nullptr);
 	auto ThumbnailRegistration = Durin::FThumbnailManagerTestAccess::RegisterScoped(GetDefaultThumbnailManager(),
 			Durin::MakeThumbnailRenderer<FRouteOnlyThumbnailRenderer>(TestAssetClassName(AssetData->TopLevelAssets.front())));
-	ASSERT_TRUE(ThumbnailRegistration) << ThumbnailRegistration.error();
+	ASSERT_TRUE(ThumbnailRegistration);
 
 	FNativeContentBrowserTestQuery ModelSource;
 
