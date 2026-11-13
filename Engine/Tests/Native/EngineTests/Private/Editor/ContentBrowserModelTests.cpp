@@ -3745,14 +3745,14 @@ TEST_F(FContentBrowserModelTests, SourceThumbnailRequestsUseFileIdentityAndInval
 		.FileSize = 128, .LastWriteTime = std::filesystem::file_time_type::clock::now()});
 	References.BeginFrame();
 	References.Request(Image, EAssetThumbnailPriority::Visible);
-	EXPECT_EQ(References.Find(Image.GetItemKey()).State, EAssetThumbnailState::Queued);
+	EXPECT_EQ(References.Find(Image.GetItemKey()).State, EAssetThumbnailState::Pending);
 	EXPECT_EQ(References.GetAssetReferenceCountForTesting(), 0u);
 	References.ApplyContentChanges({.Changes = {{EContentChangeKind::Modified, TestPhysicalPath(Image), TestPhysicalPath(Image)}}});
-	EXPECT_EQ(References.Find(Image.GetItemKey()).State, EAssetThumbnailState::NotRequested);
+	EXPECT_EQ(References.Find(Image.GetItemKey()).State, EAssetThumbnailState::None);
 	const auto Text = Query.BindItemForTesting(FContentBrowserItem{.Kind = EContentBrowserItemKind::File,
 		.PhysicalPath = (Root / "Content/Notes.txt").generic_string(), .Extension = ".txt"});
 	References.Request(Text, EAssetThumbnailPriority::Visible);
-	EXPECT_EQ(References.Find(Text.GetItemKey()).State, EAssetThumbnailState::NotRequested);
+	EXPECT_EQ(References.Find(Text.GetItemKey()).State, EAssetThumbnailState::None);
 }
 
 TEST_F(FContentBrowserModelTests, ThumbnailReferencesReleaseCardsOutsideCurrentFrame)
@@ -3801,7 +3801,7 @@ TEST_F(FContentBrowserModelTests, ThumbnailReferencesReleaseCardsOutsideCurrentF
 	References.EndFrame();
 	EXPECT_EQ(References.GetAssetReferenceCountForTesting(), 1u);
 	EXPECT_EQ(SecondPanel.GetAssetReferenceCountForTesting(), 1u);
-	EXPECT_EQ(SecondPanel.Find(OtherItem.GetItemKey()).State, EAssetThumbnailState::Queued);
+	EXPECT_EQ(SecondPanel.Find(OtherItem.GetItemKey()).State, EAssetThumbnailState::Pending);
 	References.BeginFrame();
 	References.Request(OtherItem, EAssetThumbnailPriority::Prefetch);
 	References.EndFrame();
@@ -3809,7 +3809,7 @@ TEST_F(FContentBrowserModelTests, ThumbnailReferencesReleaseCardsOutsideCurrentF
 	References.BeginFrame();
 	References.EndFrame();
 	EXPECT_EQ(References.GetAssetReferenceCountForTesting(), 0u);
-	EXPECT_EQ(SecondPanel.Find(OtherItem.GetItemKey()).State, EAssetThumbnailState::Queued);
+	EXPECT_EQ(SecondPanel.Find(OtherItem.GetItemKey()).State, EAssetThumbnailState::Pending);
 }
 
 TEST_F(FContentBrowserModelTests, AssetAdditionIntroducesMissingDirectoryWithoutInvalidatingExistingChildren)
@@ -4570,7 +4570,7 @@ TEST_F(FContentBrowserModelTests, SourceImagePreviewUsesProviderAttributesRather
 	EXPECT_EQ(TestPhysicalPath(Item), Source->PreviewPath); EXPECT_EQ(TestExtension(Item), ".png");
 	FContentBrowserThumbnailReferences References; References.BeginFrame();
 	References.Request(Item, EAssetThumbnailPriority::Visible);
-	EXPECT_EQ(References.Find(Item.GetItemKey()).State, EAssetThumbnailState::Queued);
+	EXPECT_EQ(References.Find(Item.GetItemKey()).State, EAssetThumbnailState::Pending);
 }
 
 TEST_F(FContentBrowserModelTests, DeleteRetainsIndependentCommitsAndRetriesOnlySurvivors)

@@ -324,9 +324,9 @@ TEST(FMaterialThumbnailRendererTests, InvalidInstancePublishesOneStableDiagnosti
 	ASSERT_TRUE(Handle);
 	Durin::FAssetThumbnailPool Cache(ThumbnailManager);
 	Durin::ProcessAsyncLoading();
-	Cache.BeginFrame();
-	Cache.Request(MakeFingerprint(*Data), Durin::EAssetThumbnailPriority::Visible);
-	Cache.EndFrame();
+
+	Cache.AccessTexture(MakeFingerprint(*Data), Durin::EAssetThumbnailPriority::Visible);
+	Cache.Tick();
 	// The cache lookup completes asynchronously before renderer validation runs.
 	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 	while (Cache.Find(MakeAssetPath(InvalidPath)).State != Durin::EAssetThumbnailState::Failed
@@ -334,17 +334,17 @@ TEST(FMaterialThumbnailRendererTests, InvalidInstancePublishesOneStableDiagnosti
 	{
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		Durin::ProcessAsyncLoading();
-		Cache.BeginFrame();
-		Cache.EndFrame();
+
+		Cache.Tick();
 	}
 	const Durin::FAssetThumbnailView First = Cache.Find(MakeAssetPath(InvalidPath));
 	ASSERT_EQ(First.State, Durin::EAssetThumbnailState::Failed);
 	EXPECT_NE(First.Diagnostic.find("parent"), std::string::npos) << First.Diagnostic;
 
 	Durin::ProcessAsyncLoading();
-	Cache.BeginFrame();
-	Cache.Request(MakeFingerprint(*Data), Durin::EAssetThumbnailPriority::Visible);
-	Cache.EndFrame();
+
+	Cache.AccessTexture(MakeFingerprint(*Data), Durin::EAssetThumbnailPriority::Visible);
+	Cache.Tick();
 	const Durin::FAssetThumbnailView Repeated = Cache.Find(MakeAssetPath(InvalidPath));
 	EXPECT_EQ(Repeated.State, Durin::EAssetThumbnailState::Failed);
 	EXPECT_EQ(Repeated.Diagnostic, First.Diagnostic);

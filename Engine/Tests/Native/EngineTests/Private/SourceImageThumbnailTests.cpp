@@ -79,15 +79,13 @@ namespace Durin::ContentBrowser::Private
 			.Priority = EAssetThumbnailPriority::Visible});
 
 		const FAssetThumbnailView AssetView = Cache.Find("/Game/Textures/Example");
-		EXPECT_EQ(AssetView.State, EAssetThumbnailState::Queued);
-		EXPECT_EQ(AssetView.RequestSerial, 1u);
+		EXPECT_EQ(AssetView.State, EAssetThumbnailState::Pending);
 		EXPECT_EQ(Cache.Find("C:/Project/Content/Textures/Example.png").State,
-			EAssetThumbnailState::NotRequested);
+			EAssetThumbnailState::None);
 
 		Cache.CancelPendingRequests();
 		const FAssetThumbnailView CancelledView = Cache.Find("/Game/Textures/Example");
-		EXPECT_EQ(CancelledView.State, EAssetThumbnailState::NotRequested);
-		EXPECT_GT(CancelledView.RequestSerial, AssetView.RequestSerial);
+		EXPECT_EQ(CancelledView.State, EAssetThumbnailState::None);
 	}
 
 	TEST(FSourceImageThumbnailTests, MultipleItemIdentitiesCoalesceOneSourceEntry)
@@ -107,9 +105,11 @@ namespace Durin::ContentBrowser::Private
 
 		const FAssetThumbnailView AssetView = Cache.Find(AssetRequest.Identity);
 		const FAssetThumbnailView SourceView = Cache.Find(SourceRequest.Identity);
-		EXPECT_EQ(AssetView.State, EAssetThumbnailState::Queued);
-		EXPECT_EQ(SourceView.State, EAssetThumbnailState::Queued);
-		EXPECT_EQ(AssetView.RequestSerial, SourceView.RequestSerial);
+		EXPECT_EQ(AssetView.State, EAssetThumbnailState::Pending);
+		EXPECT_EQ(SourceView.State, EAssetThumbnailState::Pending);
+		Cache.Invalidate(AssetRequest.Identity);
+		EXPECT_EQ(Cache.Find(AssetRequest.Identity).State, EAssetThumbnailState::None);
+		EXPECT_EQ(Cache.Find(SourceRequest.Identity).State, EAssetThumbnailState::None);
 	}
 
 	TEST(FSourceImageThumbnailTests, ShutdownRejectsRequestsAndIsIdempotent)
@@ -123,14 +123,14 @@ namespace Durin::ContentBrowser::Private
 			.LastWriteTime = std::filesystem::file_time_type::clock::now()});
 		ASSERT_EQ(
 			Cache.Find("/Game/Textures/Pending").State,
-			EAssetThumbnailState::Queued);
+			EAssetThumbnailState::Pending);
 
 		Cache.Shutdown();
 		Cache.Shutdown();
 		EXPECT_TRUE(Cache.IsShuttingDown());
 		EXPECT_EQ(
 			Cache.Find("/Game/Textures/Pending").State,
-			EAssetThumbnailState::NotRequested);
+			EAssetThumbnailState::None);
 
 		Cache.Request({
 			.Identity = "/Game/Textures/Late",
@@ -141,7 +141,7 @@ namespace Durin::ContentBrowser::Private
 		Cache.EndFrame();
 		EXPECT_EQ(
 			Cache.Find("/Game/Textures/Late").State,
-			EAssetThumbnailState::NotRequested);
+			EAssetThumbnailState::None);
 	}
 
 	TEST(FSourceImageThumbnailTests, DecodeTasksPublishOwnerDiagnostics)
@@ -166,8 +166,8 @@ namespace Durin::ContentBrowser::Private
 				.Priority = EAssetThumbnailPriority::Visible});
 			Cache.EndFrame();
 
-			EAssetThumbnailState State = EAssetThumbnailState::Loading;
-			for (uint32 Attempt = 0; Attempt < 1'000 && State == EAssetThumbnailState::Loading; ++Attempt)
+			EAssetThumbnailState State = EAssetThumbnailState::Pending;
+			for (uint32 Attempt = 0; Attempt < 1'000 && State == EAssetThumbnailState::Pending; ++Attempt)
 			{
 				std::this_thread::sleep_for(std::chrono::milliseconds(1));
 				Cache.BeginFrame();
@@ -271,7 +271,7 @@ namespace Durin::ContentBrowser::Private
 
 			Cache.Shutdown();
 			EXPECT_EQ(Cache.Find("/Game/Textures/CanceledThumbnail").State,
-				EAssetThumbnailState::NotRequested);
+				EAssetThumbnailState::None);
 			const FTaskSchedulerDiagnostics ClosedDiagnostics =
 				GetTaskSchedulerDiagnostics();
 			EXPECT_EQ(Cache.GetTrackedTaskCountForTesting(), 0u);
@@ -583,13 +583,12 @@ namespace Durin::ContentBrowser::Private
 		Cache.Request({.Identity = "A", .PhysicalPath = "/source/A.png"});
 		Cache.Request({.Identity = "B", .PhysicalPath = "/source/B.png"});
 		const auto Before = Cache.Find("B");
-		EXPECT_EQ(Before.State, EAssetThumbnailState::Queued);
+		EXPECT_EQ(Before.State, EAssetThumbnailState::Pending);
 		Cache.Invalidate("A");
-		EXPECT_EQ(Cache.Find("A").State, EAssetThumbnailState::NotRequested);
+		EXPECT_EQ(Cache.Find("A").State, EAssetThumbnailState::None);
 		EXPECT_EQ(Cache.Find("B").State, Before.State);
-		EXPECT_EQ(Cache.Find("B").RequestSerial, Before.RequestSerial);
 		Cache.Request({.Identity = "A", .PhysicalPath = "/source/A.png"});
-		EXPECT_GT(Cache.Find("A").RequestSerial, Before.RequestSerial);
+		EXPECT_EQ(Cache.Find("A").State, EAssetThumbnailState::Pending);
 		Cache.CancelPendingRequests();
 	}
 }

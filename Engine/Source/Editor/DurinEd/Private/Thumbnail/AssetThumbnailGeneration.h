@@ -11,8 +11,7 @@ namespace Durin
 	// Distinguishes a persistent warm hit from cold renderer work without loading the asset.
 	struct FAssetThumbnailStartResult
 	{
-		std::optional<FAssetThumbnailScheduledRequest> ColdJob;
-		std::optional<FAssetThumbnailScheduledRequest> WarmJob;
+		std::optional<FAssetThumbnailScheduledRequest> Job;
 		FByteBuffer Pixels;
 		bool bProgressed = false;
 	};
@@ -36,7 +35,7 @@ namespace Durin
 		// Resets the render-start allowance; callers invoke this once on the game thread per editor frame.
 		DURINED_API auto BeginFrame() -> void;
 		// Returns completed warm pixels or cold work without waiting for cache I/O.
-		DURINED_API auto StartNextDetailed() -> FAssetThumbnailStartResult;
+		DURINED_API auto PollNext() -> FAssetThumbnailStartResult;
 		DURINED_API auto CompleteLoad(
 			FAssetThumbnailScheduledRequest& Job, std::string_view Error = {}) -> bool;
 		// Leaves the job waiting when resources are not ready and consumes no render allowance.

@@ -75,7 +75,7 @@ namespace Durin::ContentBrowser::Private
 		auto& Thumbnail = AssetThumbnails[Identity];
 		if (!Thumbnail) Thumbnail = std::make_unique<FAssetThumbnail>(Fingerprint);
 		else Thumbnail->Reassign(Fingerprint);
-		Thumbnail->Request(Priority);
+		Thumbnail->AccessTexture(Priority);
 	}
 
 	auto FContentBrowserThumbnailReferences::Find(const FContentBrowserItemKey& Identity) const

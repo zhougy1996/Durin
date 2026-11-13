@@ -21,7 +21,7 @@ namespace Durin
 		DURINED_API auto operator=(FAssetThumbnail&& Other) noexcept -> FAssetThumbnail&;
 
 		DURINED_API auto Reassign(FAssetThumbnailPackageFingerprint Asset) -> void;
-		DURINED_API auto Request(EAssetThumbnailPriority Priority) -> void;
+		DURINED_API auto AccessTexture(EAssetThumbnailPriority Priority = EAssetThumbnailPriority::Visible) -> FAssetThumbnailView;
 		DURINED_API auto Refresh() -> void;
 		DURINED_API auto GetView() const -> FAssetThumbnailView;
 		auto GetAssetPath() const -> const FTopLevelAssetPath& { return Asset.AssetPath; }

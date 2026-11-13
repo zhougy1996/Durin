@@ -841,9 +841,9 @@ TEST(FAssetPickerTests, OpeningMaterialCandidatesCompletesPopupLayout)
 	std::array<char, 64> Search{};
 	for (int Frame = 0; Frame < 3; ++Frame)
 	{
-		ThumbnailPool.BeginFrame();
+		ThumbnailPool.Tick(false);
 		if (Frame > 1)
-			EXPECT_EQ(ThumbnailPool.Find(AssetPath).State, EAssetThumbnailState::Queued);
+			EXPECT_EQ(ThumbnailPool.Find(AssetPath).State, EAssetThumbnailState::Pending);
 		ImGui::NewFrame();
 		ImGui::SetNextWindowSize(ImVec2(400.0f, 300.0f));
 		ImGui::Begin("AssetPickerLayoutTest");
@@ -862,7 +862,7 @@ TEST(FAssetPickerTests, OpeningMaterialCandidatesCompletesPopupLayout)
 		// visible rows start submitting requests on the following frame.
 		if (Frame > 0)
 		{
-			EXPECT_EQ(ThumbnailPool.Find(AssetPath).State, EAssetThumbnailState::Queued);
+			EXPECT_EQ(ThumbnailPool.Find(AssetPath).State, EAssetThumbnailState::Pending);
 			EXPECT_EQ(ThumbnailPool.GetStats().QueuedJobs, 1u);
 		}
 		EXPECT_EQ(ThumbnailPool.GetStats().Referencers, 0u);

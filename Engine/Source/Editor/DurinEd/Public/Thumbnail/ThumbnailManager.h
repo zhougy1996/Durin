@@ -12,6 +12,7 @@ namespace Durin
 	class DClass;
 	struct FThumbnailManagerTestAccess;
 	struct FAssetThumbnailGenerationRequest;
+	struct FAssetThumbnailRequest;
 	struct FThumbnailRenderingInfo;
 	class FAssetThumbnailPool;
 

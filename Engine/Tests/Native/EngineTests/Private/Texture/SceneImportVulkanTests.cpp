@@ -637,8 +637,8 @@ TEST_F(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			Durin::DStaticMesh* Mesh,
 			Durin::DMaterialInterface* Material,
 			bool bForceLOD0 = false,
-			Durin::EThumbnailCaptureState ExpectedState =
-				Durin::EThumbnailCaptureState::Ready) {
+			bool ExpectedState =
+				true) {
 			Durin::FByteBuffer Pixels;
 			Pool.SetForceLOD0(bForceLOD0);
 			EXPECT_TRUE(Pool.SetMaterial(

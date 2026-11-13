@@ -94,9 +94,7 @@ namespace Durin::ContentBrowser::Private::ContentBrowserItemView
 	{
 		if (Thumbnail.State == EAssetThumbnailState::Ready && Thumbnail.Texture)
 			return EThumbnailPresentation::Ready;
-		if (Thumbnail.State == EAssetThumbnailState::Queued
-			|| Thumbnail.State == EAssetThumbnailState::Loading
-			|| Thumbnail.State == EAssetThumbnailState::Uploading)
+		if (Thumbnail.State == EAssetThumbnailState::Pending)
 			return EThumbnailPresentation::Loading;
 		if (Thumbnail.State == EAssetThumbnailState::Failed)
 			return EThumbnailPresentation::Failed;

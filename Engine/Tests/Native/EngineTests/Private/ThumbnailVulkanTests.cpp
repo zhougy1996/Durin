@@ -497,24 +497,24 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 			Durin::FAssetCompilingManager::Get().ProcessAsyncTasks(true);
 			Durin::ProcessAsyncLoading();
 			Durin::Tests::BeginThumbnailTestFrame();
-			Cache.BeginFrame();
-			Cache.Request(
+
+			Cache.AccessTexture(
 				StaticMeshFingerprint,
 				Durin::EAssetThumbnailPriority::Visible
 			);
 			View = Cache.Find(StaticMeshFingerprint.AssetPath);
-			Cache.EndFrame();
+			Cache.Tick();
 			if (!bProbed && Cache.GetStats().Generation.Renders == 1)
 			{
 				bProbed = true;
 				// Do not poll capture completion: a real render/readback owns the
 				// slot throughout this interval. Other rendered assets must still load.
 				Cache.AddReferencer(Probe.AssetPath);
-				Cache.Request(Probe, Durin::EAssetThumbnailPriority::Visible);
+				Cache.AccessTexture(Probe, Durin::EAssetThumbnailPriority::Visible);
 				const auto ProbeDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
 				while (Cache.GetStats().ParkedResourceWaits == 0 && std::chrono::steady_clock::now() < ProbeDeadline)
 				{
-					Cache.EndFrame();
+					Cache.Tick();
 					std::this_thread::sleep_for(std::chrono::milliseconds(1));
 				}
 				EXPECT_EQ(Cache.GetStats().Generation.Loads, 2u);
@@ -555,8 +555,8 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 		{
 			Durin::ProcessAsyncLoading();
 			Durin::Tests::BeginThumbnailTestFrame();
-			Cache.BeginFrame();
-			Cache.EndFrame();
+
+			Cache.Tick();
 			std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		}
 		ASSERT_EQ(Cache.GetStats().Generation.CacheWrites, 1u);
@@ -583,14 +583,14 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 			WarmCache.Find(StaticMeshFingerprint.AssetPath);
 		EXPECT_EQ(Retained.State, Durin::EAssetThumbnailState::Ready);
 		EXPECT_EQ(Retained.Texture, Ready.Texture);
-		WarmCache.BeginFrame();
-		WarmCache.Request(
+
+		WarmCache.AccessTexture(
 			StaticMeshFingerprint,
 			Durin::EAssetThumbnailPriority::Visible
 		);
 		const Durin::FAssetThumbnailView Revisited =
 			WarmCache.Find(StaticMeshFingerprint.AssetPath);
-		WarmCache.EndFrame();
+		WarmCache.Tick();
 		EXPECT_EQ(Revisited.State, Durin::EAssetThumbnailState::Ready);
 		EXPECT_EQ(Revisited.Texture, Ready.Texture);
 		const Durin::FAssetThumbnailPoolStats RevisitedStats =
@@ -694,7 +694,7 @@ TEST_F(FThumbnailVulkanTests, EnvironmentValidationAndCancellationReleaseReferen
 	Durin::FByteBuffer UnavailableEnvironmentPixels;
 	EXPECT_EQ(
 		Pool.FinishCapture(UnavailableEnvironmentPixels, Error),
-		Durin::EThumbnailCaptureState::Failed
+		false
 	);
 	EXPECT_TRUE(UnavailableEnvironmentPixels.empty());
 	EXPECT_NE(Error.find("view environment"), std::string::npos);
@@ -707,7 +707,7 @@ TEST_F(FThumbnailVulkanTests, EnvironmentValidationAndCancellationReleaseReferen
 	Durin::FByteBuffer RecoveredReadback;
 	ASSERT_EQ(
 		Pool.FinishCapture(RecoveredReadback, Error),
-		Durin::EThumbnailCaptureState::Ready
+		true
 	) << Error;
 	EXPECT_EQ(RecoveredReadback.size(), 64u * 64u * 4u);
 	Pool.Reset();
@@ -718,7 +718,7 @@ TEST_F(FThumbnailVulkanTests, EnvironmentValidationAndCancellationReleaseReferen
 	Durin::FByteBuffer FailedEnvironmentPixels;
 	EXPECT_EQ(
 		Pool.FinishCapture(FailedEnvironmentPixels, Error),
-		Durin::EThumbnailCaptureState::Failed
+		false
 	);
 	EXPECT_TRUE(FailedEnvironmentPixels.empty());
 	EXPECT_NE(Error.find("view environment"), std::string::npos);
@@ -832,16 +832,15 @@ TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplace
 	ASSERT_TRUE(Pool.BeginCapture());
 	FlushRenderingCommands();
 	FByteBuffer Pixels;
-	EThumbnailCaptureState CaptureState{};
+	bool bCaptureSucceeded = false;
 	ASSERT_TRUE(WaitForResourcePublication([&] {
 		auto Capture = Pool.PollCapture();
-		CaptureState = !Capture ? EThumbnailCaptureState::Failed
-			: Capture->has_value() ? EThumbnailCaptureState::Ready : EThumbnailCaptureState::ReadbackPending;
+		bCaptureSucceeded = Capture && Capture->has_value();
 		if (!Capture) Error = Capture.error();
 		else if (Capture->has_value()) Pixels = std::move(**Capture);
-		return CaptureState == EThumbnailCaptureState::Ready || CaptureState == EThumbnailCaptureState::Failed;
+		return !Capture || Capture->has_value();
 	}));
-	ASSERT_EQ(CaptureState, EThumbnailCaptureState::Ready) << Error;
+	ASSERT_TRUE(bCaptureSucceeded) << Error;
 	ASSERT_EQ(Pixels.size(), 64u * 64u * 4u);
 	const auto Consumed = Pool.PollCapture();
 	ASSERT_TRUE(Consumed);
@@ -865,10 +864,10 @@ TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplace
 		ASSERT_TRUE(WaitForResourcePublication([&] {
 			Durin::ProcessAsyncLoading();
 			Durin::Tests::BeginThumbnailTestFrame();
-			Cache.BeginFrame();
-			Cache.Request(Request.Asset, EAssetThumbnailPriority::Visible);
+
+			Cache.AccessTexture(Request.Asset, EAssetThumbnailPriority::Visible);
 			View = Cache.Find(Request.Asset.AssetPath);
-			Cache.EndFrame();
+			Cache.Tick();
 			return View.State == EAssetThumbnailState::Ready || View.State == EAssetThumbnailState::Failed;
 		}));
 		ASSERT_EQ(View.State, EAssetThumbnailState::Ready) << View.Diagnostic;
@@ -882,7 +881,7 @@ TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplace
 			ASSERT_TRUE(WaitForResourcePublication([&] {
 				Durin::ProcessAsyncLoading();
 				Durin::Tests::BeginThumbnailTestFrame();
-			Cache.BeginFrame(); Cache.EndFrame();
+			Cache.Tick();
 				return Cache.GetStats().Generation.CacheWrites == 1;
 			}));
 	}
@@ -936,16 +935,15 @@ TEST_F(FThumbnailVulkanTests, TexturePreviewPreservesRawChannelsSrgbAndAspectRat
 		ASSERT_TRUE(Pool.BeginCapture());
 		FlushRenderingCommands();
 		FByteBuffer Pixels;
-		EThumbnailCaptureState CaptureState{};
+		bool bCaptureSucceeded = false;
 		ASSERT_TRUE(WaitForResourcePublication([&] {
 			auto Capture = Pool.PollCapture();
-			CaptureState = !Capture ? EThumbnailCaptureState::Failed
-				: Capture->has_value() ? EThumbnailCaptureState::Ready : EThumbnailCaptureState::ReadbackPending;
+			bCaptureSucceeded = Capture && Capture->has_value();
 			if (!Capture) Error = Capture.error();
 			else if (Capture->has_value()) Pixels = std::move(**Capture);
-			return CaptureState == EThumbnailCaptureState::Ready || CaptureState == EThumbnailCaptureState::Failed;
+			return !Capture || Capture->has_value();
 		}));
-		ASSERT_EQ(CaptureState, EThumbnailCaptureState::Ready) << Error;
+		ASSERT_TRUE(bCaptureSucceeded) << Error;
 		ASSERT_EQ(Pixels.size(), 64u * 64u * 4u);
 		EXPECT_EQ(Pixels[3], std::byte{0}); // Aspect-fit margin stays transparent.
 		const size_t Center = (32 * 64 + 32) * 4;
@@ -968,7 +966,7 @@ TEST_F(FThumbnailVulkanTests, CaptureWaitsForOptionalResourcesInsteadOfPublishin
     ASSERT_TRUE(Pool.BeginCapture());
     FByteBuffer WarmPixels;
     std::string Error;
-    ASSERT_EQ(Tests::FinishThumbnailCapture(Pool, WarmPixels, Error), EThumbnailCaptureState::Ready) << Error;
+    ASSERT_EQ(Tests::FinishThumbnailCapture(Pool, WarmPixels, Error), true) << Error;
     ASSERT_FALSE(WarmPixels.empty());
 
     auto Policy = std::make_shared<std::unique_ptr<FScopedRendererQualificationPolicy>>();
@@ -991,7 +989,7 @@ TEST_F(FThumbnailVulkanTests, CaptureWaitsForOptionalResourcesInsteadOfPublishin
     EnqueueRenderCommand("ReleaseThumbnailOptionalResource", [Policy](FRHICommandListImmediate&) { Policy->reset(); });
     FlushRenderingCommands();
     FByteBuffer CompletePixels;
-    EXPECT_EQ(Tests::FinishThumbnailCapture(Pool, CompletePixels, Error), EThumbnailCaptureState::Ready) << Error;
+    EXPECT_EQ(Tests::FinishThumbnailCapture(Pool, CompletePixels, Error), true) << Error;
     EXPECT_FALSE(CompletePixels.empty());
 }
 
@@ -1013,7 +1011,7 @@ TEST_F(FThumbnailVulkanTests, CaptureSucceedsWithComponentPSOPrecachingDisabled)
 	ASSERT_TRUE(Pool.BeginCapture());
 	FByteBuffer Pixels;
 	std::string Error;
-	ASSERT_EQ(Tests::FinishThumbnailCapture(Pool, Pixels, Error), EThumbnailCaptureState::Ready) << Error;
+	ASSERT_EQ(Tests::FinishThumbnailCapture(Pool, Pixels, Error), true) << Error;
 	EXPECT_FALSE(Pixels.empty());
 	EXPECT_FALSE(Component->GetPSOPrecacheComponentData().IsPSOPrecacheCalled());
 }
@@ -1051,7 +1049,7 @@ TEST_F(FThumbnailVulkanTests, CaptureDoesNotWaitForUnrelatedOptionalComponentPSO
     ASSERT_TRUE(Pool.BeginCapture());
     FByteBuffer Pixels;
     std::string Error;
-    EXPECT_EQ(Tests::FinishThumbnailCapture(Pool, Pixels, Error), EThumbnailCaptureState::Ready) << Error;
+    EXPECT_EQ(Tests::FinishThumbnailCapture(Pool, Pixels, Error), true) << Error;
     EXPECT_FALSE(Pixels.empty());
     EXPECT_TRUE(Component->IsPSOPrecaching());
     Component->GetPSOPrecacheComponentData().Reset();
@@ -1109,7 +1107,7 @@ TEST_F(FThumbnailVulkanTests, CaptureValidatesConfigurationAtSubmission)
 	ASSERT_TRUE(Capture.BeginCapture());
 	FByteBuffer Pixels;
 	std::string Error;
-	EXPECT_EQ(Tests::FinishThumbnailCapture(Capture, Pixels, Error), EThumbnailCaptureState::Ready) << Error;
+	EXPECT_EQ(Tests::FinishThumbnailCapture(Capture, Pixels, Error), true) << Error;
 }
 
 TEST_F(FThumbnailVulkanTests, IndependentPoolsWaitForTheSameRendererScene)
@@ -1152,9 +1150,9 @@ TEST_F(FThumbnailVulkanTests, IndependentPoolsWaitForTheSameRendererScene)
 	auto Pump = [&](FAssetThumbnailPool& Pool) {
 		ProcessAsyncLoading();
 		FAssetCompilingManager::Get().ProcessAsyncTasks();
-		Pool.BeginFrame();
-		Pool.Request(Fingerprint, EAssetThumbnailPriority::Visible);
-		Pool.EndFrame();
+
+		Pool.AccessTexture(Fingerprint, EAssetThumbnailPriority::Visible);
+		Pool.Tick();
 	};
 	ASSERT_TRUE(WaitForResourcePublication([&] { Pump(First); return First.GetStats().CapturesStarted == 1; }));
 	// Keep First's completed or in-flight readback unconsumed: it still owns the scene.

@@ -8,6 +8,18 @@ namespace Durin
 {
 	class DThumbnailManager;
 
+	enum class EThumbnailJobState : uint8
+	{
+		NotRequested,
+		Queued,
+		Loading,
+		WaitingForResources,
+		Rendering,
+		PixelsReady,
+		Invalid,
+		Failed
+	};
+
 	// Admission outcomes are scheduling policy, not generation errors.
 	enum class EThumbnailRequestStatus : uint8
 	{
@@ -46,14 +58,15 @@ namespace Durin
 
 		DURINED_API auto Request(const FAssetThumbnailRequest& Request) -> EThumbnailRequestStatus;
 		DURINED_API auto BeginFrame() -> void;
-		DURINED_API auto Find(const FTopLevelAssetPath& AssetPath) const -> FAssetThumbnailView;
+		DURINED_API auto GetState(const FTopLevelAssetPath& AssetPath) const -> EThumbnailJobState;
+		DURINED_API auto GetFailureReason(const FTopLevelAssetPath& AssetPath) const -> std::string_view;
 		DURINED_API auto TakeNext() -> std::optional<FAssetThumbnailScheduledRequest>;
 		// Advances a captured job only while its key, renderer generation, serial,
-		// and asset identity remain current. Resource validity belongs to the session.
+		// and asset identity remain current. Resource validity belongs to the draw job.
 		DURINED_API auto Transition(
 			const FAssetThumbnailScheduledRequest& Job,
-			EAssetThumbnailState ExpectedState,
-			EAssetThumbnailState NextState,
+			EThumbnailJobState ExpectedState,
+			EThumbnailJobState NextState,
 			std::string_view Diagnostic = {}) -> bool;
 		DURINED_API auto Cancel(const FTopLevelAssetPath& AssetPath) -> void;
 		DURINED_API auto CancelRenderer(uint64 Generation) -> void;

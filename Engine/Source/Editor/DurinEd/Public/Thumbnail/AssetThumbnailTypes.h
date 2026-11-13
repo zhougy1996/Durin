@@ -29,14 +29,9 @@ namespace Durin
 	// Identifies the public lifecycle state of one renderer-neutral thumbnail request.
 	enum class EAssetThumbnailState : uint8
 	{
-		NotRequested,
-		Queued,
-		Loading,
-		WaitingForResources,
-		Rendering,
-		Uploading,
+		None,
+		Pending,
 		Ready,
-		Invalid,
 		Failed
 	};
 
@@ -137,25 +132,16 @@ namespace Durin
 		uint64 GpuTextureBudgetBytes = 64ull * 1024ull * 1024ull;
 	};
 
-	// Identifies one request independently from renderer-owned generation data.
-	struct FAssetThumbnailRequest
-	{
-		FAssetThumbnailPackageFingerprint Asset;
-		EAssetThumbnailPriority Priority = EAssetThumbnailPriority::Prefetch;
-		uint64 RequestSerial = 0;
-	};
-
 	// Exposes one service-owned result without transferring UI texture ownership.
 	struct FAssetThumbnailView
 	{
-		EAssetThumbnailState State = EAssetThumbnailState::NotRequested;
+		EAssetThumbnailState State = EAssetThumbnailState::None;
 		FRHITexture* Texture = nullptr;
 		uint32 Width = 0;
 		uint32 Height = 0;
 		bool bHasTransparency = false;
 		bool bShowTransparencyGrid = true;
 		std::string Diagnostic;
-		uint64 RequestSerial = 0;
 	};
 
 } // namespace Durin

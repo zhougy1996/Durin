@@ -30,15 +30,7 @@ namespace Durin::ContentBrowser::Private
 			ContentBrowserItemView::ResolveThumbnailPresentation(Thumbnail),
 			ContentBrowserItemView::EThumbnailPresentation::Icon);
 
-		Thumbnail.State = EAssetThumbnailState::Queued;
-		EXPECT_EQ(
-			ContentBrowserItemView::ResolveThumbnailPresentation(Thumbnail),
-			ContentBrowserItemView::EThumbnailPresentation::Loading);
-		Thumbnail.State = EAssetThumbnailState::Loading;
-		EXPECT_EQ(
-			ContentBrowserItemView::ResolveThumbnailPresentation(Thumbnail),
-			ContentBrowserItemView::EThumbnailPresentation::Loading);
-		Thumbnail.State = EAssetThumbnailState::Uploading;
+		Thumbnail.State = EAssetThumbnailState::Pending;
 		EXPECT_EQ(
 			ContentBrowserItemView::ResolveThumbnailPresentation(Thumbnail),
 			ContentBrowserItemView::EThumbnailPresentation::Loading);
@@ -55,7 +47,7 @@ namespace Durin::ContentBrowser::Private
 			ContentBrowserItemView::ResolveThumbnailPresentation(Thumbnail),
 			ContentBrowserItemView::EThumbnailPresentation::Failed);
 
-		Thumbnail.State = EAssetThumbnailState::Invalid;
+		Thumbnail.State = EAssetThumbnailState::None;
 		EXPECT_EQ(
 			ContentBrowserItemView::ResolveThumbnailPresentation(Thumbnail),
 			ContentBrowserItemView::EThumbnailPresentation::Icon);

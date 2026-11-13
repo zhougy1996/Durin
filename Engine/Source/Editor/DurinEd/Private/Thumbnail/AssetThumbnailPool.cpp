@@ -546,9 +546,8 @@ namespace Durin
 
 		auto StartNext() -> bool
 		{
-			FAssetThumbnailStartResult Start = Pipeline.StartNextDetailed();
-			const auto* Scheduled = Start.ColdJob ? &*Start.ColdJob
-				: Start.WarmJob ? &*Start.WarmJob : nullptr;
+			FAssetThumbnailStartResult Start = Pipeline.PollNext();
+			const auto* Scheduled = Start.Job ? &*Start.Job : nullptr;
 			if (Scheduled)
 			{
 				const auto& Input = Scheduled->GenerationRequest.KeyInput;
@@ -558,9 +557,9 @@ namespace Durin
 					It->second.bDependenciesCaptured = true;
 				}
 			}
-			if (Start.WarmJob)
+			if (Start.Job && !Start.Pixels.empty())
 			{
-				FAssetThumbnailScheduledRequest& WarmJob = *Start.WarmJob;
+				FAssetThumbnailScheduledRequest& WarmJob = *Start.Job;
 				const FTopLevelAssetPath& Path =
 					WarmJob.GenerationRequest.KeyInput.Asset.AssetPath;
 				if (auto It = Entries.find(Path); It != Entries.end())
@@ -571,8 +570,8 @@ namespace Durin
 					WarmJob.GenerationRequest.KeyInput.Output.Height);
 				return true;
 			}
-			if (!Start.ColdJob) return Start.bProgressed;
-			PreparingJob.emplace(FRenderedJob{.Work = std::move(*Start.ColdJob)});
+			if (!Start.Job) return Start.bProgressed;
+			PreparingJob.emplace(FRenderedJob{.Work = std::move(*Start.Job)});
 			FRenderedJob& Job = *PreparingJob;
 			auto& Request = Job.Work.GenerationRequest;
 			if (auto It = Entries.find(Request.KeyInput.Asset.AssetPath); It != Entries.end())
@@ -621,14 +620,12 @@ namespace Durin
 			BudgetEntries.reserve(Entries.size());
 			for (const auto& [Path, Entry] : Entries)
 			{
-				const EAssetThumbnailState State = Scheduler.Find(Path).State;
+				const EThumbnailJobState State = Scheduler.GetState(Path);
 				const bool bActive = Entry.bUploading
-					|| State == EAssetThumbnailState::Queued
-					|| State == EAssetThumbnailState::Loading
-					|| State == EAssetThumbnailState::WaitingForResources
-					|| State == EAssetThumbnailState::Rendering
-
-					|| State == EAssetThumbnailState::Uploading;
+					|| State == EThumbnailJobState::Queued
+					|| State == EThumbnailJobState::Loading
+					|| State == EThumbnailJobState::WaitingForResources
+					|| State == EThumbnailJobState::Rendering;
 				BudgetEntries.push_back({
 					.Key = Path.ToString(),
 					.Bytes = 1,
@@ -690,29 +687,18 @@ namespace Durin
 		Impl->AsyncState.reset();
 	}
 
-	auto FAssetThumbnailPool::BeginFrame() -> void
-	{
-		++Impl->FrameNumber;
-		Impl->Scheduler.BeginFrame();
-		for (auto& [Path, Entry] : Impl->Entries) Entry.bVisible = false;
-		Impl->CollectBackgroundPackages(*this);
-		Impl->DrainUploads();
-		Impl->FinishCapture();
-		Impl->Pipeline.BeginFrame();
-	}
-
 	auto FAssetThumbnailPool::Prefetch(const FAssetThumbnailPackageFingerprint& Asset) -> void
 	{
-		Request(Asset, EAssetThumbnailPriority::Prefetch);
+		AccessTexture(Asset, EAssetThumbnailPriority::Prefetch);
 		if (const auto It = Impl->Entries.find(Asset.AssetPath); It != Impl->Entries.end())
 			It->second.bBackgroundRequested = true;
 	}
 
-	auto FAssetThumbnailPool::Request(
+	auto FAssetThumbnailPool::AccessTexture(
 		const FAssetThumbnailPackageFingerprint& Asset,
-		EAssetThumbnailPriority Priority) -> void
+		EAssetThumbnailPriority Priority) -> FAssetThumbnailView
 	{
-		if (!Asset.AssetPath.IsValid()) return;
+		if (!Asset.AssetPath.IsValid()) return {};
 		auto [It, bInserted] = Impl->Entries.try_emplace(Asset.AssetPath);
 		FImpl::FEntry& Entry = It->second;
 		if (bInserted)
@@ -733,7 +719,7 @@ namespace Durin
 		if (Entry.Texture)
 		{
 			Entry.Diagnostic.clear();
-			return;
+			return Find(Asset.AssetPath);
 		}
 		const auto Admission = Impl->Scheduler.Request({.Asset = Asset, .Priority = Priority, .RequestSerial = Entry.Serial});
 		// Queue pressure is retried by subsequent visible requests. Old requests
@@ -742,27 +728,40 @@ namespace Durin
 			Entry.Diagnostic = "No thumbnail renderer is registered for this asset class.";
 		else if (!Entry.bUploadFailed)
 			Entry.Diagnostic.clear();
+		return Find(Asset.AssetPath);
 	}
 
-	auto FAssetThumbnailPool::Find(const FTopLevelAssetPath& AssetPath) const
-		-> FAssetThumbnailView
+	auto FAssetThumbnailPool::Find(const FTopLevelAssetPath& AssetPath) const -> FAssetThumbnailView
 	{
-		FAssetThumbnailView View = Impl->Scheduler.Find(AssetPath);
+		FAssetThumbnailView View;
+		const auto Phase = Impl->Scheduler.GetState(AssetPath);
+		switch (Phase)
+		{
+		case EThumbnailJobState::Queued:
+		case EThumbnailJobState::Loading:
+		case EThumbnailJobState::WaitingForResources:
+		case EThumbnailJobState::Rendering:
+		case EThumbnailJobState::PixelsReady:
+			View.State = EAssetThumbnailState::Pending;
+			break;
+		case EThumbnailJobState::Invalid:
+		case EThumbnailJobState::Failed:
+			View.State = EAssetThumbnailState::Failed;
+			View.Diagnostic = Impl->Scheduler.GetFailureReason(AssetPath);
+			break;
+		default: break;
+		}
 		const auto It = Impl->Entries.find(AssetPath);
 		if (It == Impl->Entries.end()) return View;
-		const FImpl::FEntry& Entry = It->second;
+		const auto& Entry = It->second;
 		View.Texture = Entry.Texture;
 		View.Width = Entry.Width;
 		View.Height = Entry.Height;
 		View.bHasTransparency = Entry.bHasTransparency;
 		View.bShowTransparencyGrid = false;
-		if (Entry.Texture)
-			View.State = EAssetThumbnailState::Ready;
-		else if (View.State == EAssetThumbnailState::Ready && Entry.bUploading)
-			View.State = EAssetThumbnailState::Uploading;
-		else if (View.State == EAssetThumbnailState::Ready && Entry.bUploadFailed)
-			View.State = EAssetThumbnailState::Failed;
-		if (!Entry.Diagnostic.empty()) View.Diagnostic = Entry.Diagnostic;
+		if (Entry.Texture) View.State = EAssetThumbnailState::Ready;
+		else if (Entry.bUploadFailed) View.State = EAssetThumbnailState::Failed;
+		if (View.State == EAssetThumbnailState::Failed && !Entry.Diagnostic.empty()) View.Diagnostic = Entry.Diagnostic;
 		return View;
 	}
 
@@ -844,8 +843,14 @@ namespace Durin
 				Refresh(Path);
 	}
 
-	auto FAssetThumbnailPool::EndFrame(bool bAllowNewAdmissions) -> void
+	auto FAssetThumbnailPool::Tick(bool bAllowNewAdmissions) -> void
 	{
+		++Impl->FrameNumber;
+		Impl->CollectBackgroundPackages(*this);
+		Impl->DrainUploads();
+		Impl->FinishCapture();
+		Impl->Pipeline.BeginFrame();
+
 		const auto StartTime = std::chrono::steady_clock::now();
 		if (Impl->PreparingJob)
 			Impl->PollPreparing();
@@ -864,6 +869,9 @@ namespace Durin
 			if (bPreparationFull || !Impl->StartNext()) break;
 		}
 		Impl->EvictToBudget();
+
+		Impl->Scheduler.BeginFrame();
+		for (auto& [Path, Entry] : Impl->Entries) Entry.bVisible = false;
 	}
 
 	auto FAssetThumbnailPool::CancelPendingRequests() -> void

@@ -63,8 +63,8 @@ namespace
 		do
 		{
 			Durin::ProcessAsyncLoading();
-			Cache.BeginFrame();
-			Cache.EndFrame();
+
+			Cache.Tick();
 			if (Complete()) return true;
 			std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		} while (std::chrono::steady_clock::now() < Deadline);
@@ -429,13 +429,13 @@ TEST(FStaticMeshThumbnailRendererTests,
 
 	Durin::FAssetThumbnailPool Cache;
 	Durin::ProcessAsyncLoading();
-	Cache.BeginFrame();
-	Cache.Request(
+
+	Cache.AccessTexture(
 		MakeFingerprint(*Data), Durin::EAssetThumbnailPriority::Visible);
 	EXPECT_EQ(
 		Cache.Find(MakeAssetPath(StaticMeshPath)).State,
-		Durin::EAssetThumbnailState::Queued);
-	Cache.EndFrame();
+		Durin::EAssetThumbnailState::Pending);
+	Cache.Tick();
 	ASSERT_TRUE(AdvanceCacheUntil(Cache, [&] {
 		return Cache.Find(MakeAssetPath(StaticMeshPath)).State == Durin::EAssetThumbnailState::Failed;
 	}));
@@ -447,7 +447,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/ThumbnailFixtures/Unsupported/A_Unsupported",
 		UnsupportedPath));
-	Cache.Request({
+	Cache.AccessTexture({
 		.AssetPath = MakeAssetPath(UnsupportedPath),
 		.PackagePath = UnsupportedPath,
 		.AssetClassName = "DUnsupportedThumbnailAsset",
@@ -456,7 +456,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 		.LastWriteTimeTicks = 1}, Durin::EAssetThumbnailPriority::Visible);
 	EXPECT_EQ(
 		Cache.Find(MakeAssetPath(UnsupportedPath)).State,
-		Durin::EAssetThumbnailState::NotRequested);
+		Durin::EAssetThumbnailState::None);
 	Cache.CancelPendingRequests();
 }
 
@@ -500,9 +500,9 @@ TEST(FStaticMeshThumbnailRendererTests,
 			.CacheRoot = CacheRoot,
 			.ObjectExtension = ".png"});
 		Durin::ProcessAsyncLoading();
-		Cache.BeginFrame();
-		Cache.Request(Fingerprint, Durin::EAssetThumbnailPriority::Visible);
-		Cache.EndFrame();
+
+		Cache.AccessTexture(Fingerprint, Durin::EAssetThumbnailPriority::Visible);
+		Cache.Tick();
 		ASSERT_TRUE(AdvanceCacheUntil(Cache, [&] { return Cache.GetStats().UploadsQueued == 1; }));
 		const Durin::FAssetThumbnailPoolStats Stats = Cache.GetStats();
 		EXPECT_EQ(Stats.Generation.DiskHits, 1u);
@@ -517,13 +517,13 @@ TEST(FStaticMeshThumbnailRendererTests,
 		Cache.CancelPendingRequests();
 		Durin::FlushRenderingCommands();
 		Durin::ProcessAsyncLoading();
-		Cache.BeginFrame();
+
 		EXPECT_EQ(
 			Cache.Find(MakeAssetPath(StaticMeshPath)).State,
-			Durin::EAssetThumbnailState::NotRequested);
+			Durin::EAssetThumbnailState::None);
 		EXPECT_EQ(Cache.GetStats().UploadsCompleted, 0u);
 		EXPECT_EQ(Cache.GetStats().LiveGpuTextures, 0u);
-		Cache.EndFrame();
+		Cache.Tick();
 		Cache.Clear();
 	}
 }
@@ -566,9 +566,9 @@ TEST(FStaticMeshThumbnailRendererTests,
 			.CacheRoot = CacheRoot,
 			.ObjectExtension = ".png"});
 		Durin::ProcessAsyncLoading();
-		Cache.BeginFrame();
-		Cache.Request(Fingerprint, Durin::EAssetThumbnailPriority::Visible);
-		Cache.EndFrame();
+
+		Cache.AccessTexture(Fingerprint, Durin::EAssetThumbnailPriority::Visible);
+		Cache.Tick();
 		ASSERT_TRUE(AdvanceCacheUntil(Cache, [&] { return Cache.GetStats().Generation.Retries == 1; }));
 		EXPECT_EQ(Cache.GetStats().Generation.DiskHits, 0u);
 		EXPECT_EQ(Cache.GetStats().Generation.Retries, 1u);
@@ -619,22 +619,22 @@ TEST(FStaticMeshThumbnailRendererTests,
 	Durin::ProcessAsyncLoading();
 	Cache.BeginFrame();
 	Cache.Request(Item, Durin::EAssetThumbnailPriority::Prefetch);
-	EXPECT_EQ(Cache.Find(Item.GetItemKey()).State, Durin::EAssetThumbnailState::Queued);
+	EXPECT_EQ(Cache.Find(Item.GetItemKey()).State, Durin::EAssetThumbnailState::Pending);
 	Cache.CancelPendingRequests();
-	EXPECT_EQ(Cache.Find(Item.GetItemKey()).State, Durin::EAssetThumbnailState::NotRequested);
+	EXPECT_EQ(Cache.Find(Item.GetItemKey()).State, Durin::EAssetThumbnailState::None);
 
 	// A stale display snapshot cannot supply the package-cache fingerprint.
 	auto StaleInput = NativeInput; ++StaleInput.FileSize;
 	const auto StaleDisplay = Provider.BindItemForTesting(StaleInput);
 	Cache.Request(StaleDisplay, Durin::EAssetThumbnailPriority::Visible);
-	EXPECT_EQ(Cache.Find(Item.GetItemKey()).State, Durin::EAssetThumbnailState::Queued);
+	EXPECT_EQ(Cache.Find(Item.GetItemKey()).State, Durin::EAssetThumbnailState::Pending);
 	Cache.ApplyContentChanges({.Changes = {{Durin::EContentChangeKind::Modified,
 		TestPhysicalPath(Item), TestPhysicalPath(Item)}}});
-	EXPECT_EQ(Cache.Find(Item.GetItemKey()).State, Durin::EAssetThumbnailState::NotRequested);
+	EXPECT_EQ(Cache.Find(Item.GetItemKey()).State, Durin::EAssetThumbnailState::None);
 	Cache.Request(Item, Durin::EAssetThumbnailPriority::Visible);
-	EXPECT_EQ(Cache.Find(Item.GetItemKey()).State, Durin::EAssetThumbnailState::Queued);
+	EXPECT_EQ(Cache.Find(Item.GetItemKey()).State, Durin::EAssetThumbnailState::Pending);
 	Cache.Clear();
-	EXPECT_EQ(Cache.Find(Item.GetItemKey()).State, Durin::EAssetThumbnailState::NotRequested);
+	EXPECT_EQ(Cache.Find(Item.GetItemKey()).State, Durin::EAssetThumbnailState::None);
 
 	// An unregistered identity cannot borrow a different asset's fingerprint.
 	auto MissingInput = NativeInput;
@@ -646,7 +646,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 		FContentBrowserThumbnailReferences ClosingCache;
 		ClosingCache.BeginFrame();
 		ClosingCache.Request(Item, Durin::EAssetThumbnailPriority::Visible);
-		EXPECT_EQ(ClosingCache.Find(Item.GetItemKey()).State, Durin::EAssetThumbnailState::Queued);
+		EXPECT_EQ(ClosingCache.Find(Item.GetItemKey()).State, Durin::EAssetThumbnailState::Pending);
 	}
 }
 
@@ -694,7 +694,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 
 	Durin::FAssetThumbnailPool Cache(ThumbnailManager);
 	Durin::ProcessAsyncLoading();
-	Cache.BeginFrame();
+
 	for (const std::string_view Path : {
 		Durin::Tests::FAssetThumbnailFixtureSet::MaterialPath,
 		Durin::Tests::FAssetThumbnailFixtureSet::DirectionalCubePath,
@@ -705,8 +705,8 @@ TEST(FStaticMeshThumbnailRendererTests,
 		const Durin::FPackageCatalogEntry Data =
 			Durin::FindPackageExact(AssetPath);
 		ASSERT_NE(Data, nullptr);
-		Cache.Request(MakeFingerprint(*Data), Durin::EAssetThumbnailPriority::Visible);
-		EXPECT_EQ(Cache.Find(MakeAssetPath(AssetPath)).State, Durin::EAssetThumbnailState::Queued);
+		Cache.AccessTexture(MakeFingerprint(*Data), Durin::EAssetThumbnailPriority::Visible);
+		EXPECT_EQ(Cache.Find(MakeAssetPath(AssetPath)).State, Durin::EAssetThumbnailState::Pending);
 	}
 
 	// MainFrame shutdown removes concrete modules in reverse composition order.
@@ -718,7 +718,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 	EXPECT_EQ(
 		Manager.FindToolkit(Durin::FAssetEditorToolkitId("StaticMeshEditor")),
 		nullptr);
-	Cache.EndFrame();
+	Cache.Tick();
 
 	TextureHarness.Shutdown();
 	EXPECT_FALSE(ThumbnailManager.Find(Texture2DClass));

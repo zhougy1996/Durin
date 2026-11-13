@@ -23,17 +23,13 @@ namespace Durin::AssetPicker
 		{
 			if (!Entry || !Entry.Package) return {};
 			auto& Pool = GetDefaultThumbnailManager().GetSharedPool();
-			Pool.Request({
+			return Pool.AccessTexture({
 				.AssetPath = Entry.Asset->AssetPath,
 				.PackagePath = Entry.Package->PackagePath,
 				.AssetClassName = Entry.Asset->AssetClassName,
 				.PackageFormatVersion = Entry.Package->FormatVersion,
 				.FileSize = static_cast<uint64>(Entry.Package->FileSize),
 				.LastWriteTimeTicks = Entry.Package->LastWriteTimeTicks}, EAssetThumbnailPriority::Visible);
-			// Immediate-mode pickers use the pool's per-frame visibility pin. A local
-			// FAssetThumbnail would cancel pending generation when its last reference
-			// is destroyed on return. The pool retains results under its cache budgets.
-			return Pool.Find(Entry.Asset->AssetPath);
 		}
 
 		auto DrawThumbnail(const FAssetThumbnailView& View, ImVec2 Position, float Size) -> void

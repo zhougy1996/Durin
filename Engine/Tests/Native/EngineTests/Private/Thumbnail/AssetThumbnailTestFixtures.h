@@ -57,7 +57,7 @@ namespace Durin::Tests
 	// Standalone capture must publish cold asset/shader work on the owner thread
 	// as well as progress render commands and GPU readback.
 	inline auto FinishThumbnailCapture(FThumbnailCapture& Pool,
-		FByteBuffer& Pixels, std::string& Error) -> EThumbnailCaptureState
+		FByteBuffer& Pixels, std::string& Error) -> bool
 	{
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 		for (;;)
@@ -69,17 +69,17 @@ namespace Durin::Tests
 			if (!Capture)
 			{
 				Error = Capture.error();
-				return EThumbnailCaptureState::Failed;
+				return false;
 			}
 			if (Capture->has_value())
 			{
 				Pixels = std::move(**Capture);
-				return EThumbnailCaptureState::Ready;
+				return true;
 			}
 			if (std::chrono::steady_clock::now() >= Deadline)
 			{
 				Error = "Timed out waiting for thumbnail readback.";
-				return EThumbnailCaptureState::Failed;
+				return false;
 			}
 			FlushRenderingCommands();
 			std::this_thread::yield();
@@ -271,7 +271,7 @@ namespace Durin::Tests
 		}
 
 		auto FinishCapture(Durin::FByteBuffer& OutPixels, std::string& OutError)
-			-> EThumbnailCaptureState
+			-> bool
 		{
 			return FinishThumbnailCapture(Pool, OutPixels, OutError);
 		}

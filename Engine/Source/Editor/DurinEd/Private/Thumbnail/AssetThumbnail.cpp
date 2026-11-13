@@ -42,9 +42,9 @@ namespace Durin
 		if (Pool) Pool->AddReferencer(Asset.AssetPath);
 	}
 
-	auto FAssetThumbnail::Request(EAssetThumbnailPriority Priority) -> void
+	auto FAssetThumbnail::AccessTexture(EAssetThumbnailPriority Priority) -> FAssetThumbnailView
 	{
-		if (Pool) Pool->Request(Asset, Priority);
+		return Pool ? Pool->AccessTexture(Asset, Priority) : FAssetThumbnailView{};
 	}
 
 	auto FAssetThumbnail::Refresh() -> void

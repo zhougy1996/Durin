@@ -67,12 +67,11 @@ namespace Durin
 		FAssetThumbnailPool(const FAssetThumbnailPool&) = delete;
 		FAssetThumbnailPool& operator=(const FAssetThumbnailPool&) = delete;
 
-		DURINED_API auto BeginFrame() -> void;
 		// Keeps background generation alive independently of UI referencers.
 		DURINED_API auto Prefetch(const FAssetThumbnailPackageFingerprint& Asset) -> void;
-		DURINED_API auto Request(
+		DURINED_API auto AccessTexture(
 			const FAssetThumbnailPackageFingerprint& Asset,
-			EAssetThumbnailPriority Priority) -> void;
+			EAssetThumbnailPriority Priority = EAssetThumbnailPriority::Visible) -> FAssetThumbnailView;
 		DURINED_API auto Find(const FTopLevelAssetPath& AssetPath) const -> FAssetThumbnailView;
 		DURINED_API auto AddReferencer(const FTopLevelAssetPath& AssetPath) -> void;
 		DURINED_API auto RemoveReferencer(const FTopLevelAssetPath& AssetPath) -> void;
@@ -81,7 +80,7 @@ namespace Durin
 		DURINED_API auto ApplyContentChanges(const FContentChangeBatch& Changes) -> void;
 		// Existing completions/retirement still progress while required scene work
 		// temporarily defers new optional thumbnail admissions.
-		DURINED_API auto EndFrame(bool bAllowNewAdmissions = true) -> void;
+		DURINED_API auto Tick(bool bAllowNewAdmissions = true) -> void;
 		DURINED_API auto CancelPendingRequests() -> void;
 		DURINED_API auto Clear() -> void;
 		DURINED_API auto GetStats() const -> FAssetThumbnailPoolStats;

@@ -257,8 +257,13 @@ return `void`; changing capture setup in flight is a programming error.
 fallible. Completed pixels enter `CompleteCapture`, which validates pixels and
 accepts the rendering-to-ready transition before scheduling independent cache
 encoding. The pool validates draw snapshots once at this acceptance boundary.
-There are no artificial public `Readback` or `Encoding` scheduler states; GPU
-readback has its own real pending state and persistence runs independently.
+Public views expose only `None`, `Pending`, `Ready` and `Failed`. Unsupported
+assets use `None` and retain the ordinary asset icon. All accepted work without a
+usable texture is `Pending`; `Ready` requires a usable GPU texture, including a
+retained texture while refresh is in progress. Request serials remain private.
+The pool alone constructs rendered-asset views from its resources and the queue
+phase; the queue exposes phase and failure reason without a status-record wrapper.
+GPU readback has its own private pending state and persistence runs independently.
 TextureCube binds its renderer scene and supplies an immutable allocation
 snapshot as a counted RHI environment value. Texture2D supplies an image renderer
 without creating or binding any preview world. The shared capture implementation
@@ -274,6 +279,18 @@ material and mesh versions retain their own existing contracts. The engine frame
 pump advances texture ownership independently of these draw snapshot checks.
 
 ## Pool Scheduling And Budgets
+
+The editor calls `Tick` once after UI requests are submitted. A tick resets its
+work budgets, drains completions, admits bounded work and evicts unused resources.
+It then clears visibility and demotes queued priorities for the next batch of
+requests; UI code does not pair pool begin/end calls. `AccessTexture` submits or
+reprioritizes a request and returns its current public view. `Find` and reference
+`GetView` are passive queries; lightweight references also offer `AccessTexture`.
+
+Cache polling returns at most one job with optional owned pixels: pixels select
+the warm upload path, otherwise the job needs drawing. There are no parallel
+cold/warm job fields. A progress flag permits bounded additional admissions while
+cache I/O is still running.
 
 Visible requests outrank prefetch, duplicate keys coalesce, and different
 `FAssetThumbnail` instances for one identity share one entry and one admitted
@@ -307,8 +324,8 @@ create no scene. The default pool limits remain:
 | One encoded object | 16 MiB |
 | Persistent objects | 256 MiB |
 
-Jobs move through queued, loading, waiting-for-resources, rendering, uploading
-and ready states. GPU readback remains internal to capture; encoding and saving
+Queue entries move through queued, loading, waiting-for-resources, rendering
+and pixels-ready phases. GPU upload is owned by the pool and is not a queue phase. GPU readback remains internal to capture; encoding and saving
 are independent background tasks. Preparation and capture are independent.
 A waiting or ready rendered job is parked without binding a scene. One capture retains its draw job through
 readback and validation while other assets continue cache lookup and loading.

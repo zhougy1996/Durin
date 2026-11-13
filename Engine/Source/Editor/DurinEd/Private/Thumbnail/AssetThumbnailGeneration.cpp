@@ -243,11 +243,11 @@ namespace Durin
 
 		auto Fail(
 			const FAssetThumbnailScheduledRequest& Job,
-			EAssetThumbnailState ExpectedState,
+			EThumbnailJobState ExpectedState,
 			std::string_view Error) -> bool
 		{
 			if (Error.empty()) return false;
-			if (!Scheduler.Transition(Job, ExpectedState, EAssetThumbnailState::Failed, Error))
+			if (!Scheduler.Transition(Job, ExpectedState, EThumbnailJobState::Failed, Error))
 				return false;
 			++Stats.Failures;
 			return true;
@@ -280,7 +280,7 @@ namespace Durin
 		Impl->PumpCache();
 	}
 
-	auto FAssetThumbnailGeneration::StartNextDetailed() -> FAssetThumbnailStartResult
+	auto FAssetThumbnailGeneration::PollNext() -> FAssetThumbnailStartResult
 	{
 		FAssetThumbnailStartResult Result;
 		Impl->PumpCache();
@@ -291,19 +291,19 @@ namespace Durin
 			Reads.pop_front();
 			Result.bProgressed = true;
 			Impl->RetainedBytes -= Read.ReservedBytes;
-			if (!Impl->Scheduler.Transition(Read.Job, EAssetThumbnailState::Loading,
-					Read.Result.bHit ? EAssetThumbnailState::Ready : EAssetThumbnailState::Loading)) return Result;
+			if (!Impl->Scheduler.Transition(Read.Job, EThumbnailJobState::Loading,
+					Read.Result.bHit ? EThumbnailJobState::PixelsReady : EThumbnailJobState::Loading)) return Result;
 			if (Read.Result.bHit)
 			{
 				++Impl->Stats.DiskHits;
 				Result.Pixels = std::move(Read.Result.Pixels);
-				Result.WarmJob = std::move(Read.Job);
+				Result.Job = std::move(Read.Job);
 			}
 			else
 			{
 				if (Read.Result.bInvalid) ++Impl->Stats.Retries;
 				++Impl->Stats.Loads;
-				Result.ColdJob = std::move(Read.Job);
+				Result.Job = std::move(Read.Job);
 			}
 			return Result;
 		}
@@ -318,7 +318,7 @@ namespace Durin
 			|| Impl->RetainedBytes > Impl->Budgets.CpuPixelBudgetBytes - PixelCount * 4)
 		{
 			++Impl->Stats.Loads;
-			Result.ColdJob = std::move(*Job);
+			Result.Job = std::move(*Job);
 			return Result;
 		}
 		Impl->RetainedBytes += PixelCount * 4;
@@ -332,9 +332,9 @@ namespace Durin
 		std::string_view Error
 	) -> bool
 	{
-		if (Impl->Fail(Job, EAssetThumbnailState::Loading, Error)) return false;
-		if (!Impl->Scheduler.Transition(Job, EAssetThumbnailState::Loading,
-				EAssetThumbnailState::WaitingForResources))
+		if (Impl->Fail(Job, EThumbnailJobState::Loading, Error)) return false;
+		if (!Impl->Scheduler.Transition(Job, EThumbnailJobState::Loading,
+				EThumbnailJobState::WaitingForResources))
 			return false;
 
 		return true;
@@ -346,20 +346,20 @@ namespace Durin
 		std::string_view Error
 	) -> bool
 	{
-		if (Impl->Fail(Job, EAssetThumbnailState::WaitingForResources, Error))
+		if (Impl->Fail(Job, EThumbnailJobState::WaitingForResources, Error))
 			return false;
 		if (!bResourcesReady)
 		{
 			++Impl->Stats.ResourceWaits;
 			return Impl->Scheduler.Transition(Job,
-				EAssetThumbnailState::WaitingForResources,
-				EAssetThumbnailState::WaitingForResources);
+				EThumbnailJobState::WaitingForResources,
+				EThumbnailJobState::WaitingForResources);
 		}
 		if (Impl->RendersStartedThisFrame >= Impl->Budgets.MaximumRendersPerFrame)
 			return false;
 		if (!Impl->Scheduler.Transition(Job,
-				EAssetThumbnailState::WaitingForResources,
-				EAssetThumbnailState::Rendering))
+				EThumbnailJobState::WaitingForResources,
+				EThumbnailJobState::Rendering))
 			return false;
 
 		++Impl->RendersStartedThisFrame;
@@ -371,12 +371,12 @@ namespace Durin
 		const FAssetThumbnailScheduledRequest& Job,
 		FByteView Pixels, uint32 Width, uint32 Height, std::string_view Error) -> bool
 	{
-		if (Impl->Fail(Job, EAssetThumbnailState::Rendering, Error)) return false;
+		if (Impl->Fail(Job, EThumbnailJobState::Rendering, Error)) return false;
 		const uint64 PixelCount = static_cast<uint64>(Width) * Height;
 		if (PixelCount == 0 || PixelCount > Impl->Budgets.CpuPixelBudgetBytes / 4 || Pixels.size() != PixelCount * 4)
 			Error = "Rendered-thumbnail pixels violate the RGBA8 output or CPU budget.";
-		if (Impl->Fail(Job, EAssetThumbnailState::Rendering, Error)) return false;
-		if (!Impl->Scheduler.Transition(Job, EAssetThumbnailState::Rendering, EAssetThumbnailState::Ready)) return false;
+		if (Impl->Fail(Job, EThumbnailJobState::Rendering, Error)) return false;
+		if (!Impl->Scheduler.Transition(Job, EThumbnailJobState::Rendering, EThumbnailJobState::PixelsReady)) return false;
 		++Impl->Stats.Readbacks;
 		Impl->QueueWrite(Job, Pixels, Width, Height);
 		return true;

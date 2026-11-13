@@ -5,15 +5,6 @@
 
 namespace Durin
 {
-	enum class EThumbnailCaptureState : uint8
-	{
-		Idle,
-		Preparing,
-		Rendering,
-		ReadbackPending,
-		Ready,
-		Failed
-	};
 
 	// Pool-owned output and asynchronous readback. Borrows a renderer scene until Reset.
 	class FThumbnailCapture final

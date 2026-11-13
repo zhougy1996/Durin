@@ -12,7 +12,7 @@ namespace Durin
 		{
 			FAssetThumbnailRequest Request;
 			std::string CacheKey;
-			EAssetThumbnailState State = EAssetThumbnailState::NotRequested;
+			EThumbnailJobState State = EThumbnailJobState::NotRequested;
 			FAssetThumbnailGenerationRequest GenerationRequest;
 			std::string Diagnostic;
 			uint64 RendererGeneration = 0;
@@ -67,7 +67,7 @@ namespace Durin
 			FEntry& Entry = Existing->second;
 			const FThumbnailRendererHandle CurrentRenderer =
 				Registry.Find(Request.Asset.AssetClassName);
-			if (Entry.State != EAssetThumbnailState::Queued
+			if (Entry.State != EThumbnailJobState::Queued
 				|| Entry.bCaptured
 				|| Entry.Request.RequestSerial != Request.RequestSerial
 				|| Entry.Request.Asset != Request.Asset
@@ -78,7 +78,7 @@ namespace Durin
 			auto Captured = Registry.Capture(Request, Entry.RendererGeneration);
 			if (!Captured)
 			{
-				Entry.State = EAssetThumbnailState::Invalid;
+				Entry.State = EThumbnailJobState::Invalid;
 				Entry.Diagnostic = Captured.error().empty()
 					? "The thumbnail renderer rejected the asset."
 					: std::move(Captured.error());
@@ -160,23 +160,22 @@ namespace Durin
 
 		FImpl::FEntry Entry;
 		Entry.Request = Request;
-		Entry.State = EAssetThumbnailState::Queued;
+		Entry.State = EThumbnailJobState::Queued;
 		Entry.RendererGeneration = Handle.Generation;
 		Impl->Entries.emplace(AssetPath, std::move(Entry));
 		Impl->PendingRequests.push_back(Request);
 		return EThumbnailRequestStatus::Accepted;
 	}
 
-	auto FAssetThumbnailRequestQueue::Find(const FTopLevelAssetPath& AssetPath) const
-		-> FAssetThumbnailView
+	auto FAssetThumbnailRequestQueue::GetState(const FTopLevelAssetPath& AssetPath) const -> EThumbnailJobState
 	{
 		const auto It = Impl->Entries.find(AssetPath.ToString());
-		if (It == Impl->Entries.end()) return {};
-		const FImpl::FEntry& Entry = It->second;
-		return {
-			.State = Entry.State,
-			.Diagnostic = Entry.Diagnostic,
-			.RequestSerial = Entry.Request.RequestSerial};
+		return It == Impl->Entries.end() ? EThumbnailJobState::NotRequested : It->second.State;
+	}
+	auto FAssetThumbnailRequestQueue::GetFailureReason(const FTopLevelAssetPath& AssetPath) const -> std::string_view
+	{
+		const auto It = Impl->Entries.find(AssetPath.ToString());
+		return It == Impl->Entries.end() ? std::string_view{} : It->second.Diagnostic;
 	}
 
 	auto FAssetThumbnailRequestQueue::TakeNext()
@@ -208,14 +207,14 @@ namespace Durin
 			if (bMatchesCurrentEntry) Impl->Entries.erase(Entry);
 			return std::nullopt;
 		}
-		Entry->second.State = EAssetThumbnailState::Loading;
+		Entry->second.State = EThumbnailJobState::Loading;
 		return Job;
 	}
 
 	auto FAssetThumbnailRequestQueue::Transition(
 		const FAssetThumbnailScheduledRequest& Job,
-		EAssetThumbnailState ExpectedState,
-		EAssetThumbnailState NextState,
+		EThumbnailJobState ExpectedState,
+		EThumbnailJobState NextState,
 		std::string_view Diagnostic) -> bool
 	{
 		if (Impl->bShuttingDown || Job.GenerationRequest.Cancellation.IsCancelled())

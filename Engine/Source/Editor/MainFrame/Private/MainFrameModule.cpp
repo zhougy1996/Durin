@@ -1269,7 +1269,6 @@ namespace Durin
 				if (bReadyWorkspace && !Context->bProjectBrowserOpen)
 				{
 					auto& ThumbnailPool = GetDefaultThumbnailManager().GetSharedPool();
-					ThumbnailPool.BeginFrame();
 					DrawMainFrame(
 						*Context->AssetEditors.Get(),
 						*Context->MainFrameSettings,
@@ -1280,7 +1279,7 @@ namespace Durin
 						*Context->Console,
 						*Context->PythonScripts,
 						*Context->Activity);
-					ThumbnailPool.EndFrame(Editor->GetCapabilities().bRunTools);
+					ThumbnailPool.Tick(Editor->GetCapabilities().bRunTools);
 					Context->SlowTaskDialogs.Draw(FFeedbackContext::Get());
                     Context->PluginWindow.Draw(ViewState.bPluginsOpen, [&] {
                         if (const auto* Project = GetCurrentProject())

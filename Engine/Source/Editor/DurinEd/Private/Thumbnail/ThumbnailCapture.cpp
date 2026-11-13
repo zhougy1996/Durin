@@ -18,6 +18,16 @@
 
 namespace Durin
 {
+	enum class EThumbnailCaptureState : uint8
+	{
+		Idle,
+		Preparing,
+		Rendering,
+		ReadbackPending,
+		Ready,
+		Failed
+	};
+
 	namespace
 	{
 		auto BuildView(
