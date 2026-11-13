@@ -98,6 +98,28 @@ namespace
         Save(Context.InventoryFile, Inventory.ToString()); Save(Root / "Inventory/Base.dll","fixture");
         return Context;
     }
+    TEST(PluginResolutionTests, PluginManagementAttributesMissingBinaryToItsPlugin)
+    {
+        using namespace Durin;
+        const auto Context = MakePluginManagementFixture("ManagementBinaryAttribution");
+        const auto Root = Context.Request.ProjectFile.parent_path();
+        const auto Save = [](const std::filesystem::path& File, std::string_view Text) {
+            std::filesystem::create_directories(File.parent_path());
+            ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Text.data(), Text.size())), File));
+        };
+        Save(Root / "Plugins/Missing/Missing.dplugin", R"({"SchemaVersion":1,"Id":"Missing","Modules":[{"Name":"MissingRuntime","Path":"Source"}]})");
+        Save(Root / "Plugins/Missing/Source/MissingRuntime.dmodule", R"({"ModuleName":"MissingRuntime"})");
+        Save(Context.Request.ProjectFile, R"({"ProjectName":"Game","BaseModules":[],"Plugins":{"Base":true,"Missing":true}})");
+        FPluginEditSession Session; std::string Error;
+        ASSERT_TRUE(Session.Open(Context, Error)) << Error;
+        const auto& Rows = Session.GetRows();
+        const auto Base = std::ranges::find(Rows, "Base", [](const auto& Row) { return Row.Info.Id; });
+        const auto Missing = std::ranges::find(Rows, "Missing", [](const auto& Row) { return Row.Info.Id; });
+        ASSERT_NE(Base, Rows.end()); ASSERT_NE(Missing, Rows.end());
+        EXPECT_TRUE(Base->bBuildAvailable) << Base->Availability;
+        EXPECT_FALSE(Missing->bBuildAvailable);
+        EXPECT_NE(Missing->Availability.find("Missing"), std::string::npos);
+    }
     TEST(PluginResolutionTests, PluginManagementKeepsUnsatisfiedRequestsCheckedWithoutChangingOtherChoices)
     {
         using namespace Durin;

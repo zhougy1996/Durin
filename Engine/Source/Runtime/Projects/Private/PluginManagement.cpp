@@ -86,21 +86,41 @@ namespace Durin
     auto FPluginEditSession::RefreshBuildAvailability() -> void
     {
         // This is deliberately outside the checkbox path: resolution/admission reads disk.
+        std::string Reason;
+        const auto Selection = Resolve(Draft, Reason);
         for (auto& Row : Rows)
         {
-            auto Overrides = Draft;
-            std::set<std::string> Seen;
-            const auto EnableClosure = [&](auto&& Self, const FPluginInfo& Info) -> void {
-                if (!Seen.insert(StringUtils::FoldAscii(Info.Id)).second) return;
-                SetOverride(Overrides, Info.Id, true);
-                for (const auto& Dependency : Info.Dependencies)
-                    for (const auto& Candidate : Catalog)
-                        if (StringUtils::FoldAscii(Candidate.Id) == StringUtils::FoldAscii(Dependency)) Self(Self, Candidate);
+            Row.Availability = Reason; Row.bBuildAvailable = false;
+            std::set<std::string> Closure;
+            const auto Include = [&](auto&& Self, std::string_view Id) -> void {
+                const auto Key = StringUtils::FoldAscii(std::string(Id));
+                if (!Closure.insert(Key).second) return;
+                const auto Found = std::ranges::find_if(Catalog, [&](const FPluginInfo& Info) {
+                    return StringUtils::FoldAscii(Info.Id) == Key;
+                });
+                if (Found != Catalog.end())
+                    for (const auto& Dependency : Found->Dependencies) Self(Self, Dependency);
             };
-            EnableClosure(EnableClosure, Row.Info);
-            Row.Availability.clear(); Row.bBuildAvailable = false;
-            if (const auto Selection = Resolve(Overrides, Row.Availability))
-                Row.bBuildAvailable = Available(*Selection, Row.Availability);
+            Include(Include, Row.Info.Id);
+            std::optional<FPluginResolution> Preview;
+            if (Selection && std::ranges::find_if(Selection->Plugins, [&](const std::string& Id) {
+                return StringUtils::FoldAscii(Id) == StringUtils::FoldAscii(Row.Info.Id);
+            }) != Selection->Plugins.end()) Preview = *Selection;
+            else
+            {
+                std::map<std::string, bool> Overrides;
+                for (const auto& Info : Catalog) Overrides[Info.Id] = Closure.contains(StringUtils::FoldAscii(Info.Id));
+                Preview = Resolve(Overrides, Row.Availability);
+            }
+            if (!Preview) continue;
+            FPluginResolution Subset = std::move(*Preview);
+            std::erase_if(Subset.Plugins, [&](const std::string& Id) {
+                return !Closure.contains(StringUtils::FoldAscii(Id));
+            });
+            std::erase_if(Subset.Modules, [&](const FResolvedPluginModule& Module) {
+                return !Closure.contains(StringUtils::FoldAscii(Module.Owner));
+            });
+            Row.bBuildAvailable = Available(Subset, Row.Availability);
         }
     }
     auto FPluginEditSession::Rebuild() -> void

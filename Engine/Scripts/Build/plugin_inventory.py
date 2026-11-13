@@ -1,4 +1,4 @@
-"""Publish available native artifacts independently of startup enablement; never infer membership from DLL scans."""
+"""Publish the project's selected native artifacts without inferring membership from DLL scans."""
 import argparse
 import hashlib
 import json
@@ -34,7 +34,6 @@ def publish(catalog_file: Path, inputs: Path, output: Path):
     temporary = destination.with_suffix(".tmp")
     temporary.write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8")
     temporary.replace(destination)
-    shutil.copy2(catalog_file, output / "PluginCatalog.json")
     return manifest
 
 

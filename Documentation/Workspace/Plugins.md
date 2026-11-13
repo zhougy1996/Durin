@@ -277,10 +277,10 @@ target membership and trigger reconfiguration. Neither
 existing metadata nor stale DLLs imply startup selection.
 
 `<Project>PluginBuild` builds the project's selected native closure and publishes
-`PluginBuild.json`, `PluginCatalog.json`, and the declared shared-library
+`PluginBuild.json` and the declared shared-library
 dependency files beneath
 `Build/<preset>/PluginBuild/<Project>/<Configuration>/`. It participates in all
-when plugin discovery is active; a direct individual module build need not
+when that project selects plugins; a direct individual module build need not
 publish the full inventory. Paths in the inventory are relative to this root.
 EngineBuild currently combines the engine semantic version and built Core
 binary SHA-256; ToolchainABI records compiler ID/version and pointer size.
