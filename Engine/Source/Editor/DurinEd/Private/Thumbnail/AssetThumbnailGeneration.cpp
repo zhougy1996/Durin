@@ -147,7 +147,7 @@ namespace Durin
 			{
 				ActiveRead = &*Next;
 				FCacheRead& Read = *Next;
-				const auto& Request = Read.Job.GenerationRequest;
+				const auto& Request = Read.Job;
 				CacheTask = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO,
 					{.DebugName = "ReadAssetThumbnailCache"},
 					[State = Cache, Key = Read.Job.CacheKey,
@@ -227,7 +227,7 @@ namespace Durin
 			RetainedBytes += Bytes.size();
 			(Width != 0 ? PendingEncodes : Writes).push_back({Job.CacheKey,
 				FByteBuffer(Bytes.begin(), Bytes.end()),
-				Job.GenerationRequest.Cancellation, Width, Height});
+				Job.Cancellation, Width, Height});
 		}
 
 		auto DrainCache() -> void
@@ -312,7 +312,7 @@ namespace Durin
 		if (!Job) return Result;
 		Result.bProgressed = true;
 		++Impl->Stats.Jobs;
-		const auto& Output = Job->GenerationRequest.KeyInput.Output;
+		const auto& Output = Job->KeyInput.Output;
 		const uint64 PixelCount = static_cast<uint64>(Output.Width) * Output.Height;
 		if (PixelCount == 0 || PixelCount > Impl->Budgets.CpuPixelBudgetBytes / 4
 			|| Impl->RetainedBytes > Impl->Budgets.CpuPixelBudgetBytes - PixelCount * 4)
@@ -384,9 +384,9 @@ namespace Durin
 
 	auto FAssetThumbnailGeneration::Cancel(const FAssetThumbnailScheduledRequest& Job) -> void
 	{
-		if (!Job.GenerationRequest.Cancellation.IsCancelled())
+		if (!Job.Cancellation.IsCancelled())
 		{
-			Impl->Scheduler.Cancel(Job.GenerationRequest.KeyInput.Asset.AssetPath);
+			Impl->Scheduler.Cancel(Job.KeyInput.Asset.AssetPath);
 			++Impl->Stats.Cancellations;
 		}
 	}

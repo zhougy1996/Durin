@@ -37,7 +37,10 @@ content.
 `ThumbnailRenderer.h` declares cache descriptions, the loaded-object renderer
 and its capability/draw entrypoints. `ThumbnailDrawContext.h` contains the
 concrete draw setup and resource-lifetime context. Scheduler requests and cooperative cancellation are private DurinEd contracts.
-There are no renderer-generation or request-serial counters. Concrete renderers derive directly from
+There are no renderer-generation or request-serial counters.
+`ThumbnailWork.h` declares the flat admitted-work payload: cache key, key inputs,
+cooperative cancellation and transparency. Priority belongs only to queued
+interest; admitted work has no nested generation request or copied priority. Concrete renderers derive directly from
 `DThumbnailRenderer`; the fixed output contract needs no intermediate base class.
 All concrete renderers are `DCLASS` objects with initializer constructors.
 `RegisterCustomRenderer(AssetClass, RendererClass)` validates a concrete renderer
@@ -226,6 +229,11 @@ removes that exact registered object, so an old handle cannot unregister a later
 replacement. Withdrawal removes admission first, cancels matching entries in
 attached queues and retires draw jobs and pending uploads in attached pools.
 There is no weak cancellation-ticket registry or per-request renderer identity.
+Refresh, last-reference release, withdrawal, eviction and global cancellation
+use one per-asset retirement operation. It cancels queue work, resets capture
+output before destroying its draw state, removes parked/preparing work and
+discards the upload future immediately. Texture retention remains a separate
+caller policy: reference release keeps cached pixels, while refresh discards them.
 The manager owns no draw state, input or session. Cache work contains immutable
 inputs and cooperative cancellation; workers cannot retain renderer callbacks
 or destroy preview state. Queues cancel old work before replacement, and admit
@@ -400,7 +408,7 @@ resolved during bounded admission, and work uses the ordinary cache and renderer
 pipeline. Initial catalogs, full refreshes and journal rollover never trigger
 whole-project generation. Explicitly injected pools do not pre-generate by default.
 Every pool observes catalog changes for invalidation, reusing dependency
-fingerprints from captured generation requests. It refreshes affected roots and
+fingerprints from admitted work. It refreshes affected roots and
 dependents, including retained textures with no current UI references. Missing
 capture coverage or journal coverage triggers conservative invalidation. Browser
 panels retain no separate dependency closure.

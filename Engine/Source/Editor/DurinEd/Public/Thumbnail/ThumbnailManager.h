@@ -12,8 +12,7 @@ namespace Durin
 	class DObject;
 	class DClass;
 	struct FThumbnailManagerTestAccess;
-	struct FAssetThumbnailGenerationRequest;
-	struct FAssetThumbnailRequest;
+	struct FAssetThumbnailScheduledRequest;
 	struct FThumbnailRenderingInfo;
 	class FAssetThumbnailPool;
 
@@ -89,7 +88,7 @@ namespace Durin
 		auto DetachQueue(class FAssetThumbnailRequestQueue* Queue) -> void;
 		auto AttachPool(FAssetThumbnailPool* Pool) -> void;
 		auto DetachPool(FAssetThumbnailPool* Pool) -> void;
-		DURINED_API auto CreateRenderJob(const FAssetThumbnailGenerationRequest& Request) -> std::unique_ptr<FThumbnailRenderJob>;
+		DURINED_API auto CreateRenderJob(const FAssetThumbnailScheduledRequest& Request) -> std::unique_ptr<FThumbnailRenderJob>;
 		DURINED_API auto SetLoadedObjectOverride(std::string_view Name, DObject* Object) -> void;
 		friend struct FThumbnailManagerTestAccess;
 		DURINED_API auto RegisterRendererInstance(DThumbnailRenderer* Renderer, std::string AssetClassName, DClass* AssetClass = nullptr)

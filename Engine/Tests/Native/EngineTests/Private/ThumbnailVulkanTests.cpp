@@ -326,9 +326,9 @@ TEST_F(FThumbnailVulkanTests, StaticMeshDrawWaitsForMaterialPublication)
 	const FAssetThumbnailPackageFingerprint Fingerprint{.AssetPath = AssetPath, .PackagePath = MeshPath,
 		.AssetClassName = DStaticMesh::StaticClass()->GetQualifiedName().ToString(), .PackageFormatVersion = Catalog->FormatVersion,
 		.FileSize = static_cast<uint64>(Catalog->FileSize), .LastWriteTimeTicks = Catalog->LastWriteTimeTicks};
-	auto Session = std::make_unique<FThumbnailRenderJob>(&Extension, Fingerprint);
-	ASSERT_TRUE(Session);
-	EXPECT_EQ(Session->Update().State, EThumbnailDrawStatus::WaitingForResources);
+	auto DrawJob = std::make_unique<FThumbnailRenderJob>(&Extension, Fingerprint);
+	ASSERT_TRUE(DrawJob);
+	EXPECT_EQ(DrawJob->Update().State, EThumbnailDrawStatus::WaitingForResources);
 	auto Load = GetStreamableManager().RequestAsyncLoad(AssetPath, {}, DStaticMesh::StaticClass());
 	// Deliberately withhold material completion publication, while mesh, global
 	// shaders and asynchronous loading finish. This needs no sleeps or worker gate.
@@ -337,19 +337,19 @@ TEST_F(FThumbnailVulkanTests, StaticMeshDrawWaitsForMaterialPublication)
 		return Load->IsComplete();
 	}));
 	ASSERT_FALSE(Material->GetAcceptedCompiledProgram());
-	const auto Pending = Session->Update();
+	const auto Pending = DrawJob->Update();
 	ASSERT_EQ(Pending.State, EThumbnailDrawStatus::WaitingForResources) << Pending.Diagnostic;
 	EXPECT_TRUE(Pending.Diagnostic.empty());
 
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
 	ASSERT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
 	ASSERT_TRUE(WaitForResourcePublication([&] {
-		return Session->Update().State == EThumbnailDrawStatus::ReadyToRender;
+		return DrawJob->Update().State == EThumbnailDrawStatus::ReadyToRender;
 	}));
 	FThumbnailCapture Preview(Contract.Output);
 	ASSERT_TRUE(Preview.IsAvailable()) << Preview.GetDiagnostic();
-	ASSERT_TRUE(Session->BindCapture(Preview));
-	ASSERT_TRUE(Session->Validate());
+	ASSERT_TRUE(DrawJob->BindCapture(Preview));
+	ASSERT_TRUE(DrawJob->Validate());
 	ASSERT_TRUE(Preview.BeginCapture());
 	std::expected<std::optional<FByteBuffer>, std::string> Capture;
 	ASSERT_TRUE(WaitForResourcePublication([&] {
@@ -374,7 +374,7 @@ TEST_F(FThumbnailVulkanTests, StaticMeshDrawWaitsForMaterialPublication)
 	auto Properties = Material->GetStaticProperties();
 	Properties.bTwoSided = !Properties.bTwoSided;
 	ASSERT_TRUE(Material->SetStaticProperties(Properties));
-	EXPECT_FALSE(Session->Validate());
+	EXPECT_FALSE(DrawJob->Validate());
 	// Cancellation of a recompile can retain a current accepted program. Use
 	// a cold material to exercise a terminal failure with no renderable fallback.
 	DMaterial* Uncompiled = nullptr;
@@ -385,10 +385,10 @@ TEST_F(FThumbnailVulkanTests, StaticMeshDrawWaitsForMaterialPublication)
 	ASSERT_FALSE(Uncompiled->GetMaterialCompileStatus().IsCurrent());
 	FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Uncompiled);
 	ASSERT_FALSE(Uncompiled->GetAcceptedCompiledProgram());
-	const auto Canceled = Session->Update();
+	const auto Canceled = DrawJob->Update();
 	EXPECT_EQ(Canceled.State, EThumbnailDrawStatus::Failed);
 	EXPECT_FALSE(Canceled.Diagnostic.empty());
-	Session.reset();
+	DrawJob.reset();
 	auto* PreviewActor = Extension.GetPreviewScene().GetPreviewActor();
 	ASSERT_NE(PreviewActor, nullptr);
 	auto* PreviewComponent = PreviewActor->FindComponentByExactClass<DStaticMeshComponent>();
@@ -851,21 +851,21 @@ TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplace
 	ASSERT_TRUE(CapturedResult) << CapturedResult.error();
 	Captured = std::move(*CapturedResult);
 
-	auto Session = std::make_unique<FThumbnailRenderJob>(&Renderer, Request.Asset);
-	ASSERT_TRUE(Session);
-	ASSERT_NE(Session, nullptr);
-	const auto Loaded = Session->Update();
+	auto DrawJob = std::make_unique<FThumbnailRenderJob>(&Renderer, Request.Asset);
+	ASSERT_TRUE(DrawJob);
+	ASSERT_NE(DrawJob, nullptr);
+	const auto Loaded = DrawJob->Update();
 	ASSERT_EQ(Loaded.State, EThumbnailDrawStatus::WaitingForResources);
 	FThumbnailDrawResult Ready;
 	ASSERT_TRUE(WaitForResourcePublication([&] {
 		Durin::ProcessAsyncLoading();
-		Ready = Session->Update();
+		Ready = DrawJob->Update();
 		return Ready.State != EThumbnailDrawStatus::WaitingForResources;
 	}));
 	ASSERT_EQ(Ready.State, EThumbnailDrawStatus::ReadyToRender) << Ready.Diagnostic;
 	FThumbnailCapture Pool(Contract.Output);
-	ASSERT_TRUE(Session->BindCapture(Pool)) << Error;
-	ASSERT_TRUE(Session->Validate()) << Error;
+	ASSERT_TRUE(DrawJob->BindCapture(Pool)) << Error;
+	ASSERT_TRUE(DrawJob->Validate()) << Error;
 	ASSERT_TRUE(Pool.BeginCapture());
 	FlushRenderingCommands();
 	FByteBuffer Pixels;
@@ -924,11 +924,11 @@ TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplace
 	}
 
 	Asset->UpdateResource();
-	EXPECT_FALSE(Session->Validate());
+	EXPECT_FALSE(DrawJob->Validate());
 	ASSERT_TRUE(WaitForResourcePublication([&] { return !Asset->HasPendingRenderResourceInitialization(); }));
-	EXPECT_FALSE(Session->Validate());
-	Session.reset();
-	EXPECT_EQ(Session, nullptr);
+	EXPECT_FALSE(DrawJob->Validate());
+	DrawJob.reset();
+	EXPECT_EQ(DrawJob, nullptr);
 }
 
 TEST_F(FThumbnailVulkanTests, TexturePreviewPreservesRawChannelsSrgbAndAspectRatio)

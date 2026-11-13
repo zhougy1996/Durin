@@ -143,7 +143,6 @@ namespace Durin
 			}
 		}
 
-
 		auto EnsureCapture(const FAssetThumbnailOutputSettings& Output) -> bool
 		{
 			if (CaptureOutput != nullptr && CaptureSettings && *CaptureSettings == Output)
@@ -155,30 +154,32 @@ namespace Durin
 			return CaptureOutput->IsAvailable();
 		}
 
-		auto ReleaseJob(FRenderedJob& Job) -> void
-		{
-			Job.Draw.reset();
-		}
-
-		auto ResetPreparing() -> void
-		{
-			if (!PreparingJob) return;
-			ReleaseJob(*PreparingJob);
-			PreparingJob.reset();
-		}
-
 		auto ResetCapture() -> void
 		{
 			if (!CaptureJob) return;
 			if (CaptureOutput) CaptureOutput->Reset();
-			ReleaseJob(*CaptureJob);
 			CaptureJob.reset();
 		}
 
-		auto ResetParkedJobs() -> void
+		auto RetireAssetWork(const FTopLevelAssetPath& AssetPath) -> void
 		{
-			for (FParkedJob& Parked : ParkedJobs) ReleaseJob(Parked.Job);
-			ParkedJobs.clear();
+			if (CaptureJob && CaptureJob->Work.KeyInput.Asset.AssetPath == AssetPath)
+			{
+				Pipeline.Cancel(CaptureJob->Work);
+				ResetCapture();
+			}
+			if (PreparingJob && PreparingJob->Work.KeyInput.Asset.AssetPath == AssetPath)
+			{
+				Pipeline.Cancel(PreparingJob->Work);
+				PreparingJob.reset();
+			}
+			std::erase_if(ParkedJobs, [&](const FParkedJob& Parked) {
+				if (Parked.Job.Work.KeyInput.Asset.AssetPath != AssetPath) return false;
+				Pipeline.Cancel(Parked.Job.Work);
+				return true;
+			});
+			Scheduler.Cancel(AssetPath);
+			if (const auto It = Entries.find(AssetPath); It != Entries.end()) It->second.Upload.Reset();
 		}
 
 		auto UnregisterTexture(FEntry& Entry) -> void
@@ -189,7 +190,7 @@ namespace Durin
 		}
 
 		auto QueueUpload(
-			const FAssetThumbnailGenerationRequest& Request,
+			const FAssetThumbnailScheduledRequest& Request,
 			FByteBuffer Pixels,
 			uint32 Width,
 			uint32 Height) -> void
@@ -275,7 +276,7 @@ namespace Durin
 		auto FinishCapture() -> void
 		{
 			if (!CaptureJob || CaptureOutput == nullptr) return;
-			if (CaptureJob->Work.GenerationRequest.Cancellation.IsCancelled())
+			if (CaptureJob->Work.Cancellation.IsCancelled())
 			{
 				ResetCapture();
 				return;
@@ -284,8 +285,8 @@ namespace Durin
 			if (Capture && !Capture->has_value()) return;
 
 			FRenderedJob& Job = *CaptureJob;
-			FAssetThumbnailGenerationRequest& Request =
-				Job.Work.GenerationRequest;
+			FAssetThumbnailScheduledRequest& Request =
+				Job.Work;
 			FThumbnailRenderJob* Draw = Job.Draw.get();
 			std::string Error;
 			if (!Capture) Error = Capture.error();
@@ -310,14 +311,14 @@ namespace Durin
 				Pipeline.BeginRender(
 					PreparingJob->Work, false,
 					"The rendered-thumbnail parked-resource budget is exhausted.");
-				ResetPreparing();
+				PreparingJob.reset();
 				return;
 			}
 			if (!Pipeline.BeginRender(
 					PreparingJob->Work, false))
 			{
 				Pipeline.Cancel(PreparingJob->Work);
-				ResetPreparing();
+				PreparingJob.reset();
 				return;
 			}
 			ParkedJobs.push_back({
@@ -337,12 +338,12 @@ namespace Durin
 		{
 			if (!PreparingJob) return;
 			FRenderedJob& Job = *PreparingJob;
-			FAssetThumbnailGenerationRequest& Request =
-				Job.Work.GenerationRequest;
+			FAssetThumbnailScheduledRequest& Request =
+				Job.Work;
 			FThumbnailRenderJob* Draw = Job.Draw.get();
 			if (Draw == nullptr || Request.Cancellation.IsCancelled())
 			{
-				ResetPreparing();
+				PreparingJob.reset();
 				return;
 			}
 			if (Update.State == EThumbnailDrawStatus::Failed)
@@ -351,7 +352,7 @@ namespace Durin
 					Job.Work,
 					false,
 					Update.Diagnostic);
-				ResetPreparing();
+				PreparingJob.reset();
 				return;
 			}
 			const bool bReady =
@@ -392,7 +393,7 @@ namespace Durin
 			}
 			Pipeline.CompleteCapture(Job.Work, {}, 0, 0, Error);
 			if (CaptureOutput) CaptureOutput->Reset();
-			ResetPreparing();
+			PreparingJob.reset();
 		}
 
 		auto PollPreparing() -> void
@@ -401,7 +402,7 @@ namespace Durin
 			FThumbnailRenderJob* Draw = PreparingJob->Draw.get();
 			if (Draw == nullptr)
 			{
-				ResetPreparing();
+				PreparingJob.reset();
 				return;
 			}
 			HandlePreparedUpdate(Draw->Update(!CaptureJob));
@@ -416,8 +417,8 @@ namespace Durin
 			for (size_t Index = 0; Index < ParkedJobs.size();)
 			{
 				FParkedJob& Parked = ParkedJobs[Index];
-				FAssetThumbnailGenerationRequest& Request =
-					Parked.Job.Work.GenerationRequest;
+				FAssetThumbnailScheduledRequest& Request =
+					Parked.Job.Work;
 				FThumbnailRenderJob* Draw = Parked.Job.Draw.get();
 				const bool bTimedOut = !Parked.bReady
 					&& Budgets.MaximumResourceWaitFrames != 0
@@ -460,7 +461,7 @@ namespace Durin
 				}
 				if (bRelease)
 				{
-					ReleaseJob(Parked.Job);
+
 					ParkedJobs.erase(ParkedJobs.begin()
 						+ static_cast<ptrdiff_t>(Index));
 					continue;
@@ -474,7 +475,7 @@ namespace Durin
 			if (PreparingJob || CaptureJob || ParkedJobs.empty()) return;
 			auto IsVisible = [this](const FParkedJob& Parked) {
 				const auto It = Entries.find(
-					Parked.Job.Work.GenerationRequest.KeyInput.Asset.AssetPath);
+					Parked.Job.Work.KeyInput.Asset.AssetPath);
 				return It != Entries.end() && It->second.bVisible;
 			};
 			auto Selected = std::ranges::find_if(
@@ -499,7 +500,7 @@ namespace Durin
 			const auto* Scheduled = Start.Job ? &*Start.Job : nullptr;
 			if (Scheduled)
 			{
-				const auto& Input = Scheduled->GenerationRequest.KeyInput;
+				const auto& Input = Scheduled->KeyInput;
 				if (auto It = Entries.find(Input.Asset.AssetPath); It != Entries.end())
 				{
 					It->second.Dependencies = Input.Dependencies;
@@ -510,29 +511,29 @@ namespace Durin
 			{
 				FAssetThumbnailScheduledRequest& WarmJob = *Start.Job;
 				const FTopLevelAssetPath& Path =
-					WarmJob.GenerationRequest.KeyInput.Asset.AssetPath;
+					WarmJob.KeyInput.Asset.AssetPath;
 				if (auto It = Entries.find(Path); It != Entries.end())
 					It->second.bHasTransparency =
-						WarmJob.GenerationRequest.bHasTransparency;
-				QueueUpload(WarmJob.GenerationRequest, std::move(Start.Pixels),
-					WarmJob.GenerationRequest.KeyInput.Output.Width,
-					WarmJob.GenerationRequest.KeyInput.Output.Height);
+						WarmJob.bHasTransparency;
+				QueueUpload(WarmJob, std::move(Start.Pixels),
+					WarmJob.KeyInput.Output.Width,
+					WarmJob.KeyInput.Output.Height);
 				return true;
 			}
 			if (!Start.Job) return Start.bProgressed;
 			PreparingJob.emplace(FRenderedJob{.Work = std::move(*Start.Job)});
 			FRenderedJob& Job = *PreparingJob;
-			auto& Request = Job.Work.GenerationRequest;
+			auto& Request = Job.Work;
 			if (auto It = Entries.find(Request.KeyInput.Asset.AssetPath); It != Entries.end())
 				It->second.bHasTransparency = Request.bHasTransparency;
 			Job.Draw = Manager.CreateRenderJob(Request);
 			if (!Job.Draw)
 			{
 				Pipeline.CompleteLoad(Job.Work, "The thumbnail renderer was removed.");
-				ResetPreparing(); return true;
+				PreparingJob.reset(); return true;
 			}
 			const auto Update = Job.Draw->Update(!CaptureJob);
-			if (!Pipeline.CompleteLoad(Job.Work, Update.Diagnostic)) { ResetPreparing(); return true; }
+			if (!Pipeline.CompleteLoad(Job.Work, Update.Diagnostic)) { PreparingJob.reset(); return true; }
 			PollPreparing();
 			return true;
 		}
@@ -559,8 +560,8 @@ namespace Durin
 				if (auto It = Entries.find(Path); It != Entries.end())
 				{
 					UnregisterTexture(It->second);
+					RetireAssetWork(Path);
 					Entries.erase(It);
-					Scheduler.Cancel(Path);
 					++GpuEvictions;
 				}
 			}
@@ -590,8 +591,8 @@ namespace Durin
 				{
 					const bool bHadTexture = It->second.Texture != nullptr;
 					UnregisterTexture(It->second);
+					RetireAssetWork(Path);
 					Entries.erase(It);
-					Scheduler.Cancel(Path);
 					GpuEvictions += bHadTexture ? 1u : 0u;
 				}
 			}
@@ -620,13 +621,8 @@ namespace Durin
 
 	auto FAssetThumbnailPool::InvalidateRenderer(std::string_view AssetClassName) -> void
 	{
-		if (Impl->CaptureJob && Impl->CaptureJob->Work.GenerationRequest.KeyInput.Asset.AssetClassName == AssetClassName) Impl->ResetCapture();
-		if (Impl->PreparingJob && Impl->PreparingJob->Work.GenerationRequest.KeyInput.Asset.AssetClassName == AssetClassName) Impl->ResetPreparing();
-		std::erase_if(Impl->ParkedJobs, [&](const auto& Job) {
-			return Job.Job.Work.GenerationRequest.KeyInput.Asset.AssetClassName == AssetClassName;
-		});
-		for (auto& [Path, Entry] : Impl->Entries)
-			if (Entry.Fingerprint.AssetClassName == AssetClassName) Entry.Upload.Reset();
+		for (const auto& [Path, Entry] : Impl->Entries)
+			if (Entry.Fingerprint.AssetClassName == AssetClassName) Impl->RetireAssetWork(Path);
 	}
 
 	FAssetThumbnailPool::~FAssetThumbnailPool()
@@ -655,7 +651,7 @@ namespace Durin
 		else if (Entry.Fingerprint != Asset)
 		{
 			const uint32 ReferencerCount = Entry.ReferencerCount;
-			Impl->Scheduler.Cancel(Asset.AssetPath);
+			Impl->RetireAssetWork(Asset.AssetPath);
 			Impl->UnregisterTexture(Entry);
 			Entry = {};
 			Entry.Fingerprint = Asset;
@@ -727,31 +723,16 @@ namespace Durin
 		--It->second.ReferencerCount;
 		if (It->second.ReferencerCount != 0) return;
 		if (It->second.bBackgroundRequested) return;
-		// Directory navigation releases cold requests but retains cached pixels.
-		Impl->Scheduler.Cancel(AssetPath);
-		if (Impl->PreparingJob
-			&& Impl->PreparingJob->Work.GenerationRequest.KeyInput.Asset.AssetPath == AssetPath)
-			Impl->ResetPreparing();
-		if (Impl->CaptureJob
-			&& Impl->CaptureJob->Work.GenerationRequest.KeyInput.Asset.AssetPath == AssetPath)
-			Impl->ResetCapture();
-		std::erase_if(Impl->ParkedJobs, [&](FImpl::FParkedJob& Parked) {
-			if (Parked.Job.Work.GenerationRequest.KeyInput.Asset.AssetPath != AssetPath) return false;
-			Impl->ReleaseJob(Parked.Job);
-			return true;
-		});
-		It->second.Upload.Reset();
-
+		// Directory navigation releases cold work while keeping cached pixels.
+		Impl->RetireAssetWork(AssetPath);
 	}
 
 	auto FAssetThumbnailPool::Refresh(const FTopLevelAssetPath& AssetPath) -> void
 	{
 		const auto It = Impl->Entries.find(AssetPath);
 		if (It == Impl->Entries.end()) return;
-		Impl->Scheduler.Cancel(AssetPath);
+		Impl->RetireAssetWork(AssetPath);
 		Impl->UnregisterTexture(It->second);
-		It->second.Texture = nullptr;
-		It->second.Upload.Reset();
 
 		It->second.bUploadFailed = false;
 		It->second.Diagnostic.clear();
@@ -824,21 +805,13 @@ namespace Durin
 	auto FAssetThumbnailPool::CancelPendingRequests() -> void
 	{
 		Impl->BackgroundPackages.clear();
-		if (Impl->PreparingJob) Impl->Pipeline.Cancel(Impl->PreparingJob->Work);
-		if (Impl->CaptureJob) Impl->Pipeline.Cancel(Impl->CaptureJob->Work);
-		for (const FImpl::FParkedJob& Parked : Impl->ParkedJobs)
-			Impl->Pipeline.Cancel(Parked.Job.Work);
-		Impl->ResetPreparing();
-		Impl->ResetCapture();
-		Impl->ResetParkedJobs();
-		Impl->Scheduler.CancelAll();
 		for (auto& [Path, Entry] : Impl->Entries)
 		{
-			Entry.Upload.Reset();
-
+			Impl->RetireAssetWork(Path);
 			Entry.bUploadFailed = false;
 			Entry.Diagnostic.clear();
 		}
+		Impl->Scheduler.CancelAll();
 	}
 
 	auto FAssetThumbnailPool::Clear() -> void

@@ -3,7 +3,7 @@
 #include "Thumbnail/AssetThumbnailKey.h"
 namespace Durin
 {
-	// Identifies one request independently from renderer-owned generation data.
+	// Lightweight pending interest; priority is consumed by queue admission.
 	struct FAssetThumbnailRequest
 	{
 		FAssetThumbnailPackageFingerprint Asset;
@@ -23,8 +23,10 @@ namespace Durin
 		std::shared_ptr<std::atomic<bool>> State;
 	};
 
-	struct FAssetThumbnailGenerationRequest
+	// Immutable cache/draw inputs and cooperative cancellation for admitted work.
+	struct FAssetThumbnailScheduledRequest
 	{
+		std::string CacheKey;
 		FAssetThumbnailKeyInput KeyInput;
 		FAssetThumbnailCancellation Cancellation;
 		bool bHasTransparency = true;

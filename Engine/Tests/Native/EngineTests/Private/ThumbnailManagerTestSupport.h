@@ -5,7 +5,7 @@
 #include "Thumbnail/ThumbnailManager.h"
 #include "Thumbnail/ThumbnailRenderer.h"
 #include "Thumbnail/ThumbnailDrawContext.h"
-#include "../../../../Source/Editor/DurinEd/Private/Thumbnail/ThumbnailGenerationRequest.h"
+#include "../../../../Source/Editor/DurinEd/Private/Thumbnail/ThumbnailWork.h"
 #include "../../../../Source/Editor/DurinEd/Private/Thumbnail/ThumbnailRenderJob.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectGlobals.h"
@@ -37,7 +37,7 @@ namespace Durin
 			Result.State.reset();
 			return true;
 		}
-		static auto CreateJob(DThumbnailManager& Manager, const FAssetThumbnailGenerationRequest& Request)
+		static auto CreateJob(DThumbnailManager& Manager, const FAssetThumbnailScheduledRequest& Request)
 			-> std::unique_ptr<FThumbnailRenderJob> { return Manager.CreateRenderJob(Request); }
 		static auto Unregister(DThumbnailManager& Manager, std::string_view Name) -> bool
 		{

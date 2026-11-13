@@ -2,7 +2,7 @@
 
 #include "Thumbnail/AssetThumbnailPool.h"
 #include "Thumbnail/ThumbnailRenderer.h"
-#include "Thumbnail/ThumbnailGenerationRequest.h"
+#include "Thumbnail/ThumbnailWork.h"
 #include "Thumbnail/ThumbnailRenderJob.h"
 #include "Thumbnail/AssetThumbnailRequestQueue.h"
 #include "DObject/StrongObjectPtr.h"
@@ -82,21 +82,6 @@ namespace Durin
 			return true;
 		}
 	} // namespace
-
-	FAssetThumbnailCancellation::FAssetThumbnailCancellation()
-		: State(std::make_shared<std::atomic<bool>>(false))
-	{
-	}
-
-	auto FAssetThumbnailCancellation::Cancel() const -> void
-	{
-		State->store(true, std::memory_order_release);
-	}
-
-	auto FAssetThumbnailCancellation::IsCancelled() const -> bool
-	{
-		return State->load(std::memory_order_acquire);
-	}
 
 	FThumbnailRendererRegistrationHandle::FThumbnailRendererRegistrationHandle(
 		std::weak_ptr<ThumbnailPrivate::DThumbnailManagerState> InState,
@@ -211,7 +196,7 @@ namespace Durin
 	{
 		State->Renderers.at(std::string(Name)).LoadedOverride = TStrongObjectPtr<DObject>(Object);
 	}
-	auto DThumbnailManager::CreateRenderJob(const FAssetThumbnailGenerationRequest& Request) -> std::unique_ptr<FThumbnailRenderJob>
+	auto DThumbnailManager::CreateRenderJob(const FAssetThumbnailScheduledRequest& Request) -> std::unique_ptr<FThumbnailRenderJob>
 	{
 		const auto It = State->Renderers.find(Request.KeyInput.Asset.AssetClassName);
 		if (It == State->Renderers.end() || Request.Cancellation.IsCancelled()) return nullptr;

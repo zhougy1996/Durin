@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-#include "ThumbnailGenerationRequest.h"
+#include "ThumbnailWork.h"
 
 namespace Durin
 {
@@ -35,13 +35,6 @@ namespace Durin
 	{
 		return Status == EThumbnailRequestStatus::Accepted || Status == EThumbnailRequestStatus::Coalesced;
 	}
-
-	struct FAssetThumbnailScheduledRequest
-	{
-		std::string CacheKey;
-		EAssetThumbnailPriority Priority = EAssetThumbnailPriority::Prefetch;
-		FAssetThumbnailGenerationRequest GenerationRequest;
-	};
 
 	// Coalesces lightweight UI requests immediately, then captures renderer-owned
 	// generation data lazily as scheduler work is admitted.

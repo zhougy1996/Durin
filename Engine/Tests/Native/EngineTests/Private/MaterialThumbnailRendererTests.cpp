@@ -398,14 +398,14 @@ TEST(FMaterialThumbnailRendererTests,
 	Durin::FThumbnailCacheDescription Request;
 	ASSERT_FALSE(CaptureKey(Renderer, *MaterialData, Request, Error).empty())
 		<< Error;
-	auto Session = std::make_unique<Durin::FThumbnailRenderJob>(&Renderer, MakeFingerprint(*MaterialData));
-	ASSERT_TRUE(Session);
-	ASSERT_NE(Session, nullptr);
-	ASSERT_EQ(Session->Update().State,
+	auto DrawJob = std::make_unique<Durin::FThumbnailRenderJob>(&Renderer, MakeFingerprint(*MaterialData));
+	ASSERT_TRUE(DrawJob);
+	ASSERT_NE(DrawJob, nullptr);
+	ASSERT_EQ(DrawJob->Update().State,
 		Durin::EThumbnailDrawStatus::WaitingForResources);
 
 	Durin::ProcessAsyncLoading(100.0, 16);
-	EXPECT_EQ(Session->Update().State,
+	EXPECT_EQ(DrawJob->Update().State,
 		Durin::EThumbnailDrawStatus::WaitingForResources);
 	Durin::ProcessAsyncLoading(100.0, 16);
 	ASSERT_TRUE(Durin::RequestMaterialRecompile(*Material, true));
@@ -413,7 +413,7 @@ TEST(FMaterialThumbnailRendererTests,
 	EXPECT_FALSE(Material->IsCompilationFinished());
 	EXPECT_TRUE(Material->HasValidGameThreadShaderMap());
 	const Durin::FThumbnailDrawResult Compiling =
-		Session->Update();
+		DrawJob->Update();
 	EXPECT_EQ(Compiling.State,
 		Durin::EThumbnailDrawStatus::WaitingForResources)
 		<< Compiling.Diagnostic;
@@ -425,7 +425,7 @@ TEST(FMaterialThumbnailRendererTests,
 	ASSERT_TRUE(Sphere->IsCompiling());
 	ASSERT_EQ(Sphere->GetRenderResourceStatus().Readiness,
 		Durin::EStaticMeshRenderResourceReadiness::Unavailable);
-	const auto SphereCompiling = Session->Update();
+	const auto SphereCompiling = DrawJob->Update();
 	EXPECT_EQ(SphereCompiling.State,
 		Durin::EThumbnailDrawStatus::WaitingForResources)
 		<< SphereCompiling.Diagnostic;
@@ -434,5 +434,5 @@ TEST(FMaterialThumbnailRendererTests,
 	EXPECT_FALSE(Sphere->IsCompiling());
 	EXPECT_NE(Sphere->GetRenderData(), nullptr);
 
-	Session.reset();
+	DrawJob.reset();
 }
