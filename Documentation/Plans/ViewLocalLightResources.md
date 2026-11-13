@@ -10,7 +10,7 @@ Completed:
 ## Current Status
 
 Stage 0 audited Durin at `1dd30a3a5` and the installed UE 5.8 desktop renderer.
-The [previous plan](LocalLightViewRequirements.md) established pass demand.
+The [previous plan](Archive/2026-11/LocalLightViewRequirements.md) established pass demand.
 The [forward lighting contract](../Runtime/Rendering/Features/ForwardLighting.md)
 describes the shipping ABI. Stage 1 implements the shared view buffer. Stage 2 qualifies 32 records with a per-view override. The owner deferred selection of a new default until there is a representative target workload and hardware. Ordinary views continue to use four.
 

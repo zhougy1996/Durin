@@ -4,7 +4,7 @@ Summary: Align Content Browser item interfaces and ownership with UE data-source
 
 Last reviewed: 2026-11-10
 
-Status: Completed
+Status: Archived
 Completed: 2026-11-10
 
 ## Current Status
@@ -137,10 +137,10 @@ entrypoint when migration completes.
 
 Required local references:
 
-- [Content Browser contract](../Editor/Architecture/Assets/ContentBrowser.md)
-- [Asset thumbnails](../Editor/Architecture/Assets/AssetThumbnails.md)
-- [Asset mutation](../Runtime/Assets/Packages/AssetCatalogAndMutation.md)
-- [Build workflow](../Agents/BuildAndRun.md) and [test workflow](../Agents/Testing.md)
+- [Content Browser contract](../../../Editor/Architecture/Assets/ContentBrowser.md)
+- [Asset thumbnails](../../../Editor/Architecture/Assets/AssetThumbnails.md)
+- [Asset mutation](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md)
+- [Build workflow](../../../Agents/BuildAndRun.md) and [test workflow](../../../Agents/Testing.md)
 
 ## UE Reference And Local Decisions
 

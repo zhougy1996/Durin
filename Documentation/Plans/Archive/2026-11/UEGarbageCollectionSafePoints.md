@@ -4,7 +4,7 @@ Summary: Replace business-level GC deferral with explicit safe-point and lifetim
 
 Last reviewed: 2026-11-10
 
-Status: Completed
+Status: Archived
 Completed: 2026-11-10
 
 ## Current Status
@@ -56,8 +56,8 @@ Depends on Stage 0.
 
 ### Stage 2: Validate and accept
 
-Depends on Stage 1. Follow the [build](../Agents/BuildAndRun.md) and
-[test](../Agents/Testing.md) workflows.
+Depends on Stage 1. Follow the [build](../../../Agents/BuildAndRun.md) and
+[test](../../../Agents/Testing.md) workflows.
 
 - [x] Run affected-selection discovery and relevant CoreDObject, Engine, World,
   editor, package and material-query lifetime tests.

@@ -4,7 +4,7 @@ Summary: Align GC request, scheduling, execution, and host lifetime contracts wi
 
 Last reviewed: 2026-11-10
 
-Status: Completed
+Status: Archived
 Completed: 2026-11-10
 
 ## Current Status
@@ -133,12 +133,12 @@ CoreDObject owns reference tracing, object destruction, and collector integrity.
 
 Required references:
 
-- [GC contract](../Runtime/ObjectSystem/GarbageCollection.md)
-- [Runtime lifecycle](../Runtime/Application/RuntimeLifecycle.md)
-- [Subsystem lifecycle](../Runtime/Engine/Subsystems.md)
-- [Tickable objects](../Runtime/Engine/TickableObjects.md)
-- [World subsystems](../Runtime/World/WorldSubsystems.md)
-- [Build workflow](../Agents/BuildAndRun.md) and [test workflow](../Agents/Testing.md)
+- [GC contract](../../../Runtime/ObjectSystem/GarbageCollection.md)
+- [Runtime lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
+- [Subsystem lifecycle](../../../Runtime/Engine/Subsystems.md)
+- [Tickable objects](../../../Runtime/Engine/TickableObjects.md)
+- [World subsystems](../../../Runtime/World/WorldSubsystems.md)
+- [Build workflow](../../../Agents/BuildAndRun.md) and [test workflow](../../../Agents/Testing.md)
 
 ## UE Reference And Current Differences
 

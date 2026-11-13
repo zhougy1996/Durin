@@ -4,7 +4,7 @@ Summary: Give fitted views ownership of point and spot light demand and share on
 
 Last reviewed: 2026-11-11
 
-Status: Completed
+Status: Archived
 Completed: 2026-11-11
 
 ## Current Status
@@ -40,7 +40,7 @@ UE references below are relative to the installed UE 5.8
 - [x] Exercise the Lit/Solid, Lit/Wireframe, ordinary Unlit, GBuffer-only, isolated deferred qualification, Local, Final, directional-only and AO diagnostic decisions.
 - [x] Verify the shared budget and influence bounds. Compare Vulkan pixels before and after adding local lights to Lit and Unlit views and check actual selected counts for isolated Local output.
 
-The implemented contract belongs to [Forward Lighting](../Runtime/Rendering/Features/ForwardLighting.md#per-view-selection-and-diagnostics).
+The implemented contract belongs to [Forward Lighting](../../../Runtime/Rendering/Features/ForwardLighting.md#per-view-selection-and-diagnostics).
 
 ## Acceptance results
 

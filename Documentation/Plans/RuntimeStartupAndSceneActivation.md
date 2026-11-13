@@ -309,7 +309,7 @@ passed with eight packages including the explicit GrayboxPawn root, and the new
 generation completed three running Game ticks and exited 0 without the missing
 pawn-visual warning. The raw-project migration limitation above is closed;
 remaining startup-plan gates are unchanged. Validation and raw receipt locations
-are recorded in the [asset-management follow-up](UEAlignedAssetManagement.md#current-status).
+are recorded in the [asset-management follow-up](Archive/2026-11/UEAlignedAssetManagement.md#current-status).
 
 ## Goal
 

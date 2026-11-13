@@ -4,7 +4,7 @@ Summary: Separate GC requests, Engine scheduling, synchronous reachability, and 
 
 Last reviewed: 2026-11-10
 
-Status: Completed
+Status: Archived
 Completed: 2026-11-10
 
 ## Current Status
@@ -12,8 +12,8 @@ Completed: 2026-11-10
 All scoped stages are complete from `c904b5e77`. Final focused validation passed
 for 15 reflection, GC, gameplay, and RoadWeaver targets, the independent Vulkan
 mesh-fence case, normal exit smoke, and the final all-build check. The implemented
-contracts live in [Garbage Collection](../Runtime/ObjectSystem/GarbageCollection.md)
-and [Runtime Lifecycle](../Runtime/Application/RuntimeLifecycle.md).
+contracts live in [Garbage Collection](../../../Runtime/ObjectSystem/GarbageCollection.md)
+and [Runtime Lifecycle](../../../Runtime/Application/RuntimeLifecycle.md).
 
 The broad `fast-all` audit is not green: 87/99 targets passed. Eleven failing
 targets reproduced the same failing cases when substituting the original
@@ -63,7 +63,7 @@ Depends on Stage 1.
 - [x] Build all: public GC signatures and cross-module scheduling ownership affect foundational consumers.
 - [x] Run one bounded normal shutdown smoke and documentation validators.
 
-Follow [build](../Agents/BuildAndRun.md) and [test](../Agents/Testing.md) workflows.
+Follow [build](../../../Agents/BuildAndRun.md) and [test](../../../Agents/Testing.md) workflows.
 
 ## Validation Evidence
 

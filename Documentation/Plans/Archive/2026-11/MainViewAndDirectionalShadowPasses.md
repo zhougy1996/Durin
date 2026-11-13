@@ -4,13 +4,13 @@ Summary: Give view demand, mesh pass membership and draw readiness distinct owne
 
 Last reviewed: 2026-11-11
 
-Status: Completed
+Status: Archived
 Completed: 2026-11-11
 
 ## Current Status
 
 Both stages passed on 2026-11-11. The existing
-[shadow preparation optimization plan](ShadowPreparationOptimization.md) owns
+[shadow preparation optimization plan](../../ShadowPreparationOptimization.md) owns
 collection cost, cache reuse and cascade LOD optimization. This plan owns demand
 and admission semantics. Reuse its command-local caches and qualified fixtures.
 If the new flow changes a measured workload, record the changed inputs before
@@ -58,7 +58,7 @@ and GBuffer instance compaction consume its planes. The existing CPU collection
 boundary and the default-disabled GPU grouping option are retained. Physical
 submission counters now advance on successful commands. The previous subtraction
 from logical successes incorrectly reported 63 direct fallbacks for a single
-64-instance indirect draw. See the [GBuffer contract](../Runtime/Rendering/Pipeline/GBuffer.md#compatible-instance-culling).
+64-instance indirect draw. See the [GBuffer contract](../../../Runtime/Rendering/Pipeline/GBuffer.md#compatible-instance-culling).
 
 One masked primitive contained 64 compatible single-section instances. Moving
 32 of them outside left its aggregate bounds visible to the CPU. Each direct
@@ -152,14 +152,14 @@ membership available for telemetry and strict preparation checks.
   failures remain observable to the caller. Ordinary rendering can advance with
   locally admitted draws. Preserve capture waiting, budgeted retries, stale
   invalidation, and existing view-history/output commit boundaries.
-  See [load preparation](../Runtime/Rendering/Pipeline/LoadPreparation.md).
+  See [load preparation](../../../Runtime/Rendering/Pipeline/LoadPreparation.md).
 - **Keep selection and geometry semantics.** Retain current light selection,
   SingleMap/ThreeCascades, conservative invalid-bounds handling, StaticMesh and
   SplineMesh eligibility, per-cascade LOD and bias, retained batch invalidation
   and dynamic fallback. Preserve existing feature dependencies for contact
   shadows and the separate volumetric-cloud shadow path.
-  See [directional shadows](../Runtime/Rendering/Features/DirectionalShadows.md)
-  and [retained batch publication](../Runtime/Rendering/Scene/StaticMeshBatchPublication.md).
+  See [directional shadows](../../../Runtime/Rendering/Features/DirectionalShadows.md)
+  and [retained batch publication](../../../Runtime/Rendering/Scene/StaticMeshBatchPublication.md).
 - **Set scope at the consumer.** Production shadow demand follows a shading
   route that samples directional shadows, including applicable forward routes.
   An explicit shadow diagnostic or qualification that reads a map also requests
@@ -191,7 +191,7 @@ admission and execution together in this stage.
   omission. Extend the existing fault injection to target one cascade.
 - [x] Run the acceptance matrix below. Record the tested revision, fixture,
   backend, selected tests, and graph/counter or readback evidence in Current
-  Status. Update the [frame preparation](../Runtime/Rendering/Pipeline/RendererFramePreparation.md),
+  Status. Update the [frame preparation](../../../Runtime/Rendering/Pipeline/RendererFramePreparation.md),
   directional shadow and load preparation contracts alongside the implementation.
 
 | Stage 1 acceptance case | Required observation |
@@ -203,8 +203,8 @@ admission and execution together in this stage.
 | Prepare-only and interactive submissions with identical inputs | Required pending work prevents Ready for capture; interactive output contains admitted draws. Retry reaches Ready after resolution. A terminal required failure stays observable. Unrequested shadow work never blocks an ordinary Unlit capture. |
 | Ready baseline and mixed geometry | Compare lit receiver and shadow readbacks against qualified directional-shadow fixtures; include masked, spline and multi-section casters, a forward receiver and a deferred receiver. Exercise the GPU-grouped receiver if enabled to catch stale indices after filtering. |
 
-Follow the repository [build](../Agents/BuildAndRun.md) and
-[test selection](../Agents/Testing.md) workflows. Validate Renderer and affected
+Follow the repository [build](../../../Agents/BuildAndRun.md) and
+[test selection](../../../Agents/Testing.md) workflows. Validate Renderer and affected
 EngineTests consumers, including the Vulkan directional-shadow baseline and the
 existing interactive pending qualification. If an Engine-facing participation
 signature changes, search every workspace project and validate its affected

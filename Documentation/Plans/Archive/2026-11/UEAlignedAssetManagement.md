@@ -4,7 +4,7 @@ Summary: Align asset identity, loading interfaces, streamable ownership, primary
 
 Last reviewed: 2026-11-10
 
-Status: Completed
+Status: Archived
 Completed: 2026-11-10
 
 ## Current Status
@@ -40,8 +40,8 @@ classes and Outer relationships were preserved; Box gained its existing
 geometry-derived `BodySetup`. All eight external bulk files remain byte-identical.
 Cook now applies ordinary loading's generic removed-field rule, retaining
 surviving dependencies and rejecting incompatible current fields. See
-[package version policy](../Runtime/ObjectSystem/Versioning.md#authored-package-policy)
-and [Cooking](../Runtime/Assets/Build/Cooking.md).
+[package version policy](../../../Runtime/ObjectSystem/Versioning.md#authored-package-policy)
+and [Cooking](../../../Runtime/Assets/Build/Cooking.md).
 
 Validation used `f77c110d1` plus this maintenance working tree, Windows MSVC,
 14 jobs, outside the sandbox. Incremental `all` passed for both
@@ -127,7 +127,7 @@ wrapper and GetLoadedObject audit is empty in
 in Sandbox or RoadWeaver beyond already migrated consumers. Selection rationale
 is recorded by `Build/asset-stage2-affected.txt`: named request/thumbnail/scene
 coverage avoids unrelated broad module tests. The lasting contract is
-[Asset Streaming](../Runtime/Assets/Packages/AssetStreaming.md). Stages 3-6 remain
+[Asset Streaming](../../../Runtime/Assets/Packages/AssetStreaming.md). Stages 3-6 remain
 unvalidated; do not infer primary/Cook/residency-policy completion from these gates.
 
 Stage 3 evidence (2026-11-10): tested `96848b606` plus the Stage 3 working tree,
@@ -164,7 +164,7 @@ Stage 3 raw receipts under `Build/.agent-state/logs/` include
 The obsolete cache API audit is empty in
 `Build/asset-stage3-removed-cache-api-audit.txt`. The lasting ownership contract
 and UE compatibility boundary are in
-[Asset Residency](../Runtime/Assets/Packages/AssetResidency.md).
+[Asset Residency](../../../Runtime/Assets/Packages/AssetResidency.md).
 Stages 4-6 and the final-state acceptance gate remain open.
 
 Stage 4 evidence (2026-11-10): tested `c5bab8af1` plus the Stage 4 working tree,
@@ -203,7 +203,7 @@ filenames and counts. The final workspace build is
 Selection reasons and the workspace symbol audit are in
 `Build/asset-stage4-final-affected.txt` and `Build/asset-stage4-consumers.txt`.
 The lasting contract and supported UE boundary are in
-[Primary Asset Management](../Runtime/Assets/Packages/PrimaryAssetManagement.md).
+[Primary Asset Management](../../../Runtime/Assets/Packages/PrimaryAssetManagement.md).
 
 Stage 5 evidence (2026-11-10): tested `e6e9a0be7` plus the Stage 5 working tree,
 Windows MSVC, 14 build jobs, outside sandbox under the established C1902 recovery
@@ -236,8 +236,8 @@ RoadWeaver consumers; the map and Road scene cases cover existing indirect users
 Raw test/build receipts are preserved outside log rotation in
 `Build/asset-stage5-evidence/`; `validation-summary.txt` lists exact final files,
 variants, filters and counts. The lasting policy and UE subset are documented in
-[Cooking](../Runtime/Assets/Build/Cooking.md#primary-asset-policy-and-cooked-discovery)
-and [Primary Asset Management](../Runtime/Assets/Packages/PrimaryAssetManagement.md).
+[Cooking](../../../Runtime/Assets/Build/Cooking.md#primary-asset-policy-and-cooked-discovery)
+and [Primary Asset Management](../../../Runtime/Assets/Packages/PrimaryAssetManagement.md).
 
 Stage 6 evidence (2026-11-10): tested `a4816aedd` plus the Stage 6 working tree,
 Windows MSVC Debug, 14 build jobs, outside sandbox under the established C1902
@@ -274,7 +274,7 @@ Vulkan 1.4.312, not a GPU qualification sweep.
 The Game smoke uses the existing 2026-11-09 Cook generation. A sampled new raw
 Sandbox Cook still rejects the obsolete `AActor::AuthoredComponents` field
 before publication; this is the already recorded content-migration limitation
-in [startup integration](RuntimeStartupAndSceneActivation.md#current-status).
+in [startup integration](../../RuntimeStartupAndSceneActivation.md#current-status).
 Tracked authored content and strict schema checks were not changed. That older
 generation also lacks the optional GrayboxPawn visual; the existing native pawn
 fallback warns and remains playable. This handoff qualifies lifecycle, not a new
@@ -328,12 +328,12 @@ handle observation, or explicit diagnostic operations better match UE.
 | Cook | Consume management policy through existing Cook discovery and publication; do not duplicate the cooker |
 | Launch and consumers | Runtime initialization, manager setup, shutdown; scene loading, previews, thumbnails, tools and project code |
 
-Search all source and test roots declared in [Durin.dworkspace](../../Durin.dworkspace)
+Search all source and test roots declared in [Durin.dworkspace](../../../../Durin.dworkspace)
 before changing shared symbols, including Engine, Sandbox, and RoadWeaver.
 Record consumer targets in each stage's evidence.
 
 Coordinate lifecycle and scene integration with
-[Runtime Startup and Scene Activation](RuntimeStartupAndSceneActivation.md).
+[Runtime Startup and Scene Activation](../../RuntimeStartupAndSceneActivation.md).
 That plan owns frame-loop progression and scene presentation; this plan owns
 asset requests and retention. Neither introduces a second readiness authority.
 
@@ -780,18 +780,18 @@ accurate. No full native-test or GPU qualification sweep is implied by this plan
 
 ## Validation and Handoff
 
-Follow [build](../Agents/BuildAndRun.md) and [test](../Agents/Testing.md) workflows.
+Follow [build](../../../Agents/BuildAndRun.md) and [test](../../../Agents/Testing.md) workflows.
 Record tested revision, target/case selection, configuration, environment, raw
 receipt location under ignored `Build/`, and remaining gates per stage. Reuse
 unchanged relevant evidence; documentation-only work needs no native build.
 
-Update [Asset Packages](../Runtime/Assets/Packages/AssetPackages.md),
-[Asset Catalog and Mutation](../Runtime/Assets/Packages/AssetCatalogAndMutation.md),
-and [Cooking](../Runtime/Assets/Build/Cooking.md) as their behavior ships. Add
+Update [Asset Packages](../../../Runtime/Assets/Packages/AssetPackages.md),
+[Asset Catalog and Mutation](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md),
+and [Cooking](../../../Runtime/Assets/Build/Cooking.md) as their behavior ships. Add
 separate lasting streaming/primary-management contracts if those responsibilities
 outgrow the package document. The plan describes future decisions, not current APIs.
 
-Implementation commits include `Plan: Documentation/Plans/UEAlignedAssetManagement.md`
+Implementation commits include `Plan: Documentation/Plans/Archive/2026-11/UEAlignedAssetManagement.md`
 and the exact applicable `Stage: Stage N: <stage title>` trailer. Do not mark
 implementation stages complete when only this planning document has been validated.
 
