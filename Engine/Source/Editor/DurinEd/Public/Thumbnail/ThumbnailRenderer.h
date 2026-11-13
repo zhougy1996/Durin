@@ -13,6 +13,7 @@ namespace Durin
 	class DThumbnailManager;
 	class DThumbnailRenderer;
 	class IThumbnailRendererSession;
+	class FThumbnailPreviewScene;
 	namespace ThumbnailPrivate { struct FAssetThumbnailGenerationLeaseState; }
 
 	// Provides cooperative cancellation shared by scheduler and asynchronous completions.
@@ -92,7 +93,10 @@ namespace Durin
 		GENERATED_BODY()
 
 	public:
-		virtual ~DThumbnailRenderer() = default;
+		DURINED_API ~DThumbnailRenderer() override;
+		DURINED_API auto BeginDestroy() -> void override;
+		// Lazily constructed; never needed for a cache hit or a 2D image renderer.
+		DURINED_API auto GetPreviewScene() -> FThumbnailPreviewScene&;
 
 		virtual auto GetRegistration() const -> FThumbnailRenderingInfo = 0;
 		virtual auto CaptureGenerationRequest(
@@ -106,10 +110,10 @@ namespace Durin
 	protected:
 		DURINED_API explicit DThumbnailRenderer(
 			const FObjectInitializer& ObjectInitializer);
+	private:
+		std::unique_ptr<FThumbnailPreviewScene> PreviewScene;
 	};
 
-	class DWorld;
-	class AActor;
 
 	// Reports the renderer-owned cold-generation state observed by the shared core.
 	enum class EThumbnailRendererSessionState : uint8
@@ -145,27 +149,25 @@ namespace Durin
 		float ClearAlpha = 0.0f;
 	};
 
-	// Exposes the leased shared preview world and renderer-neutral view setup.
+	// Supplies capture output and view setup without owning renderer scenes.
 	// Optional image renderers return SRGBA8 under the same capture/readback budget as scenes.
 	using FThumbnailImageRenderer = std::function<FTextureRHIRef(
 		FRHICommandListImmediate&, uint32, uint32)>;
 
-	// The extension may attach only session-owned content and must remove it in ResetPreview.
-	class IThumbnailPreviewScene
+	// A 3D session binds its renderer-owned scene; an image session needs no scene.
+	class IThumbnailRenderContext
 	{
 	public:
-		virtual ~IThumbnailPreviewScene() = default;
+		virtual ~IThumbnailRenderContext() = default;
 
-		virtual auto GetWorld() -> DWorld* = 0;
-		// The scene owns reusable fixtures; sessions must detach asset bindings on reset.
-		virtual auto GetReusableActor(std::string_view Key) -> AActor* { return nullptr; }
+		virtual auto SetScene(FThumbnailPreviewScene& Scene) -> std::expected<void, std::string> = 0;
 		virtual auto SetView(
 			const FThumbnailPreviewView& View) -> std::expected<void, std::string> = 0;
 		virtual auto SetViewEnvironment(
 			const FViewEnvironmentOverride& Environment) -> std::expected<void, std::string> = 0;
 		virtual auto SetImageRenderer(FThumbnailImageRenderer Renderer) -> std::expected<void, std::string>
 		{
-			return std::unexpected("This preview scene does not support image rendering.");
+			return std::unexpected("This capture context does not support image rendering.");
 		}
 	};
 
@@ -184,7 +186,7 @@ namespace Durin
 		virtual auto Load() -> FThumbnailRendererSessionUpdate = 0;
 		virtual auto PollResources() -> FThumbnailRendererSessionUpdate = 0;
 		virtual auto PreparePreview(
-			IThumbnailPreviewScene& PreviewScene) -> std::expected<void, std::string> = 0;
+			IThumbnailRenderContext& Context) -> std::expected<void, std::string> = 0;
 		virtual auto ValidatePreparedInput() const -> std::expected<void, std::string> = 0;
 		virtual auto ResetPreview() -> void = 0;
 	};

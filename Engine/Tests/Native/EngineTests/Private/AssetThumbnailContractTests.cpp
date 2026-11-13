@@ -201,10 +201,10 @@ namespace Durin
 		};
 
 		class FFakeThumbnailPreviewScene final
-			: public IThumbnailPreviewScene
+			: public IThumbnailRenderContext
 		{
 		public:
-			auto GetWorld() -> DWorld* override { return nullptr; }
+			auto SetScene(FThumbnailPreviewScene&) -> std::expected<void, std::string> override { return {}; }
 
 			auto SetView(
 				const FThumbnailPreviewView& View) -> std::expected<void, std::string> override
@@ -259,7 +259,7 @@ namespace Durin
 			}
 
 			auto PreparePreview(
-				IThumbnailPreviewScene& PreviewScene) -> std::expected<void, std::string> override
+				IThumbnailRenderContext& PreviewScene) -> std::expected<void, std::string> override
 			{
 				FThumbnailPreviewView View;
 				View.CameraPosition = {2.0, -2.0, 1.0};
@@ -656,7 +656,6 @@ namespace Durin
 
 		const FAssetThumbnailBudgets Budgets;
 		EXPECT_EQ(Budgets.MaximumRendersPerFrame, 1u);
-		EXPECT_EQ(Budgets.MaximumLivePreviewScenes, 1u);
 		EXPECT_GT(Budgets.MaximumParkedRenderedJobs, 0u);
 		EXPECT_GT(Budgets.MaximumRetainedEntries, 0u);
 		EXPECT_GT(Budgets.ResourcePollIntervalFrames, 0u);
@@ -1338,6 +1337,10 @@ namespace Durin
 			EXPECT_EQ(State->PreviewResets, 1u);
 			EXPECT_EQ(State->SessionDestructions, 1u);
 			EXPECT_EQ(State->InputDestructions, 1u);
+			CollectGarbage(Durin::EObjectFlags::Standalone);
+			EXPECT_EQ(State->ExtensionDestructions, 0u);
+			// The capture owner retires its scene borrow after observing cancellation.
+			Job->GenerationRequest.ReleaseRenderedSession();
 			CollectGarbage(Durin::EObjectFlags::Standalone);
 			EXPECT_EQ(State->ExtensionDestructions, 1u);
 			EXPECT_FALSE(Scheduler.Transition(

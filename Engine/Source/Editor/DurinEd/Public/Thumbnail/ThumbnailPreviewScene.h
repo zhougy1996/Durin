@@ -1,60 +1,31 @@
 #pragma once
 
 #include "CoreMinimal.h"
-
-#include "Math/DurinMath.h"
 #include "Thumbnail/AssetThumbnailTypes.h"
-#include "Thumbnail/ThumbnailRenderer.h"
 
 namespace Durin
 {
-	enum class EThumbnailCaptureState : uint8
-	{
-		Idle,
-		Preparing,
-		Rendering,
-		ReadbackPending,
-		Ready,
-		Failed
-	};
+	class DWorld;
+	class AActor;
+	class FSceneInterface;
 
-	// Owns the single resettable preview scene allowed by the initial rendered-thumbnail budget.
-	class FThumbnailPreviewScenePool final
-		: public IThumbnailPreviewScene
+	// Renderer-owned native scene. Fixtures persist; sessions detach asset bindings.
+	class FThumbnailPreviewScene final
 	{
 	public:
-		DURINED_API explicit FThumbnailPreviewScenePool(
-			FAssetThumbnailOutputSettings Output = {},
-			FAssetThumbnailBudgets Budgets = {});
-		DURINED_API explicit FThumbnailPreviewScenePool(
-			FThumbnailVisualContract VisualContract,
-			FAssetThumbnailBudgets Budgets = {});
-		DURINED_API ~FThumbnailPreviewScenePool();
-
-		FThumbnailPreviewScenePool(const FThumbnailPreviewScenePool&) = delete;
-		FThumbnailPreviewScenePool& operator=(const FThumbnailPreviewScenePool&) = delete;
-
+		DURINED_API explicit FThumbnailPreviewScene(FThumbnailVisualContract Contract = {});
+		DURINED_API ~FThumbnailPreviewScene();
+		FThumbnailPreviewScene(const FThumbnailPreviewScene&) = delete;
+		FThumbnailPreviewScene& operator=(const FThumbnailPreviewScene&) = delete;
 		DURINED_API auto IsAvailable() const -> bool;
 		DURINED_API auto GetDiagnostic() const -> std::string;
-		DURINED_API auto GetWorld() -> DWorld* override;
-		DURINED_API auto GetReusableActor(std::string_view Key) -> AActor* override;
-		DURINED_API auto SetView(
-			const FThumbnailPreviewView& View) -> std::expected<void, std::string> override;
-		DURINED_API auto SetViewEnvironment(
-			const FViewEnvironmentOverride& Environment) -> std::expected<void, std::string> override;
-		DURINED_API auto SetImageRenderer(FThumbnailImageRenderer Renderer)
-			-> std::expected<void, std::string> override;
-		// Enqueues one render and one readback on the rendering thread. Transparent
-		// captures clear to transparent black so UI compositing has no color fringe.
-		DURINED_API auto BeginCapture() -> std::expected<void, std::string>;
-		// Returns completed tightly-packed SRGBA8 pixels, no value while idle/pending,
-		// or a terminal error. Completed pixels are consumed once per capture.
-		DURINED_API auto PollCapture() -> std::expected<std::optional<FByteBuffer>, std::string>;
-		DURINED_API auto Reset() -> void;
-
+		DURINED_API auto GetWorld() -> DWorld*;
+		DURINED_API auto GetPreviewActor() -> AActor*;
 	private:
+		friend class FThumbnailCapture;
+		DURINED_API auto GetRenderScene() -> FSceneInterface*;
+		bool bCapturing = false;
 		struct FImpl;
 		std::unique_ptr<FImpl> Impl;
 	};
-
 } // namespace Durin

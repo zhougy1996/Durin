@@ -183,13 +183,13 @@ TEST_F(FTextureAssetSessionTests, RelocationPreservesOpenTextureRoutingAndSave)
 }
 
 class FCapturingTextureCubeThumbnailPreviewScene final
-	: public Durin::IThumbnailPreviewScene
+	: public Durin::IThumbnailRenderContext
 {
 public:
-	auto GetWorld() -> Durin::DWorld* override
+	auto SetScene(Durin::FThumbnailPreviewScene&) -> std::expected<void, std::string> override
 	{
-		++WorldRequests;
-		return nullptr;
+		++SceneBindings;
+		return {};
 	}
 
 	auto SetView(
@@ -206,7 +206,7 @@ public:
 		return {};
 	}
 
-	uint32 WorldRequests = 0;
+	uint32 SceneBindings = 0;
 	Durin::FThumbnailPreviewView LastView;
 	std::optional<Durin::FViewEnvironmentOverride> LastEnvironment;
 };
@@ -510,11 +510,11 @@ TEST(FTextureCubeThumbnailRendererTests,
 	const auto Prepared = (*Session)->PreparePreview(PreviewScene);
 	ASSERT_FALSE(Prepared);
 	EXPECT_FALSE(Prepared.error().empty());
-	EXPECT_EQ(PreviewScene.WorldRequests, 0u);
+	EXPECT_EQ(PreviewScene.SceneBindings, 0u);
 	EXPECT_FALSE(PreviewScene.LastEnvironment);
 	(*Session)->ResetPreview();
 	Session->reset();
-	EXPECT_EQ(PreviewScene.WorldRequests, 0u);
+	EXPECT_EQ(PreviewScene.SceneBindings, 0u);
 }
 
 TEST(FTextureCubeThumbnailRendererTests, RendererRejectsMissingRegistryData)

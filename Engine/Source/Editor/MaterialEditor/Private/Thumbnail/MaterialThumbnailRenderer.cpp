@@ -1,5 +1,6 @@
 #include "Engine/StreamableManager.h"
 #include "Thumbnail/ThumbnailRenderer.h"
+#include "Thumbnail/ThumbnailPreviewScene.h"
 #include "Thumbnail/MaterialThumbnailRenderer.h"
 #include "RenderResource.h"
 #include "DObject/WeakObjectPtr.h"
@@ -163,9 +164,11 @@ namespace Durin::MaterialEditor
 		{
 		public:
 			FMaterialThumbnailGenerationSession(
+				DThumbnailRenderer& InRenderer,
 				FTopLevelAssetPath InAssetPath,
 				std::string InAssetClassName)
-				: AssetPath(std::move(InAssetPath))
+				: Renderer(InRenderer)
+				, AssetPath(std::move(InAssetPath))
 				, AssetClassName(std::move(InAssetClassName))
 			{
 			}
@@ -299,7 +302,7 @@ namespace Durin::MaterialEditor
 			}
 
 			auto PreparePreview(
-				IThumbnailPreviewScene& PreviewScene) -> std::expected<void, std::string> override
+				IThumbnailRenderContext& Context) -> std::expected<void, std::string> override
 			{
 				ResetScenePreview();
 				if (!Material) { return std::unexpected("The material is unavailable."); }
@@ -321,14 +324,9 @@ namespace Durin::MaterialEditor
 					}
 					DependencySnapshots.push_back({Texture, std::move(Snapshot)});
 				}
-				World = PreviewScene.GetWorld();
-				if (World == nullptr || Sphere == nullptr)
-				{
-					return std::unexpected("The rendered-thumbnail material preview is unavailable.");
-				}
-				Actor = PreviewScene.GetReusableActor("MaterialThumbnailPreviewActor");
-				bOwnsActor = Actor == nullptr;
-				if (bOwnsActor) Actor = World->SpawnActor<AActor>("MaterialThumbnailPreviewActor");
+				auto& Scene = Renderer.GetPreviewScene();
+				if (auto Bound = Context.SetScene(Scene); !Bound) return Bound;
+				AActor* Actor = Scene.GetPreviewActor();
 				Component = Actor ? Actor->FindComponentByExactClass<DStaticMeshComponent>() : nullptr;
 				if (Actor && !Component)
 					Component = Cast<DStaticMeshComponent>(Actor->AddInstanceComponent(
@@ -344,7 +342,7 @@ namespace Durin::MaterialEditor
 				FTransform Transform;
 				Transform.Scale3D = FVector3(MaterialThumbnailSphereScale);
 				Component->SetWorldTransform(Transform);
-				if (auto ViewResult = PreviewScene.SetView(MakeMaterialPreviewView()); !ViewResult)
+				if (auto ViewResult = Context.SetView(MakeMaterialPreviewView()); !ViewResult)
 				{
 					ResetPreview();
 					return std::unexpected(std::move(ViewResult.error()));
@@ -413,16 +411,13 @@ namespace Durin::MaterialEditor
 			std::vector<FDependencySnapshot> DependencySnapshots;
 			auto ResetScenePreview() -> void
 			{
-				if (Component != nullptr && !bOwnsActor)
+				if (Component != nullptr)
 				{
 					for (uint32 Slot = 0; Slot < Component->GetNumMaterials(); ++Slot)
 						Component->SetMaterial(Slot, nullptr);
 					Component->SetStaticMesh(nullptr);
 				}
-				if (World != nullptr && Actor != nullptr && bOwnsActor) World->DestroyActor(Actor);
 				Component = nullptr;
-				Actor = nullptr;
-				World = nullptr;
 			}
 
 			FTopLevelAssetPath AssetPath;
@@ -431,9 +426,7 @@ namespace Durin::MaterialEditor
 			uint64 AssetRevision = 0;
 			uint64 PreparedSphereResourceRevision = 0;
 			FMaterialResource PreparedMaterialSnapshot;
-			DWorld* World = nullptr;
-			AActor* Actor = nullptr;
-			bool bOwnsActor = false;
+			DThumbnailRenderer& Renderer;
 			DStaticMeshComponent* Component = nullptr;
 			DStaticMesh* Sphere = nullptr;
 			FStreamableManager StreamableManager;
@@ -527,7 +520,7 @@ namespace Durin::MaterialEditor
 			return std::unexpected("The material thumbnail generation input is invalid.");
 		}
 		return std::make_unique<FMaterialThumbnailGenerationSession>(
-			MaterialInput->AssetPath, MaterialInput->AssetClassName);
+			*this, MaterialInput->AssetPath, MaterialInput->AssetClassName);
 	}
 
 } // namespace Durin::MaterialEditor

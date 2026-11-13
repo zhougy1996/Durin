@@ -535,10 +535,10 @@ TEST(FStaticMeshThumbnailRendererTests,
 		EXPECT_EQ(Stats.Generation.Loads, 0u);
 		EXPECT_EQ(Stats.Generation.Renders, 0u);
 		EXPECT_EQ(Stats.Generation.Readbacks, 0u);
-		EXPECT_EQ(Stats.PreviewSceneCreations, 0u);
-		EXPECT_EQ(Stats.PreviewSceneAssignments, 0u);
+		EXPECT_EQ(Stats.CaptureOutputCreations, 0u);
+		EXPECT_EQ(Stats.CapturesStarted, 0u);
 		EXPECT_EQ(Stats.UploadsQueued, 1u);
-		EXPECT_FALSE(Stats.bHasPreviewScene);
+		EXPECT_FALSE(Stats.bHasCaptureOutput);
 		EXPECT_EQ(Durin::FindResidentPackage(StaticMeshPath), nullptr);
 		Cache.CancelPendingRequests();
 		Durin::FlushRenderingCommands();

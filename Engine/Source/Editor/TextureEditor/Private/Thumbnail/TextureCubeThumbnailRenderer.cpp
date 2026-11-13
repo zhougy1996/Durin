@@ -1,5 +1,6 @@
 #include "Engine/StreamableManager.h"
 #include "Thumbnail/ThumbnailRenderer.h"
+#include "Thumbnail/ThumbnailPreviewScene.h"
 #include "Thumbnail/TextureCubeThumbnailRenderer.h"
 #include "DObject/WeakObjectPtr.h"
 
@@ -92,8 +93,8 @@ namespace Durin::TextureEditor
 			: public IThumbnailRendererSession
 		{
 		public:
-			explicit FTextureCubeThumbnailGenerationSession(FTopLevelAssetPath InAssetPath)
-				: AssetPath(std::move(InAssetPath))
+			explicit FTextureCubeThumbnailGenerationSession(DThumbnailRenderer& InRenderer, FTopLevelAssetPath InAssetPath)
+				: Renderer(InRenderer), AssetPath(std::move(InAssetPath))
 			{
 			}
 
@@ -155,7 +156,7 @@ namespace Durin::TextureEditor
 			}
 
 			auto PreparePreview(
-				IThumbnailPreviewScene& PreviewScene) -> std::expected<void, std::string> override
+				IThumbnailRenderContext& Context) -> std::expected<void, std::string> override
 			{
 				if (!TextureCube.IsValid())
 				{
@@ -175,9 +176,10 @@ namespace Durin::TextureEditor
 						"The rendered-thumbnail TextureCube {} has no texture reference.",
 						AssetPath.ToString()));
 				}
-				if (auto ViewResult = PreviewScene.SetView(MakeTextureCubeThumbnailView()); !ViewResult)
+				if (auto Bound = Context.SetScene(Renderer.GetPreviewScene()); !Bound) return Bound;
+				if (auto ViewResult = Context.SetView(MakeTextureCubeThumbnailView()); !ViewResult)
 					return ViewResult;
-				return PreviewScene.SetViewEnvironment({.TextureReference = TextureReference});
+				return Context.SetViewEnvironment({.TextureReference = TextureReference});
 			}
 
 			auto ValidatePreparedInput() const -> std::expected<void, std::string> override
@@ -213,6 +215,7 @@ namespace Durin::TextureEditor
 			bool bAssetLoaded = false;
 			FXxHash128 SourceIdentity{};
 			FTextureRHIRef Snapshot;
+			DThumbnailRenderer& Renderer;
 			FTopLevelAssetPath AssetPath;
 			TWeakObjectPtr<DTextureCube> TextureCube;
 			uint64 AssetRevision = 0;
@@ -285,6 +288,6 @@ namespace Durin::TextureEditor
 			return std::unexpected("The TextureCube thumbnail generation input is invalid.");
 		}
 		return std::make_unique<FTextureCubeThumbnailGenerationSession>(
-			TextureCubeInput->AssetPath);
+			*this, TextureCubeInput->AssetPath);
 	}
 } // namespace Durin::TextureEditor

@@ -34,6 +34,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshBuild.h"
 #include "Thumbnail/ThumbnailPreviewScene.h"
+#include "Thumbnail/ThumbnailCapture.h"
 #include "RenderingThread.h"
 #include "Threading/TaskRuntime.h"
 #include "Thumbnail/StaticMeshThumbnailTypes.h"
@@ -55,7 +56,7 @@ namespace Durin::Tests
 	}
 	// Standalone capture must publish cold asset/shader work on the owner thread
 	// as well as progress render commands and GPU readback.
-	inline auto FinishThumbnailCapture(FThumbnailPreviewScenePool& Pool,
+	inline auto FinishThumbnailCapture(FThumbnailCapture& Pool,
 		FByteBuffer& Pixels, std::string& Error) -> EThumbnailCaptureState
 	{
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
@@ -119,7 +120,8 @@ namespace Durin::Tests
 		explicit FAssetThumbnailTestPool(
 			FThumbnailVisualContract InContract = {})
 			: Contract(std::move(InContract))
-			, Pool(Contract)
+			, Scene(Contract)
+			, Pool(Contract.Output)
 			, View(MakeView(Contract))
 		{
 		}
@@ -129,7 +131,7 @@ namespace Durin::Tests
 			Reset();
 		}
 
-		auto GetPreviewScene() -> FThumbnailPreviewScenePool& { return Pool; }
+		auto GetPreviewScene() -> FThumbnailPreviewScene& { return Scene; }
 		auto IsAvailable() const -> bool { return Pool.IsAvailable(); }
 		auto GetDiagnostic() const -> std::string { return Pool.GetDiagnostic(); }
 		auto SetForceLOD0(bool bForceLOD0) -> void
@@ -168,7 +170,7 @@ namespace Durin::Tests
 			const FTransform& Transform) -> std::expected<void, std::string>
 		{
 			ResetActor();
-			DWorld* World = Pool.GetWorld();
+			DWorld* World = Scene.GetWorld();
 			Actor = World
 				? World->SpawnActor<AActor>("ThumbnailTestMaterialActor")
 				: nullptr;
@@ -215,7 +217,7 @@ namespace Durin::Tests
 			-> std::expected<void, std::string>
 		{
 			ResetActor();
-			DWorld* World = Pool.GetWorld();
+			DWorld* World = Scene.GetWorld();
 			Actor = World
 				? World->SpawnActor<AActor>("ThumbnailTestStaticMeshActor")
 				: nullptr;
@@ -257,7 +259,8 @@ namespace Durin::Tests
 			View.ClearGreen = bOutputOpaque ? Contract.BackgroundGreen : 0.0f;
 			View.ClearBlue = bOutputOpaque ? Contract.BackgroundBlue : 0.0f;
 			View.ClearAlpha = bOutputOpaque ? 1.0f : 0.0f;
-			return Pool.SetView(View).and_then([&] { return Pool.BeginCapture(); });
+			return Pool.SetScene(Scene).and_then([&] { return Pool.SetView(View); })
+				.and_then([&] { return Pool.BeginCapture(); });
 		}
 
 		auto PollCapture() -> std::expected<std::optional<FByteBuffer>, std::string>
@@ -308,13 +311,14 @@ namespace Durin::Tests
 		{
 			if (Actor != nullptr)
 			{
-				if (DWorld* World = Pool.GetWorld()) World->DestroyActor(Actor);
+				if (DWorld* World = Scene.GetWorld()) World->DestroyActor(Actor);
 				Actor = nullptr;
 			}
 		}
 
 		FThumbnailVisualContract Contract;
-		FThumbnailPreviewScenePool Pool;
+		FThumbnailPreviewScene Scene;
+		FThumbnailCapture Pool;
 		FThumbnailPreviewView View;
 		AActor* Actor = nullptr;
 		FRetainedAsset SphereAsset;

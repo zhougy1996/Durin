@@ -2,7 +2,7 @@
 #include "Thumbnail/ThumbnailRenderer.h"
 #include "Thumbnail/AssetThumbnailGeneration.h"
 #include "Thumbnail/ThumbnailManager.h"
-#include "Thumbnail/ThumbnailPreviewScene.h"
+#include "Thumbnail/ThumbnailCapture.h"
 
 #include "DynamicRHI.h"
 #include "MonaCoreGlobals.h"
@@ -71,8 +71,8 @@ namespace Durin
 		FAssetThumbnailBudgets Budgets;
 		FAssetThumbnailRequestQueue Scheduler;
 		FAssetThumbnailGeneration Pipeline;
-		std::unique_ptr<FThumbnailPreviewScenePool> ScenePool;
-		std::optional<FAssetThumbnailOutputSettings> SceneOutput;
+		std::unique_ptr<FThumbnailCapture> CaptureOutput;
+		std::optional<FAssetThumbnailOutputSettings> CaptureSettings;
 		std::unordered_map<FTopLevelAssetPath, FEntry> Entries;
 		std::shared_ptr<FAssetThumbnailAsyncState> AsyncState =
 			std::make_shared<FAssetThumbnailAsyncState>();
@@ -82,8 +82,8 @@ namespace Durin
 		std::optional<FAssetThumbnailScheduledRequest> CaptureJob;
 		std::vector<FParkedJob> ParkedJobs;
 		uint64 FrameNumber = 0;
-		uint64 PreviewSceneCreations = 0;
-		uint64 PreviewSceneAssignments = 0;
+		uint64 CaptureOutputCreations = 0;
+		uint64 CapturesStarted = 0;
 		uint64 UploadsQueued = 0;
 		uint64 UploadsCompleted = 0;
 		uint64 UploadFailures = 0;
@@ -156,28 +156,20 @@ namespace Durin
 				&& Renderer.Generation == Request.RendererGeneration;
 		}
 
-		auto EnsureScene(const FAssetThumbnailOutputSettings& Output) -> bool
+		auto EnsureCapture(const FAssetThumbnailOutputSettings& Output) -> bool
 		{
-			if (ScenePool != nullptr && SceneOutput && *SceneOutput == Output)
-				return ScenePool->IsAvailable();
-			ScenePool.reset();
-			SceneOutput = Output;
-			ScenePool = std::make_unique<FThumbnailPreviewScenePool>(
-				Output, Budgets);
-			++PreviewSceneCreations;
-			return ScenePool->IsAvailable();
+			if (CaptureOutput != nullptr && CaptureSettings && *CaptureSettings == Output)
+				return CaptureOutput->IsAvailable();
+			CaptureOutput.reset();
+			CaptureSettings = Output;
+			CaptureOutput = std::make_unique<FThumbnailCapture>(Output);
+			++CaptureOutputCreations;
+			return CaptureOutput->IsAvailable();
 		}
 
 		auto ReleaseJob(FAssetThumbnailScheduledRequest& Job) -> void
 		{
-			FAssetThumbnailGenerationRequest& Request =
-				Job.GenerationRequest;
-			if (IThumbnailRendererSession* Session =
-				Request.GetRenderedSession())
-			{
-				Session->ResetPreview();
-			}
-			Request.ReleaseRenderedSession();
+			Job.GenerationRequest.ReleaseRenderedSession();
 		}
 
 		auto ResetPreparing() -> void
@@ -190,8 +182,8 @@ namespace Durin
 		auto ResetCapture() -> void
 		{
 			if (!CaptureJob) return;
+			if (CaptureOutput) CaptureOutput->Reset();
 			ReleaseJob(*CaptureJob);
-			if (ScenePool) ScenePool->Reset();
 			CaptureJob.reset();
 		}
 
@@ -327,13 +319,13 @@ namespace Durin
 
 		auto FinishCapture() -> void
 		{
-			if (!CaptureJob || ScenePool == nullptr) return;
+			if (!CaptureJob || CaptureOutput == nullptr) return;
 			if (!IsCurrent(CaptureJob->GenerationRequest))
 			{
 				ResetCapture();
 				return;
 			}
-			auto Capture = ScenePool->PollCapture();
+			auto Capture = CaptureOutput->PollCapture();
 			if (Capture && !Capture->has_value()) return;
 
 			FAssetThumbnailScheduledRequest& Job = *CaptureJob;
@@ -447,28 +439,28 @@ namespace Durin
 					true))
 				return;
 			std::string Error;
-			if (!EnsureScene(Request.KeyInput.Output))
+			if (!EnsureCapture(Request.KeyInput.Output))
 			{
-				Error = ScenePool != nullptr
-					? ScenePool->GetDiagnostic()
-					: "The rendered-thumbnail scene is unavailable.";
+				Error = CaptureOutput != nullptr
+					? CaptureOutput->GetDiagnostic()
+					: "The thumbnail capture output is unavailable.";
 			}
-			else if (auto Prepared = Session->PreparePreview(*ScenePool); !Prepared)
+			else if (auto Prepared = Session->PreparePreview(*CaptureOutput); !Prepared)
 			{
 				Error = Prepared.error().empty()
 					? "The renderer could not prepare its preview." : std::move(Prepared.error());
 			}
 			else
 			{
-				++PreviewSceneAssignments;
 				if (auto Capture = Session->ValidatePreparedInput().and_then(
-					[this] { return ScenePool->BeginCapture(); }); !Capture)
+					[this] { return CaptureOutput->BeginCapture(); }); !Capture)
 				{
 					Error = Capture.error().empty()
 						? "The preview capture could not start." : std::move(Capture.error());
 				}
 				else
 				{
+					++CapturesStarted;
 					CaptureJob = std::move(PreparingJob);
 					PreparingJob.reset();
 					return;
@@ -476,7 +468,7 @@ namespace Durin
 			}
 			Pipeline.CompleteRender(
 				Job, Error);
-			if (ScenePool) ScenePool->Reset();
+			if (CaptureOutput) CaptureOutput->Reset();
 			ResetPreparing();
 		}
 
@@ -716,7 +708,7 @@ namespace Durin
 	FAssetThumbnailPool::~FAssetThumbnailPool()
 	{
 		Clear();
-		Impl->ScenePool.reset();
+		Impl->CaptureOutput.reset();
 		Impl->AsyncState.reset();
 	}
 
@@ -938,8 +930,8 @@ namespace Durin
 		}
 		return {
 			.Generation = Impl->Pipeline.GetStats(),
-			.PreviewSceneCreations = Impl->PreviewSceneCreations,
-			.PreviewSceneAssignments = Impl->PreviewSceneAssignments,
+			.CaptureOutputCreations = Impl->CaptureOutputCreations,
+			.CapturesStarted = Impl->CapturesStarted,
 			.UploadsQueued = Impl->UploadsQueued,
 			.UploadsCompleted = Impl->UploadsCompleted,
 			.UploadFailures = Impl->UploadFailures,
@@ -953,6 +945,6 @@ namespace Durin
 			.PinnedEntries = PinnedEntries,
 			.Referencers = Referencers,
 			.bHasActiveJob = Impl->PreparingJob.has_value() || Impl->CaptureJob.has_value(),
-			.bHasPreviewScene = Impl->ScenePool != nullptr};
+			.bHasCaptureOutput = Impl->CaptureOutput != nullptr};
 	}
 } // namespace Durin

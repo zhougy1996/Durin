@@ -1,5 +1,6 @@
 #include "Engine/StreamableManager.h"
 #include "Thumbnail/ThumbnailRenderer.h"
+#include "Thumbnail/ThumbnailPreviewScene.h"
 #include "Thumbnail/StaticMeshThumbnailRenderer.h"
 
 // StaticMeshEditor owns the complete StaticMesh thumbnail extension.
@@ -52,8 +53,9 @@ namespace Durin::StaticMeshEditor
 		{
 		public:
 			explicit FStaticMeshThumbnailGenerationSession(
+				DThumbnailRenderer& InRenderer,
 				FStaticMeshThumbnailRendererGenerationInput InInput)
-				: Input(std::move(InInput))
+				: Input(std::move(InInput)), Renderer(InRenderer)
 			{
 			}
 
@@ -185,7 +187,7 @@ namespace Durin::StaticMeshEditor
 			}
 
 			auto PreparePreview(
-				IThumbnailPreviewScene& PreviewScene) -> std::expected<void, std::string> override
+				IThumbnailRenderContext& Context) -> std::expected<void, std::string> override
 			{
 				ResetScenePreview();
 				if (!StaticMesh) return std::unexpected(QualifyDiagnostic(Input.AssetPath, "The StaticMesh asset is unavailable."));
@@ -217,14 +219,13 @@ namespace Durin::StaticMeshEditor
 					return std::unexpected(QualifyDiagnostic(Input.AssetPath, ViewResult.error()));
 				}
 				const auto& ThumbnailView = *ViewResult;
-				World = PreviewScene.GetWorld();
-				Actor = World
-					? World->SpawnActor<AActor>("StaticMeshThumbnailPreviewActor")
-					: nullptr;
-				Component = Actor
-					? Cast<DStaticMeshComponent>(Actor->AddInstanceComponent(
-						DStaticMeshComponent::StaticClass(), "StaticMeshPreview"))
-					: nullptr;
+				auto& Scene = Renderer.GetPreviewScene();
+				if (auto Bound = Context.SetScene(Scene); !Bound) return Bound;
+				AActor* Actor = Scene.GetPreviewActor();
+				Component = Actor ? Actor->FindComponentByExactClass<DStaticMeshComponent>() : nullptr;
+				if (Actor && !Component)
+					Component = Cast<DStaticMeshComponent>(Actor->AddInstanceComponent(
+						DStaticMeshComponent::StaticClass(), "StaticMeshPreview"));
 				if (Component == nullptr || StaticMesh == nullptr)
 				{
 					ResetPreview();
@@ -267,7 +268,7 @@ namespace Durin::StaticMeshEditor
 					.ClearAlpha = Input.VisualContract.bOutputOpaque
 						? 1.0f
 						: 0.0f};
-				if (auto ViewResult = PreviewScene.SetView(View); !ViewResult)
+				if (auto ViewResult = Context.SetView(View); !ViewResult)
 				{
 					ResetPreview();
 					return std::unexpected(QualifyDiagnostic(Input.AssetPath, ViewResult.error()));
@@ -317,10 +318,12 @@ namespace Durin::StaticMeshEditor
 			auto ResetScenePreview() -> void
 			{
 				PreparedMaterials.clear();
-				if (World != nullptr && Actor != nullptr) World->DestroyActor(Actor);
+				if (Component)
+				{
+					Component->ClearMaterialOverrides();
+					Component->SetStaticMesh(nullptr);
+				}
 				Component = nullptr;
-				Actor = nullptr;
-				World = nullptr;
 			}
 
 			FStaticMeshThumbnailRendererGenerationInput Input;
@@ -330,8 +333,7 @@ namespace Durin::StaticMeshEditor
 			uint64 AssetRevision = 0;
 			uint64 PreparedResourceRevision = 0;
 			std::vector<std::pair<FWeakObjectPtr, FMaterialResource>> PreparedMaterials;
-			DWorld* World = nullptr;
-			AActor* Actor = nullptr;
+			DThumbnailRenderer& Renderer;
 			DStaticMeshComponent* Component = nullptr;
 		};
 	} // namespace
@@ -432,7 +434,7 @@ namespace Durin::StaticMeshEditor
 		{
 			return std::unexpected("The StaticMesh thumbnail generation input is invalid.");
 		}
-		return std::make_unique<FStaticMeshThumbnailGenerationSession>(*StaticMeshInput);
+		return std::make_unique<FStaticMeshThumbnailGenerationSession>(*this, *StaticMeshInput);
 	}
 
 	auto CalculateStaticMeshThumbnailRendererView(

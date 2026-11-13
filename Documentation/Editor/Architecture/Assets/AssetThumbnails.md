@@ -73,7 +73,7 @@ A C++ type rename alone does not change cache identity.
 
 Material and MaterialInstance sessions acquire the retained
 `/Engine/Models/Sphere` fixture and attach their material to a component in the
-leased preview scene. They perform no transient mesh import or private viewport
+renderer-owned preview scene. They perform no transient mesh import or private viewport
 allocation. Material keys include the sorted, cycle-guarded parent-material and
 texture dependency closure.
 StaticMesh keys include LOD 0 framing and default-material closure. TextureCube
@@ -134,7 +134,7 @@ then use one renderer-owned session with these hooks:
 
 1. request asynchronous loading of the exact asset;
 2. poll bounded resource readiness without retaining the capture slot;
-3. prepare the leased preview scene;
+3. bind its renderer-owned preview scene to the capture context, or supply an image renderer;
 4. validate revisions before render, readback, encoding, and publication;
 5. reset preview state idempotently.
 
@@ -157,13 +157,13 @@ sessions use the same scene profile. Shader reload and manual retry invalidate
 preparation; forced reload also bypasses cached compiler outputs.
 Pending PSOs defer capture to a later frame without waiting on the rendering
 thread or reporting a resource failure. A reload detected before capture refreshes
-the CPU preparation first. Pending capture retains its leased scene and immutable
+the CPU preparation first. Pending capture retains its renderer scene and immutable
 inputs, and cancellation invalidates any queued retry.
 
 The sphere and StaticMesh use `RequestRenderDataAndResources()` for missing CPU
 render data; thumbnail polling never calls the blocking mesh-load API.
 StaticMesh sessions also wait for every assigned default material's current
-compiled program before declaring readiness or leasing the capture scene.
+compiled program before declaring readiness or binding the renderer scene.
 Pending, running, deferred and scheduled material requests remain parked;
 terminal material failures report a qualified diagnostic. Scene preparation
 captures weak material identities and owned effective material snapshots. These
@@ -196,18 +196,34 @@ immutable feature-owned input. Owners must finish any executing callbacks before
 reset; registration removal is not a concurrent-callback barrier. Queued,
 waiting, rendering, readback, encoding, and already-enqueued upload completions
 all reject the retired generation.
-Withdrawal releases GC references after invalidating leases and destroying
-sessions; the renderer object itself is destroyed by a later GC pass. Reflection
+Withdrawal invalidates leases and destroys sessions immediately. A lease that
+had an active session retains its renderer until the capture owner resets the
+capture context and calls `ReleaseRenderedSession`; inactive leases release
+their GC references immediately. This prevents a cancelled readback from
+borrowing a destroyed scene without retaining retired renderers in cached queue
+records. The renderer object itself is destroyed by a later GC pass. Reflection
 providers retain their mapped code under the module lifecycle contract while
 their classes and managed objects can still execute destructors.
 
-The shared preview pool owns its world, camera/view, environment value, light,
-output target, capture, and readback. It can retain generic named Actor fixtures
-for its lifetime. Material sessions reuse one fixture and its StaticMeshComponent,
-clearing mesh and material bindings in reset. Other session-owned scene content
-is detached in reset. Isolated hosts without reusable fixtures retain the
-create/destroy fallback. TextureCube supplies an immutable allocation snapshot with a fixed counted RHI
-environment value and creates no world content. The shared capture implementation
+Each renderer lazily owns one native `FThumbnailPreviewScene`, released in
+`BeginDestroy`. Its `FPreviewScene` owns the preview world and render scene and
+keeps the world reachable through the existing preview-world lifetime contract.
+The thumbnail scene retains studio lighting and one lazily created actor.
+Material and StaticMesh sessions reuse that actor and its StaticMeshComponent,
+then clear mesh and material bindings on reset. They neither own nor destroy
+the world or actor. Different renderer registrations have independent scenes.
+There is no named fixture map or create/destroy fallback.
+
+The asset pool owns `FThumbnailCapture`: output target, view, environment,
+render submission and asynchronous readback. `IThumbnailRenderContext` exposes
+only scene binding and capture setup, with no shared-world accessor. A bound
+scene is exclusive to one capture context until `Reset`; the owner must keep
+the renderer or standalone scene alive through that reset. Reset cancels pending
+work and drops scene, environment and image-renderer bindings before releasing
+the request's renderer lease. Scene destruction drains queued render commands.
+TextureCube binds its renderer scene and supplies an immutable allocation
+snapshot as a counted RHI environment value. Texture2D supplies an image renderer
+without creating or binding any preview world. The shared capture implementation
 contains no concrete asset casts, readiness rules, framing rules, or feature diagnostics.
 
 Texture-dependent sessions also retain the actual successful allocation snapshots.
@@ -232,13 +248,15 @@ RHI resource or affecting a reference held by another panel. Explicit `Prefetch`
 interest keeps background generation alive after the last UI reference is
 released; global cancellation and renderer retirement still cancel that work.
 
-The default limits remain:
+Preview scenes are retained per used 3D renderer registration rather than limited
+by a pool-wide scene count. Cache hits, parked loading and 2D image captures
+create no scene. The default pool limits remain:
 
 | Resource | Limit |
 | --- | ---: |
 | Queued jobs | 512 |
 | Render captures per frame | 1 |
-| Live preview scenes | 1 |
+| Active captures per pool | 1 |
 | Parked resource waits | 64 |
 | Retained pool entries | 4096 |
 | Resource poll interval | 4 frames |
@@ -253,7 +271,7 @@ The default limits remain:
 
 Jobs move through queued, loading, waiting-for-resources, rendering, readback,
 encoding, uploading, and ready states. Preparation and capture are independent.
-A waiting or ready rendered job is parked without owning the scene. One capture retains its session through
+A waiting or ready rendered job is parked without binding a scene. One capture retains its session through
 readback and validation while other assets continue cache lookup and loading.
 Preparation capacity applies backpressure instead of failing queued assets.
 The pool consumes multiple cache results and admits more work within the

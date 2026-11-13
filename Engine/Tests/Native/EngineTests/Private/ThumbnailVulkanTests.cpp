@@ -32,6 +32,7 @@
 #include "RHICommandList.h"
 #include "StaticMesh/StaticMeshBuild.h"
 #include "Thumbnail/ThumbnailPreviewScene.h"
+#include "Thumbnail/ThumbnailCapture.h"
 #include "Thumbnail/AssetThumbnailTestFixtures.h"
 #include "Thumbnail/MaterialThumbnailRenderer.h"
 #include "Thumbnail/AssetThumbnailPool.h"
@@ -68,7 +69,7 @@ namespace
 		{
 			return {.State = Durin::EThumbnailRendererSessionState::WaitingForResources};
 		}
-		auto PreparePreview(Durin::IThumbnailPreviewScene&) -> std::expected<void, std::string> override
+		auto PreparePreview(Durin::IThumbnailRenderContext&) -> std::expected<void, std::string> override
 		{
 			return std::unexpected("The readback probe must never render.");
 		}
@@ -368,7 +369,7 @@ TEST_F(FThumbnailVulkanTests, StaticMeshSessionWaitsForMaterialPublication)
 	ASSERT_TRUE(WaitForResourcePublication([&] {
 		return (*Session)->PollResources().State == EThumbnailRendererSessionState::ReadyToRender;
 	}));
-	FThumbnailPreviewScenePool Preview(Contract);
+	FThumbnailCapture Preview(Contract.Output);
 	ASSERT_TRUE(Preview.IsAvailable()) << Preview.GetDiagnostic();
 	ASSERT_TRUE((*Session)->PreparePreview(Preview));
 	ASSERT_TRUE((*Session)->ValidatePreparedInput());
@@ -411,6 +412,11 @@ TEST_F(FThumbnailVulkanTests, StaticMeshSessionWaitsForMaterialPublication)
 	EXPECT_EQ(Canceled.State, EThumbnailRendererSessionState::Failed);
 	EXPECT_FALSE(Canceled.Diagnostic.empty());
 	(*Session)->ResetPreview();
+	auto* PreviewActor = Extension.GetPreviewScene().GetPreviewActor();
+	ASSERT_NE(PreviewActor, nullptr);
+	auto* PreviewComponent = PreviewActor->FindComponentByExactClass<DStaticMeshComponent>();
+	ASSERT_NE(PreviewComponent, nullptr);
+	EXPECT_EQ(PreviewComponent->GetStaticMesh(), nullptr);
 }
 
 TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRendering)
@@ -557,8 +563,8 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 		EXPECT_EQ(Stats.Generation.Renders, 1u);
 		EXPECT_EQ(Stats.Generation.Readbacks, 1u);
 		EXPECT_EQ(Stats.Generation.DiskHits, 0u);
-		EXPECT_EQ(Stats.PreviewSceneCreations, 1u);
-		EXPECT_EQ(Stats.PreviewSceneAssignments, 1u);
+		EXPECT_EQ(Stats.CaptureOutputCreations, 1u);
+		EXPECT_EQ(Stats.CapturesStarted, 1u);
 		EXPECT_EQ(Stats.UploadsCompleted, 1u);
 		EXPECT_EQ(Stats.LiveGpuTextures, 1u);
 		EXPECT_EQ(ThumbnailUIBackend.NumRegistered(), 1u);
@@ -589,8 +595,8 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 		EXPECT_EQ(Stats.Generation.Loads, 0u);
 		EXPECT_EQ(Stats.Generation.Renders, 0u);
 		EXPECT_EQ(Stats.Generation.Readbacks, 0u);
-		EXPECT_EQ(Stats.PreviewSceneCreations, 0u);
-		EXPECT_EQ(Stats.PreviewSceneAssignments, 0u);
+		EXPECT_EQ(Stats.CaptureOutputCreations, 0u);
+		EXPECT_EQ(Stats.CapturesStarted, 0u);
 		EXPECT_EQ(Stats.UploadsCompleted, 1u);
 
 		WarmCache.CancelPendingRequests();
@@ -841,7 +847,7 @@ TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplace
 		return Ready.State != EThumbnailRendererSessionState::WaitingForResources;
 	}));
 	ASSERT_EQ(Ready.State, EThumbnailRendererSessionState::ReadyToRender) << Ready.Diagnostic;
-	FThumbnailPreviewScenePool Pool(Contract);
+	FThumbnailCapture Pool(Contract.Output);
 	ASSERT_TRUE((*Session)->PreparePreview(Pool)) << Error;
 	ASSERT_TRUE((*Session)->ValidatePreparedInput()) << Error;
 	ASSERT_TRUE(Pool.BeginCapture());
@@ -933,7 +939,7 @@ TEST_F(FThumbnailVulkanTests, TexturePreviewPreservesRawChannelsSrgbAndAspectRat
 	});
 	FlushRenderingCommands();
 	ASSERT_NE(Input, nullptr);
-	FThumbnailPreviewScenePool Pool(Contract);
+	FThumbnailCapture Pool(Contract.Output);
 	for (const auto Channel : {ETexturePreviewChannel::RGBA, ETexturePreviewChannel::Blue, ETexturePreviewChannel::Alpha})
 	{
 		ASSERT_TRUE(Pool.SetImageRenderer([Input, Channel](FRHICommandListImmediate& Commands, uint32 W, uint32 H) {
@@ -976,8 +982,10 @@ TEST_F(FThumbnailVulkanTests, TexturePreviewPreservesRawChannelsSrgbAndAspectRat
 TEST_F(FThumbnailVulkanTests, CaptureWaitsForOptionalResourcesInsteadOfPublishingInteractiveFallback)
 {
     using namespace Durin;
-    FThumbnailPreviewScenePool Pool(Contract);
+    FThumbnailPreviewScene Scene(Contract);
+    FThumbnailCapture Pool(Contract.Output);
     ASSERT_TRUE(Pool.IsAvailable()) << Pool.GetDiagnostic();
+    ASSERT_TRUE(Pool.SetScene(Scene));
     ASSERT_TRUE(Pool.BeginCapture());
     FByteBuffer WarmPixels;
     std::string Error;
@@ -991,6 +999,7 @@ TEST_F(FThumbnailVulkanTests, CaptureWaitsForOptionalResourcesInsteadOfPublishin
             .PendingFeature = EScenePreparationPending::AmbientOcclusion});
     });
     FlushRenderingCommands();
+    ASSERT_TRUE(Pool.SetScene(Scene));
     EXPECT_TRUE(Pool.BeginCapture());
     for (uint32 Pump = 0; Pump < 8; ++Pump)
     {
@@ -1011,15 +1020,17 @@ TEST_F(FThumbnailVulkanTests, CaptureSucceedsWithComponentPSOPrecachingDisabled)
 {
 	using namespace Durin;
 	Tests::FScopedComponentPSOPrecacheMode PrecacheMode(EComponentPSOPrecacheMode::Disabled);
-	FThumbnailPreviewScenePool Pool(Contract);
+	FThumbnailPreviewScene Scene(Contract);
+	FThumbnailCapture Pool(Contract.Output);
 	ASSERT_TRUE(Pool.IsAvailable()) << Pool.GetDiagnostic();
-	auto* Actor = Pool.GetReusableActor("DisabledPSOPrecacheActor");
+	auto* Actor = Scene.GetPreviewActor();
 	ASSERT_NE(Actor, nullptr);
 	auto* Component = Cast<DStaticMeshComponent>(Actor->AddInstanceComponent(
 		DStaticMeshComponent::StaticClass(), "DisabledPSOPrecacheComponent"));
 	ASSERT_NE(Component, nullptr);
 	ASSERT_TRUE(Component->IsVisible());
 	ASSERT_FALSE(Component->GetPSOPrecacheComponentData().IsReadyForProxyCreation());
+	ASSERT_TRUE(Pool.SetScene(Scene));
 	ASSERT_TRUE(Pool.BeginCapture());
 	FByteBuffer Pixels;
 	std::string Error;
@@ -1047,14 +1058,17 @@ TEST_F(FThumbnailVulkanTests, CaptureDoesNotWaitForUnrelatedOptionalComponentPSO
     ASSERT_TRUE(Request.GetProgress().bRequiredReady);
     ASSERT_EQ(Request.GetProgress().State, EMaterialPSOPrecacheState::Pending);
 
-    FThumbnailPreviewScenePool Pool(Contract);
+    FThumbnailPreviewScene Scene(Contract);
+
+    FThumbnailCapture Pool(Contract.Output);
     ASSERT_TRUE(Pool.IsAvailable()) << Pool.GetDiagnostic();
-    auto* Actor = Pool.GetReusableActor("OptionalPSOFixture");
+    auto* Actor = Scene.GetPreviewActor();
     ASSERT_NE(Actor, nullptr);
     auto* Component = Cast<DPrimitiveComponent>(Actor->AddInstanceComponent(DPrimitiveComponent::StaticClass()));
     ASSERT_NE(Component, nullptr);
     Component->SetMaterialPSOPrecacheData({Request});
     ASSERT_TRUE(Component->IsPSOPrecaching());
+    ASSERT_TRUE(Pool.SetScene(Scene));
     ASSERT_TRUE(Pool.BeginCapture());
     FByteBuffer Pixels;
     std::string Error;
@@ -1062,4 +1076,33 @@ TEST_F(FThumbnailVulkanTests, CaptureDoesNotWaitForUnrelatedOptionalComponentPSO
     EXPECT_FALSE(Pixels.empty());
     EXPECT_TRUE(Component->IsPSOPrecaching());
     Component->GetPSOPrecacheComponentData().Reset();
+}
+
+TEST_F(FThumbnailVulkanTests, RendererOwnsReusableSceneAndCaptureOnlyBorrowsIt)
+{
+    using namespace Durin;
+    auto First = MakeThumbnailRenderer<StaticMeshEditor::DStaticMeshThumbnailRenderer>();
+    auto Second = MakeThumbnailRenderer<StaticMeshEditor::DStaticMeshThumbnailRenderer>();
+    auto& Scene = First->GetPreviewScene();
+    auto& OtherScene = Second->GetPreviewScene();
+    ASSERT_TRUE(Scene.IsAvailable()) << Scene.GetDiagnostic();
+    ASSERT_TRUE(OtherScene.IsAvailable()) << OtherScene.GetDiagnostic();
+    EXPECT_NE(Scene.GetWorld(), OtherScene.GetWorld());
+    auto* Actor = Scene.GetPreviewActor();
+    ASSERT_NE(Actor, nullptr);
+    TWeakObjectPtr<DWorld> World(Scene.GetWorld());
+    FThumbnailCapture Capture(Contract.Output);
+    FThumbnailCapture OtherCapture(Contract.Output);
+    ASSERT_TRUE(Capture.SetScene(Scene));
+    EXPECT_FALSE(OtherCapture.SetScene(Scene));
+    ASSERT_TRUE(OtherCapture.SetScene(OtherScene));
+    Capture.Reset();
+    EXPECT_EQ(Scene.GetPreviewActor(), Actor);
+    OtherCapture.Reset();
+    ASSERT_TRUE(OtherCapture.SetScene(Scene));
+    OtherCapture.Reset();
+    First.Reset();
+    CollectGarbage(EObjectFlags::Standalone);
+    EXPECT_FALSE(World.IsValid());
+    EXPECT_TRUE(OtherScene.IsAvailable());
 }

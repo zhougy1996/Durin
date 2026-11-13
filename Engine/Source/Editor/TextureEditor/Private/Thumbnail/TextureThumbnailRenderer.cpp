@@ -60,7 +60,7 @@ namespace Durin::TextureEditor
 				return {.State = *ShaderReady ? EThumbnailRendererSessionState::ReadyToRender
 					: EThumbnailRendererSessionState::WaitingForResources};
 			}
-			auto PreparePreview(IThumbnailPreviewScene& Scene) -> std::expected<void, std::string> override
+			auto PreparePreview(IThumbnailRenderContext& Context) -> std::expected<void, std::string> override
 			{
 				const auto* Asset = Texture.Get();
 				if (!Asset || !Asset->IsAsyncCacheComplete() || Asset->HasPendingRenderResourceInitialization())
@@ -68,7 +68,7 @@ namespace Durin::TextureEditor
 				const auto* Resource = Asset->GetResource();
 				Snapshot = Resource ? Resource->GetTextureRHI_GameThread() : FTextureRHIRef{};
 				if (!Snapshot) { return std::unexpected("Texture2D built allocation is unavailable."); }
-				return Scene.SetImageRenderer([Input = Snapshot, Display = Options](
+				return Context.SetImageRenderer([Input = Snapshot, Display = Options](
 					FRHICommandListImmediate& Commands, uint32 Width, uint32 Height) {
 					return RenderTexturePreview(Commands, Input, Width, Height, Display, true);
 				});

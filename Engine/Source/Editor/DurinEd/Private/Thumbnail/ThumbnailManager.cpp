@@ -9,18 +9,6 @@
 
 namespace Durin
 {
-	DThumbnailRenderer::DThumbnailRenderer(
-		const FObjectInitializer& ObjectInitializer)
-		: Super(ObjectInitializer)
-	{
-	}
-
-	auto DThumbnailRenderer::CreateGenerationSession(
-		const FAssetThumbnailGenerationRequest&,
-		const IAssetThumbnailGenerationInput&) -> std::expected<std::unique_ptr<IThumbnailRendererSession>, std::string>
-	{
-		return std::unexpected("The thumbnail renderer produces no preview-scene session.");
-	}
 	namespace ThumbnailPrivate
 	{
 		struct FAssetThumbnailGenerationLeaseState
@@ -47,9 +35,12 @@ namespace Durin
 			{
 				if (!bActive.exchange(false, std::memory_order_acq_rel)) return;
 				Cancellation.Cancel();
+				const bool bHadSession = Session != nullptr;
 				ReleaseSession();
 				Input.reset();
-				Renderer.Reset();
+				// A capture may still borrow its scene after session invalidation.
+				// ReleaseRenderedSession retires that borrow before dropping the GC root.
+				if (!bHadSession) Renderer.Reset();
 			}
 		};
 
@@ -170,7 +161,9 @@ namespace Durin
 
 	auto FAssetThumbnailGenerationLease::ReleaseRenderedSession() const -> void
 	{
-		if (State) State->ReleaseSession();
+		if (!State) return;
+		State->ReleaseSession();
+		if (!State->bActive.load(std::memory_order_acquire)) State->Renderer.Reset();
 	}
 
 	auto FAssetThumbnailGenerationRequest::GetInput() const

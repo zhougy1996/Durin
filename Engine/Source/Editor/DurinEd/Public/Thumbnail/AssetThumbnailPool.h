@@ -32,8 +32,8 @@ namespace Durin
 	struct FAssetThumbnailPoolStats
 	{
 		FAssetThumbnailGenerationStats Generation;
-		uint64 PreviewSceneCreations = 0;
-		uint64 PreviewSceneAssignments = 0;
+		uint64 CaptureOutputCreations = 0;
+		uint64 CapturesStarted = 0;
 		uint64 UploadsQueued = 0;
 		uint64 UploadsCompleted = 0;
 		uint64 UploadFailures = 0;
@@ -47,7 +47,7 @@ namespace Durin
 		uint64 PinnedEntries = 0;
 		uint64 Referencers = 0;
 		bool bHasActiveJob = false;
-		bool bHasPreviewScene = false;
+		bool bHasCaptureOutput = false;
 	};
 
 	// Owns renderer-neutral rendered generation, persistence, capture, upload, and UI texture lifetime.

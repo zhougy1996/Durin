@@ -126,7 +126,6 @@ namespace Durin
 	{
 		uint32 MaximumQueuedJobs = 512;
 		uint32 MaximumRendersPerFrame = 1;
-		uint32 MaximumLivePreviewScenes = 1;
 		uint32 MaximumParkedRenderedJobs = 64;
 		uint32 MaximumRetainedEntries = 4096;
 		uint32 ResourcePollIntervalFrames = 4;
