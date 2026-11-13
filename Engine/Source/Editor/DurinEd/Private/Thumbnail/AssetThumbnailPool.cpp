@@ -9,6 +9,7 @@
 #include "MonaCoreGlobals.h"
 #include "MonaUIBackend.h"
 #include "RHICommandList.h"
+#include "Threading/Future.h"
 #include "RenderingThread.h"
 #include "AssetRegistry/Catalog.h"
 #include "Misc/MountPaths.h"
@@ -20,22 +21,12 @@ namespace Durin
 	{
 		struct FAssetThumbnailUploadResult
 		{
-			FTopLevelAssetPath AssetPath;
-			std::string AssetClassName;
-			FAssetThumbnailCancellation Cancellation;
-			uint64 RendererGeneration = 0;
-			uint64 Serial = 0;
 			FTextureRHIRef Texture;
 			uint32 Width = 0;
 			uint32 Height = 0;
 			std::string Error;
 		};
 
-		struct FAssetThumbnailAsyncState
-		{
-			std::mutex Mutex;
-			std::vector<FAssetThumbnailUploadResult> Uploads;
-		};
 	} // namespace
 
 	struct FAssetThumbnailPool::FImpl
@@ -60,10 +51,10 @@ namespace Durin
 			std::vector<FAssetThumbnailPackageFingerprint> Dependencies;
 			bool bDependenciesCaptured = false;
 			FTextureRHIRef Texture;
-			uint64 Serial = 1;
+			TFuture<FAssetThumbnailUploadResult> Upload;
 			uint64 LastUsedFrame = 0;
 			bool bVisible = false;
-			bool bUploading = false;
+
 			bool bUploadFailed = false;
 			bool bHasTransparency = true;
 			bool bBackgroundRequested = false;
@@ -80,8 +71,6 @@ namespace Durin
 		std::unique_ptr<FThumbnailCapture> CaptureOutput;
 		std::optional<FAssetThumbnailOutputSettings> CaptureSettings;
 		std::unordered_map<FTopLevelAssetPath, FEntry> Entries;
-		std::shared_ptr<FAssetThumbnailAsyncState> AsyncState =
-			std::make_shared<FAssetThumbnailAsyncState>();
 		std::optional<FRenderedJob> PreparingJob;
 		// Only a ready draw reserves a scene. The pool retains its job through
 		// readback and validation while other root assets continue loading.
@@ -154,13 +143,6 @@ namespace Durin
 			}
 		}
 
-		auto IsCurrent(const FAssetThumbnailGenerationRequest& Request) const -> bool
-		{
-			const FThumbnailRendererHandle Renderer =
-				Manager.Find(Request.KeyInput.Asset.AssetClassName);
-			return !Request.Cancellation.IsCancelled()
-				&& Renderer.Generation == Request.RendererGeneration;
-		}
 
 		auto EnsureCapture(const FAssetThumbnailOutputSettings& Output) -> bool
 		{
@@ -214,95 +196,62 @@ namespace Durin
 		{
 			const FTopLevelAssetPath& AssetPath = Request.KeyInput.Asset.AssetPath;
 			auto It = Entries.find(AssetPath);
-			if (It == Entries.end() || It->second.Serial != Request.RequestSerial
-				|| !IsCurrent(Request))
-				return;
-			It->second.bUploading = true;
+			if (It == Entries.end() || Request.Cancellation.IsCancelled()) return;
+
 			It->second.bUploadFailed = false;
 			It->second.bHasTransparency = Request.bHasTransparency;
 			++UploadsQueued;
-			const std::weak_ptr<FAssetThumbnailAsyncState> WeakState = AsyncState;
-			auto SharedPixels = std::make_shared<FByteBuffer>(std::move(Pixels));
-			const std::string AssetClassName = Request.KeyInput.Asset.AssetClassName;
-			const FAssetThumbnailCancellation Cancellation = Request.Cancellation;
-			const uint64 RendererGeneration = Request.RendererGeneration;
-			const uint64 Serial = Request.RequestSerial;
+			auto Promise = std::make_shared<TPromise<FAssetThumbnailUploadResult>>();
+			It->second.Upload = Promise->GetFuture();
 			ENQUEUE_RENDER_COMMAND(UploadRenderedAssetThumbnail)(
-				[WeakState,
-					AssetPath,
-					AssetClassName,
-					Cancellation,
-					RendererGeneration,
-					Serial,
-					SharedPixels,
-					Width,
-					Height](FRHICommandListImmediate& CommandList) {
-					FAssetThumbnailUploadResult Result{
-						.AssetPath = AssetPath,
-						.AssetClassName = AssetClassName,
-						.Cancellation = Cancellation,
-						.RendererGeneration = RendererGeneration,
-						.Serial = Serial,
-						.Width = Width,
-						.Height = Height};
-					if (!Cancellation.IsCancelled())
+				[Promise, Pixels = std::move(Pixels), Width, Height](FRHICommandListImmediate& CommandList) {
+					FAssetThumbnailUploadResult Result{.Width = Width, .Height = Height};
+
+					FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D(
+						"RenderedAssetThumbnail",
+						Width,
+						Height,
+						EPixelFormat::SRGBA8_UNORM);
+					Desc.AddFlags(ETextureCreateFlags::ShaderResource);
+					Result.Texture = GDynamicRHI != nullptr
+						? GDynamicRHI->RHICreateTexture(CommandList, Desc)
+						: nullptr;
+					if (Result.Texture != nullptr)
 					{
-						FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D(
-							"RenderedAssetThumbnail",
-							Width,
-							Height,
-							EPixelFormat::SRGBA8_UNORM);
-						Desc.AddFlags(ETextureCreateFlags::ShaderResource);
-						Result.Texture = GDynamicRHI != nullptr
-							? GDynamicRHI->RHICreateTexture(CommandList, Desc)
-							: nullptr;
-						if (Result.Texture != nullptr)
-						{
-							const FUpdateTextureRegion2D Region(
-								0, 0, 0, 0, Width, Height);
-							CommandList.UpdateTexture2D(Result.Texture,
-								0,
-								0,
-								Region,
-								Width * 4,
-								*SharedPixels);
-							CommandList.TransitionTextures(std::array{FRHITextureTransition{
-								Result.Texture, {ERHITextureAspect::Color, 0, 1, 0, 1},
-								ERHIAccess::TransferWrite, ERHIAccess::GraphicsShaderRead}});
-						}
-						else
-						{
-							Result.Error =
-								"Unable to create the rendered-asset thumbnail UI texture.";
-						}
+						const FUpdateTextureRegion2D Region(
+							0, 0, 0, 0, Width, Height);
+						CommandList.UpdateTexture2D(Result.Texture,
+							0,
+							0,
+							Region,
+							Width * 4,
+							Pixels);
+						CommandList.TransitionTextures(std::array{FRHITextureTransition{
+							Result.Texture, {ERHITextureAspect::Color, 0, 1, 0, 1},
+							ERHIAccess::TransferWrite, ERHIAccess::GraphicsShaderRead}});
 					}
-					if (const std::shared_ptr<FAssetThumbnailAsyncState> State =
-						WeakState.lock())
+					else
 					{
-						std::lock_guard Lock(State->Mutex);
-						State->Uploads.push_back(std::move(Result));
+						Result.Error =
+							"Unable to create the rendered-asset thumbnail UI texture.";
 					}
+					(void)Promise->TrySetValue(std::move(Result));
 				});
 		}
 
 		auto DrainUploads() -> void
 		{
-			std::vector<FAssetThumbnailUploadResult> Results;
+			for (auto& [Path, Entry] : Entries)
 			{
-				std::lock_guard Lock(AsyncState->Mutex);
-				Results.swap(AsyncState->Uploads);
-			}
-			for (FAssetThumbnailUploadResult& Result : Results)
-			{
-				auto It = Entries.find(Result.AssetPath);
-				if (It == Entries.end() || It->second.Serial != Result.Serial) continue;
-				FEntry& Entry = It->second;
-				Entry.bUploading = false;
-				const FThumbnailRendererHandle Renderer =
-					Manager.Find(Result.AssetClassName);
-				if (Result.Cancellation.IsCancelled()
-					|| Renderer.Generation != Result.RendererGeneration)
-					continue;
+				if (!Entry.Upload.IsReady()) continue;
+				FAssetThumbnailUploadResult Result;
+				if (Entry.Upload.GetState() == EFutureState::Succeeded) Result = Entry.Upload.Consume();
+				else
+				{
+					Entry.Upload.Reset();
+					Result.Error = "The thumbnail upload did not complete.";
+				}
+
 				if (Result.Texture == nullptr || !Mona::GetActiveUIBackend())
 				{
 					Entry.Diagnostic = Result.Error.empty()
@@ -326,7 +275,7 @@ namespace Durin
 		auto FinishCapture() -> void
 		{
 			if (!CaptureJob || CaptureOutput == nullptr) return;
-			if (!IsCurrent(CaptureJob->Work.GenerationRequest))
+			if (CaptureJob->Work.GenerationRequest.Cancellation.IsCancelled())
 			{
 				ResetCapture();
 				return;
@@ -391,7 +340,7 @@ namespace Durin
 			FAssetThumbnailGenerationRequest& Request =
 				Job.Work.GenerationRequest;
 			FThumbnailRenderJob* Draw = Job.Draw.get();
-			if (Draw == nullptr || !IsCurrent(Request))
+			if (Draw == nullptr || Request.Cancellation.IsCancelled())
 			{
 				ResetPreparing();
 				return;
@@ -474,7 +423,7 @@ namespace Durin
 					&& Budgets.MaximumResourceWaitFrames != 0
 					&& FrameNumber - Parked.FirstWaitFrame
 						>= Budgets.MaximumResourceWaitFrames;
-				bool bRelease = Draw == nullptr || !IsCurrent(Request);
+				bool bRelease = Draw == nullptr || Request.Cancellation.IsCancelled();
 				if (!bRelease && bTimedOut)
 				{
 					Pipeline.BeginRender(
@@ -621,7 +570,7 @@ namespace Durin
 			for (const auto& [Path, Entry] : Entries)
 			{
 				const EThumbnailJobState State = Scheduler.GetState(Path);
-				const bool bActive = Entry.bUploading
+				const bool bActive = Entry.Upload.IsValid()
 					|| State == EThumbnailJobState::Queued
 					|| State == EThumbnailJobState::Loading
 					|| State == EThumbnailJobState::WaitingForResources
@@ -669,14 +618,15 @@ namespace Durin
 		Manager.AttachPool(this);
 	}
 
-	auto FAssetThumbnailPool::InvalidateRenderer(uint64 Generation) -> void
+	auto FAssetThumbnailPool::InvalidateRenderer(std::string_view AssetClassName) -> void
 	{
-		Impl->Scheduler.CancelRenderer(Generation);
-		if (Impl->CaptureJob && Impl->CaptureJob->Work.GenerationRequest.RendererGeneration == Generation) Impl->ResetCapture();
-		if (Impl->PreparingJob && Impl->PreparingJob->Work.GenerationRequest.RendererGeneration == Generation) Impl->ResetPreparing();
-		std::erase_if(Impl->ParkedJobs, [Generation](const auto& Job) {
-			return Job.Job.Work.GenerationRequest.RendererGeneration == Generation;
+		if (Impl->CaptureJob && Impl->CaptureJob->Work.GenerationRequest.KeyInput.Asset.AssetClassName == AssetClassName) Impl->ResetCapture();
+		if (Impl->PreparingJob && Impl->PreparingJob->Work.GenerationRequest.KeyInput.Asset.AssetClassName == AssetClassName) Impl->ResetPreparing();
+		std::erase_if(Impl->ParkedJobs, [&](const auto& Job) {
+			return Job.Job.Work.GenerationRequest.KeyInput.Asset.AssetClassName == AssetClassName;
 		});
+		for (auto& [Path, Entry] : Impl->Entries)
+			if (Entry.Fingerprint.AssetClassName == AssetClassName) Entry.Upload.Reset();
 	}
 
 	FAssetThumbnailPool::~FAssetThumbnailPool()
@@ -684,7 +634,6 @@ namespace Durin
 		Impl->Manager.DetachPool(this);
 		Clear();
 		Impl->CaptureOutput.reset();
-		Impl->AsyncState.reset();
 	}
 
 	auto FAssetThumbnailPool::Prefetch(const FAssetThumbnailPackageFingerprint& Asset) -> void
@@ -705,13 +654,11 @@ namespace Durin
 			Entry.Fingerprint = Asset;
 		else if (Entry.Fingerprint != Asset)
 		{
-			const uint64 NextSerial = Entry.Serial + 1;
 			const uint32 ReferencerCount = Entry.ReferencerCount;
 			Impl->Scheduler.Cancel(Asset.AssetPath);
 			Impl->UnregisterTexture(Entry);
 			Entry = {};
 			Entry.Fingerprint = Asset;
-			Entry.Serial = NextSerial;
 			Entry.ReferencerCount = ReferencerCount;
 		}
 		Entry.bVisible |= Priority == EAssetThumbnailPriority::Visible;
@@ -721,7 +668,7 @@ namespace Durin
 			Entry.Diagnostic.clear();
 			return Find(Asset.AssetPath);
 		}
-		const auto Admission = Impl->Scheduler.Request({.Asset = Asset, .Priority = Priority, .RequestSerial = Entry.Serial});
+		const auto Admission = Impl->Scheduler.Request({.Asset = Asset, .Priority = Priority});
 		// Queue pressure is retried by subsequent visible requests. Old requests
 		// and shutdown need no diagnostic; unsupported assets retain a placeholder.
 		if (Admission == EThumbnailRequestStatus::Unsupported)
@@ -793,8 +740,8 @@ namespace Durin
 			Impl->ReleaseJob(Parked.Job);
 			return true;
 		});
-		++It->second.Serial;
-		It->second.bUploading = false;
+		It->second.Upload.Reset();
+
 	}
 
 	auto FAssetThumbnailPool::Refresh(const FTopLevelAssetPath& AssetPath) -> void
@@ -804,10 +751,10 @@ namespace Durin
 		Impl->Scheduler.Cancel(AssetPath);
 		Impl->UnregisterTexture(It->second);
 		It->second.Texture = nullptr;
-		It->second.bUploading = false;
+		It->second.Upload.Reset();
+
 		It->second.bUploadFailed = false;
 		It->second.Diagnostic.clear();
-		++It->second.Serial;
 	}
 
 	auto FAssetThumbnailPool::ApplyContentChanges(const FContentChangeBatch& Changes) -> void
@@ -887,8 +834,8 @@ namespace Durin
 		Impl->Scheduler.CancelAll();
 		for (auto& [Path, Entry] : Impl->Entries)
 		{
-			++Entry.Serial;
-			Entry.bUploading = false;
+			Entry.Upload.Reset();
+
 			Entry.bUploadFailed = false;
 			Entry.Diagnostic.clear();
 		}

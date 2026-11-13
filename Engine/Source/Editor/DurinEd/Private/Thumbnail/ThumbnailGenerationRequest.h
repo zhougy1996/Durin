@@ -8,7 +8,6 @@ namespace Durin
 	{
 		FAssetThumbnailPackageFingerprint Asset;
 		EAssetThumbnailPriority Priority = EAssetThumbnailPriority::Prefetch;
-		uint64 RequestSerial = 0;
 	};
 
 	// Provides cooperative cancellation shared by scheduler and asynchronous completions.
@@ -21,7 +20,6 @@ namespace Durin
 		DURINED_API auto IsCancelled() const -> bool;
 
 	private:
-		friend class DThumbnailManager;
 		std::shared_ptr<std::atomic<bool>> State;
 	};
 
@@ -29,8 +27,6 @@ namespace Durin
 	{
 		FAssetThumbnailKeyInput KeyInput;
 		FAssetThumbnailCancellation Cancellation;
-		uint64 RendererGeneration = 0;
-		uint64 RequestSerial = 0;
 		bool bHasTransparency = true;
 	};
 }

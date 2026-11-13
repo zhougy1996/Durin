@@ -599,6 +599,43 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 		EXPECT_EQ(RevisitedStats.UploadsQueued, Stats.UploadsQueued);
 		WarmCache.Clear();
 	}
+	// An upload can finish after its consumer is removed. Reusing the same asset
+	// path must not let those pixels publish into a later request or registration.
+	for (int Action = 0; Action < 4; ++Action)
+	{
+		SCOPED_TRACE(Action);
+		Durin::FAssetThumbnailPool Pending({.MaximumResourceWaitFrames = 0},
+			{.CacheRoot = ThumbnailCacheRoot, .ObjectExtension = ".png"});
+		Pending.AccessTexture(StaticMeshFingerprint);
+		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+		while (Pending.GetStats().UploadsQueued == 0 && std::chrono::steady_clock::now() < Deadline)
+		{
+			Pending.Tick();
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+		ASSERT_EQ(Pending.GetStats().UploadsQueued, 1u);
+		ASSERT_EQ(Pending.GetStats().UploadsCompleted, 0u);
+		if (Action == 0) Pending.Refresh(StaticMeshFingerprint.AssetPath);
+		else if (Action == 1) Pending.Clear();
+		else if (Action == 2) Pending.CancelPendingRequests();
+		else
+		{
+			Registration.Reset();
+			Registration = Durin::GetDefaultThumbnailManager().RegisterCustomRenderer(
+				Durin::DStaticMesh::StaticClass(), Durin::StaticMeshEditor::DStaticMeshThumbnailRenderer::StaticClass());
+			ASSERT_TRUE(Registration);
+		}
+		Durin::FlushRenderingCommands();
+		Pending.Tick(false);
+		EXPECT_EQ(Pending.GetStats().UploadsCompleted, 0u);
+		EXPECT_EQ(Pending.Find(StaticMeshFingerprint.AssetPath).Texture, nullptr);
+		EXPECT_EQ(ThumbnailUIBackend.NumRegistered(), 0u);
+		const auto Ready = PumpCacheToReady(Pending);
+		ASSERT_EQ(Ready.State, Durin::EAssetThumbnailState::Ready) << Ready.Diagnostic;
+		EXPECT_EQ(Pending.GetStats().UploadsCompleted, 1u);
+		Pending.Clear();
+		EXPECT_EQ(ThumbnailUIBackend.NumRegistered(), 0u);
+	}
 }
 
 TEST_F(FThumbnailVulkanTests, EnvironmentValidationAndCancellationReleaseReferences)

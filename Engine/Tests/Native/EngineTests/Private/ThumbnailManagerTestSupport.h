@@ -32,7 +32,8 @@ namespace Durin
 		{
 			auto Result = RegisterScoped(Manager, Renderer);
 			if (!Result) return false;
-			Result.RegistrationId = 0;
+			Result.AssetClassName.clear();
+			Result.Renderer = nullptr;
 			Result.State.reset();
 			return true;
 		}

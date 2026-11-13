@@ -15,7 +15,7 @@ content.
 - `DurinEd` owns `DThumbnailManager`, `DThumbnailRenderer`,
   `FThumbnailRenderingInfo`,
   `FAssetThumbnail`, and `FAssetThumbnailPool`.
-- `DThumbnailManager` maps one exact asset class to one renderer generation.
+- `DThumbnailManager` maps one exact asset class to one renderer object.
   It rejects duplicate registration, owns the shared default pool, and performs
   explicit shutdown.
 - Feature editor modules register reflected concrete renderer classes and own
@@ -26,7 +26,7 @@ content.
   and pool. It owns no asset, task, preview world,
   render target, or RHI resource.
 - `FAssetThumbnailPool` owns coalescing, priority, state, generation, preview
-  leasing, readback, encoding, persistence, upload, pinning, LRU retention,
+  scene borrowing, readback, encoding, persistence, upload, pinning, LRU retention,
   cancellation, diagnostics, and statistics.
 - The public persistent object store is shared with ordinary-file thumbnail
   caches. Its `FThumbnailObjectStoreSettings` and budget helpers depend on no
@@ -36,8 +36,8 @@ content.
 `ThumbnailManager.h` declares registration, handles and shared-pool ownership.
 `ThumbnailRenderer.h` declares cache descriptions, the loaded-object renderer
 and its capability/draw entrypoints. `ThumbnailDrawContext.h` contains the
-concrete draw setup and resource-lifetime context. Scheduler requests, cancellation and incarnation counters are
-private DurinEd contracts. Concrete renderers derive directly from
+concrete draw setup and resource-lifetime context. Scheduler requests and cooperative cancellation are private DurinEd contracts.
+There are no renderer-generation or request-serial counters. Concrete renderers derive directly from
 `DThumbnailRenderer`; the fixed output contract needs no intermediate base class.
 All concrete renderers are `DCLASS` objects with initializer constructors.
 `RegisterCustomRenderer(AssetClass, RendererClass)` validates a concrete renderer
@@ -136,8 +136,9 @@ ownership after the shell and editor subsystems retire, before renderer shutdown
 Isolated tools without an editor-session owner retain their acquisition-based
 lifetime. This fixed pair is shared outside individual thumbnail pool budgets.
 
-Every completion revalidates asset identity, request serial, renderer generation,
-key, and captured asset/resource revisions. Save, move, delete, reimport,
+Cache work checks cooperative cancellation; draw jobs validate captured
+asset/resource revisions. GPU upload results belong to the entry that initiated
+them and cannot be routed to a replacement entry by asset path. Save, move, delete, reimport,
 dependency change, resource rebuild, explicit dirty refresh, renderer
 replacement, and corruption either produce a new key or reject stale work.
 
@@ -220,14 +221,16 @@ still performs object construction, bulk validation and PostLoad on GameThread,
 so this integration removes synchronous thumbnail load calls without promising
 that those remaining stages cannot produce a long frame.
 
-A renderer registration is qualified by a monotonically increasing generation.
-Withdrawal cancels its weak cancellation tickets and notifies attached pools.
-Each pool cancels matching scheduler records and destroys matching draw jobs on
-the game thread. The manager owns no draw state, input or session. Copyable
-scheduler/cache work records contain only identity and cancellation data, so
-worker tasks cannot retain feature callbacks or destroy preview state.
-Queued, loading, rendering and already-enqueued upload completions reject the
-retired generation and request serial. Owners must finish executing game-thread
+Registration handles retain a weak renderer identity and asset class. Reset only
+removes that exact registered object, so an old handle cannot unregister a later
+replacement. Withdrawal removes admission first, cancels matching entries in
+attached queues and retires draw jobs and pending uploads in attached pools.
+There is no weak cancellation-ticket registry or per-request renderer identity.
+The manager owns no draw state, input or session. Cache work contains immutable
+inputs and cooperative cancellation; workers cannot retain renderer callbacks
+or destroy preview state. Queues cancel old work before replacement, and admit
+new work against the renderer currently registered for the asset class.
+Owners must finish executing game-thread
 callbacks before withdrawal; registration removal is not a concurrent-callback
 barrier. The renderer object itself is destroyed by a later GC pass. Reflection
 providers retain mapped code under the module lifecycle contract while their
@@ -260,10 +263,16 @@ encoding. The pool validates draw snapshots once at this acceptance boundary.
 Public views expose only `None`, `Pending`, `Ready` and `Failed`. Unsupported
 assets use `None` and retain the ordinary asset icon. All accepted work without a
 usable texture is `Pending`; `Ready` requires a usable GPU texture, including a
-retained texture while refresh is in progress. Request serials remain private.
+retained texture while refresh is in progress. No request serial is exposed or propagated internally.
 The pool alone constructs rendered-asset views from its resources and the queue
 phase; the queue exposes phase and failure reason without a status-record wrapper.
 GPU readback has its own private pending state and persistence runs independently.
+Each resource entry owns its pending upload future. The render command owns the
+promise, pixels and RHI resources and only fulfills that future; it never writes
+back through a pool pointer, asset-path completion queue or request identifier.
+Refresh, cancellation, clear and renderer withdrawal discard the consumer.
+Later completion therefore only retires old resources. The pool polls futures
+it still owns and registers their textures with the UI on the game thread.
 TextureCube binds its renderer scene and supplies an immutable allocation
 snapshot as a counted RHI environment value. Texture2D supplies an image renderer
 without creating or binding any preview world. The shared capture implementation
@@ -294,10 +303,9 @@ cache I/O is still running.
 
 Visible requests outrank prefetch, duplicate keys coalesce, and different
 `FAssetThumbnail` instances for one identity share one entry and one admitted
-job. A request older than the retained serial also returns `Coalesced`: the newer
-work remains unchanged, with no new queue entry or cancellation. Admission means
-work is already represented by an equal or newer request, not that this exact
-request will execute. Each reference increments the entry's pin count. Releasing the final
+job. Repeated equal asset fingerprints coalesce; changed fingerprints replace
+and cancel the old work. Explicit refresh cancels the current entry before the
+same fingerprint can be admitted again. Each reference increments the entry's pin count. Releasing the final
 reference makes the entry evictable without synchronously releasing an in-use
 RHI resource or affecting a reference held by another panel. Explicit `Prefetch`
 interest keeps background generation alive after the last UI reference is

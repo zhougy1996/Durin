@@ -104,7 +104,7 @@ TEST(FStaticMeshEditorTests, ThumbnailConflictDoesNotAffectEditorDiscovery)
 	ASSERT_TRUE(Existing);
 	const std::string ClassName =
 		Durin::DStaticMesh::StaticClass()->GetQualifiedName().ToString();
-	const uint64 ExistingGeneration = ThumbnailManager.Find(ClassName).Generation;
+	const auto* ExistingRenderer = ThumbnailManager.Find(ClassName);
 
 	Durin::FStaticMeshEditorModule Module;
 	Durin::FModuleTestHarness ModuleHarness("StaticMeshEditor");
@@ -114,7 +114,7 @@ TEST(FStaticMeshEditorTests, ThumbnailConflictDoesNotAffectEditorDiscovery)
 	EXPECT_EQ(
 		Manager.FindToolkit(Durin::FAssetEditorToolkitId("StaticMeshEditor")),
 		nullptr);
-	EXPECT_EQ(ThumbnailManager.Find(ClassName).Generation, ExistingGeneration);
+	EXPECT_EQ(ThumbnailManager.Find(ClassName), ExistingRenderer);
 	ModuleHarness.Shutdown();
 }
 

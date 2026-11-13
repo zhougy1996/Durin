@@ -87,7 +87,7 @@ namespace Durin
 
 	private:
 		friend struct ThumbnailPrivate::DThumbnailManagerState;
-		auto InvalidateRenderer(uint64 Generation) -> void;
+		auto InvalidateRenderer(std::string_view AssetClassName) -> void;
 		struct FImpl;
 		std::unique_ptr<FImpl> Impl;
 	};

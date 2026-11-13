@@ -1,5 +1,6 @@
 #include "Thumbnail/AssetThumbnailRequestQueue.h"
 #include "Thumbnail/ThumbnailRenderer.h"
+#include "DObject/StrongObjectPtr.h"
 
 #include "Thumbnail/AssetThumbnailKey.h"
 #include "Thumbnail/ThumbnailManager.h"
@@ -11,31 +12,26 @@ namespace Durin
 		struct FEntry
 		{
 			FAssetThumbnailRequest Request;
-			std::string CacheKey;
 			EThumbnailJobState State = EThumbnailJobState::NotRequested;
 			FAssetThumbnailGenerationRequest GenerationRequest;
 			std::string Diagnostic;
-			uint64 RendererGeneration = 0;
 			bool bCaptured = false;
 		};
 
 		DThumbnailManager& Registry;
 		FAssetThumbnailBudgets Budgets;
 		std::unordered_map<std::string, FEntry> Entries;
-		std::vector<FAssetThumbnailRequest> PendingRequests;
+		std::vector<FTopLevelAssetPath> PendingRequests;
 		bool bShuttingDown = false;
 
 		auto RemovePendingRequest(const FTopLevelAssetPath& AssetPath) -> void
 		{
-			std::erase_if(PendingRequests,
-				[&AssetPath](const FAssetThumbnailRequest& Request) {
-					return Request.Asset.AssetPath == AssetPath;
-				});
+			std::erase(PendingRequests, AssetPath);
 		}
 
 		auto CancelEntry(FEntry& Entry) -> void
 		{
-			if (Entry.bCaptured) Entry.GenerationRequest.Cancellation.Cancel();
+			Entry.GenerationRequest.Cancellation.Cancel();
 			RemovePendingRequest(Entry.Request.Asset.AssetPath);
 		}
 
@@ -44,9 +40,9 @@ namespace Durin
 			EAssetThumbnailPriority Priority) -> void
 		{
 			if (Priority != EAssetThumbnailPriority::Visible) return;
-			for (FAssetThumbnailRequest& Pending : PendingRequests)
-				if (Pending.Asset.AssetPath == AssetPath)
-					Pending.Priority = EAssetThumbnailPriority::Visible;
+			const auto It = Entries.find(AssetPath.ToString());
+			if (It != Entries.end() && It->second.State == EThumbnailJobState::Queued)
+				It->second.Request.Priority = Priority;
 		}
 
 		auto CaptureNextPending() -> std::optional<FAssetThumbnailScheduledRequest>
@@ -54,28 +50,26 @@ namespace Durin
 			if (PendingRequests.empty()) return std::nullopt;
 			auto Selected = std::ranges::find_if(
 				PendingRequests,
-				[](const FAssetThumbnailRequest& Request) {
-					return Request.Priority == EAssetThumbnailPriority::Visible;
+				[this](const FTopLevelAssetPath& Path) {
+					const auto It = Entries.find(Path.ToString());
+					return It != Entries.end() && It->second.Request.Priority == EAssetThumbnailPriority::Visible;
 				});
 			if (Selected == PendingRequests.end()) Selected = PendingRequests.begin();
-			FAssetThumbnailRequest Request = std::move(*Selected);
+			const FTopLevelAssetPath Path = *Selected;
 			PendingRequests.erase(Selected);
 
-			const std::string AssetPath = Request.Asset.AssetPath.ToString();
+			const std::string AssetPath = Path.ToString();
 			const auto Existing = Entries.find(AssetPath);
 			if (Existing == Entries.end()) return std::nullopt;
 			FEntry& Entry = Existing->second;
-			const FThumbnailRendererHandle CurrentRenderer =
-				Registry.Find(Request.Asset.AssetClassName);
-			if (Entry.State != EThumbnailJobState::Queued
-				|| Entry.bCaptured
-				|| Entry.Request.RequestSerial != Request.RequestSerial
-				|| Entry.Request.Asset != Request.Asset
-				|| !CurrentRenderer
-				|| CurrentRenderer.Generation != Entry.RendererGeneration)
-				return std::nullopt;
+			if (Entry.State != EThumbnailJobState::Queued || Entry.bCaptured) return std::nullopt;
+			const auto Cancellation = Entry.GenerationRequest.Cancellation;
+			const auto Request = Entry.Request;
+			const TStrongObjectPtr<DThumbnailRenderer> Renderer(Registry.Find(Request.Asset.AssetClassName));
+			if (!Renderer) return std::nullopt;
 
-			auto Captured = Registry.Capture(Request, Entry.RendererGeneration);
+			auto Captured = Renderer->DescribeThumbnail(Request.Asset);
+			if (Cancellation.IsCancelled()) return std::nullopt;
 			if (!Captured)
 			{
 				Entry.State = EThumbnailJobState::Invalid;
@@ -85,13 +79,15 @@ namespace Durin
 				return std::nullopt;
 			}
 
-			auto GenerationRequest = std::move(*Captured);
-			Entry.CacheKey = BuildAssetThumbnailCacheKey(GenerationRequest.KeyInput);
+			FAssetThumbnailGenerationRequest GenerationRequest{
+				.KeyInput = Captured->MakeKeyInput(Request.Asset, Renderer->GetRegistration()),
+				.Cancellation = Cancellation,
+				.bHasTransparency = Captured->bHasTransparency};
 			Entry.GenerationRequest = GenerationRequest;
 			Entry.bCaptured = true;
 			Entry.Diagnostic.clear();
 			return FAssetThumbnailScheduledRequest{
-				.CacheKey = Entry.CacheKey,
+				.CacheKey = BuildAssetThumbnailCacheKey(GenerationRequest.KeyInput),
 				.Priority = Request.Priority,
 				.GenerationRequest = std::move(GenerationRequest)};
 		}
@@ -104,17 +100,20 @@ namespace Durin
 			.Registry = Registry,
 			.Budgets = Budgets}))
 	{
+		Impl->Registry.AttachQueue(this);
 	}
 
 	FAssetThumbnailRequestQueue::~FAssetThumbnailRequestQueue()
 	{
+		Impl->Registry.DetachQueue(this);
 		Shutdown();
 	}
 
 	auto FAssetThumbnailRequestQueue::BeginFrame() -> void
 	{
 		// Visibility belongs to the current frame, not to an asset's first request.
-		for (auto& Request : Impl->PendingRequests) Request.Priority = EAssetThumbnailPriority::Prefetch;
+		for (const auto& Path : Impl->PendingRequests)
+			Impl->Entries.at(Path.ToString()).Request.Priority = EAssetThumbnailPriority::Prefetch;
 	}
 
 	auto FAssetThumbnailRequestQueue::Request(
@@ -125,9 +124,9 @@ namespace Durin
 		{
 			return EThumbnailRequestStatus::ShuttingDown;
 		}
-		const FThumbnailRendererHandle Handle =
+		const auto* Renderer =
 			Impl->Registry.Find(Request.Asset.AssetClassName);
-		if (!Handle)
+		if (!Renderer)
 		{
 			return EThumbnailRequestStatus::Unsupported;
 		}
@@ -137,13 +136,7 @@ namespace Durin
 			Existing != Impl->Entries.end())
 		{
 			FImpl::FEntry& Entry = Existing->second;
-			if (Request.RequestSerial < Entry.Request.RequestSerial)
-			{
-				return EThumbnailRequestStatus::Coalesced;
-			}
-			if (Request.RequestSerial == Entry.Request.RequestSerial
-				&& Request.Asset == Entry.Request.Asset
-				&& Handle.Generation == Entry.RendererGeneration)
+			if (Request.Asset == Entry.Request.Asset)
 			{
 				Impl->PromoteQueuedRequest(Request.Asset.AssetPath, Request.Priority);
 				return EThumbnailRequestStatus::Coalesced;
@@ -161,9 +154,8 @@ namespace Durin
 		FImpl::FEntry Entry;
 		Entry.Request = Request;
 		Entry.State = EThumbnailJobState::Queued;
-		Entry.RendererGeneration = Handle.Generation;
 		Impl->Entries.emplace(AssetPath, std::move(Entry));
-		Impl->PendingRequests.push_back(Request);
+		Impl->PendingRequests.push_back(Request.Asset.AssetPath);
 		return EThumbnailRequestStatus::Accepted;
 	}
 
@@ -178,36 +170,12 @@ namespace Durin
 		return It == Impl->Entries.end() ? std::string_view{} : It->second.Diagnostic;
 	}
 
-	auto FAssetThumbnailRequestQueue::TakeNext()
-		-> std::optional<FAssetThumbnailScheduledRequest>
+	auto FAssetThumbnailRequestQueue::TakeNext() -> std::optional<FAssetThumbnailScheduledRequest>
 	{
 		if (Impl->bShuttingDown) return std::nullopt;
-		// Capture once at admission; there is no intermediate captured-work queue.
-		auto Captured = Impl->CaptureNextPending();
-		if (!Captured) return std::nullopt;
-		FAssetThumbnailScheduledRequest Job = std::move(*Captured);
-		const std::string AssetPath =
-			Job.GenerationRequest.KeyInput.Asset.AssetPath.ToString();
-		const auto Entry = Impl->Entries.find(AssetPath);
-		const FThumbnailRendererHandle CurrentRenderer = Impl->Registry.Find(
-			Job.GenerationRequest.KeyInput.Asset.AssetClassName);
-		const bool bMatchesCurrentEntry = Entry != Impl->Entries.end()
-			&& Entry->second.bCaptured
-			&& Entry->second.CacheKey == Job.CacheKey
-			&& Entry->second.Request.RequestSerial
-				== Job.GenerationRequest.RequestSerial
-			&& Entry->second.RendererGeneration
-				== Job.GenerationRequest.RendererGeneration;
-		if (!bMatchesCurrentEntry
-			|| Job.GenerationRequest.Cancellation.IsCancelled()
-			|| !CurrentRenderer
-			|| CurrentRenderer.Generation != Job.GenerationRequest.RendererGeneration)
-		{
-			Job.GenerationRequest.Cancellation.Cancel();
-			if (bMatchesCurrentEntry) Impl->Entries.erase(Entry);
-			return std::nullopt;
-		}
-		Entry->second.State = EThumbnailJobState::Loading;
+		auto Job = Impl->CaptureNextPending();
+		if (!Job || Job->GenerationRequest.Cancellation.IsCancelled()) return std::nullopt;
+		Impl->Entries.at(Job->GenerationRequest.KeyInput.Asset.AssetPath.ToString()).State = EThumbnailJobState::Loading;
 		return Job;
 	}
 
@@ -224,17 +192,7 @@ namespace Durin
 		const auto It = Impl->Entries.find(AssetPath);
 		if (It == Impl->Entries.end()) return false;
 		FImpl::FEntry& Entry = It->second;
-		const FThumbnailRendererHandle CurrentRenderer =
-			Impl->Registry.Find(Job.GenerationRequest.KeyInput.Asset.AssetClassName);
-		if (!Entry.bCaptured
-			|| Entry.CacheKey != Job.CacheKey
-			|| Entry.State != ExpectedState
-			|| Entry.Request.RequestSerial != Job.GenerationRequest.RequestSerial
-			|| Entry.RendererGeneration != Job.GenerationRequest.RendererGeneration
-			|| !CurrentRenderer
-			|| CurrentRenderer.Generation != Job.GenerationRequest.RendererGeneration
-			|| Entry.Request.Asset != Job.GenerationRequest.KeyInput.Asset)
-			return false;
+		if (!Entry.bCaptured || Entry.State != ExpectedState) return false;
 		Entry.State = NextState;
 		Entry.Diagnostic = std::string(Diagnostic);
 		return true;
@@ -248,16 +206,21 @@ namespace Durin
 		Impl->Entries.erase(It);
 	}
 
-	auto FAssetThumbnailRequestQueue::CancelRenderer(uint64 Generation) -> void
+	auto FAssetThumbnailRequestQueue::CancelRenderer(std::string_view AssetClassName) -> void
 	{
-		for (auto& [Path, Entry] : Impl->Entries)
-			if (Entry.RendererGeneration == Generation) Impl->CancelEntry(Entry);
+		for (auto It = Impl->Entries.begin(); It != Impl->Entries.end();)
+			if (It->second.Request.Asset.AssetClassName == AssetClassName)
+			{
+				Impl->CancelEntry(It->second);
+				It = Impl->Entries.erase(It);
+			}
+			else ++It;
 	}
 
 	auto FAssetThumbnailRequestQueue::CancelAll() -> void
 	{
 		for (auto& [AssetPath, Entry] : Impl->Entries)
-			if (Entry.bCaptured) Entry.GenerationRequest.Cancellation.Cancel();
+			Entry.GenerationRequest.Cancellation.Cancel();
 		Impl->PendingRequests.clear();
 		Impl->Entries.clear();
 	}

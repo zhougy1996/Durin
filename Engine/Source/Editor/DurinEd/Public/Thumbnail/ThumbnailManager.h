@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "Thumbnail/AssetThumbnailTypes.h"
+#include "DObject/WeakObjectPtr.h"
 
 namespace Durin
 {
@@ -20,16 +21,8 @@ namespace Durin
 	{
 		struct DThumbnailManagerState;
 	}
-	// Retains one exact-class renderer together with the generation captured at registration.
-	struct FThumbnailRendererHandle
-	{
-		uint64 Generation = 0;
-
-		explicit operator bool() const { return Generation != 0; }
-	};
-
 	// Owns one exact-class renderer registration. Reset first closes admission,
-	// invalidates captured generations and notifies pools to retire draw jobs.
+	// cancels queued work and notifies pools to retire draw jobs.
 	class FThumbnailRendererRegistrationHandle
 	{
 	public:
@@ -45,26 +38,22 @@ namespace Durin
 			FThumbnailRendererRegistrationHandle&& Other) noexcept
 			-> FThumbnailRendererRegistrationHandle&;
 
-		auto IsValid() const -> bool { return RegistrationId != 0 && !State.expired(); }
+		auto IsValid() const -> bool { return !AssetClassName.empty() && Renderer.IsValid() && !State.expired(); }
 		explicit operator bool() const { return IsValid(); }
 		DURINED_API auto Reset() -> void;
 
 	private:
 		friend class DThumbnailManager;
 		friend struct FThumbnailManagerTestAccess;
-		FThumbnailRendererRegistrationHandle(
+		DURINED_API FThumbnailRendererRegistrationHandle(
 			std::weak_ptr<ThumbnailPrivate::DThumbnailManagerState> InState,
-			uint64 InRegistrationId)
-			: State(std::move(InState))
-			, RegistrationId(InRegistrationId)
-		{
-		}
-
+			std::string InAssetClassName, DThumbnailRenderer* InRenderer);
 		std::weak_ptr<ThumbnailPrivate::DThumbnailManagerState> State;
-		uint64 RegistrationId = 0;
+		std::string AssetClassName;
+		TWeakObjectPtr<DObject> Renderer;
 	};
 
-	// Owns exact-class renderer registration and monotonically increasing renderer generations.
+	// Owns exact-class renderer registrations and the shared resource pool.
 	class DThumbnailManager
 	{
 	public:
@@ -82,7 +71,7 @@ namespace Durin
 			-> FThumbnailRendererRegistrationHandle;
 		DURINED_API auto UnregisterCustomRenderer(DClass* AssetClass) -> bool;
 		DURINED_API auto GetRenderingInfo(DClass* AssetClass) const -> std::optional<FThumbnailRenderingInfo>;
-		DURINED_API auto Find(std::string_view AssetClassName) const -> FThumbnailRendererHandle;
+		DURINED_API auto Find(std::string_view AssetClassName) const -> DThumbnailRenderer*;
 		DURINED_API auto Shutdown() -> void;
 		DURINED_API auto IsShuttingDown() const -> bool;
 		DURINED_API auto Num() const -> size_t;
@@ -96,6 +85,8 @@ namespace Durin
 	private:
 		friend class FAssetThumbnailRequestQueue;
 		friend class FAssetThumbnailPool;
+		auto AttachQueue(class FAssetThumbnailRequestQueue* Queue) -> void;
+		auto DetachQueue(class FAssetThumbnailRequestQueue* Queue) -> void;
 		auto AttachPool(FAssetThumbnailPool* Pool) -> void;
 		auto DetachPool(FAssetThumbnailPool* Pool) -> void;
 		DURINED_API auto CreateRenderJob(const FAssetThumbnailGenerationRequest& Request) -> std::unique_ptr<FThumbnailRenderJob>;
@@ -104,9 +95,6 @@ namespace Durin
 		DURINED_API auto RegisterRendererInstance(DThumbnailRenderer* Renderer, std::string AssetClassName, DClass* AssetClass = nullptr)
 			-> FThumbnailRendererRegistrationHandle;
 		DURINED_API auto UnregisterRendererName(std::string_view AssetClassName) -> bool;
-		auto Capture(
-			const FAssetThumbnailRequest& Request,
-			uint64 RendererGeneration) -> std::expected<FAssetThumbnailGenerationRequest, std::string>;
 
 		std::shared_ptr<ThumbnailPrivate::DThumbnailManagerState> State;
 		std::unique_ptr<FAssetThumbnailPool> SharedPool;

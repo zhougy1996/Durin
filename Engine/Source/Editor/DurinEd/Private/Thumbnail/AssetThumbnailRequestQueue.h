@@ -61,15 +61,15 @@ namespace Durin
 		DURINED_API auto GetState(const FTopLevelAssetPath& AssetPath) const -> EThumbnailJobState;
 		DURINED_API auto GetFailureReason(const FTopLevelAssetPath& AssetPath) const -> std::string_view;
 		DURINED_API auto TakeNext() -> std::optional<FAssetThumbnailScheduledRequest>;
-		// Advances a captured job only while its key, renderer generation, serial,
-		// and asset identity remain current. Resource validity belongs to the draw job.
+		// Advances a live admitted task. Cancellation retires replaced work; resource
+		// validity belongs to the draw job.
 		DURINED_API auto Transition(
 			const FAssetThumbnailScheduledRequest& Job,
 			EThumbnailJobState ExpectedState,
 			EThumbnailJobState NextState,
 			std::string_view Diagnostic = {}) -> bool;
 		DURINED_API auto Cancel(const FTopLevelAssetPath& AssetPath) -> void;
-		DURINED_API auto CancelRenderer(uint64 Generation) -> void;
+		DURINED_API auto CancelRenderer(std::string_view AssetClassName) -> void;
 		DURINED_API auto CancelAll() -> void;
 		DURINED_API auto Shutdown() -> void;
 		DURINED_API auto NumQueued() const -> size_t;

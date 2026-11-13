@@ -4,6 +4,7 @@
 #include "Thumbnail/ThumbnailRenderer.h"
 #include "Thumbnail/ThumbnailGenerationRequest.h"
 #include "Thumbnail/ThumbnailRenderJob.h"
+#include "Thumbnail/AssetThumbnailRequestQueue.h"
 #include "DObject/StrongObjectPtr.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Class.h"
@@ -20,17 +21,17 @@ namespace Durin
 				DClass* ClassNeedingThumbnail = nullptr;
 				TStrongObjectPtr<DThumbnailRenderer> Renderer;
 				TStrongObjectPtr<DObject> LoadedOverride;
-				std::vector<std::weak_ptr<std::atomic<bool>>> Cancellations;
-				uint64 Generation = 0;
 			};
 
 			std::unordered_map<std::string, FEntry> Renderers;
 			std::vector<FAssetThumbnailPool*> Pools;
-			auto InvalidatePools(uint64 Generation) -> void
+			std::vector<FAssetThumbnailRequestQueue*> Queues;
+			auto RetireRenderer(std::string_view AssetClassName) -> void
 			{
-				for (auto* Pool : Pools) Pool->InvalidateRenderer(Generation);
+				for (auto* Queue : Queues) Queue->CancelRenderer(AssetClassName);
+				for (auto* Pool : Pools) Pool->InvalidateRenderer(AssetClassName);
 			}
-			uint64 NextGeneration = 1;
+
 			bool bShuttingDown = false;
 		};
 	} // namespace ThumbnailPrivate
@@ -39,54 +40,46 @@ namespace Durin
 	{
 		auto RemoveRendererRegistration(
 			const std::shared_ptr<ThumbnailPrivate::DThumbnailManagerState>& State,
-			uint64 RegistrationId) -> bool
+			std::string_view AssetClassName, DObject* ExpectedRenderer) -> bool
 		{
-			if (!State || RegistrationId == 0) return false;
-			const auto It = std::ranges::find_if(
-				State->Renderers,
-				[RegistrationId](const auto& Pair) {
-					return Pair.second.Generation == RegistrationId;
-				});
-			if (It == State->Renderers.end()) return false;
-			ThumbnailPrivate::DThumbnailManagerState::FEntry Entry =
-				std::move(It->second);
+			if (!State || !ExpectedRenderer) return false;
+			const auto It = State->Renderers.find(std::string(AssetClassName));
+			if (It == State->Renderers.end() || It->second.Renderer.Get() != ExpectedRenderer) return false;
+			auto Entry = std::move(It->second);
+			const std::string Name = It->first;
 			State->Renderers.erase(It);
-			for (const auto& Weak : Entry.Cancellations) if (auto Flag = Weak.lock()) Flag->store(true, std::memory_order_release);
-			State->InvalidatePools(Entry.Generation);
-			Entry.Renderer.Reset();
+			State->RetireRenderer(Name);
 			return true;
 		}
 
 		auto RegisterRenderer(
 			const std::shared_ptr<ThumbnailPrivate::DThumbnailManagerState>& State,
-			TStrongObjectPtr<DThumbnailRenderer> Renderer, std::string AssetClassName) -> uint64
+			TStrongObjectPtr<DThumbnailRenderer> Renderer, std::string AssetClassName) -> bool
 		{
 			if (State->bShuttingDown)
 			{
-				return 0;
+				return false;
 			}
 			if (!Renderer)
 			{
-				return 0;
+				return false;
 			}
 			FThumbnailRenderingInfo Registration = Renderer->GetRegistration();
 			Registration.AssetClassName = std::move(AssetClassName);
 			if (Registration.AssetClassName.empty() || Registration.RendererName.empty()
 				|| Registration.GeneratorSchemaVersion == 0)
 			{
-				return 0;
+				return false;
 			}
 			if (State->Renderers.contains(Registration.AssetClassName))
 			{
-				return 0;
+				return false;
 			}
-			const uint64 Generation = State->NextGeneration++;
 			State->Renderers.emplace(
 				Registration.AssetClassName,
 				ThumbnailPrivate::DThumbnailManagerState::FEntry{
-					.Renderer = std::move(Renderer),
-					.Generation = Generation});
-			return Generation;
+					.Renderer = std::move(Renderer)});
+			return true;
 		}
 	} // namespace
 
@@ -105,6 +98,11 @@ namespace Durin
 		return State->load(std::memory_order_acquire);
 	}
 
+	FThumbnailRendererRegistrationHandle::FThumbnailRendererRegistrationHandle(
+		std::weak_ptr<ThumbnailPrivate::DThumbnailManagerState> InState,
+		std::string InAssetClassName, DThumbnailRenderer* InRenderer)
+		: State(std::move(InState)), AssetClassName(std::move(InAssetClassName)), Renderer(InRenderer) {}
+
 	FThumbnailRendererRegistrationHandle::~FThumbnailRendererRegistrationHandle()
 	{
 		Reset();
@@ -113,7 +111,8 @@ namespace Durin
 	FThumbnailRendererRegistrationHandle::FThumbnailRendererRegistrationHandle(
 		FThumbnailRendererRegistrationHandle&& Other) noexcept
 		: State(std::move(Other.State))
-		, RegistrationId(std::exchange(Other.RegistrationId, 0))
+		, AssetClassName(std::exchange(Other.AssetClassName, {}))
+		, Renderer(std::exchange(Other.Renderer, {}))
 	{
 	}
 
@@ -124,17 +123,19 @@ namespace Durin
 		if (this == &Other) return *this;
 		Reset();
 		State = std::move(Other.State);
-		RegistrationId = std::exchange(Other.RegistrationId, 0);
+		AssetClassName = std::exchange(Other.AssetClassName, {});
+		Renderer = std::exchange(Other.Renderer, {});
 		return *this;
 	}
 
 	auto FThumbnailRendererRegistrationHandle::Reset() -> void
 	{
-		if (RegistrationId == 0) return;
+		if (AssetClassName.empty()) return;
 		if (const std::shared_ptr RegistryState = State.lock())
-			RemoveRendererRegistration(RegistryState, RegistrationId);
+			RemoveRendererRegistration(RegistryState, AssetClassName, Renderer.Get());
 		State.reset();
-		RegistrationId = 0;
+		AssetClassName.clear();
+		Renderer = nullptr;
 	}
 
 	DThumbnailManager::DThumbnailManager()
@@ -165,10 +166,10 @@ namespace Durin
 	{
 		if (!Renderer || !IsValid(Renderer) || !Renderer->GetClass()->IsChildOf(DThumbnailRenderer::StaticClass()))
 			return {};
-		const auto Id = RegisterRenderer(State, TStrongObjectPtr<DThumbnailRenderer>(Renderer), AssetClassName);
-		if (!Id) return {};
+		const bool bRegistered = RegisterRenderer(State, TStrongObjectPtr<DThumbnailRenderer>(Renderer), AssetClassName);
+		if (!bRegistered) return {};
 		State->Renderers.at(AssetClassName).ClassNeedingThumbnail = AssetClass;
-		return FThumbnailRendererRegistrationHandle(State, Id);
+		return FThumbnailRendererRegistrationHandle(State, std::move(AssetClassName), Renderer);
 	}
 
 	auto DThumbnailManager::GetRenderingInfo(DClass* AssetClass) const -> std::optional<FThumbnailRenderingInfo>
@@ -192,41 +193,17 @@ namespace Durin
 	auto DThumbnailManager::UnregisterRendererName(std::string_view AssetClassName) -> bool
 	{
 		const auto It = State->Renderers.find(std::string(AssetClassName));
-		return It != State->Renderers.end() && RemoveRendererRegistration(State, It->second.Generation);
+		return It != State->Renderers.end() && RemoveRendererRegistration(State, It->first, It->second.Renderer.Get());
 	}
 
-	auto DThumbnailManager::Find(
-		std::string_view AssetClassName
-	) const -> FThumbnailRendererHandle
+	auto DThumbnailManager::Find(std::string_view AssetClassName) const -> DThumbnailRenderer*
 	{
 		const auto It = State->Renderers.find(std::string(AssetClassName));
-		if (It == State->Renderers.end()) return {};
-		return {.Generation = It->second.Generation};
+		return It == State->Renderers.end() ? nullptr : It->second.Renderer.Get();
 	}
 
-	auto DThumbnailManager::Capture(
-		const FAssetThumbnailRequest& Request,
-		uint64 RendererGeneration) -> std::expected<FAssetThumbnailGenerationRequest, std::string>
-	{
-		const auto It = State->Renderers.find(Request.Asset.AssetClassName);
-		if (It == State->Renderers.end() || It->second.Generation != RendererGeneration)
-		{
-			return std::unexpected(std::format(
-				"No current thumbnail renderer is registered for asset class {}.",
-				Request.Asset.AssetClassName));
-		}
-		ThumbnailPrivate::DThumbnailManagerState::FEntry& Entry = It->second;
-		auto Captured = Entry.Renderer->DescribeThumbnail(Request.Asset);
-		if (!Captured) return std::unexpected(std::move(Captured.error()));
-		FAssetThumbnailGenerationRequest GenerationRequest;
-		GenerationRequest.KeyInput = Captured->MakeKeyInput(Request.Asset, Entry.Renderer->GetRegistration());
-		GenerationRequest.bHasTransparency = Captured->bHasTransparency;
-		GenerationRequest.RendererGeneration = RendererGeneration;
-		GenerationRequest.RequestSerial = Request.RequestSerial;
-		std::erase_if(Entry.Cancellations, [](const auto& Weak) { return Weak.expired(); });
-		Entry.Cancellations.push_back(GenerationRequest.Cancellation.State);
-		return std::move(GenerationRequest);
-	}
+	auto DThumbnailManager::AttachQueue(FAssetThumbnailRequestQueue* Queue) -> void { State->Queues.push_back(Queue); }
+	auto DThumbnailManager::DetachQueue(FAssetThumbnailRequestQueue* Queue) -> void { std::erase(State->Queues, Queue); }
 
 	auto DThumbnailManager::AttachPool(FAssetThumbnailPool* Pool) -> void { State->Pools.push_back(Pool); }
 	auto DThumbnailManager::DetachPool(FAssetThumbnailPool* Pool) -> void { std::erase(State->Pools, Pool); }
@@ -237,7 +214,7 @@ namespace Durin
 	auto DThumbnailManager::CreateRenderJob(const FAssetThumbnailGenerationRequest& Request) -> std::unique_ptr<FThumbnailRenderJob>
 	{
 		const auto It = State->Renderers.find(Request.KeyInput.Asset.AssetClassName);
-		if (It == State->Renderers.end() || It->second.Generation != Request.RendererGeneration) return nullptr;
+		if (It == State->Renderers.end() || Request.Cancellation.IsCancelled()) return nullptr;
 		const auto& Entry = It->second;
 		return std::make_unique<FThumbnailRenderJob>(Entry.Renderer.Get(), Request.KeyInput.Asset,
 			Entry.ClassNeedingThumbnail, Entry.LoadedOverride.Get());
@@ -249,7 +226,7 @@ namespace Durin
 		State->bShuttingDown = true;
 		ResetSharedPool();
 		while (!State->Renderers.empty())
-			RemoveRendererRegistration(State, State->Renderers.begin()->second.Generation);
+			RemoveRendererRegistration(State, State->Renderers.begin()->first, State->Renderers.begin()->second.Renderer.Get());
 	}
 
 	auto DThumbnailManager::IsShuttingDown() const -> bool
