@@ -223,7 +223,7 @@ namespace Durin
 				return !Context.VirtualDirectory.empty();
 			},
 			.Invoke = [](const auto& Invocation) {
-				auto* Service = Invocation.AssetEditors.Get();
+				auto* Service = Invocation.Host.AssetEditors.Get();
 				if (!Service) return;
 				for (const auto& Session : Service->GetOwnedAssetEditors())
 				if (auto Toolkit = std::dynamic_pointer_cast<MLevelEditor>(Session->GetToolkit()))

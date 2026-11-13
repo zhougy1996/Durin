@@ -103,13 +103,8 @@ namespace Durin
 	auto DAssetEditor::DrawToolkitFrame(bool bActive) -> bool
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		const FStrongObjectPtr KeepAlive(this);
 		const auto FrameToolkit = Toolkit;
-		bool Activated = false;
-		if (!bClosed && FrameToolkit)
-			if (auto* Service = AssetEditors.Get())
-				Service->DispatchEditorCallback([&] { Activated = FrameToolkit->DrawToolkit(bActive); });
-		return Activated && !bClosed;
+		return !bClosed && FrameToolkit && FrameToolkit->DrawToolkit(bActive);
 	}
 	auto DAssetEditor::BeginDestroy() -> void
 	{

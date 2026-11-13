@@ -29,7 +29,7 @@ namespace Durin::ContentBrowser::Private
 	}
 	auto FAssetCreationDialog::StopForHost(const std::weak_ptr<void>& Lifetime) -> void
 	{
-		if (Invocation.bHasHostLifetime && !Invocation.HostLifetime.owner_before(Lifetime) && !Lifetime.owner_before(Invocation.HostLifetime)) Cancel();
+		if (Invocation.Host.bHasLifetime && Invocation.Host.Matches(Lifetime)) Cancel();
 	}
 
 	auto FAssetCreationDialog::SetName(std::string_view InName) -> void
@@ -51,7 +51,7 @@ namespace Durin::ContentBrowser::Private
 
 	auto FAssetCreationDialog::Confirm(bool bAllowAssetMutation) -> bool
 	{
-		if (Invocation.bHasHostLifetime && Invocation.HostLifetime.expired()) { Cancel(); return false; }
+		if (Invocation.Host.IsExpired()) { Cancel(); return false; }
 		if (!bPending || !bAllowAssetMutation || !Invocation.bAllowAssetMutation) return false;
 		FTopLevelAssetPath AssetPath;
 		if (!Validate(AssetPath, Error)) return false;
@@ -71,7 +71,7 @@ namespace Durin::ContentBrowser::Private
 
 	auto FAssetCreationDialog::Draw(bool bAllowAssetMutation) -> void
 	{
-		if (Invocation.bHasHostLifetime && Invocation.HostLifetime.expired()) Cancel();
+		if (Invocation.Host.IsExpired()) Cancel();
 		if (!bPending) return;
 		const bool bFocusName = std::exchange(bOpenRequested, false);
 		if (bFocusName) ImGui::OpenPopup(PopupTitle.c_str());

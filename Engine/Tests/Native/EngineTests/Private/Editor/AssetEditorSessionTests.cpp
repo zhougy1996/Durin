@@ -27,7 +27,6 @@ namespace Durin
 	class FSessionTestToolkit : public FBaseAssetToolkit
 	{
 	public:
-		explicit FSessionTestToolkit(bool bViewport = false, bool bDetails = false) : FBaseAssetToolkit(bViewport, bDetails) {}
 		auto GetToolkitId() const -> const FAssetEditorToolkitId& override { return Type; }
 		auto OpenDocument(const FEditorDocument&) -> EDocumentOpenResult override { return bDeferOpen ? EDocumentOpenResult::Deferred : EDocumentOpenResult::Opened; }
 		auto ActivateDocument(const FEditorDocument&) -> void override {}
@@ -162,6 +161,40 @@ namespace
 		DAssetEditorSubsystem* Service = nullptr;
 		TWeakObjectPtr<DAssetEditorSubsystem> ServiceLifetime;
 	};
+
+	TEST_F(FAssetEditorSessionTests, DefinitionWithdrawalKeepsDirtySessionAliveUntilItsOwnClose)
+	{
+		auto* Definition = NewObject<FGenericSessionTestDefinition>(nullptr, {});
+		Definition->EditorClassOverride = FSessionTestEditor::StaticClass();
+		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
+		ASSERT_TRUE(Registration);
+		const FObjectKey Provider(Definition);
+		auto* Object = Asset("WithdrawnProvider");
+		FSoftObjectPath Path;
+		ASSERT_TRUE(FSoftObjectPath::TryCreate(Object->GetObjectPath(), Path));
+		const FAssetOpenTarget Target{Path, Object->GetClass()->GetQualifiedName().ToString()};
+		ASSERT_TRUE(Service->OpenAssets({.AssetEditors = Service, .Assets = {Target}}).IsAccepted());
+		auto* Session = dynamic_cast<DAssetEditor*>(Service->FindEditorForAsset(Object, false));
+		ASSERT_NE(nullptr, Session);
+		auto Toolkit = std::dynamic_pointer_cast<FSessionTestToolkit>(Session->GetToolkit());
+		ASSERT_TRUE(Toolkit);
+		Toolkit->bDirty = true;
+		Registration.Reset();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
+		EXPECT_EQ(Definition, Provider.ResolveObjectPtr());
+		EXPECT_FALSE(Service->CanOpenAsset(Target));
+		EXPECT_EQ(Session, Service->FindEditorForAsset(Object, false));
+		EXPECT_TRUE(Toolkit->IsSessionActive());
+		EXPECT_FALSE(Session->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed));
+		EXPECT_EQ(EDocumentCloseResult::Closed,
+			Session->GetDocumentManager()->ResolvePendingDocumentClose(EDocumentCloseResponse::Discard));
+		TickHost();
+		EXPECT_EQ(nullptr, Service->FindEditorForAsset(Object, false));
+		EXPECT_TRUE(Toolkit->IsRetired());
+		Toolkit.reset();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
+		EXPECT_EQ(nullptr, Provider.ResolveObjectPtr());
+	}
 
 	TEST_F(FAssetEditorSessionTests, LifecyclePublishesCommittedAssociationsAndAllowsReentrantClose)
 	{
@@ -442,8 +475,8 @@ namespace
 		class FFactoryToolkit final : public FSessionTestToolkit
 		{
 		public:
-			FFactoryToolkit(bool Enabled, int& Viewports, int& Details)
-				: FSessionTestToolkit(Enabled, Enabled), Viewports(Viewports), Details(Details) {}
+			FFactoryToolkit(int& Viewports, int& Details)
+				: Viewports(Viewports), Details(Details) {}
 		protected:
 			auto CreateDefaultViewportPanel() -> std::optional<FToolkitPanelSpawner> override
 			{ ++Viewports; return FToolkitPanelSpawner{"Viewport", "Viewport", [] {}}; }
@@ -454,10 +487,10 @@ namespace
 			int& Details;
 		};
 		int Viewports = 0, Details = 0;
-		FSessionTestEditor::Factory = [&] { return std::make_shared<FFactoryToolkit>(false, Viewports, Details); };
+		FSessionTestEditor::Factory = [] { return std::make_shared<FSessionTestToolkit>(); };
 		ASSERT_NE(nullptr, Open({Asset("GraphOnly")}));
 		EXPECT_EQ(0, Viewports); EXPECT_EQ(0, Details);
-		FSessionTestEditor::Factory = [&] { return std::make_shared<FFactoryToolkit>(true, Viewports, Details); };
+		FSessionTestEditor::Factory = [&] { return std::make_shared<FFactoryToolkit>(Viewports, Details); };
 		auto* Session = Open({Asset("DefaultPanels")});
 		ASSERT_NE(nullptr, Session);
 		EXPECT_EQ(1, Viewports); EXPECT_EQ(1, Details);
@@ -949,6 +982,24 @@ namespace
 		EXPECT_EQ(nullptr, Open({Asset("A")}));
 		EXPECT_TRUE(Service->GetOwnedAssetEditors().empty());
 		EXPECT_TRUE(Service->GetAllOpenEditors().empty());
+	}
+
+	TEST_F(FAssetEditorSessionTests, DrawCallbackCanCloseItsOwnSessionAndRetainedToolkitRejectsLaterFrames)
+	{
+		auto* Session = Open({Asset("SelfClosingFrame")});
+		ASSERT_NE(nullptr, Session);
+		auto Toolkit = std::dynamic_pointer_cast<FSessionTestToolkit>(Session->GetToolkit());
+		int Draws = 0;
+		Toolkit->Drawing = [&] {
+			++Draws;
+			EXPECT_TRUE(Session->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed));
+			return true;
+		};
+		EXPECT_FALSE(Session->DrawToolkitFrame(true));
+		EXPECT_EQ(1, Draws);
+		EXPECT_TRUE(Toolkit->IsRetired());
+		EXPECT_FALSE(Toolkit->DrawToolkit(true));
+		EXPECT_EQ(1, Draws);
 	}
 
 	TEST_F(FAssetEditorSessionTests, FrameLeaseDoesNotKeepAClosedReflectedSessionAlive)

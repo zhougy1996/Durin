@@ -23,7 +23,7 @@ namespace Durin::RoadNet::Editor
 					return !Context.VirtualDirectory.empty();
 				},
 				.Invoke = [this](const auto& Invocation) {
-					OwnerLifetime = Invocation.bHasHostLifetime ? std::optional(Invocation.HostLifetime) : std::nullopt;
+					Presentation.Bind(Invocation.Host);
 					CreateDialog = std::make_unique<FRoadNetCreateDialog>();
 					CreateDialog->Open(Invocation.Context.VirtualDirectory, {
 						.NotifyMountedContentChanged =
@@ -32,13 +32,11 @@ namespace Durin::RoadNet::Editor
 						.ReportError = Invocation.ReportError});
 				},
 				.DrawHostPresentation = [this](const ::Durin::ContentBrowser::FExtensionHost& Host, bool bAllowAssetMutation) {
-					if (OwnerLifetime && OwnerLifetime->expired()) { CreateDialog.reset(); OwnerLifetime.reset(); return; }
-					if (OwnerLifetime && (OwnerLifetime->owner_before(Host.Lifetime) || Host.Lifetime.owner_before(*OwnerLifetime))) return;
-					if (CreateDialog) CreateDialog->Draw(bAllowAssetMutation);
+					Presentation.Draw(Host, [&] { if (CreateDialog) CreateDialog->Draw(bAllowAssetMutation); },
+						[&] { CreateDialog.reset(); });
 				},
 				.StopHostPresentation = [this](const std::weak_ptr<void>& Lifetime) {
-					if (OwnerLifetime && !OwnerLifetime->owner_before(Lifetime) && !Lifetime.owner_before(*OwnerLifetime))
-					{ CreateDialog.reset(); OwnerLifetime.reset(); }
+					Presentation.Stop(Lifetime, [&] { CreateDialog.reset(); });
 				},
 			}, Error);
 			if (!CreateExtension.IsValid())
@@ -54,7 +52,7 @@ namespace Durin::RoadNet::Editor
 	private:
 		::Durin::ContentBrowser::FScopedExtensionRegistration CreateExtension;
 		std::unique_ptr<FRoadNetCreateDialog> CreateDialog;
-		std::optional<std::weak_ptr<void>> OwnerLifetime;
+		ContentBrowser::FScopedHostPresentation Presentation;
 	};
 
 	IMPLEMENT_MODULE(FRoadWeaverEditorModule, RoadWeaverEditor)

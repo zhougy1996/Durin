@@ -114,7 +114,7 @@ namespace Durin::ContentBrowser::Private
 		const auto Presenters = CaptureHostPresenters();
 		for (const auto& Extension : *Presenters)
 			(void)DrawHostPresentation(
-				Extension, bInAllowAssetMutation, {.Lifetime = ExtensionLifetime, .AssetEditors = HostContext.AssetEditors});
+				Extension, bInAllowAssetMutation, {.Lifetime = ExtensionLifetime, .bHasLifetime = true, .AssetEditors = HostContext.AssetEditors});
 	}
 
 	auto FContentBrowserPanel::PrepareForDraw() -> void
@@ -1065,8 +1065,7 @@ namespace Durin::ContentBrowser::Private
 						},
 						.NotifyMountedContentChanged = [this, Lifetime] { if (!Lifetime.expired()) PublishMountedContentMutation(); },
 						.ReportError = [this, Lifetime](std::string Message) { if (!Lifetime.expired()) SetError(std::move(Message)); },
-						.HostLifetime = Lifetime, .bHasHostLifetime = true,
-						.AssetEditors = HostContext.AssetEditors,
+						.Host = {.Lifetime = Lifetime, .bHasLifetime = true, .AssetEditors = HostContext.AssetEditors},
 					});
 				});
 			});

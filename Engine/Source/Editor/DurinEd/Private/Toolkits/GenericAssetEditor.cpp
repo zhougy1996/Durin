@@ -16,7 +16,7 @@ namespace Durin
 	{
 	public:
 		auto GetLastOperationError() const -> std::string override { return Error; }
-		explicit FGenericAssetToolkit(FEditorDocumentManager& InManager) : FBaseAssetToolkit(false, true), Manager(InManager)
+		explicit FGenericAssetToolkit(FEditorDocumentManager& InManager) : Manager(InManager)
 		{
 			if (auto* Service = Manager.GetAssetEditorSubsystem()) Documents.BindEditor(Service->GetEditor());
 		}

@@ -20,17 +20,16 @@ namespace Durin
 				.Mutation = ContentBrowser::EContentMutation::MutatesContent,
 				.IsApplicable = [](const auto& Context) { return !Context.VirtualDirectory.empty(); },
 				.Invoke = [this](const auto& Invocation) {
-					OwnerLifetime = Invocation.bHasHostLifetime ? std::optional(Invocation.HostLifetime) : std::nullopt;
+					Presentation.Bind(Invocation.Host);
 					ImportDialog = std::make_unique<FGltfAssetImportDialog>(ContentBrowser::MakeImportDialogCallbacks(Invocation, {}));
 					ImportDialog->Open(Invocation.Context.VirtualDirectory);
 				},
 				.DrawHostPresentation = [this](const ContentBrowser::FExtensionHost& Host, bool bAllowed) {
-					if (OwnerLifetime && OwnerLifetime->expired()) { ImportDialog.reset(); OwnerLifetime.reset(); return; }
-					if (OwnerLifetime && (OwnerLifetime->owner_before(Host.Lifetime) || Host.Lifetime.owner_before(*OwnerLifetime))) return;
-					if (ImportDialog) ImportDialog->Draw(bAllowed);
+					Presentation.Draw(Host, [&] { if (ImportDialog) ImportDialog->Draw(bAllowed); },
+						[&] { ImportDialog.reset(); });
 				},
 				.StopHostPresentation = [this](const std::weak_ptr<void>& Lifetime) {
-					if (OwnerLifetime && !OwnerLifetime->owner_before(Lifetime) && !Lifetime.owner_before(*OwnerLifetime)) { ImportDialog.reset(); OwnerLifetime.reset(); }
+					Presentation.Stop(Lifetime, [&] { ImportDialog.reset(); });
 				}}, Error);
 			require(ImportExtension.IsValid());
 
@@ -46,7 +45,7 @@ namespace Durin
 	private:
 		AssetForge::Builtins::FAssetForgeBuiltinsAssetFeatures AssetFeatures;
 		FModularFeatureRegistration SaveReadinessRegistration;
-		std::optional<std::weak_ptr<void>> OwnerLifetime;
+		ContentBrowser::FScopedHostPresentation Presentation;
 		std::unique_ptr<FGltfAssetImportDialog> ImportDialog;
 		ContentBrowser::FScopedExtensionRegistration ImportExtension;
 	};

@@ -14,7 +14,7 @@ namespace Durin::ContentBrowser::Private
 		auto Open(const FExtensionInvocation& InInvocation) -> void;
 		auto Cancel() -> void;
 		auto IsForHost(const std::weak_ptr<void>& Lifetime) const -> bool
-		{ return !Invocation.bHasHostLifetime || (!Invocation.HostLifetime.owner_before(Lifetime) && !Lifetime.owner_before(Invocation.HostLifetime)); }
+		{ return Invocation.Host.Matches(Lifetime); }
 		auto StopForHost(const std::weak_ptr<void>& Lifetime) -> void;
 		auto SetName(std::string_view InName) -> void;
 		// Revalidates occupancy and mutation admission immediately before calling the provider.

@@ -72,6 +72,39 @@ namespace Durin::ContentBrowser
 	};
 	CONTENTBROWSER_API auto CaptureAssetCategoryPaths() -> std::vector<std::vector<std::string>>;
 
+	struct FExtensionHost
+	{
+		std::weak_ptr<void> Lifetime;
+		bool bHasLifetime = false;
+		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditors;
+		auto IsExpired() const -> bool { return bHasLifetime && Lifetime.expired(); }
+		auto Matches(const std::weak_ptr<void>& Other) const -> bool
+		{ return !bHasLifetime || (!Lifetime.owner_before(Other) && !Other.owner_before(Lifetime)); }
+	};
+
+	// Weak ownership shared by invocation, drawing and host retirement. Never retains a browser.
+	class FScopedHostPresentation
+	{
+	public:
+		auto Bind(const FExtensionHost& InHost) -> void { Host = InHost; }
+		auto Reset() -> void { Host.reset(); }
+		auto IsExpired() const -> bool { return Host && Host->IsExpired(); }
+		auto Matches(const FExtensionHost& Other) const -> bool { return !Host || Host->Matches(Other.Lifetime); }
+		auto IsOwnedBy(const std::weak_ptr<void>& Other) const -> bool
+		{ return Host && Host->bHasLifetime && Host->Matches(Other); }
+		template<typename DrawCallback, typename StopCallback>
+		auto Draw(const FExtensionHost& Other, DrawCallback DrawUI, StopCallback StopUI) -> void
+		{
+			if (IsExpired()) { StopUI(); Reset(); return; }
+			if (Matches(Other)) DrawUI();
+		}
+		template<typename StopCallback>
+		auto Stop(const std::weak_ptr<void>& Other, StopCallback StopUI) -> void
+		{ if (IsOwnedBy(Other)) { StopUI(); Reset(); } }
+	private:
+		std::optional<FExtensionHost> Host;
+	};
+
 	struct FExtensionInvocation
 	{
 		FExtensionContext Context;
@@ -82,14 +115,7 @@ namespace Durin::ContentBrowser
 		std::function<bool(std::string_view, std::string_view)> OpenAsset;
 		std::function<void()> NotifyMountedContentChanged;
 		std::function<void(std::string)> ReportError;
-		std::weak_ptr<void> HostLifetime;
-		bool bHasHostLifetime = false;
-		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditors;
-	};
-	struct FExtensionHost
-	{
-		std::weak_ptr<void> Lifetime;
-		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditors;
+		FExtensionHost Host;
 	};
 	CONTENTBROWSER_API auto MakeImportDialogCallbacks(const FExtensionInvocation& Invocation,
 		std::string AssetClassName) -> FImportDialogCallbacks;

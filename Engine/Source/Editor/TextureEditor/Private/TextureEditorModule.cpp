@@ -34,7 +34,7 @@ namespace Durin
 		std::string LastSourceDirectory;
 		FNotificationId ImportProgress = 0;
 		TWeakObjectPtr<DEditorEngine> ImportEditor;
-		std::optional<std::weak_ptr<void>> OwnerLifetime;
+		ContentBrowser::FScopedHostPresentation Presentation;
 	};
 
 	FTextureEditorModule::FTextureEditorModule()
@@ -99,7 +99,7 @@ namespace Durin
 			.Invoke = [this](const auto& Invocation) {
 				const auto ImportCallbacks = ContentBrowser::MakeImportDialogCallbacks(Invocation, {});
 				if (!Integration->FileImport->SetCallbacks(ImportCallbacks)) return;
-				Integration->OwnerLifetime = Invocation.bHasHostLifetime ? std::optional(Invocation.HostLifetime) : std::nullopt;
+				Integration->Presentation.Bind(Invocation.Host);
 				Integration->ImportEditor = GetTransactionEditor();
 				FFileDialogRequest Request;
 				Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
@@ -128,16 +128,16 @@ namespace Durin
 				}
 			},
 			.DrawHostPresentation = [this](const ContentBrowser::FExtensionHost& Host, bool bAllowMutation) {
-				if (Integration->OwnerLifetime && (Integration->OwnerLifetime->owner_before(Host.Lifetime) || Host.Lifetime.owner_before(*Integration->OwnerLifetime))) return;
+				if (!Integration->Presentation.Matches(Host) && !Integration->Presentation.IsExpired()) return;
 				auto& Importer = *Integration->FileImport;
-				if (Integration->OwnerLifetime && Integration->OwnerLifetime->expired())
+				if (Integration->Presentation.IsExpired())
 				{
 					Importer.Cancel(); Importer.Tick(false);
 					if (auto* Owner = Integration->ImportEditor.Get(); Owner && Integration->ImportProgress)
 						Owner->GetNotificationManager().CancelProgress(Integration->ImportProgress, "Texture import host stopped.");
 					Integration->ImportProgress = 0;
 					if (!Importer.IsRunning())
-					{ Integration->FileImport = std::make_shared<FTextureFileImport>(); Integration->OwnerLifetime.reset(); }
+					{ Integration->FileImport = std::make_shared<FTextureFileImport>(); Integration->Presentation.Reset(); }
 					return;
 				}
 				const bool bWasRunning = Importer.IsRunning();
@@ -179,13 +179,13 @@ namespace Durin
 				Notifications.Post(std::move(Result));
 			},
 			.StopHostPresentation = [this](const std::weak_ptr<void>& Lifetime) {
-				if (!Integration->OwnerLifetime || Integration->OwnerLifetime->owner_before(Lifetime) || Lifetime.owner_before(*Integration->OwnerLifetime)) return;
+				if (!Integration->Presentation.IsOwnedBy(Lifetime)) return;
 				if (auto* Owner = Integration->ImportEditor.Get(); Owner && Integration->ImportProgress)
 					Owner->GetNotificationManager().CancelProgress(Integration->ImportProgress, "Texture import host stopped.");
 				Integration->ImportProgress = 0;
 				Integration->FileImport->Cancel();
 				Integration->FileImport = std::make_shared<FTextureFileImport>();
-				Integration->OwnerLifetime.reset();
+				Integration->Presentation.Reset();
 			},
 			}, Error);
 		if (!ImportExtension.IsValid())
@@ -204,7 +204,7 @@ namespace Durin
 			.IsApplicable = [this](const auto&) { return !Integration->FileImport->IsRunning() && Integration->FileImport->HasPendingSaves(); },
 			.Invoke = [this](const auto& Invocation) {
 				if (!Integration->FileImport->SetCallbacks(ContentBrowser::MakeImportDialogCallbacks(Invocation, {}))) return;
-				Integration->OwnerLifetime = Invocation.bHasHostLifetime ? std::optional(Invocation.HostLifetime) : std::nullopt;
+				Integration->Presentation.Bind(Invocation.Host);
 				Integration->ImportEditor = GetTransactionEditor();
 				Integration->FileImport->RetryPendingSaves();
 			},

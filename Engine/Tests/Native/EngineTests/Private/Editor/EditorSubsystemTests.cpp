@@ -361,11 +361,19 @@ namespace
 		auto Registration = FAssetDefinitionRegistry::Get().RegisterDefinition(*Definition);
 		const auto Result = Service->OpenAssets({.AssetEditors = Service, .Assets = {DefinitionTarget()}});
 		const auto Id = Result.Items.front().RequestId;
+		const FObjectKey Provider(Definition);
+		Registration.Reset();
+		CollectGarbage(Durin::EObjectFlags::Standalone);
+		EXPECT_EQ(Definition, Provider.ResolveObjectPtr());
 		ASSERT_TRUE(Id.IsValid());
 		EXPECT_FALSE(Service->CancelOpenRequest(Id));
 		EXPECT_EQ(EAssetOpenStatus::Pending, Service->GetOpenRequest(Id)->Status);
+		CollectGarbage(Durin::EObjectFlags::Standalone);
+		EXPECT_EQ(Definition, Provider.ResolveObjectPtr());
 		EXPECT_TRUE(Service->CompleteOpenRequest(Id, EAssetOpenStatus::Failed, "Provider failed."));
 		EXPECT_EQ("Provider failed.", Service->GetOpenRequest(Id)->Message);
+		CollectGarbage(Durin::EObjectFlags::Standalone);
+		EXPECT_EQ(nullptr, Provider.ResolveObjectPtr());
 	}
 
 	TEST_F(FEditorSubsystemTests, DefinitionDispatchRejectsRecursionAndUnsupportedViewBeforeExecution)

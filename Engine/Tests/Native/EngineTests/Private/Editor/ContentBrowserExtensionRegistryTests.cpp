@@ -40,6 +40,30 @@ namespace Durin
 
 namespace Durin::ContentBrowser
 {
+	TEST(FContentBrowserExtensionRegistryTests, ScopedPresentationIsolatesHostsAndDrainsExpiredOwnerOnce)
+	{
+		auto Owner = std::make_shared<uint8>(0), Other = std::make_shared<uint8>(0);
+		FScopedHostPresentation Presentation;
+		Presentation.Bind({.Lifetime = Owner, .bHasLifetime = true});
+		int Draws = 0, Stops = 0;
+		auto Draw = [&] { ++Draws; };
+		auto Stop = [&] { ++Stops; };
+		Presentation.Draw({.Lifetime = Other, .bHasLifetime = true}, Draw, Stop);
+		Presentation.Stop(Other, Stop);
+		EXPECT_EQ(0, Draws); EXPECT_EQ(0, Stops);
+		Presentation.Draw({.Lifetime = Owner, .bHasLifetime = true}, Draw, Stop);
+		EXPECT_EQ(1, Draws);
+		const std::weak_ptr<void> Expired = Owner;
+		Owner.reset();
+		Presentation.Draw({.Lifetime = Other, .bHasLifetime = true}, Draw, Stop);
+		Presentation.Stop(Expired, Stop);
+		EXPECT_EQ(1, Draws); EXPECT_EQ(1, Stops);
+		Presentation.Bind({.Lifetime = Other, .bHasLifetime = true});
+		Presentation.Stop(Other, Stop);
+		Presentation.Stop(Other, Stop);
+		EXPECT_EQ(2, Stops);
+	}
+
 	TEST(FContentBrowserExtensionRegistryTests, StopOnlyContributionsWithdrawAndCreationCannotOutliveItsHost)
 	{
 		auto Owner = std::make_shared<uint8>(0);
@@ -60,7 +84,7 @@ namespace Durin::ContentBrowser
 		EXPECT_EQ(1, Stops);
 		Private::FAssetCreationDialog Dialog({.Id = "test.host-creation", .Label = "Host asset", .DefaultName = "Asset",
 			.Create = [&](const auto&, auto&) { ++Creations; return true; }});
-		Dialog.Open({.HostLifetime = Lifetime, .bHasHostLifetime = true});
+		Dialog.Open({.Host = {.Lifetime = Lifetime, .bHasLifetime = true}});
 		Dialog.StopForHost(Other);
 		EXPECT_TRUE(Dialog.IsPending());
 		Owner.reset();
@@ -77,7 +101,7 @@ namespace Durin::ContentBrowser
 			.RevealAsset = [&](std::string_view) { ++Calls; return true; },
 			.NotifyMountedContentChanged = [&] { ++FilesystemChanges; },
 			.ReportError = [&](std::string) { ++Calls; },
-			.HostLifetime = Lifetime, .bHasHostLifetime = true};
+			.Host = {.Lifetime = Lifetime, .bHasLifetime = true}};
 		const auto Callbacks = MakeImportDialogCallbacks(Invocation, {});
 		Callbacks.NotifyAssetCreated("/Project/Asset.Asset");
 		EXPECT_EQ(1, Calls);

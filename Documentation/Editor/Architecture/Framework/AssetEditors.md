@@ -4,7 +4,7 @@ Summary: Define reflected asset-type discovery, metadata-based opening, owned ed
 
 Modules: DurinEd, TextureEditor, MainFrame, ContentBrowser
 
-Last reviewed: 2026-11-11
+Last reviewed: 2026-11-13
 
 ## Definition Discovery And Dispatch
 
@@ -87,7 +87,11 @@ callbacks select a scoped transaction editor for existing graph/property APIs,
 restoring the prior context after reentry without changing process `GEditor`.
 An expired bound editor cannot redirect commands to another editor.
 
-A session owns its toolkit and document controller. Toolkit callback/frame leases
+A session owns its toolkit and document controller. `DAssetEditor::DrawToolkitFrame`
+leases the current toolkit and delegates to its final `DrawToolkit` boundary. That
+boundary alone admits the callback and establishes the owning-editor transaction
+context; it retains the session and toolkit while feature drawing runs. A draw
+callback can request its own close, and retired toolkits reject later frames. Toolkit callback/frame leases
 can extend C++ lifetime; the toolkit retains its controller and definition
 provider, while the controller stores only a weak toolkit and its callback holds
 a weak reflected session. These references form no ownership cycle. A toolkit
@@ -182,6 +186,10 @@ integrations retire. This teardown does not execute asset Discard.
 
 ## Panels And Tool Extensions
 
+Default viewport and details panels are selected solely by the optional
+`CreateDefaultViewportPanel` and `CreateDefaultDetailsPanel` factories. Missing
+factories allocate no panels; graph-only editors need no constructor opt-outs.
+
 `FBaseAssetToolkit::RegisterUIExtension` atomically admits unique panel and command
 identities. Its move-only token withdraws that generation and can outlive the
 toolkit. Extensions do not register asset routes or own another session. Commands
@@ -253,7 +261,14 @@ Focus waits for presentation readiness, including engine Ready and actual native
 standalone-window creation. A weak pending focus target is consumed once or
 cancelled by explicit opening/focus; no persistent restore session owner is added.
 Browser extension invocation and drawing receive their owning editor/host
-context. Scoped withdrawal stops host-owned dialogs before project retirement.
+context through the same `FExtensionHost` value in `FExtensionInvocation::Host`
+and presentation callbacks. It carries a weak browser lifetime and weak editor
+subsystem; a missing editor never redirects to another host. Scoped withdrawal
+stops host-owned dialogs before project retirement. `FScopedHostPresentation`
+centralizes weak-owner matching, expiration and explicit stop for Mesh, glTF and
+RoadWeaver dialogs. Expiration drains a dialog even when another host next draws;
+explicit stop for another owner has no effect. Texture import uses the same
+owner matching while retaining its feature-owned cancellation/draining protocol.
 
 ## Production Migration Boundary
 
@@ -279,7 +294,17 @@ asset sessions. Module startup retains only independent feature registrations.
 Registration batches/handles, route tables, singleton descriptors, workspace
 instance adapters and shell document registries have been removed.
 
-Full native interaction qualification and remaining parity work stay open in
+Definition registration withdrawal prevents new dispatch without closing existing
+sessions. Dirty sessions and pending requests retain their provider independently
+of the registry lease. Refused cancellation retains pending work; terminal
+completion releases its provider after the callback returns. A retained toolkit
+lease retains its provider until the lease itself is released. These are object
+lifetime guarantees, not permission to unload provider machine code. Module unload
+preflight rejects non-reloadable/process-resident providers before shutdown;
+unsupported editor DLL reload remains disabled under the
+`FModuleManager::UnloadModule` preflight contract.
+
+Full native interaction qualification stays open in
 the [UE asset editor architecture plan](../../../Plans/UEAssetEditorArchitecture.md).
 
 The [subsystem host contract](EditorSubsystems.md) owns service admission and

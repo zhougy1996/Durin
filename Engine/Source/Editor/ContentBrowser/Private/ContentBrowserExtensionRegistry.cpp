@@ -30,7 +30,7 @@ namespace Durin::ContentBrowser
 	}
 	auto MakeImportDialogCallbacks(const FExtensionInvocation& Invocation, std::string ClassName) -> FImportDialogCallbacks
 	{
-		auto IsAlive = [Lifetime = Invocation.HostLifetime, Bound = Invocation.bHasHostLifetime] { return !Bound || !Lifetime.expired(); };
+		auto IsAlive = [Host = Invocation.Host] { return !Host.IsExpired(); };
 		return {
 			.ClearError = [IsAlive, Report = Invocation.ReportError] { if (IsAlive() && Report) Report({}); },
 			.ReportError = [IsAlive, Report = Invocation.ReportError](std::string Message) { if (IsAlive() && Report) Report(std::move(Message)); },
@@ -148,7 +148,7 @@ namespace Durin::ContentBrowser
 		const FExtensionDescriptor& Descriptor,
 		const FExtensionInvocation& Invocation) -> bool
 	{
-		if (Invocation.bHasHostLifetime && Invocation.HostLifetime.expired()) return false;
+		if (Invocation.Host.IsExpired()) return false;
 		const auto State = GetRegistryState();
 		{
 			std::scoped_lock Lock(State->Mutex);
@@ -158,7 +158,7 @@ namespace Durin::ContentBrowser
 		}
 		if (!CanInvokeExtension(Descriptor, Invocation.Context, Invocation.bAllowAssetMutation))
 			return false;
-		return DispatchHostCallback(Invocation.AssetEditors, [&] { Descriptor.Invoke(Invocation); });
+		return DispatchHostCallback(Invocation.Host.AssetEditors, [&] { Descriptor.Invoke(Invocation); });
 	}
 
 	auto CanInvokeExtension(const FExtensionDescriptor& Descriptor,

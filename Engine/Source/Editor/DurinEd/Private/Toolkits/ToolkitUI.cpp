@@ -47,25 +47,15 @@ namespace Durin
 	auto FToolkitUIRegistration::operator=(FToolkitUIRegistration&& Other) noexcept -> FToolkitUIRegistration&
 	{ if (this != &Other) { Reset(); Release = std::move(Other.Release); Other.Release = {}; } return *this; }
 	auto FToolkitUIRegistration::Reset() -> void { if (auto Callback = std::exchange(Release, {})) Callback(); }
-	FBaseAssetToolkit::FBaseAssetToolkit(bool Viewport, bool Details)
-		: bCreateViewport(Viewport), bCreateDetails(Details), UI(std::make_shared<FToolkitUIState>()) {}
+	FBaseAssetToolkit::FBaseAssetToolkit()
+		: UI(std::make_shared<FToolkitUIState>()) {}
 	FBaseAssetToolkit::~FBaseAssetToolkit() = default;
 	auto FBaseAssetToolkit::OnSessionBound() -> void
 	{
 		if (DefaultPanels) { RestorePanelLayout(); return; }
 		FToolkitUIExtension Defaults;
-		if (bCreateViewport)
-		{
-			auto Panel = CreateDefaultViewportPanel();
-			requiref(Panel.has_value(), "An enabled default viewport requires a panel factory");
-			Defaults.Panels.push_back(std::move(*Panel));
-		}
-		if (bCreateDetails)
-		{
-			auto Panel = CreateDefaultDetailsPanel();
-			requiref(Panel.has_value(), "Enabled default details require a panel factory");
-			Defaults.Panels.push_back(std::move(*Panel));
-		}
+		if (auto Panel = CreateDefaultViewportPanel()) Defaults.Panels.push_back(std::move(*Panel));
+		if (auto Panel = CreateDefaultDetailsPanel()) Defaults.Panels.push_back(std::move(*Panel));
 		if (!Defaults.Panels.empty())
 		{
 			DefaultPanels = RegisterUIExtension(std::move(Defaults));

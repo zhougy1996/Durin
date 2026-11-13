@@ -11,6 +11,7 @@
 #include "Application/MonaApplication.h"
 #include "ApplicationCoreGlobals.h"
 #include "Project/Project.h"
+#include "Interfaces/IProjectManager.h"
 #include "Misc/Paths.h"
 #include "Widgets/MWindow.h"
 #include "DObject/Class.h"
@@ -305,6 +306,8 @@ TEST_F(FEditorToolTests, ProjectBrowserStartupSkipsProjectWorkWithoutPresentatio
 TEST_F(FEditorToolTests, AutomationWaitsForDocumentCompletionAndPrimaryScenePresentation)
 {
 	FWorkspaceProjectTestScope Project;
+	ASSERT_TRUE(IProjectManager::Get().LoadModulesForProject(ELoadingPhase::Providers));
+	ASSERT_TRUE(IProjectManager::Get().LoadModulesForProject(ELoadingPhase::EngineReady));
 	using namespace EditorStartup;
 	auto* Editor = MakeHost();
 	std::string Error;
@@ -317,7 +320,7 @@ TEST_F(FEditorToolTests, AutomationWaitsForDocumentCompletionAndPrimaryScenePres
 		~FRestoreModule() { FEditorEngineTestAccess::BindMainFrameModule(Editor, Previous); }
 	} Restore{*Editor, FEditorEngineTestAccess::BindMainFrameModule(*Editor, &MainFrame)};
 	FEditorEngineTestAccess::SetStartupState(*Editor, EHostStartupState::Ready, "stale error");
-	ASSERT_TRUE(FEditorEngineTestAccess::InitializeWorkspaces(*Editor));
+	ASSERT_TRUE(FEditorEngineTestAccess::InitializeWorkspaces(*Editor)) << Editor->GetStartupError();
 	FEditorEngineTestAccess::OpenDefaultLevel(*Editor);
 	EXPECT_EQ(1, MainFrame.WorkspaceCalls);
 	EXPECT_FALSE(FEditorEngineTestAccess::HasInitialDocumentRequest(*Editor));

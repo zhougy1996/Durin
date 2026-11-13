@@ -16,7 +16,7 @@ namespace Durin
 	{
 		ContentBrowser::FScopedExtensionRegistration ImportExtension;
 		std::unique_ptr<StaticMeshEditor::FStaticMeshImportDialog> ImportDialog;
-		std::optional<std::weak_ptr<void>> OwnerLifetime;
+		ContentBrowser::FScopedHostPresentation Presentation;
 	};
 
 	FStaticMeshEditorModule::FStaticMeshEditorModule()
@@ -59,7 +59,7 @@ namespace Durin
 				return !Context.VirtualDirectory.empty();
 			},
 			.Invoke = [this](const auto& Invocation) {
-				Integration->OwnerLifetime = Invocation.bHasHostLifetime ? std::optional(Invocation.HostLifetime) : std::nullopt;
+				Integration->Presentation.Bind(Invocation.Host);
 				Integration->ImportDialog = std::make_unique<FStaticMeshImportDialog>(
 					ContentBrowser::MakeImportDialogCallbacks(Invocation, {}));
 				if (Integration->ImportDialog)
@@ -67,16 +67,11 @@ namespace Durin
 						Invocation.Context.VirtualDirectory);
 			},
 			.DrawHostPresentation = [this](const ContentBrowser::FExtensionHost& Host, bool bAllowAssetMutation) {
-				if (Integration->OwnerLifetime && (Integration->OwnerLifetime->owner_before(Host.Lifetime) || Host.Lifetime.owner_before(*Integration->OwnerLifetime))) return;
-				if (Integration->OwnerLifetime && Integration->OwnerLifetime->expired())
-				{ Integration->ImportDialog.reset(); Integration->OwnerLifetime.reset(); return; }
-				if (Integration->ImportDialog)
-					Integration->ImportDialog->Draw(bAllowAssetMutation);
+				Integration->Presentation.Draw(Host, [&] { if (Integration->ImportDialog) Integration->ImportDialog->Draw(bAllowAssetMutation); },
+					[&] { Integration->ImportDialog.reset(); });
 			},
 			.StopHostPresentation = [this](const std::weak_ptr<void>& Lifetime) {
-				if (!Integration->OwnerLifetime || Integration->OwnerLifetime->owner_before(Lifetime) || Lifetime.owner_before(*Integration->OwnerLifetime)) return;
-				Integration->ImportDialog.reset();
-				Integration->OwnerLifetime.reset();
+				Integration->Presentation.Stop(Lifetime, [&] { Integration->ImportDialog.reset(); });
 			},
 			}, Error);
 		if (!ImportExtension.IsValid())

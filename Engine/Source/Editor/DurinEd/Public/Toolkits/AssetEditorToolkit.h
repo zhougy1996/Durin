@@ -137,7 +137,7 @@ namespace Durin
 	class FBaseAssetToolkit : public FAssetEditorToolkit
 	{
 	public:
-		DURINED_API explicit FBaseAssetToolkit(bool bViewport = false, bool bDetails = false);
+		DURINED_API FBaseAssetToolkit();
 		DURINED_API ~FBaseAssetToolkit() override;
 		DURINED_API auto RegisterUIExtension(FToolkitUIExtension Extension) -> FToolkitUIRegistration;
 		DURINED_API auto InvokeCommand(std::string_view Id) -> bool;
@@ -156,15 +156,11 @@ namespace Durin
 			uint32 Version, std::span<const std::string_view> Panels) -> void;
 		DURINED_API auto SaveDockLayout(std::string_view Slot, const FAssetEditorToolkitId& DockType,
 			uint32 Version, std::span<const std::string_view> Panels) -> void;
-		auto WantsDefaultViewport() const -> bool { return bCreateViewport; }
-		auto WantsDefaultDetails() const -> bool { return bCreateDetails; }
 	protected:
 		DURINED_API auto OnSessionBound() -> void override;
 		virtual auto CreateDefaultViewportPanel() -> std::optional<FToolkitPanelSpawner> { return {}; }
 		virtual auto CreateDefaultDetailsPanel() -> std::optional<FToolkitPanelSpawner> { return {}; }
 	private:
-		bool bCreateViewport;
-		bool bCreateDetails;
 		std::shared_ptr<FToolkitUIState> UI;
 		FToolkitUIRegistration DefaultPanels;
 	};

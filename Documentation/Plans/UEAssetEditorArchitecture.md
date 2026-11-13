@@ -2,30 +2,89 @@
 
 Summary: Replace workspace-bound asset-editor registration with UE-aligned asset definitions, owned editor sessions, reusable toolkits, independent hosts, and metadata-driven asset actions.
 
-Last reviewed: 2026-11-06
+Last reviewed: 2026-11-13
 
 Status: Active
 Completed:
 
 ## Current Status
 
-Execution is authorized. Stage 0 contract freezing and baseline capture are
-complete. Stage 1 definitions, CDO/dynamic registration, metadata dispatch,
-structured results and observable pending operations are implemented and
-validated and committed as `f1343f438`. Stage 2 session ownership, toolkit/host
-foundations and the production Texture2D pilot are implemented and validated.
-Stage 2 is committed as `b58df8573`. Stage 3 implementation checkpoint is committed
-as `f18997e5b`; its remaining gates stay open. Stage 4 family migration and generic
-editing are implemented and their focused qualification has passed. Native-window
-and restart acceptance remains open for integrated qualification.
-Stage 4 is committed as `1a6ec3372`. Stage 5 implementation checkpoint is committed
-as `e2d022b22`. Its focused tests and normal-window startup/restore checks passed; interactive project switching and
-native dirty-close gestures remain unqualified. Stage 6 work packages 6A–6E are
-implemented and qualified: legacy toolkit registration removal, authoritative
-host ownership, real batch opening, normalized open support, definition-only
-browser metadata and resource-independent editor layout profiles. Remaining Stage 6 parity and integration
-tasks stay open. Actual interface interaction remains explicitly skipped; it is
-not converted into acceptance evidence.
+Stages 0-5 implementation and Stage 6 work packages 6A-6E are implemented.
+The 2026-11-13 Stage 6 closure consolidates execution/presentation plumbing,
+qualifies definition withdrawal independently of session close and pending work,
+and migrates the remaining shared API consumers. The remaining required gates
+are real interface interaction: native dirty/pending close and host transfer,
+panel/layout restart and interactive project switching. They remain explicitly
+skipped at the user's direction and unqualified. `Status: Active` and empty
+`Completed` metadata are intentional; automated closure does not complete the
+entire plan.
+
+The single final toolkit draw boundary retains callback/frame leases and selects
+the owning editor context; session drawing delegates without nested dispatch.
+Optional panel factories replace constructor flags. Browser invocation and drawing
+share `FExtensionHost`; `FScopedHostPresentation` centralizes weak ownership,
+foreign-host rejection and dialog stop/expiration. Texture keeps its asynchronous
+cancel/drain protocol, including draining an expired owner when another host draws.
+No physical DLL reload support or new provider unload permission was introduced.
+
+Source/test searches cover Engine, Sandbox and RoadWeaver, the complete
+`Durin.dworkspace` project list. Removed registration/route/instance interfaces,
+`GroupAssets`, constructor panel flags and the old invocation host fields have no
+remaining consumers. RoadWeaver's independent creation extension now uses the same
+host context/helper; Sandbox has no specialized definition/toolkit consumer to
+migrate. Reflected fixture definitions and session classes exercise extension
+without central dispatch edits, including generic Edit/View and grouped sessions.
+Lasting contracts are published in
+[Asset definitions and editor sessions](../Editor/Architecture/Framework/AssetEditors.md).
+
+Final-input evidence, Windows `windows-msvc-x64`, `Win64-Debug-DurinEditor`,
+working changes based on `b2ea9f72d`: incremental `all` passed, covering the Engine,
+Sandbox and RoadWeaver Editor consumer closure. The closure build is
+`20261113-113223-964488-39304-cmake.log`; the final incremental gate after the
+private Texture expiration/drain refinement is
+`20261113-113649-216110-46436-cmake.log`, both under `Build/.agent-state/logs/`.
+No Game dependency or build graph changed, so no unrelated Game build was added.
+
+| Final selection | Outcome | Receipt under `Build/UEAssetEditorArchitecture/` |
+| --- | --- | --- |
+| EditorOperationTests | 352 passed | `stage6-final-framework.xml` |
+| ContentBrowserWorkflowTests | 173 passed, 2 Windows symlink-privilege skips | `stage6-final-browser.xml` |
+| EditorHostToolTests | 39 passed | `stage6-final-host.xml` |
+| AssetEditorFamilyTests | 7 passed | `stage6-final-families.xml` |
+| EditorShellTests | 63 passed | `stage6-final-shell.xml` |
+| CoreConcurrencyTests / FModuleManagerLifecycleTests.* | 7 passed | `stage6-final-modules.xml` |
+| EditorAssetWorkflowTests | 44 passed | `stage6-final-workflows.xml` |
+| AssetPackageReloadTests | 21 passed | `stage6-final-reload.xml` |
+| TextureImportWorkflowTests | 26 passed | `stage6-final-texture-import.xml` |
+
+These are 732 passes and two skips. `stage6-final-inputs.json` records the base
+revision, final source/test hashes, report hashes/counts and removed-symbol audit.
+The browser, host, family, shell and module receipts remain applicable: the only
+later production refinement changes private Texture import expiration/draining,
+covered by the final import/workflow receipts; the framework rerun covers the
+later test-fixture correction. No subsequent production input changed.
+
+Automated parity evidence maps definitions/discovery, grouped/secondary sessions,
+View/default editing, commands/extensions, events, MRU/restore and local accounting
+to framework/browser/shell receipts. The host receipt includes successive activated
+Level editor lifetimes, retained old toolkit handles and configured-Level policy;
+family/workflow/reload receipts cover concrete controllers and package invariants.
+Definition withdrawal while a dirty session remains alive, refused cancellation
+retaining a withdrawn provider, terminal release and self-close during drawing
+are explicitly covered. Module lifecycle preflight proves rejected unload does
+not call Shutdown; unsupported provider DLL reload stays disabled. This closes
+automated parity only: native host gestures, actual docking/restart interaction
+and project switching still have no pass and remain assigned to the open gate.
+
+The initial sandbox build hit MSVC C1902; the same build succeeded outside the
+sandbox. The first framework run also exposed a stale test prerequisite:
+`AutomationWaitsForDocumentCompletionAndPrimaryScenePresentation` entered
+EditorReady without Providers/EngineReady. Its fixture now executes those real
+project phases and reports startup diagnostics; the complete 352-case rerun
+passes. Failed attempts remain in local logs and are not acceptance receipts.
+
+Changed-document validation and all-plan lifecycle validation pass. Historical
+checkpoints below describe their own inputs and do not add to the final count.
 
 Stage 6E is implemented under the user's minimal-persistence and no-compatibility
 decisions, superseding the earlier migration/window-restoration recommendation.
@@ -69,7 +128,7 @@ serialized settings. Shared preference fields and resource records merge without
 stale-window overwrite. The module's existing relocation notification updates
 stored profile viewports while windows are closed. Old layouts are neither read
 nor migrated. Presentation-boundary consolidation and provider-retirement
-qualification remain the next work packages.
+qualification are covered by the 2026-11-13 closure above.
 
 Stage 6D checkpoint evidence on Windows `windows-msvc-x64`,
 `Win64-Debug-DurinEditor`, working inputs based on `22170984f`: `all` passed
@@ -111,9 +170,9 @@ The old type-presentation registry and fixed category enum have no source/test
 consumers in any workspace project. Persisted filter shortcuts resolve definition
 category roots rather than introducing a second metadata taxonomy.
 
-The next work package is layout identity across authoritative resource rename,
-close and restore, followed by presentation consolidation and provider-retirement
-qualification. Those checks and the explicitly skipped interface gates remain open.
+The layout and automated presentation/provider checks listed at this historical
+checkpoint were subsequently qualified by 6E and the 2026-11-13 closure. The
+explicitly skipped interface gates remain open.
 
 Stage 6 checkpoint evidence on Windows `windows-msvc-x64`,
 `Win64-Debug-DurinEditor`, working inputs based on `4e1731ad8`: the incremental
@@ -1039,14 +1098,17 @@ remaining parity work; retain the final full-architecture acceptance gates.
   storage. Abandon old asset/group layout namespaces without compatibility paths.
   Retain Material graph viewport persistence in its existing settings format, with
   per-resource merge and authoritative rename handling. Do not add global stores.
-- [ ] Consolidate duplicated execution and scoped host-presentation plumbing where
+- [x] Consolidate duplicated execution and scoped host-presentation plumbing where
   ownership is already settled.
-- [ ] Qualify registration removal independently of live-session close, pending
+- [x] Qualify registration removal independently of live-session close, pending
   provider retirement, callback reentrancy and successive editor lifetimes. Keep
   unsupported DLL reload disabled; blocked unload must not partially retire.
-- [ ] Migrate source/test consumers in every `Durin.dworkspace` project, including
+- [x] Migrate source/test consumers in every `Durin.dworkspace` project, including
   project-defined definitions/toolkits without central dispatch changes. Publish
-  lasting architecture contracts and close the parity matrix with evidence.
+  lasting architecture contracts and record automated parity evidence.
+- [ ] Close the remaining native-interface parity/acceptance gates. Native dirty
+  close/transfer, panel/layout restart and interactive project switching remain
+  skipped and unqualified; automated fixtures do not substitute for them.
 
 Acceptance for 6A: no removed interface remains in production or tests; document
 activation, deferred replacement, dirty close, GC roots and atomic reload still
@@ -1121,10 +1183,10 @@ behavioral tests rather than tests mirroring descriptor construction.
 ## Definition of Done
 
 - [ ] All stages and their acceptance gates have final-input evidence.
-- [ ] Automatic definitions, structured opening, real sessions, both hosts,
+- [x] Automatic definitions, structured opening, real sessions, both hosts,
   reusable toolkits, default editing, metadata-only queries, lifecycle events,
   MRU/restore and scoped extensions are used by production consumers.
-- [ ] Every legacy route/registration/instance adapter is removed, all supported
+- [x] Every legacy route/registration/instance adapter is removed, all supported
   editor families and project consumers migrated, and no duplicate owner remains.
 - [ ] Dirty/pending close, GC/reload/relocation, transactions, compatibility,
   startup readiness, PIE and provider retirement invariants remain qualified.

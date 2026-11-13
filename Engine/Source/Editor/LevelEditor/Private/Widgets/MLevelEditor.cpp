@@ -52,8 +52,7 @@ namespace Durin::LevelEditor
 		FEditorDocumentManager& InWorkspaceManager,
 		FContentBrowserCallbacks InContentBrowserCallbacks,
 		std::function<void()> InOpenProjectBrowser, DEditorEngine& EditorHost)
-		: FBaseAssetToolkit(false, false)
-		, EditorOwner(&EditorHost)
+		: EditorOwner(&EditorHost)
 		, SessionSettingsOwner(std::move(InSessionSettings))
 		, SessionSettings(*SessionSettingsOwner)
 		, DocumentManager(InWorkspaceManager)
