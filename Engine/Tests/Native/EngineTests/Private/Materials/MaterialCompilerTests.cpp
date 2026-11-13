@@ -894,7 +894,7 @@ TEST(FMaterialProgramOwnershipTests, SharedProgramSubscriptionsCancelIndependent
 		if (Observe) {
 			if (Canceled == 2) { Cancellation[0].Cancel(); Cancellation[1].Cancel(); }
 			else if (Canceled >= 0) Cancellation[Canceled].Cancel();
-			Manager.ProcessAsyncResults();
+			Manager.ProcessAsyncTasks({});
 		}
 		else {
 			if (Canceled == 2) { Manager.CancelCompilation(First); Manager.CancelCompilation(Second); }

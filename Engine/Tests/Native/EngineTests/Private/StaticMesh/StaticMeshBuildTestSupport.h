@@ -22,12 +22,11 @@
 
 namespace StaticMeshBuildTestSupport
 {
-	inline auto FinishMeshBuildForTests(Durin::DStaticMesh& Mesh) -> Durin::FAssetCompileProcessResult
+	inline auto FinishMeshBuildForTests(Durin::DStaticMesh& Mesh) -> void
 	{
-		auto Result = Mesh.FinishCompilation();
+		Mesh.FinishCompilation();
 		Durin::AssetPrivate::FinishPhysicsMeshCompilationForOwner(Mesh);
 		if (auto* Body = Mesh.GetBodySetup()) Body->FinishPhysicsMeshes();
-		return Result;
 	}
 	inline auto GetMeshBuildDiagnosticsForTests() -> Durin::FStaticMeshCompilationManagerDiagnostics
 	{

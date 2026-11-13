@@ -17,7 +17,7 @@ namespace Durin::Testing
 		auto SetUp() -> void override
 		{
 			InitializeDObjectSystem();
-			ASSERT_TRUE(InitializeAssetCompilingManager());
+			InitializeAssetCompilingManager();
 			FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 		}
 

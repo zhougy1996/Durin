@@ -4,7 +4,7 @@ Summary: Define the Engine-owned object-aware compilation aggregate, class routi
 
 Modules: Engine, Launch, TextureCompressor, MeshBuilder
 
-Last reviewed: 2026-10-20
+Last reviewed: 2026-11-13
 
 `FAssetCompilingManager` is the one process authority for asynchronous asset
 compilation. Launch starts it after Core task scheduling and pumps it once per
@@ -21,7 +21,7 @@ operations return `FAssetCompilerStartResult`, deriving success from an error
 code. Scheduler unavailability, undrained requests and missing state are distinct;
 undrained results retain pending-request count.
 Registration retains the error code and pending-request count in its structured
-`StartCause`; initialization preserves that cause without formatting it into text.
+`StartCause`.
 Only diagnostic presentation calls the error formatter. No string-output
 Start overload remains. `RegisterCompiler` returns a typed result containing the
 move-only registration handle and an error code; invalid inputs, wrong thread,
@@ -29,9 +29,12 @@ stopped admission, duplicate name/class and startup rejection remain distinct.
 Errors own compiler/class identity. A rejection after startup stops and shuts
 down the private manager before returning its cause, without publishing routes.
 Logging formats the error after it leaves the registration boundary.
-`InitializeAssetCompilingManager` returns a typed initialization result retaining
-the complete failed registration cause after aggregate shutdown. Successful
-initialization still transfers built-in handle ownership to the aggregate.
+`InitializeAssetCompilingManager` returns void and requires a running task
+scheduler. Built-in registration failures violate the startup contract and report
+the registration cause through `requiref`; initialization has no recoverable
+failure or rollback path. Built-in handle ownership transfers to the aggregate
+at registration and ends at normal process shutdown. External registration
+continues to return a rejection result to its caller.
 Aggregate diagnostic snapshots contain counters, lifecycle state and compiler
 observations; they have no unused message collection.
 
@@ -58,10 +61,24 @@ entry. Independent compilers use canonical-name order; shutdown first closes
 every compiler's admission, then finishes and shuts them down in reverse order. Compiler calls and
 post-compile listener dispatch never hold the aggregate registry mutex.
 
-Normal processing has a process completion limit of 64. The aggregate gives
-each ready compiler a bounded first opportunity, rotates peers, and
-reclaims quota unused by idle compilers. Concrete managers report consumed
-completions separately from successfully published live objects.
+The aggregate calls each compiler once per processing pass and forwards a shared
+optional soft deadline. It rotates the first compiler to avoid starving peers
+when that deadline is exhausted. Each concrete compiler owns its local processing
+limits; the aggregate does not assign or reclaim completion quotas and receives
+no completion-count feedback. Without a deadline, compilers process ready results
+without a time limit. Explicit finish remains a blocking barrier.
+
+Startup and map-change frames retain their shared 2ms soft deadline for deferred
+callbacks, async loading and asset compilation. Those services retain independent
+local work limits; there is no combined 64-completion quota across services.
+
+Both aggregate and compiler `ProcessAsyncTasks` and `FinishCompilation` operations
+return void. Callers observe remaining work, asset state and post-compile events.
+The compiler interface owns no completion counter, pending notification buffer or
+progress-reporting hook. Completion counts are local loop variables, or scalar
+pump returns used by waits to decide whether to yield. Each operation owns its
+successful-asset notification list. There are no shared batch-result or budget
+types; these values do not flow back to the aggregate.
 
 ## Object Operations and Result Application
 
@@ -82,18 +99,25 @@ VolumeTexture remains on its synchronous module build path.
 Material candidates use their independent request generations and selected finish.
 Reload never drains unrelated compiler work through `FinishAllCompilation`.
 
+Material resource caching requests or waits for compilation and returns void.
+The shader compiler retains the successful-asset list locally while finishing a
+resource, then notifies listeners after publication and consumer retirement.
+No notification list returns through the material caching layer. A warm-cache
+read emits no new completion event, and listener-submitted requests remain future
+work after the completing resource wait returns.
+
 Concrete managers retain generation-safe object handles and independently named
 request serial, authored/build identity, target, and dependency qualifiers.
 They admit results only on GameThread after every family-specific qualifier
 still matches. Workers receive detached immutable values and never resolve or
-mutate managed objects. A successful, current result application is returned to the
-aggregate as a weak object identity. Failed, canceled, superseded, destroyed,
+mutate managed objects. A successful, current result application contributes a weak object identity to
+the concrete compiler's local notification batch. Failed, canceled, superseded, destroyed,
 and stale results do not emit success.
 
-The aggregate coalesces duplicate successful object reports per compiler and
-broadcasts `FAssetPostCompileData` outside compiler calls and the registry mutex.
-Listeners may submit future work, but event dispatch does not recursively enter
-a compiler callback.
+Concrete compilers coalesce successful object identities and broadcast the existing
+`FAssetPostCompileData` event after result application, outside state iteration and
+compiler/registry locks. Notifications are emitted by the completing operation;
+they do not wait for a later aggregate pump. Listeners may submit future work.
 
 ## Module and Task Lifetime
 
@@ -101,7 +125,9 @@ Built-in and external registration use the same move-only
 `FAssetCompilerRegistrationHandle`. Reset removes the compiler and its routes
 from future snapshots, stops admission, finishes accepted work, invokes compiler
 shutdown, and releases the registered provider. Registration and reset run on
-GameThread outside compiler callbacks. Owners release remaining provider and
+GameThread outside compiler callbacks. Post-compile listeners execute within the
+completing compiler call; handle reset and module unload wait until that call
+returns. Owners release remaining provider and
 callback copies before DLL unload under the
 [explicit module unload contract](../../Core/ModularFeaturesAndModuleRetirement.md).
 Typed-feature retirement does not suppress these cleanup calls.

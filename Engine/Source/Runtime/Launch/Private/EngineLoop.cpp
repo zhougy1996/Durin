@@ -188,11 +188,7 @@ namespace Durin
 			return false;
 		}
 #endif
-		if (!InitializeAssetCompilingManager())
-		{
-			DURIN_ERROR("Engine pre-initialization failed because the asset compiling manager could not start.");
-			return false;
-		}
+		InitializeAssetCompilingManager();
 		// Configure the final package domain before reflected registration creates CDOs.
 		FAssetRuntimeConfiguration AssetConfiguration = FAssetRuntimeConfiguration::Authored();
 #if !DURIN_WITH_EDITOR
@@ -397,12 +393,12 @@ namespace Durin
 		if (GetStartupState() == EHostStartupState::Pending || GEngine->IsPreparingMapChange())
 		{
 			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(2);
-			const auto Deferred = PumpGameThreadDeferredWork({.MaxCallbacks = 63, .MaxSeconds = 0.001});
+			PumpGameThreadDeferredWork({.MaxCallbacks = 64, .MaxSeconds = 0.001});
 			PackageSavePrivate::PollAsyncSaves();
 			const double Remaining = std::chrono::duration<double, std::milli>(Deadline - std::chrono::steady_clock::now()).count();
 			if (Remaining > 0) ProcessAsyncLoading(Remaining, 1);
 			if (std::chrono::steady_clock::now() < Deadline)
-				FAssetCompilingManager::Get().ProcessAsyncTasks({64 - Deferred.ExecutedCallbacks - 1, Deadline});
+				FAssetCompilingManager::Get().ProcessAsyncTasks({.Deadline = Deadline});
 		}
 		else
 		{

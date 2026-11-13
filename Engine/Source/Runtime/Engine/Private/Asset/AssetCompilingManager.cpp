@@ -1,4 +1,5 @@
 #include "Asset/AssetCompilingManager.h"
+#include "Asset/AssetCompilationNotifications.h"
 #include "Shader/ShaderCompilingManager.h"
 #include "Asset/AssetBuildScheduler.h"
 
@@ -9,6 +10,7 @@
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Threading/RunnableThread.h"
+#include "Threading/TaskRuntime.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCompilingManager.h"
 #include "StaticMesh/StaticMeshCompilation.h"
@@ -136,7 +138,6 @@ namespace Durin
 		std::unordered_map<DClass*, FName> GClassRoutes;
 		std::vector<FName> GOrderedCompilers;
 		uint64 GNextGeneration = 1;
-		uint64 GProcessedCompletions = 0;
 		uint64 GRoundRobinCursor = 0;
 		bool GRunning = false;
 		bool GShutdown = false;
@@ -236,35 +237,6 @@ namespace Durin
 			return Result;
 		}
 
-		auto CoalesceSuccessfulAssets(FAssetCompileProcessResult& Destination,
-			FAssetCompileProcessResult Source) -> void
-		{
-			Destination.ProcessedCompletionCount = static_cast<uint32>(std::min<uint64>(
-				static_cast<uint64>(Destination.ProcessedCompletionCount)
-					+ Source.ProcessedCompletionCount,
-				std::numeric_limits<uint32>::max()));
-			for (const FWeakObjectPtr& Candidate : Source.SuccessfullyCompiledAssets)
-			{
-				const FObjectKey Handle = Candidate.GetKey();
-				if (IsObjectKeyNull(Handle)) continue;
-				const bool bDuplicate = std::ranges::any_of(
-					Destination.SuccessfullyCompiledAssets,
-					[Handle](const FWeakObjectPtr& Existing) {
-						const FObjectKey Other = Existing.GetKey();
-						return Handle == Other;
-					});
-				if (!bDuplicate) Destination.SuccessfullyCompiledAssets.push_back(Candidate);
-			}
-		}
-
-		auto Publish(const FName& CompilerName, const FAssetCompileProcessResult& Result) -> void
-		{
-			if (Result.SuccessfullyCompiledAssets.empty()) return;
-			FAssetCompileProcessResult Coalesced;
-			CoalesceSuccessfulAssets(Coalesced, Result);
-			GPostCompileEvent.Broadcast({CompilerName,
-				std::move(Coalesced.SuccessfullyCompiledAssets)});
-		}
 
 		auto ValidateRegistrationLocked(const FAssetCompilingManagerRegistration& Registration)
 			-> FAssetCompilerRegistrationError
@@ -276,6 +248,21 @@ namespace Durin
 					.CompilerName = Registration.Name.ToString(), .AssetClass = Class->GetQualifiedName().ToString()};
 			return {};
 		}
+	}
+
+	auto AssetPrivate::PublishCompiledAssets(FName CompilerName, std::vector<FWeakObjectPtr> Assets) -> void
+	{
+		if (Assets.empty()) return;
+		std::vector<FWeakObjectPtr> Coalesced;
+		for (const FWeakObjectPtr& Candidate : Assets)
+		{
+			const FObjectKey Key = Candidate.GetKey();
+			if (IsObjectKeyNull(Key)) continue;
+			if (!std::ranges::any_of(Coalesced, [Key](const auto& Existing) {
+				return Existing.GetKey() == Key;
+			})) Coalesced.push_back(Candidate);
+		}
+		if (!Coalesced.empty()) GPostCompileEvent.Broadcast({CompilerName, std::move(Coalesced)});
 	}
 
 	FAssetCompilerRegistrationHandle::~FAssetCompilerRegistrationHandle() { Reset(); }
@@ -402,67 +389,29 @@ namespace Durin
 			RebuildCompilerOrder();
 		}
 		Removed.Manager->StopAdmission();
-		FAssetCompileProcessResult Result = Removed.Manager->FinishAllCompilation();
+		Removed.Manager->FinishAllCompilation();
 		Removed.Manager->Shutdown();
-		Publish(CompilerName, Result);
 	}
 
-	auto FAssetCompilingManager::ProcessAsyncTasks(bool bLimitExecutionTime) -> FAssetCompileProcessResult
+	auto FAssetCompilingManager::ProcessAsyncTasks(bool bLimitExecutionTime) -> void
 	{
 		FAssetCompileProcessParams Params;
 		if (bLimitExecutionTime) Params.Deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(2);
-		return ProcessAsyncTasks(Params);
+		ProcessAsyncTasks(Params);
 	}
 
-	auto FAssetCompilingManager::ProcessAsyncTasks(const FAssetCompileProcessParams& Params)
-		-> FAssetCompileProcessResult
+	auto FAssetCompilingManager::ProcessAsyncTasks(const FAssetCompileProcessParams& Params) -> void
 	{
-		FAssetCompileProcessResult Aggregate;
-		if (!IsSupportedThread() || Params.MaximumCompletions == 0) return Aggregate;
+		if (!IsSupportedThread()) return;
 		auto Entries = MakeSnapshot();
-		if (Entries.empty()) return Aggregate;
-		std::unordered_map<FName, FAssetCompileProcessResult> CompilerResults;
-		auto Accumulate = [&](const FName& CompilerName, FAssetCompileProcessResult Item) {
-			CoalesceSuccessfulAssets(CompilerResults[CompilerName], Item);
-			CoalesceSuccessfulAssets(Aggregate, std::move(Item));
-		};
+		if (Entries.empty()) return;
+		// Rotate the first compiler so a shared soft deadline cannot starve peers.
 		const uint64 Cursor = GRoundRobinCursor++;
 		for (size_t Offset = 0; Offset < Entries.size(); ++Offset)
 		{
-			if (Aggregate.ProcessedCompletionCount >= Params.MaximumCompletions) break;
 			if (Params.Deadline && std::chrono::steady_clock::now() >= *Params.Deadline) break;
-			FDispatchEntry& Entry = Entries[(Offset + Cursor) % Entries.size()];
-			const uint32 Remaining = Params.MaximumCompletions
-				- Aggregate.ProcessedCompletionCount;
-			const uint32 RemainingCompilers = static_cast<uint32>(Entries.size() - Offset);
-			FAssetCompileProcessResult Item = Entry.Manager->ProcessAsyncTasks({
-				std::max(1u, Remaining / RemainingCompilers), Params.Deadline});
-			Accumulate(Entry.CompilerName, std::move(Item));
+			Entries[(Offset + Cursor) % Entries.size()].Manager->ProcessAsyncTasks(Params);
 		}
-		while (Aggregate.ProcessedCompletionCount < Params.MaximumCompletions)
-		{
-			bool bMadeProgress = false;
-			for (auto& Entry : Entries)
-			{
-				if (Aggregate.ProcessedCompletionCount >= Params.MaximumCompletions) break;
-				if (Params.Deadline && std::chrono::steady_clock::now() >= *Params.Deadline) break;
-				FAssetCompileProcessResult Item = Entry.Manager->ProcessAsyncTasks({
-					Params.MaximumCompletions - Aggregate.ProcessedCompletionCount,
-					Params.Deadline});
-				bMadeProgress |= Item.ProcessedCompletionCount != 0;
-				Accumulate(Entry.CompilerName, std::move(Item));
-			}
-			if (!bMadeProgress) break;
-		}
-		for (const auto& Entry : Entries)
-			if (const auto It = CompilerResults.find(Entry.CompilerName);
-				It != CompilerResults.end()) Publish(Entry.CompilerName, It->second);
-		{
-			std::lock_guard Lock(GAssetCompilingMutex);
-			GProcessedCompletions = SaturatingAdd(
-				GProcessedCompletions, Aggregate.ProcessedCompletionCount);
-		}
-		return Aggregate;
 	}
 
 	auto FAssetCompilingManager::GetNumRemainingAssets() const -> uint64
@@ -475,24 +424,19 @@ namespace Durin
 	}
 
 	auto FAssetCompilingManager::FinishCompilationForObjects(
-		std::span<DObject* const> Objects) -> FAssetCompileProcessResult
+		std::span<DObject* const> Objects) -> void
 	{
-		FAssetCompileProcessResult Aggregate;
-		if (!IsSupportedThread()) return Aggregate;
+		if (!IsSupportedThread()) return;
 		for (FRoutedBatch& Batch : MakeRoutedBatches(Objects))
 		{
-			FAssetCompileProcessResult Item = Batch.Entry.Manager->FinishCompilationForObjects(Batch.Objects);
-			Publish(Batch.Entry.CompilerName, Item);
-			CoalesceSuccessfulAssets(Aggregate, std::move(Item));
+			Batch.Entry.Manager->FinishCompilationForObjects(Batch.Objects);
 		}
-		return Aggregate;
 	}
 
-	auto FAssetCompilingManager::FinishCompilationForObject(DObject& Object)
-		-> FAssetCompileProcessResult
+	auto FAssetCompilingManager::FinishCompilationForObject(DObject& Object) -> void
 	{
 		DObject* ObjectPointer = &Object;
-		return FinishCompilationForObjects(std::span<DObject* const>(&ObjectPointer, 1));
+		FinishCompilationForObjects(std::span<DObject* const>(&ObjectPointer, 1));
 	}
 
 	auto FAssetCompilingManager::MarkCompilationAsCanceled(
@@ -510,23 +454,19 @@ namespace Durin
 		MarkCompilationAsCanceled(std::span<DObject* const>(&ObjectPointer, 1));
 	}
 
-	auto FAssetCompilingManager::FinishAllCompilation() -> FAssetCompileProcessResult
+	auto FAssetCompilingManager::FinishAllCompilation() -> void
 	{
-		FAssetCompileProcessResult Aggregate;
-		if (!IsSupportedThread()) return Aggregate;
+		if (!IsSupportedThread()) return;
 		for (;;)
 		{
 			for (auto& Entry : MakeSnapshot())
 			{
-				FAssetCompileProcessResult Item = Entry.Manager->FinishAllCompilation();
-				Publish(Entry.CompilerName, Item);
-				CoalesceSuccessfulAssets(Aggregate, std::move(Item));
+				Entry.Manager->FinishAllCompilation();
 			}
 			// A completion can submit work to a compiler already visited this pass.
 			const auto Remaining = MakeSnapshot();
 			if (std::ranges::none_of(Remaining, [](const auto& Entry) { return Entry.Manager->GetNumRemainingAssets() != 0; })) break;
 		}
-		return Aggregate;
 	}
 
 	auto FAssetCompilingManager::GetDiagnostics() const
@@ -536,7 +476,6 @@ namespace Durin
 		{
 			std::lock_guard Lock(GAssetCompilingMutex);
 			Result.CompilerCount = static_cast<uint32>(GCompilers.size());
-			Result.ProcessedCompletionCount = GProcessedCompletions;
 			Result.bAcceptingRequests = GRunning && !GShutdown;
 			Result.bShutdown = GShutdown;
 		}
@@ -568,9 +507,8 @@ namespace Durin
 			Entry.Manager->StopAdmission();
 		for (auto& Entry : Entries)
 		{
-			FAssetCompileProcessResult Item = Entry.Manager->FinishAllCompilation();
+			Entry.Manager->FinishAllCompilation();
 			Entry.Manager->Shutdown();
-			Publish(Entry.CompilerName, Item);
 		}
 		std::lock_guard Lock(GAssetCompilingMutex);
 		GCompilers.clear();
@@ -585,60 +523,36 @@ namespace Durin
 	}
 
 
-	auto InitializeAssetCompilingManager() -> FAssetCompilingManagerInitializationResult
+	auto InitializeAssetCompilingManager() -> void
 	{
+		requiref(IsTaskSchedulerRunning(), "Asset compilation requires a running task scheduler.");
 		auto& Aggregate = FAssetCompilingManager::Get();
 		Aggregate.Start();
-		auto ShaderRegistration = Aggregate.RegisterCompiler({
+		const auto RegisterBuiltIn = [&](FAssetCompilingManagerRegistration Registration) {
+			auto Result = Aggregate.RegisterCompiler(std::move(Registration));
+			requiref(Result, "Built-in asset compiler registration failed: {}",
+				FormatAssetCompilerRegistrationError(Result.Error));
+			// The aggregate owns built-in registrations until process shutdown.
+			Result.Handle.Generation = 0;
+		};
+		RegisterBuiltIn({
 			.Name = FName("Durin.Shader"),
 			.AssetClasses = {DMaterial::StaticClass(), DMaterialInstance::StaticClass()},
 			.Manager = std::shared_ptr<IAssetCompilingManager>(&FShaderCompilingManager::Get(), [](IAssetCompilingManager*) {})});
-		if (!ShaderRegistration)
-		{
-			DURIN_ERROR("Shader compiling manager failed to register: {}", FormatAssetCompilerRegistrationError(ShaderRegistration.Error));
-			Aggregate.Shutdown();
-			return {std::move(ShaderRegistration.Error)};
-		}
 #if DURIN_WITH_EDITORONLY_DATA
-		auto TextureRegistration = Aggregate.RegisterCompiler({
+		RegisterBuiltIn({
 			.Name = FName("Durin.Texture"),
 			.AssetClasses = {DTexture::StaticClass()},
 			.Manager = AssetPrivate::CreateTextureCompilingManager()});
-		if (!TextureRegistration)
-		{
-			DURIN_ERROR("Texture compiling manager failed to register: {}", FormatAssetCompilerRegistrationError(TextureRegistration.Error));
-			Aggregate.Shutdown();
-			return {std::move(TextureRegistration.Error)};
-		}
 #endif
-
-		auto StaticMeshRegistration = Aggregate.RegisterCompiler({
+		RegisterBuiltIn({
 			.Name = FName("Durin.StaticMesh"),
 			.AssetClasses = {DStaticMesh::StaticClass()},
 			.Manager = AssetPrivate::CreateStaticMeshCompilingManager()});
-		if (!StaticMeshRegistration)
-		{
-			DURIN_ERROR("StaticMesh compiling manager failed to register: {}", FormatAssetCompilerRegistrationError(StaticMeshRegistration.Error));
-			Aggregate.Shutdown();
-			return {std::move(StaticMeshRegistration.Error)};
-		}
-		auto PhysicsRegistration = Aggregate.RegisterCompiler({
+		RegisterBuiltIn({
 			.Name = FName("Durin.PhysicsMesh"),
 			.AssetClasses = {DBodySetup::StaticClass()},
 			.Manager = AssetPrivate::CreatePhysicsMeshCompilingManager()});
-		if (!PhysicsRegistration)
-		{
-			DURIN_ERROR("Physics mesh compiling manager failed to register: {}", FormatAssetCompilerRegistrationError(PhysicsRegistration.Error));
-			Aggregate.Shutdown();
-			return {std::move(PhysicsRegistration.Error)};
-		}
-		PhysicsRegistration.Handle.Generation = 0;
-		StaticMeshRegistration.Handle.Generation = 0;
-		ShaderRegistration.Handle.Generation = 0;
-#if DURIN_WITH_EDITORONLY_DATA
-		TextureRegistration.Handle.Generation = 0;
-#endif
-		return {};
 	}
 
 	auto ShutdownAssetCompilingManager() -> void

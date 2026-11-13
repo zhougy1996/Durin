@@ -162,23 +162,24 @@ namespace Durin
 				for (const auto& Record : Records)
 					if (Record->Body == FObjectKey(Object) || Record->AssetOwner == FObjectKey(Object)) Cancel(*Record);
 		}
-		auto FinishCompilationForObjects(std::span<DObject* const> Objects) -> FAssetCompileProcessResult override
+		auto FinishCompilationForObjects(std::span<DObject* const> Objects) -> void override
 		{
 			CheckOwnerThread();
 			std::vector<FObjectKey> Owners;
 			for (auto* Object : Objects)
 				Owners.emplace_back(Object);
-			return Owners.empty() ? FAssetCompileProcessResult{} : Finish(Owners);
+			if (Owners.empty()) return;
+			Finish(Owners);
 		}
-		auto FinishAllCompilation() -> FAssetCompileProcessResult override
+		auto FinishAllCompilation() -> void override
 		{
 			CheckOwnerThread();
-			return Finish({});
+			Finish({});
 		}
-		auto ProcessAsyncTasks(const FAssetCompileProcessParams& Params) -> FAssetCompileProcessResult override
+		auto ProcessAsyncTasks(const FAssetCompileProcessParams& Params) -> void override
 		{
 			CheckOwnerThread();
-			return Pump({}, Params.MaximumCompletions, Params.Deadline.value_or(FClock::time_point::max()));
+			Pump({}, Params.Deadline ? 64u : std::numeric_limits<uint32>::max(), Params.Deadline.value_or(FClock::time_point::max()));
 		}
 		auto Shutdown() -> void override
 		{
@@ -279,7 +280,7 @@ namespace Durin
 #endif
 			return Record->Task;
 		}
-		auto Pump(std::span<const FObjectKey> Owners, uint32 Maximum, FClock::time_point Deadline) -> FAssetCompileProcessResult
+		auto Pump(std::span<const FObjectKey> Owners, uint32 Maximum, FClock::time_point Deadline) -> uint32
 		{
 			Scheduler->Pump();
 			for (const auto& Record : Records)
@@ -298,11 +299,11 @@ namespace Durin
 				Record->Work->Phase.store(EWorkPhase::Complete, std::memory_order_release);
 			}
 			Scheduler->Pump();
-			FAssetCompileProcessResult Result;
+			uint32 ProcessedCount = 0;
 			const auto Pending = Records;
 			for (const auto& Record : Pending)
 			{
-				if (Result.ProcessedCompletionCount >= Maximum || FClock::now() >= Deadline) break;
+				if (ProcessedCount >= Maximum || FClock::now() >= Deadline) break;
 				if (!Selected(*Record, Owners) || !std::ranges::contains(Records, Record)
 					|| Record->Work->Phase.load(std::memory_order_acquire) != EWorkPhase::Complete
 					|| (Record->Task.IsValid() && !Record->Task.IsCompleted())) continue;
@@ -336,23 +337,21 @@ namespace Durin
 					if (Completion.Status == EPhysicsCookCompletionStatus::Failed) Completion.Error = Body->GetPhysicsMeshBuildError();
 				}
 				if (Body && Completion.Status != EPhysicsCookCompletionStatus::Succeeded) Body->CancelPhysicsMeshes(Record->Generation);
-				++Result.ProcessedCompletionCount;
+				++ProcessedCount;
 				if (auto Notify = std::move(Record->Completion))
 				{
 					Notify(Completion);
 				}
 			}
 			Scheduler->Pump();
-			return Result;
+			return ProcessedCount;
 		}
-		auto Finish(std::span<const FObjectKey> Owners) -> FAssetCompileProcessResult
+		auto Finish(std::span<const FObjectKey> Owners) -> void
 		{
-			FAssetCompileProcessResult Result;
 			while (std::ranges::any_of(Records, [&](const auto& Record) { return Selected(*Record, Owners); }))
 			{
 				auto Batch = Pump(Owners, std::numeric_limits<uint32>::max(), FClock::time_point::max());
-				Result.ProcessedCompletionCount += Batch.ProcessedCompletionCount;
-				if (!Batch.ProcessedCompletionCount)
+				if (!Batch)
 				{
 					bool JoinedOwner = false;
 #if DURIN_WITH_EDITOR
@@ -363,7 +362,6 @@ namespace Durin
 					if (!JoinedOwner) Scheduler->WaitForProgress();
 				}
 			}
-			return Result;
 		}
 		std::vector<std::shared_ptr<FPhysicsRecord>> Records;
 		std::shared_ptr<AssetPrivate::FAssetBuildScheduler> Scheduler = AssetPrivate::GetAssetBuildScheduler();

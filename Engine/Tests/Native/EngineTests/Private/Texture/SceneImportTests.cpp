@@ -47,7 +47,7 @@ namespace
 		auto SetUp() -> void override
 		{
 			InitializeDObjectSystem();
-			ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+			Durin::InitializeAssetCompilingManager();
 			ASSERT_TRUE(Durin::InitializeGameThreadDeferredExecutor());
 		}
 		auto TearDown() -> void override

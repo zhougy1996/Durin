@@ -21,6 +21,7 @@ namespace
 		uint32 AvailableCompletions = 0;
 		uint32 StartCount = 0;
 		uint32 ProcessCount = 0;
+		uint32 ConsumedCompletionCount = 0;
 		uint32 FinishAllCount = 0;
 		uint32 ShutdownCount = 0;
 		bool bCanceled = false;
@@ -31,8 +32,8 @@ namespace
 	class FSyntheticManager final : public IAssetCompilingManager
 	{
 	public:
-		FSyntheticManager(std::string InName, std::shared_ptr<FSyntheticState> InState)
-			: Name(std::move(InName)), State(std::move(InState)) {}
+		FSyntheticManager(std::string InName, std::shared_ptr<FSyntheticState> InState, FName InCompilerName = {})
+			: Name(std::move(InName)), State(std::move(InState)), CompilerName(InCompilerName) {}
 
 		auto Start() -> FAssetCompilerStartResult override
 		{
@@ -43,25 +44,24 @@ namespace
 		auto StopAdmission() -> void override { Record("stop"); }
 		auto GetNumRemainingAssets() const -> uint64 override { return State->Remaining; }
 		auto ProcessAsyncTasks(const FAssetCompileProcessParams& Params)
-			-> FAssetCompileProcessResult override
+			-> void override
 		{
 			++State->ProcessCount;
 			Record("process");
-			const uint32 Count = std::min(Params.MaximumCompletions,
-				State->AvailableCompletions);
+			const uint32 Count = State->AvailableCompletions;
 			State->AvailableCompletions -= Count;
 			State->Remaining -= std::min<uint64>(State->Remaining, Count);
-			return {.ProcessedCompletionCount = Count};
+			State->ConsumedCompletionCount += Count;
 		}
 		auto FinishCompilationForObjects(std::span<DObject* const> Objects)
-			-> FAssetCompileProcessResult override
+			-> void override
 		{
 			Record("finish-selected");
 			State->LastObjects.assign(Objects.begin(), Objects.end());
-			FAssetCompileProcessResult Result;
+			std::vector<FWeakObjectPtr> Assets;
 			for (DObject* Object : Objects)
-				Result.SuccessfullyCompiledAssets.emplace_back(Object);
-			return Result;
+				Assets.emplace_back(Object);
+			FAssetCompilingManager::Get().OnAssetPostCompile().Broadcast({CompilerName, std::move(Assets)});
 		}
 		auto MarkCompilationAsCanceled(std::span<DObject* const> Objects) -> void override
 		{
@@ -69,7 +69,7 @@ namespace
 			State->LastObjects.assign(Objects.begin(), Objects.end());
 			State->bCanceled = !Objects.empty();
 		}
-		auto FinishAllCompilation() -> FAssetCompileProcessResult override
+		auto FinishAllCompilation() -> void override
 		{
 			++State->FinishAllCount;
 			Record("finish-all");
@@ -77,7 +77,7 @@ namespace
 			State->AvailableCompletions = 0;
 			State->Remaining = 0;
 			if (auto Notify = std::move(State->OnFinishAll)) Notify();
-			return {.ProcessedCompletionCount = Count};
+			State->ConsumedCompletionCount += Count;
 		}
 		auto Shutdown() -> void override
 		{
@@ -93,6 +93,7 @@ namespace
 
 		std::string Name;
 		std::shared_ptr<FSyntheticState> State;
+		FName CompilerName;
 	};
 }
 
@@ -119,8 +120,8 @@ TEST(FAssetCompilingManagerTests, RoutesClassesBatchesObjectsAndOwnsCompilerLife
 	DerivedState->Calls = &Calls;
 	DerivedState->Remaining = 2;
 	DerivedState->AvailableCompletions = 2;
-	auto BaseManager = std::make_shared<FSyntheticManager>("base", BaseState);
-	auto DerivedManager = std::make_shared<FSyntheticManager>("derived", DerivedState);
+	auto BaseManager = std::make_shared<FSyntheticManager>("base", BaseState, FName("Durin.Tests.Base"));
+	auto DerivedManager = std::make_shared<FSyntheticManager>("derived", DerivedState, FName("Durin.Tests.Derived"));
 
 	auto Base = Aggregate.RegisterCompiler({
 		.Name = FName("Durin.Tests.Base"),
@@ -177,16 +178,18 @@ TEST(FAssetCompilingManagerTests, RoutesClassesBatchesObjectsAndOwnsCompilerLife
 	EXPECT_EQ(DuplicateClass.Error.AssetClass, DMaterial::StaticClass()->GetQualifiedName().ToString());
 
 	uint32 EventCount = 0;
+	uint32 CompiledAssetCount = 0;
 	const FDelegateHandle EventHandle = Aggregate.OnAssetPostCompile().AddLambda(
 		[&](const FAssetPostCompileData& Data) {
 			++EventCount;
+			CompiledAssetCount += static_cast<uint32>(Data.Assets.size());
 			EXPECT_TRUE(Data.CompilerName == FName("Durin.Tests.Base")
 				|| Data.CompilerName == FName("Durin.Tests.Derived"));
 		});
 	DObject* Objects[] = {
 		FirstMaterial, Texture, TextureCube, Unregistered, SecondMaterial, nullptr};
-	const auto Finished = Aggregate.FinishCompilationForObjects(Objects);
-	EXPECT_EQ(Finished.SuccessfullyCompiledAssets.size(), 4u);
+	Aggregate.FinishCompilationForObjects(Objects);
+	EXPECT_EQ(CompiledAssetCount, 4u);
 	ASSERT_EQ(BaseState->LastObjects.size(), 3u);
 	EXPECT_EQ(BaseState->LastObjects[0], FirstMaterial);
 	EXPECT_EQ(BaseState->LastObjects[1], TextureCube);
@@ -204,12 +207,17 @@ TEST(FAssetCompilingManagerTests, RoutesClassesBatchesObjectsAndOwnsCompilerLife
 	EXPECT_TRUE(DerivedState->bCanceled);
 	ASSERT_EQ(DerivedState->LastObjects.size(), 1u);
 	EXPECT_EQ(DerivedState->LastObjects.front(), Texture);
-	EXPECT_TRUE(Aggregate.FinishCompilationForObject(*Texture).SuccessfullyCompiledAssets.empty());
+	Aggregate.FinishCompilationForObject(*Texture);
+	EXPECT_EQ(EventCount, 2u);
 	Texture->BeginDestroy();
-	const auto Frame = Aggregate.ProcessAsyncTasks({.MaximumCompletions = 2});
-	EXPECT_EQ(Frame.ProcessedCompletionCount, 2u);
-	EXPECT_GE(BaseState->ProcessCount, 1u);
-	EXPECT_GE(DerivedState->ProcessCount, 1u);
+	// Each compiler advances once; the aggregate does not allocate completion quotas.
+	Aggregate.ProcessAsyncTasks({.Deadline = std::chrono::steady_clock::now()});
+	EXPECT_EQ(BaseState->ProcessCount, 0u);
+	EXPECT_EQ(DerivedState->ProcessCount, 0u);
+	Aggregate.ProcessAsyncTasks();
+	EXPECT_EQ(BaseState->ProcessCount, 1u);
+	EXPECT_EQ(DerivedState->ProcessCount, 1u);
+	EXPECT_EQ(Aggregate.GetNumRemainingAssets(), 0u);
 	Aggregate.OnAssetPostCompile().Remove(EventHandle);
 
 	Derived.Handle.Reset();
@@ -225,7 +233,8 @@ TEST(FAssetCompilingManagerTests, RoutesClassesBatchesObjectsAndOwnsCompilerLife
 		.AssetClasses = {DMaterial::StaticClass()},
 		.Manager = std::make_shared<FSyntheticManager>("retired", RetiredState)});
 	ASSERT_TRUE(Retired);
-	EXPECT_EQ(Aggregate.ProcessAsyncTasks().ProcessedCompletionCount, 0u);
+	Aggregate.ProcessAsyncTasks();
+	EXPECT_EQ(RetiredState->ConsumedCompletionCount, 0u);
 	EXPECT_GT(RetiredState->ProcessCount, 0u);
 	Retired.Handle.Reset();
 	EXPECT_EQ(RetiredState->FinishAllCount, 1u);
@@ -242,7 +251,8 @@ TEST(FAssetCompilingManagerTests, RoutesClassesBatchesObjectsAndOwnsCompilerLife
 	auto SecondRegistration = Aggregate.RegisterCompiler({.Name = FName("Durin.Tests.DependencyB"), .AssetClasses = {DTexture::StaticClass()},
 		.Manager = std::make_shared<FSyntheticManager>("dependency-b", SecondDependency)});
 	ASSERT_TRUE(FirstRegistration); ASSERT_TRUE(SecondRegistration);
-	EXPECT_EQ(Aggregate.FinishAllCompilation().ProcessedCompletionCount, 4u);
+	Aggregate.FinishAllCompilation();
+	EXPECT_EQ(FirstDependency->ConsumedCompletionCount + SecondDependency->ConsumedCompletionCount, 4u);
 	EXPECT_EQ(FirstDependency->Remaining, 0u); EXPECT_EQ(SecondDependency->Remaining, 0u);
 	FirstRegistration.Handle.Reset(); SecondRegistration.Handle.Reset();
 
@@ -252,11 +262,15 @@ TEST(FAssetCompilingManagerTests, RoutesClassesBatchesObjectsAndOwnsCompilerLife
 		.AssetClasses = {DMaterial::StaticClass()},
 		.Manager = std::make_shared<FSyntheticManager>("conflicting-builtin", ConflictingState)});
 	ASSERT_TRUE(Conflicting);
-	const auto Initialized = InitializeAssetCompilingManager();
-	EXPECT_FALSE(Initialized);
-	EXPECT_EQ(Initialized.Error.Code, EAssetCompilerRegistrationError::DuplicateName);
-	EXPECT_EQ(Initialized.Error.CompilerName, "Durin.Shader");
+	EXPECT_DEATH_IF_SUPPORTED(InitializeAssetCompilingManager(), "Built-in asset compiler registration failed");
+	EXPECT_TRUE(Aggregate.IsAcceptingRequests());
+	Conflicting.Handle.Reset();
 	EXPECT_EQ(ConflictingState->ShutdownCount, 1u);
+	EXPECT_EQ(Aggregate.GetDiagnostics().CompilerCount, 0u);
+	InitializeAssetCompilingManager();
+	EXPECT_TRUE(Aggregate.IsAcceptingRequests());
+	EXPECT_GT(Aggregate.GetDiagnostics().CompilerCount, 0u);
+	ShutdownAssetCompilingManager();
 	EXPECT_EQ(Aggregate.GetDiagnostics().CompilerCount, 0u);
 	EXPECT_FALSE(Aggregate.IsAcceptingRequests());
 }

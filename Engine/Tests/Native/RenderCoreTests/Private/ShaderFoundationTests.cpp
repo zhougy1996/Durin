@@ -1784,7 +1784,8 @@ namespace Durin
 		FShaderCompilingManager::Get().SubmitJobs(Group);
 		ASSERT_EQ(Scope.Stub->Pending.size(), 2u);
 		EXPECT_EQ(Compiler.GetNumRemainingAssets(), 1u);
-		EXPECT_EQ(Compiler.ProcessAsyncTasks({}).ProcessedCompletionCount, 0u);
+		Compiler.ProcessAsyncTasks({});
+		EXPECT_EQ(Compiler.GetNumRemainingAssets(), 1u);
 		for (auto& Pending : Scope.Stub->Pending) { auto Callback = std::move(Pending); Callback(); }
 		Compiler.FinishAllCompilation();
 		EXPECT_EQ(Calls, 1u);

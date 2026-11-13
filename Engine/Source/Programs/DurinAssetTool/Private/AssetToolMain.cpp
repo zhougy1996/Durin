@@ -1059,12 +1059,12 @@ int main(int ArgC, char** ArgV)
 	} EditorServices;
 #if DURIN_WITH_EDITOR
 	if (!Durin::InitializeTaskScheduler(2)
-		|| !Durin::InitializeGameThreadDeferredExecutor()
-		|| !Durin::InitializeAssetCompilingManager())
+		|| !Durin::InitializeGameThreadDeferredExecutor())
 	{
 		std::cerr << "Error: asset inspection could not initialize editor task services.\n";
 		return 1;
 	}
+	Durin::InitializeAssetCompilingManager();
 	EditorServices.bStarted = true;
 #endif
 	if (const auto Result = Durin::InitializeAssetRuntime(); !Result)

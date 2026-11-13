@@ -44,7 +44,7 @@ namespace
 			ASSERT_TRUE(InitializeShaderData(FShaderDataConfiguration::Cooked(GetWaterCookDirectory())));
 #endif
 			InitializeDObjectSystem();
-			ASSERT_TRUE(InitializeAssetCompilingManager());
+			InitializeAssetCompilingManager();
 		}
 		auto TearDown() -> void override { Durin::ShutdownAssetCompilingManager(); Mounts.reset(); }
 		std::unique_ptr<Durin::Testing::FScopedMountRegistryFixture> Mounts;

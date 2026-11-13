@@ -128,7 +128,7 @@ protected:
 	static void SetUpTestSuite()
 	{
 		InitializeDObjectSystem();
-		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+		Durin::InitializeAssetCompilingManager();
 	}
 
 	static void TearDownTestSuite()

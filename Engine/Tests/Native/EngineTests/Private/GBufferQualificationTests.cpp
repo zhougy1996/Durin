@@ -98,7 +98,7 @@ namespace
 		auto SetUp() -> void override
 		{
 			InitializeDObjectSystem();
-			ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+			Durin::InitializeAssetCompilingManager();
 			MountRegistry = std::make_unique<
 				Durin::Testing::FScopedMountRegistryFixture>();
 			ASSERT_TRUE(Durin::FMountPaths::InitDefaultMountPoints());

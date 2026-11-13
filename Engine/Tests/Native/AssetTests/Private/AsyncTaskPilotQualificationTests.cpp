@@ -208,7 +208,7 @@ namespace
 		ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
 		FQualificationLifetime Lifetime;
 		ASSERT_TRUE(InitializeTaskScheduler(2));
-		ASSERT_TRUE(InitializeAssetCompilingManager());
+		InitializeAssetCompilingManager();
 		FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 
 		(void)StartMeasurement();

@@ -136,7 +136,7 @@ auto SaveEvidence(std::string_view Name, const FByteBuffer& Pixels) -> void
 TEST(FAssetPackageReloadVulkanTests, DiscardRestoresRenderedWeatherAndVolumeFromDisk)
 {
 	InitializeDObjectSystem();
-	ASSERT_TRUE(InitializeAssetCompilingManager());
+	InitializeAssetCompilingManager();
 	FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 	Testing::FScopedMountRegistryFixture Mounts;
 	Testing::RegisterMountPointForTests("/Engine/", FPaths::EngineContentDir());

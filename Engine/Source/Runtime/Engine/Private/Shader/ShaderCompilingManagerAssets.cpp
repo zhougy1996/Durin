@@ -1,4 +1,5 @@
 #include "Shader/ShaderCompilingManager.h"
+#include "Asset/AssetCompilationNotifications.h"
 #include "Asset/Asset.h"
 #include "Materials/Material.h"
 #include "Materials/ObjectCacheContext.h"
@@ -57,21 +58,18 @@ namespace Durin
 			+ Private::GetMaterialEditCompileQueue().Num()
 			+ GetNumRemainingShaderJobs() + GetNumRemainingMaterialShaderMaps();
 	}
-	auto FShaderCompilingManager::ProcessAsyncTasks(const FAssetCompileProcessParams& Params)
-		-> FAssetCompileProcessResult
-	{ return ProcessAsyncResults(Params); }
-	auto FShaderCompilingManager::ApplyMaterialResult(FMaterialCompileResult Result, FAssetCompileProcessResult& Processed) -> void
+	auto FShaderCompilingManager::ApplyMaterialResult(FMaterialCompileResult Result, std::vector<FWeakObjectPtr>& CompiledAssets) -> void
 	{
 		const auto Resource = Result.Request->Resource;
 		auto* Material = Cast<DMaterialInterface>(Resource->Material.Get());
 		FObjectCacheContext Context;
 		if (IsValid(Material) && Private::FMaterialCompilationLifecycle::Admit(*Material, std::move(Result), &Context))
-			Processed.SuccessfullyCompiledAssets.emplace_back(Material);
+			CompiledAssets.emplace_back(Material);
 	}
 
-	auto FShaderCompilingManager::FinishResourceCompilation(const std::shared_ptr<FMaterialCompilationResource>& Resource) -> FAssetCompileProcessResult
+	auto FShaderCompilingManager::FinishResourceCompilation(const std::shared_ptr<FMaterialCompilationResource>& Resource) -> void
 	{
-		FAssetCompileProcessResult Processed;
+		std::vector<FWeakObjectPtr> CompiledAssets;
 		while (const auto Association = Resource->Compilation.lock())
 		{
 			if (auto* Material = Cast<DMaterialInterface>(Resource->Material.Get()); IsValid(Material))
@@ -83,17 +81,15 @@ namespace Durin
 				if (Entry != MaterialRequests.end() && Entry->second.Association == Association) Producer = Entry->second.Request;
 			}
 			if (Producer) { PrioritizeCompilation(Producer); FinishCompilation(Producer); }
-			const auto Consumed = ProcessMaterialResults(
-				{.MaximumCompletions = std::numeric_limits<uint32>::max()},
-				[&](FMaterialCompileResult Result) { ApplyMaterialResult(std::move(Result), Processed); }, Resource);
-			Processed.ProcessedCompletionCount += Consumed;
+			ProcessMaterialResults(
+				std::numeric_limits<uint32>::max(), {},
+				[&](FMaterialCompileResult Result) { ApplyMaterialResult(std::move(Result), CompiledAssets); }, Resource);
 		}
-		return Processed;
+		AssetPrivate::PublishCompiledAssets(FName("Durin.Shader"), std::move(CompiledAssets));
 	}
 
-	auto FShaderCompilingManager::FinishCompilationForObjects(std::span<DObject* const> Objects) -> FAssetCompileProcessResult
+	auto FShaderCompilingManager::FinishCompilationForObjects(std::span<DObject* const> Objects) -> void
 	{
-		FAssetCompileProcessResult Aggregate;
 		for (auto* Object : Objects)
 			if (auto* Material = Cast<DMaterialInterface>(Object); IsValid(Material))
 			{
@@ -105,12 +101,9 @@ namespace Durin
 				{
 					if (Resource->Compilation.expired() && (!Resource->bRequested
 						|| Material->CompilationState.SubmittedRevision != Material->CompilationState.AuthoredRevision)) continue;
-					auto Result = Material->CacheResourceShaders(Resource, EMaterialShaderPrecompileMode::Synchronous);
-					Aggregate.ProcessedCompletionCount += Result.ProcessedCompletionCount;
-					Aggregate.SuccessfullyCompiledAssets.insert(Aggregate.SuccessfullyCompiledAssets.end(), Result.SuccessfullyCompiledAssets.begin(), Result.SuccessfullyCompiledAssets.end());
+					Material->CacheResourceShaders(Resource, EMaterialShaderPrecompileMode::Synchronous);
 				}
 			}
-		return Aggregate;
 	}
 
 	auto FShaderCompilingManager::MarkCompilationAsCanceled(std::span<DObject* const> Objects)
@@ -123,10 +116,10 @@ namespace Durin
 				Private::FMaterialCompilationLifecycle::MarkCanceled(*Material);
 			}
 	}
-	auto FShaderCompilingManager::ProcessAsyncResults(const FAssetCompileProcessParams& Params) -> FAssetCompileProcessResult
+	auto FShaderCompilingManager::ProcessAsyncTasks(const FAssetCompileProcessParams& Params) -> void
 	{
 		CheckMaterialCompileGameThread();
-		if (!Params.MaximumCompletions || (Params.Deadline && std::chrono::steady_clock::now() >= *Params.Deadline)) return {};
+		if (Params.Deadline && std::chrono::steady_clock::now() >= *Params.Deadline) return;
 		PollMaterialCancellation();
 		CleanupFinishedShaderMaps();
 		const uint8 ReloadMode = GPendingShaderReloadMode.exchange(
@@ -145,14 +138,14 @@ namespace Durin
 				}
 		}
 
-		FAssetCompileProcessResult Processed;
+		std::vector<FWeakObjectPtr> CompiledAssets;
 		if (!Params.Deadline || std::chrono::steady_clock::now() < *Params.Deadline)
 			Private::GetMaterialPreparationQueue().Process(Private::MaterialPreparationMaxChecks, [&](FWeakObjectPtr Owner) {
 				auto* Material = Cast<DMaterialInterface>(Owner.Get());
-				return IsValid(Material) && Material->PumpResourcePreparations(Params);
+				return IsValid(Material) && Material->PumpResourcePreparations({.Deadline = Params.Deadline});
 			});
-		Processed.ProcessedCompletionCount = ProcessMaterialResults(Params, [&](FMaterialCompileResult Result) {
-			ApplyMaterialResult(std::move(Result), Processed);
+		ProcessMaterialResults(Params.Deadline ? 64u : std::numeric_limits<uint32>::max(), Params.Deadline, [&](FMaterialCompileResult Result) {
+			ApplyMaterialResult(std::move(Result), CompiledAssets);
 		});
 		if (!Params.Deadline || std::chrono::steady_clock::now() < *Params.Deadline)
 			Private::GetMaterialEditCompileQueue().Process(Private::MaterialPreparationMaxChecks, [&](FWeakObjectPtr Owner) {
@@ -163,22 +156,17 @@ namespace Durin
 				else Material->CompilationState.EditCompileDeadline.reset();
 				return Material->GetMaterialCompileStatus().HasScheduledEdits();
 			});
-		return Processed;
+		AssetPrivate::PublishCompiledAssets(FName("Durin.Shader"), std::move(CompiledAssets));
 	}
-	auto FShaderCompilingManager::FinishAllCompilation() -> FAssetCompileProcessResult
+	auto FShaderCompilingManager::FinishAllCompilation() -> void
 	{
-		FAssetCompileProcessResult Aggregate;
 		for (;;) {
 			RaiseMaterialPriority();
 			FinishMaterialCompilation();
 			FinishShaderJobs();
-			auto Item = ProcessAsyncResults({.MaximumCompletions = std::numeric_limits<uint32>::max()});
-			Aggregate.ProcessedCompletionCount += Item.ProcessedCompletionCount;
-			Aggregate.SuccessfullyCompiledAssets.insert(Aggregate.SuccessfullyCompiledAssets.end(),
-				Item.SuccessfullyCompiledAssets.begin(), Item.SuccessfullyCompiledAssets.end());
+			ProcessAsyncTasks({});
 			if (GetNumRemainingAssets() == 0) break;
 		}
-		return Aggregate;
 	}
 	auto FShaderCompilingManager::Shutdown() -> void
 	{

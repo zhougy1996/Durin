@@ -369,11 +369,7 @@ namespace Durin::Tests
 	) -> bool
 	{
 		InitializeDObjectSystem();
-		if (!FAssetCompilingManager::Get().IsAcceptingRequests() && !InitializeAssetCompilingManager())
-		{
-			OutError = "Could not initialize asset compilation.";
-			return false;
-		}
+		if (!FAssetCompilingManager::Get().IsAcceptingRequests()) InitializeAssetCompilingManager();
 		const std::filesystem::path Root = GetAssetThumbnailFixtureRoot();
 		static std::unordered_map<std::filesystem::path, FAssetThumbnailFixtureSet> CachedFixtures;
 		if (auto It = CachedFixtures.find(Root); It != CachedFixtures.end())

@@ -74,7 +74,7 @@ TEST(FTextureFileImportTests, RecognizesNormalVectorsButRespectsExplicitColorAnd
 TEST(FTextureFileImportTests, ImportsNormalSavesAndChoosesAvailableNames)
 {
 	InitializeDObjectSystem();
-	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
+	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) InitializeAssetCompilingManager();
 	FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 	const auto Root = Testing::GetTestWorkDirectory() / "TextureFileImport";
 	std::filesystem::create_directories(Root / "Content");
@@ -176,7 +176,7 @@ namespace
 			InitializeDObjectSystem();
 			if (!GetGameThreadDeferredWorkQueueDiagnostics().bInstalled) ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
 			PackageSavePrivate::SetAsyncSaveAdmission(true);
-			if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
+			if (!FAssetCompilingManager::Get().IsAcceptingRequests()) InitializeAssetCompilingManager();
 			FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 			const std::string TestName = testing::UnitTest::GetInstance()->current_test_info()->name();
 			Root = Testing::CreateTestFixtureDirectory(TestName);

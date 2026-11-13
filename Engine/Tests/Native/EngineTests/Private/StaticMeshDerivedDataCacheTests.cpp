@@ -1797,14 +1797,11 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerQueuesBeyondFormerRecordLimitAn
 	EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().OutstandingRecords, 33u);
 	Mesh->CancelCompilation();
 	const auto BeforeExpiredPump = StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests();
-	const auto Expired = FAssetCompilingManager::Get().ProcessAsyncTasks({.MaximumCompletions = 5,
-		.Deadline = std::chrono::steady_clock::now()});
-	EXPECT_EQ(Expired.ProcessedCompletionCount, 0u);
+	FAssetCompilingManager::Get().ProcessAsyncTasks({.Deadline = std::chrono::steady_clock::now()});
+	EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().OutstandingRecords, BeforeExpiredPump.OutstandingRecords);
 	EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().EstimatedWorkingSetBytes, BeforeExpiredPump.EstimatedWorkingSetBytes);
-	const auto Batch = FAssetCompilingManager::Get().ProcessAsyncTasks({.MaximumCompletions = 2});
-	EXPECT_EQ(Batch.ProcessedCompletionCount, 2u);
-	const auto LargerBatch = FAssetCompilingManager::Get().ProcessAsyncTasks({.MaximumCompletions = 5});
-	EXPECT_EQ(LargerBatch.ProcessedCompletionCount, 5u);
+	FAssetCompilingManager::Get().ProcessAsyncTasks();
+	EXPECT_LT(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().OutstandingRecords, BeforeExpiredPump.OutstandingRecords);
 	Barrier.Release();
 	StaticMeshBuildTestSupport::FinishMeshBuildForTests(*Mesh);
 	for (auto Id : RequestIds)
@@ -4564,7 +4561,7 @@ TEST(FPhysicsCookTests, QuerySettingsReuseGeometryCacheAndPreservePublicationPol
 	using namespace Durin;
 	using namespace Durin::DerivedData;
 	InitializeDObjectSystem();
-	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
+	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) InitializeAssetCompilingManager();
 	FAssetCompilingManager::Get().FinishAllCompilation();
 	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	FStaticMeshSource Source;
@@ -4676,7 +4673,7 @@ TEST(FPhysicsMeshLifecycleTests, QueryAndSimpleEditsPreservePendingCookAndIndepe
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
-	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
+	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) InitializeAssetCompilingManager();
 	struct FProvider final : IInterface_CollisionDataProvider
 	{
 		mutable uint32 Captures = 0;
@@ -4748,7 +4745,7 @@ TEST(FPhysicsMeshLifecycleTests, ExternalPublicationSupersedesAnOlderFailedCook)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
-	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
+	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) InitializeAssetCompilingManager();
 	struct FProvider final : IInterface_CollisionDataProvider
 	{
 		bool bDegenerate = false;
@@ -4783,7 +4780,7 @@ TEST(FPhysicsMeshLifecycleTests, BatchedRecipeAndExplicitRequestDoNotScheduleASe
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
-	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
+	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) InitializeAssetCompilingManager();
 	struct FProvider final : IInterface_CollisionDataProvider
 	{
 		auto ContainsPhysicsTriMeshData() const -> bool override { return true; }
@@ -4816,7 +4813,7 @@ TEST(FPhysicsMeshLifecycleTests, ScopedUpdateToleratesOwnerDestructionFromInline
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
-	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
+	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) InitializeAssetCompilingManager();
 	FAssetCompilingManager::Get().FinishAllCompilation();
 	struct FUnavailable final : IInterface_CollisionDataProvider
 	{

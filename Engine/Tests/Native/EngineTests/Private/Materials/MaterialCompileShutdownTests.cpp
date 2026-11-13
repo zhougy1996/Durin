@@ -8,7 +8,7 @@ TEST(FMaterialCompileShutdownTests, ShutdownDrainsFunctionOwnersAndDetachedFanou
 	using namespace Durin;
 	InitializeDObjectSystem();
 	FModuleManager::Get().LoadModule("RenderCore");
-	ASSERT_TRUE(InitializeAssetCompilingManager());
+	InitializeAssetCompilingManager();
 	TStrongObjectPtr<DMaterialFunction> Function(NewObject<DMaterialFunction>(nullptr, "ShutdownFunction"));
 	const auto Output = Function->GetFunctionSignature().Outputs.front();
 	std::array<TStrongObjectPtr<DMaterial>, 2> Materials;

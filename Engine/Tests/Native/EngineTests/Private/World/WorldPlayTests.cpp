@@ -65,7 +65,7 @@ TEST(FWorldTests, DuplicatesLevelForPlayWithoutDuplicatingExternalAssets)
 TEST(FNativeConstructionPIETests, SplineMeshActorRegeneratesTransientSegmentsAndMutatesDuringPlay)
 {
 	Durin::DWorld* EditorWorld = CreateWorld();
-	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests()) Durin::InitializeAssetCompilingManager();
 	auto* SourceActor = EditorWorld->SpawnActor<Durin::ASplineMeshActor>("SplinePath");
 	ASSERT_NE(SourceActor, nullptr);
 	auto* SharedMesh = Durin::DStaticMesh::CreateDebugTriangle();

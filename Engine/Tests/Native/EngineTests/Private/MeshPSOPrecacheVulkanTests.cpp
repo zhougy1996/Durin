@@ -112,7 +112,7 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
     using namespace Durin; using namespace RendererPrivate;
     GGameThreadId = FPlatformLTS::GetCurrentThreadId(); GIsGameThreadIdInitialized = true;
     InitializeDObjectSystem();
-    if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
+    if (!FAssetCompilingManager::Get().IsAcceptingRequests()) InitializeAssetCompilingManager();
     ASSERT_TRUE(FMountPaths::InitDefaultMountPoints());
     ASSERT_TRUE(InitializeAssetRuntime()); ASSERT_TRUE(RefreshAssetRegistry());
     FModuleManager::Get().LoadModule("RenderCore");

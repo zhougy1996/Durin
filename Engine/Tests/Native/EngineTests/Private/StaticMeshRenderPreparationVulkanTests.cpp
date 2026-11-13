@@ -2008,7 +2008,7 @@ TEST(FMaterialAnimationVulkanTests, CachedCommandsInvalidateResourceChangesAndRe
 	using namespace Durin::Tests;
 	InitializeDObjectSystem();
 	if (!FAssetCompilingManager::Get().IsAcceptingRequests())
-		ASSERT_TRUE(InitializeAssetCompilingManager());
+		InitializeAssetCompilingManager();
 	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints());
 	ASSERT_TRUE(InitializeAssetRuntime());
 	ASSERT_TRUE(RefreshAssetRegistry());
@@ -2198,7 +2198,7 @@ TEST(FMaterialAnimationVulkanTests, MaterialTimeChangesPixelsWithoutReplacingCac
 	using namespace Durin::Tests;
 	InitializeDObjectSystem();
 	if (!FAssetCompilingManager::Get().IsAcceptingRequests())
-		ASSERT_TRUE(InitializeAssetCompilingManager());
+		InitializeAssetCompilingManager();
 	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints());
 	ASSERT_TRUE(InitializeAssetRuntime());
 	ASSERT_TRUE(RefreshAssetRegistry());
@@ -2292,7 +2292,7 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 	using namespace Durin::Tests;
 	InitializeDObjectSystem();
 	if (!FAssetCompilingManager::Get().IsAcceptingRequests())
-		ASSERT_TRUE(InitializeAssetCompilingManager());
+		InitializeAssetCompilingManager();
 	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints());
 	ASSERT_TRUE(InitializeAssetRuntime());
 	ASSERT_TRUE(RefreshAssetRegistry());
@@ -2971,7 +2971,7 @@ TEST(FMaterialParameterCollectionVulkanTests,
 	using namespace Durin::Tests;
 	InitializeDObjectSystem();
 	if (!FAssetCompilingManager::Get().IsAcceptingRequests())
-		ASSERT_TRUE(InitializeAssetCompilingManager());
+		InitializeAssetCompilingManager();
 	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints());
 	ASSERT_TRUE(InitializeAssetRuntime());
 	ASSERT_TRUE(RefreshAssetRegistry());
@@ -3482,7 +3482,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SplineMirrorsMatchStaticTransforms
 	GIsGameThreadIdInitialized = true;
 	InitializeDObjectSystem();
 	if (!FAssetCompilingManager::Get().IsAcceptingRequests())
-		ASSERT_TRUE(InitializeAssetCompilingManager());
+		InitializeAssetCompilingManager();
 	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints());
 	ASSERT_TRUE(InitializeAssetRuntime());
 	ASSERT_TRUE(RefreshAssetRegistry());
@@ -3686,7 +3686,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, MaterialPSOPrecacheSharesNativeWor
 	using namespace Durin::Tests;
 	GGameThreadId = FPlatformLTS::GetCurrentThreadId(); GIsGameThreadIdInitialized = true;
 	InitializeDObjectSystem();
-	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
+	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) InitializeAssetCompilingManager();
 	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints());
 	ASSERT_TRUE(InitializeAssetRuntime());
 	ASSERT_TRUE(RefreshAssetRegistry());
@@ -3775,7 +3775,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAnd
 	using namespace Durin; using namespace Durin::Tests;
 	GGameThreadId = FPlatformLTS::GetCurrentThreadId(); GIsGameThreadIdInitialized = true;
 	InitializeDObjectSystem();
-	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
+	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) InitializeAssetCompilingManager();
 	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints()); ASSERT_TRUE(InitializeAssetRuntime()); ASSERT_TRUE(RefreshAssetRegistry());
 	FModuleManager::Get().LoadModule("RenderCore");
 	RHIInit(GetVulkanEngineTestInitializationContext()); ASSERT_NE(GDynamicRHI, nullptr); InitRenderingThread();
@@ -4306,7 +4306,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, AuthoredLODsInitializeAllResources
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
-	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
+	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) InitializeAssetCompilingManager();
 	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	FMeshDescription Primary;
 	Primary.PolygonGroups.push_back({"Default", 0, "Default"});
@@ -4378,7 +4378,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 	using namespace Durin; using namespace Durin::Tests;
 	GGameThreadId = FPlatformLTS::GetCurrentThreadId(); GIsGameThreadIdInitialized = true;
 	InitializeDObjectSystem();
-	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
+	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) InitializeAssetCompilingManager();
 	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints()); ASSERT_TRUE(InitializeAssetRuntime()); ASSERT_TRUE(RefreshAssetRegistry());
 	FModuleManager::Get().LoadModule("RenderCore");
 	RHIInit(GetVulkanEngineTestInitializationContext()); ASSERT_NE(GDynamicRHI, nullptr); InitRenderingThread();

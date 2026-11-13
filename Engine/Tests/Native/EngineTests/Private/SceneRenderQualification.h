@@ -752,7 +752,7 @@ namespace Durin
 		// Give the extended routes real opaque and retained geometry, rather than
 		// mistaking an empty-scene fallback for native shading coverage.
 		if (!FAssetCompilingManager::Get().IsAcceptingRequests())
-			ASSERT_TRUE(InitializeAssetCompilingManager());
+			InitializeAssetCompilingManager();
 		auto MakeRouteMaterial = [](const char* Name, EMaterialShadingModel Shading,
 			EMaterialBlendMode Blend = EMaterialBlendMode::Opaque) {
 			auto* Material = NewObject<DMaterial>(nullptr, Name);

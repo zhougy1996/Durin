@@ -65,7 +65,7 @@ namespace
 			Testing::InitializeAssetSystemForTests();
 			InitializeTaskScheduler(2);
 			ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
-			if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
+			if (!FAssetCompilingManager::Get().IsAcceptingRequests()) InitializeAssetCompilingManager();
 			ASSERT_TRUE(FModuleManager::Get().LoadModule("MeshBuilder"));
 			ASSERT_EQ(GDynamicRHI, nullptr);
 			ASSERT_TRUE(RHIInit(FRHIInitializationContext::Headless()));

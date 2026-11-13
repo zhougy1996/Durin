@@ -156,7 +156,7 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 		EXPECT_TRUE(Material->IsComplete()) << Material->GetMaterialCookDiagnostic();
 	}
 	Cooked->CacheResourceShadersForRendering();
-	Durin::FShaderCompilingManager::Get().ProcessAsyncTasks({.MaximumCompletions = 1});
+	Durin::FShaderCompilingManager::Get().ProcessAsyncTasks({});
 	Cooked->CacheResourceShadersForRendering(Durin::EMaterialShaderPrecompileMode::Synchronous);
 	ASSERT_TRUE(Cooked->IsComplete()) << Cooked->GetMaterialCookDiagnostic();
 	const auto DefaultProgram = Cooked->GetAcceptedCompiledProgram();
@@ -178,6 +178,14 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 		ASSERT_EQ(GetMaterialCompilationStatistics().OutstandingConsumerCount, 0u);
 		FShaderCompilingManager::Get().FinishAllCompilation();
 		std::vector<TStrongObjectPtr<DMaterial>> Budgeted;
+		std::vector<FWeakObjectPtr> NotifiedAssets;
+		struct FPostCompileScope
+		{
+			FDelegateHandle Handle;
+			~FPostCompileScope() { FAssetCompilingManager::Get().OnAssetPostCompile().Remove(Handle); }
+		} Notifications{FAssetCompilingManager::Get().OnAssetPostCompile().AddLambda([&](const FAssetPostCompileData& Data) {
+			NotifiedAssets.insert(NotifiedAssets.end(), Data.Assets.begin(), Data.Assets.end());
+		})};
 		for (uint32 Index = 0; Index < 2; ++Index)
 		{
 			auto* Owner = NewObject<DMaterial>(nullptr, FName(std::format("BudgetedCookedResource{}", Index)));
@@ -194,23 +202,18 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 					Count += Owner->GetMaterialCompileStatus(Level).State == EMaterialCompileState::Ready;
 			return Count;
 		};
-		uint32 Completions = 0;
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 		while (ReadyCount() != 4 && std::chrono::steady_clock::now() < Deadline)
 		{
-			const auto BeforeReady = ReadyCount();
-			const auto Processed = FShaderCompilingManager::Get().ProcessAsyncResults({.MaximumCompletions = 1});
-			EXPECT_LE(Processed.ProcessedCompletionCount, 1u);
-			EXPECT_EQ(ReadyCount() - BeforeReady, Processed.ProcessedCompletionCount);
-			EXPECT_EQ(Processed.SuccessfullyCompiledAssets.size(), Processed.ProcessedCompletionCount);
-			Completions += Processed.ProcessedCompletionCount;
+			FShaderCompilingManager::Get().ProcessAsyncTasks({});
 			std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		}
 		EXPECT_EQ(ReadyCount(), 4u);
-		EXPECT_EQ(Completions, 4u);
-		const auto Empty = FShaderCompilingManager::Get().ProcessAsyncResults({.MaximumCompletions = 1});
-		EXPECT_EQ(Empty.ProcessedCompletionCount, 0u);
-		EXPECT_TRUE(Empty.SuccessfullyCompiledAssets.empty());
+		for (const auto& Owner : Budgeted)
+			EXPECT_TRUE(std::ranges::any_of(NotifiedAssets, [&](const auto& Asset) { return Asset.Get() == Owner.Get(); }));
+		const size_t BeforeEmptyPump = NotifiedAssets.size();
+		FShaderCompilingManager::Get().ProcessAsyncTasks({});
+		EXPECT_EQ(NotifiedAssets.size(), BeforeEmptyPump);
 
 		TStrongObjectPtr<DMaterial> FailedTier(NewObject<DMaterial>(nullptr, "CookedTierFailureEvent"));
 		const_cast<FBulkData&>(FailedTier->GetCookedProgramData()) = SavedCookedData;
@@ -220,16 +223,14 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 		ASSERT_TRUE(BadPayload);
 		const_cast<FBulkData&>(FailedTier->GetCookedProgramData()) = std::move(*BadPayload);
 		FailedTier->CacheResourceShadersForRendering(ERHIFeatureLevel::ES3_1);
-		uint32 Failures = 0;
+		const size_t BeforeFailedPump = NotifiedAssets.size();
 		const auto FailureDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 		while (FailedTier->IsCompiling() && std::chrono::steady_clock::now() < FailureDeadline)
 		{
-			const auto Processed = FShaderCompilingManager::Get().ProcessAsyncResults({.MaximumCompletions = 1});
-			Failures += Processed.ProcessedCompletionCount;
-			EXPECT_TRUE(Processed.SuccessfullyCompiledAssets.empty());
+			FShaderCompilingManager::Get().ProcessAsyncTasks({});
 			std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		}
-		EXPECT_EQ(Failures, 1u);
+		EXPECT_EQ(NotifiedAssets.size(), BeforeFailedPump);
 		EXPECT_EQ(FailedTier->GetMaterialCompileStatus(ERHIFeatureLevel::ES3_1).State, EMaterialCompileState::Failed);
 		EXPECT_TRUE(FailedTier->IsComplete());
 	}
@@ -262,9 +263,7 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 		Offline->CacheResourceShadersForRendering(Durin::EMaterialShaderPrecompileMode::None);
 		EXPECT_EQ(Offline->GetMaterialCompileStatus().State, BeforeNone);
 		Offline->CacheResourceShadersForRendering();
-		const auto OfflineFailure = Durin::FShaderCompilingManager::Get().ProcessAsyncResults({.MaximumCompletions = 1});
-		EXPECT_EQ(OfflineFailure.ProcessedCompletionCount, 1u);
-		EXPECT_TRUE(OfflineFailure.SuccessfullyCompiledAssets.empty());
+		Durin::FShaderCompilingManager::Get().ProcessAsyncTasks({});
 		EXPECT_EQ(Offline->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Failed);
 		EXPECT_FALSE(Offline->IsCompiling());
 		EXPECT_FALSE(Offline->GetMaterialCookDiagnostic().empty());
@@ -441,15 +440,20 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	ASSERT_NE(Cooked, nullptr);
 	const std::array<Durin::DObject*, 1> CookedOwners{Cooked};
 	const auto BudgetDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-	uint64 CookedCompletions = 0;
+	bool bCookedNotified = false;
+	struct FPostCompileScope
+	{
+		Durin::FDelegateHandle Handle;
+		~FPostCompileScope() { Durin::FAssetCompilingManager::Get().OnAssetPostCompile().Remove(Handle); }
+	} Notifications{Durin::FAssetCompilingManager::Get().OnAssetPostCompile().AddLambda([&](const Durin::FAssetPostCompileData& Data) {
+		for (const auto& Asset : Data.Assets) bCookedNotified |= Asset.Get() == Cooked;
+	})};
 	while (Cooked->IsCompiling() && std::chrono::steady_clock::now() < BudgetDeadline)
 	{
-		const auto Tick = Durin::FShaderCompilingManager::Get().ProcessAsyncTasks({.MaximumCompletions = 1});
-		EXPECT_LE(Tick.ProcessedCompletionCount, 1u);
-		CookedCompletions += Tick.ProcessedCompletionCount;
+		Durin::FShaderCompilingManager::Get().ProcessAsyncTasks({});
 		std::this_thread::yield();
 	}
-	EXPECT_GT(CookedCompletions, 0u); // Cooked admissions participate in normal compiler feedback.
+	EXPECT_TRUE(bCookedNotified);
 	Durin::FShaderCompilingManager::Get().FinishCompilationForObjects(CookedOwners);
 	ASSERT_TRUE(Cooked->GetAcceptedCompiledProgram());
 	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, ExpectedIdentity);

@@ -76,8 +76,9 @@ auto main(int Count, char** Args) -> int
 	GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 	GIsGameThreadIdInitialized = true;
 	FNameInit();
-	if (!InitializeTaskScheduler(2) || !InitializeGameThreadDeferredExecutor() || !InitializeAssetCompilingManager())
+	if (!InitializeTaskScheduler(2) || !InitializeGameThreadDeferredExecutor())
 		return 1;
+	InitializeAssetCompilingManager();
 	FCompilationCleanup Cleanup;
 
 	const auto Content = std::filesystem::absolute(Args[1]).lexically_normal();

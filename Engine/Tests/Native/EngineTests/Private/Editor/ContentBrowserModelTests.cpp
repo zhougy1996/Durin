@@ -94,7 +94,7 @@ namespace
 		auto SetUp() -> void override
 		{
 			InitializeDObjectSystem();
-			ASSERT_TRUE(InitializeAssetCompilingManager());
+			InitializeAssetCompilingManager();
 		}
 		auto TearDown() -> void override { ShutdownAssetCompilingManager(); }
 	};

@@ -185,7 +185,7 @@ namespace
 	{
 		InitializeDObjectSystem();
 		if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
-			EXPECT_TRUE(Durin::InitializeAssetCompilingManager());
+			Durin::InitializeAssetCompilingManager();
 		const std::filesystem::path Root =
 			Durin::Testing::GetTestWorkDirectory() / "TextureCubeImports";
 		static std::unordered_set<std::filesystem::path> InitializedRoots;

@@ -476,7 +476,7 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 	Durin::DWorld* SecondWorld = CreatePhysicsWorld();
 	if (!Durin::IsTaskSchedulerRunning()) ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
 	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
-		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+		Durin::InitializeAssetCompilingManager();
 	std::string Error;
 	Durin::DStaticMesh* Mesh = Durin::NewObject<Durin::DStaticMesh>(FirstWorld, "SceneCollisionMesh");
 	Durin::FMeshDescription Imported;
@@ -1455,7 +1455,7 @@ TEST(FPhysicsWorldTests, StaticMeshPrefersAuthoredSimpleAndExposesBothRepresenta
 	using namespace Durin;
 	auto* World = CreatePhysicsWorld();
 	if (!IsTaskSchedulerRunning()) ASSERT_TRUE(InitializeTaskScheduler(2));
-	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
+	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) InitializeAssetCompilingManager();
 	auto* Actor = World->SpawnActor<ACameraActor>("DualMeshOwner");
 	auto* Component = Cast<DStaticMeshComponent>(Actor->AddInstanceComponent(DStaticMeshComponent::StaticClass(), "DualMesh"));
 	auto* Mesh = DStaticMesh::CreateDebugTriangle(World);

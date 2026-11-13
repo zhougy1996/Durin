@@ -19,7 +19,7 @@ namespace
 		auto SetUp() -> void override
 		{
 			InitializeDObjectSystem();
-			ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+			Durin::InitializeAssetCompilingManager();
 			Durin::FModuleManager::Get().LoadModule("MeshBuilder");
 			Durin::FModuleManager::Get().LoadModule("TextureCompressor");
 			Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");

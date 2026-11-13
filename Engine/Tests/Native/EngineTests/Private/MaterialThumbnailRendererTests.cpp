@@ -144,7 +144,7 @@ TEST(FMaterialThumbnailRendererTests, RendererConflictDoesNotAffectIndependentMo
 {
 	InitializeDObjectSystem();
 	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
-		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+		Durin::InitializeAssetCompilingManager();
 	Durin::FEditorDocumentManager Manager;
 	Durin::DThumbnailManager ThumbnailManager;
 	std::string Error;
@@ -356,10 +356,10 @@ TEST(FMaterialThumbnailRendererTests,
 	Durin::FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	InitializeDObjectSystem();
 	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
-		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+		Durin::InitializeAssetCompilingManager();
 	if (!Durin::IsMaterialCompilationAcceptingRequests())
 		if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
-		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+		Durin::InitializeAssetCompilingManager();
 	Durin::Testing::FScopedMountRegistryFixture SavedMountRegistry;
 	Durin::FMountPaths::InitDefaultMountPoints();
 	std::string Error;

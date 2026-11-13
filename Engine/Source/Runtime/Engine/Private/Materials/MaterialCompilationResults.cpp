@@ -156,12 +156,13 @@ namespace Durin
 	}
 
 
-	auto FShaderCompilingManager::ProcessMaterialResults(const FAssetCompileProcessParams& Params, const std::function<void(FMaterialCompileResult)>& Process,
-		const std::shared_ptr<FMaterialCompilationResource>& Resource) -> uint32
+	auto FShaderCompilingManager::ProcessMaterialResults(uint32 MaximumCompletions,
+		std::optional<std::chrono::steady_clock::time_point> Deadline, const std::function<void(FMaterialCompileResult)>& Process,
+		const std::shared_ptr<FMaterialCompilationResource>& Resource) -> void
 	{
 		CheckMaterialCompileGameThread();
 		uint32 Consumed = 0;
-		while (Consumed < Params.MaximumCompletions && (!Params.Deadline || std::chrono::steady_clock::now() < *Params.Deadline)) {
+		while (Consumed < MaximumCompletions && (!Deadline || std::chrono::steady_clock::now() < *Deadline)) {
 			FMaterialCompileResult Result;
 			{
 				std::scoped_lock Lock(MaterialMutex);
@@ -181,7 +182,6 @@ namespace Durin
 			std::scoped_lock Lock(MaterialMutex);
 			check(OutstandingMaterialConsumers > 0); --OutstandingMaterialConsumers; ++Consumed;
 		}
-		return Consumed;
 	}
 
 	auto FShaderCompilingManager::GetMaterialStatistics() const -> FMaterialCompilationStatistics

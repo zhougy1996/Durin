@@ -174,7 +174,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 {
 	InitializeDObjectSystem();
 	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
-		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+		Durin::InitializeAssetCompilingManager();
 	Durin::Testing::FScopedMountRegistryFixture MountRegistry;
 	Durin::FMountPaths::InitDefaultMountPoints();
 	ASSERT_TRUE(Durin::RefreshAssetRegistry());
@@ -655,7 +655,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 {
 	InitializeDObjectSystem();
 	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
-		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+		Durin::InitializeAssetCompilingManager();
 	Durin::Tests::FAssetThumbnailFixtureSet Fixtures;
 	std::string Error;
 	ASSERT_TRUE(Durin::Tests::CreateAssetThumbnailFixtures(Fixtures, Error))

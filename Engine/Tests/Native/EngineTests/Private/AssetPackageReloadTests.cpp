@@ -96,7 +96,7 @@ namespace
 			ASSERT_TRUE(Durin::InitializeAssetRuntime(Durin::FAssetRuntimeConfiguration::Authored()));
 			Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 			Durin::FModuleManager::Get().LoadModuleChecked("ShaderBuild");
-			ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+			Durin::InitializeAssetCompilingManager();
 		}
 
 		static auto TearDownTestSuite() -> void

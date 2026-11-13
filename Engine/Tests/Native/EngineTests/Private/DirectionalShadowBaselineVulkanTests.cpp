@@ -77,7 +77,7 @@ namespace
 			Durin::FShaderPaths::RegisterMountPoint("/GeometryQualification/",
 				(Root / "Source").generic_string(), (Root / "Cache").generic_string());
 			InitializeDObjectSystem();
-			ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+			Durin::InitializeAssetCompilingManager();
 			Durin::FModuleManager::Get().LoadModuleChecked("ShaderBuild");
 			ASSERT_TRUE(Durin::Tests::PrepareGeometryDepthCaptureShadersSync());
 		}

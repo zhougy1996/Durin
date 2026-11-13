@@ -46,7 +46,7 @@ TEST(FMetalSkyLightingTests, CapturedAndSpecifiedSourcesMatchEnergyAcrossBackend
 {
     using namespace Durin;
     InitializeDObjectSystem();
-    ASSERT_TRUE(InitializeAssetCompilingManager());
+    InitializeAssetCompilingManager();
     ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
     ASSERT_TRUE(FMountPaths::InitDefaultMountPoints());
     ASSERT_TRUE(FModuleManager::Get().LoadModule("TextureCompressor"));

@@ -152,7 +152,7 @@ namespace
 			if (!Durin::IsTaskSchedulerRunning())
 				ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
 			Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
-			ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+			Durin::InitializeAssetCompilingManager();
 		}
 
 		static auto TearDownTestSuite() -> void

@@ -57,7 +57,7 @@ TEST(RoadSceneIntegration, LoadedPreviewMeshFinishesCompilationBeforeConstructio
 	InitializeTaskScheduler(2);
 	Testing::InitializeAssetSystemForTests();
 	if (!FAssetCompilingManager::Get().IsAcceptingRequests())
-		ASSERT_TRUE(InitializeAssetCompilingManager());
+		InitializeAssetCompilingManager();
 	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	auto* Mesh = NewObject<DStaticMesh>(nullptr, "PendingPreviewMesh");
 	FMeshDescription Geometry;
@@ -222,7 +222,7 @@ TEST(RoadSceneIntegration, CheckedInRoadLevelLoadsAndSurvivesGC)
 {
 	InitializeTaskScheduler(2);
 	Testing::InitializeAssetSystemForTests();
-	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
+	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) InitializeAssetCompilingManager();
 	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	const auto Project = std::filesystem::path(__FILE__).parent_path().parent_path().parent_path().parent_path();
 	const auto Root = Testing::CreateTestFixtureDirectory("CheckedInRoadContent");

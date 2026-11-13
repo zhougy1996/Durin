@@ -99,7 +99,7 @@ namespace Durin
 				ASSERT_TRUE(VulkanRHI::ConfigureCreationQualificationAffinity());
 				ASSERT_TRUE(VulkanRHI::ConfigureCreationQualificationHighQos());
 				InitializeDObjectSystem();
-				ASSERT_TRUE(InitializeAssetCompilingManager());
+				InitializeAssetCompilingManager();
 				if (const char* Mode = std::getenv("DURIN_RHI_EXECUTION")) PreviousMode = Mode;
 				_putenv_s("DURIN_RHI_EXECUTION", "threaded");
 				FModuleManager::Get().LoadModule("RenderCore");

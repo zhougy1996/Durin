@@ -127,7 +127,7 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer);
 TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax)
 {
 	InitializeDObjectSystem();
-	ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+	Durin::InitializeAssetCompilingManager();
 	ASSERT_TRUE(Durin::FMountPaths::InitDefaultMountPoints());
 	ASSERT_TRUE(Durin::RefreshAssetRegistry());
 	std::vector<Durin::FMountPoint> MountDefinitions(

@@ -368,7 +368,7 @@ namespace
 		FPilotLifecycle Lifetime;
 		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 2, .TaskWarningThreshold = 8, .NumBlockingIOThreads = 3}));
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor({.QueuedEntriesWarningThreshold = 1, .QueuedBytesWarningThreshold = 64, .EntryBytesWarningThreshold = 64}));
-		ASSERT_TRUE(InitializeAssetCompilingManager());
+		InitializeAssetCompilingManager();
 		FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 		auto Root = Durin::Tasks::FTask(Tasks::LaunchTask("TextureSaturationRoot", [] {}));
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);

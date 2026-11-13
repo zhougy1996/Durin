@@ -623,7 +623,7 @@ binds each captured asset request when it prepares publication.
 `FindId`, `Register` and content cache accounting belong to ShaderMap;
 request-result rebinding belongs to the private lifecycle; the old program-cache service is removed. Persistent translation and
 individual Shader DDC formats remain unchanged. `FinishCompilation`, `CancelCompilation`,
-`IsCompiling` and `ProcessAsyncResults` provide waiting, cancellation, end-boundary
+`IsCompiling` and `ProcessAsyncTasks` provide waiting, cancellation, end-boundary
 queries and cleanup. Assets, synchronous tools and Cook use this same
 submission interface. A material-to-current-request index covers compilation, detached fanout and
 queued publication, avoiding full request scans for status and cancellation.

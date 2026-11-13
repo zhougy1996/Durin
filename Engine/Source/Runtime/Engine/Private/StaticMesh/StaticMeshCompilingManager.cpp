@@ -1,4 +1,5 @@
 #include "Threading/Task.h"
+#include "Asset/AssetCompilationNotifications.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "Asset/AssetCompilingManager.h"
 #include "StaticMesh/IMeshBuilderModule.h"
@@ -199,19 +200,23 @@ namespace Durin
 		}
 #endif
 
-		auto ProcessAsyncTasks(const FAssetCompileProcessParams& Params) -> FAssetCompileProcessResult override
+		auto ProcessAsyncTasks(const FAssetCompileProcessParams& Params) -> void override
 		{
 			CheckOwnerThread();
-			return Pump({}, Params.MaximumCompletions, Params.Deadline.value_or(FClock::time_point::max()));
+			std::vector<FWeakObjectPtr> CompiledAssets;
+			Pump({}, Params.Deadline ? 64u : std::numeric_limits<uint32>::max(), Params.Deadline.value_or(FClock::time_point::max()), CompiledAssets);
+			AssetPrivate::PublishCompiledAssets(FName("Durin.StaticMesh"), std::move(CompiledAssets));
 		}
-		auto FinishCompilationForObjects(std::span<DObject* const> Objects) -> FAssetCompileProcessResult override
+		auto FinishCompilationForObjects(std::span<DObject* const> Objects) -> void override
 		{
 			CheckOwnerThread();
 			std::vector<FObjectKey> Selected;
 			for (auto* Object : Objects)
 				Selected.push_back(FObjectKey(Object));
-			if (Selected.empty()) return {};
-			return Finish(Selected);
+			if (Selected.empty()) return;
+			std::vector<FWeakObjectPtr> CompiledAssets;
+			Finish(Selected, CompiledAssets);
+			AssetPrivate::PublishCompiledAssets(FName("Durin.StaticMesh"), std::move(CompiledAssets));
 		}
 		auto MarkCompilationAsCanceled(std::span<DObject* const> Objects) -> void override
 		{
@@ -224,10 +229,12 @@ namespace Durin
 						Terminate(*Record, EStaticMeshCompilationStatus::Cancelled);
 					}
 		}
-		auto FinishAllCompilation() -> FAssetCompileProcessResult override
+		auto FinishAllCompilation() -> void override
 		{
 			CheckOwnerThread();
-			return Finish({});
+			std::vector<FWeakObjectPtr> CompiledAssets;
+			Finish({}, CompiledAssets);
+			AssetPrivate::PublishCompiledAssets(FName("Durin.StaticMesh"), std::move(CompiledAssets));
 		}
 		auto Shutdown() -> void override
 		{
@@ -452,7 +459,7 @@ namespace Durin
 		}
 		auto CompleteRender(const std::shared_ptr<FRecord>& Record, DStaticMesh* Mesh,
 			std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string>& Outcome,
-			FAssetCompileProcessResult& Result) -> void
+			std::vector<FWeakObjectPtr>& CompiledAssets) -> void
 		{
 #if DURIN_WITH_EDITORONLY_DATA
 			if (!Mesh || FObjectKey(Mesh->GetPackage()) != Record->Package)
@@ -485,7 +492,7 @@ namespace Durin
 					}
 					PublishingOwner = {};
 					Record->Terminal = Applied ? EStaticMeshCompilationStatus::Succeeded : EStaticMeshCompilationStatus::Failed;
-					if (Applied) Result.SuccessfullyCompiledAssets.emplace_back(Mesh);
+					if (Applied) CompiledAssets.emplace_back(Mesh);
 				}
 			}
 #else
@@ -539,9 +546,10 @@ namespace Durin
 		}
 
 	private:
-		auto Pump(std::span<const FObjectKey> Owners, uint32 Maximum, FClock::time_point Deadline) -> FAssetCompileProcessResult
+		auto Pump(std::span<const FObjectKey> Owners, uint32 Maximum, FClock::time_point Deadline,
+			std::vector<FWeakObjectPtr>& CompiledAssets) -> uint32
 		{
-			FAssetCompileProcessResult Result;
+			uint32 ProcessedCount = 0;
 #if DURIN_WITH_EDITORONLY_DATA
 			std::vector<std::pair<FObjectKey, FStaticMeshCompilationRequest>> Requeues;
 #endif
@@ -549,7 +557,7 @@ namespace Durin
 			const auto Pending = Records; // Callbacks may submit, cancel, or shut down this manager.
 			for (const auto& Record : Pending)
 			{
-				if (Result.ProcessedCompletionCount >= Maximum || FClock::now() >= Deadline) break;
+				if (ProcessedCount >= Maximum || FClock::now() >= Deadline) break;
 				if (!Selected(*Record, Owners) || !std::ranges::contains(Records, Record)) continue;
 				if (Record->Work->Phase.load(std::memory_order_acquire) != EWorkPhase::Complete
 					|| (Record->Task.IsValid() && !Record->Task.IsCompleted())) continue;
@@ -566,7 +574,7 @@ namespace Durin
 				if (!Record->Terminal && Record->Work->Cancellation.IsCanceled())
 					Terminate(*Record, EStaticMeshCompilationStatus::Cancelled);
 				auto* Mesh = Cast<DStaticMesh>(ResolveObjectKey(Record->Diagnostic.Owner));
-				if (!Record->Terminal) { require(Outcome.has_value()); CompleteRender(Record, Mesh, *Outcome, Result); }
+				if (!Record->Terminal) { require(Outcome.has_value()); CompleteRender(Record, Mesh, *Outcome, CompiledAssets); }
 				if (*Record->Terminal != EStaticMeshCompilationStatus::Failed) Record->Diagnostic.Error.clear();
 				Record->Diagnostic.Error.resize(std::min(Record->Diagnostic.Error.size(), MaximumAssetBuildDiagnosticBytes));
 				Record->Diagnostic.Status = *Record->Terminal;
@@ -582,7 +590,7 @@ namespace Durin
 				Record->Snapshot = {};
 				Record->PreparedMaterialSlots.reset();
 				Record->ImportState.reset();
-				++Result.ProcessedCompletionCount;
+				++ProcessedCount;
 			}
 #if DURIN_WITH_EDITORONLY_DATA
 			for (auto& [Owner, Request] : Requeues)
@@ -593,17 +601,14 @@ namespace Durin
 #endif
 
 			Scheduler->Pump();
-			return Result;
+			return ProcessedCount;
 		}
-		auto Finish(std::span<const FObjectKey> Owners) -> FAssetCompileProcessResult
+		auto Finish(std::span<const FObjectKey> Owners, std::vector<FWeakObjectPtr>& CompiledAssets) -> void
 		{
-			FAssetCompileProcessResult Result;
 			while (std::ranges::any_of(Records, [&](const auto& Record) { return Selected(*Record, Owners); }))
 			{
-				auto Batch = Pump(Owners, std::numeric_limits<uint32>::max(), FClock::time_point::max());
-				Result.ProcessedCompletionCount += Batch.ProcessedCompletionCount;
-				Result.SuccessfullyCompiledAssets.insert(Result.SuccessfullyCompiledAssets.end(), Batch.SuccessfullyCompiledAssets.begin(), Batch.SuccessfullyCompiledAssets.end());
-				if (Batch.ProcessedCompletionCount == 0)
+				const uint32 ProcessedCount = Pump(Owners, std::numeric_limits<uint32>::max(), FClock::time_point::max(), CompiledAssets);
+				if (ProcessedCount == 0)
 				{
 					bool JoinedOwner = false;
 #if DURIN_WITH_EDITOR && DURIN_WITH_EDITORONLY_DATA
@@ -615,7 +620,6 @@ namespace Durin
 					if (!JoinedOwner) Scheduler->WaitForProgress();
 				}
 			}
-			return Result;
 		}
 
 		std::vector<std::shared_ptr<FRecord>> Records;
@@ -710,10 +714,10 @@ namespace Durin
 		const auto Manager = GManager.lock();
 		return Manager ? Manager->Diagnostics() : FStaticMeshCompilationManagerDiagnostics{};
 	}
-	auto DStaticMesh::FinishCompilation() -> FAssetCompileProcessResult
+	auto DStaticMesh::FinishCompilation() -> void
 	{
 		CheckOwnerThread();
-		return FAssetCompilingManager::Get().FinishCompilationForObject(*this);
+		FAssetCompilingManager::Get().FinishCompilationForObject(*this);
 	}
 
 	auto DStaticMesh::CancelCompilation() -> void

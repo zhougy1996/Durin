@@ -107,7 +107,7 @@ namespace
 			InitializeDObjectSystem();
 			ASSERT_TRUE(Durin::InitializeTaskScheduler());
 			ASSERT_TRUE(Durin::InitializeGameThreadDeferredExecutor());
-			ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+			Durin::InitializeAssetCompilingManager();
 		}
 
 		static auto TearDownTestSuite() -> void

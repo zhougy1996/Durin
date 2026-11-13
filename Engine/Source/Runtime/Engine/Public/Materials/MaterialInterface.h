@@ -23,7 +23,6 @@ namespace Durin
 	class IRendererModule;
 	class FObjectCacheContext;
 	struct FAssetCompileProcessParams;
-	struct FAssetCompileProcessResult;
 	template<typename T> class TObjectCacheIterator;
 	// Owning-thread invalidation of parameter definitions, values, ancestry or reachability.
 	DECLARE_MULTICAST_DELEGATE(FMaterialParameterChangedEvent)
@@ -311,7 +310,7 @@ namespace Durin
 		auto GetResourceCompileStatus(const std::shared_ptr<FMaterialCompilationResource>& Resource) const -> FMaterialCompileStatus;
 		auto GetCompilationResource(ERHIFeatureLevel Level, EMaterialQualityLevel Quality, bool Create = false) const -> std::shared_ptr<FMaterialCompilationResource>;
 		auto CacheResourceShaders(const std::shared_ptr<FMaterialCompilationResource>& Resource,
-			EMaterialShaderPrecompileMode Mode) -> FAssetCompileProcessResult;
+			EMaterialShaderPrecompileMode Mode) -> void;
 		auto BroadcastParameterChanges(const TObjectCacheIterator<DMaterialInterface>& Dependents) -> void;
 	private:
 		friend struct Private::FMaterialCompilationLifecycle;

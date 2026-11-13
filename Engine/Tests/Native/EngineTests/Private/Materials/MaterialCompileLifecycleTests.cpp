@@ -375,7 +375,7 @@ namespace
 		{
 			InitializeDObjectSystem();
 			Durin::FModuleManager::Get().LoadModule("RenderCore");
-			ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+			Durin::InitializeAssetCompilingManager();
 		}
 
 		auto TearDown() -> void override
@@ -514,12 +514,47 @@ TEST_F(FMaterialAsyncCompileTests, PublicationDeadlineLeavesQueuedResultsForTheN
 	while (GetMaterialCompilationStatistics().PendingPublicationCount < 2 && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
 	ASSERT_EQ(GetMaterialCompilationStatistics().PendingPublicationCount, 2u);
 	auto& Manager = FShaderCompilingManager::Get();
-	EXPECT_EQ(Manager.ProcessAsyncResults({.Deadline = std::chrono::steady_clock::now() - std::chrono::seconds(1)}).ProcessedCompletionCount, 0u);
+	Manager.ProcessAsyncTasks({.Deadline = std::chrono::steady_clock::now() - std::chrono::seconds(1)});
 	EXPECT_EQ(GetMaterialCompilationStatistics().PendingPublicationCount, 2u);
-	EXPECT_EQ(Manager.ProcessAsyncResults({.MaximumCompletions = 1}).ProcessedCompletionCount, 1u);
-	EXPECT_EQ(GetMaterialCompilationStatistics().PendingPublicationCount, 1u);
+	Manager.ProcessAsyncTasks({});
+	EXPECT_EQ(GetMaterialCompilationStatistics().PendingPublicationCount, 0u);
 	FAssetCompilingManager::Get().FinishAllCompilation();
 	EXPECT_TRUE(A->GetMaterialCompileStatus().IsCurrent()); EXPECT_TRUE(B->GetMaterialCompileStatus().IsCurrent());
+}
+
+
+TEST_F(FMaterialAsyncCompileTests, SynchronousCacheNotifiesAfterPublicationAndPreservesListenerRequests)
+{
+	using namespace Durin;
+	auto* Material = MakeObject<DMaterial>("SynchronousCacheNotification");
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FAssetCompilingManager::Get().FinishAllCompilation();
+	uint32 Notifications = 0;
+	bool bQueueReplacement = true;
+	struct FNotificationScope
+	{
+		FDelegateHandle Handle;
+		~FNotificationScope() { FAssetCompilingManager::Get().OnAssetPostCompile().Remove(Handle); }
+	} Scope{FAssetCompilingManager::Get().OnAssetPostCompile().AddLambda([&](const FAssetPostCompileData& Data) {
+		for (const auto& Asset : Data.Assets)
+		{
+			if (Asset.Get() != Material) continue;
+			++Notifications;
+			EXPECT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
+			EXPECT_FALSE(Material->IsCompiling());
+			if (std::exchange(bQueueReplacement, false)) EXPECT_TRUE(RequestMaterialRecompile(*Material, true));
+		}
+	})};
+	ASSERT_TRUE(RequestMaterialRecompile(*Material, true));
+	Material->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::Synchronous);
+	EXPECT_EQ(Notifications, 1u);
+	EXPECT_TRUE(Material->IsCompiling());
+	EXPECT_EQ(GetMaterialCompilationStatistics().OutstandingConsumerCount, 1u);
+	FAssetCompilingManager::Get().FinishAllCompilation();
+	EXPECT_EQ(Notifications, 2u);
+	EXPECT_FALSE(Material->IsCompiling());
+	Material->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::Synchronous);
+	EXPECT_EQ(Notifications, 2u);
 }
 
 TEST_F(FMaterialAsyncCompileTests, DistinctTranslationsShareOneProgram)
@@ -1398,8 +1433,7 @@ TEST_F(FMaterialAsyncCompileTests, StoppingAdmissionDrainsAcceptedMaterialWithou
 	EXPECT_EQ(Compiler.GetNumRemainingAssets(), 1u);
 	Compiler.StopAdmission();
 	Release.Trigger();
-	const auto Finished = FAssetCompilingManager::Get().FinishAllCompilation();
-	EXPECT_GT(Finished.ProcessedCompletionCount, 0u);
+	FAssetCompilingManager::Get().FinishAllCompilation();
 	EXPECT_EQ(Material->GetMaterialCompileStatus().State, EMaterialCompileState::Ready);
 	EXPECT_EQ(Compiler.GetNumRemainingAssets(), 0u);
 }

@@ -1,5 +1,7 @@
 #pragma once
+
 #include "CoreMinimal.h"
+
 #include "EngineAPI.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Materials/MaterialCompileTypes.h"
@@ -32,15 +34,14 @@ namespace Durin
 		auto CancelCompilation(const MaterialBuildPrivate::FMaterialProgramCompileHandle& Handle) -> void;
 		auto PrioritizeCompilation(const MaterialBuildPrivate::FMaterialProgramCompileHandle& Handle) -> void;
 		auto IsCompiling(const MaterialBuildPrivate::FMaterialProgramCompileHandle& Handle) const -> bool;
-		auto ProcessAsyncResults(const FAssetCompileProcessParams& Params = {}) -> FAssetCompileProcessResult;
 
 		auto Start() -> FAssetCompilerStartResult override;
 		auto StopAdmission() -> void override;
 		auto GetNumRemainingAssets() const -> uint64 override;
-		auto ProcessAsyncTasks(const FAssetCompileProcessParams& Params) -> FAssetCompileProcessResult override;
-		auto FinishCompilationForObjects(std::span<DObject* const> Objects) -> FAssetCompileProcessResult override;
+		auto ProcessAsyncTasks(const FAssetCompileProcessParams& Params) -> void override;
+		auto FinishCompilationForObjects(std::span<DObject* const> Objects) -> void override;
 		auto MarkCompilationAsCanceled(std::span<DObject* const> Objects) -> void override;
-		auto FinishAllCompilation() -> FAssetCompileProcessResult override;
+		auto FinishAllCompilation() -> void override;
 		auto Shutdown() -> void override;
 		auto CancelCompilation(FWeakObjectPtr Owner) -> bool;
 	private:
@@ -94,15 +95,16 @@ namespace Durin
 		auto GetMaterialStatistics() const -> FMaterialCompilationStatistics;
 		auto RaiseMaterialPriority(std::span<const FWeakObjectPtr> Owners = {}) -> void;
 		auto PollMaterialCancellation() -> void;
-		auto ProcessMaterialResults(const FAssetCompileProcessParams& Params, const std::function<void(FMaterialCompileResult)>& Process,
-			const std::shared_ptr<FMaterialCompilationResource>& Resource = {}) -> uint32;
+		auto ProcessMaterialResults(uint32 MaximumCompletions,
+			std::optional<std::chrono::steady_clock::time_point> Deadline, const std::function<void(FMaterialCompileResult)>& Process,
+			const std::shared_ptr<FMaterialCompilationResource>& Resource = {}) -> void;
 		auto CompleteMaterialRequests(const FShaderMapPtr& ShaderMap, MaterialBuildPrivate::FMaterialBuildResult Build) -> void;
 		auto CancelCompilation(FWeakObjectPtr Owner, bool bCountCancellation) -> bool;
 		auto CancelCompilation(const std::shared_ptr<FMaterialCompilationResource>& Resource) -> void;
 		auto RegisterMaterialRequest(const std::shared_ptr<FMaterialCompileRequest>& Request) -> void;
 		auto QueueMaterialResult(FMaterialCompileResult Result) -> void;
-		auto FinishResourceCompilation(const std::shared_ptr<FMaterialCompilationResource>& Resource) -> FAssetCompileProcessResult;
-		auto ApplyMaterialResult(FMaterialCompileResult Result, FAssetCompileProcessResult& Processed) -> void;
+		auto FinishResourceCompilation(const std::shared_ptr<FMaterialCompilationResource>& Resource) -> void;
+		auto ApplyMaterialResult(FMaterialCompileResult Result, std::vector<FWeakObjectPtr>& CompiledAssets) -> void;
 		auto DetachMaterialResourceLocked(const std::shared_ptr<FMaterialCompilationResource>& Resource, std::vector<FShaderMapPtr>& CanceledRequests, bool bCountCancellation) -> bool;
 		static auto MakeMaterialResult(const std::shared_ptr<FMaterialCompileRequest>& Request,
 			const MaterialBuildPrivate::FMaterialBuildResult& Build,

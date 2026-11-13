@@ -241,7 +241,7 @@ namespace
 		{
 			Testing::InitializeAssetSystemForTests();
 			ASSERT_TRUE(InitializeTaskScheduler(2));
-			ASSERT_TRUE(InitializeAssetCompilingManager());
+			InitializeAssetCompilingManager();
 			FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 			FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 			static const FGlobalShaderSetRegistration Shaders("CookFixture", "CookFixture.Minimal",

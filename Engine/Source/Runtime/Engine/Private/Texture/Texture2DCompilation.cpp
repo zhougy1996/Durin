@@ -1,4 +1,5 @@
 #include "Misc/Build.h"
+#include "Asset/AssetCompilationNotifications.h"
 #if DURIN_WITH_EDITORONLY_DATA
 #include "Texture/Texture2DCompilation.h"
 
@@ -103,17 +104,6 @@ namespace Durin
 			return GTextureCompilingManager.lock();
 		}
 
-		auto AppendProcessResult(
-			FAssetCompileProcessResult& Aggregate,
-			FAssetCompileProcessResult Item) -> void
-		{
-			Aggregate.ProcessedCompletionCount += Item.ProcessedCompletionCount;
-			Aggregate.SuccessfullyCompiledAssets.insert(
-				Aggregate.SuccessfullyCompiledAssets.end(),
-				Item.SuccessfullyCompiledAssets.begin(),
-				Item.SuccessfullyCompiledAssets.end());
-		}
-
 
 	}
 
@@ -210,28 +200,29 @@ namespace Durin
 	}
 
 	auto FTextureCompilingManager::PumpCompletions(uint32 MaximumCount,
-		std::optional<std::chrono::steady_clock::time_point> Deadline, uint64 OnlyRequest)
-		-> FAssetCompileProcessResult
+		std::vector<FWeakObjectPtr>& CompiledAssets,
+		std::optional<std::chrono::steady_clock::time_point> Deadline, uint64 OnlyRequest) -> uint32
 	{
-		FAssetCompileProcessResult Result;
-		Result.ProcessedCompletionCount = PumpWorkCompletions(MaximumCount, Deadline, OnlyRequest);
+		const uint32 ProcessedCount = PumpWorkCompletions(MaximumCount, Deadline, OnlyRequest);
 		std::lock_guard Lock(CompilationState->Mutex);
-		Result.SuccessfullyCompiledAssets =
-			std::move(CompilationState->SuccessfullyAppliedTextures);
+		CompiledAssets.insert(CompiledAssets.end(), CompilationState->SuccessfullyAppliedTextures.begin(),
+			CompilationState->SuccessfullyAppliedTextures.end());
 		CompilationState->SuccessfullyAppliedTextures.clear();
-		return Result;
+		return ProcessedCount;
 	}
 
 	auto FTextureCompilingManager::ProcessAsyncTasks(
-		const FAssetCompileProcessParams& Params) -> FAssetCompileProcessResult
+		const FAssetCompileProcessParams& Params) -> void
 	{
-		return PumpCompletions(Params.MaximumCompletions, Params.Deadline);
+		std::vector<FWeakObjectPtr> CompiledAssets;
+		PumpCompletions(Params.Deadline ? 64u : std::numeric_limits<uint32>::max(), CompiledAssets, Params.Deadline);
+		AssetPrivate::PublishCompiledAssets(FName("Durin.Texture"), std::move(CompiledAssets));
 	}
 
 	auto FTextureCompilingManager::FinishCompilationForObjects(
-		std::span<DObject* const> Objects) -> FAssetCompileProcessResult
+		std::span<DObject* const> Objects) -> void
 	{
-		FAssetCompileProcessResult Aggregate;
+		std::vector<FWeakObjectPtr> CompiledAssets;
 		for (DObject* Object : Objects)
 		{
 			auto* Texture = Cast<DTexture>(Object);
@@ -247,10 +238,9 @@ namespace Durin
 			}
 			if (RequestId == 0) continue;
 			WaitForWork(RequestId, 300.0);
-			AppendProcessResult(
-				Aggregate, PumpCompletions(1, {}, RequestId));
+			PumpCompletions(1, CompiledAssets, {}, RequestId);
 		}
-		return Aggregate;
+		AssetPrivate::PublishCompiledAssets(FName("Durin.Texture"), std::move(CompiledAssets));
 	}
 
 	auto FTextureCompilingManager::MarkCompilationAsCanceled(
@@ -261,21 +251,17 @@ namespace Durin
 	}
 
 	auto FTextureCompilingManager::FinishAllCompilation()
-		-> FAssetCompileProcessResult
+		-> void
 	{
-		FAssetCompileProcessResult Aggregate;
+		std::vector<FWeakObjectPtr> CompiledAssets;
 		while (GetNumRemainingAssets() != 0
 			|| GetQueuedWorkCount() != 0 || GetRunningWorkCount() != 0)
 		{
-			FAssetCompileProcessResult Item =
-				PumpCompletions(std::numeric_limits<uint32>::max());
-			const uint32 ProcessedCount = Item.ProcessedCompletionCount;
-			AppendProcessResult(Aggregate, std::move(Item));
+			const uint32 ProcessedCount = PumpCompletions(std::numeric_limits<uint32>::max(), CompiledAssets);
 			if (ProcessedCount == 0) std::this_thread::yield();
 		}
-		AppendProcessResult(
-			Aggregate, PumpCompletions(std::numeric_limits<uint32>::max()));
-		return Aggregate;
+		PumpCompletions(std::numeric_limits<uint32>::max(), CompiledAssets);
+		AssetPrivate::PublishCompiledAssets(FName("Durin.Texture"), std::move(CompiledAssets));
 	}
 
 	auto FTextureCompilingManager::Shutdown() -> void

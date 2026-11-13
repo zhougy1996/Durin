@@ -31,7 +31,7 @@
 inline auto InitializeTextureImportMount() -> void
 {
 	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
-		EXPECT_TRUE(Durin::InitializeAssetCompilingManager());
+		Durin::InitializeAssetCompilingManager();
 	const std::filesystem::path Root =
 		Durin::Testing::GetTestWorkDirectory() / "TextureImports";
 	static std::unordered_set<std::filesystem::path> InitializedRoots;
@@ -45,8 +45,8 @@ inline auto InitializeTextureImportMount() -> void
 
 inline auto EnsureTextureCompilingManager() -> bool
 {
-	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests()
-		&& !Durin::InitializeAssetCompilingManager()) return false;
+	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
+		Durin::InitializeAssetCompilingManager();
 	Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 	Durin::FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	return true;

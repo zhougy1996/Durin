@@ -26,7 +26,6 @@ namespace Durin
 
 	struct FStaticMeshCompilationRequest;
 	struct FStaticMeshCompilationDiagnostic;
-	struct FAssetCompileProcessResult;
 
 	enum class EStaticMeshBuildMode : uint8 { Synchronous, Asynchronous };
 	enum class EStaticMeshCompilationPriority : uint8 { Background, Interactive };
@@ -121,7 +120,7 @@ namespace Durin
 		ENGINE_API auto IsCompiling() const -> bool;
 		ENGINE_API auto GetCompilationDiagnostic() const -> FStaticMeshCompilationDiagnostic;
 		ENGINE_API auto FinishCompilation()
-			-> FAssetCompileProcessResult;
+			-> void;
 		ENGINE_API auto CancelCompilation() -> void;
 		// Cancels and drains both render and collision work before authored mutation.
 		ENGINE_API auto BlockOnAnyAsyncBuild() -> void;

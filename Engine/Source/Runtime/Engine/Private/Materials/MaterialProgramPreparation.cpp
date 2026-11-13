@@ -204,14 +204,8 @@ namespace Durin
 	}
 
 	auto DMaterialInterface::CacheResourceShaders(const std::shared_ptr<FMaterialCompilationResource>& Resource,
-		EMaterialShaderPrecompileMode Mode) -> FAssetCompileProcessResult
+		EMaterialShaderPrecompileMode Mode) -> void
 	{
-		FAssetCompileProcessResult Processed;
-		const auto Finish = [&] {
-			auto Result = FShaderCompilingManager::Get().FinishResourceCompilation(Resource);
-			Processed.ProcessedCompletionCount += Result.ProcessedCompletionCount;
-			Processed.SuccessfullyCompiledAssets.insert(Processed.SuccessfullyCompiledAssets.end(), Result.SuccessfullyCompiledAssets.begin(), Result.SuccessfullyCompiledAssets.end());
-		};
 		const bool Synchronous = Mode == EMaterialShaderPrecompileMode::Synchronous;
 		Resource->bRequested = true;
 		if (Resource->Configuration.FeatureLevel > PreparationFeatureLevel())
@@ -222,7 +216,7 @@ namespace Durin
 			Resource->bRequested = false;
 			Resource->RenderLayer = {};
 			MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap | EMaterialRenderDirtyFlags::PipelineState);
-			return Processed;
+			return;
 		}
 		for (;;)
 		{
@@ -236,11 +230,11 @@ namespace Durin
 			}
 			if (SameInput && !Resource->Compilation.expired())
 			{
-				if (!Synchronous) return Processed;
-				Finish();
+				if (!Synchronous) return;
+				FShaderCompilingManager::Get().FinishResourceCompilation(Resource);
 			}
 			else if (SameInput && Resource->Outcome == EMaterialCompileState::Ready)
-			{ Resource->bRequested = false; return Processed; }
+			{ Resource->bRequested = false; return; }
 			else
 			{
 				if (Stamp.bCooked)
@@ -265,17 +259,17 @@ namespace Durin
 						Resource->RenderLayer = {};
 						Resource->bRequested = false;
 						MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap | EMaterialRenderDirtyFlags::PipelineState);
-						return Processed;
+						return;
 					}
 					RequestProgramCompile(GetStaticProperties(), false, nullptr, std::move(Environment), Resource);
 				}
 				if (!Resource->Compilation.expired())
 				{
 					Private::GetMaterialPreparationQueue().Add(FWeakObjectPtr(this));
-					if (Synchronous) Finish();
+					if (Synchronous) FShaderCompilingManager::Get().FinishResourceCompilation(Resource);
 				}
 			}
-			if (!Synchronous || Stamp == CaptureCompilationInputStamp()) return Processed;
+			if (!Synchronous || Stamp == CaptureCompilationInputStamp()) return;
 		}
 	}
 

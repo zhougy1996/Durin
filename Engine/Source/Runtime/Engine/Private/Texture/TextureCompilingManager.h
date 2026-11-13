@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+
 #include "Misc/Build.h"
 #if DURIN_WITH_EDITORONLY_DATA
 
@@ -80,12 +81,10 @@ namespace Durin
 		auto Start() -> FAssetCompilerStartResult override;
 		auto StopAdmission() -> void override;
 		auto GetNumRemainingAssets() const -> uint64 override;
-		auto ProcessAsyncTasks(const FAssetCompileProcessParams& Params)
-			-> FAssetCompileProcessResult override;
-		auto FinishCompilationForObjects(std::span<DObject* const> Objects)
-			-> FAssetCompileProcessResult override;
+		auto ProcessAsyncTasks(const FAssetCompileProcessParams& Params) -> void override;
+		auto FinishCompilationForObjects(std::span<DObject* const> Objects) -> void override;
 		auto MarkCompilationAsCanceled(std::span<DObject* const> Objects) -> void override;
-		auto FinishAllCompilation() -> FAssetCompileProcessResult override;
+		auto FinishAllCompilation() -> void override;
 		auto Shutdown() -> void override;
 
 		auto Submit(
@@ -118,8 +117,8 @@ namespace Durin
 		auto StopWorkAdmission() -> void;
 		auto ShutdownWorkQueue() -> void;
 		auto ApplyCompletion(FTexture2DCompilationWorkResult&& Result) -> void;
-		auto PumpCompletions(uint32 MaximumCount,
-			std::optional<std::chrono::steady_clock::time_point> Deadline = {}, uint64 OnlyRequest = 0) -> FAssetCompileProcessResult;
+		auto PumpCompletions(uint32 MaximumCount, std::vector<FWeakObjectPtr>& CompiledAssets,
+			std::optional<std::chrono::steady_clock::time_point> Deadline = {}, uint64 OnlyRequest = 0) -> uint32;
 		auto Cancel(DTexture& Texture) -> bool;
 
 		std::shared_ptr<FQueueState> QueueState;

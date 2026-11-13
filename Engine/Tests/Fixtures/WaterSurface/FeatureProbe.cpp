@@ -177,7 +177,7 @@ int main(int Argc, char** Argv)
 		}
 		Require(bool(InitializeAssetRuntime(std::move(Configuration))), "Asset runtime initialization failed.");
 		DObjectInit();
-		if (Mode == "load-cooked") Require(bool(InitializeAssetCompilingManager()), "Asset compiler initialization failed.");
+		if (Mode == "load-cooked") InitializeAssetCompilingManager();
 		Require(Projects.LoadModulesForProject(ELoadingPhase::Providers), Projects.GetLastError());
 		if (Mode == "queries") CheckQueries();
 		else if (Mode == "load" || Mode == "load-cooked")

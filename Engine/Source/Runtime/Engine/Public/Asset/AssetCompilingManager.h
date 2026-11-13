@@ -11,18 +11,10 @@ namespace Durin
 {
 	class DClass;
 	class DObject;
-	struct FAssetCompilingManagerInitializationResult;
 
 	struct FAssetCompileProcessParams
 	{
-		uint32 MaximumCompletions = 64;
 		std::optional<std::chrono::steady_clock::time_point> Deadline;
-	};
-
-	struct FAssetCompileProcessResult
-	{
-		uint32 ProcessedCompletionCount = 0;
-		std::vector<FWeakObjectPtr> SuccessfullyCompiledAssets;
 	};
 
 	struct FAssetCompilerDiagnostics
@@ -35,7 +27,6 @@ namespace Durin
 	{
 		uint32 CompilerCount = 0;
 		uint64 RemainingAssetCount = 0;
-		uint64 ProcessedCompletionCount = 0;
 		bool bAcceptingRequests = false;
 		bool bShutdown = false;
 		std::vector<FAssetCompilerDiagnostics> Compilers;
@@ -67,13 +58,14 @@ namespace Durin
 		virtual auto StopAdmission() -> void = 0;
 		virtual auto GetNumRemainingAssets() const -> uint64 = 0;
 		virtual auto ProcessAsyncTasks(const FAssetCompileProcessParams& Params)
-			-> FAssetCompileProcessResult = 0;
+			-> void = 0;
 		virtual auto FinishCompilationForObjects(std::span<DObject* const> Objects)
-			-> FAssetCompileProcessResult = 0;
+			-> void = 0;
 		virtual auto MarkCompilationAsCanceled(std::span<DObject* const> Objects)
 			-> void = 0;
-		virtual auto FinishAllCompilation() -> FAssetCompileProcessResult = 0;
+		virtual auto FinishAllCompilation() -> void = 0;
 		virtual auto Shutdown() -> void = 0;
+
 	};
 
 	// Describes one compiler lifecycle and every exact reflected class routed to it.
@@ -105,7 +97,7 @@ namespace Durin
 		uint64 Generation = 0;
 
 		friend class FAssetCompilingManager;
-		friend ENGINE_API auto InitializeAssetCompilingManager() -> FAssetCompilingManagerInitializationResult;
+		friend ENGINE_API auto InitializeAssetCompilingManager() -> void;
 	};
 
 	// Aggregates typed asset compilers and routes object operations by reflected class.
@@ -125,12 +117,6 @@ namespace Durin
 	};
 	ENGINE_API auto FormatAssetCompilerRegistrationError(const FAssetCompilerRegistrationError& Error) -> std::string;
 
-	struct FAssetCompilingManagerInitializationResult
-	{
-		FAssetCompilerRegistrationError Error;
-		explicit operator bool() const { return Error.Code == EAssetCompilerRegistrationError::None; }
-	};
-
 	class FAssetCompilingManager final
 	{
 	public:
@@ -143,18 +129,18 @@ namespace Durin
 		ENGINE_API auto RegisterCompiler(
 			FAssetCompilingManagerRegistration Registration) -> FAssetCompilerRegistrationResult;
 		ENGINE_API auto ProcessAsyncTasks(const FAssetCompileProcessParams& Params = {})
-			-> FAssetCompileProcessResult;
+			-> void;
 		// Editor tick convenience: a shared 2ms soft deadline, checked between completions.
-		ENGINE_API auto ProcessAsyncTasks(bool bLimitExecutionTime) -> FAssetCompileProcessResult;
+		ENGINE_API auto ProcessAsyncTasks(bool bLimitExecutionTime) -> void;
 		ENGINE_API auto GetNumRemainingAssets() const -> uint64;
 		ENGINE_API auto FinishCompilationForObjects(std::span<DObject* const> Objects)
-			-> FAssetCompileProcessResult;
+			-> void;
 		ENGINE_API auto FinishCompilationForObject(DObject& Object)
-			-> FAssetCompileProcessResult;
+			-> void;
 		ENGINE_API auto MarkCompilationAsCanceled(std::span<DObject* const> Objects)
 			-> void;
 		ENGINE_API auto MarkCompilationAsCanceled(DObject& Object) -> void;
-		ENGINE_API auto FinishAllCompilation() -> FAssetCompileProcessResult;
+		ENGINE_API auto FinishAllCompilation() -> void;
 		ENGINE_API auto GetDiagnostics() const -> FAssetCompilingManagerDiagnostics;
 		ENGINE_API auto OnAssetPostCompile() -> FAssetPostCompileEvent&;
 		ENGINE_API auto Shutdown() -> void;
@@ -165,9 +151,10 @@ namespace Durin
 		auto Unregister(FName CompilerName, uint64 Generation) -> void;
 
 		friend class FAssetCompilerRegistrationHandle;
-		friend ENGINE_API auto InitializeAssetCompilingManager() -> FAssetCompilingManagerInitializationResult;
+		friend ENGINE_API auto InitializeAssetCompilingManager() -> void;
 	};
 
-	ENGINE_API auto InitializeAssetCompilingManager() -> FAssetCompilingManagerInitializationResult;
+	// Requires a running task scheduler. Built-in registration failures violate the startup contract.
+	ENGINE_API auto InitializeAssetCompilingManager() -> void;
 	ENGINE_API auto ShutdownAssetCompilingManager() -> void;
 }

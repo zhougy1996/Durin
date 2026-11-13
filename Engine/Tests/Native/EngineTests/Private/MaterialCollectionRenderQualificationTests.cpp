@@ -40,7 +40,7 @@ TEST(FMaterialCollectionRenderQualificationTests, RecordsStableWorldRenderViewBa
 	using namespace Durin::Tests;
 	InitializeDObjectSystem();
 	if (!FAssetCompilingManager::Get().IsAcceptingRequests())
-		ASSERT_TRUE(InitializeAssetCompilingManager());
+		InitializeAssetCompilingManager();
 	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints());
 	ASSERT_TRUE(InitializeAssetRuntime());
 	ASSERT_TRUE(RefreshAssetRegistry());
