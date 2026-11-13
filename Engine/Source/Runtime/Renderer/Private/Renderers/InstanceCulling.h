@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Renderers/MeshDrawCommandSubmission.h"
 #include "RendererAPI.h"
 #include "Renderers/GPUSceneRendering.h"
 #include "Renderers/MeshPassProcessor.h"
@@ -77,19 +78,17 @@ namespace Durin
 		static constexpr size_t MaximumCandidates = 65'536;
 		static constexpr size_t MaximumGeneratedBytes = 4 * 1024 * 1024;
 		RENDERER_API FInstanceCullingContext(std::shared_ptr<const FInstanceCullingView> InView, RendererPrivate::FMeshPassKey InPass, FInstanceCullingManager* InManager = nullptr);
-		RENDERER_API auto SetupDrawCommands(std::span<const RendererPrivate::FVisibleMeshDrawCommand> VisibleMeshDrawCommands, bool bRequested, bool bIndirectSupported, size_t* Overflow = nullptr, size_t Budget = MaximumGeneratedBytes, FInstanceCullingAdmissionDiagnostics* Diagnostics = nullptr, std::span<const RendererPrivate::FMeshDrawCommandRun> Runs = {}) -> bool;
+		RENDERER_API auto SetupDrawCommands(std::span<const RendererPrivate::FVisibleMeshDrawCommand> VisibleMeshDrawCommands, bool bRequested, bool bIndirectSupported, size_t* Overflow = nullptr, size_t Budget = MaximumGeneratedBytes, FInstanceCullingAdmissionDiagnostics* Diagnostics = nullptr, std::shared_ptr<RendererPrivate::FMeshDrawCommandSubmission> Submission = {}) -> bool;
 		RENDERER_API auto BuildRenderingCommands(FRDGBuilder& Graph, FInstanceCullingTelemetry& Telemetry, bool bAsyncCompute, bool bObserveVisibility, EGPUCullingFailure Failure) -> FInstanceCullingDrawParams;
-		RENDERER_API auto PrepareForSubmission(FResolvedStaticMeshView& Resolved) const -> void;
 		RENDERER_API auto SubmitDrawCommands(std::span<const RendererPrivate::FVisibleMeshDrawCommand> VisibleMeshDrawCommands, const RendererPrivate::FMeshDrawCommandOverrideArgs& OverrideArgs, uint32 StartIndex, uint32 NumMeshDrawCommands, FRHICommandList& Commands, FMeshDrawCommandStateCache* Cache = nullptr) const -> bool;
 		auto GetArgumentIndex(uint32 Draw) const -> uint32
 		{
-			return bDispatched && Draw < ArgumentByResolvedDraw.size() ? ArgumentByResolvedDraw[Draw] : InvalidArgument;
+			return Submission ? Submission->GetArgumentIndex(Draw) : InvalidArgument;
 		}
 
 		std::vector<FInstanceCullingCandidate> Candidates;
 		std::vector<FRHIDrawIndexedIndirectArguments> Arguments;
-		std::vector<uint32> ArgumentByResolvedDraw;
-		bool bDispatched = false;
+		std::shared_ptr<RendererPrivate::FMeshDrawCommandSubmission> Submission;
 
 	private:
 		FInstanceCullingManager* Manager = nullptr;

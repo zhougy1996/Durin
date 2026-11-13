@@ -310,7 +310,7 @@ namespace
 		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
 			FPreparedStaticMeshView Prepared;
 			FPreparedStaticMeshPrimitive Primitive;
-			Primitive.PrimitiveId = FPrimitiveComponentId{1}; Primitive.bSourceBound = true; Primitive.BatchId = 901;
+			Primitive.PrimitiveId = FPrimitiveComponentId{1}; Primitive.BatchId = 901;
 			Primitive.PrimitiveIdMode = EPrimitiveIdMode::PrimID_FromPrimitiveSceneInfo;
 			Primitive.PersistentPrimitiveIndex = Info().GetPersistentIndex();
 			Primitive.LocalToWorld = FMatrix(1.0); Primitive.WorldBounds = Info().GetWorldBounds();
@@ -320,7 +320,7 @@ namespace
 			Description->Geometry.InstanceCount = 3;
 			FPreparedStaticMeshDraw Draw; Draw.Command = Description;
 			Prepared.Opaque.push_back(Draw);
-			auto Data = FGPUSceneDynamicContext::Prepare(Executor.GetImmediateCommandList(), Allocator, Prepared, (*Scene)->GPUScene.get());
+			auto Data = std::make_shared<FGPUSceneDynamicContext>((*Scene)->GPUScene)->Prepare(Executor.GetImmediateCommandList(), Allocator, Prepared);
 			ASSERT_EQ(Data.size(), 1u); ASSERT_TRUE(Data[0].Buffers);
 			EXPECT_EQ(Data[0].Buffers->SceneData, (*Scene)->GPUScene->GetResourceBuffers());
 			EXPECT_EQ(Data[0].InstanceId, Info().InstanceSceneDataOffset);
@@ -333,10 +333,10 @@ namespace
 				EXPECT_EQ(Value, Data[0].InstanceId);
 			}
 			Prepared.Primitives[0].PersistentPrimitiveIndex = {};
-			EXPECT_TRUE(FGPUSceneDynamicContext::Prepare(Executor.GetImmediateCommandList(), Allocator, Prepared, (*Scene)->GPUScene.get()).empty());
+			EXPECT_TRUE(std::make_shared<FGPUSceneDynamicContext>((*Scene)->GPUScene)->Prepare(Executor.GetImmediateCommandList(), Allocator, Prepared).empty());
 			Prepared.Primitives[0].PrimitiveIdMode = EPrimitiveIdMode::PrimID_DynamicPrimitiveShaderData;
 			Prepared.Primitives[0].LocalToWorld = Math::TranslationMatrix(FVector3(13.0, 0.0, 0.0));
-			auto Scoped = FGPUSceneDynamicContext::Prepare(Executor.GetImmediateCommandList(), Allocator, Prepared);
+			auto Scoped = std::make_shared<FGPUSceneDynamicContext>()->Prepare(Executor.GetImmediateCommandList(), Allocator, Prepared);
 			ASSERT_EQ(Scoped.size(), 1u); ASSERT_TRUE(Scoped[0].Buffers);
 			EXPECT_NE(Scoped[0].Buffers->SceneData[0], Data[0].Buffers->SceneData[0]);
 			Executor.GetImmediateCommandList().ImmediateFlush(EImmediateFlushType::FlushRHIThread);
@@ -344,14 +344,14 @@ namespace
 			FInstanceSceneShaderData Instance; std::memcpy(&Instance, Packed.data(), sizeof(Instance));
 			EXPECT_FLOAT_EQ(Instance.Data[12].x, 13.f);
 			Description->PipelineKey.FactoryKey = {};
-			auto Unsupported = FGPUSceneDynamicContext::Prepare(Executor.GetImmediateCommandList(), Allocator, Prepared);
+			auto Unsupported = std::make_shared<FGPUSceneDynamicContext>()->Prepare(Executor.GetImmediateCommandList(), Allocator, Prepared);
 			ASSERT_EQ(Unsupported.size(), 1u); EXPECT_FALSE(Unsupported[0].Buffers);
 		});
 		FlushRenderingCommands();
 		EXPECT_EQ(Run().UploadBytes, 0u);
 	}
 
-	TEST_F(FGPUSceneTests, SubmissionDynamicContextReusesFactsAcrossViewsWithoutOverwritingSnapshots)
+	TEST_F(FGPUSceneTests, SubmissionCollectorUsesExplicitRecordsAndPreservesEarlierSnapshots)
 	{
 		Add(1); Run();
 		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
@@ -362,29 +362,45 @@ namespace
 			FPreparedStaticMeshPrimitive Primitive; Primitive.LocalToWorld = FMatrix(1.0);
 			Primitive.WorldBounds = FBox(FVector3(-1.0), FVector3(1.0));
 			Primitive.PrimitiveIdMode = EPrimitiveIdMode::PrimID_DynamicPrimitiveShaderData;
+			Primitive.DynamicPrimitiveData = std::make_shared<FGPUSceneDynamicPrimitiveData>(FGPUSceneDynamicPrimitiveData{
+				Primitive.LocalToWorld, Primitive.WorldBounds, Primitive.CustomPrimitiveData, Primitive.CustomInstanceData});
 			Prepared.Primitives.push_back(Primitive); Prepared.Primitives.push_back(Primitive);
 			auto Description = std::make_shared<FMeshDrawDescription>();
 			Description->PipelineKey.FactoryKey = FStaticMeshBatchBinding{}.GetFactoryKey(); Description->Geometry.InstanceCount = 1;
 			for (uint32 Index = 0; Index < 2; ++Index) { FPreparedStaticMeshDraw Draw; Draw.Command = Description; Draw.PrimitiveIndex = Index; Prepared.Opaque.push_back(Draw); }
-			const auto First = FGPUSceneDynamicContext::Prepare(Commands, Allocator, Prepared, GPU.get(), Context);
-			ASSERT_EQ(First.size(), 2u); EXPECT_EQ(First[0].InstanceId, First[1].InstanceId);
+			const auto First = Context->CreatePrimitiveCollector()->Commit(Prepared);
+			ASSERT_EQ(First.size(), 2u); EXPECT_FALSE(First[0].Buffers->SceneData[1]); EXPECT_EQ(First[0].InstanceId, First[1].InstanceId);
 			const auto Count = GPU->GetInstanceSceneData().size(); const auto Bytes = GPU->GetStatistics().UploadBytes;
-			const auto Again = FGPUSceneDynamicContext::Prepare(Commands, Allocator, Prepared, GPU.get(), Context);
+			const auto Again = Context->CreatePrimitiveCollector()->Commit(Prepared);
 			ASSERT_EQ(Again.size(), 2u); EXPECT_EQ(Again[0].InstanceId, First[0].InstanceId);
-			EXPECT_EQ(Again[0].Buffers->DynamicContext, First[0].Buffers->DynamicContext);
+			EXPECT_EQ(Again[0].Buffers->PrimitiveCollector->GetDynamicContext(), First[0].Buffers->PrimitiveCollector->GetDynamicContext());
 			EXPECT_EQ(GPU->GetInstanceSceneData().size(), Count); EXPECT_EQ(GPU->GetStatistics().UploadBytes, Bytes);
 			const auto Old = GPU->GetInstanceSceneData()[First[0].InstanceId];
 			Prepared.Primitives[0].CustomInstanceData.Values[0] = 7.f;
-			const auto Changed = FGPUSceneDynamicContext::Prepare(Commands, Allocator, Prepared, GPU.get(), Context);
+			auto Revision = std::make_shared<FGPUSceneDynamicPrimitiveData>(*Primitive.DynamicPrimitiveData);
+			Revision->CustomInstanceData.Values[0] = 7.f; Prepared.Primitives[0].DynamicPrimitiveData = Revision;
+			const auto Changed = Context->CreatePrimitiveCollector()->Commit(Prepared);
 			ASSERT_EQ(Changed.size(), 2u); EXPECT_NE(Changed[0].InstanceId, First[0].InstanceId);
 			EXPECT_EQ(Changed[1].InstanceId, First[1].InstanceId);
 			EXPECT_TRUE(std::ranges::equal(std::as_bytes(std::span(&Old, 1)), std::as_bytes(GPU->GetInstanceSceneData().subspan(First[0].InstanceId, 1))));
 			EXPECT_FLOAT_EQ(GPU->GetInstancePayloadData()[Changed[0].InstanceId].Values[0], 7.f);
-			const auto Independent = FGPUSceneDynamicContext::Prepare(Commands, Allocator, Prepared);
-			ASSERT_EQ(Independent.size(), 2u); EXPECT_NE(Independent[0].Buffers->DynamicContext, Context);
+			// Equal transported values do not identify a collector record.
+			Prepared.Primitives[0].DynamicPrimitiveData = std::make_shared<FGPUSceneDynamicPrimitiveData>(*Revision);
+			const auto Distinct = Context->CreatePrimitiveCollector()->Commit(Prepared);
+			ASSERT_EQ(Distinct.size(), 2u); EXPECT_NE(Distinct[0].InstanceId, Changed[0].InstanceId);
+			EXPECT_EQ(GPU->GetStatistics().UploadBytes, Bytes);
+			ASSERT_TRUE(Context->Upload(Commands, Allocator));
+			EXPECT_EQ(First[0].Buffers->SceneData, Changed[0].Buffers->SceneData);
+			EXPECT_EQ(Again[0].Buffers->SceneData, Distinct[0].Buffers->SceneData);
+			const auto Uploaded = GPU->GetStatistics().UploadBytes;
+			ASSERT_TRUE(Context->Upload(Commands, Allocator)); EXPECT_EQ(GPU->GetStatistics().UploadBytes, Uploaded);
+			const auto Independent = std::make_shared<FGPUSceneDynamicContext>()->Prepare(Commands, Allocator, Prepared);
+			ASSERT_EQ(Independent.size(), 2u); EXPECT_NE(Independent[0].Buffers->PrimitiveCollector->GetDynamicContext(), Context);
 			EXPECT_NE(Independent[0].Buffers->SceneData[1], Changed[0].Buffers->SceneData[1]);
 			auto OtherGPU = CreateRenderResource<FGPUScene>();
-			EXPECT_TRUE(FGPUSceneDynamicContext::Prepare(Commands, Allocator, Prepared, OtherGPU.get(), Context).empty());
+			auto OtherContext = std::make_shared<FGPUSceneDynamicContext>(OtherGPU);
+			const auto Other = OtherContext->CreatePrimitiveCollector()->Commit(Prepared);
+			ASSERT_EQ(Other.size(), 2u); EXPECT_NE(Other[0].Buffers->SceneData[1], Changed[0].Buffers->SceneData[1]);
 		});
 		FlushRenderingCommands();
 	}
@@ -415,9 +431,10 @@ namespace
 			EXPECT_FALSE(First.MatchesForDynamicInstancing(Different));
 			Different = Second; Different.FragmentBindings.Parameters.push_back({.BindingIndex = 2, .Offset = 16});
 			EXPECT_FALSE(First.MatchesForDynamicInstancing(Different));
+			B = std::make_shared<FMeshPassPipeline>(*A); Second.Pipeline = B.get();
 			B->Description.Rasterizer.FrontFace = A->Description.Rasterizer.FrontFace == ERHIFrontFace::Clockwise ? ERHIFrontFace::CounterClockwise : ERHIFrontFace::Clockwise;
 			EXPECT_FALSE(First.MatchesForDynamicInstancing(Second));
-			B->Description = A->Description;
+			B = std::make_shared<FMeshPassPipeline>(*A); Second.Pipeline = B.get();
 
 			FPreparedStaticMeshView Prepared;
 			FResolvedStaticMeshView Resolved;
@@ -439,10 +456,9 @@ namespace
 				Record.Commands[{EMeshPipelinePass::Forward}] = Resolved.DrawCommandStorage->Publish({EMeshPipelinePass::Forward}, Command);
 			}
 			ASSERT_TRUE(SetupMeshDrawCommandDynamicInstancing(Commands, Prepared, Resolved));
-			ASSERT_EQ(Resolved.DynamicInstancingGroups.size(), 1u);
-			EXPECT_EQ(Resolved.DynamicInstancingGroups[0].Draws, (std::vector<uint32>{0, 1}));
-			ASSERT_EQ(Resolved.MeshDrawCommandRuns[{EMeshPipelinePass::Forward}].size(), 3u);
-			EXPECT_EQ(Resolved.MeshDrawCommandRuns[{EMeshPipelinePass::Forward}][0], (std::vector<uint32>{0, 1}));
+			const auto Submission = Resolved.DrawCommandSubmissions.at({EMeshPipelinePass::Forward});
+			ASSERT_EQ(Submission->Runs.size(), 3u);
+			EXPECT_EQ(Submission->Runs[0].Draws, (std::vector<uint32>{0, 1}));
 			const auto* Leader = Resolved.GetVisibleMeshDrawCommand(Prepared.Opaque[0], {EMeshPipelinePass::Forward});
 			const auto* Follower = Resolved.GetVisibleMeshDrawCommand(Prepared.Opaque[1], {EMeshPipelinePass::Forward});
 			ASSERT_TRUE(Leader && Follower);
@@ -484,12 +500,14 @@ namespace
 			FMeshDrawDescription Description;
 			const auto KeyA = Cache.MakeKey(&Description, FPrimitiveComponentId{1}, 1, *A);
 			const auto KeyB = Cache.MakeKey(&Description, FPrimitiveComponentId{2}, 1, *B);
-			EXPECT_EQ(KeyA.Pipeline, KeyB.Pipeline);
+			EXPECT_EQ(*KeyA.Pipeline, *KeyB.Pipeline);
+			EXPECT_EQ(A->GetIdentity(), A->GetIdentity());
+			EXPECT_EQ(KeyA.Pipeline, A->GetIdentity());
 			auto ChangedState = *B; ChangedState.Description.Rasterizer.LineWidth = 3.f;
-			EXPECT_NE(KeyA.Pipeline, ChangedState.GetIdentity());
+			EXPECT_NE(*KeyA.Pipeline, *ChangedState.GetIdentity());
 			ChangedState = *B; ChangedState.LayoutKey = FXxHash64{123};
-			EXPECT_NE(KeyA.Pipeline, ChangedState.GetIdentity());
-			EXPECT_EQ(Cache.MakeKey(&Description, FPrimitiveComponentId{1}, 1, *B).Pipeline, KeyA.Pipeline);
+			EXPECT_NE(*KeyA.Pipeline, *ChangedState.GetIdentity());
+			EXPECT_EQ(Cache.MakeKey(&Description, FPrimitiveComponentId{1}, 1, *B).Pipeline, KeyB.Pipeline);
 			auto MakeCommand = [](const FMeshPassPipeline* Pipeline) {
 				FMeshDrawCommand Command; Command.Pipeline = Pipeline;
 				Command.bFinalized = true; Command.bCached = true;
@@ -588,7 +606,7 @@ namespace
                 FRDGBuilder Abandoned;
                 First->BuildRenderingCommands(Abandoned, FirstTelemetry, true, false, EGPUCullingFailure::CommandAdmission);
             }
-            EXPECT_FALSE(First->bDispatched); EXPECT_FALSE(Second->bDispatched);
+            EXPECT_FALSE(First->Submission->bDispatched); EXPECT_FALSE(Second->Submission->bDispatched);
             EXPECT_EQ(FirstTelemetry.GPUCullingBufferBytes, 128u * 12u + 2u * 20u);
             EXPECT_GT(FirstTelemetry.GPUCullingSceneCapacityBytes, 0u);
             EXPECT_EQ(FirstTelemetry.GPUCullingStandaloneSceneCapacityBytes, 0u);
@@ -604,7 +622,7 @@ namespace
                 FRejectGPUSceneAllocator Reject;
                 EXPECT_FALSE(Rejected.Execute(Executor.GetImmediateCommandList(), &Reject));
                 EXPECT_TRUE(Rejected.HasCompiledPlan());
-                EXPECT_FALSE(Rejected.GetGPUCompletion()); EXPECT_FALSE(Second->bDispatched);
+                EXPECT_FALSE(Rejected.GetGPUCompletion()); EXPECT_FALSE(Second->Submission->bDispatched);
                 EXPECT_TRUE(std::ranges::any_of(Rejected.GetExecutionPlan().Batches, [](const auto& Batch) { return Batch.Queue == ERDGQueueAssignment::AsyncCompute; }));
                 const auto Capture = Rejected.Capture();
                 EXPECT_EQ(std::ranges::count_if(Capture.Uses, [](const auto& Use) {
@@ -624,7 +642,7 @@ namespace
                 CompileRejected->BuildRenderingCommands(Graph, Telemetry, false, false, EGPUCullingFailure::CommandAdmission);
                 FRDGBudget Budget; Budget.MaxPasses = 0; Graph.SetBudget(Budget);
                 EXPECT_FALSE(Graph.Execute(Executor.GetImmediateCommandList(), &Allocator));
-                EXPECT_FALSE(Graph.GetGPUCompletion()); EXPECT_FALSE(CompileRejected->bDispatched);
+                EXPECT_FALSE(Graph.GetGPUCompletion()); EXPECT_FALSE(CompileRejected->Submission->bDispatched);
             }
             auto Retry = MakeContext(FirstView);
             FInstanceCullingTelemetry RetryTelemetry;
@@ -635,7 +653,7 @@ namespace
                 EXPECT_TRUE(Result) << (Result ? "" : ToString(Result.error()));
                 Executor.GetImmediateCommandList().ImmediateFlush(EImmediateFlushType::FlushRHIThread);
                 EXPECT_TRUE(Graph.GetGPUCompletion());
-                EXPECT_FALSE(Retry->bDispatched);
+                EXPECT_FALSE(Retry->Submission->bDispatched);
                 EXPECT_EQ(RetryTelemetry.GPUCullingDispatchFailureViews, 1u);
                 EXPECT_EQ(Retry->GetArgumentIndex(0), FInstanceCullingContext::InvalidArgument);
             }
@@ -764,15 +782,19 @@ namespace
 		EXPECT_EQ(Run().UploadBytes, 0u);
 	}
 
-	TEST_F(FGPUSceneTests, RetainedSceneInfoInvalidatesSourceOnDetachWithoutRetainingTheScene)
+	TEST_F(FGPUSceneTests, SceneMembershipReferenceRejectsRemovalAndSlotReuse)
 	{
 		Add(1); Run();
-		std::shared_ptr<FPrimitiveSceneInfo> Held;
-		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) { Held = Info().shared_from_this(); EXPECT_TRUE(Held->IsDrawSourceValid()); });
+		FPrimitiveSceneInfoRef Borrow;
+		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) { Borrow = Info().GetSceneInfoRef(); EXPECT_EQ(Borrow.Resolve(), &Info()); });
 		FlushRenderingCommands();
 		FSceneInterfaceTestAccess::RemovePrimitiveProxy(**Scene, FPrimitiveComponentId{1}); FlushRenderingCommands();
-		EXPECT_FALSE(Held->IsDrawSourceValid()); EXPECT_FALSE(Held->GetPersistentIndex().IsValid());
-		Scene.reset(); FlushRenderingCommands(); Held.reset(); FlushRenderingCommands();
+		Add(2); Run();
+		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) { EXPECT_TRUE(Borrow.IsSceneBound()); EXPECT_FALSE(Borrow.Resolve()); });
+		FlushRenderingCommands();
+		Scene.reset(); FlushRenderingCommands();
+		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) { EXPECT_FALSE(Borrow.Resolve()); });
+		FlushRenderingCommands();
 	}
 
 	TEST_F(FGPUSceneTests, DynamicRangesShareStorageWaitForDrawingAndSurviveResourceRecovery)
@@ -856,7 +878,7 @@ namespace
 			auto Description = std::make_shared<FMeshDrawDescription>(); Description->PipelineKey.FactoryKey = FStaticMeshBatchBinding{}.GetFactoryKey();
 			Prepared.Opaque.push_back({.Command = Description});
 			Lifetime = (*Scene)->GPUScene;
-			Data = FGPUSceneDynamicContext::Prepare(Executor.GetImmediateCommandList(), Allocator, Prepared, (*Scene)->GPUScene.get());
+			Data = std::make_shared<FGPUSceneDynamicContext>((*Scene)->GPUScene)->Prepare(Executor.GetImmediateCommandList(), Allocator, Prepared);
 			ASSERT_EQ(Data.size(), 1u); ASSERT_TRUE(Data[0].Buffers); EXPECT_FALSE(Data[0].Buffers->bStandaloneScene);
 			EXPECT_EQ(Data[0].Buffers->SceneData, (*Scene)->GPUScene->GetResourceBuffers());
 			EXPECT_NE(Data[0].InstanceId, Info().InstanceSceneDataOffset);

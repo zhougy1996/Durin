@@ -139,7 +139,7 @@ namespace Durin
         const bool bHasGPUCandidates = GPUCullingPlan->SetupDrawCommands(
             RendererPrivate::CollectMeshDrawCommands(Inputs.Receiver.StaticMeshes, Inputs.Resolved.Receiver.StaticMeshes,
                 {RendererPrivate::EMeshPipelinePass::GBuffer}, false), Options.bEnableGPUCulling, Capabilities && Capabilities->bSupportsIndirectDraw,
-            &OverflowCandidates, Inputs.Failure == EGPUCullingFailure::MetadataBudget ? 0 : FInstanceCullingContext::MaximumGeneratedBytes, &Admission, Inputs.Resolved.Receiver.StaticMeshes.MeshDrawCommandRuns[{RendererPrivate::EMeshPipelinePass::GBuffer}]);
+            &OverflowCandidates, Inputs.Failure == EGPUCullingFailure::MetadataBudget ? 0 : FInstanceCullingContext::MaximumGeneratedBytes, &Admission, Inputs.Resolved.Receiver.StaticMeshes.DrawCommandSubmissions[{RendererPrivate::EMeshPipelinePass::GBuffer}]);
 		Inputs.Telemetry.View.GBuffer.GPUCullingPolicyDisabledViews += Options.bEnableGPUCulling ? 0u : 1u;
 		Inputs.Telemetry.View.GBuffer.GPUCullingBelowThresholdCandidates += Admission.BelowThresholdCandidates;
 		Inputs.Telemetry.View.GBuffer.GPUCullingIncompatibleCandidates += Admission.IncompatibleCandidates;
@@ -226,7 +226,7 @@ namespace Durin
 			Graph.AddPass("Scene.GBuffer.GPUCulling.CopyCounters", ERDGPassType::Copy, std::move(Copy),
 				[Query, Plan = GPUCullingPlan, Groups](FRHICommandListImmediate& Commands,
 					const FGBufferGPUCullingCopyParameters& P, const FRDGParameterResolver& Resolver) {
-					if (!Plan->bDispatched || !Resolver.ReadValue(P.Completion).IsComplete())
+					if (!Plan->Submission->bDispatched || !Resolver.ReadValue(P.Completion).IsComplete())
 					{
 						Query->GetReadback()->Cancel();
 						return;
@@ -330,8 +330,8 @@ namespace Durin
 				Receiver.StaticMeshes,
 				ResolvedSceneResources.Receiver.StaticMeshes,
                 GPUCullingPlan.get(),
-                {.InstanceBuffer = GPUCullingPlan->bDispatched ? VisibleInstances : nullptr,
-                    .IndirectArgsBuffer = GPUCullingPlan->bDispatched ? IndirectArguments : nullptr}
+                {.InstanceBuffer = GPUCullingPlan->Submission->bDispatched ? VisibleInstances : nullptr,
+                    .IndirectArgsBuffer = GPUCullingPlan->Submission->bDispatched ? IndirectArguments : nullptr}
 			);
 			if (Options.bEnableGPUCulling)
 			{

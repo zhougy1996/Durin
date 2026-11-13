@@ -1136,7 +1136,8 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 				const auto RetainedProxy = std::make_shared<Durin::FStaticMeshSceneProxy>(RenderData.get(),
 					std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent, Opaque});
 				RetainedProxy->SetFeatureLevel(Scene.GetFeatureLevel());
-				auto RetainedInfo = std::make_shared<Durin::FPrimitiveSceneInfo>(Durin::FPrimitiveComponentId(710), RetainedProxy, Durin::FMatrix(1.0));
+				auto RetainedInfo = std::make_unique<Durin::FPrimitiveSceneInfo>(Durin::FPrimitiveComponentId(710), RetainedProxy, Durin::FMatrix(1.0), &Scene);
+				Scene.GPUScene->AddPrimitive(*RetainedInfo);
 				const std::array<const Durin::FPrimitiveSceneInfo*, 1> RetainedInfos{RetainedInfo.get()};
 				Durin::FSceneView SourceView;
 				Collected = Durin::CollectStaticMeshView_RenderThread(CommandList, RetainedInfos,
@@ -1145,6 +1146,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 					SourceView, Durin::ERasterMode::Solid);
 				SourceView.ViewLocation = Durin::FVector3(500.0);
 				SourceView.DepthConvention = Durin::ESceneDepthConvention::ReversedZ;
+				Scene.GPUScene->RemovePrimitive(*RetainedInfo);
 			}
 			ASSERT_EQ(RetainedFrame.GetNumSections(), 4u);
 			EXPECT_EQ(RetainedFrame.Primitives[0].GeometryRecord, RetainedGeometry);
@@ -4634,14 +4636,14 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 						PrimitiveUniform, Commands.CreateUniformBufferRange(&ViewParameters, sizeof(ViewParameters)), {}, {}};
 					FRendererResourceCoordinator UploadCoordinator;
                     FRendererRDGAllocator UploadAllocator(UploadCoordinator);
-                    const auto SceneData = FGPUSceneDynamicContext::Prepare(Commands, UploadAllocator, Prepared);
+                    const auto SceneData = std::make_shared<FGPUSceneDynamicContext>()->Prepare(Commands, UploadAllocator, Prepared);
 					ASSERT_EQ(SceneData.size(), Prepared.Primitives.size());
 					ASSERT_TRUE(SceneData[BindingDraw.PrimitiveIndex].Buffers);
 					Input.GPUScene = SceneData[BindingDraw.PrimitiveIndex].Buffers->GetShaderParameters();
 					Input.InstanceIdOffset = SceneData[BindingDraw.PrimitiveIndex].InstanceIdOffset;
 					FMeshDrawCommandBindingCache CacheA;
 					std::shared_ptr<const FMeshDrawCommand> Cached;
-					const auto Source = Primitive->SceneInfo.lock(); ASSERT_TRUE(Source);
+					const auto Source = Primitive->SceneInfo.Resolve(); ASSERT_TRUE(Source);
 					auto& SourceUniform = Source->GetPrimitiveUniformBuffer(Primitive->BatchId);
 					ASSERT_TRUE(SourceUniform.Update(Commands, std::as_bytes(std::span(&Transform, 1))));
 					Input.PrimitiveUniform = SourceUniform.GetRange();

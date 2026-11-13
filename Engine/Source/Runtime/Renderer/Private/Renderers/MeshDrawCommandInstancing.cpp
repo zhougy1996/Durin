@@ -32,12 +32,8 @@ namespace Durin::RendererPrivate
 	{
 		if (!bFinalized || !Other.bFinalized || !Pipeline || !Other.Pipeline || IndirectArgs || Other.IndirectArgs
 			|| !Pipeline->VertexDeclaration || !Other.Pipeline->VertexDeclaration) return false;
-		return Pipeline->Pass == Other.Pipeline->Pass && Pipeline->Description == Other.Pipeline->Description
-			&& Pipeline->FactoryKey == Other.Pipeline->FactoryKey && Pipeline->LayoutKey == Other.Pipeline->LayoutKey
-			&& Pipeline->FragmentShader == Other.Pipeline->FragmentShader
-			&& Pipeline->VertexDeclaration->GetElements() == Other.Pipeline->VertexDeclaration->GetElements()
-			&& bool(Pipeline->ShaderMap) == bool(Other.Pipeline->ShaderMap)
-			&& (!Pipeline->ShaderMap || Pipeline->ShaderMap.GetPipelineLayout() == Other.Pipeline->ShaderMap.GetPipelineLayout())
+		const auto A = Pipeline->GetIdentity(), B = Other.Pipeline->GetIdentity();
+		return (A == B || *A == *B)
 			&& VertexStreams == Other.VertexStreams && IndexBuffer == Other.IndexBuffer && IndexBufferOffset == Other.IndexBufferOffset
 			&& GeometryWithoutInstanceOffset(*this) == GeometryWithoutInstanceOffset(Other)
 			&& VertexBindings == Other.VertexBindings && FragmentBindings == Other.FragmentBindings && DepthBias == Other.DepthBias;
@@ -128,8 +124,7 @@ namespace Durin::RendererPrivate
 				bContinue = Current.Command->MatchesForDynamicInstancing(*Previous.Command)
 					&& Current.SceneData.Buffers->SceneData == Previous.SceneData.Buffers->SceneData
 					&& Current.DepthBias == Previous.DepthBias && Current.Pass->Vertex == Previous.Pass->Vertex
-					&& Current.Pass->Fragment == Previous.Pass->Fragment
-					&& Current.bSupportsInstanceCulling == Previous.bSupportsInstanceCulling;
+					&& Current.Pass->Fragment == Previous.Pass->Fragment;
 			}
 			if (!bContinue) Runs.emplace_back();
 			Runs.back().push_back(Index);
@@ -143,12 +138,12 @@ namespace Durin::RendererPrivate
 		struct FPassRuns { FMeshPassKey Pass; FMeshCommandOneFrameArray Visible; };
 		std::vector<FPassRuns> Passes;
 		std::vector<uint32> Ids;
-		Resolved.MeshDrawCommandRuns.clear();
+		Resolved.DrawCommandSubmissions.clear();
 		for (const auto Pass : {EMeshPipelinePass::Forward, EMeshPipelinePass::HybridRetainedForward, EMeshPipelinePass::ShadowDepth, EMeshPipelinePass::GBuffer})
 		{
 			auto& Entry = Passes.emplace_back(FPassRuns{{Pass}, CollectMeshDrawCommands(Prepared, Resolved, {Pass}, false)});
-			auto& Runs = Resolved.MeshDrawCommandRuns[{Pass}];
-			Runs = BuildMeshDrawCommandRuns(Entry.Visible);
+			auto Runs = BuildMeshDrawCommandRuns(Entry.Visible);
+			Resolved.DrawCommandSubmissions[{Pass}] = std::make_shared<FMeshDrawCommandSubmission>(Runs, Entry.Visible.size());
 			for (const auto& Run : Runs) if (Run.size() > 1)
 				for (uint32 Index : Run) Ids.push_back(Entry.Visible[Index].SceneData.InstanceId);
 		}
@@ -158,11 +153,11 @@ namespace Durin::RendererPrivate
 		if (!Resolved.DynamicInstancingInstanceIds) return false;
 		uint32 Offset = 0;
 		for (const auto& Entry : Passes)
-		for (const auto& Run : Resolved.MeshDrawCommandRuns[Entry.Pass])
+		for (uint32 RunIndex = 0; RunIndex < Resolved.DrawCommandSubmissions[Entry.Pass]->Runs.size(); ++RunIndex)
 		{
+			const auto& Run = Resolved.DrawCommandSubmissions[Entry.Pass]->Runs[RunIndex].Draws;
 			if (Run.size() < 2) continue;
-			const uint32 GroupIndex = static_cast<uint32>(Resolved.DynamicInstancingGroups.size());
-			auto& Group = Resolved.DynamicInstancingGroups.emplace_back(); Group.Pass = Entry.Pass; Group.Draws = Run;
+
 			const auto& Leader = Entry.Visible[Run.front()];
 			auto Bindings = std::make_shared<FMeshPassBindings>(*Leader.Pass);
 			for (uint32 Index : Run)
@@ -171,7 +166,7 @@ namespace Durin::RendererPrivate
 				Visible.PrimitiveIdBufferOffset = Offset; Visible.NumInstances = static_cast<uint32>(Run.size());
 				Visible.bSkipDraw = Index != Run.front(); Visible.InstanceBuffer = Resolved.DynamicInstancingInstanceIds;
 				const auto Handle = Resolved.DrawCommandStorage->PublishVisible(Visible, Bindings);
-				Resolved.Draws[Index].DynamicInstancingCommands[Entry.Pass] = {GroupIndex, Handle};
+				Resolved.Draws[Index].DynamicInstancingCommands[Entry.Pass] = {RunIndex, Handle};
 			}
 			Offset += static_cast<uint32>(Run.size());
 		}

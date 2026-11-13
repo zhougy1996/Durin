@@ -324,7 +324,7 @@ scene record has no `LocalToClip` matrix. Camera movement and cascade
 selection therefore do not invalidate primitive uploads.
 
 The render-thread `FMeshDrawCommand` cache retains command memory and borrowed
-RHI binding values and canonical pipelines. Structural pipeline keys allow equivalent
+RHI binding values and canonical pipelines. Cached immutable pipeline identities allow equivalent
 source wrappers to expire. Scene-owned slots and command
 locations on `FPrimitiveSceneInfo`
 retire affected entries before replacing binding layouts. Same-layout material

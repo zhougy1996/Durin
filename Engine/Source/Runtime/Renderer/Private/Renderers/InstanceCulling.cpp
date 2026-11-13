@@ -183,18 +183,19 @@ namespace Durin
 	}
 	auto FInstanceCullingContext::SetupDrawCommands(std::span<const RendererPrivate::FVisibleMeshDrawCommand> VisibleMeshDrawCommands,
 		bool bRequested, bool bIndirectDrawSupported, size_t* OutOverflowCandidates, size_t MaximumGeneratedBytes,
-		FInstanceCullingAdmissionDiagnostics* OutDiagnostics, std::span<const RendererPrivate::FMeshDrawCommandRun> Runs) -> bool
+		FInstanceCullingAdmissionDiagnostics* OutDiagnostics, std::shared_ptr<RendererPrivate::FMeshDrawCommandSubmission> InSubmission) -> bool
 	{
 		require(!bBuilt);
-		Candidates.clear(); Arguments.clear(); InstanceSceneData = {}; DynamicContexts.clear(); bDispatched = false;
-		ArgumentByResolvedDraw.assign(VisibleMeshDrawCommands.size(), InvalidArgument);
+		Candidates.clear(); Arguments.clear(); InstanceSceneData = {}; DynamicContexts.clear();
+		Submission = InSubmission ? std::move(InSubmission) : std::make_shared<RendererPrivate::FMeshDrawCommandSubmission>(RendererPrivate::BuildMeshDrawCommandRuns(VisibleMeshDrawCommands), VisibleMeshDrawCommands.size());
+		Submission->bDispatched = false;
+		for (auto& Run : Submission->Runs) Run.ArgumentIndex = InvalidArgument;
 		SceneCapacityBytes = StandaloneSceneCapacityBytes = 0;
 		if (OutOverflowCandidates) *OutOverflowCandidates = 0;
 		FInstanceCullingAdmissionDiagnostics Diagnostics;
 		if (OutDiagnostics) *OutDiagnostics = {};
 		if (!bRequested || !bIndirectDrawSupported) return false;
-		const auto LocalRuns = Runs.empty() ? RendererPrivate::BuildMeshDrawCommandRuns(VisibleMeshDrawCommands) : std::vector<RendererPrivate::FMeshDrawCommandRun>{};
-		if (Runs.empty()) Runs = LocalRuns;
+
 		std::vector<bool> Admitted(VisibleMeshDrawCommands.size());
 		for (uint32 Index = 0; Index < VisibleMeshDrawCommands.size(); ++Index)
 		{
@@ -217,13 +218,14 @@ namespace Durin
 				auto& Capacity = Source.Buffers->bStandaloneScene ? StandaloneSceneCapacityBytes : SceneCapacityBytes;
 				for (const auto& Resource : Source.Buffers->SceneData) if (Resource) Capacity += Resource->GetSize();
 			}
-			if (Source.Buffers->DynamicContext && std::ranges::find(DynamicContexts, Source.Buffers->DynamicContext) == DynamicContexts.end())
-				DynamicContexts.push_back(Source.Buffers->DynamicContext);
+			if (Source.Buffers->PrimitiveCollector && std::ranges::find(DynamicContexts, Source.Buffers->PrimitiveCollector->GetDynamicContext()) == DynamicContexts.end())
+				DynamicContexts.push_back(Source.Buffers->PrimitiveCollector->GetDynamicContext());
 			Admitted[Index] = true;
 		}
 		constexpr size_t PerCandidateBytes = sizeof(FInstanceCullingCandidate) + sizeof(uint32);
-		for (const auto& Group : Runs)
+		for (auto& Run : Submission->Runs)
 		{
+			const auto& Group = Run.Draws;
 			if (std::ranges::any_of(Group, [&](uint32 Index) { return !Admitted[Index]; })) continue;
 			if (Group.size() < MinimumGroupCandidates) { Diagnostics.BelowThresholdCandidates += Group.size(); continue; }
 			const size_t RequiredBytes = Group.size() * PerCandidateBytes + sizeof(FRHIDrawIndexedIndirectArguments);
@@ -232,13 +234,13 @@ namespace Durin
 				|| RequiredBytes > std::min(MaximumGeneratedBytes, FInstanceCullingContext::MaximumGeneratedBytes) - CurrentBytes)
 			{ if (OutOverflowCandidates) *OutOverflowCandidates += Group.size(); continue; }
 			const uint32 ArgumentIndex = static_cast<uint32>(Arguments.size());
+			Run.ArgumentIndex = ArgumentIndex;
 			const auto Direct = std::get<FRHIDrawIndexedArguments>(VisibleMeshDrawCommands[Group.front()].Command->DrawParameters);
 			Arguments.push_back({.IndexCount = Direct.IndexCount, .InstanceCount = 0, .FirstIndex = Direct.FirstIndex,
 				.VertexOffset = Direct.VertexOffset, .FirstInstance = static_cast<uint32>(Candidates.size())});
 			for (size_t Index = 0; Index < Group.size(); ++Index)
 			{
 				const auto& Item = Group[Index];
-				ArgumentByResolvedDraw[Item] = Index == 0 ? ArgumentIndex : GroupedMember;
 				Candidates.push_back({VisibleMeshDrawCommands[Item].SceneData.InstanceId, ArgumentIndex});
 			}
 		}
@@ -327,8 +329,8 @@ namespace Durin
 					ShaderParameters, Failure
 				);
 				if (Dispatched) GPUCullingTiming.Commit();
-				Plan->bDispatched = Dispatched;
-				if (Plan->bDispatched)
+				Plan->Submission->bDispatched = Dispatched;
+				if (Plan->Submission->bDispatched)
 				{
 					++Telemetry.GPUCullingDispatchedViews;
 				}
@@ -341,15 +343,6 @@ namespace Durin
 			if (bAsyncCompute) Graph.SetPassAsyncComputeEligible(CullPass);
 		}
 		return Result;
-	}
-
-	auto FInstanceCullingContext::PrepareForSubmission(FResolvedStaticMeshView& Resolved) const -> void
-	{
-		for (auto& Group : Resolved.DynamicInstancingGroups)
-			if (Group.Pass == Pass)
-				Group.bEnabled = !bDispatched || std::ranges::none_of(Group.Draws, [&](uint32 Index) {
-					return GetArgumentIndex(Index) != InvalidArgument;
-				});
 	}
 
 	auto FInstanceCullingContext::SubmitDrawCommands(std::span<const RendererPrivate::FVisibleMeshDrawCommand> VisibleMeshDrawCommands,

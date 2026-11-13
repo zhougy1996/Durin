@@ -1,6 +1,7 @@
 #include "Renderers/SceneRenderPipeline.h"
 #include "Renderers/GPUSceneRendering.h"
 #include "GPUScene.h"
+#include "Renderers/RendererRDGAllocator.h"
 #include "Renderers/StaticMeshSectionResources.h"
 #include "Renderers/SceneRenderingService.h"
 #include "Renderers/SceneViewPreparation.h"
@@ -362,8 +363,25 @@ namespace Durin
 		const auto& PreparedView = *Context.Logical.PreparedView;
 		FResolvedSceneResources& ResolvedSceneResources = Context.Resolved.Scene;
 		if (!Context.Resolved.GPUSceneDynamicContext)
-			Context.Resolved.GPUSceneDynamicContext = std::make_shared<FGPUSceneDynamicContext>(
-				Context.Logical.Scene ? Context.Logical.Scene->GPUScene : CreateRenderResource<FGPUScene>());
+		{
+			auto Dynamic = std::make_shared<FGPUSceneDynamicContext>(Context.Logical.Scene ? Context.Logical.Scene->GPUScene : nullptr);
+			ResolvedSceneResources.Receiver.StaticMeshes.GPUScenePrimitives = Dynamic->CreatePrimitiveCollector()->Commit(PreparedView.Receiver.StaticMeshes);
+			if (ResolvedSceneResources.Receiver.StaticMeshes.GPUScenePrimitives.size() != PreparedView.Receiver.StaticMeshes.Primitives.size()) return ERenderViewResult::RendererResourcesUnavailable;
+			if (PreparedView.DirectionalShadow)
+			{
+				ResolvedSceneResources.DirectionalShadow.emplace();
+				for (uint32 Cascade = 0; Cascade < PreparedView.DirectionalShadow->View.CascadeCount; ++Cascade)
+				{
+					const auto& Prepared = PreparedView.DirectionalShadow->StaticMeshes[Cascade];
+					auto& Resolved = ResolvedSceneResources.DirectionalShadow->StaticMeshes[Cascade];
+					Resolved.GPUScenePrimitives = Dynamic->CreatePrimitiveCollector()->Commit(Prepared);
+					if (Resolved.GPUScenePrimitives.size() != Prepared.Primitives.size()) return ERenderViewResult::RendererResourcesUnavailable;
+				}
+			}
+			FRendererRDGAllocator UploadAllocator(Service.GetResourceCoordinator());
+			if (!Dynamic->Upload(CommandList, UploadAllocator)) return ERenderViewResult::RendererResourcesUnavailable;
+			Context.Resolved.GPUSceneDynamicContext = std::move(Dynamic);
+		}
 
 		FSceneRenderTelemetry& Telemetry = Context.Observation.Telemetry;
 		const FSceneView& View = PreparedView.View;
@@ -381,7 +399,6 @@ namespace Durin
 		if (bPrepareOnly && !GeometryResolution) return ERenderViewResult::RendererResourcesUnavailable;
 		if (PreparedView.DirectionalShadow)
 		{
-			ResolvedSceneResources.DirectionalShadow.emplace();
 			const bool bShadowReady = Service.DirectionalShadowRenderer.PrepareResources_RenderThread(CommandList, Context.Logical.Scene,
 				Service.StaticMeshRenderer, *PreparedView.DirectionalShadow, *ResolvedSceneResources.DirectionalShadow,
 				Telemetry.View, &SectionResources, !bPrepareOnly, false, Context.Resolved.GPUSceneDynamicContext);

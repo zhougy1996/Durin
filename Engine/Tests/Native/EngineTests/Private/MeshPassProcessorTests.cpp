@@ -302,13 +302,9 @@ TEST(FRendererSceneContractTests, GBufferGPUCullingPlanIsOptInAndPreservesIndexe
 	EXPECT_EQ(Plan->Arguments[0].InstanceCount, 0u);
 	EXPECT_EQ(Plan->Arguments[0].FirstIndex, 7u);
 	EXPECT_EQ(Plan->Arguments[0].VertexOffset, -2);
-	ASSERT_EQ(Plan->ArgumentByResolvedDraw.size(),
-		FInstanceCullingContext::MinimumGroupCandidates);
-	EXPECT_EQ(Plan->ArgumentByResolvedDraw.front(), 0u);
-	EXPECT_TRUE(std::all_of(Plan->ArgumentByResolvedDraw.begin() + 1,
-		Plan->ArgumentByResolvedDraw.end(), [](uint32 Value) {
-			return Value == FInstanceCullingContext::GroupedMember;
-		}));
+	ASSERT_EQ(Plan->Submission->RunByDraw.size(), FInstanceCullingContext::MinimumGroupCandidates);
+	ASSERT_EQ(Plan->Submission->Runs.size(), 1u);
+	EXPECT_EQ(Plan->Submission->Runs[0].ArgumentIndex, 0u);
     EXPECT_EQ(Plan->Candidates[0].InstanceId, 0u);
     EXPECT_EQ(Plan->Candidates[0].ArgumentIndex, 0u);
     EXPECT_EQ(Plan->Candidates.back().InstanceId, 63u);
@@ -329,7 +325,7 @@ TEST(FRendererSceneContractTests, GBufferGPUCullingPlanIsOptInAndPreservesIndexe
         auto Context = Manager.CreateContext(Manager.RegisterView(View), Pipeline->GetPassKey());
         const auto Runs = RendererPrivate::BuildMeshDrawCommandRuns(Visible);
         ASSERT_EQ(Runs.size(), 1u); EXPECT_EQ(Runs.front().size(), 64u);
-        EXPECT_TRUE(Context->SetupDrawCommands(Visible, true, true, nullptr, FInstanceCullingContext::MaximumGeneratedBytes, nullptr, Runs));
+        EXPECT_TRUE(Context->SetupDrawCommands(Visible, true, true, nullptr, FInstanceCullingContext::MaximumGeneratedBytes, nullptr, std::make_shared<RendererPrivate::FMeshDrawCommandSubmission>(Runs, Visible.size())));
         EXPECT_EQ(Context->Arguments.size(), 1u); EXPECT_EQ(Context->Candidates.size(), 64u);
         Visible[32].DepthBias[0] = 1.f;
         EXPECT_FALSE(Context->SetupDrawCommands(Visible, true, true)); EXPECT_TRUE(Context->Candidates.empty());
@@ -337,13 +333,16 @@ TEST(FRendererSceneContractTests, GBufferGPUCullingPlanIsOptInAndPreservesIndexe
         EXPECT_FALSE(Context->SetupDrawCommands(Visible, true, true));
         Bindings[32].Fragment.Shader = nullptr;
         Visible.push_back(Visible.back()); Visible.back().bSupportsInstanceCulling = false;
+        EXPECT_FALSE(Context->SetupDrawCommands(Visible, true, true));
+        Visible.pop_back();
         EXPECT_TRUE(Context->SetupDrawCommands(Visible, true, true));
-        FResolvedStaticMeshView Partition;
-        Partition.DynamicInstancingGroups.push_back({Pipeline->GetPassKey(), {0, 64}, true});
-        Context->bDispatched = true; Context->PrepareForSubmission(Partition);
-        EXPECT_FALSE(Partition.DynamicInstancingGroups[0].bEnabled);
-        Context->bDispatched = false; Context->PrepareForSubmission(Partition);
-        EXPECT_TRUE(Partition.DynamicInstancingGroups[0].bEnabled);
+        Context->Submission->bDispatched = true;
+        EXPECT_TRUE(Context->Submission->IsGPUSelected(0));
+        EXPECT_EQ(Context->GetArgumentIndex(0), 0u);
+        EXPECT_EQ(Context->GetArgumentIndex(1), FInstanceCullingContext::GroupedMember);
+        Context->Submission->bDispatched = false;
+        EXPECT_FALSE(Context->Submission->IsGPUSelected(0));
+        EXPECT_EQ(Context->GetArgumentIndex(0), FInstanceCullingContext::InvalidArgument);
     }
     constexpr size_t PerCandidateBytes = sizeof(FInstanceCullingCandidate) + sizeof(uint32);
 	const size_t ExactBudget = Plan->Candidates.size() * PerCandidateBytes + sizeof(FRHIDrawIndexedIndirectArguments);

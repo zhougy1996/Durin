@@ -45,11 +45,15 @@ namespace Durin::RendererPrivate
 				&& A.ArrayElement == B.ArrayElement && A.Type == B.Type && A.Offset == B.Offset && A.Size == B.Size && A.ResourceIndex == B.ResourceIndex;
 		});
 	}
-	auto FMeshPassPipeline::GetIdentity() const -> FMeshPipelineIdentity
+	auto FMeshPassPipeline::GetIdentity() const -> std::shared_ptr<const FMeshPipelineIdentity>
 	{
-		return {Description, Pass, FactoryKey, LayoutKey, VertexShader ? VertexShader->GetRHIShader(false) : nullptr,
+		auto Cached = Identity.load(std::memory_order_acquire);
+		if (Cached) return Cached;
+		auto Candidate = std::make_shared<const FMeshPipelineIdentity>(FMeshPipelineIdentity{
+			Description, Pass, FactoryKey, LayoutKey, VertexShader ? VertexShader->GetRHIShader(false) : nullptr,
 			FragmentShader, VertexDeclaration ? VertexDeclaration->GetElements() : FVertexDeclarationElementList{},
-			ShaderMap ? ShaderMap.GetPipelineLayout() : FPipelineLayoutDesc{}, VertexFactoryPass, bool(ShaderMap)};
+			ShaderMap ? ShaderMap.GetPipelineLayout() : FPipelineLayoutDesc{}, VertexFactoryPass, bool(ShaderMap)});
+		return Identity.compare_exchange_strong(Cached, Candidate) ? Candidate : Cached;
 	}
 	auto FCachedMeshDrawCommandStorage::MakeKey(const FMeshDrawDescription* Description, FPrimitiveComponentId PrimitiveId,
 		uint64 BatchId, const FMeshPassPipeline& Pipeline, const FRHIResource* MaterialUniform) -> FKey
@@ -104,7 +108,7 @@ namespace Durin::RendererPrivate
 		const auto Found = Owner.StaticMeshCommandInfos.find(Key.Mesh);
 		if (Found == Owner.StaticMeshCommandInfos.end()) return nullptr;
 		const auto& Entry = Entries[Found->second->CommandIndex];
-		return Entry && Entry->Bindings == Key.Bindings && Entry->Pipeline == Key.Pipeline ? Entry.get() : nullptr;
+		return Entry && Entry->Bindings == Key.Bindings && (Entry->Pipeline == Key.Pipeline || *Entry->Pipeline == *Key.Pipeline) ? Entry.get() : nullptr;
 	}
 	auto FCachedMeshDrawCommandStorage::Find(const FKey& Key, const FPrimitiveSceneInfo& Owner,
 		FResolvedStaticMeshView::FMaterialUniform* Material, const FVertexFactoryInputBinding* Input) const -> std::shared_ptr<const FMeshDrawCommand>
@@ -234,7 +238,7 @@ namespace Durin::RendererPrivate
 	}
 	auto FCachedPassMeshDrawListContext::FinalizeCommand() -> void
 	{
-		const auto Owner = Input.Primitive.SceneInfo.lock(); require(Owner);
+		const auto Owner = Input.Primitive.SceneInfo.Resolve(); require(Owner);
 		Output = Storage.Publish(FCachedMeshDrawCommandStorage::MakeKey(Input.Draw.Command.get(), Input.Primitive.PrimitiveId,
 			Input.Primitive.BatchId, *Input.Pipeline, Input.Material.Uniform.Buffer), TakeCommand(Pass), *Owner, Input.Primitive.CollectedBinding.get(), Input.Material, Input.Pipeline);
 	}
@@ -549,6 +553,7 @@ namespace Durin::RendererPrivate
 		Candidate.Pass = GetPass();
 		Candidate.PipelineState = FRenderPipelineRequestScope::Graphics(Name, Initializer);
 		if (!Candidate.PipelineState) return FShaderCompletion::Failure("Mesh pass pipeline creation failed.");
+		(void)Candidate.GetIdentity();
 		Out = std::move(Candidate);
 		return FShaderCompletion{};
 	}
@@ -744,7 +749,7 @@ namespace Durin
 		if (!DrawCommandStorage || Draw.ResolvedIndex >= Draws.size()) return nullptr;
 		const auto& Record = Draws[Draw.ResolvedIndex];
 		if (const auto Instanced = Record.DynamicInstancingCommands.find(Pass); bAllowDynamicInstancing && Instanced != Record.DynamicInstancingCommands.end()
-			&& DynamicInstancingGroups[Instanced->second.first].bEnabled)
+			&& !DrawCommandSubmissions.at(Pass)->IsGPUSelected(Instanced->second.first))
 			return DrawCommandStorage->GetVisible(Instanced->second.second);
 		const auto Found = Draws[Draw.ResolvedIndex].VisibleCommands.find(Pass);
 		return Found == Draws[Draw.ResolvedIndex].VisibleCommands.end() ? nullptr : DrawCommandStorage->GetVisible(Found->second);

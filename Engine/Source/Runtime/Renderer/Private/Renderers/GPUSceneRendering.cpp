@@ -31,7 +31,7 @@ namespace Durin
 		return {Range(SceneData[0]), Range(SceneData[1]), Range(SceneData[2]), Range(InstanceIds)};
 	}
 
-	FGPUSceneDynamicContext::FGPUSceneDynamicContext(std::shared_ptr<FGPUScene> InGPUScene) : GPUScene(std::move(InGPUScene)) { require(GPUScene); }
+	FGPUSceneDynamicContext::FGPUSceneDynamicContext(std::shared_ptr<FGPUScene> InGPUScene) : GPUScene(InGPUScene ? InGPUScene : CreateRenderResource<FGPUScene>()), bStandaloneScene(!InGPUScene) {}
 	FGPUSceneDynamicContext::~FGPUSceneDynamicContext()
 	{
 		if (Allocations.empty()) return;
@@ -41,8 +41,7 @@ namespace Durin
 		});
 	}
 	auto FGPUSceneDynamicContext::RegisterGraphUse(const FRDGBuilder& Graph) -> void { GPUScene->RegisterGraphUse(Graph); }
-	auto FGPUSceneDynamicContext::Prepare(FRHICommandListImmediate& Commands, FRDGAllocator& Allocator,
-		const FPreparedStaticMeshView& Prepared, FGPUScene* Scene, std::shared_ptr<FGPUSceneDynamicContext> Context) -> std::vector<FGPUScenePrimitiveData>
+	auto FGPUSceneDynamicContext::CommitPrimitiveCollector(FGPUScenePrimitiveCollector& Collector, const FPreparedStaticMeshView& Prepared) -> std::vector<FGPUScenePrimitiveData>
 	{
 		CheckRenderingThread();
 		std::vector<FGPUScenePrimitiveData> Result(Prepared.Primitives.size());
@@ -57,75 +56,85 @@ namespace Durin
 			if (Factory && Factory->SupportsGPUScene()) Supported[Draw.PrimitiveIndex] = true;
 		}
 		if (std::ranges::none_of(Supported, [](bool Value) { return Value; })) return Result;
-		auto Resource = Context ? Context->GPUScene : Scene ? Scene->weak_from_this().lock() : CreateRenderResource<FGPUScene>();
-		if (Scene && Resource.get() != Scene) return {};
-		if (!Resource) return {};
-		if (!Context) Context = std::make_shared<FGPUSceneDynamicContext>(Resource);
-		auto Commit = [&] {
-			if (!Resource->IsDirty()) return true;
-			FRDGBuilder UploadGraph;
-			auto Upload = Resource->Update(UploadGraph);
-			const auto Executed = UploadGraph.Execute(Commands, &Allocator);
-			return Resource->CompleteUpdate(UploadGraph, Upload) && bool(Executed);
-		};
-		// Persistent stable-ID lookup needs the committed membership mirror.
-		if (Scene && !Commit()) return {};
-		std::map<uint32, FDynamicPrimitiveKey> Keys;
-		std::map<FDynamicPrimitiveKey, uint32> NewRecords;
+		GPUScene->UpdateCPUData();
+		std::vector<std::shared_ptr<const FGPUSceneDynamicPrimitiveData>> Records(Result.size());
+		std::vector<std::shared_ptr<const FGPUSceneDynamicPrimitiveData>> NewRecords;
+		std::set<std::shared_ptr<const FGPUSceneDynamicPrimitiveData>, std::owner_less<std::shared_ptr<const FGPUSceneDynamicPrimitiveData>>> NewIdentities;
 		for (uint32 Index = 0; Index < Result.size(); ++Index)
 		{
 			const auto& Primitive = Prepared.Primitives[Index];
-			if (!Supported[Index] || (Scene && Primitive.PrimitiveIdMode == EPrimitiveIdMode::PrimID_FromPrimitiveSceneInfo)) continue;
-			// Normalize allocation-dependent indices; compare exactly the transported facts.
-			const auto Parameters = FPrimitiveUniformShaderParametersBuilder().LocalToWorld(Primitive.LocalToWorld)
-				.WorldBounds(Primitive.WorldBounds).CustomPrimitiveData(Primitive.CustomPrimitiveData).InstanceSceneData(0, 1).Build();
-			FInstanceSceneShaderData Instance;
-			if (!Parameters || !Primitive.CustomInstanceData.IsValid()
-				|| !Instance.Build(0, 0, 0, {}, Primitive.LocalToWorld, Primitive.WorldBounds)) return {};
-			const FPrimitiveSceneShaderData Packed(*Parameters);
-			auto& Key = Keys[Index];
-			std::memcpy(Key.data(), &Packed, sizeof(Packed));
-			std::memcpy(Key.data() + sizeof(Packed), &Instance, sizeof(Instance));
-			std::memcpy(Key.data() + sizeof(Packed) + sizeof(Instance), &Primitive.CustomInstanceData, sizeof(Primitive.CustomInstanceData));
-			if (!Context->DynamicInstances.contains(Key)) NewRecords.try_emplace(Key, Index);
+			if (!Supported[Index] || (!bStandaloneScene && Primitive.PrimitiveIdMode == EPrimitiveIdMode::PrimID_FromPrimitiveSceneInfo)) continue;
+			auto Record = Primitive.DynamicPrimitiveData;
+			if (!Record) Record = std::make_shared<FGPUSceneDynamicPrimitiveData>(FGPUSceneDynamicPrimitiveData{
+				Primitive.LocalToWorld, Primitive.WorldBounds, Primitive.CustomPrimitiveData, Primitive.CustomInstanceData});
+			Records[Index] = Record;
+			if (!DynamicInstances.contains(Record) && NewIdentities.insert(Record).second) NewRecords.push_back(Record);
 		}
-		const auto Allocation = Resource->AllocateDynamicPrimitiveRange(static_cast<uint32>(NewRecords.size()));
-		if (Allocation.Count) Context->Allocations.push_back(Allocation);
-		uint32 DynamicIndex = 0;
-		for (const auto& [Key, Index] : NewRecords)
+		const auto Allocation = GPUScene->AllocateDynamicPrimitiveRange(static_cast<uint32>(NewRecords.size()));
+		if (Allocation.Count) Allocations.push_back(Allocation);
+		for (uint32 Index = 0; Index < NewRecords.size(); ++Index)
 		{
-			const auto& Primitive = Prepared.Primitives[Index];
-			if (!Resource->WriteDynamicPrimitive(Allocation, DynamicIndex, Primitive.LocalToWorld, Primitive.WorldBounds,
-				Primitive.CustomPrimitiveData, Primitive.CustomInstanceData)) return {};
-			Context->DynamicInstances.emplace(Key, Allocation.InstanceOffset + DynamicIndex++);
+			const auto& Record = NewRecords[Index];
+			if (!GPUScene->WriteDynamicPrimitive(Allocation, Index, Record->LocalToWorld, Record->WorldBounds,
+				Record->CustomPrimitiveData, Record->CustomInstanceData)) return {};
+			DynamicInstances.emplace(Record, Allocation.InstanceOffset + Index);
 		}
 
-		auto Buffers = std::make_shared<FGPUSceneBufferSet>(); Buffers->DynamicContext = Context; Buffers->bStandaloneScene = !Scene;
+		auto Buffers = std::make_shared<FGPUSceneBufferSet>(); Buffers->PrimitiveCollector = Collector.shared_from_this(); Buffers->bStandaloneScene = bStandaloneScene;
 		std::vector<uint32> Ids;
 		for (uint32 Index = 0; Index < Result.size(); ++Index)
 		{
 			if (!Supported[Index]) continue;
 			const auto& Primitive = Prepared.Primitives[Index];
 			uint32 InstanceId;
-			if (Scene && Primitive.PrimitiveIdMode == EPrimitiveIdMode::PrimID_FromPrimitiveSceneInfo)
+			if (!bStandaloneScene && Primitive.PrimitiveIdMode == EPrimitiveIdMode::PrimID_FromPrimitiveSceneInfo)
 			{
-				const auto Existing = Resource->FindInstanceId(Primitive.PersistentPrimitiveIndex, Primitive.InstanceSceneDataId);
+				const auto Existing = GPUScene->FindInstanceId(Primitive.PersistentPrimitiveIndex, Primitive.InstanceSceneDataId);
 				if (!Existing) return {};
 				InstanceId = *Existing;
 			}
 			else
 			{
-				InstanceId = Context->DynamicInstances.at(Keys[Index]);
+				InstanceId = DynamicInstances.at(Records[Index]);
 			}
 			if (uint64(Ids.size()) + Counts[Index] > UINT32_MAX / sizeof(uint32)) return {};
 			Result[Index] = {Buffers, InstanceId, static_cast<uint32>(Ids.size())};
 			Ids.insert(Ids.end(), Counts[Index], InstanceId);
 		}
-		if (!Commit()) return {};
-		Buffers->SceneData = Resource->GetResourceBuffers();
-		Buffers->InstanceIds = UploadInstanceIds(Commands, Ids);
-		if (!Buffers->InstanceIds) return {};
+		Collector.Buffers = Buffers; Collector.InstanceIds = std::move(Ids);
+		PendingCollectors.push_back(Collector.shared_from_this());
 		return Result;
+	}
+	auto FGPUScenePrimitiveCollector::Commit(const FPreparedStaticMeshView& Prepared) -> std::vector<FGPUScenePrimitiveData>
+	{
+		require(!bCommitted && Context); bCommitted = true;
+		return Context->CommitPrimitiveCollector(*this, Prepared);
+	}
+	auto FGPUSceneDynamicContext::Upload(FRHICommandListImmediate& Commands, FRDGAllocator& Allocator) -> bool
+	{
+		CheckRenderingThread();
+		if (PendingCollectors.empty()) return true;
+		if (GPUScene->IsDirty())
+		{
+			FRDGBuilder Graph;
+			const auto Update = GPUScene->Update(Graph);
+			const auto Executed = Graph.Execute(Commands, &Allocator);
+			if (!GPUScene->CompleteUpdate(Graph, Update) || !Executed) return false;
+		}
+		for (const auto& Weak : PendingCollectors) if (const auto View = Weak.lock()) if (const auto Buffers = View->Buffers.lock())
+		{
+			Buffers->SceneData = GPUScene->GetResourceBuffers();
+			Buffers->InstanceIds = UploadInstanceIds(Commands, View->InstanceIds);
+			if (!Buffers->InstanceIds) return false;
+		}
+		PendingCollectors.clear();
+		return true;
+	}
+	auto FGPUSceneDynamicContext::Prepare(FRHICommandListImmediate& Commands, FRDGAllocator& Allocator,
+		const FPreparedStaticMeshView& Prepared) -> std::vector<FGPUScenePrimitiveData>
+	{
+		auto Result = CreatePrimitiveCollector()->Commit(Prepared);
+		return Result.size() == Prepared.Primitives.size() && Upload(Commands, Allocator) ? Result : std::vector<FGPUScenePrimitiveData>{};
 	}
 
 	auto FGPUSceneReadParameters::GetRDGParametersMetadata() -> const FRDGParametersMetadata*

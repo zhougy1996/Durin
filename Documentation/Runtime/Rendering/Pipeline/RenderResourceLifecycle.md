@@ -93,6 +93,10 @@ invalidation. `FPrimitiveSceneInfo` keeps slot locations and optional fallback
 uniforms without another render-resource wrapper. Primitive updates retire their
 own entries before replacing
 sources; retained entry memory does not authorize another submission.
+Scene membership exclusively owns SceneInfo. Frame references resolve its persistent
+index/generation on the render thread and cannot extend its lifetime. Dynamic
+collectors retain immutable upload records and GPUScene leases independently;
+they never retain SceneInfo storage.
 
 Renderer device-resource release retires preparations and clears command metadata,
 then releases registered scene cache storages, material proxies and uniform resources.

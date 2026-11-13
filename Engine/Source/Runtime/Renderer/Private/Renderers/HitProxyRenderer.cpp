@@ -179,7 +179,7 @@ namespace Durin
 		const auto ViewUniform = PrepareMeshViewUniform(Commands, View, false);
 		FResolvedStaticMeshView SceneData;
 		FRendererRDGAllocator UploadAllocator(Coordinator);
-		SceneData.GPUScenePrimitives = FGPUSceneDynamicContext::Prepare(Commands, UploadAllocator, Prepared);
+		SceneData.GPUScenePrimitives = std::make_shared<FGPUSceneDynamicContext>()->Prepare(Commands, UploadAllocator, Prepared);
 		if (SceneData.GPUScenePrimitives.size() != Prepared.Primitives.size()) return {};
 		std::vector<FHitProxyDraw> Draws;
 		bool bReady = true;

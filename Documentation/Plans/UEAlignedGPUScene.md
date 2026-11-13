@@ -26,6 +26,9 @@ candidate sizes, dual-domain dispatch and capacity figures below describe earlie
 Stage 8 is implemented and validated: shared CPU/GPU ordered runs, submission-scoped dynamic context
 reuse and structural pipeline lookup identity. Its final-input receipt follows;
 source pipeline retention described in Stage 7 is superseded by canonical-only retention.
+Stage 9 is implemented and validated: consolidated submission selection, explicit collector records and one
+attribute upload phase, cached pipeline identity and scene-owned SceneInfo.
+Its rules supersede Stage 8's packed-byte record identity and shared SceneInfo lifetime.
 Default culling policy is unchanged. No timing speedup is claimed.
 Implemented rules live in [GPUScene storage and submission](../Runtime/Rendering/Scene/GPUScene.md).
 
@@ -1019,6 +1022,89 @@ No new timing samples were collected. The dynamic fact cache and value-based
 lookup add CPU bookkeeping, so structural cleanup alone makes no performance
 claim. Default culling policy is unchanged. Metal, native independent queues and
 exclusive quiet Release timing remain Stage 5 follow-ups.
+
+### Stage 9: Consolidate submission and collector contracts
+
+The user authorized further UE-aligned semantics in review order. Keep one
+submission selection state, use explicit collector records instead of packed-byte
+identity, stage all views before attribute upload, cache immutable pipeline
+identity, and make primitive membership scene-owned with generation-checked borrows.
+
+- [x] Share one run/selection table between CPU and GPU submission; remove copied
+  CPU group members, post-dispatch enable mutation and GPU eligibility in CPU equality.
+- [x] Introduce explicit collector record identity and collection/upload/binding
+  phases; use context as the sole allocation-domain authority, with one attribute
+  upload after receiver/cascade collection and independent standalone requests.
+- [x] Cache canonical pipeline identity and use the same pipeline equality for
+  command sharing and cache lookup.
+- [x] Make SceneInfo scene-owned; resolve frame source references through persistent
+  generation identity, without retaining removed SceneInfo or inferring lifetime
+  from shared ownership. Unpublished sources use dynamic collector records.
+- [x] Validate fallback, cancellation, record identity, shared-view growth, cache
+  invalidation and source removal. Run owning and consumer coverage, inline Vulkan,
+  Release correctness and workspace all integration for the changed frame APIs.
+  Stage 5 Metal, independent physical queues and quiet Release timing stay open.
+
+### Stage 9 validation receipt
+
+Inputs are base `348de52f3` plus the source/fixture hashes in
+`Build/Qualification/UEAlignedGPUSceneStage9Inputs.json` (including the new shared
+submission header). The inventory also hashes local UE 5.8.2, CL 56702186 references:
+dynamic-context/collector upload ownership, collector commit and upload state,
+PrimitiveSceneInfo cache removal, and minimal pipeline identity.
+
+One shared submission table now owns ordered run members, draw-to-run lookup,
+argument selection and dispatch outcome. Copied CPU groups, argument-per-draw
+selection and `PrepareForSubmission` repair are removed. GPU-only eligibility
+does not split CPU-compatible runs; a run with an ineligible member stays on CPU.
+Fallback remains complete when GPU admission/dispatch fails.
+
+`FGPUScenePrimitiveCollector::Commit` accepts logical records and reserves CPU
+mirror ranges without native upload. Identity is explicit and immutable: shared
+records reuse allocation, while distinct equal-valued records remain distinct.
+Packed-byte keys and duplicate identity packing are removed. Receiver/cascade
+collectors commit before one attribute upload, then consume the same final buffer
+generation during binding. Context is the sole allocation-domain authority.
+Standalone requests use a context plus commit/upload convenience entrypoint.
+
+Pipeline snapshots cache immutable identity and both command sharing and cache
+lookup use it. Cached entries retain a cheap identity reference; canonical buckets
+retain the pipeline. Copies start a fresh snapshot; published snapshots stay
+immutable. Scene uniquely owns SceneInfo and frame references resolve membership
+by persistent index/generation. SceneInfo shared ownership, `bDetached` and inferred
+`bSourceBound` are removed. The render thread freezes source availability together
+with each primitive's batch facts before worker tasks start; workers do not resolve
+SceneInfo. Removal and slot reuse cannot revive a prior membership reference.
+
+`test affected --explain` includes unrelated material/editor feature suites through
+the Renderer label. The bounded selection covers owning grouping/collector/cache,
+shader, recovery and scene routes plus Editor, Sandbox and RoadWeaver consumers.
+The explicit workspace `all` gate covers remaining compilation consumers of the
+changed SceneInfo and frame headers. Profile: `windows-msvc-x64`, default
+`Win64-Debug-DurinEditor`, application-hosted tests off, native Vulkan validation on.
+Builds use the established sandbox-external MSVC PDB-service workaround.
+
+| Selection | Result and log under `Build/.agent-state/logs/` |
+| --- | --- |
+| `RendererSceneContractTests` | 164/164. Final declaring headers confirmed by `20261113-132418-858646-20472-RendererSceneContractTests.log`. Covers shared selection/fallback, explicit same-value record separation, staged growth and common final buffers, pipeline identity cache and generation-checked scene removal/reuse. |
+| `RenderShaderContractTests` | 72/72. `20261113-132138-447854-11164-RenderShaderContractTests.log`. |
+| `StaticMeshRenderPreparationVulkanTests` | 21/21. Direct/CPU/GPU, GBuffer/shadow, exact scene readbacks, shared scene routes and immutable parallel preparation. `20261113-132158-159591-10892-StaticMeshRenderPreparationVulkanTests.log`. |
+| Recovery and scene routes | 2/2 and 1/1. `20261113-132210-491431-12060-RendererResourceReloadVulkanTests.log`, `20261113-132220-591871-4936-VolumetricCloudSceneVulkanTests.log`. |
+| Project consumers | Sandbox 13/13, RoadWeaver 5/5, Editor rendering 91/91. `20261113-132227-226646-29136-SandboxGameplayTests.log`, `20261113-132228-958520-28692-RoadSceneIntegrationTests.log`, `20261113-132238-889655-26684-EditorRenderingTests.log`. |
+| Vulkan inline recording | Same native targets pass 21/21, 1/1 and 2/2 with `DURIN_RHI_EXECUTION=inline`. `20261113-132435-677482-27692-StaticMeshRenderPreparationVulkanTests.log`, `20261113-132453-553242-6076-VolumetricCloudSceneVulkanTests.log`, `20261113-132503-949627-6564-RendererResourceReloadVulkanTests.log`. |
+| Workspace `build all` | Passed. `20261113-132506-062751-6708-cmake.log`. |
+| Release correctness | 1/1 numeric/custom-data direct/CPU/GPU case, validation on, `Win64-Release-DurinEditor`, Tracy off. `20261113-132702-169224-8908-StaticMeshRenderPreparationVulkanTests.log`; XML `Build/Qualification/UEAlignedGPUSceneStage9Release.xml`. Correctness only. |
+
+The final follow-up changes after the broad regression are direct declaring-header
+includes and whitespace only; owning contracts and inline native coverage recompile
+those headers, and all builds remaining consumers. Preceding behavioral receipts
+remain applicable. No shader ABI or cooked inputs changed in this stage.
+
+Remaining deliberate differences: Durin executes one dedicated attribute upload
+graph before native binding construction, uses cached structural pipeline identity
+instead of UE's global packed-ID table, and retains completion-based range leases
+for standalone and failed-graph recovery. No performance result is claimed. Metal,
+independent physical queues and exclusive quiet Release timing remain Stage 5 gates.
 
 ## Validation and Completion Gates
 

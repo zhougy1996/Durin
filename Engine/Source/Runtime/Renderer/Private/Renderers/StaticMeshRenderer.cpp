@@ -85,7 +85,7 @@ namespace Durin
 			: Pipeline.Pass == EMeshPipelinePass::GBuffer ? ESurfaceMaterialPass::GBuffer : ESurfaceMaterialPass::Forward; }
 		auto IsCacheable(const FPreparedStaticMeshDraw& Draw, const FPreparedStaticMeshPrimitive& Primitive) const -> bool
 		{
-			return bPersistentDraws && !Primitive.SceneInfo.expired() && Primitive.GeometryRecord && Primitive.VertexDomain == EVertexDeformationDomain::Local;
+			return bPersistentDraws && Primitive.SceneInfo.Resolve() && Primitive.GeometryRecord && Primitive.VertexDomain == EVertexDeformationDomain::Local;
 		}
 
 		using FShaderMapPayload = FMeshPassShaders;
@@ -432,14 +432,7 @@ namespace Durin
 		ResolvedView.CachedDrawLists = nullptr;
 		if (Scene)
 		{
-			if (Scene->GPUScene->IsDirty())
-			{
-				FRDGBuilder UploadGraph;
-				auto Upload = Scene->GPUScene->Update(UploadGraph);
-				FRendererRDGAllocator UploadAllocator(Coordinator);
-				const auto Executed = UploadGraph.Execute(CommandList, &UploadAllocator);
-				if (!Scene->GPUScene->CompleteUpdate(UploadGraph, Upload) || !Executed) return false;
-			}
+			Scene->GPUScene->UpdateCPUData();
 			ResolvedView.GPUScene = Scene->GPUScene.get();
 			Scene->UpdateStaticMeshes();
 			if (!Scene->CachedDrawLists) Scene->CachedDrawLists = std::make_shared<FCachedMeshDrawCommandStorage>();
@@ -548,7 +541,7 @@ namespace Durin
 			{
 				if (!Pipeline) continue;
 				Any = true;
-				const auto Owner = Primitive->SceneInfo.lock(); if (!Owner) { AllHit = false; continue; }
+				const auto Owner = Primitive->SceneInfo.Resolve(); if (!Owner) { AllHit = false; continue; }
 				ResolvedView.CachedDrawLists->Attach(*Owner);
 				const auto Pass = FState::MaterialPass(*Pipeline);
 				auto& Material = ResolvedView.MaterialUniforms[Draw.MaterialUniformIndex][Pass];
@@ -587,9 +580,9 @@ namespace Durin
 			const auto& Primitive = PreparedView.Primitives[Index];
 			const auto Uniform = BuildFallbackPrimitiveUniform(Primitive);
 			FRHIUniformBufferRange Range;
-			if (State->bPersistentDraws && !Primitive.SceneInfo.expired())
+			if (State->bPersistentDraws && Primitive.SceneInfo.Resolve())
 			{
-				auto& Buffer = Primitive.SceneInfo.lock()->GetPrimitiveUniformBuffer(Primitive.BatchId);
+				auto& Buffer = Primitive.SceneInfo.Resolve()->GetPrimitiveUniformBuffer(Primitive.BatchId);
 				const bool Changed = !std::ranges::equal(Buffer.GetData(), std::as_bytes(std::span(&Uniform, 1)));
 				if (Buffer.Update(CommandList, std::as_bytes(std::span(&Uniform, 1))))
 				{
@@ -670,10 +663,11 @@ namespace Durin
 		check(IsInRenderingThread());
 		ResolvedView.DrawCommandStorage = std::make_shared<FDynamicMeshDrawCommandStorage>();
 		FRendererRDGAllocator UploadAllocator(Coordinator);
-		ResolvedView.GPUScenePrimitives = FGPUSceneDynamicContext::Prepare(CommandList, UploadAllocator, PreparedView, ResolvedView.GPUScene, std::move(DynamicContext));
+		if (!DynamicContext)
+			ResolvedView.GPUScenePrimitives = std::make_shared<FGPUSceneDynamicContext>(ResolvedView.GPUScene ? ResolvedView.GPUScene->shared_from_this() : nullptr)->Prepare(CommandList, UploadAllocator, PreparedView);
 		if (ResolvedView.GPUScenePrimitives.size() != PreparedView.Primitives.size()) return false;
 		for (auto& Record : ResolvedView.Draws) { Record.Commands.clear(); Record.VisibleCommands.clear(); Record.DynamicInstancingCommands.clear(); }
-		ResolvedView.MeshDrawCommandRuns.clear(); ResolvedView.DynamicInstancingGroups.clear(); ResolvedView.DynamicInstancingInstanceIds = {};
+		ResolvedView.DrawCommandSubmissions.clear(); ResolvedView.DynamicInstancingInstanceIds = {};
 		FMeshDrawCommandBindingCache BindingCache;
 		bool AllReady = true;
 		for (uint32 Index = 0; Index < PreparedView.GetNumSections(); ++Index)
@@ -732,7 +726,7 @@ namespace Durin
 						{
 							const auto Bias = bShadow && Draw.RasterBias ? *Draw.RasterBias : Cached->DepthBias;
 							const auto Info = ResolvedView.CachedDrawLists->FindInfo(FCachedMeshDrawCommandStorage::MakeKey(Draw.Command.get(), Primitive->PrimitiveId,
-								Primitive->BatchId, *Pipeline, Material->Uniform.Buffer), *Primitive->SceneInfo.lock());
+								Primitive->BatchId, *Pipeline, Material->Uniform.Buffer), *Primitive->SceneInfo.Resolve());
 							Record.VisibleCommands[PassKey] = ResolvedView.DrawCommandStorage->PublishVisible(Cached, Info, Group->second, Bias, Input.InstanceIdOffset);
 						}
 					}
@@ -886,7 +880,6 @@ namespace Durin
         std::optional<FInstanceCullingContext> Direct;
         if (!InstanceCulling) Direct.emplace(std::make_shared<const FInstanceCullingView>(), FMeshPassKey{EMeshPipelinePass::GBuffer});
         const auto& Culling = InstanceCulling ? *InstanceCulling : *Direct;
-        Culling.PrepareForSubmission(ResolvedView);
 		const auto VisibleCommands = CollectMeshDrawCommands(PreparedView, ResolvedView, {EMeshPipelinePass::GBuffer});
 		bool bComplete = true;
 		bool bRenderedGeometry = false;

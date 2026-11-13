@@ -1,6 +1,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GPUScene.h"
+#include "Renderers/MeshDrawCommandSubmission.h"
 #include "CoreGlobals.h"
 
 #include "RendererAPI.h"
@@ -143,6 +145,7 @@ namespace Durin
 	// Stores one batch binding/transform shared by its prepared elements.
 	struct FPreparedStaticMeshPrimitive
 	{
+		std::shared_ptr<const FGPUSceneDynamicPrimitiveData> DynamicPrimitiveData;
 		FPrimitiveCustomData CustomPrimitiveData;
 		FPrimitiveCustomData CustomInstanceData;
 		FPrimitiveComponentId PrimitiveId = InvalidPrimitiveComponentId;
@@ -162,8 +165,7 @@ namespace Durin
 		FMatrix WorldToLocal{1.0};
 		FVector3 BoundsCenter{0.0};
 		bool bRetainedStaticMesh = false;
-		std::weak_ptr<FPrimitiveSceneInfo> SceneInfo;
-		bool bSourceBound = false;
+		FPrimitiveSceneInfoRef SceneInfo;
 	};
 
 	// View-independent interpretation of one published element and pass policy.
@@ -361,14 +363,7 @@ namespace Durin
 	struct FSkyLightingGeneration;
 	struct FResolvedStaticMeshView
 	{
-		struct FDynamicInstancingGroup
-		{
-			RendererPrivate::FMeshPassKey Pass;
-			std::vector<uint32> Draws;
-			bool bEnabled = true;
-		};
-		std::vector<FDynamicInstancingGroup> DynamicInstancingGroups;
-		std::map<RendererPrivate::FMeshPassKey, std::vector<std::vector<uint32>>> MeshDrawCommandRuns;
+		std::map<RendererPrivate::FMeshPassKey, std::shared_ptr<RendererPrivate::FMeshDrawCommandSubmission>> DrawCommandSubmissions;
 		FBufferRHIRef DynamicInstancingInstanceIds;
 		FGPUScene* GPUScene = nullptr;
 		std::vector<FGPUScenePrimitiveData> GPUScenePrimitives;
@@ -429,6 +424,7 @@ namespace Durin
 		struct FBatch
 		{
 			FMeshBatch Batch;
+			std::shared_ptr<const FGPUSceneDynamicPrimitiveData> DynamicPrimitiveData;
 			std::shared_ptr<const FVertexFactoryInputBinding> InputBinding;
 			bool bFactoryCompatible = false;
 			std::vector<FElementFacts> Elements;
@@ -441,9 +437,8 @@ namespace Durin
 		struct FPrimitive
 		{
 			FPrimitiveComponentId Id = InvalidPrimitiveComponentId;
-			std::weak_ptr<FPrimitiveSceneInfo> SceneInfo;
-			bool bSourceBound = false;
-			FPersistentPrimitiveIndex PersistentPrimitiveIndex;
+			FPrimitiveSceneInfoRef SceneInfo;
+				FPersistentPrimitiveIndex PersistentPrimitiveIndex;
 			ERHIFeatureLevel FeatureLevel = ERHIFeatureLevel::SM5;
 			bool bPresent = false;
 			bool bSplineMesh = false;
@@ -483,7 +478,8 @@ namespace Durin
 			}
 		};
 		std::shared_ptr<const FCollectedStaticMeshView> Collected;
-		std::vector<std::vector<FBatch>> Primitives;
+		struct FPrimitive { std::vector<FBatch> Batches; bool bSourceAvailable = true; };
+		std::vector<FPrimitive> Primitives;
 		size_t MaterialCount = 0;
 	};
 

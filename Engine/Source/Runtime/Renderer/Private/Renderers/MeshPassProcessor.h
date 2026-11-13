@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Renderers/MeshDrawCommandSubmission.h"
 #include "PSOPrecacheMaterial.h"
 #include "Renderers/GPUSceneRendering.h"
 #include "Renderers/MeshPipelineDescription.h"
@@ -74,7 +75,22 @@ namespace Durin::RendererPrivate
 		FMeshPipelineDescription Description;
 		EMeshPipelinePass Pass = EMeshPipelinePass::Forward;
 		auto GetPassKey() const -> FMeshPassKey { return {Pass}; }
-		RENDERER_API auto GetIdentity() const -> FMeshPipelineIdentity;
+		FMeshPassPipeline() = default;
+		FMeshPassPipeline(const FMeshPassPipeline& Other) { *this = Other; }
+		auto operator=(const FMeshPassPipeline& Other) -> FMeshPassPipeline&
+		{
+			if (this == &Other) return *this;
+			static_cast<FMeshPassShaders&>(*this) = Other;
+			VertexDeclaration = Other.VertexDeclaration; PipelineState = Other.PipelineState;
+			Description = Other.Description; Pass = Other.Pass; Identity.store({});
+			return *this;
+		}
+		FMeshPassPipeline(FMeshPassPipeline&& Other) noexcept { *this = std::move(Other); }
+		auto operator=(FMeshPassPipeline&& Other) noexcept -> FMeshPassPipeline&
+		{ *this = static_cast<const FMeshPassPipeline&>(Other); Identity.store(Other.Identity.load()); return *this; }
+		RENDERER_API auto GetIdentity() const -> std::shared_ptr<const FMeshPipelineIdentity>;
+	private:
+		mutable std::atomic<std::shared_ptr<const FMeshPipelineIdentity>> Identity;
 	};
 	struct FMeshPassBindings
 	{
@@ -153,7 +169,6 @@ namespace Durin::RendererPrivate
 		}
 	};
 	using FMeshCommandOneFrameArray = std::vector<FVisibleMeshDrawCommand>;
-	using FMeshDrawCommandRun = std::vector<uint32>;
 	RENDERER_API auto BuildMeshDrawCommandRuns(std::span<const FVisibleMeshDrawCommand> Visible) -> std::vector<FMeshDrawCommandRun>;
 	// Adapter from collection/preparation into the common mesh-command boundary.
 	RENDERER_API auto CollectMeshDrawCommands(const FPreparedStaticMeshView& Prepared,
@@ -193,7 +208,7 @@ namespace Durin::RendererPrivate
 		{
 			std::array<uint64, 5> Mesh;
 			std::array<uint64, 2> Bindings;
-			FMeshPipelineIdentity Pipeline;
+			std::shared_ptr<const FMeshPipelineIdentity> Pipeline;
 		};
 		RENDERER_API static auto MakeKey(const FMeshDrawDescription* Description, FPrimitiveComponentId PrimitiveId,
 			uint64 BatchId, const FMeshPassPipeline& Pipeline, const FRHIResource* MaterialUniform = nullptr) -> FKey;
@@ -229,7 +244,7 @@ namespace Durin::RendererPrivate
 			std::shared_ptr<const FStateBucket> StateBucket;
 			std::shared_ptr<FCachedMeshDrawCommandInfo> Info;
 			std::array<uint64, 2> Bindings;
-			FMeshPipelineIdentity Pipeline;
+			std::shared_ptr<const FMeshPipelineIdentity> Pipeline;
 			const FVertexFactoryInputBinding* Input = nullptr;
 			FResolvedStaticMeshView::FMaterialUniform Material;
 		};

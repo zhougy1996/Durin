@@ -23,6 +23,16 @@ namespace Durin
 		auto operator==(const FGPUScenePrimitiveHandle&) const -> bool = default;
 	};
 
+	class FGPUScene;
+	// Non-owning scene membership identity; resolving never retains SceneInfo storage.
+	struct FPrimitiveSceneInfoRef
+	{
+		std::weak_ptr<FGPUScene> GPUScene;
+		FGPUScenePrimitiveHandle Handle;
+		auto IsSceneBound() const -> bool { return Handle.PersistentPrimitiveIndex.IsValid(); }
+		RENDERER_API auto Resolve() const -> FPrimitiveSceneInfo*;
+	};
+
 	struct FGPUSceneResourceParameters
 	{
 		FRDGBufferParameter GPUScenePrimitiveSceneData;
@@ -73,9 +83,11 @@ namespace Durin
 		RENDERER_API auto WriteDynamicPrimitive(const FGPUSceneDynamicAllocation& Allocation, uint32 Index,
 			const FMatrix& Transform, const FBox& Bounds, const FPrimitiveCustomData& PrimitiveData, const FPrimitiveCustomData& InstanceData) -> bool;
 		RENDERER_API auto ReleaseDynamicPrimitiveRange(const FGPUSceneDynamicAllocation& Allocation) -> void;
+		RENDERER_API auto ResolvePrimitive(FGPUScenePrimitiveHandle Handle) const -> FPrimitiveSceneInfo*;
 		RENDERER_API auto AddPrimitive(FPrimitiveSceneInfo& Info) -> void;
 		RENDERER_API auto RemovePrimitive(FPrimitiveSceneInfo& Info) -> void;
 		RENDERER_API auto RequestUpdate(FGPUScenePrimitiveHandle Handle, EGPUSceneDirtyState Dirty) -> bool;
+		RENDERER_API auto UpdateCPUData() -> void;
 		RENDERER_API auto Update(FRDGBuilder& GraphBuilder) -> FGPUSceneUpdateResult;
 		RENDERER_API auto GetShaderParameters(const FRDGBuilder& GraphBuilder) const -> FGPUSceneResourceParameters;
 		// Must be called after this exact graph executes; failed/unexecuted graphs

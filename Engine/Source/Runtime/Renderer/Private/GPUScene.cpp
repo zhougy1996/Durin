@@ -212,6 +212,18 @@ namespace Durin
 		// Completion/abandonment resolves its retirement prerequisite before reuse.
 	}
 
+	auto FPrimitiveSceneInfoRef::Resolve() const -> FPrimitiveSceneInfo*
+	{
+		CheckRenderingThread();
+		const auto Scene = GPUScene.lock();
+		return Scene ? Scene->ResolvePrimitive(Handle) : nullptr;
+	}
+	auto FGPUScene::ResolvePrimitive(FGPUScenePrimitiveHandle Handle) const -> FPrimitiveSceneInfo*
+	{
+		CheckRenderingThread();
+		const auto Index = Handle.PersistentPrimitiveIndex.Index;
+		return Index < State->Entries.size() && State->Entries[Index].Generation == Handle.Generation ? State->Entries[Index].Info : nullptr;
+	}
 	auto FGPUScene::AddPrimitive(FPrimitiveSceneInfo& Info) -> void
 	{
 		CheckRenderingThread(); State->RequireNoPendingUpdate();
@@ -255,12 +267,17 @@ namespace Durin
 		++State->Revision;
 	}
 
-	auto FGPUScene::Update(FRDGBuilder& Graph) -> FGPUSceneUpdateResult
+	auto FGPUScene::UpdateCPUData() -> void
 	{
 		CheckRenderingThread(); State->RequireNoPendingUpdate(); State->DrainDynamicReleases();
-		if (!IsInitialized()) InitResource(FRHICommandListImmediate::Get());
 		for (auto& Entry : State->Entries)
 			if (Entry.Info && Entry.DirtyState) { State->Refresh(*Entry.Info, Entry.DirtyState); Entry.DirtyState = 0; }
+	}
+	auto FGPUScene::Update(FRDGBuilder& Graph) -> FGPUSceneUpdateResult
+	{
+		UpdateCPUData();
+		if (!IsInitialized()) InitResource(FRHICommandListImmediate::Get());
+
 		auto Transaction = std::make_shared<FGPUSceneUpdate>();
 		Transaction->Graph = &Graph; Transaction->ResourceGeneration = State->ResourceGeneration;
 		FGPUSceneUpdateResult Result;

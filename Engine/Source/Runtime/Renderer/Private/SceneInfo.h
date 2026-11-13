@@ -19,7 +19,7 @@ namespace Durin
 	struct FSplineMeshRenderDynamicData;
 
 	// Owns one primitive proxy plus Renderer-derived transform and bounds state.
-	class FPrimitiveSceneInfo final : public std::enable_shared_from_this<FPrimitiveSceneInfo>
+	class FPrimitiveSceneInfo final
 	{
 	public:
 		RENDERER_API FPrimitiveSceneInfo(
@@ -31,7 +31,6 @@ namespace Durin
 		RENDERER_API auto BeginDeferredUpdateStaticMeshes() -> void;
 		RENDERER_API auto UpdateStaticMeshes() -> void;
 		auto GetId() const -> FPrimitiveComponentId { return Id; }
-		auto IsDrawSourceValid() const -> bool { return !bDetached; }
 		auto GetPersistentIndex() const -> FPersistentPrimitiveIndex { return GPUSceneHandle.PersistentPrimitiveIndex; }
 		RENDERER_API auto RequestGPUSceneUpdate(EGPUSceneDirtyState Dirty) -> void;
 		FGPUScenePrimitiveHandle GPUSceneHandle;
@@ -40,7 +39,7 @@ namespace Durin
 		RENDERER_API auto RemoveCachedMeshDrawCommands() -> void;
 		RENDERER_API auto GetPrimitiveUniformBuffer(uint64 Batch) -> FUniformBuffer&;
 		RENDERER_API auto RetainPrimitiveUniformBuffers(std::span<const uint64> Batches) -> void;
-		auto GetSceneInfoRef() const -> std::weak_ptr<FPrimitiveSceneInfo> { return const_cast<FPrimitiveSceneInfo*>(this)->weak_from_this(); }
+		RENDERER_API auto GetSceneInfoRef() const -> FPrimitiveSceneInfoRef;
 		auto GetKind() const -> EPrimitiveSceneProxyKind { return Kind; }
 		auto GetTransform() const -> const FMatrix& { return Transform; }
 		auto GetLocalBounds() const -> const FBox& { return LocalBounds; }
@@ -69,7 +68,6 @@ namespace Durin
 		std::map<uint64, std::shared_ptr<FUniformBuffer>> PrimitiveUniformBuffers;
 		FScene* Scene = nullptr;
 		bool bNeedsStaticMeshUpdate = false;
-		bool bDetached = false;
 		FPrimitiveComponentId Id = InvalidPrimitiveComponentId;
 		std::shared_ptr<FPrimitiveSceneProxy> Proxy;
 		EPrimitiveSceneProxyKind Kind = EPrimitiveSceneProxyKind::StaticMesh;

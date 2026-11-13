@@ -288,7 +288,7 @@ namespace Durin
 			Primitive.FeatureLevel = SceneInfo->GetProxy().GetFeatureLevel();
 			Primitive.bRetainedStaticMesh = ViewFact.StaticBatches != nullptr;
 			Primitive.Id = SceneInfo->GetId();
-			Primitive.SceneInfo = SceneInfo->GetSceneInfoRef(); Primitive.bSourceBound = !Primitive.SceneInfo.expired();
+			Primitive.SceneInfo = SceneInfo->GetSceneInfoRef();
 			Primitive.PersistentPrimitiveIndex = SceneInfo->GetPersistentIndex();
 			Primitive.bSplineMesh = SceneInfo->GetKind() == EPrimitiveSceneProxyKind::SplineMesh;
 			Primitive.WorldBounds = SceneInfo->GetWorldBounds();
@@ -329,6 +329,9 @@ namespace Durin
 
 				auto& Captured = Primitive.Batches.emplace_back();
 				Captured.Batch = std::move(Batch);
+				if (Captured.Batch.PrimitiveIdMode == EPrimitiveIdMode::PrimID_DynamicPrimitiveShaderData)
+					Captured.DynamicPrimitiveData = std::make_shared<FGPUSceneDynamicPrimitiveData>(FGPUSceneDynamicPrimitiveData{
+						Captured.Batch.LocalToWorld, Captured.Batch.WorldBounds, Captured.Batch.CustomPrimitiveData, Captured.Batch.CustomInstanceData});
 				if (Captured.Batch.StaticInputs && SharedCache && SharedCache->Commands)
 					Captured.StaticFacts = SharedCache->Commands->CaptureStaticFacts(
 						Captured.Batch.StaticInputs, Mode == ERenderPreparationMode::ShadowDepth);
@@ -401,7 +404,9 @@ namespace Durin
 		Resolved->Primitives.reserve(Resolved->Collected->Primitives.size());
 		for (const auto& Primitive : Resolved->Collected->Primitives)
 		{
-			auto& Batches = Resolved->Primitives.emplace_back();
+			auto& FrozenPrimitive = Resolved->Primitives.emplace_back();
+			FrozenPrimitive.bSourceAvailable = !Primitive.SceneInfo.IsSceneBound() || Primitive.SceneInfo.Resolve();
+			auto& Batches = FrozenPrimitive.Batches;
 			Batches.reserve(Primitive.Batches.size());
 			const bool bSplineMesh = Primitive.bSplineMesh;
 			for (const auto& Captured : Primitive.Batches)
@@ -605,7 +610,7 @@ namespace Durin
 		Result.Primitives.reserve(PrimitiveCount);
 		auto PreparePrimitive = [&](const FCollectedStaticMeshView::FPrimitive& Primitive) {
 			DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareMeshPrimitive");
-			if (Primitive.bSourceBound && (Primitive.SceneInfo.expired() || !Primitive.SceneInfo.lock()->IsDrawSourceValid()))
+			if (!Resolved.Primitives[&Primitive - Collected.Primitives.data()].bSourceAvailable)
 			{
 				++Result.VisibleCandidates; ++Result.RejectedPrimitives;
 				return;
@@ -657,7 +662,7 @@ namespace Durin
 				if (SelectedLODIndex != RequestedLODIndex) ++Result.ResourceFallbacks;
 				++Result.SelectedLODFactBuilds;
 				const FMatrix& LocalToWorld = Batch.LocalToWorld;
-				const auto& FrozenBatch = Resolved.Primitives[&Primitive - Collected.Primitives.data()]
+				const auto& FrozenBatch = Resolved.Primitives[&Primitive - Collected.Primitives.data()].Batches
 					[&Captured - Primitive.Batches.data()];
 				if (!FrozenBatch.Transform.bValid) return;
 				const auto& NormalToWorld = FrozenBatch.Transform.NormalToWorld;
@@ -674,7 +679,7 @@ namespace Durin
 				}
 				const uint32 PrimitiveIndex =
 					static_cast<uint32>(Result.Primitives.size());
-				Result.Primitives.push_back({.CustomPrimitiveData = Batch.CustomPrimitiveData,
+				Result.Primitives.push_back({.DynamicPrimitiveData = Captured.DynamicPrimitiveData, .CustomPrimitiveData = Batch.CustomPrimitiveData,
 					.CustomInstanceData = Batch.CustomInstanceData,
 					.PrimitiveId = Primitive.Id,
 					.BatchId = Batch.BatchId,
@@ -691,7 +696,7 @@ namespace Durin
 					.NormalToWorld = NormalToWorld,
 					.WorldToLocal = WorldToLocal,
 					.BoundsCenter = BoundsCenter,
-					.bRetainedStaticMesh = Primitive.bRetainedStaticMesh, .SceneInfo = Primitive.SceneInfo, .bSourceBound = Primitive.bSourceBound});
+					.bRetainedStaticMesh = Primitive.bRetainedStaticMesh, .SceneInfo = Primitive.SceneInfo});
 				const size_t FirstSectionCount = Result.GetNumSections();
 				const size_t FirstTriangleCount = Result.SelectedTriangles;
 

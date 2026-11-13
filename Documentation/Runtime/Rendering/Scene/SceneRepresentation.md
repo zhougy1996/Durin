@@ -35,10 +35,13 @@ is copyable; after attachment the registry entry is the only authoritative
 owner. A null proxy caused by hidden state or an unsupported render
 representation is a legal no-publication result.
 
-Primitive membership holds shared SceneInfo storage; frame sources hold weak
-references. Removal detaches material/cache associations and invalidates the
-source on the rendering thread before erasing membership. Externally retained
-SceneInfo storage cannot authorize drawing or retain a removed scene. Scene
+Primitive membership uniquely owns SceneInfo storage on the rendering thread.
+Frame sources borrow a persistent index/generation through `FPrimitiveSceneInfoRef`;
+they do not share SceneInfo ownership. Removal detaches material/cache associations
+and invalidates the membership identity before destroying SceneInfo. Reused slots
+cannot revive old references. Unpublished inputs use dynamic collector records.
+Before worker preparation, the render thread freezes source availability alongside
+each primitive's immutable batch facts; workers never resolve SceneInfo. Scene
 release clears candidate membership before its owning map. Light typed views
 retain their existing ownership rules. StaticMesh render data remains a non-owning borrow
 bounded by the component render-state and asset-release fence protocol.

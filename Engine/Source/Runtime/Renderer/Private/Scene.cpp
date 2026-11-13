@@ -430,11 +430,13 @@ namespace Durin
 		if (DrawLists) DrawLists->Detach(*this);
 		DetachFromScene();
 	}
+	auto FPrimitiveSceneInfo::GetSceneInfoRef() const -> FPrimitiveSceneInfoRef
+	{ return Scene ? FPrimitiveSceneInfoRef{Scene->GPUScene, GPUSceneHandle} : FPrimitiveSceneInfoRef{}; }
 	auto FPrimitiveSceneInfo::DetachFromScene() -> void
 	{
 		if (DrawLists) DrawLists->Detach(*this);
 		if (Scene) for (const auto& Material : Proxy->GetUsedMaterials()) if (Material) Material->RemoveSceneReference(*Scene);
-		Scene = nullptr; bDetached = true;
+		Scene = nullptr;
 	}
 	auto FPrimitiveSceneInfo::RequestGPUSceneUpdate(EGPUSceneDirtyState Dirty) -> void
 	{
@@ -520,7 +522,7 @@ namespace Durin
 			++HitProxyRevision;
 			CheckRenderingThread();
 			requiref(!PrimitiveInfosById.contains(PrimitiveId), "A primitive scene ID cannot be published twice.");
-			auto Info = std::make_shared<FPrimitiveSceneInfo>(PrimitiveId, SharedProxy, Transform, this);
+			auto Info = std::make_unique<FPrimitiveSceneInfo>(PrimitiveId, SharedProxy, Transform, this);
 			Info->SetVisible(bVisible);
 			GPUScene->AddPrimitive(*Info);
 			FPrimitiveSceneInfo* RawInfo = Info.get();

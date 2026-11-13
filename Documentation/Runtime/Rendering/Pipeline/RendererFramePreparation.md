@@ -59,8 +59,9 @@ an immutable `FCollectedStaticMeshView`. It owns primitive IDs and classificatio
 projection fallback facts, collection outcomes, admitted batch values, and the
 view matrices/policy consumed by preparation. It does not retain scene-info or
 proxy pointers. Collection and preparation are valid only within their captured render frame.
-Source resource ownership is borrowed through weak primitive references; source
-removal rejects the affected preparation even if its CPU facts remain allocated.
+Scene sources are borrowed through persistent index/generation references. The
+render thread freezes availability into each primitive's preparation inputs before
+worker execution; source removal rejects later preparation without retaining SceneInfo.
 The ordinary view entrypoint composes collection and preparation. Collection also captures the canonical
 input binding, factory/layout compatibility, per-element pass support and dynamic
 input-validation outcome. Replay performs no factory registry lookup or virtual
@@ -190,7 +191,7 @@ intermediate owning command packet. Shader bindings contain a shader pointer and
 resource parameter values; they own neither RHI resources nor resource views.
 Scene owns cached command slots. `FPrimitiveSceneInfo` holds
 `FCachedMeshDrawCommandInfo` locations; scene command storage retains canonical
-pipelines with structural lookup identity and handles cache-wide RHI invalidation. Visible storage
+pipelines with cached immutable structural identity and handles cache-wide RHI invalidation. Visible storage
 retains command memory only. Removing a primitive
 uses its locations directly, without scanning other primitives or scenes.
 Metadata stays outside the draw description; recording performs no weak-owner
@@ -232,8 +233,8 @@ Providers declare persistent/dynamic scene identity during collection; submissio
 never re-packs attributes to infer that identity. Source cache entries can share
 canonical geometry commands while retaining independent invalidation slots.
 CPU instancing and GPU admission reuse ordered effective-state runs formed after
-final draw admission and preserve the
-prepared order. `CollectMeshDrawCommands` projects prepared objects into frame-local
+final draw admission and preserve prepared order. One shared table owns run members
+and CPU/GPU selection. `CollectMeshDrawCommands` projects prepared objects into frame-local
 visible entries; culling setup/submission consumes those entries. Submission uses
 `FMeshDrawCommandOverrideArgs` and lowered `FMeshDrawCommandSceneArgs`, so retained
 commands and pass-binding arrays remain immutable across direct/indirect selection; see

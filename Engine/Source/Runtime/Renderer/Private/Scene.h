@@ -135,7 +135,7 @@ namespace Durin
 		static auto GetAllocatedSceneCount() -> size_t;
 		auto Clear_RenderThread() -> void;
 		auto DetachPrimitive(FPrimitiveSceneInfo& Info) -> void;
-		std::unordered_map<FPrimitiveComponentId, std::shared_ptr<FPrimitiveSceneInfo>, FPrimitiveComponentIdHash> PrimitiveInfosById;
+		std::unordered_map<FPrimitiveComponentId, std::unique_ptr<FPrimitiveSceneInfo>, FPrimitiveComponentIdHash> PrimitiveInfosById;
 		std::vector<FPrimitiveSceneInfo*> PrimitiveSceneInfos;
 		std::unique_ptr<FLightSceneRegistry> Lights;
 		std::unique_ptr<FSkyBoxSceneRegistry> SkyBoxes;
