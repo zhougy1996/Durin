@@ -101,7 +101,6 @@ namespace Durin
 	{
 		std::vector<FMountPoint> MountPoints;
 		bool bRegistryPublished = false;
-		uint64 MountRegistryRevision = 0;
 		bool bSuppressMountLog = false;
 		std::vector<FMountPoint> ProjectMountDefinitions;
 		using StringUtils::FoldAscii;
@@ -317,11 +316,11 @@ namespace Durin
 	{
 		auto MutableMountPoints() -> std::vector<FMountPoint>& { return MountPoints; }
 		auto RegistryPublished() -> bool& { return bRegistryPublished; }
-		auto AdvanceRegistryRevision() -> void { ++MountRegistryRevision; }
+		auto NotifyMountPointsChanged() -> void { FMountPaths::OnMountPointsChanged().Broadcast(); }
 	}
 
 	auto FMountPaths::GetRegisteredMountPoints() -> std::span<const FMountPoint> { return MountPoints; }
-	auto FMountPaths::GetMountRegistryRevision() -> uint64 { return MountRegistryRevision; }
+	auto FMountPaths::OnMountPointsChanged() -> TMulticastDelegate<void()>& { static TMulticastDelegate<void()> Event; return Event; }
 
 	auto FMountPaths::FindMountForVirtualPath(std::string_view VirtualPath) -> std::expected<FMountLookup, FMountPathError>
 	{
@@ -492,7 +491,7 @@ namespace Durin
         if (!ValidateMountDefinitionsImpl(Definitions, Validated, OutError)) return false;
 		MountPoints = std::move(Validated);
 		bRegistryPublished = true;
-		MountPathInternal::AdvanceRegistryRevision();
+		MountPathInternal::NotifyMountPointsChanged();
 		if (!bSuppressMountLog)
 			for (const FMountPoint& Mount : MountPoints) DURIN_DEBUG("Mount point: {}", Mount.VirtualRoot);
 		return true;

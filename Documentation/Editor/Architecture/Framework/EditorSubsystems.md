@@ -2,7 +2,7 @@
 
 Summary: Define per-editor native services, reflected PIE controls, Actor/Component editing, and notification ownership and update timing.
 
-Modules: DurinEd, LevelEditor, MainFrame, DurinPython, DurinMCP, Engine
+Modules: ContentBrowserData, ContentBrowserAssetDataSource, ContentBrowserFileDataSource, DurinEd, LevelEditor, MainFrame, DurinPython, DurinMCP, Engine
 
 Last reviewed: 2026-11-13
 
@@ -44,8 +44,10 @@ Conditional, Always and Never policies follow the common tickable base. Dispatch
 captures registration identities: removed entries are skipped, while entries
 created by a callback wait until the next dispatch. Reentrant dispatch is rejected.
 Services retain their own initialized/shutdown admission; no Tick virtual is added
-to every editor subsystem. Browser data uses this contract, and its provider
-bootstrap subsystems initialize through a declared data-service dependency.
+to every editor subsystem. ContentBrowserData registers the browser data service;
+the Asset and File provider modules register their own bootstrap subsystems.
+Browser data uses the tickable contract, and its provider bootstraps initialize
+through a declared data-service dependency.
 
 Editor Init runs base Init, loads MainFrame plus Python/MCP service providers,
 then initializes currently available Editor services before

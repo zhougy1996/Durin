@@ -1,4 +1,4 @@
-#include "Data/ContentBrowserItemAttributeHelpers.h"
+#include "ContentBrowserItemAttributeHelpers.h"
 #include "Panels/ContentBrowserItemView.h"
 
 #include "ContentBrowser/ContentBrowserContracts.h"

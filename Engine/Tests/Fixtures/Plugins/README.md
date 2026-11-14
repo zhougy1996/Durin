@@ -90,8 +90,9 @@ copy with its Content directory present. The probe links ordinary engine modules
 only; it does not directly link plugin DLLs.
 
 Run disable/observe-disabled and enable/observe-enabled as separate processes.
-Saving must retain the current process's frozen module selection and mount
-revision; the next process must consume the saved overrides without rebuilding.
+Saving must retain the current process's frozen module selection and published
+mount table without emitting a mount-change event; the next process must consume
+the saved overrides without rebuilding.
 Readonly and stale modes check failed-save isolation. Ownership-parent holds the
 project's edit lease while its child verifies failed-save isolation. Missing-build temporarily moves
 the inventory after startup admission: valid startup overrides still save and restart remains available; unavailable

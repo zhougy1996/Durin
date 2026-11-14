@@ -16,6 +16,7 @@ namespace Durin::ContentBrowser::Private
 		bool bSortAscending = true;
 		bool bShowHiddenFiles = false;
 		bool bShowRedirectors = false;
+		auto operator==(const FContentBrowserQuerySettings&) const -> bool = default;
 	};
 
 	// Cheap copies retain both the immutable source and its ordered indices. Item
@@ -83,7 +84,7 @@ namespace Durin::ContentBrowser::Private
 	{
 		// Owner-thread projection: type presentations come from the editor extension registry.
 		// No filesystem enumeration, live asset-registry access, or item copies occur here.
-		auto Project(std::shared_ptr<const FContentBrowserItemsSnapshot> Snapshot, std::string_view PhysicalDirectory, const FContentBrowserQuerySettings& Settings, std::string_view VirtualDirectory = {})
+		auto Project(std::shared_ptr<const FContentBrowserItemsSnapshot> Snapshot, std::string PhysicalDirectory, FContentBrowserQuerySettings Settings, std::string VirtualDirectory = {})
 			-> FContentBrowserItemRange;
 		auto TypeLabel(const FContentBrowserItem& Item) -> std::string;
 		// Materialize only selected records for command APIs that require owned values.

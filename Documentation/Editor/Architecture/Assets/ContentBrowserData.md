@@ -2,11 +2,37 @@
 
 Summary: Define UE-shaped browser provider registration, opaque item ownership, operation dispatch, and incremental updates.
 
-Modules: ContentBrowser, DurinEd, AssetTools, Engine, AssetRegistry
+Modules: ContentBrowserData, ContentBrowserAssetDataSource, ContentBrowserFileDataSource, ContentBrowser, DurinEd, AssetTools, Engine, AssetRegistry
 
-Last reviewed: 2026-11-13
+Last reviewed: 2026-11-15
 
 ## Ownership And Registration
+
+`ContentBrowserData` owns the generic source, item, query, snapshot, operation and
+service contracts. Its direct dependencies are Core, CoreDObject and DurinEd;
+it has no native-provider, AssetRegistry, AssetTools, Mona or rendering dependency.
+`ContentBrowserAssetDataSource` and `ContentBrowserFileDataSource` independently
+own their reflected sources, bootstrap subsystems, discovery, opaque payloads and
+native operation policy. Each depends on Data and native services, never on its
+sibling or the UI. `ContentBrowser` owns presentation and depends on Data without
+concrete provider dependencies. MainFrame wires optional asset maintenance
+callbacks through the host context. Providers and the data service can operate
+without loading the UI module.
+
+Storage-neutral filesystem, mount projection and path inspection helpers live in
+Core. The shared `FContentChange`/`FContentChangeBatch` value contract lives in
+Core's `Misc/ContentChanges.h`; AssetRegistry retains its scoped projection and
+bounded journal. This lets Data implement generic operation fencing without a
+registry or native-provider dependency. AssetTools owns
+`FContentDeletionRequest` and `FContentDeletionOperation`, the single native
+confirmed-deletion and companion-safety mechanism. Its input is a name and physical
+path plus narrow policy callbacks; it depends on no browser contract. Providers
+publish actual changes and report native diagnostics independently of bool results. No combined native browser
+facade or parallel deletion executor is retained. Test-only value construction
+and snapshot fixtures use public provider contracts or owner-module friend access;
+production queries require a live data service and have no standalone-source or
+injected-snapshot dispatch branch. Provider fixtures register and activate sources
+through the normal subsystem collection and data-service APIs.
 
 `DContentBrowserDataSubsystem` is an editor subsystem. It retains available and
 active `DContentBrowserDataSource` instances with strong object references.
@@ -15,10 +41,15 @@ an editor-owned provider bootstrap subsystem that declares a dependency on the
 data service, creates/registers its source and activates it. Reverse dependency
 shutdown retires provider sources before the data service. Other modules may
 register source instances whose outer is the editor or its data subsystem.
+Native providers prepare update state and subscriptions before their final
+optional registration. Registration broadcasts synchronously and may retire the
+source; initialization performs no further setup after that callback boundary.
+The initializing source is retained during callbacks, and a later initialization
+cannot overwrite a subscription left by an interrupted one.
 Available membership and active admission remain separate; registration alone
 does not activate a third-party source. No source-class factory registry is used.
-Source interface version 9 includes narrow operation contexts, virtual provider
-initialization and explicit outcomes. All consumers must rebuild with this ABI.
+Source interfaces include narrow operation contexts, virtual provider
+initialization, public operation dispatch and explicit outcomes. All consumers must rebuild with this ABI.
 
 A live registration retains its instance with a native strong reference, so
 ordinary GC cannot collect it between registration and subsystem discovery.
@@ -32,32 +63,38 @@ and `SetDataSink` follow the UE source-instance lifecycle. Activation attaches
 the subsystem sink; deactivation detaches it before further dispatch. Duplicate
 names cannot replace an already active source. Withdrawal requires an owner
 thread modular-feature safe point; it invalidates items immediately, while
-membership reconciliation runs immediately through owner-thread registration/withdrawal notifications. Queries and Tick also reconcile mount changes.
+membership reconciliation runs immediately through owner-thread registration/withdrawal
+notifications. Committed Core mount events invalidate native caches/discovery;
+the subsystem coalesces a full-refresh event. No browser layer
+polls the mount-registry revision.
 
 Module providers retain ownership of their registrations and code until their
 callbacks and opaque payloads are released. Unregistration closes dispatch; it
-does not grant arbitrary DLL reload. ContentBrowser does not opt into dynamic
+does not grant arbitrary DLL reload. The data, native provider and UI modules do not opt into dynamic
 DLL reload. Editor/module retirement deinitializes services before releasing
 registrations.
 
 ## Items, Payloads And Filters
 
-`FContentBrowserItemData` carries a weak source identity, activation generation,
-mount-registry revision, flags, kind, virtual path, item name, display name and shared immutable
+`FContentBrowserItemData` carries weak provider ownership, flags, kind, virtual
+path, item name, display name and shared immutable
 `IContentBrowserItemDataPayload`. Only the source interprets that payload.
-`GetOwnerDataSource` returns null off the owner thread, after source withdrawal,
-deactivation/reactivation, editor shutdown or mount replacement. A new source
-with the old name never inherits earlier handles.
+`GetOwnerDataSource` resolves that weak object on the owner thread. Source
+activation and mount versions are not item identities; reactivation of the same
+live provider does not permanently revoke old descriptions. A replacement object
+with the old name never inherits earlier ownership. Dispatch checks provider
+availability and native write permissions where operations execute.
 
 `FContentBrowserItem` retains only its constituent ItemData descriptions and
 opaque payloads. Logical folders merge contributors by virtual path, independently
 of their physical storage. Its Edit, Save, Duplicate, Rename, Copy and Move methods dispatch
 through owners; the generic layer has no asset/file execution switch.
-Copy, move and rename prepare every participating source before writes, validate
-opaque destination claims and execute partitions in stable source-name order.
-Directory claims may merge; file/file and file/directory ownership collisions
-reject the whole preparation. Unsupported contributions reject before mutation.
-Earlier committed effects survive independent failures in later partitions.
+Source operations follow UE bool aggregation: a successful contribution makes
+an aggregate action successful. Bulk copy/move partition by owner and call public
+source overrides independently. There is no cross-provider preflight or generic
+transfer cancellation. Providers enforce their own storage restrictions, report
+failures independently and preserve earlier successful writes. Directory merge
+and no-overwrite behavior are native responsibilities.
 
 `FContentBrowserItemData` supports the source/flags/path/name/display/payload
 constructor. The kind-based constructor and duplicated kind field are removed.
@@ -73,7 +110,8 @@ file/folder payloads, and no payload stores a complete generic item snapshot.
 owning source. Asset and File implementations interpret their own concrete
 payloads directly. Unknown attributes, unavailable paths and stale admission clear
 the output and return false. Dispatch retains a strong owner while invoking the
-source and rechecks admission afterward, including callback-driven reactivation.
+source and rechecks ownership afterward. Operation dispatch also checks active
+provider admission across callbacks.
 Aggregates read the first supported value and merge available attribute maps.
 A physical path is optional and does not establish an item's logical identity.
 
@@ -102,20 +140,19 @@ are masked out. `GetItemKey` also includes the source's process-local `FObjectKe
 for files, while folders omit it for logical aggregation. Keys preserve virtual
 path case and use no physical/package path. They remain comparable after source
 withdrawal without dereferencing the source. `GetContributionKey` additionally
-captures source ownership, activation generation and mount revision for a specific
-captured contribution. A stable logical key never makes an expired handle callable.
+keeps the source-qualified identity of a contribution, including folder owners.
+It adds no activation lifetime or mount-version fields.
 Directory aggregation uses typed keys. Private native records stay inside provider discovery and storage utilities.
 `StableId()` and the generic native metadata fields have been removed.
 
 Filters are value-owned. `CompileFilter`, `EnumerateItemsMatchingFilter`,
 `EnumerateItemsUnderPath` and `EnumerateItemsAtPath` use virtual paths. The
-subsystem compiles a separate source entry containing activation, mount and
-source-discovery revisions and optional immutable source-specific filter data.
-Executing an obsolete compiled entry cannot revive a withdrawn/reactivated source
-or reinterpret its scope under a replacement mount.
+subsystem stores each source's immutable compiled filter directly, without an
+admission wrapper. Native enumeration recompiles the raw virtual scope against
+current mounts; withdrawal removes the source from service enumeration.
 
-The Asset source captures and caches its own immutable registry catalog by query
-and mount revision, deriving asset rows and logical folders. The File source owns
+The Asset source owns an immutable catalog cache, explicitly invalidated by
+package/catalog events and mount replacement, deriving asset rows and logical folders. The File source owns
 filesystem traversal and compiles the physical scope from virtual paths. Both
 contribute registered mount roots through root enumeration; other providers may
 contribute roots and folders without registering physical storage. List and tree
@@ -127,121 +164,98 @@ providers prepare immutable values on the owner thread, and their capture code
 runs through the existing task runtime without dereferencing reflected sources,
 live registries, panels or host callbacks. Sources without worker preparation
 continue to implement ordinary owner-thread enumeration; the query captures those
-returned values before launching presentation work. The optional entry-status
+returned values before launching presentation work. Worker captures contain only
+ItemData descriptions. Capture and published snapshot types distinguish raw
+contributions from aggregated Items. Publication follows one explicit binding
+path, with provider admission checks after binding callbacks; it has no fallback
+that interprets an aggregate as an unbound description. The optional entry-status
 callback is a deterministic native-I/O test seam, unused by ordinary requests.
 There is no completed native snapshot supplied as an extra filter.
 
-Owner-thread publication binds raw contributions to their original sources and
-rechecks membership, activation, mounts and path-relevant discovery changes.
-Stale list/tree results are retried from freshly compiled input. Per-view revision
-cursors retain bounded source/service revision coverage; missing coverage causes
-conservative reconciliation. Independent queries and models never share
-cancellation or publication rights. Model destruction drains its worker bodies;
-providers/modules remain responsible for retaining their code while captured
-filter objects or payloads exist.
+Owner-thread publication checks current source membership. There is no activation
+counter, custom Session or copied project/mount identity in a capture. Async work
+holds immutable inputs, and its owner controls cancellation and publication.
+Preparation retains local input values and source/service ownership across provider
+calls. Cancellation is registered before compilation/enumeration, and query lifetime
+is checked before any later member access. Binding retains policy by value.
+Each pending capture owns its cancellation token and virtual scope; relevant item
+events cancel that capture, while full refresh invalidates all pending captures.
+Folder scopes normalize trailing separators and the root consistently. Binding
+callbacks recheck cancellation before committing rows. Completed tasks are detached
+before publication callbacks, so a reentrant refresh retains its new owned task.
+Snapshot values use retained ownership and contents, without publication versions.
+The model has one asynchronous worker/frame-pump path. Tests drive that same path;
+waiting helpers and request-identity observations live in test fixtures, with no
+production request counter or synchronous mode. Presentation freezes paths and
+filter settings, collects provider values before sorting, and commits a range only
+while its receiver and inputs remain current.
+Views replace obsolete requests and retain no revision cursor or replay history.
+Notification callbacks recheck receiver lifetime after provider calls.
+Independent views keep separate cancellation/publication rights. Model destruction
+drains owned worker bodies; prepared values remain readable after query destruction.
 
 ## Operations And Request State
 
-`DContentBrowserAssetDataSource` owns asset/redirector capabilities;
-`DContentBrowserFileDataSource` owns ordinary-file capabilities. Both contribute
-folders. Both concrete sources derive directly from `DContentBrowserDataSource`;
-the generic abstract source retains unsupported defaults.
+Asset and File sources derive directly from `DContentBrowserDataSource`, own their
+native execution and both contribute folders. AssetTools shares admission,
+feedback, directory creation and confirmed-deletion utilities; Core owns path
+safety helpers. Native copy/move/save return bool directly. No generic
+`OperationResult`, prepared-transfer context or cross-provider claim ledger remains.
 
-Asset independently owns editing, save, duplicate and redirector entrypoints,
-using package-only save, transfer and asset-action utilities. File owns its
-ordinary-file transfer and editing implementation. Shared mutation policy contains
-only admission, feedback and notification plumbing; folder creation contains only
-path validation and directory creation. There is no combined native executor.
-Payloads retain immutable request-local policy and feedback, not executors or
-session maps. Providers prepare single-use transfer contexts and explicit deletion
-requests. Native helpers perform package/file ownership checks; generic dispatch
-uses source contracts and opaque claims without concrete-provider casts.
-The original activation and mount admission identities remain captured in policy,
-including on returned items. Captured sources and request state survive callbacks
-that dismiss a modal or withdraw a source; retired requests cannot be restored
-over a replacement confirmation.
-Provider discovery preparation is independent of mutations. Provider query and binding APIs take only the optional `FContentBrowserOperationContext`: editing, mutation policy, feedback and external mutation notification. They do not require browser navigation, reimport, reconciliation or a data-service host.
-`FContentBrowserDataQuery` retains only provider-neutral request, binding and
-revision state with a weak service binding.
+Source feature version 16 uses UE bool aggregation: true means at least one
+contribution succeeded. Item Copy/Move call single-item source actions; service
+bulk calls public bulk overrides. Default bulk copy/move OR single-item results.
+Save/rename/copy/move/edit/duplicate capabilities also OR supported contributions.
+Rename and Duplicate aggregate successful admitted outputs. Duplicate succeeds
+when the copy exists; save failure is feedback and leaves the dirty copy available
+for ordinary Save. Independent failures retain earlier work; transfer has no
+global preflight, rollback or cancel.
 
-Provider `RenameItem` and `DuplicateItem` output source-owned `ItemData`.
-Source feature version 9 identifies explicit bulk save/copy/move/delete and rename
-results plus prepared transfer entrypoints. Generic Item aggregates successful
-rename outputs and retains failed original identities in the effect ledger.
-`FContentBrowserItemDataTransferContext` owns captured validation, destination
-claims, cancellation and a single execution callback. Validation grants no later
-permission; execution repeats admission, then consumes the context even on failure.
-No-op rename is explicit and publishes no mutation. Duplicate keeps its separate
-creation/output and save contract.
+Capability queries do not reserve destinations or replace execution checks.
+`CanRenameItem` accepts an optional name: absence checks permission; a proposal
+adds name/target validation. Native copy never replaces existing files. File
+moves verify bytes before source removal and stay within the source mount; Asset
+retains package relocation across writable mounts. Selected ownership, companions,
+reparse points, final paths and mount boundaries remain provider responsibilities.
+Save flags retain UE loaded/dirty predicates and reject unsupported flags;
+`SaveOnlyIfLoaded` retains resident packages/exports during execution.
 
-Copy/move/rename/delete return `FContentBrowserOperationResult`, without implicit
-boolean conversion. Effects carry old/new contribution identities, committed,
-reverted, failed or unattempted status, diagnostics and structured recovery paths.
-Cancellation has its own completion status and can coexist with committed effects.
-Independent failures continue; cancellation, admission loss and uncertain native
-recovery stop remaining work. No operation compensates earlier committed source
-partitions. Native tools retain package/companion staging authority; browser code
-never infers reverts or recovery paths from diagnostic text.
+Binding stores immutable restrictions and optional services, not an execution
+capability. Empty-context binding shares valid bound payloads; stale/foreign input
+rejects. `ComposeOperationContext` updates feedback independently and conjoins
+permission restrictions. Native payloads store unscoped values; actual invocations
+create one `ScopeOperationContext` fence and retain source/input lifetimes.
+Permission callbacks are checked before and after reentry; source publication is
+gated by the live provider and current permission policy. Retirement revokes admission immediately,
+while external notifications for committed changes remain deliverable.
 
-Ordinary file copy uses no replacement; move verifies copied bytes and source
-identity before removing the source. Failed removal reports both retained paths.
-Asset transfer works in package units through AssetTools; destination names are
-exact, while the separate Duplicate command still chooses a free suffix. Direct
-managed-companion transfer rejects. Folder copy rejects unsupported custom
-companions before writes. Shared directories merge and existing files fail without
-replacement. Partial results refresh views, preserve survivors and migrate selection
-for committed identities. Every recovery location is logged for inspection.
+Diagnostics use feedback or Core logging; actual changes use `FContentChangeBatch`.
+Save collects only its own `OnSaved` changes; nested operations publish separately.
+Providers keep only local success/stop state for transfers and native recovery
+facts where needed. Backend diagnostics are forwarded without a browser result
+ledger. Panels refresh after attempted commands, consume source updates and use
+explicit outputs for selection. Query cancellation is independent of mutation.
 
-The UE save flags support all four combinations: dirty predicates use the
-loaded-dirty package policy; no dirty predicate permits canonical saves.
-`SaveOnlyIfLoaded` first requires residency and retains loaded exports across
-execution so the operation cannot turn ordinary unloading into an implicit load.
-Unknown flag bits reject. No additional AssetTools save-mode enum was introduced.
+`CreateFolder` returns `FContentBrowserItemDataTemporaryContext` without writing.
+Its `ItemData`, validation and finalization callbacks retain the original directory
+and admission identity. Finalization rechecks policy, returns source-owned ItemData
+and consumes its callbacks on success; validation failure permits another name.
+Discarding the context writes nothing. Validation checks current names, ownership
+and permissions; no activation-generation revocation contract is imposed.
+Temporary items never enter the published snapshot or ordinary selection.
 
-`BulkSaveItems` and aggregate `Item.Save` return `FContentBrowserOperationResult`,
-without implicit boolean conversion. Each effect records the original contribution
-identity, optional committed identity, status and diagnostic. Native save utilities
-use package identities; the source maps each package outcome to its contributing
-items. Multiple exports in one package cause one physical save. Dispatch retains
-sources, orders partitions by source name and items by virtual path, and rechecks
-activation/membership before execution. Admission loss marks the remaining work
-unattempted; independent capability failures do not prevent other packages or
-source partitions from saving. Already committed packages are retained.
-
-Save status distinguishes complete, partial and failed. Registry publication failure
-records both a committed effect and a failed reconciliation effect, so it cannot
-hide the committed file. The current AssetTools boolean save API does not expose
-typed recovery details after an unsuccessful write without a commit notification;
-that case stops the remaining batch for inspection, reports the native diagnostic
-and requests reconciliation. It does not claim rollback, populate invented recovery
-paths or continue through unknown effects. Only actual commit notifications publish
-modified-item updates; a batch publishes its accumulated changes once. Panels show
-partial-save diagnostics, refresh after committed effects and preserve selection.
-
-`CanCreateFolder` and `CreateFolder` take the proposed virtual path. Creation
-returns `FContentBrowserItemDataTemporaryContext` without writing. The context
-stores a single temporary `ItemData`, exposed by `GetItemData`; its source-owned
-`ValidateItem` and `FinalizeItem` callbacks retain the original directory and
-admission identity. Finalization returns source-owned `ItemData`; only the Item/UI
-layer aggregates it for presentation. Inline names cannot change the directory.
-Cancellation simply releases the context. Finalization rechecks policy and only
-then creates content. Validation failures allow a corrected name to be retried;
-successful finalization consumes that context's callbacks. Activation or mount
-changes invalidate the captured native context before mutation.
-
-Deletion remains an intentional UE signature adaptation:
-`PrepareDeleteItems` returns a move-only `FContentBrowserDeleteContext`;
-`BulkDeleteItems` requires that context and the exact owner-bound item scope.
-Execution validates every source partition before destruction, then rechecks source identity, admission and the existing confirmation
-fingerprints. Providers delete owned descendants and File removes empty directories; no recursive directory removal callback exists. Stale confirmation is replaced explicitly, destruction consumes the
-capability, and cancellation/destruction releases it. There is no unconfirmed
-delete entrypoint.
-Once native destruction begins, its execution session retires after the attempt,
-including partial failure; a retained modal cannot retry that physical deletion.
-`IContentBrowserDeleteRequest::GetPreview` exposes immutable presentation data;
-panels do not inspect native fingerprints or execution sessions. A changed preview
-requires another confirmation. Providers without a detailed preview use the
-panel's generic selection label and still supply their validated capability.
+Confirmed deletion is an intentional UE adaptation. `PrepareDeleteItems` returns
+a move-only context; `BulkDeleteItems` requires its exact owner-bound scope.
+Execution validates all partitions and rechecks admission/fingerprints before
+destruction. Stale scope requires a replacement confirmation; an attempted native
+destruction retires the session before feedback/notification, even after partial
+failure. Each failed removal and recovery path is reported once; an already
+reported error is not repeated as an aggregate diagnostic. Providers delete owned
+descendants and only empty directories; no unconfirmed deletion entrypoint exists.
+The native concrete `FContentDeletionResult` records physical removals for updates
+and recovery. Browser actions return bool; tests inspect native facts directly.
+Panels use immutable `GetPreview` data and never inspect fingerprints or execution
+sessions. Dismissal releases the pending context.
 
 ## Incremental Updates
 
@@ -251,40 +265,40 @@ the previous virtual path. Native committed-effect batches generate these
 updates, including generated copy destinations. Failed/no-effect operations
 publish no optimistic update.
 
-The subsystem queues accepted updates and publishes a shared read-only frame
-batch during its owner-controlled `Tick`. Readers do not consume each other's
-events; `GetItemDataUpdates` remains valid until the next Tick. The UE-shaped
-`OnItemDataUpdated` multicast migrates each panel's selection and rename state;
-panel shutdown removes its subscription. Membership/mount
-changes also advance `GetRevision`. A reader that misses frame coverage must
-reconcile its own snapshot rather than assume retained journal history.
-Views filter covered pending/published updates by virtual scope; changes in an
-unrelated directory do not restart a capture. Each update retains its queue revision, so a capture ignores older events delivered in the same frame batch. Coverage markers reuse those two batches and add no retained service mutation journal. Registry reconciliation suspension
-still prevents publication, including when a provider revision changes.
+The subsystem detaches its pending batch before broadcasting `OnItemDataUpdated`;
+reentrant updates enter a later batch. Membership/mount changes and explicit
+`NotifyItemDataRefreshed` requests coalesce into `OnItemDataRefreshed`. Views keep
+pending invalidations while paused or hidden. There is no service revision,
+frame-snapshot getter or reader cursor. Scoped item events preserve unrelated
+caches; full refresh invalidates owned caches and pending requests explicitly.
 
-Native recovery with unknown projection coverage produces scoped modified-folder
-events for mounted roots; a modified folder invalidates that logical subtree.
-Mixed native batches publish each delta through its actual owning adapter; an
-unsupported asset delta is never converted into a fictitious folder move.
-The public source API does not add UE's deprecated blanket refresh request.
-Operation contexts retain external mutation notifications for independent consumers. Asset registry subscriptions provide asset deltas; immediate operation notification does not replay those same deltas.
+Asset sources subscribe to `OnAssetQueryChanged`. Package/catalog invalidation
+queues coalesced owner-thread publication through the existing deferred executor;
+queries also synchronize before returning values. There is no query Tick API or
+provider-driven query polling. Registry publication broadcasts after releasing
+its state lock. Snapshots commit before callbacks, and reentrant events remain
+queued behind the active broadcast. Persisting a live row modifies it rather
+than adding it twice. Source shutdown removes every subscription.
 
-Asset sources subscribe to `OnAssetQueryChanged` and pump query synchronization
-on their owner Tick. The committed snapshot/journal precedes notification;
-reentrant events queue behind the current broadcast. Initial persistence of a
-live query row is a modification, not a second addition. Source shutdown removes
-subscriptions; inactive sources reject updates until fresh activation.
+Operation contexts and hosts retain one `NotifyContentMutation(FContentChangeBatch)`
+feedback channel for actual effects; unknown scope uses `bFullRefresh`. MainFrame
+adapts committed batches to the Transactor event. External notifications survive
+provider retirement, while source projection remains fenced. Asset deltas come
+from registry events rather than operation-result replay.
 
 File sources own one cancellable background metadata snapshot per editor. At
 most one scan runs per source; steady-state starts are spaced by at least half
 a second of editor time. Workers capture owned mount paths and cancellation only, without
-source, editor, registry or UI access. Owner publication verifies project,
-mount, activation and local-mutation epochs. Withdrawal/shutdown cancels and joins
-work before module retirement. Missing task scheduling leaves discovery dormant
+source, editor, registry or UI access. One discovery state owns its task and
+cancellation token. Mount events and committed local mutations cancel and join
+the old task before replacing that state and rebuilding its baseline.
+Completion detaches the task before callbacks; publication checks that the
+source is active and still owns that discovery state. Shutdown drains work before module retirement. Missing task scheduling leaves discovery dormant
 in minimal test hosts. Incomplete scans invalidate root coverage and never invent
 removals. Package/bulk changes reconcile the asset registry on the owner thread;
-companion ownership stays with Asset. File revisions retain bounded path coverage
-for asynchronous capture fences. This is metadata polling because Durin has no
+companion ownership stays with Asset. Published updates cancel affected captures
+directly; the File source retains no discovery revision or change journal.
+This is metadata polling because Durin has no
 portable directory-watcher API: same-size rewrites preserving timestamps require
 explicit reconciliation. It is not equivalent to an OS change-event stream.
 
@@ -296,12 +310,14 @@ no panel owns a mutation request context. Queries publish through source
 enumeration, and menus, shortcuts, clipboard and drag/drop use item capabilities
 and data-service batch routing with virtual destinations.
 
-`DEditorEngine::Tick` dispatches `FTickableEditorObject` callbacks once for its owning editor, before tool/World/presentation work. The data service ticks with zero browser views and zero Worlds; browser and query code never tick it. Explicit test hosts may call Tick directly. Every view tracks its own service revision, so
-hidden or later-pumped browsers reconcile changes even after a frame batch expires. If rows refresh after a mutation but before its next owner publication, selection trimming waits for the pending move/delete events; it resumes on the next view update.
+The engine pumps deferred metadata events before editor/view work. The data service
+runs without browser views or Worlds. Each view owns its event subscriptions and
+invalidations. Selection trimming waits for pending move/delete events when rows
+refresh before owner publication, then resumes after migration.
 Internal drags retain the original owner-bound items. Transfer commands resolve
 current items with the destination view's policy and require the original source
-identities to remain valid, preventing withdrawal/reactivation from rebinding old
-clipboard or drag state. Single-asset drags retain the existing external payload
+objects to remain available. Activation changes alone do not create new item
+identities; destination policy is applied when the command executes. Single-asset drags retain the existing external payload
 format used by other editors.
 
 Creation, import, details and asset-definition registration remain independent of
@@ -314,8 +330,7 @@ contexts and browser thumbnail references use `FContentBrowserItemKey`.
 Source-qualified move/removal updates repair matching selections without changing
 another source's same-path file. A merged folder retains its original logical
 selection while other contributions survive. Clipboard and drag captures resolve
-by logical key and compare full contribution keys, including activation and mount
-admission. Image decoder cache keys remain native resource paths and asset
+by logical key and compare source-qualified contribution keys. Image decoder cache keys remain native resource paths and asset
 thumbnail fingerprints remain Registry identities; neither is a browser row key.
 
 ItemData owns only flags, virtual path, name/display name, source admission and
@@ -333,4 +348,16 @@ physical folder backend. Generic commands validate every such alias and execute
 the single backend once; native bulk requests normalize aliases after retaining
 all request policies. Native folder deltas are published for both participating
 sources so file and asset selections can follow the committed subtree move.
-Unrelated merged folders still require Stage 3's per-contribution result dispatch.
+AssetTools publishes native directory facts with their origin through
+`OnContentDirectoriesChanged`. Each active provider subscribes and creates only
+its own contributions; no provider looks up a sibling by name or writes sibling
+updates. Origin-owned publication is not replayed to the origin, and subscribers
+resolve the owning editor through the outer chain, supporting both editor-owned
+and data-subsystem-owned sources while excluding other editor hosts. Notifications
+carry Mutation or Discovery provenance. Only mutations retire File's in-flight
+discovery state and rebuild its baseline; peer discovery facts update projections
+without restarting discovery. This prevents multiple File sources from feeding
+full-refresh scans back into one another. Other editor services reconcile disk
+changes through their own catalog and filesystem discovery streams. Subscriptions
+are removed before source shutdown; callbacks retain the source during dispatch.
+Unrelated merged folders use per-contribution result dispatch, retaining independent successes and failures.

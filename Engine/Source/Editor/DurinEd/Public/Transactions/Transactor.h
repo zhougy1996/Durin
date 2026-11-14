@@ -316,6 +316,7 @@ namespace Durin
 		DURINED_API virtual auto GetRedoContext() const -> FTransactionContext = 0;
 		virtual auto GetUndoCount() const -> size_t = 0;
 		DURINED_API virtual auto GetMountedContentMutationRevision() const -> uint64 = 0;
+		auto OnMountedContentChanged() -> TMulticastDelegate<void(const FContentChangeBatch&)>& { return MountedContentChanged; }
 		DURINED_API virtual auto NotifyMountedContentMutation() -> void = 0;
 		DURINED_API virtual auto NotifyMountedContentMutation(FContentChangeBatch Changes) -> void = 0;
 		DURINED_API virtual auto CaptureMountedContentChanges(uint64 FromRevision) const -> FContentChangeBatch = 0;
@@ -340,6 +341,8 @@ namespace Durin
 		friend DURINED_API auto RecordObjectForEdit(DTransactor&, DObject&) -> FTransactionCaptureResult;
 		friend struct FTransBufferTestAccess;
 		DURINED_API virtual auto Record(FTransactionObjectRecord Record) -> std::expected<uint64, FTransactorResult> = 0;
+	protected:
+		TMulticastDelegate<void(const FContentChangeBatch&)> MountedContentChanged;
 	};
 
 	// Owns bounded transaction data, structural history position, and GC-visible references.

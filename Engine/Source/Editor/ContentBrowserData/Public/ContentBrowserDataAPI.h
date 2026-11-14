@@ -1,0 +1,7 @@
+#pragma once
+#include "HAL/Platform.h"
+#if defined(CONTENTBROWSERDATA_EXPORTS)
+	#define CONTENTBROWSERDATA_API DLLEXPORT
+#else
+	#define CONTENTBROWSERDATA_API DLLIMPORT
+#endif

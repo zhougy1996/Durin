@@ -1,5 +1,5 @@
 #include "Assets/ContentBrowserThumbnailReferences.h"
-#include "Panels/ContentBrowserChanges.h"
+#include "AssetRegistry/ContentChangeScopes.h"
 #include "Panels/ContentBrowserDataTypes.h"
 #include "Assets/SourceImageThumbnailDecoder.h"
 
@@ -102,9 +102,9 @@ namespace Durin::ContentBrowser::Private
 	{
 		std::erase_if(SourcePaths, [&](const auto& Entry) {
 			const bool Affected = Changes.bFullRefresh || std::ranges::any_of(Changes.Changes, [&](const auto& Change) {
-				return ContentBrowserChanges::SamePath(Entry.second, Change.OldPhysicalPath)
-					|| ContentBrowserChanges::SamePath(Entry.second, Change.NewPhysicalPath)
-					|| (Change.bDirectory && ContentBrowserChanges::Within(Entry.second, Change.OldPhysicalPath));
+				return ContentChangeScopes::SamePath(Entry.second, Change.OldPhysicalPath)
+					|| ContentChangeScopes::SamePath(Entry.second, Change.NewPhysicalPath)
+					|| (Change.bDirectory && ContentChangeScopes::Within(Entry.second, Change.OldPhysicalPath));
 			});
 			if (Affected) SourceImages->Invalidate(Entry.second);
 			return Affected;

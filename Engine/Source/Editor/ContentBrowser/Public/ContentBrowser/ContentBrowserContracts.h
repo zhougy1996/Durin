@@ -219,22 +219,18 @@ namespace Durin::ContentBrowser
 		bool bCanReimportFromFile = false;
 	};
 
-	// A host shares reconciliation across browsers while each browser retains its own cursor.
 	struct FMountedContentReconciliationState
 	{
-		enum class EState : uint8 { Uninitialized, Synchronized, Failed };
-		uint64 Revision = 0;
-		EState State = EState::Uninitialized;
+		bool bPending = false, bFailed = false;
 	};
 
 	// Supplies implementation-neutral services required to construct the browser.
 	struct FContentBrowserHostContext
 	{
 		std::function<bool(const std::string&, const std::string&)> OpenAsset;
-		std::function<uint64()> GetMountedContentMutationRevision;
-		std::function<void()> NotifyMountedContentMutation;
-		std::function<FContentChangeBatch(uint64)> CaptureMountedContentChanges;
-		std::function<void(FContentChangeBatch)> NotifyScopedContentMutation;
+		// Host-owned event outlives its browser panels.
+		TMulticastDelegate<void(const FContentChangeBatch&)>* MountedContentChanged = nullptr;
+		std::function<void(FContentChangeBatch)> NotifyContentMutation;
 		std::function<bool()> CanMutateContent;
 		// Receives the qualified asset class name. Must not load assets or perform source I/O.
 		std::function<FReimportAvailability(std::string_view)> QueryReimport;
@@ -243,11 +239,14 @@ namespace Durin::ContentBrowser
 		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditors;
 		TWeakObjectPtr<DContentBrowserDataSubsystem> DataSubsystem;
 		std::function<void(ELogLevel, std::string_view)> ReportDiagnostic;
+		std::function<bool(std::span<const FPackagePath>)> FixUpRedirectors;
+		std::function<bool(std::string_view)> FixUpRedirectorsInFolder;
+		std::function<bool()> FixUpAllRedirectors;
 		operator FContentBrowserOperationContext() const
 		{
-			return {.OpenAsset = OpenAsset, .NotifyMountedContentMutation = NotifyMountedContentMutation,
-				.NotifyScopedContentMutation = NotifyScopedContentMutation, .CanMutateContent = CanMutateContent,
-				.AssetEditors = AssetEditors, .ReportDiagnostic = ReportDiagnostic};
+			return {.OpenAsset = OpenAsset,
+				.NotifyContentMutation = NotifyContentMutation, .CanMutateContent = CanMutateContent,
+				.ReportDiagnostic = ReportDiagnostic};
 		}
 	};
 

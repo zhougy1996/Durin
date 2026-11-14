@@ -1802,8 +1802,9 @@ namespace Durin
 		check(MountedContentMutationRevision != std::numeric_limits<uint64>::max());
 		Changes.FromRevision = MountedContentMutationRevision;
 		Changes.ToRevision = MountedContentMutationRevision + 1;
-		MountedContentChanges.Append(std::move(Changes));
+		MountedContentChanges.Append(Changes);
 		++MountedContentMutationRevision;
+		MountedContentChanged.Broadcast(Changes);
 	}
 
 	auto DTransBuffer::EstablishSavedState(DPackage& Package) -> void

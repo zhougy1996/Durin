@@ -11,8 +11,22 @@
 #include "Misc/Paths.h"
 #include "Misc/MountPathTestSupport.h"
 #include "NativeDObjectTestSupport.h"
+#include "Threading/TaskRuntime.h"
 
 #include <gtest/gtest.h>
+
+namespace
+{
+	using namespace Durin;
+	struct FQueryEvents
+	{
+		FContentChangeBatch Changes;
+		FDelegateHandle Handle;
+		FQueryEvents() { (void)CaptureAssetQuerySnapshot(); Handle = OnAssetQueryChanged().AddLambda([this](const FContentChangeBatch& Batch) { Changes.bFullRefresh |= Batch.bFullRefresh; Changes.Changes.insert(Changes.Changes.end(), Batch.Changes.begin(), Batch.Changes.end()); }); }
+		~FQueryEvents() { OnAssetQueryChanged().Remove(Handle); }
+		auto Take() -> FContentChangeBatch { (void)CaptureAssetQuerySnapshot(); return std::exchange(Changes, {}); }
+	};
+}
 
 namespace
 {
@@ -271,7 +285,7 @@ namespace
 		FPackagePath Path, Moved;
 		ASSERT_TRUE(FPackagePath::TryCreate("/QueryLive/Original", Path));
 		ASSERT_TRUE(FPackagePath::TryCreate("/QueryLive/Moved", Moved));
-		const auto Start = GetAssetQueryRevision();
+		FQueryEvents Events;
 		TStrongObjectPtr<DPackage> Package(CreatePackage(Path));
 		ASSERT_TRUE(Package);
 		auto* Asset = NewObject<DObject>(Package.Get(), "Asset");
@@ -287,7 +301,7 @@ namespace
 		EXPECT_FALSE(Entry.Package);
 		EXPECT_FALSE(FindAssetExact(Original, EAssetQuerySource::OnDisk));
 		EXPECT_TRUE(FindAssetExact(Original, EAssetQuerySource::InMemory));
-		auto Changes = CaptureAssetQueryChanges(Start);
+		auto Changes = Events.Take();
 		EXPECT_FALSE(Changes.bFullRefresh);
 		EXPECT_TRUE(std::ranges::any_of(Changes.Changes, [&](const auto& Change) {
 			return Change.Kind == EContentChangeKind::Added && Change.NewAssetPath == Original.ToString();
@@ -300,11 +314,11 @@ namespace
 		EXPECT_FALSE(FindAssetExact(Original));
 		Package->SetPlayInEditor(false);
 		EXPECT_TRUE(FindAssetExact(Original));
-		const auto BeforeRename = GetAssetQueryRevision();
+		(void)Events.Take();
 		Asset->Rename("Renamed");
 		EXPECT_FALSE(FindAssetExact(Original));
 		EXPECT_TRUE(FindAssetExact(Renamed));
-		Changes = CaptureAssetQueryChanges(BeforeRename);
+		Changes = Events.Take();
 		EXPECT_TRUE(std::ranges::any_of(Changes.Changes, [&](const auto& Change) {
 			return Change.Kind == EContentChangeKind::Renamed && Change.OldAssetPath == Original.ToString()
 				&& Change.NewAssetPath == Renamed.ToString();
@@ -312,10 +326,10 @@ namespace
 		ASSERT_TRUE(Package->RelocateAssetPackage(Moved));
 		EXPECT_FALSE(FindAssetExact(Renamed));
 		EXPECT_TRUE(FindAssetExact(Relocated));
-		const auto BeforeRemoval = GetAssetQueryRevision();
+		(void)Events.Take();
 		MarkObjectHierarchyAsGarbage(Package.Get());
 		EXPECT_FALSE(FindAssetExact(Relocated));
-		Changes = CaptureAssetQueryChanges(BeforeRemoval);
+		Changes = Events.Take();
 		EXPECT_TRUE(std::ranges::any_of(Changes.Changes, [&](const auto& Change) {
 			return Change.Kind == EContentChangeKind::Removed && Change.OldAssetPath == Relocated.ToString();
 		}));
@@ -344,9 +358,9 @@ namespace
 		EXPECT_NE(All.FindAssetExact(AssetPath)->AssetClassName, DiskClass);
 		ASSERT_NE(All.FindPackageExact(Path), nullptr);
 		EXPECT_EQ(All.FindPackageExact(Path)->TopLevelAssets.front().AssetClassName, DiskClass);
-		const auto Revision = GetAssetQueryRevision();
+		FQueryEvents Events;
 		Package->MarkDirty();
-		EXPECT_EQ(GetAssetQueryRevision(), Revision);
+		EXPECT_TRUE(Events.Take().Changes.empty());
 		Package->GetTopLevelAssets().front()->SetTransient(true);
 		EXPECT_FALSE(FindAssetExact(AssetPath));
 		MarkObjectHierarchyAsGarbage(Package.Get());
@@ -367,7 +381,7 @@ namespace
 		NewObject<DObject>(Package.Get(), "Asset");
 		FTopLevelAssetPath AssetPath;
 		ASSERT_TRUE(FTopLevelAssetPath::TryCreate(Path, "Asset", AssetPath));
-		const auto Revision = GetAssetQueryRevision();
+		FQueryEvents Events;
 		EXPECT_FALSE(FindAssetExact(AssetPath));
 		FObjectGraphReplacement Replacement;
 		const FObjectReplacementPackagePair Pair{nullptr, Package.Get()};
@@ -375,8 +389,42 @@ namespace
 		EXPECT_FALSE(FindAssetExact(AssetPath));
 		ASSERT_TRUE(Replacement.TryCommit());
 		EXPECT_TRUE(FindAssetExact(AssetPath));
-		EXPECT_GT(GetAssetQueryRevision(), Revision);
+		EXPECT_FALSE(Events.Take().Changes.empty());
 		ASSERT_TRUE(Replacement.Retire());
 		MarkObjectHierarchyAsGarbage(Package.Get());
+	}
+}
+
+namespace
+{
+	TEST(FAssetMetadataQueryTests, DeferredEventsPublishWithoutPollingAQueryRevision)
+	{
+		Testing::InitializeDObjectSystemForTests();
+		const bool OwnScheduler = !IsTaskSchedulerRunning();
+		if (OwnScheduler) ASSERT_TRUE(InitializeTaskScheduler(1));
+		struct FStopScheduler { bool Own; ~FStopScheduler() { if (Own) ShutdownTaskScheduler(true); } } Stop{OwnScheduler};
+		if (!GetGameThreadDeferredWorkQueueDiagnostics().bInstalled) ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+		Testing::FScopedMountRegistryFixture Mounts;
+		Testing::RegisterMountPointForTests("/QueryEvents/", "QueryEvents/");
+		FPackagePath Path; ASSERT_TRUE(FPackagePath::TryCreate("/QueryEvents/Asset", Path));
+		FTopLevelAssetPath AssetPath; ASSERT_TRUE(FTopLevelAssetPath::TryCreate(Path, "Asset", AssetPath));
+		FQueryEvents Events;
+		TStrongObjectPtr<DPackage> Package(CreatePackage(Path));
+		NewObject<DObject>(Package.Get(), "Asset");
+		PumpGameThreadDeferredWork();
+		EXPECT_EQ(1, std::ranges::count_if(Events.Changes.Changes, [&](const auto& Change) { return Change.Kind == EContentChangeKind::Added && Change.NewAssetPath == AssetPath.ToString(); }));
+		Events.Changes = {};
+		MarkObjectHierarchyAsGarbage(Package.Get());
+		PumpGameThreadDeferredWork();
+		EXPECT_EQ(1, std::ranges::count_if(Events.Changes.Changes, [&](const auto& Change) { return Change.Kind == EContentChangeKind::Removed && Change.OldAssetPath == AssetPath.ToString(); }));
+		Events.Changes = {};
+		{
+			Testing::FScopedMountRegistryFixture Replacement;
+			PumpGameThreadDeferredWork();
+			EXPECT_TRUE(Events.Changes.bFullRefresh);
+			Events.Changes = {};
+		}
+		PumpGameThreadDeferredWork();
+		EXPECT_TRUE(Events.Changes.bFullRefresh);
 	}
 }

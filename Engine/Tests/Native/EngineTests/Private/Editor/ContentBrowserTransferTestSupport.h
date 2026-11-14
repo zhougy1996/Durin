@@ -1,31 +1,31 @@
+#include "Editor/ContentBrowserOperationFixtures.h"
 #pragma once
 #include "Editor/ContentBrowserQueryTestSupport.h"
-#include "Data/ContentBrowserFolderOperation.h"
-#include "Operations/ContentBrowserPaths.h"
+#include "Misc/ContentMountPaths.h"
 #include "AssetRegistry/Catalog.h"
 
 namespace Durin::ContentBrowser::Private
 {
 	// Converts native storage fixtures to real provider contributions. All transfer
 	// planning, collision checks and I/O use production Item/provider APIs.
-	class FContentBrowserTransferTestOperation
+	class FProviderTransferFixture
 	{
 	public:
-		explicit FContentBrowserTransferTestOperation(FContentBrowserOperationContext InHost = {}) : Folder(InHost), Host(std::move(InHost)) {}
+		explicit FProviderTransferFixture(FContentBrowserOperationContext InHost = {}) : Folder(InHost), Host(std::move(InHost)) {}
 		auto SetDiagnosticSink(FFeedbackContext::FMessageSink Sink) -> void { Host.ReportDiagnostic = Sink; Folder.SetDiagnosticSink(std::move(Sink)); }
-		auto BulkCopyItems(std::span<const FContentBrowserNativeItem> Items, std::string_view Directory) -> bool { return Execute(Items, Directory, false); }
-		auto BulkMoveItems(std::span<const FContentBrowserNativeItem> Items, std::string_view Directory) -> bool { return Execute(Items, Directory, true); }
-		auto CanMoveItem(const FContentBrowserNativeItem& Item, std::string_view Directory, std::string* Error = nullptr) -> bool
-		{ return Bind(Item, Host).CanMove(FContentBrowserPaths::PhysicalToVirtualDirectory(Directory), Error); }
-		auto CanRenameItem(const FContentBrowserNativeItem& Item, std::string_view Name, std::string* Error = nullptr) -> bool { return Bind(Item, Host).CanRename(Name, Error); }
-		auto RenameItem(const FContentBrowserNativeItem& Item, std::string_view Name, FContentBrowserNativeItem& Out) -> bool
+		auto BulkCopyItems(std::span<const FStorageItemFixture> Items, std::string_view Directory) -> bool { return Execute(Items, Directory, false); }
+		auto BulkMoveItems(std::span<const FStorageItemFixture> Items, std::string_view Directory) -> bool { return Execute(Items, Directory, true); }
+		auto CanMoveItem(const FStorageItemFixture& Item, std::string_view Directory, std::string* Error = nullptr) -> bool
+		{ return Bind(Item, Host).CanMove(ContentStorage::FContentMountPaths::PhysicalToVirtualDirectory(Directory), Error); }
+		auto CanRenameItem(const FStorageItemFixture& Item, std::string_view Name, std::string* Error = nullptr) -> bool { return Bind(Item, Host).CanRename(Name, Error); }
+		auto RenameItem(const FStorageItemFixture& Item, std::string_view Name, FStorageItemFixture& Out) -> bool
 		{
 			FContentChangeBatch Changes;
 			auto Policy = Host;
-			Policy.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) { Changes.bFullRefresh |= Batch.bFullRefresh; Changes.Changes.insert(Changes.Changes.end(), Batch.Changes.begin(), Batch.Changes.end()); };
+			Policy.NotifyContentMutation = [&](FContentChangeBatch Batch) { Changes.bFullRefresh |= Batch.bFullRefresh; Changes.Changes.insert(Changes.Changes.end(), Batch.Changes.begin(), Batch.Changes.end()); };
 			auto Bound = Bind(Item, Policy);
 			ContentBrowser::FContentBrowserItem NewItem;
-			LastResult = Bound.Rename(Name, NewItem);
+			const bool Success = Bound.Rename(Name, NewItem);
 			Out = {};
 			if (!NewItem.InternalItems.empty())
 			{
@@ -43,16 +43,13 @@ namespace Durin::ContentBrowser::Private
 			}
 			if (Changes.bFullRefresh || !Changes.Changes.empty())
 			{
-				if (Host.NotifyScopedContentMutation) Host.NotifyScopedContentMutation(std::move(Changes));
-				else if (Host.NotifyMountedContentMutation) Host.NotifyMountedContentMutation();
+				if (Host.NotifyContentMutation) Host.NotifyContentMutation(std::move(Changes));
 			}
-			ReportResult();
-			return LastResult.IsComplete();
+			return Success;
 		}
-		auto CreateFolder(std::string_view Directory, std::string_view Name, FContentBrowserNativeItem& Out) -> bool { return Folder.CreateFolder(Directory, Name, Out); }
-		FContentBrowserOperationResult LastResult;
+		auto CreateFolder(std::string_view Directory, std::string_view Name, FStorageItemFixture& Out) -> bool { return Folder.CreateFolder(Directory, Name, Out); }
 	private:
-		auto Bind(FContentBrowserNativeItem Item, const FContentBrowserOperationContext& Policy) -> ContentBrowser::FContentBrowserItem
+		auto Bind(FStorageItemFixture Item, const FContentBrowserOperationContext& Policy) -> ContentBrowser::FContentBrowserItem
 		{
 			for (const auto& [Path, Package] : CaptureAssetCatalogSnapshot().Assets)
 				if ((!Item.PhysicalPath.empty() && std::filesystem::path(Item.PhysicalPath).lexically_normal() == std::filesystem::path(Package.PhysicalPath).lexically_normal()) || (Item.Kind == EContentBrowserItemKind::Asset && Item.PackagePath == Path))
@@ -63,11 +60,11 @@ namespace Durin::ContentBrowser::Private
 				}
 			return Query.BindContributionsForTesting(Item, Policy);
 		}
-		auto Execute(std::span<const FContentBrowserNativeItem> Items, std::string_view Directory, bool Move) -> bool
+		auto Execute(std::span<const FStorageItemFixture> Items, std::string_view Directory, bool Move) -> bool
 		{
 			FContentChangeBatch Changes;
 			auto Policy = Host;
-			Policy.NotifyScopedContentMutation = [&](FContentChangeBatch Batch) {
+			Policy.NotifyContentMutation = [&](FContentChangeBatch Batch) {
 				Changes.bFullRefresh |= Batch.bFullRefresh;
 				Changes.Changes.insert(Changes.Changes.end(), std::make_move_iterator(Batch.Changes.begin()), std::make_move_iterator(Batch.Changes.end()));
 			};
@@ -78,27 +75,16 @@ namespace Durin::ContentBrowser::Private
 				if (Bound.InternalItems.empty()) return false;
 				Selection.InternalItems.insert(Selection.InternalItems.end(), Bound.InternalItems.begin(), Bound.InternalItems.end());
 			}
-			const auto Destination = FContentBrowserPaths::PhysicalToVirtualDirectory(Directory);
-			LastResult = Move ? Selection.Move(Destination) : Selection.Copy(Destination);
+			const auto Destination = ContentStorage::FContentMountPaths::PhysicalToVirtualDirectory(Directory);
+			const bool Success = Move ? Query.GetServiceForTesting()->BulkMoveItems(Selection.GetInternalItems(), Destination) : Query.GetServiceForTesting()->BulkCopyItems(Selection.GetInternalItems(), Destination);
 			if (Changes.bFullRefresh || !Changes.Changes.empty())
 			{
-				if (Host.NotifyScopedContentMutation) Host.NotifyScopedContentMutation(std::move(Changes));
-				else if (Host.NotifyMountedContentMutation) Host.NotifyMountedContentMutation();
+				if (Host.NotifyContentMutation) Host.NotifyContentMutation(std::move(Changes));
 			}
-			ReportResult();
-			return LastResult.IsComplete();
+			return Success;
 		}
-		auto ReportResult() -> void
-		{
-			if (Host.ReportDiagnostic)
-				for (const auto& Effect : LastResult.Effects)
-				{
-					if (!Effect.Diagnostic.empty()) Host.ReportDiagnostic(ELogLevel::Error, Effect.Diagnostic);
-					for (const auto& Path : Effect.RecoveryLocations) Host.ReportDiagnostic(ELogLevel::Warn, Path);
-				}
-		}
-		FNativeContentBrowserTestQuery Query;
-		FContentBrowserFolderOperation Folder;
+		FProviderQueryFixture Query;
+		FProviderFolderFixture Folder;
 		FContentBrowserOperationContext Host;
 	};
 }

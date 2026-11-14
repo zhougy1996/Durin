@@ -1,4 +1,4 @@
-#include "Data/ContentBrowserItemAttributeHelpers.h"
+#include "ContentBrowserItemAttributeHelpers.h"
 #include "Panels/ContentBrowserQuery.h"
 #include "ContentBrowser/ContentBrowserContracts.h"
 #include "Misc/StringHelper.h"
@@ -48,7 +48,7 @@ namespace Durin::ContentBrowser::Private
 		}
 	}
 
-	auto ContentBrowserQuery::Project(std::shared_ptr<const FContentBrowserItemsSnapshot> Snapshot, std::string_view PhysicalDirectory, const FContentBrowserQuerySettings& Settings, std::string_view VirtualDirectory)
+	auto ContentBrowserQuery::Project(std::shared_ptr<const FContentBrowserItemsSnapshot> Snapshot, std::string PhysicalDirectory, FContentBrowserQuerySettings Settings, std::string VirtualDirectory)
 		-> FContentBrowserItemRange
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("ContentBrowser.Project");
@@ -91,9 +91,9 @@ namespace Durin::ContentBrowser::Private
 				continue;
 
 			const std::string_view Type = TypeLabels.empty() ? std::string_view{} : TypeLabels[Index];
-			const std::string_view SearchPath = Item.GetVirtualPath().empty()
-				? std::string_view(ItemAttributes::PhysicalPath(Item))
-				: std::string_view(Item.GetVirtualPath());
+			const std::string SearchPath = Item.GetVirtualPath().empty()
+				? ItemAttributes::PhysicalPath(Item)
+				: Item.GetVirtualPath();
 			if (bSearching && !ContainsInsensitive(Item.GetItemName(), Settings.Search)
 				&& !ContainsInsensitive(SearchPath, Settings.Search)
 				&& !ContainsInsensitive(Type, Settings.Search)
@@ -109,6 +109,19 @@ namespace Durin::ContentBrowser::Private
 			if (MatchesCategory && MatchesTypeFilter(Item, Settings.TypeFilter)) Indices.push_back(Index);
 		}
 
+		// Provider calls finish before sorting; the comparator reads owned values only.
+		std::vector<uint64> Sizes;
+		std::vector<std::filesystem::file_time_type> Times;
+		if (Settings.SortColumn == EContentBrowserSortColumn::Size)
+		{
+			Sizes.resize(Snapshot->Items.size());
+			for (auto Index : Indices) Sizes[Index] = ItemAttributes::Unsigned(Snapshot->Items[Index], ContentBrowserItemAttributes::ItemDiskSize);
+		}
+		if (Settings.SortColumn == EContentBrowserSortColumn::Modified)
+		{
+			Times.resize(Snapshot->Items.size());
+			for (auto Index : Indices) Times[Index] = ItemAttributes::LastWriteTime(Snapshot->Items[Index]);
+		}
 		auto Compare = [&](size_t AIndex, size_t BIndex) {
 			const auto& A = Snapshot->Items[AIndex];
 			const auto& B = Snapshot->Items[BIndex];
@@ -125,14 +138,10 @@ namespace Durin::ContentBrowser::Private
 				Result = TypeLabels[AIndex].compare(TypeLabels[BIndex]);
 				break;
 			case EContentBrowserSortColumn::Size:
-				Result = ItemAttributes::Unsigned(A, ContentBrowserItemAttributes::ItemDiskSize) < ItemAttributes::Unsigned(B, ContentBrowserItemAttributes::ItemDiskSize)
-					? -1
-					: ItemAttributes::Unsigned(A, ContentBrowserItemAttributes::ItemDiskSize) > ItemAttributes::Unsigned(B, ContentBrowserItemAttributes::ItemDiskSize) ? 1 : 0;
+				Result = Sizes[AIndex] < Sizes[BIndex] ? -1 : Sizes[AIndex] > Sizes[BIndex] ? 1 : 0;
 				break;
 			case EContentBrowserSortColumn::Modified:
-				Result = ItemAttributes::LastWriteTime(A) < ItemAttributes::LastWriteTime(B)
-					? -1
-					: ItemAttributes::LastWriteTime(A) > ItemAttributes::LastWriteTime(B) ? 1 : 0;
+				Result = Times[AIndex] < Times[BIndex] ? -1 : Times[AIndex] > Times[BIndex] ? 1 : 0;
 				break;
 			default: Result = A.GetItemName().compare(B.GetItemName()); break;
 			}

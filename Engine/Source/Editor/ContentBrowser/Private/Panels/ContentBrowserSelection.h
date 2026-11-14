@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-#include "Panels/ContentBrowserChanges.h"
+#include "AssetRegistry/ContentChangeScopes.h"
 #include "Panels/ContentBrowserQuery.h"
 
 namespace Durin::ContentBrowser::Private
@@ -51,7 +51,7 @@ namespace Durin::ContentBrowser::Private
 			const auto& OldPath = Previous.GetVirtualPath();
 			const auto& Path = Key.GetVirtualPath();
 			const bool Folder = Data.GetItemType() == EContentBrowserItemFlags::Type_Folder;
-			if (!(Folder ? ContentBrowserChanges::WithinAssetDirectory(Path, OldPath)
+			if (!(Folder ? ContentChangeScopes::WithinAssetDirectory(Path, OldPath)
 				: Key.GetItemType() == Previous.GetItemType() && Path == OldPath)) return false;
 			Key = Moved ? FContentBrowserItemKey(Key.GetItemType(), Data.GetVirtualPath() + Path.substr(OldPath.size()), Key.GetOwnerKey())
 				: FContentBrowserItemKey{};

@@ -154,7 +154,6 @@ durin_add_native_test(EditorAssetWorkflowTests
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
 		${CMAKE_SOURCE_DIR}/Engine/Source
 		${_durin_main_frame_private}
-		${_durin_content_browser_public}
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/TextureEditor/Private
 	LIBRARIES
 		Core
@@ -167,6 +166,9 @@ durin_add_native_test(EditorAssetWorkflowTests
 		AssetMaintenance
 		AssetTools
 		ContentBrowser
+		ContentBrowserData
+		ContentBrowserAssetDataSource
+		ContentBrowserFileDataSource
 		DurinEd
 		MainFrame
 		MeshBuilder
@@ -204,11 +206,11 @@ durin_add_native_test(TextureImportWorkflowTests
 durin_add_native_test(ContentBrowserDataTests
  KIND feature
  DOMAINS asset-workflow
- MODULES asset-tools content-browser durin-ed
+ MODULES asset-tools content-browser-data content-browser-asset-data-source content-browser-file-data-source durin-ed
  STACKS editor
  SOURCES Private/Editor/ContentBrowserDataTests.cpp
- LIBRARIES Core CoreDObject Engine DurinEd ContentBrowser AssetTools
- INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Private ${_durin_content_browser_private}
+ LIBRARIES Core CoreDObject Engine DurinEd ContentBrowserData ContentBrowserAssetDataSource ContentBrowserFileDataSource AssetTools
+ INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Private
  REQUIRES editor
  REQUIREMENT_RATIONALE "Exercises reflected editor data providers and real mounted file mutations."
  HEAVY_RUNTIME_RATIONALE "Uses the editor service and asset runtime lifetime."
@@ -242,14 +244,7 @@ durin_add_native_test(ContentBrowserWorkflowTests
 		${_durin_content_browser_private}/Assets/SourceImageThumbnailDiskCache.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserModel.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserQuery.cpp
-		${_durin_content_browser_private}/Data/ContentBrowserMutationPolicy.cpp
-		${_durin_content_browser_private}/Data/ContentBrowserFolderOperation.cpp
-		${_durin_content_browser_private}/Data/ContentBrowserAssetActions.cpp
-		${_durin_content_browser_private}/Data/ContentBrowserAssetSave.cpp
-		${_durin_content_browser_private}/Data/ContentBrowserDeletionOperation.cpp
-		${_durin_content_browser_private}/Data/ContentBrowserDataQuery.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserRefreshCoordinator.cpp
-		${_durin_content_browser_private}/Operations/ContentDeletionOperation.cpp
 	LIBRARIES
 		Core
 		CoreDObject
@@ -260,6 +255,9 @@ durin_add_native_test(ContentBrowserWorkflowTests
 		MonaImGui
 		DurinEd
 		ContentBrowser
+		ContentBrowserData
+		ContentBrowserAssetDataSource
+		ContentBrowserFileDataSource
 		AssetTools
 		MeshBuilder
 		TextureCompressor
@@ -268,7 +266,6 @@ durin_add_native_test(ContentBrowserWorkflowTests
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
 	INCLUDE_DIRECTORIES
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
-		${_durin_content_browser_public}
 		${_durin_content_browser_private}
 	COMPILE_DEFINITIONS CONTENTBROWSER_EXPORTS
 	REQUIRES editor

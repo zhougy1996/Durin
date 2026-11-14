@@ -194,7 +194,9 @@ namespace
         using namespace Durin;
         const auto Context = MakePluginManagementFixture("ManagementPreview");
         const auto Before = FFileHelper::LoadFileToArray(Context.Request.ProjectFile);
-        const auto Revision = FMountPaths::GetMountRegistryRevision();
+        bool MountsChanged = false;
+        const auto MountHandle = Durin::FMountPaths::OnMountPointsChanged().AddLambda([&] { MountsChanged = true; });
+        struct FMountSubscription { Durin::FDelegateHandle Handle; ~FMountSubscription() { Durin::FMountPaths::OnMountPointsChanged().Remove(Handle); } } MountSubscription{MountHandle};
         FPluginEditSession Session; std::string Error;
         ASSERT_TRUE(Session.Open(Context,Error)) << Error;
         ASSERT_EQ(Session.GetRows().size(),3); EXPECT_FALSE(Session.IsDirty());
@@ -208,7 +210,7 @@ namespace
         EXPECT_TRUE(TestWater().bRequested); EXPECT_TRUE(TestWater().bNextStart); EXPECT_TRUE(Session.RequiresRestart());
         ASSERT_TRUE(Session.SetEnabled("Base",false,Error));
         EXPECT_TRUE(TestWater().bRequested); EXPECT_FALSE(TestWater().bNextStart);
-        EXPECT_EQ(*FFileHelper::LoadFileToArray(Context.Request.ProjectFile),*Before); EXPECT_EQ(FMountPaths::GetMountRegistryRevision(),Revision);
+        EXPECT_EQ(*FFileHelper::LoadFileToArray(Context.Request.ProjectFile),*Before); EXPECT_FALSE(MountsChanged);
         ASSERT_TRUE(Session.Revert(Error)); EXPECT_FALSE(Session.IsDirty());
     }
     TEST(PluginResolutionTests, PluginCheckboxEditsPreserveOtherCheckedDependencies)
@@ -449,13 +451,15 @@ namespace
 		const std::vector<Durin::FMountPoint> Probe{{.VirtualRoot="/Probe/",.Owner=Durin::EMountOwner::Test,.Root=Folder,.ContentPath="."}};
 		Durin::Testing::FScopedMountRegistryFixture Registry(Probe); ASSERT_TRUE(Registry.IsValid());
 		const auto* MountStorage=Durin::FMountPaths::GetRegisteredMountPoints().data();
-		const auto Revision=Durin::FMountPaths::GetMountRegistryRevision();
+		bool MountsChanged = false;
+		const auto MountHandle = Durin::FMountPaths::OnMountPointsChanged().AddLambda([&] { MountsChanged = true; });
+		struct FMountSubscription { Durin::FDelegateHandle Handle; ~FMountSubscription() { Durin::FMountPaths::OnMountPointsChanged().Remove(Handle); } } MountSubscription{MountHandle};
 		EXPECT_FALSE(Manager.LoadProjectFile((Folder/"Missing.dproject").generic_string()));
 		EXPECT_EQ(Durin::GetCurrentProject(),Active); EXPECT_EQ(Durin::FPaths::ProjectFile(),Path);
-		EXPECT_EQ(Durin::FMountPaths::GetMountRegistryRevision(),Revision);
+		EXPECT_FALSE(MountsChanged);
 		Durin::FProjectStatus ProjectStatus;
         ASSERT_TRUE(Manager.QueryStatusForProject(File.generic_string(), ProjectStatus));
-		EXPECT_EQ(Durin::GetCurrentProject(),Active); EXPECT_EQ(Durin::FMountPaths::GetMountRegistryRevision(),Revision);
+		EXPECT_EQ(Durin::GetCurrentProject(),Active); EXPECT_FALSE(MountsChanged);
 		EXPECT_EQ(Durin::FMountPaths::GetRegisteredMountPoints().data(),MountStorage);
         EXPECT_EQ(Active->PluginDependencies, (std::vector<std::string>{"Water"}));
         ASSERT_TRUE(Manager.SaveCurrentProjectToDisk(Error)); EXPECT_FALSE(Manager.IsCurrentProjectDirty());

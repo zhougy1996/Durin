@@ -1,21 +1,21 @@
 {
     "ModuleName": "ContentBrowser",
-    "ReflectHeaders": ["Public/ContentBrowserDataSource.h", "Public/ContentBrowserNativeDataSource.h", "Public/ContentBrowserDataSubsystem.h", "Public/ContentBrowserProviderSubsystems.h"],
     "LinkType": "Shared",
     "PCH": "SharedPCH_DurinEd",
     "PrivateDependencies": [
-		"Core",
-		"AssetRegistry",
+        "Core",
+        "AssetRegistry",
         "RHI",
         "RenderCore",
         "Engine",
         "ApplicationCore",
         "MonaCore",
-		"Mona",
-		"MonaImGui",
-		"AssetTools"
-	],
-	"PublicDependencies": [
-		"DurinEd"
+        "Mona",
+        "MonaImGui",
+        "AssetTools"
+    ],
+    "PublicDependencies": [
+        "DurinEd",
+        "ContentBrowserData"
     ]
 }

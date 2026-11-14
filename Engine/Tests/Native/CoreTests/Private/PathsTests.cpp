@@ -261,15 +261,41 @@ TEST_F(FMountRegistryTests, ResolvesTypedPathsClassifiesRootsAndEnforcesPolicy)
 	EXPECT_FALSE(PublishError.empty());
 }
 
+TEST_F(FMountRegistryTests, MountEventsObserveCommittedReplacementAndRestorationOnly)
+{
+	using namespace Durin;
+	std::vector<std::vector<std::string>> Observed;
+	const auto Handle = FMountPaths::OnMountPointsChanged().AddLambda([&] {
+		std::vector<std::string> Roots;
+		for (const auto& Mount : FMountPaths::GetRegisteredMountPoints()) Roots.push_back(Mount.VirtualRoot);
+		Observed.push_back(std::move(Roots));
+	});
+	struct FUnsubscribe { FDelegateHandle Handle; ~FUnsubscribe() { FMountPaths::OnMountPointsChanged().Remove(Handle); } } Subscription{Handle};
+	const auto MountDefinitions = Definitions();
+	{
+		Testing::FScopedMountRegistryFixture Outer;
+		ASSERT_EQ(1u, Observed.size()); EXPECT_TRUE(Observed.back().empty());
+		auto Invalid = MountDefinitions; Invalid.front().VirtualRoot = "invalid";
+		EXPECT_FALSE(FMountPaths::PublishMountRegistry(Invalid)); EXPECT_EQ(1u, Observed.size());
+		ASSERT_TRUE(FMountPaths::PublishMountRegistry(MountDefinitions));
+		ASSERT_EQ(2u, Observed.size()); EXPECT_FALSE(Observed.back().empty());
+		EXPECT_FALSE(FMountPaths::PublishMountRegistry(MountDefinitions)); EXPECT_EQ(2u, Observed.size());
+		{
+			Testing::FScopedMountRegistryFixture Inner(MountDefinitions);
+			ASSERT_TRUE(Inner.IsValid()); ASSERT_EQ(4u, Observed.size());
+			EXPECT_TRUE(Observed[2].empty()); EXPECT_EQ(Observed[1], Observed[3]);
+		}
+		ASSERT_EQ(5u, Observed.size()); EXPECT_EQ(Observed[1], Observed[4]);
+	}
+	EXPECT_EQ(6u, Observed.size());
+}
+
 TEST_F(FMountRegistryTests, NestedFixturesRestoreRegistryAndPublicationState)
 {
 	using namespace Durin;
-	const uint64 Before = FMountPaths::GetMountRegistryRevision();
 	const auto OuterDefinitions = Definitions();
 	Testing::FScopedMountRegistryFixture Outer(OuterDefinitions);
 	ASSERT_TRUE(Outer.IsValid()) << Outer.GetError();
-	const uint64 OuterRevision = FMountPaths::GetMountRegistryRevision();
-	EXPECT_GT(OuterRevision, Before);
 	EXPECT_TRUE(FMountPaths::FindMountForVirtualPath("/Engine/Asset"));
 
 	const std::array InnerDefinitions{FMountPoint{
@@ -280,18 +306,14 @@ TEST_F(FMountRegistryTests, NestedFixturesRestoreRegistryAndPublicationState)
 	{
 		Testing::FScopedMountRegistryFixture Inner(InnerDefinitions);
 		ASSERT_TRUE(Inner.IsValid()) << Inner.GetError();
-		const uint64 InnerRevision = FMountPaths::GetMountRegistryRevision();
-		EXPECT_GT(InnerRevision, OuterRevision);
 		EXPECT_TRUE(FMountPaths::FindMountForVirtualPath("/Nested/Asset"));
 		EXPECT_EQ(FMountPaths::FindMountForVirtualPath("/Engine/Asset").error().Code,
 			EMountPathError::UnknownMount);
 		std::string Error;
 		EXPECT_FALSE(FMountPaths::PublishMountRegistry(InnerDefinitions, &Error));
-		EXPECT_EQ(FMountPaths::GetMountRegistryRevision(), InnerRevision);
 		EXPECT_FALSE(Error.empty());
 	}
 
-	EXPECT_GT(FMountPaths::GetMountRegistryRevision(), OuterRevision);
 	EXPECT_TRUE(FMountPaths::FindMountForVirtualPath("/Engine/Asset"));
 	EXPECT_EQ(FMountPaths::FindMountForVirtualPath("/Nested/Asset").error().Code,
 		EMountPathError::UnknownMount);

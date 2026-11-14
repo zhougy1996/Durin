@@ -75,6 +75,7 @@ namespace
         struct FBrowserSink final : Browser::IContentBrowserItemDataSink
         {
             auto QueueItemDataUpdate(Browser::FContentBrowserItemDataUpdate&&) -> void override {}
+            auto NotifyItemDataRefreshed() -> void override {}
         } BrowserSink;
         DEditorToolSubsystem* Tools = nullptr;
         std::unique_ptr<FPythonScriptPanel> Panel;

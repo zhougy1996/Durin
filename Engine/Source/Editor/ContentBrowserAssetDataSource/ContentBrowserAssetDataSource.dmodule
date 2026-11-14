@@ -1,0 +1,17 @@
+{
+    "ModuleName": "ContentBrowserAssetDataSource",
+    "LinkType": "Shared",
+    "PCH": "SharedPCH_Core",
+    "PublicDependencies": [
+        "ContentBrowserData"
+    ],
+    "PrivateDependencies": [
+        "AssetRegistry",
+        "AssetTools",
+        "Engine"
+    ],
+    "ReflectHeaders": [
+        "Public/ContentBrowserAssetDataSource.h",
+        "Public/ContentBrowserAssetProviderSubsystem.h"
+    ]
+}

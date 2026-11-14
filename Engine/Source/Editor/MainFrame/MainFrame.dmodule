@@ -23,7 +23,9 @@
         "TextureEditor",
         "StaticMeshEditor",
         "DurinEd",
-        "DurinPython"
+        "DurinPython",
+        "ContentBrowserAssetDataSource",
+        "ContentBrowserFileDataSource"
     ],
     "PublicDependencies": [
         "Projects"

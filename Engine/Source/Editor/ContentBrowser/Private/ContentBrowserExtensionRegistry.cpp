@@ -1,4 +1,4 @@
-#include "Data/ContentBrowserItemAttributeHelpers.h"
+#include "ContentBrowserItemAttributeHelpers.h"
 #include "ContentBrowser/ContentBrowserContracts.h"
 #include "AssetDefinition/AssetDefinition.h"
 #include "AssetDefinition/AssetDefinitionRegistry.h"

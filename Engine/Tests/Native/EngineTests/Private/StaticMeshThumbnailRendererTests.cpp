@@ -440,8 +440,8 @@ TEST(FStaticMeshThumbnailRendererTests,
 	using Durin::ContentBrowser::FContentBrowserItem;
 	using Durin::ContentBrowser::EContentBrowserItemKind;
 	using namespace Durin::ContentBrowser::Private;
-	FNativeContentBrowserTestQuery Provider;
-	FContentBrowserNativeItem NativeInput{
+	FProviderQueryFixture Provider;
+	FStorageItemFixture NativeInput{
 		.Kind = EContentBrowserItemKind::Asset,
 		.VirtualPath = Data->TopLevelAssets.front().AssetPath.ToString(),
 		.PackagePath = StaticMeshPath,

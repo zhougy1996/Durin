@@ -25,6 +25,15 @@ redirect destination, including when they contain exactly one asset.
 exact asset and its owning package from the same revision. Package-wide policies
 inspect all asset records; class-specific operations select an exact asset.
 
+Merged live/on-disk queries publish `OnAssetQueryChanged` events. Package changes
+invalidate query metadata; catalog publications provide committed deltas after
+unlocking on the publishing thread; listeners defer owner-thread work. Deferred
+work coalesces publication, and query reads synchronize before returning. Consumers explicitly invalidate owned caches;
+there is no global query revision or query-history replay. Catalog revisions
+remain native publication/deletion consistency checks. Committed mount events
+invalidate query metadata and coalesce a full-refresh notification; queries keep
+no mount-version cursor.
+
 For authored execution, mounted `Content` is authoritative. `AssetRegistry/Registry.bin` is a
 rebuildable, deterministic discovery snapshot keyed by virtual mount and
 normalized package path; it is never a content mount or a source of package
@@ -83,22 +92,17 @@ never manufactures a zero-filled persistent package record. Existing
 `FAssetCatalogSnapshot`, `FindPackageExact`, dependency closures and publication
 admission continue to describe disk packages exclusively.
 
-CoreDObject exposes live package enumeration and a package-metadata revision over
-its existing registration. AssetRegistry caches value metadata with non-owning
-object keys; it neither owns residency nor scans the entire object array. The
-revision observes registration, graph application, rename/relocation, eligibility
-changes and garbage marking. Discovery synchronizes at owner-thread query
-boundaries. Metadata-neutral authored edits do not invalidate discovery caches.
+CoreDObject exposes live package enumeration and metadata-change events over its
+existing registration. AssetRegistry caches value metadata with non-owning object
+keys; it neither owns residency nor scans the entire object array. Registration,
+graph application, rename/relocation, eligibility changes and garbage marking
+invalidate metadata. Metadata-neutral authored edits do not publish asset changes.
 
-`GetAssetQueryRevision` and `CaptureAssetQueryChanges` expose the unified lifecycle
-journal. Readers have independent cursors; changes coalesce between discovery
-queries. Creation, modification, rename and removal include exact asset identities
-and intended package filenames without requiring filesystem writes. Disk
-publication changes join the same journal. Saving replaces memory-only presentation
-metadata without duplicating assets; unloading a saved asset restores disk metadata,
-while discarding an unsaved asset removes it. Old snapshots remain owned values.
-The disk catalog revision/journal remain separate so an unsaved edit cannot stale a
-save, Cook or mutation admission snapshot.
+Creation, modification, rename and removal events carry exact asset identities and
+intended package filenames. Saving updates presentation metadata without duplicating
+assets; unloading a saved asset restores disk metadata, while discarding an unsaved
+asset removes it. Old snapshots remain owned values. The separate native disk catalog
+revision/journal protects save, Cook and mutation admission from storage changes.
 
 The process-local catalog revision advances only when published metadata
 changes. `RefreshAssetRegistry` returns requested mode, completeness,

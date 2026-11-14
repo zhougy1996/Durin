@@ -41,7 +41,7 @@ namespace Durin::Testing
 		std::ranges::sort(MountPoints, [](const FMountPoint& A, const FMountPoint& B) {
 			return A.VirtualRoot.length() > B.VirtualRoot.length();
 		});
-		MountPathInternal::AdvanceRegistryRevision();
+		MountPathInternal::NotifyMountPointsChanged();
 	}
 
 	FScopedMountRegistryFixture::FScopedMountRegistryFixture()
@@ -50,7 +50,7 @@ namespace Durin::Testing
 	{
 		MountPathInternal::MutableMountPoints().clear();
 		MountPathInternal::RegistryPublished() = false;
-		MountPathInternal::AdvanceRegistryRevision();
+		MountPathInternal::NotifyMountPointsChanged();
 	}
 
 	FScopedMountRegistryFixture::FScopedMountRegistryFixture(std::span<const FMountPoint> Definitions)
@@ -63,6 +63,6 @@ namespace Durin::Testing
 	{
 		MountPathInternal::MutableMountPoints() = std::move(SavedMounts);
 		MountPathInternal::RegistryPublished() = bSavedPublished;
-		MountPathInternal::AdvanceRegistryRevision();
+		MountPathInternal::NotifyMountPointsChanged();
 	}
 }

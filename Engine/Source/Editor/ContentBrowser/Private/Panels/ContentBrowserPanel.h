@@ -71,7 +71,7 @@ namespace Durin::ContentBrowser::Private
 		auto RefreshPublishedContent() -> void;
 		auto ApplyContentChanges(const FContentChangeBatch& Changes) -> void;
 		auto ApplyItemDataUpdates(std::span<const FContentBrowserItemDataUpdate>) -> void;
-		FDelegateHandle ItemDataUpdatedHandle;
+		FDelegateHandle ItemDataUpdatedHandle, MountedContentChangedHandle;
 		auto PublishMountedContentMutation() -> void;
 		auto RefreshItemsSnapshot() -> void;
 		auto RebuildItems() -> void;
@@ -118,8 +118,8 @@ namespace Durin::ContentBrowser::Private
 		auto HasContentClipboard() const -> bool;
 		auto CreateFolder(std::string_view PhysicalDirectory) -> void;
 		auto SaveItem(const FContentBrowserItem& Item) -> void;
-		auto ApplySaveResult(const FContentBrowserOperationResult& Result) -> void;
-		auto ApplyTransferResult(const FContentBrowserOperationResult& Result, bool Move) -> void;
+		auto ApplySaveResult(bool Success) -> void;
+		auto ApplyTransferResult(bool Success, bool Move) -> void;
 		auto ResaveItems(std::vector<FContentBrowserItem> Items) -> void;
 		auto FixUpRedirector(const FContentBrowserItem& Item) -> void;
 		auto FixUpFolder(std::string_view VirtualDirectory) -> void;

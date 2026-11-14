@@ -9,9 +9,8 @@
 
 namespace Durin
 {
-	static uint64 AssetPackageRevision = 1;
-	auto GetAssetPackageRevision() -> uint64 { return AssetPackageRevision; }
-	auto Private::NotifyAssetPackageChanged() -> void { ++AssetPackageRevision; }
+	auto OnAssetPackagesChanged() -> TMulticastDelegate<void()>& { static TMulticastDelegate<void()> Event; return Event; }
+	auto Private::NotifyAssetPackageChanged() -> void { OnAssetPackagesChanged().Broadcast(); }
 
 	struct FPackageRegistryHash
 	{

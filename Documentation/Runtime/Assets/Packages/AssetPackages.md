@@ -2,9 +2,9 @@
 
 Summary: Define asset identity, canonical DAST packages, runtime residency, loading, and inspection.
 
-Modules: AssetRegistry, Engine, CoreDObject, AssetMaintenance, AssetTools
+Modules: Core, AssetRegistry, Engine, CoreDObject, AssetMaintenance, AssetTools
 
-Last reviewed: 2026-11-12
+Last reviewed: 2026-11-15
 
 Durin object assets are stored as versioned `.dasset` packages. A package is a
 residency and persistence container with zero or more independently addressable
@@ -130,6 +130,12 @@ resolution distinguishes invalid paths, unknown mounts, unavailable content
 directories, escapes, missing files, forbidden dependencies, and read-only
 write policy. Existing paths and not-yet-created destinations are checked
 against canonical content directories, including symbolic-link targets.
+
+`FMountPaths::OnMountPointsChanged` broadcasts on the owner thread after a committed
+publication or test-registry replacement/restoration. Failed publication emits
+nothing; callbacks read the committed table. Derived caches invalidate explicitly,
+and native browser providers invalidate discovery/filter caches. There is no
+mount-registry revision API; tests observe committed events and table contents.
 
 The physical package filename is the resolved virtual package path plus
 `.dasset`. A nonempty external BulkData closure uses the stable sibling

@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 
-#include "ContentBrowser/ContentBrowserContracts.h"
 #include "Workspace/LevelEditorUILayout.h"
 #include "Workspace/LevelEditorPresentationPolicy.h"
 #include "MonaImGui.h"
@@ -9,10 +8,6 @@
 
 namespace Durin::LevelEditor
 {
-	static_assert(!std::is_copy_constructible_v<
-		::Durin::ContentBrowser::FScopedExtensionRegistration>);
-	static_assert(std::is_move_constructible_v<
-		::Durin::ContentBrowser::FScopedExtensionRegistration>);
 	TEST(FEditorUILayoutTests, SelectsResponsiveModeAtBoundaries)
 	{
 		EXPECT_EQ(ResolveEditorUILayout(-1.0f, 520.0f, 780.0f), EEditorUILayoutMode::Narrow);

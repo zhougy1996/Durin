@@ -1,0 +1,15 @@
+{
+    "ModuleName": "ContentBrowserData",
+    "LinkType": "Shared",
+    "PCH": "SharedPCH_Core",
+    "PublicDependencies": [
+        "Core",
+        "CoreDObject",
+        "DurinEd"
+    ],
+    "PrivateDependencies": [],
+    "ReflectHeaders": [
+        "Public/ContentBrowserDataSource.h",
+        "Public/ContentBrowserDataSubsystem.h"
+    ]
+}

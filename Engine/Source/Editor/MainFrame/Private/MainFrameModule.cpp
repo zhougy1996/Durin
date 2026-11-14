@@ -29,6 +29,7 @@
 #include "Notifications/Notification.h"
 #include "ContentBrowser/ContentBrowserTool.h"
 #include "ContentBrowserDataSubsystem.h"
+#include "ContentBrowserAssetDataSource.h"
 #include "Mona.h"
 #include "LevelEditorModule.h"
 #include "Thumbnail/ThumbnailManager.h"
@@ -329,22 +330,8 @@ namespace Durin::MainFrame
 						return AssetEditors->OpenAssets({.AssetEditors = AssetEditors,
 							.Assets = {{ObjectPath, AssetClassName}}, .bPromptToSave = true});
 					},
-					.GetMountedContentMutationRevision = [] {
-						return GEditor
-							? GEditor->GetTransactor()
-								->GetMountedContentMutationRevision()
-							: uint64{0};
-					},
-					.NotifyMountedContentMutation = [] {
-						if (GEditor)
-							GEditor->GetTransactor()
-								->NotifyMountedContentMutation();
-					},
-					.CaptureMountedContentChanges = [](uint64 From) {
-						return GEditor ? GEditor->GetTransactor()->CaptureMountedContentChanges(From)
-							: FContentChangeBatch{.bFullRefresh = true};
-					},
-					.NotifyScopedContentMutation = [](FContentChangeBatch Changes) {
+					.MountedContentChanged = GEditor ? &GEditor->GetTransactor()->OnMountedContentChanged() : nullptr,
+					.NotifyContentMutation = [](FContentChangeBatch Changes) {
 						if (GEditor) GEditor->GetTransactor()->NotifyMountedContentMutation(std::move(Changes));
 					},
 					.CanMutateContent = [] { return GEditor && GEditor->GetCapabilities().bEditWorld; },
@@ -375,6 +362,11 @@ namespace Durin::MainFrame
 					return false;
 				}
 				Services.DataSubsystem = BrowserData;
+				const auto Policy = static_cast<ContentBrowser::FContentBrowserOperationContext>(Services);
+				const auto Data = Services.DataSubsystem;
+				Services.FixUpRedirectors = [Data, Policy](std::span<const FPackagePath> Paths) { auto* Service = Data.Get(); auto* Source = Service ? Cast<DContentBrowserAssetDataSource>(Service->GetActiveDataSource(FName("Asset"))) : nullptr; return Source && Source->FixUpRedirectors(Paths, Policy); };
+				Services.FixUpRedirectorsInFolder = [Data, Policy](std::string_view Path) { auto* Service = Data.Get(); auto* Source = Service ? Cast<DContentBrowserAssetDataSource>(Service->GetActiveDataSource(FName("Asset"))) : nullptr; return Source && Source->FixUpRedirectorsInFolder(Path, Policy); };
+				Services.FixUpAllRedirectors = [Data, Policy] { auto* Service = Data.Get(); auto* Source = Service ? Cast<DContentBrowserAssetDataSource>(Service->GetActiveDataSource(FName("Asset"))) : nullptr; return Source && Source->FixUpAllRedirectors(Policy); };
 				Context.ContentBrowserTool = ContentBrowser::CreateContentBrowserTool(
 					std::move(Services),
 					std::move(BrowserSettings),
@@ -1333,7 +1325,7 @@ namespace Durin
 	{
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::WorkspaceRegistrationBegin);
 		DURIN_PROFILE_CPU_ZONE_NAMED("Startup.WorkspaceModules");
-		for (const auto* Name : {"ContentBrowser", "LevelEditor", "MaterialEditor", "TextureEditor", "StaticMeshEditor"})
+		for (const auto* Name : {"ContentBrowserData", "ContentBrowserAssetDataSource", "ContentBrowserFileDataSource", "ContentBrowser", "LevelEditor", "MaterialEditor", "TextureEditor", "StaticMeshEditor"})
 			if (!FModuleManager::Get().LoadModule(Name))
 			{
 				DURIN_ERROR("Workspace module '{}' could not start.", Name);

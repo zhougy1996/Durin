@@ -567,7 +567,6 @@ durin_add_native_test(EditorShellTests
 	INCLUDE_DIRECTORIES
 		${_durin_level_editor_private}
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Public
-		${_durin_content_browser_public}
 		${CMAKE_SOURCE_DIR}/Engine/Source
 	COMPILE_DEFINITIONS LEVELEDITOR_EXPORTS
 	REQUIRES editor

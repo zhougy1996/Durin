@@ -9,8 +9,6 @@ set(_durin_static_mesh_editor_private
 	"${CMAKE_SOURCE_DIR}/Engine/Source/Editor/StaticMeshEditor/Private")
 set(_durin_main_frame_private
 	"${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MainFrame/Private")
-set(_durin_content_browser_public
-	"${CMAKE_SOURCE_DIR}/Engine/Source/Editor/ContentBrowser/Public")
 set(_durin_content_browser_private
 	"${CMAKE_SOURCE_DIR}/Engine/Source/Editor/ContentBrowser/Private")
 # Preserve the existing macOS Vulkan admission policy during declaration migration.

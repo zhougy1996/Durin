@@ -473,7 +473,7 @@ namespace Durin
 		for (const auto& [Path, After] : Publication.Assets)
 			if (!Assets.contains(Path))
 				Batch.Changes.push_back({EContentChangeKind::Added, {}, After.PhysicalPath, {}, Path.ToString()});
-		Changes.Append(std::move(Batch));
+		Changes.Append(Batch);
 		Assets = std::move(Publication.Assets);
 		ReferenceEdgesBySource.clear();
 		for (auto& Edge : Publication.ReferenceEdges)
@@ -482,6 +482,8 @@ namespace Durin
 		References.Errors = std::move(Publication.ReferenceErrors);
 		References.bComplete = Publication.bReferenceIndexComplete;
 		++Revision;
+		Lock.unlock();
+		OnAssetCatalogChanged().Broadcast(Batch);
 		return {};
 	}
 
@@ -562,6 +564,7 @@ namespace Durin
 				Before == Assets.end() ? "" : Path.ToString(),
 				After == Publication.Assets.end() ? "" : Path.ToString()});
 		}
+		const bool Changed = !Batch.Changes.empty();
 		if (!Batch.Changes.empty())
 		{
 			for (const FPackagePath& Path : Touched)
@@ -576,12 +579,14 @@ namespace Durin
 				References.SourceFingerprints.emplace(Path, Fingerprint);
 			for (auto& Edge : Publication.ReferenceEdges)
 				ReferenceEdgesBySource[Edge.SourcePackage].push_back(std::move(Edge));
-			Changes.Append(std::move(Batch));
+			Changes.Append(Batch);
 			++Revision;
 		}
 		for (const FPackagePath& Path : Touched) ProjectionFences.erase(Path);
 		for (const FPackagePath& Path : Delta.ReferenceInvalidations)
 			ProjectionFences.erase(Path);
+		Lock.unlock();
+		if (Changed) OnAssetCatalogChanged().Broadcast(Batch);
 		return {};
 	}
 
@@ -658,6 +663,8 @@ namespace Durin
 	{
 		return AssetPrivate::GetAssetRegistryState().CaptureChanges(FromRevision);
 	}
+
+	auto OnAssetCatalogChanged() -> TThreadSafeMulticastDelegate<void(const FContentChangeBatch&)>& { static TThreadSafeMulticastDelegate<void(const FContentChangeBatch&)> Event; return Event; }
 
 	auto GetAssetCatalogRevision() -> uint64
 	{

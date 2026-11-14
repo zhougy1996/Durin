@@ -105,7 +105,10 @@ namespace Durin::AssetPicker
 		// Owns shared candidate and search caches across asset-picker instances.
 		struct FAssetPickerCache
 		{
-			uint64 RegistryRevision = 0;
+			std::atomic_bool Invalidated = true;
+			FDelegateHandle Changed, PackagesChanged, CatalogChanged;
+			FAssetPickerCache() { Changed = OnAssetQueryChanged().AddLambda([this](const FContentChangeBatch&) { Invalidated = true; }); PackagesChanged = OnAssetPackagesChanged().AddLambda([this] { Invalidated = true; }); CatalogChanged = OnAssetCatalogChanged().AddLambda([this](const FContentChangeBatch&) { Invalidated = true; }); }
+			~FAssetPickerCache() { OnAssetQueryChanged().Remove(Changed); OnAssetPackagesChanged().Remove(PackagesChanged); OnAssetCatalogChanged().Remove(CatalogChanged); }
 			std::unordered_map<FCandidateCacheKey, std::vector<FTopLevelAssetPath>, FCandidateCacheKeyHash> Candidates;
 			std::unordered_map<ImGuiID, FSearchCacheEntry> Searches;
 		};
@@ -113,10 +116,8 @@ namespace Durin::AssetPicker
 		auto GetPickerCache() -> FAssetPickerCache&
 		{
 			static FAssetPickerCache Cache;
-			const uint64 RegistryRevision = GetAssetQueryRevision();
-			if (Cache.RegistryRevision != RegistryRevision)
+			if (Cache.Invalidated.exchange(false))
 			{
-				Cache.RegistryRevision = RegistryRevision;
 				Cache.Candidates.clear();
 				Cache.Searches.clear();
 			}

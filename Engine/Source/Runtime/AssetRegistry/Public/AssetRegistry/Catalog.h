@@ -126,7 +126,6 @@ namespace Durin
 	enum class EAssetQuerySource : uint8 { All, OnDisk, InMemory };
 	struct FAssetQuerySnapshot
 	{
-		uint64 Revision = 0;
 		std::unordered_map<FTopLevelAssetPath, FAssetData> Assets;
 		std::unordered_map<FPackagePath, FPackageData> Packages;
 
@@ -143,10 +142,8 @@ namespace Durin
 	};
 	// All/InMemory queries and the unified change stream belong to GameThread.
 	ASSETREGISTRY_API auto CaptureAssetQuerySnapshot(EAssetQuerySource Source = EAssetQuerySource::All) -> FAssetQuerySnapshot;
-	ASSETREGISTRY_API auto GetAssetQueryRevision() -> uint64;
 	// Owner-thread metadata events; callbacks observe the already committed query snapshot.
 	ASSETREGISTRY_API auto OnAssetQueryChanged() -> TMulticastDelegate<void(const FContentChangeBatch&)>&;
-	ASSETREGISTRY_API auto CaptureAssetQueryChanges(uint64 FromRevision) -> FContentChangeBatch;
 
 	// Owns a revision-consistent projection containing only one asset and its
 	// transitive package dependencies.
@@ -270,6 +267,8 @@ namespace Durin
 	ASSETREGISTRY_API auto CaptureAssetDependencyClosure(
 		const FPackagePath& Root) -> FAssetDependencyClosureSnapshot;
 	ASSETREGISTRY_API auto GetAssetCatalogRevision() -> uint64;
+	// Broadcast after commit on the publishing thread; listeners must defer owner-thread work.
+	ASSETREGISTRY_API auto OnAssetCatalogChanged() -> TThreadSafeMulticastDelegate<void(const FContentChangeBatch&)>&;
 	// Captures complete change coverage through the current revision under the catalog lock.
 	ASSETREGISTRY_API auto CaptureAssetCatalogChanges(uint64 FromRevision) -> FContentChangeBatch;
 }

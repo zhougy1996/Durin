@@ -61,22 +61,22 @@ namespace Durin::ContentBrowser::Private
 		Definition->Icon = Icons::Cube; Definition->Categories = {{"Texture"}};
 		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
 		ASSERT_TRUE(Registration);
-		FContentBrowserItem Folder = Durin::ContentBrowser::Private::FContentBrowserNativeItem{
+		FContentBrowserItem Folder = Durin::ContentBrowser::Private::FStorageItemFixture{
 			.Kind = EContentBrowserItemKind::Folder,
 			.Name = "Textures"};
-		FContentBrowserItem Asset = Durin::ContentBrowser::Private::FContentBrowserNativeItem{
+		FContentBrowserItem Asset = Durin::ContentBrowser::Private::FStorageItemFixture{
 			.Kind = EContentBrowserItemKind::Asset,
 			.Name = "Sky",
 			.AssetClassName = "ItemViewTest::DTextureCube"};
-		FContentBrowserItem Source = Durin::ContentBrowser::Private::FContentBrowserNativeItem{
+		FContentBrowserItem Source = Durin::ContentBrowser::Private::FStorageItemFixture{
 			.Kind = EContentBrowserItemKind::File,
 			.Name = "Sky.hdr",
 			.Extension = ".hdr"};
-		FContentBrowserItem Redirector = Durin::ContentBrowser::Private::FContentBrowserNativeItem{
+		FContentBrowserItem Redirector = Durin::ContentBrowser::Private::FStorageItemFixture{
 			.Kind = EContentBrowserItemKind::Redirector,
 			.Name = "OldSky"};
 
-		Durin::ContentBrowser::Private::FNativeContentBrowserTestQuery Query;
+		Durin::ContentBrowser::Private::FProviderQueryFixture Query;
 		EXPECT_EQ(ContentBrowserItemView::TypeLabel(Query.BindItemForTesting(Folder)), "Folder");
 		EXPECT_EQ(ContentBrowserItemView::TypeLabel(Query.BindItemForTesting(Asset)), "Texture Cube");
 		EXPECT_EQ(ContentBrowserItemView::TypeLabel(Query.BindItemForTesting(Source)), "hdr file");

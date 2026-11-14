@@ -38,7 +38,9 @@ int main(int Argc, char** Argv)
 	}
 	std::string MountError;
 	if (!FMountPaths::InitDefaultMountPoints(&MountError, true)) return 20;
-	const auto MountRevision = FMountPaths::GetMountRegistryRevision();
+	bool MountsChanged = false;
+	const auto MountHandle = Durin::FMountPaths::OnMountPointsChanged().AddLambda([&] { MountsChanged = true; });
+	struct FMountSubscription { Durin::FDelegateHandle Handle; ~FMountSubscription() { Durin::FMountPaths::OnMountPointsChanged().Remove(Handle); } } MountSubscription{MountHandle};
 	DObjectInit();
 	const auto Load = [&](ELoadingPhase Phase) {
 		if (Projects.LoadModulesForProject(Phase)) return true;
@@ -59,7 +61,7 @@ int main(int Argc, char** Argv)
     FPluginEditSession Session;
     if (!Session.Open(Context, Error) || !Session.SetEnabled("PluginFixtureConsumer", false, Error)) return 12;
     if (Mode == "save-disable" && !Session.Save(Error)) return 21;
-	if (FMountPaths::GetMountRegistryRevision() != MountRevision) return 22;
+	if (MountsChanged) return 22;
 	if (!Load(ELoadingPhase::EngineReady)) return 13;
 	if (!Modules.IsModuleLoaded("PluginFixtureConsumer")
 		|| !FindClassByQualifiedName("Durin::PluginFixture::DConsumerAsset")) return 14;

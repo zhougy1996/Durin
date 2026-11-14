@@ -28,7 +28,9 @@ int main(int Argc, char** Argv)
         ReleaseProjectEditOwnership();
         return Result.value_or(21);
     }
-    const auto Revision = FMountPaths::GetMountRegistryRevision();
+    bool MountsChanged = false;
+    const auto MountHandle = Durin::FMountPaths::OnMountPointsChanged().AddLambda([&] { MountsChanged = true; });
+    struct FMountSubscription { Durin::FDelegateHandle Handle; ~FMountSubscription() { Durin::FMountPaths::OnMountPointsChanged().Remove(Handle); } } MountSubscription{MountHandle};
     FPluginManagementContext Context;
     if (!MakePluginManagementContext(Context, Error)) return 5;
     const auto Active = Context.ActivePlugins;
@@ -87,7 +89,7 @@ int main(int Argc, char** Argv)
             || !Session.CheckRestartReady(Error)) { std::cerr << Error; return 14; }
     }
     if (GetActivePluginIds().size()!=Active.size() || !std::ranges::equal(GetActivePluginIds(),Active)
-        || FMountPaths::GetMountRegistryRevision()!=Revision) return 15;
+        || MountsChanged) return 15;
     const bool bConsumer = std::ranges::find(Active,"PluginFixtureConsumer")!=Active.end();
     if ((Mode=="observe-enabled" && !bConsumer) || ((Mode=="observe-disabled" || Mode=="observe-blocked") && bConsumer)) return 16;
     if (Mode=="observe-blocked")

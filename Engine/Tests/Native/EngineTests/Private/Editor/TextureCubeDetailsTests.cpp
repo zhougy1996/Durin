@@ -25,6 +25,8 @@ namespace Durin::TextureEditor
 	{
 		InitializeDObjectSystem();
 		FModuleManager::Get().LoadModuleChecked("TextureCompressor");
+		FModuleManager::Get().LoadModuleChecked("ContentBrowserData");
+		FModuleManager::Get().LoadModuleChecked("ContentBrowserAssetDataSource");
 		FModuleManager::Get().LoadModuleChecked("ContentBrowser");
 		struct FEditorScope
 		{

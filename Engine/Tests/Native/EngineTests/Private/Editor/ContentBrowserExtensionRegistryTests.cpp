@@ -1,3 +1,4 @@
+#include "Editor/ContentBrowserModelFixture.h"
 #include "Editor/ContentBrowserItemTestSupport.h"
 #include "Misc/UnifiedError.h"
 #include "Editor/ContentBrowserQueryTestSupport.h"
@@ -137,9 +138,9 @@ namespace Durin::ContentBrowser
 			Definition->Categories = {{Category}};
 			auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
 			ASSERT_TRUE(Registration);
-			FNativeContentBrowserTestQuery ModelSource;
+			FProviderQueryFixture ModelSource;
 			FContentBrowserModel Model(ModelSource);
-			Model.SetSnapshotForTesting("/content", Durin::ContentBrowser::Private::ItemDescriptions({{.Kind = EContentBrowserItemKind::Asset,
+			Durin::ContentBrowser::Private::FContentBrowserModelFixtureAccess::SetSnapshot(Model, "/content", Durin::ContentBrowser::Private::ItemDescriptions({{.Kind = EContentBrowserItemKind::Asset,
 				.Name = "Typed", .PhysicalPath = "/content/Typed.dasset", .AssetClassName = Definition->ClassPath}}));
 			Model.SetTypeFilter(Filter); EXPECT_EQ(1u, Model.GetItems().size()) << Category;
 			Model.SetCategoryPath({Category}); EXPECT_EQ(1u, Model.GetItems().size()) << Category;
@@ -177,9 +178,9 @@ namespace Durin::ContentBrowser
 		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
 		ASSERT_TRUE(Registration);
 		using namespace Private;
-		FNativeContentBrowserTestQuery ModelSource;
+		FProviderQueryFixture ModelSource;
 		FContentBrowserModel Model(ModelSource);
-		Model.SetSnapshotForTesting("/content", Durin::ContentBrowser::Private::ItemDescriptions({
+		Durin::ContentBrowser::Private::FContentBrowserModelFixtureAccess::SetSnapshot(Model, "/content", Durin::ContentBrowser::Private::ItemDescriptions({
 			{.Kind = EContentBrowserItemKind::Asset, .Name = "Project", .PhysicalPath = "/content/Project.dasset", .AssetClassName = "Project::DCategoryFixture"},
 			{.Kind = EContentBrowserItemKind::Asset, .Name = "Other", .PhysicalPath = "/content/Other.dasset", .AssetClassName = "Project::Other"}}));
 		const auto ObjectRevision = GDObjectArray.GetRevision();
@@ -613,7 +614,7 @@ namespace Durin::ContentBrowser
 				++Invocations;
 			}}, Error);
 		ASSERT_TRUE(Command.IsValid()) << Error;
-		FNativeContentBrowserTestQuery Provider;
+		FProviderQueryFixture Provider;
 		std::vector<FContentBrowserItem> Items = Durin::ContentBrowser::Private::ItemDescriptions({{.Kind = EContentBrowserItemKind::Asset,
 			.Name = "Example", .VirtualPath = "/Project/Example", .PhysicalPath = "/content/Example.dasset",
 			.AssetClassName = "Plugin::DNovelAsset"}});
@@ -623,7 +624,7 @@ namespace Durin::ContentBrowser
 		ASSERT_EQ(Rows.size(), 2);
 		EXPECT_EQ(Rows[0].Value, "/content/Example.dasset");
 		EXPECT_EQ(Rows[1].Value, "Visible");
-		FNativeContentBrowserTestQuery TypeQuery;
+		FProviderQueryFixture TypeQuery;
 		EXPECT_EQ(ContentBrowserItemView::TypeLabel(TypeQuery.BindItemForTesting(Items.front())), "Novel Asset");
 		EXPECT_EQ(ContentBrowserItemView::Icon(Items.front()), "custom icon");
 		int VisibleCommands = 0;
@@ -651,7 +652,7 @@ namespace Durin::ContentBrowser
 	TEST(FContentBrowserExtensionRegistryTests, BuildsMixedSelectionAndDirectoryDestinations)
 	{
 		using namespace Private;
-		FNativeContentBrowserTestQuery Provider;
+		FProviderQueryFixture Provider;
 		std::vector<FContentBrowserItem> Items = Durin::ContentBrowser::Private::ItemDescriptions({
 			{.Kind = EContentBrowserItemKind::Asset, .VirtualPath = "/Project/Asset",
 				.PhysicalPath = "/content/Asset.dasset", .AssetClassName = "Plugin::DAsset"},
@@ -741,9 +742,9 @@ namespace Durin::ContentBrowser
 		ASSERT_TRUE(Type);
 		auto Duplicate = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition, &Error);
 		EXPECT_FALSE(Duplicate);
-		FNativeContentBrowserTestQuery ModelSource;
+		FProviderQueryFixture ModelSource;
 		FContentBrowserModel Model(ModelSource);
-		Model.SetSnapshotForTesting("/content", Durin::ContentBrowser::Private::ItemDescriptions({
+		Durin::ContentBrowser::Private::FContentBrowserModelFixtureAccess::SetSnapshot(Model, "/content", Durin::ContentBrowser::Private::ItemDescriptions({
 			{.Kind = EContentBrowserItemKind::Asset, .Name = "Volume", .VirtualPath = "/Project/Volume",
 				.PhysicalPath = "/content/Volume.dasset", .AssetClassName = "FilterTest::DVolumeTexture"},
 			{.Kind = EContentBrowserItemKind::Asset, .Name = "Unrelated", .VirtualPath = "/Project/Other",

@@ -45,7 +45,7 @@ def test_shared_native_and_python_contract(case, tmp_path):
 
 @pytest.mark.parametrize("project,roots,editor", [
     ("Engine", ["DurinLauncher", "Renderer", "VulkanRHI", "MetalRHI"],
-     ["AssetTools", "DurinEd", "MainFrame", "ContentBrowser", "LevelEditor", "MaterialEditor",
+     ["AssetTools", "DurinEd", "MainFrame", "ContentBrowserData", "ContentBrowserAssetDataSource", "ContentBrowserFileDataSource", "ContentBrowser", "LevelEditor", "MaterialEditor",
       "TextureEditor", "StaticMeshEditor", "AssetForgeBuiltins", "MeshBuilder", "DerivedDataCache",
       "TextureCompressor", "AssetMaintenance", "ShaderBuild", "TargetPlatform", "DurinMCP"]),
     ("Sandbox", ["Sandbox"], []),

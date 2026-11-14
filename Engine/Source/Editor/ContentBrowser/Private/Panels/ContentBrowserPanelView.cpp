@@ -1,10 +1,10 @@
-#include "Data/ContentBrowserItemAttributeHelpers.h"
+#include "ContentBrowserItemAttributeHelpers.h"
 #include "Asset/RegistryOperations.h"
 
 #include "Profiling/Profiling.h"
 #include "Panels/ContentBrowserExtensionPresentation.h"
 #include "Panels/ContentBrowserPanel.h"
-#include "Panels/ContentBrowserFilesystem.h"
+#include "Misc/ContentFilesystem.h"
 
 #include "DObject/Package.h"
 #include "Asset/Load.h"
@@ -30,7 +30,7 @@ namespace Durin::ContentBrowser::Private
 
 	namespace
 	{
-		using ContentBrowserFilesystem::NormalizePath;
+		using ContentStorage::Filesystem::NormalizePath;
 
 		std::weak_ptr<const void> ActiveDragSnapshot;
 		uint64 DragSerial = 0;
@@ -131,7 +131,6 @@ namespace Durin::ContentBrowser::Private
 		if (!ImGui::GetCurrentContext() || !ImGui::GetDragDropPayload()) DragSnapshot.reset();
 		SynchronizeMountedContentMutation();
 		RefreshMountSnapshot();
-		Model.RefreshRequestedDirectoryChildrenSnapshots();
 		if (Model.PumpPendingSnapshots() || bSelectionRepairDeferred) RepairSelection();
 		CompletePendingItemAction();
 	}
@@ -498,7 +497,7 @@ namespace Durin::ContentBrowser::Private
 						}
 					);
 					It != Model.GetItems().end()
-					&& It->CanRename(ItemAttributes::PackagePath(*It).IsValid() ? ItemAttributes::PackagePath(*It).GetPackageName() : std::string_view(It->GetItemName())))
+					&& It->CanRename())
 					BeginRename(*It);
 			if (bAllowAssetMutation && ImGui::GetIO().KeyCtrl
 				&& ImGui::IsKeyPressed(ImGuiKey_D, false)
@@ -1008,7 +1007,7 @@ namespace Durin::ContentBrowser::Private
 			});
 		if (ImGui::MenuItem(
 				"Rename", "F2", false,
-				SelectionState.Selected.size() == 1 && Item.CanRename(ItemAttributes::PackagePath(Item).IsValid() ? ItemAttributes::PackagePath(Item).GetPackageName() : std::string_view(Item.GetItemName()))
+				SelectionState.Selected.size() == 1 && Item.CanRename()
 			))
 			BeginRename(Item);
 		if (ImGui::MenuItem("Delete", "Delete", false, CanDeleteSelection())) RequestDeleteSelection();

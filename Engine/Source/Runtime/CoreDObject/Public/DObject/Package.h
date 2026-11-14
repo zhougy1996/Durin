@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "CoreDObjectAPI.h"
+#include "Delegates/Delegate.h"
 #include "DObject/AssetPath.h"
 #include "DObject/Object.h"
 #include "DObject/ObjectKey.h"
@@ -29,8 +30,8 @@ namespace Durin
 
 	class DPackage;
 	COREDOBJECT_API auto GetLiveAssetPackages() -> std::vector<DPackage*>;
-	// Owner-thread revision of live asset-package membership, identity and metadata.
-	COREDOBJECT_API auto GetAssetPackageRevision() -> uint64;
+	// Invalidates owner-thread asset metadata queries after package changes.
+	COREDOBJECT_API auto OnAssetPackagesChanged() -> TMulticastDelegate<void()>&;
 	namespace Private { COREDOBJECT_API auto NotifyAssetPackageChanged() -> void; }
 
 	// Indexes every direct asset export or a module's reflected metadata under one registered path.

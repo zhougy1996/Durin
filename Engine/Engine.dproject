@@ -42,7 +42,10 @@
         "TargetPlatform": "Source/Developer/TargetPlatform",
         "ShaderFormat": "Source/Runtime/ShaderFormat",
         "DurinMCP": "Source/Editor/DurinMCP",
-        "DurinPython": "Source/Editor/DurinPython"
+        "DurinPython": "Source/Editor/DurinPython",
+        "ContentBrowserData": "Source/Editor/ContentBrowserData",
+        "ContentBrowserAssetDataSource": "Source/Editor/ContentBrowserAssetDataSource",
+        "ContentBrowserFileDataSource": "Source/Editor/ContentBrowserFileDataSource"
     },
     "BaseModules": [
         "DurinLauncher",
@@ -56,6 +59,9 @@
                 "AssetTools",
                 "DurinEd",
                 "MainFrame",
+                "ContentBrowserData",
+                "ContentBrowserAssetDataSource",
+                "ContentBrowserFileDataSource",
                 "ContentBrowser",
                 "LevelEditor",
                 "MaterialEditor",

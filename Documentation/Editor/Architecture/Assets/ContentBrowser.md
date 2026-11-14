@@ -2,7 +2,7 @@
 
 Summary: Define browser item commands, capability queries, update notifications, UI synchronization, thumbnails, and permanent deletion.
 
-Modules: ContentBrowser, MainFrame, AssetTools, DurinEd, AssetRegistry, Engine, TextureEditor, StaticMeshEditor, LevelEditor
+Modules: ContentBrowser, ContentBrowserData, ContentBrowserAssetDataSource, ContentBrowserFileDataSource, MainFrame, AssetTools, DurinEd, AssetRegistry, Engine, TextureEditor, StaticMeshEditor, LevelEditor
 
 The Content Browser presents the contents of automatically scanned mounted
 content roots. It combines registered engine assets and ordinary files in one
@@ -10,7 +10,7 @@ directory-oriented view while preserving their different identities and
 operations.
 
 Its concrete models, panel body, refresh coordination, source-thumbnail caches,
-and asset-operation helpers are owned by the `ContentBrowser` module under
+are owned by the `ContentBrowser` module under
 `Durin::ContentBrowser::Private`. MainFrame owns the singleton tool
 instance and its docked/drawer presentation. Shared asset
 registries, picker contracts, and thumbnail services remain in the flat
@@ -100,7 +100,7 @@ Metadata and paths remain presentation values; opaque internal item data selects
 the source that handles each operation.
 
 The model caches its directory-tree mount display data by `FMountPaths` registry
-revision. `FContentBrowserPaths` is a stateless projection over the current mount
+revision. `ContentStorage::FContentMountPaths` is a stateless projection over the current mount
 service, shared by navigation and operation validation. Operations retain no
 mount snapshot or injected path service. Directory conversion handles mount roots
 explicitly and resolves other directories directly, without a synthetic child.
@@ -147,7 +147,7 @@ folders in the directory tree; navigation and breadcrumbs use virtual paths.
 
 Workers retain immutable source-prepared values and cancellation tokens. Live
 source dispatch and payload binding stay on the owner thread. Publication checks
-the captured source/mount identity and provider/service revision coverage; stale
+the captured source/mount identity and request cancellation; stale
 results cannot become actionable rows. Directory requests compile current
 provider inputs independently of earlier list captures. Views preserve their
 selection, search, filtering, sorting and presentation state independently.
@@ -217,13 +217,13 @@ shortcuts and deferred commands use `FContentBrowserItem` capabilities; batch sa
 copy, move and confirmed delete route through the data subsystem. Destinations
 remain virtual until the native adapter resolves them. There is no panel-level
 asset/file execution dispatch. Clipboard and Explorer remain presentation/platform
-actions. Asset-specific redirector maintenance uses the native asset provider;
+actions. Asset-specific redirector maintenance uses optional host callbacks wired by MainFrame to the native asset provider;
 creation/import/details extensions and asset definitions remain independently
 registered. All queued execution rechecks current caller and provider admission.
 
-Copy, move, rename and delete return explicit effect results; Rename and immediate Duplicate output resulting items. Duplicate and folder creation retain boolean creation completion.
-Native duplication may identify a retained live copy even when saving fails, so
-presentation may reveal that output without claiming persistence succeeded.
+Operations return bool for any contribution success and reveal explicit outputs.
+Duplicate returns the created copy even when saving fails; the dirty copy remains
+available for ordinary Save, with the save error reported separately.
 Folder creation returns a source-owned temporary context without writing. Its
 validation/finalization callbacks retain the original directory, validate inline
 names without repeated global diagnostics and recheck current policy before
@@ -232,19 +232,14 @@ the editor; Escape, outside clicks, navigation and shutdown discard it without
 writing. Only successful creation publishes an added item and reveals the folder.
 The temporary item never enters the Model snapshot, selection or drag payloads.
 
-The synchronous diagnostic sink presents errors and warnings independently of the
-return value. Complete diagnostics, including every recovery path, are written
-individually to Core logging and are available in Console. The Panel presents a
-brief error or warning prompt directing users to Console; it owns no diagnostic
-history or concatenated message buffer. Each executing provider accumulates and publishes `FContentChangeBatch` for
-actual content changes, including committed files with pending Registry publication.
-The unscoped host revision callback is used only as a fallback when no scoped
-notifier is supplied. Panel does not republish operation changes.
-The Panel uses explicit output items to reveal or select content. It does not
-interpret native write effects or infer refresh from command success. Native
-write effects remain inside providers; the generic result exposes committed identities, diagnostics and recovery locations. High-level asset-operation substitutes and directory-removal callbacks
-are not part of the host construction contract.
-The data source never refreshes Model. Each view observes the data-service revision;
+The Panel logs diagnostics to Console and displays a brief error or warning;
+it owns no diagnostic history. Providers publish actual changes through
+`FContentChangeBatch`, with full refresh for unknown scope. Panels consume source
+updates and refresh after attempted commands; they do not republish mutations or
+interpret native recovery details. Explicit outputs drive reveal and selection.
+See the [provider contract](ContentBrowserData.md#operations-and-request-state)
+for result, binding and execution semantics.
+The data source never refreshes Model. Each view subscribes to item updates and explicit refresh events.
 The data service owns source ticking independently of views. Asset query subscriptions and File background reconciliation deliver updates with no open browser. RefreshCoordinator additionally consumes external host/catalog notifications and supports explicit reconciliation. **Duplicate** and `Ctrl+D` clone one
 selected real asset into the same writable folder, choosing `_Copy`, `_Copy2`,
 and later suffixes until both catalog and physical destinations are free. The
@@ -258,10 +253,12 @@ system clipboard. Other selections retain an owned in-process snapshot shared
 by browser panels, guarded by a system clipboard token; replacing that token
 invalidates the selection. This is an editor clipboard, not OS file-transfer
 interoperability. `Ctrl+V` and Paste target the current folder; a folder context
-menu can paste directly into that folder. Paste keeps source names, merges existing directories and fails existing files/packages without replacement. Retry only failed or unattempted items; Duplicate retains suffix selection.
+menu can paste directly into that folder. Paste keeps source names, merges existing directories and fails existing files/packages without replacement. Inspect actual results before retrying a mixed batch; there is no public per-item
+retry ledger. Duplicate retains suffix selection.
 
-Copy preflights the entire physical scope, collapses selected descendants under
-selected folders, and preserves empty directories and hidden ordinary files.
+Each provider validates its own copy scope, collapses selected descendants under
+selected folders and preserves empty directories and hidden ordinary files. Sources
+execute independently; there is no all-providers-before-write preflight.
 It rejects mount roots, nested mount boundaries, reparse points, missing sources,
 redirectors, unknown packages, and pasting a folder into itself or a descendant.
 Assets use AssetTools duplication with new identities; ordinary files retain
@@ -270,11 +267,12 @@ by asset persistence, never copied independently; orphan `.dbulk` files block
 copy even inside folders. Other contributor-owned companion types currently
 block folder copy because no generic companion duplication contract exists.
 
-Copy retains earlier successful effects after independent failures. A destination
-that may contain partial bytes is reported for inspection and stops remaining
-work. An asset copy created in memory remains available even when saving fails;
-its creation and save failure are separate effects. Cancellation retains earlier
-copies and marks remaining work unattempted. There is no whole-command rollback.
+Copy retains earlier successful writes after independent failures. Native
+providers report retained/uncertain recovery locations and protect their own
+remaining writes. A provider failure does not cancel independent sources. Asset
+copies may retain a dirty live copy after persistence failure; diagnostics describe
+that state. There is no generic transfer cancellation or cross-provider rollback.
+Background query cancellation and deletion confirmation dismissal remain supported.
 
 Opening a
 redirector resolves and opens its final real asset; redirectors are excluded
@@ -291,8 +289,8 @@ already published. Closing or rolling back unsaved work must explicitly select
 the discard-unsaved unload policy. `Resave Package` may be
 used on a clean compatible current-format package and is labeled recommended
 when live load observed a registered legacy reflected identity. Multi-selection
-routes `Resave Selected Packages` through the same deterministic planner; exact
-preflight failures are reported without writing other selected packages.
+routes `Resave Selected Packages` through source bulk save; independent successes
+remain saved when other requested packages fail.
 Presentation never turns a resave recommendation into an unsaved-change
 decoration or close prompt. Registry and item snapshots refresh only after
 verified publication.
@@ -321,7 +319,7 @@ ordinary images use their physical identity and existing file display metadata
 through the source-image cache. Operation results do not initialize preview data.
 
 Refresh, navigation, move, delete, reimport, panel close, and editor shutdown
-cancel obsolete request generations before rebinding the visible snapshot.
+cancel obsolete owned requests before rebinding the visible snapshot.
 Visible work outranks prefetch, duplicate keys coalesce, and all concrete asset
 types share the same bounded scheduler and one-rendered-capture-per-frame limit.
 Renderer removal stops admission and drains that renderer generation's queued
@@ -367,9 +365,9 @@ path. Asset object names survive package rename; ordinary file rename retains th
 existing extension when none is supplied. Selected descendants are collapsed
 under selected folders; empty directories are preserved.
 
-Capability queries and execution share item, name, and destination checks.
-Queries do not reserve destinations: execution reads current mounts and repeats the
-checks, then validates the complete recursive batch before writing. Planned item
+Capability queries inspect the selected item, name and final destination without
+recursive planning. Queries do not reserve destinations: each executing provider
+reads current mounts and validates its recursive scope before writing. Planned item
 notifications are published only through the commit path, never after a rejected
 preflight. Individual assets may relocate across writable scanned mounts through
 AssetTools; ordinary files and folders stay within their source mount.
@@ -381,8 +379,8 @@ collapse beneath selected folders. Package relocation runs synchronously per
 package integrity unit through AssetTools. Ordinary file moves copy without
 replacement, verify byte identities, then remove only the verified source. Failed
 source removal retains the destination and reports both paths for recovery.
-Independent failures retain prior commits; cancellation, admission loss or uncertain
-native recovery stops remaining effects. Registry publication failure retains
+Independent failures retain prior commits; admission loss or uncertain native
+recovery stops remaining writes inside that provider. Registry publication failure retains
 committed content and requests reconciliation. Source cleanup removes only empty
 directories; retained redirectors produce a warning. Authored relocation never
 enters global object-edit Undo/Redo. See
@@ -397,13 +395,13 @@ validity of typed source paths or Engine's authoring policy.
 Its asset rows are a UI value projection of `CaptureAssetQuerySnapshot`.
 ContentBrowser performs no live-object enumeration and never manufactures disk
 package metadata for unsaved assets. GameThread captures filenames and display
-metadata once per discovery revision; workers receive those owned UI values.
+metadata until explicit invalidation; workers receive those owned UI values.
 Import and creation completion callbacks only reveal/open assets; they do not
 report a mounted-filesystem mutation or trigger a Registry rescan. Filesystem
 notifications remain reserved for actual filesystem changes.
-The panel and in-flight item requests follow `CaptureAssetQueryChanges`, sharing
-creation, rename, save, unload and discard notifications with asset pickers and
-other discovery clients. Unsaved assets and their implied folders can be browsed
+Providers consume `OnAssetQueryChanged` and publish item-data events. Views
+invalidate affected caches and cancel obsolete captures; pickers share the same
+creation, rename, save, unload and discard events. Unsaved assets and their implied folders can be browsed
 and revealed without writing directories or packages. Manual or
 automatic reconciliation consumes the single `FAssetCatalogRefreshResult`,
 including catalog/reference completeness, prior and resulting revisions,
@@ -496,34 +494,16 @@ confirmation handle and reports committed removals plus failed projection in a p
 reconciliation converges from mounted authored files. The Panel never inspects
 `EAssetWriteEffect`, parses diagnostic prefixes, or repeats physical deletion.
 
-Successful relocation and Delete declare that they mutate mounted content
-discovery and publish committed batches to the monotonic mounted-content mutation revision.
-Direct Content Browser
-filesystem operations and import completion publish the same invalidation
-explicitly. Ordinary object, component, reflected-property, Spline, and
-transform-gizmo transactions never publish it; their package revision and dirty
-state transitions are independent of filesystem discovery.
+Mounted-content mutations publish structured events. Panels subscribe and coalesce
+reconciliation across views, preserving selection and directory remapping. An
+AssetRegistry item event updates view caches without another filesystem scan.
+Ordinary object/property edits do not request mounted-content reconciliation.
 
-Every Content Browser panel observes the mounted-content revision separately
-from the live AssetRegistry revision. A new mounted-content revision calls
-`RefreshAssetRegistry` for one incremental reconciliation, then refreshes mount
-and item snapshots and repairs selection. Reconciliation acknowledgement and failure suppression are
-shared across open panels, so later observers refresh their local snapshots but
-do not repeat the scan. A registry-only revision refreshes those derived
-snapshots without scanning, because AssetRegistry has already published the
-metadata change.
-The initiating panel acknowledges a successful self-originating reconciliation,
-so the next draw cannot repeat it. Manual Refresh remains an explicit scan of
-all auto-scan mounts and is also the retry path for external filesystem changes.
-
-Failed automatic reconciliation reports the AssetRegistry error and retains the
-unacknowledged mounted-content revision. That exact failed revision is
-suppressed on later frames to avoid a scan loop; manual Refresh or a later
-mounted-content revision retries it. Snapshot refresh happens only after a
-successful reconciliation. Surviving directories and selections are preserved;
-if the current directory was deleted, the panel navigates to its nearest
-surviving parent. Panels and mutation jobs do not retain one another, and
-unrelated global history commands do not steal Content Browser focus.
+A failed reconciliation is suppressed until an explicit Refresh or another
+mutation event. New events raised during callbacks remain pending for the next
+batch. Explicit Refresh scans auto-scan mounts and invalidates the view on success.
+Surviving navigation/selection is preserved; a removed current directory falls
+back to its nearest surviving parent. Panels retain no catalog/mutation cursor.
 
 ## Related Documentation
 
