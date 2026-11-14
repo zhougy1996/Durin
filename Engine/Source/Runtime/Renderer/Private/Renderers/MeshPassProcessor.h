@@ -138,7 +138,7 @@ namespace Durin::RendererPrivate
 		uint32 InstanceIdOffset = INDEX_NONE_U32;
 	};
 	RENDERER_API auto SetupMeshDrawCommandDynamicInstancing(FRHICommandListImmediate& Commands,
-		const FPreparedStaticMeshView& Prepared, FResolvedStaticMeshView& Resolved) -> bool;
+		const FPreparedStaticMeshView& Prepared, FResolvedStaticMeshView& Resolved, std::span<const FMeshPassKey> Passes) -> bool;
 	class FCachedMeshDrawCommandStorage;
 	struct FCachedMeshDrawCommandInfo
 	{
@@ -223,6 +223,9 @@ namespace Durin::RendererPrivate
 		RENDERER_API auto Find(const FKey& Key, const FPrimitiveSceneInfo& Owner,
 			FResolvedStaticMeshView::FMaterialUniform* Material = nullptr, const FVertexFactoryInputBinding* Input = nullptr) const -> std::shared_ptr<const FMeshDrawCommand>;
 		RENDERER_API auto FindInfo(const FKey& Key, const FPrimitiveSceneInfo& Owner) const -> std::shared_ptr<const FCachedMeshDrawCommandInfo>;
+		RENDERER_API auto FindCachedCommand(const FKey& Key, const FPrimitiveSceneInfo& Owner,
+			FResolvedStaticMeshView::FMaterialUniform* Material = nullptr, const FVertexFactoryInputBinding* Input = nullptr) const
+			-> FResolvedMeshDrawRecord::FCachedCommand;
 		RENDERER_API auto Publish(const FKey& Key, FMeshDrawCommand Command, FPrimitiveSceneInfo& Owner,
 			const FVertexFactoryInputBinding* Input = nullptr, FResolvedStaticMeshView::FMaterialUniform Material = {},
 			std::shared_ptr<const FMeshPassPipeline> Pipeline = {}) -> std::shared_ptr<const FMeshDrawCommand>;

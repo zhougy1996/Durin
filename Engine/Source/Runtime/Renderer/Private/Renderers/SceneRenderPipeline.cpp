@@ -166,8 +166,11 @@ namespace Durin
 		auto& ViewPlan = *Context.Logical.PreparedView;
 		Telemetry.View.StaticMesh.WithheldPrimitives = AdmitStaticMeshDraws(
 			ViewPlan.Receiver.StaticMeshes, Context.Resolved.Scene.Receiver.StaticMeshes);
+		const std::array ReceiverPasses{RendererPrivate::FMeshPassKey{RendererPrivate::EMeshPipelinePass::Forward},
+			RendererPrivate::FMeshPassKey{RendererPrivate::EMeshPipelinePass::HybridRetainedForward}, RendererPrivate::FMeshPassKey{RendererPrivate::EMeshPipelinePass::GBuffer}};
+		const std::array ShadowPasses{RendererPrivate::FMeshPassKey{RendererPrivate::EMeshPipelinePass::ShadowDepth}};
 		if (Options.bEnableDynamicInstancing && !RendererPrivate::SetupMeshDrawCommandDynamicInstancing(
-			CommandList, ViewPlan.Receiver.StaticMeshes, Context.Resolved.Scene.Receiver.StaticMeshes))
+			CommandList, ViewPlan.Receiver.StaticMeshes, Context.Resolved.Scene.Receiver.StaticMeshes, ReceiverPasses))
 			return ERenderViewResult::RendererResourcesUnavailable;
 		if (Context.Resolved.Scene.DirectionalShadow && Context.Resolved.Scene.DirectionalShadow->bEnabled)
 			for (uint32 Cascade = 0; Cascade < ViewPlan.DirectionalShadow->View.CascadeCount; ++Cascade)
@@ -175,7 +178,7 @@ namespace Durin
 				Telemetry.View.DirectionalShadow.ShadowCascades[Cascade].WithheldPrimitives = AdmitStaticMeshDraws(
 					ViewPlan.DirectionalShadow->StaticMeshes[Cascade], Context.Resolved.Scene.DirectionalShadow->StaticMeshes[Cascade]);
 				if (Options.bEnableDynamicInstancing && !RendererPrivate::SetupMeshDrawCommandDynamicInstancing(CommandList,
-					ViewPlan.DirectionalShadow->StaticMeshes[Cascade], Context.Resolved.Scene.DirectionalShadow->StaticMeshes[Cascade]))
+					ViewPlan.DirectionalShadow->StaticMeshes[Cascade], Context.Resolved.Scene.DirectionalShadow->StaticMeshes[Cascade], ShadowPasses))
 					return ERenderViewResult::RendererResourcesUnavailable;
 			}
 		if (Qualification.ObserveAdmittedDraws) Qualification.ObserveAdmittedDraws(ViewPlan);

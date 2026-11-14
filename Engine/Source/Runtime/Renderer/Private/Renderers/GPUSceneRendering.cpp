@@ -9,21 +9,13 @@
 
 namespace Durin
 {
-	static auto UploadGPUSceneBuffer(FRHICommandListImmediate& Commands, std::string_view Name, uint32 Stride, FByteView Bytes) -> FBufferRHIRef
-	{
-		if (Bytes.empty()) return {};
-		auto Buffer = GDynamicRHI->RHICreateBuffer(Commands, FRHIBufferCreateDesc::Create(std::string(Name).c_str(),
-			static_cast<uint32>(Bytes.size()), Stride, EBufferUsageFlags::StructuredBuffer | EBufferUsageFlags::DestinationCopy));
-		if (!Buffer) return {};
-		const std::array Before{FRHIBufferTransition::Whole(Buffer, ERHIAccess::None, ERHIAccess::TransferWrite)};
-		Commands.TransitionBuffers(Before); Commands.WriteBuffer(Buffer, 0, Bytes);
-		const std::array After{FRHIBufferTransition::Whole(Buffer, ERHIAccess::TransferWrite, ERHIAccess::GraphicsShaderRead)};
-		Commands.TransitionBuffers(After);
-		return Buffer;
-	}
-
 	auto FGPUSceneDynamicContext::UploadInstanceIds(FRHICommandListImmediate& Commands, std::span<const uint32> Ids) -> FBufferRHIRef
-	{ return UploadGPUSceneBuffer(Commands, "GPUScene.InstanceIds", 4, std::as_bytes(Ids)); }
+	{
+		const auto Upload = GPUScene->UploadInstanceIds(Commands, Ids);
+		if (!Upload) return {};
+		if (std::ranges::find(InstanceIdUploads, Upload) == InstanceIdUploads.end()) InstanceIdUploads.push_back(Upload);
+		return Upload->Buffer;
+	}
 
 	auto FGPUSceneBufferSet::GetShaderParameters() const -> FGPUSceneShaderParameters
 	{
@@ -40,7 +32,16 @@ namespace Durin
 			for (const auto& Range : Ranges) Scene->ReleaseDynamicPrimitiveRange(Range);
 		});
 	}
-	auto FGPUSceneDynamicContext::RegisterGraphUse(const FRDGBuilder& Graph) -> void { GPUScene->RegisterGraphUse(Graph); }
+	auto FGPUSceneDynamicContext::RegisterGraphUse(const FRDGBuilder& Graph) -> void
+	{
+		GPUScene->RegisterGraphUse(Graph);
+		for (const auto& Upload : InstanceIdUploads)
+		{
+			if (Graph.GetGPUCompletion()) Upload->LastUse = Graph.GetGPUCompletion();
+			else if (Graph.GetExecutionResult() && !Graph.GetExecutionResult()->has_value()
+				&& GetRDGExecutionStatus(*Graph.GetExecutionResult()) != ERDGExecutionStatus::CompileFailed) Upload->LastUse = {};
+		}
+	}
 	auto FGPUSceneDynamicContext::CommitPrimitiveCollector(FGPUScenePrimitiveCollector& Collector, const FPreparedStaticMeshView& Prepared) -> std::vector<FGPUScenePrimitiveData>
 	{
 		CheckRenderingThread();
@@ -97,11 +98,12 @@ namespace Durin
 			{
 				InstanceId = DynamicInstances.at(Records[Index]);
 			}
-			if (uint64(Ids.size()) + Counts[Index] > UINT32_MAX / sizeof(uint32)) return {};
-			Result[Index] = {Buffers, InstanceId, static_cast<uint32>(Ids.size())};
+			if (uint64(InstanceIds.size()) + Ids.size() + Counts[Index] > UINT32_MAX / sizeof(uint32)) return {};
+			Result[Index] = {Buffers, InstanceId, static_cast<uint32>(InstanceIds.size() + Ids.size())};
 			Ids.insert(Ids.end(), Counts[Index], InstanceId);
 		}
-		Collector.Buffers = Buffers; Collector.InstanceIds = std::move(Ids);
+		Collector.Buffers = Buffers;
+		InstanceIds.insert(InstanceIds.end(), Ids.begin(), Ids.end());
 		PendingCollectors.push_back(Collector.shared_from_this());
 		return Result;
 	}
@@ -121,13 +123,15 @@ namespace Durin
 			const auto Executed = Graph.Execute(Commands, &Allocator);
 			if (!GPUScene->CompleteUpdate(Graph, Update) || !Executed) return false;
 		}
+		const auto UploadedIds = InstanceIds.empty() ? FBufferRHIRef{} : UploadInstanceIds(Commands, InstanceIds);
+		if (!InstanceIds.empty() && !UploadedIds) return false;
 		for (const auto& Weak : PendingCollectors) if (const auto View = Weak.lock()) if (const auto Buffers = View->Buffers.lock())
 		{
 			Buffers->SceneData = GPUScene->GetResourceBuffers();
-			Buffers->InstanceIds = UploadInstanceIds(Commands, View->InstanceIds);
-			if (!Buffers->InstanceIds) return false;
+			Buffers->InstanceIds = UploadedIds;
 		}
 		PendingCollectors.clear();
+		InstanceIds.clear();
 		return true;
 	}
 	auto FGPUSceneDynamicContext::Prepare(FRHICommandListImmediate& Commands, FRDGAllocator& Allocator,

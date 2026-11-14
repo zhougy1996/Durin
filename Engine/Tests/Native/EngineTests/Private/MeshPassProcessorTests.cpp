@@ -324,7 +324,7 @@ TEST(FRendererSceneContractTests, GBufferGPUCullingPlanIsOptInAndPreservesIndexe
         FInstanceCullingManager Manager;
         auto Context = Manager.CreateContext(Manager.RegisterView(View), Pipeline->GetPassKey());
         const auto Runs = RendererPrivate::BuildMeshDrawCommandRuns(Visible);
-        ASSERT_EQ(Runs.size(), 1u); EXPECT_EQ(Runs.front().size(), 64u);
+        ASSERT_EQ(Runs.size(), 1u); EXPECT_EQ(Runs.front().FirstCommand, 0u); EXPECT_EQ(Runs.front().NumCommands, 64u);
         EXPECT_TRUE(Context->SetupDrawCommands(Visible, true, true, nullptr, FInstanceCullingContext::MaximumGeneratedBytes, nullptr, std::make_shared<RendererPrivate::FMeshDrawCommandSubmission>(Runs, Visible.size())));
         EXPECT_EQ(Context->Arguments.size(), 1u); EXPECT_EQ(Context->Candidates.size(), 64u);
         Visible[32].DepthBias[0] = 1.f;
@@ -780,9 +780,12 @@ TEST(FRendererSceneContractTests, PrimitiveSourceKeepsItsPipelineAliveWhileCache
     const auto Key = FCachedMeshDrawCommandStorage::MakeKey(&DrawSource.Description, InvalidPrimitiveComponentId, 1, *Pipeline);
     const auto Entry = Scene.Publish(Key, std::move(Draw), *Source, nullptr, {}, Pipeline);
     const auto Info = Scene.FindInfo(Key, *Source);
+    const auto Selected = Scene.FindCachedCommand(Key, *Source);
+    ASSERT_TRUE(Selected); EXPECT_EQ(Selected.Command, Entry); EXPECT_EQ(Selected.Info, Info);
     Pipeline.reset();
     EXPECT_FALSE(Lifetime.expired()); EXPECT_NE(Info->CommandIndex, INDEX_NONE);
     Source->RemoveCachedMeshDrawCommands();
     EXPECT_TRUE(Lifetime.expired()); EXPECT_EQ(Info->CommandIndex, INDEX_NONE);
+    EXPECT_EQ(Selected.Info->CommandIndex, INDEX_NONE);
     EXPECT_TRUE(Entry->bFinalized);
 }

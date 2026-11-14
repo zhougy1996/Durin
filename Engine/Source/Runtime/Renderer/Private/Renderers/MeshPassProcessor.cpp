@@ -120,6 +120,14 @@ namespace Durin::RendererPrivate
 	}
 	auto FCachedMeshDrawCommandStorage::FindInfo(const FKey& Key, const FPrimitiveSceneInfo& Owner) const -> std::shared_ptr<const FCachedMeshDrawCommandInfo>
 	{ const auto* Entry = FindEntry(Key, Owner); return Entry ? Entry->Info : nullptr; }
+	auto FCachedMeshDrawCommandStorage::FindCachedCommand(const FKey& Key, const FPrimitiveSceneInfo& Owner,
+		FResolvedStaticMeshView::FMaterialUniform* Material, const FVertexFactoryInputBinding* Input) const -> FResolvedMeshDrawRecord::FCachedCommand
+	{
+		const auto* Entry = FindEntry(Key, Owner);
+		if (!Entry || (Input && Entry->Input != Input)) return {};
+		if (Material) *Material = Entry->Material;
+		return {Entry->Command, Entry->Info};
+	}
 	auto FCachedMeshDrawCommandStorage::Publish(const FKey& Key, FMeshDrawCommand Command, FPrimitiveSceneInfo& Owner,
 		const FVertexFactoryInputBinding* Input, FResolvedStaticMeshView::FMaterialUniform Material,
 		std::shared_ptr<const FMeshPassPipeline> Pipeline) -> std::shared_ptr<const FMeshDrawCommand>
@@ -212,6 +220,7 @@ namespace Durin::RendererPrivate
 		require(Command && Pass && (!Info || (Info->CommandIndex != INDEX_NONE && Command->Pipeline->GetPassKey() == Info->MeshPass)));
 		const auto Key = Command->Pipeline->GetPassKey();
 		auto& List = Data->Visible[Key];
+		if (Info && StateBucketId == INDEX_NONE) StateBucketId = Info->StateBucketId;
 		List.push_back({Command.get(), Pass.get(), Info.get(), Bias, InstanceIdOffset, InstanceCount, bSkipDraw, StateBucketId});
 		Data->RetainedCommands.push_back(std::move(Command));
 		Data->RetainedInfos.push_back(std::move(Info));

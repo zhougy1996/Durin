@@ -2,7 +2,7 @@
 
 Summary: Introduce persistent Primitive and Instance scene data, shared mesh-command bindings, and pass-local instance submission using UE-aligned interfaces.
 
-Last reviewed: 2026-11-13
+Last reviewed: 2026-11-14
 
 Status: Active
 Completed:
@@ -29,7 +29,11 @@ source pipeline retention described in Stage 7 is superseded by canonical-only r
 Stage 9 is implemented and validated: consolidated submission selection, explicit collector records and one
 attribute upload phase, cached pipeline identity and scene-owned SceneInfo.
 Its rules supersede Stage 8's packed-byte record identity and shared SceneInfo lifetime.
-Default culling policy is unchanged. No timing speedup is claimed.
+Default culling policy is unchanged. Stages 1-9 make no timing speedup claim.
+Stage 10 implements and validates the user-selected first performance batch: counted reusable
+instance-ID uploads, combined cached-command lookup records, and pass-scoped
+contiguous instance runs. Its before/after observations follow below; they are
+diagnostic and do not close Stage 5's exclusive Release timing gate.
 Implemented rules live in [GPUScene storage and submission](../Runtime/Rendering/Scene/GPUScene.md).
 
 ### Stage 1 validation receipt
@@ -1105,6 +1109,88 @@ graph before native binding construction, uses cached structural pipeline identi
 instead of UE's global packed-ID table, and retains completion-based range leases
 for standalone and failed-graph recovery. No performance result is claimed. Metal,
 independent physical queues and exclusive quiet Release timing remain Stage 5 gates.
+
+### Stage 10: Reuse instance uploads and streamline cached submission
+
+The user selected review items 1, 2 and 4. Align the responsibilities with UE's
+retained command metadata, submission-scoped instance data and pass-local setup;
+do not change default culling policy or expand this batch into dirty-scene queues.
+References: Epic's [mesh drawing pipeline](https://dev.epicgames.com/documentation/en-us/unreal-engine/mesh-drawing-pipeline-in-unreal-engine)
+and [instance culling context](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Renderer/FInstanceCullingContext)
+describe the retained metadata and pass-local setup responsibilities used here.
+
+- [x] Batch receiver/cascade direct ID lists and retain counted immutable upload
+  leases. Share equal contents; overwrite only released, GPU-complete storage.
+  Bound scene retention and clear native pool state on resource recovery.
+- [x] Carry command and source metadata through one cached lookup, including
+  invalidation identity, without repeating structural lookup during binding.
+- [x] Request only consuming mesh passes, skip absent passes, and represent
+  consecutive runs by first command/count without per-run member allocations.
+- [x] Validate owning scene/cache/grouping contracts, real Vulkan output and
+  recovery, inline/threaded recording, and Editor/Sandbox/RoadWeaver consumers.
+- [x] Compare three Release/Tracy-off runs and three default Debug Sandbox runs
+  against the same baseline probes. Preserve CSV/log/XML and report median/p95
+  and structural allocation observations without promising an FPS recovery.
+
+Baseline inputs are `4086759c1` plus the sampling-only fixture probe. Raw samples
+and temporary-probe manifests are under `Build/Qualification/GPUSceneBatch1/before/`.
+Stage 5's deferred Metal and independent physical queue gates remain unchanged.
+
+### Stage 10 validation receipt
+
+Inputs are base `4086759c1` plus the final source/fixture hashes in
+`Build/Qualification/GPUSceneBatch1/receipt.json`. Reproduction helpers, probe
+backups, raw CSV, XML and the aggregate `comparison.json` remain in that ignored
+directory. Sampling retains the same CPU intervals on both revisions; readback
+captures are disabled only during measured samples, with output parity checked
+before/after sampling. The final fixture also records RenderView CPU time and
+asserts zero steady instance-ID native creations/uploads after warm-up.
+
+| Selection | Result |
+| --- | --- |
+| `RendererSceneContractTests` | 165/165; includes shared ID contents, batched collector offsets, pending-reader protection, completed-capacity reuse and recovery, cached metadata invalidation, and contiguous run membership. |
+| `StaticMeshRenderPreparationVulkanTests` | 21/21 threaded and 21/21 inline; direct/CPU/GPU color, GBuffer, shadows, mixed fallback and source update output. |
+| `RendererResourceReloadVulkanTests` | 2/2 threaded and 2/2 inline. |
+| Consumer targets | Editor rendering 91/91, Sandbox gameplay 13/13, RoadWeaver scene integration 5/5. |
+| Release sampling | Three runs pass, each with 30 warm-ups and 120 measured samples per mode/view; all measured ID creations and ID upload bytes are zero. Native draw counts match baseline. |
+| Documentation | Changed-document validation passes. |
+
+The implementation changes private Renderer preparation APIs. Symbol searches
+cover source/tests of all three workspace projects; bounded native selections
+cover the owner and actual consumers. Unchanged material compiler/cook/shader
+paths selected by the broad Renderer module label do not require new execution.
+No foundational header, build graph or shader ABI changed, so this stage does
+not repeat earlier stages' workspace-all compilation gate. Builds use the
+established sandbox-external MSVC PDB-service workaround.
+
+Release observations use MSVC, RTX 3090 driver 616.64, Vulkan 1.4.351,
+`Win64-Release-DurinEditor`, Tracy/validation off, threaded RHI, graphics queue,
+and the fixture's 192x192 output. Values below pool three runs; each cell is
+RenderView CPU median/nearest-rank p95 in microseconds for CPU dynamic instancing.
+These intervals exclude the separate PrepareViewResources call and GPU completion.
+
+| Workload | Before | After |
+| --- | --- | --- |
+| static-small | 327.50 / 438.80 | 282.25 / 363.70 |
+| static-large | 2487.20 / 2962.40 | 2361.10 / 2720.80 |
+| dynamic-large | 2489.75 / 2918.90 | 2405.45 / 2920.50 |
+| multi-view | 845.85 / 1082.80 | 803.05 / 1034.20 |
+| shadow-heavy | 881.75 / 1159.10 | 834.10 / 1059.30 |
+
+Default Debug Sandbox observations use the saved GrayboxStage15 camera,
+2916x1866 viewport, Tracy enabled, validation auto and instancing enabled.
+Each revision has three 1800-tick runs, taking the last 1200 frames per run.
+Average run-mean frame time is 18.7691 ms before and 16.7389 ms after (10.82%
+lower); corresponding throughput is 53.28 and 59.74 FPS. Mean run p95 is
+22.5024 and 19.1569 ms. Absolute FPS differs from the earlier chat session and
+must not be used to claim recovery of the original 130-to-110 report.
+
+These sequential A/B observations are diagnostic: an exclusive quiet lane and
+alternating revision order are not established, and GPU clocks/other machine
+load are not locked. They do not rebaseline a threshold or accept Stage 5's
+Release gate. Dynamic-large CPU p95 is effectively unchanged. This batch makes
+no GPU shader-time improvement claim. Temporary Sandbox probes are restored;
+only the reusable native sampling instrumentation remains in the fixture.
 
 ## Validation and Completion Gates
 

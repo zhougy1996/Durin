@@ -110,6 +110,7 @@ namespace Durin::RendererPrivate
 	auto BuildMeshDrawCommandRuns(std::span<const FVisibleMeshDrawCommand> Visible) -> std::vector<FMeshDrawCommandRun>
 	{
 		std::vector<FMeshDrawCommandRun> Runs;
+		Runs.reserve(Visible.size());
 		for (uint32 Index = 0; Index < Visible.size(); ++Index)
 		{
 			const auto& Current = Visible[Index];
@@ -118,44 +119,54 @@ namespace Durin::RendererPrivate
 			const auto& Instances = Current.SceneData.Buffers->SceneData[1];
 			if (Instances && Current.SceneData.InstanceId >= Instances->GetSize() / sizeof(FInstanceSceneShaderData)) continue;
 			bool bContinue = false;
-			if (!Runs.empty() && Runs.back().back() + 1 == Index)
+			if (!Runs.empty() && Runs.back().FirstCommand + Runs.back().NumCommands == Index)
 			{
-				const auto& Previous = Visible[Runs.back().back()];
+				const auto& Previous = Visible[Index - 1];
 				bContinue = Current.Command->MatchesForDynamicInstancing(*Previous.Command)
 					&& Current.SceneData.Buffers->SceneData == Previous.SceneData.Buffers->SceneData
 					&& Current.DepthBias == Previous.DepthBias && Current.Pass->Vertex == Previous.Pass->Vertex
 					&& Current.Pass->Fragment == Previous.Pass->Fragment;
 			}
-			if (!bContinue) Runs.emplace_back();
-			Runs.back().push_back(Index);
+			if (!bContinue) Runs.push_back({Index, 0});
+			++Runs.back().NumCommands;
 		}
 		return Runs;
 	}
 
 	auto SetupMeshDrawCommandDynamicInstancing(FRHICommandListImmediate& Commands,
-		const FPreparedStaticMeshView& Prepared, FResolvedStaticMeshView& Resolved) -> bool
+		const FPreparedStaticMeshView& Prepared, FResolvedStaticMeshView& Resolved, std::span<const FMeshPassKey> RequestedPasses) -> bool
 	{
 		struct FPassRuns { FMeshPassKey Pass; FMeshCommandOneFrameArray Visible; };
 		std::vector<FPassRuns> Passes;
+		Passes.reserve(RequestedPasses.size());
 		std::vector<uint32> Ids;
+		Ids.reserve(Resolved.Draws.size());
 		Resolved.DrawCommandSubmissions.clear();
-		for (const auto Pass : {EMeshPipelinePass::Forward, EMeshPipelinePass::HybridRetainedForward, EMeshPipelinePass::ShadowDepth, EMeshPipelinePass::GBuffer})
+		std::array<bool, static_cast<size_t>(EMeshPipelinePass::HitProxy) + 1> AvailablePasses{};
+		for (const auto& Draw : Resolved.Draws) if (Draw.bReady)
 		{
-			auto& Entry = Passes.emplace_back(FPassRuns{{Pass}, CollectMeshDrawCommands(Prepared, Resolved, {Pass}, false)});
+			for (const auto& [Pass, Command] : Draw.VisibleCommands) AvailablePasses[static_cast<size_t>(Pass.Pass)] = true;
+			for (const auto& [Pass, Command] : Draw.Commands) AvailablePasses[static_cast<size_t>(Pass.Pass)] = true;
+		}
+		for (const auto Pass : RequestedPasses)
+		{
+			if (!AvailablePasses[static_cast<size_t>(Pass.Pass)]) continue;
+			auto& Entry = Passes.emplace_back(FPassRuns{Pass, CollectMeshDrawCommands(Prepared, Resolved, Pass, false)});
 			auto Runs = BuildMeshDrawCommandRuns(Entry.Visible);
-			Resolved.DrawCommandSubmissions[{Pass}] = std::make_shared<FMeshDrawCommandSubmission>(Runs, Entry.Visible.size());
-			for (const auto& Run : Runs) if (Run.size() > 1)
-				for (uint32 Index : Run) Ids.push_back(Entry.Visible[Index].SceneData.InstanceId);
+			for (const auto& Run : Runs) if (Run.NumCommands > 1)
+				for (uint32 Index : Run.GetDrawIndices()) Ids.push_back(Entry.Visible[Index].SceneData.InstanceId);
+			Resolved.DrawCommandSubmissions[Pass] = std::make_shared<FMeshDrawCommandSubmission>(std::move(Runs), Entry.Visible.size());
 		}
 		if (Ids.empty()) return true;
 		if (Ids.size() > UINT32_MAX / sizeof(uint32)) return false;
-		Resolved.DynamicInstancingInstanceIds = FGPUSceneDynamicContext::UploadInstanceIds(Commands, Ids);
+		if (!Resolved.GPUSceneDynamicContext) return false;
+		Resolved.DynamicInstancingInstanceIds = Resolved.GPUSceneDynamicContext->UploadInstanceIds(Commands, Ids);
 		if (!Resolved.DynamicInstancingInstanceIds) return false;
 		uint32 Offset = 0;
 		for (const auto& Entry : Passes)
 		for (uint32 RunIndex = 0; RunIndex < Resolved.DrawCommandSubmissions[Entry.Pass]->Runs.size(); ++RunIndex)
 		{
-			const auto& Run = Resolved.DrawCommandSubmissions[Entry.Pass]->Runs[RunIndex].Draws;
+			const auto Run = Resolved.DrawCommandSubmissions[Entry.Pass]->Runs[RunIndex].Draws.GetDrawIndices();
 			if (Run.size() < 2) continue;
 
 			const auto& Leader = Entry.Visible[Run.front()];

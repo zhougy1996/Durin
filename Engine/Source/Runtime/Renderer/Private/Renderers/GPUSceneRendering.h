@@ -45,7 +45,6 @@ namespace Durin
 		friend class FGPUSceneDynamicContext;
 		std::shared_ptr<FGPUSceneDynamicContext> Context;
 		std::weak_ptr<FGPUSceneBufferSet> Buffers;
-		std::vector<uint32> InstanceIds;
 		bool bCommitted = false;
 	};
 	// A submission-scoped upload owner for dynamic/unpublished mesh facts. Scene
@@ -58,7 +57,7 @@ namespace Durin
 		FGPUSceneDynamicContext(const FGPUSceneDynamicContext&) = delete;
 		auto operator=(const FGPUSceneDynamicContext&) -> FGPUSceneDynamicContext& = delete;
 		RENDERER_API auto RegisterGraphUse(const FRDGBuilder& Graph) -> void;
-		RENDERER_API static auto UploadInstanceIds(FRHICommandListImmediate& Commands, std::span<const uint32> Ids) -> FBufferRHIRef;
+		RENDERER_API auto UploadInstanceIds(FRHICommandListImmediate& Commands, std::span<const uint32> Ids) -> FBufferRHIRef;
 		auto CreatePrimitiveCollector() -> std::shared_ptr<FGPUScenePrimitiveCollector> { return std::make_shared<FGPUScenePrimitiveCollector>(shared_from_this()); }
 		RENDERER_API auto Upload(FRHICommandListImmediate& Commands, FRDGAllocator& Allocator) -> bool;
 		RENDERER_API auto Prepare(FRHICommandListImmediate& Commands, FRDGAllocator& Allocator,
@@ -72,6 +71,8 @@ namespace Durin
 		bool bStandaloneScene = false;
 		std::map<std::shared_ptr<const FGPUSceneDynamicPrimitiveData>, uint32, std::owner_less<std::shared_ptr<const FGPUSceneDynamicPrimitiveData>>> DynamicInstances;
 		std::vector<std::weak_ptr<FGPUScenePrimitiveCollector>> PendingCollectors;
+		std::vector<uint32> InstanceIds;
+		std::vector<std::shared_ptr<FGPUSceneInstanceIdBuffer>> InstanceIdUploads;
 	};
 
 	struct FGPUSceneReadParameters

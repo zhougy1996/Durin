@@ -2,7 +2,7 @@
 
 Summary: Define scene-owned Primitive and Instance records, incremental uploads, selected-instance shader access and allocation retirement.
 Modules: RenderCore, Engine, Renderer
-Last reviewed: 2026-11-13
+Last reviewed: 2026-11-14
 
 ## Scope and Ownership
 
@@ -120,6 +120,14 @@ GPUScene as persistent records. A submission commits updates with an explicit
 RDG allocator, then snapshots the final buffers after any growth. Standalone
 consumers create a transient GPUScene through the same allocation/upload path.
 One scene submission retains a shared context across receiver and shadow views.
+The context concatenates their direct instance-ID lists into one upload and
+assigns each primitive an offset in that shared list. Scene-owned ID buffers use
+counted immutable leases: identical contents may be shared while reads are in
+flight; different contents overwrite capacity only after all CPU leases are
+released and the last consuming graph completes. Unpublished/failed use never
+authorizes overwrite. Retained native ID capacity is bounded to 4 MiB and 32
+entries per scene; excess uploads remain submission-owned. ReleaseRHI clears
+the retained pool. Standalone requests preserve independent scene domains.
 `FGPUScenePrimitiveCollector::Commit` assigns dynamic ranges to explicit immutable
 records. Sharing a record reuses its allocation; distinct records remain distinct
 even when their transported bytes match. A changed record is a new identity.
@@ -165,7 +173,11 @@ Weak lookup buckets are pruned when their last source entry is removed.
 
 `BuildMeshDrawCommandRuns` forms consecutive effective-state runs shared by CPU
 instancing and GPU admission. Production builds these after final component draw
-admission and reuses the same membership for GPU selection; no pass-local hash
+admission for explicitly requested consuming passes, skipping absent command
+lists. Runs store first-command/count ranges rather than heap-allocated member
+arrays; CPU and GPU selection preserve the same visible order. Cached selection
+returns command and source info together and retains that lookup through binding.
+Production reuses the same membership for GPU selection; no pass-local hash
 buckets or separate CPU/GPU state numbering are needed. One submission table owns
 run members, draw-to-run lookup, argument selection and dispatch outcome. CPU and
 GPU consumers share it; there is no copied CPU group membership or post-dispatch
@@ -251,6 +263,11 @@ lookup maps, geometry, pass attachments and transient ID/argument storage. They
 are capacity observations, not total GPU residency or per-view traffic. Snapshot
 differences include updates performed during preparation retries and allow
 camera-only/additional-view zero-upload checks independently of uniform counters.
+`InstanceIdBufferCreates`, `InstanceIdBufferReuses` and `InstanceIdUploadBytes`
+separately count admitted ID allocations, immutable/storage reuse and recorded
+ID writes; unlike attribute transaction counters they describe recording, not
+successful graph completion. `InstanceIdCapacityBytes` counts retained native
+ID-pool capacity and is separate from the three attribute buffers.
 
 ## Retirement and Recovery
 

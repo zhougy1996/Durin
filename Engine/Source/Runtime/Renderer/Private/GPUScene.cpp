@@ -3,6 +3,7 @@
 #include "Rendering/PrimitiveSceneProxy.h"
 #include "RenderingThread.h"
 #include "RHICommandList.h"
+#include "DynamicRHI.h"
 
 namespace Durin
 {
@@ -42,6 +43,7 @@ namespace Durin
 		uint64 Revision = 0, ResourceGeneration = 1;
 		std::unordered_map<uint64, FGPUSceneDynamicAllocation> DynamicAllocations;
 		std::vector<FGPUSceneDynamicAllocation> PendingDynamicReleases;
+		std::vector<std::shared_ptr<FGPUSceneInstanceIdBuffer>> InstanceIdBuffers;
         FGPUSceneStatistics Statistics;
 
 		auto RequireNoPendingUpdate() const -> void
@@ -377,12 +379,72 @@ namespace Durin
         Result.MirrorCapacityBytes = State->Primitives.capacity() * sizeof(FPrimitiveSceneShaderData)
             + State->Instances.capacity() * sizeof(FInstanceSceneShaderData) + State->Payload.capacity() * sizeof(FPrimitiveCustomData);
         for (const auto& Buffer : GetResourceBuffers()) if (Buffer) Result.CapacityBytes += Buffer->GetSize();
+        for (const auto& Entry : State->InstanceIdBuffers) Result.InstanceIdCapacityBytes += Entry->Buffer->GetSize();
         return Result;
     }
+
+	auto FGPUScene::UploadInstanceIds(FRHICommandListImmediate& Commands, std::span<const uint32> Ids)
+		-> std::shared_ptr<FGPUSceneInstanceIdBuffer>
+	{
+		CheckRenderingThread();
+		if (Ids.empty() || Ids.size() > UINT32_MAX / sizeof(uint32)) return {};
+		if (!IsInitialized()) InitResource(Commands);
+		const auto Hash = FXxHash64::HashBuffer(std::as_bytes(Ids));
+		for (const auto& Entry : State->InstanceIdBuffers)
+			if (Entry->Hash == Hash && std::ranges::equal(Entry->Ids, Ids))
+			{ ++State->Statistics.InstanceIdBufferReuses; return Entry; }
+
+		const uint64 RequiredBytes = Ids.size_bytes();
+		std::shared_ptr<FGPUSceneInstanceIdBuffer> Allocation;
+		for (const auto& Entry : State->InstanceIdBuffers)
+			if (Entry.use_count() == 1 && Entry->LastUse.IsComplete() && Entry->Buffer->GetSize() >= RequiredBytes
+				&& (!Allocation || Entry->Buffer->GetSize() < Allocation->Buffer->GetSize())) Allocation = Entry;
+		const bool bReusedStorage = bool(Allocation);
+		if (!Allocation)
+		{
+			uint64 Capacity = 256;
+			while (Capacity < RequiredBytes) Capacity *= 2;
+			if (Capacity > UINT32_MAX) Capacity = RequiredBytes;
+			Allocation = std::make_shared<FGPUSceneInstanceIdBuffer>();
+			Allocation->Buffer = GDynamicRHI->RHICreateBuffer(Commands, FRHIBufferCreateDesc::Create("GPUScene.InstanceIds",
+				static_cast<uint32>(Capacity), sizeof(uint32), EBufferUsageFlags::StructuredBuffer | EBufferUsageFlags::DestinationCopy));
+			if (!Allocation->Buffer) return {};
+			++State->Statistics.InstanceIdBufferCreates;
+			// Bound scene-owned native capacity. Outstanding/failed leases are never
+			// overwritten or evicted to make room for an unrelated upload.
+			constexpr uint64 MaximumRetainedBytes = 4ull * 1024 * 1024;
+			uint64 RetainedBytes = 0;
+			size_t RetainedCount = State->InstanceIdBuffers.size();
+			for (const auto& Entry : State->InstanceIdBuffers) RetainedBytes += Entry->Buffer->GetSize();
+			std::erase_if(State->InstanceIdBuffers, [&](const auto& Entry) {
+				if (RetainedCount < 32 && RetainedBytes + Capacity <= MaximumRetainedBytes) return false;
+				if (Entry.use_count() != 1 || !Entry->LastUse.IsComplete()) return false;
+				RetainedBytes -= Entry->Buffer->GetSize();
+				--RetainedCount;
+				return true;
+			});
+			if (State->InstanceIdBuffers.size() < 32 && RetainedBytes + Capacity <= MaximumRetainedBytes)
+				State->InstanceIdBuffers.push_back(Allocation);
+		}
+		else ++State->Statistics.InstanceIdBufferReuses;
+		Allocation->LastUse = {};
+		Allocation->Hash = Hash;
+		Allocation->Ids.assign(Ids.begin(), Ids.end());
+		const auto Buffer = Allocation->Buffer;
+		const std::array Before{FRHIBufferTransition::Whole(Buffer,
+			bReusedStorage ? ERHIAccess::GraphicsShaderRead : ERHIAccess::None, ERHIAccess::TransferWrite)};
+		Commands.TransitionBuffers(Before);
+		Commands.WriteBuffer(Buffer, 0, std::as_bytes(Ids));
+		const std::array After{FRHIBufferTransition::Whole(Buffer, ERHIAccess::TransferWrite, ERHIAccess::GraphicsShaderRead)};
+		Commands.TransitionBuffers(After);
+		State->Statistics.InstanceIdUploadBytes += RequiredBytes;
+		return Allocation;
+	}
 
 	auto FGPUScene::ReleaseRHI() -> void
 	{
 		CheckRenderingThread();
+		State->InstanceIdBuffers.clear();
 		State->PrimitiveBuffer = {}; State->InstanceBuffer = {}; State->PayloadBuffer = {};
 		State->LastUse = {}; ++State->ResourceGeneration;
 		std::ranges::fill(State->PrimitiveDirty, true);

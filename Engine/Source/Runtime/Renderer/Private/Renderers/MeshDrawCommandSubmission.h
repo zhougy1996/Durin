@@ -4,7 +4,14 @@
 
 namespace Durin::RendererPrivate
 {
-	using FMeshDrawCommandRun = std::vector<uint32>;
+	// Runs are contiguous in visible-command order. Store the range rather than
+	// allocating a member vector for every singleton or compatible group.
+	struct FMeshDrawCommandRun
+	{
+		uint32 FirstCommand = 0;
+		uint32 NumCommands = 0;
+		auto GetDrawIndices() const { return std::views::iota(FirstCommand, FirstCommand + NumCommands); }
+	};
 	// One membership/selection authority shared by CPU fallback and graph recording.
 	struct FMeshDrawCommandSubmission
 	{
@@ -16,9 +23,10 @@ namespace Durin::RendererPrivate
 		bool bDispatched = false;
 		FMeshDrawCommandSubmission(std::vector<FMeshDrawCommandRun> Members, size_t DrawCount) : RunByDraw(DrawCount, InvalidArgument)
 		{
+			Runs.reserve(Members.size());
 			for (auto& Draws : Members)
 			{
-				for (uint32 Draw : Draws) { require(Draw < DrawCount); RunByDraw[Draw] = static_cast<uint32>(Runs.size()); }
+				for (uint32 Draw : Draws.GetDrawIndices()) { require(Draw < DrawCount); RunByDraw[Draw] = static_cast<uint32>(Runs.size()); }
 				Runs.push_back({std::move(Draws)});
 			}
 		}
@@ -27,7 +35,7 @@ namespace Durin::RendererPrivate
 		{
 			if (Draw >= RunByDraw.size() || RunByDraw[Draw] == InvalidArgument || !IsGPUSelected(RunByDraw[Draw])) return InvalidArgument;
 			const auto& Run = Runs[RunByDraw[Draw]];
-			return Draw == Run.Draws.front() ? Run.ArgumentIndex : GroupedMember;
+			return Draw == Run.Draws.FirstCommand ? Run.ArgumentIndex : GroupedMember;
 		}
 	};
 }

@@ -326,7 +326,7 @@ namespace
 			EXPECT_EQ(Data[0].InstanceId, Info().InstanceSceneDataOffset);
 			Executor.GetImmediateCommandList().ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 			const auto& Ids = static_cast<FSceneBuffer*>(Data[0].Buffers->InstanceIds.GetReference())->Bytes;
-			ASSERT_EQ(Ids.size(), 3 * sizeof(uint32));
+			ASSERT_GE(Ids.size(), 3 * sizeof(uint32));
 			for (uint32 Index = 0; Index < 3; ++Index)
 			{
 				uint32 Value; std::memcpy(&Value, Ids.data() + Index * sizeof(uint32), sizeof(uint32));
@@ -392,6 +392,10 @@ namespace
 			ASSERT_TRUE(Context->Upload(Commands, Allocator));
 			EXPECT_EQ(First[0].Buffers->SceneData, Changed[0].Buffers->SceneData);
 			EXPECT_EQ(Again[0].Buffers->SceneData, Distinct[0].Buffers->SceneData);
+			EXPECT_EQ(First[0].Buffers->InstanceIds, Changed[0].Buffers->InstanceIds);
+			EXPECT_EQ(Again[0].Buffers->InstanceIds, Distinct[0].Buffers->InstanceIds);
+			EXPECT_NE(First[0].InstanceIdOffset, Again[0].InstanceIdOffset);
+			EXPECT_EQ(GPU->GetStatistics().InstanceIdBufferCreates, 1u);
 			const auto Uploaded = GPU->GetStatistics().UploadBytes;
 			ASSERT_TRUE(Context->Upload(Commands, Allocator)); EXPECT_EQ(GPU->GetStatistics().UploadBytes, Uploaded);
 			const auto Independent = std::make_shared<FGPUSceneDynamicContext>()->Prepare(Commands, Allocator, Prepared);
@@ -401,6 +405,49 @@ namespace
 			auto OtherContext = std::make_shared<FGPUSceneDynamicContext>(OtherGPU);
 			const auto Other = OtherContext->CreatePrimitiveCollector()->Commit(Prepared);
 			ASSERT_EQ(Other.size(), 2u); EXPECT_NE(Other[0].Buffers->SceneData[1], Changed[0].Buffers->SceneData[1]);
+		});
+		FlushRenderingCommands();
+	}
+
+	TEST_F(FGPUSceneTests, InstanceIdUploadsShareImmutableContentsAndProtectPendingReaders)
+	{
+		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+			auto& Commands = Executor.GetImmediateCommandList();
+			auto GPU = CreateRenderResource<FGPUScene>();
+			auto First = std::make_shared<FGPUSceneDynamicContext>(GPU);
+			auto Shared = std::make_shared<FGPUSceneDynamicContext>(GPU);
+			const std::array<uint32, 3> A{1, 2, 3}, B{4, 5, 6}, C{7, 8, 9}, D{10, 11, 12};
+			const auto Original = First->UploadInstanceIds(Commands, A);
+			ASSERT_TRUE(Original);
+			EXPECT_EQ(Shared->UploadInstanceIds(Commands, A), Original);
+			EXPECT_EQ(GPU->GetStatistics().InstanceIdBufferCreates, 1u);
+			EXPECT_EQ(GPU->GetStatistics().InstanceIdUploadBytes, sizeof(A));
+			auto Changed = std::make_shared<FGPUSceneDynamicContext>(GPU);
+			EXPECT_NE(Changed->UploadInstanceIds(Commands, B), Original);
+			Backend.bCompleteImmediately = false;
+			FRDGBuilder Graph;
+			const auto Handle = Graph.RegisterExternalBuffer(Original, "Ids.Reader", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+			const auto Pass = Graph.QueueBufferUpload(Handle, 0, std::as_bytes(std::span(A)));
+			Graph.MarkPassRoot(Pass, "pending instance ID use");
+			ASSERT_TRUE(Graph.Execute(Commands, &Allocator));
+			First->RegisterGraphUse(Graph); Shared->RegisterGraphUse(Graph);
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+			First.reset(); Shared.reset();
+			auto Pending = std::make_shared<FGPUSceneDynamicContext>(GPU);
+			EXPECT_NE(Pending->UploadInstanceIds(Commands, C), Original);
+			EXPECT_EQ(GPU->GetStatistics().InstanceIdBufferCreates, 3u);
+			for (const auto& Signal : Backend.Signals) ASSERT_TRUE(Backend.Timeline.ObserveCompleted(Signal));
+			auto Recycled = std::make_shared<FGPUSceneDynamicContext>(GPU);
+			EXPECT_EQ(Recycled->UploadInstanceIds(Commands, D), Original);
+			EXPECT_EQ(GPU->GetStatistics().InstanceIdBufferCreates, 3u);
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+			const auto& Bytes = static_cast<FSceneBuffer*>(Original.GetReference())->Bytes;
+			EXPECT_TRUE(std::ranges::equal(std::span(Bytes).first(sizeof(D)), std::as_bytes(std::span(D))));
+			GPU->ReleaseRHI();
+			auto Recovered = std::make_shared<FGPUSceneDynamicContext>(GPU);
+			EXPECT_NE(Recovered->UploadInstanceIds(Commands, D), Original);
+			Backend.bCompleteImmediately = true;
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 		});
 		FlushRenderingCommands();
 	}
@@ -439,6 +486,7 @@ namespace
 			FPreparedStaticMeshView Prepared;
 			FResolvedStaticMeshView Resolved;
 			Resolved.DrawCommandStorage = std::make_shared<FDynamicMeshDrawCommandStorage>();
+			Resolved.GPUSceneDynamicContext = std::make_shared<FGPUSceneDynamicContext>();
 			auto Binding = std::make_shared<FStaticMeshBatchBinding>(); Binding->Declaration = A->VertexDeclaration;
 			auto SceneData = std::make_shared<FGPUSceneBufferSet>();
 			for (uint32 Index = 0; Index < 5; ++Index)
@@ -455,10 +503,13 @@ namespace
 				auto& Record = Resolved.Draws.emplace_back(); Record.bReady = true;
 				Record.Commands[{EMeshPipelinePass::Forward}] = Resolved.DrawCommandStorage->Publish({EMeshPipelinePass::Forward}, Command);
 			}
-			ASSERT_TRUE(SetupMeshDrawCommandDynamicInstancing(Commands, Prepared, Resolved));
+			const std::array Passes{FMeshPassKey{EMeshPipelinePass::Forward}};
+			ASSERT_TRUE(SetupMeshDrawCommandDynamicInstancing(Commands, Prepared, Resolved, Passes));
 			const auto Submission = Resolved.DrawCommandSubmissions.at({EMeshPipelinePass::Forward});
 			ASSERT_EQ(Submission->Runs.size(), 3u);
-			EXPECT_EQ(Submission->Runs[0].Draws, (std::vector<uint32>{0, 1}));
+			EXPECT_EQ(Submission->Runs[0].Draws.FirstCommand, 0u);
+			EXPECT_EQ(Submission->Runs[0].Draws.NumCommands, 2u);
+			EXPECT_EQ(Resolved.DrawCommandSubmissions.size(), 1u);
 			const auto* Leader = Resolved.GetVisibleMeshDrawCommand(Prepared.Opaque[0], {EMeshPipelinePass::Forward});
 			const auto* Follower = Resolved.GetVisibleMeshDrawCommand(Prepared.Opaque[1], {EMeshPipelinePass::Forward});
 			ASSERT_TRUE(Leader && Follower);
@@ -471,8 +522,8 @@ namespace
 			EXPECT_FALSE(Resolved.GetVisibleMeshDrawCommand(Prepared.Translucent[0], {EMeshPipelinePass::Forward}));
 			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 			const auto& Bytes = static_cast<FSceneBuffer*>(Resolved.DynamicInstancingInstanceIds.GetReference())->Bytes;
-			ASSERT_EQ(Bytes.size(), 8u);
-			std::array<uint32, 2> Ids; std::memcpy(Ids.data(), Bytes.data(), Bytes.size());
+			ASSERT_GE(Bytes.size(), 2 * sizeof(uint32));
+			std::array<uint32, 2> Ids; std::memcpy(Ids.data(), Bytes.data(), sizeof(Ids));
 			EXPECT_EQ(Ids, (std::array<uint32, 2>{0, 1}));
 		});
 		FlushRenderingCommands();

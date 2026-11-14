@@ -225,7 +225,7 @@ namespace Durin
 		constexpr size_t PerCandidateBytes = sizeof(FInstanceCullingCandidate) + sizeof(uint32);
 		for (auto& Run : Submission->Runs)
 		{
-			const auto& Group = Run.Draws;
+			const auto Group = Run.Draws.GetDrawIndices();
 			if (std::ranges::any_of(Group, [&](uint32 Index) { return !Admitted[Index]; })) continue;
 			if (Group.size() < MinimumGroupCandidates) { Diagnostics.BelowThresholdCandidates += Group.size(); continue; }
 			const size_t RequiredBytes = Group.size() * PerCandidateBytes + sizeof(FRHIDrawIndexedIndirectArguments);

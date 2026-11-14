@@ -52,7 +52,24 @@ namespace Durin
         uint64 BufferRebuilds = 0;
         uint64 CapacityBytes = 0;
         uint64 MirrorCapacityBytes = 0;
+        uint64 InstanceIdBufferCreates = 0;
+        uint64 InstanceIdBufferReuses = 0;
+        uint64 InstanceIdUploadBytes = 0;
+        uint64 InstanceIdCapacityBytes = 0;
     };
+
+	// A counted immutable upload lease. Matching contents may be shared while GPU
+	// reads are pending; overwriting storage requires released leases and completion.
+	struct FGPUSceneInstanceIdBuffer
+	{
+		FBufferRHIRef Buffer;
+	private:
+		friend class FGPUScene;
+		friend class FGPUSceneDynamicContext;
+		std::vector<uint32> Ids;
+		FXxHash64 Hash;
+		FRHIGPUSyncPointRef LastUse;
+	};
 
 	struct FGPUSceneDynamicAllocation
 	{
@@ -103,6 +120,8 @@ namespace Durin
 		RENDERER_API auto FindInstanceId(FPersistentPrimitiveIndex Primitive, FPrimitiveInstanceId StableInstanceId) const -> std::optional<uint32>;
 		RENDERER_API auto IsDirty() const -> bool;
 		RENDERER_API auto RegisterGraphUse(const FRDGBuilder& Graph) -> void;
+		RENDERER_API auto UploadInstanceIds(FRHICommandListImmediate& Commands, std::span<const uint32> Ids)
+			-> std::shared_ptr<FGPUSceneInstanceIdBuffer>;
 	private:
 		struct FState;
 		std::unique_ptr<FState> State;

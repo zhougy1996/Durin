@@ -1360,10 +1360,11 @@ namespace
 		const std::function<void(Durin::FRHICommandListImmediate&, Durin::FRHITexture*)>& AfterDraw = {},
 		const Durin::FSceneViewRenderOptions& Options = {},
 		std::optional<Durin::EGPUCullingFailure> CullingFailure = {},
-        uint64* PreparationNanoseconds = nullptr) -> Durin::ERenderViewResult
+		uint64* PreparationNanoseconds = nullptr, uint64* RecordingNanoseconds = nullptr) -> Durin::ERenderViewResult
 	{
 		using namespace Durin;
 		if (PreparationNanoseconds) *PreparationNanoseconds = 0;
+		if (RecordingNanoseconds) *RecordingNanoseconds = 0;
 		const auto Preparation = FRenderResourcePreparation::Create();
 		FTextureRHIRef Target;
 		auto Result = ERenderViewResult::RendererResourcesPending;
@@ -1390,8 +1391,11 @@ namespace
 				if (BeforeDraw) BeforeDraw();
 				if (testing::Test::HasFatalFailure())
 				{ Result = ERenderViewResult::RendererResourcesUnavailable; return; }
+				const auto RecordingStart = std::chrono::steady_clock::now();
 				Result = Renderer.RenderView(Commands,
 					{&Scene, View, Target, false, Options});
+				if (RecordingNanoseconds) *RecordingNanoseconds += static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+					std::chrono::steady_clock::now() - RecordingStart).count());
 				ASSERT_NE(Result, ERenderViewResult::RendererResourcesPending)
 					<< "A ready view must finish recording even when capture exceeds the preparation time budget.";
 				if (Result == ERenderViewResult::Success)
@@ -2409,6 +2413,7 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 			FViewRenderTelemetry Telemetry;
 			FGPUTimingQueryRHIRef RasterTime, CullTime, ShadowTime;
             uint64 PreparationNanoseconds = 0;
+			uint64 RecordingNanoseconds = 0;
 		};
 		auto VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
 		bool bDynamicInstancing = true;
@@ -2416,6 +2421,7 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
         FVector3 ViewOrigin(0.0);
 		auto CullingFailure = EGPUCullingFailure::None;
 		bool bTimePasses = false;
+		bool bCaptureOutputs = true;
         auto ShadowCandidate = EDirectionalShadowCandidate::SingleMap;
 		auto Render = [&](FScene* Scene, bool GPU, ERenderMode Mode, FObservation& Result) {
 			static FObservation* Sink = nullptr;
@@ -2461,13 +2467,13 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
                         SetShadowDepthTimingQuerySink(+[](const FGPUTimingQueryRHIRef& Q) { Sink->ShadowTime = Q; });
 					}
 					SetViewRenderTelemetrySink(+[](const FViewRenderTelemetry& Value) { Sink->Telemetry = Value; });
-					SetGBufferCaptureSink(+[](FRHICommandListImmediate& C, FRHITexture* A, FRHITexture* B, FRHITexture* D, FRHITexture* E, FRHITexture* Z) {
+					if (bCaptureOutputs) SetGBufferCaptureSink(+[](FRHICommandListImmediate& C, FRHITexture* A, FRHITexture* B, FRHITexture* D, FRHITexture* E, FRHITexture* Z) {
 						const std::array Textures{A, B, D, E, Z};
 						for (size_t I = 0; I < Textures.size(); ++I) ReadGeometryTexture(C, Textures[I], Sink->GBuffer[I], I == 4);
 					});
-					SetShadowDepthCaptureSink(+[](FRHICommandListImmediate& C, FRHITexture* Texture, uint32) { ReadGeometryTexture(C, Texture, Sink->Shadow, true); });
+					if (bCaptureOutputs) SetShadowDepthCaptureSink(+[](FRHICommandListImmediate& C, FRHITexture* Texture, uint32) { ReadGeometryTexture(C, Texture, Sink->Shadow, true); });
 				},
-				[&](FRHICommandListImmediate& Commands, FRHITexture* Target) { ReadGeometryTexture(Commands, Target, Result.Pixels); }, Options, CullingFailure, &Result.PreparationNanoseconds);
+				[&](FRHICommandListImmediate& Commands, FRHITexture* Target) { if (bCaptureOutputs) ReadGeometryTexture(Commands, Target, Result.Pixels); }, Options, CullingFailure, &Result.PreparationNanoseconds, &Result.RecordingNanoseconds);
 			SetGBufferTimingQuerySink(nullptr);
 			SetGPUCullingTimingQuerySink(nullptr);
             SetShadowDepthTimingQuerySink(nullptr);
@@ -2780,7 +2786,10 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
             }
             const uint32 Warmups = bReleaseSampling ? 30 : 2;
             const uint32 Samples = bReleaseSampling ? 120 : 6;
-            std::string CSV = "scenario,sample,view,mode,update_ns,prepare_ns,gbuffer_ns,cull_ns,shadow_ns,attribute_upload_bytes,attribute_upload_ranges,buffer_rebuilds,scene_gpu_capacity_bytes,scene_mirror_capacity_bytes,native_draws,shadow_native_draws,persistent_hits,persistent_misses,culling_transient_bytes,shadow_cascades,shadow_target_backend_bytes\n";
+			// Output parity is checked outside sampling. Readback would otherwise
+			// turn the RenderView CPU span into a capture/synchronization measurement.
+            bCaptureOutputs = false;
+            std::string CSV = "scenario,sample,view,mode,update_ns,prepare_ns,gbuffer_ns,cull_ns,shadow_ns,attribute_upload_bytes,attribute_upload_ranges,buffer_rebuilds,scene_gpu_capacity_bytes,scene_mirror_capacity_bytes,native_draws,shadow_native_draws,persistent_hits,persistent_misses,culling_transient_bytes,shadow_cascades,shadow_target_backend_bytes,record_ns,instance_id_buffer_creates,instance_id_upload_bytes\n";
             auto Statistics = [&] {
                 FGPUSceneStatistics Result;
                 EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate&) { Result = Instanced->GPUScene->GetStatistics(); });
@@ -2853,12 +2862,15 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
                             {
                                 if (!Work.Dynamic || Order != 0 || ViewIndex != 0) EXPECT_EQ(Upload, 0u);
                                 else { EXPECT_GT(Upload, 0u); EXPECT_LE(Upload, sizeof(FPrimitiveSceneShaderData) + sizeof(FInstanceSceneShaderData) + sizeof(FPrimitiveCustomData)); }
-                                CSV += std::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n", Work.Name, Iteration - Warmups, ViewIndex, Mode,
+								EXPECT_EQ(After.InstanceIdBufferCreates, Before.InstanceIdBufferCreates);
+								EXPECT_EQ(After.InstanceIdUploadBytes, Before.InstanceIdUploadBytes);
+                                CSV += std::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n", Work.Name, Iteration - Warmups, ViewIndex, Mode,
                                     Order == 0 && ViewIndex == 0 ? UpdateNanoseconds : 0, Observed.PreparationNanoseconds, Duration(Observed.RasterTime), Duration(Observed.CullTime), Duration(Observed.ShadowTime),
                                     Upload, After.UploadRanges - Before.UploadRanges, After.BufferRebuilds - Before.BufferRebuilds,
                                     After.CapacityBytes, After.MirrorCapacityBytes, Observed.Telemetry.StaticMesh.NativeDrawSubmissions,
                                     Observed.Telemetry.DirectionalShadow.ShadowNativeDrawSubmissions, Observed.Telemetry.StaticMesh.PersistentCommandHits,
-                                    Observed.Telemetry.StaticMesh.PersistentCommandMisses, Observed.Telemetry.GBuffer.GPUCullingBufferBytes, Observed.Telemetry.DirectionalShadow.ShadowCascadeCount, Observed.Telemetry.DirectionalShadow.ShadowTargetBackendBytes);
+                                    Observed.Telemetry.StaticMesh.PersistentCommandMisses, Observed.Telemetry.GBuffer.GPUCullingBufferBytes, Observed.Telemetry.DirectionalShadow.ShadowCascadeCount, Observed.Telemetry.DirectionalShadow.ShadowTargetBackendBytes, Observed.RecordingNanoseconds,
+                                    After.InstanceIdBufferCreates - Before.InstanceIdBufferCreates, After.InstanceIdUploadBytes - Before.InstanceIdUploadBytes);
                             }
                         }
                     }
@@ -2869,7 +2881,7 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
             std::cout << "GPUScene " << (bReleaseSampling ? "Release" : "diagnostic")
                 << " samples: " << SampleFile << " warmups=" << Warmups << " samples=" << Samples
                 << " per mode/view; external quiet-lane admission required\n";
-            bTimePasses = false; bDynamicInstancing = true; ViewOrigin = FVector3(0.0); ShadowCandidate = EDirectionalShadowCandidate::SingleMap;
+            bCaptureOutputs = true; bTimePasses = false; bDynamicInstancing = true; ViewOrigin = FVector3(0.0); ShadowCandidate = EDirectionalShadowCandidate::SingleMap;
             Instanced->UpdateStaticMeshRenderInstances(FPrimitiveComponentId(1000), std::make_shared<const std::vector<FStaticMeshRenderInstance>>(Instances));
         }
 		auto FindFragmentType = [](std::string_view Entry) -> const FShaderType* {

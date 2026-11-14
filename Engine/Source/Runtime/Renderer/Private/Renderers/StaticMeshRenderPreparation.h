@@ -366,6 +366,7 @@ namespace Durin
 		std::map<RendererPrivate::FMeshPassKey, std::shared_ptr<RendererPrivate::FMeshDrawCommandSubmission>> DrawCommandSubmissions;
 		FBufferRHIRef DynamicInstancingInstanceIds;
 		FGPUScene* GPUScene = nullptr;
+		std::shared_ptr<FGPUSceneDynamicContext> GPUSceneDynamicContext;
 		std::vector<FGPUScenePrimitiveData> GPUScenePrimitives;
 		RendererPrivate::FCachedMeshDrawCommandStorage* CachedDrawLists = nullptr;
 		std::shared_ptr<const FSkyLightingGeneration> Environment;

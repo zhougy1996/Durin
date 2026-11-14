@@ -190,7 +190,13 @@ namespace Durin
 		std::map<RendererPrivate::FMeshPassKey, std::shared_ptr<const RendererPrivate::FMeshPassPipeline>> Pipelines;
 		// Receipts into frame-owned pass lists; records do not own duplicate command arrays.
 		std::map<RendererPrivate::FMeshPassKey, FMeshDrawCommandHandle> Commands;
-		std::map<RendererPrivate::FMeshPassKey, std::shared_ptr<const RendererPrivate::FMeshDrawCommand>> SelectedCachedCommands;
+		struct FCachedCommand
+		{
+			std::shared_ptr<const RendererPrivate::FMeshDrawCommand> Command;
+			std::shared_ptr<const RendererPrivate::FCachedMeshDrawCommandInfo> Info;
+			explicit operator bool() const { return Command && Info; }
+		};
+		std::map<RendererPrivate::FMeshPassKey, FCachedCommand> SelectedCachedCommands;
 		std::map<RendererPrivate::FMeshPassKey, FMeshDrawCommandHandle> VisibleCommands;
 		std::map<RendererPrivate::FMeshPassKey, std::pair<uint32, FMeshDrawCommandHandle>> DynamicInstancingCommands;
 		bool bReady = false;

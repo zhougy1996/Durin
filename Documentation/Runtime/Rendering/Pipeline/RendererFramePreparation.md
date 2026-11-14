@@ -6,7 +6,7 @@ output transactions.
 
 Modules: Engine, Renderer, RenderCore, RHI
 
-Last reviewed: 2026-11-13
+Last reviewed: 2026-11-14
 
 ## Ownership Boundary
 
@@ -190,8 +190,11 @@ a borrowed pipeline pointer and value `FMeshDrawShaderBindings`. There is no
 intermediate owning command packet. Shader bindings contain a shader pointer and
 resource parameter values; they own neither RHI resources nor resource views.
 Scene owns cached command slots. `FPrimitiveSceneInfo` holds
-`FCachedMeshDrawCommandInfo` locations; scene command storage retains canonical
-pipelines with cached immutable structural identity and handles cache-wide RHI invalidation. Visible storage
+`FCachedMeshDrawCommandInfo` locations. Cached selection returns the command and
+source info in one lookup;
+binding reuses that record without repeating key construction or scene lookup.
+Scene command storage retains canonical pipelines with cached immutable
+structural identity and handles cache-wide RHI invalidation. Visible storage
 retains command memory only. Removing a primitive
 uses its locations directly, without scanning other primitives or scenes.
 Metadata stays outside the draw description; recording performs no weak-owner

@@ -546,7 +546,7 @@ namespace Durin
 				const auto Pass = FState::MaterialPass(*Pipeline);
 				auto& Material = ResolvedView.MaterialUniforms[Draw.MaterialUniformIndex][Pass];
 				FResolvedStaticMeshView::FMaterialUniform CachedMaterial;
-				const auto Existing = ResolvedView.CachedDrawLists->Find(FCachedMeshDrawCommandStorage::MakeKey(Draw.Command.get(), Primitive->PrimitiveId,
+				const auto Existing = ResolvedView.CachedDrawLists->FindCachedCommand(FCachedMeshDrawCommandStorage::MakeKey(Draw.Command.get(), Primitive->PrimitiveId,
 					Primitive->BatchId, *Pipeline, GroupUniforms[Draw.MaterialUniformIndex].Buffer), *Owner,
 					Material ? nullptr : &CachedMaterial, Primitive->CollectedBinding.get());
 				if (!Existing) { AllHit = false; continue; }
@@ -664,7 +664,11 @@ namespace Durin
 		ResolvedView.DrawCommandStorage = std::make_shared<FDynamicMeshDrawCommandStorage>();
 		FRendererRDGAllocator UploadAllocator(Coordinator);
 		if (!DynamicContext)
-			ResolvedView.GPUScenePrimitives = std::make_shared<FGPUSceneDynamicContext>(ResolvedView.GPUScene ? ResolvedView.GPUScene->shared_from_this() : nullptr)->Prepare(CommandList, UploadAllocator, PreparedView);
+		{
+			DynamicContext = std::make_shared<FGPUSceneDynamicContext>(ResolvedView.GPUScene ? ResolvedView.GPUScene->shared_from_this() : nullptr);
+			ResolvedView.GPUScenePrimitives = DynamicContext->Prepare(CommandList, UploadAllocator, PreparedView);
+		}
+		ResolvedView.GPUSceneDynamicContext = std::move(DynamicContext);
 		if (ResolvedView.GPUScenePrimitives.size() != PreparedView.Primitives.size()) return false;
 		for (auto& Record : ResolvedView.Draws) { Record.Commands.clear(); Record.VisibleCommands.clear(); Record.DynamicInstancingCommands.clear(); }
 		ResolvedView.DrawCommandSubmissions.clear(); ResolvedView.DynamicInstancingInstanceIds = {};
@@ -693,11 +697,13 @@ namespace Durin
 					{Draw.Command->PipelineKey.Rasterizer, Draw.Command->PipelineKey.Depth, Draw.Command->PipelineKey.ColorBlend},
 					Draw.Command->PipelineKey.Topology, {}, Draw.Command->bSupportsGBuffer};
 				std::shared_ptr<const FMeshDrawCommand> Cached;
+				FResolvedMeshDrawRecord::FCachedCommand CachedSelection;
 				if (Ready)
 				{
 					if (Cacheable)
 						if (const auto Selected = Record.SelectedCachedCommands.find(PassKey); Selected != Record.SelectedCachedCommands.end())
-							Cached = Selected->second;
+							CachedSelection = Selected->second;
+					Cached = CachedSelection.Command;
 					FMeshDrawCommandBuildInput Input{CommandList, *Primitive, Draw, Pipeline, *Material,
 						ResolvedView.GetFallbackPrimitiveUniform(Draw.PrimitiveIndex), ResolvedView.ViewUniforms[Pass], Lighting, {}, LocalLights};
 					const auto& SceneData = ResolvedView.GPUScenePrimitives[Draw.PrimitiveIndex];
@@ -709,6 +715,9 @@ namespace Durin
 						FCachedPassMeshDrawListContext Context(*ResolvedView.CachedDrawLists, PassKey, Cached, Input);
 						const auto Result = Processor.AddMeshBatch(Batch, Input, BindingCache, Context); Ready = static_cast<bool>(Result);
 						if (!Ready) Error = Result.Error;
+						if (Ready) CachedSelection = ResolvedView.CachedDrawLists->FindCachedCommand(
+							FCachedMeshDrawCommandStorage::MakeKey(Draw.Command.get(), Primitive->PrimitiveId, Primitive->BatchId,
+								*Pipeline, Material->Uniform.Buffer), *Primitive->SceneInfo.Resolve());
 
 					}
 					if (Ready && Cached)
@@ -725,9 +734,8 @@ namespace Durin
 						if (Ready)
 						{
 							const auto Bias = bShadow && Draw.RasterBias ? *Draw.RasterBias : Cached->DepthBias;
-							const auto Info = ResolvedView.CachedDrawLists->FindInfo(FCachedMeshDrawCommandStorage::MakeKey(Draw.Command.get(), Primitive->PrimitiveId,
-								Primitive->BatchId, *Pipeline, Material->Uniform.Buffer), *Primitive->SceneInfo.Resolve());
-							Record.VisibleCommands[PassKey] = ResolvedView.DrawCommandStorage->PublishVisible(Cached, Info, Group->second, Bias, Input.InstanceIdOffset);
+							Record.VisibleCommands[PassKey] = ResolvedView.DrawCommandStorage->PublishVisible(Cached, CachedSelection.Info,
+								Group->second, Bias, Input.InstanceIdOffset);
 						}
 					}
 					else if (Ready)
@@ -749,7 +757,13 @@ namespace Durin
 		for (auto& Record : ResolvedView.Draws) Record.SelectedCachedCommands.clear();
 		ResolvedView.Observations.PreparedSurfaceBindingBatches = BindingCache.PreparedSurfaceBindingBatches;
 		ResolvedView.Observations.SurfaceBindingBatchReuses = BindingCache.SurfaceBindingBatchReuses;
-		if (bDynamicInstancing && !SetupMeshDrawCommandDynamicInstancing(CommandList, PreparedView, ResolvedView)) return false;
+		if (bDynamicInstancing)
+		{
+			const std::array ReceiverPasses{FMeshPassKey{EMeshPipelinePass::Forward}, FMeshPassKey{EMeshPipelinePass::HybridRetainedForward}, FMeshPassKey{EMeshPipelinePass::GBuffer}};
+			const std::array ShadowPasses{FMeshPassKey{EMeshPipelinePass::ShadowDepth}};
+			if (!SetupMeshDrawCommandDynamicInstancing(CommandList, PreparedView, ResolvedView,
+				bShadow ? std::span<const FMeshPassKey>(ShadowPasses) : std::span<const FMeshPassKey>(ReceiverPasses))) return false;
+		}
 		return AllReady;
 	}
 
