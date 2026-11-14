@@ -103,7 +103,7 @@ namespace Durin
 		std::function<bool(EAssetCanonicalResaveApplyPhase, size_t)> ShouldFail;
 		// Tool hosts may wait for editor-only post-load recovery and reject an
 		// asset that has not reached its domain-ready state before serialization.
-		std::function<FAssetWriteResult(const FPackagePath&, DObject*)> PrepareLoadedAsset;
+		std::function<std::expected<void, UnifiedError::FError>(const FPackagePath&, DObject*)> PrepareLoadedAsset;
 	};
 
 	struct FAssetCanonicalResaveApplyResult

@@ -244,7 +244,7 @@ namespace Durin::MainFrame
 					return;
 				}
 				if (Result.SaveResult && !*Result.SaveResult && ReportError)
-					ReportError("Reimport succeeded; save failed: " + Result.SaveResult->Message);
+					ReportError("Reimport succeeded; save failed: " + (Result.SaveResult->Error ? Result.SaveResult->Error->ToString() : std::string{}));
 			};
 			if (!bFromFile)
 			{

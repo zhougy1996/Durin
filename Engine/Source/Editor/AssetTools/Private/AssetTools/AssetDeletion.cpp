@@ -13,9 +13,10 @@ namespace Durin
 {
 	namespace
 	{
-		auto Error(EAssetWriteError Code, std::string Message) -> FAssetWriteResult
-		{
-			return {Code, std::move(Message)};
+		auto Reject(std::optional<UnifiedError::FError>* OutError, UnifiedError::FError Error) -> bool
+		{ if (OutError) *OutError = std::move(Error); return false; }
+		auto WriteFailure(UnifiedError::FErrorId Code, std::string Message) -> FAssetWriteResult
+		{ return {.Error = UnifiedError::FError{Code, std::move(Message)}};
 		}
 
 		auto AppendReferenceStoreWarnings(std::span<const FPackagePath> Paths,
@@ -61,13 +62,13 @@ namespace Durin
 		std::vector<std::filesystem::path> AffectedFiles;
 		std::unordered_map<FPackagePath, std::vector<std::filesystem::path>> OutsideCompanions;
 
-		auto ValidateFiles(const FAssetDeletionCommit& Commit) -> FAssetWriteResult;
+		auto ValidateFiles(const FAssetDeletionCommit& Commit, std::optional<UnifiedError::FError>* OutError) -> bool;
 		auto RecordRemovedFiles() -> void;
 
 		auto Prepare(std::span<const FPackagePath> Paths,
 			std::span<const std::filesystem::path> Roots,
-			std::vector<FAssetDeletionBlocker>& OutBlockers) -> FAssetWriteResult;
-		auto Validate() const -> FAssetWriteResult;
+			std::vector<FAssetDeletionBlocker>& OutBlockers, std::optional<UnifiedError::FError>* OutError) -> bool;
+		auto Validate(std::optional<UnifiedError::FError>* OutError) const -> bool;
 		auto Delete(const FAssetDeletionCommit& Commit, std::vector<std::filesystem::path>& AffectedFiles) -> FAssetWriteResult;
 	};
 
@@ -104,7 +105,7 @@ namespace Durin
 
 	auto FAssetDeletionOperation::GetWriteResult() const -> const FAssetWriteResult&
 	{
-		static const FAssetWriteResult Unavailable{EAssetWriteError::InvalidData, "No deletion operation is prepared."};
+		static const FAssetWriteResult Unavailable{.Error = UnifiedError::FError{AssetWriteErrors::InvalidData, "No deletion operation is prepared."}};
 		return State ? State->LastResult : Unavailable;
 	}
 	auto FAssetDeletionOperation::GetAffectedFiles() const -> std::span<const std::filesystem::path>
@@ -113,7 +114,7 @@ namespace Durin
 	}
 	auto FAssetDeletionOperation::Delete(const FAssetDeletionCommit& Commit, FFeedbackContext* Warn) -> bool
 	{
-		if (!State) { (Warn ? *Warn : FFeedbackContext::Get()).Error(GetWriteResult().Message); return false; }
+		if (!State) { (Warn ? *Warn : FFeedbackContext::Get()).Error((GetWriteResult().Error ? GetWriteResult().Error->ToString() : std::string{})); return false; }
 		if (State->bExecuted)
 		{
 			(Warn ? *Warn : FFeedbackContext::Get()).Error("The deletion operation has already executed.");
@@ -121,7 +122,7 @@ namespace Durin
 		}
 		State->AffectedFiles.clear();
 		State->LastResult = State->Delete(Commit, State->AffectedFiles);
-		if (!State->LastResult) (Warn ? *Warn : FFeedbackContext::Get()).Error(State->LastResult.Message);
+		if (!State->LastResult) (Warn ? *Warn : FFeedbackContext::Get()).Error((State->LastResult.Error ? State->LastResult.Error->ToString() : std::string{}));
 		return static_cast<bool>(State->LastResult);
 	}
 
@@ -129,28 +130,27 @@ namespace Durin
 		const FAssetDeletionCommit& Commit, std::vector<std::filesystem::path>& AffectedFiles) -> FAssetWriteResult
 	{
 		if (!bPrepared || bExecuted)
-			return Error(EAssetWriteError::StaleData,
+			return WriteFailure(AssetWriteErrors::StaleData,
 				"Only a prepared asset deletion job can execute.");
 		if (!Commit.Delete)
-			return Error(EAssetWriteError::StaleData,
+			return WriteFailure(AssetWriteErrors::StaleData,
 				"The asset deletion job has no destructive callback.");
 
-		FAssetWriteResult Result = Validate();
-		if (!Result) return Result;
+		FAssetWriteResult Result;
+		if (!Validate(&Result.Error)) return Result;
 		if (GetAssetCatalogRevision() != RegistryRevision)
-			return Error(EAssetWriteError::StaleData,
+			return WriteFailure(AssetWriteErrors::StaleData,
 				"The asset Registry changed after deletion confirmation.");
-		Result = ValidateFiles(Commit);
-		if (!Result) return Result;
+		if (!ValidateFiles(Commit, &Result.Error)) return Result;
 		if (GetAssetCatalogRevision() != RegistryRevision
 			|| ContributorRevision != AssetToolsPrivate::GetDeleteContributorRevision())
-			return Error(EAssetWriteError::StaleData, "Deletion metadata changed during file validation.");
+			return WriteFailure(AssetWriteErrors::StaleData, "Deletion metadata changed during file validation.");
 		std::vector<FPackageData> Packages;
 		for (const FAssetDeletionEntry& Entry : Entries)
 			if (FindPackageExact(Entry.RegistryEntry.PackagePath))
 				Packages.push_back(Entry.RegistryEntry);
-		Result = ReleasePackagesForRemoval(Packages, RegistryRevision);
-		if (!Result) return Result;
+		if (auto Released = ReleasePackagesForRemoval(Packages, RegistryRevision); !Released)
+			return {.Error = std::move(Released.error())};
 		bExecuted = true;
 		const FAssetWriteResult DeleteResult = Commit.Delete(AffectedFiles);
 		RecordRemovedFiles();
@@ -163,39 +163,35 @@ namespace Durin
 			for (const FAssetDeletionEntry& Entry : Entries)
 				Paths.push_back(Entry.RegistryEntry.PackagePath);
 			FenceAssetRegistryProjection(Paths);
-			return {
-				.Error = DeleteResult.Error,
-				.Message = std::format(
-					"AssetDeletionFailed: deletion stopped; inspect partial changes before preparing another operation. {}",
-					DeleteResult.Message),
-				.Effect = EAssetWriteEffect::PartiallyWritten};
+			auto Failure = DeleteResult;
+			Failure.Error->PushContext("operation", "AssetDeletionFailed: deletion stopped; inspect partial changes before preparing another operation.");
+			Failure.Effect = EAssetWriteEffect::PartiallyWritten;
+			return Failure;
 		}
-		Result = PublishPackageRemoval(Packages, RegistryRevision);
-		if (!Result)
+		if (auto Published = PublishPackageRemoval(Packages, RegistryRevision); !Published)
 		{
 			std::vector<FPackagePath> Paths;
 			for (const FAssetDeletionEntry& Entry : Entries)
 				Paths.push_back(Entry.RegistryEntry.PackagePath);
 			FenceAssetRegistryProjection(Paths);
-			return {
-				.Error = EAssetWriteError::StaleData,
-				.Message = std::format(
-					"ContentCommittedProjectionPending: destructive deletion committed; Registry reconcile is required. {}",
-					Result.Message),
-				.Effect = EAssetWriteEffect::ContentCommittedProjectionPending};
+			auto Error = std::move(Published.error());
+			Error.PushContext("operation", "Destructive deletion committed; Registry reconcile is required.");
+			return {.Error = std::move(Error), .Effect = EAssetWriteEffect::ContentCommittedProjectionPending};
 		}
 		return {};
 	}
 
 	// Validate the confirmed file identities before the single destructive attempt.
-	auto FAssetDeletionOperation::FState::ValidateFiles(const FAssetDeletionCommit& Commit) -> FAssetWriteResult
+	auto FAssetDeletionOperation::FState::ValidateFiles(const FAssetDeletionCommit& Commit, std::optional<UnifiedError::FError>* OutError) -> bool
 	{
+		if (OutError) OutError->reset();
 		ConfirmedBytes.clear();
 		FAssetDeletionFileIdentities VerifiedFiles;
 		if (Commit.ValidateFiles)
 		{
-			const auto Result = Commit.ValidateFiles(VerifiedFiles);
-			if (!Result) return Result;
+			const bool Result = Commit.ValidateFiles(VerifiedFiles, OutError);
+			if (!Result)
+			{ if (OutError && !*OutError) OutError->emplace(AssetWriteErrors::InvalidData, "Deletion file validation was rejected."); return false; }
 		}
 		for (const auto& Entry : Entries)
 		{
@@ -210,19 +206,19 @@ namespace Durin
 				{
 					const auto Found = VerifiedFiles.find(Key);
 					if (Found == VerifiedFiles.end())
-						return Error(EAssetWriteError::StaleData, "Host validation omitted a deletion participant.");
+						return Reject(OutError, UnifiedError::FError{AssetWriteErrors::StaleData, "Host validation omitted a deletion participant."});
 					Identity = Found->second;
 				}
 				else
 				{
 					auto Hashed = FFileHelper::HashFileXx128(File);
-					if (!Hashed) return Error(EAssetWriteError::IoError, Hashed.error().ToString());
+					if (!Hashed) return Reject(OutError, ToError(Hashed.error()));
 					Identity = *Hashed;
 				}
 				ConfirmedBytes.emplace(Key, Identity);
 			}
 		}
-		return {};
+		return true;
 	}
 
 	auto FAssetDeletionOperation::FState::RecordRemovedFiles() -> void
@@ -239,14 +235,15 @@ namespace Durin
 	auto FAssetDeletionOperation::FState::Prepare(
 		std::span<const FPackagePath> Paths,
 		std::span<const std::filesystem::path> PhysicalRoots,
-		std::vector<FAssetDeletionBlocker>& OutBlockers) -> FAssetWriteResult
+		std::vector<FAssetDeletionBlocker>& OutBlockers, std::optional<UnifiedError::FError>* OutError) -> bool
 	{
+		if (OutError) OutError->reset();
 		auto& OutToken = *this;
 		OutBlockers.clear();
 		if (GetAssetRuntimeConfiguration().IsCooked())
-			return Error(
-				EAssetWriteError::ReadOnlyMode,
-				"Cooked runtime package mode does not permit asset deletion.");
+			return Reject(OutError, UnifiedError::FError{
+				AssetWriteErrors::ReadOnlyMode,
+				"Cooked runtime package mode does not permit asset deletion."});
 
 		std::vector<FPackagePath> SortedPaths(Paths.begin(), Paths.end());
 		std::ranges::sort(
@@ -314,21 +311,22 @@ namespace Durin
 					Data->PhysicalPath,
 					"Asset has unsaved changes.");
 
-			const FAssetWriteResult CompanionResult =
+			std::optional<UnifiedError::FError> CompanionError;
+			const bool CompanionResult =
 				AssetToolsPrivate::InspectAssetCompanionFilesForDeletion(
-					*Data, Entry.CompanionFiles);
+					*Data, Entry.CompanionFiles, &CompanionError);
 			if (!CompanionResult)
 				AddBlocker(
 					EAssetDeletionBlocker::CompanionInspectionFailed,
 					Path,
 					{},
 					Data->PhysicalPath,
-					CompanionResult.Message);
+					(CompanionError ? CompanionError->ToString() : std::string{}));
 			OutToken.Entries.push_back(std::move(Entry));
 		}
 		FPackagePath BlockedPackage;
 		if (const auto References = ValidatePackageRemovalReferences(SortedPaths, &BlockedPackage); !References)
-			AddBlocker(EAssetDeletionBlocker::ExternalLoadedReference, BlockedPackage, {}, {}, References.Message);
+			AddBlocker(EAssetDeletionBlocker::ExternalLoadedReference, BlockedPackage, {}, {}, References.error().ToString());
 		CompanionScope = OutToken.PhysicalRoots;
 		for (const auto& Entry : Entries)
 			CompanionScope.insert(CompanionScope.end(), Entry.CompanionFiles.begin(), Entry.CompanionFiles.end());
@@ -465,10 +463,10 @@ namespace Durin
 
 		if (!SortedPaths.empty())
 		{
-			const FAssetWriteResult Captured = AssetWriteResultFromRead(CaptureAssetReferenceStores(ReferenceStores));
+			const auto Captured = CaptureAssetReferenceStores(ReferenceStores);
 			if (!Captured)
 				AddBlocker(EAssetDeletionBlocker::ReferenceStoreInspectionFailed,
-					SortedPaths.front(), {}, {}, Captured.Message);
+					SortedPaths.front(), {}, {}, Captured.error().ToString());
 			else
 				AppendReferenceStoreWarnings(SortedPaths, ReferenceStores, Warnings);
 		}
@@ -578,44 +576,46 @@ namespace Durin
 						< B.PhysicalPath.generic_string();
 				return A.Kind < B.Kind;
 			});
-		return {};
+		return true;
 	}
 
-	auto FAssetDeletionOperation::Validate() const -> FAssetWriteResult
+	auto FAssetDeletionOperation::Validate(std::optional<UnifiedError::FError>* OutError) const -> bool
 	{
+		if (OutError) OutError->reset();
 		if (!State || !State->bPrepared || State->bExecuted)
-			return Error(EAssetWriteError::StaleData, "The deletion confirmation is not available.");
-		return State->Validate();
+			return Reject(OutError, UnifiedError::FError{AssetWriteErrors::StaleData, "The deletion confirmation is not available."});
+		return State->Validate(OutError);
 	}
 
-	auto FAssetDeletionOperation::FState::Validate() const -> FAssetWriteResult
+	auto FAssetDeletionOperation::FState::Validate(std::optional<UnifiedError::FError>* OutError) const -> bool
 	{
+		if (OutError) OutError->reset();
 		if (GetAssetRuntimeConfiguration().IsCooked())
-			return Error(EAssetWriteError::ReadOnlyMode, "Cooked content cannot be deleted.");
+			return Reject(OutError, UnifiedError::FError{AssetWriteErrors::ReadOnlyMode, "Cooked content cannot be deleted."});
 		// Catalog publications include reference facts. An unchanged revision keeps
 		// the confirmed alias closure and warnings valid; files and providers have
 		// independent lifetimes and must still be checked below.
 		if (GetAssetCatalogRevision() != RegistryRevision
 			|| ContributorRevision != AssetToolsPrivate::GetDeleteContributorRevision())
-			return Error(EAssetWriteError::StaleData, "Deletion metadata or contributors changed after confirmation.");
+			return Reject(OutError, UnifiedError::FError{AssetWriteErrors::StaleData, "Deletion metadata or contributors changed after confirmation."});
 		for (const auto& Entry : Entries)
 		{
 			const auto& Path = Entry.RegistryEntry.PackagePath;
 			const auto Current = FindPackageExact(Path);
 			if (!Current || !(*Current == Entry.RegistryEntry))
-				return Error(EAssetWriteError::StaleData, "A deletion participant changed after confirmation.");
+				return Reject(OutError, UnifiedError::FError{AssetWriteErrors::StaleData, "A deletion participant changed after confirmation."});
 			const auto* Loaded = FindResidentPackage(Path);
 			if (IsPackageLoading(Path) || (Loaded && Loaded->IsDirty()))
-				return Error(EAssetWriteError::InUse, "A deletion participant is loading or dirty.");
+				return Reject(OutError, UnifiedError::FError{AssetWriteErrors::InUse, "A deletion participant is loading or dirty."});
 			std::vector<std::filesystem::path> Files;
-			const auto Inspected = AssetToolsPrivate::InspectAssetCompanionFilesForDeletion(*Current, Files);
+			const bool Inspected = AssetToolsPrivate::InspectAssetCompanionFilesForDeletion(*Current, Files, OutError);
 			if (!Inspected) return Inspected;
 			if (Files != Entry.CompanionFiles)
-				return Error(EAssetWriteError::StaleData, "Selected companion files changed after confirmation.");
+				return Reject(OutError, UnifiedError::FError{AssetWriteErrors::StaleData, "Selected companion files changed after confirmation."});
 		}
 		std::vector<FPackagePath> Paths;
 		for (const auto& Entry : Entries) Paths.push_back(Entry.RegistryEntry.PackagePath);
-		if (const auto References = ValidatePackageRemovalReferences(Paths); !References) return References;
+		if (const auto References = ValidatePackageRemovalReferences(Paths); !References) return Reject(OutError, References.error());
 		std::unordered_map<FPackagePath, std::vector<std::filesystem::path>> Companions;
 		for (const auto& [Path, Data] : PreparedSnapshot.Catalog.Assets)
 		{
@@ -628,19 +628,19 @@ namespace Durin
 			Companions.emplace(Path, std::move(Files));
 		}
 		if (Companions != OutsideCompanions)
-			return Error(EAssetWriteError::StaleData, "Companion ownership changed after confirmation.");
+			return Reject(OutError, UnifiedError::FError{AssetWriteErrors::StaleData, "Companion ownership changed after confirmation."});
 		if (!Entries.empty())
 		{
 			FAssetReferenceStoreCapture Stores;
 			const auto Captured = CaptureAssetReferenceStores(Stores);
-			if (!Captured) return AssetWriteResultFromRead(Captured);
+			if (!Captured) return Reject(OutError, Captured.error());
 			if (Stores != ReferenceStores)
-				return Error(EAssetWriteError::StaleData, "External reference owners changed after confirmation.");
+				return Reject(OutError, UnifiedError::FError{AssetWriteErrors::StaleData, "External reference owners changed after confirmation."});
 		}
 		if (GetAssetCatalogRevision() != RegistryRevision
 			|| ContributorRevision != AssetToolsPrivate::GetDeleteContributorRevision())
-			return Error(EAssetWriteError::StaleData, "Deletion metadata changed during validation.");
-		return {};
+			return Reject(OutError, UnifiedError::FError{AssetWriteErrors::StaleData, "Deletion metadata changed during validation."});
+		return true;
 	}
 
 	auto PrepareAssetDeletionWithEditorPolicy(const FAssetDeletionRequest& Request,
@@ -649,10 +649,10 @@ namespace Durin
 		OutOperation = FAssetDeletionOperation{};
 		OutOperation.State = std::make_unique<FAssetDeletionOperation::FState>();
 		auto& State = *OutOperation.State;
-		State.LastResult = State.Prepare(Request.AssetPaths, Request.PhysicalRoots, State.Blockers);
-		State.bPrepared = State.LastResult && State.Blockers.empty();
+		const bool Prepared = State.Prepare(Request.AssetPaths, Request.PhysicalRoots, State.Blockers, &State.LastResult.Error);
+		State.bPrepared = Prepared && State.Blockers.empty();
 		auto& Feedback = Warn ? *Warn : FFeedbackContext::Get();
-		if (!State.LastResult) Feedback.Error(State.LastResult.Message);
+		if (!State.LastResult) Feedback.Error((State.LastResult.Error ? State.LastResult.Error->ToString() : std::string{}));
 		for (const auto& Blocker : State.Blockers) Feedback.Error(Blocker.Details);
 		for (const auto& Warning : State.Warnings) Feedback.Warning(Warning.Details);
 		return State.bPrepared;

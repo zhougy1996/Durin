@@ -400,7 +400,7 @@ limits, and nested causes. Their output rules are:
 | `FCookStateResult` | Clears byte/state outputs; publishes only a complete candidate. Dependency framing errors remain distinct from payload errors. |
 | `FCookManifestResult` | Encoding clears bytes; decoding resets the manifest. Encoding validates through decoding; errors retain size/checksum and target context. |
 
-Discovery's `ToAssetResult` adapter formats graph/codec context while the result
+Discovery formats graph/codec context at its error boundary while the result
 is alive, preserving CorruptFile classification without a write outcome.
 Cook-owned codec/state/publication statuses are not embedded in ordinary asset
 diagnostics. The output store retains complete state and manifest causes.

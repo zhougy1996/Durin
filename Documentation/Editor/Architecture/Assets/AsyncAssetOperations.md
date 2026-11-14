@@ -113,8 +113,9 @@ not call presentation callbacks.
 
 ## Typed Adapters and UI
 
-Editor async consumers call `DPackage::SaveAsync` with an explicit
-`FAssetPackageSaveContext` and retain `Tasks::TTask<FAssetWriteResult>` directly.
+Editor async consumers call `SavePackageAsync(Package, Args, IsCancellationRequested)`
+and retain `Tasks::TTask<FAssetWriteResult>` directly. Immediate rejection is a
+completed task containing the original failure, with no separate admission output.
 The Task represents final persistence and Registry disposition. Texture import
 polls `IsCompleted`, reads the result and releases observation after processing it.
 Consumers read the native write result without an editor result adapter. The

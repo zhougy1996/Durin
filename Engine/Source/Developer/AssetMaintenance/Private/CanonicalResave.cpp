@@ -370,7 +370,7 @@ namespace Durin
 			}
 			if (Options.PrepareLoadedAsset)
 			{
-				FAssetWriteResult Prepared;
+				std::expected<void, UnifiedError::FError> Prepared;
 				for (DObject* Asset : Package->GetTopLevelAssets())
 				{
 					Prepared = Options.PrepareLoadedAsset(
@@ -382,7 +382,7 @@ namespace Durin
 					(void)ReleaseLoaded();
 					PackagePlan.Status = EAssetCanonicalResavePackageStatus::Failed;
 					PackagePlan.Diagnostics.push_back(std::format(
-						"CanonicalResavePrepareRejected: {}", Prepared.Message));
+						"CanonicalResavePrepareRejected: {}", Prepared.error().ToString()));
 					Result.Status = Completed
 						? EAssetCanonicalResaveApplyStatus::Partial
 						: EAssetCanonicalResaveApplyStatus::Failed;
@@ -508,15 +508,15 @@ namespace Durin
 					return Options.ShouldFail(EAssetCanonicalResaveApplyPhase::PublishRegistry, Index);
 				return false;
 			});
-			FAssetWriteResult Save = SavePackage(Package);
-			if (!Save)
+			FAssetWriteResult Save;
+			if (!SavePackage(Package, {}, &Save))
 			{
 				(void)ReleaseLoaded();
 				PackagePlan.Status = EAssetCanonicalResavePackageStatus::Failed;
-				PackagePlan.Diagnostics.push_back(Save.Message);
+				PackagePlan.Diagnostics.push_back((Save.Error ? Save.Error->ToString() : std::string{}));
 				Result.Status = Completed ? EAssetCanonicalResaveApplyStatus::Partial
 					: EAssetCanonicalResaveApplyStatus::Failed;
-				Result.Diagnostic = Save.Message;
+				Result.Diagnostic = (Save.Error ? Save.Error->ToString() : std::string{});
 				return Result;
 			}
 

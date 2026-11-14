@@ -28,8 +28,19 @@ namespace Durin::ObjectPackage
 		return {};
 	}
 
+	auto ToError(const FPackageWriterResult& Error) -> UnifiedError::FError
+	{
+		auto Cause = Error.Cause ? *Error.Cause : UnifiedError::FError{
+			{"PackageEncoding", Error.Reason == EPackageWriterReason::UnsupportedVersion ? "UnsupportedVersion" : "InvalidData"},
+			FormatPackageError(Error)};
+		if (!Error.LogicalPath.empty()) Cause.PushContext("encoding path", Error.LogicalPath);
+		return Cause;
+	}
+
 	auto FormatPackageError(const FPackageWriterResult& Error) -> std::string
 	{
+		if (Error.Cause) return Error.LogicalPath.empty() ? Error.Cause->ToString()
+			: std::format("{} at '{}'", Error.Cause->ToString(), Error.LogicalPath);
 		if (!Error.Message.empty()) return Error.LogicalPath.empty() ? Error.Message
 			: std::format("{} at '{}'", Error.Message, Error.LogicalPath);
 		switch (Error.Reason)

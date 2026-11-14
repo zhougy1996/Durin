@@ -150,7 +150,11 @@ namespace
 				.DocumentKey = Texture->GetObjectPath(), .ResourceId = Texture->GetObjectPath(), .Label = "Texture"});
 			ASSERT_TRUE(Document.IsValid());
 			const std::array Paths{Path};
-			EXPECT_EQ(Durin::ValidatePackageRemovalReferences(Paths).Error, Durin::EAssetWriteError::InUse);
+			{
+				const auto Failure = Durin::ValidatePackageRemovalReferences(Paths);
+				ASSERT_FALSE(Failure);
+				EXPECT_TRUE(Failure.error().Is(Durin::AssetWriteErrors::InUse)) << Failure.error().ToString();
+			}
 			ASSERT_TRUE(Documents.Activate({.Id = {1}, .ResourceId = Path.ToString()}, Texture));
 			std::string Error;
 			ASSERT_TRUE(SetSource(*Texture, std::byte{91}, Error)) << Error;
@@ -170,7 +174,11 @@ namespace
 			ASSERT_TRUE(Durin::SavePackage(Referenced->GetPackage()));
 			Cloud->SetWeatherTexture(nullptr);
 			Cloud->SetBaseDensityTexture(nullptr);
-			EXPECT_EQ(Durin::ValidatePackageRemovalReferences(Paths).Error, Durin::EAssetWriteError::InUse);
+			{
+				const auto Failure = Durin::ValidatePackageRemovalReferences(Paths);
+				ASSERT_FALSE(Failure);
+				EXPECT_TRUE(Failure.error().Is(Durin::AssetWriteErrors::InUse)) << Failure.error().ToString();
+			}
 			EXPECT_EQ(Manager.RequestCloseDocument(Document), Durin::EDocumentCloseResult::Closed);
 			EXPECT_TRUE(Durin::ValidatePackageRemovalReferences(Paths));
 			ASSERT_TRUE(Durin::UnloadPackage(Path));
@@ -345,7 +353,7 @@ TEST_F(FAssetPackageReloadTests, MaterialDiscardRestoresBaseAndInstanceAuthoredS
 	ASSERT_TRUE(UnloadPackage(Path));
 }
 
-TEST_F(FAssetPackageReloadTests, FunctionReloadRebindsNestedCallersAndPreservesAcceptedGenerationUntilCompile)
+TEST_F(FAssetPackageReloadTests, FunctionReloadInvalidatesNestedCallersUntilExplicitCompile)
 {
 	using namespace Durin;
 	FScopedOfflinePreparation Offline;
@@ -382,6 +390,8 @@ TEST_F(FAssetPackageReloadTests, FunctionReloadRebindsNestedCallersAndPreservesA
 	const auto InstanceAccepted = Instance->GetAcceptedCompiledProgram();
 	ASSERT_TRUE(InstanceAccepted);
 	EXPECT_EQ(InstanceAccepted->ShaderMap, Accepted->ShaderMap);
+	const auto MaterialRequestId = Material->GetMaterialCompileDebugInfo().RequestId;
+	const auto InstanceRequestId = Instance->GetMaterialCompileDebugInfo().RequestId;
 	const auto OldHandle = FObjectKey(Function);
 	auto Operation = ReloadPackages({.Packages = {Function->GetPackage()}});
 	const auto Result = Operation.Wait();
@@ -393,12 +403,26 @@ TEST_F(FAssetPackageReloadTests, FunctionReloadRebindsNestedCallersAndPreservesA
 		const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get());
 		return Call && Call->Id == InnerCall && Call->Function.Get() == Function;
 	}));
-	EXPECT_TRUE(Material->GetMaterialCompileStatus().HasUnsubmittedEdits());
-	EXPECT_TRUE(Instance->GetMaterialCompileStatus().HasUnsubmittedEdits());
-	EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Accepted);
-	EXPECT_EQ(Instance->GetAcceptedCompiledProgram(), InstanceAccepted);
+	// A committed function replacement is a structural edit for every loaded caller.
+	// Manual mode invalidates their resources without submitting replacement requests.
+	for (const auto* Owner : std::array<const DMaterialInterface*, 2>{Material.Get(), Instance.Get()})
+	{
+		const auto Status = Owner->GetMaterialCompileStatus();
+		EXPECT_TRUE(Status.HasUnsubmittedEdits());
+		EXPECT_FALSE(Status.IsCurrent());
+		EXPECT_FALSE(Status.HasScheduledEdits());
+		EXPECT_FALSE(Owner->GetAcceptedCompiledProgram());
+	}
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().RequestId, MaterialRequestId);
+	EXPECT_EQ(Instance->GetMaterialCompileDebugInfo().RequestId, InstanceRequestId);
 	ASSERT_TRUE(Material->CompileEdits());
-	EXPECT_EQ(Material->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, SavedIdentity);
+	for (const auto* Owner : std::array<const DMaterialInterface*, 2>{Material.Get(), Instance.Get()})
+	{
+		ASSERT_TRUE(Owner->GetAcceptedCompiledProgram());
+		EXPECT_TRUE(Owner->GetMaterialCompileStatus().IsCurrent());
+		EXPECT_FALSE(Owner->GetMaterialCompileStatus().HasUnsubmittedEdits());
+		EXPECT_EQ(Owner->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, SavedIdentity);
+	}
 	const auto BeforeCapture = SnapshotMaterialCompilerInput(*Material.Get(), {.CompilerIdentity = "ReloadFunctionOwners"});
 	ASSERT_TRUE(BeforeCapture);
 	const auto& Before = BeforeCapture.Snapshot->FunctionOwners;
@@ -614,6 +638,15 @@ TEST_F(FAssetPackageReloadTests, SecondPackagePreparationFailurePreservesTheWhol
 	});
 	const auto Result = ReloadPackages(Request).GetResult();
 	EXPECT_EQ(Result.Status, EPackageReloadStatus::Failed);
+	ASSERT_EQ(Result.Diagnostics.size(), 1u);
+	const auto& Diagnostic = Result.Diagnostics.front();
+	ASSERT_TRUE(Diagnostic.Cause);
+	EXPECT_TRUE(Diagnostic.Cause->Is(PackageReadErrors::CorruptFile));
+	EXPECT_EQ(Diagnostic.Cause->GetMessage(), "Injected value application failure.");
+	EXPECT_TRUE(Diagnostic.Message.empty());
+	EXPECT_EQ(FormatPackageReloadDiagnostic(Diagnostic), Diagnostic.Cause->ToString());
+	EXPECT_EQ(Diagnostic.PackagePath, Paths[1]);
+	EXPECT_EQ(Diagnostic.Stage, EPackageReloadStage::ReadAndPrepare);
 	for (size_t Index = 0; Index < Paths.size(); ++Index)
 	{
 		EXPECT_EQ(FindResidentPackage(Paths[Index]), Textures[Index]->GetPackage());
@@ -760,6 +793,10 @@ TEST_F(FAssetPackageReloadTests, EveryCoordinatorFailurePreservesTheEditedGraphA
 		{
 			EXPECT_EQ(Result.Diagnostics[0].Stage, EPackageReloadStage::ReadAndPrepare);
 			EXPECT_EQ(Result.Diagnostics[0].PackagePath, Path);
+			ASSERT_TRUE(Result.Diagnostics[0].Cause);
+			EXPECT_TRUE(Result.Diagnostics[0].Message.empty());
+			EXPECT_TRUE(Result.Diagnostics[0].Cause->Is(Fault == Testing::EPackageReloadFaultPoint::CreateSkeleton
+				? AssetLoadErrors::InvalidObjectGraph : PackageReadErrors::CorruptFile));
 		}
 		CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(FindResidentPackage(Path), Texture->GetPackage());
@@ -915,6 +952,23 @@ TEST(FPackageReloadReceiptTests, MaterialDetailsSurviveResultCopiesAndKeepEveryD
 	auto WithSummary = Saved;
 	WithSummary.Message = "Package-level explanation.";
 	EXPECT_EQ(FormatPackageReloadDiagnostic(WithSummary), "Package-level explanation.");
+}
+
+TEST(FPackageReloadReceiptTests, RetainsCauseWithoutRequiringDuplicateMessage)
+{
+	using namespace Durin;
+	FPackageReloadResourceReceipt Receipt;
+	Durin::UnifiedError::FError Cause{PackageReadErrors::CorruptFile, "Invalid serialized field."};
+	Cause.PushContext("field", "Settings.Value");
+	ASSERT_TRUE(Receipt.SetFailed({.Cause = Cause}));
+	Cause.PushContext("later mutation", "caller only");
+	const auto Saved = Receipt.GetFailure();
+	ASSERT_TRUE(Saved.Cause);
+	EXPECT_TRUE(Saved.Message.empty());
+	EXPECT_TRUE(Saved.Cause->Is(PackageReadErrors::CorruptFile));
+	ASSERT_EQ(Saved.Cause->GetContexts().size(), 1u);
+	EXPECT_EQ(Saved.Cause->GetContexts()[0].Value, "Settings.Value");
+	EXPECT_EQ(FormatPackageReloadDiagnostic(Saved), Saved.Cause->ToString());
 }
 
 TEST(FPackageReloadReceiptTests, RetainsOwnedFailureAndRejectsInvalidTransitions)

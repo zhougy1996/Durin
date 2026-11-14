@@ -179,12 +179,12 @@ namespace Durin::RoadNet::Editor
 			SetError(Error);
 			return false;
 		}
-		const FAssetWriteResult Saved = SavePackage(RoadNet->GetPackage());
-		if (!Saved)
+		FAssetWriteResult Saved;
+		if (!SavePackage(RoadNet->GetPackage(), {}, &Saved))
 		{
 			IAssetTools::Get().DiscardPackage(RoadNet->GetPackage());
-			SetError(Saved.Message.empty()
-				? "The Road Net asset could not be saved." : Saved.Message);
+			SetError((Saved.Error ? Saved.Error->ToString() : std::string{}).empty()
+				? "The Road Net asset could not be saved." : (Saved.Error ? Saved.Error->ToString() : std::string{}));
 			return false;
 		}
 

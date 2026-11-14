@@ -120,15 +120,15 @@ namespace Durin
 		auto SavePackages(
 			std::span<DPackage* const> Packages,
 			const FAssetPackageSaveArgs& Options) -> FAssetBatchSaveResult;
-		auto AdmitAssetPackageToCatalog(const FPackagePath& Path) -> FAssetWriteResult;
+		auto AdmitAssetPackageToCatalog(const FPackagePath& Path) -> std::expected<void, UnifiedError::FError>;
 		auto ReleasePackagesForRemoval(
-			std::span<const FPackageData> Entries, uint64 ExpectedRevision) -> FAssetWriteResult;
+			std::span<const FPackageData> Entries, uint64 ExpectedRevision) -> std::expected<void, UnifiedError::FError>;
 		auto PublishPackageRemoval(
-			std::span<const FPackageData> Entries, uint64 ExpectedRevision) -> FAssetWriteResult;
+			std::span<const FPackageData> Entries, uint64 ExpectedRevision) -> std::expected<void, UnifiedError::FError>;
 
 	private:
 		auto ValidatePackageRemoval(
-			std::span<const FPackageData> Entries, uint64 ExpectedRevision) -> FAssetWriteResult;
+			std::span<const FPackageData> Entries, uint64 ExpectedRevision) -> std::expected<void, UnifiedError::FError>;
 		auto FindResidentPackage(const FPackagePath& Path) const -> DPackage*
 		{
 			return Loader.FindResidentPackage(Path);

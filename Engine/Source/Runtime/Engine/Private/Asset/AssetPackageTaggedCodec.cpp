@@ -5,7 +5,7 @@
 #include "AssetPackageByteSource.h"
 #include "AssetPackageLinker.h"
 #include "CookedArchiveTarget.h"
-#include "AssetRegistryResultAdapter.h"
+#include "AssetRegistry/RegistryResult.h"
 
 #include "Asset/PackageInspection.h"
 #include "Asset/PackageEditing.h"
@@ -37,7 +37,7 @@ namespace Durin::AssetPrivate::TaggedPackage
 			-> ObjectPackage::FPackageWriterResult
 		{
 			return {.Failure = ObjectPackage::EPackageWriterFailure::InvalidInput,
-				.Message = Error.ToString(), .Cause = Error};
+				.Cause = Error};
 		}
 
 		auto ReaderError(const ObjectPackage::FPackageReaderResult& Diagnostic)
@@ -70,9 +70,10 @@ namespace Durin::AssetPrivate::TaggedPackage
 				? Context.PackageBytes.size() : Context.PhysicalPackageBytes;
 			const uint64 PhysicalBulkBytes = Context.bResourceBackedBulk
 				? Context.PhysicalBulkBytes : Context.BulkBytes.size();
-			return AssetPrivate::ToAssetResult(ReadAssetPackageHeaderBytes(
+			if (auto Result = ReadAssetPackageHeaderBytes(
 				Context.PackageBytes, PhysicalBytes, PhysicalBulkBytes,
-				Context.PackagePath, OutHeader));
+				Context.PackagePath, OutHeader); !Result) return std::unexpected(Durin::ToError(Result));
+			return {};
 		}
 
 		auto Validate(const FAssetPackageReadContext& Context) -> std::expected<void, Durin::UnifiedError::FError>
@@ -585,7 +586,7 @@ namespace Durin::AssetPrivate::TaggedPackage
 				if (std::filesystem::is_regular_file(BulkPath, Ec))
 				{
 					auto Loaded = FFileHelper::LoadFileToArray(BulkPath);
-					if (!Loaded) { if (OutStats) OutStats->bReadFailed = true; return Error(Durin::PackageReadErrors::IoError, Loaded.error().ToString()); }
+					if (!Loaded) { if (OutStats) OutStats->bReadFailed = true; return std::unexpected(Durin::ToError(Loaded.error())); }
 					Bulk = std::move(*Loaded);
 				}
 			}
@@ -756,8 +757,8 @@ namespace Durin::AssetPrivate::TaggedPackage
 			if (auto Result = CaptureLivePackageLinker(Package, DeltaMode,
 				Options, Linker); !Result)
 			{
-				auto Failure = EncodingError(ToString(Result.error()));
-				if (GetPackageCaptureSaveError(Result.error()) == EPackageSaveError::UnsupportedVersion)
+				auto Failure = EncodingError(Durin::ToError(Result.error()));
+				if (Result.error().ArchiveCode == EArchiveFailureCode::UnsupportedVersion)
 					Failure.Reason = ObjectPackage::EPackageWriterReason::UnsupportedVersion;
 				return Failure;
 			}

@@ -773,7 +773,7 @@ namespace Durin::TextureEditor
 			{
 				Self->SourceReferenceIndex.Invalidate();
 				if (Result.SaveResult && !*Result.SaveResult)
-					Self->SetError("Reimport succeeded; save failed: " + Result.SaveResult->Message);
+					Self->SetError("Reimport succeeded; save failed: " + (Result.SaveResult->Error ? Result.SaveResult->Error->ToString() : std::string{}));
 			}
 		});
 	}
@@ -809,7 +809,7 @@ namespace Durin::TextureEditor
 				{
 					Self->SourceReferenceIndex.Invalidate();
 					if (Reimported.SaveResult && !*Reimported.SaveResult)
-						Self->SetError("Reimport succeeded; save failed: " + Reimported.SaveResult->Message);
+						Self->SetError("Reimport succeeded; save failed: " + (Reimported.SaveResult->Error ? Reimported.SaveResult->Error->ToString() : std::string{}));
 				}
 			});
 	}

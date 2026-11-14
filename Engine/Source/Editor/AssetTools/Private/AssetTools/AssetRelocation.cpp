@@ -34,12 +34,13 @@ namespace Durin
 
 	namespace
 	{
+		auto Reject(std::optional<UnifiedError::FError>* OutError, UnifiedError::FError Error) -> bool
+		{ if (OutError) *OutError = std::move(Error); return false; }
 		constexpr std::string_view RedirectorClassName =
 			"Durin::DAssetRedirector";
 
-		auto Error(EAssetWriteError Code, std::string Message) -> FAssetWriteResult
-		{
-			return {Code, std::move(Message)};
+		auto WriteFailure(UnifiedError::FErrorId Code, std::string Message) -> FAssetWriteResult
+		{ return {.Error = UnifiedError::FError{Code, std::move(Message)}};
 		}
 
 		auto GetRelocationPhysicalPath(const FPackagePath& Path) -> std::string
@@ -72,9 +73,9 @@ namespace Durin
 	struct FAssetRelocationState;
 	static auto PrepareAssetRelocationState(
 		std::span<const FAssetRelocationMapping> Mappings,
-		std::shared_ptr<FAssetRelocationState>& OutState) -> FAssetWriteResult;
+		std::shared_ptr<FAssetRelocationState>& OutState, std::optional<UnifiedError::FError>* OutError) -> bool;
 	static auto RevalidateAssetRelocation(
-		const std::shared_ptr<FAssetRelocationState>& Relocation) -> FAssetWriteResult;
+		const std::shared_ptr<FAssetRelocationState>& Relocation, std::optional<UnifiedError::FError>* OutError) -> bool;
 	static auto ApplyAssetRelocation(
 		const std::shared_ptr<FAssetRelocationState>& Relocation) -> FAssetWriteResult;
 
@@ -89,14 +90,15 @@ namespace Durin
 
 	static auto PrepareAssetRelocationState(
 		std::span<const FAssetRelocationMapping> Mappings,
-		std::shared_ptr<FAssetRelocationState>& OutState) -> FAssetWriteResult
+		std::shared_ptr<FAssetRelocationState>& OutState, std::optional<UnifiedError::FError>* OutError) -> bool
 	{
-		if (auto Guard = CheckAssetPackageMutationAllowed(); !Guard) return Guard;
+		if (OutError) OutError->reset();
+		if (auto Guard = CheckAssetPackageMutationAllowed(); !Guard) return Reject(OutError, Guard.error());
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		OutState.reset();
 		if (Mappings.empty())
-			return Error(EAssetWriteError::InvalidPath,
-				"An asset relocation batch must not be empty.");
+			return Reject(OutError, UnifiedError::FError{AssetWriteErrors::InvalidPath,
+				"An asset relocation batch must not be empty."});
 
 		auto State = std::make_shared<FAssetRelocationState>();
 		State->ExpectedRegistryRevision = GetAssetCatalogRevision();
@@ -120,11 +122,11 @@ namespace Durin
 			const FPackagePath& RegistryPath,
 			EAssetMutationPublicationRole Role,
 			std::optional<FByteBuffer> PreBytes,
-			std::optional<FByteBuffer> PostBytes) -> FAssetWriteResult {
+			std::optional<FByteBuffer> PostBytes) -> bool {
 			if (AssetToolsPrivate::ConsumeAssetRelocationFailure(
 					EAssetRelocationFailurePoint::PrepareOutput))
-				return Error(EAssetWriteError::IoError,
-					"Injected relocation output-preparation failure.");
+				return Reject(OutError, UnifiedError::FError{AssetWriteErrors::IoError,
+					"Injected relocation output-preparation failure."});
 			size_t IgnoredIndex = 0;
 			return StageMutationEntry(State->Staging, {
 				.PhysicalPath = PhysicalPath,
@@ -139,7 +141,7 @@ namespace Durin
 					? FByteView(*PostBytes)
 					: FByteView{},
 				.DuplicatePolicy =
-					EMutationStagingDuplicatePolicy::Reject}, IgnoredIndex);
+					EMutationStagingDuplicatePolicy::Reject}, IgnoredIndex, OutError);
 		};
 
 		for (const FAssetRelocationMapping& Mapping : State->Mappings)
@@ -147,31 +149,31 @@ namespace Durin
 			if (!Mapping.SourcePath.IsValid()
 				|| !Mapping.DestinationPath.IsValid()
 				|| Mapping.SourcePath == Mapping.DestinationPath)
-				return Error(EAssetWriteError::InvalidPath,
-					"Asset relocation paths are invalid or identical.");
+				return Reject(OutError, UnifiedError::FError{AssetWriteErrors::InvalidPath,
+					"Asset relocation paths are invalid or identical."});
 			if (!Sources.insert(Mapping.SourcePath).second
 				|| !Destinations.insert(Mapping.DestinationPath).second)
-				return Error(EAssetWriteError::InvalidPath,
-					"An asset relocation batch contains duplicate paths.");
+				return Reject(OutError, UnifiedError::FError{AssetWriteErrors::InvalidPath,
+					"An asset relocation batch contains duplicate paths."});
 		}
 
 		for (const FAssetRelocationMapping& Mapping : State->Mappings)
 		{
 			const FPackageData* SourceData = FindPrepared(Mapping.SourcePath);
 			if (!SourceData)
-				return Error(EAssetWriteError::NotFound, std::format(
-					"Asset {} was not found.", Mapping.SourcePath.ToString()));
+				return Reject(OutError, UnifiedError::FError{AssetWriteErrors::NotFound, std::format(
+					"Asset {} was not found.", Mapping.SourcePath.ToString())});
 			if ((!SourceData->TopLevelAssets.empty() && std::ranges::all_of(SourceData->TopLevelAssets, &FAssetData::IsRedirector)))
-				return Error(EAssetWriteError::InvalidData,
-					"Redirectors cannot be used as relocation sources.");
+				return Reject(OutError, UnifiedError::FError{AssetWriteErrors::InvalidData,
+					"Redirectors cannot be used as relocation sources."});
 			if (IsPackageLoading(Mapping.SourcePath))
-				return Error(EAssetWriteError::InUse,
-					"A relocation source is currently loading.");
+				return Reject(OutError, UnifiedError::FError{AssetWriteErrors::InUse,
+					"A relocation source is currently loading."});
 			if (DPackage* Loaded = FindResidentPackage(Mapping.SourcePath))
 			{
 				if (Loaded->IsDirty())
-					return Error(EAssetWriteError::InUse,
-						"A dirty loaded asset must be saved before relocation.");
+					return Reject(OutError, UnifiedError::FError{AssetWriteErrors::InUse,
+						"A dirty loaded asset must be saved before relocation."});
 				State->LoadedPackages.push_back({
 					.Mapping = Mapping,
 					.Package = Loaded,
@@ -182,20 +184,20 @@ namespace Durin
 			if (const FPackageData* DestinationData = FindPrepared(Mapping.DestinationPath))
 			{
 				if (!(!DestinationData->TopLevelAssets.empty() && std::ranges::all_of(DestinationData->TopLevelAssets, &FAssetData::IsRedirector)))
-					return Error(EAssetWriteError::AlreadyExists, std::format(
+					return Reject(OutError, UnifiedError::FError{AssetWriteErrors::AlreadyExists, std::format(
 						"Asset {} already exists.",
-						Mapping.DestinationPath.ToString()));
+						Mapping.DestinationPath.ToString())});
 				const FPackagePathResolveResult DestinationResolution =
 					ResolvePackagePathForOperation(Mapping.DestinationPath);
 				if (!DestinationResolution
 					|| DestinationResolution.FinalPath != Mapping.SourcePath)
-					return Error(EAssetWriteError::AlreadyExists, std::format(
+					return Reject(OutError, UnifiedError::FError{AssetWriteErrors::AlreadyExists, std::format(
 						"The destination {} is occupied by a redirector to {}. Run Fix Up Redirectors or choose another destination.",
 						Mapping.DestinationPath.ToString(),
-						DestinationResolution.FinalPath.ToString()));
+						DestinationResolution.FinalPath.ToString())});
 				if (FindResidentPackage(Mapping.DestinationPath))
-					return Error(EAssetWriteError::InUse,
-						"A loaded destination redirector cannot be reclaimed.");
+					return Reject(OutError, UnifiedError::FError{AssetWriteErrors::InUse,
+						"A loaded destination redirector cannot be reclaimed."});
 				bReclaimDestinationRedirector = true;
 			}
 
@@ -205,19 +207,20 @@ namespace Durin
 				NormalizePhysicalPath(
 					GetRelocationPhysicalPath(Mapping.DestinationPath));
 			FByteBuffer SourceBytes;
-			FAssetWriteResult Result = AssetWriteResultFromRead(LoadRelocationBytes(SourceFile, SourceBytes));
-			if (!Result) return Result;
+			bool Result = true;
+			if (auto Prepared = LoadRelocationBytes(SourceFile, SourceBytes); !Prepared)
+				return Reject(OutError, std::move(Prepared.error()));
 			FByteBuffer DestinationPreBytes;
 			if (bReclaimDestinationRedirector)
 			{
-				Result = AssetWriteResultFromRead(LoadRelocationBytes(
-					DestinationFile, DestinationPreBytes));
-				if (!Result) return Result;
+				if (auto Prepared = LoadRelocationBytes(
+					DestinationFile, DestinationPreBytes); !Prepared)
+					return Reject(OutError, std::move(Prepared.error()));
 			}
 			else if (std::filesystem::exists(DestinationFile))
-				return Error(EAssetWriteError::AlreadyExists, std::format(
+				return Reject(OutError, UnifiedError::FError{AssetWriteErrors::AlreadyExists, std::format(
 					"Relocation destination file {} already exists.",
-					DestinationFile.generic_string()));
+					DestinationFile.generic_string())});
 
 			FByteBuffer MovedBytes;
 			FByteBuffer SourceBulkBytes;
@@ -226,13 +229,13 @@ namespace Durin
 			if (std::filesystem::is_regular_file(SourceBulkFile))
 			{
 				auto Loaded = FFileHelper::LoadFileToArray(SourceBulkFile);
-				if (!Loaded) return Error(EAssetWriteError::IoError, Loaded.error().ToString());
+				if (!Loaded) return Reject(OutError, ToError(Loaded.error()));
 				SourceBulkBytes = std::move(*Loaded);
 			}
-			Result = BuildRelocatedAssetPackageBytes(
+			if (auto Prepared = BuildRelocatedAssetPackageBytes(
 				SourceBytes, Mapping.SourcePath, SourceBulkBytes,
-				Mapping.DestinationPath, MovedBytes);
-			if (!Result) return Result;
+				Mapping.DestinationPath, MovedBytes); !Prepared)
+				return Reject(OutError, std::move(Prepared.error()));
 			FByteBuffer SourceRedirectorBytes;
 			std::vector<FAssetRedirectorWriteMapping> RedirectMappings;
 			RedirectMappings.reserve(SourceData->TopLevelAssets.size());
@@ -244,13 +247,13 @@ namespace Durin
 						Asset.AssetPath.GetAssetName(), DestinationAsset)
 					|| !FSoftObjectPath::TryCreate(DestinationAsset,
 						std::span<const std::string>{}, DestinationObject))
-					return Error(EAssetWriteError::InvalidPath,
-						"Relocation could not preserve a top-level asset identity in its redirector.");
+					return Reject(OutError, UnifiedError::FError{AssetWriteErrors::InvalidPath,
+						"Relocation could not preserve a top-level asset identity in its redirector."});
 				RedirectMappings.push_back({Asset.AssetPath, std::move(DestinationObject)});
 			}
-			Result = BuildAssetRedirectorPackageBytes(
-				Mapping.SourcePath, RedirectMappings, SourceRedirectorBytes);
-			if (!Result) return Result;
+			if (auto Prepared = BuildAssetRedirectorPackageBytes(
+				Mapping.SourcePath, RedirectMappings, SourceRedirectorBytes); !Prepared)
+				return Reject(OutError, std::move(Prepared.error()));
 
 			Result = AddFileEntry(
 				DestinationFile,
@@ -270,26 +273,26 @@ namespace Durin
 			if (!Result) return Result;
 
 			FAssetPackageInspection BulkInspection;
-			Result = AssetWriteResultFromRead(InspectAssetPackage(
-				SourceFile.generic_string(), Mapping.SourcePath, BulkInspection));
-			if (!Result) return Result;
+			if (auto Prepared = InspectAssetPackage(
+				SourceFile.generic_string(), Mapping.SourcePath, BulkInspection); !Prepared)
+				return Reject(OutError, std::move(Prepared.error()));
 			std::vector<std::filesystem::path> SourceBulkFiles;
 			std::vector<std::filesystem::path> DestinationBulkFiles;
 			for (const auto& Pair : {std::pair{&SourceFile, &SourceBulkFiles},
 				std::pair{&DestinationFile, &DestinationBulkFiles}})
 				if (auto Storage = InspectEditorBulkDataCompanionPaths(*Pair.first, BulkInspection); !Storage)
-					return {.Error = EAssetWriteError::InvalidData, .Message = FormatEditorBulkDataStorageError(Storage.error())};
+					return Reject(OutError, UnifiedError::FError{AssetWriteErrors::InvalidData, FormatEditorBulkDataStorageError(Storage.error())});
 				else { *Pair.second = std::move(*Storage); }
 			if (SourceBulkFiles.size() != DestinationBulkFiles.size())
-				return Error(EAssetWriteError::InvalidData, "Authored bulk relocation inspection failed.");
+				return Reject(OutError, UnifiedError::FError{AssetWriteErrors::InvalidData, "Authored bulk relocation inspection failed."});
 			for (size_t BulkIndex = 0; BulkIndex < SourceBulkFiles.size(); ++BulkIndex)
 			{
 				FByteBuffer PayloadBytes;
-				Result = AssetWriteResultFromRead(LoadRelocationBytes(SourceBulkFiles[BulkIndex], PayloadBytes));
-				if (!Result) return Result;
+				if (auto Prepared = LoadRelocationBytes(SourceBulkFiles[BulkIndex], PayloadBytes); !Prepared)
+					return Reject(OutError, std::move(Prepared.error()));
 				if (std::filesystem::exists(DestinationBulkFiles[BulkIndex]))
-					return Error(EAssetWriteError::AlreadyExists,
-						"Authored bulk relocation destination already exists.");
+					return Reject(OutError, UnifiedError::FError{AssetWriteErrors::AlreadyExists,
+						"Authored bulk relocation destination already exists."});
 				Result = AddFileEntry(DestinationBulkFiles[BulkIndex], {},
 					EAssetMutationPublicationRole::OwnedPayload,
 					std::nullopt, PayloadBytes);
@@ -309,12 +312,12 @@ namespace Durin
 				FSoftObjectPath AssetPath;
 				if (!FSoftObjectPath::TryCreate(
 					AssetRecord.AssetPath, std::span<const std::string>{}, AssetPath))
-					return Error(EAssetWriteError::InvalidPath,
-						"The payload relocator asset path is invalid.");
+					return Reject(OutError, UnifiedError::FError{AssetWriteErrors::InvalidPath,
+						"The payload relocator asset path is invalid."});
 				DObject* AssetObject = nullptr;
 				auto Loaded = LoadObject(AssetPath, nullptr, nullptr, &LoadedError);
 				AssetObject = Loaded;
-				if (!Loaded) return AssetWriteResultFromRead(*LoadedError);
+				if (!Loaded) return Reject(OutError, *LoadedError);
 				if (std::ranges::none_of(
 						State->LoadedPackages,
 						[&](const FLoadedRelocationState& Loaded) {
@@ -329,10 +332,10 @@ namespace Durin
 						.PrePackageName = LoadedPackage->GetName()});
 				}
 				FAssetOwnedPayloadRelocation Payload;
-				Result = Relocator(
+				if (auto Prepared = Relocator(
 					AssetObject, Mapping.SourcePath,
-					Mapping.DestinationPath, Payload);
-				if (!Result) return Result;
+					Mapping.DestinationPath, Payload); !Prepared)
+					return Reject(OutError, std::move(Prepared.error()));
 				for (const auto& [From, To] : Payload.Files)
 				{
 					const std::filesystem::path SourcePayload =
@@ -340,14 +343,14 @@ namespace Durin
 					const std::filesystem::path DestinationPayload =
 						NormalizePhysicalPath(To);
 					if (SourcePayload == DestinationPayload)
-						return Error(EAssetWriteError::InvalidPath,
-							"An owned payload relocation has identical paths.");
+						return Reject(OutError, UnifiedError::FError{AssetWriteErrors::InvalidPath,
+							"An owned payload relocation has identical paths."});
 					FByteBuffer PayloadBytes;
-					Result = AssetWriteResultFromRead(LoadRelocationBytes(SourcePayload, PayloadBytes));
-					if (!Result) return Result;
+					if (auto Prepared = LoadRelocationBytes(SourcePayload, PayloadBytes); !Prepared)
+						return Reject(OutError, std::move(Prepared.error()));
 					if (std::filesystem::exists(DestinationPayload))
-						return Error(EAssetWriteError::AlreadyExists,
-							"An owned payload destination already exists.");
+						return Reject(OutError, UnifiedError::FError{AssetWriteErrors::AlreadyExists,
+							"An owned payload destination already exists."});
 					Result = AddFileEntry(
 						DestinationPayload, {},
 						EAssetMutationPublicationRole::OwnedPayload,
@@ -364,7 +367,7 @@ namespace Durin
 		}
 
 		OutState = std::move(State);
-		return {};
+		return true;
 	}
 
 	static auto RelocateAssetsImpl(
@@ -373,8 +376,8 @@ namespace Durin
 	{
 		std::shared_ptr<FAssetRelocationState> Relocation;
 		FAssetMutationResultDetails Details;
-		Details.Result = PrepareAssetRelocationState(Mappings, Relocation);
-		if (Details.Result)
+		const bool Prepared = PrepareAssetRelocationState(Mappings, Relocation, &Details.Result.Error);
+		if (Prepared)
 		{
 			if (BeforeCommit) BeforeCommit();
 			Details.Result = ApplyAssetRelocation(Relocation);
@@ -386,16 +389,17 @@ namespace Durin
 	}
 
 	static auto RevalidateAssetRelocation(
-		const std::shared_ptr<FAssetRelocationState>& Relocation) -> FAssetWriteResult
+		const std::shared_ptr<FAssetRelocationState>& Relocation, std::optional<UnifiedError::FError>* OutError) -> bool
 	{
+		if (OutError) OutError->reset();
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (!Relocation)
-			return Error(EAssetWriteError::StaleData,
-				"The relocation job state is empty.");
+			return Reject(OutError, UnifiedError::FError{AssetWriteErrors::StaleData,
+				"The relocation job state is empty."});
 		const auto& State = *Relocation;
 		if (GetAssetCatalogRevision() != State.ExpectedRegistryRevision)
-			return Error(EAssetWriteError::StaleData,
-				"The asset registry changed after relocation analysis.");
+			return Reject(OutError, UnifiedError::FError{AssetWriteErrors::StaleData,
+				"The asset registry changed after relocation analysis."});
 		for (const FAssetMutationStagingEntry& Entry : State.Staging.Entries)
 		{
 			const bool bExpectedExists = Entry.bPreExists;
@@ -403,20 +407,20 @@ namespace Durin
 			const bool bExists = std::filesystem::exists(
 				Entry.PhysicalPath, ExistsError);
 			if (ExistsError || bExists != bExpectedExists)
-				return Error(EAssetWriteError::StaleData, std::format(
+				return Reject(OutError, UnifiedError::FError{AssetWriteErrors::StaleData, std::format(
 					"Relocation participant occupancy changed: {}.",
-					Entry.PhysicalPath.generic_string()));
+					Entry.PhysicalPath.generic_string())});
 			if (bExists)
 			{
 				FAssetPackageFingerprint Fingerprint;
-				FAssetWriteResult Result = AssetWriteResultFromRead(FingerprintRelocationFile(
-					Entry.PhysicalPath, Fingerprint));
-				if (!Result) return Result;
+				if (auto Prepared = FingerprintRelocationFile(
+					Entry.PhysicalPath, Fingerprint); !Prepared)
+					return Reject(OutError, std::move(Prepared.error()));
 				const FAssetPackageFingerprint& Expected = Entry.ExpectedPreFingerprint;
 				if (Fingerprint != Expected)
-					return Error(EAssetWriteError::StaleData, std::format(
+					return Reject(OutError, UnifiedError::FError{AssetWriteErrors::StaleData, std::format(
 						"Relocation participant changed: {}.",
-						Entry.PhysicalPath.generic_string()));
+						Entry.PhysicalPath.generic_string())});
 			}
 			const bool bOutputExists = Entry.bPostExists;
 			const std::filesystem::path& Staged = Entry.StagedPostPath;
@@ -424,10 +428,11 @@ namespace Durin
 			if (bOutputExists)
 			{
 				FByteBuffer StagedBytes;
-				FAssetWriteResult Result = AssetWriteResultFromRead(LoadRelocationBytes(Staged, StagedBytes));
-				if (!Result || FXxHash128::HashBuffer(StagedBytes) != ExpectedHash)
-					return Error(EAssetWriteError::StaleData,
-						"A staged relocation output changed.");
+				if (auto Prepared = LoadRelocationBytes(Staged, StagedBytes); !Prepared)
+					return Reject(OutError, std::move(Prepared.error()));
+				if (FXxHash128::HashBuffer(StagedBytes) != ExpectedHash)
+					return Reject(OutError, UnifiedError::FError{AssetWriteErrors::StaleData,
+						"A staged relocation output changed."});
 			}
 		}
 		for (size_t Index = 0; Index < State.LoadedPackages.size(); ++Index)
@@ -435,10 +440,10 @@ namespace Durin
 			const FLoadedRelocationState& Loaded = State.LoadedPackages[Index];
 			const FPackagePath& ExpectedPath = Loaded.Mapping.SourcePath;
 			if (FindResidentPackage(ExpectedPath) != Loaded.Package)
-				return Error(EAssetWriteError::StaleData,
-					"A loaded relocation participant changed identity.");
+				return Reject(OutError, UnifiedError::FError{AssetWriteErrors::StaleData,
+					"A loaded relocation participant changed identity."});
 		}
-		return {};
+		return true;
 	}
 
 	namespace
@@ -462,17 +467,17 @@ namespace Durin
 	static auto ApplyAssetRelocation(
 		const std::shared_ptr<FAssetRelocationState>& Relocation) -> FAssetWriteResult
 	{
-		if (auto Guard = CheckAssetPackageMutationAllowed(); !Guard) return Guard;
+		if (auto Guard = CheckAssetPackageMutationAllowed(); !Guard) return FAssetWriteResult{Guard.error()};
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (!Relocation)
-			return Error(EAssetWriteError::StaleData,
+			return WriteFailure(AssetWriteErrors::StaleData,
 				"The relocation job state is empty.");
 		auto& State = *Relocation;
-		FAssetWriteResult Result = RevalidateAssetRelocation(Relocation);
-		if (!Result) return Result;
+		FAssetWriteResult Result;
+		if (!RevalidateAssetRelocation(Relocation, &Result.Error)) return Result;
 		if (AssetToolsPrivate::ConsumeAssetRelocationFailure(
 				EAssetRelocationFailurePoint::StageOriginal))
-			return Error(EAssetWriteError::IoError,
+			return WriteFailure(AssetWriteErrors::IoError,
 				"Injected relocation original-staging failure.");
 
 		std::vector<size_t> Order(State.Staging.Entries.size());
@@ -483,7 +488,7 @@ namespace Durin
 				< State.Staging.Entries[B].Role;
 		});
 		State.Staging.bRetainBackups = true;
-		auto PublicationFailed = [&](std::string Message) -> FAssetWriteResult {
+		auto PublicationFailed = [&](UnifiedError::FError Failure) -> FAssetWriteResult {
 			std::vector<FPackagePath> Paths;
 			for (const FAssetRelocationMapping& Mapping : State.Mappings)
 			{
@@ -491,12 +496,10 @@ namespace Durin
 				Paths.push_back(Mapping.DestinationPath);
 			}
 			FenceAssetRegistryProjection(Paths);
-			return {
-				.Error = EAssetWriteError::IoError,
-				.Message = std::format(
-					"AssetMutationFailed: operation {} stopped; inspect partial changes before preparing another operation. {}",
-					State.Staging.OperationId, Message),
-				.Effect = State.Staging.PublishedFiles.empty() ? EAssetWriteEffect::None : EAssetWriteEffect::PartiallyWritten};
+			Failure.PushContext("operation", std::format(
+				"AssetMutationFailed: operation {} stopped; inspect partial changes before preparing another operation.",
+				State.Staging.OperationId));
+			return {.Error = std::move(Failure), .Effect = State.Staging.PublishedFiles.empty() ? EAssetWriteEffect::None : EAssetWriteEffect::PartiallyWritten};
 		};
 
 		for (size_t Index : Order)
@@ -504,9 +507,8 @@ namespace Durin
 			FAssetMutationStagingEntry& Entry = State.Staging.Entries[Index];
 			if (AssetToolsPrivate::ConsumeAssetRelocationFailure(
 					FailurePointForRole(Entry.Role)))
-				return PublicationFailed("Injected relocation publication failure.");
-			Result = PublishRelocationFile(Entry);
-			if (!Result) return PublicationFailed(Result.Message);
+				return PublicationFailed(UnifiedError::FError{AssetWriteErrors::IoError, "Injected relocation publication failure."});
+			if (!PublishRelocationFile(Entry, &Result.Error)) return PublicationFailed(*Result.Error);
 			State.Staging.PublishedFiles.push_back(Entry.PhysicalPath);
 		}
 
@@ -514,10 +516,10 @@ namespace Durin
 		{
 			if (AssetToolsPrivate::ConsumeAssetRelocationFailure(
 					EAssetRelocationFailurePoint::UpdateLoadedPackage))
-				return PublicationFailed("Injected loaded-package relocation failure.");
+				return PublicationFailed(UnifiedError::FError{AssetWriteErrors::IoError, "Injected loaded-package relocation failure."});
 			if (!Loaded.Package->RelocateAssetPackage(
 					Loaded.Mapping.DestinationPath))
-				return PublicationFailed("A loaded relocation destination became occupied.");
+				return PublicationFailed(UnifiedError::FError{AssetWriteErrors::IoError, "A loaded relocation destination became occupied."});
 			Loaded.Package->Rename(FName(
 				Loaded.Mapping.DestinationPath.GetPackageName()));
 			Loaded.Package->ClearDirty();
@@ -528,7 +530,7 @@ namespace Durin
 		}
 		if (AssetToolsPrivate::ConsumeAssetRelocationFailure(
 				EAssetRelocationFailurePoint::PublishRegistry))
-			return PublicationFailed("Injected relocation Registry-publication failure.");
+			return PublicationFailed(UnifiedError::FError{AssetWriteErrors::IoError, "Injected relocation Registry-publication failure."});
 
 		std::vector<FPackagePath> Paths;
 		for (const FAssetRelocationMapping& Mapping : State.Mappings)
@@ -536,8 +538,8 @@ namespace Durin
 			Paths.push_back(Mapping.SourcePath);
 			Paths.push_back(Mapping.DestinationPath);
 		}
-		Result = AssetWriteResultFromRead(RefreshSavedPackages(Paths));
-		if (!Result) return PublicationFailed(Result.Message);
+		if (auto Prepared = RefreshSavedPackages(Paths); !Prepared)
+			return PublicationFailed(std::move(Prepared.error()));
 		State.Staging.bRetainBackups = false;
 		for (const auto& Loaded : State.LoadedPackages)
 			for (DObject* Object : Loaded.Package->GetTopLevelAssets())

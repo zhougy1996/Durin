@@ -27,7 +27,7 @@ namespace Durin::AssetPrivate
 		const FPackagePath& PackagePath,
 		std::span<const FAssetPackageReferenceMapping> Mappings,
 		uint64 ExpectedRewriteCount,
-		FByteBuffer& OutBytes) -> FAssetWriteResult;
+		FByteBuffer& OutBytes) -> std::expected<void, UnifiedError::FError>;
 	auto ReadMutationPackageMetadata(
 		FByteView Bytes,
 		FByteView BulkBytes,

@@ -985,8 +985,9 @@ TEST(FWorldTests, PrimaryMapPreloadTransfersRetentionToTheWorld)
 	ASSERT_TRUE(FPackagePath::TryCreate("/PrimaryMapPreload/Candidate", PackagePath));
 	DLevel* Level = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(PackagePath, Level));
-	const auto Saved = SavePackage(Level->GetPackage());
-	ASSERT_TRUE(Saved) << Saved.Message;
+	FAssetWriteResult Saved;
+	SavePackage(Level->GetPackage(), {}, &Saved);
+	ASSERT_TRUE(Saved) << (Saved.Error ? Saved.Error->ToString() : std::string{});
 	ASSERT_TRUE(RefreshAssetRegistry());
 	TStrongObjectPtr<DAssetManager> Manager(NewObject<DAssetManager>(nullptr, "PrimaryMapManager"));
 	ASSERT_TRUE(Manager->StartInitialLoading());

@@ -451,19 +451,19 @@ TEST(FEditorWorkspaceManagerTests, OpenAssetDocumentsRetainEveryAssetFamilyAndBl
 		// A different active tab must not release the first document's ownership.
 		ASSERT_TRUE(Manager.OpenDocument({.ToolkitId = Workspace->GetToolkitId(),
 			.DocumentKey = "Other", .Label = "Other"}).IsValid());
-		EXPECT_EQ(ValidatePackageRemovalReferences(Paths).Error, EAssetWriteError::InUse);
+		{ const auto Failure = ValidatePackageRemovalReferences(Paths); EXPECT_TRUE(!Failure && Failure.error().Is(AssetWriteErrors::InUse)); }
 		CollectGarbage(Durin::EObjectFlags::Standalone);
 		ASSERT_NE(Key.ResolveObjectPtr(), nullptr);
 		Workspace->CloseResult = EDocumentCloseResult::PendingConfirmation;
 		EXPECT_EQ(Manager.RequestCloseDocument(Id), EDocumentCloseResult::PendingConfirmation);
 		EXPECT_EQ(Manager.ResolvePendingDocumentClose(EDocumentCloseResponse::Cancel), EDocumentCloseResult::Cancelled);
-		EXPECT_EQ(ValidatePackageRemovalReferences(Paths).Error, EAssetWriteError::InUse);
+		{ const auto Failure = ValidatePackageRemovalReferences(Paths); EXPECT_TRUE(!Failure && Failure.error().Is(AssetWriteErrors::InUse)); }
 		const auto SharedId = Manager.OpenDocument({.ToolkitId = Workspace->GetToolkitId(),
 			.DocumentKey = "Shared", .ResourceId = Asset->GetObjectPath(), .Label = "Shared asset"});
 		ASSERT_TRUE(SharedId.IsValid());
 		Workspace->CloseResult = EDocumentCloseResult::Closed;
 		EXPECT_EQ(Manager.RequestCloseDocument(Id), EDocumentCloseResult::Closed);
-		EXPECT_EQ(ValidatePackageRemovalReferences(Paths).Error, EAssetWriteError::InUse);
+		{ const auto Failure = ValidatePackageRemovalReferences(Paths); EXPECT_TRUE(!Failure && Failure.error().Is(AssetWriteErrors::InUse)); }
 		EXPECT_EQ(Manager.RequestCloseDocument(SharedId), EDocumentCloseResult::Closed);
 		EXPECT_TRUE(ValidatePackageRemovalReferences(Paths));
 		CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -490,7 +490,7 @@ TEST(FEditorWorkspaceManagerTests, DestroyingControllerReleasesOpenDocumentRoots
 	const bool Attached = Manager.AttachSessionToolkit(Workspace, {});
 	ASSERT_TRUE(Manager.OpenDocument({.ToolkitId = Workspace->GetToolkitId(),
 		.DocumentKey = Asset->GetObjectPath(), .ResourceId = Asset->GetObjectPath(), .Label = "Asset"}).IsValid());
-	EXPECT_EQ(ValidatePackageRemovalReferences(Paths).Error, EAssetWriteError::InUse);
+	{ const auto Failure = ValidatePackageRemovalReferences(Paths); EXPECT_TRUE(!Failure && Failure.error().Is(AssetWriteErrors::InUse)); }
 	OwnedManager.reset();
 	EXPECT_TRUE(ValidatePackageRemovalReferences(Paths));
 	MarkObjectHierarchyAsGarbage(Package);

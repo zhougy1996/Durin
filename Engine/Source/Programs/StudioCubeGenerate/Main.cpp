@@ -121,10 +121,10 @@ auto main(int Count, char** Args) -> int
 		std::cerr << FormatTextureBuildOperationError(Built.error());
 		return 1;
 	}
-	const auto Saved = SavePackage(Package);
-	if (!Saved)
+	FAssetWriteResult Saved;
+	if (!SavePackage(Package, {}, &Saved))
 	{
-		std::cerr << Saved.Message;
+		std::cerr << (Saved.Error ? Saved.Error->ToString() : std::string{});
 		return 1;
 	}
 	std::cout << "Generated " << ObjectPath << " (linear RGBA32F, "

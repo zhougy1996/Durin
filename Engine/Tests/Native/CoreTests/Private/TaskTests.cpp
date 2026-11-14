@@ -2146,3 +2146,23 @@ namespace Durin
 
 
 }
+
+namespace Durin
+{
+	TEST(FTaskTests, CompletedValueRetainsMoveOnlyResultThroughErasedHandle)
+	{
+		const bool SchedulerWasRunning = IsTaskSchedulerRunning();
+		auto Task = Tasks::MakeCompletedTask(std::make_unique<int>(42));
+		ASSERT_TRUE(Task.IsValid());
+		ASSERT_TRUE(Task.IsCompleted());
+		EXPECT_EQ(Task.GetState(), ETaskState::Succeeded);
+		EXPECT_EQ(*Task.GetResult(), 42);
+		auto Shared = Task.GetResultShared();
+		Tasks::FTask Erased = Task;
+		Task = {};
+		ASSERT_TRUE(Shared);
+		EXPECT_EQ(**Shared, 42);
+		EXPECT_TRUE(Erased.IsCompleted());
+		EXPECT_EQ(IsTaskSchedulerRunning(), SchedulerWasRunning);
+	}
+}

@@ -155,16 +155,25 @@ actual/expected bounds or revisions, filesystem code, envelope code and complete
 package Reader cause. `FormatAssetRegistryError` is the presentation boundary.
 Nonfatal cache-warning contracts remain separate.
 Engine status-only reads return `std::expected<void, UnifiedError::FError>`;
-saving and mutation return `FAssetWriteResult` with `EAssetWriteError`.
+synchronous saving returns `bool` with an optional `FAssetWriteResult` completion
+report; effectful mutation and asynchronous completion retain `FAssetWriteResult`.
 Read diagnostics retain domain/code identity, optional text and ordered context.
 Request cancellation and pending Registry projection remain states of their owning
 request and Registry contracts, with matching diagnostic identity on propagation.
-Write preparation failures retain their cause in `FAssetWriteResult::Cause`; object/field
-validation failures use `InvalidData` at the write boundary. Only write results
-carry observed write effects. Mutation ledgers and backup roots are kept in
+`FAssetWriteResult::Error` is the sole optional failure channel. Read, encoding
+and Registry failures retain their original identities; they are not remapped
+through a write-error enumeration. Asset-write policy rejections use the
+`AssetWrite` domain. Only write reports carry observed write effects. AssetTools plan preparation,
+revalidation, companion-ownership queries and file-validation callbacks return
+bool with optional diagnostics. Reference-store application also returns bool;
+the mutation owner tracks attempted/published effects. A callback rejection
+without a diagnostic still rejects the operation and cannot become success.
+ContentBrowser's validation query returns its existing Valid/Stale/Rejected
+business status, preserving the need to replace and reconfirm stale plans. Mutation ledgers and backup roots are kept in
 `FAssetMutationResultDetails`; physical save details stay with the package writer.
-AssetRegistry owns its result contract; Engine adapts it explicitly.
-Read causes format through `ToString`; write results retain their presentation `Message`.
+AssetRegistry owns its native result and its `ToError` conversion. Physical
+writer outcomes cross the Engine boundary once to attach effects and recovery
+context. Errors format through `ToString` only at presentation boundaries.
 Cook inputs and contributor callbacks use their Cook-owned result types.
 
 ## Reference Projection
@@ -257,15 +266,19 @@ consumes the native operation directly. Browser commands return booleans and
 operation-specific item outputs. Their independent item-update notifier drives refresh from observed content changes;
 the Panel does not receive native write effects or an operation-result envelope.
 
+Batch progress and observed write effects remain in the owning completion report.
+Diagnostic errors do not duplicate saved-package counts, the failing package or
+write-effect state; presentation combines the error with those completion facts.
+
 ## Asynchronous Save Staging
 
 `SavePackage(Package, Args)` performs synchronous saving.
 For asynchronous persistence use
-`Package->SaveAsync(Admission, FAssetPackageSaveContext{.Args = Args})`, which returns
+`SavePackageAsync(Package, Args, IsCancellationRequested)`, which returns
 `Tasks::TTask<FAssetWriteResult>`. Synchronous and asynchronous saving share
-`FAssetPackageSaveArgs`; the context adds cancellation.
+`FAssetPackageSaveArgs`; the async entry point also accepts cancellation.
 Clean resident packages are accepted, with the same revision checks as dirty ones.
-The explicit Engine context keeps asset readiness,
+The Engine entry point keeps asset readiness,
 participant validation and Registry publication; the CoreDObject file-only
 context cannot substitute for it in editor workflows. Shared lifetime, capacity,
 wait and shutdown rules are defined by

@@ -313,7 +313,7 @@ namespace Durin::ContentBrowser::Private
 				if (Entry.Kind == EContentDeletionEntryKind::OrdinaryFile)
 				{
 					FAssetCompanionOwnership Ownership;
-					const auto Inspected = QueryAssetCompanionOwnership(Entry.PhysicalPath, Ownership);
+					const bool Inspected = QueryAssetCompanionOwnership(Entry.PhysicalPath, Ownership);
 					if (!Inspected || Ownership.State == EAssetCompanionOwnershipState::Ambiguous)
 						AddBlocker(EContentDeletionBlocker::CompanionOwnershipConflict, Entry.PhysicalPath, Entry.PhysicalPath, {}, "Companion ownership cannot be established.");
 					if (Ownership.State != EAssetCompanionOwnershipState::Unclaimed) Entry.Kind = EContentDeletionEntryKind::ManagedCompanion;
@@ -595,15 +595,17 @@ namespace Durin::ContentBrowser::Private
 	{
 		if (Plan == CurrentPlan) { CurrentPlan.reset(); Execution.reset(); CapturedRequest.clear(); }
 	}
-	auto FContentBrowserDeletionOperation::ValidateForExecution() -> FAssetWriteResult
+	auto FContentBrowserDeletionOperation::ValidateForExecution() -> EContentBrowserDeleteValidation
 	{
-		std::string Error;
-		if (!CanModify(&Error)) return {EAssetWriteError::ReadOnlyMode, Error};
-		if (!Execution) return {EAssetWriteError::StaleData, "Deletion confirmation was consumed."};
-		const auto Status = Execution->ValidateScope();
-		if (Status) Execution->AllowPeerScopeChanges();
-		return Status;
+		if (!CanModify()) return EContentBrowserDeleteValidation::Rejected;
+		if (!Execution) return EContentBrowserDeleteValidation::Stale;
+		std::optional<UnifiedError::FError> Error;
+		if (Execution->ValidateScope(&Error))
+		{ Execution->AllowPeerScopeChanges(); return EContentBrowserDeleteValidation::Valid; }
+		return Error && (Error->Is(AssetWriteErrors::StaleData) || Error->Is({"AssetRegistry", "StaleData"})
+			|| Error->Is({"AssetLoad", "StaleData"})) ? EContentBrowserDeleteValidation::Stale : EContentBrowserDeleteValidation::Rejected;
 	}
+
 	auto FContentBrowserDeletionOperation::DeleteItems(FContentDeletionPlanPtr& Confirmation, FContentDeletionHooks Hooks) -> TContentBrowserOperationResult<std::string>
 	{
 		TContentBrowserOperationResult<std::string> Result;
@@ -633,10 +635,10 @@ namespace Durin::ContentBrowser::Private
 		const auto Native = Execution->GetResult();
 		if (!Succeeded && !Execution->HasStarted())
 		{
-			if (Native.Error != EAssetWriteError::StaleData) return Reject(Native.Message);
+			if ((!Native.Error || !(Native.Error->Is(AssetWriteErrors::StaleData) || Native.Error->Is({"AssetRegistry", "StaleData"}) || Native.Error->Is({"AssetLoad", "StaleData"})))) return Reject((Native.Error ? Native.Error->ToString() : std::string{}));
 			const auto Request = CapturedRequest;
 			Confirmation = PrepareDeleteItems(Request);
-			Report(ELogLevel::Warn, Native.Message + " Review and confirm the updated deletion plan.");
+			Report(ELogLevel::Warn, (Native.Error ? Native.Error->ToString() : std::string{}) + " Review and confirm the updated deletion plan.");
 			Result.bStopped = true;
 			for (const auto& Entry : Confirmation->Entries) Result.Add(Entry.PhysicalPath, EContentBrowserEffectStatus::Unattempted, "Confirm the replacement deletion plan before retrying.");
 			return Result;
@@ -651,8 +653,8 @@ namespace Durin::ContentBrowser::Private
 			}
 		if (!Native)
 		{
-			Report(Native.Effect == EAssetWriteEffect::ContentCommittedProjectionPending ? ELogLevel::Warn : ELogLevel::Error, Native.Message);
-			if (Result.IsComplete()) Result.Add({}, EContentBrowserEffectStatus::Failed, Native.Message);
+			Report(Native.Effect == EAssetWriteEffect::ContentCommittedProjectionPending ? ELogLevel::Warn : ELogLevel::Error, (Native.Error ? Native.Error->ToString() : std::string{}));
+			if (Result.IsComplete()) Result.Add({}, EContentBrowserEffectStatus::Failed, (Native.Error ? Native.Error->ToString() : std::string{}));
 			Changes.bFullRefresh = true;
 		}
 		NotifyItemsUpdated(std::move(Changes));

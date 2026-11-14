@@ -6,7 +6,7 @@
 #include "Asset/PackageVersionPolicy.h"
 #include "Misc/MountPaths.h"
 #include "Asset/Load.h"
-#include "AssetRegistryResultAdapter.h"
+#include "AssetRegistry/RegistryResult.h"
 #include "DObject/Package.h"
 #include "Misc/FileTime.h"
 
@@ -36,10 +36,7 @@ namespace Durin::AssetPrivate
 
 	auto ToAssetWriteResult(FPackageWriteResult Result) -> FAssetWriteResult
 	{
-		FAssetWriteResult Out;
-		if (!Result) Out.Error = Result.Error == EPackageWriteError::StaleData ? EAssetWriteError::StaleData
-			: Result.Error == EPackageWriteError::CorruptFile ? EAssetWriteError::InvalidData : EAssetWriteError::IoError;
-		Out.Message = std::move(Result.Message);
+		FAssetWriteResult Out{.Error = std::move(Result.Error)};
 		// File diagnostics remain owned by the physical package writer.
 		if (!Result)
 			for (const auto& File : Result.AffectedFiles)
@@ -50,37 +47,37 @@ namespace Durin::AssetPrivate
 			|| (!Result && Result.State == EPackageWriteState::Committed))
 			Out.Effect = EAssetWriteEffect::ContentUncertain;
 		for (const auto& File : Result.RecoveryFiles)
-			Out.Message += std::format("; retained package backup: {}", File.string());
+			if (Out.Error) Out.Error->PushContext("retained package backup", File.generic_string());
 		return Out;
 	}
 	namespace
 	{
 		auto Error(Durin::UnifiedError::FErrorId Id, std::string Message) -> std::expected<void, Durin::UnifiedError::FError> { return std::unexpected(Durin::UnifiedError::FError{Id, std::move(Message)}); }
-		auto Error(EAssetWriteError Code, std::string Message) -> FAssetWriteResult { return {Code, std::move(Message)}; }
+		auto WriteFailure(UnifiedError::FErrorId Code, std::string Message) -> FAssetWriteResult { return {.Error = UnifiedError::FError{Code, std::move(Message)}}; }
 
-		auto ValidatePackageWriteAdmission(const FPackagePath& Path) -> FAssetWriteResult
+		auto ValidatePackageWriteAdmission(const FPackagePath& Path) -> std::expected<void, UnifiedError::FError>
 		{
-			if (IsPackageLoading(Path)) return Error(EAssetWriteError::InUse, "An incomplete package cannot be saved.");
+			if (IsPackageLoading(Path)) return Error(AssetLoadErrors::InUse, "An incomplete package cannot be saved.");
 			const auto Mount =
 				FMountPaths::FindMountForVirtualPath(Path.GetView());
 			if (!Mount)
-				return Error(EAssetWriteError::InvalidPath,
+				return Error(AssetLoadErrors::InvalidPath,
 					std::format("Package {} does not use a registered content mount.",
 						Path.ToString()));
 			if (!Mount->Mount->bContentWritable)
-				return Error(EAssetWriteError::ReadOnlyMode,
+				return Error(UnifiedError::FErrorId{"AssetMutation", "ReadOnlyMode"},
 					std::format("Content mount {} is read-only.",
 						Mount->Mount->VirtualRoot));
 			return {};
 		}
 
 		auto ValidateSaveVersion(
-			const FPackagePath& Path) -> FAssetWriteResult
+			const FPackagePath& Path) -> std::expected<void, UnifiedError::FError>
 		{
 			const FPackageCatalogEntry Existing = Durin::FindPackageExact(Path);
 			if (!Existing || ObjectPackage::IsSupportedPackageReaderVersion(Existing->FormatVersion))
 				return {};
-			return Error(EAssetWriteError::UnsupportedVersion, std::format(
+			return Error(PackageReadErrors::UnsupportedVersion, std::format(
 					"Package {} uses unsupported DAST v{} while ordinary saves write DAST v{}.",
 					Path.ToString(),
 					Existing->FormatVersion,
@@ -93,13 +90,20 @@ namespace Durin::AssetPrivate
 			if (Restored.State == EPackageWriteState::RecoveryRequired)
 			{
 				Failure.Effect = Rollback.Effect;
-				Failure.Message += "; rollback: " + Rollback.Message;
+				if (Rollback.Error)
+				{
+					Failure.Error->PushContext("rollback domain", Rollback.Error->GetDomain())
+						.PushContext("rollback code", Rollback.Error->GetCode())
+						.PushContext("rollback message", Rollback.Error->GetMessage());
+					for (const auto& Context : Rollback.Error->GetContexts())
+						Failure.Error->PushContext("rollback " + Context.Key, Context.Value);
+				}
 			}
 			return Failure;
 		}
 	}
 
-	auto ValidatePackageSaveAdmission(const FPackagePath& Path) -> FAssetWriteResult
+	auto ValidatePackageSaveAdmission(const FPackagePath& Path) -> std::expected<void, UnifiedError::FError>
 	{
 		if (auto Result = ValidatePackageWriteAdmission(Path); !Result) return Result;
 		return ValidateSaveVersion(Path);
@@ -112,28 +116,33 @@ namespace Durin::AssetPrivate
 		DPackage* Package = Prepared.Package.Get();
 		const auto& Path = Prepared.Header.PackagePath;
 		const uint64 Revision = Prepared.Revision;
-		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("save", ""); !Guard) return {.Error = EAssetWriteError::InUse, .Message = Guard.error().ToString(), .Cause = Guard.error()};
+		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("save", ""); !Guard) return {.Error = Guard.error()};
 		if (FAssetRuntimeState::Get().GetRuntimeConfiguration().IsCooked())
-			return Error(EAssetWriteError::ReadOnlyMode, "Cooked packages cannot be saved.");
-		if (auto Admission = ValidatePackageSaveAdmission(Path); !Admission) return Admission;
+			return WriteFailure(AssetWriteErrors::ReadOnlyMode, "Cooked packages cannot be saved.");
+		if (auto Admission = ValidatePackageSaveAdmission(Path); !Admission) return FAssetWriteResult{Admission.error()};
 		if (Package->GetEditRevision() != Revision || Package->GetPackagePathIdentity() != Path)
-			return Error(EAssetWriteError::StaleData, "Package changed during save preparation.");
+			return WriteFailure(AssetWriteErrors::StaleData, "Package changed during save preparation.");
 		if (Context.Fault)
 			for (auto Phase : {Testing::EPackageSaveFaultPoint::CreateDirectories, Testing::EPackageSaveFaultPoint::PublishCompanion,
 				Testing::EPackageSaveFaultPoint::StagePackage, Testing::EPackageSaveFaultPoint::PublishPackage})
 				if ((Phase != Testing::EPackageSaveFaultPoint::PublishCompanion || Prepared.Header.BulkSegmentExtent)
-					&& Context.Fault(Phase, Context.PackageIndex)) return Error(EAssetWriteError::IoError, "Injected save publication failure.");
+					&& Context.Fault(Phase, Context.PackageIndex)) return WriteFailure(AssetWriteErrors::IoError, "Injected save publication failure.");
 		const auto& Header = Prepared.Header;
 		const auto& Destination = Prepared.Destination;
 		auto& Write = *Prepared.Write;
 		// Until physical commit succeeds, the writer owns failed-write cleanup.
 		if (auto Result = ToAssetWriteResult(Write.Commit()); !Result) return Result;
 		FFilePublicationStamp Stamp;
-		if (!FFilePublicationStamp::Inspect(Destination, Stamp) || !Stamp.Exists)
-			return RollbackAssetWrite(Write, FAssetWriteResult{EAssetWriteError::IoError, "Cannot inspect committed package."});
+		std::optional<FFileError> InspectionError;
+		if (!FFilePublicationStamp::Inspect(Destination, Stamp, &InspectionError))
+			return RollbackAssetWrite(Write, FAssetWriteResult{.Error = ToError(*InspectionError)});
+		if (!Stamp.Exists)
+			return RollbackAssetWrite(Write, FAssetWriteResult{.Error = UnifiedError::FError{AssetWriteErrors::StaleData, "Committed package disappeared."}});
 		const bool Inject = Context.Fault && Context.Fault(Testing::EPackageSaveFaultPoint::PublishRegistry, Context.PackageIndex);
-		auto RegistryResult = Inject ? FAssetWriteResult{EAssetWriteError::StaleData, "Injected Registry publication failure."}
-			: AssetWriteResultFromRead(AssetPrivate::ToAssetResult(AssetsSaved({BuildSavedAssetMetadata(Header, Destination, Stamp.Size, Stamp.Time)}, Expected)));
+		FAssetWriteResult RegistryResult;
+		if (Inject) RegistryResult.Error.emplace(AssetWriteErrors::StaleData, "Injected Registry publication failure.");
+		else if (auto Published = AssetsSaved({BuildSavedAssetMetadata(Header, Destination, Stamp.Size, Stamp.Time)}, Expected); !Published)
+			RegistryResult.Error = Durin::ToError(Published);
 		if (FindResidentPackage(Path) == Package)
 		{
 			Package->RecordDiskExports(Prepared.DiskExports, Prepared.MainDigest);
@@ -145,8 +154,14 @@ namespace Durin::AssetPrivate
 		{
 			FenceAssetRegistryProjection(std::span(&Path, 1));
 			RegistryResult.Effect = EAssetWriteEffect::ContentCommittedProjectionPending;
-			RegistryResult.Message = "ContentCommittedProjectionPending: " + RegistryResult.Message;
-			if (!Finalized) { RegistryResult.Message += "; " + Finalized.Message; }
+			if (Finalized.Error)
+			{
+				RegistryResult.Error->PushContext("finalize domain", Finalized.Error->GetDomain())
+					.PushContext("finalize code", Finalized.Error->GetCode())
+					.PushContext("finalize message", Finalized.Error->GetMessage());
+				for (const auto& Context : Finalized.Error->GetContexts())
+					RegistryResult.Error->PushContext("finalize " + Context.Key, Context.Value);
+			}
 			return RegistryResult;
 		}
 		return Finalized;

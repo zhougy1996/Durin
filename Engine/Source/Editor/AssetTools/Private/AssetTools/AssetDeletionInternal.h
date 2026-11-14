@@ -11,5 +11,5 @@ namespace Durin::AssetToolsPrivate
 	auto MayOwnCompanionInRoots(const FPackageData& Data,
 		std::span<const std::filesystem::path> NormalizedRoots) -> bool;
 	auto InspectAssetCompanionFilesForDeletion(const FPackageData& Data,
-		std::vector<std::filesystem::path>& OutFiles) -> FAssetWriteResult;
+		std::vector<std::filesystem::path>& OutFiles, std::optional<UnifiedError::FError>* OutError = nullptr) -> bool;
 }

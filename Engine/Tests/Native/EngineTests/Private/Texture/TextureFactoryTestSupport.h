@@ -38,9 +38,10 @@ namespace Durin::AssetForge::Builtins
 			return {false, ImportedError, Texture};
 		if (!Texture->FinishCachePlatformData())
 			return {false, "Texture compilation failed.", Texture};
-		const FAssetWriteResult Saved = SavePackage(Imported->GetPackage());
+		FAssetWriteResult Saved;
+		SavePackage(Imported->GetPackage(), {}, &Saved);
 		return Saved
 			? Durin::Testing::TFactoryImportResult<Durin::DTexture2D>{true, {}, Texture}
-			: Durin::Testing::TFactoryImportResult<Durin::DTexture2D>{false, Saved.Message, Texture};
+			: Durin::Testing::TFactoryImportResult<Durin::DTexture2D>{false, (Saved.Error ? Saved.Error->ToString() : std::string{}), Texture};
 	}
 }

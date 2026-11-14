@@ -83,9 +83,9 @@ namespace Durin
 		std::string Fingerprint;
 		std::vector<FAssetReferenceRewrite> Rewrites;
 		std::vector<FAssetReferenceStorePackageRewrite> PackageRewrites;
-		std::function<FAssetWriteResult()> Revalidate;
-		std::function<FAssetWriteResult()> Apply;
-		std::function<FAssetWriteResult()> Verify;
+		std::function<std::expected<void, UnifiedError::FError>()> Revalidate;
+		std::function<bool(std::optional<UnifiedError::FError>*)> Apply;
+		std::function<std::expected<void, UnifiedError::FError>()> Verify;
 	};
 
 	class IAssetReferenceStore
@@ -98,7 +98,7 @@ namespace Durin
 			std::span<const FAssetReferenceRewrite> Rewrites,
 			std::string_view ExpectedFingerprint,
 			FAssetReferenceStoreRewriteContribution& OutContribution
-		) -> FAssetWriteResult = 0;
+		) -> std::expected<void, UnifiedError::FError> = 0;
 	};
 
 	using FAssetReferenceStoreHandle = uint64;
@@ -133,7 +133,7 @@ namespace Durin
 		std::function<void()> Restore;
 	};
 
-	using FAssetOwnedPayloadRelocator = std::function<FAssetWriteResult(
+	using FAssetOwnedPayloadRelocator = std::function<std::expected<void, UnifiedError::FError>(
 		DObject*,
 		const FPackagePath&,
 		const FPackagePath&,

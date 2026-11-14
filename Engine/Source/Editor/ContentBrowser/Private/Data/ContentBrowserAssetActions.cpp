@@ -24,8 +24,8 @@ namespace Durin::ContentBrowser::Private
 	{
 		using ContentBrowserFilesystem::NormalizePath;
 
-		auto Failure(EAssetWriteError Error, std::string Message) -> FAssetWriteResult
-		{ return {Error, std::move(Message)}; }
+		auto Failure(UnifiedError::FErrorId Error, std::string Message) -> FAssetWriteResult
+		{ return {.Error = UnifiedError::FError{Error, std::move(Message)}}; }
 		auto SetQueryError(std::string* OutError, std::string_view Message) -> bool
 		{ if (OutError) *OutError = Message; return false; }
 		auto SetNewItem(FContentBrowserNativeItem& Item, std::string Physical, std::string Virtual = {}) -> void
@@ -44,24 +44,24 @@ namespace Durin::ContentBrowser::Private
 	{
 		OutNewItem = {};
 		std::string AdmissionError;
-		if (!CanModify(&AdmissionError)) return Complete(Failure(EAssetWriteError::ReadOnlyMode, AdmissionError));
+		if (!CanModify(&AdmissionError)) return Complete(Failure(AssetWriteErrors::ReadOnlyMode, AdmissionError));
 		if (Item.Kind != EContentBrowserItemKind::Asset)
 			return Complete(Failure(
-				EAssetWriteError::InvalidData,
+				AssetWriteErrors::InvalidData,
 				"Only real assets can be duplicated."));
 		FTopLevelAssetPath SourcePath;
 		if (!FTopLevelAssetPath::TryCreate(Item.VirtualPath, SourcePath))
-			return Complete(Failure(EAssetWriteError::InvalidPath,
+			return Complete(Failure(AssetWriteErrors::InvalidPath,
 				"The source top-level asset path is invalid."));
 		if (!SourcePath.IsValid())
 			return Complete(Failure(
-				EAssetWriteError::InvalidPath,
+				AssetWriteErrors::InvalidPath,
 				"The source asset path is invalid."));
 		const std::string SourcePackagePath = SourcePath.GetPackagePath().ToString();
 		const size_t Slash = SourcePackagePath.find_last_of('/');
 		if (Slash == std::string::npos)
 			return Complete(Failure(
-				EAssetWriteError::InvalidPath,
+				AssetWriteErrors::InvalidPath,
 				"The source asset has no valid destination directory."));
 		return DuplicateItem(Item, FContentBrowserPaths::VirtualToPhysical(SourcePackagePath.substr(0, Slash + 1)), OutNewItem);
 	}
@@ -72,16 +72,16 @@ namespace Durin::ContentBrowser::Private
 	{
 		OutNewItem = {};
 		std::string AdmissionError;
-		if (!CanModify(&AdmissionError)) return Complete(Failure(EAssetWriteError::ReadOnlyMode, AdmissionError));
+		if (!CanModify(&AdmissionError)) return Complete(Failure(AssetWriteErrors::ReadOnlyMode, AdmissionError));
 		FTopLevelAssetPath SourcePath;
 		if (Item.Kind != EContentBrowserItemKind::Asset || !FTopLevelAssetPath::TryCreate(Item.VirtualPath, SourcePath) || PhysicalDirectory.empty())
 			return Complete(Failure(
-				EAssetWriteError::InvalidPath,
+				AssetWriteErrors::InvalidPath,
 				"Asset paste requires a valid source and destination folder."));
 		std::string Directory = FContentBrowserPaths::PhysicalToVirtualDirectory(PhysicalDirectory);
 		if (!Directory.ends_with('/')) Directory.push_back('/');
 		std::string Error;
-		if (!CanDuplicateAsset(SourcePath, &Error)) return Complete({EAssetWriteError::InvalidData, Error});
+		if (!CanDuplicateAsset(SourcePath, &Error)) return Complete({.Error = UnifiedError::FError{AssetWriteErrors::InvalidData, Error}});
 		const auto SourceData = FindAssetExact(SourcePath);
 		const std::string DestinationDirectoryPhysical =
 			FContentBrowserPaths::VirtualToPhysical(Directory);
@@ -89,11 +89,11 @@ namespace Durin::ContentBrowser::Private
 			FContentBrowserPaths::ResolveMountPath(DestinationDirectoryPhysical);
 		if (!Mount)
 			return Complete(Failure(
-				EAssetWriteError::InvalidPath,
+				AssetWriteErrors::InvalidPath,
 				"The paste destination is outside an automatically scanned content mount."));
 		if (!Mount.Mount->bContentWritable)
 			return Complete(Failure(
-				EAssetWriteError::ReadOnlyMode,
+				AssetWriteErrors::ReadOnlyMode,
 				"This content mount is not content-writable. Choose a writable mount before pasting the asset."));
 
 		auto Context = Feedback();
@@ -135,9 +135,9 @@ namespace Durin::ContentBrowser::Private
 		std::string_view VirtualDirectory) -> bool
 	{
 		std::string AdmissionError;
-		if (!CanModify(&AdmissionError)) return Complete(Failure(EAssetWriteError::ReadOnlyMode, AdmissionError));
+		if (!CanModify(&AdmissionError)) return Complete(Failure(AssetWriteErrors::ReadOnlyMode, AdmissionError));
 		if (VirtualDirectory.empty())
-			return Complete({EAssetWriteError::InvalidPath, "Fix Up in Folder requires a mounted virtual directory."});
+			return Complete({.Error = UnifiedError::FError{AssetWriteErrors::InvalidPath, "Fix Up in Folder requires a mounted virtual directory."}});
 		const std::vector<FPackagePath> Redirectors =
 			CollectRedirectors(VirtualDirectory);
 		if (Redirectors.empty()) return true;
@@ -147,7 +147,7 @@ namespace Durin::ContentBrowser::Private
 		std::span<const FPackagePath> Redirectors) -> bool
 	{
 		std::string AdmissionError;
-		if (!CanModify(&AdmissionError)) return Complete(Failure(EAssetWriteError::ReadOnlyMode, AdmissionError));
+		if (!CanModify(&AdmissionError)) return Complete(Failure(AssetWriteErrors::ReadOnlyMode, AdmissionError));
 		if (Redirectors.empty()) return true;
 		return CompleteMutation(Durin::FixUpRedirectors(Redirectors, EAssetRedirectorFixupMode::RewriteAndDelete));
 	}
@@ -155,7 +155,7 @@ namespace Durin::ContentBrowser::Private
 		-> bool
 	{
 		std::string AdmissionError;
-		if (!CanModify(&AdmissionError)) return Complete(Failure(EAssetWriteError::ReadOnlyMode, AdmissionError));
+		if (!CanModify(&AdmissionError)) return Complete(Failure(AssetWriteErrors::ReadOnlyMode, AdmissionError));
 		const std::vector<FPackagePath> Redirectors = CollectRedirectors("/");
 		return Redirectors.empty() ? true
 			: CompleteMutation(Durin::FixUpRedirectors(Redirectors, EAssetRedirectorFixupMode::RewriteAndDelete));

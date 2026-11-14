@@ -263,6 +263,21 @@ namespace Durin::Tasks
 
 	}
 
+	// Publishes an existing value without submitting work or requiring a scheduler.
+	template<typename T>
+	auto MakeCompletedTask(T Value, const char* Name = "CompletedTask") -> TTask<T>
+	{
+		try
+		{
+			auto State = Detail::MakeResultState<T>();
+			State->SetPending(std::move(Value));
+			State->Complete(ETaskState::Succeeded);
+			auto Handle = Durin::Private::FTaskRuntimeAccess::CreateCompletedTask(Name, {State, true});
+			return Detail::FTaskAccess::Make<T>(std::move(Handle), std::move(State));
+		}
+		catch (const std::bad_alloc&) { Detail::FailConstruction({ETaskConstructionErrorCode::AllocationFailure}); }
+	}
+
 	namespace Detail
 	{
 	template<typename F, typename T = std::invoke_result_t<std::decay_t<F>&>>

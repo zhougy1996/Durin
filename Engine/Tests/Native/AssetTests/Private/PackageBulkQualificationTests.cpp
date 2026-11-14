@@ -68,8 +68,9 @@ TEST_F(FPackageBulkQualificationTests, FieldBulkClosureMeetsBoundedLooseFixtureB
 	for (size_t Index = 0; Index < Payload.size(); ++Index)
 		Payload[Index] = static_cast<std::byte>((Index * 131u + 17u) & 0xffu);
 	ASSERT_TRUE(Asset->Payload.UpdatePayload(Payload));
-	const FAssetWriteResult SaveResult = SavePackage(Asset->GetPackage());
-	ASSERT_TRUE(SaveResult) << SaveResult.Message;
+	FAssetWriteResult SaveResult;
+	SavePackage(Asset->GetPackage(), {}, &SaveResult);
+	ASSERT_TRUE(SaveResult) << (SaveResult.Error ? SaveResult.Error->ToString() : std::string{});
 	ASSERT_TRUE(UnloadPackage(Path));
 
 	const FPackageCatalogEntry Entry = FindPackageExact(Path);

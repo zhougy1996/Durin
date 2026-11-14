@@ -1,5 +1,5 @@
 #include "Asset/AssetWriteResult.h"
-#include "AssetRegistryResultAdapter.h"
+#include "AssetRegistry/RegistryResult.h"
 #include "AssetRuntimeStateInternal.h"
 #include "Asset/PackageRemoval.h"
 #include "DObject/ObjectLifecycle.h"
@@ -15,14 +15,13 @@ namespace Durin
 {
 	namespace
 	{
-		auto Error(EAssetWriteError Code, std::string Message) -> FAssetWriteResult
-		{
-			return {Code, std::move(Message)};
+		auto WriteFailure(UnifiedError::FErrorId Code, std::string Message) -> std::expected<void, UnifiedError::FError>
+		{ return std::unexpected(UnifiedError::FError{Code, std::move(Message)});
 		}
 	}
 
 	auto ValidatePackageRemovalReferences(std::span<const FPackagePath> Paths,
-		FPackagePath* OutBlockedPackage) -> FAssetWriteResult
+		FPackagePath* OutBlockedPackage) -> std::expected<void, UnifiedError::FError>
 	{
 		CheckGameThread();
 		if (OutBlockedPackage) *OutBlockedPackage = {};
@@ -32,7 +31,7 @@ namespace Durin
 		if (Packages.empty()) return {};
 		auto Reject = [&](DPackage& Package, std::string Reason) {
 			if (OutBlockedPackage) *OutBlockedPackage = Package.GetPackagePathIdentity();
-			return Error(EAssetWriteError::InUse, std::move(Reason));
+			return WriteFailure(AssetWriteErrors::InUse, std::move(Reason));
 		};
 		const auto Objects = GDObjectArray.GetAll(EObjectQueryScope::LiveOnly);
 		for (DObject* Object : Objects)
@@ -72,15 +71,15 @@ namespace Durin
 	}
 
 	auto FAssetMutationCoordinator::ValidatePackageRemoval(
-		std::span<const FPackageData> Entries, uint64 ExpectedRevision) -> FAssetWriteResult
+		std::span<const FPackageData> Entries, uint64 ExpectedRevision) -> std::expected<void, UnifiedError::FError>
 	{
 		if (RuntimeConfiguration.IsCooked())
-			return Error(EAssetWriteError::ReadOnlyMode, "Cooked packages cannot be removed.");
+			return WriteFailure(AssetWriteErrors::ReadOnlyMode, "Cooked packages cannot be removed.");
 		if (GetAssetCatalogRevision() != ExpectedRevision)
-			return Error(EAssetWriteError::StaleData, "The package catalog changed before removal.");
+			return WriteFailure(AssetWriteErrors::StaleData, "The package catalog changed before removal.");
 		const FAssetRegistrySnapshot Prepared = CaptureAssetRegistrySnapshot();
 		if (Prepared.Revision != ExpectedRevision)
-			return Error(EAssetWriteError::StaleData, "The package catalog changed before removal.");
+			return WriteFailure(AssetWriteErrors::StaleData, "The package catalog changed before removal.");
 		std::unordered_set<FPackagePath> DeletionSet;
 		for (const FPackageData& Entry : Entries)
 			DeletionSet.insert(Entry.PackagePath);
@@ -88,35 +87,35 @@ namespace Durin
 		{
 			const auto* Current = Prepared.Catalog.FindExact(Entry.PackagePath);
 			if (!Current || !(*Current == Entry))
-				return Error(EAssetWriteError::InUse, std::format(
+				return WriteFailure(AssetWriteErrors::InUse, std::format(
 					"Asset {} changed before registry removal.",
 					Entry.PackagePath.ToString()));
 		}
 		for (const auto& Entry : Entries)
 			for (const auto& Edge : Prepared.References.FindReferencers(Entry.PackagePath))
 				if (Edge.Kind != EAssetReferenceKind::SoftObject && !DeletionSet.contains(Edge.SourcePackage))
-					return Error(EAssetWriteError::InUse, std::format(
+					return WriteFailure(AssetWriteErrors::InUse, std::format(
 						"Asset {} gained external referencer {}.",
 						Entry.PackagePath.ToString(), Edge.SourcePackage.ToString()));
 		return {};
 	}
 
 	auto FAssetMutationCoordinator::ReleasePackagesForRemoval(
-		std::span<const FPackageData> Entries, uint64 ExpectedRevision) -> FAssetWriteResult
+		std::span<const FPackageData> Entries, uint64 ExpectedRevision) -> std::expected<void, UnifiedError::FError>
 	{
-		const FAssetWriteResult Validated = ValidatePackageRemoval(Entries, ExpectedRevision);
+		const auto Validated = ValidatePackageRemoval(Entries, ExpectedRevision);
 		if (!Validated) return Validated;
 		std::vector<DPackage*> Packages;
 		for (const FPackageData& Entry : Entries)
 		{
 			const FPackagePath& Path = Entry.PackagePath;
 			if (Loader.IsPackageLoading(Path))
-				return Error(EAssetWriteError::InUse, std::format(
+				return WriteFailure(AssetWriteErrors::InUse, std::format(
 					"Asset {} is currently loading.", Path.ToString()));
 			DPackage* Loaded = FindResidentPackage(Path);
 			if (!Loaded) continue;
 			if (Loaded->IsDirty())
-				return Error(EAssetWriteError::InUse, std::format(
+				return WriteFailure(AssetWriteErrors::InUse, std::format(
 					"Asset {} has unsaved changes.", Path.ToString()));
 			Packages.push_back(Loaded);
 		}
@@ -133,16 +132,16 @@ namespace Durin
 	}
 
 	auto FAssetMutationCoordinator::PublishPackageRemoval(
-		std::span<const FPackageData> Entries, uint64 ExpectedRevision) -> FAssetWriteResult
+		std::span<const FPackageData> Entries, uint64 ExpectedRevision) -> std::expected<void, UnifiedError::FError>
 	{
-		const FAssetWriteResult Validated = ValidatePackageRemoval(Entries, ExpectedRevision);
+		const auto Validated = ValidatePackageRemoval(Entries, ExpectedRevision);
 		if (!Validated) return Validated;
 		for (const FPackageData& Entry : Entries)
 		{
 			std::error_code Ec;
 			const bool bExists = std::filesystem::exists(Entry.PhysicalPath, Ec);
 			if (Ec || bExists)
-				return Error(EAssetWriteError::IoError, "The removed package file is still present or cannot be inspected.");
+				return WriteFailure(AssetWriteErrors::IoError, "The removed package file is still present or cannot be inspected.");
 		}
 		FAssetRegistryDelta Delta{.ExpectedRevision = ExpectedRevision};
 		for (const FPackageData& Entry : Entries)
@@ -150,7 +149,9 @@ namespace Durin
 			Delta.Removes.push_back(Entry.PackagePath);
 			Delta.ReferenceInvalidations.push_back(Entry.PackagePath);
 		}
-		return AssetWriteResultFromRead(AssetPrivate::ToAssetResult(PublishAssetRegistryDelta(std::move(Delta))));
+		if (auto Published = PublishAssetRegistryDelta(std::move(Delta)); !Published)
+			return std::unexpected(Durin::ToError(Published));
+		return {};
 	}
 
 }

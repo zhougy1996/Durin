@@ -157,26 +157,22 @@ namespace Durin::TextureEditor
 
 			FPackagePath Path;
 			require(FPackagePath::TryCreate(Package->GetPackagePath(), Path));
-			FAssetWriteResult Saved;
 			if (!DiskSave.IsValid())
 			{
 				SaveStarted = CompilationEnd;
-				DiskSave = Package->SaveAsync(Saved, FAssetPackageSaveContext{});
+				DiskSave = SavePackageAsync(Package);
 			}
-			if (DiskSave.IsValid())
-			{
-				if (!DiskSave.IsCompleted()) return;
-				Saved = DiskSave.GetState() == ETaskState::Succeeded ? DiskSave.GetResult()
-					: FAssetWriteResult{EAssetWriteError::IoError, "Save task failed or was canceled."};
-				DiskSave = {};
-			}
+			if (!DiskSave.IsCompleted()) return;
+			const auto Saved = DiskSave.GetState() == ETaskState::Succeeded ? DiskSave.GetResult()
+				: FAssetWriteResult{.Error = UnifiedError::FError{AssetWriteErrors::IoError, "Save task failed or was canceled."}};
+			DiskSave = {};
 			const auto Filename = Files[Next];
 			double SaveMilliseconds = 0;
 			const auto& Result = Saved;
 			SaveMilliseconds = std::chrono::duration<double, std::milli>(
 				std::chrono::steady_clock::now() - SaveStarted).count();
 			if (Result) { Published.push_back(Path.ToString()); ++SavedCount; ++Next; }
-			else { PendingSaves.push_back(Path); Fail("Imported, but save failed: " + Result.Message); }
+			else { PendingSaves.push_back(Path); Fail("Imported, but save failed: " + (Result.Error ? Result.Error->ToString() : std::string{})); }
 			Active.Reset();
 			if (Result && !Package->IsDirty()) DPackageTools::UnloadPackages(std::array{Package});
 			TimingDetails += std::format(

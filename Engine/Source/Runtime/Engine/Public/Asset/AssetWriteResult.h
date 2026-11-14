@@ -2,40 +2,33 @@
 
 #include "CoreMinimal.h"
 #include "Misc/UnifiedError.h"
-#include "Asset/LoadErrors.h"
 
-#include "EngineAPI.h"
+namespace Durin::AssetWriteErrors
+{
+	inline constexpr UnifiedError::FErrorId InvalidPath{"AssetWrite", "InvalidPath"};
+	inline constexpr UnifiedError::FErrorId AlreadyExists{"AssetWrite", "AlreadyExists"};
+	inline constexpr UnifiedError::FErrorId NotFound{"AssetWrite", "NotFound"};
+	inline constexpr UnifiedError::FErrorId IoError{"AssetWrite", "IoError"};
+	inline constexpr UnifiedError::FErrorId InvalidData{"AssetWrite", "InvalidData"};
+	inline constexpr UnifiedError::FErrorId InUse{"AssetWrite", "InUse"};
+	inline constexpr UnifiedError::FErrorId StaleData{"AssetWrite", "StaleData"};
+	inline constexpr UnifiedError::FErrorId ReadOnlyMode{"AssetWrite", "ReadOnlyMode"};
+	inline constexpr UnifiedError::FErrorId Cancelled{"AssetWrite", "Cancelled"};
+}
 
 namespace Durin
 {
-	namespace ObjectPackage { struct FPackageWriterResult; }
-
-	enum class EAssetWriteError : uint8
-	{
-		None, InvalidPath, AlreadyExists, NotFound, IoError, InvalidData,
-		UnsupportedVersion, InUse, StaleData, ReadOnlyMode, ShuttingDown, Cancelled,
-		ProjectionPending
-	};
 	enum class EAssetWriteEffect : uint8
 	{
 		None, ContentCommittedProjectionPending, PartiallyWritten, ContentUncertain
 	};
-	// Describes observed write effects, never whether an owning job can retry.
+	// One owning failure plus observed write effects. Success is absence of Error.
+	// Effects never determine retry policy and may remain present after failure.
 	struct FAssetWriteResult
 	{
-		EAssetWriteError Error = EAssetWriteError::None;
-		std::string Message;
+		std::optional<UnifiedError::FError> Error;
 		EAssetWriteEffect Effect = EAssetWriteEffect::None;
-		std::optional<UnifiedError::FError> Cause;
-		auto Succeeded() const -> bool { return Error == EAssetWriteError::None; }
+		auto Succeeded() const -> bool { return !Error; }
 		explicit operator bool() const { return Succeeded(); }
 	};
-	// Explicit boundary: a read failure rejects preparation without write effects.
-	ENGINE_API auto AssetWriteResultFromRead(const UnifiedError::FError& Error) -> FAssetWriteResult;
-	template<typename T>
-	[[nodiscard]] auto AssetWriteResultFromRead(const std::expected<T, Durin::UnifiedError::FError>& Result) -> FAssetWriteResult
-	{
-		return Result ? FAssetWriteResult{} : AssetWriteResultFromRead(Result.error());
-	}
-	ENGINE_API auto AssetWriteResultFromEncoding(const ObjectPackage::FPackageWriterResult& Result) -> FAssetWriteResult;
 }

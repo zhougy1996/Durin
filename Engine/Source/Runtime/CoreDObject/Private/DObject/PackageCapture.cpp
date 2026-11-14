@@ -1342,22 +1342,30 @@ namespace Durin
 		return {};
 	}
 
-	auto GetPackageCaptureSaveError(const FPackageCaptureError& Error) -> EPackageSaveError
+	auto ToError(const FPackageCaptureError& Capture) -> UnifiedError::FError
 	{
-		switch (Error.Reason)
+		std::string_view Code = "UnsupportedProperty";
+		switch (Capture.Reason)
 		{
-		case EPackageCaptureReason::None: return EPackageSaveError::None;
-		case EPackageCaptureReason::PackageType: return EPackageSaveError::InvalidPackageType;
-		case EPackageCaptureReason::PackagePath: case EPackageCaptureReason::SoftPathLimit: return EPackageSaveError::InvalidPath;
+		case EPackageCaptureReason::PackageType: Code = "InvalidPackageType"; break;
+		case EPackageCaptureReason::PackagePath: case EPackageCaptureReason::SoftPathLimit: Code = "InvalidPath"; break;
 		case EPackageCaptureReason::MissingAssets: case EPackageCaptureReason::ClassDefaults:
 		case EPackageCaptureReason::OverrideOutsideGraph: case EPackageCaptureReason::OmittedAsset:
-		case EPackageCaptureReason::CookGraph: return EPackageSaveError::InvalidObjectGraph;
-		default: break;
+		case EPackageCaptureReason::CookGraph: Code = "InvalidObjectGraph"; break;
+		default:
+			if (Capture.ArchiveCode == EArchiveFailureCode::UnsupportedVersion) Code = "UnsupportedVersion";
+			else if (Capture.ArchiveCode == EArchiveFailureCode::InvalidObjectReference) Code = "InvalidObjectGraph";
+			else if (Capture.ArchiveCode == EArchiveFailureCode::InvalidPath) Code = "InvalidPath";
+			break;
 		}
-		if (Error.ArchiveCode == EArchiveFailureCode::UnsupportedVersion) return EPackageSaveError::UnsupportedVersion;
-		if (Error.ArchiveCode == EArchiveFailureCode::InvalidObjectReference) return EPackageSaveError::InvalidObjectGraph;
-		if (Error.ArchiveCode == EArchiveFailureCode::InvalidPath) return EPackageSaveError::InvalidPath;
-		return EPackageSaveError::UnsupportedProperty;
+		auto Error = UnifiedError::FError{{"PackageCapture", Code}, ToString(Capture)};
+		Error.PushContext("capture reason", std::to_string(static_cast<uint32>(Capture.Reason)))
+			.PushContext("object", Capture.ObjectPath).PushContext("schema", Capture.SchemaName)
+			.PushContext("field", Capture.FieldName).PushContext("archive path", Capture.ArchivePath)
+			.PushContext("actual", std::to_string(Capture.Actual)).PushContext("expected", std::to_string(Capture.Expected));
+		for (const auto& Part : Capture.Route) Error.PushContext("route", Part);
+		if (Capture.ArchiveCode) Error.PushContext("archive code", std::to_string(static_cast<uint32>(*Capture.ArchiveCode)));
+		return Error;
 	}
 
 	auto CapturePackageLinker(DPackage* Package, EDefaultDeltaMode DeltaMode,

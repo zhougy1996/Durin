@@ -4,8 +4,6 @@
 #include "Misc/UnifiedError.h"
 #include "Asset/LoadErrors.h"
 
-#include "Asset/AssetWriteResult.h"
-
 #include "EngineAPI.h"
 #include "AssetRegistry/Catalog.h"
 #include "Asset/CookedAsset.h"
@@ -86,7 +84,7 @@ namespace Durin
 	ENGINE_API auto InitializeAssetRuntime(
 		FAssetRuntimeConfiguration Configuration = FAssetRuntimeConfiguration::Authored()
 	)
-		-> FAssetWriteResult;
+		-> std::expected<void, UnifiedError::FError>;
 	// Requires a successful initialization; retains the last configuration after shutdown.
 	ENGINE_API auto GetAssetRuntimeConfiguration()
 		-> const FAssetRuntimeConfiguration&;

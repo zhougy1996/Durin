@@ -261,7 +261,11 @@ TEST(FCookedPathTests, ImmutableRuntimeConfigurationRejectsReplacementAndPackage
 	ASSERT_TRUE(InitializeAssetRuntime(Runtime));
 	EXPECT_TRUE(GetAssetRuntimeConfiguration().RequiresCookedPayload());
 	EXPECT_FALSE(InitializeAssetRuntime(FAssetRuntimeConfiguration::Authored()));
-	EXPECT_EQ(SavePackage(nullptr).Error, EAssetWriteError::ReadOnlyMode);
+	{
+		FAssetWriteResult Report;
+		EXPECT_FALSE(SavePackage(nullptr, {}, &Report));
+		EXPECT_TRUE(Report.Error && Report.Error->Is(AssetWriteErrors::ReadOnlyMode));
+	}
 	ShutdownAssetRuntime();
 	ASSERT_TRUE(InitializeAssetRuntime());
 }

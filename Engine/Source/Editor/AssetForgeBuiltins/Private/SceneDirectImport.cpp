@@ -1163,7 +1163,7 @@ auto FAssetImportSession::FImpl::Run() -> FSceneRoutine
 				auto* Package = Pairs[Index].Prepared;
 				Progress = {EAssetImportPhase::Saving, Package->GetPackagePath(), Index, Pairs.size()};
 				if (IsCanceled(IsCancellationRequested))
-					Batch.Result = {EAssetWriteError::Cancelled, "Save was cancelled after importing assets."};
+					Batch.Result = {.Error = UnifiedError::FError{AssetWriteErrors::Cancelled, "Save was cancelled after importing assets."}};
 				else
 				{
 					const auto Fault = [Captured = SaveFault, Index](Testing::EPackageSaveFaultPoint Phase, size_t) {
@@ -1173,9 +1173,9 @@ auto FAssetImportSession::FImpl::Run() -> FSceneRoutine
 					{
 						Testing::FScopedPackageSaveFault Scope(Fault);
 						if (bAsync)
-							Task = Package->SaveAsync(Batch.Result, FAssetPackageSaveContext{*SaveArgs, IsCancellationRequested});
+							Task = SavePackageAsync(Package, *SaveArgs, IsCancellationRequested);
 						else
-							Batch.Result = SavePackage(Package, *SaveArgs);
+							SavePackage(Package, *SaveArgs, &Batch.Result);
 					}
 					if (Task.IsValid())
 					{
@@ -1186,7 +1186,13 @@ auto FAssetImportSession::FImpl::Run() -> FSceneRoutine
 				if (!Batch.Result)
 				{
 					Batch.FailedPackage = Package->GetPackagePathIdentity();
-					Result.Message = "Import complete; save failed: " + Batch.Result.Message;
+					const std::string_view Disposition = Batch.Result.Effect == EAssetWriteEffect::ContentCommittedProjectionPending
+						? "Current package content was saved; the asset catalog requires synchronization. "
+						: Batch.Result.Effect == EAssetWriteEffect::None ? ""
+						: "Current package files may have changed; inspect recovery details. ";
+					Result.Message = std::format("Import complete; saved {} of {} packages; save failed for {}: {}{}",
+						Batch.SavedPackages.size(), Pairs.size(), Batch.FailedPackage.ToString(), Disposition,
+						Batch.Result.Error ? Batch.Result.Error->ToString() : std::string{});
 					Result.Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
 						.Category = EImportDiagnosticCategory::PersistenceFailure, .Phase = "scene-save",
 						.Message = Result.Message});

@@ -20,7 +20,7 @@ namespace Durin::Testing
 		static const bool bInitialized = [] {
 			if (!IsFNameInitialized()) FNameInit();
 			const auto Result = InitializeAssetRuntime();
-			requiref(Result, "Failed to initialize test asset runtime: {}", Result.Message);
+			requiref(Result, "Failed to initialize test asset runtime: {}", (Result ? std::string{} : Result.error().ToString()));
 			return true;
 		}();
 		(void)bInitialized;
@@ -66,8 +66,8 @@ namespace Durin::Testing
 		{
 			ShutdownAssetRuntime();
 			CollectGarbage(Durin::EObjectFlags::Standalone);
-			const FAssetWriteResult Result = InitializeAssetRuntime(std::move(Configuration));
-			if (!Result) return ::testing::AssertionFailure() << Result.Message;
+			const auto Result = InitializeAssetRuntime(std::move(Configuration));
+			if (!Result) return ::testing::AssertionFailure() << (Result ? std::string{} : Result.error().ToString());
 			return ::testing::AssertionSuccess();
 		}
 

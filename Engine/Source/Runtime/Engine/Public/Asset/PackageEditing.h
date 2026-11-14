@@ -6,7 +6,6 @@
 
 #include "EngineAPI.h"
 #include "Asset/PackageInspection.h"
-#include "Asset/AssetWriteResult.h"
 #include "DObject/SoftObjectPtr.h"
 
 namespace Durin
@@ -27,19 +26,19 @@ namespace Durin
 
 	// Checks the live-load boundary, runtime lifecycle, and authored-package mode.
 	// Call on the owner thread before preparing or publishing authored edits.
-	ENGINE_API auto CheckAssetPackageMutationAllowed() -> FAssetWriteResult;
+	ENGINE_API auto CheckAssetPackageMutationAllowed() -> std::expected<void, UnifiedError::FError>;
 	ENGINE_API auto BuildRelocatedAssetPackageBytes(
 		FByteView SourceBytes, const FPackagePath& SourcePath,
 		FByteView SourceBulkBytes, const FPackagePath& DestinationPath,
-		FByteBuffer& OutBytes) -> FAssetWriteResult;
+		FByteBuffer& OutBytes) -> std::expected<void, UnifiedError::FError>;
 	ENGINE_API auto BuildAssetRedirectorPackageBytes(
 		const FPackagePath& SourcePath,
 		std::span<const FAssetRedirectorWriteMapping> Mappings,
-		FByteBuffer& OutBytes) -> FAssetWriteResult;
+		FByteBuffer& OutBytes) -> std::expected<void, UnifiedError::FError>;
 	ENGINE_API auto RewriteAssetPackageReferences(
 		FByteView Bytes, FByteView BulkBytes, const FPackagePath& PackagePath,
 		std::span<const FAssetPackageReferenceMapping> Mappings,
-		uint64 ExpectedRewriteCount, FByteBuffer& OutBytes) -> FAssetWriteResult;
+		uint64 ExpectedRewriteCount, FByteBuffer& OutBytes) -> std::expected<void, UnifiedError::FError>;
 	ENGINE_API auto CollectLoadedAssetPackageSoftReferences(
 		DPackage* Package, const FPackagePath& TargetPath,
 		std::vector<FSoftObjectPtr*>& OutValues) -> std::expected<void, Durin::UnifiedError::FError>;

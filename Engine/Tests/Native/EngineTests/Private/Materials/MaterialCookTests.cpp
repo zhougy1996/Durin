@@ -49,7 +49,7 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 		CookRoot, RuntimeConfiguration);
 	ASSERT_TRUE(Result) << (Result ? std::string{} : Result.error().ToString());
 	const auto Initialized = Durin::InitializeAssetRuntime(std::move(RuntimeConfiguration));
-	ASSERT_TRUE(Initialized) << Initialized.Message;
+	ASSERT_TRUE(Initialized) << (Initialized ? std::string{} : Initialized.error().ToString());
 	{
 	std::optional<Durin::UnifiedError::FError> MissingVersionError;
 	const std::array CookMountDefinitions{
@@ -415,7 +415,7 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 		CookRoot, RuntimeConfiguration);
 	ASSERT_TRUE(Result) << (Result ? std::string{} : Result.error().ToString());
 	const auto Initialized = Durin::InitializeAssetRuntime(std::move(RuntimeConfiguration));
-	ASSERT_TRUE(Initialized) << Initialized.Message;
+	ASSERT_TRUE(Initialized) << (Initialized ? std::string{} : Initialized.error().ToString());
 	{
 	const std::array CookMountDefinitions{
 		Durin::FMountPoint{

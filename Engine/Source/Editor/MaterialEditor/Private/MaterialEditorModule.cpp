@@ -55,10 +55,10 @@ namespace Durin
 					return false;
 				}
 			}
-			const FAssetWriteResult Result = SavePackage(Created->GetPackage());
-			if (!Result)
+			FAssetWriteResult Result;
+			if (!SavePackage(Created->GetPackage(), {}, &Result))
 			{
-				OutError = Result.Message;
+				OutError = (Result.Error ? Result.Error->ToString() : std::string{});
 				Discard();
 				return false;
 			}

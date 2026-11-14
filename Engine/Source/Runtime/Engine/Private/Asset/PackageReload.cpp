@@ -68,7 +68,7 @@ namespace Durin
 			FPackageReloadResult Result{.Status = InStatus, .Failure = InFailure};
 			Diagnostic.PackagePath = Path;
 			Diagnostic.Stage = InStage;
-			if (Diagnostic.Message.empty()) Diagnostic.Message = DescribeFailure(Code, Diagnostic);
+			if (Diagnostic.Message.empty() && !Diagnostic.Cause) Diagnostic.Message = DescribeFailure(Code, Diagnostic);
 			Result.Diagnostics.push_back(std::move(Diagnostic));
 			return Result;
 		}
@@ -341,6 +341,7 @@ namespace Durin
 	auto FormatPackageReloadDiagnostic(const FPackageReloadDiagnostic& Diagnostic) -> std::string
 	{
 		if (!Diagnostic.Message.empty()) return Diagnostic.Message;
+		if (Diagnostic.Cause) return Diagnostic.Cause->ToString();
 		return Diagnostic.Details ? Diagnostic.Details->GetSummary() : std::string{};
 	}
 
@@ -381,7 +382,7 @@ namespace Durin
 	auto FPackageReloadResourceReceipt::SetFailed(FPackageReloadDiagnostic InError) -> bool
 	{
 		std::lock_guard Lock(Mutex);
-		if (State != EPackageReloadReceiptState::Pending || (InError.Message.empty() && !InError.Details)) return false;
+		if (State != EPackageReloadReceiptState::Pending || (InError.Message.empty() && !InError.Cause && !InError.Details)) return false;
 		State = EPackageReloadReceiptState::Failed; Error = std::move(InError); return true;
 	}
 	auto FPackageReloadResourceReceipt::SetRetired() -> bool
@@ -582,7 +583,8 @@ namespace Durin
 				const bool bCancelled = Prepared.Status == AssetPrivate::EPackageGraphPrepareStatus::Cancelled;
 				return Finish(MakeResult(bCancelled ? Status::Cancelled : Status::Failed,
 					bCancelled ? Failure::None : MapGraphFailure(Prepared.Status),
-					Stage::ReadAndPrepare, Prepared.PackagePath, Reason::GraphPreparation, {.Message = FormatPackageGraphPrepareError(Prepared)}));
+					Stage::ReadAndPrepare, Prepared.PackagePath, Reason::GraphPreparation, {.Actual = Prepared.Actual, .Maximum = Prepared.Maximum,
+						.Message = Prepared.Cause ? std::string{} : FormatPackageGraphPrepareError(Prepared), .Cause = Prepared.Cause}));
 			}
 
 			uint64 ClosureBytes = 0;
@@ -692,7 +694,7 @@ namespace Durin
 					// Publication is already committed. Dependency retention is safe and
 					// cannot be represented as an ordinary rollback failure.
 					State->Result.Diagnostics.push_back({.Stage = Stage::Retire,
-						.Message = ReleaseResult.error().ToString(), .Cause = ReleaseResult.error()});
+						.Cause = ReleaseResult.error()});
 				}
 				RefreshExternalBindings(ExternalRenderConsumers, bTextures, bMaterials);
 #if DURIN_WITH_EDITORONLY_DATA

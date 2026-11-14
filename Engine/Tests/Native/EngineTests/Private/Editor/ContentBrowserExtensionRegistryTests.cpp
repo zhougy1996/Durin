@@ -312,8 +312,9 @@ namespace Durin::ContentBrowser
 				const auto Created = IAssetTools::Get().CreateAsset(Path, DLevel::StaticClass(), nullptr, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &CreatedFeedback);
 				if (!Created) { Error = CreatedError; return false; }
 				CreatedPackage = Created->GetPackage();
-				const auto Saved = SavePackage(Created->GetPackage());
-				Error = Saved.Message;
+				FAssetWriteResult Saved;
+				SavePackage(Created->GetPackage(), {}, &Saved);
+				Error = (Saved.Error ? Saved.Error->ToString() : std::string{});
 				return Saved.Succeeded();
 			},
 			.AssetClassNameToOpen = DLevel::StaticClass()->GetQualifiedName().ToString()});

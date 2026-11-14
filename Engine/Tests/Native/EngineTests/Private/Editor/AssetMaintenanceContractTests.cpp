@@ -207,8 +207,9 @@ TEST_F(FAssetMaintenanceContractTests, RecompressionPreviewAndSaveFailurePreserv
 	Platform->Mips.push_back({.Pixels = FSharedByteBuffer::Take(FByteBuffer(4, std::byte{17})),
 		.Width = 1, .Height = 1, .RowPitch = 4});
 	Texture->SetPlatformData(std::move(Platform));
-	const auto Saved = SavePackage(Texture->GetPackage());
-	ASSERT_TRUE(Saved) << Saved.Message;
+	FAssetWriteResult Saved;
+	SavePackage(Texture->GetPackage(), {}, &Saved);
+	ASSERT_TRUE(Saved) << (Saved.Error ? Saved.Error->ToString() : std::string{});
 	const auto Entry = FindPackageExact(Path);
 	ASSERT_TRUE(Entry);
 	FByteBuffer Before;

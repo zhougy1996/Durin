@@ -9,26 +9,36 @@
 
 namespace Durin
 {
+	namespace
+	{
+		auto FileOperationName(EFileOperation Operation) -> std::string_view
+		{
+			switch (Operation)
+			{
+			case EFileOperation::NormalizePath: return "normalize path";
+			case EFileOperation::Inspect: return "inspect";
+			case EFileOperation::OpenRead: return "open for reading";
+			case EFileOperation::QuerySize: return "query size";
+			case EFileOperation::Read: return "read";
+			case EFileOperation::CreateParentDirectories: return "create parent directories";
+			case EFileOperation::OpenWrite: return "open for writing";
+			case EFileOperation::Write: return "write";
+			case EFileOperation::Close: return "close";
+			case EFileOperation::CreateTemporaryFile: return "create temporary file";
+			case EFileOperation::WriteTemporaryFile: return "write temporary file";
+			case EFileOperation::FlushTemporaryFile: return "flush temporary file";
+			case EFileOperation::CloseTemporaryFile: return "close temporary file";
+			case EFileOperation::ReplaceDestination: return "replace destination";
+			case EFileOperation::Rename: return "rename";
+			case EFileOperation::Remove: return "remove";
+			case EFileOperation::QueryTime: return "query modification time";
+			}
+			return "unknown";
+		}
+	}
 	auto FFileError::ToString() const -> std::string
 	{
-		std::string_view Name = "unknown";
-		switch (Operation)
-		{
-		case EFileOperation::NormalizePath: Name = "normalize path"; break;
-		case EFileOperation::Inspect: Name = "inspect"; break;
-		case EFileOperation::OpenRead: Name = "open for reading"; break;
-		case EFileOperation::QuerySize: Name = "query size"; break;
-		case EFileOperation::Read: Name = "read"; break;
-		case EFileOperation::CreateParentDirectories: Name = "create parent directories"; break;
-		case EFileOperation::OpenWrite: Name = "open for writing"; break;
-		case EFileOperation::Write: Name = "write"; break;
-		case EFileOperation::Close: Name = "close"; break;
-		case EFileOperation::CreateTemporaryFile: Name = "create temporary file"; break;
-		case EFileOperation::WriteTemporaryFile: Name = "write temporary file"; break;
-		case EFileOperation::FlushTemporaryFile: Name = "flush temporary file"; break;
-		case EFileOperation::CloseTemporaryFile: Name = "close temporary file"; break;
-		case EFileOperation::ReplaceDestination: Name = "replace destination"; break;
-		}
+		const auto Name = FileOperationName(Operation);
 		size_t Longest = 0;
 		for (const auto& Component : Path) Longest = std::max(Longest, Component.native().size());
 		auto Message = std::format("File I/O failed to {}: {} ({}:{}: {}; path length {}, longest component {}).",
@@ -38,6 +48,19 @@ namespace Durin
 		if (Range) Message += std::format(" Offset: {}, size: {}.", Range->Offset, Range->Size);
 		return Message;
 	}
+	auto ToError(const FFileError& File) -> UnifiedError::FError
+	{
+		auto Error = UnifiedError::FError{{"File", "IoError"}, File.NativeError.message()};
+		Error.PushContext("file", File.Path.generic_string())
+			.PushContext("file operation", std::string(FileOperationName(File.Operation)))
+			.PushContext("system category", File.NativeError.category().name())
+			.PushContext("system code", std::to_string(File.NativeError.value()));
+		if (!File.RelatedPath.empty()) Error.PushContext("related file", File.RelatedPath.generic_string());
+		if (File.Range) Error.PushContext("offset", std::to_string(File.Range->Offset))
+			.PushContext("size", std::to_string(File.Range->Size));
+		return Error;
+	}
+
 }
 
 namespace Durin::FFileHelper

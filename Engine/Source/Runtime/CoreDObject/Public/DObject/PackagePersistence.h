@@ -7,15 +7,26 @@
 
 namespace Durin
 {
+	namespace PackageSaveErrors
+	{
+		inline constexpr UnifiedError::FErrorId InvalidPath{"PackageSave", "InvalidPath"};
+		inline constexpr UnifiedError::FErrorId InvalidPackageType{"PackageSave", "InvalidPackageType"};
+		inline constexpr UnifiedError::FErrorId IoError{"PackageSave", "IoError"};
+		inline constexpr UnifiedError::FErrorId StaleData{"PackageSave", "StaleData"};
+		inline constexpr UnifiedError::FErrorId Cancelled{"PackageSave", "Cancelled"};
+		inline constexpr UnifiedError::FErrorId Busy{"PackageSave", "Busy"};
+		inline constexpr UnifiedError::FErrorId ShuttingDown{"PackageSave", "ShuttingDown"};
+	}
+
 	namespace PackageSavePrivate
 	{
 		// Internal detached-work owner shared by file-only and Engine adapters.
-		COREDOBJECT_API auto CheckAsyncAdmission(uint64 Bytes = 0) -> FPackageSaveResult;
+		COREDOBJECT_API auto CheckAsyncAdmission(uint64 Bytes = 0) -> std::expected<void, UnifiedError::FError>;
 		struct FAsyncSaveState;
 		using FAsyncSavePublicationFactory = std::function<Tasks::FTask(const Tasks::FTask&,
 			const std::shared_ptr<FAsyncSaveState>&)>;
 		COREDOBJECT_API auto SubmitAsyncSaveTask(uint64 Bytes, std::function<void()> Write,
-			FAsyncSavePublicationFactory MakePublication, std::function<void()> Cleanup) -> FPackageSaveResult;
+			FAsyncSavePublicationFactory MakePublication, std::function<void()> Cleanup) -> std::expected<void, UnifiedError::FError>;
 		COREDOBJECT_API auto BeginAsyncSavePublication(const std::shared_ptr<FAsyncSaveState>& Save) -> void;
 		COREDOBJECT_API auto EndAsyncSavePublication() -> void;
 
@@ -25,8 +36,7 @@ namespace Durin
 		// when the body runs, or after producer retirement when the owner reaps it.
 		template<typename TResult, typename F>
 		auto SubmitTypedAsyncSave(uint64 Bytes, std::function<void()> Write, F&& Publish,
-			std::function<void()> Abandon,
-			FPackageSaveResult& Admission) -> Tasks::TTask<TResult>
+			std::function<void()> Abandon) -> std::expected<Tasks::TTask<TResult>, UnifiedError::FError>
 		{
 			struct FCallbacks
 			{
@@ -35,7 +45,7 @@ namespace Durin
 			};
 			auto Callbacks = std::make_shared<FCallbacks>(FCallbacks{std::forward<F>(Publish), std::move(Abandon)});
 			Tasks::TTask<TResult> Task;
-			Admission = SubmitAsyncSaveTask(Bytes, std::move(Write),
+			auto Admission = SubmitAsyncSaveTask(Bytes, std::move(Write),
 				[&Task, Callbacks](const Tasks::FTask& Disk, const std::shared_ptr<FAsyncSaveState>& Save) {
 					Task = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred,
 						{.DebugName = "Package.SavePublication"},
@@ -62,7 +72,8 @@ namespace Durin
 					auto OnAbandon = std::exchange(Callbacks->Abandon, {});
 					if (OnAbandon) OnAbandon();
 				});
-			return Admission ? Task : Tasks::TTask<TResult>{};
+			if (!Admission) return std::unexpected(std::move(Admission.error()));
+			return Task;
 		}
 		COREDOBJECT_API auto PollAsyncSaves() -> void;
 		COREDOBJECT_API auto SetAsyncSaveAdmission(bool bAccepting) -> void;
@@ -83,8 +94,8 @@ namespace Durin
 	{
 		FPackageSaveOptions Options;
 		std::shared_ptr<IPackageWriter> Writer = GetFilePackageWriter();
-		COREDOBJECT_API auto SaveAsync(DPackage* Package, FPackageSaveResult& Admission) const
-			-> Tasks::TTask<FPackageSaveResult>;
+		COREDOBJECT_API auto SaveAsync(DPackage* Package) const
+			-> Tasks::TTask<FPackageWriteResult>;
 		auto Capture(DPackage* Package, ObjectPackage::FLinkerTables& OutLinker,
 			uint32 FormatVersion = ObjectPackage::DastV12FormatVersion, std::vector<FObjectKey>* OutExports = nullptr) const
 			-> std::expected<void, FPackageCaptureError>
@@ -97,7 +108,6 @@ namespace Durin
 			-> std::unique_ptr<IPackageWriteOperation>
 		{ return (Writer ? Writer : GetFilePackageWriter())->Begin(std::move(Files)); }
 	};
-	COREDOBJECT_API auto ToPackageSaveResult(FPackageWriteResult Result) -> FPackageSaveResult;
 	using FPackageDestinationResolver = std::function<std::filesystem::path(const DPackage&)>;
 	COREDOBJECT_API auto SetPackageDestinationResolver(FPackageDestinationResolver Resolver) -> void;
 
@@ -108,21 +118,21 @@ namespace Durin
 	public:
 		~FPackageSaveOperation();
 		static auto Begin(DPackage* Package, const FPackageSaveOptions& Options,
-			FPackageSaveResult& Admission, bool bAsync = true) -> std::unique_ptr<FPackageSaveOperation>;
+			std::optional<UnifiedError::FError>* OutError = nullptr, bool bAsync = true) -> std::unique_ptr<FPackageSaveOperation>;
 		static auto Begin(DPackage* Package, const FSavePackageContext& Context,
-			FPackageSaveResult& Admission, bool bAsync = true, bool bDeferStaging = false) -> std::unique_ptr<FPackageSaveOperation>;
+			std::optional<UnifiedError::FError>* OutError = nullptr, bool bAsync = true, bool bDeferStaging = false) -> std::unique_ptr<FPackageSaveOperation>;
 		auto StageDetached() -> void;
 		auto IsStagingReady() const -> bool;
 		auto IsCompleted() const -> bool;
-		auto Complete() -> FPackageSaveResult;
+		auto Complete() -> FPackageWriteResult;
 		// Waits only for I/O; never waits on queued GameThread work.
-		auto WaitAndComplete() -> FPackageSaveResult;
-		auto Cancel() -> FPackageSaveResult;
+		auto WaitAndComplete() -> FPackageWriteResult;
+		auto Cancel() -> FPackageWriteResult;
 		auto GetDetachedBytes() const -> uint64;
 		// Transaction coordinator seam: retain rollback state until FinalizeCommit.
-		auto CommitStaged() -> FPackageSaveResult;
-		auto RollbackCommit() -> FPackageSaveResult;
-		auto FinalizeCommit() -> FPackageSaveResult;
+		auto CommitStaged() -> FPackageWriteResult;
+		auto RollbackCommit() -> FPackageWriteResult;
+		auto FinalizeCommit() -> FPackageWriteResult;
 	private:
 		FPackageSaveOperation();
 		struct FState;

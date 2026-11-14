@@ -177,7 +177,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, VerificationFailureRetainsPublishe
 	const auto& Result = Details.Result;
 	Durin::SetAssetRedirectorFixupFailurePointForTesting(
 		Durin::EAssetRedirectorFixupFailurePoint::None);
-	EXPECT_EQ(Result.Error, Durin::EAssetWriteError::IoError);
+	EXPECT_TRUE(Result.Error && Result.Error->Is(Durin::AssetWriteErrors::IoError));
 	EXPECT_EQ(NotifiedPath, Scenario.NewPath);
 	const auto Alias = Durin::FindPackageExact(
 		Scenario.OldPath);

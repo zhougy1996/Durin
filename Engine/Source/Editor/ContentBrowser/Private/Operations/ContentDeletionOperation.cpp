@@ -8,6 +8,8 @@ namespace Durin::ContentBrowser::Private
 {
 	namespace
 	{
+		auto Reject(std::optional<UnifiedError::FError>* OutError, UnifiedError::FError Error) -> bool
+		{ if (OutError) *OutError = std::move(Error); return false; }
 		auto Normalize(const std::filesystem::path& Path) -> std::filesystem::path
 		{
 			return std::filesystem::absolute(Path).lexically_normal();
@@ -31,18 +33,19 @@ namespace Durin::ContentBrowser::Private
 		if (!Hooks.RemoveEntry) Hooks.RemoveEntry = DefaultRemoveEntry;
 	}
 
-	auto FContentDeletionOperation::ValidatePhysicalState(FAssetDeletionFileIdentities& OutIdentities, bool OwnedOnly) -> FAssetWriteResult
+	auto FContentDeletionOperation::ValidatePhysicalState(FAssetDeletionFileIdentities& OutIdentities, bool OwnedOnly, std::optional<UnifiedError::FError>* OutError) -> bool
 	{
-		if (!Plan) return {EAssetWriteError::InvalidData, "The deletion plan is unavailable."};
-		const auto InspectionFailure = [](const std::filesystem::path& Path, const std::error_code& Error) -> FAssetWriteResult {
+		if (OutError) OutError->reset();
+		if (!Plan) return Reject(OutError, UnifiedError::FError{AssetWriteErrors::InvalidData, "The deletion plan is unavailable."});
+		const auto InspectionFailure = [OutError](const std::filesystem::path& Path, const std::error_code& Error) -> bool {
 			const bool bMissing = Error == std::errc::no_such_file_or_directory
 				|| Error == std::errc::not_a_directory;
-			return {bMissing ? EAssetWriteError::StaleData : EAssetWriteError::IoError,
-				std::format("Could not inspect deletion source {}: {}", Path.generic_string(), Error.message())};
+			if (bMissing) return Reject(OutError, UnifiedError::FError{AssetWriteErrors::StaleData,
+				std::format("Deletion source disappeared: {}", Path.generic_string())});
+			return Reject(OutError, ToError(FFileError{.Operation = EFileOperation::Inspect, .NativeError = Error, .Path = Path}));
 		};
-		const auto Changed = [](const std::filesystem::path& Path) -> FAssetWriteResult {
-			return {EAssetWriteError::StaleData,
-				std::format("Deletion source changed: {}.", Path.generic_string())};
+		const auto Changed = [OutError](const std::filesystem::path& Path) -> bool {
+			return Reject(OutError, UnifiedError::FError{AssetWriteErrors::StaleData, std::format("Deletion source changed: {}.", Path.generic_string())});
 		};
 		FAssetDeletionFileIdentities VerifiedFiles;
 		std::unordered_set<std::string> ExpectedPaths;
@@ -73,12 +76,11 @@ namespace Durin::ContentBrowser::Private
 				if (!Identity)
 				{
 					auto Failure = InspectionFailure(Path, Identity.error().NativeError);
-					Failure.Message = Identity.error().ToString();
+					if (OutError && *OutError) (*OutError)->PushContext("file failure", Identity.error().ToString());
 					return Failure;
 				}
 				if (*Identity != Entry.ByteIdentity)
-					return {EAssetWriteError::StaleData,
-						std::format("Deletion source bytes changed: {}.", Path.generic_string())};
+					return Reject(OutError, UnifiedError::FError{AssetWriteErrors::StaleData, std::format("Deletion source bytes changed: {}.", Path.generic_string())});
 				VerifiedFiles.emplace(Path.generic_string(), *Identity);
 			}
 			const auto WriteTime = std::filesystem::last_write_time(Path, Error);
@@ -98,12 +100,12 @@ namespace Durin::ContentBrowser::Private
 					 Path, std::filesystem::directory_options::none, Error), End;
 				 !Error && It != End; It.increment(Error))
 				if (!ExpectedPaths.contains(Normalize(It->path()).generic_string()))
-					return {EAssetWriteError::StaleData, std::format(
-						"Deletion source gained an unconfirmed entry: {}.", It->path().generic_string())};
+					return Reject(OutError, UnifiedError::FError{AssetWriteErrors::StaleData, std::format(
+						"Deletion source gained an unconfirmed entry: {}.", It->path().generic_string())});
 			if (Error) return InspectionFailure(Path, Error);
 		}
 		OutIdentities = std::move(VerifiedFiles);
-		return {};
+		return true;
 	}
 
 	auto FContentDeletionOperation::DeletePhysicalRoots(std::vector<std::filesystem::path>& RemovedPaths) -> FAssetWriteResult
@@ -128,7 +130,7 @@ namespace Durin::ContentBrowser::Private
 			if (Hooks.CanExecuteEffect && !Hooks.CanExecuteEffect()) Effects.bStopped = true;
 			if (ContributorRevision != GetAssetDeleteContributorRevision() || (DeleteAssets && AssetOperation.GetRegistryRevision() != GetAssetCatalogRevision())) Effects.bStopped = true;
 			if (Effects.bCancelled || Effects.bStopped)
-			{ Effects.Add(Entry.PhysicalPath, EContentBrowserEffectStatus::Unattempted, "Deletion stopped before this effect."); Status = {EAssetWriteError::Cancelled, "Deletion stopped after earlier committed effects.", EAssetWriteEffect::PartiallyWritten}; continue; }
+			{ Effects.Add(Entry.PhysicalPath, EContentBrowserEffectStatus::Unattempted, "Deletion stopped before this effect."); Status = {.Error = UnifiedError::FError{AssetWriteErrors::Cancelled, "Deletion stopped after earlier committed effects."}, .Effect = EAssetWriteEffect::PartiallyWritten}; continue; }
 			if (Entry.Kind == EContentDeletionEntryKind::ManagedCompanion)
 			{
 				const bool OwnerSurvives = std::ranges::any_of(AssetOperation.GetEntries(), [&](const auto& Asset) {
@@ -146,9 +148,11 @@ namespace Durin::ContentBrowser::Private
 			if (!DeleteAssets && Entry.Kind == EContentDeletionEntryKind::OrdinaryFile)
 			{
 				FAssetCompanionOwnership Ownership;
-				const auto Inspected = QueryAssetCompanionOwnership(Entry.PhysicalPath, Ownership);
-				if (!Inspected || Ownership.State != EAssetCompanionOwnershipState::Unclaimed)
-				{ Effects.Add(Entry.PhysicalPath, EContentBrowserEffectStatus::Unattempted, "File ownership changed before deletion."); Effects.bStopped = true; Status = {EAssetWriteError::StaleData, "File ownership changed.", EAssetWriteEffect::PartiallyWritten}; continue; }
+				std::optional<UnifiedError::FError> OwnershipError;
+				if (!QueryAssetCompanionOwnership(Entry.PhysicalPath, Ownership, &OwnershipError))
+				{ Effects.Add(Entry.PhysicalPath, EContentBrowserEffectStatus::Unattempted, OwnershipError->ToString()); Effects.bStopped = true; Status = {.Error = std::move(OwnershipError), .Effect = EAssetWriteEffect::PartiallyWritten}; continue; }
+				if (Ownership.State != EAssetCompanionOwnershipState::Unclaimed)
+				{ Effects.Add(Entry.PhysicalPath, EContentBrowserEffectStatus::Unattempted, "File ownership changed before deletion."); Effects.bStopped = true; Status = {.Error = UnifiedError::FError{AssetWriteErrors::StaleData, "File ownership changed."}, .Effect = EAssetWriteEffect::PartiallyWritten}; continue; }
 			}
 			bool Changed = Invalid || Ec || std::filesystem::is_symlink(Current) || !std::filesystem::exists(Current);
 			if (!Changed && Entry.Kind != EContentDeletionEntryKind::Directory)
@@ -157,7 +161,7 @@ namespace Durin::ContentBrowser::Private
 				Changed = !Identity || *Identity != Entry.ByteIdentity;
 			}
 			if (Changed)
-			{ Effects.Add(Entry.PhysicalPath, EContentBrowserEffectStatus::Unattempted, "Deletion source changed immediately before destruction."); Effects.bStopped = true; Status = {EAssetWriteError::StaleData, "Deletion stopped because a source changed.", EAssetWriteEffect::PartiallyWritten}; continue; }
+			{ Effects.Add(Entry.PhysicalPath, EContentBrowserEffectStatus::Unattempted, "Deletion source changed immediately before destruction."); Effects.bStopped = true; Status = {.Error = UnifiedError::FError{AssetWriteErrors::StaleData, "Deletion stopped because a source changed."}, .Effect = EAssetWriteEffect::PartiallyWritten}; continue; }
 			const auto Error = Hooks.RemoveEntry(Entry.PhysicalPath);
 			const auto After = std::filesystem::symlink_status(Entry.PhysicalPath, Ec);
 			const bool Gone = (!Ec || Ec == std::errc::no_such_file_or_directory) && After.type() == std::filesystem::file_type::not_found;
@@ -170,7 +174,7 @@ namespace Durin::ContentBrowser::Private
 			{
 				const auto Message = "Could not permanently delete " + Entry.PhysicalPath + ": " + (Error ? Error.message() : "the entry remains");
 				Effects.Add(Entry.PhysicalPath, EContentBrowserEffectStatus::Failed, Message);
-				Status = {EAssetWriteError::IoError, Message, EAssetWriteEffect::PartiallyWritten};
+				Status = {.Error = UnifiedError::FError{AssetWriteErrors::IoError, Message}, .Effect = EAssetWriteEffect::PartiallyWritten};
 				if (Ec && Ec != std::errc::no_such_file_or_directory)
 				{ Effects.bStopped = true; Effects.Effects.back().RecoveryLocations.push_back(Entry.PhysicalPath); }
 			}
@@ -185,12 +189,13 @@ namespace Durin::ContentBrowser::Private
 		return Status;
 	}
 
-	auto FContentDeletionOperation::ValidateScope() -> FAssetWriteResult
+	auto FContentDeletionOperation::ValidateScope(std::optional<UnifiedError::FError>* OutError) -> bool
 	{
-		if (bStarted || !Plan || !Plan->CanExecute()) return {EAssetWriteError::InvalidData, "Deletion is blocked or consumed."};
-		if (const auto Native = AssetOperation.Validate(); !Native) return Native;
+		if (OutError) OutError->reset();
+		if (bStarted || !Plan || !Plan->CanExecute()) return Reject(OutError, UnifiedError::FError{AssetWriteErrors::InvalidData, "Deletion is blocked or consumed."});
+		if (const bool Native = AssetOperation.Validate(OutError); !Native) return Native;
 		FAssetDeletionFileIdentities Identities;
-		return ValidatePhysicalState(Identities);
+		return ValidatePhysicalState(Identities, false, OutError);
 	}
 
 	auto FContentDeletionOperation::Execute(FContentDeletionHooks InHooks) -> bool
@@ -201,22 +206,21 @@ namespace Durin::ContentBrowser::Private
 		Result = {};
 		if (bStarted || !Plan || !Plan->CanExecute())
 		{
-			Result = {EAssetWriteError::InvalidData, "Deletion is blocked or unavailable."};
+			Result = {.Error = UnifiedError::FError{AssetWriteErrors::InvalidData, "Deletion is blocked or unavailable."}};
 			return false;
 		}
 		if (!DeleteAssets)
 		{
 			FAssetDeletionFileIdentities Identities;
-			Result = ValidatePhysicalState(Identities, bPeerScopeValidated);
-			if (!Result) return false;
+			if (!ValidatePhysicalState(Identities, bPeerScopeValidated, &Result.Error)) return false;
 			std::vector<std::filesystem::path> Removed;
 			Result = DeletePhysicalRoots(Removed);
 			return bool(Result);
 		}
 		const bool bSucceeded = AssetOperation.Delete({
 			.Delete = [this](auto& RemovedPaths) { return DeletePhysicalRoots(RemovedPaths); },
-			.ValidateFiles = [this](FAssetDeletionFileIdentities& Identities) -> FAssetWriteResult {
-				return ValidatePhysicalState(Identities);
+			.ValidateFiles = [this](FAssetDeletionFileIdentities& Identities, std::optional<UnifiedError::FError>* OutError) {
+				return ValidatePhysicalState(Identities, false, OutError);
 			}});
 		Result = AssetOperation.GetWriteResult();
 		return bSucceeded;

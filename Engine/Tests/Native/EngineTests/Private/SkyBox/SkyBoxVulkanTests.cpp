@@ -654,7 +654,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		EXPECT_TRUE(Durin::UnloadPackage(
 			CubePath, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 		const auto DeleteResult = Durin::Testing::RemoveAssetPackageForTests(CubePath);
-		EXPECT_TRUE(DeleteResult) << DeleteResult.Message;
+		EXPECT_TRUE(DeleteResult) << (DeleteResult.Error ? DeleteResult.Error->ToString() : std::string{});
 	}
 	else
 	{
@@ -666,7 +666,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		EXPECT_TRUE(Durin::UnloadPackage(
 			HdrCubePath, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 		const auto DeleteResult = Durin::Testing::RemoveAssetPackageForTests(HdrCubePath);
-		EXPECT_TRUE(DeleteResult) << DeleteResult.Message;
+		EXPECT_TRUE(DeleteResult) << (DeleteResult.Error ? DeleteResult.Error->ToString() : std::string{});
 	}
 	else
 	{

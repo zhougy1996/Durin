@@ -166,6 +166,8 @@ namespace Durin::ObjectPackage
 		auto Reset() -> void { *this = {}; }
 	};
 	COREDOBJECT_API auto FormatPackageError(const FPackageWriterResult& Error) -> std::string;
+	// Convert a failed encoding result while preserving an existing lower-layer cause.
+	COREDOBJECT_API auto ToError(const FPackageWriterResult& Error) -> UnifiedError::FError;
 
 
 	struct FPackageWriterManifest

@@ -2766,6 +2766,18 @@ namespace Durin
 
 
 
+		auto FTaskRuntimeAccess::CreateCompletedTask(const char* DebugName, FTaskResultStorage Result) -> Tasks::FTask
+		{
+			FTaskNodeInit Init;
+			Init.DebugName = DebugName;
+			Init.LifetimeAccounting = std::make_shared<FTaskSchedulerLifetimeAccounting>();
+			Init.Kind = ETaskNodeKind::Event;
+			Init.Result = std::move(Result);
+			auto Task = Tasks::FTask(std::make_shared<FTaskStateData>(Init));
+			TriggerTaskEvent(Task);
+			return Task;
+		}
+
 		auto FTaskRuntimeAccess::CreateTaskEvent(const char* DebugName, bool bUnknownExecutionRequirement) -> Tasks::FTask
 		{
 			FTaskNodeInit Init;

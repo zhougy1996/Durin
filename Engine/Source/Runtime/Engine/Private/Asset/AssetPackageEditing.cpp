@@ -13,9 +13,9 @@ namespace Durin
 {
 	namespace
 	{
-		auto Error(EAssetWriteError Code, std::string Message) -> FAssetWriteResult
+		auto Error(UnifiedError::FErrorId Code, std::string Message) -> std::expected<void, UnifiedError::FError>
 		{
-			return {Code, std::move(Message)};
+			return std::unexpected(UnifiedError::FError{Code, std::move(Message)});
 		}
 	}
 
@@ -33,16 +33,16 @@ namespace Durin
 		}
 	}
 
-	auto CheckAssetPackageMutationAllowed() -> FAssetWriteResult
+	auto CheckAssetPackageMutationAllowed() -> std::expected<void, UnifiedError::FError>
 	{
 		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard)
-			return {.Error = EAssetWriteError::InUse, .Message = Guard.error().ToString(), .Cause = Guard.error()};
+			return Guard;
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		const auto& Runtime = FAssetRuntimeState::Get();
 		if (auto Admission = Runtime.CheckRequestAdmission(); !Admission)
-			return {.Error = EAssetWriteError::InUse, .Message = Admission.error().ToString(), .Cause = Admission.error()};
+			return Admission;
 		if (Runtime.GetRuntimeConfiguration().IsCooked())
-			return Error(EAssetWriteError::ReadOnlyMode, "Cooked runtime package mode does not permit authored package mutation.");
+			return Error(UnifiedError::FErrorId{"AssetMutation", "ReadOnlyMode"}, "Cooked runtime package mode does not permit authored package mutation.");
 		return {};
 	}
 
@@ -51,23 +51,23 @@ namespace Durin
 		const FPackagePath& SourcePath,
 		FByteView SourceBulkBytes,
 		const FPackagePath& DestinationPath,
-		FByteBuffer& OutBytes) -> FAssetWriteResult
+		FByteBuffer& OutBytes) -> std::expected<void, UnifiedError::FError>
 	{
 		const AssetPrivate::FAssetPackageCodec* Codec = nullptr;
-		if (FAssetWriteResult Result = AssetWriteResultFromRead(AssetPrivate::ResolveAssetPackageReader(
-			SourceBytes, Codec)); !Result)
+		if (auto Result = AssetPrivate::ResolveAssetPackageReader(
+			SourceBytes, Codec); !Result)
 			return Result;
 		if (!Codec->bCanMutate)
-			return Error(EAssetWriteError::UnsupportedVersion,
+			return Error(PackageReadErrors::UnsupportedVersion,
 				"Relocation requires package mutation capability.");
 		AssetPrivate::FAssetPackageEncodedClosure Closure;
-		if (FAssetWriteResult Result = AssetWriteResultFromEncoding(Codec->Relocate(
+		if (auto Result = Codec->Relocate(
 			{.PackageBytes = SourceBytes,
 				.BulkBytes = SourceBulkBytes,
 				.PackagePath = SourcePath,
 				.PhysicalPackageBytes = SourceBytes.size()},
-			DestinationPath, Closure)); !Result)
-			return Result;
+			DestinationPath, Closure); !Result)
+			return std::unexpected(ObjectPackage::ToError(Result));
 		OutBytes = std::move(Closure.PackageBytes);
 		return {};
 	}
@@ -75,24 +75,24 @@ namespace Durin
 	auto BuildAssetRedirectorPackageBytes(
 		const FPackagePath& SourcePath,
 		std::span<const FAssetRedirectorWriteMapping> Mappings,
-		FByteBuffer& OutBytes) -> FAssetWriteResult
+		FByteBuffer& OutBytes) -> std::expected<void, UnifiedError::FError>
 	{
 		const AssetPrivate::FAssetPackageCodec* Codec =
 			AssetPrivate::FindAssetPackageWriter(OrdinaryAssetPackageWriterVersion);
 		if (!Codec || !Codec->bCanMutate)
-			return Error(EAssetWriteError::UnsupportedVersion,
+			return Error(PackageReadErrors::UnsupportedVersion,
 				"Redirector creation requires package mutation capability.");
 		AssetPrivate::FAssetPackageEncodedClosure Closure;
-		FAssetWriteResult Result = AssetWriteResultFromEncoding(Codec->WriteRedirector(
-			SourcePath, Mappings, Closure));
-		if (!Result) return Result;
+		auto Result = Codec->WriteRedirector(
+			SourcePath, Mappings, Closure);
+		if (!Result) return std::unexpected(ObjectPackage::ToError(Result));
 		OutBytes = std::move(Closure.PackageBytes);
 		return {};
 	}
 
 	auto RewriteAssetPackageReferences(FByteView Bytes, FByteView BulkBytes,
 		const FPackagePath& PackagePath, std::span<const FAssetPackageReferenceMapping> Mappings,
-		uint64 ExpectedRewriteCount, FByteBuffer& OutBytes) -> FAssetWriteResult
+		uint64 ExpectedRewriteCount, FByteBuffer& OutBytes) -> std::expected<void, UnifiedError::FError>
 	{
 		return AssetPrivate::RewritePackageReferencesForMutation(
 			Bytes, BulkBytes, PackagePath, Mappings, ExpectedRewriteCount, OutBytes);

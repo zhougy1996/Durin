@@ -63,10 +63,10 @@ namespace
 	auto PrepareCanonicalResaveAsset(
 		const Durin::FPackagePath& Path, Durin::DObject* Asset
 	)
-		-> Durin::FAssetWriteResult
+		-> std::expected<void, Durin::UnifiedError::FError>
 	{
 		if (GCancelled.load(std::memory_order_relaxed))
-			return {Durin::EAssetWriteError::Cancelled, "Canonical resave was cancelled before asset compilation completed."};
+			return std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::Cancelled, "Canonical resave was cancelled before asset compilation completed."});
 		(void)Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Asset);
 		return Durin::ValidateAssetSaveReadiness(Asset);
 	}
@@ -1071,7 +1071,7 @@ int main(int ArgC, char** ArgV)
 #endif
 	if (const auto Result = Durin::InitializeAssetRuntime(); !Result)
 	{
-		std::cerr << "Error: asset runtime initialization failed: " << Result.Message << '\n';
+		std::cerr << "Error: asset runtime initialization failed: " << (Result ? std::string{} : Result.error().ToString()) << '\n';
 		return 1;
 	}
 	EditorServices.bStarted = true;
@@ -1159,10 +1159,10 @@ int main(int ArgC, char** ArgV)
 			Durin::IAssetTools::Get().DiscardPackage(Material->GetPackage());
 			return 1;
 		}
-		const auto Saved = Durin::SavePackage(Material->GetPackage());
-		if (!Saved)
+		Durin::FAssetWriteResult Saved;
+		if (!Durin::SavePackage(Material->GetPackage(), {}, &Saved))
 		{
-			std::cerr << Saved.Message << '\n';
+			std::cerr << (Saved.Error ? Saved.Error->ToString() : std::string{}) << '\n';
 			Durin::IAssetTools::Get().DiscardPackage(Material->GetPackage());
 			return 1;
 		}
@@ -1298,8 +1298,8 @@ int main(int ArgC, char** ArgV)
 			const auto Created = Durin::IAssetTools::Get().CreateAsset(AssetPath, Durin::DMaterial::StaticClass(), nullptr, nullptr, Durin::DefaultAssetCreationFlags, &CreatedFeedback);
 			auto* Material = Durin::Cast<Durin::DMaterial>(Created);
 			if (!Created || !Material) { std::cerr << CreatedError << '\n'; return 1; }
-			const auto Saved = Durin::SavePackage(Material->GetPackage());
-			if (!Saved) { std::cerr << Saved.Message << '\n'; return 1; }
+			Durin::FAssetWriteResult Saved;
+			if (!Durin::SavePackage(Material->GetPackage(), {}, &Saved)) { std::cerr << (Saved.Error ? Saved.Error->ToString() : std::string{}) << '\n'; return 1; }
 		}
 		std::cout << "Standard material functions and DefaultMaterial are current.\n";
 		return 0;

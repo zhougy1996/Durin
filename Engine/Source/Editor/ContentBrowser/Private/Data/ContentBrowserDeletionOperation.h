@@ -2,6 +2,7 @@
 #include "CoreMinimal.h"
 #include "Data/ContentBrowserNativeItem.h"
 #include "ContentBrowserOperationResult.h"
+#include "ContentBrowserDataSource.h"
 #include "ContentBrowserOperationContext.h"
 #include "Operations/ContentDeletionOperation.h"
 #include "Misc/FeedbackContext.h"
@@ -17,7 +18,7 @@ namespace Durin::ContentBrowser::Private
 		auto PrepareDeleteItems(std::span<const FContentBrowserNativeItem>) -> FContentDeletionPlanPtr;
 		auto DeleteItems(FContentDeletionPlanPtr&, FContentDeletionHooks Hooks = {}) -> TContentBrowserOperationResult<std::string>;
 		auto DismissDeletion(FContentDeletionPlanPtr Plan) -> void;
-		auto ValidateForExecution() -> FAssetWriteResult;
+		auto ValidateForExecution() -> EContentBrowserDeleteValidation;
 		auto SetDiagnosticSink(FFeedbackContext::FMessageSink Sink) -> void { Diagnostics = std::move(Sink); }
 	private:
 		auto AnalyzeDeletion(std::span<const FContentBrowserNativeItem>, FAssetDeletionOperation&) const -> FContentDeletionPlanPtr;

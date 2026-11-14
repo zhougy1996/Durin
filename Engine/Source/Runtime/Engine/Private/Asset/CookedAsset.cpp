@@ -4,7 +4,7 @@
 #include "Asset/Cook.h"
 #include "CookOutputInternal.h"
 #include "CookedAssetRegistry.h"
-#include "AssetRegistryResultAdapter.h"
+#include "AssetRegistry/RegistryResult.h"
 #include "AssetRegistry/PackageHeader.h"
 #include "AssetRegistry/Publication.h"
 #include "Asset/PackageSerialization.h"
@@ -272,7 +272,7 @@ namespace Durin
 				return std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::InvalidPath, "Invalid cooked package identity: " + Entry.RelativePath});
 			const auto Physical = Configuration.GetCookRoot() / Relative;
 			FAssetPackageHeader Header;
-			if (auto Result = ToAssetResult(ReadAssetPackageHeader(Physical.generic_string(), Path, Header)); !Result) return Result;
+			if (auto Result = ReadAssetPackageHeader(Physical.generic_string(), Path, Header); !Result) return std::unexpected(Durin::ToError(Result));
 			Publication.Assets.emplace(Path, FPackageData{
 				.PackagePath = Path, .PhysicalPath = Physical.generic_string(),
 				.TopLevelAssets = std::move(Header.TopLevelAssets), .FormatVersion = Header.FormatVersion,
@@ -293,7 +293,8 @@ namespace Durin
 		});
 		Publication.ReferenceEdges.erase(std::unique(Publication.ReferenceEdges.begin(), Publication.ReferenceEdges.end()), Publication.ReferenceEdges.end());
 		Publication.bReferenceIndexComplete = true;
-		return ToAssetResult(PublishAssetRegistryPublication(std::move(Publication)));
+		if (auto Published = PublishAssetRegistryPublication(std::move(Publication)); !Published) return std::unexpected(Durin::ToError(Published));
+		return {};
 	}
 
 	auto FormatCookedPathError(const FCookedPathResult& Result) -> std::string
@@ -704,7 +705,7 @@ namespace Durin
 				);
 				if (!CanonicalResult)
 					return {.Error = {.Code = ECookPlanError::Canonicalization, .VirtualPath = Plan.VirtualPath,
-					.CanonicalizationDiagnostic = CanonicalResult.Message}};
+					.CanonicalizationDiagnostic = CanonicalResult.error().ToString()}};
 				Plan.PackageBytes = std::move(CanonicalBytes);
 				Plan.BulkBytes = std::move(CanonicalBulkBytes);
 			}

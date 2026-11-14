@@ -42,9 +42,10 @@ namespace Durin::AssetForge::Builtins
 		if (!Imported || !Mesh)
 			return {false, ImportedError, Mesh};
 		Mesh->FinishCompilation();
-		const FAssetWriteResult Saved = SavePackage(Imported->GetPackage());
+		FAssetWriteResult Saved;
+		SavePackage(Imported->GetPackage(), {}, &Saved);
 		return Saved
 			? Durin::Testing::TFactoryImportResult<Durin::DStaticMesh>{true, {}, Mesh}
-			: Durin::Testing::TFactoryImportResult<Durin::DStaticMesh>{false, Saved.Message, Mesh};
+			: Durin::Testing::TFactoryImportResult<Durin::DStaticMesh>{false, (Saved.Error ? Saved.Error->ToString() : std::string{}), Mesh};
 	}
 }

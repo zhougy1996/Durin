@@ -1,4 +1,5 @@
 #include "AssetRegistry/RegistryResult.h"
+#include "Misc/Assertion.h"
 
 namespace Durin
 {
@@ -46,6 +47,44 @@ namespace Durin
 		case EAssetRegistryFailure::DeltaRevision: return std::format("Asset registry delta expected revision {} but current revision is {}.", Context.Expected, Context.Actual);
 		}
 		return {};
+	}
+
+	auto ToError(const FAssetRegistryResult& Result) -> UnifiedError::FError
+	{
+		require(!Result);
+		std::string_view Code;
+		switch (Result.Error)
+		{
+		case EAssetRegistryError::None: Code = "None"; break;
+		case EAssetRegistryError::InvalidPath: Code = "InvalidPath"; break;
+		case EAssetRegistryError::AlreadyExists: Code = "AlreadyExists"; break;
+		case EAssetRegistryError::NotFound: Code = "NotFound"; break;
+		case EAssetRegistryError::IoError: Code = "IoError"; break;
+		case EAssetRegistryError::CorruptFile: Code = "CorruptFile"; break;
+		case EAssetRegistryError::UnsupportedVersion: Code = "UnsupportedVersion"; break;
+		case EAssetRegistryError::MissingDependency: Code = "MissingDependency"; break;
+		case EAssetRegistryError::StaleData: Code = "StaleData"; break;
+		}
+		auto Error = UnifiedError::FError{{"AssetRegistry", Code}, FormatAssetRegistryError(Result)};
+		if (!Result.Context.Path.empty()) Error.PushContext("path", Result.Context.Path);
+		Error.PushContext("registry reason", std::to_string(static_cast<uint32>(Result.Context.Reason)));
+		if (Result.Context.Actual || Result.Context.Expected)
+			Error.PushContext("actual", std::to_string(Result.Context.Actual))
+				.PushContext("expected", std::to_string(Result.Context.Expected));
+		if (Result.Context.Reason == EAssetRegistryFailure::Envelope)
+			Error.PushContext("envelope code", std::to_string(static_cast<uint32>(Result.Context.EnvelopeCause)));
+		if (Result.Context.ReaderCause)
+		{
+			const auto& Reader = *Result.Context.ReaderCause;
+			Error.PushContext("reader failure", std::to_string(static_cast<uint32>(Reader.Failure)))
+				.PushContext("reader reason", std::to_string(static_cast<uint32>(Reader.Reason)))
+				.PushContext("reader path", Reader.LogicalPath)
+				.PushContext("reader subject", Reader.Subject);
+		}
+		if (Result.Context.SystemError)
+			Error.PushContext("system category", Result.Context.SystemError.category().name())
+				.PushContext("system code", std::to_string(Result.Context.SystemError.value()));
+		return Error;
 	}
 
 	auto FormatAssetRegistryError(const FAssetRegistryResult& Result) -> std::string

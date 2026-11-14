@@ -76,10 +76,12 @@ namespace Durin
 				if (Result.Succeeded() && Options.bSave)
 				{
 					DPackage* Package = Object.GetPackage();
-					Result.SaveResult = Package
-						? SavePackage(Package)
-						: FAssetWriteResult{EAssetWriteError::InvalidPath,
-							"Only packaged assets can be persisted after reimport."};
+					if (Package)
+					{
+						Result.SaveResult.emplace();
+						SavePackage(Package, {}, &*Result.SaveResult);
+					}
+					else Result.SaveResult = FAssetWriteResult{.Error = UnifiedError::FError{AssetWriteErrors::InvalidPath, "Only packaged assets can be persisted after reimport."}};
 				}
 				if (Completion) Completion(std::move(Result));
 			};

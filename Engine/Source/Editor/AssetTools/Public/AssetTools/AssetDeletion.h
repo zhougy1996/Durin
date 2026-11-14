@@ -81,7 +81,8 @@ namespace Durin
 		// and return verified identities for every surviving package and companion.
 		// AssetTools uses these identities for admission; absent callbacks use its
 		// own hashing. Returning only cached identities does not satisfy this contract.
-		std::function<FAssetWriteResult(FAssetDeletionFileIdentities&)> ValidateFiles;
+		// False rejects the attempt; a supplied diagnostic is optional.
+		std::function<bool(FAssetDeletionFileIdentities&, std::optional<UnifiedError::FError>*)> ValidateFiles;
 	};
 
 	// Includes physical roots so companion ownership can be checked for mixed selections.
@@ -106,8 +107,9 @@ namespace Durin
 		ASSETTOOLS_API auto GetWarnings() const -> std::span<const FAssetDeletionWarning>;
 		ASSETTOOLS_API auto GetBlockers() const -> std::span<const FAssetDeletionBlocker>;
 		// Checks the retained confirmation without preparing another plan or authorizing I/O.
+		// Optional diagnostics describe rejection, never write effects.
 		// Delete repeats this check at execution; a successful query is not a lease.
-		ASSETTOOLS_API auto Validate() const -> FAssetWriteResult;
+		ASSETTOOLS_API auto Validate(std::optional<UnifiedError::FError>* OutError = nullptr) const -> bool;
 		// Rejects empty, moved-from, blocked, stale, and completed operations before I/O.
 		// The destructive callback runs once; failure reports partial effects with fenced paths.
 		ASSETTOOLS_API auto Delete(const FAssetDeletionCommit& Commit, FFeedbackContext* Warn = nullptr) -> bool;
@@ -124,10 +126,10 @@ namespace Durin
 			FAssetDeletionOperation& OutOperation, FFeedbackContext* Warn) -> bool;
 	};
 
-	using FAssetDeleteContributor = std::function<FAssetWriteResult(
+	using FAssetDeleteContributor = std::function<bool(
 		const FPackageData&,
 		const FAssetPackageInspection&,
-		FAssetDeleteContribution&
+		FAssetDeleteContribution&, std::optional<UnifiedError::FError>*
 	)>;
 	using FAssetDeleteContributorHandle = uint64;
 	// Owner-thread epoch; destructive hosts fence policy callbacks between physical effects.
@@ -156,9 +158,10 @@ namespace Durin
 		std::vector<FPackagePath> Owners;
 	};
 
+	// Failure is distinct from Unclaimed; ownership output is valid only on success.
 	ASSETTOOLS_API auto QueryAssetCompanionOwnership(
 		const std::filesystem::path& PhysicalPath,
-		FAssetCompanionOwnership& OutOwnership
-	) -> FAssetWriteResult;
+		FAssetCompanionOwnership& OutOwnership,
+		std::optional<UnifiedError::FError>* OutError = nullptr) -> bool;
 
 } // namespace Durin

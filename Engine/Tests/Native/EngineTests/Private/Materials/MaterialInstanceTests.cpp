@@ -319,8 +319,9 @@ TEST(FMaterialInstanceTests, DynamicInstancesAreIndependentAndDoNotDirtyTheirOwn
 	EXPECT_FLOAT_EQ(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*First)).Roughness, Original);
 	EXPECT_FALSE(Base->GetPackage()->IsDirty());
 	// Transient children do not enter the saved asset's object graph.
-	const auto Saved = SavePackage(Base->GetPackage());
-	ASSERT_TRUE(Saved) << Saved.Message;
+	FAssetWriteResult Saved;
+	SavePackage(Base->GetPackage(), {}, &Saved);
+	ASSERT_TRUE(Saved) << (Saved.Error ? Saved.Error->ToString() : std::string{});
 	MarkAsGarbage(First);
 	MarkAsGarbage(Second);
 	MarkAsGarbage(AssetInstance);

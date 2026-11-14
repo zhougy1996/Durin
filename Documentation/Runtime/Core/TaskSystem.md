@@ -154,6 +154,11 @@ retained by the limiter.
 
 ## Shared Task Results
 
+`Tasks::MakeCompletedTask(Value)` creates a valid completed typed task from an
+already available value without submitting work or requiring a running scheduler.
+It uses the same node-owned result lifetime as an executed task; domain failures
+may therefore use the ordinary typed result channel even during shutdown.
+
 `TTask<T>` owns a `Tasks::FTask` handle and converts to it by value;
 `FTaskEvent` derives from `Tasks::Private::FTaskHandle`, exposed publicly as
 `Tasks::FTask`. Typed tasks expose no writable generic base subobject, so generic

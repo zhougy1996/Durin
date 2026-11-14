@@ -159,7 +159,7 @@ namespace Durin::ContentBrowser::Private
 						if (!Native.Result)
 						{
 							const auto FirstFailure = Result.Effects.size();
-							Add(EContentBrowserEffectStatus::Failed, Native.Result.Message);
+							Add(EContentBrowserEffectStatus::Failed, (Native.Result.Error ? Native.Result.Error->ToString() : std::string{}));
 							for (size_t I = FirstFailure; I < Result.Effects.size(); ++I)
 							{
 								for (const auto& Path : Native.BackupLocations) Result.Effects[I].RecoveryLocations.push_back(Path.generic_string());

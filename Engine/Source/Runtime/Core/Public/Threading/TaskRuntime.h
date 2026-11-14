@@ -398,6 +398,7 @@ namespace Durin
 		};
 		struct FTaskRuntimeAccess
 		{
+			CORE_API static auto CreateCompletedTask(const char* DebugName, FTaskResultStorage Result) -> Tasks::FTask;
 			CORE_API static auto CreateTaskEvent(const char* DebugName, bool bUnknownExecutionRequirement) -> Tasks::FTask;
 			CORE_API static auto AddTaskEventPrerequisites(const Tasks::FTask& Event, std::span<const Tasks::FTask> Prerequisites) -> std::optional<Tasks::FTaskConstructionError>;
 			CORE_API static auto TriggerTaskEvent(const Tasks::FTask& Event) -> void;

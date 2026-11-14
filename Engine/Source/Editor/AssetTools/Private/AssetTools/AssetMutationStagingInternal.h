@@ -84,7 +84,7 @@ namespace Durin::AssetToolsPrivate
 	auto StageMutationEntry(
 		FAssetMutationStaging& Staging,
 		const FMutationStageRequest& Request,
-		size_t& OutEntryIndex) -> FAssetWriteResult;
+		size_t& OutEntryIndex, std::optional<UnifiedError::FError>* OutError = nullptr) -> bool;
 	auto NormalizePhysicalPath(const std::filesystem::path& Path)
 		-> std::filesystem::path;
 	auto LoadRelocationBytes(
@@ -92,7 +92,7 @@ namespace Durin::AssetToolsPrivate
 		FByteBuffer& OutBytes) -> std::expected<void, Durin::UnifiedError::FError>;
 	auto SaveRelocationBytes(
 		const std::filesystem::path& Path,
-		FByteView Bytes) -> FAssetWriteResult;
+		FByteView Bytes, std::optional<UnifiedError::FError>* OutError = nullptr) -> bool;
 	auto FingerprintRelocationFile(
 		const std::filesystem::path& Path,
 		FAssetPackageFingerprint& OutFingerprint) -> std::expected<void, Durin::UnifiedError::FError>;
@@ -100,6 +100,6 @@ namespace Durin::AssetToolsPrivate
 		const std::filesystem::path& Path,
 		const FMountPoint*& OutMount,
 		std::string& OutError) -> bool;
-	auto PublishRelocationFile(const FAssetMutationStagingEntry& Entry)
-		-> FAssetWriteResult;
+	auto PublishRelocationFile(const FAssetMutationStagingEntry& Entry, std::optional<UnifiedError::FError>* OutError = nullptr)
+		-> bool;
 }

@@ -37,7 +37,7 @@ namespace Durin::AssetPrivate
 		std::filesystem::file_time_type LastWriteTime) -> FPackageData;
 	auto ToAssetWriteResult(FPackageWriteResult Result) -> FAssetWriteResult;
 
-	auto ValidatePackageSaveAdmission(const FPackagePath& Path) -> FAssetWriteResult;
+	auto ValidatePackageSaveAdmission(const FPackagePath& Path) -> std::expected<void, UnifiedError::FError>;
 
 	// Called after staging. Revalidates live-state admission before physical commit,
 	// then owns Registry publication, compensation, revision acknowledgement and finalization.

@@ -829,7 +829,7 @@ TEST(DFactoryTests, DuplicateSaveFailureRetainsLiveCopyAndAllowsOrdinarySaveRetr
 		FAssetWriteResult Saved;
 		{
 			Testing::FScopedPackageSaveFault Fault([Phase](auto Current, size_t) { return Current == Phase; });
-			Saved = SavePackage(Copy->GetPackage());
+			SavePackage(Copy->GetPackage(), {}, &Saved);
 		}
 		EXPECT_FALSE(Saved);
 		EXPECT_EQ(Saved.Effect, Phase == Testing::EPackageSaveFaultPoint::PublishRegistry
@@ -838,8 +838,9 @@ TEST(DFactoryTests, DuplicateSaveFailureRetainsLiveCopyAndAllowsOrdinarySaveRetr
 		EXPECT_EQ(FindResidentPackage(Path), Copy->GetPackage());
 		EXPECT_EQ(Copy->GetPackage()->IsDirty(), Phase != Testing::EPackageSaveFaultPoint::PublishRegistry);
 		EXPECT_EQ(FindResidentPackage(SourcePath), Created->GetPackage());
-		const auto Retry = SavePackage(Copy->GetPackage());
-		ASSERT_TRUE(Retry) << Retry.Message;
+		FAssetWriteResult Retry;
+		SavePackage(Copy->GetPackage(), {}, &Retry);
+		ASSERT_TRUE(Retry) << (Retry.Error ? Retry.Error->ToString() : std::string{});
 		EXPECT_FALSE(Copy->GetPackage()->IsDirty());
 		EXPECT_TRUE(UnloadPackage(Path));
 	}
@@ -911,7 +912,7 @@ TEST(DFactoryTests, ReimportSaveFailurePreservesImportResultAndCompletesOnce)
 	EXPECT_FALSE(Result.FactoryCause);
 	ASSERT_TRUE(Result.SaveResult);
 	EXPECT_FALSE(*Result.SaveResult);
-	EXPECT_EQ(Result.SaveResult->Error, Durin::EAssetWriteError::InvalidPath);
+	EXPECT_TRUE(Result.SaveResult->Error && Result.SaveResult->Error->Is(Durin::AssetWriteErrors::InvalidPath));
 }
 
 TEST(DFactoryTests, ReimportWithoutSaveHasNoPersistenceResult)
@@ -972,7 +973,7 @@ TEST(DFactoryTests, SuccessfulReimportSaveReportsOwnedPersistenceResult)
 	EXPECT_TRUE(Result);
 	EXPECT_EQ(Result.Message, "100");
 	ASSERT_TRUE(Result.SaveResult);
-	EXPECT_TRUE(*Result.SaveResult) << Result.SaveResult->Message;
+	EXPECT_TRUE(*Result.SaveResult) << (Result.SaveResult->Error ? Result.SaveResult->Error->ToString() : std::string{});
 	EXPECT_FALSE(Result.FactoryCause);
 	EXPECT_FALSE(Created->GetPackage()->IsDirty());
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(Path));

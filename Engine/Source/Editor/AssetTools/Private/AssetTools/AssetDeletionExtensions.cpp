@@ -4,16 +4,15 @@
 #include "DObject/Class.h"
 #include "Misc/MountPaths.h"
 #include "Misc/Paths.h"
+#include "Misc/FileError.h"
 
 namespace Durin
 {
 	namespace
 	{
+		auto Reject(std::optional<UnifiedError::FError>* OutError, UnifiedError::FError Error) -> bool
+		{ if (OutError) *OutError = std::move(Error); return false; }
 		uint64 DeleteContributorRevision = 0;
-		auto Error(EAssetWriteError Code, std::string Message) -> FAssetWriteResult
-		{
-			return {Code, std::move(Message)};
-		}
 
 	struct FRegisteredDeleteContributor
 	{
@@ -37,8 +36,9 @@ namespace Durin
 	auto InspectAssetCompanionFiles(
 		const FPackageData& Data,
 		std::vector<std::filesystem::path>& OutFiles,
-		bool* OutHasContributor = nullptr) -> FAssetWriteResult
+		bool* OutHasContributor, std::optional<UnifiedError::FError>* OutError) -> bool
 	{
+		if (OutError) OutError->reset();
 		OutFiles.clear();
 		if (OutHasContributor) *OutHasContributor = false;
 		// Ownership is a package metadata fact, not a payload-integrity check.
@@ -49,15 +49,7 @@ namespace Durin
 			Data.PhysicalPath, Data.PackagePath, Header);
 		if (!HeaderResult)
 		{
-			EAssetWriteError Code = EAssetWriteError::InvalidData;
-			switch (HeaderResult.Error)
-			{
-			case EAssetRegistryError::IoError: Code = EAssetWriteError::IoError; break;
-			case EAssetRegistryError::InvalidPath: Code = EAssetWriteError::InvalidPath; break;
-			case EAssetRegistryError::UnsupportedVersion: Code = EAssetWriteError::UnsupportedVersion; break;
-			default: break;
-			}
-			return {.Error = Code, .Message = FormatAssetRegistryError(HeaderResult)};
+			return Reject(OutError, Durin::ToError(HeaderResult));
 		}
 		if (Header.BulkSegmentExtent != 0)
 		{
@@ -79,12 +71,13 @@ namespace Durin
 				if (OutHasContributor) *OutHasContributor = true;
 				// Custom contributors retain the complete field-inspection contract.
 				FAssetPackageInspection Inspection;
-				const FAssetWriteResult InspectionResult = AssetWriteResultFromRead(InspectAssetPackage(
-					Data.PhysicalPath, Data.PackagePath, Inspection));
-				if (!InspectionResult) return InspectionResult;
+				if (auto Prepared = InspectAssetPackage(
+					Data.PhysicalPath, Data.PackagePath, Inspection); !Prepared)
+					return Reject(OutError, std::move(Prepared.error()));
 				FAssetDeleteContribution Contribution;
-				FAssetWriteResult Result = It->second.Contributor(Data, Inspection, Contribution);
-				if (!Result) return Result;
+				const bool Result = It->second.Contributor(Data, Inspection, Contribution, OutError);
+				if (!Result)
+				{ if (OutError && !*OutError) OutError->emplace(AssetWriteErrors::InvalidData, "Deletion contributor rejected inspection."); return false; }
 				for (const std::filesystem::path& File : Contribution.Files)
 				{
 					const std::filesystem::path Normalized =
@@ -96,7 +89,7 @@ namespace Durin
 				break;
 			}
 		}
-		return {};
+		return true;
 	}
 
 	}
@@ -125,9 +118,9 @@ namespace Durin
 		}
 		auto InspectAssetCompanionFilesForDeletion(
 			const FPackageData& Data,
-			std::vector<std::filesystem::path>& OutFiles) -> FAssetWriteResult
+			std::vector<std::filesystem::path>& OutFiles, std::optional<UnifiedError::FError>* OutError) -> bool
 		{
-			return InspectAssetCompanionFiles(Data, OutFiles);
+			return InspectAssetCompanionFiles(Data, OutFiles, nullptr, OutError);
 		}
 
 	}
@@ -163,8 +156,9 @@ namespace Durin
 
 	auto QueryAssetCompanionOwnership(
 		const std::filesystem::path& PhysicalPath,
-		FAssetCompanionOwnership& OutOwnership) -> FAssetWriteResult
+		FAssetCompanionOwnership& OutOwnership, std::optional<UnifiedError::FError>* OutError) -> bool
 	{
+		if (OutError) OutError->reset();
 		OutOwnership = {};
 		const std::filesystem::path Candidate =
 			std::filesystem::absolute(PhysicalPath).lexically_normal();
@@ -182,21 +176,17 @@ namespace Durin
 					|| ExistenceError == std::errc::not_a_directory))
 				continue;
 			if (ExistenceError)
-				return {
-					EAssetWriteError::IoError,
-					std::format(
-						"Could not inspect companion owner package {}: {}",
-						Path.ToString(), ExistenceError.message())};
+				return Reject(OutError, ToError(FFileError{.Operation = EFileOperation::Inspect,
+					.NativeError = ExistenceError, .Path = Data.PhysicalPath}).PushContext("companion owner", Path.ToString()));
 			std::vector<std::filesystem::path> CompanionFiles;
 			bool bHasContributor = false;
-			const FAssetWriteResult Result = InspectAssetCompanionFiles(
-				Data, CompanionFiles, &bHasContributor);
+			const bool Result = InspectAssetCompanionFiles(
+				Data, CompanionFiles, &bHasContributor, OutError);
 			if (!Result)
-				return {
-					Result.Error,
-					std::format(
-						"Could not inspect companion ownership for {}: {}",
-						Path.ToString(), Result.Message)};
+			{
+				if (OutError && *OutError) (*OutError)->PushContext("companion owner", Path.ToString());
+				return false;
+			}
 			if (bHasContributor
 				&& std::ranges::contains(CompanionFiles, Candidate))
 				OutOwnership.Owners.push_back(Path);
@@ -211,6 +201,6 @@ namespace Durin
 			: OutOwnership.Owners.size() == 1
 			? EAssetCompanionOwnershipState::Owned
 			: EAssetCompanionOwnershipState::Ambiguous;
-		return {};
+		return true;
 	}
 }

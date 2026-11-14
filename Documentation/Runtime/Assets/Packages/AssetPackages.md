@@ -539,8 +539,15 @@ nested instances of the same type cannot clear or inherit each other's evidence.
 Indexed containers retain child visitation masks because the Archive API permits
 indexed traversal rather than requiring a sequential formatter cursor.
 
-`FAssetWriteResult` and `FAssetBatchSaveResult` remain publication reports.
-Their boolean conversion alone does not describe the resulting content:
+Synchronous `SavePackage` returns `bool`. Callers that need diagnostics or commit
+effects pass an optional `FAssetWriteResult* OutReport`; every call replaces that
+report, including successful saves. There is no separate detailed-save entry point.
+`FAssetWriteResult` remains the completion report for asynchronous persistence and
+mutations; `FAssetBatchSaveResult` additionally owns batch progress. The report
+stores only optional owning `Error` and independent `Effect`. Absence of an error
+means success; an error with an empty message still means failure. There is no
+separate write-error enumeration, cached message, or duplicate cause. Success
+alone does not describe the resulting content:
 
 | Outcome | Report evidence | Caller interpretation |
 | --- | --- | --- |
@@ -552,16 +559,30 @@ Their boolean conversion alone does not describe the resulting content:
 
 Physical writer reports retain recovery/affected paths as described in
 [writer outcome reports](../../ObjectSystem/PackagePersistence.md#writer-outcome-reports).
-The existing Engine adapter appends recovery paths to the message and logs
-failed affected-file paths; it does not expose those vectors as asset fields.
-A Registry failure combined with finalization failure keeps projection-pending
-as its effect and appends the finalization diagnostic. Read/encoding rejection
-adapters produce no write effect. These reports do not authorize retries or
-promise rollback.
+The Engine effect adapter retains recovery paths and native file-operation facts
+as owning error context, and logs failed affected-file paths. It does not expose
+those vectors as asset fields. A Registry failure combined with finalization
+failure preserves the Registry identity and projection-pending effect; rollback
+and finalization errors contribute their domain, code, message and contexts.
+Read/encoding rejection contributes its original error with no write effect. These reports do not authorize retries or
+promise rollback. Runtime initialization, save-readiness and mutation admission,
+byte relocation/reference rewriting and Cook canonicalization return
+`std::expected<void, UnifiedError::FError>` instead of publication reports. Encoding
+failures cross that boundary through `ObjectPackage::ToError`, preserving an
+existing cause. Actual persistence/mutation owners adapt failures into their
+completion reports once. Read-only removal validation, reference-store preparation,
+revalidation and verification, and owned-payload relocation preparation also use
+`expected<void, FError>`; they do not manufacture write effects.
+AssetTools preparation and validation use bool with optional diagnostics where
+callers only stop/report failure; companion queries separately return their
+ownership data. They do not wrap these phases in write reports. Live capture
+failures crossing the encoding interface retain their original owning error,
+without a cached formatted-message copy.
 
 Asynchronous callers retain `Tasks::TTask<FAssetWriteResult>` from
-`DPackage::SaveAsync` with `FAssetPackageSaveContext`; its result reports final
-persistence and Registry disposition. Admission is not completion. See
+`SavePackageAsync(Package, Args, IsCancellationRequested)`; its result reports
+final persistence and Registry disposition. Admission rejection returns a valid
+completed task carrying the original error through the same result channel. See
 [asynchronous save contracts](AssetCatalogAndMutation.md#asynchronous-save-staging).
 
 Each protected package writer assigns one unique save ID to its main/bulk staging and
@@ -709,8 +730,11 @@ reload admission or success result.
 `FPackageGraphPrepareResult` owns a typed reason, the affected package identity,
 admission/budget context, and an optional structured `Cause` from reader, resource,
 graph-validation or asset boundaries. Failed preparation does not replace the
-caller's prior candidate set. `FormatPackageGraphPrepareError` presents the owned
-diagnostic without retaining candidate objects or complete asset operations.
+caller's prior candidate set. Preparation retains the cause without a duplicate
+formatted message. Reload carries that cause into its diagnostic while retaining
+its own status, stage and package identity. `FormatPackageGraphPrepareError` and
+`FormatPackageReloadDiagnostic` format causes at presentation boundaries without
+retaining candidate objects or complete asset operations.
 
 ## Saved Package Reload
 

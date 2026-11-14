@@ -272,7 +272,7 @@ TEST(RoadSceneIntegration, CheckedInRoadLevelLoadsAndSurvivesGC)
 	ASSERT_EQ(WeakLevel.Get(), Level);
 	EXPECT_TRUE(EmbeddedRoadNet.IsValid());
 	EXPECT_FALSE(Level->GetPackage()->IsDirty());
-	{ const auto Saved = SavePackage(Level->GetPackage()); ASSERT_TRUE(Saved) << Saved.Message; }
+	{ FAssetWriteResult Report; ASSERT_TRUE(SavePackage(Level->GetPackage(), {}, &Report)) << (Report.Error ? Report.Error->ToString() : std::string{}); }
 	EXPECT_FALSE(Level->GetPackage()->IsDirty());
 	ASSERT_TRUE(UnloadPackage(Level->GetPackage()));
 	EXPECT_FALSE(WeakLevel.IsValid());

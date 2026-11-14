@@ -12,7 +12,6 @@ namespace Durin
 	namespace
 	{
 		auto Error(Durin::UnifiedError::FErrorId Id, std::string Message) -> std::expected<void, Durin::UnifiedError::FError> { return std::unexpected(Durin::UnifiedError::FError{Id, std::move(Message)}); }
-		auto Error(EAssetWriteError Code, std::string Message) -> FAssetWriteResult { return {Code, std::move(Message)}; }
 		auto AssetPathResolutionError(
 			const FPackagePathResolveResult& Resolution) -> std::expected<void, Durin::UnifiedError::FError>
 		{
@@ -61,7 +60,7 @@ namespace Durin
 		FByteView BulkBytes,
 		const FPackagePath& PackagePath,
 		FByteBuffer& OutBytes,
-		FByteBuffer& OutBulkBytes) -> FAssetWriteResult
+		FByteBuffer& OutBulkBytes) -> std::expected<void, UnifiedError::FError>
 	{
 		return CanonicalizeAssetPackageForCook(
 			Bytes, BulkBytes, PackagePath, PackagePath, OutBytes, OutBulkBytes);
@@ -73,15 +72,15 @@ namespace Durin
 		const FPackagePath& SourcePackagePath,
 		const FPackagePath& OutputPackagePath,
 		FByteBuffer& OutBytes,
-		FByteBuffer& OutBulkBytes) -> FAssetWriteResult
+		FByteBuffer& OutBulkBytes) -> std::expected<void, UnifiedError::FError>
 	{
 		OutBytes.clear();
 		OutBulkBytes.clear();
 		const AssetPrivate::FAssetPackageCodec* Codec = nullptr;
 		if (auto Result = AssetPrivate::ResolveAssetPackageReader(Bytes, Codec); !Result)
-			return AssetWriteResultFromRead(Result);
+			return Result;
 		if (!Codec->bCanMutate)
-			return Error(EAssetWriteError::UnsupportedVersion,
+			return Error(PackageReadErrors::UnsupportedVersion,
 				"Cook canonicalization requires package mutation capability.");
 		FByteBuffer RelocatedBytes;
 		FByteBuffer RelocatedBulkBytes;
@@ -92,9 +91,9 @@ namespace Durin
 				.PackagePath = SourcePackagePath,
 				.PhysicalPackageBytes = Bytes.size()};
 			AssetPrivate::FAssetPackageEncodedClosure Relocated;
-			auto RelocateResult = AssetWriteResultFromEncoding(Codec->Relocate(
-				SourceContext, OutputPackagePath, Relocated));
-			if (!RelocateResult) return RelocateResult;
+			auto RelocateResult = Codec->Relocate(
+				SourceContext, OutputPackagePath, Relocated);
+			if (!RelocateResult) return std::unexpected(ObjectPackage::ToError(RelocateResult));
 			RelocatedBytes = std::move(Relocated.PackageBytes);
 			RelocatedBulkBytes = std::move(Relocated.BulkBytes);
 			Bytes = RelocatedBytes;
@@ -105,13 +104,13 @@ namespace Durin
 			.PackagePath = OutputPackagePath, .PhysicalPackageBytes = Bytes.size()};
 		FAssetPackageHeader Header;
 		auto Result = Codec->ReadHeader(Context, Header);
-		if (!Result) return AssetWriteResultFromRead(Result);
+		if (!Result) return Result;
 		if ((!Header.TopLevelAssets.empty() && std::ranges::all_of(Header.TopLevelAssets, &FAssetData::IsRedirector)))
-			return Error(EAssetWriteError::InvalidData,
+			return Error(PackageReadErrors::CorruptFile,
 				"CookCanonicalizationRedirectorPackage: redirector packages are uncooked-only.");
 		std::vector<FAssetReferenceEdge> References;
 		Result = Codec->ExtractReferences(Context, References);
-		if (!Result) return AssetWriteResultFromRead(Result);
+		if (!Result) return Result;
 
 		std::vector<FAssetPackageReferenceMapping> Mappings;
 		auto ResolveReference = [&](const FPackagePath& Path,
@@ -148,13 +147,13 @@ namespace Durin
 		for (const FPackagePath& Dependency : Header.Dependencies)
 		{
 			Result = ResolveReference(Dependency, {}, "package dependency table");
-			if (!Result) return AssetWriteResultFromRead(Result);
+			if (!Result) return Result;
 		}
 		for (const FAssetReferenceEdge& Reference : References)
 		{
 			Result = ResolveReference(Reference.TargetPath.GetPackagePath(), Reference.ExpectedClass,
 				Reference.DisplayRoute);
-			if (!Result) return AssetWriteResultFromRead(Result);
+			if (!Result) return Result;
 		}
 		if (Mappings.empty())
 		{

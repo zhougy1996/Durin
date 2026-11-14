@@ -52,7 +52,7 @@ namespace Durin::LevelEditor
 		const auto Result = IAssetTools::Get().RelocateAssets({
 			.Mappings = std::move(Mappings)}, &ResultFeedback);
 		return Result ? FAssetWriteResult{}
-			: FAssetWriteResult{EAssetWriteError::IoError, ResultError};
+			: FAssetWriteResult{.Error = UnifiedError::FError{AssetWriteErrors::IoError, ResultError}};
 	}
 
 	auto FEditorAssetMoveCoordinator::OnAssetsRelocated(

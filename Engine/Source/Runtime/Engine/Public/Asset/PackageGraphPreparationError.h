@@ -40,7 +40,7 @@ namespace Durin
 		std::string Subject;
 		uint64 Actual = 0;
 		uint64 Maximum = 0;
-		std::string Message;
+		// Stage-specific reasons remain authoritative; a lower-layer cause is preserved without cached prose.
 		std::optional<UnifiedError::FError> Cause;
 		explicit operator bool() const { return Status == EPackageGraphPrepareStatus::ValuesPrepared; }
 	};

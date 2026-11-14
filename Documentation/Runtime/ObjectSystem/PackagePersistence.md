@@ -15,7 +15,7 @@ Engine's [object loader](../Assets/Packages/ObjectLoading.md) owns package-tag
 interpretation and load-local bindings; this substrate remains Engine-independent.
 
 `DPackage::Save(FPackageSaveOptions)` and
-`SaveAsync(Admission, FSavePackageContext{Options})` persist
+`FSavePackageContext{Options}.SaveAsync(Package)` persist
 ordinary reflected package files without Engine or an initialized asset registry.
 They do not admit assets, prepare texture payloads, validate catalog dependencies,
 or publish asset metadata. Asset callers continue through the
@@ -44,8 +44,8 @@ object/field identities, routes and numeric bounds, retain path, default-delta,
 property-value and snapshot causes, and preserve Archive code/path. Capture
 publishes the Linker only on success. Internal container adaptation rejects missing
 child descriptors and propagates recursive failures. `ToString`
-owns prose; pending save admission retains `CaptureCause`, while the pending Engine
-asset adapter formats explicitly.
+owns prose; `ToError` converts a failed capture once into an owning
+`PackageCapture` error, preserving identities, field routes and bounds.
 
 `FObjectSaveOverrides` owns
 non-mutating omissions/replacements. Its mutation APIs return `std::expected<void, FSaveOverrideError>`
@@ -65,17 +65,16 @@ this API does not add a general object loader.
 
 ## Operation Lifetime and Completion
 
-`SaveAsync` requires an explicit context and returns an existing typed Task.
-`FSavePackageContext` supplies `Tasks::TTask<FPackageSaveResult>`; Engine's
-`FAssetPackageSaveContext` supplies `Tasks::TTask<FAssetWriteResult>` with asset policy
-and Registry publication. There is no default context or implicit file-only
-fallback. Options are copied at submission; choosing `SaveAsync` determines
-scheduling without a second flag.
-Cancellation is supplied through `IsCancellationRequested`; the operation retains
-the copied callback through publication. Captures must own their state or keep any
-borrowed state alive until the returned task and async-save owner have retired.
-Rejected admission returns an invalid task and a domain error in `Admission`;
-accepted admission is not successful persistence.
+`FSavePackageContext::SaveAsync(Package)` returns
+`Tasks::TTask<FPackageWriteResult>` for Engine-independent file persistence.
+Engine's `SavePackageAsync(Package, Args, IsCancellationRequested)` returns
+`Tasks::TTask<FAssetWriteResult>` with asset policy and Registry publication.
+There is no implicit file-only fallback. Options and cancellation callbacks are
+copied at submission and must own their state or keep borrowed state alive until
+the task and async-save owner retire. Every ordinary rejection returns a valid,
+completed task containing the original error; no admission output or invalid-task
+failure channel exists. A successful task execution can contain a failed save
+result. Accepted admission alone is not successful persistence.
 
 Before archive passes, capture invokes `DObject::PreSave` once per selected
 object with authored/cooked target context. Typed failure aborts capture, and
@@ -150,7 +149,9 @@ independently of the worker task state. Ordinary Task waits never pump;
 a GameThread wait on an unfinished final save task is unsupported.
 
 Headless hosts initialize the deferred executor and explicitly call GameThread
-`DPackage::DrainAsyncSaves()` to finish a submission cutoff through publication.
+`DPackage::DrainAsyncSaves(OutError)` to finish a submission cutoff through publication.
+It returns `bool` with an optional owning diagnostic; it has no write-effect
+state or recovery-file report.
 Drain waits its cutoff's I/O, then explicitly pumps deferred work until every
 publication task is terminal, and reaps owner records. It can execute unrelated
 deferred callbacks; recursive drain and new save admission are rejected for the
@@ -174,10 +175,13 @@ public task-returning member's completion protocol.
 `CommitStaged()` retains backups for a coordinator; `FinalizeCommit()` releases
 those backups and finalizes dirty state; `RollbackCommit()` restores the previous
 closure and leaves dirty state intact. A rolled-back operation terminates with
-`Cancelled`. `FPackageSaveResult::CommitState` distinguishes `NotCommitted`,
+`Cancelled`. `FPackageWriteResult::State` distinguishes `NotCommitted`,
 `Committed`, and `RecoveryRequired`; an I/O error after content commit must not be
 interpreted as an uncommitted save. Failed restoration retains backup files and reports their paths in `RecoveryFiles`.
 Synchronous saving does not require an initialized task scheduler.
+Operation `Begin` returns a nullable operation with an optional error; preparation
+does not return a write-completion report. No admission-result getter or unused
+commit-reservation protocol exists on the physical writer.
 
 Core's reusable `IPackageWriter` creates isolated `IPackageWriteOperation`
 instances. The file implementation uses `FFileHelper::SaveArrayToNewFile`,
@@ -190,7 +194,11 @@ writes clean up only newly created files. After a successful write, `Stage`
 checks its size against the input buffer and records its modification time, then
 releases the buffer. `Commit` rechecks destination and staged stamps before switching
 files in input order, `Finalize` releases backups, and `Rollback` restores files
-in reverse order. Results retain committed/recovery-required state and recovery
+in reverse order. The package writer owns this closure rollback exactly once.
+`FFileReplacement::Publish` leaves its backup/publication flags intact on failure
+and never restores a file independently. File inspection, rename and removal
+return bool with optional native file errors, preserving operation, native code
+and both paths until the owning domain converts the failure. Results retain committed/recovery-required state and recovery
 paths. Destruction removes only owned stages and rolls back unfinished commits;
 failed rollback or finalization retains recovery files. The enclosing operation
 must drain staging before calling other methods or destroying writer state.
@@ -216,14 +224,14 @@ interrupted jobs at startup.
 
 ### Writer Outcome Reports
 
-`FPackageWriteResult` remains a report: its boolean conversion checks `Error`,
-while `State`, `RecoveryFiles` and `AffectedFiles` describe observed effects.
-A successful phase is not necessarily a committed save. Staging and directory
-creation failures retain `FileCause` with operation, physical path and native
-error. CoreDObject carries it into `FPackageSaveResult`; capture failures also
-retain `CaptureCause`. `Message` remains a presentation snapshot for the
-external/custom writer protocol and string-only publication adapters. Typed
-causes supplement that report without discarding commit or recovery evidence.
+`FPackageWriteResult` is shared by the physical writer and CoreDObject save
+completion. It retains one optional owning `Error`, the native `State`, and
+`RecoveryFiles`/`AffectedFiles`; no second save-result type or state translation
+exists. Success is absence of an error. A successful phase is not necessarily a
+committed save. File and capture failures convert once in their owning domains,
+retaining operation, path, native error, field route and bounds as error context.
+Propagation does not reclassify writer, encoding or capture identities. There is
+no cached message or duplicate typed cause in the completion report.
 
 | Producer / outcome | State and payload | Interpretation |
 | --- | --- | --- |

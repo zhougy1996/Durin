@@ -4,6 +4,7 @@
 #include "Misc/CoreTypes.h"
 
 #include "CoreAPI.h"
+#include "Misc/UnifiedError.h"
 #include "Misc/FilePath.h"
 
 namespace Durin
@@ -14,7 +15,7 @@ namespace Durin
 		NormalizePath, Inspect, OpenRead, QuerySize, Read,
 		CreateParentDirectories, OpenWrite, Write, Close,
 		CreateTemporaryFile, WriteTemporaryFile, FlushTemporaryFile,
-		CloseTemporaryFile, ReplaceDestination
+		CloseTemporaryFile, ReplaceDestination, Rename, Remove, QueryTime
 	};
 
 	// Owns the native cause and physical context; formatting never logs.
@@ -30,4 +31,5 @@ namespace Durin
 		CORE_API auto ToString() const -> std::string;
 	};
 
+	CORE_API auto ToError(const FFileError& Error) -> UnifiedError::FError;
 }

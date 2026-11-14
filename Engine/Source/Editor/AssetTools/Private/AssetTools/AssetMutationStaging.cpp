@@ -14,10 +14,8 @@ namespace Durin::AssetToolsPrivate
 {
 	namespace
 	{
-		auto Error(EAssetWriteError Code, std::string Message) -> FAssetWriteResult
-		{
-			return {Code, std::move(Message)};
-		}
+		auto Reject(std::optional<UnifiedError::FError>* OutError, UnifiedError::FError Error) -> bool
+		{ if (OutError) *OutError = std::move(Error); return false; }
 
 		auto Error(Durin::UnifiedError::FErrorId Id, std::string Message) -> std::expected<void, Durin::UnifiedError::FError>
 		{
@@ -92,18 +90,19 @@ namespace Durin::AssetToolsPrivate
 	{
 		OutBytes.clear();
 		auto Loaded = FFileHelper::LoadFileToArray(Path);
-		if (!Loaded) return Error(Durin::PackageReadErrors::IoError, Loaded.error().ToString());
+		if (!Loaded) return std::unexpected(ToError(Loaded.error()));
 		OutBytes = std::move(*Loaded);
 		return {};
 	}
 
 	auto SaveRelocationBytes(
 		const std::filesystem::path& Path,
-		FByteView Bytes) -> FAssetWriteResult
+		FByteView Bytes, std::optional<UnifiedError::FError>* OutError) -> bool
 	{
+		if (OutError) OutError->reset();
 		auto Saved = FFileHelper::SaveArrayToFileAtomically(Bytes, Path);
-		if (!Saved) return Error(EAssetWriteError::IoError, Saved.error().ToString());
-		return {};
+		if (!Saved) return Reject(OutError, ToError(Saved.error()));
+		return true;
 	}
 
 	auto FingerprintRelocationFile(
@@ -166,8 +165,9 @@ namespace Durin::AssetToolsPrivate
 	auto StageMutationEntry(
 		FAssetMutationStaging& Staging,
 		const FMutationStageRequest& Request,
-		size_t& OutEntryIndex) -> FAssetWriteResult
+		size_t& OutEntryIndex, std::optional<UnifiedError::FError>* OutError) -> bool
 	{
+		if (OutError) OutError->reset();
 		OutEntryIndex = std::numeric_limits<size_t>::max();
 		const std::filesystem::path Normalized =
 			NormalizePhysicalPath(Request.PhysicalPath);
@@ -186,15 +186,15 @@ namespace Durin::AssetToolsPrivate
 		std::string PathError;
 		const FMountPoint* Mount = nullptr;
 		if (!IsWritableRelocationPath(Normalized, Mount, PathError))
-			return Error(EAssetWriteError::ReadOnlyMode, std::move(PathError));
+			return Reject(OutError, UnifiedError::FError{AssetWriteErrors::ReadOnlyMode, std::move(PathError)});
 		if (Request.bPreExists && IsReadOnlyMutationInput(Normalized))
-			return Error(EAssetWriteError::ReadOnlyMode, std::format(
-				"Asset mutation input is read-only: {}.", Key));
+			return Reject(OutError, UnifiedError::FError{AssetWriteErrors::ReadOnlyMode, std::format(
+				"Asset mutation input is read-only: {}.", Key)});
 		if (Request.bPreExists)
 		{
-			FAssetWriteResult Result = AssetWriteResultFromRead(FingerprintAssetPackageBytes(
-				Key, Request.PreBytes, Entry.ExpectedPreFingerprint));
-			if (!Result) return Result;
+			if (auto Prepared = FingerprintAssetPackageBytes(
+				Key, Request.PreBytes, Entry.ExpectedPreFingerprint); !Prepared)
+				return Reject(OutError, std::move(Prepared.error()));
 		}
 
 		if (const auto Existing = Staging.EntryIndices.find(Key);
@@ -214,10 +214,10 @@ namespace Durin::AssetToolsPrivate
 				&& bEquivalent)
 			{
 				OutEntryIndex = Existing->second;
-				return {};
+				return true;
 			}
-			return Error(EAssetWriteError::AlreadyExists, std::format(
-				"Asset mutation participants claim the same file {}.", Key));
+			return Reject(OutError, UnifiedError::FError{AssetWriteErrors::AlreadyExists, std::format(
+				"Asset mutation participants claim the same file {}.", Key)});
 		}
 
 		const size_t Index = Staging.Entries.size();
@@ -232,17 +232,17 @@ namespace Durin::AssetToolsPrivate
 			bCreatedRoot = std::filesystem::create_directories(
 				Root, DirectoryError);
 			if (DirectoryError)
-				return Error(EAssetWriteError::IoError, std::format(
+				return Reject(OutError, UnifiedError::FError{AssetWriteErrors::IoError, std::format(
 					"Could not create asset mutation staging root: {}",
-					DirectoryError.message()));
+					DirectoryError.message())});
 			if (!bCreatedRoot)
-				return Error(EAssetWriteError::AlreadyExists, std::format(
+				return Reject(OutError, UnifiedError::FError{AssetWriteErrors::AlreadyExists, std::format(
 					"Asset mutation staging root already exists: {}.",
-					Root.generic_string()));
+					Root.generic_string())});
 			const std::string Marker =
 				MakeMutationStagingOwnerMarker(Staging.OperationId);
-			FAssetWriteResult MarkerResult = SaveRelocationBytes(
-				Root / "owner", std::as_bytes(std::span(Marker)));
+			const bool MarkerResult = SaveRelocationBytes(
+				Root / "owner", std::as_bytes(std::span(Marker)), OutError);
 			if (!MarkerResult)
 			{
 				std::error_code CleanupError;
@@ -266,8 +266,8 @@ namespace Durin::AssetToolsPrivate
 		};
 		if (Request.bPreExists)
 		{
-			FAssetWriteResult Result = SaveRelocationBytes(
-				BackupPath, Request.PreBytes);
+			const bool Result = SaveRelocationBytes(
+				BackupPath, Request.PreBytes, OutError);
 			if (!Result)
 			{
 				CleanupStagedEntry();
@@ -276,8 +276,8 @@ namespace Durin::AssetToolsPrivate
 		}
 		if (Request.bPostExists)
 		{
-			FAssetWriteResult Result = SaveRelocationBytes(
-				Entry.StagedPostPath, Request.PostBytes);
+			const bool Result = SaveRelocationBytes(
+				Entry.StagedPostPath, Request.PostBytes, OutError);
 			if (!Result)
 			{
 				CleanupStagedEntry();
@@ -287,34 +287,30 @@ namespace Durin::AssetToolsPrivate
 		Staging.Entries.push_back(std::move(Entry));
 		Staging.EntryIndices.emplace(Key, Index);
 		OutEntryIndex = Index;
-		return {};
+		return true;
 	}
 
 	auto PublishRelocationFile(
-		const FAssetMutationStagingEntry& Entry) -> FAssetWriteResult
+		const FAssetMutationStagingEntry& Entry, std::optional<UnifiedError::FError>* OutError) -> bool
 	{
+		if (OutError) OutError->reset();
 		if (!Entry.bPostExists)
 		{
 			std::error_code RemoveError;
 			if (!std::filesystem::remove(Entry.PhysicalPath, RemoveError)
 				&& RemoveError)
-				return Error(EAssetWriteError::IoError, std::format(
-					"Could not remove relocation input {}: {}",
-					Entry.PhysicalPath.generic_string(),
-					RemoveError.message()));
-			return {};
+				return Reject(OutError, ToError(FFileError{.Operation = EFileOperation::Remove, .NativeError = RemoveError, .Path = Entry.PhysicalPath}));
+			return true;
 		}
 		FByteBuffer Bytes;
-		FAssetWriteResult Result = AssetWriteResultFromRead(LoadRelocationBytes(Entry.StagedPostPath, Bytes));
-		if (!Result) return Result;
+		if (auto Prepared = LoadRelocationBytes(Entry.StagedPostPath, Bytes); !Prepared)
+			return Reject(OutError, std::move(Prepared.error()));
 		std::error_code DirectoryError;
 		std::filesystem::create_directories(
 			Entry.PhysicalPath.parent_path(), DirectoryError);
 		if (DirectoryError)
-			return Error(EAssetWriteError::IoError, std::format(
-				"Could not create relocation destination directory: {}",
-				DirectoryError.message()));
-		return SaveRelocationBytes(Entry.PhysicalPath, Bytes);
+			return Reject(OutError, ToError(FFileError{.Operation = EFileOperation::CreateParentDirectories, .NativeError = DirectoryError, .Path = Entry.PhysicalPath.parent_path()}));
+		return SaveRelocationBytes(Entry.PhysicalPath, Bytes, OutError);
 	}
 
 }

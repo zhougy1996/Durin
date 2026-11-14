@@ -6,6 +6,8 @@ namespace Durin
 {
 	namespace
 	{
+		auto Failure(UnifiedError::FErrorId Id, std::string Message = {}, EPackageWriteState State = EPackageWriteState::NotCommitted) -> FPackageWriteResult
+		{ return {.Error = UnifiedError::FError{Id, std::move(Message)}, .State = State}; }
 		struct FFileAccessCount { uint32 Readers = 0; bool bWriter = false; };
 		std::mutex FileAccessMutex;
 		std::unordered_map<std::filesystem::path, FFileAccessCount> FileAccessCounts;
@@ -37,11 +39,6 @@ namespace Durin
 		public:
 			explicit FFilePackageWriteOperation(std::vector<FPackageWriteFile> InFiles)
 				: Files(std::move(InFiles)) {}
-			auto ReserveCommit() -> FPackageWriteResult override
-			{
-				if (!Access) Access = AcquireWriteFiles(Files);
-				return Access ? FPackageWriteResult{} : FPackageWriteResult{EPackageWriteError::InvalidState, "Package output is in use."};
-			}
 			~FFilePackageWriteOperation() override
 			{
 				if (bCommitted && !bTerminal) (void)Rollback();
@@ -50,7 +47,7 @@ namespace Durin
 			auto Stage() -> FPackageWriteResult override
 			{
 				if (bTerminal) return Result;
-				if (bStaged || bCommitted) return {EPackageWriteError::InvalidState, "Writer is already staged."};
+				if (bStaged || bCommitted) return Failure(PackageWriteErrors::InvalidState, "Writer is already staged.");
 				std::unordered_set<std::filesystem::path> Paths;
 				for (const auto& File : Files)
 				{
@@ -62,7 +59,7 @@ namespace Durin
 						|| (!R.Staged.empty() && !Paths.insert(R.Staged.lexically_normal()).second))
 					{
 						bTerminal = true;
-						return Result = {EPackageWriteError::InvalidState, "Writer paths must be nonempty and distinct, with inactive replacements."};
+						return Result = Failure(PackageWriteErrors::InvalidState, "Writer paths must be nonempty and distinct, with inactive replacements.");
 					}
 				}
 				for (const auto& File : Files)
@@ -73,7 +70,7 @@ namespace Durin
 						|| (!Replacement.Staged.empty() && (std::filesystem::exists(Replacement.Staged, Ec) || Ec)))
 					{
 						bTerminal = true;
-						return Result = {EPackageWriteError::IoError, "Writer staging or backup path is occupied."};
+						return Result = Failure(PackageWriteErrors::IoError, "Writer staging or backup path is occupied.");
 					}
 				}
 				for (auto& File : Files)
@@ -87,21 +84,22 @@ namespace Durin
 					{
 						bTerminal = true;
 						Cleanup();
-						Result = {EPackageWriteError::IoError};
-						Result.FileCause = Ec ? FFileError{.Operation = EFileOperation::CreateParentDirectories,
+						const auto FileFailure = Ec ? FFileError{.Operation = EFileOperation::CreateParentDirectories,
 							.NativeError = Ec, .Path = File.Replacement.Destination.parent_path()} : Saved.error();
-						Result.Message = Result.FileCause->ToString();
+						Result = {.Error = ToError(FileFailure)};
 						return Result;
 					}
 					if (!File.Replacement.Staged.empty()) OwnedStages.push_back(File.Replacement.Staged);
 					FFilePublicationStamp Stamp;
+					std::optional<FFileError> InspectionError;
 					if (!File.Replacement.Staged.empty()
-						&& (!FFilePublicationStamp::Inspect(File.Replacement.Staged, Stamp)
+						&& (!FFilePublicationStamp::Inspect(File.Replacement.Staged, Stamp, &InspectionError)
 							|| !Stamp.Exists || Stamp.Size != File.Bytes.size()))
 					{
 						bTerminal = true;
 						Cleanup();
-						return Result = {EPackageWriteError::IoError, "Cannot verify staged package metadata."};
+						return Result = InspectionError ? FPackageWriteResult{.Error = ToError(*InspectionError)}
+							: Failure(PackageWriteErrors::CorruptFile, "Cannot verify staged package metadata.");
 					}
 					StagedStamps.push_back(Stamp);
 					// Publication needs only paths and metadata; release bytes on the staging thread.
@@ -113,39 +111,52 @@ namespace Durin
 			auto Commit() -> FPackageWriteResult override
 			{
 				if (bTerminal || bCommitted) return Result;
-				if (!bStaged) return {EPackageWriteError::InvalidState, "Writer has not staged its output."};
+				if (!bStaged) return Failure(PackageWriteErrors::InvalidState, "Writer has not staged its output.");
 				if (!Access) Access = AcquireWriteFiles(Files);
-				if (!Access) return {EPackageWriteError::InvalidState, "Package output is in use."};
-				auto Reject = [&](EPackageWriteError Error, const char* Message) {
+				if (!Access) return Failure(PackageWriteErrors::InvalidState, "Package output is in use.");
+				auto Reject = [&](UnifiedError::FErrorId Error, const char* Message) {
 					Access.reset();
-					return FPackageWriteResult{Error, Message};
+					return Failure(Error, Message);
 				};
 				for (size_t Index = 0; Index < Files.size(); ++Index)
 				{
 					const auto& File = Files[Index];
 					FFilePublicationStamp Current;
-					if (!FFilePublicationStamp::Inspect(File.Replacement.Destination, Current) || Current != File.Expected)
-						return Reject(EPackageWriteError::StaleData, "Package destination changed while saving.");
+					std::optional<FFileError> InspectionError;
+					if (!FFilePublicationStamp::Inspect(File.Replacement.Destination, Current, &InspectionError))
+					{ Access.reset(); return FPackageWriteResult{.Error = ToError(*InspectionError)}; }
+					if (Current != File.Expected)
+						return Reject(PackageWriteErrors::StaleData, "Package destination changed while saving.");
 					if (!File.Replacement.Staged.empty())
 					{
-						if (!FFilePublicationStamp::Inspect(File.Replacement.Staged, Current) || Current != StagedStamps[Index])
-							return Reject(EPackageWriteError::CorruptFile, "Staged package metadata changed.");
+						if (!FFilePublicationStamp::Inspect(File.Replacement.Staged, Current, &InspectionError))
+						{ Access.reset(); return FPackageWriteResult{.Error = ToError(*InspectionError)}; }
+						if (Current != StagedStamps[Index])
+							return Reject(PackageWriteErrors::CorruptFile, "Staged package metadata changed.");
 					}
 				}
 				for (auto& File : Files)
 				{
-					std::string Error;
-					if (!File.Replacement.Publish(Error))
+					std::optional<FFileError> Error;
+					if (!File.Replacement.Publish(&Error))
 					{
 						auto Restored = Rollback();
-						Result = {EPackageWriteError::IoError, Error + (Restored ? "" : "; rollback: " + Restored.Message),
-							Restored.State, std::move(Restored.RecoveryFiles)};
+						Result = {.Error = ToError(*Error), .State = Restored.State};
+						if (Restored.Error)
+						{
+							Result.Error->PushContext("rollback domain", Restored.Error->GetDomain())
+								.PushContext("rollback code", Restored.Error->GetCode());
+							for (const auto& Context : Restored.Error->GetContexts())
+								Result.Error->PushContext("rollback " + Context.Key, Context.Value);
+						}
+						Result.RecoveryFiles = std::move(Restored.RecoveryFiles);
+						Result.AffectedFiles = std::move(Restored.AffectedFiles);
 						return Result;
 					}
 					std::erase(OwnedStages, File.Replacement.Staged);
 				}
 				bCommitted = true;
-				return Result = {EPackageWriteError::None, {}, EPackageWriteState::Committed};
+				return Result = {.State = EPackageWriteState::Committed};
 			}
 			auto Rollback() -> FPackageWriteResult override
 			{
@@ -153,12 +164,12 @@ namespace Durin
 				Result = {};
 				for (auto It = Files.rbegin(); It != Files.rend(); ++It)
 				{
-					std::string Error;
-					if (!It->Replacement.Rollback(Error))
+					std::optional<FFileError> Error;
+					if (!It->Replacement.Rollback(&Error))
 					{
-						Result.Error = EPackageWriteError::IoError;
+						if (!Result.Error) Result.Error = ToError(*Error);
+						else Result.Error->PushContext("additional file failure", Error->ToString());
 						Result.State = EPackageWriteState::RecoveryRequired;
-						Result.Message += Error + "; ";
 					}
 				}
 				RecoveryFiles(Result);
@@ -170,12 +181,15 @@ namespace Durin
 			auto Finalize() -> FPackageWriteResult override
 			{
 				if (bTerminal) return Result;
-				if (!bCommitted) return {EPackageWriteError::InvalidState, "No committed output to finalize."};
+				if (!bCommitted) return Failure(PackageWriteErrors::InvalidState, "No committed output to finalize.");
 				for (auto& File : Files)
 				{
-					std::string Error;
-					if (!File.Replacement.Finalize(Error))
-					{ Result.Error = EPackageWriteError::IoError; Result.Message += Error + "; "; }
+					std::optional<FFileError> Error;
+					if (!File.Replacement.Finalize(&Error))
+					{
+						if (!Result.Error) Result.Error = ToError(*Error);
+						else Result.Error->PushContext("additional file failure", Error->ToString());
+					}
 				}
 				RecoveryFiles(Result);
 				bTerminal = true; bCommitted = false;

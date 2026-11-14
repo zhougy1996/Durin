@@ -31,3 +31,15 @@ Internal transactional/status operations may use `std::expected<T, FError>` to
 propagate failures. The diagnostic type does not require that return convention
 for every API and does not introduce a global error enumeration, logging policy,
 exception system, or operation recovery metadata.
+
+Asset write reports retain one optional `FError` alongside their independent
+observed write effect. They have no cached presentation message, duplicate cause,
+or broad failure reclassification. Native Registry and encoding failures convert
+once in their owning domains; propagating a failure into a write report copies
+or moves that error without replacing its identity.
+
+File conversion uses a short native message and structured operation/path/code
+context, rather than embedding a fully formatted diagnostic and repeating its
+fields. Encoding adapters with an existing cause format that cause on demand;
+they do not cache `Cause.ToString()` in a second message field. Optional diagnostic
+outputs accompany bool APIs when callers need only success/failure and presentation.

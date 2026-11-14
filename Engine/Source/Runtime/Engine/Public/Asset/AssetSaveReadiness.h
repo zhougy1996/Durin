@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "EngineAPI.h"
-#include "Asset/AssetWriteResult.h"
+#include "Misc/UnifiedError.h"
 #include "Modules/ModularFeature.h"
 
 namespace Durin
@@ -14,7 +14,7 @@ namespace Durin
 	struct FAssetSaveReadinessFeatureResult
 	{
 		bool bHandled = false;
-		FAssetWriteResult Result;
+		std::expected<void, UnifiedError::FError> Result;
 	};
 
 	// Lets asset-family modules validate family-specific transient state before a save.
@@ -22,12 +22,12 @@ namespace Durin
 	{
 	public:
 		static constexpr std::string_view FeatureName = "Engine.AssetSaveReadiness";
-		static constexpr uint32 FeatureVersion = 1;
+		static constexpr uint32 FeatureVersion = 2;
 		virtual auto Validate(const DObject& Asset) const
 			-> FAssetSaveReadinessFeatureResult = 0;
 	};
 
 	// Rejects missing assets, ambiguous providers, and handled assets that are not ready.
 	ENGINE_API auto ValidateAssetSaveReadiness(const DObject* Asset)
-		-> FAssetWriteResult;
+		-> std::expected<void, UnifiedError::FError>;
 }

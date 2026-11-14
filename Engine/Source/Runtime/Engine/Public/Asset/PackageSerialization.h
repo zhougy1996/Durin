@@ -11,6 +11,7 @@
 #include "DObject/Property.h"
 #include "DObject/SoftObjectPtr.h"
 #include "DObject/PackagePersistence.h"
+#include "Threading/Task.h"
 
 namespace Durin
 {
@@ -20,7 +21,7 @@ namespace Durin
 		const FPackagePath& PackagePath,
 		FByteBuffer& OutBytes,
 		FByteBuffer& OutBulkBytes
-	) -> FAssetWriteResult;
+	) -> std::expected<void, UnifiedError::FError>;
 	ENGINE_API auto CanonicalizeAssetPackageForCook(
 		FByteView Bytes,
 		FByteView BulkBytes,
@@ -28,7 +29,7 @@ namespace Durin
 		const FPackagePath& OutputPackagePath,
 		FByteBuffer& OutBytes,
 		FByteBuffer& OutBulkBytes
-	) -> FAssetWriteResult;
+	) -> std::expected<void, UnifiedError::FError>;
 	// Complete snapshots retain every selected value; Delta follows paired defaults.
 	enum class EAssetPackageSaveMode : uint8 { Delta, Complete };
 
@@ -47,12 +48,9 @@ namespace Durin
 		EAssetPackageSaveMode Mode = EAssetPackageSaveMode::Delta;
 	};
 
-	struct FAssetPackageSaveContext
-	{
-		FAssetPackageSaveArgs Args;
-		std::function<bool()> IsCancellationRequested;
-		ENGINE_API auto SaveAsync(DPackage*, FAssetWriteResult& Admission) const -> Tasks::TTask<FAssetWriteResult>;
-	};
+	// Every admission outcome is returned through the task, including immediate rejection.
+	ENGINE_API auto SavePackageAsync(DPackage* Package, const FAssetPackageSaveArgs& Args = {},
+		std::function<bool()> IsCancellationRequested = {}) -> Tasks::TTask<FAssetWriteResult>;
 
 	ENGINE_API auto SerializeAssetPackageBytes(
 		DPackage* Package,
@@ -79,8 +77,10 @@ namespace Durin
 		std::span<DPackage* const> Packages,
 		const FAssetPackageSaveArgs& Args = {}
 	) -> FAssetBatchSaveResult;
-	ENGINE_API auto SavePackage(DPackage* Package, const FAssetPackageSaveArgs& Args = {}) -> FAssetWriteResult;
+	// Returns completion success. Optional report is replaced on every call, including success.
+	ENGINE_API auto SavePackage(DPackage* Package, const FAssetPackageSaveArgs& Args = {},
+		FAssetWriteResult* OutReport = nullptr) -> bool;
 	ENGINE_API auto AdmitAssetPackageToCatalog(
 		const FPackagePath& Path
-	) -> FAssetWriteResult;
+	) -> std::expected<void, UnifiedError::FError>;
 } // namespace Durin

@@ -37,9 +37,10 @@ namespace Durin::AssetForge::Builtins
 		auto* Texture = Cast<DVolumeTexture>(Imported);
 		if (!Imported || !Texture)
 			return {false, ImportedError, Texture};
-		const FAssetWriteResult Saved = SavePackage(Imported->GetPackage());
+		FAssetWriteResult Saved;
+		SavePackage(Imported->GetPackage(), {}, &Saved);
 		return Saved
 			? Durin::Testing::TFactoryImportResult<Durin::DVolumeTexture>{true, {}, Texture}
-			: Durin::Testing::TFactoryImportResult<Durin::DVolumeTexture>{false, Saved.Message, Texture};
+			: Durin::Testing::TFactoryImportResult<Durin::DVolumeTexture>{false, (Saved.Error ? Saved.Error->ToString() : std::string{}), Texture};
 	}
 }

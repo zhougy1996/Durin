@@ -902,3 +902,23 @@ TEST(FPackageWriterContractTests, RejectsInvalidProvenanceAndUnknownTypesBeforeE
 	EXPECT_EQ(Main, Bytes({1}));
 	EXPECT_EQ(Bulk, Bytes({2}));
 }
+
+TEST(FPackageWriterTests, EncodingErrorConversionPreservesCauseAndOwnsContext)
+{
+	using namespace Durin;
+	UnifiedError::FError Cause{{"TestCodec", "Rejected"}, "Codec rejected its input."};
+	ObjectPackage::FPackageWriterResult Result{
+		.Failure = ObjectPackage::EPackageWriterFailure::InvalidInput,
+		.LogicalPath = "Root.Settings", .Cause = Cause};
+	auto Error = ObjectPackage::ToError(Result);
+	Result.LogicalPath.clear();
+	EXPECT_TRUE(Error.Is({"TestCodec", "Rejected"}));
+	EXPECT_EQ(Error.GetMessage(), "Codec rejected its input.");
+	ASSERT_FALSE(Error.GetContexts().empty());
+	EXPECT_EQ(Error.GetContexts().back().Value, "Root.Settings");
+	EXPECT_TRUE(Cause.GetContexts().empty());
+	const auto Unsupported = ObjectPackage::ToError({
+		.Failure = ObjectPackage::EPackageWriterFailure::InvalidInput,
+		.Reason = ObjectPackage::EPackageWriterReason::UnsupportedVersion});
+	EXPECT_TRUE(Unsupported.Is({"PackageEncoding", "UnsupportedVersion"}));
+}

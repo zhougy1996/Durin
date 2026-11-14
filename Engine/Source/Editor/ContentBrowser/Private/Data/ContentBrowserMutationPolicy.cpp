@@ -24,7 +24,7 @@ namespace Durin::ContentBrowser::Private
 	}
 	auto FContentBrowserMutationPolicy::Complete(const FAssetWriteResult& Status, FContentChangeBatch Changes) -> bool
 	{
-		if (!Status) Report(ELogLevel::Error, Status.Message);
+		if (!Status) Report(ELogLevel::Error, (Status.Error ? Status.Error->ToString() : std::string{}));
 		NotifyItemsUpdated(std::move(Changes));
 		return bool(Status);
 	}

@@ -127,6 +127,5 @@ namespace Durin::AssetPrivate
 		const FPackagePath& PackagePath,
 		DPackage*& OutPackage,
 		FAssetLoadReport* OutReport,
-		const FLinkerLoadOptions& Options = {},
-		std::string* OutError = nullptr) -> std::expected<void, Durin::UnifiedError::FError>;
+		const FLinkerLoadOptions& Options = {}) -> std::expected<void, Durin::UnifiedError::FError>;
 }

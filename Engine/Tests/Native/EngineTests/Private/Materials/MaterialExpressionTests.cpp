@@ -253,8 +253,9 @@ TEST(FMaterialExpressionTests, MaterialPersistsTypedOutputsAndOwnedParameterDefa
 	ASSERT_TRUE(Material->SetParameterValue(ParameterId, FMaterialParameterValue::MakeVector4({.6, .7, .8, 0})));
 	const auto* Owned = Cast<DMaterialExpressionVector4Parameter>(Applied[0].Get());
 	ASSERT_NE(Owned, nullptr); EXPECT_EQ(Owned->DefaultValue, FVector4(.6, .7, .8, 0));
-	const auto Saved = SavePackage(Material->GetPackage());
-	ASSERT_TRUE(Saved) << Saved.Message;
+	FAssetWriteResult Saved;
+	SavePackage(Material->GetPackage(), {}, &Saved);
+	ASSERT_TRUE(Saved) << (Saved.Error ? Saved.Error->ToString() : std::string{});
 	ASSERT_TRUE(UnloadPackage(Path)); CollectGarbage(Durin::EObjectFlags::Standalone); Material = nullptr;
 	const auto Loaded = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedError);
 	Material = Loaded;
@@ -352,8 +353,9 @@ TEST(FMaterialExpressionTests, FunctionPersistsOnlyOwnedExpressionsAndAppliesInd
 	ASSERT_TRUE(Function->SetFunctionPresentation({.Nodes = {{Constant->Id, 30, 40, "Retained value"}}}));
 	EXPECT_EQ(Function->GetFunctionPresentation().Nodes[0].DisplayName, "Retained value");
 	const auto PersistedValue = Cast<DMaterialExpressionVector2Constant>(Function->GetExpressionCollection().Expressions[0].Get())->Value;
-	const auto Saved = SavePackage(Function->GetPackage());
-	ASSERT_TRUE(Saved) << Saved.Message;
+	FAssetWriteResult Saved;
+	SavePackage(Function->GetPackage(), {}, &Saved);
+	ASSERT_TRUE(Saved) << (Saved.Error ? Saved.Error->ToString() : std::string{});
 	ASSERT_TRUE(UnloadPackage(Path)); CollectGarbage(Durin::EObjectFlags::Standalone); Function = nullptr;
 	{
 		std::optional<Durin::UnifiedError::FError> LoadedValueError;

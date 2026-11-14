@@ -33,7 +33,7 @@ namespace Durin::LevelEditor
 			std::span<const FAssetReferenceRewrite> Rewrites,
 			std::string_view ExpectedFingerprint,
 			FAssetReferenceStoreRewriteContribution& OutContribution)
-			-> FAssetWriteResult override;
+			-> std::expected<void, UnifiedError::FError> override;
 
 	private:
 		FPathChanged PathChanged;

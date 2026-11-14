@@ -17,10 +17,6 @@ namespace Durin
 
 	namespace
 	{
-		auto Error(EAssetWriteError Code, std::string Message) -> FAssetWriteResult
-		{
-			return {Code, std::move(Message)};
-		}
 
 		auto Error(Durin::UnifiedError::FErrorId Id, std::string Message) -> std::expected<void, Durin::UnifiedError::FError>
 		{
@@ -823,22 +819,22 @@ namespace Durin
 		const FPackagePath& PackagePath,
 		std::span<const FAssetPackageReferenceMapping> Mappings,
 		uint64 ExpectedRewriteCount,
-		FByteBuffer& OutBytes) -> FAssetWriteResult
+		FByteBuffer& OutBytes) -> std::expected<void, UnifiedError::FError>
 	{
 		const AssetPrivate::FAssetPackageCodec* Codec = nullptr;
 		if (auto Result = AssetPrivate::ResolveAssetPackageReader(Bytes, Codec); !Result)
-			return AssetWriteResultFromRead(Result);
+			return Result;
 		if (!Codec->bCanMutate)
-			return Error(EAssetWriteError::UnsupportedVersion,
+			return Error(PackageReadErrors::UnsupportedVersion,
 				"Reference rewrite requires package mutation capability.");
 		AssetPrivate::FAssetPackageEncodedClosure Closure;
-		auto Result = AssetWriteResultFromEncoding(Codec->RewriteReferences(
+		auto Result = Codec->RewriteReferences(
 			{.PackageBytes = Bytes, .BulkBytes = BulkBytes,
 				.PackagePath = PackagePath, .PhysicalPackageBytes = Bytes.size()},
-			Mappings, ExpectedRewriteCount, Closure));
-		if (!Result) return Result;
+			Mappings, ExpectedRewriteCount, Closure);
+		if (!Result) return std::unexpected(ObjectPackage::ToError(Result));
 		if (!std::ranges::equal(Closure.BulkBytes, BulkBytes))
-			return Error(EAssetWriteError::InvalidData,
+			return Error(PackageReadErrors::CorruptFile,
 				"Reference rewrite unexpectedly changed the package bulk closure.");
 		OutBytes = std::move(Closure.PackageBytes);
 		return {};
@@ -878,7 +874,7 @@ namespace Durin
 			const FPackagePath& PackagePath,
 			std::span<const FAssetPackageReferenceMapping> Mappings,
 			uint64 ExpectedRewriteCount,
-			FByteBuffer& OutBytes) -> FAssetWriteResult
+			FByteBuffer& OutBytes) -> std::expected<void, UnifiedError::FError>
 		{
 			return RewritePackageReferences(
 				Bytes, BulkBytes, PackagePath, Mappings,
@@ -912,7 +908,6 @@ namespace Durin
 			return CollectLoadedPackageSoftReferences(
 				Package, TargetPath, OutValues);
 		}
-
 
 	}
 

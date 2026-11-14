@@ -266,13 +266,14 @@ namespace Durin::LevelEditor
 		}
 		SessionSettings.CaptureViewportState(Context, SceneViewportPanel);
 		SessionSettings.Save(&SceneViewportPanel);
-		FAssetWriteResult Result = SavePackage(Context.Level->GetPackage());
+		FAssetWriteResult Result;
+		const bool Saved = SavePackage(Context.Level->GetPackage(), {}, &Result);
 		FLevelDocumentRevisionState::CompleteSave(
-			(Context.EditorHost ? Context.EditorHost->GetTransactor() : nullptr), *Context.Level->GetPackage(), static_cast<bool>(Result)
+			(Context.EditorHost ? Context.EditorHost->GetTransactor() : nullptr), *Context.Level->GetPackage(), Saved
 		);
-		if (!Result)
+		if (!Saved)
 		{
-			SetError(Result.Message);
+			SetError((Result.Error ? Result.Error->ToString() : std::string{}));
 			return false;
 		}
 		return true;
@@ -333,15 +334,16 @@ namespace Durin::LevelEditor
 			const FName OldObjectName = Context.Level->GetFName();
 			const bool bWasDirty = Package->IsDirty();
 			Context.Level->Rename(FName(NewName));
-			const FAssetWriteResult SaveResult = SavePackage(Package);
+			FAssetWriteResult SaveResult;
+			const bool Saved = SavePackage(Package, {}, &SaveResult);
 			FLevelDocumentRevisionState::CompleteSave(
-				(Context.EditorHost ? Context.EditorHost->GetTransactor() : nullptr), *Package, static_cast<bool>(SaveResult)
+				(Context.EditorHost ? Context.EditorHost->GetTransactor() : nullptr), *Package, Saved
 			);
-			if (!SaveResult)
+			if (!Saved)
 			{
 				Context.Level->Rename(OldObjectName);
 				if (!bWasDirty) Package->ClearDirty();
-				SetError(SaveResult.Message);
+				SetError((SaveResult.Error ? SaveResult.Error->ToString() : std::string{}));
 				return false;
 			}
 			return true;
@@ -355,7 +357,7 @@ namespace Durin::LevelEditor
 		);
 		if (!MoveResult)
 		{
-			SetError(MoveResult.Message);
+			SetError((MoveResult.Error ? MoveResult.Error->ToString() : std::string{}));
 			return false;
 		}
 		return true;

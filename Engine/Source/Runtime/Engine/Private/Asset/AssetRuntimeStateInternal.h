@@ -17,7 +17,7 @@ namespace Durin
 		ENGINE_API static auto Get() -> FAssetRuntimeState&;
 
 		ENGINE_API auto Initialize(FAssetRuntimeConfiguration Configuration)
-			-> FAssetWriteResult;
+			-> std::expected<void, UnifiedError::FError>;
 		ENGINE_API auto StopAcceptingRequests() -> void;
 		auto IsAcceptingRequests() const -> bool { return bAcceptingRequests; }
 		ENGINE_API auto CheckRequestAdmission() const -> std::expected<void, Durin::UnifiedError::FError>;

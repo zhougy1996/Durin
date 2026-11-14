@@ -395,18 +395,16 @@ namespace Durin
 					~FRestore() { Slot = Value; } } Restore{Loader.AsyncInputs, Previous};
 				if (State.ObjectPath)
 				{
-					std::optional<Durin::UnifiedError::FError> LoadedError;
-					auto Loaded = LoadObject(*State.ObjectPath, State.ExpectedClass, &State.Report, &LoadedError);
-					Object = Loaded;
-					if (!Loaded) Result = std::unexpected((*LoadedError));
+					auto Loaded = Loader.LoadObjectDetailed(*State.ObjectPath, State.ExpectedClass, &State.Report);
+					Object = Loaded.value_or(nullptr);
+					if (!Loaded) Result = std::unexpected(std::move(Loaded.error()));
 					Package = Object ? Object->GetPackage() : nullptr;
 				}
 				else
 				{
-					std::optional<Durin::UnifiedError::FError> LoadedError;
-					auto Loaded = LoadPackage(State.PackagePath, &State.Report, &LoadedError);
-					Package = Loaded;
-					if (!Loaded) Result = std::unexpected((*LoadedError));
+					auto Loaded = Loader.LoadPackageDetailed(State.PackagePath, &State.Report);
+					Package = Loaded.value_or(nullptr);
+					if (!Loaded) Result = std::unexpected(std::move(Loaded.error()));
 				}
 			}
 			Complete(Handle, std::move(Result), Package, Object);

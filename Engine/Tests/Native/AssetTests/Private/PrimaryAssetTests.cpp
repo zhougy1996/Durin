@@ -219,8 +219,9 @@ TEST_F(FPrimaryAssetTests, PrimaryDataAssetsAndMapsPublishNativeIdsOnSave)
 	TStrongObjectPtr<DPackage> Owner(Package);
 	auto* Data = NewObject<DPrimaryDataAsset>(Package, FName("Data"), EObjectFlags::Public);
 	ASSERT_EQ(Package->FindTopLevelAsset(FName("Data")), Data);
-	const auto Saved = SavePackage(Package);
-	ASSERT_TRUE(Saved) << Saved.Message;
+	FAssetWriteResult Saved;
+	SavePackage(Package, {}, &Saved);
+	ASSERT_TRUE(Saved) << (Saved.Error ? Saved.Error->ToString() : std::string{});
 	const auto Entry = FindAssetExact(Path("Data"));
 	ASSERT_TRUE(Entry);
 	EXPECT_EQ(Entry->PrimaryAssetId, Data->GetPrimaryAssetId());
@@ -229,8 +230,9 @@ TEST_F(FPrimaryAssetTests, PrimaryDataAssetsAndMapsPublishNativeIdsOnSave)
 	TStrongObjectPtr<DPackage> MapOwner(MapPackage);
 	auto* Map = NewObject<DLevel>(MapPackage, FName("Map"), EObjectFlags::Public);
 	ASSERT_EQ(MapPackage->FindTopLevelAsset(FName("Map")), Map);
-	const auto MapSaved = SavePackage(MapPackage);
-	ASSERT_TRUE(MapSaved) << MapSaved.Message;
+	FAssetWriteResult MapSaved;
+	SavePackage(MapPackage, {}, &MapSaved);
+	ASSERT_TRUE(MapSaved) << (MapSaved.Error ? MapSaved.Error->ToString() : std::string{});
 	EXPECT_EQ(FindAssetExact(Path("Map"))->PrimaryAssetId, Id("Map:Map"));
 }
 

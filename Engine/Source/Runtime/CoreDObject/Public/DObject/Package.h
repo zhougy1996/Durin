@@ -43,13 +43,10 @@ namespace Durin
 		COREDOBJECT_API ~DPackage() override;
 
 		// Persists package files only. Asset publication must use the Engine coordinator.
-		COREDOBJECT_API auto Save(const FPackageSaveOptions& Options = {}) -> FPackageSaveResult;
-		template<class TResult, class TContext>
-		auto SaveAsync(TResult& Admission, const TContext& Context)
-			-> decltype(Context.SaveAsync(this, Admission)) { return Context.SaveAsync(this, Admission); }
+		COREDOBJECT_API auto Save(const FPackageSaveOptions& Options = {}) -> FPackageWriteResult;
 		COREDOBJECT_API static auto HasAsyncFileWrites() -> bool;
 		COREDOBJECT_API static auto WaitForAsyncFileWrites() -> FTaskWaitResult;
-		COREDOBJECT_API static auto DrainAsyncSaves() -> FPackageSaveResult;
+		COREDOBJECT_API static auto DrainAsyncSaves(std::optional<UnifiedError::FError>* OutError = nullptr) -> bool;
 
 		// Temporary string spelling shared with compiled-in packages during migration.
 		auto GetPackagePath() const -> const std::string& { return RegisteredPath; }

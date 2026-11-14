@@ -106,7 +106,11 @@ TEST(FAssetRuntimeLifecycleTests, ColdCookedBootAndReflectedDefaultsPreserveFina
 	ASSERT_TRUE(BeforeInitError);
 	EXPECT_TRUE(BeforeInitError->Is(AssetLoadErrors::NotInitialized));
 	EXPECT_EQ(GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates).size(), InitialObjectCount);
-	EXPECT_EQ(SavePackage(nullptr).Error, EAssetWriteError::InUse);
+	{
+		FAssetWriteResult Report;
+		EXPECT_FALSE(SavePackage(nullptr, {}, &Report));
+		EXPECT_TRUE(Report.Error && Report.Error->Is(AssetLoadErrors::NotInitialized));
+	}
 	bool bCallback = false;
 	const auto Rejected = GetStreamableManager().RequestAsyncLoad(DefaultAssetPath, [&](const auto&) { bCallback = true; });
 	ASSERT_TRUE(Rejected->IsComplete());

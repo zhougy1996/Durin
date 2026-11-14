@@ -4,7 +4,7 @@
 #include "Misc/CoreTypes.h"
 #include "Containers/ContainersFwd.h"
 #include "Misc/FilePublication.h"
-#include "Misc/FileError.h"
+#include "Misc/UnifiedError.h"
 
 namespace Durin
 {
@@ -29,18 +29,22 @@ namespace Durin
 		bool bWrite = false;
 		bool bAcquired = false;
 	};
-	enum class EPackageWriteError : uint8 { None, IoError, StaleData, CorruptFile, InvalidState };
+	namespace PackageWriteErrors
+	{
+		inline constexpr UnifiedError::FErrorId IoError{"PackageWrite", "IoError"};
+		inline constexpr UnifiedError::FErrorId StaleData{"PackageWrite", "StaleData"};
+		inline constexpr UnifiedError::FErrorId CorruptFile{"PackageWrite", "CorruptFile"};
+		inline constexpr UnifiedError::FErrorId InvalidState{"PackageWrite", "InvalidState"};
+	}
 	enum class EPackageWriteState : uint8 { NotCommitted, Committed, RecoveryRequired, PartiallyWritten };
 	struct FPackageWriteResult
 	{
-		EPackageWriteError Error = EPackageWriteError::None;
-		std::string Message;
+		std::optional<UnifiedError::FError> Error;
 		EPackageWriteState State = EPackageWriteState::NotCommitted;
 		std::vector<std::filesystem::path> RecoveryFiles;
 		std::vector<std::filesystem::path> AffectedFiles;
-		// Message remains the external writer diagnostic snapshot; retain native detail too.
-		std::optional<FFileError> FileCause;
-		explicit operator bool() const { return Error == EPackageWriteError::None; }
+		auto Succeeded() const -> bool { return !Error; }
+		explicit operator bool() const { return Succeeded(); }
 	};
 	struct FPackageWriteFile
 	{
@@ -54,8 +58,6 @@ namespace Durin
 	{
 	public:
 		virtual ~IPackageWriteOperation() = default;
-		virtual auto GetAdmissionResult() const -> FPackageWriteResult { return {}; }
-		virtual auto ReserveCommit() -> FPackageWriteResult { return {}; }
 		virtual auto Stage() -> FPackageWriteResult = 0;
 		virtual auto Commit() -> FPackageWriteResult = 0;
 		virtual auto Finalize() -> FPackageWriteResult = 0;

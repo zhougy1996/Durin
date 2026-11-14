@@ -1135,8 +1135,9 @@ TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
 	for (DActorComponent* Segment : DuplicateSegments)
 		EXPECT_EQ(Segment->GetCreationMethod(), EComponentCreationMethod::Generated);
 	Level->GetPackage()->MarkDirty();
-	const FAssetWriteResult SaveResult = SavePackage(Level->GetPackage());
-	EXPECT_TRUE(SaveResult) << SaveResult.Message;
+	FAssetWriteResult SaveResult;
+	SavePackage(Level->GetPackage(), {}, &SaveResult);
+	EXPECT_TRUE(SaveResult) << (SaveResult.Error ? SaveResult.Error->ToString() : std::string{});
 	LevelOwner.Reset();
 	EXPECT_TRUE(UnloadPackage(Path));
 	DObject* LoadedObject = nullptr;

@@ -458,8 +458,9 @@ namespace Durin::Tests
 		{
 			return Fail("Could not assign the deterministic material fixture values.");
 		}
-		FAssetWriteResult Result = SavePackage(OutFixtures.Material->GetPackage());
-		if (!Result) return Fail(Result.Message);
+		FAssetWriteResult Result;
+		SavePackage(OutFixtures.Material->GetPackage(), {}, &Result);
+		if (!Result) return Fail((Result.Error ? Result.Error->ToString() : std::string{}));
 
 		Created = CreatePackageLeafAssetForTesting(MaterialInstancePath, OutFixtures.MaterialInstance);
 		if (!Created) return Fail(Created.Message);
@@ -473,8 +474,8 @@ namespace Durin::Tests
 		{
 			return Fail("Could not assign the deterministic material-instance fixture values.");
 		}
-		Result = SavePackage(OutFixtures.MaterialInstance->GetPackage());
-		if (!Result) return Fail(Result.Message);
+		SavePackage(OutFixtures.MaterialInstance->GetPackage(), {}, &Result);
+		if (!Result) return Fail((Result.Error ? Result.Error->ToString() : std::string{}));
 
 		Created = CreatePackageLeafAssetForTesting(StaticMeshPath, OutFixtures.StaticMesh);
 		if (!Created) return Fail(Created.Message);
@@ -502,13 +503,13 @@ namespace Durin::Tests
 			return false;
 		}
 		OutFixtures.StaticMesh->SetMaterialSlotDefaultMaterial(0, OutFixtures.Material);
-		Result = SavePackage(OutFixtures.StaticMesh->GetPackage());
-		if (!Result) return Fail(Result.Message);
+		SavePackage(OutFixtures.StaticMesh->GetPackage(), {}, &Result);
+		if (!Result) return Fail((Result.Error ? Result.Error->ToString() : std::string{}));
 
 		Created = CreatePackageLeafAssetForTesting(InvalidMaterialInstancePath, OutFixtures.InvalidMaterialInstance);
 		if (!Created) return Fail(Created.Message);
-		Result = SavePackage(OutFixtures.InvalidMaterialInstance->GetPackage());
-		if (!Result) return Fail(Result.Message);
+		SavePackage(OutFixtures.InvalidMaterialInstance->GetPackage(), {}, &Result);
+		if (!Result) return Fail((Result.Error ? Result.Error->ToString() : std::string{}));
 
 		const Durin::Testing::TFactoryImportResult<Durin::DTextureCube> CubeResult = AssetForge::Builtins::ImportTextureCubeFacesForTest(
 			GetThumbnailDirectionalCubeFaces(),

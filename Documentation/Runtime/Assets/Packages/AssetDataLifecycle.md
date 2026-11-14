@@ -85,14 +85,17 @@ only failures carry an owning identity and context. Package capture keeps `std::
 closure unchanged. Live capture and linker mutation share one encode-and-read-back
 validation path; relocation consumers do not repeat that validation.
 
-Saves and mutations use `FAssetWriteResult` for error, message and observed write
-effect, with an optional structured `Cause` for adapted failures. Mutation file ledgers and backup roots belong to
-`FAssetMutationResultDetails`; editor deletion operations expose their native
-write result and affected file ledger directly. Physical save diagnostics remain in the package writer,
-with retained backup paths included in failure text at the asset boundary.
-`AssetWriteResultFromRead` and `AssetWriteResultFromEncoding` are explicit
-adapters. Neither read nor encoding failures implicitly convert to a write result,
-and preparation failures never claim committed content.
+Ordinary saves return `bool` with an optional `FAssetWriteResult` report;
+asynchronous completion and batch operations retain their completion reports.
+A write report owns one optional structured `Error` and the observed write
+`Effect`. There is no separate message, error classification or cause; presentation
+formats the retained error. Read failures propagate directly, and encoding failures
+convert once through `ObjectPackage::ToError` without changing their identity.
+Preparation failures never claim committed content. Mutation file ledgers and
+backup roots belong to `FAssetMutationResultDetails`; editor deletion operations
+expose their write report and affected file ledger directly. The physical package
+writer retains its native contract; the asset boundary preserves its failure
+identity, file evidence and retained backup paths in the report's error context.
 
 Field application through `LoadAuthoredObject` returns `std::expected<void, UnifiedError::FError>`, with
 success represented by an expected value. Failures own a complete diagnostic:

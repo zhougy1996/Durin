@@ -14,8 +14,8 @@ namespace Durin::AssetForge::Builtins
 		auto NotReady = [](std::string_view Domain) {
 			return FAssetSaveReadinessFeatureResult{
 				.bHandled = true,
-				.Result = {EAssetWriteError::StaleData,
-					std::format("{} post-load recovery did not publish domain-ready data.", Domain)}};
+				.Result = std::unexpected(UnifiedError::FError{{"AssetSaveReadiness", "StaleData"},
+					std::format("{} post-load recovery did not publish domain-ready data.", Domain)})};
 		};
 		if (const auto* Mesh = Cast<DStaticMesh>(&Object))
 			return Mesh->GetRenderData()

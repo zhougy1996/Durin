@@ -590,3 +590,24 @@ TEST(FPackageRegistryContractTests, AssetsSavedPreservesAdmissionAndUnrelatedRef
 	ASSERT_TRUE(AssetsSaved({Added}, After));
 	EXPECT_TRUE(FindPackageExact(Added.PackagePath));
 }
+
+TEST(FAssetRegistryResultTests, UnifiedErrorConversionRetainsOwnedIdentityAndEvidence)
+{
+	using namespace Durin;
+	FAssetRegistryResult Result{.Error = EAssetRegistryError::StaleData,
+		.Context = {.Reason = EAssetRegistryFailure::PublicationRevision,
+			.Path = "/Game/Temporary", .Actual = 5, .Expected = 8}};
+	const auto Error = ToError(Result);
+	Result.Context.Path.clear();
+	EXPECT_TRUE(Error.Is({"AssetRegistry", "StaleData"}));
+	const auto Contexts = Error.GetContexts();
+	EXPECT_TRUE(std::ranges::any_of(Contexts, [](const auto& Entry) {
+		return Entry.Key == "path" && Entry.Value == "/Game/Temporary";
+	}));
+	EXPECT_TRUE(std::ranges::any_of(Contexts, [](const auto& Entry) {
+		return Entry.Key == "actual" && Entry.Value == "5";
+	}));
+	EXPECT_TRUE(std::ranges::any_of(Contexts, [](const auto& Entry) {
+		return Entry.Key == "expected" && Entry.Value == "8";
+	}));
+}

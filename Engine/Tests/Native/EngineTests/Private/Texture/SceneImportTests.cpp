@@ -544,6 +544,8 @@ TEST(FSceneImportTests, AsyncSessionReportsImportAndSaveResultsSeparately)
 	EXPECT_FALSE(*Result.SaveResult);
 	EXPECT_EQ(Result.SaveResult->SavedPackages.size(), 1u) << Result.Message;
 	EXPECT_EQ(Result.SaveResult->Result.Effect, EAssetWriteEffect::ContentCommittedProjectionPending);
+	EXPECT_NE(Result.Message.find("saved 1 of"), std::string::npos);
+	EXPECT_NE(Result.Message.find("asset catalog requires synchronization"), std::string::npos);
 	for (const auto& Path : Result.ImportedPackages) EXPECT_NE(FindResidentPackage(Path), nullptr);
 	ASSERT_TRUE(RefreshAssetRegistry());
 	std::vector<DPackage*> Packages;
@@ -569,7 +571,11 @@ TEST(FSceneImportTests, AsyncSaveCancellationKeepsImportAndAllowsOrdinarySaveRet
 		const auto& Result = Session.GetResult();
 		ASSERT_TRUE(Result);
 		ASSERT_TRUE(Result.SaveResult);
-		EXPECT_EQ(Result.SaveResult->Result.Error, EAssetWriteError::Cancelled);
+		{
+			const auto Failure = Result.SaveResult->Result;
+			ASSERT_TRUE(Failure.Error);
+			EXPECT_TRUE(Failure.Error->Is(AssetWriteErrors::Cancelled)) << Failure.Error->ToString();
+		}
 		EXPECT_TRUE(Result.SaveResult->SavedPackages.empty());
 		Imported = Result.ImportedPackages;
 	}

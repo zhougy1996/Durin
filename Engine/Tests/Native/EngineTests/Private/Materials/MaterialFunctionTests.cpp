@@ -1233,8 +1233,9 @@ TEST(FMaterialFunctionTests, TypedFieldsRoundtripAndRejectInvalidCoordinateDefau
 	ASSERT_NE(Sample, nullptr);
 	const auto TextureId = Sample->Metadata.Id;
 	ASSERT_TRUE(SavePackage(Function->GetPackage()));
-	const auto SaveMaterial = SavePackage(Material->GetPackage());
-	ASSERT_TRUE(SaveMaterial) << SaveMaterial.Message;
+	FAssetWriteResult SaveMaterial;
+	SavePackage(Material->GetPackage(), {}, &SaveMaterial);
+	ASSERT_TRUE(SaveMaterial) << (SaveMaterial.Error ? SaveMaterial.Error->ToString() : std::string{});
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(MaterialPath));
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(FunctionPath));
 	CollectGarbage(Durin::EObjectFlags::Standalone);

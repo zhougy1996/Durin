@@ -79,13 +79,13 @@ namespace Durin
 		const std::function<void(std::string)>& ReportError) -> bool
 	{
 		if (!CanSave(Object) || (BeforeSave && !BeforeSave())) return false;
-		const FAssetWriteResult Result = SavePackage(Object->GetPackage());
-		if (Result)
+		FAssetWriteResult Result;
+		if (SavePackage(Object->GetPackage(), {}, &Result))
 		{
 			if (GetEditor() && GetEditor()->GetTransactor()) GetEditor()->GetTransactor()->MarkSaved(*Object->GetPackage());
 			return true;
 		}
-		if (ReportError) ReportError(Result.Message);
+		if (ReportError) ReportError((Result.Error ? Result.Error->ToString() : std::string{}));
 		return false;
 	}
 

@@ -1578,10 +1578,10 @@ TEST_F(FContentBrowserModelTests, OwnedCompanionCannotMoveOrRenameIndependently)
 		DMaterial::StaticClass(),
 		[AssetPath, Companion](const FPackageData& Data,
 			const FAssetPackageInspection&,
-			FAssetDeleteContribution& Contribution) -> FAssetWriteResult {
+			FAssetDeleteContribution& Contribution, std::optional<Durin::UnifiedError::FError>* OutError) -> bool { if (OutError) OutError->reset();
 			if (TestPackagePath(Data) == AssetPath)
 				Contribution.Files.push_back(Companion);
-			return {};
+			return true;
 		});
 	ASSERT_NE(Contributor, 0);
 	FContributorReset Reset{Contributor};
@@ -2204,11 +2204,11 @@ TEST_F(FContentBrowserModelTests, BatchAnalysisBlocksAmbiguousCompanionOwnership
 		DMaterial::StaticClass(),
 		[SharedCompanion](const FPackageData& Data,
 			const FAssetPackageInspection&,
-			FAssetDeleteContribution& Contribution) -> FAssetWriteResult {
+			FAssetDeleteContribution& Contribution, std::optional<Durin::UnifiedError::FError>* OutError) -> bool { if (OutError) OutError->reset();
 			if (TestPackagePath(Data).GetView().starts_with(
 					"/ContentBrowserTests/Companion"))
 				Contribution.Files.push_back(SharedCompanion);
-			return {};
+			return true;
 		});
 	ASSERT_NE(Contributor, 0);
 	FContributorReset Reset{Contributor};
@@ -2305,7 +2305,7 @@ TEST_F(FContentBrowserModelTests, DeletionOperationExecutesOnlyThePreparedOwnerO
 			++Calls;
 			std::error_code Ec;
 			std::filesystem::remove(File, Ec);
-			return Ec ? FAssetWriteResult{EAssetWriteError::IoError, Ec.message()} : FAssetWriteResult{};
+			return Ec ? FAssetWriteResult{.Error = Durin::UnifiedError::FError{AssetWriteErrors::IoError, Ec.message()}} : FAssetWriteResult{};
 		}};
 	FAssetDeletionOperation Original;
 	EXPECT_FALSE(Original.Delete(Commit));
@@ -2402,7 +2402,7 @@ TEST_F(FContentBrowserModelTests, StandardCompanionOwnershipUsesMetadataWithoutV
 	EXPECT_FALSE(InspectAssetPackage(TestPhysicalPath(*(Data)), Path, Inspection));
 	FAssetCompanionOwnership Ownership;
 	const auto OwnershipResult = QueryAssetCompanionOwnership(BulkPath, Ownership);
-	ASSERT_TRUE(OwnershipResult) << OwnershipResult.Message;
+	ASSERT_TRUE(OwnershipResult);
 	EXPECT_EQ(Ownership.State, EAssetCompanionOwnershipState::Owned);
 	ASSERT_EQ(Ownership.Owners.size(), 1u);
 	EXPECT_EQ(Ownership.Owners.front(), Path);
@@ -2457,13 +2457,13 @@ TEST_F(FContentBrowserModelTests, DeletionCompanionInspectionDoesNotLoadPackageD
 	};
 	FContributorReset Reset{RegisterAssetDeleteContributor(DMaterialInstance::StaticClass(),
 		[&](const FPackageData& Data, const FAssetPackageInspection& Inspection,
-			FAssetDeleteContribution& Contribution) -> FAssetWriteResult {
+			FAssetDeleteContribution& Contribution, std::optional<Durin::UnifiedError::FError>* OutError) -> bool { if (OutError) OutError->reset();
 			if (TestPackagePath(Data) == OwnerPath)
 			{
 				EXPECT_NE(Inspection.FindField("Parent"), nullptr);
 				Contribution.Files.push_back(Companion);
 			}
-			return {};
+			return true;
 		})};
 	ASSERT_NE(Reset.Handle, 0);
 	FAssetDeletionOperation Operation;
@@ -2476,9 +2476,9 @@ TEST_F(FContentBrowserModelTests, DeletionCompanionInspectionDoesNotLoadPackageD
 	ASSERT_TRUE(Operation.Delete({.Delete = [&](auto&) -> FAssetWriteResult {
 		std::error_code Ec;
 		std::filesystem::remove(PackageFile, Ec);
-		if (Ec) return {EAssetWriteError::IoError, Ec.message()};
+		if (Ec) return {.Error = Durin::UnifiedError::FError{AssetWriteErrors::IoError, Ec.message()}};
 		std::filesystem::remove(Companion, Ec);
-		return Ec ? FAssetWriteResult{EAssetWriteError::IoError, Ec.message()} : FAssetWriteResult{};
+		return Ec ? FAssetWriteResult{.Error = Durin::UnifiedError::FError{AssetWriteErrors::IoError, Ec.message()}} : FAssetWriteResult{};
 	}}));
 	EXPECT_FALSE(std::filesystem::exists(Companion));
 	EXPECT_NE(FindPackageExact(BasePath), nullptr);
@@ -2500,9 +2500,9 @@ TEST_F(FContentBrowserModelTests, DeletionReusesConfirmationAndInspectsParticipa
 		~FContributorReset() { UnregisterAssetDeleteContributor(Handle); }
 	} Reset{RegisterAssetDeleteContributor(DMaterial::StaticClass(),
 		[&](const FPackageData& Data, const FAssetPackageInspection&,
-			FAssetDeleteContribution&) -> FAssetWriteResult {
+			FAssetDeleteContribution&, std::optional<Durin::UnifiedError::FError>* OutError) -> bool { if (OutError) OutError->reset();
 			if (TestPackagePath(Data) == Path) ++Inspections;
-			return {};
+			return true;
 		})};
 	ASSERT_NE(Reset.Handle, 0u);
 	const FContentBrowserItem Item{.Kind = EContentBrowserItemKind::File,
@@ -2528,8 +2528,8 @@ TEST_F(FContentBrowserModelTests, DeletionRejectsChangedContributorRegistration)
 	FAssetDeletionOperation Operation;
 	ASSERT_TRUE(IAssetTools::Get().PrepareDeletion({.AssetPaths = {Path}}, Operation));
 	const auto Handle = RegisterAssetDeleteContributor(DMaterial::StaticClass(),
-		[](const FPackageData&, const FAssetPackageInspection&, FAssetDeleteContribution&) -> FAssetWriteResult {
-			return {};
+		[](const FPackageData&, const FAssetPackageInspection&, FAssetDeleteContribution&, std::optional<Durin::UnifiedError::FError>* OutError) -> bool { if (OutError) OutError->reset();
+			return true;
 		});
 	ASSERT_NE(Handle, 0u);
 	UnregisterAssetDeleteContributor(Handle);
@@ -2597,7 +2597,7 @@ TEST_F(FContentBrowserModelTests, DeletionRejectsOpenLevelAndAllowsDeletionAfter
 	ASSERT_TRUE(IAssetTools::Get().PrepareDeletion({.AssetPaths = {Path}}, Operation));
 	ASSERT_TRUE(Operation.Delete({.Delete = [&](auto& Removed) -> FAssetWriteResult {
 		std::error_code Error;
-		if (!std::filesystem::remove(File, Error)) return {EAssetWriteError::IoError, Error.message()};
+		if (!std::filesystem::remove(File, Error)) return {.Error = Durin::UnifiedError::FError{AssetWriteErrors::IoError, Error.message()}};
 		Removed.push_back(File);
 		return {};
 	}}));
@@ -2620,7 +2620,7 @@ TEST_F(FContentBrowserModelTests, DeletionRechecksLevelOpenedAfterConfirmationAn
 	FAssetDeletionOperation Operation;
 	ASSERT_TRUE(IAssetTools::Get().PrepareDeletion({.AssetPaths = {Path}}, Operation));
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
-	EXPECT_EQ(Operation.Validate().Error, EAssetWriteError::InUse);
+	{ std::optional<UnifiedError::FError> Error; EXPECT_FALSE(Operation.Validate(&Error)); EXPECT_TRUE(Error && Error->Is(AssetWriteErrors::InUse)); }
 	uint32 Deletes = 0;
 	const auto Delete = [&](auto&) -> FAssetWriteResult { ++Deletes; return {}; };
 	EXPECT_FALSE(Operation.Delete({.Delete = Delete}));
@@ -2629,12 +2629,12 @@ TEST_F(FContentBrowserModelTests, DeletionRechecksLevelOpenedAfterConfirmationAn
 	EXPECT_TRUE(Operation.Validate());
 	EXPECT_FALSE(Operation.Delete({
 		.Delete = Delete,
-		.ValidateFiles = [&](FAssetDeletionFileIdentities& Identities) -> FAssetWriteResult {
-			if (!World->SetCurrentLevel(Level)) return {EAssetWriteError::InUse, "Could not open level."};
+		.ValidateFiles = [&](FAssetDeletionFileIdentities& Identities, std::optional<UnifiedError::FError>* OutError) -> bool { if (OutError) OutError->reset();
+			if (!World->SetCurrentLevel(Level)) { if (OutError) *OutError = Durin::UnifiedError::FError{AssetWriteErrors::InUse, "Could not open level."}; return false; }
 			const auto Identity = FFileHelper::HashFileXx128(File);
-			if (!Identity) return {EAssetWriteError::IoError, Identity.error().ToString()};
+			if (!Identity) { if (OutError) *OutError = Durin::UnifiedError::FError{AssetWriteErrors::IoError, Identity.error().ToString()}; return false; }
 			Identities.emplace(File.generic_string(), *Identity);
-			return {};
+			return true;
 		}}));
 	EXPECT_EQ(Deletes, 0u);
 	EXPECT_EQ(FindResidentPackage(Path), Package);
@@ -2676,13 +2676,13 @@ TEST_F(FContentBrowserModelTests, DeletionSharesFreshHostHashesAndRequiresComple
 			++Deletes;
 			std::error_code Error;
 			std::filesystem::remove(File, Error);
-			return Error ? FAssetWriteResult{EAssetWriteError::IoError, Error.message()} : FAssetWriteResult{};
+			return Error ? FAssetWriteResult{.Error = Durin::UnifiedError::FError{AssetWriteErrors::IoError, Error.message()}} : FAssetWriteResult{};
 		},
-		.ValidateFiles = [&](FAssetDeletionFileIdentities& Identities) -> FAssetWriteResult {
-			if (bOmitIdentity) return {};
+		.ValidateFiles = [&](FAssetDeletionFileIdentities& Identities, std::optional<UnifiedError::FError>* OutError) -> bool { if (OutError) OutError->reset();
+			if (bOmitIdentity) return true;
 			auto Identity = FFileHelper::HashFileXx128(File);
 			if (!Identity)
-				return {EAssetWriteError::IoError, Identity.error().ToString()};
+				{ if (OutError) *OutError = Durin::UnifiedError::FError{AssetWriteErrors::IoError, Identity.error().ToString()}; return false; }
 			++Hashes;
 			Identities.emplace(File.generic_string(), *Identity);
 #ifdef _WIN32
@@ -2690,9 +2690,9 @@ TEST_F(FContentBrowserModelTests, DeletionSharesFreshHostHashesAndRequiresComple
 			Guard.Handle = CreateFileW(File.c_str(), GENERIC_READ, FILE_SHARE_DELETE,
 				nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
 			if (Guard.Handle == INVALID_HANDLE_VALUE)
-				return {EAssetWriteError::IoError, "Could not guard the verified file against duplicate reads."};
+				{ if (OutError) *OutError = Durin::UnifiedError::FError{AssetWriteErrors::IoError, "Could not guard the verified file against duplicate reads."}; return false; }
 #endif
-			return {};
+			return true;
 		}};
 	EXPECT_FALSE(Operation.Delete(Commit));
 	EXPECT_EQ(Deletes, 0u);
@@ -2722,9 +2722,9 @@ TEST_F(FContentBrowserModelTests, DeletionRevalidatesExternalProviderFingerprint
 			return {};
 		}
 		auto PrepareRewrite(std::span<const FAssetReferenceRewrite>, std::string_view,
-			FAssetReferenceStoreRewriteContribution&) -> FAssetWriteResult override
+			FAssetReferenceStoreRewriteContribution&) -> std::expected<void, UnifiedError::FError> override
 		{
-			return {EAssetWriteError::InUse, "Deletion must not rewrite references."};
+			return std::unexpected(Durin::UnifiedError::FError{AssetWriteErrors::InUse, "Deletion must not rewrite references."});
 		}
 	} Store;
 	struct FStoreReset
@@ -2747,7 +2747,7 @@ TEST_F(FContentBrowserModelTests, DeletionRevalidatesExternalProviderFingerprint
 		return {};
 	}}));
 	EXPECT_FALSE(bCalled);
-	EXPECT_EQ(Operation.GetWriteResult().Error, EAssetWriteError::StaleData);
+	EXPECT_TRUE(Operation.GetWriteResult().Error && Operation.GetWriteResult().Error->Is(AssetWriteErrors::StaleData));
 	EXPECT_NE(FindResidentPackage(Path), nullptr);
 	EXPECT_TRUE(std::filesystem::exists(TestPhysicalPath(*(FindPackageExact(Path)))));
 	const FContentBrowserItem Item{.Kind = EContentBrowserItemKind::Asset,
@@ -2847,10 +2847,10 @@ TEST_F(FContentBrowserModelTests, RejectsExternalCompanionOutsideContentMount)
 			DMaterial::StaticClass(),
 			[AssetPath, OutsideFile](const FPackageData& Data,
 				const FAssetPackageInspection&,
-				FAssetDeleteContribution& Contribution) -> FAssetWriteResult {
+				FAssetDeleteContribution& Contribution, std::optional<Durin::UnifiedError::FError>* OutError) -> bool { if (OutError) OutError->reset();
 				if (TestPackagePath(Data) == AssetPath)
 					Contribution.Files.push_back(OutsideFile);
-				return {};
+				return true;
 			});
 	ASSERT_NE(Contributor, 0);
 	FContributorReset Reset{Contributor};
@@ -2922,10 +2922,10 @@ TEST_F(FContentBrowserModelTests, RejectsExternalCompanionReparsePoint)
 			DMaterial::StaticClass(),
 			[AssetPath, Companion](const FPackageData& Data,
 				const FAssetPackageInspection&,
-				FAssetDeleteContribution& Contribution) -> FAssetWriteResult {
+				FAssetDeleteContribution& Contribution, std::optional<Durin::UnifiedError::FError>* OutError) -> bool { if (OutError) OutError->reset();
 				if (TestPackagePath(Data) == AssetPath)
 					Contribution.Files.push_back(Companion);
-				return {};
+				return true;
 			});
 	ASSERT_NE(Contributor, 0);
 	FContributorReset Reset{Contributor};
@@ -2986,10 +2986,10 @@ TEST_F(FContentBrowserModelTests, MixedFolderAndExternalCompanionDeleteTogether)
 		DMaterial::StaticClass(),
 		[AssetPath, Companion](const FPackageData& Data,
 			const FAssetPackageInspection&,
-			FAssetDeleteContribution& Contribution) -> FAssetWriteResult {
+			FAssetDeleteContribution& Contribution, std::optional<Durin::UnifiedError::FError>* OutError) -> bool { if (OutError) OutError->reset();
 			if (TestPackagePath(Data) == AssetPath)
 				Contribution.Files.push_back(Companion);
-			return {};
+			return true;
 		});
 	ASSERT_NE(Contributor, 0);
 	FContributorReset Reset{Contributor};
@@ -3471,7 +3471,7 @@ TEST_F(FContentBrowserModelTests, ServicePublishesProjectionPendingWithoutRepeat
 	EXPECT_EQ(ContentBrowser::EContentBrowserOperationStatus::Partial, Result.GetStatus());
 	EXPECT_TRUE(Result.HasCommittedEffects());
 	EXPECT_TRUE(OperationError.empty());
-	EXPECT_NE(OperationWarning.find("ContentCommittedProjectionPending"), std::string::npos);
+	EXPECT_NE(OperationWarning.find("Registry reconcile is required."), std::string::npos);
 	EXPECT_EQ(Publications, 1);
 	EXPECT_FALSE(Service.DeleteItems(Plan).IsComplete());
 	EXPECT_EQ(Calls, 1);
@@ -4195,7 +4195,7 @@ TEST_F(FContentBrowserModelTests, SaveReportsCommittedFileWhenRegistryPublicatio
 	EXPECT_TRUE(std::filesystem::exists(Root / "Content/SaveProjectionPending.dasset"));
 	EXPECT_FALSE(Asset->GetPackage()->IsDirty());
 	EXPECT_TRUE(IsAssetRegistryProjectionFenced(Path));
-	EXPECT_NE(OperationError.find("ContentCommittedProjectionPending"), std::string::npos);
+	EXPECT_NE(OperationError.find("asset catalog requires synchronization"), std::string::npos);
 	EXPECT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::Incremental));
 }
 
@@ -4609,4 +4609,24 @@ TEST_F(FContentBrowserModelTests, DeleteCancellationRetainsCommitAndMarksRemaind
 	EXPECT_FALSE(std::filesystem::exists(Paths[0]));
 	EXPECT_TRUE(std::filesystem::exists(Paths[1]));
 	EXPECT_TRUE(std::filesystem::exists(Paths[2]));
+}
+
+TEST_F(FContentBrowserModelTests, RejectedFileValidationNeedsNoDiagnosticAndNeverDeletes)
+{
+	InitializeDObjectSystem();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/NoDiagnosticValidation", Path));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Material));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	const auto File = TestPhysicalPath(*FindPackageExact(Path));
+	FAssetDeletionOperation Operation;
+	ASSERT_TRUE(IAssetTools::Get().PrepareDeletion({.AssetPaths = {Path}}, Operation));
+	uint32 Deletes = 0;
+	EXPECT_FALSE(Operation.Delete({
+		.Delete = [&](auto&) -> FAssetWriteResult { ++Deletes; return {}; },
+		.ValidateFiles = [](FAssetDeletionFileIdentities&, std::optional<UnifiedError::FError>*) { return false; }}));
+	EXPECT_EQ(Deletes, 0u);
+	EXPECT_TRUE(std::filesystem::exists(File));
+	EXPECT_TRUE(Operation.GetWriteResult().Error.has_value());
 }

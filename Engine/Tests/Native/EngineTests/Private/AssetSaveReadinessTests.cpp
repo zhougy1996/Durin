@@ -9,7 +9,7 @@ namespace
 	{
 	public:
 		bool bHandles = true;
-		Durin::FAssetWriteResult Result;
+		std::expected<void, Durin::UnifiedError::FError> Result;
 
 		auto Validate(const Durin::DObject&) const
 			-> Durin::FAssetSaveReadinessFeatureResult override
@@ -22,7 +22,8 @@ namespace
 TEST(AssetSaveReadinessTests, RejectsMissingAsset)
 {
 	const auto Result = Durin::ValidateAssetSaveReadiness(nullptr);
-	EXPECT_EQ(Durin::EAssetWriteError::InvalidData, Result.Error);
+	ASSERT_FALSE(Result);
+	EXPECT_TRUE(Result.error().Is({"AssetSaveReadiness", "InvalidData"}));
 }
 
 TEST(AssetSaveReadinessTests, UsesTheSingleHandlingProvider)
@@ -31,15 +32,16 @@ TEST(AssetSaveReadinessTests, UsesTheSingleHandlingProvider)
 	FReadinessFeature Ignored;
 	Ignored.bHandles = false;
 	FReadinessFeature Rejected;
-	Rejected.Result = {
-		Durin::EAssetWriteError::StaleData, "Asset family is not ready."};
+	Rejected.Result = std::unexpected(Durin::UnifiedError::FError{
+		{"AssetSaveReadiness", "StaleData"}, "Asset family is not ready."});
 
 	auto IgnoredRegistration = Durin::FModularFeatureRegistry::Get().RegisterFeature(Ignored);
 	auto RejectedRegistration = Durin::FModularFeatureRegistry::Get().RegisterFeature(Rejected);
 
 	const auto Result = Durin::ValidateAssetSaveReadiness(&Object);
-	EXPECT_EQ(Durin::EAssetWriteError::StaleData, Result.Error);
-	EXPECT_EQ("Asset family is not ready.", Result.Message);
+	ASSERT_FALSE(Result);
+	EXPECT_TRUE(Result.error().Is({"AssetSaveReadiness", "StaleData"}));
+	EXPECT_EQ("Asset family is not ready.", Result.error().GetMessage());
 }
 
 TEST(AssetSaveReadinessTests, RejectsAmbiguousHandlingProviders)
@@ -52,6 +54,7 @@ TEST(AssetSaveReadinessTests, RejectsAmbiguousHandlingProviders)
 	auto SecondRegistration = Durin::FModularFeatureRegistry::Get().RegisterFeature(Second);
 
 	const auto Result = Durin::ValidateAssetSaveReadiness(&Object);
-	EXPECT_EQ(Durin::EAssetWriteError::StaleData, Result.Error);
-	EXPECT_NE(std::string::npos, Result.Message.find("ambiguous"));
+	ASSERT_FALSE(Result);
+	EXPECT_TRUE(Result.error().Is({"AssetSaveReadiness", "StaleData"}));
+	EXPECT_NE(std::string::npos, Result.error().GetMessage().find("ambiguous"));
 }

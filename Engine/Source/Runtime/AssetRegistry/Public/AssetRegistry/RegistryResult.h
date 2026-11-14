@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
 
 #include "AssetRegistryAPI.h"
 #include "DObject/PackageFormat.h"
@@ -43,5 +44,7 @@ namespace Durin
 		auto Succeeded() const -> bool { return Error == EAssetRegistryError::None; }
 		explicit operator bool() const { return Succeeded(); }
 	};
+	// Converts a failed registry result once, retaining its domain identity and evidence.
+	ASSETREGISTRY_API auto ToError(const FAssetRegistryResult& Result) -> UnifiedError::FError;
 	ASSETREGISTRY_API auto FormatAssetRegistryError(const FAssetRegistryResult& Result) -> std::string;
 }

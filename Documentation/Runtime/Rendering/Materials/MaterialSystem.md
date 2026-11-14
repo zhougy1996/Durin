@@ -671,8 +671,11 @@ callers' existing behavior. Loaded instances inherit the root policy. Scheduled
 edit deadlines live in material-side scheduling state and use their own bounded
 queue, independently of Cooked and FeatureLevel preparation registrations. Status
 queries project whether an edit is scheduled. Scheduling takes no compiler
-snapshot and allocates no request ID until submission. Editing does not cancel an older request; its
-captured authored revision prevents stale publication. Selected
+snapshot and allocates no request ID until submission. Structural invalidation
+detaches obsolete resource requests and clears their accepted programs. This also
+applies to loaded callers of a committed function reload: Manual mode leaves them
+unsubmitted until explicit compilation restores programs for the root and its
+instances. Captured authored revisions prevent stale publication. Selected
 finish flushes scheduled automatic work; manual work requires an explicit request.
 Late results cannot replace a material with unsubmitted edits. Supported material,
 parent, function and Collection schema mutation boundaries invalidate affected

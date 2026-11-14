@@ -1781,8 +1781,9 @@ TEST_F(FCookFunctionalTests, CookedOnlyPreparationSelectsAvailableVariantsWithou
 	ASSERT_TRUE(FPackagePath::TryCreate("/CookTests/ResaveMaterial", Path));
 	auto* Material = NewObject<DMaterial>(CreatePackage(Path), "ResaveMaterial");
 	ASSERT_NE(Material, nullptr);
-	const auto Saved = SavePackage(Material->GetPackage());
-	ASSERT_TRUE(Saved) << Saved.Message;
+	FAssetWriteResult Saved;
+	SavePackage(Material->GetPackage(), {}, &Saved);
+	ASSERT_TRUE(Saved) << (Saved.Error ? Saved.Error->ToString() : std::string{});
 	ASSERT_TRUE(UnloadPackage(Material->GetPackage()));
 	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 	const FMaterialCookConfiguration Low{EMaterialQualityLevel::Low, ERHIFeatureLevel::SM5};

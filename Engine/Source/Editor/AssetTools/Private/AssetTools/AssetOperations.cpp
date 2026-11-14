@@ -23,7 +23,7 @@ namespace Durin
 		auto Feedback(FFeedbackContext* Warn) -> FFeedbackContext& { return Warn ? *Warn : FFeedbackContext::Get(); }
 		auto ReportMutation(const FAssetMutationResultDetails& Result, FFeedbackContext* Warn) -> bool
 		{
-			if (!Result.Result) Feedback(Warn).Error(Result.Result.Message);
+			if (!Result.Result) Feedback(Warn).Error((Result.Result.Error ? Result.Result.Error->ToString() : std::string{}));
 			for (const auto& Path : Result.BackupLocations) Feedback(Warn).Warning("Recovery backup: " + Path.generic_string());
 			if (!Result.Result)
 				for (const auto& Path : Result.AffectedFiles) Feedback(Warn).Warning("Affected file: " + Path.generic_string());
@@ -184,14 +184,25 @@ namespace Durin
 		{
 			if (!Visited.insert(Path).second) continue;
 			auto* Package = FindResidentPackage(Path);
-			const FAssetWriteResult Saved = Package && Package->IsDirty() ? SavePackage(Package)
-				: FAssetWriteResult{EAssetWriteError::InvalidData, "Save requires a loaded package with authored changes."};
-			if (Request.OnSaved && (Saved || Saved.Effect == EAssetWriteEffect::ContentCommittedProjectionPending))
-				Request.OnSaved(Path);
-			if (!Saved)
+			if (!Package || !Package->IsDirty())
 			{
 				bSucceeded = false;
-				Feedback(Warn).Error(std::format("{}: {}", Path.ToString(), Saved.Message));
+				Feedback(Warn).Error(std::format("{}: Save requires a loaded package with authored changes.", Path.ToString()));
+				continue;
+			}
+			FAssetWriteResult Saved;
+			const bool Succeeded = SavePackage(Package, {}, &Saved);
+			if (Request.OnSaved && (Succeeded || Saved.Effect == EAssetWriteEffect::ContentCommittedProjectionPending))
+				Request.OnSaved(Path);
+			if (!Succeeded)
+			{
+				bSucceeded = false;
+				const std::string_view Disposition = Saved.Effect == EAssetWriteEffect::ContentCommittedProjectionPending
+					? "Package content was saved; the asset catalog requires synchronization. "
+					: Saved.Effect == EAssetWriteEffect::None ? ""
+					: "Package files may have changed; inspect recovery details. ";
+				Feedback(Warn).Error(std::format("{}: {}{}", Path.ToString(), Disposition,
+					Saved.Error ? Saved.Error->ToString() : std::string{}));
 			}
 		}
 		return bSucceeded;

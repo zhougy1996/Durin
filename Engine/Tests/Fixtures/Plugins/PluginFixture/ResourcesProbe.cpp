@@ -114,7 +114,8 @@ int main(int Argc, char** Argv)
             std::filesystem::create_directories(Physical->PhysicalPath.parent_path());
             // Explicit fixture creation only; ordinary saving must honor read-only mounts.
             if (!FFileHelper::SaveArrayToFile(Bytes, Physical->PhysicalPath)) return Finish(22);
-            if (Path == Asset && SavePackage(Package).Error != EAssetWriteError::ReadOnlyMode) return Finish(23);
+            FAssetWriteResult SaveReport;
+            if (Path == Asset && (SavePackage(Package, {}, &SaveReport) || (!SaveReport.Error || !SaveReport.Error->Is(AssetWriteErrors::ReadOnlyMode)))) return Finish(23);
         }
     }
     else
@@ -126,7 +127,8 @@ int main(int Argc, char** Argv)
         if (!FindPackageExact(Asset)) return Finish(24);
         const auto Loaded = LoadPackage(Asset, nullptr, &LoadedError);
         if (!Loaded) { std::cerr << (*LoadedError); return Finish(25); }
-        if (SavePackage(Loaded).Error != EAssetWriteError::ReadOnlyMode) return Finish(26);
+        FAssetWriteResult SaveReport;
+        if (SavePackage(Loaded, {}, &SaveReport) || (!SaveReport.Error || !SaveReport.Error->Is(AssetWriteErrors::ReadOnlyMode))) return Finish(26);
     }
 #if DURIN_WITH_EDITOR
     if (!Modules.LoadModule("ShaderBuild")) return Finish(27);

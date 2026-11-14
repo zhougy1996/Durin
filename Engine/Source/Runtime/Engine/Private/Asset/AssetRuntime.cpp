@@ -108,11 +108,6 @@ namespace Durin
 			return Current;
 		}
 
-		auto Error(EAssetWriteError Code, std::string Message) -> FAssetWriteResult
-		{
-			return {Code, std::move(Message)};
-		}
-
 		auto Error(Durin::UnifiedError::FErrorId Id, std::string Message) -> std::expected<void, Durin::UnifiedError::FError>;
 		auto InspectAssetPackageBytes(
 			std::string_view PhysicalPath,
@@ -294,37 +289,44 @@ namespace Durin
 		FAssetLoadReport* OutReport) -> std::expected<DPackage*, Durin::UnifiedError::FError>
 	{
 		if (OutReport) *OutReport = {.RequestedPath = Path, .FinalPath = Path, .PackagePath = Path};
-		if (!Path.IsValid())
-			return std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::InvalidPath, "A package load requires a valid package path."});
-		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("package load", Path.ToString()); !Result)
+		auto Result = [&]() -> std::expected<DPackage*, UnifiedError::FError>
 		{
-			if (OutReport) *OutReport = {.RequestedPath = Path, .PackagePath = Path};
-			return std::unexpected(Result.error());
-		}
-		if (auto Result = FAssetRuntimeState::Get().CheckRequestAdmission(); !Result)
-		{
-			if (OutReport) *OutReport = {.RequestedPath = Path, .PackagePath = Path};
-			return std::unexpected(Result.error());
-		}
-		if (IsAssetRegistryProjectionFenced(Path))
-		{
-			const auto Result = ProjectionPendingError(Path);
-			if (OutReport) *OutReport = {.RequestedPath = Path, .FinalPath = Path,
-				.PackagePath = Path};
-			return std::unexpected(Result.error());
-		}
-		if (IsPackageLoading(Path))
-			return std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::InUse, std::format("Package '{}' is not ready for public loading.", Path.ToString())});
-		if (DPackage* Resident = FindResidentPackage(Path); Resident && Resident->IsFullyLoaded()) return Resident;
-		const FPackageCatalogEntry Entry = Durin::FindPackageExact(Path);
-		if (!Entry)
-			return std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::NotFound, std::format(
-				"Package {} is not present in the registry.", Path.ToString())});
-		DPackage* Package = nullptr;
-		if (auto Result = LoadPackageFromPhysicalPath(
-			Path, Entry->PhysicalPath, Package, OutReport); !Result)
-			return std::unexpected(Result.error());
-		return Package;
+			if (!Path.IsValid())
+				return std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::InvalidPath, "A package load requires a valid package path."});
+			if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("package load", Path.ToString()); !Result)
+			{
+				if (OutReport) *OutReport = {.RequestedPath = Path, .PackagePath = Path};
+				return std::unexpected(Result.error());
+			}
+			if (auto Result = FAssetRuntimeState::Get().CheckRequestAdmission(); !Result)
+			{
+				if (OutReport) *OutReport = {.RequestedPath = Path, .PackagePath = Path};
+				return std::unexpected(Result.error());
+			}
+			if (IsAssetRegistryProjectionFenced(Path))
+			{
+				const auto Result = ProjectionPendingError(Path);
+				if (OutReport) *OutReport = {.RequestedPath = Path, .FinalPath = Path,
+					.PackagePath = Path};
+				return std::unexpected(Result.error());
+			}
+			if (IsPackageLoading(Path))
+				return std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::InUse, std::format("Package '{}' is not ready for public loading.", Path.ToString())});
+			if (DPackage* Resident = FindResidentPackage(Path); Resident && Resident->IsFullyLoaded()) return Resident;
+			const FPackageCatalogEntry Entry = Durin::FindPackageExact(Path);
+			if (!Entry)
+				return std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::NotFound, std::format(
+					"Package {} is not present in the registry.", Path.ToString())});
+			DPackage* Package = nullptr;
+			if (auto Result = LoadPackageFromPhysicalPath(
+				Path, Entry->PhysicalPath, Package, OutReport); !Result)
+				return std::unexpected(Result.error());
+			return Package;
+		}();
+		if (Result && !*Result)
+			Result = std::unexpected(UnifiedError::FError{AssetLoadErrors::InvalidObjectGraph, "The package loader returned no package."});
+		if (!Result) Result.error().PushContext("requested package", Path.ToString());
+		return Result;
 	}
 
 	auto FAssetLoadService::LoadObjectDetailed(
@@ -343,7 +345,13 @@ namespace Durin
 				OutReport->RequestedPath = Path.GetPackagePath();
 				OutReport->RequestedObjectPath = Path;
 			}
-			if (!Result) return std::unexpected(Result.error());
+			if (Result && !Object)
+				Result = std::unexpected(UnifiedError::FError{AssetLoadErrors::InvalidObjectGraph, "The object loader returned no object."});
+			if (!Result)
+			{
+				Result.error().PushContext("requested object", Path.ToString());
+				return std::unexpected(std::move(Result.error()));
+			}
 			return Object;
 		};
 		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("object load", Path.ToString()); !Result)
@@ -960,8 +968,9 @@ namespace Durin
 		StopAcceptingRequests();
 		CancelAsyncLoading();
 		PackageSavePrivate::SetAsyncSaveAdmission(false);
-		if (auto Drain = DPackage::DrainAsyncSaves(); !Drain)
-		{ DURIN_ERROR("Asset shutdown could not drain saves: {}", Drain.Message); return; }
+		std::optional<UnifiedError::FError> DrainError;
+		if (!DPackage::DrainAsyncSaves(&DrainError))
+		{ DURIN_ERROR("Asset shutdown could not drain saves: {}", DrainError->ToString()); return; }
 		FlushAssetRegistryCaches();
 		GetPackageResourceManager().RetireAllPackages();
 		std::vector<DPackage*> Packages = GetResidentAssetPackages();
@@ -975,23 +984,23 @@ namespace Durin
 	}
 
 	auto FAssetRuntimeState::Initialize(FAssetRuntimeConfiguration Configuration)
-		-> FAssetWriteResult
+		-> std::expected<void, UnifiedError::FError>
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("Initialize", ""); !Result) return {.Error = EAssetWriteError::InUse, .Message = Result.error().ToString(), .Cause = Result.error()};
+		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("Initialize", ""); !Result) return Result;
 		if (State == EState::Running)
 		{
 			if (RuntimeConfiguration == Configuration) return {};
-			return Error(EAssetWriteError::InUse,
+			return Error(AssetLoadErrors::InUse,
 				"Asset runtime configuration cannot be replaced while Engine Asset is initialized.");
 		}
 		if (State == EState::Stopping)
-			return Error(EAssetWriteError::InUse, "Asset shutdown must complete before initialization.");
+			return Error(AssetLoadErrors::InUse, "Asset shutdown must complete before initialization.");
 		// First initialization must not touch reflected types before DObjectInit.
 		if (!Loader.IsIdle() || (State == EState::Stopped && !GetResidentAssetPackages().empty()))
-			return Error(EAssetWriteError::InUse, "Asset loading or resident package cleanup is incomplete.");
+			return Error(AssetLoadErrors::InUse, "Asset loading or resident package cleanup is incomplete.");
 		if (Configuration.IsCooked())
-			if (auto Result = AssetPrivate::InitializeCookedAssetRegistry(Configuration); !Result) return AssetWriteResultFromRead(Result);
+			if (auto Result = AssetPrivate::InitializeCookedAssetRegistry(Configuration); !Result) return Result;
 		RuntimeConfiguration = std::move(Configuration);
 		PackageSavePrivate::SetAsyncSaveAdmission(true);
 		bAcceptingRequests = true;

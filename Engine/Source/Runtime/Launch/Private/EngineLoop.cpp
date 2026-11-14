@@ -203,7 +203,7 @@ namespace Durin
 		const auto AssetResult = InitializeAssetRuntime(std::move(AssetConfiguration));
 		if (!AssetResult)
 		{
-			DURIN_ERROR("Asset initialization failed: {}", AssetResult.Message);
+			DURIN_ERROR("Asset initialization failed: {}", (AssetResult ? std::string{} : AssetResult.error().ToString()));
 			return false;
 		}
 		DObjectInit();

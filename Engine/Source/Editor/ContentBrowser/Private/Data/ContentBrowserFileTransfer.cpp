@@ -65,8 +65,9 @@ namespace Durin::ContentBrowser::Private
 						return true;
 					}
 					FAssetCompanionOwnership Ownership;
-					const auto OwnershipResult = QueryAssetCompanionOwnership(Path, Ownership);
-					if (!OwnershipResult) { Error = OwnershipResult.Message; return false; }
+					std::optional<UnifiedError::FError> OwnershipResultError;
+					const bool OwnershipResult = QueryAssetCompanionOwnership(Path, Ownership, &OwnershipResultError);
+					if (!OwnershipResult) { Error = (OwnershipResultError ? OwnershipResultError->ToString() : std::string{}); return false; }
 					if (Ownership.State != EAssetCompanionOwnershipState::Unclaimed)
 					{
 						if (!Move && Extension != ".dbulk") { Error = "Folder copy cannot duplicate a custom managed companion."; return false; }
@@ -84,8 +85,10 @@ namespace Durin::ContentBrowser::Private
 				if (!Directory)
 				{
 					FAssetCompanionOwnership TargetOwnership;
-					const auto Inspected = QueryAssetCompanionOwnership(To, TargetOwnership);
-					if (!Inspected || TargetOwnership.State != EAssetCompanionOwnershipState::Unclaimed)
+					std::optional<UnifiedError::FError> InspectionError;
+					if (!QueryAssetCompanionOwnership(To, TargetOwnership, &InspectionError))
+					{ Error = InspectionError->ToString(); return false; }
+					if (TargetOwnership.State != EAssetCompanionOwnershipState::Unclaimed)
 					{ Error = "A package companion owns the destination path."; return false; }
 				}
 				if (std::ranges::any_of(Entries, [&](const auto& Entry) { return Same(Entry.Source, Path); })) return true;
@@ -140,11 +143,14 @@ namespace Durin::ContentBrowser::Private
 						continue;
 					}
 					FAssetCompanionOwnership Ownership;
-					const auto Owned = QueryAssetCompanionOwnership(Entry.Source, Ownership);
-					if (!Owned || Ownership.State != EAssetCompanionOwnershipState::Unclaimed)
+					std::optional<UnifiedError::FError> OwnershipError;
+					if (!QueryAssetCompanionOwnership(Entry.Source, Ownership, &OwnershipError))
+					{ Result.Add(Entry.OldKey, EContentBrowserEffectStatus::Failed, OwnershipError->ToString()); Result.bStopped = true; continue; }
+					if (Ownership.State != EAssetCompanionOwnershipState::Unclaimed)
 					{ Result.Add(Entry.OldKey, EContentBrowserEffectStatus::Failed, "File ownership changed before transfer."); Result.bStopped = true; continue; }
-					const auto TargetOwned = QueryAssetCompanionOwnership(Entry.Target, Ownership);
-					if (!TargetOwned || Ownership.State != EAssetCompanionOwnershipState::Unclaimed)
+					if (!QueryAssetCompanionOwnership(Entry.Target, Ownership, &OwnershipError))
+					{ Result.Add(Entry.OldKey, EContentBrowserEffectStatus::Failed, OwnershipError->ToString()); Result.bStopped = true; continue; }
+					if (Ownership.State != EAssetCompanionOwnershipState::Unclaimed)
 					{ Result.Add(Entry.OldKey, EContentBrowserEffectStatus::Failed, "Destination ownership changed before transfer."); Result.bStopped = true; continue; }
 					if (!Admitted(Inputs, &Error) || Cancelled()) { Result.Add(Entry.OldKey, EContentBrowserEffectStatus::Unattempted, Error); Result.bStopped = !Cancelled(); Result.bCancelled = Cancelled(); continue; }
 					const auto Identity = FFileHelper::HashFileXx128(Entry.Source);

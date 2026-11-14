@@ -416,9 +416,9 @@ namespace Durin::AssetForge::Builtins
 			if (const auto Published = PublishDirectVolumeImportData(Texture, std::move(Filename), HintBase, PhysicalPath, Snapshot, Settings); !Published) return Published;
 			if (!SaveOptions) return {};
 			DPackage* Package = Texture.GetPackage();
-			const FAssetWriteResult Saved = SavePackage(Package, *SaveOptions);
-			if (Saved) return {};
-			return std::unexpected(Saved.Message);
+			FAssetWriteResult Saved;
+			if (SavePackage(Package, *SaveOptions, &Saved)) return {};
+			return std::unexpected((Saved.Error ? Saved.Error->ToString() : std::string{}));
 		}
 	}
 

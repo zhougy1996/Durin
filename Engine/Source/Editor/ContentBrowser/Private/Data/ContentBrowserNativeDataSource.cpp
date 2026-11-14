@@ -165,8 +165,7 @@ namespace Durin
 			auto CanExecute() const -> bool override { return Plan && Plan->CanExecute(); }
 			auto ValidateForExecution() -> EContentBrowserDeleteValidation override
 			{
-				const auto Status = Operations->ValidateForExecution();
-				return Status ? EContentBrowserDeleteValidation::Valid : Status.Error == EAssetWriteError::StaleData ? EContentBrowserDeleteValidation::Stale : EContentBrowserDeleteValidation::Rejected;
+				return Operations->ValidateForExecution();
 			}
 		};
 		auto Payload(const DContentBrowserDataSource& Source, const FContentBrowserItemData& Data) -> std::optional<FNativePayloadView>

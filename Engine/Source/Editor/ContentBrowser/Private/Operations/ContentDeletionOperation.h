@@ -28,11 +28,11 @@ namespace Durin::ContentBrowser::Private
 		auto HasStarted() const -> bool { return bStarted; }
 		auto GetResult() const -> const FAssetWriteResult& { return Result; }
 		auto GetEffects() const -> const TContentBrowserOperationResult<std::string>& { return Effects; }
-		auto ValidateScope() -> FAssetWriteResult;
+		auto ValidateScope(std::optional<UnifiedError::FError>* OutError = nullptr) -> bool;
 		auto AllowPeerScopeChanges() -> void { bPeerScopeValidated = true; }
 
 	private:
-		auto ValidatePhysicalState(FAssetDeletionFileIdentities& OutIdentities, bool OwnedOnly = false) -> FAssetWriteResult;
+		auto ValidatePhysicalState(FAssetDeletionFileIdentities& OutIdentities, bool OwnedOnly = false, std::optional<UnifiedError::FError>* OutError = nullptr) -> bool;
 		auto DeletePhysicalRoots(std::vector<std::filesystem::path>& RemovedPaths) -> FAssetWriteResult;
 
 		FContentDeletionPlanPtr Plan;

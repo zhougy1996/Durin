@@ -22,8 +22,10 @@ namespace Durin
 	{
 		FPackageDestinationResolver DestinationResolver;
 		std::unordered_set<const DPackage*> PreparingPackages;
-		auto Fail(EPackageSaveError Error, std::string Message) -> FPackageSaveResult
-		{ return {Error, std::move(Message)}; }
+		auto Reject(std::optional<UnifiedError::FError>* OutError, UnifiedError::FError Error) -> bool
+		{ if (OutError) *OutError = std::move(Error); return false; }
+		auto Fail(UnifiedError::FErrorId Error, std::string Message) -> FPackageWriteResult
+		{ return {.Error = UnifiedError::FError{Error, std::move(Message)}}; }
 		std::mutex AsyncSaveMutex;
 		std::vector<std::shared_ptr<PackageSavePrivate::FAsyncSaveState>> AsyncSaves;
 		bool bAcceptAsyncSaves = true;
@@ -50,18 +52,18 @@ namespace Durin
 	}
 	namespace PackageSavePrivate
 	{
-		auto CheckAsyncAdmission(uint64 Bytes) -> FPackageSaveResult
+		auto CheckAsyncAdmission(uint64 Bytes) -> std::expected<void, UnifiedError::FError>
 		{
 			check(IsInGameThread());
 			if (!bAcceptAsyncSaves || !IsTaskSchedulerRunning()
 				|| !GetGameThreadDeferredWorkQueueDiagnostics().bAccepting)
-				return Fail(EPackageSaveError::ShuttingDown, "Async saves require an accepting GameThread executor.");
-			if (SavePublicationDepth != 0 || bDrainingSaves) return Fail(EPackageSaveError::Busy, "Async save submission during publication or drain is unsupported.");
+				return std::unexpected(UnifiedError::FError{PackageSaveErrors::ShuttingDown, "Async saves require an accepting GameThread executor."});
+			if (SavePublicationDepth != 0 || bDrainingSaves) return std::unexpected(UnifiedError::FError{PackageSaveErrors::Busy, "Async save submission during publication or drain is unsupported."});
 			uint64 Retained = 0;
 			std::lock_guard Lock(AsyncSaveMutex);
 			for (const auto& Save : AsyncSaves) Retained += Save->Bytes;
 			if (AsyncSaves.size() >= AsyncSaveMaxOperations || Bytes > AsyncSaveMaxBytes - Retained)
-				return Fail(EPackageSaveError::Busy, "Async save capacity is exhausted.");
+				return std::unexpected(UnifiedError::FError{PackageSaveErrors::Busy, "Async save capacity is exhausted."});
 			return {};
 		}
 		auto BeginAsyncSavePublication(const std::shared_ptr<FAsyncSaveState>& Save) -> void
@@ -73,7 +75,7 @@ namespace Durin
 		auto EndAsyncSavePublication() -> void { check(IsInGameThread() && SavePublicationDepth != 0); --SavePublicationDepth; }
 
 		auto SubmitAsyncSaveTask(uint64 Bytes, std::function<void()> Write,
-			FAsyncSavePublicationFactory MakePublication, std::function<void()> Cleanup) -> FPackageSaveResult
+			FAsyncSavePublicationFactory MakePublication, std::function<void()> Cleanup) -> std::expected<void, UnifiedError::FError>
 		{
 			if (auto Result = CheckAsyncAdmission(Bytes); !Result) return Result;
 			// Reserve ownership before creating accepted work; registration below cannot allocate.
@@ -99,7 +101,7 @@ namespace Durin
 				{
 					*WriteBody = {}; Save->Cleanup = {};
 					Gate.Trigger();
-					return Fail(EPackageSaveError::ShuttingDown, "Injected save publication admission failure.");
+					return std::unexpected(UnifiedError::FError{PackageSaveErrors::ShuttingDown, "Injected save publication admission failure."});
 				}
 				Save->Publication = MakePublication(Save->Disk, Save);
 				{ std::lock_guard Lock(AsyncSaveMutex); AsyncSaves.push_back(Save); }
@@ -150,55 +152,39 @@ namespace Durin
 		}
 		return {ETaskWaitStatus::Completed, State};
 	}
-	auto DPackage::DrainAsyncSaves() -> FPackageSaveResult
+	auto DPackage::DrainAsyncSaves(std::optional<UnifiedError::FError>* OutError) -> bool
 	{
+		if (OutError) OutError->reset();
 		// Configuration-only tools may shut down before creating a GameThread.
-		if (!GIsGameThreadIdInitialized && SnapshotSaves().empty()) return {};
+		if (!GIsGameThreadIdInitialized && SnapshotSaves().empty()) return true;
 		if (!GIsGameThreadIdInitialized || !IsInGameThread() || SavePublicationDepth != 0 || bDrainingSaves)
-			return Fail(EPackageSaveError::Busy, "Save publication drain requires a non-reentrant GameThread caller.");
+			return Reject(OutError, UnifiedError::FError{PackageSaveErrors::Busy, "Save publication drain requires a non-reentrant GameThread caller."});
 		bDrainingSaves = true;
 		struct FScope { ~FScope() { bDrainingSaves = false; } } Scope;
 		const auto Cutoff = SnapshotSaves();
 		for (const auto& Save : Cutoff)
 			if (WaitTask(Save->Disk).WaitStatus != ETaskWaitStatus::Completed)
-				return Fail(EPackageSaveError::Busy, "Save I/O wait is unsupported on this thread.");
+				return Reject(OutError, UnifiedError::FError{PackageSaveErrors::Busy, "Save I/O wait is unsupported on this thread."});
 		for (const auto& Save : Cutoff)
 		{
 			while (!Save->Publication.IsCompleted())
 			{
 				const auto Before = GetGameThreadDeferredWorkQueueDiagnostics();
-				if (!Before.bInstalled) return Fail(EPackageSaveError::Busy, "Save publication executor is unavailable.");
+				if (!Before.bInstalled) return Reject(OutError, UnifiedError::FError{PackageSaveErrors::Busy, "Save publication executor is unavailable."});
 				const auto Pumped = PumpGameThreadDeferredWork({.MaxCallbacks = 1});
 				if (!Pumped.ExecutedCallbacks && !Pumped.TerminalEntriesSkipped
 					&& GetGameThreadDeferredWorkQueueDiagnostics().ReentrantPumpCount != Before.ReentrantPumpCount)
-					return Fail(EPackageSaveError::Busy, "Cannot drain saves from a deferred callback.");
+					return Reject(OutError, UnifiedError::FError{PackageSaveErrors::Busy, "Cannot drain saves from a deferred callback."});
 				if (!Pumped.ExecutedCallbacks && !Pumped.TerminalEntriesSkipped) std::this_thread::yield();
 			}
 		}
 		PackageSavePrivate::PollAsyncSaves();
-		return {};
+		return true;
 	}
 	auto SetPackageDestinationResolver(FPackageDestinationResolver Resolver) -> void
 	{
 		check(IsInGameThread());
 		DestinationResolver = std::move(Resolver);
-	}
-	auto ToPackageSaveResult(FPackageWriteResult Result) -> FPackageSaveResult
-	{
-		EPackageSaveError Error = EPackageSaveError::None;
-		switch (Result.Error)
-		{
-		case EPackageWriteError::None: break;
-		case EPackageWriteError::IoError: Error = EPackageSaveError::IoError; break;
-		case EPackageWriteError::StaleData: Error = EPackageSaveError::StaleData; break;
-		case EPackageWriteError::CorruptFile: Error = EPackageSaveError::CorruptFile; break;
-		case EPackageWriteError::InvalidState: Error = EPackageSaveError::Busy; break;
-		}
-		const auto State = Result.State == EPackageWriteState::Committed ? EPackageCommitState::Committed
-			: Result.State == EPackageWriteState::RecoveryRequired ? EPackageCommitState::RecoveryRequired
-			: Result.State == EPackageWriteState::PartiallyWritten ? EPackageCommitState::PartiallyWritten
-			: EPackageCommitState::NotCommitted;
-		return {Error, std::move(Result.Message), State, std::move(Result.RecoveryFiles), std::move(Result.AffectedFiles), std::move(Result.FileCause)};
 	}
 	struct FPackageSaveOperation::FState
 	{
@@ -211,13 +197,13 @@ namespace Durin
 		uint64 DetachedBytes = 0;
 		FSavePackageContext Context;
 		std::unique_ptr<IPackageWriteOperation> Write;
-		Tasks::TTask<FPackageSaveResult> Worker;
-		FPackageSaveResult StagingResult;
-		std::optional<FPackageSaveResult> Result;
+		Tasks::TTask<FPackageWriteResult> Worker;
+		FPackageWriteResult StagingResult;
+		std::optional<FPackageWriteResult> Result;
 		bool bCommitted = false;
 		bool bCommitting = false;
 		bool bClearDirty = true;
-		auto Stage() -> FPackageSaveResult { return ToPackageSaveResult(Write->Stage()); }
+		auto Stage() -> FPackageWriteResult { return Write->Stage(); }
 		auto Cleanup() -> void { Write.reset(); }
 	};
 	FPackageSaveOperation::FPackageSaveOperation() : State(std::make_unique<FState>()) {}
@@ -229,22 +215,22 @@ namespace Durin
 		State->Cleanup();
 	}
 	auto FPackageSaveOperation::Begin(DPackage* Package, const FPackageSaveOptions& Options,
-		FPackageSaveResult& Admission, bool bAsync) -> std::unique_ptr<FPackageSaveOperation>
+		std::optional<UnifiedError::FError>* OutError, bool bAsync) -> std::unique_ptr<FPackageSaveOperation>
 	{
-		return Begin(Package, FSavePackageContext{Options}, Admission, bAsync);
+		return Begin(Package, FSavePackageContext{Options}, OutError, bAsync);
 	}
 	auto FPackageSaveOperation::Begin(DPackage* Package, const FSavePackageContext& Context,
-		FPackageSaveResult& Admission, bool bAsync, bool bDeferStaging) -> std::unique_ptr<FPackageSaveOperation>
+		std::optional<UnifiedError::FError>* OutError, bool bAsync, bool bDeferStaging) -> std::unique_ptr<FPackageSaveOperation>
 	{
 		const auto& Options = Context.Options;
 		check(IsInGameThread());
-		Admission = {};
+		if (OutError) OutError->reset();
 		if (!Package || !Package->IsAssetPackage() || Package->IsGraphPrivate())
-		{ Admission = Fail(EPackageSaveError::InvalidPackageType, "A live persistent package is required."); return {}; }
+		{ if (OutError) *OutError = UnifiedError::FError{PackageSaveErrors::InvalidPackageType, "A live persistent package is required."}; return {}; }
 		if (bAsync && !IsTaskSchedulerRunning())
-		{ Admission = Fail(EPackageSaveError::ShuttingDown, "The task scheduler is not running."); return {}; }
+		{ if (OutError) *OutError = UnifiedError::FError{PackageSaveErrors::ShuttingDown, "The task scheduler is not running."}; return {}; }
 		if (!PreparingPackages.insert(Package).second)
-		{ Admission = Fail(EPackageSaveError::Busy, "Package preparation is already running."); return {}; }
+		{ if (OutError) *OutError = UnifiedError::FError{PackageSaveErrors::Busy, "Package preparation is already running."}; return {}; }
 		struct FPreparationGuard
 		{
 			const DPackage* Package;
@@ -265,30 +251,30 @@ namespace Durin
 		auto Resolver = DestinationResolver;
 		MainFile.Destination = Options.Destination.empty() && Resolver ? Resolver(*Package) : Options.Destination;
 		if (MainFile.Destination.empty() || MainFile.Destination.extension() != ".dasset")
-		{ Admission = Fail(EPackageSaveError::InvalidPath, "An explicit .dasset destination or configured resolver is required."); return {}; }
+		{ if (OutError) *OutError = UnifiedError::FError{PackageSaveErrors::InvalidPath, "An explicit .dasset destination or configured resolver is required."}; return {}; }
 		std::error_code Ec;
 		MainFile.Destination = std::filesystem::absolute(MainFile.Destination, Ec).lexically_normal();
-		if (Ec) { Admission = Fail(EPackageSaveError::InvalidPath, Ec.message()); return {}; }
+		if (Ec) { if (OutError) *OutError = UnifiedError::FError{PackageSaveErrors::InvalidPath, Ec.message()}; return {}; }
 		auto ReadAccess = FPackageFileAccess::TryReadPackage(MainFile.Destination);
-		if (!ReadAccess) { Admission = Fail(EPackageSaveError::Busy, "Package output is being written."); return {}; }
+		if (!ReadAccess) { if (OutError) *OutError = UnifiedError::FError{PackageSaveErrors::Busy, "Package output is being written."}; return {}; }
 		BulkFile.Destination = MainFile.Destination;
 		BulkFile.Destination.replace_extension(".dbulk");
-		if (!FFilePublicationStamp::Inspect(MainFile.Destination, MainStamp)
-			|| !FFilePublicationStamp::Inspect(BulkFile.Destination, BulkStamp))
-		{ Admission = Fail(EPackageSaveError::IoError, "Cannot inspect package destination."); return {}; }
+		std::optional<FFileError> InspectionError;
+		if (!FFilePublicationStamp::Inspect(MainFile.Destination, MainStamp, &InspectionError)
+			|| !FFilePublicationStamp::Inspect(BulkFile.Destination, BulkStamp, &InspectionError))
+		{ if (OutError) *OutError = ToError(*InspectionError); return {}; }
 		ObjectPackage::FLinkerTables Linker;
 		const auto CaptureResult = Data.Context.Capture(Package, Linker, ObjectPackage::DastV12FormatVersion, &Data.DiskExports);
 		if (!CaptureResult)
 		{
-			Admission = Fail(GetPackageCaptureSaveError(CaptureResult.error()), ToString(CaptureResult.error()));
-			Admission.CaptureCause = CaptureResult.error();
+			if (OutError) *OutError = ToError(CaptureResult.error());
 			return {};
 		}
 		ObjectPackage::FPackageWriterResult Diagnostic;
 		if (!(Diagnostic = ObjectPackage::WritePackage(Linker, Bytes, Bulk)))
-		{ Admission = Fail(EPackageSaveError::UnsupportedProperty, Durin::ObjectPackage::FormatPackageError(Diagnostic)); return {}; }
+		{ if (OutError) *OutError = ObjectPackage::ToError(Diagnostic); return {}; }
 		if (Package->GetEditRevision() != Data.Revision || Package->GetPackagePathIdentity() != Data.Identity)
-		{ Admission = Fail(EPackageSaveError::StaleData, "Package changed during capture."); return {}; }
+		{ if (OutError) *OutError = UnifiedError::FError{PackageSaveErrors::StaleData, "Package changed during capture."}; return {}; }
 		const std::string Suffix = ".package-save-" + FGuid::NewGuid().ToString();
 		MainFile.Staged = MainFile.Destination.string() + Suffix + ".stage.tmp";
 		MainFile.Backup = MainFile.Destination.string() + Suffix + ".backup.tmp";
@@ -303,7 +289,7 @@ namespace Durin
 		if (bAsync)
 		{
 			if (!IsTaskSchedulerRunning())
-			{ Admission = Fail(EPackageSaveError::ShuttingDown, "Scheduler stopped during preparation."); return {}; }
+			{ if (OutError) *OutError = UnifiedError::FError{PackageSaveErrors::ShuttingDown, "Scheduler stopped during preparation."}; return {}; }
 			Data.Worker = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO,
 				{.DebugName = "Package.SaveStaging"}, [&Data] { return Data.Stage(); });
 		}
@@ -315,52 +301,52 @@ namespace Durin
 	auto FPackageSaveOperation::StageDetached() -> void { State->StagingResult = State->Stage(); }
 	auto FPackageSaveOperation::GetDetachedBytes() const -> uint64 { return State->DetachedBytes; }
 	auto FPackageSaveOperation::IsCompleted() const -> bool { return State->Result.has_value(); }
-	auto FPackageSaveOperation::CommitStaged() -> FPackageSaveResult
+	auto FPackageSaveOperation::CommitStaged() -> FPackageWriteResult
 	{
 		check(IsInGameThread());
 		auto& Data = *State;
 		if (Data.Result) return *Data.Result;
-		if (Data.bCommitting) return Fail(EPackageSaveError::Busy, "Commit is already running.");
-		if (Data.bCommitted) return {EPackageSaveError::None, {}, EPackageCommitState::Committed};
-		if (!IsStagingReady()) return Fail(EPackageSaveError::Busy, "Staging is still running.");
-		auto FinishFailure = [&](FPackageSaveResult Result) {
+		if (Data.bCommitting) return Fail(PackageSaveErrors::Busy, "Commit is already running.");
+		if (Data.bCommitted) return {.State = EPackageWriteState::Committed};
+		if (!IsStagingReady()) return Fail(PackageSaveErrors::Busy, "Staging is still running.");
+		auto FinishFailure = [&](FPackageWriteResult Result) {
 			Data.Cleanup(); Data.Result = Result; return Result;
 		};
 		if (Data.Worker.IsValid())
 		{
 			if (Data.Worker.GetState() != ETaskState::Succeeded)
-				return FinishFailure(Fail(EPackageSaveError::IoError, "Staging task did not succeed."));
+				return FinishFailure(Fail(PackageSaveErrors::IoError, "Staging task did not succeed."));
 			Data.StagingResult = Data.Worker.GetResult();
 		}
 		if (!Data.StagingResult) return FinishFailure(Data.StagingResult);
 		if (Data.Package->GetEditRevision() != Data.Revision
 			|| Data.Package->GetPackagePathIdentity() != Data.Identity)
-			return FinishFailure(Fail(EPackageSaveError::StaleData, "Package changed while saving."));
+			return FinishFailure(Fail(PackageSaveErrors::StaleData, "Package changed while saving."));
 		Data.bCommitting = true;
-		auto Result = ToPackageSaveResult(Data.Write->Commit());
+		auto Result = Data.Write->Commit();
 		Data.bCommitting = false;
 		if (!Result) return FinishFailure(std::move(Result));
 		Data.bCommitted = true;
 		return Result;
 	}
-	auto FPackageSaveOperation::RollbackCommit() -> FPackageSaveResult
+	auto FPackageSaveOperation::RollbackCommit() -> FPackageWriteResult
 	{
 		check(IsInGameThread());
 		auto& Data = *State;
-		if (!Data.bCommitted) return Data.Result.value_or(FPackageSaveResult{});
-		auto Result = ToPackageSaveResult(Data.Write->Rollback());
+		if (!Data.bCommitted) return Data.Result.value_or(FPackageWriteResult{});
+		auto Result = Data.Write->Rollback();
 		Data.bCommitted = false;
-		if (Result) Result = Fail(EPackageSaveError::Cancelled, "Package commit rolled back.");
+		if (Result) Result = Fail(PackageSaveErrors::Cancelled, "Package commit rolled back.");
 		Data.Result = std::move(Result);
 		return *Data.Result;
 	}
-	auto FPackageSaveOperation::FinalizeCommit() -> FPackageSaveResult
+	auto FPackageSaveOperation::FinalizeCommit() -> FPackageWriteResult
 	{
 		check(IsInGameThread());
 		auto& Data = *State;
 		if (Data.Result) return *Data.Result;
-		if (!Data.bCommitted) return Fail(EPackageSaveError::Busy, "No committed package to finalize.");
-		Data.Result = ToPackageSaveResult(Data.Write->Finalize());
+		if (!Data.bCommitted) return Fail(PackageSaveErrors::Busy, "No committed package to finalize.");
+		Data.Result = Data.Write->Finalize();
 		Data.bCommitted = false;
 		if (Data.bClearDirty && Data.Package->GetPackagePathIdentity() == Data.Identity)
 			Data.Package->RecordDiskExports(std::move(Data.DiskExports), Data.MainDigest);
@@ -369,50 +355,50 @@ namespace Durin
 		Data.Cleanup();
 		return *Data.Result;
 	}
-	auto FPackageSaveOperation::Complete() -> FPackageSaveResult
+	auto FPackageSaveOperation::Complete() -> FPackageWriteResult
 	{
 		auto Result = CommitStaged();
 		return Result && !State->Result ? FinalizeCommit() : Result;
 	}
-	auto FPackageSaveOperation::WaitAndComplete() -> FPackageSaveResult
+	auto FPackageSaveOperation::WaitAndComplete() -> FPackageWriteResult
 	{
 		check(IsInGameThread());
 		if (State->Worker.IsValid()) State->Worker.Wait();
 		return Complete();
 	}
-	auto FPackageSaveOperation::Cancel() -> FPackageSaveResult
+	auto FPackageSaveOperation::Cancel() -> FPackageWriteResult
 	{
 		check(IsInGameThread());
 		if (State->Result) return *State->Result;
-		if (State->bCommitting || State->bCommitted) return Fail(EPackageSaveError::Busy, "Commit has already started.");
+		if (State->bCommitting || State->bCommitted) return Fail(PackageSaveErrors::Busy, "Commit has already started.");
 		if (State->Worker.IsValid()) State->Worker.Wait();
 		State->Cleanup();
-		State->Result = Fail(EPackageSaveError::Cancelled, "Save cancelled before publication.");
+		State->Result = Fail(PackageSaveErrors::Cancelled, "Save cancelled before publication.");
 		return *State->Result;
 	}
-	auto DPackage::Save(const FPackageSaveOptions& Options) -> FPackageSaveResult
+	auto DPackage::Save(const FPackageSaveOptions& Options) -> FPackageWriteResult
 	{
-		FPackageSaveResult Admission;
-		auto Operation = FPackageSaveOperation::Begin(this, Options, Admission, false);
-		return Operation ? Operation->WaitAndComplete() : Admission;
+		std::optional<UnifiedError::FError> Error;
+		auto Operation = FPackageSaveOperation::Begin(this, Options, &Error, false);
+		return Operation ? Operation->WaitAndComplete() : FPackageWriteResult{.Error = std::move(Error)};
 	}
-	auto FSavePackageContext::SaveAsync(DPackage* Package, FPackageSaveResult& Admission) const
-		-> Tasks::TTask<FPackageSaveResult>
+	auto FSavePackageContext::SaveAsync(DPackage* Package) const -> Tasks::TTask<FPackageWriteResult>
 	{
-		Admission = PackageSavePrivate::CheckAsyncAdmission();
-		if (!Admission) return {};
-		std::shared_ptr<FPackageSaveOperation> Operation = FPackageSaveOperation::Begin(Package, *this, Admission, false, true);
-		if (!Operation) return {};
-		Admission = PackageSavePrivate::CheckAsyncAdmission(Operation->GetDetachedBytes());
-		if (!Admission) return {};
-		return PackageSavePrivate::SubmitTypedAsyncSave<FPackageSaveResult>(Operation->GetDetachedBytes(),
+		if (auto Admission = PackageSavePrivate::CheckAsyncAdmission(); !Admission)
+			return Tasks::MakeCompletedTask(FPackageWriteResult{.Error = std::move(Admission.error())});
+		std::optional<UnifiedError::FError> Error;
+		std::shared_ptr<FPackageSaveOperation> Operation = FPackageSaveOperation::Begin(Package, *this, &Error, false, true);
+		if (!Operation) return Tasks::MakeCompletedTask(FPackageWriteResult{.Error = std::move(Error)});
+		auto Submitted = PackageSavePrivate::SubmitTypedAsyncSave<FPackageWriteResult>(Operation->GetDetachedBytes(),
 			[Operation] { Operation->StageDetached(); },
 			[Operation, IsCancellationRequested = Options.IsCancellationRequested](bool bSucceeded) mutable {
 				const bool bCancelled = IsCancellationRequested && IsCancellationRequested();
 				auto Result = !bSucceeded || bCancelled ? Operation->Cancel() : Operation->Complete();
-				if (!bSucceeded) Result = Fail(EPackageSaveError::IoError, "Package I/O task did not succeed.");
+				if (!bSucceeded) Result = Fail(PackageSaveErrors::IoError, "Package I/O task did not succeed.");
 				Operation.reset();
 				return Result;
-			}, [Operation] { (void)Operation->Cancel(); }, Admission);
+			}, [Operation] { (void)Operation->Cancel(); });
+		if (!Submitted) return Tasks::MakeCompletedTask(FPackageWriteResult{.Error = std::move(Submitted.error())});
+		return std::move(*Submitted);
 	}
 }

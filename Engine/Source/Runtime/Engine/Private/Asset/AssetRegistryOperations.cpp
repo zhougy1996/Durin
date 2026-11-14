@@ -5,7 +5,7 @@
 #include "Asset/PackageInspection.h"
 #include "AssetRegistry/Scan.h"
 #include "AssetRegistryOperationsInternal.h"
-#include "AssetRegistryResultAdapter.h"
+#include "AssetRegistry/RegistryResult.h"
 #include "AssetMutationRegistryInternal.h"
 
 #include "DObject/Class.h"
@@ -303,7 +303,7 @@ namespace Durin
 			FAssetPackageHeader Header;
 			if (FAssetRegistryResult HeaderResult = ReadAssetPackageHeader(
 				PhysicalPath, Path, Header); !HeaderResult)
-				return AssetPrivate::ToAssetResult(std::move(HeaderResult));
+				return std::unexpected(Durin::ToError(HeaderResult));
 			const auto WriteTime = std::filesystem::last_write_time(PhysicalPath, Ec);
 			if (Ec) return Error(Durin::PackageReadErrors::IoError, "Projection reconcile could not read a package timestamp.");
 			const uintmax_t FileSize = std::filesystem::file_size(PhysicalPath, Ec);
@@ -327,7 +327,8 @@ namespace Durin
 			else Delta.Adds.push_back(std::move(Data));
 			Delta.ReferenceInvalidations.push_back(Path);
 		}
-		return AssetPrivate::ToAssetResult(PublishAssetRegistryDelta(std::move(Delta)));
+		if (auto Published = PublishAssetRegistryDelta(std::move(Delta)); !Published) return std::unexpected(Durin::ToError(Published));
+		return {};
 	}
 
 	auto FlushAssetCatalogSnapshotForTesting() -> void { FlushAssetRegistryCaches(); }

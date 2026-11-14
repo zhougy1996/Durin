@@ -65,10 +65,10 @@ namespace Durin
 				OutError = CreatedError;
 				return false;
 			}
-			const FAssetWriteResult Result = SavePackage(Created->GetPackage());
-			if (!Result)
+			FAssetWriteResult Result;
+			if (!SavePackage(Created->GetPackage(), {}, &Result))
 			{
-				OutError = Result.Message;
+				OutError = (Result.Error ? Result.Error->ToString() : std::string{});
 				if (!IAssetTools::Get().DiscardPackage(Created->GetPackage()))
 					OutError += " The unsaved level package could not be discarded.";
 				return false;

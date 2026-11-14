@@ -1841,8 +1841,9 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	ASSERT_NE(Texture->GetPlatformData(), nullptr);
 	EXPECT_TRUE(std::ranges::equal(Texture->GetPlatformData()->Mips.front().Voxels,
 		Expected.Mips.front().Voxels));
-	const Durin::FAssetWriteResult Saved = Durin::SavePackage(Texture->GetPackage());
-	ASSERT_TRUE(Saved) << Saved.Message;
+	Durin::FAssetWriteResult Saved;
+	Durin::SavePackage(Texture->GetPackage(), {}, &Saved);
+	ASSERT_TRUE(Saved) << (Saved.Error ? Saved.Error->ToString() : std::string{});
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	Texture = nullptr;
 	const auto Loaded = Durin::LoadObject<Durin::DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), nullptr, &LoadedError);
@@ -1970,8 +1971,9 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 		<< "reason=" << static_cast<int>(Diagnostic.Reason)
 		<< " path=" << Diagnostic.LogicalPath;
 	EXPECT_LT(NoDeltaPlan.FieldCount, 100u);
-	const Durin::FAssetWriteResult Saved = Durin::SavePackage(Texture->GetPackage());
-	ASSERT_TRUE(Saved) << Saved.Message;
+	Durin::FAssetWriteResult Saved;
+	Durin::SavePackage(Texture->GetPackage(), {}, &Saved);
+	ASSERT_TRUE(Saved) << (Saved.Error ? Saved.Error->ToString() : std::string{});
 	const Durin::FPackageCatalogEntry SavedData = Durin::FindPackageExact(AssetPath);
 	ASSERT_TRUE(SavedData);
 	Durin::FAssetPackageInspection Inspection;

@@ -30,15 +30,9 @@ namespace Durin
 		std::optional<UnifiedError::FError>* OutError) -> DPackage*
 	{
 		if (OutError) OutError->reset();
-		if (OutReport) *OutReport = {.RequestedPath = Path, .FinalPath = Path, .PackagePath = Path};
 		auto Result = FAssetRuntimeState::Get().GetLoadService().LoadPackageDetailed(Path, OutReport);
-		if (Result && !*Result)
-			Result = std::unexpected(UnifiedError::FError{AssetLoadErrors::InvalidObjectGraph, "The package loader returned no package."});
 		if (!Result && OutError)
-		{
 			*OutError = std::move(Result.error());
-			(*OutError)->PushContext("requested package", Path.ToString());
-		}
 		return Result.value_or(nullptr);
 	}
 
@@ -47,13 +41,8 @@ namespace Durin
 	{
 		if (OutError) OutError->reset();
 		auto Result = FAssetRuntimeState::Get().GetLoadService().LoadObjectDetailed(Path, ExpectedClass, OutReport);
-		if (Result && !*Result)
-			Result = std::unexpected(UnifiedError::FError{AssetLoadErrors::InvalidObjectGraph, "The object loader returned no object."});
 		if (!Result && OutError)
-		{
 			*OutError = std::move(Result.error());
-			(*OutError)->PushContext("requested object", Path.ToString());
-		}
 		return Result.value_or(nullptr);
 	}
 
@@ -72,9 +61,12 @@ namespace Durin
 		return LoadObject(ObjectPath, ExpectedClass, OutReport, OutError);
 	}
 
-	auto SavePackage(DPackage* Package, const FAssetPackageSaveArgs& Args) -> FAssetWriteResult
+	auto SavePackage(DPackage* Package, const FAssetPackageSaveArgs& Args, FAssetWriteResult* OutReport) -> bool
 	{
-		return FAssetRuntimeState::Get().GetMutationCoordinator().SavePackage(Package, Args.Mode);
+		auto Report = FAssetRuntimeState::Get().GetMutationCoordinator().SavePackage(Package, Args.Mode);
+		const bool Succeeded = Report.Succeeded();
+		if (OutReport) *OutReport = std::move(Report);
+		return Succeeded;
 	}
 
 	auto IsPackageLoading(const FPackagePath& Path) -> bool
@@ -83,14 +75,14 @@ namespace Durin
 	}
 
 	auto ReleasePackagesForRemoval(
-		std::span<const FPackageData> Packages, uint64 ExpectedRevision) -> FAssetWriteResult
+		std::span<const FPackageData> Packages, uint64 ExpectedRevision) -> std::expected<void, UnifiedError::FError>
 	{
 		return FAssetRuntimeState::Get().GetMutationCoordinator()
 			.ReleasePackagesForRemoval(Packages, ExpectedRevision);
 	}
 
 	auto PublishPackageRemoval(
-		std::span<const FPackageData> Packages, uint64 ExpectedRevision) -> FAssetWriteResult
+		std::span<const FPackageData> Packages, uint64 ExpectedRevision) -> std::expected<void, UnifiedError::FError>
 	{
 		return FAssetRuntimeState::Get().GetMutationCoordinator()
 			.PublishPackageRemoval(Packages, ExpectedRevision);
@@ -107,7 +99,7 @@ namespace Durin
 	}
 
 	auto InitializeAssetRuntime(
-		FAssetRuntimeConfiguration Configuration) -> FAssetWriteResult
+		FAssetRuntimeConfiguration Configuration) -> std::expected<void, UnifiedError::FError>
 	{
 		return FAssetRuntimeState::Get().Initialize(std::move(Configuration));
 	}
