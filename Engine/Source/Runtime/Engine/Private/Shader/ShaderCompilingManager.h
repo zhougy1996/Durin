@@ -96,7 +96,7 @@ namespace Durin
 		auto RaiseMaterialPriority(std::span<const FWeakObjectPtr> Owners = {}) -> void;
 		auto PollMaterialCancellation() -> void;
 		auto ProcessMaterialResults(uint32 MaximumCompletions,
-			std::optional<std::chrono::steady_clock::time_point> Deadline, const std::function<void(FMaterialCompileResult)>& Process,
+			std::optional<std::chrono::steady_clock::time_point> Deadline, std::vector<FWeakObjectPtr>& CompiledAssets,
 			const std::shared_ptr<FMaterialCompilationResource>& Resource = {}) -> void;
 		auto CompleteMaterialRequests(const FShaderMapPtr& ShaderMap, MaterialBuildPrivate::FMaterialBuildResult Build) -> void;
 		auto CancelCompilation(FWeakObjectPtr Owner, bool bCountCancellation) -> bool;
@@ -104,7 +104,6 @@ namespace Durin
 		auto RegisterMaterialRequest(const std::shared_ptr<FMaterialCompileRequest>& Request) -> void;
 		auto QueueMaterialResult(FMaterialCompileResult Result) -> void;
 		auto FinishResourceCompilation(const std::shared_ptr<FMaterialCompilationResource>& Resource) -> void;
-		auto ApplyMaterialResult(FMaterialCompileResult Result, std::vector<FWeakObjectPtr>& CompiledAssets) -> void;
 		auto DetachMaterialResourceLocked(const std::shared_ptr<FMaterialCompilationResource>& Resource, std::vector<FShaderMapPtr>& CanceledRequests, bool bCountCancellation) -> bool;
 		static auto MakeMaterialResult(const std::shared_ptr<FMaterialCompileRequest>& Request,
 			const MaterialBuildPrivate::FMaterialBuildResult& Build,

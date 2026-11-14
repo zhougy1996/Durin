@@ -1,6 +1,9 @@
 #include "Shader/ShaderCompilingManager.h"
 #include "Materials/MaterialShaderMap.h"
 #include "Materials/MaterialInterface.h"
+#include "Materials/MaterialCompileLifecycle.h"
+#include "Materials/ObjectCacheContext.h"
+#include "DObject/ObjectLifecycle.h"
 #include "MaterialTranslationCodec.h"
 #include "MaterialCompileTestSupport.h"
 #include "CoreGlobals.h"
@@ -157,7 +160,7 @@ namespace Durin
 
 
 	auto FShaderCompilingManager::ProcessMaterialResults(uint32 MaximumCompletions,
-		std::optional<std::chrono::steady_clock::time_point> Deadline, const std::function<void(FMaterialCompileResult)>& Process,
+		std::optional<std::chrono::steady_clock::time_point> Deadline, std::vector<FWeakObjectPtr>& CompiledAssets,
 		const std::shared_ptr<FMaterialCompilationResource>& Resource) -> void
 	{
 		CheckMaterialCompileGameThread();
@@ -173,7 +176,12 @@ namespace Durin
 				const auto Entry = MaterialRequests.find(Result.Request->Resource);
 				if (Entry != MaterialRequests.end() && Entry->second.Association == Result.Request) MaterialRequests.erase(Entry);
 			}
-			try { Process(std::move(Result)); }
+			try {
+				auto* Material = Cast<DMaterialInterface>(Result.Request->Resource->Material.Get());
+				FObjectCacheContext Context;
+				if (IsValid(Material) && Private::FMaterialCompilationLifecycle::Admit(*Material, std::move(Result), &Context))
+					CompiledAssets.emplace_back(Material);
+			}
 			catch (...) {
 				std::scoped_lock Lock(MaterialMutex);
 				check(OutstandingMaterialConsumers > 0); --OutstandingMaterialConsumers;

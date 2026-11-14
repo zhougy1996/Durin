@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-11-13
+Last reviewed: 2026-11-14
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -627,9 +627,10 @@ individual Shader DDC formats remain unchanged. `FinishCompilation`, `CancelComp
 queries and cleanup. Assets, synchronous tools and Cook use this same
 submission interface. A material-to-current-request index covers compilation, detached fanout and
 queued publication, avoiding full request scans for status and cancellation.
-The manager processes publication callbacks and updates outstanding-consumer
-counts internally; callers do not pair result
-processing with a separate counter operation.
+The compiler directly applies completed material results and updates
+outstanding-consumer counts internally. Completion operations own their
+notification batches; callers supply neither publication callbacks nor separate
+counter updates.
 Accepted first and coalesced requests both use `Running`; editor presentation
 does not distinguish them as separate execution phases. TaskRuntime queues CPU
 work and the shared Shader job driver dispatches stage work. There is no material

@@ -2,7 +2,6 @@
 #include "Asset/AssetCompilationNotifications.h"
 #include "Asset/Asset.h"
 #include "Materials/Material.h"
-#include "Materials/ObjectCacheContext.h"
 #include "Materials/MaterialShaderMap.h"
 #include "Materials/MaterialPreparationQueue.h"
 #include "Shader/ShaderMapPreparation.h"
@@ -58,15 +57,6 @@ namespace Durin
 			+ Private::GetMaterialEditCompileQueue().Num()
 			+ GetNumRemainingShaderJobs() + GetNumRemainingMaterialShaderMaps();
 	}
-	auto FShaderCompilingManager::ApplyMaterialResult(FMaterialCompileResult Result, std::vector<FWeakObjectPtr>& CompiledAssets) -> void
-	{
-		const auto Resource = Result.Request->Resource;
-		auto* Material = Cast<DMaterialInterface>(Resource->Material.Get());
-		FObjectCacheContext Context;
-		if (IsValid(Material) && Private::FMaterialCompilationLifecycle::Admit(*Material, std::move(Result), &Context))
-			CompiledAssets.emplace_back(Material);
-	}
-
 	auto FShaderCompilingManager::FinishResourceCompilation(const std::shared_ptr<FMaterialCompilationResource>& Resource) -> void
 	{
 		std::vector<FWeakObjectPtr> CompiledAssets;
@@ -82,8 +72,7 @@ namespace Durin
 			}
 			if (Producer) { PrioritizeCompilation(Producer); FinishCompilation(Producer); }
 			ProcessMaterialResults(
-				std::numeric_limits<uint32>::max(), {},
-				[&](FMaterialCompileResult Result) { ApplyMaterialResult(std::move(Result), CompiledAssets); }, Resource);
+				std::numeric_limits<uint32>::max(), {}, CompiledAssets, Resource);
 		}
 		AssetPrivate::PublishCompiledAssets(FName("Durin.Shader"), std::move(CompiledAssets));
 	}
@@ -144,9 +133,7 @@ namespace Durin
 				auto* Material = Cast<DMaterialInterface>(Owner.Get());
 				return IsValid(Material) && Material->PumpResourcePreparations({.Deadline = Params.Deadline});
 			});
-		ProcessMaterialResults(Params.Deadline ? 64u : std::numeric_limits<uint32>::max(), Params.Deadline, [&](FMaterialCompileResult Result) {
-			ApplyMaterialResult(std::move(Result), CompiledAssets);
-		});
+		ProcessMaterialResults(Params.Deadline ? 64u : std::numeric_limits<uint32>::max(), Params.Deadline, CompiledAssets);
 		if (!Params.Deadline || std::chrono::steady_clock::now() < *Params.Deadline)
 			Private::GetMaterialEditCompileQueue().Process(Private::MaterialPreparationMaxChecks, [&](FWeakObjectPtr Owner) {
 				auto* Material = Cast<DMaterialInterface>(Owner.Get());
