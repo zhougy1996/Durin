@@ -1,4 +1,5 @@
 #include "Widgets/MTextureEditor.h"
+#include "Misc/UnifiedError.h"
 #include "RenderResource.h"
 #include "PropertyEditor/DetailPanel.h"
 
@@ -148,6 +149,7 @@ namespace Durin::TextureEditor
 
 	auto MTextureEditor::OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult
 	{
+		std::optional<Durin::UnifiedError::FError> ResultError;
 		if (Document.ResourceId.empty()) return EDocumentOpenResult::Rejected;
 		if (FindOpenTexture(Document.ResourceId)) return EDocumentOpenResult::Opened;
 		FSoftObjectPath AssetPath;
@@ -159,11 +161,11 @@ namespace Durin::TextureEditor
 			return EDocumentOpenResult::Rejected;
 		}
 		DTexture2D* Texture = nullptr;
-		const auto Result = LoadObjectDetailed<DTexture2D>(AssetPath);
-		Texture = Result.value_or(nullptr);
+		const auto Result = LoadObject<DTexture2D>(AssetPath, nullptr, &ResultError);
+		Texture = Result;
 		if (!Result || !Texture)
 		{
-			SetError(Result ? "The selected asset is not a Texture2D." : (Result ? std::string{} : Result.error().Message));
+			SetError(ResultError ? ResultError->ToString() : "The selected asset is not a Texture2D.");
 			return EDocumentOpenResult::Rejected;
 		}
 		OpenTextures.emplace(Document.ResourceId, Texture);

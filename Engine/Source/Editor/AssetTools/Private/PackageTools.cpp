@@ -15,7 +15,7 @@ namespace Durin
 		if (Params.Packages.empty()) return false;
 		if (auto Guard = CheckPackageCollectionAllowed(); !Guard)
 		{
-			Errors = Guard.Message;
+			Errors = Guard.error().ToString();
 			return false;
 		}
 		std::vector<TWeakObjectPtr<DPackage>> Candidates;
@@ -46,7 +46,7 @@ namespace Durin
 				}
 			}
 		const auto Result = CollectPackageExports(Candidates);
-		if (!Result.Admission) { Errors += Result.Admission.Message; return false; }
+		if (!Result.Admission) { Errors += Result.Admission.error().ToString(); return false; }
 		for (const auto& Path : Result.ReferencedPackages)
 			Errors += Path.ToString() + " remains referenced.\n";
 		return Result.CollectedCount != 0;

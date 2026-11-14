@@ -1,5 +1,6 @@
 #include "MaterialRenderProxyUpdateTestSupport.h"
 #include "ComponentPSOPrecacheTestSupport.h"
+#include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "StaticMeshRenderPreparationTestSupport.h"
 #include "StaticMeshTestAccess.h"
@@ -282,6 +283,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 TEST(FStaticMeshRenderPreparationVulkanTests,
 	CookedComponentProxyConvergesFromCpuReadyGpuQueuedWithoutMutation)
 {
+	std::optional<Durin::UnifiedError::FError> LoadedError;
 	if (!Durin::GIsGameThreadIdInitialized)
 	{
 		Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
@@ -349,10 +351,10 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedMesh", CookedPath));
 	Durin::DStaticMesh* CookedMesh = nullptr;
 	const auto Loaded =
-		Durin::LoadObjectDetailed<Durin::DStaticMesh>(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
-			CookedPath, AuthoredPath.GetPackageName()));
-		CookedMesh = Loaded.value_or(nullptr);
-	ASSERT_TRUE(Loaded) << (Loaded ? std::string{} : Loaded.error().Message);
+		Durin::LoadObject<Durin::DStaticMesh>(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
+			CookedPath, AuthoredPath.GetPackageName()), nullptr, &LoadedError);
+		CookedMesh = Loaded;
+	ASSERT_TRUE(Loaded) << (LoadedError ? LoadedError->ToString() : "");
 	ASSERT_NE(CookedMesh, nullptr);
 	ASSERT_EQ(CookedMesh->GetRenderData(), nullptr);
 	ASSERT_TRUE(Durin::InitializeCookedMeshLoadManager());
@@ -398,9 +400,10 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 		ASSERT_TRUE(Durin::UnloadPackage(CookedPath));
 		CookedMesh = nullptr;
 		{
-			auto LoadedValue = Durin::LoadObjectDetailed<Durin::DStaticMesh>(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
-			CookedPath, AuthoredPath.GetPackageName()));
-			CookedMesh = LoadedValue.value_or(nullptr);
+			std::optional<Durin::UnifiedError::FError> LoadedValueError;
+			auto LoadedValue = Durin::LoadObject<Durin::DStaticMesh>(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
+			CookedPath, AuthoredPath.GetPackageName()), nullptr, &LoadedValueError);
+			CookedMesh = LoadedValue;
 			ASSERT_TRUE(LoadedValue);
 		}
 		ASSERT_EQ(CookedMesh->GetRenderData(), nullptr);

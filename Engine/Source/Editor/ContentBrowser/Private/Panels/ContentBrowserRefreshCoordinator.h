@@ -1,8 +1,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 
-#include "Asset/AssetReadResult.h"
 #include "AssetRegistry/ContentChanges.h"
 #include "ContentBrowser/ContentBrowserContracts.h"
 
@@ -16,7 +17,7 @@ namespace Durin::ContentBrowser::Private
 	class FContentBrowserRefreshCoordinator
 	{
 	public:
-		using FReconcileMountedContent = std::function<FAssetReadResult()>;
+		using FReconcileMountedContent = std::function<std::expected<void, Durin::UnifiedError::FError>()>;
 		using FRefreshPublishedContent = std::function<void(const FContentChangeBatch&)>;
 		using FGetRegistryRevision = std::function<uint64()>;
 
@@ -43,13 +44,13 @@ namespace Durin::ContentBrowser::Private
 			const FReconcileMountedContent& ReconcileMountedContent,
 			const FRefreshPublishedContent& RefreshPublishedContent,
 			const FGetRegistryRevision& GetRegistryRevision)
-			-> FAssetReadResult;
+			-> std::expected<void, Durin::UnifiedError::FError>;
 		auto ReconcileExplicitly(
 			uint64 MountedContentRevision,
 			const FReconcileMountedContent& ReconcileMountedContent,
 			const FRefreshPublishedContent& RefreshPublishedContent,
 			const FGetRegistryRevision& GetRegistryRevision)
-			-> FAssetReadResult;
+			-> std::expected<void, Durin::UnifiedError::FError>;
 		auto RefreshRegistryView(
 			uint64 AssetRegistryRevision,
 			const FRefreshPublishedContent& RefreshPublishedContent) -> void;

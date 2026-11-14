@@ -1,4 +1,6 @@
 #include "Engine/StreamableManager.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 #include "AssetAsyncLoadInternal.h"
 #include "AssetObjectLoadTiming.h"
 #include "AssetRuntimeStateInternal.h"
@@ -38,23 +40,22 @@ namespace Durin
 				Input.Access = FPackageFileAccess::TryReadPackage(Input.PhysicalPath);
 				if (!Input.Access)
 				{
-					Input.Result = {EAssetReadError::InUse, "Package output is being written."};
+					Input.Result = std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::InUse, "Package output is being written."});
 					continue;
 				}
 				std::error_code Error;
 				const auto Size = std::filesystem::file_size(Input.PhysicalPath, Error);
 				if (Error)
-					Input.Result = {Error == std::errc::no_such_file_or_directory
-						? EAssetReadError::NotFound : EAssetReadError::IoError, Error.message()};
+					Input.Result = std::unexpected(Durin::UnifiedError::FError{Error == std::errc::no_such_file_or_directory ? AssetLoadErrors::NotFound : PackageReadErrors::IoError, Error.message()});
 				else if (Size > MaximumClosureBytes - RetainedBytes)
-					Input.Result = {EAssetReadError::InUse, "Async package closure exceeds the 256 MiB read budget."};
+					Input.Result = std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::InUse, "Async package closure exceeds the 256 MiB read budget."});
 				else
 				{
 					auto Loaded = FFileHelper::LoadFileToArray(Input.PhysicalPath);
 					if (!Loaded)
-						Input.Result = {EAssetReadError::IoError, Loaded.error().ToString()};
+						Input.Result = std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::IoError, Loaded.error().ToString()});
 					else if (Loaded->size() > MaximumClosureBytes - RetainedBytes)
-						Input.Result = {EAssetReadError::StaleData, "Package size changed during async read."};
+						Input.Result = std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::StaleData, "Package size changed during async read."});
 					else Input.Bytes = std::move(*Loaded);
 				}
 				RetainedBytes += Input.Bytes.size();
@@ -64,7 +65,7 @@ namespace Durin
 				if (std::filesystem::is_regular_file(Bulk, Error))
 					Input.BulkBytes = std::filesystem::file_size(Bulk, Error);
 				if (Error && Error != std::errc::no_such_file_or_directory)
-					Input.Result = {EAssetReadError::IoError, "Failed to inspect async bulk companion."};
+					Input.Result = std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::IoError, "Failed to inspect async bulk companion."});
 			}
 			return Inputs;
 		}
@@ -90,7 +91,7 @@ namespace Durin
 	struct FStreamableHandle::FImpl
 	{
 		EAssetLoadState State = EAssetLoadState::Pending;
-		std::optional<FAssetReadError> Failure;
+		std::optional<UnifiedError::FError> Failure;
 		FAssetLoadReport Report;
 		FPackagePath PackagePath;
 		std::optional<FSoftObjectPath> ObjectPath;
@@ -106,7 +107,7 @@ namespace Durin
 		std::weak_ptr<FStreamableManagerState> Manager;
 		std::string DebugName;
 		std::vector<FSoftObjectPath> Targets;
-		std::vector<FAssetReadError> TargetErrors;
+		std::vector<std::optional<UnifiedError::FError>> TargetErrors;
 		std::vector<FAssetLoadReport> Reports;
 		std::vector<std::shared_ptr<FStreamableHandle>> Children;
 		std::vector<std::weak_ptr<FStreamableHandle>> Parents;
@@ -152,17 +153,16 @@ namespace Durin
 	auto FStreamableHandle::HasLoadCompleted() const -> bool { CheckAsyncLoadThread(); return Impl->bLoadCompleted; }
 	auto FStreamableHandle::WasCanceled() const -> bool { CheckAsyncLoadThread(); return Impl->bCanceled; }
 	auto FStreamableHandle::HasError() const -> bool { CheckAsyncLoadThread(); return Impl->Failure.has_value(); }
-	auto FStreamableHandle::GetError() const -> const FAssetReadError&
+	auto FStreamableHandle::GetError() const -> const std::optional<UnifiedError::FError>&
 	{
 		CheckAsyncLoadThread();
-		static const FAssetReadError None{EAssetReadError::None, {}};
-		return Impl->Failure ? *Impl->Failure : None;
+		return Impl->Failure;
 	}
 	auto FStreamableHandle::GetRequestedAssets() const -> const std::vector<FSoftObjectPath>& { CheckAsyncLoadThread(); return Impl->Targets; }
-	auto FStreamableHandle::GetTargetErrors() const -> std::vector<FAssetReadError>
+	auto FStreamableHandle::GetTargetErrors() const -> std::vector<std::optional<UnifiedError::FError>>
 	{
 		CheckAsyncLoadThread();
-		return Impl->bAggregate ? Impl->TargetErrors : std::vector<FAssetReadError>(Impl->Targets.size(), GetError());
+		return Impl->bAggregate ? Impl->TargetErrors : std::vector<std::optional<UnifiedError::FError>>(Impl->Targets.size(), GetError());
 	}
 	auto FStreamableHandle::GetLoadedAssets() const -> std::vector<DObject*>
 	{
@@ -247,7 +247,7 @@ namespace Durin
 		Impl->bCompletionPending = false;
 		Impl->bReleaseRequested = true;
 		Impl->State = EAssetLoadState::Cancelled;
-		Impl->Failure = FAssetReadError{EAssetReadError::Cancelled, "Asset load request cancelled."};
+		Impl->Failure.emplace(AssetLoadErrors::Cancelled, "Asset load request cancelled.");
 		if (Impl->bAggregate) std::ranges::fill(Impl->TargetErrors, *Impl->Failure);
 		auto Callback = std::move(Impl->CancelCallback);
 		ReleaseRetention();
@@ -275,7 +275,7 @@ namespace Durin
 		bool bProcessing = false;
 		bool bStopping = false;
 
-		auto Complete(const std::shared_ptr<FStreamableHandle>& Handle, FAssetReadResult Result,
+		auto Complete(const std::shared_ptr<FStreamableHandle>& Handle, std::expected<void, Durin::UnifiedError::FError> Result,
 			DPackage* Package = nullptr, DObject* Object = nullptr) -> void
 		{
 			if (Handle->IsComplete()) return;
@@ -293,7 +293,7 @@ namespace Durin
 				}
 				State.LoadedPackage = State.Package.Get(); State.LoadedObject = State.Object.Get();
 			}
-			else State.Failure = AssetReadErrorFromResult(Result);
+			else State.Failure = Result.error();
 			State.bCompletionPending = static_cast<bool>(State.Callback);
 			if (auto Publish = std::move(State.LoadCompletedCallback)) Publish(*Handle);
 			// Capture parents before a child's deferred release can drop its GC roots.
@@ -311,7 +311,7 @@ namespace Durin
 			if (Handle->IsComplete()) return;
 			auto& State = *Handle->Impl;
 			bool bComplete = true;
-			FAssetReadResult Result;
+			std::expected<void, Durin::UnifiedError::FError> Result;
 			size_t Slot = 0;
 			std::vector<TStrongObjectPtr<DPackage>> Packages;
 			auto RetainPackage = [&](DPackage* Package) {
@@ -321,7 +321,11 @@ namespace Durin
 			for (const auto& Child : State.Children)
 			{
 				if (!Child->IsComplete()) bComplete = false;
-				if (Result && Child->HasError()) Result = AssetReadResultFromError(Child->GetError());
+				if (Result && Child->HasError())
+				{
+					Result = std::unexpected(*Child->GetError());
+					State.Report = Child->GetReport();
+				}
 				DPackage* Package = Child->WasCanceled() ? nullptr : Child->GetLoadedPackage();
 				RetainPackage(Package);
 				if (!Child->WasCanceled() && Child->Impl->bAggregate)
@@ -361,9 +365,14 @@ namespace Durin
 			if (!State.Reports.empty())
 			{
 				const auto FirstError = std::ranges::find_if(State.TargetErrors,
-					[](const auto& Error) { return Error.Code != EAssetReadError::None; });
+					[](const auto& Error) { return Error.has_value(); });
 				const size_t Index = FirstError == State.TargetErrors.end() ? 0 : FirstError - State.TargetErrors.begin();
-				State.Report = State.Reports[Index];
+				if (FirstError != State.TargetErrors.end())
+				{
+					State.Report = State.Reports[Index];
+					Result = std::unexpected(**FirstError);
+				}
+				else if (Result) State.Report = State.Reports.front();
 			}
 			if (bComplete) Complete(Handle, Result);
 		}
@@ -377,7 +386,7 @@ namespace Durin
 			auto& State = *Handle->Impl;
 			DPackage* Package = nullptr;
 			DObject* Object = nullptr;
-			FAssetReadResult Result;
+			std::expected<void, Durin::UnifiedError::FError> Result;
 			{
 				// Preserve the synchronous loader's SCC ordering, rollback and publication.
 				// No uncaptured dependency may silently perform disk I/O on GameThread.
@@ -386,16 +395,18 @@ namespace Durin
 					~FRestore() { Slot = Value; } } Restore{Loader.AsyncInputs, Previous};
 				if (State.ObjectPath)
 				{
-					auto Loaded = LoadObjectDetailed(*State.ObjectPath, State.ExpectedClass, &State.Report);
-					Object = Loaded.value_or(nullptr);
-					if (!Loaded) Result = AssetReadResultFromError(Loaded.error());
+					std::optional<Durin::UnifiedError::FError> LoadedError;
+					auto Loaded = LoadObject(*State.ObjectPath, State.ExpectedClass, &State.Report, &LoadedError);
+					Object = Loaded;
+					if (!Loaded) Result = std::unexpected((*LoadedError));
 					Package = Object ? Object->GetPackage() : nullptr;
 				}
 				else
 				{
-					auto Loaded = LoadPackageDetailed(State.PackagePath, &State.Report);
-					Package = Loaded.value_or(nullptr);
-					if (!Loaded) Result = AssetReadResultFromError(Loaded.error());
+					std::optional<Durin::UnifiedError::FError> LoadedError;
+					auto Loaded = LoadPackage(State.PackagePath, &State.Report, &LoadedError);
+					Package = Loaded;
+					if (!Loaded) Result = std::unexpected((*LoadedError));
 				}
 			}
 			Complete(Handle, std::move(Result), Package, Object);
@@ -419,7 +430,7 @@ namespace Durin
 			State.Report.RequestedObjectPath = State.ObjectPath.value_or(FSoftObjectPath{});
 			// Rejected lifetime/guard admissions must never enqueue work for later escape.
 			auto Admission = AssetPrivate::FAssetLiveLoadGuard::Check("async load", State.PackagePath.ToString());
-			if (Admission && bStopping) Admission = {EAssetReadError::ShuttingDown, "Streamable requests are draining."};
+			if (Admission && bStopping) Admission = std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::ShuttingDown, "Streamable requests are draining."});
 			if (Admission) Admission = FAssetRuntimeState::Get().CheckRequestAdmission();
 			if (!Admission)
 			{
@@ -442,11 +453,11 @@ namespace Durin
 			Handle->Impl->Report.RequestedPath = Handle->Impl->PackagePath;
 			Handle->Impl->Report.RequestedObjectPath = Handle->Impl->ObjectPath.value_or(FSoftObjectPath{});
 			auto Admission = AssetPrivate::FAssetLiveLoadGuard::Check("sync load", Handle->Impl->PackagePath.ToString());
-			if (Admission && bStopping) Admission = {EAssetReadError::ShuttingDown, "Streamable requests are draining."};
+			if (Admission && bStopping) Admission = std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::ShuttingDown, "Streamable requests are draining."});
 			if (Admission) Admission = FAssetRuntimeState::Get().CheckRequestAdmission();
 			if (Admission && (!Handle->Impl->PackagePath.IsValid()
 				|| (Handle->Impl->ObjectPath && !Handle->Impl->ObjectPath->IsValid())))
-				Admission = {EAssetReadError::InvalidPath, "A load request requires a valid package or object path."};
+				Admission = std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::InvalidPath, "A load request requires a valid package or object path."});
 			if (Admission) Apply(Handle);
 			else Complete(Handle, std::move(Admission));
 			return Handle;
@@ -462,7 +473,7 @@ namespace Durin
 			State.bOwnChildren = bOwnChildren;
 			State.Callback = std::move(Callback);
 			auto Admission = AssetPrivate::FAssetLiveLoadGuard::Check("combined load", "");
-			if (Admission && bStopping) Admission = {EAssetReadError::ShuttingDown, "Streamable requests are draining."};
+			if (Admission && bStopping) Admission = std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::ShuttingDown, "Streamable requests are draining."});
 			if (Admission) Admission = FAssetRuntimeState::Get().CheckRequestAdmission();
 			if (!Admission)
 			{
@@ -485,7 +496,7 @@ namespace Durin
 			State.Assets.resize(State.Targets.size());
 			State.WeakAssets.resize(State.Targets.size());
 			State.AssetPackages.resize(State.Targets.size());
-			State.TargetErrors.resize(State.Targets.size(), {EAssetReadError::None, {}});
+			State.TargetErrors.resize(State.Targets.size());
 			State.Reports.resize(State.Targets.size());
 			for (size_t Index = 0; Index < State.Targets.size(); ++Index)
 			{
@@ -535,16 +546,15 @@ namespace Durin
 				if (!Job.Read.IsCompleted()) { ++Index; continue; }
 				auto Finished = std::move(Jobs[Index]);
 				Jobs.erase(Jobs.begin() + Index);
-				FAssetReadResult Result;
+				std::expected<void, Durin::UnifiedError::FError> Result;
 				FAsyncPackageInputs Inputs;
 				if (Finished->Cancellation.IsCanceled())
-					Result = {EAssetReadError::Cancelled, "Async package read cancellation was requested."};
+					Result = std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::Cancelled, "Async package read cancellation was requested."});
 				else if (Finished->Read.GetState() != ETaskState::Succeeded)
-					Result = {Finished->Read.GetState() == ETaskState::Canceled
-						? EAssetReadError::Cancelled : EAssetReadError::IoError, "Async package read did not succeed."};
+					Result = std::unexpected(Durin::UnifiedError::FError{Finished->Read.GetState() == ETaskState::Canceled ? AssetLoadErrors::Cancelled : PackageReadErrors::IoError, "Async package read did not succeed."});
 				else Inputs = std::move(Finished->Read.GetResult());
 				if (Result && Finished->Revision != GetAssetCatalogRevision())
-					Result = {EAssetReadError::StaleData, "Asset catalog changed during async loading; retry the request."};
+					Result = std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::StaleData, "Asset catalog changed during async loading; retry the request."});
 				for (auto& Handle : Finished->Handles)
 				{
 					if (Result) Apply(Handle, &Inputs);
@@ -568,7 +578,7 @@ namespace Durin
 				auto& State = *Handle->Impl;
 				if (!FAssetRuntimeState::Get().IsAcceptingRequests())
 				{
-					Complete(Handle, {EAssetReadError::ShuttingDown, "Asset loading is closed."});
+					Complete(Handle, std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::ShuttingDown, "Asset loading is closed."}));
 					++Completed; continue;
 				}
 				FPackagePath Root = State.PackagePath;
@@ -581,7 +591,7 @@ namespace Durin
 				}
 				if (!Root.IsValid())
 				{
-					Complete(Handle, {EAssetReadError::InvalidPath, "Async load requires a valid package path."});
+					Complete(Handle, std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::InvalidPath, "Async load requires a valid package path."}));
 					++Completed; continue;
 				}
 				if (auto* Resident = FindResidentPackage(Root); Resident && Resident->IsFullyLoaded())
@@ -596,7 +606,7 @@ namespace Durin
 				if (Jobs.size() >= MaximumConcurrentReads) { Pending.push_back(Handle); continue; }
 				if (!IsTaskSchedulerRunning())
 				{
-					Complete(Handle, {EAssetReadError::InUse, "Async loading requires a running task scheduler."});
+					Complete(Handle, std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::InUse, "Async loading requires a running task scheduler."}));
 					++Completed; continue;
 				}
 				auto Job = std::make_shared<FJob>();
@@ -665,17 +675,32 @@ namespace Durin
 	};
 
 	namespace { auto AsyncLoader() -> FAssetLoadRequestService& { static FAssetLoadRequestService Loader; return Loader; } }
-	auto FStreamableManager::CreateErrorHandle(FAssetReadError Error, std::string DebugName) -> std::shared_ptr<FStreamableHandle>
+	auto FStreamableManager::CreateErrorHandle(UnifiedError::FError Error, FStreamableAsyncLoadParams Params) -> std::shared_ptr<FStreamableHandle>
 	{
 		CheckAsyncLoadThread();
 		auto Handle = std::shared_ptr<FStreamableHandle>(new FStreamableHandle());
-		Handle->Impl->State = EAssetLoadState::Cancelled;
-		Handle->Impl->bCanceled = true;
-		Handle->Impl->bReleased = true;
-		Handle->Impl->Failure = std::move(Error);
-		Handle->Impl->DebugName = std::move(DebugName);
+		auto& Impl = *Handle->Impl;
+		Impl.State = EAssetLoadState::Cancelled;
+		Impl.bCanceled = true;
+		Impl.bReleased = true;
+		Impl.Failure = std::move(Error);
+		Impl.DebugName = std::move(Params.DebugName);
+		Impl.Targets = std::move(Params.TargetsToStream);
+		Impl.bAggregate = true;
+		Impl.Assets.resize(Impl.Targets.size(), nullptr);
+		Impl.WeakAssets.resize(Impl.Targets.size());
+		Impl.AssetPackages.resize(Impl.Targets.size(), nullptr);
+		Impl.TargetErrors.resize(Impl.Targets.size(), Impl.Failure);
+		Impl.Reports.resize(Impl.Targets.size());
+		for (size_t Index = 0; Index < Impl.Targets.size(); ++Index)
+		{
+			Impl.Reports[Index].RequestedObjectPath = Impl.Targets[Index];
+			Impl.Reports[Index].RequestedPath = Impl.Targets[Index].GetPackagePath();
+		}
+		if (!Impl.Reports.empty()) Impl.Report = Impl.Reports.front();
 		return Handle;
 	}
+
 	FStreamableManager::FStreamableManager() : State(std::make_shared<FStreamableManagerState>())
 	{
 		CheckAsyncLoadThread();

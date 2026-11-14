@@ -447,8 +447,7 @@ namespace Durin
 				{
 					if (!Job.Load) return Fail("The thumbnail asset load is unavailable.");
 					if (!Job.Load->IsComplete()) return true;
-					if (Job.Load->HasError()) return Fail(Job.Load->GetError().Message.empty()
-						? "The thumbnail asset could not be loaded." : Job.Load->GetError().Message);
+					if (Job.Load->HasError()) return Fail(Job.Load->GetError()->ToString());
 					Object = Job.Load->GetLoadedAsset();
 					if (!Object || Object->GetClass()->GetQualifiedName().ToString() != Job.Work.Asset.AssetClassName)
 						return Fail("The thumbnail asset does not match its catalog class.");

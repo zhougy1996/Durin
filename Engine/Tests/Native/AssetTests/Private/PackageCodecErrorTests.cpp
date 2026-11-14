@@ -55,7 +55,7 @@ TEST(FPackageAssetTests, PackageCodecRetainsOwnedReaderAndWriterCauses)
 	EXPECT_EQ(Closure.BulkBytes, SavedClosure.BulkBytes);
 	const auto Read = Codec.Validate({.PackageBytes = Closure.PackageBytes,
 		.BulkBytes = Closure.BulkBytes, .PackagePath = Path});
-	ASSERT_TRUE(Read) << Read.Message;
+	ASSERT_TRUE(Read) << Read.error();
 
 }
 

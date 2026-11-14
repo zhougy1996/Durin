@@ -1,4 +1,5 @@
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
 #include "WaterSurfaceActor.h"
 #include "WaterSurfaceComponent.h"
 #include "WaterSurfaceResources.h"
@@ -182,11 +183,12 @@ int main(int Argc, char** Argv)
 		if (Mode == "queries") CheckQueries();
 		else if (Mode == "load" || Mode == "load-cooked")
 		{
+			std::optional<Durin::UnifiedError::FError> LoadedError;
 			if (Mode == "load") Require(bool(RefreshAssetRegistry()), "Asset registry scan failed.");
 			FPackagePath Path; Require(FPackagePath::TryCreate("/Game/WaterSurfaceLevel", Path), "Invalid level path.");
-			const auto Loaded = LoadPackageDetailed(Path);
-			Require(bool(Loaded), Loaded ? "" : Loaded.error().Message);
-			auto* Level = Cast<DLevel>((*Loaded)->FindTopLevelAsset("WaterSurfaceLevel"));
+			const auto Loaded = LoadPackage(Path, nullptr, &LoadedError);
+			Require(bool(Loaded), Loaded ? "" : (*LoadedError));
+			auto* Level = Cast<DLevel>(Loaded->FindTopLevelAsset("WaterSurfaceLevel"));
 			Require(Level && Level->GetActors().size() == 1, "Saved water level did not load.");
 			auto* Actor = Cast<AWaterSurfaceActor>(Level->GetActors()[0].Get());
 			Require(Actor && Actor->GetRootComponent() == Actor->GetWaterComponent(), "Saved water actor composition changed.");
@@ -195,24 +197,26 @@ int main(int Argc, char** Argv)
 			Require(Actor->GetWaterComponent()->QuerySurface({0, 0, 0}, .75).has_value(), "Saved water query failed.");
 			if (Mode == "load-cooked")
 			{
+				std::optional<Durin::UnifiedError::FError> MaterialError;
 				FSoftObjectPath MaterialPath;
 				Require(FSoftObjectPath::TryCreate("/Plugins/Water/Materials/DefaultWater.DefaultWater", MaterialPath), "Invalid material path.");
-				const auto Material = LoadObjectDetailed<DMaterialInterface>(MaterialPath);
-				Require(bool(Material), Material ? "" : Material.error().Message);
-				(void)FAssetCompilingManager::Get().FinishCompilationForObject(**Material);
-				Require(bool((*Material)->GetAcceptedCompiledProgram()), "Cooked Water material has no accepted platform program.");
+				const auto Material = LoadObject<DMaterialInterface>(MaterialPath, nullptr, &MaterialError);
+				Require(bool(Material), Material ? "" : (*MaterialError));
+				(void)FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
+				Require(bool(Material->GetAcceptedCompiledProgram()), "Cooked Water material has no accepted platform program.");
 			}
 			std::cout << "Saved water level and queries loaded in " << DURIN_RUNTIME_VARIANT << '\n';
 		}
 #if DURIN_WITH_EDITOR
 		else if (Mode == "material")
 		{
+			std::optional<Durin::UnifiedError::FError> LoadedError;
 			Require(bool(RefreshAssetRegistry()), "Asset registry scan failed.");
 			FSoftObjectPath Path;
 			Require(FSoftObjectPath::TryCreate("/Plugins/Water/Materials/DefaultWater.DefaultWater", Path), "Invalid material path.");
-			const auto Loaded = LoadObjectDetailed<DMaterial>(Path);
-			Require(bool(Loaded), Loaded ? "" : Loaded.error().Message);
-			const auto Snapshot = SnapshotMaterialCompilerInput(**Loaded, {});
+			const auto Loaded = LoadObject<DMaterial>(Path, nullptr, &LoadedError);
+			Require(bool(Loaded), Loaded ? "" : (*LoadedError));
+			const auto Snapshot = SnapshotMaterialCompilerInput(*Loaded, {});
 			Require(bool(Snapshot), FormatMaterialProgramDiagnostics(Snapshot.Diagnostics));
 			CheckQueries(Snapshot.Snapshot->Input);
 		}
@@ -224,6 +228,7 @@ int main(int Argc, char** Argv)
 		}
 		else if (Mode == "persist")
 		{
+			std::optional<Durin::UnifiedError::FError> LoadedError;
 			FPackagePath Path; Require(FPackagePath::TryCreate("/Game/WaterSurfaceLevel", Path), "Invalid level path.");
 			auto* Package = CreatePackage(Path);
 			auto* Level = NewObject<DLevel>(Package, "WaterSurfaceLevel", EObjectFlags::Public);
@@ -234,9 +239,9 @@ int main(int Argc, char** Argv)
 			Require(bool(SavePackage(Package)), "Level save failed.");
 			const auto Unloaded = CollectPackageExports(std::array{TWeakObjectPtr<DPackage>(Package)});
 			Require(bool(Unloaded.Admission) && Unloaded.CollectedCount > 0, "Level unload failed.");
-			const auto Loaded = LoadPackageDetailed(Path);
-			Require(bool(Loaded), Loaded ? "" : Loaded.error().Message);
-			auto* Reloaded = Cast<DLevel>((*Loaded)->FindTopLevelAsset("WaterSurfaceLevel"));
+			const auto Loaded = LoadPackage(Path, nullptr, &LoadedError);
+			Require(bool(Loaded), Loaded ? "" : (*LoadedError));
+			auto* Reloaded = Cast<DLevel>(Loaded->FindTopLevelAsset("WaterSurfaceLevel"));
 			Require(Reloaded && Reloaded->GetActors().size() == 1, "Level actor did not reopen.");
 			auto* Actor = Cast<AWaterSurfaceActor>(Reloaded->GetActors()[0].Get());
 			Require(Actor && Actor->GetWaterComponent()->GetSettings() == S, "Water settings did not persist.");

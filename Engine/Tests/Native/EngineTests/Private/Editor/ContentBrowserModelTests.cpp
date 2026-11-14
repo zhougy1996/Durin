@@ -1,4 +1,6 @@
 #include "ThumbnailManagerTestSupport.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 #include "Editor/EditorEngine.h"
 #include "Thumbnail/ThumbnailRenderer.h"
 #include "Thumbnail/ThumbnailManager.h"
@@ -1480,8 +1482,9 @@ TEST_F(FContentBrowserModelTests, DuplicatesAssetGraphWithFirstAvailableCopyName
 			.lexically_normal().generic_string());
 	DMaterial* Duplicate = nullptr;
 	{
-		auto LoadedValue = LoadObjectDetailed<DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(DuplicatePath));
-		Duplicate = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = LoadObject<DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(DuplicatePath), nullptr, &LoadedValueError);
+		Duplicate = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_NE(Duplicate, nullptr);
@@ -1498,8 +1501,9 @@ TEST_F(FContentBrowserModelTests, DuplicatesAssetGraphWithFirstAvailableCopyName
 		Testing::MakePackageLeafTopLevelAssetPathForTests(PastedPath).ToString());
 	DMaterial* Pasted = nullptr;
 	{
-		auto LoadedValue = LoadObjectDetailed<DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(PastedPath));
-		Pasted = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = LoadObject<DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(PastedPath), nullptr, &LoadedValueError);
+		Pasted = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_NE(Pasted, nullptr);
@@ -2711,9 +2715,9 @@ TEST_F(FContentBrowserModelTests, DeletionRevalidatesExternalProviderFingerprint
 	{
 		std::string Fingerprint = "first";
 		bool bFail = true;
-		auto CaptureSnapshot(FAssetReferenceStoreSnapshot& Snapshot) -> FAssetReadResult override
+		auto CaptureSnapshot(FAssetReferenceStoreSnapshot& Snapshot) -> std::expected<void, Durin::UnifiedError::FError> override
 		{
-			if (bFail) return {EAssetReadError::IoError, "Injected provider inspection failure."};
+			if (bFail) return std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::IoError, "Injected provider inspection failure."});
 			Snapshot = {.ProviderId = "deletion-test", .Fingerprint = Fingerprint};
 			return {};
 		}
@@ -3607,7 +3611,7 @@ TEST_F(FContentBrowserModelTests, MountedReconciliationFencePreventsPrematurePub
 	EXPECT_TRUE(Model.IsLoading());
 	EXPECT_TRUE(Model.GetItems().empty());
 	ASSERT_TRUE(Coordinator.Synchronize(2, GetAssetCatalogRevision(),
-		[] { return FAssetReadResult{}; }, [](const FContentChangeBatch&) {}, GetAssetCatalogRevision));
+		[] { return std::expected<void, Durin::UnifiedError::FError>{}; }, [](const FContentChangeBatch&) {}, GetAssetCatalogRevision));
 	Model.WaitForPendingSnapshotsForTesting();
 	EXPECT_FALSE(Model.IsLoading());
 	EXPECT_EQ(Model.GetItems().size(), 1u);
@@ -3830,7 +3834,7 @@ TEST_F(FContentBrowserModelTests, FreshCatalogCaptureCanProceedWhileMountedRevis
 	Coordinator.ObserveMountedContent(2);
 	EXPECT_FALSE(Model.PumpPendingSnapshots());
 	int Attempts = 0;
-	const auto Reconcile = [&] { ++Attempts; return FAssetReadResult{EAssetReadError::IoError, "forced failure"}; };
+	const auto Reconcile = [&] { ++Attempts; return std::expected<void, Durin::UnifiedError::FError>{std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::IoError, "forced failure"})}; };
 	EXPECT_FALSE(Coordinator.Synchronize(2, GetAssetCatalogRevision(), Reconcile,
 		[](const FContentChangeBatch&) {}, GetAssetCatalogRevision));
 	// A fresh request can proceed, and a suppressed failure must not suspend it again.
@@ -4100,6 +4104,7 @@ TEST_F(FContentBrowserModelTests, MixedContentCopyDuplicatesAssetAndPreservesSou
 
 TEST_F(FContentBrowserModelTests, PasteSaveFailureKeepsDirtyCopyAndReportsContentChange)
 {
+	std::optional<Durin::UnifiedError::FError> LoadedCopyError;
 	FPackagePath Source;
 	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/A/PasteSaveFailure", Source));
 	DMaterial* Material = nullptr;
@@ -4119,9 +4124,9 @@ TEST_F(FContentBrowserModelTests, PasteSaveFailureKeepsDirtyCopyAndReportsConten
 	EXPECT_FALSE(OperationWarning.empty());
 	FSoftObjectPath CopyPath;
 	ASSERT_TRUE(FSoftObjectPath::TryCreate(TestVirtualPath(ResultItem), CopyPath));
-	auto LoadedCopy = LoadObjectDetailed<DMaterial>(CopyPath);
+	auto LoadedCopy = LoadObject<DMaterial>(CopyPath, nullptr, &LoadedCopyError);
 	ASSERT_TRUE(LoadedCopy);
-	auto* Copy = *LoadedCopy;
+	auto* Copy = LoadedCopy;
 	ASSERT_NE(Copy, nullptr);
 	EXPECT_TRUE(Copy->GetPackage()->IsDirty());
 	EXPECT_EQ(FindResidentPackage(CopyPath.GetPackagePath()), Copy->GetPackage());

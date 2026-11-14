@@ -1,4 +1,6 @@
 #include "AssetPackageArchive.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 #include "AssetObjectLoadTiming.h"
 #include "AssetPropertyKindTraits.h"
 #include "AssetRuntimeStateInternal.h"
@@ -20,8 +22,8 @@ namespace Durin::AssetPrivate
 {
 	namespace
 	{
-		auto Error(EAssetReadError Code, std::string Message) -> FAssetReadResult
-		{ return {Code, std::move(Message)}; }
+		auto Error(Durin::UnifiedError::FErrorId Id, std::string Message) -> std::expected<void, Durin::UnifiedError::FError>
+		{ return std::unexpected(Durin::UnifiedError::FError{Id, std::move(Message)}); }
 
 		class FPackageLoadArchive final : public FObjectArchive
 		{
@@ -55,29 +57,17 @@ namespace Durin::AssetPrivate
 				if (!IsCurrentFieldAvailable()) return EArchiveStructBaseline::Complete;
 				return Scopes.back().Value->Baseline;
 			}
-			auto Complete(const FPackageOverrideRestore& OnValidatedValues) -> FAssetReadResult
+			auto Complete(const FPackageOverrideRestore& OnValidatedValues) -> std::expected<void, Durin::UnifiedError::FError>
 			{
 				auto Result = GetResult();
 				if (Result && OnValidatedValues) return OnValidatedValues(TakeOverriddenPropertyRestoration());
 				return Result;
 			}
 
-			auto GetResult() const -> FAssetReadResult
+			auto GetResult() const -> std::expected<void, Durin::UnifiedError::FError>
 			{
 				if (const auto* Failure = GetFailure())
 				{
-					auto Code = LoadError;
-					if (Code == EAssetReadError::None)
-					{
-						if (Failure->Code == EArchiveFailureCode::UnsupportedVersion)
-							Code = EAssetReadError::UnsupportedVersion;
-						else if (Failure->Code == EArchiveFailureCode::UnsupportedType
-							|| Failure->Code == EArchiveFailureCode::UnsupportedOperation
-							|| Failure->Code == EArchiveFailureCode::MalformedSerializer
-							|| Failure->Code == EArchiveFailureCode::MissingBaseReflectedFields)
-							Code = EAssetReadError::UnsupportedProperty;
-						else Code = EAssetReadError::CorruptFile;
-					}
 					std::string Reason = Failure->Message;
 					const auto Cause = std::visit([](const auto& Value) -> std::string {
 						using T = std::decay_t<decltype(Value)>;
@@ -88,8 +78,17 @@ namespace Durin::AssetPrivate
 						else return {};
 					}, GetValueFailureCause());
 					if (!Cause.empty()) Reason += (Reason.empty() ? "" : " ") + Cause;
-					return {Code, std::format("Package field load failed for '{}' at '{}' (archive code={}): {}",
-						Object.GetObjectPath(), Failure->Path, static_cast<uint32>(Failure->Code), Reason)};
+					const auto Id = Failure->Code == EArchiveFailureCode::UnsupportedVersion
+						? PackageReadErrors::UnsupportedVersion
+						: Failure->Code == EArchiveFailureCode::UnsupportedType
+							|| Failure->Code == EArchiveFailureCode::UnsupportedOperation
+							|| Failure->Code == EArchiveFailureCode::MalformedSerializer
+							|| Failure->Code == EArchiveFailureCode::MissingBaseReflectedFields
+						? AssetLoadErrors::UnsupportedProperty : PackageReadErrors::CorruptFile;
+					auto Error = LoadFailure ? *LoadFailure : UnifiedError::FError{Id, std::move(Reason)};
+					Error.PushContext("object", Object.GetObjectPath()).PushContext("field", Failure->Path)
+						.PushContext("archive code", std::to_string(static_cast<uint32>(Failure->Code)));
+					return std::unexpected(std::move(Error));
 				}
 				for (size_t Index = 0; Index < Fields.size(); ++Index)
 				{
@@ -98,9 +97,8 @@ namespace Durin::AssetPrivate
 					const auto* Schema = LinkerSchema::FindSchema(Linker, Tag.DeclaringType);
 					const auto Field = Schema ? SchemaBindings.FindProperty(*Schema, Tag.FieldName) : nullptr;
 					if (!IsCooking() && Field && Field->Match.Route == LinkerSchema::EPropertyLoadRoute::Removed) continue;
-					return {EAssetReadError::UnsupportedProperty,
-						std::format("Object '{}' has an unconsumed field '{}::{}' of kind '{}'.",
-							Object.GetObjectPath(), Tag.DeclaringType, Tag.FieldName, static_cast<uint32>(Tag.Type.Kind))};
+					return std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::UnsupportedProperty, std::format("Object '{}' has an unconsumed field '{}::{}' of kind '{}'.",
+							Object.GetObjectPath(), Tag.DeclaringType, Tag.FieldName, static_cast<uint32>(Tag.Type.Kind))});
 				}
 				return {};
 			}
@@ -128,7 +126,7 @@ namespace Durin::AssetPrivate
 				{ Invalid("Raw byte reads require an opaque Bytes field."); return; }
 				if (Bytes.size() > Scope.Value->Bytes.size() - Scope.Cursor)
 				{
-					FailLoad(EArchiveFailureCode::TruncatedPayload, {EAssetReadError::CorruptFile, "Opaque byte field is truncated."});
+					FailLoad(EArchiveFailureCode::TruncatedPayload, std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::CorruptFile, "Opaque byte field is truncated."}));
 					return;
 				}
 				if (!Bytes.empty()) std::memcpy(Bytes.data(), Scope.Value->Bytes.data() + Scope.Cursor, Bytes.size());
@@ -177,7 +175,7 @@ namespace Durin::AssetPrivate
 				if (Reference.IsExport())
 				{
 					if (Reference.GetTableIndex() >= Objects.size())
-					{ FailLoad(EArchiveFailureCode::InvalidObjectReference, {EAssetReadError::InvalidObjectGraph, "Invalid object export index."}); return; }
+					{ FailLoad(EArchiveFailureCode::InvalidObjectReference, std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::InvalidObjectGraph, "Invalid object export index."})); return; }
 					Loaded = Objects[Reference.GetTableIndex()];
 				}
 				else if (Reference.IsImport())
@@ -185,17 +183,21 @@ namespace Durin::AssetPrivate
 					const ObjectPackage::FPackageImport* Import = nullptr;
 					if (!Linker.TryGetImport(Reference, Import) || !Import) { Invalid("Invalid hard-reference import."); return; }
 					if (!Bindings.ResolveExternalObject)
-					{ FailLoad(EArchiveFailureCode::InvalidObjectReference, {EAssetReadError::MissingDependency, "No resolver for package dependency."}); return; }
+					{ FailLoad(EArchiveFailureCode::InvalidObjectReference, std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::MissingDependency, "No resolver for package dependency."})); return; }
 					const auto Result = Bindings.ResolveExternalObject(Import->ObjectPath, Loaded);
 					if (!Result || !Loaded)
-					{ FailLoad(EArchiveFailureCode::InvalidObjectReference, {Result ? EAssetReadError::MissingDependency : Result.Error,
-						std::format("Dependency '{}': {}", Import->ObjectPath.ToString(), Result ? "Resolver returned no object." : Result.Message)}); return; }
+					{
+						auto Error = Result ? UnifiedError::FError{AssetLoadErrors::MissingDependency, "Resolver returned no object."} : Result.error();
+						Error.PushContext("dependency", Import->ObjectPath.ToString());
+						FailLoad(EArchiveFailureCode::InvalidObjectReference, std::unexpected(std::move(Error)));
+						return;
+					}
 				}
 				if (Loaded && !Scope.Type->QualifiedName.empty())
 				{
 					DClass* Expected = FindClassByQualifiedName(FName(Scope.Type->QualifiedName));
 					if (Expected && !Loaded->IsA(Expected))
-					{ FailLoad(EArchiveFailureCode::InvalidData, {EAssetReadError::TypeMismatch, "Resolved object has an incompatible class."}); return; }
+					{ FailLoad(EArchiveFailureCode::InvalidData, std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::TypeMismatch, "Resolved object has an incompatible class."})); return; }
 				}
 				Value = Loaded;
 			}
@@ -208,7 +210,7 @@ namespace Durin::AssetPrivate
 				if (Scope.Value->Text.empty()) { Value = {}; return; }
 				FSoftObjectPath Loaded;
 				if (auto Result = FSoftObjectPath::TryCreateWithDiagnostic(Scope.Value->Text, Loaded); !Result)
-				{ FailLoad(EArchiveFailureCode::InvalidPath, {EAssetReadError::InvalidPath, ToString(Result.error())}); return; }
+				{ FailLoad(EArchiveFailureCode::InvalidPath, std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::InvalidPath, ToString(Result.error())})); return; }
 				Value = std::move(Loaded);
 			}
 
@@ -298,7 +300,7 @@ namespace Durin::AssetPrivate
 				const auto Expected = Kind == EArchiveLogicalTextKind::Name ? K::Name : K::String;
 				if (Scope.Type->Kind != Expected || !TakeAtomic(Scope)) { Invalid("Text read does not match the stored logical value."); return true; }
 				if (Scope.Value->Text.size() > MaximumBytes)
-				{ FailLoad(EArchiveFailureCode::LimitExceeded, {EAssetReadError::CorruptFile, "String exceeds its serialization limit."}); return true; }
+				{ FailLoad(EArchiveFailureCode::LimitExceeded, std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::CorruptFile, "String exceeds its serialization limit."})); return true; }
 				Out = Scope.Value->Text;
 				return true;
 			}
@@ -306,7 +308,7 @@ namespace Durin::AssetPrivate
 			auto OnEnterObject(DObject& EnteredObject) -> void override
 			{
 				if (&EnteredObject != &Object)
-					FailLoad(EArchiveFailureCode::InvalidObjectReference, {EAssetReadError::InvalidObjectGraph, "Serializer entered another object."});
+					FailLoad(EArchiveFailureCode::InvalidObjectReference, std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::InvalidObjectGraph, "Serializer entered another object."}));
 			}
 
 			auto OnEnterField(const FArchiveFieldDescriptor& Descriptor) -> void override
@@ -397,10 +399,10 @@ namespace Durin::AssetPrivate
 				{ return Type && Type->Kind == K::Intrinsic && Layout == 0; }
 			};
 
-			auto FailLoad(EArchiveFailureCode Code, FAssetReadResult Error) -> void
-			{ if (!IsError()) { LoadError = Error.Error; Fail(Code, std::move(Error.Message)); } }
+			auto FailLoad(EArchiveFailureCode Code, std::expected<void, Durin::UnifiedError::FError> Error) -> void
+			{ if (!IsError()) { LoadFailure = std::move(Error.error()); Fail(Code, LoadFailure->ToString()); } }
 			auto Invalid(std::string_view Message) -> void
-			{ FailLoad(EArchiveFailureCode::InvalidData, {EAssetReadError::CorruptFile, std::string(Message)}); }
+			{ FailLoad(EArchiveFailureCode::InvalidData, std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::CorruptFile, Message})); }
 			auto TakeAtomic(FLoadScope& Scope) -> bool
 			{ if (Scope.Cursor != 0) return false; ++Scope.Cursor; return true; }
 			auto PushValue(const ObjectPackage::FSerializedType& Type, const ObjectPackage::FSerializedValue& Value) -> void
@@ -489,13 +491,14 @@ namespace Durin::AssetPrivate
 									? SchemaBindings.FindProperty(*Schema, Scope.Value->FieldNames[Index]) : nullptr;
 								if (Field && Field->Match.Route == LinkerSchema::EPropertyLoadRoute::Removed) continue;
 							}
-							FailLoad(EArchiveFailureCode::MalformedSerializer, {EAssetReadError::UnsupportedProperty, "Stored field or container element was not consumed."});
+							FailLoad(EArchiveFailureCode::MalformedSerializer, std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::UnsupportedProperty, "Stored field or container element was not consumed."}));
 						}
 					}
 				}
 				Scopes.pop_back();
 			}
 
+			std::optional<UnifiedError::FError> LoadFailure;
 			DObject& Object;
 			std::span<const ObjectPackage::FPropertyTag> Fields;
 			const ObjectPackage::FLinkerTables& Linker;
@@ -504,7 +507,6 @@ namespace Durin::AssetPrivate
 			std::vector<uint8> Consumed;
 			LinkerSchema::FLoadSchemaBindings& SchemaBindings;
 			std::vector<FLoadScope> Scopes;
-			EAssetReadError LoadError = EAssetReadError::None;
 		};
 
 	}
@@ -516,7 +518,7 @@ namespace Durin::AssetPrivate
 		std::span<DObject* const> Objects,
 		const FPackageLoadBindings& Bindings,
 		const FArchiveState& Context,
-		const FPackageOverrideRestore& OnValidatedValues) -> FAssetReadResult
+		const FPackageOverrideRestore& OnValidatedValues) -> std::expected<void, Durin::UnifiedError::FError>
 	{
 		FScopedObjectLoadPhase Timing(Linker.Summary.PackagePath, EObjectLoadPhase::SerializeExports, 1, Fields.size());
 		std::optional<LinkerSchema::FLoadSchemaBindings> LocalBindings;
@@ -537,24 +539,24 @@ namespace Durin::AssetPrivate
 		uint32 ArrayIndex,
 		Durin::PackagePrivate::FByteReader& Reader,
 		const std::vector<DObject*>& Objects,
-		uint32 SourceVersion) -> FAssetReadResult
+		uint32 SourceVersion) -> std::expected<void, Durin::UnifiedError::FError>
 	{
 		const DurinCodeGen::EPropertyGenFlags Kind = Property->GetKind();
 		if (AssetPrivate::IsByteToolRawScalarKind(Kind))
-			return Reader.ReadBytes(Property->GetValuePtr(Container, ArrayIndex), Property->GetElementSize()) ? FAssetReadResult{} : Error(EAssetReadError::CorruptFile, "Truncated property payload.");
+			return Reader.ReadBytes(Property->GetValuePtr(Container, ArrayIndex), Property->GetElementSize()) ? std::expected<void, Durin::UnifiedError::FError>{} : Error(Durin::PackageReadErrors::CorruptFile, "Truncated property payload.");
 		switch (Kind)
 		{
 		case DurinCodeGen::EPropertyGenFlags::String:
 		{
 			std::string Value;
-			if (!Reader.ReadString(Value)) return Error(EAssetReadError::CorruptFile, "Truncated string property.");
+			if (!Reader.ReadString(Value)) return Error(Durin::PackageReadErrors::CorruptFile, "Truncated string property.");
 			*static_cast<FStringProperty*>(Property)->GetStringValuePtr(Container, ArrayIndex) = std::move(Value);
 			return {};
 		}
 		case DurinCodeGen::EPropertyGenFlags::Name:
 		{
 			std::string Value;
-			if (!Reader.ReadString(Value)) return Error(EAssetReadError::CorruptFile, "Truncated name property.");
+			if (!Reader.ReadString(Value)) return Error(Durin::PackageReadErrors::CorruptFile, "Truncated name property.");
 			*static_cast<FNameProperty*>(Property)->GetNameValuePtr(Container, ArrayIndex) = FName(Value);
 			return {};
 		}
@@ -562,7 +564,7 @@ namespace Durin::AssetPrivate
 		{
 			FGuid Value;
 			if (!Reader.Read(Value.A) || !Reader.Read(Value.B) || !Reader.Read(Value.C) || !Reader.Read(Value.D))
-				return Error(EAssetReadError::CorruptFile, "Truncated GUID property.");
+				return Error(Durin::PackageReadErrors::CorruptFile, "Truncated GUID property.");
 			*static_cast<FGuidProperty*>(Property)->GetGuidValuePtr(Container, ArrayIndex) = Value;
 			return {};
 		}
@@ -570,26 +572,26 @@ namespace Durin::AssetPrivate
 		{
 			auto* ObjectProperty = static_cast<FObjectProperty*>(Property);
 			uint8 ReferenceKind = 0;
-			if (!Reader.Read(ReferenceKind)) return Error(EAssetReadError::CorruptFile, "Truncated object reference.");
+			if (!Reader.Read(ReferenceKind)) return Error(Durin::PackageReadErrors::CorruptFile, "Truncated object reference.");
 			DObject* Value = nullptr;
 			if (ReferenceKind == 1)
 			{
 				uint64 Id = 0;
-				if (!Reader.Read(Id) || Id == 0 || Id > Objects.size()) return Error(EAssetReadError::InvalidObjectGraph, "Invalid internal object reference.");
+				if (!Reader.Read(Id) || Id == 0 || Id > Objects.size()) return Error(Durin::AssetLoadErrors::InvalidObjectGraph, "Invalid internal object reference.");
 				Value = Objects[static_cast<size_t>(Id - 1)];
 			}
 			else if (ReferenceKind == 2)
 			{
 				std::string PathString;
 				FSoftObjectPath Path;
-				if (!Reader.ReadString(PathString) || !FSoftObjectPath::TryCreate(PathString, Path)) return Error(EAssetReadError::InvalidPath, "Invalid external object reference.");
+				if (!Reader.ReadString(PathString) || !FSoftObjectPath::TryCreate(PathString, Path)) return Error(Durin::AssetLoadErrors::InvalidPath, "Invalid external object reference.");
 				auto Result = FAssetRuntimeState::Get().GetLoadService().LoadObjectDetailed(
 					Path, ObjectProperty->GetReferencedClass());
-				if (!Result) return Error(EAssetReadError::MissingDependency, Result.error().Message);
+				if (!Result) return std::unexpected(std::move(Result.error()));
 				Value = *Result;
 			}
-			else if (ReferenceKind != 0) return Error(EAssetReadError::CorruptFile, "Unknown object reference kind.");
-			if (Value && ObjectProperty->GetReferencedClass() && !Value->IsA(ObjectProperty->GetReferencedClass())) return Error(EAssetReadError::TypeMismatch, "Object reference class mismatch.");
+			else if (ReferenceKind != 0) return Error(Durin::PackageReadErrors::CorruptFile, "Unknown object reference kind.");
+			if (Value && ObjectProperty->GetReferencedClass() && !Value->IsA(ObjectProperty->GetReferencedClass())) return Error(Durin::AssetLoadErrors::TypeMismatch, "Object reference class mismatch.");
 			ObjectProperty->SetObjectPropertyValue(Container, Value, ArrayIndex);
 			return {};
 		}
@@ -598,25 +600,24 @@ namespace Durin::AssetPrivate
 			auto* SoftProperty = static_cast<FSoftObjectProperty*>(Property);
 			FSoftObjectPtr* Reference = SoftProperty->GetSoftObjectPtr(Container, ArrayIndex);
 			if (!Reference)
-				return Error(EAssetReadError::UnsupportedProperty,
-					"Soft object property has no typed value accessor.");
+				return Error(Durin::AssetLoadErrors::UnsupportedProperty, "Soft object property has no typed value accessor.");
 			uint8 ReferenceKind = 0;
 			if (!Reader.Read(ReferenceKind))
-				return Error(EAssetReadError::CorruptFile, "Truncated soft object reference.");
+				return Error(Durin::PackageReadErrors::CorruptFile, "Truncated soft object reference.");
 			if (ReferenceKind == 0)
 			{
 				Reference->Reset();
 				return {};
 			}
 			if (ReferenceKind != 1)
-				return Error(EAssetReadError::CorruptFile, "Unknown soft object reference tag.");
+				return Error(Durin::PackageReadErrors::CorruptFile, "Unknown soft object reference tag.");
 			std::string PathString;
 			if (!Reader.ReadString(PathString, Durin::PackagePrivate::MaximumPackageStringBytes) || PathString.empty())
-				return Error(EAssetReadError::CorruptFile, "Truncated or overlong soft object path.");
+				return Error(Durin::PackageReadErrors::CorruptFile, "Truncated or overlong soft object path.");
 			FSoftObjectPath Path;
 			if (const auto PathValidation = FSoftObjectPath::TryCreateWithDiagnostic(PathString, Path); !PathValidation)
 			{
-				return Error(EAssetReadError::InvalidPath, ToString(PathValidation.error()));
+				return Error(Durin::AssetLoadErrors::InvalidPath, ToString(PathValidation.error()));
 			}
 			*Reference = std::move(Path);
 			return {};
@@ -626,19 +627,15 @@ namespace Durin::AssetPrivate
 			auto* StructProperty = static_cast<FStructProperty*>(Property);
 			DStruct* Struct = StructProperty->GetStruct();
 			if (!Struct)
-				return Error(EAssetReadError::UnsupportedProperty, "Struct property has no reflected type.");
+				return Error(Durin::AssetLoadErrors::UnsupportedProperty, "Struct property has no reflected type.");
 			if (!Struct->HasCompleteAuthoredFields())
-				return Error(
-					EAssetReadError::UnsupportedProperty,
-					std::format(
+				return Error(Durin::AssetLoadErrors::UnsupportedProperty, std::format(
 						"CustomStructCodecRequired: '{}' does not declare a complete authored "
 						"field representation.",
 						Struct->GetQualifiedName()));
 			if (!Struct->CanDefaultConstruct() || !Struct->CanDestroy()
 				|| !Struct->CanCopyAssign())
-				return Error(
-					EAssetReadError::UnsupportedProperty,
-					std::format(
+				return Error(Durin::AssetLoadErrors::UnsupportedProperty, std::format(
 						"DStructOperationUnavailable: authored loading requires "
 						"DefaultConstruct, Destroy, and CopyAssign for '{}'.",
 						Struct->GetQualifiedName()));
@@ -658,11 +655,11 @@ namespace Durin::AssetPrivate
 				if (!ValueResult) StorageError = Durin::ToString(ValueResult.error());
 				return ValueResult.has_value();
 			}()))
-				return Error(EAssetReadError::UnsupportedProperty, std::move(StorageError));
+				return Error(AssetLoadErrors::UnsupportedProperty, std::move(StorageError));
 			std::string StructName;
 			uint64 FieldCount = 0;
 			if (!Reader.ReadString(StructName) || StructName != Struct->GetQualifiedName().ToString() || !Reader.Read(FieldCount) || FieldCount > 100000)
-				return Error(EAssetReadError::CorruptFile, "Invalid struct payload header.");
+				return Error(Durin::PackageReadErrors::CorruptFile, "Invalid struct payload header.");
 			void* StructValue = Storage.GetValue();
 			for (uint64 Index = 0; Index < FieldCount; ++Index)
 			{
@@ -671,7 +668,7 @@ namespace Durin::AssetPrivate
 				uint64 PayloadSize = 0;
 				FByteView Payload;
 				if (!Reader.ReadString(DeclaringStruct) || !Reader.ReadString(FieldName) || !Reader.Read(Kind) || !Reader.ReadString(Signature) || !Reader.Read(PayloadSize) || PayloadSize > Reader.Bytes.size() || !Reader.ReadSpan(static_cast<size_t>(PayloadSize), Payload))
-					return Error(EAssetReadError::CorruptFile, "Invalid struct field record.");
+					return Error(Durin::PackageReadErrors::CorruptFile, "Invalid struct field record.");
 				if (DeclaringStruct != StructName) continue;
 				FProperty* Field = Struct->FindPropertyBySerializedName(FName(FieldName), false);
 				if (!Field)
@@ -681,9 +678,7 @@ namespace Durin::AssetPrivate
 				}
 				if (static_cast<uint8>(Field->GetKind()) != Kind
 					|| !Durin::PackagePrivate::IsSerializedTypeSignatureCompatible(Field, Signature))
-					return Error(
-						EAssetReadError::TypeMismatch,
-						std::format(
+					return Error(Durin::AssetLoadErrors::TypeMismatch, std::format(
 							"Serialized struct field {}::{} is incompatible with the current schema.",
 							StructName,
 							FieldName));
@@ -694,7 +689,7 @@ namespace Durin::AssetPrivate
 						Field, StructValue, FieldIndex, PayloadReader, Objects, SourceVersion);
 					if (!Result) return Result;
 				}
-				if (PayloadReader.Offset != Payload.size()) return Error(EAssetReadError::CorruptFile, "Struct field payload has trailing bytes.");
+				if (PayloadReader.Offset != Payload.size()) return Error(Durin::PackageReadErrors::CorruptFile, "Struct field payload has trailing bytes.");
 			}
 			if (Struct->HasPostDeserialize())
 			{
@@ -706,7 +701,7 @@ namespace Durin::AssetPrivate
 				{
 					Validation.error().StructName = Struct->GetQualifiedName().ToString();
 					Validation.error().SourceVersion = SourceVersion;
-					auto Result = Error(EAssetReadError::CorruptFile, ToString(Validation.error()));
+					auto Result = Error(Durin::PackageReadErrors::CorruptFile, ToString(Validation.error()));
 					return Result;
 				}
 			}
@@ -715,7 +710,7 @@ namespace Durin::AssetPrivate
 				if (!ValueResult) StorageError = Durin::ToString(ValueResult.error());
 				return ValueResult.has_value();
 			}()))
-				return Error(EAssetReadError::UnsupportedProperty, std::move(StorageError));
+				return Error(AssetLoadErrors::UnsupportedProperty, std::move(StorageError));
 			return {};
 		}
 		case DurinCodeGen::EPropertyGenFlags::Array:
@@ -723,38 +718,34 @@ namespace Durin::AssetPrivate
 			auto* Array = static_cast<FArrayProperty*>(Property);
 			uint64 Num = 0;
 			if (!Array->HasArrayOps() || !Array->GetInner() || !Reader.Read(Num) || Num > 10000000)
-				return Error(EAssetReadError::CorruptFile, "Invalid array payload.");
+				return Error(Durin::PackageReadErrors::CorruptFile, "Invalid array payload.");
 			if (!Array->HasCapability(EArrayOpsFlags::DetachedStorage | EArrayOpsFlags::TransactionalCommit
 				| EArrayOpsFlags::RandomAccess) || (Num > 0 && !Array->HasCapability(EArrayOpsFlags::DefaultGrow)))
-				return Error(EAssetReadError::UnsupportedProperty,
-					"ArrayOperationUnavailable: DAST load requires DetachedStorage, RandomAccess, DefaultGrow, and TransactionalCommit.");
+				return Error(Durin::AssetLoadErrors::UnsupportedProperty, "ArrayOperationUnavailable: DAST load requires DetachedStorage, RandomAccess, DefaultGrow, and TransactionalCommit.");
 			const FArrayOps& Ops = Array->GetOps();
 			FDetachedContainerStorage Detached;
 			EContainerOpResult OpResult = Detached.Create(Ops);
 			if (OpResult == EContainerOpResult::Success) OpResult = Ops.Resize(Detached.Get(), Num);
 			if (OpResult != EContainerOpResult::Success)
-				return Error(EAssetReadError::UnsupportedProperty,
-					std::format("ArrayOperationFailed: detached allocation/resize returned {}.", static_cast<uint32>(OpResult)));
+				return Error(Durin::AssetLoadErrors::UnsupportedProperty, std::format("ArrayOperationFailed: detached allocation/resize returned {}.", static_cast<uint32>(OpResult)));
 			for (uint64 Index = 0; Index < Num; ++Index)
 			{
 				void* Element = nullptr;
 				OpResult = Ops.GetMutableAt(Detached.Get(), Index, &Element);
 				if (OpResult != EContainerOpResult::Success)
-					return Error(EAssetReadError::UnsupportedProperty,
-						std::format("ArrayElement[{}]: mutable access returned {}.", Index, static_cast<uint32>(OpResult)));
+					return Error(Durin::AssetLoadErrors::UnsupportedProperty, std::format("ArrayElement[{}]: mutable access returned {}.", Index, static_cast<uint32>(OpResult)));
 				auto Result = DecodeReferenceByteToolValue(
 					Array->GetInner(), Element,
 					0, Reader, Objects, SourceVersion);
 				if (!Result)
 				{
-					Result.Message = std::format("ArrayElement[{}]: {}", Index, Result.Message);
+					Result.error().PushContext("operation", std::format("ArrayElement[{}]", Index));
 					return Result;
 				}
 			}
 			OpResult = Ops.Commit(Array->GetValuePtr(Container, ArrayIndex), Detached.Get());
 			if (OpResult != EContainerOpResult::Success)
-				return Error(EAssetReadError::UnsupportedProperty,
-					std::format("ArrayOperationFailed: Commit returned {}.", static_cast<uint32>(OpResult)));
+				return Error(Durin::AssetLoadErrors::UnsupportedProperty, std::format("ArrayOperationFailed: Commit returned {}.", static_cast<uint32>(OpResult)));
 			return {};
 		}
 		case DurinCodeGen::EPropertyGenFlags::Map:
@@ -763,19 +754,16 @@ namespace Durin::AssetPrivate
 			uint64 Num = 0;
 			if (!Map->HasMapOps() || !Map->GetKeyProp() || !Map->GetValueProp()
 				|| !Reader.Read(Num) || Num > 10000000)
-				return Error(EAssetReadError::CorruptFile, "Invalid map payload.");
+				return Error(Durin::PackageReadErrors::CorruptFile, "Invalid map payload.");
 			if (!Map->HasCapability(EMapOpsFlags::DetachedStorage | EMapOpsFlags::TransactionalCommit | EMapOpsFlags::Insert))
-				return Error(EAssetReadError::UnsupportedProperty,
-					"MapOperationUnavailable: DAST load requires DetachedStorage, Insert, and TransactionalCommit.");
+				return Error(Durin::AssetLoadErrors::UnsupportedProperty, "MapOperationUnavailable: DAST load requires DetachedStorage, Insert, and TransactionalCommit.");
 			const FMapOps& Ops = Map->GetOps();
 			FDetachedContainerStorage Detached;
 			EContainerOpResult OpResult = Detached.Create(Ops);
 			if (OpResult != EContainerOpResult::Success)
-				return Error(EAssetReadError::UnsupportedProperty,
-					std::format("MapOperationFailed: detached allocation returned {}.", static_cast<uint32>(OpResult)));
+				return Error(Durin::AssetLoadErrors::UnsupportedProperty, std::format("MapOperationFailed: detached allocation returned {}.", static_cast<uint32>(OpResult)));
 			if (Ops.Reserve && (OpResult = Ops.Reserve(Detached.Get(), Num)) != EContainerOpResult::Success)
-				return Error(EAssetReadError::UnsupportedProperty,
-					std::format("MapOperationFailed: Reserve returned {}.", static_cast<uint32>(OpResult)));
+				return Error(Durin::AssetLoadErrors::UnsupportedProperty, std::format("MapOperationFailed: Reserve returned {}.", static_cast<uint32>(OpResult)));
 			FReflectedValueStorage KeyStorage;
 			FReflectedValueStorage ValueStorage;
 			std::string StorageError;
@@ -790,7 +778,7 @@ namespace Durin::AssetPrivate
 						if (!ValueResult) StorageError = Durin::ToString(ValueResult.error());
 						return ValueResult.has_value();
 					}())))
-				return Error(EAssetReadError::UnsupportedProperty, std::move(StorageError));
+				return Error(AssetLoadErrors::UnsupportedProperty, std::move(StorageError));
 			for (uint64 Index = 0; Index < Num; ++Index)
 			{
 				if (Index > 0)
@@ -807,38 +795,35 @@ namespace Durin::AssetPrivate
 							if (!ValueResult) StorageError = Durin::ToString(ValueResult.error());
 							return ValueResult.has_value();
 						}()))
-						return Error(EAssetReadError::UnsupportedProperty, std::move(StorageError));
+						return Error(AssetLoadErrors::UnsupportedProperty, std::move(StorageError));
 				}
 				auto Result = DecodeReferenceByteToolValue(
 					Map->GetKeyProp(), KeyStorage.GetContainer(), 0, Reader, Objects, SourceVersion);
 				if (!Result)
 				{
-					Result.Message = std::format("MapEntry[{}].Key: {}", Index, Result.Message);
+					Result.error().PushContext("operation", std::format("MapEntry[{}].Key", Index));
 					return Result;
 				}
 				Result = DecodeReferenceByteToolValue(
 					Map->GetValueProp(), ValueStorage.GetContainer(), 0, Reader, Objects, SourceVersion);
 				if (!Result)
 				{
-					Result.Message = std::format("MapEntry[{}].Value: {}", Index, Result.Message);
+					Result.error().PushContext("operation", std::format("MapEntry[{}].Value", Index));
 					return Result;
 				}
 				OpResult = Ops.InsertCopy(Detached.Get(), KeyStorage.GetValue(), ValueStorage.GetValue());
 				if (OpResult == EContainerOpResult::DuplicateKey)
-					return Error(EAssetReadError::CorruptFile,
-						std::format("MapEntry[{}].Key: duplicate decoded key.", Index));
+					return Error(Durin::PackageReadErrors::CorruptFile, std::format("MapEntry[{}].Key: duplicate decoded key.", Index));
 				if (OpResult != EContainerOpResult::Success)
-					return Error(EAssetReadError::UnsupportedProperty,
-						std::format("MapEntry[{}]: Insert returned {}.", Index, static_cast<uint32>(OpResult)));
+					return Error(Durin::AssetLoadErrors::UnsupportedProperty, std::format("MapEntry[{}]: Insert returned {}.", Index, static_cast<uint32>(OpResult)));
 			}
 			OpResult = Ops.Commit(Map->GetValuePtr(Container, ArrayIndex), Detached.Get());
 			if (OpResult != EContainerOpResult::Success)
-				return Error(EAssetReadError::UnsupportedProperty,
-					std::format("MapOperationFailed: Commit returned {}.", static_cast<uint32>(OpResult)));
+				return Error(Durin::AssetLoadErrors::UnsupportedProperty, std::format("MapOperationFailed: Commit returned {}.", static_cast<uint32>(OpResult)));
 			return {};
 		}
 		default:
-			return Error(EAssetReadError::UnsupportedProperty, "Unsupported property kind.");
+			return Error(Durin::AssetLoadErrors::UnsupportedProperty, "Unsupported property kind.");
 		}
 	}
 

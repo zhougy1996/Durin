@@ -1,9 +1,10 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 
 #include "EngineAPI.h"
-#include "Asset/AssetReadResult.h"
 
 namespace Durin
 {
@@ -25,14 +26,14 @@ namespace Durin
 		EAssetWriteError Error = EAssetWriteError::None;
 		std::string Message;
 		EAssetWriteEffect Effect = EAssetWriteEffect::None;
+		std::optional<UnifiedError::FError> Cause;
 		auto Succeeded() const -> bool { return Error == EAssetWriteError::None; }
 		explicit operator bool() const { return Succeeded(); }
 	};
 	// Explicit boundary: a read failure rejects preparation without write effects.
-	ENGINE_API auto AssetWriteResultFromRead(const FAssetReadResult& Result) -> FAssetWriteResult;
-	ENGINE_API auto AssetWriteResultFromRead(const FAssetReadError& Error) -> FAssetWriteResult;
+	ENGINE_API auto AssetWriteResultFromRead(const UnifiedError::FError& Error) -> FAssetWriteResult;
 	template<typename T>
-	[[nodiscard]] auto AssetWriteResultFromRead(const std::expected<T, FAssetReadError>& Result) -> FAssetWriteResult
+	[[nodiscard]] auto AssetWriteResultFromRead(const std::expected<T, Durin::UnifiedError::FError>& Result) -> FAssetWriteResult
 	{
 		return Result ? FAssetWriteResult{} : AssetWriteResultFromRead(Result.error());
 	}

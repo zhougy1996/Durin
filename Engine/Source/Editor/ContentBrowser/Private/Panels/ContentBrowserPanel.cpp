@@ -329,7 +329,7 @@ namespace Durin::ContentBrowser::Private
 					[this] { return Model.RescanRegistry(); },
 					[this](const FContentChangeBatch&) { RefreshPublishedContent(); },
 					[] { return GetAssetQueryRevision(); });
-			if (!Result) SetError(Result.Message);
+			if (!Result) SetError(Result.error().ToString());
 			return;
 		}
 		RefreshCoordinator.RefreshRegistryView(
@@ -782,7 +782,7 @@ namespace Durin::ContentBrowser::Private
 			[this] { return Model.RescanRegistry(); },
 			[this](const FContentChangeBatch& Changes) { ApplyContentChanges(Changes); },
 			[] { return GetAssetQueryRevision(); });
-		if (!Result) SetError(Result.Message);
+		if (!Result) SetError(Result.error().ToString());
 	}
 
 	auto FContentBrowserPanel::RevealAsset(std::string_view AssetPath) -> bool

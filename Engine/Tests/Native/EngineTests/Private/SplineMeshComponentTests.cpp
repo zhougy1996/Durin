@@ -1,4 +1,5 @@
 #include "NativeAssetBuildTestSupport.h"
+#include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "StaticMeshTestAccess.h"
 #include "Components/PropertyEditValidation.h"
@@ -413,6 +414,7 @@ TEST(FSplineMeshComponentTests, PlanarStaticMeshPublishesZeroThicknessLocalBound
 
 TEST(FSplineMeshComponentTests, BuiltInSplineBoxProvidesLongitudinalDeformationSections)
 {
+	std::optional<Durin::UnifiedError::FError> LoadResultError;
 	InitializeDObjectSystem();
 	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
 		Durin::InitializeAssetCompilingManager();
@@ -424,9 +426,9 @@ TEST(FSplineMeshComponentTests, BuiltInSplineBoxProvidesLongitudinalDeformationS
 	FPackagePath Path;
 	ASSERT_TRUE(FPackagePath::TryCreate("/Engine/Models/SplineBox", Path));
 	DStaticMesh* Mesh = nullptr;
-	const auto LoadResult = LoadObjectDetailed<DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
-	Mesh = LoadResult.value_or(nullptr);
-	ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
+	const auto LoadResult = LoadObject<DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadResultError);
+	Mesh = LoadResult;
+	ASSERT_TRUE(LoadResult) << (LoadResultError ? LoadResultError->ToString() : "");
 	ASSERT_NE(Mesh, nullptr);
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 	const FStaticMeshRenderData* RenderData = Mesh->GetRenderData();
@@ -1012,8 +1014,9 @@ TEST(FSplineMeshComponentTests, LevelPackageRoundTripsAuthoredFieldsAndRebuildsD
 
 	DObject* LoadedObject = nullptr;
 	{
-		auto LoadedValue = LoadObjectDetailed<DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
-		LoadedObject = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = LoadObject<DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedValueError);
+		LoadedObject = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	auto* LoadedLevel = Cast<DLevel>(LoadedObject);
@@ -1138,8 +1141,9 @@ TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
 	EXPECT_TRUE(UnloadPackage(Path));
 	DObject* LoadedObject = nullptr;
 	{
-		auto LoadedValue = LoadObjectDetailed<DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
-		LoadedObject = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = LoadObject<DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedValueError);
+		LoadedObject = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	auto* LoadedLevel = Cast<DLevel>(LoadedObject);

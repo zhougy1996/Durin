@@ -1,8 +1,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 
-#include "Asset/AssetReadResult.h"
 #include "DObject/AssetPath.h"
 #include "DObject/DObjectFwd.h"
 
@@ -16,8 +17,8 @@ namespace Durin::AssetPrivate
 	// including constructors, PostLoad, and policy callbacks; it does not pin code.
 	struct FAssetPackageDependencyLoadPolicy
 	{
-		std::function<FAssetReadResult(const FPackagePath&, DPackage*&)> ResolvePackage;
-		std::function<FAssetReadResult(const FSoftObjectPath&, DObject*&)> ResolveObject;
+		std::function<std::expected<void, Durin::UnifiedError::FError>(const FPackagePath&, DPackage*&)> ResolvePackage;
+		std::function<std::expected<void, Durin::UnifiedError::FError>(const FSoftObjectPath&, DObject*&)> ResolveObject;
 		std::function<void()> Rollback;
 		bool bRejectImplicitLiveLoads = false;
 	};

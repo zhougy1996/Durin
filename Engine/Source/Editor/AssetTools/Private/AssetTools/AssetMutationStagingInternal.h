@@ -1,6 +1,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 
 #include "Asset/PackageInspection.h"
 #include "AssetTools/MutationTypes.h"
@@ -87,13 +89,13 @@ namespace Durin::AssetToolsPrivate
 		-> std::filesystem::path;
 	auto LoadRelocationBytes(
 		const std::filesystem::path& Path,
-		FByteBuffer& OutBytes) -> FAssetReadResult;
+		FByteBuffer& OutBytes) -> std::expected<void, Durin::UnifiedError::FError>;
 	auto SaveRelocationBytes(
 		const std::filesystem::path& Path,
 		FByteView Bytes) -> FAssetWriteResult;
 	auto FingerprintRelocationFile(
 		const std::filesystem::path& Path,
-		FAssetPackageFingerprint& OutFingerprint) -> FAssetReadResult;
+		FAssetPackageFingerprint& OutFingerprint) -> std::expected<void, Durin::UnifiedError::FError>;
 	auto IsWritableRelocationPath(
 		const std::filesystem::path& Path,
 		const FMountPoint*& OutMount,

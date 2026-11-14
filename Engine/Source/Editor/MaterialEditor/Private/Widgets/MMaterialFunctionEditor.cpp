@@ -1,4 +1,5 @@
 #include "Widgets/MMaterialFunctionEditor.h"
+#include "Misc/UnifiedError.h"
 #include "Materials/Material.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 #include "DObject/Class.h"
@@ -73,13 +74,14 @@ namespace Durin::MaterialEditor
 	}
 	auto MMaterialFunctionEditor::OpenDocument(const FEditorDocument& Tab) -> EDocumentOpenResult
 	{
+		std::optional<Durin::UnifiedError::FError> LoadedError;
 		if (Find(Tab.ResourceId)) return EDocumentOpenResult::Opened;
 		FSoftObjectPath Path;
 		if (const auto PathValidation = FSoftObjectPath::TryCreateWithDiagnostic(Tab.ResourceId, Path); !PathValidation) { Error = ToString(PathValidation.error()); return EDocumentOpenResult::Rejected; }
 		DMaterialFunction* Function = nullptr;
-		const auto Loaded = LoadObjectDetailed<DMaterialFunction>(Path);
-		Function = Loaded.value_or(nullptr);
-		if (!Loaded || !Function) { Error = Loaded ? "The asset is not an editable function." : (Loaded ? std::string{} : Loaded.error().Message); return EDocumentOpenResult::Rejected; }
+		const auto Loaded = LoadObject<DMaterialFunction>(Path, nullptr, &LoadedError);
+		Function = Loaded;
+		if (!Loaded || !Function) { Error = LoadedError ? LoadedError->ToString() : "The asset is not an editable function."; return EDocumentOpenResult::Rejected; }
 		auto Document = std::make_unique<FDocument>();
 		Document->Owner = Function;
 		Document->Canvas = std::make_unique<FMaterialGraphCanvas>(FMaterialGraphDocument(*Function),

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
 #include "Asset/LoadAudit.h"
 
 #include "AssetMaintenanceAPI.h"
@@ -43,6 +44,7 @@ namespace Durin
 		uint64 PayloadSize = 0;
 		uint64 PayloadOffset = 0;
 		std::string Diagnostic;
+		std::optional<UnifiedError::FError> Cause;
 		auto operator==(const FAssetCompatibilityFinding&) const -> bool = default;
 	};
 

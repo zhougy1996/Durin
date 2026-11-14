@@ -1,4 +1,6 @@
 #include "AssetRuntimeStateInternal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 
 #include "DObject/Package.h"
 #include "DObject/SoftObjectPathServices.h"
@@ -24,39 +26,50 @@ namespace Durin
 		} GSoftObjectPathRegistration;
 	}
 
-	auto LoadPackage(const FPackagePath& Path, FAssetLoadReport* OutReport) -> DPackage*
+	auto LoadPackage(const FPackagePath& Path, FAssetLoadReport* OutReport,
+		std::optional<UnifiedError::FError>* OutError) -> DPackage*
 	{
-		return LoadPackageDetailed(Path, OutReport).value_or(nullptr);
+		if (OutError) OutError->reset();
+		if (OutReport) *OutReport = {.RequestedPath = Path, .FinalPath = Path, .PackagePath = Path};
+		auto Result = FAssetRuntimeState::Get().GetLoadService().LoadPackageDetailed(Path, OutReport);
+		if (Result && !*Result)
+			Result = std::unexpected(UnifiedError::FError{AssetLoadErrors::InvalidObjectGraph, "The package loader returned no package."});
+		if (!Result && OutError)
+		{
+			*OutError = std::move(Result.error());
+			(*OutError)->PushContext("requested package", Path.ToString());
+		}
+		return Result.value_or(nullptr);
 	}
 
 	auto LoadObject(const FSoftObjectPath& Path, const DClass* ExpectedClass,
-		FAssetLoadReport* OutReport) -> DObject*
+		FAssetLoadReport* OutReport, std::optional<UnifiedError::FError>* OutError) -> DObject*
 	{
-		return LoadObjectDetailed(Path, ExpectedClass, OutReport).value_or(nullptr);
+		if (OutError) OutError->reset();
+		auto Result = FAssetRuntimeState::Get().GetLoadService().LoadObjectDetailed(Path, ExpectedClass, OutReport);
+		if (Result && !*Result)
+			Result = std::unexpected(UnifiedError::FError{AssetLoadErrors::InvalidObjectGraph, "The object loader returned no object."});
+		if (!Result && OutError)
+		{
+			*OutError = std::move(Result.error());
+			(*OutError)->PushContext("requested object", Path.ToString());
+		}
+		return Result.value_or(nullptr);
 	}
 
 	auto LoadObject(const FTopLevelAssetPath& Path, const DClass* ExpectedClass,
-		FAssetLoadReport* OutReport) -> DObject*
+		FAssetLoadReport* OutReport, std::optional<UnifiedError::FError>* OutError) -> DObject*
 	{
-		return LoadObjectDetailed(Path, ExpectedClass, OutReport).value_or(nullptr);
-	}
-
-	auto LoadPackageDetailed(
-		const FPackagePath& Path,
-		FAssetLoadReport* OutReport) -> std::expected<DPackage*, FAssetReadError>
-	{
-		if (OutReport) *OutReport = {.RequestedPath = Path, .FinalPath = Path, .PackagePath = Path};
-		auto Result = FAssetRuntimeState::Get().GetLoadService().LoadPackageDetailed(Path, OutReport);
-		return Result;
-	}
-
-	auto LoadObjectDetailed(
-		const FSoftObjectPath& Path,
-		const DClass* ExpectedClass,
-		FAssetLoadReport* OutReport) -> std::expected<DObject*, FAssetReadError>
-	{
-		return FAssetRuntimeState::Get().GetLoadService().LoadObjectDetailed(
-			Path, ExpectedClass, OutReport);
+		if (OutError) OutError->reset();
+		if (OutReport) *OutReport = {};
+		FSoftObjectPath ObjectPath;
+		if (!FSoftObjectPath::TryCreate(Path, std::span<const std::string>{}, ObjectPath))
+		{
+			if (OutError) OutError->emplace(AssetLoadErrors::InvalidPath,
+				"A top-level asset load requires a valid exact asset path.");
+			return nullptr;
+		}
+		return LoadObject(ObjectPath, ExpectedClass, OutReport, OutError);
 	}
 
 	auto SavePackage(DPackage* Package, const FAssetPackageSaveArgs& Args) -> FAssetWriteResult

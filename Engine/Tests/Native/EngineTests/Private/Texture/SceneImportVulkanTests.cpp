@@ -1,4 +1,5 @@
 #include "NativeAssetBuildTestSupport.h"
+#include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "RenderResource.h"
 #include "Materials/MaterialShaderMap.h"
@@ -139,6 +140,7 @@ protected:
 
 TEST_F(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 {
+	std::optional<Durin::UnifiedError::FError> ReloadMeshResultError;
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
 	ASSERT_TRUE(Durin::InitializeGameThreadDeferredExecutor());
@@ -259,8 +261,9 @@ TEST_F(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	ASSERT_TRUE(MaterialPath.IsValid());
 	Durin::DMaterial* LiveMaterial = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
-		LiveMaterial = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = Durin::LoadObject<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), nullptr, &LoadedValueError);
+		LiveMaterial = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_NE(LiveMaterial, nullptr);
@@ -542,9 +545,9 @@ TEST_F(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 
 	Durin::DStaticMesh* ReloadedMesh = nullptr;
 	const auto ReloadMeshResult =
-		Durin::LoadObjectDetailed<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath));
-		ReloadedMesh = ReloadMeshResult.value_or(nullptr);
-	ASSERT_TRUE(ReloadMeshResult) << (ReloadMeshResult ? std::string{} : ReloadMeshResult.error().Message);
+		Durin::LoadObject<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath), nullptr, &ReloadMeshResultError);
+		ReloadedMesh = ReloadMeshResult;
+	ASSERT_TRUE(ReloadMeshResult) << (ReloadMeshResultError ? ReloadMeshResultError->ToString() : "");
 	Durin::FStrongObjectPtr MeshOwner(ReloadedMesh);
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*ReloadedMesh);
 	ASSERT_NE(ReloadedMesh->GetRenderData(), nullptr);
@@ -751,8 +754,9 @@ TEST_F(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		ASSERT_TRUE(PbrMeshPath.IsValid());
 		Durin::DStaticMesh* PbrMesh = nullptr;
 		{
-			auto LoadedValue = Durin::LoadObjectDetailed<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(PbrMeshPath));
-			PbrMesh = LoadedValue.value_or(nullptr);
+			std::optional<Durin::UnifiedError::FError> LoadedValueError;
+			auto LoadedValue = Durin::LoadObject<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(PbrMeshPath), nullptr, &LoadedValueError);
+			PbrMesh = LoadedValue;
 			ASSERT_TRUE(LoadedValue);
 		}
 		Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*PbrMesh);

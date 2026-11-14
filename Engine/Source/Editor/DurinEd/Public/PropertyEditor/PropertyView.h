@@ -8,7 +8,7 @@
 namespace Durin
 {
 	class DObject;
-	struct FAssetReadError;
+
 	class FArrayProperty;
 	class FMapProperty;
 	class FProperty;
@@ -41,7 +41,7 @@ namespace Durin
 		std::string PropertyName;
 		uint32 ArrayIndex = 0;
 		int32 ArrayDim = 0;
-		std::shared_ptr<const FAssetReadError> AssetCause;
+		std::string AssetDiagnostic;
 	};
 
 	enum class EWeakObjectViewState : uint8 { Null, Live, Expired, TypeMismatch };
@@ -210,7 +210,7 @@ namespace Durin
 		uint32 ArrayIndex = 0;
 		int32 ArrayDim = 0;
 		FSoftObjectPath Path;
-		std::shared_ptr<const FAssetReadError> AssetCause;
+		std::string AssetDiagnostic;
 		explicit operator bool() const { return Error == EPropertySoftLoadError::None; }
 	};
 	DURINED_API auto FormatPropertySoftLoadResult(const FPropertySoftLoadResult& Result) -> std::string;

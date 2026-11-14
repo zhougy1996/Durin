@@ -86,7 +86,7 @@ namespace Durin::AssetPrivate
 		auto ReadAt(uint64 Offset, FMutableByteView Output,
 			std::string* OutError = nullptr) -> bool override
 		{
-			if (!Inner.ReadAt(Offset, Output, OutError)) return false;
+			if (!Inner.ReadAt(Offset, Output, OutError)) { Stats.bReadFailed = true; return false; }
 			Stats.MetadataBytesRead += Output.size_bytes();
 			return true;
 		}

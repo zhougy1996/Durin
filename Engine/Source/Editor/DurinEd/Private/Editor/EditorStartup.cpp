@@ -27,7 +27,7 @@ namespace Durin::EditorStartup
 		}
 		if (const auto Result = ResolveLevelPackage(PackagePath, OutPath); !Result)
 		{
-			OutError = std::format("Project default level '{}' is invalid: {}", Settings.DefaultLevel, Result.Message);
+			OutError = std::format("Project default level '{}' is invalid: {}", Settings.DefaultLevel, Result.error());
 			return false;
 		}
 		// Compare a complete mount segment, not a similarly prefixed project name.

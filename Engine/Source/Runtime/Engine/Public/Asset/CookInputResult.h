@@ -1,7 +1,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Asset/AssetReadResult.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
+#include "EngineAPI.h"
 namespace Durin
 {
 	struct FCookInputFailure;
@@ -15,7 +17,8 @@ namespace Durin
 		ECookInputStatus Status = ECookInputStatus::None;
 		// Legacy boundaries supply text; discovery retains its structured cause
 		// and formats only when a presentation boundary requests it.
-		std::variant<std::string, std::shared_ptr<const FCookInputFailure>> Cause;
+		std::variant<std::string, UnifiedError::FError, std::shared_ptr<const FCookInputFailure>> Cause;
+		auto GetError() const -> const UnifiedError::FError* { return std::get_if<UnifiedError::FError>(&Cause); }
 		auto GetDiagnostic() const -> std::shared_ptr<const FCookInputFailure>
 		{
 			const auto* Failure = std::get_if<std::shared_ptr<const FCookInputFailure>>(&Cause);
@@ -24,19 +27,21 @@ namespace Durin
 		auto ToString() const -> std::string
 		{
 			if (const auto* Text = std::get_if<std::string>(&Cause)) return *Text;
+			if (const auto* Error = GetError()) return Error->ToString();
 			const auto Failure = GetDiagnostic();
 			return Failure ? FormatCookInputError(*Failure) : std::string{};
 		}
 		auto Succeeded() const -> bool { return Status == ECookInputStatus::None; }
 		explicit operator bool() const { return Succeeded(); }
 	};
-	inline auto ToCookInputResult(const FAssetReadResult& Result) -> FCookInputResult
+	inline auto ToCookInputResult(const std::expected<void, Durin::UnifiedError::FError>& Result) -> FCookInputResult
 	{
 		if (Result) return {};
-		const auto Status = Result.Error == EAssetReadError::Cancelled ? ECookInputStatus::Cancelled
-		 : Result.Error == EAssetReadError::IoError ? ECookInputStatus::IoError
-		 : Result.Error == EAssetReadError::ProjectionPending ? ECookInputStatus::ProjectionPending
-		 : ECookInputStatus::InvalidDependency;
-		return {Status, Result.Message};
+		const auto& Error = Result.error();
+		const auto Status = Error.Is(AssetLoadErrors::Cancelled) ? ECookInputStatus::Cancelled
+			: Error.Is(PackageReadErrors::IoError) || Error.Is({"AssetRegistry", "IoError"}) ? ECookInputStatus::IoError
+			: Error.Is(AssetLoadErrors::ProjectionPending) ? ECookInputStatus::ProjectionPending
+			: ECookInputStatus::InvalidDependency;
+		return {Status, Error};
 	}
 }

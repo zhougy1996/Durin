@@ -12,7 +12,6 @@
 
 #include "CoreGlobals.h"
 #include "Logging/LogMacros.h"
-#include "Asset/AssetReadResult.h"
 #include "Asset/AssetBuildScheduler.h"
 #include "Asset/AssetBuildRetirement.h"
 #include "DObject/DObjectGlobals.h"

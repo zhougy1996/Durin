@@ -970,7 +970,7 @@ TEST(FWorldTests, MapChangeCommitsWithoutAViewportOrWaitingForComponentPSOs)
 	Host->PreExit();
 	auto* Retired = Host.Get(); Host.Reset(); MarkObjectHierarchyAsGarbage(Retired); CollectGarbage(Durin::EObjectFlags::Standalone);
 	const auto Unloaded = Durin::Testing::EnsurePackageNotResident(PackagePath, EAssetPackageUnloadPolicy::DiscardUnsaved);
-	EXPECT_TRUE(Unloaded) << Unloaded.Message;
+	EXPECT_TRUE(Unloaded) << Unloaded.error();
 }
 
 TEST(FWorldTests, PrimaryMapPreloadTransfersRetentionToTheWorld)
@@ -1096,7 +1096,7 @@ TEST(FWorldTests, MapChangeInitializationAndCommitFailuresPreserveTheCurrentWorl
 		Host->PreExit();
 		auto* Retired = Host.Get(); Host.Reset(); MarkObjectHierarchyAsGarbage(Retired); CollectGarbage(Durin::EObjectFlags::Standalone);
 		const auto Unloaded = Durin::Testing::EnsurePackageNotResident(PackagePath, EAssetPackageUnloadPolicy::DiscardUnsaved);
-		EXPECT_TRUE(Unloaded) << Unloaded.Message;
+		EXPECT_TRUE(Unloaded) << Unloaded.error();
 	}
 }
 

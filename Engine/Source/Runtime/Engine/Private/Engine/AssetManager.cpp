@@ -1,4 +1,6 @@
 #include "Engine/AssetManager.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 
 #include "AssetRegistry/Catalog.h"
 #include "AssetRegistry/References.h"
@@ -272,13 +274,17 @@ namespace Durin
 	{ return LoadPrimaryAssets(std::span(&Id, 1), Bundles, std::move(Params)); }
 	auto DAssetManager::LoadPrimaryAssets(std::span<const FPrimaryAssetId> Ids, std::span<const FName> Bundles, FAssetManagerLoadParams Params) -> std::shared_ptr<FStreamableHandle>
 	{ return Transition(Ids, Bundles, {}, true, std::move(Params)); }
-	auto DAssetManager::GetPrimaryAssetLoadSet(FPrimaryAssetId Id, std::span<const FName> Bundles) const -> std::expected<std::vector<FSoftObjectPath>, FAssetReadError>
+	auto DAssetManager::GetPrimaryAssetLoadSet(FPrimaryAssetId Id, std::span<const FName> Bundles) const -> std::expected<std::vector<FSoftObjectPath>, Durin::UnifiedError::FError>
 	{
 		std::vector<FSoftObjectPath> Targets;
 		const auto Asset = State->Catalog.find(Id);
-		if (!Id.IsValid()) return std::unexpected(FAssetReadError{EAssetReadError::InvalidPath, "Invalid primary asset ID."});
-		if (Asset == State->Catalog.end()) return std::unexpected(FAssetReadError{EAssetReadError::NotFound,
-			std::format("Primary asset ID '{}' was not found.", Id.ToString())});
+		if (!Id.IsValid()) return std::unexpected(UnifiedError::FError{AssetLoadErrors::InvalidPath, "Invalid primary asset ID."});
+		if (Asset == State->Catalog.end())
+		{
+			UnifiedError::FError Error{AssetLoadErrors::NotFound, "Primary asset ID was not found."};
+			Error.PushContext("primary asset", Id.ToString());
+			return std::unexpected(std::move(Error));
+		}
 		Targets.emplace_back(Asset->second.AssetPath);
 		for (const auto& Bundle : Asset->second.AssetBundleData.Bundles)
 			if (std::ranges::contains(Bundles, Bundle.BundleName))
@@ -288,13 +294,13 @@ namespace Durin
 	}
 	auto DAssetManager::PreloadPrimaryAssets(std::span<const FPrimaryAssetId> Ids, std::span<const FName> Bundles, FAssetManagerLoadParams Params) -> std::shared_ptr<FStreamableHandle>
 	{
-		if (!State->bActive) return FStreamableManager::CreateErrorHandle({EAssetReadError::ShuttingDown, "Asset manager is not initialized."}, std::move(Params.DebugName));
+		if (!State->bActive) return FStreamableManager::CreateErrorHandle(UnifiedError::FError{AssetLoadErrors::NotInitialized, "Asset manager is not initialized."}, {.DebugName = std::move(Params.DebugName)});
 		RefreshCatalog();
 		FStreamableAsyncLoadParams Load;
 		for (const auto Id : Ids)
 		{
 			auto Targets = GetPrimaryAssetLoadSet(Redirect(Id), Bundles);
-			if (!Targets) return FStreamableManager::CreateErrorHandle(std::move(Targets.error()), std::move(Params.DebugName));
+			if (!Targets) return FStreamableManager::CreateErrorHandle(std::move(Targets.error()), {.DebugName = std::move(Params.DebugName)});
 			for (const auto& Target : *Targets)
 				if (!std::ranges::contains(Load.TargetsToStream, Target)) Load.TargetsToStream.push_back(Target);
 		}
@@ -310,7 +316,7 @@ namespace Durin
 	auto DAssetManager::Transition(std::span<const FPrimaryAssetId> Ids, std::span<const FName> Add,
 		std::span<const FName> Remove, bool bRemoveAll, FAssetManagerLoadParams Params) -> std::shared_ptr<FStreamableHandle>
 	{
-		if (!State->bActive) return FStreamableManager::CreateErrorHandle({EAssetReadError::ShuttingDown, "Asset manager is not initialized."}, std::move(Params.DebugName));
+		if (!State->bActive) return FStreamableManager::CreateErrorHandle(UnifiedError::FError{AssetLoadErrors::NotInitialized, "Asset manager is not initialized."}, {.DebugName = std::move(Params.DebugName)});
 		RefreshCatalog();
 		std::vector<std::shared_ptr<FStreamableHandle>> Children;
 		std::vector<std::pair<FPrimaryAssetId, uint64>> Generations;
@@ -328,7 +334,7 @@ namespace Durin
 			auto Targets = GetPrimaryAssetLoadSet(Id, Desired);
 			if (!Targets)
 			{
-				Children.push_back(FStreamableManager::CreateErrorHandle(std::move(Targets.error()), Requested.ToString()));
+				Children.push_back(FStreamableManager::CreateErrorHandle(std::move(Targets.error()), {.DebugName = Requested.ToString()}));
 				bAnyWork = true;
 				continue;
 			}

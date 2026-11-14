@@ -104,15 +104,16 @@ namespace
 TEST_F(FPrimaryAssetTests, ErrorHandlesDoNotRegisterOrLoadAndPreserveTheirError)
 {
 	const auto Before = GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates).size();
-	auto Error = FStreamableManager::CreateErrorHandle({EAssetReadError::NotFound, "Missing primary"}, "Primary lookup");
+	auto Error = FStreamableManager::CreateErrorHandle(Durin::UnifiedError::FError{Durin::AssetLoadErrors::NotFound, "Missing primary"}, {.DebugName = "Primary lookup"});
 	EXPECT_TRUE(Error->IsComplete()); EXPECT_TRUE(Error->WasCanceled());
 	EXPECT_FALSE(Error->IsActive()); EXPECT_FALSE(Error->HasLoadCompleted());
 	EXPECT_FALSE(Error->IsManaged()); EXPECT_EQ(Error->GetOwningManager(), nullptr);
 	EXPECT_TRUE(Error->GetRequestedAssets().empty());
 	EXPECT_EQ(Error->GetReport().PackageFileReadCount, 0u);
 	Error->CancelHandle();
-	EXPECT_EQ(Error->GetError().Code, EAssetReadError::NotFound);
-	EXPECT_EQ(Error->GetError().Message, "Missing primary");
+	EXPECT_TRUE(Error->GetError().has_value());
+	ASSERT_TRUE(Error->GetError());
+	EXPECT_TRUE(Error->GetError()->Is(AssetLoadErrors::NotFound));
 	EXPECT_EQ(GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates).size(), Before);
 }
 
@@ -120,18 +121,22 @@ TEST_F(FPrimaryAssetTests, InvalidAndMissingIdsDoNotCreateUnloadableEntries)
 {
 	ASSERT_TRUE(Manager->StartInitialLoading());
 	auto Invalid = Manager->LoadPrimaryAsset({}); Pump(Invalid);
-	EXPECT_EQ(Invalid->GetError().Code, EAssetReadError::InvalidPath);
+	ASSERT_TRUE(Invalid->GetError());
+	EXPECT_TRUE(Invalid->GetError()->Is(AssetLoadErrors::InvalidPath));
 	EXPECT_FALSE(Manager->UnloadPrimaryAsset({}));
 	const auto Missing = Id("Scenario:Absent");
 	auto Unknown = Manager->LoadPrimaryAsset(Missing); Pump(Unknown);
-	EXPECT_EQ(Unknown->GetError().Code, EAssetReadError::NotFound);
-	EXPECT_NE(Unknown->GetError().Message.find(Missing.ToString()), std::string::npos);
+	ASSERT_TRUE(Unknown->GetError());
+	EXPECT_TRUE(Unknown->GetError()->Is(AssetLoadErrors::NotFound));
+	EXPECT_TRUE(std::ranges::any_of(Unknown->GetError()->GetContexts(), [&](const auto& Context) {
+		return Context.Key == "primary asset" && Context.Value == Missing.ToString();
+	}));
 	EXPECT_TRUE(Unknown->GetRequestedAssets().empty());
 	EXPECT_EQ(Unknown->GetReport().PackageFileReadCount, 0u);
 	EXPECT_FALSE(Manager->UnloadPrimaryAsset(Missing));
 	const std::array MissingIds{Missing};
 	auto Preload = Manager->PreloadPrimaryAssets(MissingIds);
-	EXPECT_TRUE(Preload->WasCanceled()); EXPECT_EQ(Preload->GetError().Code, EAssetReadError::NotFound);
+	EXPECT_TRUE(Preload->WasCanceled()); EXPECT_TRUE(Preload->GetError().has_value());
 	EXPECT_TRUE(Manager->GetStreamableManager().GetActiveHandles().empty());
 }
 
@@ -141,8 +146,11 @@ TEST_F(FPrimaryAssetTests, MixedIdentityFailuresLeaveValidPrimaryLoadsIndependen
 	ASSERT_TRUE(Manager->StartInitialLoading());
 	const std::array Ids{Id("Scenario:AbsentA"), Id("Scenario:Root"), Id("Scenario:AbsentB")};
 	auto Batch = Manager->LoadPrimaryAssets(Ids); Pump(Batch);
-	EXPECT_EQ(Batch->GetError().Code, EAssetReadError::NotFound);
-	EXPECT_NE(Batch->GetError().Message.find(Ids[0].ToString()), std::string::npos);
+	ASSERT_TRUE(Batch->GetError());
+	EXPECT_TRUE(Batch->GetError()->Is(AssetLoadErrors::NotFound));
+	EXPECT_TRUE(std::ranges::any_of(Batch->GetError()->GetContexts(), [&](const auto& Context) {
+		return Context.Key == "primary asset" && Context.Value == Ids[0].ToString();
+	}));
 	EXPECT_FALSE(Manager->UnloadPrimaryAsset(Ids[0])); EXPECT_FALSE(Manager->UnloadPrimaryAsset(Ids[2]));
 	EXPECT_NE(Manager->GetPrimaryAssetObject(Ids[1]), nullptr);
 	EXPECT_EQ(Batch->GetRequestedAssets(), std::vector<FSoftObjectPath>{FSoftObjectPath(Path("Root"))});
@@ -171,7 +179,7 @@ TEST_F(FPrimaryAssetTests, ShutdownIsIdempotentAndRestartDetachesOldCallbacks)
 	auto Raw = StreamableOwner->RequestAsyncLoad(FSoftObjectPath(Path("Root"))); Pump(Raw);
 	ASSERT_FALSE(Raw->HasError());
 	auto BeforeInit = Manager->LoadPrimaryAsset(Primary);
-	EXPECT_EQ(BeforeInit->GetError().Code, EAssetReadError::ShuttingDown);
+	EXPECT_TRUE(BeforeInit->GetError().has_value());
 	Manager->Shutdown(); Manager->Shutdown();
 	EXPECT_EQ(&Manager->GetStreamableManager(), StreamableOwner);
 	EXPECT_TRUE(Raw->WasCanceled());
@@ -184,7 +192,7 @@ TEST_F(FPrimaryAssetTests, ShutdownIsIdempotentAndRestartDetachesOldCallbacks)
 	EXPECT_TRUE(StreamableOwner->GetActiveHandles().empty());
 	EXPECT_TRUE(Old->WasCanceled());
 	auto Stopped = Manager->LoadPrimaryAsset(Primary);
-	EXPECT_TRUE(Stopped->WasCanceled()); EXPECT_EQ(Stopped->GetError().Code, EAssetReadError::ShuttingDown);
+	EXPECT_TRUE(Stopped->WasCanceled()); EXPECT_TRUE(Stopped->GetError().has_value());
 	ASSERT_TRUE(Manager->StartInitialLoading());
 	auto New = Manager->LoadPrimaryAsset(Primary); Pump(New);
 	ASSERT_FALSE(New->HasError()); ProcessAsyncLoading(10, 100);
@@ -231,7 +239,7 @@ TEST_F(FPrimaryAssetTests, ManagerOwnershipOutlivesObservationAndUnloadPreserves
 	Write("Root", Id("Scenario:Root"));
 	ASSERT_TRUE(Manager->StartInitialLoading());
 	auto Handle = Manager->LoadPrimaryAsset(Id("Scenario:Root")); Pump(Handle);
-	ASSERT_FALSE(Handle->HasError()) << Handle->GetError().Message;
+	ASSERT_FALSE(Handle->HasError()) << (Handle->GetError() ? Handle->GetError()->ToString() : std::string{});
 	Handle->ReleaseHandle(); Handle.reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
 	auto* Asset = Manager->GetPrimaryAssetObject(Id("Scenario:Root"));
 	ASSERT_NE(Asset, nullptr);

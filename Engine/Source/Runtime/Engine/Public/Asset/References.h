@@ -1,8 +1,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 
-#include "Asset/AssetReadResult.h"
 
 #include "EngineAPI.h"
 #include "AssetRegistry/References.h"
@@ -60,17 +61,17 @@ namespace Durin
 		const FAssetPackageInspection& Inspection,
 		std::vector<FAssetReferenceEdge>& OutReferences,
 		bool bIncludeInternal = false
-	) -> FAssetReadResult;
+	) -> std::expected<void, Durin::UnifiedError::FError>;
 
 	ENGINE_API auto BuildCookReachability(
 		std::span<const FPackagePath> Roots,
 		std::vector<FPackagePath>& OutPackages
-	) -> FAssetReadResult;
+	) -> std::expected<void, Durin::UnifiedError::FError>;
 	ENGINE_API auto BuildCookReachability(
 		const FAssetRegistrySnapshot& RegistrySnapshot,
 		std::span<const FPackagePath> Roots,
 		std::vector<FPackagePath>& OutPackages
-	) -> FAssetReadResult;
+	) -> std::expected<void, Durin::UnifiedError::FError>;
 	// Uses owned external roots without invoking providers. Still inspects current
 	// package files and reflected types; this is not a pure Registry query.
 	ENGINE_API auto BuildCookReachability(
@@ -78,5 +79,5 @@ namespace Durin
 		const FAssetReferenceStoreCapture& ExternalRoots,
 		std::span<const FPackagePath> Roots,
 		std::vector<FPackagePath>& OutPackages
-	) -> FAssetReadResult;
+	) -> std::expected<void, Durin::UnifiedError::FError>;
 } // namespace Durin

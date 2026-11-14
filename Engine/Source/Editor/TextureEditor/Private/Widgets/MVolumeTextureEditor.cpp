@@ -1,4 +1,5 @@
 #include "Widgets/MVolumeTextureEditor.h"
+#include "Misc/UnifiedError.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Editor/EditorEngine.h"
 
@@ -78,6 +79,7 @@ namespace Durin::TextureEditor
 	auto MVolumeTextureEditor::OpenDocument(const FEditorDocument& Document)
 		-> EDocumentOpenResult
 	{
+		std::optional<Durin::UnifiedError::FError> ResultError;
 		if (Document.ResourceId.empty()) return EDocumentOpenResult::Rejected;
 		if (Find(Document.ResourceId)) return EDocumentOpenResult::Opened;
 		FSoftObjectPath Path;
@@ -89,11 +91,11 @@ namespace Durin::TextureEditor
 			return EDocumentOpenResult::Rejected;
 		}
 		DVolumeTexture* Texture = nullptr;
-		const auto Result = LoadObjectDetailed<DVolumeTexture>(Path);
-		Texture = Result.value_or(nullptr);
+		const auto Result = LoadObject<DVolumeTexture>(Path, nullptr, &ResultError);
+		Texture = Result;
 		if (!Result || !Texture)
 		{
-			SetError(Result ? "The selected asset is not a VolumeTexture." : (Result ? std::string{} : Result.error().Message));
+			SetError(ResultError ? ResultError->ToString() : "The selected asset is not a VolumeTexture.");
 			return EDocumentOpenResult::Rejected;
 		}
 		OpenTextures.emplace(Document.ResourceId, Texture);

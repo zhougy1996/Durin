@@ -121,8 +121,7 @@ namespace Durin
 
 	auto FAssetOpenArgs::LoadAsset(const FAssetOpenTarget& Target) const -> DObject*
 	{
-		const auto Loaded = LoadObjectDetailed<DObject>(Target.AssetPath);
-		auto* Object = Loaded ? *Loaded : nullptr;
+		auto* Object = LoadObject<DObject>(Target.AssetPath);
 		return IsValid(Object) && !Object->IsTemplateObject()
 			&& Object->GetClass()->GetQualifiedName().ToString() == Target.AssetClassName ? Object : nullptr;
 	}

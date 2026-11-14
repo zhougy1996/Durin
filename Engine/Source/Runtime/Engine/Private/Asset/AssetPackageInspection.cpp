@@ -1,4 +1,6 @@
 #include "AssetPackageInspectionInternal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 #include "AssetPackageCodec.h"
 #include "AssetPackageFingerprintInternal.h"
 #include "AssetPackageArchive.h"
@@ -16,7 +18,7 @@ namespace Durin
 	using AssetPrivate::LoadPackageBulkBytes;
 	namespace
 	{
-		auto Error(EAssetReadError Code, std::string Message) -> FAssetReadResult { return {Code, std::move(Message)}; }
+		auto Error(Durin::UnifiedError::FErrorId Id, std::string Message) -> std::expected<void, Durin::UnifiedError::FError> { return std::unexpected(Durin::UnifiedError::FError{Id, std::move(Message)}); }
 		auto ClassifyPackageIdentity(std::string_view PhysicalPath,
 			FPackagePath& OutPath) -> bool
 		{
@@ -31,7 +33,7 @@ namespace Durin
 	namespace AssetPrivate
 	{
 		auto LoadPackageBulkBytes(std::string_view PhysicalPath,
-			FByteBuffer& OutBytes) -> FAssetReadResult
+			FByteBuffer& OutBytes) -> std::expected<void, Durin::UnifiedError::FError>
 		{
 			OutBytes.clear();
 			std::filesystem::path BulkPath(PhysicalPath);
@@ -40,12 +42,11 @@ namespace Durin
 			if (!std::filesystem::is_regular_file(BulkPath, ErrorCode))
 			{
 				if (ErrorCode && ErrorCode != std::errc::no_such_file_or_directory)
-					return Error(EAssetReadError::IoError,
-						"Failed to inspect the package bulk companion.");
+					return Error(Durin::PackageReadErrors::IoError, "Failed to inspect the package bulk companion.");
 				return {};
 			}
 			auto Loaded = FFileHelper::LoadFileToArray(BulkPath);
-			if (!Loaded) return Error(EAssetReadError::IoError, Loaded.error().ToString());
+			if (!Loaded) return Error(Durin::PackageReadErrors::IoError, Loaded.error().ToString());
 			OutBytes = std::move(*Loaded);
 			return {};
 		}
@@ -53,7 +54,7 @@ namespace Durin
 
 	auto ValidateAssetPackageBytes(FByteView Bytes,
 		const FPackagePath& PackagePath, FByteView BulkBytes)
-		-> FAssetReadResult
+		-> std::expected<void, Durin::UnifiedError::FError>
 	{
 		const AssetPrivate::FAssetPackageCodec* Codec = nullptr;
 		if (auto Result = AssetPrivate::ResolveAssetPackageReader(Bytes, Codec); !Result)
@@ -251,7 +252,7 @@ namespace Durin
 			std::string_view PhysicalPath,
 			FByteView Bytes,
 			const FPackagePath& PackagePath,
-			FAssetPackageInspection& OutInspection) -> FAssetReadResult
+			FAssetPackageInspection& OutInspection) -> std::expected<void, Durin::UnifiedError::FError>
 		{
 			OutInspection = {};
 			auto Result = MakePackageFingerprint(PhysicalPath, Bytes, OutInspection.Fingerprint);
@@ -260,8 +261,7 @@ namespace Durin
 			if (Result = AssetPrivate::ResolveAssetPackageReader(Bytes, Codec); !Result)
 				return Result;
 			if (!PackagePath.IsValid())
-				return Error(EAssetReadError::InvalidPath,
-					"DAST inspection requires a mounted package identity.");
+				return Error(Durin::AssetLoadErrors::InvalidPath, "DAST inspection requires a mounted package identity.");
 			FByteBuffer BulkBytes;
 			if (Result = LoadPackageBulkBytes(PhysicalPath, BulkBytes); !Result)
 				return Result;
@@ -278,24 +278,23 @@ namespace Durin
 		}
 	}
 
-	auto InspectAssetPackage(std::string_view PhysicalPath, FAssetPackageInspection& OutInspection) -> FAssetReadResult
+	auto InspectAssetPackage(std::string_view PhysicalPath, FAssetPackageInspection& OutInspection) -> std::expected<void, Durin::UnifiedError::FError>
 	{
 		FPackagePath PackagePath;
 		if (!ClassifyPackageIdentity(PhysicalPath, PackagePath))
-			return Error(EAssetReadError::InvalidPath,
-				"DAST inspection requires a mounted package identity.");
+			return Error(Durin::AssetLoadErrors::InvalidPath, "DAST inspection requires a mounted package identity.");
 		return InspectAssetPackage(PhysicalPath, PackagePath, OutInspection);
 	}
 
 	auto InspectAssetPackage(std::string_view PhysicalPath,
 		const FPackagePath& PackagePath,
-		FAssetPackageInspection& OutInspection) -> FAssetReadResult
+		FAssetPackageInspection& OutInspection) -> std::expected<void, Durin::UnifiedError::FError>
 	{
 		OutInspection = {};
 		auto ReadAccess = FPackageFileAccess::TryReadPackage(std::filesystem::path(PhysicalPath));
-		if (!ReadAccess) return Error(EAssetReadError::InUse, "Package output is being written.");
+		if (!ReadAccess) return Error(Durin::AssetLoadErrors::InUse, "Package output is being written.");
 		auto Bytes = FFileHelper::LoadFileToArray(PhysicalPath);
-		if (!Bytes) return Error(EAssetReadError::IoError, Bytes.error().ToString());
+		if (!Bytes) return Error(Durin::PackageReadErrors::IoError, Bytes.error().ToString());
 		return InspectAssetPackageBytes(PhysicalPath, *Bytes, PackagePath, OutInspection);
 	}
 

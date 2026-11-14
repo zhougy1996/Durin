@@ -114,8 +114,7 @@ namespace Durin
 					.Assets = {{Metadata.FinalPath, Metadata.FinalAssetData->AssetClassName}}});
 				return;
 			}
-			const auto Loaded = LoadObjectDetailed<DObject>(AssetPath);
-			if (Loaded && *Loaded) (void)OpenEditorForAsset(*Loaded);
+			if (auto* Object = LoadObject<DObject>(AssetPath)) (void)OpenEditorForAsset(Object);
 		});
 	}
 

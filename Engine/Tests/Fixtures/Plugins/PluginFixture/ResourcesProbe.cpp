@@ -1,4 +1,5 @@
 #include "Interfaces/IProjectManager.h"
+#include "Misc/UnifiedError.h"
 #include "Plugins/PluginResources.h"
 #include "Project/Project.h"
 #include "Modules/ModuleManager.h"
@@ -45,15 +46,17 @@ int main(int Argc, char** Argv)
     if (!FPackagePath::TryCreate("/Game/PluginTypedAsset", ProjectAsset)) return Finish(9);
     if (Mode == "disabled")
     {
+        std::optional<Durin::UnifiedError::FError> FailedError;
         if (!GetActivePluginResources().ContentMounts.empty() || !GetActivePluginResources().ShaderRoots.empty()
             || Config.GetRootView().GetView("PluginFixture").GetView("BaseOnly").IsValid()) return Finish(10);
         if (FMountPaths::FindMountForVirtualPath("/Plugins/PluginFixtureRuntime/Asset")) return Finish(11);
         const auto Before = FFileHelper::LoadFileToArray(std::filesystem::path(GetCurrentProject()->ContentDir) / "PluginTypedAsset.dasset");
         if (!RefreshAssetRegistry()) return Finish(29);
-        const auto Failed = LoadPackageDetailed(ProjectAsset);
+        const auto Failed = LoadPackage(ProjectAsset, nullptr, &FailedError);
         if (Failed) return Finish(12);
-        std::cout << Failed.error().Message << "\n";
-        if (Failed.error().Message.find("plugin") == std::string::npos) return Finish(13);
+        if (!FailedError || (!FailedError->Is(AssetLoadErrors::UnknownClass)
+            && !FailedError->Is(AssetLoadErrors::MissingDependency))) return Finish(13);
+        std::cout << FailedError->ToString() << "\n";
         const auto After = FFileHelper::LoadFileToArray(std::filesystem::path(GetCurrentProject()->ContentDir) / "PluginTypedAsset.dasset");
         if (!Before || !After || *Before != *After || FindResidentPackage(ProjectAsset)) return Finish(14);
         return Finish(0);
@@ -116,13 +119,14 @@ int main(int Argc, char** Argv)
     }
     else
     {
+        std::optional<Durin::UnifiedError::FError> LoadedError;
         if (Mode == "direct")
         { if (!AdmitAssetPackageToCatalog(Asset)) return Finish(30); }
         else if (!RefreshAssetRegistry()) return Finish(24);
         if (!FindPackageExact(Asset)) return Finish(24);
-        const auto Loaded = LoadPackageDetailed(Asset);
-        if (!Loaded) { std::cerr << Loaded.error().Message; return Finish(25); }
-        if (SavePackage(*Loaded).Error != EAssetWriteError::ReadOnlyMode) return Finish(26);
+        const auto Loaded = LoadPackage(Asset, nullptr, &LoadedError);
+        if (!Loaded) { std::cerr << (*LoadedError); return Finish(25); }
+        if (SavePackage(Loaded).Error != EAssetWriteError::ReadOnlyMode) return Finish(26);
     }
 #if DURIN_WITH_EDITOR
     if (!Modules.LoadModule("ShaderBuild")) return Finish(27);

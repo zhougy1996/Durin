@@ -1,4 +1,5 @@
 #include "NativeRHIBackendTestSupport.h"
+#include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "Materials/MaterialShaderMap.h"
 #include "Materials/MaterialParameterCollection.h"
@@ -389,6 +390,7 @@ TEST_F(FMaterialParameterCollectionTests,
 TEST(FMaterialParameterCollectionPersistenceTests,
 	AssetRoundTripPreservesIdentitySchemaDefaultsAndCanonicalLayout)
 {
+	std::optional<Durin::UnifiedError::FError> LoadedResultError;
 	using namespace Durin;
 	Testing::FScopedMountRegistryFixture MountRegistry;
 	InitializeDObjectSystem();
@@ -443,10 +445,9 @@ TEST(FMaterialParameterCollectionPersistenceTests,
 	MarkObjectHierarchyAsGarbage(AuthoringMaterial);
 	ASSERT_TRUE(UnloadPackage(Path));
 
-	const auto LoadedResult = LoadObjectDetailed<DMaterialParameterCollection>(
-		Testing::MakePackageLeafAssetObjectPathForTests(Path));
+	const auto LoadedResult = LoadObject<DMaterialParameterCollection>(Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedResultError);
 	ASSERT_TRUE(LoadedResult);
-	auto* Loaded = *LoadedResult;
+	auto* Loaded = LoadedResult;
 	EXPECT_EQ(Loaded->GetCollectionId(), CollectionId);
 	ASSERT_EQ(Loaded->GetDeclarations().size(), 2u);
 	const auto* LoadedExposure = Loaded->FindDeclaration(Exposure.Id);

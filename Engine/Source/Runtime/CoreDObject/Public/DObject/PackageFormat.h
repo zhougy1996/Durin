@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
 #include "DObject/AssetBundleData.h"
 
 #include "CoreDObjectAPI.h"
@@ -158,6 +159,7 @@ namespace Durin::ObjectPackage
 		EPackageWriterReason Reason = EPackageWriterReason::None;
 		std::string Message;
 		std::string Subject;
+		std::optional<UnifiedError::FError> Cause;
 
 		auto Succeeded() const -> bool { return Failure == EPackageWriterFailure::None; }
 		explicit operator bool() const { return Succeeded(); }

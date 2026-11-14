@@ -87,9 +87,7 @@ namespace Durin::TextureEditor
 			InspectAssetPackage(PhysicalPath, Inspection);
 		if (!Result)
 		{
-			Snapshot.BuildDiagnostic = Result.Message.empty()
-				? "Package metadata could not be inspected."
-				: Result.Message;
+			Snapshot.BuildDiagnostic = Result.error().ToString();
 			return Snapshot;
 		}
 

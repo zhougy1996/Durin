@@ -1,6 +1,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 
 #include "EngineAPI.h"
 #include "Asset/PackageInspection.h"
@@ -40,8 +42,8 @@ namespace Durin
 		uint64 ExpectedRewriteCount, FByteBuffer& OutBytes) -> FAssetWriteResult;
 	ENGINE_API auto CollectLoadedAssetPackageSoftReferences(
 		DPackage* Package, const FPackagePath& TargetPath,
-		std::vector<FSoftObjectPtr*>& OutValues) -> FAssetReadResult;
+		std::vector<FSoftObjectPtr*>& OutValues) -> std::expected<void, Durin::UnifiedError::FError>;
 	ENGINE_API auto FingerprintAssetPackageBytes(
 		std::string_view PhysicalPath, FByteView Bytes,
-		FAssetPackageFingerprint& OutFingerprint) -> FAssetReadResult;
+		FAssetPackageFingerprint& OutFingerprint) -> std::expected<void, Durin::UnifiedError::FError>;
 }

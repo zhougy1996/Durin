@@ -1,4 +1,5 @@
 #include "Actors/ProceduralSkyActor.h"
+#include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "Components/ProceduralSkyComponent.h"
 #include "NativeAssetTestSupport.h"
@@ -330,8 +331,9 @@ TEST(FSkyBoxTests, PackageTracksAndReloadsCubeAssetDependency)
 	ASSERT_TRUE(Durin::UnloadPackage(CubePath));
 	Durin::ASkyBoxActor* LoadedActor = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObjectDetailed<Durin::ASkyBoxActor>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ActorPath));
-		LoadedActor = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = Durin::LoadObject<Durin::ASkyBoxActor>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ActorPath), nullptr, &LoadedValueError);
+		LoadedActor = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_NE(LoadedActor, nullptr);

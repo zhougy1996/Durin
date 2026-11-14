@@ -1,4 +1,5 @@
 #include "Misc/MountPathTestSupport.h"
+#include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "WorldTestSupport.h"
@@ -515,8 +516,9 @@ TEST(FLevelAssetTests, SavesLoadsTransformsAttachmentsCameraAndDefaultComponents
 
 	Durin::DLevel* Loaded = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DLevel>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
-		Loaded = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = Durin::LoadObject<Durin::DLevel>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedValueError);
+		Loaded = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_NE(Loaded, nullptr);

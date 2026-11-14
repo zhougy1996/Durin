@@ -1,4 +1,5 @@
 #include "Editor/EditorTransactionTestSupport.h"
+#include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "MaterialGraphDocument.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
@@ -1566,8 +1567,9 @@ TEST(FMaterialGraphInteractionTests, SharedTextureParametersPreserveLocalSamplin
 	ASSERT_TRUE(UnloadPackage(Path));
 	Material = nullptr;
 	{
-		auto LoadedValue = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
-		Material = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedValueError);
+		Material = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_EQ(Material->GetParameterDefinitions().size(), 1u);

@@ -575,15 +575,15 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 	const auto MissingState = State;
 	EXPECT_EQ(MissingState.PropertyName, Reflection.SoftProperty->NamePrivate.ToString());
 	EXPECT_EQ(MissingState.ArrayIndex, 0u);
-	ASSERT_TRUE(State.AssetCause);
+	ASSERT_FALSE(State.AssetDiagnostic.empty());
 	EXPECT_EQ(State.Error, Durin::ESoftObjectViewError::Asset);
 	EXPECT_FALSE(Object.SoftValues[0].IsValid());
 	Durin::DObject* LoadedObject = nullptr;
 	const auto Missing = Durin::LoadSoftObjectProperty(Reflection.SoftProperty, &Object, 0, LoadedObject);
 	EXPECT_FALSE(Missing);
 	EXPECT_EQ(Missing.Error, Durin::EPropertySoftLoadError::Asset);
-	ASSERT_TRUE(Missing.AssetCause);
-	EXPECT_NE(Missing.AssetCause->Code, Durin::EAssetReadError::None);
+	ASSERT_FALSE(Missing.AssetDiagnostic.empty());
+	EXPECT_FALSE(Missing.AssetDiagnostic.empty());
 	EXPECT_EQ(Missing.Path, MissingPath);
 	EXPECT_EQ(LoadedObject, nullptr);
 
@@ -599,7 +599,7 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 	State = Durin::InspectSoftObject(Reflection.SoftProperty, &Object, 0);
 	EXPECT_EQ(State.State, Durin::ESoftObjectViewState::Loaded);
 	EXPECT_EQ(MissingState.Path, MissingPath);
-	ASSERT_TRUE(MissingState.AssetCause);
+	ASSERT_FALSE(MissingState.AssetDiagnostic.empty());
 	EXPECT_EQ(MissingState.Error, Durin::ESoftObjectViewError::Asset);
 	EXPECT_EQ(State.LoadedObject, Asset);
 
@@ -610,7 +610,7 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 		&GetMutableSoftObjectViewValue, &GetConstSoftObjectViewValue);
 	State = Durin::InspectSoftObject(&MismatchedProperty, &Object, 0);
 	EXPECT_EQ(State.State, Durin::ESoftObjectViewState::TypeMismatch);
-	ASSERT_TRUE(State.AssetCause);
+	ASSERT_FALSE(State.AssetDiagnostic.empty());
 	EXPECT_EQ(State.Error, Durin::ESoftObjectViewError::Asset);
 
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
@@ -642,7 +642,7 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 	EXPECT_EQ(State.ResolvedPath, AssetSoftPath);
 	EXPECT_EQ(State.LoadedObject, LoadedObject);
 	EXPECT_EQ(State.Error, Durin::ESoftObjectViewError::None);
-	EXPECT_FALSE(State.AssetCause);
+	EXPECT_TRUE(State.AssetDiagnostic.empty());
 	EXPECT_EQ(Durin::GetSoftObjectStateLabel(State.State), "Redirected");
 
 	TargetOwner.Reset();

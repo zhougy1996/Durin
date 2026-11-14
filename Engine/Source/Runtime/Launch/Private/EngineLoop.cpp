@@ -196,7 +196,7 @@ namespace Durin
 			std::filesystem::path(FPaths::LaunchDir()).lexically_normal(), AssetConfiguration);
 		if (!ConfigurationResult)
 		{
-			DURIN_ERROR("Cooked asset configuration failed: {}", ConfigurationResult.Message);
+			DURIN_ERROR("Cooked asset configuration failed: {}", ConfigurationResult.error());
 			return false;
 		}
 #endif

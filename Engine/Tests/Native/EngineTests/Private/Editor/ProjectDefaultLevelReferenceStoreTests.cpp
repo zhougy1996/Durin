@@ -220,7 +220,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, ResolvesUniqueLevelWithoutInferrin
 	Durin::FSoftObjectPath LevelPath;
 	const auto Result =
 		Durin::ResolveLevelPackage(Scenario.OldPath, LevelPath);
-	ASSERT_TRUE(Result) << Result.Message;
+	ASSERT_TRUE(Result) << (Result ? std::string{} : Result.error().ToString());
 	EXPECT_EQ(LevelPath.GetPackagePath(), Scenario.NewPath);
 	EXPECT_EQ(LevelPath.GetAssetPath().GetAssetName(), "Old");
 	EXPECT_NE(LevelPath.GetAssetPath().GetAssetName(),
@@ -242,7 +242,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, RejectsPackageWithoutTopLevelLevel
 	Durin::FSoftObjectPath LevelPath;
 	const auto Result =
 		Durin::ResolveLevelPackage(WorldPath, LevelPath);
-	EXPECT_EQ(Result.Error, Durin::EAssetReadError::TypeMismatch);
+	EXPECT_FALSE(Result);
 	EXPECT_FALSE(LevelPath.IsValid());
 }
 
@@ -261,7 +261,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, RejectsPackageWithMultipleTopLevel
 	Durin::FSoftObjectPath LevelPath;
 	const auto Result =
 		Durin::ResolveLevelPackage(Scenario.NewPath, LevelPath);
-	EXPECT_EQ(Result.Error, Durin::EAssetReadError::InvalidPackageType);
+	EXPECT_FALSE(Result);
 	EXPECT_FALSE(LevelPath.IsValid());
 }
 

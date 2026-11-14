@@ -1,4 +1,5 @@
 #include "NativeAssetRuntimeTestSupport.h"
+#include "Misc/UnifiedError.h"
 #include "NativeAssetBuildTestSupport.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "StaticMeshTestAccess.h"
@@ -250,8 +251,9 @@ TEST(FPrimitiveComponentCollisionEditingTests, LevelPackageAndDuplicatePreserveC
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(Path));
 	DLevel* Loaded = nullptr;
 	{
-		auto LoadedValue = LoadObjectDetailed<DLevel>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
-		Loaded = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = LoadObject<DLevel>(Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedValueError);
+		Loaded = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_NE(Loaded, nullptr);
@@ -1649,6 +1651,7 @@ TEST(FPhysicsBodySetupTests, PrimitiveAggregatePackagesAndDuplicatesPreserveGeom
 	Testing::RegisterMountPointForTests("/UnifiedSimplePackages/", Root.generic_string() + "/");
 	for (uint32 Kind = 0; Kind < 4; ++Kind)
 	{
+		std::optional<Durin::UnifiedError::FError> LoadedError;
 		FPackagePath Path; ASSERT_TRUE(FPackagePath::TryCreate(std::format("/UnifiedSimplePackages/Body{}", Kind), Path));
 		DBodySetup* Body = nullptr; ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Body));
 		if (Kind == 0) ASSERT_TRUE(Body->SetBox({1, 2, 3}, {4, 5, 6}));
@@ -1660,10 +1663,10 @@ TEST(FPhysicsBodySetupTests, PrimitiveAggregatePackagesAndDuplicatesPreserveGeom
 			Element.Transform.Translation = {4, 5, 6}; ASSERT_TRUE(Body->SetSimpleCollision({Element, Element}));
 		}
 		ASSERT_TRUE(SavePackage(Body->GetPackage())); ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(Path));
-		const auto Loaded = LoadObjectDetailed<DBodySetup>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
-		ASSERT_TRUE(Loaded) << (Loaded ? std::string{} : Loaded.error().Message);
-		const auto Copied = DuplicateObject(*Loaded, nullptr, "UnifiedSimpleDuplicate"); ASSERT_TRUE(Copied);
-		for (auto* Current : {*Loaded, *Copied})
+		const auto Loaded = LoadObject<DBodySetup>(Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedError);
+		ASSERT_TRUE(Loaded) << (LoadedError ? LoadedError->ToString() : "");
+		const auto Copied = DuplicateObject(Loaded, nullptr, "UnifiedSimpleDuplicate"); ASSERT_TRUE(Copied);
+		for (auto* Current : {Loaded, *Copied})
 		{
 			EXPECT_EQ(Current->GetSimpleCollision().size(), Kind == 3 ? 2u : 1u);
 			FCollisionGeometryRef Geometry; ASSERT_TRUE(Current->BuildSimpleGeometry(Geometry));

@@ -1,4 +1,6 @@
 #include "MaterialResourceTestSupport.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 #include "NativeRHIBackendTestSupport.h"
 #include "Materials/MaterialShaderMap.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
@@ -11,6 +13,7 @@
 
 static auto QualifyDefaultMaterialCook(bool Metal) -> void
 {
+	std::optional<Durin::UnifiedError::FError> SourceLoadError;
 	Durin::Testing::FScopedRHIBackendOverride Backend(Metal ? "metal" : "vulkan");
 	InitializeDObjectSystem();
 	ASSERT_TRUE(Durin::FMountPaths::InitDefaultMountPoints());
@@ -20,9 +23,9 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::DefaultMaterialPackagePath, Path));
 	Durin::DMaterial* Source = nullptr;
-	auto SourceLoad = Durin::LoadObjectDetailed<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
-	Source = SourceLoad.value_or(nullptr);
-	ASSERT_TRUE(SourceLoad) << SourceLoad.error().Message;
+	auto SourceLoad = Durin::LoadObject<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &SourceLoadError);
+	Source = SourceLoad;
+	ASSERT_TRUE(SourceLoad) << (*SourceLoadError);
 	ASSERT_NE(Source, nullptr);
 	const Durin::FMaterialProgramIdentity ExpectedIdentity =
 		Durin::Testing::ExpectedGameMaterialIdentity(*Source, Metal ? Durin::MetalLibraryShaderTarget : Durin::VulkanShaderTarget);
@@ -44,10 +47,11 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	auto RuntimeConfiguration = Durin::FAssetRuntimeConfiguration::Authored();
 	auto Result = Durin::FAssetRuntimeConfiguration::Cooked(
 		CookRoot, RuntimeConfiguration);
-	ASSERT_TRUE(Result) << Result.Message;
+	ASSERT_TRUE(Result) << (Result ? std::string{} : Result.error().ToString());
 	const auto Initialized = Durin::InitializeAssetRuntime(std::move(RuntimeConfiguration));
 	ASSERT_TRUE(Initialized) << Initialized.Message;
 	{
+	std::optional<Durin::UnifiedError::FError> MissingVersionError;
 	const std::array CookMountDefinitions{
 		Durin::FMountPoint{
 			.VirtualRoot = "/Engine/",
@@ -78,20 +82,20 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(MissingVersionBytes, CookedFile));
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(Durin::EAssetRegistryScanMode::FullValidation));
 	Durin::DMaterial* Rejected = nullptr;
-	const auto MissingVersion = Durin::LoadObjectDetailed<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
-	Rejected = MissingVersion.value_or(nullptr);
-	EXPECT_EQ((MissingVersion ? Durin::EAssetReadError::None : MissingVersion.error().Code), Durin::EAssetReadError::UnsupportedVersion) << (MissingVersion ? std::string{} : MissingVersion.error().Message);
+	const auto MissingVersion = Durin::LoadObject<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &MissingVersionError);
+	Rejected = MissingVersion;
+	EXPECT_FALSE(MissingVersion) << (MissingVersionError ? MissingVersionError->ToString() : "");
 	EXPECT_EQ(Rejected, nullptr);
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(OriginalBytes, CookedFile));
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
 		Durin::EAssetRegistryScanMode::FullValidation));
 	Durin::DMaterial* Cooked = nullptr;
 	{
-		auto Loaded = Durin::LoadObjectDetailed<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
-		Cooked = Loaded.value_or(nullptr);
-		Result = Loaded ? Durin::FAssetReadResult{} : Durin::AssetReadResultFromError(Loaded.error());
+		std::optional<Durin::UnifiedError::FError> LoadedError;
+		auto Loaded = Durin::LoadObject<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedError);
+		Cooked = Loaded;
+		ASSERT_NE(Loaded, nullptr) << (LoadedError ? LoadedError->ToString() : "");
 	}
-	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Cooked, nullptr);
 	// Loading starts owner preparation; queries do not decode the payload.
 	auto& CookedData = const_cast<Durin::FBulkData&>(Cooked->GetCookedProgramData());
@@ -342,6 +346,7 @@ TEST(FDefaultMaterialCookTests, MacOSBuiltInRootPublishesAndLoadsBinaryStages)
 
 TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 {
+	std::optional<Durin::UnifiedError::FError> SourceLoadError;
 	Durin::Testing::FScopedRHIBackendOverride Backend("vulkan");
 	InitializeDObjectSystem();
 	ASSERT_TRUE(Durin::FMountPaths::InitDefaultMountPoints());
@@ -351,9 +356,9 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::DefaultMaterialPackagePath, Path));
 	Durin::DMaterial* Source = nullptr;
-	auto SourceLoad = Durin::LoadObjectDetailed<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
-	Source = SourceLoad.value_or(nullptr);
-	ASSERT_TRUE(SourceLoad) << SourceLoad.error().Message;
+	auto SourceLoad = Durin::LoadObject<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &SourceLoadError);
+	Source = SourceLoad;
+	ASSERT_TRUE(SourceLoad) << (*SourceLoadError);
 	ASSERT_NE(Source, nullptr);
 	auto Validation = Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Source);
 	ASSERT_TRUE(Validation);
@@ -408,7 +413,7 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	auto RuntimeConfiguration = Durin::FAssetRuntimeConfiguration::Authored();
 	auto Result = Durin::FAssetRuntimeConfiguration::Cooked(
 		CookRoot, RuntimeConfiguration);
-	ASSERT_TRUE(Result) << Result.Message;
+	ASSERT_TRUE(Result) << (Result ? std::string{} : Result.error().ToString());
 	const auto Initialized = Durin::InitializeAssetRuntime(std::move(RuntimeConfiguration));
 	ASSERT_TRUE(Initialized) << Initialized.Message;
 	{
@@ -432,11 +437,11 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 		Durin::EAssetRegistryScanMode::FullValidation));
 	Durin::DMaterial* Cooked = nullptr;
 	{
-		auto Loaded = Durin::LoadObjectDetailed<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
-		Cooked = Loaded.value_or(nullptr);
-		Result = Loaded ? Durin::FAssetReadResult{} : Durin::AssetReadResultFromError(Loaded.error());
+		std::optional<Durin::UnifiedError::FError> LoadedError;
+		auto Loaded = Durin::LoadObject<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedError);
+		Cooked = Loaded;
+		ASSERT_NE(Loaded, nullptr) << (LoadedError ? LoadedError->ToString() : "");
 	}
-	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Cooked, nullptr);
 	const std::array<Durin::DObject*, 1> CookedOwners{Cooked};
 	const auto BudgetDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
@@ -468,11 +473,11 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	EXPECT_FALSE(Cooked->GetAcceptedCompiledProgram()->GetShaderMap().ActiveParameters.empty());
 	Durin::DMaterialInstance* Instance = nullptr;
 	{
-		auto Loaded = Durin::LoadObjectDetailed<Durin::DMaterialInstance>(InstancePath);
-		Instance = Loaded.value_or(nullptr);
-		Result = Loaded ? Durin::FAssetReadResult{} : Durin::AssetReadResultFromError(Loaded.error());
+		std::optional<Durin::UnifiedError::FError> LoadedError;
+		auto Loaded = Durin::LoadObject<Durin::DMaterialInstance>(InstancePath, nullptr, &LoadedError);
+		Instance = Loaded;
+		ASSERT_NE(Loaded, nullptr) << (LoadedError ? LoadedError->ToString() : "");
 	}
-	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Instance, nullptr);
 	EXPECT_EQ(Instance->GetParent(), Cooked);
 	Instance->PostLoad(); // Exercise initialization before the owner queue advances.
@@ -485,8 +490,9 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	{
 		Durin::DMaterialInstance* Variant = nullptr;
 		{
-			auto LoadedValue = Durin::LoadObjectDetailed<Durin::DMaterialInstance>(VariantPaths[Index]);
-			Variant = LoadedValue.value_or(nullptr);
+			std::optional<Durin::UnifiedError::FError> LoadedValueError;
+			auto LoadedValue = Durin::LoadObject<Durin::DMaterialInstance>(VariantPaths[Index], nullptr, &LoadedValueError);
+			Variant = LoadedValue;
 			ASSERT_TRUE(LoadedValue);
 		}
 		ASSERT_TRUE(Variant);
@@ -585,8 +591,9 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 	ASSERT_TRUE(FPackagePath::TryCreate(DefaultMaterialPackagePath, Path));
 	DMaterial* Source = nullptr;
 	{
-		auto LoadedValue = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
-		Source = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedValueError);
+		Source = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_NE(Source, nullptr);
@@ -659,8 +666,9 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 		ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 		DMaterial* Loaded = nullptr;
 		{
-			auto LoadedValue = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
-			Loaded = LoadedValue.value_or(nullptr);
+			std::optional<Durin::UnifiedError::FError> LoadedValueError;
+			auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedValueError);
+			Loaded = LoadedValue;
 			ASSERT_TRUE(LoadedValue);
 		}
 		ASSERT_NE(Loaded, nullptr);
@@ -682,8 +690,9 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 			[](const auto& Stage) { return Stage.SourceEntryPoint == "HitProxyFragmentMain"; }));
 		DMaterialInstance* LoadedInstance = nullptr;
 		{
-			auto LoadedValue = LoadObjectDetailed<DMaterialInstance>(InstancePath);
-			LoadedInstance = LoadedValue.value_or(nullptr);
+			std::optional<Durin::UnifiedError::FError> LoadedValueError;
+			auto LoadedValue = LoadObject<DMaterialInstance>(InstancePath, nullptr, &LoadedValueError);
+			LoadedInstance = LoadedValue;
 			ASSERT_TRUE(LoadedValue);
 		}
 		ASSERT_NE(LoadedInstance, nullptr);

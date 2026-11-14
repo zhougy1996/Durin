@@ -5,7 +5,6 @@
 #include "DObject/CookLifecycle.h"
 
 #include "EngineAPI.h"
-#include "Asset/AssetReadResult.h"
 #include "Asset/CookedAsset.h"
 #include "DObject/AssetPath.h"
 

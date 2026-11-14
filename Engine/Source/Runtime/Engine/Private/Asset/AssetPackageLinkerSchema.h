@@ -1,8 +1,10 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
+#include "EngineAPI.h"
 #include "Asset/LoadAudit.h"
-#include "Asset/AssetReadResult.h"
 #include "DObject/PackageFormat.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectKey.h"
@@ -68,7 +70,7 @@ namespace Durin::AssetPrivate::LinkerSchema
 	// Fixups precede object construction and preserve original identities as
 	// evidence. A failed candidate is discarded; evidence is replaced on success.
 	auto FixupSerializedNames(ObjectPackage::FLinkerTables& Linker,
-		uint64& OutCount, std::vector<FAssetCanonicalizationEvidence>* OutEvidence = nullptr) -> FAssetReadResult;
+		uint64& OutCount, std::vector<FAssetCanonicalizationEvidence>* OutEvidence = nullptr) -> std::expected<void, Durin::UnifiedError::FError>;
 
 	auto TypeWidth(ObjectPackage::EValueKind Kind) -> uint64;
 	auto IntrinsicName(uint64 Layout) -> std::string_view;

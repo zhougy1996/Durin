@@ -1,10 +1,11 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 #include "DObject/ObjectPtr.h"
 #include "DObject/ObjectKey.h"
 
-#include "Asset/AssetReadResult.h"
 #include "DObject/AssetPath.h"
 #include "EngineAPI.h"
 #include "Engine/TickFunction.h"
@@ -121,5 +122,5 @@ namespace Durin
 	ENGINE_API auto ResolveLevelPackage(
 		const FPackagePath& PackagePath,
 		FSoftObjectPath& OutLevelPath
-	) -> FAssetReadResult;
+	) -> std::expected<void, Durin::UnifiedError::FError>;
 }

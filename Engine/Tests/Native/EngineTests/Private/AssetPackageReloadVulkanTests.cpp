@@ -1,4 +1,5 @@
 #include "NativeAssetBuildTestSupport.h"
+#include "Misc/UnifiedError.h"
 #include "Asset/Testing/PackageReloadTesting.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "EngineTestSupport.h"
@@ -291,13 +292,15 @@ TEST(FAssetPackageReloadVulkanTests, DiscardRestoresRenderedWeatherAndVolumeFrom
 	Weather = nullptr;
 	Volume = nullptr;
 	{
-		auto LoadedValue = LoadObjectDetailed<DTexture2D>(Testing::MakePackageLeafAssetObjectPathForTests(WeatherPath));
-		Weather = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = LoadObject<DTexture2D>(Testing::MakePackageLeafAssetObjectPathForTests(WeatherPath), nullptr, &LoadedValueError);
+		Weather = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	{
-		auto LoadedValue = LoadObjectDetailed<DVolumeTexture>(Testing::MakePackageLeafAssetObjectPathForTests(VolumePath));
-		Volume = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = LoadObject<DVolumeTexture>(Testing::MakePackageLeafAssetObjectPathForTests(VolumePath), nullptr, &LoadedValueError);
+		Volume = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	EXPECT_EQ(Weather->GetSource().GetIdentity(), WeatherIdentity);

@@ -1,4 +1,6 @@
 #include "PropertyEditor/PropertyView.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 #include "Profiling/Profiling.h"
 #include "PropertyEditor/PropertyValueDraft.h"
 
@@ -414,10 +416,8 @@ namespace Durin
 				|| Resolution.State == EAssetPathResolveState::UnknownTargetClass;
 			ViewState.State = bTypeMismatch ? ESoftObjectViewState::TypeMismatch : ESoftObjectViewState::Missing;
 			ViewState.Error = ESoftObjectViewError::Asset;
-			ViewState.AssetCause = std::make_shared<FAssetReadError>(FAssetReadError{
-				.Code = bTypeMismatch ? EAssetReadError::TypeMismatch : EAssetReadError::NotFound,
-				.Message = std::format("Soft object path '{}' could not be resolved (state {}).",
-					ViewState.Path.ToString(), static_cast<uint32>(Resolution.State))});
+			ViewState.AssetDiagnostic = std::format("Soft object path '{}' could not be resolved (state {}).",
+					ViewState.Path.ToString(), static_cast<uint32>(Resolution.State));
 			return ViewState;
 		}
 		ViewState.ResolvedPath = Resolution.FinalPath;
@@ -443,7 +443,7 @@ namespace Durin
 		case EPropertySoftLoadError::None: return {};
 		case EPropertySoftLoadError::Storage: return "Soft object property metadata or storage is unavailable.";
 		case EPropertySoftLoadError::Accessor: return "Soft object property has no typed value accessor.";
-		case EPropertySoftLoadError::Asset: return Result.AssetCause ? Result.AssetCause->Message : "Soft object asset loading failed.";
+		case EPropertySoftLoadError::Asset: return !Result.AssetDiagnostic.empty() ? Result.AssetDiagnostic : "Soft object asset loading failed.";
 		case EPropertySoftLoadError::MissingObject: return "Soft object loading returned no object.";
 		}
 		return {};
@@ -452,6 +452,7 @@ namespace Durin
 	auto LoadSoftObjectProperty(FSoftObjectProperty* Property, void* Container, uint32 ArrayIndex,
 		DObject*& OutObject) -> FPropertySoftLoadResult
 	{
+		std::optional<Durin::UnifiedError::FError> LoadedError;
 		OutObject = nullptr;
 		FPropertySoftLoadResult Result{.PropertyName = Property ? Property->NamePrivate.ToString() : std::string{},
 			.ArrayIndex = ArrayIndex, .ArrayDim = Property ? Property->GetArrayDim() : 0};
@@ -467,12 +468,12 @@ namespace Durin
 			return Result;
 		}
 		Result.Path = Reference->ToSoftObjectPath();
-		auto Loaded = LoadObjectDetailed(Reference->ToSoftObjectPath(), Property->GetExpectedClass());
-		OutObject = Loaded.value_or(nullptr);
+		auto Loaded = LoadObject(Reference->ToSoftObjectPath(), Property->GetExpectedClass(), nullptr, &LoadedError);
+		OutObject = Loaded;
 		if (!Loaded)
 		{
 			Result.Error = EPropertySoftLoadError::Asset;
-			Result.AssetCause = std::make_shared<FAssetReadError>(std::move(Loaded.error()));
+			Result.AssetDiagnostic = LoadedError->ToString();
 			return Result;
 		}
 		if (!OutObject) Result.Error = EPropertySoftLoadError::MissingObject;

@@ -355,7 +355,7 @@ namespace Durin
 			const AssetPrivate::FAssetPackageCodec* Codec = nullptr;
 			if (auto Result = AssetPrivate::ResolveAssetPackageReader(Main, Codec); !Result)
 				return PreparationFailed(EPreparedStatus::InvalidClosure,
-					std::format("{} Path: {}.", Result.Message, PackagePath.generic_string()));
+					std::format("{} Path: {}.", Result.error(), PackagePath.generic_string()));
 			const AssetPrivate::FAssetPackageReadContext Context{
 				.PackageBytes = Main, .PackagePath = LogicalPath,
 				.PhysicalPackageBytes = MainSize, .PhysicalBulkBytes = BulkSize,
@@ -363,11 +363,11 @@ namespace Durin
 			FAssetPackageHeader Header;
 			if (auto Result = Codec->ReadHeader(Context, Header); !Result)
 				return PreparationFailed(EPreparedStatus::InvalidClosure,
-					std::format("{} Path: {}.", Result.Message, PackagePath.generic_string()));
+					std::format("{} Path: {}.", Result.error(), PackagePath.generic_string()));
 			FAssetPackageInspection Inspection;
 			if (auto Result = Codec->Inspect(Context, Inspection); !Result)
 				return PreparationFailed(EPreparedStatus::InvalidClosure,
-					std::format("{} Path: {}.", Result.Message, PackagePath.generic_string()));
+					std::format("{} Path: {}.", Result.error(), PackagePath.generic_string()));
 			std::vector<FPackageBulkStorageDescriptor> Descriptors;
 			if (auto Storage = InspectEditorBulkDataStorageDescriptors(Inspection); !Storage)
 				return PreparationFailed(EPreparedStatus::InvalidClosure,

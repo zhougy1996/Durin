@@ -1,9 +1,11 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
+#include "EngineAPI.h"
 
 #include "AssetRegistry/Catalog.h"
-#include "Asset/AssetReadResult.h"
 #include "Asset/PackageResource.h"
 #include "DObject/Archive.h"
 #include "DObject/PackageLinker.h"
@@ -24,10 +26,10 @@ namespace Durin::AssetPrivate
 	struct FPackageLoadBindings
 	{
 		FPackageResourceHandle BulkResource;
-		std::function<FAssetReadResult(const FSoftObjectPath&, DObject*&)> ResolveExternalObject;
+		std::function<std::expected<void, Durin::UnifiedError::FError>(const FSoftObjectPath&, DObject*&)> ResolveExternalObject;
 		LinkerSchema::FLoadSchemaBindings* SchemaBindings = nullptr;
 	};
-	using FPackageOverrideRestore = std::function<FAssetReadResult(std::unique_ptr<FOverriddenPropertyRestoreContext>)>;
+	using FPackageOverrideRestore = std::function<std::expected<void, Durin::UnifiedError::FError>(std::unique_ptr<FOverriddenPropertyRestoreContext>)>;
 
 	// Applies fields only; this does not construct a graph, invoke PostLoad, or
 	// roll back serializer writes. Callers preparing a replacement must own the target.
@@ -41,7 +43,7 @@ namespace Durin::AssetPrivate
 		std::span<DObject* const> Objects,
 		const FPackageLoadBindings& Bindings,
 		const FArchiveState& Context = {},
-		const FPackageOverrideRestore& OnValidatedValues = {}) -> FAssetReadResult;
+		const FPackageOverrideRestore& OnValidatedValues = {}) -> std::expected<void, Durin::UnifiedError::FError>;
 
 	// Byte-tool restoration may resolve external object references. It is a load
 	// operation; construct-free inspection only calls it for explicit typed reads.
@@ -51,5 +53,5 @@ namespace Durin::AssetPrivate
 		uint32 ArrayIndex,
 		PackagePrivate::FByteReader& Reader,
 		const std::vector<DObject*>& Objects,
-		uint32 SourceVersion) -> FAssetReadResult;
+		uint32 SourceVersion) -> std::expected<void, Durin::UnifiedError::FError>;
 }

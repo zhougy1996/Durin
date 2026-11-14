@@ -1,4 +1,5 @@
 #include "NativeAssetRuntimeTestSupport.h"
+#include "Misc/UnifiedError.h"
 #include "HAL/PlatformLTS.h"
 #include "Asset/Testing/PackageReloadTesting.h"
 #include "Materials/MaterialPackageReloadDiagnostic.h"
@@ -132,8 +133,9 @@ namespace
 			ASSERT_TRUE(Durin::UnloadPackage(Path));
 			Texture = nullptr;
 			{
-				auto LoadedValue = Durin::LoadObjectDetailed<T>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
-				Texture = LoadedValue.value_or(nullptr);
+				std::optional<Durin::UnifiedError::FError> LoadedValueError;
+				auto LoadedValue = Durin::LoadObject<T>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedValueError);
+				Texture = LoadedValue;
 				ASSERT_TRUE(LoadedValue);
 			}
 			ASSERT_EQ(Texture->GetSource().GetIdentity(), SavedIdentity);
@@ -174,8 +176,9 @@ namespace
 			ASSERT_TRUE(Durin::UnloadPackage(Path));
 			Texture = nullptr;
 			{
-				auto LoadedValue = Durin::LoadObjectDetailed<T>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
-				Texture = LoadedValue.value_or(nullptr);
+				std::optional<Durin::UnifiedError::FError> LoadedValueError;
+				auto LoadedValue = Durin::LoadObject<T>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedValueError);
+				Texture = LoadedValue;
 				ASSERT_TRUE(LoadedValue);
 			}
 			EXPECT_EQ(Texture->GetSource().GetIdentity(), SavedIdentity);
@@ -623,6 +626,7 @@ TEST_F(FAssetPackageReloadTests, SecondPackagePreparationFailurePreservesTheWhol
 
 TEST_F(FAssetPackageReloadTests, ReloadRetainsCrossPackageHistoryAndRebindsTheSavedCheckpoint)
 {
+	std::optional<Durin::UnifiedError::FError> ReloadedError;
 	using namespace Durin;
 	std::array<FPackagePath, 2> Paths;
 	std::array<DTexture2D*, 2> Textures{};
@@ -675,8 +679,8 @@ TEST_F(FAssetPackageReloadTests, ReloadRetainsCrossPackageHistoryAndRebindsTheSa
 	auto Operation = ReloadPackages(Request);
 	ASSERT_TRUE(Operation.Wait());
 	EXPECT_EQ(Transactions->GetQueueLength(), 1u);
-	auto Reloaded = LoadObjectDetailed<DTexture2D>(Testing::MakePackageLeafAssetObjectPathForTests(Paths[0]));
-	ASSERT_TRUE(Reloaded); Textures[0] = *Reloaded;
+	auto Reloaded = LoadObject<DTexture2D>(Testing::MakePackageLeafAssetObjectPathForTests(Paths[0]), nullptr, &ReloadedError);
+	ASSERT_TRUE(Reloaded); Textures[0] = Reloaded;
 	const auto ReloadedState = Transactions->GetPackageRevisionState(*Textures[0]->GetPackage());
 	ASSERT_TRUE(ReloadedState); EXPECT_TRUE(ReloadedState->bCheckpointValid);
 	EXPECT_FALSE(Textures[0]->GetPackage()->IsDirty());
@@ -827,8 +831,9 @@ TEST_F(FAssetPackageReloadTests, SkyLightUndoRedoAndPackageReopenPreserveSourceA
     ASSERT_TRUE(UnloadPackage(Path));
     ASkyLightActor* Reopened=nullptr;
     {
-        auto LoadedValue = LoadObjectDetailed<ASkyLightActor>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
-        Reopened = LoadedValue.value_or(nullptr);
+        std::optional<Durin::UnifiedError::FError> LoadedValueError;
+        auto LoadedValue = LoadObject<ASkyLightActor>(Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedValueError);
+        Reopened = LoadedValue;
         ASSERT_TRUE(LoadedValue);
     }
     EXPECT_EQ(Reopened->GetSkyLightComponent()->GetPersistentId(),Identity);

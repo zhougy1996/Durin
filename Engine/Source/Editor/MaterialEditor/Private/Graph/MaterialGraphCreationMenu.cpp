@@ -1,4 +1,5 @@
 #include "Graph/MaterialGraphCanvas.h"
+#include "Misc/UnifiedError.h"
 #include "Materials/Material.h"
 #include "MaterialGraphDocument.h"
 #include "Graph/MaterialGraphValueTypes.h"
@@ -68,9 +69,8 @@ namespace Durin::MaterialEditor
 						FindClassByQualifiedName(Asset.AssetClassName),
 						DMaterialParameterCollection::StaticClass(),
 						EAssetClassPolicy::Exact))
-						if (auto Loaded = LoadObjectDetailed<DMaterialParameterCollection>(
-							Asset.AssetPath); Loaded)
-							for (const auto& Declaration : (*Loaded)->GetDeclarations())
+						if (auto Loaded = LoadObject<DMaterialParameterCollection>(Asset.AssetPath); Loaded)
+							for (const auto& Declaration : Loaded->GetDeclarations())
 								CreationMenu->CollectionParameters.push_back(
 									MakeCollectionParameterCreationAction(
 										Asset.AssetPath.ToString(), Declaration.Id,

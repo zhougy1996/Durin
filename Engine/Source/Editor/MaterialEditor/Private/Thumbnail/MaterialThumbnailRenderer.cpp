@@ -160,7 +160,7 @@ namespace Durin::MaterialEditor
 		if (!SphereLoad->IsComplete()) return;
 		if (SphereLoad->HasError())
 		{
-			auto Error = SphereLoad->GetError().Message;
+			auto Error = SphereLoad->GetError()->ToString();
 			SphereLoad.reset();
 			return Context.Fail(std::move(Error));
 		}

@@ -32,8 +32,10 @@ Guard or closed-runtime admission produces a terminal failed handle without
 callbacks. Sync requests finish before returning and have no callback.
 
 `FStreamableManager::CreateErrorHandle` returns an unmanaged, unregistered,
-terminal canceled handle carrying its supplied error. It has no object targets,
-starts no load and does not report HasLoadCompleted. It can be created without a
+terminal canceled handle carrying its supplied `UnifiedError::FError`.
+Its optional load parameters supply the debug name and target identities; supplied
+targets have null object slots and the same error in every slot. It starts no load,
+invokes no completion callback and does not report HasLoadCompleted. It can be created without a
 live manager instance, following the role of UE's
 [CreateErrorHandle](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/FStreamableManager/CreateErrorHandle).
 
@@ -48,7 +50,7 @@ Choose the ownership required by the caller before selecting a load API:
 | Caller requirement | API and lifetime |
 | --- | --- |
 | Synchronous observation | `LoadObject<T>` / `LoadPackage`; null on failure, no new GC owner. |
-| Structured synchronous failure | `LoadObjectDetailed<T>` / `LoadPackageDetailed`; caller handles the returned error and retains the object separately if needed. |
+| Structured synchronous failure | `LoadObject<T>` / `LoadPackage` with optional `OutError`; caller consumes the cause and retains the object separately if needed. |
 | Independent feature or scene ownership | `FStreamableManager::RequestAsyncLoad` / `RequestSyncLoad`; keep the active handle until ownership is transferred or the feature ends. |
 | Global primary/bundle policy | `DAssetManager::LoadPrimaryAsset(s)`; call `UnloadPrimaryAsset(s)` to remove manager ownership. Returning/releasing the observation handle does not unload this state. |
 | Independent primary preload | `DAssetManager::PreloadPrimaryAssets`; keep its handle active. Primary Unload/ChangeBundleState does not withdraw this independent owner. |
@@ -76,7 +78,11 @@ the same object. `GetLoadedAsset` selects the first slot, which can be null;
 requests and combinations of packages. Class validation,
 subobject selection and redirects use ordinary loading, with diagnostics retained
 per target. `HasError` / `GetError` select the first failed input slot after
-completion. Partial success keeps its successful objects active.
+completion. Errors are optional owning values, never empty-string sentinels.
+The selected report and cause come from the same failed slot, including nested
+combinations and failures with no message. A failure before target resolution keeps
+its own report instead of borrowing a successful peer's report. Partial success
+keeps its successful objects active.
 
 Active requests retain selected objects and packages. `ReleaseHandle` drops
 only this request's ownership; before completion or while a callback is queued,

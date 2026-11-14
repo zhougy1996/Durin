@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
 #include "Asset/LoadAudit.h"
 #include "Asset/AssetWriteResult.h"
 
@@ -111,6 +112,7 @@ namespace Durin
 		FAssetCanonicalResavePlan Plan;
 		std::vector<std::string> ChangedPaths;
 		std::string Diagnostic;
+		std::optional<UnifiedError::FError> Cause;
 	};
 
 	ASSETMAINTENANCE_API auto PlanAssetCanonicalResaves(

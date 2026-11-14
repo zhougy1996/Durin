@@ -214,6 +214,12 @@ namespace Durin
 			Record.Compatibility = EAssetPackageCompatibility::Unsupported;
 			Record.Findings.push_back({.Code = Code, .Diagnostic = std::move(Diagnostic)});
 		}
+		auto AddTerminalFailure(FAssetPackageCompatibilityRecord& Record,
+			EAssetCompatibilityFindingCode Code, UnifiedError::FError Error) -> void
+		{
+			AddTerminalFailure(Record, Code, Error.ToString());
+			Record.Findings.back().Cause = std::move(Error);
+		}
 	}
 
 	auto CaptureMountedAssetPackageSnapshot(
@@ -353,8 +359,10 @@ namespace Durin
 		auto Handle = FFileHelper::OpenRead(Input.PhysicalPath);
 		if (!Handle)
 		{
+			UnifiedError::FError Cause(PackageReadErrors::IoError, Handle.error().ToString());
+			Cause.PushContext("file", Input.PhysicalPath);
 			AddTerminalFailure(Record, EAssetCompatibilityFindingCode::IoFailure,
-				Handle.error().ToString());
+				Cause);
 			Result.Record = std::move(Record);
 			return Result;
 		}
@@ -364,8 +372,10 @@ namespace Durin
 		const auto InitialTime = std::filesystem::last_write_time(Input.PhysicalPath, TimeError);
 		if (TimeError)
 		{
+			UnifiedError::FError Cause(PackageReadErrors::IoError, TimeError.message());
+			Cause.PushContext("file", Input.PhysicalPath).PushContext("operation", "read timestamp");
 			AddTerminalFailure(Record, EAssetCompatibilityFindingCode::IoFailure,
-				std::format("Failed to read package timestamp for {}.", Input.PhysicalPath));
+				Cause);
 			Result.Record = std::move(Record);
 			return Result;
 		}
@@ -382,14 +392,14 @@ namespace Durin
 		}
 		if (!InspectionResult)
 		{
-			const bool bUnsupported = InspectionResult.Error == EAssetReadError::UnsupportedVersion;
-			const bool bIo = InspectionResult.Error == EAssetReadError::IoError
-				|| InspectionResult.Error == EAssetReadError::NotFound;
+			const bool bUnsupported = InspectionResult.error().Is(PackageReadErrors::UnsupportedVersion)
+				|| Inspection.Status == EPackageSchemaStatus::Unsupported;
+			const bool bIo = InspectionResult.error().Is(PackageReadErrors::IoError) || Result.Stats.bReadFailed;
 			AddTerminalFailure(Record, bUnsupported
 				? EAssetCompatibilityFindingCode::UnsupportedPackageFormat
 				: bIo ? EAssetCompatibilityFindingCode::IoFailure
 				: EAssetCompatibilityFindingCode::CorruptPackage,
-				InspectionResult.Message);
+				InspectionResult.error());
 		}
 		else
 		{

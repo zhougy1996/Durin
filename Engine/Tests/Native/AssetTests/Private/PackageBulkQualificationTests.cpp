@@ -1,4 +1,5 @@
 #include "BulkPackageTestSupport.h"
+#include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "Asset/Asset.h"
 #include "Asset/PackageSerialization.h"
@@ -82,8 +83,9 @@ TEST_F(FPackageBulkQualificationTests, FieldBulkClosureMeetsBoundedLooseFixtureB
 	const auto MetadataStart = std::chrono::steady_clock::now();
 	DObject* LoadedObject = nullptr;
 	{
-		auto LoadedValue = LoadObjectDetailed<DObject>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
-		LoadedObject = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = LoadObject<DObject>(Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedValueError);
+		LoadedObject = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	const double MetadataMilliseconds = std::chrono::duration<double, std::milli>(

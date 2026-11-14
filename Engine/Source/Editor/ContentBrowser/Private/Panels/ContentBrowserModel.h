@@ -1,6 +1,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 #include "Threading/Task.h"
 
 #include "Data/ContentBrowserDataQuery.h"
@@ -43,7 +45,7 @@ namespace Durin::ContentBrowser::Private
 		using FMountSnapshot = FContentBrowserPaths::FMountSnapshot;
 		using FMountPath = FContentBrowserPaths::FMountPath;
 		auto RefreshMountSnapshot() -> void;
-		auto RescanRegistry() -> FAssetReadResult;
+		auto RescanRegistry() -> std::expected<void, Durin::UnifiedError::FError>;
 		// Async mode replaces the pending request and clears actionable rows immediately.
 		auto RefreshItemsSnapshot(bool bInvalidateDirectoryTree = true) -> void;
 		auto RebuildItems() -> void;

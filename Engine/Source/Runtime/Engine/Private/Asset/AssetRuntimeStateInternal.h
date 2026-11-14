@@ -1,6 +1,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
+#include "EngineAPI.h"
 
 #include "AssetRuntimeServicesInternal.h"
 #include "DObject/ObjectLifecycle.h"
@@ -17,7 +20,7 @@ namespace Durin
 			-> FAssetWriteResult;
 		ENGINE_API auto StopAcceptingRequests() -> void;
 		auto IsAcceptingRequests() const -> bool { return bAcceptingRequests; }
-		ENGINE_API auto CheckRequestAdmission() const -> FAssetReadResult;
+		ENGINE_API auto CheckRequestAdmission() const -> std::expected<void, Durin::UnifiedError::FError>;
 		ENGINE_API auto Shutdown() -> void;
 		auto GetRuntimeConfiguration() const -> const FAssetRuntimeConfiguration&
 		{

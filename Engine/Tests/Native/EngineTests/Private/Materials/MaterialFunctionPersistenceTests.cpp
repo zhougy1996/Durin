@@ -1,4 +1,5 @@
 #include "Editor/AssetEditorTestHost.h"
+#include "Misc/UnifiedError.h"
 #include "Toolkits/AssetEditorToolkit.h"
 #include "FunctionPortTestFixture.h"
 #include "MaterialFunctionTestSupport.h"
@@ -67,8 +68,9 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	}
 	DMaterialFunction* Reloaded = nullptr;
 	{
-		auto LoadedValue = LoadObjectDetailed<DMaterialFunction>(Testing::MakePackageLeafAssetObjectPathForTests(FirstPath));
-		Reloaded = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = LoadObject<DMaterialFunction>(Testing::MakePackageLeafAssetObjectPathForTests(FirstPath), nullptr, &LoadedValueError);
+		Reloaded = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_NE(Reloaded, nullptr);

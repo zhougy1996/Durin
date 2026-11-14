@@ -1,4 +1,5 @@
 #include "Asset/AssetCompilingManager.h"
+#include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
 #include "NativeDObjectTestSupport.h"
@@ -103,6 +104,8 @@ namespace
 
 TEST(FLevelAssetTests, ReconstructsIsolatedStaticMeshLevelAndDependencies)
 {
+	std::optional<Durin::UnifiedError::FError> LevelLoadError;
+	std::optional<Durin::UnifiedError::FError> MeshLoadError;
 	InitializeDObjectSystem();
 	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
 		Durin::InitializeAssetCompilingManager();
@@ -132,9 +135,9 @@ TEST(FLevelAssetTests, ReconstructsIsolatedStaticMeshLevelAndDependencies)
 	Durin::FPackagePath MeshPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Engine/Models/Box", MeshPath));
 	Durin::DStaticMesh* Mesh = nullptr;
-	const auto MeshLoad = Durin::LoadObjectDetailed<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath));
-	Mesh = MeshLoad.value_or(nullptr);
-	ASSERT_TRUE(MeshLoad) << (MeshLoad ? std::string{} : MeshLoad.error().Message);
+	const auto MeshLoad = Durin::LoadObject<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath), nullptr, &MeshLoadError);
+	Mesh = MeshLoad;
+	ASSERT_TRUE(MeshLoad) << (MeshLoadError ? MeshLoadError->ToString() : "");
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 	EXPECT_FALSE(Mesh->GetPackage()->IsDirty());
 
@@ -189,14 +192,14 @@ TEST(FLevelAssetTests, ReconstructsIsolatedStaticMeshLevelAndDependencies)
 	if (Durin::FindResidentPackage(MeshPath))
 	{
 		const auto MeshUnload = Durin::UnloadPackage(MeshPath);
-		ASSERT_TRUE(MeshUnload) << MeshUnload.Message;
+		ASSERT_TRUE(MeshUnload) << MeshUnload.error();
 	}
 	EXPECT_EQ(Durin::FindResidentPackage(MeshPath), nullptr);
 
 	Durin::DLevel* Loaded = nullptr;
-	const auto LevelLoad = Durin::LoadObjectDetailed<Durin::DLevel>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(LevelPath));
-	Loaded = LevelLoad.value_or(nullptr);
-	ASSERT_TRUE(LevelLoad) << (LevelLoad ? std::string{} : LevelLoad.error().Message);
+	const auto LevelLoad = Durin::LoadObject<Durin::DLevel>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(LevelPath), nullptr, &LevelLoadError);
+	Loaded = LevelLoad;
+	ASSERT_TRUE(LevelLoad) << (LevelLoadError ? LevelLoadError->ToString() : "");
 	EXPECT_NE(Durin::FindResidentPackage(MeshPath), nullptr);
 	ASSERT_NO_FATAL_FAILURE(ExpectReconstructionManifest(Loaded));
 

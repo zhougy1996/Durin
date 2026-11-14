@@ -1,5 +1,6 @@
 #include "MaterialRenderProxyUpdateTestSupport.h"
 #include "Shader/ShaderCompilingManager.h"
+#include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "DObject/OverridableManager.h"
 #include "Shader/ShaderDiagnostics.h"
@@ -531,14 +532,15 @@ TEST_F(FMaterialQualificationTests, LargeGraphLoadBaseline)
 	const auto CompleteBytes = std::filesystem::file_size(Root / "Base.dasset");
 	for (int Round = 0; Round < 2; ++Round)
 	{
+		std::optional<Durin::UnifiedError::FError> LoadResultError;
 		ASSERT_TRUE(SavePackage(Material->GetPackage()));
 		const auto DeltaBytes = std::filesystem::file_size(Root / "Base.dasset");
 		EXPECT_LE(DeltaBytes, CompleteBytes);
 		ASSERT_TRUE(UnloadPackage(Path));
 		const auto Begin = std::chrono::steady_clock::now();
-		const auto LoadResult = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
-		Material = LoadResult.value_or(nullptr);
-		ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
+		const auto LoadResult = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadResultError);
+		Material = LoadResult;
+		ASSERT_TRUE(LoadResult) << (LoadResultError ? LoadResultError->ToString() : "");
 		const auto LoadMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Begin).count();
 		std::cout << "[ MATERIAL BASELINE ] nodes=65 round=" << Round
 			<< " complete_bytes=" << CompleteBytes << " delta_bytes=" << DeltaBytes

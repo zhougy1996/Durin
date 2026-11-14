@@ -1,4 +1,6 @@
 #include "Asset/RegistryOperations.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 #include "Widgets/MLevelEditor.h"
 
@@ -286,7 +288,7 @@ namespace Durin::LevelEditor
 		}
 		FSoftObjectPath ResolvedLevelPath;
 		const auto Resolution = DefaultLevel.IsNull()
-			? FAssetReadResult{}
+			? std::expected<void, Durin::UnifiedError::FError>{}
 			: ResolveLevelPackage(DefaultLevelPath, ResolvedLevelPath);
 		if (!Resolution
 			|| (!DefaultLevel.IsNull()
@@ -294,7 +296,7 @@ namespace Durin::LevelEditor
 		{
 			SetError(Resolution
 				? "The selected Level is not the unique top-level Level in its package."
-				: Resolution.Message);
+				: Resolution.error().ToString());
 			return false;
 		}
 		const FProjectGameSettingsResult SaveResult =
@@ -663,7 +665,7 @@ namespace Durin::LevelEditor
 							AssetPath.GetPackagePath(), LevelPath);
 					if (!Resolution)
 					{
-						OutError = Resolution.Message;
+						OutError = Resolution.error().ToString();
 						return false;
 					}
 					if (LevelPath.GetAssetPath() != AssetPath)

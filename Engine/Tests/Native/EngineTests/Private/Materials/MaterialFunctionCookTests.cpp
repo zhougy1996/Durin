@@ -1,4 +1,5 @@
 #include "NativeRHIBackendTestSupport.h"
+#include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "Materials/MaterialShaderMap.h"
 #include "Shader/ShaderCompilingManager.h"
@@ -102,15 +103,16 @@ TEST_F(FMaterialFunctionCookTests, CookFingerprintsNestedFunctionsWithoutProduci
 	ASSERT_TRUE(FAssetRuntimeConfiguration::Cooked(Request.OutputRoot, Configuration));
 	ASSERT_TRUE(InitializeAssetRuntime(std::move(Configuration)));
 	{
+		std::optional<Durin::UnifiedError::FError> LoadedResultError;
 		const std::array CookMounts{FMountPoint{.VirtualRoot = "/CookFunctionTests/", .Owner = EMountOwner::Test,
 			.Root = Request.OutputRoot / "CookFunctionTests", .bAutoScan = true}};
 		Testing::FScopedMountRegistryFixture CookMountsFixture(CookMounts);
 		ASSERT_TRUE(CookMountsFixture.IsValid()) << CookMountsFixture.GetError();
 		ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 		DMaterial* Loaded = nullptr;
-		const auto LoadedResult = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
-		Loaded = LoadedResult.value_or(nullptr);
-		ASSERT_TRUE(LoadedResult) << (LoadedResult ? std::string{} : LoadedResult.error().Message);
+		const auto LoadedResult = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), nullptr, &LoadedResultError);
+		Loaded = LoadedResult;
+		ASSERT_TRUE(LoadedResult) << (LoadedResultError ? LoadedResultError->ToString() : "");
 		ASSERT_NE(Loaded, nullptr);
 		FShaderCompilingManager::Get().FinishAllCompilation();
 		ASSERT_NE(Loaded->GetAcceptedCompiledProgram(), nullptr);
@@ -163,8 +165,9 @@ TEST_F(FMaterialFunctionCookTests, StructuralNormalParentRoundTripsDuplicatesAnd
 	ASSERT_TRUE(UnloadPackage(MaterialPath));
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	{
-		auto LoadedValue = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
-		Material = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), nullptr, &LoadedValueError);
+		Material = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	EXPECT_TRUE(Recipe.Graph.MatchesGraph(*Material));
@@ -185,15 +188,16 @@ TEST_F(FMaterialFunctionCookTests, StructuralNormalParentRoundTripsDuplicatesAnd
 	ASSERT_TRUE(FAssetRuntimeConfiguration::Cooked(Request.OutputRoot, Configuration));
 	ASSERT_TRUE(InitializeAssetRuntime(std::move(Configuration)));
 	{
+		std::optional<Durin::UnifiedError::FError> LoadResultError;
 		const std::array CookMounts{FMountPoint{.VirtualRoot = "/CookNormal/", .Owner = EMountOwner::Test,
 			.Root = Request.OutputRoot / "CookNormal", .bAutoScan = true}};
 		Testing::FScopedMountRegistryFixture CookMountsFixture(CookMounts);
 		ASSERT_TRUE(CookMountsFixture.IsValid()) << CookMountsFixture.GetError();
 		ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 		DMaterial* Loaded = nullptr;
-		const auto LoadResult = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
-		Loaded = LoadResult.value_or(nullptr);
-		ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
+		const auto LoadResult = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), nullptr, &LoadResultError);
+		Loaded = LoadResult;
+		ASSERT_TRUE(LoadResult) << (LoadResultError ? LoadResultError->ToString() : "");
 		FShaderCompilingManager::Get().FinishAllCompilation();
 		ASSERT_NE(Loaded->GetAcceptedCompiledProgram(), nullptr);
 		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, ExpectedIdentity);
@@ -277,8 +281,9 @@ TEST_F(FMaterialFunctionCookTests, StandardMaterialFixtureCooksAndLoadsWithoutAu
 		ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 		DMaterial* Loaded = nullptr;
 		{
-			auto LoadedValue = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
-			Loaded = LoadedValue.value_or(nullptr);
+			std::optional<Durin::UnifiedError::FError> LoadedValueError;
+			auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), nullptr, &LoadedValueError);
+			Loaded = LoadedValue;
 			ASSERT_TRUE(LoadedValue);
 		}
 		ASSERT_NE(Loaded, nullptr);

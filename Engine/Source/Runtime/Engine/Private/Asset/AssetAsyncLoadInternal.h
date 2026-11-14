@@ -1,8 +1,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 
-#include "Asset/AssetReadResult.h"
 #include "DObject/AssetPath.h"
 #include "Misc/PackageWriter.h"
 
@@ -14,7 +15,7 @@ namespace Durin
 		std::shared_ptr<FPackageFileAccess> Access;
 		FByteBuffer Bytes;
 		uint64 BulkBytes = 0;
-		FAssetReadResult Result;
+		std::expected<void, Durin::UnifiedError::FError> Result;
 	};
 	using FAsyncPackageInputs = std::unordered_map<FPackagePath, FAsyncPackageInput>;
 }

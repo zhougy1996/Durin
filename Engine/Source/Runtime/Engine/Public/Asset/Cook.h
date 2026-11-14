@@ -1,11 +1,11 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
 #include "Asset/CookInputResult.h"
 #include "Asset/AssetBuildTaskContext.h"
 #include "Asset/AssetWriteResult.h"
 
-#include "Asset/AssetReadResult.h"
 
 #include "EngineAPI.h"
 #include "Asset/CookedAsset.h"
@@ -436,6 +436,7 @@ namespace Durin
 		std::shared_ptr<const FCookOutputRootResult> RootCause;
 		std::optional<FCookedPathResult> PathCause;
 		std::string PackageDiagnostic;
+		std::optional<UnifiedError::FError> PackageCause;
 		std::optional<FCookManifestResult> ManifestCause;
 		std::optional<FCookStateResult> StateCause;
 		std::optional<FCookPublishOperationFailure> OperationCause;

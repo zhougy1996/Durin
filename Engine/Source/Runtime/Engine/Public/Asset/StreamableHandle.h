@@ -26,9 +26,9 @@ namespace Durin
 		ENGINE_API auto HasLoadCompleted() const -> bool;
 		ENGINE_API auto WasCanceled() const -> bool;
 		ENGINE_API auto HasError() const -> bool;
-		// None when no error; aggregate error is the first failed input slot.
-		ENGINE_API auto GetError() const -> const FAssetReadError&;
-		ENGINE_API auto GetTargetErrors() const -> std::vector<FAssetReadError>;
+		// Absent on success; aggregate error is the first failed input slot.
+		ENGINE_API auto GetError() const -> const std::optional<UnifiedError::FError>&;
+		ENGINE_API auto GetTargetErrors() const -> std::vector<std::optional<UnifiedError::FError>>;
 		ENGINE_API auto GetLoadReports() const -> std::vector<FAssetLoadReport>;
 		ENGINE_API auto GetRequestedAssets() const -> const std::vector<FSoftObjectPath>&;
 		// Input ordering and duplicates are preserved, including null failure slots.

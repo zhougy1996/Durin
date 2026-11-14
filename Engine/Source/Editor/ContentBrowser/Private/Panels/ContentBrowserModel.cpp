@@ -1,4 +1,6 @@
 #include "Data/ContentBrowserItemAttributeHelpers.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 #include "Threading/Task.h"
 #include "Panels/ContentBrowserModel.h"
 #include "Panels/ContentBrowserChanges.h"
@@ -190,18 +192,15 @@ namespace Durin::ContentBrowser::Private
 			RefreshItemsSnapshot(false);
 	}
 
-	auto FContentBrowserModel::RescanRegistry() -> FAssetReadResult
+	auto FContentBrowserModel::RescanRegistry() -> std::expected<void, Durin::UnifiedError::FError>
 	{
 		const FAssetCatalogRefreshResult Refresh =
 			RefreshAssetRegistry(
 				EAssetRegistryScanMode::Incremental);
 		if (Refresh) return {};
 		return Refresh.Errors.empty()
-			? FAssetReadResult{
-				EAssetReadError::IoError,
-				"Asset catalog refresh was incomplete."}
-			: FAssetReadResult{
-				.Error = EAssetReadError::IoError, .Message = FormatAssetRegistryError(Refresh.Errors.front())};
+			? std::expected<void, Durin::UnifiedError::FError>{std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::IoError, "Asset catalog refresh was incomplete."})}
+			: std::expected<void, Durin::UnifiedError::FError>{std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::IoError, FormatAssetRegistryError(Refresh.Errors.front())})};
 	}
 
 	auto FContentBrowserModel::PhysicalToVirtualDirectory(

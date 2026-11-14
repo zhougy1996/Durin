@@ -1,7 +1,10 @@
 #pragma once
 #include "PackageLoadTransaction.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 
 #include "CoreMinimal.h"
+#include "EngineAPI.h"
 
 #include "Asset/Cook.h"
 #include "Asset/MutationExtensions.h"
@@ -65,7 +68,7 @@ namespace Durin::AssetPrivate
 		auto CaptureSchema(FInput& Input, FCookPackageBuildInputs& Node) -> FCookInputResult;
 		auto Fail(FCookInputFailure Cause) -> FCookInputResult;
 		auto Fail(const FCookInputResult& Result) -> FCookInputResult;
-		auto Fail(const FAssetReadResult& Result) -> FCookInputResult { return Fail(ToCookInputResult(Result)); }
+		auto Fail(const std::expected<void, Durin::UnifiedError::FError>& Result) -> FCookInputResult { if (auto Cancellation = CheckCancellation(); !Cancellation) return Cancellation; return Fail(ToCookInputResult(Result)); }
 		auto Fail(const FCookContributionResult& Result) -> FCookInputResult { return Fail(Result.Status == ECookContributionStatus::Canceled ? FCookInputResult{ECookInputStatus::Cancelled} : FCookInputResult{ECookInputStatus::InvalidDependency, FormatCookContributionError(Result)}); }
 		const FCookRequest& Request;
 		FAssetRegistrySnapshot Registry;

@@ -1,4 +1,5 @@
 #include "MaterialGraphDocument.h"
+#include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "DObject/OverridableManager.h"
 #include "MaterialGraphTestSupport.h"
@@ -33,9 +34,10 @@ TEST(FMaterialGraphPersistenceTests, TextureCoordinatesRetainChannelLinkAndDefau
 	ASSERT_TRUE(UnloadPackage(Path));
 	Material = nullptr;
 	{
-		const auto Loaded = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		std::optional<Durin::UnifiedError::FError> LoadedError;
+		const auto Loaded = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedError);
 		ASSERT_TRUE(Loaded);
-		Material = Loaded.value();
+		Material = Loaded;
 	}
 	ASSERT_NE(Material, nullptr);
 	EXPECT_EQ(CaptureExpressions(*Material), Expected);
@@ -73,8 +75,9 @@ TEST(FMaterialGraphPersistenceTests, CustomDeclarationsPersistAndDuplicateTheirI
 	ASSERT_TRUE(UnloadPackage(Path));
 	Material = nullptr;
 	{
-		auto LoadedValue = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
-		Material = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedValueError);
+		Material = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_NE(Material, nullptr);
@@ -115,13 +118,14 @@ TEST(FMaterialGraphPersistenceTests, LargeGraphRoundTripsWithoutLoadedOverrideLe
 	const auto CompleteBytes = std::filesystem::file_size(Root / "Base.dasset");
 	for (int Round = 0; Round < 2; ++Round)
 	{
+		std::optional<Durin::UnifiedError::FError> LoadResultError;
 		ASSERT_TRUE(SavePackage(Material->GetPackage()));
 		const auto DeltaBytes = std::filesystem::file_size(Root / "Base.dasset");
 		EXPECT_LE(DeltaBytes, CompleteBytes);
 		ASSERT_TRUE(UnloadPackage(Path));
-		const auto LoadResult = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
-		Material = LoadResult.value_or(nullptr);
-		ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
+		const auto LoadResult = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadResultError);
+		Material = LoadResult;
+		ASSERT_TRUE(LoadResult) << (LoadResultError ? LoadResultError->ToString() : "");
 		ASSERT_NE(Material, nullptr);
 		EXPECT_FALSE(Durin::FOverridableManager::HasOverriddenProperties(*Material));
 		EXPECT_EQ(CaptureExpressions(*Material), Expected);
@@ -148,12 +152,13 @@ TEST(FMaterialAssetCreationPersistenceTests, BuiltInMaterialsHaveCompletePersist
 	for (const std::string_view PathString : {
 		"/Engine/Materials/DefaultMaterial"})
 	{
+		std::optional<Durin::UnifiedError::FError> LoadedError;
 		FPackagePath Path;
 		ASSERT_TRUE(FPackagePath::TryCreate(PathString, Path));
 		DMaterial* Material = nullptr;
-		const auto Loaded = LoadObjectDetailed<DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
-		Material = Loaded.value_or(nullptr);
-		ASSERT_TRUE(Loaded) << (Loaded ? std::string{} : Loaded.error().Message);
+		const auto Loaded = LoadObject<DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedError);
+		Material = Loaded;
+		ASSERT_TRUE(Loaded) << (LoadedError ? LoadedError->ToString() : "");
 		ASSERT_NE(Material, nullptr);
 		const FMaterialGraphPresentation& Presentation =
 			Material->GetMaterialGraphPresentation();

@@ -1,4 +1,6 @@
 #include "AssetLiveLoadGuard.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 #include "Asset/RegistryOperations.h"
 #include "AssetRuntimeStateInternal.h"
 #include "AssetMutationRegistryInternal.h"
@@ -49,7 +51,7 @@ namespace Durin
 
 	namespace
 	{
-		auto Error(EAssetReadError Code, std::string Message) -> FAssetReadResult { return {Code, std::move(Message)}; }
+		auto Error(Durin::UnifiedError::FErrorId Id, std::string Message) -> std::expected<void, Durin::UnifiedError::FError> { return std::unexpected(Durin::UnifiedError::FError{Id, std::move(Message)}); }
 		auto Error(EAssetWriteError Code, std::string Message) -> FAssetWriteResult { return {Code, std::move(Message)}; }
 
 		auto GetPhysicalPath(const FPackagePath& Path) -> std::string
@@ -223,7 +225,7 @@ namespace Durin
 			return {};
 		}
 		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("save", ""); !Guard)
-		{ OutResult = AssetWriteResultFromRead(Guard); return {}; }
+		{ OutResult = {.Error = EAssetWriteError::InUse, .Message = Guard.error().ToString(), .Cause = Guard.error()}; return {}; }
 		if (FAssetRuntimeState::Get().GetRuntimeConfiguration().IsCooked())
 		{ OutResult = Error(EAssetWriteError::ReadOnlyMode, "Cooked packages cannot be saved."); return {}; }
 		auto Operation = std::shared_ptr<FProtectedAssetSave>(new FProtectedAssetSave());
@@ -308,7 +310,7 @@ namespace Durin
 			Batch.Result = std::move(Result);
 			return Batch;
 		};
-		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("save", ""); !Guard) return Fail(AssetWriteResultFromRead(Guard));
+		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("save", ""); !Guard) return Fail(FAssetWriteResult{.Error = EAssetWriteError::InUse, .Message = Guard.error().ToString(), .Cause = Guard.error()});
 		if (Packages.empty()) return Fail(Error(EAssetWriteError::InvalidData, "A save batch must contain at least one package."));
 		if (RuntimeConfiguration.IsCooked()) return Fail(Error(EAssetWriteError::ReadOnlyMode, "Cooked packages cannot be saved."));
 		const auto Fault = Testing::CapturePackageSaveFault();
@@ -342,7 +344,7 @@ namespace Durin
 	auto FAssetMutationCoordinator::AdmitAssetPackageToCatalog(
 		const FPackagePath& Path) -> FAssetWriteResult
 	{
-		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return AssetWriteResultFromRead(Guard);
+		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return {.Error = EAssetWriteError::InUse, .Message = Guard.error().ToString(), .Cause = Guard.error()};
 		if (!Path.IsValid())
 			return Error(EAssetWriteError::InvalidPath, "The asset admission path is invalid.");
 		if (Durin::FindPackageExact(Path) || FindResidentPackage(Path))
@@ -388,9 +390,9 @@ namespace Durin
 
 	auto FAssetMutationCoordinator::SavePackage(DPackage* Package, EAssetPackageSaveMode Mode) -> FAssetWriteResult
 	{
-		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return AssetWriteResultFromRead(Guard);
+		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return {.Error = EAssetWriteError::InUse, .Message = Guard.error().ToString(), .Cause = Guard.error()};
 		if (auto Admission = FAssetRuntimeState::Get().CheckRequestAdmission(); !Admission)
-			return AssetWriteResultFromRead(Admission);
+			return {.Error = EAssetWriteError::InUse, .Message = Admission.error().ToString(), .Cause = Admission.error()};
 		if (RuntimeConfiguration.IsCooked()) return Error(EAssetWriteError::ReadOnlyMode, "Cooked packages cannot be saved.");
 		if (!Package || !Package->IsAssetPackage() || Package->IsGraphPrivate())
 			return Error(EAssetWriteError::InvalidData, "A live persistent package is required.");

@@ -1,6 +1,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
+#include "EngineAPI.h"
 
 #include "Asset/Load.h"
 #include "DObject/WeakObjectPtr.h"
@@ -22,14 +25,14 @@ namespace Durin
 		FPackageLoadTransaction(const FPackageLoadTransaction&) = delete;
 		auto operator=(const FPackageLoadTransaction&) -> FPackageLoadTransaction& = delete;
 		[[nodiscard]] ENGINE_API auto LoadPackageDetailed(const FPackagePath& Path,
-			FAssetLoadReport* OutReport = nullptr) -> std::expected<DPackage*, FAssetReadError>;
+			FAssetLoadReport* OutReport = nullptr) -> std::expected<DPackage*, Durin::UnifiedError::FError>;
 		[[nodiscard]] ENGINE_API auto LoadObjectDetailed(const FSoftObjectPath& Path, const DClass* ExpectedClass,
-			FAssetLoadReport* OutReport = nullptr) -> std::expected<DObject*, FAssetReadError>;
+			FAssetLoadReport* OutReport = nullptr) -> std::expected<DObject*, Durin::UnifiedError::FError>;
 
 
 		template<typename T>
 		[[nodiscard]] auto LoadObjectDetailed(const FSoftObjectPath& Path,
-			FAssetLoadReport* OutReport = nullptr) -> std::expected<T*, FAssetReadError>
+			FAssetLoadReport* OutReport = nullptr) -> std::expected<T*, Durin::UnifiedError::FError>
 		{
 			static_assert(std::is_base_of_v<DObject, T>);
 			auto Result = LoadObjectDetailed(Path, T::StaticClass(), OutReport);
@@ -43,7 +46,7 @@ namespace Durin
 		// packages after dropping candidate graphs. Actual references and unsaved state
 		// still protect owned packages; a later package at the same path is not exempt.
 		ENGINE_API auto Unload(
-			std::span<const TWeakObjectPtr<DPackage>> IgnoreSavedDependencies = {}) -> FAssetReadResult;
+			std::span<const TWeakObjectPtr<DPackage>> IgnoreSavedDependencies = {}) -> std::expected<void, Durin::UnifiedError::FError>;
 
 	private:
 		std::vector<TWeakObjectPtr<DPackage>> Packages;

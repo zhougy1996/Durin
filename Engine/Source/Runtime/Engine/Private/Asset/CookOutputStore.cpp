@@ -1,4 +1,6 @@
 #include "CookOutputInternal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 #include "Misc/FileHelper.h"
 #include "Asset/PackageInspection.h"
 namespace Durin
@@ -176,12 +178,13 @@ namespace Durin
 						return RejectValidation(ECookPublishValidationError::PackageIdentity, Plan.VirtualPath, Index);
 					// Reuse references name previously validated bytes by their exact digest.
 					// Recheck their files under the writer lock below, without recapturing bulk.
-					const auto PackageValidation = bReference ? FAssetReadResult{} : ValidateAssetPackageBytes(
+					const auto PackageValidation = bReference ? std::expected<void, Durin::UnifiedError::FError>{} : ValidateAssetPackageBytes(
 						Plan.PackageBytes, VirtualPath, Plan.BulkBytes);
 					if (!PackageValidation)
 					{
 						Failure.VirtualPath = Plan.VirtualPath;
-						Failure.PackageDiagnostic = PackageValidation.Message;
+						Failure.PackageDiagnostic = PackageValidation.error().ToString();
+						Failure.PackageCause = PackageValidation.error();
 						Failure.Error = ECookPublishError::Package;
 						return false;
 					}

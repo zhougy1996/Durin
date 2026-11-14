@@ -1,4 +1,5 @@
 #include "Editor/ContentBrowserItemTestSupport.h"
+#include "Misc/UnifiedError.h"
 #include "Editor/ContentBrowserQueryTestSupport.h"
 #include <gtest/gtest.h>
 #include "Editor/BrowserDefinitionTestSupport.h"
@@ -320,14 +321,15 @@ namespace Durin::ContentBrowser
 			.Context = {.VirtualDirectory = "/DeferredCreation"},
 			.RevealAsset = [&](std::string_view Path) { Revealed = Path; return true; },
 			.OpenAsset = [&](std::string_view Path, std::string_view ClassName) {
+				std::optional<Durin::UnifiedError::FError> ResultError;
 				Opened = Path;
 				EXPECT_EQ(ClassName, DLevel::StaticClass()->GetQualifiedName().ToString());
 				FSoftObjectPath ObjectPath;
 				if (const auto PathValidation = FSoftObjectPath::TryCreateWithDiagnostic(Path, ObjectPath); !PathValidation) { OpenError = Durin::ToString(PathValidation.error()); return false; }
-				const auto Result = LoadObjectDetailed<DLevel>(ObjectPath);
-				OpenedLevel = Result.value_or(nullptr);
-				OpenError = (Result ? std::string{} : Result.error().Message);
-				return Result.has_value();
+				const auto Result = LoadObject<DLevel>(ObjectPath, nullptr, &ResultError);
+				OpenedLevel = Result;
+				OpenError = ResultError ? ResultError->ToString() : "";
+				return (Result != nullptr);
 			},
 			.NotifyMountedContentChanged = [&] { ++Notifications; },
 			.ReportError = [&](std::string Message) { ADD_FAILURE() << Message; }};
@@ -351,6 +353,7 @@ namespace Durin::ContentBrowser
 		EXPECT_EQ(Revealed, "/DeferredCreation/FinalLevel.FinalLevel");
 		EXPECT_EQ(Opened, Revealed);
 		ASSERT_NE(OpenedLevel, nullptr) << OpenError;
+		EXPECT_TRUE(OpenError.empty());
 		EXPECT_EQ(OpenedLevel->GetObjectPath(), Opened);
 		EXPECT_TRUE(std::filesystem::is_regular_file(Root / "FinalLevel.dasset"));
 		EXPECT_FALSE(std::filesystem::exists(Root / "NewLevel.dasset"));

@@ -1,4 +1,5 @@
 #include "NativeAssetBuildTestSupport.h"
+#include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "NativeAssetTestSupport.h"
 #include "EncodedSourceSnapshot.h"
@@ -431,13 +432,15 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	DVolumeTexture* ReloadedBase = nullptr;
 	DVolumeTexture* ReloadedDetail = nullptr;
 	{
-		auto LoadedValue = LoadObjectDetailed<DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(BaseAssetPath));
-		ReloadedBase = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = LoadObject<DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(BaseAssetPath), nullptr, &LoadedValueError);
+		ReloadedBase = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	{
-		auto LoadedValue = LoadObjectDetailed<DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(DetailAssetPath));
-		ReloadedDetail = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = LoadObject<DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(DetailAssetPath), nullptr, &LoadedValueError);
+		ReloadedDetail = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_NE(ReloadedBase, nullptr);
@@ -464,6 +467,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 
 TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizontal128CubedAtlas)
 {
+	std::optional<Durin::UnifiedError::FError> LoadedError;
 	InitializeDObjectSystem();
 	InitializeTextureImportMount();
 	FModuleManager::Get().LoadModuleChecked("TextureCompressor");
@@ -557,16 +561,17 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(CompanionBytes, SourceStoragePath));
 	DVolumeTexture* CorruptLoad = nullptr;
 	{
-		auto LoadedValue = LoadObjectDetailed<DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
-		CorruptLoad = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = LoadObject<DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), nullptr, &LoadedValueError);
+		CorruptLoad = LoadedValue;
 		EXPECT_FALSE(LoadedValue);
 	}
 	CompanionBytes.back() ^= std::byte{1};
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(CompanionBytes, SourceStoragePath));
 	DVolumeTexture* Reloaded = nullptr;
-	const auto Loaded = LoadObjectDetailed<DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
-	Reloaded = Loaded.value_or(nullptr);
-	ASSERT_TRUE(Loaded) << (Loaded ? std::string{} : Loaded.error().Message);
+	const auto Loaded = LoadObject<DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), nullptr, &LoadedError);
+	Reloaded = Loaded;
+	ASSERT_TRUE(Loaded) << (LoadedError ? LoadedError->ToString() : "");
 	ASSERT_NE(Reloaded, nullptr);
 	const auto& ReloadedSource = Reloaded->GetSource();
 	const FSharedByteBuffer ReloadedVoxels = ReloadedSource.GetMipData().GetData();

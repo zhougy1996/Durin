@@ -1,5 +1,6 @@
 #include "Thumbnail/AssetThumbnailKey.h"
 #include "ThumbnailManagerTestSupport.h"
+#include "Misc/UnifiedError.h"
 #include "DObject/WeakObjectPtr.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "Thumbnail/ThumbnailManager.h"
@@ -312,6 +313,7 @@ TEST(FMaterialThumbnailRendererTests, InvalidInstancePublishesOneStableDiagnosti
 TEST(FMaterialThumbnailRendererTests,
 	RendererUsesCurrentMaterialWhileWaitingForSphereCompilation)
 {
+	std::optional<Durin::UnifiedError::FError> LoadResultError;
 	Durin::FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	InitializeDObjectSystem();
 	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
@@ -332,9 +334,9 @@ TEST(FMaterialThumbnailRendererTests,
 	ASSERT_NE(MaterialData, nullptr);
 	Durin::DObject* LoadedObject = nullptr;
 	const auto LoadResult =
-		Durin::LoadObjectDetailed<Durin::DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
-		LoadedObject = LoadResult.value_or(nullptr);
-	ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
+		Durin::LoadObject<Durin::DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), nullptr, &LoadResultError);
+		LoadedObject = LoadResult;
+	ASSERT_TRUE(LoadResult) << (LoadResultError ? LoadResultError->ToString() : "");
 	auto* Material = Durin::Cast<Durin::DMaterial>(LoadedObject);
 	ASSERT_NE(Material, nullptr);
 	(void)Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
@@ -345,8 +347,9 @@ TEST(FMaterialThumbnailRendererTests,
 		Durin::FThumbnailVisualContract::SphereAssetPath, SpherePath));
 	Durin::DObject* SphereObject = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DObject>(SpherePath);
-		SphereObject = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = Durin::LoadObject<Durin::DObject>(SpherePath, nullptr, &LoadedValueError);
+		SphereObject = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	auto* Sphere = Durin::Cast<Durin::DStaticMesh>(SphereObject);
@@ -385,7 +388,7 @@ TEST(FMaterialThumbnailRendererTests,
 	}
 	// The fixture belongs to the renderer, independently of a cancelled draw.
 	const auto SpherePackage = Sphere->GetPackage()->GetPackagePathIdentity();
-	EXPECT_EQ(Durin::UnloadPackage(SpherePackage).Error, Durin::EAssetReadError::InUse);
+	EXPECT_FALSE(Durin::UnloadPackage(SpherePackage));
 	Durin::TWeakObjectPtr<Durin::DThumbnailRenderer> WeakRenderer(RendererOwner.Get());
 	RendererOwner.Reset();
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);

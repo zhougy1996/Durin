@@ -1,4 +1,5 @@
 #include "Editor/EditorTransactionTestSupport.h"
+#include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "StaticMesh/StaticMeshMaterialBinding.h"
@@ -153,8 +154,9 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotDefinitionsRoundTripWithDef
 
 	Durin::DStaticMesh* Loaded = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath));
-		Loaded = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = Durin::LoadObject<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath), nullptr, &LoadedValueError);
+		Loaded = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_NE(Loaded, nullptr);
@@ -347,12 +349,13 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 	Material = nullptr;
 	const auto MaterialUnload =
 		Durin::Testing::EnsurePackageNotResident(MaterialPath);
-	ASSERT_TRUE(MaterialUnload) << MaterialUnload.Message;
+	ASSERT_TRUE(MaterialUnload) << MaterialUnload.error();
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(MeshPath));
 	Component = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DStaticMeshComponent>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ComponentPath));
-		Component = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = Durin::LoadObject<Durin::DStaticMeshComponent>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ComponentPath), nullptr, &LoadedValueError);
+		Component = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_NE(Component, nullptr);
@@ -460,8 +463,9 @@ namespace
 
 		TComponent* Loaded = nullptr;
 		{
-			auto LoadedValue = Durin::LoadObjectDetailed<TComponent>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ComponentPath));
-			Loaded = LoadedValue.value_or(nullptr);
+			std::optional<Durin::UnifiedError::FError> LoadedValueError;
+			auto LoadedValue = Durin::LoadObject<TComponent>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ComponentPath), nullptr, &LoadedValueError);
+			Loaded = LoadedValue;
 			ASSERT_TRUE(LoadedValue);
 		}
 		ASSERT_NE(Loaded, nullptr);

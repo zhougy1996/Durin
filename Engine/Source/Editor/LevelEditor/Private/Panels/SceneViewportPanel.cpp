@@ -1,4 +1,5 @@
 #include "Panels/SceneViewportPanel.h"
+#include "Misc/UnifiedError.h"
 
 #include "Profiling/Profiling.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
@@ -332,15 +333,16 @@ namespace Durin::LevelEditor
 				{
 					if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(AssetDragDropPayloadType); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(FAssetDragDropPayload))
 					{
+						std::optional<Durin::UnifiedError::FError> ResultError;
 						const auto* AssetPayload = static_cast<const FAssetDragDropPayload*>(Payload->Data);
 						FSoftObjectPath AssetPath;
 						DObject* Asset = nullptr;
 						AActor* Actor = nullptr;
 						if (!FSoftObjectPath::TryCreate(AssetPayload->AssetPath.data(), AssetPath))
 							Context.SetError("Dropped asset path is invalid.");
-						else if (const auto Result = LoadObjectDetailed<DObject>(AssetPath); !Result)
-							Context.SetError((Result ? std::string{} : Result.error().Message));
-						else if (DStaticMesh* StaticMesh = Cast<DStaticMesh>(Asset = *Result))
+						else if (const auto Result = LoadObject<DObject>(AssetPath, nullptr, &ResultError); !Result)
+							Context.SetError(ResultError->ToString());
+						else if (DStaticMesh* StaticMesh = Cast<DStaticMesh>(Asset = Result))
 						{
 							FTransform PlacementTransform;
 							FSceneView View;

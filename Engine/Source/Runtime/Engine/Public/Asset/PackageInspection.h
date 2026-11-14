@@ -1,13 +1,14 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 
 #include "EngineAPI.h"
 #include "Serialization/CustomVersion.h"
 #include "DObject/PackageBulkStorage.h"
 #include "AssetRegistry/Catalog.h"
 #include "AssetRegistry/PackageTypes.h"
-#include "Asset/AssetReadResult.h"
 #include "AssetRegistry/PackageHeader.h"
 #include "DObject/AssetPath.h"
 #include "DObject/DObjectFwd.h"
@@ -19,7 +20,7 @@ namespace Durin
 		FByteView Bytes,
 		const FPackagePath& PackagePath,
 		FByteView BulkBytes = {}
-	) -> FAssetReadResult;
+	) -> std::expected<void, Durin::UnifiedError::FError>;
 
 	enum class EAssetPackageObjectReferenceKind : uint8
 	{
@@ -120,10 +121,10 @@ namespace Durin
 	ENGINE_API auto InspectAssetPackage(
 		std::string_view PhysicalPath,
 		FAssetPackageInspection& OutInspection
-	) -> FAssetReadResult;
+	) -> std::expected<void, Durin::UnifiedError::FError>;
 	ENGINE_API auto InspectAssetPackage(
 		std::string_view PhysicalPath,
 		const FPackagePath& PackagePath,
 		FAssetPackageInspection& OutInspection
-	) -> FAssetReadResult;
+	) -> std::expected<void, Durin::UnifiedError::FError>;
 } // namespace Durin

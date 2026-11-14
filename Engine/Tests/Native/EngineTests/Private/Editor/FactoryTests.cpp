@@ -1,4 +1,5 @@
 #include "DObject/StrongObjectPtr.h"
+#include "Misc/UnifiedError.h"
 #include "Factories/Factory.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "AssetTools/IAssetTools.h"
@@ -660,8 +661,9 @@ TEST(DFactoryTests, SavedFactoryPackageReloadsWithoutDuplicateLivePackage)
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
 	Durin::DObject* Reloaded = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
-		Reloaded = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = Durin::LoadObject<Durin::DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedValueError);
+		Reloaded = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_NE(Reloaded, nullptr);

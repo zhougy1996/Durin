@@ -1,4 +1,5 @@
 #include "Widgets/MMaterialParameterCollectionEditor.h"
+#include "Misc/UnifiedError.h"
 #include "PropertyEditor/DetailPanel.h"
 
 #include "Asset/Asset.h"
@@ -23,6 +24,7 @@ namespace Durin::MaterialEditor
 	auto MMaterialParameterCollectionEditor::OpenDocument(
 		const FEditorDocument& Document) -> EDocumentOpenResult
 	{
+		std::optional<Durin::UnifiedError::FError> LoadedError;
 		if (Document.ResourceId.empty()) return EDocumentOpenResult::Rejected;
 		if (Find(Document.ResourceId)) return EDocumentOpenResult::Opened;
 		FSoftObjectPath Path;
@@ -32,13 +34,13 @@ namespace Durin::MaterialEditor
 			Report(ToString(Parsed.error()));
 			return EDocumentOpenResult::Rejected;
 		}
-		auto Loaded = LoadObjectDetailed<DMaterialParameterCollection>(Path);
+		auto Loaded = LoadObject<DMaterialParameterCollection>(Path, nullptr, &LoadedError);
 		if (!Loaded)
 		{
-			Report(Loaded.error().Message);
+			Report(LoadedError->ToString());
 			return EDocumentOpenResult::Rejected;
 		}
-		Collections.emplace(Document.ResourceId, *Loaded);
+		Collections.emplace(Document.ResourceId, Loaded);
 		return EDocumentOpenResult::Opened;
 	}
 

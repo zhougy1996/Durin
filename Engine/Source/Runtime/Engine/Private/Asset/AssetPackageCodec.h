@@ -1,13 +1,14 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 
 #include "EngineAPI.h"
 #include "AssetSubsystemFwd.h"
 #include "AssetPackageCaptureOptions.h"
 #include "AssetPackageDependencyLoadPolicy.h"
 #include "Asset/PackageSchema.h"
-#include "Asset/AssetReadResult.h"
 #include "DObject/PackageFormat.h"
 #include "Asset/PackageBulkData.h"
 #include "Asset/PackageResource.h"
@@ -39,9 +40,9 @@ namespace Durin::AssetPrivate
 		DPackage* ExistingPackage = nullptr;
 		const std::unordered_set<DObject*>* ExistingObjects = nullptr;
 		// Ordinary loading transfers candidate completion to its component owner.
-		std::function<void(std::function<FAssetReadResult()>, std::function<void()>)> DeferCompletion;
+		std::function<void(std::function<std::expected<void, Durin::UnifiedError::FError>()>, std::function<void()>)> DeferCompletion;
 		// Bind validated bulk entries before object construction, using the load's decoded tables.
-		std::function<FAssetReadResult(std::span<const FPackageBulkDataEntry>, FPackageResourceHandle&)> BindBulkResource;
+		std::function<std::expected<void, Durin::UnifiedError::FError>(std::span<const FPackageBulkDataEntry>, FPackageResourceHandle&)> BindBulkResource;
 	};
 
 	struct FAssetPackageEncodedClosure
@@ -60,22 +61,22 @@ namespace Durin::AssetPrivate
 		bool bCanMutate = false;
 
 		auto (*ReadHeader)(const FAssetPackageReadContext&, FAssetPackageHeader&)
-			-> FAssetReadResult = nullptr;
-		auto (*Validate)(const FAssetPackageReadContext&) -> FAssetReadResult = nullptr;
-		auto (*Inspect)(const FAssetPackageReadContext&, FAssetPackageInspection&) -> FAssetReadResult = nullptr;
+			-> std::expected<void, Durin::UnifiedError::FError> = nullptr;
+		auto (*Validate)(const FAssetPackageReadContext&) -> std::expected<void, Durin::UnifiedError::FError> = nullptr;
+		auto (*Inspect)(const FAssetPackageReadContext&, FAssetPackageInspection&) -> std::expected<void, Durin::UnifiedError::FError> = nullptr;
 		auto (*ExtractReferences)(
 			const FAssetPackageReadContext&, std::vector<FAssetReferenceEdge>&)
-			-> FAssetReadResult = nullptr;
+			-> std::expected<void, Durin::UnifiedError::FError> = nullptr;
 		auto (*InspectSchema)(
 			IAssetPackageByteSource&, const FPackagePath&,
 			const FReflectionSchemaCatalog&, FPackageSchemaInspection&,
 			FPackageSchemaReadStats*, bool,
 			const FPackageReadCancellationCheck&)
-			-> FAssetReadResult = nullptr;
+			-> std::expected<void, Durin::UnifiedError::FError> = nullptr;
 		auto (*Load)(
 			const FAssetPackageReadContext&, DPackage*&, FAssetLoadReport*,
-			const std::function<FAssetReadResult(DPackage*)>&,
-			const std::function<void(DPackage*)>&) -> FAssetReadResult = nullptr;
+			const std::function<std::expected<void, Durin::UnifiedError::FError>(DPackage*)>&,
+			const std::function<void(DPackage*)>&) -> std::expected<void, Durin::UnifiedError::FError> = nullptr;
 		// Encoding callbacks return a validated closure and leave output unchanged on failure.
 		auto (*Write)(DPackage*, FAssetPackageEncodedClosure&, EDefaultDeltaMode,
 			const FAssetPackageCaptureOptions&) -> ObjectPackage::FPackageWriterResult = nullptr;
@@ -101,11 +102,12 @@ namespace Durin::AssetPrivate
 	ENGINE_API auto ResolveAssetPackageReader(
 		FByteView Bytes, const FAssetPackageCodec*& OutCodec,
 		uint32* OutFormatVersion = nullptr,
-		uint64 PhysicalFileBytes = 0) -> FAssetReadResult;
+		uint64 PhysicalFileBytes = 0) -> std::expected<void, Durin::UnifiedError::FError>;
 	auto ResolveAssetPackageReader(
 		IAssetPackageByteSource& Source, const FAssetPackageCodec*& OutCodec,
 		uint32* OutFormatVersion = nullptr,
-		const FPackageReadCancellationCheck& IsCancelled = {}) -> FAssetReadResult;
+		const FPackageReadCancellationCheck& IsCancelled = {},
+		bool* OutUnsupportedFormat = nullptr) -> std::expected<void, Durin::UnifiedError::FError>;
 	auto ValidateAssetPackageCodecPolicy(std::string& OutError) -> bool;
 	ENGINE_API auto ValidateAssetPackageCodecTable(
 		std::span<const FAssetPackageCodec> Codecs, std::string& OutError) -> bool;

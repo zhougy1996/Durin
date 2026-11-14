@@ -1,4 +1,6 @@
 #include "AssetPackageLinkerSchema.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 #include "AssetObjectLoadTiming.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectGlobals.h"
@@ -259,7 +261,7 @@ namespace Durin::AssetPrivate::LinkerSchema
 				}
 			}
 			auto Value(const ObjectPackage::FSerializedType& Type, ObjectPackage::FSerializedValue& Value)
-				-> FAssetReadResult
+				-> std::expected<void, Durin::UnifiedError::FError>
 			{
 				using K = ObjectPackage::EValueKind;
 				if (Type.Kind == K::Struct)
@@ -269,13 +271,13 @@ namespace Durin::AssetPrivate::LinkerSchema
 					if (Value.FieldTypes) for (auto& FieldType : *Value.FieldTypes) this->Type(FieldType);
 					const auto& Types = ObjectPackage::StructFieldTypes(Type, Value);
 					if (Value.FieldNames.size() != Value.Elements.size() || Types.size() != Value.Elements.size())
-						return {EAssetReadError::CorruptFile, "Struct identity projection is invalid."};
+						return std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::CorruptFile, "Struct identity projection is invalid."});
 					std::unordered_set<std::string_view> Names;
 					for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
 					{
 						Field(Owner, Value.FieldNames[Index]);
 						if (!Names.emplace(Value.FieldNames[Index]).second)
-							return {EAssetReadError::CorruptFile, "Struct fields canonicalize to a duplicate name."};
+							return std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::CorruptFile, "Struct fields canonicalize to a duplicate name."});
 						if (auto Result = this->Value(Types[Index], Value.Elements[Index]); !Result) return Result;
 					}
 				}
@@ -300,7 +302,7 @@ namespace Durin::AssetPrivate::LinkerSchema
 	}
 
 	auto FixupSerializedNames(ObjectPackage::FLinkerTables& Linker,
-		uint64& OutCount, std::vector<FAssetCanonicalizationEvidence>* OutEvidence) -> FAssetReadResult
+		uint64& OutCount, std::vector<FAssetCanonicalizationEvidence>* OutEvidence) -> std::expected<void, Durin::UnifiedError::FError>
 	{
 		const auto& PackagePath = Linker.Summary.PackagePath;
 		FIdentityNormalizer Normalize;
@@ -335,8 +337,7 @@ namespace Durin::AssetPrivate::LinkerSchema
 			DClass* Class = Normalize.Class(Schema.QualifiedName);
 			DStructBase* Owner = Class ? static_cast<DStructBase*>(Class) : Normalize.Struct(Schema.QualifiedName);
 			if (!SchemaNames.emplace(Schema.QualifiedName).second)
-				return {EAssetReadError::CorruptFile,
-					std::format("Serialized schemas canonicalize to duplicate identity {}.", Schema.QualifiedName)};
+				return std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::CorruptFile, std::format("Serialized schemas canonicalize to duplicate identity {}.", Schema.QualifiedName)});
 			Record(std::move(Stored), Schema.QualifiedName,
 				Class ? EAssetReflectedIdentityKind::Class : EAssetReflectedIdentityKind::Struct,
 				EAssetSerializedIdentityLocation::Schema, Index);
@@ -350,8 +351,8 @@ namespace Durin::AssetPrivate::LinkerSchema
 					EAssetSerializedIdentityLocation::Schema, Index, FieldIndex);
 				Normalize.Type(Field.Type);
 				if (!Names.emplace(Field.Name).second)
-					return {EAssetReadError::CorruptFile, std::format(
-						"Serialized schema {} contains fields that canonicalize to duplicate name {}.", Schema.QualifiedName, Field.Name)};
+					return std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::CorruptFile, std::format(
+						"Serialized schema {} contains fields that canonicalize to duplicate name {}.", Schema.QualifiedName, Field.Name)});
 			}
 		}
 		for (size_t Index = 0; Index < Linker.Types.size(); ++Index)

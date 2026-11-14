@@ -1,4 +1,5 @@
 #include "BuildServiceBackendPrivate.h"
+#include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "CacheDispatchPrivate.h"
 #include "StaticMesh/StaticMeshDerivedDataKeyTestSupport.h"
@@ -310,6 +311,7 @@ TEST(FStaticMeshLODTests, BuildAndCacheKeepSharedCoordinatesAndMaterialsAcrossLO
 
 TEST(FStaticMeshLODTests, FileImportReimportsAllSourcesAndFailedLODLeavesAcceptedAssetUnchanged)
 {
+	std::optional<Durin::UnifiedError::FError> ReloadedError;
 	using namespace Durin;
 	const FScopedDerivedDataCacheRestore CacheRestore;
 	auto Fixture = ImportCacheFixture("StaticMeshAuthoredLODImport", true);
@@ -338,9 +340,9 @@ TEST(FStaticMeshLODTests, FileImportReimportsAllSourcesAndFailedLODLeavesAccepte
 	EXPECT_EQ(Fixture.Mesh->GetRenderData(), AcceptedRender);
 	ASSERT_TRUE(SavePackage(Fixture.Mesh->GetPackage()));
 	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath));
-	const auto Reloaded = LoadObjectDetailed<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(Fixture.AssetPath));
+	const auto Reloaded = LoadObject<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(Fixture.AssetPath), nullptr, &ReloadedError);
 	ASSERT_TRUE(Reloaded);
-	Fixture.Mesh = *Reloaded;
+	Fixture.Mesh = Reloaded;
 	FinishMeshBuildForTests(*Fixture.Mesh);
 	EXPECT_EQ(Fixture.Mesh->GetSource().GetIdentity(), AcceptedIdentity);
 	EXPECT_EQ(Fixture.Mesh->GetSource().GetNumLODs(), 2u);
@@ -350,6 +352,7 @@ TEST(FStaticMeshLODTests, FileImportReimportsAllSourcesAndFailedLODLeavesAccepte
 
 TEST(FStaticMeshLODTests, CookedCollisionLODLoadsWithoutEditorSourceAndDrivesRuntimeSplineDeformation)
 {
+	std::optional<Durin::UnifiedError::FError> LoadedError;
 	using namespace Durin;
 	const FScopedDerivedDataCacheRestore CacheRestore;
 	auto Fixture = ImportCacheFixture("StaticMeshCookedCollisionLOD", true);
@@ -376,9 +379,9 @@ TEST(FStaticMeshLODTests, CookedCollisionLODLoadsWithoutEditorSourceAndDrivesRun
 	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 	FPackagePath Path;
 	ASSERT_TRUE(FPackagePath::TryCreate("/Game/CollisionLOD", Path));
-	const auto Loaded = LoadObjectDetailed<DStaticMesh>(Testing::MakeTopLevelAssetObjectPathForTests(Path, Fixture.AssetPath.GetPackageName()));
-	ASSERT_TRUE(Loaded) << Loaded.error().Message;
-	auto* Mesh = *Loaded;
+	const auto Loaded = LoadObject<DStaticMesh>(Testing::MakeTopLevelAssetObjectPathForTests(Path, Fixture.AssetPath.GetPackageName()), nullptr, &LoadedError);
+	ASSERT_TRUE(Loaded) << (*LoadedError);
+	auto* Mesh = Loaded;
 	EXPECT_FALSE(Mesh->GetSource().IsValid());
 	EXPECT_EQ(Mesh->GetLODForCollision(), 1);
 	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
@@ -563,8 +566,9 @@ TEST(FStaticMeshDerivedDataCacheTests, ColdWarmAndSourceUnavailableLoadsFollowEd
 	ASSERT_TRUE(std::filesystem::remove(ObjectPath));
 
 	{
-		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Fixture.AssetPath));
-		Fixture.Mesh = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = Durin::LoadObject<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Fixture.AssetPath), nullptr, &LoadedValueError);
+		Fixture.Mesh = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	StaticMeshBuildTestSupport::FinishMeshBuildForTests(*Fixture.Mesh);
@@ -579,8 +583,9 @@ TEST(FStaticMeshDerivedDataCacheTests, ColdWarmAndSourceUnavailableLoadsFollowEd
 
 	ASSERT_TRUE(std::filesystem::remove(Fixture.SourcePath));
 	{
-		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Fixture.AssetPath));
-		Fixture.Mesh = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = Durin::LoadObject<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Fixture.AssetPath), nullptr, &LoadedValueError);
+		Fixture.Mesh = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	StaticMeshBuildTestSupport::FinishMeshBuildForTests(*Fixture.Mesh);
@@ -608,8 +613,9 @@ TEST(FStaticMeshDerivedDataCacheTests, CorruptionRecoveryIsNonPersistentAndFailu
 	std::filesystem::last_write_time(PackagePath, PackageTimeBeforeRecovery);
 
 	{
-		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Fixture.AssetPath));
-		Fixture.Mesh = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = Durin::LoadObject<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Fixture.AssetPath), nullptr, &LoadedValueError);
+		Fixture.Mesh = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	StaticMeshBuildTestSupport::FinishMeshBuildForTests(*Fixture.Mesh);
@@ -686,6 +692,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 	auto FirstBulk = Durin::FFileHelper::LoadFileToArray(CookRoot / "Game/CookedCollisionMesh.dbulk");
 	if (!FirstBulk)
 	{
+		std::optional<Durin::UnifiedError::FError> LoadedError;
 		EXPECT_FALSE(std::filesystem::exists(
 			SecondCookRoot / "Game/CookedCollisionMesh.dbulk"));
 		Durin::FAssetPackageInspection Inspection;
@@ -709,10 +716,10 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedCollisionMesh", Path));
 		Durin::DStaticMesh* CookedMesh = nullptr;
 		const auto Loaded =
-			Durin::LoadObjectDetailed<Durin::DStaticMesh>(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
-				Path, Fixture.AssetPath.GetPackageName()));
-			CookedMesh = Loaded.value_or(nullptr);
-		ASSERT_TRUE(Loaded) << Loaded.error().Message;
+			Durin::LoadObject<Durin::DStaticMesh>(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
+				Path, Fixture.AssetPath.GetPackageName()), nullptr, &LoadedError);
+			CookedMesh = Loaded;
+		ASSERT_TRUE(Loaded) << (*LoadedError);
 		const auto LoadResult =
 			CookedMesh->EnsureRenderDataLoadedBlocking();
 		ASSERT_TRUE(LoadResult) << Durin::FormatCookedMeshLoadError(LoadResult.error());
@@ -755,6 +762,8 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 
 TEST(FStaticMeshDerivedDataCacheTests, ComplexProxyRoundTripsAndCookedSplineNeedsNeitherProxyNorEditorSource)
 {
+	std::optional<Durin::UnifiedError::FError> LoadedError;
+	std::optional<Durin::UnifiedError::FError> ReloadedError;
 	using namespace Durin;
 	const FScopedDerivedDataCacheRestore CacheRestore;
 	auto Primary = ImportCacheFixture("StaticMeshComplexProxyPrimary", true);
@@ -781,9 +790,9 @@ TEST(FStaticMeshDerivedDataCacheTests, ComplexProxyRoundTripsAndCookedSplineNeed
 			&& Dependency.LogicalName == Proxy.AssetPath.ToString();
 	}));
 	ASSERT_TRUE(UnloadPackage(Primary.AssetPath));
-	const auto Reloaded = LoadObjectDetailed<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(Primary.AssetPath));
+	const auto Reloaded = LoadObject<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(Primary.AssetPath), nullptr, &ReloadedError);
 	ASSERT_TRUE(Reloaded);
-	Primary.Mesh = *Reloaded;
+	Primary.Mesh = Reloaded;
 	FinishMeshBuildForTests(*Primary.Mesh);
 	ASSERT_NE(Primary.Mesh->GetComplexCollisionMesh(), nullptr);
 	EXPECT_EQ(Primary.Mesh->GetPhysicsTriMeshData()->Positions, Expected->Positions);
@@ -810,10 +819,10 @@ TEST(FStaticMeshDerivedDataCacheTests, ComplexProxyRoundTripsAndCookedSplineNeed
 	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 	FPackagePath CookedPath;
 	ASSERT_TRUE(FPackagePath::TryCreate("/Game/ComplexProxy", CookedPath));
-	const auto Loaded = LoadObjectDetailed<DStaticMesh>(Testing::MakeTopLevelAssetObjectPathForTests(
-		CookedPath, Primary.AssetPath.GetPackageName()));
-	ASSERT_TRUE(Loaded) << Loaded.error().Message;
-	auto* Mesh = *Loaded;
+	const auto Loaded = LoadObject<DStaticMesh>(Testing::MakeTopLevelAssetObjectPathForTests(
+		CookedPath, Primary.AssetPath.GetPackageName()), nullptr, &LoadedError);
+	ASSERT_TRUE(Loaded) << (*LoadedError);
+	auto* Mesh = Loaded;
 	EXPECT_EQ(Mesh->GetComplexCollisionMesh(), nullptr);
 	ASSERT_NE(Mesh->GetBodySetup(), nullptr);
 	EXPECT_EQ(Mesh->GetBodySetup()->GetCollisionSourceMode(), EBodySetupCollisionSourceMode::None);
@@ -902,6 +911,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 	auto FirstBulk = Durin::FFileHelper::LoadFileToArray(CookRoot / "Game/CookedMesh.dbulk");
 	if (!FirstBulk)
 	{
+		std::optional<Durin::UnifiedError::FError> LoadedError;
 		EXPECT_FALSE(std::filesystem::exists(
 			SecondCookRoot / "Game/CookedMesh.dbulk"));
 		Durin::FAssetPackageInspection Inspection;
@@ -924,10 +934,10 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedMesh", Path));
 		Durin::DStaticMesh* CookedMesh = nullptr;
 		const auto Loaded =
-			Durin::LoadObjectDetailed<Durin::DStaticMesh>(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
-				Path, Fixture.AssetPath.GetPackageName()));
-			CookedMesh = Loaded.value_or(nullptr);
-		ASSERT_TRUE(Loaded) << Loaded.error().Message;
+			Durin::LoadObject<Durin::DStaticMesh>(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
+				Path, Fixture.AssetPath.GetPackageName()), nullptr, &LoadedError);
+			CookedMesh = Loaded;
+		ASSERT_TRUE(Loaded) << (*LoadedError);
 		ASSERT_EQ(CookedMesh->GetRenderData(), nullptr);
 		EXPECT_FALSE(CookedMesh->RequestRenderDataAndResources());
 		auto* FirstConsumer = Durin::NewObject<Durin::DStaticMeshComponent>(
@@ -1355,6 +1365,7 @@ TEST(FStaticMeshSourceResidencyTests, WarmCacheSkipsUnreadableBulkAndMissReturns
 
 TEST(FStaticMeshSourceVersionTests, AuthoredLoadRequiresFileVersionAndPreservesSourceIdentity)
 {
+	std::optional<Durin::UnifiedError::FError> ResultError;
 	using namespace Durin;
 	const FScopedDerivedDataCacheRestore CacheRestore;
 	auto Fixture = ImportCacheFixture("StaticMeshSourceVersion");
@@ -1372,6 +1383,7 @@ TEST(FStaticMeshSourceVersionTests, AuthoredLoadRequiresFileVersionAndPreservesS
 	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath));
 	for (const int32 Version : {-1, 0, 2})
 	{
+		std::optional<Durin::UnifiedError::FError> ResultError;
 		auto Candidate = Saved;
 		if (Version < 0) Candidate.CustomVersions.clear();
 		else Candidate.CustomVersions.front().Version = Version;
@@ -1380,9 +1392,9 @@ TEST(FStaticMeshSourceVersionTests, AuthoredLoadRequiresFileVersionAndPreservesS
 		ASSERT_TRUE(Bulk.empty());
 		ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes, File));
 		DStaticMesh* Loaded = nullptr;
-		const auto Result = LoadObjectDetailed<Durin::DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(Fixture.AssetPath));
-		Loaded = Result.value_or(nullptr);
-		EXPECT_EQ((Result ? Durin::EAssetReadError::None : Result.error().Code), EAssetReadError::UnsupportedVersion) << (Result ? std::string{} : Result.error().Message);
+		const auto Result = LoadObject<Durin::DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(Fixture.AssetPath), nullptr, &ResultError);
+		Loaded = Result;
+		EXPECT_FALSE(Result) << (ResultError ? ResultError->ToString() : "");
 		EXPECT_EQ(Loaded, nullptr);
 		EXPECT_EQ(FindResidentPackage(Fixture.AssetPath), nullptr);
 		FByteBuffer Unchanged;
@@ -1393,9 +1405,9 @@ TEST(FStaticMeshSourceVersionTests, AuthoredLoadRequiresFileVersionAndPreservesS
 	}
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Original, File));
 	DStaticMesh* Loaded = nullptr;
-	const auto Result = LoadObjectDetailed<Durin::DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(Fixture.AssetPath));
-	Loaded = Result.value_or(nullptr);
-	ASSERT_TRUE(Result) << Result.error().Message;
+	const auto Result = LoadObject<Durin::DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(Fixture.AssetPath), nullptr, &ResultError);
+	Loaded = Result;
+	ASSERT_TRUE(Result) << (*ResultError);
 	EXPECT_EQ(Loaded->GetSource().GetIdentity(), Identity);
 	EXPECT_EQ(GetStaticMeshKey(*Loaded), Key);
 	std::string Error;
@@ -1405,6 +1417,7 @@ TEST(FStaticMeshSourceVersionTests, AuthoredLoadRequiresFileVersionAndPreservesS
 
 TEST(FStaticMeshSourceVersionTests, AuthoredSourceLoadsAfterRestart)
 {
+	std::optional<Durin::UnifiedError::FError> ResultError;
 	using namespace Durin;
 	InitializeDObjectSystem();
 	Testing::FScopedMountRegistryFixture MountRegistry;
@@ -1422,9 +1435,9 @@ TEST(FStaticMeshSourceVersionTests, AuthoredSourceLoadsAfterRestart)
 	const auto Scan = RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation);
 	ASSERT_TRUE(Scan) << (Scan.Errors.empty() ? "Incomplete registry" : Durin::FormatAssetRegistryError(Scan.Errors.front()));
 	DStaticMesh* Mesh = nullptr;
-	const auto Result = LoadObjectDetailed<Durin::DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(Fixture.AssetPath));
-	Mesh = Result.value_or(nullptr);
-	ASSERT_TRUE(Result) << Result.error().Message;
+	const auto Result = LoadObject<Durin::DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(Fixture.AssetPath), nullptr, &ResultError);
+	Mesh = Result;
+	ASSERT_TRUE(Result) << (*ResultError);
 	ASSERT_NE(Mesh, nullptr);
 	EXPECT_EQ(Mesh->GetSource().GetIdentity(), Identity);
 	EXPECT_EQ(GetStaticMeshKey(*Mesh), Key);
@@ -1450,8 +1463,9 @@ TEST(FStaticMeshSourceResidencyTests, ExistingAuthoredPackageAndDuplicateRetainC
 	Fixture.Mesh = nullptr;
 	DStaticMesh* Mesh = nullptr;
 	{
-		auto LoadedValue = LoadObjectDetailed<Durin::DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
-		Mesh = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = LoadObject<Durin::DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedValueError);
+		Mesh = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_NE(Mesh, nullptr);
@@ -1967,7 +1981,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerDoesNotKeepUnloadedPackageAlive
 	ASSERT_TRUE(Barrier.Wait(1));
 	const auto RequestId = Fixture.Mesh->GetCompilationDiagnostic().RequestId;
 	const auto Unloaded = UnloadPackage(Fixture.AssetPath, EAssetPackageUnloadPolicy::DiscardUnsaved);
-	EXPECT_TRUE(Unloaded) << Unloaded.Message;
+	EXPECT_TRUE(Unloaded) << Unloaded.error();
 	EXPECT_EQ(nullptr, ResolveObjectKey(Owner));
 	Barrier.Release();
 	FAssetCompilingManager::Get().FinishAllCompilation();
@@ -2088,8 +2102,9 @@ TEST(FStaticMeshAuthoredCompilationTests, CookProjectsMissingCpuDataWithoutPubli
 	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath));
 	FStaticMeshWorkerBarrier Barrier;
 	{
-		auto LoadedValue = LoadObjectDetailed<Durin::DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(Fixture.AssetPath));
-		Fixture.Mesh = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = LoadObject<Durin::DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(Fixture.AssetPath), nullptr, &LoadedValueError);
+		Fixture.Mesh = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_TRUE(Barrier.Wait(1));

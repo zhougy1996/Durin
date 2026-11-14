@@ -1,4 +1,5 @@
 #include "Components/SplineComponent.h"
+#include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "Components/SplineMeshComponent.h"
@@ -504,8 +505,9 @@ TEST(FSplineComponentTests, LevelPackageRoundTripsV2ControlPointsAndIds)
 
 	Durin::DObject* LoadedObject = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
-		LoadedObject = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = Durin::LoadObject<Durin::DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedValueError);
+		LoadedObject = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	auto* LoadedLevel = Durin::Cast<Durin::DLevel>(LoadedObject);

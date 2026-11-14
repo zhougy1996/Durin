@@ -126,7 +126,7 @@ namespace Durin
 			if (!Assets) Assets = GetStreamableManager().RequestAsyncLoad(Path, {}, DLevel::StaticClass());
 			if (!Assets->IsComplete() || (Preload && !Preload->IsComplete())) return;
 			if (Preload && (Preload->HasError() || Preload->WasCanceled())) return Fail("Primary map preload failed or was canceled.");
-			if (Assets->HasError()) return Fail(Assets->GetError().Message);
+			if (Assets->HasError()) return Fail(Assets->GetError()->ToString());
 			if (!GetLevel()) return Fail("required Level is missing.");
 			SetPhase(EMapChangePhase::RegisteringWorld);
 			return;

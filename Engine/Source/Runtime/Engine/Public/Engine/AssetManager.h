@@ -1,6 +1,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 #include "DObject/Object.h"
 #include "Engine/AssetManagerTypes.h"
 #include "Engine/StreamableManager.h"
@@ -44,7 +46,7 @@ namespace Durin
 	private:
 		auto RefreshCatalog() -> void;
 		auto Redirect(FPrimaryAssetId Id) const -> FPrimaryAssetId;
-		auto GetPrimaryAssetLoadSet(FPrimaryAssetId Id, std::span<const FName> Bundles) const -> std::expected<std::vector<FSoftObjectPath>, FAssetReadError>;
+		auto GetPrimaryAssetLoadSet(FPrimaryAssetId Id, std::span<const FName> Bundles) const -> std::expected<std::vector<FSoftObjectPath>, Durin::UnifiedError::FError>;
 		auto Transition(std::span<const FPrimaryAssetId> Ids, std::span<const FName> Add,
 			std::span<const FName> Remove, bool bRemoveAll, FAssetManagerLoadParams Params) -> std::shared_ptr<FStreamableHandle>;
 		std::shared_ptr<FPrimaryAssetManagerState> State;

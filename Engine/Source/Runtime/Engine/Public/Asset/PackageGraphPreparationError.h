@@ -1,8 +1,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
+#include "EngineAPI.h"
 
-#include "Asset/AssetReadResult.h"
 #include "DObject/AssetPath.h"
 #include "DObject/PackageFormat.h"
 
@@ -40,6 +41,7 @@ namespace Durin
 		uint64 Actual = 0;
 		uint64 Maximum = 0;
 		std::string Message;
+		std::optional<UnifiedError::FError> Cause;
 		explicit operator bool() const { return Status == EPackageGraphPrepareStatus::ValuesPrepared; }
 	};
 

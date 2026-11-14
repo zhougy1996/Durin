@@ -1,4 +1,5 @@
 #include "NativeAssetBuildTestSupport.h"
+#include "Misc/UnifiedError.h"
 #include "StaticMeshTestAccess.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "../Materials/ExplicitMaterialProgramTestFixture.h"
@@ -384,16 +385,16 @@ namespace Durin::Tests
 			}
 			if (FindResidentPackage(StaticMeshPath) == nullptr)
 			{
+				std::optional<Durin::UnifiedError::FError> ResultError;
 				DObject* Loaded = nullptr;
-				const auto Result = LoadObjectDetailed<DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(StaticMeshPath));
-				Loaded = Result.value_or(nullptr);
+				const auto Result = LoadObject<DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(StaticMeshPath), nullptr, &ResultError);
+				Loaded = Result;
 				It->second.StaticMesh = Result ? Cast<DStaticMesh>(Loaded) : nullptr;
 				if (It->second.StaticMesh) It->second.StaticMesh->SetFlags(EObjectFlags::Standalone);
 				if (!Result || It->second.StaticMesh == nullptr)
 				{
-					OutError = (Result ? std::string{} : Result.error().Message).empty()
-						? "Could not reload the cached StaticMesh thumbnail fixture."
-						: (Result ? std::string{} : Result.error().Message);
+					OutError = ResultError ? ResultError->ToString()
+						: "Could not reload the cached StaticMesh thumbnail fixture.";
 					return false;
 				}
 			}

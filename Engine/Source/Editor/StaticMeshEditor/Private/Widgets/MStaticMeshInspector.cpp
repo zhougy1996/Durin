@@ -1,4 +1,5 @@
 #include "Widgets/MStaticMeshInspector.h"
+#include "Misc/UnifiedError.h"
 
 #include "Asset/Asset.h"
 #include "Diagnostics/StaticMeshPayloadInspection.h"
@@ -89,6 +90,7 @@ namespace Durin::StaticMeshEditor
 
 	auto MStaticMeshInspector::OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult
 	{
+		std::optional<Durin::UnifiedError::FError> ResultError;
 		if (Document.ResourceId.empty()) return EDocumentOpenResult::Rejected;
 		if (FindState(Document.ResourceId)) return EDocumentOpenResult::Opened;
 
@@ -101,11 +103,11 @@ namespace Durin::StaticMeshEditor
 			return EDocumentOpenResult::Rejected;
 		}
 		DStaticMesh* Mesh = nullptr;
-		const auto Result = LoadObjectDetailed<DStaticMesh>(AssetPath);
-		Mesh = Result.value_or(nullptr);
+		const auto Result = LoadObject<DStaticMesh>(AssetPath, nullptr, &ResultError);
+		Mesh = Result;
 		if (!Result || !Mesh)
 		{
-			ErrorMessage = Result ? "The selected asset is not a StaticMesh." : (Result ? std::string{} : Result.error().Message);
+			ErrorMessage = ResultError ? ResultError->ToString() : "The selected asset is not a StaticMesh.";
 			return EDocumentOpenResult::Rejected;
 		}
 		FDocumentState State;

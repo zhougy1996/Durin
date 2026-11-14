@@ -1,4 +1,5 @@
 #include "NativeAssetRuntimeTestSupport.h"
+#include "Misc/UnifiedError.h"
 #include "NativeAssetTestSupport.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "SkyBoxTestSupport.h"
@@ -112,8 +113,9 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 
 	Durin::DLevel* LoadedLevel = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DLevel>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(LevelPath));
-		LoadedLevel = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = Durin::LoadObject<Durin::DLevel>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(LevelPath), nullptr, &LoadedValueError);
+		LoadedLevel = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	auto* LoadedActor = Durin::Cast<Durin::ASkyBoxActor>(LoadedLevel->FindActorByName("Sky"));
@@ -212,8 +214,9 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 
 	Durin::DLevel* LoadedLevel = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DLevel>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(LevelPath));
-		LoadedLevel = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = Durin::LoadObject<Durin::DLevel>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(LevelPath), nullptr, &LoadedValueError);
+		LoadedLevel = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	auto* LoadedActor = Durin::Cast<Durin::ASkyBoxActor>(

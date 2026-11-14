@@ -1,4 +1,5 @@
 #include "AssetTools/Relocation.h"
+#include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "Materials/MaterialShaderMap.h"
 #include "AssetTools/RedirectorFixup.h"
@@ -687,8 +688,9 @@ TEST(FMaterialFunctionTests, BaseTypedCallsRoundTripAndSnapshotsDoNotRetainOwner
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	Caller = nullptr;
 	{
-		auto LoadedValue = LoadObjectDetailed<DMaterialFunction>(Testing::MakePackageLeafAssetObjectPathForTests(CallerPath));
-		Caller = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = LoadObject<DMaterialFunction>(Testing::MakePackageLeafAssetObjectPathForTests(CallerPath), nullptr, &LoadedValueError);
+		Caller = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	const auto After = Capture(*Caller);
@@ -1169,8 +1171,9 @@ TEST(FMaterialFunctionTests, ImportProvenanceRoundtripsWithoutChangingGraphOrCom
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(ParentPath));
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	{
-		auto LoadedValue = LoadObjectDetailed<DMaterialInstance>(Testing::MakePackageLeafAssetObjectPathForTests(InstancePath));
-		Instance = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = LoadObject<DMaterialInstance>(Testing::MakePackageLeafAssetObjectPathForTests(InstancePath), nullptr, &LoadedValueError);
+		Instance = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	Parent = Cast<DMaterial>(Instance->GetParent());
@@ -1236,13 +1239,15 @@ TEST(FMaterialFunctionTests, TypedFieldsRoundtripAndRejectInvalidCoordinateDefau
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(FunctionPath));
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	{
-		auto LoadedValue = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
-		Material = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), nullptr, &LoadedValueError);
+		Material = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	{
-		auto LoadedValue = LoadObjectDetailed<DMaterialFunction>(Testing::MakePackageLeafAssetObjectPathForTests(FunctionPath));
-		Function = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = LoadObject<DMaterialFunction>(Testing::MakePackageLeafAssetObjectPathForTests(FunctionPath), nullptr, &LoadedValueError);
+		Function = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	EXPECT_EQ(CaptureFields(*Material), Expected);
@@ -1307,8 +1312,9 @@ TEST(FMaterialFunctionTests, RejectsOldRootSchemaAndPreservesCurrentFunctionRefe
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	Material = nullptr;
 	{
-		auto LoadedValue = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
-		Material = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), nullptr, &LoadedValueError);
+		Material = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	EXPECT_EQ(Material->GetExpressionOutputs(), Outputs);

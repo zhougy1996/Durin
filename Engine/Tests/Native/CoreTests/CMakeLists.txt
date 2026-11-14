@@ -82,6 +82,7 @@ durin_add_native_test(CoreUtilityTests
 		Private/StartupCommandTests.cpp
 		Private/TimeTests.cpp
 		Private/TransformTests.cpp
+		Private/UnifiedErrorTests.cpp
 		Private/YamlTests.cpp
 		Private/XxHashTests.cpp
 	LIBRARIES Core

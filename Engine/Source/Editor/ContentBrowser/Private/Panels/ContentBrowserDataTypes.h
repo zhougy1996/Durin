@@ -2,7 +2,6 @@
 
 #include "CoreMinimal.h"
 
-#include "Asset/AssetReadResult.h"
 #include "ContentBrowserDataCapture.h"
 
 namespace Durin::ContentBrowser::Private

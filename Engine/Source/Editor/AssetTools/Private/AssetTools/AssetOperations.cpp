@@ -1,4 +1,5 @@
 #include "DObject/StrongObjectPtr.h"
+#include "Misc/UnifiedError.h"
 #include "AssetTools/IAssetTools.h"
 #include "Import/AssetDestinationValidation.h"
 
@@ -33,6 +34,7 @@ namespace Durin
 	auto DuplicateAssetWithEditorPolicy(const FAssetDuplicateRequest& Request, FFeedbackContext* Warn)
 		-> DObject*
 	{
+		std::optional<Durin::UnifiedError::FError> LoadedSourceError;
 		const auto Reject = [Warn](std::string_view Message) -> DObject* {
 			(Warn ? *Warn : FFeedbackContext::Get()).Error(Message);
 			return nullptr;
@@ -94,11 +96,10 @@ namespace Durin
 			return Reject(
 				"The source top-level asset path is invalid.");
 		DObject* SourceAsset = nullptr;
-		auto LoadedSource = LoadObjectDetailed(SourceObjectPath, nullptr);
-		SourceAsset = LoadedSource.value_or(nullptr);
-		FAssetWriteResult EngineResult = AssetWriteResultFromRead(LoadedSource);
-		if (!EngineResult)
-			return Reject(EngineResult.Message);
+		auto LoadedSource = LoadObject(SourceObjectPath, nullptr, nullptr, &LoadedSourceError);
+		SourceAsset = LoadedSource;
+		if (!LoadedSource)
+			return Reject(LoadedSourceError->ToString());
 		DPackage* SourcePackage = SourceAsset ? SourceAsset->GetPackage() : nullptr;
 		if (!SourceAsset || !SourcePackage || SourceAsset->GetOuter() != SourcePackage
 			|| SourcePackage->FindTopLevelAsset(SourceAsset->GetFName()) != SourceAsset)

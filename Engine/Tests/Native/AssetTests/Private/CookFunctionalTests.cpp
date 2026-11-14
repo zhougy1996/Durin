@@ -1,5 +1,6 @@
 #include "MaterialRenderProxyUpdateTestSupport.h"
 #include "Texture/Texture2DCompilationTestSupport.h"
+#include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "NativeRHIBackendTestSupport.h"
 #include "NativeAssetBuildTestSupport.h"
@@ -180,7 +181,7 @@ namespace
 		while (!Handle->IsComplete() && std::chrono::steady_clock::now() < Deadline) {
 			ProcessAsyncLoading(10, 100); std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		}
-		ASSERT_TRUE(Handle->IsComplete()); ASSERT_FALSE(Handle->HasError()) << Handle->GetError().Message;
+		ASSERT_TRUE(Handle->IsComplete()); ASSERT_FALSE(Handle->HasError()) << (Handle->GetError() ? Handle->GetError()->ToString() : std::string{});
 	}
 
 	class DCookSecondaryFixture : public DObject
@@ -1315,7 +1316,7 @@ TEST_F(FCookFunctionalTests, MixedAuthoringOnlyExportsAreFilteredForEitherRetent
 		ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes, File));
 		FAssetPackageInspection Inspection;
 		const auto Inspected = InspectAssetPackage(File.generic_string(), Path, Inspection);
-		ASSERT_TRUE(Inspected) << Inspected.Message;
+		ASSERT_TRUE(Inspected) << Inspected.error();
 		EXPECT_EQ(Inspection.Objects.size(), 1u);
 		EXPECT_EQ(Inspection.Objects.front().ClassName, DCookReferenceFixture::StaticClass()->GetQualifiedName().ToString());
 	}
@@ -1771,6 +1772,7 @@ TEST_F(FCookFunctionalTests, MixedPackageDeclaresEveryMaterialFamily)
 
 TEST_F(FCookFunctionalTests, CookedOnlyPreparationSelectsAvailableVariantsWithoutProducers)
 {
+	std::optional<Durin::UnifiedError::FError> LoadedError;
 	Testing::FScopedRHIBackendOverride Backend("vulkan");
 	const auto Fixture = Testing::CreateTestFixtureDirectory("CookedMaterialSelection");
 	Testing::FScopedMountRegistryFixture Mounts;
@@ -1793,9 +1795,9 @@ TEST_F(FCookFunctionalTests, CookedOnlyPreparationSelectsAvailableVariantsWithou
 	ASSERT_TRUE(Runtime.RestartCooked(Request.OutputRoot));
 	Testing::RegisterMountPointForTests("/CookTests/", (Request.OutputRoot / "CookTests").generic_string(), true, false);
 	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
-	const auto Loaded = LoadPackageDetailed(Path);
+	const auto Loaded = LoadPackage(Path, nullptr, &LoadedError);
 	ASSERT_TRUE(Loaded);
-	Material = Cast<DMaterial>((*Loaded)->FindTopLevelAsset("ResaveMaterial"));
+	Material = Cast<DMaterial>(Loaded->FindTopLevelAsset("ResaveMaterial"));
 	ASSERT_NE(Material, nullptr);
 	const auto Before = GetShaderBuildStats().Compilations;
 	const auto Revision = Material->GetPackage()->GetEditRevision();
@@ -1919,8 +1921,9 @@ TEST_F(FCookFunctionalTests, PreservesSourcesAndPriorOutputsOnFailure)
 	const auto Published = Inventory(Request.OutputRoot);
 	EXPECT_EQ(Inventory(Content), Before);
 	{
-		auto LoadedValue = LoadPackageDetailed(Path);
-		Package = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = LoadPackage(Path, nullptr, &LoadedValueError);
+		Package = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_NE(NewObject<DCookReferenceFixture>(Package, "Added"), nullptr);
@@ -2087,7 +2090,7 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 	{
 		if (!FindResidentPackage(Path)) continue;
 		const auto Unloaded = UnloadPackage(Path);
-		ASSERT_TRUE(Unloaded) << Path.GetView() << ": " << Unloaded.Message;
+		ASSERT_TRUE(Unloaded) << Path.GetView() << ": " << Unloaded.error();
 	}
 	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 	FCookRequest Request{.OutputRoot = Output, .TargetPlatform = ECookTargetPlatform::Win64,
@@ -2207,10 +2210,11 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 	for (const auto& Path : Paths)
 	{
+		std::optional<Durin::UnifiedError::FError> ResultError;
 		DPackage* Loaded = nullptr;
-		const auto Result = LoadPackageDetailed(Path);
-		Loaded = Result.value_or(nullptr);
-		ASSERT_TRUE(Result) << Path.GetView() << ": " << (Result ? std::string{} : Result.error().Message);
+		const auto Result = LoadPackage(Path, nullptr, &ResultError);
+		Loaded = Result;
+		ASSERT_TRUE(Result) << Path.GetView() << ": " << (ResultError ? ResultError->ToString() : "");
 		EXPECT_NE(Loaded, nullptr);
 		auto* Asset = Loaded->FindTopLevelAsset(Path.GetPackageName());
 		ASSERT_NE(Asset, nullptr);

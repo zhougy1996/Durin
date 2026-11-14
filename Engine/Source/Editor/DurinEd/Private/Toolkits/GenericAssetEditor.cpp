@@ -25,9 +25,9 @@ namespace Durin
 		{
 			FSoftObjectPath Path;
 			if (!FSoftObjectPath::TryCreate(Document.ResourceId, Path)) return EDocumentOpenResult::Rejected;
-			const auto Loaded = LoadObjectDetailed<DObject>(Path);
-			if (!Loaded || !IsValid(*Loaded) || (*Loaded)->IsTemplateObject()) return EDocumentOpenResult::Rejected;
-			Objects.emplace(Document.ResourceId, *Loaded);
+			auto* Object = LoadObject<DObject>(Path);
+			if (!IsValid(Object) || Object->IsTemplateObject()) return EDocumentOpenResult::Rejected;
+			Objects.emplace(Document.ResourceId, Object);
 			return EDocumentOpenResult::Opened;
 		}
 		auto ActivateDocument(const FEditorDocument& Document) -> void override

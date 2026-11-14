@@ -70,7 +70,7 @@ namespace Durin::AssetForge::Builtins
 			{
 				FSoftObjectPath Path;
 				auto* Material = FSoftObjectPath::TryCreate(Row.Selection.ExistingMaterialPath, Path)
-					? LoadObjectDetailed<DMaterialInterface>(Path).value_or(nullptr) : nullptr;
+					? LoadObject<DMaterialInterface>(Path) : nullptr;
 				if (!Material || !Material->GetPackage())
 				{
 					Row.Message = "Select a packaged existing material or material instance.";
@@ -108,7 +108,7 @@ namespace Durin::AssetForge::Builtins
 			{
 				FSoftObjectPath ParentPath;
 				if (FSoftObjectPath::TryCreate(Row.Selection.ParentMaterialPath, ParentPath))
-					Output.Parent = TStrongObjectPtr<DMaterial>(LoadObjectDetailed<DMaterial>(ParentPath).value_or(nullptr));
+					Output.Parent = TStrongObjectPtr<DMaterial>(LoadObject<DMaterial>(ParentPath));
 				if (!Output.Parent.Get()) Row.Message = "Select an existing parent Material to create instances.";
 				else if (std::ranges::any_of(Outputs, [&](const auto& Other) {
 					return Other.AssetPath == Output.Parent->GetPackage()->GetPackagePathIdentity();

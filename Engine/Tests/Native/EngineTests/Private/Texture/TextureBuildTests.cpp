@@ -1,4 +1,5 @@
 #include "Texture/Texture2DBuildDiagnostics.h"
+#include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "DObject/PropertyChange.h"
 #include "NativeAssetBuildTestSupport.h"
@@ -1797,6 +1798,8 @@ TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
 
 TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 {
+	std::optional<Durin::UnifiedError::FError> CookedLoadError;
+	std::optional<Durin::UnifiedError::FError> LoadedError;
 	InitializeDObjectSystem();
 	InitializeTextureImportMount();
 	Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
@@ -1842,9 +1845,9 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	ASSERT_TRUE(Saved) << Saved.Message;
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	Texture = nullptr;
-	const auto Loaded = Durin::LoadObjectDetailed<Durin::DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
-	Texture = Loaded.value_or(nullptr);
-	ASSERT_TRUE(Loaded) << (Loaded ? std::string{} : Loaded.error().Message);
+	const auto Loaded = Durin::LoadObject<Durin::DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), nullptr, &LoadedError);
+	Texture = Loaded;
+	ASSERT_TRUE(Loaded) << (LoadedError ? LoadedError->ToString() : "");
 	ASSERT_NE(Texture, nullptr);
 	ASSERT_TRUE(Texture->FinishCachePlatformData());
 	ASSERT_NE(Texture->GetPlatformData(), nullptr);
@@ -1882,10 +1885,10 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedVolume", CookedPath));
 	Durin::DVolumeTexture* CookedTexture = nullptr;
 	const auto CookedLoad =
-		Durin::LoadObjectDetailed<Durin::DVolumeTexture>(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
-			CookedPath, AssetPath.GetPackageName()));
-		CookedTexture = CookedLoad.value_or(nullptr);
-	ASSERT_TRUE(CookedLoad) << (CookedLoad ? std::string{} : CookedLoad.error().Message);
+		Durin::LoadObject<Durin::DVolumeTexture>(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
+			CookedPath, AssetPath.GetPackageName()), nullptr, &CookedLoadError);
+		CookedTexture = CookedLoad;
+	ASSERT_TRUE(CookedLoad) << (CookedLoadError ? CookedLoadError->ToString() : "");
 	ASSERT_NE(CookedTexture, nullptr);
 	const auto BulkStateBeforeGet = CookedTexture->GetCookedPlatformData().GetState();
 	const auto PlatformBeforeGetIdentity = CookedTexture->GetPlatformDataShared();
@@ -1916,6 +1919,10 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 
 TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkData)
 {
+	std::optional<Durin::UnifiedError::FError> CorruptLoadError;
+	std::optional<Durin::UnifiedError::FError> LoadedError;
+	std::optional<Durin::UnifiedError::FError> MissingLoadError;
+	std::optional<Durin::UnifiedError::FError> WarmLoadedError;
 	InitializeDObjectSystem();
 	InitializeTextureImportMount();
 	Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
@@ -2025,8 +2032,8 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 	EXPECT_EQ(PayloadInspection.Entries.front().Repair,
 		Durin::ETexturePayloadRepairAction::RestoreEditorCompanion);
 	const auto MissingLoad =
-		Durin::LoadObjectDetailed<Durin::DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
-		Texture = MissingLoad.value_or(nullptr);
+		Durin::LoadObject<Durin::DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), nullptr, &MissingLoadError);
+		Texture = MissingLoad;
 	EXPECT_FALSE(MissingLoad);
 	EXPECT_EQ(Texture, nullptr);
 	std::filesystem::rename(HeldCompanion, EditorBulkDataFiles.front());
@@ -2046,25 +2053,25 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 	EXPECT_EQ(PayloadInspection.Entries.front().Repair,
 		Durin::ETexturePayloadRepairAction::RestoreEditorCompanion);
 	const auto CorruptLoad =
-		Durin::LoadObjectDetailed<Durin::DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
-		Texture = CorruptLoad.value_or(nullptr);
+		Durin::LoadObject<Durin::DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), nullptr, &CorruptLoadError);
+		Texture = CorruptLoad;
 	EXPECT_FALSE(CorruptLoad);
 	EXPECT_EQ(Texture, nullptr);
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		std::as_bytes(std::span(CompanionBytes)),
 		EditorBulkDataFiles.front().generic_string()));
-	const auto Loaded = Durin::LoadObjectDetailed<Durin::DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
-	Texture = Loaded.value_or(nullptr);
-	ASSERT_TRUE(Loaded) << (Loaded ? std::string{} : Loaded.error().Message);
+	const auto Loaded = Durin::LoadObject<Durin::DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), nullptr, &LoadedError);
+	Texture = Loaded;
+	ASSERT_TRUE(Loaded) << (LoadedError ? LoadedError->ToString() : "");
 	ASSERT_NE(Texture, nullptr);
 	ASSERT_TRUE(Texture->FinishCachePlatformData()); // Populate DDC before testing a separate warm load.
 	ASSERT_TRUE(Durin::UnloadPackage(
 		AssetPath, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 	Texture = nullptr;
 	const auto WarmLoaded =
-		Durin::LoadObjectDetailed<Durin::DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
-		Texture = WarmLoaded.value_or(nullptr);
-	ASSERT_TRUE(WarmLoaded) << (WarmLoaded ? std::string{} : WarmLoaded.error().Message);
+		Durin::LoadObject<Durin::DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), nullptr, &WarmLoadedError);
+		Texture = WarmLoaded;
+	ASSERT_TRUE(WarmLoaded) << (WarmLoadedError ? WarmLoadedError->ToString() : "");
 	ASSERT_NE(Texture, nullptr);
 	ASSERT_TRUE(Texture->FinishCachePlatformData());
 	const Durin::FPackageResourceHandle WarmResource =
@@ -2202,6 +2209,10 @@ TEST(FTexture2DTests, DdcStoreFailureKeepsCompleteProductAndReportsDiagnostic)
 
 TEST(FTexture2DTests, CanonicalImportedPixelsRoundTripThroughExternalAuthoredBulk)
 {
+	std::optional<Durin::UnifiedError::FError> LoadedError;
+	std::optional<Durin::UnifiedError::FError> MissingError;
+	std::optional<Durin::UnifiedError::FError> RejectedError;
+	std::optional<Durin::UnifiedError::FError> WarmLoadedError;
 	InitializeDObjectSystem();
 	FScopedDerivedDataCacheRoot CacheRoot(
 		Durin::Testing::GetTestWorkDirectory() / "Texture2DExternalAuthoredBulkDdc");
@@ -2233,7 +2244,7 @@ TEST(FTexture2DTests, CanonicalImportedPixelsRoundTripThroughExternalAuthoredBul
 	Durin::FAssetPackageInspection Inspection;
 	const auto Inspected =
 		Durin::InspectAssetPackage(Entry->PhysicalPath, Inspection);
-	ASSERT_TRUE(Inspected) << Inspected.Message;
+	ASSERT_TRUE(Inspected) << Inspected.error();
 	std::vector<Durin::FPackageBulkStorageDescriptor> Descriptors;
 	{
 		auto ValueResult = Durin::InspectEditorBulkDataStorageDescriptors(Inspection);
@@ -2266,9 +2277,9 @@ TEST(FTexture2DTests, CanonicalImportedPixelsRoundTripThroughExternalAuthoredBul
 	std::filesystem::remove(CachePath, IgnoredError);
 	Durin::DTexture2D* LoadedTexture = nullptr;
 	const auto Loaded =
-		Durin::LoadObjectDetailed<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
-		LoadedTexture = Loaded.value_or(nullptr);
-	ASSERT_TRUE(Loaded) << (Loaded ? std::string{} : Loaded.error().Message);
+		Durin::LoadObject<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), nullptr, &LoadedError);
+		LoadedTexture = Loaded;
+	ASSERT_TRUE(Loaded) << (LoadedError ? LoadedError->ToString() : "");
 	ASSERT_NE(LoadedTexture, nullptr);
 	EXPECT_EQ(LoadedTexture->GetSource().GetIdentity(), ImportedIdentity);
 	EXPECT_FALSE(LoadedTexture->IsAsyncCacheComplete());
@@ -2279,9 +2290,9 @@ TEST(FTexture2DTests, CanonicalImportedPixelsRoundTripThroughExternalAuthoredBul
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	LoadedTexture = nullptr;
 	const auto WarmLoaded =
-		Durin::LoadObjectDetailed<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
-		LoadedTexture = WarmLoaded.value_or(nullptr);
-	ASSERT_TRUE(WarmLoaded) << (WarmLoaded ? std::string{} : WarmLoaded.error().Message);
+		Durin::LoadObject<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), nullptr, &WarmLoadedError);
+		LoadedTexture = WarmLoaded;
+	ASSERT_TRUE(WarmLoaded) << (WarmLoadedError ? WarmLoadedError->ToString() : "");
 	ASSERT_NE(LoadedTexture, nullptr);
 	const Durin::FPackageResourceHandle WarmResource =
 		Durin::GetPackageResourceManager().FindPackage(AssetPath.ToString());
@@ -2314,8 +2325,8 @@ TEST(FTexture2DTests, CanonicalImportedPixelsRoundTripThroughExternalAuthoredBul
 		CorruptBytes, Companions.front()));
 	LoadedTexture = nullptr;
 	const auto Rejected =
-		Durin::LoadObjectDetailed<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
-		LoadedTexture = Rejected.value_or(nullptr);
+		Durin::LoadObject<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), nullptr, &RejectedError);
+		LoadedTexture = Rejected;
 	EXPECT_FALSE(Rejected);
 	EXPECT_EQ(LoadedTexture, nullptr);
 	EXPECT_TRUE(std::filesystem::exists(Backup));
@@ -2328,8 +2339,8 @@ TEST(FTexture2DTests, CanonicalImportedPixelsRoundTripThroughExternalAuthoredBul
 	ASSERT_TRUE(std::filesystem::remove(Companions.front()));
 	LoadedTexture = nullptr;
 	const auto Missing =
-		Durin::LoadObjectDetailed<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
-		LoadedTexture = Missing.value_or(nullptr);
+		Durin::LoadObject<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), nullptr, &MissingError);
+		LoadedTexture = Missing;
 	EXPECT_FALSE(Missing);
 	EXPECT_EQ(LoadedTexture, nullptr);
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
@@ -2484,6 +2495,7 @@ TEST(FTexture2DTests, UsagePresetsChooseColorSpaceAndMipFilter)
 
 	for (const FExpectedPreset& Preset : Presets)
 	{
+		std::optional<Durin::UnifiedError::FError> LoadResultError;
 		Durin::FTexture2DImportSettings Settings;
 		Settings.Usage = Preset.Usage;
 		const std::string AssetPathString = std::format("/TextureImportTests/{}", Preset.AssetName);
@@ -2503,9 +2515,9 @@ TEST(FTexture2DTests, UsagePresetsChooseColorSpaceAndMipFilter)
 		ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 		Durin::DTexture2D* Loaded = nullptr;
 		const auto LoadResult =
-			Durin::LoadObjectDetailed<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
-			Loaded = LoadResult.value_or(nullptr);
-		ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
+			Durin::LoadObject<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), nullptr, &LoadResultError);
+			Loaded = LoadResult;
+		ASSERT_TRUE(LoadResult) << (LoadResultError ? LoadResultError->ToString() : "");
 		ASSERT_NE(Loaded, nullptr);
 		EXPECT_EQ(Loaded->GetUsage(), Preset.Usage);
 		ASSERT_TRUE(Loaded->FinishCachePlatformData());
@@ -2584,8 +2596,9 @@ TEST(FTexture2DTests, MaximumResolutionSelectsMipAlignedBaseLevel)
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	Durin::DTexture2D* Loaded = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
-		Loaded = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = Durin::LoadObject<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), nullptr, &LoadedValueError);
+		Loaded = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 		ASSERT_TRUE(Loaded->FinishCachePlatformData());
 	}
@@ -2837,8 +2850,9 @@ TEST(FTexture2DTests, PreservesLinearBuildSettingAndRebuildsColorSpace)
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	Durin::DTexture2D* Loaded = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
-		Loaded = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = Durin::LoadObject<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), nullptr, &LoadedValueError);
+		Loaded = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 		ASSERT_TRUE(Loaded->FinishCachePlatformData());
 	}

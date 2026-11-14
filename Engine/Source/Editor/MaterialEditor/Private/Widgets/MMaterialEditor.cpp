@@ -1,4 +1,5 @@
 #include "Materials/ObjectCacheContext.h"
+#include "Misc/UnifiedError.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 #include "Widgets/MMaterialEditor.h"
 #include "DObject/ObjectGraphReplacement.h"
@@ -340,6 +341,7 @@ namespace Durin::MaterialEditor
 
 	auto MMaterialEditor::OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult
 	{
+		std::optional<Durin::UnifiedError::FError> ResultError;
 		if (Document.ResourceId.empty()) return EDocumentOpenResult::Rejected;
 		if (FindOpenMaterial(Document.ResourceId)) return EDocumentOpenResult::Opened;
 		FSoftObjectPath AssetPath;
@@ -351,11 +353,11 @@ namespace Durin::MaterialEditor
 			return EDocumentOpenResult::Rejected;
 		}
 		DMaterialInterface* Material = nullptr;
-		const auto Result = LoadObjectDetailed<DMaterialInterface>(AssetPath);
-		Material = Result.value_or(nullptr);
+		const auto Result = LoadObject<DMaterialInterface>(AssetPath, nullptr, &ResultError);
+		Material = Result;
 		if (!Result || !Material)
 		{
-			SetError(Result ? "The selected asset is not a material." : (Result ? std::string{} : Result.error().Message));
+			SetError(ResultError ? ResultError->ToString() : "The selected asset is not a material.");
 			return EDocumentOpenResult::Rejected;
 		}
 		OpenMaterials.emplace(Document.ResourceId, Material);

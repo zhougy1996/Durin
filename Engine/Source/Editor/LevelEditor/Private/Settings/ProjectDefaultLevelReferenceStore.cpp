@@ -1,4 +1,6 @@
 #include "Settings/ProjectDefaultLevelReferenceStore.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 
 #include "Hash/XxHash.h"
 #include "DObject/Class.h"
@@ -25,10 +27,10 @@ namespace Durin::LevelEditor
 			bool bFileExists = false;
 		};
 
-		auto StoreError(EAssetReadError Error, std::string Message)
-			-> FAssetReadResult
+		auto StoreError(Durin::UnifiedError::FErrorId Id, std::string Message)
+			-> std::expected<void, Durin::UnifiedError::FError>
 		{
-			return {Error, std::move(Message)};
+			return std::unexpected(Durin::UnifiedError::FError{Id, std::move(Message)});
 		}
 
 		auto StoreError(EAssetWriteError Error, std::string Message)
@@ -54,7 +56,7 @@ namespace Durin::LevelEditor
 		auto CaptureProjectDefaultLevel(
 			const FProjectDefaultLevelReferenceStore::FProjectResolver&
 				ProjectResolver,
-			FCapturedProjectDefaultLevel& OutState) -> FAssetReadResult
+			FCapturedProjectDefaultLevel& OutState) -> std::expected<void, Durin::UnifiedError::FError>
 		{
 			OutState = {};
 			const FProjectInfo* Project = ProjectResolver
@@ -70,9 +72,7 @@ namespace Durin::LevelEditor
 			OutState.bFileExists = std::filesystem::exists(
 				OutState.SettingsFile, ExistsError);
 			if (ExistsError)
-				return StoreError(
-					EAssetReadError::IoError,
-					std::format("Could not inspect project settings: {}",
+				return StoreError(Durin::PackageReadErrors::IoError, std::format("Could not inspect project settings: {}",
 						ExistsError.message()));
 			if (!OutState.bFileExists)
 			{
@@ -82,26 +82,20 @@ namespace Durin::LevelEditor
 			}
 			auto Bytes = FFileHelper::LoadFileToArray(OutState.SettingsFile);
 			if (!Bytes)
-				return StoreError(
-					EAssetReadError::IoError,
-					Bytes.error().ToString());
+				return StoreError(Durin::PackageReadErrors::IoError, Bytes.error().ToString());
 			OutState.Bytes = std::move(*Bytes);
 			FProjectGameSettings Settings;
 			const FProjectGameSettingsResult SettingsResult =
 				FProjectGameSettingsStore(OutState.SettingsFile).Load(Settings);
 			if (!SettingsResult)
-				return StoreError(
-					EAssetReadError::CorruptFile,
-					SettingsResult.Message);
+				return StoreError(Durin::PackageReadErrors::CorruptFile, SettingsResult.Message);
 			if (!Settings.DefaultLevel.empty())
 			{
 				std::string PathError;
 				if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(Settings.DefaultLevel, OutState.Path); !PathValidation)
 				{
 					PathError = ToString(PathValidation.error());
-					return StoreError(
-						EAssetReadError::InvalidPath,
-						std::format("Project default level is invalid: {}",
+					return StoreError(Durin::AssetLoadErrors::InvalidPath, std::format("Project default level is invalid: {}",
 							PathError));
 				}
 			}
@@ -133,7 +127,7 @@ namespace Durin::LevelEditor
 
 	auto FProjectDefaultLevelReferenceStore::CaptureSnapshot(
 		FAssetReferenceStoreSnapshot& OutSnapshot)
-		-> FAssetReadResult
+		-> std::expected<void, Durin::UnifiedError::FError>
 	{
 		FCapturedProjectDefaultLevel State;
 		auto Result = CaptureProjectDefaultLevel(

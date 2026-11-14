@@ -1,9 +1,10 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 #include "Asset/LoadAudit.h"
 
-#include "Asset/AssetReadResult.h"
 #include "AssetRegistry/Catalog.h"
 
 #include "EngineAPI.h"
@@ -132,6 +133,8 @@ namespace Durin
 
 	struct FPackageSchemaReadStats
 	{
+		// Evidence from the byte source, independent of diagnostic text.
+		bool bReadFailed = false;
 		uint64 MetadataBytesRead = 0;
 		uint64 PayloadBytesSkipped = 0;
 		uint64 PeakMetadataBytes = 0;
@@ -145,5 +148,5 @@ namespace Durin
 		const FReflectionSchemaCatalog& Catalog, FPackageSchemaInspection& OutInspection,
 		FPackageSchemaReadStats* OutStats = nullptr,
 		bool bIncludeNestedMigrationEvidence = false,
-		const FPackageReadCancellationCheck& IsCancellationRequested = {}) -> FAssetReadResult;
+		const FPackageReadCancellationCheck& IsCancellationRequested = {}) -> std::expected<void, Durin::UnifiedError::FError>;
 }

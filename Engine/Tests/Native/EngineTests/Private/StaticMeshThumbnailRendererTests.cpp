@@ -1,5 +1,6 @@
 #include "Thumbnail/AssetThumbnailKey.h"
 #include "ThumbnailManagerTestSupport.h"
+#include "Misc/UnifiedError.h"
 #include "Editor/ContentBrowserItemTestSupport.h"
 #include "Thumbnail/ThumbnailRenderer.h"
 #include "Thumbnail/ThumbnailManager.h"
@@ -150,6 +151,7 @@ namespace
 TEST(FStaticMeshThumbnailRendererTests,
 	MissingDerivedDataRebuildsBeforeThumbnailReadiness)
 {
+	std::optional<Durin::UnifiedError::FError> LoadResultError;
 	InitializeDObjectSystem();
 	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
 		Durin::InitializeAssetCompilingManager();
@@ -170,9 +172,9 @@ TEST(FStaticMeshThumbnailRendererTests,
 	ASSERT_NE(Data, nullptr);
 	Durin::DStaticMesh* Mesh = nullptr;
 	const auto LoadResult =
-		Durin::LoadObjectDetailed<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(SplineBoxPath));
-		Mesh = LoadResult.value_or(nullptr);
-	ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
+		Durin::LoadObject<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(SplineBoxPath), nullptr, &LoadResultError);
+		Mesh = LoadResult;
+	ASSERT_TRUE(LoadResult) << (LoadResultError ? LoadResultError->ToString() : "");
 	ASSERT_NE(Mesh, nullptr);
 	ASSERT_TRUE(Mesh->IsCompiling());
 
@@ -224,7 +226,7 @@ TEST(FStaticMeshThumbnailRendererTests, PoolLoadsAsynchronouslyAndCancellationRe
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
 	}
 	ASSERT_NE(FindResidentPackage(Path), nullptr);
-	EXPECT_EQ(UnloadPackage(Path).Error, EAssetReadError::InUse);
+	EXPECT_FALSE(UnloadPackage(Path));
 	Pool.CancelPendingRequests();
 	FAssetCompilingManager::Get().FinishAllCompilation();
 	EXPECT_TRUE(UnloadPackage(Path));

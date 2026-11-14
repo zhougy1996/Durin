@@ -1,4 +1,5 @@
 #include "Editor/AssetEditorTestHost.h"
+#include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "Toolkits/AssetEditorToolkit.h"
 #include "NativeAssetBuildTestSupport.h"
@@ -145,20 +146,23 @@ namespace Durin
 			FAssetLoadReport MaterialReport;
 			FAssetLoadReport TextureReport;
 			{
-				auto LoadedValue = LoadObjectDetailed<DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(TexturePath), &TextureReport);
-				Texture = LoadedValue.value_or(nullptr);
+				std::optional<Durin::UnifiedError::FError> LoadedValueError;
+				auto LoadedValue = LoadObject<DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(TexturePath), &TextureReport, &LoadedValueError);
+				Texture = LoadedValue;
 				EXPECT_TRUE(LoadedValue);
 			}
 			if (Texture)
 				EXPECT_TRUE(Texture->FinishCachePlatformData(10.0));
 			{
-				auto LoadedValue = LoadObjectDetailed<DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), &MaterialReport);
-				LoadedMaterial = LoadedValue.value_or(nullptr);
+				std::optional<Durin::UnifiedError::FError> LoadedValueError;
+				auto LoadedValue = LoadObject<DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), &MaterialReport, &LoadedValueError);
+				LoadedMaterial = LoadedValue;
 				EXPECT_TRUE(LoadedValue);
 			}
 			{
-				auto LoadedValue = LoadObjectDetailed<DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath), &MeshReport);
-				Mesh = LoadedValue.value_or(nullptr);
+				std::optional<Durin::UnifiedError::FError> LoadedValueError;
+				auto LoadedValue = LoadObject<DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath), &MeshReport, &LoadedValueError);
+				Mesh = LoadedValue;
 				EXPECT_TRUE(LoadedValue);
 			}
 			if (Mesh)
@@ -405,7 +409,7 @@ namespace Durin
 			"/TextureOwnershipSmoke/Texture", TexturePath));
 		const auto Unload = UnloadPackage(TexturePath);
 		FlushRenderingCommands();
-		EXPECT_TRUE(Unload) << Unload.Message;
+		EXPECT_TRUE(Unload) << Unload.error();
 		EXPECT_EQ(
 			GetNumInitializedRenderResources(), InitialRenderResourceCount);
 		EXPECT_EQ(

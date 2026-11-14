@@ -1,9 +1,10 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 
 #include "EngineAPI.h"
-#include "Asset/AssetReadResult.h"
 #include "Misc/TargetIdentity.h"
 
 namespace Durin
@@ -29,7 +30,7 @@ namespace Durin
 		ENGINE_API static auto Cooked(
 			std::filesystem::path CookRoot,
 			FAssetRuntimeConfiguration& OutConfiguration
-		) -> FAssetReadResult;
+		) -> std::expected<void, Durin::UnifiedError::FError>;
 
 		auto GetExecutionDomain() const -> EAssetExecutionDomain { return ExecutionDomain; }
 		auto GetPayloadPolicy() const -> EAssetPayloadPolicy { return PayloadPolicy; }

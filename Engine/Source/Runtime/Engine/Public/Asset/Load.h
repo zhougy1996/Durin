@@ -1,8 +1,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 
-#include "Asset/AssetReadResult.h"
 #include "Asset/AssetWriteResult.h"
 
 #include "EngineAPI.h"
@@ -21,7 +22,7 @@ namespace Durin
 	{
 		FPackagePath PackagePath;
 		FSoftObjectPath ObjectPath;
-		FAssetReadError Cause;
+		UnifiedError::FError Cause;
 	};
 
 	// Request summary only. Errors belong to the load result; detailed evidence to LoadAudit.h.
@@ -46,76 +47,34 @@ namespace Durin
 		std::vector<FAssetLoadDependencyFailure> DependencyFailures;
 	};
 
-	// Nullable observations; these operations add no GC owner and do not log failures.
-	// OutReport, when supplied, is reset for this call, including resident/error paths.
-	[[nodiscard]] ENGINE_API auto LoadPackage(
-		const FPackagePath& Path, FAssetLoadReport* OutReport = nullptr) -> DPackage*;
-	[[nodiscard]] ENGINE_API auto LoadObject(
-		const FSoftObjectPath& Path, const DClass* ExpectedClass,
-		FAssetLoadReport* OutReport = nullptr) -> DObject*;
-	[[nodiscard]] ENGINE_API auto LoadObject(
-		const FTopLevelAssetPath& Path, const DClass* ExpectedClass,
-		FAssetLoadReport* OutReport = nullptr) -> DObject*;
+	// Nullable observations. No new GC owner or implicit logging.
+	// Optional outputs are reset for every call, including success/resident paths.
+	[[nodiscard]] ENGINE_API auto LoadPackage(const FPackagePath& Path,
+		FAssetLoadReport* OutReport = nullptr,
+		std::optional<UnifiedError::FError>* OutError = nullptr) -> DPackage*;
+	[[nodiscard]] ENGINE_API auto LoadObject(const FSoftObjectPath& Path,
+		const DClass* ExpectedClass, FAssetLoadReport* OutReport = nullptr,
+		std::optional<UnifiedError::FError>* OutError = nullptr) -> DObject*;
+	[[nodiscard]] ENGINE_API auto LoadObject(const FTopLevelAssetPath& Path,
+		const DClass* ExpectedClass, FAssetLoadReport* OutReport = nullptr,
+		std::optional<UnifiedError::FError>* OutError = nullptr) -> DObject*;
 
 	template<typename T>
 	[[nodiscard]] auto LoadObject(const FSoftObjectPath& Path,
-		FAssetLoadReport* OutReport = nullptr) -> T*
+		FAssetLoadReport* OutReport = nullptr,
+		std::optional<UnifiedError::FError>* OutError = nullptr) -> T*
 	{
 		static_assert(std::is_base_of_v<DObject, T>);
-		return static_cast<T*>(LoadObject(Path, T::StaticClass(), OutReport));
+		return static_cast<T*>(LoadObject(Path, T::StaticClass(), OutReport, OutError));
 	}
 
 	template<typename T>
 	[[nodiscard]] auto LoadObject(const FTopLevelAssetPath& Path,
-		FAssetLoadReport* OutReport = nullptr) -> T*
+		FAssetLoadReport* OutReport = nullptr,
+		std::optional<UnifiedError::FError>* OutError = nullptr) -> T*
 	{
 		static_assert(std::is_base_of_v<DObject, T>);
-		return static_cast<T*>(LoadObject(Path, T::StaticClass(), OutReport));
-	}
-
-	// Explicit structured diagnostics for tools and callers that process load failures.
-	[[nodiscard]] ENGINE_API auto LoadPackageDetailed(
-		const FPackagePath& Path,
-		FAssetLoadReport* OutReport = nullptr) -> std::expected<DPackage*, FAssetReadError>;
-	[[nodiscard]] ENGINE_API auto LoadObjectDetailed(
-		const FSoftObjectPath& Path,
-		const DClass* ExpectedClass,
-		FAssetLoadReport* OutReport = nullptr) -> std::expected<DObject*, FAssetReadError>;
-	[[nodiscard]] inline auto LoadObjectDetailed(
-		const FTopLevelAssetPath& Path,
-		const DClass* ExpectedClass,
-		FAssetLoadReport* OutReport = nullptr) -> std::expected<DObject*, FAssetReadError>
-	{
-		if (OutReport) *OutReport = {};
-		FSoftObjectPath ObjectPath;
-		if (!FSoftObjectPath::TryCreate(
-			Path, std::span<const std::string>{}, ObjectPath))
-		{
-			return std::unexpected(FAssetReadError{EAssetReadError::InvalidPath,
-				"A top-level asset load requires a valid exact asset path."});
-		}
-		return LoadObjectDetailed(ObjectPath, ExpectedClass, OutReport);
-	}
-
-	template<typename T>
-	[[nodiscard]] auto LoadObjectDetailed(const FSoftObjectPath& Path,
-		FAssetLoadReport* OutReport = nullptr) -> std::expected<T*, FAssetReadError>
-	{
-		static_assert(std::is_base_of_v<DObject, T>);
-		auto Result = LoadObjectDetailed(Path, T::StaticClass(), OutReport);
-		if (!Result) return std::unexpected(std::move(Result.error()));
-		return static_cast<T*>(*Result);
-	}
-
-	template<typename T>
-	[[nodiscard]] auto LoadObjectDetailed(const FTopLevelAssetPath& Path,
-		FAssetLoadReport* OutReport = nullptr) -> std::expected<T*, FAssetReadError>
-	{
-		static_assert(std::is_base_of_v<DObject, T>);
-		auto Result = LoadObjectDetailed(
-			Path, T::StaticClass(), OutReport);
-		if (!Result) return std::unexpected(std::move(Result.error()));
-		return static_cast<T*>(*Result);
+		return static_cast<T*>(LoadObject(Path, T::StaticClass(), OutReport, OutError));
 	}
 
 	ENGINE_API auto IsPackageLoading(const FPackagePath& Path) -> bool;

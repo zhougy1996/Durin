@@ -117,7 +117,7 @@ Their errors own object identity, nested field names, depth/version and count/si
 Archive code/path and filesystem path/error as applicable. Descriptor inspection
 exposes a vector only on success; partially collected descriptors and paths
 are not returned on failure. Asset and prepared-resource boundaries format storage
-failures into owned diagnostic text rather than retaining storage-layer causes.
+failures into owning unified errors with domain/code identity and diagnostic context.
 
 ## Package-Resource Ownership
 
@@ -175,8 +175,8 @@ error containing a stable domain code and owned diagnostic text. Generation vali
 formats physical paths and file/Bulk validation details where the failure originates;
 no generation variant or backend cause graph crosses the public boundary. Registration
 never restores or deletes sibling files, including legacy `.durin-backup` files.
-Asset loading translates registration/storage failures into `FAssetReadError` categories
-and messages. Empty logical package identity is an internal contract violation;
+Asset loading adapts registration/storage failures to owning unified errors and preserves
+their classification during propagation. Empty logical package identity is an internal contract violation;
 invalid disk metadata remains a normal failure. Mechanisms do not log every propagated
 error; operation boundaries decide presentation and recovery.
 

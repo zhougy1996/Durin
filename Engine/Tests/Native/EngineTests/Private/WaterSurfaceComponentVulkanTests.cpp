@@ -1,4 +1,5 @@
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
 
 #if DURIN_WATER_PLUGIN_TESTS
 #include "WaterSurfaceActor.h"
@@ -54,6 +55,7 @@ namespace
 
 TEST(FWaterSurfaceComponentVulkanTests, RegistrationEditsAndRuntimeRenderingShareParameters)
 {
+	std::optional<Durin::UnifiedError::FError> LoadedMaterialError;
 	using namespace Durin;
 	using namespace Durin::Tests;
 	using namespace Durin::Tests::Water;
@@ -73,9 +75,9 @@ TEST(FWaterSurfaceComponentVulkanTests, RegistrationEditsAndRuntimeRenderingShar
 	FGeometryRendererCleanup RenderCleanup(Lifecycle);
 	FSoftObjectPath MaterialPath;
 	ASSERT_TRUE(FSoftObjectPath::TryCreate("/Plugins/Water/Materials/DefaultWater.DefaultWater", MaterialPath));
-	const auto LoadedMaterial = LoadObjectDetailed<DMaterialInterface>(MaterialPath);
-	ASSERT_TRUE(LoadedMaterial) << LoadedMaterial.error().Message;
-	TStrongObjectPtr<DMaterialInterface> WaterMaterial(*LoadedMaterial);
+	const auto LoadedMaterial = LoadObject<DMaterialInterface>(MaterialPath, nullptr, &LoadedMaterialError);
+	ASSERT_TRUE(LoadedMaterial) << (*LoadedMaterialError);
+	TStrongObjectPtr<DMaterialInterface> WaterMaterial(LoadedMaterial);
 	WaterMaterial->CacheResourceShadersForRendering(FSceneInterface::GetDefaultFeatureLevel(), EMaterialShaderPrecompileMode::Synchronous);
 	ASSERT_TRUE(WaterMaterial->GetAcceptedCompiledProgram(FSceneInterface::GetDefaultFeatureLevel()))
 		<< WaterMaterial->GetMaterialCookDiagnostic(FSceneInterface::GetDefaultFeatureLevel());

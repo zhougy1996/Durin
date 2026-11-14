@@ -1,5 +1,6 @@
 #include "MaterialRenderProxyUpdateTestSupport.h"
 #include "MaterialResourceTestSupport.h"
+#include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "Asset/Load.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
@@ -119,8 +120,9 @@ TEST(FMaterialInstanceTests, TypedOverrideArraysRoundTripOrphansAndRejectCrossTy
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	Instance = nullptr;
 	{
-		auto LoadedValue = LoadObjectDetailed<DMaterialInstance>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
-		Instance = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = LoadObject<DMaterialInstance>(Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedValueError);
+		Instance = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	EXPECT_EQ(Capture(*Instance), Before);
@@ -698,8 +700,9 @@ TEST(FMaterialInstanceTests, PerFieldOverridesRoundTrip)
 	EXPECT_FALSE(ContainsSerializedField(CurrentBytes, InstancePath, "StaticPropertiesOverride"));
 	ASSERT_TRUE(UnloadPackage(InstancePath));
 	{
-		auto LoadedValue = LoadObjectDetailed<DMaterialInstance>(Testing::MakePackageLeafAssetObjectPathForTests(InstancePath));
-		Instance = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = LoadObject<DMaterialInstance>(Testing::MakePackageLeafAssetObjectPathForTests(InstancePath), nullptr, &LoadedValueError);
+		Instance = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	EXPECT_EQ(Instance->GetPropertyOverrides(), Overrides);

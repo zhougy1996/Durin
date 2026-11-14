@@ -1,4 +1,5 @@
 #include "Modules/ModuleManager.h"
+#include "Misc/UnifiedError.h"
 #include "Misc/Paths.h"
 #include "Shader/ShaderCookedLibrary.h"
 #include "Asset/Load.h"
@@ -41,11 +42,12 @@ namespace Durin
                 if (!Library.Load(*Found, Program) || Program.CompiledShaders.empty()) throw std::runtime_error("Cooked native plugin Shader could not load");
                 for (const auto* Name : {"/Game/PluginTypedAsset", "/Plugins/PluginFixtureRuntime/Asset", "/Plugins/PluginFixtureRuntime/Explicit"})
                 {
+                    std::optional<Durin::UnifiedError::FError> LoadedError;
                     FPackagePath Path;
                     if (!FPackagePath::TryCreate(Name, Path)) throw std::runtime_error("Invalid fixture path");
-                    const auto Loaded = LoadPackageDetailed(Path);
-                    if (!Loaded) throw std::runtime_error(Loaded.error().Message);
-                    auto* Asset=Cast<PluginFixture::DFixtureAsset>((*Loaded)->FindTopLevelAsset(FName(Path.GetPackageName())));
+                    const auto Loaded = LoadPackage(Path, nullptr, &LoadedError);
+                    if (!Loaded) throw std::runtime_error((*LoadedError));
+                    auto* Asset=Cast<PluginFixture::DFixtureAsset>(Loaded->FindTopLevelAsset(FName(Path.GetPackageName())));
                     if (!Asset || Asset->Value!=42) throw std::runtime_error("Cooked plugin asset behavior differs");
                     if (Path.GetView()=="/Game/PluginTypedAsset")
                     {

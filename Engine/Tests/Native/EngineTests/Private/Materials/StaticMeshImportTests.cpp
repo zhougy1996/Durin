@@ -1,4 +1,5 @@
 #include "StaticMeshMaterialTestFixture.h"
+#include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "StaticMesh/StaticMeshImportSettings.h"
 
@@ -106,8 +107,9 @@ TEST(FStaticMeshImportTests, StaticMeshImportSettingsPersistAcrossSourceRebuild)
 
 	Durin::DStaticMesh* Loaded = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
-		Loaded = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = Durin::LoadObject<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), nullptr, &LoadedValueError);
+		Loaded = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_NE(Loaded, nullptr);

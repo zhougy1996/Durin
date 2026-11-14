@@ -1,9 +1,10 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 
 #include "EngineAPI.h"
-#include "Asset/AssetReadResult.h"
 #include "AssetRegistry/References.h"
 
 namespace Durin
@@ -11,7 +12,7 @@ namespace Durin
 	class DClass;
 
 	// Reconcile exactly these authored packages after external byte publication.
-	ENGINE_API auto RefreshSavedPackages(std::span<const FPackagePath> Paths) -> FAssetReadResult;
+	ENGINE_API auto RefreshSavedPackages(std::span<const FPackagePath> Paths) -> std::expected<void, Durin::UnifiedError::FError>;
 
 	struct FAssetPathResolveOptions
 	{
@@ -27,7 +28,7 @@ namespace Durin
 	// Validates every captured alias and final package, then checks the loaded type.
 	// This is a point-in-time check, not permission to reopen uncaptured artifacts.
 	ENGINE_API auto ValidateResolvedAssetForOperation(const FAssetRegistrySnapshot& Snapshot,
-		const FPackagePathResolveResult& Resolution, const DClass* ExpectedClass = nullptr) -> FAssetReadResult;
+		const FPackagePathResolveResult& Resolution, const DClass* ExpectedClass = nullptr) -> std::expected<void, Durin::UnifiedError::FError>;
 	ENGINE_API auto ValidateResolvedAssetForOperation(const FAssetRegistrySnapshot& Snapshot,
-		const FObjectPathResolveResult& Resolution, const DClass* ExpectedClass = nullptr) -> FAssetReadResult;
+		const FObjectPathResolveResult& Resolution, const DClass* ExpectedClass = nullptr) -> std::expected<void, Durin::UnifiedError::FError>;
 }

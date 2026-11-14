@@ -535,7 +535,9 @@ namespace Durin
 						}
 
 						const auto LoadResult = LoadScope.LoadPackageDetailed(Path);
-						if (!LoadResult) return InputFailure(ToCookInputResult(AssetReadResultFromError(LoadResult.error())));
+						if (!LoadResult) return InputFailure(IsCancelled(Request.IsCancelled)
+							? FCookInputResult{ECookInputStatus::Cancelled, LoadResult.error()}
+							: ToCookInputResult(std::unexpected(LoadResult.error())));
 						DPackage* AuthoredPackage = *LoadResult;
 						FCookContext Context(Request.TargetPlatform, Request.TargetProfile, Request.bRetainEditorOnlyData);
 						Context.SetMaterialConfigurations(Request.MaterialConfigurations);

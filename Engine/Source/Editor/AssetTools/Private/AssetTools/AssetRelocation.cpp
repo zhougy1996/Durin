@@ -1,4 +1,5 @@
 #include "AssetTools/MutationTesting.h"
+#include "Misc/UnifiedError.h"
 #include "AssetMutationStagingInternal.h"
 #include "Asset/PackageEditing.h"
 #include "Asset/Load.h"
@@ -301,6 +302,7 @@ namespace Durin
 
 			for (const FAssetData& AssetRecord : SourceData->TopLevelAssets)
 			{
+				std::optional<Durin::UnifiedError::FError> LoadedError;
 				DClass* AssetClass = FindClassByQualifiedName(FName(AssetRecord.AssetClassName));
 				const auto Relocator = FindAssetOwnedPayloadRelocator(AssetClass);
 				if (!Relocator) continue;
@@ -310,10 +312,9 @@ namespace Durin
 					return Error(EAssetWriteError::InvalidPath,
 						"The payload relocator asset path is invalid.");
 				DObject* AssetObject = nullptr;
-				auto Loaded = LoadObjectDetailed(AssetPath, nullptr);
-				AssetObject = Loaded.value_or(nullptr);
-				Result = AssetWriteResultFromRead(Loaded);
-				if (!Result) return Result;
+				auto Loaded = LoadObject(AssetPath, nullptr, nullptr, &LoadedError);
+				AssetObject = Loaded;
+				if (!Loaded) return AssetWriteResultFromRead(*LoadedError);
 				if (std::ranges::none_of(
 						State->LoadedPackages,
 						[&](const FLoadedRelocationState& Loaded) {

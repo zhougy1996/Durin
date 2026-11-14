@@ -1,4 +1,6 @@
 #include "Asset/PackageSchema.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 #include "AssetPackageCodec.h"
 #include "AssetPackageByteSource.h"
 
@@ -196,7 +198,7 @@ namespace Durin
 		const FPackagePath& PackagePath, const FReflectionSchemaCatalog& Catalog,
 		FPackageSchemaInspection& OutInspection, FPackageSchemaReadStats* OutStats,
 		bool bIncludeNestedMigrationEvidence,
-		const FPackageReadCancellationCheck& IsCancellationRequested) -> FAssetReadResult
+		const FPackageReadCancellationCheck& IsCancellationRequested) -> std::expected<void, Durin::UnifiedError::FError>
 	{
 		FPackageSchemaReadStats LocalStats;
 		FPackageSchemaReadStats& Stats = OutStats ? *OutStats : LocalStats;
@@ -204,8 +206,11 @@ namespace Durin
 		AssetPrivate::FCountingAssetPackageByteSource Source(FileSource, Stats);
 		const AssetPrivate::FAssetPackageCodec* Codec = nullptr;
 		uint32 FormatVersion = 0;
+		bool bUnsupportedFormat = false;
+		OutInspection = {};
 		auto Result = AssetPrivate::ResolveAssetPackageReader(Source, Codec,
-			&FormatVersion, IsCancellationRequested);
+			&FormatVersion, IsCancellationRequested, &bUnsupportedFormat);
+		if (bUnsupportedFormat) OutInspection.Status = EPackageSchemaStatus::Unsupported;
 		if (!Result) return Result;
 		Result = Codec->InspectSchema(Source, PackagePath, Catalog, OutInspection,
 			&Stats, bIncludeNestedMigrationEvidence, IsCancellationRequested);

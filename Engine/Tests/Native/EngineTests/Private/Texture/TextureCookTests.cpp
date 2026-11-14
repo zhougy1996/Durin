@@ -1,4 +1,5 @@
 #include "NativeAssetBuildTestSupport.h"
+#include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "RenderResource.h"
 #include "Materials/MaterialShaderMap.h"
@@ -166,6 +167,7 @@ namespace
 
 TEST_F(FTextureCookTests, ColdCookRebuildsFromAuthoredPixelsWithoutSourceOrDdc)
 {
+	std::optional<Durin::UnifiedError::FError> LoadError;
 	std::string Error;
 	const std::filesystem::path Root =
 		Durin::Testing::GetTestWorkDirectory() / "TextureColdAuthoredCook";
@@ -193,9 +195,9 @@ TEST_F(FTextureCookTests, ColdCookRebuildsFromAuthoredPixelsWithoutSourceOrDdc)
 
 	Durin::DTexture2D* Loaded = nullptr;
 	const auto Load =
-		Durin::LoadObjectDetailed<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
-		Loaded = Load.value_or(nullptr);
-	ASSERT_TRUE(Load) << (Load ? std::string{} : Load.error().Message);
+		Durin::LoadObject<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), nullptr, &LoadError);
+		Loaded = Load;
+	ASSERT_TRUE(Load) << (LoadError ? LoadError->ToString() : "");
 	ASSERT_NE(Loaded, nullptr);
 	ASSERT_TRUE(Loaded->FinishCachePlatformData());
 	EXPECT_TRUE(Loaded->HasPlatformData());
@@ -214,6 +216,9 @@ TEST_F(FTextureCookTests, ColdCookRebuildsFromAuthoredPixelsWithoutSourceOrDdc)
 
 TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 {
+	std::optional<Durin::UnifiedError::FError> CorruptBulkLoadError;
+	std::optional<Durin::UnifiedError::FError> LoadResultError;
+	std::optional<Durin::UnifiedError::FError> MaterialLoadError;
 	std::string Error;
 	const std::filesystem::path Root =
 		Durin::Testing::GetTestWorkDirectory() / "TextureCookedConsumer";
@@ -370,9 +375,9 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 		});
 	Durin::DTexture2D* CookedTexture = nullptr;
 	const auto LoadResult =
-		Durin::LoadObjectDetailed<Durin::DTexture2D>(CookedAssetPath);
-		CookedTexture = LoadResult.value_or(nullptr);
-	ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
+		Durin::LoadObject<Durin::DTexture2D>(CookedAssetPath, nullptr, &LoadResultError);
+		CookedTexture = LoadResult;
+	ASSERT_TRUE(LoadResult) << (LoadResultError ? LoadResultError->ToString() : "");
 	ASSERT_NE(CookedTexture, nullptr);
 	const auto BulkStateBeforeGet = CookedTexture->GetCookedPlatformData().GetState();
 	const auto PlatformBeforeGetIdentity = CookedTexture->GetPlatformDataShared();
@@ -477,9 +482,9 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 	Durin::FPackagePath SampleMaterialPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/SampleMaterial", SampleMaterialPath));
 	Durin::DMaterial* CookedMaterial = nullptr;
-	const auto MaterialLoad = Durin::LoadObjectDetailed<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(SampleMaterialPath));
-	CookedMaterial = MaterialLoad.value_or(nullptr);
-	ASSERT_TRUE(MaterialLoad) << (MaterialLoad ? std::string{} : MaterialLoad.error().Message);
+	const auto MaterialLoad = Durin::LoadObject<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(SampleMaterialPath), nullptr, &MaterialLoadError);
+	CookedMaterial = MaterialLoad;
+	ASSERT_TRUE(MaterialLoad) << (MaterialLoadError ? MaterialLoadError->ToString() : "");
 	ASSERT_NE(CookedMaterial, nullptr);
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*CookedMaterial);
 	ASSERT_TRUE(CookedMaterial->GetAcceptedCompiledProgram());
@@ -662,14 +667,15 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
 		Durin::EAssetRegistryScanMode::FullValidation));
 	const auto CorruptBulkLoad =
-		Durin::LoadObjectDetailed<Durin::DTexture2D>(CookedAssetPath);
-		CookedTexture = CorruptBulkLoad.value_or(nullptr);
+		Durin::LoadObject<Durin::DTexture2D>(CookedAssetPath, nullptr, &CorruptBulkLoadError);
+		CookedTexture = CorruptBulkLoad;
 	EXPECT_FALSE(CorruptBulkLoad);
 	EXPECT_EQ(CookedTexture, nullptr);
 	if (!CorruptBulkLoad)
 	{
-		EXPECT_EQ(CorruptBulkLoad.error().Code, Durin::EAssetReadError::CorruptFile);
-		EXPECT_FALSE(CorruptBulkLoad.error().Message.empty());
+		EXPECT_FALSE(CorruptBulkLoad);
+		ASSERT_TRUE(CorruptBulkLoadError);
+		EXPECT_TRUE(CorruptBulkLoadError->Is(Durin::PackageReadErrors::CorruptFile));
 	}
 	ASSERT_TRUE(AssetRuntime.Restore());
 }

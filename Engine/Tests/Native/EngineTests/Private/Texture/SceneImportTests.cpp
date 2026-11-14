@@ -1,4 +1,5 @@
 #include "Asset/Testing/PackageSaveTesting.h"
+#include "Misc/UnifiedError.h"
 #include "NativeAssetBuildTestSupport.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "StaticMesh/StaticMeshImportSettings.h"
@@ -222,7 +223,7 @@ TEST(FSceneImportTests, SplitOutputsReuseInstancesAndBindOnlyTheirOwnMaterials)
 	}
 	const auto MeshRow = std::ranges::find(Result.Outputs, std::string("StaticMesh"), &FImportOutputSummary::Role);
 	ASSERT_NE(MeshRow, Result.Outputs.end());
-	auto* Mesh = LoadObjectDetailed<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(MeshRow->AssetPath)).value_or(nullptr);
+	auto* Mesh = LoadObject<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(MeshRow->AssetPath));
 	ASSERT_NE(Mesh, nullptr);
 	ASSERT_EQ(Mesh->GetNumMaterialSlots(), 2u);
 	EXPECT_EQ(Mesh->GetMaterialSlots()[0].SourceMaterialIndex, 0u);
@@ -240,7 +241,7 @@ TEST(FSceneImportTests, SplitOutputsReuseInstancesAndBindOnlyTheirOwnMaterials)
 	ASSERT_TRUE(Combined) << Combined.Message;
 	const auto CombinedRow = std::ranges::find(Combined.Outputs, std::string("StaticMesh"), &FImportOutputSummary::Role);
 	ASSERT_NE(CombinedRow, Combined.Outputs.end());
-	auto* CombinedMesh = LoadObjectDetailed<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(CombinedRow->AssetPath)).value_or(nullptr);
+	auto* CombinedMesh = LoadObject<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(CombinedRow->AssetPath));
 	ASSERT_NE(CombinedMesh, nullptr);
 	EXPECT_EQ(CombinedMesh->GetSource().GetMeshCount(), 4u);
 
@@ -266,7 +267,7 @@ TEST(FSceneImportTests, SessionDefaultsToSplitAndCombinesOnlyWithExplicitOptions
 	EXPECT_FALSE(Session.GetResult().SaveResult);
 	const auto MeshRow = std::ranges::find(Session.GetResult().Outputs, std::string("StaticMesh"), &FImportOutputSummary::Role);
 	ASSERT_NE(MeshRow, Session.GetResult().Outputs.end());
-	auto* Mesh = LoadObjectDetailed<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(MeshRow->AssetPath)).value_or(nullptr);
+	auto* Mesh = LoadObject<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(MeshRow->AssetPath));
 	ASSERT_NE(Mesh, nullptr);
 	EXPECT_EQ(Mesh->GetSource().GetMeshCount(), 2u);
 
@@ -281,7 +282,7 @@ TEST(FSceneImportTests, SessionDefaultsToSplitAndCombinesOnlyWithExplicitOptions
 	const auto CombinedRow = std::ranges::find(Combined.GetResult().Outputs, std::string("StaticMesh"), &FImportOutputSummary::Role);
 	ASSERT_NE(CombinedRow, Combined.GetResult().Outputs.end());
 	EXPECT_EQ(CombinedRow->StableIdentity, "scene:mesh:combined");
-	auto* CombinedMesh = LoadObjectDetailed<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(CombinedRow->AssetPath)).value_or(nullptr);
+	auto* CombinedMesh = LoadObject<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(CombinedRow->AssetPath));
 	ASSERT_NE(CombinedMesh, nullptr);
 	EXPECT_EQ(CombinedMesh->GetSource().GetMeshCount(), 4u);
 }
@@ -304,7 +305,7 @@ TEST(FSceneImportTests, ExplicitSelectionAndGeometryOnlyHaveClosedDependencies)
 	EXPECT_EQ(Geometry.Outputs.size(), 2u);
 	for (const auto& Row : Geometry.Outputs)
 	{
-		auto* Mesh = LoadObjectDetailed<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(Row.AssetPath)).value_or(nullptr);
+		auto* Mesh = LoadObject<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(Row.AssetPath));
 		ASSERT_NE(Mesh, nullptr);
 		for (const auto& Slot : Mesh->GetMaterialSlots()) EXPECT_EQ(Slot.DefaultMaterial.Get(), nullptr);
 	}
@@ -340,7 +341,7 @@ TEST(FSceneImportTests, ExistingMaterialMappingPublishesOnlyMeshAndPreservesMapp
 	ASSERT_TRUE(Original) << Original.Message;
 	const auto Row = std::ranges::find(Original.Outputs, std::string("Material"), &FImportOutputSummary::Role);
 	ASSERT_NE(Row, Original.Outputs.end());
-	auto* Material = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Row->AssetPath)).value_or(nullptr);
+	auto* Material = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Row->AssetPath));
 	ASSERT_NE(Material, nullptr);
 	const auto Revision = Material->GetPackage()->GetEditRevision();
 	const auto Result = ImportAssetOutputs(Fixture.Source, MakeAssetPath("/SceneImportTests/MappedMesh"),
@@ -352,7 +353,7 @@ TEST(FSceneImportTests, ExistingMaterialMappingPublishesOnlyMeshAndPreservesMapp
 	EXPECT_EQ(Material->GetPackage()->GetEditRevision(), Revision);
 	const auto MeshRow = std::ranges::find(Result.Outputs, std::string("StaticMesh"), &FImportOutputSummary::Role);
 	ASSERT_NE(MeshRow, Result.Outputs.end());
-	auto* Mesh = LoadObjectDetailed<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(MeshRow->AssetPath)).value_or(nullptr);
+	auto* Mesh = LoadObject<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(MeshRow->AssetPath));
 	ASSERT_NE(Mesh, nullptr);
 	EXPECT_EQ(Mesh->GetMaterialSlots()[0].DefaultMaterial.Get(), Material);
 	const auto PreservedOnly = ImportAssetOutputs(Fixture.Source, MakeAssetPath("/SceneImportTests/PreservedOnly"),
@@ -610,8 +611,9 @@ TEST(FSceneImportTests, AssetForgePublishesHeterogeneousGraph)
 	{
 		Durin::DObject* Object = nullptr;
 		{
-			auto LoadedValue = Durin::LoadObjectDetailed<Durin::DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath));
-			Object = LoadedValue.value_or(nullptr);
+			std::optional<Durin::UnifiedError::FError> LoadedValueError;
+			auto LoadedValue = Durin::LoadObject<Durin::DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), nullptr, &LoadedValueError);
+			Object = LoadedValue;
 			EXPECT_TRUE(LoadedValue);
 		}
 		EXPECT_NE(Object, nullptr);
@@ -650,8 +652,9 @@ TEST(FSceneImportTests, AssetForgePublishesHeterogeneousGraph)
 	{
 		Durin::DObject* Object = nullptr;
 		{
-			auto LoadedValue = Durin::LoadObjectDetailed<Durin::DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath));
-			Object = LoadedValue.value_or(nullptr);
+			std::optional<Durin::UnifiedError::FError> LoadedValueError;
+			auto LoadedValue = Durin::LoadObject<Durin::DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), nullptr, &LoadedValueError);
+			Object = LoadedValue;
 			ASSERT_TRUE(LoadedValue);
 		}
 		if (auto* Candidate = Durin::Cast<Durin::DMaterial>(Object)) Instance = Candidate;
@@ -687,9 +690,10 @@ TEST(FSceneImportTests, SavedGltfOutputsReloadWithoutSourcesAndRejectEveryReimpo
 	auto* TextureFactory = Cast<DTexture2DFactory>(DTexture2DFactory::StaticClass()->GetDefaultObject());
 	for (const auto& Output : Initial.Outputs)
 	{
-		auto Loaded = LoadObjectDetailed<DObject>(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath));
-		ASSERT_TRUE(Loaded) << Loaded.error().Message;
-		auto* Object = *Loaded;
+		std::optional<Durin::UnifiedError::FError> LoadedError;
+		auto Loaded = LoadObject<DObject>(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), nullptr, &LoadedError);
+		ASSERT_TRUE(Loaded) << (*LoadedError);
+		auto* Object = Loaded;
 		EXPECT_TRUE(IsOneTimeModelImportedAsset(*Object));
 		const auto Capabilities = FReimportManager::GetCapabilities(*Object);
 		EXPECT_FALSE(Capabilities.bCanReimport);
@@ -749,10 +753,11 @@ TEST(FSceneImportTests, FbxSceneImportRejectsImplicitUpdates)
 	EXPECT_TRUE(Repeated.ImportedPackages.empty());
 	for (const auto& Output : Imported.Outputs)
 	{
-		auto Loaded = LoadObjectDetailed<DObject>(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath));
+		std::optional<Durin::UnifiedError::FError> LoadedError;
+		auto Loaded = LoadObject<DObject>(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), nullptr, &LoadedError);
 		ASSERT_TRUE(Loaded);
-		EXPECT_TRUE(IsOneTimeModelImportedAsset(**Loaded));
-		EXPECT_FALSE(FReimportManager::GetCapabilities(**Loaded).bCanReimport);
+		EXPECT_TRUE(IsOneTimeModelImportedAsset(*Loaded));
+		EXPECT_FALSE(FReimportManager::GetCapabilities(*Loaded).bCanReimport);
 	}
 }
 
@@ -762,6 +767,7 @@ TEST(FSceneImportTests, LegacyStandaloneModelReceiptsRemainReadableWithoutReimpo
 	using namespace Durin::AssetForge::Builtins;
 	for (const bool bFbx : {false, true})
 	{
+		std::optional<Durin::UnifiedError::FError> ReloadedError;
 		const auto Fixture = InitializeFixture(bFbx ? "LegacyFbx" : "LegacyGltf", bFbx
 				? "StaticModelMaterials/PhongMaterial.fbx" : "StaticModelMaterials/RenderedOpaqueDataUri.gltf");
 		const auto Imported = ImportStaticMeshForTest(Fixture.Source, bFbx ? "/SceneImportTests/LegacyFbxGeometry" : "/SceneImportTests/LegacyGltfGeometry");
@@ -779,11 +785,11 @@ TEST(FSceneImportTests, LegacyStandaloneModelReceiptsRemainReadableWithoutReimpo
 		ASSERT_TRUE(UnloadPackage(Path));
 		CollectGarbage(Durin::EObjectFlags::Standalone);
 		ASSERT_TRUE(std::filesystem::remove(Fixture.Source));
-		auto Reloaded = LoadObjectDetailed<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		auto Reloaded = LoadObject<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &ReloadedError);
 		ASSERT_TRUE(Reloaded);
-		FAssetCompilingManager::Get().FinishCompilationForObject(**Reloaded);
-		EXPECT_NE((*Reloaded)->GetRenderData(), nullptr);
-		EXPECT_TRUE(IsOneTimeModelImportedAsset(**Reloaded));
+		FAssetCompilingManager::Get().FinishCompilationForObject(*Reloaded);
+		EXPECT_NE(Reloaded->GetRenderData(), nullptr);
+		EXPECT_TRUE(IsOneTimeModelImportedAsset(*Reloaded));
 
 	}
 }
@@ -886,8 +892,9 @@ TEST(FSceneImportTests, SourceTransformsMaskFactorAndTexturelessEmissiveArePubli
 	for (const auto& Output : Imported.Outputs)
 		if (Output.Role == "Material")
 			{
-				auto LoadedValue = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath));
-				Instance = LoadedValue.value_or(nullptr);
+				std::optional<Durin::UnifiedError::FError> LoadedValueError;
+				auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), nullptr, &LoadedValueError);
+				Instance = LoadedValue;
 				ASSERT_TRUE(LoadedValue);
 			}
 	ASSERT_NE(Instance, nullptr);
@@ -940,8 +947,9 @@ TEST(FSceneImportTests, PackedSourceChannelsPublishOneLinearSampleOwner)
 		if (Output.AssetClassName == "Durin::DTexture2D") ++TextureCount;
 		if (Output.Role == "Material")
 			{
-				auto LoadedValue = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath));
-				Instance = LoadedValue.value_or(nullptr);
+				std::optional<Durin::UnifiedError::FError> LoadedValueError;
+				auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), nullptr, &LoadedValueError);
+				Instance = LoadedValue;
 				ASSERT_TRUE(LoadedValue);
 			}
 	}
@@ -976,8 +984,9 @@ TEST(FSceneImportTests, ExplicitParentsReuseAcrossDestinationsAndRejectIncompati
 	for (const auto& Output : First.Outputs)
 		if (Output.Role == "Material")
 			{
-				auto LoadedValue = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath));
-				Instance = LoadedValue.value_or(nullptr);
+				std::optional<Durin::UnifiedError::FError> LoadedValueError;
+				auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), nullptr, &LoadedValueError);
+				Instance = LoadedValue;
 				ASSERT_TRUE(LoadedValue);
 			}
 	ASSERT_NE(Instance, nullptr);
@@ -995,8 +1004,9 @@ TEST(FSceneImportTests, ExplicitParentsReuseAcrossDestinationsAndRejectIncompati
 		{
 			DMaterialInstance* Reused = nullptr;
 			{
-				auto LoadedValue = LoadObjectDetailed<DMaterialInstance>(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath));
-				Reused = LoadedValue.value_or(nullptr);
+				std::optional<Durin::UnifiedError::FError> LoadedValueError;
+				auto LoadedValue = LoadObject<DMaterialInstance>(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), nullptr, &LoadedValueError);
+				Reused = LoadedValue;
 				ASSERT_TRUE(LoadedValue);
 			}
 			EXPECT_EQ(Reused->GetParent(), Parent);
@@ -1032,7 +1042,7 @@ TEST(FSceneImportTests, RepeatedGltfImportRejectsOccupiedOutputsAndPreservesEdit
 	DStaticMesh* Mesh = nullptr;
 	for (const auto& Output : First.Outputs)
 	{
-		auto* Object = LoadObjectDetailed<DObject>(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath)).value_or(nullptr);
+		auto* Object = LoadObject<DObject>(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath));
 		if (auto* Value = Cast<DMaterial>(Object)) Material = Value;
 		if (auto* Value = Cast<DStaticMesh>(Object)) Mesh = Value;
 	}
@@ -1069,8 +1079,8 @@ TEST(FSceneImportTests, RepeatedGltfImportRejectsOccupiedOutputsAndPreservesEdit
 	EXPECT_FALSE(Reimport);
 	EXPECT_TRUE(Reimport.ImportedPackages.empty());
 	EXPECT_EQ(Material->GetPackage()->GetEditRevision(), Revision);
-	EXPECT_EQ(LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath)).value_or(nullptr), Material);
-	EXPECT_EQ(LoadObjectDetailed<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(MeshPath)).value_or(nullptr), Mesh);
+	EXPECT_EQ(LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath)), Material);
+	EXPECT_EQ(LoadObject<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(MeshPath)), Mesh);
 	EXPECT_EQ(Mesh->GetMaterialSlots()[0].DefaultMaterial.Get(), Custom);
 	DTexture2D* CurrentTexture = nullptr;
 	ASSERT_TRUE(Material->GetTextureParameterValue(MaterialParameters::BaseColorTextureName(), CurrentTexture));
@@ -1086,7 +1096,7 @@ TEST(FSceneImportTests, PerMaterialOverridesMissingParentsAndTypeChangesAreExpli
 	const auto First = RunScene(Fixture);
 	DMaterial* Parent = nullptr;
 	for (const auto& Output : First.Outputs)
-		if (Output.Role == "Material") Parent = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath)).value_or(nullptr);
+		if (Output.Role == "Material") Parent = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath));
 	ASSERT_NE(Parent, nullptr);
 	const auto Destination = MakeAssetPath("/SceneImportTests/MixedOutput");
 	FAssetImportSession Session(Fixture.Source, Destination, FStaticMeshImportSettings::MakeDurin(),
@@ -1151,7 +1161,7 @@ TEST(FSceneImportTests, DuplicateSourceNamesDoNotPermitImplicitGltfUpdates)
 		if (Output.Role == "StaticMesh")
 		{
 			MeshPath = Output.AssetPath;
-			Mesh = LoadObjectDetailed<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(MeshPath)).value_or(nullptr);
+			Mesh = LoadObject<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(MeshPath));
 		}
 	ASSERT_NE(Mesh, nullptr);
 	ASSERT_EQ(Mesh->GetMaterialSlots().size(), 2u);
@@ -1165,7 +1175,7 @@ TEST(FSceneImportTests, DuplicateSourceNamesDoNotPermitImplicitGltfUpdates)
 		{.MeshMode = Durin::AssetForge::Builtins::EAssetImportMeshMode::Combined});
 	EXPECT_FALSE(Reimport);
 	EXPECT_TRUE(Reimport.ImportedPackages.empty());
-	Mesh = LoadObjectDetailed<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(MeshPath)).value_or(nullptr);
+	Mesh = LoadObject<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(MeshPath));
 	ASSERT_NE(Mesh, nullptr);
 	EXPECT_EQ(Mesh->GetMaterialSlots()[0].DefaultMaterial.Get(), SecondMaterial);
 	EXPECT_EQ(Mesh->GetMaterialSlots()[1].DefaultMaterial.Get(), FirstMaterial);
@@ -1223,7 +1233,7 @@ TEST(FSceneImportTests, StandardPBRParentMapsPackedChannelsUVsEmissiveAndOpacity
 		ASSERT_TRUE(Imported) << Imported.Message;
 		DMaterialInstance* Instance = nullptr;
 		for (const auto& Output : Imported.Outputs)
-			if (Output.Role == "MaterialInstance") Instance = LoadObjectDetailed<DMaterialInstance>(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath)).value_or(nullptr);
+			if (Output.Role == "MaterialInstance") Instance = LoadObject<DMaterialInstance>(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath));
 		ASSERT_NE(Instance, nullptr);
 		EXPECT_EQ(Instance->GetParent(), Parent);
 		EXPECT_EQ(Instance->GetLocalParameterValueCount(), 48u);

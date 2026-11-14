@@ -1,4 +1,5 @@
 #include "MaterialExpressionParameters.h"
+#include "Misc/UnifiedError.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialExpressionBuild.h"
 #include "Materials/MaterialParameterCollection.h"
@@ -34,13 +35,14 @@ namespace Durin::MaterialEditor
 		};
 		auto LoadCreationFunction(const std::string& Name) -> FCreationFunctionResult
 		{
+			std::optional<Durin::UnifiedError::FError> LoadedError;
 			FTopLevelAssetPath Path;
 			if (const auto Parsed = FTopLevelAssetPath::TryCreateWithDiagnostic(Name, Path); !Parsed)
 				return {.Message = "The material function path is invalid. " + ToString(Parsed.error())};
 			DMaterialFunctionInterface* Function = nullptr;
-			if (auto Loaded = LoadObjectDetailed<DMaterialFunctionInterface>(Path); !Loaded)
-				return {.Message = "Unable to load the material function. " + (Loaded ? std::string{} : Loaded.error().Message)};
-			else { Function = *Loaded; }
+			if (auto Loaded = LoadObject<DMaterialFunctionInterface>(Path, nullptr, &LoadedError); !Loaded)
+				return {.Message = "Unable to load the material function. " + LoadedError->ToString()};
+			else { Function = Loaded; }
 			return {.Function = Function};
 		}
 
@@ -114,15 +116,15 @@ namespace Durin::MaterialEditor
 			if (!FTopLevelAssetPath::TryCreateWithDiagnostic(
 				Spec->CollectionPath, Path))
 				return RejectCommand("The collection asset path is invalid.");
-			auto Loaded = LoadObjectDetailed<DMaterialParameterCollection>(Path);
+			auto Loaded = LoadObject<DMaterialParameterCollection>(Path);
 			if (!Loaded) return RejectCommand(
 				"The collection asset could not be loaded.");
-			if (!(*Loaded)->FindDeclaration(Spec->ParameterId))
+			if (!Loaded->FindDeclaration(Spec->ParameterId))
 				return RejectCommand("The selected collection declaration no longer exists.");
 			TStrongObjectPtr<DMaterialExpressionCollectionParameter> Expression(
 				NewObject<DMaterialExpressionCollectionParameter>(nullptr, NAME_None));
 			Expression->Id = FGuid::NewGuid();
-			Expression->Collection = *Loaded;
+			Expression->Collection = Loaded;
 			Expression->ParameterId = Spec->ParameterId;
 			return CreateExpression(*Expression, Request.X, Request.Y, Mode);
 		}

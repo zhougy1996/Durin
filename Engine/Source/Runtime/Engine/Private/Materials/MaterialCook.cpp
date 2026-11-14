@@ -184,10 +184,10 @@ namespace Durin
 				FSoftObjectPath Path;
 				if (!FSoftObjectPath::TryCreate(Required.AssetPath, Path))
 					return std::unexpected("payload collection asset is missing or its schema does not match the cooked material.");
-				auto Collection = LoadObjectDetailed<DMaterialParameterCollection>(Path);
+				auto* Collection = LoadObject<DMaterialParameterCollection>(Path);
 				if (!Collection)
 					return std::unexpected("payload collection asset is missing or its schema does not match the cooked material.");
-				auto Current = (*Collection)->BuildLayout();
+				auto Current = Collection->BuildLayout();
 				if (!Current || !Required.HasCompatibleSchema(*Current))
 					return std::unexpected("payload collection asset is missing or its schema does not match the cooked material.");
 				Required.DefaultPayload = std::move(Current->DefaultPayload);

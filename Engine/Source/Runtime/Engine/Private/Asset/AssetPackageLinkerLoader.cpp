@@ -1,4 +1,6 @@
 #include "AssetLoadAuditInternal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 #include "AssetPackageLinker.h"
 #include "AssetPackageLinkerSchema.h"
 #include "DObject/OverridableManager.h"
@@ -29,17 +31,22 @@ namespace Durin::AssetPrivate
 	{
 		struct FLinkerApplyDiagnostic
 		{
-			EAssetReadError Error = EAssetReadError::None;
+			std::optional<UnifiedError::FError> Cause;
 			std::string LogicalPath;
 			std::string Message;
 		};
 
-		auto LinkerApplyFail(FLinkerApplyDiagnostic& Diagnostic, EAssetReadError Error,
-			std::string_view Message, uint64 Offset = 0, std::string Path = {}) -> bool
+		auto LinkerApplyFail(FLinkerApplyDiagnostic& Diagnostic,
+			UnifiedError::FError Error, uint64 Offset = 0, std::string Path = {}) -> bool
 		{
-			(void)Offset;
-			if (Diagnostic.Error == EAssetReadError::None)
-				Diagnostic = {Error, std::move(Path), std::string(Message)};
+			if (!Diagnostic.Cause)
+			{
+				if (!Path.empty()) Error.PushContext("object", Path);
+				if (Offset) Error.PushContext("offset", std::to_string(Offset));
+				Diagnostic.LogicalPath = std::move(Path);
+				Diagnostic.Message = Error.ToString();
+				Diagnostic.Cause = std::move(Error);
+			}
 			return false;
 		}
 
@@ -85,11 +92,11 @@ namespace Durin::AssetPrivate
 				if (!Schema || Value.FieldNames.size() != Value.Elements.size()
 					|| Value.Provenances.size() != Value.Elements.size()
 					|| ObjectPackage::StructFieldTypes(Type, Value).size() != Value.Elements.size())
-					return LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, "Struct ledger projection is invalid.");
+					return LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::PackageReadErrors::CorruptFile, "Struct ledger projection is invalid."});
 				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
 				{
 					const auto It = SchemaBindings.FindProperty(*Schema, Value.FieldNames[Index]);
-					if (!It) return LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, "Struct ledger field is missing.");
+					if (!It) return LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::PackageReadErrors::CorruptFile, "Struct ledger field is missing."});
 					const auto& ChildType = ObjectPackage::StructFieldTypes(Type, Value)[Index];
 					const auto Route = It->Match.Route;
 					if (Route == EPropertyLoadRoute::Removed || Route == EPropertyLoadRoute::Deprecated) continue;
@@ -122,8 +129,7 @@ namespace Durin::AssetPrivate
 					FByteBuffer Token;
 					if (const auto Result = ObjectPackage::BuildCanonicalMapKeyToken(
 						Type.Children[0], Value.Elements[Index], Token); !Result)
-						return LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile,
-							ObjectPackage::ToString(Result.error()));
+						return LinkerApplyFail(Diagnostic, UnifiedError::FError{PackageReadErrors::CorruptFile, ObjectPackage::ToString(Result.error())});
 					Path.push_back(FAuthoredOverridePathToken::MapValue(std::move(Token)));
 					if (!RestoreNestedReplacements(Type.Children[1], Value.Elements[Index + 1], Linker, SchemaBindings, Path,
 						Entries, Diagnostic)) return false;
@@ -144,21 +150,18 @@ namespace Durin::AssetPrivate
 				const auto* Schema = LinkerSchema::FindSchema(Linker, Type.QualifiedName);
 				if (!Schema || !FindStructByQualifiedName(FName(Schema->QualifiedName)) || Value.FieldNames.size() != Value.Elements.size()
 					|| ObjectPackage::StructFieldTypes(Type, Value).size() != Value.Elements.size())
-					return LinkerApplyFail(Diagnostic, EAssetReadError::UnsupportedProperty,
-						"Serialized struct is unavailable or has an invalid schema.");
+					return LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::AssetLoadErrors::UnsupportedProperty, "Serialized struct is unavailable or has an invalid schema."});
 				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
 				{
 					const auto Field = SchemaBindings.FindProperty(*Schema, Value.FieldNames[Index]);
 					const auto& ChildType = ObjectPackage::StructFieldTypes(Type, Value)[Index];
 					if (!Field || Field->Descriptor->Type != ChildType)
-						return LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile,
-							"Struct field does not match its declared schema.");
+						return LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::PackageReadErrors::CorruptFile, "Struct field does not match its declared schema."});
 					const auto Route = Field->Match.Route;
 					if (Route == EPropertyLoadRoute::Removed) { ++DiscardedFields; continue; }
 					if (Route == EPropertyLoadRoute::Incompatible)
-						return LinkerApplyFail(Diagnostic, EAssetReadError::UnsupportedProperty,
-							std::format("Serialized struct field {}::{} is incompatible with the live schema.",
-								Schema->QualifiedName, Field->Descriptor->Name));
+						return LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::AssetLoadErrors::UnsupportedProperty, std::format("Serialized struct field {}::{} is incompatible with the live schema.",
+								Schema->QualifiedName, Field->Descriptor->Name)});
 					if (!GatherLiveValueDependencies(ChildType, Value.Elements[Index], Linker, SchemaBindings,
 						Dependencies, DiscardedFields, Diagnostic)) return false;
 				}
@@ -179,7 +182,7 @@ namespace Durin::AssetPrivate
 			{
 				const ObjectPackage::FPackageImport* Import = nullptr;
 				if (!Linker.TryGetImport(Value.Reference, Import) || !Import)
-					return LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, "Hard-reference import is invalid.");
+					return LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::PackageReadErrors::CorruptFile, "Hard-reference import is invalid."});
 				Dependencies.push_back(Import->ObjectPath.GetPackagePath());
 			}
 			return true;
@@ -251,15 +254,13 @@ namespace Durin::AssetPrivate
 				std::string Path;
 				if (!ObjectPackage::FPackageIndex::TryExport(Index, PackageIndex)
 					|| !Linker.TryResolvePath(PackageIndex, Path))
-					return LinkerApplyFail(Diagnostic, EAssetReadError::InvalidObjectGraph,
-						"An export path cannot be resolved.");
+					return LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::AssetLoadErrors::InvalidObjectGraph, "An export path cannot be resolved."});
 				const auto& Export = Linker.Exports[Index];
 				uint64 OuterId = 0;
 				if (!Export.Outer.IsNull())
 				{
 					if (!Export.Outer.IsExport() || Export.Outer.GetTableIndex() >= Index)
-						return LinkerApplyFail(Diagnostic, EAssetReadError::InvalidObjectGraph,
-							"Export Outer topology is not constructible in table order.", 0, Path);
+						return LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::AssetLoadErrors::InvalidObjectGraph, "Export Outer topology is not constructible in table order."}, 0, Path);
 					OuterId = static_cast<uint64>(Export.Outer.GetTableIndex() + 1);
 				}
 				Views.push_back({&Export, nullptr, std::move(Path), OuterId});
@@ -313,21 +314,21 @@ namespace Durin::AssetPrivate
 		};
 
 		auto ValidateLinker(FLinkerApplication& Application, const FLinkerLoadOptions& Options,
-			FLinkerApplyDiagnostic& Diagnostic) -> FAssetReadResult
+			FLinkerApplyDiagnostic& Diagnostic) -> std::expected<void, Durin::UnifiedError::FError>
 		{
 			FScopedObjectLoadPhase Phase(Application.Linker.Summary.PackagePath, EObjectLoadPhase::ValidateSchema);
 			auto& Linker = Application.Linker;
 			std::string VersionError;
 			if (!FCustomVersionRegistry::Validate(Linker.CustomVersions, VersionError))
 			{
-				LinkerApplyFail(Diagnostic, EAssetReadError::UnsupportedVersion, VersionError);
-				return {EAssetReadError::UnsupportedVersion, Diagnostic.Message};
+				LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::PackageReadErrors::UnsupportedVersion, VersionError});
+				return std::unexpected(*Diagnostic.Cause);
 			}
 			if (auto Result = LinkerSchema::FixupSerializedNames(
 				Linker, Application.Compatibility.CanonicalizedIdentityCount,
 				Application.Compatibility.Details ? &Application.Compatibility.Details->CanonicalizationEvidence : nullptr); !Result)
 			{
-				LinkerApplyFail(Diagnostic, Result.Error, Result.Message);
+				LinkerApplyFail(Diagnostic, Result.error());
 				return Result;
 			}
             for (const auto* Dependencies : {&Linker.Summary.HardPackageDependencies,
@@ -336,16 +337,15 @@ namespace Durin::AssetPrivate
                     if (Dependency.GetView().starts_with("/Plugins/")
                         && !FMountPaths::FindMountForVirtualPath(Dependency.GetView()))
                     {
-                        LinkerApplyFail(Diagnostic, EAssetReadError::MissingDependency,
-                            "Serialized plugin reference '" + Dependency.ToString()
-                            + "' has no active mount. Enable the required plugin and restart before editing or saving this package.");
-                        return {Diagnostic.Error, Diagnostic.Message};
+                        LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::AssetLoadErrors::MissingDependency, "Serialized plugin reference '" + Dependency.ToString()
+                            + "' has no active mount. Enable the required plugin and restart before editing or saving this package."});
+                        return std::unexpected(*Diagnostic.Cause);
                     }
 			Application.SchemaBindings.emplace(Linker);
 			auto& SchemaBindings = *Application.SchemaBindings;
 			auto& Exports = Application.Exports;
 			if (!BuildExportViews(Linker, Exports, Diagnostic))
-				return {Diagnostic.Error, Diagnostic.Message};
+				return std::unexpected(*Diagnostic.Cause);
 			if (FObjectLoadTimingSession::IsActive())
 			{
 				uint64 PropertyCount = 0;
@@ -359,9 +359,8 @@ namespace Durin::AssetPrivate
 				DClass* Class = Object.Class = FindClassByQualifiedName(FName(Object.Export->ClassName));
 				if (!Class)
 				{
-					LinkerApplyFail(Diagnostic, EAssetReadError::UnknownClass,
-						std::format("Serialized class '{}' is unavailable. Enable its required plugin and restart, or restore its native provider, before editing or saving this package.", Object.Export->ClassName), 0, Object.Path);
-					return {EAssetReadError::UnknownClass, Diagnostic.Message};
+					LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::AssetLoadErrors::UnknownClass, std::format("Serialized class '{}' is unavailable. Enable its required plugin and restart, or restore its native provider, before editing or saving this package.", Object.Export->ClassName)}, 0, Object.Path);
+					return std::unexpected(*Diagnostic.Cause);
 				}
 				for (const ObjectPackage::FPropertyTag& Property : Object.Export->Properties)
 				{
@@ -369,9 +368,8 @@ namespace Durin::AssetPrivate
 					const auto Field = Schema ? SchemaBindings.FindProperty(*Schema, Property.FieldName) : nullptr;
 					if (!Schema || !Field || Field->Descriptor->Type != Property.Type)
 					{
-						LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile,
-							"A linker property is absent from its declared schema.", 0, Object.Path);
-						return {EAssetReadError::CorruptFile, Diagnostic.Message};
+						LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::PackageReadErrors::CorruptFile, "A linker property is absent from its declared schema."}, 0, Object.Path);
+						return std::unexpected(*Diagnostic.Cause);
 					}
 					DClass* DeclaringClass = FindClassByQualifiedName(FName(Schema->QualifiedName));
 					bool bDeclaringClassMatches = false;
@@ -394,22 +392,21 @@ namespace Durin::AssetPrivate
 						|| Binding.Route == EPropertyLoadRoute::Deprecated || bCookedNativeCandidate;
 					if (!bCompatible)
 					{
-						LinkerApplyFail(Diagnostic, EAssetReadError::UnsupportedProperty,
-							std::format("Serialized field {}::{} is incompatible with the live schema.",
-								Schema->QualifiedName, Field->Descriptor->Name), 0, Object.Path);
-						return {EAssetReadError::UnsupportedProperty, Diagnostic.Message};
+						LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::AssetLoadErrors::UnsupportedProperty, std::format("Serialized field {}::{} is incompatible with the live schema.",
+								Schema->QualifiedName, Field->Descriptor->Name)}, 0, Object.Path);
+						return std::unexpected(*Diagnostic.Cause);
 					}
 					if (!Options.bCooked && !GatherLiveValueDependencies(Property.Type, Property.Value,
 						Linker, SchemaBindings, LiveDependencies, DiscardedFields, Diagnostic))
-						return {Diagnostic.Error, Diagnostic.Message};
+						return std::unexpected(*Diagnostic.Cause);
 				}
 			}
 			std::ranges::sort(LiveDependencies);
 			LiveDependencies.erase(std::ranges::unique(LiveDependencies).begin(), LiveDependencies.end());
 			if (Exports.empty())
 			{
-				LinkerApplyFail(Diagnostic, EAssetReadError::InvalidObjectGraph, "Package has no object exports.");
-				return {EAssetReadError::InvalidObjectGraph, Diagnostic.Message};
+				LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::AssetLoadErrors::InvalidObjectGraph, "Package has no object exports."});
+				return std::unexpected(*Diagnostic.Cause);
 			}
 
 			Application.Compatibility.DiscardedFieldCount = DiscardedFields;
@@ -417,7 +414,7 @@ namespace Durin::AssetPrivate
 		}
 
 		auto CreateLinkerSkeleton(FLinkerApplication& Application, const FLinkerLoadOptions& Options,
-			FLinkerApplyDiagnostic& Diagnostic, std::vector<FStrongObjectPtr>* Pins = nullptr) -> FAssetReadResult
+			FLinkerApplyDiagnostic& Diagnostic, std::vector<FStrongObjectPtr>* Pins = nullptr) -> std::expected<void, Durin::UnifiedError::FError>
 		{
 			FScopedObjectLoadPhase Phase(Application.Linker.Summary.PackagePath, EObjectLoadPhase::CreateExports, Application.Exports.size());
 			auto& Exports = Application.Exports;
@@ -428,15 +425,15 @@ namespace Durin::AssetPrivate
 			{
 				if (ShouldFail(Options, ELinkerLoadPhase::CreateSkeleton, Index))
 				{
-					LinkerApplyFail(Diagnostic, EAssetReadError::InvalidObjectGraph, "Injected skeleton creation failure.");
-					return {EAssetReadError::InvalidObjectGraph, Diagnostic.Message};
+					LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::AssetLoadErrors::InvalidObjectGraph, "Injected skeleton creation failure."});
+					return std::unexpected(*Diagnostic.Cause);
 				}
 				const FExportView& Descriptor = Exports[Index];
 				DClass* Class = Descriptor.Class;
 				if (!Class || !Class->ClassConstructor)
 				{
-					LinkerApplyFail(Diagnostic, EAssetReadError::UnknownClass, std::format("Serialized class '{}' is unavailable. Enable its required plugin and restart, or restore its native provider, before editing or saving this package.", Descriptor.Export->ClassName), 0, Descriptor.Path);
-					return {EAssetReadError::UnknownClass, Diagnostic.Message};
+					LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::AssetLoadErrors::UnknownClass, std::format("Serialized class '{}' is unavailable. Enable its required plugin and restart, or restore its native provider, before editing or saving this package.", Descriptor.Export->ClassName)}, 0, Descriptor.Path);
+					return std::unexpected(*Diagnostic.Cause);
 				}
 				DObject* Outer = Descriptor.OuterId == 0 ? static_cast<DObject*>(Package)
 					: Objects[static_cast<size_t>(Descriptor.OuterId - 1)];
@@ -444,8 +441,8 @@ namespace Durin::AssetPrivate
 				DObject* Object = FindExistingInner(Outer, Descriptor.Export->ObjectName, Class, bTypeMismatch);
 				if (bTypeMismatch)
 				{
-					LinkerApplyFail(Diagnostic, EAssetReadError::TypeMismatch, "Existing default inner has a different class.", 0, Descriptor.Path);
-					return {EAssetReadError::TypeMismatch, Diagnostic.Message};
+					LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::AssetLoadErrors::TypeMismatch, "Existing default inner has a different class."}, 0, Descriptor.Path);
+					return std::unexpected(*Diagnostic.Cause);
 				}
 				if (!Object)
 				{
@@ -464,8 +461,8 @@ namespace Durin::AssetPrivate
 				}
 				if (!Object)
 				{
-					LinkerApplyFail(Diagnostic, EAssetReadError::InvalidObjectGraph, "Object construction failed.", 0, Descriptor.Path);
-					return {EAssetReadError::InvalidObjectGraph, Diagnostic.Message};
+					LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::AssetLoadErrors::InvalidObjectGraph, "Object construction failed."}, 0, Descriptor.Path);
+					return std::unexpected(*Diagnostic.Cause);
 				}
 				Objects[Index] = Object;
 				if (Pins && Pinned.insert(Object).second)
@@ -481,7 +478,7 @@ namespace Durin::AssetPrivate
 		}
 
 		auto ApplyLinkerValues(FLinkerApplication& Application, const FLinkerLoadOptions& Options,
-			FLinkerApplyDiagnostic& Diagnostic, const FPackageLoadBindings& Bindings) -> FAssetReadResult
+			FLinkerApplyDiagnostic& Diagnostic, const FPackageLoadBindings& Bindings) -> std::expected<void, Durin::UnifiedError::FError>
 		{
 			const auto& PackagePath = Application.Linker.Summary.PackagePath;
 			uint64 PropertyCount = 0;
@@ -509,7 +506,7 @@ namespace Durin::AssetPrivate
 					FScopedObjectLoadPhase Timing(PackagePath, EObjectLoadPhase::CreateClassDefaults, Classes.size());
 					return Private::CreateClassDefaultObjectsForBatch(Classes);
 				}())
-					return {EAssetReadError::InvalidObjectGraph, "Default object initialization failed."};
+					return std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::InvalidObjectGraph, "Default object initialization failed."});
 				std::unordered_set<DObject*> Initialized;
 				for (DObject* Root : Objects)
 				{
@@ -520,7 +517,7 @@ namespace Durin::AssetPrivate
 					FDefaultObjectGraphMap Graph;
 					FDefaultObjectGraphDiagnostic GraphDiagnostic;
 					if (!Default || !Graph.Build(Default, Root, &GraphDiagnostic))
-						return {EAssetReadError::InvalidObjectGraph, "Cannot pair loaded object defaults: " + GraphDiagnostic.LogicalPath};
+						return std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::InvalidObjectGraph, "Cannot pair loaded object defaults: " + GraphDiagnostic.LogicalPath});
 					std::unordered_map<DObject*, DObject*> References;
 					for (DObject* Object : Objects)
 						if (const DObject* Template = Graph.FindTemplate(Object))
@@ -533,7 +530,7 @@ namespace Durin::AssetPrivate
 							FScopedObjectLoadPhase CopyTiming(PackagePath, EObjectLoadPhase::CopyDefaultProperties, 1);
 							const auto CopyResult = InitializeObjectFromDefaults(Template, Object, References);
 							if (!CopyResult)
-								return {EAssetReadError::InvalidObjectGraph, "Cannot initialize loaded defaults: " + ToString(CopyResult.error())};
+								return std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::InvalidObjectGraph, "Cannot initialize loaded defaults: " + ToString(CopyResult.error())});
 							Initialized.insert(Object);
 						}
 				}
@@ -558,9 +555,8 @@ namespace Durin::AssetPrivate
 							*LinkerSchema::FindSchema(Linker, Property.DeclaringType), Property.FieldName);
 						if (!Field)
 						{
-							LinkerApplyFail(Diagnostic, EAssetReadError::UnsupportedProperty,
-								"Reflection metadata changed during package loading.", 0, Exports[ObjectIndex].Path);
-							return {EAssetReadError::UnsupportedProperty, Diagnostic.Message};
+							LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::AssetLoadErrors::UnsupportedProperty, "Reflection metadata changed during package loading."}, 0, Exports[ObjectIndex].Path);
+							return std::unexpected(*Diagnostic.Cause);
 						}
 						if (!Options.bCooked && Field->Match.Route == EPropertyLoadRoute::Removed) continue;
 						GatherNestedDeprecatedRouteEvidence(Property.Type, Property.Value, Linker, SchemaBindings,
@@ -574,14 +570,14 @@ namespace Durin::AssetPrivate
 				if (Application.IsExisting(Objects[ObjectIndex])) continue;
 				if (ShouldFail(Options, ELinkerLoadPhase::ApplyValues, ObjectIndex))
 				{
-					LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, "Injected value application failure.");
-					return {EAssetReadError::CorruptFile, Diagnostic.Message};
+					LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::PackageReadErrors::CorruptFile, "Injected value application failure."});
+					return std::unexpected(*Diagnostic.Cause);
 				}
 				FArchiveState LoadContext;
 				LoadContext.bCooking = Options.bCooked;
 				LoadContext.bFilterEditorOnly = Options.bCooked;
 				LoadContext.Target = Options.Target;
-				const FPackageOverrideRestore RestoreOverrides = [&](std::unique_ptr<FOverriddenPropertyRestoreContext> Restoration) -> FAssetReadResult {
+				const FPackageOverrideRestore RestoreOverrides = [&](std::unique_ptr<FOverriddenPropertyRestoreContext> Restoration) -> std::expected<void, Durin::UnifiedError::FError> {
 					const bool bFastRestoration = Restoration && Restoration->IsEligible();
 					FScopedObjectLoadPhase EditorTiming(PackagePath, EObjectLoadPhase::RestoreEditorState, 1, Exports[ObjectIndex].Export->Properties.size());
 					std::optional<FScopedObjectLoadPhase> LedgerTiming(std::in_place, PackagePath, EObjectLoadPhase::BuildOverrideLedger, 1, Exports[ObjectIndex].Export->Properties.size());
@@ -592,13 +588,13 @@ namespace Durin::AssetPrivate
 					{
 						const auto Field = SchemaBindings.FindProperty(
 							*LinkerSchema::FindSchema(Linker, Property.DeclaringType), Property.FieldName);
-						if (!Field) return {EAssetReadError::UnsupportedProperty, "Reflection metadata changed during package loading."};
+						if (!Field) return std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::UnsupportedProperty, "Reflection metadata changed during package loading."});
 						const auto& Binding = Field->Match;
 						if (Binding.Route == EPropertyLoadRoute::Removed) continue;
 						if (ShouldFail(Options, ELinkerLoadPhase::RestoreLedger, ++PropertyIndex))
 						{
-							LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile, "Injected ledger restoration failure.");
-							return {EAssetReadError::CorruptFile, Diagnostic.Message};
+							LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::PackageReadErrors::CorruptFile, "Injected ledger restoration failure."});
+							return std::unexpected(*Diagnostic.Cause);
 						}
 						if (Binding.Route == EPropertyLoadRoute::Deprecated)
 						{
@@ -622,7 +618,7 @@ namespace Durin::AssetPrivate
 						else if (!RestoreNestedReplacements(Property.Type, Property.Value, Linker, SchemaBindings, Path,
 							LedgerEntries, Diagnostic))
 						{
-							return {EAssetReadError::CorruptFile, Diagnostic.Message};
+							return std::unexpected(*Diagnostic.Cause);
 						}
 					}
 					LedgerTiming.reset();
@@ -642,9 +638,8 @@ namespace Durin::AssetPrivate
 					FObjectLoadTimingSession::RecordOverrideRestoration(PackagePath, bFastRestoration, Reason, Work);
 					if (!bRestored)
 					{
-						LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile,
-							"Could not restore authored intent.", 0, LedgerDiagnostic.LogicalPath);
-						return {EAssetReadError::CorruptFile, Diagnostic.Message};
+						LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::PackageReadErrors::CorruptFile, "Could not restore authored intent."}, 0, LedgerDiagnostic.LogicalPath);
+						return std::unexpected(*Diagnostic.Cause);
 					}
 					return {};
 				};
@@ -652,7 +647,7 @@ namespace Durin::AssetPrivate
 					ObjectBindings, LoadContext, Options.bCooked ? FPackageOverrideRestore{} : RestoreOverrides);
 				if (!Loaded)
 				{
-					LinkerApplyFail(Diagnostic, Loaded.Error, Loaded.Message, 0, Exports[ObjectIndex].Path);
+					LinkerApplyFail(Diagnostic, Loaded.error(), 0, Exports[ObjectIndex].Path);
 					return Loaded;
 				}
 			}
@@ -685,7 +680,7 @@ namespace Durin::AssetPrivate
 	namespace
 	{
 		auto ValidateLoadedGraphs(std::span<DObject* const> Objects, const FObjectGraphLoadContext& Context)
-			-> FAssetReadResult
+			-> std::expected<void, Durin::UnifiedError::FError>
 		{
 			FAssetLiveLoadGuard Guard(true);
 			for (const DObject* Object : Objects)
@@ -693,8 +688,8 @@ namespace Durin::AssetPrivate
 				const auto Validation = Object->ValidateLoadedObjectGraph(Context);
 				if (!Validation)
 				{
-					FAssetReadResult Result{EAssetReadError::InvalidObjectGraph, std::format("Loaded graph '{}': {}",
-						Object->GetObjectPath(), ToString(Validation.error()))};
+					std::expected<void, Durin::UnifiedError::FError> Result{std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::InvalidObjectGraph, std::format("Loaded graph '{}': {}",
+						Object->GetObjectPath(), ToString(Validation.error()))})};
 					return Result;
 				}
 			}
@@ -764,7 +759,7 @@ namespace Durin::AssetPrivate
 					return {.Status = S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::Reader, .Message = ObjectPackage::FormatPackageError(ReaderDiagnostic)};
 				FLinkerApplyDiagnostic Diagnostic;
 				if (auto Result = ValidateLinker(Application, {}, Diagnostic); !Result)
-					return {.Status = S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::LinkerValidation, .Message = Result.Message};
+					return {.Status = S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::LinkerValidation, .Message = Result.error().ToString(), .Cause = Result.error()};
 				if (ObjectCount >= Options.MaximumObjects
 					|| Application.Exports.size() > Options.MaximumObjects - ObjectCount - 1)
 					return {.Status = S::BudgetExceeded, .PackagePath = CurrentPath, .Reason = R::ObjectBudget, .Actual = Application.Exports.size() + 1, .Maximum = Options.MaximumObjects - ObjectCount};
@@ -797,9 +792,10 @@ namespace Durin::AssetPrivate
 					DPackage* Package = FindPackage(Path.GetView());
 					if (!Package && Options.DependencyLoadScope)
 					{
+						if (IsPackageLoading(Path)) return {.Status = S::Busy, .PackagePath = Path, .Reason = R::DependencyLoad};
 						const auto Result = Options.DependencyLoadScope->LoadPackageDetailed(Path);
 						Package = Result.value_or(nullptr);
-						if (!Result) return {.Status = (Result ? Durin::EAssetReadError::None : Result.error().Code) == EAssetReadError::InUse ? S::Busy : S::MissingDependency, .PackagePath = Path, .Reason = R::DependencyLoad, .Message = (Result ? std::string{} : Result.error().Message)};
+						if (!Result) return {.Status = S::MissingDependency, .PackagePath = Path, .Reason = R::DependencyLoad, .Message = Result.error().ToString(), .Cause = Result.error()};
 					}
 					if (!Package) return {.Status = S::MissingDependency, .PackagePath = Application.Linker.Summary.PackagePath, .Reason = R::DependencyNotResident, .Subject = Path.ToString()};
 					ExternalPackages.emplace_back(Path, Package);
@@ -838,13 +834,13 @@ namespace Durin::AssetPrivate
 				Application.Objects.resize(Application.Exports.size());
 				FLinkerApplyDiagnostic Diagnostic;
 				if (auto Result = CreateLinkerSkeleton(Application, LoadOptions(Index), Diagnostic, &State->Pins); !Result)
-					return {.Status = Cancelled() ? S::Cancelled : S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::Skeleton, .Message = Result.Message};
+					return {.Status = Cancelled() ? S::Cancelled : S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::Skeleton, .Message = Result.error().ToString(), .Cause = Result.error()};
 				if (State->Pins.size() > Options.MaximumObjects - ObjectCount)
 					return {.Status = S::BudgetExceeded, .PackagePath = CurrentPath, .Reason = R::DefaultInnerBudget, .Actual = State->Pins.size(), .Maximum = Options.MaximumObjects - ObjectCount};
 				ObjectCount += State->Pins.size();
 				State->Pins.insert(State->Pins.end(), ExternalPins.begin(), ExternalPins.end());
 			}
-			auto Resolve = [&](const FSoftObjectPath& Path, DObject*& Object) -> FAssetReadResult {
+			auto Resolve = [&](const FSoftObjectPath& Path, DObject*& Object) -> std::expected<void, Durin::UnifiedError::FError> {
 				Object = nullptr;
 				DPackage* Package = nullptr;
 				for (const auto& Application : Applications)
@@ -852,7 +848,7 @@ namespace Durin::AssetPrivate
 				if (!Package)
 					for (const auto& External : ExternalPackages)
 						if (External.first == Path.GetPackagePath()) Package = External.second;
-				if (!Package) return {EAssetReadError::MissingDependency, "Object reference has no admitted package binding."};
+				if (!Package) return std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::MissingDependency, "Object reference has no admitted package binding."});
 				DObject* Current = Package;
 				auto Descend = [&](std::string_view Name) {
 					if (!Current) return;
@@ -863,7 +859,7 @@ namespace Durin::AssetPrivate
 				Descend(Path.GetAssetPath().GetAssetName());
 				for (std::string_view Name : Path.GetSubobjectNames()) Descend(Name);
 				Object = Current;
-				return Object ? FAssetReadResult{} : FAssetReadResult{EAssetReadError::MissingDependency, "Admitted package has no matching object."};
+				return Object ? std::expected<void, Durin::UnifiedError::FError>{} : std::expected<void, Durin::UnifiedError::FError>{std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::MissingDependency, "Admitted package has no matching object."})};
 			};
 			for (size_t Index = 0; Index < Applications.size(); ++Index)
 			{
@@ -872,7 +868,7 @@ namespace Durin::AssetPrivate
 				const FPackageLoadBindings Bindings{Sources[Index].Storage.GetBulkResource(), Resolve};
 				FLinkerApplyDiagnostic Diagnostic;
 				if (auto Result = ApplyLinkerValues(Application, LoadOptions(Index), Diagnostic, Bindings); !Result)
-					return {.Status = Cancelled() ? S::Cancelled : S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::ApplyValues, .Message = Result.Message};
+					return {.Status = Cancelled() ? S::Cancelled : S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::ApplyValues, .Message = Result.error().ToString(), .Cause = Result.error()};
 				Application.Package->RecordDiskExports({Application.Objects.begin(), Application.Objects.end()}, Sources[Index].Storage.GetMainDigest());
 				Application.Package->ClearDirty();
 				Application.Package->SetCanonicalResaveRecommended(Application.Package->IsCanonicalResaveRecommended()
@@ -886,7 +882,7 @@ namespace Durin::AssetPrivate
 			{
 				CurrentPath = Application.Linker.Summary.PackagePath;
 				if (auto Result = ValidateLoadedGraphs(Application.Objects, {.bPrivateGraph = true}); !Result)
-					return {.Status = S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::GraphValidation, .Message = Result.Message};
+					return {.Status = S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::GraphValidation, .Message = Result.error().ToString(), .Cause = Result.error()};
 			}
 			for (const auto& Source : Sources)
 			{
@@ -907,7 +903,7 @@ namespace Durin::AssetPrivate
 					return {.Status = S::Stale, .PackagePath = Path, .Reason = R::DependencyIdentityChanged};
 			}
 			if (auto Result = LiveLoadGuard.GetFailure(); !Result)
-				return {.Status = S::Unsupported, .PackagePath = CurrentPath, .Reason = R::LiveOperationRejected, .Message = Result.Message};
+				return {.Status = S::Unsupported, .PackagePath = CurrentPath, .Reason = R::LiveOperationRejected, .Message = Result.error().ToString(), .Cause = Result.error()};
 			Out = std::move(Candidates);
 			return {};
 		}
@@ -924,48 +920,44 @@ namespace Durin::AssetPrivate
 	auto ApplyLivePackageLinker(ObjectPackage::FLinkerTables Linker,
 		const FPackagePath& PackagePath, DPackage*& OutPackage,
 		FAssetLoadReport* OutReport, const FLinkerLoadOptions& Options,
-		std::string* OutError) -> FAssetReadResult
+		std::string* OutError) -> std::expected<void, Durin::UnifiedError::FError>
 	{
 		OutPackage = nullptr;
 		FLinkerApplyDiagnostic Diagnostic;
 		FAssetLiveLoadGuard LiveLoadGuard(Options.DependencyLoadPolicy
 			&& Options.DependencyLoadPolicy->bRejectImplicitLiveLoads);
-		auto Finish = [&](FAssetReadResult Result) {
-			if (OutError) *OutError = Result.Message;
+		auto Finish = [&](std::expected<void, Durin::UnifiedError::FError> Result) {
+			if (OutError) *OutError = Result ? std::string{} : Result.error().ToString();
 			return Result;
 		};
 		if (!PackagePath.IsValid())
 		{
-			LinkerApplyFail(Diagnostic, EAssetReadError::InvalidPath, "Live linker application requires a validated package path.");
-			return Finish({EAssetReadError::InvalidPath, Diagnostic.Message});
+			LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::AssetLoadErrors::InvalidPath, "Live linker application requires a validated package path."});
+			return Finish(std::unexpected(*Diagnostic.Cause));
 		}
 		if (Options.bPrivateGraph && (!Options.DependencyLoadPolicy
 			|| !Options.DependencyLoadPolicy->bRejectImplicitLiveLoads))
 		{
-			LinkerApplyFail(Diagnostic, EAssetReadError::InvalidObjectGraph,
-				"Private package loading requires an explicit closed dependency policy.");
-			return Finish({EAssetReadError::InvalidObjectGraph, Diagnostic.Message});
+			LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::AssetLoadErrors::InvalidObjectGraph, "Private package loading requires an explicit closed dependency policy."});
+			return Finish(std::unexpected(*Diagnostic.Cause));
 		}
 		if (Options.DependencyLoadPolicy
 			&& (!Options.DependencyLoadPolicy->ResolvePackage
 				|| !Options.DependencyLoadPolicy->ResolveObject
 				|| (!Options.DeferCompletion && !Options.DependencyLoadPolicy->Rollback)))
 		{
-			LinkerApplyFail(Diagnostic, EAssetReadError::InvalidObjectGraph,
-				"An explicit dependency load policy requires package, object, and rollback callbacks.");
-			return Finish({EAssetReadError::InvalidObjectGraph, Diagnostic.Message});
+			LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::AssetLoadErrors::InvalidObjectGraph, "An explicit dependency load policy requires package, object, and rollback callbacks."});
+			return Finish(std::unexpected(*Diagnostic.Cause));
 		}
 		if (Linker.Summary.PackagePath != PackagePath)
 		{
-			LinkerApplyFail(Diagnostic, EAssetReadError::InvalidPath,
-				"Linker package identity does not match the requested package path.");
-			return Finish({EAssetReadError::InvalidPath, Diagnostic.Message});
+			LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::AssetLoadErrors::InvalidPath, "Linker package identity does not match the requested package path."});
+			return Finish(std::unexpected(*Diagnostic.Cause));
 		}
 		if (FindPackage(PackagePath.GetView()) != Options.ExistingPackage)
 		{
-			LinkerApplyFail(Diagnostic, EAssetReadError::AlreadyExists,
-				std::format("A package with the requested path '{}' is already live.", PackagePath.ToString()));
-			return Finish({EAssetReadError::AlreadyExists, Diagnostic.Message});
+			LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::AssetLoadErrors::AlreadyExists, std::format("A package with the requested path '{}' is already live.", PackagePath.ToString())});
+			return Finish(std::unexpected(*Diagnostic.Cause));
 		}
 		FLinkerApplication Application;
 		Application.Linker = std::move(Linker);
@@ -980,8 +972,8 @@ namespace Durin::AssetPrivate
 			FName(PackagePath.GetPackageName()));
 		if (!Package)
 		{
-			LinkerApplyFail(Diagnostic, EAssetReadError::InvalidObjectGraph, "Could not allocate the package skeleton.");
-			return Finish({EAssetReadError::InvalidObjectGraph, Diagnostic.Message});
+			LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::AssetLoadErrors::InvalidObjectGraph, "Could not allocate the package skeleton."});
+			return Finish(std::unexpected(*Diagnostic.Cause));
 		}
 		bool bSkeletonPublished = false;
 		bool bFinalized = false;
@@ -1024,9 +1016,8 @@ namespace Durin::AssetPrivate
 		{
 			if (!Package->InitializePreparedAssetPackage(PackagePath))
 			{
-				LinkerApplyFail(Diagnostic, EAssetReadError::InvalidObjectGraph,
-					"Could not initialize a private capture package.");
-				return Finish({EAssetReadError::InvalidObjectGraph, Diagnostic.Message});
+				LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::AssetLoadErrors::InvalidObjectGraph, "Could not initialize a private capture package."});
+				return Finish(std::unexpected(*Diagnostic.Cause));
 			}
 		}
 		else if (Options.ExistingPackage) Application.ExistingObjects = Options.ExistingObjects;
@@ -1040,7 +1031,7 @@ namespace Durin::AssetPrivate
 		if (Application.ExistingObjects)
 			for (DObject* Object : *Application.ExistingObjects) Pins.emplace_back(Object);
 
-		auto Construct = [&]() -> FAssetReadResult {
+		auto Construct = [&]() -> std::expected<void, Durin::UnifiedError::FError> {
 			FAssetLiveLoadGuard Guard(bool(Options.DeferCompletion));
 			if (auto Result = CreateLinkerSkeleton(Application, Options, Diagnostic, &Pins); !Result) return Result;
 			return Guard.GetFailure();
@@ -1053,7 +1044,7 @@ namespace Durin::AssetPrivate
 		if (!LiveLoadGuard.GetFailure())
 		{
 			const auto Result = LiveLoadGuard.GetFailure();
-			LinkerApplyFail(Diagnostic, Result.Error, Result.Message);
+			LinkerApplyFail(Diagnostic, Result.error());
 			return Finish(Result);
 		}
 		if (Options.OnSkeletonReady)
@@ -1061,9 +1052,7 @@ namespace Durin::AssetPrivate
 			auto PublishResult = Options.OnSkeletonReady(Package);
 			if (!PublishResult)
 			{
-				LinkerApplyFail(Diagnostic, EAssetReadError::InvalidObjectGraph,
-					PublishResult.Message.empty() ? "Could not publish the package skeleton."
-						: PublishResult.Message);
+				LinkerApplyFail(Diagnostic, PublishResult.error());
 				return Finish(PublishResult);
 			}
 			bSkeletonPublished = true;
@@ -1076,27 +1065,27 @@ namespace Durin::AssetPrivate
 			{
 				if (ShouldFail(Options, ELinkerLoadPhase::ResolveDependency, Index))
 				{
-					LinkerApplyFail(Diagnostic, EAssetReadError::MissingDependency, "Injected dependency failure.");
-					return Finish({EAssetReadError::MissingDependency, Diagnostic.Message});
+					LinkerApplyFail(Diagnostic, UnifiedError::FError{Durin::AssetLoadErrors::MissingDependency, "Injected dependency failure."});
+					return Finish(std::unexpected(*Diagnostic.Cause));
 				}
 				const FPackagePath& Path = Dependencies[Index];
 				DPackage* Dependency = nullptr;
-				FAssetReadResult Result;
+				std::expected<void, Durin::UnifiedError::FError> Result;
 				if (Options.DependencyLoadPolicy)
 					Result = Options.DependencyLoadPolicy->ResolvePackage(Path, Dependency);
 				else
 				{
-					auto Loaded = LoadPackageDetailed(Path);
-					if (!Loaded) Result = AssetReadResultFromError(Loaded.error());
-					else Dependency = *Loaded;
+					std::optional<Durin::UnifiedError::FError> LoadedError;
+					auto Loaded = LoadPackage(Path, nullptr, &LoadedError);
+					if (!Loaded) Result = std::unexpected((*LoadedError));
+					else Dependency = Loaded;
 				}
 				if (Result && !Dependency)
-					Result = {EAssetReadError::MissingDependency, "Dependency resolver returned no package."};
+					Result = std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::MissingDependency, "Dependency resolver returned no package."});
 				if (!Result)
 				{
-					const EAssetReadError Error = Options.DependencyLoadPolicy ? Result.Error : EAssetReadError::MissingDependency;
-					LinkerApplyFail(Diagnostic, Error, Result.Message);
-					return Finish({Error, Diagnostic.Message});
+					LinkerApplyFail(Diagnostic, Result.error());
+					return Finish(std::unexpected(*Diagnostic.Cause));
 				}
 			}
 
@@ -1106,12 +1095,13 @@ namespace Durin::AssetPrivate
 		const FPackageLoadBindings Bindings{
 			.BulkResource = Options.BulkResource,
 			.ResolveExternalObject = [Policy = Options.DependencyLoadPolicy](const FSoftObjectPath& Path, DObject*& Object) {
+				std::optional<Durin::UnifiedError::FError> LoadedError;
 				if (Policy) return Policy->ResolveObject(Path, Object);
-				auto Loaded = LoadObjectDetailed(Path, nullptr);
-				Object = Loaded.value_or(nullptr);
-				return Loaded ? FAssetReadResult{} : AssetReadResultFromError(Loaded.error());
+				auto Loaded = LoadObject(Path, nullptr, nullptr, &LoadedError);
+				Object = Loaded;
+				return Loaded ? std::expected<void, Durin::UnifiedError::FError>{} : std::unexpected((*LoadedError));
 			}};
-		auto RestoreValues = [&]() -> FAssetReadResult {
+		auto RestoreValues = [&]() -> std::expected<void, Durin::UnifiedError::FError> {
 			FAssetLiveLoadGuard Guard(bool(Options.DeferCompletion));
 			if (auto Result = ApplyLinkerValues(Application, Options, Diagnostic, Bindings); !Result) return Result;
 			return Guard.GetFailure();
@@ -1124,9 +1114,9 @@ namespace Durin::AssetPrivate
 		// Recoverable gates precede every initialization notification.
 		for (size_t Index = 0; Index < Objects.size(); ++Index)
 			if (ShouldFail(Options, ELinkerLoadPhase::PostLoad, Index))
-				return Finish({EAssetReadError::InvalidObjectGraph, "Injected pre-PostLoad failure."});
+				return Finish(std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::InvalidObjectGraph, "Injected pre-PostLoad failure."}));
 		if (ShouldFail(Options, ELinkerLoadPhase::Publish, 0))
-			return Finish({EAssetReadError::InvalidObjectGraph, "Injected graph publication preparation failure."});
+			return Finish(std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::InvalidObjectGraph, "Injected graph publication preparation failure."}));
 		if (auto Result = LiveLoadGuard.GetFailure(); !Result) return Finish(Result);
 		auto Validate = [Objects, Pins = std::move(Pins), PackagePath, bCooked = Options.bCooked, bPrivate = Options.bPrivateGraph]() {
 			FScopedObjectLoadPhase Timing(PackagePath, EObjectLoadPhase::ValidateLoadedGraph, Objects.size());

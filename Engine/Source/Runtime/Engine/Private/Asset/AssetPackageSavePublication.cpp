@@ -1,4 +1,6 @@
 #include "AssetPackageSaveInternal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 #include "AssetLiveLoadGuard.h"
 #include "AssetRuntimeStateInternal.h"
 #include "Asset/PackageVersionPolicy.h"
@@ -53,7 +55,7 @@ namespace Durin::AssetPrivate
 	}
 	namespace
 	{
-		auto Error(EAssetReadError Code, std::string Message) -> FAssetReadResult { return {Code, std::move(Message)}; }
+		auto Error(Durin::UnifiedError::FErrorId Id, std::string Message) -> std::expected<void, Durin::UnifiedError::FError> { return std::unexpected(Durin::UnifiedError::FError{Id, std::move(Message)}); }
 		auto Error(EAssetWriteError Code, std::string Message) -> FAssetWriteResult { return {Code, std::move(Message)}; }
 
 		auto ValidatePackageWriteAdmission(const FPackagePath& Path) -> FAssetWriteResult
@@ -73,14 +75,12 @@ namespace Durin::AssetPrivate
 		}
 
 		auto ValidateSaveVersion(
-			const FPackagePath& Path) -> FAssetReadResult
+			const FPackagePath& Path) -> FAssetWriteResult
 		{
 			const FPackageCatalogEntry Existing = Durin::FindPackageExact(Path);
 			if (!Existing || ObjectPackage::IsSupportedPackageReaderVersion(Existing->FormatVersion))
 				return {};
-			return Error(
-				EAssetReadError::UnsupportedVersion,
-				std::format(
+			return Error(EAssetWriteError::UnsupportedVersion, std::format(
 					"Package {} uses unsupported DAST v{} while ordinary saves write DAST v{}.",
 					Path.ToString(),
 					Existing->FormatVersion,
@@ -102,7 +102,7 @@ namespace Durin::AssetPrivate
 	auto ValidatePackageSaveAdmission(const FPackagePath& Path) -> FAssetWriteResult
 	{
 		if (auto Result = ValidatePackageWriteAdmission(Path); !Result) return Result;
-		return AssetWriteResultFromRead(ValidateSaveVersion(Path));
+		return ValidateSaveVersion(Path);
 	}
 
 	auto CommitPreparedPackageSave(const FPreparedPackageSave& Prepared,
@@ -112,7 +112,7 @@ namespace Durin::AssetPrivate
 		DPackage* Package = Prepared.Package.Get();
 		const auto& Path = Prepared.Header.PackagePath;
 		const uint64 Revision = Prepared.Revision;
-		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("save", ""); !Guard) return AssetWriteResultFromRead(Guard);
+		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("save", ""); !Guard) return {.Error = EAssetWriteError::InUse, .Message = Guard.error().ToString(), .Cause = Guard.error()};
 		if (FAssetRuntimeState::Get().GetRuntimeConfiguration().IsCooked())
 			return Error(EAssetWriteError::ReadOnlyMode, "Cooked packages cannot be saved.");
 		if (auto Admission = ValidatePackageSaveAdmission(Path); !Admission) return Admission;

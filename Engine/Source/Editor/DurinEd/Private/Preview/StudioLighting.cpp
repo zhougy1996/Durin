@@ -12,7 +12,7 @@ namespace Durin
         FSoftObjectPath Path;
         if (!FSoftObjectPath::TryCreate("/Engine/Renderer/DefaultStudioCube.DefaultStudioCube", Path)) return false;
         DTextureCube* Cube = nullptr;
-        if (!(Cube = LoadObjectDetailed<DTextureCube>(Path).value_or(nullptr))) return false;
+        if (!(Cube = LoadObject<DTextureCube>(Path))) return false;
         auto* Actor = Level.SpawnActor<ASkyLightActor>("StudioSkyLight");
         if (!Actor) return false;
         Actor->GetSkyLightComponent()->SetSource(ESkyLightSourceMode::SpecifiedCube, Cube);

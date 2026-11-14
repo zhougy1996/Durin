@@ -42,6 +42,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | Plugin descriptors, project enablement overrides, discovery, or dependency resolution | [Plugin metadata and selection](Workspace/Plugins.md) |
 | Change project plugins in the editor, save next-start choices, or restart | [Plugin workflow](Editor/Guides/Plugins.md) |
 | Runtime physical paths or atomic byte publication | [File I/O](Runtime/Core/FileIO.md) |
+| Owning cross-module error identity, diagnostic context, or failure collection | [Unified errors](Runtime/Core/UnifiedError.md) |
 | Native dynamic libraries, loader diagnostics, reference lifetime, or Unicode library paths | [Platform libraries](Runtime/Core/PlatformLibraries.md) |
 | Child process arguments, working directories, or environment overrides | [Platform processes](Runtime/Core/PlatformProcesses.md) |
 | Asset architecture domain ownership or contract placement | [Asset domain rules](Runtime/Assets/AGENTS.md) |

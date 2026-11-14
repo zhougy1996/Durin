@@ -1,4 +1,6 @@
 #include "Asset/PackageEditing.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 #include "AssetLiveLoadGuard.h"
 #include "AssetRuntimeStateInternal.h"
 #include "AssetPackageCodec.h"
@@ -20,14 +22,13 @@ namespace Durin
 	namespace AssetPrivate
 	{
 		auto ValidateMutationPackageMetadata(const FMutationPackageMetadata& Metadata,
-			uint64 ObjectCount, const FPackagePath* SourcePath) -> FAssetReadResult
+			uint64 ObjectCount, const FPackagePath* SourcePath) -> std::expected<void, Durin::UnifiedError::FError>
 		{
 			const FPackagePath Path = SourcePath ? *SourcePath
 				: (Metadata.TopLevelAssets.empty() ? FPackagePath{}
 					: Metadata.TopLevelAssets.front().AssetPath.GetPackagePath());
 			if (!ArePackageAssetsValid(Metadata.TopLevelAssets, Path, ObjectCount, Metadata.Dependencies))
-				return {EAssetReadError::CorruptFile,
-					"CorruptRedirector: the package contains invalid exact asset metadata."};
+				return std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::CorruptFile, "CorruptRedirector: the package contains invalid exact asset metadata."});
 			return {};
 		}
 	}
@@ -35,11 +36,11 @@ namespace Durin
 	auto CheckAssetPackageMutationAllowed() -> FAssetWriteResult
 	{
 		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard)
-			return AssetWriteResultFromRead(Guard);
+			return {.Error = EAssetWriteError::InUse, .Message = Guard.error().ToString(), .Cause = Guard.error()};
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		const auto& Runtime = FAssetRuntimeState::Get();
 		if (auto Admission = Runtime.CheckRequestAdmission(); !Admission)
-			return AssetWriteResultFromRead(Admission);
+			return {.Error = EAssetWriteError::InUse, .Message = Admission.error().ToString(), .Cause = Admission.error()};
 		if (Runtime.GetRuntimeConfiguration().IsCooked())
 			return Error(EAssetWriteError::ReadOnlyMode, "Cooked runtime package mode does not permit authored package mutation.");
 		return {};
@@ -98,13 +99,13 @@ namespace Durin
 	}
 
 	auto CollectLoadedAssetPackageSoftReferences(DPackage* Package,
-		const FPackagePath& TargetPath, std::vector<FSoftObjectPtr*>& OutValues) -> FAssetReadResult
+		const FPackagePath& TargetPath, std::vector<FSoftObjectPtr*>& OutValues) -> std::expected<void, Durin::UnifiedError::FError>
 	{
 		return AssetPrivate::CollectLoadedPackageSoftReferencesForMutation(Package, TargetPath, OutValues);
 	}
 
 	auto FingerprintAssetPackageBytes(std::string_view PhysicalPath, FByteView Bytes,
-		FAssetPackageFingerprint& OutFingerprint) -> FAssetReadResult
+		FAssetPackageFingerprint& OutFingerprint) -> std::expected<void, Durin::UnifiedError::FError>
 	{
 		return AssetPrivate::MakePackageFingerprint(PhysicalPath, Bytes, OutFingerprint);
 	}

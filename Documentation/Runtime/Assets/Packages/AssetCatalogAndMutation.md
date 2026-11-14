@@ -139,7 +139,7 @@ aggregate entry points are defined by
 public mutable catalog manager.
 
 AssetRegistry and Engine asset APIs live directly in the `Durin` namespace.
-Their domain is expressed by names such as `FAssetReadResult`, `FindAssetExact`,
+Their domain is expressed by names such as `InspectAssetPackage`, `FindAssetExact`,
 `RefreshAssetRegistry`, `LoadObject`, and `SavePackage`; there is no redundant
 public `Durin::Asset` namespace. File-private and cross-file implementation
 details use `Durin::AssetPrivate` when they require a shared internal scope.
@@ -154,15 +154,17 @@ contain `FAssetRegistryErrorContext` rather than prose: precise reason, owned pa
 actual/expected bounds or revisions, filesystem code, envelope code and complete
 package Reader cause. `FormatAssetRegistryError` is the presentation boundary.
 Nonfatal cache-warning contracts remain separate.
-Engine loading and inspection return `FAssetReadResult` with `EAssetReadError`;
+Engine status-only reads return `std::expected<void, UnifiedError::FError>`;
 saving and mutation return `FAssetWriteResult` with `EAssetWriteError`.
-Read cancellation and pending Registry projection have explicit classifications.
-Write preparation failures retain their full diagnostic text; object/field
+Read diagnostics retain domain/code identity, optional text and ordered context.
+Request cancellation and pending Registry projection remain states of their owning
+request and Registry contracts, with matching diagnostic identity on propagation.
+Write preparation failures retain their cause in `FAssetWriteResult::Cause`; object/field
 validation failures use `InvalidData` at the write boundary. Only write results
 carry observed write effects. Mutation ledgers and backup roots are kept in
 `FAssetMutationResultDetails`; physical save details stay with the package writer.
 AssetRegistry owns its result contract; Engine adapts it explicitly.
-Both read and write results expose their presentation text through `Message`.
+Read causes format through `ToString`; write results retain their presentation `Message`.
 Cook inputs and contributor callbacks use their Cook-owned result types.
 
 ## Reference Projection

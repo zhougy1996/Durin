@@ -95,7 +95,7 @@ namespace Durin
 		{
 			FSoftObjectPath LevelPath;
 			if (const auto Resolution = ResolveLevelPackage(DefaultLevel, LevelPath); !Resolution)
-				return std::unexpected(Resolution.Message);
+				return std::unexpected(Resolution.error().ToString());
 			auto* Manager = GetAssetManager();
 			const auto PrimaryId = Manager ? Manager->GetPrimaryAssetIdForPath(LevelPath.GetAssetPath()) : FPrimaryAssetId{};
 			const auto Preload = PrimaryId.IsValid() ? Manager->PreloadPrimaryAssets(std::span(&PrimaryId, 1)) : nullptr;

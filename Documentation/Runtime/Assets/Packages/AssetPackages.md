@@ -165,11 +165,20 @@ miss never guesses a filename.
 
 Synchronous `LoadPackage` and `LoadObject<T>` return nullable pointers. An optional
 caller-owned `FAssetLoadReport` carries identity, dependency evidence and work
-counters without mandatory logging. The
-explicit `LoadPackageDetailed` and `LoadObjectDetailed<T>` operations return
-`std::expected<Pointer, FAssetReadError>` for callers that process structured
-failures. Both surfaces use the same loader. Returned pointers observe existing
+counters without mandatory logging. A final optional
+`std::optional<UnifiedError::FError>* OutError` receives an owning cause on failure
+and is reset on success, including resident loads. There is no separate Detailed
+loading surface. Returned pointers observe existing
 package residency; they add no GC owner or rollback guarantee.
+Use ordinary loads when failure only selects a fallback, skips an item, or rejects
+an operation with a fixed message. Request the optional error when the caller displays,
+collects or classifies the actual cause. Editor asset opening and property loading retain actionable
+diagnostics. Cancellation, busy admission and pending projections are checked by
+the request, package and registry owners. Compatibility inspection obtains format
+support and failed-read evidence from its reader. Status-only operations that propagate diagnostics return
+`std::expected<void, UnifiedError::FError>` directly. The
+[unified error contract](../../Core/UnifiedError.md) separates error identity from
+wording; domain states remain authoritative for operation decisions.
 For bounded ownership, use `FStreamableManager::RequestSyncLoad` or `RequestAsyncLoad` from
 `Engine/StreamableManager.h`. Both return the same `FStreamableHandle`. Active
 successful handles strongly retain the selected package/object. Loading adds no
@@ -272,7 +281,7 @@ values performs no lookup. Engine supplies routing/loading through internal
 CoreDObject operations and enforces guarded-load access even for cache hits.
 Standalone CoreDObject can find live package objects without Engine.
 Tools needing missing/type/redirect diagnostics use
-`ResolveAssetObjectPathForOperation` or `LoadObjectDetailed` explicitly; diagnostic
+`ResolveAssetObjectPathForOperation` or the optional error output of `LoadObject` explicitly; diagnostic
 results and null policies are not part of the pointer's ordinary API.
 
 Hard imports identify an exact top-level asset in another package. Soft
@@ -643,8 +652,9 @@ supplies its registered resource and normal load resolver. A private caller can
 supply an immutable resource snapshot and private object resolver without
 temporarily publishing either. `LoadAuthoredObject` applies serializer fields
 only; the caller owns graph construction, dependency lifetime, rollback and
-PostLoad policy. It returns a classified, owned diagnostic in `FAssetReadResult`;
-resolver operation results are not retained inside load failures. Serializer
+PostLoad policy. It returns an owned diagnostic in `std::expected<void, UnifiedError::FError>`;
+resolver identity and context survive propagation, while operation recovery metadata
+stays with its owner. Serializer
 and struct migration callbacks still execute and
 require their own admission before use in isolated preparation.
 
@@ -697,7 +707,7 @@ responsibility. Graph ownership and destruction
 stay on GameThread. This is an internal deserialization boundary, not a public
 reload admission or success result.
 `FPackageGraphPrepareResult` owns a typed reason, the affected package identity,
-admission/budget context, and diagnostic text materialized at reader, resource,
+admission/budget context, and an optional structured `Cause` from reader, resource,
 graph-validation or asset boundaries. Failed preparation does not replace the
 caller's prior candidate set. `FormatPackageGraphPrepareError` presents the owned
 diagnostic without retaining candidate objects or complete asset operations.

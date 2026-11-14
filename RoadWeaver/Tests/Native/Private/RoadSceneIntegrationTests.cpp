@@ -1,4 +1,5 @@
 #include "DObject/StrongObjectPtr.h"
+#include "Misc/UnifiedError.h"
 #include "NativeAssetRuntimeTestSupport.h"
 #include "Physics/BodySetup.h"
 #include "NativePackageUnloadTestSupport.h"
@@ -164,8 +165,9 @@ TEST(RoadSceneIntegration, AssetRoundTripPreservesIdsAndRejectedMutationDirtySta
 	ASSERT_TRUE(UnloadPackage(Path));
 	DObject* Loaded = nullptr;
 	{
-		auto LoadedValue = LoadObjectDetailed<DObject>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
-		Loaded = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = LoadObject<DObject>(Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedValueError);
+		Loaded = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	Asset = Cast<DRoadNet>(Loaded);
@@ -220,6 +222,7 @@ TEST(RoadSceneIntegration, ReflectedDraftRejectsBeforeApplyAndReplayNotifies)
 #if DURIN_WITH_EDITOR
 TEST(RoadSceneIntegration, CheckedInRoadLevelLoadsAndSurvivesGC)
 {
+	std::optional<Durin::UnifiedError::FError> ResultError;
 	InitializeTaskScheduler(2);
 	Testing::InitializeAssetSystemForTests();
 	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) InitializeAssetCompilingManager();
@@ -242,9 +245,9 @@ TEST(RoadSceneIntegration, CheckedInRoadLevelLoadsAndSurvivesGC)
 	FSoftObjectPath ObjectPath;
 	ASSERT_TRUE(FSoftObjectPath::TryCreate("/Game/Levels/L_RoadNet.NewLevel", ObjectPath));
 	DObject* Loaded = nullptr;
-	const auto Result = LoadObjectDetailed<DObject>(ObjectPath);
-	Loaded = Result.value_or(nullptr);
-	ASSERT_TRUE(Result) << (Result ? std::string{} : Result.error().Message);
+	const auto Result = LoadObject<DObject>(ObjectPath, nullptr, &ResultError);
+	Loaded = Result;
+	ASSERT_TRUE(Result) << (ResultError ? ResultError->ToString() : "");
 	auto* Level = Cast<DLevel>(Loaded);
 	ASSERT_NE(Level, nullptr);
 	std::string Error;

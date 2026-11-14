@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
 
 #include "DObject/AssetPath.h"
 #include "DObject/ObjectGraphReplacement.h"
@@ -70,6 +71,7 @@ namespace Durin
 		uint64 Maximum = 0;
 		std::string Message;
 		std::shared_ptr<const FPackageReloadDiagnosticDetails> Details;
+		std::optional<UnifiedError::FError> Cause;
 	};
 
 	ENGINE_API auto FormatPackageReloadDiagnostic(const FPackageReloadDiagnostic& Diagnostic) -> std::string;

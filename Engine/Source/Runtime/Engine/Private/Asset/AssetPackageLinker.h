@@ -1,12 +1,14 @@
 #pragma once
 #include "PackageLoadTransaction.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 
 #include "CoreMinimal.h"
+#include "EngineAPI.h"
 #include "DObject/PackageCapture.h"
 
 #include "AssetSubsystemFwd.h"
 #include "AssetPackageDependencyLoadPolicy.h"
-#include "Asset/AssetReadResult.h"
 #include "AssetPackageCaptureOptions.h"
 #include "Asset/PackageResource.h"
 #include "Asset/Load.h"
@@ -29,7 +31,7 @@ namespace Durin::AssetPrivate
 	struct FLinkerLoadOptions
 	{
 		std::function<bool(ELinkerLoadPhase, uint64)> ShouldFail;
-		std::function<FAssetReadResult(DPackage*)> OnSkeletonReady;
+		std::function<std::expected<void, Durin::UnifiedError::FError>(DPackage*)> OnSkeletonReady;
 		std::function<void(DPackage*)> OnSkeletonRollback;
 		FXxHash128 MainDigest{};
 		uint32 SourceFormatVersion = ObjectPackage::DastV12FormatVersion;
@@ -42,7 +44,7 @@ namespace Durin::AssetPrivate
 		DPackage* ExistingPackage = nullptr;
 		const std::unordered_set<DObject*>* ExistingObjects = nullptr;
 		// Ordinary loading transfers candidate completion to its component owner.
-		std::function<void(std::function<FAssetReadResult()>, std::function<void()>)> DeferCompletion;
+		std::function<void(std::function<std::expected<void, Durin::UnifiedError::FError>()>, std::function<void()>)> DeferCompletion;
 	};
 
 	// A validated saved closure; the caller owns path admission and edit/save leases.
@@ -126,5 +128,5 @@ namespace Durin::AssetPrivate
 		DPackage*& OutPackage,
 		FAssetLoadReport* OutReport,
 		const FLinkerLoadOptions& Options = {},
-		std::string* OutError = nullptr) -> FAssetReadResult;
+		std::string* OutError = nullptr) -> std::expected<void, Durin::UnifiedError::FError>;
 }

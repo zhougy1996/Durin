@@ -1,8 +1,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 
-#include "Asset/AssetReadResult.h"
 
 namespace Durin::AssetPrivate
 {
@@ -15,8 +16,8 @@ namespace Durin::AssetPrivate
 		~FAssetLiveLoadGuard();
 		FAssetLiveLoadGuard(const FAssetLiveLoadGuard&) = delete;
 		auto operator=(const FAssetLiveLoadGuard&) -> FAssetLiveLoadGuard& = delete;
-		static auto Check(std::string_view Operation, std::string_view Path) -> FAssetReadResult;
-		auto GetFailure() const -> FAssetReadResult;
+		static auto Check(std::string_view Operation, std::string_view Path) -> std::expected<void, Durin::UnifiedError::FError>;
+		auto GetFailure() const -> std::expected<void, Durin::UnifiedError::FError>;
 
 	private:
 		static thread_local FAssetLiveLoadGuard* Active;
@@ -25,6 +26,6 @@ namespace Durin::AssetPrivate
 		uint64 InitialRejections = 0;
 		FAssetLiveLoadGuard* Previous = nullptr;
 		bool bEnabled = false;
-		FAssetReadResult Failure;
+		std::expected<void, Durin::UnifiedError::FError> Failure;
 	};
 }

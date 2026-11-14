@@ -1,6 +1,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 
 #include "Asset/Mutation.h"
 #include "Asset/PackageEditing.h"
@@ -30,13 +32,13 @@ namespace Durin::AssetPrivate
 		FByteView Bytes,
 		FByteView BulkBytes,
 		const FPackagePath& PackagePath,
-		FMutationPackageMetadata& OutMetadata) -> FAssetReadResult;
+		FMutationPackageMetadata& OutMetadata) -> std::expected<void, Durin::UnifiedError::FError>;
 	auto ValidateMutationPackageMetadata(
 		const FMutationPackageMetadata& Metadata,
 		uint64 ObjectCount,
-		const FPackagePath* SourcePath = nullptr) -> FAssetReadResult;
+		const FPackagePath* SourcePath = nullptr) -> std::expected<void, Durin::UnifiedError::FError>;
 	auto CollectLoadedPackageSoftReferencesForMutation(
 		DPackage* Package,
 		const FPackagePath& TargetPath,
-		std::vector<FSoftObjectPtr*>& OutValues) -> FAssetReadResult;
+		std::vector<FSoftObjectPtr*>& OutValues) -> std::expected<void, Durin::UnifiedError::FError>;
 }

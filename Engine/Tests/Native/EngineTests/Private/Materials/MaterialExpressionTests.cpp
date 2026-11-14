@@ -1,4 +1,5 @@
 #include "DObject/PackagePersistence.h"
+#include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "Materials/MaterialShaderMap.h"
 #include "Materials/MaterialObjectValidation.h"
@@ -216,6 +217,7 @@ TEST(FMaterialExpressionTests, AuthoringRejectsDisconnectedInvalidNodesAndSnapsh
 
 TEST(FMaterialExpressionTests, MaterialPersistsTypedOutputsAndOwnedParameterDefaults)
 {
+	std::optional<Durin::UnifiedError::FError> LoadedError;
 	using namespace Durin;
 	InitializeDObjectSystem();
 	FScopedOfflinePreparation Offline;
@@ -254,9 +256,9 @@ TEST(FMaterialExpressionTests, MaterialPersistsTypedOutputsAndOwnedParameterDefa
 	const auto Saved = SavePackage(Material->GetPackage());
 	ASSERT_TRUE(Saved) << Saved.Message;
 	ASSERT_TRUE(UnloadPackage(Path)); CollectGarbage(Durin::EObjectFlags::Standalone); Material = nullptr;
-	const auto Loaded = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
-	Material = Loaded.value_or(nullptr);
-	ASSERT_TRUE(Loaded) << (Loaded ? std::string{} : Loaded.error().Message);
+	const auto Loaded = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedError);
+	Material = Loaded;
+	ASSERT_TRUE(Loaded) << (LoadedError ? LoadedError->ToString() : "");
 	EXPECT_EQ(Material->GetExpressionOutputs(), Outputs);
 	ASSERT_EQ(GDObjectArray.GetObjectsWithOuter(Material, EObjectQueryScope::LiveOnly).size(), 3u);
 	Owned = Cast<DMaterialExpressionVector4Parameter>(Material->GetExpressionCollection().Expressions[0].Get());
@@ -354,8 +356,9 @@ TEST(FMaterialExpressionTests, FunctionPersistsOnlyOwnedExpressionsAndAppliesInd
 	ASSERT_TRUE(Saved) << Saved.Message;
 	ASSERT_TRUE(UnloadPackage(Path)); CollectGarbage(Durin::EObjectFlags::Standalone); Function = nullptr;
 	{
-		auto LoadedValue = LoadObjectDetailed<DMaterialFunction>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
-		Function = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = LoadObject<DMaterialFunction>(Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedValueError);
+		Function = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_EQ(Function->GetExpressionCollection().Expressions.size(), 2u);
@@ -938,8 +941,9 @@ TEST(FMaterialExpressionTests, TypedOwnersRoundTripAndDuplicateOnlyApplicableFie
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	Owner = nullptr;
 	{
-		auto LoadedValue = LoadObjectDetailed<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
-		Owner = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedValueError);
+		Owner = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	const auto Children = GDObjectArray.GetObjectsWithOuter(Owner, EObjectQueryScope::LiveOnly);

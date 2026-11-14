@@ -1,6 +1,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 
 #include "Asset/MutationExtensions.h"
 
@@ -26,7 +28,7 @@ namespace Durin::LevelEditor
 
 		auto CaptureSnapshot(
 			FAssetReferenceStoreSnapshot& OutSnapshot)
-			-> FAssetReadResult override;
+			-> std::expected<void, Durin::UnifiedError::FError> override;
 		auto PrepareRewrite(
 			std::span<const FAssetReferenceRewrite> Rewrites,
 			std::string_view ExpectedFingerprint,

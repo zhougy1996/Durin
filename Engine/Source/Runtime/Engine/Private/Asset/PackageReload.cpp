@@ -692,7 +692,7 @@ namespace Durin
 					// Publication is already committed. Dependency retention is safe and
 					// cannot be represented as an ordinary rollback failure.
 					State->Result.Diagnostics.push_back({.Stage = Stage::Retire,
-						.Message = ReleaseResult.Message});
+						.Message = ReleaseResult.error().ToString(), .Cause = ReleaseResult.error()});
 				}
 				RefreshExternalBindings(ExternalRenderConsumers, bTextures, bMaterials);
 #if DURIN_WITH_EDITORONLY_DATA

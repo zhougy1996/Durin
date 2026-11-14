@@ -1,4 +1,6 @@
 #include "Asset/RegistryOperations.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 #include "Asset/Cook.h"
 #include "CookOutputInternal.h"
 #include "CookedAssetRegistry.h"
@@ -212,15 +214,12 @@ namespace Durin
 	auto FAssetRuntimeConfiguration::Cooked(
 		std::filesystem::path InCookRoot,
 		FAssetRuntimeConfiguration& OutConfiguration
-	) -> FAssetReadResult
+	) -> std::expected<void, Durin::UnifiedError::FError>
 	{
 		if (InCookRoot.empty() || !InCookRoot.is_absolute()
 			|| InCookRoot.lexically_normal() != InCookRoot)
 		{
-			return {
-				.Error = EAssetReadError::InvalidPath,
-				.Message = "Cooked asset execution requires an absolute normalized cook root."
-			};
+			return std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::InvalidPath, "Cooked asset execution requires an absolute normalized cook root."});
 		}
 		FAssetRuntimeConfiguration Result;
 		Result.ExecutionDomain = EAssetExecutionDomain::Cooked;
@@ -229,8 +228,7 @@ namespace Durin
 		const auto ManifestPath = Result.CookRoot / "CookManifest.bin";
 		const auto ManifestExists = FFileHelper::FileExists(ManifestPath);
 		if (!ManifestExists)
-			return {.Error = EAssetReadError::IoError,
-				.Message = "Cannot inspect cooked asset manifest."};
+			return std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::IoError, "Cannot inspect cooked asset manifest."});
 		if (*ManifestExists)
 		{
 			const auto ManifestBytes = FFileHelper::LoadFileToArray(ManifestPath,
@@ -238,26 +236,25 @@ namespace Durin
 			FCookManifest Manifest;
 			if (!ManifestBytes || !DecodeCookManifest(*ManifestBytes, Manifest)
 				|| Manifest.TargetProfile != ECookTargetProfile::Game)
-				return {.Error = EAssetReadError::CorruptFile,
-					.Message = "Cooked asset manifest is invalid or has a non-game target."};
+				return std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::CorruptFile, "Cooked asset manifest is invalid or has a non-game target."});
 			Result.CookTargetPlatform = Manifest.TargetPlatform;
 		}
 		OutConfiguration = std::move(Result);
 		return {};
 	}
 
-	auto AssetPrivate::InitializeCookedAssetRegistry(const FAssetRuntimeConfiguration& Configuration) -> FAssetReadResult
+	auto AssetPrivate::InitializeCookedAssetRegistry(const FAssetRuntimeConfiguration& Configuration) -> std::expected<void, Durin::UnifiedError::FError>
 	{
 		const auto ManifestPath = Configuration.GetCookRoot() / "CookManifest.bin";
 		const auto Exists = FFileHelper::FileExists(ManifestPath);
-		if (!Exists) return {EAssetReadError::IoError, "Cannot inspect cooked asset manifest."};
+		if (!Exists) return std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::IoError, "Cannot inspect cooked asset manifest."});
 		// Loose cooked fixtures without a manifest retain their explicit catalog setup.
 		if (!*Exists) return {};
 		const auto Bytes = FFileHelper::LoadFileToArray(ManifestPath, {.MaximumBytes = ManifestHeaderSize + MaximumManifestRecordBytes});
 		FCookManifest Manifest;
 		if (!Bytes || !DecodeCookManifest(*Bytes, Manifest) || Manifest.TargetProfile != ECookTargetProfile::Game
 			|| Manifest.TargetPlatform != Configuration.GetCookTargetPlatform())
-			return {EAssetReadError::CorruptFile, "Cooked asset manifest is invalid or has changed since configuration."};
+			return std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::CorruptFile, "Cooked asset manifest is invalid or has changed since configuration."});
 		FAssetRegistryPublication Publication;
 		Publication.ExpectedRevision = GetAssetCatalogRevision();
 		for (const auto& Entry : Manifest.Entries)
@@ -266,13 +263,13 @@ namespace Durin
             {
                 const auto Data=FFileHelper::LoadFileToArray(Configuration.GetCookRoot()/Entry.RelativePath);
                 if (!Data || Data->size()!=Entry.FileSize || FXxHash128::HashBuffer(*Data)!=FXxHash128{Entry.HashLow,Entry.HashHigh})
-                    return {EAssetReadError::CorruptFile,"Cooked plugin snapshot is missing or modified."};
+                    return std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::CorruptFile, "Cooked plugin snapshot is missing or modified."});
             }
 			if (Entry.Kind != ECookManifestEntryKind::CookedPackage) continue;
 			const std::filesystem::path Relative(Entry.RelativePath);
 			FPackagePath Path;
 			if (Relative.extension() != ".dasset" || !FPackagePath::TryCreate("/" + Entry.RelativePath.substr(0, Entry.RelativePath.size() - 7), Path))
-				return {EAssetReadError::InvalidPath, "Invalid cooked package identity: " + Entry.RelativePath};
+				return std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::InvalidPath, "Invalid cooked package identity: " + Entry.RelativePath});
 			const auto Physical = Configuration.GetCookRoot() / Relative;
 			FAssetPackageHeader Header;
 			if (auto Result = ToAssetResult(ReadAssetPackageHeader(Physical.generic_string(), Path, Header)); !Result) return Result;

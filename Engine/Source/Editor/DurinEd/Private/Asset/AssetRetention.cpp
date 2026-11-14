@@ -1,4 +1,5 @@
 #include "Asset/AssetRetention.h"
+#include "Misc/UnifiedError.h"
 
 #include "Asset/Asset.h"
 #include "DObject/StrongObjectPtr.h"
@@ -49,6 +50,7 @@ namespace Durin
 		FRetainedAsset& OutAsset,
 		std::string& OutError) -> bool
 	{
+		std::optional<Durin::UnifiedError::FError> ResultError;
 		checkf(IsInGameThread(), "Editor asset acquisition must run on the game thread.");
 		OutAsset = {};
 		OutError.clear();
@@ -66,13 +68,12 @@ namespace Durin
 		}
 
 		DObject* Asset = nullptr;
-		const auto Result = LoadObjectDetailed<DObject>(Path);
-		Asset = Result.value_or(nullptr);
+		const auto Result = LoadObject<DObject>(Path, nullptr, &ResultError);
+		Asset = Result;
 		if (!Result || Asset == nullptr)
 		{
-			OutError = (Result ? std::string{} : Result.error().Message).empty()
-				? std::format("Asset {} did not produce an object.", Key)
-				: (Result ? std::string{} : Result.error().Message);
+			OutError = ResultError ? ResultError->ToString()
+				: std::format("Asset {} did not produce an object.", Key);
 			return false;
 		}
 

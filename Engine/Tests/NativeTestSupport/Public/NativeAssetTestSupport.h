@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Asset/Asset.h"
+#include "Misc/UnifiedError.h"
 #include "Asset/PackageRemoval.h"
 #include "Asset/PackageInspection.h"
 #include "Asset/EditorBulkDataStorage.h"
@@ -64,6 +65,7 @@ namespace Durin::Testing
 		const FPackagePath& DestinationPath,
 		DAssetRedirector*& OutRedirector) -> FAssetWriteResult
 	{
+		std::optional<Durin::UnifiedError::FError> ResultError;
 		OutRedirector = nullptr;
 		if (!RedirectorPath.IsValid() || !DestinationPath.IsValid()
 			|| RedirectorPath == DestinationPath)
@@ -114,9 +116,9 @@ namespace Durin::Testing
 			return {EAssetWriteError::InvalidPath,
 				"The redirect destination object path is invalid."};
 		DObject* DestinationObject = nullptr;
-		auto Result = LoadObjectDetailed(DestinationObjectPath, nullptr);
-		DestinationObject = Result.value_or(nullptr);
-		if (!Result) return AssetWriteResultFromRead(Result);
+		auto Result = LoadObject(DestinationObjectPath, nullptr, nullptr, &ResultError);
+		DestinationObject = Result;
+		if (!Result) return AssetWriteResultFromRead(*ResultError);
 
 		// Build serialization fixtures through reflection without adding a runtime test API.
 		FProperty* DestinationProperty =

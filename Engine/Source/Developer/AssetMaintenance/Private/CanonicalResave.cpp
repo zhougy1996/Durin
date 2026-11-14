@@ -1,4 +1,6 @@
 #include "Asset/Testing/PackageSaveTesting.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 #include "AssetMaintenance/CanonicalResave.h"
 #include "Engine/StreamableManager.h"
 #include "Asset/EditorBulkDataStorage.h"
@@ -339,7 +341,7 @@ namespace Durin
 					LoadHandle->ReleaseHandle();
 					CollectGarbage(Durin::EObjectFlags::Standalone); // Explicit offline batch boundary, after dropping local source values.
 				}
-				return FAssetReadResult{};
+				return std::expected<void, Durin::UnifiedError::FError>{};
 			};
 			FAssetLoadReport LoadReport;
 			if (!Package)
@@ -361,7 +363,8 @@ namespace Durin
 					PackagePlan.Status = EAssetCanonicalResavePackageStatus::Failed;
 					Result.Status = Completed ? EAssetCanonicalResaveApplyStatus::Partial : EAssetCanonicalResaveApplyStatus::Failed;
 					Result.Diagnostic = std::format("CanonicalResaveLoadRejected: {}",
-						Load ? "load reported compatibility or mutation risk" : LoadHandle->GetError().Message);
+						Load ? "load reported compatibility or mutation risk" : LoadHandle->GetError()->ToString());
+					Result.Cause = LoadHandle->GetError();
 					return Result;
 				}
 			}
@@ -452,7 +455,8 @@ namespace Durin
 					if (!Released)
 					{
 						Result.Status = EAssetCanonicalResaveApplyStatus::Failed;
-						Result.Diagnostic = Released.Message;
+						Result.Diagnostic = Released.error().ToString();
+						Result.Cause = Released.error();
 						return Result;
 					}
 					PackagePlan.Status = Candidates.empty() ? EAssetCanonicalResavePackageStatus::Skipped
@@ -519,8 +523,7 @@ namespace Durin
 			FAssetPackageCompatibilityRecord Verification;
 			const bool bInjectedVerificationFailure = Options.ShouldFail
 				&& Options.ShouldFail(EAssetCanonicalResaveApplyPhase::VerifyPackage, Index);
-			FAssetReadResult Verify = {EAssetReadError::IoError,
-				"Published package could not be reread."};
+			std::expected<void, Durin::UnifiedError::FError> Verify = std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::IoError, "Published package could not be reread."});
 			if (FFileHelper::LoadFileToArray(PackagePlan.PhysicalPath))
 			{
 				FAssetPackageInspection Inspection;
@@ -546,6 +549,7 @@ namespace Durin
 					? (Completed ? EAssetCanonicalResaveApplyStatus::Partial : EAssetCanonicalResaveApplyStatus::Failed)
 					: EAssetCanonicalResaveApplyStatus::RecoveryRequired;
 				Result.Diagnostic = PackagePlan.Diagnostics.back();
+				if (!Verify) Result.Cause = Verify.error();
 				return Result;
 			}
 			if (Options.ShouldFail && Options.ShouldFail(EAssetCanonicalResaveApplyPhase::ReconcileRegistry, Index))
@@ -572,7 +576,8 @@ namespace Durin
 				{
 					PackagePlan.Status = EAssetCanonicalResavePackageStatus::Failed;
 					Result.Status = EAssetCanonicalResaveApplyStatus::Partial;
-					Result.Diagnostic = Release.Message;
+					Result.Diagnostic = Release.error().ToString();
+					Result.Cause = Release.error();
 					return Result;
 				}
 			}

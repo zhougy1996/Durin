@@ -1,4 +1,6 @@
 #include "Asset/RegistryOperations.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 #include "Asset/References.h"
 #include "Asset/PackageInspection.h"
 #include "AssetRegistry/Scan.h"
@@ -17,7 +19,7 @@ namespace Durin
 	namespace
 	{
 		template<typename TResolution>
-		auto AssetPathResolutionError(const TResolution& Resolution) -> FAssetReadResult;
+		auto AssetPathResolutionError(const TResolution& Resolution) -> std::expected<void, Durin::UnifiedError::FError>;
 
 		auto ValidateLoadedAssetClass(std::string_view Name, const DClass* Expected,
 			bool bTopLevel) -> EAssetPathResolveState
@@ -29,13 +31,11 @@ namespace Durin
 		}
 
 		auto ValidateAdmission(const FAssetRegistrySnapshot& Snapshot,
-			std::span<const FPackagePath> Paths) -> FAssetReadResult
+			std::span<const FPackagePath> Paths) -> std::expected<void, Durin::UnifiedError::FError>
 		{
 			const auto Admission = ValidateAssetRegistryParticipants(Snapshot.Catalog, Paths);
 			if (Admission) return {};
-			return {Admission.State == EAssetRegistryAdmissionState::ProjectionPending
-				? EAssetReadError::ProjectionPending : EAssetReadError::StaleData,
-				std::format("Registry participant admission failed: {}", Admission.FailedParticipant.GetView())};
+			return std::unexpected(Durin::UnifiedError::FError{Admission.State == EAssetRegistryAdmissionState::ProjectionPending ? AssetLoadErrors::ProjectionPending : AssetLoadErrors::StaleData, std::format("Registry participant admission failed: {}", Admission.FailedParticipant.GetView())});
 		}
 	}
 
@@ -64,7 +64,7 @@ namespace Durin
 	}
 
 	auto ValidateResolvedAssetForOperation(const FAssetRegistrySnapshot& Snapshot,
-		const FPackagePathResolveResult& Resolution, const DClass* ExpectedClass) -> FAssetReadResult
+		const FPackagePathResolveResult& Resolution, const DClass* ExpectedClass) -> std::expected<void, Durin::UnifiedError::FError>
 	{
 		if (!Resolution) return AssetPathResolutionError(Resolution);
 		std::vector<FPackagePath> Paths = Resolution.RedirectChain;
@@ -76,11 +76,11 @@ namespace Durin
 		if (Assets.size() == 1)
 			Checked.State = ValidateLoadedAssetClass(Assets.front().AssetClassName, ExpectedClass, true);
 		else if (ExpectedClass) Checked.State = EAssetPathResolveState::RedirectTypeMismatch;
-		return Checked ? FAssetReadResult{} : AssetPathResolutionError(Checked);
+		return Checked ? std::expected<void, Durin::UnifiedError::FError>{} : AssetPathResolutionError(Checked);
 	}
 
 	auto ValidateResolvedAssetForOperation(const FAssetRegistrySnapshot& Snapshot,
-		const FObjectPathResolveResult& Resolution, const DClass* ExpectedClass) -> FAssetReadResult
+		const FObjectPathResolveResult& Resolution, const DClass* ExpectedClass) -> std::expected<void, Durin::UnifiedError::FError>
 	{
 		if (!Resolution) return AssetPathResolutionError(Resolution);
 		std::vector<FPackagePath> Paths{Resolution.RequestedPath.GetPackagePath(), Resolution.FinalPath.GetPackagePath()};
@@ -89,7 +89,7 @@ namespace Durin
 		auto Checked = Resolution;
 		Checked.State = ValidateLoadedAssetClass(Checked.FinalAssetData->AssetClassName,
 			ExpectedClass, Checked.FinalPath.IsTopLevelAsset());
-		return Checked ? FAssetReadResult{} : AssetPathResolutionError(Checked);
+		return Checked ? std::expected<void, Durin::UnifiedError::FError>{} : AssetPathResolutionError(Checked);
 	}
 
 	namespace
@@ -103,42 +103,39 @@ namespace Durin
 				: std::string{};
 		}
 
-		auto Error(EAssetReadError Code, std::string Message) -> FAssetReadResult
+		auto Error(Durin::UnifiedError::FErrorId Id, std::string Message) -> std::expected<void, Durin::UnifiedError::FError>
 		{
-			return {Code, std::move(Message)};
+			return std::unexpected(Durin::UnifiedError::FError{Id, std::move(Message)});
 		}
 
 		template<typename TResolution>
 		auto AssetPathResolutionError(
 			const TResolution& Resolution
-		) -> FAssetReadResult
+		) -> std::expected<void, Durin::UnifiedError::FError>
 		{
 			switch (Resolution.State)
 			{
 			case EAssetPathResolveState::Resolved:
 				return {};
 			case EAssetPathResolveState::ProjectionPending:
-				return {EAssetReadError::ProjectionPending,
-					std::format("Registry projection for package {} is pending synchronization.",
-						Resolution.FinalPath.ToString())};
+				return std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::ProjectionPending, std::format("Registry projection for package {} is pending synchronization.",
+						Resolution.FinalPath.ToString())});
 			case EAssetPathResolveState::NotFound:
-				return Error(EAssetReadError::NotFound, std::format("Asset {} is not present in the registry.", Resolution.RequestedPath.ToString()));
+				return Error(Durin::AssetLoadErrors::NotFound, std::format("Asset {} is not present in the registry.", Resolution.RequestedPath.ToString()));
 			case EAssetPathResolveState::MissingRedirectTarget:
-				return Error(EAssetReadError::NotFound, std::format("Asset redirect {} has a missing target {}.", Resolution.RequestedPath.ToString(), Resolution.FinalPath.ToString()));
+				return Error(Durin::AssetLoadErrors::NotFound, std::format("Asset redirect {} has a missing target {}.", Resolution.RequestedPath.ToString(), Resolution.FinalPath.ToString()));
 			case EAssetPathResolveState::RedirectCycle:
-				return Error(EAssetReadError::CircularDependency, std::format("Asset redirect {} contains a cycle at {}.", Resolution.RequestedPath.ToString(), Resolution.FinalPath.ToString()));
+				return Error(Durin::AssetLoadErrors::CircularDependency, std::format("Asset redirect {} contains a cycle at {}.", Resolution.RequestedPath.ToString(), Resolution.FinalPath.ToString()));
 			case EAssetPathResolveState::RedirectDepthExceeded:
-				return Error(EAssetReadError::CircularDependency, std::format("Asset redirect {} exceeds the maximum redirect depth at {}.", Resolution.RequestedPath.ToString(), Resolution.FinalPath.ToString()));
+				return Error(Durin::AssetLoadErrors::CircularDependency, std::format("Asset redirect {} exceeds the maximum redirect depth at {}.", Resolution.RequestedPath.ToString(), Resolution.FinalPath.ToString()));
 			case EAssetPathResolveState::UnknownTargetClass:
-				return Error(EAssetReadError::UnknownClass, std::format("Asset {} resolves to a target with an unavailable reflected class.", Resolution.RequestedPath.ToString()));
+				return Error(Durin::AssetLoadErrors::UnknownClass, std::format("Asset {} resolves to a target with an unavailable reflected class.", Resolution.RequestedPath.ToString()));
 			case EAssetPathResolveState::RedirectTypeMismatch:
-				return Error(EAssetReadError::TypeMismatch, std::format("Asset {} resolves to a target with an incompatible class.", Resolution.RequestedPath.ToString()));
+				return Error(Durin::AssetLoadErrors::TypeMismatch, std::format("Asset {} resolves to a target with an incompatible class.", Resolution.RequestedPath.ToString()));
 			case EAssetPathResolveState::CorruptRedirector:
-				return Error(EAssetReadError::CorruptFile, std::format("CorruptRedirector: asset {} traverses invalid redirect metadata at {}.", Resolution.RequestedPath.ToString(), Resolution.FinalPath.ToString()));
+				return Error(Durin::PackageReadErrors::CorruptFile, std::format("CorruptRedirector: asset {} traverses invalid redirect metadata at {}.", Resolution.RequestedPath.ToString(), Resolution.FinalPath.ToString()));
 			}
-			return Error(
-				EAssetReadError::CorruptFile,
-				"Asset resolution returned an unknown state."
+			return Error(Durin::PackageReadErrors::CorruptFile, "Asset resolution returned an unknown state."
 			);
 		}
 	} // namespace
@@ -146,7 +143,7 @@ namespace Durin
 	auto BuildCookReachability(
 		std::span<const FPackagePath> Roots,
 		std::vector<FPackagePath>& OutPackages
-	) -> FAssetReadResult
+	) -> std::expected<void, Durin::UnifiedError::FError>
 	{
 		return BuildCookReachability(
 			CaptureAssetRegistrySnapshot(), Roots, OutPackages
@@ -157,15 +154,14 @@ namespace Durin
 		const FAssetRegistrySnapshot& RegistrySnapshot,
 		std::span<const FPackagePath> Roots,
 		std::vector<FPackagePath>& OutPackages
-	) -> FAssetReadResult
+	) -> std::expected<void, Durin::UnifiedError::FError>
 	{
 		OutPackages.clear();
 		FAssetReferenceStoreCapture ExternalRoots;
 		auto Result = CaptureAssetReferenceStores(ExternalRoots);
 		if (!Result)
 		{
-			Result.Message = std::format("CookReachabilityExternalRootProviderFailed: {}",
-				Result.Message);
+			Result.error().PushContext("operation", "CookReachabilityExternalRootProviderFailed");
 			return Result;
 		}
 		return BuildCookReachability(RegistrySnapshot, ExternalRoots, Roots, OutPackages);
@@ -176,7 +172,7 @@ namespace Durin
 		const FAssetReferenceStoreCapture& ExternalRoots,
 		std::span<const FPackagePath> Roots,
 		std::vector<FPackagePath>& OutPackages
-	) -> FAssetReadResult
+	) -> std::expected<void, Durin::UnifiedError::FError>
 	{
 		OutPackages.clear();
 		const FAssetCatalogSnapshot& Catalog = RegistrySnapshot.Catalog;
@@ -211,7 +207,7 @@ namespace Durin
 			{
 				ExpectedClass = FindClassByQualifiedName(FName(Requested.ExpectedClass));
 				if (!ExpectedClass)
-					return Error(EAssetReadError::UnknownClass, std::format("CookReachabilityUnknownRootClass: {} expects unavailable class {}.", Requested.Source, Requested.ExpectedClass));
+					return Error(Durin::AssetLoadErrors::UnknownClass, std::format("CookReachabilityUnknownRootClass: {} expects unavailable class {}.", Requested.Source, Requested.ExpectedClass));
 			}
 			const FPackagePathResolveResult SourceResolution = RegistrySnapshot.ResolvePackagePath(
 				Requested.Path
@@ -219,13 +215,7 @@ namespace Durin
 			if (!SourceResolution)
 			{
 				auto ResolutionError = AssetPathResolutionError(SourceResolution);
-				if (ResolutionError.Error == EAssetReadError::NotFound)
-					ResolutionError.Error = EAssetReadError::MissingDependency;
-				ResolutionError.Message = std::format(
-					"CookReachabilityUnresolvedRoot: {} from {}. {}",
-					Requested.Path.ToString(), Requested.Source,
-					ResolutionError.Message
-				);
+				ResolutionError.error().PushContext("operation", std::format("CookReachabilityUnresolvedRoot: {} from {}", Requested.Path.ToString(), Requested.Source));
 				return ResolutionError;
 			}
 			if (auto Validation = ValidateResolvedAssetForOperation(
@@ -234,9 +224,9 @@ namespace Durin
 			if (!Visited.insert(Source).second) continue;
 			const FPackageData* SourceData = Catalog.FindExact(Source);
 			if (!SourceData || (!SourceData->TopLevelAssets.empty() && std::ranges::all_of(SourceData->TopLevelAssets, &FAssetData::IsRedirector)))
-				return Error(EAssetReadError::InvalidPackageType, std::format("CookReachabilityNonAssetPackage: {} is not a real asset.", Source.ToString()));
+				return Error(Durin::AssetLoadErrors::InvalidPackageType, std::format("CookReachabilityNonAssetPackage: {} is not a real asset.", Source.ToString()));
 			if (!ReferenceIndex.GetSourceFingerprints().contains(Source))
-				return Error(EAssetReadError::StaleData, std::format("CookReachabilityIncompleteReferenceIndex: {} has no current source entry.", Source.ToString()));
+				return Error(Durin::AssetLoadErrors::StaleData, std::format("CookReachabilityIncompleteReferenceIndex: {} has no current source entry.", Source.ToString()));
 			for (const FPackagePath& Dependency : SourceData->Dependencies)
 			{
 				const FPackagePathResolveResult Resolution =
@@ -244,12 +234,7 @@ namespace Durin
 				if (!Resolution)
 				{
 					auto ResolutionError = AssetPathResolutionError(Resolution);
-					if (ResolutionError.Error == EAssetReadError::NotFound)
-						ResolutionError.Error = EAssetReadError::MissingDependency;
-					ResolutionError.Message = std::format(
-						"CookReachabilityUnresolvedHardDependency: {} references {}. {}",
-						Source.ToString(), Dependency.ToString(), ResolutionError.Message
-					);
+					ResolutionError.error().PushContext("operation", std::format("CookReachabilityUnresolvedHardDependency: {} references {}", Source.ToString(), Dependency.ToString()));
 					return ResolutionError;
 				}
 				if (auto Validation = ValidateResolvedAssetForOperation(
@@ -273,7 +258,7 @@ namespace Durin
 					ReferenceClass = FindClassByQualifiedName(
 						FName(Reference.ExpectedClass));
 					if (!ReferenceClass)
-						return Error(EAssetReadError::UnknownClass, std::format(
+						return Error(Durin::AssetLoadErrors::UnknownClass, std::format(
 							"CookReachabilityUnknownReferenceClass: {} expects unavailable class {}.",
 							Reference.DisplayRoute, Reference.ExpectedClass));
 				}
@@ -282,13 +267,7 @@ namespace Durin
 				if (!Resolution)
 				{
 					auto ResolutionError = AssetPathResolutionError(Resolution);
-					if (ResolutionError.Error == EAssetReadError::NotFound)
-						ResolutionError.Error = EAssetReadError::MissingDependency;
-					ResolutionError.Message = std::format(
-						"CookReachabilityUnresolvedReference: {} references {}. {}",
-						Source.ToString(), Reference.TargetPath.ToString(),
-						ResolutionError.Message
-					);
+					ResolutionError.error().PushContext("operation", std::format("CookReachabilityUnresolvedReference: {} references {}", Source.ToString(), Reference.TargetPath.ToString()));
 					return ResolutionError;
 				}
 				if (auto Validation = ValidateResolvedAssetForOperation(
@@ -304,7 +283,7 @@ namespace Durin
 	}
 
 	auto RefreshSavedPackages(
-		std::span<const FPackagePath> Paths) -> FAssetReadResult
+		std::span<const FPackagePath> Paths) -> std::expected<void, Durin::UnifiedError::FError>
 	{
 		if (Paths.empty()) return {};
 		FAssetRegistryPublication Current = CaptureAssetRegistryPublication();
@@ -313,8 +292,7 @@ namespace Durin
 		for (const FPackagePath& Path : Paths)
 		{
 			if (!Path.IsValid() || !Seen.insert(Path).second)
-				return Error(EAssetReadError::InvalidPath,
-					"Projection reconcile contains an invalid or duplicate path.");
+				return Error(Durin::AssetLoadErrors::InvalidPath, "Projection reconcile contains an invalid or duplicate path.");
 			const std::string PhysicalPath = ResolveAuthoredPackagePath(Path);
 			std::error_code Ec;
 			if (PhysicalPath.empty() || !std::filesystem::is_regular_file(PhysicalPath, Ec))
@@ -327,11 +305,9 @@ namespace Durin
 				PhysicalPath, Path, Header); !HeaderResult)
 				return AssetPrivate::ToAssetResult(std::move(HeaderResult));
 			const auto WriteTime = std::filesystem::last_write_time(PhysicalPath, Ec);
-			if (Ec) return Error(EAssetReadError::IoError,
-				"Projection reconcile could not read a package timestamp.");
+			if (Ec) return Error(Durin::PackageReadErrors::IoError, "Projection reconcile could not read a package timestamp.");
 			const uintmax_t FileSize = std::filesystem::file_size(PhysicalPath, Ec);
-			if (Ec) return Error(EAssetReadError::IoError,
-				"Projection reconcile could not read a package size.");
+			if (Ec) return Error(Durin::PackageReadErrors::IoError, "Projection reconcile could not read a package size.");
 			FPackageData Data{
 				.PackagePath = Path,
 				.PhysicalPath = PhysicalPath,

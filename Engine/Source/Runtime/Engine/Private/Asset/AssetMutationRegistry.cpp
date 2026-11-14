@@ -1,5 +1,6 @@
-#include "Asset/AssetReadResult.h"
 #include "AssetMutationRegistryInternal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 
 namespace Durin
 {
@@ -30,7 +31,7 @@ namespace Durin
 	}
 
 	auto CaptureAssetReferenceStores(FAssetReferenceStoreCapture& OutCapture)
-		-> FAssetReadResult
+		-> std::expected<void, Durin::UnifiedError::FError>
 	{
 		OutCapture = {};
 		const auto& Registry = AssetPrivate::GetAssetReferenceStoreRegistry();
@@ -44,13 +45,12 @@ namespace Durin
 			(void)Handle;
 
 			if (!Store)
-				return {EAssetReadError::StaleData, "An asset reference store is unavailable."};
+				return std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::StaleData, "An asset reference store is unavailable."});
 			FAssetReferenceStoreSnapshot Snapshot;
 			const auto Result = Store->CaptureSnapshot(Snapshot);
 			if (!Result) return Result;
 			if (Registry.Revision != Capture.RegistryRevision)
-				return {EAssetReadError::StaleData,
-					"Asset reference store registrations changed during capture."};
+				return std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::StaleData, "Asset reference store registrations changed during capture."});
 			Capture.Stores.push_back(std::move(Snapshot));
 		}
 		OutCapture = std::move(Capture);

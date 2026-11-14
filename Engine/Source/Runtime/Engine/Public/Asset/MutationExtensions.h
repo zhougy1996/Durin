@@ -1,9 +1,10 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 
 #include "Asset/AssetWriteResult.h"
-#include "Asset/AssetReadResult.h"
 
 #include "EngineAPI.h"
 #include "AssetRegistry/Catalog.h"
@@ -68,7 +69,7 @@ namespace Durin
 	// callbacks. Registration changes during callbacks fail with StaleData and
 	// empty output; successful output owns its values and retains no providers.
 	ENGINE_API auto CaptureAssetReferenceStores(FAssetReferenceStoreCapture& OutCapture)
-		-> FAssetReadResult;
+		-> std::expected<void, Durin::UnifiedError::FError>;
 
 	struct FAssetReferenceStorePackageRewrite
 	{
@@ -92,7 +93,7 @@ namespace Durin
 	public:
 		virtual ~IAssetReferenceStore() = default;
 		virtual auto CaptureSnapshot(FAssetReferenceStoreSnapshot& OutSnapshot)
-			-> FAssetReadResult = 0;
+			-> std::expected<void, Durin::UnifiedError::FError> = 0;
 		virtual auto PrepareRewrite(
 			std::span<const FAssetReferenceRewrite> Rewrites,
 			std::string_view ExpectedFingerprint,

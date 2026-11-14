@@ -1,4 +1,6 @@
 #include "Panels/ContentBrowserRefreshCoordinator.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 
 namespace Durin::ContentBrowser::Private
 {
@@ -45,7 +47,7 @@ namespace Durin::ContentBrowser::Private
 		uint64 AssetRegistryRevision,
 		const FReconcileMountedContent& ReconcileMountedContent,
 		const FRefreshPublishedContent& RefreshPublishedContent,
-		const FGetRegistryRevision& GetRegistryRevision) -> FAssetReadResult
+		const FGetRegistryRevision& GetRegistryRevision) -> std::expected<void, Durin::UnifiedError::FError>
 	{
 		ObserveMountedContent(MountedContentRevision);
 		const bool bPanelMountedContentChanged =
@@ -82,7 +84,7 @@ namespace Durin::ContentBrowser::Private
 		uint64 MountedContentRevision,
 		const FReconcileMountedContent& ReconcileMountedContent,
 		const FRefreshPublishedContent& RefreshPublishedContent,
-		const FGetRegistryRevision& GetRegistryRevision) -> FAssetReadResult
+		const FGetRegistryRevision& GetRegistryRevision) -> std::expected<void, Durin::UnifiedError::FError>
 	{
 		ObserveMountedContent(MountedContentRevision);
 		const auto Result = ReconcileMountedContent();

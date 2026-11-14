@@ -59,7 +59,7 @@ namespace Durin
 				Error = "The thumbnail studio environment path is invalid.";
 				return;
 			}
-			auto* EnvironmentCube = LoadObjectDetailed<DTextureCube>(EnvironmentPath).value_or(nullptr);
+			auto* EnvironmentCube = LoadObject<DTextureCube>(EnvironmentPath);
 			auto* SkyLight = EnvironmentCube
 				? PreviewScene->GetWorld()->SpawnActor<ASkyLightActor>("ThumbnailStudioSkyLight") : nullptr;
 			if (!SkyLight)

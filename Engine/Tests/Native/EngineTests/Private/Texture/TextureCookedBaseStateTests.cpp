@@ -1,4 +1,5 @@
 #include "DObject/PackageFormat.h"
+#include "Misc/UnifiedError.h"
 #include "TextureTestSupport.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "Threading/TaskRuntime.h"
@@ -84,6 +85,10 @@ namespace
 
 TEST(FTextureCookedBaseStateTests, CookedFixturesKeepNativePlatformDataIdentities)
 {
+	std::optional<Durin::UnifiedError::FError> AsyncReloadError;
+	std::optional<Durin::UnifiedError::FError> Texture2DLoadError;
+	std::optional<Durin::UnifiedError::FError> TextureCubeLoadError;
+	std::optional<Durin::UnifiedError::FError> VolumeLoadError;
 	InitializeDObjectSystem();
 	const std::filesystem::path Root = CopyFixtureTree("CookedPackages");
 	ASSERT_NO_FATAL_FAILURE(ExpectNoAuthoredState(
@@ -133,9 +138,9 @@ TEST(FTextureCookedBaseStateTests, CookedFixturesKeepNativePlatformDataIdentitie
 		"/Game/Texture2D", Texture2DPath));
 	ASSERT_TRUE(Durin::AdmitAssetPackageToCatalog(Texture2DPath));
 	Durin::DTexture2D* Texture2D = nullptr;
-	const auto Texture2DLoad = Durin::LoadObjectDetailed<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Texture2DPath));
-	Texture2D = Texture2DLoad.value_or(nullptr);
-	ASSERT_TRUE(Texture2DLoad) << (Texture2DLoad ? std::string{} : Texture2DLoad.error().Message);
+	const auto Texture2DLoad = Durin::LoadObject<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Texture2DPath), nullptr, &Texture2DLoadError);
+	Texture2D = Texture2DLoad;
+	ASSERT_TRUE(Texture2DLoad) << (Texture2DLoadError ? Texture2DLoadError->ToString() : "");
 	ASSERT_NE(Texture2D, nullptr);
 	EXPECT_FALSE(Texture2D->HasAnyObjectFlags(Durin::EObjectFlags::Standalone));
 	EXPECT_FALSE(Texture2D->GetSource().IsValid());
@@ -146,9 +151,9 @@ TEST(FTextureCookedBaseStateTests, CookedFixturesKeepNativePlatformDataIdentitie
 		"/Game/TextureCube", TextureCubePath));
 	ASSERT_TRUE(Durin::AdmitAssetPackageToCatalog(TextureCubePath));
 	Durin::DTextureCube* TextureCube = nullptr;
-	const auto TextureCubeLoad = Durin::LoadObjectDetailed<Durin::DTextureCube>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(TextureCubePath));
-	TextureCube = TextureCubeLoad.value_or(nullptr);
-	ASSERT_TRUE(TextureCubeLoad) << (TextureCubeLoad ? std::string{} : TextureCubeLoad.error().Message);
+	const auto TextureCubeLoad = Durin::LoadObject<Durin::DTextureCube>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(TextureCubePath), nullptr, &TextureCubeLoadError);
+	TextureCube = TextureCubeLoad;
+	ASSERT_TRUE(TextureCubeLoad) << (TextureCubeLoadError ? TextureCubeLoadError->ToString() : "");
 	ASSERT_NE(TextureCube, nullptr);
 	EXPECT_FALSE(TextureCube->HasAnyObjectFlags(Durin::EObjectFlags::Standalone));
 	EXPECT_FALSE(TextureCube->GetSource().IsValid());
@@ -159,9 +164,9 @@ TEST(FTextureCookedBaseStateTests, CookedFixturesKeepNativePlatformDataIdentitie
 		"/Game/VolumeTexture", VolumePath));
 	ASSERT_TRUE(Durin::AdmitAssetPackageToCatalog(VolumePath));
 	Durin::DVolumeTexture* Volume = nullptr;
-	const auto VolumeLoad = Durin::LoadObjectDetailed<Durin::DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(VolumePath));
-	Volume = VolumeLoad.value_or(nullptr);
-	ASSERT_TRUE(VolumeLoad) << (VolumeLoad ? std::string{} : VolumeLoad.error().Message);
+	const auto VolumeLoad = Durin::LoadObject<Durin::DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(VolumePath), nullptr, &VolumeLoadError);
+	Volume = VolumeLoad;
+	ASSERT_TRUE(VolumeLoad) << (VolumeLoadError ? VolumeLoadError->ToString() : "");
 	ASSERT_NE(Volume, nullptr);
 	EXPECT_FALSE(Volume->HasAnyObjectFlags(Durin::EObjectFlags::Standalone));
 	EXPECT_FALSE(Volume->GetSource().IsValid());
@@ -188,13 +193,13 @@ TEST(FTextureCookedBaseStateTests, CookedFixturesKeepNativePlatformDataIdentitie
 	EXPECT_FALSE(Durin::GetGameThreadDeferredWorkQueueDiagnostics().bAccepting);
 	// Background work can also finish without installing a deferred executor.
 	ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
-	const auto AsyncReload = Durin::LoadObjectDetailed<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Texture2DPath));
+	const auto AsyncReload = Durin::LoadObject<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Texture2DPath), nullptr, &AsyncReloadError);
 	ASSERT_TRUE(AsyncReload);
-	EXPECT_FALSE((*AsyncReload)->HasPlatformData());
-	EXPECT_FALSE((*AsyncReload)->IsAsyncCacheComplete());
-	EXPECT_FALSE((*AsyncReload)->HasPendingRenderResourceInitialization());
-	ASSERT_TRUE((*AsyncReload)->FinishCachePlatformData(10.0));
-	EXPECT_TRUE((*AsyncReload)->HasPlatformData());
+	EXPECT_FALSE(AsyncReload->HasPlatformData());
+	EXPECT_FALSE(AsyncReload->IsAsyncCacheComplete());
+	EXPECT_FALSE(AsyncReload->HasPendingRenderResourceInitialization());
+	ASSERT_TRUE(AsyncReload->FinishCachePlatformData(10.0));
+	EXPECT_TRUE(AsyncReload->HasPlatformData());
 	EXPECT_FALSE(Durin::GetGameThreadDeferredWorkQueueDiagnostics().bAccepting);
 	ASSERT_TRUE(Durin::UnloadPackage(Texture2DPath));
 }

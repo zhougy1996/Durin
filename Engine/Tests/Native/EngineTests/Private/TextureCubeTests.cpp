@@ -1,4 +1,5 @@
 #include "AssetTools/Relocation.h"
+#include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "Threading/TaskRuntime.h"
 #include "AssetTools/RedirectorFixup.h"
@@ -243,8 +244,9 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	Durin::DTextureCube* Loaded = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DTextureCube>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
-		Loaded = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = Durin::LoadObject<Durin::DTextureCube>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), nullptr, &LoadedValueError);
+		Loaded = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_NE(Loaded, nullptr);
@@ -265,9 +267,10 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/RenamedCube", RenamedPath));
 	ASSERT_TRUE(RelocateAssetForTest(AssetPath, RenamedPath));
 	{
-		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DTextureCube>(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
-			RenamedPath, AssetPath.GetPackageName()));
-		Loaded = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = Durin::LoadObject<Durin::DTextureCube>(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
+			RenamedPath, AssetPath.GetPackageName()), nullptr, &LoadedValueError);
+		Loaded = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	ExpectCubeSourcePath(*Loaded,
@@ -505,8 +508,9 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	Durin::DTextureCube* Loaded = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DTextureCube>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
-		Loaded = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = Durin::LoadObject<Durin::DTextureCube>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), nullptr, &LoadedValueError);
+		Loaded = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_NE(Loaded, nullptr);
@@ -522,9 +526,10 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/RenamedPanorama", RenamedPath));
 	ASSERT_TRUE(RelocateAssetForTest(AssetPath, RenamedPath));
 	{
-		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DTextureCube>(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
-			RenamedPath, AssetPath.GetPackageName()));
-		Loaded = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = Durin::LoadObject<Durin::DTextureCube>(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
+			RenamedPath, AssetPath.GetPackageName()), nullptr, &LoadedValueError);
+		Loaded = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	ExpectCubeSourcePath(*Loaded, GetSourceHint(*Loaded, "panorama"), Panorama);
@@ -566,9 +571,10 @@ TEST(FTextureCubeTests, HDRPanoramaPreservesRadianceAcrossRebuildAndReload)
 	ASSERT_TRUE(Durin::UnloadPackage(Path));
 	Durin::DTextureCube* Loaded = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DTextureCube>(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
-		Path, Path.GetPackageName()));
-		Loaded = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = Durin::LoadObject<Durin::DTextureCube>(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
+		Path, Path.GetPackageName()), nullptr, &LoadedValueError);
+		Loaded = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_NE(Loaded, nullptr);
@@ -776,8 +782,9 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	Durin::DTextureCube* Loaded = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DTextureCube>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
-		Loaded = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = Durin::LoadObject<Durin::DTextureCube>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), nullptr, &LoadedValueError);
+		Loaded = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	ExpectCubeSourcePath(*Loaded, GetSourceHint(*Loaded, "panorama"),
@@ -827,6 +834,7 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 {
 	for (const bool bHDR : {false, true})
 	{
+	std::optional<Durin::UnifiedError::FError> LoadError;
 	const std::filesystem::path Root = InitializeCubeMount();
 	const auto Faces = CopyConventionFaces("CookedCubeSources");
 	const auto Panorama = CopyPanorama("AnalyticalHDR.hdr", "CookHDR.hdr");
@@ -904,9 +912,9 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	Durin::FPackagePath CookedPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedCube", CookedPath));
 	Durin::DTextureCube* Cooked = nullptr;
-	const auto Load = Durin::LoadObjectDetailed<Durin::DTextureCube>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(CookedPath));
-	Cooked = Load.value_or(nullptr);
-	ASSERT_TRUE(Load) << (Load ? std::string{} : Load.error().Message);
+	const auto Load = Durin::LoadObject<Durin::DTextureCube>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(CookedPath), nullptr, &LoadError);
+	Cooked = Load;
+	ASSERT_TRUE(Load) << (LoadError ? LoadError->ToString() : "");
 	ASSERT_NE(Cooked, nullptr);
 	const auto BulkStateBeforeGet = Cooked->GetCookedPlatformData().GetState();
 	const auto PlatformBeforeGetIdentity = Cooked->GetPlatformDataShared();

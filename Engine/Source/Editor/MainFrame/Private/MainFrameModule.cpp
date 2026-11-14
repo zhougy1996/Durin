@@ -1,4 +1,5 @@
 #include "MainFrameModule.h"
+#include "Misc/UnifiedError.h"
 #include "Panels/PythonScriptPanel.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 #include "AssetCompatibilityWindow.h"
@@ -184,16 +185,17 @@ namespace Durin::MainFrame
 		auto LoadReimportObject(std::string_view AssetPath, FSoftObjectPath& OutPath,
 			DObject*& OutObject, std::string& OutError) -> bool
 		{
+			std::optional<Durin::UnifiedError::FError> LoadedError;
 			if (!FSoftObjectPath::TryCreate(AssetPath, OutPath))
 			{
 				OutError = "The selected asset path is invalid.";
 				return false;
 			}
-			const auto Loaded = LoadObjectDetailed<DObject>(OutPath);
-			OutObject = Loaded.value_or(nullptr);
+			const auto Loaded = LoadObject<DObject>(OutPath, nullptr, &LoadedError);
+			OutObject = Loaded;
 			if (!Loaded || !OutObject)
 			{
-				OutError = Loaded ? "The selected asset could not be loaded." : (Loaded ? std::string{} : Loaded.error().Message);
+				OutError = LoadedError ? LoadedError->ToString() : "The selected asset could not be loaded.";
 				return false;
 			}
 			return true;

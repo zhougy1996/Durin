@@ -1,4 +1,6 @@
 #include "Asset/AssetWriteResult.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 #include "AssetMutationStagingInternal.h"
 #include "Asset/PackageEditing.h"
 
@@ -17,9 +19,9 @@ namespace Durin::AssetToolsPrivate
 			return {Code, std::move(Message)};
 		}
 
-		auto Error(EAssetReadError Code, std::string Message) -> FAssetReadResult
+		auto Error(Durin::UnifiedError::FErrorId Id, std::string Message) -> std::expected<void, Durin::UnifiedError::FError>
 		{
-			return {Code, std::move(Message)};
+			return std::unexpected(Durin::UnifiedError::FError{Id, std::move(Message)});
 		}
 
 		auto MakeMutationOperationId() -> std::string
@@ -86,11 +88,11 @@ namespace Durin::AssetToolsPrivate
 
 	auto LoadRelocationBytes(
 		const std::filesystem::path& Path,
-		FByteBuffer& OutBytes) -> FAssetReadResult
+		FByteBuffer& OutBytes) -> std::expected<void, Durin::UnifiedError::FError>
 	{
 		OutBytes.clear();
 		auto Loaded = FFileHelper::LoadFileToArray(Path);
-		if (!Loaded) return Error(EAssetReadError::IoError, Loaded.error().ToString());
+		if (!Loaded) return Error(Durin::PackageReadErrors::IoError, Loaded.error().ToString());
 		OutBytes = std::move(*Loaded);
 		return {};
 	}
@@ -106,7 +108,7 @@ namespace Durin::AssetToolsPrivate
 
 	auto FingerprintRelocationFile(
 		const std::filesystem::path& Path,
-		FAssetPackageFingerprint& OutFingerprint) -> FAssetReadResult
+		FAssetPackageFingerprint& OutFingerprint) -> std::expected<void, Durin::UnifiedError::FError>
 	{
 		FByteBuffer Bytes;
 		auto Result = LoadRelocationBytes(Path, Bytes);

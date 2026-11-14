@@ -1,6 +1,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 
 #include "AssetSubsystemFwd.h"
 #include "Asset/Load.h"
@@ -25,16 +27,16 @@ namespace Durin
 
 		auto LoadPackageDetailed(
 			const FPackagePath& Path,
-			FAssetLoadReport* OutReport = nullptr) -> std::expected<DPackage*, FAssetReadError>;
+			FAssetLoadReport* OutReport = nullptr) -> std::expected<DPackage*, Durin::UnifiedError::FError>;
 		auto LoadObjectDetailed(
 			const FSoftObjectPath& Path,
 			const DClass* ExpectedClass,
-			FAssetLoadReport* OutReport = nullptr) -> std::expected<DObject*, FAssetReadError>;
+			FAssetLoadReport* OutReport = nullptr) -> std::expected<DObject*, Durin::UnifiedError::FError>;
 		auto FindLoadedObject(const FSoftObjectPath& Path, const DClass* ExpectedClass,
 			DObject* Cached) -> DObject*;
 		auto FindResidentPackage(const FPackagePath& Path) const -> DPackage*;
 		auto ReleasePackages(std::span<const TWeakObjectPtr<DPackage>> Packages,
-			std::span<const TWeakObjectPtr<DPackage>> IgnoreSavedDependencies = {}) -> FAssetReadResult;
+			std::span<const TWeakObjectPtr<DPackage>> IgnoreSavedDependencies = {}) -> std::expected<void, Durin::UnifiedError::FError>;
 
 		auto IsPackageLoading(const FPackagePath& Path) const -> bool
 		{
@@ -68,25 +70,25 @@ namespace Durin
 			uint64 Index = 0;
 			uint64 LowLink = 0;
 			bool bOwnResource = false;
-			std::function<FAssetReadResult()> Validate;
+			std::function<std::expected<void, Durin::UnifiedError::FError>()> Validate;
 			std::function<void()> PostLoad;
 		};
 		auto ResolveDependencyPackage(FPendingLoad& Owner, const FPackagePath& Path,
-			DPackage*& OutPackage) -> FAssetReadResult;
+			DPackage*& OutPackage) -> std::expected<void, Durin::UnifiedError::FError>;
 		auto ResolveDependencyObject(FPendingLoad& Owner, const FSoftObjectPath& Path,
-			DObject*& OutObject) -> FAssetReadResult;
-		auto CompleteComponent(FPendingLoad& Root) -> FAssetReadResult;
+			DObject*& OutObject) -> std::expected<void, Durin::UnifiedError::FError>;
+		auto CompleteComponent(FPendingLoad& Root) -> std::expected<void, Durin::UnifiedError::FError>;
 		auto DiscardIncomplete(uint64 FirstIndex) noexcept -> void;
 		auto LoadPackageFromPhysicalPath(
 			const FPackagePath& Path,
 			std::string_view PhysicalPath,
 			DPackage*& OutPackage,
-			FAssetLoadReport* OutReport = nullptr) -> FAssetReadResult;
+			FAssetLoadReport* OutReport = nullptr) -> std::expected<void, Durin::UnifiedError::FError>;
 		auto LoadPackageInternal(
 			const FPackagePath& Path,
 			std::string_view PhysicalPath,
 			DPackage*& OutPackage,
-			FAssetLoadReport* OutReport = nullptr) -> FAssetReadResult;
+			FAssetLoadReport* OutReport = nullptr) -> std::expected<void, Durin::UnifiedError::FError>;
 
 		FAssetRuntimeConfiguration& RuntimeConfiguration;
 		bool& bAcceptingRequests;

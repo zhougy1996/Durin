@@ -1,4 +1,5 @@
 #include "DObject/StrongObjectPtr.h"
+#include "Misc/UnifiedError.h"
 #include "NativeAssetRuntimeTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
 #include "NativePackageUnloadTestSupport.h"
@@ -110,8 +111,9 @@ TEST(FDirectionalLightTests, LinearColorRoundTripsThroughLevelAssets)
 	ASSERT_TRUE(Durin::UnloadPackage(Path));
 	Durin::DLevel* Loaded = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObjectDetailed<Durin::DLevel>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
-		Loaded = LoadedValue.value_or(nullptr);
+		std::optional<Durin::UnifiedError::FError> LoadedValueError;
+		auto LoadedValue = Durin::LoadObject<Durin::DLevel>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedValueError);
+		Loaded = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_NE(Loaded, nullptr);

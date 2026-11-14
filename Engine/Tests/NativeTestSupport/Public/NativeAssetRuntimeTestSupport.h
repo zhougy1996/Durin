@@ -48,7 +48,7 @@ namespace Durin::Testing
 		{
 			auto Configuration = FAssetRuntimeConfiguration::Authored();
 			const auto Result = FAssetRuntimeConfiguration::Cooked(CookRoot, Configuration);
-			if (!Result) return ::testing::AssertionFailure() << Result.Message;
+			if (!Result) return ::testing::AssertionFailure() << Result.error();
 			bNeedsRestore = true;
 			return Restart(std::move(Configuration));
 		}

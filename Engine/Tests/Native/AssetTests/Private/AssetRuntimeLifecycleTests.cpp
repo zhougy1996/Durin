@@ -1,4 +1,5 @@
 #include "Asset/Load.h"
+#include "Misc/UnifiedError.h"
 #include "Asset/Cook.h"
 #include "Asset/Mutation.h"
 #include "NativePackageUnloadTestSupport.h"
@@ -34,7 +35,7 @@ namespace
 	{
 	public:
 		inline static FClassRegistrationInfo Registration;
-		inline static EAssetReadError LoadError = EAssetReadError::None;
+		inline static bool bLoadSucceeded = false;
 		inline static std::string LoadMessage;
 		inline static bool bSawCookedDomain = false;
 		inline static bool bConstructedBeforeObjectInit = false;
@@ -42,13 +43,14 @@ namespace
 
 		explicit TAssetDefaultOwner(const FObjectInitializer& Initializer) : DObject(Initializer)
 		{
+			std::optional<Durin::UnifiedError::FError> ResultError;
 			if (!IsClassDefaultObject()) return;
 			bSawCookedDomain = GetAssetRuntimeConfiguration().IsCooked();
 			bConstructedBeforeObjectInit = !IsDObjectInitialized();
-			const auto Result = LoadObjectDetailed(DefaultAssetPath, DObject::StaticClass());
-			LoadError = Result ? EAssetReadError::None : Result.error().Code;
-			LoadMessage = Result ? "" : Result.error().Message;
-			Asset = Result.value_or(nullptr);
+			const auto Result = LoadObject(DefaultAssetPath, DObject::StaticClass(), nullptr, &ResultError);
+			bLoadSucceeded = (Result != nullptr);
+			LoadMessage = ResultError ? ResultError->ToString() : "";
+			Asset = Result;
 		}
 		static void __DefaultConstructor(const FObjectInitializer& Initializer)
 		{
@@ -86,6 +88,8 @@ namespace
 // Own a fresh process: no global test environment may initialize Engine Asset.
 TEST(FAssetRuntimeLifecycleTests, ColdCookedBootAndReflectedDefaultsPreserveFinalDomain)
 {
+	std::optional<Durin::UnifiedError::FError> BeforeInitError;
+	std::optional<Durin::UnifiedError::FError> ClosedPackageError;
 	GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 	GIsGameThreadIdInitialized = true;
 	FNameInit();
@@ -97,10 +101,11 @@ TEST(FAssetRuntimeLifecycleTests, ColdCookedBootAndReflectedDefaultsPreserveFina
 	const auto InitialObjectCount = GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates).size();
 	auto& Runtime = FAssetRuntimeState::Get();
 	EXPECT_FALSE(Runtime.IsAcceptingRequests());
-	const auto BeforeInit = LoadObjectDetailed(DefaultAssetPath, nullptr);
+	const auto BeforeInit = LoadObject(DefaultAssetPath, nullptr, nullptr, &BeforeInitError);
 	ASSERT_FALSE(BeforeInit);
-	EXPECT_EQ(BeforeInit.error().Code, EAssetReadError::InUse);
-	EXPECT_NE(BeforeInit.error().Message.find("InitializeAssetRuntime"), std::string::npos);
+	ASSERT_TRUE(BeforeInitError);
+	EXPECT_TRUE(BeforeInitError->Is(AssetLoadErrors::NotInitialized));
+	EXPECT_EQ(GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates).size(), InitialObjectCount);
 	EXPECT_EQ(SavePackage(nullptr).Error, EAssetWriteError::InUse);
 	bool bCallback = false;
 	const auto Rejected = GetStreamableManager().RequestAsyncLoad(DefaultAssetPath, [&](const auto&) { bCallback = true; });
@@ -140,12 +145,12 @@ TEST(FAssetRuntimeLifecycleTests, ColdCookedBootAndReflectedDefaultsPreserveFina
 	DObjectInit();
 	EXPECT_TRUE(TAssetDefaultOwner<0>::bSawCookedDomain);
 	EXPECT_TRUE(TAssetDefaultOwner<0>::bConstructedBeforeObjectInit);
-	EXPECT_EQ(TAssetDefaultOwner<0>::LoadError, EAssetReadError::None) << TAssetDefaultOwner<0>::LoadMessage;
+	EXPECT_TRUE(TAssetDefaultOwner<0>::bLoadSucceeded) << TAssetDefaultOwner<0>::LoadMessage;
 	ASSERT_NE(TAssetDefaultOwner<0>::StaticClass()->GetDefaultObject(), nullptr);
 
 	TAssetDefaultOwner<1>::Register();
 	ProcessNewlyLoadedDObjects();
-	ASSERT_EQ(TAssetDefaultOwner<1>::LoadError, EAssetReadError::None) << TAssetDefaultOwner<1>::LoadMessage;
+	ASSERT_TRUE(TAssetDefaultOwner<1>::bLoadSucceeded) << TAssetDefaultOwner<1>::LoadMessage;
 	EXPECT_TRUE(TAssetDefaultOwner<1>::bSawCookedDomain);
 	const auto* Default = static_cast<const TAssetDefaultOwner<1>*>(TAssetDefaultOwner<1>::StaticClass()->GetDefaultObject());
 	ASSERT_NE(Default, nullptr);
@@ -163,9 +168,10 @@ TEST(FAssetRuntimeLifecycleTests, ColdCookedBootAndReflectedDefaultsPreserveFina
 	EXPECT_FALSE(InitializeAssetRuntime());
 	EXPECT_EQ(GetAssetRuntimeConfiguration(), Configuration);
 	EXPECT_EQ(Soft.Get(), nullptr); // Cached soft references cannot bypass closed admission.
-	const auto ClosedPackage = LoadPackageDetailed(DefaultAssetPath.GetPackagePath());
+	const auto ClosedPackage = LoadPackage(DefaultAssetPath.GetPackagePath(), nullptr, &ClosedPackageError);
 	ASSERT_FALSE(ClosedPackage);
-	EXPECT_EQ(ClosedPackage.error().Code, EAssetReadError::ShuttingDown);
+	ASSERT_TRUE(ClosedPackageError);
+	EXPECT_TRUE(ClosedPackageError->Is(AssetLoadErrors::ShuttingDown));
 	ReleaseClassDefaultObjects();
 	ShutdownAssetRuntime();
 	CollectGarbage(Durin::EObjectFlags::Standalone);

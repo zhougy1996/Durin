@@ -1,4 +1,6 @@
 #include "HAL/PlatformLibrary.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 #include "HAL/PlatformProcess.h"
 #include "Profiling/Profiling.h"
 #include "Asset/PackageSerialization.h"
@@ -405,7 +407,7 @@ namespace
 		{
 			const FAssetPackageCompatibilityProbeInput* Input = nullptr;
 			FAssetPackageInspection Inspection;
-			FAssetReadResult Result;
+			std::expected<void, Durin::UnifiedError::FError> Result;
 			std::vector<uint64> InspectionNanoseconds;
 			std::vector<FQualificationDescriptor> Descriptors;
 			std::vector<std::filesystem::path> Orphans;
@@ -434,7 +436,7 @@ namespace
 						Package.Inspection); !Storage)
 				{
 					Package.DescriptorDiagnostic = FormatEditorBulkDataStorageError(Storage.error());
-					Package.Result = {.Error = EAssetReadError::CorruptFile, .Message = Package.DescriptorDiagnostic};
+					Package.Result = std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::CorruptFile, Package.DescriptorDiagnostic});
 				}
 				else
 				{
@@ -512,7 +514,7 @@ namespace
 			PackageNode.SetChildValue("physicalPath", Package.Input->PhysicalPath);
 			PackageNode.SetChildValue("fileSize", static_cast<uint64>(Package.Input->ExpectedFileSize));
 			PackageNode.SetChildValue("inspection", Package.Result ? "Ready" : "Failed");
-			PackageNode.SetChildValue("diagnostic", Package.Result.Message);
+			PackageNode.SetChildValue("diagnostic", (Package.Result ? std::string{} : Package.Result.error().ToString()));
 			PackageNode.SetChildValue("formatVersion", Package.Inspection.Header.FormatVersion);
 			PackageNode.SetChildValue("fileBytesRead", static_cast<uint64>(Package.Input->ExpectedFileSize));
 
@@ -564,7 +566,7 @@ namespace
 			const auto Result = InspectAssetPackage(
 				Input.PhysicalPath, Input.PackagePath, Inspection);
 			PackageNode.SetChildValue("inspection", Result ? "Ready" : "Failed");
-			PackageNode.SetChildValue("diagnostic", Result.Message);
+			PackageNode.SetChildValue("diagnostic", (Result ? std::string{} : Result.error().ToString()));
 			if (!Result) continue;
 			PackageNode.SetChildValue("formatVersion", Inspection.Header.FormatVersion);
 			FJsonNodeRef Assets = PackageNode.AddArray("assets");
@@ -592,7 +594,7 @@ namespace
 				Input.PackagePath, Inspection, References);
 			PackageNode.SetChildValue("referenceInspection",
 				ReferenceResult ? "Ready" : "Failed");
-			PackageNode.SetChildValue("referenceDiagnostic", ReferenceResult.Message);
+			PackageNode.SetChildValue("referenceDiagnostic", ReferenceResult.error().ToString());
 			FJsonNodeRef ReferenceArray = PackageNode.AddArray("references");
 			if (ReferenceResult)
 			{
@@ -1204,7 +1206,7 @@ int main(int ArgC, char** ArgV)
 			Durin::FSoftObjectPath Path;
 			Durin::FSoftObjectPath::TryCreate(std::format("{}.{}", PackagePath.ToString(), FunctionNames[Index]), Path);
 			Durin::DMaterialFunction* Function = nullptr;
-			if (!(Function = Durin::LoadObjectDetailed<Durin::DMaterialFunction>(Path).value_or(nullptr))) { bInventoryValid = false; continue; }
+			if (!(Function = Durin::LoadObject<Durin::DMaterialFunction>(Path))) { bInventoryValid = false; continue; }
 			*FunctionSlots[Index] = Function;
 			bExactDependencies &= Durin::AssetForge::Builtins::MakeStandardMaterialFunctionExpressions(
 				static_cast<Durin::AssetForge::Builtins::EStandardMaterialFunction>(Index + 1)).Matches(*Function);
@@ -1224,7 +1226,7 @@ int main(int ArgC, char** ArgV)
 				Durin::FSoftObjectPath Path;
 				Durin::DObject* Object = nullptr;
 				if (!Durin::FSoftObjectPath::TryCreate(Asset.AssetPath, std::span<const std::string>{}, Path)
-					|| !(Object = Durin::LoadObjectDetailed<Durin::DObject>(Path).value_or(nullptr)))
+					|| !(Object = Durin::LoadObject<Durin::DObject>(Path)))
 				{
 					Row.SetChildValue("status", "Load failed; rebuild required before writes");
 					bInventoryValid = false;

@@ -1,4 +1,5 @@
 #include "Materials/DefaultMaterialService.h"
+#include "Misc/UnifiedError.h"
 
 #include "Asset/AssetCompilingManager.h"
 #include "Asset/Asset.h"
@@ -31,6 +32,7 @@ namespace Durin
 
 	auto InitializeDefaultMaterialService() -> bool
 	{
+		std::optional<Durin::UnifiedError::FError> LoadError;
 		CheckDefaultMaterialGameThread();
 		if (GDefaultMaterialService.bInitialized)
 		{
@@ -50,8 +52,8 @@ namespace Durin
 			return false;
 		}
 
-		const auto Load = LoadObjectDetailed<DMaterial>(Path);
-		DMaterial* Material = Load.value_or(nullptr);
+		const auto Load = LoadObject<DMaterial>(Path, nullptr, &LoadError);
+		DMaterial* Material = Load;
 		if (Material == nullptr
 			|| Material->GetClass() != DMaterial::StaticClass())
 		{
@@ -63,7 +65,7 @@ namespace Durin
 				DefaultMaterialObjectPath,
 				bool(Load)
 					? "asset type or object was invalid"
-					: Load.error().Message);
+					: LoadError->ToString());
 			return false;
 		}
 

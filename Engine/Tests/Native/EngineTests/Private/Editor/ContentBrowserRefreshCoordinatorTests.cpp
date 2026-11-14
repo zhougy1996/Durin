@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 #include "Transactions/Transactor.h"
 #include "Actors/ActorChange.h"
 #include "Editor/EditorTransactionTestSupport.h"
@@ -95,7 +97,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 	uint64 RegistryRevision = 11;
 	const auto Reconcile = [&] {
 		++ScanCount;
-		return Durin::FAssetReadResult{};
+		return std::expected<void, Durin::UnifiedError::FError>{};
 	};
 	const auto Refresh = [&](const Durin::FContentChangeBatch&) { ++RefreshCount; };
 	const auto GetRegistryRevision = [&] { return RegistryRevision; };
@@ -120,7 +122,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 	const auto Reconcile = [&] {
 		++ScanCount;
 		++RegistryRevision;
-		return Durin::FAssetReadResult{};
+		return std::expected<void, Durin::UnifiedError::FError>{};
 	};
 	const auto Refresh = [&](const Durin::FContentChangeBatch&) { ++RefreshCount; };
 	const auto GetRegistryRevision = [&] { return RegistryRevision; };
@@ -156,7 +158,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 	const auto Reconcile = [&] {
 		++ScanCount;
 		++RegistryRevision;
-		return Durin::FAssetReadResult{};
+		return std::expected<void, Durin::UnifiedError::FError>{};
 	};
 	const auto GetRegistryRevision = [&] { return RegistryRevision; };
 
@@ -184,10 +186,9 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 	const auto Reconcile = [&] {
 		++ScanCount;
 		if (bFail)
-			return Durin::FAssetReadResult{
-				Durin::EAssetReadError::IoError, "forced scan failure"};
+			return std::expected<void, Durin::UnifiedError::FError>{std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::IoError, "forced scan failure"})};
 		++RegistryRevision;
-		return Durin::FAssetReadResult{};
+		return std::expected<void, Durin::UnifiedError::FError>{};
 	};
 	const auto Refresh = [&](const Durin::FContentChangeBatch&) { ++RefreshCount; };
 	const auto GetRegistryRevision = [&] { return RegistryRevision; };
@@ -225,9 +226,8 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 	const auto Reconcile = [&] {
 		++ScanCount;
 		if (bFail)
-			return Durin::FAssetReadResult{
-				Durin::EAssetReadError::IoError, "forced scan failure"};
-		return Durin::FAssetReadResult{};
+			return std::expected<void, Durin::UnifiedError::FError>{std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::IoError, "forced scan failure"})};
+		return std::expected<void, Durin::UnifiedError::FError>{};
 	};
 	const auto Refresh = [&](const Durin::FContentChangeBatch&) { ++RefreshCount; };
 	const auto GetRegistryRevision = [] { return uint64{40}; };
@@ -291,7 +291,7 @@ TEST(FContentBrowserRefreshCoordinatorTests, SharedReconciliationKeepsIndependen
 	First.SetChangeSources(Capture, {});
 	Second.SetChangeSources(Capture, {});
 	int Scans = 0;
-	const auto Reconcile = [&] { ++Scans; return FAssetReadResult{}; };
+	const auto Reconcile = [&] { ++Scans; return std::expected<void, Durin::UnifiedError::FError>{}; };
 	FContentChangeBatch FirstChanges, SecondChanges;
 	ASSERT_TRUE(First.Synchronize(Revision, 1, Reconcile,
 		[&](const auto& Batch) { FirstChanges = Batch; }, [] { return uint64{1}; }));

@@ -1,4 +1,5 @@
 #include "Asset/AssetPicker.h"
+#include "Misc/UnifiedError.h"
 #include "Thumbnail/ThumbnailManager.h"
 
 #include "Asset/Asset.h"
@@ -360,6 +361,7 @@ namespace Durin::AssetPicker
 			{
 				for (int Index = Clipper.DisplayStart; Index < Clipper.DisplayEnd; ++Index)
 				{
+					std::optional<Durin::UnifiedError::FError> LoadResultError;
 					const FTopLevelAssetPath& Path = *Search.MatchingPaths[Index];
 					const std::string PathString = Path.ToString();
 					const bool bSelected = CurrentPath == PathString;
@@ -391,11 +393,11 @@ namespace Durin::AssetPicker
 						continue;
 					}
 					DObject* LoadedAsset = nullptr;
-					const auto LoadResult = LoadObjectDetailed<DObject>(Path);
-					LoadedAsset = LoadResult.value_or(nullptr);
+					const auto LoadResult = LoadObject<DObject>(Path, nullptr, &LoadResultError);
+					LoadedAsset = LoadResult;
 					if (!LoadResult || !LoadedAsset)
 					{
-						PickerResult.Error = LoadResult ? "The selected asset could not be loaded." : (LoadResult ? std::string{} : LoadResult.error().Message);
+						PickerResult.Error = LoadResultError ? LoadResultError->ToString() : "The selected asset could not be loaded.";
 						continue;
 					}
 					AssignObject(LoadedAsset);
@@ -455,13 +457,13 @@ namespace Durin::AssetPicker
 					if (bPathAssignment) AssignPath(DroppedPath.ToString());
 					else
 					{
+						std::optional<Durin::UnifiedError::FError> LoadResultError;
 						DObject* LoadedAsset = nullptr;
-						const auto LoadResult = LoadObjectDetailed<DObject>(DroppedPath);
-						LoadedAsset = LoadResult.value_or(nullptr);
+						const auto LoadResult = LoadObject<DObject>(DroppedPath, nullptr, &LoadResultError);
+						LoadedAsset = LoadResult;
 						if (!LoadResult || !LoadedAsset)
-							PickerResult.Error = LoadResult
-								? "The dropped asset could not be loaded."
-								: (LoadResult ? std::string{} : LoadResult.error().Message);
+							PickerResult.Error = LoadResultError ? LoadResultError->ToString()
+								: "The dropped asset could not be loaded.";
 						else if (!MatchesClass(LoadedAsset->GetClass(), Config.RequiredClass, Config.ClassPolicy))
 							PickerResult.Error = "The loaded asset does not match the required class.";
 						else AssignObject(LoadedAsset);

@@ -78,15 +78,15 @@ implicitly recompress. GPU formats, DDC keys and Cook inputs remain unchanged.
 ## Serialization and production ownership
 
 Engine's DAST adapters classify and format CoreDObject failures at explicit
-boundaries. `FAssetReadResult` carries a read classification and owned diagnostic
-text. Package capture keeps `std::expected<void, FPackageCaptureError>`; codec encoding and
+boundaries. Status-only reads return `std::expected<void, UnifiedError::FError>`;
+only failures carry an owning identity and context. Package capture keeps `std::expected<void, FPackageCaptureError>`; codec encoding and
 `SerializeAssetPackageBytes/Closure` return the existing
 `ObjectPackage::FPackageWriterResult`. Failed encoding leaves the caller's output
 closure unchanged. Live capture and linker mutation share one encode-and-read-back
 validation path; relocation consumers do not repeat that validation.
 
 Saves and mutations use `FAssetWriteResult` for error, message and observed write
-effect only. Mutation file ledgers and backup roots belong to
+effect, with an optional structured `Cause` for adapted failures. Mutation file ledgers and backup roots belong to
 `FAssetMutationResultDetails`; editor deletion operations expose their native
 write result and affected file ledger directly. Physical save diagnostics remain in the package writer,
 with retained backup paths included in failure text at the asset boundary.
@@ -94,12 +94,12 @@ with retained backup paths included in failure text at the asset boundary.
 adapters. Neither read nor encoding failures implicitly convert to a write result,
 and preparation failures never claim committed content.
 
-Field application through `LoadAuthoredObject` returns `FAssetReadResult`, with
-success derived only from `EAssetReadError::None`. Failures own a complete diagnostic:
+Field application through `LoadAuthoredObject` returns `std::expected<void, UnifiedError::FError>`, with
+success represented by an expected value. Failures own a complete diagnostic:
 object identity, Archive field route and first failure, plus dependency,
 bounds or type details captured at the producer. Original serializer failure
 messages survive archive and candidate destruction. External resolver failures
-contribute only classification and diagnostic text; operation recovery metadata
+retain their identity and appended field/object context; operation recovery metadata
 stays with the resolver's owning operation. Serializers retain their void
 interface and in-place writes. The same field application serves ordinary and
 private loading; the caller owns candidate cleanup and PostLoad policy.
