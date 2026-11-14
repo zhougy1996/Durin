@@ -5,7 +5,6 @@
 #include "DObject/WeakObjectPtr.h"
 
 #include "Asset/Asset.h"
-#include "DObject/Package.h"
 #include "Math/Operations.h"
 #include "Texture/TextureCube.h"
 #include "RenderResource.h"
@@ -16,20 +15,6 @@ namespace Durin::TextureEditor
 {
 	namespace
 	{
-		constexpr uint32 TextureCubeThumbnailGeneratorSchema = 2;
-		constexpr uint32 TextureCubeThumbnailShaderContract = 2;
-
-		auto MakeFingerprint(const FPackageData& Data, const FAssetData& Asset)
-			-> FAssetThumbnailPackageFingerprint
-		{
-			return {
-				.AssetPath = Asset.AssetPath,
-				.PackagePath = Data.PackagePath,
-				.AssetClassName = Asset.AssetClassName,
-				.PackageFormatVersion = Data.FormatVersion,
-				.FileSize = static_cast<uint64>(Data.FileSize),
-				.LastWriteTimeTicks = Data.LastWriteTimeTicks};
-		}
 
 		auto CheckTextureCubeReadiness(
 			DTextureCube* TextureCube) -> std::expected<bool, std::string>
@@ -89,136 +74,9 @@ namespace Durin::TextureEditor
 				.ClearAlpha = 1.0f};
 		}
 
-		class FTextureCubeThumbnailDrawState final
-		{
-		public:
-			FTextureCubeThumbnailDrawState(DThumbnailRenderer& InRenderer, DObject* Object, FTopLevelAssetPath Path)
-				: Renderer(InRenderer), AssetPath(std::move(Path))
-			{
-				TextureCube = Cast<DTextureCube>(Object);
-				AssetRevision = Object->GetPackage() ? Object->GetPackage()->GetEditRevision() : 0;
-				SourceIdentity = TextureCube.Get()->GetSource().GetIdentity();
-			}
-
-			~FTextureCubeThumbnailDrawState() { ResetPreview(); }
-
-			auto Draw(FThumbnailDrawContext& Context) -> void
-			{
-				auto Readiness = CheckTextureCubeReadiness(TextureCube.Get());
-				if (!Readiness)
-					return Context.Fail(std::move(Readiness.error()));
-				if (*Readiness && !bShadersRequested && GEngine && GEngine->GetRendererModule())
-				{
-					Shaders = GEngine->GetRendererModule()->PrepareSceneThumbnailShaders();
-					bShadersRequested = true;
-				}
-				auto ShaderReady = Shaders.Poll();
-				if (!ShaderReady) return Context.Fail(ShaderReady.error());
-				if (!(*Readiness && *ShaderReady)) return;
-
-				if (!TextureCube.IsValid())
-				{
-					return Context.Fail(std::format(
-						"The rendered-thumbnail TextureCube {} is unavailable.",
-						AssetPath.ToString()));
-				}
-				Snapshot = TextureCube.Get()->GetResource()->GetTextureRHI_GameThread();
-				const FRHITextureReferenceRef TextureReference = Snapshot
-					? FTextureReference(Snapshot).GetTextureReferenceRHI() : FRHITextureReferenceRef{};
-				if (TextureReference == nullptr)
-				{
-					return Context.Fail(std::format(
-						"The rendered-thumbnail TextureCube {} has no texture reference.",
-						AssetPath.ToString()));
-				}
-				if (!Context.TrySetScene(Renderer.GetPreviewScene())) return;
-				Context.SetView(MakeTextureCubeThumbnailView());
-				Context.SetViewEnvironment({.TextureReference = TextureReference});
-				Context.SetValidation([this] { return IsSnapshotCurrent(); });
-				Context.MarkReady();
-			}
-
-			auto IsSnapshotCurrent() const -> bool
-			{
-				auto Readiness = CheckTextureCubeReadiness(TextureCube.Get());
-				if (!Readiness) return false;
-				if (!*Readiness || !TextureCube.IsValid()
-					|| (TextureCube.Get()->GetPackage() ? TextureCube.Get()->GetPackage()->GetEditRevision() : 0) != AssetRevision
-					|| TextureCube.Get()->GetSource().GetIdentity() != SourceIdentity
-					|| !Snapshot || TextureCube.Get()->GetResource()->GetTextureRHI_GameThread() != Snapshot)
-				{
-					return false;
-				}
-				return true;
-			}
-
-			auto ResetPreview() -> void
-			{
-				Snapshot = nullptr;
-				TextureCube = nullptr;
-				Shaders = {};
-				bShadersRequested = false;
-			}
-
-		private:
-			FShaderMapPreparation Shaders;
-			bool bShadersRequested = false;
-			FXxHash128 SourceIdentity{};
-			FTextureRHIRef Snapshot;
-			DThumbnailRenderer& Renderer;
-			FTopLevelAssetPath AssetPath;
-			TWeakObjectPtr<DTextureCube> TextureCube;
-			uint64 AssetRevision = 0;
-		};
 	} // namespace
 
 	DTextureCubeThumbnailRenderer::DTextureCubeThumbnailRenderer(const FObjectInitializer& Initializer) : Super(Initializer) {}
-
-	auto DTextureCubeThumbnailRenderer::GetRegistration() const
-		-> FThumbnailRenderingInfo
-	{
-		return {
-			.AssetClassName = DTextureCube::StaticClass()->GetQualifiedName().ToString(),
-			.RendererName = "TextureCubeRenderedThumbnail",
-			.GeneratorSchemaVersion = TextureCubeThumbnailGeneratorSchema};
-	}
-
-	auto DTextureCubeThumbnailRenderer::DescribeThumbnail(const FAssetThumbnailPackageFingerprint& Asset) -> std::expected<FThumbnailCacheDescription, std::string>
-	{
-		FThumbnailCacheDescription Result;
-
-		const FThumbnailRenderingInfo Registration = GetRegistration();
-		if (Asset.AssetClassName != Registration.AssetClassName)
-		{
-			return std::unexpected("The TextureCube thumbnail renderer received the wrong asset class.");
-		}
-		const FAssetCatalogEntry Entry = FindAssetExact(Asset.AssetPath, EAssetQuerySource::OnDisk);
-		if (!Entry || Entry.Package->PackagePath != Asset.PackagePath)
-		{
-			return std::unexpected(std::format(
-				"TextureCube thumbnail registry data is missing for {}.",
-				Asset.AssetPath.ToString()));
-		}
-		if (MakeFingerprint(*Entry.Package, *Entry.Asset) != Asset)
-		{
-			return std::unexpected(std::format(
-				"TextureCube thumbnail registry data changed for {}; refresh the request snapshot.",
-				Asset.AssetPath.ToString()));
-		}
-
-		const FThumbnailVisualContract Visual;
-		Result = {
-			.Output = Visual.Output,
-			.PreviewFixtureIdentity =
-				std::string(
-					FThumbnailVisualContract::TextureCubeEnvironmentViewIdentity),
-			.PreviewFixtureVersion =
-				FThumbnailVisualContract::TextureCubeEnvironmentViewVersion,
-			.ShaderContractVersion = TextureCubeThumbnailShaderContract};
-
-		Result.bHasTransparency = false;
-		return Result;
-	}
 
 	auto DTextureCubeThumbnailRenderer::CanVisualizeAsset(DObject* Object) const -> bool
 	{
@@ -227,9 +85,29 @@ namespace Durin::TextureEditor
 
 	auto DTextureCubeThumbnailRenderer::Draw(DObject* Object, FThumbnailDrawContext& Context) -> void
 	{
-		if (!CanVisualizeAsset(Object)) return Context.Fail("The renderer cannot visualize this asset.");
-		auto& State = Context.GetState<FTextureCubeThumbnailDrawState>(*this, Object, Context.GetAssetPath());
-		State.Draw(Context);
+		auto* Texture = Cast<DTextureCube>(Object);
+		if (!Texture) return Context.Fail("The renderer cannot visualize this asset.");
+		auto Readiness = CheckTextureCubeReadiness(Texture);
+		if (!Readiness) return Context.Fail(Readiness.error());
+		if (!*Readiness) return;
+		if (!Shaders && GEngine && GEngine->GetRendererModule())
+			Shaders = GEngine->GetRendererModule()->PrepareSceneThumbnailShaders();
+		if (!Shaders) return;
+		auto Ready = Shaders->Poll();
+		if (!Ready) return Context.Fail(Ready.error());
+		if (!*Ready) return;
+		auto Snapshot = Texture->GetResource()->GetTextureRHI_GameThread();
+		const auto Reference = FTextureReference(Snapshot).GetTextureReferenceRHI();
+		if (!Reference) return Context.Fail("The TextureCube has no texture reference.");
+		if (!Context.TrySetScene(GetPreviewScene())) return;
+		Context.SetView(MakeTextureCubeThumbnailView());
+		Context.SetViewEnvironment({.TextureReference = Reference});
+		Context.SetValidation([Texture = TWeakObjectPtr<DTextureCube>(Texture), Snapshot, Identity = Texture->GetSource().GetIdentity()] {
+			auto Ready = CheckTextureCubeReadiness(Texture.Get());
+			return Ready && *Ready && Texture.Get()->GetSource().GetIdentity() == Identity
+				&& Texture.Get()->GetResource()->GetTextureRHI_GameThread() == Snapshot;
+		});
+		Context.MarkReady();
 	}
 
 } // namespace Durin::TextureEditor

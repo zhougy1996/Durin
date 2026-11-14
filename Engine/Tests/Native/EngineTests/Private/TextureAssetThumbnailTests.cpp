@@ -41,16 +41,6 @@ namespace
 		return Durin::Testing::MakePackageLeafTopLevelAssetPathForTests(PackagePath);
 	}
 
-	auto MakeFingerprint(const Durin::FPackageData& Data) -> Durin::FAssetThumbnailPackageFingerprint
-	{
-		return {
-				.AssetPath = MakeAssetPath(Data.PackagePath),
-				.PackagePath = Data.PackagePath,
-				.AssetClassName = Data.TopLevelAssets.front().AssetClassName,
-				.PackageFormatVersion = Data.FormatVersion,
-				.FileSize = static_cast<uint64>(Data.FileSize),
-				.LastWriteTimeTicks = Data.LastWriteTimeTicks};
-	}
 }
 
 class FTextureAssetSessionTests : public testing::Test
@@ -178,34 +168,7 @@ TEST_F(FTextureAssetSessionTests, RelocationPreservesOpenTextureRoutingAndSave)
 	EXPECT_TRUE(Session->CloseWindow(Durin::EAssetEditorCloseReason::AssetEditorHostClosed));
 }
 
-TEST(FTextureAssetThumbnailTests, Texture2DRendererDescribesBuiltOutputWithoutSourcePixels)
-{
-	Durin::Tests::FAssetThumbnailFixtureSet Fixtures;
-	std::string Error;
-	ASSERT_TRUE(Durin::Tests::CreateAssetThumbnailFixtures(Fixtures, Error))
-		<< Error;
-	Durin::FPackagePath TexturePath;
-	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
-		Durin::Tests::FAssetThumbnailFixtureSet::ParentTexturePath,
-		TexturePath));
-	const Durin::FPackageCatalogEntry Data =
-		Durin::FindPackageExact(TexturePath);
-	ASSERT_NE(Data, nullptr);
 
-	auto RendererOwner = Durin::MakeThumbnailRenderer<Durin::TextureEditor::DTextureThumbnailRenderer>();
-	auto& Renderer = *RendererOwner;
-	Durin::FThumbnailCacheDescription Captured;
-	auto CapturedResult = Renderer.DescribeThumbnail(MakeFingerprint(*Data));
-	ASSERT_TRUE(CapturedResult) << CapturedResult.error();
-	Captured = std::move(*CapturedResult);
-	EXPECT_EQ(Renderer.GetRegistration().GeneratorSchemaVersion, 2u);
-	EXPECT_EQ(Captured.ShaderContractVersion, 2u);
-
-	EXPECT_EQ(Captured.Output.Width, 256u);
-	EXPECT_EQ(Captured.Output.Height, 256u);
-	EXPECT_EQ(Renderer.GetRegistration().RendererName, "Texture2DBuiltThumbnail");
-	EXPECT_FALSE(Captured.PreviewFixtureIdentity.empty());
-}
 
 TEST(FTextureAssetThumbnailTests, ModuleStartupPublishesIndependentRenderersWithoutSharedToolkits)
 {
@@ -374,50 +337,10 @@ TEST(FTextureAssetThumbnailTests,
 	ModuleHarness.Shutdown();
 }
 
-TEST(FTextureCubeThumbnailRendererTests, RendererCapturesPackageAndCubeVisualContract)
-{
-	Durin::Tests::FAssetThumbnailFixtureSet Fixtures;
-	std::string Error;
-	ASSERT_TRUE(Durin::Tests::CreateAssetThumbnailFixtures(Fixtures, Error))
-		<< Error;
-	Durin::FPackagePath CubePath;
-	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
-		Durin::Tests::FAssetThumbnailFixtureSet::DirectionalCubePath,
-		CubePath));
-	const Durin::FPackageCatalogEntry Data =
-		Durin::FindPackageExact(CubePath);
-	ASSERT_NE(Data, nullptr);
 
-	auto RendererOwner = Durin::MakeThumbnailRenderer<Durin::TextureEditor::DTextureCubeThumbnailRenderer>();
-	auto& Renderer = *RendererOwner;
-	const Durin::FThumbnailRenderingInfo Registration =
-		Renderer.GetRegistration();
-	Durin::FThumbnailCacheDescription Captured;
-	auto CapturedResult = Renderer.DescribeThumbnail(MakeFingerprint(*Data));
-	ASSERT_TRUE(CapturedResult) << CapturedResult.error();
-	Captured = std::move(*CapturedResult);
-
-	EXPECT_EQ(
-		Captured.PreviewFixtureIdentity,
-		Durin::FThumbnailVisualContract::
-			TextureCubeEnvironmentViewIdentity);
-	EXPECT_EQ(
-		Captured.PreviewFixtureVersion,
-		Durin::FThumbnailVisualContract::
-			TextureCubeEnvironmentViewVersion);
-	EXPECT_EQ(Captured.ShaderContractVersion, 2u);
-	EXPECT_TRUE(Captured.Dependencies.empty());
-
-	const auto KeyInput = Captured.MakeKeyInput(MakeFingerprint(*Data), Registration);
-	const std::string OriginalKey =
-		Durin::BuildAssetThumbnailCacheKey(KeyInput);
-	Durin::FAssetThumbnailKeyInput Rebuilt = KeyInput;
-	++Rebuilt.Asset.LastWriteTimeTicks;
-	EXPECT_NE(OriginalKey, Durin::BuildAssetThumbnailCacheKey(Rebuilt));
-}
 
 TEST(FTextureCubeThumbnailRendererTests,
-	DrawJobRejectsAnUnavailableResourceSnapshot)
+	DrawRejectsAnUnavailableResourceSnapshot)
 {
 	Durin::Tests::FAssetThumbnailFixtureSet Fixtures;
 	std::string Error;
@@ -433,43 +356,15 @@ TEST(FTextureCubeThumbnailRendererTests,
 
 	auto RendererOwner = Durin::MakeThumbnailRenderer<Durin::TextureEditor::DTextureCubeThumbnailRenderer>();
 	auto& Renderer = *RendererOwner;
-	Durin::FThumbnailCacheDescription Request;
-	auto RequestResult = Renderer.DescribeThumbnail(MakeFingerprint(*Data));
-	ASSERT_TRUE(RequestResult) << RequestResult.error();
-	Request = std::move(*RequestResult);
-	Durin::FThumbnailRenderJob Job(&Renderer, MakeFingerprint(*Data));
-	EXPECT_EQ(Job.Update().State, Durin::EThumbnailDrawStatus::WaitingForResources);
+	Durin::FThumbnailDrawContext Context(Fixtures.DirectionalCube);
 	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-	auto Result = Job.Update();
-	while (Result.State == Durin::EThumbnailDrawStatus::WaitingForResources && std::chrono::steady_clock::now() < Deadline)
+	do
 	{
 		Durin::ProcessAsyncLoading(100.0, 16);
 		Durin::FAssetCompilingManager::Get().ProcessAsyncTasks(false);
-		Result = Job.Update();
-	}
-	EXPECT_EQ(Result.State, Durin::EThumbnailDrawStatus::Failed);
-	EXPECT_FALSE(Job.Validate());
+		Renderer.Draw(Fixtures.DirectionalCube, Context);
+	} while (Durin::FThumbnailManagerTestAccess::IsWaiting(Context) && std::chrono::steady_clock::now() < Deadline);
+	EXPECT_TRUE(Durin::FThumbnailManagerTestAccess::HasFailed(Context));
+	EXPECT_FALSE(Durin::FThumbnailManagerTestAccess::Validate(Context));
 
-}
-
-TEST(FTextureCubeThumbnailRendererTests, RendererRejectsMissingRegistryData)
-{
-	Durin::Tests::RegisterAssetThumbnailFixtureMount();
-	Durin::FPackagePath MissingPath;
-	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
-		"/ThumbnailFixtures/Textures/TC_Missing", MissingPath));
-	auto RendererOwner = Durin::MakeThumbnailRenderer<Durin::TextureEditor::DTextureCubeThumbnailRenderer>();
-	auto& Renderer = *RendererOwner;
-	Durin::FThumbnailCacheDescription Captured;
-	std::string Error;
-	auto CapturedResult = Renderer.DescribeThumbnail({
-			.AssetPath = MakeAssetPath(MissingPath),
-			.PackagePath = MissingPath,
-			.AssetClassName =
-				Durin::DTextureCube::StaticClass()->GetQualifiedName().ToString(),
-			.PackageFormatVersion = 1,
-			.FileSize = 1,
-			.LastWriteTimeTicks = 1});
-	ASSERT_FALSE(CapturedResult);
-	EXPECT_NE(CapturedResult.error().find(MissingPath.ToString()), std::string::npos);
 }

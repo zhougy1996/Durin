@@ -10,7 +10,7 @@
 #include "Math/Operations.h"
 #include "MonaImGui.h"
 #include "Preview/AssetPreviewHost.h"
-#include "Preview/PreviewMeshResources.h"
+#include "Preview/PreviewMeshPaths.h"
 #include "SceneView.h"
 #include "SceneViewProjection.h"
 #include "StaticMesh/StaticMesh.h"
@@ -127,12 +127,12 @@ namespace Durin::MaterialEditor
 			PreviewFeatureLevel = Host->GetFeatureLevel();
 			FSoftObjectPath SpherePath;
 			FSoftObjectPath BoxPath;
-			if (const auto Validation = FSoftObjectPath::TryCreateWithDiagnostic(FPreviewMeshResources::SphereAssetPath, SpherePath); !Validation)
+			if (const auto Validation = FSoftObjectPath::TryCreateWithDiagnostic(PreviewMeshPaths::SphereAssetPath, SpherePath); !Validation)
 			{
 				Error = ToString(Validation.error());
 				return;
 			}
-			if (const auto Validation = FSoftObjectPath::TryCreateWithDiagnostic(FPreviewMeshResources::BoxAssetPath, BoxPath); !Validation)
+			if (const auto Validation = FSoftObjectPath::TryCreateWithDiagnostic(PreviewMeshPaths::BoxAssetPath, BoxPath); !Validation)
 			{
 				Error = ToString(Validation.error());
 				return;

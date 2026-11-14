@@ -2,6 +2,7 @@
 #include "Actors/SkyLightActor.h"
 #include "Asset/Load.h"
 #include "Components/SkyLightComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Texture/TextureCube.h"
 #include "DynamicRHI.h"
@@ -115,5 +116,14 @@ namespace Durin
 		auto* World = GetWorld();
 		if (World && !Impl->Actor) Impl->Actor = World->SpawnActor<AActor>("ThumbnailPreviewActor");
 		return Impl->Actor.Get();
+	}
+	auto FThumbnailPreviewScene::ResetPreview() -> void
+	{
+		if (auto* Actor = Impl->Actor.Get())
+			if (auto* Component = Actor->FindComponentByExactClass<DStaticMeshComponent>())
+			{
+				Component->ClearMaterialOverrides();
+				Component->SetStaticMesh(nullptr);
+			}
 	}
 } // namespace Durin

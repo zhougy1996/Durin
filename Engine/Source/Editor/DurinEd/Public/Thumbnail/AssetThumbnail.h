@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "AssetRegistry/Catalog.h"
 
 #include "DurinEdAPI.h"
 #include "Thumbnail/AssetThumbnailPool.h"
@@ -12,7 +13,7 @@ namespace Durin
 	{
 	public:
 		DURINED_API FAssetThumbnail(
-			FAssetThumbnailPackageFingerprint Asset,
+			FAssetData Asset,
 			FAssetThumbnailPool* Pool = nullptr);
 		DURINED_API ~FAssetThumbnail();
 		FAssetThumbnail(const FAssetThumbnail&) = delete;
@@ -20,7 +21,7 @@ namespace Durin
 		DURINED_API FAssetThumbnail(FAssetThumbnail&& Other) noexcept;
 		DURINED_API auto operator=(FAssetThumbnail&& Other) noexcept -> FAssetThumbnail&;
 
-		DURINED_API auto Reassign(FAssetThumbnailPackageFingerprint Asset) -> void;
+		DURINED_API auto Reassign(FAssetData Asset) -> void;
 		DURINED_API auto AccessTexture(EAssetThumbnailPriority Priority = EAssetThumbnailPriority::Visible) -> FAssetThumbnailView;
 		DURINED_API auto Refresh() -> void;
 		DURINED_API auto GetView() const -> FAssetThumbnailView;
@@ -29,7 +30,7 @@ namespace Durin
 	private:
 		auto Release() -> void;
 
-		FAssetThumbnailPackageFingerprint Asset;
+		FAssetData Asset;
 		FAssetThumbnailPool* Pool = nullptr;
 	};
 }

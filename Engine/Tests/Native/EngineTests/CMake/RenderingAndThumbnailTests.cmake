@@ -64,7 +64,7 @@ durin_add_native_test(SceneImportVulkanTests
 durin_add_native_test(ThumbnailTests
 	KIND feature
 	DOMAINS thumbnail
-	MODULES engine content-browser
+	MODULES engine content-browser durin-ed
 	STACKS editor renderer
 	PRIVATE_SOURCE_OWNER ContentBrowser
 	PRIVATE_SOURCE_RATIONALE
@@ -95,11 +95,11 @@ durin_add_native_test(ThumbnailTests
 		TextureEditor
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
 	INCLUDE_DIRECTORIES
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/DurinEd/Private
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/StaticMeshEditor/Public
 		${_durin_content_browser_private}
 		${_durin_content_browser_public}
-		${CMAKE_SOURCE_DIR}/Engine/Source
 	COMPILE_DEFINITIONS CONTENTBROWSER_EXPORTS
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
@@ -110,11 +110,12 @@ durin_add_native_test(ThumbnailTests
 durin_add_native_test(MaterialThumbnailTests
 	KIND feature
 	DOMAINS material thumbnail
-	MODULES engine material-editor
+	MODULES engine material-editor durin-ed
 	STACKS editor renderer
 	TIMEOUT 600
 	SOURCES Private/MaterialThumbnailRendererTests.cpp
 	INCLUDE_DIRECTORIES
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/DurinEd/Private
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
 		${_durin_level_editor_private}
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Public
@@ -166,6 +167,7 @@ durin_add_native_test(TextureThumbnailTests
 		TextureEditor
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
 	INCLUDE_DIRECTORIES
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/DurinEd/Private
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/StaticMeshEditor/Public
 	REQUIRES editor
@@ -177,7 +179,7 @@ durin_add_native_test(TextureThumbnailTests
 durin_add_native_test(StaticMeshThumbnailTests
 	KIND feature
 	DOMAINS static-mesh thumbnail
-	MODULES engine content-browser static-mesh-editor
+	MODULES engine content-browser static-mesh-editor durin-ed
 	STACKS editor renderer
 	PRIVATE_SOURCE_OWNER ContentBrowser
 	PRIVATE_SOURCE_RATIONALE
@@ -206,6 +208,7 @@ durin_add_native_test(StaticMeshThumbnailTests
 		TextureEditor
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
 	INCLUDE_DIRECTORIES
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/DurinEd/Private
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MaterialEditor/Public
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/StaticMeshEditor/Public
@@ -222,6 +225,7 @@ durin_add_native_test(ThumbnailVulkanTests
 	KIND ${_durin_vulkan_integration_kind}
 	DOMAINS material thumbnail
 	MODULES
+		durin-ed
 		asset-tools
 		engine
 		material-editor
@@ -236,6 +240,7 @@ durin_add_native_test(ThumbnailVulkanTests
 	TIMEOUT 900
 	SOURCES Private/ThumbnailVulkanTests.cpp
 	INCLUDE_DIRECTORIES
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/DurinEd/Private
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
 		${_durin_level_editor_private}
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Public

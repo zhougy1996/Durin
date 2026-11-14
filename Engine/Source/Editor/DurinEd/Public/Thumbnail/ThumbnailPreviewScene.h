@@ -9,7 +9,7 @@ namespace Durin
 	class AActor;
 	class FSceneInterface;
 
-	// Renderer-owned native scene. Fixtures persist; sessions detach asset bindings.
+	// Renderer-owned native scene. Fixtures persist; each draw releases its asset bindings.
 	class FThumbnailPreviewScene final
 	{
 	public:
@@ -25,6 +25,7 @@ namespace Durin
 		friend class FThumbnailCapture;
 		friend class FThumbnailDrawContext;
 		DURINED_API auto GetRenderScene() -> FSceneInterface*;
+		auto ResetPreview() -> void;
 		const void* BindingOwner = nullptr;
 		struct FImpl;
 		std::unique_ptr<FImpl> Impl;

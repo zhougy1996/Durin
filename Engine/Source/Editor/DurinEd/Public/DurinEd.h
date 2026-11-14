@@ -10,6 +10,5 @@
 #include "Transactions/Transactor.h"
 #include "Factories/Factory.h"
 #include "Thumbnail/AssetThumbnailTypes.h"
-#include "Thumbnail/AssetThumbnailKey.h"
 #include "Thumbnail/ThumbnailManager.h"
 #include "Thumbnail/AssetThumbnail.h"

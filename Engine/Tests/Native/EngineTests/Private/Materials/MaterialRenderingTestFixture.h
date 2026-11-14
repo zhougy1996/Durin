@@ -12,7 +12,6 @@
 #include "Modules/ModuleManager.h"
 #include "NativeTestSupport.h"
 #include "PBRLighting.h"
-#include "Preview/PreviewMeshResources.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
 #include "StaticMesh/StaticMeshBuild.h"

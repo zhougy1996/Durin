@@ -1,76 +1,34 @@
 #pragma once
 
 #include "CoreMinimal.h"
-
-#include "ThumbnailWork.h"
+#include "AssetRegistry/Catalog.h"
+#include "Thumbnail/AssetThumbnailTypes.h"
 
 namespace Durin
 {
-	class DThumbnailManager;
-
-	enum class EThumbnailJobState : uint8
+	struct FAssetThumbnailRequest
 	{
-		NotRequested,
-		Queued,
-		Loading,
-		WaitingForResources,
-		Rendering,
-		PixelsReady,
-		Invalid,
-		Failed
+		FAssetData Asset;
+		EAssetThumbnailPriority Priority = EAssetThumbnailPriority::Prefetch;
 	};
 
-	// Admission outcomes are scheduling policy, not generation errors.
-	enum class EThumbnailRequestStatus : uint8
-	{
-		Accepted,
-		// Existing equal or newer work is retained; no new work is queued.
-		Coalesced,
-		QueueFull,
-		Unsupported,
-		ShuttingDown,
-	};
-
-	inline auto IsThumbnailRequestAccepted(EThumbnailRequestStatus Status) -> bool
-	{
-		return Status == EThumbnailRequestStatus::Accepted || Status == EThumbnailRequestStatus::Coalesced;
-	}
-
-	// Coalesces lightweight UI requests immediately, then captures renderer-owned
-	// generation data lazily as scheduler work is admitted.
+	// Holds only pending demand. Admitted work and its lifetime belong to the pool.
 	class FAssetThumbnailRequestQueue
 	{
 	public:
-		DURINED_API explicit FAssetThumbnailRequestQueue(
-			DThumbnailManager& Registry,
-			FAssetThumbnailBudgets Budgets = {});
-		DURINED_API ~FAssetThumbnailRequestQueue();
+		explicit FAssetThumbnailRequestQueue(uint32 InMaximumRequests = 512)
+			: MaximumRequests(InMaximumRequests) {}
 
-		FAssetThumbnailRequestQueue(const FAssetThumbnailRequestQueue&) = delete;
-		FAssetThumbnailRequestQueue& operator=(const FAssetThumbnailRequestQueue&) = delete;
-
-		DURINED_API auto Request(const FAssetThumbnailRequest& Request) -> EThumbnailRequestStatus;
+		// False means capacity is exhausted; a later access can retry.
+		DURINED_API auto Request(const FAssetThumbnailRequest& Request) -> bool;
+		DURINED_API auto Prioritize(const FTopLevelAssetPath& AssetPath) -> void;
 		DURINED_API auto BeginFrame() -> void;
-		DURINED_API auto GetState(const FTopLevelAssetPath& AssetPath) const -> EThumbnailJobState;
-		DURINED_API auto GetFailureReason(const FTopLevelAssetPath& AssetPath) const -> std::string_view;
-		DURINED_API auto TakeNext() -> std::optional<FAssetThumbnailScheduledRequest>;
-		// Advances a live admitted task. Cancellation retires replaced work; resource
-		// validity belongs to the draw job.
-		DURINED_API auto Transition(
-			const FAssetThumbnailScheduledRequest& Job,
-			EThumbnailJobState ExpectedState,
-			EThumbnailJobState NextState,
-			std::string_view Diagnostic = {}) -> bool;
-		DURINED_API auto Cancel(const FTopLevelAssetPath& AssetPath) -> void;
-		DURINED_API auto CancelRenderer(std::string_view AssetClassName) -> void;
-		DURINED_API auto CancelAll() -> void;
-		DURINED_API auto Shutdown() -> void;
-		DURINED_API auto NumQueued() const -> size_t;
-		DURINED_API auto IsShuttingDown() const -> bool;
+		DURINED_API auto TakeNext() -> std::optional<FAssetThumbnailRequest>;
+		DURINED_API auto Remove(const FTopLevelAssetPath& AssetPath) -> void;
+		auto Num() const -> size_t { return Requests.size(); }
 
 	private:
-		struct FImpl;
-		std::unique_ptr<FImpl> Impl;
+		uint32 MaximumRequests;
+		std::vector<FAssetThumbnailRequest> Requests;
 	};
-
-} // namespace Durin
+}

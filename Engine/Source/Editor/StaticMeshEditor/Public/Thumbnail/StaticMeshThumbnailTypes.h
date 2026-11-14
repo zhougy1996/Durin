@@ -9,16 +9,9 @@
 
 namespace Durin::StaticMeshEditor
 {
-	// Freezes the initial StaticMesh thumbnail identity and visual policy.
+	// Defines StaticMesh thumbnail framing and visual policy.
 	struct FStaticMeshThumbnailRendererContract
 	{
-		static constexpr std::string_view AssetClassName = "DStaticMesh";
-		static constexpr std::string_view RendererName = "Durin.StaticMeshThumbnail";
-		static constexpr uint32 GeneratorSchemaVersion = 2;
-		static constexpr std::string_view PreviewFixtureIdentity =
-			"/Engine/Editor/StaticMeshPreview/LOD0DefaultMaterials";
-		static constexpr uint32 PreviewFixtureVersion = 3;
-		static constexpr uint32 ShaderContractVersion = 1;
 		static constexpr double ImageMargin = 0.04;
 		static constexpr uint32 LODIndex = 0;
 		static constexpr bool bOutputOpaque = false;

@@ -4,7 +4,7 @@
 
 namespace Durin
 {
-	FAssetThumbnail::FAssetThumbnail(FAssetThumbnailPackageFingerprint InAsset,
+	FAssetThumbnail::FAssetThumbnail(FAssetData InAsset,
 		FAssetThumbnailPool* InPool)
 		: Asset(std::move(InAsset))
 		, Pool(InPool ? InPool : &GetDefaultThumbnailManager().GetSharedPool())
@@ -34,7 +34,7 @@ namespace Durin
 		Pool = nullptr;
 	}
 
-	auto FAssetThumbnail::Reassign(FAssetThumbnailPackageFingerprint InAsset) -> void
+	auto FAssetThumbnail::Reassign(FAssetData InAsset) -> void
 	{
 		if (Asset == InAsset) return;
 		if (Pool) Pool->RemoveReferencer(Asset.AssetPath);

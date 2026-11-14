@@ -43,51 +43,6 @@ TEST(FMaterialPreviewTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 	EXPECT_EQ(Durin::FAssetRetentionService::NumRetained(), 0u);
 }
 
-TEST(FMaterialPreviewTests, EditorPreviewMeshOwnerRetainsPreparedMeshesWithoutOpenPreviews)
-{
-	InitializeDObjectSystem();
-	FScopedPreviewMeshCompiler MeshCompiler;
-	Durin::FModuleManager::Get().LoadModuleChecked("MeshBuilder");
-	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
-	Durin::Testing::FScopedMountRegistryFixture MountRegistry;
-	Durin::FMountPaths::InitDefaultMountPoints();
-	ASSERT_TRUE(Durin::RefreshAssetRegistry());
-	Durin::FPreviewMeshResources Resources;
-	std::string Error;
-	ASSERT_TRUE(Resources.Initialize());
-	auto* Sphere = Resources.GetSphere();
-	auto* Box = Resources.GetBox();
-	ASSERT_NE(Sphere, nullptr);
-	ASSERT_NE(Box, nullptr);
-	const auto* SphereData = Sphere->GetRenderData();
-	const auto* BoxData = Box->GetRenderData();
-	ASSERT_NE(SphereData, nullptr);
-	ASSERT_NE(BoxData, nullptr);
-	EXPECT_FALSE(Sphere->IsCompiling());
-	EXPECT_FALSE(Box->IsCompiling());
-	for (uint32 Visit = 0; Visit < 3; ++Visit)
-	{
-		Durin::FSoftObjectPath Path;
-		ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate(Resources.SphereAssetPath, Path));
-		Durin::FRetainedAsset Consumer;
-		ASSERT_TRUE(Durin::FAssetRetentionService::Acquire(Path, Consumer, Error)) << Error;
-		EXPECT_EQ(Consumer.Get(), Sphere);
-		Consumer = {};
-		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
-		EXPECT_EQ(Durin::FAssetRetentionService::NumRetained(), 2u);
-		ASSERT_TRUE(Resources.Initialize());
-		EXPECT_EQ(Resources.GetSphere(), Sphere);
-		EXPECT_EQ(Resources.GetBox(), Box);
-		EXPECT_EQ(Sphere->GetRenderData(), SphereData);
-		EXPECT_EQ(Box->GetRenderData(), BoxData);
-	}
-	Resources.Reset();
-	Resources.Reset();
-	EXPECT_EQ(Resources.GetSphere(), nullptr);
-	EXPECT_EQ(Resources.GetBox(), nullptr);
-	EXPECT_EQ(Durin::FAssetRetentionService::NumRetained(), 0u);
-	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
-}
 
 TEST(FMaterialPreviewTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageCollectionAndTeardown)
 {

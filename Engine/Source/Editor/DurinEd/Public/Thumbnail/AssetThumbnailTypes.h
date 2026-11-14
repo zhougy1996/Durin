@@ -5,19 +5,18 @@
 #include "CoreGlobals.h"
 #include "DObject/AssetPath.h"
 #include "DurinEdAPI.h"
-#include "Preview/PreviewMeshResources.h"
+#include "Preview/PreviewMeshPaths.h"
 
 namespace Durin
 {
 	class DClass;
 	class DThumbnailRenderer;
 
-	// Describes one exact-class renderer registration and its generator schema.
+	// Describes one exact-class renderer registration, owned by the manager.
 	struct FThumbnailRenderingInfo
 	{
 		std::string AssetClassName;
-		std::string RendererName;
-		uint32 GeneratorSchemaVersion = 0;
+		std::string RendererClassName;
 		// Borrowed registration objects, populated by the manager's lookup.
 		DClass* ClassNeedingThumbnail = nullptr;
 		DClass* RendererClass = nullptr;
@@ -48,19 +47,6 @@ namespace Durin
 		WorldSpaceReflectionVector = 1
 	};
 
-	// Captures the unloaded package fields that invalidate an asset thumbnail.
-	struct FAssetThumbnailPackageFingerprint
-	{
-		FTopLevelAssetPath AssetPath;
-		FPackagePath PackagePath;
-		std::string AssetClassName;
-		uint32 PackageFormatVersion = 0;
-		uint64 FileSize = 0;
-		int64 LastWriteTimeTicks = 0;
-
-		auto operator==(const FAssetThumbnailPackageFingerprint&) const -> bool = default;
-	};
-
 	// Defines output settings that participate directly in persistent cache identity.
 	struct FAssetThumbnailOutputSettings
 	{
@@ -72,15 +58,10 @@ namespace Durin
 		auto operator==(const FAssetThumbnailOutputSettings&) const -> bool = default;
 	};
 
-	// Freezes the initial rendered-thumbnail visual fixture behind one schema version.
+	// Defines the shared rendered-thumbnail visual fixture.
 	struct FThumbnailVisualContract
 	{
-		static constexpr uint32 SchemaVersion = 1;
-		static constexpr std::string_view SphereAssetPath = FPreviewMeshResources::SphereAssetPath;
-		static constexpr uint32 SphereFixtureVersion = 1;
-		static constexpr std::string_view TextureCubeEnvironmentViewIdentity =
-			"/Engine/Editor/TextureCubePreview/WideEnvironment";
-		static constexpr uint32 TextureCubeEnvironmentViewVersion = 1;
+		static constexpr std::string_view SphereAssetPath = PreviewMeshPaths::SphereAssetPath;
 		static constexpr std::string_view OutputEncoding = "PNG";
 		static constexpr std::string_view WorkingColorSpace = "Linear-sRGB";
 		static constexpr std::string_view OutputColorSpace = "sRGB";

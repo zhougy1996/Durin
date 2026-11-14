@@ -1,12 +1,9 @@
 #include "Thumbnail/ThumbnailDrawContext.h"
-#include "Thumbnail/ThumbnailRenderJob.h"
 #include "DObject/Object.h"
 #include "Thumbnail/ThumbnailCapture.h"
 #include "Thumbnail/ThumbnailPreviewScene.h"
-#include "Engine/StreamableManager.h"
 #include "DObject/WeakObjectPtr.h"
 #include "DObject/Package.h"
-#include "DObject/Class.h"
 
 namespace Durin
 {
@@ -14,53 +11,40 @@ namespace Durin
 	{
 		TWeakObjectPtr<DObject> Object;
 		uint64 Revision = 0;
-		FTopLevelAssetPath Path;
-		std::unordered_map<std::string, std::shared_ptr<FStreamableHandle>> Dependencies;
-		FThumbnailDrawResult Result{.State = EThumbnailDrawStatus::WaitingForResources};
 		FThumbnailPreviewScene* Scene = nullptr;
 		std::optional<FThumbnailPreviewView> View;
 		std::optional<FViewEnvironmentOverride> Environment;
 		FThumbnailImageRenderer Image;
 		std::function<bool()> Validator;
 	};
-	FThumbnailDrawContext::FThumbnailDrawContext(DObject* Object, FTopLevelAssetPath Path) : Impl(std::make_unique<FImpl>())
+	FThumbnailDrawContext::FThumbnailDrawContext(DObject* Object) : Impl(std::make_unique<FImpl>())
 	{
-		Impl->Object = Object; Impl->Path = std::move(Path);
+		Impl->Object = Object;
 		if (Object && Object->GetPackage()) Impl->Revision = Object->GetPackage()->GetEditRevision();
 	}
 	FThumbnailDrawContext::~FThumbnailDrawContext()
 	{
-		Impl->Validator = {}; State.reset();
-		if (Impl->Scene) Impl->Scene->BindingOwner = nullptr;
-		for (auto& [Path, Load] : Impl->Dependencies) Load->CancelHandle();
-	}
-	auto FThumbnailDrawContext::GetAssetPath() const -> const FTopLevelAssetPath& { return Impl->Path; }
-	auto FThumbnailDrawContext::LoadAsset(const FSoftObjectPath& Path, DClass* Class) -> DObject*
-	{
-		auto& Load = Impl->Dependencies[Path.ToString()];
-		if (!Load) Load = GetStreamableManager().RequestAsyncLoad(Path, {}, Class);
-		if (!Load || !Load->IsComplete()) { Impl->Result = {.State = EThumbnailDrawStatus::WaitingForResources}; return nullptr; }
-		if (Load->HasError()) { Fail(Load->GetError().Message); return nullptr; }
-		return Load->GetLoadedAsset();
-	}
-	auto FThumbnailDrawContext::ResetResult() -> void
-	{
-		Impl->Result = {.State = EThumbnailDrawStatus::WaitingForResources};
+		Impl->Validator = {};
+		if (Impl->Scene)
+		{
+			Impl->Scene->ResetPreview();
+			Impl->Scene->BindingOwner = nullptr;
+		}
 	}
 	auto FThumbnailDrawContext::MarkReady() -> void
 	{
-		Impl->Result = {.State = EThumbnailDrawStatus::ReadyToRender};
+		Status = EState::Ready; Diagnostic.clear();
 	}
 	auto FThumbnailDrawContext::Fail(std::string Diagnostic) -> void
 	{
-		Impl->Result = {.Diagnostic = Diagnostic.empty() ? "Thumbnail drawing failed." : std::move(Diagnostic)};
+		Status = EState::Failed;
+		this->Diagnostic = Diagnostic.empty() ? "Thumbnail drawing failed." : std::move(Diagnostic);
 	}
-	auto FThumbnailDrawContext::GetResult() const -> FThumbnailDrawResult { return Impl->Result; }
 	auto FThumbnailDrawContext::SetValidation(std::function<bool()> Validator) -> void { Impl->Validator = std::move(Validator); }
 	auto FThumbnailDrawContext::Validate() const -> std::expected<void, std::string>
 	{
 		const auto* Object = Impl->Object.Get();
-		if (Impl->Result.State != EThumbnailDrawStatus::ReadyToRender || !Object)
+		if (Status != EState::Ready || !Object)
 			return std::unexpected("The thumbnail draw is not ready.");
 		if (Object->GetPackage() && Object->GetPackage()->GetEditRevision() != Impl->Revision)
 			return std::unexpected("The asset changed while its thumbnail was being generated.");

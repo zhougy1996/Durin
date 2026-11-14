@@ -23,13 +23,7 @@ namespace Durin::AssetPicker
 		{
 			if (!Entry || !Entry.Package) return {};
 			auto& Pool = GetDefaultThumbnailManager().GetSharedPool();
-			return Pool.AccessTexture({
-				.AssetPath = Entry.Asset->AssetPath,
-				.PackagePath = Entry.Package->PackagePath,
-				.AssetClassName = Entry.Asset->AssetClassName,
-				.PackageFormatVersion = Entry.Package->FormatVersion,
-				.FileSize = static_cast<uint64>(Entry.Package->FileSize),
-				.LastWriteTimeTicks = Entry.Package->LastWriteTimeTicks}, EAssetThumbnailPriority::Visible);
+			return Pool.AccessTexture(*Entry.Asset, EAssetThumbnailPriority::Visible);
 		}
 
 		auto DrawThumbnail(const FAssetThumbnailView& View, ImVec2 Position, float Size) -> void

@@ -1,10 +1,12 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Thumbnail/ThumbnailDrawContext.h"
+#include "Thumbnail/ThumbnailRenderTypes.h"
+#include "Thumbnail/AssetThumbnailTypes.h"
 
 namespace Durin
 {
+	class FThumbnailPreviewScene;
 
 	// Pool-owned output and asynchronous readback. Borrows a renderer scene until Reset.
 	class FThumbnailCapture final

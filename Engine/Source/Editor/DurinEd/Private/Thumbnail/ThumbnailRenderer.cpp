@@ -24,14 +24,4 @@ namespace Durin
 		return *PreviewScene;
 	}
 
-	auto FThumbnailCacheDescription::MakeKeyInput(const FAssetThumbnailPackageFingerprint& Asset,
-		const FThumbnailRenderingInfo& Renderer) const -> FAssetThumbnailKeyInput
-	{
-		return {.Asset = Asset, .RendererName = Renderer.RendererName,
-			.GeneratorSchemaVersion = Renderer.GeneratorSchemaVersion,
-			.Output = Output, .PreviewFixtureIdentity = PreviewFixtureIdentity,
-			.PreviewFixtureVersion = PreviewFixtureVersion, .ShaderContractVersion = ShaderContractVersion,
-			.Dependencies = Dependencies};
-	}
-
 } // namespace Durin

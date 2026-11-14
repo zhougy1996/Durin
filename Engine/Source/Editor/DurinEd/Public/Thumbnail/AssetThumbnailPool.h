@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "AssetRegistry/Catalog.h"
 
 #include "Thumbnail/AssetThumbnailTypes.h"
 #include "Thumbnail/ThumbnailStorage.h"
@@ -68,9 +69,9 @@ namespace Durin
 		FAssetThumbnailPool& operator=(const FAssetThumbnailPool&) = delete;
 
 		// Keeps background generation alive independently of UI referencers.
-		DURINED_API auto Prefetch(const FAssetThumbnailPackageFingerprint& Asset) -> void;
+		DURINED_API auto Prefetch(const FAssetData& Asset) -> void;
 		DURINED_API auto AccessTexture(
-			const FAssetThumbnailPackageFingerprint& Asset,
+			const FAssetData& Asset,
 			EAssetThumbnailPriority Priority = EAssetThumbnailPriority::Visible) -> FAssetThumbnailView;
 		DURINED_API auto Find(const FTopLevelAssetPath& AssetPath) const -> FAssetThumbnailView;
 		DURINED_API auto AddReferencer(const FTopLevelAssetPath& AssetPath) -> void;
@@ -81,6 +82,7 @@ namespace Durin
 		// Existing completions/retirement still progress while required scene work
 		// temporarily defers new optional thumbnail admissions.
 		DURINED_API auto Tick(bool bAllowNewAdmissions = true) -> void;
+		// Withdraws demand and discards pending results; accepted cache writes may finish.
 		DURINED_API auto CancelPendingRequests() -> void;
 		DURINED_API auto Clear() -> void;
 		DURINED_API auto GetStats() const -> FAssetThumbnailPoolStats;

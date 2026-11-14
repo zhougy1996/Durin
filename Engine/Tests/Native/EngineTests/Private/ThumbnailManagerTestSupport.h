@@ -5,8 +5,6 @@
 #include "Thumbnail/ThumbnailManager.h"
 #include "Thumbnail/ThumbnailRenderer.h"
 #include "Thumbnail/ThumbnailDrawContext.h"
-#include "../../../../Source/Editor/DurinEd/Private/Thumbnail/ThumbnailWork.h"
-#include "../../../../Source/Editor/DurinEd/Private/Thumbnail/ThumbnailRenderJob.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
@@ -18,27 +16,31 @@ namespace Durin
 	// for queue/cache tests; production registration always constructs by class.
 	struct FThumbnailManagerTestAccess
 	{
-		static auto RegisterScoped(DThumbnailManager& Manager, DThumbnailRenderer* Renderer)
+		static auto IsWaiting(const FThumbnailDrawContext& Context) -> bool { return Context.Status == FThumbnailDrawContext::EState::Waiting; }
+		static auto IsReady(const FThumbnailDrawContext& Context) -> bool { return Context.Status == FThumbnailDrawContext::EState::Ready; }
+		static auto HasFailed(const FThumbnailDrawContext& Context) -> bool { return Context.Status == FThumbnailDrawContext::EState::Failed; }
+		static auto GetDiagnostic(const FThumbnailDrawContext& Context) -> const std::string& { return Context.Diagnostic; }
+		static auto Validate(const FThumbnailDrawContext& Context) -> std::expected<void, std::string> { return Context.Validate(); }
+		static auto BindCapture(FThumbnailDrawContext& Context, FThumbnailCapture& Capture) -> std::expected<void, std::string> { return Context.BindCapture(Capture); }
+		static auto RegisterScoped(DThumbnailManager& Manager, DThumbnailRenderer* Renderer, std::string AssetClassName)
 			-> FThumbnailRendererRegistrationHandle
 		{
 			auto Registration = Manager.RegisterRendererInstance(Renderer,
-				Renderer ? Renderer->GetRegistration().AssetClassName : std::string{});
-			if (Registration) Manager.SetLoadedObjectOverride(Renderer->GetRegistration().AssetClassName,
+				AssetClassName);
+			if (Registration) Manager.SetLoadedObjectOverride(AssetClassName,
 				NewObject<DObject>(nullptr, {}, EObjectFlags::Transient));
 			return Registration;
 		}
-		static auto Register(DThumbnailManager& Manager, DThumbnailRenderer* Renderer)
+		static auto Register(DThumbnailManager& Manager, DThumbnailRenderer* Renderer, std::string AssetClassName)
 			-> bool
 		{
-			auto Result = RegisterScoped(Manager, Renderer);
+			auto Result = RegisterScoped(Manager, Renderer, std::move(AssetClassName));
 			if (!Result) return false;
 			Result.AssetClassName.clear();
 			Result.Renderer = nullptr;
 			Result.State.reset();
 			return true;
 		}
-		static auto CreateJob(DThumbnailManager& Manager, const FAssetThumbnailScheduledRequest& Request)
-			-> std::unique_ptr<FThumbnailRenderJob> { return Manager.CreateRenderJob(Request); }
 		static auto Unregister(DThumbnailManager& Manager, std::string_view Name) -> bool
 		{
 			return Manager.UnregisterRendererName(Name);

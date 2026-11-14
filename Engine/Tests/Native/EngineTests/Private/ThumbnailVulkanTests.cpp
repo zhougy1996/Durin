@@ -1,3 +1,4 @@
+#include "AssetRegistry/Publication.h"
 #include "ThumbnailManagerTestSupport.h"
 #include "Engine/StreamableManager.h"
 #include "Thumbnail/ThumbnailManager.h"
@@ -28,7 +29,7 @@
 #include "MonaUIBackend.h"
 #include "MonaTestFixtures.h"
 #include "NativeTestSupport.h"
-#include "Preview/PreviewMeshResources.h"
+#include "Preview/PreviewMeshPaths.h"
 #include "RHICommandList.h"
 #include "StaticMesh/StaticMeshBuild.h"
 #include "Thumbnail/ThumbnailPreviewScene.h"
@@ -59,26 +60,11 @@ namespace
 	{
 		DURIN_TEST_THUMBNAIL_RENDERER(FReadbackProbeRenderer)
 	public:
-		auto Configure(uint32& InLoads) -> void { Loads = &InLoads; }
-		auto GetRegistration() const -> Durin::FThumbnailRenderingInfo override
-		{
-			return {.AssetClassName = "DReadbackProbe", .RendererName = "ReadbackProbe", .GeneratorSchemaVersion = 1};
-		}
-		auto DescribeThumbnail(const Durin::FAssetThumbnailPackageFingerprint& Asset) -> std::expected<Durin::FThumbnailCacheDescription, std::string> override
-		{
-			Durin::FThumbnailCacheDescription Result;
-			return Result;
-		}
 		auto CanVisualizeAsset(Durin::DObject*) const -> bool override { return true; }
-		auto Draw(Durin::DObject*, Durin::FThumbnailDrawContext& Context) -> void override
+		auto Draw(Durin::DObject*, Durin::FThumbnailDrawContext&) -> void override
 		{
-			auto& Started = Context.GetState<bool>(false);
-			if (!Started) { Started = true; ++*Loads; }
 			// Leaving the context unchanged defers the draw.
 		}
-
-	private:
-		uint32* Loads = nullptr;
 	};
 
 	// Render completion precedes the task-scheduled GameThread publication receipt.
@@ -167,7 +153,7 @@ namespace
 				EXPECT_TRUE(Durin::Testing::EnsurePackageNotResident(Path, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 				EXPECT_TRUE(Durin::Testing::RemoveAssetPackageForTests(Path));
 			}
-			for (const auto Name : {Durin::FThumbnailVisualContract::SphereAssetPath, Durin::FPreviewMeshResources::BoxAssetPath})
+			for (const auto Name : {Durin::FThumbnailVisualContract::SphereAssetPath, Durin::PreviewMeshPaths::BoxAssetPath})
 			{
 				Durin::FSoftObjectPath Path;
 				if (Durin::FSoftObjectPath::TryCreate(Name, Path))
@@ -323,12 +309,7 @@ TEST_F(FThumbnailVulkanTests, StaticMeshDrawWaitsForMaterialPublication)
 	auto& Extension = *ExtensionOwner;
 	const auto Catalog = FindPackageExact(MeshPath);
 	ASSERT_TRUE(Catalog);
-	const FAssetThumbnailPackageFingerprint Fingerprint{.AssetPath = AssetPath, .PackagePath = MeshPath,
-		.AssetClassName = DStaticMesh::StaticClass()->GetQualifiedName().ToString(), .PackageFormatVersion = Catalog->FormatVersion,
-		.FileSize = static_cast<uint64>(Catalog->FileSize), .LastWriteTimeTicks = Catalog->LastWriteTimeTicks};
-	auto DrawJob = std::make_unique<FThumbnailRenderJob>(&Extension, Fingerprint);
-	ASSERT_TRUE(DrawJob);
-	EXPECT_EQ(DrawJob->Update().State, EThumbnailDrawStatus::WaitingForResources);
+	auto Context = std::make_unique<FThumbnailDrawContext>(Mesh);
 	auto Load = GetStreamableManager().RequestAsyncLoad(AssetPath, {}, DStaticMesh::StaticClass());
 	// Deliberately withhold material completion publication, while mesh, global
 	// shaders and asynchronous loading finish. This needs no sleeps or worker gate.
@@ -337,19 +318,20 @@ TEST_F(FThumbnailVulkanTests, StaticMeshDrawWaitsForMaterialPublication)
 		return Load->IsComplete();
 	}));
 	ASSERT_FALSE(Material->GetAcceptedCompiledProgram());
-	const auto Pending = DrawJob->Update();
-	ASSERT_EQ(Pending.State, EThumbnailDrawStatus::WaitingForResources) << Pending.Diagnostic;
-	EXPECT_TRUE(Pending.Diagnostic.empty());
+	Extension.Draw(Mesh, *Context);
+	ASSERT_TRUE(FThumbnailManagerTestAccess::IsWaiting(*Context));
+	EXPECT_TRUE(FThumbnailManagerTestAccess::GetDiagnostic(*Context).empty());
 
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
 	ASSERT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
 	ASSERT_TRUE(WaitForResourcePublication([&] {
-		return DrawJob->Update().State == EThumbnailDrawStatus::ReadyToRender;
+		Extension.Draw(Mesh, *Context);
+		return FThumbnailManagerTestAccess::IsReady(*Context);
 	}));
 	FThumbnailCapture Preview(Contract.Output);
 	ASSERT_TRUE(Preview.IsAvailable()) << Preview.GetDiagnostic();
-	ASSERT_TRUE(DrawJob->BindCapture(Preview));
-	ASSERT_TRUE(DrawJob->Validate());
+	ASSERT_TRUE(FThumbnailManagerTestAccess::BindCapture(*Context, Preview));
+	ASSERT_TRUE(FThumbnailManagerTestAccess::Validate(*Context));
 	ASSERT_TRUE(Preview.BeginCapture());
 	std::expected<std::optional<FByteBuffer>, std::string> Capture;
 	ASSERT_TRUE(WaitForResourcePublication([&] {
@@ -374,7 +356,7 @@ TEST_F(FThumbnailVulkanTests, StaticMeshDrawWaitsForMaterialPublication)
 	auto Properties = Material->GetStaticProperties();
 	Properties.bTwoSided = !Properties.bTwoSided;
 	ASSERT_TRUE(Material->SetStaticProperties(Properties));
-	EXPECT_FALSE(DrawJob->Validate());
+	EXPECT_FALSE(FThumbnailManagerTestAccess::Validate(*Context));
 	// Cancellation of a recompile can retain a current accepted program. Use
 	// a cold material to exercise a terminal failure with no renderable fallback.
 	DMaterial* Uncompiled = nullptr;
@@ -385,10 +367,13 @@ TEST_F(FThumbnailVulkanTests, StaticMeshDrawWaitsForMaterialPublication)
 	ASSERT_FALSE(Uncompiled->GetMaterialCompileStatus().IsCurrent());
 	FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Uncompiled);
 	ASSERT_FALSE(Uncompiled->GetAcceptedCompiledProgram());
-	const auto Canceled = DrawJob->Update();
-	EXPECT_EQ(Canceled.State, EThumbnailDrawStatus::Failed);
-	EXPECT_FALSE(Canceled.Diagnostic.empty());
-	DrawJob.reset();
+	Preview.Reset();
+	Context.reset();
+	Context = std::make_unique<FThumbnailDrawContext>(Mesh);
+	Extension.Draw(Mesh, *Context);
+	EXPECT_TRUE(FThumbnailManagerTestAccess::HasFailed(*Context));
+	EXPECT_FALSE(FThumbnailManagerTestAccess::GetDiagnostic(*Context).empty());
+	Context.reset();
 	auto* PreviewActor = Extension.GetPreviewScene().GetPreviewActor();
 	ASSERT_NE(PreviewActor, nullptr);
 	auto* PreviewComponent = PreviewActor->FindComponentByExactClass<DStaticMeshComponent>();
@@ -398,15 +383,14 @@ TEST_F(FThumbnailVulkanTests, StaticMeshDrawWaitsForMaterialPublication)
 
 TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRendering)
 {
-	uint32 ProbeLoads = 0;
 	auto ProbeRegistration = Durin::FThumbnailManagerTestAccess::RegisterScoped(Durin::GetDefaultThumbnailManager(),
-		Durin::MakeThumbnailRenderer<FReadbackProbeRenderer>(ProbeLoads));
+		Durin::MakeThumbnailRenderer<FReadbackProbeRenderer>(), "DReadbackProbe");
 	ASSERT_TRUE(ProbeRegistration);
 	Durin::FPackagePath ProbePackage;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/ThumbnailVulkan/ReadbackProbe", ProbePackage));
-	const Durin::FAssetThumbnailPackageFingerprint Probe{
-		.AssetPath = Durin::Testing::MakePackageLeafTopLevelAssetPathForTests(ProbePackage),
-		.PackagePath = ProbePackage, .AssetClassName = "DReadbackProbe"};
+	const Durin::FAssetData Probe{
+		.AssetPath = Durin::Testing::MakePackageLeafTopLevelAssetPathForTests(ProbePackage), .AssetClassName = "DReadbackProbe"};
+
 	auto Registration = Durin::GetDefaultThumbnailManager().RegisterCustomRenderer(Durin::DStaticMesh::StaticClass(), Durin::StaticMeshEditor::DStaticMeshThumbnailRenderer::StaticClass());
 	ASSERT_TRUE(Registration);
 	const auto StaticMeshFixturePath = Package("SM_Preview");
@@ -471,15 +455,16 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 	const auto StaticMeshExport = Durin::FindAssetExact(
 		Durin::Testing::MakePackageLeafTopLevelAssetPathForTests(StaticMeshFixturePath));
 	ASSERT_TRUE(StaticMeshExport);
-	const Durin::FAssetThumbnailPackageFingerprint StaticMeshFingerprint = {
+	Durin::FAssetRegistryDelta ProbeDelta{.ExpectedRevision = Durin::GetAssetCatalogRevision()};
+	ProbeDelta.Adds.push_back({.PackagePath = Probe.AssetPath.GetPackagePath(), .TopLevelAssets = {Probe},
+		.FormatVersion = 1, .ObjectCount = 1, .FileSize = 1, .LastWriteTimeTicks = 1});
+	ASSERT_TRUE(Durin::PublishAssetRegistryDelta(std::move(ProbeDelta)));
+
+	const Durin::FAssetData StaticMeshFingerprint = {
 		.AssetPath = Durin::Testing::MakePackageLeafTopLevelAssetPathForTests(
 			StaticMeshAssetData->PackagePath
 		),
-		.PackagePath = StaticMeshAssetData->PackagePath,
-		.AssetClassName = StaticMeshExport.Asset->AssetClassName,
-		.PackageFormatVersion = StaticMeshAssetData->FormatVersion,
-		.FileSize = static_cast<uint64>(StaticMeshAssetData->FileSize),
-		.LastWriteTimeTicks = StaticMeshAssetData->LastWriteTimeTicks
+		.AssetClassName = StaticMeshExport.Asset->AssetClassName
 	};
 	const std::filesystem::path ThumbnailCacheRoot =
 		Durin::Testing::GetTestWorkDirectory() / "StaticMeshRenderedCacheVulkan";
@@ -487,9 +472,9 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 	ASSERT_EQ(Durin::Mona::GetActiveUIBackend(), nullptr);
 	Durin::Tests::FThumbnailTestUIBackend ThumbnailUIBackend;
 	Durin::Tests::FScopedActiveUIBackend ThumbnailBackendScope(ThumbnailUIBackend);
-	auto PumpCacheToReady = [&](Durin::FAssetThumbnailPool& Cache) {
+	auto PumpCacheToReady = [&](Durin::FAssetThumbnailPool& Cache, bool bProbeAdmission = true) {
 		Durin::FAssetThumbnailView View;
-		bool bProbed = false;
+		bool bProbed = !bProbeAdmission;
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 		while (std::chrono::steady_clock::now() < Deadline)
 		{
@@ -636,6 +621,40 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 		Pending.Clear();
 		EXPECT_EQ(ThumbnailUIBackend.NumRegistered(), 0u);
 	}
+	// Once readback has accepted valid pixels, withdrawing display demand must
+	// discard its upload consumer while allowing the independent save to finish.
+	const auto DetachedRoot = ThumbnailCacheRoot / "DetachedAfterReadback";
+	Durin::FAssetThumbnailPool Detached({.MaximumResourceWaitFrames = 0},
+		{.CacheRoot = DetachedRoot, .ObjectExtension = ".png"});
+	Detached.AccessTexture(StaticMeshFingerprint);
+	const auto DetachedDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+	while (Detached.GetStats().Generation.Readbacks == 0 && std::chrono::steady_clock::now() < DetachedDeadline)
+	{
+		Durin::PumpGameThreadDeferredWork();
+		Durin::FAssetCompilingManager::Get().ProcessAsyncTasks(true);
+		Durin::ProcessAsyncLoading();
+		Durin::Tests::BeginThumbnailTestFrame();
+		Detached.Tick();
+		Durin::FlushRenderingCommands();
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	}
+	ASSERT_EQ(Detached.GetStats().Generation.Readbacks, 1u) << Detached.Find(StaticMeshFingerprint.AssetPath).Diagnostic;
+	ASSERT_EQ(Detached.GetStats().UploadsCompleted, 0u);
+	Detached.CancelPendingRequests();
+	const auto SaveDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+	while (Detached.GetStats().Generation.CacheWrites == 0 && std::chrono::steady_clock::now() < SaveDeadline)
+	{
+		Detached.Tick(false);
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	}
+	ASSERT_EQ(Detached.GetStats().Generation.CacheWrites, 1u);
+	EXPECT_EQ(Detached.Find(StaticMeshFingerprint.AssetPath).State, Durin::EAssetThumbnailState::None);
+	EXPECT_EQ(Detached.GetStats().UploadsCompleted, 0u);
+	const auto DetachedReady = PumpCacheToReady(Detached, false);
+	ASSERT_EQ(DetachedReady.State, Durin::EAssetThumbnailState::Ready) << DetachedReady.Diagnostic;
+	EXPECT_EQ(Detached.GetStats().Generation.Renders, 1u);
+	EXPECT_EQ(Detached.GetStats().Generation.DiskHits, 1u);
+	Detached.Clear();
 }
 
 TEST_F(FThumbnailVulkanTests, EnvironmentValidationAndCancellationReleaseReferences)
@@ -838,34 +857,17 @@ TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplace
 	ASSERT_TRUE(Data);
 	const auto AssetData = FindAssetExact(Testing::MakePackageLeafTopLevelAssetPathForTests(Packages.back()));
 	ASSERT_TRUE(AssetData);
-	FAssetThumbnailRequest Request;
-	Request.Asset = {
-		.AssetPath = Testing::MakePackageLeafTopLevelAssetPathForTests(Packages.back()),
-		.PackagePath = Packages.back(), .AssetClassName = AssetData.Asset->AssetClassName,
-		.PackageFormatVersion = Data->FormatVersion, .FileSize = static_cast<uint64>(Data->FileSize),
-		.LastWriteTimeTicks = Data->LastWriteTimeTicks};
 	auto RendererOwner = Durin::MakeThumbnailRenderer<DTextureThumbnailRenderer>();
 	auto& Renderer = *RendererOwner;
-	FThumbnailCacheDescription Captured;
-	auto CapturedResult = Renderer.DescribeThumbnail(Request.Asset);
-	ASSERT_TRUE(CapturedResult) << CapturedResult.error();
-	Captured = std::move(*CapturedResult);
-
-	auto DrawJob = std::make_unique<FThumbnailRenderJob>(&Renderer, Request.Asset);
-	ASSERT_TRUE(DrawJob);
-	ASSERT_NE(DrawJob, nullptr);
-	const auto Loaded = DrawJob->Update();
-	ASSERT_EQ(Loaded.State, EThumbnailDrawStatus::WaitingForResources);
-	FThumbnailDrawResult Ready;
+	auto Context = std::make_unique<FThumbnailDrawContext>(Asset);
 	ASSERT_TRUE(WaitForResourcePublication([&] {
-		Durin::ProcessAsyncLoading();
-		Ready = DrawJob->Update();
-		return Ready.State != EThumbnailDrawStatus::WaitingForResources;
+		Renderer.Draw(Asset, *Context);
+		return !FThumbnailManagerTestAccess::IsWaiting(*Context);
 	}));
-	ASSERT_EQ(Ready.State, EThumbnailDrawStatus::ReadyToRender) << Ready.Diagnostic;
+	ASSERT_TRUE(FThumbnailManagerTestAccess::IsReady(*Context)) << FThumbnailManagerTestAccess::GetDiagnostic(*Context);
 	FThumbnailCapture Pool(Contract.Output);
-	ASSERT_TRUE(DrawJob->BindCapture(Pool)) << Error;
-	ASSERT_TRUE(DrawJob->Validate()) << Error;
+	ASSERT_TRUE(FThumbnailManagerTestAccess::BindCapture(*Context, Pool)) << Error;
+	ASSERT_TRUE(FThumbnailManagerTestAccess::Validate(*Context)) << Error;
 	ASSERT_TRUE(Pool.BeginCapture());
 	FlushRenderingCommands();
 	FByteBuffer Pixels;
@@ -902,13 +904,14 @@ TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplace
 			Durin::ProcessAsyncLoading();
 			Durin::Tests::BeginThumbnailTestFrame();
 
-			Cache.AccessTexture(Request.Asset, EAssetThumbnailPriority::Visible);
-			View = Cache.Find(Request.Asset.AssetPath);
+			Cache.AccessTexture((*AssetData.Asset), EAssetThumbnailPriority::Visible);
+			View = Cache.Find((*AssetData.Asset).AssetPath);
 			Cache.Tick();
 			return View.State == EAssetThumbnailState::Ready || View.State == EAssetThumbnailState::Failed;
 		}));
 		ASSERT_EQ(View.State, EAssetThumbnailState::Ready) << View.Diagnostic;
 		ASSERT_NE(View.Texture, nullptr);
+		EXPECT_FALSE(View.bHasTransparency);
 		const auto Stats = Cache.GetStats().Generation;
 		EXPECT_EQ(Stats.Renders, Warm ? 0u : 1u);
 		EXPECT_EQ(Stats.Readbacks, Warm ? 0u : 1u);
@@ -924,11 +927,10 @@ TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplace
 	}
 
 	Asset->UpdateResource();
-	EXPECT_FALSE(DrawJob->Validate());
+	EXPECT_FALSE(FThumbnailManagerTestAccess::Validate(*Context));
 	ASSERT_TRUE(WaitForResourcePublication([&] { return !Asset->HasPendingRenderResourceInitialization(); }));
-	EXPECT_FALSE(DrawJob->Validate());
-	DrawJob.reset();
-	EXPECT_EQ(DrawJob, nullptr);
+	EXPECT_FALSE(FThumbnailManagerTestAccess::Validate(*Context));
+	Context.reset();
 }
 
 TEST_F(FThumbnailVulkanTests, TexturePreviewPreservesRawChannelsSrgbAndAspectRatio)
@@ -1171,10 +1173,8 @@ TEST_F(FThumbnailVulkanTests, IndependentPoolsWaitForTheSameRendererScene)
 	const auto Catalog = FindPackageExact(PackagePath);
 	ASSERT_TRUE(Catalog);
 	const auto& Asset = Catalog->TopLevelAssets.front();
-	const FAssetThumbnailPackageFingerprint Fingerprint{
-		.AssetPath = Asset.AssetPath, .PackagePath = PackagePath, .AssetClassName = Asset.AssetClassName,
-		.PackageFormatVersion = Catalog->FormatVersion, .FileSize = static_cast<uint64>(Catalog->FileSize),
-		.LastWriteTimeTicks = Catalog->LastWriteTimeTicks};
+	const FAssetData Fingerprint{
+		.AssetPath = Asset.AssetPath, .AssetClassName = Asset.AssetClassName};
 	DThumbnailManager Manager;
 	auto Registration = Manager.RegisterCustomRenderer(DStaticMesh::StaticClass(),
 		StaticMeshEditor::DStaticMeshThumbnailRenderer::StaticClass());

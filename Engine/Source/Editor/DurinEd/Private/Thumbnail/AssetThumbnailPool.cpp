@@ -1,9 +1,14 @@
 #include "Thumbnail/AssetThumbnailPool.h"
 #include "Thumbnail/ThumbnailRenderer.h"
-#include "Thumbnail/AssetThumbnailGeneration.h"
+#include "Thumbnail/AssetThumbnailCache.h"
+#include "Thumbnail/AssetThumbnailRequestQueue.h"
+#include "Thumbnail/AssetThumbnailKey.h"
+#include "DObject/StrongObjectPtr.h"
+#include "DObject/Class.h"
 #include "Thumbnail/ThumbnailManager.h"
 #include "Thumbnail/ThumbnailCapture.h"
-#include "Thumbnail/ThumbnailRenderJob.h"
+#include "Thumbnail/ThumbnailDrawContext.h"
+#include "Engine/StreamableManager.h"
 
 #include "DynamicRHI.h"
 #include "MonaCoreGlobals.h"
@@ -31,31 +36,57 @@ namespace Durin
 
 	struct FAssetThumbnailPool::FImpl
 	{
+		struct FThumbnailRenderRequest
+		{
+			std::string CacheKey;
+			FAssetData Asset;
+			FAssetThumbnailOutputSettings Output;
+		};
 		struct FRenderedJob
 		{
-			FAssetThumbnailScheduledRequest Work;
-			std::unique_ptr<FThumbnailRenderJob> Draw;
+			FThumbnailRenderRequest Work;
+			TStrongObjectPtr<DThumbnailRenderer> Renderer;
+			TStrongObjectPtr<DObject> LoadedOverride;
+			std::shared_ptr<FStreamableHandle> Load;
+			std::unique_ptr<FThumbnailDrawContext> Draw;
+
+			FRenderedJob() = default;
+			FRenderedJob(FRenderedJob&&) = default;
+			auto operator=(FRenderedJob&& Other) -> FRenderedJob&
+			{
+				if (this == &Other) return *this;
+				Draw.reset();
+				if (Load) Load->CancelHandle();
+				Work = std::move(Other.Work);
+				Renderer = std::move(Other.Renderer);
+				LoadedOverride = std::move(Other.LoadedOverride);
+				Load = std::move(Other.Load);
+				Draw = std::move(Other.Draw);
+				return *this;
+			}
+			~FRenderedJob() { Draw.reset(); if (Load) Load->CancelHandle(); }
+			auto IsReady() const -> bool
+			{
+				return Draw && Draw->Status == FThumbnailDrawContext::EState::Ready;
+			}
 		};
 		struct FParkedJob
 		{
 			FRenderedJob Job;
-			FThumbnailDrawResult LastUpdate;
 			uint64 FirstWaitFrame = 0;
 			uint64 NextPollFrame = 0;
-			bool bReady = false;
 		};
 
-		struct FEntry
+		struct FThumbnailInfo
 		{
-			FAssetThumbnailPackageFingerprint Fingerprint;
-			std::vector<FAssetThumbnailPackageFingerprint> Dependencies;
-			bool bDependenciesCaptured = false;
+			FAssetData AssetData;
+			std::vector<FPackagePath> Dependencies;
 			FTextureRHIRef Texture;
 			TFuture<FAssetThumbnailUploadResult> Upload;
 			uint64 LastUsedFrame = 0;
 			bool bVisible = false;
 
-			bool bUploadFailed = false;
+			EAssetThumbnailState State = EAssetThumbnailState::None;
 			bool bHasTransparency = true;
 			bool bBackgroundRequested = false;
 			uint32 ReferencerCount = 0;
@@ -67,10 +98,19 @@ namespace Durin
 		DThumbnailManager& Manager;
 		FAssetThumbnailBudgets Budgets;
 		FAssetThumbnailRequestQueue Scheduler;
-		FAssetThumbnailGeneration Pipeline;
+		FAssetThumbnailCache Cache;
+		FAssetThumbnailGenerationStats Stats;
+		uint32 RendersStartedThisFrame = 0;
+		struct FCacheJob
+		{
+			FThumbnailRenderRequest Work;
+			TFuture<FThumbnailCacheReadResult> Read;
+			uint64 Bytes = 0;
+		};
+		std::deque<FCacheJob> CacheJobs;
 		std::unique_ptr<FThumbnailCapture> CaptureOutput;
 		std::optional<FAssetThumbnailOutputSettings> CaptureSettings;
-		std::unordered_map<FTopLevelAssetPath, FEntry> Entries;
+		std::unordered_map<FTopLevelAssetPath, FThumbnailInfo> Entries;
 		std::optional<FRenderedJob> PreparingJob;
 		// Only a ready draw reserves a scene. The pool retains its job through
 		// readback and validation while other root assets continue loading.
@@ -94,8 +134,8 @@ namespace Durin
 			FThumbnailObjectStoreSettings StoreSettings)
 			: Manager(InService)
 			, Budgets(InBudgets)
-			, Scheduler(Manager, Budgets)
-			, Pipeline(Scheduler, std::move(StoreSettings), Budgets)
+			, Scheduler(Budgets.MaximumQueuedJobs)
+			, Cache(std::move(StoreSettings), Budgets.CpuPixelBudgetBytes)
 		{
 			CatalogRevision = GetAssetCatalogRevision();
 		}
@@ -133,13 +173,7 @@ namespace Durin
 			for (const FAssetData& Asset : Package->TopLevelAssets)
 			{
 				if (Asset.IsRedirector() || !Manager.Find(Asset.AssetClassName)) continue;
-				Pool.Prefetch({
-					.AssetPath = Asset.AssetPath,
-					.PackagePath = PackagePath,
-					.AssetClassName = Asset.AssetClassName,
-					.PackageFormatVersion = Package->FormatVersion,
-					.FileSize = static_cast<uint64>(Package->FileSize),
-					.LastWriteTimeTicks = Package->LastWriteTimeTicks});
+				Pool.Prefetch(Asset);
 			}
 		}
 
@@ -161,46 +195,80 @@ namespace Durin
 			CaptureJob.reset();
 		}
 
+		auto FailThumbnail(const FTopLevelAssetPath& AssetPath, std::string_view Error) -> void
+		{
+			const auto It = Entries.find(AssetPath);
+			if (It == Entries.end()) return;
+			It->second.State = EAssetThumbnailState::Failed;
+			It->second.Diagnostic = Error.empty() ? "The thumbnail renderer could not produce a preview." : std::string(Error);
+			++Stats.Failures;
+		}
+		auto AcceptPixels(const FThumbnailRenderRequest& Work, FByteView Pixels, uint32 Width, uint32 Height, std::string_view Error) -> bool
+		{
+			const uint64 PixelCount = uint64(Width) * Height;
+			const uint64 Bytes = PixelCount <= Budgets.CpuPixelBudgetBytes / 4 ? PixelCount * 4 : 0;
+			if (Error.empty() && (!Bytes || Bytes > Budgets.CpuPixelBudgetBytes || Pixels.size() != Bytes)) Error = "Rendered-thumbnail pixels violate the RGBA8 output or CPU budget.";
+			if (!Error.empty())
+			{
+				FailThumbnail(Work.Asset.AssetPath, Error);
+				return false;
+			}
+			++Stats.Readbacks;
+			uint64 PendingBytes = 0;
+			for (const auto& Job : CacheJobs)
+				PendingBytes += Job.Bytes;
+			if (PendingBytes <= Budgets.CpuPixelBudgetBytes - Bytes
+				&& Cache.GetRetainedBytes() <= Budgets.CpuPixelBudgetBytes - Bytes - PendingBytes)
+				Cache.Save(Work.CacheKey, Pixels, Width, Height);
+			return true;
+		}
 		auto RetireAssetWork(const FTopLevelAssetPath& AssetPath) -> void
 		{
-			if (CaptureJob && CaptureJob->Work.KeyInput.Asset.AssetPath == AssetPath)
-			{
-				Pipeline.Cancel(CaptureJob->Work);
-				ResetCapture();
-			}
-			if (PreparingJob && PreparingJob->Work.KeyInput.Asset.AssetPath == AssetPath)
-			{
-				Pipeline.Cancel(PreparingJob->Work);
-				PreparingJob.reset();
-			}
+			if (CaptureJob && CaptureJob->Work.Asset.AssetPath == AssetPath) ResetCapture();
+			if (PreparingJob && PreparingJob->Work.Asset.AssetPath == AssetPath) PreparingJob.reset();
 			std::erase_if(ParkedJobs, [&](const FParkedJob& Parked) {
-				if (Parked.Job.Work.KeyInput.Asset.AssetPath != AssetPath) return false;
-				Pipeline.Cancel(Parked.Job.Work);
-				return true;
+				return Parked.Job.Work.Asset.AssetPath == AssetPath;
 			});
-			Scheduler.Cancel(AssetPath);
-			if (const auto It = Entries.find(AssetPath); It != Entries.end()) It->second.Upload.Reset();
+			std::erase_if(CacheJobs, [&](const FCacheJob& Job) {
+				return Job.Work.Asset.AssetPath == AssetPath;
+			});
+			Scheduler.Remove(AssetPath);
+			if (const auto It = Entries.find(AssetPath); It != Entries.end())
+			{
+				auto& Entry = It->second;
+				if (Entry.State == EAssetThumbnailState::Pending) ++Stats.Cancellations;
+				Entry.Upload.Reset();
+				Entry.State = Entry.Texture ? EAssetThumbnailState::Ready : EAssetThumbnailState::None;
+				Entry.Diagnostic.clear();
+			}
 		}
 
-		auto UnregisterTexture(FEntry& Entry) -> void
+		auto UnregisterTexture(FThumbnailInfo& Entry) -> void
 		{
 			if (Entry.Texture && Mona::GetActiveUIBackend())
 				Mona::GetActiveUIBackend()->UnregisterTexture(Entry.Texture);
 			Entry.Texture = nullptr;
+			if (Entry.State == EAssetThumbnailState::Ready) Entry.State = EAssetThumbnailState::None;
 		}
 
 		auto QueueUpload(
-			const FAssetThumbnailScheduledRequest& Request,
+			const FThumbnailRenderRequest& Request,
 			FByteBuffer Pixels,
 			uint32 Width,
 			uint32 Height) -> void
 		{
-			const FTopLevelAssetPath& AssetPath = Request.KeyInput.Asset.AssetPath;
+			const FTopLevelAssetPath& AssetPath = Request.Asset.AssetPath;
 			auto It = Entries.find(AssetPath);
-			if (It == Entries.end() || Request.Cancellation.IsCancelled()) return;
+			if (It == Entries.end()) return;
 
-			It->second.bUploadFailed = false;
-			It->second.bHasTransparency = Request.bHasTransparency;
+			It->second.State = EAssetThumbnailState::Pending;
+			It->second.bHasTransparency = false;
+			for (size_t Offset = 3; Offset < Pixels.size(); Offset += 4)
+				if (Pixels[Offset] != std::byte{255})
+				{
+					It->second.bHasTransparency = true;
+					break;
+				}
 			++UploadsQueued;
 			auto Promise = std::make_shared<TPromise<FAssetThumbnailUploadResult>>();
 			It->second.Upload = Promise->GetFuture();
@@ -258,7 +326,7 @@ namespace Durin
 					Entry.Diagnostic = Result.Error.empty()
 						? "The UI backend is unavailable for rendered-asset thumbnails."
 						: std::move(Result.Error);
-					Entry.bUploadFailed = true;
+					Entry.State = EAssetThumbnailState::Failed;
 					++UploadFailures;
 					continue;
 				}
@@ -268,7 +336,7 @@ namespace Durin
 				Entry.Width = Result.Width;
 				Entry.Height = Result.Height;
 				Entry.Diagnostic.clear();
-				Entry.bUploadFailed = false;
+				Entry.State = EAssetThumbnailState::Ready;
 				++UploadsCompleted;
 			}
 		}
@@ -276,98 +344,66 @@ namespace Durin
 		auto FinishCapture() -> void
 		{
 			if (!CaptureJob || CaptureOutput == nullptr) return;
-			if (CaptureJob->Work.Cancellation.IsCancelled())
-			{
-				ResetCapture();
-				return;
-			}
 			auto Capture = CaptureOutput->PollCapture();
 			if (Capture && !Capture->has_value()) return;
 
 			FRenderedJob& Job = *CaptureJob;
-			FAssetThumbnailScheduledRequest& Request =
+			FThumbnailRenderRequest& Request =
 				Job.Work;
-			FThumbnailRenderJob* Draw = Job.Draw.get();
+			FThumbnailDrawContext* Draw = Job.Draw.get();
 			std::string Error;
 			if (!Capture) Error = Capture.error();
 			else if (!Draw) Error = "The rendered-thumbnail renderer was removed.";
 			else if (auto Valid = Draw->Validate(); !Valid)
 				Error = Valid.error();
-			if (Pipeline.CompleteCapture(Job.Work, Capture ? FByteView(**Capture) : FByteView{},
-				Request.KeyInput.Output.Width, Request.KeyInput.Output.Height, Error))
+			if (AcceptPixels(Job.Work, Capture ? FByteView(**Capture) : FByteView{},
+				Request.Output.Width, Request.Output.Height, Error))
 			{
-				QueueUpload(Request, std::move(**Capture), Request.KeyInput.Output.Width, Request.KeyInput.Output.Height);
+				QueueUpload(Request, std::move(**Capture), Request.Output.Width, Request.Output.Height);
 			}
 			ResetCapture();
 		}
 
-		auto ParkPreparing(
-			const FThumbnailDrawResult& Update) -> void
+		auto ParkPreparing() -> void
 		{
 			if (!PreparingJob) return;
 			if (Budgets.MaximumParkedRenderedJobs == 0
 				|| ParkedJobs.size() >= Budgets.MaximumParkedRenderedJobs)
 			{
-				Pipeline.BeginRender(
-					PreparingJob->Work, false,
+				FailThumbnail(PreparingJob->Work.Asset.AssetPath,
 					"The rendered-thumbnail parked-resource budget is exhausted.");
 				PreparingJob.reset();
 				return;
 			}
-			if (!Pipeline.BeginRender(
-					PreparingJob->Work, false))
-			{
-				Pipeline.Cancel(PreparingJob->Work);
-				PreparingJob.reset();
-				return;
-			}
+			++Stats.ResourceWaits;
 			ParkedJobs.push_back({
 				.Job = std::move(*PreparingJob),
-				.LastUpdate = Update,
 				.FirstWaitFrame = FrameNumber,
 				.NextPollFrame = FrameNumber
-					+ std::max<uint32>(1, Budgets.ResourcePollIntervalFrames),
-				.bReady = Update.State == EThumbnailDrawStatus::ReadyToRender});
+					+ std::max<uint32>(1, Budgets.ResourcePollIntervalFrames)});
 			PreparingJob.reset();
 			PeakParkedResourceWaits = std::max<uint64>(
 				PeakParkedResourceWaits, ParkedJobs.size());
 		}
 
-		auto HandlePreparedUpdate(
-			const FThumbnailDrawResult& Update) -> void
+		auto HandlePreparedUpdate() -> void
 		{
 			if (!PreparingJob) return;
 			FRenderedJob& Job = *PreparingJob;
-			FAssetThumbnailScheduledRequest& Request =
+			FThumbnailRenderRequest& Request =
 				Job.Work;
-			FThumbnailRenderJob* Draw = Job.Draw.get();
-			if (Draw == nullptr || Request.Cancellation.IsCancelled())
-			{
-				PreparingJob.reset();
-				return;
-			}
-			if (Update.State == EThumbnailDrawStatus::Failed)
-			{
-				Pipeline.BeginRender(
-					Job.Work,
-					false,
-					Update.Diagnostic);
-				PreparingJob.reset();
-				return;
-			}
-			const bool bReady =
-				Update.State == EThumbnailDrawStatus::ReadyToRender;
+			FThumbnailDrawContext* Draw = Job.Draw.get();
+			const bool bReady = Job.IsReady();
 			if (!bReady || CaptureJob)
 			{
-				ParkPreparing(Update);
+				ParkPreparing();
 				return;
 			}
-			if (!Pipeline.BeginRender(
-					Job.Work,
-					true))
-				return;
+			if (RendersStartedThisFrame >= Budgets.MaximumRendersPerFrame) return;
+			++RendersStartedThisFrame;
+			++Stats.Renders;
 			std::string Error;
-			if (!EnsureCapture(Request.KeyInput.Output))
+			if (!EnsureCapture(Request.Output))
 			{
 				Error = CaptureOutput != nullptr
 					? CaptureOutput->GetDiagnostic()
@@ -391,21 +427,49 @@ namespace Durin
 					return;
 				}
 			}
-			Pipeline.CompleteCapture(Job.Work, {}, 0, 0, Error);
+			AcceptPixels(Job.Work, {}, 0, 0, Error);
 			if (CaptureOutput) CaptureOutput->Reset();
 			PreparingJob.reset();
+		}
+
+		// Root loading and renderer preparation belong to the pool, alongside admission.
+		// False consumes a terminal failure; readiness lives only in the context.
+		auto UpdateDraw(FRenderedJob& Job, bool bAllowDraw) -> bool
+		{
+			auto Fail = [&](std::string Error) {
+				FailThumbnail(Job.Work.Asset.AssetPath, std::move(Error));
+				return false;
+			};
+			if (!Job.Draw)
+			{
+				DObject* Object = Job.LoadedOverride.Get();
+				if (!Object)
+				{
+					if (!Job.Load) return Fail("The thumbnail asset load is unavailable.");
+					if (!Job.Load->IsComplete()) return true;
+					if (Job.Load->HasError()) return Fail(Job.Load->GetError().Message.empty()
+						? "The thumbnail asset could not be loaded." : Job.Load->GetError().Message);
+					Object = Job.Load->GetLoadedAsset();
+					if (!Object || Object->GetClass()->GetQualifiedName().ToString() != Job.Work.Asset.AssetClassName)
+						return Fail("The thumbnail asset does not match its catalog class.");
+				}
+				if (!Job.Renderer->CanVisualizeAsset(Object)) return Fail("The renderer cannot visualize this asset.");
+				Job.Draw = std::make_unique<FThumbnailDrawContext>(Object);
+			}
+			if (!Job.IsReady() && bAllowDraw)
+			{
+				DObject* Object = Job.LoadedOverride ? Job.LoadedOverride.Get() : Job.Load->GetLoadedAsset();
+				Job.Renderer->Draw(Object, *Job.Draw);
+			}
+			if (Job.Draw->Status == FThumbnailDrawContext::EState::Failed) return Fail(Job.Draw->Diagnostic);
+			return true;
 		}
 
 		auto PollPreparing() -> void
 		{
 			if (!PreparingJob) return;
-			FThumbnailRenderJob* Draw = PreparingJob->Draw.get();
-			if (Draw == nullptr)
-			{
-				PreparingJob.reset();
-				return;
-			}
-			HandlePreparedUpdate(Draw->Update(!CaptureJob));
+			if (!UpdateDraw(*PreparingJob, !CaptureJob)) { PreparingJob.reset(); return; }
+			HandlePreparedUpdate();
 		}
 
 		auto PollParkedJobs() -> void
@@ -413,51 +477,33 @@ namespace Durin
 			const uint64 PollInterval =
 				std::max<uint32>(1, Budgets.ResourcePollIntervalFrames);
 			bool bDrawReserved = PreparingJob.has_value() || CaptureJob.has_value()
-				|| std::ranges::any_of(ParkedJobs, [](const auto& Job) { return Job.bReady; });
+				|| std::ranges::any_of(ParkedJobs, [](const auto& Job) { return Job.Job.IsReady(); });
 			for (size_t Index = 0; Index < ParkedJobs.size();)
 			{
 				FParkedJob& Parked = ParkedJobs[Index];
-				FAssetThumbnailScheduledRequest& Request =
-					Parked.Job.Work;
-				FThumbnailRenderJob* Draw = Parked.Job.Draw.get();
-				const bool bTimedOut = !Parked.bReady
+				const bool bTimedOut = !Parked.Job.IsReady()
 					&& Budgets.MaximumResourceWaitFrames != 0
 					&& FrameNumber - Parked.FirstWaitFrame
 						>= Budgets.MaximumResourceWaitFrames;
-				bool bRelease = Draw == nullptr || Request.Cancellation.IsCancelled();
-				if (!bRelease && bTimedOut)
+				bool bRelease = false;
+				if (bTimedOut)
 				{
-					Pipeline.BeginRender(
-						Parked.Job.Work, false,
+					FailThumbnail(Parked.Job.Work.Asset.AssetPath,
 						"Timed out waiting for rendered-thumbnail resources.");
 					++ResourceWaitTimeouts;
 					bRelease = true;
 				}
-				if (!bRelease && !Parked.bReady
+				if (!bRelease && !Parked.Job.IsReady()
 					&& FrameNumber >= Parked.NextPollFrame)
 				{
-					Parked.LastUpdate = Draw->Update(!bDrawReserved);
+					bRelease = !UpdateDraw(Parked.Job, !bDrawReserved);
 					Parked.NextPollFrame = FrameNumber + PollInterval;
-					if (Parked.LastUpdate.State
-						== EThumbnailDrawStatus::Failed)
+					if (Parked.Job.IsReady())
 					{
-						Pipeline.BeginRender(
-							Parked.Job.Work, false,
-							Parked.LastUpdate.Diagnostic);
-						bRelease = true;
-					}
-					else if (Parked.LastUpdate.State
-						== EThumbnailDrawStatus::ReadyToRender)
-					{
-						Parked.bReady = true;
 						bDrawReserved = true;
 					}
-					else if (!Pipeline.BeginRender(
-							Parked.Job.Work, false))
-					{
-						Pipeline.Cancel(Parked.Job.Work);
-						bRelease = true;
-					}
+					else if (!bRelease)
+						++Stats.ResourceWaits;
 				}
 				if (bRelease)
 				{
@@ -475,65 +521,97 @@ namespace Durin
 			if (PreparingJob || CaptureJob || ParkedJobs.empty()) return;
 			auto IsVisible = [this](const FParkedJob& Parked) {
 				const auto It = Entries.find(
-					Parked.Job.Work.KeyInput.Asset.AssetPath);
+					Parked.Job.Work.Asset.AssetPath);
 				return It != Entries.end() && It->second.bVisible;
 			};
 			auto Selected = std::ranges::find_if(
 				ParkedJobs,
 				[&](const FParkedJob& Parked) {
-					return Parked.bReady && IsVisible(Parked);
+					return Parked.Job.IsReady() && IsVisible(Parked);
 				});
 			if (Selected == ParkedJobs.end())
 				Selected = std::ranges::find_if(
 					ParkedJobs,
-					[](const FParkedJob& Parked) { return Parked.bReady; });
+					[](const FParkedJob& Parked) { return Parked.Job.IsReady(); });
 			if (Selected == ParkedJobs.end()) return;
-			FThumbnailDrawResult Update = Selected->LastUpdate;
 			PreparingJob = std::move(Selected->Job);
 			ParkedJobs.erase(Selected);
-			HandlePreparedUpdate(Update);
+			HandlePreparedUpdate();
 		}
 
 		auto StartNext() -> bool
 		{
-			FAssetThumbnailStartResult Start = Pipeline.PollNext();
-			const auto* Scheduled = Start.Job ? &*Start.Job : nullptr;
-			if (Scheduled)
+			Cache.Tick();
+			if (CacheJobs.empty() || (CacheJobs.front().Read.IsValid() && !CacheJobs.front().Read.IsReady()))
 			{
-				const auto& Input = Scheduled->KeyInput;
+				if (CacheJobs.size() >= 8) return false;
+				auto Request = Scheduler.TakeNext();
+				if (!Request) return false;
+				const TStrongObjectPtr<DThumbnailRenderer> Renderer(Manager.Find(Request->Asset.AssetClassName));
+				if (!Renderer)
+				{
+					if (const auto It = Entries.find(Request->Asset.AssetPath); It != Entries.end())
+						It->second.State = EAssetThumbnailState::None;
+					return true;
+				}
+				auto Captured = CaptureThumbnailKeyInput(Request->Asset, Renderer->GetClass());
+				if (!Captured)
+				{
+					FailThumbnail(Request->Asset.AssetPath, Captured.error());
+					return true;
+				}
+				auto& Input = *Captured;
+				FThumbnailRenderRequest Work{
+					.CacheKey = BuildAssetThumbnailCacheKey(Input),
+					.Asset = Request->Asset,
+					.Output = Input.Output};
+				++Stats.Jobs;
 				if (auto It = Entries.find(Input.Asset.AssetPath); It != Entries.end())
 				{
-					It->second.Dependencies = Input.Dependencies;
-					It->second.bDependenciesCaptured = true;
+					It->second.Dependencies.clear();
+					for (const auto& Package : Input.Packages)
+						if (Package.PackagePath != Input.Asset.AssetPath.GetPackagePath())
+							It->second.Dependencies.push_back(Package.PackagePath);
 				}
-			}
-			if (Start.Job && !Start.Pixels.empty())
-			{
-				FAssetThumbnailScheduledRequest& WarmJob = *Start.Job;
-				const FTopLevelAssetPath& Path =
-					WarmJob.KeyInput.Asset.AssetPath;
-				if (auto It = Entries.find(Path); It != Entries.end())
-					It->second.bHasTransparency =
-						WarmJob.bHasTransparency;
-				QueueUpload(WarmJob, std::move(Start.Pixels),
-					WarmJob.KeyInput.Output.Width,
-					WarmJob.KeyInput.Output.Height);
+				const uint64 PixelCount = uint64(Input.Output.Width) * Input.Output.Height;
+				const uint64 Bytes = PixelCount <= Budgets.CpuPixelBudgetBytes / 4 ? PixelCount * 4 : 0;
+				uint64 Retained = 0;
+				for (const auto& Job : CacheJobs)
+					Retained += Job.Bytes;
+				TFuture<FThumbnailCacheReadResult> Read;
+				if (Bytes && Retained <= Budgets.CpuPixelBudgetBytes - Bytes
+					&& Cache.GetRetainedBytes() <= Budgets.CpuPixelBudgetBytes - Bytes - Retained)
+					Read = Cache.Load(Work.CacheKey, Input.Output);
+				const uint64 ReservedBytes = Read.IsValid() ? Bytes : 0;
+				CacheJobs.push_back({std::move(Work), std::move(Read), ReservedBytes});
 				return true;
 			}
-			if (!Start.Job) return Start.bProgressed;
-			PreparingJob.emplace(FRenderedJob{.Work = std::move(*Start.Job)});
+			auto Pending = std::move(CacheJobs.front());
+			CacheJobs.pop_front();
+			auto Work = std::move(Pending.Work);
+			FThumbnailCacheReadResult Result;
+			if (Pending.Read.GetState() == EFutureState::Succeeded) Result = Pending.Read.Consume();
+			if (!Result.Pixels.empty())
+			{
+				++Stats.DiskHits;
+				QueueUpload(Work, std::move(Result.Pixels), Work.Output.Width, Work.Output.Height);
+				return true;
+			}
+			if (Result.bInvalid) ++Stats.Retries;
+			++Stats.Loads;
+			PreparingJob.emplace();
+			PreparingJob->Work = std::move(Work);
 			FRenderedJob& Job = *PreparingJob;
 			auto& Request = Job.Work;
-			if (auto It = Entries.find(Request.KeyInput.Asset.AssetPath); It != Entries.end())
-				It->second.bHasTransparency = Request.bHasTransparency;
-			Job.Draw = Manager.CreateRenderJob(Request);
-			if (!Job.Draw)
+			Job.Renderer = TStrongObjectPtr<DThumbnailRenderer>(Manager.Find(Request.Asset.AssetClassName));
+			if (!Job.Renderer)
 			{
-				Pipeline.CompleteLoad(Job.Work, "The thumbnail renderer was removed.");
-				PreparingJob.reset(); return true;
+				FailThumbnail(Request.Asset.AssetPath, "The thumbnail renderer was removed.");
+				PreparingJob.reset();
+				return true;
 			}
-			const auto Update = Job.Draw->Update(!CaptureJob);
-			if (!Pipeline.CompleteLoad(Job.Work, Update.Diagnostic)) { PreparingJob.reset(); return true; }
+			Job.LoadedOverride = TStrongObjectPtr<DObject>(Manager.GetLoadedObjectOverride(Request.Asset.AssetClassName));
+			if (!Job.LoadedOverride) Job.Load = GetStreamableManager().RequestAsyncLoad(Request.Asset.AssetPath);
 			PollPreparing();
 			return true;
 		}
@@ -570,12 +648,7 @@ namespace Durin
 			BudgetEntries.reserve(Entries.size());
 			for (const auto& [Path, Entry] : Entries)
 			{
-				const EThumbnailJobState State = Scheduler.GetState(Path);
-				const bool bActive = Entry.Upload.IsValid()
-					|| State == EThumbnailJobState::Queued
-					|| State == EThumbnailJobState::Loading
-					|| State == EThumbnailJobState::WaitingForResources
-					|| State == EThumbnailJobState::Rendering;
+				const bool bActive = Entry.State == EAssetThumbnailState::Pending;
 				BudgetEntries.push_back({
 					.Key = Path.ToString(),
 					.Bytes = 1,
@@ -622,7 +695,7 @@ namespace Durin
 	auto FAssetThumbnailPool::InvalidateRenderer(std::string_view AssetClassName) -> void
 	{
 		for (const auto& [Path, Entry] : Impl->Entries)
-			if (Entry.Fingerprint.AssetClassName == AssetClassName) Impl->RetireAssetWork(Path);
+			if (Entry.AssetData.AssetClassName == AssetClassName) Impl->RetireAssetWork(Path);
 	}
 
 	FAssetThumbnailPool::~FAssetThumbnailPool()
@@ -632,7 +705,7 @@ namespace Durin
 		Impl->CaptureOutput.reset();
 	}
 
-	auto FAssetThumbnailPool::Prefetch(const FAssetThumbnailPackageFingerprint& Asset) -> void
+	auto FAssetThumbnailPool::Prefetch(const FAssetData& Asset) -> void
 	{
 		AccessTexture(Asset, EAssetThumbnailPriority::Prefetch);
 		if (const auto It = Impl->Entries.find(Asset.AssetPath); It != Impl->Entries.end())
@@ -640,21 +713,23 @@ namespace Durin
 	}
 
 	auto FAssetThumbnailPool::AccessTexture(
-		const FAssetThumbnailPackageFingerprint& Asset,
+		const FAssetData& Asset,
 		EAssetThumbnailPriority Priority) -> FAssetThumbnailView
 	{
 		if (!Asset.AssetPath.IsValid()) return {};
+		// Apply already-published changes before accepting fresh UI demand.
+		if (Impl->CatalogRevision != GetAssetCatalogRevision()) Impl->CollectBackgroundPackages(*this);
 		auto [It, bInserted] = Impl->Entries.try_emplace(Asset.AssetPath);
-		FImpl::FEntry& Entry = It->second;
+		FImpl::FThumbnailInfo& Entry = It->second;
 		if (bInserted)
-			Entry.Fingerprint = Asset;
-		else if (Entry.Fingerprint != Asset)
+			Entry.AssetData = Asset;
+		else if (Entry.AssetData != Asset)
 		{
 			const uint32 ReferencerCount = Entry.ReferencerCount;
 			Impl->RetireAssetWork(Asset.AssetPath);
 			Impl->UnregisterTexture(Entry);
 			Entry = {};
-			Entry.Fingerprint = Asset;
+			Entry.AssetData = Asset;
 			Entry.ReferencerCount = ReferencerCount;
 		}
 		Entry.bVisible |= Priority == EAssetThumbnailPriority::Visible;
@@ -664,47 +739,32 @@ namespace Durin
 			Entry.Diagnostic.clear();
 			return Find(Asset.AssetPath);
 		}
-		const auto Admission = Impl->Scheduler.Request({.Asset = Asset, .Priority = Priority});
-		// Queue pressure is retried by subsequent visible requests. Old requests
-		// and shutdown need no diagnostic; unsupported assets retain a placeholder.
-		if (Admission == EThumbnailRequestStatus::Unsupported)
-			Entry.Diagnostic = "No thumbnail renderer is registered for this asset class.";
-		else if (!Entry.bUploadFailed)
-			Entry.Diagnostic.clear();
+		if (Entry.State == EAssetThumbnailState::Pending)
+		{
+			if (Priority == EAssetThumbnailPriority::Visible) Impl->Scheduler.Prioritize(Asset.AssetPath);
+		}
+		else if (Entry.State == EAssetThumbnailState::None && !Impl->Manager.IsShuttingDown()
+			&& Impl->Manager.Find(Asset.AssetClassName))
+		{
+			if (Impl->Scheduler.Request({.Asset = Asset, .Priority = Priority}))
+				Entry.State = EAssetThumbnailState::Pending;
+		}
 		return Find(Asset.AssetPath);
 	}
 
 	auto FAssetThumbnailPool::Find(const FTopLevelAssetPath& AssetPath) const -> FAssetThumbnailView
 	{
-		FAssetThumbnailView View;
-		const auto Phase = Impl->Scheduler.GetState(AssetPath);
-		switch (Phase)
-		{
-		case EThumbnailJobState::Queued:
-		case EThumbnailJobState::Loading:
-		case EThumbnailJobState::WaitingForResources:
-		case EThumbnailJobState::Rendering:
-		case EThumbnailJobState::PixelsReady:
-			View.State = EAssetThumbnailState::Pending;
-			break;
-		case EThumbnailJobState::Invalid:
-		case EThumbnailJobState::Failed:
-			View.State = EAssetThumbnailState::Failed;
-			View.Diagnostic = Impl->Scheduler.GetFailureReason(AssetPath);
-			break;
-		default: break;
-		}
 		const auto It = Impl->Entries.find(AssetPath);
-		if (It == Impl->Entries.end()) return View;
+		if (It == Impl->Entries.end()) return {};
 		const auto& Entry = It->second;
+		FAssetThumbnailView View;
+		View.State = Entry.State;
 		View.Texture = Entry.Texture;
 		View.Width = Entry.Width;
 		View.Height = Entry.Height;
 		View.bHasTransparency = Entry.bHasTransparency;
 		View.bShowTransparencyGrid = false;
-		if (Entry.Texture) View.State = EAssetThumbnailState::Ready;
-		else if (Entry.bUploadFailed) View.State = EAssetThumbnailState::Failed;
-		if (View.State == EAssetThumbnailState::Failed && !Entry.Diagnostic.empty()) View.Diagnostic = Entry.Diagnostic;
+		if (View.State == EAssetThumbnailState::Failed) View.Diagnostic = Entry.Diagnostic;
 		return View;
 	}
 
@@ -734,7 +794,7 @@ namespace Durin
 		Impl->RetireAssetWork(AssetPath);
 		Impl->UnregisterTexture(It->second);
 
-		It->second.bUploadFailed = false;
+		It->second.State = EAssetThumbnailState::None;
 		It->second.Diagnostic.clear();
 	}
 
@@ -766,8 +826,8 @@ namespace Durin
 			});
 		};
 		for (auto& [Path, Entry] : Impl->Entries)
-			if (Changes.bFullRefresh || !Entry.bDependenciesCaptured || AffectsPackage(Path.GetPackagePath())
-				|| std::ranges::any_of(Entry.Dependencies, [&](const auto& Dependency) { return AffectsPackage(Dependency.PackagePath); }))
+			if (Changes.bFullRefresh || AffectsPackage(Path.GetPackagePath())
+				|| std::ranges::any_of(Entry.Dependencies, [&](const auto& Dependency) { return AffectsPackage(Dependency); }))
 				Refresh(Path);
 	}
 
@@ -777,7 +837,8 @@ namespace Durin
 		Impl->CollectBackgroundPackages(*this);
 		Impl->DrainUploads();
 		Impl->FinishCapture();
-		Impl->Pipeline.BeginFrame();
+		Impl->RendersStartedThisFrame = 0;
+		Impl->Cache.Tick();
 
 		const auto StartTime = std::chrono::steady_clock::now();
 		if (Impl->PreparingJob)
@@ -808,10 +869,7 @@ namespace Durin
 		for (auto& [Path, Entry] : Impl->Entries)
 		{
 			Impl->RetireAssetWork(Path);
-			Entry.bUploadFailed = false;
-			Entry.Diagnostic.clear();
 		}
-		Impl->Scheduler.CancelAll();
 	}
 
 	auto FAssetThumbnailPool::Clear() -> void
@@ -834,8 +892,14 @@ namespace Durin
 			PinnedEntries += Entry.ReferencerCount != 0 ? 1u : 0u;
 			Referencers += Entry.ReferencerCount;
 		}
+		auto GenerationStats = Impl->Stats;
+		const auto CacheStats = Impl->Cache.GetStats();
+		GenerationStats.Evictions = CacheStats.Evictions;
+		GenerationStats.CacheWrites = CacheStats.CacheWrites;
+		GenerationStats.CacheWriteFailures = CacheStats.CacheWriteFailures;
+		GenerationStats.CacheWritesSkipped = CacheStats.CacheWritesSkipped;
 		return {
-			.Generation = Impl->Pipeline.GetStats(),
+			.Generation = GenerationStats,
 			.CaptureOutputCreations = Impl->CaptureOutputCreations,
 			.CapturesStarted = Impl->CapturesStarted,
 			.UploadsQueued = Impl->UploadsQueued,
@@ -846,7 +910,7 @@ namespace Durin
 			.ParkedResourceWaits = Impl->ParkedJobs.size(),
 			.PeakParkedResourceWaits = Impl->PeakParkedResourceWaits,
 			.ResourceWaitTimeouts = Impl->ResourceWaitTimeouts,
-			.QueuedJobs = Impl->Scheduler.NumQueued(),
+			.QueuedJobs = Impl->Scheduler.Num(),
 			.RetainedEntries = Impl->Entries.size(),
 			.PinnedEntries = PinnedEntries,
 			.Referencers = Referencers,

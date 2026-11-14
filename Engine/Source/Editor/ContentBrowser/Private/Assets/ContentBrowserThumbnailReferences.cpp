@@ -66,15 +66,9 @@ namespace Durin::ContentBrowser::Private
 			AssetThumbnails.erase(Identity);
 			return;
 		}
-		const auto Package = FindPackageExact(Path.GetPackagePath());
-		const FAssetThumbnailPackageFingerprint Fingerprint{
-			.AssetPath = Path, .PackagePath = Path.GetPackagePath(), .AssetClassName = Asset->AssetClassName,
-			.PackageFormatVersion = Package ? Package->FormatVersion : 0,
-			.FileSize = Package ? static_cast<uint64>(Package->FileSize) : 0,
-			.LastWriteTimeTicks = Package ? Package->LastWriteTimeTicks : 0};
 		auto& Thumbnail = AssetThumbnails[Identity];
-		if (!Thumbnail) Thumbnail = std::make_unique<FAssetThumbnail>(Fingerprint);
-		else Thumbnail->Reassign(Fingerprint);
+		if (!Thumbnail) Thumbnail = std::make_unique<FAssetThumbnail>(*Asset.Asset);
+		else Thumbnail->Reassign(*Asset.Asset);
 		Thumbnail->AccessTexture(Priority);
 	}
 
