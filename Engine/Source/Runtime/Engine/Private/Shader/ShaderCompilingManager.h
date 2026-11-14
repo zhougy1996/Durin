@@ -88,7 +88,7 @@ namespace Durin
 		std::unordered_map<FMaterialCompileKey, FShaderMapPtr, FMaterialCompileKeyHash> RequestedShaderMaps;
 		std::deque<FMaterialCompileResult> MaterialResults;
 		struct FMaterialRequestAssociation { FShaderMapPtr Request; std::shared_ptr<const FMaterialCompileRequest> Association; };
-		std::unordered_map<std::shared_ptr<FMaterialCompilationResource>, FMaterialRequestAssociation> MaterialRequests;
+		std::unordered_map<std::shared_ptr<FMaterialResource>, FMaterialRequestAssociation> MaterialRequests;
 		uint32 OutstandingMaterialConsumers = 0;
 		FMaterialCompilationStatistics MaterialStatistics;
 		auto IsAcceptingMaterialRequests() const -> bool;
@@ -97,14 +97,14 @@ namespace Durin
 		auto PollMaterialCancellation() -> void;
 		auto ProcessMaterialResults(uint32 MaximumCompletions,
 			std::optional<std::chrono::steady_clock::time_point> Deadline, std::vector<FWeakObjectPtr>& CompiledAssets,
-			const std::shared_ptr<FMaterialCompilationResource>& Resource = {}) -> void;
+			const std::shared_ptr<FMaterialResource>& Resource = {}) -> void;
 		auto CompleteMaterialRequests(const FShaderMapPtr& ShaderMap, MaterialBuildPrivate::FMaterialBuildResult Build) -> void;
 		auto CancelCompilation(FWeakObjectPtr Owner, bool bCountCancellation) -> bool;
-		auto CancelCompilation(const std::shared_ptr<FMaterialCompilationResource>& Resource) -> void;
+		auto CancelCompilation(const std::shared_ptr<FMaterialResource>& Resource) -> void;
 		auto RegisterMaterialRequest(const std::shared_ptr<FMaterialCompileRequest>& Request) -> void;
 		auto QueueMaterialResult(FMaterialCompileResult Result) -> void;
-		auto FinishResourceCompilation(const std::shared_ptr<FMaterialCompilationResource>& Resource) -> void;
-		auto DetachMaterialResourceLocked(const std::shared_ptr<FMaterialCompilationResource>& Resource, std::vector<FShaderMapPtr>& CanceledRequests, bool bCountCancellation) -> bool;
+		auto FinishResourceCompilation(const std::shared_ptr<FMaterialResource>& Resource) -> void;
+		auto DetachMaterialResourceLocked(const std::shared_ptr<FMaterialResource>& Resource, std::vector<FShaderMapPtr>& CanceledRequests, bool bCountCancellation) -> bool;
 		static auto MakeMaterialResult(const std::shared_ptr<FMaterialCompileRequest>& Request,
 			const MaterialBuildPrivate::FMaterialBuildResult& Build,
 			const MIR::FCompilerInput* DiagnosticInput = nullptr, bool Canceled = false) -> FMaterialCompileResult;

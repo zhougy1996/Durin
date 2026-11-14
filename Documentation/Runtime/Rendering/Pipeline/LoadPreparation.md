@@ -60,9 +60,9 @@ continues through the committed viewport; startup retains the generation-scoped
 output and primary-window presentation gates. Later
 streamed products retain their normal component/demand preparation gates.
 
-Preparation uses the effective `FMaterialResource` returned by
-`GetMaterialResource`, following the [material renderer boundary](../Materials/MaterialSystem.md#renderer-boundary).
-`HasValidGameThreadShaderMap` checks program success and ShaderMap presence,
+Preparation queries the prepared material resource, accepted program and effective
+properties directly, following the [material renderer boundary](../Materials/MaterialSystem.md#renderer-boundary).
+`HasValidGameThreadShaderMap` checks accepted program and ShaderMap presence,
 independently of compilation progress, textures and component PSOs.
 The proxy separates `GetMaterialNoFallback`
 from `GetMaterialWithFallback`. The former returns null when no valid accepted
@@ -467,7 +467,7 @@ Current desktop Forward and Hybrid both collect from Deferred; lower material
 FeatureLevels do not imply a Mobile renderer. Mobile registrations remain isolated.
 
 Engine's `IPSOCollector::CollectPSOInitializers` retains the UE-shaped `void` append
-interface: scene configuration, accepted `FMaterialResource`, Vertex Factory data,
+interface: scene configuration, accepted material program and effective properties, Vertex Factory data,
 primitive parameters and an output `FPSOPrecacheDataArray`. `PSOCollectorIndex`
 identifies the contribution. The append implementation consumes prepared resources;
 it never pumps async work. `PreparePSOResources` is a nonblocking readiness hook

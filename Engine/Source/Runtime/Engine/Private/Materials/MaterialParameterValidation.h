@@ -14,6 +14,11 @@ namespace Durin::Private
 		});
 	}
 
+	inline auto IsAuthoringMaterialParameterValue(const FMaterialParameterValue& Value) -> bool
+	{
+		return Value.GetType() != EMaterialParameterType::Texture || !Value.GetTexture().TextureReference;
+	}
+
 	inline auto IsFiniteMaterialParameterValue(const FMaterialParameterValue& Value) -> bool
 	{
 		switch (Value.GetType())

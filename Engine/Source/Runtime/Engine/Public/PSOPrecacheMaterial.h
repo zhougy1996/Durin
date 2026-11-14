@@ -15,7 +15,7 @@ namespace Durin
 	struct FMaterialPSOPrecacheParams
 	{
 		FMaterialPlanningPassIdentity Material;
-		std::shared_ptr<const FMaterialProgramResource> CompiledProgram;
+		std::shared_ptr<const FMaterialProgram> CompiledProgram;
 		FPSOPrecacheVertexFactoryData VertexFactoryData;
 		FPSOPrecacheParams PrecachePSOParams;
 		EPSOPrecachePriority Priority = EPSOPrecachePriority::Medium;
@@ -115,7 +115,7 @@ namespace Durin
 		struct FState;
 		std::unique_ptr<FState> State;
 	};
-	struct FMaterialResource;
+	struct FMaterialProgram;
 	// Desktop Forward and Hybrid use Deferred; material FeatureLevel is independent.
 	enum class EShadingPath : uint8 { Mobile, Deferred, Num };
 	struct FRenderResourceGeneration;
@@ -133,7 +133,7 @@ namespace Durin
 		{ return bRequired ? EPSOCollectorPreparation::Ready : EPSOCollectorPreparation::Skip; }
 		// Append boundary: preparation retains the resources used by this call.
 		virtual auto CollectPSOInitializers(const FSceneRenderPreparationConfig& SceneConfig,
-			const FMaterialResource& Material, const FPSOPrecacheVertexFactoryData& VertexFactoryData,
+			const FMaterialProgram& Program, const FMaterialStaticProperties& Properties, const FPSOPrecacheVertexFactoryData& VertexFactoryData,
 			const FPSOPrecacheParams& PrecacheParams, FPSOPrecacheDataArray& PSOInitializers) -> void = 0;
 
 	};

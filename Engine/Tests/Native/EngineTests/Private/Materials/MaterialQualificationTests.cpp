@@ -1,3 +1,4 @@
+#include "MaterialRenderProxyUpdateTestSupport.h"
 #include "Shader/ShaderCompilingManager.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "DObject/OverridableManager.h"
@@ -89,10 +90,10 @@ TEST_F(FMaterialQualificationTests, ProxyPublicationAndResolveBaseline)
 	struct FMeasure { static constexpr auto GetName() -> const char* { return "MaterialProxyBaseline"; } };
 	for (const uint32 Count : {8u, 32u, 128u})
 	{
-		auto Program = std::make_shared<FMaterialProgramResource>();
+		auto Program = std::make_shared<FMaterialProgram>();
 		auto Artifact = std::make_shared<FMaterialShaderMap>();
 		Program->ShaderMap = Artifact;
-		FMaterialResource Layer;
+		Durin::Testing::FMaterialTestState Layer;
 		for (uint32 Index = 0; Index < Count; ++Index)
 		{
 			const FGuid Id{Index + 1, 0, 0, 1};
@@ -117,7 +118,7 @@ TEST_F(FMaterialQualificationTests, ProxyPublicationAndResolveBaseline)
 					const auto Begin = std::chrono::steady_clock::now();
 					for (auto& Proxy : Proxies)
 					{
-						Proxy->ApplyPublication_RenderThread(Layer);
+						Durin::Testing::ApplyMaterialTestState(*Proxy, Layer);
 						EXPECT_FALSE(Proxy->GetMaterialWithFallback().Representation.IsError());
 					}
 					const auto Resolved = std::chrono::steady_clock::now();
@@ -307,7 +308,7 @@ TEST_F(FMaterialQualificationTests, ConsumerResultCopyCost)
 		for (uint32 Index = 0; Index < 500; ++Index)
 		{
 			const auto Begin = std::chrono::steady_clock::now();
-			auto Copy = std::make_shared<FMaterialProgramResource>(Program.Resource);
+			auto Copy = std::make_shared<FMaterialProgram>(Program.Resource);
 			Copy->Quality = EMaterialQualityLevel::Low;
 			Samples.push_back(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - Begin).count());
 			ASSERT_EQ(Copy->GetShaderMap().ShaderMapId, Program.GetShaderMap().ShaderMapId);
@@ -754,7 +755,7 @@ TEST_F(FMaterialQualificationTests, BoundedStaticSelectorVariantGrowth)
 					Program.GetDebugData().GeneratedSource.size());
 				Programs.push_back(std::move(Program));
 			}
-		std::vector<const FMaterialProgramResource*> ProgramPointers;
+		std::vector<const FMaterialProgram*> ProgramPointers;
 		std::unordered_set<FMaterialProgramIdentity> Identities;
 		for (const auto& Program : Programs)
 		{

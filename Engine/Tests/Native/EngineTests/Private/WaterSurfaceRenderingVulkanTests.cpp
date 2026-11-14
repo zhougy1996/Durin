@@ -1,3 +1,4 @@
+#include "MaterialRenderProxyUpdateTestSupport.h"
 #include "WaterRenderingTestSupport.h"
 #include "CoreMinimal.h"
 #include "CoreGlobals.h"
@@ -163,8 +164,8 @@ TEST(FWaterRenderingPathVulkanTests, FiniteGerstnerGridMatchesCPUAndRemainsSelec
 		const auto ReferenceResult = MIR::Compile(ReferenceInput);
 		ASSERT_TRUE(AnimatedResult) << FormatMaterialProgramDiagnostics(AnimatedResult.Diagnostics);
 		ASSERT_TRUE(ReferenceResult) << FormatMaterialProgramDiagnostics(ReferenceResult.Diagnostics);
-		const auto Animated = std::make_shared<const FMaterialProgramResource>(AnimatedResult.Resource);
-		const auto Reference = std::make_shared<const FMaterialProgramResource>(ReferenceResult.Resource);
+		const auto Animated = std::make_shared<const FMaterialProgram>(AnimatedResult.Resource);
+		const auto Reference = std::make_shared<const FMaterialProgram>(ReferenceResult.Resource);
 		const auto AnimatedProperties = AnimatedInput.StaticProperties, ReferenceProperties = ReferenceInput.StaticProperties;
 		std::filesystem::create_directories(ProofDirectory / "Shaders");
 		// Prepare only this proof's resources for the separate runtime-only test.
@@ -175,7 +176,7 @@ TEST(FWaterRenderingPathVulkanTests, FiniteGerstnerGridMatchesCPUAndRemainsSelec
 			const auto GameProgram = MIR::Compile(*Input);
 			ASSERT_TRUE(GameProgram) << (GameProgram.Diagnostics.empty() ? "no diagnostic" : GameProgram.Diagnostics.front().Message);
 			FByteBuffer Bytes;
-			const std::array<const FMaterialProgramResource*, 1> Programs{&GameProgram.Resource};
+			const std::array<const FMaterialProgram*, 1> Programs{&GameProgram.Resource};
 			ASSERT_TRUE(EncodeMaterialCookedProgramFamily(Programs, Input->StaticProperties,
 				ECookTargetPlatform::Win64, ECookTargetProfile::Game, Bytes));
 			ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes, ProofDirectory / (Input == &AnimatedInput ? "Animated.bin" : "Reference.bin")));
@@ -184,7 +185,7 @@ TEST(FWaterRenderingPathVulkanTests, FiniteGerstnerGridMatchesCPUAndRemainsSelec
 		ASSERT_TRUE(BuildCookedShaderLibrary(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, ShaderLibrary));
 		ASSERT_TRUE(FFileHelper::SaveArrayToFile(ShaderLibrary, ProofDirectory / ShaderCookedLibraryRelativePath));
 #else
-		std::shared_ptr<const FMaterialProgramResource> Animated, Reference;
+		std::shared_ptr<const FMaterialProgram> Animated, Reference;
 		FMaterialStaticProperties AnimatedProperties, ReferenceProperties;
 		const auto AnimatedBytes = FFileHelper::LoadFileToArray(ProofDirectory / "Animated.bin");
 		const auto ReferenceBytes = FFileHelper::LoadFileToArray(ProofDirectory / "Reference.bin");
@@ -200,8 +201,8 @@ TEST(FWaterRenderingPathVulkanTests, FiniteGerstnerGridMatchesCPUAndRemainsSelec
 		ASSERT_TRUE(Animated->IsValid());
 		ASSERT_TRUE(Reference->IsValid());
 		auto AnimatedProxy = MakeRefCount<FMaterialRenderProxy>(), ReferenceProxy = MakeRefCount<FMaterialRenderProxy>();
-		AnimatedProxy->QueuePublication_GameThread({.StaticProperties = AnimatedProperties, .CompiledProgram = Animated});
-		ReferenceProxy->QueuePublication_GameThread({.StaticProperties = ReferenceProperties, .CompiledProgram = Reference});
+		Durin::Testing::QueueMaterialTestState(*AnimatedProxy, {.StaticProperties = AnimatedProperties, .CompiledProgram = Animated});
+		Durin::Testing::QueueMaterialTestState(*ReferenceProxy, {.StaticProperties = ReferenceProperties, .CompiledProgram = Reference});
 		const std::array<double, 3> Times{0., .7, 0.};
 		auto Grid = MakeWaterPathGrid();
 		std::array<std::unique_ptr<FStaticMeshRenderData>, 3> CPUGrids;

@@ -1,3 +1,4 @@
+#include "MaterialRenderProxyUpdateTestSupport.h"
 #include "MaterialResourceTestSupport.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "Asset/Load.h"
@@ -342,17 +343,17 @@ TEST(FMaterialInstanceTests, DynamicInstancesFollowAcceptedParentGenerationAndPr
 	Component->SetMaterial(Dynamic);
 	Component->RegisterComponent();
 	const auto Initial = CaptureScene(Harness.Scene);
+	ASSERT_TRUE(Dynamic->SetScalarParameterValue(MaterialParameters::RoughnessName(), 0.37f));
 	Base->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	FMaterialPropertyOverrides Overrides;
 	Overrides.bOverrideBlendMode = true;
 	Overrides.Values.BlendMode = EMaterialBlendMode::Masked;
 	ASSERT_TRUE(Asset->SetPropertyOverrides(Overrides));
-	EXPECT_EQ(Dynamic->GetAcceptedCompiledProgram(), Initial.Material.CompiledProgram);
-	EXPECT_EQ(Durin::Testing::CaptureMaterialRenderData(*Dynamic).PlanningPassIdentity, Initial.Material.PlanningPassIdentity);
-	ASSERT_TRUE(Dynamic->SetScalarParameterValue(MaterialParameters::RoughnessName(), 0.37f));
+	EXPECT_FALSE(Dynamic->GetAcceptedCompiledProgram());
+	EXPECT_TRUE(Durin::Testing::CaptureMaterialRenderData(*Dynamic).Representation.IsError());
 	const auto Pending = CaptureScene(Harness.Scene);
 	EXPECT_EQ(Pending.Proxy, Initial.Proxy);
-	EXPECT_FLOAT_EQ(GetMaterialBinding(Pending.Material).Roughness, 0.37f);
+	EXPECT_TRUE(Pending.Material.Representation.IsError());
 	ASSERT_TRUE(RequestMaterialRecompile(*Asset));
 	ASSERT_TRUE(FinishMaterialCompileForTest(*Asset));
 	const auto Accepted = CaptureScene(Harness.Scene);
@@ -551,7 +552,7 @@ TEST(FMaterialInstanceTests, InstanceStaticOverridesNeverReuseIncompatibleParent
 	Component->SetMaterial(Instance);
 	Component->RegisterComponent();
 
-	auto PipelineOnly = Base->GetMaterialResource().GetStaticProperties();
+	auto PipelineOnly = Durin::Testing::CaptureMaterialTestState(*Base).GetStaticProperties();
 	PipelineOnly.bTwoSided = true;
 	ASSERT_TRUE(Instance->SetPropertyOverrides({true, true, true, true, true, PipelineOnly}));
 	EXPECT_EQ(Instance->GetAcceptedCompiledProgram()->ShaderMap, ParentProgram->ShaderMap);
@@ -1144,21 +1145,80 @@ TEST(FMaterialInstanceTests, RenderSnapshotsTrackEffectiveContentWithoutRevision
     ASSERT_NE(Base, nullptr);
     auto* Child = NewObject<DMaterialInstance>(nullptr, "SnapshotChild");
     ASSERT_TRUE(Child->SetParent(Base));
-    const auto Before = Child->GetMaterialResource();
-    EXPECT_EQ(Before, Child->GetMaterialResource());
+    const auto Before = Durin::Testing::CaptureMaterialTestState(*Child);
+    EXPECT_EQ(Before, Durin::Testing::CaptureMaterialTestState(*Child));
     ASSERT_TRUE(Base->SetScalarParameterValue(MaterialParameters::RoughnessName(), 0.11f));
-    EXPECT_NE(Before, Child->GetMaterialResource());
+    EXPECT_NE(Before, Durin::Testing::CaptureMaterialTestState(*Child));
     ASSERT_TRUE(Child->SetScalarParameterValue(MaterialParameters::RoughnessName(), 0.71f));
-    const auto Override = Child->GetMaterialResource();
+    const auto Override = Durin::Testing::CaptureMaterialTestState(*Child);
     ASSERT_TRUE(Base->SetScalarParameterValue(MaterialParameters::RoughnessName(), 0.22f));
-    EXPECT_EQ(Override, Child->GetMaterialResource());
+    EXPECT_EQ(Override.Parameters, Durin::Testing::CaptureMaterialTestState(*Child).Parameters);
+    EXPECT_EQ(Override.CompiledProgram->ShaderMap, Child->GetAcceptedCompiledProgram()->ShaderMap);
     FMaterialPropertyOverrides Overrides;
     Overrides.bOverrideTwoSided = true;
     Overrides.Values.bTwoSided = true;
     ASSERT_TRUE(Child->SetPropertyOverrides(Overrides));
-    EXPECT_NE(Override, Child->GetMaterialResource());
-    const auto Current = Child->GetMaterialResource();
-    EXPECT_EQ(Current, Child->GetMaterialResource());
+    EXPECT_NE(Override, Durin::Testing::CaptureMaterialTestState(*Child));
+    const auto Current = Durin::Testing::CaptureMaterialTestState(*Child);
+    EXPECT_EQ(Current, Durin::Testing::CaptureMaterialTestState(*Child));
     ASSERT_TRUE(Child->SetPropertyOverrides(Overrides));
-    EXPECT_EQ(Current, Child->GetMaterialResource());
+    EXPECT_EQ(Current, Durin::Testing::CaptureMaterialTestState(*Child));
+}
+
+TEST(FMaterialInstanceTests, ProgramDefaultsRemainSeparateFromInstanceOverrides)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge::Builtins;
+	auto* Root = MakeExpandedMaterial(nullptr, "ProgramDefaultOwner");
+	auto* Instance = NewObject<DMaterialInstance>(nullptr, "ProgramDefaultInstance");
+	ASSERT_TRUE(Instance->SetParent(Root));
+	auto* Dynamic = DMaterialInstance::CreateDynamic(Instance);
+	ASSERT_TRUE(Dynamic);
+	const auto Id = Root->FindParameterDefinition(MaterialParameters::RoughnessName())->Id;
+	ASSERT_TRUE(Root->SetScalarParameterValue(MaterialParameters::RoughnessName(), 0.2f));
+	ASSERT_TRUE(Instance->SetScalarParameterValue(MaterialParameters::RoughnessName(), 0.4f));
+	ASSERT_TRUE(Dynamic->SetScalarParameterValue(MaterialParameters::RoughnessName(), 0.6f));
+	const auto Program = Instance->GetAcceptedCompiledProgram();
+	const auto Default = std::ranges::find(Program->DefaultParameters.ScalarParameters, Id, &FMaterialScalarParameterValue::ParameterId);
+	ASSERT_NE(Default, Program->DefaultParameters.ScalarParameters.end());
+	EXPECT_FLOAT_EQ(Default->Value, 0.2f);
+	ASSERT_TRUE(Root->SetScalarParameterValue(MaterialParameters::RoughnessName(), 0.8f));
+	EXPECT_EQ(Instance->GetAcceptedCompiledProgram()->ShaderMap, Program->ShaderMap);
+	EXPECT_NE(Instance->GetAcceptedCompiledProgram(), Program);
+	EXPECT_FLOAT_EQ(Default->Value, 0.2f);
+	float Value = 0;
+	ASSERT_TRUE(Dynamic->GetScalarParameterValue(MaterialParameters::RoughnessName(), Value));
+	EXPECT_FLOAT_EQ(Value, 0.6f);
+	ASSERT_TRUE(Dynamic->ClearScalarParameterValue(MaterialParameters::RoughnessName()));
+	ASSERT_TRUE(Dynamic->GetScalarParameterValue(MaterialParameters::RoughnessName(), Value));
+	EXPECT_FLOAT_EQ(Value, 0.4f);
+	ASSERT_TRUE(Instance->ClearScalarParameterValue(MaterialParameters::RoughnessName()));
+	ASSERT_TRUE(Dynamic->GetScalarParameterValue(MaterialParameters::RoughnessName(), Value));
+	EXPECT_FLOAT_EQ(Value, 0.8f);
+	MarkAsGarbage(Dynamic);
+	MarkAsGarbage(Instance);
+	MarkAsGarbage(Root);
+	CollectGarbage(EObjectFlags::Standalone);
+}
+
+TEST(FMaterialInstanceTests, ClassifiedSetsAcceptUnsortedInitializationAndTypeChanges)
+{
+	using namespace Durin;
+	const FGuid First{1, 0, 0, 1}, Last{9, 0, 0, 1};
+	FMaterialInstanceParameterSet Parameters;
+	Parameters.ScalarParameters = {{.ParameterId = Last, .Value = 0.9f}, {.ParameterId = First, .Value = 0.1f}};
+	FMaterialParameterValue Value;
+	ASSERT_TRUE(Parameters.GetParameterValue(First, Value));
+	EXPECT_FLOAT_EQ(Value.GetScalar(), 0.1f);
+	Parameters.SetParameter(First, FMaterialParameterValue(0.4f));
+	EXPECT_EQ(Parameters.GetParameterCount(), 2u);
+	ASSERT_TRUE(Parameters.GetParameterValue(First, Value));
+	EXPECT_FLOAT_EQ(Value.GetScalar(), 0.4f);
+	Parameters.SetParameter(First, FMaterialParameterValue(FVector4(0.6)));
+	EXPECT_EQ(Parameters.GetParameterCount(), 2u);
+	ASSERT_EQ(Parameters.ScalarParameters.size(), 1u);
+	EXPECT_EQ(Parameters.ScalarParameters.front().ParameterId, Last);
+	ASSERT_TRUE(Parameters.GetParameterValue(First, Value));
+	EXPECT_EQ(Value.GetType(), EMaterialParameterType::Vector4);
+	EXPECT_EQ(Value.GetVector4(), FVector4(0.6f));
 }

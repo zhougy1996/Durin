@@ -240,7 +240,7 @@ namespace Durin
 		if (Params.CompiledProgram)
 		{
 			if (Params.CompiledProgram->FeatureLevel != Params.FeatureLevel
-				|| !ValidateMaterialProgramResource(*Params.CompiledProgram)
+				|| !ValidateMaterialProgram(*Params.CompiledProgram)
 				|| Params.CompiledProgram->GetShaderMap().ShaderMapId != Params.Material.ShaderMap.ProgramIdentity
 				|| Params.CompiledProgram->GetShaderMap().Layout.Identity != Params.Material.ShaderMap.RenderLayout)
 				return FMaterialPSOPrecacheRequestID::Rejected("Material PSO request requires a matching accepted program.");

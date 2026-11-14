@@ -1,3 +1,4 @@
+#include "MaterialRenderProxyUpdateTestSupport.h"
 #include "MaterialCompileFailureTestSupport.h"
 #include "MaterialResourceTestSupport.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
@@ -107,11 +108,11 @@ TEST(FMaterialRenderProxyTests, PendingProgramDoesNotBecomeInvalidMaterial)
 	FModuleManager::Get().LoadModule("RenderCore");
 	FRenderSceneHarness Harness;
 	FMaterialRenderProxyRef Proxy = new FMaterialRenderProxy;
-	FMaterialResource Pending;
+	Durin::Testing::FMaterialTestState Pending;
 	Pending.bIsCompiling = true;
 	const auto Before = GetMaterialFallbackDiagnosticsSnapshot();
 	const auto Counters = GetMaterialRenderProxyCounters();
-	Proxy->QueuePublication_GameThread(Pending);
+	Durin::Testing::QueueMaterialTestState(*Proxy, Pending);
 	const auto Compiling = CaptureMaterialProxy(Proxy);
 	EXPECT_TRUE(Compiling.bIsCompiling);
 	EXPECT_FALSE(Compiling.bHasMaterial);
@@ -119,7 +120,7 @@ TEST(FMaterialRenderProxyTests, PendingProgramDoesNotBecomeInvalidMaterial)
 	EXPECT_EQ(GetMaterialFallbackDiagnosticsSnapshot().Get(EMaterialFallbackReason::MaterialDataInvalid),
 		Before.Get(EMaterialFallbackReason::MaterialDataInvalid));
 	EXPECT_EQ(GetMaterialRenderProxyCounters().RepresentationValidationFailureCount, Counters.RepresentationValidationFailureCount);
-	Proxy->QueuePublication_GameThread({});
+	Durin::Testing::QueueMaterialTestState(*Proxy, {});
 	const auto Failed = CaptureMaterialProxy(Proxy);
 	EXPECT_FALSE(Failed.bIsCompiling);
 	EXPECT_FALSE(Failed.bHasMaterial);
@@ -136,13 +137,13 @@ TEST(FMaterialRenderProxyTests, PreboundFieldsMatchGuidWritesAndInvalidateWithTh
 	using namespace Durin;
 	FModuleManager::Get().LoadModule("RenderCore");
 	FRenderSceneHarness Harness;
-	FMaterialResource Layer;
+	Durin::Testing::FMaterialTestState Layer;
 	Layer.Parameters = {
 		{FGuid{1,0,0,1}, 0.25f}, {FGuid{2,0,0,1}, FVector2(0.1, 0.2)},
 		{FGuid{3,0,0,1}, FVector3(0.3, 0.4, 0.5)},
 		{FGuid{4,0,0,1}, FVector4(0.6, 0.7, 0.8, 0.9)},
-		{FGuid{5,0,0,1}, FMaterialLocalTextureValue{.TextureFallback = EMaterialTextureFallback::Black}}};
-	auto Program = std::make_shared<FMaterialProgramResource>();
+		{FGuid{5,0,0,1}, FMaterialParameterValue::MakeTexture(nullptr, {}, EMaterialTextureFallback::Black)}};
+	auto Program = std::make_shared<FMaterialProgram>();
 	auto Artifact = std::make_shared<FMaterialShaderMap>();
 	Program->ShaderMap = Artifact;
 	for (const auto& Parameter : Layer.Parameters) Artifact->ActiveParameters.push_back({Parameter.Id, Parameter.GetType()});
@@ -160,19 +161,19 @@ TEST(FMaterialRenderProxyTests, PreboundFieldsMatchGuidWritesAndInvalidateWithTh
 		{
 			if (Version == 2)
 			{
-				auto Configured = std::make_shared<FMaterialProgramResource>(*Program);
+				auto Configured = std::make_shared<FMaterialProgram>(*Program);
 				Configured->Quality = EMaterialQualityLevel::Low;
 				Layer.CompiledProgram = std::move(Configured);
 			}
 			Layer.Parameters[0].Value = 0.1f * Version;
-			Proxy->ApplyPublication_RenderThread(Layer);
+			Durin::Testing::ApplyMaterialTestState(*Proxy, Layer);
 			const auto& Published = Proxy->GetMaterialWithFallback();
 			EXPECT_TRUE(Published.UniformExpressionCache);
 			if (Publisher) EXPECT_EQ(Published.UniformExpressionCache, Publisher);
 			Publisher = Published.UniformExpressionCache;
 			const auto& Actual = Published.Representation;
 			FMaterialRenderRepresentationBuilder ExpectedBuilder(Program->GetShaderMap().Layout);
-			for (const auto& Parameter : Layer.Parameters) ASSERT_TRUE(ApplyMaterialLocalRenderParameter(ExpectedBuilder, Parameter));
+			for (const auto& Parameter : Layer.Parameters) ASSERT_TRUE(ExpectedBuilder.SetParameter(Parameter.Id, Parameter.Value));
 			FMaterialRenderRepresentation Expected;
 			FMaterialRenderValidationDiagnostic Diagnostic;
 			ASSERT_TRUE(ExpectedBuilder.Build(Expected, Diagnostic));
@@ -184,30 +185,30 @@ TEST(FMaterialRenderProxyTests, PreboundFieldsMatchGuidWritesAndInvalidateWithTh
 		EXPECT_EQ(GetMaterialRenderProxyCounters().ParameterBindingBuildCount - Before.ParameterBindingBuildCount, 1u);
 		EXPECT_EQ(GetMaterialRenderProxyCounters().IndexedParameterWriteCount - Before.IndexedParameterWriteCount, 15u);
 		// Removing the first declaration shifts every later field's index.
-		auto Replacement = std::make_shared<FMaterialProgramResource>(*Program);
+		auto Replacement = std::make_shared<FMaterialProgram>(*Program);
 		auto ReplacementArtifact = std::make_shared<FMaterialShaderMap>(Program->GetShaderMap());
 		Replacement->ShaderMap = ReplacementArtifact;
 		ReplacementArtifact->ActiveParameters.erase(Replacement->GetShaderMap().ActiveParameters.begin());
 		ReplacementArtifact->Layout = CompileMaterialLayout(Replacement->GetShaderMap().ActiveParameters).Layout;
 		Layer.CompiledProgram = Replacement;
-		Proxy->ApplyPublication_RenderThread(Layer);
+		Durin::Testing::ApplyMaterialTestState(*Proxy, Layer);
 		const auto& Changed = Proxy->GetMaterialWithFallback().Representation;
 		EXPECT_FALSE(Changed.IsError());
 		EXPECT_EQ(Changed.GetLayout().Fields.front().ParameterId, Layer.Parameters[1].Id);
 		EXPECT_EQ(GetMaterialRenderProxyCounters().ParameterBindingBuildCount - Before.ParameterBindingBuildCount, 2u);
 		Layer.Parameters.erase(Layer.Parameters.begin());
-		Proxy->ApplyPublication_RenderThread(Layer);
+		Durin::Testing::ApplyMaterialTestState(*Proxy, Layer);
 		EXPECT_FALSE(Proxy->GetMaterialWithFallback().Representation.IsError());
 		EXPECT_EQ(GetMaterialRenderProxyCounters().ParameterBindingBuildCount - Before.ParameterBindingBuildCount, 3u);
 		Layer.Parameters[0].Value = 0.5f; // An orphan type must not reuse the old vector write.
-		Proxy->ApplyPublication_RenderThread(Layer);
+		Durin::Testing::ApplyMaterialTestState(*Proxy, Layer);
 		EXPECT_FALSE(Proxy->GetMaterialWithFallback().Representation.IsError());
 		EXPECT_EQ(GetMaterialRenderProxyCounters().ParameterBindingBuildCount - Before.ParameterBindingBuildCount, 4u);
 		FMaterialRenderValidationDiagnostic Diagnostic;
 		for (const uint32 Index : {0u, 1u, 99u})
 		{
 			FMaterialRenderRepresentationBuilder Invalid(Program->GetShaderMap().Layout);
-			EXPECT_FALSE(Invalid.SetParameterAtIndex(Index, Layer.Parameters[0]));
+			EXPECT_FALSE(Invalid.SetParameterAtIndex(Index, Layer.Parameters[0].Id, Layer.Parameters[0].Value));
 			FMaterialRenderRepresentation Output;
 			EXPECT_FALSE(Invalid.Build(Output, Diagnostic));
 			EXPECT_TRUE(Output.IsError());
@@ -303,16 +304,16 @@ TEST(FMaterialRenderProxyTests, StableIdentityAppliesSnapshotsInCommandOrder)
 	ExpectRenderDataMatches(
 		StaticUpdated.RenderData, Durin::Testing::CaptureMaterialRenderData(*Material));
 
-	Durin::FMaterialResource Publication;
+	Durin::Testing::FMaterialTestState Publication;
 	Publication.CompiledProgram = StaticUpdated.RenderData.CompiledProgram;
 	Publication.StaticProperties = StaticProperties;
 	Publication.Parameters.push_back({
 		.Id = Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value,
-		.Value = Durin::FVector3(0.0),
+		.Value = Durin::FVector4(0.0),
 	});
-	Proxy->QueuePublication_GameThread(std::move(Publication));
+	Durin::Testing::QueueMaterialTestState(*Proxy, std::move(Publication));
 	const auto Replaced = CaptureMaterialProxy(Proxy);
-	EXPECT_EQ(Replaced.PublicationCount, StaticUpdated.PublicationCount + 1);
+	EXPECT_EQ(Replaced.PublicationCount, StaticUpdated.PublicationCount + 3);
 	EXPECT_EQ(Replaced.ResolutionCount, StaticUpdated.ResolutionCount + 1);
 	EXPECT_EQ(Durin::FVector3f(GetMaterialBinding(Replaced.RenderData).BaseColor), Durin::FVector3f(0.0f));
 	// Previously resolved values remain independent of later proxy updates.
@@ -641,16 +642,16 @@ TEST(FMaterialRenderProxyTests, NonFinitePublicationUsesGenericValidation)
 	auto Proxy = Instance->GetRenderProxy();
 	const auto Initial = CaptureMaterialProxy(Proxy);
 	// Bypass the setter's validation to exercise the render boundary's final guard.
-	Durin::FMaterialResource Publication;
+	Durin::Testing::FMaterialTestState Publication;
 	Publication.CompiledProgram = Instance->GetAcceptedCompiledProgram();
-	Publication.StaticProperties = Instance->GetMaterialResource().GetStaticProperties();
+	Publication.StaticProperties = Durin::Testing::CaptureMaterialTestState(*Instance).GetStaticProperties();
 	Publication.Parameters.push_back({
 		.Id = Instance->FindParameterDefinition(
 			Durin::AssetForge::Builtins::MaterialParameters::RoughnessName())->Id,
 		.Value = std::numeric_limits<float>::quiet_NaN(),
 	});
 	Durin::ResetMaterialRenderProxyCounters();
-	Proxy->QueuePublication_GameThread(std::move(Publication));
+	Durin::Testing::QueueMaterialTestState(*Proxy, std::move(Publication));
 	const auto Snapshot = CaptureMaterialProxy(Proxy);
 	EXPECT_GT(Durin::GetMaterialRenderProxyCounters().RepresentationValidationFailureCount, 0u);
 	ExpectRenderDataMatches(Snapshot.RenderData, Durin::GetErrorMaterialRenderData());
@@ -692,8 +693,9 @@ TEST(FMaterialRenderProxyTests, OrdinarySetterPublishesCompleteDependentLayers)
 TEST(FMaterialRenderProxyTests, OrderedPublicationsShareOnlyLazyResolution)
 {
 	FRenderSceneHarness Harness;
-	auto* Material = MakeExpandedMaterial(
-		nullptr, "CoalescedProxyMaterial");
+	auto* Root = MakeExpandedMaterial(nullptr, "CoalescedProxyMaterial");
+	auto* Material = Durin::DMaterialInstance::CreateDynamic(Root);
+	ASSERT_TRUE(Material);
 	Durin::FMaterialRenderProxyRef Proxy =
 		Material->GetRenderProxy();
 	const auto Initial = CaptureMaterialProxy(Proxy);
@@ -753,11 +755,34 @@ TEST(FMaterialRenderProxyTests, OrderedPublicationsShareOnlyLazyResolution)
 	EXPECT_EQ(Applied.QueuedPublicationCount, 3);
 	EXPECT_EQ(Applied.PublicationCount, 3);
 	EXPECT_EQ(Applied.PendingPublicationCount, 0);
+	EXPECT_EQ(Applied.ProgramUpdateCount, 0);
+	EXPECT_EQ(Applied.PropertyUpdateCount, 0);
+	EXPECT_EQ(Applied.ParameterUpdateCount, 3);
+	EXPECT_EQ(Applied.UniformCacheInvalidationCount, 3);
+	EXPECT_EQ(Applied.CopiedMaterialPayloadBytes, sizeof(float) * 2 + sizeof(Durin::FVector4));
+	Proxy->InvalidateUniformExpressionCache_GameThread();
+	const auto Invalidated = CaptureMaterialProxy(Proxy);
+	EXPECT_EQ(Invalidated.RenderData.CompiledProgram, Updated.RenderData.CompiledProgram);
+	EXPECT_EQ(Invalidated.RenderData.UniformExpressionCache, Updated.RenderData.UniformExpressionCache);
+	EXPECT_EQ(Invalidated.ResolutionCount, Updated.ResolutionCount + 1);
+	const auto CacheOnly = Durin::GetMaterialRenderProxyCounters();
+	EXPECT_EQ(CacheOnly.ProgramUpdateCount, 0);
+	EXPECT_EQ(CacheOnly.ParameterUpdateCount, 3);
+	EXPECT_EQ(CacheOnly.UniformCacheInvalidationCount, 4);
+	Proxy->SetCompiling_GameThread(true);
+	Proxy->SetCompiling_GameThread(true);
+	const auto Pending = CaptureMaterialProxy(Proxy);
+	EXPECT_TRUE(Pending.bIsCompiling);
+	EXPECT_EQ(Pending.PublicationCount, Invalidated.PublicationCount + 1);
+	EXPECT_EQ(Pending.RenderData.CompiledProgram, Updated.RenderData.CompiledProgram);
+	Proxy->SetCompiling_GameThread(false);
+	EXPECT_FALSE(CaptureMaterialProxy(Proxy).bIsCompiling);
 	EXPECT_EQ(Applied.QueuedPublicationCount,
 		Applied.PublicationCount
 			+ Applied.PendingPublicationCount);
 
 	Durin::MarkAsGarbage(Material);
+	Durin::MarkAsGarbage(Root);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	Durin::ReleaseMaterialRenderProxy_GameThread(std::move(Proxy));
 	WaitForRenderingThread();
@@ -1201,4 +1226,87 @@ TEST(FMaterialRenderProxyTests, FailedCompilationPublishesErrorAndRecoveryForEac
 	WaitForRenderingThread();
 	Harness.Shutdown();
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
+}
+
+TEST(FMaterialResourceTests, DetachedSnapshotsSurviveOwnerRetirement)
+{
+	using namespace Durin;
+	FMaterialResource Owner(FMaterialCompilationConfiguration{});
+	auto Program = std::make_shared<FMaterialProgram>();
+	Program->ShaderMap = std::make_shared<FMaterialShaderMap>();
+	Durin::Testing::FMaterialTestState Input;
+	Input.CompiledProgram = Program;
+	Input.StaticProperties = FMaterialStaticProperties{};
+	Input.Parameters.push_back({FGuid{1, 0, 0, 1}, .25f});
+	Input.bIsCompiling = true;
+	Owner.CompiledProgram = std::move(Input.CompiledProgram);
+	Owner.AcceptedProperties = std::move(Input.StaticProperties);
+	Program->DefaultParameters = Durin::Testing::MakeMaterialParameterSet(Input.Parameters);
+	auto Snapshot = Durin::Testing::CaptureResourceTestState(Owner);
+	EXPECT_FALSE(Snapshot.bIsCompiling);
+	EXPECT_EQ(Snapshot.CompiledProgram, Program);
+	Snapshot.Parameters.front().Value = .75f;
+	EXPECT_EQ(Program->DefaultParameters.ScalarParameters.front().Value, .25f);
+	Owner.ClearAcceptedProgram();
+	const auto Cleared = Durin::Testing::CaptureResourceTestState(Owner);
+	EXPECT_FALSE(Cleared.CompiledProgram);
+	EXPECT_FALSE(Cleared.StaticProperties);
+	EXPECT_TRUE(Cleared.Parameters.empty());
+	EXPECT_EQ(Snapshot.CompiledProgram, Program);
+	EXPECT_TRUE(Snapshot.StaticProperties);
+	EXPECT_EQ(Snapshot.Parameters.front().Value.GetScalar(), .75f);
+}
+
+TEST(FMaterialRenderProxyTests, ClassifiedTextureValuesSeparateAuthoringFromPublication)
+{
+	using namespace Durin;
+	FRenderSceneHarness Harness;
+	auto* Root = MakeExpandedMaterial(nullptr, "UnifiedTextureValues");
+	auto* Instance = NewObject<DMaterialInstance>(nullptr, "UnifiedTextureInstance");
+	ASSERT_TRUE(Instance->SetParent(Root));
+	auto* Dynamic = DMaterialInstance::CreateDynamic(Root);
+	ASSERT_TRUE(Dynamic);
+	auto* Texture = NewObject<DTexture2D>(nullptr, "UnifiedTextureResource");
+	{
+		const auto Id = Root->FindParameterDefinition(AssetForge::Builtins::MaterialParameters::BaseColorTextureName())->Id;
+		const auto Authored = FMaterialParameterValue::MakeTexture(Texture, {}, EMaterialTextureFallback::Black);
+		FMaterialInstanceParameterSet Original;
+		Original.SetParameter(Id, Authored);
+		auto Published = Original;
+		Published.ResolveTextureReferences();
+		EXPECT_EQ(Original.TextureParameters.front().Value.Texture.Get(), Texture);
+		EXPECT_FALSE(Published.TextureParameters.front().Value.Texture);
+		EXPECT_EQ(Published.TextureParameters.front().Value.TextureReference, Texture->GetTextureReferenceRHI());
+		FMaterialParameterValue RenderValue;
+		ASSERT_TRUE(Published.GetParameterValue(Id, RenderValue));
+		EXPECT_TRUE(RenderValue.IsRenderThreadValue());
+		EXPECT_EQ(Authored.GetTexture().Texture.Get(), Texture);
+		EXPECT_FALSE(Authored.GetTexture().TextureReference);
+		EXPECT_FALSE(Root->SetParameterValue(Id, RenderValue));
+		EXPECT_FALSE(Instance->SetParameterValue(Id, RenderValue));
+		EXPECT_FALSE(Dynamic->SetParameterValue(Id, RenderValue));
+		const std::array Declarations{FMaterialCompilerParameterDeclaration{Id, EMaterialParameterType::Texture}};
+		const auto Layout = CompileMaterialLayout(Declarations);
+		ASSERT_TRUE(Layout);
+		FMaterialRenderRepresentationBuilder Invalid(Layout.Layout);
+		EXPECT_FALSE(Invalid.SetParameter(Id, Authored));
+		FMaterialRenderRepresentationBuilder Builder(Layout.Layout);
+		ASSERT_TRUE(Builder.SetParameter(Id, RenderValue));
+		FMaterialRenderRepresentation Representation;
+		FMaterialRenderValidationDiagnostic Diagnostic;
+		ASSERT_TRUE(Builder.Build(Representation, Diagnostic));
+		Published = {};
+		RenderValue = FMaterialParameterValue::MakeTexture(nullptr);
+		ASSERT_EQ(Representation.GetResources().size(), 1u);
+		EXPECT_EQ(Representation.GetResources().front(), Texture->GetTextureReferenceRHI());
+
+	}
+	MarkAsGarbage(Dynamic);
+	MarkAsGarbage(Instance);
+	MarkAsGarbage(Root);
+	MarkAsGarbage(Texture);
+	CollectGarbage(EObjectFlags::Standalone);
+	WaitForRenderingThread();
+	Harness.Shutdown();
+	CollectGarbage(EObjectFlags::Standalone);
 }

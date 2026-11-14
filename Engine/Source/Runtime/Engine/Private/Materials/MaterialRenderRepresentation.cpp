@@ -228,47 +228,43 @@ namespace Durin
 		Input.TextureFallbacks.resize(Layout.ResourceFieldCount, EMaterialTextureFallback::White);
 	}
 
-	auto FMaterialRenderRepresentationBuilder::SetParameterAtIndex(uint32 FieldIndex,
-		const FMaterialLocalRenderParameter& Parameter) -> bool
+	auto FMaterialRenderRepresentationBuilder::SetParameter(const FGuid& Id, const FMaterialParameterValue& Value) -> bool
 	{
-		if (bInvalid || FieldIndex >= Input.Layout.Fields.size()) return RejectField(Parameter.Id);
+		const auto* Field = FindField(Id);
+		if (!Field) return RejectField(Id);
+		return SetParameterAtIndex(static_cast<uint32>(Field - Input.Layout.Fields.data()), Id, Value);
+	}
+
+	auto FMaterialRenderRepresentationBuilder::SetParameterAtIndex(uint32 FieldIndex,
+		const FGuid& Id, const FMaterialParameterValue& Value) -> bool
+	{
+		if (bInvalid || FieldIndex >= Input.Layout.Fields.size()) return RejectField(Id);
 		const auto& Field = Input.Layout.Fields[FieldIndex];
-		if (Field.ParameterId != Parameter.Id) return RejectField(Parameter.Id);
-		return std::visit([&](const auto& Value) -> bool {
-			using T = std::decay_t<decltype(Value)>;
-			if constexpr (std::is_same_v<T, FMaterialLocalTextureValue>)
-			{
-				if (Field.Storage != EMaterialRenderFieldStorage::Resource
-					|| Field.Type != EMaterialRenderValueType::Texture2D
-					|| Field.CompactIndex >= Input.Resources.size()
-					|| !IsValidMaterialSampling(Value.SamplerState, Value.TextureFallback)) return RejectField(Parameter.Id);
-				Input.Resources[Field.CompactIndex] = Value.Texture;
-				Input.Samplers[Field.CompactIndex] = Value.SamplerState;
-				Input.TextureFallbacks[Field.CompactIndex] = Value.TextureFallback;
-			}
-			else
-			{
-				constexpr auto Type = [] {
-					if constexpr (std::is_same_v<T, float>) return EMaterialRenderValueType::Scalar;
-					else if constexpr (std::is_same_v<T, FVector2>) return EMaterialRenderValueType::Vector2;
-					else if constexpr (std::is_same_v<T, FVector3>) return EMaterialRenderValueType::Vector3;
-					else return EMaterialRenderValueType::Vector4;
-				}();
-				if (Field.Storage != EMaterialRenderFieldStorage::Uniform || Field.Type != Type)
-					return RejectField(Parameter.Id);
-				if constexpr (std::is_same_v<T, float>) WriteFloat(Input.UniformPayload, Field.Offset, Value);
-				else
-				{
-					WriteFloat(Input.UniformPayload, Field.Offset, static_cast<float>(Value.x));
-					WriteFloat(Input.UniformPayload, Field.Offset + 4, static_cast<float>(Value.y));
-					if constexpr (!std::is_same_v<T, FVector2>)
-						WriteFloat(Input.UniformPayload, Field.Offset + 8, static_cast<float>(Value.z));
-					if constexpr (std::is_same_v<T, FVector4>)
-						WriteFloat(Input.UniformPayload, Field.Offset + 12, static_cast<float>(Value.w));
-				}
-			}
+		if (Field.ParameterId != Id) return RejectField(Id);
+		if (Value.GetType() == EMaterialParameterType::Texture)
+		{
+			const auto& Texture = Value.GetTexture();
+			if (!Value.IsRenderThreadValue() || Field.Storage != EMaterialRenderFieldStorage::Resource
+				|| Field.Type != EMaterialRenderValueType::Texture2D || Field.CompactIndex >= Input.Resources.size()
+				|| !IsValidMaterialSampling(Texture.SamplerState, Texture.TextureFallback)) return RejectField(Id);
+			Input.Resources[Field.CompactIndex] = Texture.TextureReference;
+			Input.Samplers[Field.CompactIndex] = Texture.SamplerState;
+			Input.TextureFallbacks[Field.CompactIndex] = Texture.TextureFallback;
 			return true;
-		}, Parameter.Value);
+		}
+		FVector4 Vector(0);
+		EMaterialRenderValueType Type = EMaterialRenderValueType::Scalar;
+		uint32 Components = 1;
+		switch (Value.GetType()) {
+		case EMaterialParameterType::Scalar: Vector.x = Value.GetScalar(); break;
+		case EMaterialParameterType::Vector2: Type = EMaterialRenderValueType::Vector2; Components = 2; Vector = FVector4(Value.GetVector2(), 0, 0); break;
+		case EMaterialParameterType::Vector: Type = EMaterialRenderValueType::Vector3; Components = 3; Vector = FVector4(Value.GetVector(), 0); break;
+		case EMaterialParameterType::Vector4: Type = EMaterialRenderValueType::Vector4; Components = 4; Vector = Value.GetVector4(); break;
+		default: return RejectField(Id);
+		}
+		if (Field.Storage != EMaterialRenderFieldStorage::Uniform || Field.Type != Type) return RejectField(Id);
+		for (uint32 Index = 0; Index < Components; ++Index) WriteFloat(Input.UniformPayload, Field.Offset + Index * 4, static_cast<float>(Vector[Index]));
+		return true;
 	}
 
 	auto FMaterialRenderRepresentationBuilder::FindField(

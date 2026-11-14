@@ -307,7 +307,7 @@ namespace Durin
 
 
 	auto DMaterialInstance::GetAcceptedCompiledProgram() const
-		-> std::shared_ptr<const FMaterialProgramResource>
+		-> std::shared_ptr<const FMaterialProgram>
 	{
 		if (bDynamicInstance) return IsValid(Parent.Get()) ? Parent->GetAcceptedCompiledProgram() : nullptr;
 		FResolvedMaterialProperties Resolved;
@@ -413,6 +413,7 @@ namespace Durin
 		{
 			return std::unexpected(std::format("{} [parameter {}]", Message, Id.ToString()));
 		};
+		if (!Private::IsAuthoringMaterialParameterValue(Value)) return Fail("Material texture overrides must reference assets, not render resources.");
 		if (!Definition) return Fail("Material declaration does not exist.");
 		if (Definition->Type != Type) return Fail("Material declaration type is invalid.");
 		if (!GetParameterReachability()->ParameterIds.contains(Id)) return Fail("The parameter is not reachable from the material outputs.");
@@ -446,7 +447,7 @@ namespace Durin
 			It->SetValue(StoredValue);
 		});
 		if (!bDynamicInstance) MarkPackageDirty();
-		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters, true);
+		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters, true, nullptr, std::span(&Id, 1));
 		return {};
 	}
 
@@ -545,6 +546,8 @@ namespace Durin
 				return Reject("Material parameter value has an invalid sampling policy.",
 					Index, Update.ParameterId);
 
+			if (!Private::IsAuthoringMaterialParameterValue(Update.Value))
+				return Reject("Material texture overrides must reference assets, not render resources.", Index, Update.ParameterId);
 			FMaterialParameterValue StoredValue = Update.Value;
 			if (FMaterialVectorParameterValue::SupportsType(Type))
 			{
@@ -592,7 +595,15 @@ namespace Durin
 		TextureParameterValues.swap(CandidateTextures);
 		GMaterialDynamicParameterCounters.ChangedCommitCount.fetch_add(1);
 		GMaterialDynamicParameterCounters.OwnerPublicationCount.fetch_add(1);
-		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters, true);
+		std::vector<FGuid> ChangedParameters;
+		bool bHasClear = false;
+		for (const auto& Update : Updates)
+		{
+			ChangedParameters.push_back(Update.ParameterId);
+			bHasClear |= Update.Operation == EMaterialDynamicParameterUpdateOperation::Clear;
+		}
+		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters, true, nullptr,
+			bHasClear ? std::span<const FGuid>{} : std::span<const FGuid>(ChangedParameters));
 		return {};
 	}
 
@@ -771,7 +782,7 @@ namespace Durin
 		{
 			Private::FMaterialCompilationLifecycle::MarkCanceled(*this);
 			CompilationState.SelectedResource->RequestedInput = {};
-			CompilationState.SelectedResource->RenderLayer = {};
+			CompilationState.SelectedResource->ClearAcceptedProgram();
 			if (CookedProgramData.GetMetadata().LogicalSize == 0)
 			{
 				CompilationState.SelectedResource->CookDiagnostic = "Material cooked program is unavailable.";

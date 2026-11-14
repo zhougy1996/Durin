@@ -1,3 +1,4 @@
+#include "MaterialRenderProxyUpdateTestSupport.h"
 #include "ComponentPSOPrecacheTestSupport.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "StaticMeshRenderPreparationTestSupport.h"
@@ -3387,7 +3388,7 @@ TEST(FMaterialParameterCollectionVulkanTests,
 			auto Alternate = Primary;
 			// Different simultaneous default bindings need an independent material source.
 			Alternate.UniformExpressionCache = std::make_shared<FUniformExpressionCache>();
-			auto Program = std::make_shared<FMaterialProgramResource>(*Primary.CompiledProgram);
+			auto Program = std::make_shared<FMaterialProgram>(*Primary.CompiledProgram);
 			ASSERT_EQ(Program->ActiveCollections.size(), 1u);
 			Program->ActiveCollections[0].DefaultPayload = OtherLayout->DefaultPayload;
 			Alternate.CompiledProgram = std::move(Program);
@@ -3868,10 +3869,10 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAnd
 		// Even an already published proxy must preserve unresolved material demand
 		// through normal logical collection, rather than authorizing an error draw.
 		const auto MaterialProxy = Material->GetRenderProxy(Scene.GetFeatureLevel());
-		const auto Accepted = Material->GetMaterialResource();
-		FMaterialResource Compiling;
+		const auto Accepted = Durin::Testing::CaptureMaterialTestState(*Material);
+		Durin::Testing::FMaterialTestState Compiling;
 		Compiling.bIsCompiling = true;
-		MaterialProxy->QueuePublication_GameThread(Compiling);
+		Durin::Testing::QueueMaterialTestState(*MaterialProxy, Compiling);
 		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
 			EXPECT_EQ(MaterialProxy->GetMaterialNoFallback(), nullptr);
 			EXPECT_TRUE(MaterialProxy->IsCompiling());
@@ -3883,7 +3884,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAnd
 				ERasterMode::Solid, ERenderPreparationMode::Full);
 			EXPECT_TRUE(FRenderPipelinePreparationBatch::HasPending());
 		});
-		MaterialProxy->QueuePublication_GameThread(Accepted);
+		Durin::Testing::QueueMaterialTestState(*MaterialProxy, Accepted);
 		FlushRenderingCommands();
 		const auto Job = Component->GetPSOPrecacheComponentData().GetLatestJobSet();
 		EXPECT_EQ(DPrimitiveComponent::GetPendingPSOPrecacheComponentCount(), 0u);
@@ -4102,12 +4103,12 @@ TEST(FStaticMeshRenderPreparationVulkanTests, HitProxyIdsRespectDepthBackgroundA
 	EXPECT_EQ(CaptureCenter(), 0xabcdef12u);
 	EXPECT_EQ(LastMap, BeforeTexturePublication);
 	EnqueueRenderCommand("RepublishUsedHitProxyMaterial", [&](FRHICommandListImmediate&) {
-		FMaterialResource Layer;
+		Durin::Testing::FMaterialTestState Layer;
 		Layer.CompiledProgram = Material->GetMaterialWithFallback().CompiledProgram;
 		FMaterialStaticProperties Properties;
 		Properties.bTwoSided = true;
 		Layer.StaticProperties = Properties;
-		Material->ApplyPublication_RenderThread(std::move(Layer));
+		Durin::Testing::ApplyMaterialTestState(*Material, std::move(Layer));
 	});
 	FlushRenderingCommands();
 	EXPECT_EQ(CaptureCenter(), 0xabcdef12u);
@@ -4462,8 +4463,8 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 		FlushRenderingCommands(); if (!Ready) std::this_thread::sleep_for(std::chrono::milliseconds(1));
 	}
 	ASSERT_TRUE(Ready) << HighComponent->GetPSOPrecacheDiagnostic() << "; " << LowComponent->GetPSOPrecacheDiagnostic();
-	const auto HighResource = Material->GetMaterialResource(HighScene->GetFeatureLevel());
-	const auto LowResource = Material->GetMaterialResource(LowScene->GetFeatureLevel());
+	const auto HighResource = Durin::Testing::CaptureMaterialTestState(*Material, HighScene->GetFeatureLevel());
+	const auto LowResource = Durin::Testing::CaptureMaterialTestState(*Material, LowScene->GetFeatureLevel());
 	ASSERT_TRUE(HighResource.HasValidGameThreadShaderMap() && LowResource.HasValidGameThreadShaderMap());
 	EXPECT_EQ(Material->GetAcceptedCompiledProgram(), DefaultProgram);
 	EXPECT_EQ(LowResource.CompiledProgram->FeatureLevel, ERHIFeatureLevel::ES3_1);
@@ -4562,7 +4563,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 			if (!Result) { DirectError = Result.error(); return; }
 			DirectReady = *Result == EPSOCollectorPreparation::Ready;
 			if (DirectReady) {
-				if (DirectInitializers.size() == 1) DirectCollector->CollectPSOInitializers(InitialConfig, LowResource, DirectParams.VertexFactoryData, {}, DirectInitializers);
+				if (DirectInitializers.size() == 1) DirectCollector->CollectPSOInitializers(InitialConfig, *LowResource.CompiledProgram, LowResource.GetStaticProperties(), DirectParams.VertexFactoryData, {}, DirectInitializers);
 
 				using namespace RendererPrivate;
 				const auto Properties = LowResource.GetStaticProperties();

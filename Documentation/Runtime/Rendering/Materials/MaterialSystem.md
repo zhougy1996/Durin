@@ -91,8 +91,9 @@ reparenting, import metadata edits and reflected editor edits are rejected.
 
 Dynamic instances reuse the parent's complete accepted rendering generation and
 overlay compatible local numeric/texture values. Parent updates reach their stable
-render proxies through the ordinary dependency query. Pending compilation retains
-the parent's accepted generation; failure or a broken chain displays ErrorMaterial.
+render proxies through the ordinary dependency query. Structural edits invalidate
+the parent's obsolete programs; pending or failed compilation and broken chains
+use fallback rather than promising the last successful appearance.
 Explicit and inherited compile scheduling never submits work for a dynamic owner.
 Editor and cooked runtime use the same path; no dynamic cooked payload is created.
 
@@ -147,7 +148,10 @@ validation reject nonfinite values before they can reach render publication.
   reference; factories explicitly select a new alternative. Equality ignores
   nonexistent inactive payloads. The texture alternative groups its object
   reference, sampler and fallback; `AddReferencedObjects` visits and rewrites
-  only that active reference.
+  only that active object reference. `ResolveTextureReference` prepares a copy for
+  publication: it retains `TextureReference` and clears the object pointer. The
+  native reference is transient and unreflected; authored writes reject it.
+  RenderThread consumes this same value type and rejects live object references.
 - Typed parameter expressions own common identity/presentation metadata and
   their concrete default. Scalar ranges and texture usage belong to their
   respective expression families. `FMaterialParameterDefinition` is a transient
@@ -870,9 +874,15 @@ captured collection identity/schema/layout, and refreshes only the default paylo
 Missing or incompatible collection dependencies reject the cooked program
 deterministically rather than binding a mismatched buffer.
 
-Both material asset kinds publish a complete `FMaterialResource`:
-shared immutable compiler result, accepted static properties, and native
-parameter/resource values. Canonical shader properties derive from that layer. Admission validates the entire
+Each prepared configuration has one game-thread `FMaterialResource` owning its
+request association, accepted `FMaterialProgram`, properties and retained native
+parameter values. `FMaterialProgram` binds immutable configuration and collection
+data to a shared `FMaterialShaderMap`; it carries no compilation status or errors.
+Consumers query the prepared resource, accepted program, effective properties
+and resolved parameters directly. No aggregate render-query snapshot is retained
+or published by the owner;
+compilation progress is derived from its request association. Canonical shader
+properties derive from the accepted properties. Admission validates the entire
 candidate before swapping. Values resolve through the bounded authored chain by
 stable GUID/type against the variant's active layout; no packed parent bytes or
 parent compilation success are required. Removed declarations retain accepted
@@ -992,13 +1002,20 @@ parameter mutation accepts parameters active in any prepared level. Edits,
 dependency changes and shader reload refresh requested resources through the
 existing material lifecycle. Finish, cancel and destruction cover these requests.
 
-`DMaterialInterface::GetMaterialResource` returns the active configuration's
-effective `FMaterialResource` without fallback. It owns the accepted program,
-compatible properties and selected native parameter values together; PSO and
-thumbnail consumers use that same resource. Asset `GetStaticProperties` describes
-authored configuration, while resource property queries describe the selected
-rendering generation. Effective-property selection is private. Materials expose
-no public `GetRenderData`, `GetRenderableStaticProperties` or `GetRenderSnapshot`.
+`DMaterialInterface::GetMaterialResource` returns a borrowed game-thread resource
+without fallback, preparation or allocation. Dynamic instances select the parent's
+prepared resource. `GetAcceptedCompiledProgram` retains the immutable program;
+`GetMaterialResourceProperties` reads effective properties; and
+`GetMaterialRenderParameters` resolves only the selected parameter values, including
+program defaults and compatible instance overrides. Removed or retyped declarations
+never read historical parameter values from a material resource. Structural edits
+invalidate all affected configurations, including resources without proxies.
+PSO collection consumes the immutable program and effective properties directly,
+without resolving or copying parameters. Thumbnail preparation retains program,
+render-change revision and properties alongside its existing dependency checks;
+it does not capture a full parameter array. Asset `GetStaticProperties` continues
+to describe authored configuration, while resource properties describe the selected
+rendering generation. Materials expose no aggregate render-query snapshot API.
 `GetRenderProxy` provides the rendering endpoint, and only proxy resolution
 assembles `FMaterialRenderRepresentation`. Render-thread consumers choose
 `GetMaterialNoFallback` or `GetMaterialWithFallback` explicitly.
@@ -1044,22 +1061,42 @@ assembles `FMaterialRenderRepresentation`. Render-thread consumers choose
   one stable `FMaterialRenderProxyRef` binding per slot. A mesh assignment or
   rebuilt mesh render layout replaces the proxy; dynamic parameter, static
   identity, and parent changes publish through the existing proxy in place.
-- Dirty flags classify the publication that a material mutation produces:
-  dynamic parameters and compatible static properties publish complete immutable
-  layers. GameThread uses the loaded-dependent query to refresh affected owners;
-  the render thread builds only that owner's layout and explicitly invalidates
-  its resolved cache when a new layer is applied.
-  It retains no parent proxy and performs no material-object traversal.
-- Each material publication command owns its complete layer. The game thread
-  never overwrites a mailbox belonging to an earlier command: a consumer between
-  publications A and B observes A regardless of render-thread scheduling.
-  Queue/apply interfaces accept the layer directly and return void. Resolution
-  remains lazy, so consecutive publications without a consumer rebuild the
-  resolved representation only when it is needed. There is no publication
-  version, coalescing mailbox, stale-update rejection or compatibility entry point.
-  Publication/resolution counts are diagnostics only. A dirty flag retains
-  pre-start demand until admission opens; the next proxy request submits the
-  current state before a preview or scene-proxy consumer uses it.
+- Dirty flags select independent proxy updates: program/ShaderMap association,
+  effective base properties, instance parameters and compilation progress.
+  Instance value edits do not replace ShaderMaps or properties or invalidate static
+  draw lists. GameThread resolves the bounded authored chain; RenderThread never
+  traverses material objects or parent proxies.
+  `FMaterialProgram::DefaultParameters`, effective parameter queries and proxy
+  initialization share `FMaterialInstanceParameterSet`. It reuses scalar, Vector4
+  and texture records, with native Vector2/3 collections for compiled layouts.
+  `SetParameter`/`GetParameterValue` use `FMaterialParameterValue`; uniform writes
+  consume it directly, without a second parameter or texture variant. The
+  program owns counted, render-safe root defaults.
+  Material instances own authored overrides; their proxies receive only compatible
+  overrides from the instance chain. Resources do not retain effective parameter
+  arrays. Root default edits bind new defaults to the same ShaderMap and invalidate
+  uniform values without rebuilding static draws or collection bindings.
+  Cooked packages persist typed defaults and texture dependencies in their root
+  parameter metadata. Admission binds these defaults into the decoded program;
+  native RHI references are never serialized into shader cache or cooked blobs.
+- Each render command owns only its operation's arguments. Program installation,
+  property changes, parameter initialization and individual parameter changes
+  preserve stream order. A parameter consumer between changes A and B observes A.
+  `InitParameters_GameThread`/`InitParameters_RenderThread` replace the override
+  set for initialization, clear or parent/structure changes. Mutation entrypoints
+  identify changed parameters for `UpdateParameter_GameThread`; the proxy stores
+  no game-thread parameter mirror. Unchanged single-value commands may be rejected
+  on RenderThread. Whole-operation no-ops are rejected by the material mutation.
+  There is no whole-material queue/apply API, mutable mailbox or publication token.
+- Uniform cache invalidation is independent. Parameter changes invalidate values
+  while preserving collection buffers and the uniform-buffer object. A changed
+  ShaderMap clears collection bindings and recreates the native uniform buffer only
+  when its layout changes. Explicit cache invalidation does not replace programs
+  or parameters. Native uniform evaluation remains lazy at the renderer binding
+  path, where counted textures and resource members are available.
+  Resolution also remains lazy: consecutive updates without a consumer resolve
+  only the resulting state. A dirty flag retains pre-start demand, and first
+  proxy admission initializes every required channel before later draw commands.
 - Component material assignment is a binding update, not material-content
   invalidation. Immediate game-thread binding snapshots share the ordered command
   stream with proxy creation and removal.
@@ -1202,7 +1239,7 @@ publish through the stable proxy and dynamic-only changes reuse shader identity.
   material dependency.
 - Loaded child/dependent discovery, borrowed result lifetime before the host GC safe point, shared batch
   contexts, and reentrant notifications follow [Scoped Material Queries](MaterialQueries.md).
-  Render publication refreshes retained local layers and stable proxies;
+  Render publication refreshes program defaults and instance overrides on stable proxies;
   parent and descendant proxies resolve inherited values on the render thread.
 - Relationships are canonical forward assignments, with no reverse component
   collections or registered-value mirrors to reconcile after edits or loading.
@@ -1217,7 +1254,8 @@ publish through the stable proxy and dynamic-only changes reuse shader identity.
   mesh. Rebuilding render state then resolves current slot definitions,
   defaults, and positional overrides directly from canonical storage.
 - Proxy diagnostics expose queued, applied and pending
-  publications, copied logical payload bytes, resolution-cache hit/miss,
+  update commands, copied logical parameter bytes, program/parameter/property
+  changes, uniform-cache invalidations, resolution-cache hit/miss,
   and binding-update counts; these are fixed process aggregates, not a dependency
   index. Dynamic-instance diagnostics separately count submitted records, changed,
   no-op and rejected commits, and owner publications. Reset is GameThread-only and
@@ -1225,7 +1263,7 @@ publish through the stable proxy and dynamic-only changes reuse shader identity.
   Query counters are defined by [Material query diagnostics](MaterialQueries.md#diagnostics-and-validation).
 - A collection schema edit schedules every loaded material/function-dependent
   owner through the ordinary compilation lifecycle and changes program identity.
-  A default-only edit refreshes retained compiler results and instantiated world
+  A default-only edit refreshes program defaults and instantiated world
   snapshots without changing identity or compile count. Runtime world updates
   publish only the collection snapshot to that world's scene.
 

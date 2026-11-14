@@ -1,3 +1,4 @@
+#include "MaterialRenderProxyUpdateTestSupport.h"
 #include "PSOPrecacheComponent.h"
 #include "PSOPrecacheMaterial.h"
 #include "Renderers/MeshVertexFactory.h"
@@ -932,7 +933,7 @@ namespace
     public:
         Durin::ERHIFeatureLevel FeatureLevel;
         FRegistryProbeCollector(int32 Index, Durin::ERHIFeatureLevel Level) : IPSOCollector(Index), FeatureLevel(Level) {}
-        auto CollectPSOInitializers(const Durin::FSceneRenderPreparationConfig&, const Durin::FMaterialResource&,
+        auto CollectPSOInitializers(const Durin::FSceneRenderPreparationConfig&, const Durin::FMaterialProgram&, const Durin::FMaterialStaticProperties&,
             const Durin::FPSOPrecacheVertexFactoryData&, const Durin::FPSOPrecacheParams&, Durin::FPSOPrecacheDataArray&) -> void override {}
     };
     auto CreateDeferredProbe(Durin::ERHIFeatureLevel Level) -> std::unique_ptr<Durin::IPSOCollector>

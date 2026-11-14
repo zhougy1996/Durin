@@ -40,11 +40,14 @@ namespace Durin::MaterialEditor
 
 		struct FMaterialThumbnailResource
 		{
-			FMaterialResource Snapshot;
-			bool bReady;
+			std::shared_ptr<const FMaterialProgram> Program;
+			uint64 RenderRevision = 0;
+			FMaterialStaticProperties Properties;
+			bool bReady = false;
+			auto operator==(const FMaterialThumbnailResource&) const -> bool = default;
 		};
 
-		auto GetMaterialResourceSnapshot(
+		auto QueryMaterialThumbnailReadiness(
 			DMaterialInterface* Material) -> std::expected<FMaterialThumbnailResource, std::string>
 		{
 			if (Material == nullptr)
@@ -71,7 +74,7 @@ namespace Durin::MaterialEditor
 				|| Material->GetAcceptedCompiledProgram() == nullptr)
 			{
 				if (Material->IsCompiling() || CompileStatus.HasScheduledEdits())
-					return FMaterialThumbnailResource{{}, false};
+					return FMaterialThumbnailResource{};
 				const auto Diagnostics = Material->GetMaterialCompileDiagnostics();
 				return std::unexpected(!Diagnostics.empty() && !Diagnostics.front().Message.empty()
 					? Diagnostics.front().Message
@@ -79,19 +82,19 @@ namespace Durin::MaterialEditor
 			}
 			for (DTexture2D* Texture : GetTextureDependencies(*Material))
 			{
-				if (!Texture->IsAsyncCacheComplete()) return FMaterialThumbnailResource{{}, false};
+				if (!Texture->IsAsyncCacheComplete()) return FMaterialThumbnailResource{};
 				if (!Texture->HasPlatformData())
 				{
 					return std::unexpected("A referenced material texture is not built.");
 				}
-				if (Texture->HasPendingRenderResourceInitialization()) return FMaterialThumbnailResource{{}, false};
+				if (Texture->HasPendingRenderResourceInitialization()) return FMaterialThumbnailResource{};
 				const auto* Resource = Texture->GetResource();
 				if (!Resource || !Resource->GetTextureRHI_GameThread())
 				{
 					return std::unexpected("A referenced material texture render resource is unavailable.");
 				}
 			}
-			return FMaterialThumbnailResource{Material->GetMaterialResource(), true};
+			return FMaterialThumbnailResource{Material->GetAcceptedCompiledProgram(), Material->GetRenderChangeCount(), Material->GetMaterialResourceProperties(), true};
 		}
 
 		auto MakeMaterialPreviewView() -> FThumbnailPreviewView
@@ -166,7 +169,7 @@ namespace Durin::MaterialEditor
 		if (!Shaders && Material->GetMaterialCompileStatus().IsCurrent()
 			&& Material->GetAcceptedCompiledProgram() && GEngine && GEngine->GetRendererModule())
 			Shaders = GEngine->GetRendererModule()->PrepareSceneThumbnailShaders();
-		auto Resource = GetMaterialResourceSnapshot(Material);
+		auto Resource = QueryMaterialThumbnailReadiness(Material);
 		if (!Resource) return Context.Fail(Resource.error());
 		if (!Resource->bReady || !Shaders) return;
 		// PostLoad schedules mesh compilation; asset residency does not imply render data is ready.
@@ -191,7 +194,7 @@ namespace Durin::MaterialEditor
 		auto ShaderReady = Shaders->Poll();
 		if (!ShaderReady) return Context.Fail(ShaderReady.error());
 		if (!bSphereReady || !*ShaderReady) return;
-		const auto PreparedMaterialSnapshot = Resource->Snapshot;
+		const auto PreparedMaterialSnapshot = *Resource;
 		const auto PreparedSphereResourceRevision = Sphere->GetRenderResourceStatus().Revision;
 		struct FDependencySnapshot { TWeakObjectPtr<DTexture2D> Texture; FTextureRHIRef Allocation; };
 		std::vector<FDependencySnapshot> DependencySnapshots;
@@ -229,9 +232,9 @@ namespace Durin::MaterialEditor
 			Sphere = TWeakObjectPtr<DStaticMesh>(Sphere), PreparedMaterialSnapshot,
 			PreparedSphereResourceRevision, Dependencies = std::move(DependencySnapshots)] {
 			if (!Material.IsValid() || !Sphere.IsValid()) return false;
-			auto Current = GetMaterialResourceSnapshot(Material.Get());
+			auto Current = QueryMaterialThumbnailReadiness(Material.Get());
 			const auto MeshStatus = Sphere.Get()->GetRenderResourceStatus();
-			return Current && Current->bReady && Current->Snapshot == PreparedMaterialSnapshot
+			return Current && Current->bReady && *Current == PreparedMaterialSnapshot
 				&& MeshStatus.Readiness == EStaticMeshRenderResourceReadiness::Ready
 				&& MeshStatus.Revision == PreparedSphereResourceRevision
 				&& std::ranges::all_of(Dependencies, [](const auto& Item) {

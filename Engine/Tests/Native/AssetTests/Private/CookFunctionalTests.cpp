@@ -1,3 +1,4 @@
+#include "MaterialRenderProxyUpdateTestSupport.h"
 #include "Texture/Texture2DCompilationTestSupport.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "NativeRHIBackendTestSupport.h"
@@ -1127,7 +1128,7 @@ TEST_F(FCookFunctionalTests, DetachedMaterialPreparationHonorsSelectedVariants)
 	auto Read = Prepared->AcquireRead();
 	ASSERT_TRUE(Read);
 	FMaterialStaticProperties Properties;
-	std::shared_ptr<const FMaterialProgramResource> Program;
+	std::shared_ptr<const FMaterialProgram> Program;
 	EXPECT_TRUE(DecodeMaterialCookedProgramFamily(Read->GetBytes(), ECookTargetPlatform::Win64,
 		ECookTargetProfile::Game, EMaterialQualityLevel::High, ERHIFeatureLevel::SM5, {}, Properties, Program));
 	EXPECT_FALSE(DecodeMaterialCookedProgramFamily(Read->GetBytes(), ECookTargetPlatform::Win64,
@@ -1807,7 +1808,7 @@ TEST_F(FCookFunctionalTests, CookedOnlyPreparationSelectsAvailableVariantsWithou
 	auto Read = Subset->AcquireRead();
 	ASSERT_TRUE(Read);
 	FMaterialStaticProperties Properties;
-	std::shared_ptr<const FMaterialProgramResource> Program;
+	std::shared_ptr<const FMaterialProgram> Program;
 	EXPECT_TRUE(DecodeMaterialCookedProgramFamily(Read->GetBytes(), ECookTargetPlatform::Win64,
 		ECookTargetProfile::Game, Low.Quality, Low.FeatureLevel, {}, Properties, Program));
 	EXPECT_FALSE(DecodeMaterialCookedProgramFamily(Read->GetBytes(), ECookTargetPlatform::Win64,
@@ -2222,7 +2223,7 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 			EXPECT_TRUE(Program->GetDebugData().IR.Nodes.empty());
 			EXPECT_TRUE(Program->GetDebugData().GeneratedSource.empty());
 			EXPECT_GT(LoadedMaterial->GetCookedProgramData().GetMetadata().LogicalSize, 0u);
-			EXPECT_TRUE(LoadedMaterial->GetMaterialResource().HasValidGameThreadShaderMap());
+			EXPECT_TRUE(Durin::Testing::CaptureMaterialTestState(*LoadedMaterial).HasValidGameThreadShaderMap());
 		}
 
 		if (Asset->IsA(DTexture::StaticClass()))

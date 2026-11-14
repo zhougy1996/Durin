@@ -1,3 +1,4 @@
+#include "MaterialRenderProxyUpdateTestSupport.h"
 #include "Renderers/MeshPassProcessor.h"
 #include "RendererResourceSlotCache.h"
 #include "Renderers/GBufferRendering.h"
@@ -36,7 +37,7 @@ namespace
 TEST(FRendererSceneContractTests, MeshPassProcessorsExposeUECollectorArgumentsAndSelectDrawShaders)
 {
 	using namespace Durin; using namespace RendererPrivate;
-	using FCollect = void (IPSOCollector::*)(const FSceneRenderPreparationConfig&, const FMaterialResource&,
+	using FCollect = void (IPSOCollector::*)(const FSceneRenderPreparationConfig&, const FMaterialProgram&, const FMaterialStaticProperties&,
 		const FPSOPrecacheVertexFactoryData&, const FPSOPrecacheParams&, FPSOPrecacheDataArray&);
 	static_assert(std::is_same_v<decltype(&IPSOCollector::CollectPSOInitializers), FCollect>);
 	static_assert(std::is_base_of_v<IPSOCollector, FMeshPassProcessor>);
@@ -743,19 +744,19 @@ TEST(FRendererSceneContractTests, StructuralMaterialPublicationInvalidatesOnlyPr
         const auto Other = Scene->CachedDrawLists->Publish(Key, DrawSource.MakeCommand(1, true), *Primitives[1]);
         const auto FirstInfo = Scene->CachedDrawLists->FindInfo(Key, *Primitives[0]);
         const auto OtherInfo = Scene->CachedDrawLists->FindInfo(Key, *Primitives[1]);
-        FMaterialResource Publication;
+        Durin::Testing::FMaterialTestState Publication;
         Publication.StaticProperties = FMaterialStaticProperties{};
         const auto Revision = Scene->GetHitProxyRevision_RenderThread();
-        A->ApplyPublication_RenderThread(Publication);
+        Durin::Testing::ApplyMaterialTestState(*A, Publication);
         EXPECT_GT(Scene->GetHitProxyRevision_RenderThread(), Revision);
         EXPECT_EQ(FirstInfo->CommandIndex, INDEX_NONE); EXPECT_NE(OtherInfo->CommandIndex, INDEX_NONE);
         EXPECT_EQ(Scene->CachedDrawLists->Num(), 1u);
         Scene->UpdateStaticMeshes();
         const auto Rebuilt = Scene->CachedDrawLists->Publish(Key, DrawSource.MakeCommand(1, true), *Primitives[0]);
         const auto RebuiltInfo = Scene->CachedDrawLists->FindInfo(Key, *Primitives[0]);
-        FMaterialLocalRenderParameter Scalar; Scalar.Id = FGuid::NewGuid(); Scalar.Value = 0.5f;
+        Durin::Testing::FMaterialTestParameter Scalar; Scalar.Id = FGuid::NewGuid(); Scalar.Value = 0.5f;
         Publication.Parameters.push_back(Scalar);
-        A->ApplyPublication_RenderThread(std::move(Publication));
+        Durin::Testing::ApplyMaterialTestState(*A, std::move(Publication));
         EXPECT_NE(RebuiltInfo->CommandIndex, INDEX_NONE); EXPECT_NE(OtherInfo->CommandIndex, INDEX_NONE);
         A->ReleaseRHI();
         EXPECT_EQ(RebuiltInfo->CommandIndex, INDEX_NONE); EXPECT_NE(OtherInfo->CommandIndex, INDEX_NONE);

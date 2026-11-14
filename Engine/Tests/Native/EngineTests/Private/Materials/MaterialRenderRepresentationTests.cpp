@@ -658,7 +658,7 @@ TEST(FMaterialRenderRepresentationTests, TextureSamplingOverridesChangePayloadWi
 	EXPECT_EQ(Binding.CompiledTextureFallbacks[0], EMaterialTextureFallback::Black);
 	EXPECT_EQ(Durin::Testing::CaptureMaterialRenderData(*Child).CompiledProgram, ChildAccepted);
 	ASSERT_TRUE(Root->SetParameterValue(Definition.Id, Value));
-	EXPECT_EQ(Root->GetAcceptedCompiledProgram(), Accepted);
+	EXPECT_EQ(Root->GetAcceptedCompiledProgram()->ShaderMap, Accepted->ShaderMap);
 	EXPECT_EQ(Durin::Testing::CaptureMaterialRenderData(*Root).PlanningPassIdentity.ShaderMap.ProgramIdentity, Accepted->GetShaderMap().ShaderMapId);
 	ASSERT_TRUE(Child->ClearParameterValue(Definition.Id));
 	Binding = GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Child));

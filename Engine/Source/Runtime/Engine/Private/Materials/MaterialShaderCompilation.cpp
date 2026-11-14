@@ -356,7 +356,7 @@ namespace Durin
 		// Cache hits and shared subscribers bind once before completion.
 		if (Retained) {
 			auto Bound = MaterialBuildPrivate::BindMaterialProgramCollections(
-				std::make_shared<const FMaterialProgramResource>(Retained->Resource),
+				std::make_shared<const FMaterialProgram>(Retained->Resource),
 				ShaderMap->Input->Collections, &ShaderMap->Input->Environment);
 			if (Bound) {
 				auto Rebound = std::make_shared<FMaterialCompilerResult>(*Retained);

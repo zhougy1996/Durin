@@ -10,7 +10,6 @@
 #include "Threading/RunnableThread.h"
 #include "Shader/ShaderCompilingManager.h"
 #include "Materials/MaterialCompilationConfiguration.h"
-#include "Materials/MaterialInstance.h"
 #include "Materials/MaterialCompileTypes.h"
 #include "Materials/MaterialShaderMap.h"
 #include "RenderingThread.h"
@@ -21,7 +20,7 @@ namespace Durin
 	{
 		std::atomic_bool Canceled = false;
 		FMaterialStaticProperties Properties;
-		std::shared_ptr<const FMaterialProgramResource> Program;
+		std::shared_ptr<const FMaterialProgram> Program;
 		std::string Diagnostic;
 	};
 	// Only request identity and detached work live here. The material owns compile
@@ -44,7 +43,7 @@ namespace Durin
 	struct FPreparedMaterialProgram
 	{
 		FMaterialStaticProperties Properties;
-		std::shared_ptr<const FMaterialProgramResource> Program;
+		std::shared_ptr<const FMaterialProgram> Program;
 	};
 	static auto CreateProgramPreparation(const FMaterialCompilationConfiguration& Configuration)
 		-> std::shared_ptr<FMaterialProgramPreparationState>
@@ -111,18 +110,18 @@ namespace Durin
 		return FPreparedMaterialProgram{State->Result->Properties, State->Result->Program};
 	}
 	auto DMaterialInterface::GetCompilationResource(ERHIFeatureLevel Level, EMaterialQualityLevel Quality, bool Create) const
-		-> std::shared_ptr<FMaterialCompilationResource>
+		-> std::shared_ptr<FMaterialResource>
 	{
 		const FMaterialCompilationConfiguration Key{Level, Quality, PreparationBackend()};
 		for (const auto& Resource : CompilationState.Resources)
 			if (Resource->Configuration == Key) return Resource;
 		if (!Create) return {};
-		auto Resource = std::make_shared<FMaterialCompilationResource>(Key);
+		auto Resource = std::make_shared<FMaterialResource>(Key);
 		CompilationState.Resources.push_back(Resource);
 		return Resource;
 	}
 
-	auto DMaterialInterface::GetRenderingCompilationResource() const -> std::shared_ptr<FMaterialCompilationResource>
+	auto DMaterialInterface::GetRenderingCompilationResource() const -> std::shared_ptr<FMaterialResource>
 	{ return GetCompilationResource(PreparationFeatureLevel(), GetMaterialQualityLevel(), true); }
 
 	auto DMaterialInterface::CaptureCompilationInputStamp() const -> FMaterialCompilationInputStamp
@@ -132,14 +131,14 @@ namespace Durin
 			GetAssetRuntimeConfiguration().GetCookTargetPlatform()};
 	}
 
-	auto DMaterialInterface::GetResourceCompileStatus(const std::shared_ptr<FMaterialCompilationResource>& Resource) const -> FMaterialCompileStatus
+	auto DMaterialInterface::GetResourceCompileStatus(const std::shared_ptr<FMaterialResource>& Resource) const -> FMaterialCompileStatus
 	{
 		FMaterialCompileStatus Status;
 		Status.bHasUnsubmittedEdits = CompilationState.SubmittedRevision != CompilationState.AuthoredRevision;
 		if (!Resource) return Status;
 		Status.State = Resource->Compilation.expired() ? Resource->Outcome : EMaterialCompileState::Running;
-		Status.bCurrent = Resource->RenderLayer.CompiledProgram
-			&& Resource->RenderLayer.CompiledProgram->GetShaderMap().ShaderMapId.IsValid()
+		Status.bCurrent = Resource->CompiledProgram
+			&& Resource->CompiledProgram->GetShaderMap().ShaderMapId.IsValid()
 			&& Resource->CompiledRevision == CompilationState.AuthoredRevision
 			&& Resource->CompiledDependencyRevision == GetShaderReloadGeneration();
 		return Status;
@@ -171,7 +170,7 @@ namespace Durin
 			Info.CompiledDependencyRevision = Resource->CompiledDependencyRevision;
 			Info.RequestId = Resource->RequestId;
 			Info.CacheInfo = Resource->CacheInfo;
-			if (const auto Program = Resource->RenderLayer.CompiledProgram) {
+			if (const auto Program = Resource->CompiledProgram) {
 				Info.CompiledIdentity = Program->GetShaderMap().ShaderMapId;
 				Info.Target = Program->GetShaderMap().Target;
 			}
@@ -203,7 +202,7 @@ namespace Durin
 		CacheResourceShaders(GetCompilationResource(Level, Quality, true), Mode);
 	}
 
-	auto DMaterialInterface::CacheResourceShaders(const std::shared_ptr<FMaterialCompilationResource>& Resource,
+	auto DMaterialInterface::CacheResourceShaders(const std::shared_ptr<FMaterialResource>& Resource,
 		EMaterialShaderPrecompileMode Mode) -> void
 	{
 		const bool Synchronous = Mode == EMaterialShaderPrecompileMode::Synchronous;
@@ -214,7 +213,7 @@ namespace Durin
 			Resource->Outcome = EMaterialCompileState::Failed;
 			Resource->CookDiagnostic = "Material feature level exceeds RHI capability.";
 			Resource->bRequested = false;
-			Resource->RenderLayer = {};
+			Resource->ClearAcceptedProgram();
 			MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap | EMaterialRenderDirtyFlags::PipelineState);
 			return;
 		}
@@ -256,7 +255,7 @@ namespace Durin
 						Private::FMaterialCompilationLifecycle::ResetRequest(*this, Resource);
 						Resource->Outcome = EMaterialCompileState::Failed;
 						Resource->Diagnostics = {{.Message = Built.error()}};
-						Resource->RenderLayer = {};
+						Resource->ClearAcceptedProgram();
 						Resource->bRequested = false;
 						MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap | EMaterialRenderDirtyFlags::PipelineState);
 						return;
@@ -273,7 +272,7 @@ namespace Durin
 		}
 	}
 
-	auto DMaterialInterface::PollResourcePreparation(const std::shared_ptr<FMaterialCompilationResource>& Resource, bool Synchronous) -> void
+	auto DMaterialInterface::PollResourcePreparation(const std::shared_ptr<FMaterialResource>& Resource, bool Synchronous) -> void
 	{
 		if (!Resource->CookedPreparation) return;
 		const auto Prepared = PollProgramPreparation(*this, Resource->CookedPreparation, Synchronous);
@@ -294,41 +293,29 @@ namespace Durin
 		FShaderCompilingManager::Get().QueueMaterialResult(std::move(Result));
 	}
 
-	auto DMaterialInterface::GetAcceptedCompiledProgram(ERHIFeatureLevel Level, EMaterialQualityLevel Quality) const -> std::shared_ptr<const FMaterialProgramResource>
+	auto DMaterialInterface::GetAcceptedCompiledProgram(ERHIFeatureLevel Level, EMaterialQualityLevel Quality) const -> std::shared_ptr<const FMaterialProgram>
 	{
 		if (!IsSupportedMaterialFeatureLevel(Level) || !IsSupportedMaterialQualityLevel(Quality)) return {};
 		if (IsDynamicInstance()) return IsValid(GetParent()) ? GetParent()->GetAcceptedCompiledProgram(Level, Quality) : nullptr;
 		const auto Resource = GetCompilationResource(Level, Quality);
-		return Resource ? Resource->RenderLayer.CompiledProgram : nullptr;
+		return Resource ? Resource->CompiledProgram : nullptr;
 	}
 
-	auto DMaterialInterface::GetMaterialResource(ERHIFeatureLevel Level, EMaterialQualityLevel Quality) const -> FMaterialResource
+	auto DMaterialInterface::GetMaterialResource(ERHIFeatureLevel Level, EMaterialQualityLevel Quality) const -> const FMaterialResource*
 	{
-		if (!IsSupportedMaterialFeatureLevel(Level) || !IsSupportedMaterialQualityLevel(Quality)) return {};
-		if (IsDynamicInstance())
-		{
-			if (!IsValid(GetParent())) return {};
-			auto Resource = GetParent()->GetMaterialResource(Level, Quality);
-			const auto* Instance = Cast<DMaterialInstance>(this);
-			for (auto& Parameter : Resource.Parameters)
-			{
-				FMaterialParameterValue Value;
-				if (Instance->GetLocalParameterValue(Parameter.Id, Value) && Value.GetType() == Parameter.GetType())
-					Parameter = BuildMaterialLocalRenderParameter(Parameter.Id, Value);
-			}
-			return Resource;
-		}
-		const auto State = GetCompilationResource(Level, Quality);
-		if (!State) return {};
-		auto Resource = State->RenderLayer;
-		const auto& Authored = GetStaticProperties();
-		if (Resource.StaticProperties && CanonicalizeMaterialShaderProperties(*Resource.StaticProperties) == CanonicalizeMaterialShaderProperties(Authored))
-		{
-			Resource.StaticProperties->bTwoSided = Authored.bTwoSided;
-			Resource.StaticProperties->DepthWritePolicy = Authored.DepthWritePolicy;
-		}
-		Resource.bIsCompiling = !State->Compilation.expired();
-		return BuildMaterialResource(std::move(Resource));
+		if (!IsSupportedMaterialFeatureLevel(Level) || !IsSupportedMaterialQualityLevel(Quality)) return nullptr;
+		if (IsDynamicInstance()) return IsValid(GetParent()) ? GetParent()->GetMaterialResource(Level, Quality) : nullptr;
+		return GetCompilationResource(Level, Quality).get();
+	}
+	auto DMaterialInterface::GetMaterialResourceProperties(ERHIFeatureLevel Level, EMaterialQualityLevel Quality) const -> FMaterialStaticProperties
+	{
+		const auto* Resource = GetMaterialResource(Level, Quality);
+		return Resource ? ResolveResourceProperties(*Resource) : FMaterialStaticProperties{};
+	}
+	auto DMaterialInterface::GetMaterialRenderParameters(ERHIFeatureLevel Level, EMaterialQualityLevel Quality) const -> FMaterialInstanceParameterSet
+	{
+		const auto* Resource = GetMaterialResource(Level, Quality);
+		return Resource ? BuildMaterialRenderParameters(*Resource) : FMaterialInstanceParameterSet{};
 	}
 
 	auto DMaterialInterface::GetMaterialCompileStatus(ERHIFeatureLevel Level, EMaterialQualityLevel Quality) const -> FMaterialCompileStatus
@@ -355,30 +342,38 @@ namespace Durin
 		if (IsTemplateObject() || !bAcceptingMaterialProxyPublications
 			|| !IsSupportedMaterialFeatureLevel(Level) || !IsSupportedMaterialQualityLevel(Quality)) return {};
 		const auto Resource = GetCompilationResource(Level, Quality, true);
-		if (!Resource->Proxy) Resource->Proxy = MakeRefCount<FMaterialRenderProxy>();
-		if (GetRenderCommandAdmissionState() == ERenderCommandAdmissionState::Running)
+		if (!Resource->Proxy) { Resource->Proxy = MakeRefCount<FMaterialRenderProxy>(); Resource->bProxyInitialized = false; }
+		if (!Resource->bProxyInitialized && GetRenderCommandAdmissionState() == ERenderCommandAdmissionState::Running)
 		{
-			auto Layer = GetMaterialResource(Level, Quality);
-			std::ranges::sort(Layer.Parameters, {}, &FMaterialLocalRenderParameter::Id);
-			Resource->Proxy->QueuePublication_GameThread(std::move(Layer));
+			SubmitMaterialProxyUpdates(*Resource->Proxy, GetMaterialResource(Level, Quality), EMaterialRenderDirtyFlags::AllRenderState);
+			Resource->bProxyInitialized = true;
 		}
+		if (GetRenderCommandAdmissionState() == ERenderCommandAdmissionState::Running)
+			Resource->Proxy->SetCompiling_GameThread(GetMaterialCompileStatus(Level, Quality).State == EMaterialCompileState::Running);
 		return Resource->Proxy;
 	}
 
-	auto DMaterialInterface::PublishCompilationResources() const -> void
+	auto DMaterialInterface::PublishCompilationResources(EMaterialRenderDirtyFlags Flags, std::span<const FGuid> ChangedParameters) const -> void
 	{
 		if (!bAcceptingMaterialProxyPublications) return;
 		for (const auto& Resource : CompilationState.Resources)
 		{
+			// Defaults belong to the immutable program, never to the resource or proxy.
+			if (!IsDynamicInstance() && Resource->CompiledProgram)
+			{
+				if (EnumHasAnyFlags(Flags, EMaterialRenderDirtyFlags::ShaderMap
+					| EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::DynamicParameters))
+					Resource->CompiledProgram = BindMaterialDefaultParameters(Resource->CompiledProgram);
+				if (EnumHasAnyFlags(Flags, EMaterialRenderDirtyFlags::ShaderMap
+					| EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::PipelineState))
+					Resource->AcceptedProperties = ResolveResourceProperties(*Resource);
+			}
 			if (Resource->Proxy && Resource->Configuration.Backend == PreparationBackend()
 				&& GetRenderCommandAdmissionState() == ERenderCommandAdmissionState::Running)
 			{
-				auto Layer = IsDynamicInstance()
-					? GetMaterialResource(Resource->Configuration.FeatureLevel, Resource->Configuration.Quality)
-					: BuildMaterialResource(Resource->RenderLayer);
-				Layer.bIsCompiling = !Resource->Compilation.expired();
-				std::ranges::sort(Layer.Parameters, {}, &FMaterialLocalRenderParameter::Id);
-				Resource->Proxy->QueuePublication_GameThread(std::move(Layer));
+				SubmitMaterialProxyUpdates(*Resource->Proxy, GetMaterialResource(Resource->Configuration.FeatureLevel, Resource->Configuration.Quality),
+					Resource->bProxyInitialized ? Flags : EMaterialRenderDirtyFlags::AllRenderState, ChangedParameters);
+				Resource->bProxyInitialized = true;
 			}
 			if (!IsDynamicInstance() && (Resource->bRequested || !Resource->Compilation.expired()
 				|| (Resource->Proxy && Resource->Proxy->GetRefCount() > 1)))

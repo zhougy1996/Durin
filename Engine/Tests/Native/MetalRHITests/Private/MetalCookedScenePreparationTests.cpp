@@ -1,3 +1,4 @@
+#include "MaterialRenderProxyUpdateTestSupport.h"
 #include "SceneRenderQualification.h"
 #include "CoreGlobals.h"
 #include "Materials/MaterialCookedProgram.h"
@@ -19,14 +20,14 @@ namespace Durin
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
 		auto* Source = NewObject<DMaterial>(nullptr, "CookedSceneMaterial");
 		AddToRoot(Source);
-		auto CookProgram = [](DMaterialInterface& Material, FMaterialStaticProperties& Properties) -> std::shared_ptr<const FMaterialProgramResource> {
+		auto CookProgram = [](DMaterialInterface& Material, FMaterialStaticProperties& Properties) -> std::shared_ptr<const FMaterialProgram> {
 			auto Cooked = Material.PrepareCookedProgram(ECookTargetPlatform::MacOS, {});
 			EXPECT_TRUE(Cooked) << Cooked.Diagnostic;
 			if (!Cooked) return nullptr;
 			auto Read = Cooked->AcquireRead();
 			EXPECT_TRUE(Read);
 			if (!Read) return nullptr;
-			std::shared_ptr<const FMaterialProgramResource> Program;
+			std::shared_ptr<const FMaterialProgram> Program;
 			const auto Decoded = DecodeMaterialCookedProgramFamily(Read->GetBytes(), ECookTargetPlatform::MacOS,
 				ECookTargetProfile::Game, GetMaterialQualityLevel(), ERHIFeatureLevel::SM5, {}, Properties, Program);
 			EXPECT_TRUE(Decoded) << Decoded.error();
@@ -85,9 +86,9 @@ namespace Durin
 			auto InstanceMaterial = MakeRefCount<FMaterialRenderProxy>();
 			EnqueueRenderCommand("InstallCookedSceneResources", [&](FRHICommandListImmediate& Commands) {
 				ASSERT_TRUE(Geometry->InitResources(Commands));
-				Material->ApplyPublication_RenderThread({.StaticProperties = Properties, .CompiledProgram = Program});
-				MaskedMaterial->ApplyPublication_RenderThread({.StaticProperties = MaskedProperties, .CompiledProgram = MaskedProgram});
-				InstanceMaterial->ApplyPublication_RenderThread({.StaticProperties = InstanceProperties, .CompiledProgram = InstanceProgram});
+				Durin::Testing::ApplyMaterialTestState(*Material, {.StaticProperties = Properties, .CompiledProgram = Program});
+				Durin::Testing::ApplyMaterialTestState(*MaskedMaterial, {.StaticProperties = MaskedProperties, .CompiledProgram = MaskedProgram});
+				Durin::Testing::ApplyMaterialTestState(*InstanceMaterial, {.StaticProperties = InstanceProperties, .CompiledProgram = InstanceProgram});
 			});
 			FlushRenderingCommands();
 			ASSERT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*static_cast<FScene*>(Scene.get()), FPrimitiveComponentId(40001),

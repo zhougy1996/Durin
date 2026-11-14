@@ -17,7 +17,7 @@ namespace Durin
 	// Detached input plus resource association captured on GameThread before dispatch.
 	struct FMaterialCompileRequest
 	{
-		std::shared_ptr<FMaterialCompilationResource> Resource;
+		std::shared_ptr<FMaterialResource> Resource;
 		std::shared_ptr<const MIR::FCompilerInput> CompilerInput;
 		bool bForceRecompile = false;
 		bool bSingleFlightConsumer = false;
@@ -30,7 +30,7 @@ namespace Durin
 		FMaterialStaticProperties StaticProperties;
 		EMaterialProgramStatus Outcome = EMaterialProgramStatus::Error;
 		FMaterialCompileCacheInfo CacheInfo;
-		std::shared_ptr<const FMaterialProgramResource> CompiledProgram;
+		std::shared_ptr<const FMaterialProgram> CompiledProgram;
 		std::vector<MIR::FSource> ExpressionSources;
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;
 	};
@@ -92,7 +92,7 @@ namespace Durin::MaterialBuildPrivate
 		bool Force = false;
 		FMaterialProgramIdentity CanonicalIdentity;
 		std::vector<std::shared_ptr<FMaterialCompileRequest>> CompilingMaterialDependencies;
-		std::vector<std::shared_ptr<FMaterialCompilationResource>> CompletingResources;
+		std::vector<std::shared_ptr<FMaterialResource>> CompletingResources;
 		std::shared_ptr<const MIR::FCompilerInput> DiagnosticInput;
 #if DURIN_WITH_EDITOR
 		static auto Start(std::shared_ptr<FMaterialCompilation> ShaderMap) -> void;
@@ -118,9 +118,9 @@ namespace Durin::MaterialBuildPrivate
 
 	// Request configuration/default rebinding belongs to the
 	// compilation lifecycle, rather than the immutable ShaderMap content API.
-	auto BindMaterialProgramCollections(std::shared_ptr<const FMaterialProgramResource> Program,
+	auto BindMaterialProgramCollections(std::shared_ptr<const FMaterialProgram> Program,
 		std::span<const FMaterialParameterCollectionLayout> Collections,
-		const FMaterialCompilerEnvironment* Environment = nullptr) -> std::shared_ptr<const FMaterialProgramResource>;
+		const FMaterialCompilerEnvironment* Environment = nullptr) -> std::shared_ptr<const FMaterialProgram>;
 
 	ENGINE_API auto FinalizeMaterialShaderMap(FMaterialTranslatedProgram Translation,
 		FShaderCompilerOutput Output) -> FMaterialCompilerResult;

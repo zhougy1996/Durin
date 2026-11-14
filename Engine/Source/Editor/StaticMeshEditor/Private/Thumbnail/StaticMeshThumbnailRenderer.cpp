@@ -108,10 +108,11 @@ namespace Durin::StaticMeshEditor
 		auto Ready = Shaders->Poll();
 		if (!Ready) return Context.Fail(Ready.error());
 		if (!*Ready) return;
-		std::vector<std::pair<FWeakObjectPtr, FMaterialResource>> PreparedMaterials;
+		std::vector<std::tuple<FWeakObjectPtr, uint64, std::shared_ptr<const FMaterialProgram>, FMaterialStaticProperties>> PreparedMaterials;
 		for (const auto& Slot : StaticMesh->GetMaterialSlots())
 			if (auto* Material = Slot.DefaultMaterial.Get())
-				PreparedMaterials.emplace_back(FWeakObjectPtr(Material), Material->GetMaterialResource());
+				PreparedMaterials.emplace_back(FWeakObjectPtr(Material), Material->GetRenderChangeCount(),
+					Material->GetAcceptedCompiledProgram(), Material->GetMaterialResourceProperties());
 		const auto PreparedResourceRevision = StaticMesh->GetRenderResourceStatus().Revision;
 		const auto Bounds = StaticMesh->GetLOD0LocalBounds();
 		if (!Bounds) return Context.Fail("The mesh bounds are unavailable.");
@@ -185,9 +186,12 @@ namespace Durin::StaticMeshEditor
 			const auto Status = Current->GetRenderResourceStatus();
 			return Status.Readiness == EStaticMeshRenderResourceReadiness::Ready && Status.Revision == PreparedResourceRevision
 				&& std::ranges::all_of(Materials, [](const auto& Item) {
-					const auto* Material = Cast<DMaterialInterface>(Item.first.Get());
+					const auto& [Owner, Revision, Program, Properties] = Item;
+					const auto* Material = Cast<DMaterialInterface>(Owner.Get());
 					return Material && Material->GetMaterialCompileStatus().IsCurrent() && Material->GetAcceptedCompiledProgram()
-						&& Material->GetMaterialResource() == Item.second;
+						&& Material->GetRenderChangeCount() == Revision
+						&& Material->GetAcceptedCompiledProgram() == Program
+						&& Material->GetMaterialResourceProperties() == Properties;
 				});
 		});
 		Context.MarkReady();

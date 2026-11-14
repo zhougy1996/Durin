@@ -94,7 +94,6 @@ namespace Durin
 		FMaterialRenderBinding& OutBinding,
 		FMaterialRenderValidationDiagnostic& OutDiagnostic
 	) -> bool;
-	struct FMaterialLocalRenderParameter;
 	// Compiles GUID-addressed Engine values into one layout's compact payload.
 	// GUID lookup is confined to this Engine-side builder; Renderer consumes the
 	// resulting representation through offsets and resource indices.
@@ -108,7 +107,8 @@ namespace Durin
 		// Uses a prebound field index, checking GUID and concrete type before writing.
 		// The index is local to this builder's exact immutable layout.
 		ENGINE_API auto SetParameterAtIndex(uint32 FieldIndex,
-			const FMaterialLocalRenderParameter& Parameter) -> bool;
+			const FGuid& Id, const FMaterialParameterValue& Value) -> bool;
+		ENGINE_API auto SetParameter(const FGuid& Id, const FMaterialParameterValue& Value) -> bool;
 
 		ENGINE_API auto SetScalar(const FGuid& ParameterId, float Value) -> bool;
 		ENGINE_API auto SetVector(const FGuid& ParameterId, const FVector3& Value) -> bool;
@@ -155,6 +155,7 @@ namespace Durin
 	{
 		std::shared_ptr<FUniformBuffer> UniformBuffer = FUniformBuffer::Create();
 		auto InvalidateUniformExpressionCache() -> void { CachedRepresentation = 0; ParameterCollections.clear(); }
+		auto InvalidateUniformValues() -> void { CachedRepresentation = 0; }
 		auto ReleaseRHI() -> void
 		{
 			UniformBuffer->ReleaseRHI();
@@ -165,18 +166,18 @@ namespace Durin
 		{ return CachedRepresentation == Material.GetRecordId() && UniformBuffer->GetRHI(); }
 		ENGINE_API auto UpdateUniformBuffer(FRHICommandListBase& Commands, const FMaterialRenderRepresentation& Material,
 			std::span<FRHIResource* const> Resources = {}, std::span<const FRHIUniformBufferResource> Members = {}) -> bool;
-		ENGINE_API auto GetParameterCollectionUniformBuffer(const std::shared_ptr<const FMaterialProgramResource>& Program,
+		ENGINE_API auto GetParameterCollectionUniformBuffer(const std::shared_ptr<const FMaterialProgram>& Program,
 			FGuid Collection) -> FUniformBuffer&;
 	private:
 		uint64 CachedRepresentation = 0;
-		std::map<std::pair<std::shared_ptr<const FMaterialProgramResource>, FGuid>, std::shared_ptr<FUniformBuffer>> ParameterCollections;
+		std::map<std::pair<std::shared_ptr<const FMaterialProgram>, FGuid>, std::shared_ptr<FUniformBuffer>> ParameterCollections;
 	};
 	struct FMaterialRenderData
 	{
 		// Actual proxy-owned expression cache; independent values use their representation cache.
 		std::shared_ptr<FUniformExpressionCache> UniformExpressionCache;
 		FMaterialRenderRepresentation Representation;
-		std::shared_ptr<const FMaterialProgramResource> CompiledProgram;
+		std::shared_ptr<const FMaterialProgram> CompiledProgram;
 		FMaterialPlanningPassIdentity PlanningPassIdentity{
 			.ShaderMap = {
 				.RenderLayout = MakeErrorMaterialRenderLayout().Identity,

@@ -104,7 +104,7 @@ namespace Durin
 			}
 			if (Preparation->Lifecycle.CheckCancellation()) return;
 			if (Work->Failed.load()) { Preparation->Lifecycle.Result = {EObjectCookError::Preparation, Work->Failure}; return; }
-			std::vector<const FMaterialProgramResource*> Programs;
+			std::vector<const FMaterialProgram*> Programs;
 			for (const auto& Result : Work->Results) {
 				if (!Result || !*Result) { Preparation->Lifecycle.Result = {EObjectCookError::Cancelled, {}}; return; }
 				Programs.push_back(&Result->Resource);
@@ -157,7 +157,7 @@ namespace Durin
 	}
 
 	auto DMaterialInterface::ValidatePreparedMaterialProgram(const FMaterialStaticProperties& PayloadProperties,
-		std::shared_ptr<const FMaterialProgramResource> ProgramCandidate) -> std::expected<std::shared_ptr<const FMaterialProgramResource>, std::string>
+		std::shared_ptr<const FMaterialProgram> ProgramCandidate) -> std::expected<std::shared_ptr<const FMaterialProgram>, std::string>
 	{
 		const auto ExpectedProperties = CanonicalizeMaterialShaderProperties(GetStaticProperties());
 		if (PayloadProperties != ExpectedProperties)
@@ -174,7 +174,7 @@ namespace Durin
 		}
 		if (!ProgramCandidate->ActiveCollections.empty())
 		{
-			auto ResolvedProgram = std::make_shared<FMaterialProgramResource>(
+			auto ResolvedProgram = std::make_shared<FMaterialProgram>(
 				*ProgramCandidate);
 			for (auto& Required : ResolvedProgram->ActiveCollections)
 			{
@@ -199,8 +199,8 @@ namespace Durin
 	}
 
 	auto DMaterialInterface::AdmitCookedProgram(const FMaterialStaticProperties& PayloadProperties,
-		std::shared_ptr<const FMaterialProgramResource> ProgramCandidate,
-		std::shared_ptr<FMaterialCompilationResource> Resource) -> std::expected<void, std::string>
+		std::shared_ptr<const FMaterialProgram> ProgramCandidate,
+		std::shared_ptr<FMaterialResource> Resource) -> std::expected<void, std::string>
 	{
 		if (!Resource)
 		{
@@ -211,8 +211,8 @@ namespace Durin
 		const auto Validated = ValidatePreparedMaterialProgram(PayloadProperties, std::move(ProgramCandidate));
 		if (!Validated) return std::unexpected(Validated.error());
 		ProgramCandidate = *Validated;
-		Resource->RenderLayer.CompiledProgram = std::move(ProgramCandidate);
-		Resource->RenderLayer.StaticProperties = PayloadProperties;
+		Resource->CompiledProgram = std::move(ProgramCandidate);
+		Resource->AcceptedProperties = PayloadProperties;
 		if (Resource == CompilationState.SelectedResource) Private::GetMaterialEditCompileQueue().Remove(FWeakObjectPtr(this));
 		Resource->CookedPreparation.reset();
 		Resource->Outcome = EMaterialCompileState::Ready;
@@ -242,18 +242,18 @@ namespace Durin
 				return FShaderCompletion::Failure("Material cooked program data is unavailable or targets another platform.");
 			auto Read = CookedProgramData.AcquireRead();
 			if (!Read) return FShaderCompletion::Failure("Material cooked program data could not be read.");
-			std::vector<std::shared_ptr<const FMaterialProgramResource>> Variants;
+			std::vector<std::shared_ptr<const FMaterialProgram>> Variants;
 			FMaterialStaticProperties Properties;
 			for (const auto& Configuration : *Configurations)
 			{
 				if (Control.IsCancelled()) return FShaderCompletion::Canceled();
-				std::shared_ptr<const FMaterialProgramResource> Program;
+				std::shared_ptr<const FMaterialProgram> Program;
 				const auto Decoded = DecodeMaterialCookedProgramFamily(Read->GetBytes(), TargetPlatform,
 					ECookTargetProfile::Game, Configuration.Quality, Configuration.FeatureLevel, {}, Properties, Program);
 				if (!Decoded) return FShaderCompletion::Failure(Decoded.error());
 				Variants.push_back(std::move(Program));
 			}
-			std::vector<const FMaterialProgramResource*> Programs;
+			std::vector<const FMaterialProgram*> Programs;
 			for (const auto& Variant : Variants) Programs.push_back(Variant.get());
 			FByteBuffer Bytes;
 			const auto Encoded = EncodeMaterialCookedProgramFamily(Programs, Properties,
@@ -288,7 +288,7 @@ namespace Durin
 			Variants.push_back(std::move(Compiled));
 		}
 		if (Control.IsCancelled()) return FShaderCompletion::Canceled();
-		std::vector<const FMaterialProgramResource*> Programs;
+		std::vector<const FMaterialProgram*> Programs;
 		for (const auto& Variant : Variants) Programs.push_back(&Variant.Resource);
 		FByteBuffer Bytes;
 		const auto Encoded = EncodeMaterialCookedProgramFamily(Programs,

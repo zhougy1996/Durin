@@ -43,7 +43,7 @@ namespace Durin
 		}
 
 		auto FMaterialCompilationLifecycle::ResetRequest(DMaterialInterface& Material,
-			const std::shared_ptr<FMaterialCompilationResource>& Resource) -> void
+			const std::shared_ptr<FMaterialResource>& Resource) -> void
 		{
 			CheckMaterialCompileGameThread();
 			FShaderCompilingManager::Get().CancelCompilation(Resource);
@@ -69,6 +69,7 @@ namespace Durin
 				if (!Resource || Resource->RequestedInput.ContentRevision == Material.CompilationState.AuthoredRevision) return;
 				FShaderCompilingManager::Get().CancelCompilation(Resource);
 				Resource->CookedPreparation.reset();
+				Resource->ClearAcceptedProgram();
 			};
 			for (const auto& Resource : Material.CompilationState.Resources) Detach(Resource);
 		}
@@ -79,6 +80,7 @@ namespace Durin
 #if DURIN_WITH_EDITORONLY_DATA
 			if (Material.IsDynamicInstance()) return;
 			Invalidate(Material);
+			Material.PublishMaterialRenderProxyState(EMaterialRenderDirtyFlags::ShaderMap | EMaterialRenderDirtyFlags::PipelineState);
 			if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return;
 			DMaterialInterface* Root = &Material;
 			for (uint32 Depth = 0; Root && Root->GetParent() && Depth < MaterialMaximumParentDepth; ++Depth)
@@ -113,7 +115,7 @@ namespace Durin
 			DMaterialInterface& Material,
 			MIR::FCompilerInput Input,
 			bool bForceRecompile, FObjectCacheContext* Context,
-			std::shared_ptr<FMaterialCompilationResource> Resource) -> bool
+			std::shared_ptr<FMaterialResource> Resource) -> bool
 		{
 			CheckMaterialCompileGameThread();
 			if (!Resource)
@@ -157,7 +159,7 @@ namespace Durin
 
 			const auto Retire = [&] {
 				Resource->bRequested = false;
-				Resource->RenderLayer = {};
+				Resource->ClearAcceptedProgram();
 				Resource->AcceptedExpressionSources.clear();
 				Material.MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap | EMaterialRenderDirtyFlags::PipelineState, false, Context);
 			};
@@ -171,7 +173,7 @@ namespace Durin
 			Resource->Diagnostics = std::move(Result.Diagnostics);
 			if (Result.Outcome == EMaterialProgramStatus::Ok
 				&& Result.CompiledProgram
-				&& ValidateMaterialProgramResource(*Result.CompiledProgram))
+				&& ValidateMaterialProgram(*Result.CompiledProgram))
 			{
 				if (!Result.Request->CompilerInput)
 				{
@@ -183,31 +185,22 @@ namespace Durin
 					Retire();
 					return false;
 				}
-				FMaterialResource Candidate;
-				Candidate.CompiledProgram = Result.CompiledProgram;
-				if (!Candidate.CompiledProgram->ActiveCollections.empty())
+				std::shared_ptr<const FMaterialProgram> Program;
+				std::optional<FMaterialStaticProperties> Properties;
+				Program = Result.CompiledProgram;
+				if (!Program->ActiveCollections.empty())
 				{
-					auto Current = MaterialBuildPrivate::ResolvePublicationCollections(Candidate.CompiledProgram->ActiveCollections);
+					auto Current = MaterialBuildPrivate::ResolvePublicationCollections(Program->ActiveCollections);
 					if (!Current) { Status.Outcome = EMaterialCompileState::Failed; Retire(); return false; }
-					if (auto Refreshed = MaterialBuildPrivate::BindMaterialProgramCollections(Candidate.CompiledProgram, *Current)) Candidate.CompiledProgram = std::move(Refreshed);
+					if (auto Refreshed = MaterialBuildPrivate::BindMaterialProgramCollections(Program, *Current)) Program = std::move(Refreshed);
 				}
 				const auto ShaderProperties = CanonicalizeMaterialShaderProperties(Result.StaticProperties);
-				Candidate.StaticProperties = Material.GetStaticProperties();
-				Candidate.StaticProperties->OpacityMaskThreshold = ShaderProperties.OpacityMaskThreshold;
-				for (const auto& Parameter : Candidate.CompiledProgram->GetShaderMap().ActiveParameters)
-				{
-					FResolvedMaterialParameter Resolved;
-					if (!Material.ResolveParameterValue(Parameter.Id, Resolved)
-						|| !Resolved.Definition || Resolved.Definition->Type != Parameter.Type)
-					{
-						Status.Outcome = EMaterialCompileState::Failed;
-						Retire();
-						return false;
-					}
-					Candidate.Parameters.push_back(BuildMaterialLocalRenderParameter(
-						Parameter.Id, Resolved.Value));
-				}
-				Resource->RenderLayer = std::move(Candidate);
+				Properties = Material.GetStaticProperties();
+				Properties->OpacityMaskThreshold = ShaderProperties.OpacityMaskThreshold;
+				Program = Material.BindMaterialDefaultParameters(std::move(Program));
+				if (!Program) { Status.Outcome = EMaterialCompileState::Failed; Retire(); return false; }
+				Resource->CompiledProgram = std::move(Program);
+				Resource->AcceptedProperties = std::move(Properties);
 				Resource->AcceptedExpressionSources = Resource->RequestedExpressionSources;
 				Status.CompiledRevision = Resource->RequestedInput.ContentRevision;
 				Status.CompiledDependencyRevision = Resource->RequestedInput.ShaderRevision;

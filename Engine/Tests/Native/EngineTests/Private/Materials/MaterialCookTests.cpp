@@ -303,7 +303,7 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	auto ResavedRead = Resaved->AcquireRead();
 	ASSERT_TRUE(ResavedRead);
 	Durin::FMaterialStaticProperties ResavedProperties;
-	std::shared_ptr<const Durin::FMaterialProgramResource> ResavedProgram;
+	std::shared_ptr<const Durin::FMaterialProgram> ResavedProgram;
 	ASSERT_TRUE(Durin::DecodeMaterialCookedProgramFamily(ResavedRead->GetBytes(),
 		Metal ? Durin::ECookTargetPlatform::MacOS : Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game, Durin::GetMaterialQualityLevel(), Durin::ERHIFeatureLevel::SM5, {}, ResavedProperties, ResavedProgram));
@@ -519,7 +519,7 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), Texture));
 	Cooked->CacheResourceShadersForRendering();
 	EXPECT_FALSE(Cooked->IsCompiling());
-	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram(), AcceptedProgram);
+	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->ShaderMap, AcceptedProgram->ShaderMap);
 	Instance->GetPackage()->ClearDirty();
 	ASSERT_TRUE(Child->SetTextureParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), Texture));

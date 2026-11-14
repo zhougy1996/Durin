@@ -10,7 +10,7 @@ namespace Durin
 {
 	class FObjectCacheContext;
 	class DMaterialInterface;
-	struct FMaterialCompilationResource;
+	struct FMaterialResource;
 
 	enum class EMaterialShaderPrecompileMode : uint8
 	{
@@ -139,7 +139,7 @@ namespace Durin
 				DMaterialInterface& Material,
 				MIR::FCompilerInput Input,
 				bool bForceRecompile, FObjectCacheContext* Context = nullptr,
-				std::shared_ptr<FMaterialCompilationResource> Resource = {}) -> bool;
+				std::shared_ptr<FMaterialResource> Resource = {}) -> bool;
 			ENGINE_API static auto Admit(
 				DMaterialInterface& Material,
 				FMaterialCompileResult Result, FObjectCacheContext* Context = nullptr) -> bool;
@@ -149,7 +149,7 @@ namespace Durin
 				DMaterialInterface& Material, bool bForceRecompile, FObjectCacheContext* Context = nullptr) -> bool;
 		private:
 			friend class Durin::DMaterialInterface;
-			static auto ResetRequest(DMaterialInterface& Material, const std::shared_ptr<FMaterialCompilationResource>& Resource) -> void;
+			static auto ResetRequest(DMaterialInterface& Material, const std::shared_ptr<FMaterialResource>& Resource) -> void;
 		};
 	}
 }

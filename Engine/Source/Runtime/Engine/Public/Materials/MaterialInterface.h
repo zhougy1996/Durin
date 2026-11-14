@@ -7,6 +7,7 @@
 #include "Asset/BulkData.h"
 #include "EngineAPI.h"
 #include "Materials/MaterialRenderProxy.h"
+#include "Materials/MaterialParameterValues.h"
 #include "Materials/MaterialTypes.h"
 #include "Materials/MaterialCookConfiguration.h"
 #include "Asset/AssetBuildTaskContext.h"
@@ -109,13 +110,15 @@ namespace Durin
 		auto operator==(const FMaterialCompilationInputStamp&) const -> bool = default;
 	};
 
-	// Configuration identity never changes. Selection and installed output are independent.
-	struct FMaterialCompilationResource
+	// Game-thread configuration owner. Accepted data is stored once; proxy updates
+	// never carry request ownership or scheduling state.
+	struct FMaterialResource
 	{
-		explicit FMaterialCompilationResource(FMaterialCompilationConfiguration InConfiguration) : Configuration(InConfiguration) {}
+		explicit FMaterialResource(FMaterialCompilationConfiguration InConfiguration) : Configuration(InConfiguration) {}
 		const FMaterialCompilationConfiguration Configuration;
 		FWeakObjectPtr Material;
-		FMaterialResource RenderLayer;
+		std::shared_ptr<const FMaterialProgram> CompiledProgram;
+		std::optional<FMaterialStaticProperties> AcceptedProperties;
 		FMaterialCompilationInputStamp RequestedInput;
 		std::weak_ptr<const FMaterialCompileRequest> Compilation;
 		std::shared_ptr<FMaterialProgramPreparationState> CookedPreparation;
@@ -129,7 +132,13 @@ namespace Durin
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;
 		std::string CookDiagnostic;
 		FMaterialRenderProxyRef Proxy;
+		bool bProxyInitialized = false;
 		bool bRequested = false;
+		auto ClearAcceptedProgram() -> void
+		{
+			CompiledProgram.reset();
+			AcceptedProperties.reset();
+		}
 	};
 
 	struct FMaterialCompilationState
@@ -137,8 +146,8 @@ namespace Durin
 		uint64 AuthoredRevision = 1;
 		uint64 SubmittedRevision = 1;
 		uint64 NextRequestId = 0;
-		std::shared_ptr<FMaterialCompilationResource> SelectedResource;
-		mutable std::vector<std::shared_ptr<FMaterialCompilationResource>> Resources;
+		std::shared_ptr<FMaterialResource> SelectedResource;
+		mutable std::vector<std::shared_ptr<FMaterialResource>> Resources;
 		FMaterialStaticProperties LastObservedShaderProperties;
 		std::vector<FMaterialCompilerParameterDeclaration> LastObservedParameters;
 		std::optional<std::chrono::steady_clock::time_point> EditCompileDeadline;
@@ -178,7 +187,7 @@ namespace Durin
 		ENGINE_API virtual auto GetStaticProperties() const -> const FMaterialStaticProperties&;
 		// Returns the accepted program without initiating loading or compilation.
 		ENGINE_API virtual auto GetAcceptedCompiledProgram() const
-			-> std::shared_ptr<const FMaterialProgramResource>;
+			-> std::shared_ptr<const FMaterialProgram>;
 		// Nonblocking GameThread queries. Completeness covers the current material
 		// program, independently of texture residency and component PSOs.
 		ENGINE_API virtual auto IsCompiling() const -> bool;
@@ -233,10 +242,18 @@ namespace Durin
 		ENGINE_API auto PrecachePSOs(ERHIFeatureLevel FeatureLevel,
 			std::span<const FPSOPrecacheVertexFactoryData> VertexFactoryDataList, const FPSOPrecacheParams& PrecacheParams,
 			EPSOPrecachePriority Priority, std::vector<FMaterialPSOPrecacheRequestID>& OutMaterialPSORequestIDs) -> std::expected<void, std::string>;
-		ENGINE_API auto GetMaterialResource(ERHIFeatureLevel FeatureLevel,
-			EMaterialQualityLevel Quality = GetMaterialQualityLevel()) const -> FMaterialResource;
+		// Borrowed GameThread resource; querying never prepares or creates a configuration.
+		ENGINE_API auto GetMaterialResource() const -> const FMaterialResource*;
+		ENGINE_API auto GetMaterialResource(ERHIFeatureLevel Level,
+			EMaterialQualityLevel Quality = GetMaterialQualityLevel()) const -> const FMaterialResource*;
+		ENGINE_API auto GetMaterialResourceProperties() const -> FMaterialStaticProperties;
+		ENGINE_API auto GetMaterialResourceProperties(ERHIFeatureLevel Level,
+			EMaterialQualityLevel Quality = GetMaterialQualityLevel()) const -> FMaterialStaticProperties;
+		ENGINE_API auto GetMaterialRenderParameters() const -> FMaterialInstanceParameterSet;
+		ENGINE_API auto GetMaterialRenderParameters(ERHIFeatureLevel Level,
+			EMaterialQualityLevel Quality = GetMaterialQualityLevel()) const -> FMaterialInstanceParameterSet;
 		ENGINE_API auto GetAcceptedCompiledProgram(ERHIFeatureLevel FeatureLevel,
-			EMaterialQualityLevel Quality = GetMaterialQualityLevel()) const -> std::shared_ptr<const FMaterialProgramResource>;
+			EMaterialQualityLevel Quality = GetMaterialQualityLevel()) const -> std::shared_ptr<const FMaterialProgram>;
 		ENGINE_API auto CacheResourceShadersForRendering(ERHIFeatureLevel FeatureLevel,
 			EMaterialShaderPrecompileMode PrecompileMode = EMaterialShaderPrecompileMode::Default) -> void;
 		ENGINE_API auto CacheResourceShadersForRendering(ERHIFeatureLevel FeatureLevel,
@@ -257,10 +274,8 @@ namespace Durin
 		ENGINE_API auto RefreshReloadedAssetBindings() -> void;
 		// Includes inherited changes; callbacks should invalidate snapshots, not edit owners.
 		auto GetParameterChanges() -> FMaterialParameterChangedEvent& { return ParameterChanges; }
-		// GameThread only. The active configuration's effective resource, without
-		// fallback. Its accepted program and properties belong to the same generation.
-		auto GetMaterialResource() const -> FMaterialResource { return BuildMaterialResource(); }
-		// Diagnostic change count; never used for cache validity or request lifetimes.
+		// GameThread observation revision for prepared previews, including inherited
+		// changes. This is not a shader identity or a compilation request lifetime.
 		auto GetRenderChangeCount() const -> uint64 { return RenderChangeCount; }
 		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
@@ -268,8 +283,8 @@ namespace Durin
 	protected:
 		ENGINE_API auto PostEditChangePropertyWithContext(const FPropertyChangedEvent& Event, FObjectCacheContext& Context) -> void;
 		ENGINE_API auto AdmitCookedProgram(const FMaterialStaticProperties& Properties,
-			std::shared_ptr<const FMaterialProgramResource> Program,
-			std::shared_ptr<FMaterialCompilationResource> Resource = {}) -> std::expected<void, std::string>;
+			std::shared_ptr<const FMaterialProgram> Program,
+			std::shared_ptr<FMaterialResource> Resource = {}) -> std::expected<void, std::string>;
 		// A transient runtime owner can select only an already compiled compatible variant.
 		ENGINE_API auto AdoptParentRuntimeProgram() -> bool;
 		FBulkData CookedProgramData;
@@ -277,39 +292,39 @@ namespace Durin
 			const FMaterialStaticProperties& CandidateProperties,
 			bool bForceRecompile = false, FObjectCacheContext* Context = nullptr,
 			std::optional<FMaterialCompilerEnvironment> RequestedEnvironment = std::nullopt,
-			std::shared_ptr<FMaterialCompilationResource> Resource = {}) -> bool;
+			std::shared_ptr<FMaterialResource> Resource = {}) -> bool;
 		// Invalidates authored dependencies before requesting detached replacements.
 		ENGINE_API auto InvalidateMaterialCompilation(bool bIncludeSelf = true,
 			bool bOnlyIfShaderChanged = false, FObjectCacheContext* Context = nullptr) -> void;
 		FMaterialCompilationState CompilationState;
 
-		ENGINE_API virtual auto BuildMaterialResource() const
-			-> FMaterialResource;
-		ENGINE_API auto PublishMaterialRenderProxyState() -> void;
+		ENGINE_API auto PublishMaterialRenderProxyState(EMaterialRenderDirtyFlags Flags = EMaterialRenderDirtyFlags::AllRenderState, std::span<const FGuid> ChangedParameters = {}) -> void;
 		ENGINE_API auto NotifyParameterChanges() -> void;
-		// Optional parameter notifications reuse the publication snapshot and run
-		// only after every affected owner's render state has been updated.
+		// Optional parameter notifications run only after every affected owner's
+		// render state has been updated.
 		ENGINE_API auto MarkRenderDataDirty(EMaterialRenderDirtyFlags DirtyFlags,
-			bool bNotifyParameterChanges = false, FObjectCacheContext* Context = nullptr) -> void;
+			bool bNotifyParameterChanges = false, FObjectCacheContext* Context = nullptr, std::span<const FGuid> ChangedParameters = {}) -> void;
 
 	private:
-		auto ResolveResourceProperties() const -> FMaterialStaticProperties;
-		auto BuildMaterialResource(FMaterialResource Accepted) const -> FMaterialResource;
-		auto PublishCompilationResources() const -> void;
+		auto ResolveResourceProperties(const FMaterialResource& Resource) const -> FMaterialStaticProperties;
+		auto BindMaterialDefaultParameters(std::shared_ptr<const FMaterialProgram> Program) const -> std::shared_ptr<const FMaterialProgram>;
+		auto BuildMaterialParameterOverrides(const FMaterialResource& Resource) const -> FMaterialInstanceParameterSet;
+		auto BuildMaterialRenderParameters(const FMaterialResource& Resource) const -> FMaterialInstanceParameterSet;
+		auto PublishCompilationResources(EMaterialRenderDirtyFlags Flags = EMaterialRenderDirtyFlags::AllRenderState, std::span<const FGuid> ChangedParameters = {}) const -> void;
 		auto ReleaseCompilationResources() -> void;
 		auto PumpResourcePreparations(const FAssetCompileProcessParams& Params) -> bool;
 		auto CancelResourceCompilation() -> void;
 		auto HasResourceRenderReferences() const -> bool;
 		auto ValidatePreparedMaterialProgram(const FMaterialStaticProperties& Properties,
-			std::shared_ptr<const FMaterialProgramResource> Program) -> std::expected<std::shared_ptr<const FMaterialProgramResource>, std::string>;
+			std::shared_ptr<const FMaterialProgram> Program) -> std::expected<std::shared_ptr<const FMaterialProgram>, std::string>;
 		friend class FShaderCompilingManager;
 		friend ENGINE_API auto HasPendingMaterialCompilation(const DMaterialInterface&) -> bool;
-		auto GetRenderingCompilationResource() const -> std::shared_ptr<FMaterialCompilationResource>;
+		auto GetRenderingCompilationResource() const -> std::shared_ptr<FMaterialResource>;
 		auto CaptureCompilationInputStamp() const -> FMaterialCompilationInputStamp;
-		auto PollResourcePreparation(const std::shared_ptr<FMaterialCompilationResource>& Resource, bool Synchronous) -> void;
-		auto GetResourceCompileStatus(const std::shared_ptr<FMaterialCompilationResource>& Resource) const -> FMaterialCompileStatus;
-		auto GetCompilationResource(ERHIFeatureLevel Level, EMaterialQualityLevel Quality, bool Create = false) const -> std::shared_ptr<FMaterialCompilationResource>;
-		auto CacheResourceShaders(const std::shared_ptr<FMaterialCompilationResource>& Resource,
+		auto PollResourcePreparation(const std::shared_ptr<FMaterialResource>& Resource, bool Synchronous) -> void;
+		auto GetResourceCompileStatus(const std::shared_ptr<FMaterialResource>& Resource) const -> FMaterialCompileStatus;
+		auto GetCompilationResource(ERHIFeatureLevel Level, EMaterialQualityLevel Quality, bool Create = false) const -> std::shared_ptr<FMaterialResource>;
+		auto CacheResourceShaders(const std::shared_ptr<FMaterialResource>& Resource,
 			EMaterialShaderPrecompileMode Mode) -> void;
 		auto BroadcastParameterChanges(const TObjectCacheIterator<DMaterialInterface>& Dependents) -> void;
 	private:
@@ -320,8 +335,9 @@ namespace Durin
 #endif
 		// Retires the failed owner's complete renderable generation and publishes ErrorMaterial.
 		auto RetireFailedMaterialGeneration(FObjectCacheContext* Context = nullptr) -> void;
-		auto PublishMaterialRenderProxyState(FMaterialResource LocalLayer) -> void;
-		auto SubmitMaterialRenderProxyState(FMaterialResource LocalLayer) const -> void;
+
+		auto SubmitMaterialRenderProxyState(EMaterialRenderDirtyFlags Flags = EMaterialRenderDirtyFlags::AllRenderState, std::span<const FGuid> ChangedParameters = {}) const -> void;
+		auto SubmitMaterialProxyUpdates(FMaterialRenderProxy& Proxy, const FMaterialResource* Resource, EMaterialRenderDirtyFlags Flags, std::span<const FGuid> ChangedParameters = {}) const -> void;
 
 		FMaterialParameterChangedEvent ParameterChanges;
 		uint64 RenderChangeCount = 1;
@@ -329,7 +345,7 @@ namespace Durin
 		mutable std::shared_ptr<const FMaterialParameterReachability> ParameterReachability;
 		mutable uint64 ParameterReachabilityProgramRevision = 0;
 		mutable std::vector<FMaterialFunctionOwnerStamp> ParameterReachabilityFunctionOwners;
-		mutable std::weak_ptr<const FMaterialProgramResource> ParameterReachabilityCookedProgram;
+		mutable std::weak_ptr<const FMaterialProgram> ParameterReachabilityCookedProgram;
 		mutable FMaterialRenderProxyRef MaterialRenderProxy;
 		mutable bool bMaterialProxyPublicationDirty = true;
 		bool bAcceptingMaterialProxyPublications = true;

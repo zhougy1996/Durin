@@ -1,10 +1,103 @@
 #include "MaterialParameterValidation.h"
 #include "Materials/MaterialTypes.h"
+#include "Materials/MaterialParameterValues.h"
+#include "CoreGlobals.h"
+#include "Threading/RunnableThread.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Materials/MaterialRenderTypes.h"
 
 namespace Durin
 {
+	auto FMaterialParameterValue::ResolveTextureReference() -> void
+	{
+		if (GetType() != EMaterialParameterType::Texture) return;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		auto& Texture = GetTexture();
+		if (Texture.Texture) Texture.TextureReference = Texture.Texture->GetTextureReferenceRHI();
+		Texture.Texture = nullptr;
+	}
+
+	auto FMaterialParameterValue::GetPayloadBytes() const -> uint64
+	{
+		switch (GetType()) {
+		case EMaterialParameterType::Scalar: return sizeof(float);
+		case EMaterialParameterType::Vector2: return sizeof(FVector2);
+		case EMaterialParameterType::Vector: return sizeof(FVector3);
+		case EMaterialParameterType::Vector4: return sizeof(FVector4);
+		case EMaterialParameterType::Texture: return sizeof(FRHITextureReferenceRef) + sizeof(FMaterialSamplerState) + sizeof(EMaterialTextureFallback);
+		}
+		return 0;
+	}
+
+	auto FMaterialInstanceParameterSet::SetParameter(const FGuid& Id, const FMaterialParameterValue& Value) -> void
+	{
+		// One identity has one concrete type, including after native layout changes.
+		const auto EraseOther = [&](auto& Parameters, EMaterialParameterType Type) {
+			if (Value.GetType() != Type) std::erase_if(Parameters, [&](const auto& Parameter) { return Parameter.ParameterId == Id; });
+		};
+		EraseOther(ScalarParameters, EMaterialParameterType::Scalar);
+		EraseOther(VectorParameters, EMaterialParameterType::Vector4);
+		EraseOther(TextureParameters, EMaterialParameterType::Texture);
+		if (Value.GetType() != EMaterialParameterType::Vector2) std::erase_if(Vector2Parameters, [&](const auto& Parameter) { return Parameter.first == Id; });
+		if (Value.GetType() != EMaterialParameterType::Vector) std::erase_if(Vector3Parameters, [&](const auto& Parameter) { return Parameter.first == Id; });
+		const auto Set = [&](auto& Parameters) {
+			using TParameter = typename std::decay_t<decltype(Parameters)>::value_type;
+			auto It = std::ranges::find(Parameters, Id, &TParameter::ParameterId);
+			if (It == Parameters.end() || It->ParameterId != Id) {
+				It = Parameters.emplace(It);
+				It->ParameterId = Id;
+			}
+			It->SetValue(Value);
+		};
+		const auto SetVector = [&]<typename T>(std::vector<std::pair<FGuid, T>>& Parameters, const T& Vector) {
+			auto It = std::ranges::find(Parameters, Id, &std::pair<FGuid, T>::first);
+			if (It != Parameters.end() && It->first == Id) It->second = Vector;
+			else Parameters.emplace(It, Id, Vector);
+		};
+		switch (Value.GetType()) {
+		case EMaterialParameterType::Scalar: Set(ScalarParameters); break;
+		case EMaterialParameterType::Vector2: SetVector(Vector2Parameters, Value.GetVector2()); break;
+		case EMaterialParameterType::Vector: SetVector(Vector3Parameters, Value.GetVector()); break;
+		case EMaterialParameterType::Vector4: Set(VectorParameters); break;
+		case EMaterialParameterType::Texture: Set(TextureParameters); break;
+		}
+	}
+
+	auto FMaterialInstanceParameterSet::GetParameterValue(const FGuid& Id, FMaterialParameterValue& OutValue) const -> bool
+	{
+		const auto Find = [&](const auto& Parameters) {
+			using TParameter = typename std::decay_t<decltype(Parameters)>::value_type;
+			const auto It = std::ranges::find(Parameters, Id, &TParameter::ParameterId);
+			if (It == Parameters.end() || It->ParameterId != Id) return false;
+			OutValue = It->GetValue();
+			return true;
+		};
+		if (Find(ScalarParameters) || Find(VectorParameters) || Find(TextureParameters)) return true;
+		const auto FindVector = [&]<typename T>(const std::vector<std::pair<FGuid, T>>& Parameters) {
+			const auto It = std::ranges::find(Parameters, Id, &std::pair<FGuid, T>::first);
+			if (It == Parameters.end() || It->first != Id) return false;
+			OutValue = FMaterialParameterValue(It->second);
+			return true;
+		};
+		return FindVector(Vector2Parameters) || FindVector(Vector3Parameters);
+	}
+
+	auto FMaterialInstanceParameterSet::ResolveTextureReferences() -> void
+	{
+		for (auto& Parameter : TextureParameters) {
+			auto Value = Parameter.GetValue();
+			Value.ResolveTextureReference();
+			Parameter.SetValue(Value);
+		}
+	}
+
+	auto FMaterialInstanceParameterSet::GetPayloadBytes() const -> uint64
+	{
+		return ScalarParameters.size() * sizeof(float) + Vector2Parameters.size() * sizeof(FVector2)
+			+ Vector3Parameters.size() * sizeof(FVector3) + VectorParameters.size() * sizeof(FVector4)
+			+ TextureParameters.size() * (sizeof(FRHITextureReferenceRef) + sizeof(FMaterialSamplerState) + sizeof(EMaterialTextureFallback));
+	}
+
 	auto FMaterialPropertyOverrides::ApplyTo(FMaterialStaticProperties& Properties) const -> void
 	{
 		if (bOverrideBlendMode) Properties.BlendMode = Values.BlendMode;
@@ -119,6 +212,8 @@ namespace Durin
 			{
 				return {EMaterialParameterError::InvalidText, Definition.Id};
 			}
+			if (!Private::IsAuthoringMaterialParameterValue(Definition.Value))
+				return {EMaterialParameterError::InvalidDefault, Definition.Id};
 			if (Definition.Type != Definition.Value.GetType())
 				return {EMaterialParameterError::InvalidType, Definition.Id};
 			if (Definition.Type == EMaterialParameterType::Texture

@@ -1056,19 +1056,19 @@ float4 FragmentMain(
 		return Result;
 	}
 
-	auto FMaterialProgramResource::IsValid() const -> bool
+	auto FMaterialProgram::IsValid() const -> bool
 	{
-		return bool(ValidateMaterialProgramResource(*this));
+		return bool(ValidateMaterialProgram(*this));
 	}
 
 	auto ValidateMaterialCompilerResult(const FMaterialCompilerResult& Result)
 		-> FMaterialLayoutValidationResult
 	{
 		if (!Result) return {.Error = EMaterialLayoutError::InvalidIdentity};
-		return ValidateMaterialProgramResource(Result.Resource);
+		return ValidateMaterialProgram(Result.Resource);
 	}
 
-	auto ValidateMaterialProgramResource(const FMaterialProgramResource& Result)
+	auto ValidateMaterialProgram(const FMaterialProgram& Result)
 		-> FMaterialLayoutValidationResult
 	{
 		if (!Result.HasShaderMap() || !Result.GetShaderMap().ShaderMapId.IsValid()

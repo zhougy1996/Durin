@@ -23,27 +23,24 @@ namespace Durin::RendererPrivate
                 bool Collected = false;
             };
             std::vector<FCollector> Collectors;
-            FMaterialResource Material;
+            FMaterialStaticProperties Properties;
 
         };
     }
-    static auto MakePSOCollectionMaterial(const FMaterialPSOPrecacheParams& Params) -> FMaterialResource
+    static auto MakePSOCollectionProperties(const FMaterialPSOPrecacheParams& Params) -> FMaterialStaticProperties
     {
-        FMaterialResource Material;
-        Material.CompiledProgram = Params.CompiledProgram;
         FMaterialStaticProperties Properties;
         Properties.BlendMode = static_cast<EMaterialBlendMode>(Params.Material.ShaderMap.BlendMode.Value);
         Properties.ShadingModel = static_cast<EMaterialShadingModel>(Params.Material.ShaderMap.ShadingModel.Value);
         Properties.OpacityMaskThreshold = Params.Material.ShaderMap.OpacityMaskThreshold;
         Properties.bTwoSided = Params.Material.bTwoSided;
         Properties.DepthWritePolicy = Params.Material.DepthWritePolicy;
-        Material.StaticProperties = Properties;
-        return Material;
+        return Properties;
     }
     struct FMeshPSOPrecacheResources::FState
     {
         FMeshMaterialShaderMapIdentity Identity;
-        std::shared_ptr<const FMaterialProgramResource> Program;
+        std::shared_ptr<const FMaterialProgram> Program;
         FPSOPrecacheVertexFactoryData VertexFactoryData;
         FRenderResourceGeneration Generation;
         FShaderMapPreparation FixedShaders;
@@ -107,7 +104,7 @@ namespace Durin::RendererPrivate
             return std::unexpected(std::string("Material PSO collection requires a matching Renderer snapshot and accepted program."));
         if (!Collection.Resources) {
             auto Resources = std::make_shared<FMaterialPSOCollectionSession>();
-            Resources->Material = MakePSOCollectionMaterial(Params);
+            Resources->Properties = MakePSOCollectionProperties(Params);
             // Both existing desktop paths use Deferred, independently of FeatureLevel.
             const auto Path = EShadingPath::Deferred;
             for (int32 Index = 0; Index < FPSOCollectorCreateManager::GetPSOCollectorCount(Path); ++Index) {
@@ -130,7 +127,7 @@ namespace Durin::RendererPrivate
                 if (*Ready == EPSOCollectorPreparation::Pending) { Complete = false; continue; }
                 if (*Ready == EPSOCollectorPreparation::Ready) {
                     FPSOPrecacheDataArray Initializers;
-                    Entry.Collector->CollectPSOInitializers(Params.PreparationConfig, Resources->Material,
+                    Entry.Collector->CollectPSOInitializers(Params.PreparationConfig, *Params.CompiledProgram, Resources->Properties,
                         Params.VertexFactoryData, Params.PrecachePSOParams, Initializers);
                     for (auto& Data : Initializers) {
                         Data.PSOCollectorIndex = Entry.Collector->PSOCollectorIndex;

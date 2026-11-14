@@ -6,6 +6,7 @@
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "FunctionPortTestFixture.h"
 #include "MaterialFunctionTestSupport.h"
+#include "MaterialResourceTestSupport.h"
 
 TEST(FMaterialFunctionTests, StandardRecipesOwnTypedExpressionsAndPublishIndependentChildren)
 {
@@ -1479,7 +1480,7 @@ TEST(FMaterialFunctionTests, NestedDiagnosticsIdentifyOwningDocumentAndRootInvoc
 	MarkAsGarbage(Call); MarkAsGarbage(Wrapper); MarkAsGarbage(Leaf); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
-TEST(FMaterialFunctionTests, DependencyEditsPreserveAcceptedContractsAndOwnerSourceMaps)
+TEST(FMaterialFunctionTests, DependencyEditsInvalidateProgramsAndPreserveOwnerSourceMaps)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -1508,6 +1509,11 @@ TEST(FMaterialFunctionTests, DependencyEditsPreserveAcceptedContractsAndOwnerSou
 	const auto ChildAccepted = Child->GetAcceptedCompiledProgram();
 	ASSERT_TRUE(ChildAccepted);
 	EXPECT_EQ(ChildAccepted->ShaderMap, Accepted->ShaderMap);
+	InitRenderingThread();
+	struct FRenderScope { ~FRenderScope() { ShutdownRenderingThread(); } } RenderScope;
+	auto* Dynamic = DMaterialInstance::CreateDynamic(Child);
+	ASSERT_TRUE(Dynamic);
+	EXPECT_FALSE(Testing::CaptureMaterialRenderData(*Dynamic).Representation.IsError());
 	ASSERT_FALSE(First->GetAcceptedExpressionSources().empty());
 	ASSERT_FALSE(Second->GetAcceptedExpressionSources().empty());
 	EXPECT_EQ(First->GetAcceptedExpressionSources()[0].CallPath[0], FirstCall);
@@ -1522,10 +1528,11 @@ TEST(FMaterialFunctionTests, DependencyEditsPreserveAcceptedContractsAndOwnerSou
 		static_cast<DMaterialInterface*>(Child)})
 	{
 		EXPECT_TRUE(Caller->GetMaterialCompileStatus().HasUnsubmittedEdits());
-		EXPECT_EQ(Caller->GetAcceptedCompiledProgram(), Caller == Second ? SecondAccepted : Caller == Child ? ChildAccepted : Accepted);
+		EXPECT_FALSE(Caller->GetAcceptedCompiledProgram());
 	}
 
-	EXPECT_EQ(First->GetAcceptedCompiledProgram(), Accepted);
+	EXPECT_FALSE(First->GetAcceptedCompiledProgram());
+	EXPECT_TRUE(Testing::CaptureMaterialRenderData(*Dynamic).Representation.IsError());
 	ASSERT_TRUE(First->CompileEdits());
 	ASSERT_TRUE(Second->CompileEdits());
 	EXPECT_NE(First->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, Accepted->GetShaderMap().ShaderMapId);
@@ -1550,10 +1557,11 @@ TEST(FMaterialFunctionTests, DependencyEditsPreserveAcceptedContractsAndOwnerSou
 	ASSERT_TRUE(Graph.Apply(*Leaf));
 	EXPECT_GT(First->GetMaterialCompileDebugInfo().AuthoredRevision, Current.AuthoredRevision);
 
-	EXPECT_EQ(First->GetAcceptedCompiledProgram(), CurrentProgram);
+	EXPECT_FALSE(First->GetAcceptedCompiledProgram());
 	EXPECT_TRUE(First->GetMaterialCompileStatus().HasUnsubmittedEdits());
 	ASSERT_TRUE(First->CompileEdits());
 	EXPECT_NE(First->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, CurrentProgram->GetShaderMap().ShaderMapId);
+	MarkAsGarbage(Dynamic);
 	MarkAsGarbage(Child);
 	MarkAsGarbage(Second);
 	MarkAsGarbage(First);
@@ -1606,7 +1614,7 @@ TEST(FMaterialFunctionTests, RelocationRefreshesNestedCallersAndDeletionHonorsRe
 	EXPECT_EQ(Wrapper->GetFunctionDependencies()[0].Get(), Leaf);
 	EXPECT_GT(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
 	EXPECT_TRUE(Material->GetMaterialCompileStatus().HasUnsubmittedEdits());
-	EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Accepted);
+	EXPECT_FALSE(Material->GetAcceptedCompiledProgram());
 	ASSERT_TRUE(Material->CompileEdits());
 	EXPECT_EQ(Material->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, Accepted->GetShaderMap().ShaderMapId);
 	EXPECT_TRUE(std::ranges::any_of(Material->GetAcceptedExpressionSources(), [&](const auto& Source) {

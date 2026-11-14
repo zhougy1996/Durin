@@ -131,7 +131,7 @@ namespace Durin
 		}
 
 		auto SerializeProgramConfiguration(FArchive& Ar,
-			FMaterialProgramResource& Program) -> void
+			FMaterialProgram& Program) -> void
 		{
 			Ar << Program.Quality << Program.FeatureLevel;
 			SerializeBoundedSequence(Ar, Program.StaticBools,
@@ -153,7 +153,7 @@ namespace Durin
 
 		auto SerializePayload(
 			FArchive& Ar,
-			FMaterialProgramResource& Program,
+			FMaterialProgram& Program,
 			FMaterialShaderMap& Artifact,
 			FMaterialStaticProperties& StaticProperties,
 			ECookTargetPlatform& TargetPlatform,
@@ -206,7 +206,7 @@ namespace Durin
 		}
 
 		auto ValidateDecodedProgram(
-			const FMaterialProgramResource& Program,
+			const FMaterialProgram& Program,
 			const FMaterialStaticProperties& StaticProperties,
 			ECookTargetPlatform TargetPlatform,
 			bool bRequireTarget) -> std::expected<void, std::string>
@@ -280,7 +280,7 @@ namespace Durin
 			if (Program.GetShaderMap().RequiredStages != SelectMaterialShaderStages(StaticProperties, true)
 				&& Program.GetShaderMap().RequiredStages != SelectMaterialShaderStages(StaticProperties, false))
 				return std::unexpected("Material cooked program identity or environment is invalid.");
-			const auto Contract = ValidateMaterialProgramResource(Program);
+			const auto Contract = ValidateMaterialProgram(Program);
 			if (!Contract) return std::unexpected(std::format("{}{} [index {}]", GetMaterialLayoutErrorText(Contract.Error),
 				Contract.ParameterId.IsValid() ? std::format(" [parameter {}]", Contract.ParameterId.ToString()) : "", Contract.FieldIndex));
 			return {};
@@ -290,7 +290,7 @@ namespace Durin
 	namespace
 	{
 		auto EncodeMaterialCookedProgram(
-		const FMaterialProgramResource& Program,
+		const FMaterialProgram& Program,
 		const FMaterialStaticProperties& StaticProperties,
 		ECookTargetPlatform TargetPlatform,
 		ECookTargetProfile TargetProfile,
@@ -304,7 +304,7 @@ namespace Durin
 		if (!Program.HasShaderMap()) return std::unexpected("Material cooked program is unavailable.");
 		if (const auto Validation = ValidateDecodedProgram(
 				Program, StaticProperties, TargetPlatform, false); !Validation) return Validation;
-		FMaterialProgramResource Copy = Program;
+		FMaterialProgram Copy = Program;
 		FMaterialShaderMap Artifact = Program.GetShaderMap();
 		FMaterialStaticProperties PropertyCopy = StaticProperties;
 		FCanonicalMemoryWriter Ar(OutBytes, EArchivePurpose::CookedPayload);
@@ -334,7 +334,7 @@ namespace Durin
 		ECookTargetPlatform ExpectedPlatform,
 		ECookTargetProfile ExpectedProfile,
 		FMaterialStaticProperties& OutStaticProperties,
-		std::shared_ptr<const FMaterialProgramResource>& OutProgram) -> std::expected<void, std::string>
+		std::shared_ptr<const FMaterialProgram>& OutProgram) -> std::expected<void, std::string>
 	{
 		if (Bytes.size() < 24 || Bytes.size() > MaterialCookedProgramMaxPayloadBytes)
 			return std::unexpected("Material cooked program byte extent is invalid.");
@@ -349,7 +349,7 @@ namespace Durin
 		SerializeHash(ChecksumReader, StoredChecksum);
 		if (ChecksumReader.IsError() || StoredChecksum != FXxHash128::HashBuffer(Payload))
 			return std::unexpected("Material cooked program checksum is invalid.");
-		FMaterialProgramResource Candidate;
+		FMaterialProgram Candidate;
 		auto Artifact = std::make_shared<FMaterialShaderMap>();
 		Candidate.ShaderMap = Artifact;
 		FMaterialStaticProperties CandidateProperties;
@@ -367,7 +367,7 @@ namespace Durin
 				Candidate, CandidateProperties, Platform, true); !Validation) return Validation;
 		Artifact->SetCollectionLayouts(Candidate.ActiveCollections);
 		OutStaticProperties = CandidateProperties;
-		OutProgram = std::make_shared<const FMaterialProgramResource>(
+		OutProgram = std::make_shared<const FMaterialProgram>(
 			std::move(Candidate));
 		return {};
 	}
@@ -413,7 +413,7 @@ namespace Durin
 	}
 
 	auto EncodeMaterialCookedProgramFamily(
-		std::span<const FMaterialProgramResource* const> Programs,
+		std::span<const FMaterialProgram* const> Programs,
 		const FMaterialStaticProperties& StaticProperties,
 		ECookTargetPlatform TargetPlatform,
 		ECookTargetProfile TargetProfile,
@@ -489,7 +489,7 @@ namespace Durin
 		ERHIFeatureLevel FeatureLevel,
 		std::span<const FMaterialCompilerEnvironment::FStaticBoolValue> StaticBools,
 		FMaterialStaticProperties& OutStaticProperties,
-		std::shared_ptr<const FMaterialProgramResource>& OutProgram) -> std::expected<void, std::string>
+		std::shared_ptr<const FMaterialProgram>& OutProgram) -> std::expected<void, std::string>
 	{
 		if (Bytes.size() < 32 || Bytes.size() > MaterialCookedProgramMaxPayloadBytes)
 			return std::unexpected("Material cooked program byte extent is invalid.");
@@ -522,13 +522,13 @@ namespace Durin
 			return std::unexpected("Material cooked program target is incompatible; recook for this runtime.");
 		if (Configurations.empty() || Artifacts.empty())
 			return std::unexpected("Material cooked program is unavailable.");
-		std::vector<std::shared_ptr<const FMaterialProgramResource>> DecodedArtifacts;
+		std::vector<std::shared_ptr<const FMaterialProgram>> DecodedArtifacts;
 		DecodedArtifacts.reserve(Artifacts.size());
 		std::optional<FMaterialStaticProperties> CommonProperties;
 		for (const auto& Artifact : Artifacts)
 		{
 			FMaterialStaticProperties Properties;
-			std::shared_ptr<const FMaterialProgramResource> Program;
+			std::shared_ptr<const FMaterialProgram> Program;
 			if (auto Decoded = DecodeMaterialCookedProgram(Artifact, ExpectedPlatform,
 				ExpectedProfile, Properties, Program); !Decoded) return Decoded;
 			if (CommonProperties && *CommonProperties != Properties)
@@ -554,7 +554,7 @@ namespace Durin
 			}
 		}
 		if (!Selected) return std::unexpected("The exact cooked material quality, feature, and static configuration is missing.");
-		auto Configured = std::make_shared<FMaterialProgramResource>(
+		auto Configured = std::make_shared<FMaterialProgram>(
 			*DecodedArtifacts[Selected->ArtifactIndex]);
 		Configured->Quality = Quality;
 		Configured->FeatureLevel = FeatureLevel;

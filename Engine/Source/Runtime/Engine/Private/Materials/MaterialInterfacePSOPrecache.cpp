@@ -27,11 +27,11 @@ namespace Durin
 		if (IsPendingKill() || VertexFactoryDataList.empty())
 			return std::unexpected(std::string("Material PSO precache requires a live material and a nonempty Vertex Factory list."));
 		if (FeatureLevel > FSceneInterface::GetDefaultFeatureLevel()) return std::unexpected(std::string("Material PSO feature level exceeds RHI capability."));
-		const auto Material = GetMaterialResource(FeatureLevel);
-		if (!Material.HasValidGameThreadShaderMap())
+		const auto Program = GetAcceptedCompiledProgram(FeatureLevel);
+		if (!Program || !Program->HasShaderMap())
 			return std::unexpected(std::string("Material PSO precache requires an accepted material program."));
-		const auto Properties = Material.GetStaticProperties();
-		const auto& ShaderMap = Material.CompiledProgram->GetShaderMap();
+		const auto Properties = GetMaterialResourceProperties(FeatureLevel);
+		const auto& ShaderMap = Program->GetShaderMap();
 		const FMaterialPlanningPassIdentity Identity{
 			.ShaderMap = {.RenderLayout = ShaderMap.Layout.Identity, .ProgramIdentity = ShaderMap.ShaderMapId,
 				.BlendMode = Properties.BlendMode, .ShadingModel = Properties.ShadingModel,
@@ -40,7 +40,7 @@ namespace Durin
 		std::vector<FMaterialPSOPrecacheRequestID> Requests;
 		for (const auto& Factory : VertexFactoryDataList)
 		{
-			auto Request = Renderer.PrecacheMaterialPSOs({Identity, Material.CompiledProgram, Factory, PrecacheParams, Priority, FeatureLevel});
+			auto Request = Renderer.PrecacheMaterialPSOs({Identity, Program, Factory, PrecacheParams, Priority, FeatureLevel});
 			if (!Request.GetValue()) return std::unexpected(Request.GetDiagnostic());
 			Requests.push_back(PSOPrecacheOwner.Observe(Request));
 		}

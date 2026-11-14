@@ -246,6 +246,11 @@ durin_add_native_test(StaticMeshRenderPreparationVulkanTests
 	RUNTIME_ONLY_RATIONALE "Authored LOD fixtures load MeshBuilder through FModuleManager before building StaticMesh resources."
 )
 
+if(MSVC AND TARGET StaticMeshRenderPreparationVulkanTests)
+	# The large scene fixtures instantiate enough material/container code to exceed standard COFF limits.
+	target_compile_options(StaticMeshRenderPreparationVulkanTests PRIVATE /bigobj)
+endif()
+
 durin_add_native_test(StaticMeshRenderPreparationQualificationTests
 	KIND qualification
 	DOMAINS render-performance static-mesh

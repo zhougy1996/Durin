@@ -18,10 +18,6 @@ namespace Durin
 		for (auto* Proxy : Proxies) Proxy->ReleaseResource();
 	}
 
-	auto FMaterialResource::HasValidGameThreadShaderMap() const -> bool
-	{
-		return CompiledProgram && CompiledProgram->HasShaderMap();
-	}
 	namespace
 	{
 
@@ -29,6 +25,10 @@ namespace Durin
 		{
 			std::atomic<uint64> QueuedPublicationCount = 0;
 			std::atomic<uint64> PublicationCount = 0;
+			std::atomic<uint64> UniformCacheInvalidationCount = 0;
+			std::atomic<uint64> PropertyUpdateCount = 0;
+			std::atomic<uint64> ParameterUpdateCount = 0;
+			std::atomic<uint64> ProgramUpdateCount = 0;
 			std::atomic<uint64> PendingPublicationCount = 0;
 			std::atomic<uint64> CopiedMaterialPayloadBytes = 0;
 			std::atomic<uint64> ResolutionCacheHitCount = 0;
@@ -40,16 +40,6 @@ namespace Durin
 		};
 
 		FMaterialRenderProxyAtomicCounters GMaterialRenderProxyCounters;
-
-		auto GetMaterialPayloadBytes(const FMaterialResource& Layer) -> uint64
-		{
-			uint64 Bytes = 0;
-			for (const auto& Parameter : Layer.Parameters)
-				Bytes += std::visit([](const auto& Value) -> uint64 {
-					return sizeof(Value);
-				}, Parameter.Value);
-			return Bytes;
-		}
 
 		auto ApplyStaticProperties(
 			FMaterialRenderData& RenderData,
@@ -75,6 +65,10 @@ namespace Durin
 		return {
 			.QueuedPublicationCount = GMaterialRenderProxyCounters.QueuedPublicationCount.load(),
 			.PublicationCount = GMaterialRenderProxyCounters.PublicationCount.load(),
+			.ProgramUpdateCount = GMaterialRenderProxyCounters.ProgramUpdateCount.load(),
+			.ParameterUpdateCount = GMaterialRenderProxyCounters.ParameterUpdateCount.load(),
+			.PropertyUpdateCount = GMaterialRenderProxyCounters.PropertyUpdateCount.load(),
+			.UniformCacheInvalidationCount = GMaterialRenderProxyCounters.UniformCacheInvalidationCount.load(),
 			.PendingPublicationCount = GMaterialRenderProxyCounters.PendingPublicationCount.load(),
 			.CopiedMaterialPayloadBytes = GMaterialRenderProxyCounters.CopiedMaterialPayloadBytes.load(),
 			.ResolutionCacheHitCount = GMaterialRenderProxyCounters.ResolutionCacheHitCount.load(),
@@ -91,6 +85,10 @@ namespace Durin
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		GMaterialRenderProxyCounters.QueuedPublicationCount.store(0);
 		GMaterialRenderProxyCounters.PublicationCount.store(0);
+		GMaterialRenderProxyCounters.UniformCacheInvalidationCount.store(0);
+		GMaterialRenderProxyCounters.PropertyUpdateCount.store(0);
+		GMaterialRenderProxyCounters.ParameterUpdateCount.store(0);
+		GMaterialRenderProxyCounters.ProgramUpdateCount.store(0);
 		GMaterialRenderProxyCounters.PendingPublicationCount.store(0);
 		GMaterialRenderProxyCounters.CopiedMaterialPayloadBytes.store(0);
 		GMaterialRenderProxyCounters.ResolutionCacheHitCount.store(0);
@@ -142,53 +140,135 @@ namespace Durin
 		return Remaining;
 	}
 
-	auto FMaterialRenderProxy::QueuePublication_GameThread(
-		FMaterialResource Publication
-	) -> void
+	namespace
 	{
-		if (GIsGameThreadIdInitialized) CheckGameThread();
-
-		GMaterialRenderProxyCounters.QueuedPublicationCount.fetch_add(1);
-		GMaterialRenderProxyCounters.PendingPublicationCount.fetch_add(1);
-		GMaterialRenderProxyCounters.CopiedMaterialPayloadBytes.fetch_add(GetMaterialPayloadBytes(Publication));
-		EnqueueRenderCommand("PublishMaterialLayer",
-			[Proxy = FMaterialRenderProxyRef(this), Layer = std::move(Publication)](FRHICommandListImmediate&) mutable {
+		template<class F> auto QueueMaterialUpdate(FMaterialRenderProxy& Proxy, F Work, uint64 Bytes = 0) -> void
+		{
+			if (GIsGameThreadIdInitialized) CheckGameThread();
+			GMaterialRenderProxyCounters.QueuedPublicationCount.fetch_add(1);
+			GMaterialRenderProxyCounters.PendingPublicationCount.fetch_add(1);
+			GMaterialRenderProxyCounters.CopiedMaterialPayloadBytes.fetch_add(Bytes);
+			EnqueueRenderCommand("UpdateMaterialResource", [Proxy = FMaterialRenderProxyRef(&Proxy), Work = std::move(Work)](FRHICommandListImmediate&) mutable {
 				GMaterialRenderProxyCounters.PendingPublicationCount.fetch_sub(1);
-				Proxy->ApplyPublication_RenderThread(std::move(Layer));
+				Work(*Proxy);
 			});
+		}
 	}
-
-	auto FMaterialRenderProxy::ApplyPublication_RenderThread(
-		FMaterialResource Publication
-	) -> void
+	auto FMaterialRenderProxy::RecordUpdate_RenderThread() -> void
 	{
 		CheckRenderingThread();
-
-		check(std::ranges::is_sorted(
-			Publication.Parameters,
-			{},
-			&FMaterialLocalRenderParameter::Id));
-		if (LocalLayer.CompiledProgram != Publication.CompiledProgram || LocalLayer.StaticProperties != Publication.StaticProperties)
-		{
-			FMaterialRenderProxy* Material = this;
-			for (const auto& [Scene, References] : SceneReferences) Scene->UpdateStaticDrawListsForMaterials(std::span(&Material, 1));
-		}
-		if (LocalLayer.CompiledProgram != Publication.CompiledProgram) UniformExpressionCache->InvalidateUniformExpressionCache();
-		LocalLayer = std::move(Publication);
-		bHasResolvedData = false;
 		++PublicationCount;
 		GMaterialRenderProxyCounters.PublicationCount.fetch_add(1);
+	}
+	auto FMaterialRenderProxy::InvalidateStaticDrawLists_RenderThread() -> void
+	{
+		FMaterialRenderProxy* Material = this;
+		for (const auto& [Scene, References] : SceneReferences) Scene->UpdateStaticDrawListsForMaterials(std::span(&Material, 1));
+	}
+	auto FMaterialRenderProxy::SetProgram_GameThread(std::shared_ptr<const FMaterialProgram> Program) -> void
+	{ QueueMaterialUpdate(*this, [Program = std::move(Program)](auto& Proxy) mutable { Proxy.SetProgram_RenderThread(std::move(Program)); }); }
+	auto FMaterialRenderProxy::SetProgram_RenderThread(std::shared_ptr<const FMaterialProgram> Program) -> void
+	{
+		RecordUpdate_RenderThread();
+		if (RenderingThreadProgram == Program) return;
+		const bool LayoutChanged = !RenderingThreadProgram || !Program
+			|| RenderingThreadProgram->GetShaderMap().Layout.Identity != Program->GetShaderMap().Layout.Identity;
+		const bool ShaderMapChanged = !RenderingThreadProgram || !Program || RenderingThreadProgram->ShaderMap != Program->ShaderMap;
+		if (ShaderMapChanged) InvalidateStaticDrawLists_RenderThread();
+		const bool CollectionsChanged = !RenderingThreadProgram || !Program || RenderingThreadProgram->ActiveCollections != Program->ActiveCollections;
+		RenderingThreadProgram = std::move(Program);
+		if (ShaderMapChanged || CollectionsChanged) UniformExpressionCache->InvalidateUniformExpressionCache();
+		InvalidateUniformExpressionCache_RenderThread(LayoutChanged);
+		GMaterialRenderProxyCounters.ProgramUpdateCount.fetch_add(1);
+	}
+	auto FMaterialRenderProxy::InitParameters_GameThread(FMaterialInstanceParameterSet Parameters) -> void
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		Parameters.ResolveTextureReferences();
+		const auto Bytes = Parameters.GetPayloadBytes();
+		QueueMaterialUpdate(*this, [Parameters = std::move(Parameters)](auto& Proxy) mutable { Proxy.InitParameters_RenderThread(std::move(Parameters)); }, Bytes);
+	}
+	auto FMaterialRenderProxy::InitParameters_RenderThread(FMaterialInstanceParameterSet Parameters) -> void
+	{
+		RecordUpdate_RenderThread();
+		check(Parameters.IsRenderThreadSet());
+		std::ranges::sort(Parameters.ScalarParameters, {}, &FMaterialScalarParameterValue::ParameterId);
+		std::ranges::sort(Parameters.Vector2Parameters, {}, &std::pair<FGuid, FVector2>::first);
+		std::ranges::sort(Parameters.Vector3Parameters, {}, &std::pair<FGuid, FVector3>::first);
+		std::ranges::sort(Parameters.VectorParameters, {}, &FMaterialVectorParameterValue::ParameterId);
+		std::ranges::sort(Parameters.TextureParameters, {}, &FMaterialTextureParameterValue::ParameterId);
+		if (ParameterValues == Parameters) return;
+		ParameterValues = std::move(Parameters);
+		InvalidateUniformExpressionCache_RenderThread(false);
+		GMaterialRenderProxyCounters.ParameterUpdateCount.fetch_add(1);
+	}
+	auto FMaterialRenderProxy::UpdateParameter_GameThread(const FGuid& Id, const FMaterialParameterValue& Value) -> void
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		auto RenderValue = Value;
+		RenderValue.ResolveTextureReference();
+		const auto Bytes = RenderValue.GetPayloadBytes();
+		QueueMaterialUpdate(*this, [Id, Value = std::move(RenderValue)](auto& Proxy) mutable { Proxy.UpdateParameter_RenderThread(Id, std::move(Value)); }, Bytes);
+	}
+	auto FMaterialRenderProxy::UpdateParameter_RenderThread(const FGuid& Id, FMaterialParameterValue Value) -> void
+	{
+		RecordUpdate_RenderThread();
+		check(Value.IsRenderThreadValue());
+		FMaterialParameterValue Current;
+		if (ParameterValues.GetParameterValue(Id, Current) && Current == Value) return;
+		ParameterValues.SetParameter(Id, Value);
+		InvalidateUniformExpressionCache_RenderThread(false);
+		GMaterialRenderProxyCounters.ParameterUpdateCount.fetch_add(1);
+	}
+
+	auto FMaterialRenderProxy::SetProperties_GameThread(std::optional<FMaterialStaticProperties> NewProperties) -> void
+	{ QueueMaterialUpdate(*this, [NewProperties](auto& Proxy) { Proxy.SetProperties_RenderThread(NewProperties); }); }
+	auto FMaterialRenderProxy::SetProperties_RenderThread(std::optional<FMaterialStaticProperties> NewProperties) -> void
+	{
+		RecordUpdate_RenderThread();
+		if (Properties == NewProperties) return;
+		InvalidateStaticDrawLists_RenderThread();
+		Properties = std::move(NewProperties);
+		bHasResolvedData = false;
+		GMaterialRenderProxyCounters.PropertyUpdateCount.fetch_add(1);
+	}
+	auto FMaterialRenderProxy::SetCompiling_GameThread(bool Compiling) -> void
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		if (bCompilingInitialized && bGameThreadCompiling == Compiling) return;
+		bCompilingInitialized = true;
+		bGameThreadCompiling = Compiling;
+		QueueMaterialUpdate(*this, [Compiling](auto& Proxy) { Proxy.SetCompiling_RenderThread(Compiling); });
+	}
+	auto FMaterialRenderProxy::SetCompiling_RenderThread(bool Compiling) -> void
+	{
+		RecordUpdate_RenderThread();
+		if (bCompiling == Compiling) return;
+		bCompiling = Compiling;
+		bHasResolvedData = false;
+	}
+	auto FMaterialRenderProxy::InvalidateUniformExpressionCache_GameThread(bool RecreateUniformBuffer) -> void
+	{ QueueMaterialUpdate(*this, [RecreateUniformBuffer](auto& Proxy) { Proxy.RecordUpdate_RenderThread(); Proxy.InvalidateUniformExpressionCache_RenderThread(RecreateUniformBuffer); }); }
+	auto FMaterialRenderProxy::InvalidateUniformExpressionCache_RenderThread(bool RecreateUniformBuffer) -> void
+	{
+		CheckRenderingThread();
+		if (RecreateUniformBuffer) UniformExpressionCache->ReleaseRHI();
+		else UniformExpressionCache->InvalidateUniformValues();
+		bHasResolvedData = false;
+		GMaterialRenderProxyCounters.UniformCacheInvalidationCount.fetch_add(1);
 	}
 
 	auto FMaterialRenderProxy::UpdateParameterBindings() -> void
 	{
-		bool bCurrent = BindingArtifact == (LocalLayer.CompiledProgram ? LocalLayer.CompiledProgram->ShaderMap : nullptr)
-			&& ParameterBindings.size() == LocalLayer.Parameters.size();
-		for (size_t Index = 0; bCurrent && Index < ParameterBindings.size(); ++Index)
-			bCurrent = ParameterBindings[Index].Id == LocalLayer.Parameters[Index].Id
-				&& ParameterBindings[Index].Type == LocalLayer.Parameters[Index].GetType();
+		bool bCurrent = BindingArtifact == (RenderingThreadProgram ? RenderingThreadProgram->ShaderMap : nullptr)
+			&& ParameterBindings.size() == ParameterValues.GetParameterCount();
+		size_t ParameterIndex = 0;
+		ParameterValues.VisitParameters([&](const FGuid& Id, const FMaterialParameterValue& Value) {
+			if (bCurrent) bCurrent = ParameterBindings[ParameterIndex].Id == Id && ParameterBindings[ParameterIndex].Type == Value.GetType();
+			++ParameterIndex;
+		});
 		if (bCurrent) return;
-		BindingArtifact = LocalLayer.CompiledProgram ? LocalLayer.CompiledProgram->ShaderMap : nullptr;
+		BindingArtifact = RenderingThreadProgram ? RenderingThreadProgram->ShaderMap : nullptr;
 		ParameterBindings.clear();
 		if (!BindingArtifact) return;
 		std::unordered_map<FGuid, uint32> Fields;
@@ -198,29 +278,28 @@ namespace Durin
 		std::unordered_map<FGuid, EMaterialParameterType> Active;
 		Active.reserve(BindingArtifact->ActiveParameters.size());
 		for (const auto& Parameter : BindingArtifact->ActiveParameters) Active.emplace(Parameter.Id, Parameter.Type);
-		ParameterBindings.reserve(LocalLayer.Parameters.size());
-		for (const auto& Parameter : LocalLayer.Parameters)
-		{
-			FParameterBinding Binding{Parameter.Id, Parameter.GetType()};
-			const auto Declaration = Active.find(Parameter.Id);
-			const auto Field = Fields.find(Parameter.Id);
+		ParameterBindings.reserve(ParameterValues.GetParameterCount());
+		ParameterValues.VisitParameters([&](const FGuid& Id, const FMaterialParameterValue& Value) {
+			FParameterBinding Binding{Id, Value.GetType()};
+			const auto Declaration = Active.find(Id);
+			const auto Field = Fields.find(Id);
 			Binding.bActive = Declaration != Active.end() && Declaration->second == Binding.Type;
 			if (Field != Fields.end()) Binding.FieldIndex = Field->second;
 			ParameterBindings.push_back(Binding);
-		}
+		});
 		GMaterialRenderProxyCounters.ParameterBindingBuildCount.fetch_add(1);
 	}
 
 	auto FMaterialRenderProxy::IsCompiling() const -> bool
 	{
 		CheckRenderingThread();
-		return LocalLayer.bIsCompiling;
+		return bCompiling;
 	}
 
 	auto FMaterialRenderProxy::GetMaterialNoFallback() -> const FMaterialRenderData*
 	{
 		CheckRenderingThread();
-		if (!LocalLayer.CompiledProgram) return nullptr;
+		if (!RenderingThreadProgram) return nullptr;
 		const auto& Material = Resolve_RenderThread();
 		return Material.CompiledProgram && !Material.Representation.IsError() ? &Material : nullptr;
 	}
@@ -243,18 +322,18 @@ namespace Durin
 
 		CachedResolvedData = {};
 		CachedResolvedData.UniformExpressionCache = UniformExpressionCache;
-		if (!LocalLayer.CompiledProgram && LocalLayer.bIsCompiling)
+		if (!RenderingThreadProgram && bCompiling)
 		{
 			++ResolutionCount;
 			bHasResolvedData = true;
 			return CachedResolvedData;
 		}
 		CachedResolvedData.Representation = FMaterialRenderRepresentation{};
-		if (LocalLayer.CompiledProgram)
+		if (RenderingThreadProgram)
 		{
-			CachedResolvedData.CompiledProgram = LocalLayer.CompiledProgram;
+			CachedResolvedData.CompiledProgram = RenderingThreadProgram;
 			CachedResolvedData.PlanningPassIdentity.ShaderMap.ProgramIdentity =
-				LocalLayer.CompiledProgram->GetShaderMap().ShaderMapId;
+				RenderingThreadProgram->GetShaderMap().ShaderMapId;
 		}
 		FMaterialRenderRepresentationBuilder RepresentationBuilder = CachedResolvedData.CompiledProgram
 			&& CachedResolvedData.CompiledProgram->GetShaderMap().Layout.Identity.Version == CompiledMaterialRenderLayoutVersion
@@ -264,24 +343,25 @@ namespace Durin
 		bool bRepresentationValid = true;
 		if (CachedResolvedData.CompiledProgram)
 			CachedResolvedData.PlanningPassIdentity.ShaderMap.RenderLayout = CachedResolvedData.CompiledProgram->GetShaderMap().Layout.Identity;
+		if (RenderingThreadProgram)
+			RenderingThreadProgram->DefaultParameters.VisitParameters([&](const FGuid& Id, const FMaterialParameterValue& Value) {
+				bRepresentationValid &= RepresentationBuilder.SetParameter(Id, Value);
+			});
 		UpdateParameterBindings();
 		uint64 IndexedWrites = 0;
-		for (size_t Index = 0; Index < LocalLayer.Parameters.size(); ++Index)
-		{
-			if (!BindingArtifact) break;
-			if (!ParameterBindings[Index].bActive) continue;
-			const auto FieldIndex = ParameterBindings[Index].FieldIndex;
+		size_t ParameterIndex = 0;
+		ParameterValues.VisitParameters([&](const FGuid& Id, const FMaterialParameterValue& Value) {
+			if (!BindingArtifact) return;
+			const auto& Binding = ParameterBindings[ParameterIndex++];
+			if (!Binding.bActive) return;
 			++IndexedWrites;
-			if (!RepresentationBuilder.SetParameterAtIndex(FieldIndex, LocalLayer.Parameters[Index]))
-			{
-				bRepresentationValid = false;
-			}
-		}
+			if (!RepresentationBuilder.SetParameterAtIndex(Binding.FieldIndex, Id, Value)) bRepresentationValid = false;
+		});
 		GMaterialRenderProxyCounters.IndexedParameterWriteCount.fetch_add(IndexedWrites);
-		if (LocalLayer.StaticProperties)
+		if (Properties)
 		{
 			ApplyStaticProperties(
-				CachedResolvedData, *LocalLayer.StaticProperties);
+				CachedResolvedData, *Properties);
 		}
 		FMaterialRenderRepresentation CompiledRepresentation;
 		FMaterialRenderValidationDiagnostic ValidationDiagnostic;
@@ -319,51 +399,6 @@ namespace Durin
 	{
 		CheckRenderingThread();
 		return ResolutionCount;
-	}
-
-	auto FMaterialLocalRenderParameter::GetType() const -> EMaterialParameterType
-	{
-		return std::visit([]<typename T>(const T&) {
-			if constexpr (std::is_same_v<T, float>) return EMaterialParameterType::Scalar;
-			else if constexpr (std::is_same_v<T, FVector2>) return EMaterialParameterType::Vector2;
-			else if constexpr (std::is_same_v<T, FVector3>) return EMaterialParameterType::Vector;
-			else if constexpr (std::is_same_v<T, FVector4>) return EMaterialParameterType::Vector4;
-			else return EMaterialParameterType::Texture;
-		}, Value);
-	}
-
-	auto BuildMaterialLocalRenderParameter(const FGuid& Id, const FMaterialParameterValue& Value)
-		-> FMaterialLocalRenderParameter
-	{
-		FMaterialLocalRenderParameter Result{.Id = Id};
-		switch (Value.GetType())
-		{
-		case EMaterialParameterType::Scalar: Result.Value = Value.GetScalar(); break;
-		case EMaterialParameterType::Vector2: Result.Value = Value.GetVector2(); break;
-		case EMaterialParameterType::Vector: Result.Value = Value.GetVector(); break;
-		case EMaterialParameterType::Vector4: Result.Value = Value.GetVector4(); break;
-		case EMaterialParameterType::Texture:
-		{
-			const auto& Texture = Value.GetTexture();
-			FMaterialLocalTextureValue Local{.SamplerState = Texture.SamplerState, .TextureFallback = Texture.TextureFallback};
-			if (Texture.Texture) Local.Texture = Texture.Texture->GetTextureReferenceRHI();
-			Result.Value = std::move(Local);
-			break;
-		}
-		}
-		return Result;
-	}
-
-	auto ApplyMaterialLocalRenderParameter(FMaterialRenderRepresentationBuilder& RepresentationBuilder,
-		const FMaterialLocalRenderParameter& Parameter) -> bool
-	{
-		return std::visit([&]<typename T>(const T& Value) {
-			if constexpr (std::is_same_v<T, float>) return RepresentationBuilder.SetScalar(Parameter.Id, Value);
-			else if constexpr (std::is_same_v<T, FVector2>) return RepresentationBuilder.SetVector2(Parameter.Id, Value);
-			else if constexpr (std::is_same_v<T, FVector3>) return RepresentationBuilder.SetVector(Parameter.Id, Value);
-			else if constexpr (std::is_same_v<T, FVector4>) return RepresentationBuilder.SetVector4(Parameter.Id, Value);
-			else return RepresentationBuilder.SetTexture(Parameter.Id, Value.Texture, Value.SamplerState, Value.TextureFallback);
-		}, Parameter.Value);
 	}
 
 	auto ReleaseMaterialRenderProxy_GameThread(

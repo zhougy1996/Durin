@@ -66,13 +66,13 @@ namespace Durin::RendererPrivate
 		uint32 MeshPassKey,
 		const FMeshMaterialShaderMapIdentity& Identity,
 		const FRenderResourceGeneration& Generation,
-		const FMaterialProgramResource* MaterialProgram,
+		const FMaterialProgram* MaterialProgram,
 		const FShaderCompileOptions& VertexCompileOptions,
 		FMeshMaterialShaderMap& OutShaderMap) -> FShaderCompletion
 	{
 		if (MaterialProgram != nullptr)
 		{
-			if (!ValidateMaterialProgramResource(*MaterialProgram))
+			if (!ValidateMaterialProgram(*MaterialProgram))
 				return std::unexpected(std::string("Accepted material compiler result is invalid."));
 			if (MaterialProgram->GetShaderMap().ShaderMapId != Identity.ProgramIdentity)
 				return std::unexpected(std::format(

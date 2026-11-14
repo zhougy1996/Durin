@@ -351,7 +351,7 @@ namespace Durin::RendererPrivate
 			FMeshDrawCommandBindingCache& Cache, FMeshPassDrawListContext& Context,
 			std::shared_ptr<const FMeshDrawCommand> Existing = {}) const -> FShaderCompletion = 0;
 		RENDERER_API auto PrepareShaders(const FMeshPassProcessorBatch& Batch, const FRenderResourceGeneration& Generation,
-			const FMaterialProgramResource* Program, const FShaderCompileOptions& Options, FMeshPassShaders& Out,
+			const FMaterialProgram* Program, const FShaderCompileOptions& Options, FMeshPassShaders& Out,
 			ERenderResourceCreateErrorCategory* FailureCategory = nullptr) const -> FShaderCompletion;
 		RENDERER_API auto PreparePipeline(const FMeshPassProcessorBatch& Batch, FName Name,
 			const FMeshPassShaders& Shaders, FRHIVertexDeclaration* Declaration, FMeshPassPipeline& Out) const -> FShaderCompletion;
@@ -375,7 +375,7 @@ namespace Durin::RendererPrivate
 		RENDERER_API auto PreparePSOResources(const FMaterialPSOPrecacheParams& Params,
 			const FRenderResourceGeneration& Generation, bool bRequired) -> std::expected<EPSOCollectorPreparation, std::string> override;
 		RENDERER_API auto CollectPSOInitializers(const FSceneRenderPreparationConfig& SceneConfig,
-			const FMaterialResource& Material, const FPSOPrecacheVertexFactoryData& VertexFactoryData,
+			const FMaterialProgram& Program, const FMaterialStaticProperties& Properties, const FPSOPrecacheVertexFactoryData& VertexFactoryData,
 			const FPSOPrecacheParams& PrecacheParams, FPSOPrecacheDataArray& PSOInitializers) -> void override;
 
 	protected:

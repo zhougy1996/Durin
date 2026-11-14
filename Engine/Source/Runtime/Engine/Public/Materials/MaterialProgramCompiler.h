@@ -7,6 +7,7 @@
 #include "Materials/MaterialProgramTypes.h"
 #include "Materials/MaterialFunctionTypes.h"
 #include "Materials/MaterialTypes.h"
+#include "Materials/MaterialParameterValues.h"
 #include "Materials/MaterialCompiledLayout.h"
 #include "Materials/MaterialParameterCollection.h"
 #include "Shader/MaterialShaderIdentity.h"
@@ -311,14 +312,16 @@ namespace Durin
 		MIR::FModule IR;
 		std::string GeneratedSource;
 	};
-	// Accepted configuration and material-local collection bindings. No request state or errors.
-	struct FMaterialProgramResource
+	// Immutable program shared by material resources and render proxies.
+	// Shader code lives in ShaderMap; defaults are bound from the root material.
+	struct FMaterialProgram
 	{
 		EMaterialQualityLevel Quality = EMaterialQualityLevel::High;
 		ERHIFeatureLevel FeatureLevel = ERHIFeatureLevel::SM5;
 		std::vector<FMaterialCompilerEnvironment::FStaticBoolValue> StaticBools;
 		std::vector<FMaterialParameterCollectionLayout> ActiveCollections;
 		std::shared_ptr<const FMaterialShaderMap> ShaderMap;
+		FMaterialInstanceParameterSet DefaultParameters;
 
 		ENGINE_API auto GetShaderMap() const -> const FMaterialShaderMap&;
 		ENGINE_API auto GetDebugData() const -> const FMaterialProgramDebugData&;
@@ -329,7 +332,7 @@ namespace Durin
 	// Transient compiler completion; publication copies only the resource payload.
 	struct FMaterialCompilerResult
 	{
-		FMaterialProgramResource Resource;
+		FMaterialProgram Resource;
 		EMaterialProgramStatus Status = EMaterialProgramStatus::Error;
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;
 		auto GetShaderMap() const -> const FMaterialShaderMap& { return Resource.GetShaderMap(); }
@@ -387,8 +390,8 @@ namespace Durin
 		explicit operator bool() const { return bSucceeded; }
 	};
 
-	[[nodiscard]] ENGINE_API auto ValidateMaterialProgramResource(
-		const FMaterialProgramResource& Result) -> FMaterialLayoutValidationResult;
+	[[nodiscard]] ENGINE_API auto ValidateMaterialProgram(
+		const FMaterialProgram& Result) -> FMaterialLayoutValidationResult;
 	[[nodiscard]] ENGINE_API auto ValidateMaterialCompilerResult(
 		const FMaterialCompilerResult& Result) -> FMaterialLayoutValidationResult;
 	[[nodiscard]] ENGINE_API auto GenerateMaterialProgramSlang(

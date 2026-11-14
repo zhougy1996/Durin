@@ -19,7 +19,7 @@ namespace Durin
 		0x4d415450, 0x7c4d4a68, 0xa141390e, 0x71b2c418};
 
 	[[nodiscard]] ENGINE_API auto EncodeMaterialCookedProgramFamily(
-		std::span<const FMaterialProgramResource* const> Programs,
+		std::span<const FMaterialProgram* const> Programs,
 		const FMaterialStaticProperties& StaticProperties,
 		ECookTargetPlatform TargetPlatform,
 		ECookTargetProfile TargetProfile,
@@ -33,5 +33,5 @@ namespace Durin
 		ERHIFeatureLevel FeatureLevel,
 		std::span<const FMaterialCompilerEnvironment::FStaticBoolValue> StaticBools,
 		FMaterialStaticProperties& OutStaticProperties,
-		std::shared_ptr<const FMaterialProgramResource>& OutProgram) -> std::expected<void, std::string>;
+		std::shared_ptr<const FMaterialProgram>& OutProgram) -> std::expected<void, std::string>;
 }

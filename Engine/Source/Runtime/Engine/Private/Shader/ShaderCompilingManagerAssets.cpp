@@ -57,7 +57,7 @@ namespace Durin
 			+ Private::GetMaterialEditCompileQueue().Num()
 			+ GetNumRemainingShaderJobs() + GetNumRemainingMaterialShaderMaps();
 	}
-	auto FShaderCompilingManager::FinishResourceCompilation(const std::shared_ptr<FMaterialCompilationResource>& Resource) -> void
+	auto FShaderCompilingManager::FinishResourceCompilation(const std::shared_ptr<FMaterialResource>& Resource) -> void
 	{
 		std::vector<FWeakObjectPtr> CompiledAssets;
 		while (const auto Association = Resource->Compilation.lock())

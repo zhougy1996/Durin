@@ -89,7 +89,7 @@ namespace Durin
 		FObjectCacheContext Context;
 		bool bAccepted = Private::FMaterialCompilationLifecycle::RequestCurrent(*this, false, &Context);
 		for (auto* Owner : Context.GetMaterialsAffectedByMaterial(this))
-			if (IsValid(Owner) && Owner != this)
+			if (IsValid(Owner) && Owner != this && !Owner->IsDynamicInstance())
 				bAccepted = Private::FMaterialCompilationLifecycle::RequestCurrent(*Owner, false, &Context) && bAccepted;
 		return bAccepted;
 	}
@@ -477,7 +477,7 @@ namespace Durin
 				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), CompilationState.SelectedResource->CookDiagnostic);
 				return;
 			}
-			CompilationState.SelectedResource->RenderLayer.CompiledProgram.reset();
+			CompilationState.SelectedResource->CompiledProgram.reset();
 			CompilationState.SelectedResource->Diagnostics.clear();
 			CompilationState.SelectedResource->CookDiagnostic = {};
 			CacheResourceShadersForRendering();

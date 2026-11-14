@@ -498,7 +498,7 @@ namespace Durin::RendererPrivate
 		return FShaderCompletion{};
 	}
 	auto FMeshPassProcessor::PrepareShaders(const FMeshPassProcessorBatch& Batch, const FRenderResourceGeneration& Generation,
-		const FMaterialProgramResource* Program, const FShaderCompileOptions& Options, FMeshPassShaders& Out,
+		const FMaterialProgram* Program, const FShaderCompileOptions& Options, FMeshPassShaders& Out,
 		ERenderResourceCreateErrorCategory* FailureCategory) const -> FShaderCompletion
 	{
 		if (FailureCategory) *FailureCategory = ERenderResourceCreateErrorCategory::InvalidConfiguration;
@@ -712,12 +712,11 @@ namespace Durin::RendererPrivate
 		return *Ready ? EPSOCollectorPreparation::Ready : EPSOCollectorPreparation::Pending;
 	}
 	auto FMeshPassProcessor::CollectPSOInitializers(const FSceneRenderPreparationConfig& Config,
-		const FMaterialResource& Material, const FPSOPrecacheVertexFactoryData& VertexFactoryData,
+		const FMaterialProgram& Program, const FMaterialStaticProperties& Properties, const FPSOPrecacheVertexFactoryData& VertexFactoryData,
 		const FPSOPrecacheParams& Params, FPSOPrecacheDataArray& Out) -> void
 	{
 		CheckRenderingThread();
-		const auto Properties = Material.GetStaticProperties();
-		const auto& Map = Material.CompiledProgram->GetShaderMap();
+		const auto& Map = Program.GetShaderMap();
 		const FMaterialPlanningPassIdentity Identity{
 			.ShaderMap = {.RenderLayout = Map.Layout.Identity, .ProgramIdentity = Map.ShaderMapId,
 				.BlendMode = Properties.BlendMode, .ShadingModel = Properties.ShadingModel,

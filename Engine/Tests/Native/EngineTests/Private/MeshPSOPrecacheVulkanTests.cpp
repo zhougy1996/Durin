@@ -1,3 +1,4 @@
+#include "MaterialRenderProxyUpdateTestSupport.h"
 #include "CoreMinimal.h"
 #include "EngineTestSupport.h"
 #include "PSOPrecacheMaterial.h"
@@ -61,7 +62,7 @@ namespace
         explicit FIndependentProbeCollector(bool InMobile)
             : IPSOCollector(Durin::FPSOCollectorCreateManager::GetIndex(InMobile ? Durin::EShadingPath::Mobile : Durin::EShadingPath::Deferred,
                 "IndependentCollectionProbe")), Mobile(InMobile) {}
-        auto CollectPSOInitializers(const Durin::FSceneRenderPreparationConfig&, const Durin::FMaterialResource&,
+        auto CollectPSOInitializers(const Durin::FSceneRenderPreparationConfig&, const Durin::FMaterialProgram&, const Durin::FMaterialStaticProperties&,
             const Durin::FPSOPrecacheVertexFactoryData&, const Durin::FPSOPrecacheParams&, Durin::FPSOPrecacheDataArray& Out) -> void override
         {
             ++(Mobile ? MobileProbeCalls : DeferredProbeCalls);
@@ -85,7 +86,7 @@ namespace
             if (!Required) return Durin::EPSOCollectorPreparation::Skip;
             return DeferredProbeCalls.load() > Baseline ? Durin::EPSOCollectorPreparation::Ready : Durin::EPSOCollectorPreparation::Pending;
         }
-        auto CollectPSOInitializers(const Durin::FSceneRenderPreparationConfig&, const Durin::FMaterialResource&,
+        auto CollectPSOInitializers(const Durin::FSceneRenderPreparationConfig&, const Durin::FMaterialProgram&, const Durin::FMaterialStaticProperties&,
             const Durin::FPSOPrecacheVertexFactoryData&, const Durin::FPSOPrecacheParams&, Durin::FPSOPrecacheDataArray&) -> void override {}
     };
     auto CreateWaitingProbe(Durin::ERHIFeatureLevel) -> std::unique_ptr<Durin::IPSOCollector>
@@ -152,13 +153,13 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
         ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
         Material->CacheResourceShadersForRendering(InitialConfig.FeatureLevel);
         FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
-        const auto Resource = Material->GetMaterialResource(InitialConfig.FeatureLevel);
+        const auto Resource = Durin::Testing::CaptureMaterialTestState(*Material, InitialConfig.FeatureLevel);
         ASSERT_TRUE(Resource.HasValidGameThreadShaderMap());
         struct FCase {
             EMeshPipelinePass Pass;
             FSceneRenderPreparationConfig Config;
             FPSOPrecacheParams Params;
-            FMaterialResource Material;
+            Durin::Testing::FMaterialTestState Material;
             std::shared_ptr<const FMeshVertexFactoryImplementation> Factory;
             uint8 Scenario;
             std::unique_ptr<FMeshPassProcessor> Processor;
@@ -238,20 +239,20 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
                     if (*Ready == EPSOCollectorPreparation::Ready) {
                         if (Case.Scenario == 18 && Case.Collected) {
                             FPSOPrecacheDataArray NewFactory;
-                            Case.Processor->CollectPSOInitializers(Case.Config, Case.Material, Params.VertexFactoryData, Case.Params, NewFactory);
+                            Case.Processor->CollectPSOInitializers(Case.Config, *Case.Material.CompiledProgram, Case.Material.GetStaticProperties(), Params.VertexFactoryData, Case.Params, NewFactory);
                             ASSERT_FALSE(NewFactory.empty());
                             for (const auto& Data : NewFactory) EXPECT_EQ(Data.VertexFactoryType, &LimitedFactories[0]->GetType());
                         } else {
-                            Case.Processor->CollectPSOInitializers(Case.Config, Case.Material, Params.VertexFactoryData, Case.Params, Case.Initializers);
+                            Case.Processor->CollectPSOInitializers(Case.Config, *Case.Material.CompiledProgram, Case.Material.GetStaticProperties(), Params.VertexFactoryData, Case.Params, Case.Initializers);
                             FPSOPrecacheDataArray Again(1);
-                            Case.Processor->CollectPSOInitializers(Case.Config, Case.Material, Params.VertexFactoryData, Case.Params, Again);
+                            Case.Processor->CollectPSOInitializers(Case.Config, *Case.Material.CompiledProgram, Case.Material.GetStaticProperties(), Params.VertexFactoryData, Case.Params, Again);
                             EXPECT_EQ(Again.size(), Case.Initializers.size());
                             if (Case.Scenario == 18) {
                                 auto Changed = Case.Material;
                                 auto Properties = Changed.GetStaticProperties(); Properties.bTwoSided = true; Changed.StaticProperties = Properties;
                                 auto ChangedParams = Case.Params; ChangedParams.bReversedZ = !ChangedParams.bReversedZ;
                                 FPSOPrecacheDataArray Current;
-                                Case.Processor->CollectPSOInitializers(Case.Config, Changed, Params.VertexFactoryData, ChangedParams, Current);
+                                Case.Processor->CollectPSOInitializers(Case.Config, *Changed.CompiledProgram, Changed.GetStaticProperties(), Params.VertexFactoryData, ChangedParams, Current);
                                 ASSERT_EQ(Current.size() + 1, Case.Initializers.size());
                                 for (const auto& Data : Current) EXPECT_EQ(Data.GetGraphicsInitializer().RasterizerState.CullMode, ERHICullMode::None);
                                 EXPECT_EQ(std::ranges::count_if(Current, [&](const auto& Data) {

@@ -9,6 +9,7 @@
 #include "Misc/Guid.h"
 #include "EngineAPI.h"
 #include "Texture/Texture2D.h"
+#include "RHIResources.h"
 
 #include "MaterialTypes.gen.h"
 
@@ -219,6 +220,9 @@ namespace Durin
 		DPROPERTY()
 		EMaterialTextureFallback TextureFallback = EMaterialTextureFallback::White;
 
+		// Transient render reference. Never reflected or serialized; publication clears Texture.
+		FRHITextureReferenceRef TextureReference;
+
 		auto operator==(const FMaterialTextureValue&) const -> bool = default;
 	};
 
@@ -226,6 +230,16 @@ namespace Durin
 	class FMaterialParameterValue
 	{
 	public:
+		FMaterialParameterValue() = default;
+		FMaterialParameterValue(float InValue) : Value(InValue) {}
+		FMaterialParameterValue(const FVector2& InValue) : Value(InValue) {}
+		FMaterialParameterValue(const FVector3& InValue) : Value(InValue) {}
+		FMaterialParameterValue(const FVector4& InValue) : Value(InValue) {}
+		FMaterialParameterValue(const FMaterialTextureValue& InValue) : Value(InValue) {}
+		ENGINE_API auto ResolveTextureReference() -> void;
+		ENGINE_API auto GetPayloadBytes() const -> uint64;
+		auto IsRenderThreadValue() const -> bool { return GetType() != EMaterialParameterType::Texture || !GetTexture().Texture; }
+
 		ENGINE_API auto GetType() const -> EMaterialParameterType;
 		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void;
 		auto GetScalar() const -> const float& { require(std::holds_alternative<float>(Value)); return std::get<float>(Value); }

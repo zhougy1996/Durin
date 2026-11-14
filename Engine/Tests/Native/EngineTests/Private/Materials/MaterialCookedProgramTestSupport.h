@@ -19,13 +19,13 @@ namespace Durin::Testing
 	}
 
 	inline auto EncodeMaterialCookedProgramFamilyForTest(
-		const FMaterialProgramResource& Program,
+		const FMaterialProgram& Program,
 		const FMaterialStaticProperties& StaticProperties,
 		ECookTargetPlatform TargetPlatform,
 		ECookTargetProfile TargetProfile,
 		FByteBuffer& OutBytes) -> std::expected<void, std::string>
 	{
-		const std::array<const FMaterialProgramResource*, 1> Programs{&Program};
+		const std::array<const FMaterialProgram*, 1> Programs{&Program};
 		return EncodeMaterialCookedProgramFamily(Programs, StaticProperties,
 			TargetPlatform, TargetProfile, OutBytes);
 	}
@@ -34,9 +34,9 @@ namespace Durin::Testing
 		FByteView Bytes,
 		ECookTargetPlatform ExpectedPlatform,
 		ECookTargetProfile ExpectedProfile,
-		const FMaterialProgramResource& ExpectedConfiguration,
+		const FMaterialProgram& ExpectedConfiguration,
 		FMaterialStaticProperties& OutStaticProperties,
-		std::shared_ptr<const FMaterialProgramResource>& OutProgram)
+		std::shared_ptr<const FMaterialProgram>& OutProgram)
 		-> std::expected<void, std::string>
 	{
 		return DecodeMaterialCookedProgramFamily(Bytes, ExpectedPlatform,

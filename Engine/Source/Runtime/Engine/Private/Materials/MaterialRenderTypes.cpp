@@ -12,7 +12,7 @@ namespace Durin
 		if (Result) CachedRepresentation = Material.GetRecordId();
 		return Result;
 	}
-	auto FUniformExpressionCache::GetParameterCollectionUniformBuffer(const std::shared_ptr<const FMaterialProgramResource>& Program,
+	auto FUniformExpressionCache::GetParameterCollectionUniformBuffer(const std::shared_ptr<const FMaterialProgram>& Program,
 		FGuid Collection) -> FUniformBuffer&
 	{
 		CheckRenderingThread();

@@ -20,7 +20,8 @@ TEST(FMaterialProgramPublicationTests,
 	ASSERT_TRUE(Base->SetScalarParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::MetallicName(), 0.73f));
 	const auto Dynamic = Durin::Testing::CaptureMaterialRenderData(*Base);
-	EXPECT_EQ(Dynamic.CompiledProgram, Initial.CompiledProgram);
+	EXPECT_NE(Dynamic.CompiledProgram, Initial.CompiledProgram);
+	EXPECT_EQ(Dynamic.CompiledProgram->ShaderMap, Initial.CompiledProgram->ShaderMap);
 	EXPECT_EQ(Dynamic.PlanningPassIdentity.ShaderMap.ProgramIdentity,
 		Initial.PlanningPassIdentity.ShaderMap.ProgramIdentity);
 
@@ -29,7 +30,7 @@ TEST(FMaterialProgramPublicationTests,
 	PipelineOnly.DepthWritePolicy = Durin::EMaterialDepthWritePolicy::Enabled;
 	ASSERT_TRUE(Base->SetStaticProperties(PipelineOnly));
 	const auto PipelineChanged = Durin::Testing::CaptureMaterialRenderData(*Base);
-	EXPECT_EQ(PipelineChanged.CompiledProgram, Initial.CompiledProgram);
+	EXPECT_EQ(PipelineChanged.CompiledProgram, Dynamic.CompiledProgram);
 	EXPECT_NE(PipelineChanged.PlanningPassIdentity,
 		Initial.PlanningPassIdentity);
 

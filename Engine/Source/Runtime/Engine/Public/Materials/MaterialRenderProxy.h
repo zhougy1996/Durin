@@ -5,46 +5,13 @@
 #include "EngineAPI.h"
 #include "Materials/MaterialRenderTypes.h"
 #include "Materials/MaterialTypes.h"
+#include "Materials/MaterialParameterValues.h"
 #include "Templates/RefCounting.h"
 
 namespace Durin
 {
 	class FSceneInterface;
 	class FMaterialShaderMap;
-	// Owns counted RHI resources and sampling policy after leaving the object thread.
-	struct FMaterialLocalTextureValue
-	{
-		FRHITextureReferenceRef Texture;
-		FMaterialSamplerState SamplerState;
-		EMaterialTextureFallback TextureFallback = EMaterialTextureFallback::White;
-		auto operator==(const FMaterialLocalTextureValue&) const -> bool = default;
-	};
-
-	// The selected alternative is the only type authority; no live objects cross this boundary.
-	struct FMaterialLocalRenderParameter
-	{
-		FGuid Id;
-		std::variant<float, FVector2, FVector3, FVector4, FMaterialLocalTextureValue> Value = 0.0f;
-		ENGINE_API auto GetType() const -> EMaterialParameterType;
-		auto operator==(const FMaterialLocalRenderParameter&) const -> bool = default;
-	};
-
-	// Effective resource for the selected material configuration. Publication and
-	// PSO collection consume this same program/property/parameter snapshot.
-	struct FMaterialResource
-	{
-		std::vector<FMaterialLocalRenderParameter> Parameters;
-		std::optional<FMaterialStaticProperties> StaticProperties;
-		std::shared_ptr<const FMaterialProgramResource> CompiledProgram;
-		// Only meaningful without an accepted program; retained programs stay usable.
-		bool bIsCompiling = false;
-		ENGINE_API auto HasValidGameThreadShaderMap() const -> bool;
-		auto GetStaticProperties() const -> FMaterialStaticProperties
-		{ return StaticProperties.value_or(FMaterialStaticProperties{}); }
-		auto GetBlendMode() const -> EMaterialBlendMode { return GetStaticProperties().BlendMode; }
-		auto IsTwoSided() const -> bool { return GetStaticProperties().bTwoSided; }
-		auto operator==(const FMaterialResource&) const -> bool = default;
-	};
 
 	class FMaterialRenderProxy;
 	using FMaterialRenderProxyRef = TRefCountPtr<FMaterialRenderProxy>;
@@ -64,6 +31,10 @@ namespace Durin
 	{
 		uint64 QueuedPublicationCount = 0;
 		uint64 PublicationCount = 0;
+		uint64 ProgramUpdateCount = 0;
+		uint64 ParameterUpdateCount = 0;
+		uint64 PropertyUpdateCount = 0;
+		uint64 UniformCacheInvalidationCount = 0;
 		uint64 PendingPublicationCount = 0;
 		uint64 CopiedMaterialPayloadBytes = 0;
 		uint64 ResolutionCacheHitCount = 0;
@@ -98,15 +69,18 @@ namespace Durin
 			return ReferenceCount.load(std::memory_order_relaxed);
 		}
 
-		// Applies an owned snapshot in render-command order and invalidates resolution.
-		ENGINE_API auto ApplyPublication_RenderThread(
-			FMaterialResource Publication
-			) -> void;
-
-		// Every command owns an immutable layer; consumers observe command order.
-		ENGINE_API auto QueuePublication_GameThread(
-			FMaterialResource Publication
-			) -> void;
+		ENGINE_API auto SetProgram_GameThread(std::shared_ptr<const FMaterialProgram> Program) -> void;
+		ENGINE_API auto SetProgram_RenderThread(std::shared_ptr<const FMaterialProgram> Program) -> void;
+		ENGINE_API auto InitParameters_GameThread(FMaterialInstanceParameterSet Parameters) -> void;
+		ENGINE_API auto InitParameters_RenderThread(FMaterialInstanceParameterSet Parameters) -> void;
+		ENGINE_API auto UpdateParameter_GameThread(const FGuid& Id, const FMaterialParameterValue& Value) -> void;
+		ENGINE_API auto UpdateParameter_RenderThread(const FGuid& Id, FMaterialParameterValue Value) -> void;
+		ENGINE_API auto SetProperties_GameThread(std::optional<FMaterialStaticProperties> Properties) -> void;
+		ENGINE_API auto SetProperties_RenderThread(std::optional<FMaterialStaticProperties> Properties) -> void;
+		ENGINE_API auto SetCompiling_GameThread(bool Compiling) -> void;
+		ENGINE_API auto SetCompiling_RenderThread(bool Compiling) -> void;
+		ENGINE_API auto InvalidateUniformExpressionCache_GameThread(bool RecreateUniformBuffer = false) -> void;
+		ENGINE_API auto InvalidateUniformExpressionCache_RenderThread(bool RecreateUniformBuffer = false) -> void;
 
 		// RenderThread only. A missing/invalid program returns null without selecting a fallback.
 		ENGINE_API auto GetMaterialNoFallback() -> const FMaterialRenderData*;
@@ -135,7 +109,14 @@ namespace Durin
 
 		mutable std::atomic<uint32> ReferenceCount = 0;
 		const std::shared_ptr<FUniformExpressionCache> UniformExpressionCache = std::make_shared<FUniformExpressionCache>();
-		FMaterialResource LocalLayer;
+		std::shared_ptr<const FMaterialProgram> RenderingThreadProgram;
+		FMaterialInstanceParameterSet ParameterValues;
+		std::optional<FMaterialStaticProperties> Properties;
+		bool bCompiling = false;
+		bool bGameThreadCompiling = false;
+		bool bCompilingInitialized = false;
+		auto RecordUpdate_RenderThread() -> void;
+		auto InvalidateStaticDrawLists_RenderThread() -> void;
 		std::unordered_map<FSceneInterface*, uint32> SceneReferences;
 
 		FMaterialRenderData CachedResolvedData;
@@ -145,20 +126,6 @@ namespace Durin
 		bool bHasResolvedData = false;
 
 	};
-
-	// Converts one selected value to its counted render-safe representation without
-	// changing authored values or interpreting parameter identities as semantics.
-	ENGINE_API auto BuildMaterialLocalRenderParameter(
-		const FGuid& Id,
-		const FMaterialParameterValue& Value
-		) -> FMaterialLocalRenderParameter;
-
-	// Applies one render-safe value by its exact canonical
-	// identity and type.
-	ENGINE_API auto ApplyMaterialLocalRenderParameter(
-		FMaterialRenderRepresentationBuilder& RepresentationBuilder,
-		const FMaterialLocalRenderParameter& Parameter
-		) -> bool;
 
 	// Transfers a game-thread owner reference into the accepted render stream.
 	// If admission is already closed, ordinary counted release happens locally.

@@ -1,3 +1,4 @@
+#include "MaterialRenderProxyUpdateTestSupport.h"
 #include "MaterialCompileFailureTestSupport.h"
 #include "CacheDispatchPrivate.h"
 #include "MaterialResourceTestSupport.h"
@@ -196,7 +197,7 @@ auto QualifyEditScheduling() -> void
 	EXPECT_TRUE(Child->GetMaterialCompileStatus().HasUnsubmittedEdits());
 	EXPECT_EQ(Root->GetMaterialCompileDebugInfo().RequestId, Generation);
 	EXPECT_EQ(Child->GetMaterialCompileDebugInfo().RequestId, ChildGeneration);
-	EXPECT_EQ(Root->GetAcceptedCompiledProgram(), Previous);
+	EXPECT_FALSE(Root->GetAcceptedCompiledProgram());
 	EXPECT_FALSE(Root->GetMaterialCompileStatus().IsCurrent());
 	FMaterialParameterDefinition Extra;
 	Extra.Id = FGuid::NewGuid();
@@ -239,10 +240,10 @@ auto QualifyEditScheduling() -> void
 	EXPECT_TRUE(Root->GetMaterialCompileStatus().HasScheduledEdits());
 	EXPECT_FALSE(Root->IsCompiling());
 	EXPECT_TRUE(Root->IsCompilationFinished());
-	EXPECT_TRUE(Root->HasValidGameThreadShaderMap());
+	EXPECT_FALSE(Root->HasValidGameThreadShaderMap());
 	EXPECT_FALSE(Root->IsComplete());
-	// Pending edits retain the accepted generation rather than an error material.
-	EXPECT_TRUE(Root->GetMaterialResource().HasValidGameThreadShaderMap());
+	// Structural edits use fallback until a replacement program is ready.
+	EXPECT_FALSE(Durin::Testing::CaptureMaterialTestState(*Root).HasValidGameThreadShaderMap());
 	EXPECT_EQ(Root->GetMaterialCompileDebugInfo().RequestId, Generation + 1);
 	ASSERT_TRUE(WaitForMaterialCompile(*Root));
 	ASSERT_TRUE(WaitForMaterialCompile(*Child));
@@ -449,7 +450,7 @@ TEST_F(FMaterialAsyncCompileTests, InitialCompilationQueriesDoNotSelectAnInvalid
 	const auto Before = GetMaterialFallbackDiagnosticsSnapshot();
 	EXPECT_TRUE(Material->IsCompiling());
 	EXPECT_FALSE(Material->IsComplete());
-	const auto Resource = Material->GetMaterialResource();
+	const auto Resource = Durin::Testing::CaptureMaterialTestState(*Material);
 	EXPECT_FALSE(Resource.HasValidGameThreadShaderMap());
 	EXPECT_EQ(GetMaterialFallbackDiagnosticsSnapshot().Get(EMaterialFallbackReason::MaterialDataInvalid),
 		Before.Get(EMaterialFallbackReason::MaterialDataInvalid));
@@ -457,7 +458,7 @@ TEST_F(FMaterialAsyncCompileTests, InitialCompilationQueriesDoNotSelectAnInvalid
 	FAssetCompilingManager::Get().FinishAllCompilation();
 	EXPECT_FALSE(Material->IsCompiling());
 	EXPECT_TRUE(Material->IsComplete());
-	EXPECT_TRUE(Material->GetMaterialResource().HasValidGameThreadShaderMap());
+	EXPECT_TRUE(Durin::Testing::CaptureMaterialTestState(*Material).HasValidGameThreadShaderMap());
 }
 
 TEST_F(FMaterialAsyncCompileTests, SynchronousAndAsynchronousResultsAgreeOnSharedCompilation)
@@ -697,7 +698,7 @@ TEST_F(FMaterialAsyncCompileTests, ManualEditsDetachOldRequestsAndDoNotLeaveRunn
 	EXPECT_TRUE(Material->IsCompilationFinished());
 	EXPECT_NE(Material->GetMaterialCompileStatus().State, EMaterialCompileState::Running);
 	FAssetCompilingManager::Get().FinishAllCompilation();
-	EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Accepted);
+	EXPECT_FALSE(Material->GetAcceptedCompiledProgram());
 	EXPECT_TRUE(Material->GetMaterialCompileDiagnostics().empty());
 
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
@@ -783,12 +784,12 @@ TEST_F(FMaterialAsyncCompileTests, LatestGenerationReplacesTheAcceptedProgram)
 		First->GetMaterialCompileDebugInfo().RequestId;
 	auto Validation = EditRoughnessDefault(*First, 0.03125f);
 	ASSERT_TRUE(Validation);
-	EXPECT_EQ(First->GetAcceptedCompiledProgram(), InitialProgram);
+	EXPECT_FALSE(First->GetAcceptedCompiledProgram());
 	EXPECT_FALSE(First->GetMaterialCompileStatus().IsCurrent());
 	ASSERT_TRUE((Validation = EditRoughnessDefault(*First, 0.0625f)));
 	EXPECT_EQ(First->GetMaterialCompileDebugInfo().RequestId,
 		InitialGeneration + 2);
-	EXPECT_EQ(First->GetAcceptedCompiledProgram(), InitialProgram);
+	EXPECT_FALSE(First->GetAcceptedCompiledProgram());
 	ASSERT_TRUE(WaitForMaterialCompile(*First))
 		<< "state=" << static_cast<uint32>(First->GetMaterialCompileStatus().State)
 		<< " diagnostic=" << (First->GetMaterialCompileDiagnostics().empty()
@@ -813,7 +814,7 @@ TEST_F(FMaterialAsyncCompileTests, FailedCompilationRetiresOutputAndCanRecover)
 	ASSERT_TRUE(ParameterValidation);
 	auto* PendingInstance = MakeObject<Durin::DMaterialInstance>("PendingParameterEdit");
 	ASSERT_TRUE(PendingInstance->SetParent(First));
-	EXPECT_TRUE(First->GetAcceptedCompiledProgram()->GetShaderMap().ActiveParameters.empty());
+	EXPECT_FALSE(First->GetAcceptedCompiledProgram());
 	ASSERT_TRUE(PendingInstance->SetVectorParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.7, 0.2, 0.4)));
 	ASSERT_TRUE(WaitForMaterialCompile(*First));
@@ -842,7 +843,7 @@ TEST_F(FMaterialAsyncCompileTests, FailedCompilationRetiresOutputAndCanRecover)
 	EXPECT_TRUE(First->GetMaterialCompileStatus().IsCurrent());
 }
 
-TEST_F(FMaterialAsyncCompileTests, PendingSchemaReplacementRetainsBindingsUntilFailure)
+TEST_F(FMaterialAsyncCompileTests, PendingSchemaReplacementUsesFallbackUntilCompletion)
 {
 	// Pending replacements retain deleted declarations; failed owners retire them.
 	auto* Root = MakeObject<Durin::DMaterial>("RetainedDeclarationRoot");
@@ -882,8 +883,8 @@ TEST_F(FMaterialAsyncCompileTests, PendingSchemaReplacementRetainsBindingsUntilF
 			})));
 		ASSERT_TRUE(Started.WaitFor(2.0));
 		ASSERT_TRUE(Graph.Apply(*Root));
-		EXPECT_FLOAT_EQ(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Root)).Metallic, 0.65f);
-		EXPECT_FLOAT_EQ(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Instance)).Metallic, 0.9f);
+		EXPECT_FALSE(Root->GetAcceptedCompiledProgram());
+		EXPECT_FALSE(Instance->GetAcceptedCompiledProgram());
 		ASSERT_TRUE(Durin::Testing::FailMaterialCompilation(*Root));
 	}
 	EXPECT_FALSE(Root->GetAcceptedCompiledProgram());
@@ -1101,13 +1102,13 @@ auto QualifyMaterialFunctionCompilationAsync() -> void
 		ASSERT_TRUE(Second->CompileEdits());
 		LeafSignature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.482f;
 		ASSERT_TRUE(ApplyLeafSignature());
-		EXPECT_EQ(First->GetAcceptedCompiledProgram(), Accepted);
+		EXPECT_FALSE(First->GetAcceptedCompiledProgram());
 	}
 	FAssetCompilingManager::Get().FinishAllCompilation();
 	for (auto* Material : {First, Second})
 	{
 		EXPECT_TRUE(Material->GetMaterialCompileStatus().HasUnsubmittedEdits());
-		EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Material == First ? Accepted : SecondAccepted);
+		EXPECT_FALSE(Material->GetAcceptedCompiledProgram());
 		ASSERT_TRUE(Material->CompileEdits());
 		ASSERT_TRUE(WaitForMaterialCompile(*Material));
 		EXPECT_NE(Material->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, Accepted->GetShaderMap().ShaderMapId);
@@ -1172,8 +1173,8 @@ TEST(FMaterialCompileLifecycleTests,
 	Root->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	ASSERT_TRUE(EditRoughnessDefault(*Root, 0.03125f));
 	const FMaterialProgramStatistics Stale = GetMaterialProgramStatistics(*Root);
-	EXPECT_EQ(Stale.State, EMaterialProgramStatisticsState::LastKnownGood);
-	EXPECT_EQ(Stale.ProgramIdentity, Current.ProgramIdentity);
+	EXPECT_EQ(Stale.State, EMaterialProgramStatisticsState::Absent);
+	EXPECT_FALSE(Stale.ProgramIdentity.IsValid());
 	EXPECT_TRUE(Root->GetMaterialCompileStatus().HasUnsubmittedEdits());
 
 	MarkAsGarbage(Dynamic);
@@ -1212,7 +1213,7 @@ TEST(FMaterialCompileLifecycleTests,
 	EXPECT_LE(FirstBytes.size(), Durin::MaterialCookedProgramMaxPayloadBytes);
 
 	Durin::FMaterialStaticProperties DecodedProperties;
-	std::shared_ptr<const Durin::FMaterialProgramResource> DecodedProgram;
+	std::shared_ptr<const Durin::FMaterialProgram> DecodedProgram;
 	ASSERT_TRUE((Error = Durin::Testing::DecodeMaterialCookedProgramFamilyForTest(
 		FirstBytes, Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game,
@@ -1225,7 +1226,7 @@ TEST(FMaterialCompileLifecycleTests,
 	EXPECT_EQ(DecodedProgram->GetShaderMap().ActiveParameters,
 		Material->GetAcceptedCompiledProgram()->GetShaderMap().ActiveParameters);
 	EXPECT_EQ(DecodedProgram->GetShaderMap().ActiveParameters.size(), 36u);
-	std::vector<Durin::FMaterialProgramResource> FamilyPrograms;
+	std::vector<Durin::FMaterialProgram> FamilyPrograms;
 	for (const auto Quality : {Durin::EMaterialQualityLevel::Low,
 		Durin::EMaterialQualityLevel::High})
 		for (const auto Feature : {Durin::ERHIFeatureLevel::ES3_1,
@@ -1236,7 +1237,7 @@ TEST(FMaterialCompileLifecycleTests,
 			Variant.FeatureLevel = Feature;
 			FamilyPrograms.push_back(std::move(Variant));
 		}
-	std::vector<const Durin::FMaterialProgramResource*> FamilyPointers;
+	std::vector<const Durin::FMaterialProgram*> FamilyPointers;
 	for (const auto& Program : FamilyPrograms) FamilyPointers.push_back(&Program);
 	Durin::FByteBuffer FamilyBytes;
 	ASSERT_TRUE((Error = Durin::EncodeMaterialCookedProgramFamily(FamilyPointers,
@@ -1295,7 +1296,7 @@ TEST(FMaterialCompileLifecycleTests,
 		FirstBytes, Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::EditorValidation,
 		*Material->GetAcceptedCompiledProgram(), DecodedProperties, DecodedProgram)));
-	Durin::FMaterialProgramResource WrongEnvironment =
+	Durin::FMaterialProgram WrongEnvironment =
 		*Material->GetAcceptedCompiledProgram();
 	Durin::FByteBuffer WrongEnvironmentBytes;
 	auto WrongMap = std::make_shared<Durin::FMaterialShaderMap>(WrongEnvironment.GetShaderMap());
@@ -1378,7 +1379,7 @@ TEST(FMaterialCompileLifecycleTests, MetalCookedProgramPreservesStageBindingMaps
 		Durin::ECookTargetProfile::Game, Bytes);
 	ASSERT_TRUE(Result) << Result.error();
 	Durin::FMaterialStaticProperties Properties;
-	std::shared_ptr<const Durin::FMaterialProgramResource> Decoded;
+	std::shared_ptr<const Durin::FMaterialProgram> Decoded;
 	Result = Durin::DecodeMaterialCookedProgramFamily(Bytes,
 		Durin::ECookTargetPlatform::MacOS, Durin::ECookTargetProfile::Game,
 		Program.Quality, Program.FeatureLevel, {}, Properties, Decoded);
@@ -1484,28 +1485,44 @@ TEST_F(FMaterialAsyncCompileTests, FeatureLevelResourcesSelectBranchesWithoutRep
 	const auto Default = Material->GetAcceptedCompiledProgram();
 	ASSERT_TRUE(Default);
 	ASSERT_EQ(Default->FeatureLevel, ERHIFeatureLevel::SM5);
-	EXPECT_EQ(Material->GetMaterialResource(ERHIFeatureLevel::ES3_1).CompiledProgram, nullptr);
+	EXPECT_EQ(Durin::Testing::CaptureMaterialTestState(*Material, ERHIFeatureLevel::ES3_1).CompiledProgram, nullptr);
 	Material->CacheResourceShadersForRendering(ERHIFeatureLevel::ES3_1);
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
-	const auto Resource = Material->GetMaterialResource(ERHIFeatureLevel::ES3_1);
+	const auto Resource = Durin::Testing::CaptureMaterialTestState(*Material, ERHIFeatureLevel::ES3_1);
 	ASSERT_TRUE(Resource.HasValidGameThreadShaderMap()) << Material->GetMaterialCookDiagnostic(ERHIFeatureLevel::ES3_1);
 	EXPECT_EQ(Resource.CompiledProgram->FeatureLevel, ERHIFeatureLevel::ES3_1);
 	EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Default);
 	EXPECT_NE(Resource.CompiledProgram->GetShaderMap().ShaderMapId, Default->GetShaderMap().ShaderMapId);
 	ASSERT_EQ(Resource.Parameters.size(), 1u);
 	EXPECT_EQ(Resource.Parameters.front().Id, Low->Metadata.Id);
-	EXPECT_FLOAT_EQ(std::get<float>(Resource.Parameters.front().Value), 0.25f);
+	EXPECT_FLOAT_EQ(Resource.Parameters.front().Value.GetScalar(), 0.25f);
 	auto* Dynamic = DMaterialInstance::CreateDynamic(Material);
 	ASSERT_NE(Dynamic, nullptr);
 	ASSERT_TRUE(Dynamic->SetScalarParameterValue("LowTierValue", 0.75f));
-	const auto DynamicLow = Dynamic->GetMaterialResource(ERHIFeatureLevel::ES3_1);
+	const auto DynamicLow = Durin::Testing::CaptureMaterialTestState(*Dynamic, ERHIFeatureLevel::ES3_1);
 	ASSERT_EQ(DynamicLow.Parameters.size(), 1u);
 	EXPECT_EQ(DynamicLow.CompiledProgram, Resource.CompiledProgram);
-	EXPECT_FLOAT_EQ(std::get<float>(DynamicLow.Parameters.front().Value), 0.75f);
-	EXPECT_EQ(Dynamic->GetMaterialResource(ERHIFeatureLevel::SM5).CompiledProgram, Default);
+	EXPECT_FLOAT_EQ(DynamicLow.Parameters.front().Value.GetScalar(), 0.75f);
+	EXPECT_EQ(Durin::Testing::CaptureMaterialTestState(*Dynamic, ERHIFeatureLevel::SM5).CompiledProgram, Default);
 	MarkAsGarbage(Dynamic);
 	Material->CacheResourceShadersForRendering(ERHIFeatureLevel::ES3_1, EMaterialShaderPrecompileMode::Synchronous);
-	EXPECT_EQ(Material->GetMaterialResource(ERHIFeatureLevel::ES3_1).CompiledProgram, Resource.CompiledProgram);
+	EXPECT_EQ(Durin::Testing::CaptureMaterialTestState(*Material, ERHIFeatureLevel::ES3_1).CompiledProgram, Resource.CompiledProgram);
+
+	// Defaults belong to the program. Structural edits invalidate every prepared
+	// configuration, even configurations that have never created a proxy.
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	ASSERT_TRUE(Material->SetScalarParameterValue("LowTierValue", 0.625f));
+	const auto* LowResource = Material->GetMaterialResource(ERHIFeatureLevel::ES3_1);
+	ASSERT_NE(LowResource, nullptr);
+	ASSERT_TRUE(LowResource->CompiledProgram);
+	ASSERT_EQ(LowResource->CompiledProgram->DefaultParameters.GetParameterCount(), 1u);
+	EXPECT_FLOAT_EQ(LowResource->CompiledProgram->DefaultParameters.ScalarParameters.front().Value, 0.625f);
+	Outputs.Roughness = {High->Id};
+	const std::array<DMaterialExpression*, 1> RemainingExpressions{High};
+	ASSERT_TRUE(Material->SetMaterialExpressions(RemainingExpressions, Outputs));
+	EXPECT_FALSE(Material->GetAcceptedCompiledProgram(ERHIFeatureLevel::ES3_1));
+	EXPECT_TRUE(Material->GetMaterialRenderParameters(ERHIFeatureLevel::ES3_1).GetParameterCount() == 0);
+
 }
 
 TEST_F(FMaterialAsyncCompileTests, FeatureLevelPreparationRejectsStaleAuthoredResultsAndPreservesTheDefaultResource)
@@ -1516,7 +1533,7 @@ TEST_F(FMaterialAsyncCompileTests, FeatureLevelPreparationRejectsStaleAuthoredRe
 	Material->CacheResourceShadersForRendering(ERHIFeatureLevel::ES3_1);
 	ASSERT_TRUE(EditRoughnessDefault(*Material, 0.03125f));
 	FAssetCompilingManager::Get().FinishAllCompilation();
-	const auto Selected = Material->GetMaterialResource(ERHIFeatureLevel::ES3_1);
+	const auto Selected = Durin::Testing::CaptureMaterialTestState(*Material, ERHIFeatureLevel::ES3_1);
 	ASSERT_TRUE(Selected.HasValidGameThreadShaderMap()) << Material->GetMaterialCookDiagnostic(ERHIFeatureLevel::ES3_1);
 	FMaterialCompilerEnvironment Environment;
 	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment));
@@ -1677,6 +1694,15 @@ TEST_F(FMaterialAsyncCompileTests, DebugQueriesDoNotSubmitOrScheduleEdits)
 	const auto Request = Material->GetMaterialCompileDebugInfo().RequestId;
 	ASSERT_TRUE(EditRoughnessDefault(*Material, .283f));
 	const auto Before = GetMaterialCompilationStatistics();
+	const auto* Resource = Material->GetMaterialResource();
+	ASSERT_NE(Resource, nullptr);
+	EXPECT_EQ(Material->GetMaterialResource(), Resource);
+	EXPECT_EQ(Material->GetMaterialResource(ERHIFeatureLevel::ES3_1, EMaterialQualityLevel::Low), nullptr);
+	(void)Material->GetMaterialResourceProperties();
+	(void)Material->GetMaterialRenderParameters();
+	(void)Material->GetMaterialResourceProperties(ERHIFeatureLevel::ES3_1, EMaterialQualityLevel::Low);
+	EXPECT_TRUE(Material->GetMaterialRenderParameters(ERHIFeatureLevel::ES3_1, EMaterialQualityLevel::Low).GetParameterCount() == 0);
+	EXPECT_EQ(Material->GetMaterialResource(ERHIFeatureLevel::ES3_1, EMaterialQualityLevel::Low), nullptr);
 	const auto Status = Material->GetMaterialCompileStatus();
 	const auto Debug = Material->GetMaterialCompileDebugInfo();
 	const auto Other = Material->GetMaterialCompileDebugInfo(ERHIFeatureLevel::ES3_1, EMaterialQualityLevel::Low);

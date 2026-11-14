@@ -72,7 +72,7 @@ namespace Durin
 		ENGINE_API auto GetStaticProperties() const -> const FMaterialStaticProperties& override;
 		using DMaterialInterface::GetAcceptedCompiledProgram;
 		ENGINE_API auto GetAcceptedCompiledProgram() const
-			-> std::shared_ptr<const FMaterialProgramResource> override;
+			-> std::shared_ptr<const FMaterialProgram> override;
 		ENGINE_API auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition> override;
 		ENGINE_API auto GetLocalParameterValue(const FGuid& Id, FMaterialParameterValue& OutValue) const -> bool;
 		auto GetLocalParameterValueCount() const -> size_t

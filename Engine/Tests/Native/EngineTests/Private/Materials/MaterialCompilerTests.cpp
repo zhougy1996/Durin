@@ -70,10 +70,10 @@ TEST(FMaterialProgramOwnershipTests, ConfigurationCopiesShareArtifactsAndEditorD
 TEST(FMaterialProgramOwnershipTests, ResourcePresenceValidationAndCompletionAreIndependent)
 {
 	using namespace Durin;
-	static_assert(!std::is_base_of_v<FMaterialProgramResource, FMaterialCompilerResult>);
-	static_assert(!std::is_convertible_v<FMaterialCompilerResult, FMaterialProgramResource>);
-	static_assert(!std::is_constructible_v<bool, FMaterialProgramResource>);
-	FMaterialProgramResource Empty;
+	static_assert(!std::is_base_of_v<FMaterialProgram, FMaterialCompilerResult>);
+	static_assert(!std::is_convertible_v<FMaterialCompilerResult, FMaterialProgram>);
+	static_assert(!std::is_constructible_v<bool, FMaterialProgram>);
+	FMaterialProgram Empty;
 	EXPECT_FALSE(Empty.HasShaderMap());
 	EXPECT_FALSE(Empty.IsValid());
 	Empty.ShaderMap = std::make_shared<FMaterialShaderMap>();
@@ -318,7 +318,7 @@ TEST(FMaterialShaderStageTests, PixelEditsShareVertexProductsAndRequiredSetsAdmi
 	FByteBuffer Bytes;
 	ASSERT_TRUE(Testing::EncodeMaterialCookedProgramFamilyForTest(Selected.Resource, Input.StaticProperties,
 		ECookTargetPlatform::Win64, ECookTargetProfile::Game, Bytes));
-	FMaterialStaticProperties LoadedProperties; std::shared_ptr<const FMaterialProgramResource> Loaded;
+	FMaterialStaticProperties LoadedProperties; std::shared_ptr<const FMaterialProgram> Loaded;
 	ASSERT_TRUE(Testing::DecodeMaterialCookedProgramFamilyForTest(Bytes, ECookTargetPlatform::Win64,
 		ECookTargetProfile::Game, Selected.Resource, LoadedProperties, Loaded));
 	ASSERT_TRUE(Loaded);
@@ -1388,7 +1388,7 @@ TEST(FMaterialCompilerTests, MetalMaterialProgramCompilesAndCooks)
 		ECookTargetProfile::Game, Bytes);
 	ASSERT_TRUE(Error) << Error.error();
 	FMaterialStaticProperties Properties;
-	std::shared_ptr<const FMaterialProgramResource> Decoded;
+	std::shared_ptr<const FMaterialProgram> Decoded;
 	Error = DecodeMaterialCookedProgramFamily(Bytes,
 		ECookTargetPlatform::MacOS, ECookTargetProfile::Game,
 		Compiled.Resource.Quality, Compiled.Resource.FeatureLevel, {}, Properties, Decoded);
@@ -1954,7 +1954,7 @@ TEST(FMaterialDiagnosticTests, FailedCodecsDoNotPublishPartialProducts)
 	FMaterialStaticProperties Properties;
 	Properties.OpacityMaskThreshold = 0.25f;
 	const auto Original = Properties;
-	auto Previous = std::make_shared<const FMaterialProgramResource>();
+	auto Previous = std::make_shared<const FMaterialProgram>();
 	auto Program = Previous;
 	const auto Decoded = DecodeMaterialCookedProgramFamily({},
 		ECookTargetPlatform::Win64, ECookTargetProfile::Game,
@@ -2744,7 +2744,7 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 	ASSERT_TRUE((Error = Testing::EncodeMaterialCookedProgramFamilyForTest(Compiled.Resource, Input.StaticProperties,
 		ECookTargetPlatform::Win64, ECookTargetProfile::Game, CookedBytes))) << Error.error();
 	FMaterialStaticProperties CookedProperties;
-	std::shared_ptr<const FMaterialProgramResource> Cooked;
+	std::shared_ptr<const FMaterialProgram> Cooked;
 	ASSERT_TRUE((Error = Testing::DecodeMaterialCookedProgramFamilyForTest(CookedBytes,
 		ECookTargetPlatform::Win64, ECookTargetProfile::Game, Compiled.Resource,
 		CookedProperties, Cooked))) << Error.error();

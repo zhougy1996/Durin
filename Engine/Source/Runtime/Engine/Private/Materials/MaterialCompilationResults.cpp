@@ -139,7 +139,7 @@ namespace Durin
 		std::vector<FShaderMapPtr> Requests;
 		{
 			std::scoped_lock Lock(MaterialMutex);
-			std::vector<std::shared_ptr<FMaterialCompilationResource>> Resources;
+			std::vector<std::shared_ptr<FMaterialResource>> Resources;
 			for (const auto& [Resource, Association] : MaterialRequests)
 				if (SameOwner(Resource->Material, Owner)) Resources.push_back(Resource);
 			for (const auto& Resource : Resources)
@@ -149,7 +149,7 @@ namespace Durin
 		return Canceled;
 	}
 
-	auto FShaderCompilingManager::CancelCompilation(const std::shared_ptr<FMaterialCompilationResource>& Resource) -> void
+	auto FShaderCompilingManager::CancelCompilation(const std::shared_ptr<FMaterialResource>& Resource) -> void
 	{
 		CheckMaterialCompileGameThread();
 		std::vector<FShaderMapPtr> Requests;
@@ -161,7 +161,7 @@ namespace Durin
 
 	auto FShaderCompilingManager::ProcessMaterialResults(uint32 MaximumCompletions,
 		std::optional<std::chrono::steady_clock::time_point> Deadline, std::vector<FWeakObjectPtr>& CompiledAssets,
-		const std::shared_ptr<FMaterialCompilationResource>& Resource) -> void
+		const std::shared_ptr<FMaterialResource>& Resource) -> void
 	{
 		CheckMaterialCompileGameThread();
 		uint32 Consumed = 0;
@@ -220,7 +220,7 @@ namespace Durin
 			Result.ExpressionSources.push_back(std::move(Source));
 		}
 		if (State == EMaterialProgramStatus::Ok) {
-			Result.CompiledProgram = MaterialBuildPrivate::BindMaterialProgramCollections(std::make_shared<const FMaterialProgramResource>(Build.Program->Resource), Request->CompilerInput->Collections, &Request->CompilerInput->Environment);
+			Result.CompiledProgram = MaterialBuildPrivate::BindMaterialProgramCollections(std::make_shared<const FMaterialProgram>(Build.Program->Resource), Request->CompilerInput->Collections, &Request->CompilerInput->Environment);
 			Result.CacheInfo = {.bRetainedHit = Build.RetainedHit,
 				.bSharedCompilation = Build.SingleFlight || Request->bSingleFlightConsumer,
 				.bForced = Request->bForceRecompile};
@@ -301,7 +301,7 @@ namespace Durin
 		}
 	}
 
-	auto FShaderCompilingManager::DetachMaterialResourceLocked(const std::shared_ptr<FMaterialCompilationResource>& Resource, std::vector<FShaderMapPtr>& CanceledRequests, bool bCountCancellation) -> bool
+	auto FShaderCompilingManager::DetachMaterialResourceLocked(const std::shared_ptr<FMaterialResource>& Resource, std::vector<FShaderMapPtr>& CanceledRequests, bool bCountCancellation) -> bool
 	{
 		const auto Entry = MaterialRequests.find(Resource);
 		if (Entry == MaterialRequests.end()) return false;

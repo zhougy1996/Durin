@@ -299,7 +299,7 @@ TEST_F(FMaterialParameterCollectionTests,
 		Material->GetStaticProperties(), ECookTargetPlatform::Win64,
 		ECookTargetProfile::Game, Bytes))) << Error.error();
 	FMaterialStaticProperties DecodedProperties;
-	std::shared_ptr<const FMaterialProgramResource> Decoded;
+	std::shared_ptr<const FMaterialProgram> Decoded;
 	ASSERT_TRUE((Error = Testing::DecodeMaterialCookedProgramFamilyForTest(Bytes,
 		ECookTargetPlatform::Win64, ECookTargetProfile::Game,
 		*Refreshed, DecodedProperties, Decoded))) << Error.error();

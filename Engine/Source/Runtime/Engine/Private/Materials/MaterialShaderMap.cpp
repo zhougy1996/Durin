@@ -10,9 +10,9 @@ namespace Durin
           CompilerIdentity(Other.CompilerIdentity), Target(Other.Target), PassContractVersion(Other.PassContractVersion),
           RequiredStages(Other.RequiredStages), CollectionLayouts(Other.CollectionLayouts), DebugData(Other.DebugData),
           CompileTime(Other.CompileTime) {}
-	auto FMaterialProgramResource::GetShaderMap() const -> const FMaterialShaderMap&
+	auto FMaterialProgram::GetShaderMap() const -> const FMaterialShaderMap&
 	{ static const FMaterialShaderMap Empty; return ShaderMap ? *ShaderMap : Empty; }
-	auto FMaterialProgramResource::GetDebugData() const -> const FMaterialProgramDebugData&
+	auto FMaterialProgram::GetDebugData() const -> const FMaterialProgramDebugData&
 	{ static const FMaterialProgramDebugData Empty; const auto& Debug = GetShaderMap().DebugData; return Debug ? *Debug : Empty; }
 	auto FMaterialShaderMap::GetShaderMapId() const -> FMaterialProgramIdentity
 	{
@@ -69,8 +69,8 @@ namespace Durin
 	auto FMaterialShaderMap::FindId(FMaterialProgramIdentity Identity) -> std::shared_ptr<const FMaterialShaderMap>
 	{ std::lock_guard Lock(CacheMutex); const auto Found = Programs.find(Identity); return Found == Programs.end() ? nullptr : Found->second; }
 
-	auto MaterialBuildPrivate::BindMaterialProgramCollections(std::shared_ptr<const FMaterialProgramResource> Program,
-		std::span<const FMaterialParameterCollectionLayout> Collections, const FMaterialCompilerEnvironment* Environment) -> std::shared_ptr<const FMaterialProgramResource>
+	auto MaterialBuildPrivate::BindMaterialProgramCollections(std::shared_ptr<const FMaterialProgram> Program,
+		std::span<const FMaterialParameterCollectionLayout> Collections, const FMaterialCompilerEnvironment* Environment) -> std::shared_ptr<const FMaterialProgram>
 	{
 		if (!Program) return {};
 		bool Changed = Environment && (Program->Quality != Environment->Quality || Program->FeatureLevel != Environment->FeatureLevel || Program->StaticBools != Environment->StaticBools);
@@ -81,7 +81,7 @@ namespace Durin
 			Changed |= Collection.DefaultPayload != Found->DefaultPayload || (Environment && Collection.AssetPath != Found->AssetPath);
 		}
 		if (!Changed) return Program;
-		auto Result = std::make_shared<FMaterialProgramResource>(*Program);
+		auto Result = std::make_shared<FMaterialProgram>(*Program);
 		if (Environment) { Result->Quality = Environment->Quality; Result->FeatureLevel = Environment->FeatureLevel; Result->StaticBools = Environment->StaticBools; }
 		for (auto& Collection : Result->ActiveCollections) Collection = *std::ranges::find(Collections, Collection.CollectionId, &FMaterialParameterCollectionLayout::CollectionId);
 		return Result;
