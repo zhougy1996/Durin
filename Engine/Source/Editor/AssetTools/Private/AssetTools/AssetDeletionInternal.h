@@ -10,6 +10,7 @@ namespace Durin::AssetToolsPrivate
 	// Conservative metadata-only filter; custom contributors can claim arbitrary paths.
 	auto MayOwnCompanionInRoots(const FPackageData& Data,
 		std::span<const std::filesystem::path> NormalizedRoots) -> bool;
-	auto InspectAssetCompanionFilesForDeletion(const FPackageData& Data,
-		std::vector<std::filesystem::path>& OutFiles, std::optional<UnifiedError::FError>* OutError = nullptr) -> bool;
+	auto InspectAssetCompanionFiles(const FPackageData& Data,
+		std::vector<std::filesystem::path>& OutFiles, std::optional<UnifiedError::FError>* OutError = nullptr,
+		bool* OutHasContributor = nullptr) -> bool;
 }

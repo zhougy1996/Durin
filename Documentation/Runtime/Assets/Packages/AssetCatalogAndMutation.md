@@ -4,7 +4,7 @@ Summary: Define mounted package discovery, rebuildable catalog/reference project
 
 Modules: Core, AssetRegistry, Engine, AssetTools, ContentBrowser, DurinEd, LevelEditor
 
-Last reviewed: 2026-11-10
+Last reviewed: 2026-11-15
 
 Package identity, serialization, loading, and residency are defined by
 [Asset Packages](AssetPackages.md). Authored, derived, and cooked storage
@@ -167,8 +167,10 @@ request and Registry contracts, with matching diagnostic identity on propagation
 `FAssetWriteResult::Error` is the sole optional failure channel. Read, encoding
 and Registry failures retain their original identities; they are not remapped
 through a write-error enumeration. Asset-write policy rejections use the
-`AssetWrite` domain. Only write reports carry observed write effects. AssetTools plan preparation,
-revalidation, companion-ownership queries and file-validation callbacks return
+`AssetWrite` domain. Only write reports carry observed write effects. AssetTools relocation and Fix Up
+preparation return a nullable prepared object
+with optional diagnostics; object presence is their sole success signal.
+Revalidation, companion-ownership queries and file-validation callbacks return
 bool with optional diagnostics. Reference-store application also returns bool;
 the mutation owner tracks attempted/published effects. A callback rejection
 without a diagnostic still rejects the operation and cannot become success.
@@ -269,6 +271,10 @@ prove that no bytes changed: orchestration requiring partial-commit evidence
 consumes the native operation directly. Browser commands return booleans and
 operation-specific item outputs. Their independent item-update notifier drives refresh from observed content changes;
 the Panel does not receive native write effects or an operation-result envelope.
+Folder validation returns bool with an optional diagnostic; automatic naming
+checks only the existing-name identity before trying another candidate.
+The level-document move coordinator forwards bool and display text from editor
+feedback without rebuilding a structured write error from that text.
 
 Batch progress and observed write effects remain in the owning completion report.
 Diagnostic errors do not duplicate saved-package counts, the failing package or
@@ -497,6 +503,12 @@ after asset policy validation, and shares those freshly verified identities thro
 coverage without rehashing the files. A later deletion requires a new plan and
 fresh confirmation. Hosts without this callback use AssetTools' own hashing.
 Neither size/timestamp matches nor cached hashes replace the final byte check.
+Physical deletion preserves the first failure identity when later entries are
+unattempted. Read and removal failures retain native operation, path and code;
+read failures are not treated as byte mismatches. A failed attempt with no observed
+removals has no write effect, verified earlier removals yield `PartiallyWritten`,
+and an unobservable post-removal state yields `ContentUncertain`. Item effects
+continue to describe every committed, failed or unattempted participant.
 
 Fix Up is the only path-canonicalizing asset-mutation operation. It rewrites
 tagged hard and soft package fields plus registered external stores, reopens

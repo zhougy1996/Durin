@@ -7,6 +7,7 @@
 #include "Engine/Level.h"
 #include "Engine/ProjectGameSettings.h"
 #include "Misc/FileHelper.h"
+#include "Misc/FileError.h"
 #include "Project/Project.h"
 
 namespace Durin::LevelEditor
@@ -31,12 +32,6 @@ namespace Durin::LevelEditor
 			-> std::expected<void, Durin::UnifiedError::FError>
 		{
 			return std::unexpected(Durin::UnifiedError::FError{Id, std::move(Message)});
-		}
-
-		auto StoreWriteFailure(UnifiedError::FErrorId Error, std::string Message)
-			-> FAssetWriteResult
-		{
-			return {.Error = UnifiedError::FError{Error, std::move(Message)}};
 		}
 
 		auto MakeFingerprint(
@@ -72,8 +67,8 @@ namespace Durin::LevelEditor
 			OutState.bFileExists = std::filesystem::exists(
 				OutState.SettingsFile, ExistsError);
 			if (ExistsError)
-				return StoreError(Durin::PackageReadErrors::IoError, std::format("Could not inspect project settings: {}",
-						ExistsError.message()));
+				return std::unexpected(ToError(FFileError{.Operation = EFileOperation::Inspect,
+					.NativeError = ExistsError, .Path = OutState.SettingsFile}));
 			if (!OutState.bFileExists)
 			{
 				OutState.Fingerprint = MakeFingerprint(
@@ -176,7 +171,10 @@ namespace Durin::LevelEditor
 		constexpr auto WritePermissions = std::filesystem::perms::owner_write
 			| std::filesystem::perms::group_write
 			| std::filesystem::perms::others_write;
-		if (StatusError || (Permissions & WritePermissions)
+		if (StatusError)
+			return std::unexpected(ToError(FFileError{.Operation = EFileOperation::Inspect,
+				.NativeError = StatusError, .Path = PreState.SettingsFile}));
+		if ((Permissions & WritePermissions)
 			== std::filesystem::perms::none)
 			return StoreError(
 				AssetWriteErrors::ReadOnlyMode,

@@ -1,6 +1,7 @@
 #include "Asset/EditorBulkDataStorage.h"
 
 #include "Serialization/Archive.h"
+#include "Misc/FileError.h"
 
 namespace Durin
 {
@@ -89,6 +90,39 @@ namespace Durin
 			} while (Reader.GetRemainingPayloadBytes() != 0);
 			return {};
 		}
+	}
+
+	auto ToError(const FEditorBulkDataStorageError& Native) -> UnifiedError::FError
+	{
+		std::string_view Code = "InvalidDescriptor";
+		switch (Native.Code)
+		{
+		case EEditorBulkDataStorageError::None: Code = "InvalidState"; break;
+		case EEditorBulkDataStorageError::DepthLimit: Code = "DepthLimit"; break;
+		case EEditorBulkDataStorageError::UnsupportedVersion: Code = "UnsupportedVersion"; break;
+		case EEditorBulkDataStorageError::InvalidDescriptor: break;
+		case EEditorBulkDataStorageError::InvalidStructHeader: Code = "InvalidStructHeader"; break;
+		case EEditorBulkDataStorageError::FieldLimit: Code = "FieldLimit"; break;
+		case EEditorBulkDataStorageError::TruncatedField: Code = "TruncatedField"; break;
+		case EEditorBulkDataStorageError::FileSystem: Code = "FileSystem"; break;
+		}
+		auto Error = Native.Code == EEditorBulkDataStorageError::FileSystem
+			? ToError(FFileError{.Operation = EFileOperation::Inspect, .NativeError = Native.SystemError, .Path = Native.Path})
+			: UnifiedError::FError{{"EditorBulkDataStorage", Code}, FormatEditorBulkDataStorageError(Native)};
+		Error.PushContext("object id", std::to_string(Native.ObjectId))
+			.PushContext("depth", std::to_string(Native.Depth))
+			.PushContext("source format version", std::to_string(Native.SourceFormatVersion))
+			.PushContext("index", std::to_string(Native.Index))
+			.PushContext("actual", std::to_string(Native.Actual))
+			.PushContext("expected", std::to_string(Native.Expected));
+		if (!Native.ObjectPath.empty()) Error.PushContext("object", Native.ObjectPath);
+		if (!Native.StructName.empty()) Error.PushContext("struct", Native.StructName);
+		if (!Native.Path.empty() && Native.Code != EEditorBulkDataStorageError::FileSystem)
+			Error.PushContext("file", Native.Path.generic_string());
+		for (const auto& Field : Native.FieldRoute) Error.PushContext("field", Field);
+		if (Native.ArchiveCode) Error.PushContext("archive code", std::to_string(static_cast<uint8>(*Native.ArchiveCode)));
+		if (!Native.ArchivePath.empty()) Error.PushContext("archive path", Native.ArchivePath);
+		return Error;
 	}
 
 	auto FormatEditorBulkDataStorageError(const FEditorBulkDataStorageError& Error) -> std::string

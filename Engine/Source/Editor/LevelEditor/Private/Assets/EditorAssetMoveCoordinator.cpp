@@ -27,9 +27,10 @@ namespace Durin::LevelEditor
 		UnregisterAssetMoveObserver(ObserverHandle);
 	}
 
-	auto FEditorAssetMoveCoordinator::MoveAssets(std::span<const FEditorAssetMove> Moves) -> FAssetWriteResult
+	auto FEditorAssetMoveCoordinator::MoveAssets(std::span<const FEditorAssetMove> Moves, std::string* OutError) -> bool
 	{
-		if (Moves.empty()) return {};
+		if (OutError) OutError->clear();
+		if (Moves.empty()) return true;
 		if (Context.Level && Context.Level->GetPackage())
 		{
 			const std::string CurrentLevelPath = Context.Level->GetPackage()->GetPackagePath();
@@ -51,8 +52,8 @@ namespace Durin::LevelEditor
 		});
 		const auto Result = IAssetTools::Get().RelocateAssets({
 			.Mappings = std::move(Mappings)}, &ResultFeedback);
-		return Result ? FAssetWriteResult{}
-			: FAssetWriteResult{.Error = UnifiedError::FError{AssetWriteErrors::IoError, ResultError}};
+		if (!Result && OutError) *OutError = std::move(ResultError);
+		return Result;
 	}
 
 	auto FEditorAssetMoveCoordinator::OnAssetsRelocated(

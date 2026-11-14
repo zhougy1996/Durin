@@ -6,6 +6,7 @@
 
 #include "Misc/FileTime.h"
 #include "Misc/FileHelper.h"
+#include "Misc/FileError.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 
@@ -232,9 +233,8 @@ namespace Durin::AssetToolsPrivate
 			bCreatedRoot = std::filesystem::create_directories(
 				Root, DirectoryError);
 			if (DirectoryError)
-				return Reject(OutError, UnifiedError::FError{AssetWriteErrors::IoError, std::format(
-					"Could not create asset mutation staging root: {}",
-					DirectoryError.message())});
+				return Reject(OutError, ToError(FFileError{.Operation = EFileOperation::CreateParentDirectories,
+					.NativeError = DirectoryError, .Path = Root}));
 			if (!bCreatedRoot)
 				return Reject(OutError, UnifiedError::FError{AssetWriteErrors::AlreadyExists, std::format(
 					"Asset mutation staging root already exists: {}.",

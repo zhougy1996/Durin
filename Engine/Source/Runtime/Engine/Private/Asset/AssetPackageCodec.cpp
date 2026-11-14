@@ -135,9 +135,9 @@ namespace Durin::AssetPrivate
 		const size_t PrefixBytes = static_cast<size_t>(std::min<uint64>(
 			Source.GetSize(), BinaryEnvelopePreambleBytes));
 		FByteBuffer Prefix(PrefixBytes);
-		std::string ReadError;
+		std::optional<UnifiedError::FError> ReadError;
 		if (!Source.ReadAt(0, Prefix, &ReadError))
-			return std::unexpected(Durin::UnifiedError::FError{PackageReadErrors::IoError, std::move(ReadError)});
+			return std::unexpected(std::move(*ReadError));
 		if (Prefix.size() < sizeof(uint32))
 			return std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::CorruptFile, "Truncated asset header."});
 		uint32 Magic = 0;
@@ -165,7 +165,7 @@ namespace Durin::AssetPrivate
 			return std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::Cancelled, "Asset schema inspection was cancelled."});
 		FByteBuffer Header(static_cast<size_t>(Preamble.HeaderBytes));
 		if (!Source.ReadAt(0, Header, &ReadError))
-			return std::unexpected(Durin::UnifiedError::FError{PackageReadErrors::IoError, std::move(ReadError)});
+			return std::unexpected(std::move(*ReadError));
 		uint32 Version = 0;
 		if (auto Result = ReadAssetPackageFormatVersion(
 			Header, Version, Source.GetSize(), OutUnsupportedFormat); !Result) return Result;

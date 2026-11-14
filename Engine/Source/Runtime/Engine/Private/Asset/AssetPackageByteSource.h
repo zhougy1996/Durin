@@ -4,6 +4,9 @@
 
 #include "Asset/PackageSchema.h"
 #include "Misc/FileHandle.h"
+#include "Misc/FileError.h"
+#include "Misc/UnifiedError.h"
+#include "Asset/LoadErrors.h"
 
 namespace Durin::AssetPrivate
 {
@@ -13,7 +16,7 @@ namespace Durin::AssetPrivate
 		virtual ~IAssetPackageByteSource() = default;
 		virtual auto GetSize() const -> uint64 = 0;
 		virtual auto ReadAt(uint64 Offset, FMutableByteView Output,
-			std::string* OutError = nullptr) -> bool = 0;
+			std::optional<UnifiedError::FError>* OutError = nullptr) -> bool = 0;
 	};
 
 	class FFileAssetPackageByteSource final : public IAssetPackageByteSource
@@ -23,15 +26,16 @@ namespace Durin::AssetPrivate
 			: Handle(std::move(InHandle)) {}
 		auto GetSize() const -> uint64 override { return Handle ? Handle->GetSize() : 0; }
 		auto ReadAt(uint64 Offset, FMutableByteView Output,
-			std::string* OutError = nullptr) -> bool override
+			std::optional<UnifiedError::FError>* OutError = nullptr) -> bool override
 		{
+			if (OutError) OutError->reset();
 			if (!Handle)
 			{
-				if (OutError) *OutError = "Package byte source has no file handle.";
+				if (OutError) OutError->emplace(PackageReadErrors::IoError, "Package byte source has no file handle.");
 				return false;
 			}
 			auto Read = Handle->ReadAt(Offset, Output);
-			if (!Read && OutError) *OutError = Read.error().ToString();
+			if (!Read && OutError) *OutError = ToError(Read.error());
 			return Read.has_value();
 		}
 	private:
@@ -45,10 +49,11 @@ namespace Durin::AssetPrivate
 			: Handle(InHandle) {}
 		auto GetSize() const -> uint64 override { return Handle.GetSize(); }
 		auto ReadAt(uint64 Offset, FMutableByteView Output,
-			std::string* OutError = nullptr) -> bool override
+			std::optional<UnifiedError::FError>* OutError = nullptr) -> bool override
 		{
+			if (OutError) OutError->reset();
 			auto Read = Handle.ReadAt(Offset, Output);
-			if (!Read && OutError) *OutError = Read.error().ToString();
+			if (!Read && OutError) *OutError = ToError(Read.error());
 			return Read.has_value();
 		}
 	private:
@@ -62,11 +67,12 @@ namespace Durin::AssetPrivate
 			: Bytes(InBytes) {}
 		auto GetSize() const -> uint64 override { return Bytes.size(); }
 		auto ReadAt(uint64 Offset, FMutableByteView Output,
-			std::string* OutError = nullptr) -> bool override
+			std::optional<UnifiedError::FError>* OutError = nullptr) -> bool override
 		{
+			if (OutError) OutError->reset();
 			if (Offset > Bytes.size() || Output.size_bytes() > Bytes.size() - Offset)
 			{
-				if (OutError) *OutError = "Asset package byte range exceeds the source.";
+				if (OutError) OutError->emplace(PackageReadErrors::CorruptFile, "Asset package byte range exceeds the source.");
 				return false;
 			}
 			std::ranges::copy(Bytes.subspan(static_cast<size_t>(Offset), Output.size()), Output.begin());
@@ -84,7 +90,7 @@ namespace Durin::AssetPrivate
 			: Inner(InInner), Stats(InStats) {}
 		auto GetSize() const -> uint64 override { return Inner.GetSize(); }
 		auto ReadAt(uint64 Offset, FMutableByteView Output,
-			std::string* OutError = nullptr) -> bool override
+			std::optional<UnifiedError::FError>* OutError = nullptr) -> bool override
 		{
 			if (!Inner.ReadAt(Offset, Output, OutError)) { Stats.bReadFailed = true; return false; }
 			Stats.MetadataBytesRead += Output.size_bytes();

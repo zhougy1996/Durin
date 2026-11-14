@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "EngineAPI.h"
+#include "Misc/UnifiedError.h"
 
 namespace Durin
 {
@@ -31,4 +32,5 @@ namespace Durin
 	};
 	using FEditorBulkDataStorageResult = std::expected<void, FEditorBulkDataStorageError>;
 	ENGINE_API auto FormatEditorBulkDataStorageError(const FEditorBulkDataStorageError& Error) -> std::string;
+	ENGINE_API auto ToError(const FEditorBulkDataStorageError& Error) -> UnifiedError::FError;
 }

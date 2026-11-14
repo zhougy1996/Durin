@@ -33,10 +33,9 @@ namespace Durin::ContentStorage
 		if (!Changes.bFullRefresh && Changes.Changes.empty()) return;
 		if (Policy.NotifyContentMutation) Policy.NotifyContentMutation(std::move(Changes));
 	}
-	auto FContentMutationOperation::Complete(const FAssetWriteResult& Status, FContentChangeBatch Changes) -> bool
+	auto FContentMutationOperation::ReportFailure(const UnifiedError::FError& Error) const -> bool
 	{
-		if (!Status) Report(ELogLevel::Error, (Status.Error ? Status.Error->ToString() : std::string{}));
-		NotifyItemsUpdated(std::move(Changes));
-		return bool(Status);
+		Report(ELogLevel::Error, Error.ToString());
+		return false;
 	}
 }

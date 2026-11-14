@@ -206,7 +206,7 @@ namespace Durin
 		FPreparedPackageSave Prepared;
 		FSaveParticipants Participants;
 		AssetPrivate::FPackageSaveCommitContext CommitContext;
-		FAssetWriteResult StagingResult;
+		std::optional<UnifiedError::FError> StagingError;
 		std::optional<FAssetWriteResult> CachedResult;
 		bool bCommitting = false;
 	};
@@ -247,7 +247,11 @@ namespace Durin
 		return Operation;
 	}
 
-	auto FProtectedAssetSave::Stage() -> void { StagingResult = ToAssetWriteResult(Prepared.Write->Stage()); }
+	auto FProtectedAssetSave::Stage() -> void
+	{
+		if (!Prepared.Write->Stage(&StagingError) && !StagingError)
+			StagingError.emplace(AssetWriteErrors::IoError, "Writer rejected staging.");
+	}
 	auto FProtectedAssetSave::GetDetachedBytes() const -> uint64 { return Prepared.DetachedBytes; }
 	auto FProtectedAssetSave::Complete() -> FAssetWriteResult
 	{
@@ -255,7 +259,7 @@ namespace Durin
 		auto& Data = *this;
 		if (Data.CachedResult) return *Data.CachedResult;
 		if (Data.bCommitting) return WriteFailure(AssetWriteErrors::StaleData, "Save publication is already running.");
-		if (!Data.StagingResult) return *(Data.CachedResult = Data.StagingResult);
+		if (Data.StagingError) return *(Data.CachedResult = FAssetWriteResult{.Error = Data.StagingError});
 		const bool ParticipantsChanged = SaveParticipantsChanged(Data.Participants, Data.Prepared.Header.PackagePath);
 		if (FindResidentPackage(Data.Prepared.Header.PackagePath) != Data.Prepared.Package.Get()
 			|| Data.Prepared.Package->GetPackagePath() != Data.Prepared.Header.PackagePath.GetView()
@@ -326,7 +330,9 @@ namespace Durin
 
 			FPreparedPackageSave Staged;
 			if (auto Result = PreparePackageSave(Package, Path, Args.Mode, Staged); !Result) return Fail(FAssetWriteResult{Result.error()}, Path);
-			if (auto Result = ToAssetWriteResult(Staged.Write->Stage()); !Result) return Fail(Result, Path);
+			std::optional<UnifiedError::FError> StageError;
+			if (!Staged.Write->Stage(&StageError))
+			{ if (!StageError) StageError.emplace(AssetWriteErrors::IoError, "Writer rejected staging."); return Fail(FAssetWriteResult{.Error = std::move(StageError)}, Path); }
 			if (auto Result = CommitPreparedPackageSave(Staged, {.Fault = Fault, .PackageIndex = Index}, Expected); !Result)
 				return Fail(Result, Path);
 			Batch.SavedPackages.push_back(Path);
@@ -398,7 +404,9 @@ namespace Durin
 		const auto Expected = CaptureAssetRegistryPublication();
 		FPreparedPackageSave Prepared;
 		if (auto Result = PreparePackageSave(Package, Package->GetPackagePathIdentity(), Mode, Prepared); !Result) return FAssetWriteResult{Result.error()};
-		if (auto Result = ToAssetWriteResult(Prepared.Write->Stage()); !Result) return Result;
+		std::optional<UnifiedError::FError> StageError;
+		if (!Prepared.Write->Stage(&StageError))
+		{ if (!StageError) StageError.emplace(AssetWriteErrors::IoError, "Writer rejected staging."); return {.Error = std::move(StageError)}; }
 		return CommitPreparedPackageSave(Prepared, {.Fault = Testing::CapturePackageSaveFault()}, Expected);
 	}
 

@@ -43,3 +43,10 @@ context, rather than embedding a fully formatted diagnostic and repeating its
 fields. Encoding adapters with an existing cause format that cause on demand;
 they do not cache `Cause.ToString()` in a second message field. Optional diagnostic
 outputs accompany bool APIs when callers need only success/failure and presentation.
+
+Byte-source bool APIs pass an optional owning diagnostic through file-backed and
+counting sources; a read error is never formatted and reclassified as a package
+I/O error. Authored bulk inspection converts its native code, object/field route
+and bounds into the existing error value. Filesystem failures retain file identity.
+UI-only coordinators may forward display text, but do not rebuild error identities
+from feedback messages.

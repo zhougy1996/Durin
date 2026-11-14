@@ -44,10 +44,22 @@ namespace Durin
 				if (bCommitted && !bTerminal) (void)Rollback();
 				Cleanup();
 			}
-			auto Stage() -> FPackageWriteResult override
+			auto Stage(std::optional<UnifiedError::FError>* OutError) -> bool override
 			{
-				if (bTerminal) return Result;
-				if (bStaged || bCommitted) return Failure(PackageWriteErrors::InvalidState, "Writer is already staged.");
+				if (OutError) OutError->reset();
+				if (bTerminal || bStaged || bCommitted)
+				{
+					if (OutError) *OutError = Result.Error ? Result.Error
+						: std::optional{UnifiedError::FError{PackageWriteErrors::InvalidState, "Writer is no longer available for staging."}};
+					return false;
+				}
+				auto Reject = [&](UnifiedError::FError Error) {
+					bTerminal = true;
+					Cleanup();
+					Result.Error = std::move(Error);
+					if (OutError) *OutError = Result.Error;
+					return false;
+				};
 				std::unordered_set<std::filesystem::path> Paths;
 				for (const auto& File : Files)
 				{
@@ -58,19 +70,18 @@ namespace Durin
 						|| !Paths.insert(R.Backup.lexically_normal()).second
 						|| (!R.Staged.empty() && !Paths.insert(R.Staged.lexically_normal()).second))
 					{
-						bTerminal = true;
-						return Result = Failure(PackageWriteErrors::InvalidState, "Writer paths must be nonempty and distinct, with inactive replacements.");
+						return Reject(UnifiedError::FError{PackageWriteErrors::InvalidState, "Writer paths must be nonempty and distinct, with inactive replacements."});
 					}
 				}
 				for (const auto& File : Files)
 				{
-					std::error_code Ec;
-					const auto& Replacement = File.Replacement;
-					if (std::filesystem::exists(Replacement.Backup, Ec) || Ec
-						|| (!Replacement.Staged.empty() && (std::filesystem::exists(Replacement.Staged, Ec) || Ec)))
+					for (const auto& Path : {File.Replacement.Backup, File.Replacement.Staged})
 					{
-						bTerminal = true;
-						return Result = Failure(PackageWriteErrors::IoError, "Writer staging or backup path is occupied.");
+						if (Path.empty()) continue;
+						std::error_code Ec;
+						const bool Exists = std::filesystem::exists(Path, Ec);
+						if (Ec || Exists) return Reject(ToError(FFileError{.Operation = EFileOperation::Inspect,
+							.NativeError = Ec ? Ec : std::make_error_code(std::errc::file_exists), .Path = Path}));
 					}
 				}
 				for (auto& File : Files)
@@ -82,12 +93,9 @@ namespace Durin
 						Saved = FFileHelper::SaveArrayToNewFile(File.Bytes, File.Replacement.Staged);
 					if (Ec || !Saved)
 					{
-						bTerminal = true;
-						Cleanup();
 						const auto FileFailure = Ec ? FFileError{.Operation = EFileOperation::CreateParentDirectories,
 							.NativeError = Ec, .Path = File.Replacement.Destination.parent_path()} : Saved.error();
-						Result = {.Error = ToError(FileFailure)};
-						return Result;
+						return Reject(ToError(FileFailure));
 					}
 					if (!File.Replacement.Staged.empty()) OwnedStages.push_back(File.Replacement.Staged);
 					FFilePublicationStamp Stamp;
@@ -96,17 +104,15 @@ namespace Durin
 						&& (!FFilePublicationStamp::Inspect(File.Replacement.Staged, Stamp, &InspectionError)
 							|| !Stamp.Exists || Stamp.Size != File.Bytes.size()))
 					{
-						bTerminal = true;
-						Cleanup();
-						return Result = InspectionError ? FPackageWriteResult{.Error = ToError(*InspectionError)}
-							: Failure(PackageWriteErrors::CorruptFile, "Cannot verify staged package metadata.");
+						return Reject(InspectionError ? ToError(*InspectionError)
+							: UnifiedError::FError{PackageWriteErrors::CorruptFile, "Cannot verify staged package metadata."});
 					}
 					StagedStamps.push_back(Stamp);
 					// Publication needs only paths and metadata; release bytes on the staging thread.
 					FByteBuffer{}.swap(File.Bytes);
 				}
 				bStaged = true;
-				return {};
+				return true;
 			}
 			auto Commit() -> FPackageWriteResult override
 			{

@@ -39,7 +39,8 @@ namespace Durin
 		if (Result) return {};
 		const auto& Error = Result.error();
 		const auto Status = Error.Is(AssetLoadErrors::Cancelled) ? ECookInputStatus::Cancelled
-			: Error.Is(PackageReadErrors::IoError) || Error.Is({"AssetRegistry", "IoError"}) ? ECookInputStatus::IoError
+			: Error.Is(PackageReadErrors::IoError) || Error.Is({"AssetRegistry", "IoError"})
+				|| Error.Is({"File", "IoError"}) ? ECookInputStatus::IoError
 			: Error.Is(AssetLoadErrors::ProjectionPending) ? ECookInputStatus::ProjectionPending
 			: ECookInputStatus::InvalidDependency;
 		return {Status, Error};

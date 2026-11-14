@@ -58,7 +58,8 @@ namespace Durin
 	{
 	public:
 		virtual ~IPackageWriteOperation() = default;
-		virtual auto Stage() -> FPackageWriteResult = 0;
+		// Staging publishes no content. False rejects; diagnostics are optional.
+		virtual auto Stage(std::optional<UnifiedError::FError>* OutError = nullptr) -> bool = 0;
 		virtual auto Commit() -> FPackageWriteResult = 0;
 		virtual auto Finalize() -> FPackageWriteResult = 0;
 		virtual auto Rollback() -> FPackageWriteResult = 0;

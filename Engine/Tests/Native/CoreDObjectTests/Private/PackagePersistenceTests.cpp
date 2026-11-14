@@ -710,7 +710,11 @@ TEST_F(FPackagePersistenceTests, SharedWriterIsolatesOperationsAndRetainsOccupie
 		std::vector<FPackageWriteFile> Files;
 		Files.push_back({{Destination, Stage, Backup}, {}, Bytes});
 		auto Write = Writer->Begin(std::move(Files));
-		EXPECT_FALSE(Write->Stage());
+		std::optional<UnifiedError::FError> Error;
+		EXPECT_FALSE(Write->Stage(&Error));
+		ASSERT_TRUE(Error);
+		EXPECT_TRUE(Error->Is({"File", "IoError"}));
+		EXPECT_TRUE(std::ranges::any_of(Error->GetContexts(), [&](const auto& C) { return C.Key == "file" && C.Value == Stage.generic_string(); }));
 	}
 	EXPECT_TRUE(std::filesystem::exists(Stage));
 	std::filesystem::remove(Stage);
@@ -1114,9 +1118,9 @@ TEST_F(FPackagePersistenceTests, CustomWriterFailureRetainsIdentityThroughAsyncC
 		{
 			struct FRejectedOperation final : IPackageWriteOperation
 			{
-				auto Stage() -> FPackageWriteResult override
-				{ return {.Error = UnifiedError::FError{{"TestWriter", "Rejected"}, "Backend refused staging."}}; }
-				auto Commit() -> FPackageWriteResult override { return Stage(); }
+				auto Stage(std::optional<UnifiedError::FError>* OutError) -> bool override
+				{ if (OutError) OutError->emplace(UnifiedError::FErrorId{"TestWriter", "Rejected"}, "Backend refused staging."); return false; }
+				auto Commit() -> FPackageWriteResult override { return {.Error = UnifiedError::FError{{"TestWriter", "UnexpectedCommit"}}}; }
 				auto Rollback() -> FPackageWriteResult override { return {}; }
 				auto Finalize() -> FPackageWriteResult override { return {}; }
 			};
@@ -1132,6 +1136,38 @@ TEST_F(FPackagePersistenceTests, CustomWriterFailureRetainsIdentityThroughAsyncC
 	EXPECT_EQ(Result.State, EPackageWriteState::NotCommitted);
 	EXPECT_FALSE(std::filesystem::exists(Options.Destination));
 	EXPECT_TRUE(Package->IsDirty());
+}
+
+TEST_F(FPackagePersistenceTests, RejectedStageWithoutDiagnosticNeverPublishes)
+{
+	struct FRejectedWriter final : IPackageWriter
+	{
+		bool bCommitted = false;
+		auto Begin(std::vector<FPackageWriteFile>) -> std::unique_ptr<IPackageWriteOperation> override
+		{
+			struct FOperation final : IPackageWriteOperation
+			{
+				bool& bCommitted;
+				explicit FOperation(bool& Committed) : bCommitted(Committed) {}
+				auto Stage(std::optional<UnifiedError::FError>*) -> bool override { return false; }
+				auto Commit() -> FPackageWriteResult override { bCommitted = true; return {}; }
+				auto Rollback() -> FPackageWriteResult override { return {}; }
+				auto Finalize() -> FPackageWriteResult override { return {}; }
+			};
+			return std::make_unique<FOperation>(bCommitted);
+		}
+	};
+	auto Writer = std::make_shared<FRejectedWriter>();
+	auto Save = FSavePackageContext{Options, Writer}.SaveAsync(Package);
+	ASSERT_TRUE(DPackage::DrainAsyncSaves());
+	ASSERT_TRUE(Save.IsCompleted());
+	const auto& Result = Save.GetResult();
+	EXPECT_FALSE(Result);
+	ASSERT_TRUE(Result.Error);
+	EXPECT_TRUE(Result.Error->Is(PackageSaveErrors::IoError));
+	EXPECT_FALSE(Writer->bCommitted);
+	EXPECT_EQ(Result.State, EPackageWriteState::NotCommitted);
+	EXPECT_FALSE(std::filesystem::exists(Options.Destination));
 }
 
 TEST(FPackageWriteErrorTests, FileErrorConversionOwnsNativePathsAndRange)

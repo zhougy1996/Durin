@@ -3393,9 +3393,50 @@ TEST(FPackageAssetTests, SchemaInspectionRetainsFailedReadEvidence)
 		Handle, Path, FReflectionSchemaCatalog::Capture(), Inspection, &Stats);
 	EXPECT_TRUE(Stats.bReadFailed);
 	ASSERT_FALSE(Result);
-	EXPECT_TRUE(Result.error().Is(PackageReadErrors::IoError));
+	EXPECT_TRUE(Result.error().Is({"File", "IoError"}));
+	const auto Contexts = Result.error().GetContexts();
+	EXPECT_TRUE(std::ranges::any_of(Contexts, [](const auto& C) { return C.Key == "file operation" && C.Value == "read"; }));
+	EXPECT_TRUE(std::ranges::any_of(Contexts, [](const auto& C) { return C.Key == "file" && C.Value == "failing-package.dasset"; }));
+	EXPECT_TRUE(std::ranges::any_of(Contexts, [](const auto& C) { return C.Key == "offset" && C.Value == "0"; }));
+	EXPECT_TRUE(std::ranges::any_of(Contexts, [](const auto& C) { return C.Key == "size" && C.Value == std::to_string(BinaryEnvelopePreambleBytes); }));
+	const auto Cook = ToCookInputResult(Result);
+	EXPECT_EQ(Cook.Status, ECookInputStatus::IoError);
+	ASSERT_NE(Cook.GetError(), nullptr);
+	EXPECT_TRUE(Cook.GetError()->Is({"File", "IoError"}));
 }
 
+
+TEST(FPackageAssetTests, ByteSourceClearsOptionalDiagnosticAfterSuccessfulRead)
+{
+	using namespace Durin;
+	FByteBuffer Bytes(8);
+	AssetPrivate::FMemoryAssetPackageByteSource Source(Bytes);
+	FByteBuffer Output(4);
+	std::optional<UnifiedError::FError> Error;
+	EXPECT_FALSE(Source.ReadAt(7, Output, &Error));
+	ASSERT_TRUE(Error);
+	EXPECT_TRUE(Error->Is(PackageReadErrors::CorruptFile));
+	EXPECT_FALSE(Source.ReadAt(7, Output));
+	EXPECT_TRUE(Source.ReadAt(2, Output, &Error));
+	EXPECT_FALSE(Error);
+}
+
+TEST(FPackageAssetTests, AuthoredBulkFailureRetainsNativeIdentityAndRoute)
+{
+	using namespace Durin;
+	const FEditorBulkDataStorageError Native{.Code = EEditorBulkDataStorageError::TruncatedField,
+		.ObjectId = 17, .ObjectPath = "/TestAssets/NativeBulk.Asset", .FieldRoute = {"Source", "Bytes"},
+		.StructName = "SourceData", .Depth = 2, .SourceFormatVersion = 12,
+		.Index = 3, .Actual = 4, .Expected = 16};
+	const auto Error = ToError(Native);
+	EXPECT_TRUE(Error.Is({"EditorBulkDataStorage", "TruncatedField"}));
+	EXPECT_TRUE(std::ranges::any_of(Error.GetContexts(), [](const auto& C) { return C.Key == "object id" && C.Value == "17"; }));
+	EXPECT_EQ(std::ranges::count_if(Error.GetContexts(), [](const auto& C) { return C.Key == "field"; }), 2);
+	const auto File = ToError(FEditorBulkDataStorageError{.Code = EEditorBulkDataStorageError::FileSystem,
+		.Path = "native.dbulk", .SystemError = std::make_error_code(std::errc::permission_denied)});
+	EXPECT_TRUE(File.Is({"File", "IoError"}));
+	EXPECT_TRUE(std::ranges::any_of(File.GetContexts(), [](const auto& C) { return C.Key == "file" && C.Value == "native.dbulk"; }));
+}
 TEST(FPackageAssetTests, CompatibilityAuditRetainsIoCauseWithoutLoadingObjects)
 {
 	InitializeAssetTests();
@@ -11496,7 +11537,7 @@ TEST(FPackageAssetTests, PackageRemovalReleasesInternalReferencesAndPublishesOnl
 	{
 		const auto Failure = Durin::PublishPackageRemoval(Packages, Revision);
 		ASSERT_FALSE(Failure);
-		EXPECT_TRUE(Failure.error().Is(Durin::AssetWriteErrors::IoError)) << Failure.error().ToString();
+		EXPECT_TRUE(Failure.error().Is(Durin::AssetWriteErrors::StaleData)) << Failure.error().ToString();
 	}
 	EXPECT_EQ(Durin::GetAssetCatalogRevision(), Revision);
 	EXPECT_NE(Durin::FindPackageExact(TargetPath), nullptr);

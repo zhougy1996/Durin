@@ -10,6 +10,7 @@ namespace Durin::ContentStorage
 		auto CanCreateFolder(std::string_view Directory, std::string_view Name, std::string* Error = nullptr) const -> bool;
 		auto CreateFolder(std::string_view Directory, std::string_view Name, std::string& PhysicalPath) -> bool;
 	private:
-		auto ValidateFolder(std::string_view Directory, std::string_view Name, std::string& PhysicalPath) const -> FAssetWriteResult;
+		auto ValidateFolder(std::string_view Directory, std::string_view Name, std::string& PhysicalPath,
+			std::optional<UnifiedError::FError>* OutError = nullptr) const -> bool;
 	};
 }

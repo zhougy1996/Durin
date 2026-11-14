@@ -572,9 +572,9 @@ namespace Durin::AssetPrivate::TaggedPackage
 				|| Source.GetSize() > std::numeric_limits<size_t>::max())
 				return Error(Durin::PackageReadErrors::CorruptFile, "DAST package exceeds the byte bound.");
 			FByteBuffer Main(static_cast<size_t>(Source.GetSize()));
-			std::string ReadError;
+			std::optional<UnifiedError::FError> ReadError;
 			if (!Source.ReadAt(0, Main, &ReadError))
-				return Error(PackageReadErrors::IoError, std::move(ReadError));
+				return std::unexpected(std::move(*ReadError));
 			FByteBuffer Bulk;
 			const auto Resolved = FMountPaths::ResolveAssetPath(
 				Path.GetView(), EMountPathExistence::AllowMissing);

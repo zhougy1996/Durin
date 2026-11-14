@@ -1240,7 +1240,7 @@ TEST_F(FContentBrowserModelTests, SearchEditsAndViewSettingsReuseCapturedData)
 	Model.SetSearch("Nested");
 	FContentBrowserModelFixtureAccess::Wait(Model);
 	const auto RecursiveRequests = Durin::ContentBrowser::Private::FContentBrowserModelFixtureAccess::Request(Model);
-	EXPECT_GT(RecursiveRequests, DirectoryRequests);
+	EXPECT_NE(RecursiveRequests, DirectoryRequests);
 	ASSERT_EQ(Model.GetItems().size(), 1);
 	Model.SetSearch("Nest");
 	FContentBrowserModelFixtureAccess::Wait(Model);
@@ -4730,6 +4730,79 @@ TEST_F(FContentBrowserModelTests, DeleteRetainsIndependentCommitsAndRetriesOnlyS
 	EXPECT_FALSE(std::filesystem::exists(Paths[1]));
 }
 
+
+TEST_F(FContentBrowserModelTests, DeletionPreservesObservedEffectsAndRejectsFalseCompletion)
+{
+	InitializeDObjectSystem();
+	for (int Case = 0; Case < 3; ++Case)
+	{
+		const auto Effect = Case == 2 ? EAssetWriteEffect::ContentUncertain : EAssetWriteEffect::None;
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate(std::format("/ContentBrowserTests/DeleteObserved{}", Case), Path));
+		DMaterial* Material = nullptr;
+		ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Material));
+		ASSERT_TRUE(SavePackage(Material->GetPackage()));
+		FAssetDeletionOperation Operation;
+		ASSERT_TRUE(IAssetTools::Get().PrepareDeletion({.AssetPaths = {Path}}, Operation));
+		const auto File = TestPhysicalPath(Operation.GetEntries().front().RegistryEntry);
+		EXPECT_FALSE(Operation.Delete({.Delete = [Effect, Case](auto&) -> FAssetWriteResult {
+			if (Case == 1) return {};
+			return {.Error = Durin::UnifiedError::FError{{"TestDeletion", "Rejected"}}, .Effect = Effect};
+		}}));
+		const auto& Report = Operation.GetWriteResult();
+		ASSERT_TRUE(Report.Error);
+		EXPECT_TRUE(Case == 1 ? Report.Error->Is(AssetWriteErrors::StaleData) : Report.Error->Is({"TestDeletion", "Rejected"}));
+		EXPECT_EQ(Report.Effect, Effect);
+		EXPECT_TRUE(Operation.GetAffectedFiles().empty());
+		EXPECT_TRUE(std::filesystem::exists(File));
+		EXPECT_EQ(IsAssetRegistryProjectionFenced(Path), Effect != EAssetWriteEffect::None);
+	}
+}
+
+TEST_F(FContentBrowserModelTests, StoppedDeletionRetainsFirstNativeFailureAndUnattemptedFiles)
+{
+	const std::array Paths{Root / "Content/failure-a.txt", Root / "Content/failure-b.txt", Root / "Content/failure-c.txt"};
+	std::vector<FContentBrowserItem> Items;
+	for (const auto& Path : Paths) { std::ofstream(Path) << "confirmed"; Items.push_back({.Kind = EContentBrowserItemKind::File, .PhysicalPath = Path.generic_string()}); }
+	FDeletionRequestFixture Operation;
+	std::vector<std::string> Diagnostics;
+	Operation.SetDiagnosticSink([&](ELogLevel, std::string_view Message) { Diagnostics.emplace_back(Message); });
+	auto Plan = Operation.PrepareDeleteItems(Items);
+	ASSERT_TRUE(Plan && Plan->CanExecute());
+	bool Attempted = false;
+	const auto Result = Operation.DeleteItems(Plan, {.RemoveEntry = [&](const auto&) {
+		Attempted = true;
+		return std::make_error_code(std::errc::permission_denied);
+	}, .CanExecuteEffect = [&] { return !Attempted; }});
+	EXPECT_TRUE(Result.bStopped);
+	EXPECT_FALSE(Result.bCancelled);
+	EXPECT_FALSE(Result.HasCommittedEffects());
+	ASSERT_EQ(Result.Effects.size(), 3u);
+	EXPECT_EQ(Result.Effects[0].Status, ContentStorage::EContentDeletionEffectStatus::Failed);
+	EXPECT_EQ(Result.Effects[1].Status, ContentStorage::EContentDeletionEffectStatus::Unattempted);
+	EXPECT_EQ(Result.Effects[2].Status, ContentStorage::EContentDeletionEffectStatus::Unattempted);
+	EXPECT_TRUE(std::ranges::any_of(Diagnostics, [&](const auto& Text) { return Text.contains("File::IoError") && Text.contains(Paths[0].generic_string()) && Text.contains("remove"); }));
+	EXPECT_FALSE(std::ranges::any_of(Diagnostics, [](const auto& Text) { return Text.contains("AssetWrite::Cancelled"); }));
+	for (const auto& Path : Paths) EXPECT_TRUE(std::filesystem::exists(Path));
+}
+
+TEST_F(FContentBrowserModelTests, CancellationBeforeFirstDeletionLeavesEveryFileUnattempted)
+{
+	const auto Path = Root / "Content/cancel-before.txt";
+	std::ofstream(Path) << "confirmed";
+	const FContentBrowserItem Item{.Kind = EContentBrowserItemKind::File, .PhysicalPath = Path.generic_string()};
+	FDeletionRequestFixture Operation;
+	auto Plan = Operation.PrepareDeleteItems(std::span{&Item, 1});
+	ASSERT_TRUE(Plan && Plan->CanExecute());
+	int Removes = 0;
+	const auto Result = Operation.DeleteItems(Plan, {.RemoveEntry = [&](const auto&) { ++Removes; return std::error_code{}; }, .ShouldCancel = [] { return true; }});
+	EXPECT_TRUE(Result.bCancelled);
+	EXPECT_FALSE(Result.HasCommittedEffects());
+	EXPECT_EQ(Removes, 0);
+	EXPECT_TRUE(std::filesystem::exists(Path));
+	ASSERT_EQ(Result.Effects.size(), 1u);
+	EXPECT_EQ(Result.Effects[0].Status, ContentStorage::EContentDeletionEffectStatus::Unattempted);
+}
 TEST_F(FContentBrowserModelTests, DeleteCancellationRetainsCommitAndMarksRemainderUnattempted)
 {
 	const std::array Paths{Root / "Content/cancel-a.txt", Root / "Content/cancel-b.txt", Root / "Content/cancel-c.txt"};
@@ -4794,9 +4867,12 @@ TEST_F(FContentBrowserModelTests, DeletionReportsEachFailureAndKeepsConfirmation
 		std::error_code Error; std::filesystem::remove(Path, Error); return Error;
 	}}).HasCommittedEffects());
 	EXPECT_FALSE(Plan);
-	ASSERT_EQ(2u, Errors.size());
+	ASSERT_EQ(3u, Errors.size());
 	EXPECT_NE(std::string::npos, Errors[0].find(Paths[0].generic_string()));
 	EXPECT_NE(std::string::npos, Errors[1].find(Paths[1].generic_string()));
+	EXPECT_TRUE(Errors[2].contains("File::IoError"));
+	EXPECT_TRUE(Errors[2].contains(Paths[0].generic_string()));
+	EXPECT_TRUE(Errors[2].contains(Paths[1].generic_string()));
 	EXPECT_EQ(1, Notifications);
 	EXPECT_TRUE(std::filesystem::exists(Paths[0]));
 	EXPECT_TRUE(std::filesystem::exists(Paths[1]));

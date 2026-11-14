@@ -579,9 +579,10 @@ existing cause. Actual persistence/mutation owners adapt failures into their
 completion reports once. Read-only removal validation, reference-store preparation,
 revalidation and verification, and owned-payload relocation preparation also use
 `expected<void, FError>`; they do not manufacture write effects.
-AssetTools preparation and validation use bool with optional diagnostics where
-callers only stop/report failure; companion queries separately return their
-ownership data. They do not wrap these phases in write reports. Live capture
+AssetTools validation uses bool with optional diagnostics where callers only
+stop/report failure; relocation and Fix Up preparation return nullable prepared
+objects. Companion queries separately return their ownership data. Save staging
+retains only its diagnostic; the completion owner constructs the write report. They do not wrap these phases in write reports. Live capture
 failures crossing the encoding interface retain their original owning error,
 without a cached formatted-message copy.
 

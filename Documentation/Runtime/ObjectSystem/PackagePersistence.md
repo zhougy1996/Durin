@@ -4,7 +4,7 @@ Summary: Define Engine-free reflected package capture, synchronous and asynchron
 
 Modules: Core, CoreDObject
 
-Last reviewed: 2026-11-10
+Last reviewed: 2026-11-15
 
 ## Ownership and Entry Points
 
@@ -187,8 +187,9 @@ Core's reusable `IPackageWriter` creates isolated `IPackageWriteOperation`
 instances. The file implementation uses `FFileHelper::SaveArrayToNewFile`,
 `FFilePublicationStamp` and `FFileReplacement` for all package/bulk staging and
 switching. Each input owns its bytes, expected destination stamp and distinct
-staging/backup paths; an empty stage denotes removal. `Stage` exclusively creates
-each staging file and writes, flushes and closes it without an intermediate
+staging/backup paths; an empty stage denotes removal. `Stage` returns bool with an
+optional owning diagnostic and never returns a publication report. It exclusively
+creates each staging file and writes, flushes and closes it without an intermediate
 replacement. Failed creation never grants ownership of an occupied path; failed
 writes clean up only newly created files. After a successful write, `Stage`
 checks its size against the input buffer and records its modification time, then
@@ -224,8 +225,10 @@ interrupted jobs at startup.
 
 ### Writer Outcome Reports
 
-`FPackageWriteResult` is shared by the physical writer and CoreDObject save
-completion. It retains one optional owning `Error`, the native `State`, and
+`FPackageWriteResult` is shared by physical commit/finalize/rollback and
+CoreDObject save completion. Staging retains only its optional diagnostic until
+the completion boundary constructs a report. The report retains one optional
+owning `Error`, the native `State`, and
 `RecoveryFiles`/`AffectedFiles`; no second save-result type or state translation
 exists. Success is absence of an error. A successful phase is not necessarily a
 committed save. File and capture failures convert once in their owning domains,
@@ -235,14 +238,15 @@ no cached message or duplicate typed cause in the completion report.
 
 | Producer / outcome | State and payload | Interpretation |
 | --- | --- | --- |
-| Protected admission or staging succeeds | `NotCommitted`, no recovery files | Prepared bytes have not replaced destinations. |
 | Protected commit succeeds | `Committed` | Backups remain until finalization or rollback. |
 | Protected commit fails and restoration succeeds | `NotCommitted`, original error | Previous destination content was restored. |
 | Rollback cannot restore a member | `RecoveryRequired`, error and retained `RecoveryFiles` | Manual recovery may be necessary; failure does not imply unchanged files. |
 | Finalize fails to release a backup | `Committed`, error and retained `RecoveryFiles` | Content was committed even though cleanup failed. |
 
-Keep these payloads on both boolean branches. Neither a void expected value nor
-an error-only wrapper represents the phase and physical effects together.
+Keep these payloads on both completion branches. Staging has no content-publication
+effect; its bool remains authoritative even when a backend omits a diagnostic.
+Completion owners supply a rejection diagnostic in that case. Commit, rollback
+and finalization retain their observed physical state and recovery paths.
 
 ## Physical File Admission
 

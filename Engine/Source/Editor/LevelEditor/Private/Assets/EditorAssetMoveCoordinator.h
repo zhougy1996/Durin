@@ -24,7 +24,7 @@ namespace Durin::LevelEditor
 		);
 		~FEditorAssetMoveCoordinator();
 
-		auto MoveAssets(std::span<const FEditorAssetMove> Moves) -> FAssetWriteResult;
+		auto MoveAssets(std::span<const FEditorAssetMove> Moves, std::string* OutError = nullptr) -> bool;
 
 	private:
 		auto OnAssetsRelocated(

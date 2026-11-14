@@ -197,13 +197,17 @@ namespace Durin
 		uint64 DetachedBytes = 0;
 		FSavePackageContext Context;
 		std::unique_ptr<IPackageWriteOperation> Write;
-		Tasks::TTask<FPackageWriteResult> Worker;
-		FPackageWriteResult StagingResult;
+		Tasks::FTask Worker;
+		std::optional<UnifiedError::FError> StagingError;
 		std::optional<FPackageWriteResult> Result;
 		bool bCommitted = false;
 		bool bCommitting = false;
 		bool bClearDirty = true;
-		auto Stage() -> FPackageWriteResult { return Write->Stage(); }
+		auto Stage() -> void
+		{
+			if (!Write->Stage(&StagingError) && !StagingError)
+				StagingError.emplace(PackageSaveErrors::IoError, "Writer rejected staging.");
+		}
 		auto Cleanup() -> void { Write.reset(); }
 	};
 	FPackageSaveOperation::FPackageSaveOperation() : State(std::make_unique<FState>()) {}
@@ -291,14 +295,14 @@ namespace Durin
 			if (!IsTaskSchedulerRunning())
 			{ if (OutError) *OutError = UnifiedError::FError{PackageSaveErrors::ShuttingDown, "Scheduler stopped during preparation."}; return {}; }
 			Data.Worker = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO,
-				{.DebugName = "Package.SaveStaging"}, [&Data] { return Data.Stage(); });
+				{.DebugName = "Package.SaveStaging"}, [&Data] { Data.Stage(); });
 		}
-		else if (!bDeferStaging) Data.StagingResult = Data.Stage();
+		else if (!bDeferStaging) Data.Stage();
 		return Operation;
 	}
 	auto FPackageSaveOperation::IsStagingReady() const -> bool
 	{ return !State->Worker.IsValid() || State->Worker.IsCompleted(); }
-	auto FPackageSaveOperation::StageDetached() -> void { State->StagingResult = State->Stage(); }
+	auto FPackageSaveOperation::StageDetached() -> void { State->Stage(); }
 	auto FPackageSaveOperation::GetDetachedBytes() const -> uint64 { return State->DetachedBytes; }
 	auto FPackageSaveOperation::IsCompleted() const -> bool { return State->Result.has_value(); }
 	auto FPackageSaveOperation::CommitStaged() -> FPackageWriteResult
@@ -316,9 +320,8 @@ namespace Durin
 		{
 			if (Data.Worker.GetState() != ETaskState::Succeeded)
 				return FinishFailure(Fail(PackageSaveErrors::IoError, "Staging task did not succeed."));
-			Data.StagingResult = Data.Worker.GetResult();
 		}
-		if (!Data.StagingResult) return FinishFailure(Data.StagingResult);
+		if (Data.StagingError) return FinishFailure(FPackageWriteResult{.Error = Data.StagingError});
 		if (Data.Package->GetEditRevision() != Data.Revision
 			|| Data.Package->GetPackagePathIdentity() != Data.Identity)
 			return FinishFailure(Fail(PackageSaveErrors::StaleData, "Package changed while saving."));

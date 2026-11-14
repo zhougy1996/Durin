@@ -350,14 +350,14 @@ namespace Durin::LevelEditor
 		}
 
 		const FEditorAssetMove Move{OldPath, NewPath};
-		const auto MoveResult =
-			AssetMoveCoordinator.MoveAssets(std::span{&Move, 1});
+		std::string MoveError;
+		const bool MoveResult = AssetMoveCoordinator.MoveAssets(std::span{&Move, 1}, &MoveError);
 		FLevelDocumentRevisionState::CompleteSave(
 			(Context.EditorHost ? Context.EditorHost->GetTransactor() : nullptr), *Package, static_cast<bool>(MoveResult)
 		);
 		if (!MoveResult)
 		{
-			SetError((MoveResult.Error ? MoveResult.Error->ToString() : std::string{}));
+			SetError(MoveError);
 			return false;
 		}
 		return true;

@@ -2,7 +2,7 @@
 #include "CoreMinimal.h"
 #include "AssetToolsAPI.h"
 #include "AssetRegistry/ContentChanges.h"
-#include "Asset/AssetWriteResult.h"
+#include "Misc/UnifiedError.h"
 #include "Misc/FeedbackContext.h"
 #include "Delegates/Delegate.h"
 
@@ -31,7 +31,7 @@ namespace Durin::ContentStorage
 		auto Report(ELogLevel, std::string_view) const -> void;
 		auto Feedback() const -> FFeedbackContext;
 		auto NotifyItemsUpdated(FContentChangeBatch) -> void;
-		auto Complete(const FAssetWriteResult&, FContentChangeBatch Changes = {}) -> bool;
+		auto ReportFailure(const UnifiedError::FError&) const -> bool;
 	private:
 		FContentMutationPolicy Policy;
 	};

@@ -159,24 +159,37 @@ namespace Durin
 		AffectedFiles.erase(std::ranges::unique(AffectedFiles).begin(), AffectedFiles.end());
 		if (!DeleteResult)
 		{
-			std::vector<FPackagePath> Paths;
-			for (const FAssetDeletionEntry& Entry : Entries)
-				Paths.push_back(Entry.RegistryEntry.PackagePath);
-			FenceAssetRegistryProjection(Paths);
 			auto Failure = DeleteResult;
-			Failure.Error->PushContext("operation", "AssetDeletionFailed: deletion stopped; inspect partial changes before preparing another operation.");
-			Failure.Effect = EAssetWriteEffect::PartiallyWritten;
+			if (Failure.Effect == EAssetWriteEffect::None && !AffectedFiles.empty())
+				Failure.Effect = EAssetWriteEffect::PartiallyWritten;
+			if (Failure.Effect != EAssetWriteEffect::None)
+			{
+				std::vector<FPackagePath> Paths;
+				for (const FAssetDeletionEntry& Entry : Entries)
+					Paths.push_back(Entry.RegistryEntry.PackagePath);
+				FenceAssetRegistryProjection(Paths);
+			}
+			Failure.Error->PushContext("operation", "AssetDeletionFailed: deletion attempt failed; prepare a new operation before retrying.");
 			return Failure;
 		}
+		if (Packages.empty()) return DeleteResult;
 		if (auto Published = PublishPackageRemoval(Packages, RegistryRevision); !Published)
 		{
-			std::vector<FPackagePath> Paths;
-			for (const FAssetDeletionEntry& Entry : Entries)
-				Paths.push_back(Entry.RegistryEntry.PackagePath);
-			FenceAssetRegistryProjection(Paths);
 			auto Error = std::move(Published.error());
-			Error.PushContext("operation", "Destructive deletion committed; Registry reconcile is required.");
-			return {.Error = std::move(Error), .Effect = EAssetWriteEffect::ContentCommittedProjectionPending};
+			const auto Effect = Error.Is({"File", "IoError"}) ? EAssetWriteEffect::ContentUncertain
+				: RemovedFiles.size() == ConfirmedBytes.size() ? EAssetWriteEffect::ContentCommittedProjectionPending
+				: AffectedFiles.empty() ? EAssetWriteEffect::None : EAssetWriteEffect::PartiallyWritten;
+			if (Effect != EAssetWriteEffect::None)
+			{
+				std::vector<FPackagePath> Paths;
+				for (const FAssetDeletionEntry& Entry : Entries)
+					Paths.push_back(Entry.RegistryEntry.PackagePath);
+				FenceAssetRegistryProjection(Paths);
+			}
+			Error.PushContext("operation", Effect == EAssetWriteEffect::ContentCommittedProjectionPending
+				? "Destructive deletion committed; Registry reconcile is required."
+				: "Deletion could not publish catalog removal; prepare a new operation before retrying.");
+			return {.Error = std::move(Error), .Effect = Effect};
 		}
 		return {};
 	}
@@ -313,7 +326,7 @@ namespace Durin
 
 			std::optional<UnifiedError::FError> CompanionError;
 			const bool CompanionResult =
-				AssetToolsPrivate::InspectAssetCompanionFilesForDeletion(
+				AssetToolsPrivate::InspectAssetCompanionFiles(
 					*Data, Entry.CompanionFiles, &CompanionError);
 			if (!CompanionResult)
 				AddBlocker(
@@ -501,7 +514,7 @@ namespace Durin
 			if (DeletionSet.contains(OwnerPath)) continue;
 			if (!AssetToolsPrivate::MayOwnCompanionInRoots(OwnerData, CompanionScope)) continue;
 			std::vector<std::filesystem::path> Files;
-			if (!AssetToolsPrivate::InspectAssetCompanionFilesForDeletion(
+			if (!AssetToolsPrivate::InspectAssetCompanionFiles(
 					OwnerData, Files))
 				continue;
 			for (const std::filesystem::path& File : Files)
@@ -608,7 +621,7 @@ namespace Durin
 			if (IsPackageLoading(Path) || (Loaded && Loaded->IsDirty()))
 				return Reject(OutError, UnifiedError::FError{AssetWriteErrors::InUse, "A deletion participant is loading or dirty."});
 			std::vector<std::filesystem::path> Files;
-			const bool Inspected = AssetToolsPrivate::InspectAssetCompanionFilesForDeletion(*Current, Files, OutError);
+			const bool Inspected = AssetToolsPrivate::InspectAssetCompanionFiles(*Current, Files, OutError);
 			if (!Inspected) return Inspected;
 			if (Files != Entry.CompanionFiles)
 				return Reject(OutError, UnifiedError::FError{AssetWriteErrors::StaleData, "Selected companion files changed after confirmation."});
@@ -624,7 +637,7 @@ namespace Durin
 			})) continue;
 			if (!AssetToolsPrivate::MayOwnCompanionInRoots(Data, CompanionScope)) continue;
 			std::vector<std::filesystem::path> Files;
-			if (!AssetToolsPrivate::InspectAssetCompanionFilesForDeletion(Data, Files)) continue;
+			if (!AssetToolsPrivate::InspectAssetCompanionFiles(Data, Files)) continue;
 			Companions.emplace(Path, std::move(Files));
 		}
 		if (Companions != OutsideCompanions)
@@ -649,10 +662,11 @@ namespace Durin
 		OutOperation = FAssetDeletionOperation{};
 		OutOperation.State = std::make_unique<FAssetDeletionOperation::FState>();
 		auto& State = *OutOperation.State;
-		const bool Prepared = State.Prepare(Request.AssetPaths, Request.PhysicalRoots, State.Blockers, &State.LastResult.Error);
+		std::optional<UnifiedError::FError> Error;
+		const bool Prepared = State.Prepare(Request.AssetPaths, Request.PhysicalRoots, State.Blockers, &Error);
 		State.bPrepared = Prepared && State.Blockers.empty();
 		auto& Feedback = Warn ? *Warn : FFeedbackContext::Get();
-		if (!State.LastResult) Feedback.Error((State.LastResult.Error ? State.LastResult.Error->ToString() : std::string{}));
+		if (!Prepared && Error) Feedback.Error(Error->ToString());
 		for (const auto& Blocker : State.Blockers) Feedback.Error(Blocker.Details);
 		for (const auto& Warning : State.Warnings) Feedback.Warning(Warning.Details);
 		return State.bPrepared;
