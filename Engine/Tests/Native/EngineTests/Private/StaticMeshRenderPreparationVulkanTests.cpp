@@ -2789,7 +2789,7 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 			// Output parity is checked outside sampling. Readback would otherwise
 			// turn the RenderView CPU span into a capture/synchronization measurement.
             bCaptureOutputs = false;
-            std::string CSV = "scenario,sample,view,mode,update_ns,prepare_ns,gbuffer_ns,cull_ns,shadow_ns,attribute_upload_bytes,attribute_upload_ranges,buffer_rebuilds,scene_gpu_capacity_bytes,scene_mirror_capacity_bytes,native_draws,shadow_native_draws,persistent_hits,persistent_misses,culling_transient_bytes,shadow_cascades,shadow_target_backend_bytes,record_ns,instance_id_buffer_creates,instance_id_upload_bytes\n";
+            std::string CSV = "scenario,sample,view,mode,update_ns,prepare_ns,gbuffer_ns,cull_ns,shadow_ns,attribute_upload_bytes,attribute_upload_ranges,buffer_rebuilds,scene_gpu_capacity_bytes,scene_mirror_capacity_bytes,native_draws,shadow_native_draws,persistent_hits,persistent_misses,culling_transient_bytes,shadow_cascades,shadow_target_backend_bytes,record_ns,instance_id_buffer_creates,instance_id_upload_bytes,cpu_primitive_update_visits,update_queue_capacity_bytes\n";
             auto Statistics = [&] {
                 FGPUSceneStatistics Result;
                 EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate&) { Result = Instanced->GPUScene->GetStatistics(); });
@@ -2864,13 +2864,14 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
                                 else { EXPECT_GT(Upload, 0u); EXPECT_LE(Upload, sizeof(FPrimitiveSceneShaderData) + sizeof(FInstanceSceneShaderData) + sizeof(FPrimitiveCustomData)); }
 								EXPECT_EQ(After.InstanceIdBufferCreates, Before.InstanceIdBufferCreates);
 								EXPECT_EQ(After.InstanceIdUploadBytes, Before.InstanceIdUploadBytes);
-                                CSV += std::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n", Work.Name, Iteration - Warmups, ViewIndex, Mode,
+                                CSV += std::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n", Work.Name, Iteration - Warmups, ViewIndex, Mode,
                                     Order == 0 && ViewIndex == 0 ? UpdateNanoseconds : 0, Observed.PreparationNanoseconds, Duration(Observed.RasterTime), Duration(Observed.CullTime), Duration(Observed.ShadowTime),
                                     Upload, After.UploadRanges - Before.UploadRanges, After.BufferRebuilds - Before.BufferRebuilds,
                                     After.CapacityBytes, After.MirrorCapacityBytes, Observed.Telemetry.StaticMesh.NativeDrawSubmissions,
                                     Observed.Telemetry.DirectionalShadow.ShadowNativeDrawSubmissions, Observed.Telemetry.StaticMesh.PersistentCommandHits,
                                     Observed.Telemetry.StaticMesh.PersistentCommandMisses, Observed.Telemetry.GBuffer.GPUCullingBufferBytes, Observed.Telemetry.DirectionalShadow.ShadowCascadeCount, Observed.Telemetry.DirectionalShadow.ShadowTargetBackendBytes, Observed.RecordingNanoseconds,
-                                    After.InstanceIdBufferCreates - Before.InstanceIdBufferCreates, After.InstanceIdUploadBytes - Before.InstanceIdUploadBytes);
+                                    After.InstanceIdBufferCreates - Before.InstanceIdBufferCreates, After.InstanceIdUploadBytes - Before.InstanceIdUploadBytes,
+                                    After.CPUPrimitiveUpdateVisits - Before.CPUPrimitiveUpdateVisits, After.UpdateQueueCapacityBytes);
                             }
                         }
                     }

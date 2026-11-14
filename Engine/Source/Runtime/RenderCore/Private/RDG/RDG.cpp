@@ -457,6 +457,14 @@ namespace Durin
 		return {State->Owner, Index};
 	}
 
+	auto FRDGBuilder::FindExternalBuffer(FRHIBuffer* Buffer) const -> FRDGBufferHandle
+	{
+		if (!Buffer) return {};
+		const auto Found = State->ExternalResources.find(Buffer);
+		if (Found == State->ExternalResources.end() || State->Resources[Found->second].Kind != ERDGResourceKind::Buffer) return {};
+		return {State->Owner, Found->second};
+	}
+
 	auto FRDGBuilder::RegisterExternalBuffer(const FBufferRHIRef& Buffer,
 		std::string_view Name, ERHIAccess InitialAccess,
 		ERHIAccess FinalAccess) -> FRDGBufferHandle

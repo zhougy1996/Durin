@@ -107,6 +107,30 @@ namespace Durin::RendererPrivate
 		return Result;
 	}
 
+	auto FVisibleMeshDrawCommand::MatchesForDynamicInstancing(const FVisibleMeshDrawCommand& Other) const -> bool
+	{
+		if (!Command || !Other.Command || !Pass || !Other.Pass || !SceneData.Buffers || !Other.SceneData.Buffers
+			|| (CachedInfo && CachedInfo->CommandIndex == INDEX_NONE)
+			|| (Other.CachedInfo && Other.CachedInfo->CommandIndex == INDEX_NONE)) return false;
+		// Invalidated cached commands retain their value memory, not the borrowed
+		// pipeline/resources. Reject their source metadata before dereferencing it.
+		if (!Command->bFinalized || !Other.Command->bFinalized || !Command->Pipeline || !Other.Command->Pipeline
+			|| !Command->Pipeline->VertexDeclaration || !Other.Command->Pipeline->VertexDeclaration
+			|| Command->IndirectArgs || Other.Command->IndirectArgs) return false;
+		// Bucket IDs are local to cached scene storage. Reset/removal invalidates
+		// source metadata before an ID can be reused, so stale/cross-scene IDs
+		// cannot replace the effective-state comparison for dynamic commands.
+		const bool SameBucket = CachedInfo && Other.CachedInfo && CachedInfo->Storage
+			&& CachedInfo->Storage == Other.CachedInfo->Storage && StateBucketId != INDEX_NONE
+			&& StateBucketId == CachedInfo->StateBucketId && Other.StateBucketId == Other.CachedInfo->StateBucketId
+			&& StateBucketId == Other.StateBucketId;
+		const bool SameCommand = Command == Other.Command;
+		return (SameBucket || SameCommand || Command->MatchesForDynamicInstancing(*Other.Command))
+			&& (SceneData.Buffers == Other.SceneData.Buffers || SceneData.Buffers->SceneData == Other.SceneData.Buffers->SceneData)
+			&& DepthBias == Other.DepthBias
+			&& (Pass == Other.Pass || (Pass->Vertex == Other.Pass->Vertex && Pass->Fragment == Other.Pass->Fragment));
+	}
+
 	auto BuildMeshDrawCommandRuns(std::span<const FVisibleMeshDrawCommand> Visible) -> std::vector<FMeshDrawCommandRun>
 	{
 		std::vector<FMeshDrawCommandRun> Runs;
@@ -122,10 +146,7 @@ namespace Durin::RendererPrivate
 			if (!Runs.empty() && Runs.back().FirstCommand + Runs.back().NumCommands == Index)
 			{
 				const auto& Previous = Visible[Index - 1];
-				bContinue = Current.Command->MatchesForDynamicInstancing(*Previous.Command)
-					&& Current.SceneData.Buffers->SceneData == Previous.SceneData.Buffers->SceneData
-					&& Current.DepthBias == Previous.DepthBias && Current.Pass->Vertex == Previous.Pass->Vertex
-					&& Current.Pass->Fragment == Previous.Pass->Fragment;
+				bContinue = Current.MatchesForDynamicInstancing(Previous);
 			}
 			if (!bContinue) Runs.push_back({Index, 0});
 			++Runs.back().NumCommands;

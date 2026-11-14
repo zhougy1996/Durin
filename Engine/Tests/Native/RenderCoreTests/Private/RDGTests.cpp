@@ -4785,7 +4785,10 @@ namespace Durin
 		FRDGBuilder Builder;
 		const auto FirstTexture = Builder.RegisterExternalTexture(Texture, "First", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 		const auto SecondTexture = Builder.RegisterExternalTexture(Texture, "Second", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		EXPECT_FALSE(Builder.FindExternalBuffer(Buffer).IsValid());
+		EXPECT_FALSE(Builder.FindExternalBuffer(nullptr).IsValid());
 		const auto FirstBuffer = Builder.RegisterExternalBuffer(Buffer, "FirstBuffer", ERHIAccess::ComputeShaderRead, ERHIAccess::ComputeShaderRead);
+		EXPECT_EQ(Builder.FindExternalBuffer(Buffer), FirstBuffer);
 		const auto SecondBuffer = Builder.RegisterExternalBuffer(Buffer, "SecondBuffer", ERHIAccess::ComputeShaderRead, ERHIAccess::ComputeShaderRead);
 		EXPECT_EQ(FirstTexture, SecondTexture);
 		EXPECT_EQ(FirstBuffer, SecondBuffer);
@@ -4797,6 +4800,7 @@ namespace Durin
 		EXPECT_EQ(Capture.Resources[1].Name, "FirstBuffer");
 
 		FRDGBuilder OtherBuilder;
+		EXPECT_FALSE(OtherBuilder.FindExternalBuffer(Buffer).IsValid());
 		const auto Other = OtherBuilder.RegisterExternalTexture(Texture, "Other", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 		EXPECT_NE(FirstTexture, Other);
 	}

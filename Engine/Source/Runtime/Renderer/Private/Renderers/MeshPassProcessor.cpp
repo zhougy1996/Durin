@@ -145,6 +145,7 @@ namespace Durin::RendererPrivate
 		else Index = Location->second->CommandIndex;
 		if (Entries[Index]) RemoveEntry(Index);
 		auto Info = std::make_shared<FCachedMeshDrawCommandInfo>();
+		Info->Storage = this;
 		require(Index < static_cast<size_t>(INT32_MAX));
 		Info->CommandIndex = static_cast<int32>(Index); Info->MeshPass = Command.Pipeline->GetPassKey();
 		Location->second = Info;

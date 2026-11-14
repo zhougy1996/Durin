@@ -142,6 +142,7 @@ namespace Durin::RendererPrivate
 	class FCachedMeshDrawCommandStorage;
 	struct FCachedMeshDrawCommandInfo
 	{
+		const FCachedMeshDrawCommandStorage* Storage = nullptr;
 		int32 CommandIndex = INDEX_NONE;
 		int32 StateBucketId = INDEX_NONE;
 		FMeshPassKey MeshPass;
@@ -160,6 +161,7 @@ namespace Durin::RendererPrivate
 		bool bSupportsInstanceCulling = false;
 		FRHIBuffer* InstanceBuffer = nullptr;
 		bool bSupportsDynamicInstancing = false;
+		RENDERER_API auto MatchesForDynamicInstancing(const FVisibleMeshDrawCommand& Other) const -> bool;
 		auto SubmitDraw(FRHICommandList& Commands, FMeshDrawCommandStateCache* Cache = nullptr) const -> bool
 		{
 			if (bSkipDraw) return true;

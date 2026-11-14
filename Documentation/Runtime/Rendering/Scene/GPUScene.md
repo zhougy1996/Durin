@@ -64,7 +64,16 @@ component LOD and conservative authored WPO bounds remain unchanged.
 
 Scene Add/Remove/Transform/CustomData/Instance and Spline bounds commands feed
 `RequestGPUSceneUpdate`. Requests coalesce before mirror refresh. Removal wins
-over pending source work. Each transaction has a scene revision and resource
+over pending source work. SceneInfo validates its generation-checked source
+reference before calling `AddPrimitiveToUpdate(FPersistentPrimitiveIndex, DirtyState)`.
+The deduplicated `PrimitivesToUpdate` queue stamps each entry's generation;
+removal/reuse cannot apply a queued request to another primitive. CPU refresh
+visits queued entries only, including updates admitted between collector phases.
+Packed Primitive/Instance/payload dirty membership uses sparse index lists.
+Upload sorts only those indices to coalesce adjacent patches, and successful
+commit clears only their membership. IsDirty is a constant-time queue check.
+Growth and recovery remain full-initialization exceptions; failed or abandoned
+transactions retain the sparse lists for retry. Each transaction has a scene revision and resource
 generation. `Update` imports or creates three buffers and queues dirty byte
 ranges; adjacent dirty records coalesce. Allocation/growth uploads initialized
 geometric capacity from CPU mirrors, including zero padding. This full upload
@@ -159,6 +168,12 @@ be checked. Pipeline and binding wrapper addresses do not determine compatibilit
 Source cache slots remain per Primitive/batch; eligible identical cached commands
 share a state bucket and command allocation. Each source retains its own
 `FCachedMeshDrawCommandInfo` and invalidation identity on `FPrimitiveSceneInfo`.
+`FVisibleMeshDrawCommand::MatchesForDynamicInstancing` uses valid, storage-scoped
+StateBucket IDs for cached command compatibility. IDs from different scene caches
+are unrelated, and removed/reset metadata cannot enter that fast path. Dynamic
+commands retain effective-state comparison. Frame pass bindings, scene buffers
+and depth bias must still match; identical immutable pass/buffer-set owners avoid
+repeating their member comparisons.
 Cache lookup uses structural pipeline identity: pass, raster/depth/blend/target
 description, factory/layout, native shader identities and declaration elements.
 The immutable identity is cached once per pipeline snapshot and shared by cache
@@ -268,6 +283,11 @@ separately count admitted ID allocations, immutable/storage reuse and recorded
 ID writes; unlike attribute transaction counters they describe recording, not
 successful graph completion. `InstanceIdCapacityBytes` counts retained native
 ID-pool capacity and is separate from the three attribute buffers.
+`CPUPrimitiveUpdateVisits` counts queue entries visited, including stale entries
+discarded after removal. `UpdateQueueCapacityBytes` reports retained membership
+bits, dirty index vectors, and primitive update/scratch queue capacity. This is
+additional CPU storage, excluded from MirrorCapacityBytes; allocator/node overhead
+and per-primitive source membership arrays remain excluded.
 
 ## Retirement and Recovery
 

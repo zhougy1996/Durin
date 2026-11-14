@@ -229,7 +229,10 @@ namespace
 		auto Request(FGPUScenePrimitiveHandle Handle, EGPUSceneDirtyState Value) -> bool
 		{
 			bool Accepted = false;
-			EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) { Accepted = (*Scene)->GPUScene->RequestUpdate(Handle, Value); });
+			EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+				auto& GPU = *(*Scene)->GPUScene;
+				Accepted = GPU.ResolvePrimitive(Handle) && GPU.AddPrimitiveToUpdate(Handle.PersistentPrimitiveIndex, Value);
+			});
 			FlushRenderingCommands(); return Accepted;
 		}
 		auto Run() -> FGPUSceneUpdateResult
@@ -302,6 +305,79 @@ namespace
 		EXPECT_EQ(std::bit_cast<uint32>(Data[Offset].Data[17].y), 10u);
 		EXPECT_EQ(std::bit_cast<uint32>(Data[Offset + 2].Data[17].y), 30u);
 		EXPECT_EQ(Run().UploadBytes, 0u);
+	}
+
+	TEST_F(FGPUSceneTests, SparseUpdateAdmissionDeduplicatesAndDoesNotRescanUnchangedScene)
+	{
+		auto* Target = Add(1, Sources({10, 20}));
+		for (uint64 Index = 2; Index <= 64; ++Index) Add(Index);
+		Run();
+		FGPUSceneStatistics Before;
+		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) { Before = (*Scene)->GPUScene->GetStatistics(); });
+		FlushRenderingCommands();
+		auto Changed = Sources({10, 20}); Changed->Instances[1].CustomData.Values[3] = 42.f;
+		Target->Source = Changed;
+		for (uint32 Index = 0; Index < 16; ++Index) Dirty(EGPUSceneDirtyState::InstanceData);
+		const auto Patch = Run();
+		EXPECT_EQ(Patch.UploadBytes, sizeof(FPrimitiveCustomData));
+		EXPECT_EQ(Patch.UploadRanges, 1u);
+		EXPECT_FLOAT_EQ((*Scene)->GPUScene->GetInstancePayloadData()[Info().InstanceSceneDataOffset + 1].Values[3], 42.f);
+		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+			auto& GPU = *(*Scene)->GPUScene;
+			EXPECT_EQ(GPU.GetStatistics().CPUPrimitiveUpdateVisits, Before.CPUPrimitiveUpdateVisits + 1);
+			for (uint32 Index = 0; Index < 16; ++Index) { GPU.UpdateCPUData(); EXPECT_FALSE(GPU.IsDirty()); }
+			EXPECT_EQ(GPU.GetStatistics().CPUPrimitiveUpdateVisits, Before.CPUPrimitiveUpdateVisits + 1);
+			// A later collector phase in the same frame must still admit work.
+			EXPECT_TRUE(GPU.AddPrimitiveToUpdate(Info().GetPersistentIndex()));
+			GPU.UpdateCPUData();
+			EXPECT_EQ(GPU.GetStatistics().CPUPrimitiveUpdateVisits, Before.CPUPrimitiveUpdateVisits + 2);
+			EXPECT_FALSE(GPU.IsDirty());
+		});
+		FlushRenderingCommands();
+	}
+
+	TEST_F(FGPUSceneTests, QueuedRemovalAndReusedSlotDoNotDropTheNewPrimitiveUpdate)
+	{
+		Add(1); const auto Old = Info().GPUSceneHandle;
+		FSceneInterfaceTestAccess::RemovePrimitiveProxy(**Scene, FPrimitiveComponentId{1});
+		FlushRenderingCommands();
+		Add(2, Sources({20, 30}));
+		EXPECT_EQ(Info().GPUSceneHandle.PersistentPrimitiveIndex, Old.PersistentPrimitiveIndex);
+		EXPECT_NE(Info().GPUSceneHandle.Generation, Old.Generation);
+		Run();
+		EXPECT_EQ(Info().NumInstanceSceneDataEntries, 2u);
+		EXPECT_FALSE(Request(Old, EGPUSceneDirtyState::Transform));
+		EXPECT_EQ(Run().UploadBytes, 0u);
+	}
+
+	TEST_F(FGPUSceneTests, ReadParametersDeduplicateSharedSetsAndKeepDistinctNativeResources)
+	{
+		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+			auto MakeBuffer = [] { return MakeRefCount<FSceneBuffer>(FRHIBufferCreateDesc::Create("SceneRead", 64, 4,
+				EBufferUsageFlags::StructuredBuffer | EBufferUsageFlags::DestinationCopy)); };
+			auto Set = std::make_shared<FGPUSceneBufferSet>();
+			for (auto& Buffer : Set->SceneData) Buffer = MakeBuffer();
+			Set->InstanceIds = MakeBuffer();
+			FResolvedStaticMeshView View;
+			View.GPUScenePrimitives.assign(512, {Set, 0, 0});
+			View.DynamicInstancingInstanceIds = Set->InstanceIds;
+			FRDGBuilder Graph;
+			FGPUSceneReadParameters Reads;
+			Reads.Add(Graph, View); Reads.Add(Graph, View);
+			EXPECT_EQ(std::ranges::count_if(Reads.Buffers, [](const auto& Access) { return Access.has_value(); }), 4);
+			auto Other = std::make_shared<FGPUSceneBufferSet>(*Set); Other->InstanceIds = MakeBuffer();
+			View.GPUScenePrimitives[17].Buffers = Other;
+			Reads.Add(Graph, View);
+			EXPECT_EQ(std::ranges::count_if(Reads.Buffers, [](const auto& Access) { return Access.has_value(); }), 5);
+			EXPECT_TRUE(Graph.FindExternalBuffer(Other->InstanceIds).IsValid());
+			FRDGBuilder Conflict;
+			const auto ConflictingHandle = Conflict.RegisterExternalBuffer(Set->InstanceIds, "ConflictingRead", ERHIAccess::TransferWrite, ERHIAccess::GraphicsShaderRead);
+			FGPUSceneReadParameters ConflictingReads;
+			ConflictingReads.Buffers[0] = FRDGBufferAccess{ConflictingHandle, 0, Set->InstanceIds->GetSize(), ERDGUse::Read, ERHIAccess::GraphicsShaderRead};
+			ConflictingReads.Add(Conflict, View);
+			EXPECT_FALSE(Conflict.Execute(Executor.GetImmediateCommandList(), &Allocator));
+		});
+		FlushRenderingCommands();
 	}
 
 	TEST_F(FGPUSceneTests, DirectIdsReusePersistentBuffersAndDynamicFactsOwnTheirStorage)
@@ -573,8 +649,34 @@ namespace
 			FDynamicMeshDrawCommandStorage Frame;
 			const auto VisibleA = Frame.PublishVisible(First, InfoA, std::make_shared<FMeshPassBindings>(), {});
 			const auto VisibleB = Frame.PublishVisible(Second, InfoB, std::make_shared<FMeshPassBindings>(), {});
+			auto InstanceA = *Frame.GetVisible(VisibleA), InstanceB = *Frame.GetVisible(VisibleB);
+			const auto SharedBuffers = std::make_shared<FGPUSceneBufferSet>();
+			InstanceA.SceneData.Buffers = InstanceB.SceneData.Buffers = SharedBuffers;
+			EXPECT_TRUE(InstanceA.MatchesForDynamicInstancing(InstanceB));
+			InstanceB.DepthBias[0] = 1.f;
+			EXPECT_FALSE(InstanceA.MatchesForDynamicInstancing(InstanceB));
+			InstanceB.DepthBias[0] = 0.f;
+			auto DifferentPass = std::make_shared<FMeshPassBindings>(*InstanceB.Pass);
+			DifferentPass->Vertex.Shader = reinterpret_cast<FRHIShader*>(uintptr_t(1));
+			InstanceB.Pass = DifferentPass.get();
+			EXPECT_FALSE(InstanceA.MatchesForDynamicInstancing(InstanceB));
+			InstanceB.Pass = Frame.GetVisible(VisibleB)->Pass;
+			{
+				FCachedMeshDrawCommandStorage OtherScene;
+				auto OtherSource = std::make_shared<FPrimitiveSceneInfo>(FPrimitiveComponentId(3),
+					std::make_shared<FStaticMeshSceneProxy>(nullptr, std::vector<FMaterialRenderProxyRef>{}), FMatrix(1.0));
+				auto DifferentGeometry = MakeCommand(A.get());
+				std::get<FRHIDrawIndexedArguments>(DifferentGeometry.DrawParameters).IndexCount = 6;
+				const auto OtherCommand = OtherScene.Publish(KeyA, std::move(DifferentGeometry), *OtherSource, nullptr, {}, A);
+				const auto OtherInfo = OtherScene.FindInfo(KeyA, *OtherSource);
+				EXPECT_EQ(OtherInfo->StateBucketId, InfoA->StateBucketId);
+				const auto Receipt = Frame.PublishVisible(OtherCommand, OtherInfo, std::make_shared<FMeshPassBindings>(), {});
+				auto OtherVisible = *Frame.GetVisible(Receipt); OtherVisible.SceneData.Buffers = SharedBuffers;
+				EXPECT_FALSE(InstanceA.MatchesForDynamicInstancing(OtherVisible));
+			}
 			A.reset(); B.reset();
 			SourceA->RemoveCachedMeshDrawCommands();
+			EXPECT_FALSE(InstanceA.MatchesForDynamicInstancing(InstanceB));
 			EXPECT_FALSE(Frame.GetVisible(VisibleA)); EXPECT_TRUE(Frame.GetVisible(VisibleB));
 			EXPECT_FALSE(LifeA.expired()); EXPECT_TRUE(LifeB.expired());
 			EXPECT_EQ(Cache.Find(KeyB, *SourceB), Second);
@@ -589,6 +691,7 @@ namespace
 			EXPECT_FALSE(Frame.GetVisible(VisibleA)); EXPECT_FALSE(Frame.GetVisible(VisibleB));
 			EXPECT_FALSE(Cache.Find(KeyB, *SourceB)); EXPECT_EQ(Cache.Find(ReplacementKey, *SourceB), Rebuilt);
 			EXPECT_TRUE(LifeA.expired()); EXPECT_TRUE(LifeB.expired());
+			EXPECT_FALSE(InstanceA.MatchesForDynamicInstancing(InstanceB));
 			SourceB->RemoveCachedMeshDrawCommands();
 			EXPECT_EQ(Cache.Num(), 0u); EXPECT_FALSE(Cache.Find(ReplacementKey, *SourceB));
 		});

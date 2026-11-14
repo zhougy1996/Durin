@@ -35,6 +35,10 @@ instance-ID uploads, combined cached-command lookup records, and pass-scoped
 contiguous instance runs. Its before/after observations follow below; they are
 diagnostic and do not close Stage 5's exclusive Release timing gate.
 Implemented rules live in [GPUScene storage and submission](../Runtime/Rendering/Scene/GPUScene.md).
+Stage 11 implements and validates the user-selected second batch: UE-style cached
+StateBucket grouping, explicit primitive update admission and sparse dirty-record
+uploads, and deduplication before graph resource registration. Its diagnostic
+before/after observations follow below; no exclusive timing gate is closed.
 
 ### Stage 1 validation receipt
 
@@ -1191,6 +1195,102 @@ load are not locked. They do not rebaseline a threshold or accept Stage 5's
 Release gate. Dynamic-large CPU p95 is effectively unchanged. This batch makes
 no GPU shader-time improvement claim. Temporary Sandbox probes are restored;
 only the reusable native sampling instrumentation remains in the fixture.
+
+### Stage 11: Align cached grouping and sparse scene updates
+
+The user selected review items 3, 5 and 6 and explicitly prioritized UE interface
+alignment. Reuse cached command metadata, admit scene changes through
+`AddPrimitiveToUpdate`, and keep pass resource access in graph parameters.
+Do not change culling policy, shaders, instance-ID ownership or queue policy.
+
+- [x] Use storage-scoped StateBucket metadata for cached run matching, preserving
+  pass bindings, scene buffer, depth bias and dynamic-command compatibility checks.
+- [x] Replace full primitive and packed-record dirty scans with deduplicated
+  update queues. Preserve generation checks, growth initialization, failed/abandoned
+  upload retry and recovery, and updates admitted between collector phases.
+- [x] Deduplicate native buffers and shared buffer sets before external resource
+  registration, preserving exact per-pass access declarations and conflict checks.
+- [x] Validate scene/cache/RDG contracts, real Vulkan output and recovery,
+  inline/threaded recording, and Editor/Sandbox/RoadWeaver consumers.
+- [x] Compare three before/after Release samples and bounded Debug automatic
+  scene observations. Report RenderView and full-editor frame intervals separately;
+  do not present automatic-run FPS as the user's manual viewport FPS.
+
+Baseline is `5b474198d`; raw receipts and reproduction helpers are retained under
+`Build/Qualification/GPUSceneBatch2/`. Stage 5 deferred hardware and exclusive
+quiet timing gates remain open.
+
+The inspected local UE 5.8.2 source is under `D:/Programs/UE_5.8/Engine/Source/Runtime/`:
+Renderer `GPUScene.h/.cpp`, `InstanceCulling/InstanceCullingContext.cpp`, and
+RenderCore `RenderGraphBuilder.h/.cpp`. The primary update arguments and
+FindExternalBuffer query follow those interfaces. Durin keeps counted graph
+handles, boolean admission results, and generation-checked source borrows at its
+existing safety boundaries rather than importing UE's unrelated allocator types.
+
+### Stage 11 validation receipt
+
+Inputs are base `5b474198d` plus final source/fixture hashes and local UE 5.8.2
+CL 56702186 reference hashes in `Build/Qualification/GPUSceneBatch2/receipt.json`.
+Raw CSV, GoogleTest XML, retained console/runtime logs, reproduction helpers and
+`comparison.json` remain under that ignored directory. Temporary automatic-editor
+probes are restored and the ordinary Debug Renderer/Engine modules are rebuilt.
+
+| Selection | Result |
+| --- | --- |
+| `RenderContractTests` | 246/246, including graph-local external lookup, unknown/null identity and canonical registration/conflict behavior. |
+| `RendererSceneContractTests` | 168/168. Sparse admission deduplicates repeated requests among 64 primitives; unchanged phases visit no entries; queued removal/slot reuse preserves the new generation. Cached grouping rejects cross-scene bucket collisions, changed pass/bias and invalidated source metadata before dereferencing released pipelines. Read declarations deduplicate aliases/shared sets without hiding prepopulated external-contract conflicts. |
+| `StaticMeshRenderPreparationVulkanTests` | 21/21 threaded and 21/21 inline; direct/CPU/GPU output, GBuffer/shadow, growth, custom values and fallback. |
+| `RendererResourceReloadVulkanTests` | 2/2 threaded and 2/2 inline; validation explicitly on for final native checks. |
+| Consumers | Editor rendering 91/91, Sandbox gameplay 13/13, RoadWeaver scene integration 5/5. |
+| Release sampling | Three before and three final after runs pass, each with 30 warm-ups and 120 samples per mode/view. All 6,480 after rows have zero ID-buffer creations/writes. Unchanged workloads have zero primitive-update visits; 360 dynamic edits visit one primitive each. Draw counts, GPU attribute capacity and CPU mirror capacity match baseline. |
+| Documentation | Changed-document validation passes. |
+
+The additive, nonvirtual RDG lookup does not change builder layout or existing
+registration ABI. Primitive-update admission changes a private Renderer API;
+symbol searches cover all workspace source/test roots and migrate its actual
+consumers. Owning RDG/Renderer and project consumer selections establish bounded
+coverage without repeating the older shared shader/VF/Cook ABI migration's all
+build. Final cached-source guard and registration-boundary fixes rerun owning
+contracts, native threaded/inline output/recovery and final performance samples;
+unchanged owner/consumer results above remain applicable.
+
+Release observations use MSVC, RTX 3090 driver 616.64, Vulkan 1.4.351,
+`Win64-Release-DurinEditor`, Tracy/validation off, threaded RHI and graphics queue.
+The 192x192 fixture excludes capture readback during samples. Values pool three
+runs and show CPU RenderView median/nearest-rank p95 in microseconds for CPU
+instancing; the separate preparation call and GPU completion are outside this span.
+
+| Workload | Before | After |
+| --- | --- | --- |
+| static-small | 275.90 / 344.10 | 263.15 / 312.10 |
+| static-large | 2351.80 / 2717.30 | 1618.30 / 1840.40 |
+| dynamic-large | 2375.40 / 2814.60 | 1635.65 / 1890.00 |
+| multi-view | 791.40 / 1039.90 | 616.10 / 764.10 |
+| shadow-heavy | 838.75 / 1135.50 | 637.70 / 806.00 |
+
+Dynamic edit/publication/drain CPU is 194.10/232.10 us before and 208.10/244.20 us
+after; this metric did not improve. These sequential observations do not isolate
+its small increase from machine/scheduling variation. Sparse queues add retained
+CPU storage: observed membership/index/update/scratch capacity is 2,460-3,300 bytes
+in these workloads. That counter excludes cached metadata/container overhead;
+cached source info also adds one storage-scope pointer. No total-memory reduction
+is claimed. Attribute GPU buffers and CPU mirror capacities remain unchanged.
+
+Automatic Debug observations use the same saved GrayboxStage15 camera and
+2916x1866 scene viewport, validation enabled, threaded RHI, Tracy and instancing
+enabled. Runtime logs verify RHI mode and validation. Three 1800-tick runs per
+revision retain the last 1200 frames each. Mean run frame interval is 16.9111 ms
+before and 15.5931 ms after (7.79% lower); mean run p95 is 19.6639 and 18.0456 ms.
+The final after run is noisier than the first two. This is the full automatic
+editor interval, not the user's manually observed viewport FPS.
+
+All timings are diagnostic. GPU clocks and external load are not locked, revision
+order is sequential, and an exclusive quiet lane is not established. DevTool's
+rolling retention removed the original baseline native console logs; baseline
+CSV/XML and matched editor runtime logs survive, and available final console logs
+are copied into the stage directory. These data cannot accept Stage 5's timing
+gate or establish a GPU shader-time improvement. No culling/queue/shader policy
+or primitive attribute packing changed.
 
 ## Validation and Completion Gates
 

@@ -150,19 +150,38 @@ namespace Durin
 	}
 	auto FGPUSceneReadParameters::Add(FRDGBuilder& Graph, const FResolvedStaticMeshView& View) -> void
 	{
+		std::array<const FRHIBuffer*, 25> SeenBuffers{};
+		size_t NumSeenBuffers = 0;
 		auto AddBuffer = [&](const FBufferRHIRef& Resource) {
 			if (!Resource) return;
-			const auto Handle = Graph.RegisterExternalBuffer(Resource, std::format("GPUScene.Read.{}", reinterpret_cast<uintptr_t>(Resource.GetReference())),
+			const auto Seen = std::span(SeenBuffers).first(NumSeenBuffers);
+			if (std::ranges::find(Seen, Resource.GetReference()) != Seen.end()) return;
+			const auto Existing = Graph.FindExternalBuffer(Resource.GetReference());
+			// An existing pass declaration does not prove the graph's external
+			// entrance contract. Validate once per native resource in this Add,
+			// including manually prepopulated declarations; only the name is lazy.
+			const auto Name = Existing.IsValid() ? std::string{} : std::format("GPUScene.Read.{}", reinterpret_cast<uintptr_t>(Resource.GetReference()));
+			const auto Handle = Graph.RegisterExternalBuffer(Resource, Name,
 				ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
-			if (std::ranges::any_of(Buffers, [&](const auto& Item) { return Item && Item->Buffer == Handle; })) return;
+			if (NumSeenBuffers < SeenBuffers.size()) SeenBuffers[NumSeenBuffers++] = Resource.GetReference();
+			if (std::ranges::any_of(Buffers, [&](const auto& Item) {
+				return Item && Item->Buffer == Handle && Item->Offset == 0 && Item->Size == Resource->GetSize()
+					&& Item->Use == ERDGUse::Read && Item->Access == ERHIAccess::GraphicsShaderRead && !Item->bDiscard;
+			})) return;
 			const auto Free = std::ranges::find_if(Buffers, [](const auto& Item) { return !Item; });
 			require(Free != Buffers.end());
 			*Free = FRDGBufferAccess{Handle, 0, Resource->GetSize(), ERDGUse::Read, ERHIAccess::GraphicsShaderRead};
 		};
 		AddBuffer(View.DynamicInstancingInstanceIds);
+		std::array<const FGPUSceneBufferSet*, 5> SeenSets{};
+		size_t NumSeenSets = 0;
 		for (const auto& Primitive : View.GPUScenePrimitives)
 		{
 			if (!Primitive.Buffers) continue;
+			const auto* Identity = Primitive.Buffers.get();
+			const auto Seen = std::span(SeenSets).first(NumSeenSets);
+			if (std::ranges::find(Seen, Identity) != Seen.end()) continue;
+			if (NumSeenSets < SeenSets.size()) SeenSets[NumSeenSets++] = Identity;
 			const auto& Set = *Primitive.Buffers;
 			const std::array Resources{Set.SceneData[0], Set.SceneData[1], Set.SceneData[2], Set.InstanceIds};
 			for (const auto& Resource : Resources) AddBuffer(Resource);

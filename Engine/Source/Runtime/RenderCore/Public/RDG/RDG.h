@@ -37,6 +37,9 @@ namespace Durin
 		RENDERCORE_API auto RegisterExternalBuffer(const FBufferRHIRef& Buffer,
 			std::string_view Name, ERHIAccess InitialAccess,
 			ERHIAccess FinalAccess) -> FRDGBufferHandle;
+		// Borrow the existing graph identity without registering or changing its
+		// access contract. Unknown/null buffers return an invalid handle.
+		RENDERCORE_API auto FindExternalBuffer(FRHIBuffer* Buffer) const -> FRDGBufferHandle;
 		RENDERCORE_API auto CreateBuffer(const FRDGBufferDesc& Desc,
 			std::string_view Name,
 			ERHIAccess FinalAccess = ERHIAccess::None)

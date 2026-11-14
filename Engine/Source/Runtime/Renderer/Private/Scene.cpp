@@ -440,7 +440,8 @@ namespace Durin
 	}
 	auto FPrimitiveSceneInfo::RequestGPUSceneUpdate(EGPUSceneDirtyState Dirty) -> void
 	{
-		if (Scene && GPUSceneHandle.PersistentPrimitiveIndex.IsValid()) Scene->GPUScene->RequestUpdate(GPUSceneHandle, Dirty);
+		if (Scene && Scene->GPUScene->ResolvePrimitive(GPUSceneHandle) == this)
+			Scene->GPUScene->AddPrimitiveToUpdate(GetPersistentIndex(), Dirty);
 	}
 	auto FScene::UpdateStaticDrawListsForMaterials(std::span<FMaterialRenderProxy* const> Materials) -> void
 	{

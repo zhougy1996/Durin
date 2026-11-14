@@ -4,7 +4,7 @@ Summary: Define the deterministic frame-local graph compiler and its boundary wi
 
 Modules: RenderCore, RHI
 
-Last reviewed: 2026-10-29
+Last reviewed: 2026-11-14
 
 ## Reading and Calling the Graph
 
@@ -137,6 +137,15 @@ the active backend remain authoritative for validating and committing actual
 execution state. Compilation never mutates a command list.
 
 ## Resource Contract
+
+`FindExternalBuffer(FRHIBuffer*)` returns an existing graph-local buffer handle,
+or an invalid handle for null/unknown buffers. It is a read-only identity query,
+not registration or access validation. GPUScene pass parameters deduplicate native
+resources and immutable buffer sets before registration within one collection.
+FindExternalBuffer avoids formatting an already registered resource's name.
+Each collection still validates the native resource's external contract, including
+manually prepopulated pass declarations; a declaration alone never authorizes
+skipping that check. Handles never cross graph ownership.
 
 - External resources registered through `RegisterExternalTexture` or
   `RegisterExternalBuffer` declare exact initial/final access and are retained

@@ -19,6 +19,35 @@ namespace Durin
 
 	struct FGPUScene::FState
 	{
+		// Membership bits deduplicate writes; the sparse list is the only work
+		// visited during patch construction and successful transaction retirement.
+		struct FDirtyRecords
+		{
+			std::vector<bool> Membership;
+			std::vector<uint32> Indices;
+			auto Mark(uint32 Index) -> void
+			{
+				if (Membership[Index]) return;
+				Membership[Index] = true;
+				Indices.push_back(Index);
+			}
+			auto Resize(size_t Count) -> void
+			{
+				const auto Previous = Membership.size();
+				Membership.resize(Count, false);
+				for (size_t Index = Previous; Index < Count; ++Index) Mark(static_cast<uint32>(Index));
+			}
+			auto Clear() -> void
+			{
+				for (uint32 Index : Indices) Membership[Index] = false;
+				Indices.clear();
+			}
+			auto MarkAll() -> void
+			{
+				for (uint32 Index = 0; Index < Membership.size(); ++Index) Mark(Index);
+			}
+			auto IsDirty() const -> bool { return !Indices.empty(); }
+		};
 		struct FEntry
 		{
 			FPrimitiveSceneInfo* Info = nullptr;
@@ -35,7 +64,8 @@ namespace Durin
 		std::vector<FPrimitiveSceneShaderData> Primitives;
 		std::vector<FInstanceSceneShaderData> Instances;
 		std::vector<FPrimitiveCustomData> Payload;
-		std::vector<bool> PrimitiveDirty, InstanceDirty, PayloadDirty;
+		FDirtyRecords PrimitiveDirty, InstanceDirty, PayloadDirty;
+		std::vector<FGPUScenePrimitiveHandle> PrimitivesToUpdate, PrimitiveUpdateScratch;
 		std::vector<FRetiredRange> FreePrimitives, FreeInstances;
 		FBufferRHIRef PrimitiveBuffer, InstanceBuffer, PayloadBuffer;
 		FRHIGPUSyncPointRef LastUse;
@@ -74,10 +104,10 @@ namespace Durin
 				}
 			return {};
 		}
-		template<typename T> static auto Store(std::vector<T>& Values, std::vector<bool>& Dirty, uint32 Index, const T& Value) -> void
+		template<typename T> static auto Store(std::vector<T>& Values, FDirtyRecords& Dirty, uint32 Index, const T& Value) -> void
 		{
 			if (std::ranges::equal(std::as_bytes(std::span(&Values[Index], 1)), std::as_bytes(std::span(&Value, 1)))) return;
-			Values[Index] = Value; Dirty[Index] = true;
+			Values[Index] = Value; Dirty.Mark(Index);
 		}
 		auto RetireDynamic(const FGPUSceneDynamicAllocation& Allocation) -> void
 		{
@@ -136,7 +166,7 @@ namespace Durin
 					if (Offset == Instances.size())
 					{
 						Instances.resize(size_t(Offset) + Count); Payload.resize(Instances.size());
-						InstanceDirty.resize(Instances.size(), true); PayloadDirty.resize(Instances.size(), true);
+						InstanceDirty.Resize(Instances.size()); PayloadDirty.Resize(Instances.size());
 					}
 					Info.InstanceSceneDataOffset = Offset;
 					Info.NumInstanceSceneDataEntries = Count;
@@ -175,12 +205,12 @@ namespace Durin
 		if (uint64(Result.PrimitiveOffset) + Count > State->Primitives.size())
 		{
 			State->Primitives.resize(size_t(Result.PrimitiveOffset) + Count);
-			State->Entries.resize(State->Primitives.size()); State->PrimitiveDirty.resize(State->Primitives.size(), true);
+			State->Entries.resize(State->Primitives.size()); State->PrimitiveDirty.Resize(State->Primitives.size());
 		}
 		if (uint64(Result.InstanceOffset) + Count > State->Instances.size())
 		{
 			State->Instances.resize(size_t(Result.InstanceOffset) + Count); State->Payload.resize(State->Instances.size());
-			State->InstanceDirty.resize(State->Instances.size(), true); State->PayloadDirty.resize(State->Instances.size(), true);
+			State->InstanceDirty.Resize(State->Instances.size()); State->PayloadDirty.Resize(State->Instances.size());
 		}
 		State->DynamicAllocations.emplace(Result.Id, Result); ++State->Revision;
 		return Result;
@@ -234,22 +264,28 @@ namespace Durin
 		if (Index == State->Entries.size())
 		{
 			require(uint64(Index) + 1 <= UINT32_MAX / sizeof(FPrimitiveSceneShaderData));
-			State->Entries.emplace_back(); State->Primitives.emplace_back(); State->PrimitiveDirty.push_back(true);
+			State->Entries.emplace_back(); State->Primitives.emplace_back(); State->PrimitiveDirty.Resize(State->Primitives.size());
 		}
 		auto& Entry = State->Entries[Index];
 		Entry.Info = &Info; ++Entry.Generation; Entry.DirtyState = static_cast<uint8>(EGPUSceneDirtyState::Added);
 		Info.GPUSceneHandle = {{Index}, Entry.Generation};
+		State->PrimitivesToUpdate.push_back(Info.GPUSceneHandle);
 		++State->Revision;
 	}
 
-	auto FGPUScene::RequestUpdate(FGPUScenePrimitiveHandle Handle, EGPUSceneDirtyState Dirty) -> bool
+	auto FGPUScene::AddPrimitiveToUpdate(FPersistentPrimitiveIndex PrimitiveIndex, EGPUSceneDirtyState Dirty) -> bool
 	{
 		CheckRenderingThread(); State->RequireNoPendingUpdate();
-		const uint32 Index = Handle.PersistentPrimitiveIndex.Index;
+		const uint32 Index = PrimitiveIndex.Index;
 		if (Index >= State->Entries.size()) return false;
 		auto& Entry = State->Entries[Index];
-		if (!Entry.Info || Entry.Generation != Handle.Generation || (static_cast<uint8>(Dirty) & static_cast<uint8>(EGPUSceneDirtyState::Removed))) return false;
-		if (Dirty != EGPUSceneDirtyState::None) { Entry.DirtyState |= static_cast<uint8>(Dirty); ++State->Revision; }
+		if (!Entry.Info || (static_cast<uint8>(Dirty) & static_cast<uint8>(EGPUSceneDirtyState::Removed))) return false;
+		if (Dirty != EGPUSceneDirtyState::None)
+		{
+			if (!Entry.DirtyState) State->PrimitivesToUpdate.push_back({PrimitiveIndex, Entry.Generation});
+			Entry.DirtyState |= static_cast<uint8>(Dirty);
+			++State->Revision;
+		}
 		return true;
 	}
 
@@ -272,8 +308,16 @@ namespace Durin
 	auto FGPUScene::UpdateCPUData() -> void
 	{
 		CheckRenderingThread(); State->RequireNoPendingUpdate(); State->DrainDynamicReleases();
-		for (auto& Entry : State->Entries)
-			if (Entry.Info && Entry.DirtyState) { State->Refresh(*Entry.Info, Entry.DirtyState); Entry.DirtyState = 0; }
+		State->PrimitivesToUpdate.swap(State->PrimitiveUpdateScratch);
+		for (const auto Handle : State->PrimitiveUpdateScratch)
+		{
+			++State->Statistics.CPUPrimitiveUpdateVisits;
+			auto& Entry = State->Entries[Handle.PersistentPrimitiveIndex.Index];
+			if (!Entry.Info || Entry.Generation != Handle.Generation || !Entry.DirtyState) continue;
+			const auto Dirty = std::exchange(Entry.DirtyState, uint8(0));
+			State->Refresh(*Entry.Info, Dirty);
+		}
+		State->PrimitiveUpdateScratch.clear();
 	}
 	auto FGPUScene::Update(FRDGBuilder& Graph) -> FGPUSceneUpdateResult
 	{
@@ -285,7 +329,7 @@ namespace Durin
 		FGPUSceneUpdateResult Result;
 		Result.Update = Transaction; Result.Revision = State->Revision;
 		constexpr auto ReadAccess = ERHIAccess::GraphicsShaderRead;
-		auto Upload = [&]<typename T>(const std::vector<T>& Values, const std::vector<bool>& Dirty,
+		auto Upload = [&]<typename T>(const std::vector<T>& Values, FState::FDirtyRecords& Dirty,
 			const FBufferRHIRef& Existing, FBufferRHIRef& Destination, std::string_view Name) -> FRDGBufferParameter
 		{
 			const uint32 RequiredCount = std::max(1u, static_cast<uint32>(Values.size()));
@@ -311,15 +355,16 @@ namespace Durin
 			{
 				Bytes = Existing->GetSize();
 				Buffer = Graph.RegisterExternalBuffer(Existing, Name, ReadAccess, ReadAccess);
-				for (uint32 Begin = 0; Begin < Dirty.size();)
+				std::ranges::sort(Dirty.Indices);
+				for (size_t Cursor = 0; Cursor < Dirty.Indices.size();)
 				{
-					if (!Dirty[Begin]) { ++Begin; continue; }
+					const uint32 Begin = Dirty.Indices[Cursor++];
 					uint32 End = Begin + 1;
-					while (End < Dirty.size() && Dirty[End]) ++End;
+					while (Cursor < Dirty.Indices.size() && Dirty.Indices[Cursor] == End) { ++Cursor; ++End; }
 					const auto Data = std::as_bytes(std::span(Values).subspan(Begin, End - Begin));
 					const auto Pass = Graph.QueueBufferUpload(Buffer, Begin * sizeof(T), Data);
 					Graph.MarkPassRoot(Pass, "GPUScene persistent patch");
-					Result.UploadBytes += Data.size(); ++Result.UploadRanges; Begin = End;
+					Result.UploadBytes += Data.size(); ++Result.UploadRanges;
 				}
 			}
 			Graph.QueueBufferExtraction(Buffer, &Destination, ReadAccess);
@@ -362,9 +407,9 @@ namespace Durin
 		require(Pending->Primitive && Pending->Instance && Pending->Payload);
 		State->PrimitiveBuffer = Pending->Primitive; State->InstanceBuffer = Pending->Instance; State->PayloadBuffer = Pending->Payload;
 		if (Pending->bRebuilt) ++State->ResourceGeneration;
-		std::ranges::fill(State->PrimitiveDirty, false);
-		std::ranges::fill(State->InstanceDirty, false);
-		std::ranges::fill(State->PayloadDirty, false);
+		State->PrimitiveDirty.Clear();
+		State->InstanceDirty.Clear();
+		State->PayloadDirty.Clear();
         State->Statistics.UploadBytes += Result.UploadBytes;
         State->Statistics.UploadRanges += Result.UploadRanges;
         State->Statistics.BufferRebuilds += Result.BufferRebuilds;
@@ -380,6 +425,9 @@ namespace Durin
             + State->Instances.capacity() * sizeof(FInstanceSceneShaderData) + State->Payload.capacity() * sizeof(FPrimitiveCustomData);
         for (const auto& Buffer : GetResourceBuffers()) if (Buffer) Result.CapacityBytes += Buffer->GetSize();
         for (const auto& Entry : State->InstanceIdBuffers) Result.InstanceIdCapacityBytes += Entry->Buffer->GetSize();
+		Result.UpdateQueueCapacityBytes = (State->PrimitivesToUpdate.capacity() + State->PrimitiveUpdateScratch.capacity()) * sizeof(FGPUScenePrimitiveHandle);
+		for (const auto* Dirty : {&State->PrimitiveDirty, &State->InstanceDirty, &State->PayloadDirty})
+			Result.UpdateQueueCapacityBytes += Dirty->Indices.capacity() * sizeof(uint32) + (Dirty->Membership.capacity() + 7) / 8;
         return Result;
     }
 
@@ -447,9 +495,9 @@ namespace Durin
 		State->InstanceIdBuffers.clear();
 		State->PrimitiveBuffer = {}; State->InstanceBuffer = {}; State->PayloadBuffer = {};
 		State->LastUse = {}; ++State->ResourceGeneration;
-		std::ranges::fill(State->PrimitiveDirty, true);
-		std::ranges::fill(State->InstanceDirty, true);
-		std::ranges::fill(State->PayloadDirty, true);
+		State->PrimitiveDirty.MarkAll();
+		State->InstanceDirty.MarkAll();
+		State->PayloadDirty.MarkAll();
 		for (auto& Range : State->FreePrimitives) Range.Completion = {};
 		for (auto& Range : State->FreeInstances) Range.Completion = {};
 	}
@@ -460,10 +508,8 @@ namespace Durin
 	{ return {State->PrimitiveBuffer, State->InstanceBuffer, State->PayloadBuffer}; }
 	auto FGPUScene::IsDirty() const -> bool
 	{
-		return !State->PrimitiveBuffer || std::ranges::any_of(State->Entries, [](const auto& Entry) { return Entry.DirtyState != 0; })
-			|| std::ranges::find(State->PrimitiveDirty, true) != State->PrimitiveDirty.end()
-			|| std::ranges::find(State->InstanceDirty, true) != State->InstanceDirty.end()
-			|| std::ranges::find(State->PayloadDirty, true) != State->PayloadDirty.end();
+		return !State->PrimitiveBuffer || !State->PrimitivesToUpdate.empty()
+			|| State->PrimitiveDirty.IsDirty() || State->InstanceDirty.IsDirty() || State->PayloadDirty.IsDirty();
 	}
 	auto FGPUScene::RegisterGraphUse(const FRDGBuilder& Graph) -> void
 	{

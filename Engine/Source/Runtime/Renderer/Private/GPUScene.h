@@ -56,6 +56,8 @@ namespace Durin
         uint64 InstanceIdBufferReuses = 0;
         uint64 InstanceIdUploadBytes = 0;
         uint64 InstanceIdCapacityBytes = 0;
+        uint64 CPUPrimitiveUpdateVisits = 0;
+        uint64 UpdateQueueCapacityBytes = 0;
     };
 
 	// A counted immutable upload lease. Matching contents may be shared while GPU
@@ -103,7 +105,7 @@ namespace Durin
 		RENDERER_API auto ResolvePrimitive(FGPUScenePrimitiveHandle Handle) const -> FPrimitiveSceneInfo*;
 		RENDERER_API auto AddPrimitive(FPrimitiveSceneInfo& Info) -> void;
 		RENDERER_API auto RemovePrimitive(FPrimitiveSceneInfo& Info) -> void;
-		RENDERER_API auto RequestUpdate(FGPUScenePrimitiveHandle Handle, EGPUSceneDirtyState Dirty) -> bool;
+		RENDERER_API auto AddPrimitiveToUpdate(FPersistentPrimitiveIndex PrimitiveIndex, EGPUSceneDirtyState Dirty = EGPUSceneDirtyState::All) -> bool;
 		RENDERER_API auto UpdateCPUData() -> void;
 		RENDERER_API auto Update(FRDGBuilder& GraphBuilder) -> FGPUSceneUpdateResult;
 		RENDERER_API auto GetShaderParameters(const FRDGBuilder& GraphBuilder) const -> FGPUSceneResourceParameters;
