@@ -3589,6 +3589,66 @@ TEST_F(FContentBrowserModelTests, ScopedRefreshPreservesUnrelatedRowsAndTreeIden
 	EXPECT_EQ(Model.GetDirectorySnapshot(A.generic_string()), Tree);
 }
 
+TEST_F(FContentBrowserModelTests, ModifiedItemsRetainThumbnailDemandUntilReplacementIsPublished)
+{
+	FPackagePath FirstPath, SecondPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/First", FirstPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/Second", SecondPath));
+	DMaterial *First = nullptr, *Second = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(FirstPath, First));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SecondPath, Second));
+	ASSERT_TRUE(SavePackage(First->GetPackage()));
+	ASSERT_TRUE(SavePackage(Second->GetPackage()));
+	auto Renderer = FThumbnailManagerTestAccess::RegisterScoped(GetDefaultThumbnailManager(),
+		MakeThumbnailRenderer<FRouteOnlyThumbnailRenderer>(), "Durin::DMaterial");
+	ASSERT_TRUE(Renderer);
+	const auto File = Root / "Content/marker.txt";
+	std::ofstream(File) << "before";
+	FProviderQueryFixture Query;
+	FContentBrowserModel Model(Query);
+	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content").generic_string()));
+	FContentBrowserModelFixtureAccess::Wait(Model);
+	const auto Original = Model.GetItems();
+	ASSERT_EQ(std::ranges::count_if(Original, [](const auto& Item) { return Item.IsAsset() && !Item.IsFolder(); }), 2);
+	FContentBrowserThumbnailReferences References;
+	auto RequestFrame = [&] {
+		References.BeginFrame();
+		for (const auto& Item : Model.GetItems()) References.Request(Item, EAssetThumbnailPriority::Visible);
+		References.EndFrame();
+	};
+	RequestFrame();
+	ASSERT_EQ(References.GetAssetReferenceCountForTesting(), 2u);
+	auto Gate = std::make_shared<FBrowserScanGate>();
+	FBrowserScanRelease Release{Gate};
+	Model.SetEntryStatusQueryForTesting([Gate](const auto& Entry, auto& Error) {
+		Gate->Pause();
+		return Entry.symlink_status(Error);
+	});
+	std::ofstream(File) << "after, with updated size";
+	EXPECT_TRUE(Model.ApplyContentChanges({.Changes = {{EContentChangeKind::Modified,
+		File.generic_string(), File.generic_string()}}}));
+	ASSERT_TRUE(Gate->WaitUntilStarted());
+	for (int Frame = 0; Frame < 8; ++Frame)
+	{
+		RequestFrame();
+		EXPECT_EQ(Model.GetItems().size(), Original.size());
+		EXPECT_EQ(References.GetAssetReferenceCountForTesting(), 2u);
+		for (const auto& Item : Original)
+			if (Item.IsAsset() && !Item.IsFolder()) EXPECT_EQ(References.Find(Item.GetItemKey()).State, EAssetThumbnailState::Pending);
+	}
+	Gate->Release();
+	FContentBrowserModelFixtureAccess::Wait(Model);
+	RequestFrame();
+	EXPECT_EQ(References.GetAssetReferenceCountForTesting(), 2u);
+	const auto Updated = std::ranges::find_if(Model.GetItems(), [](const auto& Item) { return Item.GetItemName() == "marker.txt"; });
+	ASSERT_NE(Updated, Model.GetItems().end());
+	EXPECT_EQ(TestFileSize(*Updated), std::filesystem::file_size(File));
+	// Explicit refresh/navigation still retires actionable rows immediately.
+	Model.RefreshItemsSnapshot();
+	EXPECT_TRUE(Model.GetItems().empty());
+	FContentBrowserModelFixtureAccess::Wait(Model);
+}
+
 TEST_F(FContentBrowserModelTests, ScopedRefreshDistinguishesRecursiveSearchAndDirectoryStructure)
 {
 	const auto A = Root / "Content/A";

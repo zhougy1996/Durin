@@ -108,6 +108,7 @@ namespace Durin::ContentBrowser::Private
 		}
 
 	private:
+		auto RequestItemsSnapshot(bool bPreserveItems) -> void;
 		auto PublishItems(FContentBrowserItemsCapture Capture) -> void;
 		auto PublishDirectory(const std::string& Physical,
 			FContentBrowserDirectorySnapshot Snapshot) -> void;

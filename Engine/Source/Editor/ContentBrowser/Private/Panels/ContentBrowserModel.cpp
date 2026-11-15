@@ -421,21 +421,35 @@ namespace Durin::ContentBrowser::Private
 		}
 		if (!ContentChangeScopes::SamePath(Available, Session.CurrentPhysicalPath))
 			return NavigateToPhysical(Available, false);
-		RefreshItemsSnapshot(false);
+		const bool bOnlyModifiedFiles = std::ranges::all_of(Changes.Changes, [](const FContentChange& Change) {
+			return Change.Kind == EContentChangeKind::Modified && !Change.bDirectory;
+		});
+		// Item updates retain visible identities and their thumbnail references, as in
+		// UE's asset view. Publishing an empty intermediate list cancels the very
+		// thumbnail load that produced a residency update and starts a reload loop.
+		RequestItemsSnapshot(bOnlyModifiedFiles);
 		return true;
 	}
 
 	auto FContentBrowserModel::RefreshItemsSnapshot(bool bInvalidateDirectoryTree) -> void
 	{
 		if (bInvalidateDirectoryTree) InvalidateDirectoryTree();
+		RequestItemsSnapshot(false);
+	}
+
+	auto FContentBrowserModel::RequestItemsSnapshot(bool bPreserveItems) -> void
+	{
 		if (ItemsRequest) ItemsRequest->State = EItemsRequestState::Cancelled;
 		ItemsCancellation->Cancel();
 		if (!DataQuery.IsAcceptingRequests()) { CancelPendingSnapshots(); return; }
 		bSnapshotPublicationSuspended = false;
 		EnumerationDiagnostics.clear();
 		SuppressedEnumerationDiagnosticCount = 0;
-		PublishedSnapshot = std::make_shared<const FContentBrowserItemsSnapshot>();
-		Items = {};
+		if (!bPreserveItems)
+		{
+			PublishedSnapshot = std::make_shared<const FContentBrowserItemsSnapshot>();
+			Items = {};
+		}
 		ItemsRequest = std::make_shared<FItemsRequest>(FItemsRequest{
 			Session.CurrentVirtualPath, !Session.Query.Search.empty()});
 		(void)PumpPendingSnapshots();
