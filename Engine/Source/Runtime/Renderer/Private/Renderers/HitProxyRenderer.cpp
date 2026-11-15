@@ -111,7 +111,7 @@ namespace Durin
 			return Layout;
 		}
 
-		struct FHitProxyDraw : FMeshPassPipeline
+		struct FHitProxyDraw : FMeshPassShaders
 		{
 			const FPreparedStaticMeshPrimitive* Primitive = nullptr;
 			const FPreparedStaticMeshDraw* Draw = nullptr;
@@ -120,7 +120,7 @@ namespace Durin
 			std::vector<FRHIUniformBufferRange> Collections;
 			FRHIUniformBufferRange Transform;
 			FRHIUniformBufferRange Id;
-			FMeshDrawCommandHandle Command;
+			const FMeshDrawCommand* Command = nullptr;
 		};
 	}
 
@@ -179,13 +179,17 @@ namespace Durin
 		const auto ViewUniform = PrepareMeshViewUniform(Commands, View, false);
 		FResolvedStaticMeshView SceneData;
 		FRendererRDGAllocator UploadAllocator(Coordinator);
-		SceneData.GPUScenePrimitives = std::make_shared<FGPUSceneDynamicContext>()->Prepare(Commands, UploadAllocator, Prepared);
-		if (SceneData.GPUScenePrimitives.size() != Prepared.Primitives.size()) return {};
+		auto DynamicContext = std::make_shared<FGPUSceneDynamicContext>();
+		SceneData.GPUScenePrimitives = CollectGPUScenePrimitives(Prepared, DynamicContext);
+		if (SceneData.GPUScenePrimitives.size() != Prepared.Primitives.size() || !DynamicContext->Upload(Commands, UploadAllocator)) return {};
 		std::vector<FHitProxyDraw> Draws;
 		bool bReady = true;
 		bool bFrameDependent = false;
 		FMeshDrawCommandBindingCache BindingCache;
 		FDynamicMeshDrawCommandStorage DrawCommands;
+		FParallelMeshDrawCommandPass CommandPass({EMeshPipelinePass::HitProxy});
+		FDynamicPassMeshDrawListContext BindingContext(DrawCommands, CommandPass, BindingCache);
+		auto LocalProcessor = FPassProcessorManager::CreateMeshPassProcessor(EMeshPipelinePass::HitProxy, &BindingContext);
 		ForEachBasePassBucket(Prepared, [&](const auto& Bucket, EMeshBasePass) {
 			for (const auto& Draw : Bucket)
 			{
@@ -214,7 +218,7 @@ namespace Durin
 				if (!ShaderCompletion) { DURIN_ERROR("Hit proxy material shader failed: {}", std::string(ShaderCompletion.Error)); bReady = false; break; }
 				if (!SurfaceMaterials.Ensure_RenderThread(Binding, ESurfaceMaterialPass::MaskedShadow)
 					|| !SurfaceMaterials.Prepare_RenderThread(Commands, &Binding, ESurfaceMaterialPass::MaskedShadow, {}, nullptr, nullptr, Item.Material)) { bReady = false; break; }
-				if (!Processor.PreparePipeline(Batch, "HitProxy", Item, Item.Primitive->CollectedBinding->Declaration, Item)) { bReady = false; break; }
+				if (!Processor.PreparePipeline(Batch, "HitProxy", Item, Item.Primitive->CollectedBinding->Declaration, Item.Pipeline)) { bReady = false; break; }
 				if (!Factory->SupportsGPUScene()) Item.Transform = PrepareFallbackPrimitiveUniform(Commands, *Item.Primitive);
 				const auto It = Ids.find(Item.Primitive->PrimitiveId.Value);
 				struct FIdUniform { std::array<uint32, 4> Id; FVector4f ViewOrigin; };
@@ -236,14 +240,13 @@ namespace Durin
 					}
 				if (!bReady) break;
 				const FResolvedStaticMeshView::FMaterialUniform Material{Item.Material.Surface, Item.Material.Uniform, Collections};
-				Item.Pipeline = std::make_shared<const FMeshPassPipeline>(static_cast<const FMeshPassPipeline&>(Item));
 				FMeshDrawCommandBuildInput Input{Commands, *Item.Primitive, Draw, Item.Pipeline, Material,
 					Item.Transform, ViewUniform, {}, Item.Id};
                 const auto& GPU = SceneData.GPUScenePrimitives[Draw.PrimitiveIndex];
                 if (Factory->SupportsGPUScene() && GPU.Buffers)
                 { Input.GPUScene = GPU.Buffers->GetShaderParameters(); Input.InstanceIdOffset = GPU.InstanceIdOffset; }
-				FDynamicPassMeshDrawListContext BindingContext(DrawCommands, {EMeshPipelinePass::HitProxy}, Item.Command);
-				if (!Processor.AddMeshBatch(Batch, Input, BindingCache, BindingContext)) { bReady = false; break; }
+				if (!LocalProcessor->AddMeshBatch(Batch, Input)) { bReady = false; break; }
+				Item.Command = CommandPass.GetMeshDrawCommands().back().Command;
 				Draws.push_back(std::move(Item));
 			}
 		});
@@ -324,7 +327,7 @@ namespace Durin
 		Commands.SetViewport(float(View.ViewportX), float(View.ViewportY), 0.f, float(Width), float(Height), 1.f);
 		for (const auto& Item : Draws)
 		{
-			const auto Command = DrawCommands.GetCommand(Item.Command);
+			const auto* Command = Item.Command;
 			if (!Command || !Command->SubmitDraw(Commands)) { bReady = false; break; }
 		}
 		if (bReady && OverlayBuffer)
@@ -364,9 +367,8 @@ namespace Durin::RendererPrivate
 		public:
 			using FMeshPassProcessor::FMeshPassProcessor;
 			auto AddMeshBatch(const FMeshPassProcessorBatch& Batch, const FMeshDrawCommandBuildInput& Input,
-				FMeshDrawCommandBindingCache& Cache, FMeshPassDrawListContext& Context,
 				std::shared_ptr<const FMeshDrawCommand> Existing) const -> FShaderCompletion override
-			{ return BuildMeshDrawCommands(Batch, Input, Cache, Context, std::move(Existing)); }
+			{ return BuildMeshDrawCommands(Batch, Input, std::move(Existing)); }
 			auto GetPass() const -> EMeshPipelinePass override { return EMeshPipelinePass::HitProxy; }
 			auto IsEnabled(const FSceneRenderPreparationConfig& Config) const -> bool override { return Config.Settings.bHitProxy; }
 			auto GetVertexFactoryPass() const -> uint32 override { return MaterialMeshPassForward; }

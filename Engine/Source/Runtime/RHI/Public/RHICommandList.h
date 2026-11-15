@@ -9,6 +9,7 @@
 #include "RHIResources.h"
 #include "RHIBufferUploadData.h"
 #include "RHIShaderParameters.h"
+#include "RHIGPUReadback.h"
 #include "RHITextureReadback.h"
 
 namespace Durin
@@ -39,6 +40,7 @@ namespace Durin
 		RHI_API auto EnqueueTextureReadback(FRHITexture* Texture, uint32 MipIndex = 0,
 			uint32 ArraySlice = 0, std::shared_ptr<FRHITextureReadback> Request = {}) -> std::shared_ptr<FRHITextureReadback>;
 		RHI_API auto PollTextureReadbacks() -> void;
+		RHI_API auto PollReadbacks() -> void;
 		RHI_API auto ReleaseQueueOwnership(std::shared_ptr<FRHIQueueTransfer> Transfer) -> void;
 		RHI_API auto AcquireQueueOwnership(std::shared_ptr<FRHIQueueTransfer> Transfer) -> void;
 
@@ -174,6 +176,9 @@ namespace Durin
 		RHI_API auto RecordAcquireBackBuffer(FRHITexture* BackBuffer) -> void;
 
 	private:
+		friend class FRHIGPUBufferReadback;
+		RHI_API auto EnqueueBufferReadback(FRHIBuffer* Source, uint32 Offset, uint32 NumBytes, std::shared_ptr<RHIPrivate::FReadbackState> Request) -> void;
+
 		auto ValidateIndirectDrawRecording(const char* OperationName, FRHIBuffer* ArgumentBuffer,
 			uint64 Offset, size_t ArgumentSize) -> void;
 		auto CountRecordedDrawCommand() -> void;

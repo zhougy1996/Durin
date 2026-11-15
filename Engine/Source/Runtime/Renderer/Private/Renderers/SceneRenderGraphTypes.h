@@ -53,9 +53,17 @@ namespace Durin
 		FSceneFeatureDecision Deferred;
 	};
 
+	// Frozen during resource preparation, before any culling groups or graph buffers exist.
+	enum class EInstanceCullingMode : uint8 { Disabled, Unsupported, ResourcesUnavailable, Enabled };
+
 	// Publishes the complete immutable feature policy for one scene submission.
 	struct FSceneFrameFeaturePlan final
 	{
+		struct FGBuffer final : FSceneFeatureDecision
+		{
+			EInstanceCullingMode InstanceCullingMode = EInstanceCullingMode::Disabled;
+		};
+
 		struct FAmbientOcclusion final : FSceneFeatureDecision
 		{
 			EGroundTruthAmbientOcclusionQuality Quality =
@@ -80,7 +88,7 @@ namespace Durin
 		};
 
 		FSceneFeatureDecision Deferred;
-		FSceneFeatureDecision GBuffer;
+		FGBuffer GBuffer;
 		FAmbientOcclusion AmbientOcclusion;
 		FContactVisibility ContactVisibility;
 		FCloudShadow CloudShadow;

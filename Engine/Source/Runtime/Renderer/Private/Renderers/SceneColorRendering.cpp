@@ -16,6 +16,7 @@ namespace Durin
 	{
 		using FParameters = FSceneColorPassResources;
 		static const std::array Members = {
+			MakeRDGNestedParameterMemberMetadata<FParameters, decltype(FParameters::GPUScene)>("GPUScene", offsetof(FParameters, GPUScene), FGPUSceneReadParameters::GetRDGParametersMetadata()),
 			MakeRDGBufferAccessMetadata<FParameters, decltype(FParameters::LocalLights)>("LocalLights", offsetof(FParameters, LocalLights)),
 			MakeRDGColorAttachmentBindingMetadata<FParameters, decltype(FParameters::SceneColorOutput)>("SceneColorOutput", offsetof(FParameters, SceneColorOutput)),
 			MakeRDGDepthStencilAttachmentBindingMetadata<FParameters, decltype(FParameters::SceneDepthOutput)>("SceneDepthOutput", offsetof(FParameters, SceneDepthOutput))
@@ -75,6 +76,7 @@ namespace Durin
 			"Scene.ColorValue", "scene-color-result"
 		);
 		auto Parameters = Graph.AllocParameters<FSceneColorPassParameters>();
+		if (bRequiresDeferredOpaque) Parameters->Resources.GPUScene = Inputs.Resolved.Receiver.StaticMeshes.GetGPUSceneParameters(Graph);
 		if (bRequiresDeferredOpaque) Parameters->Resources.LocalLights = Inputs.Resolved.Lighting.LocalRead;
 		Parameters->BaseScene = {.Value = Inputs.BaseScene.Completion};
 		if (Inputs.VolumetricCloud.Completion)
@@ -191,12 +193,8 @@ namespace Durin
 		for (const FPreparedStaticMeshDraw& Draw :
 			 Inputs.Receiver.StaticMeshes.Translucent)
 		{
-			StaticMeshRenderer.ExecutePreparedDraw_RenderThread(
-				CommandList, View, ResolvedSceneResources.Lighting.UniformBuffer,
-				View.Settings.Mode.RenderMode, EMeshBasePass::Translucent, Draw,
-				Inputs.Receiver.StaticMeshes,
-				ResolvedSceneResources.Receiver.StaticMeshes, true, &TranslucentBindings
-			);
+			StaticMeshRenderer.ExecutePreparedDraw_RenderThread(CommandList, Draw,
+				ResolvedSceneResources.Receiver.StaticMeshes, {RendererPrivate::EMeshPipelinePass::SortedTranslucency}, &TranslucentBindings);
 		}
 		// Lit opaque/masked sections were already consumed by GBuffer + deferred
 		// lighting, so the retained-forward attempted count intentionally does not

@@ -35,12 +35,13 @@ namespace Durin
 
 	struct FGPUSceneResourceParameters
 	{
-		FRDGBufferParameter GPUScenePrimitiveSceneData;
-		FRDGBufferParameter GPUSceneInstanceSceneData;
-		FRDGBufferParameter GPUSceneInstancePayloadData;
+		std::optional<FRDGBufferParameter> GPUScenePrimitiveSceneData;
+		std::optional<FRDGBufferParameter> GPUSceneInstanceSceneData;
+		std::optional<FRDGBufferParameter> GPUSceneInstancePayloadData;
 		uint32 GPUSceneNumAllocatedPrimitives = 0;
 		uint32 GPUSceneNumAllocatedInstances = 0;
 		uint64 GPUSceneResourceGeneration = 0;
+		RENDERER_API static auto GetRDGParametersMetadata() -> const FRDGParametersMetadata*;
 	};
 
     // Cumulative admitted uploads plus current native capacity. Failed/abandoned
@@ -102,6 +103,7 @@ namespace Durin
 		RENDERER_API auto WriteDynamicPrimitive(const FGPUSceneDynamicAllocation& Allocation, uint32 Index,
 			const FMatrix& Transform, const FBox& Bounds, const FPrimitiveCustomData& PrimitiveData, const FPrimitiveCustomData& InstanceData) -> bool;
 		RENDERER_API auto ReleaseDynamicPrimitiveRange(const FGPUSceneDynamicAllocation& Allocation) -> void;
+		RENDERER_API auto GetPrimitiveSceneInfo(FPersistentPrimitiveIndex PrimitiveIndex) const -> FPrimitiveSceneInfo*;
 		RENDERER_API auto ResolvePrimitive(FGPUScenePrimitiveHandle Handle) const -> FPrimitiveSceneInfo*;
 		RENDERER_API auto AddPrimitive(FPrimitiveSceneInfo& Info) -> void;
 		RENDERER_API auto RemovePrimitive(FPrimitiveSceneInfo& Info) -> void;
@@ -118,6 +120,7 @@ namespace Durin
 		RENDERER_API auto GetPrimitiveSceneData() const -> std::span<const FPrimitiveSceneShaderData>;
 		RENDERER_API auto GetInstanceSceneData() const -> std::span<const FInstanceSceneShaderData>;
 		RENDERER_API auto GetInstancePayloadData() const -> std::span<const FPrimitiveCustomData>;
+		RENDERER_API auto GetResourceGeneration() const -> uint64;
 		RENDERER_API auto GetResourceBuffers() const -> std::array<FBufferRHIRef, 3>;
 		RENDERER_API auto FindInstanceId(FPersistentPrimitiveIndex Primitive, FPrimitiveInstanceId StableInstanceId) const -> std::optional<uint32>;
 		RENDERER_API auto IsDirty() const -> bool;

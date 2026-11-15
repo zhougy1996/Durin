@@ -47,12 +47,8 @@ namespace Durin
 			| ERenderResourceGenerationDependency::Device
 		};
 	};
-	FInstanceCullingManager::FInstanceCullingManager()
-		: State(std::make_unique<FState>())
-	{
-	}
 	FInstanceCullingManager::FInstanceCullingManager(FRendererResourceCoordinator& InCoordinator)
-		: Coordinator(&InCoordinator)
+		: Coordinator(InCoordinator)
 		, State(std::make_unique<FState>())
 	{
 	}
@@ -68,12 +64,11 @@ namespace Durin
 	}
 	auto FInstanceCullingManager::EnsureResources_RenderThread(EGPUCullingFailure Failure) -> bool
 	{
-		require(Coordinator);
-		if (Failure == EGPUCullingFailure::ShaderUnavailable) return false;
+		if (Failure == EGPUCullingFailure::ShaderUnavailable || Failure == EGPUCullingFailure::PipelineUnavailable) return false;
 		using FPayload = FState::FGPUCullingPayload;
 		using FResult = TRenderResourceCreateResult<FPayload>;
 		return State->GPUCulling.Resolve(
-				   Coordinator->GetGeneration_RenderThread(), []() -> FResult {
+				   Coordinator.GetGeneration_RenderThread(), []() -> FResult {
 					   const std::array<const FGlobalShaderType*, 1> Types{
 						   &FInstanceCullingComputeShader::StaticType()
 					   };
@@ -162,7 +157,7 @@ namespace Durin
 		return true;
 	}
 
-	FInstanceCullingContext::FInstanceCullingContext(std::shared_ptr<const FInstanceCullingView> InView, RendererPrivate::FMeshPassKey InPass, FInstanceCullingManager* InManager)
+	FInstanceCullingContext::FInstanceCullingContext(std::shared_ptr<const FInstanceCullingView> InView, RendererPrivate::FMeshPassKey InPass, FInstanceCullingManager& InManager)
 		: Manager(InManager)
 		, View(std::move(InView))
 		, Pass(InPass)
@@ -178,72 +173,113 @@ namespace Durin
 	auto FInstanceCullingManager::CreateContext(uint32 ViewId, RendererPrivate::FMeshPassKey Pass) -> std::shared_ptr<FInstanceCullingContext>
 	{
 		require(ViewId < Views.size());
-		auto Context = std::make_shared<FInstanceCullingContext>(Views[ViewId], Pass, this);
+		auto Context = std::make_shared<FInstanceCullingContext>(Views[ViewId], Pass, *this);
 		return Context;
 	}
-	auto FInstanceCullingContext::SetupDrawCommands(std::span<const RendererPrivate::FVisibleMeshDrawCommand> VisibleMeshDrawCommands,
-		bool bRequested, bool bIndirectDrawSupported, size_t* OutOverflowCandidates, size_t MaximumGeneratedBytes,
-		FInstanceCullingAdmissionDiagnostics* OutDiagnostics, std::shared_ptr<RendererPrivate::FMeshDrawCommandSubmission> InSubmission) -> bool
+	auto FInstanceCullingContext::SetupDrawCommands(RendererPrivate::FMeshCommandOneFrameArray& VisibleMeshDrawCommands,
+		std::span<const RendererPrivate::FMeshDrawCommandCullingPayload> Sources, size_t* OutOverflowCandidates, size_t MaximumGeneratedBytes,
+		FInstanceCullingAdmissionDiagnostics* OutDiagnostics) -> bool
 	{
 		require(!bBuilt);
 		Candidates.clear(); Arguments.clear(); InstanceSceneData = {}; DynamicContexts.clear();
-		Submission = InSubmission ? std::move(InSubmission) : std::make_shared<RendererPrivate::FMeshDrawCommandSubmission>(RendererPrivate::BuildMeshDrawCommandRuns(VisibleMeshDrawCommands), VisibleMeshDrawCommands.size());
-		Submission->bDispatched = false;
-		for (auto& Run : Submission->Runs) Run.ArgumentIndex = InvalidArgument;
+		MeshDrawCommandInfos.assign(VisibleMeshDrawCommands.size(), {});
+		FallbackCommands.clear(); bDispatched = false;
 		SceneCapacityBytes = StandaloneSceneCapacityBytes = 0;
 		if (OutOverflowCandidates) *OutOverflowCandidates = 0;
 		FInstanceCullingAdmissionDiagnostics Diagnostics;
 		if (OutDiagnostics) *OutDiagnostics = {};
-		if (!bRequested || !bIndirectDrawSupported) return false;
 
 		std::vector<bool> Admitted(VisibleMeshDrawCommands.size());
 		for (uint32 Index = 0; Index < VisibleMeshDrawCommands.size(); ++Index)
 		{
 			const auto& Visible = VisibleMeshDrawCommands[Index];
+			const size_t NumSourceInstances = Visible.NumSourceDraws;
+			if (Visible.CachedInfo && Visible.CachedInfo->CommandIndex == INDEX_NONE)
+			{ Diagnostics.PreparationUnavailableCandidates += NumSourceInstances; continue; }
 			const auto* Command = Visible.Command;
-			if (!Visible.bSupportsInstanceCulling || !Command || !Command->IndexBuffer
-				|| !std::holds_alternative<FRHIDrawIndexedArguments>(Command->DrawParameters))
-			{ ++Diagnostics.IncompatibleCandidates; continue; }
-			const auto& Source = Visible.SceneData;
-			const auto Buffer = Source.Buffers ? Source.Buffers->SceneData[1] : FBufferRHIRef{};
-			if (!Visible.Pass || !Command->Pipeline || !Command->FragmentBindings || !Buffer
-				|| Source.InstanceId >= Buffer->GetSize() / sizeof(FInstanceSceneShaderData))
-			{ ++Diagnostics.PreparationUnavailableCandidates; continue; }
-			// A context consumes one scene allocation domain. Cross-scene draws
-			// require separate contexts, never a shader-side owner selector.
-			if (InstanceSceneData && InstanceSceneData != Buffer) { ++Diagnostics.IncompatibleCandidates; continue; }
+			if (!NumSourceInstances || Visible.SourceDrawIndex > Sources.size() || NumSourceInstances > Sources.size() - Visible.SourceDrawIndex)
+			{ Diagnostics.PreparationUnavailableCandidates += NumSourceInstances; continue; }
+			const auto DrawSources = Sources.subspan(Visible.SourceDrawIndex, NumSourceInstances);
+			if (!Command || !Command->IndexBuffer || !std::holds_alternative<FRHIDrawIndexedArguments>(Command->DrawParameters)
+				|| std::ranges::any_of(DrawSources, [](const auto& Source) { return !Source.bSupportsInstanceCulling; }))
+			{ Diagnostics.IncompatibleCandidates += NumSourceInstances; continue; }
+			if (!Visible.Pass || !Command->Pipeline || !Command->FragmentBindings
+				|| std::ranges::any_of(DrawSources, [](const auto& Payload) {
+					const auto& Source = Payload.SceneData;
+					const auto Buffer = Source.Buffers ? Source.Buffers->SceneData[1] : FBufferRHIRef{};
+					return !Buffer || Source.InstanceId >= Buffer->GetSize() / sizeof(FInstanceSceneShaderData);
+				}))
+			{ Diagnostics.PreparationUnavailableCandidates += NumSourceInstances; continue; }
+			const auto& Source = DrawSources.front().SceneData;
+			const auto Buffer = Source.Buffers->SceneData[1];
+			if ((InstanceSceneData && InstanceSceneData != Buffer)
+				|| std::ranges::any_of(DrawSources, [&](const auto& Payload) { return Payload.SceneData.Buffers->SceneData[1] != Buffer; }))
+			{ Diagnostics.IncompatibleCandidates += NumSourceInstances; continue; }
 			if (!InstanceSceneData)
 			{
 				InstanceSceneData = Buffer;
 				auto& Capacity = Source.Buffers->bStandaloneScene ? StandaloneSceneCapacityBytes : SceneCapacityBytes;
 				for (const auto& Resource : Source.Buffers->SceneData) if (Resource) Capacity += Resource->GetSize();
 			}
-			if (Source.Buffers->PrimitiveCollector && std::ranges::find(DynamicContexts, Source.Buffers->PrimitiveCollector->GetDynamicContext()) == DynamicContexts.end())
-				DynamicContexts.push_back(Source.Buffers->PrimitiveCollector->GetDynamicContext());
+			for (const auto& Payload : DrawSources)
+				if (const auto& Owner = Payload.SceneData.Buffers->DynamicContext; Owner
+					&& std::ranges::find(DynamicContexts, Owner) == DynamicContexts.end()) DynamicContexts.push_back(Owner);
 			Admitted[Index] = true;
 		}
 		constexpr size_t PerCandidateBytes = sizeof(FInstanceCullingCandidate) + sizeof(uint32);
-		for (auto& Run : Submission->Runs)
+		const auto Runs = RendererPrivate::BuildMeshDrawCommandRuns(VisibleMeshDrawCommands, Sources);
+		for (const auto& Run : Runs)
 		{
-			const auto Group = Run.Draws.GetDrawIndices();
+			const auto Group = Run.GetDrawIndices();
+			size_t NumInstances = 0;
+			for (uint32 Index : Group) NumInstances += VisibleMeshDrawCommands[Index].NumSourceDraws;
 			if (std::ranges::any_of(Group, [&](uint32 Index) { return !Admitted[Index]; })) continue;
-			if (Group.size() < MinimumGroupCandidates) { Diagnostics.BelowThresholdCandidates += Group.size(); continue; }
-			const size_t RequiredBytes = Group.size() * PerCandidateBytes + sizeof(FRHIDrawIndexedIndirectArguments);
+			if (NumInstances < MinimumGroupCandidates) { Diagnostics.BelowThresholdCandidates += NumInstances; continue; }
+			const size_t RequiredBytes = NumInstances * PerCandidateBytes + sizeof(FRHIDrawIndexedIndirectArguments);
 			const size_t CurrentBytes = Candidates.size() * PerCandidateBytes + Arguments.size() * sizeof(FRHIDrawIndexedIndirectArguments);
-			if (Group.size() > MaximumCandidates - Candidates.size()
+			if (NumInstances > MaximumCandidates - Candidates.size()
 				|| RequiredBytes > std::min(MaximumGeneratedBytes, FInstanceCullingContext::MaximumGeneratedBytes) - CurrentBytes)
-			{ if (OutOverflowCandidates) *OutOverflowCandidates += Group.size(); continue; }
+			{ if (OutOverflowCandidates) *OutOverflowCandidates += NumInstances; continue; }
 			const uint32 ArgumentIndex = static_cast<uint32>(Arguments.size());
-			Run.ArgumentIndex = ArgumentIndex;
+			MeshDrawCommandInfos[Run.FirstCommand].ArgumentIndex = ArgumentIndex;
 			const auto Direct = std::get<FRHIDrawIndexedArguments>(VisibleMeshDrawCommands[Group.front()].Command->DrawParameters);
 			Arguments.push_back({.IndexCount = Direct.IndexCount, .InstanceCount = 0, .FirstIndex = Direct.FirstIndex,
 				.VertexOffset = Direct.VertexOffset, .FirstInstance = static_cast<uint32>(Candidates.size())});
 			for (size_t Index = 0; Index < Group.size(); ++Index)
 			{
 				const auto& Item = Group[Index];
-				Candidates.push_back({VisibleMeshDrawCommands[Item].SceneData.InstanceId, ArgumentIndex});
+				const auto& Visible = VisibleMeshDrawCommands[Item];
+				for (const auto& Source : Sources.subspan(Visible.SourceDrawIndex, Visible.NumSourceDraws))
+					Candidates.push_back({Source.SceneData.InstanceId, ArgumentIndex});
 			}
 		}
+		// Compact admitted GPU groups in the visible array. Submission addresses final commands,
+		// never group members. Preserve originals solely for failed-dispatch direct fallback.
+		size_t Output = 0, RunIndex = 0;
+		for (uint32 First = 0; First < VisibleMeshDrawCommands.size();)
+		{
+			while (RunIndex < Runs.size() && Runs[RunIndex].FirstCommand < First) ++RunIndex;
+			const uint32 Count = MeshDrawCommandInfos[First].ArgumentIndex != InvalidArgument
+				? Runs[RunIndex].NumCommands : 1;
+			auto Info = MeshDrawCommandInfos[First];
+			auto Leader = VisibleMeshDrawCommands[First];
+			if (Count > 1)
+			{
+				Info.Fallback = {static_cast<uint32>(FallbackCommands.size()), Count};
+				Leader.NumSourceDraws = 0;
+				for (uint32 Index = First; Index < First + Count; ++Index)
+				{
+					FallbackCommands.push_back(VisibleMeshDrawCommands[Index]);
+					Leader.NumSourceDraws += VisibleMeshDrawCommands[Index].NumSourceDraws;
+					Leader.bSourceReady &= VisibleMeshDrawCommands[Index].bSourceReady;
+				}
+			}
+			VisibleMeshDrawCommands[Output] = Leader;
+			MeshDrawCommandInfos[Output++] = Info;
+			First += Count;
+		}
+		VisibleMeshDrawCommands.resize(Output); MeshDrawCommandInfos.resize(Output);
+		require(VisibleMeshDrawCommands.size() == MeshDrawCommandInfos.size());
 		if (OutDiagnostics) *OutDiagnostics = Diagnostics;
 		return !Candidates.empty();
 	}
@@ -266,6 +302,28 @@ namespace Durin
 	}
 
 
+	auto FInstanceCullingDrawParams::GetRDGParametersMetadata() -> const FRDGParametersMetadata*
+	{
+		using P = FInstanceCullingDrawParams;
+		static const std::array Members{
+			MakeRDGResourceParameterMemberMetadata<P, decltype(InstanceIdOffsetBuffer), FRDGBufferParameter>("InstanceIdOffsetBuffer", offsetof(P, InstanceIdOffsetBuffer), ERDGParameterMemberKind::Buffer, ERDGResourceKind::Buffer, ERDGParameterRangeKind::BufferBytes, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+			MakeRDGIndirectArgumentMetadata<P, decltype(DrawIndirectArgsBuffer)>("DrawIndirectArgsBuffer", offsetof(P, DrawIndirectArgsBuffer))};
+		static const auto Metadata = MakeInlineRDGParametersMetadata<P>("FInstanceCullingDrawParams", Members);
+		return &Metadata;
+	}
+	auto GetMeshDrawCommandOverrideArgs(const FInstanceCullingDrawParams& P, const FRDGParameterResolver& Resolver) -> RendererPrivate::FMeshDrawCommandOverrideArgs
+	{
+		require(!P.InstanceIdOffsetBuffer || P.InstanceDataByteOffset <= P.InstanceIdOffsetBuffer->Size);
+		require(!P.DrawIndirectArgsBuffer || P.IndirectArgsByteOffset <= P.DrawIndirectArgsBuffer->Size);
+		const uint64 InstanceOffset = P.InstanceDataByteOffset + (P.InstanceIdOffsetBuffer ? P.InstanceIdOffsetBuffer->Offset : uint64(0));
+		require(InstanceOffset <= UINT32_MAX && InstanceOffset % sizeof(uint32) == 0);
+		const uint64 ArgumentOffset = P.DrawIndirectArgsBuffer ? P.DrawIndirectArgsBuffer->Offset : 0;
+		require(P.IndirectArgsByteOffset <= UINT64_MAX - ArgumentOffset);
+		return {.InstanceBuffer = P.InstanceIdOffsetBuffer ? Resolver.GetBuffer(*P.InstanceIdOffsetBuffer) : nullptr,
+			.IndirectArgsBuffer = P.DrawIndirectArgsBuffer ? Resolver.GetBuffer(*P.DrawIndirectArgsBuffer) : nullptr,
+			.InstanceDataByteOffset = static_cast<uint32>(InstanceOffset), .IndirectArgsByteOffset = P.IndirectArgsByteOffset + ArgumentOffset};
+	}
+
 	auto FInstanceCullingContext::BuildRenderingCommands(FRDGBuilder& Graph, FInstanceCullingTelemetry& Telemetry, bool bAsyncCompute, bool bObserveVisibility, EGPUCullingFailure Failure) -> FInstanceCullingDrawParams
 	{
 		require(!bBuilt);
@@ -274,13 +332,11 @@ namespace Durin
 		Telemetry.GPUCullingSceneCapacityBytes += SceneCapacityBytes;
 		Telemetry.GPUCullingStandaloneSceneCapacityBytes += StandaloneSceneCapacityBytes;
 		if (Candidates.empty()) return Result;
-		require(Manager);
-		auto& CullingManager = *Manager;
+		auto& CullingManager = Manager;
 		auto GPUCullingPlan = shared_from_this();
 		static constexpr std::array PassNames{"Forward", "HybridRetainedForward", "SortedTranslucency", "ShadowDepth", "GBuffer", "HitProxy"};
 		const auto PassName = std::format("Scene.{}.GPUCulling", PassNames[static_cast<size_t>(Pass.Pass)]);
-		auto& VisibleInstances = Result.InstanceIdOffsetBuffer;
-		auto& IndirectArguments = Result.DrawIndirectArgsBuffer;
+		FRDGBufferHandle VisibleInstances, IndirectArguments;
 		const uint32 CandidateBytes = static_cast<uint32>(
 			GPUCullingPlan->Candidates.size()
 			* sizeof(FInstanceCullingCandidate)
@@ -306,14 +362,14 @@ namespace Durin
 		VisibleInstances = Graph.CreateBuffer({.Buffer = FRHIBufferDesc(VisibleBytes, sizeof(uint32), EBufferUsageFlags::StructuredBuffer | EBufferUsageFlags::UnorderedAccess | EBufferUsageFlags::DestinationCopy), .ObservationTag = static_cast<uint32>(ERDGAllocationObservation::GPUCullingVisible)}, "Scene.GBuffer.GPUCulling.VisibleInstances");
 		IndirectArguments = Graph.CreateBuffer({.Buffer = FRHIBufferDesc(ArgumentBytes, sizeof(uint32), EBufferUsageFlags::UnorderedAccess | EBufferUsageFlags::DrawIndirect | (bObserveVisibility ? EBufferUsageFlags::SourceCopy : EBufferUsageFlags::None) | EBufferUsageFlags::DestinationCopy), .ObservationTag = static_cast<uint32>(ERDGAllocationObservation::GPUCullingArguments)}, "Scene.GBuffer.GPUCulling.Arguments");
 		Graph.QueueBufferUpload(CandidateBuffer, 0, std::as_bytes(std::span(GPUCullingPlan->Candidates)));
-		Graph.QueueBufferUploadOwned(*VisibleInstances, 0, FByteBuffer(VisibleBytes));
-		Graph.QueueBufferUpload(*IndirectArguments, 0, std::as_bytes(std::span(GPUCullingPlan->Arguments)));
+		Graph.QueueBufferUploadOwned(VisibleInstances, 0, FByteBuffer(VisibleBytes));
+		Graph.QueueBufferUpload(IndirectArguments, 0, std::as_bytes(std::span(GPUCullingPlan->Arguments)));
 		{
 			auto CullParameters = Graph.AllocParameters<
 				FInstanceCullingPassParameters>();
 			CullParameters->Candidates = {CandidateBuffer, 0, CandidateBytes};
-			CullParameters->VisibleInstances = {*VisibleInstances, 0, VisibleBytes};
-			CullParameters->Arguments = {*IndirectArguments, 0, ArgumentBytes};
+			CullParameters->VisibleInstances = {VisibleInstances, 0, VisibleBytes};
+			CullParameters->Arguments = {IndirectArguments, 0, ArgumentBytes};
 			auto Import = [&](const FBufferRHIRef& Resource) {
 				const auto Handle = Graph.RegisterExternalBuffer(Resource, std::format("GPUScene.Read.{}", reinterpret_cast<uintptr_t>(Resource.GetReference())), ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 				return FRDGBufferParameter{Handle, 0, Resource->GetSize()};
@@ -329,49 +385,72 @@ namespace Durin
 					ShaderParameters, Failure
 				);
 				if (Dispatched) GPUCullingTiming.Commit();
-				Plan->Submission->bDispatched = Dispatched;
-				if (Plan->Submission->bDispatched)
+				Plan->bDispatched = Dispatched;
+				if (Plan->bDispatched)
 				{
 					++Telemetry.GPUCullingDispatchedViews;
 				}
 				else
 				{
-					++Telemetry.GPUCullingFallbackViews;
 					++Telemetry.GPUCullingDispatchFailureViews;
 				}
 			});
 			if (bAsyncCompute) Graph.SetPassAsyncComputeEligible(CullPass);
 		}
+		Result.InstanceIdOffsetBuffer = FRDGBufferParameter{VisibleInstances, 0, VisibleBytes};
+		Result.DrawIndirectArgsBuffer = FRDGBufferParameter{IndirectArguments, 0, ArgumentBytes};
 		return Result;
 	}
 
 	auto FInstanceCullingContext::SubmitDrawCommands(std::span<const RendererPrivate::FVisibleMeshDrawCommand> VisibleMeshDrawCommands,
 		const RendererPrivate::FMeshDrawCommandOverrideArgs& OverrideArgs, uint32 StartIndex, uint32 NumMeshDrawCommands,
-		FRHICommandList& Commands, FMeshDrawCommandStateCache* StateCache) const -> bool
+		FRHICommandList& Commands, FMeshDrawCommandStateCache* StateCache, RendererPrivate::FMeshDrawCommandPassStats* Statistics) const -> RendererPrivate::FMeshDrawCommandPassResult
 	{
+		RendererPrivate::FMeshDrawCommandPassResult Result;
 		if (StartIndex > VisibleMeshDrawCommands.size() || NumMeshDrawCommands > VisibleMeshDrawCommands.size() - StartIndex
-			|| OverrideArgs.InstanceDataByteOffset % sizeof(uint32) != 0) return false;
+			|| MeshDrawCommandInfos.size() != VisibleMeshDrawCommands.size()
+			|| OverrideArgs.InstanceDataByteOffset % sizeof(uint32) != 0)
+		{ Result.bComplete = false; return Result; }
 		FMeshDrawCommandStateCache LocalCache;
 		auto& Cache = StateCache ? *StateCache : LocalCache;
 		for (uint32 DrawIndex = StartIndex; DrawIndex < StartIndex + NumMeshDrawCommands; ++DrawIndex)
 		{
 			const auto Index = GetArgumentIndex(DrawIndex);
-			if (Index == GroupedMember) continue;
 			const auto& Visible = VisibleMeshDrawCommands[DrawIndex];
-			if (Index == InvalidArgument) { if (!Visible.SubmitDraw(Commands, &Cache)) return false; continue; }
-			const auto* Command = Visible.Command;
-			if (!Command || !Visible.Pass || !OverrideArgs.IndirectArgsBuffer || !OverrideArgs.InstanceBuffer || !Command->IndexBuffer
-				|| !EnumHasAnyFlags(OverrideArgs.IndirectArgsBuffer->GetUsage(), EBufferUsageFlags::DrawIndirect)) return false;
-			const uint64 Size = OverrideArgs.IndirectArgsBuffer->GetSize();
-			const uint64 RelativeOffset = uint64(Index) * sizeof(FRHIDrawIndexedIndirectArguments);
-			if (OverrideArgs.IndirectArgsByteOffset > Size || RelativeOffset > Size - OverrideArgs.IndirectArgsByteOffset
-				|| sizeof(FRHIDrawIndexedIndirectArguments) > Size - OverrideArgs.IndirectArgsByteOffset - RelativeOffset) return false;
-			const RendererPrivate::FMeshDrawCommandSceneArgs SceneArgs{
-				.PrimitiveIdsBuffer = OverrideArgs.InstanceBuffer, .InstanceDataByteOffset = OverrideArgs.InstanceDataByteOffset,
-				.IndirectArgsBuffer = OverrideArgs.IndirectArgsBuffer,
-				.IndirectArgsByteOffset = OverrideArgs.IndirectArgsByteOffset + RelativeOffset};
-			if (!Command->SubmitVisible(Commands, Visible.Pass->Vertex, Visible.Pass->Fragment, Visible.DepthBias, &Cache, SceneArgs)) return false;
+			if (Index == InvalidArgument && MeshDrawCommandInfos[DrawIndex].Fallback.NumCommands)
+			{
+				for (uint32 Source : MeshDrawCommandInfos[DrawIndex].Fallback.GetDrawIndices())
+				{
+					const auto& Original = FallbackCommands[Source];
+					const uint32 Before = Cache.DrawCalls;
+					const bool Submitted = Original.SubmitDraw(Commands, &Cache);
+					Result.Record(Original.NumSourceDraws, Submitted, Cache.DrawCalls - Before, false);
+					if (Statistics) Statistics->Record(Original.SourceDrawIndex, Original.NumSourceDraws, Submitted, Cache.DrawCalls - Before, false);
+				}
+				continue;
+			}
+			const uint32 Before = Cache.DrawCalls;
+			auto Submit = [&]() -> bool {
+				if (!Visible.bSourceReady || (Visible.CachedInfo && Visible.CachedInfo->CommandIndex == INDEX_NONE)) return false;
+				for (uint32 Source : MeshDrawCommandInfos[DrawIndex].Fallback.GetDrawIndices())
+					if (const auto& Original = FallbackCommands[Source]; !Original.bSourceReady
+						|| (Original.CachedInfo && Original.CachedInfo->CommandIndex == INDEX_NONE)) return false;
+				if (Index == InvalidArgument) return Visible.SubmitDraw(Commands, &Cache);
+				const auto* Command = Visible.Command;
+				if (!Command || !Visible.Pass || !OverrideArgs.IndirectArgsBuffer || !OverrideArgs.InstanceBuffer || !Command->IndexBuffer
+					|| !EnumHasAnyFlags(OverrideArgs.IndirectArgsBuffer->GetUsage(), EBufferUsageFlags::DrawIndirect)) return false;
+				const uint64 Size = OverrideArgs.IndirectArgsBuffer->GetSize();
+				const uint64 RelativeOffset = uint64(Index) * sizeof(FRHIDrawIndexedIndirectArguments);
+				if (OverrideArgs.IndirectArgsByteOffset > Size || RelativeOffset > Size - OverrideArgs.IndirectArgsByteOffset
+					|| sizeof(FRHIDrawIndexedIndirectArguments) > Size - OverrideArgs.IndirectArgsByteOffset - RelativeOffset) return false;
+				return Command->SubmitVisible(Commands, Visible.Pass->Vertex, Visible.Pass->Fragment, Visible.DepthBias, &Cache,
+					{.PrimitiveIdsBuffer = OverrideArgs.InstanceBuffer, .InstanceDataByteOffset = OverrideArgs.InstanceDataByteOffset,
+					.IndirectArgsBuffer = OverrideArgs.IndirectArgsBuffer, .IndirectArgsByteOffset = OverrideArgs.IndirectArgsByteOffset + RelativeOffset});
+			};
+			const bool Submitted = Submit();
+			Result.Record(Visible.NumSourceDraws, Submitted, Cache.DrawCalls - Before, Index != InvalidArgument);
+			if (Statistics) Statistics->Record(Visible.SourceDrawIndex, Visible.NumSourceDraws, Submitted, Cache.DrawCalls - Before, Index != InvalidArgument);
 		}
-		return true;
+		return Result;
 	}
-} // namespace Durin
+}

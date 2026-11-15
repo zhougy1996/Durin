@@ -140,7 +140,7 @@ namespace Durin
 						std::format("Scene.DirectionalShadow.Cascade{}", Cascade), "shadow-cascade-observations");
 					Complete->Cascades[Cascade] = TRDGValueRead<FStaticMeshRenderObservations>{.Value = Value};
 					auto Pass = Graph.AllocParameters<FCascadeParameters>();
-					Pass->Resources.GPUScene.Add(Graph, Resolved->DirectionalShadow->StaticMeshes[Cascade]);
+					Pass->Resources.GPUScene[Cascade] = Resolved->DirectionalShadow->StaticMeshes[Cascade].GetGPUSceneParameters(Graph);
 					Pass->Completion = {.Value = Value};
 					Pass->Resources.DirectionalShadowOutput = {
 						.Texture = *Inputs.Shadow, .Range = {ERHITextureAspect::Depth, 0, 1, Cascade, 1}};
@@ -171,8 +171,9 @@ namespace Durin
 			}
 		}
 		auto Parameters = Graph.AllocParameters<FDirectionalShadowPassParameters>();
-        if (Resolved->DirectionalShadow)
-            for (const auto& View : Resolved->DirectionalShadow->StaticMeshes) Parameters->Resources.GPUScene.Add(Graph, View);
+		if (Resolved->DirectionalShadow)
+			for (uint32 Cascade = 0; Cascade < Resolved->DirectionalShadow->StaticMeshes.size(); ++Cascade)
+				Parameters->Resources.GPUScene[Cascade] = Resolved->DirectionalShadow->StaticMeshes[Cascade].GetGPUSceneParameters(Graph);
 		Parameters->Completion = {.Value = DirectionalShadow};
 		if (Inputs.Shadow)
 		{
@@ -219,9 +220,8 @@ namespace Durin::RendererPrivate
 		public:
 			using FMeshPassProcessor::FMeshPassProcessor;
 			auto AddMeshBatch(const FMeshPassProcessorBatch& Batch, const FMeshDrawCommandBuildInput& Input,
-				FMeshDrawCommandBindingCache& Cache, FMeshPassDrawListContext& Context,
 				std::shared_ptr<const FMeshDrawCommand> Existing) const -> FShaderCompletion override
-			{ return BuildMeshDrawCommands(Batch, Input, Cache, Context, std::move(Existing)); }
+			{ return BuildMeshDrawCommands(Batch, Input, std::move(Existing)); }
 			auto GetPass() const -> EMeshPipelinePass override { return EMeshPipelinePass::ShadowDepth; }
 			auto IsEnabled(const FSceneRenderPreparationConfig&) const -> bool override { return true; }
 			auto GetVertexFactoryPass() const -> uint32 override { return MaterialMeshPassShadow; }

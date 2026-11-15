@@ -147,7 +147,18 @@ namespace Durin
 
 
 	class FRHIShaderParameterBatch;
-	namespace RendererPrivate { struct FMeshDrawShaderBindings; struct FMeshDrawCommand; struct FCachedMeshDrawCommandInfo; struct FMeshPassPipeline; class FDynamicMeshDrawCommandStorage; }
+	namespace RendererPrivate { struct FMeshDrawCommandPassStats; struct FMeshDrawShaderBindings; struct FMeshDrawCommand; struct FCachedMeshDrawCommandInfo; struct FMeshPassPipeline; class FDynamicMeshDrawCommandStorage; }
+	namespace RendererPrivate
+	{
+		// A single lookup returns command memory and the matching source-invalidation receipt.
+		struct FCachedMeshDrawCommand
+		{
+			std::shared_ptr<const FMeshDrawCommand> Command;
+			std::shared_ptr<const FCachedMeshDrawCommandInfo> Info;
+			explicit operator bool() const { return Command && Info; }
+		};
+	}
+
 
 	struct FShaderBindingState
 	{
@@ -175,30 +186,11 @@ namespace Durin
 		std::optional<std::array<float, 3>> DepthBias;
 	};
 
-	// Index into one frame's pass list. The storage identity rejects stale/cross-view handles.
-	struct FMeshDrawCommandHandle
-	{
-		RendererPrivate::FMeshPassKey Pass;
-		size_t Index = std::numeric_limits<size_t>::max();
-		uint64 StorageId = 0;
-		explicit operator bool() const { return StorageId != 0 && Index != std::numeric_limits<size_t>::max(); }
-		auto operator==(const FMeshDrawCommandHandle&) const -> bool = default;
-	};
 	struct FResolvedMeshDrawRecord
 	{
 		std::optional<FMaterialRenderBinding> MaterialBinding;
 		std::map<RendererPrivate::FMeshPassKey, std::shared_ptr<const RendererPrivate::FMeshPassPipeline>> Pipelines;
-		// Receipts into frame-owned pass lists; records do not own duplicate command arrays.
-		std::map<RendererPrivate::FMeshPassKey, FMeshDrawCommandHandle> Commands;
-		struct FCachedCommand
-		{
-			std::shared_ptr<const RendererPrivate::FMeshDrawCommand> Command;
-			std::shared_ptr<const RendererPrivate::FCachedMeshDrawCommandInfo> Info;
-			explicit operator bool() const { return Command && Info; }
-		};
-		std::map<RendererPrivate::FMeshPassKey, FCachedCommand> SelectedCachedCommands;
-		std::map<RendererPrivate::FMeshPassKey, FMeshDrawCommandHandle> VisibleCommands;
-		std::map<RendererPrivate::FMeshPassKey, std::pair<uint32, FMeshDrawCommandHandle>> DynamicInstancingCommands;
+		std::map<RendererPrivate::FMeshPassKey, RendererPrivate::FCachedMeshDrawCommand> SelectedCachedCommands;
 		bool bReady = false;
 	};
 

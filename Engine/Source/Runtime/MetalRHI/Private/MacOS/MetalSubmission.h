@@ -5,7 +5,7 @@
 #include "MetalGPUTiming.h"
 #include "Backend/RHICompletionBackend.h"
 #include "RHIResources.h"
-#include "RHITextureReadback.h"
+#include "RHIGPUReadback.h"
 #include <Metal/Metal.hpp>
 #include <QuartzCore/QuartzCore.hpp>
 
@@ -18,6 +18,7 @@ namespace Durin
 		~FMetalSubmissionState()
 		{
 			const FMetalAutoreleasePool Pool;
+			FreeReadbackBuffers.clear();
 			Queue.reset();
 		}
 		uint64 Generation = 0;
@@ -26,6 +27,9 @@ namespace Durin
 		std::condition_variable Completion;
 		std::unique_ptr<FRHIGPUQueueTimeline> Timeline;
 		size_t PendingCallbacks = 0;
+		std::vector<NS::SharedPtr<MTL::Buffer>> FreeReadbackBuffers;
+		uint64 CachedReadbackBytes = 0, PendingReadbackBytes = 0;
+		uint32 PendingBufferReadbacks = 0;
 	};
 
 	// Completion payload owns GPU dependencies independently of backend/command lifetime.
@@ -39,9 +43,30 @@ namespace Durin
 		};
 		struct FReadback
 		{
+			FReadback(NS::SharedPtr<MTL::Buffer> InBuffer, NS::UInteger InBytes, std::shared_ptr<RHIPrivate::FReadbackState> InRequest,
+				std::shared_ptr<FMetalSubmissionState> InPool = {})
+				: Buffer(std::move(InBuffer)), ByteCount(InBytes), Request(std::move(InRequest)), Pool(std::move(InPool)) {}
+			FReadback(FReadback&&) noexcept = default;
+			auto operator=(FReadback&& Other) noexcept -> FReadback&
+			{
+				if (this != &Other) { ReleasePool(); Buffer = std::move(Other.Buffer); ByteCount = Other.ByteCount; Request = std::move(Other.Request); Pool = std::move(Other.Pool); bReusable = Other.bReusable; }
+				return *this;
+			}
+			~FReadback() { ReleasePool(); }
+			auto ReleasePool() -> void
+			{
+				if (!Pool) return;
+				std::lock_guard Lock(Pool->Mutex);
+				const uint64 Capacity = Buffer->length();
+				--Pool->PendingBufferReadbacks; Pool->PendingReadbackBytes -= Capacity;
+				if (bReusable && Pool->FreeReadbackBuffers.size() < 8 && Capacity <= 16ull * 1024 * 1024 - Pool->CachedReadbackBytes)
+				{ Pool->CachedReadbackBytes += Capacity; Pool->FreeReadbackBuffers.push_back(Buffer); }
+			}
 			NS::SharedPtr<MTL::Buffer> Buffer;
 			NS::UInteger ByteCount = 0;
-			std::shared_ptr<FRHITextureReadback> Request;
+			std::shared_ptr<RHIPrivate::FReadbackState> Request;
+			std::shared_ptr<FMetalSubmissionState> Pool;
+			bool bReusable = true;
 		};
 		FMetalSubmissionOwners() = default;
 		FMetalSubmissionOwners(FMetalSubmissionOwners&&) = default;

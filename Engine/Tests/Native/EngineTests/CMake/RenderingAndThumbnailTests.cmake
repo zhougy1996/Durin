@@ -5,7 +5,6 @@ durin_add_native_test(RendererSceneContractTests
 	STACKS renderer
 	SOURCES Private/RendererSceneContractTests.cpp Private/MeshPassProcessorTests.cpp Private/PSOPrecacheTests.cpp Private/GPUSceneTests.cpp
 	LIBRARIES Core CoreDObject Engine RenderCore Renderer
-	COMPILE_DEFINITIONS DURIN_RENDERER_SOURCE_DIR="${DURIN_PROJECT_SOURCE_DIR}/Runtime/Renderer"
 	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 	ENVIRONMENTS authored-shaders
 	HEAVY_RUNTIME_RATIONALE "Exercises renderer-owned SceneProxy and SceneInfo lifetime contracts."

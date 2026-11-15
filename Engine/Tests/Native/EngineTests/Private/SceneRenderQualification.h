@@ -1253,7 +1253,7 @@ namespace Durin
 				const auto& T = GSceneCloudTelemetry.GBuffer;
 				const uint32 Groups = TwoGroups ? 2 : 1;
 				EXPECT_EQ(T.GPUCullingDispatchedViews, 1u);
-				EXPECT_EQ(T.GPUCullingFallbackViews, 0u);
+				EXPECT_EQ(T.GPUCullingDispatchFailureViews, 0u);
 				EXPECT_EQ(T.GPUCullingCandidates, Groups * 64);
 				EXPECT_EQ(T.GPUCullingGroups, Groups);
 				EXPECT_EQ(T.GPUCullingScheduledGraphicsQueueViews, Async ? 0u : 1u);
@@ -1308,7 +1308,23 @@ namespace Durin
 				ExtraPolicy.GPUCullingFailure = Failure;
 				EXPECT_EQ(*Reference, *RenderOffscreen(false, false));
 				EXPECT_EQ(GSceneCloudTelemetry.GBuffer.GPUCullingDispatchedViews, 0u);
-				EXPECT_EQ(GSceneCloudTelemetry.GBuffer.GPUCullingFallbackViews, 1u);
+                const auto& T = GSceneCloudTelemetry.GBuffer;
+                const bool ResourceFailure = Failure == EGPUCullingFailure::ShaderUnavailable || Failure == EGPUCullingFailure::PipelineUnavailable;
+                EXPECT_EQ(T.GPUCullingResourcesUnavailableViews, ResourceFailure ? 1u : 0u);
+                EXPECT_EQ(T.GPUCullingNoEligibleGroupViews, Failure == EGPUCullingFailure::MetadataBudget ? 1u : 0u);
+                EXPECT_EQ(T.GPUCullingDispatchFailureViews, Failure == EGPUCullingFailure::CommandAdmission ? 1u : 0u);
+                if (ResourceFailure) {
+                    EXPECT_EQ(T.GPUCullingCandidates, 0u); EXPECT_EQ(T.GPUCullingBufferBytes, 0u);
+                    EXPECT_FALSE(T.GPUCullingVisibility);
+                    ASSERT_FALSE(GSceneCloudGraphCaptures.empty());
+                    const auto& Capture = GSceneCloudGraphCaptures.back();
+                    EXPECT_FALSE(std::ranges::any_of(Capture.Passes, [](const auto& Pass) {
+                        return Pass.Name == "Scene.GBuffer.GPUCulling" || Pass.Name == "MeshDrawCommandStats.Readback";
+                    }));
+                    EXPECT_FALSE(std::ranges::any_of(Capture.Resources, [](const auto& Resource) {
+                        return Resource.Name.find("GPUCulling") != std::string::npos;
+                    }));
+                }
 				if (const auto Query = GSceneCloudTelemetry.GBuffer.GPUCullingVisibility)
 					EXPECT_EQ(Query->GetState(), ERHITextureReadbackState::Canceled);
 			}
@@ -1353,9 +1369,9 @@ namespace Durin
 					ERenderMode::Lit, ESceneRasterFailure::None, Width));
 				if (UnsupportedIndirect)
 				{
-					EXPECT_EQ(GSceneCloudTelemetry.GBuffer.GPUCullingUnsupportedFallbackViews, 1u);
+					EXPECT_EQ(GSceneCloudTelemetry.GBuffer.GPUCullingUnsupportedViews, 1u);
 					EXPECT_EQ(GSceneCloudTelemetry.GBuffer.GPUCullingDispatchedViews, 0u);
-					EXPECT_GT(GSceneCloudTelemetry.GBuffer.GPUCullingDirectFallbackDraws, 0u);
+					EXPECT_GT(GSceneCloudTelemetry.GBuffer.GPUCullingDirectDraws, 0u);
 				}
 				const auto& Capture = GSceneCloudGraphCaptures.back();
 				std::cout << "SCENE_ALIASING mode=" << (std::getenv("DURIN_RHI_EXECUTION") ? std::getenv("DURIN_RHI_EXECUTION") : "default")

@@ -7,10 +7,11 @@ namespace Durin
 		MTL::CommandBufferStatus Status) -> void
 	{
 		const FMetalAutoreleasePool Pool;
-		for (const auto& Readback : Owners.Readbacks)
+		for (auto& Readback : Owners.Readbacks)
 		{
 			if (Status != MTL::CommandBufferStatusCompleted)
 			{
+				Readback.bReusable = false;
 				Readback.Request->Fail();
 				continue;
 			}

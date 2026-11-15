@@ -831,6 +831,50 @@ namespace Durin
 		return Result;
 	}
 
+	auto FResolvedStaticMeshView::GetGPUSceneParameters(FRDGBuilder& Graph) const -> FGPUSceneReadParameters
+	{
+		return GPUSceneBuffers ? GPUSceneBuffers->GetShaderParameters(Graph, DynamicInstancingInstanceIds) : FGPUSceneReadParameters{};
+	}
+	auto CollectGPUScenePrimitives(const FPreparedStaticMeshView& Prepared, const std::shared_ptr<FGPUSceneDynamicContext>& Context)
+		-> std::vector<FGPUScenePrimitiveData>
+	{
+		std::vector<uint32> Counts(Prepared.Primitives.size(), 1), Indices(Prepared.Primitives.size(), INDEX_NONE_U32);
+		std::vector<bool> Supported(Prepared.Primitives.size());
+		for (uint32 Index = 0; Index < Prepared.GetNumSections(); ++Index)
+		{
+			const auto& Draw = Prepared.GetDraw(Index);
+			if (!Draw.Command) continue;
+			Counts[Draw.PrimitiveIndex] = std::max(Counts[Draw.PrimitiveIndex], Draw.Command->Geometry.InstanceCount);
+			const auto Factory = FindMeshVertexFactory(Draw.Command->PipelineKey.FactoryKey);
+			if (Factory && Factory->SupportsGPUScene()) Supported[Draw.PrimitiveIndex] = true;
+		}
+		FGPUScenePrimitiveCollector Collector(Context);
+		for (uint32 Index = 0; Index < Prepared.Primitives.size(); ++Index)
+		{
+			if (!Supported[Index]) continue;
+			const auto& Primitive = Prepared.Primitives[Index];
+			if (Context->IsUsingPersistentGPUScene() && Primitive.PrimitiveIdMode == EPrimitiveIdMode::PrimID_FromPrimitiveSceneInfo)
+				{
+				if (!Primitive.PersistentPrimitiveIndex.IsValid()) return {};
+				if (Primitive.SceneInfo.IsSceneBound() && (!Primitive.SceneInfo.Resolve()
+					|| Primitive.SceneInfo.Resolve() != Context->GetGPUScene().GetPrimitiveSceneInfo(Primitive.PersistentPrimitiveIndex))) return {};
+				Indices[Index] = Collector.Add(Primitive.PersistentPrimitiveIndex, Primitive.InstanceSceneDataId, Counts[Index]);
+			}
+			else
+			{
+				auto Record = Primitive.DynamicPrimitiveData;
+				if (!Record) Record = std::make_shared<FGPUSceneDynamicPrimitiveData>(FGPUSceneDynamicPrimitiveData{
+					Primitive.LocalToWorld, Primitive.WorldBounds, Primitive.CustomPrimitiveData, Primitive.CustomInstanceData});
+				Indices[Index] = Collector.Add(std::move(Record), Counts[Index]);
+			}
+		}
+		if (!Collector.Commit()) return {};
+		std::vector<FGPUScenePrimitiveData> Result(Prepared.Primitives.size());
+		for (uint32 Index = 0; Index < Result.size(); ++Index)
+			if (Indices[Index] != INDEX_NONE_U32) Result[Index] = Collector.GetPrimitiveData(Indices[Index]);
+		return Result;
+	}
+
 	auto AdmitStaticMeshDraws(FPreparedStaticMeshView& View, const FResolvedStaticMeshView& Resources) -> size_t
 	{
 		std::unordered_set<uint64> Withheld;

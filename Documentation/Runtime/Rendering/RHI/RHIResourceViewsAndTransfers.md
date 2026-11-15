@@ -1,9 +1,9 @@
 # RHI Resource Views and Transfers
 
 Summary: Define counted resource-range views, canonical binding and attachment
-lowering, and validated recorded copies shared by RHI and Vulkan.
+lowering, validated recorded copies and asynchronous GPU readback shared by RHI backends.
 
-Modules: RHI, RenderCore, VulkanRHI
+Modules: RHI, RenderCore, VulkanRHI, MetalRHI
 
 GPUScene is a client of ordinary structured `FRHIBuffer` storage and counted
 ranges. Dirty updates use ordered `WriteBuffer` patches; culling declares scene
@@ -254,6 +254,43 @@ Legacy static-buffer uploads, shader-resource or storage texture uploads, and
 CPU-readback textures receive compatibility copy usage during Vulkan creation.
 New callers should still declare `SourceCopy` and `DestinationCopy` explicitly
 when transfer is part of their public resource contract.
+
+### Asynchronous GPU Buffer Readback
+
+`FRHIGPUBufferReadback` is a reusable EnqueueCopy/IsReady/Lock/Unlock facade;
+it may be stack-owned. Commands/backends retain shared internal storage, not the
+facade. One object supports one in-flight copy: reuse requires native completion
+or explicit abandonment before execution. Concurrent results use separate objects,
+without revision tokens or replacing an active publication. Backend staging remains
+independently reusable. Texture readback preserves TakePixels and polling APIs;
+PollTextureReadbacks forwards to PollReadbacks. Completion/failure publication is
+backend-only; public facades never expose Complete/Fail or internal storage.
+
+EnqueueCopy records without waiting, outside raster passes into a GPU recording.
+The source requires SourceCopy usage and TransferRead access, which is preserved.
+Zero NumBytes selects the remainder from Offset. Ranges must be nonempty, in bounds
+and four-byte aligned; invalid/unsupported copies publish Failed. IsReady and polling
+are nonblocking; GetState reports publication status. Cancel discards publication,
+while IsInFlight stays true until the backend retires or abandons the operation.
+Cancellation alone never authorizes reuse; ResetReady also requires no in-flight copy.
+
+Lock borrows ready bytes; Unlock releases the borrow without consuming the result,
+so it may be locked again until the next copy/reset/cancel. After completion, a new
+copy may be recorded while the old result is locked: old borrowed bytes survive
+until their Unlock, which never clears the new result. Host-memory invalidation
+precedes publication. Destroying a facade cancels observation while recorded/native
+owners retain storage and GPU leases. Abandoned commands cancel and retire their
+unsubmitted copy. Buffer reads expose only Lock/Unlock; the base facade has no
+public consuming read. Texture-only TakePixels transfers the ready byte storage
+once; pending, canceled, failed or already-consumed reads leave the output unchanged.
+IsReady reports copy completion and remains true after successful consumption;
+GetDataSize becomes zero. A subsequent enqueue starts a new result.
+
+Vulkan shares its texture/buffer queue and arena, bounded to eight pending requests
+and 64 MiB per context. Metal permits eight requests / 64 MiB in flight; completed
+or unsubmitted-canceled buffers may enter an eight-buffer / 16 MiB cache. Failed
+submitted copies are not cached, and pool return occurs outside the cancellation
+lock. Capacity pressure rejects without a GPU wait; neither path waits for device idle.
 
 ## Boundaries and Follow-ups
 

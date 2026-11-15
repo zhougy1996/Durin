@@ -5,6 +5,7 @@
 #include "RHIShaderParameters.h"
 #include "RHIResources.h"
 #include "RHICompletion.h"
+#include "RHIGPUReadback.h"
 #include "RHITextureReadback.h"
 #include "Experimental/RHITransition.h"
 
@@ -92,8 +93,9 @@ namespace Durin
 		virtual auto RHIReadTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, FByteBuffer& OutData) -> bool = 0;
 		// Never wait for GPU completion. Unsupported backends publish failure.
 		virtual auto RHIEnqueueTextureReadback(FRHITexture* Texture, uint32 MipIndex,
-			uint32 ArraySlice, std::shared_ptr<FRHITextureReadback> Request) -> void { Request->Fail(); }
-		virtual auto RHIPollTextureReadbacks() -> void {}
+			uint32 ArraySlice, std::shared_ptr<RHIPrivate::FReadbackState> Request) -> void { Request->Fail(); }
+		virtual auto RHIPollReadbacks() -> void {}
+		virtual auto RHIEnqueueBufferReadback(FRHIBuffer*, uint32, uint32, std::shared_ptr<RHIPrivate::FReadbackState> Request) -> void { Request->Fail(); }
 		virtual auto RHIAcquireBackBuffer(FRHITexture* BackBuffer) -> void = 0;
 		virtual auto RHIBlockUntilGPUIdle() -> void = 0;
 		virtual auto RHIPushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void = 0;

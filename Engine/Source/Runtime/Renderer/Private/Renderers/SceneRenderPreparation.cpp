@@ -365,7 +365,7 @@ namespace Durin
 		if (!Context.Resolved.GPUSceneDynamicContext)
 		{
 			auto Dynamic = std::make_shared<FGPUSceneDynamicContext>(Context.Logical.Scene ? Context.Logical.Scene->GPUScene : nullptr);
-			ResolvedSceneResources.Receiver.StaticMeshes.GPUScenePrimitives = Dynamic->CreatePrimitiveCollector()->Commit(PreparedView.Receiver.StaticMeshes);
+			ResolvedSceneResources.Receiver.StaticMeshes.GPUScenePrimitives = CollectGPUScenePrimitives(PreparedView.Receiver.StaticMeshes, Dynamic);
 			if (ResolvedSceneResources.Receiver.StaticMeshes.GPUScenePrimitives.size() != PreparedView.Receiver.StaticMeshes.Primitives.size()) return ERenderViewResult::RendererResourcesUnavailable;
 			if (PreparedView.DirectionalShadow)
 			{
@@ -374,12 +374,15 @@ namespace Durin
 				{
 					const auto& Prepared = PreparedView.DirectionalShadow->StaticMeshes[Cascade];
 					auto& Resolved = ResolvedSceneResources.DirectionalShadow->StaticMeshes[Cascade];
-					Resolved.GPUScenePrimitives = Dynamic->CreatePrimitiveCollector()->Commit(Prepared);
+					Resolved.GPUScenePrimitives = CollectGPUScenePrimitives(Prepared, Dynamic);
 					if (Resolved.GPUScenePrimitives.size() != Prepared.Primitives.size()) return ERenderViewResult::RendererResourcesUnavailable;
 				}
 			}
 			FRendererRDGAllocator UploadAllocator(Service.GetResourceCoordinator());
 			if (!Dynamic->Upload(CommandList, UploadAllocator)) return ERenderViewResult::RendererResourcesUnavailable;
+			ResolvedSceneResources.Receiver.StaticMeshes.GPUSceneDynamicContext = Dynamic;
+			if (ResolvedSceneResources.DirectionalShadow)
+				for (auto& Resolved : ResolvedSceneResources.DirectionalShadow->StaticMeshes) Resolved.GPUSceneDynamicContext = Dynamic;
 			Context.Resolved.GPUSceneDynamicContext = std::move(Dynamic);
 		}
 
@@ -401,7 +404,7 @@ namespace Durin
 		{
 			const bool bShadowReady = Service.DirectionalShadowRenderer.PrepareResources_RenderThread(CommandList, Context.Logical.Scene,
 				Service.StaticMeshRenderer, *PreparedView.DirectionalShadow, *ResolvedSceneResources.DirectionalShadow,
-				Telemetry.View, &SectionResources, !bPrepareOnly, false, Context.Resolved.GPUSceneDynamicContext);
+				Telemetry.View, &SectionResources, !bPrepareOnly);
 			if (bPrepareOnly && PreparedView.DirectionalShadow->View.bEnabled && !bShadowReady)
 				return ERenderViewResult::RendererResourcesUnavailable;
 		}

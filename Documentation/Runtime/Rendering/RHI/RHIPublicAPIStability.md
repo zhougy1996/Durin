@@ -4,7 +4,7 @@ Summary: Define the source and semantic stability boundary of public RHI headers
 
 Modules: RHI, RenderCore, ShaderFormat, VulkanRHI, MetalRHI
 
-Last reviewed: 2026-10-31
+Last reviewed: 2026-11-15
 
 ## Directory Contract
 
@@ -31,6 +31,19 @@ Detailed parameter-validation errors and validators live in
 RHI. Ordinary consumers use resource descriptions and commands, or the boolean
 `IsTextureViewDescValid` query when selecting attachment views. Conformance
 fixtures may inspect the backend-only error codes and context.
+
+The stable readback family now includes `RHIGPUReadback.h`; buffer and texture
+facades share publication/storage lifetime. Buffer consumers use reusable,
+optionally stack-owned EnqueueCopy/IsReady/Lock/Unlock objects documented in
+[resource views and transfers](RHIResourceViewsAndTransfers.md#asynchronous-gpu-buffer-readback).
+The backend context polling hook is RHIPollReadbacks; existing public texture
+polling and texture request types retain source compatibility. Backend callbacks
+receive internal shared storage, never a reusable facade. Public clients enqueue
+through the facade; completion/failure publication and command-list buffer-readback
+plumbing are backend-only. Complete/Fail are removed from public facades; CPU
+fixtures publish through simulated backend contexts. Consuming TakeData is a
+protected implementation detail, not a base/buffer client API. Buffer reads borrow
+through Lock/Unlock; texture clients retain TakePixels.
 
 ## Frozen Meaning
 

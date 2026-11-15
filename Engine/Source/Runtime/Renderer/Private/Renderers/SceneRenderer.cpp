@@ -96,6 +96,7 @@ namespace Durin
 			.Resolved = Resolved.Scene, .Telemetry = Telemetry,
 			.CullingManager = Service.InstanceCullingManager,
 			.StaticMeshes = Service.StaticMeshRenderer,
+			.MeshDrawCommandStats = Context.Observation.MeshDrawCommandStats,
 			.Depth = GraphResources.SceneDepth, .Options = Options,
 			.Failure = Logical.Qualification.GPUCullingFailure,
 			.Width = Width, .Height = Height, .Feature = Features.GBuffer,
@@ -241,8 +242,8 @@ namespace Durin
 		};
 		if (Logical.Options.bEnableGPUCulling)
 		{
-			// One compute producer and two optional diagnostic-copy consumers.
-			SceneRenderBudget.RegressionMaxPasses += IsViewRenderTelemetryObserved() ? 3 : 1;
+			// One compute producer and one optional buffer-readback consumer.
+			SceneRenderBudget.RegressionMaxPasses += IsViewRenderTelemetryObserved() ? 2 : 1;
 		}
 		if (Features.RequiresProductionDeferred())
 		{

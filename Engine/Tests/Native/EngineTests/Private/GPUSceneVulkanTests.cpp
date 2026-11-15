@@ -55,7 +55,8 @@ namespace Durin
 					std::make_unique<FStaticMeshSceneProxy>(&RenderData, std::vector<FMaterialRenderProxyRef>{}),
 					Math::TranslationMatrix(FVector3(1e12 + Id, 0.0, 0.0)), false);
 			};
-			auto Run = [&](bool ExpectUpload, bool Recover = false, bool Reject = false) {
+			std::array<FRHIGPUBufferReadback, 3> BufferReadbacks;
+			auto Run = [&](bool ExpectUpload, bool Recover = false, bool Reject = false, bool CancelReadbacks = false) {
 				EnqueueRenderCommand<FGPUSceneNativeCommand>([&](FRHICommandListImmediate& Commands) {
 					FRendererResourceCoordinator Coordinator;
 					FRendererRDGAllocator Allocator(Coordinator);
@@ -73,8 +74,8 @@ namespace Durin
 					EXPECT_EQ(Update.UploadBytes != 0, ExpectUpload);
 					if (Recover) EXPECT_EQ(Update.BufferRebuilds, 3u);
 					const auto SceneParameters = Scene->GPUScene->GetShaderParameters(Graph);
-					const std::array Buffers{SceneParameters.GPUScenePrimitiveSceneData,
-						SceneParameters.GPUSceneInstanceSceneData, SceneParameters.GPUSceneInstancePayloadData};
+					const std::array Buffers{*SceneParameters.GPUScenePrimitiveSceneData,
+						*SceneParameters.GPUSceneInstanceSceneData, *SceneParameters.GPUSceneInstancePayloadData};
 					std::array<FTextureRHIRef, 3> Readback;
 					for (uint32 Index = 0; Index < Buffers.size(); ++Index)
 					{
@@ -86,15 +87,20 @@ namespace Durin
 						Parameters->Source = {Buffers[Index].Buffer, 0, Buffers[Index].Size, ERDGUse::Read, ERHIAccess::TransferRead};
 						Parameters->Destination = {Texture, {.Aspects = ERHITextureAspect::Color, .NumMips = 1, .NumArrayLayers = 1}, ERDGUse::Write, ERHIAccess::TransferWrite, true};
 						Graph.AddPass(std::format("GPUScene.Copy{}", Index), ERDGPassType::Copy, std::move(Parameters),
-							[Width](FRHICommandListImmediate& List, const FGPUSceneReadbackParameters& P, const FRDGParameterResolver& Resolver) {
+							[Width, Request = &BufferReadbacks[Index]](FRHICommandListImmediate& List, const FGPUSceneReadbackParameters& P, const FRDGParameterResolver& Resolver) {
 								const std::array Regions{FRHIBufferTextureCopyRegion{.TextureExtent = {Width, 1, 1}}};
 								List.CopyBufferToTexture(Resolver.GetBuffer(P.Source), Resolver.GetTexture(P.Destination), Regions);
+								Request->EnqueueCopy(List, Resolver.GetBuffer(P.Source), static_cast<uint32>(P.Source.Size));
 							});
 						Graph.QueueTextureExtraction(Texture, &Readback[Index], ERHIAccess::TransferRead);
 					}
 					const auto Executed = Graph.Execute(Commands, &Allocator);
 					ASSERT_TRUE(Executed) << ToString(Executed.error());
 					ASSERT_TRUE(Scene->GPUScene->CompleteUpdate(Graph, Update));
+                    if (CancelReadbacks) {
+                        Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+                        for (auto& Readback : BufferReadbacks) Readback.Cancel();
+                    }
 					const std::array Expected{
 						std::as_bytes(Scene->GPUScene->GetPrimitiveSceneData()),
 						std::as_bytes(Scene->GPUScene->GetInstanceSceneData()),
@@ -103,6 +109,15 @@ namespace Durin
 					{
 						FByteBuffer Bytes;
 						ASSERT_TRUE(Commands.ReadTexture2D(Readback[Index], 0, 0, Bytes));
+                        Commands.PollReadbacks(); Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+                        EXPECT_FALSE(BufferReadbacks[Index].IsInFlight());
+                        if (CancelReadbacks) EXPECT_EQ(BufferReadbacks[Index].GetState(), ERHIGPUReadbackState::Canceled);
+                        else {
+                            ASSERT_TRUE(BufferReadbacks[Index].IsReady());
+                            const auto* Direct = static_cast<const std::byte*>(BufferReadbacks[Index].Lock(static_cast<uint32>(Bytes.size())));
+                            ASSERT_TRUE(Direct); EXPECT_TRUE(std::equal(Bytes.begin(), Bytes.end(), Direct));
+                            BufferReadbacks[Index].Unlock();
+                        }
 						ASSERT_GE(Bytes.size(), Expected[Index].size());
 						EXPECT_TRUE(std::ranges::equal(Expected[Index], std::span(Bytes).first(Expected[Index].size())));
 						EXPECT_TRUE(std::ranges::all_of(std::span(Bytes).subspan(Expected[Index].size()), [](std::byte Byte) { return Byte == std::byte{0}; }));
@@ -111,7 +126,7 @@ namespace Durin
 				});
 				FlushRenderingCommands();
 			};
-			Add(1); Run(true, false, true); Run(true); Run(false);
+			Add(1); Run(true, false, true); Run(true); Run(false); Run(false, false, false, true); Run(false);
 			FPrimitiveCustomData Custom; Custom.Values[4] = 42.f;
 			Scene->UpdatePrimitiveCustomData(FPrimitiveComponentId{1}, Custom);
 			Run(true); Run(false);

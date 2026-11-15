@@ -104,12 +104,13 @@ namespace Durin::VulkanRHI
 
 		auto RHIReadTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, FByteBuffer& OutData) -> bool override;
 		auto RHIEnqueueTextureReadback(FRHITexture* Texture, uint32 MipIndex,
-			uint32 ArraySlice, std::shared_ptr<FRHITextureReadback> Request) -> void override;
-		auto RHIPollTextureReadbacks() -> void override;
+			uint32 ArraySlice, std::shared_ptr<RHIPrivate::FReadbackState> Request) -> void override;
+		auto RHIPollReadbacks() -> void override;
+		auto RHIEnqueueBufferReadback(FRHIBuffer* Source, uint32 Offset, uint32 NumBytes, std::shared_ptr<RHIPrivate::FReadbackState> Request) -> void override;
 		// Refuses arena pressure instead of waiting for an older GPU submission.
 		auto TryAcquireReadbackRange(uint64 Size, uint64 Alignment) -> FVulkanTransferRange;
 		auto RetainReadback(FVulkanTransferRange Range,
-			std::shared_ptr<FRHITextureReadback> Request) -> void;
+			std::shared_ptr<RHIPrivate::FReadbackState> Request) -> void;
 
 
 		auto RHIAcquireBackBuffer(FRHITexture* BackBuffer) -> void override;
@@ -218,7 +219,7 @@ namespace Durin::VulkanRHI
 		struct FPendingReadback
 		{
 			FVulkanTransferRange Range;
-			std::shared_ptr<FRHITextureReadback> Request;
+			std::shared_ptr<RHIPrivate::FReadbackState> Request;
 		};
 		std::vector<FPendingReadback> PendingReadbacks;
 	};

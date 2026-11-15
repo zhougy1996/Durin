@@ -28,6 +28,7 @@ namespace Durin
 	namespace RendererPrivate
 	{
 		struct FVisibleMeshDrawCommand;
+		struct FParallelMeshDrawCommandPass;
 
 		class FMeshVertexFactoryImplementation;
 		struct FMeshFallbackPrimitiveUniform
@@ -363,8 +364,12 @@ namespace Durin
 	struct FSkyLightingGeneration;
 	struct FResolvedStaticMeshView
 	{
-		std::map<RendererPrivate::FMeshPassKey, std::shared_ptr<RendererPrivate::FMeshDrawCommandSubmission>> DrawCommandSubmissions;
 		FBufferRHIRef DynamicInstancingInstanceIds;
+		std::shared_ptr<const FGPUSceneBufferSet> GPUSceneBuffers;
+		std::array<size_t, 2> GBufferSkippedSources{};
+		std::vector<uint8> GBufferSourceFamilies;
+		RendererPrivate::FMeshDrawCommandPassStats* GBufferPassStats = nullptr;
+		RENDERER_API auto GetGPUSceneParameters(FRDGBuilder& Graph) const -> FGPUSceneReadParameters;
 		FGPUScene* GPUScene = nullptr;
 		std::shared_ptr<FGPUSceneDynamicContext> GPUSceneDynamicContext;
 		std::vector<FGPUScenePrimitiveData> GPUScenePrimitives;
@@ -391,9 +396,10 @@ namespace Durin
 		// Typed surface resources can be shared by compatible mesh passes.
 		std::vector<std::map<RendererPrivate::ESurfaceMaterialPass, std::optional<FMaterialUniform>>> MaterialUniforms;
 		std::shared_ptr<RendererPrivate::FDynamicMeshDrawCommandStorage> DrawCommandStorage;
-		RENDERER_API auto GetMeshDrawCommand(const FPreparedStaticMeshDraw& Draw, RendererPrivate::FMeshPassKey Pass) const
-			-> std::shared_ptr<const RendererPrivate::FMeshDrawCommand>;
-		RENDERER_API auto GetVisibleMeshDrawCommand(const FPreparedStaticMeshDraw& Draw, RendererPrivate::FMeshPassKey Pass, bool bAllowDynamicInstancing = true) const
+		std::map<RendererPrivate::FMeshPassKey, std::shared_ptr<RendererPrivate::FParallelMeshDrawCommandPass>> MeshDrawCommandPasses;
+		RENDERER_API auto GetMeshDrawCommandPass(RendererPrivate::FMeshPassKey Pass) -> RendererPrivate::FParallelMeshDrawCommandPass&;
+		RENDERER_API auto GetMeshDrawCommandPass(RendererPrivate::FMeshPassKey Pass) const -> const RendererPrivate::FParallelMeshDrawCommandPass&;
+		RENDERER_API auto GetVisibleMeshDrawCommand(const FPreparedStaticMeshDraw& Draw, RendererPrivate::FMeshPassKey Pass) const
 			-> const RendererPrivate::FVisibleMeshDrawCommand*;
 		FRHITexture* DirectionalShadowTexture = nullptr;
 		FRHISampler* DirectionalShadowSampler = nullptr;
@@ -414,6 +420,8 @@ namespace Durin
 	};
 
 	// Finalize one collection's draw lists in place, preserving stable resolved indices.
+	RENDERER_API auto CollectGPUScenePrimitives(const FPreparedStaticMeshView& Prepared, const std::shared_ptr<FGPUSceneDynamicContext>& Context)
+		-> std::vector<FGPUScenePrimitiveData>;
 	RENDERER_API auto AdmitStaticMeshDraws(FPreparedStaticMeshView& View, const FResolvedStaticMeshView& Resources) -> size_t;
 
 	// Owns collected geometry/material values after all scene/proxy reads finish.

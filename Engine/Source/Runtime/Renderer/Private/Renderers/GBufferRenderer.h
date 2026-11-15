@@ -12,7 +12,6 @@
 namespace Durin
 {
 	namespace RendererPrivate { struct FMeshPassPipeline; }
-	struct FGBufferPipeline;
 	class FRendererResourceCoordinator;
 	class FRHICommandListImmediate;
 	class FRDGShaderParameterScope;
@@ -23,7 +22,7 @@ namespace Durin
 	class RENDERER_API FGBufferRenderer final
 	{
 	public:
-		using FPipeline = FGBufferPipeline;
+		using FPipeline = RendererPrivate::FMeshPassPipeline;
 
 		static constexpr uint64 BytesPerPixel = 16;
 		static constexpr uint64 MaximumRetainedBytes =
@@ -69,8 +68,7 @@ namespace Durin
 			-> std::array<FRHITextureCreateDesc, 4>;
 		auto EnsurePipeline_RenderThread(const FPipelineRequest& Request)
 			-> std::shared_ptr<const FPipeline>;
-		static auto GetPipelineResources(const std::shared_ptr<const FPipeline>& Pipeline)
-			-> std::shared_ptr<const RendererPrivate::FMeshPassPipeline>;
+
 		auto ReleaseResources_RenderThread() -> void;
 
 	private:

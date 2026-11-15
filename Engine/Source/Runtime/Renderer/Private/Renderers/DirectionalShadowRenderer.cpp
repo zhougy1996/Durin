@@ -3,7 +3,6 @@
 
 #include "RenderResourceCreation.h"
 #include "Renderers/DirectionalShadowView.h"
-#include "Renderers/ForwardLighting.h"
 #include "Renderers/SceneRenderPlan.h"
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "Renderers/StaticMeshRenderer.h"
@@ -36,7 +35,6 @@ namespace Durin
 		TRenderResourceCreationSlot<FResources> Resources{
 			ERenderResourceGenerationDependency::Device
 				| ERenderResourceGenerationDependency::Manual};
-		FRHIUniformBufferRange FallbackLighting;
 		uint32 Resolution = 0;
 	};
 
@@ -66,7 +64,7 @@ namespace Durin
 	auto FDirectionalShadowRenderer::PrepareResources_RenderThread(FRHICommandListImmediate& CommandList, FScene* Scene,
 		FStaticMeshRenderer& StaticMeshes, const FPreparedDirectionalShadow& Shadow,
 		FResolvedDirectionalShadow& ResolvedShadow, FViewRenderTelemetry& Telemetry,
-		FStaticMeshSectionResourceContext* ResourceContext, bool bAllowPartial, bool bDynamicInstancing, std::shared_ptr<FGPUSceneDynamicContext> DynamicContext) -> bool
+		FStaticMeshSectionResourceContext* ResourceContext, bool bAllowPartial) -> bool
 	{
 		check(IsInRenderingThread());
 		check(!CommandList.IsInsideRenderPass());
@@ -149,10 +147,7 @@ namespace Durin
 
 		FStaticMeshSectionResourceContext LocalResources;
 		if (!ResourceContext) ResourceContext = &LocalResources;
-		const FViewLightingUniform FullyUnlit{};
-		State->FallbackLighting = CommandList.CreateUniformBufferRange(
-			&FullyUnlit, sizeof(FullyUnlit));
-		bool bReady = State->FallbackLighting.Buffer != nullptr;
+		bool bReady = true;
 		bool bComplete = true;
 		for (uint32 Cascade = 0; Cascade < Shadow.View.CascadeCount; ++Cascade)
 		{
@@ -166,7 +161,7 @@ namespace Durin
 			if (bReady)
 			{
 				const bool bBindingsReady = StaticMeshes.PrepareBindings_RenderThread(CommandList, nullptr,
-					Prepared, Resolved, State->FallbackLighting, true, {}, bDynamicInstancing, DynamicContext);
+					Prepared, Resolved, {}, true);
 				bComplete = bBindingsReady && bComplete;
 				bReady = bBindingsReady || bAllowPartial;
 			}
@@ -310,6 +305,5 @@ namespace Durin
 	auto FDirectionalShadowRenderer::ReleaseResources_RenderThread() -> void
 	{
 		State->Resources.Reset();
-		State->FallbackLighting = {};
 	}
 }

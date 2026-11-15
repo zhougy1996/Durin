@@ -2,7 +2,7 @@
 
 Summary: Define scene-owned Primitive and Instance records, incremental uploads, selected-instance shader access and allocation retirement.
 Modules: RenderCore, Engine, Renderer
-Last reviewed: 2026-11-14
+Last reviewed: 2026-11-15
 
 ## Scope and Ownership
 
@@ -20,6 +20,13 @@ and CPU scene-vector indices are separate identities. CPU handles include a
 generation to reject stale updates. Instance GPU addresses can change when
 their range moves; stable nonzero `FPrimitiveInstanceId` values remain scoped
 to a Primitive.
+
+`FPersistentPrimitiveIndex` follows UE's scene-scoped index contract: it survives
+packed scene-list movement during a Primitive's lifetime, but removal permits
+slot reuse. It carries no public generation and is not a permanent object ID.
+`FGPUScene::GetPrimitiveSceneInfo` resolves the current occupant on the render
+thread. Existing internal generation-bearing handles protect retained selections
+and update requests; they do not change the public index representation.
 
 `FInstanceSceneDataBuffers` is immutable once published through a const shared
 owner. StaticMesh proxies derive it from the validated full instance snapshot.
@@ -113,6 +120,18 @@ counted owners for a submission; `FGPUSceneReadParameters` imports and declares
 those resources per consuming graph. Builder handles never enter cached mesh
 commands. Pass bindings resolve current buffers after growth or recovery.
 
+Each resolved view retains one scene-buffer/direct-ID domain, validated during
+`SetupMeshDrawCommands`; equivalent wrappers may share it, while conflicting
+attribute or direct-ID buffers reject preparation. `GetGPUSceneParameters(Graph)`
+imports this domain without scanning primitives. Its typed
+`FGPUSceneResourceParameters` declares the three optional attribute buffers and
+their allocation-count/resource-generation snapshot. `FGPUSceneReadParameters`
+adds explicit optional direct and dynamic-instancing ID reads. Imports still
+validate the graph's external entrance/final access contract, including resources
+registered earlier. Empty optional resources declare no use. Shadow features own
+their cascade parameter arrays; the generic resource block has no view/cascade
+capacity limit. Translucent consumers declare the same scene resources explicitly.
+
 Providers select `EPrimitiveIdMode` on each batch: built-in StaticMesh/Spline
 publication uses `PrimID_FromPrimitiveSceneInfo`; extension batches default to
 `PrimID_DynamicPrimitiveShaderData`. A persistent reference consists of the
@@ -129,6 +148,11 @@ GPUScene as persistent records. A submission commits updates with an explicit
 RDG allocator, then snapshots the final buffers after any growth. Standalone
 consumers create a transient GPUScene through the same allocation/upload path.
 One scene submission retains a shared context across receiver and shadow views.
+The unified resource phase publishes that context into each resolved view only
+after a successful shared upload. Binding preparation requires the resolved
+context, matching primitive count and uploaded buffer-set ownership; it never
+collects or uploads missing GPUScene data. Unsupported-factory empty entries
+remain valid. Shadow depth passes supply no placeholder lighting uniform.
 The context concatenates their direct instance-ID lists into one upload and
 assigns each primitive an offset in that shared list. Scene-owned ID buffers use
 counted immutable leases: identical contents may be shared while reads are in
@@ -137,21 +161,40 @@ released and the last consuming graph completes. Unpublished/failed use never
 authorizes overwrite. Retained native ID capacity is bounded to 4 MiB and 32
 entries per scene; excess uploads remain submission-owned. ReleaseRHI clears
 the retained pool. Standalone requests preserve independent scene domains.
-`FGPUScenePrimitiveCollector::Commit` assigns dynamic ranges to explicit immutable
-records. Sharing a record reuses its allocation; distinct records remain distinct
+`FGPUScenePrimitiveCollector` is a stack-owned generic collector. `Add` accepts
+an immutable dynamic record or a persistent primitive/instance selector plus an
+instance count, returning a collector-local index. Argument-free `Commit()`
+resolves those sources and publishes their selections; `GetPrimitiveData(index)`
+is valid only after successful commit. Counts repeat the selected ID for existing
+multi-instance geometry, preserving the current shader ABI. Missing persistent
+selectors and ID-count overflow fail before dynamic allocation or ID publication.
+Persistent `Add` captures the current scene's existing internal source handle on
+the render thread. `Commit` validates that captured source before resolving its
+stable Instance ID, rejecting removal or slot reuse between the two calls.
+The StaticMesh adapter also rejects stale or foreign prepared SceneInfo references.
+Callers do not supply an additional generation argument or public identity type.
+
+Sharing a dynamic record reuses its allocation; distinct records remain distinct
 even when their transported bytes match. A changed record is a new identity.
-Logical collection supplies these records; no packed-byte identity cache remains.
-All receiver/cascade collectors commit before `Upload`, so growth completes once
-and every view binds the same final attribute buffers. `UpdateCPUData` refreshes
-membership/ID lookup without executing a graph. Binding consumes uploaded data.
-The context is the sole allocation-domain authority. Independent preview/picking
-requests create their own contexts; the one-shot `Prepare` helper commits and
-uploads for these callers. The submission registers terminal drawing-graph use once.
+DynamicContext owns this shared allocation identity and the concatenated upload.
+Buffer sets directly retain DynamicContext; the context tracks pending buffer
+sets weakly. Collectors may be destroyed before upload, and dropping the last
+buffer/context owner releases the scope without a collector/context ownership cycle.
+
+`CollectGPUScenePrimitives` is the StaticMesh preparation adapter. It owns factory
+eligibility, hardware-instance counts, persistent/dynamic source selection,
+fallback record creation and projection into the prepared primitive order. Neither
+the collector nor DynamicContext receives a prepared StaticMesh view.
+All receiver/cascade collectors commit before the shared `Upload`, so growth
+completes once and every view binds the same final attribute buffers.
+`UpdateCPUData` refreshes membership/ID lookup without executing a graph.
+Independent preview/picking requests explicitly collect and upload using their
+own contexts. The submission registers terminal drawing-graph use once.
 Durin still executes one dedicated attribute upload graph before native binding
 construction; UE can author uploads in its drawing graph. This integration boundary
 does not change range retirement or permit per-view attribute graph execution.
 Factories opt in through `SupportsGPUScene`; unsupported factories retain uniform access.
-It creates a direct ID list, repeating the selected ID for existing multi-instance
+The collector creates a direct ID list, repeating the selected ID for existing multi-instance
 geometry. `InstanceIdOffset` overrides emitted `FirstInstance`; source draw
 arguments stay unchanged. Both direct and indirect vertices index the ID list
 with `SV_InstanceID + SV_StartInstanceLocation`. Fragments needing object-space
@@ -162,109 +205,148 @@ per-draw picking uniform.
 ## CPU Dynamic Instancing
 
 `FMeshDrawCommand::MatchesForDynamicInstancing` compares effective pipeline,
-shader/layout/declaration, geometry ranges, streams and resource bindings;
-`GetDynamicInstancingHash` returns a uint32 candidate hash. Equality must still
-be checked. Pipeline and binding wrapper addresses do not determine compatibility.
-Source cache slots remain per Primitive/batch; eligible identical cached commands
-share a state bucket and command allocation. Each source retains its own
-`FCachedMeshDrawCommandInfo` and invalidation identity on `FPrimitiveSceneInfo`.
-`FVisibleMeshDrawCommand::MatchesForDynamicInstancing` uses valid, storage-scoped
-StateBucket IDs for cached command compatibility. IDs from different scene caches
-are unrelated, and removed/reset metadata cannot enter that fast path. Dynamic
-commands retain effective-state comparison. Frame pass bindings, scene buffers
-and depth bias must still match; identical immutable pass/buffer-set owners avoid
-repeating their member comparisons.
-Cache lookup uses structural pipeline identity: pass, raster/depth/blend/target
-description, factory/layout, native shader identities and declaration elements.
-The immutable identity is cached once per pipeline snapshot and shared by cache
-keys/entries; dynamic instancing uses that same equality definition. Copies create
-new editable snapshots; published pipelines remain immutable. Native preparation
-warms identity before publication, and concurrent readers share its cached value.
-Pipeline wrapper addresses do not enter the key. Only the shared state bucket
-retains its canonical pipeline until its last source entry is removed; equivalent
-source wrappers need no additional retention. Replacing or removing one source retires only that source's visible
-handles; other sources can continue using the shared command and pipeline.
-Weak lookup buckets are pruned when their last source entry is removed.
+shader/layout/declaration, geometry, streams and bindings. The uint32
+`GetDynamicInstancingHash` only narrows candidates; full equality remains required.
+Wrapper addresses do not establish compatibility. Cached commands may share a
+storage-scoped state bucket and canonical command/pipeline, while every primitive
+retains independent `FCachedMeshDrawCommandInfo` invalidation metadata. Dynamic
+commands use effective-state comparison. Frame bindings, scene buffers and bias
+must also match. Invalidated sources are rejected before borrowed resources are read.
 
-`BuildMeshDrawCommandRuns` forms consecutive effective-state runs shared by CPU
-instancing and GPU admission. Production builds these after final component draw
-admission for explicitly requested consuming passes, skipping absent command
-lists. Runs store first-command/count ranges rather than heap-allocated member
-arrays; CPU and GPU selection preserve the same visible order. Cached selection
-returns command and source info together and retains that lookup through binding.
-Production reuses the same membership for GPU selection; no pass-local hash
-buckets or separate CPU/GPU state numbering are needed. One submission table owns
-run members, draw-to-run lookup, argument selection and dispatch outcome. CPU and
-GPU consumers share it; there is no copied CPU group membership or post-dispatch
-enable mutation. GPU eligibility does not split CPU-compatible runs: admission
-accepts a whole run or leaves it to CPU fallback. CPU submission merges compatible opaque/masked Local runs in
-Forward, retained Forward, GBuffer and shadows. It preserves prepared order;
-Spline, sorted translucency, unsupported factories, original multi-instance draws
-and instance-frequency vertex streams remain separate. Visible records carry
-`StateBucketId`, `PrimitiveIdBufferOffset` (uint ID elements) and `NumInstances`.
-Only emitted draw arguments receive the count/offset overrides. One counted
-submission-owned ID buffer serves CPU runs across its passes and declares RDG reads.
-`bEnableDynamicInstancing` defaults true and independently disables this path for
-reference output comparisons.
+Cached publication requires a Pipeline owner matching the command pointer; the
+state bucket retains it until source invalidation. Dynamic storage has no standalone
+publication entrypoint; all builds use a draw-list context.
 
-GBuffer retains original commands until GPU admission is known. Each shared run
-uses indirect submission after successful GPU selection, or its CPU-instanced/
-direct fallback otherwise. Failed dispatch restores complete CPU runs without
-mutating another set of group-enable flags.
-Logical successful-draw counts stay conserved; `NativeDrawSubmissions` and
-`ShadowNativeDrawSubmissions` count actual emitted commands. Fewer submissions
-alone do not establish a frame-time improvement.
+Pipeline identity includes pass, raster/depth/blend/targets, factory/layout,
+native shaders and declaration elements. FMeshPassPipelineInitializer is mutable
+construction input; FMeshPassPipeline owns an immutable copy exposed through
+GetInitializer and builds its identity once at construction. PreparePipeline
+publishes a const shared pipeline only on success, without mutating prior outputs.
+Cache entries access commands through their state bucket rather than a duplicate
+command owner. The state bucket retains its canonical pipeline until the
+last source is removed; weak bucket lookups are pruned. `FindCachedCommand`
+returns command memory and matching source info together, validates owner/keys/
+optional input, and leaves material output untouched on failure. Retained command
+memory does not retain invalidated source resources.
+
+`SetupMeshDrawCommands` runs after final component admission. It compacts compatible
+Local opaque/masked draws, uploads packed instance IDs and stores source mapping
+on each pass. Original multi-instance, Spline, translucent and instance-frequency
+inputs remain separate. `bEnableDynamicInstancing` independently controls this CPU
+compaction. Source counts distinguish logical draws from actual native submissions.
+Visible commands retain source ranges and submission overrides, never scene-domain
+owners, preparation eligibility flags or borrowed CPU instance-ID spans.
+BuildMeshDrawCommandCullingPayloads creates generic source-indexed preparation
+records on demand. Culling Setup consumes them synchronously; neither final
+commands nor contexts retain those preparation records or spans. CPU compaction uses source ranges to build the merged ID upload.
+
+`FMeshPassProcessor` binds its draw-list context through CreateMeshPassProcessor
+or SetDrawListContext. The context supplies the build's binding cache; AddMeshBatch
+accepts per-draw batch/input and optional cached-command reuse. Local instances
+and contexts are reused per pass/build destination. Contexts retain storage and
+output lists, never per-command input/output references. AddCommand selects writable
+build storage: dynamic contexts append a stable frame command, while cached contexts
+reuse the single-command initializer before state bucketing. FinalizeCommand
+publishes the stored dynamic command without moving it again, or deduplicates and
+publishes the cached command. Only finalize a command returned by the same context,
+once; only FinalizeCommand marks the command complete. SetDrawParameters prepares
+geometry without finalizing; AddCommand starts an unfinished build even when seeded
+from a completed command. Published commands are immutable. Failed builds publish
+nothing, and unfinished dynamic entries expire with frame storage. Callers keep a
+context alive across processor use, with no reverse binding or destructor
+detach protocol. Shared prototypes serve read-only selection/PSO preparation and
+never receive build contexts.
+
+`FResolvedStaticMeshView` owns the pass collection. Dynamic command storage owns
+append-only stable-address values. Context finalization publishes an aliasing const
+command pointer that retains the allocation directly; there is no intermediate command
+handle/lookup. Old-frame storage rejects new publication, and Pass::Draw rejects
+expired-frame commands before accessing borrowed resources. Storage owns no
+visible lists or cache metadata. A pass retains one dynamic allocation owner and
+its cached command/info/frame-binding owners. Each pass also retains distinct
+scene buffer-set owners and its merged instance-ID buffer once, preserving dynamic
+allocation leases across direct drawing and failed-culling fallback. Dynamic
+visible entries borrow the command's binding value. Const pass lookup never inserts; mutable lookup enters
+preparation. Nonempty passes must be finalized before culling setup; empty passes
+can be sealed there. Setup occurs once, and late publication is rejected.
+
+`FInstanceCullingContext::SetupDrawCommands` compacts admitted GPU groups in the
+visible array. Exactly one submission-info entry corresponds to each final command;
+`Draw` start/count ranges index that final array. Source lookup and base-pass ranges
+are rebuilt after compaction; groups never cross base-pass buckets. Merging multiple
+commands retains scoped original sources for failed-dispatch fallback. Already
+CPU-compacted singleton groups need no source copies. Invalidated sources reject
+the GPU group before native submission.
+
+`FParallelMeshDrawCommandPass::Draw` borrows the prepared span and delegates to its
+owned culling context when present. Direct, CPU-instanced and indirect paths use
+the same retained command. A rejected command does not suppress later commands.
+Sorted translucency preserves its prepared order. Draw is serial within the supplied
+command list; independent worker shadow recording owns separate lists.
+
+RDG consumers declare nested `FInstanceCullingDrawParams` with instance-ID and
+indirect-argument byte ranges. `GetMeshDrawCommandOverrideArgs` combines declared
+and relative offsets once through Durin's explicit resolver, producing borrowed
+native overrides. `FMeshDrawCommandSceneArgs` lowers per-draw selection without
+mutating commands/bindings; `PrimitiveIdOffset` is measured in uint32 ID elements.
+
+`FMeshDrawCommandPassResult` carries functional completion, source outcomes and
+native/indirect submission counts. Optional detail belongs to
+`FMeshDrawCommandStatsManager`: named CPU-draw/GPU-visibility requests allocate
+pass blocks only on demand. A RenderView statistics output requests CPU detail;
+a telemetry observer additionally requests GPU visibility. `DrawData` records
+source/count/outcome facts for feature-owned classification and reduction.
+Rendering decisions never depend on these observations.
+
+`QueueDrawRDGIndirectArgsReadback` owns the typed rooted copy pass and query.
+Features provide the indirect range and completion predicate; telemetry retains a
+const result handle that may outlive the manager. Each statistics query represents
+one observation and owns its readback directly. Observers receive only GetState
+and GetCounts; transport mutation belongs to the statistics manager. RHI-object
+reuse does not reuse an already parsed query. Failed
+submission cancels the observation. Ready bytes are parsed between Lock/Unlock with exact shape/count
+validation. RHI owns staging capacity/retirement; observations never wait for GPU.
+See [buffer readback](../RHI/RHIResourceViewsAndTransfers.md#asynchronous-gpu-buffer-readback).
 
 ## Instance Culling Contexts
 
-`FInstanceCullingManager` owns shared compute-resource readiness and registered
-view snapshots. A context is associated with its manager when created;
-`BuildRenderingCommands` does not accept a second manager. The manager does not
-retain an unused context list. Each `FInstanceCullingContext` owns one pass's source selection,
-scene-buffer references, candidate IDs and argument mapping. Resetting the
-manager's view list does not invalidate contexts retained by pending graph
-callbacks; the rendering service outlives their execution.
+Resource preparation freezes the GBuffer's EInstanceCullingMode as Disabled,
+Unsupported, ResourcesUnavailable or Enabled. Only Enabled enters culling setup.
+Shader/PSO unavailability therefore creates no culling context, compacted GPU
+groups, candidate/argument buffers or visibility readback. Graph construction
+consumes the frozen decision and never retries resource creation. Pass/context
+setup accepts admitted work only; it does not repeat requested/capability policy.
 
-`CollectMeshDrawCommands` projects prepared providers into a
-`FMeshCommandOneFrameArray`. Entries retain frame-local scene selection and
-culling eligibility; `SetupDrawCommands` consumes this common visible-command
-boundary, validates counted scene IDs and admits whole consecutive compatible
-runs. Effective command, scene buffers, pass bindings and bias determine equality;
-source description, binding and buffer-set wrapper addresses do not. Incompatible
-or unsupported intervening commands split runs, preserving prepared order. `BuildRenderingCommands` creates graph-owned candidate, visibility and
-argument buffers and declares the shared scene-data buffer's compute read. Candidates
-are eight-byte ID/argument records; they contain no transforms or bounds.
-Compute decodes bounds and origin high/low from the 18-float4 instance ABI and
-translates them using the view's high/low origin. One dispatch consumes the shared
-persistent/dynamic ID domain. A context rejects foreign scene-buffer domains.
+`FInstanceCullingManager` owns compute readiness and registered view snapshots;
+graphs/passes retain their contexts. Construction requires a resource coordinator
+for the manager and a manager for each context; these borrowed dependencies outlive
+their users. Resetting registered views does not invalidate pending contexts.
+Setup validates scene IDs and admits complete consecutive runs by effective
+command, scene buffers, bindings and bias. Intervening incompatible
+commands split runs; a context rejects foreign scene-buffer domains.
 
-The shared submission table resolves CPU/GPU selection. `SubmitDrawCommands`
-uses the ordinary retained geometry command for direct, CPU-merged and indirect
-drawing. Submission consumes the visible array, a start/count range and
-`FMeshDrawCommandOverrideArgs`; it no longer reads prepared StaticMesh objects.
-Overrides provide an instance buffer, indirect buffer and byte offsets.
-`FMeshDrawCommandSceneArgs` carries the lowered per-draw arguments, with
-`PrimitiveIdOffset` measured in uint32 ID elements for Durin's shader ABI.
-Instance-buffer byte offsets select the bound buffer range. Direct CPU runs carry
-their ID buffer on visible entries. Binding emission applies these overrides
-without copying or mutating retained commands or pass-binding arrays. Draw params
-publish RDG handles as `InstanceIdOffsetBuffer` and `DrawIndirectArgsBuffer`.
-Counted frame/graph owners retain resources; override pointers only borrow them.
-The compute dispatch must record successfully before indirect submission is
-published. Pre-dispatch failures select complete CPU runs. Abandoned graphs,
-allocation failures and graph rejection publish no GPU completion or indirect
-selection; a retry uses a fresh context. Graph/submission failure after recording
-is terminal and never redraws late.
+`BuildRenderingCommands` declares graph-owned candidate, visible-ID and argument
+buffers plus the scene-data compute read. Each candidate is an eight-byte
+Instance-ID/argument-index pair, without copied transforms or bounds. Compute
+decodes the 18-float4 instance ABI and high/low origins. Pass draw parameters
+publish ID and argument ranges; counted frame/graph owners retain their resources.
 
-Transient budget/telemetry charges candidate IDs, visible IDs and arguments
-separately from `GPUCullingSceneCapacityBytes` and
-`GPUCullingStandaloneSceneCapacityBytes`. Candidates and visible IDs cost 12 bytes
-per instance; indexed arguments cost 20 bytes per group. Capacity observations
-count each referenced scene's three attribute buffers once per view, including
-its dynamic ranges; they are neither upload bytes nor
-new allocations. Multiple views do not cause unchanged scene attributes to upload.
-The default-disabled GBuffer policy and 64-candidate floor remain unchanged;
-qualification limits are recorded in the [GPUScene plan](../../../Plans/UEAlignedGPUScene.md).
+Statistics distinguish policy-disabled, unsupported, resources-unavailable,
+no-eligible-group and dispatch-failure views. GPUCullingDirectDraws counts actual
+local direct submissions in requested-culling views, including normal routing;
+it is not an error count. No aggregate fallback counter aliases those reasons.
+
+Only successful dispatch enables indirect selection. Pre-dispatch failure uses
+complete original direct/CPU-instanced draws. Abandoned, rejected or allocation-
+failed graphs publish no GPU completion. Retry uses a fresh context/builder;
+post-recording submission failure is terminal and never redraws late.
+
+Candidate IDs and visible IDs cost 12 bytes per instance; indexed arguments cost
+20 bytes per group. These transient charges exclude scene attribute capacity,
+which is observed once per referenced scene/view. Additional views do not upload
+unchanged attributes. The default-disabled GBuffer policy and 64-candidate floor
+remain unchanged; remaining qualification is tracked in the
+[GPUScene plan](../../../Plans/UEAlignedGPUScene.md).
 
 ## Update and memory observations
 

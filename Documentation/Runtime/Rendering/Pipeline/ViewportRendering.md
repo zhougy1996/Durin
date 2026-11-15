@@ -372,7 +372,15 @@ recording has completed successfully. RHI supplies the total draw-call value
 from the monotonic number of non-empty `Draw` and `DrawIndexed` commands recorded inside
 that exact invocation; the value therefore includes SkyBox, shadow, scene,
 post-process, and editor-assistance graphics passes, but not ImGui or compute
-dispatches. Contact-shadow statistics carry the actual `Compute`, `Fragment`,
+dispatches. Mesh and shadow breakdown `DrawCalls` also count emitted native
+submissions, rather than successful logical sources: 64 sources merged into one
+command report one draw. Receiver counts already include GBuffer, retained/forward
+and sorted translucency and must not be added a second time. Shadow counts sum
+native submissions across cascades. Successful source counts remain separate
+Renderer diagnostics. Requesting a statistics output or installing a telemetry
+observer enables detailed mesh pass collection for that invocation; ordinary
+rendering without either request keeps only basic execution outcomes and counts.
+Contact-shadow statistics carry the actual `Compute`, `Fragment`,
 or inactive route so editor A/B controls cannot confuse a requested preference
 with the producer that completed the view.
 

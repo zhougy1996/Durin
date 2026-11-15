@@ -74,7 +74,6 @@ namespace Durin
 		}
 	} // namespace
 
-	struct FGBufferPipeline : RendererPrivate::FMeshPassPipeline {};
 
 	struct FGBufferRenderer::FState
 	{
@@ -165,25 +164,19 @@ namespace Durin
 		std::shared_ptr<const FPipeline>* Pipeline = PipelineEntry.Slot.Resolve(
 			PipelineGeneration,
 			[&PipelineEntry, Shaders, PipelineKey, &Processor, &Batch, VertexDeclaration = Request.VertexDeclaration]() -> FPipelineResult {
-				auto Candidate = std::make_shared<FPipeline>();
+				std::shared_ptr<const FPipeline> Candidate;
 				const auto Preparation = Processor.PreparePipeline(Batch, FName(std::format("GBufferPipeline_{}", PipelineEntry.Index)),
-					*Shaders, VertexDeclaration, *Candidate);
+					*Shaders, VertexDeclaration, Candidate);
 				if (!Preparation) return FPipelineResult::Failure(MakeRendererResourceCreateError(
 					ERenderResourceCreateErrorCategory::GraphicsPipeline, "GBufferPipeline", GetGBufferPlanningPassIdentity(PipelineKey),
 					ERenderResourceCreateErrorReason::PipelinePreparationRejected,
 					ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual
 				));
-				Candidate->FactoryKey = PipelineKey.FactoryKey;
-				Candidate->LayoutKey = PipelineKey.LayoutKey;
 				return FPipelineResult::Success(std::move(Candidate));
 			},
 			ReportRendererResourceCreateDiagnostic);
 		return Pipeline != nullptr ? *Pipeline : nullptr;
 	}
-
-	auto FGBufferRenderer::GetPipelineResources(const std::shared_ptr<const FPipeline>& Pipeline)
-		-> std::shared_ptr<const RendererPrivate::FMeshPassPipeline>
-	{ return Pipeline; }
 
 	auto FGBufferRenderer::ReleaseResources_RenderThread() -> void
 	{
@@ -201,9 +194,8 @@ namespace Durin::RendererPrivate
 		public:
 			using FMeshPassProcessor::FMeshPassProcessor;
 			auto AddMeshBatch(const FMeshPassProcessorBatch& Batch, const FMeshDrawCommandBuildInput& Input,
-				FMeshDrawCommandBindingCache& Cache, FMeshPassDrawListContext& Context,
 				std::shared_ptr<const FMeshDrawCommand> Existing) const -> FShaderCompletion override
-			{ return BuildMeshDrawCommands(Batch, Input, Cache, Context, std::move(Existing)); }
+			{ return BuildMeshDrawCommands(Batch, Input, std::move(Existing)); }
 			auto GetPass() const -> EMeshPipelinePass override { return EMeshPipelinePass::GBuffer; }
 			auto IsEnabled(const FSceneRenderPreparationConfig& Config) const -> bool override { return Config.Settings.bHybrid; }
 			auto GetVertexFactoryPass() const -> uint32 override { return MaterialMeshPassGBuffer; }

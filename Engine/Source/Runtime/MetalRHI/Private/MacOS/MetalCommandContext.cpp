@@ -892,13 +892,40 @@ namespace Durin
 				OutData.assign(Bytes, Bytes + ByteCount);
 				return true;
 			}
-			auto RHIEnqueueTextureReadback(FRHITexture* Texture, uint32 MipIndex,
-				uint32 ArraySlice, std::shared_ptr<FRHITextureReadback> Request) -> void override
+			auto RHIEnqueueBufferReadback(FRHIBuffer* Source, uint32 Offset, uint32 NumBytes, std::shared_ptr<RHIPrivate::FReadbackState> Request) -> void override
 			{
 				CheckRHIExecutionThread();
 				const FMetalAutoreleasePool Pool;
-				if (!Request || Request->GetState() != ERHITextureReadbackState::Pending)
-					return;
+				if (!Request) return;
+				if (Request->GetState() != ERHIGPUReadbackState::Pending) { Request->Abandon(); return; }
+				if (!State || !Active || !Source || !NumBytes || NumBytes > 64u * 1024 * 1024
+					|| Offset > Source->GetSize() || NumBytes > Source->GetSize() - Offset || Active->Readbacks.size() >= 8) { Request->Fail(); return; }
+				NS::SharedPtr<MTL::Buffer> Owner;
+				{
+					std::lock_guard Lock(State->Mutex);
+					if (State->PendingBufferReadbacks >= 8 || NumBytes > 64ull * 1024 * 1024 - State->PendingReadbackBytes) { Request->Fail(); return; }
+					const auto Reusable = std::ranges::find_if(State->FreeReadbackBuffers, [&](const auto& Buffer) { return Buffer->length() >= NumBytes && Buffer->length() <= 64ull * 1024 * 1024 - State->PendingReadbackBytes; });
+					if (Reusable != State->FreeReadbackBuffers.end()) { Owner = std::move(*Reusable); State->FreeReadbackBuffers.erase(Reusable); State->CachedReadbackBytes -= Owner->length(); }
+					else Owner = NS::TransferPtr(State->Queue->device()->newBuffer(NumBytes, MTL::ResourceStorageModeShared));
+					if (!Owner) RHITerminateOnFailure("Metal buffer readback", "native allocation failed");
+					++State->PendingBufferReadbacks; State->PendingReadbackBytes += Owner->length();
+				}
+				auto Encoder = NS::RetainPtr(Active->Command->blitCommandEncoder());
+				if (!Owner || !Encoder) RHITerminateOnFailure("Metal buffer readback", "native allocation failed");
+				auto* Native = static_cast<FMetalBuffer*>(Source)->GetHandle();
+				Encoder->copyFromBuffer(Native, Offset, Owner.get(), 0, NumBytes);
+				Encoder->endEncoding();
+				Active->NativeResources.push_back(NS::RetainPtr(Native));
+				Active->NativeResources.push_back(NS::RetainPtr(Owner.get()));
+				Active->Readbacks.push_back({std::move(Owner), NumBytes, std::move(Request), State});
+			}
+			auto RHIEnqueueTextureReadback(FRHITexture* Texture, uint32 MipIndex,
+				uint32 ArraySlice, std::shared_ptr<RHIPrivate::FReadbackState> Request) -> void override
+			{
+				CheckRHIExecutionThread();
+				const FMetalAutoreleasePool Pool;
+				if (!Request) return;
+				if (Request->GetState() != ERHITextureReadbackState::Pending) { Request->Abandon(); return; }
 				if (!State || !Texture || MipIndex >= Texture->GetNumMips()
 					|| ArraySlice >= Texture->GetArraySize()
 					|| (Texture->GetDimension() != ETextureDimension::Texture2D
@@ -1413,18 +1440,19 @@ namespace Durin
 				PendingAttachmentStates.clear();
 				const FMetalAutoreleasePool Pool;
 				if (!State) return;
-				std::lock_guard Lock(State->Mutex);
+				std::unique_lock Lock(State->Mutex);
 				for (const auto& Submission : Pending)
 				{
 					for (const auto& Readback : Submission.Readbacks)
-						Readback.Request->Cancel();
+						Readback.Request->Abandon();
 					for (const auto& Sample : Submission.TimingSamples) Sample.Query->Invalidate();
 					State->Timeline->Cancel(Submission.Producer);
 				}
+				Lock.unlock();
 				Pending.clear();
 				if (Active)
 					for (const auto& Readback : Active->Readbacks)
-						Readback.Request->Cancel();
+						Readback.Request->Abandon();
 				if (Active)
 					for (const auto& Sample : Active->TimingSamples) Sample.Query->Invalidate();
 				for (const auto& Query : OpenTimingQueries) Query->Invalidate();

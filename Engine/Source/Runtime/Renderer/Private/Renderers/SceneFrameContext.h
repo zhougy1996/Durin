@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Renderers/MeshDrawCommandStats.h"
 
 #include "Renderers/EditorAssistance/EditorAssistanceRenderer.h"
 #include "Renderers/SceneRenderPlan.h"
@@ -45,6 +46,7 @@ namespace Durin
 		struct FObservation final
 		{
 			FSceneRenderTelemetry Telemetry;
+			RendererPrivate::FMeshDrawCommandStatsManager MeshDrawCommandStats;
 		};
 
 		FLogical Logical;

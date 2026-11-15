@@ -1364,7 +1364,7 @@ namespace
 		const std::function<void(Durin::FRHICommandListImmediate&, Durin::FRHITexture*)>& AfterDraw = {},
 		const Durin::FSceneViewRenderOptions& Options = {},
 		std::optional<Durin::EGPUCullingFailure> CullingFailure = {},
-		uint64* PreparationNanoseconds = nullptr, uint64* RecordingNanoseconds = nullptr) -> Durin::ERenderViewResult
+		uint64* PreparationNanoseconds = nullptr, uint64* RecordingNanoseconds = nullptr, Durin::FSceneViewStatistics* Statistics = nullptr) -> Durin::ERenderViewResult
 	{
 		using namespace Durin;
 		if (PreparationNanoseconds) *PreparationNanoseconds = 0;
@@ -1397,7 +1397,7 @@ namespace
 				{ Result = ERenderViewResult::RendererResourcesUnavailable; return; }
 				const auto RecordingStart = std::chrono::steady_clock::now();
 				Result = Renderer.RenderView(Commands,
-					{&Scene, View, Target, false, Options});
+					{&Scene, View, Target, false, Options, Statistics});
 				if (RecordingNanoseconds) *RecordingNanoseconds += static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
 					std::chrono::steady_clock::now() - RecordingStart).count());
 				ASSERT_NE(Result, ERenderViewResult::RendererResourcesPending)
@@ -1979,6 +1979,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 		if (FailShadow) continue;
 		EXPECT_EQ(Telemetry.GBuffer.GBufferSuccessfulDraws, LocalFactory ? 1u : 0u);
 		EXPECT_EQ(Telemetry.CombinedTranslucentGeometryDraws, 1u);
+		EXPECT_EQ(Telemetry.StaticMesh.NativeDrawSubmissions, 2u);
 		EXPECT_EQ(Telemetry.DirectionalShadow.ShadowPreparationFailures, FailShadow ? 1u : 0u);
 		EXPECT_EQ(Telemetry.DirectionalShadow.ShadowSuccessfulDraws, FailShadow ? 0u : 1u);
 	}
@@ -2426,6 +2427,8 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 		auto CullingFailure = EGPUCullingFailure::None;
 		bool bTimePasses = false;
 		bool bCaptureOutputs = true;
+		bool bObserveDrawStats = true;
+		FSceneViewStatistics* RequestedStatistics = nullptr;
         auto ShadowCandidate = EDirectionalShadowCandidate::SingleMap;
 		auto Render = [&](FScene* Scene, bool GPU, ERenderMode Mode, FObservation& Result) {
 			static FObservation* Sink = nullptr;
@@ -2470,14 +2473,15 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 						SetGPUCullingTimingQuerySink(+[](const FGPUTimingQueryRHIRef& Q) { Sink->CullTime = Q; });
                         SetShadowDepthTimingQuerySink(+[](const FGPUTimingQueryRHIRef& Q) { Sink->ShadowTime = Q; });
 					}
-					SetViewRenderTelemetrySink(+[](const FViewRenderTelemetry& Value) { Sink->Telemetry = Value; });
+					if (bObserveDrawStats) SetViewRenderTelemetrySink(+[](const FViewRenderTelemetry& Value) { Sink->Telemetry = Value; });
+					else SetViewRenderTelemetrySink(nullptr);
 					if (bCaptureOutputs) SetGBufferCaptureSink(+[](FRHICommandListImmediate& C, FRHITexture* A, FRHITexture* B, FRHITexture* D, FRHITexture* E, FRHITexture* Z) {
 						const std::array Textures{A, B, D, E, Z};
 						for (size_t I = 0; I < Textures.size(); ++I) ReadGeometryTexture(C, Textures[I], Sink->GBuffer[I], I == 4);
 					});
 					if (bCaptureOutputs) SetShadowDepthCaptureSink(+[](FRHICommandListImmediate& C, FRHITexture* Texture, uint32) { ReadGeometryTexture(C, Texture, Sink->Shadow, true); });
 				},
-				[&](FRHICommandListImmediate& Commands, FRHITexture* Target) { if (bCaptureOutputs) ReadGeometryTexture(Commands, Target, Result.Pixels); }, Options, CullingFailure, &Result.PreparationNanoseconds, &Result.RecordingNanoseconds);
+				[&](FRHICommandListImmediate& Commands, FRHITexture* Target) { if (bCaptureOutputs) ReadGeometryTexture(Commands, Target, Result.Pixels); }, Options, CullingFailure, &Result.PreparationNanoseconds, &Result.RecordingNanoseconds, RequestedStatistics);
 			SetGBufferTimingQuerySink(nullptr);
 			SetGPUCullingTimingQuerySink(nullptr);
             SetShadowDepthTimingQuerySink(nullptr);
@@ -2508,8 +2512,25 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 			EXPECT_EQ(CPUMerged.Pixels, Direct.Pixels); EXPECT_EQ(CPUMerged.GBuffer, Direct.GBuffer); EXPECT_EQ(CPUMerged.Shadow, Direct.Shadow);
 			EXPECT_EQ(Direct.Telemetry.StaticMesh.NativeDrawSubmissions, 64u);
 			EXPECT_EQ(CPUMerged.Telemetry.StaticMesh.NativeDrawSubmissions, 1u);
+            EXPECT_EQ(BuildSceneViewStatistics(Direct.Telemetry).StaticMesh.DrawCalls, 64u);
+            EXPECT_EQ(BuildSceneViewStatistics(CPUMerged.Telemetry).StaticMesh.DrawCalls, 1u);
+            bObserveDrawStats = false;
+            FObservation Unobserved; Render(Instanced.Get(), false, Mode, Unobserved);
+            EXPECT_EQ(Unobserved.Pixels, CPUMerged.Pixels); EXPECT_EQ(Unobserved.GBuffer, CPUMerged.GBuffer);
+            EXPECT_EQ(Unobserved.Shadow, CPUMerged.Shadow);
+            FObservation UnobservedGPU; Render(Instanced.Get(), true, Mode, UnobservedGPU);
+            EXPECT_EQ(UnobservedGPU.Pixels, CPUMerged.Pixels); EXPECT_EQ(UnobservedGPU.GBuffer, CPUMerged.GBuffer);
+            EXPECT_EQ(UnobservedGPU.Shadow, CPUMerged.Shadow);
+            FSceneViewStatistics Exported;
+            RequestedStatistics = &Exported;
+            FObservation Requested; Render(Instanced.Get(), false, Mode, Requested);
+            EXPECT_EQ(Exported.StaticMesh.DrawCalls, 1u); EXPECT_EQ(Requested.Pixels, CPUMerged.Pixels);
+            RequestedStatistics = nullptr; bObserveDrawStats = true;
+
 			if (Mode == ERenderMode::Lit)
 			{
+				EXPECT_TRUE(Direct.Telemetry.GBuffer.bDetailedDrawStats);
+				EXPECT_EQ(Exported.Shadow.DrawCalls, 1u);
 				EXPECT_EQ(Direct.Telemetry.DirectionalShadow.ShadowNativeDrawSubmissions, 64u);
 				EXPECT_EQ(CPUMerged.Telemetry.DirectionalShadow.ShadowNativeDrawSubmissions, 1u);
 			}
@@ -2563,7 +2584,10 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 			{
 				Render(Instanced.Get(), true, ERenderMode::Lit, Policy);
 				EXPECT_EQ(Policy.Pixels, D.Pixels); EXPECT_EQ(Policy.Telemetry.StaticMesh.NativeDrawSubmissions, 1u);
-				EXPECT_EQ(Policy.Telemetry.GBuffer.GPUCullingDirectFallbackDraws, 1u);
+				EXPECT_EQ(Policy.Telemetry.GBuffer.GPUCullingDirectDraws, 1u);
+                EXPECT_EQ(Policy.Telemetry.GBuffer.GPUCullingNoEligibleGroupViews, 1u);
+                EXPECT_EQ(Policy.Telemetry.GBuffer.GPUCullingDispatchFailureViews, 0u);
+                EXPECT_EQ(Policy.Telemetry.GBuffer.GPUCullingResourcesUnavailableViews, 0u);
 			}
 		}
 		Instanced->UpdateStaticMeshRenderInstances(FPrimitiveComponentId(1000), std::make_shared<const std::vector<FStaticMeshRenderInstance>>(Instances));
@@ -2617,8 +2641,24 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 			EXPECT_EQ(Mixed.Telemetry.GBuffer.GPUCullingIndirectDraws, 1u);
 			EXPECT_EQ(Mixed.Telemetry.GBuffer.GPUCullingCandidates, 67u);
 			EXPECT_EQ(Mixed.Telemetry.GBuffer.GPUCullingBelowThresholdCandidates, 0u);
-			EXPECT_EQ(Mixed.Telemetry.GBuffer.GPUCullingDirectFallbackDraws, 0u);
+			EXPECT_EQ(Mixed.Telemetry.GBuffer.GPUCullingDirectDraws, 0u);
 			EXPECT_EQ(Mixed.Telemetry.StaticMesh.NativeDrawSubmissions, 1u);
+
+			// GPU compaction must also preserve direct fallback when CPU instancing is disabled.
+			bDynamicInstancing = false;
+			FObservation CompactGPU; Render(Instanced.Get(), true, ERenderMode::Lit, CompactGPU);
+			EXPECT_EQ(CompactGPU.Pixels, D.Pixels); EXPECT_EQ(CompactGPU.GBuffer, D.GBuffer); EXPECT_EQ(CompactGPU.Shadow, D.Shadow);
+			EXPECT_EQ(CompactGPU.Telemetry.StaticMesh.NativeDrawSubmissions, 1u);
+			CullingFailure = EGPUCullingFailure::CommandAdmission;
+			FObservation DirectFallback; Render(Instanced.Get(), true, ERenderMode::Lit, DirectFallback);
+			EXPECT_EQ(DirectFallback.Pixels, D.Pixels); EXPECT_EQ(DirectFallback.GBuffer, D.GBuffer); EXPECT_EQ(DirectFallback.Shadow, D.Shadow);
+			EXPECT_EQ(DirectFallback.Telemetry.StaticMesh.NativeDrawSubmissions, 67u);
+			EXPECT_EQ(DirectFallback.Telemetry.GBuffer.GPUCullingIndirectDraws, 0u);
+			EXPECT_EQ(DirectFallback.Telemetry.GBuffer.GBufferSuccessfulDraws, 67u);
+            EXPECT_EQ(DirectFallback.Telemetry.GBuffer.GPUCullingDispatchFailureViews, 1u);
+            EXPECT_EQ(DirectFallback.Telemetry.GBuffer.GPUCullingResourcesUnavailableViews, 0u);
+            EXPECT_EQ(DirectFallback.Telemetry.GBuffer.GPUCullingDirectDraws, 67u);
+			bDynamicInstancing = true;
 
 			for (const auto Failure : {EGPUCullingFailure::ShaderUnavailable, EGPUCullingFailure::PipelineUnavailable, EGPUCullingFailure::MetadataBudget, EGPUCullingFailure::CommandAdmission})
 			{
@@ -2629,7 +2669,19 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 				EXPECT_EQ(Fallback.Telemetry.StaticMesh.NativeDrawSubmissions, 1u);
 				if (Failure == EGPUCullingFailure::MetadataBudget)
 					EXPECT_EQ(Fallback.Telemetry.GBuffer.GPUCullingOverflowCandidates, 67u);
-				else EXPECT_EQ(Fallback.Telemetry.GBuffer.GPUCullingDispatchFailureViews, 1u);
+                else if (Failure == EGPUCullingFailure::CommandAdmission)
+                    EXPECT_EQ(Fallback.Telemetry.GBuffer.GPUCullingDispatchFailureViews, 1u);
+                if (Failure == EGPUCullingFailure::ShaderUnavailable || Failure == EGPUCullingFailure::PipelineUnavailable) {
+                    const auto& T = Fallback.Telemetry.GBuffer;
+                    EXPECT_EQ(T.GPUCullingResourcesUnavailableViews, 1u);
+                    EXPECT_EQ(T.GPUCullingDispatchFailureViews, 0u);
+                    EXPECT_EQ(T.GPUCullingNoEligibleGroupViews, 0u);
+                    EXPECT_EQ(T.GPUCullingCandidates, 0u); EXPECT_EQ(T.GPUCullingGroups, 0u);
+                    EXPECT_EQ(T.GPUCullingBufferBytes, 0u); EXPECT_FALSE(T.GPUCullingVisibility);
+                } else if (Failure == EGPUCullingFailure::MetadataBudget) {
+                    EXPECT_EQ(Fallback.Telemetry.GBuffer.GPUCullingNoEligibleGroupViews, 1u);
+                    EXPECT_EQ(Fallback.Telemetry.GBuffer.GPUCullingDispatchFailureViews, 0u);
+                }
 			}
 			CullingFailure = EGPUCullingFailure::None;
 			FObservation Retried; Render(Instanced.Get(), true, ERenderMode::Lit, Retried);
@@ -2683,7 +2735,7 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 					EXPECT_EQ(D.GBuffer, G.GBuffer);
 					EXPECT_EQ(D.Telemetry.GBuffer.GBufferSuccessfulDraws, 64u);
 					EXPECT_EQ(G.Telemetry.GBuffer.GPUCullingIndirectDraws, 1u);
-					EXPECT_EQ(G.Telemetry.GBuffer.GPUCullingDirectFallbackDraws, 0u);
+					EXPECT_EQ(G.Telemetry.GBuffer.GPUCullingDirectDraws, 0u);
 					const auto& Query = G.Telemetry.GBuffer.GPUCullingVisibility;
 					ASSERT_TRUE(Query);
 					for (int Poll = 0; Poll < 60; ++Poll)
@@ -4105,11 +4157,19 @@ TEST(FStaticMeshRenderPreparationVulkanTests, HitProxyIdsRespectDepthBackgroundA
 	FlushRenderingCommands();
 	EXPECT_EQ(CaptureCenter(), 0xabcdef12u);
 	EXPECT_EQ(LastMap, BeforeTexturePublication);
+	EnqueueRenderCommand("RepublishIdenticalHitProxyMaterial", [&](FRHICommandListImmediate&) {
+		Material->SetProgram_RenderThread(Material->GetMaterialWithFallback().CompiledProgram);
+	});
+	FlushRenderingCommands();
+	EXPECT_EQ(CaptureCenter(), 0xabcdef12u);
+	EXPECT_EQ(LastMap, BeforeTexturePublication);
 	EnqueueRenderCommand("RepublishUsedHitProxyMaterial", [&](FRHICommandListImmediate&) {
 		Durin::Testing::FMaterialTestState Layer;
 		Layer.CompiledProgram = Material->GetMaterialWithFallback().CompiledProgram;
 		FMaterialStaticProperties Properties;
 		Properties.bTwoSided = true;
+		// Change published uniform content explicitly; two-sided was already true.
+		Properties.OpacityMaskThreshold = 0.25f;
 		Layer.StaticProperties = Properties;
 		Durin::Testing::ApplyMaterialTestState(*Material, std::move(Layer));
 	});
@@ -4381,11 +4441,14 @@ namespace
 	public:
 		using FDynamicPassMeshDrawListContext::FDynamicPassMeshDrawListContext;
 		auto IsCached() const -> bool override { return false; }
-		auto AddCommand(const FMeshDrawCommand& Initializer) -> FMeshDrawCommand& override
-		{ ++Added; return FMeshPassDrawListContext::AddCommand(Initializer); }
-		auto FinalizeCommand() -> void override
-		{ ++Finalized; FDynamicPassMeshDrawListContext::FinalizeCommand(); }
+		auto AddCommand(FMeshDrawCommand& Initializer) -> FMeshDrawCommand& override
+		{ ++Added; auto& Command = FDynamicPassMeshDrawListContext::AddCommand(Initializer);
+		  EXPECT_NE(&Command, &Initializer); LastAdded = &Command; return Command; }
+		auto FinalizeCommand(const Durin::RendererPrivate::FMeshDrawCommandBuildInput& Input, FMeshDrawCommand& Command) -> void override
+		{ ++Finalized; EXPECT_EQ(&Command, LastAdded); EXPECT_FALSE(Command.bFinalized);
+		  FDynamicPassMeshDrawListContext::FinalizeCommand(Input, Command); EXPECT_TRUE(Command.bFinalized); }
 		uint32 Added = 0, Finalized = 0;
+		const FMeshDrawCommand* LastAdded = nullptr;
 	};
 }
 
@@ -4590,20 +4653,24 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 					ASSERT_TRUE(Request); ExpectedCommandPipeline = *Request;
 				}
 				FRenderPipelineRequestScope Requests(DirectCommandRequests, Generation);
-				FMeshPassPipeline Command;
+				std::shared_ptr<const FMeshPassPipeline> Command;
 				const auto DrawContext = DirectCollector->PreparePipeline(Batch, "AddMeshBatchCommand", Shaders, Initializer.VertexDeclaration, Command);
 				CommandReady = static_cast<bool>(DrawContext);
 				if (CommandReady) {
-					EXPECT_EQ(Command.PipelineState, ExpectedCommandPipeline->GetRHIPipeline());
-					EXPECT_EQ(Command.VertexShader->GetRHIShader(false), Initializer.BoundShaders.VertexShader);
-					EXPECT_EQ(Command.FragmentShader, Initializer.BoundShaders.FragmentShader);
-					EXPECT_EQ(Command.VertexDeclaration, Initializer.VertexDeclaration);
+					EXPECT_EQ(Command->GetInitializer().PipelineState, ExpectedCommandPipeline->GetRHIPipeline());
+					EXPECT_EQ(Command->GetInitializer().VertexShader->GetRHIShader(false), Initializer.BoundShaders.VertexShader);
+					EXPECT_EQ(Command->GetInitializer().FragmentShader, Initializer.BoundShaders.FragmentShader);
+					EXPECT_EQ(Command->GetInitializer().VertexDeclaration, Initializer.VertexDeclaration);
 				}
 				else EXPECT_TRUE(Requests.HasPending()) << DrawContext.Error;
 				FGraphicsPipelineStateInitializer Rejected;
 				Identity.ShaderMap.BlendMode = EMaterialBlendMode::Translucent;
 				const auto WrongMaterial = DirectCollector->BuildPSOInitializer(Batch, Shaders, Initializer.VertexDeclaration, Rejected);
 				EXPECT_EQ(WrongMaterial.Status, EShaderBuildStatus::Error);
+                const auto PublishedPipeline = Command;
+                const auto RejectedPipeline = DirectCollector->PreparePipeline(Batch, "RejectedMeshPipeline", Shaders, Initializer.VertexDeclaration, Command);
+                EXPECT_EQ(RejectedPipeline.Status, EShaderBuildStatus::Error);
+                EXPECT_EQ(Command, PublishedPipeline); // Failed preparation never replaces an immutable publication.
 				EXPECT_EQ(Rejected.BoundShaders.VertexShader, nullptr);
 				EXPECT_EQ(Commands.GetNumRecordedDrawCommands(), Draws);
 				if (CommandReady && !BindingContextsValidated) {
@@ -4615,7 +4682,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 					ASSERT_FALSE(Prepared.Opaque.empty());
 					auto BindingDraw = Prepared.Opaque.front();
 					const auto* Primitive = Prepared.GetPrimitive(BindingDraw); ASSERT_TRUE(Primitive && Primitive->CollectedBinding);
-					const auto& PassProcessor = FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::ShadowDepth);
+					auto PassProcessorInstance = FPassProcessorManager::CreateMeshPassProcessor(EMeshPipelinePass::ShadowDepth); auto& PassProcessor = *PassProcessorInstance;
 					const FMeshPassProcessorBatch ShadowBatch{BindingDraw.Command->Material.PlanningPassIdentity, *Factory,
 						{BindingDraw.Command->PipelineKey.Rasterizer, BindingDraw.Command->PipelineKey.Depth, BindingDraw.Command->PipelineKey.ColorBlend},
 						BindingDraw.Command->PipelineKey.Topology, {}, BindingDraw.Command->bSupportsGBuffer};
@@ -4623,14 +4690,14 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 					const auto ShaderContext = PassProcessor.PrepareShaders(ShadowBatch, Generation, LowResource.CompiledProgram.get(), {}, ShadowShaders);
 					if (ShaderContext.Status == EShaderBuildStatus::Pending) { CommandReady = false; return; }
 					ASSERT_TRUE(ShaderContext) << ShaderContext.Error;
-					auto Pipeline = std::make_shared<FMeshPassPipeline>();
-					const auto PipelineContext = PassProcessor.PreparePipeline(ShadowBatch, "BindingContextShadow", ShadowShaders, Primitive->CollectedBinding->Declaration, *Pipeline);
+					std::shared_ptr<const FMeshPassPipeline> Pipeline;
+					const auto PipelineContext = PassProcessor.PreparePipeline(ShadowBatch, "BindingContextShadow", ShadowShaders, Primitive->CollectedBinding->Declaration, Pipeline);
 					if (!PipelineContext && Requests.HasPending()) { CommandReady = false; return; }
 					ASSERT_TRUE(PipelineContext) << PipelineContext.Error;
 					EXPECT_EQ(PSOPrecacheValidation::GetStatistics().Missed, 0u);
 					EXPECT_EQ(PSOPrecacheValidation::GetStatistics().TooLate, 0u);
-					const auto ValidationInitializer = Pipeline->Description.MakeInitializer(ShadowShaders.VertexShader->GetRHIShader(false),
-						ShadowShaders.FragmentShader, Pipeline->VertexDeclaration, ShadowShaders.ShaderMap.GetPipelineLayout());
+					const auto ValidationInitializer = Pipeline->GetInitializer().Description.MakeInitializer(ShadowShaders.VertexShader->GetRHIShader(false),
+						ShadowShaders.FragmentShader, Pipeline->GetInitializer().VertexDeclaration, ShadowShaders.ShaderMap.GetPipelineLayout());
 					FPSOPrecacheData ValidationData(ValidationInitializer);
 					ValidationData.PSOCollectorIndex = FPSOCollectorCreateManager::GetIndex(EShadingPath::Deferred, "ShadowDepth");
 					ValidationData.VertexFactoryType = &Factory->GetType();
@@ -4653,7 +4720,9 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 						PrimitiveUniform, Commands.CreateUniformBufferRange(&ViewParameters, sizeof(ViewParameters)), {}, {}};
 					FRendererResourceCoordinator UploadCoordinator;
                     FRendererRDGAllocator UploadAllocator(UploadCoordinator);
-                    const auto SceneData = std::make_shared<FGPUSceneDynamicContext>()->Prepare(Commands, UploadAllocator, Prepared);
+                    const auto SceneContext = std::make_shared<FGPUSceneDynamicContext>();
+                    const auto SceneData = CollectGPUScenePrimitives(Prepared, SceneContext);
+                    ASSERT_TRUE(SceneContext->Upload(Commands, UploadAllocator));
 					ASSERT_EQ(SceneData.size(), Prepared.Primitives.size());
 					ASSERT_TRUE(SceneData[BindingDraw.PrimitiveIndex].Buffers);
 					Input.GPUScene = SceneData[BindingDraw.PrimitiveIndex].Buffers->GetShaderParameters();
@@ -4664,25 +4733,30 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 					auto& SourceUniform = Source->GetPrimitiveUniformBuffer(Primitive->BatchId);
 					ASSERT_TRUE(SourceUniform.Update(Commands, std::as_bytes(std::span(&Transform, 1))));
 					Input.PrimitiveUniform = SourceUniform.GetRange();
-					std::shared_ptr<const FMeshDrawCommand> DynamicA, DynamicB;
+					const FMeshDrawCommand *DynamicA = nullptr, *DynamicB = nullptr;
 					FCachedMeshDrawCommandStorage Persistent;
 					FDynamicMeshDrawCommandStorage FrameA, FrameB;
-					FMeshDrawCommandHandle DynamicAHandle, DynamicBHandle;
-					FCachedPassMeshDrawListContext CachedContext(Persistent, {EMeshPipelinePass::ShadowDepth}, Cached, Input); const auto CachedContextResult = PassProcessor.AddMeshBatch(ShadowBatch, Input, CacheA, CachedContext);
+					FParallelMeshDrawCommandPass PassA({EMeshPipelinePass::ShadowDepth}), PassB({EMeshPipelinePass::ShadowDepth});
+					FCachedPassMeshDrawListContext CachedContext(Persistent, {EMeshPipelinePass::ShadowDepth}, CacheA); PassProcessor.SetDrawListContext(&CachedContext); const auto CachedContextResult = PassProcessor.AddMeshBatch(ShadowBatch, Input);
 					ASSERT_TRUE(CachedContextResult) << CachedContextResult.Error;
-					ASSERT_TRUE(Cached && Cached->bCached); EXPECT_EQ(Cached->Pipeline->Pass, EMeshPipelinePass::ShadowDepth);
-					EXPECT_FALSE(Cached->VertexPassBindings); EXPECT_FALSE(Cached->FragmentPassBindings);
+                    Cached = Persistent.FindCachedCommand(FCachedMeshDrawCommandStorage::MakeKey(BindingDraw.Command.get(),
+                        Primitive->PrimitiveId, Primitive->BatchId, *Pipeline, Input.Material.Uniform.Buffer), *Source).Command;
+					ASSERT_TRUE(Cached && Cached->bCached); EXPECT_EQ(Cached->Pipeline->GetInitializer().Pass, EMeshPipelinePass::ShadowDepth);
+					EXPECT_FALSE(Cached->PassBindings.Vertex); EXPECT_FALSE(Cached->PassBindings.Fragment);
 					EXPECT_FALSE(Cached->SubmitDraw(Commands));
 					ASSERT_TRUE(Cached->bFinalized);
 					EXPECT_EQ(Cached->VertexStreams.size(), Primitive->CollectedBinding->Streams.size());
 					EXPECT_EQ(Cached->IndexBuffer, BindingDraw.Command->Indices.Buffer);
 					EXPECT_EQ(std::get<FRHIDrawIndexedArguments>(Cached->DrawParameters), BindingDraw.Command->Geometry.GetIndexedDrawArguments());
 					BindingDraw.RasterBias = {1.0f, 2.0f, 0.0f};
-					FDynamicPassMeshDrawListContext DynamicContextA(FrameA, {EMeshPipelinePass::ShadowDepth}, DynamicAHandle); const auto DynamicContextAResult = PassProcessor.AddMeshBatch(ShadowBatch, Input, CacheA, DynamicContextA, Cached);
-					ASSERT_TRUE(DynamicContextAResult) << DynamicContextAResult.Error; DynamicA = FrameA.GetCommand(DynamicAHandle);
+					FDynamicPassMeshDrawListContext DynamicContextA(FrameA, PassA, CacheA); PassProcessor.SetDrawListContext(&DynamicContextA); const auto DynamicContextAResult = PassProcessor.AddMeshBatch(ShadowBatch, Input, Cached);
+					ASSERT_TRUE(DynamicContextAResult) << DynamicContextAResult.Error; DynamicA = PassA.GetMeshDrawCommands().back().Command;
 					EXPECT_EQ(Persistent.Num(), 1u);
-					EXPECT_EQ(FrameA.Num({EMeshPipelinePass::ShadowDepth}), 1u);
-					ASSERT_TRUE(DynamicA && !DynamicA->bCached && DynamicA->VertexPassBindings);
+					ASSERT_TRUE(DynamicA && !DynamicA->bCached && DynamicA->PassBindings.Vertex);
+                    const auto VisibleA = PassA.GetMeshDrawCommands();
+                    ASSERT_EQ(VisibleA.size(), 1u);
+                    EXPECT_EQ(VisibleA[0].Pass, &DynamicA->PassBindings);
+                    EXPECT_EQ(VisibleA[0].Pass->Vertex.Parameters.data(), DynamicA->PassBindings.Vertex.Parameters.data());
 					EXPECT_EQ(DynamicA->VertexBindings, Cached->VertexBindings);
 					EXPECT_EQ(DynamicA->VertexStreams.size(), Cached->VertexStreams.size());
 					EXPECT_EQ(DynamicA->IndexBuffer, Cached->IndexBuffer);
@@ -4695,34 +4769,48 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 					Input.ViewUniform = Commands.CreateUniformBufferRange(&ViewParameters, sizeof(ViewParameters));
 					FMeshDrawCommandBindingCache CacheB;
 
-					FObservedCommandList DynamicContextB(FrameB, {EMeshPipelinePass::ShadowDepth}, DynamicBHandle);
-					const auto DynamicContextBResult = PassProcessor.AddMeshBatch(ShadowBatch, Input, CacheB, DynamicContextB, Cached);
-					ASSERT_TRUE(DynamicContextBResult) << DynamicContextBResult.Error; DynamicB = FrameB.GetCommand(DynamicBHandle);
-					EXPECT_FALSE(FrameB.GetCommand(DynamicAHandle));
+					FObservedCommandList DynamicContextB(FrameB, PassB, CacheB);
+					PassProcessor.SetDrawListContext(&DynamicContextB); const auto DynamicContextBResult = PassProcessor.AddMeshBatch(ShadowBatch, Input, Cached);
+					ASSERT_TRUE(DynamicContextBResult) << DynamicContextBResult.Error; DynamicB = PassB.GetMeshDrawCommands().back().Command;
 					EXPECT_EQ(DynamicContextB.Added, 1u); EXPECT_EQ(DynamicContextB.Finalized, 1u);
 					EXPECT_EQ(DynamicB->VertexBindings, Cached->VertexBindings);
-					EXPECT_NE(DynamicB->VertexPassBindings, DynamicA->VertexPassBindings);
+					EXPECT_NE(DynamicB->PassBindings.Vertex, DynamicA->PassBindings.Vertex);
 					EXPECT_EQ(DynamicB->DepthBias, *BindingDraw.RasterBias);
 					EXPECT_NE(DynamicA->DepthBias, DynamicB->DepthBias);
 					const auto Original = DynamicB;
 					auto ExpectRejected = [&](std::shared_ptr<const FMeshDrawCommand> Existing) {
-						FMeshDrawCommandBindingCache RejectedCache;
-						FObservedCommandList Context(FrameB, {EMeshPipelinePass::ShadowDepth}, DynamicBHandle);
-						const auto ContextResult = PassProcessor.AddMeshBatch(ShadowBatch, Input, RejectedCache, Context, std::move(Existing));
-						EXPECT_EQ(ContextResult.Status, EShaderBuildStatus::Error);
-						EXPECT_EQ(Context.Finalized, 0u);
-						EXPECT_EQ(FrameB.GetCommand(DynamicBHandle), Original);
-						EXPECT_EQ(FrameB.Num({EMeshPipelinePass::ShadowDepth}), 1u);
-						EXPECT_EQ(DynamicB, Original);
+                        const auto Count = PassB.GetMeshDrawCommands().size();
+                        const auto ContextResult = PassProcessor.AddMeshBatch(ShadowBatch, Input, std::move(Existing));
+                        EXPECT_EQ(ContextResult.Status, EShaderBuildStatus::Error);
+                        EXPECT_EQ(DynamicContextB.Finalized, 1u);
+                        EXPECT_EQ(PassB.GetMeshDrawCommands().size(), Count);
+                        EXPECT_EQ(PassB.GetMeshDrawCommands().back().Command, Original);
 					};
 					// A matching shader/factory/pass is insufficient if the native PSO was built for another state.
-					auto WrongPipeline = std::make_shared<FMeshPassPipeline>(*Pipeline);
-					WrongPipeline->Description.Topology = FGraphicsPipelineStateInitializer::EPrimitiveTopology::LineList;
-					Input.Pipeline = WrongPipeline;
+					auto WrongInitializer = Pipeline->GetInitializer();
+					WrongInitializer.Description.Topology = FGraphicsPipelineStateInitializer::EPrimitiveTopology::LineList;
+					Input.Pipeline = std::make_shared<const FMeshPassPipeline>(std::move(WrongInitializer));
 					ExpectRejected({}); Input.Pipeline = Pipeline;
 					// Request-specific HitProxy bindings cannot reuse a view-independent command.
 					Input.HitProxy = PrimitiveUniform;
 					ExpectRejected(Cached); Input.HitProxy = {};
+                    // Geometry failure occurs after command construction starts; it must not publish
+                    // or affect the next successful batch in this same build scope.
+                    const auto OriginalDescription = BindingDraw.Command;
+                    auto InvalidGeometry = std::make_shared<FMeshDrawDescription>(*OriginalDescription);
+                    InvalidGeometry->Vertices = {};
+                    BindingDraw.Command = InvalidGeometry;
+                    ExpectRejected({});
+                    BindingDraw.Command = OriginalDescription;
+                    const auto OriginalSourceIndex = BindingDraw.ResolvedIndex;
+                    BindingDraw.ResolvedIndex = 123;
+                    ASSERT_TRUE(PassProcessor.AddMeshBatch(ShadowBatch, Input, Cached));
+                    ASSERT_EQ(PassB.GetMeshDrawCommands().size(), 2u);
+                    EXPECT_EQ(DynamicContextB.Finalized, 2u);
+                    EXPECT_EQ(PassB.GetMeshDrawCommands().back().SourceDrawIndex, 123u);
+                    EXPECT_NE(PassB.GetMeshDrawCommands().back().Command, Original);
+                    EXPECT_EQ(Original->DepthBias, *BindingDraw.RasterBias);
+                    BindingDraw.ResolvedIndex = OriginalSourceIndex;
 					EXPECT_EQ(Commands.GetNumRecordedDrawCommands(), Draws);
 					// Submission consumes captured geometry, not the source view or description.
 					auto Detached = *DynamicB;
@@ -4732,15 +4820,21 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 					NonIndexedDescription->Geometry.VertexOffset = 0;
 					NonIndexedDescription->Geometry.ElementCount = 3;
 					auto NonIndexedDraw = BindingDraw; NonIndexedDraw.Command = NonIndexedDescription;
-					auto NonIndexed = Detached;
-					ASSERT_TRUE(NonIndexed.SetDrawParametersAndFinalize(*Primitive, NonIndexedDraw));
+					FDynamicMeshDrawCommandStorage NonIndexedStorage;
+                    FParallelMeshDrawCommandPass NonIndexedPass({EMeshPipelinePass::ShadowDepth});
+                    FDynamicPassMeshDrawListContext NonIndexedContext(NonIndexedStorage, NonIndexedPass, CacheB);
+                    auto& NonIndexed = NonIndexedContext.AddCommand(Detached);
+                    ASSERT_TRUE(NonIndexed.SetDrawParameters(*Primitive, NonIndexedDraw));
+                    EXPECT_FALSE(NonIndexed.bFinalized);
+                    NonIndexedContext.FinalizeCommand(Input, NonIndexed);
+                    EXPECT_TRUE(NonIndexed.bFinalized);
 					EXPECT_FALSE(NonIndexed.IndexBuffer);
 					EXPECT_EQ(std::get<FRHIDrawArguments>(NonIndexed.DrawParameters).VertexCount, 3u);
 					const auto DepthTarget = GDynamicRHI->RHICreateTexture(Commands,
 						FRHITextureCreateDesc::Create2D("MeshCommandSubmission", 8, 8, EPixelFormat::D32)
 						.SetFlags(ETextureCreateFlags::DepthStencilTargetable | ETextureCreateFlags::ShaderResource));
 					ASSERT_TRUE(DepthTarget);
-					FRHIRenderPassInfo Pass; Pass.RenderTargetLayout = Pipeline->Description.RenderTargets;
+					FRHIRenderPassInfo Pass; Pass.RenderTargetLayout = Pipeline->GetInitializer().Description.RenderTargets;
 					Pass.DepthStencilRenderTarget = DepthTarget; Pass.DepthStencilClearValue = FClearValueBinding(1.0f, 0u);
 					Commands.BeginRenderPass(Pass, "MeshCommandSubmission");
 					Commands.SetViewport(0, 0, 0, 8, 8, 1);

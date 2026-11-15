@@ -103,7 +103,7 @@ namespace Durin
 		const auto MakeGeometryParameters = [&](TRDGValueHandle<FSceneColorPassResult> Result, bool bClearColor, bool bClearDepth) {
 			auto Parameters = Graph.AllocParameters<FBaseScenePassParameters>();
 			Parameters->Completion = {.Value = Result};
-			Parameters->Resources.GPUScene.Add(Graph, Inputs.Resolved.Receiver.StaticMeshes);
+			Parameters->Resources.GPUScene = Inputs.Resolved.Receiver.StaticMeshes.GetGPUSceneParameters(Graph);
 			Parameters->Resources.SceneColorOutput = {Inputs.SceneColor, {ERHITextureAspect::Color, 0, 1, 0, 1}, bClearColor ? ERHIRenderTargetLoadAction::Clear : ERHIRenderTargetLoadAction::Load};
 			Parameters->Resources.SceneDepthOutput = {Inputs.SceneDepth, {ERHITextureAspect::Depth, 0, 1, 0, 1}, bClearDepth ? ERHIRenderTargetLoadAction::Clear : ERHIRenderTargetLoadAction::Load};
 			if (!bHybrid || !bClearColor)
@@ -230,24 +230,9 @@ namespace Durin
 		const auto& View = Inputs.View;
 		check(CommandList.IsInsideRenderPass());
 		SetViewRect(CommandList, View);
-		FMeshDrawCommandStateCache RetainedBindings;
-		for (const EMeshBasePass Pass : {
-				 EMeshBasePass::Opaque, EMeshBasePass::Masked
-			 })
-		{
-			const auto& StaticDraws = Pass == EMeshBasePass::Opaque ? Inputs.Receiver.StaticMeshes.Opaque : Inputs.Receiver.StaticMeshes.Masked;
-			for (const FPreparedStaticMeshDraw& Draw : StaticDraws)
-				if (RendererPrivate::FPassProcessorManager::GetMeshPassProcessor(RendererPrivate::EMeshPipelinePass::HybridRetainedForward).IsMeshRelevant(
-					Draw.Command->Material.PlanningPassIdentity, {}, Draw.Command->bSupportsGBuffer))
-				{
-					StaticMeshRenderer.ExecutePreparedDraw_RenderThread(
-						CommandList, View, ResolvedSceneResources.Lighting.UniformBuffer,
-						View.Settings.Mode.RenderMode, Pass, Draw,
-						Inputs.Receiver.StaticMeshes,
-						ResolvedSceneResources.Receiver.StaticMeshes, true, &RetainedBindings
-					);
-				}
-		}
+		for (const auto Bucket : {EMeshBasePass::Opaque, EMeshBasePass::Masked})
+			StaticMeshRenderer.ExecutePass_RenderThread(CommandList, ResolvedSceneResources.Receiver.StaticMeshes,
+				{RendererPrivate::EMeshPipelinePass::HybridRetainedForward}, Bucket);
 		return {.Result = ERenderViewResult::Success};
 	}
 	auto FBaseSceneRecorder::RenderForwardScene_RenderThread(
@@ -292,23 +277,15 @@ namespace Durin
 				 EMeshBasePass::Opaque, EMeshBasePass::Masked
 			 })
 		{
-			StaticMeshRenderer.ExecutePass_RenderThread(
-				CommandList, View, ResolvedSceneResources.Lighting.UniformBuffer,
-				View.Settings.Mode.RenderMode, Pass,
-				Inputs.Receiver.StaticMeshes,
-				ResolvedSceneResources.Receiver.StaticMeshes
-			);
+			StaticMeshRenderer.ExecutePass_RenderThread(CommandList, ResolvedSceneResources.Receiver.StaticMeshes,
+				{RendererPrivate::EMeshPipelinePass::Forward}, Pass);
 		}
 		FMeshDrawCommandStateCache TranslucentBindings;
 		for (const FPreparedStaticMeshDraw& Draw :
 			 Inputs.Receiver.StaticMeshes.Translucent)
 		{
-			StaticMeshRenderer.ExecutePreparedDraw_RenderThread(
-				CommandList, View, ResolvedSceneResources.Lighting.UniformBuffer,
-				View.Settings.Mode.RenderMode, EMeshBasePass::Translucent, Draw,
-				Inputs.Receiver.StaticMeshes,
-				ResolvedSceneResources.Receiver.StaticMeshes, false, &TranslucentBindings
-			);
+			StaticMeshRenderer.ExecutePreparedDraw_RenderThread(CommandList, Draw,
+				ResolvedSceneResources.Receiver.StaticMeshes, {RendererPrivate::EMeshPipelinePass::Forward}, &TranslucentBindings);
 		}
 		StaticMeshRenderer.FinalizeExecution_RenderThread(
 			ResolvedSceneResources.Receiver.StaticMeshes
@@ -333,9 +310,8 @@ namespace Durin::RendererPrivate
 		public:
 			using FMeshPassProcessor::FMeshPassProcessor;
 			auto AddMeshBatch(const FMeshPassProcessorBatch& Batch, const FMeshDrawCommandBuildInput& Input,
-				FMeshDrawCommandBindingCache& Cache, FMeshPassDrawListContext& Context,
 				std::shared_ptr<const FMeshDrawCommand> Existing) const -> FShaderCompletion override
-			{ return BuildMeshDrawCommands(Batch, Input, Cache, Context, std::move(Existing)); }
+			{ return BuildMeshDrawCommands(Batch, Input, std::move(Existing)); }
 			auto GetPass() const -> EMeshPipelinePass override { return Pass; }
 			auto IsEnabled(const FSceneRenderPreparationConfig& Config) const -> bool override
 			{ return Pass == EMeshPipelinePass::Forward ? Config.Settings.bForward : Config.Settings.bHybrid; }

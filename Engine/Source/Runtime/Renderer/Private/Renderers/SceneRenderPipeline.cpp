@@ -78,6 +78,8 @@ namespace Durin
 		FSceneRenderer Submission(Service);
 		FSceneFrameContext& Context = Submission.Context;
 		FSceneRenderTelemetry& Telemetry = Context.Observation.Telemetry;
+		const bool bObserveViewTelemetry = IsViewRenderTelemetryObserved();
+		Context.Observation.MeshDrawCommandStats = RendererPrivate::FMeshDrawCommandStatsManager({.bDrawStats = OutStatistics || bObserveViewTelemetry, .bGPUVisibility = bObserveViewTelemetry});
 		FSceneViewState*& ViewState = Context.Transaction.ViewState;
 		Context.Logical.Qualification = GetRendererQualificationPolicy();
 		const FRendererQualificationPolicy& Qualification =
@@ -166,19 +168,16 @@ namespace Durin
 		auto& ViewPlan = *Context.Logical.PreparedView;
 		Telemetry.View.StaticMesh.WithheldPrimitives = AdmitStaticMeshDraws(
 			ViewPlan.Receiver.StaticMeshes, Context.Resolved.Scene.Receiver.StaticMeshes);
-		const std::array ReceiverPasses{RendererPrivate::FMeshPassKey{RendererPrivate::EMeshPipelinePass::Forward},
-			RendererPrivate::FMeshPassKey{RendererPrivate::EMeshPipelinePass::HybridRetainedForward}, RendererPrivate::FMeshPassKey{RendererPrivate::EMeshPipelinePass::GBuffer}};
-		const std::array ShadowPasses{RendererPrivate::FMeshPassKey{RendererPrivate::EMeshPipelinePass::ShadowDepth}};
-		if (Options.bEnableDynamicInstancing && !RendererPrivate::SetupMeshDrawCommandDynamicInstancing(
-			CommandList, ViewPlan.Receiver.StaticMeshes, Context.Resolved.Scene.Receiver.StaticMeshes, ReceiverPasses))
+		if (!RendererPrivate::SetupMeshDrawCommands(CommandList, ViewPlan.Receiver.StaticMeshes,
+			Context.Resolved.Scene.Receiver.StaticMeshes, Options.bEnableDynamicInstancing))
 			return ERenderViewResult::RendererResourcesUnavailable;
 		if (Context.Resolved.Scene.DirectionalShadow && Context.Resolved.Scene.DirectionalShadow->bEnabled)
 			for (uint32 Cascade = 0; Cascade < ViewPlan.DirectionalShadow->View.CascadeCount; ++Cascade)
 			{
 				Telemetry.View.DirectionalShadow.ShadowCascades[Cascade].WithheldPrimitives = AdmitStaticMeshDraws(
 					ViewPlan.DirectionalShadow->StaticMeshes[Cascade], Context.Resolved.Scene.DirectionalShadow->StaticMeshes[Cascade]);
-				if (Options.bEnableDynamicInstancing && !RendererPrivate::SetupMeshDrawCommandDynamicInstancing(CommandList,
-					ViewPlan.DirectionalShadow->StaticMeshes[Cascade], Context.Resolved.Scene.DirectionalShadow->StaticMeshes[Cascade], ShadowPasses))
+				if (!RendererPrivate::SetupMeshDrawCommands(CommandList,
+					ViewPlan.DirectionalShadow->StaticMeshes[Cascade], Context.Resolved.Scene.DirectionalShadow->StaticMeshes[Cascade], Options.bEnableDynamicInstancing))
 					return ERenderViewResult::RendererResourcesUnavailable;
 			}
 		if (Qualification.ObserveAdmittedDraws) Qualification.ObserveAdmittedDraws(ViewPlan);
@@ -437,10 +436,14 @@ namespace Durin
 			bool FixedPipelinesReady = true;
 			const FRHICapabilities* Capabilities = GDynamicRHI
 				? GDynamicRHI->RHIGetCapabilities() : nullptr;
-			const bool bPrepareGPUCulling = Context.Logical.Options.bEnableGPUCulling
-				&& Capabilities != nullptr && Capabilities->bSupportsIndirectDraw;
-			if (FeaturePlan.GBuffer.IsEnabled() && bPrepareGPUCulling)
-				(void)Service.InstanceCullingManager.EnsureResources_RenderThread(Qualification.GPUCullingFailure);
+			FeaturePlan.GBuffer.InstanceCullingMode = EInstanceCullingMode::Disabled;
+			if (FeaturePlan.GBuffer.IsEnabled() && Context.Logical.Options.bEnableGPUCulling)
+			{
+				FeaturePlan.GBuffer.InstanceCullingMode = !Capabilities || !Capabilities->bSupportsIndirectDraw
+					? EInstanceCullingMode::Unsupported
+					: Service.InstanceCullingManager.EnsureResources_RenderThread(Qualification.GPUCullingFailure)
+						? EInstanceCullingMode::Enabled : EInstanceCullingMode::ResourcesUnavailable;
+			}
 			if (FeaturePlan.GBuffer.IsEnabled())
 				FixedPipelinesReady = StaticMeshRenderer.PrepareGBufferPipelines_RenderThread(
 					Service.GBufferRenderer, PreparedView.Receiver.StaticMeshes,
@@ -454,7 +457,7 @@ namespace Durin
 				FixedPipelinesReady = StaticMeshRenderer.PrepareBindings_RenderThread(
 					CommandList, &Service.GBufferRenderer, PreparedView.Receiver.StaticMeshes,
 					ResolvedSceneResources.Receiver.StaticMeshes, ResolvedSceneResources.Lighting.UniformBuffer, false,
-				ResolvedSceneResources.Lighting.GetLocalRange(), false, Context.Resolved.GPUSceneDynamicContext) || !bPrepareOnly;
+				ResolvedSceneResources.Lighting.GetLocalRange()) || !bPrepareOnly;
 			if (FeaturePlan.Deferred.IsEnabled())
 				FixedPipelinesReady = Service.DeferredDirectionalLightingRenderer.EnsureResources_RenderThread(CommandList) && FixedPipelinesReady;
 			if (FeaturePlan.AmbientOcclusion.IsEnabled()

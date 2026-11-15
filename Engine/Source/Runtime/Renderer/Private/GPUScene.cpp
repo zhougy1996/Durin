@@ -250,6 +250,12 @@ namespace Durin
 		const auto Scene = GPUScene.lock();
 		return Scene ? Scene->ResolvePrimitive(Handle) : nullptr;
 	}
+	auto FGPUScene::GetResourceGeneration() const -> uint64 { CheckRenderingThread(); return State->ResourceGeneration; }
+	auto FGPUScene::GetPrimitiveSceneInfo(FPersistentPrimitiveIndex PrimitiveIndex) const -> FPrimitiveSceneInfo*
+	{
+		CheckRenderingThread();
+		return PrimitiveIndex.IsValid() && PrimitiveIndex.Index < State->Entries.size() ? State->Entries[PrimitiveIndex.Index].Info : nullptr;
+	}
 	auto FGPUScene::ResolvePrimitive(FGPUScenePrimitiveHandle Handle) const -> FPrimitiveSceneInfo*
 	{
 		CheckRenderingThread();

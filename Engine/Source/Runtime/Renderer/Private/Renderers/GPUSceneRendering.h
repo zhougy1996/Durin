@@ -12,15 +12,17 @@ namespace Durin
 {
 	class FGPUSceneDynamicContext;
 	class FGPUScenePrimitiveCollector;
-	struct FPreparedStaticMeshView;
-	struct FResolvedStaticMeshView;
+	struct FGPUSceneReadParameters;
 	struct FGPUSceneBufferSet
 	{
 		std::array<FBufferRHIRef, 3> SceneData;
 		FBufferRHIRef InstanceIds;
-		std::shared_ptr<FGPUScenePrimitiveCollector> PrimitiveCollector;
+		std::shared_ptr<FGPUSceneDynamicContext> DynamicContext;
 		bool bStandaloneScene = false;
+		uint32 NumAllocatedPrimitives = 0, NumAllocatedInstances = 0;
+		uint64 ResourceGeneration = 0;
 		RENDERER_API auto GetShaderParameters() const -> FGPUSceneShaderParameters;
+		RENDERER_API auto GetShaderParameters(FRDGBuilder& Graph, const FBufferRHIRef& DynamicInstanceIds = {}) const -> FGPUSceneReadParameters;
 	};
 	struct FGPUScenePrimitiveData
 	{
@@ -35,16 +37,30 @@ namespace Durin
 		FBox WorldBounds;
 		FPrimitiveCustomData CustomPrimitiveData, CustomInstanceData;
 	};
-	class FGPUScenePrimitiveCollector : public std::enable_shared_from_this<FGPUScenePrimitiveCollector>
+	// Generic submission inputs. Provider filtering and prepared-view projection stay outside.
+	class FGPUScenePrimitiveCollector
 	{
 	public:
 		explicit FGPUScenePrimitiveCollector(std::shared_ptr<FGPUSceneDynamicContext> InContext) : Context(std::move(InContext)) {}
-		RENDERER_API auto Commit(const FPreparedStaticMeshView& Prepared) -> std::vector<FGPUScenePrimitiveData>;
-		auto GetDynamicContext() const -> const std::shared_ptr<FGPUSceneDynamicContext>& { return Context; }
+		FGPUScenePrimitiveCollector(const FGPUScenePrimitiveCollector&) = delete;
+		auto operator=(const FGPUScenePrimitiveCollector&) -> FGPUScenePrimitiveCollector& = delete;
+		RENDERER_API auto Add(std::shared_ptr<const FGPUSceneDynamicPrimitiveData> MeshBatchData, uint32 NumInstances = 1) -> uint32;
+		RENDERER_API auto Add(FPersistentPrimitiveIndex PrimitiveIndex, FPrimitiveInstanceId InstanceId, uint32 NumInstances = 1) -> uint32;
+		RENDERER_API auto Commit() -> bool;
+		RENDERER_API auto GetPrimitiveData(uint32 PrimitiveIndex) const -> const FGPUScenePrimitiveData&;
+		auto Num() const -> size_t { return Primitives.size(); }
 	private:
 		friend class FGPUSceneDynamicContext;
+		struct FPrimitiveData
+		{
+			std::shared_ptr<const FGPUSceneDynamicPrimitiveData> DynamicData;
+			FPrimitiveSceneInfoRef Source;
+			FPrimitiveInstanceId InstanceId;
+			uint32 NumInstances = 1;
+		};
 		std::shared_ptr<FGPUSceneDynamicContext> Context;
-		std::weak_ptr<FGPUSceneBufferSet> Buffers;
+		std::vector<FPrimitiveData> Primitives;
+		std::vector<FGPUScenePrimitiveData> Results;
 		bool bCommitted = false;
 	};
 	// A submission-scoped upload owner for dynamic/unpublished mesh facts. Scene
@@ -58,28 +74,28 @@ namespace Durin
 		auto operator=(const FGPUSceneDynamicContext&) -> FGPUSceneDynamicContext& = delete;
 		RENDERER_API auto RegisterGraphUse(const FRDGBuilder& Graph) -> void;
 		RENDERER_API auto UploadInstanceIds(FRHICommandListImmediate& Commands, std::span<const uint32> Ids) -> FBufferRHIRef;
-		auto CreatePrimitiveCollector() -> std::shared_ptr<FGPUScenePrimitiveCollector> { return std::make_shared<FGPUScenePrimitiveCollector>(shared_from_this()); }
+		auto GetGPUScene() const -> FGPUScene& { return *GPUScene; }
+		auto IsUsingPersistentGPUScene() const -> bool { return !bStandaloneScene; }
 		RENDERER_API auto Upload(FRHICommandListImmediate& Commands, FRDGAllocator& Allocator) -> bool;
-		RENDERER_API auto Prepare(FRHICommandListImmediate& Commands, FRDGAllocator& Allocator,
-			const FPreparedStaticMeshView& Prepared) -> std::vector<FGPUScenePrimitiveData>;
 
 	private:
 		friend class FGPUScenePrimitiveCollector;
-		RENDERER_API auto CommitPrimitiveCollector(FGPUScenePrimitiveCollector& Collector, const FPreparedStaticMeshView& Prepared) -> std::vector<FGPUScenePrimitiveData>;
+		RENDERER_API auto CommitPrimitiveCollector(FGPUScenePrimitiveCollector& Collector) -> bool;
 		std::shared_ptr<FGPUScene> GPUScene;
 		std::vector<FGPUSceneDynamicAllocation> Allocations;
 		bool bStandaloneScene = false;
 		std::map<std::shared_ptr<const FGPUSceneDynamicPrimitiveData>, uint32, std::owner_less<std::shared_ptr<const FGPUSceneDynamicPrimitiveData>>> DynamicInstances;
-		std::vector<std::weak_ptr<FGPUScenePrimitiveCollector>> PendingCollectors;
+		std::vector<std::weak_ptr<FGPUSceneBufferSet>> PendingBufferSets;
 		std::vector<uint32> InstanceIds;
 		std::vector<std::shared_ptr<FGPUSceneInstanceIdBuffer>> InstanceIdUploads;
 	};
 
+	// Scene attributes and pass-local ID reads; independent of providers/cascade count.
 	struct FGPUSceneReadParameters
 	{
-		// Receiver plus four cascades: one attribute set, direct IDs and merged IDs each.
-		std::array<std::optional<FRDGBufferAccess>, 25> Buffers;
+		FGPUSceneResourceParameters GPUScene;
+		std::optional<FRDGBufferAccess> InstanceIds;
+		std::optional<FRDGBufferAccess> DynamicInstanceIds;
 		RENDERER_API static auto GetRDGParametersMetadata() -> const FRDGParametersMetadata*;
-		RENDERER_API auto Add(FRDGBuilder& Graph, const FResolvedStaticMeshView& View) -> void;
 	};
 }

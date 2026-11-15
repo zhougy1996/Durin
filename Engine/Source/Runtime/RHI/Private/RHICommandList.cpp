@@ -1280,9 +1280,9 @@ namespace Durin
 			TRefCountPtr<FRHITexture> Texture;
 			uint32 MipIndex;
 			uint32 ArraySlice;
-			std::shared_ptr<FRHITextureReadback> Request;
+			std::shared_ptr<RHIPrivate::FReadbackState> Request;
 			bool bReplayed = false;
-			~FTextureReadbackCommand() { if (!bReplayed) Request->Cancel(); }
+			~FTextureReadbackCommand() { if (!bReplayed) Request->Abandon(); }
 			auto Execute(void* ReplayContext) -> void
 			{
 				GetReplayContext(ReplayContext).GetOperationContext("TextureReadback")
@@ -1290,12 +1290,22 @@ namespace Durin
 				bReplayed = true;
 			}
 		};
-		struct FPollTextureReadbacksCommand
+		struct FBufferReadbackCommand
+		{
+			TRefCountPtr<FRHIBuffer> Source;
+			uint32 Offset, NumBytes;
+			std::shared_ptr<RHIPrivate::FReadbackState> Request;
+			bool bReplayed = false;
+			~FBufferReadbackCommand() { if (!bReplayed) Request->Abandon(); }
+			auto Execute(void* ReplayContext) -> void
+			{ GetReplayContext(ReplayContext).GetOperationContext("BufferReadback").RHIEnqueueBufferReadback(Source.GetReference(), Offset, NumBytes, Request); bReplayed = true; }
+		};
+		struct FPollReadbacksCommand
 		{
 			auto Execute(void* ReplayContext) -> void
 			{
-				GetReplayContext(ReplayContext).GetOperationContext("PollTextureReadbacks")
-					.RHIPollTextureReadbacks();
+				GetReplayContext(ReplayContext).GetOperationContext("PollReadbacks")
+					.RHIPollReadbacks();
 			}
 		};
 
@@ -2539,14 +2549,22 @@ namespace Durin
 		uint32 MipIndex, uint32 ArraySlice, std::shared_ptr<FRHITextureReadback> Request) -> std::shared_ptr<FRHITextureReadback>
 	{
 		if (!Request) Request = std::make_shared<FRHITextureReadback>();
-		RecordCommand<FTextureReadbackCommand>(TRefCountPtr<FRHITexture>(Texture), MipIndex, ArraySlice, Request);
+		RecordCommand<FTextureReadbackCommand>(TRefCountPtr<FRHITexture>(Texture), MipIndex, ArraySlice, Request->BeginCopy());
 		return Request;
 	}
 
-	auto FRHICommandListBase::PollTextureReadbacks() -> void
+	auto FRHICommandListBase::PollTextureReadbacks() -> void { PollReadbacks(); }
+	auto FRHICommandListBase::PollReadbacks() -> void { RecordCommand<FPollReadbacksCommand>(); }
+	auto FRHICommandListBase::EnqueueBufferReadback(FRHIBuffer* Source, uint32 Offset, uint32 NumBytes, std::shared_ptr<RHIPrivate::FReadbackState> Request) -> void
 	{
-		RecordCommand<FPollTextureReadbacksCommand>();
+		require(Request);
+		if (!Source || Offset >= Source->GetSize() || !EnumHasAnyFlags(Source->GetUsage(), EBufferUsageFlags::SourceCopy)) { Request->Fail(); return; }
+		if (!NumBytes) NumBytes = Source->GetSize() - Offset;
+		if (!NumBytes || NumBytes > Source->GetSize() - Offset || Offset % 4 || NumBytes % 4) { Request->Fail(); return; }
+		RecordCommand<FBufferReadbackCommand>(TRefCountPtr<FRHIBuffer>(Source), Offset, NumBytes, std::move(Request));
 	}
+	auto FRHIGPUBufferReadback::EnqueueCopy(FRHICommandListBase& Commands, FRHIBuffer* Source, uint32 NumBytes, uint32 Offset) -> void
+	{ Commands.EnqueueBufferReadback(Source, Offset, NumBytes, BeginCopy()); }
 
 	auto FRHICommandListImmediate::AcquireBackBuffer(
 		FRHITexture* BackBuffer) -> void

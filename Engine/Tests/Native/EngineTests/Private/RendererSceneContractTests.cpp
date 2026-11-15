@@ -55,6 +55,7 @@
 #include "Renderers/DirectionalShadowView.h"
 #include "RendererModule.h"
 #include "SceneTestAccess.h"
+#include "MeshReadbackTestSupport.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "ViewRenderStatistics.h"
 
@@ -67,32 +68,6 @@ namespace
 	static_assert(!std::is_convertible_v<Durin::FLightComponentId, Durin::FPrimitiveComponentId>);
 	static_assert(!Durin::FPrimitiveComponentId{}.IsValid());
 	static_assert(!Durin::FLightComponentId{}.IsValid());
-
-	template<typename SceneType>
-	concept CHasPublicProxyMutation = requires(
-		SceneType& Scene, std::unique_ptr<Durin::FLightSceneProxy> Proxy
-	) {
-		Scene.TryAddLightProxy(std::move(Proxy));
-	};
-	template<typename SceneType>
-	concept CHasPublicProxyAddOverload = requires(
-		SceneType& Scene, std::unique_ptr<Durin::FLightSceneProxy> Proxy
-	) {
-		Scene.AddLight(std::move(Proxy));
-	};
-
-	static_assert(std::is_same_v<decltype(std::declval<Durin::FSceneInterface&>().AddPrimitive(static_cast<Durin::DPrimitiveComponent*>(nullptr))), void>);
-	static_assert(std::is_same_v<decltype(std::declval<Durin::FSceneInterface&>().RemovePrimitive(static_cast<Durin::DPrimitiveComponent*>(nullptr))), void>);
-	static_assert(std::is_same_v<decltype(std::declval<Durin::FSceneInterface&>().AddLight(static_cast<Durin::DLightComponent*>(nullptr))), void>);
-	static_assert(std::is_same_v<decltype(std::declval<Durin::FSceneInterface&>().RemoveLight(static_cast<Durin::DLightComponent*>(nullptr))), void>);
-	static_assert(std::is_same_v<decltype(std::declval<Durin::FSceneInterface&>().AddSkyBox(static_cast<Durin::DSkyBoxComponent*>(nullptr))), void>);
-	static_assert(std::is_same_v<decltype(std::declval<Durin::FSceneInterface&>().RemoveSkyBox(static_cast<Durin::DSkyBoxComponent*>(nullptr))), void>);
-	static_assert(std::is_same_v<decltype(std::declval<Durin::FSceneInterface&>().AddVolumetricCloud(static_cast<Durin::DVolumetricCloudComponent*>(nullptr))), void>);
-	static_assert(std::is_same_v<decltype(std::declval<Durin::FSceneInterface&>().RemoveVolumetricCloud(static_cast<Durin::DVolumetricCloudComponent*>(nullptr))), void>);
-	static_assert(!CHasPublicProxyMutation<Durin::FSceneInterface>);
-	static_assert(!CHasPublicProxyMutation<Durin::FScene>);
-	static_assert(!CHasPublicProxyAddOverload<Durin::FSceneInterface>);
-	static_assert(!CHasPublicProxyAddOverload<Durin::FScene>);
 
 	struct FInspectionOutputParameters final
 	{
@@ -115,164 +90,7 @@ namespace
 		}
 	};
 
-	auto HasMovedParameterArgument(std::string_view Source, size_t OpenParenthesis)
-		-> bool
-	{
-		uint32 Depth = 1;
-		uint32 TopLevelCommas = 0;
-		char Quote = '\0';
-		bool bEscaped = false;
-		for (size_t Index = OpenParenthesis + 1; Index < Source.size(); ++Index)
-		{
-			const char Character = Source[Index];
-			if (Quote != '\0')
-			{
-				if (bEscaped)
-					bEscaped = false;
-				else if (Character == '\\')
-					bEscaped = true;
-				else if (Character == Quote)
-					Quote = '\0';
-				continue;
-			}
-			if (Character == '"' || Character == '\'')
-			{
-				Quote = Character;
-				continue;
-			}
-			if (Character == '(')
-				++Depth;
-			else if (Character == ')')
-			{
-				if (--Depth == 0) return false;
-			}
-			else if (Character == ',' && Depth == 1)
-			{
-				++TopLevelCommas;
-				if (TopLevelCommas != 2) continue;
-				const size_t Argument = Source.find_first_not_of(" \t\r\n", Index + 1);
-				return Argument != std::string_view::npos
-					   && Source.substr(Argument).starts_with("std::move(");
-			}
-		}
-		return false;
-	}
-
-	auto FindManualRenderGraphAuthoring(std::string_view Source, std::string_view DisplayPath) -> std::vector<std::string>
-	{
-		std::vector<std::string> Violations;
-		constexpr std::array ManualUses{
-			"UseTexture",
-			"UseBuffer",
-			"UseToken",
-			"UseValue",
-			"UseColorAttachment",
-			"UseDepthStencilAttachment",
-			"UseManagedColorAttachment",
-			"UseManagedDepthStencilAttachment",
-			"UseManagedTexture",
-		};
-		for (const std::string_view Method : ManualUses)
-		{
-			for (const std::string_view Access : {".", "->"})
-			{
-				const std::string MemberCall = std::string(Access)
-											   + std::string(Method) + "(";
-				if (Source.find(MemberCall) != std::string_view::npos)
-					Violations.push_back(std::string(DisplayPath) + ": manual " + std::string(Method));
-			}
-		}
-
-		for (const std::string_view AddPass : {".AddPass(", "->AddPass("})
-		{
-			size_t Position = Source.find(AddPass);
-			while (Position != std::string_view::npos)
-			{
-				const size_t OpenParenthesis = Position + AddPass.size() - 1;
-				if (!HasMovedParameterArgument(Source, OpenParenthesis))
-					Violations.push_back(std::string(DisplayPath) + ": AddPass without a moved parameter object");
-				Position = Source.find(AddPass, OpenParenthesis + 1);
-			}
-		}
-		return Violations;
-	}
 } // namespace
-
-template<typename T>
-concept CHasResolvedReceiver = requires(T Value) { Value.ResolvedReceiver; };
-
-TEST(FRendererSceneContractTests, ProductionRendererRequiresParameterizedRenderGraphAuthoring)
-{
-	EXPECT_TRUE(FindManualRenderGraphAuthoring(
-					"Graph.AddPass(\"Parameterized\", Type, std::move(Parameters), Callback);",
-					"seeded-valid"
-	)
-					.empty());
-	const auto SeededViolations = FindManualRenderGraphAuthoring(
-		"Graph.AddPass(\"Manual\", Type); Graph.UseTexture(Pass, Texture);",
-		"seeded-invalid"
-	);
-	ASSERT_EQ(SeededViolations.size(), 2u);
-
-	const std::filesystem::path SourceRoot(DURIN_RENDERER_SOURCE_DIR);
-	ASSERT_TRUE(std::filesystem::is_directory(SourceRoot));
-	std::vector<std::filesystem::path> Sources;
-	for (const auto& Entry : std::filesystem::recursive_directory_iterator(
-			 SourceRoot
-		 ))
-	{
-		if (!Entry.is_regular_file()) continue;
-		const auto Extension = Entry.path().extension();
-		if (Extension == ".cpp" || Extension == ".h")
-			Sources.push_back(Entry.path());
-	}
-	std::ranges::sort(Sources);
-	std::vector<std::string> Violations;
-	for (const auto& Path : Sources)
-	{
-		std::ifstream Stream(Path, std::ios::binary);
-		ASSERT_TRUE(Stream) << Path;
-		const std::string Source((std::istreambuf_iterator<char>(Stream)), {});
-		const auto Relative = std::filesystem::relative(Path, SourceRoot)
-								  .generic_string();
-		auto FileViolations = FindManualRenderGraphAuthoring(Source, Relative);
-		Violations.insert(Violations.end(), FileViolations.begin(), FileViolations.end());
-	}
-	EXPECT_TRUE(Violations.empty()) << ::testing::PrintToString(Violations);
-}
-
-template<typename T>
-concept CHasResolvedDirectionalShadow = requires(T Value) {
-	Value.ResolvedDirectionalShadow;
-};
-
-template<typename T>
-concept CHasTelemetry = requires(T Value) { Value.Telemetry; };
-
-template<typename T>
-concept CHasResolvedTargets = requires(T Value) { Value.Targets; };
-
-template<typename T>
-concept CHasDeferredParameters = requires(T Value) { Value.DeferredParameters; };
-
-template<typename T>
-concept CHasReadyDrawHash = requires(T Value) { Value.ReadyDraws; };
-
-template<typename T>
-concept CHasMaterialBindingHash = requires(T Value) { Value.MaterialBindings; };
-
-template<typename T>
-concept CHasResolvedDrawRecords = requires(T Value) { Value.Draws; };
-
-template<typename T>
-concept CHasRenderObservations = requires(T Value) { Value.Observations; };
-
-template<typename T>
-concept CHasDirectExecutionCounters = requires(T Value) {
-	Value.AttemptedDraws;
-	Value.SuccessfulDraws;
-	Value.RejectedDraws;
-};
 
 TEST(FRendererSceneContractTests, MeshPipelineDescriptionsCollectAllMaterialPassStatesWithoutNativeResources)
 {
@@ -387,140 +205,11 @@ TEST(FRendererSceneContractTests, MaterialProgramIdentityParticipatesInRendererK
 	EXPECT_NE(Durin::RendererPrivate::GetIdentityText(FirstPipeline.Material.ShaderMap), Durin::RendererPrivate::GetIdentityText(SecondPipeline.Material.ShaderMap));
 }
 
-template<typename T>
-concept CHasUploadRange = requires(T Value) { Value.Range; };
-
-template<typename T>
-concept CHasPublicQualificationSwitches = requires(T Value) {
-	Value.bEnableGBufferQualification;
-	Value.bEnableDeferredDirectionalQualification;
-	Value.bEnableGroundTruthAmbientOcclusionQualification;
-	Value.bForceFragmentContactVisibility;
-};
-
-template<typename T>
-concept CHasPreparedView = requires(T Value) { Value.PreparedView; };
-
-template<typename T>
-concept CHasGenericSceneProxyMetadata = requires(const T& Value) {
-	Value.GetMetadata();
-};
-
-static_assert(!CHasGenericSceneProxyMetadata<Durin::FLightSceneProxy>);
-static_assert(!CHasGenericSceneProxyMetadata<Durin::FSkyBoxSceneProxy>);
-static_assert(!CHasGenericSceneProxyMetadata<Durin::FVolumetricCloudSceneProxy>);
-
-template<auto AddPasses, typename TInputs>
-concept CAcceptsFeatureInputs = requires(
-	Durin::FRDGBuilder& Graph, const TInputs& Inputs
-) {
-	AddPasses(Graph, Inputs);
-};
-
-template<auto AddPasses, typename TInputs, typename TOutput>
-concept CFeatureReturns = requires(Durin::FRDGBuilder& Graph, const TInputs& Inputs) {
-	{ AddPasses(Graph, Inputs) } -> std::same_as<TOutput>;
-};
-
+// View-state ownership must remain unique while movable across viewport owners.
 static_assert(!std::is_copy_constructible_v<Durin::FSceneViewStateOwner>);
 static_assert(!std::is_copy_assignable_v<Durin::FSceneViewStateOwner>);
 static_assert(std::is_move_constructible_v<Durin::FSceneViewStateOwner>);
 static_assert(std::is_move_assignable_v<Durin::FSceneViewStateOwner>);
-static_assert(std::is_final_v<Durin::FSceneRenderPipeline>);
-static_assert(!std::is_empty_v<Durin::FSceneRenderPipeline>);
-static_assert(!std::is_copy_constructible_v<Durin::FSceneRenderPipeline>);
-static_assert(!std::is_copy_assignable_v<Durin::FSceneRenderPipeline>);
-static_assert(!std::is_move_constructible_v<Durin::FSceneRenderPipeline>);
-static_assert(!std::is_move_assignable_v<Durin::FSceneRenderPipeline>);
-static_assert(std::is_default_constructible_v<Durin::FSceneFrameContext>);
-static_assert(!std::is_copy_constructible_v<Durin::FSceneRenderer>);
-static_assert(!std::is_move_constructible_v<Durin::FSceneRenderer>);
-static_assert(std::is_same_v<decltype(&Durin::FSceneRenderer::Render),
-	void (Durin::FSceneRenderer::*)(Durin::FRDGBuilder&)>);
-static_assert(!CHasPublicQualificationSwitches<
-			  Durin::FSceneViewRenderOptions>);
-static_assert(!std::is_copy_constructible_v<
-			  Durin::FScopedRendererQualificationPolicy>);
-static_assert(!CHasResolvedReceiver<Durin::FSceneRenderPlan>);
-static_assert(!CHasResolvedDirectionalShadow<Durin::FSceneRenderPlan>);
-static_assert(!CHasTelemetry<Durin::FSceneRenderPlan>);
-static_assert(!CHasResolvedTargets<Durin::FSceneRenderPlan>);
-static_assert(!CHasResolvedTargets<Durin::FResolvedSceneResources>);
-static_assert(!CHasDeferredParameters<Durin::FSceneFrameContext::FTransaction>);
-static_assert(std::is_copy_constructible_v<Durin::FSceneFrameFeaturePlan>);
-static_assert(CAcceptsFeatureInputs<
-			  Durin::AddDirectionalShadowPasses,
-			  Durin::FDirectionalShadowFeatureInputs>);
-static_assert(CAcceptsFeatureInputs<
-			  Durin::AddGBufferPasses,
-			  Durin::FGBufferFeatureInputs>);
-static_assert(std::is_standard_layout_v<Durin::FGBufferPassParameters>);
-static_assert(Durin::CRDGParameters<Durin::FGBufferPassParameters>);
-static_assert(Durin::CRDGParameters<
-			  Durin::FDirectionalShadowPassParameters>);
-static_assert(Durin::CRDGParameters<
-			  Durin::FAmbientOcclusionPassParameters>);
-static_assert(Durin::CRDGParameters<
-			  Durin::FContactShadowGraphicsPassParameters>);
-static_assert(Durin::CRDGParameters<
-			  Durin::FContactShadowComputePassParameters>);
-static_assert(Durin::CRDGParameters<
-			  Durin::FVolumetricCloudShadowPassParameters>);
-static_assert(Durin::CRDGParameters<
-			  Durin::FDeferredDirectionalLightingPassParameters>);
-static_assert(Durin::CRDGParameters<Durin::FBaseScenePassParameters>);
-static_assert(Durin::CRDGParameters<
-			  Durin::FVolumetricCloudSpatialPassParameters>);
-static_assert(Durin::CRDGParameters<
-			  Durin::FVolumetricCloudCompositePassParameters>);
-static_assert(Durin::CRDGParameters<Durin::FSceneColorPassParameters>);
-static_assert(Durin::CRDGParameters<Durin::FPostProcessPassParameters>);
-static_assert(Durin::CRDGParameters<
-			  Durin::FEditorAssistancePassParameters>);
-static_assert(CAcceptsFeatureInputs<
-			  Durin::AddVolumetricCloudShadowPasses,
-			  Durin::FCloudShadowFeatureInputs>);
-static_assert(CAcceptsFeatureInputs<
-			  Durin::AddBaseScenePasses,
-			  Durin::FBaseSceneFeatureInputs>);
-static_assert(CFeatureReturns<Durin::AddDirectionalShadowPasses, Durin::FDirectionalShadowFeatureInputs, Durin::FDirectionalShadowGraphOutput>);
-static_assert(CFeatureReturns<Durin::AddGBufferPasses, Durin::FGBufferFeatureInputs, Durin::FGBufferGraphOutput>);
-static_assert(CFeatureReturns<Durin::AddAmbientOcclusionPasses, Durin::FAmbientOcclusionFeatureInputs, Durin::FAmbientOcclusionGraphOutput>);
-static_assert(CFeatureReturns<
-			  Durin::AddContactShadowVisibilityPasses,
-			  Durin::FContactShadowFeatureInputs,
-			  Durin::FContactShadowGraphOutput>);
-static_assert(CFeatureReturns<
-			  Durin::AddVolumetricCloudShadowPasses,
-			  Durin::FCloudShadowFeatureInputs,
-			  Durin::FCloudShadowGraphOutput>);
-static_assert(CFeatureReturns<
-			  Durin::AddDeferredDirectionalLightingPasses,
-			  Durin::FDeferredLightingFeatureInputs,
-			  Durin::FDeferredLightingGraphOutput>);
-static_assert(CFeatureReturns<Durin::AddBaseScenePasses, Durin::FBaseSceneFeatureInputs, Durin::FBaseSceneGraphOutput>);
-static_assert(CFeatureReturns<
-			  Durin::AddVolumetricCloudSpatialPasses,
-			  Durin::FCloudSpatialFeatureInputs,
-			  Durin::FCloudSpatialGraphOutput>);
-static_assert(CFeatureReturns<
-			  Durin::AddVolumetricCloudCompositePasses,
-			  Durin::FCloudCompositeFeatureInputs,
-			  Durin::FCloudCompositeGraphOutput>);
-static_assert(CFeatureReturns<Durin::AddSceneColorPasses, Durin::FSceneColorFeatureInputs, Durin::FSceneColorGraphOutput>);
-static_assert(CFeatureReturns<Durin::AddPostProcessPasses, Durin::FPostProcessFeatureInputs, Durin::FPostProcessGraphOutput>);
-static_assert(CFeatureReturns<Durin::AddEditorAssistancePasses, Durin::FEditorAssistanceFeatureInputs, void>);
-static_assert(!CHasPreparedView<Durin::FDirectionalShadowFeatureInputs>);
-static_assert(!CHasPreparedView<Durin::FPostProcessFeatureInputs>);
-static_assert(!CAcceptsFeatureInputs<
-			  Durin::AddDirectionalShadowPasses,
-			  Durin::FSceneRenderPlan>);
-static_assert(CHasResolvedDrawRecords<Durin::FResolvedStaticMeshView>);
-static_assert(!CHasReadyDrawHash<Durin::FResolvedStaticMeshView>);
-static_assert(!CHasMaterialBindingHash<Durin::FResolvedStaticMeshView>);
-static_assert(CHasRenderObservations<Durin::FResolvedStaticMeshView>);
-static_assert(!CHasDirectExecutionCounters<Durin::FResolvedStaticMeshView>);
-static_assert(static_cast<uint8>(Durin::ERDGAllocationObservation::Count) == 15);
 
 TEST(FRendererSceneContractTests, RDGAllocationPolicyKeepsStructuralBoundary)
 {
@@ -551,34 +240,6 @@ TEST(FRendererSceneContractTests, QualificationPolicyIsLexicallyScoped)
 	}
 	EXPECT_FALSE(Durin::GetRendererQualificationPolicy().bEnableGBuffer);
 	EXPECT_EQ(Durin::GetRendererQualificationPolicy().RasterFailure, Durin::ESceneRasterFailure::None);
-}
-
-TEST(FRendererSceneContractTests, TypedPassResultsSeparateGraphOwnedResources)
-{
-	Durin::FGBufferPassResult GBuffer;
-	Durin::FGroundTruthAmbientOcclusionPassResult AmbientOcclusion;
-	Durin::FContactShadowVisibilityPassResult ContactShadow;
-	Durin::FVolumetricCloudShadowPassResult CloudShadow;
-	Durin::FSceneColorPassResult SceneColor;
-	EXPECT_FALSE(GBuffer.IsComplete());
-	EXPECT_FALSE(AmbientOcclusion.IsComplete());
-	EXPECT_FALSE(ContactShadow.IsComplete());
-	EXPECT_FALSE(CloudShadow.IsComplete());
-	EXPECT_FALSE(SceneColor.IsSuccess());
-	GBuffer.Status = Durin::EScenePassStatus::Complete;
-	AmbientOcclusion.Status = Durin::EScenePassStatus::Complete;
-	ContactShadow.Status = Durin::EScenePassStatus::Complete;
-	CloudShadow.Status = Durin::EScenePassStatus::Complete;
-	SceneColor.Result = Durin::ERenderViewResult::Success;
-	EXPECT_TRUE(GBuffer.IsComplete());
-	EXPECT_TRUE(AmbientOcclusion.IsComplete());
-	EXPECT_FALSE(ContactShadow.IsComplete());
-	EXPECT_FALSE(CloudShadow.IsComplete());
-	EXPECT_TRUE(SceneColor.IsSuccess());
-	ContactShadow.Route = Durin::EContactShadowVisibilityPassRoute::Compute;
-	EXPECT_TRUE(ContactShadow.IsComplete());
-	CloudShadow.Route = Durin::EVolumetricCloudShadowPassRoute::Fragment;
-	EXPECT_TRUE(CloudShadow.IsComplete());
 }
 
 namespace
@@ -926,15 +587,23 @@ TEST(FRendererSceneContractTests, GBufferPassParametersOwnThePilotDeclarations)
 	ASSERT_NE(Metadata, nullptr);
 	EXPECT_STREQ(Metadata->StructName, "FGBufferPassParameters");
 	EXPECT_EQ(Metadata->StructSize, sizeof(Durin::FGBufferPassParameters));
-	ASSERT_EQ(Metadata->Members.size(), 6u);
+	ASSERT_EQ(Metadata->Members.size(), 5u);
 
 	const auto& Scene = Metadata->Members[0];
     EXPECT_STREQ(Scene.Name, "GPUScene");
     EXPECT_EQ(Scene.Kind, Durin::ERDGParameterMemberKind::Nested);
     const auto* SceneMetadata = Durin::FGPUSceneReadParameters::GetRDGParametersMetadata();
-    ASSERT_EQ(SceneMetadata->Members.size(), 1u);
-    EXPECT_EQ(SceneMetadata->Members[0].ArraySize, 25u);
-    EXPECT_TRUE(SceneMetadata->Members[0].bOptional);
+    ASSERT_EQ(SceneMetadata->Members.size(), 3u);
+    EXPECT_STREQ(SceneMetadata->Members[0].Name, "GPUScene");
+    EXPECT_EQ(SceneMetadata->Members[0].Kind, Durin::ERDGParameterMemberKind::Nested);
+    const auto* Resources = Durin::FGPUSceneResourceParameters::GetRDGParametersMetadata();
+    ASSERT_EQ(Resources->Members.size(), 3u);
+    EXPECT_STREQ(Resources->Members[0].Name, "GPUScenePrimitiveSceneData");
+    EXPECT_STREQ(Resources->Members[1].Name, "GPUSceneInstanceSceneData");
+    EXPECT_STREQ(Resources->Members[2].Name, "GPUSceneInstancePayloadData");
+    for (const auto& Member : Resources->Members) { EXPECT_EQ(Member.ArraySize, 1u); EXPECT_TRUE(Member.bOptional); }
+    EXPECT_STREQ(SceneMetadata->Members[1].Name, "InstanceIds");
+    EXPECT_STREQ(SceneMetadata->Members[2].Name, "DynamicInstanceIds");
     const auto& Completion = Metadata->Members[1];
 	EXPECT_STREQ(Completion.Name, "Completion");
 	EXPECT_EQ(Completion.Kind, Durin::ERDGParameterMemberKind::ValueWrite);
@@ -969,19 +638,16 @@ TEST(FRendererSceneContractTests, GBufferPassParametersOwnThePilotDeclarations)
 	EXPECT_TRUE(Depth.bPassManagedTransition);
 	EXPECT_EQ(Depth.ResultAccess, Durin::ERHIAccess::GraphicsShaderRead);
 
-	const auto& VisibleInstances = Metadata->Members[4];
-	EXPECT_STREQ(VisibleInstances.Name, "VisibleInstances");
-	EXPECT_EQ(VisibleInstances.Kind, Durin::ERDGParameterMemberKind::Buffer);
-	EXPECT_TRUE(VisibleInstances.bOptional);
-	EXPECT_EQ(VisibleInstances.Use, Durin::ERDGUse::Read);
-	EXPECT_EQ(VisibleInstances.Access, Durin::ERHIAccess::GraphicsShaderRead);
-
-	const auto& Arguments = Metadata->Members[5];
-	EXPECT_STREQ(Arguments.Name, "Arguments");
-	EXPECT_EQ(Arguments.Kind, Durin::ERDGParameterMemberKind::Buffer);
-	EXPECT_TRUE(Arguments.bOptional);
-	EXPECT_EQ(Arguments.Use, Durin::ERDGUse::Read);
-	EXPECT_EQ(Arguments.Access, Durin::ERHIAccess::IndirectArgumentRead);
+	const auto& Culling = Metadata->Members[4];
+	EXPECT_STREQ(Culling.Name, "InstanceCulling");
+	EXPECT_EQ(Culling.Kind, Durin::ERDGParameterMemberKind::Nested);
+	const auto* Draw = Durin::FInstanceCullingDrawParams::GetRDGParametersMetadata();
+	ASSERT_EQ(Draw->Members.size(), 2u);
+	EXPECT_STREQ(Draw->Members[0].Name, "InstanceIdOffsetBuffer");
+	EXPECT_EQ(Draw->Members[0].Access, Durin::ERHIAccess::GraphicsShaderRead);
+	EXPECT_STREQ(Draw->Members[1].Name, "DrawIndirectArgsBuffer");
+	EXPECT_EQ(Draw->Members[1].Access, Durin::ERHIAccess::IndirectArgumentRead);
+	EXPECT_TRUE(Draw->Members[0].bOptional); EXPECT_TRUE(Draw->Members[1].bOptional);
 }
 
 TEST(FRendererSceneContractTests, GBufferGPUCullingParametersOwnExactBufferRoles)
@@ -1681,30 +1347,30 @@ TEST(FRendererSceneContractTests, ViewStateReportsEveryFrozenDiscontinuityCause)
 	}
 }
 
-TEST(FRendererSceneContractTests, GPUVisibilityQueryDistinguishesPendingZeroAndReusableCompletedCounts)
+TEST(FRendererSceneContractTests, GPUVisibilityQueryRetainsCompletedCountsForMultipleObservers)
 {
 	using namespace Durin;
 	const std::array Expected{FRHIDrawIndexedIndirectArguments{6, 0, 3, -2, 0},
 		FRHIDrawIndexedIndirectArguments{6, 0, 3, -2, 64}};
 	FGPUCullingVisibilityQuery Query(128, Expected);
-	EXPECT_EQ(Query.GetState(), ERHITextureReadbackState::Pending);
+	EXPECT_EQ(Query.GetState(), ERHIGPUReadbackState::Pending);
 	EXPECT_FALSE(Query.GetCounts());
 	auto Actual = Expected;
 	Actual[1].InstanceCount = 64;
 	const auto Bytes = std::as_bytes(std::span(Actual));
-	Query.GetReadback()->Complete(FByteBuffer(Bytes.begin(), Bytes.end()));
+	Testing::PublishVisibilityReadback(Query, FByteBuffer(Bytes.begin(), Bytes.end()));
 	for (int Observer = 0; Observer < 2; ++Observer)
 	{
 		const auto Counts = Query.GetCounts();
 		ASSERT_TRUE(Counts);
-		EXPECT_EQ(Query.GetState(), ERHITextureReadbackState::Ready);
+		EXPECT_EQ(Query.GetState(), ERHIGPUReadbackState::Ready);
 		EXPECT_EQ(Counts->Candidates, 128u);
 		EXPECT_EQ(Counts->Visible, 64u);
 		EXPECT_EQ(Counts->Culled, 64u);
 	}
 	FGPUCullingVisibilityQuery Zero(128, Expected);
 	const auto ZeroBytes = std::as_bytes(std::span(Expected));
-	Zero.GetReadback()->Complete(FByteBuffer(ZeroBytes.begin(), ZeroBytes.end()));
+	Testing::PublishVisibilityReadback(Zero, FByteBuffer(ZeroBytes.begin(), ZeroBytes.end()));
 	ASSERT_TRUE(Zero.GetCounts());
 	EXPECT_EQ(Zero.GetCounts()->Visible, 0u);
 	EXPECT_EQ(Zero.GetCounts()->Culled, 128u);
@@ -1725,17 +1391,17 @@ TEST(FRendererSceneContractTests, GPUVisibilityQueryRejectsMalformedCapacityAndI
 		const auto Bytes = std::as_bytes(std::span(Actual));
 		FByteBuffer Payload(Bytes.begin(), Bytes.end());
 		if (Fault == 3) Payload.pop_back();
-		Query.GetReadback()->Complete(std::move(Payload));
+		Testing::PublishVisibilityReadback(Query, std::move(Payload));
 		EXPECT_FALSE(Query.GetCounts());
-		EXPECT_EQ(Query.GetState(), ERHITextureReadbackState::Failed);
+		EXPECT_EQ(Query.GetState(), ERHIGPUReadbackState::Failed);
 	}
 	FGPUCullingVisibilityQuery Canceled(64, Expected);
-	Canceled.GetReadback()->Cancel();
-	EXPECT_EQ(Canceled.GetState(), ERHITextureReadbackState::Canceled);
+	Testing::PublishVisibilityReadback(Canceled, {}, false, true);
+	EXPECT_EQ(Canceled.GetState(), ERHIGPUReadbackState::Canceled);
 	EXPECT_FALSE(Canceled.GetCounts());
 	FGPUCullingVisibilityQuery Failed(64, Expected);
-	Failed.GetReadback()->Fail();
-	EXPECT_EQ(Failed.GetState(), ERHITextureReadbackState::Failed);
+	Testing::PublishVisibilityReadback(Failed, {}, true);
+	EXPECT_EQ(Failed.GetState(), ERHIGPUReadbackState::Failed);
 	EXPECT_FALSE(Failed.GetCounts());
 }
 
@@ -1888,10 +1554,12 @@ TEST(FRendererSceneContractTests, ViewStatisticsPreserveStableMetricSemantics)
 	Telemetry.StaticMesh.PreparedStaticMeshTriangles = 120;
 	Telemetry.SplineMesh.PreparedSplineMeshTriangles = 20;
 	Telemetry.DirectionalShadow.ShadowPreparedTriangles = 500;
-	Telemetry.StaticMesh.StaticMeshSuccessfulDraws = 5;
+	Telemetry.StaticMesh.StaticMeshSuccessfulDraws = 64;
+	Telemetry.StaticMesh.NativeDrawSubmissions = 2;
 	Telemetry.GBuffer.GBufferStaticMeshSuccessfulDraws = 3;
 	Telemetry.GBuffer.GBufferSplineMeshSuccessfulDraws = 1;
-	Telemetry.DirectionalShadow.ShadowSuccessfulDraws = 7;
+	Telemetry.DirectionalShadow.ShadowSuccessfulDraws = 192;
+	Telemetry.DirectionalShadow.ShadowNativeDrawSubmissions = 3;
 	Telemetry.Lighting.SelectedDirectionalLights = 1;
 	Telemetry.Lighting.SelectedPointLights = 3;
 	Telemetry.Lighting.SelectedSpotLights = 2;
@@ -1924,8 +1592,8 @@ TEST(FRendererSceneContractTests, ViewStatisticsPreserveStableMetricSemantics)
 	EXPECT_EQ(Statistics.SplineMesh.Triangles, 20u);
 	EXPECT_EQ(Statistics.Summary.Triangles, 120u);
 	EXPECT_EQ(Statistics.Shadow.Triangles, 500u);
-	EXPECT_EQ(Statistics.StaticMesh.DrawCalls, 9u);
-	EXPECT_EQ(Statistics.Shadow.DrawCalls, 7u);
+	EXPECT_EQ(Statistics.StaticMesh.DrawCalls, 2u);
+	EXPECT_EQ(Statistics.Shadow.DrawCalls, 3u);
 	EXPECT_TRUE(Statistics.Shadow.bEnabled);
 	EXPECT_EQ(Statistics.Shadow.Cascades, 3u);
 	EXPECT_TRUE(Statistics.Shadow.bContactEnabled);

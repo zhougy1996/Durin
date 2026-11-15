@@ -269,6 +269,15 @@ namespace Durin
 		class FRecordingCommandContext final : public IRHICommandContext
 		{
 		public:
+			bool bCaptureTextureReadbacks = false;
+			std::vector<std::shared_ptr<RHIPrivate::FReadbackState>> TextureReadbacks;
+			auto RHIEnqueueTextureReadback(FRHITexture*, uint32, uint32, std::shared_ptr<RHIPrivate::FReadbackState> Request) -> void override
+			{ if (bCaptureTextureReadbacks) TextureReadbacks.push_back(std::move(Request)); else Request->Fail(); }
+			bool bCaptureBufferReadbacks = false;
+			std::vector<std::shared_ptr<RHIPrivate::FReadbackState>> BufferReadbacks;
+			auto RHIEnqueueBufferReadback(FRHIBuffer*, uint32, uint32, std::shared_ptr<RHIPrivate::FReadbackState> Request) -> void override
+			{ if (bCaptureBufferReadbacks) BufferReadbacks.push_back(std::move(Request)); else Request->Fail(); }
+
 			IRHICommandContext* SecondaryQueue = nullptr;
 			bool bStorageAttached = false;
 			std::vector<FRHIGPUSyncPointRef> SubmissionWaits;
@@ -1164,15 +1173,136 @@ namespace Durin
 		EXPECT_TRUE(Context.Operations.empty()); // Never falls back to synchronous readback.
 	}
 
-	TEST(FRHICommandListTests, ReadbackCancellationDiscardsLatePixels)
+	TEST(FRHICommandListTests, BufferReadbackIsDeferredAndRejectsInvalidRanges)
 	{
-		FRHITextureReadback Request;
-		Request.Cancel();
-		Request.Complete(MakeByteVector({1, 2, 3}));
-		Request.Fail();
-		FByteBuffer Pixels;
-		EXPECT_FALSE(Request.TakePixels(Pixels));
-		EXPECT_EQ(Request.GetState(), ERHITextureReadbackState::Canceled);
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create("ReadbackSource", 16, 4, EBufferUsageFlags::SourceCopy));
+		auto Request = std::make_shared<FRHIGPUBufferReadback>();
+		Request->EnqueueCopy(Executor.GetImmediateCommandList(), Buffer, 8, 4);
+		EXPECT_EQ(Request->GetState(), ERHIGPUReadbackState::Pending); EXPECT_TRUE(Context.Operations.empty());
+		Executor.Submit({}, ERHISubmitFlags::None);
+		EXPECT_EQ(Request->GetState(), ERHIGPUReadbackState::Failed);
+		for (const auto Offset : {1u, 16u, UINT32_MAX})
+		{
+			auto Invalid = std::make_shared<FRHIGPUBufferReadback>();
+			Invalid->EnqueueCopy(Executor.GetImmediateCommandList(), Buffer, 4, Offset);
+			EXPECT_EQ(Invalid->GetState(), ERHIGPUReadbackState::Failed);
+		}
+	}
+	TEST(FRHICommandListTests, BufferReadbackLockSurvivesCancellation)
+	{
+		FRecordingCommandContext Context; Context.bCaptureBufferReadbacks = true;
+		FRHICommandListExecutor Executor(Context);
+		auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create("Borrow", 4, 4, EBufferUsageFlags::SourceCopy));
+		FRHIGPUBufferReadback Request;
+		EXPECT_FALSE(Request.Lock(4));
+		Request.EnqueueCopy(Executor.GetImmediateCommandList(), Buffer, 4);
+		Executor.Submit({}, ERHISubmitFlags::None);
+		ASSERT_EQ(Context.BufferReadbacks.size(), 1u);
+		Context.BufferReadbacks.front()->Complete(MakeByteVector({1, 2, 3, 4}));
+		EXPECT_TRUE(Request.IsReady()); EXPECT_FALSE(Request.Lock(8));
+		const auto* Data = static_cast<const std::byte*>(Request.Lock(4)); ASSERT_TRUE(Data);
+		Request.Cancel(); EXPECT_EQ(Data[2], std::byte{3}); EXPECT_FALSE(Request.Lock(4));
+		Request.Unlock(); EXPECT_EQ(Request.GetDataSize(), 0u);
+		EXPECT_EQ(Request.GetState(), ERHIGPUReadbackState::Canceled);
+	}
+
+	TEST(FRHICommandListTests, ReusableReadbackWaitsForRetirementAndPreservesAnEarlierLock)
+	{
+		FRecordingCommandContext Context; Context.bCaptureBufferReadbacks = true;
+		FRHICommandListExecutor Executor(Context);
+		auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create("Reuse", 16, 4, EBufferUsageFlags::SourceCopy));
+		FRHIGPUBufferReadback Readback;
+		Readback.EnqueueCopy(Executor.GetImmediateCommandList(), Buffer, 4);
+		EXPECT_TRUE(Readback.IsInFlight());
+		EXPECT_DEATH(Readback.EnqueueCopy(Executor.GetImmediateCommandList(), Buffer, 4), "previous copy to retire");
+		Executor.Submit({}, ERHISubmitFlags::None);
+		ASSERT_EQ(Context.BufferReadbacks.size(), 1u);
+		Context.BufferReadbacks[0]->Complete(MakeByteVector({1, 2, 3, 4}));
+		EXPECT_FALSE(Readback.IsInFlight());
+		const auto* Old = static_cast<const std::byte*>(Readback.Lock(4)); ASSERT_TRUE(Old);
+		Readback.EnqueueCopy(Executor.GetImmediateCommandList(), Buffer, 4, 4);
+		Executor.Submit({}, ERHISubmitFlags::None);
+		EXPECT_EQ(Old[2], std::byte{3});
+		Context.BufferReadbacks.back()->Complete(MakeByteVector({9, 8, 7, 6}));
+		EXPECT_FALSE(Readback.Lock(4)); // Unlock still refers to the original borrow.
+		Readback.Unlock();
+		for (int Repeat = 0; Repeat < 2; ++Repeat) {
+			const auto* Latest = static_cast<const std::byte*>(Readback.Lock(4)); ASSERT_TRUE(Latest);
+			EXPECT_EQ(Latest[0], std::byte{9}); Readback.Unlock();
+		}
+		Readback.ResetReady(); EXPECT_FALSE(Readback.IsReady());
+		Readback.EnqueueCopy(Executor.GetImmediateCommandList(), Buffer, 4);
+		Readback.Cancel(); EXPECT_TRUE(Readback.IsInFlight());
+		EXPECT_DEATH(Readback.EnqueueCopy(Executor.GetImmediateCommandList(), Buffer, 4), "previous copy to retire");
+		Executor.Submit({}, ERHISubmitFlags::None);
+		Context.BufferReadbacks.back()->Complete(MakeByteVector({5, 5, 5, 5}));
+		EXPECT_FALSE(Readback.IsInFlight()); EXPECT_EQ(Readback.GetState(), ERHIGPUReadbackState::Canceled);
+		Readback.EnqueueCopy(Executor.GetImmediateCommandList(), Buffer, 4);
+		Executor.Submit({}, ERHISubmitFlags::None);
+		Context.BufferReadbacks.back()->Complete(MakeByteVector({6, 6, 6, 6}));
+		EXPECT_TRUE(Readback.IsReady());
+	}
+
+	TEST(FRHICommandListTests, ReadbackStorageSurvivesFacadeDestructionAndAbandonedCommandsCanBeReused)
+	{
+		FRecordingCommandContext Context; Context.bCaptureBufferReadbacks = true;
+		FRHICommandListExecutor Executor(Context);
+		auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create("Lifetime", 16, 4, EBufferUsageFlags::SourceCopy));
+		{
+			FRHIGPUBufferReadback Local;
+			Local.EnqueueCopy(Executor.GetImmediateCommandList(), Buffer, 4);
+			Executor.Submit({}, ERHISubmitFlags::None);
+		}
+		ASSERT_EQ(Context.BufferReadbacks.size(), 1u);
+		auto Pending = Context.BufferReadbacks.front();
+		EXPECT_EQ(Pending->GetState(), ERHIGPUReadbackState::Canceled); EXPECT_TRUE(Pending->IsInFlight());
+		Pending->Complete(MakeByteVector({1, 2, 3, 4}));
+		EXPECT_FALSE(Pending->IsInFlight()); EXPECT_EQ(Pending->GetDataSize(), 0u);
+		FRHIGPUBufferReadback Reusable;
+		{ FRHICommandList Abandoned; Reusable.EnqueueCopy(Abandoned, Buffer, 4); }
+		EXPECT_FALSE(Reusable.IsInFlight()); EXPECT_EQ(Reusable.GetState(), ERHIGPUReadbackState::Canceled);
+		Reusable.EnqueueCopy(Executor.GetImmediateCommandList(), Buffer, 4);
+		Executor.Submit({}, ERHISubmitFlags::None);
+		Context.BufferReadbacks.back()->Complete(MakeByteVector({8, 8, 8, 8}));
+		EXPECT_TRUE(Reusable.IsReady());
+	}
+
+	TEST(FRHICommandListTests, TextureReadbackConsumesPixelsOnceAndDiscardsCanceledCopies)
+	{
+		FRecordingCommandContext Context; Context.bCaptureTextureReadbacks = true;
+		FRHICommandListExecutor Executor(Context);
+		auto Texture = MakeRefCount<FRHITexture>();
+		auto Request = std::make_shared<FRHITextureReadback>();
+		FByteBuffer Pixels = MakeByteVector({9});
+		auto Enqueue = [&] {
+			Executor.GetImmediateCommandList().EnqueueTextureReadback(Texture, 0, 0, Request);
+			EXPECT_FALSE(Request->TakePixels(Pixels));
+			Executor.Submit({}, ERHISubmitFlags::None);
+		};
+		Enqueue();
+		ASSERT_EQ(Context.TextureReadbacks.size(), 1u);
+		EXPECT_EQ(Pixels, MakeByteVector({9}));
+		Context.TextureReadbacks.back()->Complete(MakeByteVector({1, 2, 3}));
+		ASSERT_TRUE(Request->TakePixels(Pixels));
+		EXPECT_EQ(Pixels, MakeByteVector({1, 2, 3}));
+		EXPECT_TRUE(Request->IsReady()); // Completion remains true after consuming the bytes.
+		EXPECT_EQ(Request->GetDataSize(), 0u);
+		EXPECT_FALSE(Request->TakePixels(Pixels));
+		EXPECT_EQ(Pixels, MakeByteVector({1, 2, 3}));
+		Enqueue();
+		Request->Cancel();
+		EXPECT_TRUE(Request->IsInFlight());
+		Context.TextureReadbacks.back()->Complete(MakeByteVector({4, 5, 6}));
+		EXPECT_FALSE(Request->IsInFlight());
+		EXPECT_FALSE(Request->TakePixels(Pixels));
+		EXPECT_EQ(Request->GetState(), ERHITextureReadbackState::Canceled);
+		EXPECT_EQ(Pixels, MakeByteVector({1, 2, 3}));
+		Enqueue();
+		Context.TextureReadbacks.back()->Complete(MakeByteVector({7, 8}));
+		ASSERT_TRUE(Request->TakePixels(Pixels));
+		EXPECT_EQ(Pixels, MakeByteVector({7, 8}));
 	}
 
 	TEST(FRHICommandListTests, ThreadedImmediateOperationsStayOnRHIThread)

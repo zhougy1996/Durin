@@ -2207,7 +2207,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	EXPECT_EQ(DirectGPUCullingTelemetry.GBuffer.GPUCullingRequestedViews, 0u);
 	EXPECT_EQ(IndirectGPUCullingTelemetry.GBuffer.GPUCullingRequestedViews, 1u);
 	EXPECT_EQ(IndirectGPUCullingTelemetry.GBuffer.GPUCullingDispatchedViews, 1u);
-	EXPECT_EQ(IndirectGPUCullingTelemetry.GBuffer.GPUCullingFallbackViews, 0u);
+	EXPECT_EQ(IndirectGPUCullingTelemetry.GBuffer.GPUCullingDispatchFailureViews, 0u);
 	EXPECT_EQ(IndirectGPUCullingTelemetry.GBuffer.GPUCullingCandidates, 64u);
 	EXPECT_EQ(IndirectGPUCullingTelemetry.GBuffer.GPUCullingGroups, 1u);
 	EXPECT_EQ(IndirectGPUCullingTelemetry.GBuffer.GPUCullingCommands, 1u);

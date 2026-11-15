@@ -4,7 +4,7 @@
 
 #include "RendererAPI.h"
 #include "RHIResources.h"
-#include "RHITextureReadback.h"
+#include "Renderers/MeshDrawCommandStats.h"
 #include "Renderers/VolumetricCloudSpatialRenderer.h"
 #include "Renderers/VolumetricCloudShadowRenderer.h"
 
@@ -13,32 +13,6 @@
 
 namespace Durin
 {
-	struct FGPUCullingVisibilityCounts
-	{
-		uint32 Candidates = 0;
-		uint32 Visible = 0;
-		uint32 Culled = 0;
-	};
-
-	// Optional observation only. Rendering never consumes this asynchronous result.
-	class RENDERER_API FGPUCullingVisibilityQuery final
-	{
-	public:
-		FGPUCullingVisibilityQuery(uint32 Candidates,
-			std::span<const FRHIDrawIndexedIndirectArguments> ExpectedArguments);
-		auto GetReadback() const -> std::shared_ptr<FRHITextureReadback> { return Readback; }
-		auto GetState() const -> ERHITextureReadbackState;
-		auto GetCounts() const -> std::optional<FGPUCullingVisibilityCounts>;
-	private:
-		auto ResolveLocked() const -> void;
-		uint32 CandidateCount;
-		std::vector<FRHIDrawIndexedIndirectArguments> Expected;
-		std::shared_ptr<FRHITextureReadback> Readback = std::make_shared<FRHITextureReadback>();
-		mutable std::mutex Mutex;
-		mutable ERHITextureReadbackState State = ERHITextureReadbackState::Pending;
-		mutable std::optional<FGPUCullingVisibilityCounts> Counts;
-	};
-
 	struct FVisibilityRenderTelemetry
 	{
 		size_t SubmittedPrimitives = 0;
@@ -235,15 +209,16 @@ namespace Durin
 		size_t GPUCullingScheduledAsyncQueueViews = 0;
 		size_t GPUCullingRequestedViews = 0;
 		size_t GPUCullingDispatchedViews = 0;
-		size_t GPUCullingFallbackViews = 0;
-		size_t GPUCullingUnsupportedFallbackViews = 0;
-		size_t GPUCullingNoEligibleGroupFallbackViews = 0;
+		size_t GPUCullingUnsupportedViews = 0;
+		size_t GPUCullingNoEligibleGroupViews = 0;
+		size_t GPUCullingResourcesUnavailableViews = 0;
 		size_t GPUCullingDispatchFailureViews = 0;
 		size_t GPUCullingCandidates = 0;
 		size_t GPUCullingGroups = 0;
 		size_t GPUCullingCommands = 0;
 		size_t GPUCullingIndirectDraws = 0;
-		size_t GPUCullingDirectFallbackDraws = 0;
+		// Local direct submissions in requested-culling views, including normal policy routing.
+		size_t GPUCullingDirectDraws = 0;
 		std::shared_ptr<const FGPUCullingVisibilityQuery> GPUCullingVisibility;
 		size_t GPUCullingOverflowCandidates = 0;
 		// Per-pass transient charge; scene capacity is observed separately, never multiplied into the budget.
@@ -255,6 +230,7 @@ namespace Durin
 
 	struct FGBufferRenderTelemetry : FInstanceCullingTelemetry
 	{
+		bool bDetailedDrawStats = false;
 
 		size_t GBufferEnabledViews = 0;
 		size_t GBufferUnavailableViews = 0;

@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Renderers/GPUSceneRendering.h"
+#include "Renderers/DirectionalShadowView.h"
 
 #include "Renderers/SceneRenderResults.h"
 
@@ -16,7 +17,7 @@ namespace Durin
 
 	struct FDirectionalShadowPassResources final
 	{
-		FGPUSceneReadParameters GPUScene;
+		std::array<FGPUSceneReadParameters, DirectionalShadowCascadeCount> GPUScene;
 		std::optional<FRDGDepthStencilAttachmentParameter>
 			DirectionalShadowOutput;
 

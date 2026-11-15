@@ -611,7 +611,7 @@ namespace Durin::VulkanRHI
 		uint32 MipIndex,
 		uint32 ArraySlice,
 		FByteBuffer& OutData,
-		std::shared_ptr<FRHITextureReadback> AsyncRequest
+		std::shared_ptr<RHIPrivate::FReadbackState> AsyncRequest
 	) -> bool
 	{
 		CheckRHIExecutionThread();

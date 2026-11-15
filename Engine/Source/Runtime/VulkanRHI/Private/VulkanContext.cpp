@@ -294,7 +294,7 @@ namespace Durin::VulkanRHI
 		const FRHIBeginFrameArgs&) -> void
 	{
 		CheckRHIExecutionThread();
-		RHIPollTextureReadbacks();
+		RHIPollReadbacks();
 		PendingGfxState->ClearDescriptorSetCache();
 		PendingComputeState->ClearDescriptorSetCache();
 		Device.GetPipelineManager().TrimUnusedPipelineStates();
@@ -996,14 +996,34 @@ namespace Durin::VulkanRHI
 	}
 
 	auto FVulkanCommandListContext::RHIEnqueueTextureReadback(FRHITexture* Texture,
-		uint32 MipIndex, uint32 ArraySlice, std::shared_ptr<FRHITextureReadback> Request) -> void
+		uint32 MipIndex, uint32 ArraySlice, std::shared_ptr<RHIPrivate::FReadbackState> Request) -> void
 	{
 		CheckRHIExecutionThread();
-		if (Request->GetState() != ERHITextureReadbackState::Pending) return;
-		RHIPollTextureReadbacks();
+		if (Request->GetState() != ERHITextureReadbackState::Pending) { Request->Abandon(); return; }
+		RHIPollReadbacks();
 		FByteBuffer Unused;
 		if (PendingReadbacks.size() >= 8
 			|| !RHI->ReadTexture2D(*this, Texture, MipIndex, ArraySlice, Unused, Request)) Request->Fail();
+	}
+
+	auto FVulkanCommandListContext::RHIEnqueueBufferReadback(FRHIBuffer* Source, uint32 Offset, uint32 NumBytes, std::shared_ptr<RHIPrivate::FReadbackState> Request) -> void
+	{
+		CheckRHIExecutionThread();
+		if (!Request) return;
+		if (Request->GetState() != ERHIGPUReadbackState::Pending) { Request->Abandon(); return; }
+		RHIPollReadbacks();
+		if (PendingReadbacks.size() >= 8 || !Source || !NumBytes || Offset > Source->GetSize() || NumBytes > Source->GetSize() - Offset) { Request->Fail(); return; }
+		auto Range = TryAcquireReadbackRange(NumBytes, std::max<uint64>(16, Device.GetGpuProperties().limits.nonCoherentAtomSize));
+		if (!Range) { Request->Fail(); return; }
+		GVulkanMemoryBaselineTracker.RecordReadback(NumBytes);
+		const std::array Before{FRHIBufferTransition{Range.GetBuffer(), Range.GetOffset(), NumBytes, ERHIAccess::Discard, ERHIAccess::TransferWrite}};
+		RHITransitionBuffers(Before);
+		const std::array Regions{FRHIBufferCopyRegion{Offset, Range.GetOffset(), NumBytes}};
+		RHICopyBuffer(Source, Range.GetBuffer(), Regions);
+		const std::array After{FRHIBufferTransition{Range.GetBuffer(), Range.GetOffset(), NumBytes, ERHIAccess::TransferWrite, ERHIAccess::HostRead}};
+		RHITransitionBuffers(After);
+		Device.GetSubmissionCoordinator().SubmitContext(*this);
+		RetainReadback(std::move(Range), std::move(Request));
 	}
 
 	auto FVulkanCommandListContext::TryAcquireReadbackRange(uint64 Size, uint64 Alignment)
@@ -1026,12 +1046,12 @@ namespace Durin::VulkanRHI
 	}
 
 	auto FVulkanCommandListContext::RetainReadback(FVulkanTransferRange Range,
-		std::shared_ptr<FRHITextureReadback> Request) -> void
+		std::shared_ptr<RHIPrivate::FReadbackState> Request) -> void
 	{
 		PendingReadbacks.push_back({std::move(Range), std::move(Request)});
 	}
 
-	auto FVulkanCommandListContext::RHIPollTextureReadbacks() -> void
+	auto FVulkanCommandListContext::RHIPollReadbacks() -> void
 	{
 		CheckRHIExecutionThread();
 		if (PendingReadbacks.empty()) return;
@@ -1042,7 +1062,8 @@ namespace Durin::VulkanRHI
 			if (State == ERHIGPUSubmissionState::Pending || State == ERHIGPUSubmissionState::Submitted) return false;
 			if (Readback.Request->GetState() == ERHITextureReadbackState::Canceled)
 			{
-				// Retirement preserves the GPU sync point even when publication is canceled.
+				// Publication cancellation still waits for native completion before reuse.
+				Readback.Request->Fail();
 				Readback.Range.Retire();
 				return true;
 			}

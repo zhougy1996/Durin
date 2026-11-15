@@ -48,9 +48,14 @@ namespace Durin
 
 	struct FInstanceCullingDrawParams
 	{
-		std::optional<FRDGBufferHandle> InstanceIdOffsetBuffer;
-		std::optional<FRDGBufferHandle> DrawIndirectArgsBuffer;
+		std::optional<FRDGBufferParameter> InstanceIdOffsetBuffer;
+		std::optional<FRDGBufferParameter> DrawIndirectArgsBuffer;
+		uint32 InstanceDataByteOffset = 0;
+		uint64 IndirectArgsByteOffset = 0;
+		RENDERER_API static auto GetRDGParametersMetadata() -> const FRDGParametersMetadata*;
 	};
+
+	RENDERER_API auto GetMeshDrawCommandOverrideArgs(const FInstanceCullingDrawParams& Parameters, const FRDGParameterResolver& Resolver) -> RendererPrivate::FMeshDrawCommandOverrideArgs;
 
 	struct FInstanceCullingPassParameters
 	{
@@ -73,25 +78,36 @@ namespace Durin
 	{
 	public:
 		static constexpr uint32 InvalidArgument = UINT32_MAX;
-		static constexpr uint32 GroupedMember = UINT32_MAX - 1;
 		static constexpr size_t MinimumGroupCandidates = 64;
 		static constexpr size_t MaximumCandidates = 65'536;
 		static constexpr size_t MaximumGeneratedBytes = 4 * 1024 * 1024;
-		RENDERER_API FInstanceCullingContext(std::shared_ptr<const FInstanceCullingView> InView, RendererPrivate::FMeshPassKey InPass, FInstanceCullingManager* InManager = nullptr);
-		RENDERER_API auto SetupDrawCommands(std::span<const RendererPrivate::FVisibleMeshDrawCommand> VisibleMeshDrawCommands, bool bRequested, bool bIndirectSupported, size_t* Overflow = nullptr, size_t Budget = MaximumGeneratedBytes, FInstanceCullingAdmissionDiagnostics* Diagnostics = nullptr, std::shared_ptr<RendererPrivate::FMeshDrawCommandSubmission> Submission = {}) -> bool;
+		RENDERER_API FInstanceCullingContext(std::shared_ptr<const FInstanceCullingView> InView, RendererPrivate::FMeshPassKey InPass, FInstanceCullingManager& InManager);
+		RENDERER_API auto SetupDrawCommands(RendererPrivate::FMeshCommandOneFrameArray& VisibleMeshDrawCommands, std::span<const RendererPrivate::FMeshDrawCommandCullingPayload> Sources, size_t* Overflow = nullptr, size_t Budget = MaximumGeneratedBytes, FInstanceCullingAdmissionDiagnostics* Diagnostics = nullptr) -> bool;
 		RENDERER_API auto BuildRenderingCommands(FRDGBuilder& Graph, FInstanceCullingTelemetry& Telemetry, bool bAsyncCompute, bool bObserveVisibility, EGPUCullingFailure Failure) -> FInstanceCullingDrawParams;
-		RENDERER_API auto SubmitDrawCommands(std::span<const RendererPrivate::FVisibleMeshDrawCommand> VisibleMeshDrawCommands, const RendererPrivate::FMeshDrawCommandOverrideArgs& OverrideArgs, uint32 StartIndex, uint32 NumMeshDrawCommands, FRHICommandList& Commands, FMeshDrawCommandStateCache* Cache = nullptr) const -> bool;
+		RENDERER_API auto SubmitDrawCommands(std::span<const RendererPrivate::FVisibleMeshDrawCommand> VisibleMeshDrawCommands, const RendererPrivate::FMeshDrawCommandOverrideArgs& OverrideArgs, uint32 StartIndex, uint32 NumMeshDrawCommands, FRHICommandList& Commands, FMeshDrawCommandStateCache* Cache = nullptr, RendererPrivate::FMeshDrawCommandPassStats* Statistics = nullptr) const -> RendererPrivate::FMeshDrawCommandPassResult;
 		auto GetArgumentIndex(uint32 Draw) const -> uint32
 		{
-			return Submission ? Submission->GetArgumentIndex(Draw) : InvalidArgument;
+			return bDispatched && Draw < MeshDrawCommandInfos.size() ? MeshDrawCommandInfos[Draw].ArgumentIndex : InvalidArgument;
 		}
 
-		std::vector<FInstanceCullingCandidate> Candidates;
-		std::vector<FRHIDrawIndexedIndirectArguments> Arguments;
-		std::shared_ptr<RendererPrivate::FMeshDrawCommandSubmission> Submission;
+		auto GetCandidates() const -> std::span<const FInstanceCullingCandidate> { return Candidates; }
+		auto GetArguments() const -> std::span<const FRHIDrawIndexedIndirectArguments> { return Arguments; }
+		auto IsCullingDispatched() const -> bool { return bDispatched; }
 
 	private:
-		FInstanceCullingManager* Manager = nullptr;
+		friend struct FInstanceCullingContextTestAccess;
+		std::vector<FInstanceCullingCandidate> Candidates;
+		std::vector<FRHIDrawIndexedIndirectArguments> Arguments;
+		struct FMeshDrawCommandInfo
+		{
+			uint32 ArgumentIndex = InvalidArgument;
+			RendererPrivate::FMeshDrawCommandRun Fallback;
+		};
+		// Exactly one entry per final visible command. Only merged GPU groups retain fallback sources.
+		std::vector<FMeshDrawCommandInfo> MeshDrawCommandInfos;
+		RendererPrivate::FMeshCommandOneFrameArray FallbackCommands;
+		bool bDispatched = false;
+		FInstanceCullingManager& Manager;
 		std::shared_ptr<const FInstanceCullingView> View;
 		RendererPrivate::FMeshPassKey Pass;
 		FBufferRHIRef InstanceSceneData;
@@ -106,7 +122,6 @@ namespace Durin
 	class FInstanceCullingManager
 	{
 	public:
-		RENDERER_API FInstanceCullingManager();
 		RENDERER_API explicit FInstanceCullingManager(FRendererResourceCoordinator& Coordinator);
 		RENDERER_API ~FInstanceCullingManager();
 		RENDERER_API auto ResetViews() -> void;
@@ -118,7 +133,7 @@ namespace Durin
 
 	private:
 		struct FState;
-		FRendererResourceCoordinator* Coordinator = nullptr;
+		FRendererResourceCoordinator& Coordinator;
 		std::unique_ptr<FState> State;
 		std::vector<std::shared_ptr<const FInstanceCullingView>> Views;
 	};

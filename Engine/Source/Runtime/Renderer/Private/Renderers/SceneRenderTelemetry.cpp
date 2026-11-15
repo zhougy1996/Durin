@@ -4,59 +4,6 @@
 
 namespace Durin
 {
-	FGPUCullingVisibilityQuery::FGPUCullingVisibilityQuery(uint32 Candidates,
-		std::span<const FRHIDrawIndexedIndirectArguments> ExpectedArguments)
-		: CandidateCount(Candidates), Expected(ExpectedArguments.begin(), ExpectedArguments.end())
-	{
-	}
-
-	auto FGPUCullingVisibilityQuery::ResolveLocked() const -> void
-	{
-		if (State != ERHITextureReadbackState::Pending) return;
-		State = Readback->GetState();
-		if (State != ERHITextureReadbackState::Ready) return;
-		FByteBuffer Bytes;
-		if (!Readback->TakePixels(Bytes) || Expected.empty() || CandidateCount == 0
-			|| Bytes.size() != Expected.size() * sizeof(FRHIDrawIndexedIndirectArguments)
-			|| Expected.front().FirstInstance != 0)
-		{
-			State = ERHITextureReadbackState::Failed;
-			return;
-		}
-		uint32 Visible = 0;
-		for (size_t Index = 0; Index < Expected.size(); ++Index)
-		{
-			FRHIDrawIndexedIndirectArguments Actual;
-			std::memcpy(&Actual, Bytes.data() + Index * sizeof(Actual), sizeof(Actual));
-			const auto& Reference = Expected[Index];
-			const uint32 End = Index + 1 < Expected.size() ? Expected[Index + 1].FirstInstance : CandidateCount;
-			if (End <= Reference.FirstInstance || End > CandidateCount
-				|| Actual.IndexCount != Reference.IndexCount || Actual.FirstIndex != Reference.FirstIndex
-				|| Actual.VertexOffset != Reference.VertexOffset || Actual.FirstInstance != Reference.FirstInstance
-				|| Actual.InstanceCount > End - Reference.FirstInstance)
-			{
-				State = ERHITextureReadbackState::Failed;
-				return;
-			}
-			Visible += Actual.InstanceCount;
-		}
-		Counts = FGPUCullingVisibilityCounts{CandidateCount, Visible, CandidateCount - Visible};
-	}
-
-	auto FGPUCullingVisibilityQuery::GetState() const -> ERHITextureReadbackState
-	{
-		std::lock_guard Lock(Mutex);
-		ResolveLocked();
-		return State;
-	}
-
-	auto FGPUCullingVisibilityQuery::GetCounts() const -> std::optional<FGPUCullingVisibilityCounts>
-	{
-		std::lock_guard Lock(Mutex);
-		ResolveLocked();
-		return Counts;
-	}
-
 	namespace
 	{
 		std::atomic<FViewRenderTelemetrySink> GViewRenderTelemetrySink = nullptr;
@@ -105,12 +52,9 @@ namespace Durin
 		);
 		Result.Shadow.Triangles = Telemetry.DirectionalShadow.ShadowPreparedTriangles;
 
-		Result.StaticMesh.DrawCalls = AddSaturated(
-			Telemetry.StaticMesh.StaticMeshSuccessfulDraws,
-			AddSaturated(
-				Telemetry.GBuffer.GBufferStaticMeshSuccessfulDraws,
-				Telemetry.GBuffer.GBufferSplineMeshSuccessfulDraws));
-		Result.Shadow.DrawCalls = Telemetry.DirectionalShadow.ShadowSuccessfulDraws;
+		// Receiver native submissions already include GBuffer and forward/translucent draws.
+		Result.StaticMesh.DrawCalls = Telemetry.StaticMesh.NativeDrawSubmissions;
+		Result.Shadow.DrawCalls = Telemetry.DirectionalShadow.ShadowNativeDrawSubmissions;
 		Result.Lights.Directional = Telemetry.Lighting.SelectedDirectionalLights;
 		Result.Lights.Point = Telemetry.Lighting.SelectedPointLights;
 		Result.Lights.Spot = Telemetry.Lighting.SelectedSpotLights;
