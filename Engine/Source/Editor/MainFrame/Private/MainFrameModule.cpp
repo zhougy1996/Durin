@@ -161,6 +161,8 @@ namespace Durin::MainFrame
 				if (GetToolkitMode() != EToolkitMode::Standalone || ViewportId == Id) return;
 				ClosePolicy.Reset();
 				ViewportId = Id;
+				// A docked asset shares the main window's application close policy.
+				if (Id == ImGui::GetMainViewport()->ID) return;
 				ClosePolicy = MonaImGui::RegisterViewportClosePolicy(Id, [Weak = weak_from_this()] {
 					const auto Self = Weak.lock();
 					return !Self || Self->RequestClose();

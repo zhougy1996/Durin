@@ -23,6 +23,7 @@
 #include "Thumbnail/ThumbnailManager.h"
 #include "Documents/AssetEditorDocumentModels.h"
 #include "Framework/TabLayout.h"
+#include "Framework/TabManager.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Materials/MaterialFunction.h"
@@ -699,6 +700,45 @@ TEST(FEditorWorkspaceUITests, PreservesStableWorkspaceWindowAndDockIdentities)
 	EXPECT_EQ(TabLayout::MakeMainFrameDockSpaceId(2), ImHashStr("Durin.DockSpace.EditorHost.v2"));
 	EXPECT_EQ(TabLayout::MakeDockClassId(ToolkitId), ImHashStr("Durin.DockClass.LevelEditor"));
 	EXPECT_EQ(TabLayout::MakeDockSpaceId(ToolkitId, 4), ImHashStr("Durin.DockSpace.LevelEditor.v4"));
+}
+
+TEST(FEditorWorkspaceUITests, StandaloneRootStartsWithUsableGeometryAndKeepsUserDocking)
+{
+	using namespace Durin;
+	auto* Context = ImGui::CreateContext();
+	std::unique_ptr<ImGuiContext, decltype(&ImGui::DestroyContext)> Guard(Context, &ImGui::DestroyContext);
+	auto& IO = ImGui::GetIO();
+	IO.IniFilename = nullptr;
+	IO.DisplaySize = ImVec2(1600, 1000);
+	IO.DeltaTime = 1.0f / 60;
+	IO.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+	IO.Fonts->Build();
+	FEditorTabWindow Root;
+	const auto Name = TabLayout::MakeRootWindowName("Asset", "StandaloneDockRegression");
+	const auto DockId = TabLayout::MakeMainFrameDockSpaceId(TabLayout::MainFrameLayoutVersion);
+	for (int Frame = 0; Frame < 4; ++Frame)
+	{
+		ImGui::NewFrame();
+		ImGui::SetNextWindowSize(ImVec2(1500, 900));
+		ImGui::Begin("Dock host");
+		TabLayout::SubmitMainFrameDockSpace(TabLayout::MainFrameLayoutVersion, ImVec2(1400, 800));
+		ImGui::End();
+		if (Frame == 1) ImGui::DockBuilderDockWindow(Name.c_str(), DockId);
+		Root.Begin({.DisplayName = "Asset", .RootKey = "StandaloneDockRegression", .bNativeStandalone = true,
+			.AdditionalFlags = ImGuiWindowFlags_NoSavedSettings});
+		const auto* Window = ImGui::GetCurrentWindow();
+		EXPECT_EQ(0, Window->Flags & ImGuiWindowFlags_NoDocking);
+		EXPECT_EQ(TabLayout::MakeRootDockClassId(), Window->WindowClass.ClassId);
+		if (Frame == 0)
+		{
+			EXPECT_GE(ImGui::GetContentRegionAvail().x, 980.0f);
+			EXPECT_GE(ImGui::GetContentRegionAvail().y, 600.0f);
+		}
+		else EXPECT_EQ(DockId, Window->DockId);
+		Root.End();
+		ImGui::Render();
+		EXPECT_EQ(0, Context->ErrorCountCurrentFrame);
+	}
 }
 
 TEST(FAssetPickerTests, AppliesExactAndDerivedClassPolicies)

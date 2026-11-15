@@ -14,7 +14,8 @@ namespace Durin
 		auto WindowClass = TabLayout::MakeRootWindowClass();
 		if (Config.bNativeStandalone) WindowClass.ViewportFlagsOverrideSet |= ImGuiViewportFlags_NoAutoMerge;
 		ImGui::SetNextWindowClass(&WindowClass);
-		if (Config.bNativeStandalone) ImGui::SetNextWindowDockID(0, ImGuiCond_Always);
+		// Standalone selects the initial presentation; subsequent docking belongs to the user.
+		if (Config.bNativeStandalone) ImGui::SetNextWindowDockID(0, ImGuiCond_FirstUseEver);
 		if (Config.bDockInEditorHost && !Config.bNativeStandalone)
 			ImGui::SetNextWindowDockID(TabLayout::MakeMainFrameDockSpaceId(TabLayout::MainFrameLayoutVersion), ImGuiCond_FirstUseEver);
 		if (bFocusRequested)
@@ -25,10 +26,12 @@ namespace Durin
 
 		const std::string DisplayName = Config.bDirty ? std::format("{} *", Config.DisplayName) : std::string(Config.DisplayName);
 		const std::string RootWindowName = TabLayout::MakeRootWindowName(DisplayName, Config.RootKey);
+		// Nested dock layouts need usable geometry on their first frame.
+		if (!(ImGui::GetCurrentContext()->NextWindowData.HasFlags & ImGuiNextWindowDataFlags_HasSize))
+			ImGui::SetNextWindowSize(ImVec2(MonaImGui::ScaleUI(1200.0f), MonaImGui::ScaleUI(800.0f)), ImGuiCond_FirstUseEver);
 		if (Config.bZeroPadding) ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 		bool bOpen = true;
 		const ImGuiWindowFlags Flags = ImGuiWindowFlags_NoCollapse | Config.AdditionalFlags |
-			(Config.bNativeStandalone ? ImGuiWindowFlags_NoDocking : ImGuiWindowFlags_None) |
 			(Config.bDirty ? ImGuiWindowFlags_UnsavedDocument : ImGuiWindowFlags_None);
 		FEditorTabWindowState State;
 		State.bVisible = ImGui::Begin(RootWindowName.c_str(), &bOpen, Flags);
