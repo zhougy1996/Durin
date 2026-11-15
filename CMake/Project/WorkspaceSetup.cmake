@@ -1,4 +1,5 @@
 include_guard(GLOBAL)
+include("${CMAKE_CURRENT_LIST_DIR}/ExportComponent.cmake")
 
 function(add_durin_workspace)
 
@@ -13,5 +14,29 @@ function(add_durin_workspace)
 		message(FATAL_ERROR "Failed to load Durin.dworkspace.")
 	endif()
 	include("${_generated}")
+    # Configuration-independent Cook schema/provider source contract. It excludes
+    # authored content and project settings; those remain ordinary Cook inputs.
+    set(_cook_inputs ${DURIN_DHT_TOOL_INPUTS})
+    foreach(_project_file IN LISTS DURIN_WORKSPACE_PROJECT_FILES)
+        get_filename_component(_project_root "${_project_file}" DIRECTORY)
+        file(GLOB_RECURSE _runtime_inputs CONFIGURE_DEPENDS LIST_DIRECTORIES FALSE
+            "${_project_root}/Source/Runtime/*.h" "${_project_root}/Source/Runtime/*.cpp"
+            "${_project_root}/Source/Developer/*.h" "${_project_root}/Source/Developer/*.cpp"
+            "${_project_root}/Plugins/*.h" "${_project_root}/Plugins/*.cpp" "${_project_root}/Plugins/*.dplugin")
+        list(APPEND _cook_inputs ${_runtime_inputs})
+    endforeach()
+    list(REMOVE_DUPLICATES _cook_inputs)
+    list(SORT _cook_inputs)
+    set(_cook_contract "${DURIN_ENGINE_VERSION_STRING}\n${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}-${CMAKE_SIZEOF_VOID_P}\n")
+    foreach(_input IN LISTS _cook_inputs)
+        file(RELATIVE_PATH _relative "${CMAKE_SOURCE_DIR}" "${_input}")
+        file(SHA256 "${_input}" _hash)
+        string(APPEND _cook_contract "${_relative}:${_hash}\n")
+    endforeach()
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${_cook_inputs})
+    string(SHA256 DURIN_COOK_COMPATIBILITY "${_cook_contract}")
+    target_compile_definitions(Projects PRIVATE "DURIN_COOK_COMPATIBILITY=\"${DURIN_COOK_COMPATIBILITY}\"")
 	durin_generate_plugin_builds()
+	durin_generate_game_receipts()
+    durin_generate_export_component()
 endfunction()

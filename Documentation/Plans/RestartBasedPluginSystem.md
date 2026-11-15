@@ -636,6 +636,10 @@ of Win64 startup roots, delivery layout, generic target receipts, project Cook
 policy and unified export entrypoint. It preserves this plan's immutable plugin
 selection/lifetime and historical deployment receipts. Native macOS staging and
 execution qualification remain open here; the new export plan does not close them.
+The implemented Win64 [Game deployment contract](../Runtime/Application/GameDeployment.md)
+and [export guide](../Editor/Guides/ExportingGames.md) supersede this plan's earlier
+delivery layout and replacement/rollback publication behavior; prior receipts remain
+historical plugin-system evidence.
 
 Follow [Workspace and projects](../Workspace/WorkspaceProjects.md),
 [Build system](../Development/Build/BuildSystem.md),

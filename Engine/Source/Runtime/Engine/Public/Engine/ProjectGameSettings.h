@@ -16,6 +16,7 @@ namespace Durin
 		std::string DefaultLevel;
 		std::string NativeModule;
 		std::string GameModeClass;
+		std::string DefaultData;
 
 		auto HasNativeGameplay() const -> bool { return !NativeModule.empty() && !GameModeClass.empty(); }
 	};

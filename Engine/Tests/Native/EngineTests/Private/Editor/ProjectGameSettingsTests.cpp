@@ -143,3 +143,20 @@ TEST(FProjectGameSettingsTests, RejectsWrongNodeShapesWithoutMutatingTheFile)
 		std::istreambuf_iterator<char>(Stream), std::istreambuf_iterator<char>()};
 	EXPECT_EQ(Unchanged, "Game:\n  NativeModule: Sandbox\n");
 }
+
+TEST(FProjectGameSettingsTests, DefaultDataIsOptionalScalarAndSurvivesDefaultLevelUpdates)
+{
+    const auto File = MakeSettingsFile("DefaultData");
+    Durin::FProjectGameSettings Settings;
+    WriteSettings(File, "Game:\n  DefaultData: /Game/Gameplay/Pawn.Pawn\n");
+    ASSERT_TRUE(Durin::FProjectGameSettingsStore(File).Load(Settings));
+    EXPECT_EQ(Settings.DefaultData, "/Game/Gameplay/Pawn.Pawn");
+    ASSERT_TRUE(Durin::FProjectGameSettingsStore(File).SaveDefaultLevel("/Game/Levels/New"));
+    ASSERT_TRUE(Durin::FProjectGameSettingsStore(File).Load(Settings));
+    EXPECT_EQ(Settings.DefaultData, "/Game/Gameplay/Pawn.Pawn");
+    for (auto Value : {"[bad]", "{bad: value}"})
+    {
+        WriteSettings(File, "Game:\n  DefaultData: " + std::string(Value) + "\n");
+        EXPECT_FALSE(Durin::FProjectGameSettingsStore(File).Load(Settings));
+    }
+}

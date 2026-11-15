@@ -1,0 +1,133 @@
+{
+  "SchemaVersion": 1,
+  "Revision": "871de3b06486954716dba968b25dad4163b904ad",
+  "Purpose": "Historical migration smoke only; not v2, clean-machine or runtime receipt qualification",
+  "Configurations": [
+    {
+      "Configuration": "Debug",
+      "Status": "passed",
+      "CookManifestSha256": "5b8a97bf791594b296bc5f6caecca88518f7978141a9171bb53a6b1ccf3b78c8",
+      "ShaderLibrarySha256": "be8690dbd645f6cf563a7f08ad1c74254724c354976c09f68100ef3ac887530e",
+      "DefaultLevel": "/Game/Levels/GrayboxStage15",
+      "NoDebugCRT": null,
+      "Processes": [
+        {
+          "Name": "exported",
+          "Exit": 0,
+          "Ticks": 120
+        },
+        {
+          "Name": "relocated",
+          "Exit": 0,
+          "Ticks": 120
+        }
+      ],
+      "Reports": [
+        {
+          "Path": "Build/Exports/SandboxVerification/cook.json",
+          "Sha256": "05b2ddbcaa6abf941f6f54d7f71b4595f7236c106dcc434df8649291e581fc3f"
+        },
+        {
+          "Path": "Build/Exports/SandboxVerification/export.ps1",
+          "Sha256": "24a4ba696fb7cd9821e8de4a5294a88d0f924d175a98dc96fbceb65a9a553510"
+        },
+        {
+          "Path": "Build/Exports/SandboxVerification/exported.log",
+          "Sha256": "212f5cf16f37e291e626bce7799561123603a27f1cea15fa96992b0cf6b6efcc"
+        },
+        {
+          "Path": "Build/Exports/SandboxVerification/processes.json",
+          "Sha256": "08e61d0496331701fc820461a69d9672368acd533e1e396c2576829656f42b1f"
+        },
+        {
+          "Path": "Build/Exports/SandboxVerification/relocated.log",
+          "Sha256": "a1864f50f8c8d4ff1419a9d8c267113f969b3c93bb173c1cb7b8c9969970708e"
+        },
+        {
+          "Path": "Build/Exports/SandboxVerification/verification.json",
+          "Sha256": "df5cf7b3301b112888a944cf2c2d1ed55f1874b06beda320fe368ccec356f744"
+        },
+        {
+          "Path": "Build/Exports/SandboxVerification/verify.py",
+          "Sha256": "2f6c9d34b8af5d4bc7bced2474fdeba1f10325fa4a54f0dcfb3e42121dbc4ee8"
+        }
+      ],
+      "Reproduce": {
+        "Project": "Sandbox/Sandbox.dproject",
+        "GamePreset": "Win64-Debug-DurinGame",
+        "CookHostPreset": "Win64-Debug-DurinEditor",
+        "AdditionalRoot": "/Game/Models/GrayboxPawn",
+        "Script": "Build/Exports/SandboxVerification/export.ps1"
+      }
+    },
+    {
+      "Configuration": "Release",
+      "Status": "passed",
+      "CookManifestSha256": "45eaa69339fd5e727dbb28d2e4b8d07f400c05cf93898be3d97ec50fc0c28e83",
+      "ShaderLibrarySha256": "be8690dbd645f6cf563a7f08ad1c74254724c354976c09f68100ef3ac887530e",
+      "DefaultLevel": "/Game/Levels/GrayboxStage15",
+      "NoDebugCRT": true,
+      "Processes": [
+        {
+          "Name": "exported",
+          "Exit": 0,
+          "Ticks": 120
+        },
+        {
+          "Name": "relocated",
+          "Exit": 0,
+          "Ticks": 120
+        }
+      ],
+      "Reports": [
+        {
+          "Path": "Build/Exports/SandboxReleaseVerification/build.py",
+          "Sha256": "22182ec2239d5752be7790fa50b7071f6dc611db5644d1cd3a7ef456ec460431"
+        },
+        {
+          "Path": "Build/Exports/SandboxReleaseVerification/builds.json",
+          "Sha256": "9097b5c72e0e92772cca8d793b7654f93c8852c83fe6bb698cb6afe87bfd0b5b"
+        },
+        {
+          "Path": "Build/Exports/SandboxReleaseVerification/cook.json",
+          "Sha256": "be27c9a307fd268b2f6b34f0d6a457c0b1314b7f379b3d0f1a0ed2fda8f8fe39"
+        },
+        {
+          "Path": "Build/Exports/SandboxReleaseVerification/export.ps1",
+          "Sha256": "2d9e036e504f1ff721586cf0afe1f4412137f0ce4328f6abdd698a3aa12869ce"
+        },
+        {
+          "Path": "Build/Exports/SandboxReleaseVerification/exported.log",
+          "Sha256": "803448a4b61fe08187bf1c81de2cb5cb3dd503c899f09887a3cb4e128d50ad04"
+        },
+        {
+          "Path": "Build/Exports/SandboxReleaseVerification/native-imports.json",
+          "Sha256": "008c81b610acafb1f73422bdf3c116e47bf123ce91e5e47459cca1bd2e7bcaaf"
+        },
+        {
+          "Path": "Build/Exports/SandboxReleaseVerification/processes.json",
+          "Sha256": "a45ca2146821a2c8f7aa2a71704afe84e2ce0e69fc2eae5d6e1119d8d17ca832"
+        },
+        {
+          "Path": "Build/Exports/SandboxReleaseVerification/relocated.log",
+          "Sha256": "e8151226114222341df064eec9edd87b0c336aad9e1fe97770b5b5395eac7eca"
+        },
+        {
+          "Path": "Build/Exports/SandboxReleaseVerification/verification.json",
+          "Sha256": "5faedc6efccf2dc538a20dd67f94137737c833d31a29f241de66a676852c875d"
+        },
+        {
+          "Path": "Build/Exports/SandboxReleaseVerification/verify.py",
+          "Sha256": "9d08744593a5e8747f70ca1d758ebf0316a6553716da6f7f7e0e12d40d283d1e"
+        }
+      ],
+      "Reproduce": {
+        "Project": "Sandbox/Sandbox.dproject",
+        "GamePreset": "Win64-Release-DurinGame",
+        "CookHostPreset": "Win64-Release-DurinEditor",
+        "AdditionalRoot": "/Game/Models/GrayboxPawn",
+        "Script": "Build/Exports/SandboxReleaseVerification/export.ps1"
+      }
+    }
+  ]
+}

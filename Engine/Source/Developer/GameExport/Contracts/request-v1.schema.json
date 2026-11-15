@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "request-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ProtocolVersion",
+    "Kind",
+    "RequestId",
+    "Operation",
+    "ProjectFile",
+    "Platform",
+    "Configuration",
+    "Output",
+    "EngineRoot",
+    "Backend",
+    "BackendMetadata",
+    "Build",
+    "Cook",
+    "Verify",
+    "Archive"
+  ],
+  "properties": {
+    "ProtocolVersion": {
+      "const": 1
+    },
+    "Kind": {
+      "const": "request"
+    },
+    "RequestId": {
+      "$ref": "common-v1.schema.json#/$defs/identifier"
+    },
+    "Operation": {
+      "enum": [
+        "preview",
+        "stage",
+        "export"
+      ]
+    },
+    "ProjectFile": {
+      "$ref": "common-v1.schema.json#/$defs/text"
+    },
+    "Platform": {
+      "const": "Win64"
+    },
+    "Configuration": {
+      "enum": [
+        "Debug",
+        "Release"
+      ]
+    },
+    "Output": {
+      "$ref": "common-v1.schema.json#/$defs/text"
+    },
+    "EngineRoot": {
+      "$ref": "common-v1.schema.json#/$defs/text"
+    },
+    "Backend": {
+      "enum": [
+        "source",
+        "prebuilt"
+      ]
+    },
+    "BackendMetadata": {
+      "$ref": "common-v1.schema.json#/$defs/text"
+    },
+    "Build": {
+      "enum": [
+        "auto",
+        "reuse"
+      ]
+    },
+    "Cook": {
+      "enum": [
+        "auto",
+        "reuse"
+      ]
+    },
+    "Verify": {
+      "type": "boolean"
+    },
+    "Archive": {
+      "type": "boolean"
+    },
+    "CookDirectory": {
+      "$ref": "common-v1.schema.json#/$defs/text"
+    },
+    "Receipt": {
+      "$ref": "common-v1.schema.json#/$defs/text"
+    },
+    "Preview": {
+      "type": "boolean"
+    },
+    "Preset": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "Operation": {
+            "const": "stage"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "CookDirectory"
+        ],
+        "properties": {
+          "Build": {
+            "const": "reuse"
+          },
+          "Cook": {
+            "const": "reuse"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "Backend": {
+                  "const": "prebuilt"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "Receipt"
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

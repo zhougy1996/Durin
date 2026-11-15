@@ -84,6 +84,7 @@ physical root communicates ownership but does not select them for a target.
 | `TextureCompressor` | Pure Texture2D/TextureCube/VolumeTexture normalized-value recipes, panorama normalization, offline compression, recipe metrics and versions through one editor-lifetime module interface; no DDC, Build Framework, key, payload codec, live Texture object, PostLoad, scheduler, or result-application authority | [source](../../Engine/Source/Developer/TextureCompressor) |
 | `MeshBuilder` | CPU StaticMesh render construction via FStaticMeshBuilder and IMeshBuilderModule, with editor-lifetime residency and a render builder version; Engine owns keys, caching, PostLoad, and application | [source](../../Engine/Source/Developer/MeshBuilder) |
 | `AssetMaintenance` | UI-neutral project asset compatibility batches, mounted-package snapshots, deterministic reports, and canonical-v9-resave orchestration; selected by authoring and tool targets but excluded from game Runtime | [source](../../Engine/Source/Developer/AssetMaintenance) |
+| `GameExport` | Tools-only native export request validation, source-stage preflight, native closure inspection, Runtime.json emission and transactional publication, hosted by DurinExportTool; excluded from DurinGame | [source](../../Engine/Source/Developer/GameExport) |
 
 ## Project Modules
 

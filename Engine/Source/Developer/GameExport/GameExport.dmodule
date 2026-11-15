@@ -1,0 +1,7 @@
+{
+  "ModuleName": "GameExport",
+  "LinkType": "Shared",
+  "PCH": "SharedPCH_Core",
+  "PublicDependencies": ["Core"],
+  "PrivateDependencies": ["Projects", "Engine"]
+}

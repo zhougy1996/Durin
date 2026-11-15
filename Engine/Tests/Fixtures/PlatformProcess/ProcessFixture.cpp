@@ -1,6 +1,7 @@
 #include "ProcessFixtureProtocol.h"
 
 #include <chrono>
+#include <iostream>
 #include <cstdlib>
 #include <thread>
 
@@ -68,6 +69,18 @@ int main(int Count, char** Arguments)
 	const auto& ReportArgument = Report.Arguments.front();
 	const auto ReportPath = std::filesystem::path(std::u8string(ReportArgument.begin(), ReportArgument.end()));
 	if (!WriteReport(ReportPath, Report)) return 91;
+    if(Environment("DURIN_PROCESS_PROBE_CHATTER")) std::cout<<std::string(200000,'c')<<std::flush;
+    if(Environment("DURIN_PROCESS_PROBE_PIPE")) {std::string Line; std::getline(std::cin,Line); std::cout<<Line<<'\n'<<std::flush;}
+#if defined(_WIN32)
+    if(Environment("DURIN_PROCESS_PROBE_TREE") && Count==2) {
+        wchar_t Self[32768]; GetModuleFileNameW(nullptr,Self,32768);
+        auto ChildReport=ReportPath; ChildReport+=".child";
+        std::wstring Command=L"\""+std::wstring(Self)+L"\" \""+ChildReport.wstring()+L"\" descendant";
+        STARTUPINFOW Start{}; Start.cb=sizeof(Start); PROCESS_INFORMATION P{};
+        if(!CreateProcessW(Self,Command.data(),nullptr,nullptr,FALSE,CREATE_NO_WINDOW,nullptr,nullptr,&Start,&P)) return 93;
+        CloseHandle(P.hThread); CloseHandle(P.hProcess);
+    }
+#endif
 	if (const auto Release = Environment("DURIN_PROCESS_PROBE_RELEASE"))
 	{
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);

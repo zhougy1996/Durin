@@ -1,4 +1,5 @@
 #include "MainFrameModule.h"
+#include "ExportWindow.h"
 #include "Misc/UnifiedError.h"
 #include "Panels/PythonScriptPanel.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
@@ -63,6 +64,7 @@ namespace Durin::MainFrame
 	{
 		~FMainFrameContext()
 		{
+            ExportWindow.Stop();
 			if (RootWindow) RootWindow->SetCloseRequestHandler({});
 			if (ContentBrowserTool)
 				ContentBrowserTool->StopRequestAdmission();
@@ -99,6 +101,7 @@ namespace Durin::MainFrame
 		bool bExitSaveFailed = false;
         std::string PluginRestartProject;
         FPluginManagementWindow PluginWindow;
+        FExportWindow ExportWindow;
 		std::shared_ptr<FMainFrameSettings> MainFrameSettings;
 		std::shared_ptr<MWindow> RootWindow;
 		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditors;
@@ -270,6 +273,7 @@ namespace Durin::MainFrame
 
 		struct FMainFrameViewState
 		{
+            bool bExportOpen=false;
 			bool bAboutDialogOpen = false;
 			FEditorSettingsWindow SettingsWindow;
 			bool bAssetUpgradeOpen = false;
@@ -574,6 +578,7 @@ namespace Durin::MainFrame
 			for (const auto& Toolkit : AssetEditors.GetAssetToolkits()) Toolkits.push_back(Toolkit);
 			if (ImGui::BeginMenu("File"))
 			{
+                ImGui::MenuItem("Export Game...",nullptr,&ViewState.bExportOpen);
 				if (ImGui::MenuItem("Save Current", "Ctrl+S", false, ActiveWorkspace && ActiveWorkspace->CanSaveActiveDocument()))
 					ActiveWorkspace->SaveActiveDocument();
 				ImGui::Separator();
@@ -1275,6 +1280,7 @@ namespace Durin
 						*Context->Activity);
 					ThumbnailPool.Tick(Editor->GetCapabilities().bRunTools);
 					Context->SlowTaskDialogs.Draw(FFeedbackContext::Get());
+                    Context->ExportWindow.Draw(ViewState.bExportOpen,Context->AssetEditors.Get());
                     Context->PluginWindow.Draw(ViewState.bPluginsOpen, [&] {
                         if (const auto* Project = GetCurrentProject())
                         { Context->PluginRestartProject = Project->ProjectFile; Context->bExitRequested = true; }

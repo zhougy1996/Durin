@@ -230,4 +230,11 @@ namespace Durin
 		return std::unexpected(FPlatformProcessError{EPlatformProcessError::OpenPath, std::format(
 			"Could not open \"{}\": /usr/bin/open exited with code {}.", Path, ReturnCode), std::string(Path), std::nullopt, ReturnCode});
 	}
+    auto FMacOSPlatformProcess::ExecuteControlledProcess(std::string_view Executable,
+        const FProcessLaunchOptions&, const FProcessExecutionControl&) -> std::expected<int32, FPlatformProcessError>
+    {
+        return std::unexpected(FPlatformProcessError{EPlatformProcessError::Launch,
+            "Controlled export execution is currently available on Win64 only.", std::string(Executable)});
+    }
+
 }

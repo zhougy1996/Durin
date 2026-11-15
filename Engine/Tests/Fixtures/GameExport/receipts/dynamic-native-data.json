@@ -1,0 +1,136 @@
+{
+  "SchemaVersion": 1,
+  "Status": "succeeded",
+  "Identity": {
+    "EngineBuild": "fixture-engine",
+    "Project": "Sandbox",
+    "Platform": "Win64",
+    "Architecture": "x64",
+    "Configuration": "Release",
+    "RuntimeVariant": "DurinGame",
+    "ToolchainABI": "fixture-msvc-x64-md",
+    "Target": "DurinLauncher"
+  },
+  "InputFingerprint": "32381523e63197c929b67f793a8098bed0ae3a6fa902634fdbcc6fa4567f3346",
+  "SelectionFingerprint": "5f0a98b109323313f54439e8d7a3cfa9d951c763d21838f0c8f518ed3cdc7e62",
+  "Products": [
+    {
+      "Owner": "Engine",
+      "Module": "DurinLauncher",
+      "Host": "Runtime",
+      "Source": {
+        "Root": "Artifacts",
+        "Path": "Release/Binaries/Win64/Sandbox.exe"
+      },
+      "Destination": "Binaries/Win64/Sandbox.exe",
+      "Kind": "Executable",
+      "Sha256": "9095bdb859308b62acf04036ffd4adfe366d7f737d276eb6c46ae434f3816c9b"
+    },
+    {
+      "Owner": "Weather",
+      "Module": "WeatherRuntime",
+      "Host": "Runtime",
+      "Source": {
+        "Root": "Artifacts",
+        "Path": "Release/Binaries/Win64/DurinGame-WeatherRuntime.dll"
+      },
+      "Destination": "Binaries/Win64/DurinGame-WeatherRuntime.dll",
+      "Kind": "NativeLibrary",
+      "Sha256": "ad2ec6dfebaaf95c2d68fcd18b5ad9c9635fc19a7cf9ccf46fe02c53fdbbd960"
+    },
+    {
+      "Owner": "Engine",
+      "Module": "Core",
+      "Host": "Runtime",
+      "Source": {
+        "Root": "Artifacts",
+        "Path": "Release/Binaries/Win64/DurinGame-Core.dll"
+      },
+      "Destination": "Binaries/Win64/DurinGame-Core.dll",
+      "Kind": "NativeLibrary",
+      "Sha256": "b36f8e1f3e6a7f827a82c2a64326cfb6c7f60a3628e6ae7e5024e745410fdda5"
+    },
+    {
+      "Owner": "Weather",
+      "Module": "WeatherNative",
+      "Host": "Runtime",
+      "Source": {
+        "Root": "Artifacts",
+        "Path": "Release/Binaries/Win64/weather-native.dll"
+      },
+      "Destination": "Binaries/Win64/weather-native.dll",
+      "Kind": "NativeLibrary",
+      "Sha256": "dad49afff9b9acbf95b0a9fc185506c3c8b34e341327f55718fc85f83fc1bbb7"
+    },
+    {
+      "Owner": "Weather",
+      "Module": "WeatherRuntime",
+      "Host": "Runtime",
+      "Source": {
+        "Root": "Artifacts",
+        "Path": "Release/Data/weather.bin"
+      },
+      "Destination": "Data/weather.bin",
+      "Kind": "RuntimeData",
+      "Sha256": "3405424254cf4eedace616658c0b5c2f7f4ffa13fd966d8307a9016a75e16cb8"
+    }
+  ],
+  "Modules": [
+    {
+      "Name": "DurinLauncher",
+      "Owner": "Engine",
+      "Host": "Runtime",
+      "Linked": [
+        "WeatherRuntime"
+      ],
+      "Dynamic": [],
+      "RuntimeFiles": []
+    },
+    {
+      "Name": "WeatherRuntime",
+      "Owner": "Weather",
+      "Host": "Runtime",
+      "Linked": [
+        "Core"
+      ],
+      "Dynamic": [
+        "WeatherNative"
+      ],
+      "RuntimeFiles": [
+        "Data/weather.bin"
+      ]
+    },
+    {
+      "Name": "Core",
+      "Owner": "Engine",
+      "Host": "Runtime",
+      "Linked": [],
+      "Dynamic": [],
+      "RuntimeFiles": []
+    },
+    {
+      "Name": "WeatherNative",
+      "Owner": "Weather",
+      "Host": "Runtime",
+      "Linked": [],
+      "Dynamic": [],
+      "RuntimeFiles": []
+    }
+  ],
+  "Prerequisites": {
+    "SystemPolicy": "win64-system-v1",
+    "CRT": "vcredist-x64",
+    "MinimumVersion": "14.0.0.0",
+    "Provenance": "fixture-only-not-a-runtime-requirement",
+    "License": "fixture-only"
+  },
+  "Inputs": [
+    {
+      "Root": "Engine",
+      "Path": "Source/Fixture/Fixture.dmodule",
+      "Sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "BuildInputs": [],
+  "CookCompatibility": "0000000000000000000000000000000000000000000000000000000000000000"
+}

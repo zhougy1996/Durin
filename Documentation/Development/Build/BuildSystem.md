@@ -176,6 +176,79 @@ host built-ins cannot leak into synthetic target parsing. The parser-context
 version and phase-state platform identity
 invalidate cached parses when this contract changes.
 
+## Game deployment declarations and completed receipts
+
+Module descriptors keep linking and dynamic loading separate. Public/private
+(and enabled optional) dependencies remain linker inputs. `DynamicDependencies`
+contains `All`, `Win64` and `MacOS` module-name arrays. DHT enables their build
+closure without linking them. Engine declares Renderer; RHI declares the platform
+backend. Engine's ordinary root is DurinLauncher, whose closure reaches these
+modules. Project roots such as Sandbox continue to come from BaseModules.
+Dynamic cycles back through linked modules are valid; linked dependency cycles
+remain errors. Receipt aggregate targets build dynamic products without adding
+cyclic per-library build edges.
+
+`RuntimeFiles` declares non-module runtime products relative to the module:
+
+```json
+{
+  "RuntimeFiles": [
+    {"Source": "Resources/runtime.bin", "Destination": "Resources/runtime.bin", "Kind": "RuntimeData"}
+  ]
+}
+```
+
+Sources must stay inside the module. Kinds are NativeLibrary, RuntimeData and
+License; destinations are relative to deployment root. Package CMake integrations
+use `DURIN_DECLARED_RUNTIME_FILES` entries of
+`source|destination|kind|license|provenance` and set `DURIN_DEPLOY_LICENSE` plus
+`DURIN_DEPLOY_PROVENANCE` on redistributed third-party native targets. Tracy
+publishes its DLL and license this way. Native module products retain their
+existing owning project/plugin; imported/link-interface targets retain graph
+identity without inventing a DLL product.
+
+For Win64 MSVC Debug/Release Game builds, `<Project>GameReceipt` builds the
+ordinary and available plugin closure, then publishes
+`Build/<preset>/TargetReceipts/<Project>/<Configuration>/TargetReceipt.json`.
+It participates in `all`; an individual library build does not publish a complete
+receipt. Configure emits only Build.inputs, never a success receipt.
+
+```powershell
+.\DevTool.bat build SandboxGameReceipt --preset Win64-Debug-DurinGame
+```
+
+The publisher hashes completed products, source/build inputs and the generated
+build specification. Inputs cover target source/header/generated files, descriptors,
+CMakeCache settings, imported artifacts and build rules; startup-only Plugins.json is excluded.
+Configure also computes a configuration-independent CookCompatibility digest over
+runtime/provider source and DHT/schema inputs, embeds it in Projects, and records it
+in completed receipts. See [Cook input ownership](../../Runtime/Assets/Build/Cooking.md#coordinator-and-input-ownership)
+for its compatibility boundary and host/target admission.
+The receipt also retains catalog BuildInputs and plugin module Binary/Phase
+bindings, so export does not need PluginBuild.json. Existing source admission
+continues to consume its own inventory. The receipt binds target/ABI, module
+owners, linked/dynamic edges, runtime-file
+categories, destinations, prerequisites and hashes. MSVC CRT minimum version comes
+from the actual compiler toolset directory. A failed receipt publication retires
+its previous success marker. Source stage verifies recorded native inputs and
+selected product bytes, so changing sources or artifacts requires rebuilding.
+
+Available receipts are build inventories. GameExport derives the selected receipt
+for the frozen Cook selection without rebuilding or republishing availability.
+See [Game deployment](../../Runtime/Application/GameDeployment.md#native-receipt-selection)
+for selection and publication. Other platforms/configurations do not gain receipt
+or export capabilities merely because they share the descriptor fields.
+
+The tool-host configure step also generates ExportBackend.json. The existing
+preset loader resolves inherited cache values and binaryDir; the generated Games
+records carry preset name, platform, project, configuration and exact receipt/
+artifact/dependency paths. The same records serve DevTool Cook/Stage and the
+published standalone export component. These are declared product sets, not
+completed-build evidence; missing/stale receipts still require a GameReceipt build.
+DHT registers Game roots using the Game variant even in an Editor tool build.
+The tool component follows link/dynamic edges plus explicitly declared Cook and
+Runtime project/plugin providers instead of traversing every shared-library target.
+
 ## Build Output Isolation
 
 Each worktree owns its `Build/`, `Binaries/`, and `Intermediate/` trees. Use

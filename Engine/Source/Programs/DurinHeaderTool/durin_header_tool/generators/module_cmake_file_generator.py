@@ -10,6 +10,20 @@ def _append_module_configs_to_cmake_content(content: list[str], module_name: str
     def _is_dependency_enabled(dep: str) -> bool:
         return configs.is_module_enabled_for_active_runtime_variant(dep)
 
+    content.append('set(module_dynamic_dependencies ' + ' '.join(module_config.active_dynamic_dependencies()) + ')\n')
+    content.append('set(module_runtime_files)\n')
+    for item in module_config.runtime_files:
+        source = (module_config.module_dir / item['Source']).resolve()
+        if not source.is_relative_to(module_config.module_dir.resolve()):
+            raise ValueError('RuntimeFiles Source escapes module: ' + str(source))
+        destination = item['Destination']
+        if Path(destination).is_absolute() or any(x in destination for x in ['..', '\\', ':', ';', '"', '\n', '\t']):
+            raise ValueError('Invalid RuntimeFiles destination: ' + destination)
+        fields = [source.as_posix(), destination, item['Kind'], item.get('License', ''), item.get('Provenance', '')]
+        if any(any(c in field for c in [';', '"', '\n', '\t']) for field in fields):
+            raise ValueError('Invalid RuntimeFiles field')
+        content.append('list(APPEND module_runtime_files "' + '|'.join(fields) + '")\n')
+
     if len(module_config.reflect_headers) > 0:
         reflect_header_file_paths = [f"${{module_dir}}/{Path(header).as_posix()}" for header in module_config.reflect_headers]
         content.append("# Reflect headers for this module\n")

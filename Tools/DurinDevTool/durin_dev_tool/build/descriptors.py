@@ -51,6 +51,8 @@ class ModuleDescriptor:
     public_dependencies: tuple[str, ...] = ()
     optional_private_dependencies: tuple[str, ...] = ()
     optional_public_dependencies: tuple[str, ...] = ()
+    dynamic_dependencies: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    runtime_files: tuple[Mapping[str, str], ...] = ()
     reflect_headers: tuple[str, ...] = ()
 
     @property
@@ -60,6 +62,7 @@ class ModuleDescriptor:
             + self.public_dependencies
             + self.optional_private_dependencies
             + self.optional_public_dependencies
+            + tuple(dict.fromkeys(dep for deps in self.dynamic_dependencies.values() for dep in deps))
         )
 
 
@@ -242,6 +245,8 @@ def load_module_descriptor(
         public_dependencies=dependencies["PublicDependencies"],
         optional_private_dependencies=dependencies["OptionalPrivateDependencies"],
         optional_public_dependencies=dependencies["OptionalPublicDependencies"],
+        dynamic_dependencies={k: tuple(v) for k,v in data.get("DynamicDependencies", {}).items()},
+        runtime_files=tuple(data.get("RuntimeFiles", [])),
         reflect_headers=_string_list(data, "ReflectHeaders", resolved),
     )
 

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cancel-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ProtocolVersion",
+    "Kind",
+    "RequestId"
+  ],
+  "properties": {
+    "ProtocolVersion": {
+      "const": 1
+    },
+    "Kind": {
+      "const": "cancel"
+    },
+    "RequestId": {
+      "$ref": "common-v1.schema.json#/$defs/identifier"
+    }
+  }
+}

@@ -228,6 +228,8 @@ def generate_vscode_launch_configuration(
             "stopAtEntry": False,
             "console": "integratedTerminal",
         }
+        if runtime_variant == "DurinGame":
+            launch["args"] = ["--source-game", "--engine-root=${workspaceFolder}/Engine", "--project=${workspaceFolder}/Sandbox/Sandbox.dproject"]
         if profile.host == "macos":
             launch["MIMode"] = "lldb"
         configurations.append(launch)

@@ -2,6 +2,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/CMake/EngineSetup.cmake)
 add_durin_project(Engine)
 
 if(DURIN_RUNTIME_VARIANT STREQUAL "DurinEditor")
+	add_subdirectory(Source/Programs/DurinExportTool)
 	add_subdirectory(Source/Programs/DurinAssetTool)
 	add_subdirectory(Source/Programs/DurinCacheTool)
 	add_executable(StudioCubeGenerate

@@ -17,6 +17,7 @@
 #include "DObject/AssetPath.h"
 #include "Misc/FileError.h"
 #include "Materials/MaterialCookConfiguration.h"
+#include "Plugins/PluginCook.h"
 
 namespace Durin
 {
@@ -202,6 +203,7 @@ namespace Durin
 		std::vector<FMaterialCookConfiguration> MaterialConfigurations;
         // Tool-hosted Cook binds plugin selection/configuration into the same transaction.
         bool bCapturePluginSnapshot = false;
+        std::optional<FGameCookTarget> TargetGame;
 	};
 
 

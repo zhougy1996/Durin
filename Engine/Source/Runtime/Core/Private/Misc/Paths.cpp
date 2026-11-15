@@ -1,4 +1,5 @@
 #include "Misc/Paths.h"
+#include "Misc/RuntimePaths.h"
 #include "Misc/MountPaths.h"
 #include "Misc/MountPathsInternal.h"
 #include "Misc/StringHelper.h"
@@ -290,7 +291,14 @@ namespace Durin
 				.ContentPath = "Content",
 				.bAutoScan = true,
 				.bContentWritable = true}};
-			if (FPaths::ProjectFile().empty()) return true;
+			if (const auto* Runtime=GetRuntimePathContext(); Runtime && Runtime->bStaged)
+            {
+                Definitions.front().Root=FPaths::EngineContentDir(); Definitions.front().ContentPath="."; Definitions.front().bContentWritable=false;
+                Definitions.push_back({.VirtualRoot="/Game/",.Owner=EMountOwner::ActiveProject,.Root=RuntimePathBinding("ProjectContent"),.ContentPath=".",.bAutoScan=true,.bContentWritable=false,.Dependencies={"/Engine/"}});
+                Definitions.insert(Definitions.end(),ProjectMountDefinitions.begin(),ProjectMountDefinitions.end());
+                return true;
+            }
+            if (FPaths::ProjectFile().empty()) return true;
 
 			const std::filesystem::path ProjectRoot =
 				std::filesystem::path(FPaths::ProjectFile()).parent_path();
@@ -503,7 +511,7 @@ namespace Durin
 		if (bRegistryPublished) return true;
 		std::vector<FMountPoint> Definitions;
 		if (!BuildDefaultMountDefinitions(Definitions, OutError)) return false;
-		if (!CookedRoot.empty())
+		if (!CookedRoot.empty() && (!GetRuntimePathContext() || !GetRuntimePathContext()->bStaged))
 		{
 			if (!CookedRoot.is_absolute())
 			{
@@ -550,6 +558,7 @@ namespace Durin
 
 	auto FPaths::LaunchSavedDir() -> std::string
 	{
+        if (auto Bound=RuntimePathBinding("Saved"); !Bound.empty()) return Bound;
 		static const std::string CachedSavedDir =
 			(std::filesystem::path(LaunchDir()) / "Saved").generic_string() + "/";
 		return CachedSavedDir;
@@ -571,6 +580,7 @@ namespace Durin
 
 	auto FPaths::RootDir() -> std::string
 	{
+        if (auto Bound=RuntimePathBinding("Root"); !Bound.empty()) return Bound;
 		static std::string CachedRootDir = []() -> std::string {
 			std::filesystem::path EnginePath{FPaths::EngineDir()};
 			if (EnginePath.filename().empty()) EnginePath = EnginePath.parent_path();
@@ -582,6 +592,7 @@ namespace Durin
 
 	auto FPaths::EngineDir() -> std::string
 	{
+        if (auto Bound=RuntimePathBinding("Engine"); !Bound.empty()) return Bound;
 		static std::string CachedEngineDir = []() -> std::string {
 			return FindEngineDirFromLaunchDir().generic_string() + "/";
 		}();
@@ -590,12 +601,14 @@ namespace Durin
 
 	auto FPaths::ProjectDir() -> std::string
 	{
+        if (auto Bound=RuntimePathBinding("Project"); !Bound.empty()) return Bound;
 		if (!ActiveProjectFile.empty()) return ActiveProjectFile.parent_path().generic_string() + "/";
 		return EngineDir();
 	}
 
 	auto FPaths::DerivedDataCacheDir() -> std::string
 	{
+        if (auto Bound=RuntimePathBinding("Cache"); !Bound.empty()) return Bound;
 		const std::filesystem::path Root = DerivedDataCacheOverride.empty()
 			? std::filesystem::path(ProjectDir()) / "DerivedDataCache"
 			: DerivedDataCacheOverride;
@@ -614,6 +627,7 @@ namespace Durin
 
 	auto FPaths::EngineContentDir() -> std::string
 	{
+        if (auto Bound=RuntimePathBinding("EngineContent"); !Bound.empty()) return Bound;
 		static std::string EngineContentDir = []() -> std::string {
 			return std::filesystem::path{EngineDir()}.append("Content/").generic_string();
 		}();
@@ -622,11 +636,13 @@ namespace Durin
 
 	auto FPaths::EngineBinariesDir() -> std::string
 	{
+        if (auto Bound=RuntimePathBinding("Binaries"); !Bound.empty()) return Bound;
 		return EngineDir() + "Binaries/";
 	}
 
 	auto FPaths::EngineThirdPartyRuntimeBinariesDir() -> std::string
 	{
+        if (auto Bound=RuntimePathBinding("ThirdParty"); !Bound.empty()) return Bound;
 		static std::string CachedThirdPartyDir = []() -> std::string {
 			const std::filesystem::path OutputRoot = FindOutputRootDirFromLaunchDir();
 			const std::filesystem::path ThirdPartyRoot =

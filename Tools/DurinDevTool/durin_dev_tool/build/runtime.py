@@ -374,6 +374,9 @@ def run_application(context: BuildContext, output: BuildOutput) -> None:
     arguments: list[str] = []
     if context.request.project_path is not None:
         arguments.append(f"--project={context.request.project_path}")
+    if preset_cache_string(context.preset, "DURIN_RUNTIME_VARIANT") == "DurinGame":
+        project = context.request.project_path or repository.root / "Sandbox/Sandbox.dproject"
+        arguments = [f"--project={(repository.root / project).resolve()}", "--source-game", f"--engine-root={repository.root / 'Engine'}"]
     arguments.extend(context.request.run_arguments)
     with output.stage("Run"):
         try:

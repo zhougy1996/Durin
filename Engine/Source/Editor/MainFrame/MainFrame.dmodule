@@ -3,6 +3,7 @@
     "LinkType": "Shared",
     "PCH": "SharedPCH_DurinEd",
     "PrivateDependencies": [
+        "GameExport",
         "AssetTools",
         "AssetMaintenance",
         "AssetRegistry",

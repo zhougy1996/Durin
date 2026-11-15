@@ -314,7 +314,7 @@ class TestIntermediateLayout:
         assert lock_paths[0] == utils.get_dht_project_lock_file_path("Engine")
         assert lock_paths[1:] == [
             utils.get_dht_module_lock_file_path(module_name)
-            for module_name in sorted(engine_config.modules)
+            for module_name in sorted(set(engine_config.modules) | {m.module_name for m in configs.module_config.MODULE_CONFIGS.values() if m.owning_project == "Engine"})
         ]
 
     def test_platform_and_runtime_variant_remain_independent_dimensions(self):
@@ -508,3 +508,29 @@ class TestIntermediateLayout:
         assert project_targets.count("--workers ${DURIN_DHT_WORKERS}") == 2
         assert "set(DURIN_DHT_LOG_LEVEL INFO CACHE STRING" in build_options
         assert project_targets.count("--log ${DURIN_DHT_LOG_LEVEL}") == 2
+
+
+def test_dynamic_runtime_metadata_does_not_add_link_dependencies(tmp_path, monkeypatch):
+    from durin_header_tool.config.module_config import DurinModuleConfig
+    descriptor=tmp_path/'Fixture.dmodule'
+    descriptor.write_text(json.dumps(dict(ModuleName='Fixture', DynamicDependencies={'All':['Renderer'],'Win64':['VulkanRHI']},
+        RuntimeFiles=[dict(Source='runtime.bin', Destination='Resources/runtime.bin', Kind='RuntimeData')])))
+    module=DurinModuleConfig.from_file(descriptor)
+    monkeypatch.setattr(configs, 'ARCH', 'Win64')
+    monkeypatch.setattr(configs, 'get_module_config', lambda _:module)
+    content=[]
+    module_cmake_file_generator._append_module_configs_to_cmake_content(content, 'Fixture')
+    text=''.join(content)
+    assert 'set(module_dynamic_dependencies Renderer VulkanRHI)' in text
+    assert 'Resources/runtime.bin|RuntimeData' in text
+    assert 'module_private_dependencies' not in text and 'module_public_dependencies' not in text
+
+
+def test_runtime_file_source_cannot_escape_its_module(tmp_path, monkeypatch):
+    from durin_header_tool.config.module_config import DurinModuleConfig
+    descriptor=tmp_path/'Fixture.dmodule'
+    descriptor.write_text(json.dumps(dict(ModuleName='Fixture', RuntimeFiles=[dict(Source='../outside', Destination='Resources/file', Kind='RuntimeData')])))
+    module=DurinModuleConfig.from_file(descriptor)
+    monkeypatch.setattr(configs, 'get_module_config', lambda _:module)
+    with pytest.raises(ValueError, match='escapes module'):
+        module_cmake_file_generator._append_module_configs_to_cmake_content([], 'Fixture')

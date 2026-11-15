@@ -1,6 +1,6 @@
 #include "Modules/ModuleManager.h"
 #include "Misc/UnifiedError.h"
-#include "Misc/Paths.h"
+#include "Misc/RuntimePaths.h"
 #include "Shader/ShaderCookedLibrary.h"
 #include "Asset/Load.h"
 #include "DObject/Class.h"
@@ -35,7 +35,7 @@ namespace Durin
                 const auto Found = std::ranges::find(Requests, "PluginFixtureProgram", &FShaderRuntimeRequest::Name);
                 if (Found == Requests.end()) throw std::runtime_error("Native plugin Shader is absent from runtime inventory");
                 FShaderCookedLibrary Library;
-                const auto Opened = FShaderCookedLibrary::Open(std::filesystem::path(FPaths::LaunchDir()) / ShaderCookedLibraryRelativePath,
+                const auto Opened = FShaderCookedLibrary::Open(std::filesystem::path(RuntimePathBinding("Cook")) / ShaderCookedLibraryRelativePath,
                     EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, Requests, Library);
                 if (!Opened) throw std::runtime_error(Opened.error());
                 FShaderCompilerOutput Program;
@@ -46,7 +46,7 @@ namespace Durin
                     FPackagePath Path;
                     if (!FPackagePath::TryCreate(Name, Path)) throw std::runtime_error("Invalid fixture path");
                     const auto Loaded = LoadPackage(Path, nullptr, &LoadedError);
-                    if (!Loaded) throw std::runtime_error((*LoadedError));
+                    if (!Loaded) throw std::runtime_error(LoadedError->ToString());
                     auto* Asset=Cast<PluginFixture::DFixtureAsset>(Loaded->FindTopLevelAsset(FName(Path.GetPackageName())));
                     if (!Asset || Asset->Value!=42) throw std::runtime_error("Cooked plugin asset behavior differs");
                     if (Path.GetView()=="/Game/PluginTypedAsset")

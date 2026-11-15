@@ -1,6 +1,8 @@
 #include "RuntimeStorage.h"
 
 #include "Misc/Paths.h"
+#include "Misc/RuntimePaths.h"
+#include "Misc/FileHelper.h"
 
 namespace Durin
 {
@@ -34,10 +36,25 @@ namespace Durin
 			std::vector<std::string>& Warnings) -> void
 		{
 			if (PathExists(AppConfigPath, Warnings)) return;
+            if (Paths.bUserOverridesOnly)
+            {
+                FByteBuffer Bytes;
+                if (Paths.LegacyUserConfig.empty()) { const std::string_view Empty="{}\n"; const auto View=std::as_bytes(std::span(Empty.data(),Empty.size())); Bytes.assign(View.begin(),View.end()); }
+                else
+                {
+                    auto Legacy=FFileHelper::LoadFileToArray(Paths.LegacyUserConfig,{.MaximumBytes=1024*1024});
+                    if (!Legacy) { Warnings.push_back("Cannot read explicit user config migration: "+Legacy.error().ToString()); return; }
+                    Bytes=std::move(*Legacy);
+                }
+                const auto Saved=FFileHelper::SaveArrayToNewFile(Bytes,AppConfigPath);
+                if (!Saved && Saved.error().NativeError!=std::errc::file_exists)
+                    Warnings.push_back("Could not create user-only overrides: "+Saved.error().ToString());
+                return;
+            }
 
 			std::error_code Error;
 			std::filesystem::copy_file(
-				Paths.AppConfigTemplatePath,
+				Paths.bUserOverridesOnly ? Paths.LegacyUserConfig : Paths.AppConfigTemplatePath,
 				AppConfigPath,
 				std::filesystem::copy_options::none,
 				Error);
@@ -60,6 +77,20 @@ namespace Durin
 	{
 		FRuntimeStoragePreparationResult Result;
 		Result.AppConfigPath = Paths.ConfigDirectory / InAppConfigFileName;
+        if (Paths.bUserOverridesOnly)
+        {
+            auto Saved=Paths.SavedDirectory.lexically_normal();
+            if (Saved.filename().empty()) Saved=Saved.parent_path();
+            const auto Root=std::filesystem::weakly_canonical(Saved.parent_path());
+            for (const auto& Candidate:{Paths.SavedDirectory,Paths.ConfigDirectory,Paths.LogDirectory,Paths.CacheDirectory})
+            {
+                if (Candidate.empty()) continue;
+                std::filesystem::path Resolved; std::error_code Error;
+                auto Normalized=Candidate.lexically_normal(); if (Normalized.filename().empty()) Normalized=Normalized.parent_path();
+                if (!FPaths::TryResolveContainedPath(Normalized,Root,Resolved,Error))
+                { Result.Warnings.push_back("User storage path escapes application data root: "+Candidate.string()); return Result; }
+            }
+        }
 		std::error_code Error;
 		std::filesystem::create_directories(Paths.SavedDirectory, Error);
 		if (Error)
@@ -86,6 +117,11 @@ namespace Durin
 		}
 
 		CreateAppConfigIfMissing(Paths, Result.AppConfigPath, Result.Warnings);
+        if (!Paths.CacheDirectory.empty())
+        {
+            Error.clear(); std::filesystem::create_directories(Paths.CacheDirectory,Error);
+            if (Error) AddFilesystemWarning(Result.Warnings,"create user cache directory",Paths.CacheDirectory,Error);
+        }
 		return Result;
 	}
 
@@ -95,8 +131,11 @@ namespace Durin
 			.SavedDirectory = FPaths::LaunchSavedDir(),
 			.ConfigDirectory = FPaths::LaunchConfigsDir(),
 			.LogDirectory = FPaths::LaunchLogsDir(),
-			.AppConfigTemplatePath = std::filesystem::path(FPaths::LaunchDir())
-				/ "Templates" / std::format("TP_{}", AppConfigFileName)},
+			.AppConfigTemplatePath = RuntimePathBinding("Defaults").empty() ? std::filesystem::path(FPaths::LaunchDir())
+				/ "Templates" / std::format("TP_{}", AppConfigFileName) : std::filesystem::path(RuntimePathBinding("Defaults")),
+            .bUserOverridesOnly = GetRuntimePathContext() && GetRuntimePathContext()->bStaged,
+            .LegacyUserConfig = RuntimePathBinding("LegacyUserConfig"),
+            .CacheDirectory = RuntimePathBinding("Cache")},
 			AppConfigFileName);
 	}
 }

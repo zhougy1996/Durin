@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "export-complete-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "SchemaVersion",
+    "RuntimeManifestSha256"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": 1
+    },
+    "RuntimeManifestSha256": {
+      "$ref": "common-v1.schema.json#/$defs/sha256"
+    },
+    "ArchiveSha256": {
+      "$ref": "common-v1.schema.json#/$defs/sha256"
+    }
+  }
+}

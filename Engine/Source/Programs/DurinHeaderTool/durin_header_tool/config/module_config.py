@@ -24,6 +24,8 @@ class DurinModuleConfig:
     public_dependencies: list[str] = field(default_factory=list)
     optional_private_dependencies: list[str] = field(default_factory=list)
     optional_public_dependencies: list[str] = field(default_factory=list)
+    dynamic_dependencies: dict[str, list[str]] = field(default_factory=dict)
+    runtime_files: list[dict] = field(default_factory=list)
     reflect_headers: list[str] = field(default_factory=list)
     api_macro: str = ""
 
@@ -47,12 +49,18 @@ class DurinModuleConfig:
             optional_public_dependencies=list(
                 raw_json_data.get("OptionalPublicDependencies", [])
             ),
+            dynamic_dependencies=raw_json_data.get("DynamicDependencies", {}),
+            runtime_files=raw_json_data.get("RuntimeFiles", []),
             reflect_headers=list(raw_json_data.get("ReflectHeaders", [])),
         )
         instance.config_file_path = module_config_file_path
         instance.module_dir = instance.config_file_path.parent
         return instance
     
+    def active_dynamic_dependencies(self):
+        from durin_header_tool import config as configs
+        return self.dynamic_dependencies.get("All", []) + self.dynamic_dependencies.get(configs.ARCH, [])
+
     def has_export_file(self) -> bool:
         return len(self.reflect_headers) > 0
     
@@ -126,7 +134,7 @@ def collect_enabled_modules_for_project(project_name: str, runtime_variant: str)
         if module_config.owning_project == project_name:
             enabled_modules.add(module_name)
 
-        for dep in module_config.private_dependencies + module_config.public_dependencies:
+        for dep in module_config.private_dependencies + module_config.public_dependencies + module_config.active_dynamic_dependencies():
             _visit(dep)
 
     plugin_roots = [m.module_name for m in MODULE_CONFIGS.values()

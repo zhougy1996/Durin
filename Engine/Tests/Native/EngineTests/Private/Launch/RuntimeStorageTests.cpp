@@ -102,3 +102,35 @@ TEST(FRuntimeStorageTests, FilesystemFailureDoesNotPoisonNextPreparation)
 	EXPECT_TRUE(Recovered.Warnings.empty());
 	EXPECT_EQ(ReadText(Recovered.AppConfigPath), "template");
 }
+
+TEST(FRuntimeUserStorageTests, NewOverridesDoNotSeedInheritedDefaultsAndKeepUserEdits)
+{
+    const auto Root=Durin::Testing::CreateTestFixtureDirectory("UserOverrides");
+    auto Paths=MakePaths(Root); Paths.bUserOverridesOnly=true; Paths.CacheDirectory=Root/"Launch/Cache";
+    Paths.SavedDirectory/=""; Paths.ConfigDirectory/=""; Paths.LogDirectory/="";
+    WriteText(Paths.AppConfigTemplatePath,"InheritedProjectValue: true\n");
+    auto Result=Durin::PrepareRuntimeStorage(Paths,"DurinGame.yaml"); ASSERT_TRUE(Result.Warnings.empty());
+    EXPECT_EQ(ReadText(Result.AppConfigPath),"{}\n"); EXPECT_TRUE(std::filesystem::is_directory(Paths.CacheDirectory));
+    WriteText(Result.AppConfigPath,"UserChoice: kept\n");
+    Result=Durin::PrepareRuntimeStorage(Paths,"DurinGame.yaml"); EXPECT_TRUE(Result.Warnings.empty());
+    EXPECT_EQ(ReadText(Result.AppConfigPath),"UserChoice: kept\n");
+}
+
+TEST(FRuntimeUserStorageTests, ExplicitMigrationCopiesOnlyAnAbsentDestination)
+{
+    const auto Root=Durin::Testing::CreateTestFixtureDirectory("MigrateOverrides"); auto Paths=MakePaths(Root);
+    Paths.bUserOverridesOnly=true; Paths.LegacyUserConfig=Root/"OldInstallation/Saved/Configs/DurinGame.yaml";
+    WriteText(Paths.LegacyUserConfig,"UserChoice: old\n");
+    auto Result=Durin::PrepareRuntimeStorage(Paths,"DurinGame.yaml"); ASSERT_TRUE(Result.Warnings.empty());
+    EXPECT_EQ(ReadText(Result.AppConfigPath),"UserChoice: old\n");
+    WriteText(Result.AppConfigPath,"UserChoice: new\n"); WriteText(Paths.LegacyUserConfig,"UserChoice: changed\n");
+    Result=Durin::PrepareRuntimeStorage(Paths,"DurinGame.yaml"); EXPECT_EQ(ReadText(Result.AppConfigPath),"UserChoice: new\n");
+}
+
+TEST(FRuntimeUserStorageTests, UnwritableRootHasNoInstallationFallback)
+{
+    const auto Root=Durin::Testing::CreateTestFixtureDirectory("BlockedUserStorage"); auto Paths=MakePaths(Root);
+    Paths.bUserOverridesOnly=true; WriteText(Paths.SavedDirectory,"occupied by a file");
+    const auto Result=Durin::PrepareRuntimeStorage(Paths,"DurinGame.yaml");
+    EXPECT_FALSE(Result.Warnings.empty()); EXPECT_FALSE(std::filesystem::exists(Result.AppConfigPath));
+}

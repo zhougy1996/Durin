@@ -1,0 +1,498 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "event-v1.schema.json",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ProtocolVersion",
+        "RequestId",
+        "Sequence",
+        "Kind",
+        "Phase",
+        "Completed",
+        "Total",
+        "Message"
+      ],
+      "properties": {
+        "ProtocolVersion": {
+          "const": 1
+        },
+        "RequestId": {
+          "$ref": "common-v1.schema.json#/$defs/identifier"
+        },
+        "Sequence": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "Kind": {
+          "const": "progress"
+        },
+        "Phase": {
+          "enum": [
+            "validate",
+            "build",
+            "cook",
+            "stage",
+            "verify",
+            "archive",
+            "publish",
+            "cleanup"
+          ]
+        },
+        "Completed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "Total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "Message": {
+          "$ref": "common-v1.schema.json#/$defs/text"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ProtocolVersion",
+        "RequestId",
+        "Sequence",
+        "Kind",
+        "Status",
+        "ExitCode",
+        "Category",
+        "Code",
+        "Message",
+        "PlanFingerprint",
+        "Output",
+        "ChildrenRetired"
+      ],
+      "properties": {
+        "ProtocolVersion": {
+          "const": 1
+        },
+        "RequestId": {
+          "$ref": "common-v1.schema.json#/$defs/identifier"
+        },
+        "Sequence": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "Kind": {
+          "const": "result"
+        },
+        "Status": {
+          "enum": [
+            "succeeded",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "ExitCode": {
+          "enum": [
+            0,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            70,
+            130
+          ]
+        },
+        "Category": {
+          "enum": [
+            "none",
+            "protocol",
+            "request",
+            "capability",
+            "prerequisite",
+            "identity",
+            "build",
+            "cook",
+            "stage",
+            "verify",
+            "archive",
+            "publication",
+            "internal",
+            "cancelled"
+          ]
+        },
+        "Code": {
+          "$ref": "common-v1.schema.json#/$defs/text"
+        },
+        "Message": {
+          "$ref": "common-v1.schema.json#/$defs/text"
+        },
+        "PlanFingerprint": {
+          "anyOf": [
+            {
+              "$ref": "common-v1.schema.json#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "Output": {
+          "anyOf": [
+            {
+              "$ref": "common-v1.schema.json#/$defs/text"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ChildrenRetired": {
+          "const": true
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "Status": {
+                "const": "succeeded"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "ExitCode": {
+                "const": 0
+              },
+              "Category": {
+                "const": "none"
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "Output": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "PlanFingerprint": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "else": {
+                  "properties": {
+                    "PlanFingerprint": {
+                      "$ref": "common-v1.schema.json#/$defs/sha256"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "Status": {
+                "const": "cancelled"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "ExitCode": {
+                "const": 130
+              },
+              "Category": {
+                "const": "cancelled"
+              },
+              "Output": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "Status": {
+                "const": "failed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "ExitCode": {
+                "enum": [
+                  2,
+                  3,
+                  4,
+                  5,
+                  6,
+                  7,
+                  8,
+                  9,
+                  10,
+                  11,
+                  70
+                ]
+              },
+              "Category": {
+                "enum": [
+                  "protocol",
+                  "request",
+                  "capability",
+                  "prerequisite",
+                  "identity",
+                  "build",
+                  "cook",
+                  "stage",
+                  "verify",
+                  "archive",
+                  "publication",
+                  "internal"
+                ]
+              },
+              "Output": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "Category": {
+                "const": "protocol"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "ExitCode": {
+                "const": 2
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "Category": {
+                "const": "request"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "ExitCode": {
+                "const": 2
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "Category": {
+                "const": "capability"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "ExitCode": {
+                "const": 3
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "Category": {
+                "const": "prerequisite"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "ExitCode": {
+                "const": 4
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "Category": {
+                "const": "identity"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "ExitCode": {
+                "const": 5
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "Category": {
+                "const": "build"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "ExitCode": {
+                "const": 6
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "Category": {
+                "const": "cook"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "ExitCode": {
+                "const": 7
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "Category": {
+                "const": "stage"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "ExitCode": {
+                "const": 8
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "Category": {
+                "const": "verify"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "ExitCode": {
+                "const": 9
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "Category": {
+                "const": "archive"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "ExitCode": {
+                "const": 10
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "Category": {
+                "const": "publication"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "ExitCode": {
+                "const": 11
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "Category": {
+                "const": "internal"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "ExitCode": {
+                "const": 70
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ProtocolVersion",
+        "RequestId",
+        "Sequence",
+        "Kind",
+        "ChildrenRetired"
+      ],
+      "properties": {
+        "ProtocolVersion": {
+          "const": 1
+        },
+        "RequestId": {
+          "$ref": "common-v1.schema.json#/$defs/identifier"
+        },
+        "Sequence": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "Kind": {
+          "const": "cancelAcknowledged"
+        },
+        "ChildrenRetired": {
+          "const": true
+        }
+      }
+    }
+  ]
+}

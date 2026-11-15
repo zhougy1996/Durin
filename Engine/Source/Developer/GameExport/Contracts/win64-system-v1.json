@@ -1,0 +1,66 @@
+{
+  "SchemaVersion": 1,
+  "Policy": "win64-system-v1",
+  "Platform": "Win64",
+  "Architecture": "x64",
+  "MinimumWindowsVersion": "10.0.19041",
+  "DeviceFamily": "Desktop",
+  "SystemLibraries": [
+    "advapi32.dll",
+    "bcrypt.dll",
+    "dbghelp.dll",
+    "dwmapi.dll",
+    "gdi32.dll",
+    "kernel32.dll",
+    "ole32.dll",
+    "secur32.dll",
+    "shell32.dll",
+    "ucrtbase.dll",
+    "user32.dll",
+    "ws2_32.dll"
+  ],
+  "ApiSetContracts": [
+    "api-ms-win-crt-convert-l1-1-0.dll",
+    "api-ms-win-crt-environment-l1-1-0.dll",
+    "api-ms-win-crt-filesystem-l1-1-0.dll",
+    "api-ms-win-crt-heap-l1-1-0.dll",
+    "api-ms-win-crt-locale-l1-1-0.dll",
+    "api-ms-win-crt-math-l1-1-0.dll",
+    "api-ms-win-crt-runtime-l1-1-0.dll",
+    "api-ms-win-crt-stdio-l1-1-0.dll",
+    "api-ms-win-crt-string-l1-1-0.dll",
+    "api-ms-win-crt-time-l1-1-0.dll",
+    "api-ms-win-crt-utility-l1-1-0.dll"
+  ],
+  "ReleaseCRTLibraries": [
+    "msvcp140.dll",
+    "msvcp140_atomic_wait.dll",
+    "vcruntime140.dll",
+    "vcruntime140_1.dll"
+  ],
+  "ExternalPrerequisites": [
+    {
+      "Library": "vulkan-1.dll",
+      "Provider": "Vulkan-capable display driver and Vulkan runtime",
+      "MinimumVersion": "1.1",
+      "Provenance": "VulkanRHI device admission requires Vulkan 1.1",
+      "License": "Provided by the installed display driver/runtime; no DLL redistribution"
+    }
+  ],
+  "UnknownImport": "reject-unless-declared-file-or-prerequisite",
+  "SystemDirectoryProbeAuthorizesImport": false,
+  "ApiSetPrefixAuthorizesImport": false,
+  "Provenance": [
+    "https://learn.microsoft.com/en-us/windows/win32/apiindex/windows-apisets",
+    "https://learn.microsoft.com/en-us/windows/win32/apiindex/detect-api-set-availability",
+    "https://learn.microsoft.com/en-us/cpp/windows/universal-crt-deployment",
+    "https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files"
+  ],
+  "DebugCRTLibraries": [
+    "ucrtbased.dll",
+    "vcruntime140d.dll",
+    "vcruntime140_1d.dll",
+    "msvcp140d.dll",
+    "msvcp140d_atomic_wait.dll"
+  ]
+}

@@ -106,3 +106,9 @@ set_target_properties(TracyClient PROPERTIES
 	RUNTIME_OUTPUT_DIRECTORY
 		"${DURIN_WORKSPACE_DIR}/Engine/Binaries/${DURIN_TARGET_PLATFORM}/${DURIN_OUTPUT_CONFIG}/Runtime/${DURIN_RUNTIME_VARIANT}"
 )
+
+# Runtime redistribution metadata is owned by the package integration.
+set_target_properties(TracyClient PROPERTIES
+    DURIN_DEPLOY_LICENSE "BSD-3-Clause"
+    DURIN_DEPLOY_PROVENANCE "Pinned Tracy source under Engine/External/Source/tracy"
+    DURIN_DECLARED_RUNTIME_FILES "${_durin_tracy_source_dir}/LICENSE|Licenses/Tracy.txt|License|BSD-3-Clause|Pinned Tracy source")

@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "source-stage-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "SchemaVersion",
+    "Kind"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": 1
+    },
+    "Kind": {
+      "enum": [
+        "source-stage",
+        "prebuilt-stage"
+      ]
+    },
+    "Games": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "Name",
+          "Configuration",
+          "TargetReceipt",
+          "ArtifactsRoot",
+          "DependenciesRoot"
+        ],
+        "properties": {
+          "Name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "Configuration": {
+            "enum": [
+              "Debug",
+              "Release"
+            ]
+          },
+          "TargetReceipt": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ArtifactsRoot": {
+            "type": "string",
+            "minLength": 1
+          },
+          "DependenciesRoot": {
+            "type": "string",
+            "minLength": 1
+          },
+          "Project": {
+            "type": "string",
+            "minLength": 1
+          },
+          "Platform": {
+            "enum": [
+              "Win64",
+              "MacOS"
+            ]
+          }
+        }
+      },
+      "minItems": 1,
+      "maxItems": 64
+    },
+    "SelectedPreset": {
+      "type": "string"
+    },
+    "TargetReceipt": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ArtifactsRoot": {
+      "type": "string",
+      "minLength": 1
+    },
+    "DependenciesRoot": {
+      "type": "string",
+      "minLength": 1
+    },
+    "Component": {
+      "type": "string",
+      "minLength": 1
+    },
+    "AssetTool": {
+      "type": "string",
+      "minLength": 1
+    },
+    "CMake": {
+      "type": "string",
+      "minLength": 1
+    },
+    "WorkingDirectory": {
+      "type": "string",
+      "minLength": 1
+    },
+    "PolicyFile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ProjectProductsRoot": {
+      "type": "string",
+      "minLength": 1
+    },
+    "CookDirectory": {
+      "type": "string",
+      "minLength": 1
+    },
+    "Environment": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "required": [
+        "TargetReceipt",
+        "ArtifactsRoot",
+        "DependenciesRoot"
+      ],
+      "not": {
+        "required": [
+          "Games"
+        ]
+      }
+    },
+    {
+      "required": [
+        "Games"
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "TargetReceipt"
+            ]
+          },
+          {
+            "required": [
+              "ArtifactsRoot"
+            ]
+          },
+          {
+            "required": [
+              "DependenciesRoot"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

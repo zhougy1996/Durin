@@ -205,6 +205,26 @@ function(durin_report_target_dependency_expression_audit)
 	endforeach()
 endfunction()
 
+# Resolve concrete direct links once for closure traversal and receipt generation.
+function(durin_get_target_link_dependencies out_var target)
+	get_target_property(_durin_private_links
+		"${target}" LINK_LIBRARIES)
+	get_target_property(_durin_public_links
+		"${target}" INTERFACE_LINK_LIBRARIES)
+	set(_durin_direct_dependencies)
+	foreach(_durin_link IN LISTS _durin_private_links _durin_public_links)
+		durin_resolve_target_link_item(
+		_durin_resolved_links
+		"${target}"
+		"${_durin_link}"
+		)
+		list(APPEND _durin_direct_dependencies ${_durin_resolved_links})
+	endforeach()
+	list(REMOVE_DUPLICATES _durin_direct_dependencies)
+	list(SORT _durin_direct_dependencies)
+    set(${out_var} "${_durin_direct_dependencies}" PARENT_SCOPE)
+endfunction()
+
 function(durin_collect_target_dependency_closure out_var)
 	if(NOT ARGN)
 		message(FATAL_ERROR "Target dependency closure requires at least one root.")
@@ -231,21 +251,7 @@ function(durin_collect_target_dependency_closure out_var)
 		endif()
 		list(APPEND _durin_visited_dependencies "${_durin_dependency}")
 
-		get_target_property(_durin_private_links
-			"${_durin_dependency}" LINK_LIBRARIES)
-		get_target_property(_durin_public_links
-			"${_durin_dependency}" INTERFACE_LINK_LIBRARIES)
-		set(_durin_direct_dependencies)
-		foreach(_durin_link IN LISTS _durin_private_links _durin_public_links)
-			durin_resolve_target_link_item(
-				_durin_resolved_links
-				"${_durin_dependency}"
-				"${_durin_link}"
-			)
-			list(APPEND _durin_direct_dependencies ${_durin_resolved_links})
-		endforeach()
-		list(REMOVE_DUPLICATES _durin_direct_dependencies)
-		list(SORT _durin_direct_dependencies)
+		durin_get_target_link_dependencies(_durin_direct_dependencies "${_durin_dependency}")
 		list(APPEND _durin_dependency_queue ${_durin_direct_dependencies})
 	endwhile()
 

@@ -63,6 +63,9 @@ requires; do not read unrelated topics or scan an entire directory.
 | Sky Light sources, procedural capture, Studio migration, or GPU environment filtering | [Sky lighting](Runtime/Rendering/Features/SkyLighting.md) |
 | Volume texture source, build, payload, cook, or GPU resource contract | [Volume textures](Runtime/Assets/Families/VolumeTextures.md) |
 | Runtime startup, shutdown, or frame lifecycle | [Runtime lifecycle](Runtime/Application/RuntimeLifecycle.md) |
+| Source Game launch, Runtime.json deployment paths, or native export preview/stage | [Game deployment](Runtime/Application/GameDeployment.md) |
+| Game export orchestration, completion markers, tool components, or Editor/DevTool export clients | [Game export](Runtime/Application/GameExport.md) |
+| Export a Game from the direct tool, DevTool, or Editor; use and retry a delivery | [Exporting a Game](Editor/Guides/ExportingGames.md) |
 | Async asset build completion, editor commit, rollback, or compensation | [Async asset operations](Editor/Architecture/Assets/AsyncAssetOperations.md) |
 | Log ordering, queue admission, structured history, sinks, or logger shutdown | [Logging](Runtime/Core/Logging.md) |
 | Engine-free package saves, async completion, or staged package persistence | [Package persistence](Runtime/ObjectSystem/PackagePersistence.md) |

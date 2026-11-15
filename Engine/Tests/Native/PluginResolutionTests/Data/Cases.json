@@ -35,7 +35,7 @@
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
         "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
-        "Game/Plugins/Water/Water.dplugin": "{\"Content\":\"Content\",\"Dependencies\":[],\"DisplayName\":\"\u59d8\u7fe0\u7d8b\",\"Id\":\"Water\",\"Modules\":[],\"SchemaVersion\":1}",
+        "Game/Plugins/Water/Water.dplugin": "{\"Content\":\"Content\",\"Dependencies\":[],\"DisplayName\":\"姘翠綋\",\"Id\":\"Water\",\"Modules\":[],\"SchemaVersion\":1}",
         "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}"
       },
       "Variant": "DurinEditor",
@@ -793,6 +793,20 @@
       },
       "Variant": "DurinEditor",
       "Error": "Cannot disable project-required plugin"
+    },
+    {
+      "Name": "DynamicRuntimeBacklink",
+      "Variant": "DurinGame",
+      "Files": {
+        "Engine/Engine.dproject": "{\"BaseModules\":[],\"ProjectName\":\"Engine\"}",
+        "Game/Game.dproject": "{\"BaseModules\":[\"Host\"],\"ModuleDirs\":{\"Dynamic\":\"Source/Dynamic\",\"Host\":\"Source/Host\"},\"ProjectName\":\"Game\"}",
+        "Game/Configs/Plugins.json": "{\"Plugins\":{\"Water\":true}}",
+        "Game/Source/Host/Host.dmodule": "{\"DynamicDependencies\":{\"Win64\":[\"Dynamic\"]},\"ModuleName\":\"Host\"}",
+        "Game/Source/Dynamic/Dynamic.dmodule": "{\"ModuleName\":\"Dynamic\",\"PrivateDependencies\":[\"Host\"]}",
+        "Game/Plugins/Water/Water.dplugin": "{\"Id\":\"Water\",\"Modules\":[{\"Name\":\"Water\",\"Path\":\"Source\"}],\"SchemaVersion\":1}",
+        "Game/Plugins/Water/Source/Water.dmodule": "{\"ModuleName\":\"Water\",\"PrivateDependencies\":[\"Host\"]}"
+      },
+      "Manifest": "{\"Fingerprint\":\"5eba995c273df2aa\",\"Inputs\":[{\"Hash\":\"765fb9c2862ef4b6\",\"Path\":\"Plugin/Water\"},{\"Hash\":\"2cf42f2e8fae84ad\",\"Path\":\"Plugin/Water/Water\"},{\"Hash\":\"fec416c7d6b7526b\",\"Path\":\"Project/Engine\"},{\"Hash\":\"c60da5aa5e77c3af\",\"Path\":\"Project/Game\"},{\"Hash\":\"8522190c29fab16b\",\"Path\":\"Project/Game/Dynamic\"},{\"Hash\":\"94f6448f427b661d\",\"Path\":\"Project/Game/Host\"},{\"Hash\":\"1fe5c255e5f1f4c2\",\"Path\":\"Startup/Game\"}],\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"Water\",\"Owner\":\"Water\",\"Phase\":\"Providers\"}],\"Platform\":\"Win64\",\"Plugins\":[{\"Id\":\"Water\",\"Reasons\":[\"Explicit\"]}],\"RuntimeVariant\":\"DurinGame\",\"SchemaVersion\":1}"
     }
   ]
 }

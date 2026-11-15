@@ -199,6 +199,7 @@ class TestVSCodeConfigLifecycle:
                 'type': 'cppdbg',
                 'request': 'launch',
                 'program': '${workspaceFolder}/Engine/Binaries/MacOS/Debug/Runtime/DurinGame/DurinGame',
+                'args': ['--source-game', '--engine-root=${workspaceFolder}/Engine', '--project=${workspaceFolder}/Sandbox/Sandbox.dproject'],
                 'cwd': '${workspaceFolder}',
                 'stopAtEntry': False,
                 'console': 'integratedTerminal',

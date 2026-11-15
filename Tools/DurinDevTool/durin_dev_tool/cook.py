@@ -8,6 +8,8 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence, TextIO
 
+from .build.selection import preset_cache_string
+from .game_targets import read_backend, select_game
 from .build.errors import BuildToolError
 from .build.models import OutputMode
 from .build.output import BuildOutput
@@ -108,12 +110,21 @@ def run(
     project = resolve_project(repository, Path(project_value))
     output_value = Path(namespace.output_path)
     output = (output_value if output_value.is_absolute() else repository_root / output_value).resolve()
+    target_receipt = getattr(namespace, "target_receipt", None)
+    if target_receipt is None:
+        configuration = getattr(namespace, "configuration", None) or preset_cache_string(selection.preset, "CMAKE_BUILD_TYPE")
+        backend_path, backend = read_backend(selection)
+        game = select_game(backend, project=project, platform=target, configuration=configuration,
+                           allowed=selection.profile.presets)
+        target_receipt = backend_path.parent / game["TargetReceipt"]
+    target_receipt = (repository.root / target_receipt).resolve()
     arguments = [
         "cook",
         f"--project={project}",
         f"--output={output}",
         f"--target={target}",
         "--profile=game",
+        f"--target-receipt={target_receipt}",
         "--json",
     ]
     arguments.extend(f"--root={root}" for root in namespace.roots)

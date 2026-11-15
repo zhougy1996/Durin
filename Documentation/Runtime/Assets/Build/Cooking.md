@@ -2,7 +2,7 @@
 
 Summary: Define offline Cook inputs, dependency reuse, typed failures, and transactional output publication.
 
-Last reviewed: 2026-11-13
+Last reviewed: 2026-11-15
 
 ## Coordinator and input ownership
 
@@ -44,8 +44,8 @@ reverse-order rollback; it is never published beside the Cook transaction.
 
 Tool-hosted Game Cook also captures the effective Game plugin selection, target,
 mount permissions and runtime defaults before discovery. Its detached
-`PluginCook.json` is a `PluginSnapshot` CMNF auxiliary output in that same
-transaction. Plugin assets follow ordinary retained references and Primary Asset
+full `ExportEvidence.json` and reduced `RuntimeCook.json` are PluginSnapshot CMNF
+auxiliary outputs in that same transaction. Plugin assets follow ordinary retained references and Primary Asset
 policy; there is no additional plugin root list. Native plugin programs join the
 existing runtime Shader inventory and project library, even without retained
 material assets. The tool publishes this library even for an empty asset set.
@@ -53,6 +53,38 @@ Cook preflight registry failures preserve the JSON report contract and include
 registry errors and checked-but-blocked plugin dependency reasons.
 The [deployment contract](../../../Workspace/Plugins.md#cooked-game-deployment)
 owns native/configuration staging and detached startup admission.
+
+Tool-hosted Game Cook accepts an explicit completed Game receipt. Projects decodes
+its target identity into FGameCookTarget; FCookRequest owns a copied optional target
+value, required when capturing deployment snapshots. Platform/architecture, project,
+engine version, compiler ABI and the build-generated CookCompatibility contract
+must match the host. Game configuration is independent: a Debug Editor host can
+produce a Release Game Cook without loading Release Game DLLs. Host build/config/
+variant are external evidence only; target configuration, GameBuild and exact
+TargetReceiptSha256 bind the committed runtime snapshot and later native admission.
+
+CookCompatibility is a conservative, configuration-independent source contract for
+runtime/provider C++ and headers, plugin declarations, and DHT/schema inputs across
+the workspace. Projects embeds the configure-time digest; receipts carry the same
+value. Debug/Release and Editor/Game feature differences do not enter this digest;
+existing field-retention and family schema rules still own serialization. Native
+ABI, platform and engine checks remain separate. This is not a general binary ABI
+promise or a replacement for family provider versions/DDC keys. Changes outside
+this source contract still follow their existing input/version declarations.
+
+Optional Game.DefaultData names an exact top-level DPrimaryDataAsset. The existing
+project settings reader captures its scalar value independently of mount admission;
+Cook resolves the path and expected asset type after catalog admission and adds
+its package as a required root. Ordinary reflected references retain its dependency
+closure. Missing objects, wrong types and required-root/NeverCook conflicts fail
+before publication. Project configuration capture and ordinary package input hashes
+cover changes to the entry and its references.
+
+Sandbox declares /Game/Gameplay/PlayerPawnDefaults.PlayerPawnDefaults in that entry.
+Its DPlayerPawnDefaults.Mesh is a serialized hard reference to GrayboxPawn; PlayerPawn
+loads this same typed defaults asset at BeginPlay and applies Mesh to its visual
+component. The project asset is the sole mesh identity. There is no separate pawn
+Cook root, custom Sandbox AssetManager or CDO-wide dependency scan.
 
 ShaderBuild accepts `FShaderCompileOptions::SourceArtifacts` for a fixed input
 session. `FShaderSourceArtifacts` copies caller buffers and exposes only const
@@ -516,3 +548,4 @@ manifest be removed; unowned files are never cleanup candidates.
 
 - [Asset data lifecycle](../Packages/AssetDataLifecycle.md)
 - [Cook command workflow](../../../Development/Tooling/DurinDevTool.md#project-cook)
+- [Game export workflow](../../../Editor/Guides/ExportingGames.md)

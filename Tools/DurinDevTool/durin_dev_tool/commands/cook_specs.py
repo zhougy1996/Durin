@@ -30,6 +30,8 @@ COMMAND_SPEC = CommandSpec(
             required=True,
             help="absolute or repository-relative Cook output root",
         ),
+        argument("--configuration", choices=("Debug", "Release"), default=None, help="target Game configuration, independent of Cook host"),
+        argument("--target-receipt", type=Path, default=None, help="explicit completed Game receipt"),
         argument("--target", choices=("win64", "macos"), default=None, help="Cook platform (default: selected build profile's platform)"),
         argument(
             "--root",

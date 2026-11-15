@@ -1,0 +1,44 @@
+{
+  "SchemaVersion": 1,
+  "Name": "DurinExportTool",
+  "ProtocolVersion": 1,
+  "EngineBuild": "fixture-engine",
+  "Platform": "Win64",
+  "Architecture": "x64",
+  "ToolchainABI": "fixture-msvc-x64-md",
+  "Worker": "Tools/Binaries/Win64/DurinExportTool.exe",
+  "Capabilities": [
+    "preview",
+    "stage-prebuilt",
+    "export-prebuilt",
+    "cook",
+    "verify"
+  ],
+  "Files": [
+    {
+      "Path": "Tools/Binaries/Win64/DurinExportTool.exe",
+      "Sha256": "87eba76e7f3164534045ba922e7770fb58bbd14ad732bbf5ba6f11cc56989e6e"
+    },
+    {
+      "Path": "Tools/Contracts/request-v1.schema.json",
+      "Sha256": "4cd414ba4a543b6a236ca257388887ee2ca27681e701877adba1398fe8af85b4"
+    },
+    {
+      "Path": "Tools/Providers/providers.json",
+      "Sha256": "2a611b96b589510aefd0e6943ab3f75c963d0ccbe6fc04fe84a62df0ee16c7c0"
+    },
+    {
+      "Path": "Tools/Backends/prebuilt.json",
+      "Sha256": "bda315b58b4a73b8701aa172b05bc83370d78675d310512beb25b4ddccc6d930"
+    }
+  ],
+  "Schemas": [
+    "Tools/Contracts/request-v1.schema.json"
+  ],
+  "ProviderMetadata": [
+    "Tools/Providers/providers.json"
+  ],
+  "BackendMetadata": "Tools/Backends/prebuilt.json",
+  "EngineRoot": "Metadata/Engine",
+  "DefaultBackend": "prebuilt"
+}

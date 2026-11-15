@@ -4,7 +4,7 @@ Summary: Define plugin descriptors, project dependencies, startup choices, sourc
 
 Modules: Projects, Core, Engine, ShaderBuild, MainFrame
 
-Last reviewed: 2026-11-13
+Last reviewed: 2026-11-14
 
 ## Implemented Boundary
 
@@ -258,9 +258,10 @@ partial StartupModule failures call the module's own cleanup once.
 Browser admission uses the build-generated ordinary module list and starts no
 project plugins. Opening a project uses the existing unsaved-work/relaunch path;
 LoadProjectFile and ClearCurrentProject cannot replace a frozen admission.
-Staged Games use `PluginRuntime.json` beside the executable instead of this
-source-admission path. Legacy no-plugin layouts retain ordinary startup through
-the generated list; a cooked snapshot without its runtime inventory is rejected.
+New staged Games use deployment-root `Runtime.json` v2 instead of this
+source-admission path. Missing/invalid staged manifests fail without source
+fallback. Existing old exports retain their own binaries and behavior. See
+[Game bootstrap](../Runtime/Application/GameDeployment.md#startup-modes).
 
 ## Source Build Integration
 
@@ -303,6 +304,15 @@ binary SHA-256; ToolchainABI records compiler ID/version and pointer size.
 Platform, architecture, configuration, runtime variant, and descriptor build
 inputs are explicit. Publication is a build artifact operation, without startup
 loading, content cooking, or a binary compatibility guarantee.
+
+`<Project>GameReceipt` records the completed ordinary/native availability closure,
+including dynamic modules, runtime data, catalog input fingerprints and plugin
+binary/phase bindings. Source admission retains PluginBuild; export exclusively
+uses the completed target receipt and does not consume copied inventory DLLs. Startup-only selection changes preserve both build
+inventories; GameExport projects the available receipt to the selected Runtime
+plugin closure. Native membership and runtime files come from declarations, while
+PE imports verify completeness. See
+[build declarations and receipts](../Development/Build/BuildSystem.md#game-deployment-declarations-and-completed-receipts).
 
 The repository-owned [fixture](../../Engine/Tests/Fixtures/Plugins/README.md)
 qualifies a reflected asset, a dependent plugin subclass, an Editor companion,
@@ -364,10 +374,20 @@ bytes and publish no resident package; ordinary saves enforce read-only mounts.
 
 `DurinAssetTool cook` resolves the effective Game selection for its target before
 discovery and requires the admitted tool host to own the same plugin closure.
-The version 1 `PluginCook.json` snapshot captures that selection, mount permissions,
-project descriptor, startup configuration, target/ABI identity, Engine Game template and merged Project/
-Game defaults. It is an auxiliary output in the existing Cook transaction and
-is bound by `CookManifest.bin`; asset entries remain solely in that manifest.
+The explicit Game receipt fixes target configuration/build independently of the
+host. A configuration-independent CookCompatibility source contract, native ABI
+and existing family schema/version checks admit compatible host providers; target
+Game DLLs are never loaded into the host. Host build/configuration remain external
+evidence, while the runtime snapshot binds GameBuild and TargetReceiptSha256.
+The full version 1 `ExportEvidence.json` captures that selection, mount permissions,
+project descriptor, startup configuration, target/ABI identity, Engine Game template
+and merged Project/Game defaults. The same Cook transaction also commits reduced
+version 2 `RuntimeCook.json`, containing runtime identity, minimal selection, mount
+permissions and configuration hashes. Both use existing auxiliary outputs bound by
+`CookManifest.bin`; asset entries remain solely in that manifest. Delivery excludes
+full evidence and its manifest record while retaining all asset records unchanged.
+Full evidence remains outside the runnable tree; see
+[Game deployment](../Runtime/Application/GameDeployment.md#delivery-layout-and-writable-storage).
 The available native build inventory stays a superset of the selected closure.
 
 Plugins use ordinary Cook reachability and AssetManager policy. Enabling a plugin
@@ -378,7 +398,8 @@ publishes them in the project `Shaders/ShaderLibrary.dslb`, including programs
 with no material references. Game runs Providers after object/asset-domain setup
 and before the first rendering consumer freezes that inventory.
 
-DevTool `stage` requires an explicit Cook generation and a compatible existing
+The engine GameExport service, hosted by DurinExportTool and dispatched by
+DevTool `stage`, requires an explicit Cook generation and compatible existing
 Game build. It checks frozen selection/descriptor inputs and target identity,
 then copies retained Cook outputs, effective runtime configuration, ordinary
 project roots and the selected Runtime/native dependency closure into a temporary
@@ -387,20 +408,21 @@ only deployed files and Windows system libraries satisfy imports. Source PATH
 searches, Editor binaries, developer Saved settings and authored shaders are
 excluded. Selection-only changes reuse compatible builds but require a fresh Cook.
 
-The version 1 `PluginRuntime.json` uses deployment-relative paths and records
+The version 2 `Runtime.json` uses deployment-relative paths and records
 target/build identity, ordered Runtime modules, dependencies, mount bindings,
 required configuration and hashes of the required native/configuration/Cook
-inventory files. Startup validates these before publishing admission, checks
+inventory files. Core initializes generic startup paths before cached consumers;
+Projects admits a detached project view without a deployed `.dproject` or workspace.
+Startup validates these before publishing admission, checks
 selection/configuration/mount bindings against the Cook snapshot, and preserves
-the existing runtime Saved user-override policy. It scans no source `.dplugin`
+the per-user LocalAppData override policy. It scans no source `.dplugin`
 descriptors and needs no workspace, compiler or development Shader cache.
 
-Stage holds one output-writer lock and replaces the whole runtime directory.
-Failure before replacement preserves the previous generation; replacement failure
-restores it. If filesystem locks also prevent rollback, Stage preserves the
-backup and reports its exact recovery path. No failed publication combines files
-from different generations. Neither staging nor startup implicitly builds or
-cooks. The current native staging implementation accepts Win64 only.
+Stage exclusively creates a fresh runtime directory and writes ExportComplete.json
+last after validation. Existing directories are rejected; failed/cancelled work
+remains unmarked and retry uses a new path. There is no replacement or rollback.
+Neither staging nor startup implicitly builds or cooks. The current native staging
+implementation accepts Win64 only.
 
 ## Editor Plugin Management
 

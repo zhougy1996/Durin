@@ -2,3 +2,7 @@ Game:
   DefaultLevel: /Game/Levels/GrayboxStage15
   NativeModule: Sandbox
   GameModeClass: Durin::Sandbox::ADefaultGameMode
+  DefaultData: /Game/Gameplay/PlayerPawnDefaults.PlayerPawnDefaults
+
+Export:
+  ApplicationId: org.durin.Sandbox

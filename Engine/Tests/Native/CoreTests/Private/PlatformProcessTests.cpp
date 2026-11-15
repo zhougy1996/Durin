@@ -60,6 +60,46 @@ namespace Durin
 		};
 	}
 
+#if defined(_WIN32)
+    TEST_F(FPlatformProcessTests, ControlledExecutionStreamsInputAndOutput)
+    {
+        auto Launch=Options(); Launch.EnvironmentOverrides["DURIN_PROCESS_PROBE_PIPE"]="1";
+        std::string Output; FProcessExecutionControl Control;
+        Control.StandardInput="owned execution\n"; Control.OnOutput=[&](std::string_view S){Output+=S;};
+        const auto Result=FPlatformProcess::ExecuteControlledProcess(Executable,Launch,Control);
+        ASSERT_TRUE(Result); EXPECT_EQ(*Result,0); EXPECT_EQ(Output,"owned execution\r\n");
+    }
+    TEST_F(FPlatformProcessTests, ControlledPipesProgressTogetherBeyondKernelBufferSize)
+    {
+        auto Launch=Options(); Launch.EnvironmentOverrides["DURIN_PROCESS_PROBE_PIPE"]="1"; Launch.EnvironmentOverrides["DURIN_PROCESS_PROBE_CHATTER"]="1";
+        std::string Output; FProcessExecutionControl Control;
+        Control.StandardInput=std::string(200000,'x')+"\n"; Control.OnOutput=[&](std::string_view S){Output+=S;};
+        const auto Result=FPlatformProcess::ExecuteControlledProcess(Executable,Launch,Control);
+        ASSERT_TRUE(Result); EXPECT_EQ(*Result,0); EXPECT_EQ(Output,std::string(200000,'c')+std::string(200000,'x')+"\r\n");
+    }
+    TEST_F(FPlatformProcessTests, CallbackFailureRetiresChildAndUnblocksInputWriter)
+    {
+        auto Launch=Options(); Launch.EnvironmentOverrides["DURIN_PROCESS_PROBE_PIPE"]="1"; Launch.EnvironmentOverrides["DURIN_PROCESS_PROBE_CHATTER"]="1";
+        FProcessExecutionControl Control; Control.StandardInput=std::string(200000,'x')+"\n";
+        Control.OnOutput=[](std::string_view){throw std::runtime_error("output rejected");};
+        EXPECT_THROW(FPlatformProcess::ExecuteControlledProcess(Executable,Launch,Control),std::runtime_error);
+        EXPECT_FALSE(std::filesystem::exists(std::filesystem::path(ReportPath).concat(".finished")));
+    }
+    TEST_F(FPlatformProcessTests, ControlledCancellationRetiresDescendants)
+    {
+        auto Launch=Options(); Launch.EnvironmentOverrides["DURIN_PROCESS_PROBE_RELEASE"]=Utf8Path(ReleasePath);
+        Launch.EnvironmentOverrides["DURIN_PROCESS_PROBE_TREE"]="1";
+        const auto ChildReport=std::filesystem::path(ReportPath).concat(".child");
+        FProcessExecutionControl Control; Control.IsCancelled=[&]{return std::filesystem::exists(ChildReport);};
+        const auto Start=std::chrono::steady_clock::now();
+        const auto Result=FPlatformProcess::ExecuteControlledProcess(Executable,Launch,Control);
+        ASSERT_TRUE(Result); EXPECT_EQ(*Result,130);
+        EXPECT_LT(std::chrono::steady_clock::now()-Start,std::chrono::seconds(5));
+        EXPECT_FALSE(std::filesystem::exists(std::filesystem::path(ChildReport).concat(".finished")));
+        EXPECT_FALSE(std::filesystem::exists(std::filesystem::path(ReportPath).concat(".finished")));
+    }
+#endif
+
 	TEST_F(FPlatformProcessTests, PreservesArgumentsWithoutShellParsing)
 	{
 		auto Launch = Options();

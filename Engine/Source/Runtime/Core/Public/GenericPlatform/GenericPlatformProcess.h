@@ -19,6 +19,16 @@ namespace Durin
 		std::map<std::string, std::optional<std::string>> EnvironmentOverrides;
 	};
 
+    // Synchronous owned execution. Callbacks run on the caller thread; output is
+    // bounded chunks, not lines. Cancellation input allows a protocol-aware child
+    // to stop gracefully; otherwise the owned tree is stopped immediately.
+    struct FProcessExecutionControl
+    {
+        std::string StandardInput, CancellationInput;
+        std::function<bool()> IsCancelled;
+        std::function<void(std::string_view)> OnOutput;
+    };
+
 	enum class EPlatformProcessError : uint8 { InvalidArguments, Launch, Wait, OpenPath };
 	struct FPlatformProcessError
 	{

@@ -105,5 +105,10 @@
         "Public/Asset/Redirector.h",
         "Public/Spline/SplineTypes.h",
         "Public/Spline/SplineCurve.h"
-    ]
+    ],
+    "DynamicDependencies": {
+        "All": [
+            "Renderer"
+        ]
+    }
 }

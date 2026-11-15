@@ -1,0 +1,167 @@
+{
+  "StructuralInvalid": [
+    {
+      "Name": "old-runtime",
+      "Schema": "runtime-v2.schema.json",
+      "Fixture": "runtime/no-plugin.json",
+      "Field": [
+        "SchemaVersion"
+      ],
+      "Value": 1
+    },
+    {
+      "Name": "missing-paths",
+      "Schema": "runtime-v2.schema.json",
+      "Fixture": "runtime/no-plugin.json",
+      "Field": [
+        "Paths"
+      ],
+      "Remove": true
+    },
+    {
+      "Name": "wrong-target",
+      "Schema": "runtime-v2.schema.json",
+      "Fixture": "runtime/no-plugin.json",
+      "Field": [
+        "Identity",
+        "RuntimeVariant"
+      ],
+      "Value": "DurinEditor"
+    },
+    {
+      "Name": "win64-arm64",
+      "Schema": "runtime-v2.schema.json",
+      "Fixture": "runtime/no-plugin.json",
+      "Field": [
+        "Identity",
+        "Architecture"
+      ],
+      "Value": "arm64"
+    },
+    {
+      "Name": "protocol-version",
+      "Schema": "request-v1.schema.json",
+      "Fixture": "protocol/direct-request.json",
+      "Field": [
+        "ProtocolVersion"
+      ],
+      "Value": 2
+    },
+    {
+      "Name": "incomplete-build",
+      "Schema": "target-receipt-v1.schema.json",
+      "Fixture": "receipts/dynamic-native-data.json",
+      "Field": [
+        "Status"
+      ],
+      "Value": "configured"
+    },
+    {
+      "Name": "editor-product",
+      "Schema": "target-receipt-v1.schema.json",
+      "Fixture": "receipts/dynamic-native-data.json",
+      "Field": [
+        "Products",
+        0,
+        "Host"
+      ],
+      "Value": "Editor"
+    }
+  ],
+  "InvalidRelativePaths": [
+    "",
+    "/outside",
+    "../outside",
+    "Content/../outside",
+    "C:/outside",
+    "C:outside",
+    "Content\\outside",
+    "//server/share",
+    "Content//Game",
+    "Content/./Game",
+    "Content/",
+    "Content/file:stream",
+    "Content/hidden.",
+    "Content/hidden ",
+    "Content/\u0000bad"
+  ],
+  "Bootstrap": [
+    {
+      "Name": "missing-manifest",
+      "Outcome": "request",
+      "Executable": "deployment/Binaries/Win64/Sandbox.exe",
+      "Cwd": "unrelated",
+      "SourceAncestor": false,
+      "Manifest": null,
+      "Fixture": null,
+      "ExpectedExit": 2
+    },
+    {
+      "Name": "corrupt-manifest",
+      "Outcome": "request",
+      "Executable": "deployment/Binaries/Win64/Sandbox.exe",
+      "Cwd": "unrelated",
+      "SourceAncestor": false,
+      "Manifest": "deployment/Runtime.json",
+      "Fixture": "runtime-corrupt.json",
+      "ExpectedExit": 2
+    },
+    {
+      "Name": "symlink-escape",
+      "Outcome": "request",
+      "Executable": "deployment/Binaries/Win64/Sandbox.exe",
+      "Cwd": "unrelated",
+      "SourceAncestor": false,
+      "Manifest": "deployment/Runtime.json",
+      "Fixture": "runtime/no-plugin.json",
+      "ExpectedExit": 2,
+      "Alias": {
+        "Path": "deployment/Content",
+        "Target": "outside-deployment"
+      }
+    },
+    {
+      "Name": "beneath-source-without-manifest",
+      "Outcome": "request",
+      "Executable": "deployment/Binaries/Win64/Sandbox.exe",
+      "Cwd": "unrelated",
+      "SourceAncestor": true,
+      "Manifest": null,
+      "Fixture": null,
+      "ExpectedExit": 2
+    },
+    {
+      "Name": "unrelated-cwd",
+      "Outcome": "succeeded",
+      "Executable": "deployment/Binaries/Win64/Sandbox.exe",
+      "Cwd": "unrelated",
+      "SourceAncestor": false,
+      "Manifest": "deployment/Runtime.json",
+      "Fixture": "runtime/no-plugin.json",
+      "ExpectedExit": 0
+    }
+  ],
+  "AuthoredPlugins": [
+    {
+      "Id": "Scenery",
+      "Dependencies": [],
+      "Modules": []
+    },
+    {
+      "Id": "Weather",
+      "Dependencies": [
+        "Scenery"
+      ],
+      "Modules": [
+        {
+          "Name": "WeatherRuntime",
+          "Host": "Runtime"
+        },
+        {
+          "Name": "WeatherEditor",
+          "Host": "Editor"
+        }
+      ]
+    }
+  ]
+}

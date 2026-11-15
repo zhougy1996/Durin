@@ -23,6 +23,9 @@ namespace Durin
 		[[nodiscard]] static CORE_API auto ExecuteProcess(
 			std::string_view Executable,
 			const FProcessLaunchOptions& Options = {}) -> std::expected<int32, FPlatformProcessError>;
+        [[nodiscard]] static CORE_API auto ExecuteControlledProcess(std::string_view Executable,
+            const FProcessLaunchOptions& Options, const FProcessExecutionControl& Control) -> std::expected<int32, FPlatformProcessError>;
+
 		[[nodiscard]] static CORE_API auto OpenPath(
 			std::string_view Path) -> std::expected<void, FPlatformProcessError>;
 	};

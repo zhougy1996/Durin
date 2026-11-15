@@ -139,7 +139,9 @@ namespace
 			// Cook must include this bundle even though the ordinary field is stripped.
 			static const auto Bundle = DurinCodeGen::FSoftObjectPropertyParams::Create<TSoftObjectPtr<DObject>>(
 				"BundleReference", EPropertyFlags::EditorOnly, 1, STRUCT_OFFSET_UINT16(DCookPrimaryFixture, BundleReference), &DObject::StaticClass);
-			static const DurinCodeGen::FPropertyParamsBase* Properties[] = {&Bundle};
+			static const auto Runtime = DurinCodeGen::FObjectPropertyParams::ObjectPtr<DObject>(
+                "RuntimeReference", EPropertyFlags::None, 1, STRUCT_OFFSET_UINT16(DCookPrimaryFixture, RuntimeReference), &DObject::StaticClass);
+            static const DurinCodeGen::FPropertyParamsBase* Properties[] = {&Bundle, &Runtime};
 			static const DurinCodeGen::FClassParams Params = {
 				.ClassNoRegisterFunc = &StaticClassNoRegister, .QualifiedClassName = "Tests::DCookPrimaryFixture",
 				.ShortClassName = "DCookPrimaryFixture", .PropertyParams = Properties, .NumProperties = std::size(Properties)};
@@ -150,6 +152,7 @@ namespace
 			if (!BundleReference.IsNull()) (void)Data.AddBundleAsset(FName("Game"), BundleReference.ToSoftObjectPath().GetAssetPath());
 		}
 		TSoftObjectPtr<DObject> BundleReference;
+        TObjectPtr<DObject> RuntimeReference;
 	};
 
 	class FScopedCookProject
@@ -331,6 +334,45 @@ TEST_F(FCookFunctionalTests, PrimaryMapAndDataAssetCookDiscoverAndReleaseWithout
 	CookedMapLoad->ReleaseHandle(); CookedDataLoad->ReleaseHandle(); CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_FALSE(WeakMap.IsValid()); EXPECT_FALSE(WeakData.IsValid()); EXPECT_FALSE(WeakSecondary.IsValid());
 	Manager->Shutdown();
+}
+
+TEST_F(FCookFunctionalTests, ProjectDefaultDataTracksReferencesAndRejectsInvalidOrBlockedInputs)
+{
+    const auto Fixture = Testing::CreateTestFixtureDirectory("CookProjectDefaultData");
+    Testing::FScopedMountRegistryFixture Mounts;
+    Testing::RegisterMountPointForTests("/CookPrimary/", (Fixture / "Content").generic_string());
+    FScopedCookProject Project;
+    const std::string Settings = "Game:\n  DefaultData: /CookPrimary/Defaults.Defaults\n";
+    Project.Open(Fixture, Settings);
+    const auto Path = [](std::string_view Name) { FPackagePath P; EXPECT_TRUE(FPackagePath::TryCreate("/CookPrimary/" + std::string(Name), P)); return P; };
+    auto* MeshPackage = CreatePackage(Path("Mesh"));
+    auto* Mesh = NewObject<DPrimaryDataAsset>(MeshPackage, "Mesh"); ASSERT_TRUE(SavePackage(MeshPackage));
+    auto* DataPackage = CreatePackage(Path("Defaults"));
+    auto* Data = NewObject<DCookPrimaryFixture>(DataPackage, "Defaults");
+    Data->RuntimeReference = Mesh; ASSERT_TRUE(SavePackage(DataPackage));
+    auto* Optional = CreatePackage(Path("Optional")); auto* Alternative = NewObject<DObject>(Optional, "Optional"); ASSERT_TRUE(SavePackage(Optional));
+    ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
+    FCookRequest Request{.OutputRoot = Fixture / "Output", .TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game};
+    FCookRunResult Result;
+    ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+    ASSERT_EQ(Result.Packages.size(), 2u);
+    Data->RuntimeReference = Alternative; ASSERT_TRUE(SavePackage(DataPackage));
+    ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+    EXPECT_TRUE(std::ranges::any_of(Result.Packages, [&](const auto& P) { return P.PackagePath == Path("Optional"); }));
+    EXPECT_FALSE(std::ranges::any_of(Result.Packages, [&](const auto& P) { return P.PackagePath == Path("Mesh"); }));
+    Data->RuntimeReference = Mesh; ASSERT_TRUE(SavePackage(DataPackage));
+    ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+    const auto Published = Inventory(Request.OutputRoot);
+    for (const auto Bad : {"/CookPrimary/Missing.Missing", "/CookPrimary/Defaults.Absent", "/CookPrimary/Optional.Optional", "/CookPrimary/Defaults.Defaults:Child", "not-an-object-path"})
+    {
+        Project.Open(Fixture, "Game:\n  DefaultData: " + std::string(Bad) + "\n");
+        EXPECT_FALSE(FCookCoordinator().Run(Request, Result)) << Bad;
+        EXPECT_EQ(Inventory(Request.OutputRoot), Published);
+    }
+    Project.Open(Fixture, Settings + "AssetManager:\n  AssetRules:\n    - {Id: 'DPrimaryDataAsset:Mesh', Rules: {CookRule: NeverCook}}\n");
+    EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
+    EXPECT_NE(FormatCookRunError(Result).find("NeverCook"), std::string::npos);
+    EXPECT_EQ(Inventory(Request.OutputRoot), Published);
 }
 
 TEST_F(FCookFunctionalTests, NeverCookFiltersOptionalBundlesAndRejectsRequiredRootsWithoutPublication)
@@ -2246,4 +2288,27 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 		}
 	}
 	EXPECT_EQ(Inventory(Source), Before);
+}
+
+TEST_F(FCookFunctionalTests, RuntimeSnapshotAndEvidenceRollbackTogether)
+{
+    const auto Root=Testing::CreateTestFixtureDirectory("SnapshotEvidenceTransaction");
+    auto Store=CreateLocalLooseCookOutputStore(Root,ECookTargetPlatform::Win64,ECookTargetProfile::Game);
+    FCookState State{ECookTargetPlatform::Win64,ECookTargetProfile::Game}; FCookRunResult Result;
+    const auto Outputs=[](std::string_view Suffix) {
+        std::vector<FCookAuxiliaryOutput> Values;
+        for (const auto* Name:{"ExportEvidence.json","RuntimeCook.json"})
+        {
+            const std::string Text=std::string(Name)+std::string(Suffix); const auto Bytes=std::as_bytes(std::span(Text.data(),Text.size()));
+            Values.push_back({ECookManifestEntryKind::PluginSnapshot,Name,FByteBuffer(Bytes.begin(),Bytes.end()),FXxHash128::HashBuffer(Bytes)});
+        }
+        return Values;
+    };
+    const auto First=Outputs("-first"); ASSERT_TRUE(Store->Publish({},First,State,Result,{},{}));
+    const auto Before=Inventory(Root); const auto Changed=Outputs("-changed"); bool Injected=false;
+    const auto Failed=Store->Publish({},Changed,State,Result,{},[&](ECookOperationStage Stage,size_t Index,std::string& Error){
+        if (Stage!=ECookOperationStage::CommitAuxiliary || Index!=1) return false;
+        Injected=true; Error="Injected second snapshot commit failure"; return true;
+    });
+    EXPECT_FALSE(Failed); EXPECT_TRUE(Injected); EXPECT_EQ(Inventory(Root),Before);
 }

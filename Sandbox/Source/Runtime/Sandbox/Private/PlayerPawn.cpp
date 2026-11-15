@@ -1,5 +1,4 @@
 #include "PlayerPawn.h"
-#include "Misc/UnifiedError.h"
 
 #include "Asset/Asset.h"
 #include "Components/CameraComponent.h"
@@ -10,6 +9,9 @@
 #include "SandboxGameplayTuning.h"
 #include "SimpleGroundMovementComponent.h"
 #include "StaticMesh/StaticMesh.h"
+#include "PlayerPawnDefaults.h"
+#include "Engine/ProjectGameSettings.h"
+#include "Project/Project.h"
 
 namespace Durin::Sandbox
 {
@@ -41,20 +43,17 @@ namespace Durin::Sandbox
 
 	auto APlayerPawn::BeginPlay() -> void
 	{
-		std::optional<Durin::UnifiedError::FError> LoadError;
-		FSoftObjectPath MeshPath;
-		const bool bValidMeshPath = FSoftObjectPath::TryCreate(GameplayTuning::GrayboxMeshPath, MeshPath);
-		const auto Load = LoadObject<DStaticMesh>(MeshPath, nullptr, &LoadError);
-		DStaticMesh* Mesh = Load;
-		if (Mesh)
-		{
-			VisualComponent->SetStaticMesh(Mesh);
-		}
-		else
-		{
-			DURIN_WARN("Sandbox pawn graybox '{}' could not load: {} The pawn remains playable without a visual.",
-				GameplayTuning::GrayboxMeshPath, bValidMeshPath ? LoadError->ToString() : "The configured graybox mesh path is invalid.");
-		}
+        FProjectGameSettings Settings;
+        const auto* Project = GetCurrentProject();
+        const bool bConfigured = Project && FProjectGameSettingsStore::ForProject(*Project).Load(Settings);
+        FSoftObjectPath DefaultData;
+        auto* Defaults = bConfigured && FSoftObjectPath::TryCreate(Settings.DefaultData, DefaultData) && DefaultData.IsTopLevelAsset()
+            ? LoadObject<DPlayerPawnDefaults>(DefaultData) : nullptr;
+        if (Defaults && Defaults->Mesh)
+            VisualComponent->SetStaticMesh(Defaults->Mesh.Get());
+        else
+            DURIN_WARN("Sandbox pawn defaults '{}' could not supply a mesh; the pawn remains playable without a visual.", Settings.DefaultData);
+
 		Super::BeginPlay();
 	}
 

@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "runtime-cook-v2.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "SchemaVersion",
+    "EngineVersion",
+    "Platform",
+    "Architecture",
+    "Configuration",
+    "ToolchainABI",
+    "ApplicationId",
+    "Project",
+    "Selection",
+    "SelectionFingerprint",
+    "Mounts",
+    "ConfigurationHashes",
+    "GameBuild",
+    "TargetReceiptSha256",
+    "CookCompatibility"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": 2
+    },
+    "EngineVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "Platform": {
+      "enum": [
+        "Win64",
+        "MacOS"
+      ]
+    },
+    "Architecture": {
+      "type": "string",
+      "minLength": 1
+    },
+    "Configuration": {
+      "enum": [
+        "Debug",
+        "Release"
+      ]
+    },
+    "ToolchainABI": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ApplicationId": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,127}$"
+    },
+    "Project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Name",
+        "BaseModules"
+      ],
+      "properties": {
+        "Name": {
+          "$ref": "common-v1.schema.json#/$defs/identifier"
+        },
+        "BaseModules": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "common-v1.schema.json#/$defs/identifier"
+          }
+        }
+      }
+    },
+    "Selection": {
+      "type": "string",
+      "minLength": 1
+    },
+    "SelectionFingerprint": {
+      "$ref": "common-v1.schema.json#/$defs/sha256"
+    },
+    "Mounts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "VirtualRoot",
+          "CanReference"
+        ],
+        "properties": {
+          "VirtualRoot": {
+            "type": "string",
+            "minLength": 1
+          },
+          "CanReference": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "ConfigurationHashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Project.yaml",
+        "DurinGame.yaml",
+        "EngineGameDefaults"
+      ],
+      "properties": {
+        "Project.yaml": {
+          "$ref": "common-v1.schema.json#/$defs/sha256"
+        },
+        "DurinGame.yaml": {
+          "$ref": "common-v1.schema.json#/$defs/sha256"
+        },
+        "EngineGameDefaults": {
+          "$ref": "common-v1.schema.json#/$defs/sha256"
+        }
+      }
+    },
+    "GameBuild": {
+      "type": "string",
+      "minLength": 1
+    },
+    "TargetReceiptSha256": {
+      "$ref": "common-v1.schema.json#/$defs/sha256"
+    },
+    "CookCompatibility": {
+      "$ref": "common-v1.schema.json#/$defs/sha256"
+    }
+  }
+}

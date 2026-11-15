@@ -4,7 +4,9 @@
   "title": "Durin module descriptor",
   "type": "object",
   "additionalProperties": false,
-  "required": ["ModuleName"],
+  "required": [
+    "ModuleName"
+  ],
   "properties": {
     "$schema": {
       "type": "string",
@@ -14,7 +16,10 @@
       "$ref": "#/$defs/identifier"
     },
     "LinkType": {
-      "enum": ["Shared", "Static"],
+      "enum": [
+        "Shared",
+        "Static"
+      ],
       "default": "Shared"
     },
     "PCH": {
@@ -43,6 +48,56 @@
       "default": [],
       "items": {
         "$ref": "#/$defs/nonEmptyString"
+      }
+    },
+    "DynamicDependencies": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "All": {
+          "$ref": "#/$defs/identifierList"
+        },
+        "Win64": {
+          "$ref": "#/$defs/identifierList"
+        },
+        "MacOS": {
+          "$ref": "#/$defs/identifierList"
+        }
+      },
+      "default": {}
+    },
+    "RuntimeFiles": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "Source",
+          "Destination",
+          "Kind"
+        ],
+        "properties": {
+          "Source": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "Destination": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "Kind": {
+            "enum": [
+              "NativeLibrary",
+              "RuntimeData",
+              "License"
+            ]
+          },
+          "License": {
+            "type": "string"
+          },
+          "Provenance": {
+            "type": "string"
+          }
+        }
       }
     }
   },

@@ -94,6 +94,12 @@ namespace Durin
 				}
 				else if (Argument == "--project-browser") Parsed.Request.Host.bOpenProjectBrowser = true;
 				else if (Argument == "--startup-diagnostics") Parsed.Request.bStartupDiagnostics = true;
+                else if (Argument == "--source-game") Parsed.Request.Host.bSourceGame = true;
+                else if (Option == "--engine-root" && Equals != std::string_view::npos) Parsed.Request.Host.EngineRoot=std::string(Value);
+                else if (Option == "--runtime-manifest" && Equals != std::string_view::npos) Parsed.Request.Host.RuntimeManifest=std::string(Value);
+                else if (Option == "--cook-root" && Equals != std::string_view::npos) Parsed.Request.Host.CookRoot=std::string(Value);
+                else if (Option == "--user-data-root" && Equals != std::string_view::npos) Parsed.Request.Host.UserDataRoot=std::string(Value);
+                else if (Option == "--migrate-user-config" && Equals != std::string_view::npos) Parsed.Request.Host.LegacyUserConfig=std::string(Value);
 				else if (Option == "--project" && Equals != std::string_view::npos)
 					Parsed.Request.Host.ProjectFile = std::string(Value);
 				else if (Argument == "--project")
@@ -121,6 +127,18 @@ namespace Durin
 		auto ValidateSemantics(FParsedLaunchArguments Parsed) -> FLaunchArgumentResult
 		{
 			FLaunchRequest& Request = Parsed.Request;
+            if (Request.Host.RuntimeManifest && (Request.Host.bSourceGame || Request.Host.EngineRoot || Request.Host.ProjectFile))
+                return Failure("--runtime-manifest","conflicts with source Game/project arguments");
+            if (Request.Host.bSourceGame && (!Request.Host.EngineRoot || !Request.Host.ProjectFile))
+                return Failure("--source-game","requires --engine-root and --project");
+            if (Request.Host.EngineRoot && !Request.Host.bSourceGame)
+                return Failure("--engine-root","requires --source-game");
+            if (Request.Host.CookRoot && !Request.Host.bSourceGame)
+                return Failure("--cook-root","requires --source-game");
+            if ((Request.Host.UserDataRoot || Request.Host.LegacyUserConfig) && Request.Host.bSourceGame)
+                return Failure("--user-data-root/--migrate-user-config","requires staged Game mode");
+            if ((Request.Host.UserDataRoot && Request.Host.UserDataRoot->empty()) || (Request.Host.LegacyUserConfig && Request.Host.LegacyUserConfig->empty()))
+                return Failure("--user-data-root/--migrate-user-config","requires a non-empty absolute path");
 			if (Request.Host.ProjectFile && Request.Host.ProjectFile->empty())
 				return Failure("--project", "requires a non-empty path");
 			if (Request.Automation.StartupCommand.Name

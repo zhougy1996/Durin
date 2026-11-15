@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "component-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "SchemaVersion",
+    "Name",
+    "ProtocolVersion",
+    "EngineBuild",
+    "Platform",
+    "Architecture",
+    "ToolchainABI",
+    "Worker",
+    "Capabilities",
+    "Files",
+    "Schemas",
+    "ProviderMetadata",
+    "BackendMetadata",
+    "EngineRoot",
+    "DefaultBackend"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": 1
+    },
+    "Name": {
+      "const": "DurinExportTool"
+    },
+    "ProtocolVersion": {
+      "const": 1
+    },
+    "EngineBuild": {
+      "$ref": "common-v1.schema.json#/$defs/text"
+    },
+    "Platform": {
+      "const": "Win64"
+    },
+    "Architecture": {
+      "const": "x64"
+    },
+    "ToolchainABI": {
+      "$ref": "common-v1.schema.json#/$defs/text"
+    },
+    "Worker": {
+      "$ref": "common-v1.schema.json#/$defs/relativePath"
+    },
+    "Capabilities": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "preview",
+          "stage-prebuilt",
+          "export-prebuilt",
+          "build-source",
+          "cook",
+          "verify",
+          "archive"
+        ]
+      },
+      "minItems": 1,
+      "maxItems": 65536,
+      "uniqueItems": true
+    },
+    "Files": {
+      "type": "array",
+      "items": {
+        "$ref": "common-v1.schema.json#/$defs/file"
+      },
+      "minItems": 1,
+      "maxItems": 65536,
+      "uniqueItems": true
+    },
+    "Schemas": {
+      "type": "array",
+      "items": {
+        "$ref": "common-v1.schema.json#/$defs/relativePath"
+      },
+      "minItems": 1,
+      "maxItems": 65536,
+      "uniqueItems": true
+    },
+    "ProviderMetadata": {
+      "type": "array",
+      "items": {
+        "$ref": "common-v1.schema.json#/$defs/relativePath"
+      },
+      "minItems": 0,
+      "maxItems": 65536,
+      "uniqueItems": true
+    },
+    "BackendMetadata": {
+      "$ref": "common-v1.schema.json#/$defs/relativePath"
+    },
+    "EngineRoot": {
+      "$ref": "common-v1.schema.json#/$defs/text"
+    },
+    "DefaultBackend": {
+      "enum": [
+        "source",
+        "prebuilt"
+      ]
+    },
+    "AssetTool": {
+      "$ref": "common-v1.schema.json#/$defs/relativePath"
+    }
+  }
+}

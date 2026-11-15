@@ -3,7 +3,7 @@
 Summary: Define child argument, working-directory and environment configuration for Windows and macOS process launch.
 Modules: Core
 
-Last reviewed: 2026-10-16
+Last reviewed: 2026-11-15
 
 ## Launch Options
 
@@ -73,6 +73,24 @@ on macOS. It does not report a later child exit status.
 nonzero codes. macOS signal termination maps to `128 + signal`. Waiting errors
 remain distinct from child exit codes. Neither operation captures output or
 provides timeout, cancellation or an owned child-process handle.
+
+## Controlled execution
+
+ExecuteControlledProcess uses the same structured options and validation, with
+FProcessExecutionControl for initial stdin bytes, output chunks and cancellation.
+It is synchronous; callbacks execute on the caller thread. Win64 starts the child
+suspended, assigns a kill-on-close Job Object, redirects stdin and merged stdout/
+stderr, then resumes it without a console window. Input writing and output draining
+can progress together. Output chunks are bounded and callers assemble protocol lines.
+
+A cancelled protocol-aware child receives CancellationInput and has up to 30 seconds
+to finish; other children are stopped immediately. All owned descendants are stopped
+and retired before return, including when the parent exits first or a callback
+throws. This is process ownership, not a file/output rollback mechanism. Export
+clients perform blocking execution off the UI thread. Native spawn/wait failures
+use the existing error type; callback exceptions propagate after retirement.
+macOS currently returns an explicit unsupported error for controlled execution;
+ordinary LaunchProcess/ExecuteProcess behavior is unchanged.
 
 ## Consumers and Verification
 

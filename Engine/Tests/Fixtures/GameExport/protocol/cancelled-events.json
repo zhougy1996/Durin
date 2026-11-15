@@ -1,0 +1,33 @@
+[
+  {
+    "ProtocolVersion": 1,
+    "Kind": "progress",
+    "RequestId": "Export1",
+    "Sequence": 0,
+    "Phase": "cleanup",
+    "Completed": 0,
+    "Total": 1,
+    "Message": "Retiring child processes"
+  },
+  {
+    "ProtocolVersion": 1,
+    "Kind": "cancelAcknowledged",
+    "RequestId": "Export1",
+    "Sequence": 1,
+    "ChildrenRetired": true
+  },
+  {
+    "ProtocolVersion": 1,
+    "Kind": "result",
+    "RequestId": "Export1",
+    "Sequence": 2,
+    "Status": "cancelled",
+    "ExitCode": 130,
+    "Category": "cancelled",
+    "Code": "cancelled",
+    "Message": "Job cancelled; previous export preserved",
+    "PlanFingerprint": null,
+    "Output": null,
+    "ChildrenRetired": true
+  }
+]

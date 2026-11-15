@@ -1,0 +1,40 @@
+{
+  "SchemaVersion": 2,
+  "EngineVersion": "fixture-engine",
+  "Platform": "Win64",
+  "Architecture": "x64",
+  "Configuration": "Release",
+  "ToolchainABI": "fixture-msvc-x64-md",
+  "ApplicationId": "org.durin.Sandbox",
+  "Project": {
+    "Name": "Sandbox",
+    "BaseModules": [
+      "Sandbox"
+    ]
+  },
+  "Selection": "{\"SchemaVersion\":1,\"Platform\":\"Win64\",\"RuntimeVariant\":\"DurinGame\",\"Plugins\":[{\"Id\":\"Scenery\"},{\"Id\":\"Weather\"}],\"Modules\":[{\"Name\":\"WeatherRuntime\",\"Owner\":\"Weather\",\"Host\":\"Runtime\",\"Phase\":\"EngineReady\"}]}",
+  "SelectionFingerprint": "5f0a98b109323313f54439e8d7a3cfa9d951c763d21838f0c8f518ed3cdc7e62",
+  "Mounts": [
+    {
+      "VirtualRoot": "/Plugins/Scenery/",
+      "CanReference": [
+        "/Engine/"
+      ]
+    },
+    {
+      "VirtualRoot": "/Plugins/Weather/",
+      "CanReference": [
+        "/Engine/",
+        "/Plugins/Scenery/"
+      ]
+    }
+  ],
+  "ConfigurationHashes": {
+    "Project.yaml": "06c61d655a10057c73b36af18f00e78402119e3e6cf02ca630d2092fc8e5d707",
+    "DurinGame.yaml": "0ff3269a11cfc870505f76e0bd74bb5cd2b6261b8919f12c987662425d0bdc0d",
+    "EngineGameDefaults": "90455f4b5c755aa254a00897844bf66b7ef24e85de495efd0a046f261f492d5f"
+  },
+  "CookCompatibility": "0000000000000000000000000000000000000000000000000000000000000000",
+  "GameBuild": "fixture",
+  "TargetReceiptSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+}

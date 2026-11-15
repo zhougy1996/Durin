@@ -103,6 +103,7 @@ namespace
 		NoIncremental = 1 << 9,
 		DryRun = 1 << 10,
 		RecompressTextures = 1 << 11,
+        TargetReceipt = 1 << 12,
 	};
 
 	constexpr auto OptionBit(EOption Option) -> uint16
@@ -137,6 +138,7 @@ namespace
 		case EOption::Scope: return "scope";
 		case EOption::Output: return "--output";
 		case EOption::Target: return "--target";
+        case EOption::TargetReceipt: return "--target-receipt";
 		case EOption::Profile: return "--profile";
 		case EOption::Root: return "--root";
 		case EOption::NoIncremental: return "--no-incremental";
@@ -158,6 +160,7 @@ namespace
 		bool bIncremental = true;
 		bool bDryRun = false;
 		std::filesystem::path OutputRoot;
+        std::filesystem::path TargetReceipt;
 		std::string Target;
 		std::string TargetProfile;
 		std::vector<std::string> CookRoots;
@@ -178,7 +181,7 @@ namespace
 			<< "  DurinAssetTool material-template --project=<project.dproject> <package-path> [--apply]\n"
 			<< "  DurinAssetTool material-functions --project=<project.dproject> [--apply]\n"
 			<< "  DurinAssetTool cook --project=<project.dproject> --output=<absolute-path> "
-			<< "--target=win64|macos --profile=game [--root=/Game/Path]... "
+			<< "--target=win64|macos --profile=game --target-receipt=<absolute-Game-receipt> [--root=/Game/Path]... "
 			<< "[--no-incremental] [--dry-run] [--json]\n";
 	}
 
@@ -210,7 +213,7 @@ namespace
 		constexpr uint16 Cook = Check | OptionBit(EOption::Output)
 								| OptionBit(EOption::Target) | OptionBit(EOption::Profile)
 								| OptionBit(EOption::Root) | OptionBit(EOption::NoIncremental)
-								| OptionBit(EOption::DryRun);
+								| OptionBit(EOption::DryRun) | OptionBit(EOption::TargetReceipt);
 		const uint16 Allowed = Options.Operation == EOperation::MaterialTemplate
 			? Storage | OptionBit(EOption::Apply) | OptionBit(EOption::Scope)
 			: Options.Operation == EOperation::MaterialFunctions ? Storage | OptionBit(EOption::Apply) : Options.Operation == EOperation::Resave ? Resave : Options.Operation == EOperation::Check ? Check :
@@ -229,7 +232,9 @@ namespace
 			}
 		if (Options.Operation == EOperation::Cook)
 		{
-			if (Options.OutputRoot.empty())
+			if (Options.TargetReceipt.empty() || !Options.TargetReceipt.is_absolute())
+            { OutError="cook requires --target-receipt=<absolute-completed-Game-receipt>."; return false; }
+            if (Options.OutputRoot.empty())
 			{
 				OutError = "cook requires --output=<absolute-path>.";
 				return false;
@@ -345,6 +350,11 @@ namespace
 				if (!MarkOptionOnce(OutOptions, EOption::Output, OutError)) return false;
 				OutOptions.OutputRoot = Argument.substr(std::string_view("--output=").size());
 			}
+			else if (Argument.starts_with("--target-receipt="))
+            {
+                if (!MarkOptionOnce(OutOptions,EOption::TargetReceipt,OutError)) return false;
+                OutOptions.TargetReceipt=Argument.substr(std::string_view("--target-receipt=").size());
+            }
 			else if (Argument.starts_with("--target="))
 			{
 				if (!MarkOptionOnce(OutOptions, EOption::Target, OutError)) return false;
@@ -847,6 +857,15 @@ namespace
 			}
 			if (!std::ranges::contains(Roots, Path)) Roots.push_back(std::move(Path));
 		}
+        FGameCookTarget GameTarget; std::string TargetError;
+        const auto Platform=ParseTargetPlatform(Options.Target).value();
+        if(!ReadGameCookTarget(Options.TargetReceipt,GetTargetPlatformName(Platform),GameTarget,TargetError))
+        {
+            FCookRunResult Result; Result.TargetPlatform=Platform; Result.TargetProfile=ECookTargetProfile::Game;
+            Result.Error=ECookRunError::InputFailed; Result.InputFailure={ECookInputStatus::InvalidDependency,std::move(TargetError)};
+            if(Options.Format==EOutputFormat::Json) std::cout<<SerializeCookRunResult(Result)<<'\n'; else std::cerr<<FormatCookRunError(Result)<<'\n';
+            return 1;
+        }
 		const FAssetCatalogRefreshResult Refresh = RefreshAssetRegistry(
 			EAssetRegistryScanMode::FullValidation
 		);
@@ -884,7 +903,8 @@ namespace
 			.IncrementalPolicy = Options.bIncremental ? ECookIncrementalPolicy::Enabled : ECookIncrementalPolicy::Disabled,
 			.bDryRun = Options.bDryRun,
 			.IsCancelled = [] { return GCancelled.load(std::memory_order_relaxed); },
-            .bCapturePluginSnapshot = true
+            .bCapturePluginSnapshot = true,
+            .TargetGame = std::move(GameTarget)
 		};
 		(void)Coordinator.Run(Request, Result);
 		if (Options.Format == EOutputFormat::Json)
@@ -927,7 +947,8 @@ namespace
                 Item.SetChildValue("Sha256",PluginFileSha256(File));
                 if (Entry.Kind==ECookManifestEntryKind::PluginSnapshot)
                 {
-                    if (HasSnapshot || Entry.RelativePath!="PluginCook.json") throw std::runtime_error("Invalid Cook plugin snapshot");
+                    if (Entry.RelativePath=="RuntimeCook.json") continue;
+                    if (HasSnapshot || Entry.RelativePath!="ExportEvidence.json") throw std::runtime_error("Unsupported Cook snapshot; recook");
                     HasSnapshot=true;
                     Root.SetChildValue("Snapshot",std::string(reinterpret_cast<const char*>(Data->data()),Data->size()));
                 }

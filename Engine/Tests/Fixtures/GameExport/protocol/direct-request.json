@@ -1,0 +1,17 @@
+{
+  "ProtocolVersion": 1,
+  "Kind": "request",
+  "RequestId": "Direct1",
+  "Operation": "export",
+  "ProjectFile": "/inputs/Sandbox/Sandbox.dproject",
+  "Platform": "Win64",
+  "Configuration": "Release",
+  "Output": "/outputs/Sandbox",
+  "EngineRoot": "/engine",
+  "Backend": "prebuilt",
+  "BackendMetadata": "/engine/Tools/Backends/prebuilt.json",
+  "Build": "reuse",
+  "Cook": "reuse",
+  "Verify": true,
+  "Archive": false
+}

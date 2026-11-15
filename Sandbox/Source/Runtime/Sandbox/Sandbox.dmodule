@@ -11,6 +11,7 @@
         "Public/DefaultPlayerController.h",
         "Public/PlayerPawn.h",
         "Public/SimpleGroundMovementComponent.h",
-        "Public/Testing/CrossModuleGameModeFixture.h"
+        "Public/Testing/CrossModuleGameModeFixture.h",
+        "Public/PlayerPawnDefaults.h"
     ]
 }

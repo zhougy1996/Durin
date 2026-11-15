@@ -6,6 +6,7 @@
 #include "Project/Project.h"
 #include "Json/Json.h"
 #include "Misc/Paths.h"
+#include "Misc/RuntimePaths.h"
 #include "Misc/StringHelper.h"
 #include "Misc/Build.h"
 #include "Misc/Version.h"
@@ -156,14 +157,12 @@ namespace Durin
 		try
 		{
 #if !DURIN_WITH_EDITOR
-            const auto RuntimeInventory=std::filesystem::path(FPaths::LaunchDir())/"PluginRuntime.json";
-            if (!std::filesystem::exists(RuntimeInventory) && std::filesystem::exists(std::filesystem::path(FPaths::LaunchDir())/"PluginCook.json"))
-                throw std::runtime_error("Cooked Game plugin runtime inventory is missing; restage the Game");
-            if (std::filesystem::exists(RuntimeInventory))
+            const auto* Runtime=GetRuntimePathContext();
+            if (Runtime && Runtime->bStaged)
             {
                 FPluginBuildIdentity Host{std::string(GetEngineVersionString())+":"+HostCoreHash(),DURIN_BUILD_PLATFORM_STRING,
-                    DURIN_PLUGIN_ARCHITECTURE,DURIN_BUILD_TYPE_STRING,DURIN_RUNTIME_VARIANT,DURIN_PLUGIN_TOOLCHAIN};
-                if (!ReadPluginRuntimeInventory(RuntimeInventory,ProjectFile,Host,OutSelection,OutBinaries,OutResources,OutReason)) return false;
+                    "x64",DURIN_BUILD_TYPE_STRING,DURIN_RUNTIME_VARIANT,DURIN_PLUGIN_TOOLCHAIN};
+                if (!ReadPluginRuntimeInventory(Runtime->Manifest,ProjectFile,Host,OutSelection,OutBinaries,OutResources,OutReason)) return false;
                 for (const auto* Name:GOrdinaryModuleNames) OutSelection.OrdinaryModules.emplace_back(Name);
                 return true;
             }

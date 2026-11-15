@@ -10,3 +10,5 @@ include("${CMAKE_CURRENT_LIST_DIR}/Project/ProjectSetup.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/Project/WorkspaceSetup.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/Project/PluginBuild.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/ThirdParty/ThirdPartyUtils.cmake")
+
+include("${CMAKE_CURRENT_LIST_DIR}/Project/GameReceipt.cmake")

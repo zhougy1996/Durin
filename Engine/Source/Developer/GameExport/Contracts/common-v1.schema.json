@@ -1,0 +1,232 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "common-v1.schema.json",
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^(?!/)(?!.*[\\\\:\\x00-\\x1f<>\"|?*])(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)(?!.*(?:[ .])(?:/|$))(?!.*\\/$).+$"
+    },
+    "rootPath": {
+      "anyOf": [
+        {
+          "const": "."
+        },
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^(?!/)(?!.*[\\\\:\\x00-\\x1f<>\"|?*])(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)(?!.*(?:[ .])(?:/|$))(?!.*\\/$).+$"
+        }
+      ]
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+      "maxLength": 128
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "EngineBuild",
+        "Project",
+        "Platform",
+        "Architecture",
+        "Configuration",
+        "RuntimeVariant",
+        "ToolchainABI",
+        "Target"
+      ],
+      "properties": {
+        "EngineBuild": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "Project": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+          "maxLength": 128
+        },
+        "Platform": {
+          "enum": [
+            "Win64",
+            "Mac"
+          ]
+        },
+        "Architecture": {
+          "enum": [
+            "x64",
+            "arm64"
+          ]
+        },
+        "Configuration": {
+          "enum": [
+            "Debug",
+            "Release"
+          ]
+        },
+        "RuntimeVariant": {
+          "const": "DurinGame"
+        },
+        "ToolchainABI": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "Target": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+          "maxLength": 128
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "Platform": {
+                "const": "Win64"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "Architecture": {
+                "const": "x64"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Path",
+        "Sha256"
+      ],
+      "properties": {
+        "Path": {
+          "$ref": "common-v1.schema.json#/$defs/relativePath"
+        },
+        "Sha256": {
+          "$ref": "common-v1.schema.json#/$defs/sha256"
+        }
+      }
+    },
+    "prerequisites": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "SystemPolicy",
+        "CRT",
+        "MinimumVersion",
+        "Provenance",
+        "License"
+      ],
+      "properties": {
+        "SystemPolicy": {
+          "const": "win64-system-v1"
+        },
+        "CRT": {
+          "enum": [
+            "vcredist-x64",
+            "developer-debug-crt"
+          ]
+        },
+        "MinimumVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "Provenance": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "License": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      }
+    },
+    "mount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "VirtualRoot",
+        "Path",
+        "CanReference"
+      ],
+      "properties": {
+        "VirtualRoot": {
+          "type": "string",
+          "pattern": "^/(?:Engine|Game|Plugins/[A-Za-z][A-Za-z0-9_]*)/$"
+        },
+        "Path": {
+          "$ref": "common-v1.schema.json#/$defs/relativePath"
+        },
+        "CanReference": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^/(?:Engine|Game|Plugins/[A-Za-z][A-Za-z0-9_]*)/$"
+          },
+          "minItems": 0,
+          "maxItems": 65536,
+          "uniqueItems": true
+        }
+      }
+    },
+    "binary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Module",
+        "Owner",
+        "Phase",
+        "Path",
+        "RuntimeDependencies"
+      ],
+      "properties": {
+        "Module": {
+          "$ref": "common-v1.schema.json#/$defs/identifier"
+        },
+        "Owner": {
+          "$ref": "common-v1.schema.json#/$defs/identifier"
+        },
+        "Phase": {
+          "enum": [
+            "Providers",
+            "EngineReady"
+          ]
+        },
+        "Path": {
+          "$ref": "common-v1.schema.json#/$defs/relativePath"
+        },
+        "RuntimeDependencies": {
+          "type": "array",
+          "items": {
+            "$ref": "common-v1.schema.json#/$defs/relativePath"
+          },
+          "minItems": 0,
+          "maxItems": 65536,
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}

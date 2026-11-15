@@ -24,6 +24,7 @@
 #include "DObject/Package.h"
 #include "Engine/ProjectGameSettings.h"
 #include "Engine/AssetManager.h"
+#include "Engine/PrimaryDataAsset.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Misc/FileHelper.h"
@@ -364,8 +365,8 @@ namespace Durin
 		};
         std::string PluginSnapshot;
         if (Request.bCapturePluginSnapshot
-            && !CapturePluginCookSnapshot(Request.TargetPlatform==ECookTargetPlatform::Win64?"Win64":"MacOS",PluginSnapshot,OutResult.ShaderDiagnostic))
-            return PolicyFailure(OutResult.ShaderDiagnostic);
+            && (!Request.TargetGame || !CapturePluginCookSnapshot(Request.TargetPlatform==ECookTargetPlatform::Win64?"Win64":"MacOS",*Request.TargetGame,PluginSnapshot,OutResult.ShaderDiagnostic)))
+            return PolicyFailure(OutResult.ShaderDiagnostic.empty()?"Game Cook requires an admitted target receipt":OutResult.ShaderDiagnostic);
         if (PluginSnapshot.size()>16*1024*1024) return PolicyFailure("Plugin Cook snapshot exceeds 16 MiB");
 		if (const FProjectInfo* Project = GetCurrentProject())
 		{
@@ -378,6 +379,14 @@ namespace Durin
 			{
 				OutResult.SettingsCause = std::make_shared<FProjectGameSettingsResult>(SettingsResult);
 				return Finish(ECookRunStatus::Failed, ECookRunError::ProjectSettingsFailed);
+			}
+			if (!Settings.DefaultData.empty())
+			{
+				FSoftObjectPath DefaultData;
+				if (!FSoftObjectPath::TryCreate(Settings.DefaultData, DefaultData) || !DefaultData.IsTopLevelAsset()
+					|| !LoadObject<DPrimaryDataAsset>(DefaultData))
+					return PolicyFailure("Game.DefaultData must resolve to a primary data asset: " + Settings.DefaultData);
+				Roots.push_back(DefaultData.GetPackagePath());
 			}
 			if (!Settings.DefaultLevel.empty())
 			{
@@ -434,7 +443,12 @@ namespace Durin
         if (!PluginSnapshot.empty())
         {
             const auto Bytes=std::as_bytes(std::span(PluginSnapshot.data(),PluginSnapshot.size()));
-            AuxiliaryOutputs.push_back({ECookManifestEntryKind::PluginSnapshot,"PluginCook.json",FByteBuffer(Bytes.begin(),Bytes.end()),FXxHash128::HashBuffer(Bytes)});
+            AuxiliaryOutputs.push_back({ECookManifestEntryKind::PluginSnapshot,"ExportEvidence.json",FByteBuffer(Bytes.begin(),Bytes.end()),FXxHash128::HashBuffer(Bytes)});
+            std::string RuntimeSnapshot;
+            if (!MakeRuntimeCookSnapshot(PluginSnapshot,RuntimeSnapshot,OutResult.ShaderDiagnostic)) return PolicyFailure(OutResult.ShaderDiagnostic);
+            const auto RuntimeBytes=std::as_bytes(std::span(RuntimeSnapshot.data(),RuntimeSnapshot.size()));
+            RetainedOutputBytes+=RuntimeBytes.size();
+            AuxiliaryOutputs.push_back({ECookManifestEntryKind::PluginSnapshot,"RuntimeCook.json",FByteBuffer(RuntimeBytes.begin(),RuntimeBytes.end()),FXxHash128::HashBuffer(RuntimeBytes)});
         }
 		FAssetCompilingManager::Get().FinishAllCompilation();
 		{

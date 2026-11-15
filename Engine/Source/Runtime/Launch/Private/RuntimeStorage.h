@@ -11,6 +11,9 @@ namespace Durin
 		std::filesystem::path ConfigDirectory;
 		std::filesystem::path LogDirectory;
 		std::filesystem::path AppConfigTemplatePath;
+        bool bUserOverridesOnly = false;
+        std::filesystem::path LegacyUserConfig;
+        std::filesystem::path CacheDirectory;
 	};
 
 	// Returns the canonical application configuration and pass-local preparation diagnostics.

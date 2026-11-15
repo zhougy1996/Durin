@@ -28,3 +28,7 @@ target_link_libraries(Core PUBLIC
     glm::glm
     ryml::ryml
 )
+
+if(WIN32)
+ target_link_libraries(Core PRIVATE bcrypt shell32 ole32)
+endif()

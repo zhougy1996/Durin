@@ -121,6 +121,8 @@ Providers library. Set `DURIN_PLUGIN_FIXTURE_COOKED=1` for staged Game execution
 Consumer constructs that component, verifies asset values and the cross-plugin
 reference chain, and opens/loads the native program from the cooked project
 Shader library. Its trace includes `cooked-assets-shader` only after these checks.
+The probe resolves that library from `RuntimePathBinding("Cook")`, so it also
+qualifies the stable Binaries/Config/Content layout after relocation.
 The existing `DURIN_PLUGIN_FIXTURE_EXPECT_CONFIG` assertion covers plugin/project/
 Saved precedence in the deployed Game as well as source hosts.
 

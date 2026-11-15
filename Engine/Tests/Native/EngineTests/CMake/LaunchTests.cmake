@@ -5,6 +5,13 @@ durin_add_native_test(EngineFrameTimingTests
 	SOURCES Private/Launch/EngineFrameTimingTests.cpp
 	LIBRARIES Engine
 )
+durin_add_native_test(GameExportContractTests
+    KIND contract DOMAINS tools MODULES gameexport projects core engine
+    REQUIRES editor REQUIREMENT_RATIONALE "Engine export service is a tools-only Editor-build component."
+    SOURCES Private/Launch/GameExportTests.cpp
+    LIBRARIES GameExport Engine Projects
+    DEPENDENCIES PlatformProcessFixture
+    COMPILE_DEFINITIONS "DURIN_EXPORT_FAILURE_FIXTURE=\"$<TARGET_FILE:PlatformProcessFixture>\"" "DURIN_EXPORT_SYSTEM_POLICY=\"${CMAKE_SOURCE_DIR}/Engine/Source/Developer/GameExport/Contracts/win64-system-v1.json\"")
 
 durin_add_native_test(LaunchStorageTests
 	KIND contract
@@ -195,4 +202,13 @@ if(WIN32)
 		SOURCES Private/Launch/NativeCrashCharacterizationTests.cpp
 			Private/Launch/WindowsProcessCrashPolicyTests.cpp
 	)
+endif()
+
+if(DURIN_WITH_EDITOR)
+    # Exercises the exact process client called by MainFrame without automating a UI.
+    add_executable(ExportWorkerClientFixture "${CMAKE_SOURCE_DIR}/Engine/Tests/Fixtures/GameExport/WorkerClientFixture.cpp")
+    target_link_libraries(ExportWorkerClientFixture PRIVATE GameExport)
+    durin_target_apply_common_definitions(ExportWorkerClientFixture "ExportWorkerClientFixture")
+    get_target_property(_export_client_runtime DurinLauncher RUNTIME_OUTPUT_DIRECTORY)
+    set_target_properties(ExportWorkerClientFixture PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${_export_client_runtime}")
 endif()

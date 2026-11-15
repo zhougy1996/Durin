@@ -9,6 +9,8 @@
 #include "ProjectRelaunch.h"
 #include "Misc/StartupCommand.h"
 #include "Misc/Version.h"
+#include "Misc/RuntimePaths.h"
+#include "Misc/Paths.h"
 #include "Profiling/Profiling.h"
 #include "ProcessCrashServices.h"
 
@@ -37,7 +39,6 @@ namespace Durin
 			DURIN_RUNTIME_VARIANT, DURIN_BUILD_TYPE_STRING, GetEngineVersionString());
 		if (!InstallProcessCrashHandler()) return 1;
 		FProcessCrashHandlerGuard CrashHandlerGuard;
-		Profiling::FProcessSession ProfilingSession;
 		DURIN_PROFILE_CPU_ZONE_NAMED("Startup.Process");
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::ProcessEntry);
 
@@ -52,6 +53,51 @@ namespace Durin
 			return Parsed.Error->ExitCode;
 		}
 		FLaunchRequest Request = std::move(*Parsed.Request);
+        // Publish the path mode before profiling, logging, configuration or storage consumers.
+        if (!DURIN_WITH_EDITOR)
+        {
+            if (Request.Host.bSourceGame)
+            {
+                const auto Engine=std::filesystem::u8path(*Request.Host.EngineRoot);
+                const auto Project=std::filesystem::u8path(*Request.Host.ProjectFile);
+                if (!Engine.is_absolute() || !Project.is_absolute() || !std::filesystem::is_regular_file(Engine/"Engine.dproject")
+                    || !std::filesystem::is_regular_file(Project))
+                { std::fprintf(stderr,"Durin: invalid explicit source Game roots.\n"); return 2; }
+                FRuntimePathContext Context;
+                Context.Bindings["Engine"]=std::filesystem::canonical(Engine).generic_string()+"/";
+                Context.Bindings["Root"]=std::filesystem::canonical(Engine).parent_path().generic_string()+"/";
+                if (Request.Host.CookRoot)
+                {
+                    const auto Cook=std::filesystem::u8path(*Request.Host.CookRoot);
+                    if (!Cook.is_absolute() || !std::filesystem::is_regular_file(Cook/"CookManifest.bin"))
+                    { std::fprintf(stderr,"Durin: --cook-root requires an absolute committed Cook directory.\n"); return 2; }
+                    Context.Bindings["Cook"]=std::filesystem::canonical(Cook).generic_string()+"/";
+                }
+                if (!PublishRuntimePathContext(std::move(Context))) return 2;
+            }
+            else
+            {
+                if (Request.Host.ProjectFile || Request.Host.bOpenProjectBrowser)
+                { std::fprintf(stderr,"Durin: source Game requires --source-game --engine-root and --project.\n"); return 2; }
+                const auto Executable=std::filesystem::u8path(FPlatformProcess::ExecutablePath());
+                const auto Manifest=Request.Host.RuntimeManifest ? std::filesystem::u8path(*Request.Host.RuntimeManifest)
+                    : Executable.parent_path()/"../../Runtime.json";
+                auto Context=ReadRuntimePathContext(Manifest,Executable,true,
+                    Request.Host.UserDataRoot ? std::filesystem::u8path(*Request.Host.UserDataRoot) : std::filesystem::path{});
+                if (!Context) { std::fprintf(stderr,"Durin: %s\n",Context.error().c_str()); return 2; }
+                if (Request.Host.LegacyUserConfig)
+                {
+                    const auto Legacy=std::filesystem::u8path(*Request.Host.LegacyUserConfig);
+                    if (!Legacy.is_absolute() || !std::filesystem::is_regular_file(Legacy))
+                    { std::fprintf(stderr,"Durin: migration requires an explicit existing user config.\n"); return 2; }
+                    Context->Bindings["LegacyUserConfig"]=std::filesystem::canonical(Legacy).generic_string();
+                }
+                if (!PublishRuntimePathContext(std::move(*Context))) return 2;
+            }
+        }
+        else if (Request.Host.bSourceGame || Request.Host.RuntimeManifest || Request.Host.UserDataRoot || Request.Host.LegacyUserConfig)
+        { std::fprintf(stderr,"Durin: Game path options cannot select an Editor host.\n"); return 2; }
+        Profiling::FProcessSession ProfilingSession;
 		Profiling::ConfigureStartupDiagnostics(Request.bStartupDiagnostics);
 
 		FLaunchCrashTestRequest& CrashTest = Request.CrashTest;

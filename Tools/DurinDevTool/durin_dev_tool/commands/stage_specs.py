@@ -10,6 +10,8 @@ COMMAND_SPEC = CommandSpec(
         argument("--cook-dir", type=Path, required=True, help="committed Cook generation"),
         argument("--output-dir", type=Path, required=True, help="complete staged Game directory"),
         argument("--game-preset", default="", help="matching Game preset (inferred when unique)"),
+        argument("--configuration", default="", choices=("", "Debug", "Release"), help="target Game configuration"),
+        argument("--preview", action="store_true", help="validate the engine staging plan without publication"),
         REPORT_FORMAT,
     ),
 )

@@ -9,6 +9,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/AppConfig.h"
 #include "Misc/Paths.h"
+#include "Misc/RuntimePaths.h"
 #include "Logging/LogMacros.h"
 #include "Json/Json.h"
 
@@ -64,6 +65,30 @@ namespace Durin
 				bDirty = false;
 				LastError.clear(); return true;
 			}
+            auto LoadRuntimeProject() -> bool
+            {
+                const auto* Runtime=GetRuntimePathContext();
+                if (!Runtime || !Runtime->bStaged || bPluginAdmissionFrozen) return Fail("Invalid detached project admission");
+                FJsonDocument Document;
+                if (!Document.Parse(Runtime->ManifestJson)) return Fail("Invalid runtime project view");
+                const auto View=Document.GetRootView().GetView("Project");
+                FProjectDescriptor Candidate; Candidate.Name=View.GetView("Name").GetString();
+                if (!IsValidProjectIdentifier(Candidate.Name)) return Fail("Invalid runtime project identity");
+                if (Candidate.Name!=Document.GetRootView().GetView("Identity").GetView("Project").GetString()) return Fail("Conflicting runtime project identity");
+                const auto Roots=View.GetView("BaseModules"); if (!Roots.IsArray()) return Fail("Missing runtime project modules");
+                Candidate.BaseModules=std::vector<std::string>{};
+                std::set<std::string> Seen;
+                for (size_t I=0;I<Roots.Num();++I)
+                {
+                    const auto Name=Roots.GetView(I).GetString();
+                    if (!IsValidProjectIdentifier(Name) || !Seen.insert(StringUtils::FoldAscii(Name)).second) return Fail("Invalid runtime project module");
+                    Candidate.BaseModules->push_back(Name);
+                }
+                FProjectInfo Info; Info.Name=Candidate.Name; Info.ProjectDir=FPaths::ProjectDir();
+                Info.ContentDir=RuntimePathBinding("ProjectContent"); Info.MountRoot="/Game/";
+                Info.EnabledRootModules=*Candidate.BaseModules;
+                Descriptor=std::move(Candidate); Active=std::move(Info); return true;
+            }
 			auto GetActiveProject() const -> const FProjectInfo* override { return Active ? &*Active : nullptr; }
 			auto SetHistoryRecording(bool Enabled) -> void { if (Active) Active->bRecordInteractiveHistory=Enabled; }
 			auto GetCurrentProject() const -> const FProjectDescriptor* override { return Descriptor ? &*Descriptor : nullptr; }
@@ -80,7 +105,7 @@ namespace Durin
                 if (!ResolveProcessPlugins(Active ? Active->ProjectFile : "", Selection, Binaries, Resources, LastError, bAllowUnavailablePlugins, StartupDiagnostics)) return false;
                 auto Additional = Descriptor ? Descriptor->Mounts : std::vector<FMountPoint>{};
                 Additional.insert(Additional.end(), Resources.ContentMounts.begin(), Resources.ContentMounts.end());
-                if (Active && !FMountPaths::ValidateMountDefinitions(BuildProjectMountDefinitions(Active->ProjectFile, Additional), &LastError)) return false;
+                if (Active && (!GetRuntimePathContext() || !GetRuntimePathContext()->bStaged) && !FMountPaths::ValidateMountDefinitions(BuildProjectMountDefinitions(Active->ProjectFile, Additional), &LastError)) return false;
 				std::vector<FName> Ordinary;
 				for (const auto& Name : Selection.OrdinaryModules) Ordinary.emplace_back(Name);
 				std::vector<std::pair<FName, std::string>> ProcessModules;
@@ -238,6 +263,11 @@ namespace Durin
     {
         try
         {
+            if (!RuntimePathBinding("ProjectConfig").empty())
+            {
+                const std::array Files{std::filesystem::path(RuntimePathBinding("ProjectConfig"))};
+                return LoadConfigLayers(Files,OutDocument,OutReason);
+            }
             std::vector<std::filesystem::path> Files;
             const auto* Project = GetCurrentProject();
             if (Project && std::filesystem::weakly_canonical(File) == std::filesystem::weakly_canonical(std::filesystem::path(Project->ProjectDir) / "Configs/Project.yaml"))
@@ -255,6 +285,11 @@ namespace Durin
 	auto InitializeCurrentProject(const FProjectInitializationParams& Params) -> std::expected<void,FProjectError>
 	{
 		auto& Service=Manager();
+        if (const auto* Runtime=GetRuntimePathContext(); Runtime && Runtime->bStaged)
+        {
+            if (!Service.LoadRuntimeProject()) return std::unexpected(FProjectError{EProjectError::InvalidDescriptor,Service.GetLastError()});
+            return {};
+        }
 		if (Params.bOpenProjectBrowser || Params.RequestedProjectFile.empty()) { Service.ClearCurrentProject(); return {}; }
 		if (!Service.LoadProjectFile(Params.RequestedProjectFile)) return std::unexpected(FProjectError{EProjectError::InvalidDescriptor,Service.GetLastError()});
 		Service.SetHistoryRecording(Params.bRecordInteractiveHistory); return {};

@@ -6,6 +6,8 @@
 #include "HAL/PlatformLibrary.h"
 #include "Misc/Build.h"
 #include "Misc/Paths.h"
+#include "Misc/RuntimePaths.h"
+#include "Misc/StringHelper.h"
 #include "Modules/ModuleStartupScope.h"
 #include "Modules/ModuleOwnerState.h"
 
@@ -206,9 +208,26 @@ namespace Durin
 		const auto RequestedPath = std::filesystem::path(std::u8string(ModuleInfo->FileName.begin(), ModuleInfo->FileName.end()));
 		const std::string_view ExecutablePath = FPlatformProcess::ExecutablePath();
 		const auto ExecutableDirectory = std::filesystem::path(std::u8string(ExecutablePath.begin(), ExecutablePath.end())).parent_path();
-		const auto InitialPath = RequestedPath.is_absolute() ? RequestedPath : ExecutableDirectory / RequestedPath;
+		const auto InitialPath = RequestedPath.is_absolute() ? RequestedPath : (RuntimePathBinding("Binaries").empty() ? ExecutableDirectory : std::filesystem::path(RuntimePathBinding("Binaries"))) / RequestedPath;
+        if (const auto* Context=GetRuntimePathContext(); Context && Context->bStaged)
+        {
+            bool Declared=false;
+            try
+            {
+                const auto Key=StringUtils::FoldAscii(std::filesystem::weakly_canonical(InitialPath).generic_string());
+                const auto Library=Context->NativeLibraries.find(Key);
+                Declared=Library!=Context->NativeLibraries.end() && FileSha256(InitialPath)==Library->second;
+            }
+            catch (const std::exception&) {}
+            if (!Declared)
+            {
+                ModuleInfo->State=EModuleState::LoadFailed;
+                DURIN_ERROR("Module {} is outside the verified deployment closure.",InModuleName.ToString());
+                return nullptr;
+            }
+        }
 		auto Loaded = FPlatformLibrary::Load(InitialPath);
-		if (!Loaded && !RequestedPath.is_absolute() && !FPaths::ProjectDir().empty())
+		if (!Loaded && !RequestedPath.is_absolute() && !FPaths::ProjectDir().empty() && (!GetRuntimePathContext() || !GetRuntimePathContext()->bStaged))
 		{
 			// FPaths currently exposes native narrow filesystem strings, unlike the
 			// UTF-8 executable path and explicitly registered module filenames.

@@ -1,203 +1,72 @@
-from __future__ import annotations
-
+"""Client protocol tests. Product Stage/PE/publication coverage lives in GameExportContractTests."""
+import io
 import json
 from pathlib import Path
-import struct
+from unittest import mock
 
 import pytest
-
 from durin_dev_tool import stage
 from durin_dev_tool.errors import DevToolError
 
 
-def write(path: Path, value: bytes | str | dict) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if isinstance(value, dict):
-        value = json.dumps(value)
-    path.write_bytes(value.encode() if isinstance(value, str) else value)
-    return path
+class RecordingInput(io.StringIO):
+    def close(self):
+        self.sent = self.getvalue()
+        super().close()
 
 
-@pytest.fixture
-def deployment(tmp_path, monkeypatch):
-    root = tmp_path / "source"
-    project = write(root / "Game/Game.dproject", {"ProjectName": "Game", "BaseModules": []})
-    write(root / "Engine/Engine.dproject", {"ProjectName": "Engine", "BaseModules": []})
-    write(root / "Durin.dworkspace", {"Projects": ["Engine/Engine.dproject", "Game/Game.dproject"]})
-    write(root / "Game/Configs/Plugins.json", {"Plugins": {"Water": True}})
-    write(root / "Game/Plugins/Water/Water.dplugin", {
-        "SchemaVersion": 1, "Id": "Water", "Modules": [{"Name": "Water", "Path": "Source"}]})
-    write(root / "Game/Plugins/Water/Source/Water.dmodule", {"ModuleName": "Water"})
-    selection, _ = stage.resolve_plugins(root / "Engine", project, platform="Win64", runtime_variant="DurinGame",
-        project_files=[root / "Engine/Engine.dproject", project])
-    runtime = root / "Engine/Binaries/Win64/Debug/Runtime/DurinGame"
-    write(runtime / "DurinGame.exe", "game")
-    write(runtime / "DurinGame-Core.dll", "core")
-    identity = dict(Platform="Win64", Architecture="x64", Configuration="Debug", ToolchainABI="abi",
-        EngineBuild="1:" + stage.sha256(runtime / "DurinGame-Core.dll"), RuntimeVariant="DurinGame")
-    inventory = root / "Build/PluginBuild/PluginBuild.json"
-    write(inventory.parent / "Runtime/Water.dll", "water")
-    write(inventory.parent / "Runtime/native.dll", "native")
-    write(inventory, dict(SchemaVersion=2, Identity=identity, Inputs=selection["Inputs"], Binaries=[
-        dict(Module="Water", Owner="Water", Path="Runtime/Water.dll", RuntimeDependencies=["Runtime/native.dll"])]))
-    snapshot = dict(SchemaVersion=1, EngineVersion="1", Selection=json.dumps(selection),
-        ProjectDescriptor=project.read_text(), PluginStartupConfig=(project.parent/"Configs/Plugins.json").read_text(), EngineGameDefaults="{}\n", Mounts=[], **{k: identity[k] for k in ("Platform", "Architecture", "Configuration", "ToolchainABI")},
-        **{"Project.yaml": "{}", "DurinGame.yaml": "{}"})
-    cook = root / "Cook"
-    write(cook / "PluginCook.json", snapshot)
-    write(cook / "CookManifest.bin", "manifest")
-    write(cook / "Shaders/ShaderLibrary.dslb", "shader")
-    info = dict(Platform="win64", Snapshot=json.dumps(snapshot), CookManifestSha256=stage.sha256(cook / "CookManifest.bin"),
-        Files=[dict(Path=p, Sha256=stage.sha256(cook / p)) for p in ("PluginCook.json", "Shaders/ShaderLibrary.dslb")])
-    output = tmp_path / "deployed"
-    write(output / "previous.txt", "previous generation")
-    monkeypatch.setattr(stage, "pe_imports", lambda p: {"Water.dll": ["native.dll"], "native.dll": ["leaf.dll"]}.get(p.name, []))
-    write(runtime.parent.parent / "ThirdParty/leaf.dll", "leaf")
-    return dict(root=root, project=project, cook=cook, output=output, game_runtime=runtime, inventory_file=inventory, info=info)
+def terminal(**changes):
+    event = dict(ProtocolVersion=1, RequestId="Client1", Sequence=0, Kind="result", Status="succeeded",
+        ExitCode=0, Category="none", ChildrenRetired=True, Message="staged", PlanFingerprint="0"*64, Output="/out")
+    event.update(changes)
+    return event
 
 
-def test_stage_selects_runtime_and_transitive_native_closure(deployment):
-    result = stage.stage_game(**deployment)
-    runtime = Path(result["runtime"])
-    assert result["plugins"] == ["Water"]
-    assert not (deployment["output"] / "previous.txt").exists()
-    manifest = json.loads((runtime / "PluginRuntime.json").read_text())
-    files = {f["Path"] for f in manifest["Files"]}
-    assert {"DurinGame.exe", "DurinGame-Core.dll", "Plugins/Runtime/Water.dll", "native.dll", "leaf.dll"} <= files
-    assert all(stage.sha256(runtime / f["Path"]) == f["Sha256"] for f in manifest["Files"])
-    assert not list(deployment["output"].rglob("*.dplugin"))
-    assert not list(deployment["output"].rglob("*DurinEditor*"))
-    assert (runtime / "Templates/TP_DurinGame.yaml").read_bytes() == b"{}\n"
-    assert (runtime / "Project/Configs/Plugins.json").read_bytes() == (deployment["project"].parent/"Configs/Plugins.json").read_bytes()
+def process(events, code=0):
+    child = mock.MagicMock()
+    child.__enter__.return_value = child
+    child.stdin = RecordingInput()
+    child.stdout = io.StringIO("".join(json.dumps(e)+"\n" for e in events))
+    child.wait.return_value = code
+    return child
 
 
-def recapture(deployment):
-    selection, _ = stage.resolve_plugins(deployment["root"] / "Engine", deployment["project"],
-        platform="Win64", runtime_variant="DurinGame", project_files=[deployment["root"] / "Engine/Engine.dproject", deployment["project"]])
-    snapshot = json.loads(deployment["info"]["Snapshot"])
-    snapshot.update(Selection=json.dumps(selection), ProjectDescriptor=deployment["project"].read_text(),
-        PluginStartupConfig=(deployment["project"].parent/"Configs/Plugins.json").read_text())
-    deployment["info"]["Snapshot"] = json.dumps(snapshot)
-    write(deployment["cook"] / "PluginCook.json", snapshot)
-    for item in deployment["info"]["Files"]:
-        item["Sha256"] = stage.sha256(deployment["cook"] / item["Path"])
-    inventory = json.loads(deployment["inventory_file"].read_text())
-    inventory["Inputs"] = selection["Inputs"]
-    write(deployment["inventory_file"], inventory)
+def test_dispatch_keeps_pipe_owned_until_result():
+    child = process([terminal()])
+    request = dict(ProtocolVersion=1, Kind="request", RequestId="Client1")
+    with mock.patch.object(stage.subprocess, "Popen", return_value=child) as launch:
+        result = stage.dispatch_worker(Path("worker.exe"), request, stdout=io.StringIO(), stderr=io.StringIO())
+    assert json.loads(child.stdin.sent) == request
+    assert launch.call_args.args[0] == ["worker.exe", "--protocol=1"]
+    assert result["Output"] == "/out"
+    child.wait.assert_called_once_with(timeout=30)
 
 
-@pytest.mark.parametrize("plugins", [{}, {"Water": True}])
-def test_stage_handles_no_native_plugins(deployment, plugins):
-    write(deployment["project"].parent/"Configs/Plugins.json", {"Plugins":plugins})
-    write(deployment["root"] / "Game/Plugins/Water/Water.dplugin", dict(SchemaVersion=1, Id="Water"))
-    recapture(deployment)
-    result = stage.stage_game(**deployment)
-    runtime = Path(result["runtime"])
-    manifest = json.loads((runtime / "PluginRuntime.json").read_text())
-    assert manifest["Plugins"] == list(plugins)
-    assert manifest["Binaries"] == []
-    assert not list(runtime.rglob("Water.dll"))
+@pytest.mark.parametrize("events,code", [
+    ([], 0), ([terminal(ExitCode=8)], 0), ([terminal(ChildrenRetired=False)], 0),
+    ([terminal(ProtocolVersion=2)], 0), ([terminal(RequestId="Wrong")], 0),
+    ([terminal(), terminal(Sequence=1)], 0),
+    ([terminal(Status="failed", ExitCode=8, Category="stage", Message="missing DLL")], 8),
+])
+def test_invalid_or_failed_worker_cannot_be_reported_as_success(events, code):
+    child = process(events, code)
+    with mock.patch.object(stage.subprocess, "Popen", return_value=child):
+        with pytest.raises(DevToolError):
+            stage.dispatch_worker(Path("worker.exe"), dict(RequestId="Client1"), stdout=io.StringIO(), stderr=io.StringIO())
 
 
-def test_stage_preserves_ordinary_project_module_roots(deployment):
-    descriptor = json.loads(deployment["project"].read_text())
-    descriptor.update(BaseModules=["GameModule"], ModuleDirs={"GameModule": "Source/GameModule"})
-    write(deployment["project"], descriptor)
-    write(deployment["project"].parent / "Source/GameModule/GameModule.dmodule", dict(ModuleName="GameModule"))
-    write(deployment["project"].parent / "Binaries/Win64/Debug/Runtime/DurinGame/DurinGame-GameModule.dll", "module")
-    recapture(deployment)
-    result = stage.stage_game(**deployment)
-    assert (Path(result["runtime"]) / "DurinGame-GameModule.dll").read_text() == "module"
-
-
-def test_stage_cannot_replace_build_inventory(deployment):
-    deployment["output"] = deployment["inventory_file"].parent
-    with pytest.raises(DevToolError, match="overlaps input"):
-        stage.stage_game(**deployment)
-    assert deployment["inventory_file"].is_file()
-
-
-@pytest.mark.parametrize("failure", ["native", "cook", "selection", "identity", "shader", "platform", "stale"])
-def test_stage_rejects_invalid_inputs_preserving_previous_generation(deployment, failure):
-    if failure == "native":
-        (deployment["game_runtime"].parent.parent / "ThirdParty/leaf.dll").unlink()
-    elif failure == "cook":
-        write(deployment["cook"] / "PluginCook.json", "corrupt")
-    elif failure == "selection":
-        descriptor = json.loads(deployment["project"].read_text())
-        write(deployment["project"].parent/"Configs/Plugins.json", {"Plugins":{"Water":False}})
-    elif failure == "identity":
-        inventory = json.loads(deployment["inventory_file"].read_text())
-        inventory["Identity"]["Configuration"] = "Release"
-        write(deployment["inventory_file"], inventory)
-    elif failure == "shader":
-        deployment["info"]["Files"] = [f for f in deployment["info"]["Files"] if not f["Path"].endswith(".dslb")]
-    elif failure == "platform":
-        deployment["info"]["Platform"] = "macos"
-    else:
-        inventory = json.loads(deployment["inventory_file"].read_text())
-        for item in inventory["Inputs"]:
-            if item["Path"].startswith("Plugin/Water"):
-                item["Hash"] = "stale"
-        write(deployment["inventory_file"], inventory)
-    with pytest.raises(DevToolError):
-        stage.stage_game(**deployment)
-    assert (deployment["output"] / "previous.txt").read_text() == "previous generation"
-    assert not list(deployment["output"].parent.glob("deployed.stage-*"))
-
-
-def test_stage_rolls_back_failed_replacement(deployment, monkeypatch):
-    replace = stage.os.replace
-    def fail_publish(source, destination):
-        if Path(source).name == "payload":
-            raise OSError("injected publication failure")
-        return replace(source, destination)
-    monkeypatch.setattr(stage.os, "replace", fail_publish)
-    with pytest.raises(OSError, match="injected"):
-        stage.stage_game(**deployment)
-    assert (deployment["output"] / "previous.txt").read_text() == "previous generation"
-
-
-@pytest.mark.parametrize("occupied", [False, True])
-def test_stage_preserves_backup_when_rollback_is_unavailable(deployment, monkeypatch, occupied):
-    replace = stage.os.replace
-    def fail_publish_and_restore(source, destination):
-        if Path(source).name in {"payload", "previous"}:
-            if occupied:
-                write(Path(destination) / "foreign.txt", "occupied")
-            raise OSError("injected rename failure")
-        return replace(source, destination)
-    monkeypatch.setattr(stage.os, "replace", fail_publish_and_restore)
-    with pytest.raises(DevToolError, match="restore previous output"):
-        stage.stage_game(**deployment)
-    backups = list(deployment["output"].parent.glob("deployed.stage-*/previous/previous.txt"))
-    assert len(backups) == 1 and backups[0].read_text() == "previous generation"
-
-
-@pytest.mark.parametrize("relative", ["../outside", "/outside", "C:/outside", "a\\b", ""])
-def test_stage_paths_cannot_escape(tmp_path, relative):
-    with pytest.raises(DevToolError):
-        stage.contained(tmp_path, relative)
-
-
-@pytest.mark.parametrize("delay", [False, True])
-def test_pe_reads_ordinary_and_delay_imports(tmp_path, delay):
-    data = bytearray(1024)
-    data[:2] = b"MZ"
-    struct.pack_into("<I", data, 0x3c, 0x80)
-    data[0x80:0x84] = b"PE\0\0"
-    struct.pack_into("<H", data, 0x86, 1)
-    struct.pack_into("<H", data, 0x94, 240)
-    optional = 0x98
-    struct.pack_into("<H", data, optional, 0x20b)
-    struct.pack_into("<IIII", data, optional + 240 + 8, 512, 0x1000, 512, 512)
-    struct.pack_into("<II", data, optional + 112 + (13 if delay else 1) * 8, 0x1000, 64)
-    struct.pack_into("<I", data, 512 + (4 if delay else 12), 0x1080)
-    if delay:
-        struct.pack_into("<I", data, 512, 1)
-    data[640:651] = b"native.dll\0"
-    binary = write(tmp_path / "binary.dll", bytes(data))
-    assert stage.pe_imports(binary) == ["native.dll"]
-    binary.write_bytes(bytes(data[:520]))
-    with pytest.raises(DevToolError, match="Invalid PE"):
-        stage.pe_imports(binary)
+def test_interrupt_sends_cancel_and_waits_for_terminal_cleanup():
+    child = process([], 130)
+    class InterruptedOutput:
+        def __init__(self): self.count = 0
+        def __iter__(self):
+            self.count += 1
+            if self.count == 1: raise KeyboardInterrupt
+            return iter([json.dumps(terminal(Status="cancelled", ExitCode=130, Category="cancelled", Message="cancelled"))+"\n"])
+    child.stdout = InterruptedOutput()
+    with mock.patch.object(stage.subprocess, "Popen", return_value=child):
+        with pytest.raises(DevToolError, match="cancelled"):
+            stage.dispatch_worker(Path("worker.exe"), dict(RequestId="Client1"), stdout=io.StringIO(), stderr=io.StringIO())
+    frames = [json.loads(line) for line in child.stdin.sent.splitlines()]
+    assert frames[-1] == dict(ProtocolVersion=1, Kind="cancel", RequestId="Client1")
+    child.wait.assert_called_once_with(timeout=30)

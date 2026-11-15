@@ -1,3 +1,4 @@
+#include "Misc/RuntimePaths.h"
 #include "Engine/Engine.h"
 #include "Threading/RunnableThread.h"
 
@@ -241,7 +242,7 @@ namespace Durin
 		FAssetManagerSettings Management;
 		if (const auto* Project = GetCurrentProject())
 		{
-			const auto Loaded = FProjectAssetManagerSettingsStore(std::filesystem::path(Project->ProjectDir) / "Configs" / "Project.yaml").Load(Management);
+			const auto Loaded = FProjectAssetManagerSettingsStore(RuntimePathBinding("ProjectConfig").empty() ? std::filesystem::path(Project->ProjectDir) / "Configs" / "Project.yaml" : std::filesystem::path(RuntimePathBinding("ProjectConfig"))).Load(Management);
 			if (!Loaded) return std::unexpected(Loaded.error());
 		}
 		DClass* ManagerClass = Management.AssetManagerClass.empty() ? DAssetManager::StaticClass()

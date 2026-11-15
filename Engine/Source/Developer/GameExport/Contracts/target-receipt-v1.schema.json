@@ -1,0 +1,311 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "target-receipt-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "SchemaVersion",
+    "Status",
+    "Identity",
+    "InputFingerprint",
+    "SelectionFingerprint",
+    "Products",
+    "Modules",
+    "Prerequisites",
+    "Inputs",
+    "BuildInputs",
+    "CookCompatibility"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": 1
+    },
+    "Status": {
+      "const": "succeeded"
+    },
+    "Identity": {
+      "$ref": "common-v1.schema.json#/$defs/identity"
+    },
+    "InputFingerprint": {
+      "$ref": "common-v1.schema.json#/$defs/sha256"
+    },
+    "SelectionFingerprint": {
+      "$ref": "common-v1.schema.json#/$defs/sha256"
+    },
+    "Products": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "Owner",
+          "Module",
+          "Host",
+          "Source",
+          "Destination",
+          "Kind",
+          "Sha256"
+        ],
+        "properties": {
+          "Owner": {
+            "$ref": "common-v1.schema.json#/$defs/identifier"
+          },
+          "Module": {
+            "$ref": "common-v1.schema.json#/$defs/identifier"
+          },
+          "Host": {
+            "const": "Runtime"
+          },
+          "Source": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "Root",
+              "Path"
+            ],
+            "properties": {
+              "Root": {
+                "enum": [
+                  "Engine",
+                  "Project",
+                  "Artifacts",
+                  "Dependencies"
+                ]
+              },
+              "Path": {
+                "$ref": "common-v1.schema.json#/$defs/relativePath"
+              }
+            }
+          },
+          "Destination": {
+            "$ref": "common-v1.schema.json#/$defs/relativePath"
+          },
+          "Kind": {
+            "enum": [
+              "Executable",
+              "NativeLibrary",
+              "RuntimeData",
+              "License"
+            ]
+          },
+          "Sha256": {
+            "$ref": "common-v1.schema.json#/$defs/sha256"
+          },
+          "License": {
+            "type": "string",
+            "minLength": 1
+          },
+          "Provenance": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "minItems": 1,
+      "maxItems": 65536,
+      "uniqueItems": true
+    },
+    "Modules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "Name",
+          "Owner",
+          "Host",
+          "Linked",
+          "Dynamic",
+          "RuntimeFiles"
+        ],
+        "properties": {
+          "Name": {
+            "$ref": "common-v1.schema.json#/$defs/identifier"
+          },
+          "Owner": {
+            "$ref": "common-v1.schema.json#/$defs/identifier"
+          },
+          "Host": {
+            "const": "Runtime"
+          },
+          "Linked": {
+            "type": "array",
+            "items": {
+              "$ref": "common-v1.schema.json#/$defs/identifier"
+            },
+            "minItems": 0,
+            "maxItems": 65536,
+            "uniqueItems": true
+          },
+          "Dynamic": {
+            "type": "array",
+            "items": {
+              "$ref": "common-v1.schema.json#/$defs/identifier"
+            },
+            "minItems": 0,
+            "maxItems": 65536,
+            "uniqueItems": true
+          },
+          "RuntimeFiles": {
+            "type": "array",
+            "items": {
+              "$ref": "common-v1.schema.json#/$defs/relativePath"
+            },
+            "minItems": 0,
+            "maxItems": 65536,
+            "uniqueItems": true
+          },
+          "Binary": {
+            "$ref": "common-v1.schema.json#/$defs/relativePath"
+          },
+          "Phase": {
+            "enum": [
+              "Providers",
+              "EngineReady"
+            ]
+          }
+        }
+      },
+      "minItems": 0,
+      "maxItems": 65536,
+      "uniqueItems": true
+    },
+    "Prerequisites": {
+      "$ref": "common-v1.schema.json#/$defs/prerequisites"
+    },
+    "Inputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "Root",
+          "Path",
+          "Sha256"
+        ],
+        "properties": {
+          "Root": {
+            "enum": [
+              "Engine",
+              "Project",
+              "Artifacts",
+              "Workspace",
+              "Dependencies",
+              "Host"
+            ]
+          },
+          "Path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "Sha256": {
+            "$ref": "common-v1.schema.json#/$defs/sha256"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "Root": {
+                  "const": "Host"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "Path": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "Path": {
+                  "$ref": "common-v1.schema.json#/$defs/relativePath"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "minItems": 1,
+      "maxItems": 131072
+    },
+    "BuildInputs": {
+      "type": "array",
+      "maxItems": 131072,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "Path",
+          "Hash"
+        ],
+        "properties": {
+          "Path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "Hash": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "CookCompatibility": {
+      "$ref": "common-v1.schema.json#/$defs/sha256"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "Identity": {
+            "properties": {
+              "Configuration": {
+                "const": "Debug"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "Prerequisites": {
+            "properties": {
+              "CRT": {
+                "const": "developer-debug-crt"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "Identity": {
+            "properties": {
+              "Configuration": {
+                "const": "Release"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "Prerequisites": {
+            "properties": {
+              "CRT": {
+                "const": "vcredist-x64"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

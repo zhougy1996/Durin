@@ -1,0 +1,260 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "runtime-v2.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "SchemaVersion",
+    "Identity",
+    "ApplicationId",
+    "Executable",
+    "Paths",
+    "Project",
+    "UserData",
+    "Prerequisites",
+    "Cook",
+    "NativeReceiptSha256",
+    "Plugins",
+    "Binaries",
+    "Mounts",
+    "ConfigurationFiles",
+    "Files"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": 2
+    },
+    "Identity": {
+      "$ref": "common-v1.schema.json#/$defs/identity"
+    },
+    "ApplicationId": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,127}$"
+    },
+    "Executable": {
+      "$ref": "common-v1.schema.json#/$defs/relativePath"
+    },
+    "Paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Engine",
+        "Project",
+        "EngineContent",
+        "ProjectContent",
+        "Binaries",
+        "ThirdParty",
+        "Config",
+        "Cook"
+      ],
+      "properties": {
+        "Engine": {
+          "$ref": "common-v1.schema.json#/$defs/rootPath"
+        },
+        "Project": {
+          "$ref": "common-v1.schema.json#/$defs/rootPath"
+        },
+        "EngineContent": {
+          "$ref": "common-v1.schema.json#/$defs/rootPath"
+        },
+        "ProjectContent": {
+          "$ref": "common-v1.schema.json#/$defs/rootPath"
+        },
+        "Binaries": {
+          "$ref": "common-v1.schema.json#/$defs/rootPath"
+        },
+        "ThirdParty": {
+          "$ref": "common-v1.schema.json#/$defs/rootPath"
+        },
+        "Config": {
+          "$ref": "common-v1.schema.json#/$defs/rootPath"
+        },
+        "Cook": {
+          "$ref": "common-v1.schema.json#/$defs/rootPath"
+        }
+      }
+    },
+    "Project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Name",
+        "BaseModules"
+      ],
+      "properties": {
+        "Name": {
+          "$ref": "common-v1.schema.json#/$defs/identifier"
+        },
+        "BaseModules": {
+          "type": "array",
+          "items": {
+            "$ref": "common-v1.schema.json#/$defs/identifier"
+          },
+          "minItems": 0,
+          "maxItems": 65536,
+          "uniqueItems": true
+        }
+      }
+    },
+    "UserData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Policy",
+        "Namespace"
+      ],
+      "properties": {
+        "Policy": {
+          "const": "LocalAppData"
+        },
+        "Namespace": {
+          "const": "Durin"
+        }
+      }
+    },
+    "Prerequisites": {
+      "$ref": "common-v1.schema.json#/$defs/prerequisites"
+    },
+    "Cook": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Manifest",
+        "Snapshot",
+        "ShaderLibrary",
+        "SelectionFingerprint"
+      ],
+      "properties": {
+        "Manifest": {
+          "$ref": "common-v1.schema.json#/$defs/file"
+        },
+        "Snapshot": {
+          "$ref": "common-v1.schema.json#/$defs/file"
+        },
+        "ShaderLibrary": {
+          "$ref": "common-v1.schema.json#/$defs/file"
+        },
+        "SelectionFingerprint": {
+          "$ref": "common-v1.schema.json#/$defs/sha256"
+        }
+      }
+    },
+    "NativeReceiptSha256": {
+      "$ref": "common-v1.schema.json#/$defs/sha256"
+    },
+    "Plugins": {
+      "type": "array",
+      "items": {
+        "$ref": "common-v1.schema.json#/$defs/identifier"
+      },
+      "minItems": 0,
+      "maxItems": 65536,
+      "uniqueItems": true
+    },
+    "Binaries": {
+      "type": "array",
+      "items": {
+        "$ref": "common-v1.schema.json#/$defs/binary"
+      },
+      "minItems": 0,
+      "maxItems": 65536,
+      "uniqueItems": true
+    },
+    "Mounts": {
+      "type": "array",
+      "items": {
+        "$ref": "common-v1.schema.json#/$defs/mount"
+      },
+      "minItems": 2,
+      "maxItems": 65536,
+      "uniqueItems": true
+    },
+    "ConfigurationFiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Project",
+        "Application",
+        "Defaults"
+      ],
+      "properties": {
+        "Project": {
+          "$ref": "common-v1.schema.json#/$defs/relativePath"
+        },
+        "Application": {
+          "$ref": "common-v1.schema.json#/$defs/relativePath"
+        },
+        "Defaults": {
+          "$ref": "common-v1.schema.json#/$defs/relativePath"
+        }
+      }
+    },
+    "Files": {
+      "type": "array",
+      "items": {
+        "$ref": "common-v1.schema.json#/$defs/file"
+      },
+      "minItems": 1,
+      "maxItems": 65536,
+      "uniqueItems": true
+    },
+    "NativeLibraries": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 65536,
+      "items": {
+        "$ref": "common-v1.schema.json#/$defs/relativePath"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "Identity": {
+            "properties": {
+              "Configuration": {
+                "const": "Debug"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "Prerequisites": {
+            "properties": {
+              "CRT": {
+                "const": "developer-debug-crt"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "Identity": {
+            "properties": {
+              "Configuration": {
+                "const": "Release"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "Prerequisites": {
+            "properties": {
+              "CRT": {
+                "const": "vcredist-x64"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

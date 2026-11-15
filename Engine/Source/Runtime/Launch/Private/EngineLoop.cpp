@@ -25,6 +25,7 @@
 #include "HAL/PlatformProcess.h"
 #include "Misc/AppConfig.h"
 #include "Misc/Paths.h"
+#include "Misc/RuntimePaths.h"
 #include "Misc/MountPaths.h"
 #include "Project/Project.h"
 #include "Interfaces/IProjectManager.h"
@@ -70,8 +71,17 @@ namespace Durin
 		FPlatformMisc::AddRuntimeBinaryDirectory(FPaths::EngineThirdPartyRuntimeBinariesDir().c_str());
 
 		FRuntimeStoragePreparationResult RuntimeStorage = PrepareRuntimeStorage();
+        if (GetRuntimePathContext() && GetRuntimePathContext()->bStaged && !RuntimeStorage.Warnings.empty())
+        { for (const auto& Warning:RuntimeStorage.Warnings) std::fprintf(stderr,"Durin: %s\n",Warning.c_str()); return false; }
 		PublishProcessCrashRoot(FPaths::LaunchSavedDir());
-		LoadAppConfig(RuntimeStorage.AppConfigPath.string());
+        if (GetRuntimePathContext() && GetRuntimePathContext()->bStaged)
+        {
+            const std::array Layers{std::filesystem::path(RuntimePathBinding("Defaults")),
+                std::filesystem::path(RuntimePathBinding("AppConfig")),RuntimeStorage.AppConfigPath};
+            std::string Error;
+            if (!LoadAppConfigLayers(Layers,Error)) { std::fprintf(stderr,"Durin: invalid deployment/user configuration: %s\n",Error.c_str()); return false; }
+        }
+        else LoadAppConfig(RuntimeStorage.AppConfigPath.string());
 
 		FNameInit(); // Initialize FName system.
 		LoggerInit();
@@ -118,9 +128,9 @@ namespace Durin
         // before loading any project/plugin-dependent providers.
         const auto ConfigName = std::string(DURIN_RUNTIME_VARIANT) + ".yaml";
         std::vector<std::filesystem::path> ConfigLayers{
-            std::filesystem::path(FPaths::LaunchDir()) / "Templates" / ("TP_" + ConfigName)};
+            RuntimePathBinding("Defaults").empty() ? std::filesystem::path(FPaths::LaunchDir()) / "Templates" / ("TP_" + ConfigName) : std::filesystem::path(RuntimePathBinding("Defaults"))};
         for (const auto& Directory : GetActivePluginResources().ConfigDirectories) ConfigLayers.push_back(Directory / ConfigName);
-        if (const auto* ActiveProject = GetCurrentProject()) ConfigLayers.emplace_back(std::filesystem::path(ActiveProject->ProjectDir) / "Configs" / ConfigName);
+        if (const auto* ActiveProject = GetCurrentProject()) ConfigLayers.emplace_back(RuntimePathBinding("AppConfig").empty() ? std::filesystem::path(ActiveProject->ProjectDir) / "Configs" / ConfigName : std::filesystem::path(RuntimePathBinding("AppConfig")));
         ConfigLayers.push_back(RuntimeStorage.AppConfigPath);
         std::string ConfigError;
         if (!LoadAppConfigLayers(ConfigLayers, ConfigError))
@@ -134,7 +144,7 @@ namespace Durin
 		std::string MountError;
 		std::filesystem::path CookedMountRoot;
 #if !DURIN_WITH_EDITOR
-        CookedMountRoot=std::filesystem::path(FPaths::LaunchDir()).lexically_normal();
+        CookedMountRoot=RuntimePathBinding("Cook").empty() ? std::filesystem::path(FPaths::LaunchDir()).lexically_normal() : std::filesystem::path(RuntimePathBinding("Cook"));
 #endif
         if (!FMountPaths::InitDefaultMountPoints(&MountError,true,CookedMountRoot))
 		{
@@ -181,7 +191,7 @@ namespace Durin
 			? EShaderTargetPlatform::MacOS : EShaderTargetPlatform::Win64;
 		FShaderOperationResult ShaderDataError;
 		if (!(ShaderDataError = InitializeShaderData(FShaderDataConfiguration::Cooked(
-				std::filesystem::path(FPaths::LaunchDir()).lexically_normal(),
+				RuntimePathBinding("Cook").empty() ? std::filesystem::path(FPaths::LaunchDir()).lexically_normal() : std::filesystem::path(RuntimePathBinding("Cook")),
 				ShaderPlatform))))
 		{
 			DURIN_ERROR("Engine pre-initialization failed because Cooked Shader data could not start: {}", std::string(ShaderDataError.error()));
@@ -193,7 +203,7 @@ namespace Durin
 		FAssetRuntimeConfiguration AssetConfiguration = FAssetRuntimeConfiguration::Authored();
 #if !DURIN_WITH_EDITOR
 		const auto ConfigurationResult = FAssetRuntimeConfiguration::Cooked(
-			std::filesystem::path(FPaths::LaunchDir()).lexically_normal(), AssetConfiguration);
+			RuntimePathBinding("Cook").empty() ? std::filesystem::path(FPaths::LaunchDir()).lexically_normal() : std::filesystem::path(RuntimePathBinding("Cook")), AssetConfiguration);
 		if (!ConfigurationResult)
 		{
 			DURIN_ERROR("Cooked asset configuration failed: {}", ConfigurationResult.error());

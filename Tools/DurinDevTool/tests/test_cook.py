@@ -100,6 +100,7 @@ def test_cook_defaults_use_selected_profile_and_forward_game(
     if explicit_target:
         arguments.extend(["--target", explicit_target])
     _, namespace = CommandRegistry().parse(arguments)
+    namespace.target_receipt = tmp_path / "TargetReceipt.json"
     repository = REPOSITORY.at_root(tmp_path)
     selection = cook.select_runtime(REPOSITORY)
     selection = replace(selection, repository=repository, profile=replace(selection.profile, platform=platform))
@@ -162,6 +163,7 @@ def test_cook_maps_stable_native_contract_and_renders_json(tmp_path: Path) -> No
             "no_incremental": True,
             "dry_run": True,
             "output_format": "json",
+            "target_receipt": tmp_path / "TargetReceipt.json",
         },
     )()
     calls: list[list[str]] = []
@@ -196,6 +198,7 @@ def test_cook_maps_stable_native_contract_and_renders_json(tmp_path: Path) -> No
             f"--output={(tmp_path / 'Saved/Cooked').resolve()}",
             "--target=win64",
             "--profile=game",
+            f"--target-receipt={tmp_path / 'TargetReceipt.json'}",
             "--json",
             "--root=/Game/Root",
             "--root=/Engine/Default",
@@ -227,6 +230,7 @@ def test_failed_cook_reads_complete_report_from_process_log(tmp_path: Path) -> N
         ["cook", "--project", str(project), "--output-dir", str(tmp_path / "Cook"),
          "--target", "macos", "--format", "json"]
     )
+    namespace.target_receipt = tmp_path / "TargetReceipt.json"
     repository = REPOSITORY.at_root(tmp_path)
     selection = replace(cook.select_runtime(REPOSITORY), repository=repository)
     output = io.StringIO()
@@ -247,3 +251,15 @@ def test_cook_rejects_retired_contributor_report_without_compatibility_fallback(
         package["contributor"] = package.pop("serializer")
     with pytest.raises(DevToolError):
         cook._read_report(json.dumps(retired))
+
+
+@pytest.mark.parametrize("configuration", ["Debug", "Release"])
+def test_target_game_configuration_is_independent_of_host(configuration):
+    _, namespace = CommandRegistry().parse(["cook", "--project", "Sandbox/Sandbox.dproject", "--output-dir", "Build/TestCook", "--configuration", configuration, "--format", "json"])
+    runner=mock.Mock(return_value=report())
+    output=io.StringIO()
+    assert cook.run(namespace, repository_root=REPOSITORY_ROOT, repository_context=REPOSITORY,
+        stdout=output, stderr=io.StringIO(), command_runner=runner,
+        executable_resolver=lambda *_:REPOSITORY_ROOT/'tool.exe')==0
+    arguments=runner.call_args.args[0]
+    assert any('TargetReceipts' in arg and '/Sandbox/' in arg.replace('\\','/') and configuration in arg for arg in arguments if arg.startswith('--target-receipt='))

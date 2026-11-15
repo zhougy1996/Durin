@@ -1,0 +1,139 @@
+{
+  "SchemaVersion": 2,
+  "Identity": {
+    "EngineBuild": "fixture-engine",
+    "Project": "Sandbox",
+    "Platform": "Win64",
+    "Architecture": "x64",
+    "Configuration": "Release",
+    "RuntimeVariant": "DurinGame",
+    "ToolchainABI": "fixture-msvc-x64-md",
+    "Target": "DurinLauncher"
+  },
+  "ApplicationId": "org.durin.Sandbox",
+  "Executable": "Binaries/Win64/Sandbox.exe",
+  "Paths": {
+    "Engine": ".",
+    "Project": ".",
+    "EngineContent": "Content/Engine",
+    "ProjectContent": "Content/Game",
+    "Binaries": "Binaries/Win64",
+    "ThirdParty": "Binaries/Win64",
+    "Config": "Config",
+    "Cook": "Content"
+  },
+  "Project": {
+    "Name": "Sandbox",
+    "BaseModules": [
+      "Sandbox"
+    ]
+  },
+  "UserData": {
+    "Policy": "LocalAppData",
+    "Namespace": "Durin"
+  },
+  "Prerequisites": {
+    "SystemPolicy": "win64-system-v1",
+    "CRT": "vcredist-x64",
+    "MinimumVersion": "14.0.0.0",
+    "Provenance": "fixture-only-not-a-runtime-requirement",
+    "License": "fixture-only"
+  },
+  "Cook": {
+    "Manifest": {
+      "Path": "Content/CookManifest.bin",
+      "Sha256": "03fb94180aa0ff2c583d97bbb1fc6d84a6ba7df5bde3c267459bb9a9b8c9841b"
+    },
+    "Snapshot": {
+      "Path": "Content/RuntimeCook.json",
+      "Sha256": "16a0eeb0791b6c92451fd284dd9f599e0a7dbe7f6ebea6e2d2d06c7f74aec112"
+    },
+    "ShaderLibrary": {
+      "Path": "Content/Shaders/ShaderLibrary.dslb",
+      "Sha256": "e137e75a5e0e7a623ca39de480667a55b43e0eedec58767634ebaef07c33383a"
+    },
+    "SelectionFingerprint": "5f0a98b109323313f54439e8d7a3cfa9d951c763d21838f0c8f518ed3cdc7e62"
+  },
+  "NativeReceiptSha256": "6f32860910ca0fb2a20c7fda143666b09dbf8db5238195c90a586fb542ff0cad",
+  "Plugins": [
+    "Scenery",
+    "Weather"
+  ],
+  "Binaries": [
+    {
+      "Module": "WeatherRuntime",
+      "Owner": "Weather",
+      "Phase": "EngineReady",
+      "Path": "Binaries/Win64/DurinGame-WeatherRuntime.dll",
+      "RuntimeDependencies": []
+    }
+  ],
+  "Mounts": [
+    {
+      "VirtualRoot": "/Engine/",
+      "Path": "Content/Engine",
+      "CanReference": []
+    },
+    {
+      "VirtualRoot": "/Game/",
+      "Path": "Content/Game",
+      "CanReference": [
+        "/Engine/"
+      ]
+    },
+    {
+      "VirtualRoot": "/Plugins/Scenery/",
+      "Path": "Content/Plugins/Scenery",
+      "CanReference": [
+        "/Engine/"
+      ]
+    },
+    {
+      "VirtualRoot": "/Plugins/Weather/",
+      "Path": "Content/Plugins/Weather",
+      "CanReference": [
+        "/Engine/",
+        "/Plugins/Scenery/"
+      ]
+    }
+  ],
+  "ConfigurationFiles": {
+    "Project": "Config/Project.yaml",
+    "Application": "Config/DurinGame.yaml",
+    "Defaults": "Config/Defaults/DurinGame.yaml"
+  },
+  "Files": [
+    {
+      "Path": "Binaries/Win64/Sandbox.exe",
+      "Sha256": "9095bdb859308b62acf04036ffd4adfe366d7f737d276eb6c46ae434f3816c9b"
+    },
+    {
+      "Path": "Content/CookManifest.bin",
+      "Sha256": "03fb94180aa0ff2c583d97bbb1fc6d84a6ba7df5bde3c267459bb9a9b8c9841b"
+    },
+    {
+      "Path": "Content/RuntimeCook.json",
+      "Sha256": "16a0eeb0791b6c92451fd284dd9f599e0a7dbe7f6ebea6e2d2d06c7f74aec112"
+    },
+    {
+      "Path": "Content/Shaders/ShaderLibrary.dslb",
+      "Sha256": "e137e75a5e0e7a623ca39de480667a55b43e0eedec58767634ebaef07c33383a"
+    },
+    {
+      "Path": "Config/Project.yaml",
+      "Sha256": "06c61d655a10057c73b36af18f00e78402119e3e6cf02ca630d2092fc8e5d707"
+    },
+    {
+      "Path": "Config/DurinGame.yaml",
+      "Sha256": "0ff3269a11cfc870505f76e0bd74bb5cd2b6261b8919f12c987662425d0bdc0d"
+    },
+    {
+      "Path": "Config/Defaults/DurinGame.yaml",
+      "Sha256": "90455f4b5c755aa254a00897844bf66b7ef24e85de495efd0a046f261f492d5f"
+    },
+    {
+      "Path": "Binaries/Win64/DurinGame-WeatherRuntime.dll",
+      "Sha256": "ad2ec6dfebaaf95c2d68fcd18b5ad9c9635fc19a7cf9ccf46fe02c53fdbbd960"
+    }
+  ]
+}

@@ -38,6 +38,7 @@
         "DerivedDataCache": "Source/Developer/DerivedDataCache",
         "TextureCompressor": "Source/Developer/TextureCompressor",
         "AssetMaintenance": "Source/Developer/AssetMaintenance",
+        "GameExport": "Source/Developer/GameExport",
         "ShaderBuild": "Source/Developer/ShaderBuild",
         "TargetPlatform": "Source/Developer/TargetPlatform",
         "ShaderFormat": "Source/Runtime/ShaderFormat",
@@ -48,10 +49,7 @@
         "ContentBrowserFileDataSource": "Source/Editor/ContentBrowserFileDataSource"
     },
     "BaseModules": [
-        "DurinLauncher",
-        "Renderer",
-        "VulkanRHI",
-        "MetalRHI"
+        "DurinLauncher"
     ],
     "ExtraModules": {
         "DurinEditor": {
@@ -72,6 +70,7 @@
                 "DerivedDataCache",
                 "TextureCompressor",
                 "AssetMaintenance",
+                "GameExport",
                 "ShaderBuild",
                 "TargetPlatform",
                 "DurinMCP"

@@ -280,7 +280,8 @@ def _resolve_plugins(engine_root: Path, project_file: Path, *, platform="Win64",
 
     enabled_modules = set()
     def edges(mod, include_optional=True, conditional_runtime=False):
-        return [dep.lower() for field in DEPENDENCIES for dep in mod["data"].get(field, [])
+        dynamic = mod["data"].get("DynamicDependencies", {})
+        return [dep.lower() for dep in dynamic.get("All", []) + dynamic.get(platform, [])] + [dep.lower() for field in DEPENDENCIES for dep in mod["data"].get(field, [])
                 if not field.startswith("Optional") or
                 (include_optional and dep.lower() in enabled_modules and eligible(modules[dep.lower()])
                  and not (conditional_runtime and not modules[dep.lower()]["owner"] and dep.lower() in editor_only))]
@@ -357,7 +358,7 @@ def _resolve_plugins(engine_root: Path, project_file: Path, *, platform="Win64",
                         fail(mod["path"], "undeclared plugin dependency", next_chain)
                 if target["owner"] and PHASES.index(source["phase"]) < PHASES.index(target["phase"]):
                     fail(mod["path"], "invalid phase edge", next_chain)
-            walk_module(dep, next_chain, stack, source)
+            walk_module(dep, next_chain, [] if dep in [d.lower() for d in mod["data"].get("DynamicDependencies", {}).get("All", []) + mod["data"].get("DynamicDependencies", {}).get(platform, [])] else stack, source)
         if key in active and key not in done:
             done.add(key)
             module_order.append(dict(Name=mod["name"], Owner=mod["owner"], Host=mod["host"], Phase=mod["phase"]))

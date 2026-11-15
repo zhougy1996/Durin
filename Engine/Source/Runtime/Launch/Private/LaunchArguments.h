@@ -8,6 +8,12 @@ namespace Durin
 	struct FEngineStartupParams
 	{
 		std::optional<std::string> ProjectFile;
+        bool bSourceGame = false;
+        std::optional<std::string> EngineRoot;
+        std::optional<std::string> RuntimeManifest;
+        std::optional<std::string> CookRoot;
+        std::optional<std::string> UserDataRoot;
+        std::optional<std::string> LegacyUserConfig;
 		bool bOpenProjectBrowser = false;
 		bool bRecordInteractiveHistory = true;
 	};

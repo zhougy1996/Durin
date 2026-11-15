@@ -1,3 +1,4 @@
+#include "Misc/RuntimePaths.h"
 #include "Engine/ProjectGameSettings.h"
 
 #include "Actors/GameMode.h"
@@ -54,7 +55,7 @@ namespace Durin
 
 	auto FProjectGameSettingsStore::ForProject(const FProjectInfo& Project) -> FProjectGameSettingsStore
 	{
-		return FProjectGameSettingsStore(std::filesystem::path(Project.ProjectDir) / "Configs" / "Project.yaml");
+		return FProjectGameSettingsStore(RuntimePathBinding("ProjectConfig").empty() ? std::filesystem::path(Project.ProjectDir) / "Configs" / "Project.yaml" : std::filesystem::path(RuntimePathBinding("ProjectConfig")));
 	}
 
 	auto FProjectGameSettingsStore::Load(FProjectGameSettings& OutSettings) const -> FProjectGameSettingsResult
@@ -71,12 +72,13 @@ namespace Durin
 		if (!Game.IsValid()) return {};
 		if (!Game.IsMap())
 			return Failure(EProjectGameSettingsError::InvalidGameSection, std::format("{} must be a YAML map.", SettingsRoute));
-		if (!ReadOptionalScalar(Game, "DefaultLevel", OutSettings.DefaultLevel)
+		if (!ReadOptionalScalar(Game, "DefaultData", OutSettings.DefaultData)
+			|| !ReadOptionalScalar(Game, "DefaultLevel", OutSettings.DefaultLevel)
 			|| !ReadOptionalScalar(Game, "NativeModule", OutSettings.NativeModule)
 			|| !ReadOptionalScalar(Game, "GameModeClass", OutSettings.GameModeClass))
 		{
 			return Failure(EProjectGameSettingsError::InvalidScalar,
-				std::format("{}.DefaultLevel, {}.NativeModule, and {}.GameModeClass must be YAML scalars.",
+				std::format("{}.DefaultLevel, {}.NativeModule, and {}.GameModeClass must be YAML scalars; Game.DefaultData must be a YAML scalar.",
 					SettingsRoute, SettingsRoute, SettingsRoute));
 		}
 		if (OutSettings.NativeModule.empty() != OutSettings.GameModeClass.empty())
@@ -111,7 +113,7 @@ namespace Durin
 					|| !ReadOptionalScalar(ExistingGame, "GameModeClass", ExistingGameModeClass))
 				{
 					return Failure(EProjectGameSettingsError::InvalidScalar,
-						std::format("{}.DefaultLevel, {}.NativeModule, and {}.GameModeClass must be YAML scalars.",
+						std::format("{}.DefaultLevel, {}.NativeModule, and {}.GameModeClass must be YAML scalars; Game.DefaultData must be a YAML scalar.",
 							SettingsRoute, SettingsRoute, SettingsRoute));
 				}
 				if (ExistingNativeModule.empty() != ExistingGameModeClass.empty())

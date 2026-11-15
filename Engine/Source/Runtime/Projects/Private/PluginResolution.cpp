@@ -291,9 +291,17 @@ namespace Durin
 				}
 				Visiting.erase(Key); Selected.insert(Key); Order.push_back(Key);
 			}
+            auto DynamicEdges(const FModule& Module) -> std::vector<std::string>
+            {
+                std::vector<std::string> Result;
+                const auto Values=Module.Data.GetView("DynamicDependencies");
+                for (const auto& Key:{std::string("All"),Request.Platform})
+                    for (const auto& Dep:Ids(Values,Key,Module.Path)) Result.push_back(Fold(Dep));
+                return Result;
+            }
 			auto Edges(const FModule& Module, bool bIncludeOptional = true, bool bConditionalRuntime = false) -> std::vector<std::string>
 			{
-				std::vector<std::string> ResultEdges;
+				std::vector<std::string> ResultEdges=DynamicEdges(Module);
 				for (const auto& Field : DependencyFields)
 					for (const auto& Dep : Ids(Module.Data, Field, Module.Path))
 						if (!Field.starts_with("Optional") || (bIncludeOptional && EnabledModules.contains(Fold(Dep)) && Eligible(Modules.at(Fold(Dep)))
@@ -370,7 +378,8 @@ namespace Durin
 						}
 						if (!Target.Owner.empty() && PhaseIndex(Source.Phase) < PhaseIndex(Target.Phase)) Fail(Module.Path, "invalid phase edge", Next);
 					}
-					WalkModule(Dep, std::move(Next), Stack, Source);
+					const auto Dynamic=DynamicEdges(Module);
+                    WalkModule(Dep, std::move(Next), std::ranges::find(Dynamic,Dep)!=Dynamic.end()?std::set<std::string>{}:Stack, Source);
 				}
 				if (Active.contains(Key) && Done.insert(Key).second) ModuleOrder.push_back(Key);
 			}

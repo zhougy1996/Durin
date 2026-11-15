@@ -201,6 +201,7 @@ Game:
   DefaultLevel: /Game/Levels/NewLevel
   NativeModule: Sandbox
   GameModeClass: Durin::Sandbox::ADefaultGameMode
+  DefaultData: /Game/Gameplay/PlayerPawnDefaults.PlayerPawnDefaults
 ```
 
 `FProjectGameSettingsStore` is the shared reader and default-level writer for
@@ -213,6 +214,13 @@ alias. `DefaultLevel` names a package, not an exact object path. The package may
 contain other top-level asset types but must contain exactly one top-level
 `DLevel`; startup and editor activation reject packages with zero or multiple
 matching levels instead of deriving an asset name from the package leaf.
+
+Optional `DefaultData` names a top-level `DPrimaryDataAsset` by exact object path.
+Gameplay consumes the project-specific data type; Cook retains that package and
+its ordinary asset references, using the same project setting. It is not a directory
+or additional asset list. The settings reader requires a scalar; path, existence
+and type checks run after asset-domain admission. Default-level updates preserve
+this field. See [Cook input ownership](../Runtime/Assets/Build/Cooking.md#coordinator-and-input-ownership).
 
 `NativeModule` is the logical name passed to `FModuleManager` after reflected
 object initialization. `GameModeClass` must be the exact fully qualified

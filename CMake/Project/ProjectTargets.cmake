@@ -179,7 +179,14 @@ function(add_durin_module module_name)
 	endif()
 
 	add_library(${module_name} ${_durin_module_link_type})
-	set_target_properties(${module_name} PROPERTIES DURIN_PLUGIN_OWNER "${module_plugin_owner}")
+	set_target_properties(${module_name} PROPERTIES DURIN_PLUGIN_OWNER "${module_plugin_owner}"
+        DURIN_DEPLOY_OWNER "${DURIN_PROJECT_NAME}"
+        DURIN_DYNAMIC_DEPENDENCIES "${module_dynamic_dependencies}"
+        DURIN_DECLARED_RUNTIME_FILES "${module_runtime_files}"
+        DURIN_MODULE_DESCRIPTOR "${module_config_file}")
+    if(module_plugin_owner)
+        set_property(TARGET ${module_name} PROPERTY DURIN_DEPLOY_OWNER "${module_plugin_owner}")
+    endif()
 	if(TARGET ${module_name}_DHT)
 		add_dependencies(${module_name} ${module_name}_DHT)
 	endif()

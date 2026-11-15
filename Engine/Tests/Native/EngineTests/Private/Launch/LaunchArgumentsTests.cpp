@@ -2,6 +2,15 @@
 
 #include <gtest/gtest.h>
 
+TEST(FLaunchPathModeTests, ExplicitSourceAndStagedModesAreMutuallyExclusive)
+{
+    const std::array<std::string_view,3> Source{"--source-game","--engine-root=G:/Engine","--project=G:/Game/Game.dproject"};
+    EXPECT_TRUE(Durin::ParseLaunchArguments(Source));
+    const std::array<std::string_view,1> Missing{"--source-game"}; EXPECT_FALSE(Durin::ParseLaunchArguments(Missing));
+    const std::array<std::string_view,2> Mixed{"--runtime-manifest=G:/Runtime.json","--project=G:/Game.dproject"}; EXPECT_FALSE(Durin::ParseLaunchArguments(Mixed));
+    const std::array<std::string_view,1> Cook{"--cook-root=G:/Cook"}; EXPECT_FALSE(Durin::ParseLaunchArguments(Cook));
+}
+
 namespace
 {
 	auto Parse(std::initializer_list<std::string_view> Arguments)

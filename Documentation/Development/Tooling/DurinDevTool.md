@@ -213,7 +213,32 @@ without opening an application loop:
 an absolute path. `--profile` continues to select the host build profile, while
 `--target` optionally selects `win64` or `macos`; omission derives it from the
 selected host build profile's platform. An unsupported platform requires an
-explicit target. Cook uses the `game` runtime profile. `--dry-run` performs
+explicit target. Cook uses the `game` runtime profile.
+`--configuration Debug|Release` selects the target Game configuration independently
+of `--preset`, which selects the Cook host (default target configuration: host
+configuration). DevTool reads the exact Game receipt location from the selected tool-host build's
+CMake-generated ExportBackend.json product set;
+`--target-receipt <path>` selects one explicitly. Missing receipts require an explicit
+GameReceipt build. The native tool receives `--target-receipt=<absolute-path>` and
+validates host/target compatibility before discovery. No Game DLL is loaded into
+the host. For example, a Debug host can cook for Release:
+
+```powershell
+.\DevTool.bat cook --preset Win64-Debug-DurinEditor --configuration Release --project Sandbox/Sandbox.dproject --output-dir Build/Exports/ReleaseCook
+```
+
+`export` dispatches the engine-owned pipeline and takes a fresh invocation output
+path. It supports target configuration, auto/reuse Build and Cook policies, optional
+Cook input, preview, startup verification and archive. It adds no product-selection
+or publication policy in Python; see [Game export](../../Runtime/Application/GameExport.md).
+For example:
+
+```powershell
+.\DevTool.bat export --project Sandbox/Sandbox.dproject --output-dir Build/Exports/Sandbox/Run1 --configuration Release --verify --archive
+```
+
+Sandbox's Game.DefaultData asset references GrayboxPawn; normal Cook follows this
+reference and needs no caller-supplied pawn root. `--dry-run` performs
 discovery and preparation without opening a store transaction.
 
 Cook reports use JSON schema version 2 and `packages[].serializer` to identify
@@ -246,27 +271,39 @@ the standard heartbeat, interruption, and command-log policy.
 ## Game Staging
 
 `stage` publishes a complete Win64 Game from an existing Cook generation and
-matching Game build, without implicitly building or cooking:
+matching completed Game receipt, without implicitly building or cooking:
 
 ```powershell
 .\DevTool.bat stage --project Sandbox/Sandbox.dproject --cook-dir Saved/Cooked --output-dir Build/StagedGame
 ```
 
 `--project`, `--cook-dir` and `--output-dir` are required; relative paths resolve
-from the checkout. The selected profile/preset hosts the read-only native Cook
-preflight. The Game preset is inferred from that profile's matching configuration;
-use `--game-preset` when it is ambiguous. `--format json` returns the staged
-runtime path, project file, effective plugin IDs and copied-file count.
+from the checkout. The selected profile/preset locates the existing
+`DurinExportTool`; DevTool forwards the CMake-generated backend file and a protocol
+v1 request. Cook/Stage share that generated product-set reader; neither infers
+Game receipt locations or emits a temporary backend catalog. The engine service owns Cook preflight, receipt-based Game-product selection,
+native closure and publication. Build `<Project>GameReceipt` in the selected Game
+preset to produce missing/stale receipts; this builds the declared dynamic closure
+without a manual list of library targets. `--configuration Debug|Release` selects the Game
+configuration (default: host configuration); `--game-preset` supplies an explicit
+configured product set when necessary. `--preview` checks configuration and reports planned phases without admitting
+Cook/native products or publishing. `--format json` returns the worker's versioned terminal result and
+optional content fingerprint (null for preview). No build or Cook is implicit.
 
-Run the generated `RunGame.bat`, or pass the staged project explicitly to the
-staged executable. The whole output directory can move together. Startup uses
+Run the generated `RunGame.bat` or `Binaries/Win64/<ProjectName>.exe` directly.
+Direct launch resolves `../../Runtime.json`; `--runtime-manifest=<absolute-Runtime.json>`
+can select it explicitly. The whole output directory can move together. Startup uses
 its frozen runtime/Cook inventories and rejects missing or modified required
 files; source directories and development caches are unnecessary. A changed
 selection requires recooking before staging, while compatible native build
-inventories can be reused. Failed publication restores the previous generation;
-an unavailable rollback leaves a backup with a reported recovery path.
+inventories can be reused. Stage requires a fresh output directory and writes
+ExportComplete.json last. Failures retain unmarked partial files; retry uses a
+new directory. Existing directories are never replaced.
 See [cooked plugin deployment](../../Workspace/Plugins.md#cooked-game-deployment)
 for inventory, dependency and configuration ownership.
+See [Game deployment](../../Runtime/Application/GameDeployment.md) for direct
+worker/backend inputs, stable delivery layout, per-user data/migration arguments,
+source Game launch arguments and current migration limits.
 
 ## Offline Local Cache Maintenance
 

@@ -103,7 +103,7 @@ namespace Durin
 			return Block;
 		}
 
-		auto Spawn(std::string_view Executable, const FProcessLaunchOptions& Options)
+		auto Spawn(std::string_view Executable, const FProcessLaunchOptions& Options, STARTUPINFOW* Redirect = nullptr, DWORD Flags = 0)
 			-> std::expected<PROCESS_INFORMATION, FPlatformProcessError>
 		{
 			if (const auto Valid = Detail::ValidateProcessLaunch(Executable, Options); !Valid)
@@ -127,9 +127,9 @@ namespace Durin
 			STARTUPINFOW StartupInfo{};
 			StartupInfo.cb = sizeof(StartupInfo);
 			PROCESS_INFORMATION ProcessInfo{};
-			if (!CreateProcessW(WideExecutable.c_str(), CommandLine.data(), nullptr, nullptr, FALSE,
-				CREATE_UNICODE_ENVIRONMENT, Environment.empty() ? nullptr : Environment.data(),
-				Options.WorkingDirectory.empty() ? nullptr : Options.WorkingDirectory.c_str(), &StartupInfo, &ProcessInfo))
+			if (!CreateProcessW(WideExecutable.c_str(), CommandLine.data(), nullptr, nullptr, Redirect != nullptr,
+				CREATE_UNICODE_ENVIRONMENT | Flags, Environment.empty() ? nullptr : Environment.data(),
+				Options.WorkingDirectory.empty() ? nullptr : Options.WorkingDirectory.c_str(), Redirect ? Redirect : &StartupInfo, &ProcessInfo))
 			{
 				const DWORD Error = GetLastError();
 				return std::unexpected(FPlatformProcessError{EPlatformProcessError::Launch,
@@ -220,4 +220,66 @@ namespace Durin
 		}
 		return static_cast<int32>(ExitCode);
 	}
+    auto FWindowsPlatformProcess::ExecuteControlledProcess(std::string_view Executable,
+        const FProcessLaunchOptions& Options, const FProcessExecutionControl& Control) -> std::expected<int32, FPlatformProcessError>
+    {
+        struct FHandle { HANDLE Value = nullptr; ~FHandle() { if(Value) CloseHandle(Value); } };
+        FHandle InputRead, InputWrite, OutputRead, OutputWrite, Job, Process, Thread;
+        SECURITY_ATTRIBUTES Security{sizeof(Security), nullptr, TRUE};
+        const auto Error = [&] { return std::unexpected(FPlatformProcessError{EPlatformProcessError::Launch,
+            "Owned process execution failed: " + FormatWindowsError(GetLastError()), std::string(Executable)}); };
+        if(!CreatePipe(&InputRead.Value,&InputWrite.Value,&Security,0)
+            || !CreatePipe(&OutputRead.Value,&OutputWrite.Value,&Security,0)) return Error();
+        SetHandleInformation(InputWrite.Value,HANDLE_FLAG_INHERIT,0);
+        SetHandleInformation(OutputRead.Value,HANDLE_FLAG_INHERIT,0);
+        Job.Value=CreateJobObjectW(nullptr,nullptr); if(!Job.Value) return Error();
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION Limits{}; Limits.BasicLimitInformation.LimitFlags=JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        if(!SetInformationJobObject(Job.Value,JobObjectExtendedLimitInformation,&Limits,sizeof(Limits))) return Error();
+        STARTUPINFOW Start{}; Start.cb=sizeof(Start); Start.dwFlags=STARTF_USESTDHANDLES;
+        Start.hStdInput=InputRead.Value; Start.hStdOutput=OutputWrite.Value; Start.hStdError=OutputWrite.Value;
+        const auto Spawned=Spawn(Executable,Options,&Start,CREATE_SUSPENDED|CREATE_NO_WINDOW);
+        if(!Spawned) return std::unexpected(Spawned.error());
+        Process.Value=Spawned->hProcess; Thread.Value=Spawned->hThread;
+        if(!AssignProcessToJobObject(Job.Value,Process.Value)) { TerminateProcess(Process.Value,70); WaitForSingleObject(Process.Value,INFINITE); return Error(); }
+        CloseHandle(InputRead.Value); InputRead.Value=nullptr; CloseHandle(OutputWrite.Value); OutputWrite.Value=nullptr;
+        if(ResumeThread(Thread.Value)==static_cast<DWORD>(-1)) {TerminateJobObject(Job.Value,70); WaitForSingleObject(Process.Value,INFINITE); return Error();}
+        // Protocol requests are bounded to 1 MiB; the child reads concurrently.
+        const auto WriteInput=[&](std::string_view Bytes) {
+            while(!Bytes.empty()) { DWORD Written=0; if(!WriteFile(InputWrite.Value,Bytes.data(),static_cast<DWORD>(std::min<size_t>(Bytes.size(),4096)),&Written,nullptr) || !Written) break; Bytes.remove_prefix(Written); }
+        };
+        std::atomic<bool> InputReady=Control.StandardInput.empty();
+        std::jthread InputWriter;
+        if(!Control.StandardInput.empty()) InputWriter=std::jthread([&]{WriteInput(Control.StandardInput); InputReady=true;});
+        bool Cancelling=false; auto Stop=std::chrono::steady_clock::time_point::max();
+        const auto Drain=[&] {
+            DWORD Available=0;
+            for(size_t Chunks=0;Chunks<64 && PeekNamedPipe(OutputRead.Value,nullptr,0,nullptr,&Available,nullptr) && Available;++Chunks) {
+                char Buffer[4096]; DWORD Read=0;
+                if(!ReadFile(OutputRead.Value,Buffer,std::min<DWORD>(sizeof(Buffer),Available),&Read,nullptr) || !Read) break;
+                if(Control.OnOutput) Control.OnOutput(std::string_view(Buffer,Read));
+            }
+        };
+        const auto Retire=[&] {
+            TerminateJobObject(Job.Value,130);
+            JOBOBJECT_BASIC_ACCOUNTING_INFORMATION Accounting{};
+            while(QueryInformationJobObject(Job.Value,JobObjectBasicAccountingInformation,&Accounting,sizeof(Accounting),nullptr) && Accounting.ActiveProcesses) Sleep(10);
+        };
+        try {
+            while(WaitForSingleObject(Process.Value,20)==WAIT_TIMEOUT) {
+                Drain();
+                if(!Cancelling && Control.IsCancelled && Control.IsCancelled()) {
+                    Cancelling=true;
+                    const bool Graceful=InputReady && !Control.CancellationInput.empty();
+                    if(Graceful) WriteInput(Control.CancellationInput);
+                    Stop=std::chrono::steady_clock::now()+(Graceful?std::chrono::seconds(30):std::chrono::seconds(0));
+                }
+                if(Cancelling && std::chrono::steady_clock::now()>=Stop) TerminateJobObject(Job.Value,130);
+            }
+            // No descendants may outlive this synchronous operation, even if their parent exited.
+            Retire(); if(InputWriter.joinable()) InputWriter.join(); Drain();
+        } catch(...) { Retire(); WaitForSingleObject(Process.Value,INFINITE); throw; }
+        DWORD Code=70; if(!GetExitCodeProcess(Process.Value,&Code)) return Error();
+        return static_cast<int32>(Code);
+    }
+
 }

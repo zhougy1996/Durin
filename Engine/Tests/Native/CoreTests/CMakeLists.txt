@@ -1,5 +1,10 @@
 set(_durin_assertion_fixture_dir
 	"${DURIN_WORKSPACE_DIR}/CMake/Tests/Fixtures/AssertionHeader")
+durin_add_native_test(DeploymentBootstrapTests
+    KIND contract DOMAINS launch MODULES core
+    SOURCES Private/DeploymentBootstrapTests.cpp
+    LIBRARIES Core
+    COMPILE_DEFINITIONS "DURIN_EXPORT_FIXTURES=\"${DURIN_PROJECT_ROOT_DIR}/Tests/Fixtures/GameExport\"")
 
 set(_durin_library_fixture_dir "${DURIN_PROJECT_ROOT_DIR}/Tests/Fixtures/PlatformLibrary")
 add_library(PlatformLibraryDependency SHARED "${_durin_library_fixture_dir}/LibraryDependency.cpp")
