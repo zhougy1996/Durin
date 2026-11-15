@@ -51,6 +51,19 @@ namespace Durin::ContentBrowser::Private
 	auto ContentBrowserQuery::Project(std::shared_ptr<const FContentBrowserItemsSnapshot> Snapshot, std::string PhysicalDirectory, FContentBrowserQuerySettings Settings, std::string VirtualDirectory)
 		-> FContentBrowserItemRange
 	{
+		return ProjectRecords(MakeRecords(std::move(Snapshot)), std::move(PhysicalDirectory), std::move(Settings), std::move(VirtualDirectory));
+	}
+
+	auto ContentBrowserQuery::MakeRecords(std::shared_ptr<const FContentBrowserItemsSnapshot> Snapshot) -> std::shared_ptr<const FContentBrowserItemRecords>
+	{
+		auto Records = std::make_shared<FContentBrowserItemRecords>();
+		if (Snapshot) for (const auto& Item : Snapshot->Items) Records->Items.emplace_back(Snapshot, &Item);
+		return Records;
+	}
+
+	auto ContentBrowserQuery::ProjectRecords(std::shared_ptr<const FContentBrowserItemRecords> Snapshot, std::string PhysicalDirectory, FContentBrowserQuerySettings Settings, std::string VirtualDirectory)
+		-> FContentBrowserItemRange
+	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("ContentBrowser.Project");
 		if (!Snapshot) return {};
 		std::vector<size_t> Indices;
@@ -59,12 +72,12 @@ namespace Durin::ContentBrowser::Private
 		if (!Settings.Search.empty() || Settings.SortColumn == EContentBrowserSortColumn::Type)
 		{
 			TypeLabels.reserve(Snapshot->Items.size());
-			for (const auto& Item : Snapshot->Items) TypeLabels.push_back(TypeLabel(Item));
+			for (const auto& Item : Snapshot->Items) TypeLabels.push_back(TypeLabel(*Item));
 		}
 		const bool bSearching = !Settings.Search.empty();
 		for (size_t Index = 0; Index < Snapshot->Items.size(); ++Index)
 		{
-			const auto& Item = Snapshot->Items[Index];
+			const auto& Item = *Snapshot->Items[Index];
 			// Package bulk payloads are internal even when their owner is missing.
 			// Filter the presentation, not the physical snapshot or operation scope.
 			if ((!Item.IsFolder() && !Item.IsAsset())
@@ -115,16 +128,16 @@ namespace Durin::ContentBrowser::Private
 		if (Settings.SortColumn == EContentBrowserSortColumn::Size)
 		{
 			Sizes.resize(Snapshot->Items.size());
-			for (auto Index : Indices) Sizes[Index] = ItemAttributes::Unsigned(Snapshot->Items[Index], ContentBrowserItemAttributes::ItemDiskSize);
+			for (auto Index : Indices) Sizes[Index] = ItemAttributes::Unsigned(*Snapshot->Items[Index], ContentBrowserItemAttributes::ItemDiskSize);
 		}
 		if (Settings.SortColumn == EContentBrowserSortColumn::Modified)
 		{
 			Times.resize(Snapshot->Items.size());
-			for (auto Index : Indices) Times[Index] = ItemAttributes::LastWriteTime(Snapshot->Items[Index]);
+			for (auto Index : Indices) Times[Index] = ItemAttributes::LastWriteTime(*Snapshot->Items[Index]);
 		}
 		auto Compare = [&](size_t AIndex, size_t BIndex) {
-			const auto& A = Snapshot->Items[AIndex];
-			const auto& B = Snapshot->Items[BIndex];
+			const auto& A = *Snapshot->Items[AIndex];
+			const auto& B = *Snapshot->Items[BIndex];
 			if (A.IsFolder()
 				&& !(B.IsFolder()))
 				return true;

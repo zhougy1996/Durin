@@ -11,6 +11,7 @@ namespace Durin::ContentBrowser::Private
 	template<typename TItem> struct TContentBrowserItemsSnapshot
 	{
 		std::shared_ptr<Tasks::FCancellationToken> Cancellation;
+		std::shared_ptr<const FContentBrowserDataCompiledFilter> Filter;
 		bool bStale = false;
 		std::vector<TItem> Items;
 		struct FContribution

@@ -1,4 +1,5 @@
 #include "ThumbnailManagerTestSupport.h"
+#include "DObject/PrimaryAssetId.h"
 #include <gtest/gtest.h>
 
 #include "EngineTestSupport.h"
@@ -941,6 +942,13 @@ namespace Durin
 		EXPECT_EQ(Pool.Find(Request.Asset.AssetPath).State, EAssetThumbnailState::None);
 		Pool.AccessTexture(Request.Asset);
 		ASSERT_TRUE(PumpThumbnailPoolUntil(Pool, [&] { return Pool.GetStats().ParkedResourceWaits == 1; }));
+		auto Metadata = Request.Asset;
+		ASSERT_TRUE(FPrimaryAssetId::TryParse("ThumbnailTest:Updated", Metadata.PrimaryAssetId));
+		const auto BeforeMetadata = Pool.GetStats();
+		for (int Update = 0; Update != 8; ++Update) Pool.AccessTexture(Metadata);
+		EXPECT_EQ(Pool.GetStats().ParkedResourceWaits, 1u);
+		EXPECT_EQ(Pool.GetStats().Generation.Cancellations, BeforeMetadata.Generation.Cancellations);
+		EXPECT_EQ(Pool.GetStats().Generation.Jobs, BeforeMetadata.Generation.Jobs);
 		Pool.Refresh(Request.Asset.AssetPath);
 		EXPECT_EQ(Pool.GetStats().ParkedResourceWaits, 0u);
 		Pool.AccessTexture(Request.Asset);

@@ -72,7 +72,7 @@ namespace Durin::ContentBrowser::Private
 		auto GetMounts() const -> std::span<const FMountSnapshot> { return MountSnapshot; }
 		// Copy the range to retain its snapshot and ordering across a refresh.
 		auto GetItems() const -> const FContentBrowserItemRange& { return Items; }
-		auto GetItemsSnapshot() const -> std::span<const FContentBrowserItem> { return PublishedSnapshot->Items; }
+		auto GetItemsSnapshot() const -> const FContentBrowserItemRange& { return AllItems; }
 		auto GetHistory() const -> std::span<const std::string> { return Session.NavigationHistory; }
 		auto GetHistoryIndex() const -> int32 { return Session.HistoryIndex; }
 		auto GetSearch() const -> const std::string& { return Session.Query.Search; }
@@ -108,8 +108,12 @@ namespace Durin::ContentBrowser::Private
 		}
 
 	private:
+		auto ApplyItemUpdates(std::span<const FContentBrowserItemDataUpdate> Updates,
+			std::shared_ptr<const FContentBrowserItemRecords> Baseline = {},
+			std::shared_ptr<const FContentBrowserDataCompiledFilter> BaselineFilter = {}) -> bool;
+		auto ReindexItems() -> void;
 		auto RequestItemsSnapshot(bool bPreserveItems) -> void;
-		auto PublishItems(FContentBrowserItemsCapture Capture) -> void;
+		auto PublishItems(FContentBrowserItemsCapture Capture, const std::vector<FContentBrowserItemDataUpdate>& Updates) -> void;
 		auto PublishDirectory(const std::string& Physical,
 			FContentBrowserDirectorySnapshot Snapshot) -> void;
 		auto InvalidateDirectoryTree() -> void;
@@ -129,6 +133,9 @@ namespace Durin::ContentBrowser::Private
 		bool bSnapshotPublicationSuspended = false;
 		FDelegateHandle ItemsUpdated, ItemsRefreshed;
 		FContentChangeBatch PendingChanges;
+		std::vector<FContentBrowserItemDataUpdate> PendingItemUpdates;
+		std::shared_ptr<const FContentBrowserDataCompiledFilter> ItemFilter;
+		std::unordered_map<FContentBrowserItemKey, size_t, FContentBrowserItemKeyHash> ItemIndices;
 		std::shared_ptr<void> EventLifetime = std::make_shared<int>(0);
 		bool bActiveTreePublishable = false;
 		enum class EItemsRequestState : uint8 { Queued, Capturing, Completed, Cancelled };
@@ -138,6 +145,7 @@ namespace Durin::ContentBrowser::Private
 			std::string Directory;
 			bool bRecursive = false;
 			EItemsRequestState State = EItemsRequestState::Queued;
+			std::vector<FContentBrowserItemDataUpdate> Updates;
 		};
 		std::shared_ptr<FItemsRequest> ItemsRequest;
 		std::shared_ptr<FItemsRequest> ActiveItemsRequest;
@@ -148,8 +156,9 @@ namespace Durin::ContentBrowser::Private
 		Tasks::TTask<std::unique_ptr<FContentBrowserDirectorySnapshot>> TreeTask;
 		std::string ActiveTreeDirectory;
 
-		std::shared_ptr<const FContentBrowserItemsSnapshot> PublishedSnapshot =
-			std::make_shared<const FContentBrowserItemsSnapshot>();
+		std::shared_ptr<const FContentBrowserItemRecords> PublishedSnapshot =
+			std::make_shared<const FContentBrowserItemRecords>();
+		FContentBrowserItemRange AllItems;
 		FContentBrowserItemRange Items;
 		std::vector<FEnumerationDiagnostic> EnumerationDiagnostics;
 		size_t SuppressedEnumerationDiagnosticCount = 0;

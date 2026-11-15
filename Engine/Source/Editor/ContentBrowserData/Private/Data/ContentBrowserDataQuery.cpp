@@ -8,24 +8,6 @@ namespace Durin::ContentBrowser::Private
 		if (auto* Data = Service.Get())
 		{
 			const std::weak_ptr<void> Alive = Lifetime;
-			Updated = Data->OnItemDataUpdated().AddLambda([this, Alive](std::span<const FContentBrowserItemDataUpdate> Updates) {
-				if (Alive.expired()) return;
-				std::erase_if(PendingCaptures, [](const auto& Capture) { return Capture.Cancellation.expired(); });
-				for (const auto& Capture : PendingCaptures)
-					for (const auto& Update : Updates)
-					{
-						auto Touches = [&](std::string_view Path) {
-							const auto Scope = std::filesystem::path(Capture.Scope).lexically_normal().generic_string();
-							auto Item = std::filesystem::path(Path).lexically_normal().generic_string();
-							while (Item.size() > 1 && Item.back() == '/') Item.pop_back();
-							return Item == Scope || std::filesystem::path(Item).parent_path().generic_string() == Scope
-								|| (Capture.Recursive && Item.starts_with(Scope == "/" ? Scope : Scope + "/"))
-								|| (Update.GetItemData().GetItemType() == EContentBrowserItemFlags::Type_Folder && Scope.starts_with(Item == "/" ? Item : Item + "/"));
-						};
-						if (Touches(Update.GetItemData().GetVirtualPath()) || (!Update.GetPreviousVirtualPath().empty() && Touches(Update.GetPreviousVirtualPath())))
-							if (auto Token = Capture.Cancellation.lock()) Token->Cancel();
-					}
-			});
 			Refreshed = Data->OnItemDataRefreshed().AddLambda([this, Alive] {
 				if (!Alive.expired()) for (const auto& Capture : PendingCaptures) if (auto Token = Capture.Cancellation.lock()) Token->Cancel();
 			});
@@ -34,7 +16,7 @@ namespace Durin::ContentBrowser::Private
 	FContentBrowserDataQuery::~FContentBrowserDataQuery()
 	{
 		Lifetime.reset();
-		if (auto* Data = Service.Get()) { Data->OnItemDataUpdated().Remove(Updated); Data->OnItemDataRefreshed().Remove(Refreshed); }
+		if (auto* Data = Service.Get()) { Data->OnItemDataRefreshed().Remove(Refreshed); }
 	}
 	auto FContentBrowserDataQuery::FindSourceKey(FName Name) const -> FObjectKey
 	{
@@ -70,9 +52,7 @@ namespace Durin::ContentBrowser::Private
 		if (Alive.expired()) return {};
 		if (!Cancellation) Cancellation = std::make_shared<Tasks::FCancellationToken>();
 		std::erase_if(PendingCaptures, [](const auto& Capture) { return Capture.Cancellation.expired(); });
-		auto Scope = std::filesystem::path(Virtual).lexically_normal().generic_string();
-		while (Scope.size() > 1 && Scope.back() == '/') Scope.pop_back();
-		PendingCaptures.push_back({Cancellation, std::move(Scope), Recursive});
+		PendingCaptures.push_back({Cancellation});
 		struct FJob
 		{
 			TWeakObjectPtr<DContentBrowserDataSource> Source;
@@ -80,6 +60,9 @@ namespace Durin::ContentBrowser::Private
 			std::vector<FContentBrowserItemData> Items;
 		};
 		std::vector<FJob> Jobs;
+		auto ItemFilter = std::make_shared<FContentBrowserDataCompiledFilter>();
+		ItemFilter->Path = Virtual;
+		ItemFilter->Filter.bRecursive = Recursive;
 		for (const auto& Source : Sources)
 		{
 			if (!OwnsSource(Source.Get()))
@@ -89,6 +72,7 @@ namespace Durin::ContentBrowser::Private
 			Source->CompileFilter(Virtual, {.bRecursive = Recursive}, Compiled);
 			if (Alive.expired() || Cancellation->IsCanceled()) { Cancellation->Cancel(); return {}; }
 			if (!OwnsSource(Source.Get())) continue;
+			ItemFilter->CompiledFilters.insert(Compiled.CompiledFilters.begin(), Compiled.CompiledFilters.end());
 			if (const auto It = Compiled.CompiledFilters.find(Source.Get()); It != Compiled.CompiledFilters.end())
 				Job.Filter = It->second;
 			if (!Job.Filter)
@@ -104,10 +88,11 @@ namespace Durin::ContentBrowser::Private
 			if (OwnsSource(Source.Get())) Jobs.push_back(std::move(Job));
 		}
 		if (!IsAcceptingRequests()) { Cancellation->Cancel(); return {}; }
-		return [Jobs = std::move(Jobs), Query = std::move(Query), Cancellation = std::move(Cancellation)]()
+		return [Jobs = std::move(Jobs), Query = std::move(Query), Cancellation = std::move(Cancellation), ItemFilter = std::move(ItemFilter)]()
 		{
 			auto Result = std::make_unique<FContentBrowserItemsCapture>();
 			Result->Cancellation = Cancellation;
+			Result->Filter = ItemFilter;
 			for (const auto& Job : Jobs)
 			{
 				if (Cancellation->IsCanceled())
@@ -149,6 +134,7 @@ namespace Durin::ContentBrowser::Private
 		-> FContentBrowserItemsSnapshot
 	{
 		FContentBrowserItemsSnapshot Result;
+		Result.Filter = Snapshot.Filter;
 		const std::weak_ptr<void> Alive = Lifetime;
 		const auto BindingPolicy = Policy;
 		if (Snapshot.Cancellation && Snapshot.Cancellation->IsCanceled()) { Result.bStale = true; return Result; }
@@ -177,6 +163,22 @@ namespace Durin::ContentBrowser::Private
 
 		return Result;
 	}
+	auto FContentBrowserDataQuery::ProjectItem(FContentBrowserItemData Item, const FContentBrowserDataCompiledFilter& Filter) const -> std::optional<FContentBrowserItemData>
+	{
+		const std::weak_ptr<void> Alive = Lifetime;
+		auto* Source = Item.GetOwnerDataSource();
+		TStrongObjectPtr<DContentBrowserDataSource> KeepAlive(Source);
+		if (!OwnsSource(Source)) return {};
+		const auto BindingPolicy = Policy;
+		Source->ConvertItemForFilter(Item, Filter);
+		if (Alive.expired() || !OwnsSource(Source) || Item.GetOwnerDataSource() != Source) return {};
+		const bool Passes = Source->DoesItemPassFilter(Item, Filter);
+		if (Alive.expired() || !OwnsSource(Source) || !Passes) return {};
+		auto Bound = Source->BindItemData(Item, BindingPolicy);
+		if (Alive.expired() || !OwnsSource(Source) || Bound.GetOwnerDataSource() != Source) return {};
+		return Bound;
+	}
+
 	auto FContentBrowserDataQuery::ProjectDirectory(FContentBrowserDirectorySnapshot Snapshot, std::string_view Virtual) const
 		-> FContentBrowserDirectorySnapshot
 	{

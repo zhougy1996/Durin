@@ -46,6 +46,30 @@ namespace Durin
 				const auto& AssetPath = Old ? Change.OldAssetPath : Change.NewAssetPath;
 				if (!AssetPath.empty() && !Change.bDirectory) { Item.Kind = EContentBrowserItemKind::Asset; Item.VirtualPath = AssetPath; FTopLevelAssetPath Path; if (FTopLevelAssetPath::TryCreate(AssetPath, Path)) Item.PackagePath = Path.GetPackagePath(); }
 				ResolveItemPath(Item);
+				Item.Name = Change.bDirectory ? std::filesystem::path(Item.VirtualPath).filename().generic_string()
+					: std::string(std::filesystem::path(Item.PhysicalPath).stem().generic_string());
+				if (!Old && !Change.bDirectory)
+				{
+					FTopLevelAssetPath Path;
+					if (!FTopLevelAssetPath::TryCreate(Item.VirtualPath, Path)) return FContentBrowserItemData{};
+					const auto Asset = FindAssetExact(Path);
+					if (!Asset) return FContentBrowserItemData{};
+					Item.PackagePath = Path.GetPackagePath();
+					const auto* AssetSource = Cast<DContentBrowserAssetDataSource>(&Source);
+					Item.Name = AssetSource ? AssetSource->GetAssetDisplayName(Path) : std::string(Path.GetAssetName());
+					Item.Kind = Asset->IsRedirector() ? EContentBrowserItemKind::Redirector : EContentBrowserItemKind::Asset;
+					Item.AssetClassName = Asset->AssetClassName;
+					Item.RedirectDestination = Asset->RedirectDestination;
+					Item.Extension = ".dasset";
+					if (Asset.Package)
+					{
+						Item.PhysicalPath = Asset.Package->PhysicalPath;
+						Item.PackageFileSize = Asset.Package->FileSize;
+						Item.BulkFileSize = Asset.Package->BulkSegmentExtent;
+						Item.FileSize = Item.PackageFileSize + Item.BulkFileSize;
+						Item.LastWriteTime = Asset.Package->LastWriteTime;
+					}
+				}
 				return Source.BindItemData(MakeNativeItemDescription(Item));
 			};
 			auto Queue = [&](const FContentChange& Change) {
@@ -62,8 +86,7 @@ namespace Durin
 				Queue(Change);
 			}
 			if (Batch.bFullRefresh)
-				for (const auto& Mount : ContentStorage::FContentMountPaths::CaptureMounts())
-					Queue({EContentChangeKind::Modified, {}, Mount.PhysicalRoot, {}, {}, true});
+				Source.NotifyItemDataRefreshed();
 		}
 		auto ScopedHost(DContentBrowserDataSource& Source, FContentBrowserOperationContext Host) -> FContentBrowserOperationContext
 		{
@@ -243,7 +266,7 @@ namespace Durin
 			if (!Source.IsActive()) return;
 			auto Bound = Bind(Source, Item, Policy);
 			if (!Bound.GetOwnerDataSource()) continue;
-			if (Filter.Filter.Kind) { const auto Native = Payload(Source, Bound); if (!Native || Native->Item.Kind != *Filter.Filter.Kind) continue; }
+			if (!Source.DoesItemPassFilter(Bound, Filter)) continue;
 			if (!Callback(std::move(Bound))) return;
 		}
 	}

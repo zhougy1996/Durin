@@ -435,6 +435,7 @@ namespace Durin::ContentBrowser::Private
 		EXPECT_TRUE(std::filesystem::exists(Root / "Destination/notes.txt"));
 		EXPECT_TRUE(std::filesystem::exists(Root / "Destination/config.json"));
 		EXPECT_EQ(Transactions->GetMountedContentMutationRevision(), InitialRevision + 1);
+		BrowserData->Tick(0.0f);
 		Source.TickWhenHidden();
 		FContentBrowserPanelTestAccess::FinishCapture(Source);
 		EXPECT_TRUE(FContentBrowserPanelTestAccess::HasVisibleItem(Source, (Root / "Destination/notes.txt").generic_string()));
@@ -829,7 +830,7 @@ namespace Durin::ContentBrowser::Private
 		FContentBrowserPanelTestAccess::Resave(Panel, {First, Second});
 		FContentBrowserPanelTestAccess::FinishCapture(Panel);
 		EXPECT_EQ(1, Probe->Saves);
-		EXPECT_NE(FContentBrowserPanelTestAccess::Requests(Panel), Requests);
+		EXPECT_EQ(FContentBrowserPanelTestAccess::Requests(Panel), Requests);
 		EXPECT_TRUE(FContentBrowserPanelTestAccess::IsSelected(Panel, "/PanelProviders/failed.note"));
 		EXPECT_TRUE(FContentBrowserPanelTestAccess::IsSelected(Panel, "/PanelProviders/item.note"));
 		EXPECT_EQ(2u, FContentBrowserPanelTestAccess::Items(Panel).size());
@@ -969,7 +970,7 @@ namespace Durin::ContentBrowser::Private
 		EXPECT_EQ(OtherBefore, FContentBrowserPanelTestAccess::Requests(Second));
 		FContentBrowserPanelTestAccess::Suspend(Second, false);
 		FContentBrowserPanelTestAccess::FinishCapture(Second);
-		EXPECT_NE(FContentBrowserPanelTestAccess::Requests(Second), OtherBefore);
+		EXPECT_EQ(FContentBrowserPanelTestAccess::Requests(Second), OtherBefore);
 		EXPECT_FALSE(FContentBrowserPanelTestAccess::Select(Second, "/PanelProviders/Else/new.note").InternalItems.empty());
 	}
 }

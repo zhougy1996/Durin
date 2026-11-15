@@ -4,7 +4,7 @@ Summary: Define the shared Thumbnail Manager, renderer, asset-thumbnail, pool, p
 
 Modules: DurinEd, ContentBrowser, MainFrame, MaterialEditor, TextureEditor, StaticMeshEditor, LevelEditor
 
-Last reviewed: 2026-11-14
+Last reviewed: 2026-11-16
 
 Asset thumbnails are optional editor-derived data. They never replace authored
 packages or source files, and deleting the thumbnail cache cannot lose project
@@ -277,7 +277,12 @@ encoding. The pool validates draw snapshots once at this acceptance boundary.
 Public views expose only `None`, `Pending`, `Ready` and `Failed`. Unsupported
 assets use `None` and retain the ordinary asset icon. All accepted work without a
 usable texture is `Pending`; `Ready` requires a usable GPU texture. Withdrawing
-demand preserves ready textures, while explicit refresh discards them.
+demand preserves ready textures. Scoped refresh retires obsolete work but retains
+accepted pixels while a replacement is queued or rendering. The public view stays
+Ready when that usable texture exists; replacement upload swaps the accepted
+texture. Root/dependency removal or movement and conservative full invalidation
+revoke old pixels immediately. Metadata-only FAssetData changes within the same
+class update the description without cancelling generation or invalidating pixels.
 No request serial is exposed or propagated internally.
 Each pool entry stores its public state and failure diagnostic. The pool builds
 views directly from that entry; the queue owns no execution state or diagnostics.
@@ -285,7 +290,7 @@ GPU readback has its own private pending state and persistence runs independentl
 Each resource entry owns its pending upload future. The render command owns the
 promise, pixels and RHI resources and only fulfills that future; it never writes
 back through a pool pointer, asset-path completion queue or request identifier.
-Refresh, cancellation, clear and renderer withdrawal discard the consumer.
+Refresh, cancellation, clear and renderer withdrawal discard the pending consumer.
 Later completion therefore only retires old resources. The pool polls futures
 it still owns and registers their textures with the UI on the game thread.
 TextureCube binds its renderer scene and supplies an immutable allocation

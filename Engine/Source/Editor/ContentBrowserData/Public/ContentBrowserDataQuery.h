@@ -18,6 +18,7 @@ namespace Durin::ContentBrowser::Private
 		auto GetDataSubsystem() const -> DContentBrowserDataSubsystem* { return Service.Get(); }
 		auto IsProviderDirectory(std::string_view Virtual) const -> bool;
 		auto ProjectItems(FContentBrowserItemsCapture, std::string_view, bool) const -> FContentBrowserItemsSnapshot;
+		auto ProjectItem(ContentBrowser::FContentBrowserItemData Item, const ContentBrowser::FContentBrowserDataCompiledFilter& Filter) const -> std::optional<ContentBrowser::FContentBrowserItemData>;
 		auto ProjectDirectory(FContentBrowserDirectorySnapshot, std::string_view) const -> FContentBrowserDirectorySnapshot;
 		using FItemsCapture = TMoveOnlyFunction<std::unique_ptr<FContentBrowserItemsCapture>()>;
 		using FDirectoryCapture = TMoveOnlyFunction<std::unique_ptr<FContentBrowserDirectorySnapshot>()>;
@@ -31,10 +32,10 @@ namespace Durin::ContentBrowser::Private
 		auto OwnsSource(const DContentBrowserDataSource*) const -> bool;
 		TWeakObjectPtr<DContentBrowserDataSubsystem> Service;
 		FContentBrowserOperationContext Policy;
-		struct FPendingCapture { std::weak_ptr<Tasks::FCancellationToken> Cancellation; std::string Scope; bool Recursive = false; };
+		struct FPendingCapture { std::weak_ptr<Tasks::FCancellationToken> Cancellation; };
 		mutable std::vector<FPendingCapture> PendingCaptures;
 		std::shared_ptr<void> Lifetime = std::make_shared<int>(0);
-		FDelegateHandle Updated, Refreshed;
+		FDelegateHandle Refreshed;
 		bool bAccepting = true;
 	};
 } // namespace Durin::ContentBrowser::Private

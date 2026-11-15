@@ -89,6 +89,7 @@ namespace Durin
 			EAssetThumbnailState State = EAssetThumbnailState::None;
 			bool bHasTransparency = true;
 			bool bBackgroundRequested = false;
+			bool bNeedsRefresh = false;
 			uint32 ReferencerCount = 0;
 			uint32 Width = 0;
 			uint32 Height = 0;
@@ -236,7 +237,12 @@ namespace Durin
 			if (const auto It = Entries.find(AssetPath); It != Entries.end())
 			{
 				auto& Entry = It->second;
-				if (Entry.State == EAssetThumbnailState::Pending) ++Stats.Cancellations;
+				if (Entry.State == EAssetThumbnailState::Pending)
+				{
+					++Stats.Cancellations;
+					// A retained preview may predate cancelled replacement work.
+					Entry.bNeedsRefresh |= Entry.Texture != nullptr;
+				}
 				Entry.Upload.Reset();
 				Entry.State = Entry.Texture ? EAssetThumbnailState::Ready : EAssetThumbnailState::None;
 				Entry.Diagnostic.clear();
@@ -722,7 +728,7 @@ namespace Durin
 		FImpl::FThumbnailInfo& Entry = It->second;
 		if (bInserted)
 			Entry.AssetData = Asset;
-		else if (Entry.AssetData != Asset)
+		else if (Entry.AssetData.AssetClassName != Asset.AssetClassName)
 		{
 			const uint32 ReferencerCount = Entry.ReferencerCount;
 			Impl->RetireAssetWork(Asset.AssetPath);
@@ -731,9 +737,10 @@ namespace Durin
 			Entry.AssetData = Asset;
 			Entry.ReferencerCount = ReferencerCount;
 		}
+		else Entry.AssetData = Asset;
 		Entry.bVisible |= Priority == EAssetThumbnailPriority::Visible;
 		Entry.LastUsedFrame = Impl->FrameNumber;
-		if (Entry.Texture)
+		if (Entry.Texture && !Entry.bNeedsRefresh && Entry.State != EAssetThumbnailState::Pending)
 		{
 			Entry.Diagnostic.clear();
 			return Find(Asset.AssetPath);
@@ -742,11 +749,14 @@ namespace Durin
 		{
 			if (Priority == EAssetThumbnailPriority::Visible) Impl->Scheduler.Prioritize(Asset.AssetPath);
 		}
-		else if (Entry.State == EAssetThumbnailState::None && !Impl->Manager.IsShuttingDown()
+		else if ((Entry.State == EAssetThumbnailState::None || Entry.bNeedsRefresh) && !Impl->Manager.IsShuttingDown()
 			&& Impl->Manager.Find(Asset.AssetClassName))
 		{
 			if (Impl->Scheduler.Request({.Asset = Asset, .Priority = Priority}))
+			{
 				Entry.State = EAssetThumbnailState::Pending;
+				Entry.bNeedsRefresh = false;
+			}
 		}
 		return Find(Asset.AssetPath);
 	}
@@ -757,13 +767,13 @@ namespace Durin
 		if (It == Impl->Entries.end()) return {};
 		const auto& Entry = It->second;
 		FAssetThumbnailView View;
-		View.State = Entry.State;
+		View.State = Entry.Texture ? EAssetThumbnailState::Ready : Entry.State;
 		View.Texture = Entry.Texture;
 		View.Width = Entry.Width;
 		View.Height = Entry.Height;
 		View.bHasTransparency = Entry.bHasTransparency;
 		View.bShowTransparencyGrid = false;
-		if (View.State == EAssetThumbnailState::Failed) View.Diagnostic = Entry.Diagnostic;
+		if (Entry.State == EAssetThumbnailState::Failed) View.Diagnostic = Entry.Diagnostic;
 		return View;
 	}
 
@@ -791,23 +801,25 @@ namespace Durin
 		const auto It = Impl->Entries.find(AssetPath);
 		if (It == Impl->Entries.end()) return;
 		Impl->RetireAssetWork(AssetPath);
-		Impl->UnregisterTexture(It->second);
 
 		It->second.State = EAssetThumbnailState::None;
+		It->second.bNeedsRefresh = true;
 		It->second.Diagnostic.clear();
 	}
 
 	auto FAssetThumbnailPool::ApplyContentChanges(const FContentChangeBatch& Changes) -> void
 	{
 		if (!Changes.bFullRefresh && Changes.Changes.empty()) return;
-		auto AffectsPackage = [&](const FPackagePath& Package) {
+		auto AffectsPackage = [&](const FPackagePath& Package, bool WithdrawnOnly = false) {
 			if (!Package.IsValid()) return false;
 			const auto Virtual = Package.ToString();
 			const auto Physical = FMountPaths::ResolveAssetPath(Virtual);
 			const auto Filename = Physical ? std::filesystem::path(Physical->PhysicalPath.generic_string() + ".dasset") : std::filesystem::path{};
 			return std::ranges::any_of(Changes.Changes, [&](const auto& Change) {
+				if (WithdrawnOnly && Change.Kind != EContentChangeKind::Removed && Change.Kind != EContentChangeKind::Renamed) return false;
 				for (const auto* Changed : {&Change.OldAssetPath, &Change.NewAssetPath})
 				{
+					if (WithdrawnOnly && Changed == &Change.NewAssetPath) continue;
 					std::string_view Path = *Changed;
 					while (Path.size() > 1 && Path.ends_with('/')) Path.remove_suffix(1);
 					if (!Path.empty() && (Virtual == Path || (Path.starts_with(Virtual) && Path.size() > Virtual.size() && Path[Virtual.size()] == '.')
@@ -816,6 +828,7 @@ namespace Durin
 				if (Physical)
 					for (const auto* Changed : {&Change.OldPhysicalPath, &Change.NewPhysicalPath})
 					{
+						if (WithdrawnOnly && Changed == &Change.NewPhysicalPath) continue;
 						if (Changed->empty()) continue;
 						std::filesystem::path Relative;
 						if (FPaths::TryMakeLexicalRelativePath(Filename, std::filesystem::path(*Changed), Relative)
@@ -827,7 +840,12 @@ namespace Durin
 		for (auto& [Path, Entry] : Impl->Entries)
 			if (Changes.bFullRefresh || AffectsPackage(Path.GetPackagePath())
 				|| std::ranges::any_of(Entry.Dependencies, [&](const auto& Dependency) { return AffectsPackage(Dependency); }))
+			{
+				if (Changes.bFullRefresh || AffectsPackage(Path.GetPackagePath(), true)
+					|| std::ranges::any_of(Entry.Dependencies, [&](const auto& Dependency) { return AffectsPackage(Dependency, true); }))
+					Impl->UnregisterTexture(Entry);
 				Refresh(Path);
+			}
 	}
 
 	auto FAssetThumbnailPool::Tick(bool bAllowNewAdmissions) -> void

@@ -40,6 +40,18 @@ namespace Durin
 				FContentBrowserNativeItem Item; Item.PhysicalPath = Old ? Change.OldPhysicalPath : Change.NewPhysicalPath;
 				Item.Kind = Change.bDirectory ? EContentBrowserItemKind::Folder : EContentBrowserItemKind::File;
 				ResolveItemPath(Item);
+				const auto Physical = std::filesystem::path(Item.PhysicalPath);
+				Item.Name = std::filesystem::path(Item.VirtualPath).filename().generic_string();
+				if (!Change.bDirectory) Item.Extension = Physical.extension().generic_string();
+				if (!Old && !Change.bDirectory)
+				{
+					std::error_code Error;
+					const auto Status = std::filesystem::symlink_status(Physical, Error);
+					if (Error || !std::filesystem::is_regular_file(Status)) return FContentBrowserItemData{};
+					Item.FileSize = std::filesystem::file_size(Physical, Error);
+					if (!Error) Item.LastWriteTime = std::filesystem::last_write_time(Physical, Error);
+					if (Error) return FContentBrowserItemData{};
+				}
 				return Source.BindItemData(MakeNativeItemDescription(Item));
 			};
 			auto Queue = [&](const FContentChange& Change) {
@@ -56,8 +68,7 @@ namespace Durin
 				Queue(Change);
 			}
 			if (Batch.bFullRefresh)
-				for (const auto& Mount : ContentStorage::FContentMountPaths::CaptureMounts())
-					Queue({EContentChangeKind::Modified, {}, Mount.PhysicalRoot, {}, {}, true});
+				Source.NotifyItemDataRefreshed();
 		}
 		auto ScopedHost(DContentBrowserDataSource& Source, FContentBrowserOperationContext Host) -> FContentBrowserOperationContext
 		{
@@ -247,7 +258,7 @@ namespace Durin
 			if (!Source.IsActive()) return;
 			auto Bound = Bind(Source, Item, Policy);
 			if (!Bound.GetOwnerDataSource()) continue;
-			if (Filter.Filter.Kind) { const auto Native = Payload(Source, Bound); if (!Native || Native->Item.Kind != *Filter.Filter.Kind) continue; }
+			if (!Source.DoesItemPassFilter(Bound, Filter)) continue;
 			if (!Callback(std::move(Bound))) return;
 		}
 	}

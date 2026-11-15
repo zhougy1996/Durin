@@ -76,6 +76,7 @@ namespace Durin
 		DURINED_API auto Find(const FTopLevelAssetPath& AssetPath) const -> FAssetThumbnailView;
 		DURINED_API auto AddReferencer(const FTopLevelAssetPath& AssetPath) -> void;
 		DURINED_API auto RemoveReferencer(const FTopLevelAssetPath& AssetPath) -> void;
+		// Retire pending work and requeue on demand, keeping accepted pixels until replacement.
 		DURINED_API auto Refresh(const FTopLevelAssetPath& AssetPath) -> void;
 		// Invalidates roots and captured dependencies once in the shared resource owner.
 		DURINED_API auto ApplyContentChanges(const FContentChangeBatch& Changes) -> void;

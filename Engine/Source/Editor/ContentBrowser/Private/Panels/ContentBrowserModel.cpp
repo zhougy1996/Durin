@@ -33,23 +33,9 @@ namespace Durin::ContentBrowser::Private
 			const std::weak_ptr<void> Lifetime = EventLifetime;
 			ItemsUpdated = Data->OnItemDataUpdated().AddLambda([this, Lifetime](std::span<const FContentBrowserItemDataUpdate> Updates) {
 				if (Lifetime.expired()) return;
-				FContentChangeBatch Changes;
-				for (const auto& Update : Updates)
-				{
-					const auto& Item = Update.GetItemData();
-					auto Virtual = Item.GetVirtualPath();
-					std::string Physical; Item.GetItemPhysicalPath(Physical);
-					if (Lifetime.expired()) return;
-					if (Physical.empty()) Physical = VirtualToPhysical(Virtual); if (Physical.empty()) Physical = Virtual;
-					auto OldPhysical = VirtualToPhysical(Update.GetPreviousVirtualPath()); if (OldPhysical.empty()) OldPhysical = Update.GetPreviousVirtualPath();
-					const auto Kind = Update.GetUpdateType();
-					Changes.Changes.push_back({Kind == EContentBrowserItemUpdateType::Added ? EContentChangeKind::Added
-						: Kind == EContentBrowserItemUpdateType::Removed ? EContentChangeKind::Removed
-						: Kind == EContentBrowserItemUpdateType::Moved ? EContentChangeKind::Renamed : EContentChangeKind::Modified,
-						Kind == EContentBrowserItemUpdateType::Moved ? OldPhysical : Kind == EContentBrowserItemUpdateType::Removed ? Physical : std::string{},
-						Kind == EContentBrowserItemUpdateType::Removed ? std::string{} : Physical, Update.GetPreviousVirtualPath(), Virtual, Item.GetItemType() == EContentBrowserItemFlags::Type_Folder});
-				}
-				PendingChanges.Changes.insert(PendingChanges.Changes.end(), std::make_move_iterator(Changes.Changes.begin()), std::make_move_iterator(Changes.Changes.end()));
+				PendingItemUpdates.insert(PendingItemUpdates.end(), Updates.begin(), Updates.end());
+				if (ItemsRequest && (ItemsRequest->State == EItemsRequestState::Queued || ItemsRequest->State == EItemsRequestState::Capturing))
+					ItemsRequest->Updates.insert(ItemsRequest->Updates.end(), Updates.begin(), Updates.end());
 			});
 			ItemsRefreshed = Data->OnItemDataRefreshed().AddLambda([this, Lifetime] {
 				if (!Lifetime.expired()) PendingChanges.bFullRefresh = true;
@@ -102,8 +88,11 @@ namespace Durin::ContentBrowser::Private
 		if (!DataQuery.IsAcceptingRequests())
 		{
 			CancelPendingSnapshots();
-			PublishedSnapshot = std::make_shared<const FContentBrowserItemsSnapshot>();
+			PublishedSnapshot = std::make_shared<const FContentBrowserItemRecords>();
 			Items = {};
+			AllItems = {};
+			ItemIndices.clear();
+			ItemFilter.reset();
 		}
 		if (bSnapshotPublicationSuspended) return false;
 		if (PendingChanges.bFullRefresh || !PendingChanges.Changes.empty())
@@ -114,6 +103,12 @@ namespace Durin::ContentBrowser::Private
 		}
 		const std::weak_ptr<void> Lifetime = EventLifetime;
 		bool bPublished = false;
+		if (ItemFilter && !PendingItemUpdates.empty())
+		{
+			auto Updates = std::exchange(PendingItemUpdates, {});
+			bPublished = ApplyItemUpdates(Updates);
+			if (Lifetime.expired()) return bPublished;
+		}
 		if (ItemsTask.IsValid() && ItemsTask.IsCompleted())
 		{
 			auto Completed = std::exchange(ItemsTask, {});
@@ -121,15 +116,16 @@ namespace Durin::ContentBrowser::Private
 			if (Request && Request == ItemsRequest
 				&& Request->State == EItemsRequestState::Capturing)
 			{
-				Request->State = EItemsRequestState::Completed;
 				if (Completed.GetState() == ETaskState::Succeeded)
 				{
 					auto Snapshot = std::move(Completed.GetResult());
-					PublishItems(std::move(*Snapshot));
+					PublishItems(std::move(*Snapshot), Request->Updates);
 					if (Lifetime.expired()) return bPublished;
 				}
 				else
 					ReportTaskFailure("Content scan did not complete: " + Completed.GetDiagnostic());
+				Request->State = EItemsRequestState::Completed;
+				Request->Updates.clear();
 				bPublished = true;
 			}
 		}
@@ -206,7 +202,7 @@ namespace Durin::ContentBrowser::Private
 		{
 			Session.CurrentPhysicalPath.clear();
 			Session.CurrentVirtualPath.clear();
-			PublishedSnapshot = std::make_shared<const FContentBrowserItemsSnapshot>();
+			PublishedSnapshot = std::make_shared<const FContentBrowserItemRecords>();
 			Items = {};
 		}
 		else if (!Session.CurrentPhysicalPath.empty())
@@ -358,7 +354,7 @@ namespace Durin::ContentBrowser::Private
 			if (ContentChangeScopes::Affects(Change, Session.CurrentPhysicalPath.empty() ? Session.CurrentVirtualPath : Session.CurrentPhysicalPath, !Session.Query.Search.empty())) return true;
 			if (!bInferMissingParents) return false;
 			const auto Child = ContentChangeScopes::IntroducedChild(Change, Session.CurrentPhysicalPath);
-			return !Child.empty() && std::ranges::none_of(PublishedSnapshot->Items, [&](const auto& Item) {
+			return !Child.empty() && std::ranges::none_of(AllItems, [&](const auto& Item) {
 				return Item.IsFolder() && ContentChangeScopes::SamePath(ItemAttributes::PhysicalPath(Item), Child);
 			});
 		});
@@ -415,7 +411,7 @@ namespace Durin::ContentBrowser::Private
 			++Session.NavigationRevision;
 			Session.CurrentPhysicalPath.clear();
 			Session.CurrentVirtualPath.clear();
-			PublishedSnapshot = std::make_shared<const FContentBrowserItemsSnapshot>();
+			PublishedSnapshot = std::make_shared<const FContentBrowserItemRecords>();
 			RebuildItems();
 			return true;
 		}
@@ -447,21 +443,24 @@ namespace Durin::ContentBrowser::Private
 		SuppressedEnumerationDiagnosticCount = 0;
 		if (!bPreserveItems)
 		{
-			PublishedSnapshot = std::make_shared<const FContentBrowserItemsSnapshot>();
+			PublishedSnapshot = std::make_shared<const FContentBrowserItemRecords>();
 			Items = {};
+			AllItems = {};
+			ItemIndices.clear();
+			ItemFilter.reset();
 		}
 		ItemsRequest = std::make_shared<FItemsRequest>(FItemsRequest{
 			Session.CurrentVirtualPath, !Session.Query.Search.empty()});
 		(void)PumpPendingSnapshots();
 	}
 
-	auto FContentBrowserModel::PublishItems(FContentBrowserItemsCapture Capture) -> void
+	auto FContentBrowserModel::PublishItems(FContentBrowserItemsCapture Capture, const std::vector<FContentBrowserItemDataUpdate>& Updates) -> void
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("ContentBrowser.PublishItems");
 		const auto Cancellation = Capture.Cancellation;
 		const std::weak_ptr<void> Lifetime = EventLifetime;
 		auto Snapshot = DataQuery.ProjectItems(std::move(Capture), Session.CurrentVirtualPath, !Session.Query.Search.empty());
-		if (Lifetime.expired() || (Cancellation && Cancellation->IsCanceled())) return;
+		if (Lifetime.expired() || ItemsCancellation != Cancellation || (Cancellation && Cancellation->IsCanceled())) return;
 		if (Snapshot.bStale) { RefreshItemsSnapshot(false); return; }
 		// Tree completions may have published diagnostics while item I/O was pending.
 		for (const auto& Diagnostic : Snapshot.Diagnostics)
@@ -470,17 +469,148 @@ namespace Durin::ContentBrowser::Private
 			else ++SuppressedEnumerationDiagnosticCount;
 		}
 		SuppressedEnumerationDiagnosticCount += Snapshot.SuppressedDiagnosticCount;
-		PublishedSnapshot = std::make_shared<const FContentBrowserItemsSnapshot>(std::move(Snapshot));
+		// The baseline predates these owner-thread events. Replay complete deltas
+		// into local records before publication, including reentrant readers.
+		const auto Filter = Snapshot.Filter;
+		auto Records = ContentBrowserQuery::MakeRecords(std::make_shared<const FContentBrowserItemsSnapshot>(std::move(Snapshot)));
+		// Binding may itself publish events. Copy only after binding so that its
+		// additions are included without iterating a vector callbacks can grow.
+		const auto Replay = Updates;
+		ApplyItemUpdates(Replay, std::move(Records), Filter);
+	}
+
+	auto FContentBrowserModel::ReindexItems() -> void
+	{
+		ItemIndices.clear();
+		std::vector<size_t> Indices;
+		Indices.reserve(PublishedSnapshot->Items.size());
+		for (size_t Index = 0; Index < PublishedSnapshot->Items.size(); ++Index)
+		{
+			ItemIndices.emplace(PublishedSnapshot->Items[Index]->GetItemKey(), Index);
+			Indices.push_back(Index);
+		}
+		AllItems = {PublishedSnapshot, std::move(Indices)};
+	}
+
+	auto FContentBrowserModel::ApplyItemUpdates(std::span<const FContentBrowserItemDataUpdate> Updates,
+		std::shared_ptr<const FContentBrowserItemRecords> Baseline,
+		std::shared_ptr<const FContentBrowserDataCompiledFilter> BaselineFilter) -> bool
+	{
+		const std::weak_ptr<void> Lifetime = EventLifetime;
+		const auto Original = PublishedSnapshot;
+		const auto Filter = Baseline ? std::move(BaselineFilter) : ItemFilter;
+		if (!Filter) return false;
+		auto Next = std::make_shared<FContentBrowserItemRecords>(Baseline ? *Baseline : *Original);
+		auto Indices = ItemIndices;
+		bool Changed = Baseline != nullptr;
+		auto Reindex = [&] {
+			Indices.clear();
+			for (size_t I = 0; I < Next->Items.size(); ++I) Indices.emplace(Next->Items[I]->GetItemKey(), I);
+		};
+		if (Baseline) Reindex();
+		auto Remove = [&](const FContentBrowserItemData& Data, std::string_view Path, bool Subtree) {
+			for (size_t I = 0; I < Next->Items.size();)
+			{
+				const auto& Existing = *Next->Items[I];
+				if (std::ranges::none_of(Existing.InternalItems, [&](const auto& Contribution) {
+					const auto Candidate = Contribution.GetItemDataKey().GetVirtualPath();
+					return Contribution.GetOwnerKey() == Data.GetOwnerKey()
+						&& ((Candidate == Path && Contribution.GetItemType() == Data.GetItemType())
+							|| (Subtree && Candidate.starts_with(std::string(Path) + "/")));
+				})) { ++I; continue; }
+				FContentBrowserItem Replacement = Existing;
+				std::erase_if(Replacement.InternalItems, [&](const auto& Contribution) {
+					const auto Candidate = Contribution.GetItemDataKey().GetVirtualPath();
+					return Contribution.GetOwnerKey() == Data.GetOwnerKey()
+						&& ((Candidate == Path && Contribution.GetItemType() == Data.GetItemType())
+							|| (Subtree && Candidate.starts_with(std::string(Path) + "/")));
+				});
+				if (Replacement.InternalItems.size() == Existing.InternalItems.size()) { ++I; continue; }
+				Changed = true;
+				if (Replacement.InternalItems.empty()) Next->Items.erase(Next->Items.begin() + I);
+				else { Next->Items[I] = std::make_shared<const FContentBrowserItem>(std::move(Replacement)); ++I; }
+			}
+			Reindex();
+		};
+		for (const auto& Update : Updates)
+		{
+			const auto& Data = Update.GetItemData();
+			if (!Data.GetOwnerDataSource()) continue;
+			const auto Type = Update.GetUpdateType();
+			const auto PreviousPath = FContentBrowserItemDataKey(Data.GetItemType(), Update.GetPreviousVirtualPath()).GetVirtualPath();
+			const bool Folder = Data.GetItemType() == EContentBrowserItemFlags::Type_Folder;
+			if (Folder)
+			{
+				const auto NewPath = Data.GetItemDataKey().GetVirtualPath();
+				const auto OldPath = Type == EContentBrowserItemUpdateType::Moved ? PreviousPath : NewPath;
+				const auto Current = FContentBrowserItemDataKey(EContentBrowserItemFlags::Type_Folder, Session.CurrentVirtualPath).GetVirtualPath();
+				if ((Current == OldPath || Current.starts_with(OldPath + "/"))
+					&& Type == EContentBrowserItemUpdateType::Moved)
+				{
+					const auto OldPhysical = VirtualToPhysical(OldPath), NewPhysical = VirtualToPhysical(NewPath);
+					const FContentChange Move{.Kind = EContentChangeKind::Renamed,
+						.OldPhysicalPath = OldPhysical.empty() ? OldPath : OldPhysical,
+						.NewPhysicalPath = NewPhysical.empty() ? NewPath : NewPhysical, .bDirectory = true};
+					for (auto& Path : Session.NavigationHistory) ContentChangeScopes::RemapPhysical(Path, Move);
+					NavigateToVirtual(NewPath + Current.substr(OldPath.size()), false);
+					return true;
+				}
+				if ((Current == OldPath || Current.starts_with(OldPath + "/"))
+					&& Type == EContentBrowserItemUpdateType::Removed && !Session.CurrentPhysicalPath.empty())
+				{
+					const auto Available = FindNearestAvailableDirectory(Session.CurrentPhysicalPath);
+					if (!Available.empty() && Available != Session.CurrentPhysicalPath) { NavigateToPhysical(Available); return true; }
+				}
+				auto AffectedTree = [&](const std::string& Directory) {
+					for (const auto& Virtual : {OldPath, NewPath})
+					{
+						const auto Physical = VirtualToPhysical(Virtual);
+						if (!Physical.empty() && (ContentChangeScopes::SamePath(Directory, std::filesystem::path(Physical).parent_path().generic_string())
+							|| ContentChangeScopes::Within(Directory, Physical))) return true;
+					}
+					return false;
+				};
+				std::erase_if(DirectoryChildrenCache, [&](const auto& Entry) { return AffectedTree(Entry.first); });
+				std::erase_if(RequestedDirectoryChildrenSnapshots, AffectedTree);
+				if (!ActiveTreeDirectory.empty() && AffectedTree(ActiveTreeDirectory)) { bActiveTreePublishable = false; TreeCancellation->Cancel(); }
+			}
+			if (Type == EContentBrowserItemUpdateType::Removed || Type == EContentBrowserItemUpdateType::Moved)
+				Remove(Data, Type == EContentBrowserItemUpdateType::Moved ? PreviousPath : Data.GetItemDataKey().GetVirtualPath(), Folder);
+			if (Type == EContentBrowserItemUpdateType::Removed) continue;
+			auto Bound = DataQuery.ProjectItem(Data, *Filter);
+			if (Lifetime.expired()) return false;
+			if (!Bound) { Remove(Data, Data.GetItemDataKey().GetVirtualPath(), false); continue; }
+			const auto Key = Bound->GetItemKey();
+			if (const auto It = Indices.find(Key); It != Indices.end())
+			{
+				auto Replacement = *Next->Items[It->second];
+				const auto Contribution = std::ranges::find(Replacement.InternalItems, Bound->GetContributionKey(), &FContentBrowserItemData::GetContributionKey);
+				if (Contribution == Replacement.InternalItems.end()) Replacement.InternalItems.push_back(std::move(*Bound));
+				else *Contribution = std::move(*Bound);
+				Next->Items[It->second] = std::make_shared<const FContentBrowserItem>(std::move(Replacement));
+			}
+			else
+			{
+				Indices.emplace(Key, Next->Items.size());
+				Next->Items.push_back(std::make_shared<const FContentBrowserItem>(FContentBrowserItem{.InternalItems = {std::move(*Bound)}}));
+			}
+			Changed = true;
+		}
+		if (!Changed || PublishedSnapshot != Original) return false;
+		PublishedSnapshot = std::move(Next);
+		ItemFilter = Filter;
 		RebuildItems();
+		return true;
 	}
 
 	auto FContentBrowserModel::RebuildItems() -> void
 	{
 		const auto Snapshot = PublishedSnapshot;
+		ReindexItems();
 		const auto Physical = Session.CurrentPhysicalPath, Virtual = Session.CurrentVirtualPath;
 		const auto Settings = Session.Query;
 		const std::weak_ptr<void> Lifetime = EventLifetime;
-		auto Projection = ContentBrowserQuery::Project(Snapshot, Physical, Settings, Virtual);
+		auto Projection = ContentBrowserQuery::ProjectRecords(Snapshot, Physical, Settings, Virtual);
 		if (Lifetime.expired()) return;
 		if (PublishedSnapshot != Snapshot || Session.CurrentPhysicalPath != Physical
 			|| Session.CurrentVirtualPath != Virtual || Session.Query != Settings) return;

@@ -134,12 +134,10 @@ namespace Durin::ContentBrowser::Private
 
 	auto FContentBrowserPanel::ApplyTransferResult(bool Success, bool) -> void
 	{
-		Model.RefreshItemsSnapshot(false);
 		if (!Success) SetError("Content was not transferred. See Console for details.");
 	}
 	auto FContentBrowserPanel::ApplySaveResult(bool Success) -> void
 	{
-		Model.RefreshItemsSnapshot(false);
 		if (!Success) SetError("Content was not saved. See Console for details.");
 	}
 
@@ -339,7 +337,8 @@ namespace Durin::ContentBrowser::Private
 			}
 		ThumbnailReferences->ApplyContentChanges(Mapped);
 		const auto Navigation = Model.GetNavigationRevision();
-		if (Model.ApplyContentChanges(Mapped)) RepairSelection();
+		if (std::ranges::any_of(Mapped.Changes, [](const auto& Change) { return Change.bDirectory; })
+			&& Model.ApplyContentChanges(Mapped)) RepairSelection();
 		if (PendingItemAction && PendingItemAction->NavigationRevision == Navigation)
 		{
 			if (!PendingItemAction->ItemKey.IsValid()) PendingItemAction.reset();
@@ -479,7 +478,6 @@ namespace Durin::ContentBrowser::Private
 		SearchBuffer.fill(0);
 		Model.SetSearch("");
 		Model.SetTypeFilter(EContentBrowserTypeFilter::All);
-		Model.RefreshItemsSnapshot(false);
 		SelectionState.Selected.clear();
 		SelectionState.Selected.insert(Item.GetItemKey());
 		return true;
@@ -704,7 +702,6 @@ namespace Durin::ContentBrowser::Private
 			bDeletionPlanRefreshed = true;
 			return;
 		}
-		Model.RefreshItemsSnapshot(false);
 		if (!Result) SetError("Content was not deleted. See Console for details.");
 		bDeletionPlanRefreshed = false;
 		SynchronizeMountedContentMutation();

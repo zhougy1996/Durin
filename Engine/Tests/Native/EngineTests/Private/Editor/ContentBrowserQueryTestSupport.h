@@ -95,10 +95,13 @@ namespace Durin
 	  public:
 		explicit FVirtualBrowserQuerySource(const FObjectInitializer& I) : Super(I) {}
 		std::vector<ContentBrowser::FContentBrowserItem> Rows;
+		FName SourceName = FName("Memory");
 		int Copies = 0;
 		bool UseCompiledCapture = false;
+		std::shared_ptr<std::atomic<int>> CaptureCalls = std::make_shared<std::atomic<int>>(0);
 		std::function<void()> BeforeBind;
 		mutable std::function<void()> BeforeCompile;
+		std::function<void()> BeforeCapture;
 		std::function<void(const ContentBrowser::FContentBrowserOperationContext&)> InspectBindingPolicy;
 		mutable int DiskSizeReads = 0;
 		mutable std::function<void()> BeforePhysicalPath;
@@ -106,9 +109,13 @@ namespace Durin
 		{
 		  public:
 			std::vector<ContentBrowser::FContentBrowserItemData> Items;
+			std::shared_ptr<std::atomic<int>> Calls;
+			std::function<void()> BeforeCapture;
 			auto Capture(const Tasks::FCancellationToken&, const ContentBrowser::FEntryStatusQuery&) const
 				-> ContentBrowser::FContentBrowserDataCapture override
 			{
+				++*Calls;
+				if (BeforeCapture) BeforeCapture();
 				return {.Items = Items};
 			}
 		};
@@ -120,6 +127,8 @@ namespace Durin
 			if (!UseCompiledCapture)
 				return;
 			auto Data = std::make_shared<FValueCapture>();
+			Data->Calls = CaptureCalls;
+			Data->BeforeCapture = BeforeCapture;
 			for (const auto& Row : Rows) if (const auto* Description = Row.GetPrimaryInternalItem()) Data->Items.push_back(*Description);
 			Out.CompiledFilters[this] = std::move(Data);
 		}
@@ -145,7 +154,7 @@ namespace Durin
 			if (Data.GetOwnerDataSource()!=this || PreviewPath.empty()) return false;
 			Out=PreviewPath; return true;
 		}
-		auto GetDataSourceName() const -> FName override { return FName("Memory"); }
+		auto GetDataSourceName() const -> FName override { return SourceName; }
 		auto BindItemData(const ContentBrowser::FContentBrowserItemData& Item, const ContentBrowser::FContentBrowserOperationContext& Host = {})
 			-> ContentBrowser::FContentBrowserItemData override
 		{

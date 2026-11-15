@@ -4,7 +4,7 @@ Summary: Define UE-shaped browser provider registration, opaque item ownership, 
 
 Modules: ContentBrowserData, ContentBrowserAssetDataSource, ContentBrowserFileDataSource, ContentBrowser, DurinEd, AssetTools, Engine, AssetRegistry
 
-Last reviewed: 2026-11-15
+Last reviewed: 2026-11-16
 
 ## Ownership And Registration
 
@@ -164,8 +164,8 @@ providers prepare immutable values on the owner thread, and their capture code
 runs through the existing task runtime without dereferencing reflected sources,
 live registries, panels or host callbacks. Sources without worker preparation
 continue to implement ordinary owner-thread enumeration; the query captures those
-returned values before launching presentation work. Worker captures contain only
-ItemData descriptions. Capture and published snapshot types distinguish raw
+returned values before launching presentation work. Worker captures contain
+ItemData descriptions and retain immutable compiled filter values. Capture and published snapshot types distinguish raw
 contributions from aggregated Items. Publication follows one explicit binding
 path, with provider admission checks after binding callbacks; it has no fallback
 that interprets an aggregate as an unbound description. The optional entry-status
@@ -178,8 +178,8 @@ holds immutable inputs, and its owner controls cancellation and publication.
 Preparation retains local input values and source/service ownership across provider
 calls. Cancellation is registered before compilation/enumeration, and query lifetime
 is checked before any later member access. Binding retains policy by value.
-Each pending capture owns its cancellation token and virtual scope; relevant item
-events cancel that capture, while full refresh invalidates all pending captures.
+Each pending capture owns its cancellation token. Ordinary item events do not
+cancel it; full refresh invalidates all pending captures.
 Folder scopes normalize trailing separators and the root consistently. Binding
 callbacks recheck cancellation before committing rows. Completed tasks are detached
 before publication callbacks, so a reentrant refresh retains its new owned task.
@@ -189,7 +189,14 @@ waiting helpers and request-identity observations live in test fixtures, with no
 production request counter or synchronous mode. Presentation freezes paths and
 filter settings, collects provider values before sorting, and commits a range only
 while its receiver and inputs remain current.
-Views replace obsolete requests and retain no revision cursor or replay history.
+Each view request retains owner-thread item deltas received while its baseline
+is queued or capturing. Publication binds the baseline, replays those deltas into
+local shared records and commits the merged collection. Removed and moved old
+identities cannot reappear from a late baseline. Events raised while binding the
+baseline are included before replay; events raised during delta replay remain
+queued for the next frame. Navigation replacement and source or
+mount withdrawal revoke old publication rights. The temporary delta queue belongs
+only to that request; views retain no public revision cursor or persistent journal.
 Notification callbacks recheck receiver lifetime after provider calls.
 Independent views keep separate cancellation/publication rights. Model destruction
 drains owned worker bodies; prepared values remain readable after query destruction.
@@ -265,6 +272,30 @@ the previous virtual path. Native committed-effect batches generate these
 updates, including generated copy destinations. Failed/no-effect operations
 publish no optimistic update.
 
+Added, Modified and Moved descriptions contain the complete current display
+metadata and native payload; consumers must not enumerate a directory to hydrate
+an update. Removed descriptions require only the old source-qualified identity.
+Sources expose owner-thread `ConvertItemForFilter` and `DoesItemPassFilter` for
+individual updates. The default conversion leaves the description unchanged;
+the default predicate checks ownership, virtual scope, recursion and item kind.
+Specialized filters override these hooks to match their enumeration semantics.
+Native producers hydrate only the affected asset or filesystem entry.
+Asset labels use the package name for one asset and object names for multiple
+assets. Indexed package membership supplies the same labels in enumeration and
+events; membership-mode changes emit Modified events for affected siblings only.
+Asset sources maintain parent-folder
+membership counts from asset deltas, including inactive-source bookkeeping without
+publication. Per-item folder checks accept current Asset folders and mounted roots;
+empty ordinary folders belong to the File source. Folder transitions are coalesced
+per batch and published after file moves, preserving selection migration.
+
+Baseline results retain the immutable compiled provider filters used to produce
+them. `ProjectItem` converts and checks one delta against those filters and binds
+it with the receiving query's policy, rechecking source admission after callbacks.
+This avoids compiling or capturing a new provider range for each item event.
+Full-refresh batches use `NotifyItemDataRefreshed`, rather than disguising unknown
+coverage as a Modified root folder.
+
 The subsystem detaches its pending batch before broadcasting `OnItemDataUpdated`;
 reentrant updates enter a later batch. Membership/mount changes and explicit
 `NotifyItemDataRefreshed` requests coalesce into `OnItemDataRefreshed`. Views keep
@@ -296,8 +327,9 @@ Completion detaches the task before callbacks; publication checks that the
 source is active and still owns that discovery state. Shutdown drains work before module retirement. Missing task scheduling leaves discovery dormant
 in minimal test hosts. Incomplete scans invalidate root coverage and never invent
 removals. Package/bulk changes reconcile the asset registry on the owner thread;
-companion ownership stays with Asset. Published updates cancel affected captures
-directly; the File source retains no discovery revision or change journal.
+companion ownership stays with Asset. Views merge published item updates and
+overlay them on pending baselines; the File source retains no discovery revision
+or change journal.
 This is metadata polling because Durin has no
 portable directory-watcher API: same-size rewrites preserving timestamps require
 explicit reconciliation. It is not equivalent to an OS change-event stream.

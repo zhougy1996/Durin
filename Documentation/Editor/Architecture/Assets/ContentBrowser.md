@@ -129,6 +129,21 @@ Search is recursive beneath the current directory. Ordinary browsing shows
 only immediate children. Folders sort before other items, after which the
 selected stable sort applies.
 
+Ordinary source item events merge directly into the view's keyed contribution
+collection. Added and Modified replace only their source contribution, Moved
+removes the old identity before merging the complete new description, and Removed
+preserves any other folder contributors. Views bind each update with their own
+operation policy and apply the baseline's compiled single-item filter. They do
+not translate these events back into physical-path range invalidations.
+
+Published records are immutable shared values. Delta publication copies the
+record-pointer collection and replaces only affected records; unrelated item
+addresses and retained old ranges remain valid. Frontend filtering and sorting
+may rebuild ordered indices over those records without backend enumeration.
+Commands rely on committed provider deltas instead of initiating another list
+capture after save, transfer, rename or deletion. Explicit full refresh and
+navigation still establish a new baseline.
+
 Filesystem enumeration isolates per-entry inspection failures from iterator
 progress. An unreadable entry is skipped without truncating later siblings;
 traversal failures stop safely and appear as bounded warnings in the status bar.
@@ -320,6 +335,11 @@ through the source-image cache. Operation results do not initialize preview data
 
 Refresh, navigation, move, delete, reimport, panel close, and editor shutdown
 cancel obsolete owned requests before rebinding the visible snapshot.
+Ordinary item updates retain matching thumbnail references across delta
+publication. Metadata/residency notifications are not pixel invalidations;
+content/dependency changes are handled by the shared pool. Scoped regeneration
+retains a valid old preview until replacement, while withdrawn resources and
+unknown full invalidation revoke their pixels immediately.
 Visible work outranks prefetch, duplicate keys coalesce, and all concrete asset
 types share the same bounded scheduler and one-rendered-capture-per-frame limit.
 Renderer removal stops admission and drains that renderer generation's queued

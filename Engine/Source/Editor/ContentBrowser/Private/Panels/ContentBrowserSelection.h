@@ -57,8 +57,9 @@ namespace Durin::ContentBrowser::Private
 				: FContentBrowserItemKey{};
 			return true;
 		}
+		template<typename TItems>
 		static auto HasOtherFolderContribution(const FContentBrowserItemKey& Key, const FContentBrowserItemDataUpdate& Update,
-			std::span<const FContentBrowserItem> Items) -> bool
+			const TItems& Items) -> bool
 		{
 			if (Key.GetItemType() != EContentBrowserItemFlags::Type_Folder) return false;
 			const auto Row = std::ranges::find_if(Items, [&](const auto& Item) { return Item.GetItemKey() == Key; });
@@ -66,7 +67,8 @@ namespace Durin::ContentBrowser::Private
 				return Data.GetOwnerDataSource() && Data.GetOwnerKey() != Update.GetItemData().GetOwnerKey();
 			});
 		}
-		auto Apply(const FContentBrowserItemDataUpdate& Update, std::span<const FContentBrowserItem> Items = {}) -> void
+		template<typename TItems = std::span<const FContentBrowserItem>>
+		auto Apply(const FContentBrowserItemDataUpdate& Update, const TItems& Items = {}) -> void
 		{
 			FContentBrowserItemKeySet Next;
 			for (auto Key : Selected)

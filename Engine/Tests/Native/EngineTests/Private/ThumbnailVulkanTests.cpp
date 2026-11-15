@@ -1,5 +1,6 @@
 #include "AssetRegistry/Publication.h"
 #include "ThumbnailManagerTestSupport.h"
+#include "DObject/PrimaryAssetId.h"
 #include "Engine/StreamableManager.h"
 #include "Thumbnail/ThumbnailManager.h"
 #include "ComponentPSOPrecacheTestSupport.h"
@@ -582,6 +583,40 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 			WarmCache.GetStats();
 		EXPECT_EQ(RevisitedStats.Generation.DiskHits, Stats.Generation.DiskHits);
 		EXPECT_EQ(RevisitedStats.UploadsQueued, Stats.UploadsQueued);
+		auto Metadata = StaticMeshFingerprint;
+		ASSERT_TRUE(Durin::FPrimaryAssetId::TryParse("ThumbnailTest:Metadata", Metadata.PrimaryAssetId));
+		WarmCache.AccessTexture(Metadata);
+		EXPECT_EQ(WarmCache.Find(Metadata.AssetPath).Texture, Ready.Texture);
+		EXPECT_EQ(WarmCache.GetStats().Generation.Jobs, RevisitedStats.Generation.Jobs);
+		// Refresh coalesces visible demand and keeps accepted pixels until the
+		// replacement upload completes, even though internal work is pending.
+		WarmCache.Refresh(Metadata.AssetPath);
+		WarmCache.Refresh(Metadata.AssetPath);
+		EXPECT_EQ(WarmCache.Find(Metadata.AssetPath).State, Durin::EAssetThumbnailState::Ready);
+		EXPECT_EQ(WarmCache.Find(Metadata.AssetPath).Texture, Ready.Texture);
+		WarmCache.AccessTexture(Metadata);
+		WarmCache.CancelPendingRequests();
+		EXPECT_EQ(WarmCache.Find(Metadata.AssetPath).Texture, Ready.Texture);
+		WarmCache.AccessTexture(Metadata);
+		EXPECT_EQ(WarmCache.GetStats().QueuedJobs, 1u);
+		const auto ReplacementDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+		while (WarmCache.GetStats().UploadsCompleted == RevisitedStats.UploadsCompleted
+			&& std::chrono::steady_clock::now() < ReplacementDeadline)
+		{
+			WarmCache.AccessTexture(Metadata);
+			WarmCache.AccessTexture(Metadata);
+			WarmCache.Tick();
+			const auto Visible = WarmCache.Find(Metadata.AssetPath);
+			EXPECT_EQ(Visible.State, Durin::EAssetThumbnailState::Ready);
+			EXPECT_NE(Visible.Texture, nullptr);
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+		EXPECT_EQ(WarmCache.GetStats().UploadsCompleted, RevisitedStats.UploadsCompleted + 1);
+		EXPECT_EQ(WarmCache.GetStats().Generation.Jobs, RevisitedStats.Generation.Jobs + 1);
+		EXPECT_NE(WarmCache.Find(Metadata.AssetPath).Texture, Ready.Texture);
+		WarmCache.ApplyContentChanges({.Changes = {{.Kind = Durin::EContentChangeKind::Removed,
+			.OldAssetPath = Metadata.AssetPath.ToString()}}});
+		EXPECT_EQ(WarmCache.Find(Metadata.AssetPath).Texture, nullptr);
 		WarmCache.Clear();
 	}
 	// An upload can finish after its consumer is removed. Reusing the same asset

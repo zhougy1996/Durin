@@ -3589,6 +3589,222 @@ TEST_F(FContentBrowserModelTests, ScopedRefreshPreservesUnrelatedRowsAndTreeIden
 	EXPECT_EQ(Model.GetDirectorySnapshot(A.generic_string()), Tree);
 }
 
+TEST_F(FContentBrowserModelTests, OrdinaryItemDeltasMergeWithoutCaptureAndPreserveUnrelatedRecords)
+{
+	FProviderQueryFixture Query;
+	ASSERT_TRUE(Query.GetServiceForTesting()->DeactivateDataSource(FName("Asset")));
+	ASSERT_TRUE(Query.GetServiceForTesting()->DeactivateDataSource(FName("File")));
+	auto* Source = NewObject<FVirtualBrowserQuerySource>(Query.GetServiceForTesting(), {});
+	Source->UseCompiledCapture = true;
+	Source->Rows = ItemDescriptions({{.Name = "First", .VirtualPath = "/ContentBrowserTests/First"},
+		{.Name = "Other", .VirtualPath = "/ContentBrowserTests/Other"}});
+	Query.AddSource(*Source);
+	Query.GetServiceForTesting()->Tick(0.0f);
+	FContentBrowserModel Model(Query);
+	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content").generic_string()));
+	FContentBrowserModelFixtureAccess::Wait(Model);
+	const auto Calls = Source->CaptureCalls->load();
+	const auto Request = FContentBrowserModelFixtureAccess::Request(Model);
+	const auto Original = Model.GetItems();
+	auto Find = [&](std::string_view Path) -> const Durin::ContentBrowser::FContentBrowserItem* {
+		const auto It = std::ranges::find_if(Model.GetItemsSnapshot(), [&](const auto& Item) { return Item.GetVirtualPath() == Path; });
+		return It == Model.GetItemsSnapshot().end() ? nullptr : &*It;
+	};
+	const auto* Other = Find("/ContentBrowserTests/Other");
+	ASSERT_NE(Other, nullptr);
+	auto Description = [&](std::string Path, std::string Name) {
+		return Source->BindItemData(ContentBrowser::FContentBrowserItemData(ContentBrowser::EContentBrowserItemFlags::Type_File,
+			std::move(Path), std::move(Name), {}, {}));
+	};
+	auto Publish = [&](ContentBrowser::FContentBrowserItemDataUpdate Update) {
+		Source->QueueItemDataUpdate(std::move(Update));
+		Query.GetServiceForTesting()->Tick(0.0f);
+		Model.PumpPendingSnapshots();
+		EXPECT_EQ(Source->CaptureCalls->load(), Calls);
+		EXPECT_EQ(FContentBrowserModelFixtureAccess::Request(Model), Request);
+		EXPECT_EQ(Find("/ContentBrowserTests/Other"), Other);
+	};
+	Publish(ContentBrowser::FContentBrowserItemDataUpdate::MakeItemModifiedUpdate(Description("/ContentBrowserTests/First", "Changed")));
+	ASSERT_NE(Find("/ContentBrowserTests/First"), nullptr);
+	EXPECT_EQ(Find("/ContentBrowserTests/First")->GetItemName(), "Changed");
+	EXPECT_TRUE(std::ranges::any_of(Original, [](const auto& Item) { return Item.GetItemName() == "First"; }));
+	Publish(ContentBrowser::FContentBrowserItemDataUpdate::MakeItemAddedUpdate(Description("/ContentBrowserTests/New", "New")));
+	Publish(ContentBrowser::FContentBrowserItemDataUpdate::MakeItemAddedUpdate(Description("/ContentBrowserTests/New", "New")));
+	EXPECT_EQ(std::ranges::count_if(Model.GetItems(), [](const auto& Item) { return Item.GetVirtualPath() == "/ContentBrowserTests/New"; }), 1);
+	Publish(ContentBrowser::FContentBrowserItemDataUpdate::MakeItemMovedUpdate(Description("/ContentBrowserTests/Moved", "Moved"), "/ContentBrowserTests/New"));
+	EXPECT_EQ(Find("/ContentBrowserTests/New"), nullptr);
+	ASSERT_NE(Find("/ContentBrowserTests/Moved"), nullptr);
+	Publish(ContentBrowser::FContentBrowserItemDataUpdate::MakeItemRemovedUpdate(Description("/ContentBrowserTests/Moved", "Moved")));
+	EXPECT_EQ(Find("/ContentBrowserTests/Moved"), nullptr);
+	Source->Rows[0] = ItemDescriptions({{.Name = "Changed", .VirtualPath = "/ContentBrowserTests/First"}}).front();
+	Model.SetSearch("Changed");
+	FContentBrowserModelFixtureAccess::Wait(Model);
+	ASSERT_EQ(Model.GetItems().size(), 1u);
+	EXPECT_EQ(Model.GetItems().front().GetItemName(), "Changed");
+	const auto SearchCalls = Source->CaptureCalls->load();
+	Source->QueueItemDataUpdate(ContentBrowser::FContentBrowserItemDataUpdate::MakeItemModifiedUpdate(Description("/ContentBrowserTests/First", "Hidden")));
+	Query.GetServiceForTesting()->Tick(0.0f);
+	Model.PumpPendingSnapshots();
+	EXPECT_TRUE(Model.GetItems().empty());
+	EXPECT_EQ(Source->CaptureCalls->load(), SearchCalls);
+}
+
+TEST_F(FContentBrowserModelTests, InFlightBaselineReplaysDeltasWithoutRestartOrResurrection)
+{
+	FProviderQueryFixture Query;
+	auto* Data = Query.GetServiceForTesting();
+	ASSERT_TRUE(Data->DeactivateDataSource(FName("Asset")));
+	ASSERT_TRUE(Data->DeactivateDataSource(FName("File")));
+	auto* Source = NewObject<FVirtualBrowserQuerySource>(Data, {});
+	Source->UseCompiledCapture = true;
+	Source->Rows = ItemDescriptions({{.Name = "Old", .VirtualPath = "/ContentBrowserTests/First"},
+		{.Name = "Gone", .VirtualPath = "/ContentBrowserTests/Gone"},
+		{.Name = "From", .VirtualPath = "/ContentBrowserTests/From"}});
+	auto Gate = std::make_shared<FBrowserScanGate>();
+	FBrowserScanRelease Release{Gate};
+	Source->BeforeCapture = [Gate] { Gate->Pause(); };
+	Query.AddSource(*Source);
+	Data->Tick(0.0f);
+	FContentBrowserModel Model(Query);
+	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content").generic_string()));
+	ASSERT_TRUE(Gate->WaitUntilStarted());
+	const auto Request = FContentBrowserModelFixtureAccess::Request(Model);
+	const auto Calls = Source->CaptureCalls->load();
+	auto Description = [&](std::string Name) {
+		return ContentBrowser::FContentBrowserItemData(*Source, ContentBrowser::EContentBrowserItemFlags::Type_File,
+			"/ContentBrowserTests/" + Name, Name, {}, {});
+	};
+	using FUpdate = ContentBrowser::FContentBrowserItemDataUpdate;
+	Source->QueueItemDataUpdate(FUpdate::MakeItemModifiedUpdate(Description("First")));
+	Source->QueueItemDataUpdate(FUpdate::MakeItemRemovedUpdate(Description("Gone")));
+	Source->QueueItemDataUpdate(FUpdate::MakeItemMovedUpdate(Description("To"), "/ContentBrowserTests/From"));
+	Source->QueueItemDataUpdate(FUpdate::MakeItemAddedUpdate(Description("Transient")));
+	Source->QueueItemDataUpdate(FUpdate::MakeItemRemovedUpdate(Description("Transient")));
+	Source->QueueItemDataUpdate(FUpdate::MakeItemAddedUpdate(Description("Live")));
+	Source->QueueItemDataUpdate(FUpdate::MakeItemModifiedUpdate(Description("First")));
+	Data->Tick(0.0f);
+	Model.PumpPendingSnapshots();
+	EXPECT_EQ(FContentBrowserModelFixtureAccess::Request(Model), Request);
+	EXPECT_EQ(Source->CaptureCalls->load(), Calls);
+	Gate->Release();
+	FContentBrowserModelFixtureAccess::Wait(Model);
+	ASSERT_EQ(Model.GetItems().size(), 3u);
+	for (const auto Name : {"First", "To", "Live"})
+		EXPECT_TRUE(std::ranges::any_of(Model.GetItems(), [&](const auto& Item) { return Item.GetItemName() == Name; }));
+	for (const auto Name : {"Old", "Gone", "From", "Transient"})
+		EXPECT_FALSE(std::ranges::any_of(Model.GetItems(), [&](const auto& Item) { return Item.GetItemName() == Name; }));
+	EXPECT_EQ(FContentBrowserModelFixtureAccess::Request(Model), Request);
+	EXPECT_EQ(Source->CaptureCalls->load(), Calls);
+	EXPECT_FALSE(Model.IsLoading());
+}
+
+TEST_F(FContentBrowserModelTests, BaselineBindingEventsAreReplayedBeforeFirstPublication)
+{
+	FProviderQueryFixture Query;
+	auto* Data = Query.GetServiceForTesting();
+	ASSERT_TRUE(Data->DeactivateDataSource(FName("Asset")));
+	ASSERT_TRUE(Data->DeactivateDataSource(FName("File")));
+	auto* Source = NewObject<FVirtualBrowserQuerySource>(Data, {});
+	Source->UseCompiledCapture = true;
+	Source->Rows = ItemDescriptions({{.Name = "Keep", .VirtualPath = "/ContentBrowserTests/Keep"},
+		{.Name = "Gone", .VirtualPath = "/ContentBrowserTests/Gone"}});
+	Query.AddSource(*Source);
+	Data->Tick(0.0f);
+	FContentBrowserModel Model(Query);
+	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content").generic_string()));
+	const auto Request = FContentBrowserModelFixtureAccess::Request(Model);
+	Source->BeforeBind = [&] {
+		Source->QueueItemDataUpdate(ContentBrowser::FContentBrowserItemDataUpdate::MakeItemRemovedUpdate(
+			ContentBrowser::FContentBrowserItemData(*Source, ContentBrowser::EContentBrowserItemFlags::Type_File,
+				"/ContentBrowserTests/Gone", "Gone", {}, {})));
+		Data->Tick(0.0f);
+		EXPECT_TRUE(Model.GetItems().empty());
+	};
+	FContentBrowserModelFixtureAccess::Wait(Model);
+	ASSERT_EQ(Model.GetItems().size(), 1u);
+	EXPECT_EQ(Model.GetItems().front().GetItemName(), "Keep");
+	EXPECT_EQ(FContentBrowserModelFixtureAccess::Request(Model), Request);
+	EXPECT_EQ(Source->CaptureCalls->load(), 1);
+}
+
+TEST_F(FContentBrowserModelTests, FolderContributionRemovalKeepsOtherOwnerWithoutRecapture)
+{
+	FProviderQueryFixture Query;
+	ASSERT_TRUE(Query.GetServiceForTesting()->DeactivateDataSource(FName("Asset")));
+	ASSERT_TRUE(Query.GetServiceForTesting()->DeactivateDataSource(FName("File")));
+	auto* Left = NewObject<FVirtualBrowserQuerySource>(Query.GetServiceForTesting(), {});
+	auto* Right = NewObject<FVirtualBrowserQuerySource>(Query.GetServiceForTesting(), {});
+	Right->SourceName = FName("OtherMemory");
+	Left->UseCompiledCapture = Right->UseCompiledCapture = true;
+	Left->Rows = Right->Rows = ItemDescriptions({{.Kind = EContentBrowserItemKind::Folder, .Name = "Shared", .VirtualPath = "/ContentBrowserTests/Shared"}});
+	Query.AddSource(*Left);
+	Query.AddSource(*Right);
+	Query.GetServiceForTesting()->Tick(0.0f);
+	FContentBrowserModel Model(Query);
+	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content").generic_string()));
+	FContentBrowserModelFixtureAccess::Wait(Model);
+	ASSERT_EQ(Model.GetItems().size(), 1u);
+	ASSERT_EQ(Model.GetItems().front().InternalItems.size(), 2u);
+	const auto Original = Model.GetItems();
+	const auto Request = FContentBrowserModelFixtureAccess::Request(Model);
+	const auto LeftCalls = Left->CaptureCalls->load(), RightCalls = Right->CaptureCalls->load();
+	const auto Removed = Left->BindItemData(*Left->Rows.front().GetPrimaryInternalItem());
+	Left->QueueItemDataUpdate(ContentBrowser::FContentBrowserItemDataUpdate::MakeItemRemovedUpdate(Removed));
+	Query.GetServiceForTesting()->Tick(0.0f);
+	Model.PumpPendingSnapshots();
+	ASSERT_EQ(Model.GetItems().size(), 1u);
+	ASSERT_EQ(Model.GetItems().front().InternalItems.size(), 1u);
+	EXPECT_EQ(Model.GetItems().front().InternalItems.front().GetOwnerDataSource(), Right);
+	EXPECT_EQ(Model.GetItems().front().GetItemKey(), Original.front().GetItemKey());
+	EXPECT_EQ(Original.front().InternalItems.size(), 2u);
+	EXPECT_EQ(FContentBrowserModelFixtureAccess::Request(Model), Request);
+	EXPECT_EQ(Left->CaptureCalls->load(), LeftCalls);
+	EXPECT_EQ(Right->CaptureCalls->load(), RightCalls);
+	Right->QueueItemDataUpdate(ContentBrowser::FContentBrowserItemDataUpdate::MakeItemMovedUpdate(
+		ContentBrowser::FContentBrowserItemData(*Right, ContentBrowser::EContentBrowserItemFlags::Type_Folder,
+			"/ContentBrowserTests/Renamed", "Renamed", {}, {}), "/ContentBrowserTests/Shared/"));
+	Query.GetServiceForTesting()->Tick(0.0f);
+	Model.PumpPendingSnapshots();
+	ASSERT_EQ(Model.GetItems().size(), 1u);
+	EXPECT_EQ(Model.GetItems().front().GetVirtualPath(), "/ContentBrowserTests/Renamed");
+	EXPECT_EQ(FContentBrowserModelFixtureAccess::Request(Model), Request);
+	EXPECT_EQ(Left->CaptureCalls->load(), LeftCalls);
+	EXPECT_EQ(Right->CaptureCalls->load(), RightCalls);
+}
+
+TEST_F(FContentBrowserModelTests, CurrentDirectoryMoveMigratesHistoryWithoutAddingNavigationEntries)
+{
+	FProviderQueryFixture Query;
+	auto* Data = Query.GetServiceForTesting();
+	ASSERT_TRUE(Data->DeactivateDataSource(FName("Asset")));
+	ASSERT_TRUE(Data->DeactivateDataSource(FName("File")));
+	auto* Source = NewObject<FVirtualBrowserQuerySource>(Data, {});
+	Source->UseCompiledCapture = true;
+	Source->Rows = ItemDescriptions({{.Name = "Leaf", .VirtualPath = "/ContentBrowserTests/Before/Nested/Leaf"}});
+	Query.AddSource(*Source);
+	Data->Tick(0.0f);
+	const auto Before = Root / "Content/Before", After = Root / "Content/After";
+	std::filesystem::create_directories(Before / "Nested");
+	FContentBrowserModel Model(Query);
+	ASSERT_TRUE(Model.NavigateToPhysical((Before / "Nested").generic_string()));
+	FContentBrowserModelFixtureAccess::Wait(Model);
+	const auto HistorySize = Model.GetHistory().size();
+	const auto HistoryIndex = Model.GetHistoryIndex();
+	std::filesystem::rename(Before, After);
+	Source->Rows = ItemDescriptions({{.Name = "Leaf", .VirtualPath = "/ContentBrowserTests/After/Nested/Leaf"}});
+	Source->QueueItemDataUpdate(ContentBrowser::FContentBrowserItemDataUpdate::MakeItemMovedUpdate(
+		ContentBrowser::FContentBrowserItemData(*Source, ContentBrowser::EContentBrowserItemFlags::Type_Folder,
+			"/ContentBrowserTests/After", "After", {}, {}), "/ContentBrowserTests/Before/"));
+	Data->Tick(0.0f);
+	FContentBrowserModelFixtureAccess::Wait(Model);
+	EXPECT_EQ(Model.GetCurrentPhysicalPath(), (After / "Nested").generic_string());
+	EXPECT_EQ(Model.GetHistory().size(), HistorySize);
+	EXPECT_EQ(Model.GetHistoryIndex(), HistoryIndex);
+	EXPECT_EQ(Model.GetHistory()[HistoryIndex], (After / "Nested").generic_string());
+	ASSERT_EQ(Model.GetItems().size(), 1u);
+	EXPECT_EQ(Model.GetItems().front().GetVirtualPath(), "/ContentBrowserTests/After/Nested/Leaf");
+}
+
 TEST_F(FContentBrowserModelTests, ModifiedItemsRetainThumbnailDemandUntilReplacementIsPublished)
 {
 	FPackagePath FirstPath, SecondPath;
@@ -5073,7 +5289,7 @@ TEST_F(FContentBrowserModelTests, BindingCancellationRejectsTheCaptureBeforePubl
 	EXPECT_TRUE(Result.bStale); EXPECT_TRUE(Result.Items.empty());
 }
 
-TEST_F(FContentBrowserModelTests, AncestorFolderNotificationsCancelDescendantCapturesWithTrailingSlashOrRoot)
+TEST_F(FContentBrowserModelTests, OrdinaryFolderMetadataDoesNotCancelPreparedBaseline)
 {
 	FProviderQueryFixture Query;
 	auto* Data = Query.GetServiceForTesting();
@@ -5092,23 +5308,28 @@ TEST_F(FContentBrowserModelTests, AncestorFolderNotificationsCancelDescendantCap
 			ContentBrowser::FContentBrowserItemData(*Source, ContentBrowser::EContentBrowserItemFlags::Type_Folder, Path, "", "", {})));
 		Data->Tick(0.0f);
 		auto Result = Query.ProjectItems(std::move(*Work()), "/Memory/Sub/", false);
-		EXPECT_TRUE(Result.bStale) << Path;
-		EXPECT_TRUE(Result.Items.empty()) << Path;
+		EXPECT_FALSE(Result.bStale) << Path;
+		EXPECT_EQ(Result.Items.size(), 1u) << Path;
 	}
 }
 
-TEST_F(FContentBrowserModelTests, PhysicalPathNotificationMayDestroyTheReceivingModel)
+TEST_F(FContentBrowserModelTests, DeltaBindingMayDestroyTheReceivingModel)
 {
 	FProviderQueryFixture Query;
+	ASSERT_TRUE(Query.GetServiceForTesting()->DeactivateDataSource(FName("Asset")));
+	ASSERT_TRUE(Query.GetServiceForTesting()->DeactivateDataSource(FName("File")));
 	auto* Source = NewObject<FVirtualBrowserQuerySource>(Query.GetServiceForTesting(), {});
 	Query.AddSource(*Source);
 	Query.GetServiceForTesting()->Tick(0.0f);
 	auto Model = std::make_unique<FContentBrowserModel>(Query);
+	ASSERT_TRUE(Model->NavigateToPhysical((Root / "Content").generic_string()));
+	FContentBrowserModelFixtureAccess::Wait(*Model);
 	bool Destroyed = false;
-	Source->BeforePhysicalPath = [&] { Model.reset(); Destroyed = true; };
+	Source->BeforeBind = [&] { Model.reset(); Destroyed = true; };
 	Source->QueueItemDataUpdate(ContentBrowser::FContentBrowserItemDataUpdate::MakeItemModifiedUpdate(
-		ContentBrowser::FContentBrowserItemData(*Source, ContentBrowser::EContentBrowserItemFlags::Type_File, "/Memory/Leaf", "Leaf", "Leaf", {})));
+		ContentBrowser::FContentBrowserItemData(*Source, ContentBrowser::EContentBrowserItemFlags::Type_File, "/ContentBrowserTests/Leaf", "Leaf", "Leaf", {})));
 	Query.GetServiceForTesting()->Tick(0.0f);
+	Model->PumpPendingSnapshots();
 	EXPECT_TRUE(Destroyed);
 	EXPECT_EQ(nullptr, Model);
 }

@@ -84,7 +84,7 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		static constexpr std::string_view FeatureName = "ContentBrowserDataSource";
-		static constexpr uint32 FeatureVersion = 16;
+		static constexpr uint32 FeatureVersion = 17;
 		CONTENTBROWSERDATA_API explicit DContentBrowserDataSource(const FObjectInitializer& Initializer);
 		CONTENTBROWSERDATA_API virtual auto Initialize(bool bAutoRegister = true) -> void;
 		CONTENTBROWSERDATA_API virtual auto Shutdown() -> void;
@@ -105,6 +105,9 @@ namespace Durin
 		CONTENTBROWSERDATA_API auto QueueItemDataUpdate(ContentBrowser::FContentBrowserItemDataUpdate&& Update) -> void;
 		CONTENTBROWSERDATA_API auto NotifyItemDataRefreshed() -> void;
 		CONTENTBROWSERDATA_API virtual auto CompileFilter(std::string_view Path, const ContentBrowser::FContentBrowserDataFilter& Filter, ContentBrowser::FContentBrowserDataCompiledFilter& Out) const -> void;
+		// Owner-thread checks for a complete delta; must agree with enumeration.
+		CONTENTBROWSERDATA_API virtual auto DoesItemPassFilter(const ContentBrowser::FContentBrowserItemData& Item, const ContentBrowser::FContentBrowserDataCompiledFilter& Filter) const -> bool;
+		virtual auto ConvertItemForFilter(ContentBrowser::FContentBrowserItemData&, const ContentBrowser::FContentBrowserDataCompiledFilter&) const -> bool { return false; }
 		CONTENTBROWSERDATA_API virtual auto EnumerateItemsMatchingFilter(const ContentBrowser::FContentBrowserDataCompiledFilter& Filter, const std::function<bool(ContentBrowser::FContentBrowserItemData&&)>& Callback) -> void;
 		// Bind an immutable description to this provider and the caller's policy.
 		// Bound inputs must belong to this provider; foreign inputs reject.

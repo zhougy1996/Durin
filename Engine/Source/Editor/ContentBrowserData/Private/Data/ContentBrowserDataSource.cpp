@@ -82,6 +82,23 @@ namespace Durin
 	}
 	auto DContentBrowserDataSource::CompileFilter(std::string_view Path, const FContentBrowserDataFilter& Filter, FContentBrowserDataCompiledFilter& Out) const -> void { Out.Path = std::string(Path); Out.Filter = Filter; Out.CompiledFilters[this] = {}; }
 	auto DContentBrowserDataSource::EnumerateItemsMatchingFilter(const FContentBrowserDataCompiledFilter&, const std::function<bool(FContentBrowserItemData&&)>&) -> void {}
+	auto DContentBrowserDataSource::DoesItemPassFilter(const FContentBrowserItemData& Item, const FContentBrowserDataCompiledFilter& Filter) const -> bool
+	{
+		if (!IsActive() || Item.GetOwnerDataSource() != this || !Filter.CompiledFilters.contains(this)) return false;
+		const auto Scope = FContentBrowserItemDataKey(EContentBrowserItemFlags::Type_Folder, Filter.Path).GetVirtualPath();
+		const auto Path = Item.GetItemDataKey().GetVirtualPath();
+		if (Scope.empty() || Path == Scope || !Path.starts_with(Scope == "/" ? Scope : Scope + "/")) return false;
+		if (!Filter.Filter.bRecursive && std::filesystem::path(Path).parent_path().generic_string() != Scope) return false;
+		if (!Filter.Filter.Kind) return true;
+		const bool Folder = Item.GetItemType() == EContentBrowserItemFlags::Type_Folder;
+		const bool Asset = (static_cast<uint16>(Item.GetItemFlags()) & static_cast<uint16>(EContentBrowserItemFlags::Category_Asset)) != 0;
+		FContentBrowserItemDataAttributeValue Redirector;
+		const bool IsRedirector = !Folder && Asset && Item.GetItemAttribute(ContentBrowserItemAttributes::IsRedirector, Redirector)
+			&& Redirector.GetValue<bool>() && *Redirector.GetValue<bool>();
+		const auto Kind = Folder ? EContentBrowserItemKind::Folder : Asset
+			? (IsRedirector ? EContentBrowserItemKind::Redirector : EContentBrowserItemKind::Asset) : EContentBrowserItemKind::File;
+		return Kind == *Filter.Filter.Kind;
+	}
 	auto DContentBrowserDataSource::BindItemData(const FContentBrowserItemData& Item, const FContentBrowserOperationContext& Host) -> FContentBrowserItemData
 	{
 		if (!IsActive() || (Item.GetOwnerKey() != FObjectKey{} && Item.GetOwnerDataSource() != this)) return {};

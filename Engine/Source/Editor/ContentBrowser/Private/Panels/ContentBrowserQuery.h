@@ -21,11 +21,16 @@ namespace Durin::ContentBrowser::Private
 
 	// Cheap copies retain both the immutable source and its ordered indices. Item
 	// references and iterators survive model refresh while a range copy is retained.
+	struct FContentBrowserItemRecords
+	{
+		std::vector<std::shared_ptr<const FContentBrowserItem>> Items;
+	};
+
 	class FContentBrowserItemRange
 	{
 		struct FStorage
 		{
-			std::shared_ptr<const FContentBrowserItemsSnapshot> Snapshot;
+			std::shared_ptr<const FContentBrowserItemRecords> Snapshot;
 			std::vector<size_t> Indices;
 		};
 	public:
@@ -41,7 +46,7 @@ namespace Durin::ContentBrowser::Private
 			FIterator() = default;
 			FIterator(const FStorage* InStorage, difference_type InPosition)
 				: Storage(InStorage), Position(InPosition) {}
-			auto operator*() const -> reference { return Storage->Snapshot->Items[Storage->Indices[Position]]; }
+			auto operator*() const -> reference { return *Storage->Snapshot->Items[Storage->Indices[Position]]; }
 			auto operator->() const -> pointer { return &**this; }
 			auto operator[](difference_type Offset) const -> reference { return *(*this + Offset); }
 			auto operator++() -> FIterator& { ++Position; return *this; }
@@ -63,7 +68,7 @@ namespace Durin::ContentBrowser::Private
 
 		FContentBrowserItemRange() = default;
 		// Indices must address Snapshot and are ordered exactly as readers should see them.
-		FContentBrowserItemRange(std::shared_ptr<const FContentBrowserItemsSnapshot> Snapshot,
+		FContentBrowserItemRange(std::shared_ptr<const FContentBrowserItemRecords> Snapshot,
 			std::vector<size_t> Indices)
 			: Storage(std::make_shared<const FStorage>(FStorage{std::move(Snapshot), std::move(Indices)})) {}
 		auto begin() const -> FIterator { return {Storage.get(), 0}; }
@@ -82,6 +87,8 @@ namespace Durin::ContentBrowser::Private
 
 	namespace ContentBrowserQuery
 	{
+		auto MakeRecords(std::shared_ptr<const FContentBrowserItemsSnapshot> Snapshot) -> std::shared_ptr<const FContentBrowserItemRecords>;
+		auto ProjectRecords(std::shared_ptr<const FContentBrowserItemRecords> Snapshot, std::string PhysicalDirectory, FContentBrowserQuerySettings Settings, std::string VirtualDirectory = {}) -> FContentBrowserItemRange;
 		// Owner-thread projection: type presentations come from the editor extension registry.
 		// No filesystem enumeration, live asset-registry access, or item copies occur here.
 		auto Project(std::shared_ptr<const FContentBrowserItemsSnapshot> Snapshot, std::string PhysicalDirectory, FContentBrowserQuerySettings Settings, std::string VirtualDirectory = {})

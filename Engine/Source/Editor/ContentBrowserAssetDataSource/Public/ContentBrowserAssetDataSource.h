@@ -40,6 +40,8 @@ namespace Durin
 		CONTENTBROWSERASSETDATASOURCE_API auto GetItemAttributes(const ContentBrowser::FContentBrowserItemData&, bool, ContentBrowser::FContentBrowserItemDataAttributeValues&) const -> bool override;
 		CONTENTBROWSERASSETDATASOURCE_API auto GetItemPhysicalPath(const ContentBrowser::FContentBrowserItemData&, std::string&) const -> bool override;
 		CONTENTBROWSERASSETDATASOURCE_API auto CompileFilter(std::string_view, const ContentBrowser::FContentBrowserDataFilter&, ContentBrowser::FContentBrowserDataCompiledFilter&) const -> void override;
+		CONTENTBROWSERASSETDATASOURCE_API auto DoesItemPassFilter(const ContentBrowser::FContentBrowserItemData&, const ContentBrowser::FContentBrowserDataCompiledFilter&) const -> bool override;
+		CONTENTBROWSERASSETDATASOURCE_API auto GetAssetDisplayName(const FTopLevelAssetPath&) const -> std::string;
 		CONTENTBROWSERASSETDATASOURCE_API auto ClearCachedFilterData() const -> void override;
 		CONTENTBROWSERASSETDATASOURCE_API auto RenameItem(const ContentBrowser::FContentBrowserItemData&, std::string_view, ContentBrowser::FContentBrowserItemData&) -> bool override;
 		CONTENTBROWSERASSETDATASOURCE_API auto CopyItem(const ContentBrowser::FContentBrowserItemData&, std::string_view) -> bool override;
@@ -48,6 +50,9 @@ namespace Durin
 		CONTENTBROWSERASSETDATASOURCE_API auto BulkMoveItems(std::span<const ContentBrowser::FContentBrowserItemData>, std::string_view) -> bool override;
 
 	private:
+		auto UpdateAssetFolders(const FContentChangeBatch&, bool Publish) -> std::vector<ContentBrowser::FContentBrowserItemDataUpdate>;
+		std::unordered_map<FPackagePath, std::unordered_set<FTopLevelAssetPath>> PackageAssets;
+		std::unordered_map<std::string, size_t> AssetFolderCounts;
 		FDelegateHandle DirectoriesChanged, PackagesInvalidated, CatalogInvalidated, MountsInvalidated;
 		std::shared_ptr<std::atomic_bool> FilterCacheInvalidated = std::make_shared<std::atomic_bool>(true);
 		mutable std::shared_ptr<const ContentBrowser::AssetDataSource::Private::FContentBrowserAssetSnapshot> DiscoveryCatalog;

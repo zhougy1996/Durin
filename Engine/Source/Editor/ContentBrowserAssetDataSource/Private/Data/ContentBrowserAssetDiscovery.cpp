@@ -14,13 +14,10 @@ namespace Durin::ContentBrowser::AssetDataSource::Private
 		std::vector<FContentBrowserNativeItem> Items;
 	};
 	using ContentStorage::Filesystem::NormalizePath;
-	auto CaptureContentBrowserAssets() -> std::shared_ptr<const FContentBrowserAssetSnapshot>
+	auto CaptureContentBrowserAssets(const DContentBrowserAssetDataSource& Source) -> std::shared_ptr<const FContentBrowserAssetSnapshot>
 	{
 		const auto Query = CaptureAssetQuerySnapshot();
 		auto Result = std::make_shared<FContentBrowserAssetSnapshot>();
-		std::unordered_map<FPackagePath, size_t> AssetCounts;
-		for (const auto& [Path, Asset] : Query.Assets)
-			++AssetCounts[Path.GetPackagePath()];
 		for (const auto& [Path, Asset] : Query.Assets)
 		{
 			const auto PackagePath = Path.GetPackagePath();
@@ -30,7 +27,7 @@ namespace Durin::ContentBrowser::AssetDataSource::Private
 				continue;
 			FContentBrowserNativeItem Item{
 				.Kind = Asset.IsRedirector() ? EContentBrowserItemKind::Redirector : EContentBrowserItemKind::Asset,
-				.Name = AssetCounts[PackagePath] == 1 ? std::string(PackagePath.GetPackageName()) : std::string(Path.GetAssetName()),
+				.Name = Source.GetAssetDisplayName(Path),
 				.VirtualPath = Path.ToString(),
 				.PackagePath = PackagePath,
 				.PhysicalPath = NormalizePath(Disk ? Disk->PhysicalPath : Resolved->PhysicalPath.generic_string() + ".dasset"),
@@ -123,6 +120,22 @@ namespace Durin
 	using namespace ContentBrowser;
 	using namespace ContentBrowser::AssetDataSource::Private;
 	auto DContentBrowserAssetDataSource::ClearCachedFilterData() const -> void { DiscoveryCatalog.reset(); }
+	auto DContentBrowserAssetDataSource::GetAssetDisplayName(const FTopLevelAssetPath& Path) const -> std::string
+	{
+		const auto It = PackageAssets.find(Path.GetPackagePath());
+		return It != PackageAssets.end() && It->second.size() > 1
+			? std::string(Path.GetAssetName()) : std::string(Path.GetPackagePath().GetPackageName());
+	}
+	auto DContentBrowserAssetDataSource::DoesItemPassFilter(const FContentBrowserItemData& Item, const FContentBrowserDataCompiledFilter& Filter) const -> bool
+	{
+		if (!Super::DoesItemPassFilter(Item, Filter)) return false;
+		if (Item.GetItemType() != EContentBrowserItemFlags::Type_Folder) return true;
+		const auto Path = Item.GetItemDataKey().GetVirtualPath();
+		if (AssetFolderCounts.contains(Path)) return true;
+		return std::ranges::any_of(ContentStorage::FContentMountPaths::CaptureMounts(), [&](const auto& Mount) {
+			return FContentBrowserItemDataKey(EContentBrowserItemFlags::Type_Folder, Mount.VirtualRoot).GetVirtualPath() == Path;
+		});
+	}
 	auto DContentBrowserAssetDataSource::CompileFilter(std::string_view Path, const FContentBrowserDataFilter& Filter,
 													   FContentBrowserDataCompiledFilter& Out) const -> void
 	{
@@ -131,7 +144,7 @@ namespace Durin
 			return;
 		if (FilterCacheInvalidated->exchange(false) || !DiscoveryCatalog)
 		{
-			auto Catalog = CaptureContentBrowserAssets();
+			auto Catalog = CaptureContentBrowserAssets(*this);
 			// CaptureContentBrowserAssets returns a freshly owned immutable catalog.
 			DiscoveryCatalog = std::move(Catalog);
 		}

@@ -73,7 +73,9 @@ namespace Durin::ContentBrowser
 		Moved,
 		Removed
 	};
-	// A committed source-owned delta. Folder modifications invalidate that logical subtree.
+	// A committed source-owned delta. Added/Modified/Moved carry a complete new
+	// description; Removed needs identity only. Moves retain the old source path.
+	// Incomplete subtree changes use NotifyItemDataRefreshed instead.
 	class FContentBrowserItemDataUpdate
 	{
 	public:

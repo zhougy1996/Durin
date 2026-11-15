@@ -37,7 +37,7 @@ namespace Durin::ContentBrowser::Private
 			Model.CancelPendingSnapshots();
 			Model.Session.CurrentPhysicalPath=std::filesystem::path(Directory).lexically_normal().generic_string();
 			Model.Session.CurrentVirtualPath=Model.PhysicalToVirtualDirectory(Model.Session.CurrentPhysicalPath);
-			Model.PublishedSnapshot=std::make_shared<const FContentBrowserItemsSnapshot>(FContentBrowserItemsSnapshot{.Items=FContentBrowserDataQueryFixtureAccess::Bind(Model.DataQuery,std::move(Items))});
+			Model.PublishedSnapshot=ContentBrowserQuery::MakeRecords(std::make_shared<const FContentBrowserItemsSnapshot>(FContentBrowserItemsSnapshot{.Items=FContentBrowserDataQueryFixtureAccess::Bind(Model.DataQuery,std::move(Items))}));
 			Model.DirectoryChildrenCache.clear(); Model.RequestedDirectoryChildrenSnapshots.clear(); Model.EnumerationDiagnostics.clear(); Model.SuppressedEnumerationDiagnosticCount=0; Model.RebuildItems();
 		}
 		static auto Search(FContentBrowserModel& Model, std::string_view Search) -> void { Model.Session.Query.Search=Search; Model.RebuildItems(); }

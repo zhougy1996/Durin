@@ -1424,6 +1424,38 @@ namespace
 		EXPECT_NE(nullptr, File().GetOwnerDataSource());
 		EXPECT_EQ(Original, Handle.GetOwnerDataSource());
 	}
+	TEST_F(FContentBrowserDataTests, SingleItemFiltersMatchEnumerationAndRejectForeignContributions)
+	{
+		const auto Folder = ContentBrowser::Private::MakeFixtureItem({.Kind = EContentBrowserItemKind::Folder,
+			.Name = "Sub", .VirtualPath = "/ProviderTests/Sub", .PhysicalPath = (Root / "Sub").generic_string()}, true);
+		auto* AssetSource = Data->GetActiveDataSource(FName("Asset"));
+		const auto EmptyAssetFolder = AssetSource->BindItemData(*Folder.GetPrimaryInternalItem());
+		FContentBrowserDataCompiledFilter AllKinds;
+		Data->CompileFilter("/ProviderTests/", {}, AllKinds);
+		EXPECT_FALSE(AssetSource->DoesItemPassFilter(EmptyAssetFolder, AllKinds));
+		std::ofstream(Root / "Sub/nested.txt") << "nested";
+		FContentBrowserDataCompiledFilter Compiled;
+		Data->CompileFilter("/ProviderTests/", {.Kind = EContentBrowserItemKind::File}, Compiled);
+		std::vector<FContentBrowserItem> Items;
+		Data->EnumerateItemsUnderPath("/ProviderTests/", {.bRecursive = true}, [&](FContentBrowserItem&& Item) {
+			Items.push_back(std::move(Item)); return true;
+		});
+		for (const auto& Item : Items)
+			for (const auto& Contribution : Item.GetInternalItems())
+			{
+				auto* Owner = Contribution.GetOwnerDataSource();
+				ASSERT_NE(Owner, nullptr);
+				const bool Expected = Item.GetVirtualPath() == "/ProviderTests/source.txt";
+				EXPECT_EQ(Owner->DoesItemPassFilter(Contribution, Compiled), Expected);
+				for (const auto& [Other, Filter] : Compiled.CompiledFilters)
+					if (Other != Owner) EXPECT_FALSE(Other->DoesItemPassFilter(Contribution, Compiled));
+			}
+		Data->CompileFilter("/ProviderTests/", {.bRecursive = true, .Kind = EContentBrowserItemKind::File}, Compiled);
+		for (const auto& Item : Items)
+			for (const auto& Contribution : Item.GetInternalItems())
+				EXPECT_EQ(Contribution.GetOwnerDataSource()->DoesItemPassFilter(Contribution, Compiled), !Item.IsFolder() && !Item.IsAsset());
+	}
+
 	TEST_F(FContentBrowserDataTests, AssetEventsPublishWithoutViewsAndWithoutReplayingCommittedUpdates)
 	{
 		FEditorEngineTestAccess::SetStartupState(*Editor, EHostStartupState::Ready);
@@ -1433,6 +1465,13 @@ namespace
 		(PublishedUpdates.clear(), PumpGameThreadDeferredWork(), Editor->Tick(0.0f, false));
 		const auto Count = std::ranges::count_if(PublishedUpdates, [&](const auto& Update) { return Update.GetItemData().GetVirtualPath() == Asset->GetObjectPath() && Update.GetUpdateType() == EContentBrowserItemUpdateType::Added; });
 		EXPECT_EQ(1, Count);
+		const auto Added = std::ranges::find_if(PublishedUpdates, [&](const auto& Update) { return Update.GetItemData().GetVirtualPath() == Asset->GetObjectPath(); });
+		ASSERT_NE(Added, PublishedUpdates.end());
+		EXPECT_EQ(Added->GetItemData().GetItemName(), "NoBrowser");
+		FContentBrowserItemDataAttributeValue Class;
+		ASSERT_TRUE(Added->GetItemData().GetItemAttribute(ContentBrowserItemAttributes::Class, Class));
+		ASSERT_NE(Class.GetValue<std::string>(), nullptr);
+		EXPECT_EQ(*Class.GetValue<std::string>(), "Durin::DObject");
 		(PublishedUpdates.clear(), PumpGameThreadDeferredWork(), Editor->Tick(0.0f, false));
 		EXPECT_FALSE(std::ranges::any_of(PublishedUpdates, [&](const auto& Update) { return Update.GetItemData().GetVirtualPath() == Asset->GetObjectPath() && Update.GetUpdateType() == EContentBrowserItemUpdateType::Added; }));
 		const auto Rows = Enumerate();
@@ -1443,6 +1482,51 @@ namespace
 		ASSERT_TRUE(Data->BulkSaveItems(std::array{Handle}, EContentBrowserItemSaveFlags::SaveOnlyIfDirty));
 		(PublishedUpdates.clear(), PumpGameThreadDeferredWork(), Editor->Tick(0.0f, false));
 		EXPECT_FALSE(std::ranges::any_of(PublishedUpdates, [&](const auto& Update) { return Update.GetItemData().GetVirtualPath() == Asset->GetObjectPath() && Update.GetUpdateType() == EContentBrowserItemUpdateType::Added; }));
+	}
+	TEST_F(FContentBrowserDataTests, AssetEventsPublishParentFolderContributionsOnlyOnMembershipTransitions)
+	{
+		FEditorEngineTestAccess::SetStartupState(*Editor, EHostStartupState::Ready);
+		FPackagePath FirstPath, SecondPath;
+		ASSERT_TRUE(FPackagePath::TryCreate("/ProviderTests/NewParent/First", FirstPath));
+		ASSERT_TRUE(FPackagePath::TryCreate("/ProviderTests/NewParent/Second", SecondPath));
+		auto* First = IAssetTools::Get().CreatePackageLeafAssetForTesting(FirstPath, DObject::StaticClass());
+		ASSERT_NE(First, nullptr);
+		(PublishedUpdates.clear(), PumpGameThreadDeferredWork(), Editor->Tick(0.0f, false));
+		auto HasFolder = [&](const auto& Update) {
+			return Update.GetItemData().GetItemType() == EContentBrowserItemFlags::Type_Folder
+				&& Update.GetItemData().GetVirtualPath() == "/ProviderTests/NewParent";
+		};
+		const auto Folder = std::ranges::find_if(PublishedUpdates, HasFolder);
+		ASSERT_NE(Folder, PublishedUpdates.end());
+		EXPECT_EQ(Folder->GetUpdateType(), EContentBrowserItemUpdateType::Added);
+		EXPECT_EQ(Folder->GetItemData().GetItemName(), "NewParent");
+		const auto FolderData = Folder->GetItemData();
+		auto* Source = Data->GetActiveDataSource(FName("Asset"));
+		FContentBrowserDataCompiledFilter Filter;
+		Source->CompileFilter("/ProviderTests/", {}, Filter);
+		EXPECT_TRUE(Source->DoesItemPassFilter(Folder->GetItemData(), Filter));
+		auto* Second = IAssetTools::Get().CreatePackageLeafAssetForTesting(SecondPath, DObject::StaticClass());
+		ASSERT_NE(Second, nullptr);
+		(PublishedUpdates.clear(), PumpGameThreadDeferredWork(), Editor->Tick(0.0f, false));
+		EXPECT_FALSE(std::ranges::any_of(PublishedUpdates, HasFolder));
+		ASSERT_NE(NewObject<DObject>(First->GetPackage(), "Sibling"), nullptr);
+		(PublishedUpdates.clear(), PumpGameThreadDeferredWork(), Editor->Tick(0.0f, false));
+		const auto Sibling = std::ranges::find_if(PublishedUpdates, [](const auto& Update) {
+			return Update.GetItemData().GetVirtualPath() == "/ProviderTests/NewParent/First.Sibling";
+		});
+		ASSERT_NE(Sibling, PublishedUpdates.end());
+		EXPECT_EQ(Sibling->GetItemData().GetItemName(), "Sibling");
+		EXPECT_FALSE(std::ranges::any_of(PublishedUpdates, HasFolder));
+		PublishedUpdates.clear();
+		MarkObjectHierarchyAsGarbage(First->GetPackage());
+		MarkObjectHierarchyAsGarbage(Second->GetPackage());
+		CollectGarbage(EObjectFlags::Standalone);
+		(void)CaptureAssetQuerySnapshot();
+		PumpGameThreadDeferredWork(); Editor->Tick(0.0f, false);
+		const auto Removed = std::ranges::find_if(PublishedUpdates, HasFolder);
+		ASSERT_NE(Removed, PublishedUpdates.end());
+		EXPECT_EQ(Removed->GetUpdateType(), EContentBrowserItemUpdateType::Removed);
+		EXPECT_FALSE(Source->DoesItemPassFilter(FolderData, Filter));
 	}
 	TEST_F(FContentBrowserDataTests, FilesystemChangesPublishWithoutViewsAndLaterQueriesSeeCurrentState)
 	{
@@ -1466,6 +1550,16 @@ namespace
 		std::ofstream(Path) << "external bytes";
 		auto HasUpdate = [&](auto Type) { return std::ranges::any_of(PublishedUpdates, [&](const auto& Update) { return Update.GetItemData().GetVirtualPath() == "/ProviderTests/external.txt" && Update.GetUpdateType() == Type; }); };
 		ASSERT_TRUE(PumpUntil([&] { return HasUpdate(EContentBrowserItemUpdateType::Added); }));
+		const auto Added = std::ranges::find_if(PublishedUpdates, [](const auto& Update) { return Update.GetItemData().GetVirtualPath() == "/ProviderTests/external.txt"; });
+		ASSERT_NE(Added, PublishedUpdates.end());
+		EXPECT_EQ(Added->GetItemData().GetItemName(), "external.txt");
+		FContentBrowserItemDataAttributeValue Size, Extension;
+		ASSERT_TRUE(Added->GetItemData().GetItemAttribute(ContentBrowserItemAttributes::ItemDiskSize, Size));
+		ASSERT_TRUE(Added->GetItemData().GetItemAttribute(ContentBrowserItemAttributes::Extension, Extension));
+		ASSERT_NE(Size.GetValue<uint64>(), nullptr);
+		EXPECT_EQ(*Size.GetValue<uint64>(), std::filesystem::file_size(Path));
+		ASSERT_NE(Extension.GetValue<std::string>(), nullptr);
+		EXPECT_EQ(*Extension.GetValue<std::string>(), ".txt");
 		auto Rows = Enumerate();
 		EXPECT_TRUE(std::ranges::any_of(Rows, [](const auto& Item) { return Item.GetVirtualPath() == "/ProviderTests/external.txt"; }));
 		std::ofstream(Path) << "changed external bytes";
@@ -1479,9 +1573,12 @@ namespace
 	TEST_F(FContentBrowserDataTests, MountChangesCancelInFlightFilesystemDiscovery)
 	{
 		FEditorEngineTestAccess::SetStartupState(*Editor, EHostStartupState::Ready);
+		bool Refreshed = false;
+		const auto Handle = Data->OnItemDataRefreshed().AddLambda([&] { Refreshed = true; });
+		struct FUnsubscribe { DContentBrowserDataSubsystem* Data; FDelegateHandle Handle; ~FUnsubscribe() { Data->OnItemDataRefreshed().Remove(Handle); } } Subscription{Data, Handle};
 		auto PumpUntilUpdates = [&] {
 			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-			do { (PublishedUpdates.clear(), PumpGameThreadDeferredWork(), Editor->Tick(0.0f, false)); if (!PublishedUpdates.empty()) return true; std::this_thread::sleep_for(std::chrono::milliseconds(2)); } while (std::chrono::steady_clock::now() < Deadline);
+			do { (Refreshed = false, PublishedUpdates.clear(), PumpGameThreadDeferredWork(), Editor->Tick(0.0f, false)); if (Refreshed || !PublishedUpdates.empty()) return true; std::this_thread::sleep_for(std::chrono::milliseconds(2)); } while (std::chrono::steady_clock::now() < Deadline);
 			return false;
 		};
 		ASSERT_TRUE(PumpUntilUpdates());
