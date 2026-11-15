@@ -1,4 +1,5 @@
 #include "Editor/AssetEditorTestHost.h"
+#include "Editor/AssetEditorTestQueries.h"
 #include "Misc/UnifiedError.h"
 #include "Toolkits/AssetEditorToolkit.h"
 #include "FunctionPortTestFixture.h"
@@ -30,18 +31,18 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	FModuleTestHarness Harness("MaterialEditor");
 	Harness.Start(Module);
 	Testing::FScopedAssetEditorTestHost TestHost;
-	ASSERT_NE(nullptr, TestHost.GetService());
+	ASSERT_NE(nullptr, TestHost.GetAssetEditorSubsystem());
 	const auto Class = DMaterialFunction::StaticClass()->GetQualifiedName().ToString();
 	const auto Resource = First->GetObjectPath();
 	ASSERT_TRUE(TestHost.Open(Resource, Class));
 	ASSERT_TRUE(TestHost.Open(Resource, Class));
-	ASSERT_EQ(TestHost.GetService()->GetOwnedAssetEditors().size(), 1u);
-	auto* FirstSession = TestHost.GetService()->GetOwnedAssetEditors().front().Get();
-	auto& Manager = *FirstSession->GetDocumentManager();
+	ASSERT_EQ(Durin::Testing::GetReflectedEditors(TestHost.GetAssetEditorSubsystem()).size(), 1u);
+	auto* FirstEditor = Durin::Testing::GetReflectedEditors(TestHost.GetAssetEditorSubsystem()).front().Get();
+	auto& Manager = *FirstEditor->GetDocumentManager();
 	const auto FirstTab = *Manager.GetActiveDocument();
 	ASSERT_TRUE(TestHost.Open(Second->GetObjectPath(), Class));
-	ASSERT_EQ(TestHost.GetService()->GetOwnedAssetEditors().size(), 2u);
-	auto Workspace = FirstSession->GetToolkit();
+	ASSERT_EQ(Durin::Testing::GetReflectedEditors(TestHost.GetAssetEditorSubsystem()).size(), 2u);
+	auto Workspace = FirstEditor->GetToolkit();
 	ASSERT_TRUE(Workspace);
 	auto Signature = First->GetFunctionSignature();
 	Signature.Outputs[0].Name = "Saved Surface";

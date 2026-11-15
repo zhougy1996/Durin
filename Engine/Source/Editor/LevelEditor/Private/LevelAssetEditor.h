@@ -8,16 +8,16 @@
 
 namespace Durin
 {
-	namespace LevelEditor { class FLevelEditorSessionSettings; }
+	namespace LevelEditor { class FLevelEditorWorkspaceSettings; }
 	struct FLevelEditorHostContext
 	{
-		std::shared_ptr<LevelEditor::FLevelEditorSessionSettings> Settings;
+		std::shared_ptr<LevelEditor::FLevelEditorWorkspaceSettings> Settings;
 		LevelEditor::FContentBrowserCallbacks Browser;
 		std::function<void()> OpenProjectBrowser;
 	};
 	inline auto GetLevelAssetOpenSupport(const FAssetOpenSupportArgs& Args) -> FAssetOpenSupport
 	{ return {Args.OpenMethod, Args.OpenMethod == EAssetOpenMethod::Edit, EToolkitMode::WorldCentric}; }
-	// Specialized Level session delegates scene activation to the existing controller.
+	// Specialized Level editor delegates scene activation to the existing controller.
 	DCLASS(NoClassDefaultObject)
 	class DLevelAssetEditor : public DAssetEditor
 	{

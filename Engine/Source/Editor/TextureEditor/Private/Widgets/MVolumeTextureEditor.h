@@ -19,6 +19,7 @@ namespace Durin::TextureEditor
 		auto GetLastOperationError() const -> std::string override { return ErrorMessage; }
 		auto OnResourceIdRemapped(std::string_view Source, std::string_view Destination) -> void override;
 		explicit MVolumeTextureEditor(FEditorDocumentManager& InManager);
+		auto OnClose() -> void override;
 		auto GetToolkitId() const -> const FAssetEditorToolkitId& override;
 		auto OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult override;
 		auto ActivateDocument(const FEditorDocument& Document) -> void override;

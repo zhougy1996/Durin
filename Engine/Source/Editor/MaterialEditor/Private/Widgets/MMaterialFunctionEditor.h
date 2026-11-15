@@ -10,7 +10,7 @@
 namespace Durin::MaterialEditor
 {
 	inline const FAssetEditorToolkitId MaterialFunctionWorkspaceType("MaterialFunctionEditor");
-	class FMaterialEditorSessionSettings;
+	class FMaterialEditorProfileSettings;
 	class MMaterialFunctionEditor final : public FBaseAssetToolkit
 	{
 	public:
@@ -49,7 +49,7 @@ namespace Durin::MaterialEditor
 		auto DrawDocument(const FEditorDocument& Tab, FDocument& Document) -> void;
 		auto DrawInterface(FDocument& Document) -> void;
 		auto DrawInputs(FDocument& Document) -> void;
-		std::unique_ptr<FMaterialEditorSessionSettings> SessionSettings;
+		std::unique_ptr<FMaterialEditorProfileSettings> ProfileSettings;
 		FEditorDocumentManager& Manager;
 		FEditableAssetDocumentModel Documents;
 		std::unordered_map<std::string, std::unique_ptr<FDocument>> Open;

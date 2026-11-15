@@ -177,7 +177,7 @@ namespace Durin
 		auto OpenDefaultLevel() -> void;
 		auto InitEditorInternal(const FEngineInitContext& Context) -> bool;
 		DURINED_API auto RequestSubsystemDeinitialization() -> void override;
-		DURINED_API auto RetireHostConsumers() -> void override;
+		DURINED_API auto ShutdownHostConsumers() -> void override;
 		FEditorSubsystemCollection EditorSubsystems;
 		bool bEditorInitStarted = false;
 		std::string StartupError;

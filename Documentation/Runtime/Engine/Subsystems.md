@@ -4,7 +4,7 @@ Summary: Define shared native subsystem registration, construction, retention, r
 
 Modules: Engine, Core, CoreDObject
 
-Last reviewed: 2026-11-10
+Last reviewed: 2026-11-16
 
 ## Scope And Ownership
 
@@ -215,9 +215,9 @@ removed after the World operation unwinds. Returned host initialization failures
 request ordinary shutdown. Unexpected subsystem callback exceptions clean partial
 collection and unpublished World state before propagating to the outer execution boundary.
 
-Shutdown records retirement, stops concrete editor consumers when present, shuts down the
-remaining World while Engine services are available, deinitializes Engine
-services, then releases viewport view states. BeginDestroy additionally releases
+At an idle boundary, `PreExit()` stops admission and calls `ShutdownHostConsumers()`
+for derived-host cleanup before World cleanup and Engine subsystem deinitialization.
+It then releases viewport view states. BeginDestroy additionally releases
 scene/default-material resources and retains its render fence. Each host's own
 BeginDestroy supplies fallback collection cleanup before service objects are
 physically destroyed. Subsystem destruction never initiates host shutdown or

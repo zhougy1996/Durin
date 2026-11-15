@@ -11,7 +11,7 @@
 #include "Graph/MaterialGraphCanvas.h"
 #include "MaterialGraphDocument.h"
 #include "DObject/ObjectLifecycle.h"
-#include "Settings/MaterialEditorSessionSettings.h"
+#include "Settings/MaterialEditorProfileSettings.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Editor/EditorEngine.h"
 #include "Toolkits/AssetEditor.h"
@@ -66,7 +66,7 @@ namespace Durin::MaterialEditor
 		}
 		auto Validate() const -> bool override
 		{
-			return Owner->IsSessionActive() && std::ranges::all_of(Bindings, [&](const auto& Binding) {
+			return Owner->IsEditorOpen() && std::ranges::all_of(Bindings, [&](const auto& Binding) {
 				const auto Session = Owner->EditingSessions.find(Binding.Resource);
 				return Session != Owner->EditingSessions.end() && Session->second.get() == Binding.Session
 					&& FObjectKey(Binding.Session->Source.Get()) == Binding.Previous;
@@ -315,12 +315,12 @@ namespace Durin::MaterialEditor
 	};
 
 	MMaterialEditor::MMaterialEditor(
-		FEditorDocumentManager& InWorkspaceManager)
-		: DocumentManager(InWorkspaceManager)
+		FEditorDocumentManager& InDocumentManager)
+		: DocumentManager(InDocumentManager)
 		, MaterialParameterPanelCache(std::make_unique<FMaterialParameterPanelCache>())
-		, SessionSettings(std::make_unique<FMaterialEditorSessionSettings>())
+		, ProfileSettings(std::make_unique<FMaterialEditorProfileSettings>())
 	{
-		if (auto* Service = DocumentManager.GetAssetEditorSubsystem()) Documents.BindEditor(Service->GetEditor());
+		if (auto* AssetEditorSubsystem = DocumentManager.GetAssetEditorSubsystem()) Documents.BindEditor(AssetEditorSubsystem->GetEditor());
 
 	}
 
@@ -328,7 +328,7 @@ namespace Durin::MaterialEditor
 	{
 		SettingsPage = {};
 		FinishActivePropertyEdit(true);
-		SessionSettings->Save();
+		ProfileSettings->Save();
 		MaterialPreviews.clear();
 		MaterialGraphCanvases.clear();
 		EditingSessions.clear();
@@ -396,7 +396,7 @@ namespace Durin::MaterialEditor
 			return EDocumentCloseResult::Rejected;
 		if (IsDocumentDirty(Document)) return EDocumentCloseResult::PendingConfirmation;
 		CaptureCanvasViewport(Document);
-		SessionSettings->Save();
+		ProfileSettings->Save();
 		OpenMaterials.erase(Document.ResourceId);
 		MaterialPreviews.erase(Document.Id.Value);
 		MaterialGraphCanvases.erase(Document.Id.Value);
@@ -528,10 +528,10 @@ namespace Durin::MaterialEditor
 
 	auto MMaterialEditor::ResetLayout() -> void
 	{
-		SessionSettings->bPreviewVisible = true;
-		SessionSettings->bDetailsVisible = true;
-		SessionSettings->bParametersVisible = true;
-		SessionSettings->bDiagnosticsVisible = false;
+		ProfileSettings->bPreviewVisible = true;
+		ProfileSettings->bDetailsVisible = true;
+		ProfileSettings->bParametersVisible = true;
+		ProfileSettings->bDiagnosticsVisible = false;
 		for (const auto& Document : DocumentManager.GetDocuments())
 			if (Document.ToolkitId == Workspace::Type)
 				PendingLayoutResets.insert(Document.Id.Value);
@@ -566,7 +566,7 @@ namespace Durin::MaterialEditor
 		if (!Source) return true;
 		auto Session = std::make_unique<FMaterialEditingSession>();
 		std::string Error;
-		if (!Session->Initialize(*Source, SessionSettings->bAutoCompile
+		if (!Session->Initialize(*Source, ProfileSettings->bAutoCompile
 			? EMaterialEditCompileMode::Automatic : EMaterialEditCompileMode::Manual, Error,
 			Documents.GetEditor() ? Documents.GetEditor()->GetTransactor() : nullptr))
 		{
@@ -713,10 +713,10 @@ namespace Durin::MaterialEditor
 		if (ImGui::Button("Window")) ImGui::OpenPopup("MaterialWindows");
 		if (ImGui::BeginPopup("MaterialWindows"))
 		{
-			ImGui::MenuItem("Preview", nullptr, &SessionSettings->bPreviewVisible);
-			ImGui::MenuItem("Details", nullptr, &SessionSettings->bDetailsVisible);
-			ImGui::MenuItem("Parameters", nullptr, &SessionSettings->bParametersVisible);
-			ImGui::MenuItem("Diagnostics", nullptr, &SessionSettings->bDiagnosticsVisible);
+			ImGui::MenuItem("Preview", nullptr, &ProfileSettings->bPreviewVisible);
+			ImGui::MenuItem("Details", nullptr, &ProfileSettings->bDetailsVisible);
+			ImGui::MenuItem("Parameters", nullptr, &ProfileSettings->bParametersVisible);
+			ImGui::MenuItem("Diagnostics", nullptr, &ProfileSettings->bDiagnosticsVisible);
 			ImGui::Separator();
 			if (ImGui::MenuItem("Reset Layout")) ResetLayout();
 			ImGui::Separator();
@@ -753,9 +753,9 @@ namespace Durin::MaterialEditor
 		};
 		if (BeginPanel("Material Graph", "Graph")) DrawGraphPanel(Document, Material, 0.0f);
 		ImGui::End();
-		if (SessionSettings->bPreviewVisible)
+		if (ProfileSettings->bPreviewVisible)
 		{
-			const bool bPreviewShown = BeginPanel("Preview", "Preview", &SessionSettings->bPreviewVisible);
+			const bool bPreviewShown = BeginPanel("Preview", "Preview", &ProfileSettings->bPreviewVisible);
 			if (bPreviewShown) DrawPreviewPanel(Document, Material, 0.0f);
 			else if (const auto It = MaterialPreviews.find(Document.Id.Value); It != MaterialPreviews.end())
 				It->second->SetVisible(false);
@@ -763,21 +763,21 @@ namespace Durin::MaterialEditor
 		}
 		else if (const auto It = MaterialPreviews.find(Document.Id.Value); It != MaterialPreviews.end())
 			It->second->SetVisible(false);
-		if (SessionSettings->bDetailsVisible)
+		if (ProfileSettings->bDetailsVisible)
 		{
-			if (BeginPanel("Details", "Details", &SessionSettings->bDetailsVisible))
+			if (BeginPanel("Details", "Details", &ProfileSettings->bDetailsVisible))
 				DrawDetailsPanel(Document, Material);
 			ImGui::End();
 		}
-		if (SessionSettings->bParametersVisible)
+		if (ProfileSettings->bParametersVisible)
 		{
-			if (BeginPanel("Parameters", "Parameters", &SessionSettings->bParametersVisible))
+			if (BeginPanel("Parameters", "Parameters", &ProfileSettings->bParametersVisible))
 				DrawParametersPanel(Document, Material);
 			ImGui::End();
 		}
-		if (SessionSettings->bDiagnosticsVisible)
+		if (ProfileSettings->bDiagnosticsVisible)
 		{
-			if (BeginPanel("Diagnostics", "Diagnostics", &SessionSettings->bDiagnosticsVisible))
+			if (BeginPanel("Diagnostics", "Diagnostics", &ProfileSettings->bDiagnosticsVisible))
 				DrawCompileStatus(Document, Material);
 			ImGui::End();
 		}
@@ -790,9 +790,11 @@ namespace Durin::MaterialEditor
 		float Height
 	) -> void
 	{
-		std::unique_ptr<FMaterialPreview>& Preview = MaterialPreviews[Document.Id.Value];
-		if (Preview == nullptr) Preview = std::make_unique<FMaterialPreview>(Document.Id.Value);
-		Preview->Draw(Material, Height);
+		auto& Preview = MaterialPreviews[Document.Id.Value];
+		if (Preview == nullptr) Preview = std::make_shared<FMaterialPreview>(Document.Id.Value);
+		// A close callback may release the toolkit's preview while this draw unwinds.
+		const auto DrawingPreview = Preview;
+		DrawingPreview->Draw(Material, Height);
 	}
 
 	auto MMaterialEditor::DrawGraphPanel(
@@ -819,7 +821,7 @@ namespace Durin::MaterialEditor
 		FMaterialGraphCanvas& Canvas = GetOrCreateCanvas(Document);
 		Canvas.Draw(*Documents.GetEditor()->GetTransactor(), Height);
 		const auto [Zoom, Pan] = Canvas.GetViewport();
-		SessionSettings->SetViewport(Document.ResourceId, {.Zoom = Zoom, .Pan = Pan});
+		ProfileSettings->SetViewport(Document.ResourceId, {.Zoom = Zoom, .Pan = Pan});
 	}
 
 	auto MMaterialEditor::DrawSelectedFunction(const FEditorDocument& Document, DMaterial* Base) -> void
@@ -1579,7 +1581,7 @@ namespace Durin::MaterialEditor
 					.ReportError = [this](std::string Message) { SetError(std::move(Message)); },
 					.OpenFunction = [this](std::string_view Path) { OpenRelatedAsset(Path, DMaterialFunction::StaticClass()->GetQualifiedName().ToString()); }});
 			if (const FMaterialGraphViewportState* State =
-				SessionSettings->FindViewport(Document.ResourceId))
+				ProfileSettings->FindViewport(Document.ResourceId))
 				Canvas->SetViewport(State->Zoom, State->Pan);
 		}
 		return *Canvas;
@@ -1591,14 +1593,14 @@ namespace Durin::MaterialEditor
 		const auto It = MaterialGraphCanvases.find(Document.Id.Value);
 		if (It == MaterialGraphCanvases.end()) return;
 		const auto [Zoom, Pan] = It->second->GetViewport();
-		SessionSettings->SetViewport(Document.ResourceId, {.Zoom = Zoom, .Pan = Pan});
+		ProfileSettings->SetViewport(Document.ResourceId, {.Zoom = Zoom, .Pan = Pan});
 	}
 	auto MMaterialEditor::OnResourceIdRemapped(std::string_view Source, std::string_view Destination) -> void
 	{
 		if (auto Node = OpenMaterials.extract(std::string(Source)); !Node.empty()) { Node.key() = Destination; OpenMaterials.insert(std::move(Node)); }
 		if (auto Node = EditingSessions.extract(std::string(Source)); !Node.empty()) { Node.key() = Destination; EditingSessions.insert(std::move(Node)); }
-		SessionSettings->MoveViewport(Source, Destination);
-		SessionSettings->Save();
+		ProfileSettings->MoveViewport(Source, Destination);
+		ProfileSettings->Save();
 		Documents.RemapResourceId(Source, Destination);
 	}
 
@@ -1608,28 +1610,32 @@ namespace Durin::MaterialEditor
 	{
 		FBaseAssetToolkit::PostInitAssetEditor();
 		if (const auto* Owner = GetOwningAssetEditor())
-			SessionSettings->SelectStorage("MaterialEditor/Profiles/" + FXxHash128::HashBuffer(GetLayoutProfileKey()).ToString() + ".yaml");
+			ProfileSettings->SelectStorage("MaterialEditor/Profiles/" + FXxHash128::HashBuffer(GetLayoutProfileKey()).ToString() + ".yaml");
 		SettingsPage = FEditorSettingsPageRegistration({
 			.Id = GetPreferencesPageId(), .Label = "Material Editor" + (GetOwningAssetEditor()->GetInstanceKey().empty() ? std::string{} : " [" + std::string(GetOwningAssetEditor()->GetInstanceKey()) + "]"),
 			.Keywords = "auto compile preview details parameters diagnostics panels",
 			.Description = "Compilation and panel preferences for this editing session.",
 			.Draw = [Weak = weak_from_this()](std::string& Error) {
-				if (auto Toolkit = std::dynamic_pointer_cast<MMaterialEditor>(Weak.lock()); Toolkit && Toolkit->IsSessionActive()) Toolkit->DrawPreferences(Error);
+				if (auto Toolkit = std::dynamic_pointer_cast<MMaterialEditor>(Weak.lock()); Toolkit && Toolkit->IsEditorOpen()) Toolkit->DrawPreferences(Error);
 			},
 			.Reset = [Weak = weak_from_this()] {
 				const auto Toolkit = std::dynamic_pointer_cast<MMaterialEditor>(Weak.lock());
-				return Toolkit && Toolkit->IsSessionActive() && Toolkit->ResetPreferences();
+				return Toolkit && Toolkit->IsEditorOpen() && Toolkit->ResetPreferences();
 			}});
 	}
 	auto MMaterialEditor::OnHostChanged() -> void
 	{
-		SessionSettings->Save();
+		ProfileSettings->Save();
 		SettingsPage = {};
 		FBaseAssetToolkit::OnHostChanged();
 		PostInitAssetEditor();
 	}
-	auto MMaterialEditor::ReleaseSessionUI() -> void
-	{ SettingsPage = {}; FBaseAssetToolkit::ReleaseSessionUI(); }
+	auto MMaterialEditor::OnClose() -> void
+	{
+		SettingsPage = {};
+		MaterialPreviews.clear();
+		FBaseAssetToolkit::OnClose();
+	}
 	auto MMaterialEditor::GetPreferencesPageId() const -> std::string
 	{
 		const auto* Owner = GetOwningAssetEditor();

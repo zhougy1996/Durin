@@ -12,7 +12,7 @@ namespace Durin
 {
 	namespace DocumentPrivate { struct FEditorDocumentState; }
 
-	// Owns one session's document identity, activation, persistence and close decisions.
+	// Owns one toolkit's document identity, activation, persistence and close decisions.
 	// Tab presentation and docking belong to FTabManager and TabLayout.
 	// Every resolved asset document retains its asset until closed or its controller is destroyed.
 	class FEditorDocumentManager final : private IAssetMoveObserver
@@ -23,8 +23,8 @@ namespace Durin
 		FEditorDocumentManager(const FEditorDocumentManager&) = delete;
 		auto operator=(const FEditorDocumentManager&) -> FEditorDocumentManager& = delete;
 
-		DURINED_API auto AttachSessionToolkit(std::shared_ptr<IAssetEditorToolkit> Toolkit,
-			std::function<void()> AssetsChanged, DAssetEditorSubsystem* Service = nullptr) -> bool;
+		DURINED_API auto AttachToolkit(std::shared_ptr<IAssetEditorToolkit> Toolkit,
+			std::function<void()> AssetsChanged, DAssetEditorSubsystem* AssetEditorSubsystem = nullptr) -> bool;
 		// Publishes an already activated scene without re-entering the loading operation.
 		DURINED_API auto AssociateDocumentAsset(FDocumentId Id, DObject* Asset) -> bool;
 		DURINED_API auto GetEditedAssets() const -> std::vector<DObject*>;

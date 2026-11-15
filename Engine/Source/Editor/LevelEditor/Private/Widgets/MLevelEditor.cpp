@@ -12,7 +12,7 @@
 #include "Documents/EditorDocumentManager.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Framework/TabLayout.h"
-#include "Settings/LevelEditorSessionSettings.h"
+#include "Settings/LevelEditorWorkspaceSettings.h"
 #include "Assets/EditorAssetMoveCoordinator.h"
 #include "Engine/Engine.h"
 #include "Engine/Actor.h"
@@ -50,33 +50,33 @@ namespace Durin::LevelEditor
 	} // namespace
 
 	// MLevelEditor is the composition root for the editor-specific controllers.
-	MLevelEditor::MLevelEditor(std::shared_ptr<FLevelEditorSessionSettings> InSessionSettings,
-		FEditorDocumentManager& InWorkspaceManager,
+	MLevelEditor::MLevelEditor(std::shared_ptr<FLevelEditorWorkspaceSettings> InWorkspaceSettings,
+		FEditorDocumentManager& InDocumentManager,
 		FContentBrowserCallbacks InContentBrowserCallbacks,
 		std::function<void()> InOpenProjectBrowser, DEditorEngine& EditorHost)
 		: EditorOwner(&EditorHost)
-		, SessionSettingsOwner(std::move(InSessionSettings))
-		, SessionSettings(*SessionSettingsOwner)
-		, DocumentManager(InWorkspaceManager)
+		, WorkspaceSettingsOwner(std::move(InWorkspaceSettings))
+		, WorkspaceSettings(*WorkspaceSettingsOwner)
+		, DocumentManager(InDocumentManager)
 		, ContentBrowserCallbacks(std::move(InContentBrowserCallbacks))
 		, OpenProjectBrowser(std::move(InOpenProjectBrowser))
 	{
 	}
 
-	MLevelEditor::~MLevelEditor() { ReleaseSessionUI(); }
+	MLevelEditor::~MLevelEditor() { OnClose(); }
 
-	auto MLevelEditor::ReleaseSessionUI() -> void
+	auto MLevelEditor::OnClose() -> void
 	{
 		if (bReleased) return;
 		bReleased = true;
-		FBaseAssetToolkit::ReleaseSessionUI();
+		FBaseAssetToolkit::OnClose();
 		ViewportSettingsPage = {};
 		ProjectSettingsPage = {};
 		RequestDeactivate();
 		if (Context && SceneViewportPanel)
 		{
-			SessionSettings.CaptureViewportState(*Context, *SceneViewportPanel);
-			SessionSettings.Save(SceneViewportPanel);
+			WorkspaceSettings.CaptureViewportState(*Context, *SceneViewportPanel);
+			WorkspaceSettings.Save(SceneViewportPanel);
 		}
 		if (DocumentController) (void)DocumentController->CloseLevel();
 		DocumentController.reset();
@@ -92,9 +92,9 @@ namespace Durin::LevelEditor
 	auto MLevelEditor::Construct() -> void
 	{
 		InitializeContext();
-		InitializeSession();
+		PruneAndSaveWorkspaceSettings();
 		CreatePanels();
-		CreateDocumentServices();
+		CreateDocumentControllers();
 		CreateImportDialogs();
 		Context->Synchronize(Context->EditorHost->GetEditorWorld());
 		ViewportSettingsPage = FEditorSettingsPageRegistration({
@@ -144,10 +144,10 @@ namespace Durin::LevelEditor
 		};
 	}
 
-	auto MLevelEditor::InitializeSession() -> void
+	auto MLevelEditor::PruneAndSaveWorkspaceSettings() -> void
 	{
-		SessionSettings.PruneInvalidViewportStates();
-		SessionSettings.Save(nullptr);
+		WorkspaceSettings.PruneInvalidViewportStates();
+		WorkspaceSettings.Save(nullptr);
 	}
 
 	auto MLevelEditor::CreatePanels() -> void
@@ -157,7 +157,7 @@ namespace Durin::LevelEditor
 		Context->FocusActor = [this](AActor* Actor) {
 			if (SceneViewportPanel) SceneViewportPanel->FocusActor(Actor);
 		};
-		SessionSettings.ApplyTo(*SceneViewportPanel);
+		WorkspaceSettings.ApplyTo(*SceneViewportPanel);
 		Panels.emplace_back(std::move(SceneViewport));
 		auto RenderingDiagnostics =
 			std::make_unique<FRenderingDiagnosticsPanel>(*SceneViewportPanel);
@@ -168,22 +168,22 @@ namespace Durin::LevelEditor
 		});
 		Panels.emplace_back(std::move(RenderingDiagnostics));
 		Panels.emplace_back(std::make_unique<FWorldOutlinerPanel>());
-		auto Details = std::make_unique<FDetailsPanel>(SessionSettings);
+		auto Details = std::make_unique<FDetailsPanel>(WorkspaceSettings);
 		DetailsPanel = Details.get();
 		Panels.emplace_back(std::move(Details));
 	}
 
-	auto MLevelEditor::CreateDocumentServices() -> void
+	auto MLevelEditor::CreateDocumentControllers() -> void
 	{
 		AssetMoveCoordinator = std::make_unique<FEditorAssetMoveCoordinator>(
 			*Context,
-			SessionSettings,
+			WorkspaceSettings,
 			*SceneViewportPanel
 		);
 
 		DocumentController = std::make_unique<FLevelDocumentController>(
 			*Context,
-			SessionSettings,
+			WorkspaceSettings,
 			*SceneViewportPanel,
 			*AssetMoveCoordinator,
 			[this] { EditorError.clear(); },

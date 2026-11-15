@@ -1,4 +1,5 @@
 #include "ExportWindow.h"
+#include "Toolkits/ToolkitManager.h"
 #include "GameExport.h"
 #include "HAL/PlatformProcess.h"
 #include "Json/Json.h"
@@ -56,8 +57,8 @@ namespace Durin::MainFrame {
             ImGui::TextWrapped("Save changes before exporting? Inputs must stay unchanged until export finishes.");
             if(ImGui::Button("Save All and Export")) {
                 bool Ready=Editors!=nullptr;
-                if(Editors) for(const auto& Toolkit:Editors->GetAssetToolkits()) Ready=Toolkit->GetDocumentManager()->PrepareForExit() && Ready;
-                if(Ready) for(const auto& Toolkit:Editors->GetAssetToolkits()) Ready=Toolkit->GetDocumentManager()->SaveDocumentsForExit() && Ready;
+                if(Editors) for(const auto& Toolkit:FToolkitManager::Get().GetToolkits(Editors)) Ready=Toolkit->GetDocumentManager()->PrepareForExit() && Ready;
+                if(Ready) for(const auto& Toolkit:FToolkitManager::Get().GetToolkits(Editors)) Ready=Toolkit->GetDocumentManager()->SaveDocumentsForExit() && Ready;
                 if(Ready) {ConfirmSave=false; Start(false);} else {std::lock_guard Lock(Mutex); Message="Save could not finish. Resolve pending changes and retry.";}
             }
             ImGui::SameLine(); if(ImGui::Button("Cancel export")) ConfirmSave=false;

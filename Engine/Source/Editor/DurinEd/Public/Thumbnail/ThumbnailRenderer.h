@@ -33,6 +33,8 @@ namespace Durin
 		DURINED_API explicit DThumbnailRenderer(
 			const FObjectInitializer& ObjectInitializer);
 	private:
+		friend class DThumbnailManager;
+		auto ReleasePreviewScene() -> void;
 		std::unique_ptr<FThumbnailPreviewScene> PreviewScene;
 	};
 

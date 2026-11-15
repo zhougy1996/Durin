@@ -69,6 +69,11 @@ namespace Durin
 		DURINED_API auto UnregisterCustomRenderer(DClass* AssetClass) -> bool;
 		DURINED_API auto GetRenderingInfo(DClass* AssetClass) const -> std::optional<FThumbnailRenderingInfo>;
 		DURINED_API auto Find(std::string_view AssetClassName) const -> DThumbnailRenderer*;
+		// End the current editor's preview work while retaining process registrations.
+		// Call after stopping consumers; a later editor may reuse the renderers.
+		DURINED_API auto ReleasePreviewResources() -> void;
+		// After stopping consumers, cancels pool work and releases renderer preview
+		// scenes without waiting for GC. Safe to repeat during module retirement.
 		DURINED_API auto Shutdown() -> void;
 		DURINED_API auto IsShuttingDown() const -> bool;
 		DURINED_API auto Num() const -> size_t;

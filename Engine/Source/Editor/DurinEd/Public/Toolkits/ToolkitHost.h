@@ -9,11 +9,11 @@ namespace Durin
 	class FAssetEditorToolkit;
 	struct FEditorTabWindowConfig;
 
-	// Presentation attachment never becomes another persistent session owner.
+	// Presentation attachment never becomes another persistent toolkit owner.
 	class IToolkitHost
 	{
 	public:
-		virtual ~IToolkitHost() = default;
+		DURINED_API virtual ~IToolkitHost();
 		virtual auto GetToolkitMode() const -> EToolkitMode = 0;
 		virtual auto AttachToolkit(std::shared_ptr<FAssetEditorToolkit> Toolkit) -> bool = 0;
 		virtual auto DetachToolkit(FAssetEditorToolkit& Toolkit) -> void = 0;
@@ -25,7 +25,7 @@ namespace Durin
 		virtual auto OnRootWindowShown(uint32) -> void {}
 	};
 
-	// Semantic host for direct tests and non-window editing; dirty close can veto retirement.
+	// Semantic host for direct tests and non-window editing; dirty close can veto host closure.
 	class FNonWindowToolkitHost : public IToolkitHost
 	{
 	public:

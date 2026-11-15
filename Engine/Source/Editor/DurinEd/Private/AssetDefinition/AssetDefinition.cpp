@@ -1,4 +1,5 @@
 #include "AssetDefinition/AssetDefinition.h"
+#include "Toolkits/ToolkitManager.h"
 
 #include "AssetDefinition/AssetDefinitionRegistry.h"
 #include "Asset/Load.h"
@@ -41,7 +42,7 @@ namespace Durin
 			std::shared_ptr<FAssetEditorToolkit> Toolkit;
 			if (Error.empty() && Args.AssetEditors)
 			{
-				for (const auto& Existing : Args.AssetEditors->GetAssetToolkits())
+				for (const auto& Existing : FToolkitManager::Get().GetToolkits(Args.AssetEditors))
 				{
 					const auto* Owner = Existing->GetOwningAssetEditor();
 					const bool MatchesType = ReflectedType ? Owner && Owner->GetClass() == *ReflectedType
@@ -50,7 +51,7 @@ namespace Durin
 						|| Existing->GetToolkitMode() != Args.ToolkitMode || Existing->GetInstanceKey() != Args.GetNormalizedRole()
 						|| Existing->IsPrimaryEditor() != Args.bPrimary || (Args.Host && Existing->GetToolkitHost() != Args.Host)) continue;
 					const auto Objects = Existing->GetObjectsToEdit();
-					const bool MatchesAssets = Args.bCreateSingleSession ? HaveSameEditedAssets(Objects, Assets)
+					const bool MatchesAssets = Args.bCreateSingleEditor ? HaveSameEditedAssets(Objects, Assets)
 						: std::ranges::find(Objects, Assets.front()) != Objects.end();
 					if (MatchesAssets && (!Toolkit || Existing->GetLastActivationTime() > Toolkit->GetLastActivationTime())) Toolkit = Existing;
 				}
@@ -61,7 +62,7 @@ namespace Durin
 			if (!Toolkit)
 			{ Opened = false; DURIN_WARN("Asset editor open failed: {}", Error); }
 		};
-		if (Args.bCreateSingleSession && !Args.Assets.empty()) OpenSelection(Args.Assets);
+		if (Args.bCreateSingleEditor && !Args.Assets.empty()) OpenSelection(Args.Assets);
 		else for (const auto& Target : Args.Assets) OpenSelection(std::span(&Target, 1));
 		return Opened ? EAssetCommandResult::Handled : EAssetCommandResult::Unhandled;
 	}
@@ -75,9 +76,9 @@ namespace Durin
 		auto* EditorClass = GetAssetEditorClass();
 		return ExecuteOpenAssets(Args, EditorClass,
 			[&](std::span<DObject* const> Assets) -> std::shared_ptr<FAssetEditorToolkit> {
-				auto* Session = Args.AssetEditors->OpenAssetEditor(EditorClass, {
+				auto* EditorInstance = Args.AssetEditors->OpenAssetEditor(EditorClass, {
 					.OpenArgs = Args, .Assets = std::vector<DObject*>(Assets.begin(), Assets.end())});
-				return Session ? Session->GetToolkit() : nullptr;
+				return EditorInstance ? EditorInstance->GetToolkit() : nullptr;
 			});
 	}
 

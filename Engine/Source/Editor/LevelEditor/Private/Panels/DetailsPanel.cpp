@@ -19,7 +19,7 @@
 #include "Workspace/LevelEditorHelpers.h"
 #include "Workspace/LevelEditorWorkspace.h"
 #include "LevelEditorCustomizations.h"
-#include "Settings/LevelEditorSessionSettings.h"
+#include "Settings/LevelEditorWorkspaceSettings.h"
 #include "Math/Color.h"
 #include "MonaImGui.h"
 #include "Widgets/MonaImGuiPropertyTable.h"
@@ -73,9 +73,9 @@ namespace Durin::LevelEditor
 		}
 	} // namespace
 
-	FDetailsPanel::FDetailsPanel(FLevelEditorSessionSettings& InSessionSettings)
-		: SessionSettings(InSessionSettings)
-		, ComponentPaneRatio(InSessionSettings.GetDetailsPaneRatio())
+	FDetailsPanel::FDetailsPanel(FLevelEditorWorkspaceSettings& InWorkspaceSettings)
+		: WorkspaceSettings(InWorkspaceSettings)
+		, ComponentPaneRatio(InWorkspaceSettings.GetDetailsPaneRatio())
 	{
 	}
 
@@ -145,7 +145,7 @@ namespace Durin::LevelEditor
 		const float AvailableHeight = ImGui::GetContentRegionAvail().y;
 		const float UsableHeight = FMath::Max(AvailableHeight - SplitterThickness, 0.0f);
 		float ComponentHeight = UsableHeight * ComponentPaneRatio;
-		if (SessionSettings.IsDetailsPaneAutoSized())
+		if (WorkspaceSettings.IsDetailsPaneAutoSized())
 		{
 			const float ComponentRowCount = static_cast<float>(Actor->GetComponents().size() + 1);
 			const float PreferredHeight = ImGui::GetStyle().WindowPadding.y * 2.0f
@@ -172,14 +172,14 @@ namespace Durin::LevelEditor
 
 		if (MonaImGui::DrawSplitter("DetailsSplitter", MonaImGui::EUISplitterAxis::Y, ImGui::GetContentRegionAvail().x, UsableHeight, MonaImGui::ScaleUI(90.0f), MonaImGui::ScaleUI(120.0f), ComponentPaneRatio))
 		{
-			SessionSettings.SetDetailsPaneRatio(ComponentPaneRatio);
-			SessionSettings.SetDetailsPaneAutoSized(false);
+			WorkspaceSettings.SetDetailsPaneRatio(ComponentPaneRatio);
+			WorkspaceSettings.SetDetailsPaneAutoSized(false);
 		}
 		if (ImGui::IsItemHovered())
 		{
 			ImGui::SetTooltip("Drag to resize. Double-click to fit components.");
 			if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-				SessionSettings.SetDetailsPaneAutoSized(true);
+				WorkspaceSettings.SetDetailsPaneAutoSized(true);
 		}
 
 		if (ImGui::BeginChild("DetailsProperties", ImVec2(0.0f, 0.0f),

@@ -226,12 +226,12 @@ namespace Durin
 		Durin::FModuleTestHarness MaterialEditorHarness("MaterialEditor");
 		MaterialEditorHarness.Start(MaterialEditorModule);
 		Testing::FScopedAssetEditorTestHost TestHost;
-		ASSERT_NE(nullptr, TestHost.GetService());
+		ASSERT_NE(nullptr, TestHost.GetAssetEditorSubsystem());
 		const FSoftObjectPath MaterialObjectPath = Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath);
 		ASSERT_TRUE(TestHost.Open(
 			MaterialObjectPath.ToString(),
 			DMaterial::StaticClass()->GetQualifiedName().ToString()));
-		auto MaterialWorkspace = TestHost.GetService()->GetActiveAssetToolkit();
+		auto MaterialWorkspace = TestHost.GetAssetEditorSubsystem()->GetActiveAssetToolkit();
 		ASSERT_NE(MaterialWorkspace, nullptr);
 		LoadedMaterial->MarkPackageDirty();
 		EXPECT_TRUE(MaterialWorkspace->CanSaveActiveDocument());

@@ -23,7 +23,7 @@ namespace Durin
 	auto DLevelAssetDefinition::GetAssetIcon() const -> std::string { return Icons::Home; }
 	auto DLevelAssetDefinition::OpenAssets(const FAssetOpenArgs& Args) const -> EAssetCommandResult
 	{
-		if (!Args.AssetEditors || Args.bIsRestore || (Args.bCreateSingleSession && Args.Assets.size() > 1)) return EAssetCommandResult::Unhandled;
+		if (!Args.AssetEditors || Args.bIsRestore || (Args.bCreateSingleEditor && Args.Assets.size() > 1)) return EAssetCommandResult::Unhandled;
 		auto* Levels = Args.AssetEditors->GetEditor()->GetEditorSubsystem<DLevelEditorSubsystem>();
 		if (!Levels) return EAssetCommandResult::Unhandled;
 		if (Args.Host)

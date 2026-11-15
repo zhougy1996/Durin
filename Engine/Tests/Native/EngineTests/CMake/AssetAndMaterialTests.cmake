@@ -99,7 +99,7 @@ durin_add_native_test(EditorOperationTests
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/DurinEd/Private/Editor/EditorInitialization.cpp
 	SOURCES
 		Private/Editor/AssetDefinitionTests.cpp
-		Private/Editor/AssetEditorSessionTests.cpp
+		Private/Editor/AssetEditorLifecycleTests.cpp
 		Private/Editor/CompensatingAsyncOperationTests.cpp
 		Private/Editor/EditorToolTests.cpp
 		Private/Editor/EditorSubsystemTests.cpp
@@ -497,7 +497,7 @@ durin_add_native_test(MaterialEditorInteractionTests
 		${_durin_material_editor_private}/Graph/MaterialGraphCreationMenu.cpp
 		${_durin_material_editor_private}/Widgets/MaterialPreview.cpp
 		${_durin_material_editor_private}/Widgets/MaterialParameterPanelModel.cpp
-		${_durin_material_editor_private}/Settings/MaterialEditorSessionSettings.cpp
+		${_durin_material_editor_private}/Settings/MaterialEditorProfileSettings.cpp
 	INCLUDE_DIRECTORIES
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
 		${_durin_level_editor_private}

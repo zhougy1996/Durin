@@ -18,7 +18,7 @@ namespace Durin
 	// Callbacks run synchronously on the game thread. Do not drive host updates,
 	// teardown, physical GC or provider unload; request shutdown/GC for the owner.
 	// Do not structurally mutate the manager operation's borrowed documents or
-	// recursively enter that same operation. Other-session business calls remain legal.
+	// recursively enter that same operation. Calls to other editors remain legal.
 	class IAssetEditorToolkit
 	{
 	public:
@@ -54,7 +54,7 @@ namespace Durin
 		virtual auto OnPackageReloaded(DPackage*, DPackage*) -> void {}
 		virtual auto CreateReloadParticipant() -> std::shared_ptr<IObjectReplacementParticipant> { return {}; }
 		virtual auto OnResourceIdRemapped(std::string_view, std::string_view) -> void {}
-		// Queries must not mutate document/session membership or perform lifecycle work.
+		// Queries must not mutate document/editor membership or perform lifecycle work.
 		// A shutdown/GC request is permitted; owners act after the current operation returns.
 		virtual auto IsDocumentDirty(const FEditorDocument& Document) const -> bool { return Document.bDirty; }
 		virtual auto CanSaveActiveDocument() const -> bool { return false; }
@@ -76,7 +76,7 @@ namespace Durin
 	class FEditorDocumentManager;
 	struct FAssetEditorInitArgs;
 
-	// Session-scoped common commands enforce View policy before feature callbacks.
+	// Editor-instance commands enforce View policy before feature callbacks.
 	class FAssetEditorToolkit : public IAssetEditorToolkit, public IAssetEditorInstance, public std::enable_shared_from_this<FAssetEditorToolkit>
 	{
 	public:
@@ -85,6 +85,7 @@ namespace Durin
 		DURINED_API auto GetEditorInstance() const -> IAssetEditorInstance*;
 		DURINED_API auto GetAssetEditorSubsystem() const -> DAssetEditorSubsystem*;
 		DURINED_API auto GetToolkitHost() const -> std::shared_ptr<IToolkitHost>;
+		DURINED_API auto TransferToHost(std::shared_ptr<IToolkitHost> NewHost) -> bool;
 		DURINED_API auto GetToolkitMode() const -> EToolkitMode;
 		DURINED_API auto GetInstanceKey() const -> std::string_view;
 		DURINED_API auto GetWindowId() const -> std::string_view;
@@ -98,35 +99,36 @@ namespace Durin
 		DURINED_API auto GetLastActivationTime() -> double override;
 		DURINED_API auto FocusWindow(DObject* Object = nullptr) -> void override;
 		DURINED_API auto CloseWindow(EAssetEditorCloseReason Reason) -> bool override;
-		auto IsClosed() const -> bool { return IsRetired(); }
+		auto IsClosed() const -> bool { return bClosed; }
+		// CloseWindow asks permission before ToolkitManager releases ownership.
+		DURINED_API virtual auto OnRequestClose(EAssetEditorCloseReason Reason) -> bool;
 
 		virtual auto GetLastOperationError() const -> std::string { return {}; }
 		auto IsReadOnly() const -> bool { return OpenMethod == EAssetOpenMethod::View || !CanEditAssets(); }
-		DURINED_API auto IsSessionActive() const -> bool;
+		DURINED_API auto IsEditorOpen() const -> bool;
 		DURINED_API auto DrawToolkit(bool bActive) -> bool final;
-		auto IsRetired() const -> bool { return bRetired; }
-		DURINED_API auto Retire() -> void;
 		virtual auto GetLayoutVersion() const -> uint32 { return 1; }
 		virtual auto GetLayoutName() const -> std::string_view { return GetToolkitId().GetValue(); }
 		DURINED_API auto GetLayoutProfileKey() const -> std::string;
 		DURINED_API auto GetPresentationRootKey(std::string_view EditorRootKey) const -> std::string;
 		DURINED_API auto GetPresentationDocument(const FEditorDocument& Document) const -> FEditorDocument;
 		DURINED_API auto OpenRelatedAsset(std::string_view Path, std::string_view ClassName) -> bool;
-		virtual auto ReleaseSessionUI() -> void {}
+		// Called once after closing is committed, while host/rendering services exist.
+		virtual auto OnClose() -> void {}
 		virtual auto OnHostChanged() -> void {}
-		auto GetOwningAssetEditor() const -> DAssetEditor* { return Owner.Get(); }
+		auto GetOwningAssetEditor() const -> DAssetEditor* { return OwningAssetEditor.Get(); }
 		auto SaveDocument(const FEditorDocument& Document) -> bool final
-		{ return ExecuteSessionCommand([&] { return OnSaveDocument(Document); }); }
+		{ return ExecuteEditorCommand([&] { return OnSaveDocument(Document); }); }
 		auto DiscardDocument(const FEditorDocument& Document) -> bool final
-		{ return ExecuteSessionCommand([&] { return OnDiscardDocument(Document); }); }
+		{ return ExecuteEditorCommand([&] { return OnDiscardDocument(Document); }); }
 		auto IsDocumentDirty(const FEditorDocument& Document) const -> bool final
-		{ return IsSessionActive() && !IsReadOnly() && OnIsDocumentDirty(Document); }
-		auto CanSaveActiveDocument() const -> bool final { return IsSessionActive() && !IsReadOnly() && OnCanSaveActiveDocument(); }
-		auto SaveActiveDocument() -> bool final { return ExecuteSessionCommand([&] { return OnSaveActiveDocument(); }); }
-		auto CanUndo() const -> bool final { return IsSessionActive() && !IsReadOnly() && OnCanUndo(); }
-		auto CanRedo() const -> bool final { return IsSessionActive() && !IsReadOnly() && OnCanRedo(); }
-		auto Undo() -> bool final { return ExecuteSessionCommand([&] { return OnUndo(); }); }
-		auto Redo() -> bool final { return ExecuteSessionCommand([&] { return OnRedo(); }); }
+		{ return IsEditorOpen() && !IsReadOnly() && OnIsDocumentDirty(Document); }
+		auto CanSaveActiveDocument() const -> bool final { return IsEditorOpen() && !IsReadOnly() && OnCanSaveActiveDocument(); }
+		auto SaveActiveDocument() -> bool final { return ExecuteEditorCommand([&] { return OnSaveActiveDocument(); }); }
+		auto CanUndo() const -> bool final { return IsEditorOpen() && !IsReadOnly() && OnCanUndo(); }
+		auto CanRedo() const -> bool final { return IsEditorOpen() && !IsReadOnly() && OnCanRedo(); }
+		auto Undo() -> bool final { return ExecuteEditorCommand([&] { return OnUndo(); }); }
+		auto Redo() -> bool final { return ExecuteEditorCommand([&] { return OnRedo(); }); }
 	protected:
 		virtual auto CanEditAssets() const -> bool { return true; }
 		virtual auto PostInitAssetEditor() -> void {}
@@ -144,15 +146,20 @@ namespace Durin
 	private:
 		friend class DAssetEditorSubsystem;
 		friend class DAssetEditor;
+		friend class FToolkitManager;
+		auto NotifyClosed() -> void;
 		auto InitAssetEditor(const FAssetEditorInitArgs& Args, std::shared_ptr<FEditorDocumentManager> Documents,
 			FStrongObjectPtr Provider, DAssetEditor* Editor = nullptr) -> bool;
-		DURINED_API auto ExecuteSessionCommand(const std::function<bool()>& Command) -> bool;
-		TWeakObjectPtr<DAssetEditor> Owner;
+		DURINED_API auto ExecuteEditorCommand(const std::function<bool()>& Command) -> bool;
+		TStrongObjectPtr<DAssetEditor> OwningAssetEditor;
 		std::shared_ptr<FEditorDocumentManager> DocumentOwner;
 		FStrongObjectPtr DefinitionProvider;
 		EAssetOpenMethod OpenMethod = EAssetOpenMethod::Edit;
+		EToolkitMode ToolkitMode = EToolkitMode::Standalone;
 		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditors;
-		std::shared_ptr<IToolkitHost> Host;
+		std::weak_ptr<IToolkitHost> Host;
+		// Identity comparison only, including during host destruction when pinning fails.
+		const IToolkitHost* HostIdentity = nullptr;
 		std::string InstanceKey;
 		std::string WindowId;
 		double LastActivationTime = 0;
@@ -161,7 +168,7 @@ namespace Durin
 		bool bPrimary = true;
 		bool bInitialized = false;
 		bool bCloseRequested = false;
-		bool bRetired = false;
+		bool bClosed = false;
 	};
 
 	// Common panel defaults are opt-in; graph-only editors allocate no default viewport.
@@ -178,7 +185,7 @@ namespace Durin
 		DURINED_API auto ResetPanels() -> void;
 		DURINED_API auto DrawRegisteredUI() -> void;
 		DURINED_API auto DrawWindowMenu() -> void override;
-		DURINED_API auto ReleaseSessionUI() -> void override;
+		DURINED_API auto OnClose() -> void override;
 		DURINED_API auto OnHostChanged() -> void override;
 		// Inject a storage file for host/test isolation; otherwise uses project launch settings.
 		DURINED_API auto RestorePanelLayout(std::string FilePath = {}) -> bool;

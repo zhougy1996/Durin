@@ -14,8 +14,12 @@ namespace Durin
 	DThumbnailRenderer::~DThumbnailRenderer() = default;
 	auto DThumbnailRenderer::BeginDestroy() -> void
 	{
-		PreviewScene.reset();
+		ReleasePreviewScene();
 		Super::BeginDestroy();
+	}
+	auto DThumbnailRenderer::ReleasePreviewScene() -> void
+	{
+		PreviewScene.reset();
 	}
 	auto DThumbnailRenderer::GetPreviewScene() -> FThumbnailPreviewScene&
 	{

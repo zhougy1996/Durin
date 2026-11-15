@@ -1,4 +1,5 @@
 #include "Editor/LevelEditorSubsystem.h"
+#include "Toolkits/ToolkitManager.h"
 #include "Editor/EditorEngine.h"
 #include "Engine/World.h"
 #include "LevelEditorModule.h"
@@ -40,7 +41,7 @@ namespace Durin
 	{
 		CheckGameThread();
 		if (auto* Assets = GetEditor()->GetEditorSubsystem<DAssetEditorSubsystem>())
-			for (const auto& Toolkit : Assets->GetAssetToolkits())
+			for (const auto& Toolkit : FToolkitManager::Get().GetToolkits(Assets))
 				if (const auto Level = std::dynamic_pointer_cast<LevelEditor::MLevelEditor>(Toolkit)) (void)Level->CancelPendingOpen();
 	}
 	auto DLevelEditorSubsystem::Deinitialize() noexcept -> void

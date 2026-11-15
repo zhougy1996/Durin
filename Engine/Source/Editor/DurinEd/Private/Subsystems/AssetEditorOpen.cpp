@@ -58,7 +58,7 @@ namespace Durin
 			OpeningPaths.insert(Target.AssetPath);
 			Reserved.push_back(Target.AssetPath);
 		}
-		if (Args.bCreateSingleSession)
+		if (Args.bCreateSingleEditor)
 		{
 			if (!Opened) return false;
 			std::optional<EToolkitMode> Required;
@@ -73,7 +73,7 @@ namespace Durin
 		for (size_t Index = 0; Index < Selection.size(); ++Index)
 		{
 			auto Batch = std::ranges::find_if(Batches, [&](const auto& Group) {
-				return Args.bCreateSingleSession || Selection[Group.front()].Definition.GetKey() == Selection[Index].Definition.GetKey();
+				return Args.bCreateSingleEditor || Selection[Group.front()].Definition.GetKey() == Selection[Index].Definition.GetKey();
 			});
 			if (Batch == Batches.end()) Batches.push_back({Index}); else Batch->push_back(Index);
 		}

@@ -145,7 +145,7 @@ namespace
 			Durin::FEditableAssetDocumentModel Documents;
 			Durin::FEditorDocumentManager Manager;
 			auto Workspace = std::make_shared<FReloadTestWorkspace>();
-			ASSERT_TRUE(Manager.AttachSessionToolkit(Workspace, {}));
+			ASSERT_TRUE(Manager.AttachToolkit(Workspace, {}));
 			const auto Document = Manager.OpenDocument({.ToolkitId = Workspace->GetToolkitId(),
 				.DocumentKey = Texture->GetObjectPath(), .ResourceId = Texture->GetObjectPath(), .Label = "Texture"});
 			ASSERT_TRUE(Document.IsValid());

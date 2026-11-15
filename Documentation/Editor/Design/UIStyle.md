@@ -11,7 +11,7 @@ The editor uses three layers of styling and persistence:
 
 - `MonaImGui` owns shared design metrics, global UI scaling, semantic colors, and reusable controls.
 - `Engine/Configs/DurinEditorTheme.*.yaml` owns ImGui and semantic theme colors only.
-- `LevelEditorSession.yaml` and `imgui.ini` own user preferences and user-adjusted layout state.
+- `LevelEditorWorkspace.yaml` and `imgui.ini` own user preferences and user-adjusted layout state.
 
 ## Choosing Where A Value Lives
 

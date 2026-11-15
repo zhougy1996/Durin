@@ -7,7 +7,7 @@
 #include "Asset/Asset.h"
 #include "Editor/EditorEngine.h"
 #include "Transactions/Transaction.h"
-#include "Settings/LevelEditorSessionSettings.h"
+#include "Settings/LevelEditorWorkspaceSettings.h"
 #include "Assets/EditorAssetMoveCoordinator.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
@@ -22,7 +22,7 @@ namespace Durin::LevelEditor
 	// Owns level document transitions and the unsaved-change workflow.
 	FLevelDocumentController::FLevelDocumentController(
 		FLevelEditorContext& InContext,
-		FLevelEditorSessionSettings& InSessionSettings,
+		FLevelEditorWorkspaceSettings& InWorkspaceSettings,
 		FSceneViewportPanel& InSceneViewportPanel,
 		FEditorAssetMoveCoordinator& InAssetMoveCoordinator,
 		std::function<void()> InClearError,
@@ -30,7 +30,7 @@ namespace Durin::LevelEditor
 		std::function<void(bool)> InCompleteDeferredOpen
 	)
 		: Context(InContext)
-		, SessionSettings(InSessionSettings)
+		, WorkspaceSettings(InWorkspaceSettings)
 		, SceneViewportPanel(InSceneViewportPanel)
 		, AssetMoveCoordinator(InAssetMoveCoordinator)
 		, ClearError(std::move(InClearError))
@@ -225,7 +225,7 @@ namespace Durin::LevelEditor
 		{
 			FLevelDocumentRevisionState::Activate((Context.EditorHost ? Context.EditorHost->GetTransactor() : nullptr), DocumentPackage.Get(), Level->GetPackage());
 			Context.Synchronize(World);
-			SessionSettings.RestoreViewportState(Level, SceneViewportPanel);
+			WorkspaceSettings.RestoreViewportState(Level, SceneViewportPanel);
 			DocumentPackage = Level->GetPackage();
 			DocumentWorld = World;
 		}
@@ -264,8 +264,8 @@ namespace Durin::LevelEditor
 			SetError("The current level is transient and cannot be saved.");
 			return false;
 		}
-		SessionSettings.CaptureViewportState(Context, SceneViewportPanel);
-		SessionSettings.Save(&SceneViewportPanel);
+		WorkspaceSettings.CaptureViewportState(Context, SceneViewportPanel);
+		WorkspaceSettings.Save(&SceneViewportPanel);
 		FAssetWriteResult Result;
 		const bool Saved = SavePackage(Context.Level->GetPackage(), {}, &Result);
 		FLevelDocumentRevisionState::CompleteSave(
@@ -376,8 +376,8 @@ namespace Durin::LevelEditor
 		{
 			// The authoritative world can have been updated by package reload.
 			Package = World->GetCurrentLevel()->GetPackage();
-			SessionSettings.CaptureViewportState(Context, SceneViewportPanel);
-			SessionSettings.Save(&SceneViewportPanel);
+			WorkspaceSettings.CaptureViewportState(Context, SceneViewportPanel);
+			WorkspaceSettings.Save(&SceneViewportPanel);
 			if (!SceneViewportPanel.PrepareForLevelChange(Context)) return false;
 			if (!World->SetCurrentLevel(nullptr)) return false;
 			FLevelDocumentRevisionState::Activate((Context.EditorHost ? Context.EditorHost->GetTransactor() : nullptr), Package, nullptr);
@@ -392,8 +392,8 @@ namespace Durin::LevelEditor
 	auto FLevelDocumentController::PrepareLevelActivation(DLevel& Level) -> bool
 	{
 		if (!Context.World) return false;
-		SessionSettings.CaptureViewportState(Context, SceneViewportPanel);
-		SessionSettings.Save(&SceneViewportPanel);
+		WorkspaceSettings.CaptureViewportState(Context, SceneViewportPanel);
+		WorkspaceSettings.Save(&SceneViewportPanel);
 		if (const auto* Previous = Context.World->GetCurrentLevel()) DocumentPackage = Previous->GetPackage();
 		return Context.World->GetCurrentLevel() == &Level || SceneViewportPanel.PrepareForLevelChange(Context);
 	}

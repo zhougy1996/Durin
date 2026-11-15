@@ -1,5 +1,5 @@
 #include "Asset/RegistryOperations.h"
-#include "Settings/LevelEditorSessionSettings.h"
+#include "Settings/LevelEditorWorkspaceSettings.h"
 
 #include "Asset/Asset.h"
 #include "DObject/Package.h"
@@ -12,20 +12,20 @@
 
 namespace Durin::LevelEditor
 {
-	// Session persistence stays independent from the editor widget's menu and popup orchestration.
+	// Workspace persistence stays independent from the editor widget's menu and popup orchestration.
 	namespace
 	{
-		constexpr const char* SessionSettingsFileName = "LevelEditorSession.yaml";
+		constexpr const char* WorkspaceSettingsFileName = "LevelEditorWorkspace.yaml";
 	}
 
-	auto FLevelEditorSessionSettings::Load() -> bool
+	auto FLevelEditorWorkspaceSettings::Load() -> bool
 	{
 		FYamlDocument Document;
-		const std::string FilePath = FPaths::LaunchConfigsDir() + SessionSettingsFileName;
+		const std::string FilePath = FPaths::LaunchConfigsDir() + WorkspaceSettingsFileName;
 		if (!std::filesystem::exists(FilePath)) return true;
 		if (const auto Loaded = Document.LoadFromFile(FilePath); !Loaded)
 		{
-			DURIN_WARN("Failed to load level editor session settings: {}", Loaded.error().ToString());
+			DURIN_WARN("Failed to load level editor workspace settings: {}", Loaded.error().ToString());
 			return false;
 		}
 
@@ -53,7 +53,7 @@ namespace Durin::LevelEditor
 		return true;
 	}
 
-	auto FLevelEditorSessionSettings::PruneInvalidViewportStates() -> void
+	auto FLevelEditorWorkspaceSettings::PruneInvalidViewportStates() -> void
 	{
 		if (const FProjectInfo* Project = GetCurrentProject())
 		{
@@ -81,7 +81,7 @@ namespace Durin::LevelEditor
 		}
 	}
 
-	auto FLevelEditorSessionSettings::Save(const FSceneViewportPanel* SceneViewportPanel) const -> bool
+	auto FLevelEditorWorkspaceSettings::Save(const FSceneViewportPanel* SceneViewportPanel) const -> bool
 	{
 		FYamlDocument Document;
 		FYamlNodeRef Root = Document.GetMutableRoot();
@@ -121,15 +121,15 @@ namespace Durin::LevelEditor
 		DetailsNode.SetChildValue("ComponentPaneAutoSized", bDetailsPaneAutoSized);
 
 		SaveLevelViewportStates(Root, ViewportStates);
-		if (!Document.SaveToFile(FPaths::LaunchConfigsDir() + SessionSettingsFileName))
+		if (!Document.SaveToFile(FPaths::LaunchConfigsDir() + WorkspaceSettingsFileName))
 		{
-			DURIN_WARN("Failed to save level editor session settings.");
+			DURIN_WARN("Failed to save level editor workspace settings.");
 			return false;
 		}
 		return true;
 	}
 
-	auto FLevelEditorSessionSettings::ApplyTo(FSceneViewportPanel& SceneViewportPanel) const -> void
+	auto FLevelEditorWorkspaceSettings::ApplyTo(FSceneViewportPanel& SceneViewportPanel) const -> void
 	{
 		if (FTransformGizmo* Gizmo = SceneViewportPanel.GetTransformGizmo())
 		{
@@ -142,7 +142,7 @@ namespace Durin::LevelEditor
 		SceneViewportPanel.SetCameraMovementSpeed(CameraMovementSpeed);
 	}
 
-	auto FLevelEditorSessionSettings::CaptureViewportState(const FLevelEditorContext& Context, const FSceneViewportPanel& SceneViewportPanel) -> void
+	auto FLevelEditorWorkspaceSettings::CaptureViewportState(const FLevelEditorContext& Context, const FSceneViewportPanel& SceneViewportPanel) -> void
 	{
 		const FProjectInfo* Project = GetCurrentProject();
 		if (!Project || !Context.Level) return;
@@ -153,7 +153,7 @@ namespace Durin::LevelEditor
 			ViewportStates[Project->ProjectFile][Package->GetPackagePath()] = State;
 	}
 
-	auto FLevelEditorSessionSettings::RestoreViewportState(DLevel* Level, FSceneViewportPanel& SceneViewportPanel) const -> void
+	auto FLevelEditorWorkspaceSettings::RestoreViewportState(DLevel* Level, FSceneViewportPanel& SceneViewportPanel) const -> void
 	{
 		if (!Level) return;
 		const FProjectInfo* Project = GetCurrentProject();
@@ -171,7 +171,7 @@ namespace Durin::LevelEditor
 		SceneViewportPanel.RestoreCameraState(Level, State);
 	}
 
-	auto FLevelEditorSessionSettings::MoveViewportState(std::string_view OldPath, std::string_view NewPath) -> void
+	auto FLevelEditorWorkspaceSettings::MoveViewportState(std::string_view OldPath, std::string_view NewPath) -> void
 	{
 		const FProjectInfo* Project = GetCurrentProject();
 		if (!Project) return;
@@ -184,7 +184,7 @@ namespace Durin::LevelEditor
 		ProjectIt->second[std::string(NewPath)] = State;
 	}
 
-	auto FLevelEditorSessionSettings::SetDetailsPaneRatio(float Ratio) -> void
+	auto FLevelEditorWorkspaceSettings::SetDetailsPaneRatio(float Ratio) -> void
 	{
 		DetailsPaneRatio = std::clamp(Ratio, MinimumDetailsPaneRatio, MaximumDetailsPaneRatio);
 	}

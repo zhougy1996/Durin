@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-#include "Settings/LevelViewportSessionSettings.h"
+#include "Settings/LevelViewportState.h"
 
 namespace Durin
 {
@@ -15,8 +15,8 @@ namespace Durin::LevelEditor
 	struct FLevelEditorContext;
 	class FSceneViewportPanel;
 
-	// Persists project-scoped level-editor layout and viewport session state.
-	class FLevelEditorSessionSettings
+	// Persists project-scoped level-editor layout and viewport state.
+	class FLevelEditorWorkspaceSettings
 	{
 	public:
 		static constexpr float MinimumDetailsPaneRatio = 0.10f;

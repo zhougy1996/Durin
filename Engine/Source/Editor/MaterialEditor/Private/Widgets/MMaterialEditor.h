@@ -24,7 +24,7 @@ namespace Durin::MaterialEditor
 	class FMaterialGraphCanvas;
 	class FMaterialParameterPanelCache;
 	class FMaterialParameterPanelModel;
-	class FMaterialEditorSessionSettings;
+	class FMaterialEditorProfileSettings;
 	class FMaterialEditingSession;
 	struct FMaterialParameterPanelEntry;
 
@@ -36,7 +36,7 @@ namespace Durin::MaterialEditor
 		auto GetLayoutVersion() const -> uint32 override;
 		auto OnResourceIdRemapped(std::string_view Source, std::string_view Destination) -> void override;
 		explicit MMaterialEditor(
-			FEditorDocumentManager& InWorkspaceManager);
+			FEditorDocumentManager& InDocumentManager);
 
 		MATERIALEDITOR_API ~MMaterialEditor() override;
 		MATERIALEDITOR_API auto GetToolkitId() const -> const FAssetEditorToolkitId& override;
@@ -60,7 +60,7 @@ namespace Durin::MaterialEditor
 		MATERIALEDITOR_API auto OnDrawToolkit(bool bActive) -> bool override;
 		MATERIALEDITOR_API auto ResetLayout() -> void override;
 		auto OnHostChanged() -> void override;
-		auto ReleaseSessionUI() -> void override;
+		auto OnClose() -> void override;
 	protected:
 		auto PostInitAssetEditor() -> void override;
 
@@ -109,10 +109,10 @@ namespace Durin::MaterialEditor
 		std::unordered_map<std::string, TObjectPtr<DMaterialInterface>> OpenMaterials;
 		std::unordered_map<std::string, std::unique_ptr<FMaterialEditingSession>> EditingSessions;
 		FEditableAssetDocumentModel Documents;
-		std::unordered_map<uint64, std::unique_ptr<FMaterialPreview>> MaterialPreviews;
+		std::unordered_map<uint64, std::shared_ptr<FMaterialPreview>> MaterialPreviews;
 		std::unordered_map<uint64, std::unique_ptr<FMaterialGraphCanvas>> MaterialGraphCanvases;
 		std::unique_ptr<FMaterialParameterPanelCache> MaterialParameterPanelCache;
-		std::unique_ptr<FMaterialEditorSessionSettings> SessionSettings;
+		std::unique_ptr<FMaterialEditorProfileSettings> ProfileSettings;
 		FEditorSettingsPageRegistration SettingsPage;
 		std::array<char, 128> ParentSearchText{};
 		std::array<char, 128> TextureSearchText{};

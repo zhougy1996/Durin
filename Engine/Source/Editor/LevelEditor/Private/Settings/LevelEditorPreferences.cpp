@@ -1,7 +1,7 @@
 #include "Widgets/MLevelEditor.h"
 
 #include "Panels/SceneViewportPanel.h"
-#include "Settings/LevelEditorSessionSettings.h"
+#include "Settings/LevelEditorWorkspaceSettings.h"
 #include "MonaImGui.h"
 
 namespace Durin::LevelEditor
@@ -57,7 +57,7 @@ namespace Durin::LevelEditor
 		bChanged |= ImGui::DragFloat("Scale step", &Next.Snap.Scale, 0.01f, 0.001f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
 		if (!bChanged) return;
 		Apply(*SceneViewportPanel, Next);
-		if (!SessionSettings.Save(SceneViewportPanel))
+		if (!WorkspaceSettings.Save(SceneViewportPanel))
 		{
 			Apply(*SceneViewportPanel, Previous);
 			OutError = "Could not save viewport preferences.";
@@ -70,7 +70,7 @@ namespace Durin::LevelEditor
 		if (!SceneViewportPanel) return false;
 		const auto Previous = Capture(*SceneViewportPanel);
 		Apply(*SceneViewportPanel, FViewportPreferences{});
-		if (SessionSettings.Save(SceneViewportPanel)) return true;
+		if (WorkspaceSettings.Save(SceneViewportPanel)) return true;
 		Apply(*SceneViewportPanel, Previous);
 		return false;
 	}

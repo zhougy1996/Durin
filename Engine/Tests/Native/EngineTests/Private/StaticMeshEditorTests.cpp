@@ -1,4 +1,5 @@
 #include "ThumbnailManagerTestSupport.h"
+#include "Editor/AssetEditorTestQueries.h"
 #include "Editor/AssetEditorTestHost.h"
 #include "Thumbnail/ThumbnailManager.h"
 #include "Toolkits/AssetEditorToolkit.h"
@@ -138,30 +139,30 @@ TEST(FStaticMeshEditorTests, ReusesOneDocumentPerMeshAndSupportsCloseReopen)
 	Durin::FModuleTestHarness ModuleHarness("StaticMeshEditor");
 	ModuleHarness.Start(Module);
 	Durin::Testing::FScopedAssetEditorTestHost TestHost;
-	auto* Service = TestHost.GetService();
-	ASSERT_NE(nullptr, Service);
+	auto* AssetEditorSubsystem = TestHost.GetAssetEditorSubsystem();
+	ASSERT_NE(nullptr, AssetEditorSubsystem);
 	const std::string ClassName = Durin::DStaticMesh::StaticClass()->GetQualifiedName().ToString();
 	const std::string FirstPath = "/StaticMeshEditorTests/First.First";
 	const std::string SecondPath = "/StaticMeshEditorTests/Second.Second";
 	ASSERT_TRUE(TestHost.Open(FirstPath, ClassName));
 	ASSERT_TRUE(TestHost.Open(FirstPath, ClassName));
-	ASSERT_EQ(1u, Service->GetAssetToolkits().size());
-	const auto FirstSession = Service->GetAssetToolkits().front();
+	ASSERT_EQ(1u, Durin::FToolkitManager::Get().GetToolkits(AssetEditorSubsystem).size());
+	const auto FirstToolkit = Durin::FToolkitManager::Get().GetToolkits(AssetEditorSubsystem).front();
 	ASSERT_TRUE(TestHost.Open(SecondPath, ClassName));
-	ASSERT_EQ(2u, Service->GetAssetToolkits().size());
-	const auto ActiveBeforeUnsupported = Service->GetActiveAssetToolkit();
+	ASSERT_EQ(2u, Durin::FToolkitManager::Get().GetToolkits(AssetEditorSubsystem).size());
+	const auto ActiveBeforeUnsupported = AssetEditorSubsystem->GetActiveAssetToolkit();
 	EXPECT_EQ(SecondPath, ActiveBeforeUnsupported->GetDocumentManager()->GetActiveDocument()->ResourceId);
 	EXPECT_FALSE(TestHost.Open(FirstPath, "Durin::DTexture2D"));
-	EXPECT_EQ(ActiveBeforeUnsupported, Service->GetActiveAssetToolkit());
-	EXPECT_TRUE(FirstSession->CloseWindow(Durin::EAssetEditorCloseReason::AssetEditorHostClosed));
-	EXPECT_EQ(1u, Service->GetAssetToolkits().size());
+	EXPECT_EQ(ActiveBeforeUnsupported, AssetEditorSubsystem->GetActiveAssetToolkit());
+	EXPECT_TRUE(FirstToolkit->CloseWindow(Durin::EAssetEditorCloseReason::AssetEditorHostClosed));
+	EXPECT_EQ(1u, Durin::FToolkitManager::Get().GetToolkits(AssetEditorSubsystem).size());
 	ASSERT_TRUE(TestHost.Open(FirstPath, ClassName));
-	EXPECT_EQ(2u, Service->GetAssetToolkits().size());
-	for (const auto& Session : Service->GetAssetToolkits())
-		for (const auto& Document : Session->GetDocumentManager()->GetDocuments())
-			EXPECT_FALSE(Session->IsDocumentDirty(Document));
-	EXPECT_TRUE(Service->CloseAllAssetEditors());
-	EXPECT_TRUE(Service->GetAssetToolkits().empty());
+	EXPECT_EQ(2u, Durin::FToolkitManager::Get().GetToolkits(AssetEditorSubsystem).size());
+	for (const auto& Toolkit : Durin::FToolkitManager::Get().GetToolkits(AssetEditorSubsystem))
+		for (const auto& Document : Toolkit->GetDocumentManager()->GetDocuments())
+			EXPECT_FALSE(Toolkit->IsDocumentDirty(Document));
+	EXPECT_TRUE(AssetEditorSubsystem->CloseAllAssetEditors());
+	EXPECT_TRUE(Durin::FToolkitManager::Get().GetToolkits(AssetEditorSubsystem).empty());
 	TestHost.Shutdown();
 	ModuleHarness.Shutdown();
 }

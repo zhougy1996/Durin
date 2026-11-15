@@ -5,7 +5,7 @@
 #include "ThirdParty/ImGui/imgui_internal.h"
 #include "MaterialGraphTestSupport.h"
 #include "Widgets/MaterialDetailsStyle.h"
-#include "Settings/MaterialEditorSessionSettings.h"
+#include "Settings/MaterialEditorProfileSettings.h"
 #include "Misc/Paths.h"
 
 TEST(FMaterialGraphInteractionTests, ParameterValueControlsPreviewCoalesceAndCancel)
@@ -1880,20 +1880,20 @@ TEST(FMaterialGraphInteractionTests, FunctionCreationActionsShareCompatibilityAn
 
 TEST(FMaterialLayoutSettingsTests, SharedProfileMergesResourceWritesAndKeepsNewerPreferences)
 {
-	using Durin::MaterialEditor::FMaterialEditorSessionSettings;
+	using Durin::MaterialEditor::FMaterialEditorProfileSettings;
 	InitializeDObjectSystem();
 	Testing::FScopedMountRegistryFixture Mounts;
 	Testing::RegisterMountPointForTests("/LayoutSettings/", Testing::GetTestWorkDirectory().generic_string() + "/");
 	const auto File = "MaterialEditor/Profiles/Test." + FGuid::NewGuid().ToString() + ".yaml";
 	const auto Physical = FPaths::LaunchConfigsDir() + File;
 	struct FCleanup { std::string Path; ~FCleanup() { std::filesystem::remove(Path); } } Cleanup{Physical};
-	FMaterialEditorSessionSettings First, Second;
+	FMaterialEditorProfileSettings First, Second;
 	ASSERT_TRUE(First.SelectStorage(File)); ASSERT_TRUE(Second.SelectStorage(File));
 	First.bAutoCompile = false;
 	First.SetViewport("/LayoutSettings/A.A", {.Zoom = 1.5f}); ASSERT_TRUE(First.Save());
 	Second.bDetailsVisible = false;
 	Second.SetViewport("/LayoutSettings/B.B", {.Zoom = .5f}); ASSERT_TRUE(Second.Save());
-	FMaterialEditorSessionSettings Loaded(File); ASSERT_TRUE(Loaded.Load());
+	FMaterialEditorProfileSettings Loaded(File); ASSERT_TRUE(Loaded.Load());
 	EXPECT_FALSE(Loaded.bAutoCompile); EXPECT_FALSE(Loaded.bDetailsVisible);
 	ASSERT_NE(nullptr, Loaded.FindViewport("/LayoutSettings/A.A")); ASSERT_NE(nullptr, Loaded.FindViewport("/LayoutSettings/B.B"));
 	EXPECT_FLOAT_EQ(1.5f, Loaded.FindViewport("/LayoutSettings/A.A")->Zoom); EXPECT_FLOAT_EQ(.5f, Loaded.FindViewport("/LayoutSettings/B.B")->Zoom);
@@ -1901,7 +1901,7 @@ TEST(FMaterialLayoutSettingsTests, SharedProfileMergesResourceWritesAndKeepsNewe
 	ASSERT_TRUE(FPackagePath::TryCreate("/LayoutSettings/A", Source));
 	ASSERT_TRUE(FPackagePath::TryCreate("/LayoutSettings/Moved", Destination));
 	const FAssetRelocationMapping Mapping{Source, Destination};
-	FMaterialEditorSessionSettings::RemapStoredViewports(std::span{&Mapping, 1});
+	FMaterialEditorProfileSettings::RemapStoredViewports(std::span{&Mapping, 1});
 	ASSERT_TRUE(First.Save()); // A stale window must not resurrect a moved resource or old preference.
 	ASSERT_TRUE(Loaded.Load()); EXPECT_EQ(nullptr, Loaded.FindViewport("/LayoutSettings/A.A"));
 	EXPECT_NE(nullptr, Loaded.FindViewport("/LayoutSettings/Moved.A")); EXPECT_NE(nullptr, Loaded.FindViewport("/LayoutSettings/B.B"));

@@ -1,4 +1,4 @@
-#include "Settings/MaterialEditorSessionSettings.h"
+#include "Settings/MaterialEditorProfileSettings.h"
 
 #include "Misc/Paths.h"
 #include "Yaml/Yaml.h"
@@ -6,12 +6,12 @@
 
 namespace Durin::MaterialEditor
 {
-	auto FMaterialEditorSessionSettings::SelectStorage(std::string InFileName) -> bool
+	auto FMaterialEditorProfileSettings::SelectStorage(std::string InFileName) -> bool
 	{
-		*this = FMaterialEditorSessionSettings(std::move(InFileName));
+		*this = FMaterialEditorProfileSettings(std::move(InFileName));
 		return Load();
 	}
-	auto FMaterialEditorSessionSettings::Load() -> bool
+	auto FMaterialEditorProfileSettings::Load() -> bool
 	{
 		Viewports.clear();
 		DirtyViewports.clear();
@@ -20,7 +20,7 @@ namespace Durin::MaterialEditor
 		FYamlDocument Document;
 		if (const auto Loaded = Document.LoadFromFile(FilePath); !Loaded)
 		{
-			DURIN_WARN("Failed to load material editor session settings: {}", Loaded.error().ToString());
+			DURIN_WARN("Failed to load material editor profile settings: {}", Loaded.error().ToString());
 			return false;
 		}
 
@@ -52,9 +52,9 @@ namespace Durin::MaterialEditor
 		return true;
 	}
 
-	auto FMaterialEditorSessionSettings::Save(bool bReplacePreferences) const -> bool
+	auto FMaterialEditorProfileSettings::Save(bool bReplacePreferences) const -> bool
 	{
-		FMaterialEditorSessionSettings Stored(FileName);
+		FMaterialEditorProfileSettings Stored(FileName);
 		if (!Stored.Load()) return false;
 		const bool Missing = !std::filesystem::exists(FPaths::LaunchConfigsDir() + FileName);
 		const auto Current = Preferences();
@@ -94,7 +94,7 @@ namespace Durin::MaterialEditor
 		const auto Text = Document.ToString();
 		if (!FFileHelper::SaveArrayToFileAtomically(std::as_bytes(std::span(Text.data(), Text.size())), FPaths::LaunchConfigsDir() + FileName))
 		{
-			DURIN_WARN("Failed to save material editor session settings.");
+			DURIN_WARN("Failed to save material editor profile settings.");
 			return false;
 		}
 		SavedPreferences = Preferences();
@@ -102,21 +102,21 @@ namespace Durin::MaterialEditor
 		return true;
 	}
 
-	auto FMaterialEditorSessionSettings::FindViewport(std::string_view ResourceId) const
+	auto FMaterialEditorProfileSettings::FindViewport(std::string_view ResourceId) const
 		-> const FMaterialGraphViewportState*
 	{
 		const auto It = Viewports.find(std::string(ResourceId));
 		return It == Viewports.end() ? nullptr : &It->second;
 	}
 
-	auto FMaterialEditorSessionSettings::SetViewport(
+	auto FMaterialEditorProfileSettings::SetViewport(
 		std::string_view ResourceId,
 		const FMaterialGraphViewportState& State) -> void
 	{
 		if (!ResourceId.empty()) { Viewports[std::string(ResourceId)] = State; DirtyViewports.emplace(ResourceId); }
 	}
 
-	auto FMaterialEditorSessionSettings::MoveViewport(
+	auto FMaterialEditorProfileSettings::MoveViewport(
 		std::string_view OldResourceId,
 		std::string_view NewResourceId) -> void
 	{
@@ -126,7 +126,7 @@ namespace Durin::MaterialEditor
 		Viewports.erase(It);
 		DirtyViewports.emplace(OldResourceId); DirtyViewports.emplace(NewResourceId);
 	}
-	auto FMaterialEditorSessionSettings::RemapStoredViewports(std::span<const FAssetRelocationMapping> Mappings) -> void
+	auto FMaterialEditorProfileSettings::RemapStoredViewports(std::span<const FAssetRelocationMapping> Mappings) -> void
 	{
 		const auto Directory = std::filesystem::path(FPaths::LaunchConfigsDir()) / "MaterialEditor/Profiles";
 		std::error_code Error;
@@ -134,7 +134,7 @@ namespace Durin::MaterialEditor
 		for (const auto& Entry : std::filesystem::directory_iterator(Directory, Error))
 		{
 			if (Entry.path().extension() != ".yaml") continue;
-			FMaterialEditorSessionSettings Settings("MaterialEditor/Profiles/" + Entry.path().filename().generic_string());
+			FMaterialEditorProfileSettings Settings("MaterialEditor/Profiles/" + Entry.path().filename().generic_string());
 			if (!Settings.Load()) continue;
 			std::vector<std::pair<std::string, std::string>> Renames;
 			for (const auto& [Resource, Viewport] : Settings.Viewports)

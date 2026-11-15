@@ -10,7 +10,7 @@
 
 namespace Durin::DocumentPrivate
 {
-	// Session-local collector roots do not impersonate externally indexed editor instances.
+	// Toolkit-local collector roots do not impersonate externally indexed editor instances.
 	class FDocumentAssetRoot
 	{
 	public:
@@ -33,16 +33,16 @@ namespace Durin::DocumentPrivate
 		std::unordered_map<uint64, FEditorDocument> DeferredDocumentOpens;
 		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditorSubsystem;
 		std::unordered_map<uint64, std::shared_ptr<FDocumentAssetRoot>> AssetRoots;
-		std::weak_ptr<IAssetEditorToolkit> SessionToolkit;
+		std::weak_ptr<IAssetEditorToolkit> Toolkit;
 		bool bToolkitAttached = false;
-		std::function<void()> SessionAssetsChanged;
+		std::function<void()> AssetsChanged;
 	};
 
 	// Rebinds document roots atomically; workspace UI notification follows publication.
-	class FSessionDocumentReloadParticipant final : public IPackageReloadParticipant
+	class FDocumentReloadParticipant final : public IPackageReloadParticipant
 	{
 	public:
-		explicit FSessionDocumentReloadParticipant(std::shared_ptr<FEditorDocumentState> InState,
+		explicit FDocumentReloadParticipant(std::shared_ptr<FEditorDocumentState> InState,
 			std::vector<std::shared_ptr<IObjectReplacementParticipant>> InFeatures)
 			: State(std::move(InState)), Features(std::move(InFeatures)) {}
 		auto Prepare(const FObjectReplacementMap& Map) -> std::expected<void, FObjectReplacementError> override
@@ -108,7 +108,7 @@ namespace Durin
 
 	FEditorDocumentManager::~FEditorDocumentManager()
 	{
-		State->SessionAssetsChanged = {};
+		State->AssetsChanged = {};
 		State->AssetRoots.clear();
 		UnregisterAssetMoveObserver(AssetMoveObserverHandle);
 	}
@@ -128,18 +128,18 @@ namespace Durin
 			Instance->SetAsset(Asset);
 		}
 		std::erase_if(State->AssetRoots, [&](const auto& Pair) { return !OpenDocuments.contains(Pair.first); });
-		if (State->SessionAssetsChanged) State->SessionAssetsChanged();
+		if (State->AssetsChanged) State->AssetsChanged();
 	}
 
-	auto FEditorDocumentManager::AttachSessionToolkit(std::shared_ptr<IAssetEditorToolkit> Toolkit,
-		std::function<void()> AssetsChanged, DAssetEditorSubsystem* Service) -> bool
+	auto FEditorDocumentManager::AttachToolkit(std::shared_ptr<IAssetEditorToolkit> Toolkit,
+		std::function<void()> AssetsChanged, DAssetEditorSubsystem* AssetEditorSubsystem) -> bool
 	{
 		if (State->bToolkitAttached || !State->Documents.empty()
 			|| !Toolkit || !Toolkit->GetToolkitId().IsValid()) return false;
 		State->bToolkitAttached = true;
-		State->AssetEditorSubsystem = Service;
-		State->SessionToolkit = Toolkit;
-		State->SessionAssetsChanged = std::move(AssetsChanged);
+		State->AssetEditorSubsystem = AssetEditorSubsystem;
+		State->Toolkit = Toolkit;
+		State->AssetsChanged = std::move(AssetsChanged);
 		return true;
 	}
 	auto FEditorDocumentManager::AssociateDocumentAsset(FDocumentId Id, DObject* Asset) -> bool
@@ -170,7 +170,7 @@ namespace Durin
 		std::vector<std::shared_ptr<IObjectReplacementParticipant>> Features;
 		if (const auto Toolkit = GetToolkit())
 			if (auto Feature = Toolkit->CreateReloadParticipant()) Features.push_back(std::move(Feature));
-		return std::make_shared<DocumentPrivate::FSessionDocumentReloadParticipant>(State, std::move(Features));
+		return std::make_shared<DocumentPrivate::FDocumentReloadParticipant>(State, std::move(Features));
 	}
 
 	auto FEditorDocumentManager::OnAssetsRelocated(
@@ -478,7 +478,7 @@ namespace Durin
 	}
 
 	auto FEditorDocumentManager::GetToolkit() const -> std::shared_ptr<IAssetEditorToolkit>
-	{ return State->SessionToolkit.lock(); }
+	{ return State->Toolkit.lock(); }
 
 	auto FEditorDocumentManager::FindDocument(FDocumentId DocumentId) -> FEditorDocument*
 	{

@@ -382,7 +382,7 @@ namespace Durin
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		// Close external admission once; later calls only finish deferred teardown.
 		RequestShutdown();
-		RetireHostConsumers();
+		ShutdownHostConsumers();
 		const auto Contexts = WorldContexts;
 		for (const auto& Context : Contexts) if (auto* World = Context.World()) World->CleanupWorld();
 		if (AssetManager) AssetManager->Shutdown();

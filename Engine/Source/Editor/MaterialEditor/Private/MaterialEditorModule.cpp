@@ -1,5 +1,5 @@
 #include "MaterialEditorModule.h"
-#include "Settings/MaterialEditorSessionSettings.h"
+#include "Settings/MaterialEditorProfileSettings.h"
 #include "MaterialParameterCollectionDetails.h"
 #include "Graph/MaterialGraphCanvas.h"
 
@@ -73,7 +73,7 @@ namespace Durin
 	{
 		FAssetMoveObserverHandle MoveObserver = 0;
 		auto OnAssetsRelocated(std::span<const FAssetRelocationMapping> Mappings) -> void override
-		{ FMaterialEditorSessionSettings::RemapStoredViewports(Mappings); }
+		{ FMaterialEditorProfileSettings::RemapStoredViewports(Mappings); }
 		std::vector<ContentBrowser::FScopedExtensionRegistration>
 			ContentBrowserExtensions;
 	};

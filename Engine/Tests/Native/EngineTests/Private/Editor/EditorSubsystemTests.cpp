@@ -178,7 +178,7 @@ namespace
 	TEST_F(FEditorSubsystemTests, DefinitionDispatchAttemptsValidInputsAndDeduplicatesSelection)
 	{
 		FDefinitionTestMount Mount;
-		auto* Service = NewHost()->GetEditorSubsystem<DAssetEditorSubsystem>();
+		auto* AssetEditorSubsystem = NewHost()->GetEditorSubsystem<DAssetEditorSubsystem>();
 		auto* Definition = NewObject<FDynamicOpenDefinition>(nullptr, {});
 		int Opens = 0;
 		Definition->Open = [&](const FAssetOpenArgs& Args) {
@@ -188,7 +188,7 @@ namespace
 		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
 		ASSERT_TRUE(Registration);
 		const auto Target = DefinitionTarget();
-		const auto Result = Service->OpenAssets({.AssetEditors = Service, .Assets = {Target, {}, Target}});
+		const auto Result = AssetEditorSubsystem->OpenAssets({.AssetEditors = AssetEditorSubsystem, .Assets = {Target, {}, Target}});
 		EXPECT_FALSE(Result);
 		EXPECT_EQ(1, Opens);
 	}
@@ -196,7 +196,7 @@ namespace
 	TEST_F(FEditorSubsystemTests, DefinitionReceivesOneUniqueOrderedBatchAndRejectsMetadataConflicts)
 	{
 		FDefinitionTestMount Mount;
-		auto* Service = NewHost()->GetEditorSubsystem<DAssetEditorSubsystem>();
+		auto* AssetEditorSubsystem = NewHost()->GetEditorSubsystem<DAssetEditorSubsystem>();
 		auto* Definition = NewObject<FDynamicOpenDefinition>(nullptr, {});
 		const auto A = DefinitionTarget(), B = DefinitionTarget("/AssetEditorTests/Other.Asset");
 		auto Conflict = A; Conflict.AssetClassName = "Durin::DPackage";
@@ -207,12 +207,12 @@ namespace
 			EXPECT_EQ(A.AssetPath, Args.Assets[0].AssetPath);
 			EXPECT_EQ(B.AssetPath, Args.Assets[1].AssetPath);
 			// Every member is reserved before the provider executes.
-			const auto Recursive = Service->OpenAssets(Args);
+			const auto Recursive = AssetEditorSubsystem->OpenAssets(Args);
 			EXPECT_FALSE(Recursive);
 			return EAssetCommandResult::Handled;
 		};
 		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
-		const auto Result = Service->OpenAssets({.AssetEditors = Service, .Assets = {A, B, A, Conflict}});
+		const auto Result = AssetEditorSubsystem->OpenAssets({.AssetEditors = AssetEditorSubsystem, .Assets = {A, B, A, Conflict}});
 		EXPECT_FALSE(Result);
 		EXPECT_EQ(1, Calls);
 	}
@@ -220,26 +220,26 @@ namespace
 	TEST_F(FEditorSubsystemTests, NestedCommandsRestoreTheOuterDefinitionProviderWithoutResultSlots)
 	{
 		FDefinitionTestMount Mount;
-		auto* Service = NewHost()->GetEditorSubsystem<DAssetEditorSubsystem>();
+		auto* AssetEditorSubsystem = NewHost()->GetEditorSubsystem<DAssetEditorSubsystem>();
 		auto* Definition = NewObject<FDynamicOpenDefinition>(nullptr, {});
 		const auto A = DefinitionTarget(), B = DefinitionTarget("/AssetEditorTests/Nested.Asset");
 		int Calls = 0;
 		Definition->Open = [&](const FAssetOpenArgs& Args) {
 			++Calls;
 			if (Args.Assets.front().AssetPath == A.AssetPath)
-				EXPECT_FALSE(Service->OpenAssets({.AssetEditors = Service, .Assets = {B}}));
+				EXPECT_FALSE(AssetEditorSubsystem->OpenAssets({.AssetEditors = AssetEditorSubsystem, .Assets = {B}}));
 			else return EAssetCommandResult::Unhandled;
 			return EAssetCommandResult::Handled;
 		};
 		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
-		EXPECT_TRUE(Service->OpenAssets({.AssetEditors = Service, .Assets = {A}}));
+		EXPECT_TRUE(AssetEditorSubsystem->OpenAssets({.AssetEditors = AssetEditorSubsystem, .Assets = {A}}));
 		EXPECT_EQ(2, Calls);
 	}
 
 	TEST_F(FEditorSubsystemTests, SupportNormalizesRequiredModeAndRejectsExplicitHostBeforeExecution)
 	{
 		FDefinitionTestMount Mount;
-		auto* Service = NewHost()->GetEditorSubsystem<DAssetEditorSubsystem>();
+		auto* AssetEditorSubsystem = NewHost()->GetEditorSubsystem<DAssetEditorSubsystem>();
 		auto* Definition = NewObject<FDynamicOpenDefinition>(nullptr, {});
 		Definition->RequiredMode = EToolkitMode::WorldCentric;
 		int Calls = 0;
@@ -249,23 +249,23 @@ namespace
 			return EAssetCommandResult::Handled;
 		};
 		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
-		EXPECT_TRUE(Service->CanOpenAsset(DefinitionTarget()));
-		FAssetOpenArgs Args{.AssetEditors = Service, .Assets = {DefinitionTarget()}};
-		EXPECT_TRUE(Service->OpenAssets(Args));
+		EXPECT_TRUE(AssetEditorSubsystem->CanOpenAsset(DefinitionTarget()));
+		FAssetOpenArgs Args{.AssetEditors = AssetEditorSubsystem, .Assets = {DefinitionTarget()}};
+		EXPECT_TRUE(AssetEditorSubsystem->OpenAssets(Args));
 		Args.Host = std::make_shared<FNonWindowToolkitHost>();
-		EXPECT_FALSE(Service->OpenAssets(Args));
+		EXPECT_FALSE(AssetEditorSubsystem->OpenAssets(Args));
 		EXPECT_EQ(1, Calls);
 		Args.Host = std::make_shared<FNonWindowToolkitHost>(EToolkitMode::WorldCentric);
-		EXPECT_TRUE(Service->OpenAssets(Args)); EXPECT_EQ(2, Calls);
+		EXPECT_TRUE(AssetEditorSubsystem->OpenAssets(Args)); EXPECT_EQ(2, Calls);
 		Definition->RequiredMode.reset();
 		// An explicit host determines the effective mode even when the preference differs.
-		EXPECT_TRUE(Service->OpenAssets(Args)); EXPECT_EQ(3, Calls);
+		EXPECT_TRUE(AssetEditorSubsystem->OpenAssets(Args)); EXPECT_EQ(3, Calls);
 	}
 
 	TEST_F(FEditorSubsystemTests, IncompatibleRequiredModesRejectAnEntireGroupBeforeExecution)
 	{
 		FDefinitionTestMount Mount;
-		auto* Service = NewHost()->GetEditorSubsystem<DAssetEditorSubsystem>();
+		auto* AssetEditorSubsystem = NewHost()->GetEditorSubsystem<DAssetEditorSubsystem>();
 		auto* First = NewObject<FDynamicOpenDefinition>(nullptr, {});
 		auto* Second = NewObject<FDynamicOpenDefinition>(nullptr, {});
 		First->RequiredMode = EToolkitMode::WorldCentric;
@@ -274,29 +274,29 @@ namespace
 		auto A = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*First);
 		auto B = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Second);
 		auto Other = DefinitionTarget("/AssetEditorTests/Other.Asset"); Other.AssetClassName = Second->ClassPath;
-		const auto Result = Service->OpenAssets({.AssetEditors = Service, .Assets = {DefinitionTarget(), Other}, .bCreateSingleSession = true});
+		const auto Result = AssetEditorSubsystem->OpenAssets({.AssetEditors = AssetEditorSubsystem, .Assets = {DefinitionTarget(), Other}, .bCreateSingleEditor = true});
 		EXPECT_FALSE(Result);
 	}
 
 	TEST_F(FEditorSubsystemTests, DefinitionDispatchRejectsRecursionAndUnsupportedViewBeforeExecution)
 	{
 		FDefinitionTestMount Mount;
-		auto* Service = NewHost()->GetEditorSubsystem<DAssetEditorSubsystem>();
+		auto* AssetEditorSubsystem = NewHost()->GetEditorSubsystem<DAssetEditorSubsystem>();
 		auto* Definition = NewObject<FDynamicOpenDefinition>(nullptr, {});
 		int Opens = 0;
 		Definition->Open = [&](const FAssetOpenArgs& Args) {
 			++Opens;
-			const auto Recursive = Service->OpenAssets(Args);
+			const auto Recursive = AssetEditorSubsystem->OpenAssets(Args);
 			EXPECT_FALSE(Recursive);
 			return EAssetCommandResult::Handled;
 		};
 		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
-		FAssetOpenArgs Args{.AssetEditors = Service, .Assets = {DefinitionTarget()}, .OpenMethod = EAssetOpenMethod::View};
-		EXPECT_FALSE(Service->CanOpenAsset(Args.Assets.front(), EAssetOpenMethod::View));
-		EXPECT_FALSE(Service->OpenAssets(Args));
+		FAssetOpenArgs Args{.AssetEditors = AssetEditorSubsystem, .Assets = {DefinitionTarget()}, .OpenMethod = EAssetOpenMethod::View};
+		EXPECT_FALSE(AssetEditorSubsystem->CanOpenAsset(Args.Assets.front(), EAssetOpenMethod::View));
+		EXPECT_FALSE(AssetEditorSubsystem->OpenAssets(Args));
 		EXPECT_EQ(0, Opens);
 		Args.OpenMethod = EAssetOpenMethod::Edit;
-		EXPECT_TRUE(Service->OpenAssets(Args));
+		EXPECT_TRUE(AssetEditorSubsystem->OpenAssets(Args));
 		EXPECT_EQ(1, Opens);
 	}
 
@@ -416,12 +416,12 @@ namespace
 	{
 		auto* Host = NewHost(); auto Registration = RegisterA();
 		Host->AddRegisteredEditorSubsystems();
-		auto* Service = Host->GetEditorSubsystem<FDynamicEditorA>();
-		ASSERT_NE(nullptr, Service);
-		TStrongObjectPtr<FDynamicEditorA> Retained(Service);
+		auto* EditorSubsystem = Host->GetEditorSubsystem<FDynamicEditorA>();
+		ASSERT_NE(nullptr, EditorSubsystem);
+		TStrongObjectPtr<FDynamicEditorA> Retained(EditorSubsystem);
 		bool bInvalidated = false;
 		FObjectReferencePurgeRegistration Observer([&](DObject& Object) {
-			if (&Object == Service) bInvalidated = true;
+			if (&Object == EditorSubsystem) bInvalidated = true;
 		});
 		int Cleanups = 0;
 		FDynamicEditorA::Deinit = [&](auto&) { ++Cleanups; Host->RequestShutdown(); };
@@ -600,7 +600,7 @@ namespace
 	TEST_F(FEditorSubsystemTests, OwnerExecutesRetirementAndGcAfterExternalCallbacks)
 	{
 		auto* Host = NewHost(); auto A = RegisterA(); ASSERT_NO_THROW(Host->AddRegisteredEditorSubsystems());
-		auto* Service = Host->GetEditorSubsystem<FDynamicEditorA>(); ASSERT_NE(nullptr, Service);
+		auto* EditorSubsystem = Host->GetEditorSubsystem<FDynamicEditorA>(); ASSERT_NE(nullptr, EditorSubsystem);
 
 		int Cleanups = 0, Destructions = 0;
 		FDynamicEditorA::Deinit = [&](auto&) { ++Cleanups; };
@@ -610,7 +610,7 @@ namespace
 			EXPECT_TRUE(Host->IsShutdownRequested());
 			EXPECT_TRUE(Host->IsReadyForFinishDestroy());
 			// Callback lifetime is an owner contract, not finish-destroy readiness.
-			EXPECT_TRUE(Service->IsReadyForFinishDestroy());
+			EXPECT_TRUE(EditorSubsystem->IsReadyForFinishDestroy());
 			RequestGarbageCollection();
 			EXPECT_TRUE(IsGarbageCollectionRequested());
 			EXPECT_EQ(0, Cleanups); EXPECT_EQ(0, Destructions);
@@ -620,7 +620,7 @@ namespace
 		EXPECT_EQ(1, Cleanups); EXPECT_EQ(0, Destructions);
 		EXPECT_FALSE(Host->AreEditorSubsystemsInitialized());
 		EXPECT_TRUE(Host->IsReadyForFinishDestroy());
-		EXPECT_TRUE(Service->IsReadyForFinishDestroy());
+		EXPECT_TRUE(EditorSubsystem->IsReadyForFinishDestroy());
 		// Forced garbage invalidates the fixture's strong handle before physical collection.
 		Hosts.clear(); CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_EQ(1, Cleanups); EXPECT_EQ(1, Destructions);
@@ -827,123 +827,123 @@ namespace
 	TEST_F(FEditorSubsystemTests, AssetEditorsTrackManyToManyAssociationsAndFocusThePrimary)
 	{
 		auto* Host = NewHost();
-		auto* Service = Host->GetEditorSubsystem<DAssetEditorSubsystem>();
-		ASSERT_NE(nullptr, Service);
+		auto* AssetEditorSubsystem = Host->GetEditorSubsystem<DAssetEditorSubsystem>();
+		ASSERT_NE(nullptr, AssetEditorSubsystem);
 		auto* First = NewObject<DObject>(Host, "FirstAsset");
 		auto* Second = NewObject<DObject>(Host, "SecondAsset");
 		FTestAssetEditorInstance Primary, Secondary;
 		Secondary.bPrimary = false;
-		Service->NotifyAssetOpened(First, &Secondary);
-		Service->NotifyAssetsOpened({First, Second, First}, &Primary);
-		EXPECT_EQ(2u, Service->FindEditorsForAsset(First).size());
-		EXPECT_EQ(2u, Service->GetAllEditedAssets().size());
-		EXPECT_EQ(2u, Service->GetAllOpenEditors().size());
-		EXPECT_EQ(&Primary, Service->FindEditorForAsset(First, true));
+		AssetEditorSubsystem->NotifyAssetOpened(First, &Secondary);
+		AssetEditorSubsystem->NotifyAssetsOpened({First, Second, First}, &Primary);
+		EXPECT_EQ(2u, AssetEditorSubsystem->FindEditorsForAsset(First).size());
+		EXPECT_EQ(2u, AssetEditorSubsystem->GetAllEditedAssets().size());
+		EXPECT_EQ(2u, AssetEditorSubsystem->GetAllOpenEditors().size());
+		EXPECT_EQ(&Primary, AssetEditorSubsystem->FindEditorForAsset(First, true));
 		EXPECT_EQ(1, Primary.FocusCount);
 		EXPECT_EQ(0, Secondary.FocusCount);
-		EXPECT_TRUE(Service->OpenEditorForAsset(First));
+		EXPECT_TRUE(AssetEditorSubsystem->OpenEditorForAsset(First));
 		EXPECT_EQ(2, Primary.FocusCount);
-		Primary.Focus = [&] { EXPECT_FALSE(Service->OpenEditorForAsset(First)); };
-		EXPECT_TRUE(Service->OpenEditorForAsset(First));
-		Service->NotifyAssetClosed(First, &Primary);
-		EXPECT_EQ(nullptr, Service->FindEditorForAsset(First, false));
-		EXPECT_EQ(&Primary, Service->FindEditorForAsset(Second, false));
-		Service->NotifyEditorClosed(&Primary);
-		Service->NotifyEditorClosed(&Secondary);
-		EXPECT_TRUE(Service->GetAllEditedAssets().empty());
-		EXPECT_TRUE(Service->GetAllOpenEditors().empty());
+		Primary.Focus = [&] { EXPECT_FALSE(AssetEditorSubsystem->OpenEditorForAsset(First)); };
+		EXPECT_TRUE(AssetEditorSubsystem->OpenEditorForAsset(First));
+		AssetEditorSubsystem->NotifyAssetClosed(First, &Primary);
+		EXPECT_EQ(nullptr, AssetEditorSubsystem->FindEditorForAsset(First, false));
+		EXPECT_EQ(&Primary, AssetEditorSubsystem->FindEditorForAsset(Second, false));
+		AssetEditorSubsystem->NotifyEditorClosed(&Primary);
+		AssetEditorSubsystem->NotifyEditorClosed(&Secondary);
+		EXPECT_TRUE(AssetEditorSubsystem->GetAllEditedAssets().empty());
+		EXPECT_TRUE(AssetEditorSubsystem->GetAllOpenEditors().empty());
 	}
 
 	TEST_F(FEditorSubsystemTests, AssetEditorCallsRejectWorkersAndCloseOtherEditorsPreservesTheException)
 	{
 		auto* Host = NewHost();
-		auto* Service = Host->GetEditorSubsystem<DAssetEditorSubsystem>();
+		auto* AssetEditorSubsystem = Host->GetEditorSubsystem<DAssetEditorSubsystem>();
 		auto* Asset = NewObject<DObject>(Host, "Asset");
 		FTestAssetEditorInstance Kept, Closed;
-		Service->NotifyAssetOpened(Asset, &Kept);
-		Service->NotifyAssetOpened(Asset, &Closed);
+		AssetEditorSubsystem->NotifyAssetOpened(Asset, &Kept);
+		AssetEditorSubsystem->NotifyAssetOpened(Asset, &Closed);
 		std::thread Worker([&] {
-			EXPECT_FALSE(Service->OpenEditorForAsset(Asset));
-			EXPECT_TRUE(Service->FindEditorsForAsset(Asset).empty());
-			EXPECT_FALSE(Service->CloseAllAssetEditors());
-			Service->NotifyEditorClosed(&Kept);
+			EXPECT_FALSE(AssetEditorSubsystem->OpenEditorForAsset(Asset));
+			EXPECT_TRUE(AssetEditorSubsystem->FindEditorsForAsset(Asset).empty());
+			EXPECT_FALSE(AssetEditorSubsystem->CloseAllAssetEditors());
+			AssetEditorSubsystem->NotifyEditorClosed(&Kept);
 		});
 		Worker.join();
-		Closed.Close = [&] { Service->NotifyEditorClosed(&Closed); return true; };
-		Service->CloseOtherEditors(Asset, &Kept);
+		Closed.Close = [&] { AssetEditorSubsystem->NotifyEditorClosed(&Closed); return true; };
+		AssetEditorSubsystem->CloseOtherEditors(Asset, &Kept);
 		EXPECT_EQ(0, Kept.CloseCount);
 		EXPECT_EQ(1, Closed.CloseCount);
 		EXPECT_EQ(EAssetEditorCloseReason::CloseOtherEditors, Closed.LastCloseReason);
-		EXPECT_EQ(&Kept, Service->FindEditorForAsset(Asset, false));
-		Service->NotifyEditorClosed(&Kept);
+		EXPECT_EQ(&Kept, AssetEditorSubsystem->FindEditorForAsset(Asset, false));
+		AssetEditorSubsystem->NotifyEditorClosed(&Kept);
 	}
 
 	TEST_F(FEditorSubsystemTests, AssetEditorCloseHonorsVetoAndToleratesRegistryMutation)
 	{
 		auto* Host = NewHost();
-		auto* Service = Host->GetEditorSubsystem<DAssetEditorSubsystem>();
+		auto* AssetEditorSubsystem = Host->GetEditorSubsystem<DAssetEditorSubsystem>();
 		auto* Asset = NewObject<DObject>(Host, "Asset");
 		FTestAssetEditorInstance First, Second;
-		Service->NotifyAssetsOpened({Asset}, &First);
-		Service->NotifyAssetsOpened({Asset}, &Second);
-		EXPECT_FALSE(Service->CloseAllAssetEditors());
+		AssetEditorSubsystem->NotifyAssetsOpened({Asset}, &First);
+		AssetEditorSubsystem->NotifyAssetsOpened({Asset}, &Second);
+		EXPECT_FALSE(AssetEditorSubsystem->CloseAllAssetEditors());
 		EXPECT_EQ(EAssetEditorCloseReason::CloseAllAssetEditors, First.LastCloseReason);
-		EXPECT_EQ(0, Service->CloseAllEditorsForAsset(Asset));
+		EXPECT_EQ(0, AssetEditorSubsystem->CloseAllEditorsForAsset(Asset));
 		EXPECT_EQ(EAssetEditorCloseReason::CloseAllEditorsForAsset, First.LastCloseReason);
 		First.Close = [&] {
-			Service->NotifyEditorClosed(&First);
-			Service->NotifyEditorClosed(&Second);
+			AssetEditorSubsystem->NotifyEditorClosed(&First);
+			AssetEditorSubsystem->NotifyEditorClosed(&Second);
 			return true;
 		};
 		const int PreviousSecondCloses = Second.CloseCount;
-		EXPECT_EQ(1, Service->CloseAllEditorsForAsset(Asset));
+		EXPECT_EQ(1, AssetEditorSubsystem->CloseAllEditorsForAsset(Asset));
 		EXPECT_EQ(PreviousSecondCloses, Second.CloseCount);
-		EXPECT_TRUE(Service->GetAllOpenEditors().empty());
+		EXPECT_TRUE(AssetEditorSubsystem->GetAllOpenEditors().empty());
 	}
 
 	TEST_F(FEditorSubsystemTests, AssetEditorCallbacksKeepHostAliveUntilRetirementBoundary)
 	{
 		auto* Host = NewHost();
-		auto* Service = Host->GetEditorSubsystem<DAssetEditorSubsystem>();
+		auto* AssetEditorSubsystem = Host->GetEditorSubsystem<DAssetEditorSubsystem>();
 		auto* Asset = NewObject<DObject>(Host, "Asset");
 		FTestAssetEditorInstance Instance;
-		Service->NotifyAssetOpened(Asset, &Instance);
+		AssetEditorSubsystem->NotifyAssetOpened(Asset, &Instance);
 		Instance.Focus = [&] {
 			Host->RequestShutdown();
 			EXPECT_TRUE(Host->AreEditorSubsystemsInitialized());
 			EXPECT_TRUE(Host->IsShutdownRequested());
 		};
-		EXPECT_EQ(nullptr, Service->FindEditorForAsset(Asset, true));
-		EXPECT_FALSE(Service->OpenEditorForAsset(Asset));
-		EXPECT_TRUE(Service->GetAllOpenEditors().empty());
-		Service->NotifyEditorClosed(&Instance);
+		EXPECT_EQ(nullptr, AssetEditorSubsystem->FindEditorForAsset(Asset, true));
+		EXPECT_FALSE(AssetEditorSubsystem->OpenEditorForAsset(Asset));
+		EXPECT_TRUE(AssetEditorSubsystem->GetAllOpenEditors().empty());
+		AssetEditorSubsystem->NotifyEditorClosed(&Instance);
 	}
 
 	TEST_F(FEditorSubsystemTests, RejectingDefinitionDoesNotFallBackAndMissingDefinitionsAreUnhandled)
 	{
 		FDefinitionTestMount Mount;
-		auto* Service = NewHost()->GetEditorSubsystem<DAssetEditorSubsystem>();
+		auto* AssetEditorSubsystem = NewHost()->GetEditorSubsystem<DAssetEditorSubsystem>();
 		auto* Definition = NewObject<FDynamicOpenDefinition>(nullptr, {});
 		Definition->Open = [](const FAssetOpenArgs& Args) {
 			return EAssetCommandResult::Unhandled;
 		};
 		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
-		const FAssetOpenArgs Args{.AssetEditors = Service, .Assets = {DefinitionTarget()}};
-		EXPECT_FALSE(Service->OpenAssets(Args));
+		const FAssetOpenArgs Args{.AssetEditors = AssetEditorSubsystem, .Assets = {DefinitionTarget()}};
+		EXPECT_FALSE(AssetEditorSubsystem->OpenAssets(Args));
 		Registration.Reset();
-		EXPECT_FALSE(Service->OpenAssets(Args));
-		EXPECT_TRUE(Service->GetAllOpenEditors().empty());
+		EXPECT_FALSE(AssetEditorSubsystem->OpenAssets(Args));
+		EXPECT_TRUE(AssetEditorSubsystem->GetAllOpenEditors().empty());
 	}
 
 }
 
 TEST_F(FEditorSubsystemTests, AssetEditorCleanupToleratesMissingToolkitAndRepeatedCalls)
 {
-	TStrongObjectPtr<DAssetEditorSubsystem> Service(NewObject<DAssetEditorSubsystem>(nullptr, "UninitializedAssetEditor"));
-	ASSERT_TRUE(Service);
-	Service->Deinitialize();
-	Service->Deinitialize();
-	MarkObjectHierarchyAsGarbage(Service.Get());
+	TStrongObjectPtr<DAssetEditorSubsystem> EditorSubsystem(NewObject<DAssetEditorSubsystem>(nullptr, "UninitializedAssetEditor"));
+	ASSERT_TRUE(EditorSubsystem);
+	EditorSubsystem->Deinitialize();
+	EditorSubsystem->Deinitialize();
+	MarkObjectHierarchyAsGarbage(EditorSubsystem.Get());
 }
 
 TEST_F(FEditorSubsystemTests, FailedAssetEditorInitializationCleansUpBeforeToolkitCreation)

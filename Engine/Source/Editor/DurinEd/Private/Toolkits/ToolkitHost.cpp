@@ -2,9 +2,14 @@
 
 #include "Toolkits/AssetEditor.h"
 #include "Toolkits/AssetEditorToolkit.h"
+#include "Toolkits/ToolkitManager.h"
 
 namespace Durin
 {
+	IToolkitHost::~IToolkitHost()
+	{
+		FToolkitManager::Get().OnToolkitHostDestroyed(this);
+	}
 	auto FNonWindowToolkitHost::AttachToolkit(std::shared_ptr<FAssetEditorToolkit> Toolkit) -> bool
 	{
 		if (!IsAvailable() || !Toolkit) return false;

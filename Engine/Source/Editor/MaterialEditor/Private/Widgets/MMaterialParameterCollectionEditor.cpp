@@ -14,7 +14,7 @@
 namespace Durin::MaterialEditor
 {
 	MMaterialParameterCollectionEditor::MMaterialParameterCollectionEditor(FEditorDocumentManager& InManager) : Manager(InManager)
-	{ if (auto* Service = Manager.GetAssetEditorSubsystem()) Documents.BindEditor(Service->GetEditor()); }
+	{ if (auto* AssetEditorSubsystem = Manager.GetAssetEditorSubsystem()) Documents.BindEditor(AssetEditorSubsystem->GetEditor()); }
 	auto MMaterialParameterCollectionEditor::GetToolkitId() const
 		-> const FAssetEditorToolkitId&
 	{

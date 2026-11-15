@@ -1123,6 +1123,51 @@ TEST_F(FThumbnailVulkanTests, RendererOwnsReusableSceneAndCaptureOnlyBorrowsIt)
     EXPECT_TRUE(OtherScene.IsAvailable());
 }
 
+TEST_F(FThumbnailVulkanTests, ManagerShutdownReleasesPreviewSceneBeforeRendererGC)
+{
+    using namespace Durin;
+    DThumbnailManager Manager;
+    auto Owner = MakeThumbnailRenderer<StaticMeshEditor::DStaticMeshThumbnailRenderer>();
+    auto Registration = FThumbnailManagerTestAccess::RegisterScoped(Manager, Owner.Get(), "DStaticMesh");
+    ASSERT_TRUE(Registration);
+    auto& Scene = Owner->GetPreviewScene();
+    ASSERT_TRUE(Scene.IsAvailable()) << Scene.GetDiagnostic();
+    TWeakObjectPtr<DWorld> World(Scene.GetWorld());
+
+    Manager.Shutdown();
+    Manager.Shutdown();
+    FlushRenderingCommands();
+    // The renderer is deliberately retained: releasing its scene cannot rely on GC.
+    EXPECT_TRUE(Owner.IsValid());
+    EXPECT_TRUE(Manager.IsShuttingDown());
+    EXPECT_EQ(Manager.Num(), 0u);
+    CollectGarbage(EObjectFlags::Standalone);
+    EXPECT_FALSE(World.IsValid());
+}
+
+TEST_F(FThumbnailVulkanTests, EditorPreviewCleanupPreservesRegistrationsForNextEditor)
+{
+    using namespace Durin;
+    DThumbnailManager Manager;
+    auto Owner = MakeThumbnailRenderer<StaticMeshEditor::DStaticMeshThumbnailRenderer>();
+    auto Registration = FThumbnailManagerTestAccess::RegisterScoped(Manager, Owner.Get(), "DStaticMesh");
+    ASSERT_TRUE(Registration);
+    auto& First = Owner->GetPreviewScene();
+    ASSERT_TRUE(First.IsAvailable()) << First.GetDiagnostic();
+    TWeakObjectPtr<DWorld> FirstWorld(First.GetWorld());
+
+    Manager.ReleasePreviewResources();
+    Manager.ReleasePreviewResources();
+    FlushRenderingCommands();
+    CollectGarbage(EObjectFlags::Standalone);
+    EXPECT_FALSE(FirstWorld.IsValid());
+    EXPECT_FALSE(Manager.IsShuttingDown());
+    EXPECT_EQ(Owner.Get(), Manager.Find("DStaticMesh"));
+    auto& Second = Owner->GetPreviewScene();
+    EXPECT_TRUE(Second.IsAvailable()) << Second.GetDiagnostic();
+    Manager.Shutdown();
+}
+
 TEST_F(FThumbnailVulkanTests, CaptureValidatesConfigurationAtSubmission)
 {
 	using namespace Durin;

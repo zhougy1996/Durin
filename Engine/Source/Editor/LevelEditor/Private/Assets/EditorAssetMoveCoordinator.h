@@ -6,7 +6,7 @@
 
 namespace Durin::LevelEditor
 {
-	class FLevelEditorSessionSettings;
+	class FLevelEditorWorkspaceSettings;
 	struct FLevelEditorContext;
 	class FSceneViewportPanel;
 
@@ -19,7 +19,7 @@ namespace Durin::LevelEditor
 	public:
 		FEditorAssetMoveCoordinator(
 			FLevelEditorContext& InContext,
-			FLevelEditorSessionSettings& InSessionSettings,
+			FLevelEditorWorkspaceSettings& InWorkspaceSettings,
 			FSceneViewportPanel& InSceneViewportPanel
 		);
 		~FEditorAssetMoveCoordinator();
@@ -31,7 +31,7 @@ namespace Durin::LevelEditor
 			std::span<const FAssetRelocationMapping> Mappings) -> void override;
 
 		FLevelEditorContext& Context;
-		FLevelEditorSessionSettings& SessionSettings;
+		FLevelEditorWorkspaceSettings& WorkspaceSettings;
 		FSceneViewportPanel& SceneViewportPanel;
 		FAssetMoveObserverHandle ObserverHandle = 0;
 	};

@@ -28,7 +28,7 @@ namespace Durin
 namespace Durin::LevelEditor
 {
 	class ILevelEditorPanel;
-	class FLevelEditorSessionSettings;
+	class FLevelEditorWorkspaceSettings;
 	class FEditorAssetMoveCoordinator;
 	class FLevelDocumentController;
 	class FSceneViewportPanel;
@@ -41,13 +41,13 @@ namespace Durin::LevelEditor
 	class MLevelEditor final : public FBaseAssetToolkit
 	{
 	public:
-		MLevelEditor(std::shared_ptr<FLevelEditorSessionSettings> InSessionSettings,
-			FEditorDocumentManager& InWorkspaceManager,
+		MLevelEditor(std::shared_ptr<FLevelEditorWorkspaceSettings> InWorkspaceSettings,
+			FEditorDocumentManager& InDocumentManager,
 			FContentBrowserCallbacks InContentBrowserCallbacks,
 			std::function<void()> InOpenProjectBrowser, DEditorEngine& EditorHost);
 		LEVELEDITOR_API auto OpenLevel(const std::string& AssetPath) -> bool;
 		LEVELEDITOR_API auto CancelPendingOpen() -> bool;
-		LEVELEDITOR_API auto ReleaseSessionUI() -> void override;
+		LEVELEDITOR_API auto OnClose() -> void override;
 		LEVELEDITOR_API ~MLevelEditor() override;
 		LEVELEDITOR_API auto Construct() -> void;
 		LEVELEDITOR_API auto GetToolkitId() const -> const FAssetEditorToolkitId& override;
@@ -76,9 +76,9 @@ namespace Durin::LevelEditor
 		friend class ::Durin::FLevelEditorModule;
 
 		auto InitializeContext() -> void;
-		auto InitializeSession() -> void;
+		auto PruneAndSaveWorkspaceSettings() -> void;
 		auto CreatePanels() -> void;
-		auto CreateDocumentServices() -> void;
+		auto CreateDocumentControllers() -> void;
 		auto CreateImportDialogs() -> void;
 		auto RequestContentBrowserImport(
 			std::string_view Directory, EImportDialogType Type) -> void;
@@ -99,8 +99,8 @@ namespace Durin::LevelEditor
 		TWeakObjectPtr<DEditorEngine> EditorOwner;
 		std::unique_ptr<FLevelEditorContext> Context;
 		// Module-owned services outlive this registered workspace.
-		std::shared_ptr<FLevelEditorSessionSettings> SessionSettingsOwner;
-		FLevelEditorSessionSettings& SessionSettings;
+		std::shared_ptr<FLevelEditorWorkspaceSettings> WorkspaceSettingsOwner;
+		FLevelEditorWorkspaceSettings& WorkspaceSettings;
 		FEditorDocumentManager& DocumentManager;
 		FContentBrowserCallbacks ContentBrowserCallbacks;
 		std::function<void()> OpenProjectBrowser;

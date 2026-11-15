@@ -124,10 +124,10 @@ namespace Durin::TextureEditor
 		}
 	}
 
-	MTextureEditor::MTextureEditor(FEditorDocumentManager& InWorkspaceManager)
-		: DocumentManager(InWorkspaceManager)
+	MTextureEditor::MTextureEditor(FEditorDocumentManager& InDocumentManager)
+		: DocumentManager(InDocumentManager)
 	{
-		if (auto* Service = DocumentManager.GetAssetEditorSubsystem()) Documents.BindEditor(Service->GetEditor());
+		if (auto* AssetEditorSubsystem = DocumentManager.GetAssetEditorSubsystem()) Documents.BindEditor(AssetEditorSubsystem->GetEditor());
 
 	}
 
@@ -140,6 +140,12 @@ namespace Durin::TextureEditor
 			(void)ResourceId;
 			CancelUnobservedCompilation(Texture.Get());
 		}
+	}
+
+	auto MTextureEditor::OnClose() -> void
+	{
+		for (auto& [ResourceId, State] : PreviewStates) State.Preview->Release();
+		FBaseAssetToolkit::OnClose();
 	}
 
 	auto MTextureEditor::GetToolkitId() const -> const FAssetEditorToolkitId&
@@ -346,10 +352,10 @@ namespace Durin::TextureEditor
 	{
 		if (!Texture || IsReadOnly()) return;
 		auto* Owner = GetOwningAssetEditor();
-		auto* Service = Owner ? Owner->GetAssetEditorSubsystem() : DocumentManager.GetAssetEditorSubsystem();
-		if (Service)
+		auto* AssetEditorSubsystem = Owner ? Owner->GetAssetEditorSubsystem() : DocumentManager.GetAssetEditorSubsystem();
+		if (AssetEditorSubsystem)
 		{
-			const auto Observers = Service->FindEditorsForAsset(Texture);
+			const auto Observers = AssetEditorSubsystem->FindEditorsForAsset(Texture);
 			if (!Owner && Observers.size() > 1) return;
 			if (Owner)
 				for (auto* Instance : Observers) if (Instance != Owner) return;
@@ -764,7 +770,7 @@ namespace Durin::TextureEditor
 		if (!Texture || IsReadOnly()) return;
 		FReimportManager::Reimport(*Texture, {}, [Weak = weak_from_this()](FReimportResult Result) {
 			const auto Toolkit = Weak.lock();
-			if (!Toolkit || !Toolkit->IsSessionActive()) return;
+			if (!Toolkit || !Toolkit->IsEditorOpen()) return;
 			auto* Self = static_cast<MTextureEditor*>(Toolkit.get());
 			if (Result.Interrupted()) return;
 			if (!Result) Self->SetError(Result.Message.empty()
@@ -799,7 +805,7 @@ namespace Durin::TextureEditor
 		FReimportManager::ReimportFromFiles(*Texture, Files, {},
 			[Weak = weak_from_this()](FReimportResult Reimported) {
 				const auto Toolkit = Weak.lock();
-				if (!Toolkit || !Toolkit->IsSessionActive()) return;
+				if (!Toolkit || !Toolkit->IsEditorOpen()) return;
 				auto* Self = static_cast<MTextureEditor*>(Toolkit.get());
 				if (Reimported.Interrupted()) return;
 				if (!Reimported) Self->SetError(Reimported.Message.empty()

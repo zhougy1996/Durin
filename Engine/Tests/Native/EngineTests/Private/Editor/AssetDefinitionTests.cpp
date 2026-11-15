@@ -146,7 +146,7 @@ namespace
 		Registration.Reset();
 	}
 
-	TEST_F(FAssetDefinitionTests, LateClassDefaultObjectRegistersAndRetiresAutomatically)
+	TEST_F(FAssetDefinitionTests, LateClassDefaultObjectRegistersAndUnregistersAutomatically)
 	{
 		auto& Registry = FAssetDefinitionRegistry::Get();
 		EXPECT_EQ(nullptr, Registry.GetAssetDefinitionForClass("Test.AutomaticAsset"));

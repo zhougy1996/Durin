@@ -69,8 +69,14 @@ namespace Durin::TextureEditor
 	MVolumeTextureEditor::MVolumeTextureEditor(
 		FEditorDocumentManager& InManager) : Manager(InManager)
 	{
-		if (auto* Service = Manager.GetAssetEditorSubsystem()) Documents.BindEditor(Service->GetEditor());
+		if (auto* AssetEditorSubsystem = Manager.GetAssetEditorSubsystem()) Documents.BindEditor(AssetEditorSubsystem->GetEditor());
 
+	}
+
+	auto MVolumeTextureEditor::OnClose() -> void
+	{
+		for (auto& [ResourceId, State] : PreviewStates) State.Preview->Release();
+		FBaseAssetToolkit::OnClose();
 	}
 
 	auto MVolumeTextureEditor::GetToolkitId() const
@@ -194,7 +200,7 @@ namespace Durin::TextureEditor
 
 	auto MVolumeTextureEditor::Save(DVolumeTexture* Texture) -> bool
 	{
-		if (IsReadOnly() || !IsSessionActive()) return false;
+		if (IsReadOnly() || !IsEditorOpen()) return false;
 		return Documents.Save(Texture, {}, [this](std::string Error) {
 			SetError(std::move(Error));
 		});

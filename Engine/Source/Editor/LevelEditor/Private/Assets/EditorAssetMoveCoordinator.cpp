@@ -4,7 +4,7 @@
 
 #include "AssetTools/IAssetTools.h"
 #include "Engine/Level.h"
-#include "Settings/LevelEditorSessionSettings.h"
+#include "Settings/LevelEditorWorkspaceSettings.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Panels/SceneViewportPanel.h"
 
@@ -12,11 +12,11 @@ namespace Durin::LevelEditor
 {
 	FEditorAssetMoveCoordinator::FEditorAssetMoveCoordinator(
 		FLevelEditorContext& InContext,
-		FLevelEditorSessionSettings& InSessionSettings,
+		FLevelEditorWorkspaceSettings& InWorkspaceSettings,
 		FSceneViewportPanel& InSceneViewportPanel
 	)
 		: Context(InContext)
-		, SessionSettings(InSessionSettings)
+		, WorkspaceSettings(InWorkspaceSettings)
 		, SceneViewportPanel(InSceneViewportPanel)
 	{
 		ObserverHandle = RegisterAssetMoveObserver(this);
@@ -35,7 +35,7 @@ namespace Durin::LevelEditor
 		{
 			const std::string CurrentLevelPath = Context.Level->GetPackage()->GetPackagePath();
 			if (std::ranges::any_of(Moves, [&CurrentLevelPath](const FEditorAssetMove& Move) { return Move.SourcePath.ToString() == CurrentLevelPath; }))
-				SessionSettings.CaptureViewportState(Context, SceneViewportPanel);
+				WorkspaceSettings.CaptureViewportState(Context, SceneViewportPanel);
 		}
 
 		std::vector<FAssetRelocation> Mappings;
@@ -60,9 +60,9 @@ namespace Durin::LevelEditor
 		std::span<const FAssetRelocationMapping> Mappings) -> void
 	{
 		for (const FAssetRelocationMapping& Mapping : Mappings)
-			SessionSettings.MoveViewportState(
+			WorkspaceSettings.MoveViewportState(
 				Mapping.SourcePath.ToString(), Mapping.DestinationPath.ToString());
-		if (!Mappings.empty() && !SessionSettings.Save(&SceneViewportPanel))
+		if (!Mappings.empty() && !WorkspaceSettings.Save(&SceneViewportPanel))
 			DURIN_WARN_CATEGORY(
 				"LevelEditor",
 				"Could not persist transient viewport state after asset relocation.");

@@ -1,4 +1,5 @@
 #include "MainFrameModule.h"
+#include "Toolkits/ToolkitManager.h"
 #include "ExportWindow.h"
 #include "Misc/UnifiedError.h"
 #include "Panels/PythonScriptPanel.h"
@@ -72,7 +73,7 @@ namespace Durin::MainFrame
 			// registrations and their owning modules begin retirement.
 			ContentBrowserTool.reset();
 			if (LevelEditorModule)
-				if (auto* Service = AssetEditors.Get()) LevelEditorModule->ReleaseLevelEditor(*Service);
+				if (auto* AssetEditorSubsystem = AssetEditors.Get()) LevelEditorModule->ReleaseLevelEditor(*AssetEditorSubsystem);
 			ReleaseAssetEditors();
 			GetDefaultThumbnailManager().ResetSharedPool();
 			Activity.reset();
@@ -81,13 +82,13 @@ namespace Durin::MainFrame
 
 		auto ReleaseAssetEditors() -> void
 		{
-			if (auto* Service = AssetEditors.Get())
+			if (auto* AssetEditorSubsystem = AssetEditors.Get())
 			{
-				if (!SessionProject.empty() && SessionProject == FPaths::ProjectFile())
-					if (!Service->SaveSessionState()) DURIN_WARN("Could not save asset editor session state.");
-				SessionProject.clear();
-				Service->SetToolkitHostFactory({});
-				Service->ShutdownAssetEditorSessions();
+				if (!EditorStateProject.empty() && EditorStateProject == FPaths::ProjectFile())
+					if (!AssetEditorSubsystem->SaveEditorState()) DURIN_WARN("Could not save open asset editor state.");
+				EditorStateProject.clear();
+				AssetEditorSubsystem->SetToolkitHostFactory({});
+				AssetEditorSubsystem->CloseAssetEditorsForShutdown();
 			}
 
 		}
@@ -95,7 +96,7 @@ namespace Durin::MainFrame
 		FSlowTaskDialogPresenter SlowTaskDialogs;
 		TWeakObjectPtr<DEditorEngine> Editor;
 		bool bHasProject = false;
-		std::string SessionProject;
+		std::string EditorStateProject;
 		bool bProjectBrowserOpen = false;
 		bool bExitRequested = false;
 		bool bExitSaveFailed = false;
@@ -106,6 +107,7 @@ namespace Durin::MainFrame
 		std::shared_ptr<MWindow> RootWindow;
 		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditors;
 		std::shared_ptr<IToolkitHost> WorldHost;
+		std::vector<std::shared_ptr<IToolkitHost>> StandaloneHosts;
 		std::shared_ptr<FProjectBrowser> ProjectBrowser;
 		std::unique_ptr<FEditorBrandTexture> BrandTexture;
 		std::shared_ptr<FAssetCompatibilityWindow> AssetCompatibilityWindow;
@@ -170,6 +172,9 @@ namespace Durin::MainFrame
 				ViewportId = 0;
 				Attached.reset();
 				FNonWindowToolkitHost::DetachToolkit(Toolkit);
+				if (GetToolkitMode() == EToolkitMode::Standalone)
+					if (const auto Owner = Context.lock())
+						std::erase_if(Owner->StandaloneHosts, [this](const auto& Host) { return Host.get() == this; });
 			}
 			auto FocusToolkit(FAssetEditorToolkit&) -> void override
 			{
@@ -325,9 +330,9 @@ namespace Durin::MainFrame
 					return false;
 				}
 				ContentBrowser::FContentBrowserHostContext Services{
-					.OpenAsset = [Service = Context.AssetEditors](const std::string& Path,
+					.OpenAsset = [AssetEditorSubsystem = Context.AssetEditors](const std::string& Path,
 						const std::string& AssetClassName) {
-						auto* AssetEditors = Service.Get();
+						auto* AssetEditors = AssetEditorSubsystem.Get();
 						if (!AssetEditors) return false;
 						FSoftObjectPath ObjectPath;
 						if (!FSoftObjectPath::TryCreate(Path, ObjectPath)) return false;
@@ -368,9 +373,9 @@ namespace Durin::MainFrame
 				Services.DataSubsystem = BrowserData;
 				const auto Policy = static_cast<ContentBrowser::FContentBrowserOperationContext>(Services);
 				const auto Data = Services.DataSubsystem;
-				Services.FixUpRedirectors = [Data, Policy](std::span<const FPackagePath> Paths) { auto* Service = Data.Get(); auto* Source = Service ? Cast<DContentBrowserAssetDataSource>(Service->GetActiveDataSource(FName("Asset"))) : nullptr; return Source && Source->FixUpRedirectors(Paths, Policy); };
-				Services.FixUpRedirectorsInFolder = [Data, Policy](std::string_view Path) { auto* Service = Data.Get(); auto* Source = Service ? Cast<DContentBrowserAssetDataSource>(Service->GetActiveDataSource(FName("Asset"))) : nullptr; return Source && Source->FixUpRedirectorsInFolder(Path, Policy); };
-				Services.FixUpAllRedirectors = [Data, Policy] { auto* Service = Data.Get(); auto* Source = Service ? Cast<DContentBrowserAssetDataSource>(Service->GetActiveDataSource(FName("Asset"))) : nullptr; return Source && Source->FixUpAllRedirectors(Policy); };
+				Services.FixUpRedirectors = [Data, Policy](std::span<const FPackagePath> Paths) { auto* DataSubsystem = Data.Get(); auto* Source = DataSubsystem ? Cast<DContentBrowserAssetDataSource>(DataSubsystem->GetActiveDataSource(FName("Asset"))) : nullptr; return Source && Source->FixUpRedirectors(Paths, Policy); };
+				Services.FixUpRedirectorsInFolder = [Data, Policy](std::string_view Path) { auto* DataSubsystem = Data.Get(); auto* Source = DataSubsystem ? Cast<DContentBrowserAssetDataSource>(DataSubsystem->GetActiveDataSource(FName("Asset"))) : nullptr; return Source && Source->FixUpRedirectorsInFolder(Path, Policy); };
+				Services.FixUpAllRedirectors = [Data, Policy] { auto* DataSubsystem = Data.Get(); auto* Source = DataSubsystem ? Cast<DContentBrowserAssetDataSource>(DataSubsystem->GetActiveDataSource(FName("Asset"))) : nullptr; return Source && Source->FixUpAllRedirectors(Policy); };
 				Context.ContentBrowserTool = ContentBrowser::CreateContentBrowserTool(
 					std::move(Services),
 					std::move(BrowserSettings),
@@ -385,8 +390,8 @@ namespace Durin::MainFrame
 				Context.ProjectBrowser->RecordCurrentProject();
 			if (HasCurrentProject())
 			{
-				Context.SessionProject = FPaths::ProjectFile();
-				if (!Context.AssetEditors.Get()->LoadSessionState()) Context.Editor.Get()->GetNotificationManager().Post({
+				Context.EditorStateProject = FPaths::ProjectFile();
+				if (!Context.AssetEditors.Get()->LoadEditorState()) Context.Editor.Get()->GetNotificationManager().Post({
 					.Type = ENotificationType::Warning, .Message = "Some asset editors could not be restored."});
 			}
 			Profiling::RecordStartupMilestone(
@@ -397,8 +402,8 @@ namespace Durin::MainFrame
 		{
 			if (!Context.bExitRequested) return;
 			std::vector<std::shared_ptr<FEditorDocumentManager>> Managers;
-			if (auto* Service = Context.AssetEditors.Get())
-				for (const auto& Session : Service->GetAssetToolkits()) Managers.push_back(Session->GetDocumentManager());
+			if (auto* AssetEditorSubsystem = Context.AssetEditors.Get())
+				for (const auto& Toolkit : FToolkitManager::Get().GetToolkits(AssetEditorSubsystem)) Managers.push_back(Toolkit->GetDocumentManager());
 			const auto Prepare = [&] {
 				bool Ready = true;
 				for (const auto& Documents : Managers) Ready = Documents->PrepareForExit() && Ready;
@@ -555,14 +560,14 @@ namespace Durin::MainFrame
 		{
 			if (!ImGui::BeginMenu("Editors")) return;
 			bool bLevelOpen = false;
-			for (const auto& Session : AssetEditors.GetAssetToolkits())
+			for (const auto& Toolkit : FToolkitManager::Get().GetToolkits(&AssetEditors))
 			{
-				const auto Name = Session->GetEditorName().ToString();
+				const auto Name = Toolkit->GetEditorName().ToString();
 				bLevelOpen |= Name == "LevelEditor";
-				const auto Label = Name + " - " + (Session->GetDocumentManager()->GetDocuments().empty() ? Name : Session->GetDocumentManager()->GetDocuments().front().Label)
-					+ (Session->GetOpenMethod() == EAssetOpenMethod::View ? " (View)" : "")
-					+ (Session->GetInstanceKey().empty() ? "" : " [" + std::string(Session->GetInstanceKey()) + "]");
-				if (ImGui::MenuItem(Label.c_str(), nullptr, AssetEditors.GetActiveAssetToolkit() == Session)) Session->FocusWindow();
+				const auto Label = Name + " - " + (Toolkit->GetDocumentManager()->GetDocuments().empty() ? Name : Toolkit->GetDocumentManager()->GetDocuments().front().Label)
+					+ (Toolkit->GetOpenMethod() == EAssetOpenMethod::View ? " (View)" : "")
+					+ (Toolkit->GetInstanceKey().empty() ? "" : " [" + std::string(Toolkit->GetInstanceKey()) + "]");
+				if (ImGui::MenuItem(Label.c_str(), nullptr, AssetEditors.GetActiveAssetToolkit() == Toolkit)) Toolkit->FocusWindow();
 			}
 			if (!bLevelOpen && ImGui::MenuItem("Level Editor"))
 				static_cast<FLevelEditorModule*>(FModuleManager::Get().GetModule("LevelEditor"))->GetOrCreateLevelEditor(AssetEditors);
@@ -575,7 +580,7 @@ namespace Durin::MainFrame
 			FMainFrameViewState& ViewState) -> void
 		{
 			std::vector<std::shared_ptr<IAssetEditorToolkit>> Toolkits;
-			for (const auto& Toolkit : AssetEditors.GetAssetToolkits()) Toolkits.push_back(Toolkit);
+			for (const auto& Toolkit : FToolkitManager::Get().GetToolkits(&AssetEditors)) Toolkits.push_back(Toolkit);
 			if (ImGui::BeginMenu("File"))
 			{
                 ImGui::MenuItem("Export Game...",nullptr,&ViewState.bExportOpen);
@@ -1080,7 +1085,7 @@ namespace Durin::MainFrame
 			ContentBrowserTool.DrawHostPresenters(bAllowAssetMutation);
 
 			{
-				const auto Toolkits = AssetEditors.GetAssetToolkits();
+				const auto Toolkits = FToolkitManager::Get().GetToolkits(&AssetEditors);
 				std::vector<FEditorDocumentManager*> CloseControllers;
 				std::vector<std::shared_ptr<FEditorDocumentManager>> ControllerLeases;
 				for (const auto& Toolkit : Toolkits)
@@ -1168,7 +1173,9 @@ namespace Durin
 				if (!Owner->WorldHost) Owner->WorldHost = std::make_shared<FMainFrameToolkitHost>(Weak, Args.ToolkitMode);
 				return Owner->WorldHost;
 			}
-			return std::shared_ptr<IToolkitHost>(std::make_shared<FMainFrameToolkitHost>(Weak, Args.ToolkitMode));
+			auto Host = std::make_shared<FMainFrameToolkitHost>(Weak, Args.ToolkitMode);
+			Owner->StandaloneHosts.push_back(Host);
+			return std::shared_ptr<IToolkitHost>(std::move(Host));
 		});
 		Context.ProjectBrowser = std::make_shared<FProjectBrowser>();
 		Context.BrandTexture = std::make_unique<FEditorBrandTexture>();
@@ -1197,10 +1204,10 @@ namespace Durin
 			if (const auto Context = WeakContext.lock())
 			{
 				// An existing document confirmation retains ownership of its response.
-				const auto* Service = Context->AssetEditors.Get();
-				const auto Sessions = Service ? Service->GetAssetToolkits() : std::vector<std::shared_ptr<FAssetEditorToolkit>>{};
-				if (std::ranges::none_of(Sessions, [](const auto& Session) {
-					const auto Documents = Session->GetDocumentManager();
+				const auto* AssetEditorSubsystem = Context->AssetEditors.Get();
+				const auto Toolkits = AssetEditorSubsystem ? FToolkitManager::Get().GetToolkits(AssetEditorSubsystem) : std::vector<std::shared_ptr<FAssetEditorToolkit>>{};
+				if (std::ranges::none_of(Toolkits, [](const auto& Toolkit) {
+					const auto Documents = Toolkit->GetDocumentManager();
 					return Documents && Documents->GetPendingCloseDocument();
 				}))
 					Context->bExitRequested = true;

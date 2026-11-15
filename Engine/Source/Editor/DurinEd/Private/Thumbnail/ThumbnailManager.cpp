@@ -190,9 +190,19 @@ namespace Durin
 	{
 		if (State->bShuttingDown) return;
 		State->bShuttingDown = true;
-		ResetSharedPool();
+		ReleasePreviewResources();
 		while (!State->Renderers.empty())
 			RemoveRendererRegistration(State, State->Renderers.begin()->first, State->Renderers.begin()->second.Renderer.Get());
+	}
+
+	auto DThumbnailManager::ReleasePreviewResources() -> void
+	{
+		ResetSharedPool();
+		// Captures borrow renderer scenes. Retire every pool before releasing scenes,
+		// including pools whose consumers keep them alive beyond editor PreExit.
+		for (auto* Pool : State->Pools) Pool->Clear();
+		for (const auto& [Name, Entry] : State->Renderers)
+			Entry.Renderer->ReleasePreviewScene();
 	}
 
 	auto DThumbnailManager::IsShuttingDown() const -> bool

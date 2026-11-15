@@ -37,39 +37,30 @@ namespace Durin
 			EAssetOpenMethod Method = EAssetOpenMethod::Edit) -> bool;
 		DURINED_API auto OpenAssets(const FAssetOpenArgs& Args) -> bool;
 		DURINED_API auto IsAssetOpen(const FSoftObjectPath& Path) const -> bool;
-		// Creates and commits a reflected session only after all initial documents open.
+		// Publishes to ToolkitManager only after all initial documents and host attachment succeed.
 		DURINED_API auto OpenAssetEditor(DClass* EditorClass, const FAssetEditorInitArgs& Args) -> DAssetEditor*;
-		// Publishes a caller-configured reflected session only after successful initialization.
-		DURINED_API auto InitializeAssetEditor(DAssetEditor& Session, const FAssetEditorInitArgs& Args) -> DAssetEditor*;
-		DURINED_API auto FindAssetEditor(DObject* Asset, EAssetOpenMethod Method,
-			EToolkitMode Mode = EToolkitMode::Standalone, const IToolkitHost* Host = nullptr) -> DAssetEditor*;
-		DURINED_API auto TransferAssetEditor(DAssetEditor& Editor, std::shared_ptr<IToolkitHost> Host) -> bool;
+		// Publishes a caller-configured editor only after successful initialization.
+		DURINED_API auto InitializeAssetEditor(DAssetEditor& Editor, const FAssetEditorInitArgs& Args) -> DAssetEditor*;
 		// A shell installs its presentation factory; headless hosts use the semantic fallback.
 		auto SetToolkitHostFactory(std::function<std::shared_ptr<IToolkitHost>(const FAssetOpenArgs&)> Factory) -> void
 		{ ToolkitHostFactory = std::move(Factory); }
-		DURINED_API auto CreateToolkitHost(const FAssetOpenArgs& Args) -> std::shared_ptr<IToolkitHost>;
-		DURINED_API auto OwnsAssetEditor(const DAssetEditor& Editor) const -> bool;
-		// Strong snapshots keep a session alive across reentrant frame/command callbacks.
-		DURINED_API auto GetOwnedAssetEditors() const -> std::vector<TStrongObjectPtr<DAssetEditor>>;
-		// Reflected sessions own their toolkit; direct admission owns read-only instances only.
+		// Both reflected and direct toolkits are owned exclusively by ToolkitManager.
+		// Direct admission supports read-only instances only.
 		// Mutable-feature Toolkits require View; writable Edit is rejected before host/document work.
 		DURINED_API auto InitializeDirectToolkit(std::shared_ptr<FAssetEditorToolkit> Toolkit,
 			std::shared_ptr<FEditorDocumentManager> Documents, const FAssetOpenArgs& Args,
 			std::span<DObject* const> Assets) -> bool;
-		DURINED_API auto GetAssetToolkits() const -> std::vector<std::shared_ptr<FAssetEditorToolkit>>;
-		DURINED_API auto OwnsToolkit(const FAssetEditorToolkit& Toolkit) const -> bool;
 		DURINED_API auto ActivateAssetToolkit(FAssetEditorToolkit& Toolkit) -> bool;
-		DURINED_API auto RetireAssetToolkit(FAssetEditorToolkit& Toolkit) -> void;
 		DURINED_API auto GetActiveAssetToolkit() const -> std::shared_ptr<FAssetEditorToolkit>;
 		DURINED_API auto DeactivateAssetEditors() -> bool;
-		// Subscribers may withdraw subscriptions or close other sessions. They must not
+		// Subscribers may withdraw subscriptions or close other editors. They must not
 		// recursively drive host updates or mutate a document operation's active inputs.
 		DURINED_API auto Subscribe(std::function<void(const FAssetEditorEvent&)> Callback) -> FAssetEditorSubscription;
 		DURINED_API auto GetRecentAssets() const -> std::vector<FAssetOpenTarget>;
-		DURINED_API auto CaptureSessions() const -> std::vector<FAssetEditorRestoreEntry>;
-		DURINED_API auto RestoreSessions(std::span<const FAssetEditorRestoreEntry> Entries) -> bool;
-		DURINED_API auto SaveSessionState(std::string FilePath = {}) const -> bool;
-		DURINED_API auto LoadSessionState(std::string FilePath = {}) -> bool;
+		DURINED_API auto CaptureEditorState() const -> std::vector<FAssetEditorRestoreEntry>;
+		DURINED_API auto RestoreEditorState(std::span<const FAssetEditorRestoreEntry> Entries) -> bool;
+		DURINED_API auto SaveEditorState(std::string FilePath = {}) const -> bool;
+		DURINED_API auto LoadEditorState(std::string FilePath = {}) -> bool;
 		DURINED_API auto FindEditorForAsset(DObject* Asset, bool bFocusIfOpen) -> IAssetEditorInstance*;
 		DURINED_API auto FindEditorsForAsset(DObject* Asset) -> std::vector<IAssetEditorInstance*>;
 		DURINED_API auto GetAllEditedAssets() -> std::vector<DObject*>;
@@ -86,7 +77,10 @@ namespace Durin
 		friend class DEditorEngine;
 		friend class FAssetEditorToolkit;
 		friend class FBaseAssetToolkit;
+		friend class FToolkitManager;
 		friend struct MainFrame::FMainFrameContext;
+		auto CreateToolkitHost(const FAssetOpenArgs& Args) -> std::shared_ptr<IToolkitHost>;
+		auto OwnsToolkit(const FAssetEditorToolkit& Toolkit) const -> bool;
 		// Internal admission and transaction context, not a reentrancy/lifetime guard.
 		DURINED_API auto DispatchEditorCallback(std::function<void()> Callback) -> void;
 		// EditorEngine alone advances once per admitted frame. Callbacks must not reenter
@@ -94,22 +88,24 @@ namespace Durin
 		DURINED_API auto HandleTicker(float DeltaSeconds) -> void;
 		// Lifecycle owners only, after callbacks and exit/save policy have settled.
 		// Deinitialize and shell teardown share this to preserve UI/provider release order.
-		DURINED_API auto ShutdownAssetEditorSessions() -> void;
+		DURINED_API auto CloseAssetEditorsForShutdown() -> void;
 		DURINED_API auto PublishEvent(FAssetEditorEvent Event) -> void;
 		auto SynchronizeToolkitAssets(FAssetEditorToolkit& Toolkit) -> void;
+		auto FinishToolkitClose(FAssetEditorToolkit& Toolkit, DAssetEditor* Editor,
+			IAssetEditorInstance* Instance) -> void;
 		auto CancelRestoreFocus() -> void { RestoreFocus.reset(); }
 		auto CanCall() const -> bool;
 		auto HasEditor(IAssetEditorInstance* Instance) const -> bool;
-		auto CreateAssetEditor(DAssetEditor& Session, const FAssetEditorInitArgs& Args) -> DAssetEditor*;
+		auto CreateAssetEditor(DAssetEditor& Editor, const FAssetEditorInitArgs& Args) -> DAssetEditor*;
 		auto CompleteRestoreFocus() -> void;
 		std::unordered_set<FSoftObjectPath> OpeningPaths;
 		FStrongObjectPtr DispatchingDefinition;
-		std::unordered_map<FObjectKey, TStrongObjectPtr<DAssetEditor>, FObjectKeyHash> Sessions;
 		std::weak_ptr<FAssetEditorToolkit> ActiveToolkit;
-		std::vector<std::shared_ptr<FAssetEditorToolkit>> DirectToolkits;
+		// A non-window shell owns only its presentation hosts, never toolkits/editors.
+		std::vector<std::shared_ptr<IToolkitHost>> FallbackHosts;
 		std::weak_ptr<FAssetEditorToolkit> RestoreFocus;
 		std::function<std::shared_ptr<IToolkitHost>(const FAssetOpenArgs&)> ToolkitHostFactory;
-		bool bStoppingSessions = false;
+		bool bClosingEditors = false;
 		struct FLifecycleState;
 		std::shared_ptr<FLifecycleState> Lifecycle;
 		// Non-owning instance registry, as in UE. Instances notify before destruction.

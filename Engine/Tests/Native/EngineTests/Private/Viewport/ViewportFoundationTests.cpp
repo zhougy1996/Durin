@@ -915,7 +915,7 @@ TEST(FViewportCameraTransformTests, RestoresCompleteStateAndConstrainsInvalidNav
 	EXPECT_DOUBLE_EQ(Actual.Yaw, State.Yaw);
 }
 
-TEST(FLevelViewportSessionSettingsTests, RoundTripsProjectsAndLevelsAndSkipsInvalidEntries)
+TEST(FLevelViewportStateTests, RoundTripsProjectsAndLevelsAndSkipsInvalidEntries)
 {
 	Durin::LevelEditor::FLevelViewportStateMap States;
 	States["G:/Projects/A/A.dproject"]["/A/Levels/Main"] = {

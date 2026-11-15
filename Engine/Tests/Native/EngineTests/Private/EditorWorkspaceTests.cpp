@@ -286,7 +286,7 @@ TEST(FEditorWorkspaceManagerTests, ExitSavesAllDirtyDocumentsWithoutClosingTabs)
 	FEditorDocumentManager Manager;
 	auto Workspace = std::make_shared<FTestWorkspace>("ExitTest");
 	Workspace->bTrackDirtyDocuments = true;
-	const bool Attached = Manager.AttachSessionToolkit(Workspace, {});
+	const bool Attached = Manager.AttachToolkit(Workspace, {});
 	const auto First = Manager.OpenDocument({.ToolkitId = Workspace->GetToolkitId(),
 		.DocumentKey = "first", .Label = "First", .bClosable = false});
 	const auto Second = Manager.OpenDocument({.ToolkitId = Workspace->GetToolkitId(),
@@ -318,8 +318,8 @@ TEST(FEditorWorkspaceManagerTests, ExitRetainsAllWorkspacesWhenALaterSaveFails)
 	auto First = std::make_shared<FTestWorkspace>("First");
 	auto Second = std::make_shared<FTestWorkspace>("Second");
 	First->bTrackDirtyDocuments = Second->bTrackDirtyDocuments = true;
-	ASSERT_TRUE(Manager.AttachSessionToolkit(First, {}));
-	ASSERT_TRUE(Other.AttachSessionToolkit(Second, {}));
+	ASSERT_TRUE(Manager.AttachToolkit(First, {}));
+	ASSERT_TRUE(Other.AttachToolkit(Second, {}));
 	const auto FirstId = Manager.OpenDocument({.ToolkitId = First->GetToolkitId(),
 		.DocumentKey = "first", .Label = "First"});
 	const auto SecondId = Other.OpenDocument({.ToolkitId = Second->GetToolkitId(),
@@ -345,7 +345,7 @@ TEST(FEditorWorkspaceManagerTests, ExitVetoesUnsettledPreviewsAndPendingDocument
 	using namespace Durin;
 	FEditorDocumentManager Manager;
 	auto Workspace = std::make_shared<FTestWorkspace>("ExitTest");
-	const bool Attached = Manager.AttachSessionToolkit(Workspace, {});
+	const bool Attached = Manager.AttachToolkit(Workspace, {});
 	const auto Document = Manager.OpenDocument({.ToolkitId = Workspace->GetToolkitId(),
 		.DocumentKey = "first", .Label = "First"});
 	Workspace->bAllowDeactivation = false;
@@ -380,7 +380,7 @@ TEST(FEditorWorkspaceManagerTests, ReportsDocumentVisibilityBeforeDrawing)
 
 	Durin::FEditorDocumentManager Manager;
 	auto Workspace = std::make_shared<FTestWorkspace>("MaterialEditor");
-	const bool Attached = Manager.AttachSessionToolkit(Workspace, {});
+	const bool Attached = Manager.AttachToolkit(Workspace, {});
 	ASSERT_TRUE(Attached);
 	ASSERT_TRUE(OpenResource(Manager, Workspace, "/Game/Materials/M_Visible").IsValid());
 
@@ -406,7 +406,7 @@ TEST(FEditorWorkspaceManagerTests, OpensAndSwitchesMultiplePerResourceDocumentsI
 {
 	Durin::FEditorDocumentManager Manager;
 	auto Workspace = std::make_shared<FTestWorkspace>("MaterialEditor");
-	const bool Attached = Manager.AttachSessionToolkit(Workspace, {});
+	const bool Attached = Manager.AttachToolkit(Workspace, {});
 	ASSERT_TRUE(Attached);
 	ASSERT_TRUE(OpenResource(Manager, Workspace, "/Game/Materials/M_Stone").IsValid());
 	ASSERT_TRUE(OpenResource(Manager, Workspace, "/Game/Materials/MI_Stone").IsValid());
@@ -444,7 +444,7 @@ TEST(FEditorWorkspaceManagerTests, OpenAssetDocumentsRetainEveryAssetFamilyAndBl
 		EXPECT_TRUE(ValidatePackageRemovalReferences(Paths));
 		FEditorDocumentManager Manager;
 		auto Workspace = std::make_shared<FTestWorkspace>("AssetEditor");
-		const bool Attached = Manager.AttachSessionToolkit(Workspace, {});
+		const bool Attached = Manager.AttachToolkit(Workspace, {});
 		const auto Id = Manager.OpenDocument({.ToolkitId = Workspace->GetToolkitId(),
 			.DocumentKey = Asset->GetObjectPath(), .ResourceId = Asset->GetObjectPath(), .Label = "Asset"});
 		ASSERT_TRUE(Id.IsValid());
@@ -487,7 +487,7 @@ TEST(FEditorWorkspaceManagerTests, DestroyingControllerReleasesOpenDocumentRoots
 	auto OwnedManager = std::make_unique<FEditorDocumentManager>();
 	auto& Manager = *OwnedManager;
 	auto Workspace = std::make_shared<FTestWorkspace>("AssetEditor");
-	const bool Attached = Manager.AttachSessionToolkit(Workspace, {});
+	const bool Attached = Manager.AttachToolkit(Workspace, {});
 	ASSERT_TRUE(Manager.OpenDocument({.ToolkitId = Workspace->GetToolkitId(),
 		.DocumentKey = Asset->GetObjectPath(), .ResourceId = Asset->GetObjectPath(), .Label = "Asset"}).IsValid());
 	{ const auto Failure = ValidatePackageRemovalReferences(Paths); EXPECT_TRUE(!Failure && Failure.error().Is(AssetWriteErrors::InUse)); }
@@ -501,7 +501,7 @@ TEST(FEditorWorkspaceManagerTests, RemapsOpenPerResourceDocumentsAfterAssetReloc
 {
 	Durin::FEditorDocumentManager Manager;
 	auto Workspace = std::make_shared<FTestWorkspace>("MaterialEditor");
-	const bool Attached = Manager.AttachSessionToolkit(Workspace, {});
+	const bool Attached = Manager.AttachToolkit(Workspace, {});
 	ASSERT_TRUE(Attached);
 	ASSERT_TRUE(OpenResource(Manager, Workspace, "/Game/Materials/Old/M_Stone").IsValid());
 	ASSERT_EQ(Manager.GetDocuments().size(), 1u);
@@ -524,7 +524,7 @@ TEST(FEditorWorkspaceManagerTests, CommitsDeferredSingletonReplacementOnlyAfterC
 {
 	Durin::FEditorDocumentManager Manager;
 	auto Workspace = std::make_shared<FTestWorkspace>("LevelEditor");
-	const bool Attached = Manager.AttachSessionToolkit(Workspace, {});
+	const bool Attached = Manager.AttachToolkit(Workspace, {});
 	ASSERT_TRUE(Attached);
 
 	const Durin::FDocumentId DocumentId = Manager.OpenDocument({
@@ -568,7 +568,7 @@ TEST(FEditorWorkspaceManagerTests, KeepsActiveDocumentWhenHostCannotRestoreItsPr
 {
 	Durin::FEditorDocumentManager Manager;
 	auto Workspace = std::make_shared<FTestWorkspace>("MaterialEditor");
-	const bool Attached = Manager.AttachSessionToolkit(Workspace, {});
+	const bool Attached = Manager.AttachToolkit(Workspace, {});
 	ASSERT_TRUE(Attached);
 	ASSERT_TRUE(OpenResource(Manager, Workspace, "/Game/Materials/M_Stone").IsValid());
 	ASSERT_TRUE(OpenResource(Manager, Workspace, "/Game/Materials/MI_Stone").IsValid());
@@ -589,7 +589,7 @@ TEST(FEditorWorkspaceManagerTests, CoordinatesPendingDocumentCloseResponses)
 {
 	Durin::FEditorDocumentManager Manager;
 	auto Workspace = std::make_shared<FTestWorkspace>("MaterialEditor");
-	const bool Attached = Manager.AttachSessionToolkit(Workspace, {});
+	const bool Attached = Manager.AttachToolkit(Workspace, {});
 	ASSERT_TRUE(Attached);
 
 	const Durin::FDocumentId First = Manager.OpenDocument({

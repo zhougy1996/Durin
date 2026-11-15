@@ -14,10 +14,10 @@ namespace Durin::MaterialEditor
 	};
 
 	// Persists user-scoped material-editor layout and per-asset graph viewports.
-	class FMaterialEditorSessionSettings
+	class FMaterialEditorProfileSettings
 	{
 	public:
-		explicit FMaterialEditorSessionSettings(std::string InFileName = "MaterialEditorPreferences.yaml")
+		explicit FMaterialEditorProfileSettings(std::string InFileName = "MaterialEditorPreferences.yaml")
 			: FileName(std::move(InFileName)) {}
 		auto Load() -> bool;
 		auto Save(bool bReplacePreferences = false) const -> bool;

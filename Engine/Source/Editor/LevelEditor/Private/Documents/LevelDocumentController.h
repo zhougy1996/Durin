@@ -18,7 +18,7 @@ namespace Durin
 namespace Durin::LevelEditor
 {
 	class FEditorAssetMoveCoordinator;
-	class FLevelEditorSessionSettings;
+	class FLevelEditorWorkspaceSettings;
 	struct FLevelEditorContext;
 	class FSceneViewportPanel;
 
@@ -45,7 +45,7 @@ namespace Durin::LevelEditor
 	public:
 		FLevelDocumentController(
 			FLevelEditorContext& InContext,
-			FLevelEditorSessionSettings& InSessionSettings,
+			FLevelEditorWorkspaceSettings& InWorkspaceSettings,
 			FSceneViewportPanel& InSceneViewportPanel,
 			FEditorAssetMoveCoordinator& InAssetMoveCoordinator,
 			std::function<void()> InClearError,
@@ -84,7 +84,7 @@ namespace Durin::LevelEditor
 		auto SetError(std::string Message) const -> void;
 
 		FLevelEditorContext& Context;
-		FLevelEditorSessionSettings& SessionSettings;
+		FLevelEditorWorkspaceSettings& WorkspaceSettings;
 		FSceneViewportPanel& SceneViewportPanel;
 		FEditorAssetMoveCoordinator& AssetMoveCoordinator;
 		std::function<void()> ClearError;

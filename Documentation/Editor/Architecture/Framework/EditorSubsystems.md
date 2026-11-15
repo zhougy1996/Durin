@@ -4,7 +4,7 @@ Summary: Define per-editor native services, reflected PIE controls, Actor/Compon
 
 Modules: ContentBrowserData, ContentBrowserAssetDataSource, ContentBrowserFileDataSource, DurinEd, LevelEditor, MainFrame, DurinPython, DurinMCP, Engine
 
-Last reviewed: 2026-11-13
+Last reviewed: 2026-11-16
 
 ## Host Contract
 
@@ -90,88 +90,24 @@ cleanup, GC, or module-unload contracts.
 
 ## Asset Editors
 
-`DAssetEditorSubsystem` in `Subsystems/AssetEditorSubsystem.h` follows the core
-native asset-editor lifecycle of UE's `UAssetEditorSubsystem`. The active editor owns
-the service. `OpenEditorForAsset(DObject*)` first finds and focuses an
-existing primary `IAssetEditorInstance`; otherwise it enters definition-based
-dispatch. Path overloads use resident objects or registry metadata first and load
-only when class metadata is unavailable. Batch opening
-deduplicates objects, attempts every distinct input, and returns aggregate success;
-an accepted deferred request is not yet an actually opened editor. A recursive
-open of the same asset is rejected while its open/focus callback is in progress.
+The active editor owns `DAssetEditorSubsystem`. It dispatches definition-based
+opening, tracks non-owning many-to-many asset/instance associations, and keeps
+weak active and restore-focus selections. `FToolkitManager` owns open toolkits;
+each toolkit owns its document controller and optional reflected editor.
 
-`NotifyAssetOpened`, `NotifyAssetsOpened`, `NotifyAssetClosed` and
-`NotifyEditorClosed` maintain non-owning, many-to-many associations in both
-directions. Duplicate notification is idempotent. Object keys distinguish object
-identity across GC and replacement; the registry does not keep assets alive.
-`FindEditorForAsset` selects a primary instance, `FindEditorsForAsset` includes
-secondary instances, and `GetAllEditedAssets`/`GetAllOpenEditors` enumerate the
-current associations. Instance owners must notify before destroying their code
-or instance. Returned pointers are borrowed until the next editor lifecycle change.
+`OpenEditorForAsset` focuses an existing primary instance before dispatching.
+Batch opening deduplicates inputs and returns aggregate success. Path overloads
+load only when metadata cannot identify the asset type. Recursive opens of the
+same asset reject while its open/focus callback runs.
 
-`CloseAllEditorsForAsset`, `CloseOtherEditors` and `CloseAllAssetEditors` forward
-the corresponding `EAssetEditorCloseReason` to each instance. Close requests use
-snapshots and recheck membership before entering callbacks, so an earlier close
-may remove a later instance. A rejected close or pending dirty-document modal
-is not reported as a completed close. Service calls require the game thread,
-registered owning host with no pending shutdown. Open/focus/close callbacks use host
-admission checks; shutdown requests close admission immediately and the owner
-executes `PreExit()` only after the full callback chain returns. This is a caller
-contract, not dispatcher depth tracking; admitted closes may finish after a shutdown
-request. See [asset session update and callback constraints](AssetEditors.md#methods-close-policy-and-hosts).
-Close notifications remain legal during cleanup.
+Association notifications are idempotent and do not retain assets. Returned
+instance pointers are borrowed until the next lifecycle change. Close operations
+snapshot and recheck membership; a veto or pending confirmation is incomplete.
+Shutdown stops admission, then PreExit closes toolkits and releases previews
+before dependent services disappear.
 
-MainFrame supplies its host-owned `FEditorDocumentManager` to the service's workspace
-adapter. The service does not own tabs or the main window. Each committed asset
-document has one `IAssetEditorInstance` adapter. Successful open, deferred
-completion, singleton resource replacement, close, route removal, package reload
-and resource relocation update the associations. Tracking only resolves resident
-objects and never loads additional packages. Destroying the manager detaches its
-routing endpoint and instances before Editor services deinitialize. Native hosts
-may construct a manager with their own service without creating a window.
-
-`DAssetDefinition` provides immutable reflected type metadata and const open
-behavior. Eligible CDOs register after full construction in `PostInitProperties`
-and retire their exact object generation in `BeginDestroy`. The process-level
-`FAssetDefinitionRegistry` rejects duplicate exact class paths and resolves the
-nearest registered ancestor when no exact definition exists. Membership revision
-changes on insertion/removal; ancestor lookup is uncached, so later definitions
-and removals apply immediately without invalidating stored class pointers.
-Queries do not load asset packages or construct toolkits. Scoped dynamic
-registrations retain their definition across GC; their handles may outlive the
-registry. Dispatch retains a selected definition across callbacks and pending work.
-Automatic registration does not authorize physical DLL reload.
-
-`OpenAssets(FAssetOpenArgs)` requires the requesting subsystem as explicit context
-and returns one result per input, preserving mixed success/failure and duplicate
-outcomes. Metadata includes canonical object path and full class identity.
-Definitions explicitly support Edit or View; unsupported methods are rejected
-before execution. `FAssetOpenArgs::LoadAsset` is execution-only and rejects loaded
-objects whose class disagrees with the selection metadata. A registered definition
-is authoritative: its rejection never falls through to another editor.
-
-When no definition exists, the transitional exact-route workspace adapter supports
-Edit only. MainFrame's browser callback now passes its metadata selection directly
-to this dispatch rather than preloading it. Concrete editor migration and generic
-property editing are separate later steps; `DAssetDefinitionDefault` currently
-supplies shared display/category metadata, not a generic editing implementation.
-
-Definitions create pending operations with `BeginOpenRequest`, supplying an
-explicit cancellation callback. `GetOpenRequest` observes terminal outcomes and
-`CompleteOpenRequest` rejects late completion. A refused cancellation leaves work
-and provider retention unchanged. Legacy pending documents have observable request
-IDs but cancellation stays with their existing controllers; the subsystem must
-not claim that erasing a document drained its asynchronous work. Definition-owned
-pending work must cancel/drain before subsystem retirement. Terminal request data
-remains until teardown; bounded history is introduced with MRU/session restoration.
-
-Texture2D now uses a reflected session and reusable toolkit instead of a
-per-document instance adapter; its View method guards commands and property
-mutation. Other feature editors still use the Workspace document host. See
-[asset definitions and editor sessions](AssetEditors.md) for the implemented
-ownership, host, close-coordination and migration boundary. Native hosting,
-restore/MRU, usage accounting, editor modes and lifecycle multicast events remain
-unimplemented. Concrete module startup/rollback stays in MainFrame during migration.
+See [asset editors](AssetEditors.md) for definitions, ownership, callback
+constraints, hosts, and restoration. This contract also applies without MainFrame.
 
 ## Level Editor Play Controls
 

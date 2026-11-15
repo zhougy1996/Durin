@@ -23,7 +23,7 @@ namespace Durin
 
 	auto DAssetEditorSubsystem::CanCall() const -> bool
 	{
-		if (!IsInGameThread() || !IsValid(this) || bStoppingSessions) return false;
+		if (!IsInGameThread() || !IsValid(this) || bClosingEditors) return false;
 		auto* Host = GetEditor();
 		return IsValid(Host) && !Host->IsShutdownRequested()
 			&& Host->GetEditorSubsystem<DAssetEditorSubsystem>() == this;
@@ -31,7 +31,7 @@ namespace Durin
 
 	auto DAssetEditorSubsystem::Deinitialize() noexcept -> void
 	{
-		ShutdownAssetEditorSessions();
+		CloseAssetEditorsForShutdown();
 		ToolkitHostFactory = {};
 		Lifecycle.reset();
 		DispatchingDefinition.Reset();
@@ -72,9 +72,9 @@ namespace Durin
 			for (auto* Instance : FindEditorsForAsset(Asset))
 				if (HasEditor(Instance) && Instance->IsPrimaryEditor() && Instance->GetOpenMethod() == EAssetOpenMethod::Edit)
 				{
-					const auto* Session = dynamic_cast<DAssetEditor*>(Instance);
+					const auto* EditorInstance = dynamic_cast<DAssetEditor*>(Instance);
 					const auto* Toolkit = dynamic_cast<FAssetEditorToolkit*>(Instance);
-					const bool bCanonical = Session ? Session->GetInstanceKey().empty() : !Toolkit || Toolkit->GetInstanceKey().empty();
+					const bool bCanonical = EditorInstance ? EditorInstance->GetInstanceKey().empty() : !Toolkit || Toolkit->GetInstanceKey().empty();
 					const double ActivationTime = Instance->GetLastActivationTime();
 					if (!Best || (bCanonical && !bBestCanonical) || (bCanonical == bBestCanonical && ActivationTime > BestTime))
 					{ Best = Instance; bBestCanonical = bCanonical; BestTime = ActivationTime; }
@@ -221,7 +221,7 @@ namespace Durin
 		FSoftObjectPath Path;
 		if (FSoftObjectPath::TryCreate(Asset->GetObjectPath(), Path))
 			PublishEvent({.Type = EAssetEditorEvent::Opened, .Target = {Path, Asset->GetClass()->GetQualifiedName().ToString()},
-				.Session = FObjectKey(dynamic_cast<DAssetEditor*>(Instance)), .Method = Instance->GetOpenMethod(), .InstanceId = std::string(Instance->GetInstanceId())});
+				.Editor = FObjectKey(dynamic_cast<DAssetEditor*>(Instance)), .Method = Instance->GetOpenMethod(), .InstanceId = std::string(Instance->GetInstanceId())});
 	}
 
 	auto DAssetEditorSubsystem::NotifyAssetsOpened(const std::vector<DObject*>& Assets, IAssetEditorInstance* Instance) -> void
@@ -231,7 +231,7 @@ namespace Durin
 
 	auto DAssetEditorSubsystem::NotifyAssetClosed(DObject* Asset, IAssetEditorInstance* Instance) -> void
 	{
-		// Cleanup remains legal after admission closes, while host consumers retire.
+		// Cleanup remains legal after admission closes, while host consumers shut down.
 		if (!IsInGameThread() || !Asset || !Instance) return;
 		const FObjectKey Key(Asset);
 		const auto FoundEditor = OpenedEditors.find(Instance);
@@ -239,7 +239,7 @@ namespace Durin
 		FSoftObjectPath Path;
 		FSoftObjectPath::TryCreate(Asset->GetObjectPath(), Path);
 		FAssetEditorEvent Event{.Type = EAssetEditorEvent::AssetRemoved, .Target = {Path, Asset->GetClass()->GetQualifiedName().ToString()},
-			.Session = FObjectKey(dynamic_cast<DAssetEditor*>(Instance)), .Method = Instance->GetOpenMethod(), .InstanceId = std::string(Instance->GetInstanceId())};
+			.Editor = FObjectKey(dynamic_cast<DAssetEditor*>(Instance)), .Method = Instance->GetOpenMethod(), .InstanceId = std::string(Instance->GetInstanceId())};
 		if (auto Found = OpenedAssets.find(Key); Found != OpenedAssets.end())
 		{
 			std::erase(Found->second, Instance);
@@ -271,7 +271,7 @@ namespace Durin
 			{
 				FSoftObjectPath Path; FSoftObjectPath::TryCreate(Object->GetObjectPath(), Path);
 				Events.push_back({.Type = EAssetEditorEvent::AssetRemoved, .Target = {Path, Object->GetClass()->GetQualifiedName().ToString()},
-					.Session = FObjectKey(dynamic_cast<DAssetEditor*>(Instance)), .Method = Instance->GetOpenMethod(), .InstanceId = std::string(Instance->GetInstanceId())});
+					.Editor = FObjectKey(dynamic_cast<DAssetEditor*>(Instance)), .Method = Instance->GetOpenMethod(), .InstanceId = std::string(Instance->GetInstanceId())});
 			}
 		}
 		for (auto& Event : Events) PublishEvent(std::move(Event));

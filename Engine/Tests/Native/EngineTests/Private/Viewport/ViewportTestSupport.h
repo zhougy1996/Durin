@@ -34,7 +34,7 @@
 #include "Transactions/Transaction.h"
 #include "SceneView.h"
 #include "NativeTestSupport.h"
-#include "Settings/LevelViewportSessionSettings.h"
+#include "Settings/LevelViewportState.h"
 #include "Workspace/LevelEditorContext.h"
 #include "LevelEditorCustomizations.h"
 #include "LevelDetailCustomization.h"

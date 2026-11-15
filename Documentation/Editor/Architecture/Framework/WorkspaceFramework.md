@@ -5,7 +5,7 @@ Summary: Define editor toolkits, document ownership, tab presentation, panels, c
 Modules: AssetMaintenance, DurinEd, LevelEditor, MainFrame, MaterialEditor, StaticMeshEditor, TextureEditor
 
 This document defines editor-host ownership, persistent settings, application
-commands, session integration, tab presentation, and document lifecycle contracts.
+commands, asset-editor integration, tab presentation, and document lifecycle contracts.
 
 ## C++ Ownership Boundary
 
@@ -56,7 +56,7 @@ monitor-derived defaults and creates it when host display state is first
 persisted. The reflected `DEditorEngine` remains in `Durin` and does not depend
 on `MainFrame` headers.
 
-`LevelEditor::FLevelEditorSessionSettings` persists only Level workspace state
+`LevelEditor::FLevelEditorWorkspaceSettings` persists only Level workspace state
 such as viewport cameras, gizmo preferences, and Details layout.
 `ContentBrowserSettings.yaml` independently persists browser presentation.
 When the new file is absent it starts from defaults and does not read retired
@@ -190,29 +190,18 @@ transaction feedback, notification aggregation, and toasts update once per host
 frame even when the Level workspace root is hidden. Reset Editor Layout
 restores global tool defaults without resetting any asset-editor layout.
 
-## Asset Editor Session Integration
+## Asset Editor Integration
 
-[Asset definitions and editor sessions](AssetEditors.md) own ordinary asset-type
-metadata, discovery, open execution, toolkit ownership, hosts and panels.
-MaterialEditor, TextureEditor and StaticMeshEditor publish independent scoped
-contributions during normal module startup; MainFrame no longer connects their
-workspaces or import callbacks. They do not support physical dynamic reloading.
+[Asset editors](AssetEditors.md) owns definition dispatch, toolkit ownership,
+closing, hosts, and restoration. MainFrame enumerates ToolkitManager snapshots
+for menus, drawing, close confirmation, and exit preparation. It owns presentation
+hosts and closes toolkits after exit/save policy settles, before feature services
+and rendering stop.
 
-LevelEditor creates its specialized owned session through the asset-editor
-subsystem and publishes Level metadata/opening through its definition. The Level
-session owns its document manager; startup, scene activation, PIE and project
-switching remain with the existing engine/Level controllers. MainFrame has no
-document registry or routing fallback; it enumerates committed sessions for menus,
-drawing, close confirmation and exit preparation. Toolkit registration batches,
-route tables and per-document editor-instance adapters have been removed from
-production and fixtures. Lifecycle and project-scoped restore contracts are
-specified in [asset editors](AssetEditors.md#lifecycle-and-session-restoration).
-
-MainFrame shutdown stops browser admission and releases its UI-held thumbnails,
-retires owned asset sessions after exit/save policy settles, and releases the
-specialized Level integration. Ordinary feature registrations live with their
-modules. Browser invocation lifetimes prevent callbacks into a retired host;
-feature controllers drain admitted work before their provider modules stop.
+Level uses a specialized reflected editor and document controller. Startup,
+scene activation, PIE, and project switching remain with Engine/Level services.
+Feature modules register their own contributions and drain work before unloading;
+weak browser contexts reject callbacks after their host stops.
 
 ## Document Ownership
 
@@ -222,7 +211,7 @@ discarding, releasing, and drawing its resource.
 
 `FEditorTabWindow` provides the shared root-window state transition,
 while `FTabManager` composes that transition across the
-internal document tabs within session roots used by Material, Texture and Mesh editors. The
+internal document tabs within toolkit roots used by Material, Texture and Mesh editors. The
 singleton Level workspace keeps its specialized internal dock-space lifecycle.
 
 Material and Texture additionally compose
@@ -288,7 +277,7 @@ action for an incompatible package. Engine's ordinary-save guard remains the
 final persistence boundary if another caller bypasses the workspace policy.
 
 The `StaticMeshEditor` workspace is presented as **StaticMesh Inspector** and is
-strictly read-only. Its definition creates owned sessions with closable internal
+strictly read-only. Its definition creates toolkits with closable internal
 documents. Each document owns an isolated preview world and viewport, supports
 orbit, pan, zoom, framing, and solid/wireframe presentation, and releases its
 mesh component before destroying the scene. Its active document never becomes

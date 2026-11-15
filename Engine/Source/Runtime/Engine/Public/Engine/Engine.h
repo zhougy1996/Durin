@@ -145,7 +145,7 @@ namespace Durin
 		// Content admission runs after host services exist and schema providers load.
 		ENGINE_API auto InitializeProjectContent() -> std::expected<void, std::string>;
 		ENGINE_API virtual auto RequestSubsystemDeinitialization() -> void;
-		virtual auto RetireHostConsumers() -> void {}
+		virtual auto ShutdownHostConsumers() -> void {}
 		ENGINE_API virtual auto AreHostConsumersIdle() -> bool;
 		ENGINE_API auto InitializeEngineSubsystems() -> void;
 		FEngineSubsystemCollection EngineSubsystems;

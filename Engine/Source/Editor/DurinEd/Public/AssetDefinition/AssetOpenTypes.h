@@ -10,7 +10,7 @@ namespace Durin
 	class DAssetEditorSubsystem;
 	class IToolkitHost;
 
-	// Separates inspection from editing before a session or asset is loaded.
+	// Separates inspection from editing before constructing an editor or loading an asset.
 	enum class EAssetOpenMethod : uint8 { Edit, View };
 	enum class EToolkitMode : uint8 { Standalone, WorldCentric };
 
@@ -58,16 +58,16 @@ namespace Durin
 		EAssetOpenMethod OpenMethod = EAssetOpenMethod::Edit;
 		EToolkitMode ToolkitMode = EToolkitMode::Standalone;
 		std::shared_ptr<IToolkitHost> Host;
-		std::string SessionRole;
+		std::string InstanceRole;
 		bool bPrimary = true;
-		// Execute this selection as one compatible session, e.g. grouped restore.
-		bool bCreateSingleSession = false;
+		// Execute this selection as one compatible editor, e.g. grouped restore.
+		bool bCreateSingleEditor = false;
 		bool bIsRestore = false;
 		// Interactive callers may request unsaved-scene confirmation; scripts/startup do not.
 		bool bPromptToSave = false;
 
 		auto GetNormalizedRole() const -> std::string_view
-		{ return SessionRole.empty() && !bPrimary ? std::string_view("Secondary") : std::string_view(SessionRole); }
+		{ return InstanceRole.empty() && !bPrimary ? std::string_view("Secondary") : std::string_view(InstanceRole); }
 
 		// Caller retains the loaded object before invoking any callbacks or GC.
 		DURINED_API auto LoadAsset(const FAssetOpenTarget& Target) const -> DObject*;

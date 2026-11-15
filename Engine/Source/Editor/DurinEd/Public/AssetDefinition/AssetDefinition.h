@@ -11,7 +11,7 @@ namespace Durin
 	class FAssetEditorToolkit;
 	class FAssetEditorToolkitId;
 	class FEditorDocumentManager;
-	// Immutable type behavior; session, document and preview state belong to editors.
+	// Immutable type behavior; document and preview state belong to editors.
 	DCLASS(Abstract)
 	class DAssetDefinition : public DObject
 	{

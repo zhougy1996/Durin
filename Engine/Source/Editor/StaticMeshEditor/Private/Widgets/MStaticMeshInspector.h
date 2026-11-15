@@ -17,8 +17,9 @@ namespace Durin::StaticMeshEditor
 	{
 	public:
 		auto OnResourceIdRemapped(std::string_view Source, std::string_view Destination) -> void override;
-		explicit MStaticMeshInspector(FEditorDocumentManager& InWorkspaceManager);
+		explicit MStaticMeshInspector(FEditorDocumentManager& InDocumentManager);
 		STATICMESHEDITOR_API ~MStaticMeshInspector() override;
+		STATICMESHEDITOR_API auto OnClose() -> void override;
 		STATICMESHEDITOR_API auto GetToolkitId() const -> const FAssetEditorToolkitId& override;
 		STATICMESHEDITOR_API auto OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult override;
 		STATICMESHEDITOR_API auto ActivateDocument(const FEditorDocument& Document) -> void override;
@@ -37,7 +38,7 @@ namespace Durin::StaticMeshEditor
 		struct FDocumentState
 		{
 			TObjectPtr<DStaticMesh> Mesh;
-			std::unique_ptr<FStaticMeshPreview> Preview;
+			std::shared_ptr<FStaticMeshPreview> Preview;
 			uint32 SelectedLOD = 0;
 			uint64 PreviewId = 0;
 		};

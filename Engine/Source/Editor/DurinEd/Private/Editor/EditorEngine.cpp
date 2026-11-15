@@ -1,4 +1,5 @@
 #include "TickableEditorObject.h"
+#include "Toolkits/ToolkitManager.h"
 #include "Tickable.h"
 #include "Editor/EditorEngine.h"
 #include "ShaderPipelineCache.h"
@@ -10,6 +11,7 @@
 #include "Documents/EditorDocumentManager.h"
 #include "Transactions/Transaction.h"
 #include "Transactions/Transactor.h"
+#include "Thumbnail/ThumbnailManager.h"
 
 #include "Asset/Mutation.h"
 #include "Asset/Asset.h"
@@ -190,8 +192,9 @@ namespace Durin
 		if (!StartupError.empty()) return EHostStartupState::Failed;
 		if (InitialLevelPath.IsValid())
 		{
-			for (const auto& Toolkit : GetEditorSubsystem<DAssetEditorSubsystem>()->GetAssetToolkits())
-				if (Toolkit->GetDocumentManager()->IsDocumentOpenPending(InitialLevelPath.ToString())) return EHostStartupState::Pending;
+			if (const auto* Assets = GetEditorSubsystem<DAssetEditorSubsystem>())
+				for (const auto& Toolkit : FToolkitManager::Get().GetToolkits(Assets))
+					if (Toolkit->GetDocumentManager()->IsDocumentOpenPending(InitialLevelPath.ToString())) return EHostStartupState::Pending;
 			if (!GetWorld() || !GetWorld()->GetCurrentLevel() || GetWorld()->GetCurrentLevel()->GetObjectPath() != InitialLevelPath.ToString())
 			{
 				const auto Progress = GetMapChangeProgress();
@@ -323,7 +326,7 @@ namespace Durin
 		Super::RequestSubsystemDeinitialization();
 	}
 
-	auto DEditorEngine::RetireHostConsumers() -> void
+	auto DEditorEngine::ShutdownHostConsumers() -> void
 	{
 		TeardownPlaySession();
 		if (Trans) Trans->Cancel();
@@ -332,6 +335,8 @@ namespace Durin
 		InitialLevelPath = {};
 		if (MainFrameModule) MainFrameModule->DestroyMainFrame();
 		EditorSubsystems.Deinitialize();
+		// Release thumbnail scenes while the renderer and UObject services are alive.
+		GetDefaultThumbnailManager().ReleasePreviewResources();
 	}
 
 	auto DEditorEngine::PreExit() -> void

@@ -7,16 +7,16 @@
 namespace Durin
 {
 	// Value notifications survive supported business reentry, such as closing other
-	// sessions or withdrawing subscriptions. Callbacks request GC/shutdown; owners
+	// editors or withdrawing subscriptions. Callbacks request GC/shutdown; owners
 	// collect and tear down after the complete call chain returns.
 	enum class EAssetEditorEvent : uint8 { Requested, Opened, Focused, CloseRequested, AssetRemoved, Closed };
 	struct FAssetEditorEvent
 	{
 		EAssetEditorEvent Type = EAssetEditorEvent::Requested;
 		FAssetOpenTarget Target;
-		FObjectKey Session;
+		FObjectKey Editor;
 		EAssetOpenMethod Method = EAssetOpenMethod::Edit;
-		// Common runtime editor identity; Session is optional for non-reflected instances.
+		// Common runtime editor identity; Editor is optional for non-reflected instances.
 		std::string InstanceId;
 	};
 	// Non-owning cancellation token; destruction withdraws a subscription.

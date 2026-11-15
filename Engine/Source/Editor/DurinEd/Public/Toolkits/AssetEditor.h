@@ -22,7 +22,8 @@ namespace Durin
 		std::vector<FDocumentRequest> InitialDocuments;
 	};
 
-	// Optional reflected lifetime owner; runtime state belongs to its toolkit.
+	// Optional reflected editor identity and factory. The manager-owned toolkit
+	// keeps this object alive while open; this object borrows its toolkit weakly.
 	DCLASS(Abstract, NoClassDefaultObject)
 	class DAssetEditor : public DObject, public IAssetEditorInstance
 	{
@@ -39,13 +40,12 @@ namespace Durin
 		DURINED_API auto CloseWindow(EAssetEditorCloseReason Reason) -> bool override;
 		DURINED_API auto GetOpenMethod() const -> EAssetOpenMethod override;
 		DURINED_API auto GetToolkitMode() const -> EToolkitMode;
-		auto GetToolkit() const -> std::shared_ptr<FAssetEditorToolkit> { return Toolkit; }
+		auto GetToolkit() const -> std::shared_ptr<FAssetEditorToolkit> { return Toolkit.lock(); }
 		DURINED_API auto GetDocumentManager() const -> std::shared_ptr<FEditorDocumentManager>;
 		DURINED_API auto GetToolkitHost() const -> std::shared_ptr<IToolkitHost>;
 		DURINED_API auto GetInstanceKey() const -> std::string_view;
 		auto GetInstanceId() const -> std::string_view override { return GetWindowId(); }
 		DURINED_API auto GetWindowId() const -> std::string_view;
-		DURINED_API auto TransferToHost(std::shared_ptr<IToolkitHost> NewHost) -> bool;
 		DURINED_API auto GetAssetEditorSubsystem() const -> DAssetEditorSubsystem*;
 		DURINED_API auto GetObjectsToEdit() const -> std::vector<DObject*>;
 		DURINED_API auto IsClosed() const -> bool;
@@ -57,12 +57,12 @@ namespace Durin
 		virtual auto AllowsEmptyAssets() const -> bool { return false; }
 	private:
 		friend class DAssetEditorSubsystem;
-		auto Initialize(const FAssetEditorInitArgs& Args, FStrongObjectPtr Provider) -> bool;
+		auto Initialize(const FAssetEditorInitArgs& Args, FStrongObjectPtr Provider) -> std::shared_ptr<FAssetEditorToolkit>;
 		auto ReleaseToolkit() -> void;
 		// Borrowed only while CreateToolkit runs; never retained as runtime state.
 		const FAssetEditorInitArgs* InitializingArgs = nullptr;
 		std::shared_ptr<FEditorDocumentManager> InitializingDocuments;
-		std::shared_ptr<FAssetEditorToolkit> Toolkit;
+		std::weak_ptr<FAssetEditorToolkit> Toolkit;
 		bool bInitialized = false;
 		bool bClosed = false;
 	};

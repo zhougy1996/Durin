@@ -457,16 +457,23 @@ namespace
 		~FMaterialPreviewHarness()
 		{
 			Durin::GEngine = nullptr;
-			RendererLifecycle.Shutdown();
+			ShutdownRenderer();
 			WaitForRenderingThread();
 			Durin::ShutdownDefaultMaterialService();
 			if (bOwnsRenderingThread) Durin::ShutdownRenderingThread();
+		}
+		auto ShutdownRenderer() -> void
+		{
+			if (!bRendererStarted) return;
+			RendererLifecycle.Shutdown();
+			bRendererStarted = false;
 		}
 
 		FMaterialTestEngine Engine;
 		Durin::FRendererModule RendererModule;
 		Durin::FModuleTestHarness RendererLifecycle;
 		bool bOwnsRenderingThread = false;
+		bool bRendererStarted = true;
 	};
 
 	auto ExpectColorNear(const Durin::FVector4f& Actual, const Durin::FVector4f& Expected) -> void

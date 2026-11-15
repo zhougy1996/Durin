@@ -1,4 +1,5 @@
 #include "CoreMinimal.h"
+#include "AssetEditorTestQueries.h"
 #include "LevelEditorModule.h"
 #include "Editor/LevelEditorSubsystem.h"
 #include "EditorEngineTestSupport.h"
@@ -28,17 +29,17 @@ namespace Durin
 	};
 
 	// Headless presentation adapter records ownership without allocating an RHI viewport.
-	class FLevelSessionTestEngine : public DEditorEngine
+	class FLevelEditorTestEngine : public DEditorEngine
 	{
 		static auto GetPrivateStaticClass() -> DClass*;
-		DECLARE_CLASS(FLevelSessionTestEngine, DEditorEngine, FLevelSessionTestEngine::GetPrivateStaticClass)
-		DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(FLevelSessionTestEngine)
+		DECLARE_CLASS(FLevelEditorTestEngine, DEditorEngine, FLevelEditorTestEngine::GetPrivateStaticClass)
+		DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(FLevelEditorTestEngine)
 	public:
-		explicit FLevelSessionTestEngine(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		explicit FLevelEditorTestEngine(const FObjectInitializer& Initializer) : Super(Initializer) {}
 		auto SetMainSceneViewport(std::shared_ptr<FSceneViewport> Viewport) -> void override
 		{ FEditorEngineTestAccess::SetStartupViewport(*this, std::move(Viewport)); }
 	};
-	IMPLEMENT_CLASS_NO_AUTO_REGISTRATION(FLevelSessionTestEngine)
+	IMPLEMENT_CLASS_NO_AUTO_REGISTRATION(FLevelEditorTestEngine)
 }
 
 namespace
@@ -54,7 +55,7 @@ namespace
 		for (const bool bUnsavedConfirmation : {false, true})
 		{
 			SCOPED_TRACE(bUnsavedConfirmation);
-			TStrongObjectPtr<DEditorEngine> Host(NewObject<FLevelSessionTestEngine>(nullptr, {}));
+			TStrongObjectPtr<DEditorEngine> Host(NewObject<FLevelEditorTestEngine>(nullptr, {}));
 			ASSERT_NO_THROW(FEditorEngineTestAccess::StartEditor(*Host));
 			FPackagePath Path;
 			ASSERT_TRUE(FPackagePath::TryCreate(bUnsavedConfirmation ? "/LevelOpenCancellation/Unsaved" : "/LevelOpenCancellation/Loading", Path));
@@ -67,7 +68,7 @@ namespace
 				~FRelease()
 				{
 					Package.ClearDirty();
-					if (auto* Service = Host.GetEditorSubsystem<DAssetEditorSubsystem>()) Module.ReleaseLevelEditor(*Service);
+					if (auto* AssetEditorSubsystem = Host.GetEditorSubsystem<DAssetEditorSubsystem>()) Module.ReleaseLevelEditor(*AssetEditorSubsystem);
 					Host.PreExit();
 					MarkObjectHierarchyAsGarbage(&Host);
 					MarkObjectHierarchyAsGarbage(&Package);
@@ -83,8 +84,8 @@ namespace
 				Package->MarkDirty();
 			}
 			FEditorEngineTestAccess::SetEditorWorld(*Host, World);
-			auto* Service = Host->GetEditorSubsystem<DAssetEditorSubsystem>();
-			ASSERT_TRUE(Module.InitializeLevelEditor(*Service, {}, [] {}));
+			auto* AssetEditorSubsystem = Host->GetEditorSubsystem<DAssetEditorSubsystem>();
+			ASSERT_TRUE(Module.InitializeLevelEditor(*AssetEditorSubsystem, {}, [] {}));
 			FSoftObjectPath AssetPath;
 			ASSERT_TRUE(FSoftObjectPath::TryCreate(Level->GetObjectPath(), AssetPath));
 			auto* Levels = Host->GetEditorSubsystem<DLevelEditorSubsystem>();
@@ -105,12 +106,12 @@ namespace
 				// Programmatic loading of the current level does not enter unsaved confirmation.
 				ASSERT_TRUE(Levels->LoadLevel(AssetPath.ToString()));
 				EXPECT_FALSE(Host->IsPreparingMapChange());
-				auto* Owner = Module.GetOrCreateLevelEditor(*Service);
+				auto* Owner = Module.GetOrCreateLevelEditor(*AssetEditorSubsystem);
 				EXPECT_FALSE(Owner->GetDocumentManager()->IsDocumentOpenPending(AssetPath.ToString()));
 			}
 			else
 			{
-				// Host retirement must cancel Level-owned work before asset Toolkit teardown.
+				// Host shutdown must cancel Level-owned work before asset Toolkit teardown.
 				ASSERT_TRUE(Levels->LoadLevel(AssetPath.ToString()));
 				ASSERT_TRUE(Host->IsPreparingMapChange());
 				Host->PreExit();
@@ -121,7 +122,7 @@ namespace
 		}
 	}
 
-	TEST(FLevelAssetEditorTests, SuccessiveEditorLifetimesOwnLevelSessionsAndRejectViewAndRestore)
+	TEST(FLevelAssetEditorTests, SuccessiveEditorLifetimesOwnLevelEditorsAndRejectViewAndRestore)
 	{
 		Testing::InitializeDObjectSystemForTests();
 		auto& Module = FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
@@ -134,7 +135,7 @@ namespace
 			{
 				for (const auto& Host : Hosts)
 				{
-					if (auto* Service = Host->GetEditorSubsystem<DAssetEditorSubsystem>()) Module.ReleaseLevelEditor(*Service);
+					if (auto* AssetEditorSubsystem = Host->GetEditorSubsystem<DAssetEditorSubsystem>()) Module.ReleaseLevelEditor(*AssetEditorSubsystem);
 					Host->PreExit(); MarkObjectHierarchyAsGarbage(Host.Get());
 				}
 				Hosts.clear(); CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -144,48 +145,48 @@ namespace
 		ASSERT_NE(nullptr, Definition);
 		EXPECT_FALSE(Definition->GetAssetOpenSupport({EAssetOpenMethod::View}).IsSupported);
 		EXPECT_EQ(EToolkitMode::WorldCentric, Definition->GetAssetOpenSupport({EAssetOpenMethod::Edit}).RequiredToolkitMode);
-		std::shared_ptr<FAssetEditorToolkit> RetiredToolkit;
+		std::shared_ptr<FAssetEditorToolkit> ClosedToolkit;
 		for (int Index = 0; Index != 2; ++Index)
 		{
-			auto* Host = NewObject<FLevelSessionTestEngine>(nullptr, {});
+			auto* Host = NewObject<FLevelEditorTestEngine>(nullptr, {});
 			Hosts.emplace_back(Host);
 			ASSERT_NO_THROW(FEditorEngineTestAccess::StartEditor(*Host));
-			auto* World = NewObject<DWorld>(Host, "LevelSessionWorld");
+			auto* World = NewObject<DWorld>(Host, "LevelEditorWorld");
 			World->SetWorldType(EWorldType::Editor);
 			ASSERT_NO_THROW(World->InitializeSubsystems());
 			ASSERT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World, "Scene")));
 			FEditorEngineTestAccess::SetEditorWorld(*Host, World);
-			auto* Service = Host->GetEditorSubsystem<DAssetEditorSubsystem>();
-			ASSERT_TRUE(Module.InitializeLevelEditor(*Service, {}, [] {}));
-			const auto Sessions = Service->GetOwnedAssetEditors();
-			ASSERT_EQ(1u, Sessions.size());
-			EXPECT_EQ("LevelEditor", Sessions.front()->GetEditorName().ToString());
-			EXPECT_EQ(EToolkitMode::WorldCentric, Sessions.front()->GetToolkitMode());
-			EXPECT_FALSE(Sessions.front()->SupportsRestore());
-			EXPECT_EQ(nullptr, Service->OpenAssetEditor(Sessions.front()->GetClass(), {
-				.OpenArgs = {.AssetEditors = Service, .bIsRestore = true}}));
-			EXPECT_FALSE(Sessions.front()->GetAssetOpenSupport({EAssetOpenMethod::View}).IsSupported);
-			EXPECT_TRUE(Service->CaptureSessions().empty());
-			EXPECT_EQ(1u, Sessions.front()->GetDocumentManager()->GetDocuments().size());
-			EXPECT_FALSE(Sessions.front()->TransferToHost(std::make_shared<FNonWindowToolkitHost>()));
-			EXPECT_EQ(EToolkitMode::WorldCentric, Sessions.front()->GetToolkitMode());
+			auto* AssetEditorSubsystem = Host->GetEditorSubsystem<DAssetEditorSubsystem>();
+			ASSERT_TRUE(Module.InitializeLevelEditor(*AssetEditorSubsystem, {}, [] {}));
+			const auto EditorInstances = Durin::Testing::GetReflectedEditors(AssetEditorSubsystem);
+			ASSERT_EQ(1u, EditorInstances.size());
+			EXPECT_EQ("LevelEditor", EditorInstances.front()->GetEditorName().ToString());
+			EXPECT_EQ(EToolkitMode::WorldCentric, EditorInstances.front()->GetToolkitMode());
+			EXPECT_FALSE(EditorInstances.front()->SupportsRestore());
+			EXPECT_EQ(nullptr, AssetEditorSubsystem->OpenAssetEditor(EditorInstances.front()->GetClass(), {
+				.OpenArgs = {.AssetEditors = AssetEditorSubsystem, .bIsRestore = true}}));
+			EXPECT_FALSE(EditorInstances.front()->GetAssetOpenSupport({EAssetOpenMethod::View}).IsSupported);
+			EXPECT_TRUE(AssetEditorSubsystem->CaptureEditorState().empty());
+			EXPECT_EQ(1u, EditorInstances.front()->GetDocumentManager()->GetDocuments().size());
+			EXPECT_FALSE(EditorInstances.front()->GetToolkit()->TransferToHost(std::make_shared<FNonWindowToolkitHost>()));
+			EXPECT_EQ(EToolkitMode::WorldCentric, EditorInstances.front()->GetToolkitMode());
 			if (Index == 0)
 			{
-				RetiredToolkit = Sessions.front()->GetToolkit();
-				EXPECT_TRUE(Sessions.front()->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed));
-				auto* Reopened = Module.GetOrCreateLevelEditor(*Service);
+				ClosedToolkit = EditorInstances.front()->GetToolkit();
+				EXPECT_TRUE(EditorInstances.front()->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed));
+				auto* Reopened = Module.GetOrCreateLevelEditor(*AssetEditorSubsystem);
 				ASSERT_NE(nullptr, Reopened);
-				EXPECT_NE(Sessions.front().Get(), Reopened);
-				EXPECT_EQ(1u, Service->GetOwnedAssetEditors().size());
-				Module.ReleaseLevelEditor(*Service);
+				EXPECT_NE(EditorInstances.front().Get(), Reopened);
+				EXPECT_EQ(1u, Durin::Testing::GetReflectedEditors(AssetEditorSubsystem).size());
+				Module.ReleaseLevelEditor(*AssetEditorSubsystem);
 				Host->PreExit();
 			}
 		}
 		EXPECT_EQ(nullptr, Hosts.front()->GetMainSceneViewport());
 		EXPECT_NE(nullptr, Hosts.back()->GetMainSceneViewport());
-		EXPECT_FALSE(RetiredToolkit->IsSessionActive());
-		EXPECT_FALSE(RetiredToolkit->DrawToolkit(true));
-		EXPECT_FALSE(RetiredToolkit->SaveActiveDocument());
-		EXPECT_EQ(1u, Hosts.back()->GetEditorSubsystem<DAssetEditorSubsystem>()->GetOwnedAssetEditors().size());
+		EXPECT_FALSE(ClosedToolkit->IsEditorOpen());
+		EXPECT_FALSE(ClosedToolkit->DrawToolkit(true));
+		EXPECT_FALSE(ClosedToolkit->SaveActiveDocument());
+		EXPECT_EQ(1u, Durin::Testing::GetReflectedEditors(Hosts.back()->GetEditorSubsystem<DAssetEditorSubsystem>()).size());
 	}
 }

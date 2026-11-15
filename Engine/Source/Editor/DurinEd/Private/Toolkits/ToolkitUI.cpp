@@ -23,7 +23,7 @@ namespace Durin
 		std::unordered_map<std::string, std::string> DockSignatures;
 		std::unordered_set<ImGuiID> RuntimeDockSpaces;
 		uint64 NextGeneration = 1;
-		bool bRetired = false;
+		bool bClosed = false;
 		bool bRestored = false;
 		auto Save() const -> bool
 		{
@@ -67,7 +67,7 @@ namespace Durin
 	auto FBaseAssetToolkit::RegisterUIExtension(FToolkitUIExtension Extension) -> FToolkitUIRegistration
 	{
 		FToolkitUIRegistration Result;
-		if (UI->bRetired || IsRetired()) return Result;
+		if (UI->bClosed || IsClosed()) return Result;
 		std::unordered_set<std::string> Panels, Commands;
 		for (const auto& Entry : UI->Entries)
 		{
@@ -91,9 +91,9 @@ namespace Durin
 	auto FBaseAssetToolkit::CanInvokeCommand(std::string_view Id) const -> bool
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		if (UI->bRetired || !IsSessionActive()) return false;
-		const auto* Service = GetAssetEditorSubsystem();
-		if (!Service || Service->GetActiveAssetToolkit().get() != this) return false;
+		if (UI->bClosed || !IsEditorOpen()) return false;
+		const auto* AssetEditorSubsystem = GetAssetEditorSubsystem();
+		if (!AssetEditorSubsystem || AssetEditorSubsystem->GetActiveAssetToolkit().get() != this) return false;
 		for (const auto& Entry : UI->Entries)
 			for (const auto& Command : Entry.Extension.Commands)
 				if (Command.Id == Id)
@@ -110,10 +110,10 @@ namespace Durin
 		if (!GetEditorInstance() || !Lease) return false;
 		const FStrongObjectPtr KeepAlive(GetOwningAssetEditor());
 		bool Executed = false;
-		if (auto* Service = GetAssetEditorSubsystem())
-			Service->DispatchEditorCallback([&] {
-				if (!CanInvokeCommand(Id) || UI->bRetired || !IsSessionActive()
-					|| Service->GetActiveAssetToolkit().get() != this) return;
+		if (auto* AssetEditorSubsystem = GetAssetEditorSubsystem())
+			AssetEditorSubsystem->DispatchEditorCallback([&] {
+				if (!CanInvokeCommand(Id) || UI->bClosed || !IsEditorOpen()
+					|| AssetEditorSubsystem->GetActiveAssetToolkit().get() != this) return;
 				for (const auto& Entry : UI->Entries)
 					for (const auto& Command : Entry.Extension.Commands)
 						if (Command.Id == Id) { const auto Execute = Command.Execute; Execute(); Executed = true; return; }
@@ -122,7 +122,7 @@ namespace Durin
 	}
 	auto FBaseAssetToolkit::SetPanelOpen(std::string_view Id, bool Open) -> bool
 	{
-		if (UI->bRetired) return false;
+		if (UI->bClosed) return false;
 		for (const auto& Entry : UI->Entries)
 			for (const auto& Panel : Entry.Extension.Panels)
 				if (Panel.Id == Id) { UI->Visibility[Panel.Id] = Open; UI->DirtyPanels.insert(Panel.Id); return UI->Save(); }
@@ -131,7 +131,7 @@ namespace Durin
 	auto FBaseAssetToolkit::IsPanelOpen(std::string_view Id) const -> bool
 	{
 		const auto It = UI->Visibility.find(std::string(Id));
-		return !UI->bRetired && It != UI->Visibility.end() && It->second;
+		return !UI->bClosed && It != UI->Visibility.end() && It->second;
 	}
 	auto FBaseAssetToolkit::ResetPanels() -> void
 	{
@@ -167,10 +167,10 @@ namespace Durin
 	}
 	auto FBaseAssetToolkit::DrawRegisteredUI() -> void
 	{
-		if (UI->bRetired || !IsSessionActive() || UI->Entries.empty()) return;
+		if (UI->bClosed || !IsEditorOpen() || UI->Entries.empty()) return;
 		if (!UI->bRestored) RestorePanelLayout();
 		const auto Snapshot = UI->Entries;
-		auto StillAttached = [&](uint64 Generation) { return !UI->bRetired && std::ranges::any_of(UI->Entries, [&](const auto& Entry) { return Entry.Generation == Generation; }); };
+		auto StillAttached = [&](uint64 Generation) { return !UI->bClosed && std::ranges::any_of(UI->Entries, [&](const auto& Entry) { return Entry.Generation == Generation; }); };
 		for (const auto& Entry : Snapshot)
 			for (const auto& Command : Entry.Extension.Commands)
 				if (StillAttached(Entry.Generation) && Command.bToolbar)
@@ -180,7 +180,7 @@ namespace Durin
 					ImGui::EndDisabled(); ImGui::SameLine();
 				}
 		ImGui::NewLine();
-		if (!GetEditorInstance() || UI->bRetired) return;
+		if (!GetEditorInstance() || UI->bClosed) return;
 		const FAssetEditorToolkitId LayoutId(GetPresentationRootKey(GetToolkitId().GetValue()));
 		std::vector<std::string_view> PanelIds;
 		for (const auto& Entry : Snapshot) for (const auto& Panel : Entry.Extension.Panels) PanelIds.push_back(Panel.Id);
@@ -227,7 +227,7 @@ namespace Durin
 	auto FBaseAssetToolkit::RestoreDockLayout(std::string_view Slot, const FAssetEditorToolkitId& DockType,
 		uint32 Version, std::span<const std::string_view> Panels) -> void
 	{
-		if (!ImGui::GetCurrentContext() || !IsSessionActive()) return;
+		if (!ImGui::GetCurrentContext() || !IsEditorOpen()) return;
 		UI->RuntimeDockSpaces.insert(TabLayout::MakeDockSpaceId(DockType, Version));
 		const FAssetEditorToolkitId Profile(GetLayoutProfileKey() + "." + std::string(Slot));
 		if (!ImGui::DockBuilderGetNode(TabLayout::MakeDockSpaceId(Profile, Version))) return;
@@ -237,9 +237,9 @@ namespace Durin
 	auto FBaseAssetToolkit::SaveDockLayout(std::string_view Slot, const FAssetEditorToolkitId& DockType,
 		uint32 Version, std::span<const std::string_view> Panels) -> void
 	{
-		const auto* Service = GetAssetEditorSubsystem();
-		if (!ImGui::GetCurrentContext() || !IsSessionActive() || !Service
-			|| Service->GetActiveAssetToolkit().get() != this) return;
+		const auto* AssetEditorSubsystem = GetAssetEditorSubsystem();
+		if (!ImGui::GetCurrentContext() || !IsEditorOpen() || !AssetEditorSubsystem
+			|| AssetEditorSubsystem->GetActiveAssetToolkit().get() != this) return;
 		const auto* Root = ImGui::DockBuilderGetNode(TabLayout::MakeDockSpaceId(DockType, Version));
 		if (!Root) return;
 		// Cache only live changes. The named template is serialized by ImGui's existing handler.
@@ -263,9 +263,9 @@ namespace Durin
 		}
 		TabLayout::SubmitDockSpace(Profile, Version, ImVec2(0, 0), ImGuiDockNodeFlags_KeepAliveOnly);
 	}
-	auto FBaseAssetToolkit::ReleaseSessionUI() -> void
+	auto FBaseAssetToolkit::OnClose() -> void
 	{
-		UI->bRetired = true; UI->Entries.clear();
+		UI->bClosed = true; UI->Entries.clear();
 		if (ImGui::GetCurrentContext()) for (auto Id : UI->RuntimeDockSpaces) ImGui::DockBuilderRemoveNode(Id);
 		UI->RuntimeDockSpaces.clear();
 	}

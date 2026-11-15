@@ -20,8 +20,9 @@ namespace Durin::TextureEditor
 	{
 	public:
 		auto GetLastOperationError() const -> std::string override { return ErrorMessage; }
-		explicit MTextureEditor(FEditorDocumentManager& InWorkspaceManager);
+		explicit MTextureEditor(FEditorDocumentManager& InDocumentManager);
 		TEXTUREEDITOR_API ~MTextureEditor() override;
+		TEXTUREEDITOR_API auto OnClose() -> void override;
 		TEXTUREEDITOR_API auto GetToolkitId() const -> const FAssetEditorToolkitId& override;
 		TEXTUREEDITOR_API auto OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult override;
 		TEXTUREEDITOR_API auto ActivateDocument(const FEditorDocument& Document) -> void override;

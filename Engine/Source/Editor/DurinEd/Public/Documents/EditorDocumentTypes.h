@@ -24,7 +24,7 @@ namespace Durin
 		std::string Value;
 	};
 
-	// Identifies an open editor document within the current toolkit session.
+	// Identifies an open editor document within the current toolkit.
 	struct FDocumentId
 	{
 		uint64 Value = 0;

@@ -18,13 +18,13 @@ namespace Durin
 
 namespace Durin::LevelEditor
 {
-	class FLevelEditorSessionSettings;
+	class FLevelEditorWorkspaceSettings;
 
 	// Draws reflected and customized properties for the current editor selection.
 	class FDetailsPanel final : public ILevelEditorPanel
 	{
 	public:
-		explicit FDetailsPanel(FLevelEditorSessionSettings& InSessionSettings);
+		explicit FDetailsPanel(FLevelEditorWorkspaceSettings& InWorkspaceSettings);
 		~FDetailsPanel() override;
 		auto GetWindowName() const -> const char* override { return "Details"; }
 		auto Draw(FLevelEditorContext& Context) -> void override;
@@ -37,7 +37,7 @@ namespace Durin::LevelEditor
 
 		std::array<char, 128> PropertySearchText{};
 		TObjectPtr<AActor> PropertyActor;
-		FLevelEditorSessionSettings& SessionSettings;
+		FLevelEditorWorkspaceSettings& WorkspaceSettings;
 		FPropertyView PropertyView;
 		FDetailsComponentTree ComponentTree;
 		float ComponentPaneRatio;

@@ -1,10 +1,11 @@
 #include "Widgets/MMaterialFunctionEditor.h"
+#include "Toolkits/ToolkitManager.h"
 #include "Misc/UnifiedError.h"
 #include "Materials/Material.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 #include "DObject/Class.h"
 #include "DObject/Archive.h"
-#include "Settings/MaterialEditorSessionSettings.h"
+#include "Settings/MaterialEditorProfileSettings.h"
 #include "Materials/MaterialExpressions.h"
 #include "Widgets/MaterialPreview.h"
 #include "Widgets/MaterialFunctionCallPicker.h"
@@ -54,18 +55,18 @@ namespace Durin::MaterialEditor
 	};
 
 	MMaterialFunctionEditor::MMaterialFunctionEditor(FEditorDocumentManager& InManager)
-		: SessionSettings(std::make_unique<FMaterialEditorSessionSettings>("MaterialFunctionPreferences.yaml")), Manager(InManager)
+		: ProfileSettings(std::make_unique<FMaterialEditorProfileSettings>("MaterialFunctionPreferences.yaml")), Manager(InManager)
 	{
-		if (auto* Service = Manager.GetAssetEditorSubsystem()) Documents.BindEditor(Service->GetEditor());
+		if (auto* AssetEditorSubsystem = Manager.GetAssetEditorSubsystem()) Documents.BindEditor(AssetEditorSubsystem->GetEditor());
 	}
 	MMaterialFunctionEditor::~MMaterialFunctionEditor()
 	{
 		for (const auto& [Resource, Document] : Open)
 		{
 			const auto [Zoom, Pan] = Document->Canvas->GetViewport();
-			SessionSettings->SetViewport(Resource, {.Zoom = Zoom, .Pan = Pan});
+			ProfileSettings->SetViewport(Resource, {.Zoom = Zoom, .Pan = Pan});
 		}
-		SessionSettings->Save();
+		ProfileSettings->Save();
 	}
 	auto MMaterialFunctionEditor::Find(std::string_view Resource) const -> FDocument*
 	{
@@ -88,7 +89,7 @@ namespace Durin::MaterialEditor
 			FMaterialGraphEditorServices{
 				.ReportError = [this](std::string Message) { Error = std::move(Message); },
 				.OpenFunction = [this](std::string_view Path) { OpenRelatedAsset(Path, DMaterialFunction::StaticClass()->GetQualifiedName().ToString()); }});
-		if (const auto* State = SessionSettings->FindViewport(Tab.ResourceId))
+		if (const auto* State = ProfileSettings->FindViewport(Tab.ResourceId))
 			Document->Canvas->SetViewport(State->Zoom, State->Pan);
 		Document->PreviewInvalidation.SetFunction(Function);
 		const auto Mount = FMountPaths::FindMountForVirtualPath(Function->GetPackage()->GetPackagePath());
@@ -126,8 +127,8 @@ namespace Durin::MaterialEditor
 		if (const auto* Document = Find(Tab.ResourceId))
 		{
 			const auto [Zoom, Pan] = Document->Canvas->GetViewport();
-			SessionSettings->SetViewport(Tab.ResourceId, {.Zoom = Zoom, .Pan = Pan});
-			SessionSettings->Save();
+			ProfileSettings->SetViewport(Tab.ResourceId, {.Zoom = Zoom, .Pan = Pan});
+			ProfileSettings->Save();
 		}
 		Open.erase(Tab.ResourceId); Documents.Close(Tab.ResourceId);
 		return EDocumentCloseResult::Closed;
@@ -181,9 +182,9 @@ namespace Durin::MaterialEditor
 
 	auto MMaterialFunctionEditor::ResetLayout() -> void
 	{
-		SessionSettings->bPreviewVisible = true;
-		SessionSettings->bDetailsVisible = true;
-		SessionSettings->bParametersVisible = true;
+		ProfileSettings->bPreviewVisible = true;
+		ProfileSettings->bDetailsVisible = true;
+		ProfileSettings->bParametersVisible = true;
 		for (auto& [Resource, Document] : Open) Document->bResetLayout = true;
 	}
 	auto MMaterialFunctionEditor::NavigateToNode(std::string_view Resource, const FGuid& NodeId) -> bool
@@ -192,8 +193,8 @@ namespace Durin::MaterialEditor
 		if (auto* Owner = GetOwningAssetEditor())
 		{
 			if (!OpenRelatedAsset(Resource, DMaterialFunction::StaticClass()->GetQualifiedName().ToString())) return false;
-			for (const auto& Session : Owner->GetAssetEditorSubsystem()->GetOwnedAssetEditors())
-				if (auto Toolkit = std::dynamic_pointer_cast<MMaterialFunctionEditor>(Session->GetToolkit()))
+			for (const auto& Entry : FToolkitManager::Get().GetToolkits(Owner->GetAssetEditorSubsystem()))
+				if (auto Toolkit = std::dynamic_pointer_cast<MMaterialFunctionEditor>(Entry))
 					if ((Document = Toolkit->Find(Resource))) break;
 		}
 		if (!Document || !Document->Function()) return false;
@@ -380,9 +381,9 @@ namespace Durin::MaterialEditor
 		if (ImGui::Button("Window")) ImGui::OpenPopup("FunctionWindows");
 		if (ImGui::BeginPopup("FunctionWindows"))
 		{
-			ImGui::MenuItem("Preview", nullptr, &SessionSettings->bPreviewVisible);
-			ImGui::MenuItem("Details", nullptr, &SessionSettings->bDetailsVisible);
-			ImGui::MenuItem("Inputs", nullptr, &SessionSettings->bParametersVisible);
+			ImGui::MenuItem("Preview", nullptr, &ProfileSettings->bPreviewVisible);
+			ImGui::MenuItem("Details", nullptr, &ProfileSettings->bDetailsVisible);
+			ImGui::MenuItem("Inputs", nullptr, &ProfileSettings->bParametersVisible);
 			if (ImGui::MenuItem("Reset Layout")) ResetLayout();
 			ImGui::EndPopup();
 		}
@@ -421,23 +422,23 @@ namespace Durin::MaterialEditor
 		if (BeginPanel("Material Graph", "Graph"))
 			Document.Canvas->Draw(*Documents.GetEditor()->GetTransactor(), 0);
 		ImGui::End();
-		if (SessionSettings->bDetailsVisible)
+		if (ProfileSettings->bDetailsVisible)
 		{
-			if (BeginPanel("Details", "Details", &SessionSettings->bDetailsVisible))
+			if (BeginPanel("Details", "Details", &ProfileSettings->bDetailsVisible))
 			{
 				Document.Canvas->DrawSelectionDetails(*Documents.GetEditor()->GetTransactor());
 				DrawInterface(Document);
 			}
 			ImGui::End();
 		}
-		if (SessionSettings->bParametersVisible)
+		if (ProfileSettings->bParametersVisible)
 		{
-			if (BeginPanel("Inputs", "Inputs", &SessionSettings->bParametersVisible)) DrawInputs(Document);
+			if (BeginPanel("Inputs", "Inputs", &ProfileSettings->bParametersVisible)) DrawInputs(Document);
 			ImGui::End();
 		}
-		const bool bPreviewPanel = SessionSettings->bPreviewVisible;
+		const bool bPreviewPanel = ProfileSettings->bPreviewVisible;
 		const bool PreviewVisible = bPreviewPanel
-			&& BeginPanel("Preview", "Preview", &SessionSettings->bPreviewVisible);
+			&& BeginPanel("Preview", "Preview", &ProfileSettings->bPreviewVisible);
 		Document.Preview->SetVisible(PreviewVisible);
 		if (PreviewVisible)
 		{
@@ -459,8 +460,8 @@ namespace Durin::MaterialEditor
 	auto MMaterialFunctionEditor::OnResourceIdRemapped(std::string_view Source, std::string_view Destination) -> void
 	{
 		if (auto Node = Open.extract(std::string(Source)); !Node.empty()) { Node.key() = Destination; Open.insert(std::move(Node)); }
-		SessionSettings->MoveViewport(Source, Destination);
-		SessionSettings->Save();
+		ProfileSettings->MoveViewport(Source, Destination);
+		ProfileSettings->Save();
 		Documents.RemapResourceId(Source, Destination);
 	}
 
@@ -470,11 +471,11 @@ namespace Durin::MaterialEditor
 	{
 		FBaseAssetToolkit::PostInitAssetEditor();
 		if (const auto* Owner = GetOwningAssetEditor())
-			SessionSettings->SelectStorage("MaterialEditor/Profiles/" + FXxHash128::HashBuffer(GetLayoutProfileKey()).ToString() + ".yaml");
+			ProfileSettings->SelectStorage("MaterialEditor/Profiles/" + FXxHash128::HashBuffer(GetLayoutProfileKey()).ToString() + ".yaml");
 	}
 	auto MMaterialFunctionEditor::OnHostChanged() -> void
 	{
-		SessionSettings->Save();
+		ProfileSettings->Save();
 		FBaseAssetToolkit::OnHostChanged();
 		PostInitAssetEditor();
 	}

@@ -76,12 +76,17 @@ namespace Durin::StaticMeshEditor
 
 	}
 
-	MStaticMeshInspector::MStaticMeshInspector(FEditorDocumentManager& InWorkspaceManager)
-		: DocumentManager(InWorkspaceManager)
+	MStaticMeshInspector::MStaticMeshInspector(FEditorDocumentManager& InDocumentManager)
+		: DocumentManager(InDocumentManager)
 	{
 	}
 
 	MStaticMeshInspector::~MStaticMeshInspector() = default;
+	auto MStaticMeshInspector::OnClose() -> void
+	{
+		for (auto& [ResourceId, State] : Documents) State.Preview.reset();
+		FBaseAssetToolkit::OnClose();
+	}
 
 	auto MStaticMeshInspector::GetToolkitId() const -> const FAssetEditorToolkitId&
 	{
@@ -225,8 +230,9 @@ namespace Durin::StaticMeshEditor
 	{
 		DStaticMesh* Mesh = State.Mesh.Get();
 		const FStaticMeshRenderResourceStatus Status = Mesh ? Mesh->GetRenderResourceStatus() : FStaticMeshRenderResourceStatus{};
-		if (!State.Preview) State.Preview = std::make_unique<FStaticMeshPreview>(State.PreviewId);
-		if (State.Preview) State.Preview->Draw(Mesh, Status.Revision, Height);
+		if (!State.Preview) State.Preview = std::make_shared<FStaticMeshPreview>(State.PreviewId);
+		const auto DrawingPreview = State.Preview;
+		DrawingPreview->Draw(Mesh, Status.Revision, Height);
 	}
 
 	auto MStaticMeshInspector::DrawDetails(const FEditorDocument& Document, FDocumentState& State, float Height) -> void

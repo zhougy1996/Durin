@@ -1,13 +1,15 @@
 #pragma once
 
 #include "Editor/EditorEngineTestSupport.h"
+#include "Toolkits/AssetEditorToolkit.h"
+#include "Toolkits/ToolkitManager.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Toolkits/AssetEditor.h"
 #include "DObject/ObjectLifecycle.h"
 
 namespace Durin::Testing
 {
-	// Test cleanup retires only sessions created by this scope, before feature modules stop.
+	// Close only toolkits created by this scope, before feature modules stop.
 	class FScopedAssetEditorTestHost
 	{
 	public:
@@ -20,33 +22,33 @@ namespace Durin::Testing
 				bOwnEditor = true;
 				FEditorEngineTestAccess::StartEditor(*Editor);
 			}
-			Service = Editor->GetEditorSubsystem<DAssetEditorSubsystem>();
-			if (auto* Owner = Service.Get())
-				for (const auto& Session : Owner->GetOwnedAssetEditors()) Existing.emplace(Session.Get());
+			AssetEditorSubsystem = Editor->GetEditorSubsystem<DAssetEditorSubsystem>();
+			if (auto* Subsystem = AssetEditorSubsystem.Get())
+				for (const auto& Toolkit : FToolkitManager::Get().GetToolkits(Subsystem)) Existing.emplace(Toolkit->GetWindowId());
 		}
 		~FScopedAssetEditorTestHost() { Shutdown(); }
-		auto GetService() const -> DAssetEditorSubsystem* { return Service.Get(); }
+		auto GetAssetEditorSubsystem() const -> DAssetEditorSubsystem* { return AssetEditorSubsystem.Get(); }
 		auto Open(std::string_view Path, std::string_view Class, EAssetOpenMethod Method = EAssetOpenMethod::Edit) -> bool
 		{
 			FSoftObjectPath AssetPath;
-			auto* Owner = Service.Get();
-			return Owner && FSoftObjectPath::TryCreate(Path, AssetPath) && Owner->OpenAssets({.AssetEditors = Owner,
+			auto* Subsystem = AssetEditorSubsystem.Get();
+			return Subsystem && FSoftObjectPath::TryCreate(Path, AssetPath) && Subsystem->OpenAssets({.AssetEditors = Subsystem,
 				.Assets = {{AssetPath, std::string(Class)}}, .OpenMethod = Method});
 		}
 		auto Shutdown() -> void
 		{
-			if (auto* Owner = Service.Get())
-				for (const auto& Session : Owner->GetOwnedAssetEditors())
-					if (!Existing.contains(FObjectKey(Session.Get()))) Owner->RetireAssetToolkit(*Session->GetToolkit());
-			Service = nullptr;
+			if (auto* Subsystem = AssetEditorSubsystem.Get())
+				for (const auto& Toolkit : FToolkitManager::Get().GetToolkits(Subsystem))
+					if (!Existing.contains(std::string(Toolkit->GetWindowId()))) FToolkitManager::Get().CloseToolkit(*Toolkit);
+			AssetEditorSubsystem = nullptr;
 			if (bOwnEditor && Editor)
 			{ Editor->PreExit(); MarkObjectHierarchyAsGarbage(Editor.Get()); }
 			Editor.Reset();
 		}
 	private:
 		TStrongObjectPtr<DEditorEngine> Editor;
-		TWeakObjectPtr<DAssetEditorSubsystem> Service;
-		std::unordered_set<FObjectKey, FObjectKeyHash> Existing;
+		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditorSubsystem;
+		std::unordered_set<std::string> Existing;
 		bool bOwnEditor = false;
 	};
 }
