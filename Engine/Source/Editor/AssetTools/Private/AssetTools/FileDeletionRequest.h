@@ -8,17 +8,11 @@
 #include "AssetTools/FileDeletionPlan.h"
 #include "AssetTools/NativeAssetDeletion.h"
 #include "Misc/FeedbackContext.h"
-namespace Durin::ContentStorage
-{
-	struct FFileDeletionInput { std::string Name, PhysicalPath; };
-
-}
-
 #include "AssetTools/FileDeletionOperation.h"
 namespace Durin::ContentStorage
 {
-	// One pending confirmation and one destructive attempt. Stale confirmation
-	// replaces this operation's immutable plan; no request-context session map.
+	// Adapts host policy and feedback to a single owned attempt. A stale confirmation
+	// prepares a replacement attempt; the request caches no model, plan or outcome.
 	class ASSETTOOLS_API FFileDeletionRequest
 	{
 	public:
@@ -28,23 +22,17 @@ namespace Durin::ContentStorage
 		auto DeleteItems(FFileDeletionPlanPtr&, FFileDeletionHooks Hooks = {}) -> FFileDeletionResult;
 		auto DismissDeletion(FFileDeletionPlanPtr Plan) -> void;
 		auto ValidateForExecution() -> FAssetWriteResult;
-		auto DeleteWithConfirmation(std::span<const FFileDeletionInput>, bool ShowConfirmation = true, ObjectTools::EAllowCancelDuringDelete AllowCancel = ObjectTools::EAllowCancelDuringDelete::AllowCancel) -> ObjectTools::FDeleteItemsResult;
-		auto HasCommittedEffects() const -> bool { return bCommitted; }
+		auto DeleteWithConfirmation(std::span<const FFileDeletionInput>, bool ShowConfirmation = true, ObjectTools::EAllowCancelDuringDelete AllowCancel = ObjectTools::EAllowCancelDuringDelete::AllowCancel) -> FFileDeletionResult;
 		auto SetDiagnosticSink(FFeedbackContext::FMessageSink Sink) -> void { Diagnostics = std::move(Sink); }
 	private:
-		auto AnalyzeDeletion(std::span<const FFileDeletionInput>, FAssetDeletionOperation&, ObjectTools::EAllowCancelDuringDelete) -> FFileDeletionPlanPtr;
+		auto AnalyzeDeletion(std::span<const FFileDeletionInput>, FAssetDeleteModel&, FAssetDeletionOperation&, ObjectTools::EAllowCancelDuringDelete) -> FFileDeletionPlanPtr;
 		auto CanModify(std::string* Error = nullptr) const -> bool;
 		auto Report(ELogLevel, std::string_view) const -> void;
 		auto NotifyItemsUpdated(FContentChangeBatch) -> void;
-		std::shared_ptr<FAssetDeleteModel> Model;
-		bool bPresenting = false, bCommitted = false, bExecuting = false;
+		bool bPresenting = false, bExecuting = false;
 		FContentMutationPolicy Policy;
 		FFeedbackContext::FMessageSink Diagnostics;
-		FFileDeletionPlanPtr CurrentPlan;
-		std::vector<FFileDeletionInput> CapturedRequest;
-		std::shared_ptr<FFileDeletionOperation> Execution;
-		uint64 NextSession = 0;
-		int32 LastDeletedObjects = 0;
+		std::unique_ptr<FFileDeletionOperation> Execution;
 		bool DeleteAssets = true, DeleteFiles = true;
 	};
 }

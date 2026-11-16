@@ -17,13 +17,14 @@ namespace Durin::ContentStorage
 		std::function<bool()> CanExecuteEffect;
 	};
 
+	// Sole owner of one attempt's model, native authorization and immutable confirmation inputs.
 	class ASSETTOOLS_API FFileDeletionOperation final
 	{
 	private:
 		friend class FFileDeletionRequest;
 		explicit FFileDeletionOperation(
-			FFileDeletionPlanPtr InPlan,
-			FAssetDeletionOperation InAssetOperation, bool InDeleteAssets, bool InDeleteFiles, std::shared_ptr<FAssetDeleteModel> InModel);
+			FFileDeletionPlanPtr InPlan, std::vector<FFileDeletionInput> InInputs,
+			FAssetDeletionOperation InAssetOperation, bool InDeleteAssets, bool InDeleteFiles, std::unique_ptr<FAssetDeleteModel> InModel);
 
 	public:
 		auto Execute(FFileDeletionHooks InHooks = {}) -> bool;
@@ -37,8 +38,9 @@ namespace Durin::ContentStorage
 		auto ValidatePhysicalState(FAssetDeletionFileIdentities& OutIdentities, bool OwnedOnly = false, std::optional<UnifiedError::FError>* OutError = nullptr) -> bool;
 		auto DeletePhysicalRoots(std::vector<std::filesystem::path>& RemovedPaths) -> FAssetWriteResult;
 
-		FFileDeletionPlanPtr Plan;
-		std::shared_ptr<FAssetDeleteModel> Model;
+		const FFileDeletionPlanPtr Plan;
+		const std::vector<FFileDeletionInput> Inputs;
+		std::unique_ptr<FAssetDeleteModel> Model;
 		FAssetDeletionOperation AssetOperation;
 		FAssetWriteResult Result;
 		bool bStarted = false;

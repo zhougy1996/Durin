@@ -4,6 +4,8 @@
 
 namespace Durin::ContentStorage
 {
+	struct FFileDeletionInput { std::string Name, PhysicalPath; };
+
 	// Classifies every preflight condition that can keep a deletion plan read-only.
 	enum class EFileDeletionBlocker : uint8
 	{
@@ -76,8 +78,7 @@ namespace Durin::ContentStorage
 		std::string Details;
 	};
 
-	// Confirmation and execution share immutable scope. The AssetTools request owns the
-	// execution capability; SessionId is validated against its retained owner.
+	// Immutable confirmation facts. Handle identity is checked against the active attempt.
 	struct FFileDeletionPlan
 	{
 		std::string DisplayName;
@@ -86,7 +87,6 @@ namespace Durin::ContentStorage
 		std::vector<FFileDeletionFingerprint> Entries;
 		std::vector<FFileDeletionBlocker> Blockers;
 		std::vector<FFileDeletionWarning> Warnings;
-		uint64 SessionId = 0;
 
 		auto CanExecute() const -> bool { return Blockers.empty(); }
 	};

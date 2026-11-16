@@ -26,9 +26,9 @@ namespace Durin::ContentStorage
 	}
 
 	FFileDeletionOperation::FFileDeletionOperation(
-		FFileDeletionPlanPtr InPlan,
-		FAssetDeletionOperation InAssetOperation, bool InDeleteAssets, bool InDeleteFiles, std::shared_ptr<FAssetDeleteModel> InModel)
-		: Plan(std::move(InPlan)), Model(std::move(InModel)), AssetOperation(std::move(InAssetOperation)), DeleteAssets(InDeleteAssets), DeleteFiles(InDeleteFiles)
+		FFileDeletionPlanPtr InPlan, std::vector<FFileDeletionInput> InInputs,
+		FAssetDeletionOperation InAssetOperation, bool InDeleteAssets, bool InDeleteFiles, std::unique_ptr<FAssetDeleteModel> InModel)
+		: Plan(std::move(InPlan)), Inputs(std::move(InInputs)), Model(std::move(InModel)), AssetOperation(std::move(InAssetOperation)), DeleteAssets(InDeleteAssets), DeleteFiles(InDeleteFiles)
 	{
 		ContributorRevision = GetAssetDeleteContributorRevision();
 		if (!Hooks.RemoveEntry) Hooks.RemoveEntry = DefaultRemoveEntry;

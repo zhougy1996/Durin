@@ -450,8 +450,7 @@ namespace Durin
 		if (!Operations) return false;
 		std::vector<ContentStorage::FFileDeletionInput> Inputs;
 		for (const auto& Item : Items) Inputs.push_back({Item.Name, Item.PhysicalPath});
-		Operations->DeleteWithConfirmation(Inputs);
-		return Operations->HasCommittedEffects();
+		return Operations->DeleteWithConfirmation(Inputs).HasCommittedEffects();
 	}
 } // namespace Durin
 

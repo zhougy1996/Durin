@@ -63,7 +63,7 @@ namespace Durin::ContentStorage
 	}
 	auto FFileDeletionRequest::AnalyzeDeletion(
 		std::span<const FFileDeletionInput> Items,
-		FAssetDeletionOperation& OutOperation, ObjectTools::EAllowCancelDuringDelete AllowCancel)
+		FAssetDeleteModel& Model, FAssetDeletionOperation& OutOperation, ObjectTools::EAllowCancelDuringDelete AllowCancel)
 		-> FFileDeletionPlanPtr
 	{
 		auto Plan = std::make_shared<FFileDeletionPlan>();
@@ -332,7 +332,6 @@ namespace Durin::ContentStorage
 		FFeedbackContext Feedback({}, [&](ELogLevel Level, std::string_view Message) { if (Level >= ELogLevel::Error) AdmissionError += Message; });
 		FAssetDeletionRequest Request{.AssetPaths = AssetPaths, .PhysicalRoots = PhysicalRoots};
 		bool bPrepared = true;
-		Model = std::make_shared<FAssetDeleteModel>(std::span<DObject* const>{});
 		for (const auto& Path : Request.AssetPaths)
 		{
 			const auto Entry = FindPackageExact(Path);
@@ -342,19 +341,19 @@ namespace Durin::ContentStorage
 				auto* Package = FindResidentPackage(Asset.AssetPath.GetPackagePath());
 				if (!Package) Package = LoadPackage(Asset.AssetPath.GetPackagePath());
 				auto* Object = Package ? Package->FindTopLevelAsset(FName(Asset.AssetPath.GetAssetName())) : nullptr;
-				if (Object) Model->AddObjectToDelete(Object); else bPrepared = false;
+				if (Object) Model.AddObjectToDelete(Object); else bPrepared = false;
 			}
 		}
-		if (!Model->GetPendingDeletedAssets().empty())
+		if (!Model.GetPendingDeletedAssets().empty())
 		{
-			if (!ObjectTools::Private::ScanDeleteModel(*Model, AllowCancel))
+			if (!ObjectTools::Private::ScanDeleteModel(Model, AllowCancel))
 			{
 				AddBlocker(EFileDeletionBlocker::InspectionFailed, "Assets", {}, {}, "Deletion canceled while analyzing assets.");
 				return Plan;
 			}
-			bPrepared &= Model->CanDelete();
-			if (!bPrepared) AdmissionError += Model->GetProgressText();
-			OutOperation = Model->TakeWholePackageOperation();
+			bPrepared &= Model.CanDelete();
+			if (!bPrepared) AdmissionError += Model.GetProgressText();
+			OutOperation = Model.TakeWholePackageOperation();
 		}
 		else bPrepared &= PrepareAssetDeletionWithEditorPolicy(Request, OutOperation, &Feedback);
 		if (!bPrepared && OutOperation.GetBlockers().empty())
@@ -647,33 +646,22 @@ namespace Durin::ContentStorage
 
 	FFileDeletionRequest::FFileDeletionRequest(const FContentMutationPolicy& Host, bool InDeleteAssets, bool InDeleteFiles)
 		: Policy(Host), Diagnostics(Host.ReportDiagnostic), DeleteAssets(InDeleteAssets), DeleteFiles(InDeleteFiles) {}
-	auto FFileDeletionRequest::DeleteWithConfirmation(std::span<const FFileDeletionInput> Inputs, bool ShowConfirmation, ObjectTools::EAllowCancelDuringDelete AllowCancel) -> ObjectTools::FDeleteItemsResult
+	auto FFileDeletionRequest::DeleteWithConfirmation(std::span<const FFileDeletionInput> Inputs, bool ShowConfirmation, ObjectTools::EAllowCancelDuringDelete AllowCancel) -> FFileDeletionResult
 	{
-		if (bPresenting) return {};
+		if (bPresenting) return {.bStopped = true};
 		bPresenting = true;
 		struct FReset { bool& Flag; ~FReset() { Flag = false; } } Reset{bPresenting};
 		auto Plan = PrepareDeleteItems(Inputs, AllowCancel);
 		if (!Plan || !Plan->CanExecute())
 		{
 			if (Plan) for (const auto& Blocker : Plan->Blockers) Report(ELogLevel::Error, Blocker.Details);
-			return {};
+			return {.bStopped = true};
 		}
 		std::vector<std::string> Paths;
 		for (const auto& Entry : Plan->Entries) Paths.push_back(Entry.PhysicalPath);
 		for (const auto& Warning : Plan->Warnings) Paths.push_back(Warning.Details);
-		if (ShowConfirmation && !ObjectTools::Private::ConfirmDelete(*Model, Paths, AllowCancel)) return {};
-		std::unordered_set<std::string> Folders;
-		for (const auto& Entry : Plan->Entries) if (Entry.Kind == EFileDeletionEntryKind::Directory) Folders.insert(Entry.PhysicalPath);
-		const auto Effects = DeleteItems(Plan);
-		bCommitted = Effects.HasCommittedEffects();
-		ObjectTools::FDeleteItemsResult Result{.ObjectsDeleted = LastDeletedObjects};
-		for (const auto& Effect : Effects.Effects)
-			if (Effect.Status == EFileDeletionEffectStatus::Committed)
-			{
-
-				if (Folders.contains(Effect.PhysicalPath)) ++Result.FoldersDeleted;
-			}
-		return Result;
+		if (ShowConfirmation && !ObjectTools::Private::ConfirmDelete(*Execution->Model, Paths, AllowCancel)) return {.bCancelled = true};
+		return DeleteItems(Plan);
 	}
 	auto FFileDeletionRequest::CanModify(std::string* Error) const -> bool
 	{
@@ -693,18 +681,17 @@ namespace Durin::ContentStorage
 	auto FFileDeletionRequest::PrepareDeleteItems(std::span<const FFileDeletionInput> Items, ObjectTools::EAllowCancelDuringDelete AllowCancel) -> FFileDeletionPlanPtr
 	{
 		if (bExecuting) return {};
-		CurrentPlan.reset(); Execution.reset(); Model.reset(); CapturedRequest.clear();
+		std::vector<FFileDeletionInput> Inputs(Items.begin(), Items.end());
+		Execution.reset();
+		auto Model = std::make_unique<FAssetDeleteModel>(std::span<DObject* const>{});
 		FAssetDeletionOperation AssetOperation;
-		auto Plan = std::make_shared<FFileDeletionPlan>(*AnalyzeDeletion(Items, AssetOperation, AllowCancel));
-		Plan->SessionId = ++NextSession;
-		CurrentPlan = Plan;
-		CapturedRequest.assign(Items.begin(), Items.end());
-		Execution = std::shared_ptr<FFileDeletionOperation>(new FFileDeletionOperation(Plan, std::move(AssetOperation), DeleteAssets, DeleteFiles, Model));
+		auto Plan = AnalyzeDeletion(Inputs, *Model, AssetOperation, AllowCancel);
+		Execution = std::unique_ptr<FFileDeletionOperation>(new FFileDeletionOperation(Plan, std::move(Inputs), std::move(AssetOperation), DeleteAssets, DeleteFiles, std::move(Model)));
 		return Plan;
 	}
 	auto FFileDeletionRequest::DismissDeletion(FFileDeletionPlanPtr Plan) -> void
 	{
-		if (!bExecuting && Plan == CurrentPlan) { CurrentPlan.reset(); Execution.reset(); Model.reset(); CapturedRequest.clear(); }
+		if (!bExecuting && Execution && Plan == Execution->Plan) Execution.reset();
 	}
 	auto FFileDeletionRequest::ValidateForExecution() -> FAssetWriteResult
 	{
@@ -730,7 +717,7 @@ namespace Durin::ContentStorage
 		};
 		std::string Error;
 		if (!CanModify(&Error)) return Reject(Error);
-		if (!Confirmation || Confirmation != CurrentPlan || !Execution) return Reject("Deletion confirmation was retired.");
+		if (!Confirmation || !Execution || Confirmation != Execution->Plan) return Reject("Deletion confirmation was retired.");
 		if (!Confirmation->CanExecute()) return Reject("Deletion is blocked.");
 		for (const auto& Root : Confirmation->MaximalRoots)
 		{
@@ -746,11 +733,10 @@ namespace Durin::ContentStorage
 		Hooks.CanExecuteEffect = [this, CallerAdmission] { return CanModify() && (!CallerAdmission || CallerAdmission()) && CanModify(); };
 		const bool Succeeded = Execution->Execute(std::move(Hooks));
 		const auto Native = Execution->GetResult();
-		LastDeletedObjects = Execution->HasStarted() && Model ? Model->GetDeletedObjectCount() : 0;
 		if (!Succeeded && !Execution->HasStarted())
 		{
 			if ((!Native.Error || !(Native.Error->Is(AssetWriteErrors::StaleData) || Native.Error->Is({"AssetRegistry", "StaleData"}) || Native.Error->Is({"AssetLoad", "StaleData"})))) return Reject((Native.Error ? Native.Error->ToString() : std::string{}));
-			const auto Request = CapturedRequest;
+			const auto Request = Execution->Inputs;
 			bExecuting = false;
 			Confirmation = PrepareDeleteItems(Request);
 			Result.bStopped = true;
@@ -768,7 +754,7 @@ namespace Durin::ContentStorage
 			}
 		Changes.bFullRefresh |= !Native;
 		// Retire this attempt before feedback/notifications can prepare another one.
-		CurrentPlan.reset(); Execution.reset(); Model.reset(); CapturedRequest.clear(); Confirmation.reset();
+		Execution.reset(); Confirmation.reset();
 		bExecuting = false;
 		for (const auto& Effect : Result.Effects)
 		{

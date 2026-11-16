@@ -173,6 +173,15 @@ admission and notifications over the same core; it registers no ObjectTools
 handler. `ConfirmDelete` is a private host bridge, not another public deletion
 entrypoint.
 
+Each private file/folder attempt uniquely owns its analysis model, native deletion
+authorization, immutable plan and captured inputs. The request owns only that
+attempt and host policy; it keeps no parallel model, plan, session counter or last
+result. Confirmation handle identity must match the current attempt. Stale scope
+creates a replacement handle; completed attempts retire before feedback can
+prepare another. Browser deletion consumes the returned committed-effect facts.
+Model analysis and final native/file validation remain separate phases: analysis
+does not authorize later I/O without fresh scope, ownership and byte checks.
+
 All synchronous deletion paths share one model scan loop with scoped slow-task
 progress and the requested `AllowCancelDuringDelete` policy. Cancellation stops
 before destructive execution. The current native confirmation host remains
