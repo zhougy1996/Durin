@@ -1,4 +1,4 @@
-#include "AssetTools/MutationTesting.h"
+#include "NativeAssetRenameTestSupport.h"
 #pragma once
 
 #include "CoreMinimal.h"
@@ -42,11 +42,6 @@ namespace
 		return static_cast<bool>(Graph.Apply(Material));
 	}
 
-	auto RelocateAssetForTest(
-		const Durin::FPackagePath& Source,
-		const Durin::FPackagePath& Destination) -> Durin::FAssetWriteResult
-	{
-		const Durin::FPackageRelocationTestMapping Mapping{Source, Destination};
-		return Durin::RelocatePackageFilesForTesting(std::span{&Mapping, 1}).Result;
-	}
+	auto RenameAssetForTest(const Durin::FPackagePath& Source, const Durin::FPackagePath& Destination) -> bool
+	{ return Durin::Testing::RenamePackageLeafAssetForTesting(Source, Destination); }
 }

@@ -1,5 +1,5 @@
 #include "FactoryImportTestSupport.h"
-#include "AssetTools/MutationTesting.h"
+#include "NativeAssetRenameTestSupport.h"
 #include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "NativeAssetTestSupport.h"
@@ -40,13 +40,8 @@ namespace
 		return Result ? Result->Hint : std::string{};
 	}
 
-	auto RelocateAssetForTest(
-		const Durin::FPackagePath& Source,
-		const Durin::FPackagePath& Destination) -> Durin::FAssetWriteResult
-	{
-		const Durin::FPackageRelocationTestMapping Mapping{Source, Destination};
-		return Durin::RelocatePackageFilesForTesting(std::span{&Mapping, 1}).Result;
-	}
+	auto RenameAssetForTest(const Durin::FPackagePath& Source, const Durin::FPackagePath& Destination) -> bool
+	{ return Durin::Testing::RenamePackageLeafAssetForTesting(Source, Destination); }
 }
 
 TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
@@ -187,11 +182,11 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 
 	Durin::FPackagePath RenamedPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureImportTests/Renamed", RenamedPath));
-	ASSERT_TRUE(RelocateAssetForTest(AssetPath, RenamedPath));
+	ASSERT_TRUE(RenameAssetForTest(AssetPath, RenamedPath));
 	Durin::FTopLevelAssetPath RenamedAssetPath;
 	Durin::FSoftObjectPath RenamedObjectPath;
 	ASSERT_TRUE(Durin::FTopLevelAssetPath::TryCreate(
-		RenamedPath, AssetPath.GetPackageName(), RenamedAssetPath));
+		RenamedPath, RenamedPath.GetPackageName(), RenamedAssetPath));
 	ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate(
 		RenamedAssetPath, std::span<const std::string>{}, RenamedObjectPath));
 	{
@@ -205,7 +200,9 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	ASSERT_NE(LoadedSource, nullptr);
 	EXPECT_EQ(LoadedSource->Hint, ExpectedFilename);
 	EXPECT_TRUE(Loaded->GetPlatformData()->IsValid());
-	ASSERT_TRUE(Durin::UnloadPackage(RenamedPath));
+	// Object rename keeps a live redirector; release its destination reference before unloading.
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(AssetPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(RenamedPath));
 	Durin::FAssetPackageInspection Inspection;
 	const auto Data = Durin::FindPackageExact(RenamedPath);
 	ASSERT_TRUE(Data);

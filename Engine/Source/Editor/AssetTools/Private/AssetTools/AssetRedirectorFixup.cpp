@@ -18,7 +18,6 @@
 
 namespace Durin
 {
-	using AssetToolsPrivate::EMutationStagingDuplicatePolicy;
 	using AssetToolsPrivate::EAssetMutationPublicationRole;
 	using AssetToolsPrivate::FAssetMutationStaging;
 	using AssetToolsPrivate::FAssetMutationStagingEntry;
@@ -297,9 +296,7 @@ namespace Durin
 					: FByteView{},
 				.PostBytes = PostBytes
 					? FByteView(*PostBytes)
-					: FByteView{},
-				.DuplicatePolicy =
-					EMutationStagingDuplicatePolicy::Reject}, OutIndex, OutError);
+					: FByteView{}}, OutIndex, OutError);
 		};
 
 		for (const auto& [SourcePath, ExpectedCount] : PackageRewriteCounts)

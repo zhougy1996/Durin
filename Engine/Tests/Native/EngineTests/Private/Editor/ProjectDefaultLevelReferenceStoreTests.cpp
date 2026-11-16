@@ -1,6 +1,8 @@
 #include "Asset/References.h"
 #include "NativeAssetRuntimeTestSupport.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "AssetTools/MutationTesting.h"
+#include "NativeAssetRenameTestSupport.h"
 #include <gtest/gtest.h>
 
 #include "Asset/Load.h"
@@ -34,13 +36,8 @@ namespace
 		return Path;
 	}
 
-	auto Relocate(
-		const Durin::FPackagePath& Source,
-		const Durin::FPackagePath& Destination) -> Durin::FAssetWriteResult
-	{
-		const Durin::FPackageRelocationTestMapping Mapping{Source, Destination};
-		return Durin::RelocatePackageFilesForTesting(std::span{&Mapping, 1}).Result;
-	}
+	auto Rename(const Durin::FPackagePath& Source, const Durin::FPackagePath& Destination) -> bool
+	{ return Durin::Testing::RenamePackageLeafAssetForTesting(Source, Destination); }
 
 	class FScopedStoreRegistration
 	{
@@ -123,7 +120,8 @@ namespace
 		EXPECT_TRUE(Durin::CreatePackageLeafAssetForTesting(Scenario.OldPath, Level));
 		EXPECT_NE(Level, nullptr);
 		if (Level) EXPECT_TRUE(Durin::SavePackage(Level->GetPackage()));
-		EXPECT_TRUE(Relocate(Scenario.OldPath, Scenario.NewPath));
+		EXPECT_TRUE(Rename(Scenario.OldPath, Scenario.NewPath));
+		EXPECT_TRUE(Durin::Testing::EnsurePackageNotResident(Scenario.OldPath));
 		return Fixture;
 	}
 

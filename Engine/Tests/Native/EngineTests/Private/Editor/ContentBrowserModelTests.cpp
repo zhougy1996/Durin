@@ -17,6 +17,7 @@
 #include "NativePackageUnloadTestSupport.h"
 #include "Actors/ActorChange.h"
 #include "AssetTools/MutationTesting.h"
+#include "NativeAssetRenameTestSupport.h"
 #include "Asset/RegistryOperations.h"
 #include "Asset/Testing/PackageSaveTesting.h"
 #include "Asset/Load.h"
@@ -3142,9 +3143,7 @@ TEST_F(FContentBrowserModelTests, UnusedRedirectorCanBeSelectedAloneAndTargetReq
 	DMaterial* Material = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(OldPath, Material));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
-	const FPackageRelocationTestMapping Mapping{OldPath, FinalPath};
-	ASSERT_TRUE(RelocatePackageFilesForTesting(
-		std::span{&Mapping, 1}).Result);
+	ASSERT_TRUE(Testing::RenamePackageLeafAssetForTesting(OldPath, FinalPath));
 
 	FPackageCatalogEntry AliasData =
 		FindPackageExact(OldPath);

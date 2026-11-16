@@ -4,7 +4,7 @@ Summary: Define mounted package discovery, rebuildable catalog/reference project
 
 Modules: Core, AssetRegistry, Engine, AssetTools, ContentBrowser, DurinEd, LevelEditor
 
-Last reviewed: 2026-11-16
+Last reviewed: 2026-11-17
 
 Package identity, serialization, loading, and residency are defined by
 [Asset Packages](AssetPackages.md). Authored, derived, and cooked storage
@@ -69,7 +69,7 @@ Engine converts results at its boundaries and constructs saved metadata from the
 captured bytes plus observed output stamps, without a success-path rescan;
 removal uses `PublishAssetRegistryDelta` directly. Internal Engine
 `RefreshSavedPackages` retains mount resolution and recovery/removal policy;
-relocation and redirector repair capture native registry publication snapshots.
+redirector repair captures native registry publication snapshots.
 There is no publication coordinator service or injected registry wrapper;
 affected paths may be fenced while a failed projection is reconciled. Public callers receive
 owned `FPackageCatalogEntry`/`FAssetCatalogEntry` values and immutable `FAssetCatalogSnapshot` values,
@@ -228,7 +228,7 @@ single rebuildable registry cache. CoreDObject owns object/package construction
 and graph copying, reflected capture and package persistence. Engine owns asset
 publication transactions, package residency, exact
 on-demand package inspection, Cook, bounded package-byte transformations, and
-catalog reconciliation. AssetTools owns relocation/fix-up preparation, validation,
+catalog reconciliation. AssetTools owns object rename and fix-up preparation, validation,
 multifile staging, publication ordering, and retained-backup policy. `Asset/PackageRemoval.h` supplies bounded
 batch residency release and catalog removal against expected package metadata
 and revision. It owns no selection, warning, companion-provider, or physical

@@ -1,4 +1,4 @@
-#include "AssetTools/MutationTesting.h"
+#include "NativeAssetRenameTestSupport.h"
 #include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "Threading/TaskRuntime.h"
@@ -48,13 +48,8 @@ TEST(FTextureCubeFactoryTests, ClassLookupDisambiguatesOverlappingExtensions)
 
 namespace
 {
-	auto RelocateAssetForTest(
-		const Durin::FPackagePath& Source,
-		const Durin::FPackagePath& Destination) -> Durin::FAssetWriteResult
-	{
-		const Durin::FPackageRelocationTestMapping Mapping{Source, Destination};
-		return Durin::RelocatePackageFilesForTesting(std::span{&Mapping, 1}).Result;
-	}
+	auto RenameAssetForTest(const Durin::FPackagePath& Source, const Durin::FPackagePath& Destination) -> bool
+	{ return Durin::Testing::RenamePackageLeafAssetForTesting(Source, Destination); }
 
 	constexpr std::array<std::string_view, Durin::TextureCubeFaceCount> FaceNames = {
 		"PositiveX", "NegativeX", "PositiveY", "NegativeY", "PositiveZ", "NegativeZ"};
@@ -263,17 +258,19 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
 
 	Durin::FPackagePath RenamedPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/RenamedCube", RenamedPath));
-	ASSERT_TRUE(RelocateAssetForTest(AssetPath, RenamedPath));
+	ASSERT_TRUE(RenameAssetForTest(AssetPath, RenamedPath));
 	{
 		std::optional<Durin::UnifiedError::FError> LoadedValueError;
 		auto LoadedValue = Durin::LoadObject<Durin::DTextureCube>(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
-			RenamedPath, AssetPath.GetPackageName()), nullptr, &LoadedValueError);
+			RenamedPath, RenamedPath.GetPackageName()), nullptr, &LoadedValueError);
 		Loaded = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	ExpectCubeSourcePath(*Loaded,
 		GetSourceHint(*Loaded, FaceRoles[5]), Faces[5]);
-	ASSERT_TRUE(Durin::UnloadPackage(RenamedPath));
+	// Object rename keeps a live redirector; release its destination reference before unloading.
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(AssetPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(RenamedPath));
 	ASSERT_TRUE(DeleteAssetClosureForTest({AssetPath, RenamedPath}));
 	for (const std::string& Face : Faces)
 		EXPECT_TRUE(std::filesystem::is_regular_file(Face));
@@ -522,16 +519,18 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
 
 	Durin::FPackagePath RenamedPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/RenamedPanorama", RenamedPath));
-	ASSERT_TRUE(RelocateAssetForTest(AssetPath, RenamedPath));
+	ASSERT_TRUE(RenameAssetForTest(AssetPath, RenamedPath));
 	{
 		std::optional<Durin::UnifiedError::FError> LoadedValueError;
 		auto LoadedValue = Durin::LoadObject<Durin::DTextureCube>(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
-			RenamedPath, AssetPath.GetPackageName()), nullptr, &LoadedValueError);
+			RenamedPath, RenamedPath.GetPackageName()), nullptr, &LoadedValueError);
 		Loaded = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
 	ExpectCubeSourcePath(*Loaded, GetSourceHint(*Loaded, "panorama"), Panorama);
-	ASSERT_TRUE(Durin::UnloadPackage(RenamedPath));
+	// Object rename keeps a live redirector; release its destination reference before unloading.
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(AssetPath));
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(RenamedPath));
 	ASSERT_TRUE(DeleteAssetClosureForTest({AssetPath, RenamedPath}));
 	EXPECT_TRUE(std::filesystem::is_regular_file(Panorama));
 }

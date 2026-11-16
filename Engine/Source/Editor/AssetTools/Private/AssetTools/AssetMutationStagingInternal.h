@@ -6,27 +6,15 @@
 
 #include "Asset/PackageInspection.h"
 #include "AssetMutationResultInternal.h"
-#include "AssetTools/MutationTesting.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 
 namespace Durin::AssetToolsPrivate
 {
-	auto ConsumeAssetRelocationFailure(EAssetRelocationFailurePoint Point) -> bool;
-
 	enum class EAssetMutationPublicationRole : uint8
 	{
 		RealAsset,
-		OwnedPayload,
 		Redirector,
-	};
-
-	// Selects whether an already-staged physical participant is a conflict or
-	// may reuse an identical byte-image plan.
-	enum class EMutationStagingDuplicatePolicy : uint8
-	{
-		Reject,
-		ReuseEquivalent,
 	};
 
 	// Describes the complete before/after byte images for one physical mutation
@@ -41,8 +29,6 @@ namespace Durin::AssetToolsPrivate
 		bool bPostExists = false;
 		FByteView PreBytes;
 		FByteView PostBytes;
-		EMutationStagingDuplicatePolicy DuplicatePolicy =
-			EMutationStagingDuplicatePolicy::Reject;
 	};
 
 	struct FAssetMutationStagingEntry
@@ -79,7 +65,7 @@ namespace Durin::AssetToolsPrivate
 
 	auto InitializeMutationStaging(
 		FAssetMutationStaging& Staging) -> void;
-	// On success, publishes one complete entry or reuses an equivalent entry;
+	// On success, publishes one complete entry, rejecting duplicate participants;
 	// on failure, leaves no partial entry or unowned staging root.
 	auto StageMutationEntry(
 		FAssetMutationStaging& Staging,

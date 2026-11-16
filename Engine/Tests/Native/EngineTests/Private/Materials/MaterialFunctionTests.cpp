@@ -1,7 +1,7 @@
 #include "AssetDeleteModel.h"
 #include "ObjectTools.h"
 #include "Misc/FeedbackContext.h"
-#include "AssetTools/MutationTesting.h"
+#include "NativeAssetRenameTestSupport.h"
 #include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "Materials/MaterialShaderMap.h"
@@ -1581,7 +1581,7 @@ TEST(FMaterialFunctionTests, DependencyEditsInvalidateProgramsAndPreserveOwnerSo
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
-TEST(FMaterialFunctionTests, RelocationRefreshesNestedCallersAndDeletionHonorsReferences)
+TEST(FMaterialFunctionTests, RenameRefreshesNestedCallersAndDeletionHonorsReferences)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -1622,8 +1622,7 @@ TEST(FMaterialFunctionTests, RelocationRefreshesNestedCallersAndDeletionHonorsRe
 	const auto Accepted = Material->GetAcceptedCompiledProgram();
 	const auto Revision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 	const auto OriginalLeafPath = Leaf->GetObjectPath();
-	const std::array Mappings{FPackageRelocationTestMapping{LeafPath, MovedPath}};
-	ASSERT_TRUE(RelocatePackageFilesForTesting(Mappings).Result);
+	ASSERT_TRUE(Testing::RenamePackageLeafAssetForTesting(LeafPath, MovedPath));
 	EXPECT_EQ(Wrapper->GetFunctionDependencies()[0].Get(), Leaf);
 	EXPECT_GT(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
 	EXPECT_TRUE(Material->GetMaterialCompileStatus().HasUnsubmittedEdits());

@@ -143,9 +143,11 @@ package use private staging, external-store revalidation/application/verificatio
 reference closure checks and native retirement before deletion. Browser selections
 carry exact object paths through the provider. Required aliases survive failures.
 
-The byte-level package relocation and alias fix-up implementations are private
-mechanisms. Native characterization uses explicitly named MutationTesting helpers;
-production consumers cannot invoke the removed relocation/fix-up request APIs.
+Object-based `RenameAssets` is the editor rename/move path, including test scenario
+construction. There is no parallel package-file relocation executor or relocation
+failure-injection API. Pure package-byte transformations retain direct codec
+coverage. Alias fix-up staging remains private; native characterization uses
+explicitly named `MutationTesting` helpers for that active implementation.
 External stores still own package-valued occurrences: an unambiguous pure-alias
 package can be rewritten during rename/fix-up, while a mixed package must retain
 its alias if a store cannot distinguish the selected export.

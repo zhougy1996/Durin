@@ -35,7 +35,7 @@ TEST(FStaticMeshImportTests, StaticMeshSourceProvenanceLivesOutsideContentAndSur
 	Durin::FPackagePath NewPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/StaticMeshSourceProvenance/Environment/Mesh", OldPath));
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/StaticMeshSourceProvenance/Moved/Mesh", NewPath));
-	ASSERT_TRUE(RelocateAssetForTest(OldPath, NewPath));
+	ASSERT_TRUE(RenameAssetForTest(OldPath, NewPath));
 	EXPECT_TRUE(std::filesystem::is_regular_file(StoredSource));
 	ASSERT_NE(Import.Asset->GetAssetImportData(), nullptr);
 	ImportedSource = Import.Asset->GetAssetImportData()->GetSourceData().FindByRole("source");

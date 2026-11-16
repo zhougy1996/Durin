@@ -201,22 +201,6 @@ namespace Durin::AssetToolsPrivate
 		if (const auto Existing = Staging.EntryIndices.find(Key);
 			Existing != Staging.EntryIndices.end())
 		{
-			const FAssetMutationStagingEntry& ExistingEntry =
-				Staging.Entries[Existing->second];
-			const bool bEquivalent =
-				ExistingEntry.RegistryPath == Entry.RegistryPath
-				&& ExistingEntry.Role == Entry.Role
-				&& ExistingEntry.bPreExists == Entry.bPreExists
-				&& ExistingEntry.bPostExists == Entry.bPostExists
-				&& ExistingEntry.ExpectedPreFingerprint.ContentHash == Entry.ExpectedPreFingerprint.ContentHash
-				&& ExistingEntry.StagedPostHash == Entry.StagedPostHash;
-			if (Request.DuplicatePolicy
-					== EMutationStagingDuplicatePolicy::ReuseEquivalent
-				&& bEquivalent)
-			{
-				OutEntryIndex = Existing->second;
-				return true;
-			}
 			return Reject(OutError, UnifiedError::FError{AssetWriteErrors::AlreadyExists, std::format(
 				"Asset mutation participants claim the same file {}.", Key)});
 		}

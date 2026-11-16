@@ -16,7 +16,7 @@
 #include "AssetDefinition/AssetDefinition.h"
 #include "Editor/EditorEngineTestSupport.h"
 #include "AssetTools/IAssetTools.h"
-#include "AssetTools/MutationTesting.h"
+#include "NativeAssetRenameTestSupport.h"
 #include "Misc/MountPaths.h"
 
 #include "Thumbnail/AssetThumbnailTestFixtures.h"
@@ -137,7 +137,7 @@ TEST_F(FTextureAssetEditorTests, ExistingViewDoesNotInterceptADefaultEditOpen)
 	EXPECT_FALSE(AssetEditorSubsystem->GetActiveAssetToolkit()->IsReadOnly());
 }
 
-TEST_F(FTextureAssetEditorTests, RelocationPreservesOpenTextureRoutingAndSave)
+TEST_F(FTextureAssetEditorTests, RenamePreservesOpenTextureRoutingAndSave)
 {
 	const auto SourcePackage = Args.Assets.front().AssetPath.GetPackagePath().ToString();
 	std::string DuplicateError;
@@ -157,8 +157,7 @@ TEST_F(FTextureAssetEditorTests, RelocationPreservesOpenTextureRoutingAndSave)
 	const auto EditorInstance = Durin::Testing::GetReflectedEditors(AssetEditorSubsystem).front();
 	Durin::FPackagePath Destination;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(DuplicatedPath.GetPackagePath().ToString() + "Moved", Destination));
-	const Durin::FPackageRelocationTestMapping Mapping{DuplicatedPath.GetPackagePath(), Destination};
-	ASSERT_TRUE(Durin::RelocatePackageFilesForTesting(std::span{&Mapping, 1}).Result);
+	ASSERT_TRUE(Durin::Testing::RenamePackageLeafAssetForTesting(DuplicatedPath.GetPackagePath(), Destination));
 	(void)Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Duplicate);
 	const auto Document = EditorInstance->GetDocumentManager()->GetDocuments().front();
 	EXPECT_NE(DuplicatedPath.ToString(), Document.ResourceId);
