@@ -4,7 +4,7 @@ Summary: Define asynchronous Renderer readiness, asset/shader preparation errors
 
 Modules: RenderCore, Renderer, RHI, VulkanRHI, TextureEditor
 
-Last reviewed: 2026-10-31
+Last reviewed: 2026-11-17
 
 ## Required-Success Native Construction
 
@@ -123,19 +123,22 @@ and destroys it outside that mutex, before native managers are destroyed;
 a replacement device starts with fresh admission state and a new capability
 snapshot. Surviving old identities expose terminal metadata without native PSOs.
 
-The cache owns a private `FPipelineCompileQueue`, with one worker-only Core scope,
+The cache owns a private `FPipelineCompileQueue`, with one Worker drain task,
 a bounded queue, and one active native creator. Limits across graphics and compute
-are 256 unfinished unique requests, 4,096 live internal observations, 16 MiB of
+are 256 unfinished unique requests, 16 MiB of
 conservatively charged unfinished descriptions, and 1 MiB per description.
-The queue retains shared in-flight work and independently cancelable observations
-as an implementation detail. No public request/batch admission bypasses the cache,
+Each live key shares one compilation state, priority, result, and completion
+event. The queue retains unfinished work independently of caller handles; dropping
+a caller does not cancel compilation. There is no per-caller cancellation,
+observer registry, or observation-count admission limit. No public request/batch admission bypasses the cache,
 and no per-item semaphore-waiting worker is launched.
 
-Core scope rules forbid constructing completion sources into a foreign scope
-from an executing task. Cache acquisition handles ordinary scoped callers through
-its admission handoff below; the private queue itself rejects foreign-scope
-admission before Core construction. Pending native waits reject Core workers,
-RHI replay, and the creator itself. Core is never started implicitly.
+Ordinary tasks admit requests directly on the calling thread without waiting for
+compilation or scheduler capacity. Launching the device-owned Worker drain does
+not add a completion dependency to the calling task. Cache and private-queue
+admission reject independent CPU tasks, including inherited independent children.
+Pending native waits reject Core workers, RHI replay, and the creator itself.
+Core is never started implicitly.
 
 Internal completion edges observe terminal notification and carry no native
 resource references. Accepted compilation completes Ready or Failed, or is canceled
@@ -157,10 +160,12 @@ Descriptor-set layouts and render passes are interned until device teardown,
 without artificial live-object count limits. Accounting is logical CPU metadata,
 not an allocator/driver memory measurement.
 
-`RHIExit` closes request admission and joins the device-owned Core scope before
+`RHIExit` closes request admission and joins the device-owned drain task before
 release delegates, replay shutdown, or native cache persistence/destruction.
-Queued observations cancel; in-flight native creation is joined and cannot
-publish into a closed device generation. Old request/completion handles may
+Queued compilations settle Canceled; active compilation completes its event only
+after its native call returns, and cannot publish a usable result into a closed
+device generation. In-flight creator captures are joined separately before
+teardown. Old request/completion handles may
 survive shutdown. `StopAndWait()` first preserves Ready publications for already
 accepted command consumers; after replay drains, `ReleaseResources()` releases
 those RHI references and a second retirement flush precedes native teardown.
@@ -179,15 +184,20 @@ return the same shared identity for an equal normalized key while an owner or
 recorded command retains it. Names are diagnostic only. Admission returns an
 `expected` identity or an explicit request rejection; accepted identities expose
 Pending/Ready/Failed/Canceled, immutable layout metadata, terminal readiness,
-permitted waits, and nullable pipeline results. Raw Core completion handles remain
-internal because they carry cancellation authority. A rejected request is not a
+permitted waits, and nullable pipeline results. RHI requests have no per-caller
+cancellation authority. Completion events retain no native resources. A rejected request is not a
 failed native identity; admission pressure can be retried before creation.
 
 The device-owned PipelineStateCache has a weak table capped at 4,096 entries. Keys and
 identity metadata are charged against the device metadata budget; shared
 descriptions are charged only by their RHI owner. Unfinished initializer/name
-reservations are released when compilation finishes; retained observations pay
-only for their key and observer ownership. Individual cache metadata payloads
+reservations are released when compilation finishes; retained shared states pay
+for one key and compilation identity regardless of handle count. The private
+compilation cache stores hashes and weak state references, compares full keys on
+hash matches, and prunes expired entries on cold acquisition. It retains no
+descriptors or native results after the last shared state is released. Device
+retirement visits live shared cache entries to clear their native results while
+preserving immutable layout metadata. Individual cache metadata payloads
 are capped at 1 MiB. Acquisition prunes expired identities every 60 seconds and
 at entry capacity or metadata pressure.
 
@@ -198,14 +208,13 @@ owners and GPU-aware retirement protect native lifetime.
 Maintenance skips an active creator rather than waiting for native compilation.
 Evicted PSOs can be recreated using the persistent driver pipeline cache; this
 retention policy trades CPU/driver memory for possible future creation latency.
-Cache acquisition rejects independent CPU leaves. Ordinary foreign-scope tasks
-can acquire cold identities: one lazily started admission thread per device
-performs a serialized metadata handoff outside the caller's Core scope. The
-caller waits only for admission, never native compilation. The admission thread
-queues existing Core creator work and never waits for replay, GPU work, or PSO
-completion. Closing cache admission joins this thread before closing the creation
-scope. Cache closure then joins its private queue; native results retire through
-the existing two-phase shutdown boundary.
+Cache acquisition registers cold identities directly under the cache and queue
+mutexes; it creates no admission thread, future, or cross-thread handoff. Native
+creation remains on the existing Worker drain. Cache closure closes acquisition
+under the cache mutex, then delegates the idempotent compilation join to its
+private queue. The queue owns shutdown serialization and joins its last drain,
+including earlier compiler capture retirement. Native results retire through the
+existing two-phase shutdown boundary.
 
 Drawing binds an explicit typed cache request through the command-list overload,
 which records its completion dependency. Cache/precache acquisition returns
@@ -225,20 +234,19 @@ With Core running, production fixed graphics/compute and static-mesh PSO
 factories use `FRenderPipelineRequestScope` inside their owning slot. Logical
 resource preparation before consuming passes is the prewarm trigger. A slot
 retains normalized shared cache identities across attempts (at most 256 keys and
-1 MiB of key storage), instead of creating a new observer every frame. Precache
-and drawing share the same cache; resetting a slot releases its observation
-without canceling creation retained by another slot or command. Pending and
+1 MiB of key storage). Precache and drawing share the same compilation; resetting
+a slot releases its handle without canceling queued or active creation. Pending and
 global admission pressure retry on later preparation without a failure
 diagnostic or a synchronous wait in the factory. Bare preparation callers see
 unavailable on every Pending request, including same-device replacement. Scene submission provides an explicit first-consumer boundary: it
-collects required Pending observations within each resource phase and joins them
+collects required Pending compilations within each resource phase and joins them
 at `ResolvePipelineStage_RenderThread`. Only that phase is revisited to publish
 completed slot candidates; scene collection and logical preparation are retained.
 The batch returns Empty, Ready, Failed, WaitUnavailable or CapacityExceeded, rather
 than a boolean that conflates an empty batch with a failed wait. All admitted
 requests are joined even if one fails. Preparation and admission errors remain owned by their slots; native creation
 faults cannot reach this batch as recoverable failures.
-Each phase admits at most 4,096 joined observations, including dependent request
+Each phase admits at most 4,096 joined compilation dependencies, including dependent request
 waves; overflow is explicit. A consumed graph is never replayed. Replacements join the same consumption batch
 as initial creation. Multi-PSO groups publish only when all members are Ready.
 A slot invalidates its previous payload before attempting the requested generation;
@@ -250,7 +258,7 @@ compatibility. Shader preparation itself is not made asynchronous by this helper
 Recorded command lists retain typed cache identities and their internal creation
 dependencies. Pending identities expose immutable layout metadata, never
 unfinished native handles.
-Submission retains up to 256 distinct observer dependencies per group. The
+Submission retains up to 256 distinct shared compilation dependencies per group. The
 threaded queue preserves FIFO serial order and wakes from Core completion; its
 replay thread does not wait inside a command. A failed or canceled dependency
 skips the whole batch and terminates its CPU fence with the corresponding state,
@@ -424,7 +432,7 @@ published. Shutdown follows the same consumer-before-map order.
 ## Creation Measurement Boundaries
 
 The opt-in Vulkan creation qualifiers measure public calls and frame workloads
-from the test side. Async observer admission, first-consumer waits, and an
+from the test side. Shared compilation admission, first-consumer waits, and an
 independent replay marker have separate measurements. Sequential caller
 observation of Ready is not the publication timestamp. These measurements do
 not isolate native driver time or creator queue latency. Resident pipeline

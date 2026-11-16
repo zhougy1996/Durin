@@ -707,7 +707,7 @@ namespace Durin
 		}
 		FGPUTimingQueryRHIRef TimingQuery;
 		const FTimingQuerySink TimingSink = GVolumetricCloudTimingQuerySink.load(std::memory_order_acquire);
-		if (TimingSink != nullptr && GDynamicRHI != nullptr && GDynamicRHI->RHIGetCapabilities()->bSupportsGPUTimestamps)
+		if (TimingSink != nullptr && ShouldSampleRHIGPUTiming())
 		{
 			TimingQuery = GDynamicRHI->RHICreateGPUTimingQuery();
 			if (TimingQuery) CommandList.BeginGPUTimingQuery(TimingQuery);

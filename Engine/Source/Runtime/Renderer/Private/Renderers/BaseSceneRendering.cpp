@@ -55,7 +55,7 @@ namespace Durin
 			FSceneColorTimingQuerySink Sink = GetSceneColorTimingQuerySink();
 			auto Begin(FRHICommandListImmediate& Commands) -> void
 			{
-				if (!Sink || !GDynamicRHI || !GDynamicRHI->RHIGetCapabilities()->bSupportsGPUTimestamps) return;
+				if (!Sink || !ShouldSampleRHIGPUTiming()) return;
 				Query = GDynamicRHI->RHICreateGPUTimingQuery();
 				if (Query) Commands.BeginGPUTimingQuery(Query);
 			}

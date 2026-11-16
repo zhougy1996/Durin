@@ -4,7 +4,7 @@ Summary: Scene-owned Sky Lights consume ordinary HDR cubes or capture a bounded 
 
 Modules: Engine, Renderer, RenderCore, VulkanRHI, MetalRHI, TextureCompressor, DurinEd, Launch
 
-Last reviewed: 2026-10-31
+Last reviewed: 2026-11-17
 
 ## Authoring and source selection
 
@@ -138,10 +138,14 @@ The supported path requires linear filtering of RGBA32F/RGBA16F,
 RGBA16F storage images, 8x8 compute groups, and 512-face cubes. Vulkan and
 Metal expose this through `bSupportsSkyLighting`; Metal additionally probes
 `supports32BitFloatFiltering` on the admitted device. GPU timestamps are not
-required for filtering, publication, refresh, or retirement. Exhausting the
-optional timing pool also leaves lighting updates enabled. On Metal without
-timestamps, the GPU update-time diagnostic remains unmeasured (zero), while
-completed-update counts use actual GPU completion. An unsupported device
+required for filtering, publication, refresh, or retirement. GPU update timing
+is opt-in through the transient Diagnostics `bMeasureGPUTime` property or
+`SetGPUTimeMeasurementEnabled`, and also requires global
+[diagnostic sampling](../RHI/RHIDiagnosticsAndConformance.md#gpu-timing).
+The option defaults off and affects subsequent updates without requesting a
+recapture. An unmeasured update stores `-1` in `UpdateMilliseconds` and displays
+`unavailable`; it clears any previous measurement. Completed-update counts use
+actual GPU completion regardless of sampling. An unsupported device
 contributes neutral black with a diagnostic.
 
 ## Studio content

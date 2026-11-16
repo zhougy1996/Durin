@@ -188,7 +188,7 @@ namespace Durin
                 ? GDynamicRHI->RHIGetGPUTimingResult(S.Job->Query) : FRHIGPUTimingResult{};
             auto Previous = S.Published;
             if (auto Finished = S.PollJob(Current, Light ? Light->UpdateStatus : nullptr,
-                Timing.State == ERHIGPUTimingResultState::Ready ? double(Timing.DurationNanoseconds)/1.e6 : 0.0))
+                Timing.State == ERHIGPUTimingResultState::Ready ? double(Timing.DurationNanoseconds)/1.e6 : -1.0))
             {
                 if (Current && !Finished->Completion.IsComplete() && Light)
                     S.Schedule.Fail({Finished->Output->Owner, Finished->Output->SourceEpoch,
@@ -278,9 +278,8 @@ namespace Durin
         Candidate->SourceEpoch=Light->SourceEpoch; Candidate->Provider=Provider;
         Candidate->Revision=Captured ? Sky->Revision : 0; Candidate->Request=Light->RequestSerial;
         Candidate->Source=Captured ? nullptr : Source; Candidate->CaptureTime=Time;
-        const bool bTiming = GDynamicRHI->RHIGetCapabilities()->bSupportsGPUTimestamps;
+        const bool bTiming = Light->bMeasureGPUTime && ShouldSampleRHIGPUTiming();
         auto Query = bTiming ? GDynamicRHI->RHICreateGPUTimingQuery() : FGPUTimingQueryRHIRef{};
-        // Timing pool exhaustion must not prevent a lighting update.
         FRDGBuilder Graph;
         auto Input=Graph.RegisterExternalTexture(FTextureRHIRef(Captured ? FallbackCube : Source),"Sky.Source",
             ERHIAccess::GraphicsShaderRead,ERHIAccess::GraphicsShaderRead);

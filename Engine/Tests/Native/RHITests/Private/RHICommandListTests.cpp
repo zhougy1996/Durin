@@ -132,6 +132,7 @@ namespace Durin
 		class FTestGPUTimingQuery final : public FRHIGPUTimingQuery
 		{
 		public:
+			using FRHIGPUTimingQuery::PublishInvalid;
 			~FTestGPUTimingQuery() override = default;
 		};
 
@@ -1136,6 +1137,25 @@ namespace Durin
 		InlineExecutor.Submit({}, ERHISubmitFlags::None);
 	}
 
+	TEST(FRHICommandListTests, GPUTimingReservationSurvivesRecordingAndCancelsOnDiscard)
+	{
+		auto Query = MakeRefCount<FTestGPUTimingQuery>();
+		{
+			FRHICommandList Commands;
+			Commands.BeginGPUTimingQuery(Query);
+			EXPECT_EQ(Query->GetResult().State, ERHIGPUTimingResultState::Pending);
+			// This must execute even when Shipping removes check/checkf expressions.
+			EXPECT_FALSE(Query->TryReserveRecording());
+			Commands.EndGPUTimingQuery(Query);
+			Commands.FinishRecording();
+		}
+		EXPECT_EQ(Query->GetResult().State, ERHIGPUTimingResultState::Invalid);
+		EXPECT_TRUE(Query->TryReserveRecording());
+		EXPECT_TRUE(Query->CommitRecording());
+		EXPECT_FALSE(Query->TryReserveRecording());
+		Query->PublishInvalid();
+	}
+
 	TEST(FRHICommandListTests,
 		NestedGPUTimingQueriesReplayInStrictStackOrder)
 	{
@@ -1728,9 +1748,22 @@ namespace Durin
 				EXPECT_LT(Executor.GetCompletedSerial(), Serial);
 				if (Outcome == 2)
 				{
+					auto QueuedInitializer = Initializer;
+					QueuedInitializer.PipelineLayout.PushConstantRanges = {{EShaderStageFlags::Compute, 0, 8}};
+					auto Queued = Cache.GetCompute(QueuedInitializer, "queued close witness");
+					EXPECT_TRUE(Queued);
 					auto Closing = std::async(std::launch::async, [&] { Cache.StopAndWait(); });
-					Last.Wait();
+					if (Queued)
+					{
+						const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+						while ((*Queued)->GetState() == ERHIPipelineRequestState::Pending
+							&& std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
+						EXPECT_EQ((*Queued)->GetState(), ERHIPipelineRequestState::Canceled);
+					}
+					// Active compilation keeps its shared completion pending during close.
+					EXPECT_FALSE(Fence.IsComplete());
 					Release.Trigger();
+					Last.Wait();
 					Closing.get();
 				}
 				else
@@ -1811,12 +1844,24 @@ namespace Durin
 			EXPECT_FALSE(SecondFence.IsComplete());
 			if (Outcome == 1)
 			{
+				auto QueuedInitializer = Initializer;
+				QueuedInitializer.PipelineLayout.PushConstantRanges = {{EShaderStageFlags::Compute, 0, 8}};
+				auto Queued = Cache.GetCompute(QueuedInitializer, "queued close witness");
+				EXPECT_TRUE(Queued);
 				auto Closing = std::async(std::launch::async, [&] { Cache.StopAndWait(); });
+				if (Queued)
+				{
+					const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+					while ((*Queued)->GetState() == ERHIPipelineRequestState::Pending
+						&& std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
+					EXPECT_EQ((*Queued)->GetState(), ERHIPipelineRequestState::Canceled);
+				}
+				EXPECT_FALSE(FirstFence.IsComplete());
+				Release.Trigger();
 				EXPECT_FALSE(FirstFence.TryWait());
 				EXPECT_EQ(FirstFence.GetState(), ERHICommandBatchState::Canceled);
 				EXPECT_TRUE(SecondFence.TryWait());
 				EXPECT_EQ(Order, std::vector<int>({2}));
-				Release.Trigger();
 				Closing.get();
 			}
 			else

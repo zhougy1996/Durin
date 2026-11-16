@@ -10,6 +10,13 @@ namespace Durin
 	class FDynamicRHI;
 	DECLARE_MULTICAST_DELEGATE(FRHIReleaseResourcesDelegate)
 
+	// Diagnostic sampling defaults off in Shipping. Explicit RHI queries remain
+	// available independently for runtime algorithms and backend conformance.
+	RHI_API auto IsRHIGPUTimingSamplingEnabled() -> bool;
+	RHI_API auto SetRHIGPUTimingSamplingEnabled(bool bEnabled) -> void;
+	// Includes hardware support; callers additionally require a timing consumer.
+	RHI_API auto ShouldSampleRHIGPUTiming() -> bool;
+
 	enum class ERHIExecutionMode
 	{
 		Inline,

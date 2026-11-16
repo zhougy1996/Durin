@@ -267,6 +267,8 @@ durin_add_native_test(ContentBrowserWorkflowTests
 	INCLUDE_DIRECTORIES
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
 		${_durin_content_browser_private}
+		${DURIN_PROJECT_ROOT_DIR}/Source/Editor/AssetTools/Private
+		${DURIN_PROJECT_ROOT_DIR}/Source/Editor/ContentBrowserFileDataSource/Private
 	COMPILE_DEFINITIONS CONTENTBROWSER_EXPORTS
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
@@ -957,9 +959,4 @@ durin_add_native_test(AssetCompatibilityAuditQualificationTests
 	LIBRARIES Core Engine AssetMaintenance MainFrame
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Measures the editor compatibility audit worker and presentation mailbox."
-)
-
-target_include_directories(ContentBrowserWorkflowTests PRIVATE
-	${DURIN_PROJECT_ROOT_DIR}/Source/Editor/AssetTools/Private
-	${DURIN_PROJECT_ROOT_DIR}/Source/Editor/ContentBrowserFileDataSource/Private
 )

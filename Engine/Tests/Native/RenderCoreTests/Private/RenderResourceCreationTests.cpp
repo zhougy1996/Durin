@@ -412,7 +412,7 @@ namespace Durin
 			EXPECT_TRUE(Entered.WaitFor(5.0));
 			EXPECT_EQ(Resolve(), nullptr);
 			EXPECT_EQ(Slot.GetAvailability(), ERenderResourceAvailability::Pending);
-			EXPECT_EQ(RHI.RHIGetPipelineCreationStatistics().ActiveObservers, 1u);
+			EXPECT_EQ(RHI.RHIGetPipelineCreationStatistics().UnfinishedRequests, 1u);
 			++Generation.Shader;
 			Initializer.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot = 1;
 			EXPECT_EQ(Resolve(), nullptr);

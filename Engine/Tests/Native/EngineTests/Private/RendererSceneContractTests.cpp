@@ -3447,6 +3447,26 @@ TEST(FRendererSceneContractTests, SkyLightingPublishesOnlyCompletedJobs)
     EXPECT_EQ(Status->CompletedUpdates.load(), 1u);
 }
 
+TEST(FRendererSceneContractTests, SkyLightingUntimedUpdateClearsPreviousMeasurementAndStillPublishes)
+{
+    using namespace Durin;
+    FRHIGPUQueueTimeline Timeline(AllocateRHIDeviceGeneration(), {0});
+    FSkyLightingSceneState Scene;
+    auto Status = std::make_shared<FSkyLightUpdateStatus>();
+    Status->UpdateMilliseconds = 2.5;
+    const auto Completion = Timeline.Reserve();
+    auto Candidate = std::make_shared<FSkyLightingGeneration>();
+    Scene.Job = FSkyLightingJob{Candidate, Completion, {}};
+    ASSERT_TRUE(Timeline.MarkSubmitted(Completion));
+    EXPECT_FALSE(Scene.PollJob(true, Status, -1));
+    ASSERT_TRUE(Timeline.ObserveCompleted(Completion));
+    ASSERT_TRUE(Scene.PollJob(true, Status, -1));
+    EXPECT_EQ(Scene.Published, Candidate);
+    EXPECT_EQ(Status->State.load(), ESkyLightUpdateState::Ready);
+    EXPECT_EQ(Status->CompletedUpdates.load(), 1u);
+    EXPECT_LT(Status->UpdateMilliseconds.load(), 0);
+}
+
 TEST(FRendererSceneContractTests, SkyLightingFailuresReleaseSchedulingButPreserveResultAndRetirementLease)
 {
     using namespace Durin;

@@ -508,7 +508,7 @@ namespace Durin
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.ExecuteGraph");
 		FGPUTimingQueryRHIRef Timing;
-		if (Service.ViewGPUTimingSink && GDynamicRHI->RHIGetCapabilities()->bSupportsGPUTimestamps) Timing = GDynamicRHI->RHICreateGPUTimingQuery();
+		if (Service.ViewGPUTimingSink && ShouldSampleRHIGPUTiming()) Timing = GDynamicRHI->RHICreateGPUTimingQuery();
 		if (Timing) CommandList.BeginGPUTimingQuery(Timing);
 		const auto Result = Graph.Execute(CommandList, &Service.RDGAllocator);
 		if (Timing)

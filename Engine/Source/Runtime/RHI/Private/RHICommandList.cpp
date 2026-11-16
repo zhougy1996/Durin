@@ -1915,8 +1915,8 @@ namespace Durin
 	auto FRHICommandListBase::BeginGPUTimingQuery(
 		FRHIGPUTimingQuery* Query) -> void
 	{
-		checkf(Query, "BeginGPUTimingQuery requires a query.");
-		checkf(Query->TryReserveRecording(),
+		requiref(Query, "BeginGPUTimingQuery requires a query.");
+		requiref(Query->TryReserveRecording(),
 			"GPU timing query is already recording or pending.");
 		auto Reservation = std::make_shared<FGPUTimingRecordingReservation>(Query);
 		RecordCommand<FBeginGPUTimingQueryCommand>(Reservation);

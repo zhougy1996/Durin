@@ -287,11 +287,22 @@ namespace Durin::VulkanRHI
 	TEST_F(FVulkanDiagnosticsIntegrationTests,
 		PublicTransferTimingBecomesReadyWithoutImplicitWait)
 	{
+		struct FRestoreSampling
+		{
+			bool Previous = IsRHIGPUTimingSamplingEnabled();
+			~FRestoreSampling() { SetRHIGPUTimingSamplingEnabled(Previous); }
+		} RestoreSampling;
+		SetRHIGPUTimingSamplingEnabled(false);
 		for (const char* Mode : {"inline", "threaded"})
 		{
 			SCOPED_TRACE(Mode);
 			_putenv_s("DURIN_RHI_EXECUTION", Mode);
 			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
+			EXPECT_TRUE(GDynamicRHI->RHIGetCapabilities()->bSupportsGPUTimestamps);
+			EXPECT_FALSE(ShouldSampleRHIGPUTiming());
+			SetRHIGPUTimingSamplingEnabled(true);
+			EXPECT_TRUE(ShouldSampleRHIGPUTiming());
+			SetRHIGPUTimingSamplingEnabled(false);
 			::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
 				FRHICommandListImmediate& Immediate = FRHICommandListImmediate::Get();
 				FGPUTimingQueryRHIRef Query =
@@ -307,6 +318,7 @@ namespace Durin::VulkanRHI
 				FBufferRHIRef Destination = GDynamicRHI->RHICreateBuffer(Immediate, Desc);
 				ASSERT_TRUE(Source && Destination);
 				Immediate.BeginGPUTimingQuery(Query);
+				EXPECT_EQ(Query->GetResult().State, ERHIGPUTimingResultState::Pending);
 				Immediate.TransitionBuffers(std::array{
 					FRHIBufferTransition{Source, 0, 4096,
 						ERHIAccess::Discard, ERHIAccess::TransferRead},
@@ -317,6 +329,8 @@ namespace Durin::VulkanRHI
 				Immediate.EndGPUTimingQuery(Query);
 				Immediate.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
 					ERHISubmitFlags::SubmitToGPU);
+				EXPECT_FALSE(Query->CommitRecording());
+				EXPECT_FALSE(Query->TryReserveRecording());
 				EXPECT_EQ(GDynamicRHI->RHIGetGPUTimingResult(Query).State,
 					ERHIGPUTimingResultState::Pending);
 

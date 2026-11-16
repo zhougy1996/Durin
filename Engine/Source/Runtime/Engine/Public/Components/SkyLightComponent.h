@@ -36,6 +36,8 @@ namespace Durin
 		ENGINE_API auto SetPriority(int32 Value) -> void;
 		ENGINE_API auto SetEnabled(bool Value) -> void;
 		ENGINE_API auto SetRefreshPolicy(bool bAutomatic, float Interval) -> void;
+		// Affects subsequent updates only; global diagnostic sampling must also be enabled.
+		ENGINE_API auto SetGPUTimeMeasurementEnabled(bool bEnabled) -> void;
 		// Coalesces with pending automatic requests; does not wait for GPU work.
 		ENGINE_API auto Recapture() -> void;
 		ENGINE_API auto RefreshEligibilityDiagnostic() -> void;
@@ -79,6 +81,9 @@ namespace Durin
 
 		DPROPERTY(Category = "Diagnostics", Edit, ReadOnly, Transient)
 		std::string EligibilityStatus;
+
+		DPROPERTY(Category = "Diagnostics", Edit, Transient)
+		bool bMeasureGPUTime = false;
 
 		DPROPERTY()
 		FGuid SkyLightSceneId;

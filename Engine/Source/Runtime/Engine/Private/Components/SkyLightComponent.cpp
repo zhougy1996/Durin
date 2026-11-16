@@ -56,11 +56,15 @@ namespace Durin
 			switch (UpdateStatus->State.load(std::memory_order_acquire))
 			{
 			case ESkyLightUpdateState::Ready:
-                EligibilityStatus = std::format("Ready; last GPU update {:.2f} ms; age {:.1f} s",
-                    UpdateStatus->UpdateMilliseconds.load(),
-                    std::max(0.0, std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count()
-                        - UpdateStatus->CaptureTime.load()));
-                break;
+			{
+				const double Milliseconds = UpdateStatus->UpdateMilliseconds.load();
+				const auto Timing = Milliseconds >= 0
+					? std::format("{:.2f} ms", Milliseconds) : std::string("unavailable");
+				EligibilityStatus = std::format("Ready; last GPU update {}; age {:.1f} s", Timing,
+					std::max(0.0, std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count()
+						- UpdateStatus->CaptureTime.load()));
+				break;
+			}
 			case ESkyLightUpdateState::MissingProvider: EligibilityStatus = "No eligible Procedural Sky in this World"; break;
             case ESkyLightUpdateState::Backpressure: EligibilityStatus = "GPU image budget retained by in-flight work; retry pending"; break;
 			case ESkyLightUpdateState::Failed: EligibilityStatus = "GPU update failed; retry pending"; break;
@@ -107,6 +111,7 @@ namespace Durin
 		Proxy->Intensity = Intensity;
 		Proxy->bAutomaticRefresh = bAutomaticRefresh;
 		Proxy->RefreshInterval = RefreshInterval;
+		Proxy->bMeasureGPUTime = bMeasureGPUTime;
 		Proxy->UpdateStatus = UpdateStatus;
 		Proxy->bEligible = bValidRotation && bEnabled && (!GetOwner() || !GetOwner()->IsHidden())
 			&& std::isfinite(Intensity) && Intensity >= 0 && Intensity <= 16
@@ -156,6 +161,12 @@ namespace Durin
 		bAutomaticRefresh = bAutomatic;
 		RefreshInterval = std::clamp(Interval, 0.25f, 60.0f);
 		MarkPackageDirty();
+		Publish();
+	}
+
+	auto DSkyLightComponent::SetGPUTimeMeasurementEnabled(bool bEnabled) -> void
+	{
+		bMeasureGPUTime = bEnabled;
 		Publish();
 	}
 

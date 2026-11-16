@@ -4,7 +4,7 @@ Summary: Define the source and semantic stability boundary of public RHI headers
 
 Modules: RHI, RenderCore, ShaderFormat, VulkanRHI, MetalRHI
 
-Last reviewed: 2026-11-15
+Last reviewed: 2026-11-17
 
 ## Directory Contract
 
@@ -101,17 +101,19 @@ or mutating description arrays. Content equality and hashing remain the owning
 
 Pipeline creation requests expose `GetTaskHandle()` for CPU completion
 dependencies. It is a result-free task event; successful event completion means
-only that observation finished. Inspect request GetState/GetResult for domain
-failure/cancellation. Individual cancellation signals the observer without
-canceling shared compilation. StopAndWait still joins LastDrain and compiler
-capture retirement before resource release. This erased Core handle contains no native result or cancellation
-authority over shared compilation; request cancellation remains an explicit RHI
-operation. The declaration depends on `Threading/TaskRuntime.h`, while task/event
+only that the shared compilation settled. Equal live keys share the same state
+and event; inspect request GetState/GetResult for domain failure or device
+closure. Dropping a handle never cancels compilation. Requests expose no
+individual Cancel operation. StopAndWait closes admission, settles queued work,
+and joins active compilation and LastDrain capture retirement before resource
+release. The erased Core handle contains no native result or cancellation
+authority. The declaration depends on `Threading/TaskRuntime.h`, while task/event
 composition belongs to the [Core task API](../../Core/TaskSystem.md#composition).
 The request publishes its outcome and native result before notifying terminal
-subscribers, including on cancellation. RHI queue readiness reads this domain
-publication; a subscription notification can precede the Core handle's visible
-terminal state and must not be followed by another wait for that notification.
+subscribers, including queued-work cancellation during device closure. Active
+compilation signals only after its native call returns. RHI queue readiness reads
+the shared outcome; subscribers can inspect the published result without another
+wait. Core owns completion notification ordering.
 
 An enum value, resource flag, shader frequency, or feature level is vocabulary,
 not proof that a backend implements the feature. Runtime support requires a

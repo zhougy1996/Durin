@@ -4,7 +4,7 @@ Summary: Define portable graphics-pipeline identity, draw submission, reflected 
 
 Modules: RHI, RenderCore, ShaderFormat, MetalRHI, VulkanRHI, Renderer
 
-Last reviewed: 2026-10-15
+Last reviewed: 2026-11-17
 
 ## Graphics Pipeline Contract
 
@@ -31,7 +31,7 @@ capacity backpressure so preparation can retry after owners release entries.
 
 The backend-only `FRHIPipelineStateCacheBackend` entry points reuse a key
 already validated against the same device's capabilities. They preserve the
-ordinary cache's lifecycle, payload-budget, and task-admission checks. Renderer
+ordinary cache's lifecycle, payload-budget, and independent-CPU admission checks. Renderer
 and feature callers use the validating `GetGraphics`/`GetCompute` APIs.
 
 Accepted floating-point key fields use ordinary finite numeric equality.

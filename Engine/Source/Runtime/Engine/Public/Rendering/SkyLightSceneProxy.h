@@ -14,7 +14,8 @@ namespace Durin
 		std::atomic<ESkyLightUpdateState> State{ESkyLightUpdateState::Pending};
 		std::atomic<uint64> PublishedRevision{0};
 		std::atomic<double> CaptureTime{0};
-		std::atomic<double> UpdateMilliseconds{0};
+		// Negative means the last published update has no GPU timing measurement.
+		std::atomic<double> UpdateMilliseconds{-1};
 		std::atomic<uint64> CompletedUpdates{0};
         std::atomic<uint64> RetainedImageBytes{0};
         std::atomic<double> SteadyCPUMilliseconds{0};
@@ -36,6 +37,7 @@ namespace Durin
 		float Intensity = 1.0f;
 		bool bAutomaticRefresh = true;
 		float RefreshInterval = 1.0f;
+		bool bMeasureGPUTime = false;
 		std::shared_ptr<FSkyLightUpdateStatus> UpdateStatus;
 	};
 }

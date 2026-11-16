@@ -134,18 +134,9 @@ TEST(FMetalSkyLightingTests, CapturedAndSpecifiedSourcesMatchEnergyAcrossBackend
         };
         WaitForReady();
         if (Ready) CheckEnergy({2,4,8}, true);
-        // Exhaust optional diagnostics; completion must still allow manual refresh.
-        std::vector<FGPUTimingQueryRHIRef> HeldQueries;
-        EnqueueRenderCommand("ExhaustSkyTimingPool", [&](FRHICommandListImmediate&) {
-            for (uint32 Index = 0; Index < 1500; ++Index)
-            {
-                auto Query = GDynamicRHI->RHICreateGPUTimingQuery();
-                if (!Query) break;
-                HeldQueries.push_back(std::move(Query));
-            }
-            ASSERT_FALSE(GDynamicRHI->RHICreateGPUTimingQuery());
-        });
-        FlushRenderingCommands();
+        // Timing is an explicit diagnostic request, independent of publication.
+        EXPECT_LT(Light->GetUpdateStatus()->UpdateMilliseconds.load(), 0.0);
+        Light->SetGPUTimeMeasurementEnabled(true);
         const auto FirstRequest = Request;
         Sky->SetRadianceColors({1,3,5}, {1,3,5}, {1,3,5}, {0,0,0});
         Light->Recapture();
@@ -158,19 +149,16 @@ TEST(FMetalSkyLightingTests, CapturedAndSpecifiedSourcesMatchEnergyAcrossBackend
         EXPECT_GT(Light->GetUpdateStatus()->CompletedUpdates.load(), 0u);
         EXPECT_GT(Light->GetUpdateStatus()->UpdateMilliseconds.load(), 0.0);
         if (Ready) CheckEnergy({1,3,5}, true);
+        Light->SetGPUTimeMeasurementEnabled(false);
         const auto BeforeUntimedCompletion = Light->GetUpdateStatus()->CompletedUpdates.load();
+        Light->Recapture();
         for (int Poll = 0; Poll < 200 && Light->GetUpdateStatus()->CompletedUpdates.load() == BeforeUntimedCompletion; ++Poll)
         {
             Pump();
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         EXPECT_GT(Light->GetUpdateStatus()->CompletedUpdates.load(), BeforeUntimedCompletion);
-        EXPECT_EQ(Light->GetUpdateStatus()->UpdateMilliseconds.load(), 0.0);
-        HeldQueries.clear();
-        EnqueueRenderCommand("ReleaseSkyTimingSlots", [](FRHICommandListImmediate& Cmd) {
-            Cmd.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
-        });
-        FlushRenderingCommands();
+        EXPECT_LT(Light->GetUpdateStatus()->UpdateMilliseconds.load(), 0.0);
 
         // A nonuniform sky catches wrong face indices or cube orientation.
         const auto ConstantRequest=Request;

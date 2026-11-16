@@ -385,7 +385,7 @@ namespace Durin
 			if (!Policy.bGraphManagedTextureAccess)
 				CommandList.TransitionTextures(InputTransitions);
 			FGPUTimingQueryRHIRef TimingQuery;
-			if (TimingSink != nullptr && GDynamicRHI != nullptr && GDynamicRHI->RHIGetCapabilities()->bSupportsGPUTimestamps)
+			if (TimingSink != nullptr && ShouldSampleRHIGPUTiming())
 			{
 				TimingQuery = GDynamicRHI->RHICreateGPUTimingQuery();
 				if (TimingQuery) CommandList.BeginGPUTimingQuery(TimingQuery);
@@ -439,7 +439,7 @@ namespace Durin
 		FRHIBuffer* VertexBuffer = FullscreenGeometry.GetVertexBuffer_RenderThread();
 		FRHIBuffer* IndexBuffer = FullscreenGeometry.GetIndexBuffer_RenderThread();
 		FGPUTimingQueryRHIRef TimingQuery;
-		if (TimingSink != nullptr && GDynamicRHI != nullptr && GDynamicRHI->RHIGetCapabilities()->bSupportsGPUTimestamps)
+		if (TimingSink != nullptr && ShouldSampleRHIGPUTiming())
 		{
 			TimingQuery = GDynamicRHI->RHICreateGPUTimingQuery();
 			if (TimingQuery) CommandList.BeginGPUTimingQuery(TimingQuery);

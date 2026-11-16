@@ -1260,13 +1260,14 @@ TEST(FPSOPrecacheTests, NativeCompletionAndCancellationAreVisibleWithoutAnotherM
     EXPECT_EQ(Check(Pipelines.Describe(Ready).GetComputeInitializer(), 2).Result, EResult::Hit);
 }
 
-TEST(FPSOPrecacheTests, AbandonedAdmittedObserverDoesNotRemainPermanentlyLate)
+TEST(FPSOPrecacheTests, AbandonedMaterialRequestStillObservesSharedCompilationOutcome)
 {
     using namespace Durin; using namespace PSOPrecacheValidation;
     SetEnabled(true); struct FCleanup { ~FCleanup() { SetEnabled(false); } } Cleanup;
     FMaterialPSOTestPipelines Pipelines;
     auto Native = Pipelines.Request(true);
     const auto Data = Pipelines.Describe(Native);
+    const auto Outcome = Native->GetStateObservation();
     FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& D) { return Pipelines.Submit(D); });
     auto Request = Manager.PrecachePSOs(MaterialPSOTestParams());
     Manager.Pump([&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
@@ -1274,7 +1275,13 @@ TEST(FPSOPrecacheTests, AbandonedAdmittedObserverDoesNotRemainPermanentlyLate)
     });
     EXPECT_EQ(Check(Data.GetComputeInitializer(), 2).Result, EResult::TooLate);
     Request = {}; Native.reset(); Manager.Pump({});
-    EXPECT_EQ(Check(Data.GetComputeInitializer(), 2).Result, EResult::Failed);
+    EXPECT_EQ(Check(Data.GetComputeInitializer(), 2).Result, EResult::TooLate);
+    Pipelines.Release();
+    const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (Outcome->load() == ERHIPipelineRequestState::Pending
+        && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
+    EXPECT_EQ(Outcome->load(), ERHIPipelineRequestState::Ready);
+    EXPECT_EQ(Check(Data.GetComputeInitializer(), 2).Result, EResult::Hit);
 }
 
 TEST(FPSOPrecacheTests, InitializerCopiesRetainNativeInputsWithoutACollectorOwner)

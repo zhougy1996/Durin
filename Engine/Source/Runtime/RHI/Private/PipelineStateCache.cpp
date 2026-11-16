@@ -29,38 +29,6 @@ namespace Durin
 		FState(const FRHICapabilities& InCapabilities, FRHIPipelineCompileBackend Backend)
 			: Capabilities(InCapabilities), Queue(InCapabilities, std::move(Backend)) {}
 
-		template<typename T>
-		auto Request(const T& Initializer, std::string_view Name, const FKey& Key) -> FRHIPipelineCreationRequest
-		{
-			auto Submit = [&] {
-				if constexpr (std::same_as<T, FGraphicsPipelineStateInitializer>) return Queue.RequestValidated(Initializer, Name, std::get<FGraphicsPipelineStateKey>(Key));
-				else return Queue.RequestValidated(Initializer, Name, std::get<FComputePipelineStateKey>(Key));
-			};
-			if (!Private::FTaskRuntimeAccess::GetCurrentTaskId()) return Submit();
-			// Get holds Mutex, so at most one bounded admission handoff is live.
-			// The caller retains its inputs until admission returns, never until PSO completion.
-			if (!AdmissionThread.joinable()) AdmissionThread = std::thread([this] {
-				std::unique_lock Lock(AdmissionMutex);
-				for (;;)
-				{
-					AdmissionChanged.wait(Lock, [&] { return StopAdmission || Admission; });
-					if (StopAdmission) return;
-					auto Work = std::exchange(Admission, {});
-					Lock.unlock();
-					Work();
-					Lock.lock();
-				}
-			});
-			auto Work = std::make_shared<std::packaged_task<FRHIPipelineCreationRequest()>>(Submit);
-			auto Result = Work->get_future();
-			{
-				std::lock_guard Lock(AdmissionMutex);
-				Admission = [Work] { (*Work)(); };
-			}
-			AdmissionChanged.notify_one();
-			return Result.get();
-		}
-
 		template<typename T, typename TKeyFactory>
 		auto Get(const T& Initializer, std::string_view Name, TKeyFactory&& MakeKey)
 		{
@@ -117,7 +85,10 @@ namespace Durin
 						return Queue.ReserveCacheMetadata(Bytes);
 					}
 				}();
-				auto Observation = Request(Initializer, Name, Key);
+				auto Observation = [&] {
+					if constexpr (Graphics) return Queue.RequestValidated(Initializer, Name, std::get<FGraphicsPipelineStateKey>(Key));
+					else return Queue.RequestValidated(Initializer, Name, std::get<FComputePipelineStateKey>(Key));
+				}();
 				if (!Observation.IsAccepted()) return TResult(std::unexpected(Observation.GetRejection()));
 				auto Pipeline = std::shared_ptr<TPipeline>(new TPipeline(std::move(Observation), Metadata));
 				Entries.emplace(std::move(Key), FEntry{Pipeline, std::move(Metadata)});
@@ -136,13 +107,6 @@ namespace Durin
 		std::unordered_map<FKey, FEntry, FKeyHash> Entries;
 		std::chrono::steady_clock::time_point LastPrune = std::chrono::steady_clock::now();
 		bool Closed = false;
-		std::mutex CloseMutex;
-		bool Stopped = false;
-		std::thread AdmissionThread;
-		std::mutex AdmissionMutex;
-		std::condition_variable AdmissionChanged;
-		std::function<void()> Admission;
-		bool StopAdmission = false;
 	};
 
 	FRHIPipelineStateCache::FRHIPipelineStateCache(const FRHICapabilities& Capabilities, FRHIPipelineCompileBackend Backend)
@@ -177,21 +141,12 @@ namespace Durin
 
 	auto FRHIPipelineStateCache::StopAndWait() -> void
 	{
-		std::lock_guard CloseLock(State->CloseMutex);
-		if (State->Stopped) return;
 		{
 			std::lock_guard Lock(State->Mutex);
 			State->Closed = true;
-			{
-				std::lock_guard AdmissionLock(State->AdmissionMutex);
-				State->StopAdmission = true;
-			}
-			State->AdmissionChanged.notify_one();
 			State->Entries.clear();
 		}
-		if (State->AdmissionThread.joinable()) State->AdmissionThread.join();
 		State->Queue.StopAndWait();
-		State->Stopped = true;
 	}
 	auto FRHIPipelineStateCache::ReleaseResources() -> void
 	{

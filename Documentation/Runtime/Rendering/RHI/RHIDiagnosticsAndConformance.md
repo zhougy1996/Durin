@@ -6,7 +6,7 @@ and diagnostic shutdown ownership.
 
 Modules: RHI, VulkanRHI, MetalRHI, RenderCore, ApplicationCore
 
-Last reviewed: 2026-10-31
+Last reviewed: 2026-11-17
 
 ## Diagnostic Configuration and Lifetime
 
@@ -77,6 +77,14 @@ The immutable capability snapshot publishes `bSupportsGPUTimestamps` and
 Vulkan support requires nonzero queue `timestampValidBits` and a finite positive
 timestamp period. Metal probes stage-boundary counter sampling and allocates
 a shared timestamp sample buffer before publishing support. Unsupported backends publish `false` and `0.0`.
+
+Renderer diagnostic sampling uses `ShouldSampleRHIGPUTiming()` in addition to
+an active timing consumer. `SetRHIGPUTimingSamplingEnabled` controls sampling
+at runtime; it defaults off in Shipping and on in Debug/Release. Hardware
+capabilities remain independent. Disabling sampling prevents new diagnostic
+queries, but does not cancel existing intervals or disable explicit RHI query
+creation for runtime algorithms and backend conformance. Recording reservation
+and backend commit always execute, including when assertions are compiled out.
 
 `RHICreateGPUTimingQuery` returns one counted interval on supported devices.
 Callers check timestamp capabilities first; live-slot pressure grows storage

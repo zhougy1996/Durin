@@ -11,7 +11,7 @@ namespace Durin
 	{
 	public:
 		// Key must describe Initializer and be validated against this device's
-		// capabilities. Cache lifecycle, payload, and task admission still apply.
+		// capabilities. Cache lifecycle, payload, and independent-CPU admission still apply.
 		RHI_API static auto GetGraphicsValidated(FRHIPipelineStateCache& Cache,
 			const FGraphicsPipelineStateInitializer& Initializer, std::string_view Name,
 			FGraphicsPipelineStateKey Key)

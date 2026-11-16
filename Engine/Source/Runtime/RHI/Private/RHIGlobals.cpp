@@ -11,6 +11,23 @@ namespace Durin
 	static std::unique_ptr<FRHIThread> RHIThreadOwner;
 	static const char* GOwnedBackendModuleName = nullptr;
 	static FRHIReleaseResourcesDelegate RHIReleaseResourcesDelegate;
+	static std::atomic<bool> GSampleGPUTiming{!DURIN_BUILD_SHIPPING};
+
+	auto IsRHIGPUTimingSamplingEnabled() -> bool
+	{
+		return GSampleGPUTiming.load(std::memory_order_relaxed);
+	}
+
+	auto SetRHIGPUTimingSamplingEnabled(bool bEnabled) -> void
+	{
+		GSampleGPUTiming.store(bEnabled, std::memory_order_relaxed);
+	}
+
+	auto ShouldSampleRHIGPUTiming() -> bool
+	{
+		const auto* Capabilities = GDynamicRHI ? GDynamicRHI->RHIGetCapabilities() : nullptr;
+		return IsRHIGPUTimingSamplingEnabled() && Capabilities && Capabilities->bSupportsGPUTimestamps;
+	}
 
 	namespace
 	{

@@ -120,6 +120,13 @@ TEST(FSkyLightTests, SelectsDeterministicallyAndRetiresExactSnapshots)
 	Selected = Observe();
 	ASSERT_TRUE(Selected);
 	EXPECT_EQ(Selected->PersistentId, B->GetPersistentId());
+	EXPECT_FALSE(Selected->bMeasureGPUTime);
+	B->SetGPUTimeMeasurementEnabled(true);
+	Selected = Observe();
+	ASSERT_TRUE(Selected);
+	EXPECT_TRUE(Selected->bMeasureGPUTime);
+	B->SetGPUTimeMeasurementEnabled(false);
+	EXPECT_FALSE(Observe()->bMeasureGPUTime);
 	const auto Frozen = Selected;
 	B->Recapture();
 	Selected = Observe();

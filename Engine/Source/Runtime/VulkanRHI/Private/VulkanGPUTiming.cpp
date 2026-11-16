@@ -158,7 +158,7 @@ namespace Durin::VulkanRHI
 		CommandBuffer.GetHandle().writeTimestamp(
 			vk::PipelineStageFlagBits::eBottomOfPipe, Page.Handle,
 			Query.IntervalIndex * 2 + 1);
-		check(Query.CommitRecording());
+		require(Query.CommitRecording());
 		Query.bNeedsResult = true;
 	}
 

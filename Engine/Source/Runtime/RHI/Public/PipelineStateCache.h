@@ -9,8 +9,8 @@ namespace Durin
 	class FRHICommandListBase;
 	class FRHIPipelineStateCache;
 
-	// Cache identity may exist before its complete native PSO. Drawing never owns
-	// cancellation authority over the shared creation observation.
+	// Cache identity may exist before its complete native PSO. Drawing retains
+	// shared compilation without owning cancellation authority.
 	class RHI_API FPipelineState
 	{
 	public:
@@ -55,8 +55,8 @@ namespace Durin
 	using FComputePipelineStateRef = std::shared_ptr<FComputePipelineState>;
 
 	// One device-owned, bounded weak cache. The backend owns ready native reuse.
-	// Cold requests from foreign task scopes use an admission thread; that thread
-	// only constructs observations/queues Core work and never creates native PSOs.
+	// Ordinary tasks admit cold requests directly; native creation runs on the
+	// device-owned Worker drain. Independent CPU tasks cannot acquire identities.
 	class RHI_API FRHIPipelineStateCache
 	{
 	public:

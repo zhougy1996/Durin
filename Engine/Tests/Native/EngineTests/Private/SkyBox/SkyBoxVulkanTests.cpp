@@ -698,6 +698,11 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
 {
     using namespace Durin;
+    struct FRestoreSampling
+    {
+        bool Previous = IsRHIGPUTimingSamplingEnabled();
+        ~FRestoreSampling() { SetRHIGPUTimingSamplingEnabled(Previous); }
+    } RestoreSampling;
     EnqueueRenderCommand("BeginSkySetup",[](FRHICommandListImmediate& Cmd) { GDynamicRHI->RHIBeginFrame_RenderThread(Cmd); });
     auto SceneOwner=Renderer.CreateScene();
     auto& Scene=static_cast<FScene&>(*SceneOwner);
@@ -753,6 +758,9 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
     };
     for(int i=0;i<150 && !Ready;++i) { Pump(false, false); std::this_thread::sleep_for(std::chrono::milliseconds(20)); }
     EXPECT_TRUE(Ready) << "Registration must drive first lighting without World Tick, views, or refresh-interval waits";
+    EXPECT_LT(Light->GetUpdateStatus()->UpdateMilliseconds.load(), 0.0);
+    Light->SetGPUTimeMeasurementEnabled(true);
+    SetRHIGPUTimingSamplingEnabled(true);
     Light->SetRefreshPolicy(true,0.25f);
     if(Ready)
     {
@@ -768,6 +776,7 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
         Sky->SetSunDirection(FVector3f(0,0,1));
         for(int i=0;i<100 && Revision==FirstRevision;++i) { Pump(false); std::this_thread::sleep_for(std::chrono::milliseconds(20)); }
         EXPECT_GT(Revision,FirstRevision);
+        EXPECT_GE(Light->GetUpdateStatus()->UpdateMilliseconds.load(), 0.0);
         Pump(true);
         EXPECT_NE(Before,After);
         Sky->SetExposure(0);
@@ -887,6 +896,7 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
         // Manual refresh is independent of the automatic policy. Continuous
         // animation must not cancel a generation already admitted to the GPU.
         Light->SetRefreshPolicy(false,0.25f);
+        SetRHIGPUTimingSamplingEnabled(false);
         const uint64 StableRevision=Revision;
         Sky->SetSunDirection({1,0,0});
         Pump(false);
@@ -894,6 +904,7 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
         Light->Recapture();
         for(int i=0;i<100 && Revision==StableRevision;++i) { Pump(false); std::this_thread::sleep_for(std::chrono::milliseconds(20)); }
         EXPECT_GT(Revision,StableRevision);
+        EXPECT_LT(Light->GetUpdateStatus()->UpdateMilliseconds.load(), 0.0);
         Pump(false);
         EnqueueRenderCommand("ReportSkyTiming",[&](FRHICommandListImmediate&) {
             const auto Selected=Scene.GetSkyLight_RenderThread();

@@ -403,6 +403,20 @@ namespace Durin
 		EXPECT_EQ(Observation.DestructionCount, 1u);
 	}
 
+	TEST(FRHIInitializationTests, DiagnosticGPUTimingDefaultsAndExplicitOverride)
+	{
+		const bool Previous = IsRHIGPUTimingSamplingEnabled();
+		EXPECT_EQ(Previous, !DURIN_BUILD_SHIPPING);
+		SetRHIGPUTimingSamplingEnabled(false);
+		EXPECT_FALSE(IsRHIGPUTimingSamplingEnabled());
+		EXPECT_FALSE(ShouldSampleRHIGPUTiming());
+		SetRHIGPUTimingSamplingEnabled(true);
+		EXPECT_TRUE(IsRHIGPUTimingSamplingEnabled());
+		// Enabling diagnostics does not invent a timestamp-capable device.
+		EXPECT_FALSE(ShouldSampleRHIGPUTiming());
+		SetRHIGPUTimingSamplingEnabled(Previous);
+	}
+
 	TEST(FRHIInitializationTests, InvalidExecutionModeFallsBackThreaded)
 	{
 		EXPECT_EQ(ResolveRHIExecutionMode(""), ERHIExecutionMode::Threaded);

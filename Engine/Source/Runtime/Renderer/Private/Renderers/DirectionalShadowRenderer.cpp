@@ -222,7 +222,7 @@ namespace Durin
 		FGPUTimingQueryRHIRef TimingQuery;
 		const FShadowDepthTimingQuerySink Sink =
 			GShadowDepthTimingQuerySink.load(std::memory_order_acquire);
-		if (Sink != nullptr && GDynamicRHI != nullptr && GDynamicRHI->RHIGetCapabilities()->bSupportsGPUTimestamps)
+		if (Sink != nullptr && ShouldSampleRHIGPUTiming())
 		{
 			TimingQuery = GDynamicRHI->RHICreateGPUTimingQuery();
 			if (TimingQuery) CommandList.BeginGPUTimingQuery(TimingQuery);

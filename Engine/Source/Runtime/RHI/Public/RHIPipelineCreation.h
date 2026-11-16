@@ -64,8 +64,8 @@ namespace Durin
 		FComputePipelineStateRHIRef Compute;
 	};
 
-	// One observer of shared device work. Copying a handle copies that observer;
-	// a separate request call creates an independently cancelable observer.
+	// Handles for the same live pipeline key share compilation state and completion.
+	// Dropping a handle never cancels compilation retained by the device queue.
 	class FRHIPipelineCreationRequest
 	{
 	public:
@@ -78,12 +78,12 @@ namespace Durin
 		// Shares only the authoritative outcome, without retaining native resources.
 		RHI_API auto GetStateObservation() const -> std::shared_ptr<const std::atomic<ERHIPipelineRequestState>>;
 		RHI_API auto GetResult() const -> FRHIPipelineCreationResult;
-		// Completion signal only; inspect acceptance first, then compilation state/cancellation.
+		// One completion signal per compilation. Canceled means device closure or
+		// retirement; dropping a caller never signals completion or cancels work.
 		RHI_API auto GetTaskHandle() const -> Tasks::FTask;
 		RHI_API auto IsCompute() const -> bool;
 		// Immutable recording metadata is available before the native pipeline.
 		RHI_API auto GetPipelineLayout() const -> std::shared_ptr<const FPipelineLayoutDesc>;
-		RHI_API auto Cancel() const -> bool;
 		RHI_API auto BoostPriority(EPSOPrecachePriority Priority) const -> void;
 		RHI_API auto GetPriority() const -> EPSOPrecachePriority;
 		// Pending waits reject replay and Core workers; asynchronous callers use completion edges.
@@ -99,7 +99,6 @@ namespace Durin
 	struct FRHIPipelineCreationStatistics
 	{
 		uint32 UnfinishedRequests = 0;
-		uint32 ActiveObservers = 0;
 		uint64 UnfinishedDescriptionBytes = 0;
 		uint64 RejectedRequests = 0;
 		uint64 SharedPendingHits = 0;

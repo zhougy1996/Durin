@@ -79,7 +79,7 @@ namespace Durin
 			FRHICommandListImmediate& InCommandList, TimingQuerySink InSink)
 			: CommandList(InCommandList), Sink(InSink)
 		{
-			if (Sink == nullptr || GDynamicRHI == nullptr || !GDynamicRHI->RHIGetCapabilities()->bSupportsGPUTimestamps) return;
+			if (Sink == nullptr || !ShouldSampleRHIGPUTiming()) return;
 			Query = GDynamicRHI->RHICreateGPUTimingQuery();
 			if (Query) CommandList.BeginGPUTimingQuery(Query);
 		}
