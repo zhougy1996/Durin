@@ -1,4 +1,4 @@
-#include "Data/FileDeletionRequest.h"
+#include "AssetTools/FileDeletionRequest.h"
 #include "AssetTools/DeleteItemsHost.h"
 #include "Misc/ContentMountPaths.h"
 #include "Misc/ContentPathInspection.h"

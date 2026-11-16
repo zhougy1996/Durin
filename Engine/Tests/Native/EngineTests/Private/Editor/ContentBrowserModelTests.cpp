@@ -5755,7 +5755,6 @@ TEST_F(FContentBrowserModelTests, DeleteAssetsSharesObjectOrchestrationAndRetain
 TEST_F(FContentBrowserModelTests, DeleteItemsReportsObjectsAndFoldersSeparatelyForMixedFolders)
 {
 	InitializeDObjectSystem();
-	FModuleManager::Get().LoadModuleChecked("ContentBrowserFileDataSource");
 	FPackagePath Path; ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/MixedDelete/Asset", Path));
 	DObject* Object = nullptr; ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Object));
 	auto* Sibling = NewObject<DObject>(Object->GetPackage(), FName("Sibling"), EObjectFlags::Public);

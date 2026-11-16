@@ -235,8 +235,9 @@ and revision. It owns no selection, warning, companion-provider, or physical
 deletion policy. `IAssetTools` owns asset creation, duplication, import, rename and referencer
 fix-up. `ObjectTools` and `FAssetDeleteModel` own deletion policy, analysis and
 confirmation over a private native executor. Editor hosts own UI and presentation;
-ContentBrowser additionally owns recursive ordinary-file planning and permanent
-physical deletion for mixed selections. Successful authored operations advance
+AssetTools additionally owns recursive ordinary-file planning and permanent
+physical deletion for mixed selections; ContentBrowser adapts provider selection
+and publishes committed effects through that private core. Successful authored operations advance
 DurinEd's mounted-content mutation revision exactly once and never enter the
 global object-edit Undo/Redo history.
 

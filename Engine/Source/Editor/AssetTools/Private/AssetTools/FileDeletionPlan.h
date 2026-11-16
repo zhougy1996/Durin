@@ -76,8 +76,8 @@ namespace Durin::ContentStorage
 		std::string Details;
 	};
 
-	// Confirmation and execution share immutable scope. Only the data source owns the
-	// move-only execution capability; SessionId is validated against its retained owner.
+	// Confirmation and execution share immutable scope. The AssetTools request owns the
+	// execution capability; SessionId is validated against its retained owner.
 	struct FFileDeletionPlan
 	{
 		std::string DisplayName;

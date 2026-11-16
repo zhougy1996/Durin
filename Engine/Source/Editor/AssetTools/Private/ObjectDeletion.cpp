@@ -1,6 +1,7 @@
 #include "ObjectTools.h"
 #include "AssetDeleteModel.h"
 #include "AssetTools/DeleteItemsHost.h"
+#include "AssetTools/FileDeletionRequest.h"
 #include "Asset/Load.h"
 #include "DObject/Package.h"
 #include "Misc/FeedbackContext.h"
@@ -12,7 +13,6 @@ namespace Durin::ObjectTools
 	namespace
 	{
 		FDeletePrompt DeletePrompt;
-		Private::FFolderDeleteHandler FolderDeleteHandler;
 		bool Deleting = false;
 		// Keeps loading, scanning and confirmation callbacks inside one non-reentrant attempt.
 		struct FDeleteScope
@@ -35,8 +35,6 @@ namespace Durin::ObjectTools
 		}
 	}
 	auto SetDeletePrompt(FDeletePrompt Prompt) -> void { CheckGameThread(); DeletePrompt = std::move(Prompt); }
-	auto Private::SetFolderDeleteHandler(FFolderDeleteHandler Handler) -> void
-	{ CheckGameThread(); FolderDeleteHandler = std::move(Handler); }
 	auto Private::ScanDeleteModel(FAssetDeleteModel& Model, EAllowCancelDuringDelete AllowCancel) -> bool
 	{
 		CheckGameThread();
@@ -96,10 +94,7 @@ namespace Durin::ObjectTools
 		if (!Scope.Entered) return {};
 		const auto Selection = Parameters;
 		if (!Selection.FoldersToDelete.empty())
-		{
-			const auto Handler = FolderDeleteHandler;
-			return Handler ? Handler(Selection) : FDeleteItemsResult{};
-		}
+			return ContentStorage::FFileDeletionRequest::DeleteObjectsAndFolders(Selection);
 		FAssetDeleteModel Model(Selection.ObjectsToDelete);
 		return DeleteModel(Model, Selection, {});
 	}

@@ -2,10 +2,10 @@
 
 #include "CoreMinimal.h"
 #include "AssetDeleteModel.h"
-#include "ContentBrowserFileDataSourceAPI.h"
+#include "AssetToolsAPI.h"
 #include "AssetTools/NativeAssetDeletion.h"
-#include "Data/FileDeletionPlan.h"
-#include "Data/FileDeletionResult.h"
+#include "AssetTools/FileDeletionPlan.h"
+#include "AssetTools/FileDeletionResult.h"
 
 namespace Durin::ContentStorage
 {
@@ -17,7 +17,7 @@ namespace Durin::ContentStorage
 		std::function<bool()> CanExecuteEffect;
 	};
 
-	class CONTENTBROWSERFILEDATASOURCE_API FFileDeletionOperation final
+	class ASSETTOOLS_API FFileDeletionOperation final
 	{
 	private:
 		friend class FFileDeletionRequest;

@@ -2,10 +2,10 @@
 #include "CoreMinimal.h"
 #include "AssetDeleteModel.h"
 #include "ObjectTools.h"
-#include "ContentBrowserFileDataSourceAPI.h"
+#include "AssetToolsAPI.h"
 #include "AssetTools/ContentMutation.h"
-#include "Data/FileDeletionResult.h"
-#include "Data/FileDeletionPlan.h"
+#include "AssetTools/FileDeletionResult.h"
+#include "AssetTools/FileDeletionPlan.h"
 #include "AssetTools/NativeAssetDeletion.h"
 #include "Misc/FeedbackContext.h"
 namespace Durin::ContentStorage
@@ -14,12 +14,12 @@ namespace Durin::ContentStorage
 
 }
 
-#include "Data/FileDeletionOperation.h"
+#include "AssetTools/FileDeletionOperation.h"
 namespace Durin::ContentStorage
 {
 	// One pending confirmation and one destructive attempt. Stale confirmation
 	// replaces this operation's immutable plan; no request-context session map.
-	class CONTENTBROWSERFILEDATASOURCE_API FFileDeletionRequest
+	class ASSETTOOLS_API FFileDeletionRequest
 	{
 	public:
 		static auto DeleteObjectsAndFolders(const ObjectTools::FDeleteItemsParameters&) -> ObjectTools::FDeleteItemsResult;

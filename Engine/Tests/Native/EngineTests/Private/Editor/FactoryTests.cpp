@@ -32,6 +32,7 @@
 #include "Misc/Paths.h"
 #include "Misc/MountPathTestSupport.h"
 #include "Misc/MountPaths.h"
+#include "Modules/ModuleManager.h"
 #include "NativeTestSupport.h"
 
 #include <gtest/gtest.h>
@@ -400,6 +401,53 @@ namespace
 		return Factory;
 	}
 
+}
+
+TEST(DObjectToolsTests, FolderDeletionWithoutBrowserModulesRevalidatesAndCountsActualRemovals)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	auto& Modules = FModuleManager::Get();
+	ASSERT_FALSE(Modules.IsModuleLoaded(FName("ContentBrowserAssetDataSource")));
+	ASSERT_FALSE(Modules.IsModuleLoaded(FName("ContentBrowserFileDataSource")));
+	auto* Object = IAssetTools::Get().CreateAsset("Asset", "/AssetToolsTests/HeadlessDelete", DObject::StaticClass(), nullptr);
+	auto* Explicit = IAssetTools::Get().CreateAsset("FolderDeleteExplicit", "/AssetToolsTests", DObject::StaticClass(), nullptr);
+	ASSERT_NE(Object, nullptr); ASSERT_NE(Explicit, nullptr);
+	auto* Sibling = NewObject<DObject>(Object->GetPackage(), FName("Sibling"), EObjectFlags::Public);
+	ASSERT_NE(Sibling, nullptr);
+	ASSERT_TRUE(SavePackage(Object->GetPackage()));
+	ASSERT_TRUE(SavePackage(Explicit->GetPackage()));
+	const auto Folder = Testing::GetTestWorkDirectory() / "AssetTools/HeadlessDelete";
+	std::filesystem::create_directories(Folder / "Empty");
+	std::ofstream(Folder / "note.txt") << "ordinary";
+	ObjectTools::FDeleteItemsParameters Parameters{
+		.ObjectsToDelete = {Explicit}, .FoldersToDelete = {"/AssetToolsTests/HeadlessDelete"}};
+	int Prompts = 0;
+	ObjectTools::SetDeletePrompt([&](auto&, auto, auto) {
+		++Prompts;
+		std::ofstream(Folder / "new.txt") << "unconfirmed";
+		return true;
+	});
+	struct FClearPrompt { ~FClearPrompt() { ObjectTools::SetDeletePrompt({}); } } ClearPrompt;
+	const auto Stale = ObjectTools::DeleteItems(Parameters);
+	EXPECT_EQ(Stale.ObjectsDeleted, 0);
+	EXPECT_EQ(Stale.FoldersDeleted, 0);
+	EXPECT_EQ(Prompts, 1);
+	EXPECT_TRUE(std::filesystem::exists(Folder / "Asset.dasset"));
+	EXPECT_TRUE(std::filesystem::exists(Folder / "new.txt"));
+	EXPECT_FALSE(Explicit->IsGarbage());
+	Parameters.bShowConfirmation = false;
+	const auto Deleted = ObjectTools::DeleteItems(Parameters);
+	EXPECT_EQ(Deleted.ObjectsDeleted, 3);
+	EXPECT_EQ(Deleted.FoldersDeleted, 2);
+	EXPECT_EQ(Prompts, 1);
+	EXPECT_FALSE(std::filesystem::exists(Folder));
+	const auto Root = ObjectTools::DeleteItems({.FoldersToDelete = {"/AssetToolsTests/"}, .bShowConfirmation = false});
+	EXPECT_EQ(Root.ObjectsDeleted, 0);
+	EXPECT_EQ(Root.FoldersDeleted, 0);
+	EXPECT_TRUE(std::filesystem::is_directory(Folder.parent_path()));
+	EXPECT_FALSE(Modules.IsModuleLoaded(FName("ContentBrowserAssetDataSource")));
+	EXPECT_FALSE(Modules.IsModuleLoaded(FName("ContentBrowserFileDataSource")));
 }
 
 TEST(DFactoryTests, FileListKeepsFirstCollisionSuccessAndReturnsNoNullSlots)

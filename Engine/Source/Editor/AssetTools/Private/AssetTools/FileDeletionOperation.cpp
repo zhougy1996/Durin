@@ -1,4 +1,4 @@
-#include "Data/FileDeletionOperation.h"
+#include "AssetTools/FileDeletionOperation.h"
 #include "Misc/ContentPathInspection.h"
 #include "Misc/ContentMountPaths.h"
 

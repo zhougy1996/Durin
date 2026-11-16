@@ -267,7 +267,6 @@ durin_add_native_test(ContentBrowserWorkflowTests
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
 		${_durin_content_browser_private}
 		${DURIN_PROJECT_ROOT_DIR}/Source/Editor/AssetTools/Private
-		${DURIN_PROJECT_ROOT_DIR}/Source/Editor/ContentBrowserFileDataSource/Private
 	COMPILE_DEFINITIONS CONTENTBROWSER_EXPORTS
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."

@@ -3,7 +3,7 @@
 #include "Editor/ContentBrowserQueryTestSupport.h"
 #include "ContentBrowserItemAttributeHelpers.h"
 #include "FileHelpers.h"
-#include "Data/FileDeletionRequest.h"
+#include "AssetTools/FileDeletionRequest.h"
 #include "AssetRegistry/Catalog.h"
 namespace Durin::ContentBrowser::Private
 {

@@ -166,9 +166,12 @@ ObjectTools shares model scanning, confirmation and object execution with
 `DeleteAssets` and the Asset Browser adapter. The adapter only resolves its
 selection and supplies a private admission check that runs again after the
 prompt. Nested object deletion rejects while this orchestration is active.
-Folder orchestration belongs to File's private executor; its module only binds
-that executor into ObjectTools. `ConfirmDelete` is a private host bridge, not
-another public deletion entrypoint.
+AssetTools owns the private folder/mixed-file deletion planner and executor.
+`DeleteItems` calls that implementation directly, including in headless callers
+with no Browser data-source modules loaded. Browser File adapts provider selection,
+admission and notifications over the same core; it registers no ObjectTools
+handler. `ConfirmDelete` is a private host bridge, not another public deletion
+entrypoint.
 
 All synchronous deletion paths share one model scan loop with scoped slow-task
 progress and the requested `AllowCancelDuringDelete` policy. Cancellation stops
