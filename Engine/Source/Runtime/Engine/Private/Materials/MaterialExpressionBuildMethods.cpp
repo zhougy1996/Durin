@@ -646,10 +646,10 @@ namespace Durin
 		if (Base.Opcode != EMaterialProgramOpcode::MakeMaterialAttributes || Base.Inputs.size() != FMaterialAttributeDefinitionMap::GetDefinitions().size())
 			return Emitter.Fail("Surface attribute input must resolve to a constructed Surface.");
 		for (uint8 Index = 0; Index < FMaterialAttributeDefinitionMap::GetDefinitions().size(); ++Index)
-			if (IsSelected(static_cast<EMaterialProperty>(Index)))
+			if (IsSelected(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property))
 			{
-				Emitter.Output(Index, Base.Inputs[Index]);
-				Emitter.Output(FMaterialAttributeDefinitionMap::GetID(static_cast<EMaterialProperty>(Index)), Base.Inputs[Index]);
+				Emitter.Output(static_cast<uint32>(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property), Base.Inputs[Index]);
+				Emitter.Output(FMaterialAttributeDefinitionMap::GetID(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property), Base.Inputs[Index]);
 			}
 	}
 

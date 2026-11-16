@@ -43,6 +43,7 @@ This rule is identical in direct invocations and the interactive shell.
 | --- | --- | --- |
 | `asset resave`, `asset material-template`, `asset material-functions` | Save selected packages, create a template, or initialize missing DefaultMaterial | Inspect and report without saving authored assets |
 | `asset material-foundation` | Recreate DefaultMaterial and UVTransform/SampleNormal/SampleORM from current typed recipes at their Engine paths | List the four assets without writing |
+| `asset material-rust --project Sandbox/Sandbox.dproject` | Recreate the four-map Sandbox metal sample at its existing path with current attributes and canonical parameter IDs | Report the fixed destination without writing |
 | `create module`, `create project` | Create and register the requested item | Validate and show the creation plan |
 | `doc move`, `doc task remove`, `doc plan archive`, `doc roadmap archive` | Apply and validate the transactional change | Show the change without applying it |
 | `worktree prepare`, `worktree remove` | Prepare links or remove the selected worktree | Show the operation without modifying the worktree |

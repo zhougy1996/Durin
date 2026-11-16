@@ -215,7 +215,7 @@ TEST(FMaterialGraphOperationsTests,
 	ASSERT_TRUE(Normalized);
 	EXPECT_FALSE(Normalized.IR.bAggregateAttributes);
 	// Both authoring modes normalize to final per-property output roots.
-	EXPECT_TRUE(Normalized.IR.GetAttribute(static_cast<EMaterialProperty>(0)).bExpression);
+	EXPECT_TRUE(Normalized.IR.GetAttribute(EMaterialProperty::MP_BaseColor).bExpression);
 	FMaterialGraphClipboardPayload Payload;
 	ASSERT_TRUE(FMaterialGraphDocument(*Material).CopySelection(std::array{SurfaceId}, Payload));
 	EXPECT_TRUE(Payload.bConnectAggregateSurface);
@@ -625,7 +625,7 @@ TEST(FMaterialGraphOperationsTests, FixedInputsBroadcastScalarsAndUndoWithoutAut
 	for (const auto& E : Material->GetExpressionCollection().Expressions) Expressions.push_back(E.Get());
 	const auto Built = MIR::FGraphBuilder(Expressions).FinishSurface(Material->GetExpressionOutputs());
 	ASSERT_TRUE(Built);
-	EXPECT_EQ(Built.IR.Nodes[Built.IR.GetAttribute(static_cast<EMaterialProperty>(0)).ExpressionIndex].Opcode, EMaterialProgramOpcode::Splat3);
+	EXPECT_EQ(Built.IR.Nodes[Built.IR.GetAttribute(EMaterialProperty::MP_BaseColor).ExpressionIndex].Opcode, EMaterialProgramOpcode::Splat3);
 	ASSERT_TRUE(Transactions->Undo()); EXPECT_FALSE(Material->GetExpressionOutputs().Get(EMaterialProperty::MP_BaseColor).Connection.ExpressionId.IsValid());
 	ASSERT_TRUE(Transactions->Redo()); EXPECT_EQ(Material->GetExpressionOutputs().Get(EMaterialProperty::MP_BaseColor).Connection.ExpressionId, S);
 }
@@ -765,10 +765,10 @@ TEST(FMaterialGraphOperationsTests, CatalogPinsAgreeWithRuntimeValidation)
 			return Testing::MakeLink(Graph.Add(EMaterialProgramOpcode::TextureParameter, ValueType, {}, ValueType == Type::TextureCube ? Cube.Id : Texture.Id, {}, Definitions));
 		std::vector<FMaterialExpressionInput> Inputs;
 			if (ValueType == Type::MaterialAttributes)
-				for (uint32 Index = 0; Index < 8; ++Index)
+				for (uint32 Index = 0; Index < FMaterialAttributeDefinitionMap::GetDefinitions().size(); ++Index)
 				{
-					auto Source = AddSource(GetMaterialSurfaceOutputType(static_cast<EMaterialProperty>(Index)));
-					if (Index == static_cast<uint32>(EMaterialProperty::MP_Normal))
+					auto Source = AddSource(GetMaterialSurfaceOutputType(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property));
+					if (FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property == EMaterialProperty::MP_Normal)
 					{
 						auto& Annotation = Graph.Add(EMaterialProgramOpcode::Swizzle,
 							Type::Float3, {Source}, {}, {});
@@ -3154,8 +3154,8 @@ TEST(FMaterialGraphOperationsTests, OutputModeRetainsConnectionsAndUndoRestoresV
 	for (const auto& Expression : Material->GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
 	const auto Built = MIR::FGraphBuilder(Expressions).FinishSurface(Material->GetExpressionOutputs());
 	ASSERT_TRUE(Built);
-	EXPECT_FALSE(Built.IR.GetAttribute(static_cast<EMaterialProperty>(0)).bExpression);
-	EXPECT_EQ(Built.IR.GetAttribute(static_cast<EMaterialProperty>(0)).Literal.X, 0.5f);
+	EXPECT_FALSE(Built.IR.GetAttribute(EMaterialProperty::MP_BaseColor).bExpression);
+	EXPECT_EQ(Built.IR.GetAttribute(EMaterialProperty::MP_BaseColor).Literal.X, 0.5f);
 	ASSERT_TRUE(Document.SetUseMaterialAttributes(false, Durin::ETransactionMode::NotTransactable));
 	auto Properties = Material->GetStaticProperties();
 	Properties.ShadingModel = EMaterialShadingModel::Unlit;

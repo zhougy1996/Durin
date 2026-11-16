@@ -14,7 +14,7 @@ namespace Durin::AssetForge::Builtins
 		constexpr std::array<uint8, 8> Channels{1, 1, 4, 3, 2, 1, 5, 2};
 		for (uint32 I = 0; I < Channels.size(); ++I)
 		{
-			const auto Role = static_cast<EMaterialProperty>(I);
+			const auto Role = MaterialParameters::PBRMaterialProperties.at(I);
 			const int32 Row = static_cast<int32>(I) * 900;
 			const auto Parameter = [&](Kind ParameterKind, int32 X, int32 Y) {
 				const auto Id = GetMaterialSurfaceParameterId(Role, ParameterKind);

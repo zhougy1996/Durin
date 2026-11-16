@@ -152,6 +152,15 @@ make ordinary runtime loads recursively expand soft references.
 
 Rules use the same project defaults, non-default type fields and explicit per-ID
 overrides as [Primary Asset Management](../Packages/PrimaryAssetManagement.md).
+Representative content qualification must add non-default examples as explicit
+Cook roots. A successful default-Level startup proves only its retained closure;
+it does not prove an unreferenced material ships. Load complete catalog object
+paths (which may differ from package leaf names), require material platform
+programs, and check Shader/texture dependencies from the new generation. Use a
+source-free Game delivery without ShaderBuild or authored Shader sources in
+addition to an Editor Cook round-trip. Never broaden a project's plugin selection
+to qualify optional plugin content; use an isolated opt-in fixture instead.
+
 Unknown defers to ordinary Cook discovery; AlwaysCook adds managed packages;
 NeverCook excludes optional soft and bundle references. Explicit, default-level
 and external Cook roots, or retained hard dependencies, conflicting with

@@ -929,7 +929,7 @@ auto FSceneImportState::Run() -> FSceneRoutine
 					for (uint32 Role = 0; Role < Roles.size(); ++Role)
 						for (uint32 Kind = 0; Kind < MaterialParameters::BuiltinParameterKindCount; ++Kind)
 						{
-							const auto Surface = static_cast<EMaterialProperty>(Role);
+							const auto Surface = MaterialParameters::PBRMaterialProperties.at(Role);
 							const auto ParameterKind =
 							    static_cast<MaterialParameters::EMaterialBuiltinParameterKind>(Kind);
 							Recipe.Owners.push_back({Surface, ParameterKind,

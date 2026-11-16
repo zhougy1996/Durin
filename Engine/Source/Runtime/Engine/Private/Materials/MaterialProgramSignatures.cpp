@@ -156,7 +156,7 @@ namespace Durin
 			Signature.InputCount = uint8(FMaterialAttributeDefinitionMap::GetDefinitions().size());
 			for (uint8 Index = 0; Index < Signature.InputCount; ++Index)
 				Signature.Inputs[Index] = One(GetMaterialSurfaceOutputType(
-					static_cast<EMaterialProperty>(Index)));
+					FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property));
 			break;
 		case EMaterialProgramOpcode::GetMaterialAttributes:
 		case EMaterialProgramOpcode::SetMaterialAttributes:
@@ -501,8 +501,8 @@ namespace Durin
 			for (size_t Index = 0; Index < Inputs.size(); ++Index)
 			{
 				const auto Expected = GetMaterialSurfaceOutputSemantics(
-					static_cast<EMaterialProperty>(Index));
-				if (static_cast<EMaterialProperty>(Index) == EMaterialProperty::MP_WorldPositionOffset)
+					FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property);
+				if (FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property == EMaterialProperty::MP_WorldPositionOffset)
 				{
 					if (!IsMaterialWorldPositionOffsetSemantics(Inputs[Index])) return std::nullopt;
 					continue;

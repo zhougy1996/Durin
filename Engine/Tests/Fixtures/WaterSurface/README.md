@@ -59,3 +59,14 @@ target covers the independent one-wave path and the actual plugin component,
 including Lit output, animation replay, settings changes, unregister/register,
 and Editor hit proxies. Without the fixture, the target retains the independent
 proof and does not link or build Water.
+
+For workspace Cook closure, build `WorkspaceContentProbe` in Game and copy it
+beside the corresponding source-free delivery Runtime binaries. It deliberately
+has no Water link, so ordinary project CDO initialization needs no plugin mount.
+Run with the absolute project descriptor, Cook directory and one or more complete
+logical object paths. It opens only the cooked catalog, loads every requested
+object, requires an accepted platform program for each material, and rejects a
+loaded ShaderBuild service. Game compiles authored graph fields out. Use the
+ordinary export `--verify` additionally for bounded real Game startup/rendering;
+this probe only qualifies loading. Add non-default examples as explicit Cook
+roots rather than inferring reachability from successful default-Level startup.

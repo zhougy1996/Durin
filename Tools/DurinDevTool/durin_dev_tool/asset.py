@@ -159,6 +159,8 @@ def _invoke_asset_program(
         if error.exit_code == 130:
             print(interruption_message, file=stderr)
             return None
+        if error.output_excerpt:
+            print(error.output_excerpt, file=stderr)
         raise
 
 
@@ -279,12 +281,12 @@ def run(
         )
     )
     command = getattr(namespace, "asset_command", "check")
-    if command in ("identity-audit", "material-functions", "material-template", "material-foundation"):
+    if command in ("identity-audit", "material-functions", "material-template", "material-foundation", "material-rust"):
         project = _project_from_namespace(namespace, repository)
         arguments = [command, f"--project={project}"]
         if command == "material-template":
             arguments.append(namespace.destination)
-        if command in ("material-functions", "material-template", "material-foundation") and not namespace.dry_run:
+        if command in ("material-functions", "material-template", "material-foundation", "material-rust") and not namespace.dry_run:
             arguments.append("--apply")
         native_output = _invoke_asset_program(
             selection,

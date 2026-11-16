@@ -286,7 +286,7 @@ TEST(FMaterialExpressionTests, AuthoringRejectsDisconnectedInvalidNodesAndSnapsh
 	MIR::FGraphBuilder Broadcast(Expressions);
 	const auto BroadcastResult = Broadcast.FinishSurface(Wrong);
 	ASSERT_TRUE(BroadcastResult);
-	const auto& Color = BroadcastResult.IR.Nodes[BroadcastResult.IR.GetAttribute(static_cast<EMaterialProperty>(0)).ExpressionIndex];
+	const auto& Color = BroadcastResult.IR.Nodes[BroadcastResult.IR.GetAttribute(EMaterialProperty::MP_BaseColor).ExpressionIndex];
 	EXPECT_EQ(Color.Opcode, EMaterialProgramOpcode::Splat3);
 	EXPECT_EQ(Color.ResultType, EMaterialProgramValueType::Float3);
 	Wrong.Get(EMaterialProperty::MP_BaseColor).Connection = {}; Wrong.Get(EMaterialProperty::MP_Roughness).SetConstant({std::numeric_limits<float>::quiet_NaN()});

@@ -23,6 +23,12 @@ namespace Durin::AssetForge::Builtins
 			Count,
 		};
 
+		// Import/template roles are a selected adapter vocabulary, not material-property ordinals.
+		inline constexpr std::array PBRMaterialProperties{
+			EMaterialProperty::MP_BaseColor, EMaterialProperty::MP_Normal, EMaterialProperty::MP_Metallic,
+			EMaterialProperty::MP_Roughness, EMaterialProperty::MP_AmbientOcclusion,
+			EMaterialProperty::MP_EmissiveColor, EMaterialProperty::MP_Opacity, EMaterialProperty::MP_OpacityMask};
+
 		// Identifies one parameter owned by every canonical surface role.
 		enum class EMaterialBuiltinParameterKind : uint8
 		{

@@ -95,7 +95,7 @@ TEST(FMaterialFunctionTests, ExplicitMRTemplateRetainsIndependentInstanceParamet
 	using Kind = Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind;
 	for (uint32 Index = 0; Index < 8; ++Index)
 	{
-		const auto Role = static_cast<EMaterialProperty>(Index);
+		const auto Role = Durin::AssetForge::Builtins::MaterialParameters::PBRMaterialProperties.at(Index);
 		const auto Id = Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(Role, Kind::Texture);
 		const auto Sample = std::ranges::find_if(Recipe.Expressions, [&](const auto& Expression) {
 			const auto* Parameter = Cast<DMaterialExpressionTextureSampleParameter2D>(Expression.Get());
@@ -132,7 +132,7 @@ TEST(FMaterialFunctionTests, StructuralImportRecipesExposeOnlyRequiredOwners)
 	std::array<FImportedSurfaceRole, 8> Roles;
 	const FMaterialAttributeValues Defaults;
 	for (uint32 I = 0; I < 8; ++I)
-		Roles[I].Value = GetMaterialSurfaceOutputDefault(Defaults, static_cast<EMaterialProperty>(I));
+		Roles[I].Value = GetMaterialSurfaceOutputDefault(Defaults, Durin::AssetForge::Builtins::MaterialParameters::PBRMaterialProperties.at(I));
 	const auto Empty = MakeImportedSurfaceRecipe(Roles);
 	EXPECT_TRUE(Empty.Graph.Expressions.empty());
 	EXPECT_TRUE(Empty.Owners.empty());
@@ -244,7 +244,7 @@ TEST(FMaterialFunctionTests, ExpandedAndFunctionRecipesPreserveCompilationAndInd
 	using Kind = Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind;
 	for (uint32 Index = 0; Index < 8; ++Index)
 	{
-		const auto Role = static_cast<EMaterialProperty>(Index);
+		const auto Role = Durin::AssetForge::Builtins::MaterialParameters::PBRMaterialProperties.at(Index);
 		for (const auto ParameterKind : {Kind::UVChannel, Kind::UVScale, Kind::UVOffset, Kind::UVRotation})
 		{
 			const auto Id = Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(Role, ParameterKind);
@@ -829,8 +829,8 @@ TEST(FMaterialFunctionTests, ExpansionPreservesIndependentInputsMultipleOutputsA
 	Outputs.Get(EMaterialProperty::MP_AmbientOcclusion) = {.ExpressionId = FirstCall, .OutputId = Signature.Outputs[1].Id};
 	const auto Normalized = NormalizeTypedExpressions(Expressions, Outputs);
 	ASSERT_TRUE(Normalized) << (Normalized.Diagnostics.empty() ? "" : Normalized.Diagnostics[0].Message);
-	const auto& Metal = Normalized.IR.Nodes[Normalized.IR.GetAttribute(static_cast<EMaterialProperty>(2)).ExpressionIndex];
-	const auto& Rough = Normalized.IR.Nodes[Normalized.IR.GetAttribute(static_cast<EMaterialProperty>(3)).ExpressionIndex];
+	const auto& Metal = Normalized.IR.Nodes[Normalized.IR.GetAttribute(EMaterialProperty::MP_Metallic).ExpressionIndex];
+	const auto& Rough = Normalized.IR.Nodes[Normalized.IR.GetAttribute(EMaterialProperty::MP_Roughness).ExpressionIndex];
 	ASSERT_EQ(Metal.Opcode, EMaterialProgramOpcode::Add);
 	ASSERT_EQ(Rough.Opcode, EMaterialProgramOpcode::Add);
 	const auto HasConstant = [&](const MIR::FNode& Node, float Value) {
@@ -839,7 +839,7 @@ TEST(FMaterialFunctionTests, ExpansionPreservesIndependentInputsMultipleOutputsA
 	EXPECT_TRUE(HasConstant(Metal, 2));
 	EXPECT_TRUE(HasConstant(Metal, 1));
 	EXPECT_TRUE(HasConstant(Rough, 9));
-	EXPECT_EQ(Normalized.IR.Nodes[Normalized.IR.GetAttribute(static_cast<EMaterialProperty>(4)).ExpressionIndex].GetLiteral().X, 2);
+	EXPECT_EQ(Normalized.IR.Nodes[Normalized.IR.GetAttribute(EMaterialProperty::MP_AmbientOcclusion).ExpressionIndex].GetLiteral().X, 2);
 	EXPECT_TRUE(std::ranges::all_of(Normalized.IR.Nodes, [](const auto& Node) { return Node.Opcode < EMaterialProgramOpcode::FunctionInput; }));
 	EXPECT_TRUE(std::ranges::any_of(Normalized.Sources, [&](const auto& Source) {
 		return Source.NodeId == SumId && Source.FunctionAssetPath == Function->GetObjectPath()
@@ -1366,8 +1366,8 @@ TEST(FMaterialFunctionTests, NestedSurfaceOverridesAndSelectedOutputsPreserveAtt
 	Outputs.Get(EMaterialProperty::MP_Roughness) = {GetId, static_cast<uint8>(EMaterialProperty::MP_Metallic)};
 	const auto Normalized = NormalizeTypedExpressions(Expressions, Outputs);
 	ASSERT_TRUE(Normalized) << (Normalized.Diagnostics.empty() ? "" : Normalized.Diagnostics[0].Message);
-	EXPECT_EQ(Normalized.IR.Nodes[Normalized.IR.GetAttribute(static_cast<EMaterialProperty>(1)).ExpressionIndex].GetLiteral(), (FMaterialProgramLiteral{0, 0, 1}));
-	EXPECT_EQ(Normalized.IR.Nodes[Normalized.IR.GetAttribute(static_cast<EMaterialProperty>(3)).ExpressionIndex].GetLiteral().X, 0.75f);
+	EXPECT_EQ(Normalized.IR.Nodes[Normalized.IR.GetAttribute(EMaterialProperty::MP_Normal).ExpressionIndex].GetLiteral(), (FMaterialProgramLiteral{0, 0, 1}));
+	EXPECT_EQ(Normalized.IR.Nodes[Normalized.IR.GetAttribute(EMaterialProperty::MP_Roughness).ExpressionIndex].GetLiteral().X, 0.75f);
 	EXPECT_TRUE(std::ranges::all_of(Normalized.IR.Nodes, [](const auto& Node) { return Node.Opcode < EMaterialProgramOpcode::FunctionInput; }));
 	EXPECT_TRUE(GenerateMaterialProgramSlang(Normalized.IR, Normalized.Layout));
 	Get->AttributeIDs.push_back(FMaterialAttributeDefinitionMap::GetID(EMaterialProperty::MP_Roughness));
@@ -1397,7 +1397,7 @@ TEST(FMaterialFunctionTests, SurfaceOverridesSupportAllEightAttributesAndRejectI
 	std::vector<DMaterialExpression*> Expressions{Base, Set};
 	for (uint8 Index = 0; Index < 8; ++Index)
 	{
-		const auto Attribute = static_cast<EMaterialProperty>(Index);
+		const auto Attribute = Durin::AssetForge::Builtins::MaterialParameters::PBRMaterialProperties.at(Index);
 		DMaterialExpression* Constant;
 		if (GetMaterialSurfaceOutputType(Attribute) == EMaterialProgramValueType::Float3)
 		{

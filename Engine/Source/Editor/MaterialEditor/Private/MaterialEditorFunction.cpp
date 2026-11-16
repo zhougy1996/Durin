@@ -406,9 +406,9 @@ namespace Durin::MaterialEditor
 					for (uint32 Index = 0; Index < FMaterialAttributeDefinitionMap::GetDefinitions().size(); ++Index)
 					{
 						ImGui::PushID(static_cast<int>(Index));
-						auto& Value = GetMaterialSurfaceOutputDefault(Document.PortDraft.Default.Surface, static_cast<EMaterialProperty>(Index));
+						auto& Value = GetMaterialSurfaceOutputDefault(Document.PortDraft.Default.Surface, FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property);
 						ImGui::InputScalarN(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Name.data(), ImGuiDataType_Float, &Value.X,
-							static_cast<int>(GetMaterialSurfaceOutputType(static_cast<EMaterialProperty>(Index))) + 1);
+							static_cast<int>(GetMaterialSurfaceOutputType(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property)) + 1);
 						ImGui::PopID();
 					}
 			}

@@ -458,15 +458,17 @@ def test_cancel_and_process_failure_are_distinct(tmp_path: Path) -> None:
     assert "cancelled" in errors.getvalue()
 
     def failed(*_args: object, **_kwargs: object) -> str:
-        raise BuildToolError("scan failed", exit_code=1)
+        raise BuildToolError("scan failed", exit_code=1, output_excerpt="Required texture is missing: /Game/Metal")
 
     with pytest.raises(DevToolError, match="scan failed"):
         asset.run(
             namespace, repository_root=tmp_path, repository_context=REPOSITORY,
-            stdout=io.StringIO(), stderr=io.StringIO(),
+            stdout=io.StringIO(), stderr=errors,
             executable_resolver=lambda _namespace, _root: executable,
             command_runner=failed,
         )
+
+    assert "Required texture is missing: /Game/Metal" in errors.getvalue()
 
 
 def test_check_invocation_is_read_only_and_missing_project_fails_before_launch(tmp_path: Path) -> None:
@@ -538,7 +540,7 @@ def test_texture_recompression_flag_preserves_preview_apply_boundary(tmp_path: P
 
 
 @pytest.mark.parametrize("dry_run", [False, True])
-@pytest.mark.parametrize("command", ["material-functions", "material-foundation"])
+@pytest.mark.parametrize("command", ["material-functions", "material-foundation", "material-rust"])
 def test_material_function_initialization_executes_unless_dry_run(tmp_path: Path, dry_run: bool, command: str) -> None:
     executable = tmp_path / "DurinAssetTool.exe"
     executable.touch()

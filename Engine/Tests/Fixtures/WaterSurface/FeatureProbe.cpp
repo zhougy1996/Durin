@@ -71,7 +71,7 @@ namespace
 			V.push_back(R);
 		}
 		const auto Offset = FVector3(V.at(Input.IR.GetAttribute(EMaterialProperty::MP_WorldPositionOffset).ExpressionIndex));
-		const auto Normal = FVector3(V.at(Input.IR.GetAttribute(static_cast<EMaterialProperty>(size_t(EMaterialProperty::MP_Normal))).ExpressionIndex));
+		const auto Normal = FVector3(V.at(Input.IR.GetAttribute(EMaterialProperty::MP_Normal).ExpressionIndex));
 		return {FVector3(P, S.Elevation) + Offset, Normal};
 	}
 
@@ -169,16 +169,17 @@ int main(int Argc, char** Argv)
 		std::string Error;
 		Require(FMountPaths::InitDefaultMountPoints(&Error), Error);
 		const std::string Mode = Argv[2];
+		const bool Cooked = Mode == "load-cooked";
 		auto Configuration = FAssetRuntimeConfiguration::Authored();
-		if (Mode == "load-cooked")
+		if (Cooked)
 		{
-			Require(Argc == 4, "Expected absolute Cook directory.");
+			Require(Argc >= 4, "Expected absolute Cook directory.");
 			Require(bool(FAssetRuntimeConfiguration::Cooked(Argv[3], Configuration)), "Invalid Cook directory.");
 			Require(bool(InitializeShaderData(FShaderDataConfiguration::Cooked(Argv[3]))), "Cooked Shader library initialization failed.");
 		}
 		Require(bool(InitializeAssetRuntime(std::move(Configuration))), "Asset runtime initialization failed.");
 		DObjectInit();
-		if (Mode == "load-cooked") InitializeAssetCompilingManager();
+		if (Cooked) InitializeAssetCompilingManager();
 		Require(Projects.LoadModulesForProject(ELoadingPhase::Providers), Projects.GetLastError());
 		if (Mode == "queries") CheckQueries();
 		else if (Mode == "load" || Mode == "load-cooked")
@@ -195,7 +196,7 @@ int main(int Argc, char** Argv)
 			auto Expected = FWaterSurfaceSettings{}; Expected.Extent = {24, 20}; Expected.Elevation = 2.5f; Expected.Amplitude = .2f;
 			Require(Actor->GetWaterComponent()->GetSettings() == Expected, "Saved water parameters changed across the runtime boundary.");
 			Require(Actor->GetWaterComponent()->QuerySurface({0, 0, 0}, .75).has_value(), "Saved water query failed.");
-			if (Mode == "load-cooked")
+			if (Cooked)
 			{
 				std::optional<Durin::UnifiedError::FError> MaterialError;
 				FSoftObjectPath MaterialPath;
@@ -250,7 +251,11 @@ int main(int Argc, char** Argv)
 		}
 #endif
 		else throw std::runtime_error("Unknown water probe mode.");
-		if (Mode == "load-cooked") ShutdownAssetCompilingManager();
+		if (Cooked)
+		{
+			Require(!Modules.IsModuleLoaded("ShaderBuild"), "Cooked content loaded a compiler service.");
+			ShutdownAssetCompilingManager();
+		}
 		ShutdownAssetRuntime(); Modules.ShutdownModulesAtExit(); ShutdownTaskScheduler();
 		return 0;
 	}

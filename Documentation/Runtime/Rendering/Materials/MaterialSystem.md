@@ -332,7 +332,17 @@ incompatible selected values reject before publication.
 Graph version 9, output version 4 and function version 6 reject older schemas
 explicitly. `asset material-foundation` recreates DefaultMaterial and the three
 standard functions at their existing Engine paths; use `--dry-run` to inspect
-the bounded write set. Instances use parameter-storage version 3.
+the bounded write set. `asset material-rust --project Sandbox/Sandbox.dproject`
+recreates the four-map Sandbox sample at `/Game/Materials/Metal/M_MetalRust`.
+It preserves its texture paths and color/normal/scalar roles, writes canonical
+builtin texture parameter IDs and deterministic node IDs, and rejects missing
+required textures with the exact logical path. This explicit Editor tool writes
+a current recipe; it never reads or converts a retired graph, and is not a
+runtime compatibility path. No saved instance overrides exist for this sample;
+its old parameter identities are replaced by the named builtin texture identities.
+Import/template roles use an explicit property map; global attribute enumeration
+uses the definition map rather than assuming dense property ordinals.
+Instances use parameter-storage version 3.
 `MIR::FGraphBuilder::ValidateSurface` and `ValidateFunction` check
 concrete expressions directly before publication: identifiers, typed links,
 cycles, bounds, defaults, parameter metadata and function terminals. Local validation

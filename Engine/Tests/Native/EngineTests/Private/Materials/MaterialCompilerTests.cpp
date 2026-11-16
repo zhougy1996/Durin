@@ -321,7 +321,7 @@ TEST(FMaterialShaderStageTests, PixelEditsShareVertexProductsAndRequiredSetsAdmi
 	const auto Warm = MIR::Compile(Input);
 	ASSERT_TRUE(Warm);
 	EXPECT_EQ(GetShaderBuildStats().Compilations, AfterCold.Compilations);
-	Input.IR.GetAttribute(static_cast<EMaterialProperty>(size_t(EMaterialProperty::MP_EmissiveColor))).Literal.X = 0.271828f;
+	Input.IR.GetAttribute(EMaterialProperty::MP_EmissiveColor).Literal.X = 0.271828f;
 	const auto Pixel = MIR::Compile(Input);
 	ASSERT_TRUE(Pixel) << FormatMaterialProgramDiagnostics(Pixel.Diagnostics);
 	const auto AfterPixel = GetShaderBuildStats();
@@ -353,7 +353,7 @@ TEST(FMaterialShaderStageTests, PixelEditsShareVertexProductsAndRequiredSetsAdmi
 	auto InterfaceChange = Input;
 	InterfaceChange.IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::InstanceCustomData,
 		.ResultType = EMaterialProgramValueType::Float3, .Payload = MIR::FCustomDataRead{3}});
-	auto& Emissive = InterfaceChange.IR.GetAttribute(static_cast<EMaterialProperty>(size_t(EMaterialProperty::MP_EmissiveColor)));
+	auto& Emissive = InterfaceChange.IR.GetAttribute(EMaterialProperty::MP_EmissiveColor);
 	Emissive.bExpression = true; Emissive.ExpressionIndex = uint32(InterfaceChange.IR.Nodes.size() - 1);
 	const auto InterfaceRequests = MakeRequests(InterfaceChange);
 	ASSERT_EQ(InterfaceRequests.size(), 6u);
@@ -364,7 +364,7 @@ TEST(FMaterialShaderStageTests, PixelEditsShareVertexProductsAndRequiredSetsAdmi
 	LayoutChange.Parameters.push_back({ParameterId, EMaterialParameterType::Scalar});
 	LayoutChange.IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::Parameter,
 		.ResultType = EMaterialProgramValueType::Float, .Payload = ParameterId});
-	auto& ParameterRoot = LayoutChange.IR.GetAttribute(static_cast<EMaterialProperty>(size_t(EMaterialProperty::MP_Roughness)));
+	auto& ParameterRoot = LayoutChange.IR.GetAttribute(EMaterialProperty::MP_Roughness);
 	ParameterRoot.bExpression = true; ParameterRoot.ExpressionIndex = uint32(LayoutChange.IR.Nodes.size() - 1);
 	const auto LayoutRequests = MakeRequests(LayoutChange);
 	ASSERT_EQ(LayoutRequests.size(), 6u);
@@ -481,7 +481,7 @@ namespace
 		{
 			const auto Semantics = Durin::GetMaterialSurfaceOutputSemantics(
 				static_cast<Durin::EMaterialProperty>(Index));
-			auto& Input = IR.GetAttribute(static_cast<EMaterialProperty>(Index));
+			auto& Input = IR.GetAttribute(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property);
 			Input.Type = Semantics.Type;
 			Input.LegalStages = Semantics.Stages;
 			Input.SpatialKind = Semantics.Kind;
@@ -531,7 +531,7 @@ TEST(FMaterialShaderStageTests, VertexClosureOrderIgnoresPixelReachabilityAndNod
 	const auto Sum = Add({.Opcode = EMaterialProgramOpcode::Add,
 		.ResultType = EMaterialProgramValueType::Float3, .Inputs = {Data, Value}});
 	Input.IR.GetAttribute(EMaterialProperty::MP_WorldPositionOffset).bExpression = true; Input.IR.GetAttribute(EMaterialProperty::MP_WorldPositionOffset).ExpressionIndex = Sum;
-	auto& Pixel = Input.IR.GetAttribute(static_cast<EMaterialProperty>(size_t(EMaterialProperty::MP_EmissiveColor)));
+	auto& Pixel = Input.IR.GetAttribute(EMaterialProperty::MP_EmissiveColor);
 	Pixel.bExpression = true; Pixel.ExpressionIndex = Data;
 	const auto First = TranslatePreparedMaterialProgram({.Normalized = MIR::Normalize(Input),
 		.StaticProperties = Input.StaticProperties, .Environment = Input.Environment});
@@ -950,8 +950,8 @@ TEST(FMaterialProgramOwnershipTests, SharedProgramSubscriptionsCancelIndependent
 			{.Opcode = EMaterialProgramOpcode::Constant, .ResultType = EMaterialProgramValueType::Float, .Payload = FMaterialProgramLiteral{.5f}},
 			{.Opcode = EMaterialProgramOpcode::Add, .ResultType = EMaterialProgramValueType::Float, .Inputs = {0, 1}},
 			{.Opcode = EMaterialProgramOpcode::Splat3, .ResultType = EMaterialProgramValueType::Float3, .Inputs = {2}}};
-		Input->IR.GetAttribute(static_cast<EMaterialProperty>(0)).bExpression = true;
-		Input->IR.GetAttribute(static_cast<EMaterialProperty>(0)).ExpressionIndex = 3;
+		Input->IR.GetAttribute(EMaterialProperty::MP_BaseColor).bExpression = true;
+		Input->IR.GetAttribute(EMaterialProperty::MP_BaseColor).ExpressionIndex = 3;
 		ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input->Environment));
 		for (uint32 Node = 0; Node < Input->IR.Nodes.size(); ++Node)
 			Input->Sources.push_back({.ExpressionIndex = Node, .NodeId = FGuid::NewGuid(), .FunctionAssetPath = "ProducerAsset"});
@@ -2270,9 +2270,9 @@ TEST(FMaterialProgramNormalizationTests,
 	ASSERT_TRUE(Normalized.IR.Nodes.empty());
 	EXPECT_TRUE(Normalized.ActiveParameters.empty());
 	EXPECT_FALSE(Normalized.IR.bAggregateAttributes);
-	EXPECT_EQ(Normalized.IR.GetAttribute(static_cast<EMaterialProperty>(0)).Literal,
+	EXPECT_EQ(Normalized.IR.GetAttribute(EMaterialProperty::MP_BaseColor).Literal,
 		(Durin::FMaterialProgramLiteral{0.5f, 0.5f, 0.5f, 0.0f}));
-	EXPECT_EQ(Normalized.IR.GetAttribute(static_cast<EMaterialProperty>(1)).Literal,
+	EXPECT_EQ(Normalized.IR.GetAttribute(EMaterialProperty::MP_Normal).Literal,
 		(Durin::FMaterialProgramLiteral{0.0f, 0.0f, 1.0f, 0.0f}));
 	std::string Source;
 
@@ -2403,8 +2403,8 @@ TEST(FMaterialProgramNormalizationTests, MaximumExpandedGraphPreservesCanonicalO
 			.Payload = FMaterialProgramLiteral{static_cast<float>(Index % 17) / 17.f}});
 	for (uint32 Index = 0; Input.IR.Nodes.size() < MaterialFunctionMaxExpandedNodes - 1; Index += 2)
 		Input.IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::Add, .Inputs = {Index, Index + 1}});
-	Input.IR.GetAttribute(static_cast<EMaterialProperty>(2)).bExpression = true;
-	Input.IR.GetAttribute(static_cast<EMaterialProperty>(2)).ExpressionIndex = static_cast<uint32>(Input.IR.Nodes.size() - 1);
+	Input.IR.GetAttribute(EMaterialProperty::MP_Metallic).bExpression = true;
+	Input.IR.GetAttribute(EMaterialProperty::MP_Metallic).ExpressionIndex = static_cast<uint32>(Input.IR.Nodes.size() - 1);
 	Input.IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::Constant,
 		.Payload = FMaterialProgramLiteral{99.f}}); // Unreachable.
 	const auto Baseline = MIR::Normalize(Input);
@@ -2441,8 +2441,8 @@ TEST(FMaterialProgramNormalizationTests, SharedDagKeysRemainBoundedAtMaximumDept
 		}
 		Roots[Branch] = Previous;
 	}
-	Input.IR.GetAttribute(static_cast<EMaterialProperty>(2)).bExpression = true;
-	Input.IR.GetAttribute(static_cast<EMaterialProperty>(2)).ExpressionIndex = static_cast<uint32>(Input.IR.Nodes.size());
+	Input.IR.GetAttribute(EMaterialProperty::MP_Metallic).bExpression = true;
+	Input.IR.GetAttribute(EMaterialProperty::MP_Metallic).ExpressionIndex = static_cast<uint32>(Input.IR.Nodes.size());
 	Input.IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::Add, .Inputs = {Roots[0], Roots[1]}});
 	const auto Baseline = MIR::Normalize(Input);
 	ASSERT_TRUE(Baseline);
@@ -2644,8 +2644,8 @@ TEST(FMaterialProgramCompilerTests, DirectIRNormalizationPrunesDeadCodeAndRemaps
 		{.Opcode = EMaterialProgramOpcode::Add, .ResultType = EMaterialProgramValueType::Float, .Inputs = {0, 1}},
 		{.Opcode = EMaterialProgramOpcode::Splat3, .ResultType = EMaterialProgramValueType::Float3, .Inputs = {2}},
 		{.Opcode = EMaterialProgramOpcode::Constant, .ResultType = EMaterialProgramValueType::Float, .Payload = FMaterialProgramLiteral{9.f}}};
-	Input.IR.GetAttribute(static_cast<EMaterialProperty>(0)).bExpression = true;
-	Input.IR.GetAttribute(static_cast<EMaterialProperty>(0)).ExpressionIndex = 3;
+	Input.IR.GetAttribute(EMaterialProperty::MP_BaseColor).bExpression = true;
+	Input.IR.GetAttribute(EMaterialProperty::MP_BaseColor).ExpressionIndex = 3;
 	Input.Sources = {{.ExpressionIndex = 0, .NodeId = {1, 0, 0, 1}}, {.ExpressionIndex = 1, .NodeId = {1, 0, 0, 2}},
 		{.ExpressionIndex = 4, .NodeId = {1, 0, 0, 3}}};
 	for (uint32 Index = 0; Index < 40; ++Index) Input.Parameters.push_back({{2, 0, 0, Index + 1}, EMaterialParameterType::Texture});
@@ -2657,7 +2657,7 @@ TEST(FMaterialProgramCompilerTests, DirectIRNormalizationPrunesDeadCodeAndRemaps
 	std::swap(Input.IR.Nodes[0], Input.IR.Nodes[1]);
 	Input.IR.Nodes[2].Inputs = {1, 0};
 	Input.Sources[0].ExpressionIndex = 1; Input.Sources[1].ExpressionIndex = 0;
-	Input.IR.GetAttribute(static_cast<EMaterialProperty>(0)).Literal = {42, 43, 44};
+	Input.IR.GetAttribute(EMaterialProperty::MP_BaseColor).Literal = {42, 43, 44};
 	std::get<FMaterialProgramLiteral>(Input.IR.Nodes[0].Payload).W = 88;
 	std::get<FMaterialProgramLiteral>(Input.IR.Nodes[4].Payload).X = 99;
 	const auto Reordered = MIR::Normalize(Input);
@@ -2685,8 +2685,8 @@ TEST(FMaterialProgramCompilerTests, DetachedIRRejectsMalformedInputsWithoutAutho
 		.ResultType = EMaterialProgramValueType::Float, .Payload = FMaterialProgramLiteral{.25f}});
 	IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::Saturate,
 		.ResultType = EMaterialProgramValueType::Float, .Inputs = {0}});
-	IR.GetAttribute(static_cast<EMaterialProperty>(3)).bExpression = true;
-	IR.GetAttribute(static_cast<EMaterialProperty>(3)).ExpressionIndex = 1;
+	IR.GetAttribute(EMaterialProperty::MP_Roughness).bExpression = true;
+	IR.GetAttribute(EMaterialProperty::MP_Roughness).ExpressionIndex = 1;
 	ASSERT_TRUE(GenerateMaterialProgramSlang(IR, Layout.Layout));
 	const auto Good = IR;
 	const auto Reject = [&] {
@@ -2712,7 +2712,7 @@ TEST(FMaterialProgramCompilerTests, DetachedIRRejectsMalformedInputsWithoutAutho
 		IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::Saturate,
 			.ResultType = EMaterialProgramValueType::Float, .Inputs = {Index - 1}});
 	Reject();
-	IR.GetAttribute(static_cast<EMaterialProperty>(2)).Literal.X = std::numeric_limits<float>::quiet_NaN(); Reject();
+	IR.GetAttribute(EMaterialProperty::MP_Metallic).Literal.X = std::numeric_limits<float>::quiet_NaN(); Reject();
 	IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::Constant,
 		.ResultType = EMaterialProgramValueType::Float3, .Payload = FMaterialProgramLiteral{}});
 	for (uint32 Index = 0; Index < MaterialFunctionMaxExpandedLinks / 8; ++Index)
@@ -2817,11 +2817,11 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 	const auto TextureValue = Add(EMaterialProgramOpcode::TextureParameter, EMaterialProgramValueType::Texture2D, Texture);
 	const auto Sample = Add(EMaterialProgramOpcode::TextureSample2D, EMaterialProgramValueType::Float4, {}, {TextureValue, UVValue});
 	const auto Product = Add(EMaterialProgramOpcode::Multiply, EMaterialProgramValueType::Float4, {}, {TintValue, Sample});
-	Input.IR.GetAttribute(static_cast<EMaterialProperty>(0)).bExpression = true;
-	Input.IR.GetAttribute(static_cast<EMaterialProperty>(0)).ExpressionIndex = Add(EMaterialProgramOpcode::Swizzle, EMaterialProgramValueType::Float3, {}, {Product});
+	Input.IR.GetAttribute(EMaterialProperty::MP_BaseColor).bExpression = true;
+	Input.IR.GetAttribute(EMaterialProperty::MP_BaseColor).ExpressionIndex = Add(EMaterialProgramOpcode::Swizzle, EMaterialProgramValueType::Float3, {}, {Product});
 	Input.IR.Nodes.back().Payload = MIR::FSwizzle{3, {0, 1, 2}};
-	Input.IR.GetAttribute(static_cast<EMaterialProperty>(7)).bExpression = true;
-	Input.IR.GetAttribute(static_cast<EMaterialProperty>(7)).ExpressionIndex = Add(EMaterialProgramOpcode::Parameter, EMaterialProgramValueType::Float, Amount);
+	Input.IR.GetAttribute(EMaterialProperty::MP_OpacityMask).bExpression = true;
+	Input.IR.GetAttribute(EMaterialProperty::MP_OpacityMask).ExpressionIndex = Add(EMaterialProgramOpcode::Parameter, EMaterialProgramValueType::Float, Amount);
 	const auto Compiled = MIR::Compile(Input);
 	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic" : Compiled.Diagnostics.front().Message);
 	EXPECT_EQ(Compiled.GetShaderMap().Layout.Identity.Version, CompiledMaterialRenderLayoutVersion);
@@ -3122,8 +3122,8 @@ TEST(FMaterialProgramNormalizationTests, PackedAndIndividualInputsSharePropertyA
 	Individual.IR.Nodes = Packed.IR.Nodes;
 	for (size_t Index = 0; Index < Individual.IR.AttributeRoots.size(); ++Index)
 	{
-		Individual.IR.GetAttribute(static_cast<EMaterialProperty>(Index)).bExpression = true;
-		Individual.IR.GetAttribute(static_cast<EMaterialProperty>(Index)).ExpressionIndex = Attributes[Index];
+		Individual.IR.GetAttribute(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property).bExpression = true;
+		Individual.IR.GetAttribute(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property).ExpressionIndex = Attributes[Index];
 	}
 	Packed.IR.bAggregateAttributes = true;
 	Packed.IR.AggregateAttributesIndex = static_cast<uint32>(Packed.IR.Nodes.size());
@@ -3138,13 +3138,13 @@ TEST(FMaterialProgramNormalizationTests, PackedAndIndividualInputsSharePropertyA
 			const auto A = MIR::Normalize(Individual), B = MIR::Normalize(Packed);
 			ASSERT_TRUE(A); ASSERT_TRUE(B);
 			EXPECT_FALSE(A.IR.bAggregateAttributes); EXPECT_FALSE(B.IR.bAggregateAttributes);
-			for (size_t Index = 0; Index < 8; ++Index)
+			for (size_t Index = 0; Index < FMaterialAttributeDefinitionMap::GetDefinitions().size(); ++Index)
 			{
-				const bool bActive = IsMaterialSurfaceOutputActive(static_cast<EMaterialProperty>(Index), Individual.StaticProperties);
+				const bool bActive = IsMaterialSurfaceOutputActive(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property, Individual.StaticProperties);
 				if (!bActive)
 				{
-					EXPECT_FALSE(A.IR.GetAttribute(static_cast<EMaterialProperty>(Index)).bExpression);
-					EXPECT_FALSE(B.IR.GetAttribute(static_cast<EMaterialProperty>(Index)).bExpression);
+					EXPECT_FALSE(A.IR.GetAttribute(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property).bExpression);
+					EXPECT_FALSE(B.IR.GetAttribute(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property).bExpression);
 				}
 			}
 			// Every inactive property's exclusive source is absent in both normalized graphs.
@@ -3167,8 +3167,8 @@ TEST(FMaterialProgramCompilerTests, NormalizedValidationRejectsAuthoredOnlyOpera
 	InitializeSurfaceRootSemantics(Base.IR);
 	Base.IR.Nodes.push_back({.Opcode = Op::Constant, .ResultType = Type::Float,
 		.Payload = FMaterialProgramLiteral{.5f}});
-	Base.IR.GetAttribute(static_cast<EMaterialProperty>(static_cast<uint8>(EMaterialProperty::MP_Roughness))).bExpression = true;
-	Base.IR.GetAttribute(static_cast<EMaterialProperty>(static_cast<uint8>(EMaterialProperty::MP_Roughness))).ExpressionIndex = 0;
+	Base.IR.GetAttribute(EMaterialProperty::MP_Roughness).bExpression = true;
+	Base.IR.GetAttribute(EMaterialProperty::MP_Roughness).ExpressionIndex = 0;
 	ASSERT_TRUE(MIR::Validate(Base.IR, Base.Parameters));
 	for (const auto Opcode : {Op::FunctionInput, Op::FunctionOutput, Op::FunctionCall,
 		Op::TextureSampleParameter2D, Op::TextureCoordinates, Op::GetMaterialAttributes,
@@ -3186,7 +3186,7 @@ TEST(FMaterialProgramCompilerTests, NormalizedValidationRejectsAuthoredOnlyOpera
 				Node.Inputs.assign(Signature->InputCount, 0);
 			Input.IR.Nodes.push_back(std::move(Node));
 			if (Reachable)
-				Input.IR.GetAttribute(static_cast<EMaterialProperty>(static_cast<uint8>(EMaterialProperty::MP_Roughness))).ExpressionIndex = 1;
+				Input.IR.GetAttribute(EMaterialProperty::MP_Roughness).ExpressionIndex = 1;
 			const auto Validated = MIR::Validate(Input.IR, Input.Parameters);
 			EXPECT_FALSE(Validated);
 			EXPECT_FALSE(Validated.Diagnostics.empty());

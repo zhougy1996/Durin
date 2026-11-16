@@ -22,6 +22,13 @@ COMMAND_SPEC = CommandSpec(
     help_group="Assets",
     subcommands=(
         CommandSpec(
+            "material-rust",
+            "recreate the Sandbox four-map metal sample using current material attributes",
+            HANDLER,
+            required_modules=("rich",),
+            arguments=CONTEXT_ARGUMENTS + (PROJECT_ARGUMENT, DRY_RUN),
+        ),
+        CommandSpec(
             "material-foundation",
             "recreate Engine DefaultMaterial and the three shipped material functions",
             HANDLER,

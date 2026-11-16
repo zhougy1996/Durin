@@ -290,7 +290,7 @@ namespace Durin::MaterialEditor
 		{
 			for (uint32 Index = 0; Index < FMaterialAttributeDefinitionMap::GetDefinitions().size() && !Changed; ++Index)
 			{
-				const auto Attribute = static_cast<EMaterialProperty>(Index);
+				const auto Attribute = FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property;
 				const auto Binding = std::ranges::find(Surface->Attributes, Attribute, &FMaterialExpressionAttributeBinding::GetProperty);
 				const bool bKeepBase = Binding == Surface->Attributes.end()
 					|| (!Binding->Source.Connection.ExpressionId.IsValid() && !Binding->Source.UseConstant);

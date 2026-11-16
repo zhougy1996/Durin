@@ -12,6 +12,8 @@
 #include "Materials/DefaultMaterialService.h"
 #include "AssetForge/Builtins/StandardMaterialFunctions.h"
 #include "AssetForge/Builtins/PBRSurfaceMaterial.h"
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
+#include "Materials/MaterialExpressions.h"
 #endif
 #include "AssetRegistry/Scan.h"
 #include "Asset/Mutation.h"
@@ -82,6 +84,7 @@ namespace
 		IdentityAudit,
 		MaterialFunctions,
 		MaterialFoundation,
+		MaterialRust,
 		MaterialTemplate,
 		Cook,
         StageInfo,
@@ -125,6 +128,7 @@ namespace
 		case EOperation::IdentityAudit: return "identity-audit";
 		case EOperation::MaterialFunctions: return "material-functions";
 		case EOperation::MaterialFoundation: return "material-foundation";
+		case EOperation::MaterialRust: return "material-rust";
 		case EOperation::MaterialTemplate: return "material-template";
 		case EOperation::Cook: return "cook";
         case EOperation::StageInfo: return "stage-info";
@@ -186,6 +190,7 @@ namespace
 			<< "  DurinAssetTool material-template --project=<project.dproject> <package-path> [--apply]\n"
 			<< "  DurinAssetTool material-functions --project=<project.dproject> [--apply]\n"
 			<< "  DurinAssetTool material-foundation --project=<project.dproject> [--apply]\n"
+			<< "  DurinAssetTool material-rust --project=<Sandbox.dproject> [--apply]\n"
 			<< "  DurinAssetTool cook --project=<project.dproject> --output=<absolute-path> "
 			<< "--target=win64|macos --profile=game --target-receipt=<absolute-Game-receipt> [--root=/Game/Path]... "
 			<< "[--no-incremental] [--dry-run] [--json]\n";
@@ -222,7 +227,7 @@ namespace
 								| OptionBit(EOption::DryRun) | OptionBit(EOption::TargetReceipt);
 		const uint16 Allowed = Options.Operation == EOperation::MaterialTemplate
 			? Storage | OptionBit(EOption::Apply) | OptionBit(EOption::Scope)
-			: (Options.Operation == EOperation::MaterialFunctions || Options.Operation == EOperation::MaterialFoundation) ? Storage | OptionBit(EOption::Apply) : Options.Operation == EOperation::Resave ? Resave : Options.Operation == EOperation::Check ? Check :
+			: (Options.Operation == EOperation::MaterialFunctions || Options.Operation == EOperation::MaterialFoundation || Options.Operation == EOperation::MaterialRust) ? Storage | OptionBit(EOption::Apply) : Options.Operation == EOperation::Resave ? Resave : Options.Operation == EOperation::Check ? Check :
 															  Options.Operation == EOperation::Cook ? Cook : Options.Operation == EOperation::StageInfo ? Check | OptionBit(EOption::Output) : Storage;
 		const uint16 Unexpected = Options.SpecifiedOptions & ~Allowed;
 		constexpr EOption OrderedOptions[] = {
@@ -308,6 +313,8 @@ namespace
 			OutOptions.Operation = EOperation::MaterialFunctions;
 		else if (Command == "material-foundation")
 			OutOptions.Operation = EOperation::MaterialFoundation;
+		else if (Command == "material-rust")
+			OutOptions.Operation = EOperation::MaterialRust;
 		else if (Command == "material-template")
 			OutOptions.Operation = EOperation::MaterialTemplate;
 		else if (Command == "stage-info")
@@ -612,7 +619,7 @@ namespace
 				Input.PackagePath, Inspection, References);
 			PackageNode.SetChildValue("referenceInspection",
 				ReferenceResult ? "Ready" : "Failed");
-			PackageNode.SetChildValue("referenceDiagnostic", ReferenceResult.error().ToString());
+			PackageNode.SetChildValue("referenceDiagnostic", ReferenceResult ? std::string{} : ReferenceResult.error().ToString());
 			FJsonNodeRef ReferenceArray = PackageNode.AddArray("references");
 			if (ReferenceResult)
 			{
@@ -1201,6 +1208,58 @@ int main(int ArgC, char** ArgV)
 #else
 		std::cerr << "Material template creation requires the editor asset host.\n";
 		return 1;
+#endif
+	}
+	if (Options.Operation == EOperation::MaterialRust)
+	{
+#if DURIN_WITH_EDITOR
+		using namespace Durin;
+		using namespace Durin::AssetForge::Builtins;
+		constexpr std::string_view Destination = "/Game/Materials/Metal/M_MetalRust";
+		const auto Resolved = FMountPaths::ResolveAssetPath(Destination);
+		if (!Resolved || !Resolved->Mount->bContentWritable) return 1;
+		const auto File = std::filesystem::path(Resolved->PhysicalPath.string() + ".dasset");
+		std::cout << "Recreate four-map DefaultLit sample at " << Destination << '\n';
+		if (!Options.bApply) return 0;
+		FModuleManager::Get().LoadModuleChecked("ShaderBuild");
+		if (!RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation)) return 1;
+		const std::array Properties{EMaterialProperty::MP_BaseColor, EMaterialProperty::MP_Normal,
+			EMaterialProperty::MP_Metallic, EMaterialProperty::MP_Roughness};
+		const std::array Suffixes{"Color", "NormalDX", "Metalness", "Roughness"};
+		const std::array Names{"BaseColorTexture", "NormalTexture", "MetallicTexture", "RoughnessTexture"};
+		std::vector<TStrongObjectPtr<DMaterialExpression>> Nodes;
+		FMaterialAttributeRoot Outputs;
+		for (uint32 I = 0; I < Properties.size(); ++I)
+		{
+			const auto Name = std::string("Metal053C_1K-JPG_") + Suffixes[I];
+			FSoftObjectPath TexturePath;
+			if (!FSoftObjectPath::TryCreate("/Game/Materials/Metal/" + Name + "." + Name, TexturePath)) return 1;
+			auto* Texture = LoadObject<DTexture2D>(TexturePath);
+			if (!Texture) { std::cerr << "Required rust sample texture is missing: " << TexturePath.ToString() << '\n'; return 1; }
+			auto* Sample = NewObject<DMaterialExpressionTextureSampleParameter2D>(nullptr, NAME_None);
+			Sample->Id = {0x53544735, 0x52555354, 0, I+1};
+			Sample->Metadata = {.Id = GetMaterialSurfaceParameterId(Properties[I], MaterialParameters::EMaterialBuiltinParameterKind::Texture), .Name = Names[I]};
+			Sample->DefaultValue = FMaterialParameterValue::MakeTexture(Texture, {}, I == 1 ? EMaterialTextureFallback::FlatRGNormal : EMaterialTextureFallback::White).GetTexture();
+			Sample->TextureUsage = I == 0 ? ETextureUsage::Color : I == 1 ? ETextureUsage::Normal : ETextureUsage::DataMask;
+			Nodes.emplace_back(Sample);
+			Outputs.Get(Properties[I]) = {Sample->Id, uint8(I < 2 ? 1 : 2)};
+		}
+		auto* Terminal = NewObject<DMaterialExpressionMaterialOutput>(nullptr, NAME_None);
+		Terminal->Id = {0x53544735, 0x52555354, 0, 5}; Terminal->Outputs = Outputs; Nodes.emplace_back(Terminal);
+		FPackagePath Path; if (!FPackagePath::TryCreate(Destination, Path)) return 1;
+		auto* Material = NewObject<DMaterial>(CreatePackage(Path), "M_MetalRust", EObjectFlags::Public);
+		Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+		std::vector<DMaterialExpression*> Expressions; for (const auto& E : Nodes) Expressions.push_back(E.Get());
+		if (!Material->SetMaterialExpressions(Expressions) || !Material->CompileEdits()) return 1;
+		FMaterialGraphPresentation Layout;
+		for (uint32 I=0; I<4; ++I) Layout.Nodes.push_back({Nodes[I]->Id, 0, int32(I)*240});
+		Layout.Nodes.push_back({Terminal->Id, 600, 240}); Material->SetMaterialGraphPresentation(Layout);
+		FByteBuffer Bytes; if (!SerializeAssetPackageBytes(Material->GetPackage(), Bytes)) return 1;
+		if (!FFileHelper::SaveArrayToFileAtomically(Bytes, File)) return 1;
+		std::cout << "Recreated current-format rust material; logical path and texture references retained.\n";
+		return 0;
+#else
+		std::cerr << "Rust sample recreation requires the editor asset host.\n"; return 1;
 #endif
 	}
 	if (Options.Operation == EOperation::MaterialFoundation)

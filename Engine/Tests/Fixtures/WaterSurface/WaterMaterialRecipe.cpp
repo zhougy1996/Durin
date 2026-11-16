@@ -46,17 +46,9 @@ namespace Durin::WaterMaterialRecipe
 	auto BuildInput() -> MIR::FCompilerInput
 	{
 		FWaterMaterialBuilder B;
-		FMaterialAttributeValues Defaults;
-		for (uint32 I = 0; I < 8; ++I)
-		{
-			auto& Root = B.Input.IR.GetAttribute(static_cast<EMaterialProperty>(I));
-			const auto S = GetMaterialSurfaceOutputSemantics(static_cast<EMaterialProperty>(I));
-			Root.Type = S.Type; Root.LegalStages = S.Stages; Root.SpatialKind = S.Kind; Root.CoordinateSpace = S.Space;
-			Root.Literal = GetMaterialSurfaceOutputDefault(Defaults, static_cast<EMaterialProperty>(I));
-		}
 		B.Input.StaticProperties.bTwoSided = true;
-		B.Input.IR.GetAttribute(static_cast<EMaterialProperty>(size_t(EMaterialProperty::MP_BaseColor))).Literal = {.02f, .18f, .24f};
-		B.Input.IR.GetAttribute(static_cast<EMaterialProperty>(size_t(EMaterialProperty::MP_Roughness))).Literal = {.22f};
+		B.Input.IR.GetAttribute(EMaterialProperty::MP_BaseColor).Literal = {.02f, .18f, .24f};
+		B.Input.IR.GetAttribute(EMaterialProperty::MP_Roughness).Literal = {.22f};
 		const auto Zero = B.C(0), One = B.C(1);
 		const auto UV = B.Add({.Opcode = Op::UVChannel, .ResultType = Type::Float2, .Inputs = {Zero}});
 		auto Channel = [&](uint8 I) { return B.Add({.Opcode = Op::Swizzle, .Inputs = {UV}, .Payload = MIR::FSwizzle{1, {I}}}); };
@@ -104,7 +96,7 @@ namespace Durin::WaterMaterialRecipe
 		const auto XY = B.Add({.Opcode = Op::Swizzle, .ResultType = Type::Float2, .Inputs = {Normal}, .Payload = MIR::FSwizzle{2, {0, 1}}});
 		const auto Half = B.Add({.Opcode = Op::Constant, .ResultType = Type::Float2, .Payload = FMaterialProgramLiteral{.5f, .5f}});
 		const auto Encoded = B.B(Op::Add, B.B(Op::Multiply, XY, Half, Type::Float2), Half, Type::Float2);
-		auto& Root = B.Input.IR.GetAttribute(static_cast<EMaterialProperty>(size_t(EMaterialProperty::MP_Normal)));
+		auto& Root = B.Input.IR.GetAttribute(EMaterialProperty::MP_Normal);
 		Root.bExpression = true; Root.ExpressionIndex = B.U(Op::DecodeNormalRG, Encoded, Type::Float3);
 		return std::move(B.Input);
 	}

@@ -32,7 +32,7 @@ namespace Durin
 				EMaterialSpatialKind, EMaterialCoordinateSpace>, uint32> Shapes;
 			for (uint8 Attribute = 0; Attribute < FMaterialAttributeDefinitionMap::GetDefinitions().size(); ++Attribute)
 			{
-				const auto Output = static_cast<EMaterialProperty>(Attribute);
+				const auto Output = FMaterialAttributeDefinitionMap::GetDefinitions()[Attribute].Property;
 				const auto Semantics = GetMaterialSurfaceOutputSemantics(Output);
 				const auto Key = std::tuple{Semantics.Type, Semantics.Stages, Semantics.Kind, Semantics.Space};
 				auto [Shape, Inserted] = Shapes.try_emplace(Key, InvalidIndex);
@@ -231,7 +231,7 @@ namespace Durin
 			MIR::FNode Surface{.Opcode = EMaterialProgramOpcode::MakeMaterialAttributes, .ResultType = EMaterialProgramValueType::MaterialAttributes};
 			for (uint8 Index = 0; Index < FMaterialAttributeDefinitionMap::GetDefinitions().size(); ++Index)
 			{
-				const auto Attribute = static_cast<EMaterialProperty>(Index);
+				const auto Attribute = FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property;
 				const auto& Numeric = GetMaterialSurfaceOutputDefault(Default.Surface, Attribute);
 				const std::array Components{Numeric.X, Numeric.Y, Numeric.Z, Numeric.W};
 				Surface.Inputs.push_back(Literal(

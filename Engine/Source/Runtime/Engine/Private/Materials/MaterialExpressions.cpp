@@ -65,9 +65,9 @@ namespace Durin
 		if (Opcode == EMaterialProgramOpcode::MakeMaterialAttributes)
 		{
 			const FMaterialAttributeValues Defaults;
-			const auto Value = GetMaterialSurfaceOutputDefault(Defaults, static_cast<EMaterialProperty>(Slot));
+			const auto Value = GetMaterialSurfaceOutputDefault(Defaults, FMaterialAttributeDefinitionMap::GetDefinitions()[Slot].Property);
 			const std::array Components{Value.X, Value.Y, Value.Z, Value.W};
-			return {Components.begin(), Components.begin() + static_cast<uint32>(GetMaterialSurfaceOutputType(static_cast<EMaterialProperty>(Slot))) + 1};
+			return {Components.begin(), Components.begin() + static_cast<uint32>(GetMaterialSurfaceOutputType(FMaterialAttributeDefinitionMap::GetDefinitions()[Slot].Property)) + 1};
 		}
 		const auto& Accepted = Signature->Inputs[Slot];
 		if (Accepted.empty() || Accepted.front() > EMaterialProgramValueType::Float4) return {};

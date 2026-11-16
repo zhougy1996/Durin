@@ -81,7 +81,7 @@ namespace Durin
 	{
 		auto Preparation = FShaderMapPreparation::Request("Renderer", {
 			"PostProcess.Copy", "PostProcess.FXAA", "SkyBox.Default", "SkyLighting.Compute",
-			"DeferredDirectionalLighting.LocalBuffer", "GroundTruthAmbientOcclusion.Raw",
+			"DeferredDirectionalLighting.LocalBuffer", "DeferredProductionLighting.LocalBuffer", "GroundTruthAmbientOcclusion.Raw",
 			"GroundTruthAmbientOcclusion.Filter"});
 		Preparation.Add("SurfaceMaterial", {"Surface.OpaqueShadow"});
 		return Preparation;

@@ -45,8 +45,8 @@ namespace Durin::MIR
 		for (uint32 Index = 0; Index < Result.IR.AttributeRoots.size(); ++Index)
 		{
 			const auto Semantics = GetMaterialSurfaceOutputSemantics(
-				static_cast<EMaterialProperty>(Index));
-			auto& Input = Result.IR.GetAttribute(static_cast<EMaterialProperty>(Index));
+				FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property);
+			auto& Input = Result.IR.GetAttribute(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property);
 			Input.Type = Semantics.Type;
 			Input.LegalStages = Semantics.Stages;
 			Input.SpatialKind = Semantics.Kind;

@@ -13,3 +13,10 @@ if(TARGET Water)
     set_target_properties(WaterSurfaceFeatureProbe PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/WaterSurfaceFeatureProbe/$<CONFIG>")
 endif()
+
+# Deliberately does not link Water: ordinary project CDOs must not require its mount.
+add_executable(WorkspaceContentProbe WorkspaceContentProbe.cpp)
+durin_target_apply_common_definitions(WorkspaceContentProbe WorkspaceContentProbe)
+target_link_libraries(WorkspaceContentProbe PRIVATE Core Projects CoreDObject Engine RenderCore)
+set_target_properties(WorkspaceContentProbe PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/WorkspaceContentProbe/$<CONFIG>")

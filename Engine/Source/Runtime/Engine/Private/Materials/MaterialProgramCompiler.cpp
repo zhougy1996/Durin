@@ -444,7 +444,7 @@ namespace Durin
 			const auto& Surface = Nodes[IR.AggregateAttributesIndex];
 			for (size_t Index = 0; Index < IR.AttributeRoots.size(); ++Index)
 			{
-				auto& Root = IR.GetAttribute(static_cast<EMaterialProperty>(Index));
+				auto& Root = IR.GetAttribute(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property);
 				Root.bExpression = true;
 				Root.ExpressionIndex = Index < Surface.Inputs.size() ? Surface.Inputs[Index] : 0;
 				Root.bExpression = Index < Surface.Inputs.size();
@@ -457,12 +457,12 @@ namespace Durin
 			for (const auto Entry : SelectMaterialShaderEntries(Input.StaticProperties, Input.Environment.bIncludeEditorPasses, Input.IR.Domain))
 				for (const auto Property : GetMaterialEntryProperties(Entry, Input.StaticProperties)) Demanded.insert(Property);
 			for (size_t Index = 0; Index < IR.AttributeRoots.size(); ++Index)
-				if (!Demanded.contains(static_cast<EMaterialProperty>(Index))
-					|| (IR.Domain == EMaterialDomain::Surface && !IsMaterialSurfaceOutputActive(static_cast<EMaterialProperty>(Index), Input.StaticProperties)))
+				if (!Demanded.contains(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property)
+					|| (IR.Domain == EMaterialDomain::Surface && !IsMaterialSurfaceOutputActive(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property, Input.StaticProperties)))
 				{
-					auto& Root = IR.GetAttribute(static_cast<EMaterialProperty>(Index));
+					auto& Root = IR.GetAttribute(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property);
 					Root.bExpression = false;
-					Root.Literal = GetMaterialSurfaceOutputDefault(Defaults, static_cast<EMaterialProperty>(Index));
+					Root.Literal = GetMaterialSurfaceOutputDefault(Defaults, FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property);
 				}
 
 			IR.AggregateAttributesIndex = 0;

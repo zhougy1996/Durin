@@ -308,7 +308,7 @@ namespace Durin::AssetForge::Builtins
 		std::array<FImportedSurfaceRole, 8> Roles;
 		const FMaterialAttributeValues Defaults;
 		for (uint32 I = 0; I < 8; ++I)
-			Roles[I].Value = GetMaterialSurfaceOutputDefault(Defaults, static_cast<EMaterialProperty>(I));
+			Roles[I].Value = GetMaterialSurfaceOutputDefault(Defaults, MaterialParameters::PBRMaterialProperties.at(I));
 		Roles[0].Value = {Source->BaseColorFactor.r, Source->BaseColorFactor.g, Source->BaseColorFactor.b};
 		Roles[2].Value = {Source->MetallicFactor};
 		Roles[3].Value = {Source->RoughnessFactor};

@@ -35,8 +35,11 @@ The ordered pre-tone-map PostProcess slot, studio preview and failure bypass
 are Windows-qualified on 2026-11-17. Stage 4 domain/model changes, value-only
 updates, editor history/Apply/save/reopen, representative Editor/Game Cook parity
 and Shader identity qualification are also complete on Windows. Stage 4 remains
-open solely for native Metal acceptance; full content/Game closure and integrated
-cost gates remain in Stages 5/6.
+open solely for native Metal acceptance. Stage 5 source replacement closes the
+28-package census and passes final Editor coverage. Initial representative Game
+Cook/load/startup passed, but final deferred Shader separation and property-map
+cleanup require Game recook/reverification; the owner requested submission before
+that last sequence. Stage 5 remains open, along with Stage 6 integration/cost.
 See the implemented [material contract](../Runtime/Rendering/Materials/MaterialSystem.md).
 
 The 2026-11-16 rebase review below preserves the selected architecture, content
@@ -1133,17 +1136,137 @@ timing qualification remain open. Stage 4 as a whole is not complete.
 
 ### Stage 5: Replace workspace content and retire legacy contracts
 
+2026-11-17 Stage 5 continuation decision: the owner authorizes workspace content
+closure on Windows while keeping native Metal gates open. Preserve the 28-package
+census and logical identities. The remaining Sandbox rust asset has four texture
+sample nodes and one legacy output, with no layered-rust branch; recreate its
+four-map DefaultLit graph at the same path with canonical parameter IDs. Retain
+unrelated mesh/Level/texture data unless actual loader/Cook references require
+repair. Keep sample recreation explicit and editor-tool-only; reject old roots
+rather than installing a runtime compatibility evaluator. Replace residual
+property-ordinal assumptions with named property mappings. Qualify ordinary
+Sandbox/RoadWeaver Cook and source-independent Game loads, plus the isolated
+opt-in Water project, restoring the exact workspace descriptor afterward.
+
 Outcome: every retained workspace consumer uses new content and artifacts.
 Depends on Stages 1-4; incremental inventory updates occur throughout them.
 
-- [ ] Close each inventory row with converted/recreated/removed assets and repaired references, including instances, functions, import parents, standard functions, defaults/error materials, examples, Water and test fixtures.
-- [ ] Regenerate content from supported recipes; round-trip it and verify reimport/recreation produces the new schema. Check overridden values by declared identity or explicit replacement mappings.
+- [x] Close each inventory row with converted/recreated/removed assets and repaired references, including instances, functions, import parents, standard functions, defaults/error materials, examples, Water and test fixtures.
+- [x] Regenerate content from supported recipes; round-trip it and verify reimport/recreation produces the new schema. Check overridden values by declared identity or explicit replacement mappings.
 - [ ] Cook representative Engine, Sandbox and RoadWeaver content and the opt-in Water fixture into new generations. Verify source-free Game loads with authored graphs/compiler services unavailable, and resolve all required Shader/texture dependencies.
 - [ ] Remove obsolete root/field adapters, ordinal assumptions and duplicate semantics. If a one-shot conversion utility remains useful, keep it editor/tool-only with explicit supported input versions.
-- [ ] Test old authored/cooked artifacts for clear rejection, missing replacements for actionable diagnostics, and all repaired soft references/Cook roots for reachability. No dangling reference is accepted as an intentional appearance change.
+- [x] Test old authored/cooked artifacts for clear rejection, missing replacements for actionable diagnostics, and all repaired soft references/Cook roots for reachability. No dangling reference is accepted as an intentional appearance change.
 
 Exit: inventory has no unresolved retained consumer. New and regenerated content
 works without a legacy evaluator, old cooked products or runtime compilation.
+
+#### Workspace replacement and Windows progress receipt (2026-11-17)
+
+Tested input: `8ca767d36` plus this Stage 5 change, Windows/MSVC Debug,
+RTX 3090 / Vulkan 1.4.351, SDK 1.4.357.0. Evidence root (ignored):
+`Build/AgentValidation/MaterialAttributesAndExecutionContracts/Stage5/`;
+native build/test logs remain under `Build/.agent-state/logs/`.
+The owner requested immediate submission before the last validation sequence.
+Source replacement and final Editor validation are complete. Stage 5 remains
+open for final-state Game rebuild/recook/startup/load and Water Game rendering;
+previous Game receipts below precede the final deferred Shader split and runtime
+property-map cleanup and must not be reused as final-state acceptance.
+Stage 6 final integration/cost and required native Metal gates remain open.
+
+The 28-package Stage 0 census is closed as follows. No tracked package was
+removed or renamed; only the remaining Rust source package changes in this commit.
+
+| Inventory rows | Count | Final disposition and evidence |
+| --- | --- | --- |
+| Engine DefaultMaterial and three standard functions | 4 | Reuse the current typed recipes regenerated in Stage 3; `material-functions` confirms the saved implementations/signatures match. Compatibility/reference audits and function/import tests pass. |
+| Engine Box/Sphere/SplineBox and both studio Cubes | 5 | Retain byte-identical data; explicit Sandbox Cook roots and Game loads cover meshes and Cubes, including defaults used by Road. |
+| Water DefaultWater | 1 | Retain its current typed source recipe and logical path. Saved graph/CPU agreement, isolated fixture persistence, initial Cook/Game load and final Editor rendering cover the saved component reference. Final Game recook/rendering remains open. |
+| Sandbox M_MetalRust | 1 | Recreate four TextureSampleParameter2D nodes and the current attribute terminal at the original path. Keep Color/NormalDX/Metalness/Roughness texture identities; no layered-rust branch existed. Fresh-process inspection/Cook validates the graph; repeated recreation has identical SHA-256. |
+| Other Sandbox packages | 12 | Retain all four textures, both Levels, pawn/defaults, ordinary 2D/Cube textures and both VolumeTextures unchanged. All authored references resolve; the 18-package representative Cook retains the Rust maps and Graybox dependency closure. Unreferenced StoneHead remains compatible retained source, not an implicit Cook root. |
+| RoadWeaver Level and road graph | 2 | Retain unchanged, including `/Game/Levels/L_RoadNet.NewLevel`. Initial five-package Cook and Game loads resolve both packages and their Engine references; repeat against the final Shader inventory. |
+| Frozen cooked texture test packages | 3 | Retain unchanged; the cooked-base-state identity regression passes. They are not recreated as material assets. |
+
+No saved instance/collection package exists in this census. Transient instance,
+collection, imported-parent, standard-function, error/default, preview and
+Road material builders use current roots. Import/template roles now select named
+properties; runtime builders/normalization/signatures and editor definition loops
+read properties from the definition map. Numeric pin addresses still identify
+explicit properties; they do not select an ordinal in that map. Water relies on
+the module's registered defaults rather than repeating a fixed-eight initializer.
+
+Rust's four replacement parameter identities are the existing builtin texture IDs:
+
+| Texture role | Canonical parameter ID |
+| --- | --- |
+| BaseColorTexture | `e0588f9f-2cb6-4c17-9e48-23fdbc71e936` |
+| NormalTexture | `5555fb8e-c410-41d9-b909-0b8060e5897d` |
+| MetallicTexture | `ef53c105-25e1-41e2-97cc-521fffaa7c62` |
+| RoughnessTexture | `b2a36b19-efbd-433d-a4ff-568702ebc864` |
+
+These explicitly replace the sample's retired parameter declarations; there are
+no saved overrides to migrate. Import reimport/override tests retain their
+existing declared IDs. `asset material-rust --project Sandbox/Sandbox.dproject`
+is a bounded Editor recipe writer, not a retired-schema reader or loader alias.
+`--dry-run` reports its destination. Missing input exits nonzero with the exact
+texture path, also preserved by the DevTool wrapper (`missing-replacement.log`).
+The audit success path no longer accesses `expected::error()` on a successful
+reference result. Sandbox/Road/Water audits respectively resolve 14/2/1 serialized
+references with no missing target or reference-extraction diagnostic.
+
+The initial successful cold Cook commands used Debug Game receipts, `--no-incremental`
+and these additional roots (project defaults remain active):
+
+- Sandbox: `/Game/Materials/Metal/M_MetalRust`, `/Game/Levels/NewLevel`,
+  `/Engine/Models/Box`, `/Engine/Models/Sphere`, `/Engine/Models/SplineBox`,
+  `/Engine/Renderer/ThumbnailStudioCube`; 18 packages.
+- RoadWeaver: `/Game/NewRoadNet`; 5 packages.
+- Isolated WaterSurfaceFixture: `/Game/WaterSurfaceLevel`; 3 packages,
+  including DefaultWater reached through its saved component soft reference.
+
+`Sandbox-cook.json`, `RoadWeaver-cook.json`, `Water-cook.json` record the initial successful new
+generations; final-state recook remains required. `*-game-load.log` records explicit cooked-object loads and accepted
+material programs in Game, whose authored graph fields are compiled out.
+WorkspaceContentProbe opens only the cooked catalog and rejects a loaded
+ShaderBuild module; it has no Water link. Sandbox/Road probes run beside their
+source-free delivery binaries. The initial ordinary export `--verify` additionally
+passed bounded real Game startup/rendering for both projects, before the final
+Shader inventory split; final-state export verification remains required. Delivery scans
+find no ShaderBuild library, authored Shader, C++ source or project descriptor.
+Water uses the isolated opt-in runtime inventory; ordinary project plugin files
+are unchanged and the workspace descriptor is restored byte-for-byte afterward.
+
+Real Game/thumbnail validation exposed and repaired two integration omissions:
+Editor-only ContentBrowser test includes are now guarded for Game configuration;
+production deferred lighting now has a distinct vertex/fragment Shader set and
+source wrapper, parameter metadata and pipeline layout. The isolated set retains
+its SceneColor seed; production omits it. Both sets participate in thumbnail
+preparation. This avoids production macros contaminating isolated reflection,
+Cook/authored environment drift, and capture-only perpetual preparation. Rebuild
+Shader libraries and repeat Game acceptance after this inventory change.
+The new sets' final cost comparison belongs to Stage 6.
+
+Final Editor validation passed: MaterialCompilerTests (119),
+MaterialFunctionTests (30), MaterialGraphEditingTests (106), MaterialPackageTests
+(6), MaterialCookTests (7), SceneImportTests (38), SceneImportVulkanTests (2),
+RoadSceneIntegrationTests (5), the frozen texture identity case (1), and
+WaterSurfaceRenderingVulkanTests (2). DevTool asset tests pass (32 cases).
+MaterialCompilerTests rejects retired DMAT with
+`Material cooked program format is incompatible; recook from authored assets.`
+and leaves accepted state unchanged; package tests reject missing/old/future
+material versions before publication. The original Rust before-audit reports
+its incompatible SurfaceOutputs/texture field signatures in the evidence directory.
+
+Remaining Stage 5 work after this owner-requested immediate commit:
+
+- Build final Debug Game receipts, regenerate all three Cook generations and
+  rerun Sandbox/Road export verification and explicit source-free object loads.
+- Rebuild both probes after their final diagnostics edits; run final Water
+  `load-cooked` and Game WaterSurfaceRenderingVulkanTests against the new Cook.
+- Replace the remaining test-adapter ordinal casts in MaterialFunctionCookTests,
+  MaterialRenderProxyTests, MaterialGraphInteractionTests and the qualified cast
+  in MaterialCompilerTests' root-semantics helper; validate their owning targets.
+- Close the two unchecked Stage 5 tasks only after these final inputs pass.
+  Preserve native Metal and the explicit Stage 6 `all` build/cost gates.
 
 ### Stage 6: Qualify the integrated contract and publish lasting documentation
 

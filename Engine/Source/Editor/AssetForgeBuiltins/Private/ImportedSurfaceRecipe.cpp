@@ -29,7 +29,7 @@ namespace Durin::AssetForge::Builtins
 		Private::FMaterialExpressionRecipeBuilder Builder{Result.Graph, 0x36b41f8e, 0x71984aca};
 		const auto PositionX = [&] { return static_cast<int32>((Result.Graph.Expressions.size() + 1) % 4) * 240; };
 		const auto Parameter = [&](uint32 Role, Kind ParameterKind) {
-			const auto SurfaceRole = static_cast<EMaterialProperty>(Role);
+			const auto SurfaceRole = MaterialParameters::PBRMaterialProperties.at(Role);
 			const auto Id = GetMaterialSurfaceParameterId(SurfaceRole, ParameterKind);
 			const auto Definition = std::ranges::find(Definitions, Id, &FMaterialParameterDefinition::Id);
 			require(Definition != Definitions.end());
@@ -40,7 +40,7 @@ namespace Durin::AssetForge::Builtins
 		};
 		for (uint32 I = 0; I < Roles.size(); ++I)
 		{
-			const auto Role = static_cast<EMaterialProperty>(I);
+			const auto Role = MaterialParameters::PBRMaterialProperties.at(I);
 			const auto ValueType = GetMaterialSurfaceOutputType(Role);
 			const auto& Input = Roles[I];
 			auto& Output = Builder.Output(Result.Graph.Outputs, I);
@@ -80,7 +80,7 @@ namespace Durin::AssetForge::Builtins
 			}
 			else
 			{
-				const auto OwnerRole = static_cast<EMaterialProperty>(Groups[Group]);
+				const auto OwnerRole = MaterialParameters::PBRMaterialProperties.at(Groups[Group]);
 				Result.Owners.push_back({Role, Kind::Texture, GetMaterialSurfaceParameterId(OwnerRole, Kind::Texture)});
 				for (uint32 U = 0; U < 4; ++U)
 					if (UVMask & (1u << U)) Result.Owners.push_back({Role, UVKinds[U], GetMaterialSurfaceParameterId(OwnerRole, UVKinds[U])});

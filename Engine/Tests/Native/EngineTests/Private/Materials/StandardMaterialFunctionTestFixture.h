@@ -41,7 +41,7 @@ namespace Durin::Testing
 		constexpr std::array<uint8, 8> Channels{1, 1, 4, 3, 2, 1, 5, 2};
 		for (uint32 I = 0; I < 8; ++I)
 		{
-			const auto Role = static_cast<EMaterialProperty>(I);
+			const auto Role = Durin::AssetForge::Builtins::MaterialParameters::PBRMaterialProperties.at(I);
 			const auto Parameter = [&](ParameterKind Kind, Type ValueType, int32 Column, int32 Row) {
 				const auto Id = Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(Role, Kind);
 				const auto Definition = std::ranges::find(Recipe, Id, &FMaterialParameterDefinition::Id);

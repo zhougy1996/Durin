@@ -53,7 +53,15 @@ inputs and sequential isolation.
 
 The fragment shader binds three GBuffer attachments at slots 0..2. Isolated
 diagnostics additionally bind the pre-lighting SceneColor seed at slot 3;
-production omits that binding. Optional ModelData is slot 20, binding the material fallback when absent;
+production omits that binding. The isolated `DeferredDirectionalLighting.LocalBuffer`
+and production `DeferredProductionLighting.LocalBuffer` Shader sets each own their
+vertex/fragment pair with distinct Shader types and matching pipeline layouts.
+Thumbnail preparation includes both sets. Their compile environments
+are separate: the production macro must not remove the isolated seed resource.
+`DeferredProductionLighting.slang` freezes that macro for both authored preparation
+and Cook, without relying on a Cook-only environment modifier.
+The production parameter metadata also omits `BasePassColor`; binding a dummy
+texture cannot repair a missing reflected parameter. Optional ModelData is slot 20, binding the material fallback when absent;
 only ClearCoat records use its channels. Both models call shared direct/local/IBL
 layer helpers. Remaining slots retain their indices: D32, irradiance,
 prefiltered environment, the BRDF LUT, the environment sampler, the selected

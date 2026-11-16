@@ -223,9 +223,9 @@ TEST_F(FMaterialParameterCollectionTests,
 			.Target = "test-target",
 			.Dependencies = {{"/Tests/Collection", FXxHash128{1, 2}}}},
 		.Sources = Built.Sources};
-	Input.IR.GetAttribute(static_cast<EMaterialProperty>(0)).bExpression = true;
-	Input.IR.GetAttribute(static_cast<EMaterialProperty>(0)).ExpressionIndex = Built.Roots[0];
-	Input.IR.GetAttribute(static_cast<EMaterialProperty>(0)).Type = EMaterialProgramValueType::Float3;
+	Input.IR.GetAttribute(EMaterialProperty::MP_BaseColor).bExpression = true;
+	Input.IR.GetAttribute(EMaterialProperty::MP_BaseColor).ExpressionIndex = Built.Roots[0];
+	Input.IR.GetAttribute(EMaterialProperty::MP_BaseColor).Type = EMaterialProgramValueType::Float3;
 	auto First = MIR::Normalize(Input);
 	ASSERT_TRUE(First) << (First.Diagnostics.empty() ? "no diagnostic"
 		: First.Diagnostics.front().Message);
@@ -241,9 +241,9 @@ TEST_F(FMaterialParameterCollectionTests,
 	auto Rebuilt = MIR::BuildGraph(Expressions, std::span(&Root, 1));
 	ASSERT_TRUE(Rebuilt);
 	Input.IR = Rebuilt.IR;
-	Input.IR.GetAttribute(static_cast<EMaterialProperty>(0)).bExpression = true;
-	Input.IR.GetAttribute(static_cast<EMaterialProperty>(0)).ExpressionIndex = Rebuilt.Roots[0];
-	Input.IR.GetAttribute(static_cast<EMaterialProperty>(0)).Type = EMaterialProgramValueType::Float3;
+	Input.IR.GetAttribute(EMaterialProperty::MP_BaseColor).bExpression = true;
+	Input.IR.GetAttribute(EMaterialProperty::MP_BaseColor).ExpressionIndex = Rebuilt.Roots[0];
+	Input.IR.GetAttribute(EMaterialProperty::MP_BaseColor).Type = EMaterialProgramValueType::Float3;
 	Input.Collections = Rebuilt.Collections;
 	Input.Sources = Rebuilt.Sources;
 	const auto DefaultsChanged = MIR::Normalize(Input);
