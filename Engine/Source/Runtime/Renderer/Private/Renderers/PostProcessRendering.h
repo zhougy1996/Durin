@@ -23,8 +23,9 @@ namespace Durin
 		std::optional<FRDGTextureParameter> CloudComposite;
 		std::optional<FRDGTextureParameter> SceneDepth;
 		std::optional<FRDGColorAttachmentParameter> GBufferDebugOutput;
-		std::array<std::optional<FRDGTextureParameter>, 4> GBuffer;
+		std::array<std::optional<FRDGTextureParameter>, 3> GBuffer;
 		std::optional<FRDGTextureParameter> IsolatedDeferred;
+		std::optional<FRDGTextureParameter> BasePassDebug;
 
 		static RENDERER_API auto GetRDGParametersMetadata()
 			-> const FRDGParametersMetadata*;
@@ -34,6 +35,7 @@ namespace Durin
 	{
 		TRDGValueRead<FSceneColorPassResult> SceneColor;
 		std::optional<TRDGValueRead<FIsolatedDeferredPassResult>> DeferredLighting;
+		std::optional<TRDGValueRead<FGBufferPassResult>> BasePassDebugCompletion;
 		TRDGValueWrite<FPostProcessPassResult> Completion;
 		FPostProcessPassResources Resources;
 

@@ -18,7 +18,6 @@ struct ContactShadowUniform
 [[vk::binding(0, 0)]] Texture2D<float4> GBufferMaterial;
 [[vk::binding(1, 0)]] Texture2D<float4> GBufferNormals;
 [[vk::binding(2, 0)]] Texture2D<float4> GBufferSurface;
-[[vk::binding(3, 0)]] Texture2D<float3> GBufferEmissive;
 [[vk::binding(4, 0)]] Texture2D<float> SceneDepth;
 [[vk::binding(5, 0)]] ConstantBuffer<ContactShadowUniform> Params;
 [[vk::binding(6, 0)]] RWTexture2D<unorm float> ContactVisibilityOutput;
@@ -101,8 +100,7 @@ float CalculateContactVisibility(int2 pixel)
     FGBufferRecord receiver = DecodeGBuffer(
         GBufferMaterial.Load(int3(pixel, 0)),
         GBufferNormals.Load(int3(pixel, 0)),
-        GBufferSurface.Load(int3(pixel, 0)),
-        GBufferEmissive.Load(int3(pixel, 0)));
+        GBufferSurface.Load(int3(pixel, 0)));
     if ((receiver.flags & GBufferStandardLitFlag) == 0u)
         return 1.0;
     float centerDepth = SceneDepth.Load(int3(pixel, 0));

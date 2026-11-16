@@ -36,6 +36,7 @@ namespace Durin::SkyBoxRendering
 		if (!IsFinite(OutUniform.ClipToSkyDirection)) return false;
 
 		OutUniform.ProceduralSky = SkyBox.ProceduralSky;
+		OutUniform.DepthParams.x = View.DepthConvention == ESceneDepthConvention::ReversedZ ? 0.0f : 1.0f;
 		OutUniform.TintIntensity = FVector4f(SkyBox.Tint, std::max(0.0f, SkyBox.Intensity));
 		return std::isfinite(OutUniform.TintIntensity.x)
 			&& std::isfinite(OutUniform.TintIntensity.y) && std::isfinite(OutUniform.TintIntensity.z)

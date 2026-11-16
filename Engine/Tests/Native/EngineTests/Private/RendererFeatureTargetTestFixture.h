@@ -29,7 +29,7 @@ namespace Durin::Tests
 			if (!Textures) return std::nullopt;
 			return FGBufferRenderer::FTargets{
 				.Material = (*Textures)[0], .Normals = (*Textures)[1],
-				.Surface = (*Textures)[2], .Emissive = (*Textures)[3]};
+				.Surface = (*Textures)[2]};
 		}
 
 		static auto CreateAmbientOcclusion(uint32 Width, uint32 Height,

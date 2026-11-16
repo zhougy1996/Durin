@@ -32,7 +32,6 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(GBufferMaterial);
 				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(GBufferNormals);
 				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(GBufferSurface);
-				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(GBufferEmissive);
 				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(SceneDepth);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Params);
 			DURIN_END_SHADER_PARAMETERS();
@@ -48,7 +47,6 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(GBufferMaterial);
 				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(GBufferNormals);
 				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(GBufferSurface);
-				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(GBufferEmissive);
 				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(SceneDepth);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER(Params);
 				DURIN_SHADER_PARAMETER_GRAPH_STORAGE_IMAGE(ContactVisibilityOutput);
@@ -282,7 +280,7 @@ namespace Durin
 		const FTargets* FragmentTargets,
 		const FComputeTargets* ComputeTargets,
 		FRHITexture* Material, FRHITexture* Normals, FRHITexture* Surface,
-		FRHITexture* Emissive, FRHITexture* SceneDepth, const FSceneView& View,
+		FRHITexture* SceneDepth, const FSceneView& View,
 		const FVector3& LightDirection, uint32 Width, uint32 Height,
 		const FRenderPolicy& Policy) -> FRenderResult
 	{
@@ -293,7 +291,7 @@ namespace Durin
 			&& View.ViewportWidth <= Width - View.ViewportX
 			&& View.ViewportHeight <= Height - View.ViewportY;
 		const bool bPhysicalInputsValid = Material != nullptr && Normals != nullptr
-			&& Surface != nullptr && Emissive != nullptr && SceneDepth != nullptr
+			&& Surface != nullptr && SceneDepth != nullptr
 			&& View.ViewportWidth != 0 && View.ViewportHeight != 0 && bViewFits
 			&& std::isfinite(LightLengthSquared) && LightLengthSquared > 1.0e-8;
 		const bool bInputsValid = bPhysicalInputsValid;
@@ -376,8 +374,6 @@ namespace Durin
 					ERHIAccess::ComputeShaderRead),
 				FRHITextureTransition::Whole(Surface, ERHIAccess::GraphicsShaderRead,
 					ERHIAccess::ComputeShaderRead),
-				FRHITextureTransition::Whole(Emissive, ERHIAccess::GraphicsShaderRead,
-					ERHIAccess::ComputeShaderRead),
 				FRHITextureTransition::Whole(SceneDepth, ERHIAccess::GraphicsShaderRead,
 					ERHIAccess::ComputeShaderRead),
 				FRHITextureTransition::Whole(ComputeTargets->Visibility,
@@ -402,7 +398,6 @@ namespace Durin
 				Parameters.GBufferMaterial = Material;
 				Parameters.GBufferNormals = Normals;
 				Parameters.GBufferSurface = Surface;
-				Parameters.GBufferEmissive = Emissive;
 				Parameters.SceneDepth = SceneDepth;
 				Parameters.ContactVisibilityOutput = ComputeTargets->Visibility;
 				SetShaderParameters(CommandList, ComputePayload->ComputeShader,
@@ -422,8 +417,6 @@ namespace Durin
 				FRHITextureTransition::Whole(Normals, ERHIAccess::ComputeShaderRead,
 					ERHIAccess::GraphicsShaderRead),
 				FRHITextureTransition::Whole(Surface, ERHIAccess::ComputeShaderRead,
-					ERHIAccess::GraphicsShaderRead),
-				FRHITextureTransition::Whole(Emissive, ERHIAccess::ComputeShaderRead,
 					ERHIAccess::GraphicsShaderRead),
 				FRHITextureTransition::Whole(SceneDepth, ERHIAccess::ComputeShaderRead,
 					ERHIAccess::GraphicsShaderRead),
@@ -475,7 +468,6 @@ namespace Durin
 			Parameters.GBufferMaterial = Material;
 			Parameters.GBufferNormals = Normals;
 			Parameters.GBufferSurface = Surface;
-			Parameters.GBufferEmissive = Emissive;
 			Parameters.SceneDepth = SceneDepth;
 			SetShaderParameters(CommandList, FragmentPayload->FragmentShader,
 				Parameters);

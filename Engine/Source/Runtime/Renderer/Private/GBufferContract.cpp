@@ -52,8 +52,7 @@ namespace Durin::GBufferContract
 	auto DecodeRecord(
 		const FVector4f& Material,
 		const FVector4f& Normals,
-		const FVector4f& Surface,
-		const FVector3f& Emissive) -> FDecodedRecord
+		const FVector4f& Surface) -> FDecodedRecord
 	{
 		const auto Flags = static_cast<uint8>(std::clamp(std::lround(Surface.w * 255.f), 0l, 255l));
 		return {
@@ -62,41 +61,12 @@ namespace Durin::GBufferContract
 				{Normals.x, Normals.y}),
 			.GeometricNormal = DecodeOctahedralNormal(
 				{Normals.z, Normals.w}),
-			.Emissive = Emissive,
 			.Metallic = Surface.x,
 			.Specular = (Flags & AuthoredSpecularFlag) ? std::clamp(Surface.y, 0.f, 1.f) : .5f,
 			.Roughness = Surface.z,
 			.AmbientOcclusion = Material.w,
 			.EffectiveOpacity = 1.f,
 			.Flags = Flags};
-	}
-
-	auto DecodeR11G11B10Float(uint32 Packed) -> FVector3f
-	{
-		auto Decode = [](uint32 Bits, uint32 MantissaBits) {
-			const uint32 MantissaMask = (1u << MantissaBits) - 1u;
-			const uint32 Mantissa = Bits & MantissaMask;
-			const uint32 Exponent = (Bits >> MantissaBits) & 0x1fu;
-			if (Exponent == 0u)
-			{
-				return std::ldexp(static_cast<float>(Mantissa),
-					1 - 15 - static_cast<int>(MantissaBits));
-			}
-			if (Exponent == 0x1fu)
-			{
-				return Mantissa == 0u
-					? std::numeric_limits<float>::infinity()
-					: std::numeric_limits<float>::quiet_NaN();
-			}
-			return std::ldexp(
-				1.0f + static_cast<float>(Mantissa)
-					/ static_cast<float>(1u << MantissaBits),
-				static_cast<int>(Exponent) - 15);
-		};
-		return {
-			Decode(Packed & 0x7ffu, 6u),
-			Decode((Packed >> 11u) & 0x7ffu, 6u),
-			Decode((Packed >> 22u) & 0x3ffu, 5u)};
 	}
 
 	auto ReconstructViewPositionAnalytic(

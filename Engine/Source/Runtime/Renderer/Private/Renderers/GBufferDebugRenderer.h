@@ -28,7 +28,7 @@ namespace Durin
 			FRHITexture* Material,
 			FRHITexture* Normals,
 			FRHITexture* Surface,
-			FRHITexture* Emissive,
+			FRHITexture* BasePassColor,
 			FRHITexture* Depth,
 			FRHITexture* Output,
 			const FSceneView& View,

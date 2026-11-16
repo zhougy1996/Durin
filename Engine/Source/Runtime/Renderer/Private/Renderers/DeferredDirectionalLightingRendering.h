@@ -23,7 +23,8 @@ namespace Durin
 	{
 		std::optional<FRDGBufferAccess> LocalLights;
 		std::optional<FRDGTextureParameter> DirectionalShadow;
-		std::array<std::optional<FRDGTextureParameter>, 4> GBuffer;
+		std::array<std::optional<FRDGTextureParameter>, 3> GBuffer;
+		std::optional<FRDGTextureParameter> BasePassColor;
 		std::optional<FRDGTextureParameter> SceneDepth;
 		std::array<std::optional<FRDGTextureParameter>, 4> AmbientOcclusion;
 		std::optional<FRDGTextureParameter> ContactShadowFragment;

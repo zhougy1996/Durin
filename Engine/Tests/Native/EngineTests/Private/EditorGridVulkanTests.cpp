@@ -14,6 +14,8 @@
 #include "DynamicRHI.h"
 #include "HAL/PlatformLTS.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialCompileLifecycle.h"
+#include "Asset/AssetCompilingManager.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Rendering/PrimitiveDrawInterface.h"
 #include "Modules/ModuleManager.h"
@@ -703,6 +705,8 @@ namespace Durin
 		FGBufferRenderer GBuffer(Coordinator);
 		auto* MaterialObject = NewObject<DMaterial>(
 			nullptr, "GBufferRecoveryMaterial");
+		ASSERT_TRUE(RequestMaterialRecompile(*MaterialObject));
+		FAssetCompilingManager::Get().FinishCompilationForObject(*MaterialObject);
 		const FMaterialRenderData MaterialData = Testing::CaptureMaterialRenderData(*MaterialObject);
 		ASSERT_TRUE(MaterialData.CompiledProgram);
 		auto RecoveredTargets =
@@ -800,11 +804,9 @@ namespace Durin
 		ASSERT_NE(Targets.Material, nullptr);
 		ASSERT_NE(Targets.Normals, nullptr);
 		ASSERT_NE(Targets.Surface, nullptr);
-		ASSERT_NE(Targets.Emissive, nullptr);
 		EXPECT_EQ(Targets.Material->GetFormat(), EPixelFormat::RGBA8_UNORM);
 		EXPECT_EQ(Targets.Normals->GetFormat(), EPixelFormat::RGBA8_UNORM);
 		EXPECT_EQ(Targets.Surface->GetFormat(), EPixelFormat::RGBA8_UNORM);
-		EXPECT_EQ(Targets.Emissive->GetFormat(), EPixelFormat::R11G11B10_FLOAT);
 		EXPECT_EQ(Targets.Material->GetSizeX(), 64u);
 		EXPECT_EQ(Targets.Material->GetSizeY(), 32u);
 		ASSERT_NE(AlternateTargets->Material, nullptr);
@@ -982,7 +984,7 @@ namespace Durin
 		FContactShadowVisibilityRenderer ContactVisibility(
 			Coordinator, FullscreenGeometry);
 		auto Results = std::make_shared<std::array<bool, 14>>();
-		FTextureRHIRef Material, Normals, Surface, Emissive, Depth;
+		FTextureRHIRef Material, Normals, Surface, Depth;
 		std::optional<FContactShadowVisibilityRenderer::FTargets> FragmentTargets;
 		std::optional<FContactShadowVisibilityRenderer::FComputeTargets> DispatchTargets;
 		FSceneView View;
@@ -991,7 +993,7 @@ namespace Durin
 		View.ViewportHeight = 33;
 		EnqueueRenderCommand<FContactVisibilityTargetLifecycle>(
 			[&Coordinator, &ContactVisibility,
-				&FullscreenGeometry, Results, &Material, &Normals, &Surface, &Emissive, &Depth, &FragmentTargets, &DispatchTargets](
+				&FullscreenGeometry, Results, &Material, &Normals, &Surface, &Depth, &FragmentTargets, &DispatchTargets](
 				FRHICommandListImmediate& CommandList) {
 				(*Results)[0] =
 					Tests::FRendererFeatureTargetFixture::CreateContactFragment(64, 32)
@@ -1077,20 +1079,16 @@ namespace Durin
 					"ContactFailureNormals", EPixelFormat::RGBA8_UNORM, Sampled);
 				Surface = MakeInput(
 					"ContactFailureSurface", EPixelFormat::RGBA8_UNORM, Sampled);
-				Emissive = MakeInput(
-					"ContactFailureEmissive", EPixelFormat::R11G11B10_FLOAT, Sampled);
 				Depth = MakeInput("ContactFailureDepth",
 					EPixelFormat::D32, ETextureCreateFlags::DepthStencilTargetable
 						| ETextureCreateFlags::ShaderResource);
-				ASSERT_TRUE(Material && Normals && Surface && Emissive && Depth);
+				ASSERT_TRUE(Material && Normals && Surface && Depth);
 				const std::array InputTransitions{
 					FRHITextureTransition::Whole(Material, ERHIAccess::Discard,
 						ERHIAccess::GraphicsShaderRead),
 					FRHITextureTransition::Whole(Normals, ERHIAccess::Discard,
 						ERHIAccess::GraphicsShaderRead),
 					FRHITextureTransition::Whole(Surface, ERHIAccess::Discard,
-						ERHIAccess::GraphicsShaderRead),
-					FRHITextureTransition::Whole(Emissive, ERHIAccess::Discard,
 						ERHIAccess::GraphicsShaderRead),
 					FRHITextureTransition::Whole(Depth, ERHIAccess::Discard,
 						ERHIAccess::GraphicsShaderRead)};
@@ -1112,7 +1110,7 @@ namespace Durin
 		PumpValidationFrames([&](FRHICommandListImmediate& CommandList) {
 			const auto ComputeOutput = ContactVisibility.Render_RenderThread(
 				CommandList, true, &*FragmentTargets, &*DispatchTargets,
-				Material, Normals, Surface, Emissive, Depth, View,
+				Material, Normals, Surface, Depth, View,
 				FVector3(0.0, 0.0, -1.0), 65, 33, {});
 			(*Results)[12] = bPrepared && ComputeOutput.Route
 				== FContactShadowVisibilityRenderer::ERoute::Compute;
@@ -1121,7 +1119,7 @@ namespace Durin
 
 			ContactVisibility.ReleaseResources_RenderThread();
 			FullscreenGeometry.ReleaseResources_RenderThread();
-			Material = Normals = Surface = Emissive = Depth = nullptr;
+			Material = Normals = Surface = Depth = nullptr;
 			FragmentTargets.reset();
 			DispatchTargets.reset();
 			return true;
@@ -1356,7 +1354,7 @@ namespace Durin
 		EXPECT_EQ(GLastViewTelemetry.Deferred.DeferredDirectionalUnavailableViews, 0u);
 		EXPECT_EQ(GLastViewTelemetry.Deferred.DeferredDirectionalPassFailures, 0u);
 		EXPECT_GT(GLastViewTelemetry.Deferred.DeferredDirectionalOutputBytes, 0u);
-		EXPECT_EQ(GLastViewTelemetry.GBuffer.GBufferAttachmentBytes, GLastViewTelemetry.Deferred.DeferredDirectionalOutputBytes * 2u);
+		EXPECT_EQ(GLastViewTelemetry.GBuffer.GBufferAttachmentBytes, GLastViewTelemetry.Deferred.DeferredDirectionalOutputBytes / 8u * FGBufferRenderer::BytesPerPixel);
 		SetViewRenderTelemetrySink(nullptr);
 
 		Viewport = nullptr;

@@ -64,7 +64,7 @@ namespace Durin::RenderTargetLayouts
 			);
 		}
 		Layout.ColorAttachments[3].RenderTarget = MakeColorAttachment(
-			EPixelFormat::R11G11B10_FLOAT,
+			EPixelFormat::RGBA16_FLOAT,
 			ERHIRenderTargetLoadAction::Clear,
 			ERHITextureLayout::Undefined,
 			ERHIAccess::None,

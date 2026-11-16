@@ -474,7 +474,10 @@ factor composition, vertex-color multiplication or hidden parameter lookup.
 Base Color is linear reflectance clamped to 0..1, matching RGBA8 GBuffer transport
 for Lit and Unlit authoring. Metallic, Specular, AO, opacity and mask also clamp to 0..1;
 perceptual roughness clamps to 0.045..1 before specular AA. Emissive preserves
-nonnegative HDR up to the finite R11G11B10 channel maxima (65024,65024,64512).
+nonnegative HDR with the retained authoring limits (65024,65024,64512).
+Opaque/masked Base Pass output seeds existing RGBA16F SceneColor directly;
+there is no separate Emissive GBuffer attachment. Deferred adds only lighting
+and preserves alpha. Forward composition still applies Emissive once.
 Use Emissive for HDR output, including Unlit materials. This evaluates values
 without rewriting retained literals or graph expressions.
 
@@ -498,7 +501,7 @@ existing uniform payload without compiling another program.
 Per-entry compilation requirements include reachable Specular parameters only
 for surface lighting entries. The updated pass ABI participates in canonical
 entry identity and source-free cooked admission. Renderer packs Specular in the
-existing surface target, keeping four attachments for every Specular view.
+existing surface target, keeping three GBuffer records plus SceneColor for every Specular view.
 An unconnected or constant 0.5 decodes exactly; dynamic/nondefault values use
 UNorm8 transport. Renderer owns the channel layout and compatibility flag in the
 [GBuffer contract](../Pipeline/GBuffer.md#record-encoding).
@@ -896,7 +899,7 @@ consumes the qualified prepared bulk. The explicit target is independent of the
 active RHI device. [Target policy](../../Assets/Build/TargetPlatforms.md) owns platform
 capabilities; the material family owns legal variant selection and its Cook
 dependency projection. Authored expression collections and their owned descendants are stripped from cooked packages. One
-DMAT v13 family per material or instance in the
+DMAT v22 family per material or instance in the
 `DMaterialInterface::ProgramData` BulkData field stores the selected exact configurations.
 The default is Low and High quality crossed with ES3_1, SM5, and SM6; explicit
 selections may retain a supported subset. Each uses that owner's
@@ -922,7 +925,7 @@ opaque 64-bit identity. `GetMaterialCompileAdapterVersion()` independently
 versions request/result adaptation. Both are captured in the compiler environment
 and program digest; execution rejects a stale producer or adapter before generation.
 The MIR version remains a contract for live typed IR, not compiled DMAT admission.
-DMAT v13 contains no IR/generator/compiler producer version words. Older payload
+DMAT v22 contains no IR/generator/compiler producer version words. Older payload
 schemas require recook; algorithm upgrades alone do not change the payload schema. Payload schema, runtime pass ABI, target,
 layout, bindings, shader hashes and configuration remain admission checks.
 Loading rejects a missing configuration, truncated, corrupt, trailing,
@@ -1040,7 +1043,8 @@ Generated forward evaluation uses the same world normal frame, specular-AA,
 directional/local/environment lighting and shadow evaluation through compiled
 layout bindings.
 GBuffer uses the same evaluator and publishes the established octahedral
-normal, effective roughness, AO, opacity, and emissive encoding. Shader reload
+normals, effective roughness, AO and implicit opaque opacity, and seeds
+Emissive into SceneColor. Shader reload
 rebuilds shader-dependent slots and device invalidation discards then lazily
 recreates device-dependent RHI resources from the retained accepted compiler
 result; neither operation reinterprets the authored program.
@@ -1337,14 +1341,14 @@ or unsupported instance markers reject before publication. Compiler capture emit
 detached typed IR through `Build()` and owns all worker data without live
 expression or callee pointers. Legacy universal graph records are unsupported.
 
-Current compatibility versions are DMAT 17, MIR 10, layout 4, pass contract 14,
-and material Cook class-schema version 5. The independent compile adapter is version 15;
+Current compatibility versions are DMAT 22, MIR 14, layout 5, pass contract 19,
+and material Cook class-schema version 7. The independent compile adapter is version 20;
 normalization/generator revisions are private producer inputs. Time uses `MaterialView`;
 fragments using the old time interpolator and prior Cook hits require rebuilding.
 DMAT has no authored Program version word. Materials use ordinary DAST v11
 default-relative owned-object serialization, with no material-specific serializer
-or universal old-asset conversion path. Material graphs require version 6,
-material outputs require version 4, function ports require version 3, and material instances require version 2. The
+or universal old-asset conversion path. Material graphs require version 9,
+material outputs require version 4, function ports require version 6, and material instances require version 3. The
 canonically resaved repository corpus is the compatibility baseline; older,
 missing, and future domain versions reject before object publication. Unrelated
 property/package migrations remain intact.

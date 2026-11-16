@@ -41,7 +41,7 @@ struct GBufferDebugUniform
 [[vk::binding(0, 0)]] Texture2D<float4> GBufferMaterial;
 [[vk::binding(1, 0)]] Texture2D<float4> GBufferNormals;
 [[vk::binding(2, 0)]] Texture2D<float4> GBufferSurface;
-[[vk::binding(3, 0)]] Texture2D<float3> GBufferEmissive;
+[[vk::binding(3, 0)]] Texture2D<float4> BasePassColor;
 [[vk::binding(4, 0)]] Texture2D<float> SceneDepth;
 [[vk::binding(5, 0)]] ConstantBuffer<GBufferDebugUniform> Params;
 
@@ -61,9 +61,9 @@ float4 DebugFragmentMain(VSOutput input) : SV_Target
     float4 material = GBufferMaterial.Load(int3(pixel, 0));
     float4 normals = GBufferNormals.Load(int3(pixel, 0));
     float4 surface = GBufferSurface.Load(int3(pixel, 0));
-    float3 emissive = GBufferEmissive.Load(int3(pixel, 0));
+    float3 emissive = BasePassColor.Load(int3(pixel, 0)).rgb;
     FGBufferRecord record = DecodeGBuffer(
-        material, normals, surface, emissive);
+        material, normals, surface);
     if ((record.flags & GBufferStandardLitFlag) == 0u)
         return float4(0.0, 0.0, 0.0, 1.0);
 
@@ -78,7 +78,7 @@ float4 DebugFragmentMain(VSOutput input) : SV_Target
         return float4(record.roughness, record.ambientOcclusion,
             record.effectiveOpacity, 1.0);
     if (mode == GBufferDebugEmissive)
-        return float4(record.emissive, 1.0);
+        return float4(emissive, 1.0);
     // Display the lowest three raw flag bits in RGB.
     if (mode == GBufferDebugFlags)
         return float4(
@@ -86,7 +86,7 @@ float4 DebugFragmentMain(VSOutput input) : SV_Target
             (record.flags & 2u) != 0u ? 1.0 : 0.0,
             (record.flags & 4u) != 0u ? 1.0 : 0.0, 1.0);
     if (mode == GBufferDebugMaterialInputs)
-        return float4(record.baseColor + record.emissive,
+        return float4(record.baseColor + emissive,
             record.effectiveOpacity);
 
     float depth = SceneDepth.Load(int3(pixel, 0));

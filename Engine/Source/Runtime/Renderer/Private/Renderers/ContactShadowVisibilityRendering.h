@@ -24,7 +24,6 @@ namespace Durin
 		std::optional<FRDGTextureParameter> GBufferMaterial;
 		std::optional<FRDGTextureParameter> GBufferNormals;
 		std::optional<FRDGTextureParameter> GBufferSurface;
-		std::optional<FRDGTextureParameter> GBufferEmissive;
 		std::optional<FRDGTextureParameter> SceneDepth;
 		std::optional<FRDGColorAttachmentParameter> Output;
 
@@ -40,7 +39,6 @@ namespace Durin
 		std::optional<FRDGTextureParameter> GBufferMaterial;
 		std::optional<FRDGTextureParameter> GBufferNormals;
 		std::optional<FRDGTextureParameter> GBufferSurface;
-		std::optional<FRDGTextureParameter> GBufferEmissive;
 		std::optional<FRDGTextureParameter> SceneDepth;
 		std::optional<FRDGTextureParameter> ContactVisibilityOutput;
 

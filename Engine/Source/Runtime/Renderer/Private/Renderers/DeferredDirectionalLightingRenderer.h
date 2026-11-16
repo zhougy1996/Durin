@@ -49,7 +49,7 @@ namespace Durin
 			FRHITexture* Material = nullptr;
 			FRHITexture* Normals = nullptr;
 			FRHITexture* Surface = nullptr;
-			FRHITexture* Emissive = nullptr;
+			FRHITexture* BasePassColor = nullptr;
 			FRHITexture* Depth = nullptr;
 			FRHITexture* EnvironmentIrradiance = nullptr;
 			FRHITexture* EnvironmentPrefiltered = nullptr;

@@ -1898,7 +1898,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 		{
 			for (size_t A = 0; A < 5; ++A)
 			{
-				ASSERT_EQ(Attachments[0][A].size(), 1920u * 1080u * 4u) << A;
+				ASSERT_EQ(Attachments[0][A].size(), 1920u * 1080u * (A == 3 ? 8u : 4u)) << A;
 				ASSERT_EQ(Attachments[0][A].size(), Attachments[1][A].size()) << A;
 			}
 			size_t Covered = 0;
@@ -5359,11 +5359,11 @@ TEST(FStaticMeshRenderPreparationVulkanTests, DefaultLitSpecularMatchesForwardDe
         FlushRenderingCommands();
         FObservation DefaultOnly; Render(Materials[2]->GetRenderProxy(),Materials[2]->GetRenderProxy(),DefaultOnly);
         ASSERT_EQ(DefaultOnly.HDR.size(),96u*96u*8u);
-        EXPECT_EQ(DefaultOnly.Telemetry.GBuffer.GBufferAttachmentBytes,96u*96u*16u);
-        FObservation Mixed; Render(Materials[2]->GetRenderProxy(),Instances[0]->GetRenderProxy(),Mixed);
+		EXPECT_EQ(DefaultOnly.Telemetry.GBuffer.GBufferAttachmentBytes, 96u * 96u * 12u);
+		FObservation Mixed; Render(Materials[2]->GetRenderProxy(),Instances[0]->GetRenderProxy(),Mixed);
         ASSERT_EQ(Mixed.HDR.size(),96u*96u*8u);
-        EXPECT_EQ(Mixed.Telemetry.GBuffer.GBufferAttachmentBytes,96u*96u*16u);
-        for (uint32 Y=0;Y<96;++Y) for(uint32 X=0;X<48;++X) for(uint32 C=0;C<4;++C)
+		EXPECT_EQ(Mixed.Telemetry.GBuffer.GBufferAttachmentBytes, 96u * 96u * 12u);
+		for (uint32 Y=0;Y<96;++Y) for(uint32 X=0;X<48;++X) for(uint32 C=0;C<4;++C)
             EXPECT_EQ(Half(DefaultOnly.HDR,(Y*96+X)*4+C),Half(Mixed.HDR,(Y*96+X)*4+C));
         std::string Numerical="environment,metallic,specular,path,channel,expected,actual,error\n";
         if(const auto* Directory=std::getenv("DURIN_MATERIAL_SPECULAR_EVIDENCE_DIR")) {
@@ -5436,4 +5436,224 @@ TEST(FStaticMeshRenderPreparationVulkanTests, DefaultLitSpecularMatchesForwardDe
         Sky->ReleaseResource(); FlushRenderingCommands();
     }
     CollectGarbage(EObjectFlags::Standalone); FlushRenderingCommands();
+}
+
+TEST(FStaticMeshRenderPreparationVulkanTests, EmissiveSeedsSceneColorOnceAcrossLightingMaskTransparencyDebugAndResize)
+{
+	using namespace Durin;
+	using namespace Durin::Tests;
+	GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+	GIsGameThreadIdInitialized = true;
+	InitializeDObjectSystem();
+	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints());
+	ASSERT_TRUE(InitializeAssetRuntime());
+	ASSERT_TRUE(RefreshAssetRegistry());
+	RHIInit(GetVulkanEngineTestInitializationContext());
+	ASSERT_NE(GDynamicRHI, nullptr);
+	InitRenderingThread();
+	FRendererModule Renderer;
+	FModuleTestHarness Lifecycle("EmissiveSceneColor");
+	Lifecycle.Start(Renderer);
+	FGeometryRendererCleanup Cleanup(Lifecycle);
+	{
+		std::array<TStrongObjectPtr<DMaterial>, 4> Materials;
+		std::array<TStrongObjectPtr<DMaterialInstance>, 4> Instances;
+		std::array<FGuid, 4> EmissionIds;
+		for (uint32 V = 0; V < 4; ++V)
+		{
+			Materials[V] = TStrongObjectPtr<DMaterial>(NewObject<DMaterial>(nullptr, NAME_None));
+			auto& M = *Materials[V];
+			M.SetEditCompileMode(EMaterialEditCompileMode::Manual);
+			FMaterialStaticProperties Properties;
+			Properties.bTwoSided = true;
+			if (V == 1) Properties.BlendMode = EMaterialBlendMode::Masked;
+			if (V >= 2) Properties.ShadingModel = EMaterialShadingModel::Unlit;
+			if (V == 3) Properties.BlendMode = EMaterialBlendMode::Translucent;
+			ASSERT_TRUE(M.SetStaticProperties(Properties));
+			TStrongObjectPtr<DMaterialExpressionVector4Parameter> Emission(NewObject<DMaterialExpressionVector4Parameter>(nullptr, NAME_None));
+			Emission->Id = FGuid::NewGuid();
+			Emission->Metadata = {.Id = FGuid::NewGuid(), .Name = "Emission"};
+			EmissionIds[V] = Emission->Metadata.Id;
+			TStrongObjectPtr<DMaterialExpressionSwizzle> ColorChannels(NewObject<DMaterialExpressionSwizzle>(nullptr, NAME_None));
+			ColorChannels->Id = FGuid::NewGuid();
+			ColorChannels->Input = {Emission->Id};
+			ColorChannels->Components = {0, 1, 2};
+			TStrongObjectPtr<DMaterialExpressionScalarParameter> Mask(NewObject<DMaterialExpressionScalarParameter>(nullptr, NAME_None));
+			Mask->Id = FGuid::NewGuid();
+			Mask->Metadata = {.Id = FGuid::NewGuid(), .Name = "Mask"};
+			Mask->DefaultValue = 1;
+			FMaterialAttributeRoot Root;
+			Root.Get(EMaterialProperty::MP_BaseColor).SetConstant({.2f, .4f, .6f});
+			Root.Get(EMaterialProperty::MP_EmissiveColor) = {ColorChannels->Id};
+			Root.Get(EMaterialProperty::MP_Roughness).SetConstant({.6f});
+			if (V == 1) Root.Get(EMaterialProperty::MP_OpacityMask) = {Mask->Id};
+			if (V == 3) Root.Get(EMaterialProperty::MP_Opacity).SetConstant({.25f});
+			ASSERT_TRUE(M.SetMaterialExpressions(std::array<DMaterialExpression*, 3>{Emission.Get(), ColorChannels.Get(), Mask.Get()}, Root));
+			ASSERT_TRUE(RequestMaterialRecompile(M));
+			FAssetCompilingManager::Get().FinishCompilationForObject(M);
+			ASSERT_TRUE(M.GetAcceptedCompiledProgram());
+			Instances[V] = TStrongObjectPtr<DMaterialInstance>(DMaterialInstance::CreateDynamic(&M));
+			ASSERT_TRUE(Instances[V]);
+		}
+		FSceneTestOwner Scene;
+		FProceduralGeometry Geometry;
+		EnqueueRenderCommand("EmissiveGeometry", [&](FRHICommandListImmediate& C) { Geometry = FProceduralGeometry::Create(C, 1, false); });
+		FlushRenderingCommands();
+		const FVector4 Emission(2.3, .37, 7.125, 1);
+		const FVector4 Overlay(1.25, 3.5, .125, 1);
+		const auto SetEmission = [&](uint32 V, const FVector4& Value) { EXPECT_TRUE(Instances[V]->SetParameterValue(EmissionIds[V], FMaterialParameterValue::MakeVector4(Value))); };
+		const auto Publish = [&](uint32 V, bool bOverlay = false) {
+			FlushRenderingCommands();
+			const auto Proxy = Instances[V]->GetRenderProxy();
+			const auto Top = Instances[3]->GetRenderProxy();
+			EnqueueRenderCommand("EmissivePublish", [&](FRHICommandListImmediate&) {
+				auto P = std::make_unique<FProceduralProxy>();
+				P->Geometry = Geometry;
+				P->Materials = {Proxy->GetMaterialWithFallback(), Proxy->GetMaterialWithFallback()};
+				ASSERT_TRUE(P->PublishGeometry());
+				ASSERT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Scene, FPrimitiveComponentId(8020), std::move(P), FMatrix(1.0)));
+				FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(8021));
+				if (bOverlay)
+				{
+					auto P = std::make_unique<FProceduralProxy>();
+					P->Geometry = Geometry;
+					P->Materials = {Top->GetMaterialWithFallback(), Top->GetMaterialWithFallback()};
+					ASSERT_TRUE(P->PublishGeometry());
+					FMatrix Transform(1.0);
+					Transform[3][2] = -.25;
+					ASSERT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Scene, FPrimitiveComponentId(8021), std::move(P), Transform));
+				}
+			});
+			FlushRenderingCommands();
+		};
+		struct FCapture
+		{
+			FByteBuffer HDR, Input, Seed;
+			FRDGCapture Graph;
+			FViewRenderTelemetry Telemetry;
+		};
+		const auto Half = [](const FByteBuffer& Bytes, size_t Index) { uint16 B; std::memcpy(&B,Bytes.data()+Index*2,2); return glm::unpackHalf2x16(uint32(B)).x; };
+		const auto Render = [&](uint32 Extent, float EV, bool bDebug, FCapture& Out, EGBufferDebugMode DebugMode = EGBufferDebugMode::Emissive) {
+			FSceneView View;
+			View.ViewportX = 8;
+			View.ViewportY = 4;
+			View.ViewportWidth = Extent - 16;
+			View.ViewportHeight = Extent - 8;
+			View.ViewLocation = {0, 0, 2};
+			View.ClearColor = {.07f, .11f, .13f, .3f};
+			View.Settings.Mode.RenderMode = ERenderMode::Lit;
+			View.Settings.Mode.bEnableSpecularAA = false;
+			View.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
+			View.Settings.AmbientOcclusion.bEnabled = false;
+			View.Settings.PostProcess.ExposureEV = EV;
+			FSceneViewRenderOptions Options;
+			if (bDebug) Options.GBufferDebugMode = DebugMode;
+			static FCapture* Sink = nullptr;
+			const auto Result = RenderPreparedGeometryView(Renderer, *Scene, View, FRHITextureCreateDesc::Create2D("EmissiveSceneColor", Extent, Extent, EPixelFormat::SRGBA8_UNORM).SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy), [&] {
+                    Sink=&Out;
+                    SetHDRSceneColorCaptureSink(+[](FRHICommandListImmediate& C,FRHITexture* HDR,FRHITexture* Input) { ReadGeometryTexture(C,HDR,Sink->HDR); ReadGeometryTexture(C,Input,Sink->Input); });
+                    SetGBufferCaptureSink(+[](FRHICommandListImmediate& C,FRHITexture*,FRHITexture*,FRHITexture*,FRHITexture* Seed,FRHITexture*) { EXPECT_EQ(Seed->GetFormat(),EPixelFormat::RGBA16_FLOAT); ReadGeometryTexture(C,Seed,Sink->Seed); });
+                    SetSceneRenderGraphCaptureSink(+[](const FRDGCapture& G) { Sink->Graph=G; }); SetViewRenderTelemetrySink(+[](const FViewRenderTelemetry& T) { Sink->Telemetry=T; }); }, {}, Options);
+			Sink = nullptr;
+			SetSceneRenderGraphCaptureSink(nullptr);
+			EXPECT_EQ(Result, ERenderViewResult::Success);
+			ASSERT_EQ(Out.HDR.size(), size_t(Extent) * Extent * 8);
+			EXPECT_EQ(std::ranges::find(Out.Graph.Resources, "Scene.GBuffer.Emissive", &FRDGResourceCapture::Name), Out.Graph.Resources.end());
+			EXPECT_EQ(std::ranges::count_if(Out.Graph.Resources, [](const auto& R) { return R.Name.starts_with("Scene.GBuffer."); }), 3);
+			EXPECT_EQ(Out.Telemetry.GBuffer.GBufferAttachmentBytes, size_t(Extent) * Extent * 12);
+			EXPECT_EQ(std::ranges::any_of(Out.Graph.Passes, [](const auto& P) { return P.Name == "Scene.BasePassDebug"; }), bDebug);
+		};
+		std::string Measurements = "extent,variant,ev,channel,expected,actual\n";
+		for (const uint32 Extent : {64u, 96u})
+		{
+			const uint32 X = 8 + uint32(float(Extent - 16) * .275f), Y = Extent / 2;
+			const size_t Pixel = (Y * Extent + X) * 4;
+			for (const uint32 V : {0u, 1u, 2u})
+			{
+				SetEmission(V, Emission);
+				Publish(V);
+				for (const float EV : {-2.f, 0.f, 2.f})
+				{
+					SCOPED_TRACE(std::format("extent {} variant {} EV {}", Extent, V, EV));
+					FCapture Out;
+					Render(Extent, EV, false, Out);
+					ASSERT_EQ(Out.HDR.size(), size_t(Extent) * Extent * 8);
+					for (uint32 C = 0; C < 3; ++C)
+					{
+						const float Value = Half(Out.HDR, Pixel + C);
+						EXPECT_NEAR(Value, float(Emission[C]), .005f);
+						Measurements += std::format("{},{},{},{},{},{}\n", Extent, V, EV, C, Emission[C], Value);
+					}
+					EXPECT_FLOAT_EQ(Half(Out.HDR, Pixel + 3), 1.f);
+					EXPECT_NEAR(Half(Out.HDR, 3), .3f, .001f); // Outside the view rectangle stays the clear value.
+					if (V < 2)
+					{
+						ASSERT_EQ(Out.Seed.size(), Out.HDR.size());
+						for (uint32 C = 0; C < 4; ++C)
+							EXPECT_FLOAT_EQ(Half(Out.HDR, Pixel + C), Half(Out.Seed, Pixel + C));
+					}
+				}
+			}
+			SetEmission(0, Emission);
+			Publish(0);
+			FCapture Debug;
+			Render(Extent, 0, true, Debug);
+			ASSERT_EQ(Debug.Input.size(), Debug.HDR.size());
+			for (uint32 C = 0; C < 3; ++C)
+				EXPECT_NEAR(Half(Debug.Input, Pixel + C), float(Emission[C]), .005f);
+			FCapture MaterialInputs;
+			Render(Extent, 0, true, MaterialInputs, EGBufferDebugMode::MaterialInputs);
+			for (uint32 C = 0; C < 3; ++C)
+				EXPECT_NEAR(Half(MaterialInputs.Input, Pixel + C), float(Emission[C]) + float(C+1)*.2f, .005f);
+			ASSERT_TRUE(Instances[1]->SetScalarParameterValue("Mask", 0));
+			Publish(1);
+			FCapture Masked;
+			Render(Extent, 0, false, Masked);
+			const FVector4 Clear(.07, .11, .13, .3);
+			for (uint32 C = 0; C < 4; ++C)
+				EXPECT_NEAR(Half(Masked.HDR, Pixel + C), float(Clear[C]), .001f);
+			ASSERT_TRUE(Instances[1]->SetScalarParameterValue("Mask", 1));
+			// The procedural draw has two coincident instances: apply alpha .25 twice.
+			SetEmission(3, Overlay);
+			Publish(0, true);
+			FCapture Transparent;
+			Render(Extent, 0, false, Transparent);
+			for (uint32 C = 0; C < 3; ++C)
+				EXPECT_NEAR(Half(Transparent.HDR, Pixel + C), float(Emission[C] * .5625 + Overlay[C] * .4375), .005f);
+			EXPECT_FLOAT_EQ(Half(Transparent.HDR, Pixel + 3), 1.f);
+			FDirectionalLightSceneData Sun;
+			Sun.Direction = {0, 0, -1};
+			Sun.Intensity = 1;
+			Sun.bCastShadows = false;
+			auto* Light = PublishLightForTest<FDirectionalLightSceneProxy>(*Scene, FLightComponentId(8022), Sun);
+			ASSERT_NE(Light, nullptr);
+			SetEmission(0, FVector4(0));
+			Publish(0);
+			FCapture Lit;
+			Render(Extent, 0, false, Lit);
+			SetEmission(0, Emission);
+			Publish(0);
+			FCapture Combined;
+			Render(Extent, 0, false, Combined);
+			EXPECT_GT(Half(Lit.HDR, Pixel), .01f);
+			for (uint32 C = 0; C < 3; ++C)
+				EXPECT_NEAR(Half(Combined.HDR, Pixel + C), Half(Lit.HDR, Pixel + C) + float(Emission[C]), .01f);
+			FCapture LitDebug;
+			Render(Extent, 0, true, LitDebug);
+			for (uint32 C = 0; C < 3; ++C)
+				EXPECT_NEAR(Half(LitDebug.Input, Pixel + C), float(Emission[C]), .005f);
+			ASSERT_TRUE(FSceneInterfaceTestAccess::TryRemoveLightProxy(*Scene, Light));
+			FlushRenderingCommands();
+			if (const auto* Directory = std::getenv("DURIN_MATERIAL_EMISSIVE_EVIDENCE_DIR"))
+			{
+				ASSERT_TRUE(FFileHelper::SaveArrayToFile(Combined.HDR, std::filesystem::path(Directory) / std::format("combined-{}.rgba16f", Extent)));
+				ASSERT_TRUE(FFileHelper::SaveArrayToFile(LitDebug.Input, std::filesystem::path(Directory) / std::format("debug-{}.rgba16f", Extent)));
+			}
+		}
+		if (const auto* Directory = std::getenv("DURIN_MATERIAL_EMISSIVE_EVIDENCE_DIR")) ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Measurements)), std::filesystem::path(Directory) / "emissive.csv"));
+		Scene.Reset();
+		FlushRenderingCommands();
+	}
+	CollectGarbage(EObjectFlags::Standalone);
+	FlushRenderingCommands();
 }

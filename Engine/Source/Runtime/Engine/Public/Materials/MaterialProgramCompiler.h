@@ -24,7 +24,7 @@ namespace Durin
 	// Opaque producer identity; algorithm changes invalidate builds, not DMAT admission.
 	ENGINE_API auto GetMaterialBuildVersion() -> uint64;
 	ENGINE_API auto GetMaterialCompileAdapterVersion() -> uint32;
-	inline constexpr uint32 CurrentMaterialPassContractVersion = 18;
+	inline constexpr uint32 CurrentMaterialPassContractVersion = 19;
 	// Classification only. Persisted requests use Shader type/entry identities.
 	enum class EMaterialShaderEntry : uint8 { Forward, GBuffer, Shadow, HitProxy, LocalVertex, SplineVertex, PostProcess };
 	using FMaterialShaderEntrySet = std::vector<EMaterialShaderEntry>;

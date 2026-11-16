@@ -16,7 +16,7 @@ namespace Durin
 
 	struct FAmbientOcclusionPassResources final
 	{
-		std::array<std::optional<FRDGTextureParameter>, 4> GBuffer;
+		std::array<std::optional<FRDGTextureParameter>, 3> GBuffer;
 		std::optional<FRDGTextureParameter> SceneDepth;
 		std::array<std::optional<FRDGManagedTextureParameter>, 4>
 			AmbientOcclusionManaged;

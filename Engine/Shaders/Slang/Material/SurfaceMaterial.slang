@@ -71,7 +71,7 @@ public FMaterialSurface EvaluateMaterialSurface(FMaterialSurface result)
     result.specular = saturate(FiniteSurfaceValue(result.specular, 0.5));
     result.roughness = clamp(FiniteSurfaceValue(result.roughness, 0.5), 0.045, 1.0);
     result.ambientOcclusion = saturate(FiniteSurfaceValue(result.ambientOcclusion, 1.0));
-    // Preserve HDR without overflowing the finite R11G11B10 GBuffer transport.
+    // Retain authored finite HDR bounds across forward and RGBA16F SceneColor output.
     result.emissive = clamp(FiniteSurfaceColor(result.emissive, 0.0),
         float3(0.0), float3(65024.0, 65024.0, 64512.0));
     result.opacity = saturate(FiniteSurfaceValue(result.opacity, 1.0));

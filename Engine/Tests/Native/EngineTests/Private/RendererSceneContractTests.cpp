@@ -387,11 +387,14 @@ TEST(FRendererSceneContractTests, DeferredLightingResolvesDeclaredAliasesAndFail
 				return Graph.RegisterExternalTexture(Texture, Name, ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 			};
 			auto Parameters = Graph.AllocParameters<FDeferredResourceTestParameters>();
-			for (size_t Index = 0; Index < 4; ++Index)
+			for (size_t Index = 0; Index < Parameters->Resources.GBuffer.size(); ++Index)
 			{
 				const auto Name = "GBuffer" + std::to_string(Index);
 				Parameters->Resources.GBuffer[Index] = {Import(Name.c_str()), {ERHITextureAspect::Color, 0, 1, 0, 1}};
 			}
+			const auto Seed = Import("BasePassColor");
+			if (!bProduction)
+				Parameters->Resources.BasePassColor = FRDGTextureParameter{Seed, {ERHITextureAspect::Color, 0, 1, 0, 1}};
 			Parameters->Resources.SceneDepth = {Import("Depth", true), {ERHITextureAspect::Depth, 0, 1, 0, 1}};
 			const auto White = Import("White");
 			const auto ShadowArray = Import("ShadowArray");
@@ -448,6 +451,7 @@ TEST(FRendererSceneContractTests, DeferredLightingResolvesDeclaredAliasesAndFail
 					const auto Physical = ResolveDeferredLightingResources(Resolver, Pass.Resources, Outcomes, Policy, View, Options, {});
 					ASSERT_TRUE(Physical);
 					EXPECT_EQ(Physical->Material, Textures[0].GetReference());
+					EXPECT_EQ(Physical->BasePassColor, bProduction ? nullptr : Textures[3].GetReference());
 					EXPECT_EQ(Physical->Depth, Textures[4].GetReference());
 					EXPECT_EQ(Physical->EnvironmentIrradiance, Textures[7].GetReference());
 					EXPECT_EQ(Physical->EnvironmentPrefiltered, Physical->EnvironmentIrradiance);
@@ -478,9 +482,9 @@ TEST(FRendererSceneContractTests, ContactShadowPilotsComposeExactGraphicsAndComp
 		GetRDGParametersMetadata();
 	ASSERT_NE(Graphics, nullptr);
 	ASSERT_NE(Compute, nullptr);
-	ASSERT_EQ(Graphics->Members.size(), 9u);
-	ASSERT_EQ(Compute->Members.size(), 9u);
-	for (size_t Index = 3; Index < 8; ++Index)
+	ASSERT_EQ(Graphics->Members.size(), 8u);
+	ASSERT_EQ(Compute->Members.size(), 8u);
+	for (size_t Index = 3; Index < 7; ++Index)
 	{
 		EXPECT_TRUE(Graphics->Members[Index].bShaderBinding);
 		EXPECT_TRUE(Compute->Members[Index].bShaderBinding);

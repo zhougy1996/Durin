@@ -689,7 +689,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		ExpectBinding(Fragment, "GBufferMaterial", 0, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
 		ExpectBinding(Fragment, "GBufferNormals", 1, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
 		ExpectBinding(Fragment, "GBufferSurface", 2, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(Fragment, "GBufferEmissive", 3, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "BasePassColor", 3, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
 		ExpectBinding(Fragment, "SceneDepth", 4, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
 		ExpectBinding(Fragment, "Params", 5, ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
 	}
@@ -712,14 +712,14 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
 		const FShaderCode& Fragment = Output.CompiledShaders[1];
 		EXPECT_EQ(GetSpirvOutputLocations(Fragment), (std::set<uint32>{0}));
-		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 6u);
-		for (uint32 Index = 0; Index < 5; ++Index)
+		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 5u);
+		for (uint32 Index = 0; Index < 4; ++Index)
 		{
-			const std::array<const char*, 5> Names{
+			const std::array<const char*, 4> Names{
 				"GBufferMaterial", "GBufferNormals", "GBufferSurface",
-				"GBufferEmissive", "SceneDepth"
+				"SceneDepth"
 			};
-			ExpectBinding(Fragment, Names[Index], Index, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+			ExpectBinding(Fragment, Names[Index], Index < 3 ? Index : 4, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
 		}
 		ExpectBinding(Fragment, "Params", 5, ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
 	}
@@ -738,14 +738,14 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		ASSERT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors);
 		ASSERT_EQ(Output.CompiledShaders.size(), 1u);
 		const FShaderCode& Compute = Output.CompiledShaders[0];
-		ASSERT_EQ(Compute.Reflection.ResourceBindings.size(), 7u);
-		for (uint32 Index = 0; Index < 5; ++Index)
+		ASSERT_EQ(Compute.Reflection.ResourceBindings.size(), 6u);
+		for (uint32 Index = 0; Index < 4; ++Index)
 		{
-			const std::array<const char*, 5> Names{
+			const std::array<const char*, 4> Names{
 				"GBufferMaterial", "GBufferNormals", "GBufferSurface",
-				"GBufferEmissive", "SceneDepth"
+				"SceneDepth"
 			};
-			ExpectBinding(Compute, Names[Index], Index, ERHIBindingType::Texture, EShaderStageFlags::Compute);
+			ExpectBinding(Compute, Names[Index], Index < 3 ? Index : 4, ERHIBindingType::Texture, EShaderStageFlags::Compute);
 		}
 		ExpectBinding(Compute, "Params", 5, ERHIBindingType::UniformBuffer, EShaderStageFlags::Compute);
 		ExpectBinding(Compute, "ContactVisibilityOutput", 6, ERHIBindingType::StorageImage, EShaderStageFlags::Compute);
@@ -774,7 +774,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		{
 			const std::array<const char*, 8> Names{
 				"GBufferMaterial", "GBufferNormals", "GBufferSurface",
-				"GBufferEmissive", "SceneDepth", "EnvironmentIrradiance",
+				"BasePassColor", "SceneDepth", "EnvironmentIrradiance",
 				"EnvironmentPrefiltered", "EnvironmentBrdfLut"
 			};
 			ExpectBinding(Fragment, Names[Index], Index, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
@@ -792,4 +792,18 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		ExpectBinding(Fragment, "VolumetricCloudVisibility", 18, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
 		ExpectBinding(Fragment, "LocalLights", 19, ERHIBindingType::StorageBuffer, EShaderStageFlags::Fragment);
 	}
+	TEST_F(FShaderReflectionTests, ProductionDeferredDoesNotSampleItsSceneColorAttachment)
+	{
+		const auto Path = std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR) / "DeferredDirectionalLighting.slang";
+		FShaderCompileOptions Options;
+		Options.VirtualShaderPath = "/Engine/DeferredDirectionalLighting";
+		Options.EntryPoints = {"ProductionFragmentMain"};
+		Options.Frequencies = {EShaderFrequency::Fragment};
+		Options.Macros.emplace_back("DURIN_DEFERRED_PRODUCTION", "1");
+		const auto Output = FSlangShaderCompiler().Compile(Path.string(), Options);
+		ASSERT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors);
+		ASSERT_EQ(Output.CompiledShaders.size(), 1u);
+		EXPECT_EQ(FindBinding(Output.CompiledShaders[0], "BasePassColor"), nullptr);
+	}
+
 } // namespace Durin

@@ -34,7 +34,8 @@ namespace Durin
 			DURIN_TEXTURE(SceneColor), DURIN_TEXTURE(CloudComposite),
 			DURIN_TEXTURE(SceneDepth),
 			DURIN_COLOR(GBufferDebugOutput, ERHIAccess::GraphicsShaderRead),
-			DURIN_TEXTURE(GBuffer), DURIN_TEXTURE(IsolatedDeferred)};
+			DURIN_TEXTURE(GBuffer), DURIN_TEXTURE(IsolatedDeferred), DURIN_TEXTURE(BasePassDebug)
+		};
 		static const auto Metadata = MakeInlineRDGParametersMetadata<
 			FParameters>("FPostProcessPassResources", Members);
 		return &Metadata;
@@ -45,19 +46,18 @@ namespace Durin
 	{
 		using FParameters = FPostProcessPassParameters;
 		static const std::array Members = {
-			MakeRDGValueParameterMemberMetadata<FParameters,
-				decltype(FParameters::SceneColor), FSceneColorPassResult>(
-					"SceneColor", offsetof(FParameters, SceneColor)),
-			MakeRDGValueParameterMemberMetadata<FParameters,
-				decltype(FParameters::DeferredLighting), FIsolatedDeferredPassResult>(
-					"DeferredLighting", offsetof(FParameters, DeferredLighting)),
-			MakeRDGValueParameterMemberMetadata<FParameters,
-				decltype(FParameters::Completion), FPostProcessPassResult>(
-					"Completion", offsetof(FParameters, Completion)),
-			MakeRDGNestedParameterMemberMetadata<FParameters,
-				decltype(FParameters::Resources)>("Resources",
-					offsetof(FParameters, Resources),
-					FPostProcessPassResources::GetRDGParametersMetadata())};
+			MakeRDGValueParameterMemberMetadata<FParameters, decltype(FParameters::SceneColor), FSceneColorPassResult>(
+				"SceneColor", offsetof(FParameters, SceneColor)
+			),
+			MakeRDGValueParameterMemberMetadata<FParameters, decltype(FParameters::DeferredLighting), FIsolatedDeferredPassResult>(
+				"DeferredLighting", offsetof(FParameters, DeferredLighting)
+			),
+			MakeRDGValueParameterMemberMetadata<FParameters, decltype(FParameters::BasePassDebugCompletion), FGBufferPassResult>("BasePassDebugCompletion", offsetof(FParameters, BasePassDebugCompletion)),
+			MakeRDGValueParameterMemberMetadata<FParameters, decltype(FParameters::Completion), FPostProcessPassResult>(
+				"Completion", offsetof(FParameters, Completion)
+			),
+			MakeRDGNestedParameterMemberMetadata<FParameters, decltype(FParameters::Resources)>("Resources", offsetof(FParameters, Resources), FPostProcessPassResources::GetRDGParametersMetadata())
+		};
 		static const auto Metadata = MakeInlineRDGParametersMetadata<
 			FParameters>("FPostProcessPassParameters", Members);
 		return &Metadata;
@@ -105,7 +105,8 @@ namespace Durin
 		const bool bPresentOutput = Inputs.bPresentOutput;
 		const bool bHasEditorAssistance =
 			Inputs.EditorAssistanceFeature.IsEnabled();
-		const bool bGBufferDebug = Inputs.GBufferDebugFeature.IsEnabled();
+		const bool bGBufferDebug = Inputs.GBufferDebugFeature.IsEnabled() && Options.GBufferDebugMode != EGBufferDebugMode::Emissive
+			&& Options.GBufferDebugMode != EGBufferDebugMode::MaterialInputs;
 		std::optional<FRDGTextureHandle> GBufferDebug;
 		const auto PostProcessCompletion = Graph.CreateValue<FPostProcessPassResult>(
 			"Scene.PostProcessValue", "post-process-result");
@@ -125,6 +126,8 @@ namespace Durin
 		if (Inputs.Deferred.Completion)
 			Parameters->DeferredLighting = TRDGValueRead<FIsolatedDeferredPassResult>{*Inputs.Deferred.Completion};
 		Parameters->Completion = {.Value = PostProcessCompletion};
+		if (Inputs.GBuffer.BasePassDebug) Parameters->Resources.BasePassDebug = FRDGTextureParameter{*Inputs.GBuffer.BasePassDebug, {ERHITextureAspect::Color, 0, 1, 0, 1}};
+		if (Inputs.GBuffer.BasePassDebugCompletion) Parameters->BasePassDebugCompletion = TRDGValueRead<FGBufferPassResult>{*Inputs.GBuffer.BasePassDebugCompletion};
 		Parameters->Resources.SceneColor = {Inputs.SceneColor.Color,
 			{ERHITextureAspect::Color, 0, 1, 0, 1}};
 		if (Inputs.SceneColor.CloudComposite)
@@ -202,14 +205,29 @@ namespace Durin
 				if (Output == nullptr)
 					Output = Resolver.GetColorAttachment(
 						PassParameters.Resources.OutputOffscreen).Texture;
+				auto LocalOptions = Options;
+				if (Options.GBufferDebugMode == EGBufferDebugMode::Emissive
+					|| Options.GBufferDebugMode == EGBufferDebugMode::MaterialInputs)
+				{
+					LocalOptions.GBufferDebugMode = EGBufferDebugMode::Disabled;
+					const auto* Debug = Resolver.ReadValue(PassParameters.BasePassDebugCompletion);
+					if (Debug && Debug->IsComplete())
+					{
+						SceneColorInput = Resolver.GetTexture(PassParameters.Resources.BasePassDebug);
+						++Recorder.Telemetry.View.GBuffer.GBufferDebugViews;
+					}
+					else
+						++Recorder.Telemetry.View.GBuffer.GBufferDebugFailures;
+				}
 				PostProcessResult = Recorder.RenderPostProcess_RenderThread(
 					Commands, *RecordView, View,
 					Output,
-					bPresentOutput, Options, SceneTargets,
+					bPresentOutput, LocalOptions, SceneTargets,
 					GBufferTargets ? &*GBufferTargets : nullptr,
 					DebugTargets ? &*DebugTargets : nullptr,
 					SceneColorInput, IsolatedDeferredOutput,
-					bHasEditorAssistance);
+					bHasEditorAssistance
+				);
 			});
 		if (!bHasEditorAssistance)
 		{
@@ -248,7 +266,7 @@ namespace Durin
 					GBufferTargets->Material,
 					GBufferTargets->Normals,
 					GBufferTargets->Surface,
-					GBufferTargets->Emissive,
+					GBufferTargets->Material,
 					SceneTargets.Depth,
 					GBufferDebugTargets->Color,
 					RenderView,

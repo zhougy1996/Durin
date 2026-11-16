@@ -25,7 +25,7 @@ namespace Durin
 	DURIN_SHADER_PARAMETER_TEXTURE(GBufferMaterial);                     \
 	DURIN_SHADER_PARAMETER_TEXTURE(GBufferNormals);                      \
 	DURIN_SHADER_PARAMETER_TEXTURE(GBufferSurface);                      \
-	DURIN_SHADER_PARAMETER_TEXTURE(GBufferEmissive);                     \
+	DURIN_SHADER_PARAMETER_TEXTURE(BasePassColor);                     \
 	DURIN_SHADER_PARAMETER_TEXTURE(SceneDepth);                          \
 	DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentIrradiance);               \
 	DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentPrefiltered);              \
@@ -56,6 +56,10 @@ namespace Durin
 		class FDeferredProductionFragmentShader final : public FGlobalShader
 		{
 		public:
+			static auto ModifyCompilationEnvironment(const FShaderPermutationParameters&, FShaderCompileOptions& Options) -> void
+			{
+				Options.Macros.emplace_back("DURIN_DEFERRED_PRODUCTION", "1");
+			}
 			DURIN_BEGIN_SHADER_PARAMETERS(FDeferredProductionFragmentShader)
 				DURIN_DEFERRED_FRAGMENT_PARAMETERS()
 			DURIN_END_SHADER_PARAMETERS();
@@ -84,6 +88,7 @@ namespace Durin
 			TShaderMapRef<FDeferredProductionFragmentShader> ProductionFragmentShader;
 			FGraphicsPipelineStateRHIRef PipelineState;
 			FGraphicsPipelineStateRHIRef ProductionPipelineState;
+			FGraphicsPipelineStateRHIRef DiagnosticPipelineState;
 			FSamplerRHIRef FallbackEnvironmentSampler;
 			FSamplerRHIRef FallbackShadowSampler;
 		};
@@ -178,10 +183,15 @@ namespace Durin
 				Initializer.RenderTargetLayout =
 					RenderTargetLayouts::MakeGraphHybridDeferredOutput();
 				Initializer.BoundShaders.FragmentShader = ProductionFragmentRHI;
+				Initializer.ColorBlendStates[0] = {.bEnable = true, .DstColorFactor = ERHIBlendFactor::One,
+					.SrcAlphaFactor = ERHIBlendFactor::Zero, .DstAlphaFactor = ERHIBlendFactor::One};
 				Candidate.ProductionPipelineState =
 					FRenderPipelineRequestScope::Graphics(
 						"DeferredProductionLightingPipeline", Initializer
 					);
+				Initializer.ColorBlendStates[0].bEnable = false;
+				Candidate.DiagnosticPipelineState = FRenderPipelineRequestScope::Graphics(
+					"DeferredProductionDiagnosticPipeline", Initializer);
 				Candidate.FallbackEnvironmentSampler =
 					RHICreateSampler(FRHISamplerDesc::LinearClamp());
 				FRHISamplerDesc ShadowDesc = FRHISamplerDesc::LinearClamp();
@@ -194,6 +204,7 @@ namespace Durin
 				Candidate.FallbackShadowSampler = RHICreateSampler(ShadowDesc);
 				if (Candidate.PipelineState == nullptr
 					|| Candidate.ProductionPipelineState == nullptr
+					|| Candidate.DiagnosticPipelineState == nullptr
 					|| Candidate.FallbackEnvironmentSampler == nullptr
 					|| Candidate.FallbackShadowSampler == nullptr)
 				{
@@ -260,7 +271,7 @@ namespace Durin
 		if (SceneColor == nullptr || View == nullptr
 			|| View->ViewportWidth == 0 || View->ViewportHeight == 0
 			|| Parameters.Material == nullptr || Parameters.Normals == nullptr
-			|| Parameters.Surface == nullptr || Parameters.Emissive == nullptr
+			|| Parameters.Surface == nullptr || (!bProduction && Parameters.BasePassColor == nullptr)
 			|| Parameters.Depth == nullptr
 			|| Parameters.EnvironmentIrradiance == nullptr
 			|| Parameters.EnvironmentPrefiltered == nullptr
@@ -280,7 +291,11 @@ namespace Durin
 		FState::FPayload* Payload = State->Resources.GetPayload();
 		if (Payload == nullptr)
 			return false;
-		FGraphicsPipelineStateRHIRef& Pipeline = bProduction ? Payload->ProductionPipelineState : Payload->PipelineState;
+		const bool bReplaceDiagnostic = Parameters.bContactVisibilityDebug
+			|| View->Settings.DirectionalShadow.DiagnosticMode != EDirectionalShadowDiagnosticMode::Lit;
+		FGraphicsPipelineStateRHIRef& Pipeline = bProduction
+			? (bReplaceDiagnostic ? Payload->DiagnosticPipelineState : Payload->ProductionPipelineState)
+			: Payload->PipelineState;
 		if (Pipeline == nullptr
 			|| FullscreenGeometry.GetVertexBuffer_RenderThread() == nullptr
 			|| FullscreenGeometry.GetIndexBuffer_RenderThread() == nullptr)
@@ -352,7 +367,7 @@ namespace Durin
 			ShaderParameters.GBufferMaterial = Parameters.Material;
 			ShaderParameters.GBufferNormals = Parameters.Normals;
 			ShaderParameters.GBufferSurface = Parameters.Surface;
-			ShaderParameters.GBufferEmissive = Parameters.Emissive;
+			ShaderParameters.BasePassColor = bProduction ? Parameters.Material : Parameters.BasePassColor;
 			ShaderParameters.SceneDepth = Parameters.Depth;
 			ShaderParameters.EnvironmentIrradiance =
 				Parameters.EnvironmentIrradiance;

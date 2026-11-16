@@ -80,17 +80,17 @@ publishes incomplete geometry or performs an unordered late redraw.
 
 ## Record Encoding
 
-Every extent owns four baseline cleared color attachments and uses the existing sampled
-`D32` scene depth:
+Every extent owns three cleared GBuffer attachments and uses existing sampled
+`D32` scene depth. The geometry pass has four MRT outputs: these three records
+and the existing `RGBA16_FLOAT` SceneColor, seeded with Emissive RGB and alpha one:
 
 | Attachment | Format | Channels |
 | --- | --- | --- |
 | `GBufferMaterial` | `RGBA8_UNORM` | Base color RGB, ambient occlusion A |
 | `GBufferNormals` | `RGBA8_UNORM` | Octahedral shading normal RG, octahedral geometric normal BA |
 | `GBufferSurface` | `RGBA8_UNORM` | Metallic R, Specular G, effective perceptual roughness B, flags/255 A |
-| `GBufferEmissive` | `R11G11B10_FLOAT` | Finite non-negative scene-linear emissive RGB |
 
-All attachments clear to zero. Bit 0 of the decoded flags is `StandardLit`;
+The three GBuffer attachments clear to zero; SceneColor clears to the view clear color. Bit 0 of the decoded flags is `StandardLit`;
 baseline records use `1`. Bit 7 identifies authored nondefault or dynamic
 Specular; these DefaultLit records use `129`. Zero is background or invalid.
 Other flag bits remain zero. Without bit 7, Specular decodes as exactly 0.5,
@@ -99,7 +99,7 @@ avoiding midpoint UNorm8 bias in baseline lighting. Authored Specular has error
 policy, not UE's binary layout. The metallic/specular/roughness grouping follows
 UE's GBufferB semantic packing. Opaque/masked effective opacity decodes as one;
 translucent opacity remains in the forward path. Every Specular view retains
-four attachments. Primitive identity is counter-owned and not stored per pixel.
+three GBuffer attachments plus SceneColor. Primitive identity is counter-owned and not stored per pixel.
 
 The shading normal includes the authored normal-map perturbation. The
 geometric normal is the independently encoded, oriented visible-side normal
@@ -118,7 +118,7 @@ material assets and the GBuffer format do not change.
 
 CPU validation uses `GBufferContract`; shaders include
 `Material/GBufferDecode.slang`. These implementations own channel decode,
-octahedral normal decode, `R11G11B10_FLOAT` interpretation, validity, and
+octahedral normal decode, validity, and
 pixel-center analytic depth reconstruction.
 
 World position is not stored. Consumers reconstruct view-relative position
@@ -134,7 +134,12 @@ range.
 ## Pass and Resource Lifecycle
 
 The geometry pass clears once, writes every attachment, and
-leaves all four color targets graphics-shader-readable. D32 follows the
+leaves the three records shader-readable. SceneColor retains the HDR seed;
+HybridBootstrap loads it; sky draws test equality against the view far depth
+without depth writes, so covered receivers retain their seed. Production deferred
+lighting adds lighting using
+RGB One/One blending with source-alpha Zero and destination-alpha One. It
+does not bind or sample SceneColor while writing it. D32 follows the
 existing reversed-Z clear/write contract and is shader-readable after the
 pass. Static and spline pipelines differ only in vertex
 transport; fragment material evaluation and record encoding are shared.
@@ -156,7 +161,7 @@ failed production pass returns `RendererResourcesUnavailable`; it does not
 present a partial image or select another lighting owner. No
 view may sample stale attachments from another view or extent.
 
-The four attachments cost exactly 16 bytes per pixel, or `33,177,600` bytes at
+The three GBuffer attachments cost exactly 12 bytes per pixel, or `24,883,200` bytes at
 1920x1080, including authored or dynamic Specular. Scene Color/depth and final SDR output are accounted separately.
 Allocation and retention follow [frame resource lifetimes](RendererFramePreparation.md#resource-lifetime-classes);
 feature byte costs do not define independent cache quotas.
@@ -170,8 +175,10 @@ packing or keep the GBuffer debug target resident in ordinary production.
 
 `FSceneViewCounters` reports attempted, successful, and skipped GBuffer draws
 separately for StaticMesh and SplineMesh, plus active
-attachment and retained bytes. Development captures can read the four color
-attachments directly. Sampled D32 is inspected through the depth and
+attachment and retained bytes. Development captures can read the three records
+and the RGBA16F SceneColor seed directly. Emissive/MaterialInputs debug captures the seed before
+lighting in an on-demand graph output; ordinary frames allocate no Emissive
+texture or debug output. Other record debug modes read only the three records. Sampled D32 is inspected through the depth and
 reconstruction debug routes because generic depth-image copies are not an RHI
 contract.
 
@@ -197,7 +204,7 @@ reports a fabricated zero. A real zero-visible result is Ready with visible=0.
 
 `MetalSceneQualificationTests.GPUCullingPreservesAttachmentsCountsAndFallback`
 executes the headless scene fixture on Metal and Vulkan with inline/threaded
-replay. It compares final color, all four GBuffer attachments and sampled D32
+replay. It compares final color, the three GBuffer attachments, SceneColor seed and sampled D32
 bits against direct rendering, including zero/partial/full visibility, two
 groups, boundary bounds, large origins, resize, pool reuse and failure recovery.
 Qualification reads depth through a compute-to-buffer byte copy because generic

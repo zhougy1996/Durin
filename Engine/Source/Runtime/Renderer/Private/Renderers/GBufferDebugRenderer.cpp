@@ -31,7 +31,7 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_TEXTURE(GBufferMaterial);
 				DURIN_SHADER_PARAMETER_TEXTURE(GBufferNormals);
 				DURIN_SHADER_PARAMETER_TEXTURE(GBufferSurface);
-				DURIN_SHADER_PARAMETER_TEXTURE(GBufferEmissive);
+				DURIN_SHADER_PARAMETER_TEXTURE(BasePassColor);
 				DURIN_SHADER_PARAMETER_TEXTURE(SceneDepth);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Params);
 			DURIN_END_SHADER_PARAMETERS();
@@ -176,7 +176,7 @@ namespace Durin
 		FRHITexture* Material,
 		FRHITexture* Normals,
 		FRHITexture* Surface,
-		FRHITexture* Emissive,
+		FRHITexture* BasePassColor,
 		FRHITexture* Depth,
 		FRHITexture* Output,
 		const FSceneView& View,
@@ -187,7 +187,7 @@ namespace Durin
 		check(IsInRenderingThread());
 		check(!CommandList.IsInsideRenderPass());
 		if (Material == nullptr || Normals == nullptr || Surface == nullptr
-			|| Emissive == nullptr || Depth == nullptr || Output == nullptr
+			|| BasePassColor == nullptr || Depth == nullptr || Output == nullptr
 			|| Width == 0 || Height == 0
 			|| Mode == EGBufferDebugMode::Disabled
 			|| Mode >= EGBufferDebugMode::Count)
@@ -243,7 +243,7 @@ namespace Durin
 		Parameters.GBufferMaterial = Material;
 		Parameters.GBufferNormals = Normals;
 		Parameters.GBufferSurface = Surface;
-		Parameters.GBufferEmissive = Emissive;
+		Parameters.BasePassColor = BasePassColor;
 		Parameters.SceneDepth = Depth;
 		Parameters.Params = UniformBuffer;
 		SetShaderParameters(CommandList, Payload->FragmentShader.GetShaderRef(), Parameters);

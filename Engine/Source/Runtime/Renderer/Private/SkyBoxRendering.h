@@ -17,6 +17,7 @@ namespace Durin::SkyBoxRendering
 		FMatrix4f ClipToSkyDirection{1.0f};
 		FVector4f TintIntensity{1.0f};
 		FProceduralSkyUniform ProceduralSky;
+		FVector4f DepthParams{};
 	};
 
 	// Builds the shader snapshot without retaining scene objects or camera

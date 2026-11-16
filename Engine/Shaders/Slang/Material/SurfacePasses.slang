@@ -61,7 +61,7 @@ struct GeometryPassFragmentOutput
     float4 material : SV_Target0;
     float4 normals : SV_Target1;
     float4 surface : SV_Target2;
-    float4 emissive : SV_Target3;
+    float4 sceneColor : SV_Target3;
 };
 [shader("fragment")]
 GeometryPassFragmentOutput GeometryFragmentMain(
@@ -86,7 +86,7 @@ GeometryPassFragmentOutput GeometryFragmentMain(
         EncodeOctahedralNormal(shading.normalFrame.shadingNormal),
         EncodeOctahedralNormal(shading.normalFrame.geometricNormal));
     o.surface = float4(s.metallic, s.specular, shading.effectiveRoughness, 1.0 / 255.0);
-    o.emissive = float4(s.emissive, 0.0);
+    o.sceneColor = float4(s.emissive, 1.0);
 #if DURIN_MATERIAL_AUTHORED_SPECULAR
     o.surface.a = 129.0 / 255.0;
 #endif

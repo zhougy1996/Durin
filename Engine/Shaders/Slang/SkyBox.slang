@@ -11,6 +11,7 @@ struct SkyBoxUniform
     float4x4 ClipToSkyDirection;
     float4 TintIntensity;
     FProceduralSkyUniform ProceduralSky;
+    float4 DepthParams;
 };
 
 [[vk::binding(0, 0)]] TextureCube<float4> SkyTexture;
@@ -33,8 +34,9 @@ SkyBoxVSOutput VertexMain(uint vertexId : SV_VulkanVertexID)
 }
 
 [shader("fragment")]
-float4 FragmentMain(SkyBoxVSOutput input) : SV_Target0
+float4 FragmentMain(SkyBoxVSOutput input, out float depth : SV_Depth) : SV_Target0
 {
+    depth = Sky.DepthParams.x;
     // Camera translation is removed in double precision on the CPU. Keeping
     // the GPU path direction-only prevents near-clip changes at large world
     // coordinates from destabilizing cubemap derivatives and mip selection.

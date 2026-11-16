@@ -59,9 +59,9 @@ namespace Durin::SceneTextureGroups
 	}
 
 	template<typename Wrapper>
-	auto FillGBuffer(const std::optional<FGBufferTextureHandles>& Textures, std::optional<Wrapper>& Material, std::optional<Wrapper>& Normals, std::optional<Wrapper>& Surface, std::optional<Wrapper>& Emissive) -> void
+	auto FillGBuffer(const std::optional<FGBufferTextureHandles>& Textures, std::optional<Wrapper>& Material, std::optional<Wrapper>& Normals, std::optional<Wrapper>& Surface) -> void
 	{
-		const std::array Members{&Material, &Normals, &Surface, &Emissive};
+		const std::array Members{&Material, &Normals, &Surface};
 		for (size_t Index = 0; Index < Members.size(); ++Index)
 		{
 			Members[Index]->reset();
@@ -71,27 +71,27 @@ namespace Durin::SceneTextureGroups
 	}
 
 	template<typename Wrapper>
-	auto FillGBuffer(const std::optional<FGBufferTextureHandles>& Textures, std::array<std::optional<Wrapper>, 4>& Parameters) -> void
+	auto FillGBuffer(const std::optional<FGBufferTextureHandles>& Textures, std::array<std::optional<Wrapper>, 3>& Parameters) -> void
 	{
-		FillGBuffer(Textures, Parameters[0], Parameters[1], Parameters[2], Parameters[3]);
+		FillGBuffer(Textures, Parameters[0], Parameters[1], Parameters[2]);
 	}
 
 	template<typename Wrapper>
-	auto ResolveGBuffer(const FRDGParameterResolver& Resolver, const std::optional<Wrapper>& Material, const std::optional<Wrapper>& Normals, const std::optional<Wrapper>& Surface, const std::optional<Wrapper>& Emissive)
+	auto ResolveGBuffer(const FRDGParameterResolver& Resolver, const std::optional<Wrapper>& Material, const std::optional<Wrapper>& Normals, const std::optional<Wrapper>& Surface)
 		-> std::optional<FGBufferRenderer::FTargets>
 	{
 		FRHITexture* MaterialTexture = ResolveTexture(Resolver, Material);
 		if (MaterialTexture == nullptr) return std::nullopt;
 		return FGBufferRenderer::FTargets{
-			.Material = MaterialTexture, .Normals = ResolveTexture(Resolver, Normals), .Surface = ResolveTexture(Resolver, Surface), .Emissive = ResolveTexture(Resolver, Emissive)
+			.Material = MaterialTexture, .Normals = ResolveTexture(Resolver, Normals), .Surface = ResolveTexture(Resolver, Surface)
 		};
 	}
 
 	template<typename Wrapper>
-	auto ResolveGBuffer(const FRDGParameterResolver& Resolver, const std::array<std::optional<Wrapper>, 4>& Parameters)
+	auto ResolveGBuffer(const FRDGParameterResolver& Resolver, const std::array<std::optional<Wrapper>, 3>& Parameters)
 		-> std::optional<FGBufferRenderer::FTargets>
 	{
-		return ResolveGBuffer(Resolver, Parameters[0], Parameters[1], Parameters[2], Parameters[3]);
+		return ResolveGBuffer(Resolver, Parameters[0], Parameters[1], Parameters[2]);
 	}
 
 	// Raw/Scratch are required together; the reconstruction pair is optional together.

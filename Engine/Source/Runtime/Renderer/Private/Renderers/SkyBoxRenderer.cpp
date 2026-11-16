@@ -153,6 +153,9 @@ namespace Durin
 					);
 				Initializer.RenderTargetLayout =
 					RenderTargetLayouts::MakeGraphHybridSceneBootstrap();
+				Initializer.DepthStencilState.bEnableTest = true;
+				Initializer.DepthStencilState.bEnableWrite = false;
+				Initializer.DepthStencilState.CompareOp = ERHIDepthCompareOp::Equal;
 				Candidate.HybridBootstrapPipelineState =
 					FRenderPipelineRequestScope::Graphics(
 						"SkyBoxHybridBootstrapPipeline", Initializer

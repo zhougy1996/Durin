@@ -57,8 +57,6 @@ namespace Durin
 				decltype(FParameters::GBufferNormals)>("GBufferNormals", offsetof(FParameters, GBufferNormals)), ERHIBindingType::Texture),
 			WithRDGShaderBinding(MakeRDGTextureReadMetadata<FParameters,
 				decltype(FParameters::GBufferSurface)>("GBufferSurface", offsetof(FParameters, GBufferSurface)), ERHIBindingType::Texture),
-			WithRDGShaderBinding(MakeRDGTextureReadMetadata<FParameters,
-				decltype(FParameters::GBufferEmissive)>("GBufferEmissive", offsetof(FParameters, GBufferEmissive)), ERHIBindingType::Texture),
 			WithRDGShaderBinding(MakeRDGTextureReadMetadata<FParameters, decltype(FParameters::SceneDepth)>(
 				"SceneDepth", offsetof(FParameters, SceneDepth)),
 				ERHIBindingType::Texture),
@@ -94,8 +92,6 @@ namespace Durin
 				decltype(FParameters::GBufferNormals), ERDGPassType::Compute>("GBufferNormals", offsetof(FParameters, GBufferNormals)), ERHIBindingType::Texture),
 			WithRDGShaderBinding(MakeRDGTextureReadMetadata<FParameters,
 				decltype(FParameters::GBufferSurface), ERDGPassType::Compute>("GBufferSurface", offsetof(FParameters, GBufferSurface)), ERHIBindingType::Texture),
-			WithRDGShaderBinding(MakeRDGTextureReadMetadata<FParameters,
-				decltype(FParameters::GBufferEmissive), ERDGPassType::Compute>("GBufferEmissive", offsetof(FParameters, GBufferEmissive)), ERHIBindingType::Texture),
 			WithRDGShaderBinding(MakeRDGTextureReadMetadata<FParameters, decltype(FParameters::SceneDepth), ERDGPassType::Compute>(
 				"SceneDepth", offsetof(FParameters, SceneDepth)),
 				ERHIBindingType::Texture),
@@ -155,7 +151,7 @@ namespace Durin
 			{
 				SceneTextureGroups::FillGBuffer(Inputs.GBuffer.Textures,
 					Parameters.GBufferMaterial, Parameters.GBufferNormals,
-					Parameters.GBufferSurface, Parameters.GBufferEmissive);
+					Parameters.GBufferSurface);
 				Parameters.SceneDepth = FRDGTextureParameter{
 					Inputs.GBuffer.Depth,
 					{ERHITextureAspect::Depth, 0, 1, 0, 1}};
@@ -169,7 +165,7 @@ namespace Durin
 			const FRDGParameterResolver& Resolver) {
 			const auto GBufferTargets = SceneTextureGroups::ResolveGBuffer(Resolver,
 				Parameters.GBufferMaterial, Parameters.GBufferNormals,
-				Parameters.GBufferSurface, Parameters.GBufferEmissive);
+				Parameters.GBufferSurface);
 			FRHITexture* SceneDepth = Resolver.GetTexture(Parameters.SceneDepth);
 			std::optional<FContactShadowVisibilityRenderer::FTargets>
 				FragmentContactTargets;
@@ -272,7 +268,7 @@ namespace Durin
 			const auto ContactResult = ContactShadowRenderer.Render_RenderThread(
 				CommandList, true, FragmentContactTargets, ComputeContactTargets,
 				GBufferTargets->Material, GBufferTargets->Normals,
-				GBufferTargets->Surface, GBufferTargets->Emissive,
+				GBufferTargets->Surface,
 				SceneDepth, RenderView,
 				Shadow->View.LightDirection, Width, Height,
 				{.PreparedRoute = PreparedRoute,

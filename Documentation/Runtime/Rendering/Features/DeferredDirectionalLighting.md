@@ -23,6 +23,13 @@ it graphics-shader-readable for capture, and leaves selected scene output
 authoritative on failure. Sky, translucency, and editor assistance are outside
 that isolated target.
 
+Base Pass seeds Emissive into SceneColor before the sky/bootstrap load.
+Production adds only direct/indirect lighting with RGB One/One blending and
+preserves destination alpha (Zero/One). Pure contact/directional-shadow diagnostics use a replacement blend variant
+to retain their established diagnostic colors. Its compiled shader has no SceneColor
+seed binding, and RDG declares no read/write feedback. Isolated diagnostics read
+the pre-lighting seed and compose Emissive once into their separate output.
+
 Production writes only load-preserving `RGBA16_FLOAT` Scene Color; it does not
 allocate or copy the isolated deferred target. Static/Spline caches separate
 retained-forward pipeline variants against the load-preserving render
@@ -44,7 +51,9 @@ inputs and sequential isolation.
 
 ## Inputs and fixed ABI
 
-The fragment shader binds, in order, four GBuffer attachments, D32, irradiance,
+The fragment shader binds three GBuffer attachments at slots 0..2. Isolated
+diagnostics additionally bind the pre-lighting SceneColor seed at slot 3;
+production omits that binding. Remaining slots retain their indices: D32, irradiance,
 prefiltered environment, the BRDF LUT, the environment sampler, the selected
 directional-shadow array and comparison sampler, one 176-byte deferred-view
 uniform, the shared 544-byte view lighting uniform, GTAO native raw,

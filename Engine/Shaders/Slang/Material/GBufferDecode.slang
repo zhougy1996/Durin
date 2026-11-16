@@ -7,7 +7,6 @@ public struct FGBufferRecord
     public float3 baseColor;
     public float3 shadingNormal;
     public float3 geometricNormal;
-    public float3 emissive;
     public float metallic;
     public float specular;
     public float roughness;
@@ -33,14 +32,12 @@ public float3 DecodeOctahedralNormal(float2 encoded)
 public FGBufferRecord DecodeGBuffer(
     float4 material,
     float4 normals,
-    float4 surface,
-    float3 emissive)
+    float4 surface)
 {
     FGBufferRecord result;
     result.baseColor = material.rgb;
     result.shadingNormal = DecodeOctahedralNormal(normals.rg);
     result.geometricNormal = DecodeOctahedralNormal(normals.ba);
-    result.emissive = emissive;
     result.metallic = surface.r;
     result.specular = ((uint)round(saturate(surface.a) * 255.0) & 128u) != 0u ? surface.g : 0.5;
     result.roughness = surface.b;

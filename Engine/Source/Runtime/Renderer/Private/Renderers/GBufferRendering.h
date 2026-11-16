@@ -17,6 +17,7 @@
 namespace Durin
 {
 	class FGBufferRenderer;
+	class FGBufferDebugRenderer;
 	class FStaticMeshRenderer;
 	struct FPreparedReceiverGeometry;
 	struct FSceneRenderTelemetry;
@@ -34,10 +35,10 @@ namespace Durin
 			-> const FRDGParametersMetadata*;
 	};
 
-	// The four GBuffer color attachments are declared and consumed as one set.
+	// The three GBuffer color attachments are declared and consumed as one set.
 	struct FGBufferTextureHandles final
 	{
-		std::array<FRDGTextureHandle, 4> Colors;
+		std::array<FRDGTextureHandle, 3> Colors;
 	};
 
 	struct FGBufferGraphOutput final
@@ -45,6 +46,9 @@ namespace Durin
 		std::optional<TRDGValueHandle<FGBufferPassResult>> Completion;
 		std::optional<FGBufferTextureHandles> Textures;
 		FRDGTextureHandle Depth;
+		FRDGTextureHandle BasePassColor;
+		std::optional<FRDGTextureHandle> BasePassDebug;
+		std::optional<TRDGValueHandle<FGBufferPassResult>> BasePassDebugCompletion;
 	};
 
 	struct FGBufferFeatureInputs final
@@ -57,6 +61,8 @@ namespace Durin
 		FStaticMeshRenderer& StaticMeshes;
 		RendererPrivate::FMeshDrawCommandStatsManager& MeshDrawCommandStats;
 		FRDGTextureHandle Depth;
+		FRDGTextureHandle SceneColor;
+		FGBufferDebugRenderer& DebugRenderer;
 		const FSceneViewRenderOptions& Options;
 		EGPUCullingFailure Failure = EGPUCullingFailure::None;
 		uint32 Width;

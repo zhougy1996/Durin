@@ -96,7 +96,7 @@ namespace Durin
 	FGBufferRenderer::~FGBufferRenderer() = default;
 
 	auto FGBufferRenderer::DescribeTargets(uint32 Width, uint32 Height)
-		-> std::array<FRHITextureCreateDesc, 4>
+		-> std::array<FRHITextureCreateDesc, 3>
 	{
 		auto MakeDesc = [Width, Height](const char* Name, EPixelFormat Format) {
 			return FRHITextureCreateDesc::Create2D(Name, Width, Height, Format)
@@ -108,8 +108,7 @@ namespace Durin
 		return {
 			MakeDesc("GBufferMaterial", EPixelFormat::RGBA8_UNORM),
 			MakeDesc("GBufferNormals", EPixelFormat::RGBA8_UNORM),
-			MakeDesc("GBufferSurface", EPixelFormat::RGBA8_UNORM),
-			MakeDesc("GBufferEmissive", EPixelFormat::R11G11B10_FLOAT)};
+			MakeDesc("GBufferSurface", EPixelFormat::RGBA8_UNORM)};
 	}
 	auto FGBufferRenderer::EnsurePipeline_RenderThread(
 		const FPipelineRequest& Request) -> std::shared_ptr<const FPipeline>

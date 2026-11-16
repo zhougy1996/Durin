@@ -4,7 +4,7 @@ Summary: Define the scene-linear HDR intermediate and the single deterministic t
 
 Modules: RenderCore, Renderer, RHI
 
-Last reviewed: 2026-10-03
+Last reviewed: 2026-11-17
 
 ## Color Domains and Formats
 
@@ -14,6 +14,16 @@ Its alpha channel carries the established effective opacity. Directional
 contact shadows are applied as scalar deferred visibility before Scene Color
 composition, so no directional-copy or corrected-color intermediate remains.
 Scene depth remains `D32`.
+
+Eligible opaque/masked Base Pass draws seed Emissive RGB and alpha one into
+SceneColor alongside three RGBA8 GBuffer records. Background clears retain the
+view clear color and alpha. Bootstrap loads this seed; sky tests against the clear far depth and preserves
+covered receivers. Deferred RGB adds only
+lighting and preserves destination alpha. Forward Unlit and translucent
+materials apply their Emissive once through existing forward composition.
+No standalone Emissive attachment remains. Emissive/MaterialInputs debug snapshots the seed
+before lighting only on request. Exposure is still applied solely by the final
+display transform; the HDR seed and lighting are exposure-independent.
 
 Present and offscreen outputs remain `SRGBA8_UNORM`. The post-process shader
 writes bounded display-linear RGB. The sRGB attachment performs the only

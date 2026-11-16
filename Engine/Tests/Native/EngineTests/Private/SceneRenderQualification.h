@@ -574,7 +574,7 @@ namespace Durin
 		// Three visible Base Scene stages replace the callback plus its old
 		// production-binding preparation pass: one net pass and one net edge.
 		const std::array<uint32, 6> ExpectedPasses{11, 11, 14, 14, 14, 14};
-		const std::array<uint32, 6> ExpectedDependencies{20, 20, 30, 30, 30, 30};
+		const std::array<uint32, 6> ExpectedDependencies{23, 23, 33, 33, 33, 33};
 		// RDG also emits entry handoffs for discarded render-pass attachments and
 		// same-state writes; render-pass-owned final transitions do not replace them.
 		// Logical handoffs preserve each of the three directional-shadow layers.
@@ -601,8 +601,12 @@ namespace Durin
 					if (Parameter.PassDeclarationIndex == Pass->DeclarationIndex)
 						EXPECT_FALSE(Parameter.bPassManagedTransition) << Name << ':' << Parameter.FieldPath;
 			}
-			const auto Lighting = std::ranges::find(Capture.Passes, "Scene.ProductionDeferred", &FRDGPassCapture::Name);
-			for (const auto Name : {"Scene.GBuffer.Material", "Scene.GBuffer.Normals", "Scene.GBuffer.Surface", "Scene.GBuffer.Emissive", "Scene.Depth"})
+			EXPECT_EQ(std::ranges::find(Capture.Resources,"Scene.GBuffer.Emissive",&FRDGResourceCapture::Name),Capture.Resources.end());
+            const auto Lighting = std::ranges::find(Capture.Passes, "Scene.ProductionDeferred", &FRDGPassCapture::Name);
+            const auto Color = std::ranges::find(Capture.Resources,"Scene.Color",&FRDGResourceCapture::Name);
+            ASSERT_NE(Color,Capture.Resources.end());
+            EXPECT_FALSE(std::ranges::any_of(Capture.Uses,[&](const auto& U) { return U.PassDeclarationIndex==Lighting->DeclarationIndex && U.ResourceId==Color->ResourceId && U.Access==ERHIAccess::GraphicsShaderRead; }));
+			for (const auto Name : {"Scene.GBuffer.Material", "Scene.GBuffer.Normals", "Scene.GBuffer.Surface", "Scene.Depth"})
 			{
 				const auto Resource = std::ranges::find(Capture.Resources, Name, &FRDGResourceCapture::Name);
 				ASSERT_NE(Resource, Capture.Resources.end());
@@ -633,7 +637,7 @@ namespace Durin
 
 			// The feature boundary publishes complete GBuffer and half-resolution AO sets.
 			for (const auto Name : {"Scene.GBuffer.Material", "Scene.GBuffer.Normals",
-				"Scene.GBuffer.Surface", "Scene.GBuffer.Emissive", "Scene.AmbientOcclusion.Raw",
+				"Scene.GBuffer.Surface", "Scene.AmbientOcclusion.Raw",
 				"Scene.AmbientOcclusion.Scratch", "Scene.AmbientOcclusion.Selector",
 				"Scene.AmbientOcclusion.Resolved"})
 				EXPECT_EQ(std::ranges::count_if(Capture.Resources, [&](const auto& Resource) {

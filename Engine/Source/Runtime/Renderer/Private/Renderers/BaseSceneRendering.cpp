@@ -143,7 +143,7 @@ namespace Durin
 			const auto Bootstrap = Graph.CreateValue<FSceneColorPassResult>("Scene.Base.BootstrapValue", "scene-color-result");
 			const auto Deferred = Graph.CreateValue<FSceneColorPassResult>("Scene.Base.DeferredValue", "scene-color-result");
 			auto Timing = std::make_shared<FBaseSceneTiming>();
-			auto Parameters = MakeGeometryParameters(Bootstrap, true, false);
+			auto Parameters = MakeGeometryParameters(Bootstrap, false, false);
 			Parameters->GBufferCompletion = Inputs.Deferred.Inputs.GBufferCompletion;
 			SceneTextureGroups::AssignSkyRead(Parameters->Resources, Sky, SkyTexture);
 			(void)Graph.AddRasterPass(HybridBootstrapPassName, std::move(Parameters), [Recorder, RecordInputs, Sky, Timing, Failure](FRHICommandListImmediate& Commands, const FBaseScenePassParameters& Pass, const FRDGParameterResolver& Resolver) mutable {

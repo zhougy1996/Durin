@@ -129,7 +129,7 @@ namespace Durin
 			const FTargets* FragmentTargets,
 			const FComputeTargets* ComputeTargets,
 			FRHITexture* Material, FRHITexture* Normals, FRHITexture* Surface,
-			FRHITexture* Emissive, FRHITexture* SceneDepth,
+			 FRHITexture* SceneDepth,
 			const FSceneView& View, const FVector3& LightDirection,
 			uint32 Width, uint32 Height,
 			const FRenderPolicy& Policy) -> FRenderResult;

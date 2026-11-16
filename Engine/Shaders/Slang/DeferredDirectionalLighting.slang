@@ -71,7 +71,9 @@ FDeferredLightingOutput MakeDeferredLightingOutput(
 [[vk::binding(0, 0)]] Texture2D<float4> GBufferMaterial;
 [[vk::binding(1, 0)]] Texture2D<float4> GBufferNormals;
 [[vk::binding(2, 0)]] Texture2D<float4> GBufferSurface;
-[[vk::binding(3, 0)]] Texture2D<float3> GBufferEmissive;
+#if !DURIN_DEFERRED_PRODUCTION
+[[vk::binding(3, 0)]] Texture2D<float4> BasePassColor;
+#endif
 [[vk::binding(4, 0)]] Texture2D<float> SceneDepth;
 [[vk::binding(5, 0)]] TextureCube<float4> EnvironmentIrradiance;
 [[vk::binding(6, 0)]] TextureCube<float4> EnvironmentPrefiltered;
@@ -98,14 +100,13 @@ VSOutput VertexMain(VSInput input)
     return output;
 }
 
-FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input)
+FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input, bool includeEmissive)
 {
     int2 pixel = int2(input.pos.xy);
     FGBufferRecord record = DecodeGBuffer(
         GBufferMaterial.Load(int3(pixel, 0)),
         GBufferNormals.Load(int3(pixel, 0)),
-        GBufferSurface.Load(int3(pixel, 0)),
-        GBufferEmissive.Load(int3(pixel, 0)));
+        GBufferSurface.Load(int3(pixel, 0)));
 	// Negative w selects AO diagnostics; positive w preserves the scene background.
     uint aoDiagnostic = View.Params.w < -0.5
         ? (uint)round(-View.Params.w) : AmbientOcclusionDebugDisabled;
@@ -221,10 +222,15 @@ FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input)
         EnvironmentPrefiltered,
         EnvironmentBrdfLut,
         EnvironmentSampler, Lighting.EnvironmentRotation, Lighting.EnvironmentControl);
+#if DURIN_DEFERRED_PRODUCTION
+    float3 emissive = float3(0.0);
+#else
+    float3 emissive = includeEmissive ? BasePassColor.Load(int3(pixel, 0)).rgb : float3(0.0);
+#endif
     float4 composed = ComposeSurfaceLighting(
         directional + local,
         environment,
-        record.emissive,
+        emissive,
         record.effectiveOpacity);
 	// Negative z disables GTAO while retaining the deferred mode as -(mode + 1).
     uint diagnostic = gtaoEnabled
@@ -273,8 +279,7 @@ FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input)
 				FGBufferRecord representativeRecord = DecodeGBuffer(
 					GBufferMaterial.Load(int3(representativePixel, 0)),
 					GBufferNormals.Load(int3(representativePixel, 0)),
-					GBufferSurface.Load(int3(representativePixel, 0)),
-					GBufferEmissive.Load(int3(representativePixel, 0)));
+					GBufferSurface.Load(int3(representativePixel, 0)));
 				float2 representativeUv =
 					(float2(representativePixel) + 0.5 - viewportOrigin)
 					* View.Params.xy;
@@ -329,8 +334,7 @@ FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input)
 			FGBufferRecord neighborRecord = DecodeGBuffer(
 				GBufferMaterial.Load(int3(neighbor, 0)),
 				GBufferNormals.Load(int3(neighbor, 0)),
-				GBufferSurface.Load(int3(neighbor, 0)),
-				GBufferEmissive.Load(int3(neighbor, 0)));
+				GBufferSurface.Load(int3(neighbor, 0)));
 			if ((neighborRecord.flags & GBufferStandardLitFlag) == 0u
 				|| dot(centerNormal, neighborRecord.geometricNormal) < 0.90)
 				rejectedEdge = true;
@@ -369,7 +373,7 @@ FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input)
             float4(environment, record.effectiveOpacity), directional);
     if (diagnostic == DeferredDebugEmissive)
         return MakeDeferredLightingOutput(
-            float4(record.emissive, record.effectiveOpacity), directional);
+            float4(emissive, record.effectiveOpacity), directional);
     if (diagnostic == DeferredDebugAlpha)
         return MakeDeferredLightingOutput(
             float4(record.effectiveOpacity.xxx, record.effectiveOpacity),
@@ -381,11 +385,11 @@ FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input)
 [shader("fragment")]
 float4 FragmentMain(VSOutput input) : SV_Target0
 {
-    return EvaluateDeferredLighting(input).Color;
+    return EvaluateDeferredLighting(input, true).Color;
 }
 
 [shader("fragment")]
 FDeferredLightingOutput ProductionFragmentMain(VSOutput input)
 {
-    return EvaluateDeferredLighting(input);
+    return EvaluateDeferredLighting(input, false);
 }

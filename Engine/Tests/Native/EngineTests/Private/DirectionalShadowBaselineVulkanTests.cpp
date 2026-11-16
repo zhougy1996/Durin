@@ -460,7 +460,7 @@ namespace
 		EXPECT_TRUE(Material->SetParentAndPropertyOverrides(Root, Overrides));
 		// Recreate the old Unlit color explicitly; the new execution root is EmissiveColor.
 		const auto AuthoredEmissive = ShadingModel == Durin::EMaterialShadingModel::Unlit
-			? Durin::FVector3(std::clamp(BaseColor.X, 0.0, 1.0), std::clamp(BaseColor.Y, 0.0, 1.0), std::clamp(BaseColor.Z, 0.0, 1.0)) + Emissive
+			? Durin::FVector3(std::clamp(BaseColor.x, 0.0, 1.0), std::clamp(BaseColor.y, 0.0, 1.0), std::clamp(BaseColor.z, 0.0, 1.0)) + Emissive
 			: Emissive;
 		EXPECT_TRUE(Material->SetVectorParameterValue(
 			Durin::AssetForge::Builtins::MaterialParameters::EmissiveName(), AuthoredEmissive));
@@ -2323,13 +2323,12 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	ASSERT_EQ(GBufferMaterialPixels.size(), static_cast<size_t>(CaptureWidth) * CaptureHeight * 4u);
 	ASSERT_EQ(GBufferSurfacePixels.size(), GBufferMaterialPixels.size());
 	ASSERT_EQ(GBufferNormalsPixels.size(), GBufferMaterialPixels.size());
-	ASSERT_EQ(GBufferEmissivePixels.size(), GBufferMaterialPixels.size());
+	ASSERT_EQ(GBufferEmissivePixels.size(), GBufferMaterialPixels.size()*2);
 	size_t ValidGBufferPixels = 0;
 	size_t BackgroundGBufferPixels = 0;
 	for (size_t Offset = 0; Offset < GBufferSurfacePixels.size(); Offset += 4)
 	{
-		uint32 PackedEmissive = 0;
-		std::memcpy(&PackedEmissive, GBufferEmissivePixels.data() + Offset, sizeof(PackedEmissive));
+		const auto* Seed = GBufferEmissivePixels.data() + Offset*2;
 		if (GBufferSurfacePixels[Offset + 3] == std::byte{0})
 		{
 			++BackgroundGBufferPixels;
@@ -2341,7 +2340,6 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 			EXPECT_EQ(GBufferNormalsPixels[Offset + 1], std::byte{0});
 			EXPECT_EQ(GBufferNormalsPixels[Offset + 2], std::byte{0});
 			EXPECT_EQ(GBufferNormalsPixels[Offset + 3], std::byte{0});
-			EXPECT_EQ(PackedEmissive, 0u);
 			continue;
 		}
 		++ValidGBufferPixels;
@@ -2361,10 +2359,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 				{ToUNorm(GBufferSurfacePixels[Offset]),
 				 ToUNorm(GBufferSurfacePixels[Offset + 1]),
 				 ToUNorm(GBufferSurfacePixels[Offset + 2]),
-				 ToUNorm(GBufferSurfacePixels[Offset + 3])},
-				Durin::GBufferContract::DecodeR11G11B10Float(
-					PackedEmissive
-				)
+				 ToUNorm(GBufferSurfacePixels[Offset + 3])}
 			);
 		EXPECT_EQ(Record.Flags, Durin::GBufferContract::StandardLitFlag);
 		EXPECT_TRUE(Record.IsStandardLit());
@@ -2377,9 +2372,9 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 			Durin::GBufferContract::MaximumUNorm8Error + 1.0e-7f);
 		EXPECT_NEAR(Record.AmbientOcclusion, 1.0f, Durin::GBufferContract::MaximumUNorm8Error);
 		EXPECT_NEAR(Record.EffectiveOpacity, 1.0f, Durin::GBufferContract::MaximumUNorm8Error);
-		EXPECT_NEAR(Record.Emissive.x, 0.0f, 0.00006104f);
-		EXPECT_NEAR(Record.Emissive.y, 0.0f, 0.00006104f);
-		EXPECT_NEAR(Record.Emissive.z, 1.1f, 0.011f);
+		EXPECT_NEAR(DecodeHalf(Seed), 0.0f, 0.00006104f);
+		EXPECT_NEAR(DecodeHalf(Seed+2), 0.0f, 0.00006104f);
+		EXPECT_NEAR(DecodeHalf(Seed+4), 1.1f, 0.011f);
 		EXPECT_NEAR(Durin::Math::Length(Record.ShadingNormal), 1.0, 1.0e-5);
 		EXPECT_NEAR(Durin::Math::Length(Record.GeometricNormal), 1.0, 1.0e-5);
 	}

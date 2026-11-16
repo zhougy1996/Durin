@@ -17,7 +17,6 @@ namespace Durin::GBufferContract
 		FVector3f BaseColor{0.0f};
 		FVector3f ShadingNormal{0.0f, 0.0f, 1.0f};
 		FVector3f GeometricNormal{0.0f, 0.0f, 1.0f};
-		FVector3f Emissive{0.0f};
 		float Metallic = 0.0f;
 		float Specular = 0.5f;
 		float Roughness = 0.0f;
@@ -38,9 +37,7 @@ namespace Durin::GBufferContract
 	RENDERER_API auto DecodeRecord(
 		const FVector4f& Material,
 		const FVector4f& Normals,
-		const FVector4f& Surface,
-		const FVector3f& Emissive) -> FDecodedRecord;
-	RENDERER_API auto DecodeR11G11B10Float(uint32 Packed) -> FVector3f;
+		const FVector4f& Surface) -> FDecodedRecord;
 
 	// Solves the three homogeneous projection equations directly in view space.
 	// This avoids an inverse view-projection multiply and therefore never mixes

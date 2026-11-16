@@ -97,7 +97,7 @@ namespace Durin
 			.CullingManager = Service.InstanceCullingManager,
 			.StaticMeshes = Service.StaticMeshRenderer,
 			.MeshDrawCommandStats = Context.Observation.MeshDrawCommandStats,
-			.Depth = GraphResources.SceneDepth, .Options = Options,
+			.Depth = GraphResources.SceneDepth, .SceneColor = GraphResources.SceneColor, .DebugRenderer = Service.GBufferDebugRenderer, .Options = Options,
 			.Failure = Logical.Qualification.GPUCullingFailure,
 			.Width = Width, .Height = Height, .Feature = Features.GBuffer,
 			.DeferredFeature = Features.Deferred});

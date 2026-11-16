@@ -24,7 +24,7 @@ namespace Durin
 	public:
 		using FPipeline = RendererPrivate::FMeshPassPipeline;
 
-		static constexpr uint64 BytesPerPixel = 16;
+		static constexpr uint64 BytesPerPixel = 12;
 		static constexpr uint64 MaximumRetainedBytes =
 			128ull * 1024ull * 1024ull;
 		static constexpr auto CalculateTargetBytes(
@@ -42,7 +42,6 @@ namespace Durin
 			FTextureRHIRef Material;
 			FTextureRHIRef Normals;
 			FTextureRHIRef Surface;
-			FTextureRHIRef Emissive;
 		};
 
 		struct FPipelineRequest
@@ -65,7 +64,7 @@ namespace Durin
 		auto operator=(const FGBufferRenderer&) -> FGBufferRenderer& = delete;
 
 		static auto DescribeTargets(uint32 Width, uint32 Height)
-			-> std::array<FRHITextureCreateDesc, 4>;
+			-> std::array<FRHITextureCreateDesc, 3>;
 		auto EnsurePipeline_RenderThread(const FPipelineRequest& Request)
 			-> std::shared_ptr<const FPipeline>;
 
