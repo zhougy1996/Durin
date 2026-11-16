@@ -3,6 +3,7 @@
 #include "DObject/Function.h"
 #include "AssetTools/IAssetTools.h"
 #include "AssetMutationInternal.h"
+#include "AssetTools/AssetRenameReferences.h"
 #include "FileHelpers.h"
 #include "PackageTools.h"
 #include "Asset/Load.h"
@@ -22,6 +23,9 @@
 
 namespace Durin
 {
+	using AssetToolsPrivate::FAssetReferenceFixup;
+	using AssetToolsPrivate::FAssetRenameDataWithReferencers;
+	using AssetToolsPrivate::CollectSoftObjectPathFixups;
 	FAssetRenameData::FAssetRenameData(TWeakObjectPtr<DObject> Object, std::string_view Directory,
 		std::string_view Name, bool OnlySoft)
 		: Asset(Object), NewPackagePath(Directory), NewName(Name), bOnlyFixSoftReferences(OnlySoft) {}
@@ -45,41 +49,20 @@ namespace Durin
 			Owners.emplace_back(Package);
 			for (auto* Object : Package->GetTopLevelAssets()) Owners.emplace_back(Object);
 		}
-		auto ReplacePath(const FSoftObjectPath& Path, const FSoftObjectPath& Old, const FSoftObjectPath& New) -> std::optional<FSoftObjectPath>
-		{
-			const auto Text = Path.ToString(), Prefix = Old.ToString();
-			// Compare identity first, preserving the authored suffix and replacement spelling.
-			FSoftObjectPath Head;
-			if (Text.size() < Prefix.size() || (Text.size() > Prefix.size() && Text[Prefix.size()] != ':' && Text[Prefix.size()] != '.')
-				|| !FSoftObjectPath::TryCreate(Text.substr(0, Prefix.size()), Head) || Head != Old) return {};
-			FSoftObjectPath Replacement;
-			if (!FSoftObjectPath::TryCreate(New.ToString() + Text.substr(Prefix.size()), Replacement)) return {};
-			return Replacement;
-		}
-		auto HasPersistentAliasReferences(const FSoftObjectPath& Alias) -> bool
+		auto HasPersistentAliasReferences(const FSoftObjectPath& Alias, FAssetReferenceFixup& Facts) -> bool
 		{
 			std::unordered_set<FPackagePath> Seen;
-			for (const auto& Edge : CaptureAssetReferenceIndex().FindReferencers(Alias.GetPackagePath()))
+			for (const auto& Edge : Facts.GetRegistry().References.FindReferencers(Alias.GetPackagePath()))
 			{
 				if (!Seen.insert(Edge.SourcePackage).second) continue;
 				const auto Data = FindPackageExact(Edge.SourcePackage);
 				if (!Data) return true;
-				FAssetPackageInspection Inspection;
-				if (auto Inspected = InspectAssetPackage(Data->PhysicalPath, Edge.SourcePackage, Inspection); !Inspected) { Reject(Inspected.error().ToString()); return true; }
-				std::vector<FAssetReferenceEdge> Occurrences;
-				if (auto Read = ExtractAssetReferences(Edge.SourcePackage, Inspection, Occurrences); !Read) { Reject(Read.error().ToString()); return true; }
-				if (std::ranges::any_of(Occurrences, [&](const auto& Occurrence) { return Occurrence.TargetPath.GetAssetPath() == Alias.GetAssetPath(); })) return true;
+				const auto Occurrences = Facts.GetPackageReferences(*Data);
+				if (!Occurrences) { Reject(Occurrences.error().ToString()); return true; }
+				if (std::ranges::any_of(**Occurrences, [&](const auto& Occurrence) { return Occurrence.TargetPath.GetAssetPath() == Alias.GetAssetPath(); })) return true;
 			}
 			return false;
 		}
-		struct FSoftRewrite { FSoftObjectPtr* Value; FSoftObjectPath After; DPackage* Package; };
-		struct FRenameItem
-		{
-			FAssetRenameData Data;
-			TStrongObjectPtr<DObject> Object;
-			bool RenameSucceeded = false;
-			bool IdentityChanged = false;
-		};
 		auto SaveRenamed(DObject* Asset) -> bool
 		{
 			auto* Package = Asset->GetPackage();
@@ -101,9 +84,9 @@ namespace Durin
 			return Success;
 		}
 		// Follow-up persistence gates fix-up retirement independently of rename success.
-		auto RenameAndPersist(FRenameItem& Item, bool SaveHardReferencers = false) -> bool
+		auto RenameAndPersist(FAssetRenameDataWithReferencers& Item, FAssetReferenceFixup& Facts, bool SaveHardReferencers = false) -> bool
 		{
-			auto& Data = Item.Data;
+			auto& Data = static_cast<FAssetRenameData&>(Item);
 			DObject* Object = Data.Asset.Get();
 			if (!Data.OldObjectPath.IsValid() && Object) FSoftObjectPath::TryCreate(Object->GetObjectPath(), Data.OldObjectPath);
 			if (!Data.NewObjectPath.IsValid())
@@ -124,7 +107,7 @@ namespace Durin
 			if (Object) Data.Asset = TWeakObjectPtr<DObject>(Object);
 			if (!Data.bOnlyFixSoftReferences && Object->GetObjectPath() == Data.NewObjectPath.ToString())
 			{
-				Item.RenameSucceeded = true;
+				Item.bRenameFailed = false;
 				return SaveRenamed(Object);
 			}
 			if (!Data.bOnlyFixSoftReferences && Object->GetObjectPath() != Data.OldObjectPath.ToString()) return Reject("The rename source identity changed.");
@@ -156,25 +139,23 @@ namespace Durin
 			std::vector<FStrongObjectPtr> Owners;
 			std::vector<DPackage*> Referencers, ToSave;
 			if (SourcePackage) { KeepPackage(SourcePackage, Owners); Referencers.push_back(SourcePackage); }
-			const auto References = CaptureAssetReferenceIndex();
+			const auto& References = Facts.GetRegistry().References;
 			// Load disk referencers while the old identity still resolves. Their hard pointers survive rename.
 			for (const auto& Edge : References.FindReferencers(OldPackagePath))
+				if (Edge.Kind != EAssetReferenceKind::Redirect && !std::ranges::contains(Item.ReferencingPackageNames, Edge.SourcePackage)) Item.ReferencingPackageNames.push_back(Edge.SourcePackage);
+			for (const auto& Path : Item.ReferencingPackageNames)
 			{
-				if (Edge.Kind == EAssetReferenceKind::Redirect || std::ranges::any_of(Referencers, [&](auto* P) { return P->GetPackagePathIdentity() == Edge.SourcePackage; })) continue;
-				auto* Package = LoadPackage(Edge.SourcePackage, nullptr, &Error);
+				if (std::ranges::any_of(Referencers, [&](auto* P) { return P->GetPackagePathIdentity() == Path; })) continue;
+				auto* Package = LoadPackage(Path, nullptr, &Error);
 				if (Package) { Referencers.push_back(Package); if (!Data.bOnlyFixSoftReferences || SaveHardReferencers) ToSave.push_back(Package); KeepPackage(Package, Owners); }
 				else FFeedbackContext::Get().Warning("A referencer could not be loaded; its old identity will remain supported by a redirector.");
 			}
 			for (auto* Candidate : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly))
 				if (auto* Package = Cast<DPackage>(Candidate); Package && Package->IsAssetPackage() && !Package->IsGraphPrivate() && !Package->IsPlayInEditor() && Package->IsFullyLoaded() && !Package->GetTopLevelAssets().empty() && !std::ranges::contains(Referencers, Package))
 				{ Referencers.push_back(Package); KeepPackage(Package, Owners); }
-			std::vector<FSoftRewrite> Soft;
+			auto& Soft = Item.SoftReferences;
 			for (auto* Package : Referencers)
-			{
-				std::vector<FSoftObjectPtr*> Values;
-				if (auto Collected = CollectLoadedAssetPackageSoftReferences(Package, OldPackagePath, Values); !Collected) return Reject(Collected.error().ToString());
-				for (auto* Value : Values) if (auto Replacement = ReplacePath(Value->ToSoftObjectPath(), Data.OldObjectPath, Data.NewObjectPath)) Soft.push_back({Value, *Replacement, Package});
-			}
+				if (auto Collected = CollectSoftObjectPathFixups(Package, std::span{&Data, 1}, Soft); !Collected) return Reject(Collected.error().ToString());
 			FAssetOwnedPayloadRelocation Payload;
 			std::vector<std::filesystem::path> CopiedPayloads;
 			bool PayloadCommitted = false;
@@ -200,11 +181,13 @@ namespace Durin
 						CopiedPayloads.push_back(To);
 					}
 				}
-			FAssetReferenceStoreCapture Stores;
-			if (auto Captured = CaptureAssetReferenceStores(Stores); !Captured) return Reject(Captured.error().ToString());
-			const bool ExternalStore = std::ranges::any_of(Stores.Stores, [&](const auto& Store) { return std::ranges::any_of(Store.Occurrences, [&](const auto& Occurrence) { return Occurrence.TargetPath == OldPackagePath; }); });
-			const bool LeaveAlias = !CaseOnly && SourcePackage && (!SourcePackage->IsNewlyCreated() || !References.FindReferencers(OldPackagePath).empty() || !Soft.empty() || ExternalStore);
+			const auto Stores = Facts.GetStores();
+			if (!Stores) return Reject(Stores.error().ToString());
+			const bool ExternalStore = std::ranges::any_of((*Stores)->Stores, [&](const auto& Store) { return std::ranges::any_of(Store.Occurrences, [&](const auto& Occurrence) { return Occurrence.TargetPath == OldPackagePath; }); });
+			Item.bCreateRedirector = !CaseOnly && SourcePackage && (!SourcePackage->IsNewlyCreated() || !References.FindReferencers(OldPackagePath).empty() || !Soft.empty() || ExternalStore);
 			if (SourcePackage && (Object->GetPackage() != SourcePackage || SourcePackage->GetEditRevision() != SourceRevision)) return Reject("The source changed while rename was preparing.");
+			for (const auto& Rewrite : Soft)
+				if (Rewrite.Value->ToSoftObjectPath() != Rewrite.Before) return Reject("A soft reference changed while rename was preparing.");
 			if (!Data.bOnlyFixSoftReferences)
 			{
 				if (auto Guard = CheckAssetPackageMutationAllowed(); !Guard) return Reject(Guard.error().ToString());
@@ -221,7 +204,7 @@ namespace Durin
 			DAssetRedirector* Alias = nullptr;
 			if (!Data.bOnlyFixSoftReferences)
 			{
-				if (CaseOnly || (!LeaveAlias && SourcePackage->GetTopLevelAssets().size() == 1))
+				if (CaseOnly || (!Item.bCreateRedirector && SourcePackage->GetTopLevelAssets().size() == 1))
 				{
 					if (SourcePackage->GetTopLevelAssets().size() != 1 && OldPackagePath.ToString() != NewPackagePath.ToString()) return Reject("A package spelling change cannot silently rename sibling assets.");
 					if (!SourcePackage->RelocateAssetPackage(NewPackagePath)) return Reject("The package identity could not be updated.");
@@ -237,7 +220,7 @@ namespace Durin
 				Object->SetFlags(EObjectFlags::Public | EObjectFlags::Standalone);
 				if (Payload.Apply) Payload.Apply();
 				PayloadCommitted = true;
-				if (LeaveAlias)
+				if (Item.bCreateRedirector)
 				{
 					Alias = NewObject<DAssetRedirector>(SourcePackage, PreviousName, EObjectFlags::Public | EObjectFlags::Standalone | EObjectFlags::Transactional);
 					if (!Alias) return Reject("The old identity redirector could not be created.");
@@ -247,8 +230,8 @@ namespace Durin
 
 			}
 			for (auto& Rewrite : Soft) { *Rewrite.Value = Rewrite.After; Rewrite.Package->MarkDirty(); if (!std::ranges::contains(ToSave, Rewrite.Package)) ToSave.push_back(Rewrite.Package); }
-			Item.RenameSucceeded = true;
-			if (!Data.bOnlyFixSoftReferences) { Item.IdentityChanged = true; PublishAssetRenamed(*Object, Data.OldObjectPath); }
+			Item.bRenameFailed = false;
+			if (!Data.bOnlyFixSoftReferences) { Item.bIdentityChanged = true; PublishAssetRenamed(*Object, Data.OldObjectPath); }
 			bool Success = true;
 			if (!Data.bOnlyFixSoftReferences) Success = SaveRenamed(Object);
 			// Save referencers only after the real destination is persistent. Failed saves keep aliases.
@@ -267,7 +250,7 @@ namespace Durin
 				return Redirector && Redirector->GetDestinationObject() && Redirector->GetDestinationObject()->GetPackage() == Object->GetPackage();
 			}))
 			{
-				const auto Fixed = FixupPackageAliases(std::span{&OldPackagePath, 1}, EPackageAliasFixupMode::RewriteOnly);
+				const auto Fixed = FixupPackageAliases(std::span{&OldPackagePath, 1}, EPackageAliasFixupMode::RewriteOnly, &Facts);
 				if (!Fixed.Result)
 				{
 					Success = false;
@@ -294,21 +277,22 @@ namespace Durin
 		if (!CaptureAssetReferenceIndex().IsComplete()) return Reject("Rename requires complete asset discovery and reference indexing.");
 		Renaming = true;
 		struct FReset { ~FReset() { Renaming = false; } } Reset;
-		std::vector<FRenameItem> Items;
+		std::vector<FAssetRenameDataWithReferencers> Items;
 		for (const auto& Request : Input)
 		{
 			auto Data = Request;
 			auto* Object = Request.Asset.Get();
 			if (!Data.OldObjectPath.IsValid() && Object) FSoftObjectPath::TryCreate(Object->GetObjectPath(), Data.OldObjectPath);
-			Items.push_back({std::move(Data), TStrongObjectPtr<DObject>(Object)});
+			Items.emplace_back(Data);
 		}
 		bool Success = true;
 		std::vector<FAssetRenameData> Completed;
 		for (auto& Item : Items)
 		{
-			(void)RenameAndPersist(Item);
-			Success &= Item.RenameSucceeded;
-			if (Item.IdentityChanged || (Item.RenameSucceeded && Item.Data.bOnlyFixSoftReferences)) Completed.push_back(Item.Data);
+			FAssetReferenceFixup Facts;
+			(void)RenameAndPersist(Item, Facts);
+			Success &= !Item.bRenameFailed;
+			if (Item.bIdentityChanged || (!Item.bRenameFailed && Item.bOnlyFixSoftReferences)) Completed.push_back(Item);
 		}
 		if (!Completed.empty()) PostRename.Broadcast(Completed);
 		return Success;
@@ -328,6 +312,7 @@ namespace Durin
 		for (auto* Object : Objects)
 			if (Object && !Object->IsGarbage() && std::ranges::none_of(Selection, [&](const auto& Owner) { return Owner.Get() == Object; })) Selection.emplace_back(Object);
 		std::vector<FPackagePath> Paths;
+		FAssetReferenceFixup Facts;
 		for (const auto& Owner : Selection)
 		{
 			auto* Alias = Owner.Get();
@@ -339,8 +324,8 @@ namespace Durin
 			for (auto* Export : Package->GetTopLevelAssets())
 				if (std::ranges::none_of(Selection, [&](const auto& Selected) { return Selected.Get() == Export; })) SiblingOwners.emplace_back(Export);
 			if (!SaveRenamed(Destination)) continue;
-			FRenameItem Repair{FAssetRenameData(Old, New, true)};
-			if (!RenameAndPersist(Repair, true)) continue; // Preserve the alias after any failed referencer save.
+			FAssetRenameDataWithReferencers Repair{FAssetRenameData(Old, New, true)};
+			if (!RenameAndPersist(Repair, Facts, true)) continue; // Preserve the alias after any failed referencer save.
 			const auto Exports = Package->GetTopLevelAssets();
 			const bool WholeAliasPackage = std::ranges::all_of(Exports, [&](auto* Export) {
 				auto* Other = Cast<DAssetRedirector>(Export);
@@ -353,9 +338,9 @@ namespace Durin
 				continue;
 			}
 			if (Mode == ERedirectFixupMode::LeaveFixedUpRedirectors) continue;
-			FAssetReferenceStoreCapture Stores;
-			if (auto Captured = CaptureAssetReferenceStores(Stores); !Captured) { Reject(Captured.error().ToString()); continue; }
-			if (std::ranges::any_of(Stores.Stores, [&](const auto& Store) { return std::ranges::any_of(Store.Occurrences, [&](const auto& Occurrence) { return Occurrence.TargetPath == Old.GetPackagePath(); }); }))
+			const auto Stores = Facts.GetStores();
+			if (!Stores) { Reject(Stores.error().ToString()); continue; }
+			if (std::ranges::any_of((*Stores)->Stores, [&](const auto& Store) { return std::ranges::any_of(Store.Occurrences, [&](const auto& Occurrence) { return Occurrence.TargetPath == Old.GetPackagePath(); }); }))
 			{ Reject("A package-valued external store cannot distinguish the selected redirector from its siblings; the alias is retained."); continue; }
 			if (Alias->HasAnyInternalFlags(EObjectInternalFlags::RootSet) || Private::GetStrongObjectReferenceCount(FObjectKey(Alias)) > 1)
 			{ Reject("A selected redirector is retained by a native owner."); continue; }
@@ -370,7 +355,7 @@ namespace Durin
 			Private::AddFunctionParameterReferences(References);
 			for (auto* Live : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly)) if (Live != Alias) Live->AddReferencedObjects(References);
 			if (References.Found) { Reject("A selected redirector is still referenced by a live object."); continue; }
-			if (HasPersistentAliasReferences(Old)) { Reject("Persistent references still require the selected redirector; it is retained."); continue; }
+			if (HasPersistentAliasReferences(Old, Facts)) { Reject("Persistent references still require the selected redirector; it is retained."); continue; }
 			Alias->SetTransient(true);
 			Package->UnregisterTopLevelAsset(Alias);
 			Package->MarkDirty();
@@ -398,7 +383,7 @@ namespace Durin
 			DPackageTools::UnloadPackages(Packages, Error);
 		}
 		const auto Result = FixupPackageAliases(Paths, Mode == ERedirectFixupMode::DeleteFixedUpRedirectors
-			? EPackageAliasFixupMode::RewriteAndDelete : EPackageAliasFixupMode::RewriteOnly);
+			? EPackageAliasFixupMode::RewriteAndDelete : EPackageAliasFixupMode::RewriteOnly, &Facts);
 		if (!Result.Result) FFeedbackContext::Get().Error(Result.Result.Error ? Result.Result.Error->ToString() : "Redirector fix-up failed.");
 		for (const auto& Backup : Result.BackupLocations) FFeedbackContext::Get().Warning("Recovery backup: " + Backup.generic_string());
 	}

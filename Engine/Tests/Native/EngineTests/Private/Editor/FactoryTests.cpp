@@ -7,6 +7,7 @@
 #include "AssetRegistry/Publication.h"
 #include "Editor/TransactionRecordTestSupport.h"
 #include "Asset/Redirector.h"
+#include "Asset/MutationExtensions.h"
 #include "ObjectTools.h"
 #include "PackageTools.h"
 #include "Misc/FeedbackContext.h"
@@ -1606,6 +1607,58 @@ TEST(DAssetRenameTests, RegistryLagRetryPreservesIdentityAndPublishesItsAlias)
 	EXPECT_EQ(LoadObject(Testing::MakePackageLeafTopLevelAssetPathForTests(Old), nullptr), Object);
 	EXPECT_TRUE(Testing::EnsurePackageNotResident(Old, EAssetPackageUnloadPolicy::DiscardUnsaved));
 	EXPECT_TRUE(Testing::EnsurePackageNotResident(New, EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(DAssetRenameTests, RenameSharesCollectedStoreFactsWithFileFixup)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	auto* Object = IAssetTools::Get().CreateAsset("RenameStoreSource", "/AssetToolsTests", DMaterial::StaticClass(), nullptr);
+	ASSERT_NE(Object, nullptr); ASSERT_TRUE(SavePackage(Object->GetPackage()));
+	const auto Old = Object->GetPackage()->GetPackagePathIdentity();
+	class FStore final : public IAssetReferenceStore
+	{
+	public:
+		FPackagePath Path;
+		int Captures = 0, CapturesAtPrepare = 0;
+		auto CaptureSnapshot(FAssetReferenceStoreSnapshot& Out) -> std::expected<void, UnifiedError::FError> override
+		{
+			++Captures;
+			Out = {"RenameTestStore", 1, Path.ToString(), {{"RenameTestStore", "Root", Path}}};
+			return {};
+		}
+		auto PrepareRewrite(std::span<const FAssetReferenceRewrite> Rewrites, std::string_view Fingerprint,
+			FAssetReferenceStoreRewriteContribution& Out) -> std::expected<void, UnifiedError::FError> override
+		{
+			CapturesAtPrepare = Captures;
+			if (Rewrites.size() != 1 || Rewrites.front().SourcePath != Path || Fingerprint != Path.ToString())
+				return std::unexpected(UnifiedError::FError{AssetWriteErrors::StaleData, "Store facts changed."});
+			const auto Before = Path, After = Rewrites.front().DestinationPath;
+			Out.Fingerprint = Fingerprint;
+			Out.Rewrites.assign(Rewrites.begin(), Rewrites.end());
+			Out.Revalidate = [this, Before]() -> std::expected<void, UnifiedError::FError> {
+				if (Path != Before) return std::unexpected(UnifiedError::FError{AssetWriteErrors::StaleData, "Store changed."});
+				return {};
+			};
+			Out.Apply = [this, After](auto*) { Path = After; return true; };
+			Out.Verify = [this, After]() -> std::expected<void, UnifiedError::FError> {
+				if (Path != After) return std::unexpected(UnifiedError::FError{AssetWriteErrors::StaleData, "Store rewrite missing."});
+				return {};
+			};
+			return {};
+		}
+	} Store;
+	Store.Path = Old;
+	const auto Handle = RegisterAssetReferenceStore(&Store);
+	struct FUnregister { FAssetReferenceStoreHandle Handle; ~FUnregister() { UnregisterAssetReferenceStore(Handle); } } Unregister{Handle};
+	const FAssetRenameData Rename{TWeakObjectPtr<DObject>(Object), "/AssetToolsTests", "RenameStoreTarget"};
+	ASSERT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
+	EXPECT_EQ(Store.CapturesAtPrepare, 1);
+	EXPECT_GT(Store.Captures, Store.CapturesAtPrepare); // Commit and verification still recapture.
+	EXPECT_EQ(Store.Path, Object->GetPackage()->GetPackagePathIdentity());
+	EXPECT_EQ(LoadObject(Testing::MakePackageLeafTopLevelAssetPathForTests(Old), nullptr), Object);
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Old, EAssetPackageUnloadPolicy::DiscardUnsaved));
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Store.Path, EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
 TEST(DAssetRenameTests, FixupSavesDirtyHardReferencersBeforeDeletingPureAliases)

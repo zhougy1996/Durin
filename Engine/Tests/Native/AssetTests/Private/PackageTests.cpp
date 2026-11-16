@@ -7054,6 +7054,46 @@ TEST(FPackageAssetTests, RedirectorFixupRewriteOnlyRetainsAlias)
 #endif
 }
 
+TEST(FPackageAssetTests, RedirectorFixupPreservesLiveSoftReferenceEditedAfterCollection)
+{
+#if DURIN_WITH_EDITOR
+	using namespace Durin;
+	InitializeAssetTests();
+	FPackagePath Old, New, OwnerPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/FixupLiveEditOld", Old));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/FixupLiveEditNew", New));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/FixupLiveEditOwner", OwnerPath));
+	DPackageAssetForTest* Target = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(New, Target));
+	ASSERT_TRUE(SavePackage(Target->GetPackage()));
+	DAssetRedirector* Alias = nullptr;
+	ASSERT_TRUE(Testing::CreateAssetRedirectorForTests(Old, New, Alias));
+	ASSERT_TRUE(SavePackage(Alias->GetPackage()));
+	DSoftPackageAssetForTest* Owner = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(OwnerPath, Owner));
+	Owner->Direct = MakeFormerMainObjectPath(Old);
+	ASSERT_TRUE(SavePackage(Owner->GetPackage()));
+	TStrongObjectPtr<DSoftPackageAssetForTest> KeepOwner(Owner);
+	ASSERT_TRUE(Testing::EnsurePackageNotResident(Old));
+	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
+	const auto Details = FixupPackageFilesWithBeforeCommitForTesting(std::span{&Old, 1},
+		EPackageAliasFixupTestMode::RewriteAndDelete, [&] { Owner->Direct.Reset(); });
+	EXPECT_TRUE(Details.Result.Error && Details.Result.Error->Is(AssetWriteErrors::StaleData));
+	EXPECT_TRUE(Details.AffectedFiles.empty());
+	EXPECT_FALSE(Owner->Direct.ToSoftObjectPath().IsValid());
+	EXPECT_TRUE(FindPackageExact(Old));
+	KeepOwner.Reset();
+	ASSERT_TRUE(Testing::EnsurePackageNotResident(OwnerPath, EAssetPackageUnloadPolicy::DiscardUnsaved));
+	DSoftPackageAssetForTest* Reloaded = LoadObject<DSoftPackageAssetForTest>(Testing::MakePackageLeafAssetObjectPathForTests(OwnerPath));
+	ASSERT_NE(Reloaded, nullptr);
+	EXPECT_EQ(Reloaded->Direct.ToSoftObjectPath().GetPackagePath(), Old);
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(OwnerPath));
+	ASSERT_TRUE(DeleteAssetClosureForTest({Old, New}));
+#else
+	GTEST_SKIP() << "Redirector repair requires Editor AssetTools.";
+#endif
+}
+
 TEST(FPackageAssetTests, HeaderReaderStopsBeforeLargeObjectPayload)
 {
 	InitializeAssetTests();

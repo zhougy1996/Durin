@@ -60,6 +60,7 @@ namespace Durin
 	// Owner-thread operation. Providers and their code must survive their capture
 	// callbacks. Registration changes during callbacks fail with StaleData and
 	// empty output; successful output owns its values and retains no providers.
+	// Stores follow ascending registration-handle order.
 	ENGINE_API auto CaptureAssetReferenceStores(FAssetReferenceStoreCapture& OutCapture)
 		-> std::expected<void, Durin::UnifiedError::FError>;
 

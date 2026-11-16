@@ -106,6 +106,16 @@ as an implicit global batch. Saved sources retain aliases so unavailable/read-on
 referencers remain resolvable. Rename saves the new destination before old aliases;
 a save failure leaves the live new identity and authored values available for retry.
 An already applied identity does not produce another rename event on retry.
+Private per-item `FAssetRenameDataWithReferencers` records extend the public UE-style
+request with referencer package names, redirector policy and identity outcome.
+Rename and file fix-up share one operation-local reference collection: Registry
+candidates, exact persisted occurrences and owned external-store snapshots.
+Catalog changes after saves refresh candidates; exact occurrences are reused only
+while file stamps and the content hash still match. Store snapshots remain fixed
+through preparation, then providers are recaptured for commit validation and
+post-write verification. Both layers use the same Before/After soft-path record
+and preserve authored descendant suffixes; changed live values reject before
+mutation. These records remain private and introduce no public multi-stage protocol.
 Retry includes clean but projection-fenced alias packages; clearing Dirty after a
 physical commit does not establish that Registry publication succeeded.
 Owned payloads prepare before identity mutation and retain source files until the
